@@ -31,7 +31,19 @@ export {
 export const AGENT_STATUS_VALUES = ["active", "paused", "archived"] as const;
 export const agentStatusSchema = z.enum(AGENT_STATUS_VALUES);
 
-export const AGENT_CARD_LANGUAGE_VALUES = ["ko", "en"] as const;
+/**
+ * The language an agent answers in. `follow-user` adds no instruction: the
+ * model answers in the person's language. The others add one, which the
+ * person's own language overrides.
+ */
+export const AGENT_CARD_LANGUAGE_VALUES = [
+  "follow-user",
+  "ko",
+  "en",
+  "ja",
+] as const;
+/** The languages that add an instruction; a release records only these or `follow-user`. */
+export const RESPONSE_LANGUAGE_VALUES = ["ko", "en", "ja"] as const;
 export const AGENT_RULE_SOURCE_VALUES = ["user", "correction"] as const;
 
 export const agentSlugSchema = z

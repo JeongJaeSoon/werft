@@ -266,6 +266,9 @@ export function runtimeStart(
       ...(launch.runtimeConfig.engine_settings === undefined
         ? {}
         : { engineSettings: launch.runtimeConfig.engine_settings }),
+      ...(launch.runtimeConfig.response_language === undefined
+        ? {}
+        : { responseLanguage: launch.runtimeConfig.response_language }),
       ...(maxBudgetUsd === undefined ? {} : { maxBudgetUsd }),
       ...(launch.gitEnvironment === undefined
         ? {}

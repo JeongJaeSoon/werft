@@ -1871,6 +1871,13 @@ export function createWorkerGateway(deps: {
               // Only for a worker that announced `user_env` (the claim
               // refused otherwise), and absent when there are none.
               ...(binding.env === undefined ? {} : { env: binding.env }),
+              // Only for a worker that announced `response_language`: an
+              // older one refuses the field, so it runs without the language
+              // rather than not at all. Outside every fingerprint.
+              ...(binding.releaseLanguage != null &&
+              request.capabilities?.response_language === true
+                ? { response_language: binding.releaseLanguage }
+                : {}),
             },
           };
           const githubOwners = await githubOwnersOf(binding.ownerScope);

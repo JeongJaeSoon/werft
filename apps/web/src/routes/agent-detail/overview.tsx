@@ -36,10 +36,11 @@ import {
 } from "@werft-ai/ui";
 import { type ReactNode, useId, useState } from "react";
 import { useHasPermission } from "../../auth/guard.tsx";
+import { languageLabel } from "../../components/agent-card-form.tsx";
 import { LoadFailure } from "../../components/load-failure.tsx";
 import { OutcomeLine } from "../../components/outcome.tsx";
 import { withNodes } from "../../components/with-nodes.tsx";
-import { LOCALE_NAMES, type Locale, useI18n } from "../../i18n/i18n.tsx";
+import { type Locale, useI18n } from "../../i18n/i18n.tsx";
 import { usagePeriod } from "../operations.tsx";
 import { credentialBindingsQuery } from "./credentials.tsx";
 import { mcpSettingsQuery } from "./mcp-settings.ts";
@@ -600,7 +601,7 @@ export function CardSummary({
                     label: t("agentCard.language"),
                     value: (
                       <span className={VALUE}>
-                        {LOCALE_NAMES[card.language]}
+                        {languageLabel(t, card.language)}
                       </span>
                     ),
                   },

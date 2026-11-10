@@ -77,6 +77,14 @@ export type RuntimeStartConfig = RuntimeMode & {
    * checkpoint's fingerprint: the workspace can change them between claims.
    */
   engineSettings?: EngineSettings;
+  /**
+   * The language the agent's release asks the engine to answer in
+   * (`runtime_config.response_language`). An adapter appends one instruction
+   * to its system prompt: the person's own language wins over it. Absent for
+   * `follow-user` and for a release that predates the field. Never part of a
+   * checkpoint's fingerprint, so a session resumes on any worker.
+   */
+  responseLanguage?: "ko" | "en" | "ja";
   tools: readonly string[];
 };
 

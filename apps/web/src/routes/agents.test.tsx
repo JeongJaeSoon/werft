@@ -1278,6 +1278,8 @@ describe("새 에이전트", () => {
       managing_team_id: TEAM_ID,
       card: {
         ...CARD,
+        // A new card follows the person's language until a language is chosen.
+        language: "follow-user",
         capabilities: { mcp: null, forbidden: [] },
       },
       runtime_profile_id: PROFILE,

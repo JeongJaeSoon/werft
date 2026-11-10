@@ -315,6 +315,33 @@ describe("claim lifecycle", () => {
     expect(await toolsBound(await releaseWith({}))).toEqual([]);
   });
 
+  test("the binding carries the release's answer language: only ko, en or ja; follow-user, a release before the field, an unknown value and no release all bind none", async () => {
+    const languageBound = async (agentReleaseId: string | null) => {
+      const backend = new NonceHoldingBackend();
+      await queuedSession("default", agentReleaseId);
+      const [ref] = (await pass(backend)).launched;
+      if (!ref) throw new Error("nothing launched");
+      const bound = await claim(ref, backend.nonceOf(ref));
+      if (bound.outcome !== "claimed") throw new Error(bound.outcome);
+      return bound.binding.releaseLanguage;
+    };
+    expect(await languageBound(null)).toBeNull();
+    for (const language of ["ko", "en", "ja"] as const) {
+      expect(
+        await languageBound(await releaseWith({ tools: [], language })),
+      ).toBe(language);
+    }
+    expect(
+      await languageBound(
+        await releaseWith({ tools: [], language: "follow-user" }),
+      ),
+    ).toBeNull();
+    expect(await languageBound(await releaseWith({ tools: [] }))).toBeNull();
+    expect(
+      await languageBound(await releaseWith({ tools: [], language: "fr" })),
+    ).toBeNull();
+  });
+
   test("the binding carries the release's runtime spec only when the stored pair verifies", async () => {
     const specBound = async (specOf?: (id: string) => ReleaseSpecRecord) => {
       const backend = new NonceHoldingBackend();

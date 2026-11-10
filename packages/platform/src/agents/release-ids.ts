@@ -143,6 +143,10 @@ export function resolveReleaseContent(
           kind: profile.provider.kind,
           endpoint: profile.provider.endpoint,
         },
+        // Pinned with the release: a card edit never reaches a session that
+        // already opened it. A release made before the field has none, and
+        // the claim reads that as asking for nothing.
+        language: card.language,
         ...(profile.project_settings?.claude_md === true
           ? { project_settings: profile.project_settings }
           : {}),

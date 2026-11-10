@@ -26,9 +26,21 @@ import { ProfileOptions, pickable } from "./profile-options.tsx";
 
 /** The card languages; agent-card-form.test.ts pins it to the contract. */
 export const AGENT_CARD_LANGUAGE_VALUES: readonly AgentCard["language"][] = [
+  "follow-user",
   "ko",
   "en",
+  "ja",
 ];
+
+/** What a language reads as: its own name, or the follow-the-user choice. */
+export function languageLabel(
+  t: (key: "agentCard.language.followUser") => string,
+  value: AgentCard["language"],
+): string {
+  return value === "follow-user"
+    ? t("agentCard.language.followUser")
+    : LOCALE_NAMES[value];
+}
 
 /** The card as the form holds it. */
 export interface CardDraft {
@@ -37,7 +49,8 @@ export interface CardDraft {
 }
 
 export const EMPTY_DRAFT: CardDraft = {
-  language: "ko",
+  // A new card follows the person; a stored card keeps what it holds.
+  language: "follow-user",
   model: "",
 };
 
@@ -228,10 +241,11 @@ export function AgentCardFields({
         >
           {AGENT_CARD_LANGUAGE_VALUES.map((value) => (
             <NativeSelectOption key={value} value={value}>
-              {LOCALE_NAMES[value]}
+              {languageLabel(t, value)}
             </NativeSelectOption>
           ))}
         </NativeSelect>
+        <FieldDescription>{t("agentCard.language.hint")}</FieldDescription>
       </Field>
     </>
   );

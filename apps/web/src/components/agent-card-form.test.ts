@@ -179,11 +179,27 @@ describe("카드 폼 변환", () => {
 
   test("새 카드(base 없음)는 편집기 칸과 기본값만 싣고 역할·지시 사항은 없다", () => {
     expect<unknown>(cardFromDraft({ ...EMPTY_DRAFT, model: "m" })).toEqual({
-      language: "ko",
+      language: "follow-user",
       model: "m",
       capabilities: { mcp: null, forbidden: [] },
       rules: [],
     });
+  });
+
+  test("카드 언어는 사용자 언어 따라가기와 ko·en·ja를 고를 수 있고, 저장된 카드는 가진 값을 그대로 둔다", () => {
+    expect(AGENT_CARD_LANGUAGE_VALUES).toEqual([
+      "follow-user",
+      "ko",
+      "en",
+      "ja",
+    ]);
+    for (const language of AGENT_CARD_LANGUAGE_VALUES) {
+      expect(cardDraftOf({ ...EMPTY_DRAFT, language })).toEqual({
+        ...EMPTY_DRAFT,
+        language,
+      });
+    }
+    expect(draftFromCard({ ...CARD, language: "ko" }).language).toBe("ko");
   });
 });
 
