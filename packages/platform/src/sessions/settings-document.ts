@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { canonicalJsonOfJson } from "@werft-ai/contracts";
 import { z } from "zod";
-import { repoRefOf } from "../ports/forge.ts";
+import { repoRefOf } from "../action/ports/forge.ts";
 import {
   BILLING_NONE_ENDPOINT_MESSAGE,
   billingFitsEndpoint,

@@ -20,6 +20,7 @@ import {
   type RepositoryCeiling,
   repositoryRefOf,
 } from "@werft-ai/contracts";
+import { repoRefOf } from "../action/ports/forge.ts";
 import type { GitHubRepositoryService } from "../musterrolle/github-repository-service.ts";
 import {
   type AuthorizationPolicy,
@@ -33,7 +34,6 @@ import {
 } from "../musterrolle/service-errors.ts";
 import type { AgentGitHubStore } from "../ports/agent-github-store.ts";
 import type { AgentStore } from "../ports/agent-store.ts";
-import { repoRefOf } from "../ports/forge.ts";
 import type {
   GitHubAppStore,
   GitHubPinStore,
