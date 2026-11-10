@@ -18,8 +18,7 @@ describe("usageBreakdownResponseSchema", () => {
     cost_usd: "41.27",
   };
 
-  // The shape the operations screens' fixture (apps/storybook
-  // operations-fixtures.ts `breakdown`) builds: string keys and labels.
+  // The shape the operations screens build: string keys and labels.
   test("reads the operations fixture's proposed response", () => {
     expect(
       usageBreakdownResponseSchema.parse({
@@ -82,8 +81,7 @@ describe("usageSeriesQuerySchema", () => {
 });
 
 describe("usageSeriesResponseSchema", () => {
-  // The shape the operations screens' fixture (apps/storybook
-  // operations-fixtures.ts `series`) builds, values as it prints them.
+  // The shape the operations screens build, values as they print them.
   test("reads the operations fixture's proposed response", () => {
     const parsed = usageSeriesResponseSchema.parse({
       period: {
