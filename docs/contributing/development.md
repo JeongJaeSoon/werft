@@ -79,18 +79,9 @@ scripts/local.sh web                # 웹을 고칠 때만: Vite dev 서버(첫 
 
 verify 스택은 `up.sh infra/compose.dev.yml`로 띄운다. 이 스택에서 소스를 바꾸면 `doctor.sh`는 "built from"이 달라졌다며 exit 1을 낸다. 개발 모드에서는 정상이다.
 
-## UI 컴포넌트 보기 (Storybook)
+## 문서 사이트 게시 (GitHub Pages)
 
-`packages/ui`의 primitive·pattern과 화면 상태(로딩·빈·오류)는 [apps/storybook](../../apps/storybook)에서 스토리로 본다. 툴바의 Theme으로 라이트·다크를, Viewport로 390px(Mobile 390)·360px·768px·1440px를 바꾼다.
-
-```bash
-bun install
-bun run --filter @werft-ai/storybook dev     # http://localhost:6006
-bun run --filter @werft-ai/storybook build   # static build: apps/storybook/dist
-bun run --filter @werft-ai/storybook test:stories  # renders every story in Chrome; fails on an a11y (axe) violation
-```
-
-Storybook과 Vitest CLI는 Node 20.19 이상에서 돈다. `test:stories`는 설치된 Chrome을 쓴다. CI의 `storybook` job이 빌드와 a11y 검사를 하고, `pages` job이 [apps/docs](../../apps/docs) 문서 사이트를 루트에, Storybook을 `/storybook/`에, API 레퍼런스를 `/api/`에 모은다. 배포는 별도 workflow `pages.yml`이 한다. 공개 사이트는 릴리스된 제품을 설명하므로 릴리스 태그(`v*`) push에서만 배포한다. 다음 릴리스 전에 급히 고칠 문서는 main에서 수동 실행으로 내보내고, 태그를 골라 수동 실행하면 그 릴리스를 다시 배포한다. 수동 실행은 고른 ref에 있는 `pages.yml`을 쓰므로, 이 규칙이 들어가기 전에 만든 태그는 빌드만 하고 배포는 건너뛴다. 태그가 main에 없는 커밋을 가리키면 배포하지 않는다. 진행 중인 배포는 취소하지 않고 줄 세운다. PR에서는 `ci.yml`의 `docs`·`storybook`·`pages` job이 같은 빌드와 배치(`scripts/pages-site.sh`)를 검사만 한다. 읽는 쪽 설명은 문서 사이트의 [Storybook](https://jeongjaesoon.github.io/werft/ko/ui/storybook/) 페이지에 있다.
+CI의 `pages` job이 [apps/docs](../../apps/docs) 문서 사이트를 루트에, API 레퍼런스를 `/api/`에 모은다. 배포는 별도 workflow `pages.yml`이 한다. 공개 사이트는 릴리스된 제품을 설명하므로 릴리스 태그(`v*`) push에서만 배포한다. 다음 릴리스 전에 급히 고칠 문서는 main에서 수동 실행으로 내보내고, 태그를 골라 수동 실행하면 그 릴리스를 다시 배포한다. 수동 실행은 고른 ref에 있는 `pages.yml`을 쓰므로, 이 규칙이 들어가기 전에 만든 태그는 빌드만 하고 배포는 건너뛴다. 태그가 main에 없는 커밋을 가리키면 배포하지 않는다. 진행 중인 배포는 취소하지 않고 줄 세운다. PR에서는 `ci.yml`의 `docs`·`pages` job이 같은 빌드와 배치(`scripts/pages-site.sh`)를 검사만 한다.
 
 ## e2e·gate·soak 도구 진입점
 

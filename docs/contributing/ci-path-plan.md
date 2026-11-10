@@ -16,18 +16,18 @@ main을 대상으로 다음 경로로만 이뤄진 PR이 문서 전용 후보이
 
 ## 영역별 계획
 
-문서 전용이 아니어도, 바뀐 경로가 모두 웹 콘솔(`apps/web/`, `apps/storybook/`)이거나 문서 경로면 닿지 않는 job을 건너뛴다. 다른 곳이 가져다 쓰지 않고, 이 파일을 읽는 테스트도 서비스 없이 `check`에서 돌기 때문이다. 그 밖의 경로가 하나라도 있으면(공용 `packages/`, `apps/control-host/`, `apps/worker/`, `apps/egress-proxy/`, lockfile, workflow, `tests/`, `scripts/`, `deploy/` 등) 전체 검증이다. `apps/egress-proxy/`는 말단처럼 보이지만 LocalStack·Docker가 필요한 `tests/`가 직접 가져다 쓰므로 좁히지 않는다.
+문서 전용이 아니어도, 바뀐 경로가 모두 웹 콘솔(`apps/web/`)이거나 문서 경로면 닿지 않는 job을 건너뛴다. 다른 곳이 가져다 쓰지 않고, 이 파일을 읽는 테스트도 서비스 없이 `check`에서 돌기 때문이다. 그 밖의 경로가 하나라도 있으면(공용 `packages/`, `apps/control-host/`, `apps/worker/`, `apps/egress-proxy/`, lockfile, workflow, `tests/`, `scripts/`, `deploy/` 등) 전체 검증이다. `apps/egress-proxy/`는 말단처럼 보이지만 LocalStack·Docker가 필요한 `tests/`가 직접 가져다 쓰므로 좁히지 않는다.
 
 | 바뀐 영역 | integration 도메인 | `helm-chart` | `k8s-smoke` | `quickstart` | `workspace-quota` |
 | --- | --- | --- | --- | --- | --- |
-| `apps/web/`, `apps/storybook/` | `surface` | 생략 | 생략 | 가이드 경로가 바뀔 때만 | 생략 |
+| `apps/web/` | `surface` | 생략 | 생략 | 가이드 경로가 바뀔 때만 | 생략 |
 
 control-host 이미지가 `apps/web`을 번들하므로 `e2e`는 이 경로에서도 그대로 돈다. 닿지 않는 도메인도 job은 시작해 몇 초 안에 성공으로 끝난다. job 단위 `if`는 matrix 값을 읽지 못하고, 도메인 선언은 `integration-jobs.ts`가 읽는 한 곳(ci.yml)에 두기 때문이다. 계획 스크립트의 `domains` 목록은 그 matrix와 같아야 하며 `tests/ci-plan.test.ts`가 비교한다.
 
 | 변경 | 정적 검사 | 문서·저장소 정책 | 일반 unit·integration·제품 E2E | 실행 가이드 | 사이트 조립 |
 | --- | --- | --- | --- | --- | --- |
 | README·일반 Markdown만 | 실행 | 실행 | 생략 | 생략 | 생략 |
-| 사이트 MDX만 | 실행 | 실행 | 생략 | 아래 두 경로만 실행 | docs·storybook·pages 모두 실행 |
+| 사이트 MDX만 | 실행 | 실행 | 생략 | 아래 두 경로만 실행 | docs·pages 모두 실행 |
 | 실행 가이드 | 실행 | 실행 | 생략 | 두 가이드 모두 실행 | 사이트 경로가 있으면 실행 |
 | 코드·설정·혼합·unknown | 실행 | 전체 suite에 포함 | 실행 | 실행 | 실행 |
 | main push | 위와 동일한 변경 경로 계획 | 위와 동일 | 위와 동일 | 위와 동일 | 생략. 사이트는 릴리스 태그에서 `pages.yml`이 빌드·배포 |
@@ -35,7 +35,7 @@ control-host 이미지가 `apps/web`을 번들하므로 `e2e`는 이 경로에�
 
 실행 가이드는 `docs/quickstart.md`와 `apps/docs/content/docs/reference/api-guide.mdx`다. 이 경로를 고치면 `quickstart`가 두 가이드의 셸 블록을 그대로 실행한다. 번역된 가이드의 코드 동등성은 문서 검사에서 계속 확인한다.
 
-사이트 content가 바뀌면 docs·storybook 두 artifact를 현재 run에서 만들고 pages가 함께 조립한다. 이전 커밋이나 다른 PR의 artifact를 가져와 검증을 대체하지 않는다. main push의 `site` 계획은 `false`다. 사이트 빌드·배포는 `pages.yml`이 릴리스 태그(`v*`)와 수동 실행에서만 한다. main push에서는 사이트를 빌드하지 않으므로, 따로는 통과한 PR 둘이 합쳐져 사이트 빌드가 깨지면 다음 릴리스의 `pages.yml`에서 드러난다.
+사이트 content가 바뀌면 docs artifact를 현재 run에서 만들고 pages가 조립한다. 이전 커밋이나 다른 PR의 artifact를 가져와 검증을 대체하지 않는다. main push의 `site` 계획은 `false`다. 사이트 빌드·배포는 `pages.yml`이 릴리스 태그(`v*`)와 수동 실행에서만 한다. main push에서는 사이트를 빌드하지 않으므로, 따로는 통과한 PR 둘이 합쳐져 사이트 빌드가 깨지면 다음 릴리스의 `pages.yml`에서 드러난다.
 
 ## 남기는 검사
 
@@ -48,7 +48,7 @@ Images도 계획을 사용한다. 문서 전용이면 이미지 빌드·게시�
 branch protection의 이름 `check`, `integration`, `e2e`, `quickstart`, `supply-chain`, `forbidden-terms`는 그대로다. 의도한 생략은 required job 자체의 skip에 기대지 않고 다음처럼 명시적으로 success를 낸다.
 
 - `check`: 계획 성공·정적 검사 성공이 필수다. 제품 계획이면 integration 도메인 성공과 docs-checks skip을 요구한다. 웹 경로와 수동 `only=check`는 unit matrix를 대신 확인한다. 문서 계획이면 테스트 생략과 docs-checks 성공을 요구한다.
-- `check`는 이름 있는 job 결과와 계획을 대조한다. `helm`→Helm, `k8s`→Kubernetes, `site`→Storybook·docs·pages, `product`→demo·ui-pack, `product`와 `docker` 도메인 포함 여부→quota를 짝짓는다. 전체 실행에서 `true`→`success`, `false`→`skipped`만 허용한다. 예정된 job의 skip·실패·취소·누락과 빈 값·알 수 없는 계획은 실패다. 수동 `only=check`에서는 선택되지 않은 이 소비자들의 skip만 허용한다.
+- `check`는 이름 있는 job 결과와 계획을 대조한다. `helm`→Helm, `k8s`→Kubernetes, `site`→docs·pages, `product`→demo·ui-pack, `product`와 `docker` 도메인 포함 여부→quota를 짝짓는다. 전체 실행에서 `true`→`success`, `false`→`skipped`만 허용한다. 예정된 job의 skip·실패·취소·누락과 빈 값·알 수 없는 계획은 실패다. 수동 `only=check`에서는 선택되지 않은 이 소비자들의 skip만 허용한다.
 - `integration`: 계획 성공 뒤 전체 도메인 성공, 또는 문서 계획에 따른 명시적 생략만 허용한다. E2E·quickstart 결과도 기다려 둘 다 성공해야 통과한다. 수동 `only=integration`에 한해 두 job의 의도한 skip을 허용한다.
 - `e2e`, `quickstart`: `!cancelled()`로 취소 가능한 상태를 유지하며, 계획 결과·출력 조합을 먼저 검사한다. 생략한 이유를 로그에 남기고, 계획이 실행을 요구하면 기존 무거운 step을 실행한다. 마지막 판정은 실제 시나리오·두 가이드 step의 outcome을 확인한다. 취소·예상 밖 skip은 두 job을 기다리는 required `integration`도 실패시켜 오인 통과를 막는다.
 - 계획 실패·출력 누락·예상하지 못한 skip·실패·취소는 위 required 판정에서 실패한다. 누락된 계획을 문서 전용으로 해석하지 않는다.

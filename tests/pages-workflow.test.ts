@@ -60,7 +60,7 @@ describe("pages.yml", () => {
       .map(([name]) => name);
     expect(writers).toEqual(["deploy"]);
     const deploy = pages.jobs.deploy;
-    expect(deploy?.needs).toEqual(["docs", "storybook"]);
+    expect(deploy?.needs).toEqual(["docs"]);
     expect(deploy?.if).toBe(
       "(startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main') && vars.PAGES_ENABLED == 'true'",
     );
@@ -102,10 +102,10 @@ describe("pages.yml", () => {
     const runs = (jobs: typeof pages.jobs, name: string) =>
       (jobs[name]?.steps ?? []).map((step) => step.run ?? "").join("\n");
     expect(runs(pages.jobs, "deploy")).toContain(
-      "scripts/pages-site.sh docs-out storybook-dist _site",
+      "scripts/pages-site.sh docs-out _site",
     );
     expect(runs(ci.jobs, "pages")).toContain(
-      "scripts/pages-site.sh docs-out storybook-dist _site",
+      "scripts/pages-site.sh docs-out _site",
     );
     expect(existsSync(join(root, "scripts/pages-site.sh"))).toBe(true);
   });
@@ -113,7 +113,6 @@ describe("pages.yml", () => {
 
 describe("ci.yml and the Pages deploy", () => {
   test("the deploy and its upload are gone from ci.yml", () => {
-    expect(ci.jobs["storybook-pages"]).toBeUndefined();
     const text = readFileSync(join(root, ".github/workflows/ci.yml"), "utf8");
     expect(text).not.toContain("deploy-pages");
     expect(text).not.toContain("name: pages-site");
@@ -121,20 +120,18 @@ describe("ci.yml and the Pages deploy", () => {
   });
 
   test("a main push builds no site job; a pull request still does", () => {
-    for (const name of ["docs", "storybook"])
-      expect(ci.jobs[name]?.if).toContain("github.event_name != 'push'");
-    // `pages` needs both, so it is skipped with them.
-    expect(ci.jobs.pages?.needs).toEqual(["docs", "storybook"]);
+    expect(ci.jobs.docs?.if).toContain("github.event_name != 'push'");
+    // `pages` needs it, so it is skipped with it.
+    expect(ci.jobs.pages?.needs).toEqual(["docs"]);
   });
 
   test("the check verdict consumes planned PR site proofs; main builds stay delegated", () => {
     expect(ci.jobs.check?.needs).toEqual(
-      expect.arrayContaining(["docs", "storybook", "pages"]),
+      expect.arrayContaining(["docs", "pages"]),
     );
     for (const name of ["integration", "e2e", "quickstart"]) {
       const needs = [ci.jobs[name]?.needs ?? []].flat();
-      for (const site of ["docs", "storybook", "pages"])
-        expect(needs).not.toContain(site);
+      for (const site of ["docs", "pages"]) expect(needs).not.toContain(site);
     }
   });
 });

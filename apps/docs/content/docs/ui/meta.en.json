@@ -1,11 +1,4 @@
 {
   "title": "UI components",
-  "pages": [
-    "index",
-    "install",
-    "theme",
-    "session-blocks",
-    "package",
-    "storybook"
-  ]
+  "pages": ["index", "install", "theme", "session-blocks", "package"]
 }

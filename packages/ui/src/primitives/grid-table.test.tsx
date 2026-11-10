@@ -89,8 +89,8 @@ describe("GridTable", () => {
     for (const row of getAllByRole("row").slice(1)) {
       expect(shown([...row.querySelectorAll("[role=cell]")])).toBe(4);
     }
-    // happy-dom does not resolve container queries; the stories measure the
-    // display: none in a browser.
+    // happy-dom does not resolve container queries, so the display: none
+    // itself is not checked here.
   });
 
   test("열 템플릿은 표의 변수 하나로 모든 행에 가고 좁은 템플릿은 narrowAt 기준에서 바뀐다", () => {
