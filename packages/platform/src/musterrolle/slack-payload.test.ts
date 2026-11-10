@@ -21,6 +21,7 @@ import type {
   SlackThreadStatusFacts,
   SlackThreadStatusStore,
 } from "../ports/slack-outbox-store.ts";
+import { createRowDelivery } from "./outbox-delivery.ts";
 import type { SlackBotSender, SlackSendResponse } from "./slack-config-api.ts";
 import {
   createOutboxSlackNoticeSink,
@@ -718,10 +719,16 @@ describe("Slack payload fixtures: what the drain sends", () => {
         return answers.shift() ?? response();
       },
     };
+    const botToken = async () => "test-credential";
     await drainSlackOutbox({
       outbox,
       slack: slack as never,
-      botToken: async () => "test-credential",
+      botToken,
+      delivery: createRowDelivery({
+        slack,
+        botToken,
+        consoleOrigin: "https://console.example",
+      }),
       logger: { info: () => {}, warn: () => {} },
       consoleOrigin: "https://console.example",
       batchSize: 10,
