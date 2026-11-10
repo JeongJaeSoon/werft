@@ -233,6 +233,7 @@
       "name": "@werft-ai/runtime-codex",
       "version": "0.0.0",
       "dependencies": {
+        "@modelcontextprotocol/sdk": "1.32.1",
         "@openai/codex": "0.167.0",
         "@werft-ai/contracts": "workspace:*",
         "@werft-ai/runtime-codec-kit": "workspace:*",
