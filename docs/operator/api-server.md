@@ -436,7 +436,7 @@ API 서비스만 읽는 설정이다. 기본은 꺼짐이라 키를 하나도 �
 | `OTEL_TRACES_EXPORTER` | `none` | `none` 또는 `otlp` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | 없음 | 수집기 주소. 앞의 것은 뒤에 `/v1/traces`를 붙이고, 뒤의 것은 그대로 쓴다. `otlp`인데 둘 다 없으면 시작 시 멈춘다 |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/protobuf` | 이 값만 받는다 |
-| `OTEL_EXPORTER_OTLP_HEADERS` | 없음 | `키=값,키=값`. 비밀이므로 env 파일로만 준다. 로그와 오류 메시지에 값을 쓰지 않는다 |
+| `OTEL_EXPORTER_OTLP_HEADERS` / `OTEL_EXPORTER_OTLP_TRACES_HEADERS` | 없음 | `키=값,키=값`(값은 퍼센트 인코딩, 출력 가능한 ASCII만). 뒤의 것이 같은 이름에서 이긴다. 시작 때 모양을 검사해 틀리면 멈춘다. 비밀이므로 env 파일로만 준다. 로그와 오류 메시지에 값을 쓰지 않는다 |
 | `OTEL_SERVICE_NAME` | `werft-api` | |
 | `OTEL_TRACES_SAMPLER` / `OTEL_TRACES_SAMPLER_ARG` | `always_on` / `1.0` | `always_on`, `always_off`, `traceidratio`(비율 0~1) |
 | `TRACE_TENANT_HEADER` | 없음 | `<헤더 이름>: <값 틀>`. 값 틀의 `{workspace_id}`를 워크스페이스 id로 바꿔 batch마다 붙인다 |

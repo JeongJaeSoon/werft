@@ -161,6 +161,8 @@ describe("parseTracingSettings", () => {
   test.each([
     ["OTEL_EXPORTER_OTLP_HEADERS", "authorization=SECRET%0AHEADER"],
     ["OTEL_EXPORTER_OTLP_HEADERS", "bad name=SECRET"],
+    ["OTEL_EXPORTER_OTLP_HEADERS", "bad%20name=SECRET"],
+    ["OTEL_EXPORTER_OTLP_TRACES_HEADERS", "authorization=SECRET%E2%82%AC"],
     ["TRACE_TENANT_HEADER", "bad name: {workspace_id}"],
     ["TRACE_TENANT_HEADER", "X-Org: a\nb"],
     ["OTEL_EXPORTER_OTLP_HEADERS", "authorization=SECRET%E2%82%AC"],

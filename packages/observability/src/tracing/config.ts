@@ -28,7 +28,9 @@ const SAMPLERS: readonly SamplerKind[] = [
 // An invalid header makes the HTTP client throw at export time, outside any
 // caller's handling, so both parts are checked at startup. Names are lowercased
 // because HTTP treats them case-insensitively and precedence depends on it.
-const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+// `%` is a legal token character but the SDK percent-decodes names from its
+// own env reading, so one that decodes to an invalid name would crash at export.
+const HEADER_NAME = /^[!#$&'*+.^_`|~0-9A-Za-z-]+$/;
 // Tab, space and printable ASCII only: the HTTP client also rejects anything
 // above U+00FF, and a non-ASCII byte is rarely what an operator meant.
 const HEADER_VALUE = /^[\t\x20-\x7e]*$/;
@@ -65,33 +67,34 @@ function parseEndpoint(env: Readonly<Record<string, string | undefined>>) {
   return raw;
 }
 
-/** `k1=v1,k2=v2` as OTEL_EXPORTER_OTLP_HEADERS spells it. Errors never echo a value. */
-function parseHeaderList(raw: string | undefined): Record<string, string> {
+/**
+ * `k1=v1,k2=v2` as the OTLP headers keys spell it. Errors name the key and the
+ * header, never a value. The SDK reads both keys from the environment itself,
+ * so both are validated here or a bad one would crash at the first export.
+ */
+function parseHeaderList(
+  key: string,
+  raw: string | undefined,
+): Record<string, string> {
   const headers: Record<string, string> = {};
   for (const pair of raw?.split(",") ?? []) {
     if (pair.trim() === "") continue;
     const at = pair.indexOf("=");
     const name = at < 0 ? "" : pair.slice(0, at).trim();
     if (name === "") {
-      throw new Error(
-        "OTEL_EXPORTER_OTLP_HEADERS must be comma-separated key=value pairs",
-      );
+      throw new Error(`${key} must be comma-separated key=value pairs`);
     }
     if (!HEADER_NAME.test(name)) {
-      throw new Error("OTEL_EXPORTER_OTLP_HEADERS has an invalid header name");
+      throw new Error(`${key} has an invalid header name`);
     }
     let value: string;
     try {
       value = decodeURIComponent(pair.slice(at + 1).trim());
     } catch {
-      throw new Error(
-        `OTEL_EXPORTER_OTLP_HEADERS has an undecodable value for ${name}`,
-      );
+      throw new Error(`${key} has an undecodable value for ${name}`);
     }
     if (!validHeaderValue(value)) {
-      throw new Error(
-        `OTEL_EXPORTER_OTLP_HEADERS has an invalid value for ${name}`,
-      );
+      throw new Error(`${key} has an invalid value for ${name}`);
     }
     headers[name.toLowerCase()] = value;
   }
@@ -159,7 +162,16 @@ export function parseTracingSettings(
   }
 
   const endpoint = parseEndpoint(env);
-  const headers = parseHeaderList(env.OTEL_EXPORTER_OTLP_HEADERS);
+  const headers = {
+    ...parseHeaderList(
+      "OTEL_EXPORTER_OTLP_HEADERS",
+      env.OTEL_EXPORTER_OTLP_HEADERS,
+    ),
+    ...parseHeaderList(
+      "OTEL_EXPORTER_OTLP_TRACES_HEADERS",
+      env.OTEL_EXPORTER_OTLP_TRACES_HEADERS,
+    ),
+  };
   const sampler = parseSampler(env);
   const tenantHeader = parseTenantHeader(
     blankToUndefined(env.TRACE_TENANT_HEADER),
