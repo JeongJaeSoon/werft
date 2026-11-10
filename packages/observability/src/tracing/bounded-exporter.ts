@@ -30,7 +30,8 @@ const yieldToEventLoop = () =>
 function valueBytes(value: unknown): number {
   if (typeof value === "string") return Buffer.byteLength(value);
   if (Array.isArray(value)) {
-    return value.reduce((sum: number, item) => sum + valueBytes(item), 0);
+    // Each element is a JSON object of its own, even when empty.
+    return value.reduce((sum: number, item) => sum + 24 + valueBytes(item), 0);
   }
   return 16;
 }

@@ -463,6 +463,40 @@ describe("WorkerHost spans", () => {
     expect(bodies.join("")).toContain("from the adapter");
   });
 
+  test("a telemetry factory or session that throws costs the spans, not the turns", async () => {
+    const boom = () => {
+      throw new Error("telemetry failed");
+    };
+    const { factory } = recording();
+    const builders: Record<string, TelemetryFactory> = {
+      factory: boom,
+      session: (input) => {
+        const session = factory(input);
+        return {
+          emitter: {
+            noteEngineStart: boom,
+            beginTurn: (start, policy) =>
+              session.emitter.beginTurn(start, policy),
+          },
+          flush: boom,
+          shutdown: async () => boom(),
+          dropped: () => boom(),
+        };
+      },
+    };
+    for (const [label, build_] of Object.entries(builders)) {
+      const run = new ScriptedRun();
+      answerEvery(run);
+      const { gateway, worker } = build(run, ON, build_);
+      gateway.enqueue("a");
+      gateway.enqueue("b");
+      const summary = await worker.runLoop();
+
+      expect(summary.turns, label).toHaveLength(2);
+      expect(gateway.finalized, label).toHaveLength(2);
+    }
+  });
+
   test("a stalled ingest does not slow the events or the finalize, and a full queue counts drops", async () => {
     const run = checkpointingRun();
     answerEvery(run);

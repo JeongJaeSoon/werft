@@ -194,6 +194,23 @@ describe("bounded span exporter", () => {
     expect(exporter.dropped()).toBeGreaterThanOrEqual(45);
   });
 
+  test("a long array attribute counts per element against the byte limit", () => {
+    const exporter = createBoundedSpanExporter({
+      send: () => new Promise<void>(() => {}),
+      maxBytes: 16 * 1024,
+    });
+    const span = {
+      name: "s",
+      status: { code: 0 },
+      attributes: { a: Array(1_000).fill("") },
+      events: [],
+      links: [],
+    } as unknown as ReadableSpan;
+    export_(exporter, [span]);
+
+    expect(exporter.dropped()).toBe(1);
+  });
+
   test("with exportOnEnd every span the SDK finishes is counted, delivered or dropped", async () => {
     const exporter = createBoundedSpanExporter({
       send: () => new Promise<void>(() => {}),

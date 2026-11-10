@@ -11,12 +11,14 @@ import {
 import type { EventCodec } from "@werft-ai/runtime-core";
 
 import type { ContentMasker } from "./content.ts";
-import { SpanEmitter } from "./turn-spans.ts";
+import { NO_TURN_SPANS, SpanEmitter } from "./turn-spans.ts";
 
 export type EnabledTelemetry = Extract<ClaimTelemetry, { enabled: true }>;
 
+export type SpanSource = Pick<SpanEmitter, "noteEngineStart" | "beginTurn">;
+
 export interface TelemetrySession {
-  readonly emitter: SpanEmitter;
+  readonly emitter: SpanSource;
   flush(): void;
   shutdown(timeoutMs: number): Promise<void>;
   dropped(): number;
@@ -30,6 +32,54 @@ export interface TelemetryInput {
 }
 
 export type TelemetryFactory = (input: TelemetryInput) => TelemetrySession;
+
+/**
+ * What the host holds: a factory or session that throws costs the attempt its
+ * spans, never a turn, an answer or the release.
+ */
+export function protectSession(
+  build: () => TelemetrySession,
+): TelemetrySession | undefined {
+  let session: TelemetrySession;
+  try {
+    session = build();
+  } catch {
+    return undefined;
+  }
+  return {
+    emitter: {
+      noteEngineStart(start, end) {
+        try {
+          session.emitter.noteEngineStart(start, end);
+        } catch {}
+      },
+      beginTurn(start, policy) {
+        try {
+          return session.emitter.beginTurn(start, policy);
+        } catch {
+          return NO_TURN_SPANS;
+        }
+      },
+    },
+    flush() {
+      try {
+        session.flush();
+      } catch {}
+    },
+    async shutdown(timeoutMs) {
+      try {
+        await session.shutdown(timeoutMs);
+      } catch {}
+    },
+    dropped() {
+      try {
+        return session.dropped();
+      } catch {
+        return 0;
+      }
+    },
+  };
+}
 
 export type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
 

@@ -67,9 +67,10 @@ import {
   scrubbingGateway,
   scrubbingLogger,
 } from "./secret-scrubber.ts";
-import type {
-  TelemetryFactory,
-  TelemetrySession,
+import {
+  protectSession,
+  type TelemetryFactory,
+  type TelemetrySession,
 } from "./telemetry/session.ts";
 import {
   type CheckpointSpan,
@@ -511,18 +512,24 @@ export class WorkerHost {
       ...(this.options.secrets ?? []),
     ]);
     if (claim.telemetry?.enabled === true && this.options.telemetry) {
-      this.tracing = this.options.telemetry({
-        telemetry: claim.telemetry,
-        claim,
-        execution: {
-          id: this.options.execution.id,
-          generation: this.options.execution.generation,
-        },
-        masker: { mask: (text) => this.scrubber.scrub(text) },
-      });
-      this.options.gateway.useTraceparent?.(() =>
-        this.turn?.spans.traceparent(),
+      const { telemetry } = claim;
+      const build = this.options.telemetry;
+      this.tracing = protectSession(() =>
+        build({
+          telemetry,
+          claim,
+          execution: {
+            id: this.options.execution.id,
+            generation: this.options.execution.generation,
+          },
+          masker: { mask: (text) => this.scrubber.scrub(text) },
+        }),
       );
+      if (this.tracing !== undefined) {
+        this.options.gateway.useTraceparent?.(() =>
+          this.turn?.spans.traceparent(),
+        );
+      }
     }
     const scrubbed = scrubbingGateway(this.options.gateway, this.scrubber);
     const publisher = new EventPublisher({
