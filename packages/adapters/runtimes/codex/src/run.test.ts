@@ -305,12 +305,11 @@ describe("approvals", () => {
     expect(resolved).toMatchObject({ outcome: "withdrawn" });
   });
 
-  test("questions, elicitations and dynamic tools are refused", async () => {
+  test("questions, permission grants and dynamic tools are refused", async () => {
     const t = setup();
     await started(t);
     for (const method of [
       "item/tool/requestUserInput",
-      "mcpServer/elicitation/request",
       "item/permissions/requestApproval",
       "item/tool/call",
     ]) {
@@ -318,6 +317,17 @@ describe("approvals", () => {
         t.server.ask(method, { threadId: "thread-1" }),
       ).rejects.toThrow("does not answer");
     }
+  });
+
+  test("an elicitation from a server the run does not relay is declined", async () => {
+    const t = setup();
+    await started(t);
+    await expect(
+      t.server.ask("mcpServer/elicitation/request", {
+        threadId: "thread-1",
+        serverName: "other",
+      }),
+    ).resolves.toMatchObject({ action: "decline" });
   });
 });
 

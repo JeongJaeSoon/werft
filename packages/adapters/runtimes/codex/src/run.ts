@@ -33,15 +33,18 @@ import {
   itemCompleted,
   itemOf,
   itemStarted,
+  mcpToolName,
   outcomeOf,
   startedEvent,
   turnEvents,
   warningEvent,
 } from "./mapper.ts";
+import type { RelayCall } from "./mcp-relay.ts";
 import { type AppServerTransport, RpcError, type RpcId } from "./transport.ts";
 
 const COMMAND_APPROVAL = "item/commandExecution/requestApproval";
 const FILE_CHANGE_APPROVAL = "item/fileChange/requestApproval";
+const MCP_ELICITATION = "mcpServer/elicitation/request";
 
 export type CodexRunOptions = {
   transport: AppServerTransport;
@@ -62,6 +65,15 @@ export type CodexRunOptions = {
   kill: () => void;
   /** Why the engine started badly (settings it ignored), if it did. */
   startupProblem: () => string | undefined;
+  /**
+   * The platform tools the MCP relay serves that the server judges itself
+   * (`mcp__<server>__<tool>`), and the end of the relay with the run.
+   */
+  mcp?: {
+    servers: ReadonlySet<string>;
+    trusted: ReadonlySet<string>;
+    release: () => void;
+  };
 };
 
 type Turn = {
@@ -150,6 +162,11 @@ export class CodexRun implements AgentRun {
   private readonly fileChanges = new Map<string, Item>();
   private closing = false;
   private idle = true;
+  /** MCP calls the engine announced and the relay has not yet claimed or finished. */
+  private mcpItems: Item[] = [];
+  private readonly mcpClaimed = new Set<string>();
+  /** Relay calls between their judgment and the end of the upstream call; `running` is cleared per turn, these are not. */
+  private readonly relayCalls = new Set<string>();
 
   constructor(private readonly options: CodexRunOptions) {
     options.transport.listen({
@@ -230,7 +247,11 @@ export class CodexRun implements AgentRun {
     if (withQueue && this.queue.length > 0) {
       return rejected("turn_in_flight", "An input is queued");
     }
-    if (this.running.size > 0 || this.channel.open > 0) {
+    if (
+      this.running.size > 0 ||
+      this.relayCalls.size > 0 ||
+      this.channel.open > 0
+    ) {
       return rejected("tool_in_flight", "A tool call has not finished");
     }
     const below = this.options.descendants();
@@ -316,6 +337,7 @@ export class CodexRun implements AgentRun {
     this.stop.abort();
     this.channel.cancelAll("shutdown");
     this.options.kill();
+    this.options.mcp?.release();
     this.events$.end();
   }
 
@@ -478,9 +500,14 @@ export class CodexRun implements AgentRun {
       case "item/started": {
         const item = itemOf(params);
         if (item === undefined) return;
-        if (item.type === "commandExecution" || item.type === "fileChange") {
+        if (
+          item.type === "commandExecution" ||
+          item.type === "fileChange" ||
+          item.type === "mcpToolCall"
+        ) {
           this.running.add(item.id);
           if (item.type === "fileChange") this.fileChanges.set(item.id, item);
+          if (item.type === "mcpToolCall") this.mcpItems.push(item);
           this.announce(item.id, () => itemStarted(item, this.inputs));
         }
         return;
@@ -489,7 +516,12 @@ export class CodexRun implements AgentRun {
         const item = itemOf(params);
         if (item === undefined) return;
         this.running.delete(item.id);
-        if (item.type === "commandExecution" || item.type === "fileChange") {
+        this.mcpItems = this.mcpItems.filter((open) => open.id !== item.id);
+        if (
+          item.type === "commandExecution" ||
+          item.type === "fileChange" ||
+          item.type === "mcpToolCall"
+        ) {
           // A call that finished without ever being announced still gets its
           // tool event before its result.
           this.announce(item.id, () => itemStarted(item, this.inputs));
@@ -581,12 +613,143 @@ export class CodexRun implements AgentRun {
         : method === FILE_CHANGE_APPROVAL
           ? FILE_CHANGE_TOOL
           : undefined;
+    // The engine asks before it calls any MCP tool, whatever the server is.
+    // The answer decides nothing: the call goes to the relay, which judges it
+    // with the call's own name and arguments (the request here carries
+    // neither), so a platform server's call is let through to that judgment
+    // and every other elicitation is declined.
+    if (method === MCP_ELICITATION && params.threadId === this.threadId) {
+      const server = params.serverName;
+      return {
+        action:
+          typeof server === "string" && this.options.mcp?.servers.has(server)
+            ? "accept"
+            : "decline",
+        content: null,
+      };
+    }
     if (tool === undefined || params.threadId !== this.threadId) {
       // Questions, MCP elicitations, permission grants, dynamic tools, token
       // refreshes: the profile offers none of them, so none is answered.
       throw new RpcError(`The platform does not answer ${method}`, -32601);
     }
     return { decision: await this.decide(id, tool, params) };
+  }
+
+  /**
+   * The one place a platform tool call is judged, from the relay's `tools/call`
+   * and before anything goes upstream. A refusal is the model's tool result.
+   * The order is the Claude run's: the tool's own pre-check, then (unless the
+   * server judges the tool itself) the person; a checkpoint being taken, a
+   * closing run or an interrupt refuse the call.
+   */
+  async judgeMcpCall(
+    call: RelayCall,
+  ): Promise<
+    { allowed: true; done: () => void } | { allowed: false; text: string }
+  > {
+    const refuse = (text: string) => ({ allowed: false as const, text });
+    const idle = () => {
+      if (this.closing || call.signal.aborted) {
+        return "The session is ending, so the call was not made.";
+      }
+      if (this.leased || this.checkpointing) {
+        return "The session is being checkpointed, so the call was not made. Call it again.";
+      }
+      return undefined;
+    };
+    const early = idle();
+    if (early !== undefined) return refuse(early);
+    const mcp = this.options.mcp;
+    if (mcp === undefined) return refuse("No platform tools are served here");
+    if (this.options.precheckTool !== undefined) {
+      const advice = await this.options
+        .precheckTool(call.tool, call.arguments)
+        .catch(() => null);
+      if (advice !== null) return refuse(advice);
+    }
+    const itemId = this.claimMcpItem(call);
+    if (!mcp.trusted.has(call.tool)) {
+      const { answers, approvalPolicy } = this.options.launch;
+      // `never` is bypassPermissions: nothing is asked. Otherwise a person
+      // answers, except where the mode answers for them with a refusal.
+      if (approvalPolicy !== "never") {
+        if (answers === "none") {
+          return refuse("This tool is not permitted in the session's mode.");
+        }
+        const allowed = await this.askPerson(
+          `mcp:${itemId}`,
+          call.tool,
+          itemId,
+          call.arguments,
+          { server: call.server },
+        );
+        if (!allowed) return refuse("The tool call was not approved.");
+        const late = idle();
+        if (late !== undefined) return refuse(late);
+      }
+    }
+    const token = `${itemId}:${randomUUID()}`;
+    this.relayCalls.add(token);
+    return { allowed: true, done: () => this.relayCalls.delete(token) };
+  }
+
+  /** The engine's item for a relay call: the oldest announced one for the tool not yet claimed, or a new one announced here. */
+  private claimMcpItem(call: RelayCall): string {
+    const found = this.mcpItems.find(
+      (item) =>
+        !this.mcpClaimed.has(item.id) && mcpToolName(item) === call.tool,
+    );
+    if (found !== undefined) {
+      this.mcpClaimed.add(found.id);
+      return found.id;
+    }
+    const id = `mcp-${randomUUID()}`;
+    const item: Item = {
+      type: "mcpToolCall",
+      id,
+      server: call.server,
+      tool: call.tool.slice(`mcp__${call.server}__`.length),
+      arguments: call.arguments,
+    };
+    this.mcpClaimed.add(id);
+    this.announce(id, () => itemStarted(item, this.inputs));
+    return id;
+  }
+
+  /** One request to the person; true only for an explicit "allow once". */
+  private async askPerson(
+    rpcId: RpcId,
+    tool: string,
+    itemId: string,
+    input: Record<string, unknown>,
+    display: Record<string, unknown>,
+  ): Promise<boolean> {
+    let inputHash: string;
+    try {
+      inputHash = approvalInputHash(tool, input);
+    } catch {
+      return false;
+    }
+    const request: ApprovalRequested = {
+      localId: randomUUID(),
+      toolCallId: itemId,
+      tool: { name: tool, input },
+      inputHash,
+      askedAt: performance.now(),
+      kind: "permission",
+      display,
+    };
+    this.open.set(request.localId, {
+      rpcId,
+      localId: request.localId,
+      answeredByUs: false,
+    });
+    const answered = this.channel.request(request, this.stop.signal);
+    this.events$.push({ type: "approval.requested", request });
+    const answer = await answered;
+    this.open.delete(request.localId);
+    return answer.kind === "selected" && answer.optionKind === "allow_once";
   }
 
   private async decide(
