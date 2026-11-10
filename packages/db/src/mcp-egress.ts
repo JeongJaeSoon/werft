@@ -103,13 +103,7 @@ async function sessionEffectiveMcp(
         release.server === null
           ? []
           : pinnedMcpTools(release.server, release.perTool),
-      deny:
-        release.server === null
-          ? release.deny
-          : [
-              ...release.deny,
-              ...deniedMcpTools(release.server, release.perTool),
-            ],
+      deny: [...release.deny, ...deniedMcpTools(release.perTool)],
     },
   });
 }

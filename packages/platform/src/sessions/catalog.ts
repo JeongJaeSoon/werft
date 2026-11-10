@@ -774,14 +774,19 @@ export function pinnedMcpTools(
 }
 
 /**
- * The release's `deny` pins for the server. They are an explicit block list,
- * so another allow source (the agent's saved settings) cannot reopen them.
+ * Every `mcp__` tool the release pins as `deny`, whichever server it names.
+ * An explicit block list: the agent's saved settings may follow another
+ * server than the card's, and cannot reopen a name the release denies.
  */
 export function deniedMcpTools(
-  serverId: string,
   perTool: Readonly<Record<string, string>>,
 ): string[] {
-  return pinnedWith(serverId, perTool, "deny");
+  return Object.entries(perTool)
+    .filter(
+      ([tool, policy]) => tool.startsWith(MCP_TOOL_PREFIX) && policy === "deny",
+    )
+    .map(([tool]) => tool)
+    .sort();
 }
 
 /** The built-in `github` server a session's release attaches (design github-agent.md §3). */

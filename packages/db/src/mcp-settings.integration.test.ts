@@ -379,6 +379,23 @@ integration("agent MCP settings on PostgreSQL", () => {
     ).toMatchObject({ tools: [READ] });
   });
 
+  test("a release deny pin on another server still closes the name when the agent's settings follow that server", async () => {
+    const workspaceId = await workspace();
+    const { agentId, releaseId } = await agentOnRelease(workspaceId, {
+      perTool: { [READ]: "allow", mcp__wiki__wipe: "deny" },
+    });
+    await saveSettings(workspaceId, agentId, {
+      server: "wiki",
+      allowedTools: ["mcp__wiki__wipe", "mcp__wiki__read"],
+      updatedBy: await person(),
+    });
+    const started = await db.transaction((tx) =>
+      captureMcpStart(tx, releaseId),
+    );
+    const sessionId = await sessionOn(workspaceId, releaseId, started);
+    expect((await stateOf(sessionId))?.tools).toEqual(["mcp__wiki__read"]);
+  });
+
   // The chain a stored profile takes to a refused call: its deny column, the
   // registry's profile, the release content the agent service writes, the
   // stored release and the egress judgement of a session on it.

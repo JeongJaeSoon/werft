@@ -24,7 +24,7 @@ describe("visibleMcpTools", () => {
       visibleMcpTools(
         "docs",
         [...allow, "mcp__docs__read"],
-        deniedMcpTools("docs", pins),
+        deniedMcpTools(pins),
       ),
     ).toEqual(["mcp__docs__search"]);
   });
@@ -65,15 +65,15 @@ describe("mcpToolPermitted", () => {
 });
 
 describe("deniedMcpTools", () => {
-  test("keeps only this server's deny pins", () => {
+  test("keeps every mcp__ deny pin, whichever server it names", () => {
     expect(
-      deniedMcpTools("docs", {
+      deniedMcpTools({
         mcp__docs__a: "deny",
         mcp__docs__b: "allow",
         mcp__docs__c: "ask",
         mcp__wiki__d: "deny",
-        mcp__docs__: "deny",
+        Bash: "deny",
       }),
-    ).toEqual(["mcp__docs__a"]);
+    ).toEqual(["mcp__docs__a", "mcp__wiki__d"]);
   });
 });
