@@ -369,17 +369,21 @@ type ReviewForge = PullRequestReader & ReviewSubmitter;
 
 ```ts
 // packages/platform/src/surface/ports/agent-welcomer.ts
-// Never throws: a welcome that cannot go is logged and left on the binding.
 export interface AgentWelcomer {
+  /** Never throws: a welcome that cannot go is logged and left on the binding. */
   activated(workspaceId: string, agentId: string, releaseId: string): Promise<WelcomeOutcome | null>;
   welcome(workspaceId: string, agentId: string, options: { ask: boolean }): Promise<WelcomeOutcome>;
 }
 
-// packages/adapters/chat/slack/src/index.ts — a factory, checked by its return type
-export function createSlackWelcome(deps: SlackWelcomeDeps): AgentWelcomer { /* ... */ }
+// packages/adapters/chat/slack/src/slack-welcome.ts — the factory keeps its own
+// wider return (it also answers `finalize` for the install route); the check
+// only says that what it returns can stand in for the capability.
+export function createSlackWelcome(deps: SlackWelcomeDeps) {
+  return { welcome, activated, finalize } satisfies AgentWelcomer;
+}
 ```
 
-U3은 이 타입 셋을 Slack 파일에서 `surface/ports/`로 옮기고 이름에서 `Slack`을 뗀다. 시그니처와 동작은 바꾸지 않는다. 지금 `SlackWelcome`은 `ReturnType<typeof createSlackWelcome>`이라 인터페이스가 구현에서 나온다. 이것을 뒤집어 인터페이스를 먼저 쓰고 구현이 그것을 반환 타입으로 삼게 한다.
+U3은 이 타입 셋을 Slack 파일에서 `surface/ports/`로 옮기고 이름에서 `Slack`을 뗀다. 시그니처와 동작은 바꾸지 않는다. 지금 `SlackWelcome`은 `ReturnType<typeof createSlackWelcome>`이라 인터페이스가 구현에서 나온다. 이것을 뒤집어 인터페이스를 먼저 쓰고 구현이 그것을 만족하는지 검사한다. 팩토리의 반환 타입을 능력 타입으로 **좁히지는 않는다**: `createSlackWelcome`은 설치 라우트가 쓰는 `finalize`도 돌려주고(`slack-welcome.ts:200-208`, `apps/control-host/src/api/server.ts:739-745`), 반환 타입을 `AgentWelcomer`로 적으면 그 멤버가 가려진다. "던지지 않는다"는 `activated`의 약속이고(`slack-welcome.ts:230-267`) `welcome`의 약속이 아니다.
 
 **턴 답 전달, 결정 요청 표시, 진행 상태, 결정 뒤 정리에는 인터페이스를 만들지 않는다.** 이 넷은 [6.1절](#61-능력-표)에서 Slack이 하는 일이지만, platform의 어떤 서비스도 그것을 부르지 않는다. 부르는 곳은 slack role의 pass loop(`apps/control-host/src/slack/main.ts`)이고, 그 안쪽은 어댑터 내부의 넣기·전송·상태 pass다(`slack-outbox.ts:328`, `:848`, `slack-session-status.ts:160`). 여기에 `ReplySender` 같은 인터페이스를 씌우면 어댑터 내부 호출에 이름만 붙인 것이 된다. 이 경로의 계약은 함수 호출이 아니라 **데이터**다.
 
@@ -538,12 +542,12 @@ sequenceDiagram
 | R1 | platform은 어댑터 패키지를 import하지 않는다 | 이미 막혀 있다(`tests/architecture.test.ts:1057`) |
 | R2 | **`forge`·`chat` 어댑터 패키지**(`packages/adapters/{forge,chat}/*`)는 다른 어댑터, `db`, 앱을 import하지 않는다. `platform`, `contracts`, `observability`, `storage`와 자기 SDK만 | 새 규칙. `execution`·`runtimes` 어댑터에는 걸지 않는다. runtime 어댑터는 platform이 아니라 `runtime-core`의 계약을 구현하고 형제 패키지를 재수출한다(`packages/adapters/runtimes/claude/package.json:19-24`, [구조](../architecture.md)). 그쪽은 지금 규칙 그대로다 |
 | R3 | 앱의 제품 코드에서 `@werft-ai/forge-github`, `@werft-ai/chat-slack`을 import하는 파일은 `apps/control-host/src/wiring/` 아래뿐이다. 라우트와 role은 조립된 서비스를 인자로 받는다. 시험 파일과 패키지의 `./testing/*` export는 이 규칙에서 뺀다 | 새 규칙. 기준선은 U4·U5가 만든다 |
-| R4 | platform에서 `surface/`와 `action/`은 서로를 import하지 않는다. 구조화 설계 A2(도메인은 다른 도메인의 `index.ts`만 import)와 다른 규칙이다: A2는 공개면을 통하면 허용하고, R4는 이 두 디렉터리 사이를 양쪽 다 막는다 | 지금은 두 디렉터리가 없어 쌍이 0이다. U3·U6이 파일을 넣을 때 생기는 쌍을 그 PR이 기준선에 적는다. 예상되는 것: 알림 문구(`surface/`)를 부르는 push·PR 서비스는 없고(`db`가 부른다), push 승인 가능 여부는 `decision/`이라 둘 다 `decision/`을 볼 뿐이다 |
+| R4 | platform에서 `surface/`와 `action/`은 서로를 import하지 않는다. 구조화 설계 A2(도메인은 다른 도메인의 `index.ts`와 `ports/`만 import)와 다른 규칙이다: A2는 공개면을 통하면 허용하고, R4는 이 두 디렉터리 사이를 양쪽 다 막는다 | 지금은 두 디렉터리가 없어 쌍이 0이다. U3·U6이 파일을 넣을 때 생기는 쌍을 그 PR이 기준선에 적는다. 예상되는 것: 알림 문구(`surface/`)를 부르는 push·PR 서비스는 없고(`db`가 부른다), push 승인 가능 여부는 `decision/`이라 둘 다 `decision/`을 볼 뿐이다 |
 | R5 | 채널(어댑터, 라우트)이 사람의 답을 넘기는 곳은 `decision/index.ts`가 내보내는 두 입구뿐이다 | 지킨다(네 곳, [2절](#2-surface와-action의-경계)). 검사는 둘로 나눈다. ① import: 어댑터와 `routes/surface/`는 pending·push 저장소 포트의 **쓰기 타입**(`PendingRequestStore`, `PushRequestStore`)을 import하지 않는다. ② 타입: `decision/index.ts`가 내보내는 입구 타입 두 개(이름은 U3이 정한다)만 인자로 받는다. 메서드 이름 `.decide(`를 세는 방식은 쓰지 않는다. 이름이 같은 다른 호출(`push-request-service.ts:592`의 `store.decide`, `achievement-judge.ts:419`)을 가르지 못한다. U1이 우회 사례(별칭으로 저장소를 받는 가짜 파일)를 넣어 검사기가 잡는지 확인한다 |
-| R6 | `contracts/src/surface/`의 함수는 번역된 문구를 만들지 않는다. 화면 문구는 메시지 키와 파라미터로 돌려주고, 사용자·모델이 쓴 원문(답 본문, 도구 입력 발췌)은 그대로 돌려준다 | `present-turn-event.ts`가 지킨다(`:59-77`이 키와 함께 원문 `text`·`detail`을 돌려준다). 검사는 둘이다. ① import 목록: `zod`, `node:*`, 문구 파일을 import하지 않는다. ② TS AST 금지 구문: `Date`, `fetch`, `process`, `Intl` 식별자 |
+| R6 | `contracts/src/surface/`의 함수는 번역된 문구를 만들지 않는다. 화면 문구는 메시지 키와 파라미터로 돌려주고, 사용자·모델이 쓴 원문(답 본문, 도구 입력 발췌)은 그대로 돌려준다 | `present-turn-event.ts`가 지킨다(`:59-77`이 키와 함께 원문 `text`·`detail`을 돌려준다). **기계 검사가 보장하는 것은 순수성까지다**: ① import 목록에 `zod`, `node:*`, 문구 파일이 없다. ② TS AST에 `Date`, `fetch`, `process`, `Intl` 식별자가 없다. "번역된 문구를 문자열 리터럴로 직접 돌려주지 않는다"는 이 두 검사로 잡히지 않는다. 그 부분은 view model 시험(문구가 들어갈 필드의 값이 메시지 키 목록에 있는지 단언)과 리뷰가 본다 |
 | R7 | platform은 워크스페이스 밖 서비스의 HTTP를 직접 부르지 않는다. 바깥 호출은 능력 인터페이스 뒤에 있다. 플랫폼 자기 구성요소(egress proxy)를 거치는 호출도 대상이다 | 어긴다: `musterrolle/slack-config-api.ts:573`(U5에서 어댑터로), `musterrolle/github-packages-service.ts:217`, `fetch`를 주입받아 부르는 `decisions-client.ts:71`, `:83`. 검사는 `fetch` 식별자와 `typeof fetch` 타입의 인자를 TS AST로 찾는다. U1이 세어 기준선으로 둔다 |
 | R8 | platform의 파일 이름과 export 이름에 어댑터 이름(`slack`)이 새로 생기지 않는다 | 기준선은 둘을 따로 센다. 파일 이름: [4.4절](#44-slack-저장소-포트는-platform에-남는다)의 저장소 포트 다섯 파일. export 이름: 그 포트의 타입 이름과, U5 뒤에도 남는 것(U5 ①이 센다). `github`은 내장 서버 이름이자 도메인이라 이 규칙에서 뺀다([12절](#12-받은-방향에서-바꾼-것과-이유)) |
-| R9 | 능력 인터페이스에 선택 메서드(`method?:`)가 없다. 어댑터가 능력을 구현해 내놓는 팩토리는 반환 타입을 그 능력 타입으로 적는다 | 새 규칙. TS AST로 `platform/src/{action,surface}/ports/`의 `?:` 메서드를 본다. 어댑터 `index.ts`가 타입·오류·상수·팩토리를 export하는 것은 막지 않는다(지금 시험이 `REFRESH_BEFORE_EXPIRY_MS` 같은 상수를 import한다). 조립 지점은 서비스의 `deps` 타입이 받는 쪽에서 능력 구현을 타입 검사한다 |
+| R9 | 능력 인터페이스에 선택 메서드(`method?:`)가 없다 | 새 규칙. TS AST로 `platform/src/{action,surface}/ports/`의 `?:` 메서드를 본다. 어댑터가 능력을 제대로 구현했는지는 architecture 시험이 아니라 **타입체크**가 본다: 팩토리 안의 `satisfies`와, 조립 지점에서 서비스의 `deps` 타입에 넣는 줄이다. 팩토리의 반환 타입을 능력 타입으로 좁히라고 요구하지 않는다(다른 멤버가 가려진다, [6.2절](#62-능력-인터페이스)). 어댑터 `index.ts`가 타입·오류·상수·팩토리를 export하는 것도 막지 않는다 |
 
 기계로 검사하기 쉬운 순서는 R1·R2·R3·R4·R8(경로와 import), R9(선언 모양), R5·R6·R7(의미를 정해야 하는 것)이다. U1은 앞의 다섯을 먼저 넣고, 뒤의 셋은 위에 적은 검사 범위대로 넣되 각 규칙에 "일부러 어긴 가짜 파일이 잡힌다"는 시험을 붙인다.
 
@@ -683,6 +687,15 @@ platform index에 한 PR 주기 동안 재수출을 둘 수는 **없다.** platf
 - 각 PR에서 어댑터는 아직 platform에 있는 Slack 파일을 `@werft-ai/platform`의 index로 import한다(어댑터 → platform은 허용 방향이다). index가 내보내지 않는 이름이 필요하면 그 PR이 index에 더하고 U5 ③이 다시 뺀다.
 - U5 ①을 시작하기 전에 맨 위 묶음이 정말 닫혀 있는지 import 그래프로 확인한다. 닫혀 있지 않은 파일이 있으면 그 파일을 같은 PR 묶음에 넣거나 순서를 바꾼다. 이 표는 읽은 import에서 나온 계획이고, U5 ①의 첫 일이 그래프를 뽑아 표를 확정하는 것이다.
 - Slack이 아닌 platform 서비스가 Slack 파일을 import하는 곳(`agent-service.ts:51`, `surface-binding-service.ts:27-28`)은 U3이 능력 인터페이스로 먼저 끊는다. 그래서 U3이 U5의 선행 조건이다.
+- **platform에 남는 시험 셋이 Slack 파일에 기댄다.** platform의 시험은 어댑터를 import할 수 없으므로(`tests/architecture.test.ts:1057`) 그 파일이 나가는 PR이 함께 고친다. 단언은 지우지 않고 자리를 옮긴다.
+
+| 시험 | 기대는 것 | 나가는 PR | 처리 |
+|---|---|---|---|
+| `sessions/event-codecs.test.ts:10`, `:175` | `slack-outbox.ts`의 `finalReplyText` | U5 ① | codec이 낸 이벤트 모양의 단언은 남기고, 그 이벤트에서 Slack 답 본문이 나온다는 단언은 어댑터의 outbox 시험으로 옮긴다 |
+| `musterrolle/surface-binding-service.test.ts:13-14` | `createSlackChannelKinds`, `SlackApiError`, `SlackBotApi` | U5 ③ | 서비스 시험은 `ChannelKindReader`의 메모리 가짜로 돌린다. Slack 응답을 채널 종류로 바꾸는 단언은 어댑터의 `slack-bot-token` 시험으로 옮긴다 |
+| `musterrolle/service-errors.test.ts:42-51` | Slack 서비스 파일 네 개를 이름으로 읽는 표 | U5 ③ | 그 행들을 어댑터의 같은 시험으로 옮긴다 |
+
+- 다른 패키지의 시험이 `@werft-ai/platform`에서 가져오던 Slack 이름과 가짜(`./testing/slack-fakes`)도 같은 PR에서 `@werft-ai/chat-slack`으로 바꾼다. U5 ①의 첫 일인 import 그래프에 시험 파일을 포함한다.
 - `@werft-ai/platform`의 index가 내보내던 Slack 이름을 쓰는 곳은 control-host와 `db`다. control-host는 각 PR에서 import를 `@werft-ai/chat-slack`으로 바꾸고 조립 지점으로 모은다. `db`가 쓰는 이름(저장소 포트 타입, 알림 문구)은 platform에 남으므로 `db`는 바뀌지 않는다.
 - 패키지 **안**에서 옮긴 파일을 20곳 넘게 import하면 옛 경로에 `export * from "<새 경로>"` 한 줄을 두고 다음 PR이 지운다(구조화 설계 6.2절).
 
@@ -736,7 +749,7 @@ platform index에 한 PR 주기 동안 재수출을 둘 수는 **없다.** platf
 
 | 받은 방향 | 이 문서 | 코드 근거 |
 |---|---|---|
-| 능력 인터페이스를 `contracts/src/{action,surface}/`에 둔다 | 인터페이스는 `platform/src/{action,surface}/ports/`, contracts에는 view model과 능력 **표**(데이터) | 인터페이스의 메서드 타입이 platform의 타입이다(`GitPushInput`·`GitPushResult`는 `ports/git-push.ts`, `ForgePullRequest`는 `ports/forge.ts`). contracts로 올리면 서버 전용 타입이 웹과 공유하는 패키지에 들어간다. 의존성 역전의 "쓰는 쪽이 소유한다"에서 쓰는 쪽은 platform의 서비스다 |
+| 능력 인터페이스를 `contracts/src/{action,surface}/`에 둔다 | 인터페이스는 `platform/src/{action,surface}/ports/`, contracts에는 view model과 도구 정의 | 인터페이스의 메서드 타입이 platform의 타입이다(`GitPushInput`·`GitPushResult`는 `ports/git-push.ts`, `ForgePullRequest`는 `ports/forge.ts`). contracts로 올리면 서버 전용 타입이 웹과 공유하는 패키지에 들어간다. 의존성 역전의 "쓰는 쪽이 소유한다"에서 쓰는 쪽은 platform의 서비스다 |
 | 이름 `PullRequestable`·`Pushable`·`Commentable`·`Notifiable`·`Approvable` | 역할 명사([6.5절](#65-이름-관례)) | `Approvable`이 `pushApprovability`와 뜻이 부딪힌다. `GitPusher`가 이미 있다 |
 | `packages/adapters/stream/api-sse` | 패키지를 만들지 않는다. `apps/control-host/src/api/routes/surface/` | SSE 라우트는 앱의 라우터·인증·알림 대기에 묶여 있다(`routes/events.ts:8-10`이 `../app.ts`, `../session-notifier.ts`, `./errors.ts`를 import). 패키지는 앱을 import할 수 없다. 그리고 API·SSE는 끌어가는 채널이라 서버가 구현할 능력이 없다. 빈 어댑터가 된다 |
 | platform은 어댑터 이름을 모른다 | import와 바깥 호출로 강제한다(R1, R7). 이름은 `slack`만 기준선으로 막는다(R8) | `github`은 어댑터 이름이기 전에 내장 MCP 서버의 계약 이름(`mcp__github__<tool>`)이고 게이트·설정·App 등록이라는 도메인이다. 이름으로 막으면 platform의 GitHub 도메인 전체가 걸린다 |
@@ -782,3 +795,11 @@ Codex 반론 1회차(대상 `d903f76da`)는 Act-on 11건이었고 모두 반영�
 | U5의 순서(클라이언트 먼저)는 남은 파일이 어댑터를 import하게 만든다 | 위에서부터 옮기는 순서로 바꾸고 PR마다 남는 import를 적었다([10.1절](#101-slack-이동의-순서와-재수출)) |
 
 Consider 3건도 반영했다: 규칙별 기준선과 검사 범위(R3·R4·R7·R8), 개방·폐쇄를 보장과 목표로 가른 것([5.4절](#54-개방폐쇄ocp))과 능력 표를 코드로 두지 않은 것, 단계별 변경 종류와 증거([10절](#10-이행-순서)).
+
+2회차(대상 `8bc74c64a`)는 1회차 11건 중 10건을 닫았고 Act-on 3건을 냈다. 모두 반영했다.
+
+| 지적 | 반영 |
+|---|---|
+| R6의 두 검사는 문자열 리터럴로 쓴 번역 문구를 잡지 못한다(1회차에서 남은 것) | 기계 검사의 보장 범위를 순수성으로 줄이고, 문구와 원문의 구별은 view model 시험과 리뷰의 몫으로 적었다([8절](#8-의존-방향-규칙)) |
+| `createSlackWelcome`의 반환 타입을 `AgentWelcomer`로 적으면 `finalize`가 가려진다. "던지지 않는다"는 `activated`만의 약속이다 | 팩토리는 넓은 반환을 유지하고 `satisfies`로만 검사한다. R9에서 반환 타입 요구를 뺐다([6.2절](#62-능력-인터페이스)) |
+| platform에 남는 시험이 옮겨 가는 Slack 파일을 import한다(`event-codecs.test.ts:10`) | 그런 시험 셋과 처리 방법을 [10.1절](#101-slack-이동의-순서와-재수출)에 적었다 |
