@@ -1,10 +1,6 @@
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
-import type {
-  GitPusher,
-  GitPushInput,
-  GitPushResult,
-} from "@werft-ai/platform";
+import type { GitPushInput, GitPushResult, Pushable } from "@werft-ai/platform";
 import {
   DEFAULT_MAX_GIT_MEMORY_BYTES,
   defaultGitRunner,
@@ -37,7 +33,7 @@ export function createGitPusher(
     timeoutMs?: number;
     maxGitMemoryBytes?: number;
   } = {},
-): GitPusher {
+): Pushable {
   const gitRunner = options.gitRunner ?? defaultGitRunner;
   const timeoutMs = options.timeoutMs ?? DEFAULT_GIT_PUSH_TIMEOUT_MS;
   const memoryBytes = options.maxGitMemoryBytes ?? DEFAULT_MAX_GIT_MEMORY_BYTES;

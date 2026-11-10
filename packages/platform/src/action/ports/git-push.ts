@@ -63,6 +63,6 @@ export type GitPushResult =
       reasonCode?: "workflows_permission_missing";
     };
 
-export interface GitPusher {
+export interface Pushable {
   push(input: GitPushInput): Promise<GitPushResult>;
 }

@@ -1281,7 +1281,16 @@ export async function decisionEntranceProblems(
   if (!existsSync(file)) return [];
   const types: string[] = [];
   const values: string[] = [];
-  for (const statement of (await parse(file)).statements) {
+  const source = await parse(file);
+  // An entrance type built by inference (Pick or ReturnType of a service)
+  // could carry a write store out to the channel; no identifier of one may
+  // appear anywhere in the file.
+  const stores: string[] = [];
+  walk(source, (node) => {
+    if (ts.isIdentifier(node) && decisionStores.has(node.text))
+      stores.push(node.text);
+  });
+  for (const statement of source.statements) {
     if (ts.isExportDeclaration(statement)) {
       const clause = statement.exportClause;
       if (!clause) values.push("*");
@@ -1302,6 +1311,10 @@ export async function decisionEntranceProblems(
   return [
     ...values.map(
       (name) => `decision/index.ts exports ${name}, which is not a type`,
+    ),
+    ...stores.map(
+      (name) =>
+        `decision/index.ts names ${name}, a write store a channel must not reach`,
     ),
     ...(types.length === 2
       ? []
@@ -3103,6 +3116,25 @@ describe("architecture", () => {
       "decision/index.ts exports *, which is not a type",
       "decision/index.ts exports default, which is not a type",
       "decision/index.ts exports 3 types, expected 2",
+    ]);
+  });
+
+  test("R5 fails an entrance type that reaches a write store through inference", async () => {
+    const index = platformFile("decision/index.ts");
+    expect(
+      await inFixture(
+        {
+          [index]: [
+            'import type { PushRequestStore as Store } from "../ports/push-requests.ts";',
+            'import type { PendingRequestService } from "./pending-service.ts";',
+            'export type Answer = Pick<PendingRequestService, "answer">;',
+            "export type Decide = { store: Store };",
+          ].join("\n"),
+        },
+        decisionEntranceProblems,
+      ),
+    ).toEqual([
+      "decision/index.ts names PushRequestStore, a write store a channel must not reach",
     ]);
   });
 

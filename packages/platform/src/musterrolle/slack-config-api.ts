@@ -5,6 +5,8 @@ import {
   slackPermalinkSchema,
 } from "@werft-ai/contracts";
 import { z } from "zod";
+import type { CreatedSlackApp } from "../ports/slack-app-store.ts";
+import type { RotatedConfigToken } from "../ports/slack-config-token-store.ts";
 
 // The App Configuration API calls the platform makes with a workspace's
 // config token: rotating the token and creating, updating and deleting the
@@ -81,21 +83,6 @@ function retryAfterOf(response: Response): number {
     ? seconds
     : DEFAULT_RETRY_AFTER_SECONDS;
 }
-
-export type RotatedConfigToken = {
-  accessToken: string;
-  refreshToken: string;
-  expiresAt: Date;
-  issuerUserId: string;
-  issuerTeamId: string;
-};
-
-export type CreatedSlackApp = {
-  appId: string;
-  clientId: string;
-  clientSecret: string;
-  signingSecret: string;
-};
 
 export interface SlackConfigApi {
   rotateConfigToken(refreshToken: string): Promise<RotatedConfigToken>;

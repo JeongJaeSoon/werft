@@ -10,12 +10,12 @@ import {
   type ReceiptActor,
 } from "@werft-ai/contracts";
 import { testCaller } from "@werft-ai/testkit";
+import type { GitHubApi } from "../action/ports/github-api.ts";
 import {
   type AuthorizationPolicy,
   createAuthorizationPolicy,
 } from "../musterrolle/policy.ts";
 import {
-  type GitHubApi,
   type GitHubGate,
   GitHubGateError,
   type GitHubWork,

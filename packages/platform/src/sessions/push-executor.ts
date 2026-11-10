@@ -8,9 +8,9 @@ import {
   type PushReasonCode,
   type PushRefusal,
 } from "@werft-ai/contracts";
+import type { Pushable } from "../action/ports/git-push.ts";
 import type { PushBundlesResult } from "../checkpoints/checkpoint-service.ts";
 import type { CommitAttributionLedger } from "../ports/commit-attributions.ts";
-import type { GitPusher } from "../ports/git-push.ts";
 import {
   type GitHubGate,
   GitHubGateError,
@@ -66,7 +66,7 @@ export function createPushExecutor(deps: {
   catalog: SessionCatalog;
   gate: GitHubGate;
   bundles: PushBundleSource;
-  pusher: GitPusher;
+  pusher: Pushable;
   /**
    * What each claim of a session issued; absent, a push is not checked for
    * attribution (a host that never recorded any).
