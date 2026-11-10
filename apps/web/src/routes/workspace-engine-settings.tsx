@@ -37,26 +37,44 @@ export function WorkspaceEngineSettings() {
       description={t("engine.workspace.description")}
       box
     >
-      {query.isPending ? (
-        <Skeleton width="60%" />
-      ) : query.isError ? (
-        <LoadFailure error={query.error} onRetry={() => void query.refetch()} />
+      {query.data === undefined ? (
+        query.isError ? (
+          <LoadFailure
+            error={query.error}
+            onRetry={() => void query.refetch()}
+          />
+        ) : (
+          <Skeleton width="60%" />
+        )
       ) : (
-        <EngineSettingsEditor
-          source="workspace"
-          settings={query.data.settings}
-          revision={query.data.settings_revision}
-          writesOpen={query.data.writes_open}
-          withheld={
-            manages ? undefined : permissionReason(t, "workspace.manage", role)
-          }
-          save={(body) => putWorkspaceEngineSettings(client, workspaceId, body)}
-          refresh={() =>
-            queryClient.invalidateQueries({
-              queryKey: workspaceEngineSettingsKey(client, workspaceId),
-            })
-          }
-        />
+        <>
+          {/* A failed refetch keeps the editor: its unsaved draft is the work. */}
+          {query.isError ? (
+            <LoadFailure
+              error={query.error}
+              onRetry={() => void query.refetch()}
+            />
+          ) : null}
+          <EngineSettingsEditor
+            source="workspace"
+            settings={query.data.settings}
+            revision={query.data.settings_revision}
+            writesOpen={query.data.writes_open}
+            withheld={
+              manages
+                ? undefined
+                : permissionReason(t, "workspace.manage", role)
+            }
+            save={(body) =>
+              putWorkspaceEngineSettings(client, workspaceId, body)
+            }
+            refresh={() =>
+              queryClient.invalidateQueries({
+                queryKey: workspaceEngineSettingsKey(client, workspaceId),
+              })
+            }
+          />
+        </>
       )}
     </SettingsSection>
   );

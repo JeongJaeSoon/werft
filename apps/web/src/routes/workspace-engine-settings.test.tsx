@@ -162,6 +162,129 @@ describe("워크스페이스 실행 규칙", () => {
     expect(api.calls.some((c) => c.method === "PUT")).toBe(false);
   });
 
+  // A refetch may bring a revision the draft never saw. The save must still
+  // carry the revision the draft started from, so the server says conflict
+  // instead of replacing rules the person did not read.
+  test("재조회로 revision이 올라가도 초안은 처음 읽은 revision으로 저장한다", async () => {
+    let reads = 0;
+    const { api } = renderAt("/settings/workspace", {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${PATH}`]: () => {
+        reads += 1;
+        return json(
+          200,
+          workspaceEngineSettings({
+            settings: {
+              permissions: { deny: reads === 1 ? ["Read"] : ["Read", "Grep"] },
+              auto_mode: {},
+            },
+            settings_revision: reads === 1 ? 3 : 4,
+          }),
+        );
+      },
+      [`PUT ${PATH}`]: () =>
+        apiError(403, "FORBIDDEN", "closed", false, {
+          reason_code: "engine_settings_writes_closed",
+        }),
+    });
+    const user = await setupUser();
+    const deny = (await box("거부")) as HTMLTextAreaElement;
+    await waitFor(() => expect(deny.value).toBe("Read"));
+    await user.type(deny, "{Enter}Edit");
+    await user.click(await saveButton());
+    // The refusal made the page read again: revision 4 is on screen now.
+    await waitFor(() => expect(reads).toBe(2));
+    await user.click(await saveButton());
+    const sent = api.calls
+      .filter((c) => c.method === "PUT")
+      .map((c) => (c.body as { expected_revision: number }).expected_revision);
+    expect(sent).toEqual([3, 3]);
+    expect(deny.value).toBe("Read\nEdit");
+  });
+
+  test("재조회가 실패해도 편집기와 입력은 남고 저장이 닫혔으면 읽기 전용이 된다", async () => {
+    let reads = 0;
+    renderAt("/settings/workspace", {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${PATH}`]: () => {
+        reads += 1;
+        return reads === 1
+          ? json(200, workspaceEngineSettings())
+          : apiError(500, "INTERNAL", "boom");
+      },
+      [`PUT ${PATH}`]: () =>
+        apiError(403, "FORBIDDEN", "closed", false, {
+          reason_code: "engine_settings_writes_closed",
+        }),
+    });
+    const user = await setupUser();
+    const deny = (await box("거부")) as HTMLTextAreaElement;
+    await user.type(deny, "Read");
+    await user.click(await saveButton());
+    await waitFor(() => expect(reads).toBe(2));
+    expect(deny.value).toBe("Read");
+    expect(document.body.contains(deny)).toBe(true);
+  });
+
+  test("저장이 닫힌 뒤 다시 읽은 값이 닫혀 있으면 입력은 읽기 전용이 되고 쓴 것은 남는다", async () => {
+    let closed = false;
+    renderAt("/settings/workspace", {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${PATH}`]: () =>
+        json(200, workspaceEngineSettings({ writes_open: !closed })),
+      [`PUT ${PATH}`]: () => {
+        closed = true;
+        return apiError(403, "FORBIDDEN", "closed", false, {
+          reason_code: "engine_settings_writes_closed",
+        });
+      },
+    });
+    const user = await setupUser();
+    const deny = (await box("거부")) as HTMLTextAreaElement;
+    await user.type(deny, "Read");
+    await user.click(await saveButton());
+    await waitFor(() => expect(deny.readOnly).toBe(true));
+    expect(deny.value).toBe("Read");
+  });
+
+  test("여러 줄 문장이 든 목록은 잠겨 있고, 다른 목록을 저장해도 그대로 보낸다", async () => {
+    const { api } = renderAt("/settings/workspace", {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${PATH}`]: () =>
+        json(
+          200,
+          workspaceEngineSettings({
+            settings: {
+              permissions: {},
+              auto_mode: { environment: ["First\nSecond", "Third"] },
+            },
+            settings_revision: 2,
+          }),
+        ),
+      [`PUT ${PATH}`]: () =>
+        json(200, { settings_revision: 3, receipt_id: RECEIPT_ID }),
+    });
+    const user = await setupUser();
+    const environment = (await box("환경 문장")) as HTMLTextAreaElement;
+    await waitFor(() => expect(environment.value).toBe("First\nSecond\nThird"));
+    expect(environment.readOnly).toBe(true);
+    await screen.findByText(/여러 줄로 된 항목이 있어 여기서 바꿀 수 없습니다/);
+    // Opening the screen is not a change.
+    expect((await saveButton()).getAttribute("aria-disabled")).toBe("true");
+    await user.type(await box("거부"), "Bash(rm:*)");
+    await user.click(await saveButton());
+    await waitFor(() =>
+      expect(api.calls.some((c) => c.method === "PUT")).toBe(true),
+    );
+    expect(api.calls.find((c) => c.method === "PUT")?.body).toEqual({
+      expected_revision: 2,
+      settings: {
+        permissions: { deny: ["Bash(rm:*)"] },
+        auto_mode: { environment: ["First\nSecond", "Third"] },
+      },
+    });
+  });
+
   test("목록 한도는 계약의 한도와 같다", async () => {
     const { ENGINE_SETTINGS_LIMITS } = await import("@werft-ai/contracts");
     const { ENGINE_RULE_LIMITS } = await import(

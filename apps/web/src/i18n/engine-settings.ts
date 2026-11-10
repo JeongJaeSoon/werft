@@ -8,7 +8,9 @@ export const engineSettingsKo = {
     "이 에이전트의 세션에만 적용되는 규칙입니다. 저장해도 릴리스는 만들어지지 않고, 이후 시작하는 세션부터 읽습니다. 실행 중인 세션은 좁히는 변경만 바로 반영합니다.",
   "engine.group.permissions": "도구 권한",
   "engine.group.auto_mode": "자동 모드",
-  "engine.group.count": "{count} / {max}개",
+  "engine.list.count": "{count} / {max}개",
+  "engine.multiline":
+    "이 목록에는 여러 줄로 된 항목이 있어 여기서 바꿀 수 없습니다. 바꾸려면 API를 쓰세요.",
   "engine.list.permissions.allow": "허용",
   "engine.list.permissions.ask": "확인",
   "engine.list.permissions.deny": "거부",
@@ -36,7 +38,7 @@ export const engineSettingsKo = {
   "engine.refused.rule_too_long": "규칙이 너무 깁니다.",
   "engine.refused.too_many_rules": "규칙이 너무 많습니다.",
   "engine.refused.auto_mode_rule_syntax":
-    "자동 모드 문장 형식이 올바르지 않습니다.",
+    "자동 모드 문장이 올바르지 않거나 길이·개수가 한도를 넘었습니다.",
   "engine.refused.mcp_rule_verdict": "MCP 규칙은 거부만 쓸 수 있습니다.",
   "engine.refused.settings_too_large": "규칙의 전체 크기가 한도를 넘습니다.",
   "engine.refused.engine_settings_catalog_ambiguous":
@@ -66,7 +68,9 @@ export const engineSettingsEn: Record<keyof typeof engineSettingsKo, string> = {
     "Rules for this agent's sessions only. Saving makes no release; sessions that start afterwards read them. A running session takes only a change that narrows.",
   "engine.group.permissions": "Tool permissions",
   "engine.group.auto_mode": "Auto mode",
-  "engine.group.count": "{count} of {max}",
+  "engine.list.count": "{count} of {max}",
+  "engine.multiline":
+    "This list has an entry that spans several lines, so it cannot be changed here. Use the API to change it.",
   "engine.list.permissions.allow": "Allow",
   "engine.list.permissions.ask": "Ask",
   "engine.list.permissions.deny": "Deny",
@@ -94,7 +98,7 @@ export const engineSettingsEn: Record<keyof typeof engineSettingsKo, string> = {
   "engine.refused.rule_too_long": "The rule is too long.",
   "engine.refused.too_many_rules": "There are too many rules.",
   "engine.refused.auto_mode_rule_syntax":
-    "The auto mode sentence is not written correctly.",
+    "An auto mode sentence is not valid, or one is too long or there are too many.",
   "engine.refused.mcp_rule_verdict": "An MCP rule can only deny.",
   "engine.refused.settings_too_large": "The rules together are too large.",
   "engine.refused.engine_settings_catalog_ambiguous":
@@ -124,7 +128,9 @@ export const engineSettingsJa: Record<keyof typeof engineSettingsKo, string> = {
     "このエージェントのセッションだけに適用するルールです。保存してもリリースは作られず、以降に始まるセッションから読みます。実行中のセッションには絞り込む変更だけがすぐ反映されます。",
   "engine.group.permissions": "ツール権限",
   "engine.group.auto_mode": "自動モード",
-  "engine.group.count": "{count} / {max}件",
+  "engine.list.count": "{count} / {max}件",
+  "engine.multiline":
+    "このリストには複数行にわたる項目があるため、ここでは変更できません。変更するには API を使ってください。",
   "engine.list.permissions.allow": "許可",
   "engine.list.permissions.ask": "確認",
   "engine.list.permissions.deny": "拒否",
@@ -152,7 +158,7 @@ export const engineSettingsJa: Record<keyof typeof engineSettingsKo, string> = {
   "engine.refused.rule_too_long": "ルールが長すぎます。",
   "engine.refused.too_many_rules": "ルールが多すぎます。",
   "engine.refused.auto_mode_rule_syntax":
-    "自動モードの文の書式が正しくありません。",
+    "自動モードの文が正しくないか、長さまたは件数が上限を超えています。",
   "engine.refused.mcp_rule_verdict": "MCP ルールは拒否のみ使えます。",
   "engine.refused.settings_too_large":
     "ルール全体のサイズが上限を超えています。",

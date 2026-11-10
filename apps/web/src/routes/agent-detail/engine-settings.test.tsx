@@ -125,6 +125,33 @@ describe("에이전트 실행 규칙 탭", () => {
     expect(deny.value).toBe("Read");
   });
 
+  // The server's limit is per list. Two lists of 20 are within it, so the page
+  // must not add them up and show 40 of 24.
+  test("한도는 목록마다 세어 보인다", async () => {
+    const rules = (prefix: string) =>
+      Array.from({ length: 20 }, (_, i) => `${prefix}${i}`);
+    renderAt(TAB, {
+      ...meOk,
+      ...agentServer().routes,
+      [`GET ${PATH}`]: () =>
+        json(
+          200,
+          agentEngineSettings({
+            settings: {
+              permissions: { allow: rules("Read"), deny: rules("Bash") },
+              auto_mode: {},
+            },
+            settings_revision: 1,
+          }),
+        ),
+    });
+    const allow = (await box("허용")) as HTMLTextAreaElement;
+    await waitFor(() => expect(allow.value.split("\n")).toHaveLength(20));
+    const body = (await panel()).textContent ?? "";
+    expect(body.match(/20 \/ 24개/g)).toHaveLength(2);
+    expect(body).not.toContain("40 / 24");
+  });
+
   test("목록이 비어 있으면 워크스페이스 규칙이 없다고 말한다", async () => {
     renderAt(TAB, {
       ...meOk,

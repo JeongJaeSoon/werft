@@ -35,6 +35,20 @@ export type EngineList = (typeof ENGINE_LISTS)[number];
 /** `permissions.allow`, `auto_mode.soft_deny`, ... : one id per list. */
 export const listId = (list: EngineList) => `${list.group}.${list.key}`;
 
+/**
+ * Lists a line-per-rule box cannot hold without changing them: the server
+ * accepts a sentence with a line break inside, which the box would read back
+ * as two. Such a list is shown but never edited here, and a save sends it as
+ * it was read.
+ */
+export function lockedIds(saved: EngineRules): ReadonlySet<string> {
+  return new Set(
+    ENGINE_LISTS.filter((list) =>
+      rulesOf(saved, list).some((rule) => /[\r\n]/.test(rule)),
+    ).map(listId),
+  );
+}
+
 /** What each textarea holds, by `listId`: one rule per line. */
 export type EngineDraft = Readonly<Record<string, string>>;
 
@@ -65,11 +79,17 @@ export function rulesOfText(text: string): string[] {
  * how the API stores an empty one, so a draft that matches what was read
  * produces the same document and no save is offered for it.
  */
-export function settingsOf(draft: EngineDraft): EngineRules {
+export function settingsOf(
+  draft: EngineDraft,
+  saved: EngineRules,
+): EngineRules {
   const permissions: Record<string, string[]> = {};
   const autoMode: Record<string, string[]> = {};
+  const locked = lockedIds(saved);
   for (const list of ENGINE_LISTS) {
-    const rules = rulesOfText(draft[listId(list)] ?? "");
+    const rules = locked.has(listId(list))
+      ? [...rulesOf(saved, list)]
+      : rulesOfText(draft[listId(list)] ?? "");
     if (rules.length === 0) continue;
     (list.group === "permissions" ? permissions : autoMode)[list.key] = rules;
   }
@@ -78,7 +98,9 @@ export function settingsOf(draft: EngineDraft): EngineRules {
 
 /** Whether saving the draft would change what the server holds. */
 export function isDirty(draft: EngineDraft, saved: EngineRules): boolean {
+  const locked = lockedIds(saved);
   return ENGINE_LISTS.some((list) => {
+    if (locked.has(listId(list))) return false;
     const now = rulesOfText(draft[listId(list)] ?? "");
     const before = rulesOf(saved, list);
     return now.length !== before.length || now.some((r, i) => r !== before[i]);

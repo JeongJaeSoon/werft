@@ -5,6 +5,7 @@ import {
   ENGINE_LISTS,
   isDirty,
   listId,
+  lockedIds,
   rulesOfText,
   settingsOf,
 } from "./engine-settings-lists.ts";
@@ -28,7 +29,7 @@ describe("engine settings lists", () => {
   });
 
   test("a draft made from settings turns back into the same settings", () => {
-    expect(settingsOf(draftOf(saved))).toEqual(saved);
+    expect(settingsOf(draftOf(saved), saved)).toEqual(saved);
     expect(isDirty(draftOf(saved), saved)).toBe(false);
   });
 
@@ -41,7 +42,7 @@ describe("engine settings lists", () => {
 
   test("an emptied list is left out of the document, as the API stores it", () => {
     const draft = { ...draftOf(saved), "permissions.deny": "\n  \n" };
-    expect(settingsOf(draft).permissions).toEqual({ allow: ["Read"] });
+    expect(settingsOf(draft, saved).permissions).toEqual({ allow: ["Read"] });
     expect(isDirty(draft, saved)).toBe(true);
   });
 
@@ -56,6 +57,30 @@ describe("engine settings lists", () => {
     expect(
       isDirty({ ...base, "auto_mode.allow": "Run the tests" }, saved),
     ).toBe(true);
+  });
+
+  // The server accepts a sentence with a line break inside; a box that holds
+  // one sentence per line would read it back as two and save it split.
+  test("a list with a multi-line entry is locked and sent as it was read", () => {
+    const multi = {
+      permissions: { deny: ["Read"] },
+      auto_mode: { environment: ["First\nSecond", "Third"] },
+    };
+    expect([...lockedIds(multi)]).toEqual(["auto_mode.environment"]);
+    // Opening the screen is not a change.
+    expect(isDirty(draftOf(multi), multi)).toBe(false);
+    // Changing another list sends the locked one untouched.
+    const draft = { ...draftOf(multi), "permissions.deny": "Read\nEdit" };
+    expect(isDirty(draft, multi)).toBe(true);
+    expect(settingsOf(draft, multi)).toEqual({
+      permissions: { deny: ["Read", "Edit"] },
+      auto_mode: { environment: ["First\nSecond", "Third"] },
+    });
+    // Text typed into the locked box is not what a save sends.
+    expect(
+      settingsOf({ ...draft, "auto_mode.environment": "changed" }, multi)
+        .auto_mode,
+    ).toEqual({ environment: ["First\nSecond", "Third"] });
   });
 
   test("the count ignores blank lines", () => {

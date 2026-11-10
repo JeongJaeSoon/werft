@@ -21,6 +21,7 @@ import {
   type EngineRules,
   isDirty,
   listId,
+  lockedIds,
   settingsOf,
 } from "./engine-settings-lists.ts";
 import { type Outcome, OutcomeLine } from "./outcome.tsx";
@@ -77,10 +78,16 @@ export function EngineSettingsEditor({
   children,
 }: EngineSettingsEditorProps) {
   const { t } = useI18n();
-  const [typed, setTyped] = useState<EngineDraft | null>(null);
+  // A draft keeps the revision it was started from: a refetch that brings a
+  // newer revision must not make the save look like it saw those rules.
+  const [typed, setTyped] = useState<{
+    readonly draft: EngineDraft;
+    readonly base: number | null;
+  } | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [conflict, setConflict] = useState(false);
-  const draft = typed ?? draftOf(settings);
+  const draft = typed?.draft ?? draftOf(settings);
+  const locked = lockedIds(settings);
   const dirty = isDirty(draft, settings);
   const readOnly = withheld !== undefined || !writesOpen;
 
@@ -89,15 +96,23 @@ export function EngineSettingsEditor({
     ApiError,
     EngineRules
   >({
-    mutationFn: (next) => save({ expected_revision: revision, settings: next }),
+    mutationFn: (next) =>
+      save({
+        expected_revision: typed ? typed.base : revision,
+        settings: next,
+      }),
     onMutate: () => {
       setOutcome(null);
       setConflict(false);
     },
-    onSuccess: async (_saved, sent) => {
+    onSuccess: async (saved, sent) => {
       await refresh();
-      // Keep anything typed while the save was in flight.
-      setTyped((now) => (now !== null && isDirty(now, sent) ? now : null));
+      // Keep anything typed while the save was in flight, now based on it.
+      setTyped((now) =>
+        now !== null && isDirty(now.draft, sent)
+          ? { draft: now.draft, base: saved.settings_revision }
+          : null,
+      );
       setOutcome({ kind: "notice", text: t("engine.saved") });
     },
     onError: (error) => {
@@ -135,7 +150,7 @@ export function EngineSettingsEditor({
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (mutation.isPending || readOnly || !dirty) return;
-    mutation.mutate(settingsOf(draft));
+    mutation.mutate(settingsOf(draft, settings));
   };
 
   const reload = async () => {
@@ -147,15 +162,12 @@ export function EngineSettingsEditor({
 
   const group = (name: "permissions" | "auto_mode") => {
     const lists = ENGINE_LISTS.filter((list) => list.group === name);
-    const count = lists.reduce((sum, list) => sum + countOf(draft, list), 0);
+    // The server's limit is per list, not per group.
     const max = ENGINE_RULE_LIMITS[source][name];
     return (
       <fieldset className="m-0 flex min-w-0 flex-col gap-3 border-0 p-0">
-        <legend className="mb-1 flex w-full items-baseline justify-between gap-2 p-0 font-medium text-sm">
-          <span>{t(`engine.group.${name}`)}</span>
-          <Text as="span" variant="meta">
-            {t("engine.group.count", { count, max })}
-          </Text>
+        <legend className="mb-1 p-0 font-medium text-sm">
+          {t(`engine.group.${name}`)}
         </legend>
         <Text as="div" variant="meta">
           {t(`engine.list.${name}.hint` as MessageKey)}
@@ -165,8 +177,16 @@ export function EngineSettingsEditor({
             key={listId(list)}
             list={list}
             value={draft[listId(list)] ?? ""}
+            count={countOf(draft, list)}
+            max={max}
+            locked={locked.has(listId(list))}
             readOnly={readOnly}
-            onChange={(text) => setTyped({ ...draft, [listId(list)]: text })}
+            onChange={(text) =>
+              setTyped({
+                draft: { ...draft, [listId(list)]: text },
+                base: typed ? typed.base : revision,
+              })
+            }
           />
         ))}
       </fieldset>
@@ -223,11 +243,17 @@ export function EngineSettingsEditor({
 function ListBox({
   list,
   value,
+  count,
+  max,
+  locked,
   readOnly,
   onChange,
 }: {
   readonly list: EngineList;
   readonly value: string;
+  readonly count: number;
+  readonly max: number;
+  readonly locked: boolean;
   readonly readOnly: boolean;
   readonly onChange: (text: string) => void;
 }) {
@@ -235,13 +261,18 @@ function ListBox({
   const id = useId();
   return (
     <Field>
-      <FieldLabel htmlFor={id}>
-        {t(`engine.list.${listId(list)}` as MessageKey)}
-      </FieldLabel>
+      <div className="flex items-baseline justify-between gap-2">
+        <FieldLabel htmlFor={id}>
+          {t(`engine.list.${listId(list)}` as MessageKey)}
+        </FieldLabel>
+        <Text as="span" variant="meta">
+          {t("engine.list.count", { count, max })}
+        </Text>
+      </div>
       <Textarea
         id={id}
         value={value}
-        readOnly={readOnly}
+        readOnly={readOnly || locked}
         spellCheck={false}
         autoCapitalize="off"
         autoCorrect="off"
@@ -249,6 +280,11 @@ function ListBox({
         rows={3}
         onChange={(event) => onChange(event.target.value)}
       />
+      {locked ? (
+        <Text as="div" variant="meta">
+          {t("engine.multiline")}
+        </Text>
+      ) : null}
     </Field>
   );
 }

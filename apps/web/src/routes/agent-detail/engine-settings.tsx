@@ -42,35 +42,46 @@ export function EngineSettings({
       description={t("engine.agent.description")}
     >
       <div className={SECTION_BODY}>
-        {query.isPending ? (
-          <Skeleton width="60%" />
-        ) : query.isError ? (
-          <LoadFailure
-            error={query.error}
-            onRetry={() => void query.refetch()}
-          />
-        ) : (
-          <EngineSettingsEditor
-            source="agent"
-            settings={query.data.settings}
-            revision={query.data.settings_revision}
-            writesOpen={query.data.writes_open}
-            withheld={
-              manages ? undefined : permissionReason(t, "agent.manage", role)
-            }
-            save={(body) => putAgentEngineSettings(client, agentId, body)}
-            refresh={() =>
-              queryClient.invalidateQueries({
-                queryKey: agentEngineSettingsKey(client, agentId),
-              })
-            }
-          >
-            <Beside
-              workspace={query.data.workspace.settings}
-              inherited={query.data.inherited}
-              reach={query.data.reach}
+        {query.data === undefined ? (
+          query.isError ? (
+            <LoadFailure
+              error={query.error}
+              onRetry={() => void query.refetch()}
             />
-          </EngineSettingsEditor>
+          ) : (
+            <Skeleton width="60%" />
+          )
+        ) : (
+          <>
+            {/* A failed refetch keeps the editor: its unsaved draft is the work. */}
+            {query.isError ? (
+              <LoadFailure
+                error={query.error}
+                onRetry={() => void query.refetch()}
+              />
+            ) : null}
+            <EngineSettingsEditor
+              source="agent"
+              settings={query.data.settings}
+              revision={query.data.settings_revision}
+              writesOpen={query.data.writes_open}
+              withheld={
+                manages ? undefined : permissionReason(t, "agent.manage", role)
+              }
+              save={(body) => putAgentEngineSettings(client, agentId, body)}
+              refresh={() =>
+                queryClient.invalidateQueries({
+                  queryKey: agentEngineSettingsKey(client, agentId),
+                })
+              }
+            >
+              <Beside
+                workspace={query.data.workspace.settings}
+                inherited={query.data.inherited}
+                reach={query.data.reach}
+              />
+            </EngineSettingsEditor>
+          </>
         )}
       </div>
     </Section>
