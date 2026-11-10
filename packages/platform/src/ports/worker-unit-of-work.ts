@@ -80,6 +80,12 @@ export type WorkerBinding = {
   // (runtime_config_snapshot.tools); `[]` is a release that allows none.
   // Null, or absent, for a session without a release.
   releaseTools?: readonly string[] | null;
+  // `sessions.runtime_tools_source`: `release` runs `releaseEffectiveTools`
+  // as stored, `profile` (also absent) the lists above. Fixed at create.
+  runtimeToolsSource?: "profile" | "release";
+  // The release's `effective_tools.tools`, read only for a `release` session;
+  // `[]` when the stored value cannot be read, which allows no tool.
+  releaseEffectiveTools?: readonly string[] | null;
   // The release's runtime spec, only when it is stored and verifies against
   // its source and digests (`verifyReleaseSpec`). Null, or absent, for a
   // session without a release, a release not yet backfilled, or a stored pair

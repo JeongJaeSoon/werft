@@ -185,7 +185,12 @@ export function sessionClaim(
   catalog: SessionCatalog,
 ): SessionClaim {
   const profile = runnableProfile(session, catalog);
-  const lists = claimToolLists(profile, session.releaseTools);
+  const lists = claimToolLists(
+    profile,
+    session.releaseTools,
+    undefined,
+    session.effectiveTools,
+  );
   return claimOf(
     session,
     profile,
@@ -240,6 +245,7 @@ function listClaims(
   session: ClaimOwner & {
     readonly githubAttached: boolean;
     readonly releaseTools: readonly string[] | null;
+    readonly effectiveTools?: readonly string[] | null;
   },
   profiles: readonly ListedProfile[],
 ): [key: string, claim: SessionClaim][] {
@@ -248,7 +254,12 @@ function listClaims(
   const claims: [string, SessionClaim][] = [];
   for (const list of ["profile", "release"] as const) {
     for (const { profile, key, own } of profiles) {
-      const lists = claimToolLists(profile, session.releaseTools);
+      const lists = claimToolLists(
+        profile,
+        session.releaseTools,
+        undefined,
+        session.effectiveTools,
+      );
       const tools = lists[list];
       if (tools === null) continue;
       const running = own && lists.runs === list;
@@ -268,6 +279,9 @@ export type ClaimedSession = ClaimOwner & {
   readonly profileId: string | null;
   // The release's runtime_config_snapshot.tools; null without a release.
   readonly releaseTools: readonly string[] | null;
+  // The release's effective_tools.tools for a session whose tools source is
+  // `release`; absent or null for the others, which run the lists above.
+  readonly effectiveTools?: readonly string[] | null;
   readonly repoUrl: string | null;
   readonly repositoryId: string | null;
 };
@@ -293,6 +307,9 @@ export type SessionRow = {
   release_github: boolean | null;
   release_id: string | null;
   release_tools: unknown;
+  // sessions.runtime_tools_source and the release's effective_tools.tools.
+  tools_source?: unknown;
+  release_effective_tools?: unknown;
   repo_url: string | null;
   repository_id: string | null;
   repository_mode: "repository" | "none";
@@ -315,6 +332,16 @@ export function claimedSessionOf(
         : Array.isArray(row.release_tools) &&
             row.release_tools.every((tool) => typeof tool === "string")
           ? (row.release_tools as string[])
+          : [],
+    // As the binding reads them: unreadable allows no tool.
+    effectiveTools:
+      row.release_id === null || row.tools_source !== "release"
+        ? null
+        : Array.isArray(row.release_effective_tools) &&
+            row.release_effective_tools.every(
+              (tool) => typeof tool === "string",
+            )
+          ? (row.release_effective_tools as string[])
           : [],
     // Counted as attached whenever pinned, unreadable or not: one config too
     // many only makes the count stricter.

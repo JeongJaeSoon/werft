@@ -303,6 +303,7 @@ async function plans(
     `SELECT s.id, s.checkpoint_revision AS revision, c.manifest_ref, c.manifest_sha256, c.manifest_version,
             s.owner_id, s.profile_id, s.profile_fingerprint, s.model, s.repository_id, s.repository_mode, s.repo_url, s.branch,
             s.agent_release_id AS release_id, r.runtime_config_snapshot->'tools' AS release_tools,
+            s.runtime_tools_source AS tools_source, r.effective_tools->'tools' AS release_effective_tools,
             r.policy_pins ? 'github' AS release_github,
             s.platform_prompt
      FROM sessions s LEFT JOIN checkpoints c

@@ -1005,6 +1005,7 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
     profileFingerprint?: string | null;
     profileId?: string | null;
     releaseTools?: readonly string[] | null;
+    effectiveTools?: readonly string[] | null;
     repositoryId?: string | null;
   }) => {
     const resolved = await catalog();
@@ -1503,6 +1504,55 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
         withEarlier,
       ).map(([key]) => key),
     ).toEqual(earlierIds.map((id) => earlierProfileKey("s1", id)));
+  });
+
+  test("a session on the release tools source runs its effective tools; a row from before the column is read as it was", async () => {
+    const resolved = await catalog();
+    const profile = resolved.profiles[PROFILE_ID] as CatalogProfile;
+    const effectiveTools = ["Read", "Glob"];
+    const session = {
+      ...(await sessionOf({ releaseTools: ["Read", "Grep"], effectiveTools })),
+      githubAttached: false,
+      id: "s1",
+    };
+    expect(sessionClaim(session, resolved).runtime_config.tools).toEqual(
+      effectiveTools,
+    );
+    expect(
+      restoreClaims(session, [], resolved).map(
+        ([key, claim]) => [key, claim.runtime_config.tools] as const,
+      ),
+    ).toEqual([[ownToolsKey("s1", "profile"), profile.tools]]);
+    const row = {
+      platform_prompt: null,
+      branch: null,
+      id: "s1",
+      model: null,
+      owner_id: "owner-a",
+      profile_fingerprint: null,
+      profile_id: null,
+      release_github: false,
+      release_id: "rel-1",
+      release_tools: ["Read", "Grep"],
+      release_effective_tools: effectiveTools,
+      repo_url: null,
+      repository_id: null,
+      repository_mode: "repository" as const,
+    };
+    expect(claimedSessionOf(row).effectiveTools).toBeNull();
+    expect(
+      claimedSessionOf({ ...row, tools_source: "profile" }).effectiveTools,
+    ).toBeNull();
+    expect(
+      claimedSessionOf({ ...row, tools_source: "release" }).effectiveTools,
+    ).toEqual(effectiveTools);
+    expect(
+      claimedSessionOf({
+        ...row,
+        tools_source: "release",
+        release_effective_tools: "garbled",
+      }).effectiveTools,
+    ).toEqual([]);
   });
 
   test("earlier profiles are offered as the gateway's claim offers them", async () => {

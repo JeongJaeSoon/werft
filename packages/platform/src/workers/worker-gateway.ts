@@ -259,7 +259,13 @@ export type CheckpointProtocol = {
 
 // What every config of a session's claim carries from its release and its
 // row, whichever profile and tool list it is for.
-type ReleaseRun = Pick<WorkerBinding, "releaseTools" | "platformPrompt">;
+type ReleaseRun = Pick<
+  WorkerBinding,
+  | "releaseTools"
+  | "platformPrompt"
+  | "runtimeToolsSource"
+  | "releaseEffectiveTools"
+>;
 
 type ToolConfigs = {
   profile: RuntimeConfig;
@@ -695,6 +701,9 @@ export function createWorkerGateway(deps: {
       profile,
       release.releaseTools ?? null,
       runReleaseTools,
+      release.runtimeToolsSource === "release"
+        ? (release.releaseEffectiveTools ?? [])
+        : null,
     );
     const prompt = release.platformPrompt;
     const configOf = (tools: readonly string[]): RuntimeConfig => {

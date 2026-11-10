@@ -410,6 +410,10 @@ export function createPostgresSessionUnitOfWork(
           attachedRepositoryIds: input.attachedRepositoryIds ?? null,
           extensions: input.extensions ?? null,
           githubPolicySource: input.githubPolicySource ?? "release",
+          // A session on a release runs that release's tools; one without
+          // keeps the profile's.
+          runtimeToolsSource:
+            input.agentReleaseId === undefined ? "profile" : "release",
           githubPolicyStart,
           mcpStart,
           engineSettingsStart,

@@ -2243,6 +2243,56 @@ describe("WorkerGateway", () => {
     const none = await claimWith({ ...binding, releaseTools: [] });
     expect(none.runtime_config.tools).toEqual([github]);
 
+    // A `release` tools source runs the release's effective tools as stored:
+    // Glob is not the profile's and Edit is dropped, neither by intersection.
+    const bySource = await claimWith({
+      ...binding,
+      runtimeToolsSource: "release",
+      releaseEffectiveTools: ["Glob", "Read"],
+    });
+    expect(bySource.runtime_config.tools).toEqual(["Glob", "Read", github]);
+    expect(bootstrapClaimResponseSchema.safeParse(bySource).success).toBe(true);
+    // The profile's list stays offered, so a checkpoint made under it resumes.
+    expect(
+      withoutAuto(bySource.restore_runtime_configs)?.map(shape),
+    ).toContainEqual({
+      model: "claude-sonnet-5",
+      tools: ["Read", "Edit", "Bash"],
+      mcp: [],
+    });
+    // The effective list wins even when it keeps every profile tool.
+    const kept = await claimWith({
+      ...binding,
+      runtimeToolsSource: "release",
+      releaseEffectiveTools: ["Read", "Edit", "Bash"],
+    });
+    expect(kept.runtime_config.tools).toEqual(["Read", "Edit", "Bash", github]);
+    // Before the column (or as `profile`) a stray effective list changes
+    // nothing: the claim is the one the snapshot rules gave, restores too.
+    for (const legacy of [
+      { runtimeToolsSource: "profile" as const },
+      {
+        runtimeToolsSource: "profile" as const,
+        releaseEffectiveTools: ["Glob"],
+      },
+    ]) {
+      const same = await claimWith({ ...binding, ...legacy });
+      expect(same.runtime_config.tools).toEqual(claimed.runtime_config.tools);
+      expect(same.restore_runtime_configs?.map(shape)).toEqual(
+        claimed.restore_runtime_configs?.map(shape),
+      );
+    }
+    // `release` with nothing readable allows no built-in tool.
+    expect(
+      (
+        await claimWith({
+          ...binding,
+          runtimeToolsSource: "release",
+          releaseEffectiveTools: [],
+        })
+      ).runtime_config.tools,
+    ).toEqual([github]);
+
     const configsOf = (claim: typeof claimed) => [
       claim.runtime_config,
       ...(claim.restore_runtime_configs ?? []),
