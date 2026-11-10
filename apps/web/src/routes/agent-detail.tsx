@@ -162,9 +162,18 @@ function AgentView({
   const tabRow = useRef<HTMLDivElement>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: runs when the tab changes
   useEffect(() => {
-    tabRow.current
-      ?.querySelector<HTMLElement>('[role="tab"][data-state="active"]')
-      ?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    // Sideways only: scrollIntoView would also pull the page back up to the
+    // tab row just after a link put the keyboard on a section far below it.
+    const row = tabRow.current;
+    const active = row?.querySelector<HTMLElement>(
+      '[role="tab"][data-state="active"]',
+    );
+    if (!row || !active) return;
+    const rowBox = row.getBoundingClientRect();
+    const box = active.getBoundingClientRect();
+    if (box.left < rowBox.left) row.scrollLeft += box.left - rowBox.left;
+    else if (box.right > rowBox.right)
+      row.scrollLeft += box.right - rowBox.right;
   }, [tab]);
   // The section it opens is where the keyboard goes next, not this button.
   const toRelease = (

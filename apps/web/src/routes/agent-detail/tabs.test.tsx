@@ -371,8 +371,17 @@ describe("에이전트 상세 탭", () => {
     expect(
       await within(section).findByText(/아직 켜지지 않았습니다/),
     ).toBeDefined();
+    // Nothing may scroll the page back to the tab row after the focus lands.
+    const scrolled: Element[] = [];
+    const proto = Element.prototype as { scrollIntoView?: () => void };
+    const original = proto.scrollIntoView;
+    proto.scrollIntoView = function (this: Element) {
+      scrolled.push(this);
+    };
     within(section).getByRole("button", { name: "릴리스로 이동" }).focus();
     await user.keyboard("{Enter}");
+    proto.scrollIntoView = original;
+    expect(scrolled).toEqual([]);
     // The tab shows and the keyboard lands in the same turn, not a render later.
     expect(selected()).toBe("설정");
     expect(document.activeElement?.id).toBe("agent-settings-release");
