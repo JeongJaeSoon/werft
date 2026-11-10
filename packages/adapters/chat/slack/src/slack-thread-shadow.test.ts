@@ -1,11 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import type { SessionLinkRecord } from "../ports/session-link-store.ts";
-import type { SlackInboundClaim } from "../ports/slack-inbound-event-store.ts";
+import type { SessionLinkRecord, SlackInboundClaim } from "@werft-ai/platform";
+import { judgeThreadReply, type SlackThreadShadow } from "@werft-ai/platform";
 import { createSlackSessionHandler } from "./slack-session-handler.ts";
-import {
-  judgeThreadReply,
-  type SlackThreadShadow,
-} from "./slack-thread-shadow.ts";
 
 const BOT = "U0BOT";
 const SHADOW = "Slack thread reply judged without a mention";

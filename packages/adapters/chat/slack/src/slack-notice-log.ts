@@ -1,5 +1,5 @@
-import type { SlackNoticeSink } from "../ports/slack-notice-sink.ts";
-import type { SlackInboxLogger } from "./slack-inbox.ts";
+import type { SlackInboxLogger } from "@werft-ai/platform";
+import type { SlackNoticeSink } from "./slack-notice-sink.ts";
 
 /**
  * Keeps each refusal notice as one log line until 94S-792's outbox sends

@@ -67,7 +67,7 @@ pending.json이 남으면 start와 이전 release로의 upgrade가 거부된다.
 
 ## 실행 전 게이트
 
-incremental checkpoint와 release 도구 복원 후보 하한을 모두 포함하는 최초 정식 릴리스는 `v0.1.0`이다. 릴리스 설치자는 이 버전보다 앞선 이미지로 돌아가지 않는다. 정식 릴리스 이전의 `main-<12>` 설치는 이 하한을 충족하는지 따로 확인해야 한다. 배포할 때는 [release manifest](/run-server/self-hosting/reference/packages#릴리스-manifest-읽기)의 commit과 세 digest를 함께 확인한다.
+incremental checkpoint와 release 도구 복원 후보 하한을 모두 포함하는 첫 태그는 `v0.1.0`이다. 이 태그가 롤백 하한이고 최신 게시 릴리스는 `v0.1.2`다. 릴리스 설치자는 `v0.1.0`보다 앞선 이미지로 돌아가지 않는다. 정식 릴리스 이전의 `main-<12>` 설치는 이 하한을 충족하는지 따로 확인해야 한다. 배포할 때는 [release manifest](/run-server/self-hosting/reference/packages#릴리스-manifest-읽기)의 commit과 세 digest를 함께 확인한다.
 
 대상 변경 기록과 현재 배포 버전을 대조한다. 아래 조건이 해당되면 기능을 켜거나 worker를 바꾸기 전에 모두 충족한다.
 
@@ -116,7 +116,7 @@ SDK를 올리는 릴리스는 예시 설정 문서(`tests/fixtures/settings/`)�
 
 ### control-host 롤백 하한: release 도구로 실행
 
-`v0.1.0`에 포함된 control-host는 release로 만든 세션을 release에 고정된 도구(`agent_releases.runtime_config_snapshot.tools`, 프로필 도구 안)로 실행한다. 그 전에는 프로필의 도구 전부였다. 도구는 worker가 뜰 때 받는 claim에 실리고, worker는 끝날 때까지 그 도구로 돈다. 그래서 에이전트 정의에 `tools`를 고르거나 `forbidden`을 적은 에이전트는 이미 진행 중인 세션도 다음 claim부터 좁혀진다. 배포 전에 뜬 worker는 마지막 턴이 끝난 뒤 입력 없이 `WORKER_IDLE_TIMEOUT_SEC`(기본 1800초)가 지나거나 pause·재시작으로 끝날 때까지 프로필의 도구를 쓴다. release가 없는 세션, 에이전트가 프로필 도구를 모두 남기는 release의 세션은 그대로다. worker 이미지와 worker protocol은 바뀌지 않는다.
+`v0.1.0`에 포함된 control-host는 release로 만든 세션을 release에 고정된 도구(`agent_releases.runtime_config_snapshot.tools`, 프로필 도구 안)로 실행한다. 그 전에는 프로필의 도구 전부였다. 도구는 worker가 뜰 때 받는 claim에 실리고, worker는 끝날 때까지 그 도구로 돈다. 그래서 에이전트 정의에 `tools`를 고르거나 `forbidden`을 적은 에이전트는 이미 진행 중인 세션도 다음 claim부터 좁혀진다. 배포 전에 뜬 worker는 마지막 턴이 끝난 뒤 입력 없이 `WORKER_IDLE_TIMEOUT_SEC`(기본 1800초)가 지나거나 pause·재시작으로 끝날 때까지 프로필의 도구를 쓴다. release가 없는 세션, 에이전트가 프로필 도구를 모두 남기는 release의 세션은 그대로다. 이 배포 뒤에 release로 만든 세션은 `sessions.runtime_tools_source = 'release'`를 적고, claim의 도구가 release의 `effective_tools.tools` 그대로다(프로필 도구와 교집합을 내지 않는다). 그 전에 만든 세션은 `profile`로 읽혀 지금까지의 도구와 체크포인트 지문이 그대로다. worker 이미지와 worker protocol은 바뀌지 않는다.
 
 - **정식 릴리스 롤백 하한은 `v0.1.0`이다.** 도구 목록은 checkpoint의 profile digest에 들어간다. 이 릴리스는 claim의 복원 후보에 프로필 도구와 release 도구 목록을 모두 넣는다. 이 기능이 없는 출시 이전 빌드로 돌아가면 release 도구로 만든 checkpoint를 복원하지 못해 세션이 `recovery_required`(`incompatible_checkpoint`)로 멈춘다. 롤포워드한 뒤 `retry_restore`로 같은 checkpoint를 다시 시도한다. 출시 이전 main 설치에서는 복원 후보 지원 여부가 확인된 릴리스를 먼저 배포해 롤백 대상으로 만든다.
 - **좁혀질 release 수.** 배포 전에 읽기 쿼리로 센다. 에이전트가 프로필 도구를 모두 고른 release도 세므로 상한이다.

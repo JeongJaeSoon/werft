@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type { UserLocale } from "@werft-ai/contracts";
-import type { PushSource } from "../action/change-request/push-request-service.ts";
 import type {
+  PushSource,
   SlackCardClaim,
   SlackCardSettleStore,
   SlackOpenPushCard,
   SlackOutboxEntry,
-} from "../ports/slack-outbox-store.ts";
+} from "@werft-ai/platform";
 import {
   createOutboxSlackNoticeSink,
   finalReplyText,

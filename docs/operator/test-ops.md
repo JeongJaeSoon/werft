@@ -102,7 +102,7 @@ checkout과 호스트 bun 없이 설치하려면 [릴리스 번들](#릴리스-�
 `upgrade`·`backup`·`reseed`·`restore-drill`은 업그레이드 게이트와 복원 도구(`scripts/verify-restore.sh` 등)를 쓰므로 번들에 없다. 번들에서 이 동사를 부르면 거부하고 checkout 경로를 안내한다. 같은 env 파일과 상태 디렉터리를 쓰므로, 번들로 설치한 설치를 나중에 `git checkout <source_commit>` 한 저장소에서 이어서 다룰 수 있다. LocalStack 설치는 컨테이너가 내려가면 객체를 잃으므로(아래 `reseed`) 체크포인트가 쌓인 설치는 checkout 경로를 권한다.
 
 ```bash
-TAG=v0.1.0   # 쓸 릴리스 태그
+TAG=v0.1.2   # 쓸 릴리스 태그
 mkdir "$TAG" && cd "$TAG"
 gh release download "$TAG" -R JeongJaeSoon/werft -p 'werft-test-ops-*' -p release-manifest.json
 sha256sum -c "werft-test-ops-$TAG.tar.gz.sha256"
@@ -323,12 +323,12 @@ unset API_IMAGE WORKER_IMAGE EGRESS_PROXY_IMAGE
 
 ### 게시된 이미지를 쓸 때
 
-`main` 머지마다 Images workflow(`.github/workflows/images.yml`)가 세 이미지를 `ghcr.io/jeongjaesoon/werft-<app>:main-<12>`로 게시한다. `v*` 릴리스는 아직 없고, 생기면 GitHub Release에 `release-manifest.json`이 붙는다. 설치하는 운영자는 태그를 달지 않는다. 태그와 게시는 [저장소 관리자의 절차](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/images-and-supply-chain/#저장소-관리자-v-태그로-게시)다. 게시본은 `linux/amd64`와 `linux/arm64`를 담는 index다.
+`main` 머지마다 Images workflow(`.github/workflows/images.yml`)가 세 이미지를 `ghcr.io/jeongjaesoon/werft-<app>:main-<12>`로 게시한다. `v*` 태그의 게시 절차가 성공하면 GitHub Release가 게시되고 `release-manifest.json`이 붙는다. 태그만 있고 Release가 없는 경우도 있다(`v0.1.1`). 최신 게시 릴리스는 `v0.1.2`다. 설치하는 운영자는 태그를 달지 않는다. 태그와 게시는 [저장소 관리자의 절차](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/images-and-supply-chain/#저장소-관리자-v-태그로-게시)다. 게시본은 `linux/amd64`와 `linux/arm64`를 담는 index다.
 
 릴리스(`v*` 태그)를 쓸 때는 그 GitHub Release의 `release-manifest.json`에서 읽는다. 아래 명령이 이 문서의 manifest 이미지 줄과 `source_commit`을 채운다. `settings_digest`는 위 `settings-digest`의 출력을 더한다. 저장소 checkout은 필요 없다.
 
 ```bash
-TAG=v0.1.0   # 쓸 릴리스 태그
+TAG=v0.1.2   # 쓸 릴리스 태그
 gh release download "$TAG" -R JeongJaeSoon/werft -p release-manifest.json -D "$TAG"
 jq '{source_commit: .commit, images: {
   control_host: (.images["control-host"] | "\(.image)@\(.digest)"),

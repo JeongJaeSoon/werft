@@ -293,6 +293,10 @@ describe("tokens.css", () => {
       const pairs: [string[], string[]][] = [
         [TEXT, SURFACES],
         [TEXT, ["--werft-color-sidebar-hover", "--werft-color-sidebar-accent"]],
+        [
+          ["--werft-color-sidebar-selected-text"],
+          ["--werft-color-sidebar-selected"],
+        ],
         // A status label draws its own tone on its own background — the pair
         // the whole StatusLabel vocabulary rests on.
         ...TONES.map(

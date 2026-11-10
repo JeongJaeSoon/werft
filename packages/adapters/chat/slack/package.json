@@ -1,0 +1,24 @@
+{
+  "name": "@werft-ai/chat-slack",
+  "description": "Slack chat adapter: event and interaction handling, the outbox sender and thread status",
+  "version": "0.0.0",
+  "private": true,
+  "license": "PolyForm-Small-Business-1.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./testing/slack": "./src/testing/slack-fakes.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "bun test src"
+  },
+  "dependencies": {
+    "@werft-ai/contracts": "workspace:*",
+    "@werft-ai/platform": "workspace:*",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@werft-ai/testkit": "workspace:*"
+  }
+}

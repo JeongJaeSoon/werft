@@ -3,13 +3,13 @@ import type {
   SlackOutboxClaim,
   SlackOutboxSettle,
   SlackOutboxStore,
-} from "../ports/slack-outbox-store.ts";
-import { createRowDelivery } from "./outbox-delivery.ts";
+} from "@werft-ai/platform";
 import {
   createSlackBotApi,
   type SlackBotSender,
   type SlackSendResponse,
-} from "./slack-config-api.ts";
+} from "@werft-ai/platform";
+import { createRowDelivery } from "./outbox-delivery.ts";
 import {
   drainSlackOutbox,
   SLACK_TEXT_MAX,
