@@ -14,6 +14,10 @@ import { createPostgresCredentialBindingStore } from "../src/credential-bindings
 import * as schema from "../src/index.ts";
 import { migrate } from "../src/migrate.ts";
 import type { Database } from "../src/queries.ts";
+import {
+  RELEASE_SPEC_SQL_COLUMNS,
+  releaseSpecSqlValues,
+} from "../src/testing/spec-pins.ts";
 
 const agentCount = Number(process.argv[2] ?? 50);
 const otherAgents = Number(process.argv[3] ?? 5000);
@@ -63,10 +67,11 @@ await client.exec(`
          md5(a.id::text || v) || md5(v || a.id::text), now()
   FROM agents a, generate_series(1, 3) v;
   -- Every other agent released at v2 and active.
-  INSERT INTO agent_releases (id, agent_id, version_id, card_sha256, runtime_profile_id,
-                              profile_digest, runtime_config_snapshot, effective_tools)
-  SELECT 'rel-' || a.id, a.id, v.id, v.content_sha256, 'coding', 'digest', '{}',
-         '{"tools": ["Read"], "mcp": []}'
+  INSERT INTO agent_releases (id, agent_id, version_id, card_sha256,
+                              runtime_config_snapshot, effective_tools,
+                              ${RELEASE_SPEC_SQL_COLUMNS})
+  SELECT 'rel-' || a.id, a.id, v.id, v.content_sha256, '{}',
+         '{"tools": ["Read"], "mcp": []}', ${releaseSpecSqlValues()}
   FROM agents a JOIN agent_versions v ON v.agent_id = a.id AND v.version_no = 2
   WHERE right(a.slug, 1) IN ('0', '2', '4', '6', '8');
   UPDATE agents SET active_release_id = 'rel-' || id, activation_revision = 0
@@ -151,7 +156,7 @@ const inList = ids.map((id) => `'${id}'`).join(", ");
 const plans: [string, string][] = [
   [
     "active release per agent",
-    `SELECT a.id, r.runtime_profile_id, r.version_id FROM agents a
+    `SELECT a.id, r.connection_id, r.version_id FROM agents a
      LEFT JOIN agent_releases r ON r.id = a.active_release_id AND r.agent_id = a.id
      WHERE a.workspace_id = '${WORKSPACE}' AND a.id IN (${inList})`,
   ],
