@@ -55,7 +55,10 @@ function adminsView(admins: AgentAdmins): AgentAdminsView {
   };
 }
 
-function personOf(caller: Caller): { userId: string; workspaceId: string } {
+export function personOf(caller: Caller): {
+  userId: string;
+  workspaceId: string;
+} {
   const userId = caller.actor?.userId;
   const workspaceId = caller.actor?.workspaceId;
   if (caller.subject.principal?.kind !== "user" || !userId || !workspaceId) {
