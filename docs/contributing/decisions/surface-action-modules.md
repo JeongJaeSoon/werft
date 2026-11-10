@@ -462,7 +462,7 @@ export interface Approvable {
 
 **웹·SSE는 끌어가는 채널이라 `Approvable`·`Notifiable`을 구현하지 않는다.** 대신 같은 요청을 같은 view model로 그린다는 것을 계약 시험으로 보장한다. 같은 입력 fixture(contracts의 `surface/`)를 `presentPendingRequest`·`presentPushRequest`에 넣은 결과에서 ① Slack 구현이 카드를 만들고 ② 웹 컴포넌트(`ApprovalCard`·`QuestionCard`, push 승인 화면)가 화면을 그린다. 두 쪽이 같은 view model 필드를 빠짐없이 쓰는지 단언한다(웹 시험은 `packages/react`, Slack 시험은 어댑터 쪽).
 
-**계약 시험 위치.** `describeNotifiableContract`, `describeApprovableContract`를 platform의 `./testing/*` export에 둔다. 적용 대상은 Slack 구현과, 시험이 전송 결과를 지정해 주는 가짜 구현이다. Slack 쪽 파일은 `packages/adapters/chat/slack/src/notifiable.contract.test.ts`, `approvable.contract.test.ts`다. 담는 약속은 구현이 Slack 응답·예외를 `DeliveryOutcome` 네 가지로 분류하는 것이다. 지금 코드가 이미 지키는 분류(`slack-outbox.ts:430`, `slack-send-result.ts`, 전송 예외, lease 만료)만 적는다([5.5절](#55-리스코프-치환lsp)). 다시 보내지 않는다(`failed`, `uncertain`)와 행을 남긴다(`retry`)는 구현이 아니라 **전송기와 저장소**의 약속이라서, 그 사례는 `outbox.test.ts`가 그대로 지킨다. 같은 사람에게 한 번이라는 보장(`onceKey`)은 넣는 함수의 계약 시험이 맡는다. 웹·SSE 보장은 위 view model 시험이다.
+**계약 시험 위치.** `describeNotifiableContract`, `describeApprovableContract`를 platform의 `./testing/*` export에 둔다. 적용 대상은 Slack 구현과, 시험이 전송 결과를 지정해 주는 가짜 구현이다. Slack 쪽 파일은 `packages/adapters/chat/slack/src/notifiable.contract.test.ts`, `approvable.contract.test.ts`다. 담는 약속은 구현이 Slack 응답·예외를 `DeliveryOutcome` 다섯 가지(`lease_lost` 포함: `begin`이 거절하면 아무것도 보내지 않고 행도 정산하지 않는다)로 분류하는 것이다. 지금 코드가 이미 지키는 분류(`slack-outbox.ts:430`, `slack-send-result.ts`, 전송 예외, lease 만료)만 적는다([5.5절](#55-리스코프-치환lsp)). 다시 보내지 않는다(`failed`, `uncertain`)와 행을 남긴다(`retry`)는 구현이 아니라 **전송기와 저장소**의 약속이라서, 그 사례는 `outbox.test.ts`가 그대로 지킨다. 같은 사람에게 한 번이라는 보장(`onceKey`)은 넣는 함수의 계약 시험이 맡는다. 웹·SSE 보장은 위 view model 시험이다.
 
 **인터페이스를 만들지 않는 것.** 턴 답 전달(`reply`, `instruction`), `welcome` 행의 전송, 진행 상태, 결정 뒤 정리는 platform 서비스도 전송기도 포트로 부르지 않는다. 환영 메시지를 만드는 일은 `AgentWelcomable`이 맡고, 그 행을 보내는 일은 전송기가 직접 한다. slack role의 pass loop가 어댑터 안쪽의 넣기·상태 pass를 돈다(`slack-outbox.ts:328`, `slack-session-status.ts:160`). 여기에 이름만 붙인 인터페이스를 씌우면 어댑터 내부 호출에 이름을 붙인 것이 된다. 이 셋의 계약은 **데이터**다. 두 번째 밀어 보내는 채널이 생겨 공통 모양이 보이면 그때 인터페이스를 만든다([6.3절](#63-예정-능력)).
 
@@ -957,3 +957,5 @@ U5a 회차(2026-11-11, 대상: `@werft-ai/chat-slack` 이동 PR). 이동을 하�
 | [10.1절](#101-slack-이동의-순서와-재수출) U5 ①의 여덟 파일 밖에서 `slack-outbox.ts`·`slack-session-handler.ts`를 import하는 파일이 더 있다 | `outbox-delivery.ts`(U5-seam이 만든 구현)와 `slack-notice-sink.ts`를 함께 옮겼고, 시험 `slack-outbox-policy`·`slack-payload`·`slack-table`·`slack-thread-shadow`도 옮긴 파일을 import해서 같이 갔다 |
 | `testing/slack-fakes.ts`는 U5 ②·③ 파일의 시험 일곱이 아직 쓴다 | platform 시험은 어댑터를 import할 수 없으므로(R1) 파일을 통째로 옮기지 않았다. `createMemorySlackNoticeSink`만 어댑터 `src/testing/`으로 갔고 나머지는 U5 ③이 옮긴다 |
 | `finalReplyText`를 부르던 `event-codecs.test.ts`의 단언 | [10.1절](#101-slack-이동의-순서와-재수출) 표대로 어댑터의 `slack-final-reply.test.ts`로 옮겼다 |
+
+Codex 리뷰 1회차(대상 `8e70a5f76`)는 Act-on 0건, Consider 1건이었다. Consider(계약 시험 문장이 `DeliveryOutcome`을 아직 "네 가지"로 적음)는 반영했다.
