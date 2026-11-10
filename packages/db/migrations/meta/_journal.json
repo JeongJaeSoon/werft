@@ -1198,6 +1198,13 @@
       "when": 1794284425828,
       "tag": "0261_engine_settings_workspace_gate",
       "breakpoints": true
+    },
+    {
+      "idx": 262,
+      "version": "7",
+      "when": 1794289759694,
+      "tag": "0262_session_engine_settings_start",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,1 @@
+ALTER TABLE "sessions" ADD COLUMN "engine_settings_start" jsonb;
