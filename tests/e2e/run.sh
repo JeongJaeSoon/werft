@@ -61,13 +61,26 @@ local_model=""
 # profiles from it. A model run sets the session cost limit itself, the same
 # default its overlay or compose.core.yml has, so the suite compares the
 # session's limit with what the stack was given rather than a default.
+conformance=""
+conf_files=()
 case "$*" in
   "") unset E2E_MODEL_MODE ;;
+  "--conformance claude_agent_sdk"|"--conformance codex_app_server")
+    # The engine-parametrized suite (tests/conformance) on the same stack
+    # lifecycle: one engine's worker image, its fake provider, the scripted
+    # prompts. The engine's overlay names the provider the profiles call.
+    unset E2E_MODEL_MODE
+    conformance="${2}"
+    conf_files=(-f tests/conformance/compose.yml)
+    if [ "$conformance" = codex_app_server ]; then
+      conf_files=(-f infra/compose.codex-worker.yml "${conf_files[@]}")
+      model_overlay=tests/conformance/compose.codex.yml
+    fi ;;
   --real-model) real_model=1; model_overlay=infra/compose.real-model.yml; export E2E_MODEL_MODE=real
     export SESSION_COST_LIMIT_USD="${SESSION_COST_LIMIT_USD:-1}" ;;
   --local-model) local_model=1; model_overlay=infra/compose.local-model.yml; export E2E_MODEL_MODE=local
     export SESSION_COST_LIMIT_USD="${SESSION_COST_LIMIT_USD:-25}" ;;
-  *) echo "usage: tests/e2e/run.sh [--real-model | --local-model]" >&2; exit 2 ;;
+  *) echo "usage: tests/e2e/run.sh [--real-model | --local-model | --conformance <runtime_kind>]" >&2; exit 2 ;;
 esac
 if [ -n "$local_model" ]; then
   tags_status=0
@@ -142,7 +155,7 @@ volume_label="${EXECUTION_VOLUME_LABEL_NAMESPACE:-werft}.installation=${EXECUTIO
 # tests/e2e/compose.ci-mirror.yml to pull from its image mirror.
 dc() {
   docker compose -p "$project" -f infra/compose.yml -f tests/e2e/compose.yml \
-    -f "$model_overlay" \
+    ${conf_files[@]+"${conf_files[@]}"} -f "$model_overlay" \
     ${E2E_COMPOSE_OVERRIDE:+-f "$E2E_COMPOSE_OVERRIDE"} --profile apps "$@"
 }
 
@@ -215,7 +228,7 @@ claude_version="$(dc logs --no-color worker 2>/dev/null | sed -n 's/.*| //p' | t
 sdk_version="$(sed -n 's/.*"@anthropic-ai\/claude-agent-sdk": "\([^"]*\)".*/\1/p' \
   packages/adapters/runtimes/claude/package.json)"
 {
-  echo "command: tests/e2e/run.sh${real_model:+ --real-model}${local_model:+ --local-model}"
+  echo "command: tests/e2e/run.sh${real_model:+ --real-model}${local_model:+ --local-model}${conformance:+ --conformance ${conformance}}"
   echo "tested_sha: ${sha} (uncommitted paths: ${dirty})"
   echo "docker_engine: ${docker_version}"
   echo "api_image: ${API_IMAGE} $(image_id "$API_IMAGE")"
@@ -239,7 +252,10 @@ sdk_version="$(sed -n 's/.*"@anthropic-ai\/claude-agent-sdk": "\([^"]*\)".*/\1/p
 
 export E2E_API_URL="http://127.0.0.1:$(dc port api 3000 | sed 's/.*://')"
 export E2E_API_KEY="$api_key"
-if [ -z "$real_model$local_model" ]; then
+if [ "$conformance" = codex_app_server ]; then
+  export E2E_RESPONSES_URL="http://127.0.0.1:$(dc port fake-responses 4031 | sed 's/.*://')"
+fi
+if [ -z "$real_model$local_model" ] && [ "$conformance" != codex_app_server ]; then
   export E2E_MESSAGES_URL="http://127.0.0.1:$(dc port fake-messages 4011 | sed 's/.*://')"
   export E2E_BOOTSTRAP_TOKEN="$BOOTSTRAP_TOKEN"
   export E2E_FAKE_MCP_URL="http://127.0.0.1:$(dc port fake-mcp 4021 | sed 's/.*://')"
@@ -258,7 +274,10 @@ fi
 
 echo "== tests/e2e" >&2
 set +e
-if [ -n "$real_model$local_model" ]; then
+export CONFORMANCE_RUNTIME_KIND="$conformance"
+if [ -n "$conformance" ]; then
+  suites=(./tests/conformance/*.conformance.ts)
+elif [ -n "$real_model$local_model" ]; then
   suites=(./tests/e2e/real-model.e2e.ts)
 else
   # remote-mcp and operator-profiles first: the other suites leave their

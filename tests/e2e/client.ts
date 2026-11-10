@@ -288,6 +288,20 @@ export class Api {
     );
   }
 
+  deny(sessionId: string, requestId: string, reason = "denied by the suite") {
+    return this.expect<{ receipt_id: string }>(
+      202,
+      "POST",
+      `/v1/sessions/${sessionId}/answers`,
+      {
+        request_id: requestId,
+        kind: "permission",
+        action: "deny",
+        reason,
+      },
+    );
+  }
+
   /** A control operation's first response, whatever its status. */
   control(sessionId: string, operation: string, body: unknown) {
     return this.request<
@@ -417,6 +431,8 @@ export class Api {
     sessionId: string,
     stop: (event: SseEvent) => boolean,
     timeoutMs = 180_000,
+    /** Replays strictly after this event id; the whole history without it. */
+    lastEventId?: string,
   ): Promise<SseEvent[]> {
     const abort = new AbortController();
     const timer = setTimeout(() => abort.abort(), timeoutMs);
@@ -425,7 +441,12 @@ export class Api {
       const response = await fetch(
         `${this.env.apiUrl}/v1/sessions/${sessionId}/events`,
         {
-          headers: { authorization: `Bearer ${this.env.apiKey}` },
+          headers: {
+            authorization: `Bearer ${this.env.apiKey}`,
+            ...(lastEventId === undefined
+              ? {}
+              : { "last-event-id": lastEventId }),
+          },
           signal: abort.signal,
         },
       );
