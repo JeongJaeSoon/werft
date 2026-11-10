@@ -171,7 +171,7 @@ turnTraceId("00000000-0000-4000-8000-000000000001", 1) = "49195af5635b4ac7af24c5
 ### 4.2 전파
 
 1. 클라이언트의 `traceparent`는 **부모로 삼지 않고 link로만 남긴다.** link는 `trace_id`·`span_id`만 싣는다. `tracestate`는 버린다(`SpanContext`가 담지 않고, 벤더 상태를 우리 트레이스에 옮길 이유가 없다). 들어온 sampled 플래그도 따르지 않는다. 클라이언트가 `trace_id`를 골라 다른 세션 트레이스에 섞거나 `-00`으로 API span을 끄는 일을 막기 위해서다.
-2. turn을 큐에 넣는 두 경로, 곧 `POST /v1/sessions/{id}/turns`와 세션 생성이 함께 만드는 첫 turn이 그 요청 span의 `traceparent`를 `turns.trace_context`(nullable text)에 같은 트랜잭션으로 쓴다(T2). 첫 turn을 빼면 세션의 첫 turn만 트레이스가 끊긴다(94S-731과 같은 규칙).
+2. turn을 큐에 넣는 두 경로, 곧 `POST /v1/sessions/{id}/turns`와 세션 생성이 함께 만드는 첫 turn이 그 요청 span의 `traceparent`를 `turns.trace_context`(nullable text)에 같은 트랜잭션으로 쓴다(T2). 첫 turn을 빼면 세션의 첫 turn만 트레이스가 끊긴다.
 3. `nextInput` 응답의 `input`에 선택 필드 `trace_context`와 `content_mode`가 실린다. worker는 `trace_context`를 `werft.turn`의 link로 쓰고 `content_mode`는 turn마다 다시 읽는다. 필드가 없는 예전 worker는 그대로 동작한다(`packages/contracts/src/worker-protocol/index.ts:685`의 `nextInputResponseSchema`). T5의 claim telemetry와 같은 필드를 정의하므로 **먼저 머지되는 쪽이 contracts에 정의하고 다른 쪽이 그것을 쓴다.**
 4. worker가 gateway를 부를 때 `traceparent`를 붙인다. API는 그 값의 `trace_id`가 이 attempt의 turn `trace_id`(`turnTraceId(session_id, turn_id)`)일 때만 그 span을 부모로 삼고, 아니면 **span을 만들지 않는다**(5.3절). 새 root를 만들지 않는다.
 
