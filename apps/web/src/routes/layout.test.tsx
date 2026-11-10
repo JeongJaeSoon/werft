@@ -335,6 +335,25 @@ describe("app shell", () => {
     ).toEqual(["/"]);
   });
 
+  test("only the current page's sidebar row is marked, and its icon inherits the text colour", async () => {
+    renderAt("/sessions/map", signedIn);
+    const nav = await screen.findByRole("navigation", { name: "주요 메뉴" });
+    await waitFor(() =>
+      expect(
+        [...nav.querySelectorAll("a[aria-current=page]")].map(
+          (link) => link.textContent,
+        ),
+      ).toEqual(["세션"]),
+    );
+    const current = nav.querySelector("a[aria-current=page]");
+    expect(current?.className).toContain(
+      "aria-[current=page]:text-sidebar-selected-text",
+    );
+    expect(current?.querySelector("svg")?.getAttribute("class")).not.toMatch(
+      /text-/,
+    );
+  });
+
   test("the sessions list opens the agent map", async () => {
     renderAt("/sessions", signedIn);
     await screen.findByRole("heading", { level: 1, name: "세션" });
