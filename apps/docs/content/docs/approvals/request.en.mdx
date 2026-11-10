@@ -24,7 +24,7 @@ The SDK examples use the `werft` client made in [Install the SDK](/getting-start
 import { waitForTurn } from "@werft-ai/sdk";
 
 const note = await werft.sessions.create({
-  profile_id: "claude-coding-local",
+  agent_release_id: process.env.WERFT_AGENT_RELEASE_ID ?? "",
   repository_id: "sample-app",
   message:
     'GATE-SPEC {"id":"note","steps":[{"tool":"Bash","input":{"command":"echo tested | tee -a README.md","description":"append to README.md"}}],"final":"updated README.md"}',
@@ -44,7 +44,7 @@ SID=$(curl -sS "$API/v1/sessions" \
   -H 'Content-Type: application/json' \
   -H "Idempotency-Key: $(uuidgen)" \
   -d "$(jq -nc --arg m 'GATE-SPEC {"id":"note","steps":[{"tool":"Bash","input":{"command":"echo tested | tee -a README.md","description":"append to README.md"}}],"final":"updated README.md"}' \
-    '{profile_id: "claude-coding-local", repository_id: "sample-app", message: $m}')" \
+    '{agent_release_id: env.WERFT_AGENT_RELEASE_ID, repository_id: "sample-app", message: $m}')" \
   | jq -r .session_id)
 until [ "$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq -r .status)" = needs_input ]; do
   sleep 2

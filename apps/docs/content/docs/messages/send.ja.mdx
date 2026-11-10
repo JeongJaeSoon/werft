@@ -12,7 +12,7 @@ description: セッションにメッセージを送って次のターンを作�
 
 ```ts
 const created = await werft.sessions.create({
-  profile_id: "claude-coding-local",
+  agent_release_id: process.env.WERFT_AGENT_RELEASE_ID ?? "",
   repository_id: "sample-app",
   message: 'GATE-SPEC {"id":"m1","steps":[],"final":"ready"}',
 });
@@ -28,7 +28,7 @@ SID=$(curl -sS "$API/v1/sessions" \
   -H 'Content-Type: application/json' \
   -H "Idempotency-Key: $(uuidgen)" \
   -d "$(jq -nc --arg m 'GATE-SPEC {"id":"m1","steps":[],"final":"ready"}' \
-    '{profile_id: "claude-coding-local", repository_id: "sample-app", message: $m}')" \
+    '{agent_release_id: env.WERFT_AGENT_RELEASE_ID, repository_id: "sample-app", message: $m}')" \
   | jq -r .session_id)
 ```
 
@@ -143,7 +143,6 @@ SDK では、下のレスポンスが `APIError` として届き、`isApiError(e
 | 409 `RECOVERY_REQUIRED` | 先に復旧判断が必要である([クローズ](/sessions/close)) |
 | 409 `SESSION_CLOSING`, `SESSION_CLOSED` | 閉じている途中、または閉じている |
 | 409 `CHECKPOINT_UNAVAILABLE` | checkpoint の問題で新しいターンを受け付けない。原因はレスポンスの `message` にある。会話履歴が上限を超えた場合は、新しいセッションを開く |
-| 409 `PROFILE_BLOCKED` | オーナーがこのセッションの[運用担当者のプロファイルをブロック](/agents/run-profiles#運用担当者のプロファイルをブロックする)した。ワークスペースプロファイルなら、そのベースがブロックされている(`details.reason_code` が `base_blocked`)。何もキューに入らない。ブロックが解除されれば、同じセッションにまた送れる |
 | 413 | メッセージが長すぎる |
 | 429 | 待機中の入力が上限に達した |
 

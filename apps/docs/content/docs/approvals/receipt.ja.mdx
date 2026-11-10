@@ -3,7 +3,7 @@ title: "receipt"
 description: コマンド 1 つがどのように終わったかを記録した receipt を読む
 ---
 
-メッセージ、制御(interrupt・pause・resume・close・terminate・復旧判断・プロファイル変更)、push のリクエストと判断、アカウント・キーの管理といったコマンドは、receipt を残す。receipt には、誰が(`actor`)、何を(`operation`、`target_ref`)したか、そしてどのように終わったか(`status`、`result`、`error`)が入る。非同期コマンドはレスポンスの `receipt_status` が `accepted` で、終わったかどうかは receipt を読み直して確認する。scope は `sessions:read` である。
+メッセージ、制御(interrupt・pause・resume・close・terminate・復旧判断)、push のリクエストと判断、アカウント・キーの管理といったコマンドは、receipt を残す。receipt には、誰が(`actor`)、何を(`operation`、`target_ref`)したか、そしてどのように終わったか(`status`、`result`、`error`)が入る。非同期コマンドはレスポンスの `receipt_status` が `accepted` で、終わったかどうかは receipt を読み直して確認する。scope は `sessions:read` である。
 
 | `status` | 意味 |
 | --- | --- |

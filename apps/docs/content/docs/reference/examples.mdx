@@ -7,12 +7,12 @@ description: 유즈케이스별로 SDK를 실제로 부르는 작은 CLI 샘플�
 
 | 샘플 | 무엇을 보여 주나 | key |
 | --- | --- | --- |
-| [sdk-discovery](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-discovery) | client 만들기와 생성 시 거절, key의 scope, profile 카탈로그, 버전 상수 | 아무 key(`sessions:read`) |
+| [sdk-discovery](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-discovery) | client 만들기와 생성 시 거절, key의 scope, 버전 상수 | 아무 key(`sessions:read`) |
 | [sdk-inventory](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-inventory) | 세션 목록의 검색·필터·페이지, 상세·사용량·공유 범위 | 개인 key(`read`·`write`·`control`) |
 | [sdk-events](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-events) | 이벤트 스트림, 저장한 cursor로 이어 받기, turn 목록 페이지 | 에이전트 key(`read`·`write`·`control`) |
 | [sdk-reliability](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-reliability) | Idempotency-Key 재생, 잃은 응답의 재시도, 오류 클래스 | 개인 key(`read`·`write`·`control`) |
 | [sdk-questions](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-questions) | 질문 답변, 권한 거절·허락, 열린 요청 한 번 처리, 같은 요청에 다른 답 | 개인 key(`read`·`write`·`approve`·`control`) |
-| [sdk-control](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-control) | interrupt, pause·resume, profile 바꾸기, terminate 뒤 복구 결정 | 개인 key(`read`·`write`·`control`·`recover`) |
+| [sdk-control](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-control) | interrupt, pause·resume, terminate 뒤 복구 결정 | 개인 key(`read`·`write`·`control`·`recover`) |
 | [sdk-close](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-close) | 열린 질문 때문에 막힌 close와 `CLOSE_BLOCKED`, 대기 입력 취소 | 개인 key(`read`·`write`·`approve`·`control`) |
 | [sdk-push](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-push) | push 요청·거부·승인, push 결과, PR 열기·코멘트 | 에이전트 key + 승인자 개인 key(`approve`) |
 | [sdk-approver](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-approver) | 에이전트 key로 세션을 돌리고 별도 승인자가 권한 요청에 답한 뒤 close | 에이전트 key + 승인자 개인 key(`approve`) |
@@ -24,7 +24,7 @@ description: 유즈케이스별로 SDK를 실제로 부르는 작은 CLI 샘플�
 1. 자기 스택을 `scripts/local.sh up --fake-model`로 띄운다([개발용 서버 실행](/run-server/dev-server)). 실제 모델 key는 필요 없다. 메시지의 `GATE-SPEC`은 FAKE 모델이 재생하는 대본이라 실제 모델에서는 쓰지 않는다.
 2. 웹 콘솔에서 owner로 로그인한다.
 3. 개인 key는 콘솔의 설정 > API 키에서 그 샘플의 scope로 발급한다. owner는 다섯 scope를 모두 줄 수 있다.
-4. 에이전트 key가 필요한 샘플(`sdk-events`, `sdk-push`, `sdk-approver`)은 콘솔에서 에이전트를 만들고 `claude-coding-local` 프로필과 `sample-app` 저장소로 릴리스를 만들어 켠 뒤, 그 에이전트의 key를 `sessions:read`, `sessions:write`, `sessions:control`로 발급한다. 에이전트 key에는 `sessions:approve`를 줄 수 없으므로 승인은 별도 개인 key가 한다.
+4. 에이전트 key가 필요한 샘플(`sdk-events`, `sdk-push`, `sdk-approver`)은 콘솔에서 에이전트를 만들고 `fake-messages` 연결과 `sample-app` 저장소로 릴리스를 만들어 켠 뒤, 그 에이전트의 key를 `sessions:read`, `sessions:write`, `sessions:control`로 발급한다. 에이전트 key에는 `sessions:approve`를 줄 수 없으므로 승인은 별도 개인 key가 한다.
 
 환경 변수는 샘플마다 README에 있다. 모두 쓰는 것은 둘이다. key는 소스·README·출력에 붙여 넣지 않는다.
 
@@ -49,16 +49,16 @@ bun examples/sdk-discovery/src/discover.ts
 | --- | --- |
 | `new Werft(options)`: `baseUrl`·`apiKey`·`maxRetries`·`timeoutMs`·`defaultHeaders`·`fetch`, 생성 시 거절 | discovery, reliability |
 | `withOptions` | discovery, reliability, push, approver |
-| `root.get`, `auth.me`, `profiles.list`, `limits.get` | discovery |
+| `root.get`, `auth.me`, `limits.get` | discovery |
 | `SDK_VERSION`, `API_SPEC_VERSION`, `SUPPORTED_SSE_SCHEMA_VERSIONS` | discovery |
-| `sessions.create` | 모든 세션 샘플(`agent_release_id`: events, push, approver / `title`: inventory / 저장소 없는 profile: questions) |
+| `sessions.create` | 모든 세션 샘플(`agent_release_id`: events, push, approver / `title`: inventory / 저장소 없는 세션: questions) |
 | `sessions.get`, `sessions.list`(`q`·`relation`·`status`·`limit`, `nextPage`, `for await`) | inventory(목록), 모든 세션 샘플(상세) |
 | `sessions.usage`, `sessions.share` | inventory |
 | `sessions.messages.send` | events, reliability, questions, control, close, approver |
 | `sessions.turns.get`, `sessions.turns.list` | events, reliability, control, close |
 | `sessions.events.stream`(`lastEventId`, `close()`, `signal`) | events, approver(`waitForTurn`의 `events`) |
 | `sessions.requests.list`, `sessions.requests.answer` | questions, close |
-| `sessions.interrupt`, `pause`, `resume`, `terminate`, `changeProfile`, `recoveryDecisions.create` | control |
+| `sessions.interrupt`, `pause`, `resume`, `terminate`, `recoveryDecisions.create` | control |
 | `sessions.close` | 모든 세션 샘플 |
 | `sessions.pushRequests.create`·`list`·`get`·`approve`·`reject`·`openPullRequest`·`commentPullRequest` | push |
 | `receipts.get` | questions·control·close·push(`waitForReceipt`를 거쳐) |

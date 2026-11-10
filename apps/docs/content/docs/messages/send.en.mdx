@@ -12,7 +12,7 @@ One message is one turn. Messages in the same session run one after another in t
 
 ```ts
 const created = await werft.sessions.create({
-  profile_id: "claude-coding-local",
+  agent_release_id: process.env.WERFT_AGENT_RELEASE_ID ?? "",
   repository_id: "sample-app",
   message: 'GATE-SPEC {"id":"m1","steps":[],"final":"ready"}',
 });
@@ -28,7 +28,7 @@ SID=$(curl -sS "$API/v1/sessions" \
   -H 'Content-Type: application/json' \
   -H "Idempotency-Key: $(uuidgen)" \
   -d "$(jq -nc --arg m 'GATE-SPEC {"id":"m1","steps":[],"final":"ready"}' \
-    '{profile_id: "claude-coding-local", repository_id: "sample-app", message: $m}')" \
+    '{agent_release_id: env.WERFT_AGENT_RELEASE_ID, repository_id: "sample-app", message: $m}')" \
   | jq -r .session_id)
 ```
 
@@ -143,7 +143,6 @@ In the SDK, the responses below arrive as `APIError`, and you tell them apart li
 | 409 `RECOVERY_REQUIRED` | A recovery decision comes first ([Close](/sessions/close)) |
 | 409 `SESSION_CLOSING`, `SESSION_CLOSED` | The session is closing or closed |
 | 409 `CHECKPOINT_UNAVAILABLE` | A checkpoint problem prevents accepting a new turn. The cause is in the response's `message`. If the transcript is over its limit, open a new session |
-| 409 `PROFILE_BLOCKED` | An owner [blocked the operator profile](/agents/run-profiles#block-an-operator-profile) this session runs on. For a workspace profile, its base is blocked (`details.reason_code` is `base_blocked`). Nothing is queued. Once it is unblocked, the same session takes messages again |
 | 413 | The message is too long |
 | 429 | Queued inputs reached the limit |
 

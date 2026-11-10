@@ -65,25 +65,24 @@ curl -sS "$API/v1" "${AUTH[@]}" | jq -e '.owner_id != null'
 
 **よくあるエラー.** 401 `UNAUTHORIZED` は key が空か、別のインストールで発行された key です。403 `FORBIDDEN` は、呼んだ operation の scope が足りません。key をログやドキュメントに貼らず、環境変数かシークレットマネージャー経由で渡します。
 
-## 2. セッションを作る: profile とリポジトリを選ぶ
+## 2. セッションを作る: リリースとリポジトリを選ぶ
 
 OpenAPI: [`createSession`](/reference/http-api/sessions/createSession)、[`getSession`](/reference/http-api/sessions/getSession)
 
-**目標.** 実行 profile とリポジトリを指定して、セッションと最初の turn を永続的に受け付けさせます。
+**目標.** エージェントのリリースとリポジトリを指定して、セッションと最初の turn を永続的に受け付けさせます。
 
-**手順.** `GET /v1/profiles`(`listProfiles`)で選べる profile とそのモデルを確認します。`profile_id`、`repository_id`、最初の `message` を送り、レスポンスの `session_id` と `turn_id` を保存します。この例は、次の節で権限リクエストを見せるために、ファイルを書くツールを呼ぶ偽の台本を使います。実際の Claude スタック(`scripts/local.sh up`)では `profile_id` は `claude-coding-real` で、`message` は自由なテキストです。任意の `model` フィールドは、その profile が許すモデル(カタログの `model` または `models`)のうち 1 つを選びます。省略すると profile の既定 `model` で動き、選ばれたモデルは `GET /v1/sessions/{id}` の `runtime.model` に出ます。セッションの profile を変える(`POST /v1/sessions/{id}/profile`)と、その後は新しい profile の既定 `model` で動きます。
+**手順.** セッションは常にエージェントのリリースから作ります([作成](/agents/create))。`agent_release_id`、`repository_id`、最初の `message` を送り、レスポンスの `session_id` と `turn_id` を保存します。この例は、次の節で権限リクエストを見せるために、ファイルを書くツールを呼ぶ偽の台本を使います。実際の Claude スタック(`scripts/local.sh up`)では、実際の Anthropic 接続で作ったリリースを使い、`message` は自由なテキストです。任意の `model` フィールドで、リリースの接続が提供するモデルのひとつを選べます。省くとリリースのカードのモデルで動き、選んだモデルは `GET /v1/sessions/{id}` の `runtime.model` に出ます。
 
-一覧には、運営者の profile(`source: operator`)と、ワークスペースの owner や admin がコンソールで絞り込んだ版(`source: workspace`、id は `ws_` で始まる)が並びます。ワークスペース版を新しいセッションに使えるのは、その `workspace.state` が `usable` の間だけです。規則は[運営者向けドキュメント](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#워크스페이스-프로필-콘솔에서-좁힌-profile)にあります。
 
-`repository_id` を送るかどうかは、profile の `repository_mode`(`GET /v1/profiles`)で決まります。`required` なら送り(GitHub 設定があるエージェントのセッションと、ワークスペースの上限が決める profile は、省いてもリポジトリなしで始まります)、`none` なら省き、`optional` ならどちらでも構いません。開始リポジトリのないセッションは空の作業ディレクトリで始まり、セッションを読むと `repository_id` は `null` です。リポジトリがないので push リクエストは 409 `PUSH_SOURCE_MISSING` を返し、`optional` の profile がリポジトリの CLAUDE.md を読む設定でも、このセッションは読みません。エージェントのリリースで作ったセッションで `repository_id` を省くと、GitHub 設定があるエージェントはリポジトリなしで始まり、必要なリポジトリだけを付けます(設定がない古いエージェントはリリースのリポジトリで始まります。[リポジトリなしのセッション](/sessions/without-repository))。fake モデルのスタックでは `general` profile がリポジトリなしで動きます。その作成ボディは次のとおりです。
+`repository_id` は任意です。送るなら、ワークスペースの上限とエージェントの GitHub 設定の範囲内でなければなりません。開始リポジトリのないセッションは空の作業ディレクトリから始まり、セッション取得の `repository_id` は `null` です。リポジトリがないので push リクエストは 409 `PUSH_SOURCE_MISSING` になり、リポジトリの CLAUDE.md も読みません。`repository_id` を省くと、GitHub 設定があるエージェントはリポジトリなしで始まり、必要なリポジトリだけを付けます(設定がない古いエージェントはリリースのリポジトリで始まります。[リポジトリのないセッション](/sessions/without-repository))。リポジトリなしで作るときの作成 body は次のとおりです。
 
 ```json
-{ "profile_id": "general", "message": "회의 메모를 세 줄로 요약해 줘." }
+{ "agent_release_id": "sha256:…", "message": "회의 메모를 세 줄로 요약해 줘." }
 ```
 
 ```bash
 CREATE_BODY=$(jq -nc --arg message 'GATE-SPEC {"id":"guide-permission","steps":[{"tool":"Bash","input":{"command":"echo guide | tee api-guide.txt","description":"write api-guide.txt"}}],"final":"wrote api-guide.txt"}' \
-  '{profile_id:"claude-coding-local", repository_id:"sample-app", message:$message}')
+  '{agent_release_id:env.WERFT_AGENT_RELEASE_ID, repository_id:"sample-app", message:$message}')
 CREATE_KEY=$(uuidgen)
 created=$(curl -sS "$API/v1/sessions" "${AUTH[@]}" \
   -H "Idempotency-Key: $CREATE_KEY" --data "$CREATE_BODY")
@@ -105,7 +104,7 @@ curl -sS -X PATCH "$API/v1/sessions/$SID" "${AUTH[@]}" \
   --data '{"title":"권한 요청 예시 세션"}' | jq '{id, title, revision}'
 ```
 
-**よくあるエラー.** 422 `UNSUPPORTED_CAPABILITY` は、profile かリポジトリの選択が不正です。`required` の profile に `repository_id` がないとき(上の例外のセッションを除く)のメッセージは `Profile <id> needs a repository: send repository_id`、`none` の profile に付けたときは `Profile <id> runs without a repository: omit repository_id` です。`repository_id: null` は省略ではなく 400 です。契約上 `createSession` は 429 `RATE_LIMITED` を返し得るので、後でやり直します。入力キューの上限はメッセージの追加に適用されます(4 節)。ストレージの上限は 413 `STORAGE_LIMIT_EXCEEDED` として現れるので、`/v1/limits` を見ます。実行スロットが足りないときは、セッションは拒否されず `queued` で待ちます。セッションのコストとトークンの上限はリクエストを拒否せず、超えたあとにセッションの `attention` の `BUDGET_EXCEEDED` と、`/usage` の `budget_exceeded: true` として現れます(8 節)。409 `IDEMPOTENCY_CONFLICT` は、同じ key で異なるボディを送ったことを示します。
+**よくあるエラー.** 422 `UNSUPPORTED_CAPABILITY` は、モデルかリポジトリの選択が不正です。モデルがリリースの接続の一覧にないと、メッセージは `Model <model> is not on the model list of connection <id>; …` です。409 `RELEASE_SPEC_UNAVAILABLE` は、リリースの接続が無効になったか、モデルが接続の一覧から外れたことを意味し、別の接続かモデルでリリースを作り直します。`repository_id: null` は省略ではなく 400 です。`createSession` は契約上 429 `RATE_LIMITED` を返すことがあるので、あとで再試行します。入力キューの上限はメッセージの追加に適用されます(4 節)。保存容量の上限は 413 `STORAGE_LIMIT_EXCEEDED` として現れ、`/v1/limits` を見ます。実行スロットが足りないとき、セッションは拒否されず `queued` で待ちます。セッションのコストと token の上限はリクエストを拒否せず、超えたあとでセッションの `attention` の `BUDGET_EXCEEDED` と `/usage` の `budget_exceeded: true` に現れます(8 節)。409 `IDEMPOTENCY_CONFLICT` なら、同じキーに別の本文を送っています。
 
 ## 3. pending-requests で承認と質問に答える
 
@@ -259,22 +258,6 @@ wait_for "/v1/receipts/$(echo "$terminate" | jq -r .receipt_id)" .status succeed
 
 **よくあるエラー.** 409 `TURN_NOT_STARTED` は、interrupt の対象がまだ queued です。409 `REVISION_CONFLICT` のときは、セッションを読み直し、ユーザーの意図がまだ有効かを判断して、新しい revision で再試行します。409 `RECOVERY_REQUIRED` のときは、次の節の判断を先に行います。
 
-### 実行中セッションの profile を変える
-
-OpenAPI: [`changeSessionProfile`](/reference/http-api/session-control/changeSessionProfile)
-
-セッションは、作成時に選んだ profile で動きます。会話を続けたままモデル、ツール、プロバイダーを変えるには、`POST /v1/sessions/{id}/profile` に `expected_revision` と新しい `profile_id` を送ります。権限は pause や resume と同じです(`control` scope で、セッションが見える人)。レスポンスは、すでに `succeeded` の receipt を持つ 200 で、receipt の `result` に `previous_profile_id` と `profile_id` が残ります。セッションの `revision` は 1 上がります。
-
-```sh
-curl -sS "$API/v1/sessions/$SID/profile" "${AUTH[@]}" \
-  -H "Idempotency-Key: $(uuidgen)" \
-  --data "$(jq -nc --argjson revision "$(revision)" '{expected_revision:$revision, profile_id:"claude-coding-haiku"}')"
-```
-
-すでに実行中の turn は、始まったときの profile で終わります。その後に届いた入力は、新しい profile の worker が処理し、同じエンジン会話を最後のチェックポイントから復元します。turn の読み取りの `attempts[].profile_id` で、どの turn がどの profile で動いたかが分かります。同じ profile への変更は何も変えず、receipt だけを残します。
-
-**よくあるエラー.** 422 `UNSUPPORTED_CAPABILITY` は、新しい profile がカタログにない、セッションのリポジトリと組にならない(リポジトリなしで作ったセッションに、`repository_mode` が `required` の新しい profile。ワークスペースの上限が決める profile は例外)、runtime の種類やバージョンが違う(チェックポイントを復元できない)、課金方式(`provider.billing`)が違う、またはセッションの現在の profile がカタログから外れたか別の構成に変わって runtime を比べられない、のいずれかです。409 `RELEASE_PROFILE_MISMATCH` は、セッションがエージェントのリリースから作られたので、profile はリリースが決めます。409 `REVISION_CONFLICT` のときは、セッションを読み直します。
-
 ### セッションを終える: close、terminate、recovery close
 
 OpenAPI: [`closeSession`](/reference/http-api/session-control/closeSession)、[`terminateSession`](/reference/http-api/session-control/terminateSession)、[`decideSessionRecovery`](/reference/http-api/recovery/decideSessionRecovery)
@@ -303,7 +286,7 @@ close は pause と同じように drain します。worker が付いた `active
 close_session=$(curl -sS "$API/v1/sessions" "${AUTH[@]}" \
   -H "Idempotency-Key: $(uuidgen)" \
   --data "$(jq -nc --arg message 'GATE-SPEC {"id":"guide-close","steps":[],"final":"work is done"}' \
-    '{profile_id:"claude-coding-local", repository_id:"sample-app", message:$message}')")
+    '{agent_release_id:env.WERFT_AGENT_RELEASE_ID, repository_id:"sample-app", message:$message}')")
 CSID=$(echo "$close_session" | jq -r .session_id)
 wait_for "/v1/sessions/$CSID/turns/1" .status completed
 
@@ -373,7 +356,7 @@ OpenAPI: [`getSessionUsage`](/reference/http-api/sessions/getSessionUsage)、[`g
 
 **目標.** セッションごとのプロバイダーコストの推定と入力キューの状態、一定期間に自分が始めたセッションの合計、実行スロット・ストレージ・turn に関するインストール全体の上限を読みます。
 
-**手順.** セッションごとの `/usage`、期間の合計 `/v1/usage/summary`、インストールごとの `/v1/limits` を別々に読みます。`/v1/limits` と `scope=installation` を読めるのは、ログインしたワークスペース owner(Web コンソールの cookie)だけです。API key は 403 です。1 つのエージェントの合計は `scope=agent&agent_id=…` で読み、読めるのは、ワークスペースの owner と admin、そのエージェントの管理者だけです(API key は 403、別のワークスペースのエージェントは 404)。メンバーは `GET /v1/limits?scope=me` で、セッションごとの 4 つの上限だけを読みます。期間の合計を profile ごとに分けるには `group_by=profile`(セッションの現在の profile 別)を付けます。コストはプラットフォームの価格表から計算した推定で、請求ではなく、`cost.complete` が false なら、まだ開いている turn か欠けている報告があり、本当の合計は分かりません。`/v1/limits` の `usage.outputs.used_bytes` は、保持されているセッション出力のバイト数で、`usage.storage` とは別に数えられ、上限の強制には使われません。`outputs.complete` が false なら、出力が記録される前のチェックポイントが残っていて、その分が合計から欠けています。
+**手順.** セッションごとの `/usage`、期間の合計 `/v1/usage/summary`、インストールごとの `/v1/limits` を別々に読みます。`/v1/limits` と `scope=installation` を読めるのは、ログインしたワークスペース owner(Web コンソールの cookie)だけです。API key は 403 です。1 つのエージェントの合計は `scope=agent&agent_id=…` で読み、読めるのは、ワークスペースの owner と admin、そのエージェントの管理者だけです(API key は 403、別のワークスペースのエージェントは 404)。メンバーは `GET /v1/limits?scope=me` で、セッションごとの 4 つの上限だけを読みます。コストはプラットフォームの価格表から計算した推定で、請求ではなく、`cost.complete` が false なら、まだ開いている turn か欠けている報告があり、本当の合計は分かりません。`/v1/limits` の `usage.outputs.used_bytes` は、保持されているセッション出力のバイト数で、`usage.storage` とは別に数えられ、上限の強制には使われません。`outputs.complete` が false なら、出力が記録される前のチェックポイントが残っていて、その分が合計から欠けています。
 
 ```bash
 usage=$(curl -sS "$API/v1/sessions/$SID/usage" "${AUTH[@]}")
@@ -387,7 +370,7 @@ echo "$summary" | jq -e '.scope == "me" and .basis.sessions == "created_in_perio
 curl -sS -o /dev/null -w '%{http_code}\n' "$API/v1/limits" "${AUTH[@]}" | grep -qx 403
 ```
 
-**期待するレスポンス.** セッションのレスポンスは、`cost.amount_usd`、`complete`、報告済み・未報告・開いている turn の数、コストの上限、プロバイダートークンの累計(`token_count`)とトークンの上限(`token_limit`)、キュー内の入力の数を返します。`token_limit` が null なら、そのインストールにはトークンの上限がありません。`budget_exceeded` は、コストかトークンのどちらかの上限に達したら true です。セッションの profile が課金なし(`billing: none`)を宣言していれば、`cost.kind` は `"unmetered"` で、コストは増えず、コストの上限はそのセッションに適用されないので `cost_limit_usd` は null ですが、トークンの上限は引き続き適用されます([設定リファレンス](/run-server/self-hosting/operate/configuration#課金のないprofilebilling-none))。合計のレスポンスは、期間(`period`、UTC)に作られたセッションの数、コストの合計(`cost_usd`、各セッションの `cost.amount_usd` の合計)、どれかが不完全なら false になる `cost_complete`、トークンの合計、turn のウォールクロック時間の合計(`run_seconds`)を返します。個人 key は、その作成者が作ったセッションを合計し、作成者のいない key は、その key が始めたセッションを合計します。共有されたセッションは加算しません。owner が読むインストールのレスポンスには、設定された上限(`session_token_limit` を含む)と、現在の実行スロット、キュー内の入力、ストレージ使用量があります。
+**期待するレスポンス.** セッションのレスポンスは、`cost.amount_usd`、`complete`、報告済み・未報告・開いている turn の数、コストの上限、プロバイダートークンの累計(`token_count`)とトークンの上限(`token_limit`)、キュー内の入力の数を返します。`token_limit` が null なら、そのインストールにはトークンの上限がありません。`budget_exceeded` は、コストかトークンのどちらかの上限に達したら true です。セッションの接続が課金なし(`billing: none`)を宣言していれば、`cost.kind` は `"unmetered"` で、コストは増えず、コストの上限はそのセッションに適用されないので `cost_limit_usd` は null ですが、トークンの上限は引き続き適用されます([設定リファレンス](/run-server/self-hosting/model-connections))。合計のレスポンスは、期間(`period`、UTC)に作られたセッションの数、コストの合計(`cost_usd`、各セッションの `cost.amount_usd` の合計)、どれかが不完全なら false になる `cost_complete`、トークンの合計、turn のウォールクロック時間の合計(`run_seconds`)を返します。個人 key は、その作成者が作ったセッションを合計し、作成者のいない key は、その key が始めたセッションを合計します。共有されたセッションは加算しません。owner が読むインストールのレスポンスには、設定された上限(`session_token_limit` を含む)と、現在の実行スロット、キュー内の入力、ストレージ使用量があります。
 
 **よくあるエラー.** 404 `NOT_FOUND` は、セッションが存在しないか、現在の owner から見えません。403 `FORBIDDEN` は、owner でない呼び出し元が `/v1/limits` か `scope=installation` を読みました。400 は、`since` がない、オフセットのない時刻、`since` より前の `until` です。`complete: false` をコストゼロと読まないでください。503 のときは、DB と使用量の集計を含むインストールの状態を確認します。
 

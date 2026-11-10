@@ -1,5 +1,6 @@
 # 결정: 파일 카탈로그를 없애고 설치 설정을 DB와 콘솔로 옮긴다
 
+- 후속(2026-11-11): 실행 프로필은 통째로 지웠다(migration `0264_remove_profiles`, 기존 데이터는 이전하지 않고 지움). 이 문서의 프로필·상한·롤아웃 언급은 그때의 기록이다. 지금은 에이전트 release가 provider 연결과 카드 모델로 실행 spec(런타임·도구·권한 모드)을 고정하고, 묻기·막기 규칙은 워크스페이스와 에이전트의 실행 규칙(`workspace_engine_settings`, `agent_engine_settings`)이 정한다.
 - 상태: **확정(2026-11-02).** 오너 원문: "카탈로그 변경은 추천대로 진행해줘". 끝의 "오너 결정" 1~6이 그 내용이다.
 - 대체: [repository-catalog-db.md](repository-catalog-db.md)의 `repositories.yaml` 읽기(시드, 비밀값 저장소 파일 보관)와 콘솔 저장소 추가·제거(5절), [profile-db.md](profile-db.md)의 설정 파일(`profiles.yaml` 시드, `connections.yaml`) 읽기와 `repository_ids` 나열만으로 하는 저장소 허용(1.1절 `installed`).
 - 기준 커밋: `origin/main` `d90b26731`. `파일:줄`은 모두 이 커밋 기준이다. JeongJaeSoon/agent-platform#992(이 문서를 쓴 뒤 `c0b27e605`로 land)의 내용은 그 브랜치 기준이라고 따로 적는다.

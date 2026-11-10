@@ -109,7 +109,7 @@ checkpoint 객체의 version 고정과 복원 뒤 재고정은 [backup-restore.m
 
 ## SDK와 LiteLLM 방향
 
-`@anthropic-ai/claude-agent-sdk`는 `packages/adapters/runtimes/claude/src/{runtime,run}.ts` 안에서만 직접 호출한다. provider는 Anthropic 직접 연결 또는 승인된 LiteLLM Anthropic Messages endpoint를 거쳐 **Claude 모델**로 연결하는 profile로 분리하며, endpoint와 model alias를 allowlist로 검증한다. LiteLLM은 필수 서비스가 아니며 non-Claude 모델 호환은 지원 범위가 아니다. profile의 endpoint·model 설정은 [api-server.md § 운영자 카탈로그](../operator/api-server.md#운영자-카탈로그-agent-profile--repository)에 있다.
+`@anthropic-ai/claude-agent-sdk`는 `packages/adapters/runtimes/claude/src/{runtime,run}.ts` 안에서만 직접 호출한다. provider는 Anthropic 직접 연결 또는 승인된 LiteLLM Anthropic Messages endpoint를 거쳐 **Claude 모델**로 연결하는 모델 연결로 분리하며, endpoint와 model alias를 allowlist로 검증한다. LiteLLM은 필수 서비스가 아니며 non-Claude 모델 호환은 지원 범위가 아니다. 연결의 endpoint·model 설정은 [api-server.md § 운영자 카탈로그](../operator/api-server.md#운영자-카탈로그-모델-연결--repository)에 있다.
 
 검증은 adapter fake, 실제 SDK + local fake Messages API, 실제 LiteLLM proxy + local fake upstream, 별도 승인된 paid Claude smoke를 구분한다. 제품 adapter의 direct-local suite는 SDK 0.3.270과 번들 Claude Code 2.1.270을 확인한다. 호환 harness(`scripts/agent-sdk-compat`)의 transport suite는 LiteLLM 1.100.1의 header·cache·error·timeout·cancel 전달을 별도로 확인한다. 제품 경로(빌드한 이미지의 worker·scheduler·API)는 `tests/e2e`가 확인한다. 각 명령은 [development.md](development.md)에 있다.
 

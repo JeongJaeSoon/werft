@@ -67,25 +67,24 @@ curl -sS "$API/v1" "${AUTH[@]}" | jq -e '.owner_id != null'
 
 **흔한 오류.** 401 `UNAUTHORIZED`면 key가 비었거나 다른 설치에서 발급됐다. 403 `FORBIDDEN`이면 호출할 operation의 scope가 빠졌다. key를 로그나 문서에 붙이지 말고 환경 변수나 secret manager로 전달한다.
 
-## 2. 세션 만들기: profile·repository 선택
+## 2. 세션 만들기: release·repository 선택
 
 OpenAPI: [`createSession`](/reference/http-api/sessions/createSession), [`getSession`](/reference/http-api/sessions/getSession)
 
-**목적.** 실행 profile과 repository를 명시해 세션과 첫 turn을 내구적으로 접수한다.
+**목적.** 에이전트 release와 repository를 명시해 세션과 첫 turn을 내구적으로 접수한다.
 
-**순서.** 고를 수 있는 profile과 그 모델은 `GET /v1/profiles`(`listProfiles`)로 본다. `profile_id`, `repository_id`, 첫 `message`를 보내고, 응답의 `session_id`와 `turn_id`를 저장한다. 이 예시는 다음 절에서 승인 요청을 보여 주기 위해 파일 쓰기 도구를 호출하는 fake 대본을 쓴다. 실제 Claude 스택(`scripts/local.sh up`)에서는 `profile_id`가 `claude-coding-real`이고 `message`는 자유 문장이다. 선택 필드 `model`로 profile이 허용한 모델(카탈로그의 `model`이나 `models`) 중 하나를 고를 수 있다. 생략하면 profile의 기본 `model`로 돌고, 고른 모델은 `GET /v1/sessions/{id}`의 `runtime.model`에 나온다. 세션의 profile을 바꾸면(`POST /v1/sessions/{id}/profile`) 그 뒤로는 새 profile의 기본 `model`로 돈다.
+**순서.** 세션은 언제나 에이전트 release로 만든다([만들기](/agents/create)). `agent_release_id`, `repository_id`, 첫 `message`를 보내고, 응답의 `session_id`와 `turn_id`를 저장한다. 이 예시는 다음 절에서 승인 요청을 보여 주기 위해 파일 쓰기 도구를 호출하는 fake 대본을 쓴다. 실제 Claude 스택(`scripts/local.sh up`)에서는 실제 Anthropic 연결로 만든 release를 쓰고 `message`는 자유 문장이다. 선택 필드 `model`로 release의 연결이 제공하는 모델 중 하나를 고를 수 있다. 생략하면 release 카드의 모델로 돌고, 고른 모델은 `GET /v1/sessions/{id}`의 `runtime.model`에 나온다.
 
-목록에는 운영자 profile(`source: operator`)과, 워크스페이스 owner·admin이 콘솔에서 좁혀 만든 판(`source: workspace`, id가 `ws_`로 시작)이 함께 나온다. 워크스페이스 판은 `workspace.state`가 `usable`일 때만 새 세션에 쓸 수 있다. 규칙은 [운영자 문서](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#워크스페이스-프로필-콘솔에서-좁힌-profile)에 있다.
 
-`repository_id`를 보낼지는 profile의 `repository_mode`(`GET /v1/profiles`)가 정한다. `required`면 꼭 보내고(GitHub 설정이 있는 에이전트의 세션과 워크스페이스 상한이 정하는 profile은 빼도 저장소 없이 시작한다), `none`이면 보내지 않으며, `optional`이면 둘 다 된다. 시작 저장소가 없는 세션은 빈 작업 디렉터리에서 시작하고, 세션 조회의 `repository_id`가 `null`이다. 저장소가 없으므로 push 요청은 409 `PUSH_SOURCE_MISSING`이고, `optional` profile이 저장소의 CLAUDE.md를 읽게 해 두었어도 이 세션에서는 읽지 않는다. 에이전트 release로 만든 세션에서 `repository_id`를 빼면 GitHub 설정이 있는 에이전트는 저장소 없이 시작하고 필요한 저장소만 붙인다(설정이 없는 옛 에이전트는 release의 저장소로 시작한다. [저장소 없는 세션](/sessions/without-repository)). fake-model 스택에서는 `general` profile이 저장소 없이 돈다. 그 생성 body는 다음과 같다.
+`repository_id`는 선택이다. 보내면 워크스페이스 상한과 에이전트의 GitHub 설정 안이어야 한다. 시작 저장소가 없는 세션은 빈 작업 디렉터리에서 시작하고, 세션 조회의 `repository_id`가 `null`이다. 저장소가 없으므로 push 요청은 409 `PUSH_SOURCE_MISSING`이고, 저장소의 CLAUDE.md도 읽지 않는다. `repository_id`를 빼면 GitHub 설정이 있는 에이전트는 저장소 없이 시작하고 필요한 저장소만 붙인다(설정이 없는 옛 에이전트는 release의 저장소로 시작한다. [저장소 없는 세션](/sessions/without-repository)). 저장소 없이 만드는 생성 body는 다음과 같다.
 
 ```json
-{ "profile_id": "general", "message": "회의 메모를 세 줄로 요약해 줘." }
+{ "agent_release_id": "sha256:…", "message": "회의 메모를 세 줄로 요약해 줘." }
 ```
 
 ```bash
 CREATE_BODY=$(jq -nc --arg message 'GATE-SPEC {"id":"guide-permission","steps":[{"tool":"Bash","input":{"command":"echo guide | tee api-guide.txt","description":"write api-guide.txt"}}],"final":"wrote api-guide.txt"}' \
-  '{profile_id:"claude-coding-local", repository_id:"sample-app", message:$message}')
+  '{agent_release_id:env.WERFT_AGENT_RELEASE_ID, repository_id:"sample-app", message:$message}')
 CREATE_KEY=$(uuidgen)
 created=$(curl -sS "$API/v1/sessions" "${AUTH[@]}" \
   -H "Idempotency-Key: $CREATE_KEY" --data "$CREATE_BODY")
@@ -107,7 +106,7 @@ curl -sS -X PATCH "$API/v1/sessions/$SID" "${AUTH[@]}" \
   --data '{"title":"권한 요청 예시 세션"}' | jq '{id, title, revision}'
 ```
 
-**흔한 오류.** 422 `UNSUPPORTED_CAPABILITY`는 profile 또는 repository 선택이 유효하지 않다는 뜻이다. `required` profile에 `repository_id`가 없으면(위 예외인 세션 제외) 메시지가 `Profile <id> needs a repository: send repository_id`이고, `none` profile에 보내면 `Profile <id> runs without a repository: omit repository_id`다. `repository_id: null`은 생략이 아니라 400이다. `createSession`은 계약상 429 `RATE_LIMITED`를 반환할 수 있으므로 나중에 재시도한다. 입력 queue 상한은 메시지 추가에 적용된다(4절). 저장소 상한은 413 `STORAGE_LIMIT_EXCEEDED`로 나타나며 `/v1/limits`를 본다. 실행 slot이 모자라면 세션은 거절되지 않고 `queued`로 기다린다. 세션 비용·token 상한은 요청을 거절하지 않고, 넘은 뒤 세션 `attention`의 `BUDGET_EXCEEDED`와 `/usage`의 `budget_exceeded: true`로 나타난다(8절). 409 `IDEMPOTENCY_CONFLICT`면 같은 key에 다른 본문을 보냈다.
+**흔한 오류.** 422 `UNSUPPORTED_CAPABILITY`는 모델이나 repository 선택이 유효하지 않다는 뜻이다. 모델이 release 연결의 목록에 없으면 메시지가 `Model <model> is not on the model list of connection <id>; …`이다. 409 `RELEASE_SPEC_UNAVAILABLE`은 release의 연결이 꺼졌거나 모델이 연결 목록에서 빠졌다는 뜻이고, 다른 연결이나 모델로 release를 다시 만든다. `repository_id: null`은 생략이 아니라 400이다. `createSession`은 계약상 429 `RATE_LIMITED`를 반환할 수 있으므로 나중에 재시도한다. 입력 queue 상한은 메시지 추가에 적용된다(4절). 저장소 상한은 413 `STORAGE_LIMIT_EXCEEDED`로 나타나며 `/v1/limits`를 본다. 실행 slot이 모자라면 세션은 거절되지 않고 `queued`로 기다린다. 세션 비용·token 상한은 요청을 거절하지 않고, 넘은 뒤 세션 `attention`의 `BUDGET_EXCEEDED`와 `/usage`의 `budget_exceeded: true`로 나타난다(8절). 409 `IDEMPOTENCY_CONFLICT`면 같은 key에 다른 본문을 보냈다.
 
 ## 3. pending-requests의 승인·질문에 답하기
 
@@ -261,22 +260,6 @@ wait_for "/v1/receipts/$(echo "$terminate" | jq -r .receipt_id)" .status succeed
 
 **흔한 오류.** 409 `TURN_NOT_STARTED`면 interrupt 대상이 아직 queued다. 409 `REVISION_CONFLICT`면 세션을 다시 읽고 사용자의 의도가 여전히 유효한지 판단한 뒤 새 revision으로 재시도한다. 409 `RECOVERY_REQUIRED`면 다음 절의 결정을 먼저 한다.
 
-### 진행 중인 세션의 프로필 바꾸기
-
-OpenAPI: [`changeSessionProfile`](/reference/http-api/session-control/changeSessionProfile)
-
-세션은 만들 때 고른 프로필로 돈다. 대화를 이어 가면서 모델·도구·provider를 바꾸려면 `POST /v1/sessions/{id}/profile`에 `expected_revision`과 새 `profile_id`를 보낸다. 권한은 pause·resume과 같다(`control` scope, 세션을 볼 수 있는 사람). 응답은 200과 이미 `succeeded`인 receipt이고, receipt `result`에 `previous_profile_id`와 `profile_id`가 남는다. 세션 `revision`은 1 오른다.
-
-```sh
-curl -sS "$API/v1/sessions/$SID/profile" "${AUTH[@]}" \
-  -H "Idempotency-Key: $(uuidgen)" \
-  --data "$(jq -nc --argjson revision "$(revision)" '{expected_revision:$revision, profile_id:"claude-coding-haiku"}')"
-```
-
-이미 돌고 있는 turn은 시작한 프로필로 끝난다. 그 뒤 들어오는 입력은 새 프로필의 worker가 마지막 checkpoint에서 같은 engine 대화를 복원해 처리한다. 어느 turn이 어떤 프로필로 돌았는지는 turn 조회의 `attempts[].profile_id`로 본다. 같은 프로필로 바꾸면 아무것도 바뀌지 않고 receipt만 남는다.
-
-**흔한 오류.** 422 `UNSUPPORTED_CAPABILITY`는 새 프로필이 카탈로그에 없거나, 세션의 repository와 짝이 아니거나(저장소 없이 만든 세션이면 새 프로필의 `repository_mode`가 `required`이거나. 워크스페이스 상한이 정하는 프로필은 예외), runtime 종류·버전이 다르거나(checkpoint를 복원할 수 없다), 과금 방식(`provider.billing`)이 다를 때, 또는 세션의 지금 프로필이 카탈로그에서 빠졌거나 다른 설정으로 바뀌어 runtime을 비교할 수 없을 때다. 409 `RELEASE_PROFILE_MISMATCH`는 agent release로 만든 세션이라 프로필을 release가 정한다는 뜻이다. 409 `REVISION_CONFLICT`면 세션을 다시 읽는다.
-
 ### 세션 끝내기: close·terminate·recovery close
 
 OpenAPI: [`closeSession`](/reference/http-api/session-control/closeSession), [`terminateSession`](/reference/http-api/session-control/terminateSession), [`decideSessionRecovery`](/reference/http-api/recovery/decideSessionRecovery)
@@ -305,7 +288,7 @@ close는 pause와 같은 방식으로 drain한다. worker가 붙은 `active` 세
 close_session=$(curl -sS "$API/v1/sessions" "${AUTH[@]}" \
   -H "Idempotency-Key: $(uuidgen)" \
   --data "$(jq -nc --arg message 'GATE-SPEC {"id":"guide-close","steps":[],"final":"work is done"}' \
-    '{profile_id:"claude-coding-local", repository_id:"sample-app", message:$message}')")
+    '{agent_release_id:env.WERFT_AGENT_RELEASE_ID, repository_id:"sample-app", message:$message}')")
 CSID=$(echo "$close_session" | jq -r .session_id)
 wait_for "/v1/sessions/$CSID/turns/1" .status completed
 
@@ -375,7 +358,7 @@ OpenAPI: [`getSessionUsage`](/reference/http-api/sessions/getSessionUsage), [`ge
 
 **목적.** 세션의 추정 provider 비용과 입력 queue 상태, 기간 동안 내가 시작한 세션의 합계, 설치 전체의 실행 slot·저장소·turn 상한을 읽는다.
 
-**순서.** 세션별 `/usage`, 기간 합계 `/v1/usage/summary`, 설치별 `/v1/limits`를 각각 읽는다. `/v1/limits`와 `scope=installation`은 로그인한 workspace owner만 읽는다(웹 콘솔의 cookie). API key는 403이다. 에이전트 하나의 합계는 `scope=agent&agent_id=…`로 읽고, workspace owner·admin과 그 에이전트의 관리자만 읽는다(API key는 403, 다른 workspace의 에이전트는 404). 구성원은 `GET /v1/limits?scope=me`로 세션 단위 한도 네 개만 읽고, 기간 합계를 프로필별로 나누려면 `group_by=profile`을 더한다(세션의 현재 프로필 기준). 비용은 청구액이 아니라 platform 가격표로 계산한 추정치이며, `cost.complete`가 false면 아직 열린 turn이 있거나 보고가 빠져 실제 합계를 알 수 없다. `/v1/limits`의 `usage.outputs.used_bytes`는 보존 중인 세션 성과물의 바이트로, `usage.storage`와 따로 세고 상한 집행에 쓰지 않는다. `outputs.complete`가 false면 성과물을 기록하기 전 checkpoint가 남아 그만큼 빠져 있다.
+**순서.** 세션별 `/usage`, 기간 합계 `/v1/usage/summary`, 설치별 `/v1/limits`를 각각 읽는다. `/v1/limits`와 `scope=installation`은 로그인한 workspace owner만 읽는다(웹 콘솔의 cookie). API key는 403이다. 에이전트 하나의 합계는 `scope=agent&agent_id=…`로 읽고, workspace owner·admin과 그 에이전트의 관리자만 읽는다(API key는 403, 다른 workspace의 에이전트는 404). 구성원은 `GET /v1/limits?scope=me`로 세션 단위 한도 네 개만 읽고 비용은 청구액이 아니라 platform 가격표로 계산한 추정치이며, `cost.complete`가 false면 아직 열린 turn이 있거나 보고가 빠져 실제 합계를 알 수 없다. `/v1/limits`의 `usage.outputs.used_bytes`는 보존 중인 세션 성과물의 바이트로, `usage.storage`와 따로 세고 상한 집행에 쓰지 않는다. `outputs.complete`가 false면 성과물을 기록하기 전 checkpoint가 남아 그만큼 빠져 있다.
 
 ```bash
 usage=$(curl -sS "$API/v1/sessions/$SID/usage" "${AUTH[@]}")
@@ -389,7 +372,7 @@ echo "$summary" | jq -e '.scope == "me" and .basis.sessions == "created_in_perio
 curl -sS -o /dev/null -w '%{http_code}\n' "$API/v1/limits" "${AUTH[@]}" | grep -qx 403
 ```
 
-**기대 응답.** 세션 응답은 `cost.amount_usd`, `complete`, 보고/미보고/open turn 수, 비용 상한, 누적 provider token 수(`token_count`)와 token 상한(`token_limit`), queued input 수를 준다. `token_limit`이 null이면 설치에 token 상한이 없다. `budget_exceeded`는 비용과 token 중 어느 상한에든 닿으면 true다. 세션의 profile이 과금 없음(`billing: none`)을 선언했으면 `cost.kind`가 `"unmetered"`다. 이때 비용은 늘지 않고 비용 상한이 그 세션에 적용되지 않아 `cost_limit_usd`가 null이지만, token 상한은 그대로 걸린다([설정 레퍼런스](/run-server/self-hosting/operate/configuration#과금-없는-profile-billing-none)). 합계 응답은 기간(`period`, UTC)에 만든 세션의 수, 비용 합(`cost_usd`, 각 세션 `cost.amount_usd`의 합), 그 가운데 하나라도 미완이면 false인 `cost_complete`, token 합, turn 벽시계 시간 합(`run_seconds`)을 준다. 개인 key는 만든 사람의 세션을, 만든 사람이 없는 key는 그 key가 시작한 세션을 더한다. 공유받은 세션은 더하지 않는다. owner가 읽는 설치 응답은 설정된 상한(`session_token_limit` 포함)과 현재 execution slot·queued input·저장소 사용량을 준다.
+**기대 응답.** 세션 응답은 `cost.amount_usd`, `complete`, 보고/미보고/open turn 수, 비용 상한, 누적 provider token 수(`token_count`)와 token 상한(`token_limit`), queued input 수를 준다. `token_limit`이 null이면 설치에 token 상한이 없다. `budget_exceeded`는 비용과 token 중 어느 상한에든 닿으면 true다. 세션의 연결이 과금 없음(`billing: none`)을 선언했으면 `cost.kind`가 `"unmetered"`다. 이때 비용은 늘지 않고 비용 상한이 그 세션에 적용되지 않아 `cost_limit_usd`가 null이지만, token 상한은 그대로 걸린다([설정 레퍼런스](/run-server/self-hosting/model-connections)). 합계 응답은 기간(`period`, UTC)에 만든 세션의 수, 비용 합(`cost_usd`, 각 세션 `cost.amount_usd`의 합), 그 가운데 하나라도 미완이면 false인 `cost_complete`, token 합, turn 벽시계 시간 합(`run_seconds`)을 준다. 개인 key는 만든 사람의 세션을, 만든 사람이 없는 key는 그 key가 시작한 세션을 더한다. 공유받은 세션은 더하지 않는다. owner가 읽는 설치 응답은 설정된 상한(`session_token_limit` 포함)과 현재 execution slot·queued input·저장소 사용량을 준다.
 
 **흔한 오류.** 404 `NOT_FOUND`면 세션이 없거나 현재 owner에게 보이지 않는다. 403 `FORBIDDEN`은 owner가 아닌 호출자가 `/v1/limits`나 `scope=installation`을 읽었다는 뜻이다. 400은 `since`가 없거나 offset 없는 시각이거나 `until`이 `since`보다 앞설 때다. `complete: false`를 0원으로 해석하지 않는다. 503이면 DB나 사용량 집계를 포함한 설치 상태를 확인한다.
 

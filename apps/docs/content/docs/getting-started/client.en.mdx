@@ -39,7 +39,7 @@ const approver = werft.withOptions({
 });
 ```
 
-An agent key creates sessions with its agent's `agent_release_id` instead of `profile_id` and `repository_id`. The agent key needs `sessions:read`, `sessions:write` and `sessions:control`, the approver key needs `sessions:read` and `sessions:approve`, and the approver must be in the session's sharing scope. The settings and real output are in the [sample README](https://github.com/JeongJaeSoon/werft/blob/main/examples/sdk-approver/README.md).
+An agent key creates sessions with its own agent's `agent_release_id`. The agent key needs `sessions:read`, `sessions:write` and `sessions:control`, the approver key needs `sessions:read` and `sessions:approve`, and the approver must be in the session's sharing scope. The settings and real output are in the [sample README](https://github.com/JeongJaeSoon/werft/blob/main/examples/sdk-approver/README.md).
 
 ## Errors
 
@@ -91,10 +91,10 @@ The error codes are listed per operation in the [HTTP API reference](/reference/
 | `sessions.turns.get` · `list` | Read turns | [Send](/messages/send) |
 | `sessions.events.stream` | Event stream | [Receiving a stream](/messages/streaming) |
 | `sessions.requests.list` · `answer` | Permission requests and questions | [Waiting for approval and resuming](/sessions/waiting-and-resume) |
-| `sessions.interrupt` · `pause` · `resume` · `terminate` · `close` · `changeProfile` | Control | [Status and lifecycle](/sessions/lifecycle), [Close](/sessions/close) |
+| `sessions.interrupt` · `pause` · `resume` · `terminate` · `close` | Control | [Status and lifecycle](/sessions/lifecycle), [Close](/sessions/close) |
 | `sessions.recoveryDecisions.create` | Recovery decisions | [Status and lifecycle](/sessions/lifecycle) |
 | `sessions.pushRequests.create` · `list` · `get` · `approve` · `reject` · `openPullRequest` · `commentPullRequest` | Push approval and PRs | [Request](/approvals/request) |
-| `receipts.get`, `auth.me`, `limits.get`, `profiles.list`, `root.get` | Receipts, who you are, limits, profiles, status | [receipt](/approvals/receipt) |
+| `receipts.get`, `auth.me`, `limits.get`, `root.get` | Receipts, who you are, limits, status | [receipt](/approvals/receipt) |
 
 `await` on `sessions.list` or `turns.list` gives the first page, and `for await` gives every item. Field names are snake_case, as in the HTTP API. APIs that only a web login can call, such as managing agents, members and keys, are not wrapped. `limits.get` is readable only by a logged-in workspace owner, so with an API key it returns 403.
 

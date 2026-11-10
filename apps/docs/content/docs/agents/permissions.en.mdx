@@ -3,11 +3,11 @@ title: "Permissions"
 description: The tools an agent can use, human approval, and the people who administer an agent and its credential bindings
 ---
 
-An agent's permissions have three layers: the tools and permission mode set by the profile, the permission requests that a person answers, and the people who administer the agent and connect credential names.
+An agent's permissions have three layers: the tools and permission mode a release pins plus the workspace's and the agent's run rules, the permission requests that a person answers, and the people who administer the agent and connect credential names.
 
-## Tools: set by the profile
+## Tools: set by the release and the run rules
 
-A session uses only the tools in the profile's `tools`. The built-in tools the profile blocks (`deny`) are not in `tools`. Tools outside it are denied without a permission request, and the model receives an error `tool_result`. What a profile blocks is in [Choose a profile](/agents/run-profiles#tool-deny-list). The script below calls `WebFetch`, which the local profile blocks (the local profile's `deny` is `["NotebookEdit","WebFetch","WebSearch"]`).
+A release pins every built-in tool of its connection's runtime (the release response's `effective_tools.tools`). Which of them to block is set by the workspace's and the agent's run rules. A tool on a deny list is denied without a permission request, and the model receives an error `tool_result`. The script below calls `WebFetch` after `WebFetch` was added to the workspace run rules' deny list.
 
 ```bash
 created=$(curl -sS "$API/v1/sessions" \
@@ -15,7 +15,7 @@ created=$(curl -sS "$API/v1/sessions" \
   -H 'Content-Type: application/json' \
   -H "Idempotency-Key: $(uuidgen)" \
   -d "$(jq -nc --arg m 'GATE-SPEC {"id":"outside","steps":[{"tool":"WebFetch","input":{"url":"https://example.com","prompt":"summarize"}}],"final":"done"}' \
-    '{profile_id: "claude-coding-local", repository_id: "sample-app", message: $m}')")
+    '{agent_release_id: env.WERFT_AGENT_RELEASE_ID, repository_id: "sample-app", message: $m}')")
 SID=$(echo "$created" | jq -r .session_id)
 until [ "$(curl -sS "$API/v1/sessions/$SID/turns/1" -H "Authorization: Bearer $KEY" | jq -r .status)" = completed ]; do
   sleep 2
@@ -32,38 +32,30 @@ curl: (28) Operation timed out after 5006 milliseconds with 4482 bytes received
 
 `curl: (28)` is `--max-time` cutting the stream.
 
-A session created from a release is narrower still: it uses only the tools pinned to that release. That list is the card's `capabilities.tools` (every tool the profile does not block at release time when `null`) minus `forbidden`, and the release response's `effective_tools.tools` shows it. If the card lists only `Read`, the session uses only `Read`, and other built-in tools are denied as above. A session created without a release uses all of the profile's tools.
+Two places block tools, with different reach. A session is held to the union of both.
 
-Two places block tools, with different reach.
-
-| | Profile `deny` | Card `capabilities.forbidden` |
+| | Workspace run rules | Agent run rules |
 | --- | --- | --- |
-| Who sets it | The owner for an operator profile, owners and admins for a workspace profile | The agent's admins |
-| Where it applies | Every session and release on that profile version | Sessions created from that agent's releases |
-| Names it takes | Built-in tool names only | Tool names |
-| A change takes effect | In a new profile version, from the releases and sessions made on it | From a new release |
+| Who sets them | Owners and admins (workspace settings → Run rules) | The agent's admins (agent page → Run rules) |
+| Where they apply | Every agent session in the workspace | That agent's sessions |
+| What they take | Allow, ask and deny lists, and the auto-mode lists | The same; an allow only works inside what the workspace allows |
+| A change takes effect | From the next claim; a session already started only gets the narrowing part | The same |
 
-A card cannot open a tool its profile blocks. Naming one in the card's `capabilities.tools` is refused when the release is made.
-
-<Callout type="warn">
-Previously the card's `tools` and `forbidden` were pinned to the release but not applied to execution. Now even a session already running on a release created before that is narrowed to the release's tools. This applies when the session's execution environment starts again (the next message after the environment has stopped following 30 minutes without input since the last turn ended, or a resume after a pause). The built-in tool values in the card's `tool_policy` (`allow`, `ask`, `deny`) are pinned to the release but are not applied to execution yet. Whether a tool asks before it runs is set by the permission mode below.
-</Callout>
-
-In a card's `tool_policy`, the default for built-in tools is `allow` and the default for MCP tools is `ask`. What makes a built-in tool ask a person before it runs is the permission mode, not this value. To keep a built-in tool from running at all, block it with the profile's `deny` or the card's `forbidden`.
+A card's `capabilities.forbidden` takes those tools out of that agent's releases. In a card's `tool_policy`, the default for MCP tools is `ask`. What makes a built-in tool ask a person before it runs is the permission mode and the run rules' ask list.
 
 ## Permission mode
 
-The profile's `permission_mode` decides whether a person is asked before a tool runs. It appears in `runtime.permission_mode` of the session detail.
+The `permission_mode` the release pinned decides whether a person is asked before a tool runs. It appears in `runtime.permission_mode` of the session detail.
 
 | Mode | Behavior |
 | --- | --- |
-| `default` | File writes and edits inside the session workspace, every `git` and `gh` command, `sed`, `mkdir` inside the workspace, and `bun`, `npm`, `pnpm` and `yarn` test and run run without asking. A command joined with `&&`, `;` or `\|` passes only when every part is in that range; one part outside makes the whole command a permission request. Writes outside the workspace (judged on the path after symlinks and `..` are resolved), secret, `.git` and `.claude` paths, `sed -i`, `git --output` and `--ext-diff` (which write a file or run a program), `git -C` at another repository, `git add -f`, `gh auth`, and other network tools such as `curl` create a permission request before running. `git` and `gh` do not ask, whatever the options: what stops harm is not a permission request but the workspace container isolation, the egress authorizer (push target, token scope) and GitHub branch protection. Reads that change nothing (`ls`, `cat`, `grep`, `find` and the like) run without asking inside the workspace, by the engine's own rules. The engine asks for a path outside the workspace and for `find -exec` or `-delete`; this list asks when a secret file name (`.env`, a key, `.git/config`) is on a `cat`, `head`, `tail`, `grep` or `rg` line, and for `rg -u` or `--hidden`, which search hidden files. It matches the name only, so `cat .e*` and `grep -r` get past it. This is the local profile's mode |
+| `default` | File writes and edits inside the session workspace, every `git` and `gh` command, `sed`, `mkdir` inside the workspace, and `bun`, `npm`, `pnpm` and `yarn` test and run run without asking. A command joined with `&&`, `;` or `\|` passes only when every part is in that range; one part outside makes the whole command a permission request. Writes outside the workspace (judged on the path after symlinks and `..` are resolved), secret, `.git` and `.claude` paths, `sed -i`, `git --output` and `--ext-diff` (which write a file or run a program), `git -C` at another repository, `git add -f`, `gh auth`, and other network tools such as `curl` create a permission request before running. `git` and `gh` do not ask, whatever the options: what stops harm is not a permission request but the workspace container isolation, the egress authorizer (push target, token scope) and GitHub branch protection. Reads that change nothing (`ls`, `cat`, `grep`, `find` and the like) run without asking inside the workspace, by the engine's own rules. The engine asks for a path outside the workspace and for `find -exec` or `-delete`; this list asks when a secret file name (`.env`, a key, `.git/config`) is on a `cat`, `head`, `tail`, `grep` or `rg` line, and for `rg -u` or `--hidden`, which search hidden files. It matches the name only, so `cat .e*` and `grep -r` get past it. This is the mode a release on a local, non-Anthropic connection runs |
 | `acceptEdits`, `dontAsk` | Runs in the Claude Code mode of the same name, with the same workspace pre-approvals and ask list as `default`. Secret, `.git` and `.claude` paths on that list ask in `acceptEdits` too |
 | `plan` | Runs in the Claude Code mode of the same name. Nothing is pre-approved |
 | `auto` | A model classifier allows or denies each call in place of a person, and denies it when the classifier cannot be reached. Needs no installation setting. One exception: the built-in GitHub tools for pushing, writing pull requests and reading repositories skip the classifier, and the server decides them (push approval, the release's tool list, the session grant). Reviews and workflows still go through the classifier. The platform adds rules by kind of action. The push, pull request and repository-read items in the allowance below are what the classifier sees only on an older worker that does not get this exception. Allowed: committing in the session's workspace and pushing through the platform's push flow to the session's own work branch (`agent/<session-id>`) in the session's own repository, opening a pull request from that branch and editing the title and body of, commenting on, closing or reopening a pull request the session opened, and listing granted repositories and attaching one to read it. Outside that allowance: pushing to the default branch, a protected branch or a branch the platform did not create, force pushes, merging or approving pull requests, submitting a review, editing, commenting on or closing a pull request the session did not open, pushing to any other repository, including one attached to the session, and secrets. Changing repository settings, branch protection, webhooks, deploy keys or Actions secrets, deleting branches or repositories on GitHub, and merging pull requests lean toward denial by any route |
-| `bypassPermissions` | Runs every call with nothing judging it. A profile with this mode is left out unless the API has `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS=true`, and only an owner or admin can pick it for a workspace profile |
+| `bypassPermissions` | Runs every call with nothing judging it. A new release never picks this mode |
 
-The mode exists only in the catalog and cannot be changed by a session request. A profile made in the console starts on `auto` when its base allows it. A profile already saved as `default` is not moved automatically. On a current worker, the push and pull request tools do not ask in any mode except `plan`, where the engine still asks as before. To stop the agent's engine tools such as Bash from asking, make an `auto` version and have the agent's next release use it. For an operator profile, the owner saves the permission mode as `auto` under **New version** on its detail page. A workspace profile cannot pick a mode wider than its base: if the base allows `auto`, save `auto` through **Edit**; if the base is `default`, make a new workspace profile over a base that allows `auto` (such as the `auto` operator profile version above). Sessions already running keep their mode. Push approval is separate from the mode: with push approval on, or the attached-repository push policy on `ask`, even an `auto` agent asks a person before every push to any repository. The agent's GitHub tab starts its first save with push approval off, but a release with no GitHub settings (such as one made before this setting existed) reads it as on. To push without approval, check on the GitHub tab that **Approve before push** is off and save. Even then a push goes without approval only if the attached-repository push policy (`allow`, `ask` or `deny`) is also `allow`. A `deny` policy blocks the push outright; otherwise a push to any repository follows the stricter of this switch and that policy. To have a person approve pushes, turn the switch on or set the policy to `ask`.
+The mode is pinned with the release and cannot be changed by a session request. Where the auto-mode classifier works on the connection (judged `supported` in Settings → Model connections, or an Anthropic connection nobody judged), a new release runs `auto`; otherwise `default`. After changing that judgment, make a new release for new sessions to get it. On a current worker, the push and pull request tools do not ask through the engine in any mode but `plan` (where the engine still asks as before). Sessions already running keep the mode they started with. Push approval is separate from the mode: with push approval on, or the attached-repository push policy on `ask`, even an `auto` agent asks a person before every push to any repository. The agent's GitHub tab starts its first save with push approval off, but a release with no GitHub settings (such as one made before this setting existed) reads it as on. To push without approval, check on the GitHub tab that **Approve before push** is off and save. Even then a push goes without approval only if the attached-repository push policy (`allow`, `ask` or `deny`) is also `allow`. A `deny` policy blocks the push outright; otherwise a push to any repository follows the stricter of this switch and that policy. To have a person approve pushes, turn the switch on or set the policy to `ask`.
 
 ## Approval: only a person does it
 

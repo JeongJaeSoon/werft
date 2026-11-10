@@ -243,7 +243,7 @@ sudo install -d -m 700 -o "$USER" /var/lib/werft/test-ops   # TEST_OPS_STATE_DIR
 
 ## 카탈로그
 
-`PLATFORM_SETTINGS_DOCUMENT`에 설정 문서 하나를 둔다. migrate가 `deploy`·`upgrade`마다 이 문서를 가져온다. 가져오기는 더하기만 하므로 이미 있는 항목은 그대로이고, 같은 id를 다른 내용으로 고치면 migrate가 실패해 새 release가 뜨지 않는다. 최상위 `profiles`와 저장소의 `profiles` 배열은 표가 빈 첫 `deploy` 때만 상한과 저장소 허용으로 들어가고, 그 뒤로는 고쳐도 DB가 바뀌지 않는다. migrate 컨테이너(uid 1000)가 읽을 수 있게 파일은 `0644`로 둔다. 문서에는 값이 아니라 참조만 적으므로 비밀이 없다. 기본 안내는 문서에 연결과 profile을 적지 않고 콘솔에서 만드는 것이다. 문서에 적는다면 provider는 실제 Messages API로, key는 `value_env: ANTHROPIC_API_KEY`로 적고, profile의 `provider`는 연결 하나와 똑같아야 돈다. 그런 연결을 콘솔에서 키를 넣는 방식(stored)으로 옮기면(모델 연결 행의 "화면에서 키 넣기") 연결 행은 stored로 바뀌고 옛 참조는 `provider_connections.replaces_auth`에 남는다. 그 위의 profile은 지문이 그대로라 계속 돌고, 문서가 옛 항목을 그대로 적고 있어도 가져오기는 DB 행을 둔다(`kept`). 옮긴 뒤에는 `ANTHROPIC_API_KEY`가 그 연결에 쓰이지 않는다. 이 열은 추가형이라 앞 이미지로 되돌려도 무시되지만, 되돌린 이미지는 옮긴 연결의 stored 정의를 `stored` 참조로 읽을 뿐 옛 env 참조로 돌아가지 않는다.
+`PLATFORM_SETTINGS_DOCUMENT`에 설정 문서 하나를 둔다. migrate가 `deploy`·`upgrade`마다 이 문서를 가져온다. 가져오기는 더하기만 하므로 이미 있는 항목은 그대로이고, 같은 id를 다른 내용으로 고치면 migrate가 실패해 새 release가 뜨지 않는다. migrate 컨테이너(uid 1000)가 읽을 수 있게 파일은 `0644`로 둔다. 문서에는 값이 아니라 참조만 적으므로 비밀이 없다. 기본 안내는 문서에 연결을 적지 않고 콘솔에서 만드는 것이다. 문서에 적는다면 provider는 실제 Messages API로, key는 `value_env: ANTHROPIC_API_KEY`로 적고, 에이전트가 고를 모델을 `models`에 적는다. 그런 연결을 콘솔에서 키를 넣는 방식(stored)으로 옮기면(모델 연결 행의 "화면에서 키 넣기") 연결 행은 stored로 바뀌고 옛 참조는 `provider_connections.replaces_auth`에 남는다. 그 연결로 만든 release와 세션은 계속 돌고, 문서가 옛 항목을 그대로 적고 있어도 가져오기는 DB 행을 둔다(`kept`). 옮긴 뒤에는 `ANTHROPIC_API_KEY`가 그 연결에 쓰이지 않는다. 이 열은 추가형이라 앞 이미지로 되돌려도 무시되지만, 되돌린 이미지는 옮긴 연결의 stored 정의를 `stored` 참조로 읽을 뿐 옛 env 참조로 돌아가지 않는다.
 
 ```json
 {
@@ -252,37 +252,22 @@ sudo install -d -m 700 -o "$USER" /var/lib/werft/test-ops   # TEST_OPS_STATE_DIR
     "anthropic": {
       "kind": "anthropic",
       "endpoint": "https://api.anthropic.com",
-      "auth": { "kind": "api_key", "value_env": "ANTHROPIC_API_KEY" }
+      "auth": { "kind": "api_key", "value_env": "ANTHROPIC_API_KEY" },
+      "models": ["claude-sonnet-5"]
     }
   },
   "repositories": {
     "sample-app": {
       "url": "https://github.com/<owner>/<repo>.git",
       "branch": "main",
-      "auth": { "kind": "github_app" },
-      "profiles": ["claude-coding"]
+      "auth": { "kind": "github_app" }
     }
   },
-  "mcp_servers": {},
-  "profiles": {
-    "claude-coding": {
-      "runtime_kind": "claude_agent_sdk",
-      "runtime_version": "0.3.270",
-      "model": "claude-sonnet-5",
-      "tools": ["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
-      "permission_mode": "default",
-      "provider": {
-        "kind": "anthropic",
-        "endpoint": "https://api.anthropic.com",
-        "auth": { "kind": "api_key", "value_env": "ANTHROPIC_API_KEY" }
-      },
-      "project_settings": { "claude_md": true }
-    }
-  }
+  "mcp_servers": {}
 }
 ```
 
-test-ops에는 git 호스트가 없다. 저장소는 GitHub에 둔다. 저장소 항목에는 `"auth": {"kind": "github_app"}`가 꼭 있어야 한다. 없으면 가져오기가 그 저장소를 빼고 `note: repository <id> is not imported`만 남기며, 상한의 허용 저장소도 비어 세션을 만들 수 없다. `preflight`가 문서를 JSON으로 읽어 `auth`가 없거나 `basic`·`bearer`인 저장소를 이미지를 올리기 전에 거부하므로(`preflight`·`deploy`·`upgrade` 모두), 컨테이너도 `pending.json`도 생기지 않고 기존 상태가 그대로다. 문서에 `"auth": {"kind": "github_app"}`를 넣고 다시 부른다. 문서가 바뀌면 digest가 바뀌므로 manifest의 `settings_digest`도 새 값으로 고친다. 이미 DB에 같은 id의 행이 있으면(이전 가져오기가 `auth` 없이 넣은 행) `auth`를 더해도 내용이 달라 `conflicts`로 거부된다. 그때는 문서에서 그 항목을 지우거나 새 id로 바꾼다. 지우려는 항목이 유일한 저장소이고 최상위 `profiles`가 모두 저장소를 필수(`required`)로 요구하면 `profiles`도 함께 지워야 한다. 그대로 두면 `preflight`는 통과하지만 migrate가 `at least one repository is required`로 실패하고 `pending.json`이 남는다. 이 경우에는 항목을 지우지 말고 새 id를 쓰는 편이 간단하다. `pending.json`이 남아 멈추는 경로는 둘이다. 하나는 위처럼 `profiles`가 남아 migrate가 실패한 경우이고, 다른 하나는 DB에 `auth` 없는 행이 있는데 `auth`를 더해 `conflicts`가 `pending.json` 뒤에 터진 경우다. 두 경로, 그리고 이 검사 전의 `upgrade`가 `settings_applied`에서 멈춘 이전 릴리스의 경우 모두 고친 manifest를 `pending.json`에 복사한 뒤 `upgrade <고친 manifest>`를 부른다(`cp <고친 manifest> <상태 디렉터리>/pending.json`). `current.json`이 없는 채로 첫 `deploy`가 앱을 띄운 뒤 멈춘 경우는 `deploy`·`upgrade`·`reset`이 모두 거부하므로, 이 설치에 세션이 없음을 확인하고 `docker compose --project-name <project> down -v`로 그 project를 지운 뒤 `deploy`를 다시 부른다. 첫 `deploy`가 빈 허용 저장소로 상한을 시드한 뒤에는 문서를 고쳐도 상한이 바뀌지 않으므로, 그 상한의 허용 저장소는 콘솔에서 새 버전으로 고친다. 저장소의 GitHub App 접근은 설치한 뒤 콘솔에서 등록하는 App으로 정해진다([api-server.md](api-server.md)).
+test-ops에는 git 호스트가 없다. 저장소는 GitHub에 둔다. 저장소 항목에는 `"auth": {"kind": "github_app"}`가 꼭 있어야 한다. 없으면 가져오기가 그 저장소를 빼고 `note: repository <id> is not imported`만 남기며, 세션이 그 저장소를 쓸 수 없다. `preflight`가 문서를 JSON으로 읽어 `auth`가 없거나 `basic`·`bearer`인 저장소를 이미지를 올리기 전에 거부하므로(`preflight`·`deploy`·`upgrade` 모두), 컨테이너도 `pending.json`도 생기지 않고 기존 상태가 그대로다. 문서에 `"auth": {"kind": "github_app"}`를 넣고 다시 부른다. 문서가 바뀌면 digest가 바뀌므로 manifest의 `settings_digest`도 새 값으로 고친다. 이미 DB에 같은 id의 행이 있으면(이전 가져오기가 `auth` 없이 넣은 행) `auth`를 더해도 내용이 달라 `conflicts`로 거부된다. 그때는 문서에서 그 항목을 지우거나 새 id로 바꾼다. `pending.json`이 남아 멈추는 경로는 DB에 `auth` 없는 행이 있는데 `auth`를 더해 `conflicts`가 `pending.json` 뒤에 터진 경우다. 그 경로와 이 검사 전의 `upgrade`가 `settings_applied`에서 멈춘 이전 릴리스의 경우 모두 고친 manifest를 `pending.json`에 복사한 뒤 `upgrade <고친 manifest>`를 부른다(`cp <고친 manifest> <상태 디렉터리>/pending.json`). `current.json`이 없는 채로 첫 `deploy`가 앱을 띄운 뒤 멈춘 경우는 `deploy`·`upgrade`·`reset`이 모두 거부하므로, 이 설치에 세션이 없음을 확인하고 `docker compose --project-name <project> down -v`로 그 project를 지운 뒤 `deploy`를 다시 부른다. 첫 `deploy`가 빈 허용 저장소로 상한을 시드한 뒤에는 문서를 고쳐도 상한이 바뀌지 않으므로, 그 상한의 허용 저장소는 콘솔에서 새 버전으로 고친다. 저장소의 GitHub App 접근은 설치한 뒤 콘솔에서 등록하는 App으로 정해진다([api-server.md](api-server.md)).
 
 release manifest에 적을 digest는 문서 파일 바이트의 sha256이다. 다음으로 구한다.
 
@@ -292,7 +277,7 @@ bun run scripts/lib/test-ops.ts settings-digest /etc/werft/settings.json
 
 `preflight`는 마운트한 문서가 이 digest와 다르면 거부한다. `deploy`·`upgrade`는 끝에서 `settings import --dry-run`으로 DB가 문서를 모두 담았는지 보고, 더할 것이 남아 있으면 `the database does not hold the settings document`로 멈춘다. 문서의 digest가 그대로면 `upgrade`는 migrate를 다시 돌리지 않는다.
 
-상한 설정은 DB 행이 정본이고 행은 바뀌지 않는다. 설정을 바꿀 때는 `POST /v1/installation-profiles`로 새 버전을 만든다([api-server.md](api-server.md#운영자-카탈로그-agent-profile--repository)).
+연결 설정은 DB 행이 정본이다. 모델 목록과 자동 모드 판정은 콘솔의 **모델 연결**에서 바꾸고, endpoint·자격 증명 출처를 바꿀 때는 새 id로 연결을 더한 뒤 에이전트를 다시 release한다([api-server.md](api-server.md#운영자-카탈로그-모델-연결--repository)).
 
 **파일 카탈로그로 돌던 설치.** 올리기 전에 env 파일에서 `PLATFORM_CATALOG_DIR`을 지우고, 옛 디렉터리를 `PLATFORM_LEGACY_CONFIG_DIR`로 준다. migrate가 그 디렉터리를 한 번 가져온다. master key를 `PLATFORM_SECRET_KEY`로 옮기는 일까지 순서는 [api-server.md](api-server.md#설정-문서-가져오기내보내기)의 "파일 카탈로그에서 옮기기"를 따른다. 가져온 뒤 `settings export`의 결과를 설정 문서로 두면 다음 `upgrade`부터 옛 디렉터리가 필요 없다.
 
@@ -405,10 +390,10 @@ docker exec werft-test-ops-api-1 bun run apps/control-host/src/api/grants.ts rev
 
 test-ops는 운영자의 Anthropic key 하나를 모든 세션이 같이 쓴다.
 
-- key는 콘솔의 모델 연결 화면(설정 > 에이전트 연결 > 모델 연결)에서 넣는 것이 기본이다. DB에 봉인돼 저장되고(`PLATFORM_SECRET_KEY`로 연다), 키를 넣기 전에는 그 연결 위 profile로 세션이 시작되지 않고 화면 경로를 알려 주는 오류가 난다. env로 두려면 env 파일의 `ANTHROPIC_API_KEY`를 채우고 연결이 `value_env`로 이름만 가리키게 한다. compose는 이 값을 API 컨테이너에만 넘긴다. worker는 key를 받지 않는다. egress proxy의 provider route가 요청마다 API에 물어 key를 붙인다.
+- key는 콘솔의 모델 연결 화면(설정 > 에이전트 연결 > 모델 연결)에서 넣는 것이 기본이다. DB에 봉인돼 저장되고(`PLATFORM_SECRET_KEY`로 연다), 키를 넣기 전에는 그 연결의 release로 세션이 시작되지 않고 화면 경로를 알려 주는 오류가 난다. env로 두려면 env 파일의 `ANTHROPIC_API_KEY`를 채우고 연결이 `value_env`로 이름만 가리키게 한다. compose는 이 값을 API 컨테이너에만 넘긴다. worker는 key를 받지 않는다. egress proxy의 provider route가 요청마다 API에 물어 key를 붙인다.
 - 비용은 세션별 `SESSION_COST_LIMIT_USD`(기본 25)로 막는다. Anthropic 콘솔에도 월 한도를 건다.
 - 교체(화면에서 넣은 key): 콘솔에서 새 key를 만든다 → 모델 연결 화면에서 그 연결의 "값 바꾸기"로 새 key를 넣는다 → 세션 한 턴을 확인한다 → 옛 key를 폐기한다. env 파일은 건드리지 않는다. 저장형 연결은 env 값을 읽지 않으므로 env만 바꾸면 계속 옛 key로 돈다.
-- 교체(env 참조 연결): 콘솔에서 새 key를 만든다 → env 파일 값을 바꾼다 → `scripts/test-ops.sh upgrade /var/lib/werft/test-ops/current.json`으로 같은 release를 다시 적용한다(바뀐 설정만 컨테이너를 새로 만든다) → `/readyz`와 세션 한 턴을 확인한다 → 옛 key를 폐기한다. 참조 이름이 같으므로 profile fingerprint는 바뀌지 않고 진행 중인 세션도 그대로 이어진다.
+- 교체(env 참조 연결): 콘솔에서 새 key를 만든다 → env 파일 값을 바꾼다 → `scripts/test-ops.sh upgrade /var/lib/werft/test-ops/current.json`으로 같은 release를 다시 적용한다(바뀐 설정만 컨테이너를 새로 만든다) → `/readyz`와 세션 한 턴을 확인한다 → 옛 key를 폐기한다. 참조 이름이 같으므로 연결과 release spec은 바뀌지 않고 진행 중인 세션도 그대로 이어진다.
 
 env 파일의 다른 값을 바꿀 때도 같은 명령을 쓴다.
 

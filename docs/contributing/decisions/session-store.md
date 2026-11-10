@@ -1,5 +1,7 @@
 # 결정: transcript 저장은 Agent SDK `SessionStore`로 한다
 
+후속(2026-11-11): 실행 프로필은 통째로 지웠다(migration `0264_remove_profiles`, 기존 데이터는 이전하지 않고 지움). 이 문서의 프로필·상한·롤아웃 언급은 그때의 기록이다. 지금은 에이전트 release가 provider 연결과 카드 모델로 실행 spec(런타임·도구·권한 모드)을 고정하고, 묻기·막기 규칙은 워크스페이스와 에이전트의 실행 규칙(`workspace_engine_settings`, `agent_engine_settings`)이 정한다.
+
 ## 무엇을 골랐나
 
 세션 transcript의 저장과 복구는 고정한 Agent SDK(`0.3.270`)의 `SessionStore` 하나로 한다. 제품 구현은 `ClaudeSessionStore`(`packages/adapters/runtimes/claude/src/session-store.ts`)다.

@@ -3,10 +3,10 @@ title: "Create"
 description: Define an agent, create and activate a release, and bind it to a session
 ---
 
-An agent is a named definition in a workspace. Name and description are values for people; the definition a run uses is a card (model, tools). Every edit to the card adds a new version. A release binds one version to a profile, and the release an agent points to is its active release. When you pass a release while creating a session, that session belongs to that agent.
+An agent is a named definition in a workspace. Name and description are values for people; the definition a run uses is a card (model, tools). Every edit to the card adds a new version. A release binds one version to a provider connection, and the release an agent points to is its active release. A session is always created from a release, and it belongs to that agent.
 
 <Callout type="warn">
-Sessions run with the profile named by `profile_id`, and a session created from a release uses only the tools pinned to that release. Name and description are not passed to the model; how the agent should work is told by the repository's `AGENTS.md` or `CLAUDE.md`. See [Instructions and description](/agents/instructions-and-roles) and [Permissions](/agents/permissions) for details.
+Sessions run with the settings their release pinned (connection, model, runtime, built-in tools). What to ask about and what to block is set by the workspace's and the agent's run rules. Name and description are not passed to the model; how the agent should work is told by the repository's `AGENTS.md` or `CLAUDE.md`. See [Instructions and description](/agents/instructions-and-roles) and [Permissions](/agents/permissions) for details.
 </Callout>
 
 ## In the web console
@@ -16,8 +16,8 @@ The web console of the local stack is at `http://127.0.0.1:3000/`.
 1. The first time only, create the first owner and workspace at `/bootstrap`. How you get the first owner's token depends on the installation. On a single-server installation where you did not set the token yourself, `scripts/test-ops.sh bootstrap-token` shows it once. See [first owner and keys](/run-server/self-hosting/users-and-keys) for details.
 2. After logging in, open "Agents" in the left sidebar and click "New agent" at the top right. The "New agent" screen opens with five steps: Name → What it does → Release → Turn on → Connect channels.
 3. In the "Name" step, enter a name. The identifier (slug) is filled in from the name, and you can change it. If you like, write a short introduction for people in "Description (optional)". Click "Next".
-4. In the "What it does" step, choose the model, check the profile's tools under "Tools it may use" ([Instructions and description](/agents/instructions-and-roles#choosing-tools-in-the-web-console)), set the reply language, then click "Save draft and continue". The agent is saved as a draft and version 1 is created. Instructions for how it should work go in the repository's `AGENTS.md` or `CLAUDE.md`.
-5. In the "Release" step, choose a profile and click "Create release". The card's model must be one the profile can run.
+4. In the "What it does" step, choose the model, set the reply language, then click "Save draft and continue". The agent is saved as a draft and version 1 is created. Instructions for how it should work go in the repository's `AGENTS.md` or `CLAUDE.md`.
+5. In the "Release" step, choose a provider connection and click "Create release". The card's model must be on that connection's model list. An owner manages connections and their model lists in Settings → Model connections ([Model connections](/run-server/self-hosting/model-connections)).
 6. In the "Turn on" step, click "Turn the agent on". New sessions now start with this release. "Do this later" leaves the agent as a draft and opens its detail screen.
 
 Owners, admins, and members can all create agents, and the person who creates one becomes that agent's administrator.
@@ -80,11 +80,11 @@ Every agent has one responsible team. `PUT /v1/agents/{id}/managing-team` change
 
 ### Create a release
 
-A release binds one version to one profile. If the card's `model` is not one the profile can run (its `model` or `models`), or the card has a tool the profile does not have, the response is 422. A session created with the release runs the card's model unless it names another.
+A release binds one version to one provider connection (`connection_id`). If the card's `model` is not on that connection's model list, the response is 422. The release pins the run settings of that moment: the runtime for the connection's kind (at the version the image ships), every built-in tool of that runtime, and the `auto` permission mode where the auto-mode classifier works on the connection, `default` otherwise. What to ask about and what to block is set by the workspace's and the agent's run rules ([Permissions](/agents/permissions)). A session created with the release runs the card's model unless it names another.
 
 ```bash
 release=$(curl -sS "$API/v1/agents/$AID/releases" "${WEB[@]}" \
-  -d "$(jq -nc --arg v "$VID" '{version_id: $v, runtime_profile_id: "claude-coding-local"}')")
+  -d "$(jq -nc --arg v "$VID" '{version_id: $v, connection_id: "fake-messages"}')")
 REL=$(echo "$release" | jq -r .release.id)
 echo "$release" | jq '{id: .release.id, created, tools: .release.effective_tools.tools}'
 ```
@@ -95,17 +95,18 @@ echo "$release" | jq '{id: .release.id, created, tools: .release.effective_tools
   "created": true,
   "tools": [
     "Read",
-    "Glob",
-    "Grep"
+    "Write",
+    "Edit",
+    "…"
   ]
 }
 ```
 
-The release id is a hash of the card and profile contents. Creating a release again with the same contents returns the same release with `created: false`.
+The release id is a hash of the card, the connection and the pinned run settings. Creating a release again with the same contents returns the same release with `created: false`.
 
 A `note` in the request (1 to 200 characters after trimming) is kept on the release. The note is not part of the id, so creating the release again with the same contents keeps the first note. An empty note or one over 200 characters answers 400.
 
-People name a release by its `label`: the second it was created, in Seoul time, as `2026-10-30_14:30:28`. When the same agent gets more than one release in the same second, the second one onward ends in `-2`, `-3`, and so on. The console's release history, the agent's header tag and the session lists use this name. The release id is still the identifier. A card's `version_no` only goes up when the card changes, so releasing the same card with another profile keeps the same version.
+People name a release by its `label`: the second it was created, in Seoul time, as `2026-10-30_14:30:28`. When the same agent gets more than one release in the same second, the second one onward ends in `-2`, `-3`, and so on. The console's release history, the agent's header tag and the session lists use this name. The release id is still the identifier. A card's `version_no` only goes up when the card changes, so releasing the same card on another connection keeps the same version.
 
 The console's release history shows, for each release, what changed against the release the same agent made just before it (allowed repositories, model, tools and MCP, prompt, settings), with who made it and when. Credentials show only as "Changed", never their values. The session screen shows the release the session uses and marks it when it is not the agent's active release. A session keeps the release it started on, so changed settings apply from new sessions. The session response's `agent.release_is_active` carries that comparison.
 
@@ -140,7 +141,7 @@ curl -sS "$API/v1/agents/counts" "${WEB[@]}" | jq -c
 {"counts":{"all":1,"administered":1,"active":1,"draft":0}}
 ```
 
-The list returns agents oldest first, `limit` at a time (default 50, at most 100). Send the response's `next_cursor` back as `cursor` for the next page; it is `null` on the last one. Without `cursor` you get the first page only. With `q` (up to 200 characters) you get only agents whose name or slug contains it, ignoring case; with `ids`, agent IDs joined by commas (up to 100), you get only those agents. With `runtime_profile_id` you get only agents whose active release runs on that profile; an agent with no active release is left out. In every case the next page comes by the same `cursor`. `GET /v1/agents/counts` returns how many agents the list holds read to its end (`all`), how many of them you administer yourself or through a team (`administered`), how many are on through an active release (`active`), and how many are drafts, not archived but with no active release yet (`draft`). Both need the same permission as the list, and API keys are refused.
+The list returns agents oldest first, `limit` at a time (default 50, at most 100). Send the response's `next_cursor` back as `cursor` for the next page; it is `null` on the last one. Without `cursor` you get the first page only. With `q` (up to 200 characters) you get only agents whose name or slug contains it, ignoring case; with `ids`, agent IDs joined by commas (up to 100), you get only those agents. With `connection_id` you get only agents whose active release runs on that connection; an agent with no active release is left out. In every case the next page comes by the same `cursor`. `GET /v1/agents/counts` returns how many agents the list holds read to its end (`all`), how many of them you administer yourself or through a team (`administered`), how many are on through an active release (`active`), and how many are drafts, not archived but with no active release yet (`draft`). Both need the same permission as the list, and API keys are refused.
 
 ## The responsible team in the console
 
@@ -154,7 +155,7 @@ The responsible team is the team an agent belongs to. Its team leads manage the 
 
 ## Bind to a session
 
-Put `agent_release_id` in the session create request. `profile_id` must be that release's profile (otherwise 409 `RELEASE_PROFILE_MISMATCH`). Use an agent key of that agent. Issue an agent key in the web console, or with the web login cookie by sending `kind: "agent"` and `agent_id` to `POST /v1/api-keys` ([API key](/api-keys)). The SDK has no method for issuing it. Keep the secret in a variable only.
+Put `agent_release_id` in the session create request. The session runs on that release's connection and model. If the connection was disabled or the model left its list, the answer is 409 `RELEASE_SPEC_UNAVAILABLE`; make a new release on another connection or model. Use an agent key of that agent. Issue an agent key in the web console, or with the web login cookie by sending `kind: "agent"` and `agent_id` to `POST /v1/api-keys` ([API key](/api-keys)). The SDK has no method for issuing it. Keep the secret in a variable only.
 
 `repository_id` is optional. If you omit it, an agent with GitHub settings starts without a repository and attaches only what it needs ([Sessions without a repository](/sessions/without-repository)), and an older agent with no settings starts on its release's repository. The example below names `sample-app` directly and starts on that repository.
 
@@ -167,7 +168,6 @@ import { Werft } from "@werft-ai/sdk";
 // WERFT_API_KEY holds the agent key; WERFT_AGENT_RELEASE_ID the release above.
 const agent = new Werft();
 const started = await agent.sessions.create({
-  profile_id: "claude-coding-local",
   repository_id: "sample-app",
   agent_release_id: process.env.WERFT_AGENT_RELEASE_ID ?? "",
   message: 'GATE-SPEC {"id":"agent","steps":[],"final":"hello from research-bot"}',
@@ -189,7 +189,7 @@ curl -sS "$API/v1/sessions" \
   -H 'Content-Type: application/json' \
   -H "Idempotency-Key: $(uuidgen)" \
   -d "$(jq -nc --arg r "$REL" --arg m 'GATE-SPEC {"id":"agent","steps":[],"final":"hello from research-bot"}' \
-    '{profile_id: "claude-coding-local", repository_id: "sample-app", agent_release_id: $r, message: $m}')" \
+    '{repository_id: "sample-app", agent_release_id: $r, message: $m}')" \
   | jq '{status, turn_id}'
 ```
 
@@ -210,5 +210,5 @@ Sending with a key that is not in the workspace (for example `scripts/local.sh k
 ## Next steps
 
 - [Instructions and description](/agents/instructions-and-roles): name, description and the repository's `AGENTS.md` and `CLAUDE.md`; card fields and versions
-- [Choose a profile](/agents/run-profiles): profiles and models
+- [Model connections](/run-server/self-hosting/model-connections): connections and their model lists
 - [Permissions](/agents/permissions): tool permissions and agent administrators

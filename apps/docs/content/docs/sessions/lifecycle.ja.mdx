@@ -181,8 +181,7 @@ curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq '{status, 
 | `BUDGET_EXCEEDED` | セッションのコストまたは token の上限を超えた |
 | `TRANSCRIPT_LIMIT` | 会話履歴が上限に近づいた、または超えた。新しいセッションに移るタイミングである |
 | `STARTUP_FAILED`, `RESTORE_FAILED` | worker が起動できない、または checkpoint を復元できない |
-| `CATALOG_MISMATCH` | セッションを作った後に、運用者がプロファイルまたはリポジトリの設定を変更した |
-| `PROFILE_BLOCKED` | オーナーがセッションのプロファイル(`reason_code: blocked`)またはそのベース(`base_blocked`)をブロックした。`profile_id` がそのプロファイル。解除されるまで、新しいメッセージは 409 `PROFILE_BLOCKED` で拒否される |
+| `CATALOG_MISMATCH` | セッションを作った後に、セッションの接続が無効になったか、モデルが接続の一覧から外れたか、リポジトリの設定が変わった |
 | `CONTEXT_GAP` | 復旧判断により、以前の会話の一部が欠けている |
 
 ## 使用量
@@ -233,7 +232,7 @@ curl -sS "$API/v1/usage/summary?scope=me&since=2026-10-01" -H "Authorization: Be
 
 `GET /v1/limits` の `usage.outputs` は、セッションの成果物(`out/` 以下のファイル)が object store で占めるバイト数である(`used_bytes`)。後の checkpoint が前の checkpoint の成果物をそのまま引き継いだ場合は一度だけ数え、大きすぎてアップロードしなかったファイルは数えず、checkpoint の整理がオブジェクトを削除するとその分だけ減る。`updated_at` は値が最後に変わった時刻で、変わったことがなければ null である。この値は `usage.storage`(入力メッセージ)とは別で、`storage_limit_bytes` の適用には含まれない。成果物を記録する前に作られた checkpoint が残っている間は、その成果物は含まれず `complete` が `false` になる。
 
-エージェント別・ユーザー別に分けて見るには `group_by=agent` または `group_by=user` を加える。応答に `groups[{id, name, session_count, run_seconds, cost_usd, cost_complete}]` が付き、グループの `session_count`・`cost_usd`・`run_seconds` を足すと上の合計と一致する。エージェントのないセッションと、人が作成していないキーが始めたセッションは `id` が null のグループになる。`name` はエージェント名かユーザーの表示名で、メールアドレスは載せない。`scope=me` では呼び出し元以外のユーザーの `name` は null になる。プロファイル別に見るには `group_by=profile` を使う。セッションの現在のプロファイル(`sessions.profile_id`)でまとめるため、途中でプロファイルを変えたセッションは費用全体が今のプロファイルに計上される。プロファイルには表示名がないので `id` と `name` はどちらもプロファイル id で、プロファイルのないセッションは `id` が null のグループになる。
+エージェント別・ユーザー別に分けて見るには `group_by=agent` または `group_by=user` を加える。応答に `groups[{id, name, session_count, run_seconds, cost_usd, cost_complete}]` が付き、グループの `session_count`・`cost_usd`・`run_seconds` を足すと上の合計と一致する。エージェントのないセッションと、人が作成していないキーが始めたセッションは `id` が null のグループになる。`name` はエージェント名かユーザーの表示名で、メールアドレスは載せない。`scope=me` では呼び出し元以外のユーザーの `name` は null になる。
 
 `GET /v1/limits?scope=me` はログインしたメンバーなら誰でも読める。セッション単位の上限 4 つ(`queued_input_limit_per_session`、`max_turn_seconds`、`session_cost_limit_usd`、`session_token_limit`)だけを返し、`usage` はない。API キーは 403 になる。
 

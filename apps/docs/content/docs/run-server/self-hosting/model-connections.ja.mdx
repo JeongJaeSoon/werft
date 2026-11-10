@@ -1,41 +1,44 @@
 ---
-title: "モデル接続とプロファイルの設定"
-description: "セッションが使う接続とプロファイルを設定します"
+title: "モデル接続の設定"
+description: "セッションが使うモデル接続とそのモデル一覧を設定します"
 pageId: "P10"
 docType: "作業"
 audience: "ワークスペース管理者"
-outcome: "セッションが使う接続とプロファイルを設定します"
+outcome: "セッションが使うモデル接続とそのモデル一覧を設定します"
 ---
 
 <a id="무엇을-하게-되나" />
 ## 作業内容
 
-ワークスペースのモデル接続とプロファイルを構成し、セッションの一つの turn で実際の呼び出しを確認します。モデル資格情報は利用者の API key とは異なります。
+設置のモデル接続と、その接続で使えるモデル一覧を構成し、その接続でリリースしたエージェントのセッションの一つの turn で実際の呼び出しを確認します。モデルの資格情報はユーザーの API キーとは別です。
 
 <a id="준비물" />
 ## 準備
 
-owner ログイン、使うモデルの key またはプライベートなモデル endpoint、セッションからアクセスするリポジトリが必要です。費用上限と[設定契約](/run-server/self-hosting/reference/configuration)を確認します。
+オーナーのログイン、使うモデルのキーまたはプライベートなモデルの endpoint、セッションがアクセスするリポジトリが必要です。費用の上限と[設定の契約](/run-server/self-hosting/reference/configuration)を確認します。
 
 <a id="단계" />
 ## 手順
 
 <a id="1-콘솔-연결과-프로필" />
-### 1. コンソールの接続とプロファイル
+<a id="1-콘솔-연결과-모델-목록" />
+### 1. コンソールの接続とモデル一覧
 
-セッションからモデルを呼ぶには、モデル key とその key を使うプロファイルが必要です。どちらも Web コンソールで作成します。owner でログインし、次の順で操作します。
+セッションは、エージェントのリリースが選んだモデル接続でモデルを呼びます。接続にはキーと、エージェントが選べるモデル一覧が必要です。オーナーでログインした状態で次の順に行います。
 
-1. **設定 > エージェント接続 > モデル接続**で**接続を追加**を押します。種類は `anthropic`、アドレスは既定値（`https://api.anthropic.com`）にし、Anthropic key を貼り付けて保存します。key は DB に封印して保存され、画面には末尾の四文字だけが表示されます。
-2. **プロファイル > プロファイルを作成**で先ほどの接続を選び、モデル・ツール・実行方式を設定して保存します。エージェントの作成時にこのプロファイルを選びます。
+1. **設定 > エージェントの接続 > モデル接続**で**接続を追加**を押します。種類は `anthropic`、アドレスは既定値（`https://api.anthropic.com`）のままにし、Anthropic のキーを貼り付けて保存します。キーは DB に封印して保存され、画面には末尾 4 文字だけが表示されます。
+2. 同じ行の**モデル**で、エージェントが使うモデル名（例: `claude-sonnet-5`）を入れて保存します。一覧から外したモデルに、同じ系列の次の版が一覧にあれば、そのモデルで動くエージェントとセッションは次の版へ移ります（`model_families`）。
+3. **自動モード**で、接続で自動モードの分類器が動くかどうかを選びます。`supported`（または判定していない Anthropic の接続）なら新しいリリースは `auto` の権限モードで、それ以外は `default` で動きます。
+4. エージェントを作るとき、**リリース**ステップでこの接続を選びます（[作成](/agents/create)）。
 
-エージェントが使うリポジトリはプロファイル作成時には選ばず、そのエージェントの **GitHub** タブでワークスペースが許可した範囲内から選びます。
+エージェントが使うリポジトリは接続では選ばず、そのエージェントの **GitHub** タブで、ワークスペースが許可した範囲から選びます。何を確認し何をブロックするかは、ワークスペースとエージェントの実行ルールが決めます（[権限](/agents/permissions)）。
 
-key を入れる前にこのプロファイルでセッションを開始すると、「モデル接続に使える key がない」という趣旨のエラーが出て、エラーに 1 の画面への経路が示されます。key の変更にも同じ画面の**値を変える**を使います。
+キーを入れる前にこの接続のリリースでセッションを始めると、「モデル接続に使えるキーがない」という趣旨のエラーになり、エラーが手順 1 の画面の場所を教えます。キーを変えるときも同じ画面の**値を変更**を使います。
 
 <a id="2-환경-변수-대안" />
 ### 2. 環境変数を使う方法
 
-key を DB ではなくサーバーの env ファイルに置く場合、`/etc/werft/test-ops.env` の `ANTHROPIC_API_KEY` を設定し、[単一サーバーの手順 2 の設定文書](/run-server/self-hosting/single-server#2-비밀과-설정-문서)に、環境変数名を使って接続とプロファイルを記入します。文書には値ではなく名前だけを書くため、秘密情報を含みません。`connections` と `profiles` を次のように設定し、リポジトリ項目に `"profiles": ["claude-coding"]` を追加してから、[単一サーバーの手順 3](/run-server/self-hosting/single-server#3-release-입력-생성)で settings digest と release 入力を再生成します。設置済みの場合は [Compose アップグレード](/run-server/self-hosting/upgrade-compose)で適用します。
+キーを DB ではなくサーバーの env ファイルに置きたい場合は、`/etc/werft/test-ops.env` の `ANTHROPIC_API_KEY` を埋め、[単一サーバーの手順 2 の設定文書](/run-server/self-hosting/single-server#2-비밀과-설정-문서)に接続を環境変数名で書きます。文書には値ではなく名前だけを書くので秘密はありません。`connections` を次のように埋め、`models` にエージェントが選ぶモデルを書いたら、[単一サーバーの手順 3](/run-server/self-hosting/single-server#3-release-입력-생성)で settings digest と release 入力を作り直します。すでに設置済みなら [Compose のアップグレード](/run-server/self-hosting/upgrade-compose)で適用します。設定文書に `profiles` 項目があると import は拒否します。
 
 ```json
 {
@@ -43,30 +46,16 @@ key を DB ではなくサーバーの env ファイルに置く場合、`/etc/w
     "anthropic": {
       "kind": "anthropic",
       "endpoint": "https://api.anthropic.com",
-      "auth": { "kind": "api_key", "value_env": "ANTHROPIC_API_KEY" }
-    }
-  },
-  "profiles": {
-    "claude-coding": {
-      "runtime_kind": "claude_agent_sdk",
-      "runtime_version": "0.3.319",
-      "model": "claude-sonnet-5",
-      "tools": ["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
-      "permission_mode": "default",
-      "provider": {
-        "kind": "anthropic",
-        "endpoint": "https://api.anthropic.com",
-        "auth": { "kind": "api_key", "value_env": "ANTHROPIC_API_KEY" }
-      },
-      "project_settings": { "claude_md": true }
+      "auth": { "kind": "api_key", "value_env": "ANTHROPIC_API_KEY" },
+      "models": ["claude-sonnet-5", "claude-haiku-4-5"]
     }
   }
 }
 ```
 
-この接続は後から画面での管理に移せます。**モデル接続**の該当行で**画面でキーを入れる**を押して key を再度貼り付けると、同じ接続とその上のプロファイルが、保存した key をそのまま使います。サーバーが env の値を読み取って移すわけではなく、人が再入力します。移行後も設定文書に同じ接続が残っていてかまいません。import は DB の行をそのまま維持します。
+こうして作った接続は、あとで画面での管理に移せます。**モデル接続**の該当行で**画面でキーを入れる**を押して key を再度貼り付けると、同じ接続が保存されたキーを使います。サーバーが env の値を読んで移すことはなく、人がキーを入れ直します。移したあとで設定文書に同じ接続が残っていても、import は DB の行をそのままにします。
 
-Kubernetes で Secret のモデル key を使わない場合は、`secrets.catalogEnv` からその名前を外します。固定 bootstrap トークンなど必要な名前は残します。一覧全体を置き換えるため、Secret の key と一致させる必要があります。
+Kubernetes で Secret のモデルキーを使わないなら、`secrets.catalogEnv` からその名前を外します。固定の bootstrap トークンなど必要な名前は残します。一覧は全体を置き換えるので、Secret のキーと合わせます。
 
 <a id="3-설정-문서-가져오기내보내기" />
 ### 3. 設定文書の import・export
@@ -77,54 +66,55 @@ docker exec "$API_CONTAINER" bun run apps/control-host/src/api/settings.ts expor
 docker exec -i "$API_CONTAINER" bun run apps/control-host/src/api/settings.ts import --document - --dry-run < settings.json
 ```
 
-API_CONTAINER はこの環境の status と project label で確認します。Kubernetes で次の package script を使うには、設置バージョンのリポジトリ checkout とホストの Bun・kubectl が必要です。`bun run settings:k8s export` と `bun run settings:k8s import --document - --dry-run` に置き換えます。dry-run の追加項目とエラーを確認してから、同じコマンドの `--dry-run` を外して import します。既存の DB 行をファイル内容で無条件に上書きするツールではありません。資格情報は文書に値ではなく環境変数名を書きます。
+API_CONTAINER はこの設置の status と project label で確認します。Kubernetes では、次の package script に設置バージョンのリポジトリ checkout とホストの Bun・kubectl が必要です。`bun run settings:k8s export` と `bun run settings:k8s import --document - --dry-run` に置き換えます。dry-run の追加項目とエラーを確認してから、同じコマンドから `--dry-run` を外して import します。既存の DB の行をファイルの内容で無条件に上書きするツールではありません。接続の `models` と `model_families` は新しい接続を加えるときに一緒に入り、既存の接続の一覧はコンソールで変えます。資格情報は値の代わりに環境変数名を文書に書きます。
 
 <a id="4-과금-없는-사설-모델" />
 ### 4. 課金のないプライベートモデル
 
 <a id="과금-없는-profile-billing-none" />
-### 課金のない profile（`billing: none`）
+<a id="과금-없는-연결-billing-none" />
+### 課金のない接続（`billing: none`）
 
-セルフホストしたモデル（Ollama、プライベートネットワークの LiteLLM など）にはトークンごとの請求がありません。価格表にもないため、そのままでは fallback の最高単価で計算され、`SESSION_COST_LIMIT_USD` と SDK の `maxBudgetUsd` により turn が中断されます。このような profile は `provider.billing: none` と宣言します。
+セルフホストしたモデル（Ollama、プライベートネットワークの LiteLLM など）にはトークンごとの請求がありません。価格表にもないので、そのままにすると fallback の最高単価で計算され、`SESSION_COST_LIMIT_USD` と SDK の `maxBudgetUsd` にかかって turn が切れます。このような接続は `billing: none` と宣言します。
 
 ```yaml
-provider:
-  kind: litellm
-  endpoint: http://litellm:4000
-  billing: none
-  auth:
-    kind: bearer
-    value_env: LITELLM_MASTER_KEY
+kind: litellm
+endpoint: http://litellm:4000
+billing: none
+auth:
+  kind: bearer
+  value_env: LITELLM_MASTER_KEY
+models:
+  - qwen3-coder
 ```
 
-- 省略時は `per_token` です。省略した profile と `per_token` を明記した profile は fingerprint が同じで、どちらも価格表・fallback で計算します。
-- `none` profile で作成したセッションの provider 呼び出しは、応答の model 名によらず費用 0、ledger の `priced_by=unmetered` として記録します。トークンは従来どおり記録します。セッション費用が増えないため、四箇所の費用上限判定（egress 認可、`nextInput`、メッセージ受付、エンジン）には達しません。
-- claim の `remaining_budget_usd` は `null` で、worker は SDK に `maxBudgetUsd` を渡しません。SDK が未知の model を独自の推定単価で計算し、予算によって turn を中断するためです。制限する予算がないため、`/clear` などで SDK の費用集計が再開されても worker は drain しません。
-- `GET /v1/sessions/{id}/usage` は `cost.kind: "unmetered"` と応答します。`amount_usd` は `"0.000000"` です。このセッションには費用上限が適用されないため、`cost_limit_usd` は `null` です。上限到達の案内（`attention.reason`）にもドル上限は表示されません。`budget_exceeded` はトークン上限に達した場合だけ `true` になります。
-- 課金の有無はセッション作成時にセッション行（`sessions.unmetered`）へ固定します。価格、claim 予算、usage 表示はこの値を読み取り、報告を受けた API の catalog は参照しません。そのため rolling update 中にその profile を知らない replica が報告を受けても費用は加算されません。`billing` を変えると fingerprint が変わるため、新しい id で追加します（同じ id を変更すると既存セッションは `CATALOG_MISMATCH` になります）。
-- `none` profile のセッション作成は、すべての API replica とすべての scheduler の `WORKER_IMAGE` をこのバージョンへ更新してから行います。以前の API は `unmetered` セッションの報告も価格表で計算し、以前の worker は claim の `remaining_budget_usd: null` を契約違反として拒否し、エンジンを起動できません。同じ理由から、`unmetered` セッションが残る間は API・worker を以前のバージョンに戻しません。
-- トークン上限（`SESSION_TOKEN_LIMIT`）、時間・同時実行数の上限（`MAX_TURN_SECONDS`、`EXECUTION_SLOT_LIMIT`、`QUEUED_INPUT_LIMIT_PER_SESSION`）は引き続き適用されます。`unmetered` 行のトークンも `sessions.provider_tokens` に加算します。
-- API が `none` を受け付けるのは、endpoint host がプライベートアドレス（10/8、172.16/12、192.168/16、100.64/10、127/8、169.254/16、`::1`、fc00::/7、fe80::/10）、または公開 DNS にない名前（ドットのない compose サービス名、`localhost`、`.internal`・`.local`・`.localhost`・`.lan`・`.home.arpa`）の場合だけです。それ以外では起動しません。egress proxy 側では、その host を `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` に入れます。
-- プライベートアドレスは必要条件にすぎません。プライベートネットワークの LiteLLM も有料 upstream を代理できます。`none` 宣言が正しいかは運用者の責任です。誤って宣言すると有料呼び出しが費用上限なしで実行されます。`SESSION_TOKEN_LIMIT` を設定していれば、その場合もセッションごとのトークンは制限されます。Datadog の `werft.provider.unmetered_tokens_1h`（直近 1 時間の `unmetered` 行のトークン合計）と provider コンソールの使用量を併せて確認します。
+- 省略時は `per_token` で、価格表・fallback で計算します。
+- `none` の接続でリリースしたセッションの provider 呼び出しは、応答の model 名によらず費用 0、ledger の `priced_by=unmetered` として記録されます。トークンはそのまま記録されます。セッションの費用が増えないので、費用上限の判定 4 か所（egress 認可、`nextInput`、メッセージ受付、エンジン）にかかりません。
+- claim の `remaining_budget_usd` は `null` で、worker は SDK に `maxBudgetUsd` を渡しません。SDK は知らない model を独自の推定単価で計算し、予算で turn を切るためです。縛る予算がないので、`/clear` などで SDK の費用集計がやり直されても worker は drain しません。
+- `GET /v1/sessions/{id}/usage` は `cost.kind: "unmetered"` で答え、`amount_usd` は `"0.000000"` です。このセッションには費用上限がかからないので `cost_limit_usd` は `null` で、上限到達の案内（`attention.reason`）にもドルの上限は出ません。`budget_exceeded` はトークン上限に達したときだけ `true` になります。
+- 課金の有無はセッション作成時にセッション行（`sessions.unmetered`）へ固定し、価格、claim 予算、usage 表示はこの値を読みます。接続が指す先（endpoint・種類・`billing`・資格情報の出どころ）は変わりません。別の値が必要なら新しい id で接続を加え、エージェントをリリースし直します。
+- トークン上限（`SESSION_TOKEN_LIMIT`）と時間・同時実行の上限（`MAX_TURN_SECONDS`、`EXECUTION_SLOT_LIMIT`、`QUEUED_INPUT_LIMIT_PER_SESSION`）はそのままかかります。`unmetered` 行のトークンも `sessions.provider_tokens` に加算されます。
+- API は endpoint の host がプライベートアドレス（10/8、172.16/12、192.168/16、100.64/10、127/8、169.254/16、`::1`、fc00::/7、fe80::/10）か、公開 DNS にない名前（ドットのない compose のサービス名、`localhost`、`.internal`・`.local`・`.localhost`・`.lan`・`.home.arpa`）のときだけ `none` を受け付けます。egress proxy 側ではその host を `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` に置きます。
+- プライベートアドレスは必要条件にすぎません。プライベートネットワークの LiteLLM も有料の upstream を代理できます。`none` の宣言が正しいかは運用者の責任です。誤って宣言すると、有料の呼び出しが費用上限なしに出ていきます。`SESSION_TOKEN_LIMIT` を設定しておけば、そのときもセッションごとのトークンは縛られます。Datadog の `werft.provider.unmetered_tokens_1h`（直近 1 時間の `unmetered` 行のトークン合計）と provider のコンソールの使用量を一緒に見ます。
 
-有効化前に[アップグレードゲート](/run-server/self-hosting/upgrade-compose#실행-전-게이트)を満たす必要があります。
+有効にする前に[アップグレードのゲート](/run-server/self-hosting/upgrade-compose#실행-전-게이트)を満たす必要があります。
 
 <a id="확인" />
 ## 確認
 
-プロファイルを使うエージェントでセッションを作成し、turn が completed になることを確認します。ready 200 はモデル key や呼び出しの成功を検査しません。環境変数による管理からコンソールへ移した後は、新しい呼び出しと key 変更の動作を確認します。
+この接続でリリースしたエージェントでセッションを作り、turn が completed になることを確認します。ready 200 はモデルのキーや呼び出しの成功を検査しません。環境変数の経路をコンソールに移したあとは、新しい呼び出しとキーの交換を確認します。
 
 <a id="자주-막히는-곳" />
 ## よくある問題
 
-モデル key がないというエラーでは、接続画面への経路を確認します。プライベート endpoint というだけで billing:none が安全になるわけではありません。有料 upstream を代理するモデルを none と宣言すると、費用上限なしで呼び出します。
+モデルキーがないエラーは、接続画面の場所を確認します。モデル一覧が空の接続ではリリースを作れません。プライベートな endpoint だというだけで billing:none が安全になるわけではありません。有料の upstream を代理するモデルを none と宣言すると、費用上限なしに呼び出されます。
 
 <a id="되돌리기" />
 ## 元に戻す
 
-使用中のプロファイル id を直接編集して fingerprint を変えないでください。新しい接続・プロファイルのバージョンを作成し、新しいセッションへ移行します。コンソールに保存した key を廃止する場合、provider 側の権限も併せて整理します。
+接続を無効にすると、その接続のリリースで動くセッションが止まります（`CATALOG_MISMATCH`）。無効にする前に画面の影響数（エージェント・セッション）を確認し、エージェントを別の接続でリリースし直します。コンソールに保存したキーを破棄するときは、provider 側の権限もあわせて整理します。
 
 <a id="다음에-읽을-곳" />
 ## 次に読む
 
-[容量と費用の計画](/run-server/self-hosting/capacity)、[バックアップと復元](/run-server/self-hosting/backup-and-restore)。
+[容量とコストの計画](/run-server/self-hosting/capacity)、[バックアップと復元](/run-server/self-hosting/backup-and-restore)。

@@ -3,7 +3,7 @@ title: "開始"
 description: セッション作成リクエストのフィールド、レスポンス、Idempotency-Key、一覧・共有範囲・タイトル、エラー
 ---
 
-セッションは、プロファイル 1 つで動く会話である。プロファイルがリポジトリを使うなら、リポジトリも 1 つ選ぶ。セッションを作ると最初のメッセージがターン 1 として受け付けられ、scheduler がそのセッションの worker コンテナを起動する。scope は `sessions:write` である。SDK の例は [SDK のインストール](/getting-started/install#クライアントを作る)で作った `werft` クライアントを、HTTP API の例はサーバーのアドレス `API` とキー `KEY` のシェル変数を使う。
+セッションは、エージェントのリリース 1 つで動く会話である。リリースが固定した接続・モデル・ランタイム・ツールで動き、リポジトリは選ぶか、なしで始める。セッションを作ると最初のメッセージがターン 1 として受け付けられ、scheduler がそのセッションの worker コンテナを起動する。scope は `sessions:write` である。SDK の例は [SDK のインストール](/getting-started/install#クライアントを作る)で作った `werft` クライアントを、HTTP API の例はサーバーのアドレス `API` とキー `KEY` のシェル変数と、あらかじめ作ったリリース id の環境変数 `WERFT_AGENT_RELEASE_ID` を使う ([作成](/agents/create))。
 
 Web コンソールでは、エージェント詳細の「このエージェントで新しいセッション」を押して最初のメッセージを送る。セッションは有効な release で始まり(GitHub 設定があるエージェントはリポジトリなしで、設定がない古いエージェントは release のリポジトリで)、同じ `POST /v1/sessions` をログイン中のユーザーの権限で呼ぶ。画面で事前に分かる状態(有効な release がない、一時停止中、権限がないなど)ではボタンがオフになり、理由が表示される。資格情報の連携漏れのように送信後に分かる拒否は、ダイアログに理由が表示される。
 
@@ -18,7 +18,7 @@ Web コンソールでは、エージェント詳細の「このエージェン�
 
 ```ts
 const created = await werft.sessions.create({
-  profile_id: "claude-coding-local",
+  agent_release_id: process.env.WERFT_AGENT_RELEASE_ID ?? "",
   repository_id: "sample-app",
   message: 'GATE-SPEC {"id":"start","steps":[],"final":"started"}',
 });
@@ -45,7 +45,7 @@ created=$(curl -sS "$API/v1/sessions" \
   -H 'Content-Type: application/json' \
   -H "Idempotency-Key: $(uuidgen)" \
   -d "$(jq -nc --arg m 'GATE-SPEC {"id":"start","steps":[],"final":"started"}' \
-    '{profile_id: "claude-coding-local", repository_id: "sample-app", message: $m}')")
+    '{agent_release_id: env.WERFT_AGENT_RELEASE_ID, repository_id: "sample-app", message: $m}')")
 echo "$created" | jq .
 SID=$(echo "$created" | jq -r .session_id)
 ```
@@ -67,12 +67,11 @@ SID=$(echo "$created" | jq -r .session_id)
 
 | フィールド | 必須 | 内容 |
 | --- | --- | --- |
-| `profile_id` | `agent_release_id` がなければ必須 | プロファイルの id([プロファイルを選ぶ](/agents/run-profiles)) |
-| `repository_id` | プロファイルによる | カタログ上のリポジトリ id。送れば worker はこのリポジトリを clone する。プロファイルの `repository_mode` が `none` なら送らず、`required` のプロファイルは必ず送る。ただし GitHub 設定があるエージェントのセッションと、ワークスペースの上限が決めるプロファイルは、`required` でも省いてリポジトリなしで始められる。エージェントのリリースで作ったセッションで省くと、GitHub 設定があるエージェントはリポジトリなしで始まり、必要なリポジトリだけを付け、設定がない古いエージェントはリリースのリポジトリで始まる([リポジトリなしのセッション](/sessions/without-repository)) |
+| `repository_id` | | カタログのリポジトリ id。送ると worker がこのリポジトリを clone する。ワークスペースの上限とエージェントの GitHub 設定の範囲内でなければならない。省略すると、GitHub 設定があるエージェントはリポジトリなしで始まり必要なリポジトリだけを付け、設定がない古いエージェントはリリースのリポジトリで始まる ([リポジトリのないセッション](/sessions/without-repository)) |
 | `message` | はい | 最初のターンの入力。UTF-8 で 32,768 バイトまで |
-| `model` | | プロファイルが許可したモデルのうち 1 つ。省略するとデフォルトのモデル |
+| `model` | | リリースの接続が提供するモデルのひとつ。省略するとリリースのカードのモデル |
 | `title` | | セッションの名前。省略すると最初の `message` から作る([タイトル](#タイトル)) |
-| `agent_release_id` | | このセッションをエージェントのリリースに紐づける([セッションに紐付ける](/agents/create#セッションに紐付ける))。このとき `profile_id` は、省略するとリリースの値になる。`repository_id` を省略すると、GitHub 設定があるエージェントはリポジトリなしで始まり、設定がない古いエージェントはリリースのリポジトリで始まる |
+| `agent_release_id` | はい | セッションが動くエージェントのリリース ([セッションに紐付ける](/agents/create#セッションに紐付ける))。接続が無効になったかモデルが接続の一覧から外れた場合は 409 `RELEASE_SPEC_UNAVAILABLE` |
 
 レスポンスは 201 である。受け付けただけで、結果はターンの取得で確認する([状態とライフサイクル](/sessions/lifecycle))。
 
@@ -87,7 +86,7 @@ SDK は呼び出しごとにキーを 1 つ作り、その呼び出しの再試�
 
 ```ts
 const params = {
-  profile_id: "claude-coding-local",
+  agent_release_id: process.env.WERFT_AGENT_RELEASE_ID ?? "",
   repository_id: "sample-app",
   message: 'GATE-SPEC {"id":"retry","steps":[],"final":"once"}',
 };
@@ -107,7 +106,7 @@ same session
 ```bash
 IDEM=$(uuidgen)
 BODY=$(jq -nc --arg m 'GATE-SPEC {"id":"retry","steps":[],"final":"once"}' \
-  '{profile_id: "claude-coding-local", repository_id: "sample-app", message: $m}')
+  '{agent_release_id: env.WERFT_AGENT_RELEASE_ID, repository_id: "sample-app", message: $m}')
 first=$(curl -sS "$API/v1/sessions" -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
   -H "Idempotency-Key: $IDEM" -d "$BODY")
 second=$(curl -sS "$API/v1/sessions" -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
@@ -256,7 +255,7 @@ import { isApiError } from "@werft-ai/sdk";
 
 try {
   await werft.sessions.create({
-    profile_id: "claude-coding-local",
+    agent_release_id: process.env.WERFT_AGENT_RELEASE_ID ?? "",
     repository_id: "sample-app",
     model: "claude-opus-9",
     message: "hello",
@@ -269,7 +268,7 @@ try {
 ```
 
 ```text
-422 UNSUPPORTED_CAPABILITY false Model claude-opus-9 is not on the allowed list of profile claude-coding-local; name a model the profile offers
+422 UNSUPPORTED_CAPABILITY false Model claude-opus-9 is not on the model list of connection fake-messages; name a model the connection offers
 ```
 
 </Tab>
@@ -278,7 +277,7 @@ try {
 エラー本文はどの API でも同じ形である。`retryable` が `true` のときだけ、同じキーで再送する価値がある。
 
 ```text
-{"error":{"code":"UNSUPPORTED_CAPABILITY","message":"Model claude-opus-9 is not on the allowed list of profile claude-coding-local; name a model the profile offers","retryable":false,"request_id":"…","details":null}}
+{"error":{"code":"UNSUPPORTED_CAPABILITY","message":"Model claude-opus-9 is not on the model list of connection fake-messages; name a model the connection offers","retryable":false,"request_id":"…","details":null}}
 ```
 
 リファレンス: [`POST /v1/sessions`](/reference/http-api/sessions/createSession)
@@ -292,10 +291,9 @@ try {
 | 401 | キーがない、誤っている、または失効している |
 | 403 | キーに `sessions:write` がない。または呼び出した人(個人キーなら作った人)がエージェントの外側で、ワークスペースの `agent_outsider_access` が `use` でない(`details.reason_code` が `role`) |
 | 409 `IDEMPOTENCY_CONFLICT` | 同じキーで本文が異なる |
-| 409 `PROFILE_BLOCKED` | オーナーが[運用担当者のプロファイルをブロック](/agents/run-profiles#運用担当者のプロファイルをブロックする)した。ワークスペースプロファイルなら、そのベースがブロックされている(`details.reason_code` が `base_blocked`)。送り直しても同じになる |
 | 413 | メッセージが 32,768 バイトを超えている。ストレージ容量の上限なら `STORAGE_LIMIT_EXCEEDED` |
 | 403 `GITHUB_REFUSED` | 指定した `repository_id` がエージェントの GitHub 設定の一覧またはワークスペースの上限の外にある(`details.reason_code` が `repository_not_allowed`) |
-| 422 `UNSUPPORTED_CAPABILITY` | プロファイルまたはリポジトリが存在しない、その組み合わせが許可されていない、またはプロファイルがそのモデルを許可していない |
+| 422 `UNSUPPORTED_CAPABILITY` | リポジトリがカタログにない、リリースの接続がそのモデルを提供しない、または今の worker イメージがリリースのランタイムを載せていない |
 | 429 `RATE_LIMITED` | 少し待ってからもう一度送る |
 
 実行 slot が足りなくても拒否はしない。セッションは `queued` で待機する。

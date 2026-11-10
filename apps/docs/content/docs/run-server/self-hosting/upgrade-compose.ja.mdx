@@ -115,9 +115,10 @@ incremental checkpoint と release ツール復元候補の下限を両方含む
 worker イメージが変わると、upgrade は変更前イメージを直前イメージとして残します（upgrade スクリプトの状態ディレクトリの `previous-worker`）。scheduler はセッションごとに checkpoint ポインターの組み合わせ（engine・SDK・CLI・profile digest scheme）に合うイメージを現在・直前から選び、両方合えば現在を使います（[設定レファレンスの scheduler・worker コンテナ・egress 設定](/run-server/self-hosting/reference/configuration)）。そのためゲートは、新イメージで復元できず直前イメージでも復元できないセッションだけを影響一覧に入れます。新・直前いずれかの検査が fail-closed なら、新イメージ基準の一覧をそのまま使います。同じ組み合わせで再ビルドしたイメージなら scheduler は新イメージで起動するため、新イメージで復元可能と確認できないセッションは、直前で復元できても一覧から外しません。どちらかが自分の組み合わせを出力できない以前のイメージなら（組み合わせを出力する機能がないビルド）、直前イメージを使わず、ゲートも新イメージ基準の一覧を維持します。サポート範囲は一リリースです。もう一度更新すると、それより前のイメージに残るセッションは再び影響一覧に入ります。
 
 <a id="runtime-프로필의-공통-준비" />
-### runtime プロファイルの共通準備
+<a id="runtime-버전의-공통-준비" />
+### runtime バージョンの共通準備
 
-SDK 更新リリースでは設定文書例（`tests/fixtures/settings/`）の `runtime_version` も上げます。運用環境の上限は、組み込みツール対応一覧が変わるときに新バージョンとして保存します。現在のイメージにない `runtime_version` の profile は新規セッションを受け付けません。ただし、そのバージョンの組み込みツール対応一覧が新ビルドの一覧とツール・境界・別名まで同じなら、イメージが搭載しているものとして扱います。このとき前のバージョンのままの profile 行は、アップグレード後も新規セッションをそのまま開始し、運用者が見ること・することはありません。一覧が異なる場合（ツールが増える・変わる）、新規セッションは `UNSUPPORTED_CAPABILITY` で拒否され、メッセージが profile とバージョンを示すので、その profile の新バージョンを保存します。チェックポイントはこの判定とは無関係で、作成したビルドと同じ engine・SDK・CLI の組み合わせのイメージでのみ再開されます。同じリリースに新 engine 組み合わせの組み込みツール対応一覧も含めます。一覧のないバージョンの上限は `deny` にできません。新一覧に追加されたツールは各上限の新バージョンでも遮断したまま継続し、`accept_added_tools` で受け入れると開きます（[api-server.md](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#운영자-카탈로그-agent-profile--repository)）。Kubernetes（helm）の戻し方と注意点は [Kubernetes アップグレードの元に戻す手順](/run-server/self-hosting/upgrade-kubernetes#되돌리기)にあります。
+SDK を上げるリリースでは、イメージが載せるランタイムのバージョンが変わり、設定文書例（`tests/fixtures/settings/`）の接続のモデル一覧もあわせて確認します。リリースは作成時にイメージが載せていたランタイムのバージョンを固定し、セッションはそのリリースのバージョンで動きます。現在・直前のどちらのイメージも載せていないバージョンのリリースでは新規セッションが `UNSUPPORTED_CAPABILITY` で拒否されるので、そのエージェントをリリースし直します。チェックポイントはこの判定とは関係なく、作成したビルドと同じエンジン・SDK・CLI の組み合わせのイメージでのみ再開します。同じリリースに新しいエンジンの組み合わせの組み込みツール対応一覧も入れます。Kubernetes（helm）設置の戻し方と注意点は [Kubernetes のアップグレード § 戻す](/run-server/self-hosting/upgrade-kubernetes#되돌리기) にあります。
 
 <a id="workercontrol-host-롤백과-incremental-checkpoint" />
 ### worker・control-host の rollback と incremental checkpoint
@@ -130,32 +131,10 @@ SDK 更新リリースでは設定文書例（`tests/fixtures/settings/`）の `
 - **rollback 前の作業。** 影響セッションがあれば rollback せず roll-forward します。新しい full bundle で checkpoint を取り直す運用手段（環境変数・設定・CLI）はまだありません。worker は鎖がない、切れている、長さ 32（`MAX_WORKSPACE_BUNDLE_CHAIN`）または bundle 上限に達した場合だけ、自ら full bundle を upload します。そのため rollback が必須なら影響セッションはその間復元されません。roll-forward すればそのまま復元できます。
 
 <a id="control-host-롤백-하한-release-도구로-실행" />
-### control-host の rollback 下限：release ツールでの実行
+<a id="프로필-제거의-롤백-하한" />
+### プロファイル削除の rollback 下限
 
-`v0.1.0` の control-host は release から作ったセッションを、release に固定したツール（`agent_releases.runtime_config_snapshot.tools`、profile ツール内）で実行します。それ以前は profile の全ツールでした。ツールは worker 起動時の claim で渡し、worker は終了までそれを使います。そのためエージェント定義で `tools` を選ぶ、または `forbidden` を設定したエージェントは、既に進行中のセッションも次の claim から絞り込まれます。デプロイ前に起動した worker は、最後の turn 後に入力なしで `WORKER_IDLE_TIMEOUT_SEC`（既定 1800 秒）が経過する、または pause・再起動で終了するまで profile のツールを使います。release なしのセッションや、エージェントが profile 全ツールを残す release のセッションは変わりません。worker イメージと worker protocol は変わりません。
-
-- **正式リリースの rollback 下限は `v0.1.0` です。** ツール一覧は checkpoint の profile digest に含まれます。このリリースは claim の復元候補に profile と release の両ツール一覧を入れます。非対応のリリース前ビルドへ戻すと、release ツールで作った checkpoint を復元できず、セッションが `recovery_required`（`incompatible_checkpoint`）で止まります。roll-forward 後、`retry_restore` で同じ checkpoint を再試行します。リリース前の main 環境では、復元候補対応を確認したリリースを先にデプロイして rollback 対象にします。
-- **絞り込まれる release 数。** デプロイ前に読み取りクエリで数えます。profile の全ツールを選ぶ release も数えるため上限値です。
-
-```sql
-WITH narrowed AS (
-  SELECT r.id FROM agent_releases r JOIN agent_versions v ON v.id = r.version_id
-  WHERE v.card->'capabilities'->'tools' <> 'null'::jsonb
-     OR jsonb_array_length(coalesce(v.card->'capabilities'->'forbidden', '[]')) > 0
-)
-SELECT
-  (SELECT count(*) FROM narrowed) AS releases,
-  (SELECT count(*) FROM sessions s JOIN narrowed n ON n.id = s.agent_release_id
-    WHERE s.admission_state NOT IN ('closing', 'closed')) AS open_sessions,
-  (SELECT count(*) FROM agent_releases
-    WHERE CASE WHEN jsonb_typeof(runtime_config_snapshot->'tools') = 'array'
-      THEN EXISTS (SELECT 1 FROM jsonb_array_elements(runtime_config_snapshot->'tools') t
-                    WHERE jsonb_typeof(t) <> 'string')
-      ELSE true END) AS unreadable;
-```
-
-`unreadable` は `tools` がない、または文字列配列でない snapshot です。この release のセッションは組み込みツールなしで動きます（許可しない側に解釈します）。正常経路の release は常に文字列配列の `tools` を含みます。
-- **復元候補の上限。** claim の復元候補は 16 個までです（worker 契約）。全 profile 一覧を release 一覧より先に入れます。実際にツールが絞られる release のうち、以前の profile が多いセッション（GitHub 設定なしなら 16 個、あれば 8 個以上）は二つの制約を受けます。① release ツールで実行するビルドへ変更後、現在 profile の profile 一覧が一枠増えるため、最も古い以前の profile の候補が一つ外れます。その候補だけで一致する checkpoint は復元が `incompatible_checkpoint` で止まり、同じ候補規則のビルドで再試行しても変わりません。そのセッションは `start_fresh`（以前の context を破棄）または `close` で終了します。② release ツール復元候補に非対応のリリース前ビルドへ rollback すると、その claim は profile 一覧だけで上限に達して release ツール候補を入れられません。そのため release ツール実行ビルドへの変更後に release ツールで作った checkpoint を復元できません。こちらは roll-forward 後、`retry_restore` で再試行できます。
+実行プロファイルを削除したリリースでは、migration `0264_remove_profiles` がプロファイルの表と列を削除し、プロファイルで作ったリリースとそのセッション、セッションに付く記録（turn・イベント・checkpoint 行など）を削除します。エージェントとカードのバージョン、チーム、キー、設置の設定は残ります。以後すべてのセッションはリリースが固定した spec（接続・モデル・ランタイム・ツール）で動き、エージェントは接続を選んでリリースし直すと動きます。接続には、エージェントが選ぶモデル一覧（`models`）を入れます。**このリリースより前のビルドへは rollback できません。** 戻すには、アップグレード前のバックアップから DB を復元します。
 
 <a id="worker-protocol-필드를-걷어내는-순서" />
 ### worker protocol フィールドを削除する順序

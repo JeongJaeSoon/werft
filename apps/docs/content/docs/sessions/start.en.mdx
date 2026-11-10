@@ -3,7 +3,7 @@ title: "Start"
 description: The fields, response, Idempotency-Key, list, share scope, title, and errors of a session create request
 ---
 
-A session is a conversation that runs against one profile. If the profile uses a repository, you pick one repository too. When you create a session, the first message is accepted as turn 1, and the scheduler starts a worker container for that session. The scope is `sessions:write`. The SDK examples use the `werft` client made in [Install the SDK](/getting-started/install#create-a-client), and the HTTP API examples use the shell variables `API` (the server address) and `KEY` (the key).
+A session is a conversation that runs one agent release. It runs on the connection, model, runtime and tools the release pinned, and starts with a repository or without one. When you create a session, the first message is accepted as turn 1, and the scheduler starts a worker container for that session. The scope is `sessions:write`. The SDK examples use the `werft` client made in [Install the SDK](/getting-started/install#create-a-client), and the HTTP API examples use the shell variables `API` (the server address) and `KEY` (the key), and a release id made beforehand in the `WERFT_AGENT_RELEASE_ID` environment variable ([Create](/agents/create)).
 
 In the web console, press "New session with this agent" on the agent's page and send the first message. The session starts on the active release (an agent with GitHub settings starts without a repository, and an older agent with no settings starts on its release's repository), through the same `POST /v1/sessions` with the signed-in person's authority. When the page can tell ahead of time (no active release, paused, no permission and so on), the button is off and the page says why. A refusal known only after sending, such as a missing credential binding, shows its reason in the dialog.
 
@@ -18,7 +18,7 @@ The `GATE-SPEC {…}` messages in the examples are scripts for the fake model of
 
 ```ts
 const created = await werft.sessions.create({
-  profile_id: "claude-coding-local",
+  agent_release_id: process.env.WERFT_AGENT_RELEASE_ID ?? "",
   repository_id: "sample-app",
   message: 'GATE-SPEC {"id":"start","steps":[],"final":"started"}',
 });
@@ -45,7 +45,7 @@ created=$(curl -sS "$API/v1/sessions" \
   -H 'Content-Type: application/json' \
   -H "Idempotency-Key: $(uuidgen)" \
   -d "$(jq -nc --arg m 'GATE-SPEC {"id":"start","steps":[],"final":"started"}' \
-    '{profile_id: "claude-coding-local", repository_id: "sample-app", message: $m}')")
+    '{agent_release_id: env.WERFT_AGENT_RELEASE_ID, repository_id: "sample-app", message: $m}')")
 echo "$created" | jq .
 SID=$(echo "$created" | jq -r .session_id)
 ```
@@ -67,12 +67,11 @@ Reference: [`POST /v1/sessions`](/reference/http-api/sessions/createSession)
 
 | Field | Required | Description |
 | --- | --- | --- |
-| `profile_id` | Yes, unless `agent_release_id` is set | The profile id ([Choose a profile](/agents/run-profiles)) |
-| `repository_id` | Depends on the profile | A repository id in the catalog. If sent, the worker clones this repository. It is not sent when the profile's `repository_mode` is `none`, and a `required` profile needs it, except on a session of an agent with GitHub settings, or for a profile the workspace ceiling decides; either may leave it out and start without a repository. On a session made from an agent release, omitting it starts an agent with GitHub settings without a repository, and it attaches only what it needs, while an older agent with no settings starts on its release's repository ([Sessions without a repository](/sessions/without-repository)) |
+| `repository_id` | | A repository id from the catalog. When sent, the worker clones it. It must be within the workspace ceiling and the agent's GitHub settings. Omitted, an agent with GitHub settings starts without a repository and attaches only the ones it needs, and an older agent with no settings starts on its release's repository ([Sessions without a repository](/sessions/without-repository)) |
 | `message` | Yes | The input of the first turn. Up to 32,768 UTF-8 bytes |
-| `model` | | One of the models the profile allows. If omitted, the default model |
+| `model` | | One of the models the release's connection offers. If omitted, the release card's model |
 | `title` | | The session's name. If omitted, derived from the first `message` ([Title](#title)) |
-| `agent_release_id` | | Binds this session to an agent release ([Create](/agents/create#bind-to-a-session)). Then `profile_id`, if omitted, is the release's value. If you omit `repository_id`, an agent with GitHub settings starts without a repository, and an older agent with no settings starts on its release's repository |
+| `agent_release_id` | Yes | The agent release the session runs ([Bind to a session](/agents/create#bind-to-a-session)). If its connection was disabled or the model left the connection's list, 409 `RELEASE_SPEC_UNAVAILABLE` |
 
 The response is 201. The request is only accepted; read the result by fetching the turn ([Status and lifecycle](/sessions/lifecycle)).
 
@@ -87,7 +86,7 @@ The SDK makes one key per call and sends that same key on every retry of the cal
 
 ```ts
 const params = {
-  profile_id: "claude-coding-local",
+  agent_release_id: process.env.WERFT_AGENT_RELEASE_ID ?? "",
   repository_id: "sample-app",
   message: 'GATE-SPEC {"id":"retry","steps":[],"final":"once"}',
 };
@@ -107,7 +106,7 @@ same session
 ```bash
 IDEM=$(uuidgen)
 BODY=$(jq -nc --arg m 'GATE-SPEC {"id":"retry","steps":[],"final":"once"}' \
-  '{profile_id: "claude-coding-local", repository_id: "sample-app", message: $m}')
+  '{agent_release_id: env.WERFT_AGENT_RELEASE_ID, repository_id: "sample-app", message: $m}')
 first=$(curl -sS "$API/v1/sessions" -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
   -H "Idempotency-Key: $IDEM" -d "$BODY")
 second=$(curl -sS "$API/v1/sessions" -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
@@ -256,7 +255,7 @@ import { isApiError } from "@werft-ai/sdk";
 
 try {
   await werft.sessions.create({
-    profile_id: "claude-coding-local",
+    agent_release_id: process.env.WERFT_AGENT_RELEASE_ID ?? "",
     repository_id: "sample-app",
     model: "claude-opus-9",
     message: "hello",
@@ -269,7 +268,7 @@ try {
 ```
 
 ```text
-422 UNSUPPORTED_CAPABILITY false Model claude-opus-9 is not on the allowed list of profile claude-coding-local; name a model the profile offers
+422 UNSUPPORTED_CAPABILITY false Model claude-opus-9 is not on the model list of connection fake-messages; name a model the connection offers
 ```
 
 </Tab>
@@ -278,7 +277,7 @@ try {
 The error body has the same shape in every API. Resend with the same key only when `retryable` is `true`.
 
 ```text
-{"error":{"code":"UNSUPPORTED_CAPABILITY","message":"Model claude-opus-9 is not on the allowed list of profile claude-coding-local; name a model the profile offers","retryable":false,"request_id":"…","details":null}}
+{"error":{"code":"UNSUPPORTED_CAPABILITY","message":"Model claude-opus-9 is not on the model list of connection fake-messages; name a model the connection offers","retryable":false,"request_id":"…","details":null}}
 ```
 
 Reference: [`POST /v1/sessions`](/reference/http-api/sessions/createSession)
@@ -292,10 +291,9 @@ Reference: [`POST /v1/sessions`](/reference/http-api/sessions/createSession)
 | 401 | The key is missing, wrong, or revoked |
 | 403 | The key lacks `sessions:write`, or the caller (for a personal key, its creator) is outside the agent and the workspace's `agent_outsider_access` is not `use` (`details.reason_code` is `role`) |
 | 409 `IDEMPOTENCY_CONFLICT` | The same key with a different body |
-| 409 `PROFILE_BLOCKED` | An owner [blocked the operator profile](/agents/run-profiles#block-an-operator-profile). For a workspace profile, its base is blocked (`details.reason_code` is `base_blocked`). Sending it again gets the same answer |
 | 413 | The message exceeds 32,768 bytes. `STORAGE_LIMIT_EXCEEDED` if the storage limit is exceeded |
 | 403 `GITHUB_REFUSED` | The `repository_id` you named is outside the agent's GitHub settings list or the workspace ceiling (`details.reason_code` is `repository_not_allowed`) |
-| 422 `UNSUPPORTED_CAPABILITY` | The profile or repository does not exist, the pair is not allowed, or the profile does not allow the model |
+| 422 `UNSUPPORTED_CAPABILITY` | The repository is not in the catalog, the release's connection does not offer the model, or the current worker images do not ship the release's runtime |
 | 429 `RATE_LIMITED` | Send again after a short wait |
 
 When execution slots run short, the request is not rejected. The session waits as `queued`.

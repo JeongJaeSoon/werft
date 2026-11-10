@@ -22,9 +22,9 @@ export type ReleaseRunRefusal = {
  * What a release on `connectionId` runs apart from its card. The runtime is
  * the one the connection's kind runs on, at the version the image ships; its
  * tools are that runtime's whole built-in catalog, which the workspace's and
- * the agent's rules then narrow. The engine runs `auto` where its classifier
- * works over the connection (an operator said so, or an Anthropic connection
- * nobody judged), and `default` (a person answers) everywhere else.
+ * the agent's rules then narrow. The engine runs `auto` where an operator
+ * judged that its classifier works over the connection, and `default` (a
+ * person answers what the rules leave open) everywhere else.
  */
 export function releaseRunOf(
   catalog: {
@@ -60,10 +60,7 @@ export function releaseRunOf(
     };
   }
   const permission_mode: PermissionMode =
-    kind === "claude_agent_sdk" &&
-    (connection.auto_mode === "supported" ||
-      (connection.auto_mode === "unknown" &&
-        connection.provider.kind === "anthropic"))
+    kind === "claude_agent_sdk" && connection.auto_mode === "supported"
       ? "auto"
       : "default";
   return {

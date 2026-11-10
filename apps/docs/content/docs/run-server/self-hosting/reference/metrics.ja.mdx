@@ -73,7 +73,7 @@ scrape ごとに DB を読んで集計します。scrape 間隔を短くする�
 ### 費用とトークン
 
 - 費用は `provider_usage.cost_usd` の合計です。呼び出しの記録時にプラットフォーム価格表が計算した値です。メトリクスは単価を再計算せず、別の単価設定も持ちません。
-- `priced_by` はその呼び出しの価格根拠です。`table`（価格表にあるモデル）、`fallback`（価格表にないため最高単価で計算）、`unmetered`（profile が `billing: none` のため費用 0）があります。セルフホストモデルなど費用 0 の呼び出しの使用量は、`priced_by="unmetered"` のトークン数で確認します。
+- `priced_by` はその呼び出しの価格根拠です。`table`（価格表にあるモデル）、`fallback`（価格表にないため最高単価で計算）、`unmetered`（接続が `billing: none` のため費用 0）があります。セルフホストモデルなど費用 0 の呼び出しの使用量は、`priced_by="unmetered"` のトークン数で確認します。
 - **期間の基準は呼び出しの記録時刻（`provider_usage.recorded_at`）です。** 期間費用は `increase(werft_provider_cost_usd_total[1h])` のように counter の増分で見ます。
 - `GET /v1/usage/summary` とは三点異なります。期間内に作成して期間内に課金したセッションだけなら、両者は一致します。
   - summary は期間内に**作成した**セッション（`sessions.created_at`）を選び、そのセッションの費用全体を足します。期間前に作成したセッションが期間内に使った費用はメトリクスにだけ入ります。

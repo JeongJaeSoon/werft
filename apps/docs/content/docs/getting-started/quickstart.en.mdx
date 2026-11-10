@@ -5,9 +5,10 @@ description: Create a session with the SDK, wait for the turn to end, and read t
 
 With the `werft` client from [Install the SDK](/getting-started/install), create one session and follow it until the first turn ends. The examples assume the [development server](/run-server/dev-server) started with `--fake-model`. A `GATE-SPEC {…}` message is a script the fake model reads; on a server that runs the real Claude, send a plain sentence.
 
-## Pick a profile
+## Prepare an agent release
 
-A session runs on one of the profiles the server operator registered: the list you saw in [Check the connection](/getting-started/install#check-the-connection). The development server has `claude-coding-local` (a person answers permission requests) and `claude-coding-auto` (a classifier decides), which use a repository, and `general`, which runs without one. This page uses `claude-coding-local`.
+A session always runs an agent release. A release binds one provider connection to the card's model, and its sessions run with the runtime, tools and permission mode the release pinned. If you have no release yet, create an agent as in [Create](/agents/create) and make a release on the development server's `fake-messages` connection. Put that release id in `WERFT_AGENT_RELEASE_ID`.
+
 
 ## Create a session
 
@@ -16,7 +17,7 @@ import { waitForTurn } from "@werft-ai/sdk";
 import { werft } from "./werft.ts";
 
 const created = await werft.sessions.create({
-  profile_id: "claude-coding-local",
+  agent_release_id: process.env.WERFT_AGENT_RELEASE_ID ?? "",
   repository_id: "sample-app",
   message: 'GATE-SPEC {"id":"hello","steps":[],"final":"hello from Werft"}',
 });

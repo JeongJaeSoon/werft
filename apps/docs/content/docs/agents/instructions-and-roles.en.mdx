@@ -18,7 +18,7 @@ Name and description help people recognise the agent in lists and on its page. N
 There is one way to tell an agent how to work, how to answer, and which rules to keep: put an `AGENTS.md` (else `CLAUDE.md`) at the root of the repository the session works in. The card has no field for such text.
 
 - Commit the file. A session reads the committed content when it starts, so a change reaches new sessions without a version or a release.
-- It is read only when the profile has `project_settings.claude_md: true`. With it off, the file is not passed to the model even if it exists. Turn it on under "Read the repository's CLAUDE.md" on the profile's page. The local profile `claude-coding-local` has it on.
+- A release pins reading this file in a session that has a repository (`project_settings.claude_md: true`). A session without a repository has no file to read.
 - A session reads the file of the repository it started in, so agents on the same repository share it.
 
 ### How to write it
@@ -47,8 +47,7 @@ Earlier cards had "Role" (`role`) and "Instructions" (`instructions`) fields, an
 
 | Field | Required | Content |
 | --- | --- | --- |
-| `model` | Yes | Model name. Must be one of the models the profile can run when you create a release |
-| `capabilities.tools` | Yes | List of tool names to use. They must be tools the profile has. `null` means all of the profile's tools when the release is created |
+| `model` | Yes | Model name. Must be on the model list of the connection chosen when you create a release |
 | `capabilities.mcp` | Yes | Only `null` is accepted for now |
 | `capabilities.forbidden` | | Tool names to forbid. The web console puts `[]` on a new card, and only shows and clears an existing value |
 | `capabilities.tool_policy` | | `allow`, `ask`, or `deny` per tool |
@@ -59,23 +58,19 @@ Earlier cards had "Role" (`role`) and "Instructions" (`instructions`) fields, an
 
 Name (1–120 characters) and description (0–2,000 characters) are fields of the agent, not the card. Send them as `name` and `description` to `POST /v1/agents` and `PATCH /v1/agents/{id}`.
 
-## Choosing tools in the web console
+## Built-in tools and run rules
 
-In card editing (the "What it does" step of a new agent, and Edit settings on the agent's page), "Tools it may use" is a checklist of one profile's tools.
+A card does not choose built-in tools. A release pins every built-in tool of its connection's runtime, and what to ask about or block is set by the workspace's and the agent's run rules (allow, ask, deny, and the auto-mode lists). The deny list is the union of the two. Edit the run rules in the workspace settings and on the agent page's "Run rules" tab ([Permissions](/agents/permissions)).
 
-- "Profile to choose tools from": pick one of the profiles that run the card's model. The new-agent flow lists first the profiles it can release without a repository, and picks the chosen one first in the release step. This value is not saved on the card.
-- With "Every tool the profile does not block at release" on, `tools` is `null`. Turn it off and the checked tools are `tools`. Unchecking a tool is what forbids it.
-- When saving, the `tool_policy.per_tool` entries of unchecked built-in tools are removed, because a release refuses a policy for a built-in tool it does not run. MCP tool policies stay.
-- A name in `tools` that the profile does not have shows checked as "Not in the profile" and can only be turned off.
-- Below the list is the number of profiles that allow every tool chosen. At 0, the card cannot be saved.
-- An existing card's `forbidden` shows as a list, and "Clear blocked tools" empties it. Until then, those tools stay off in the checklist and cannot be changed.
+- An existing card's `forbidden` shows as a list, and "Clear blocked tools" empties it.
+
 
 ## What the model reads today
 
 The worker adds these instructions to the model's system prompt, in this order.
 
 1. For a session without a repository, a single line stating that `out/` is the directory whose files a checkpoint collects as outputs.
-2. `AGENTS.md` at the repository root, else `CLAUDE.md`. When the profile has `project_settings.claude_md: true`, the committed content is read. A `CLAUDE.md` that links to `AGENTS.md`, or is only an `@AGENTS.md` line, is read once. The local profile `claude-coding-local` has it on.
+2. `AGENTS.md` at the repository root, else `CLAUDE.md`. The committed content is read. A `CLAUDE.md` that links to `AGENTS.md`, or is only an `@AGENTS.md` line, is read once.
 
 The text of item 1 is also placed at the workspace root as `AGENTS.md`, with `CLAUDE.md` a link to it. Both are listed in `.git/info/exclude`, so they never get into a commit. When the repository already has an `AGENTS.md` or a `CLAUDE.md`, neither is overwritten. The model still gets the same text in its system prompt.
 
@@ -110,5 +105,5 @@ A new version does not change the active release. To use it, create a release fr
 
 ## Next steps
 
-- [Choose a profile](/agents/run-profiles): The profile that releases and sessions use
+- [Model connections](/run-server/self-hosting/model-connections): The connections a release picks from and their model lists
 - [Permissions](/agents/permissions): Tool permissions and agent administrators

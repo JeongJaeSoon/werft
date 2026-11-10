@@ -144,7 +144,7 @@ kubectl -n werft exec deploy/werft-api -- env \
 
 1. 先に `PLATFORM_SECRET_KEY` を Secret に設定します。既にあれば同じ値を維持します。
 2. values から `catalog` 節を削除して `helm upgrade` します。`api.extraEnv` の `PLATFORM_CONFIG_DIR` も、あれば削除します。
-3. 設置バージョンのリポジトリ checkout とホストの Bun・kubectl を準備し、`bun run settings:k8s export` で追加項目を確認します。`installation_profiles` に既存行があればファイルの上限は再設定しません。手順と戻せる下限は [api-server.md](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#설정-문서-가져오기내보내기)にあります。
+3. 設置バージョンのリポジトリ checkout とホストの Bun・kubectl を準備し、`bun run settings:k8s export` で追加項目を確認します。手順と戻せる下限は [api-server.md](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#설정-문서-가져오기내보내기)にあります。
 
 <a id="확인" />
 ## 確認

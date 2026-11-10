@@ -3,43 +3,7 @@ title: "Sessions without a repository"
 description: A session that runs in an empty workspace without cloning a repository
 ---
 
-The profile decides whether a repository is used. If the profile's `repository_mode` is `required`, every session sends `repository_id` (a session of an agent with GitHub settings, or a profile the workspace ceiling decides, may leave it out, as the section below says); if it is `none`, it does not; if it is `optional`, either works. A session created without a repository starts in an empty workspace. The SDK examples use the `werft` client made in [Install the SDK](/getting-started/install#create-a-client), and the HTTP API examples use the shell variables `API` (the server address) and `KEY` (the key).
-
-## Check the profile
-
-<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
-<Tab>
-
-```ts
-const { items } = await werft.profiles.list();
-for (const profile of items) console.log(profile.id, profile.repository_mode);
-```
-
-```text
-claude-coding-auto required
-claude-coding-local required
-general none
-```
-
-</Tab>
-<Tab>
-
-```bash
-curl -sS "$API/v1/profiles" -H "Authorization: Bearer $KEY" | jq -c '.items[] | {id, repository_mode}'
-```
-
-```text
-{"id":"claude-coding-auto","repository_mode":"required"}
-{"id":"claude-coding-local","repository_mode":"required"}
-{"id":"general","repository_mode":"none"}
-```
-
-Reference: [`GET /v1/profiles`](/reference/http-api/agents/listProfiles)
-
-</Tab>
-</Tabs>
-
-The `general` profile of the development server ([Run the development server](/run-server/dev-server)) is `none`.
+A session clones the repository named by `repository_id`, or, left out, can start in an empty workspace with no repository. The repository must be within the workspace ceiling and the agent's GitHub settings. The SDK examples use the `werft` client made in [Install the SDK](/getting-started/install#create-a-client), and the HTTP API examples use the shell variables `API` (the server address) and `KEY` (the key).
 
 ## Create without a repository
 
@@ -50,7 +14,7 @@ Create the session without `repository_id`.
 
 ```ts
 const created = await werft.sessions.create({
-  profile_id: "general",
+  agent_release_id: process.env.WERFT_AGENT_RELEASE_ID ?? "",
   message: 'GATE-SPEC {"id":"no-repo","steps":[],"final":"no repository here"}',
 });
 console.log(created.status);
@@ -72,7 +36,7 @@ NOREPO=$(curl -sS "$API/v1/sessions" \
   -H 'Content-Type: application/json' \
   -H "Idempotency-Key: $(uuidgen)" \
   -d "$(jq -nc --arg m 'GATE-SPEC {"id":"no-repo","steps":[],"final":"no repository here"}' \
-    '{profile_id: "general", message: $m}')" | jq -r .session_id)
+    '{agent_release_id: env.WERFT_AGENT_RELEASE_ID, message: $m}')" | jq -r .session_id)
 curl -sS "$API/v1/sessions/$NOREPO" -H "Authorization: Bearer $KEY" | jq -c '{repository_id, repository}'
 ```
 
@@ -85,54 +49,7 @@ Reference: [`POST /v1/sessions`](/reference/http-api/sessions/createSession)
 </Tab>
 </Tabs>
 
-## When it does not match the profile
-
-Sending `repository_id` to a `none` profile, or leaving it out of a `required` profile, is 422 `UNSUPPORTED_CAPABILITY`. The exception is a session of an agent with GitHub settings, or a profile the workspace ceiling decides: either starts without a repository even on a `required` profile.
-
-<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
-<Tab>
-
-```ts
-import { isApiError } from "@werft-ai/sdk";
-
-try {
-  await werft.sessions.create({
-    profile_id: "general",
-    repository_id: "sample-app",
-    message: "hello",
-  });
-} catch (error) {
-  if (!isApiError(error)) throw error;
-  console.log(error.status, error.code, error.message);
-}
-```
-
-```text
-422 UNSUPPORTED_CAPABILITY Profile general runs without a repository: omit repository_id
-```
-
-</Tab>
-<Tab>
-
-```bash
-curl -sS "$API/v1/sessions" \
-  -H "Authorization: Bearer $KEY" \
-  -H 'Content-Type: application/json' \
-  -H "Idempotency-Key: $(uuidgen)" \
-  -d '{"profile_id": "general", "repository_id": "sample-app", "message": "hello"}' \
-  | jq -c '.error | {code, message}'
-```
-
-```text
-{"code":"UNSUPPORTED_CAPABILITY","message":"Profile general runs without a repository: omit repository_id"}
-```
-
-Reference: [`POST /v1/sessions`](/reference/http-api/sessions/createSession)
-
-</Tab>
-</Tabs>
-
-With no repository there is nowhere to push. A [push request](/approvals/request) for this session is 409 `PUSH_SOURCE_MISSING`. When you change the profile of a session in progress, you can change it only to a profile that does not use a repository (`optional`, `none`). A profile the workspace ceiling decides may also be `required`, and a session bound to an agent release cannot change its profile ([Change the profile of a running session](/agents/run-profiles#change-the-profile-of-a-running-session)).
+With no repository there is nowhere to push. A [push request](/approvals/request) for this session is 409 `PUSH_SOURCE_MISSING`.
 
 ## An agent session starts without a repository
 

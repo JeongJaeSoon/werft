@@ -25,7 +25,7 @@ A strict API that does not recognize new fields rejects worker reports. Run migr
 <a id="checkpoint와-복원" />
 ## Checkpoints and restoration
 
-Incremental bundle chains, profile tool lists, and release tool lists are also part of the restoration contract. An older build cannot read an unfamiliar format even if its readiness check succeeds. start_fresh is a recovery decision that discards the previous context; it does not preserve compatibility.
+Incremental bundle chains and release tool lists are also part of the restoration contract. An older build cannot read an unfamiliar format even if its readiness check succeeds. start_fresh is a recovery decision that discards the previous context; it does not preserve compatibility.
 
 <a id="schema와-실행-중-worker" />
 ## Schemas and running workers

@@ -58,7 +58,7 @@ TEAM=$(ap_web POST /v1/teams '{"name":"sandbox"}' | head -1 | jq -r .team.id)
 A=$(ap_web POST /v1/agents "{\"slug\":\"sandbox\",\"name\":\"sandbox\",\"managing_team_id\":\"$TEAM\",\"card\":$CARD}" | head -1)
 AID=$(echo "$A" | jq -r .agent.id); VID=$(echo "$A" | jq -r '.versions[0].id')
 GH='{"repositories":["sandbox"],"push_approval":true,"features":{"workflows":false,"actions":true,"checks":false,"issues":false,"review":false},"actions_allow":[{"workflow":"sandbox-dispatch.yml"}]}'
-REL=$(ap_web POST "/v1/agents/$AID/releases" "$(jq -nc --arg v "$VID" --argjson g "$GH" '{version_id:$v, runtime_profile_id:"claude-coding-local", repository_id:"sandbox", github:$g}')" | head -1 | jq -r .release.id)
+REL=$(ap_web POST "/v1/agents/$AID/releases" "$(jq -nc --arg v "$VID" --argjson g "$GH" '{version_id:$v, connection_id:"fake-messages", repository_id:"sandbox", github:$g}')" | head -1 | jq -r .release.id)
 ap_web POST "/v1/agents/$AID/activate" "$(jq -nc --arg r "$REL" '{release_id:$r, expected_revision:-1}')"
 ap_web GET "/v1/agents/$AID/github" | tee "$EVIDENCE/gh-agent.txt"
 printf 'AID=%s\nREL=%s\n' "$AID" "$REL"

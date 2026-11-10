@@ -73,7 +73,7 @@ The first matching row determines `state`. Each session matches exactly one row,
 ### Costs and tokens
 
 - Cost sums `provider_usage.cost_usd`, calculated when the call was recorded using platform prices. Metrics neither reprice calls nor maintain separate price settings.
-- `priced_by` records the pricing basis: `table` (listed model), `fallback` (unlisted model, using the highest rates), or `unmetered` (profile `billing: none`, cost 0). Track usage for zero-cost calls such as self-hosted models through tokens with `priced_by="unmetered"`.
+- `priced_by` records the pricing basis: `table` (listed model), `fallback` (unlisted model, using the highest rates), or `unmetered` (connection `billing: none`, cost 0). Track usage for zero-cost calls such as self-hosted models through tokens with `priced_by="unmetered"`.
 - **Time windows use the call recording time (`provider_usage.recorded_at`).** Use counter increases such as `increase(werft_provider_cost_usd_total[1h])` for period costs.
 - There are three differences from `GET /v1/usage/summary`. Results match if all sessions were created and charged within the period.
   - summary selects sessions **created** in the period (`sessions.created_at`) and sums their entire costs. Costs incurred during the period by older sessions appear only in metrics.

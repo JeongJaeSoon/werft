@@ -54,7 +54,7 @@ Docker daemon を先に 28 以上へ更新し、その後に隔離契約を変�
 - `failures`：連続失敗回数です。
 - `retry_at`：次の試行時刻。停止後は null です。
 
-`INCOMPATIBLE_CHECKPOINT` は、同じ worker runtime・profile では再試行しても成功しない決定的失敗です。この場合は最初の launch 後すぐ `recovery_required` で停止し、attention と `checkpoint_restore_failed` イベントの `reason` は `incompatible_checkpoint`、`failures` は 1、`retry_at` は null です。運用者は互換 runtime・profile に戻し、`retry_restore` で同じ checkpoint を再試行するか、以前の context を破棄してよければ `start_fresh`、セッションを終了するなら `close` を選びます。
+`INCOMPATIBLE_CHECKPOINT` は、同じ worker runtime・設定では再試行しても成功しない決定的失敗です。この場合は最初の launch 後すぐ `recovery_required` で停止し、attention と `checkpoint_restore_failed` イベントの `reason` は `incompatible_checkpoint`、`failures` は 1、`retry_at` は null です。運用者は互換 runtime・設定に戻し、`retry_restore` で同じ checkpoint を再試行するか、以前の context を破棄してよければ `start_fresh`、セッションを終了するなら `close` を選びます。
 
 イベントストリームには失敗ごとに system の `checkpoint_restore_failed` が残ります。worker ログの `worker.checkpoint.restore_refused`、`worker.failed` で原因を確認します。ストレージ応答の checksum 不一致（転送中の破損）も `CHECKPOINT_UNAVAILABLE` です。
 - ストレージや egress-proxy の `/object-store` 経路の一時的な応答不能は失敗に数えません。接続失敗、DNS 失敗、request/body timeout、途中で切れた body、HTTP 408・429・5xx は一時障害です。checkpoint 復元は `worker.checkpoint.restore_unavailable`、checkpoint がまだない新 generation の transcript ストレージ確認は `worker.checkpoint.store_unavailable` 警告を残します。いずれも同じ worker 内で 1 秒から倍増し、最大 30 秒間隔で `WORKER_STARTUP_TIMEOUT_SEC`（既定 3600 秒）まで再試行します。回復すれば同じ worker が続行するため generation は新しくしません。
@@ -129,7 +129,7 @@ curl -X POST "$API/v1/sessions/$SESSION/recovery-decisions" \
 <a id="자주-막히는-곳" />
 ## よくある問題
 
-原因が変わらない incompatible checkpoint は、同じ runtime・profile で再試行しても成功しません。start_fresh は以前の context を破棄します。confirm_completed には、その turn までカバーする commit 済み checkpoint と evidence_ref が必要です。
+原因が変わらない incompatible checkpoint は、同じ runtime・設定で再試行しても成功しません。start_fresh は以前の context を破棄します。confirm_completed には、その turn までカバーする commit 済み checkpoint と evidence_ref が必要です。
 
 <a id="되돌리기" />
 ## 元に戻す
