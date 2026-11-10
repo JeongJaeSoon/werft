@@ -67,21 +67,11 @@ const workspaceRules = (permissions: unknown, revision = 1) =>
      VALUES ($1, $2::jsonb, '{}'::jsonb, $3)`,
     [workspaceId, JSON.stringify(permissions), revision],
   );
-const agentRules = (
-  permissions: unknown,
-  adminDeny: unknown = [],
-  revision = 1,
-) =>
+const agentRules = (permissions: unknown, revision = 1) =>
   client.query(
-    `INSERT INTO agent_engine_settings (agent_id, workspace_id, permissions, auto_mode, admin_deny, revision)
-     VALUES ($1, $2, $3::jsonb, '{}'::jsonb, $4::jsonb, $5)`,
-    [
-      agentId,
-      workspaceId,
-      JSON.stringify(permissions),
-      JSON.stringify(adminDeny),
-      revision,
-    ],
+    `INSERT INTO agent_engine_settings (agent_id, workspace_id, permissions, auto_mode, revision)
+     VALUES ($1, $2, $3::jsonb, '{}'::jsonb, $4)`,
+    [agentId, workspaceId, JSON.stringify(permissions), revision],
   );
 
 // Most cases are about the verdict; the audit has its own tests below.
@@ -110,7 +100,7 @@ describe("claim receipts", () => {
 
   test("a claim that met rules records revisions, result and counts, never the rules", async () => {
     await workspaceRules({ ask: ["Bash(git push:*)"] }, 2);
-    await agentRules({ deny: ["Skill"] }, [], 4);
+    await agentRules({ deny: ["Skill"] }, 4);
     const result = await withAudit(
       db,
       session({
@@ -132,7 +122,7 @@ describe("claim receipts", () => {
   });
 
   test("a refusal is recorded with its reason, and repeating it adds no row", async () => {
-    await agentRules({}, [], 1);
+    await agentRules({}, 1);
     const closed = await withAudit(
       db,
       session({
@@ -232,36 +222,6 @@ describe("claimEngineSettingsOf", () => {
     });
   });
 
-  test("an inherited deny binds a release unless it is exempt, and not a session without one", async () => {
-    await agentRules({}, [
-      { exempt_release_ids: [], permissions_deny: ["Task"], mcp_deny: [] },
-    ]);
-    const bound = await claimEngineSettingsOf(db, session(), both);
-    expect(bound).toEqual({
-      kind: "ok",
-      settings: { disallowedTools: ["Task"] },
-    });
-    await client.query(
-      "UPDATE agent_engine_settings SET admin_deny = $1::jsonb",
-      [
-        JSON.stringify([
-          {
-            exempt_release_ids: [releaseId],
-            permissions_deny: ["Task"],
-            mcp_deny: [],
-          },
-        ]),
-      ],
-    );
-    expect(await claimEngineSettingsOf(db, session(), both)).toEqual({
-      kind: "ok",
-      settings: { disallowedTools: [] },
-    });
-    expect(
-      await claimEngineSettingsOf(db, session({ agentReleaseId: null }), both),
-    ).toEqual({ kind: "ok", settings: { disallowedTools: [] } });
-  });
-
   test("mcpDeniedBy lists the saved mcp__ denies and is null when rules cannot be read", async () => {
     await workspaceRules({ deny: ["mcp__github__delete_repo", "Skill"] });
     expect(await mcpDeniedBy(db, session())).toEqual([
@@ -283,7 +243,7 @@ describe("claimEngineSettingsOf", () => {
   });
 
   test("a snapshot newer than the saved row closes the claim", async () => {
-    await agentRules({}, [], 1);
+    await agentRules({}, 1);
     const result = await claimEngineSettingsOf(
       db,
       session({

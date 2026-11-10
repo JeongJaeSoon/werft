@@ -29,6 +29,7 @@ import {
 import { fixtureTeam } from "./testing/fixture-team.ts";
 import {
   releaseSpecColumns,
+  sessionPinColumns,
   TEST_CONNECTION_ID,
   TEST_MODEL,
 } from "./testing/spec-pins.ts";
@@ -179,6 +180,7 @@ integration("agent MCP settings on PostgreSQL", () => {
       workspaceId,
       repoUrl: "https://example.invalid/app.git",
       branch: "main",
+      ...sessionPinColumns(),
       agentReleaseId: releaseId,
       mcpStart,
     });

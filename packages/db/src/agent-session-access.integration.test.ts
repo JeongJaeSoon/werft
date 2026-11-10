@@ -33,6 +33,7 @@ import { createPostgresSessionShareStore } from "./session-shares.ts";
 import { fixtureTeam } from "./testing/fixture-team.ts";
 import {
   releaseSpecColumns,
+  sessionPinColumns,
   TEST_CONNECTION_ID,
   TEST_MODEL,
 } from "./testing/spec-pins.ts";
@@ -167,6 +168,7 @@ integration("agent access settings on PostgreSQL", () => {
       workspaceId,
       repoUrl: "https://example.invalid/repo.git",
       branch: "main",
+      ...sessionPinColumns(),
       agentReleaseId: releaseId,
       createdByUserId: idOf(creator),
     });

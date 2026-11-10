@@ -24,7 +24,11 @@ import {
   users,
   workspaces,
 } from "./schema.ts";
-import { releaseSpecColumns, TEST_CONNECTION_ID } from "./testing/spec-pins.ts";
+import {
+  releaseSpecColumns,
+  sessionPinColumns,
+  TEST_CONNECTION_ID,
+} from "./testing/spec-pins.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 let client: PGlite;
@@ -167,6 +171,7 @@ async function world(options: { installation?: "verified" | "pending" } = {}) {
       repositoryId: "app",
       checkpointRevision: 1,
       workspaceId,
+      ...sessionPinColumns(),
       agentReleaseId: releaseId,
       createdByUserId: creator?.userId ?? null,
     });

@@ -9,7 +9,6 @@ import {
   turns,
 } from "@werft-ai/db";
 import { createLogger } from "@werft-ai/observability";
-import type { CatalogProfileView } from "@werft-ai/platform";
 import {
   createTempDatabase,
   type TempDatabase,
@@ -19,7 +18,10 @@ import { sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { eventNeutralizer } from "./neutral-fields.ts";
-import { fixtureRelease, TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
+import {
+  fixtureRelease,
+  sessionPinColumns,
+} from "@werft-ai/db/testing/spec-pins";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -70,7 +72,7 @@ integration("events stored before the neutral fields, once filled", () => {
       repoUrl: "https://example.invalid/app.git",
       branch: "main",
       agentReleaseId: await fixtureRelease(db),
-      model: TEST_MODEL,
+      ...sessionPinColumns(),
     });
     const [turn] = await db
       .insert(turns)
@@ -101,14 +103,7 @@ integration("events stored before the neutral fields, once filled", () => {
       SET filled_through = 0, history_through = (SELECT max(id) FROM events)
       WHERE id = 1`);
 
-    const neutralize = eventNeutralizer(
-      {
-        profiles: {
-          coding: { runtime_kind: "claude_agent_sdk" } as CatalogProfileView,
-        },
-      },
-      createLogger({ level: "error" }),
-    );
+    const neutralize = eventNeutralizer(createLogger({ level: "error" }));
     const fill = await fillNeutralFields(db, {
       neutralize,
       batchSize: 100,

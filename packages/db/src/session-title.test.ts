@@ -36,8 +36,8 @@ import {
 import { createPostgresUsageReader } from "./usage-reader.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
-const OWNER = testCaller("owner-a");
-const OTHER = testCaller("owner-b");
+const OWNER = testCaller("00000000-0000-4000-8000-00000000000a");
+const OTHER = testCaller("00000000-0000-4000-8000-00000000000b");
 
 const CATALOG: SessionCatalog = testSessionCatalog({
   repositories: {

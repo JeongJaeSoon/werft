@@ -28,7 +28,7 @@ import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
  * stops new turns from being handed out, and says whether one is still open.
  */
 
-const OWNER = testCaller("owner-a");
+const OWNER = testCaller("00000000-0000-4000-8000-00000000000a");
 const CATALOG: SessionCatalog = testSessionCatalog({
   provider: {
     kind: "litellm",

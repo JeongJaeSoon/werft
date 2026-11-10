@@ -41,6 +41,7 @@ import {
 } from "./schema.ts";
 import {
   releaseSpecColumns,
+  sessionPinColumns,
   TEST_CONNECTION_ID,
   TEST_RUNTIMES,
   testSessionCatalog,
@@ -430,6 +431,7 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
         workspaceId,
         repoUrl: "https://example.invalid/app.git",
         branch: "main",
+        ...sessionPinColumns(),
         agentReleaseId,
       });
     }

@@ -93,7 +93,6 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "GET /v1/sessions/{id}/outputs",
     "GET /v1/sessions/{id}/outputs/{path}",
   ],
-  "routes/connections.test.ts": ["GET /v1/connections"],
   "routes/installation-settings.test.ts": [
     "GET /v1/installation/settings/export",
     "POST /v1/installation/settings/import",
@@ -250,6 +249,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "PATCH /v1/agents/{id}",
     "POST /v1/agents/{id}/releases",
     "POST /v1/agents/{id}/activate",
+    "GET /v1/connections",
   ],
   "routes/agent-identities.test.ts": [
     "POST /v1/agents/{id}/identities",

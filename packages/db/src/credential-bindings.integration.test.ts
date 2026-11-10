@@ -30,7 +30,11 @@ import {
   workspaces,
 } from "./schema.ts";
 import { fixtureTeam } from "./testing/fixture-team.ts";
-import { releaseSpecColumns, TEST_CONNECTION_ID } from "./testing/spec-pins.ts";
+import {
+  releaseSpecColumns,
+  sessionPinColumns,
+  TEST_CONNECTION_ID,
+} from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -301,6 +305,7 @@ integration("credential bindings on PostgreSQL", () => {
         workspaceId,
         repoUrl: "https://example.invalid/app.git",
         branch: "main",
+        ...sessionPinColumns(),
         agentReleaseId,
         admissionState,
       });
@@ -342,6 +347,7 @@ integration("credential bindings on PostgreSQL", () => {
         workspaceId,
         repoUrl: "https://example.invalid/app.git",
         branch: "main",
+        ...sessionPinColumns(),
         agentReleaseId: releaseId,
       });
     });

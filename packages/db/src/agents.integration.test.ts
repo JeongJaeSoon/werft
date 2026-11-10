@@ -63,6 +63,7 @@ import {
 import { fixtureTeamSql } from "./testing/fixture-team.ts";
 import {
   releaseSpecColumns,
+  sessionPinColumns,
   TEST_CONNECTION_ID,
   TEST_RUNTIMES,
   testSessionCatalog,
@@ -855,6 +856,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
         workspaceId,
         repoUrl: "https://example.invalid/app.git",
         branch: "main",
+        ...sessionPinColumns(),
         agentReleaseId: releaseId,
         status: options.status,
         createdByUserId: options.creator,
@@ -1764,6 +1766,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       workspaceId,
       repoUrl: "https://example.invalid/app.git",
       branch: "main",
+      ...sessionPinColumns(),
       agentReleaseId: r1.id,
     });
     expect(
@@ -1773,6 +1776,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
           ownerId: workspaceId,
           repoUrl: "https://example.invalid/app.git",
           branch: "main",
+          ...sessionPinColumns(),
           agentReleaseId: "sha256:nowhere",
         }),
       ),
@@ -1846,6 +1850,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       workspaceId,
       repoUrl: "https://example.invalid/app.git",
       branch: "main",
+      ...sessionPinColumns(),
       agentReleaseId: r1.id,
     });
 

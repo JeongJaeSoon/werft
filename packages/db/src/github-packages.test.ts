@@ -167,11 +167,13 @@ describe("the GitHub Packages store", () => {
 
   test("an owner that is not a workspace has no token and allows nothing", async () => {
     expect(await store.allowlist("quickstart")).toEqual([]);
+    // A session's owner is a uuid; this one names no workspace.
+    const owner = randomUUID();
     const accepted = await createPostgresSessionUnitOfWork(
       db,
     ).acceptInputAtomic({
       limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
-      principal: { ownerId: "quickstart" },
+      principal: { ownerId: owner },
       idempotencyKey: randomUUID(),
       payloadHash: "hash",
       agentReleaseId: await fixtureRelease(db),
@@ -186,7 +188,7 @@ describe("the GitHub Packages store", () => {
     if (accepted.outcome !== "accepted") throw new Error(accepted.outcome);
     expect(
       await store.sessionState(accepted.response.session_id),
-    ).toMatchObject({ workspaceId: "quickstart", token: null, allowlist: [] });
+    ).toMatchObject({ workspaceId: owner, token: null, allowlist: [] });
   });
 
   test("a row that does not parse allows nothing", async () => {

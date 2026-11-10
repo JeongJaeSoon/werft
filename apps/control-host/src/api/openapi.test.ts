@@ -258,7 +258,7 @@ describe("OpenAPI document", () => {
   test("files each operation under the tag of its audience", () => {
     const tagOf = (method: string, path: string) =>
       operation(method, path).tags?.[0];
-    expect(tagOf("get", "/v1/profiles")).toBe("Agents");
+    expect(tagOf("get", "/v1/connections")).toBe("Agents");
     for (const [method, path] of [
       ["get", "/v1/admin/sessions"],
       ["post", "/v1/admin/sessions/{id}/terminate"],
@@ -335,12 +335,7 @@ describe("OpenAPI document", () => {
         "/v1/auth/logout",
         "/v1/auth/me",
         "/v1/auth/password-reset",
-        "/v1/installation-profiles",
-        "/v1/installation-profiles/options",
-        "/v1/installation-profiles/{profile_id}/block",
-        "/v1/installation-profiles/{profile_id}/retire",
-        "/v1/installation-profiles/{profile_id}/rollout/retry",
-        "/v1/installation-profiles/{profile_id}/unblock",
+        "/v1/connections",
         "/v1/installation/settings/connections",
         "/v1/installation/settings/connections/{id}/auto-mode",
         "/v1/installation/settings/connections/{id}/convert",
@@ -348,6 +343,7 @@ describe("OpenAPI document", () => {
         "/v1/installation/settings/connections/{id}/disable",
         "/v1/installation/settings/connections/{id}/enable",
         "/v1/installation/settings/connections/{id}/impact",
+        "/v1/installation/settings/connections/{id}/models",
         "/v1/installation/settings/export",
         "/v1/installation/settings/import",
         "/v1/installation/settings/mcp-servers",
@@ -361,7 +357,6 @@ describe("OpenAPI document", () => {
         "/v1/linked-accounts/slack/callback",
         "/v1/linked-accounts/slack/start",
         "/v1/linked-accounts/{id}",
-        "/v1/profiles",
         "/v1/receipts/{id}",
         "/v1/sessions",
         "/v1/sessions/counts",
@@ -385,7 +380,6 @@ describe("OpenAPI document", () => {
         "/v1/sessions/{id}/outputs/{path}",
         "/v1/sessions/{id}/pause",
         "/v1/sessions/{id}/pending-requests",
-        "/v1/sessions/{id}/profile",
         "/v1/sessions/{id}/push-requests",
         "/v1/sessions/{id}/push-requests/{push_request_id}",
         "/v1/sessions/{id}/push-requests/{push_request_id}/approve",
@@ -483,8 +477,6 @@ describe("OpenAPI document", () => {
         "/v1/members/{user_id}/enable",
         "/v1/users/{user_id}/disable",
         "/v1/users/{user_id}/enable",
-        "/v1/workspace-profiles",
-        "/v1/workspace-profiles/{profile_id}/retire",
         "/v1/achievement-categories",
         "/v1/achievement-categories/{id}",
         "/v1/achievement-categories/{id}/archive",
@@ -823,22 +815,16 @@ describe("OpenAPI document", () => {
     expect(receipt.required).not.toContain("actor");
   });
 
-  test("a session's repository_id is optional, and when it is refused is documented", () => {
+  test("a session names its release; its repository_id is optional and judged by the ceiling", () => {
     const request = buildOpenApiDocument().components.schemas
       .CreateSessionRequest as {
       required: string[];
       properties: Record<string, { description?: string }>;
     };
+    expect(request.required).toContain("agent_release_id");
     expect(request.required).not.toContain("repository_id");
     expect(request.properties.repository_id?.description).toContain(
-      "`repository_mode`",
-    );
-    const create = JSON.stringify(operation("post", "/v1/sessions"));
-    expect(create).toContain(
-      "Profile <id> needs a repository: send repository_id",
-    );
-    expect(create).toContain(
-      "Profile <id> runs without a repository: omit repository_id",
+      "workspace ceiling",
     );
   });
 });

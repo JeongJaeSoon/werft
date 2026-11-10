@@ -37,7 +37,7 @@ async function accept(
 ) {
   return createPostgresSessionUnitOfWork(db).acceptInputAtomic({
     limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
-    principal: { ownerId: "owner-a" },
+    principal: { ownerId: "00000000-0000-4000-8000-00000000000a" },
     idempotencyKey,
     payloadHash: "hash",
     agentReleaseId: await fixtureRelease(db),

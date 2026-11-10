@@ -22,7 +22,11 @@ import {
   workspaces,
 } from "./schema.ts";
 import { fixtureTeam } from "./testing/fixture-team.ts";
-import { releaseSpecColumns, TEST_CONNECTION_ID } from "./testing/spec-pins.ts";
+import {
+  releaseSpecColumns,
+  sessionPinColumns,
+  TEST_CONNECTION_ID,
+} from "./testing/spec-pins.ts";
 import { projectToolCalls, toolCallTotals } from "./tool-calls.ts";
 import { bucketMs, histMedianMs } from "./tool-calls-hist.ts";
 
@@ -101,7 +105,9 @@ async function session(
     repoUrl: "https://example.invalid/app.git",
     branch: "main",
     createdByUserId: options.createdBy ?? ME,
-    ...(options.agent ? { agentReleaseId: RELEASE } : {}),
+    ...(options.agent
+      ? { agentReleaseId: RELEASE, ...sessionPinColumns() }
+      : {}),
   });
   return id;
 }

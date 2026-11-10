@@ -36,7 +36,11 @@ import {
   workspaces,
 } from "./schema.ts";
 import { fixtureTeam } from "./testing/fixture-team.ts";
-import { releaseSpecColumns, TEST_CONNECTION_ID } from "./testing/spec-pins.ts";
+import {
+  releaseSpecColumns,
+  sessionPinColumns,
+  TEST_CONNECTION_ID,
+} from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -235,6 +239,7 @@ integration("session list relations, search and counts on PostgreSQL", () => {
         branch: "main",
         title: row.title ?? name,
         status: row.status ?? "idle",
+        ...sessionPinColumns(),
         agentReleaseId: row.release ?? null,
         channel: row.channel ?? null,
         createdByUserId: row.by === "service" ? null : people[row.by].id,

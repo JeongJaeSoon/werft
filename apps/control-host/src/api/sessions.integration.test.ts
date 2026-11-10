@@ -28,7 +28,7 @@ import {
 import { migrate } from "@werft-ai/db/migrate";
 import { createLogger } from "@werft-ai/observability";
 import {
-  type CatalogProfile,
+  type AuthorizationPolicy,
   createAuthorizationPolicy,
   createSessionService,
   type SessionCatalog,
@@ -41,14 +41,20 @@ import { createApiPool, createProbePool } from "./pool.ts";
 import { createReadinessProbe } from "./readiness.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
+import {
+  sessionPinColumns,
+  TEST_MODEL,
+} from "@werft-ai/db/testing/spec-pins";
 import { testCatalog } from "../test-support/catalog.ts";
+import {
+  allowingPolicy,
+  allowRepositories,
+  sessionReleases,
+  startingInWorkspace,
+  workspaceRelease,
+} from "../test-support/releases.ts";
 
-const coding: CatalogProfile = {
-  runtime_kind: "claude_agent_sdk",
-  runtime_version: "0.3.270",
-  model: "claude-sonnet-5",
-  tools: ["Read", "Edit", "Bash"],
-  permission_mode: "default",
+const catalog: SessionCatalog = testCatalog({
   provider: {
     kind: "litellm",
     endpoint: "https://litellm.invalid",
@@ -58,9 +64,7 @@ const coding: CatalogProfile = {
       ref: { value_env: "PROVIDER_KEY" },
     },
   },
-};
-const catalog: SessionCatalog = testCatalog({
-repositories: {
+  repositories: {
     "sample-app": {
       url: "https://example.invalid/app.git",
       branch: "main",
@@ -78,8 +82,25 @@ integration("sessions API on PostgreSQL", () => {
   let db: NodePgDatabase<typeof schema>;
   let app: ReturnType<typeof createApiApp>;
   let tight: ReturnType<typeof createApiApp>;
-  const owner = `owner-${crypto.randomUUID()}`;
-  const stranger = `owner-${crypto.randomUUID()}`;
+  // Owners are workspaces: a session runs a release of its own workspace.
+  const owner = crypto.randomUUID();
+  const stranger = crypto.randomUUID();
+  const releases = new Map<string, Promise<string>>();
+  /** The owner's workspace, its release, and a ceiling naming sample-app. */
+  function releaseOf(ownerId: string): Promise<string> {
+    let made = releases.get(ownerId);
+    if (made === undefined) {
+      made = (async () => {
+        const { releaseId } = await workspaceRelease(db, {
+          workspaceId: ownerId,
+        });
+        await allowRepositories(db, ownerId, ["sample-app"]);
+        return releaseId;
+      })();
+      releases.set(ownerId, made);
+    }
+    return made;
+  }
   const body = {
     repository_id: "sample-app",
     message: "Inspect the failing unit test and propose a fix.",
@@ -101,15 +122,22 @@ integration("sessions API on PostgreSQL", () => {
       storageLimitBytes: number;
       sessionCostLimitUsd: number;
       sessionTokenLimit: number | null;
-    }) =>
-      createSessionService({
-        limits,
-        authorization: createAuthorizationPolicy(),
-        inputs: createPostgresSessionUnitOfWork(db),
-        controls: createPostgresSessionControl(db),
-        reader: createPostgresSessionReader(db),
-        catalog,
-      });
+    }) => {
+      const build = (authorization: AuthorizationPolicy) =>
+        createSessionService({
+          limits,
+          authorization,
+          inputs: createPostgresSessionUnitOfWork(db),
+          controls: createPostgresSessionControl(db),
+          reader: createPostgresSessionReader(db),
+          catalog,
+          releases: sessionReleases(db, catalog),
+        });
+      return startingInWorkspace(
+        build(createAuthorizationPolicy()),
+        build(allowingPolicy),
+      );
+    };
     const service = serviceWith({
       queuedInputLimitPerSession: 1_000,
       storageLimitBytes: 1e15,
@@ -202,7 +230,17 @@ integration("sessions API on PostgreSQL", () => {
     return rows.map((row) => row.sequence);
   }
 
-  function create(key: string, payload: unknown = body, ownerId = owner) {
+  /** A body without a release names the owner's. */
+  async function withRelease(payload: unknown, ownerId: string) {
+    return payload !== null &&
+      typeof payload === "object" &&
+      !Array.isArray(payload) &&
+      !Object.hasOwn(payload, "agent_release_id")
+      ? { ...payload, agent_release_id: await releaseOf(ownerId) }
+      : payload;
+  }
+
+  async function create(key: string, payload: unknown = body, ownerId = owner) {
     return app.request("/v1/sessions", {
       method: "POST",
       headers: {
@@ -210,7 +248,7 @@ integration("sessions API on PostgreSQL", () => {
         "X-Owner-Id": ownerId,
         "Idempotency-Key": key,
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(await withRelease(payload, ownerId)),
     });
   }
 
@@ -688,7 +726,7 @@ integration("sessions API on PostgreSQL", () => {
   test("legacy rows without a catalog key expose repository_id null and never the repo URL", async () => {
     // An M0 row: the client sent the URL directly, so it may embed
     // credentials. It has no profile/repository catalog keys.
-    const legacyOwner = `owner-${crypto.randomUUID()}`;
+    const legacyOwner = crypto.randomUUID();
     const legacyId = crypto.randomUUID();
     const secret = "legacy-basic-auth-password";
     const repoUrl = `https://deploy:${secret}@legacy.invalid/team/app.git`;
@@ -697,7 +735,6 @@ integration("sessions API on PostgreSQL", () => {
       ownerId: legacyOwner,
       repoUrl,
       branch: "main",
-      profileId: null,
       repositoryId: null,
     });
     try {
@@ -735,16 +772,23 @@ integration("sessions API on PostgreSQL", () => {
     }
   }, 60_000);
 
-  test("a profile key the catalog no longer has surfaces runtime null, not a guess", async () => {
-    const retiredOwner = `owner-${crypto.randomUUID()}`;
+  test("a session pinned to a connection the catalog no longer has is held, its pin kept", async () => {
+    const retiredOwner = crypto.randomUUID();
     const retiredId = crypto.randomUUID();
     await db.insert(sessions).values({
       id: retiredId,
       ownerId: retiredOwner,
       repoUrl: "https://example.invalid/app.git",
       branch: "main",
-      profileId: "retired-profile",
       repositoryId: "sample-app",
+      ...sessionPinColumns(TEST_MODEL, {
+        connection: {
+          id: "retired-connection",
+          kind: "anthropic",
+          endpoint: "https://api.anthropic.invalid",
+          billing: "per_token",
+        },
+      }),
     });
     try {
       const detail = getSessionResponseSchema.parse(
@@ -756,7 +800,6 @@ integration("sessions API on PostgreSQL", () => {
       );
       expect(detail).toMatchObject({
         repository_id: "sample-app",
-        runtime: null,
         attention: { code: "CATALOG_MISMATCH" },
       });
       const page = listSessionsResponseSchema.parse(
@@ -766,14 +809,14 @@ integration("sessions API on PostgreSQL", () => {
           })
         ).json(),
       );
-      expect(page.items.map((item) => item.runtime)).toEqual([null]);
+      expect(page.items.map((item) => item.id)).toEqual([retiredId]);
     } finally {
       await db.delete(sessions).where(eq(sessions.id, retiredId));
     }
   }, 60_000);
 
   test("lists 150 sessions through stable cursors without duplicates or gaps", async () => {
-    const listOwner = `owner-${crypto.randomUUID()}`;
+    const listOwner = crypto.randomUUID();
     const ids = new Set<string>();
     for (let index = 0; index < 150; index += 1) {
       const response = await create(`list-${index}`, body, listOwner);

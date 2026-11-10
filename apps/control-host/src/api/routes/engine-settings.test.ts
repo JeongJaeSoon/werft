@@ -115,24 +115,20 @@ function appWith(
   options: {
     workspace?: SavedEngineSettings;
     agent?: SavedEngineSettings;
-    writesOpen?: boolean;
   } = {},
 ) {
   const workspace = options.workspace ?? { settings: rules(), revision: null };
   const agent = options.agent ?? { settings: rules(), revision: null };
   const saved: { scope: string; settings: StoredEngineSettings }[] = [];
   const outcome = (current: SavedEngineSettings, expected: number | null) =>
-    options.writesOpen === false
-      ? ({ outcome: "writes_closed" } as const)
-      : expected === STALE_REVISION
-        ? ({ outcome: "conflict", revision: current.revision } as const)
-        : null;
+    expected === STALE_REVISION
+      ? ({ outcome: "conflict", revision: current.revision } as const)
+      : null;
   const store: EngineSettingsStore = {
-    writesOpen: async () => options.writesOpen !== false,
     workspace: async () => workspace,
     agent: async (_workspaceId, agentId) =>
       agentId === AGENT
-        ? { ...agent, inherited: { entries: 1, rules: 3 } }
+        ? agent
         : null,
     async putWorkspace(input) {
       const refused = outcome(workspace, input.expectedRevision);
@@ -212,10 +208,9 @@ const body = (
 ) => ({ expected_revision, settings });
 
 describe("the workspace engine settings API", () => {
-  test("a member reads the rules and whether saving is open", async () => {
+  test("a member reads the rules", async () => {
     const { call } = appWith({
       workspace: { settings: rules({ deny: ["Bash"] }), revision: 3 },
-      writesOpen: false,
     });
     const read = await call("GET", workspacePath(), {
       cookie: cookieFor("member"),
@@ -224,7 +219,6 @@ describe("the workspace engine settings API", () => {
     expect(workspaceEngineSettingsResponseSchema.parse(read.json)).toEqual({
       settings: rules({ deny: ["Bash"] }),
       settings_revision: 3,
-      writes_open: false,
     });
   });
 
@@ -305,17 +299,6 @@ describe("the workspace engine settings API", () => {
     expect(saved).toEqual([]);
   });
 
-  test("a shut gate refuses the save with its reason", async () => {
-    const { call, saved } = appWith({ writesOpen: false });
-    const refused = await call("PUT", workspacePath(), {
-      cookie: cookieFor("owner"),
-      body: body(),
-    });
-    expect(refused.status).toBe(403);
-    expect(reason(refused.json)).toBe("engine_settings_writes_closed");
-    expect(saved).toEqual([]);
-  });
-
   test("a rule the engine would drop is a 400 with the parser's reason", async () => {
     const { call, saved } = appWith();
     const refused = await call("PUT", workspacePath(), {
@@ -369,12 +352,10 @@ describe("the agent engine settings API", () => {
       settings: rules({ allow: ["WebFetch"] }),
       settings_revision: 5,
       workspace: { settings_revision: 2 },
-      inherited: { entries: 1, rules: 3 },
       reach: {
         agent_allow_without_effect: { permissions: ["WebFetch"] },
         workspace_allow_inactive: false,
       },
-      writes_open: true,
     });
   });
 
@@ -414,19 +395,12 @@ describe("the agent engine settings API", () => {
     ]);
   });
 
-  test("a stale revision, a shut gate and a bad rule each refuse", async () => {
+  test("a stale revision and a bad rule each refuse", async () => {
     const stale = await appWith().call("PUT", agentPath(), {
       cookie: cookieFor("admin"),
       body: body(rules({ deny: ["Bash"] }), STALE_REVISION),
     });
     expect(stale.status).toBe(409);
-    const closed = await appWith({ writesOpen: false }).call(
-      "PUT",
-      agentPath(),
-      { cookie: cookieFor("admin"), body: body() },
-    );
-    expect(closed.status).toBe(403);
-    expect(reason(closed.json)).toBe("engine_settings_writes_closed");
     const bad = await appWith().call("PUT", agentPath(), {
       cookie: cookieFor("admin"),
       body: body(rules({ deny: ["NoSuchTool"] })),

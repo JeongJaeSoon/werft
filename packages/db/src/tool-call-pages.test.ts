@@ -27,7 +27,11 @@ import {
   workspaces,
 } from "./schema.ts";
 import { fixtureTeam } from "./testing/fixture-team.ts";
-import { releaseSpecColumns, TEST_CONNECTION_ID } from "./testing/spec-pins.ts";
+import {
+  releaseSpecColumns,
+  sessionPinColumns,
+  TEST_CONNECTION_ID,
+} from "./testing/spec-pins.ts";
 import { toolCallDays, toolCallPage } from "./tool-call-pages.ts";
 import { projectToolCalls } from "./tool-calls.ts";
 
@@ -115,7 +119,9 @@ async function session(
     repoUrl: "https://example.invalid/app.git",
     branch: "main",
     createdByUserId: options.createdBy ?? ME,
-    ...(options.agent ? { agentReleaseId: RELEASE } : {}),
+    ...(options.agent
+      ? { agentReleaseId: RELEASE, ...sessionPinColumns() }
+      : {}),
   });
   if (options.share) await share(id, options.share, ownerId);
   return id;

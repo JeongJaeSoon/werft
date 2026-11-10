@@ -1,12 +1,23 @@
 import { randomUUID } from "node:crypto";
-import type { SpecSource } from "@werft-ai/contracts";
+import { GITHUB_CEILING_NONE, type SpecSource } from "@werft-ai/contracts";
 import {
   agentReleases,
   agents,
   agentVersions,
+  createPostgresAgentStore,
   type Database,
+  githubWorkspaceSettings,
+  newSessionGitHubReaders,
   workspaces,
 } from "@werft-ai/db";
+import {
+  agentEnvNames,
+  releaseNotRunnableReason,
+  resolveAgentRelease,
+  type AuthorizationPolicy,
+  type Caller,
+  type SessionCatalogView,
+} from "@werft-ai/platform";
 import { fixtureTeam } from "@werft-ai/db/testing/fixture-team";
 import {
   makeFixtureRelease,
@@ -111,3 +122,88 @@ export async function releaseOnConnection(
   });
   return releaseId;
 }
+
+/** The workspace's repository ceiling, naming `repositoryIds`. */
+export async function allowRepositories(
+  db: Database,
+  workspaceId: string,
+  repositoryIds: readonly string[],
+): Promise<void> {
+  await db
+    .insert(githubWorkspaceSettings)
+    .values({
+      workspaceId,
+      ceiling: GITHUB_CEILING_NONE,
+      repositoryCeiling: {
+        repository_ids: [...repositoryIds],
+        github_app_repositories: "listed",
+      },
+    })
+    .onConflictDoUpdate({
+      target: githubWorkspaceSettings.workspaceId,
+      set: {
+        repositoryCeiling: {
+          repository_ids: [...repositoryIds],
+          github_app_repositories: "listed",
+        },
+      },
+    });
+}
+
+/** The session service's `releases`, read from the database as the API reads them. */
+export function sessionReleases(
+  db: Database,
+  catalog: Pick<SessionCatalogView, "connections">,
+) {
+  const store = createPostgresAgentStore(db);
+  return {
+    resolveRelease: (workspaceId: string, releaseId: string) =>
+      resolveAgentRelease({ store, catalog }, workspaceId, releaseId),
+    envNames: (workspaceId: string, releaseId: string) =>
+      agentEnvNames(store, workspaceId, releaseId),
+    notRunnableReason: (
+      workspaceId: string,
+      release: Parameters<typeof releaseNotRunnableReason>[2],
+    ) => releaseNotRunnableReason(store, workspaceId, release),
+    ...newSessionGitHubReaders(db),
+  };
+}
+
+/**
+ * A session service whose createSession sees the caller as a key of the
+ * workspace named by its owner id, as a workspace key is: AUTH_MODE=none
+ * names no workspace, and only a workspace's caller names a release. The
+ * policy is asked nothing: a key's scopes would come from its stored row.
+ */
+export function startingInWorkspace<
+  S extends { createSession: (caller: Caller, input: never) => unknown },
+>(service: S, starter: S): S {
+  return {
+    ...service,
+    createSession: ((caller: Caller, input: never) =>
+      starter.createSession(asWorkspaceKey(caller), input)) as S["createSession"],
+  };
+}
+
+export function asWorkspaceKey(caller: Caller): Caller {
+  const principal = caller.subject.principal;
+  return principal
+    ? {
+        ...caller,
+        subject: {
+          ...caller.subject,
+          principal: { ...principal, workspace_id: caller.ownerId },
+        },
+      }
+    : caller;
+}
+
+export const allowingPolicy: AuthorizationPolicy = {
+  authorize: async () => ({
+    outcome: "allow",
+    reason_code: "ok",
+    effective_scopes: [],
+    policy_version: "test",
+    decision_id: randomUUID(),
+  }),
+};
