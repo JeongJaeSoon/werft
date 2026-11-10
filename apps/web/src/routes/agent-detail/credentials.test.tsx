@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
-import { AGENT_ID, agentServer } from "../../test-support/fake-agents.ts";
+import {
+  AGENT_ID,
+  agentServer,
+  settingsSection,
+} from "../../test-support/fake-agents.ts";
 import { apiError, json, keys, me } from "../../test-support/fake-api.ts";
 import { appHarness } from "../../test-support/render-app.tsx";
 
@@ -8,7 +12,7 @@ const { renderAt, screen, waitFor, within } = await appHarness();
 
 const meOk = { "GET /v1/auth/me": () => json(200, me()) };
 const DETAIL = `/agents/${AGENT_ID}?tab=access`;
-const RELEASE_TAB = `/agents/${AGENT_ID}?tab=release`;
+const RELEASE_TAB = `/agents/${AGENT_ID}?tab=settings&section=release`;
 const PROFILE = "claude-coding-local";
 const BINDINGS = `/v1/agents/${AGENT_ID}/credential-bindings`;
 
@@ -229,7 +233,7 @@ describe("CREDENTIAL_UNBOUND 안내", () => {
     const user = await setupUser();
     await rollBackToFirst(user);
 
-    const alert = await screen.findByRole("alert");
+    const alert = await within(settingsSection("release")).findByRole("alert");
     expect(alert.textContent).toContain(
       "연결되지 않은 자격이 있어 활성화하지 못했습니다",
     );
@@ -261,7 +265,7 @@ describe("CREDENTIAL_UNBOUND 안내", () => {
     );
     await within(section).findByText("slack:bot을(를) 연결했습니다.");
 
-    await user.click(screen.getByRole("tab", { name: "릴리스" }));
+    await user.click(screen.getByRole("tab", { name: "설정" }));
     await rollBackToFirst(user);
     expect(await screen.findByText(/되돌렸습니다/)).toBeDefined();
     expect(
@@ -295,7 +299,7 @@ describe("CREDENTIAL_UNBOUND 안내", () => {
     });
     const user = await setupUser();
     await rollBackToFirst(user);
-    const alert = await screen.findByRole("alert");
+    const alert = await within(settingsSection("release")).findByRole("alert");
     expect(alert.textContent).toContain(
       "이 릴리스가 쓰는 자격 증명 github/app이(가)",
     );
@@ -326,7 +330,7 @@ describe("CREDENTIAL_UNBOUND 안내", () => {
     });
     const user = await setupUser();
     await rollBackToFirst(user);
-    const alert = await screen.findByRole("alert");
+    const alert = await within(settingsSection("release")).findByRole("alert");
     expect(alert.textContent).toContain(
       "이 릴리스가 쓰는 자격 증명 중 연결되지 않은 것이 있습니다",
     );
@@ -337,7 +341,7 @@ describe("CREDENTIAL_UNBOUND 안내", () => {
 });
 
 describe("켜기까지", () => {
-  test("자격 연결을 읽지 못하면 그 단계는 확인할 수 없다고 하고, 릴리스 단계가 릴리스 탭으로 잇는다", async () => {
+  test("자격 연결을 읽지 못하면 그 단계는 확인할 수 없다고 하고, 릴리스 단계가 릴리스 섹션으로 잇는다", async () => {
     const server = serverNaming("github/app");
     renderAt(`/agents/${AGENT_ID}`, {
       ...meOk,
@@ -362,7 +366,7 @@ describe("켜기까지", () => {
     );
     expect(
       within(release as HTMLElement).getByRole("button", {
-        name: "릴리스 탭으로",
+        name: "릴리스로 이동",
       }),
     ).toBeDefined();
     expect(within(section).getByText("할 일 있음")).toBeDefined();

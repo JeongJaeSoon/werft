@@ -21,6 +21,18 @@ import {
 import { denyFor } from "./profiles.ts";
 
 export const AGENT_ID = "5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c8d";
+
+/**
+ * One section of the agent's settings tab. The sections share a page, so a
+ * role such as `alert` matches in all of them unless a test looks in its own.
+ */
+export function settingsSection(
+  name: "card" | "release" | "admins" | "slack" | "github",
+): HTMLElement {
+  const element = document.getElementById(`agent-settings-${name}`);
+  if (!element) throw new Error(`no ${name} section on the page`);
+  return element;
+}
 export const TEAM_ID = "3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f";
 export const TEAM: TeamView = {
   id: TEAM_ID,

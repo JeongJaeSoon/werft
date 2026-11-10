@@ -129,7 +129,7 @@ describe("연동 › Slack의 자동으로 만든 Slack 앱", () => {
       installed
         .getByRole("link", { name: /^자세히\s?: Release Notes 앱$/ })
         .getAttribute("href"),
-    ).toBe(`/agents/${AGENT_ID}?tab=slack`);
+    ).toBe(`/agents/${AGENT_ID}?tab=settings&section=slack`);
 
     // A narrow table drops the agent and time columns; the app cell says them.
     expect(table.dataset.narrowAt).toBe("640");

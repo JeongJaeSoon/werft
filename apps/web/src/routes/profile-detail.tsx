@@ -1165,7 +1165,7 @@ function AgentsOn({ profile }: { readonly profile: ProfileSummary }) {
                     <Link
                       to="/agents/$id"
                       params={{ id: agent.id }}
-                      search={{ tab: "release" }}
+                      search={{ tab: "settings", section: "release" }}
                     />
                   </GridTableRowOpener>
                   <Text

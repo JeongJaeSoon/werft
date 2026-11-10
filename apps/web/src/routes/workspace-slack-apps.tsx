@@ -188,7 +188,7 @@ function AppTable({ items }: { readonly items: readonly MadeApp[] }) {
                 <Link
                   to="/agents/$id"
                   params={{ id: item.agent.id }}
-                  search={{ tab: "slack" }}
+                  search={{ tab: "settings", section: "slack" }}
                   className={linkVariants()}
                 >
                   {t("workspace.slackAppsMore")}

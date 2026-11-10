@@ -23,7 +23,7 @@ const toast = () =>
   document.querySelector('[data-slot="toast"]')?.textContent || undefined;
 
 const DETAIL = `/agents/${AGENT_ID}`;
-const ADMINS_TAB = `${DETAIL}?tab=admins`;
+const ADMINS_TAB = `${DETAIL}?tab=settings&section=admins`;
 const OTHER_TEAM = { ...TEAM, id: crypto.randomUUID(), name: "영업" };
 const AT = "2026-10-01T00:00:00.000Z";
 
@@ -252,7 +252,7 @@ describe("담당 팀 구성원과 바깥 구성원", () => {
       ...server.routes,
       "GET /v1/my-teams": () => myTeams("member"),
     };
-    const { api } = renderAt(`${DETAIL}?tab=card`, routes);
+    const { api } = renderAt(`${DETAIL}?tab=settings&section=card`, routes);
     expect(
       await screen.findByText(
         "담당 팀 구성원은 이 에이전트의 설정을 볼 수만 있습니다. 바꾸는 것은 팀 관리자와 에이전트 관리자입니다.",
@@ -261,13 +261,11 @@ describe("담당 팀 구성원과 바깥 구성원", () => {
     expect(
       screen.queryByRole("button", { name: "상세 설정 편집", hidden: true }),
     ).toBeNull();
-    const user = await setupUser();
-    await user.click(screen.getByRole("tab", { name: "릴리스" }));
+    // The release and admin sections share the settings tab with the card.
     await screen.findByRole("tabpanel");
     expect(
       screen.queryByRole("button", { name: "새 릴리스", hidden: true }),
     ).toBeNull();
-    await user.click(screen.getByRole("tab", { name: "관리자" }));
     expect(await screen.findByText("재무")).toBeDefined();
     expect(screen.queryByLabelText("담당 팀으로 정할 팀")).toBeNull();
     expect(
@@ -278,7 +276,7 @@ describe("담당 팀 구성원과 바깥 구성원", () => {
 
   test("담당 팀의 팀 관리자는 같은 화면에서 설정을 고칠 수 있다", async () => {
     const server = await managedServer();
-    renderAt(`${DETAIL}?tab=card`, {
+    renderAt(`${DETAIL}?tab=settings&section=card`, {
       ...meAs(memberMe()),
       ...server.routes,
       "GET /v1/my-teams": () => myTeams("lead"),
@@ -296,7 +294,7 @@ describe("담당 팀 구성원과 바깥 구성원", () => {
 
   test("개인 관리자는 내 팀 목록을 못 읽어도 설정을 고칠 수 있다", async () => {
     const server = await managedServer();
-    renderAt(`${DETAIL}?tab=card`, {
+    renderAt(`${DETAIL}?tab=settings&section=card`, {
       ...meAs(memberMe()),
       ...server.routes,
       [`GET /v1/agents/${AGENT_ID}/admins`]: () =>

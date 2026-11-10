@@ -4,6 +4,7 @@ import {
   AGENT_ID,
   agentServer,
   seedRelease,
+  settingsSection,
 } from "../../test-support/fake-agents.ts";
 import { apiError, json, me } from "../../test-support/fake-api.ts";
 import { version } from "../../test-support/profiles.ts";
@@ -75,7 +76,7 @@ async function profileValue() {
 describe("에이전트 상세의 프로필 이름", () => {
   test("상세 설정이 계보 id 대신 표시 이름과 버전을 보이고, id는 툴팁에 둔다", async () => {
     renderAt(
-      `${DETAIL}?tab=card`,
+      `${DETAIL}?tab=settings&section=card`,
       agentOn(COPY_ID, listing(copy("readonly-review"))),
     );
     const value = await profileValue();
@@ -86,7 +87,7 @@ describe("에이전트 상세의 프로필 이름", () => {
 
   test("영어 화면도 같은 이름과 버전을 보인다", async () => {
     renderAt(
-      `${DETAIL}?tab=card`,
+      `${DETAIL}?tab=settings&section=card`,
       agentOn(COPY_ID, listing(copy("readonly-review"))),
       "en",
     );
@@ -98,7 +99,10 @@ describe("에이전트 상세의 프로필 이름", () => {
   });
 
   test("표시 이름이 없는 프로필(옛 데이터)은 지금처럼 id를 보인다", async () => {
-    renderAt(`${DETAIL}?tab=card`, agentOn(COPY_ID, listing(copy(null))));
+    renderAt(
+      `${DETAIL}?tab=settings&section=card`,
+      agentOn(COPY_ID, listing(copy(null))),
+    );
     const value = await profileValue();
     await waitFor(() => expect(value.textContent).toBe(COPY_ID));
   });
@@ -106,7 +110,7 @@ describe("에이전트 상세의 프로필 이름", () => {
   test("프로필 목록을 읽을 수 없는 역할은 id를 보이고 오류 알림은 없다", async () => {
     let refused = 0;
     renderAt(
-      `${DETAIL}?tab=card`,
+      `${DETAIL}?tab=settings&section=card`,
       agentOn(COPY_ID, () => {
         refused += 1;
         return apiError(403, "FORBIDDEN", "profile.read is required");
@@ -117,7 +121,8 @@ describe("에이전트 상세의 프로필 이름", () => {
     await waitFor(() => expect(refused).toBeGreaterThan(0));
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(value.textContent).toBe(COPY_ID);
-    expect(screen.queryByRole("alert")).toBeNull();
+    // Slack and GitHub share the tab and answer unmocked routes with alerts.
+    expect(within(settingsSection("card")).queryByRole("alert")).toBeNull();
   });
 
   test("프로필 목록이 아직 오지 않아도 id를 보이고, 이름이 오면 같은 칸이 바뀐다", async () => {
@@ -126,7 +131,7 @@ describe("에이전트 상세의 프로필 이름", () => {
       answer = resolve;
     });
     renderAt(
-      `${DETAIL}?tab=card`,
+      `${DETAIL}?tab=settings&section=card`,
       agentOn(COPY_ID, () => held),
     );
     const value = await profileValue();
@@ -135,11 +140,11 @@ describe("에이전트 상세의 프로필 이름", () => {
     await waitFor(() => expect(value.textContent).toBe("readonly-review v1"));
   });
 
-  test("릴리스 탭의 되돌리기 버튼 이름이 표시 이름을 쓴다", async () => {
+  test("릴리스 섹션의 되돌리기 버튼 이름이 표시 이름을 쓴다", async () => {
     const older = seedRelease(1, { profile: COPY_ID });
     const newer = seedRelease(2, { profile: COPY_ID });
     renderAt(
-      `${DETAIL}?tab=release`,
+      `${DETAIL}?tab=settings&section=release`,
       agentOn(COPY_ID, listing(copy("readonly-review")), [older, newer]),
     );
     const button = await screen.findByRole("button", {
@@ -155,7 +160,7 @@ describe("에이전트 상세의 프로필 이름", () => {
       await import("@werft-ai/ui/test-support/dom")
     ).setupUser();
     renderAt(
-      `${DETAIL}?tab=release`,
+      `${DETAIL}?tab=settings&section=release`,
       agentOn(COPY_ID, listing(copy("readonly-review")), [before, after]),
     );
     await user.click(await screen.findByRole("button", { name: /바뀐 것/ }));

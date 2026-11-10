@@ -241,7 +241,7 @@ describe("프로필 상세", () => {
       within(agents)
         .getByRole("link", { name: "결제 담당의 릴리스 보기" })
         .getAttribute("href"),
-    ).toBe(`/agents/${AGENTS[0]?.id}?tab=release`);
+    ).toBe(`/agents/${AGENTS[0]?.id}?tab=settings&section=release`);
 
     await user.click(
       screen.getByRole("link", { name: "op_wl_strict_v1 자세히 보기" }),
