@@ -13588,6 +13588,7 @@
               "set_env_variable_grants",
               "resolve_session_env",
               "reject_session_env",
+              "resolve_session_engine_settings",
               "register_extension",
               "approve_extension",
               "attach_extension",

@@ -26,6 +26,18 @@ const MCP_PREFIX = "mcp__";
 const BARE_TOOL = /^[A-Za-z][A-Za-z0-9_]*$/;
 
 const sorted = (values: Iterable<string>) => [...new Set(values)].sort();
+/**
+ * A grant needs both sides: the workspace's list and what the agent started
+ * with and still has (`effectiveEngineSettings` already intersected those two
+ * for the agent). An agent that grants nothing leaves nothing granted.
+ */
+const intersect = (
+  workspace: readonly string[] = [],
+  agent: readonly string[] = [],
+) => {
+  const inAgent = new Set(agent);
+  return sorted(workspace.filter((rule) => inAgent.has(rule)));
+};
 const isMcp = (rule: string) => rule.startsWith(MCP_PREFIX);
 /** A rule naming a whole tool has no parenthesised argument pattern. */
 const isWholeTool = (rule: string) => BARE_TOOL.test(rule) && !isMcp(rule);
@@ -57,8 +69,9 @@ const nonEmpty = <T extends Record<string, string[]>>(lists: T) => {
  * Workspace, agent and inherited rules for one claim.
  *
  * Restrictions (ask, deny, the classifier's soft and hard deny) are the union
- * of every source. A grant is the workspace's own list: the agent's allow can
- * only repeat what the workspace allows, so it never changes the result.
+ * of every source. A grant (allow, environment) is the intersection of the
+ * workspace's list and the agent's, so an agent can only repeat what the
+ * workspace allows and never widen it.
  */
 export function mergeEngineSettings(input: {
   workspace: StoredEngineSettings | null;
@@ -89,15 +102,15 @@ export function mergeEngineSettings(input: {
   );
 
   const permissions = nonEmpty({
-    allow: sorted(wsPerm.allow ?? []),
+    allow: intersect(wsPerm.allow, agentPerm.allow),
     ask: sorted([...(wsPerm.ask ?? []), ...agentPerm.ask]),
     deny: patternDeny,
   });
   const autoMode = nonEmpty({
-    allow: sorted(wsAuto.allow ?? []),
+    allow: intersect(wsAuto.allow, agentAuto.allow),
     soft_deny: sorted([...(wsAuto.soft_deny ?? []), ...agentAuto.soft_deny]),
     hard_deny: sorted([...(wsAuto.hard_deny ?? []), ...agentAuto.hard_deny]),
-    environment: sorted(wsAuto.environment ?? []),
+    environment: intersect(wsAuto.environment, agentAuto.environment),
   });
 
   const engine: EngineSettings | undefined =

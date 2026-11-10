@@ -96,6 +96,7 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   set_env_variable_grants: "변수를 쓸 에이전트 변경",
   resolve_session_env: "세션에 변수 전달",
   reject_session_env: "세션 변수 전달 거절",
+  resolve_session_engine_settings: "세션에 적용한 저장 규칙 평가",
   register_extension: "확장 번들 등록",
   approve_extension: "확장 번들 검토 결과 변경",
   attach_extension: "확장 번들 연결",

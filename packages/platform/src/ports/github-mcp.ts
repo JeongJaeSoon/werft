@@ -30,6 +30,17 @@ export type GitHubMcpSessionState = {
   actor: ReceiptActor | null;
 };
 
+/**
+ * The saved rules of a session could not be read. Thrown by a store before
+ * anything ran, so the caller answers retryably and never as a tool result.
+ */
+export class SavedRulesUnavailable extends Error {
+  constructor(options?: { cause?: unknown }) {
+    super("The rules saved for this session could not be read", options);
+    this.name = "SavedRulesUnavailable";
+  }
+}
+
 export interface GitHubMcpStore {
   /** Null when the session pins no agent release. */
   sessionState(sessionId: string): Promise<GitHubMcpSessionState | null>;

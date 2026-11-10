@@ -99,7 +99,10 @@ import {
   runtimeOfColumns,
   sessionRuntimeOnce,
 } from "./checkpoint-runtime.ts";
-import { claimEngineSettingsOf } from "./claim-engine-settings.ts";
+import {
+  claimEngineSettingsOf,
+  recordClaimRules,
+} from "./claim-engine-settings.ts";
 import { finishClose } from "./close-control.ts";
 import { contextCoverage, contextGap, raiseContextGap } from "./context-gap.ts";
 import {
@@ -2144,6 +2147,7 @@ export function createPostgresWorkerUnitOfWork(
             bound.session,
             claimRuleSupport(input),
           );
+          await recordClaimRules(tx, bound.session, replayRules);
           if (replayRules.kind === "unsupported") {
             return { outcome: "engine_settings_unsupported" };
           }
@@ -2350,6 +2354,7 @@ export function createPostgresWorkerUnitOfWork(
           locked,
           claimRuleSupport(input),
         );
+        await recordClaimRules(tx, locked, rules);
         if (rules.kind === "unsupported") {
           return { outcome: "engine_settings_unsupported" };
         }

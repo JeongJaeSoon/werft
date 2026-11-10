@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { AdminDenyEntry } from "@werft-ai/contracts";
 import type { EffectiveEngineSettings } from "./engine-settings.ts";
 import {
   applicableAdminDeny,
@@ -61,22 +62,41 @@ describe("mergeEngineSettings", () => {
     });
   });
 
-  test("ask and classifier denies are a union; the agent's allow changes nothing", () => {
+  test("ask and classifier denies are a union; a grant needs both sides", () => {
     const merged = mergeEngineSettings({
       workspace: {
         permissions: { allow: ["Bash(ls:*)"], ask: ["Bash(git push:*)"] },
-        auto_mode: { soft_deny: ["a"], allow: ["w"] },
+        auto_mode: { soft_deny: ["a"], allow: ["w"], environment: ["e"] },
       },
       agent: agent(
         { ask: ["Edit"], allow: ["Bash(ls:*)", "Bash(cat:*)"] },
-        { soft_deny: ["b"], hard_deny: ["c"] },
+        { soft_deny: ["b"], hard_deny: ["c"], allow: ["w"] },
       ),
       adminDeny: [],
     });
     if (merged.kind !== "rules") throw new Error("closed");
+    // Bash(cat:*) is the agent's alone and `e` the workspace's alone: neither
+    // survives. The agent can only repeat what the workspace allows.
     expect(merged.engine).toEqual({
       permissions: { allow: ["Bash(ls:*)"], ask: ["Bash(git push:*)", "Edit"] },
       autoMode: { allow: ["w"], soft_deny: ["a", "b"], hard_deny: ["c"] },
+    });
+  });
+
+  test("an agent that grants nothing leaves the workspace's allow out", () => {
+    const merged = mergeEngineSettings({
+      workspace: {
+        permissions: { allow: ["Bash(ls:*)"] },
+        auto_mode: { allow: ["w"], environment: ["e"] },
+      },
+      agent: noAgent,
+      adminDeny: [],
+    });
+    expect(merged).toEqual({
+      kind: "rules",
+      engine: undefined,
+      disallowedTools: [],
+      mcpDeny: [],
     });
   });
 
@@ -108,7 +128,7 @@ describe("mergeEngineSettings", () => {
 });
 
 describe("applicableAdminDeny", () => {
-  const entries = [
+  const entries: AdminDenyEntry[] = [
     { exempt_release_ids: ["r1"], permissions_deny: ["Skill"], mcp_deny: [] },
     { exempt_release_ids: [], permissions_deny: ["Task"], mcp_deny: [] },
   ];

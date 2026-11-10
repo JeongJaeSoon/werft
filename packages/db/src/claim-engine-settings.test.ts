@@ -3,7 +3,11 @@ import { randomUUID } from "node:crypto";
 import type { PGlite } from "@electric-sql/pglite";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
-import { claimEngineSettingsOf, mcpDeniedBy } from "./claim-engine-settings.ts";
+import {
+  mcpDeniedBy,
+  recordClaimRules,
+  claimEngineSettingsOf as withAudit,
+} from "./claim-engine-settings.ts";
 import * as schema from "./schema.ts";
 import { fixtureTeamSql } from "./testing/fixture-team.ts";
 
@@ -75,6 +79,105 @@ const agentRules = (
       revision,
     ],
   );
+
+// Most cases are about the verdict; the audit has its own tests below.
+async function claimEngineSettingsOf(
+  ...args: Parameters<typeof withAudit>
+): Promise<unknown> {
+  const { audit: _audit, ...verdict } = await withAudit(...args);
+  return verdict;
+}
+
+describe("claim receipts", () => {
+  const receiptsOf = async () =>
+    (
+      await client.query<{ status: string; result: Record<string, unknown> }>(
+        "SELECT status, result FROM receipts WHERE operation = 'resolve_session_engine_settings' ORDER BY created_at",
+      )
+    ).rows;
+  const target = () => ({ id: randomUUID(), ownerId: workspaceId });
+
+  test("an agent no rule row touches writes no receipt", async () => {
+    const result = await withAudit(db, session(), both);
+    await recordClaimRules(db, target(), result);
+    expect(result.audit.untouched).toBe(true);
+    expect(await receiptsOf()).toEqual([]);
+  });
+
+  test("a claim that met rules records revisions, result and counts, never the rules", async () => {
+    await workspaceRules({ ask: ["Bash(git push:*)"] }, 2);
+    await agentRules({ deny: ["Skill"] }, [], 4);
+    const result = await withAudit(
+      db,
+      session({
+        engineSettingsStart: { permissions: {}, auto_mode: {}, revision: 3 },
+      }),
+      both,
+    );
+    await recordClaimRules(db, target(), result);
+    const [row] = await receiptsOf();
+    expect(row?.status).toBe("succeeded");
+    expect(row?.result).toEqual({
+      outcome: "rules",
+      start_revision: 3,
+      workspace_revision: 2,
+      agent_revision: 4,
+      counts: { engine: 1, disallowed_tools: 1, mcp_deny: 0 },
+    });
+    expect(JSON.stringify(row)).not.toContain("git push");
+  });
+
+  test("a refusal is recorded with its reason, and repeating it adds no row", async () => {
+    await agentRules({}, [], 1);
+    const closed = await withAudit(
+      db,
+      session({
+        engineSettingsStart: { permissions: {}, auto_mode: {}, revision: 5 },
+      }),
+      both,
+    );
+    const owner = target();
+    await recordClaimRules(db, owner, closed);
+    await recordClaimRules(db, owner, closed);
+    const rows = await receiptsOf();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.status).toBe("failed");
+    expect(rows[0]?.result).toMatchObject({
+      outcome: "closed",
+      reason: "agent_revision_regressed",
+      start_revision: 5,
+      agent_revision: 1,
+    });
+  });
+});
+
+describe("claimEngineSettingsOf grants", () => {
+  test("a workspace allow is dropped unless the agent allows it too", async () => {
+    await workspaceRules({ allow: ["Bash(ls:*)"], ask: ["Edit"] });
+    const alone = await withAudit(db, session(), both);
+    expect(alone).toMatchObject({
+      kind: "ok",
+      settings: { engine: { permissions: { ask: ["Edit"] } } },
+    });
+    await agentRules({ allow: ["Bash(ls:*)"] });
+    const started = {
+      permissions: { allow: ["Bash(ls:*)"] },
+      auto_mode: {},
+      revision: 1,
+    };
+    const both_ = await withAudit(
+      db,
+      session({ engineSettingsStart: started }),
+      both,
+    );
+    expect(both_).toMatchObject({
+      kind: "ok",
+      settings: {
+        engine: { permissions: { allow: ["Bash(ls:*)"], ask: ["Edit"] } },
+      },
+    });
+  });
+});
 
 describe("claimEngineSettingsOf", () => {
   test("no rules anywhere sends nothing, even to a worker that announced nothing", async () => {

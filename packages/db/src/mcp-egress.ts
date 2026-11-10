@@ -16,6 +16,7 @@ import {
   mcpCallDenied,
   mcpDenyOf,
   pinnedMcpTools,
+  SavedRulesUnavailable,
   type SessionGitHubMcp,
   type SessionMcp,
 } from "@werft-ai/platform";
@@ -208,7 +209,12 @@ async function blockedGitHubTools(
     engineSettingsStart: unknown;
   },
 ): Promise<string[]> {
-  const denied = await mcpDeniedBy(db, session);
+  let denied: string[] | null;
+  try {
+    denied = await mcpDeniedBy(db, session);
+  } catch (cause) {
+    throw new SavedRulesUnavailable({ cause });
+  }
   return GITHUB_MCP_FIXED_TOOLS.filter(
     (tool) =>
       denied === null ||
