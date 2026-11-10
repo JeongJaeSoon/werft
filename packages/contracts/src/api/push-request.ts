@@ -12,6 +12,7 @@ import {
   sessionIdSchema,
   timestampSchema,
 } from "../shared/index.ts";
+import { PUSH_UNAPPROVABLE_REASON_VALUES } from "./present-action.ts";
 import { githubPolicyReceiptFieldsSchema } from "./receipt.ts";
 
 // requested → approved | rejected is a human decision; approved → pushing →
@@ -221,6 +222,20 @@ export const pushDeciderSchema = z.union([
     .strict(),
 ]);
 
+// presentPushRequest's result: a message key, not text; each surface words it.
+export const pushRequestPresentationSchema = z.object({
+  approvable: z.boolean(),
+  reason: z
+    .object({
+      key: z.enum(
+        PUSH_UNAPPROVABLE_REASON_VALUES.map(
+          (reason) => `action.push.unapprovable.${reason}` as const,
+        ),
+      ),
+    })
+    .nullable(),
+});
+
 export const pushRequestSchema = z.object({
   id: pushRequestIdSchema,
   session_id: sessionIdSchema,
@@ -253,6 +268,17 @@ export const pushRequestSchema = z.object({
   pr_url: z.string().nullable().default(null),
 });
 
+// What the REST list and get return. Kept off `pushRequestSchema`, which the
+// agent's GitHub tools also carry as their output.
+export const pushRequestViewSchema = pushRequestSchema.extend({
+  // Absent from a server older than it.
+  approvability: pushRequestPresentationSchema.optional().meta({
+    description:
+      "Whether an approval would pass the server's decision check now, and if not why (`presentPushRequest`). A hint for what to offer; the approval is judged again.",
+  }),
+});
+export type PushRequestView = z.infer<typeof pushRequestViewSchema>;
+
 export const createPushRequestRequestSchema = z
   .object({
     // Omitted: the session's own repository.
@@ -278,7 +304,7 @@ export const resolvePushRequestRequestSchema = z
   .strict();
 
 export const listPushRequestsResponseSchema = z.object({
-  items: z.array(pushRequestSchema),
+  items: z.array(pushRequestViewSchema),
   // Pushes a turn asked for that have no request yet, or ended without one.
   intents: z.array(pushIntentSchema).default([]),
 });

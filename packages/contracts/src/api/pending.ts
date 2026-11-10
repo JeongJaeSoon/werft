@@ -1,5 +1,4 @@
 import { z } from "zod";
-
 import {
   attemptIdSchema,
   requestIdSchema,
@@ -7,6 +6,7 @@ import {
   timestampSchema,
   turnIdSchema,
 } from "../shared/index.ts";
+import { TOOL_VERB_VALUES } from "./present-action.ts";
 
 export const pendingQuestionOptionSchema = z.object({
   option_id: z.string().min(1),
@@ -41,12 +41,26 @@ const pendingRequestBase = {
       "The turn the request was asked in, as `turn_id`: a parked turn resumes once every request of its group is answered or expired, and they expire together.",
   }),
 };
+// presentPendingRequest's result: message keys, not text; each surface words them.
+export const toolRequestPresentationSchema = z.object({
+  verb: z.object({
+    key: z.enum(TOOL_VERB_VALUES.map((name) => `action.tool.${name}` as const)),
+    params: z.record(z.string(), z.string()).optional(),
+  }),
+  target: z.string().nullable(),
+  excerpt: z.string().nullable(),
+});
 export const pendingRequestSchema = z.discriminatedUnion("kind", [
   z.object({
     ...pendingRequestBase,
     kind: z.literal("permission"),
     tool: z.string().min(1),
     input: requiredUnknownSchema,
+    // Absent from a server older than it: show the raw input alone.
+    summary: toolRequestPresentationSchema.optional().meta({
+      description:
+        "What the tool does and to what, as message keys (`presentPendingRequest`): the same line a Slack card shows over the raw `input`.",
+    }),
   }),
   z.object({
     ...pendingRequestBase,

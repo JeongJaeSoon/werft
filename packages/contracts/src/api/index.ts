@@ -14,6 +14,7 @@ export * from "./neutral-event.ts";
 export * from "./output.ts";
 export * from "./pending.ts";
 export * from "./permission-rules.ts";
+export * from "./present-action.ts";
 export * from "./present-turn-event.ts";
 export * from "./profile-derivation.ts";
 export * from "./profile-tools.ts";

@@ -4,6 +4,7 @@ import {
   type PushDecision,
   pushRequestParamsSchema,
   pushRequestSchema,
+  pushRequestViewSchema,
   resolvePushRequestRequestSchema,
   sessionIdParamsSchema,
 } from "@werft-ai/contracts";
@@ -46,16 +47,18 @@ export function registerPushRequestRoutes(
 
   apiRoute(router, "listPushRequests", async (context) => {
     const params = requireParams(context, sessionIdParamsSchema);
-    const page = await mapped(() => service.list(actorOf(context), params.id));
+    const page = await mapped(() =>
+      service.listView(actorOf(context), params.id),
+    );
     return jsonWithSchema(context, listPushRequestsResponseSchema, page);
   });
 
   apiRoute(router, "getPushRequest", async (context) => {
     const params = requireParams(context, pushRequestParamsSchema);
     const request = await mapped(() =>
-      service.get(actorOf(context), params.id, params.push_request_id),
+      service.getView(actorOf(context), params.id, params.push_request_id),
     );
-    return jsonWithSchema(context, pushRequestSchema, request);
+    return jsonWithSchema(context, pushRequestViewSchema, request);
   });
 
   // `/approve` and `/reject` share one idempotency scope: the path names

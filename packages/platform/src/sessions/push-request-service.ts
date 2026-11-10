@@ -7,7 +7,9 @@ import {
   type PushRefusal,
   type PushRequest,
   type PushRequestSnapshot,
+  type PushRequestView,
   type PushResolution,
+  presentPushRequest,
   pushBranchFor,
   type ReceiptActor,
 } from "@werft-ai/contracts";
@@ -27,7 +29,7 @@ import {
 } from "../ports/push-requests.ts";
 import { additionalRepositoryAllowed } from "./additional-repositories.ts";
 import { repositoryBinding, type SessionCatalog } from "./catalog.ts";
-import { pinnedCarries } from "./push-approvability.ts";
+import { pinnedCarries, pushApprovability } from "./push-approvability.ts";
 import {
   idempotencyConflict,
   payloadHash,
@@ -161,6 +163,36 @@ export function createPushRequestService(deps: {
       kind: "session",
       id: sessionId,
     });
+
+  // The verdict the decision check would give now, worded by contracts, so a
+  // surface that lists requests shows the reason Slack shows.
+  async function withApprovability(
+    ownerId: string,
+    rawSessionId: string,
+    requests: PushRequest[],
+  ): Promise<PushRequestView[]> {
+    // The stored id, as decide judges it: a manifest names its session in lower case.
+    const sessionId = rawSessionId.toLowerCase();
+    const session = await store.findSession(ownerId, sessionId);
+    const pointer = session?.checkpointRevision ?? null;
+    return Promise.all(
+      requests.map(async (request) => ({
+        ...request,
+        approvability: presentPushRequest(
+          await pushApprovability(
+            { id: sessionId, checkpointRevision: pointer },
+            {
+              state: request.state,
+              checkpointRevision: request.checkpoint_revision,
+              gitCommit: request.git_commit,
+              origin: request.origin,
+            },
+            source,
+          ),
+        ),
+      })),
+    );
+  }
 
   // The checks that need no checkpoint: the repository is the session's or
   // one its release allows, and the attached-repository policy does not
@@ -482,6 +514,18 @@ export function createPushRequestService(deps: {
       return { items, intents: await intents.list(actor.ownerId, sessionId) };
     },
 
+    /** `list` for the REST API: each request with what `decide` would say now. */
+    async listView(
+      actor: PushActor,
+      sessionId: string,
+    ): Promise<ListPushRequestsResponse> {
+      const listed = await this.list(actor, sessionId);
+      return {
+        ...listed,
+        items: await withApprovability(actor.ownerId, sessionId, listed.items),
+      };
+    },
+
     async get(
       actor: PushActor,
       sessionId: string,
@@ -494,6 +538,19 @@ export function createPushRequestService(deps: {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
       }
       return request;
+    },
+
+    /** `get` for the REST API; the agent's tools keep the plain request. */
+    async getView(
+      actor: PushActor,
+      sessionId: string,
+      pushRequestId: string,
+    ): Promise<PushRequestView> {
+      const request = await this.get(actor, sessionId, pushRequestId);
+      const [withVerdict] = await withApprovability(actor.ownerId, sessionId, [
+        request,
+      ]);
+      return withVerdict ?? request;
     },
 
     /** `get_push_request`: needs `session.read` only, like `get`. */

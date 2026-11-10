@@ -68,4 +68,61 @@ describe("ApprovalCard", () => {
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
+
+  test("요청의 요약은 verb를 문구로 바꿔 대상·발췌와 함께 보여 준다", () => {
+    const view = render(
+      <ApprovalCard
+        request={{
+          ...REQUEST,
+          tool: "Write",
+          summary: {
+            verb: { key: "action.tool.writeFile" },
+            target: "src/a.ts",
+            excerpt: "line one",
+          },
+        }}
+        messages={{ ...MESSAGES, summary: (verb) => `verb:${verb.key}` }}
+        onAllow={() => {}}
+        onDeny={() => {}}
+        now={NOW}
+      />,
+    );
+    expect(view.getByText("verb:action.tool.writeFile")).toBeTruthy();
+    expect(view.getByText(/src\/a\.ts/)).toBeTruthy();
+    expect(view.getByText("line one")).toBeTruthy();
+  });
+
+  test("요약이 없거나 문구 함수가 없으면 요약 영역을 그리지 않는다", () => {
+    const view = render(
+      <ApprovalCard
+        request={REQUEST}
+        messages={{ ...MESSAGES, summary: () => "never" }}
+        onAllow={() => {}}
+        onDeny={() => {}}
+        now={NOW}
+      />,
+    );
+    expect(
+      view.container.querySelector("[data-slot=tool-summary]") === null,
+    ).toBe(true);
+    const withSummary = render(
+      <ApprovalCard
+        request={{
+          ...REQUEST,
+          summary: {
+            verb: { key: "action.tool.runCommand" },
+            target: null,
+            excerpt: null,
+          },
+        }}
+        messages={MESSAGES}
+        onAllow={() => {}}
+        onDeny={() => {}}
+        now={NOW}
+      />,
+    );
+    expect(
+      withSummary.container.querySelector("[data-slot=tool-summary]") === null,
+    ).toBe(true);
+  });
 });

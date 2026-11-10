@@ -6191,6 +6191,18 @@ export interface components {
                 kind: "permission";
                 tool: string;
                 input: unknown;
+                /** @description What the tool does and to what, as message keys (`presentPendingRequest`): the same line a Slack card shows over the raw `input`. */
+                summary?: {
+                    verb: {
+                        /** @enum {string} */
+                        key: "action.tool.runCommand" | "action.tool.editFile" | "action.tool.writeFile" | "action.tool.readFile" | "action.tool.findFiles" | "action.tool.searchContents" | "action.tool.readWebPage" | "action.tool.searchWeb" | "action.tool.requestPush" | "action.tool.openPullRequest" | "action.tool.updatePullRequest" | "action.tool.commentPullRequest" | "action.tool.closePullRequest" | "action.tool.reopenPullRequest" | "action.tool.attachRepository" | "action.tool.useTool" | "action.tool.useMcpTool";
+                        params?: {
+                            [key: string]: string;
+                        };
+                    };
+                    target: string | null;
+                    excerpt: string | null;
+                };
             } | {
                 request_id: string;
                 turn_id: string;
@@ -6577,8 +6589,80 @@ export interface components {
             /** @default null */
             pr_url: string | null;
         };
+        PushRequestView: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            session_id: string;
+            repository_id: string;
+            checkpoint_revision: number;
+            git_commit: string;
+            target_branch: string;
+            /** @enum {string} */
+            state: "requested" | "approved" | "rejected" | "pushing" | "pushed" | "failed";
+            requested_by: {
+                principal: {
+                    /** @enum {string} */
+                    kind: "api_key" | "user" | "installation";
+                    id: string;
+                };
+                actor_user_id: string | null;
+                agent_id: string | null;
+            };
+            /** Format: date-time */
+            requested_at: string;
+            resolved_by: ({
+                principal: {
+                    /** @enum {string} */
+                    kind: "api_key" | "user" | "installation";
+                    id: string;
+                };
+                actor_user_id: string | null;
+                agent_id: string | null;
+            } | {
+                /** @constant */
+                kind: "policy";
+                agent_release_id: string;
+                /** @enum {string} */
+                policy_source?: "release" | "agent";
+                agent_settings_revision?: number | null;
+            }) | null;
+            resolved_at: string | null;
+            resolution_reason: string | null;
+            /** Format: uuid */
+            request_receipt_id: string;
+            resolution_receipt_id: string | null;
+            finished_at: string | null;
+            push_receipt_id: string | null;
+            /**
+             * @default direct
+             * @enum {string}
+             */
+            origin: "direct" | "intent";
+            /**
+             * @default legacy
+             * @enum {string}
+             */
+            flow: "legacy" | "actions";
+            /** @default null */
+            pr_state: ("due" | "opening" | "opened" | "closed_unrecorded" | "uncertain" | "failed" | "cancelled") | null;
+            /** @default null */
+            pr_error: string | null;
+            /** @default null */
+            pr_number: number | null;
+            /** @default null */
+            pr_url: string | null;
+            /** @description Whether an approval would pass the server's decision check now, and if not why (`presentPushRequest`). A hint for what to offer; the approval is judged again. */
+            approvability?: {
+                approvable: boolean;
+                reason: {
+                    /** @enum {string} */
+                    key: "action.push.unapprovable.not_requested" | "action.push.unapprovable.checkpoint_moved" | "action.push.unapprovable.pinned_source_invalid";
+                } | null;
+            };
+        };
         ListPushRequestsResponse: {
-            items: components["schemas"]["PushRequest"][];
+            items: components["schemas"]["PushRequestView"][];
             /** @default [] */
             intents: {
                 /** Format: uuid */
@@ -19962,7 +20046,7 @@ export interface operations {
                      *       "push_receipt_id": null
                      *     }
                      */
-                    "application/json": components["schemas"]["PushRequest"];
+                    "application/json": components["schemas"]["PushRequestView"];
                 };
             };
             /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */

@@ -4,6 +4,7 @@ import type {
   ListPushRequestsResponse,
   PushIntent,
   PushRequest,
+  PushRequestView,
   SessionDetail,
 } from "@werft-ai/contracts";
 import { queryKeysOf, sessionGithubWorkQuery } from "@werft-ai/core";
@@ -61,7 +62,7 @@ const prErrorKey = (code: string | null): MessageKey | null =>
     : null;
 
 type Row =
-  | { kind: "request"; at: string; request: PushRequest }
+  | { kind: "request"; at: string; request: PushRequestView }
   | { kind: "intent"; at: string; intent: PushIntent };
 
 /**
@@ -192,7 +193,7 @@ function Decision({
   request,
   sessionId,
 }: {
-  readonly request: PushRequest;
+  readonly request: PushRequestView;
   readonly sessionId: string;
 }) {
   const { t } = useI18n();
@@ -219,11 +220,16 @@ function Decision({
         queryKey: queryKeysOf(client).sessionGithubWork(sessionId),
       }),
   });
+  // Like Slack's reject-only card: a push that cannot be approved can still be rejected.
+  const unapprovable =
+    request.approvability?.approvable === false
+      ? request.approvability.reason
+      : null;
   return (
     <div className="flex flex-wrap items-center gap-2">
       <Button
         size="sm"
-        disabled={decide.isPending}
+        disabled={decide.isPending || unapprovable !== null}
         onClick={() => decide.mutate("approve")}
       >
         {t("session.github.approve")}
@@ -237,6 +243,11 @@ function Decision({
         {t("session.github.reject")}
       </Button>
       <Code title={request.git_commit}>{request.git_commit.slice(0, 7)}</Code>
+      {unapprovable === null ? null : (
+        <Text as="span" variant="meta">
+          {t(unapprovable.key)}
+        </Text>
+      )}
       {decide.error ? (
         <Text as="span" variant="meta" role="alert">
           {t(decisionErrorKey(decide.error.code))}
@@ -251,7 +262,7 @@ function RequestRow({
   names,
   sessionId,
 }: {
-  readonly request: PushRequest;
+  readonly request: PushRequestView;
   readonly names: Names;
   readonly sessionId: string;
 }) {
