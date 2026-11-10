@@ -1110,6 +1110,11 @@ export function createSessionService(deps: {
             result.agentId,
             result.receiptId,
           );
+        case "pin_required":
+          throw new SessionServiceError(
+            "UNSUPPORTED_CAPABILITY",
+            "This session has no runtime spec pinned on its own model, so it takes no more input; create a new session",
+          );
         case "queue_full":
         case "storage_exhausted":
           throw limitError(result);
@@ -1501,6 +1506,11 @@ export function createSessionService(deps: {
             "The stopped session's workspace is being reclaimed; retry the same request shortly",
             { afterSeconds: 10 },
           );
+        case "pin_required":
+          throw new SessionServiceError(
+            "UNSUPPORTED_CAPABILITY",
+            "This session has no runtime spec pinned on its own model, so it cannot run again; create a new session",
+          );
         case "execution_revoked":
           throw executionRevoked();
         case "not_restore_failed":
@@ -1570,6 +1580,11 @@ export function createSessionService(deps: {
             // A claim settles within the pass that took it unless the daemon
             // did not answer; then the next pass settles it.
             { afterSeconds: 10 },
+          );
+        case "pin_required":
+          throw new SessionServiceError(
+            "UNSUPPORTED_CAPABILITY",
+            "This session has no runtime spec pinned on its own model, so it cannot run again; create a new session",
           );
         case "execution_revoked":
           throw executionRevoked();

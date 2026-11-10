@@ -30,6 +30,7 @@ import * as schema from "./schema.ts";
 import {
   attempts,
   events,
+  sessionPinCutover,
   sessions,
   turns,
   unassignedSessions,
@@ -673,6 +674,36 @@ integration("startup failures before ready on PostgreSQL", () => {
           .orderBy(asc(events.id))
       ).map(({ payload }) => payload);
     const statusBefore = (await statusEvents()).length;
+
+    // The held session may carry the status of an ended one, which the gate
+    // does not count. This one has no release to pin from, so with the pin
+    // authoritative retrying is refused in words, not by the trigger.
+    await db
+      .update(sessions)
+      .set({ status: "failed" })
+      .where(eq(sessions.id, session.sessionId));
+    await db
+      .update(sessionPinCutover)
+      .set({ authoritative: true, flippedAt: new Date() });
+    try {
+      expect(await decide(session, "retry_restore", "no pin")).toEqual({
+        outcome: "pin_required",
+      });
+      expect(await sessionRow(session.sessionId)).toMatchObject({
+        admissionState: "recovery_required",
+        status: "failed",
+        revision: held.revision,
+      });
+    } finally {
+      await db
+        .update(sessionPinCutover)
+        .set({ authoritative: false, flippedAt: null });
+      await db
+        .update(sessions)
+        .set({ status: held.status })
+        .where(eq(sessions.id, session.sessionId));
+    }
+
     const decided = await decide(session, "retry_restore", "proxy fixed");
     expect(decided.outcome).toBe("accepted");
     // One status event says where it went.

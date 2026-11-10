@@ -33,6 +33,7 @@ import {
   pendingRequests,
   queueMessages,
   receipts,
+  sessionPinCutover,
   sessions,
   turns,
   unassignedSessions,
@@ -883,6 +884,57 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
       checkpointPendingReason: null,
     });
     await append(session, "carry on");
+  });
+
+  test("once the spec pin is authoritative, a stopped session without a pin is not resumed and nothing about it changes", async () => {
+    const partition = `pin-required-${crypto.randomUUID()}`;
+    const session = await queuedSession(partition);
+    const l = await launch(partition, session.session_id);
+    const claimed = await claim(l);
+    const principal = principalOf(claimed);
+    const scope = scopeOf(claimed);
+    const first = await gateway.nextInput(principal, scope);
+    if (!first.input) throw new Error("no input delivered");
+    await gateway.finalize(principal, {
+      ...scope,
+      turn_id: first.input.turn_id,
+      finalize_key: `${scope.attempt_id}:${first.input.turn_id}`,
+      final_source_sequence: 0,
+      terminal: {
+        status: "completed",
+        reason: null,
+        result: null,
+        usage: null,
+      },
+      checkpoint: {
+        revision: 0,
+        manifest_ref: `manifests/${session.session_id}/0`,
+        manifest_sha256: "0".repeat(64),
+      },
+    });
+    await terminate(session);
+    await confirmExecutionGone(db, l.executionId);
+    const stopped = await sessionRow(session.session_id);
+    expect(stopped.admissionState).toBe("stopped");
+
+    // The flip is for good in production; this database gets the old rules
+    // back afterwards.
+    await db
+      .update(sessionPinCutover)
+      .set({ authoritative: true, flippedAt: new Date() });
+    try {
+      expect(await resume(session, stopped.revision)).toEqual({
+        outcome: "pin_required",
+      });
+      expect(await sessionRow(session.session_id)).toEqual(stopped);
+    } finally {
+      await db
+        .update(sessionPinCutover)
+        .set({ authoritative: false, flippedAt: null });
+    }
+    // With the pin back to advisory the same request goes through.
+    const resumed = await resume(session, stopped.revision);
+    expect(resumed.outcome).toBe("accepted");
   });
 
   test("a stopped session whose uncaptured turn left no gap still resumes over an advisory reason", async () => {

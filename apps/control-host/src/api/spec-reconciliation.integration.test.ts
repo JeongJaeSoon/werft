@@ -78,10 +78,26 @@ function row(id: string): InstallationProfileRecord {
 }
 
 /** The registry's catalog the way the api reads it: profiles carry the resolved credential. */
-async function catalogOf(connections: Connections) {
+async function catalogOf(
+  connections: Connections,
+  options: { blocked?: boolean; absent?: boolean } = {},
+) {
   const registry = createProfileRegistry({
     workspaces: { listAll: async () => [] },
-    installations: { listAll: async () => [row("p")] },
+    installations: {
+      listAll: async () =>
+        options.absent
+          ? []
+          : [
+              options.blocked
+                ? {
+                    ...row("p"),
+                    blocked_at: AT,
+                    blocked_by: crypto.randomUUID(),
+                  }
+                : row("p"),
+            ],
+    },
     sources: {
       connections,
       connection_aliases: {},
@@ -215,6 +231,52 @@ integration(
         releaseLess: 0,
         open: true,
       });
+    }, 30_000);
+
+    test("a release on a profile the operator blocked is told apart from one whose profile is gone, and its live sessions are listed with the reason", async () => {
+      const full = await catalogOf({ one: PROVIDER });
+      const profile = full.profiles.p;
+      if (!profile) throw new Error("no profile");
+      const blockedRelease = await releaseOn(profile as CatalogProfile);
+      const blockedSession = await startOn(blockedRelease);
+      const settings = () => ({
+        connections: { one: PROVIDER },
+        connection_aliases: {},
+      });
+
+      const blocked = await reconcileSpecs({
+        db,
+        catalog: await catalogOf({ one: PROVIDER }, { blocked: true }),
+        settings,
+      });
+      expect(blocked.releases.skipped).toEqual([
+        { release_id: blockedRelease, reason: "profile_blocked" },
+      ]);
+      expect(blocked.held).toEqual([
+        {
+          id: blockedSession,
+          status: "queued",
+          releaseId: blockedRelease,
+          profileId: "p",
+          reason: "profile_blocked",
+        },
+      ]);
+      expect(blocked.gate.open).toBe(false);
+
+      const gone = await reconcileSpecs({
+        db,
+        catalog: await catalogOf({ one: PROVIDER }, { absent: true }),
+        settings,
+      });
+      expect(gone.releases.skipped).toEqual([
+        { release_id: blockedRelease, reason: "profile_gone" },
+      ]);
+      expect(gone.held[0]?.reason).toBe("profile_gone");
+
+      // Unblocked, the same release is specced and its session pinned.
+      const back = await reconcileSpecs({ db, catalog: full, settings });
+      expect(back.releases.stored).toBe(1);
+      expect(back.held).toEqual([]);
     }, 30_000);
 
     test("a release whose provider the settings no longer hold is listed, not guessed, and keeps the gate shut", async () => {
