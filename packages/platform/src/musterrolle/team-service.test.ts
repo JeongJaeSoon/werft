@@ -392,10 +392,10 @@ describe("agent.admin.manage by role (design 4.1)", () => {
     });
     await service.addAgentAdmin(caller("admin"), AGENT, "teams", TEAM);
     await service.addAgentAdmin(caller("admin"), AGENT, "users", USERS.member);
-    expect(asked).toEqual([
-      MANAGEMENT_ROLES["team.manage"],
-      MANAGEMENT_ROLES["agent.admin.manage"],
-    ]);
+    // Both lists are ["owner", "admin"] today, so identity is what tells the
+    // two policies apart.
+    expect(asked[0]).toBe(MANAGEMENT_ROLES["team.manage"]);
+    expect(asked[1]).toBe(MANAGEMENT_ROLES["agent.admin.manage"]);
   });
 
   test("a role lost after the check is refused by the store as team_not_allowed", async () => {
