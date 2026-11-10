@@ -4,6 +4,7 @@ import type {
   CreateAgentReleaseResponse,
   CreateAgentRequest,
   ListAgentsQuery,
+  ListConnectionOptionsResponse,
   ListAgentsResponse,
   UpdateAgentRequest,
 } from "@werft-ai/contracts";
@@ -59,6 +60,7 @@ import type { GitHubSettingsStore } from "../ports/github-settings.ts";
 import {
   connectionModels,
   connectionOf,
+  modelMoves,
   modelSuccessor,
   type SessionCatalog,
   type SessionCatalogView,
@@ -964,6 +966,27 @@ export function createAgentService(deps: {
           const summary = summaries.get(agent.id);
           return summary ? { ...agent, summary } : agent;
         }),
+      };
+    },
+
+    /** The enabled connections a release may name, with their models. */
+    async listConnections(
+      caller: Caller,
+    ): Promise<ListConnectionOptionsResponse> {
+      await agentReader(caller);
+      return {
+        items: Object.entries(catalog.connections)
+          .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+          .map(([id, connection]) => ({
+            id,
+            kind: connection.provider.kind,
+            billing:
+              connection.provider.billing === "none" ? "none" : "metered",
+            models: connectionModels(connection),
+            model_successors: Object.fromEntries(
+              modelMoves(connection).map(({ from, to }) => [from, to]),
+            ),
+          })),
       };
     },
 

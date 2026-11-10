@@ -43,6 +43,7 @@ export * from "./invites.ts";
 export * from "./lease-reconcile.ts";
 export * from "./linked-accounts.ts";
 export * from "./mcp-egress.ts";
+export * from "./migration-lock.ts";
 export * from "./member-teams.ts";
 export * from "./members.ts";
 export * from "./metrics-reader.ts";

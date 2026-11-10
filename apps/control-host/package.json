@@ -17,12 +17,7 @@
     "slack-app": "bun run src/api/slack-app.ts",
     "openapi:generate": "bun run scripts/generate-openapi.ts",
     "migrate-workspace": "bun run src/scheduler/migrate-workspace.ts",
-    "profile-backfill": "bun run src/api/profile-backfill.ts",
-    "mcp-settings-migration": "bun run src/api/mcp-settings-migration.ts",
-    "profile-migration": "bun run src/api/profile-migration.ts",
-    "profile-restriction-migration": "bun run src/api/profile-restriction-migration.ts",
-    "engine-settings-gate": "bun run src/api/engine-settings-gate.ts",
-    "tool-unlock": "bun run src/api/tool-unlock.ts"
+    "mcp-settings-migration": "bun run src/api/mcp-settings-migration.ts"
   },
   "dependencies": {
     "@werft-ai/contracts": "workspace:*",

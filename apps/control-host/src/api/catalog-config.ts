@@ -3,28 +3,17 @@ import {
   SecretsManagerClient,
 } from "@aws-sdk/client-secrets-manager";
 import {
-  OPT_IN_PERMISSION_MODES,
-  UNATTENDED_PERMISSION_MODES,
-} from "@werft-ai/contracts";
-import {
-  type CatalogProfile,
-  type CatalogProfileConfig,
-  type CatalogProfileView,
   type CatalogRepositoryStore,
-  createProfileRegistry,
-  type InstallationProfileStore,
+  createCatalogRegistry,
   type InstallationSettingsStore,
+  type InstalledRuntimes,
   RuntimeFeatureGate,
-  profileCatalog,
   type RuntimeVersions,
-  resolveSessionCatalog,
+  registryCatalog,
   runtimeVersionsOf,
   SecretKey,
   type SessionCatalog,
-  type SnapshotSources,
-  sessionCatalogView,
   settingsView,
-  type WorkspaceProfileStore,
   withConsoleRepositories,
   workerImageRuntimesFromEnv,
 } from "@werft-ai/platform";
@@ -34,13 +23,20 @@ import {
   installedToolCatalogs,
 } from "@werft-ai/runtime-codecs";
 
-export const ALLOW_UNATTENDED_SETTING = "PLATFORM_ALLOW_UNATTENDED_PERMISSIONS";
 export const SECRET_KEY_SETTING = "PLATFORM_SECRET_KEY";
 const CONFIG_DIR_SETTING = "PLATFORM_CONFIG_DIR";
 const SECRET_READ_TIMEOUT_MS = 10_000;
 
 /** The runtimes the worker image ships, as the control plane sees them. */
 export const installedRuntimes = new RuntimeFeatureGate(installedDescriptors);
+
+/** The version a new release of each installed runtime runs. */
+export const installedRuntimeVersions: InstalledRuntimes = Object.fromEntries(
+  installedDescriptors.map((descriptor) => [
+    descriptor.kind,
+    descriptor.runtimeVersion,
+  ]),
+);
 
 export type SecretReader = (secretId: string) => Promise<string | undefined>;
 
@@ -85,66 +81,9 @@ export function refuseFileCatalog(
 }
 
 /**
- * Whether this process may run a profile nothing judges. A catalog is
- * copied between installations and cannot vouch for the one it lands in.
- */
-export function unattendedAllowed(
-  env: Record<string, string | undefined>,
-): boolean {
-  return env[ALLOW_UNATTENDED_SETTING] === "true";
-}
-
-/** What a replica holding no provider key builds its profile snapshot from. */
-export function profileViewSources(
-  env: Record<string, string | undefined>,
-): SnapshotSources<CatalogProfileView> {
-  return {
-    connections: {},
-    allowUnattended: unattendedAllowed(env),
-    runtimeSupported: runtimeServes,
-    materialize: (id, definition) => {
-      const view = sessionCatalogView({
-        profiles: { [id]: definition },
-        repositories: {},
-      }).profiles[id];
-      if (!view) throw new Error(`profile ${id} has no view`);
-      return view;
-    },
-  };
-}
-
-export function profileSources(
-  env: Record<string, string | undefined>,
-): SnapshotSources<CatalogProfile> {
-  return {
-    connections: {},
-    allowUnattended: unattendedAllowed(env),
-    runtimeSupported: runtimeServes,
-    materialize: (id, definition, lookup) => {
-      const profile = resolveSessionCatalog(
-        { profiles: { [id]: definition }, repositories: {} },
-        lookup ?? (() => undefined),
-      ).profiles[id];
-      if (!profile) throw new Error(`profile ${id} did not resolve`);
-      return profile;
-    },
-  };
-}
-
-export function runtimeServes(profile: CatalogProfileConfig): boolean {
-  try {
-    installedRuntimes.assertProfiles({ profile });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
  * The configured worker images' engine versions; undefined without them.
  * `current` and `accepted` also name the older builds whose tool catalog is
- * an image's own: a worker runs a profile row left at one of them, and a
- * session pinned under that row keeps its profile when the row moves on.
+ * an image's own: a release made on one of them still runs.
  */
 export function runtimeVersionsFromEnv(
   env: Record<string, string | undefined>,
@@ -168,9 +107,8 @@ export function runtimeVersionsFromEnv(
   };
 }
 
+/** The catalog a one-off job reads: the installation's settings, read once. */
 export async function databaseCatalog(options: {
-  installations: Pick<InstallationProfileStore, "listAll">;
-  workspaces: Pick<WorkspaceProfileStore, "listAll">;
   repositories: Pick<CatalogRepositoryStore, "readCatalog">;
   settings: Pick<InstallationSettingsStore, "read">;
   credential: () => string;
@@ -178,29 +116,14 @@ export async function databaseCatalog(options: {
 }): Promise<SessionCatalog> {
   const runtimeVersions = runtimeVersionsFromEnv(options.env);
   const { settings, credential } = options;
-  const registry = createProfileRegistry({
-    workspaces: options.workspaces,
-    installations: options.installations,
+  const registry = createCatalogRegistry({
     repositories: options.repositories,
     settings: {
       read: async () => settingsView(await settings.read(), credential),
     },
-    sources: {
-      connections: {},
-      allowUnattended: true,
-      runtimeSupported: () => true,
-      materialize: (id, definition) => {
-        const profile = resolveSessionCatalog(
-          { profiles: { [id]: definition }, repositories: {} },
-          options.credential,
-        ).profiles[id];
-        if (!profile) throw new Error(`profile ${id} did not resolve`);
-        return profile;
-      },
-    },
   });
   await registry.refresh();
-  return profileCatalog(
+  return registryCatalog(
     {
       repositories: {},
       ...(runtimeVersions === undefined
@@ -224,24 +147,3 @@ export function loadSecretKey(
   }
   return SecretKey.fromHex(value, SECRET_KEY_SETTING);
 }
-
-const profilesIn =
-  (modes: readonly string[]) =>
-  (catalog: {
-    profiles: Record<string, { permission_mode: string }>;
-  }): string[] =>
-    Object.entries(catalog.profiles)
-      .filter(([, profile]) => modes.includes(profile.permission_mode))
-      .map(([id]) => id);
-
-/** Profiles whose tools run without a person answering; logged at startup. */
-export const unattendedProfiles = profilesIn(UNATTENDED_PERMISSION_MODES);
-
-/**
- * Profiles whose tool calls nothing judges. That leaves the container, the
- * egress allowlist, the tool list and the cost limit as the only bounds, so
- * the installation has to opt in: a catalog is copied between installations
- * and cannot vouch for the one it lands in. `auto` is not among them: its
- * classifier still refuses a call.
- */
-export const optInProfiles = profilesIn(OPT_IN_PERMISSION_MODES);

@@ -2,7 +2,7 @@ import * as schema from "@werft-ai/db";
 import { createPostgresSettingsDocumentStore } from "@werft-ai/db";
 import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
 import { createLogger } from "@werft-ai/observability";
-import type { Connections } from "@werft-ai/platform";
+import type { CatalogProviderConfig } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import {
   DEMO_ACCOUNTS,
@@ -19,20 +19,20 @@ import {
 // compose.local.yml's fake-messages service: the only provider a demo
 // session may call.
 export const FAKE_MESSAGES_ENDPOINT = "http://fake-messages:4010";
-const REPOSITORY_PROFILE = "claude-coding-local";
-const NO_REPOSITORY_PROFILE = "general";
+// The fake model's connection, which --fake-model imports.
+const CONNECTION_ID = "fake-messages";
 const REPOSITORY_ID = "sample-app";
 const MODEL = "claude-sonnet-5";
 
 /**
  * Why this process must not seed demo data, or null: every refusal of the
  * demo accounts, and any connection that would reach a provider other than
- * the fake one. A ceiling runs only on a connection, so no profile the seed
- * uses can reach one either.
+ * the fake one. A release runs only on a connection, so no agent the seed
+ * makes can reach one either.
  */
 export function demoDataRefusal(
   env: Record<string, string | undefined>,
-  connections: Connections,
+  connections: Readonly<Record<string, Pick<CatalogProviderConfig, "endpoint">>>,
 ): string | null {
   const refusal = demoAccountsRefusal(env);
   if (refusal) return refusal;
@@ -55,7 +55,6 @@ type DemoAgent = {
   name: string;
   role: string;
   instructions: string;
-  profile: string;
   /** The release's repository, which its sessions work on. */
   repositoryId?: string;
 };
@@ -67,7 +66,6 @@ export const DEMO_AGENTS: readonly DemoAgent[] = [
     role: "변경 내역을 읽고 릴리스 노트 초안을 쓴다",
     instructions:
       "저장소의 최근 변경을 읽고 사용자에게 보이는 변화만 골라 릴리스 노트 초안을 out/ 아래에 쓴다.",
-    profile: REPOSITORY_PROFILE,
     repositoryId: REPOSITORY_ID,
   },
   {
@@ -76,7 +74,6 @@ export const DEMO_AGENTS: readonly DemoAgent[] = [
     role: "변경을 읽고 위험한 부분을 짚는다",
     instructions:
       "변경된 파일을 읽고 버그·회귀 가능성이 있는 곳을 근거와 함께 정리한다. 명령을 돌리기 전에 확인을 받는다.",
-    profile: REPOSITORY_PROFILE,
     repositoryId: REPOSITORY_ID,
   },
   {
@@ -85,7 +82,6 @@ export const DEMO_AGENTS: readonly DemoAgent[] = [
     role: "들어온 문의를 분류하고 담당을 제안한다",
     instructions:
       "문의 내용을 읽고 유형·긴급도·담당 팀을 제안한다. 판단이 갈리면 사람에게 묻는다.",
-    profile: NO_REPOSITORY_PROFILE,
   },
 ];
 
@@ -475,7 +471,7 @@ async function ensureAgent(
     `/v1/agents/${agentId}/releases`,
     {
       version_id: versionId,
-      runtime_profile_id: agent.profile,
+      connection_id: CONNECTION_ID,
       ...(agent.repositoryId ? { repository_id: agent.repositoryId } : {}),
     },
   );
@@ -773,16 +769,20 @@ async function seedAs(
       });
       continue;
     }
-    const agent = DEMO_AGENTS.find((row) => row.slug === session.agent);
-    const profile =
-      agent?.profile ??
-      (session.repository ? REPOSITORY_PROFILE : NO_REPOSITORY_PROFILE);
+    // Every session runs an agent release; one the script names none for
+    // runs the agent that fits its repository.
+    const agent =
+      DEMO_AGENTS.find((row) => row.slug === session.agent) ??
+      DEMO_AGENTS.find((row) =>
+        session.repository
+          ? row.repositoryId !== undefined
+          : row.repositoryId === undefined,
+      );
     const created = await client.expect<{ session_id: string }>(
       201,
       "POST",
       "/v1/sessions",
       {
-        profile_id: profile,
         ...(session.title === null ? {} : { title: session.title }),
         ...(session.repository ? { repository_id: REPOSITORY_ID } : {}),
         ...(agent ? { agent_release_id: releases.get(agent.slug) } : {}),
@@ -805,7 +805,9 @@ async function seedAs(
   return outcomes;
 }
 
-async function storedConnections(): Promise<Connections> {
+async function storedConnections(): Promise<
+  Record<string, CatalogProviderConfig>
+> {
   const pool = createEnforcedPool(
     demoDatabaseUrl(process.env),
     createLogger(),
@@ -819,7 +821,7 @@ async function storedConnections(): Promise<Connections> {
     return Object.fromEntries(
       rows
         .filter((row) => row.disabledAt === null)
-        .map((row) => [row.id, row.entry as Connections[string]]),
+        .map((row) => [row.id, row.entry as CatalogProviderConfig]),
     );
   } finally {
     await pool.end();
