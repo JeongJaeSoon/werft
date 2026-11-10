@@ -7,8 +7,15 @@ import type {
   WorkspaceRole,
 } from "@werft-ai/contracts";
 import type { Principal } from "../musterrolle/policy.ts";
-import type { CreatedSlackApp } from "../musterrolle/slack-config-api.ts";
 import type { SecretSummary } from "./secret-store.ts";
+
+/** What Slack answers to `apps.manifest.create`; the secrets are stored, never shown. */
+export type CreatedSlackApp = {
+  appId: string;
+  clientId: string;
+  clientSecret: string;
+  signingSecret: string;
+};
 
 export type SlackAppRecord = {
   id: string;

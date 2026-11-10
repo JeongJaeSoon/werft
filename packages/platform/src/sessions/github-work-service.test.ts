@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { Principal } from "@werft-ai/contracts";
 import { testCaller } from "@werft-ai/testkit";
+import { ForgeCredentialError } from "../action/ports/forge.ts";
+import type { GitHubApi } from "../action/ports/github-api.ts";
 import { createAuthorizationPolicy } from "../musterrolle/policy.ts";
-import { ForgeCredentialError } from "../ports/forge.ts";
 import {
-  type GitHubApi,
   GitHubCallError,
   type GitHubGate,
   GitHubGateError,

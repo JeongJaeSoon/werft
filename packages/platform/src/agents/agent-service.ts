@@ -48,7 +48,6 @@ import {
   TEAM_NOT_ALLOWED,
   TEAM_NOT_FOUND,
 } from "../musterrolle/service-errors.ts";
-import type { SlackWelcome } from "../musterrolle/slack-welcome.ts";
 import type {
   ActivationIntent,
   AgentReader,
@@ -83,6 +82,7 @@ import {
   SessionServiceError,
   viewerOf,
 } from "../sessions/session-service.ts";
+import type { AgentWelcomable } from "../surface/ports/agent-welcomable.ts";
 import type { ModelMoveStep } from "./model-move-runner.ts";
 import {
   assertReleaseIdentity,
@@ -236,7 +236,7 @@ export function createAgentService(deps: {
   catalog: SessionCatalog;
   credentials: Pick<CredentialBindingStore, "unboundRefs">;
   /** The home channel's welcome; absent where Slack is not wired. */
-  welcome?: Pick<SlackWelcome, "activated">;
+  welcome?: Pick<AgentWelcomable, "activated">;
   /** Where an agent key's agent is read; absent, every key is refused. */
   keys?: Pick<WorkspaceKeyStore, "find">;
   /** The ceiling a release's `github` is checked against; absent: all off. */
