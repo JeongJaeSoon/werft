@@ -109,7 +109,7 @@ services:
     volumes:
       - ..:/app:ro
     healthcheck:
-      test: ["CMD", "bun", "-e", "await fetch('http://127.0.0.1:4030/healthz')"]
+      test: ["CMD", "bun", "-e", "const r = await fetch('http://127.0.0.1:4031/healthz'); if (!r.ok) process.exit(1)"]
       interval: 5s
       timeout: 3s
       retries: 12
