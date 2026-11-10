@@ -616,9 +616,7 @@ integration("claim against a catalog that dropped the pair", () => {
       const launch = await reserved(session.session_id);
       expect(
         (await claim(launch, 1_000, new Set([TEST_CONNECTION_ID]))).outcome,
-      ).toBe(
-        "no_session",
-      );
+      ).toBe("no_session");
       await untouched(session.session_id, launch.ref);
       expect((await claim(launch)).outcome).toBe("catalog_mismatch");
     });
