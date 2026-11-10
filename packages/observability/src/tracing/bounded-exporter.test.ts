@@ -139,6 +139,33 @@ describe("bounded span exporter", () => {
     expect(exporter.dropped()).toBeGreaterThanOrEqual(45);
   });
 
+  test("a long error message counts against the byte limit too", async () => {
+    const exporter = createBoundedSpanExporter({
+      send: () => new Promise<void>(() => {}),
+      maxBytes: 16 * 1024,
+    });
+    const spans: ReadableSpan[] = [];
+    const tracer = createOtelTracer({
+      ...settings,
+      exporter: {
+        export: (batch, done) => {
+          spans.push(...batch);
+          done({ code: 0 });
+        },
+        shutdown: async () => {},
+      },
+    });
+    for (let i = 0; i < 50; i += 1) {
+      const span = tracer.startSpan("s", {});
+      span.setError("e".repeat(4 * 1024));
+      span.end();
+    }
+    await tracer.forceFlush();
+    export_(exporter, spans);
+
+    expect(exporter.dropped()).toBeGreaterThanOrEqual(45);
+  });
+
   test("with exportOnEnd every span the SDK finishes is counted, delivered or dropped", async () => {
     const exporter = createBoundedSpanExporter({
       send: () => new Promise<void>(() => {}),

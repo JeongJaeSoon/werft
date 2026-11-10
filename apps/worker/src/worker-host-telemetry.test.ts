@@ -341,8 +341,10 @@ describe("WorkerHost spans", () => {
           other,
         ),
         { type: "tool.called", toolCallId: "late-tool", tool: "shell" },
-        ended(other),
         publicEvent("own", "assistant", nativeText("mine"), sent),
+        // Arrives while this turn's own llm_request is open.
+        ended(other),
+        publicEvent("own-2", "assistant", nativeText("mine too"), sent),
         ended(sent),
       );
     };
@@ -351,6 +353,8 @@ describe("WorkerHost spans", () => {
     await Bun.sleep(20);
 
     expect(named(finished, "werft.tool")).toHaveLength(0);
+    // The other input's terminal did not close it halfway.
+    expect(named(finished, "werft.llm_request")).toHaveLength(1);
     const root = named(finished, "werft.turn")[0] as Finished;
     expect(String(root.attributes["gen_ai.output.messages"])).toContain("mine");
   });

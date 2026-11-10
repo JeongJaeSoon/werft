@@ -57,6 +57,13 @@ export function createBoundedSpanExporter(
   // strings are nearly all of it.
   function estimateBytes(span: ReadableSpan): number {
     let bytes = Buffer.byteLength(span.name) + 256;
+    bytes += Buffer.byteLength(span.status.message ?? "");
+    for (const event of span.events) {
+      bytes += Buffer.byteLength(event.name) + 64;
+      for (const value of Object.values(event.attributes ?? {})) {
+        bytes += typeof value === "string" ? Buffer.byteLength(value) : 16;
+      }
+    }
     for (const value of Object.values(span.attributes)) {
       if (typeof value === "string") bytes += Buffer.byteLength(value);
       else bytes += 16;
