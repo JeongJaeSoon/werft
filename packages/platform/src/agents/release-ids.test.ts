@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
   type AgentCard,
-  type AgentGitHub,
   type AgentRelease,
   agentCardSchema,
   agentReleaseSchema,
@@ -19,7 +18,9 @@ import {
 } from "./release-ids.ts";
 
 const AGENT_ID = "019a0000-0000-7000-8000-0000000000a1";
-const PINNED_V5 = "sha256:pending";
+// Taken independently: sha256 of the canonical JSON of the v5 shape.
+const PINNED_V5 =
+  "sha256:38b426bd4dd9ca9bd1727baf8176727b4f05410cc3876072fe8fbe8297281905";
 const VERSION_ID = "019a0000-0000-7000-8000-0000000000a2";
 const USER_A = "019a0000-0000-7000-8000-0000000000b1";
 const USER_B = "019a0000-0000-7000-8000-0000000000b2";

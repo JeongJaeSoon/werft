@@ -72,27 +72,13 @@ import {
   settingsCatalog,
   settingsDocument,
 } from "../test-support/settings.ts";
-import { slackSessionHandler } from "./main.ts";
+import { TEST_RUNTIMES } from "../test-support/catalog.ts";
+import { slackCatalog, slackSessionHandler } from "./main.ts";
 
 // The API side (activation, binding writes, install Finalize) and the
 // `slack` role (the invite event, the outbox) over one database and the
 // fake Slack, wired as server.ts and main.ts wire them.
 
-const PROFILES = `profiles:
-  general:
-    runtime_kind: claude_agent_sdk
-    runtime_version: "0.3.270"
-    model: claude-sonnet-5
-    tools: [Read]
-    permission_mode: default
-    repository: none
-    provider:
-      kind: anthropic
-      endpoint: https://api.anthropic.invalid
-      auth:
-        kind: api_key
-        value_env: PROVIDER_KEY
-`;
 const APP_ID = "A0WELCOME";
 const TEAM = "T0ACME";
 const BOT_USER = "U0BOT";
@@ -121,6 +107,13 @@ const logger = createLogger({ level: "error", sinks: [] });
 const key = SecretKey.fromHex(randomBytes(32).toString("hex"), "TEST_KEY");
 
 let db: Database;
+
+/** The catalog a pass reads before its first event (main). */
+async function refreshedSlackCatalog() {
+  const catalog = slackCatalog(db, ENVIRONMENT);
+  await catalog.refresh();
+  return catalog;
+}
 
 afterAll(() => {
   slack.stop();
@@ -151,11 +144,11 @@ function useDatabase(engine: string) {
     await seedSettings(
       db,
       settingsDocument(
-        PROFILES,
         `connections:
   main:
     kind: anthropic
     endpoint: https://api.anthropic.invalid
+    models: [claude-sonnet-5]
     auth:
       kind: api_key
       value_env: PROVIDER_KEY
@@ -237,6 +230,7 @@ async function installedAgent() {
     store: agentStore,
     catalog: await settingsCatalog(db),
     credentials: createPostgresCredentialBindingStore(db),
+    runtimes: TEST_RUNTIMES,
     welcome,
   });
   const bindings = createSurfaceBindingService({
@@ -309,7 +303,7 @@ async function installedAgent() {
     }
     return agents.createRelease(owner, agentId, {
       version_id: versionId,
-      runtime_profile_id: "general",
+      connection_id: "main",
     });
   };
   const activate = async (releaseId: string) => {
@@ -403,6 +397,7 @@ async function invited(
   return drainSlackInbox({
     inbox: createPostgresSlackInboundEventStore(db),
     handler: slackSessionHandler({
+      catalog: await refreshedSlackCatalog(),
       db,
       pool: {
         connect: () => {

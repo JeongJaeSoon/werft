@@ -18,7 +18,6 @@ import {
 import {
   type AgentService,
   type Caller,
-  type CatalogProfile,
   callerFor,
   createAgentAdminService,
   createAgentIdentityService,
@@ -54,29 +53,16 @@ import * as schema from "./schema.ts";
 import { agents, receipts } from "./schema.ts";
 import { createPostgresSurfaceBindingStore } from "./surface-bindings.ts";
 import { fixtureTeam } from "./testing/fixture-team.ts";
-import { testSessionCatalog } from "./testing/spec-pins.ts";
+import {
+  TEST_CONNECTION_ID,
+  TEST_RUNTIMES,
+  testSessionCatalog,
+} from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
 const MANAGERS: readonly WorkspaceRole[] = ["owner", "admin"];
 
-const PROFILE: CatalogProfile = {
-  runtime_kind: "claude_agent_sdk",
-  runtime_version: "0.3.270",
-  model: "claude-sonnet-5",
-  tools: ["Read"],
-  permission_mode: "default",
-  repository: "optional",
-  provider: {
-    kind: "litellm",
-    endpoint: "https://litellm.invalid",
-    auth: {
-      kind: "api_key",
-      value: "catalog-provider-key",
-      ref: { value_env: "PROVIDER_KEY" },
-    },
-  },
-};
 const CATALOG: SessionCatalog = testSessionCatalog({
   repositories: {},
 });
@@ -373,6 +359,7 @@ integration("the managing team on PostgreSQL", () => {
       }),
       store: createPostgresAgentStore(db),
       catalog: CATALOG,
+      runtimes: TEST_RUNTIMES,
       credentials: createPostgresCredentialBindingStore(db),
     });
 
@@ -737,25 +724,25 @@ integration("the managing team on PostgreSQL", () => {
     expect(await cards(outsider)).toEqual([]);
 
     // A filter on a setting narrows to the agents whose settings are read.
-    const byProfile = async (who: Caller) =>
+    const byConnection = async (who: Caller) =>
       (
         await store.list(
           workspaceId,
-          { limit: 50, runtime_profile_id: "coding" },
+          { limit: 50, connection_id: TEST_CONNECTION_ID },
           reader(who, "use"),
         )
       ).items.length;
     const released = await service().createRelease(owner, agentId, {
       version_id: (await service().getAgent(owner, agentId)).versions[0]
         ?.id as string,
-      runtime_profile_id: "coding",
+      connection_id: TEST_CONNECTION_ID,
     });
     await service().activateAgent(owner, agentId, {
       release_id: released.release.id,
       expected_revision: -1,
     });
-    expect(await byProfile(member)).toBe(1);
-    expect(await byProfile(outsider)).toBe(0);
+    expect(await byConnection(member)).toBe(1);
+    expect(await byConnection(outsider)).toBe(0);
 
     // Out of the team, the card goes with the next read.
     await teams().removeMember({
@@ -765,7 +752,7 @@ integration("the managing team on PostgreSQL", () => {
       userId: idOf(member),
     });
     expect(await cards(member)).toEqual([]);
-    expect(await byProfile(member)).toBe(0);
+    expect(await byConnection(member)).toBe(0);
     await join(owner, teamId, member);
     expect(await cards(member)).toEqual([agentId]);
     // So it does with an archived team, or a disabled member.
@@ -1162,7 +1149,7 @@ integration("the managing team on PostgreSQL", () => {
     if (!version) throw new Error("no version");
     const { release } = await agentsService.createRelease(owner, agentId, {
       version_id: version.id,
-      runtime_profile_id: "coding",
+      connection_id: TEST_CONNECTION_ID,
     });
     const reach = (who: Caller) =>
       db.transaction((tx) =>
@@ -1281,7 +1268,7 @@ integration("the managing team on PostgreSQL", () => {
           async (s) =>
             service().createRelease(s.lead, s.agentId, {
               version_id: s.created.versions[0]?.id ?? "",
-              runtime_profile_id: "coding",
+              connection_id: TEST_CONNECTION_ID,
             }),
         ],
         [
@@ -1339,7 +1326,7 @@ integration("the managing team on PostgreSQL", () => {
       if (!version) throw new Error("no version");
       const { release } = await service().createRelease(s.owner, s.agentId, {
         version_id: version.id,
-        runtime_profile_id: "coding",
+        connection_id: TEST_CONNECTION_ID,
       });
       const change =
         label === "move"

@@ -8,8 +8,6 @@ import {
   type ExecutionRef,
   hashWorkerToken,
   type LaunchIntent,
-  type ReleaseSpecRecord,
-  releaseSpecRecord,
   runScheduler,
   type SchedulerLogger,
 } from "@werft-ai/platform";
@@ -31,8 +29,14 @@ import {
 } from "./schema.ts";
 import { fixtureTeam } from "./testing/fixture-team.ts";
 import { insertUnreservedLaunch } from "./testing/launches.ts";
+import {
+  releaseSpecColumns,
+  sessionPinColumns,
+  TEST_CONNECTION_ID,
+  TEST_MODEL,
+  testClaimCatalog,
+} from "./testing/spec-pins.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
-import { TEST_CONNECTION_ID, releaseSpecColumns } from "./testing/spec-pins.ts";
 
 /**
  * The claim lifecycle end to end, on the real store and the real claim:
@@ -40,16 +44,13 @@ import { TEST_CONNECTION_ID, releaseSpecColumns } from "./testing/spec-pins.ts";
  * provider was created with, the way the gateway's bootstrapClaim does.
  */
 
-const PROFILE = "profile-a";
-/** The one (profile, repository) pair this host runs; every session is on it. */
-const RUNNABLE = {
-  branch: "main",
-  profileId: PROFILE,
-  profileFingerprint: `sha256:${"a".repeat(64)}`,
-  model: null,
+const REPOSITORY = {
   repositoryId: "repo-a",
   url: "https://example.invalid/repo.git",
+  branch: "main",
 };
+/** What this host runs: the test connection and the one repository. */
+const RUNNABLE = testClaimCatalog([REPOSITORY]);
 const RESOURCES = { cpus: 1, memoryBytes: 512 * 1024 * 1024, pidsLimit: 256 };
 
 let client: PGlite;
@@ -158,8 +159,6 @@ function pass(backend: ExecutionBackend) {
 async function releaseWith(
   snapshot: unknown,
   card: Record<string, unknown> = {},
-  specOf?: (releaseId: string) => ReleaseSpecRecord,
-  effectiveTools: unknown = [],
 ): Promise<string> {
   const workspaceId = crypto.randomUUID();
   const agentId = crypto.randomUUID();
@@ -194,40 +193,31 @@ async function releaseWith(
     connectionId: TEST_CONNECTION_ID,
     ...releaseSpecColumns(),
     runtimeConfigSnapshot: snapshot,
-    effectiveTools,
-    ...(specOf === undefined
-      ? {}
-      : (() => {
-          const record = specOf(id);
-          return {
-            runtimeSpec: record.runtime_spec,
-            specSource: record.spec_source,
-            specSourceDigest: record.spec_source_digest,
-            specDigest: record.spec_digest,
-          };
-        })()),
+    effectiveTools: [],
   });
   return id;
 }
 
-/** A session with one queued turn, waiting for a launch. */
+/**
+ * A session with one queued turn, waiting for a launch, pinned on the test
+ * connection (the spec every test release holds).
+ */
 async function queuedSession(
   partition = "default",
   agentReleaseId: string | null = null,
-  runtimeToolsSource?: "profile" | "release",
+  pin = sessionPinColumns(),
 ): Promise<string> {
   const id = crypto.randomUUID();
   await db.insert(sessions).values({
     admissionState: "active",
     agentReleaseId,
-    ...(runtimeToolsSource === undefined ? {} : { runtimeToolsSource }),
-    branch: RUNNABLE.branch,
+    ...pin,
+    branch: REPOSITORY.branch,
     id,
     ownerId: "owner-a",
     partition,
-    profileId: PROFILE,
-    repoUrl: RUNNABLE.url,
-    repositoryId: RUNNABLE.repositoryId,
+    repoUrl: REPOSITORY.url,
+    repositoryId: REPOSITORY.repositoryId,
   });
   await db.insert(turns).values({
     message: "hello",
@@ -244,7 +234,7 @@ function claim(ref: ExecutionRef, nonce: string) {
     attemptId: `att-${crypto.randomUUID()}`,
     settingsGeneration: null,
     unsettledRepositoryIds: new Set(),
-    settledProfileIds: new Set([PROFILE]),
+    settledConnectionIds: new Set([TEST_CONNECTION_ID]),
     costLimitUsd: 1_000,
     tokenLimit: null,
     credentialHash: hashWorkerToken(`wkt-${crypto.randomUUID()}`),
@@ -264,7 +254,7 @@ function claim(ref: ExecutionRef, nonce: string) {
     leaseTtlMs: 60_000,
     nonceHash: hashWorkerToken(nonce),
     now: new Date(),
-    runnable: [RUNNABLE],
+    runnable: RUNNABLE,
   });
 }
 
@@ -300,83 +290,6 @@ afterEach(async () => {
 });
 
 describe("claim lifecycle", () => {
-  test("the binding carries the release's tools: none for a session without a release, [] for a release allowing none or one this image cannot read", async () => {
-    const toolsBound = async (agentReleaseId: string | null) => {
-      const backend = new NonceHoldingBackend();
-      await queuedSession("default", agentReleaseId);
-      const [ref] = (await pass(backend)).launched;
-      if (!ref) throw new Error("nothing launched");
-      const bound = await claim(ref, backend.nonceOf(ref));
-      if (bound.outcome !== "claimed") throw new Error(bound.outcome);
-      return bound.binding.releaseTools;
-    };
-    expect(await toolsBound(null)).toBeNull();
-    expect(
-      await toolsBound(await releaseWith({ model: "m", tools: ["Read"] })),
-    ).toEqual(["Read"]);
-    expect(await toolsBound(await releaseWith({ tools: [] }))).toEqual([]);
-    expect(await toolsBound(await releaseWith({ tools: "Read" }))).toEqual([]);
-    expect(await toolsBound(await releaseWith({}))).toEqual([]);
-  });
-
-  test("the binding carries the tools source and, for a release session only, the release's effective_tools.tools", async () => {
-    const bind = async (
-      source: "profile" | "release" | undefined,
-      effectiveTools: unknown,
-      withRelease = true,
-    ) => {
-      const releaseId = await releaseWith(
-        { model: "m", tools: ["Read"] },
-        {},
-        undefined,
-        effectiveTools,
-      );
-      const backend = new NonceHoldingBackend();
-      await queuedSession("default", withRelease ? releaseId : null, source);
-      const [ref] = (await pass(backend)).launched;
-      if (!ref) throw new Error("nothing launched");
-      const bound = await claim(ref, backend.nonceOf(ref));
-      if (bound.outcome !== "claimed") throw new Error(bound.outcome);
-      return bound.binding;
-    };
-    const effective = { tools: ["Grep", "Read"], mcp: [] };
-    // A row from before the column reads the legacy source and no effective list.
-    expect(await bind(undefined, effective)).toMatchObject({
-      runtimeToolsSource: "profile",
-      releaseTools: ["Read"],
-      releaseEffectiveTools: null,
-    });
-    expect(await bind("release", effective)).toMatchObject({
-      runtimeToolsSource: "release",
-      releaseEffectiveTools: ["Grep", "Read"],
-    });
-    // A value this image cannot read allows no tool.
-    expect(
-      (await bind("release", { tools: "Read" })).releaseEffectiveTools,
-    ).toEqual([]);
-    expect(await bind(undefined, effective, false)).toMatchObject({
-      runtimeToolsSource: "profile",
-      releaseEffectiveTools: null,
-    });
-  });
-
-  test("a new column default: sessions inserted without a source read `profile`, and the check refuses any other value", async () => {
-    const id = await queuedSession();
-    const [row] = await db
-      .select({ source: sessions.runtimeToolsSource })
-      .from(sessions)
-      .where(eq(sessions.id, id));
-    expect(row?.source).toBe("profile");
-    await expect(
-      (async () => {
-        await db
-          .update(sessions)
-          .set({ runtimeToolsSource: "other" })
-          .where(eq(sessions.id, id));
-      })(),
-    ).rejects.toThrow();
-  });
-
   test("the binding carries the release's answer language: only ko, en or ja; follow-user, a release before the field, an unknown value and no release all bind none", async () => {
     const languageBound = async (agentReleaseId: string | null) => {
       const backend = new NonceHoldingBackend();
@@ -404,52 +317,39 @@ describe("claim lifecycle", () => {
     ).toBeNull();
   });
 
-  test("the binding carries the release's runtime spec only when the stored pair verifies", async () => {
-    const specBound = async (specOf?: (id: string) => ReleaseSpecRecord) => {
+  test("the binding carries the session's own spec, verified, and a pin that does not verify is never run as a guess", async () => {
+    const bindingOf = async (pin: ReturnType<typeof sessionPinColumns>) => {
       const backend = new NonceHoldingBackend();
       await queuedSession(
         "default",
-        await releaseWith({ model: "m", tools: ["Read"] }, {}, specOf),
+        await releaseWith({ model: TEST_MODEL, tools: ["Read"] }),
+        pin,
       );
       const [ref] = (await pass(backend)).launched;
       if (!ref) throw new Error("nothing launched");
-      const bound = await claim(ref, backend.nonceOf(ref));
-      if (bound.outcome !== "claimed") throw new Error(bound.outcome);
-      return bound.binding.releaseSpec;
+      return claim(ref, backend.nonceOf(ref));
     };
-    const record = (id: string) =>
-      releaseSpecRecord({
-        derivation_version: 1,
-        origin: "profile",
-        release_id: id,
-        release_id_version: 2,
-        profile_id: PROFILE,
-        profile_digest: "digest",
-        runtime: { kind: "claude_agent_sdk", version: "0.3.270" },
-        connection: {
-          id: "conn-1",
-          kind: "anthropic",
-          endpoint: "https://api.anthropic.com",
-          billing: "per_token",
-        },
-        model: "m",
-        permission_mode: "bypassPermissions",
-        tools: ["Read"],
-        repository_mode: "required",
-      });
-    // Not backfilled yet: the claim reads the profile as before.
-    expect(await specBound()).toBeNull();
-    const verified = await specBound(record);
-    expect(verified?.execution_mode).toBe("bypass");
-    // A pair whose digest does not hold is no spec at all.
-    expect(
-      await specBound((id) => ({
-        ...record(id),
-        spec_digest: `sha256:${"0".repeat(64)}`,
-      })),
-    ).toBeNull();
-    // Nor is a spec made for another release.
-    expect(await specBound(() => record("rel-another"))).toBeNull();
+    // A release's own spec, as a session of it holds it.
+    const own = await bindingOf(sessionPinColumns());
+    if (own.outcome !== "claimed") throw new Error(own.outcome);
+    expect(own.binding.spec.connection.id).toBe(TEST_CONNECTION_ID);
+    expect(own.binding.model).toBe(TEST_MODEL);
+    expect(own.binding.specDigest).toBe(releaseSpecColumns().specDigest);
+    // The session's spec, not the release's: the mode is the pin's.
+    await client.query("DELETE FROM unassigned_sessions");
+    const bypass = await bindingOf(
+      sessionPinColumns(TEST_MODEL, { permission_mode: "bypassPermissions" }),
+    );
+    if (bypass.outcome !== "claimed") throw new Error(bypass.outcome);
+    expect(bypass.binding.spec.permission_mode).toBe("bypassPermissions");
+    // A pin whose digest does not hold is a broken row, not a spec.
+    await client.query("DELETE FROM unassigned_sessions");
+    await expect(
+      bindingOf({
+        ...sessionPinColumns(),
+        specDigest: `sha256:${"0".repeat(64)}`,
+      }),
+    ).rejects.toThrow(/no spec that verifies/);
   });
 
   test("the binding carries the session row's platform prompt as stored, and none for a revision 0 row", async () => {

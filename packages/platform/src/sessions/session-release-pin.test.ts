@@ -26,17 +26,11 @@ import {
   memoryAttachmentStore,
 } from "../testing/repository-attachment-fakes.ts";
 import {
-  type CatalogProfile,
-  type InstallationProfileEntry,
-  type InstallationProfileState,
-  modelMovePins,
-  profileFingerprint,
-  type SessionCatalog,
-  type WorkspaceProfileRecord,
-  workspaceProfileRefusal,
-  workspaceProfileState,
-} from "./catalog.ts";
-import { withSeededInstallation } from "./profile-registry.ts";
+  testCatalog,
+  testConnection,
+  testSpecSource,
+} from "../testing/catalog-fakes.ts";
+import type { SessionCatalogView } from "./catalog.ts";
 import { createRepositoryAttachmentService } from "./repository-attachment-service.ts";
 import {
   createSessionService,
@@ -48,33 +42,23 @@ const MEMBER = "019a0000-0000-7000-8000-0000000000a1";
 const AGENT = "019a0000-0000-7000-8000-00000000b0a1";
 const RECEIPT = "019a0000-0000-7000-8000-00000000c0a1";
 
-const profile: SessionCatalog["profiles"][string] = {
-  runtime_kind: "claude_agent_sdk",
-  runtime_version: "0.3.270",
-  model: "claude-sonnet-5",
-  models: ["claude-opus-5-5", "claude-haiku-5-5"],
-  tools: ["Read"],
-  permission_mode: "default",
-  provider: {
-    kind: "litellm",
-    endpoint: "https://litellm.invalid",
-    auth: {
-      kind: "api_key",
-      value: "test",
-      ref: { value_env: "PROVIDER_KEY" },
-    },
-  },
+const APP = {
+  url: "https://example.invalid/app.git",
+  branch: "main",
+  auth: { kind: "github_app" as const, registered: true as const },
 };
-const catalog: SessionCatalog = withSeededInstallation({
-  profiles: { "coding-v1": profile, "review-v1": profile },
-  repositories: {
-    app: {
-      url: "https://example.invalid/app.git",
-      branch: "main",
-      auth: { kind: "github_app", registered: true },
-    },
-  },
+const connection = testConnection({
+  models: ["claude-sonnet-5", "claude-opus-5-5", "claude-haiku-5-5"],
 });
+const catalog = testCatalog({
+  connections: { "conn-1": connection },
+  repositories: { app: APP },
+});
+// The workspace ceiling every session is held to; it holds the app.
+const IN_CEILING: RepositoryCeiling = {
+  repository_ids: ["app", "docs", "tools"],
+  github_app_repositories: "listed",
+};
 
 const unreached = async () => {
   throw new Error("not reached");
@@ -92,8 +76,9 @@ function setup(
       | "variables_refused";
     /** The names release rel-1's card declares; absent, the dep is left out. */
     envNames?: string[];
-    catalog?: SessionCatalog;
-    releaseProfile?: string;
+    catalog?: SessionCatalogView;
+    /** The runtime release rel-1's snapshot names; absent, 0.3.270. */
+    releaseRuntime?: string;
     /** The agent's status; absent, active. */
     agentStatus?: "active" | "paused" | "archived";
     /** The release's approval; absent, approved. */
@@ -108,7 +93,8 @@ function setup(
     github?: AgentGitHub;
     /** The agent's own settings row. */
     agentSettings?: AgentGitHubSettingsRow;
-    repositoryCeiling?: RepositoryCeiling;
+    /** Absent: IN_CEILING. */
+    repositoryCeiling?: RepositoryCeiling | null;
   } = {},
 ) {
   const accepted: AcceptSessionInput[] = [];
@@ -127,7 +113,10 @@ function setup(
     catalog: options.catalog ?? catalog,
     releases: {
       agentGitHubSettings: async () => options.agentSettings ?? null,
-      repositoryCeiling: async () => options.repositoryCeiling ?? null,
+      repositoryCeiling: async () =>
+        options.repositoryCeiling === undefined
+          ? IN_CEILING
+          : options.repositoryCeiling,
       notRunnableReason: (workspaceId, release) =>
         releaseNotRunnableReason(
           { agentStatus: async () => options.agentStatus ?? "active" },
@@ -145,9 +134,16 @@ function setup(
             options.approvedAt === undefined
               ? "2026-01-01T00:00:00.000Z"
               : options.approvedAt,
-          runtime_profile_id: options.releaseProfile ?? "coding-v1",
+          connection_id: "conn-1",
           repository_id: releaseId === "rel-app" ? "app" : null,
-          runtime_config_snapshot: { model: "claude-opus-5-5" },
+          runtime_config_snapshot: {
+            model: "claude-opus-5-5",
+            runtime: {
+              kind: "claude_agent_sdk",
+              version: options.releaseRuntime ?? "0.3.270",
+            },
+          },
+          effective_tools: { tools: ["Read"], mcp: [] },
           policy_pins:
             options.github === undefined ? {} : { github: options.github },
         };
@@ -196,9 +192,6 @@ function setup(
       },
       async appendInputAtomic(input) {
         const replay = options.appendedKeys?.includes(input.idempotencyKey);
-        if (!replay && input.profileBlocked) {
-          return { outcome: "profile_blocked" };
-        }
         if (!replay) appended.push(input.message);
         return {
           outcome: replay ? "replayed" : "accepted",
@@ -216,7 +209,6 @@ function setup(
       closeAtomic: unreached,
       decideRecoveryAtomic: unreached,
       resumeAtomic: unreached,
-      changeProfileAtomic: unreached,
       renameAtomic: unreached,
     },
     credentials: {
@@ -258,14 +250,14 @@ function setup(
   return { service, caller, accepted, appended, asked };
 }
 
-const body = { profile_id: "coding-v1", repository_id: "app", message: "hi" };
+const body = { agent_release_id: "rel-1", repository_id: "app", message: "hi" };
 
 describe("a session pinned to an agent release", () => {
   test("is authorized as that agent's and stores the pin", async () => {
     const { service, caller, accepted, asked } = setup();
     await service.createSession(caller, {
       idempotencyKey: "k",
-      body: { ...body, agent_release_id: "rel-1" },
+      body,
     });
     expect(asked[0]?.resource).toMatchObject({
       id: null,
@@ -286,7 +278,7 @@ describe("a session pinned to an agent release", () => {
     const error = await refused.service
       .createSession(refused.caller, {
         idempotencyKey: "k",
-        body: { ...body, agent_release_id: "rel-1" },
+        body,
       })
       .catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(SessionServiceError);
@@ -299,20 +291,16 @@ describe("a session pinned to an agent release", () => {
     const allowed = setup({ github: { ...github, repositories: ["app"] } });
     await allowed.service.createSession(allowed.caller, {
       idempotencyKey: "k",
-      body: { ...body, agent_release_id: "rel-1" },
+      body,
     });
     expect(allowed.accepted[0]?.repository).toMatchObject({ id: "app" });
   });
 
   describe("attached repositories", () => {
-    const attaching = withSeededInstallation({
-      profiles: {
-        "coding-v1": profile,
-        "bare-v1": { ...profile, repository: "none" as const },
-        "either-v1": { ...profile, repository: "optional" as const },
-      },
+    const attaching = testCatalog({
+      connections: catalog.connections,
       repositories: {
-        app: catalog.repositories.app as SessionCatalog["repositories"][string],
+        app: APP,
         docs: {
           url: "https://example.invalid/docs.git",
           branch: "main",
@@ -329,7 +317,7 @@ describe("a session pinned to an agent release", () => {
           auth: { kind: "github_app", registered: true },
         },
       },
-    }) satisfies SessionCatalog;
+    });
     const github: AgentGitHub = {
       repositories: ["app", "docs", "tools", "elsewhere"],
       push_approval: true,
@@ -351,7 +339,7 @@ describe("a session pinned to an agent release", () => {
       });
       // An undefined value in `sent` leaves the key out.
       const merged = JSON.parse(
-        JSON.stringify({ ...body, agent_release_id: "rel-1", ...sent }),
+        JSON.stringify({ ...body, ...sent }),
       ) as CreateSessionRequest;
       return {
         ...target,
@@ -374,25 +362,9 @@ describe("a session pinned to an agent release", () => {
       const omitted = create({}, {});
       await omitted.result;
       expect(omitted.accepted[0]?.attachedRepositoryIds).toEqual([]);
-      const repositoryless = create(
-        { releaseProfile: "either-v1" },
-        { profile_id: "either-v1", repository_id: undefined },
-      );
+      const repositoryless = create({}, { repository_id: undefined });
       await repositoryless.result;
       expect(repositoryless.accepted[0]?.attachedRepositoryIds).toEqual([]);
-    });
-
-    test("not sent, are left out where the session attaches none: without a release or on a none profile", async () => {
-      const unpinned = create({}, { agent_release_id: undefined });
-      expect(await unpinned.result).not.toBeInstanceOf(Error);
-      expect(unpinned.accepted[0]).not.toHaveProperty("attachedRepositoryIds");
-      const bare = create(
-        { releaseProfile: "bare-v1" },
-        { profile_id: "bare-v1", repository_id: undefined },
-      );
-      expect(await bare.result).not.toBeInstanceOf(Error);
-      expect(bare.accepted[0]?.repository).toBe("none");
-      expect(bare.accepted[0]).not.toHaveProperty("attachedRepositoryIds");
     });
 
     test("not sent, the session's agent attaches a repository for real; a null list from before has the release's whole list already", async () => {
@@ -428,21 +400,17 @@ describe("a session pinned to an agent release", () => {
       }
     });
 
-    test("are stored for a session started without a repository on an optional profile", async () => {
+    test("are stored for a session started without a repository", async () => {
       const started = create(
-        { releaseProfile: "either-v1" },
-        {
-          profile_id: "either-v1",
-          repository_id: undefined,
-          attached_repository_ids: ["docs"],
-        },
+        {},
+        { repository_id: undefined, attached_repository_ids: ["docs"] },
       );
       expect(await started.result).not.toBeInstanceOf(Error);
       expect(started.accepted[0]?.repository).toBe("none");
       expect(started.accepted[0]?.attachedRepositoryIds).toEqual(["docs"]);
     });
 
-    test("are refused as repository_not_allowed off the release's list or the profile, as the session's own, without a release or on a none profile", async () => {
+    test("are refused as repository_not_allowed off the release's list or the ceiling, or as the session's own", async () => {
       const cases: Array<[Options, Record<string, unknown>]> = [
         // The release does not list it.
         [
@@ -451,8 +419,10 @@ describe("a session pinned to an agent release", () => {
         ],
         // A release without GitHub settings lists none.
         [{ github: null }, { attached_repository_ids: ["docs"] }],
-        // The profile does not allow it.
+        // The workspace ceiling does not hold it.
         [{}, { attached_repository_ids: ["elsewhere"] }],
+        // No workspace ceiling holds none.
+        [{ repositoryCeiling: null }, { attached_repository_ids: ["docs"] }],
         // Not in the catalog.
         [
           { github: { ...github, repositories: ["app", "missing"] } },
@@ -460,28 +430,10 @@ describe("a session pinned to an agent release", () => {
         ],
         // The session's own repository.
         [{}, { attached_repository_ids: ["app"] }],
-        // No release.
-        [{}, { agent_release_id: undefined, attached_repository_ids: [] }],
-        // Without a repository on the optional profile, still the release's list.
+        // Without a repository, still the release's list.
         [
-          {
-            releaseProfile: "either-v1",
-            github: { ...github, repositories: ["docs"] },
-          },
-          {
-            profile_id: "either-v1",
-            repository_id: undefined,
-            attached_repository_ids: ["tools"],
-          },
-        ],
-        // A none profile, even with nothing in the list.
-        [
-          { releaseProfile: "bare-v1" },
-          {
-            profile_id: "bare-v1",
-            repository_id: undefined,
-            attached_repository_ids: [],
-          },
+          { github: { ...github, repositories: ["docs"] } },
+          { repository_id: undefined, attached_repository_ids: ["tools"] },
         ],
       ];
       for (const [options, sent] of cases) {
@@ -495,7 +447,7 @@ describe("a session pinned to an agent release", () => {
     });
   });
 
-  test("runs the card's model unless the request names another the profile offers", async () => {
+  test("runs the card's model unless the request names another the connection offers", async () => {
     const { service, caller, accepted } = setup();
     const create = (extra: object) =>
       service.createSession(caller, {
@@ -506,23 +458,17 @@ describe("a session pinned to an agent release", () => {
     expect(accepted[0]?.model).toBe("claude-opus-5-5");
     await create({ model: "claude-haiku-5-5" });
     expect(accepted[1]?.model).toBe("claude-haiku-5-5");
-    await service.createSession(caller, { idempotencyKey: "k", body });
-    expect(accepted[2]?.model).toBe("claude-sonnet-5");
     await create({ model: "claude-fable-5-1" });
-    expect(accepted[3]).toMatchObject({ repository: null });
-    expect(accepted[3]?.model).toBeUndefined();
-    expect(accepted[3]?.profileFingerprint).toBeUndefined();
+    expect(accepted[2]).toMatchObject({ repository: null });
+    expect(accepted[2]?.model).toBeUndefined();
   });
 
   test("a new session says which model left the list, whether the request or the release named it", async () => {
-    // The profile no longer offers claude-opus-5-5, the release's model.
-    const narrowed: SessionCatalog = {
-      ...catalog,
-      profiles: {
-        ...catalog.profiles,
-        "coding-v1": { ...profile, models: ["claude-haiku-5-5"] },
-      },
-    };
+    // The connection no longer offers claude-opus-5-5, the release's model.
+    const narrowed = testCatalog({
+      connections: { "conn-1": testConnection({ models: ["claude-haiku-5-5"] }) },
+      repositories: { app: APP },
+    });
     const refused = async (extra: object) => {
       const { service, caller } = setup({
         accept: "unsupported",
@@ -545,19 +491,19 @@ describe("a session pinned to an agent release", () => {
     });
   });
 
-  describe("a model the profile dropped while a newer one of its series is listed", () => {
+  describe("a model the connection dropped while a newer one of its series is listed", () => {
     const families = {
       "claude-opus-5-5": { family: "opus", rank: 5 },
       "claude-opus-5-6": { family: "opus", rank: 6 },
       "claude-haiku-5-5": { family: "haiku", rank: 5 },
     };
-    const moved = (models: string[]): SessionCatalog => ({
-      ...catalog,
-      profiles: {
-        ...catalog.profiles,
-        "coding-v1": { ...profile, models, model_families: families },
-      },
-    });
+    const moved = (models: string[]) =>
+      testCatalog({
+        connections: {
+          "conn-1": testConnection({ models, model_families: families }),
+        },
+        repositories: { app: APP },
+      });
 
     test("a new session on the release starts on the successor's row, the release untouched", async () => {
       const { service, caller, accepted } = setup({
@@ -565,7 +511,7 @@ describe("a session pinned to an agent release", () => {
       });
       await service.createSession(caller, {
         idempotencyKey: "k",
-        body: { ...body, agent_release_id: "rel-1" },
+        body,
       });
       expect(accepted[0]?.model).toBe("claude-opus-5-5");
       expect(accepted[0]?.agentReleaseId).toBe("rel-1");
@@ -601,7 +547,7 @@ describe("a session pinned to an agent release", () => {
       const error = await service
         .createSession(caller, {
           idempotencyKey: "k",
-          body: { ...body, agent_release_id: "rel-1" },
+          body,
         })
         .catch((e: unknown) => e);
       expect(error).toMatchObject({
@@ -611,65 +557,24 @@ describe("a session pinned to an agent release", () => {
     });
 
     test("a waiting session shows no attention while one with no successor still does", async () => {
-      const row = (model: string, narrowed: SessionCatalog) => {
-        const listed = narrowed.profiles["coding-v1"];
-        if (!listed) throw new Error("profile missing");
-        return {
-          ...sessionOn("coding-v1"),
-          model,
-          profile_fingerprint: profileFingerprint(listed),
-        };
+      const row = {
+        ...sessionOn(),
+        model: "claude-opus-5-5",
+        spec: testSpecSource({ model: "claude-opus-5-5" }),
       };
       const withSuccessor = moved(["claude-opus-5-6"]);
-      const a = setup({
-        catalog: withSuccessor,
-        session: row("claude-opus-5-5", withSuccessor),
-      });
+      const a = setup({ catalog: withSuccessor, session: row });
       expect((await a.service.getSession(a.caller, SESSION)).attention).toBe(
         null,
       );
-      const v1 = modelMovePins(
-        withSuccessor.profiles["coding-v1"] as CatalogProfile,
-        [],
-      ).find(
-        (pin) =>
-          pin.from === "claude-opus-5-5" &&
-          pin.fromFingerprint !== pin.toFingerprint,
-      );
-      if (!v1) throw new Error("no version 1 pin");
-      const legacy = setup({
-        catalog: withSuccessor,
-        session: {
-          ...row("claude-opus-5-5", withSuccessor),
-          model: null,
-          profile_fingerprint: v1.fromFingerprint,
-        },
-      });
-      expect(
-        (await legacy.service.getSession(legacy.caller, SESSION)).attention,
-      ).toBe(null);
-      const bare = setup({
-        catalog: withSuccessor,
-        session: { ...row("claude-opus-5-5", withSuccessor), model: null },
-      });
-      expect(
-        (await bare.service.getSession(bare.caller, SESSION)).attention,
-      ).toMatchObject({ code: "CATALOG_MISMATCH" });
       const optedOut = setup({
         catalog: withSuccessor,
-        session: {
-          ...row("claude-opus-5-5", withSuccessor),
-          auto_model_migration: false,
-        },
+        session: { ...row, auto_model_migration: false },
       });
       expect(
         (await optedOut.service.getSession(optedOut.caller, SESSION)).attention,
       ).toMatchObject({ code: "CATALOG_MISMATCH" });
-      const without = moved(["claude-haiku-5-5"]);
-      const b = setup({
-        catalog: without,
-        session: row("claude-opus-5-5", without),
-      });
+      const b = setup({ catalog: moved(["claude-haiku-5-5"]), session: row });
       expect(
         (await b.service.getSession(b.caller, SESSION)).attention,
       ).toMatchObject({
@@ -679,26 +584,27 @@ describe("a session pinned to an agent release", () => {
     });
   });
 
-  test("a profile naming a runtime the current worker image does not ship takes no new session", async () => {
-    const on = (current: string[]) =>
-      setup({
-        accept: "unsupported",
-        catalog: {
-          ...catalog,
-          runtime_versions: { current, accepted: [...current, "0.3.270"] },
+  test("a release on a runtime the worker images no longer accept takes no new session", async () => {
+    const stale = setup({
+      accept: "unsupported",
+      catalog: {
+        ...catalog,
+        runtime_versions: {
+          current: ["0.3.280", "2.1.280"],
+          accepted: ["0.3.280", "2.1.280"],
         },
-      });
-    const stale = on(["0.3.280", "2.1.280"]);
+      },
+    });
     await expect(
       stale.service.createSession(stale.caller, { idempotencyKey: "k", body }),
     ).rejects.toMatchObject({
       code: "UNSUPPORTED_CAPABILITY",
       message: expect.stringContaining(
-        "claude_agent_sdk 0.3.270, which the current worker image does not ship",
+        "claude_agent_sdk 0.3.270, which the current worker images do not ship",
       ),
     });
     expect(stale.accepted[0]).toMatchObject({ repository: null });
-    expect(stale.accepted[0]?.profileFingerprint).toBeUndefined();
+    expect(stale.accepted[0]?.model).toBeUndefined();
 
     const current = setup({
       catalog: {
@@ -716,14 +622,13 @@ describe("a session pinned to an agent release", () => {
     expect(current.accepted[0]?.repository).toMatchObject({ id: "app" });
   });
 
-  test("with only the release named, runs on its profile and its repository", async () => {
+  test("with only the release named, runs on its connection and its repository", async () => {
     const { service, caller, accepted } = setup();
     await service.createSession(caller, {
       idempotencyKey: "k",
       body: { agent_release_id: "rel-app", message: "hi" },
     });
     expect(accepted[0]).toMatchObject({
-      profileId: "coding-v1",
       agentReleaseId: "rel-app",
       repository: {
         id: "app",
@@ -731,28 +636,12 @@ describe("a session pinned to an agent release", () => {
         branch: "main",
       },
     });
-    // A release without a repository runs nothing on a profile that needs
-    // one: the acceptance is asked with no pair, which it refuses.
+    // A release without a repository runs without one.
     await service.createSession(caller, {
       idempotencyKey: "k2",
       body: { agent_release_id: "rel-1", message: "hi" },
     });
-    expect(accepted[1]).toMatchObject({
-      profileId: "coding-v1",
-      repository: null,
-    });
-  });
-
-  test("must run on the release's profile", async () => {
-    const { service, caller, accepted } = setup();
-    const error = await service
-      .createSession(caller, {
-        idempotencyKey: "k",
-        body: { ...body, profile_id: "review-v1", agent_release_id: "rel-1" },
-      })
-      .catch((e: unknown) => e);
-    expect(error).toMatchObject({ code: "RELEASE_PROFILE_MISMATCH" });
-    expect(accepted).toHaveLength(0);
+    expect(accepted[1]).toMatchObject({ repository: "none" });
   });
 
   test.each(["paused", "archived"] as const)(
@@ -762,7 +651,7 @@ describe("a session pinned to an agent release", () => {
       const error = await service
         .createSession(caller, {
           idempotencyKey: "k",
-          body: { ...body, agent_release_id: "rel-1" },
+          body,
         })
         .catch((e: unknown) => e);
       expect(error).toMatchObject({
@@ -780,7 +669,7 @@ describe("a session pinned to an agent release", () => {
     });
     const created = await service.createSession(caller, {
       idempotencyKey: "k",
-      body: { ...body, agent_release_id: "rel-1" },
+      body,
     });
     expect(created.session_id).toBe("019a0000-0000-7000-8000-00000000e0a1");
   });
@@ -790,7 +679,7 @@ describe("a session pinned to an agent release", () => {
     const error = await service
       .createSession(caller, {
         idempotencyKey: "k",
-        body: { ...body, agent_release_id: "rel-1" },
+        body,
       })
       .catch((e: unknown) => e);
     expect(error).toMatchObject({
@@ -804,54 +693,13 @@ describe("a session pinned to an agent release", () => {
     const { service, caller, accepted } = setup();
     await service.createSession(caller, {
       idempotencyKey: "k",
-      body: { ...body, agent_release_id: "rel-1" },
+      body,
     });
     expect(accepted).toHaveLength(1);
     expect(accepted[0]?.notRunnableReason).toBeUndefined();
   });
 
-  test("a workspace version is not taken on what was read before a failed read: another replica may have retired it", async () => {
-    const record: WorkspaceProfileRecord = {
-      id: "ws_acme_strict_v1",
-      workspace_id: WORKSPACE,
-      name: "strict",
-      version: 1,
-      base_profile_id: "coding-v1",
-      base_fingerprint: profileFingerprint(profile),
-      model: "claude-sonnet-5",
-      models: ["claude-sonnet-5"],
-      tools: ["Read"],
-      permission_mode: "default",
-      base_runtime_version: "0.3.270",
-      base_billing: "metered",
-      base_repository_mode: "required",
-      created_by: "019a0000-0000-7000-8000-0000000000b1",
-      created_at: new Date("2026-10-27T00:00:00Z"),
-      retired_by: null,
-      retired_at: null,
-    };
-    const { service, caller, accepted } = setup({
-      catalog: {
-        ...catalog,
-        workspace_profiles: {
-          records: new Map([[record.id, record]]),
-          refresh: async () => {
-            throw new Error("database down");
-          },
-        },
-      },
-    });
-    const error = await service
-      .createSession(caller, {
-        idempotencyKey: "k",
-        body: { ...body, profile_id: record.id },
-      })
-      .catch((e: unknown) => e);
-    expect(error).toMatchObject({ message: "database down" });
-    expect(accepted).toHaveLength(0);
-  });
-
-  test("an unknown release is not found, and no pin stores none", async () => {
+  test("an unknown release is not found, and nothing is accepted", async () => {
     const { service, caller, accepted } = setup();
     expect(
       await service
@@ -861,8 +709,7 @@ describe("a session pinned to an agent release", () => {
         })
         .catch((e: unknown) => e),
     ).toMatchObject({ code: "NOT_FOUND" });
-    await service.createSession(caller, { idempotencyKey: "k", body });
-    expect(accepted[0]?.agentReleaseId).toBeUndefined();
+    expect(accepted).toEqual([]);
   });
 
   test("does not start while a credential its release uses is unbound", async () => {
@@ -885,7 +732,7 @@ describe("a session pinned to an agent release", () => {
     const error = await service
       .createSession(caller, {
         idempotencyKey: "k",
-        body: { ...body, agent_release_id: "rel-1" },
+        body,
       })
       .catch((e: unknown) => e);
     expect(error).toBeInstanceOf(SessionServiceError);
@@ -929,7 +776,7 @@ describe("a session pinned to an agent release", () => {
       await service
         .createSession(caller, {
           idempotencyKey: "k",
-          body: { ...body, agent_release_id: "rel-1" },
+          body,
         })
         .catch((e: unknown) => e),
     ).toMatchObject({
@@ -946,7 +793,7 @@ describe("a session pinned to an agent release", () => {
     expect(
       await service.createSession(caller, {
         idempotencyKey: "k",
-        body: { ...body, agent_release_id: "rel-1" },
+        body,
       }),
     ).toMatchObject({ session_id: "019a0000-0000-7000-8000-00000000e0a1" });
   });
@@ -959,7 +806,7 @@ describe("a session pinned to an agent release", () => {
       await service
         .createSession(caller, {
           idempotencyKey: "k",
-          body: { ...body, agent_release_id: "rel-1" },
+          body,
         })
         .catch((e: unknown) => e),
     ).toMatchObject({
@@ -974,8 +821,6 @@ describe("a session pinned to an agent release", () => {
   });
 });
 
-// docs/contributing/decisions/profile-db.md §6, the attachment table: a new
-// session with no release, against one of a release made before.
 describe("which policy a new session runs on", () => {
   const ROW: AgentGitHubSettingsRow = {
     repositories: ["app"],
@@ -1007,7 +852,6 @@ describe("which policy a new session runs on", () => {
       .createSession(run.caller, {
         idempotencyKey: "k",
         body: {
-          profile_id: "coding-v1",
           message: "hi",
           agent_release_id: release,
           ...sent,
@@ -1071,7 +915,7 @@ describe("which policy a new session runs on", () => {
     expect(accepted).toMatchObject({ repository: { id: "app" } });
   });
 
-  test("a row without a start repository starts on none, even on a required profile", async () => {
+  test("a row without a start repository starts on none", async () => {
     const { refusal, accepted } = await start({
       agentSettings: { ...ROW, startRepositoryId: null },
     });
@@ -1090,7 +934,10 @@ describe("which policy a new session runs on", () => {
         repositoryCeiling: CEILING,
       },
     },
-    { name: "no workspace ceiling", options: { agentSettings: ROW } },
+    {
+      name: "no workspace ceiling",
+      options: { agentSettings: ROW, repositoryCeiling: null },
+    },
     {
       name: "off the workspace ceiling",
       options: {
@@ -1116,238 +963,9 @@ describe("which policy a new session runs on", () => {
   });
 });
 
-describe("attachment rules", () => {
-  const ceiling = (
-    state: InstallationProfileState,
-  ): InstallationProfileEntry => ({
-    id: "coding-v1",
-    origin: "catalog",
-    state,
-    repository_ids: ["app"],
-  });
-  const over: WorkspaceProfileRecord = {
-    id: "ws_acme_narrow_v1",
-    workspace_id: WORKSPACE,
-    name: "narrow",
-    version: 1,
-    base_profile_id: "coding-v1",
-    base_fingerprint: profileFingerprint(profile),
-    model: "claude-sonnet-5",
-    models: ["claude-sonnet-5", "claude-opus-5-5"],
-    tools: ["Read"],
-    permission_mode: "default",
-    base_runtime_version: "0.3.270",
-    base_billing: "metered",
-    base_repository_mode: "required",
-    created_by: MEMBER,
-    created_at: new Date("2026-10-27T00:00:00Z"),
-    retired_by: null,
-    retired_at: null,
-  };
-  const catalogIn = (state: InstallationProfileState): SessionCatalog => ({
-    ...catalog,
-    profiles:
-      state === "usable" || state === "retired"
-        ? catalog.profiles
-        : { "review-v1": profile },
-    installation: new Map([["coding-v1", ceiling(state)]]),
-    workspace_profiles: {
-      records: new Map([[over.id, over]]),
-      refresh: async () => {},
-    },
-  });
-  async function starts(
-    state: InstallationProfileState,
-    profileId: string,
-    release: boolean,
-  ): Promise<string> {
-    const { service, caller, accepted } = setup({
-      catalog: catalogIn(state),
-      releaseProfile: profileId,
-    });
-    return service
-      .createSession(caller, {
-        idempotencyKey: "k",
-        body: {
-          ...body,
-          profile_id: profileId,
-          ...(release ? { agent_release_id: "rel-1" } : {}),
-        },
-      })
-      .then(
-        () =>
-          accepted[0]?.profileFingerprint === undefined ? "no pair" : "runs",
-        (error: { code?: string }) => error.code ?? "thrown",
-      );
-  }
-
-  test("a retired ceiling: no new session without a release; a release's session still runs", async () => {
-    expect(await starts("usable", "coding-v1", false)).toBe("runs");
-    expect(await starts("retired", "coding-v1", false)).not.toBe("runs");
-    expect(await starts("retired", "coding-v1", true)).toBe("runs");
-  });
-
-  test("a version over a retired ceiling (base_retired): the same", async () => {
-    expect(await starts("usable", over.id, false)).toBe("runs");
-    expect(await starts("retired", over.id, false)).not.toBe("runs");
-    expect(await starts("retired", over.id, true)).toBe("runs");
-  });
-
-  test("any other state runs nothing, with a release or without, on the ceiling or a version over it", async () => {
-    for (const state of [
-      "blocked",
-      "connection_missing",
-      "unattended_off",
-      "definition_drift",
-      "runtime_unsupported",
-    ] as const) {
-      for (const id of ["coding-v1", over.id]) {
-        expect(await starts(state, id, false)).not.toBe("runs");
-        expect(await starts(state, id, true)).not.toBe("runs");
-      }
-    }
-  });
-
-  test("a blocked ceiling is refused by name, a release's session too, and a version over it reads base_blocked", () => {
-    expect(workspaceProfileState(catalogIn("blocked"), over)).toBe(
-      "base_blocked",
-    );
-    expect(
-      workspaceProfileRefusal(catalogIn("blocked"), WORKSPACE, "coding-v1", {
-        retiredAllowed: true,
-      }),
-    ).toMatchObject({ state: "blocked" });
-  });
-
-  test("a session without a release on a blocked ceiling, or a version over it, is refused as PROFILE_BLOCKED naming the profile", async () => {
-    const refusal = async (profileId: string) => {
-      const { service, caller } = setup({
-        catalog: catalogIn("blocked"),
-        accept: "unsupported",
-      });
-      return service
-        .createSession(caller, {
-          idempotencyKey: "k",
-          body: { ...body, profile_id: profileId },
-        })
-        .catch((error: unknown) => error);
-    };
-    expect(await refusal("coding-v1")).toMatchObject({
-      code: "PROFILE_BLOCKED",
-      details: { reason_code: "blocked", profile_id: "coding-v1" },
-    });
-    expect(await refusal(over.id)).toMatchObject({
-      code: "PROFILE_BLOCKED",
-      details: { reason_code: "base_blocked", profile_id: over.id },
-    });
-  });
-
-  describe("a session made before the block", () => {
-    const on = (state: InstallationProfileState, profileId: string) =>
-      setup({ catalog: catalogIn(state), session: sessionOn(profileId) });
-
-    test("names the block in its attention instead of CATALOG_MISMATCH", async () => {
-      for (const [id, reasonCode] of [
-        ["coding-v1", "blocked"],
-        [over.id, "base_blocked"],
-      ] as const) {
-        const { service, caller } = on("blocked", id);
-        const { attention } = await service.getSession(caller, SESSION);
-        expect(attention).toEqual({
-          code: "PROFILE_BLOCKED",
-          reason:
-            reasonCode === "blocked"
-              ? "Profile coding-v1 is blocked by the operator"
-              : `The base of profile ${over.id} is blocked by the operator`,
-          reason_code: reasonCode,
-          profile_id: id,
-        });
-      }
-      const { service, caller } = on("definition_drift", "coding-v1");
-      expect(
-        (await service.getSession(caller, SESSION)).attention,
-      ).toMatchObject({ code: "CATALOG_MISMATCH" });
-    });
-
-    test("refuses a new message as PROFILE_BLOCKED and queues nothing", async () => {
-      for (const [id, reasonCode] of [
-        ["coding-v1", "blocked"],
-        [over.id, "base_blocked"],
-      ] as const) {
-        const { service, caller, appended } = on("blocked", id);
-        const refused = await service
-          .appendMessage(caller, SESSION, {
-            idempotencyKey: "m",
-            body: { message: "next", mode: "enqueue" },
-          })
-          .catch((error: unknown) => error);
-        expect(refused).toMatchObject({
-          code: "PROFILE_BLOCKED",
-          details: { reason_code: reasonCode, profile_id: id },
-        });
-        expect(appended).toEqual([]);
-      }
-    });
-
-    test("keeps a stored attention but still refuses the message", async () => {
-      const stored = {
-        code: "CONTEXT_GAP",
-        last_ran_turn_id: "1",
-        checkpointed_turn_id: null,
-      } as const;
-      const { service, caller } = setup({
-        catalog: catalogIn("blocked"),
-        session: { ...sessionOn("coding-v1"), attention: stored },
-      });
-      expect((await service.getSession(caller, SESSION)).attention).toEqual(
-        stored,
-      );
-      expect(
-        await service
-          .appendMessage(caller, SESSION, {
-            idempotencyKey: "m",
-            body: { message: "next", mode: "enqueue" },
-          })
-          .catch((error: unknown) => error),
-      ).toMatchObject({ code: "PROFILE_BLOCKED" });
-    });
-
-    test("still replays a message accepted before the block", async () => {
-      const { service, caller, appended } = setup({
-        catalog: catalogIn("blocked"),
-        session: sessionOn("coding-v1"),
-        appendedKeys: ["m"],
-      });
-      expect(
-        await service.appendMessage(caller, SESSION, {
-          idempotencyKey: "m",
-          body: { message: "next", mode: "enqueue" },
-        }),
-      ).toMatchObject({ turn_id: "2" });
-      expect(appended).toEqual([]);
-    });
-
-    test("takes a message on a usable or retired ceiling, as before", async () => {
-      for (const state of ["usable", "retired"] as const) {
-        const { service, caller, appended } = on(state, "coding-v1");
-        expect(
-          await service.appendMessage(caller, SESSION, {
-            idempotencyKey: "m",
-            body: { message: "next", mode: "enqueue" },
-          }),
-        ).toMatchObject({ turn_id: "2" });
-        expect(appended).toEqual(["next"]);
-        expect(
-          (await service.getSession(caller, SESSION)).attention,
-        ).toBeNull();
-      }
-    });
-  });
-});
-
 const SESSION = "019a0000-0000-7000-8000-00000000d0a1";
 
-function sessionOn(profileId: string): SessionDetailRecord {
+function sessionOn(): SessionDetailRecord {
   return {
     id: SESSION,
     title: "On a ceiling",
@@ -1379,22 +997,21 @@ function sessionOn(profileId: string): SessionDetailRecord {
       checkpoint_fallback_revision: null,
       context_reset_turn_id: null,
     },
-    profile_id: profileId,
     model: "claude-sonnet-5",
+    spec: testSpecSource(),
     cost_usd: 0,
     provider_tokens: 0,
     repo_url: "https://example.invalid/app.git",
     branch: "main",
     repository_mode: "repository",
     github_policy_source: "release",
-    profile_fingerprint: null,
     auto_model_migration: true,
   };
 }
 
 describe("attached repositories in a session read", () => {
-  const withDocs: SessionCatalog = {
-    ...catalog,
+  const withDocs = testCatalog({
+    connections: catalog.connections,
     repositories: {
       ...catalog.repositories,
       docs: {
@@ -1408,10 +1025,10 @@ describe("attached repositories in a session read", () => {
         auth: { kind: "github_app", registered: true },
       },
     },
-  };
+  });
   const read = async (ids: string[] | null) => {
     const record = {
-      ...sessionOn("coding-v1"),
+      ...sessionOn(),
       attached_repository_ids: ids,
     };
     const { service, caller } = setup({
@@ -1459,7 +1076,6 @@ describe("a session recorded on the example git host", () => {
   test.each([
     "real-model",
     "fake-model",
-    "fake-model-unattended",
     "local-model",
   ])("keeps running under %s", async (name) => {
     const { repositories } = (await Bun.file(
@@ -1470,16 +1086,13 @@ describe("a session recorded on the example git host", () => {
     const example = repositories["sample-app"];
     if (example === undefined) throw new Error(`${name} has no sample-app`);
     const { service, caller } = setup({
-      catalog: {
-        ...catalog,
+      catalog: testCatalog({
+        connections: catalog.connections,
         repositories: {
-          app: {
-            ...example,
-            auth: { kind: "github_app", registered: true },
-          },
+          app: { ...example, auth: { kind: "github_app", registered: true } },
         },
-      },
-      session: { ...sessionOn("coding-v1"), repo_url: RECORDED },
+      }),
+      session: { ...sessionOn(), repo_url: RECORDED },
     });
     const { attention } = await service.getSession(caller, SESSION);
     expect(attention).toBeNull();
@@ -1506,12 +1119,6 @@ describe("a session pinned to a release whose card declares variables", () => {
       });
       expect(Object.keys(accepted[0] ?? {})).not.toContain("envNames");
     }
-  });
-
-  test("a session that pins no release hands over nothing", async () => {
-    const { service, caller, accepted } = setup({ envNames: ["REGION"] });
-    await service.createSession(caller, { idempotencyKey: "k", body });
-    expect(Object.keys(accepted[0] ?? {})).not.toContain("envNames");
   });
 
   test("a name with no value is 409 VARIABLE_UNRESOLVED that names the administrators, never the name", async () => {

@@ -25,7 +25,6 @@ import * as schema from "./schema.ts";
 import {
   agentEngineSettings,
   agents,
-  engineSettingsGate,
   memberships,
   receipts,
   users,
@@ -126,16 +125,6 @@ integration("the engine settings writer on PostgreSQL", () => {
       randomUUID(),
     );
 
-  /** The gate is a singleton: every test sets it as it needs it. */
-  const gate = (open: boolean) =>
-    db
-      .insert(engineSettingsGate)
-      .values({ id: 1, writesOpen: open })
-      .onConflictDoUpdate({
-        target: engineSettingsGate.id,
-        set: { writesOpen: open },
-      });
-
   async function setup() {
     const workspaceId = randomUUID();
     const slug = `ws-${workspaceId.slice(0, 8)}`;
@@ -172,23 +161,8 @@ integration("the engine settings writer on PostgreSQL", () => {
         sql`${receipts.operation} = ${operation} AND ${receipts.targetRef} -> 'resource' ->> 'id' = ${targetId}`,
       );
 
-  test("a shut gate stores nothing, an open one stores and records", async () => {
-    const { workspaceId, agentId, owner } = await setup();
-    await gate(false);
-    expect(
-      await refusal(service().putAgent(owner, agentId, request(null))),
-    ).toBe("FORBIDDEN:engine_settings_writes_closed");
-    expect(
-      await refusal(service().putWorkspace(owner, workspaceId, request(null))),
-    ).toBe("FORBIDDEN:engine_settings_writes_closed");
-    expect(
-      await db
-        .select()
-        .from(agentEngineSettings)
-        .where(eq(agentEngineSettings.agentId, agentId)),
-    ).toEqual([]);
-
-    await gate(true);
+  test("a save stores and records", async () => {
+    const { agentId, owner } = await setup();
     const saved = await service().putAgent(owner, agentId, request(null));
     expect(saved.settings_revision).toBe(1);
     expect(saved.receipt_id).toBeString();
@@ -196,12 +170,10 @@ integration("the engine settings writer on PostgreSQL", () => {
     expect(read).toMatchObject({
       settings: rules({ deny: ["Bash"] }),
       settings_revision: 1,
-      writes_open: true,
     });
   });
 
   test("the receipt counts rules and never carries their text", async () => {
-    await gate(true);
     const { workspaceId, owner } = await setup();
     await service().putWorkspace(
       owner,
@@ -222,7 +194,6 @@ integration("the engine settings writer on PostgreSQL", () => {
   });
 
   test("saving the same rules again changes nothing and writes no receipt", async () => {
-    await gate(true);
     const { agentId, owner } = await setup();
     const first = await service().putAgent(owner, agentId, request(null));
     const again = await service().putAgent(owner, agentId, request(1));
@@ -240,7 +211,6 @@ integration("the engine settings writer on PostgreSQL", () => {
   });
 
   test("a stale or missing revision is a conflict", async () => {
-    await gate(true);
     const { workspaceId, owner } = await setup();
     await service().putWorkspace(owner, workspaceId, request(null));
     expect(
@@ -251,43 +221,7 @@ integration("the engine settings writer on PostgreSQL", () => {
     ).toBe("REVISION_CONFLICT:");
   });
 
-  test("an agent save leaves the inherited restrictions as they are", async () => {
-    await gate(true);
-    const { workspaceId, agentId, owner } = await setup();
-    const inherited = [
-      {
-        exempt_release_ids: ["sha256:aaa"],
-        permissions_deny: ["Bash"],
-        mcp_deny: ["mcp__docs__write"],
-      },
-    ];
-    await db.insert(agentEngineSettings).values({
-      agentId,
-      workspaceId,
-      permissions: {},
-      autoMode: {},
-      adminDeny: inherited,
-      revision: 1,
-    });
-    await service().putAgent(
-      owner,
-      agentId,
-      request(1, rules({ ask: ["WebFetch"] })),
-    );
-    const [row] = await db
-      .select()
-      .from(agentEngineSettings)
-      .where(eq(agentEngineSettings.agentId, agentId));
-    expect(row?.adminDeny).toEqual(inherited);
-    expect(row?.permissions).toEqual({ ask: ["WebFetch"] });
-    expect((await service().getAgent(owner, agentId)).inherited).toEqual({
-      entries: 1,
-      rules: 2,
-    });
-  });
-
   test("a member who manages nothing is refused, and an API key is too", async () => {
-    await gate(true);
     const { workspaceId, agentId, member, ownerId } = await setup();
     expect(
       await refusal(service().putAgent(member, agentId, request(null))),
@@ -305,7 +239,6 @@ integration("the engine settings writer on PostgreSQL", () => {
   });
 
   test("two saves from the same revision: one wins, one conflicts, one receipt", async () => {
-    await gate(true);
     const { agentId, owner } = await setup();
     const results = await Promise.all(
       [rules({ deny: ["Bash"] }), rules({ deny: ["WebFetch"] })].map(
@@ -320,7 +253,6 @@ integration("the engine settings writer on PostgreSQL", () => {
   });
 
   test("a save waits for a session start's lock on the agent and then goes through", async () => {
-    await gate(true);
     const { agentId, owner } = await setup();
     const held = await pool.connect();
     await held.query("BEGIN");
@@ -335,47 +267,7 @@ integration("the engine settings writer on PostgreSQL", () => {
     expect((await save).settings_revision).toBe(1);
   });
 
-  test("a save that waits on a closing gate finds it closed", async () => {
-    await gate(true);
-    const { agentId, owner } = await setup();
-    const closing = await pool.connect();
-    await closing.query("BEGIN");
-    await closing.query(
-      "SELECT id FROM engine_settings_gate WHERE id = 1 FOR UPDATE",
-    );
-    const save = refusal(service().putAgent(owner, agentId, request(null)));
-    expect(await stillWaiting(save)).toBe(true);
-    await closing.query("UPDATE engine_settings_gate SET writes_open = false");
-    await closing.query("COMMIT");
-    closing.release();
-    expect(await save).toBe("FORBIDDEN:engine_settings_writes_closed");
-    await gate(true);
-  });
-
-  test("the gate waits for a save that is running before it closes", async () => {
-    await gate(true);
-    const { agentId, owner } = await setup();
-    const blocker = await pool.connect();
-    await blocker.query("BEGIN");
-    // Keeps the save inside its transaction, after it took the gate.
-    await blocker.query("SELECT id FROM agents WHERE id = $1 FOR UPDATE", [
-      agentId,
-    ]);
-    const save = service().putAgent(owner, agentId, request(null));
-    await sleep(300);
-    const closing = db.execute(
-      sql`UPDATE engine_settings_gate SET writes_open = false WHERE id = 1`,
-    );
-    expect(await stillWaiting(closing)).toBe(true);
-    await blocker.query("COMMIT");
-    blocker.release();
-    expect((await save).settings_revision).toBe(1);
-    await closing;
-    await gate(true);
-  });
-
   test("a manager disabled while a save waits is refused, not saved", async () => {
-    await gate(true);
     const { agentId, ownerId, owner } = await setup();
     const suspending = await pool.connect();
     await suspending.query("BEGIN");

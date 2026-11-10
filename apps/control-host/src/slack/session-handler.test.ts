@@ -12,6 +12,7 @@ import { createMemorySlackNoticeSink } from "@werft-ai/chat-slack/testing/slack"
 import {
   agentCardRequestSchema,
   DEFAULT_SURFACE_CEILING,
+  GITHUB_CEILING_NONE,
   SESSION_SCOPE_VALUES,
 } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
@@ -45,7 +46,7 @@ import {
   workspaces,
 } from "@werft-ai/db";
 import { migrate } from "@werft-ai/db/migrate";
-import { createLogger, type LogRecord } from "@werft-ai/observability";
+import { createLogger } from "@werft-ai/observability";
 import {
   type Caller,
   callerFor,
@@ -73,7 +74,7 @@ import {
   settingsDocument,
 } from "../test-support/settings.ts";
 import { TEST_RUNTIMES } from "../test-support/catalog.ts";
-import { slackSessionHandler } from "./main.ts";
+import { slackCatalog, slackSessionHandler } from "./main.ts";
 
 const APP_ID = "A0NOTES";
 const TEAM = "T0ACME";
@@ -176,6 +177,17 @@ async function agentInSlack(
     slug: `ws-${workspaceId.slice(0, 8)}`,
     name: "ws",
   });
+  if (options.repositoryId !== undefined) {
+    // A session's repository is judged by the workspace's ceiling alone.
+    await db.insert(schema.githubWorkspaceSettings).values({
+      workspaceId,
+      ceiling: GITHUB_CEILING_NONE,
+      repositoryCeiling: {
+        repository_ids: [options.repositoryId],
+        github_app_repositories: "listed",
+      },
+    });
+  }
   const ownerId = randomUUID();
   await db.insert(users).values({
     id: ownerId,
@@ -373,9 +385,11 @@ function handler(
   log: typeof logger = logger,
 ) {
   const notices = createMemorySlackNoticeSink();
-  return {
-    notices: notices.notices,
-    handle: slackSessionHandler({
+  // A pass reads the catalog before its first event (main); here each event
+  // reads it, so a setting changed between two deliveries is seen.
+  const catalog = slackCatalog(db, LIMITS);
+  const handle = slackSessionHandler({
+      catalog,
       db,
       pool: {
         connect: () => {
@@ -389,7 +403,13 @@ function handler(
       notices: notices.sink,
       slackApiUrl: slack.url,
       ...(inbox === undefined ? {} : { inbox }),
-    }),
+    });
+  return {
+    notices: notices.notices,
+    handle: async (claim: SlackInboundClaim) => {
+      await catalog.refresh();
+      return handle(claim);
+    },
   };
 }
 
@@ -617,30 +637,15 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     expect(await inboxStatuses()).toEqual(["processed"]);
   });
 
-  test("a reply in a thread whose connection the operator disabled since queues nothing and says so", async () => {
+  test("a reply in a thread whose connection the operator disabled since is still queued; the claim holds it", async () => {
     const fixture = await agentInSlack("main");
-    const records: LogRecord[] = [];
-    const { handle, notices } = handler(
-      undefined,
-      createLogger({
-        level: "info",
-        sinks: [
-          {
-            write: (record) => {
-              records.push(record);
-            },
-          },
-        ],
-      }),
-    );
+    const { handle, notices } = handler();
     await deliver(fixture, mention("100.000100"));
     await drain(handle);
     await db
       .update(providerConnections)
       .set({ disabledAt: new Date(), disabledBy: fixture.ownerId })
       .where(eq(providerConnections.id, "main"));
-    // Settings read within the last second are not read again.
-    await Bun.sleep(1_100);
     await deliver(
       fixture,
       message("100.000300", { thread_ts: "100.000100", text: "more" }),
@@ -650,24 +655,9 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     expect(others).toEqual([]);
     expect((await turnsOf(session?.id)).map((turn) => turn.message)).toEqual([
       "summarize the thread",
+      "more",
     ]);
-    expect(notices).toHaveLength(1);
-    expect(notices[0]).toMatchObject({
-      reason: "release_unavailable",
-      notice: { message: "releaseUnavailable" },
-    });
-    // The refusal's log names why, not only the error code.
-    const refused = records.filter(
-      (record) => record.message === "Slack input refused by the session",
-    );
-    expect(refused).toHaveLength(1);
-    expect(refused[0]).toMatchObject({
-      level: "warn",
-      fields: {
-        code: "RELEASE_SPEC_UNAVAILABLE",
-        reason_code: "connection_missing",
-      },
-    });
+    expect(notices).toEqual([]);
   });
 
   test("a release whose connection the operator disabled says so in the thread", async () => {
