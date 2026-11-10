@@ -89,6 +89,18 @@ describe("ToolAuditCollector", () => {
     expect(JSON.stringify(sent)).not.toContain(SECRET);
   });
 
+  test("an id or a name shaped like a credential is not kept even when the claim never named it", () => {
+    // Fits the id alphabet and is in no claim; only the text masking sees it.
+    const token = ["ghp", "A".repeat(36)].join("_");
+    const { collector, sent } = rig();
+    collector.observe(decision({ toolUseId: token, tool: token }));
+    const [entry] = sent;
+    expect(entry?.report.call_key).toBe("n:1");
+    expect(entry?.report.tool_use_id).toBeUndefined();
+    expect(entry?.report.tool_name).toBe(INVALID_TOOL_NAME);
+    expect(JSON.stringify(sent)).not.toContain(token);
+  });
+
   test("the ordinal restarts with the turn", () => {
     const { collector, sent, state } = rig();
     collector.observe(decision({ toolUseId: undefined }));

@@ -5,12 +5,19 @@ import {
   INVALID_TOOL_NAME,
   type ToolDecisionReport,
 } from "@werft-ai/contracts";
+import { sanitizeText } from "@werft-ai/observability";
 import type {
   ObservedToolDecision,
   ToolDecisionObserver,
 } from "@werft-ai/runtime-core";
 
 import type { SecretScrubber } from "./secret-scrubber.ts";
+
+// An id or name that either masking would change held a secret, or looks like
+// one; the allowed alphabet alone lets a token through.
+function unmasked(scrubber: SecretScrubber, text: string): boolean {
+  return scrubber.scrub(text) === text && sanitizeText(text) === text;
+}
 
 export type ToolAuditCollectorOptions = {
   scrubber: () => SecretScrubber;
@@ -42,10 +49,9 @@ export class ToolAuditCollector implements ToolDecisionObserver {
     const scrubber = this.options.scrubber();
     const toolUseId = this.usableId(scrubber, decision.toolUseId);
     const parentToolUseId = this.usableId(scrubber, decision.parentToolUseId);
-    const toolName =
-      scrubber.scrub(decision.tool) === decision.tool
-        ? decision.tool
-        : INVALID_TOOL_NAME;
+    const toolName = unmasked(scrubber, decision.tool)
+      ? decision.tool
+      : INVALID_TOOL_NAME;
     const digest = this.digest(scrubber, decision.input);
     const requestId =
       decision.approval === undefined
@@ -76,7 +82,7 @@ export class ToolAuditCollector implements ToolDecisionObserver {
     id: string | undefined,
   ): string | undefined {
     if (id === undefined || auditIdOf(id) === null) return undefined;
-    return scrubber.scrub(id) === id ? id : undefined;
+    return unmasked(scrubber, id) ? id : undefined;
   }
 
   private digest(

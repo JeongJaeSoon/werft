@@ -20,6 +20,8 @@ export type EventPublisherOptions = {
    * then instead of at the end of the turn — an owner-loss refusal especially.
    */
   onFailed?: (error: unknown) => void;
+  /** Told when queued tool judgments were discarded unsent, so the loss is not silent. */
+  onAuditsDropped?: (count: number) => void;
   maxBatchSize?: number;
   now?: () => Date;
   retryDelayMs?: number;
@@ -53,6 +55,7 @@ export class EventPublisher {
   private readonly gateway: Pick<WorkerGatewayClient, "appendEvents">;
   private readonly scope: () => WorkerScope;
   private readonly onFailed: (error: unknown) => void;
+  private readonly onAuditsDropped: (count: number) => void;
   private readonly maxBatchSize: number;
   private readonly now: () => Date;
   private readonly retryDelayMs: number;
@@ -75,6 +78,7 @@ export class EventPublisher {
     this.gateway = options.gateway;
     this.scope = options.scope;
     this.onFailed = options.onFailed ?? (() => {});
+    this.onAuditsDropped = options.onAuditsDropped ?? (() => {});
     this.maxBatchSize = options.maxBatchSize ?? DEFAULT_MAX_BATCH_SIZE;
     this.now = options.now ?? (() => new Date());
     this.retryDelayMs = options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
@@ -116,7 +120,10 @@ export class EventPublisher {
   audit(report: ToolDecisionReport, turnId: string): void {
     if (this.failure !== undefined) return;
     this.audits.push({ report, turnId });
-    if (this.audits.length > AUDITS_QUEUED_MAX) this.audits.shift();
+    if (this.audits.length > AUDITS_QUEUED_MAX) {
+      this.audits.shift();
+      this.onAuditsDropped(1);
+    }
   }
 
   /**

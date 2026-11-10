@@ -497,6 +497,8 @@ export class WorkerHost {
       scope: () => this.scope,
       now: this.options.now ?? (() => new Date()),
       retryBudgetMs: this.options.timeouts.nextInputRetryTimeoutMs,
+      onAuditsDropped: (count) =>
+        this.logger.warn("worker.tool_audit.dropped", { dropped: count }),
       onFailed: (error) => {
         if (isOwnershipLost(error)) {
           this.lose(describe(error), error);

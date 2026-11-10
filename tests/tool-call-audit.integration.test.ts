@@ -309,6 +309,19 @@ integration("tool call audit end to end", () => {
     expect(findings).toEqual([expect.objectContaining({ conflicts: 1 })]);
   }, 60_000);
 
+  test("a resend that differs only in the parent call or the request is a conflict", async () => {
+    const worker = await startWorker();
+    findings = [];
+    await append(worker, [report()]);
+    await append(worker, [report({ parent_tool_use_id: "toolu_parent" })]);
+    await append(worker, [report({ pending_request_id: "req_other" })]);
+    expect(findings).toEqual([
+      expect.objectContaining({ conflicts: 1 }),
+      expect.objectContaining({ conflicts: 1 }),
+    ]);
+    expect(await rowsOf(worker.sessionId)).toHaveLength(1);
+  }, 60_000);
+
   test("an id outside the allowed alphabet is not stored", async () => {
     const worker = await startWorker();
     await append(worker, [
@@ -640,6 +653,50 @@ integration("tool call audit end to end", () => {
       });
     }, 60_000);
 
+    test("a request the sweep expired cannot be reported as cancelled, nor a cancelled one as expired", async () => {
+      const worker = await startWorker();
+      const settled = await ask(worker, {
+        toolUseId: "toolu_s",
+        settledOutcome: "expired",
+      });
+      const swept = await ask(worker, {
+        toolUseId: "toolu_w",
+        expiresAt: new Date(Date.now() - 2_000),
+      });
+      await db
+        .update(schema.pendingRequests)
+        .set({ resolvedAt: new Date() })
+        .where(eq(schema.pendingRequests.requestId, swept));
+      const early = await ask(worker, {
+        toolUseId: "toolu_x",
+        settledOutcome: "cancelled",
+      });
+      const claim = (
+        key: string,
+        id: string,
+        basis: ToolDecisionReport["basis"],
+      ) =>
+        report({
+          call_key: `t:${key}`,
+          tool_use_id: key,
+          decision: "deny",
+          basis,
+          pending_request_id: id,
+          approval_input_hash: REQUEST_HASH,
+        });
+      await append(worker, [
+        claim("toolu_s", settled, "approval_cancelled"),
+        claim("toolu_w", swept, "approval_cancelled"),
+        claim("toolu_x", early, "approval_expired"),
+      ]);
+      const rows = await rowsOf(worker.sessionId);
+      expect(rows.map((row) => row.basis)).toEqual([
+        "approval_unverified",
+        "approval_unverified",
+        "approval_unverified",
+      ]);
+    }, 60_000);
+
     test("check 6 does not turn a resend into a second use", async () => {
       const worker = await startWorker();
       const requestId = await ask(worker, { answer: "allow" });
@@ -651,6 +708,23 @@ integration("tool call audit end to end", () => {
   });
 
   describe("the asked row", () => {
+    test("a request id outside the allowed alphabet is kept out of the row and its key", async () => {
+      const worker = await startWorker();
+      const requestId = "req with space\nand a line";
+      await workers.registerPending(worker.principal, {
+        ...worker.scope,
+        request_id: requestId,
+        input_hash: "d".repeat(64),
+        request: { kind: "permission", tool: "Bash", input: {} },
+        announce: { tool_use_id: "has space", tool: "Bash" },
+      });
+      const [row] = await rowsOf(worker.sessionId);
+      expect(row?.pendingRequestId).toBeNull();
+      expect(row?.toolUseId).toBeNull();
+      expect(row?.callKey).toMatch(/^r:[0-9a-f]{32}$/);
+      expect(JSON.stringify(row)).not.toContain("with space");
+    }, 60_000);
+
     test("the registration writes it in its own transaction, once", async () => {
       const worker = await startWorker();
       const requestId = `req_${crypto.randomUUID()}`;

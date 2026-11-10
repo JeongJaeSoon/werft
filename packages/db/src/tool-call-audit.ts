@@ -1,4 +1,6 @@
+import { createHash } from "node:crypto";
 import {
+  auditIdOf,
   type SanitizedToolDecision,
   TOOL_AUDIT_APPROVAL_BASIS_VALUES,
   TOOL_AUDIT_RECORD_VERSION,
@@ -172,6 +174,9 @@ export async function insertAskedToolCallAudit(
   },
 ): Promise<void> {
   const { session, turn } = input;
+  // The worker mints the request id and the registration takes any non-empty
+  // string, so it passes the same filter as every other id from outside.
+  const requestId = auditIdOf(input.requestId);
   await tx
     .insert(toolCallAudits)
     .values({
@@ -181,9 +186,9 @@ export async function insertAskedToolCallAudit(
       turnId: turn.sequence,
       attemptId: input.attemptId,
       callKey:
-        input.toolUseId === null
-          ? `r:${input.requestId}`
-          : `t:${input.toolUseId}`,
+        input.toolUseId !== null
+          ? `t:${input.toolUseId}`
+          : `r:${requestId ?? createHash("sha256").update(input.requestId).digest("hex").slice(0, 32)}`,
       phase: "asked",
       toolUseId: input.toolUseId,
       toolName: input.tool.name,
@@ -193,7 +198,7 @@ export async function insertAskedToolCallAudit(
       decision: "require_approval",
       basis: "approval_asked",
       ...(await subjectOf(tx, session, turn.id)),
-      pendingRequestId: input.requestId,
+      pendingRequestId: requestId,
       source: "platform",
       recordVersion: TOOL_AUDIT_RECORD_VERSION,
     })
@@ -356,19 +361,28 @@ function basisMatchesRow(
     case "approval_denied":
       return decision === "deny" && request.answeredBy !== null;
     case "approval_expired":
-      return (
-        decision === null &&
-        (request.settledOutcome === "expired" ||
-          request.expiresAt.getTime() <= at.getTime())
-      );
+      return decision === null && endedBy(request, at) === "expired";
     case "approval_cancelled":
-      return (
-        decision === null &&
-        (request.settledOutcome === "cancelled" || request.resolvedAt !== null)
-      );
+      return decision === null && endedBy(request, at) === "cancelled";
     default:
       return false;
   }
+}
+
+// An expiry sweep also sets `resolvedAt`, but never before `expiresAt`: a row
+// resolved earlier than that was ended by something else.
+function endedBy(
+  request: PendingRow,
+  at: Date,
+): "expired" | "cancelled" | null {
+  if (request.settledOutcome === "expired") return "expired";
+  if (request.settledOutcome === "cancelled") return "cancelled";
+  if (request.resolvedAt !== null) {
+    return request.resolvedAt.getTime() >= request.expiresAt.getTime()
+      ? "expired"
+      : "cancelled";
+  }
+  return request.expiresAt.getTime() <= at.getTime() ? "expired" : null;
 }
 
 function servesThisCall(
@@ -420,8 +434,11 @@ function isResendOf(
     row.inputSha256 === report.inputSha256 &&
     row.inputBytes === report.inputBytes &&
     row.toolUseId === report.toolUseId &&
+    row.parentToolUseId === report.parentToolUseId &&
     (unverified ||
-      (row.basis === report.basis && row.decision === report.decision))
+      (row.basis === report.basis &&
+        row.decision === report.decision &&
+        row.pendingRequestId === report.pendingRequestId))
   );
 }
 
@@ -434,6 +451,8 @@ function isSameReport(
     a.inputSha256 === b.inputSha256 &&
     a.inputBytes === b.inputBytes &&
     a.toolUseId === b.toolUseId &&
+    a.parentToolUseId === b.parentToolUseId &&
+    a.pendingRequestId === b.pendingRequestId &&
     a.basis === b.basis &&
     a.decision === b.decision
   );

@@ -325,6 +325,19 @@ describe("EventPublisher", () => {
       expect(batches[0]).not.toHaveProperty("tool_decisions");
     });
 
+    test("past the queue bound the oldest are dropped and the drop is reported", () => {
+      const dropped: number[] = [];
+      const events = new EventPublisher({
+        gateway: { appendEvents: async (request) => accepted(request) },
+        scope: () => ({ ...scope, turn_id: "1" }),
+        onAuditsDropped: (count) => dropped.push(count),
+      });
+      for (let index = 0; index < 2_002; index += 1) {
+        events.audit(report(`toolu_${index}`), "1");
+      }
+      expect(dropped).toEqual([1, 1]);
+    });
+
     test("an abandoned stream forgets them", async () => {
       const { batches, publisher: events } = publisher(async (request) =>
         accepted(request),
