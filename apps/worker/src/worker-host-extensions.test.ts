@@ -95,7 +95,7 @@ describe("a claim that carries extension bundles", () => {
       expect(started.engines).toBe(0);
       const reason = gateway.releases[0]?.reason ?? "";
       expect(reason).toContain("lint");
-      expect(reason).toContain('Add "Skill" to the runtime profile');
+      expect(reason).toContain('a tool list that has "Skill"');
     }
   });
 

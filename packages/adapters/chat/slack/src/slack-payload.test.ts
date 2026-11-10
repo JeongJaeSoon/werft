@@ -1,7 +1,7 @@
 // L1: pins what leaves for Slack, byte for byte, so a file move or a port
 // seam under musterrolle/slack-*.ts must pass without touching __fixtures__.
 // To regenerate after an intended copy change:
-//   UPDATE_SLACK_PAYLOADS=1 bun test packages/platform/src/musterrolle/slack-payload.test.ts
+//   UPDATE_SLACK_PAYLOADS=1 bun test packages/adapters/chat/slack/src/slack-payload.test.ts
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";

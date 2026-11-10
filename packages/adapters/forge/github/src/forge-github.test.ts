@@ -274,9 +274,9 @@ describe("a GitHub App connection", () => {
 });
 
 describe("connectionsOf", () => {
-  const base = { branch: "main", profiles: ["p"] };
+  const base = { branch: "main" };
   const catalog: SessionCatalog = {
-    profiles: {},
+    connections: {},
     repositories: {
       app: {
         ...base,
@@ -307,7 +307,7 @@ describe("connectionsOf", () => {
   });
 
   test("refreshes fixed App connections when installation settings change", () => {
-    const changing: SessionCatalog = { profiles: {}, repositories: {} };
+    const changing: SessionCatalog = { connections: {}, repositories: {} };
     const connections = connectionsOf(changing);
     expect(connections("app", "author")).toBeNull();
 
@@ -502,7 +502,7 @@ describe("the App registered in the console", () => {
     });
     const connections = connectionsOf(
       {
-        profiles: {},
+        connections: {},
         repositories: {
           app: {
             branch: "main",
@@ -539,7 +539,7 @@ describe("the App registered in the console", () => {
     const repositories: Record<string, CatalogRepository> = {};
     const connections = connectionsOf(
       {
-        profiles: {},
+        connections: {},
         get repositories() {
           return repositories;
         },

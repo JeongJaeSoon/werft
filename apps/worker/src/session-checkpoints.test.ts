@@ -2088,7 +2088,7 @@ describe("SessionCheckpoints restoring a checkpoint", () => {
     ]);
   });
 
-  test("a checkpoint made under the profile the session ran before is checked against that one, and the next is stamped with the new", async () => {
+  test("a checkpoint made under the config the session ran before is checked against that one, and the next is stamped with the new", async () => {
     const from = await published();
     await replaceWorkspaceWithLeftovers();
     const switched = { ...runtime, profileSha256: "c".repeat(64) };
@@ -2182,7 +2182,7 @@ describe("SessionCheckpoints restoring a checkpoint", () => {
     });
   });
 
-  test("without the earlier profile's config, a checkpoint from it is refused as incompatible", async () => {
+  test("without the earlier config, a checkpoint from it is refused as incompatible", async () => {
     const from = await published();
     await replaceWorkspaceWithLeftovers();
     const h = restoring(from, {

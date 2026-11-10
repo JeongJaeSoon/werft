@@ -5,11 +5,7 @@ import {
   withStoredNeutralFields,
   workerEventSchema,
 } from "@werft-ai/contracts";
-import {
-  type CatalogProfileView,
-  createNeutralizer,
-  neutralFieldsOf,
-} from "@werft-ai/platform";
+import { createNeutralizer, neutralFieldsOf } from "@werft-ai/platform";
 import { finalReplyText } from "./slack-outbox.ts";
 
 type EventCodec = Parameters<typeof createNeutralizer>[0][number];
@@ -36,12 +32,6 @@ const secondEngine: EventCodec = {
   },
 };
 
-const catalog = {
-  profiles: {
-    second: { runtime_kind: "codex_app_server" } as CatalogProfileView,
-  },
-};
-
 const stream = [
   {
     event: "assistant",
@@ -61,7 +51,7 @@ const stream = [
 ] as SessionEventPayload[];
 
 test("a second engine's reply body reads through the neutral fields alone", () => {
-  const neutralize = createNeutralizer([secondEngine], catalog);
+  const neutralize = createNeutralizer([secondEngine]);
   const events = stream.map((sent, index) => {
     const {
       source_sequence: _,
@@ -72,7 +62,7 @@ test("a second engine's reply body reads through the neutral fields alone", () =
       source_sequence: index + 1,
       occurred_at: "2026-10-27T00:00:00.000Z",
     });
-    const neutral = neutralFieldsOf(neutralize, "second", event);
+    const neutral = neutralFieldsOf(neutralize, "codex_app_server", event);
     return sessionEventPayloadSchema.parse({
       event: event.event,
       data: withStoredNeutralFields(event.data, neutral),

@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  ADMIN_DENY_RULES_BYTES_MAX,
   ENGINE_SETTINGS_LIMITS,
   type EngineSettings,
 } from "@werft-ai/contracts";
@@ -182,14 +181,12 @@ describe("engine_settings from a claim", () => {
   });
 
   // The saved-rule byte limits are chosen so the most a claim can merge
-  // (workspace + agent twice + inherited) still starts: this composes those
+  // (workspace + agent twice) still starts: this composes those
   // maxima from the limits themselves, so raising one limit fails here first.
   test("the largest merge the saved-rule limits allow still starts in every mode", () => {
     const { workspace, agent } = ENGINE_SETTINGS_LIMITS;
     const permissionBytes =
-      workspace.permissionBytes +
-      2 * agent.permissionBytes +
-      ADMIN_DENY_RULES_BYTES_MAX;
+      workspace.permissionBytes + 2 * agent.permissionBytes;
     const autoBytes = workspace.autoModeBytes + 2 * agent.autoModeBytes;
     const unique = (count: number, make: (i: number) => string) =>
       Array.from({ length: count }, (_, i) => make(i));

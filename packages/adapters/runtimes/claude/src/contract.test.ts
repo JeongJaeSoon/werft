@@ -28,7 +28,7 @@ describe("assertCompatible", () => {
   const session = (version: string) => ({
     kind: "claude_agent_sdk" as const,
     version,
-    profile_id: "op_default_v1",
+    connection_id: "anthropic",
   });
   const check = (version: string) =>
     claudeRuntimeModule.assertCompatible(session(version));

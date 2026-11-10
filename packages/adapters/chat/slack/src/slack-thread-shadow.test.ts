@@ -53,7 +53,6 @@ const link = (revokedAt: Date | null = null): SessionLinkRecord => ({
   openedByTs: "1.0",
   agentId: "agent",
   releaseId: "rel",
-  profileId: "prof",
   sessionId: "sess",
   createdBy: null,
   revokedAt,

@@ -1093,7 +1093,7 @@ describe("GitWorkspace.committedInstructions", () => {
     expect((await prepared()).committedInstructions()).toBe(whole);
   });
 
-  test("a restore fetched nothing, so a profile that wants the file is refused", async () => {
+  test("a restore fetched nothing, so a run that wants the file is refused", async () => {
     await publish({ "CLAUDE.md": "committed rules\n" });
     const workspace = await prepared();
     expect(workspace.committedInstructions()).toBe("committed rules\n");

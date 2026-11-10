@@ -675,7 +675,7 @@ export class WorkerHost {
     if (bundles === undefined) return;
     if (bundles.length > 0 && !claim.runtime_config.tools.includes("Skill")) {
       throw new Error(
-        `This session pins extension bundles (${bundles.map((bundle) => bundle.name).join(", ")}), whose skills the model uses only through the "Skill" tool, and the tools it runs with do not list it. Add "Skill" to the runtime profile's tools list.`,
+        `This session pins extension bundles (${bundles.map((bundle) => bundle.name).join(", ")}), whose skills the model uses only through the "Skill" tool, and the tools it runs with do not list it. Release the agent with a tool list that has "Skill".`,
       );
     }
     const publish = this.options.extensionBundles;

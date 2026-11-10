@@ -198,8 +198,8 @@ function firedMarkers(repository: Repository): string[] {
 
 // The negative control, that these hooks do fire when the engine loads the
 // project source itself, is the Claude adapter's project-settings test.
-describe("the repository's own Claude project settings, under the claim's profile", () => {
-  test("a profile that keeps CLAUDE.md out runs no repository hook and sends no repository text", async () => {
+describe("the repository's own Claude project settings, under the claim's run config", () => {
+  test("a run config that keeps CLAUDE.md out runs no repository hook and sends no repository text", async () => {
     const repository = await repositoryWithProjectSettings();
     server = startFakeAnthropicServer(() => textReply("ok"));
 
@@ -212,7 +212,7 @@ describe("the repository's own Claude project settings, under the claim's profil
     );
   }, 60_000);
 
-  test("a profile that lets CLAUDE.md in puts it in the system prompt and still runs no hook", async () => {
+  test("a run config that lets CLAUDE.md in puts it in the system prompt and still runs no hook", async () => {
     const repository = await repositoryWithProjectSettings();
     server = startFakeAnthropicServer(() => textReply("ok"));
 
