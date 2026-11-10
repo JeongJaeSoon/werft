@@ -23553,7 +23553,8 @@
                   "type": "string",
                   "enum": [
                     "anthropic",
-                    "litellm"
+                    "litellm",
+                    "openai_responses"
                   ]
                 },
                 "billing": {
@@ -23868,7 +23869,8 @@
                   "type": "string",
                   "enum": [
                     "anthropic",
-                    "litellm"
+                    "litellm",
+                    "openai_responses"
                   ]
                 },
                 "endpoint": {
@@ -24145,7 +24147,8 @@
             "type": "string",
             "enum": [
               "anthropic",
-              "litellm"
+              "litellm",
+              "openai_responses"
             ]
           },
           "endpoint": {

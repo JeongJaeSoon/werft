@@ -9083,7 +9083,7 @@ export interface components {
             connections: {
                 id: string;
                 /** @enum {string} */
-                kind: "anthropic" | "litellm";
+                kind: "anthropic" | "litellm" | "openai_responses";
                 /** @enum {string} */
                 billing: "metered" | "none";
             }[];
@@ -9153,7 +9153,7 @@ export interface components {
                 /** @enum {string} */
                 state: "active" | "needs_value" | "unresolved" | "disabled";
                 /** @enum {string} */
-                kind: "anthropic" | "litellm";
+                kind: "anthropic" | "litellm" | "openai_responses";
                 endpoint: string;
                 /** @enum {string} */
                 billing: "per_token" | "none";
@@ -9212,7 +9212,7 @@ export interface components {
         CreateSettingsConnectionRequest: {
             id: string;
             /** @enum {string} */
-            kind: "anthropic" | "litellm";
+            kind: "anthropic" | "litellm" | "openai_responses";
             endpoint?: string;
             /** @enum {string} */
             billing?: "per_token" | "none";
