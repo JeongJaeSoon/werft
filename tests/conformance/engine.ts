@@ -1,3 +1,4 @@
+import { test } from "bun:test";
 import { poll } from "../e2e/client.ts";
 
 /**
@@ -18,7 +19,19 @@ export type Script = {
   final: string;
   finalDelayMs?: number;
   id: string;
+  /**
+   * Tokens each scripted reply reports. Only an engine whose fake provider
+   * reports scripted usage (`provider_budget`) plays it.
+   */
+  usage?: { input_tokens: number; output_tokens: number };
 };
+
+/**
+ * What an engine can be asked to do beyond the flow every engine shares. A
+ * scenario that needs one runs through `scenario`, so an engine without it
+ * is skipped by name, with the reason in the report, never passed empty.
+ */
+export type Capability = "provider_budget";
 
 /** One call the fake provider answered for a script. */
 export type ModelCall = {
@@ -31,6 +44,7 @@ export type ModelCall = {
 export interface EngineFixture {
   /** A command the engine asks permission for before it runs. */
   readonly approvalCommand: string;
+  readonly capabilities: ReadonlySet<Capability>;
   /** Profile the sessions run on. */
   readonly profileId: string;
   readonly repositoryId: string;
@@ -52,6 +66,28 @@ export async function modelCallSeen(
       ? true
       : null,
   );
+}
+
+/**
+ * A scenario that needs `capability`. Without it the test is registered as
+ * skipped under a name that says so; tests/e2e/run.sh accepts only skips
+ * named this way.
+ */
+export function scenario(
+  engine: EngineFixture,
+  capability: Capability,
+  name: string,
+  run: () => Promise<void>,
+  timeoutMs: number,
+): void {
+  if (engine.capabilities.has(capability)) {
+    test(name, run, timeoutMs);
+  } else {
+    test.skip(
+      `${name} [declared skip: ${engine.runtimeKind} lacks ${capability}]`,
+      run,
+    );
+  }
 }
 
 /** A script id no other test of the run reuses, so provider logs never mix. */

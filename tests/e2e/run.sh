@@ -72,6 +72,10 @@ case "$*" in
     unset E2E_MODEL_MODE
     conformance="${2}"
     conf_files=(-f tests/conformance/compose.yml)
+    # Low enough that one scripted reply with a large usage spends it
+    # (tests/conformance/budget.conformance.ts), high enough that the other
+    # scenarios' replies never do.
+    export SESSION_COST_LIMIT_USD="${SESSION_COST_LIMIT_USD:-0.25}"
     if [ "$conformance" = codex_app_server ]; then
       conf_files=(-f infra/compose.codex-worker.yml "${conf_files[@]}")
       model_overlay=tests/conformance/compose.codex.yml
@@ -306,5 +310,15 @@ fail="$(count fail)"
     "$out/junit.xml" 2>/dev/null || true
 } | tee -a "$out/record.txt" >&2
 [ "$status" = 0 ] || exit "$status"
-[ "${skip:-0}" = 0 ] || { echo "e2e: ${skip} test(s) skipped" >&2; exit 1; }
+# The conformance suite skips a scenario an engine lacks the capability for,
+# under a name that says so (tests/conformance/engine.ts `scenario`); any
+# other skip is a missing variable or a disabled test.
+declared=0
+if [ -n "$conformance" ]; then
+  # Bun prints no `(skip)` line off a terminal; the junit file names the test.
+  declared="$(grep -c '<testcase name="[^"]*\[declared skip: ' "$out/junit.xml" || true)"
+  grep -o '<testcase name="[^"]*\[declared skip: [^"]*"' "$out/junit.xml" |
+    sed 's/<testcase name=/declared skip: /' | tee -a "$out/record.txt" >&2 || true
+fi
+[ "${skip:-0}" = "$declared" ] || { echo "e2e: ${skip} test(s) skipped, ${declared} declared" >&2; exit 1; }
 [ "${pass:-0}" -gt 0 ] || { echo "e2e: nothing passed" >&2; exit 1; }

@@ -1,4 +1,4 @@
-import type { EngineFixture, ModelCall } from "../engine.ts";
+import type { Capability, EngineFixture, ModelCall } from "../engine.ts";
 
 const RESPONSES_URL = "E2E_RESPONSES_URL";
 
@@ -10,6 +10,9 @@ export function codexEngine(env = process.env): EngineFixture {
     runtimeKind: "codex_app_server",
     profileId: "codex-coding-local",
     repositoryId: "sample-app",
+    // The gateway and egress proxy enforce the session's cost limit on the
+    // provider calls the fake Responses API reports usage for.
+    capabilities: new Set<Capability>(["provider_budget"]),
     approvalCommand: "echo conformance | tee approved.txt",
     prompt: (script) =>
       `GATE-SPEC ${JSON.stringify({
@@ -19,6 +22,7 @@ export function codexEngine(env = process.env): EngineFixture {
           input: { cmd },
         })),
         final: script.final,
+        ...(script.usage === undefined ? {} : { usage: script.usage }),
         ...(script.finalDelayMs === undefined
           ? {}
           : { finalDelayMs: script.finalDelayMs }),
