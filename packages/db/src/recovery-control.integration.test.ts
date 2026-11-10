@@ -8,7 +8,6 @@ import {
   createWorkerGateway,
   type WorkerGateway,
   type WorkerPrincipal,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import {
   createTempDatabase,
@@ -33,13 +32,17 @@ import {
   pendingRequests,
   queueMessages,
   receipts,
-  sessionPinCutover,
   sessions,
   turns,
   unassignedSessions,
   workerLaunches,
 } from "./schema.ts";
 import { confirmExecutionGone, launchSession } from "./testing/launches.ts";
+import {
+  fixtureRelease,
+  TEST_MODEL,
+  testSessionCatalog,
+} from "./testing/spec-pins.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -60,30 +63,21 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
     db = drizzle(pool, { schema });
     gateway = createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
-      catalog: withSeededInstallation({
-        profiles: {
-          "claude-coding-v1": {
-            runtime_kind: "claude_agent_sdk",
-            runtime_version: "0.3.270",
-            model: "claude-sonnet-5",
-            tools: ["Read", "Edit", "Bash"],
-            permission_mode: "default",
-            provider: {
-              kind: "litellm",
-              endpoint: "https://litellm.invalid",
-              auth: {
-                kind: "api_key",
-                value: "catalog-provider-key",
-                ref: { value_env: "PROVIDER_KEY" },
-              },
-            },
+      catalog: testSessionCatalog({
+        provider: {
+          kind: "litellm",
+          endpoint: "https://litellm.invalid",
+          auth: {
+            kind: "api_key",
+            value: "catalog-provider-key",
+            ref: { value_env: "PROVIDER_KEY" },
           },
         },
+        models: ["claude-sonnet-5"],
         repositories: {
           "sample-app": {
             url: "https://example.invalid/app.git",
             branch: "main",
-            profiles: ["claude-coding-v1"],
             auth: { kind: "github_app", registered: true },
           },
         },
@@ -136,7 +130,8 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
       principal: { ownerId },
       idempotencyKey: crypto.randomUUID(),
       payloadHash: crypto.randomUUID(),
-      profileId: "claude-coding-v1",
+      agentReleaseId: await fixtureRelease(db),
+      model: TEST_MODEL,
       repository: {
         id: "sample-app",
         url: "https://example.invalid/app.git",
@@ -886,7 +881,7 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
     await append(session, "carry on");
   });
 
-  test("once the spec pin is authoritative, a stopped session without a pin is not resumed and nothing about it changes", async () => {
+  test("a stopped session without a pin is not resumed and nothing about it changes", async () => {
     const partition = `pin-required-${crypto.randomUUID()}`;
     const session = await queuedSession(partition);
     const l = await launch(partition, session.session_id);
@@ -917,24 +912,21 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
     const stopped = await sessionRow(session.session_id);
     expect(stopped.admissionState).toBe("stopped");
 
-    // The flip is for good in production; this database gets the old rules
-    // back afterwards.
+    // A stopped session may hold no pin; a live one may not.
     await db
-      .update(sessionPinCutover)
-      .set({ authoritative: true, flippedAt: new Date() });
-    try {
-      expect(await resume(session, stopped.revision)).toEqual({
-        outcome: "pin_required",
-      });
-      expect(await sessionRow(session.session_id)).toEqual(stopped);
-    } finally {
-      await db
-        .update(sessionPinCutover)
-        .set({ authoritative: false, flippedAt: null });
-    }
-    // With the pin back to advisory the same request goes through.
-    const resumed = await resume(session, stopped.revision);
-    expect(resumed.outcome).toBe("accepted");
+      .update(sessions)
+      .set({
+        specSource: null,
+        specSourceDigest: null,
+        runtimeSpec: null,
+        specDigest: null,
+      })
+      .where(eq(sessions.id, session.session_id));
+    const unpinned = await sessionRow(session.session_id);
+    expect(await resume(session, stopped.revision)).toEqual({
+      outcome: "pin_required",
+    });
+    expect(await sessionRow(session.session_id)).toEqual(unpinned);
   });
 
   test("a stopped session whose uncaptured turn left no gap still resumes over an advisory reason", async () => {

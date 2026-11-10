@@ -24,11 +24,16 @@ DROP TABLE "profile_fill";--> statement-breakpoint
 DROP TABLE "workspace_profiles";--> statement-breakpoint
 DROP TABLE "installation_profiles" CASCADE;--> statement-breakpoint
 DROP TABLE "engine_settings_gate";--> statement-breakpoint
--- A live session always carries a spec pin on its own model now; the
--- trigger no longer waits on a cutover flag.
+-- A live session of a release always carries that release's spec pin on its
+-- own model now; the trigger no longer waits on a cutover flag. A session
+-- naming no release has nothing to pin and no claim binds it without a spec,
+-- so it is left to the claim.
 CREATE OR REPLACE FUNCTION "sessions_pin_required"() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-  RAISE EXCEPTION 'session_pin_required: a live session needs a release and a spec pin on its own model'
+  IF NEW."agent_release_id" IS NULL THEN
+    RETURN NEW;
+  END IF;
+  RAISE EXCEPTION 'session_pin_required: a live session of a release needs a spec pin on its own model'
     USING ERRCODE = 'check_violation';
 END $$;--> statement-breakpoint
 DROP TABLE "session_pin_cutover";--> statement-breakpoint

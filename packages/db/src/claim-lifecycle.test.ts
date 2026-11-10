@@ -32,6 +32,7 @@ import {
 import { fixtureTeam } from "./testing/fixture-team.ts";
 import { insertUnreservedLaunch } from "./testing/launches.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
+import { TEST_CONNECTION_ID, releaseSpecColumns } from "./testing/spec-pins.ts";
 
 /**
  * The claim lifecycle end to end, on the real store and the real claim:
@@ -190,8 +191,8 @@ async function releaseWith(
     agentId,
     versionId,
     cardSha256: "0".repeat(64),
-    runtimeProfileId: PROFILE,
-    profileDigest: "digest",
+    connectionId: TEST_CONNECTION_ID,
+    ...releaseSpecColumns(),
     runtimeConfigSnapshot: snapshot,
     effectiveTools,
     ...(specOf === undefined

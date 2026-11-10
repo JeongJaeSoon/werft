@@ -12,7 +12,7 @@ import {
 import { appHarness } from "../test-support/render-app.tsx";
 
 const harness = await appHarness();
-const { screen, waitFor, within } = harness;
+const { act, screen, waitFor, within } = harness;
 
 const PATH = `/v1/workspaces/${WORKSPACE_ID}/engine-settings`;
 const renderAt: typeof harness.renderAt = (path, routes, locale) =>
@@ -128,34 +128,6 @@ describe("워크스페이스 실행 규칙", () => {
     expect(deny.value).toBe("Skill(x)");
   });
 
-  test("저장이 닫혀 있으면 입력이 읽기 전용이고 서버에 묻지 않는다", async () => {
-    const { api } = renderAt("/settings/workspace", {
-      "GET /v1/auth/me": () => json(200, me()),
-      [`GET ${PATH}`]: () =>
-        json(200, workspaceEngineSettings({ writes_open: false })),
-    });
-    const user = await setupUser();
-    const deny = (await box("거부")) as HTMLTextAreaElement;
-    expect(deny.readOnly).toBe(true);
-    const closed = await screen.findByText(/지금은 저장이 닫혀 있습니다/);
-    // A banner, not grey help text, and every box is read with it.
-    const banner = closed.closest("[data-slot=alert]");
-    expect(banner === null).toBe(false);
-    expect(deny.getAttribute("aria-describedby")?.split(" ")).toContain(
-      banner?.id ?? "no banner",
-    );
-    // The read-only mark and the list's count are read with the box as well.
-    const described = (deny.getAttribute("aria-describedby") ?? "").split(" ");
-    expect(described.length).toBe(3);
-    expect(
-      described.some(
-        (id) => document.getElementById(id)?.textContent === "0 / 48개",
-      ),
-    ).toBe(true);
-    await user.click(await saveButton());
-    expect(api.calls.some((c) => c.method === "PUT")).toBe(false);
-  });
-
   test("구성원은 규칙을 읽지만 저장은 이유와 함께 막혀 있다", async () => {
     const { api } = renderAt("/settings/workspace", {
       "GET /v1/auth/me": () => json(200, memberMe()),
@@ -182,7 +154,7 @@ describe("워크스페이스 실행 규칙", () => {
   // instead of replacing rules the person did not read.
   test("재조회로 revision이 올라가도 초안은 처음 읽은 revision으로 저장한다", async () => {
     let reads = 0;
-    const { api } = renderAt("/settings/workspace", {
+    const { api, services } = renderAt("/settings/workspace", {
       "GET /v1/auth/me": () => json(200, me()),
       [`GET ${PATH}`]: () => {
         reads += 1;
@@ -197,69 +169,23 @@ describe("워크스페이스 실행 규칙", () => {
           }),
         );
       },
-      [`PUT ${PATH}`]: () =>
-        apiError(403, "FORBIDDEN", "closed", false, {
-          reason_code: "engine_settings_writes_closed",
-        }),
+      [`PUT ${PATH}`]: () => apiError(409, "REVISION_CONFLICT", "changed"),
     });
     const user = await setupUser();
     const deny = (await box("거부")) as HTMLTextAreaElement;
     await waitFor(() => expect(deny.value).toBe("Read"));
     await user.type(deny, "{Enter}Edit");
-    await user.click(await saveButton());
-    // The refusal made the page read again: revision 4 is on screen now.
+    // Another read brings revision 4 while the draft is open.
+    await act(async () => {
+      await services.queryClient.invalidateQueries();
+    });
     await waitFor(() => expect(reads).toBe(2));
     await user.click(await saveButton());
     const sent = api.calls
       .filter((c) => c.method === "PUT")
       .map((c) => (c.body as { expected_revision: number }).expected_revision);
-    expect(sent).toEqual([3, 3]);
+    expect(sent).toEqual([3]);
     expect(deny.value).toBe("Read\nEdit");
-  });
-
-  test("재조회가 실패해도 편집기와 입력은 남고 저장이 닫혔으면 읽기 전용이 된다", async () => {
-    let reads = 0;
-    renderAt("/settings/workspace", {
-      "GET /v1/auth/me": () => json(200, me()),
-      [`GET ${PATH}`]: () => {
-        reads += 1;
-        return reads === 1
-          ? json(200, workspaceEngineSettings())
-          : apiError(500, "INTERNAL", "boom");
-      },
-      [`PUT ${PATH}`]: () =>
-        apiError(403, "FORBIDDEN", "closed", false, {
-          reason_code: "engine_settings_writes_closed",
-        }),
-    });
-    const user = await setupUser();
-    const deny = (await box("거부")) as HTMLTextAreaElement;
-    await user.type(deny, "Read");
-    await user.click(await saveButton());
-    await waitFor(() => expect(reads).toBe(2));
-    expect(deny.value).toBe("Read");
-    expect(document.body.contains(deny)).toBe(true);
-  });
-
-  test("저장이 닫힌 뒤 다시 읽은 값이 닫혀 있으면 입력은 읽기 전용이 되고 쓴 것은 남는다", async () => {
-    let closed = false;
-    renderAt("/settings/workspace", {
-      "GET /v1/auth/me": () => json(200, me()),
-      [`GET ${PATH}`]: () =>
-        json(200, workspaceEngineSettings({ writes_open: !closed })),
-      [`PUT ${PATH}`]: () => {
-        closed = true;
-        return apiError(403, "FORBIDDEN", "closed", false, {
-          reason_code: "engine_settings_writes_closed",
-        });
-      },
-    });
-    const user = await setupUser();
-    const deny = (await box("거부")) as HTMLTextAreaElement;
-    await user.type(deny, "Read");
-    await user.click(await saveButton());
-    await waitFor(() => expect(deny.readOnly).toBe(true));
-    expect(deny.value).toBe("Read");
   });
 
   test("여러 줄 문장이 든 목록은 잠겨 있고, 다른 목록을 저장해도 그대로 보낸다", async () => {

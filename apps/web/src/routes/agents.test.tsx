@@ -13,7 +13,6 @@ import {
   type AgentDetail,
   agentDetailSchema,
   CREDENTIAL_REVOKE_NOTICE,
-  type ProfileSummary,
 } from "@werft-ai/contracts";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
 import type { Locale } from "../i18n/i18n.tsx";
@@ -21,6 +20,7 @@ import {
   AGENT_ID,
   agentServer,
   CARD,
+  CONNECTIONS,
   seedRelease as releaseFixture,
   TEAM_ID,
 } from "../test-support/fake-agents.ts";
@@ -38,7 +38,6 @@ import {
   USER_ID,
 } from "../test-support/fake-api.ts";
 import { fakeIntersection } from "../test-support/intersection.ts";
-import { denyFor, imported } from "../test-support/profiles.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
 const { act, cleanup, render, renderAt, screen, waitFor, within } =
@@ -132,8 +131,8 @@ async function fillJob(user: User) {
   await user.click(screen.getByRole("button", { name: "저장하고 다음" }));
 }
 
-const profileSelect = async () =>
-  (await screen.findByLabelText("프로필")) as HTMLSelectElement;
+const connectionSelect = async () =>
+  (await screen.findByLabelText("모델 연결")) as HTMLSelectElement;
 
 const meOk = { "GET /v1/auth/me": () => json(200, me()) };
 const DETAIL = `/agents/${AGENT_ID}`;
@@ -150,26 +149,7 @@ async function openCardEditor(user: User) {
 }
 const RELEASE_TAB = `${DETAIL}?tab=release`;
 
-const PROFILE = "claude-coding-local";
-/** A profile the new-agent flow can release: it needs no repository. */
-const catalogProfile = (
-  id: string,
-  model: string,
-  tools: string[],
-): ProfileSummary => ({
-  id,
-  source: "operator",
-  model,
-  models: [model],
-  tools,
-  deny: denyFor(tools),
-  permission_mode: "default",
-  runtime_kind: "claude_agent_sdk",
-  runtime_version: "0.3.270",
-  billing: "metered",
-  repository_mode: "optional",
-  repository_ids: ["sample-app"],
-});
+const CONNECTION = "anthropic-main";
 const showTab = async (user: User, name: string) =>
   user.click(await screen.findByRole("tab", { name }));
 const showList = async (user: User, name: string) =>
@@ -199,14 +179,14 @@ async function releasedTwice(server: ReturnType<typeof agentServer>) {
 
 async function seedRelease(
   server: ReturnType<typeof agentServer>,
-  options: { card?: typeof CARD; profile?: string } = {},
+  options: { card?: typeof CARD; connection?: string } = {},
 ) {
   await server.routes[`PATCH /v1/agents/${AGENT_ID}`](
     new Request("https://console.test/", {
       method: "PATCH",
       body: JSON.stringify({
         card: options.card ?? server.versions.at(-1)?.card,
-        runtime_profile_id: options.profile ?? PROFILE,
+        connection_id: options.connection ?? CONNECTION,
       }),
     }),
   );
@@ -222,65 +202,23 @@ describe("agentRefusal", () => {
 
   test("모델 불일치는 공백이 든 모델 이름도 원문 없이 옮긴다", () => {
     const message =
-      "card.model: model custom model is not the model of runtime profile claude-coding-local";
+      "card.model: model custom model is not a model of connection anthropic-main";
     expect(refusal("ko", "UNSUPPORTED_CAPABILITY", message)).toBe(
-      "카드 모델 custom model이(가) 프로필 claude-coding-local에서 실행되지 않아 릴리스를 만들지 못했습니다. 카드 모델을 실행하는 프로필을 고르세요.",
+      "카드 모델 custom model을(를) 연결 anthropic-main이(가) 제공하지 않아 릴리스를 만들지 못했습니다. 이 모델을 제공하는 연결을 고르거나 모델을 바꾸세요.",
     );
     expect(refusal("en", "UNSUPPORTED_CAPABILITY", message)).toBe(
-      "Profile claude-coding-local does not run the card's model custom model, so no release was created. Choose a profile that runs the card's model.",
-    );
-  });
-
-  test("프로필 이름을 줄 수 있으면 거부 문구의 id가 이름으로 바뀐다", () => {
-    const named = (id: string) =>
-      id === "claude-coding-local" ? "readonly-review v1" : id;
-    const message =
-      "card.model: model custom model is not the model of runtime profile claude-coding-local";
-    expect(
-      agentRefusal(
-        (key, vars) => translate("en", key, vars),
-        { code: "UNSUPPORTED_CAPABILITY", message, status: 422 } as ApiError,
-        "owner",
-        named,
-      ),
-    ).toBe(
-      "Profile readonly-review v1 does not run the card's model custom model, so no release was created. Choose a profile that runs the card's model.",
+      "Connection anthropic-main does not offer the card's model custom model, so no release was created. Choose a connection that offers it, or change the model.",
     );
   });
 
   test("다른 거부는 지금처럼 이유 뒤에 서버 설명을 붙인다", () => {
-    const tools =
-      "card.capabilities.tools: runtime profile claude-coding-local does not allow WebFetch";
+    const tools = "card.capabilities.tools: WebFetch is not a known tool";
     expect(refusal("ko", "UNSUPPORTED_CAPABILITY", tools)).toBe(
       `${translate("ko", "error.UNSUPPORTED_CAPABILITY")} ${tools}`,
     );
     expect(refusal("ko", "BAD_REQUEST", "card.model: required")).toBe(
       `${translate("ko", "error.BAD_REQUEST")} card.model: required`,
     );
-  });
-
-  test("운영자 차단은 막힌 프로필을 이름으로 말한다", () => {
-    const blocked = (locale: Locale, details: unknown) =>
-      agentRefusal(
-        (key, vars) => translate(locale, key, vars),
-        {
-          code: "PROFILE_BLOCKED",
-          message: "Profile coding-v1 is blocked by the operator",
-          status: 409,
-          details,
-        } as unknown as ApiError,
-        "owner",
-      );
-    const ceiling = { reason_code: "blocked", profile_id: "coding-v1" };
-    const over = { reason_code: "base_blocked", profile_id: "ws_acme_v1" };
-    expect(blocked("ko", ceiling)).toBe(
-      "운영자가 프로필 coding-v1을(를) 차단했습니다. 차단이 풀릴 때까지 이 프로필로는 릴리스를 만들거나 활성화할 수 없습니다.",
-    );
-    expect(blocked("en", over)).toBe(
-      "The operator blocked the profile that profile ws_acme_v1 narrows. Until it is unblocked, no release on it can be created or activated.",
-    );
-    expect(blocked("ja", ceiling)).toContain("coding-v1");
-    expect(blocked("ko", null)).toBe(translate("ko", "error.PROFILE_BLOCKED"));
   });
 });
 
@@ -506,9 +444,8 @@ describe("에이전트 카드", () => {
       agent_id: AGENT_ID,
       version_id: version.id,
       card_sha256: "0".repeat(64),
-      runtime_profile_id: PROFILE,
+      connection_id: CONNECTION,
       repository_id: null,
-      profile_digest: "digest-1",
       runtime_config_snapshot: {},
       effective_tools: { tools: ["Read"], mcp: [] },
       policy_pins: {},
@@ -596,7 +533,7 @@ describe("에이전트 카드", () => {
     [...card.querySelectorAll("dt")].find((dt) => dt.textContent === term)
       ?.nextElementSibling?.textContent;
 
-  test("배포 판·설명·프로필·MCP·자격 증명·담당을 카드에 모은다", async () => {
+  test("배포 판·설명·모델 연결·MCP·자격 증명·담당을 카드에 모은다", async () => {
     await openAdministered(releasedServer());
     const card = await cardFor("결제 담당");
     await waitFor(() =>
@@ -609,7 +546,7 @@ describe("에이전트 카드", () => {
     expect(card.textContent).not.toContain("2026-10-11_10:00:00");
     expect(card.textContent).toContain(DESCRIPTION);
     expect(card.textContent).not.toContain("지시문");
-    expect(fact(card, "프로필")).toBe(PROFILE);
+    expect(fact(card, "모델 연결")).toBe(CONNECTION);
     expect(fact(card, "MCP")).toBe("linear");
     expect(fact(card, "자격 증명")).toBe("연결 필요 1개");
     // The colour beside the words is decoration; the words carry the state.
@@ -617,33 +554,6 @@ describe("에이전트 카드", () => {
     expect(dot?.getAttribute("data-status")).toBe("failed");
     expect(dot?.getAttribute("aria-hidden")).toBe("true");
     expect(card.textContent).toContain("관리자: Owner");
-  });
-
-  test("프로필 줄은 표시 이름이 있으면 이름과 버전으로 보이고, id는 title로 남는다", async () => {
-    const named = imported(PROFILE);
-    await openAdministered({
-      ...releasedServer(),
-      "GET /v1/profiles": () =>
-        json(200, {
-          items: [
-            {
-              ...named,
-              installation: {
-                ...(named.installation as NonNullable<
-                  typeof named.installation
-                >),
-                name: "readonly-review",
-                version: 3,
-              },
-            },
-          ],
-        }),
-    });
-    const card = await cardFor("결제 담당");
-    await waitFor(() =>
-      expect(fact(card, "프로필")).toBe("readonly-review v3"),
-    );
-    expect(card.querySelector(`[title="${PROFILE}"]`)).not.toBeNull();
   });
 
   test("API에 없는 답변 대기·스킬 줄은 두지 않고, 카드는 이름 하나로 열린다", async () => {
@@ -654,7 +564,7 @@ describe("에이전트 카드", () => {
     );
     expect(
       [...card.querySelectorAll("dt")].map((dt) => dt.textContent),
-    ).toEqual(["담당 팀", "릴리스", "프로필", "MCP", "자격 증명"]);
+    ).toEqual(["담당 팀", "릴리스", "모델 연결", "MCP", "자격 증명"]);
     expect(card.textContent).not.toContain("미계측");
     expect(
       within(card)
@@ -715,7 +625,7 @@ describe("에이전트 카드", () => {
       [`GET /v1/agents/${AGENT_ID}/credential-bindings`]: refuse,
     });
     const card = await cardFor("결제 담당");
-    await waitFor(() => expect(fact(card, "프로필")).toBe("—불러오지 못함"));
+    await waitFor(() => expect(fact(card, "모델 연결")).toBe("—불러오지 못함"));
     expect(stateOf(card.querySelector("a") as HTMLElement)?.textContent).toBe(
       "초안",
     );
@@ -788,10 +698,10 @@ describe("에이전트 카드", () => {
       expect(asked.has(agents[5]?.id)).toBe(true);
       expect(asked.has(agents[6]?.id)).toBe(false);
       // Not yet read is a placeholder, never the dash of a failed read.
-      const profile = [...late.querySelectorAll("dt")].find(
-        (dt) => dt.textContent === "프로필",
+      const connection = [...late.querySelectorAll("dt")].find(
+        (dt) => dt.textContent === "모델 연결",
       )?.nextElementSibling;
-      expect(profile?.querySelector("[aria-busy=true]")).not.toBeNull();
+      expect(connection?.querySelector("[aria-busy=true]")).not.toBeNull();
       expect(screen.queryByText(/자세한 정보를 불러옵니다/)).toBeNull();
 
       act(() => viewport.show(() => true));
@@ -800,7 +710,7 @@ describe("에이전트 카드", () => {
       expect(new Set(detailCalls(api)).size).toBe(42);
       act(() => viewport.show(() => true));
       await waitFor(() =>
-        expect(profile?.querySelector("[aria-busy=true]")).toBeNull(),
+        expect(connection?.querySelector("[aria-busy=true]")).toBeNull(),
       );
       expect(detailCalls(api).length).toBe(42);
     });
@@ -818,7 +728,7 @@ describe("에이전트 카드", () => {
             mcp_servers: ["linear"],
             credential_refs: ["github", "slack"],
           },
-          runtime_profile_id: index === 0 ? null : PROFILE,
+          connection_id: index === 0 ? null : CONNECTION,
           release_label: index === 0 ? null : "2026-10-11_10:00:00-2",
           release_model: index === 0 ? null : "claude-sonnet-5",
           bound_credential_refs: ["github"],
@@ -838,9 +748,9 @@ describe("에이전트 카드", () => {
       // The dash is drawn; a screen reader hears the words.
       const draft = await cardFor("에이전트 0");
       expect(fact(draft, "릴리스")).toBe("—릴리스 전");
-      // Said once: the profile row of an unreleased card is only a dash.
-      expect(fact(draft, "프로필")).toBe("—없음");
-      expect(fact(card, "프로필")).toBe(PROFILE);
+      // Said once: the connection row of an unreleased card is only a dash.
+      expect(fact(draft, "모델 연결")).toBe("—없음");
+      expect(fact(card, "모델 연결")).toBe(CONNECTION);
       expect(fact(card, "MCP")).toBe("linear");
       expect(fact(card, "자격 증명")).toBe("연결 필요 1개");
       expect(card.textContent).toContain("설명 13");
@@ -1079,7 +989,7 @@ describe("Slack 조치 링크", () => {
           mcp_servers: [],
           credential_refs: [],
         },
-        runtime_profile_id: null,
+        connection_id: null,
         release_label: null,
         release_model: null,
         bound_credential_refs: [],
@@ -1202,21 +1112,10 @@ describe("찾을 수 없는 에이전트", () => {
 
 describe("새 에이전트", () => {
   test("이름부터 채널 연결까지 만들고 Slack 연결은 나중에 할 수 있다", async () => {
-    const server = agentServer({ repositoryMode: "optional" });
+    const server = agentServer();
     const { api } = renderAt("/agents/new", {
       ...meOk,
       ...server.routes,
-      "GET /v1/profiles": () =>
-        json(200, {
-          items: [
-            catalogProfile("claude-coding-fast", "claude-haiku-5", ["Read"]),
-            catalogProfile(PROFILE, CARD.model, ["Read", "Edit", "Bash"]),
-            catalogProfile("claude-coding-narrow", CARD.model, [
-              "Read",
-              "Edit",
-            ]),
-          ],
-        }),
       [`GET /v1/agents/${AGENT_ID}/slack/app`]: () =>
         json(200, {
           slack_app: null,
@@ -1256,14 +1155,10 @@ describe("새 에이전트", () => {
     ]);
     await user.selectOptions(model, CARD.model);
     expect(screen.queryByRole("textbox", { name: /도구/ })).toBeNull();
-    expect((screen.getByLabelText("프로필") as HTMLSelectElement).value).toBe(
-      PROFILE,
-    );
-    const blocked = screen.getByRole("group", { name: "프로필이 막은 도구" });
-    // The profile runs Read, Edit and Bash, so it blocks the rest of the catalog.
-    expect(within(blocked).getByText("Write")).toBeDefined();
-    expect(within(blocked).getByText("WebFetch")).toBeDefined();
-    expect(within(blocked).queryByText("Bash")).toBeNull();
+    // The first connection listed until another is picked.
+    expect(
+      (screen.getByLabelText("모델 연결") as HTMLSelectElement).value,
+    ).toBe(CONNECTION);
     expect(screen.queryByRole("switch")).toBeNull();
     expect(screen.queryByRole("checkbox")).toBeNull();
     expect(screen.queryByRole("button", { name: "릴리스 만들기" })).toBeNull();
@@ -1282,8 +1177,7 @@ describe("새 에이전트", () => {
         language: "follow-user",
         capabilities: { mcp: null, forbidden: [] },
       },
-      runtime_profile_id: PROFILE,
-      model_source: "profile",
+      connection_id: CONNECTION,
     });
     expect(server.releases).toHaveLength(1);
     expect(server.detail().agent.active_release_id).toBe(
@@ -1303,196 +1197,39 @@ describe("새 에이전트", () => {
     ).toBe(DETAIL);
   });
 
-  test("하는 일 단계에서 고른 워크스페이스 판이 그사이 은퇴하면 쓸 수 있는 프로필로 바꿔 보낸다", async () => {
-    const server = agentServer({ repositoryMode: "optional" });
-    const operator = (
-      (await (
-        server.routes["GET /v1/profiles"] as () => Response
-      )().json()) as { items: ProfileSummary[] }
-    ).items;
-    let state: "usable" | "retired" = "usable";
-    const version = (): ProfileSummary => ({
-      ...(operator[1] as ProfileSummary),
-      id: "ws_acme_strict_v1",
-      source: "workspace",
-      workspace: {
-        name: "strict",
-        version: 1,
-        base_profile_id: PROFILE,
-        state,
-        created_at: "2026-10-27T00:00:00.000Z",
-        retired_at: state === "retired" ? "2026-10-27T01:00:00.000Z" : null,
-      },
-    });
-    const { api, services } = renderAt("/agents/new", {
-      ...meOk,
-      ...server.routes,
-      "GET /v1/profiles": () => json(200, { items: [...operator, version()] }),
-    });
-    const user = await setupUser();
-    await atStep("이름");
-    await user.type(await screen.findByLabelText("이름"), "결제 담당");
-    await user.type(screen.getByLabelText("식별자"), "billing");
-    await user.click(screen.getByRole("button", { name: "다음" }));
-    await atStep("하는 일");
-    await user.selectOptions(screen.getByLabelText("모델"), CARD.model);
-    const profile = (await screen.findByLabelText(
-      "프로필",
-    )) as HTMLSelectElement;
-    await user.selectOptions(profile, "ws_acme_strict_v1");
-    expect(document.body.textContent).not.toContain("ws_acme_strict_v1");
-    state = "retired";
-    await services.queryClient.invalidateQueries();
-    await waitFor(() => expect(profile.value).toBe(PROFILE));
-    await user.click(screen.getByRole("button", { name: "저장하고 다음" }));
-    await atStep("채널 연결");
-    expect(
-      (posted(api, "/v1/agents") as { runtime_profile_id: string })
-        .runtime_profile_id,
-    ).toBe(PROFILE);
-  });
-
-  test("저장소가 꼭 필요한 프로필은 고를 수 없다", async () => {
-    const server = agentServer({ repositoryMode: "optional" });
-    const needs: ProfileSummary = {
-      id: "claude-coding-repo",
-      source: "operator",
-      model: CARD.model,
-      models: [CARD.model],
-      tools: ["Read"],
-      permission_mode: "default",
-      runtime_kind: "claude_agent_sdk",
-      runtime_version: "0.3.270",
-      billing: "metered",
-      repository_mode: "required",
-      repository_ids: ["sample-app"],
-    };
-    const listed = (await (
-      (server.routes["GET /v1/profiles"] as () => Response)() as Response
-    ).json()) as { items: ProfileSummary[] };
-    const { api } = renderAt("/agents/new", {
-      ...meOk,
-      ...server.routes,
-      // Listed first and on the card's model: still not the default.
-      "GET /v1/profiles": () => json(200, { items: [needs, ...listed.items] }),
-    });
-    const user = await setupUser();
-    await toJobStep(user);
-    await pickModel(user);
-    const profile = await profileSelect();
-    expect(profile.value).toBe(PROFILE);
-    expect(
-      [...profile.options].some((o) => o.value === "claude-coding-repo"),
-    ).toBe(false);
-    await user.click(screen.getByRole("button", { name: "저장하고 다음" }));
-    await atStep("채널 연결");
-    expect(
-      (posted(api, "/v1/agents") as { runtime_profile_id: string })
-        .runtime_profile_id,
-    ).toBe(PROFILE);
-  });
-
-  test("고른 프로필이 그사이 저장소가 꼭 필요해지면 다른 프로필로 바꾸고, 남은 것이 없으면 안내만 남긴다", async () => {
-    const server = agentServer({ repositoryMode: "optional" });
-    const listed = (await (
-      (server.routes["GET /v1/profiles"] as () => Response)() as Response
-    ).json()) as { items: ProfileSummary[] };
-    const required = new Set<string>();
-    const { api, services } = renderAt("/agents/new", {
-      ...meOk,
-      ...server.routes,
-      "GET /v1/profiles": () =>
-        json(200, {
-          items: listed.items.map((p) => ({
-            ...p,
-            // The fallback has to run the card's model to be offered at all.
-            ...(p.id === "claude-coding-fast"
-              ? { models: [...p.models, "claude-sonnet-5"] }
-              : {}),
-            ...(required.has(p.id) ? { repository_mode: "required" } : {}),
-          })),
-        }),
-    });
-    const user = await setupUser();
-    await toJobStep(user);
-    await pickModel(user);
-    const profile = await profileSelect();
-    // Both run the card's model here, so the list's first one is picked.
-    expect(profile.value).toBe("claude-coding-fast");
-
-    required.add("claude-coding-fast");
-    await services.queryClient.invalidateQueries();
-    await waitFor(() => expect(profile.value).toBe(PROFILE));
-
-    required.add(PROFILE);
-    await services.queryClient.invalidateQueries();
-    expect(
-      await screen.findByText("쓸 수 있는 프로필이 없습니다"),
-    ).toBeDefined();
-    expect(
-      (
-        screen.getByRole("button", {
-          name: "저장하고 다음",
-        }) as HTMLButtonElement
-      ).disabled,
-    ).toBe(true);
-    expect(api.calls.some((c) => c.method === "POST")).toBe(false);
-  });
-
-  test("고른 프로필이 그사이 카드 모델을 잃거나 목록에서 빠지면 다른 프로필로 바꾼다", async () => {
-    const server = agentServer({ repositoryMode: "optional" });
-    const listed = (await (
-      (server.routes["GET /v1/profiles"] as () => Response)() as Response
-    ).json()) as { items: ProfileSummary[] };
-    let fastRunsCard = true;
-    let localListed = true;
-    const { services } = renderAt("/agents/new", {
-      ...meOk,
-      ...server.routes,
-      "GET /v1/profiles": () =>
-        json(200, {
-          items: listed.items
-            .filter((p) => localListed || p.id !== PROFILE)
-            .map((p) =>
-              p.id === "claude-coding-fast" && fastRunsCard
-                ? { ...p, models: [...p.models, "claude-sonnet-5"] }
-                : p,
-            ),
-        }),
-    });
-    const user = await setupUser();
-    await toJobStep(user);
-    await pickModel(user);
-    const profile = await profileSelect();
-    expect(profile.value).toBe("claude-coding-fast");
-
-    fastRunsCard = false;
-    await services.queryClient.invalidateQueries();
-    await waitFor(() => expect(profile.value).toBe(PROFILE));
-
-    fastRunsCard = true;
-    localListed = false;
-    await services.queryClient.invalidateQueries();
-    await waitFor(() => expect(profile.value).toBe("claude-coding-fast"));
-  });
-
-  test("모든 프로필에 저장소가 꼭 필요하면 저장하지 못하게 하고 이유를 알린다", async () => {
-    const server = agentServer({ repositoryMode: "required" });
+  test("고른 연결이 카드 모델을 제공하지 않으면 이유를 알리고 저장하지 못한다", async () => {
+    const server = agentServer();
     const { api } = renderAt("/agents/new", { ...meOk, ...server.routes });
     const user = await setupUser();
     await toJobStep(user);
     await pickModel(user);
+    await user.selectOptions(await connectionSelect(), "anthropic-fast");
     expect(
-      await screen.findByText("쓸 수 있는 프로필이 없습니다"),
+      await screen.findByText("고른 연결은 이 모델을 제공하지 않습니다"),
     ).toBeDefined();
+    const save = screen.getByRole("button", {
+      name: "저장하고 다음",
+    }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    expect(posted(api, "/v1/agents")).toBeUndefined();
+  });
+
+  test("다른 연결을 골라 저장하면 그 연결로 릴리스한다", async () => {
+    const server = agentServer();
+    const { api } = renderAt("/agents/new", { ...meOk, ...server.routes });
+    const user = await setupUser();
+    await toJobStep(user);
+    await user.selectOptions(await connectionSelect(), "anthropic-fast");
+    await user.selectOptions(
+      await screen.findByLabelText("모델"),
+      "claude-haiku-5",
+    );
+    await user.click(screen.getByRole("button", { name: "저장하고 다음" }));
+    await atStep("채널 연결");
     expect(
-      (
-        screen.getByRole("button", {
-          name: "저장하고 다음",
-        }) as HTMLButtonElement
-      ).disabled,
-    ).toBe(true);
-    expect(api.calls.some((c) => c.method === "POST")).toBe(false);
+      (posted(api, "/v1/agents") as { connection_id: string }).connection_id,
+    ).toBe("anthropic-fast");
+    expect(server.releases[0]?.connection_id).toBe("anthropic-fast");
   });
 
   test("이 탭에서 다른 사람이 로그인하면 앞사람이 적던 흐름을 이어 보이지 않고 처음부터 연다", async () => {
@@ -1626,7 +1363,7 @@ describe("새 에이전트", () => {
   });
 
   test("초안을 저장한 뒤 뒤로 가서 고치면 새로 만들지 않고 그 초안을 고친다", async () => {
-    const server = agentServer({ repositoryMode: "optional" });
+    const server = agentServer();
     const { api, history } = renderAt("/agents/new", {
       ...meOk,
       ...server.routes,
@@ -1656,7 +1393,7 @@ describe("새 에이전트", () => {
     expect((patch?.body as { card: { language: string } }).card.language).toBe(
       "en",
     );
-    expect(patch?.body).toMatchObject({ runtime_profile_id: PROFILE });
+    expect(patch?.body).toMatchObject({ connection_id: CONNECTION });
     expect(server.detail().agent.active_release_id).toBe(
       server.releases.at(-1)?.id ?? "missing",
     );
@@ -1672,7 +1409,7 @@ describe("새 에이전트", () => {
   });
 
   test("나갔다가 뒤로 돌아와도 그 초안을 이어서 고치고 새로 만들지 않는다", async () => {
-    const server = agentServer({ repositoryMode: "optional" });
+    const server = agentServer();
     const { api, history } = renderAt("/agents/new", {
       ...meOk,
       ...server.routes,
@@ -1705,41 +1442,29 @@ describe("새 에이전트", () => {
     );
   });
 
-  test("고른 프로필은 단계를 오가도 남고, 저장은 그 프로필로 릴리스한다", async () => {
-    const server = agentServer({ repositoryMode: "optional" });
+  test("고른 연결은 단계를 오가도 남고, 저장은 그 연결로 릴리스한다", async () => {
+    const server = agentServer();
     const { api, history } = renderAt("/agents/new", {
       ...meOk,
       ...server.routes,
-      "GET /v1/profiles": () =>
-        json(200, {
-          items: [
-            catalogProfile(PROFILE, CARD.model, ["Read", "Edit", "Bash"]),
-            catalogProfile("claude-coding-narrow", CARD.model, ["Read"]),
-          ],
-        }),
     });
     const user = await setupUser();
     await toJobStep(user);
-    await user.selectOptions(await screen.findByLabelText("모델"), CARD.model);
-    const preview = () =>
-      (screen.getByLabelText("프로필") as HTMLSelectElement).value;
-    expect(preview()).toBe(PROFILE);
+    await user.selectOptions(await connectionSelect(), "anthropic-fast");
     await user.selectOptions(
-      screen.getByLabelText("프로필"),
-      "claude-coding-narrow",
+      await screen.findByLabelText("모델"),
+      "claude-haiku-5",
     );
     act(() => history.back());
     await atStep("이름");
     await user.click(screen.getByRole("button", { name: "다음" }));
     await atStep("하는 일");
-    expect(preview()).toBe("claude-coding-narrow");
-    expect(screen.queryByRole("checkbox", { name: /^Bash/ })).toBeNull();
+    expect((await connectionSelect()).value).toBe("anthropic-fast");
     await user.click(screen.getByRole("button", { name: "저장하고 다음" }));
     await atStep("채널 연결");
     expect(
-      (posted(api, "/v1/agents") as { runtime_profile_id: string })
-        .runtime_profile_id,
-    ).toBe("claude-coding-narrow");
+      (posted(api, "/v1/agents") as { connection_id: string }).connection_id,
+    ).toBe("anthropic-fast");
   });
 
   test("첫 단계에서 나갔다 돌아와도 그 초안의 이름·식별자를 이어 간다", async () => {
@@ -1852,7 +1577,7 @@ describe("새 에이전트", () => {
     renderAt("/agents/new", {
       ...meOk,
       ...agentServer().routes,
-      "GET /v1/profiles": async () => {
+      "GET /v1/connections": async () => {
         await gate;
         return apiError(
           503,
@@ -1896,7 +1621,7 @@ describe("새 에이전트: 첫 릴리스", () => {
             method: "POST",
             body: JSON.stringify({
               ...body,
-              runtime_profile_id: "profile_gone",
+              connection_id: "connection_gone",
             }),
           }),
         );
@@ -1906,7 +1631,7 @@ describe("새 에이전트: 첫 릴리스", () => {
     await toJobStep(user);
     await fillJob(user);
     expect((await screen.findByRole("alert")).textContent).toBe(
-      "에이전트는 저장했지만 첫 릴리스를 만들지 못했습니다: 프로필을 찾을 수 없습니다. 저장을 다시 누르면 같은 에이전트를 고쳐 다시 시도합니다.",
+      "에이전트는 저장했지만 첫 릴리스를 만들지 못했습니다: 켜진 연결이 아닙니다. 저장을 다시 누르면 같은 에이전트를 고쳐 다시 시도합니다.",
     );
     expect(currentStep()).toBe("2하는 일");
     expect(server.detail().agent.active_release_id).toBeNull();
@@ -1921,90 +1646,25 @@ describe("새 에이전트: 첫 릴리스", () => {
     ).toHaveLength(1);
     const patches = api.calls.filter((c) => c.method === "PATCH");
     expect(patches).toHaveLength(1);
-    expect(patches[0]?.body).toMatchObject({
-      runtime_profile_id: PROFILE,
-      model_source: "profile",
-    });
+    expect(patches[0]?.body).toMatchObject({ connection_id: CONNECTION });
     expect(server.releases).toHaveLength(1);
     expect(server.detail().agent.active_release_id).toBe(
       server.releases[0]?.id ?? "missing",
     );
   });
 
-  test("직접 고른 모델로 저장하면 모델 방식은 직접 고르기로 보낸다", async () => {
+  test("연결 칸은 하나이고 연결마다 id와 종류로 보인다", async () => {
     const server = agentServer();
-    const { api } = renderAt("/agents/new", {
-      ...meOk,
-      ...server.routes,
-      "GET /v1/profiles": () =>
-        json(200, {
-          items: [
-            {
-              ...catalogProfile(PROFILE, "claude-haiku-5", ["Read"]),
-              models: ["claude-haiku-5", CARD.model],
-            },
-          ],
-        }),
-    });
-    const user = await setupUser();
-    await toJobStep(user);
-    await fillJob(user);
-    await atStep("채널 연결");
-    expect(posted(api, "/v1/agents")).toMatchObject({
-      runtime_profile_id: PROFILE,
-      model_source: "fixed",
-    });
-  });
-
-  test("단계에 프로필 id는 보이지 않고 프로필 칸은 하나다", async () => {
-    const server = agentServer();
-    renderAt("/agents/new", {
-      ...meOk,
-      ...server.routes,
-      "GET /v1/profiles": () =>
-        json(200, {
-          items: [
-            {
-              ...catalogProfile("ws_acme_strict_v2", CARD.model, ["Read"]),
-              source: "workspace",
-              workspace: {
-                name: "strict",
-                version: 2,
-                base_profile_id: PROFILE,
-                state: "usable",
-                created_at: "2026-10-27T00:00:00.000Z",
-                retired_at: null,
-              },
-            },
-          ],
-        }),
-    });
+    renderAt("/agents/new", { ...meOk, ...server.routes });
     const user = await setupUser();
     await toJobStep(user);
     await pickModel(user);
-    await profileSelect();
-    expect(screen.getAllByLabelText("프로필")).toHaveLength(1);
-    expect(document.body.textContent).toContain("strict");
-    expect(document.body.textContent).not.toContain("ws_acme_strict_v2");
+    const select = await connectionSelect();
+    expect(screen.getAllByLabelText("모델 연결")).toHaveLength(1);
+    expect([...select.options].map((option) => option.textContent)).toEqual(
+      CONNECTIONS.map((connection) => `${connection.id} · anthropic`),
+    );
     expect(screen.queryByLabelText("저장소")).toBeNull();
-  });
-
-  test("이름 없는 설치 프로필도 id 대신 종류와 모델로 보인다", async () => {
-    const server = agentServer();
-    renderAt("/agents/new", {
-      ...meOk,
-      ...server.routes,
-      "GET /v1/profiles": () =>
-        json(200, {
-          items: [catalogProfile("imported-ceiling-7", CARD.model, ["Read"])],
-        }),
-    });
-    const user = await setupUser();
-    await toJobStep(user);
-    await pickModel(user);
-    await profileSelect();
-    expect(document.body.textContent).toContain(`프로필 · ${CARD.model}`);
-    expect(document.body.textContent).not.toContain("imported-ceiling-7");
   });
 });
 
@@ -2176,7 +1836,7 @@ describe("에이전트 상세", () => {
     ).toBeDefined();
   });
 
-  test("릴리스 탭은 기록과 되돌리기만 둔다: 만드는 폼도 프로필·저장소·메모 칸도 없다", async () => {
+  test("릴리스 탭은 기록과 되돌리기만 둔다: 만드는 폼도 연결·저장소·메모 칸도 없다", async () => {
     const server = agentServer();
     await releasedTwice(server);
     renderAt(RELEASE_TAB, { ...meOk, ...server.routes });
@@ -2187,7 +1847,7 @@ describe("에이전트 상세", () => {
         .map((header) => header.textContent),
     ).toEqual(["버전", "상태", "활성화 시각", "만든 사람", "동작"]);
     expect(screen.queryByRole("button", { name: "새 릴리스" })).toBeNull();
-    for (const label of ["프로필", "저장소", "메모", "버전"])
+    for (const label of ["모델 연결", "저장소", "메모", "버전"])
       expect(screen.queryByLabelText(label)).toBeNull();
     expect(screen.queryByRole("dialog")).toBeNull();
     const [newer, older] = within(table).getAllByRole("row").slice(1) as [
@@ -2453,7 +2113,7 @@ describe("두 탭 동시 되돌리기", () => {
     const [first, second] = server.releases;
     // The fake server makes its releases a minute apart from 10:00 in Seoul.
     const label = (no: number) =>
-      `릴리스 2026-10-11_10:0${no - 1}:00 · ${PROFILE}`;
+      `릴리스 2026-10-11_10:0${no - 1}:00 · ${CONNECTION}`;
     const rollbackTo = (no: number) => ({
       name: `${label(no)}(으)로 되돌리기`,
     });
@@ -2514,39 +2174,6 @@ describe("두 탭 동시 되돌리기", () => {
 });
 
 describe("릴리스 되돌리기", () => {
-  const strict = (version: number): ProfileSummary => ({
-    ...catalogProfile(`ws_strict_v${version}`, CARD.model, ["Read"]),
-    source: "workspace",
-    workspace: {
-      name: "strict",
-      version,
-      base_profile_id: PROFILE,
-      state: "usable",
-      created_at: "2026-10-27T00:00:00.000Z",
-      retired_at: null,
-    },
-  });
-  const catalog = (...items: ProfileSummary[]) => ({
-    "GET /v1/profiles": () => json(200, { items }),
-  });
-
-  async function onProfiles(
-    server: ReturnType<typeof agentServer>,
-    older: string,
-    newer: string,
-  ) {
-    await seedRelease(server, { profile: older });
-    const first = server.versions[0] as (typeof server.versions)[number];
-    server.versions.push({
-      ...first,
-      id: SECOND_VERSION,
-      version_no: 2,
-      content_sha256: "f".repeat(64),
-      card: { ...CARD, instructions: "환불도 맡는다." },
-    });
-    await seedRelease(server, { profile: newer });
-  }
-
   const rollbackButton = async () =>
     (
       await screen.findAllByRole("button", { name: /\(으\)로 되돌리기$/ })
@@ -2557,97 +2184,30 @@ describe("릴리스 되돌리기", () => {
     return within(await screen.findByRole("dialog"));
   }
 
-  test("확인 창은 따라가기 값을 켜짐 유지로 확정해 보이고, 저장소 설정은 되돌리지 않는다고 알린다", async () => {
+  test("확인 창은 되돌릴 릴리스의 모델 연결을 보이고, 저장소 설정은 되돌리지 않는다고 알린다", async () => {
     const server = agentServer();
-    // The rollback target runs on the newest version of a named lineage.
-    await onProfiles(server, "ws_strict_v2", "ws_strict_v2");
-    renderAt(RELEASE_TAB, {
-      ...meOk,
-      ...server.routes,
-      ...catalog(strict(1), strict(2)),
+    await seedRelease(server);
+    const first = server.versions[0] as (typeof server.versions)[number];
+    server.versions.push({
+      ...first,
+      id: SECOND_VERSION,
+      version_no: 2,
+      content_sha256: "f".repeat(64),
+      card: { ...CARD, model: "claude-haiku-5" },
     });
+    await seedRelease(server, { connection: "anthropic-fast" });
+    renderAt(RELEASE_TAB, { ...meOk, ...server.routes });
     const user = await setupUser();
     const dialog = await openConfirm(user);
-    expect(dialog.getByText(/켜짐 유지/)).toBeDefined();
+    expect(dialog.getByText("모델 연결: anthropic-main")).toBeDefined();
     expect(
       dialog.getByText("저장소와 GitHub 설정은 지금 그대로입니다."),
     ).toBeDefined();
-    expect(dialog.getByText(/차단된 프로필이거나/)).toBeDefined();
-    expect(dialog.queryByText(/직접 고르기/)).toBeNull();
+    expect(dialog.getByText(/연결이 꺼졌거나/)).toBeDefined();
   });
 
-  test("고정된 에이전트는 꺼짐 유지로 확정한다", async () => {
-    const server = agentServer({ tracking: "pinned" });
-    await releasedTwice(server);
-    renderAt(RELEASE_TAB, { ...meOk, ...server.routes });
-    const dialog = await openConfirm(await setupUser());
-    expect(dialog.getByText(/꺼짐 유지/)).toBeDefined();
-  });
-
-  test("옛 프로필 판으로 돌아가면 실행 방식이 같은지는 서버만 알아서 확정하지 않는다", async () => {
+  test("결과 줄은 되돌린 뒤 서버에서 다시 읽고 저장소 설정은 그대로라고 알린다", async () => {
     const server = agentServer();
-    await onProfiles(server, "ws_strict_v1", "ws_strict_v2");
-    renderAt(RELEASE_TAB, {
-      ...meOk,
-      ...server.routes,
-      ...catalog(strict(1), strict(2)),
-    });
-    const dialog = await openConfirm(await setupUser());
-    expect(
-      dialog.getByText(
-        /이 릴리스의 프로필이 최신 판과 실행 방식이 다르면 꺼질 수 있습니다/,
-      ),
-    ).toBeDefined();
-    expect(dialog.queryByText(/켜짐 유지/)).toBeNull();
-    expect(dialog.queryByText(/꺼짐 유지/)).toBeNull();
-  });
-
-  test("프로필 기본 모델을 따르던 에이전트가 다른 모델의 릴리스로 가면 직접 고르기로 바뀐다고 알린다", async () => {
-    const server = agentServer({ modelSource: "profile" });
-    await releasedTwice(server);
-    Object.assign(server.releases[0] ?? {}, {
-      runtime_config_snapshot: { model: "claude-haiku-5" },
-    });
-    renderAt(RELEASE_TAB, { ...meOk, ...server.routes });
-    const dialog = await openConfirm(await setupUser());
-    expect(dialog.getByText("실행 모델: 직접 고르기로 바뀜.")).toBeDefined();
-  });
-
-  const unreadable = {
-    "GET /v1/profiles": () =>
-      apiError(503, "BACKEND_UNAVAILABLE", "The catalog cannot be read"),
-  };
-
-  test("프로필 목록을 못 읽어도 상세로 정해지는 안내는 남고 되돌리기는 막지 않는다", async () => {
-    const server = agentServer({ tracking: "pinned", modelSource: "profile" });
-    await releasedTwice(server);
-    renderAt(RELEASE_TAB, { ...meOk, ...server.routes, ...unreadable });
-    const dialog = await openConfirm(await setupUser());
-    expect(dialog.getByText(/꺼짐 유지/)).toBeDefined();
-    expect(dialog.getByText(/알 수 없음/)).toBeDefined();
-    expect(
-      dialog.getByText("저장소와 GitHub 설정은 지금 그대로입니다."),
-    ).toBeDefined();
-    expect(
-      (dialog.getByRole("button", { name: "되돌리기" }) as HTMLButtonElement)
-        .disabled,
-    ).toBe(false);
-  });
-
-  test("프로필 목록을 못 읽으면 따르는 에이전트의 값은 확정하지 않는다", async () => {
-    const server = agentServer();
-    await releasedTwice(server);
-    renderAt(RELEASE_TAB, { ...meOk, ...server.routes, ...unreadable });
-    const dialog = await openConfirm(await setupUser());
-    expect(dialog.queryByText(/켜짐 유지/)).toBeNull();
-    expect(dialog.queryByText(/꺼짐 유지/)).toBeNull();
-    expect(dialog.queryByText(/알 수 없음/)).toBeNull();
-  });
-
-  test("결과 줄은 되돌린 뒤 서버에서 다시 읽은 값을 보인다: 꺼짐으로 바뀐 경우", async () => {
-    const server = agentServer({
-      afterActivate: () => ({ tracking: "pinned" }),
-    });
     await releasedTwice(server);
     const { api } = renderAt(RELEASE_TAB, { ...meOk, ...server.routes });
     const user = await setupUser();
@@ -2658,11 +2218,9 @@ describe("릴리스 되돌리기", () => {
       }),
     );
     const line = await screen.findByText(/되돌렸습니다/);
-    expect(line.textContent).toContain("꺼짐으로 바뀜");
     expect(line.textContent).toContain(
       "저장소와 GitHub 설정은 지금 그대로입니다.",
     );
-    expect(line.textContent).toContain("최신으로 올리기");
     const order = api.calls.map((c) => `${c.method} ${c.path}`);
     const at = order.indexOf(`POST /v1/agents/${AGENT_ID}/activate`);
     expect(order.slice(at + 1)).toContain(`GET /v1/agents/${AGENT_ID}`);
@@ -2682,9 +2240,7 @@ describe("릴리스 되돌리기", () => {
   }
 
   test("진행 중이던 상세 읽기가 있어도 결과 줄은 되돌린 뒤 새로 읽은 값으로 만든다", async () => {
-    const server = agentServer({
-      afterActivate: () => ({ tracking: "pinned" }),
-    });
+    const server = agentServer();
     await releasedTwice(server);
     const read = server.routes[DETAIL_READ] as Answer;
     let hold = false;
@@ -2722,14 +2278,12 @@ describe("릴리스 되돌리기", () => {
     });
     await confirmRollback(user);
     const line = await screen.findByText(/되돌렸습니다/);
-    expect(line.textContent).toContain("꺼짐으로 바뀜");
+    expect(line.textContent).toContain("저장소와 GitHub 설정은");
     open();
   });
 
   test("응답이 사라져도 서버가 되돌렸으면 다시 읽어 되돌렸다고 말한다", async () => {
-    const server = agentServer({
-      afterActivate: () => ({ tracking: "pinned" }),
-    });
+    const server = agentServer();
     await releasedTwice(server);
     const activate = server.routes[ACTIVATE] as Answer;
     renderAt(RELEASE_TAB, {
@@ -2742,7 +2296,7 @@ describe("릴리스 되돌리기", () => {
     });
     await confirmRollback(await setupUser());
     const line = await screen.findByText(/되돌렸습니다/);
-    expect(line.textContent).toContain("꺼짐으로 바뀜");
+    expect(line.textContent).toContain("저장소와 GitHub 설정은");
     expect(screen.queryByText(/되돌리지 않았습니다/) === null).toBe(true);
   });
 
@@ -2875,9 +2429,7 @@ describe("릴리스 되돌리기", () => {
       }),
     );
     const line = await screen.findByText(/되돌렸습니다/);
-    expect(line.textContent).toContain("따라가기 값은 확인하지 못했습니다");
-    expect(line.textContent).not.toContain("켜짐 유지");
-    expect(line.textContent).not.toContain("꺼짐");
+    expect(line.textContent).toContain("결과는 확인하지 못했습니다");
   });
 
   test("거절되면 이유와 함께 지금 설정이 유지된다고 알린다", async () => {
@@ -2890,7 +2442,7 @@ describe("릴리스 되돌리기", () => {
         apiError(
           422,
           "UNSUPPORTED_CAPABILITY",
-          "card.model: model claude-sonnet-5 is not the model of runtime profile claude-coding-fast",
+          "card.model: model claude-sonnet-5 is not a model of connection anthropic-fast",
         ),
     });
     const user = await setupUser();
@@ -2902,12 +2454,12 @@ describe("릴리스 되돌리기", () => {
     );
     const refusal = await screen.findByRole("alert");
     expect(refusal.textContent).toContain(
-      "카드 모델 claude-sonnet-5이(가) 프로필 claude-coding-fast에서 실행되지 않아",
+      "카드 모델 claude-sonnet-5을(를) 연결 anthropic-fast이(가) 제공하지 않아",
     );
     expect(refusal.textContent).toContain(
       "되돌리지 않았습니다. 지금 설정이 유지됩니다.",
     );
-    expect(document.body.textContent).not.toContain("is not the model of");
+    expect(document.body.textContent).not.toContain("is not a model of");
     expect(server.detail().agent.active_release_id).toBe(
       server.releases[1]?.id ?? "missing",
     );
@@ -2958,92 +2510,42 @@ describe("편집 중 다른 곳의 저장", () => {
     expect(screen.queryByText(/다른 곳에서 카드를 저장해/)).toBeNull();
   });
 
-  test("카드 편집에서 고른 프로필로 저장하면 그 프로필로 릴리스한다", async () => {
+  test("카드 편집에서 고른 연결로 저장하면 그 연결로 릴리스한다", async () => {
     const server = agentServer();
     await seedRelease(server);
-    const listed = server.routes["GET /v1/profiles"] as () => Response;
-    const { api } = renderAt(CARD_TAB, {
-      ...meOk,
-      ...server.routes,
-      "GET /v1/profiles": async () => {
-        const body = (await listed().json()) as { items: ProfileSummary[] };
-        return json(200, {
-          items: [
-            ...body.items,
-            {
-              ...body.items[0],
-              id: "claude-coding-wide",
-              model: CARD.model,
-              models: [CARD.model],
-              tools: ["Read", "Bash"],
-              deny: denyFor(["Read", "Bash"]),
-            } as ProfileSummary,
-          ],
-        });
-      },
-    });
+    const { api } = renderAt(CARD_TAB, { ...meOk, ...server.routes });
     const user = await setupUser();
     await openCardEditor(user);
     const card = screen.getByRole("tabpanel", { name: "상세 설정" });
-    const cardProfile = (await within(card).findByLabelText(
-      "프로필",
+    const cardConnection = (await within(card).findByLabelText(
+      "모델 연결",
     )) as HTMLSelectElement;
-    expect(cardProfile.value).toBe(PROFILE);
-    await user.selectOptions(cardProfile, "claude-coding-wide");
-    // Edit is run by the first profile and blocked by this one; Bash is the other way.
-    const wide = within(
-      await within(card).findByRole("group", { name: "프로필이 막은 도구" }),
+    expect(cardConnection.value).toBe(CONNECTION);
+    await user.selectOptions(cardConnection, "anthropic-fast");
+    await user.selectOptions(
+      within(card).getByLabelText("모델"),
+      "claude-haiku-5",
     );
-    expect(wide.getByText("Edit")).toBeDefined();
-    expect(wide.queryByText("Bash")).toBeNull();
-    await user.selectOptions(screen.getByLabelText("답변 언어"), "en");
     await user.click(screen.getByRole("button", { name: "저장" }));
     await screen.findByText(
       "저장하고 새 세션에 적용했습니다. 카드는 버전 2입니다.",
     );
     expect(
       (api.calls.find((c) => c.method === "PATCH")?.body as object) ?? {},
-    ).toMatchObject({ runtime_profile_id: "claude-coding-wide" });
-    expect(server.releases.at(-1)?.runtime_profile_id).toBe(
-      "claude-coding-wide",
-    );
+    ).toMatchObject({ connection_id: "anthropic-fast" });
+    expect(server.releases.at(-1)?.connection_id).toBe("anthropic-fast");
   });
 
-  describe("프로필을 고른 저장", () => {
-    const bothProfiles = (server: ReturnType<typeof agentServer>) => {
-      const listed = server.routes["GET /v1/profiles"] as () => Response;
-      return async () => {
-        const body = (await listed().json()) as { items: ProfileSummary[] };
-        const local = body.items.find(
-          (item) => item.id === PROFILE,
-        ) as ProfileSummary;
-        return json(200, {
-          items: [
-            local,
-            {
-              ...local,
-              id: "claude-coding-both",
-              model: "claude-haiku-5",
-              models: ["claude-haiku-5", CARD.model],
-            },
-          ],
-        });
-      };
-    };
-
-    test("이름과 함께 프로필만 바꿔도 프로필이 요청에 실린다", async () => {
+  describe("연결을 고른 저장", () => {
+    test("이름과 함께 연결만 바꿔도 연결이 요청에 실린다", async () => {
       const server = agentServer();
-      const { api } = renderAt(CARD_TAB, {
-        ...meOk,
-        ...server.routes,
-        "GET /v1/profiles": bothProfiles(server),
-      });
+      const { api } = renderAt(CARD_TAB, { ...meOk, ...server.routes });
       const user = await setupUser();
       await openCardEditor(user);
       const card = screen.getByRole("tabpanel", { name: "상세 설정" });
       await user.selectOptions(
-        await within(card).findByLabelText("프로필"),
-        "claude-coding-both",
+        await within(card).findByLabelText("모델 연결"),
+        "anthropic-fast",
       );
       const name = within(card).getByLabelText("이름");
       await user.clear(name);
@@ -3054,13 +2556,13 @@ describe("편집 중 다른 곳의 저장", () => {
       );
       const body = api.calls.find((c) => c.method === "PATCH")?.body as {
         name?: string;
-        runtime_profile_id?: string;
+        connection_id?: string;
       };
       expect(body.name).toBe("새 이름");
-      expect(body.runtime_profile_id).toBe("claude-coding-both");
+      expect(body.connection_id).toBe("anthropic-fast");
     });
 
-    test("적용하지 못한 저장을 고치면 그 저장의 프로필로 보낸다", async () => {
+    test("적용하지 못한 저장을 고치면 그 저장의 연결로 보낸다", async () => {
       const server = agentServer();
       const waiting = () => {
         const body = server.detail();
@@ -3068,8 +2570,7 @@ describe("편집 중 다른 곳의 저장", () => {
           ...body,
           draft: {
             version_id: body.versions[0]?.id as string,
-            runtime_profile_id: "claude-coding-both",
-            model_source: "profile",
+            connection_id: "anthropic-fast",
             failure: "release_refused",
           },
         };
@@ -3077,7 +2578,6 @@ describe("편집 중 다른 곳의 저장", () => {
       const { api } = renderAt(CARD_TAB, {
         ...meOk,
         ...server.routes,
-        "GET /v1/profiles": bothProfiles(server),
         [`GET /v1/agents/${AGENT_ID}`]: () => json(200, waiting()),
       });
       const user = await setupUser();
@@ -3088,37 +2588,21 @@ describe("편집 중 다른 곳의 저장", () => {
         expect(api.calls.some((c) => c.method === "PATCH")).toBe(true),
       );
       const body = api.calls.find((c) => c.method === "PATCH")?.body as {
-        runtime_profile_id?: string;
-        model_source?: string;
+        connection_id?: string;
       };
-      expect(body.runtime_profile_id).toBe("claude-coding-both");
-      expect(body.model_source).toBe("profile");
+      expect(body.connection_id).toBe("anthropic-fast");
     });
 
-    // The profile's default model moved on from the one that runs, so saving
-    // the running card again as followed would swap its model.
-    const discardSource = async (defaultModel: string) => {
+    test("버리기는 활성 릴리스의 연결로 지금 카드를 다시 저장한다", async () => {
       const server = agentServer();
       await seedRelease(server);
-      await server.routes[`POST /v1/agents/${AGENT_ID}/activate`]?.(
-        new Request("https://console.test/", {
-          method: "POST",
-          body: JSON.stringify({
-            release_id: server.detail().releases[0]?.id,
-            expected_revision: -1,
-          }),
-        }),
-      );
-      const listed = server.routes["GET /v1/profiles"] as () => Response;
       const withDraft = () => {
         const body = server.detail();
         return {
           ...body,
-          model_source: "profile",
           draft: {
             version_id: body.versions[0]?.id as string,
-            runtime_profile_id: PROFILE,
-            model_source: "profile",
+            connection_id: "anthropic-fast",
             failure: "release_refused",
           },
         };
@@ -3126,32 +2610,18 @@ describe("편집 중 다른 곳의 저장", () => {
       const { api } = renderAt(CARD_TAB, {
         ...meOk,
         ...server.routes,
-        "GET /v1/profiles": async () => {
-          const body = (await listed().json()) as { items: ProfileSummary[] };
-          return json(200, {
-            items: body.items.map((item) =>
-              item.id === PROFILE ? { ...item, model: defaultModel } : item,
-            ),
-          });
-        },
         [`GET /v1/agents/${AGENT_ID}`]: () => json(200, withDraft()),
       });
       const user = await setupUser();
-      const discard = await screen.findByRole("button", { name: "버리기" });
-      await waitFor(() => expect(discard.hasAttribute("disabled")).toBe(false));
-      await user.click(discard);
+      await user.click(await screen.findByRole("button", { name: "버리기" }));
       await waitFor(() =>
         expect(api.calls.some((c) => c.method === "PATCH")).toBe(true),
       );
-      return (
-        api.calls.find((c) => c.method === "PATCH")?.body as {
-          model_source?: string;
-        }
-      ).model_source;
-    };
-
-    test("버리기는 프로필 기본 모델이 그대로면 따르는 상태를 지키고", async () => {
-      expect(await discardSource(CARD.model)).toBe("profile");
+      expect(
+        (api.calls.find((c) => c.method === "PATCH")?.body as {
+          connection_id?: string;
+        }).connection_id,
+      ).toBe(CONNECTION);
     });
 
     test("서버가 모델을 바꿔 적은 카드로 적용되면 안내는 그 릴리스의 버전을 가리킨다", async () => {
@@ -3160,7 +2630,6 @@ describe("편집 중 다른 곳의 저장", () => {
       renderAt(CARD_TAB, {
         ...meOk,
         ...server.routes,
-        "GET /v1/profiles": bothProfiles(server),
         [`PATCH /v1/agents/${AGENT_ID}`]: async () => {
           server.versions.push({
             ...first,
@@ -3183,11 +2652,11 @@ describe("편집 중 다른 곳의 저장", () => {
       });
       const user = await setupUser();
       await openCardEditor(user);
-      // Only the profile changes, so the card sent is the first version's.
+      // Only the connection changes, so the card sent is the first version's.
       const card = screen.getByRole("tabpanel", { name: "상세 설정" });
       await user.selectOptions(
-        await within(card).findByLabelText("프로필"),
-        "claude-coding-both",
+        await within(card).findByLabelText("모델 연결"),
+        "anthropic-fast",
       );
       await user.click(screen.getByRole("button", { name: "저장" }));
       expect(
@@ -3196,90 +2665,9 @@ describe("편집 중 다른 곳의 저장", () => {
         ),
       ).toBeDefined();
     });
-
-    test("프로필 목록을 읽기 전에는 버리기를 누를 수 없다", async () => {
-      const server = agentServer();
-      await seedRelease(server);
-      await server.routes[`POST /v1/agents/${AGENT_ID}/activate`]?.(
-        new Request("https://console.test/", {
-          method: "POST",
-          body: JSON.stringify({
-            release_id: server.detail().releases[0]?.id,
-            expected_revision: -1,
-          }),
-        }),
-      );
-      const body = server.detail();
-      renderAt(CARD_TAB, {
-        ...meOk,
-        ...server.routes,
-        "GET /v1/profiles": () => new Promise<Response>(() => {}),
-        [`GET /v1/agents/${AGENT_ID}`]: () =>
-          json(200, {
-            ...body,
-            model_source: "profile",
-            draft: {
-              version_id: body.versions[0]?.id as string,
-              runtime_profile_id: PROFILE,
-              model_source: "profile",
-              failure: "release_refused",
-            },
-          }),
-      });
-      const discard = await screen.findByRole("button", { name: "버리기" });
-      expect(discard.hasAttribute("disabled")).toBe(true);
-    });
-
-    test("프로필 기본 모델이 옮겨 갔으면 돌던 모델을 고른 것으로 남긴다", async () => {
-      expect(await discardSource("claude-haiku-5")).toBe("fixed");
-    });
   });
 
-  test("모델을 바꾼 뒤 재조회로 고른 프로필이 빠지면 카드 편집이 대체 프로필로 간다", async () => {
-    const server = agentServer();
-    const listed = server.routes["GET /v1/profiles"] as () => Response;
-    let bothListed = true;
-    const { services } = renderAt(CARD_TAB, {
-      ...meOk,
-      ...server.routes,
-      "GET /v1/profiles": async () => {
-        const body = (await listed().json()) as { items: ProfileSummary[] };
-        const local = body.items.find(
-          (item) => item.id === PROFILE,
-        ) as ProfileSummary;
-        const runsBoth = (id: string): ProfileSummary => ({
-          ...local,
-          id,
-          model: "claude-haiku-5",
-          models: ["claude-haiku-5", CARD.model],
-        });
-        return json(200, {
-          items: [
-            local,
-            ...(bothListed ? [runsBoth("claude-coding-both")] : []),
-            runsBoth("claude-coding-backup"),
-          ],
-        });
-      },
-    });
-    const user = await setupUser();
-    await openCardEditor(user);
-    const card = screen.getByRole("tabpanel", { name: "상세 설정" });
-    const cardProfile = (await within(card).findByLabelText(
-      "프로필",
-    )) as HTMLSelectElement;
-    await user.selectOptions(
-      within(card).getByLabelText("모델"),
-      "claude-haiku-5",
-    );
-    await waitFor(() => expect(cardProfile.value).toBe("claude-coding-both"));
-
-    bothListed = false;
-    await services.queryClient.invalidateQueries();
-    await waitFor(() => expect(cardProfile.value).toBe("claude-coding-backup"));
-  });
-
-  test("모델 안내는 모델을 돌리는 프로필만 고를 수 있다고 말하고 내부 파일 이름을 보이지 않는다", async () => {
+  test("모델 안내는 고른 연결이 제공하는 모델만 고를 수 있다고 말하고 내부 파일 이름을 보이지 않는다", async () => {
     const server = agentServer();
     renderAt(DETAIL, { ...meOk, ...server.routes });
     const user = await setupUser();
@@ -3290,15 +2678,14 @@ describe("편집 중 다른 곳의 저장", () => {
         .map((id) => document.getElementById(id)?.textContent)
         .join(" ");
     expect(describedBy(await screen.findByLabelText("모델"))).toContain(
-      "고른 모델을 돌리는 프로필만 아래에서 고를 수 있습니다",
+      "고른 연결이 제공하는 모델 중에서 고릅니다",
     );
     expect(describedBy(await screen.findByLabelText("모델"))).not.toContain(
       "릴리스",
     );
-    expect(document.body.textContent).not.toContain("profiles.yaml");
   });
 
-  test("카드 모델과 다른 profile로 거부된 저장은 영어 원문 없이 한국어로 알린다", async () => {
+  test("연결이 제공하지 않는 모델로 거부된 저장은 영어 원문 없이 한국어로 알린다", async () => {
     const server = agentServer();
     const { api } = renderAt(CARD_TAB, {
       ...meOk,
@@ -3308,7 +2695,7 @@ describe("편집 중 다른 곳의 저장", () => {
           ...server.detail(),
           release: {
             status: "failed",
-            reason: "model_not_in_profile",
+            reason: "model_not_in_connection",
             release_id: null,
             version_id: null,
           },
@@ -3319,17 +2706,17 @@ describe("편집 중 다른 곳의 저장", () => {
     await user.selectOptions(await screen.findByLabelText("답변 언어"), "en");
     await user.click(screen.getByRole("button", { name: "저장" }));
     const refusal = await screen.findByText(/적용하지 못했습니다/);
-    expect(refusal.textContent).toContain("프로필이 허용하지 않는 모델입니다");
-    expect(document.body.textContent).not.toContain("model_not_in_profile");
+    expect(refusal.textContent).toContain("연결이 제공하지 않는 모델입니다");
+    expect(document.body.textContent).not.toContain("model_not_in_connection");
     expect(api.calls.some((c) => c.method === "PATCH")).toBe(true);
   });
 
-  test("profile 목록을 못 읽으면 이유를 보이고 저장하지 못하게 한다", async () => {
+  test("연결 목록을 못 읽으면 이유를 보이고 저장하지 못하게 한다", async () => {
     const server = agentServer();
     renderAt(CARD_TAB, {
       ...meOk,
       ...server.routes,
-      "GET /v1/profiles": () =>
+      "GET /v1/connections": () =>
         apiError(503, "BACKEND_UNAVAILABLE", "The catalog cannot be read"),
     });
     const user = await setupUser();
@@ -3343,7 +2730,7 @@ describe("편집 중 다른 곳의 저장", () => {
       (screen.getByRole("button", { name: "저장" }) as HTMLButtonElement)
         .disabled,
     ).toBe(true);
-    expect(screen.queryByLabelText("프로필")).toBeNull();
+    expect(screen.queryByLabelText("모델 연결")).toBeNull();
     expect(screen.queryByLabelText("모델")).toBeNull();
   });
 
@@ -3520,7 +2907,7 @@ describe("편집 중 다른 곳의 저장", () => {
     const { api } = renderAt(CARD_TAB, {
       ...meOk,
       ...server.routes,
-      "GET /v1/profiles": () =>
+      "GET /v1/connections": () =>
         apiError(503, "BACKEND_UNAVAILABLE", "The catalog cannot be read"),
     });
     const user = await setupUser();
@@ -3892,36 +3279,31 @@ describe("새 에이전트: 브라우저 history", () => {
   });
 });
 
-describe("새 에이전트: 고른 프로필", () => {
-  test("저장한 프로필은 새로고침 뒤 하는 일 단계로 돌아와도 그대로 골라져 있다", async () => {
+describe("새 에이전트: 고른 연결", () => {
+  test("저장한 연결은 새로고침 뒤 하는 일 단계로 돌아와도 그대로 골라져 있다", async () => {
     const server = agentServer();
     const { api, reload } = openInBrowser("/agents/new", {
       ...meOk,
       ...server.routes,
-      "GET /v1/profiles": () =>
-        json(200, {
-          items: [
-            catalogProfile(PROFILE, CARD.model, ["Read", "Edit"]),
-            catalogProfile("claude-coding-narrow", CARD.model, ["Read"]),
-          ],
-        }),
     });
     const user = await setupUser();
     await toJobStep(user);
-    await pickModel(user);
-    await user.selectOptions(await profileSelect(), "claude-coding-narrow");
+    await user.selectOptions(await connectionSelect(), "anthropic-fast");
+    await user.selectOptions(
+      await screen.findByLabelText("모델"),
+      "claude-haiku-5",
+    );
     await user.click(screen.getByRole("button", { name: "저장하고 다음" }));
     await atStep("채널 연결");
     expect(
-      (posted(api, "/v1/agents") as { runtime_profile_id: string })
-        .runtime_profile_id,
-    ).toBe("claude-coding-narrow");
+      (posted(api, "/v1/agents") as { connection_id: string }).connection_id,
+    ).toBe("anthropic-fast");
 
     reload();
     await atStep("채널 연결");
     act(() => window.history.back());
     await atStep("하는 일");
-    expect((await profileSelect()).value).toBe("claude-coding-narrow");
+    expect((await connectionSelect()).value).toBe("anthropic-fast");
   });
 });
 

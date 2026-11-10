@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { mcpDenyDropped, narrowOnlyPolicy } from "./profile-derivation.ts";
 import {
   addedTools,
   carriedDeny,
@@ -27,8 +26,6 @@ const CATALOG: ToolCatalogView = {
   ],
   aliases: { Task: "Agent" },
 };
-// The options response carries no aliases.
-const LISTED: ToolCatalogView = { id: CATALOG.id, tools: CATALOG.tools };
 
 describe("a deny against a tool catalog", () => {
   test("reads an allow list as what it leaves out, through aliases, with mcp__ names left aside", () => {
@@ -123,60 +120,6 @@ describe("tools a previous version never weighed", () => {
     expect(carriedDeny(CATALOG, { tools: [], deny: [] })).toEqual(
       CATALOG.tools.map((t) => t.name),
     );
-  });
-});
-
-describe("the workspace derivation with a catalog", () => {
-  const base = {
-    model: "m",
-    tools: ["Read", "Edit", "Bash", "TodoWrite"],
-    permission_mode: "default" as const,
-  };
-
-  test("starts from the base's blocks, and leaves names outside the catalog out of tools", () => {
-    expect(narrowOnlyPolicy.initial(base, LISTED)).toMatchObject({
-      tools: ["Read", "Edit", "Bash"],
-      deny: ["Agent", "WebFetch", "WebSearch"],
-    });
-    expect(narrowOnlyPolicy.initial(base)).toMatchObject({
-      tools: base.tools,
-    });
-    expect("deny" in narrowOnlyPolicy.initial(base)).toBe(false);
-  });
-
-  test("offers every catalog tool to block and fixes the base's", () => {
-    expect(narrowOnlyPolicy.choices(base, LISTED).deny).toEqual({
-      names: ["Read", "Edit", "Bash", "Agent", "WebFetch", "WebSearch"],
-      fixed: ["Agent", "WebFetch", "WebSearch"],
-    });
-    expect(narrowOnlyPolicy.choices(base).deny).toBeUndefined();
-  });
-
-  test("carries the previous version's blocks, the base's, and what it never weighed", () => {
-    const previous = {
-      model: "m",
-      models: ["m"],
-      tools: ["Read"],
-      permission_mode: "default" as const,
-    };
-    const carried = narrowOnlyPolicy.carry(previous, base, LISTED);
-    expect(carried.deny).toEqual([
-      "Edit",
-      "Bash",
-      "Agent",
-      "WebFetch",
-      "WebSearch",
-    ]);
-    expect(carried.tools).toEqual(["Read"]);
-    expect(narrowOnlyPolicy.refusal(base, carried)).toBeNull();
-    const weighed = narrowOnlyPolicy.carry(
-      { ...previous, tools: ["Read", "Edit"], deny: ["Bash", "Agent"] },
-      base,
-      LISTED,
-    );
-    expect(weighed.deny).toEqual(["Bash", "Agent", "WebFetch", "WebSearch"]);
-    expect(weighed.tools).toEqual(["Read", "Edit"]);
-    expect(narrowOnlyPolicy.carry(previous, base).tools).toEqual(["Read"]);
   });
 });
 
@@ -311,49 +254,5 @@ describe("the mcp__ name rule", () => {
   test("built-in names keep their pattern refusal beside mcp names", () => {
     expect(reason("Bash(rm:*)")).toBe("tool_pattern");
     expect(reason("Bash ")).toBe("tool_pattern");
-  });
-});
-
-describe("a version over a base that blocks mcp__ names", () => {
-  const base = {
-    model: "m",
-    tools: ["Read"],
-    permission_mode: "default" as const,
-    mcp_deny: ["mcp__a__b"],
-  };
-  const version = {
-    model: "m",
-    models: ["m"],
-    tools: ["Read"],
-    permission_mode: "default" as const,
-  };
-
-  test("mcpDenyDropped is true unless the stored deny holds every base name", () => {
-    expect(mcpDenyDropped(base, {})).toBe(true);
-    expect(mcpDenyDropped(base, { deny: ["Bash"] })).toBe(true);
-    expect(mcpDenyDropped(base, { deny: ["mcp__a__b", "Bash"] })).toBe(false);
-    expect(mcpDenyDropped({}, {})).toBe(false);
-  });
-
-  test("apply runs with the base's names and the version's own, sorted", () => {
-    const applied = narrowOnlyPolicy.apply(base, {
-      ...version,
-      deny: ["Bash", "mcp__z__y"],
-    });
-    expect(applied.mcp_deny).toEqual(["mcp__a__b", "mcp__z__y"]);
-    // The base's names bind even when the version never listed them.
-    expect(narrowOnlyPolicy.apply(base, version).mcp_deny).toEqual([
-      "mcp__a__b",
-    ]);
-  });
-
-  test("apply leaves the key out when nothing is blocked", () => {
-    const { mcp_deny: _none, ...plain } = base;
-    expect(Object.keys(narrowOnlyPolicy.apply(plain, version))).not.toContain(
-      "mcp_deny",
-    );
-    expect(
-      Object.keys(narrowOnlyPolicy.apply({ ...plain, mcp_deny: [] }, version)),
-    ).not.toContain("mcp_deny");
   });
 });

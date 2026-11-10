@@ -14,10 +14,10 @@ import type {
 } from "../ports/github-gate.ts";
 import type { WorkerPendingStore } from "../ports/pending-requests.ts";
 import type { WorkerUnitOfWork } from "../ports/worker-unit-of-work.ts";
-import type { CatalogProfile, CatalogRepository } from "../sessions/catalog.ts";
+import type { CatalogRepository } from "../sessions/catalog.ts";
 import { createGitHubGate } from "../sessions/github-gate.ts";
-import { withSeededInstallation } from "../sessions/profile-registry.ts";
 import { createRepositoryAttachmentService } from "../sessions/repository-attachment-service.ts";
+import { testBinding, testCatalog } from "../testing/catalog-fakes.ts";
 import { releasePolicy } from "../testing/github-fakes.ts";
 import { memoryAttachmentStore } from "../testing/repository-attachment-fakes.ts";
 import { createWorkerGateway } from "./worker-gateway.ts";
@@ -46,27 +46,12 @@ const actor: ReceiptActor = {
   agent_id: "agent-1",
 };
 
-const profile: CatalogProfile = {
-  runtime_kind: "claude_agent_sdk",
-  runtime_version: "0.3.270",
-  model: "claude-sonnet-5",
-  tools: ["Read"],
-  permission_mode: "default",
-  repository: "optional",
-  provider: {
-    kind: "anthropic",
-    endpoint: "https://api.anthropic.invalid",
-    auth: { kind: "api_key", value: "anthropic-key", ref: { value_env: "K" } },
-  },
-};
 const onGitHub = (name: string): CatalogRepository => ({
   url: `https://github.com/acme/${name}.git`,
   branch: "main",
-  profiles: ["p"],
   auth: { kind: "github_app", registered: true },
 });
-const catalog = withSeededInstallation({
-  profiles: { p: profile },
+const catalog = testCatalog({
   repositories: { docs: onGitHub("docs"), tools: onGitHub("tools") },
 });
 
@@ -110,7 +95,6 @@ function wired() {
     ownerId: "owner-a",
     sessionId,
     repositoryId: null,
-    profileId: "p",
     attachedRepositoryIds: [...attached],
     repository: null,
     startedBy: null,
@@ -123,7 +107,10 @@ function wired() {
       actions_allow: [],
     }),
     ceiling: GITHUB_CEILING_NONE,
-    repositoryCeiling: null,
+    repositoryCeiling: {
+      repository_ids: ["docs", "tools"],
+      github_app_repositories: "listed",
+    },
     ceilingRevision: 0,
   });
   const gate = createGitHubGate({
@@ -155,8 +142,8 @@ function wired() {
   const binding = {
     sessionId: SESSION,
     attemptId: "att_1",
-    profileId: "p",
-    model: profile.model,
+    connectionId: "conn-1",
+    model: "claude-sonnet-5",
     githubPolicySource: "release",
     costUsd: 0,
     providerTokens: 0,
@@ -185,20 +172,7 @@ function wired() {
       }),
       claimAtomic: async () => ({
         outcome: "claimed",
-        binding: {
-          ...binding,
-          leaseEpoch: 1,
-          executionGeneration: 1,
-          authRevision: 0,
-          leaseExpiresAt: new Date("2026-09-22T00:00:30Z"),
-          leaseRemainingMs: 29_950,
-          profileFingerprint: null,
-          model: null,
-          unmetered: false,
-          ownerScope: "owner-a",
-          restore: null,
-          restoreProfiles: [],
-        },
+        binding: testBinding({ sessionId: SESSION }),
       }),
     }),
     catalog,

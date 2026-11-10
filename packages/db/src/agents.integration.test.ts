@@ -21,7 +21,6 @@ import {
   resolveReleaseContent,
   type SessionCatalog,
   SessionServiceError,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import {
   createTempDatabase,
@@ -62,6 +61,11 @@ import {
   workspaces,
 } from "./schema.ts";
 import { fixtureTeamSql } from "./testing/fixture-team.ts";
+import {
+  TEST_CONNECTION_ID,
+  releaseSpecColumns,
+  testSessionCatalog,
+} from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 const PAGE = { limit: 50 };
@@ -84,13 +88,11 @@ const PROFILE: CatalogProfile = {
     },
   },
 };
-const CATALOG: SessionCatalog = withSeededInstallation({
-  profiles: { coding: PROFILE },
+const CATALOG: SessionCatalog = testSessionCatalog({
   repositories: {
     app: {
       url: "https://example.invalid/app.git",
       branch: "main",
-      profiles: ["coding"],
       auth: { kind: "github_app", registered: true },
     },
   },
@@ -1695,8 +1697,8 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
           agentId: a.agent.id,
           versionId: versionOfB.id,
           cardSha256: versionOfB.content_sha256,
-          runtimeProfileId: "coding",
-          profileDigest: "sha256:x",
+          connectionId: TEST_CONNECTION_ID,
+          ...releaseSpecColumns(),
           runtimeConfigSnapshot: {},
           effectiveTools: { tools: [], mcp: [] },
         }),
@@ -1906,8 +1908,8 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       agentId: identity.agent_id,
       versionId: v1.id,
       cardSha256: identity.card_sha256,
-      runtimeProfileId: identity.runtime_profile_id,
-      profileDigest: identity.profile_digest,
+      connectionId: TEST_CONNECTION_ID,
+      ...releaseSpecColumns(),
       runtimeConfigSnapshot: identity.runtime_config_snapshot,
       effectiveTools: identity.effective_tools,
       policyPins: {},
@@ -1975,8 +1977,8 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       agentId: identity.agent_id,
       versionId,
       cardSha256: identity.card_sha256,
-      runtimeProfileId: identity.runtime_profile_id,
-      profileDigest: identity.profile_digest,
+      connectionId: TEST_CONNECTION_ID,
+      ...releaseSpecColumns(),
       runtimeConfigSnapshot: identity.runtime_config_snapshot,
       effectiveTools: identity.effective_tools,
       policyPins: identity.policy_pins,
@@ -2050,8 +2052,8 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       agentId: identity.agent_id,
       versionId,
       cardSha256: identity.card_sha256,
-      runtimeProfileId: identity.runtime_profile_id,
-      profileDigest: identity.profile_digest,
+      connectionId: TEST_CONNECTION_ID,
+      ...releaseSpecColumns(),
       runtimeConfigSnapshot: identity.runtime_config_snapshot,
       effectiveTools: identity.effective_tools,
       policyPins: identity.policy_pins,

@@ -46,7 +46,6 @@ const scope: ScopedSessionBinding = {
   sessionId: SESSION_ID,
   agentId: AGENT_ID,
   releaseId: "rel_9f2c",
-  profileId: "claude-coding-v1",
 };
 
 const outbound: ChatOutboundEnvelopeInput = {
@@ -260,7 +259,6 @@ describe("ScopedSessionBinding and ChatOutboundEnvelope", () => {
       thread_id: "1758500000.0001",
       agent_id: AGENT_ID,
       release_id: "rel_9f2c",
-      profile_id: "claude-coding-v1",
       role: "primary",
       visibility: "summary",
       muted: false,

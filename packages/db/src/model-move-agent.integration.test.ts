@@ -10,7 +10,6 @@ import {
   createAuthorizationPolicy,
   createModelMoveRunner,
   type SessionCatalog,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import {
   createTempDatabase,
@@ -37,6 +36,7 @@ import {
   users,
   workspaces,
 } from "./schema.ts";
+import { testSessionCatalog } from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -70,13 +70,11 @@ const CUT_NO_FAMILY: CatalogProfile = {
 };
 
 const catalogOf = (profile: CatalogProfile): SessionCatalog =>
-  withSeededInstallation({
-    profiles: { op_ops_v1: profile },
+  testSessionCatalog({
     repositories: {
       app: {
         url: "https://example.invalid/app.git",
         branch: "main",
-        profiles: ["op_ops_v1"],
         auth: { kind: "github_app", registered: true },
       },
     },

@@ -86,40 +86,7 @@ describe("demo fixture scan", () => {
     expect(scan({ value: "\\u0070latform agent" })).toEqual([]);
   });
 
-  const catalog = (json: unknown) =>
-    scanFixtures({
-      responses: { "/v1/installation-profiles/options": { status: 200, json } },
-    }).map((finding) => finding.rule);
-
-  test("a catalog id made only of name@x.y.z pins is clean in the answer that carries it", () => {
-    expect(
-      catalog({
-        tool_catalogs: [
-          { id: "tool_set_a@0.3.270+tool-set@2.1.270" },
-          { id: "tool@1.256.3" },
-          { id: "tool@1.2.999999" },
-        ],
-      }),
-    ).toEqual([]);
-  });
-
-  test("in that answer only the catalog ids are exempt, other pin-shaped fields are not", () => {
-    for (const value of [
-      "user@127.0.1",
-      "build-agent@1.2.3",
-      "user@127.0.1+tool@0.3.270",
-    ])
-      expect(
-        catalog({
-          tool_catalogs: [{ id: "tool_set_a@0.3.270" }],
-          connections: [{ id: value }],
-          nested: { tool_catalogs: [{ id: value }] },
-        }),
-        value,
-      ).toContain("email outside example.test");
-  });
-
-  test("a pin-shaped string is caught in any other answer and with anything around it", () => {
+  test("a pin-shaped string is caught with anything around it", () => {
     for (const value of [
       "tool_set_a@0.3.270+tool-set@2.1.270",
       "build-agent@1.2.3",
@@ -140,16 +107,9 @@ describe("demo fixture scan", () => {
       "user@10.1.2",
       "user@127.0.1+tool@0.3.270",
       "user%401.2.3 and more",
-      "profile_x@1.2.3 user@gmail.com",
+      "tool_x@1.2.3 user@gmail.com",
     ])
       expect(scan({ value }), value).toContain("email outside example.test");
-    for (const value of [
-      "someone@gmail.com",
-      "profile_x@1.2.3 user@gmail.com",
-      "x@8.8.8.8",
-      "http://user@127.1/",
-    ])
-      expect(catalog({ value }), value).toContain("email outside example.test");
   });
 
   test("the fixture key itself is scanned", () => {

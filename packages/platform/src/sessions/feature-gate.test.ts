@@ -85,19 +85,4 @@ describe("RuntimeFeatureGate", () => {
     );
   });
 
-  test("names every refused profile at once and passes a catalog it can run", () => {
-    expect(() =>
-      gate.assertProfiles({
-        ok: { runtime_kind: "claude_agent_sdk", permission_mode: "auto" },
-        "pi-auto": { runtime_kind: "pi_coding_agent", permission_mode: "auto" },
-        codex: { runtime_kind: "codex_app_server", permission_mode: "plan" },
-      }),
-    ).toThrow(
-      "Catalog profile(s) refused: pi-auto: Runtime pi_coding_agent does not support classifier_review; codex: Runtime codex_app_server is not installed (installed: claude_agent_sdk, pi_coding_agent)",
-    );
-    gate.assertProfiles({
-      ok: { runtime_kind: "claude_agent_sdk", permission_mode: "auto" },
-      "pi-plan": { runtime_kind: "pi_coding_agent", permission_mode: "plan" },
-    });
-  });
 });

@@ -8,7 +8,7 @@ import { createWorkerGateway } from "./worker-gateway.ts";
 
 const JUDGMENT = "6a1d2f3e-4b5c-4d6e-8f70-81a2b3c4d5e6";
 const NOW = new Date("2026-11-02T15:30:00.000Z");
-const catalog: SessionCatalog = { profiles: {}, repositories: {} };
+const catalog: SessionCatalog = { connections: {}, repositories: {} };
 const LUNA = {
   url: "https://decisions.example.invalid",
   headers: [["authorization", "Bearer judge-key"]] as Array<[string, string]>,

@@ -6,6 +6,10 @@ import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { captureEngineSettingsStart } from "./engine-settings-start.ts";
 import * as schema from "./schema.ts";
 import { fixtureTeamSql } from "./testing/fixture-team.ts";
+import {
+  RELEASE_SPEC_SQL_COLUMNS,
+  releaseSpecSqlValues,
+} from "./testing/spec-pins.ts";
 
 let client: PGlite;
 let db: PgliteDatabase<typeof schema>;
@@ -34,10 +38,10 @@ beforeEach(async () => {
   );
   await client.query(
     `INSERT INTO agent_releases (id, agent_id, version_id, card_sha256,
-       runtime_profile_id, profile_digest, runtime_config_snapshot,
-       effective_tools, policy_pins)
-     VALUES ($1, $2, $3, $4, 'coding', $5, '{}', '{}', '{}')`,
-    [releaseId, agentId, versionId, "a".repeat(64), `sha256:${"c".repeat(64)}`],
+       runtime_config_snapshot, effective_tools, policy_pins,
+       ${RELEASE_SPEC_SQL_COLUMNS})
+     VALUES ($1, $2, $3, $4, '{}', '{}', '{}', ${releaseSpecSqlValues()})`,
+    [releaseId, agentId, versionId, "a".repeat(64)],
   );
 });
 

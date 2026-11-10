@@ -31,6 +31,7 @@ import {
   workspaces,
 } from "./schema.ts";
 import { fixtureTeam } from "./testing/fixture-team.ts";
+import { fixtureRelease, TEST_MODEL } from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -628,12 +629,14 @@ integration("extension bundles on PostgreSQL", () => {
         scope: "workspace" as const,
       },
     ];
+    const agentReleaseId = await fixtureRelease(db);
     const request = (over: Record<string, unknown> = {}) => ({
       limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
       principal: owner,
       idempotencyKey: "same-key",
       payloadHash: "same-hash",
-      profileId: "claude-coding-v1",
+      agentReleaseId,
+      model: TEST_MODEL,
       repository: {
         id: "sample-app",
         url: "https://example.invalid/app.git",

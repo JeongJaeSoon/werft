@@ -28,8 +28,8 @@ import {
   createPostgresSlackInboundEventStore,
   createPostgresSurfaceBindingStore,
   type Database,
-  installationProfiles,
   linkedAccounts,
+  providerConnections,
   memberships,
   registerSlackInstallation,
   sessionLinks,
@@ -48,7 +48,6 @@ import { migrate } from "@werft-ai/db/migrate";
 import { createLogger, type LogRecord } from "@werft-ai/observability";
 import {
   type Caller,
-  type CatalogProfile,
   callerFor,
   createAgentService,
   createAuthorizationPolicy,
@@ -58,7 +57,6 @@ import {
   type SlackInboundClaim,
   type SlackInboundEventStore,
   slackConversationKey,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import { startFakeSlackApi } from "@werft-ai/testkit/fake-slack-api";
 import {
@@ -74,49 +72,9 @@ import {
   settingsCatalog,
   settingsDocument,
 } from "../test-support/settings.ts";
+import { TEST_RUNTIMES } from "../test-support/catalog.ts";
 import { slackSessionHandler } from "./main.ts";
 
-const PROFILES = `profiles:
-  general:
-    runtime_kind: claude_agent_sdk
-    runtime_version: "0.3.270"
-    model: claude-sonnet-5
-    tools: [Read]
-    permission_mode: default
-    repository: none
-    provider:
-      kind: anthropic
-      endpoint: https://api.anthropic.invalid
-      auth:
-        kind: api_key
-        value_env: PROVIDER_KEY
-  coding:
-    runtime_kind: claude_agent_sdk
-    runtime_version: "0.3.270"
-    model: claude-sonnet-5
-    tools: [Read]
-    permission_mode: default
-    repository: required
-    provider:
-      kind: anthropic
-      endpoint: https://api.anthropic.invalid
-      auth:
-        kind: api_key
-        value_env: PROVIDER_KEY
-  drafting:
-    runtime_kind: claude_agent_sdk
-    runtime_version: "0.3.270"
-    model: claude-sonnet-5
-    tools: [Read]
-    permission_mode: default
-    repository: optional
-    provider:
-      kind: anthropic
-      endpoint: https://api.anthropic.invalid
-      auth:
-        kind: api_key
-        value_env: PROVIDER_KEY
-`;
 const APP_ID = "A0NOTES";
 const TEAM = "T0ACME";
 const BOT_USER = "U0BOT";
@@ -145,11 +103,11 @@ slack.apps.set(APP_ID, {
 const logger = createLogger({ level: "error" });
 const key = SecretKey.fromHex(randomBytes(32).toString("hex"), "TEST_KEY");
 const SETTINGS = settingsDocument(
-  PROFILES,
   `connections:
   main:
     kind: anthropic
     endpoint: https://api.anthropic.invalid
+    models: [claude-sonnet-5]
     auth:
       kind: api_key
       value_env: PROVIDER_KEY
@@ -158,7 +116,6 @@ const SETTINGS = settingsDocument(
   notes-repo:
     url: https://github.com/acme/notes
     branch: main
-    profiles: [coding]
     auth: {kind: github_app}
 `,
 );
@@ -202,7 +159,7 @@ function useDatabase(engine: string) {
 type Fixture = Awaited<ReturnType<typeof agentInSlack>>;
 
 async function agentInSlack(
-  profileId = "general",
+  connectionId = "main",
   options: {
     repositoryId?: string;
     /** The catalog the release is made against; the handler's stays as loaded. */
@@ -249,6 +206,7 @@ async function agentInSlack(
       await settingsCatalog(db),
     ),
     credentials: createPostgresCredentialBindingStore(db),
+    runtimes: TEST_RUNTIMES,
   });
   const managingTeamId = randomUUID();
   await db
@@ -268,7 +226,7 @@ async function agentInSlack(
   const agentId = created.agent.id;
   const { release } = await agentsService.createRelease(owner, agentId, {
     version_id: created.versions[0]?.id ?? "",
-    runtime_profile_id: profileId,
+    connection_id: connectionId,
     ...(options.repositoryId ? { repository_id: options.repositoryId } : {}),
   });
   if (options.activate !== false) {
@@ -488,7 +446,6 @@ async function reserveThread(fixture: Fixture) {
     openedByTs: "100.000100",
     agentId: fixture.agentId,
     releaseId: fixture.releaseId,
-    profileId: "general",
     createdBy: fixture.ownerId,
   });
 }
@@ -531,7 +488,6 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
       threadId: "100.000100",
       openedByTs: "100.000100",
       releaseId: fixture.releaseId,
-      profileId: "general",
       createdBy: fixture.ownerId,
     });
     const allowed = await db
@@ -609,7 +565,7 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
   });
 
   test("a release with a repository opens the thread's session on it", async () => {
-    const fixture = await agentInSlack("coding", {
+    const fixture = await agentInSlack("main", {
       repositoryId: "notes-repo",
     });
     const { handle, notices } = handler();
@@ -619,7 +575,6 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     const opened = await sessionsOf(fixture);
     expect(opened).toHaveLength(1);
     expect(opened[0]).toMatchObject({
-      profileId: "coding",
       repositoryId: "notes-repo",
       repoUrl: "https://github.com/acme/notes",
       agentReleaseId: fixture.releaseId,
@@ -627,7 +582,7 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
   });
 
   test("an agent with no active release says so in the thread", async () => {
-    const fixture = await agentInSlack("general", { activate: false });
+    const fixture = await agentInSlack("main", { activate: false });
     const { handle, notices } = handler();
     await deliver(fixture, mention("100.000100"));
     await drain(handle);
@@ -640,13 +595,13 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     expect(await inboxStatuses()).toEqual(["processed"]);
   });
 
-  test("a release whose profile left the catalog says so in the thread", async () => {
+  test("a release whose connection left the catalog says so in the thread", async () => {
     const fixture = await agentInSlack("retired", {
       releasedUnder: (loaded) => ({
         ...loaded,
-        profiles: {
-          ...loaded.profiles,
-          retired: loaded.profiles.general as CatalogProfile,
+        connections: {
+          ...loaded.connections,
+          retired: loaded.connections.main as SessionCatalog["connections"][string],
         },
       }),
     });
@@ -656,14 +611,14 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     expect(await sessionsOf(fixture)).toEqual([]);
     expect(notices).toHaveLength(1);
     expect(notices[0]).toMatchObject({
-      reason: "profile_unavailable",
-      notice: { message: "profileUnavailable" },
+      reason: "release_unavailable",
+      notice: { message: "releaseUnavailable" },
     });
     expect(await inboxStatuses()).toEqual(["processed"]);
   });
 
-  test("a reply in a thread whose profile the operator blocked since queues nothing and says so", async () => {
-    const fixture = await agentInSlack("general");
+  test("a reply in a thread whose connection the operator disabled since queues nothing and says so", async () => {
+    const fixture = await agentInSlack("main");
     const records: LogRecord[] = [];
     const { handle, notices } = handler(
       undefined,
@@ -681,10 +636,10 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     await deliver(fixture, mention("100.000100"));
     await drain(handle);
     await db
-      .update(installationProfiles)
-      .set({ blockedAt: new Date(), blockedBy: fixture.ownerId })
-      .where(eq(installationProfiles.id, "general"));
-    // A profile read within the last second is not read again.
+      .update(providerConnections)
+      .set({ disabledAt: new Date(), disabledBy: fixture.ownerId })
+      .where(eq(providerConnections.id, "main"));
+    // Settings read within the last second are not read again.
     await Bun.sleep(1_100);
     await deliver(
       fixture,
@@ -698,8 +653,8 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     ]);
     expect(notices).toHaveLength(1);
     expect(notices[0]).toMatchObject({
-      reason: "profile_unavailable",
-      notice: { message: "profileUnavailable" },
+      reason: "release_unavailable",
+      notice: { message: "releaseUnavailable" },
     });
     // The refusal's log names why, not only the error code.
     const refused = records.filter(
@@ -708,76 +663,43 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     expect(refused).toHaveLength(1);
     expect(refused[0]).toMatchObject({
       level: "warn",
-      fields: { code: "PROFILE_BLOCKED", reason_code: "blocked" },
+      fields: {
+        code: "RELEASE_SPEC_UNAVAILABLE",
+        reason_code: "connection_missing",
+      },
     });
   });
 
-  test("a release whose profile the operator blocked says so in the thread", async () => {
-    const fixture = await agentInSlack("general");
+  test("a release whose connection the operator disabled says so in the thread", async () => {
+    const fixture = await agentInSlack("main");
     await db
-      .update(installationProfiles)
-      .set({ blockedAt: new Date(), blockedBy: fixture.ownerId })
-      .where(eq(installationProfiles.id, "general"));
+      .update(providerConnections)
+      .set({ disabledAt: new Date(), disabledBy: fixture.ownerId })
+      .where(eq(providerConnections.id, "main"));
     const { handle, notices } = handler();
     await deliver(fixture, mention("100.000100"));
     await drain(handle);
     expect(await sessionsOf(fixture)).toEqual([]);
     expect(notices).toHaveLength(1);
     expect(notices[0]).toMatchObject({
-      reason: "profile_unavailable",
-      notice: { message: "profileUnavailable" },
+      reason: "release_unavailable",
+      notice: { message: "releaseUnavailable" },
     });
     expect(await inboxStatuses()).toEqual(["processed"]);
   });
 
-  test("a release made before its profile needed a repository says so in the thread, once", async () => {
-    // The repository mode is not part of the profile's fingerprint, so the
-    // release still verifies once the catalog requires one.
-    const fixture = await agentInSlack("coding", {
+  test("a release whose repository left the catalog says so", async () => {
+    const fixture = await agentInSlack("main", {
+      repositoryId: "old-repo",
       releasedUnder: (loaded) => ({
         ...loaded,
-        profiles: {
-          ...loaded.profiles,
-          coding: {
-            ...(loaded.profiles.coding as CatalogProfile),
-            repository: "optional",
-          },
+        repositories: {
+          ...loaded.repositories,
+          "old-repo": loaded.repositories[
+            "notes-repo"
+          ] as SessionCatalog["repositories"][string],
         },
       }),
-    });
-    const { handle, notices } = handler();
-    await deliver(fixture, mention("100.000100"));
-    await deliver(fixture, mention("100.000200", { thread_ts: "100.000100" }));
-    await drain(handle);
-    expect(await sessionsOf(fixture)).toEqual([]);
-    expect(notices).toHaveLength(1);
-    expect(notices[0]).toMatchObject({
-      agentId: fixture.agentId,
-      channelId: CHANNEL,
-      threadTs: "100.000100",
-      slackUserId: PERSON,
-      reason: "repository_required",
-      notice: { message: "repositoryRequired" },
-    });
-    expect(await inboxStatuses()).toEqual(["processed", "processed"]);
-  });
-
-  test("a release whose repository left the catalog says so, even for a profile that may run without one", async () => {
-    const fixture = await agentInSlack("drafting", {
-      repositoryId: "old-repo",
-      releasedUnder: (loaded) =>
-        withSeededInstallation({
-          ...loaded,
-          repositories: {
-            ...loaded.repositories,
-            "old-repo": {
-              ...(loaded.repositories[
-                "notes-repo"
-              ] as SessionCatalog["repositories"][string]),
-              profiles: ["drafting"],
-            },
-          },
-        }),
     });
     const { handle, notices } = handler();
     await deliver(fixture, mention("100.000100"));
@@ -791,7 +713,7 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
   });
 
   test("an agent whose GitHub settings cannot be read says so in the thread", async () => {
-    const fixture = await agentInSlack("general");
+    const fixture = await agentInSlack("main");
     await db.insert(schema.agentGitHubSettings).values({
       agentId: fixture.agentId,
       workspaceId: fixture.workspaceId,
@@ -835,7 +757,7 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
   });
 
   test("an agent not waiting for a mention opens a session on an unmentioned top-level post, not on a stray reply", async () => {
-    const fixture = await agentInSlack("general", { mentionOnly: false });
+    const fixture = await agentInSlack("main", { mentionOnly: false });
     const { handle, notices } = handler();
     await deliver(fixture, message("100.000100"));
     await deliver(fixture, message("100.000200", { thread_ts: "100.000100" }));
@@ -861,7 +783,7 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
   });
 
   test("an unused channel takes no unmentioned post", async () => {
-    const fixture = await agentInSlack("general", {
+    const fixture = await agentInSlack("main", {
       mode: "off",
       mentionOnly: false,
     });
@@ -945,7 +867,7 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
   });
 
   test("a private channel bound as private but seen as public is refused with a notice", async () => {
-    const fixture = await agentInSlack("general", {
+    const fixture = await agentInSlack("main", {
       channelKind: "private_channel",
     });
     await createPostgresSurfaceBindingStore(db).approve({
@@ -1030,7 +952,7 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
   });
 
   test("a private channel saved from the console waits: a mention and a thread reply get one notice and no session", async () => {
-    const fixture = await agentInSlack("general", {
+    const fixture = await agentInSlack("main", {
       channelKind: "private_channel",
     });
     const { handle, notices } = handler();
@@ -1046,7 +968,7 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
   });
 
   test("talk in a channel waiting for approval is not answered and not told", async () => {
-    const fixture = await agentInSlack("general", {
+    const fixture = await agentInSlack("main", {
       channelKind: "private_channel",
       mentionOnly: false,
     });
@@ -1058,7 +980,7 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
   });
 
   test("after approval a new mention is answered, one sent before it is not", async () => {
-    const fixture = await agentInSlack("general", {
+    const fixture = await agentInSlack("main", {
       channelKind: "private_channel",
     });
     const { handle, notices } = handler();
@@ -1097,7 +1019,7 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
   });
 
   test("the bot removed from an approved private channel leaves it inactive and silent; invited again it waits for a new approval before it answers", async () => {
-    const fixture = await agentInSlack("general", {
+    const fixture = await agentInSlack("main", {
       channelKind: "private_channel",
     });
     const { handle, notices } = handler();
@@ -1181,7 +1103,7 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
   });
 
   test("a mention queued before the bot left is dropped as channel_left when it is taken, not processed", async () => {
-    const fixture = await agentInSlack("general", {
+    const fixture = await agentInSlack("main", {
       channelKind: "private_channel",
     });
     const { handle, notices } = handler();
@@ -1221,7 +1143,7 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
   });
 
   test("a re-invite handled before the older leave still ends in a new approval, with no answer meanwhile", async () => {
-    const fixture = await agentInSlack("general", {
+    const fixture = await agentInSlack("main", {
       channelKind: "private_channel",
     });
     const { handle } = handler();
@@ -1287,7 +1209,7 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
   });
 
   test("a leave the approval already knew of, arriving late, leaves the approval standing", async () => {
-    const fixture = await agentInSlack("general", {
+    const fixture = await agentInSlack("main", {
       channelKind: "private_channel",
     });
     const { handle } = handler();
@@ -1329,7 +1251,7 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
   });
 
   test("another member leaving a private channel changes nothing", async () => {
-    const fixture = await agentInSlack("general", {
+    const fixture = await agentInSlack("main", {
       channelKind: "private_channel",
     });
     const { handle } = handler();

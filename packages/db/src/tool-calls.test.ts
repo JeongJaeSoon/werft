@@ -24,6 +24,7 @@ import {
 import { fixtureTeam } from "./testing/fixture-team.ts";
 import { projectToolCalls, toolCallTotals } from "./tool-calls.ts";
 import { bucketMs, histMedianMs } from "./tool-calls-hist.ts";
+import { TEST_CONNECTION_ID, releaseSpecColumns } from "./testing/spec-pins.ts";
 
 const OWNER = "owner-a";
 const ME = "00000000-0000-4000-8000-000000000001";
@@ -66,8 +67,8 @@ beforeAll(async () => {
     agentId: AGENT,
     versionId,
     cardSha256: "0".repeat(64),
-    runtimeProfileId: "coding",
-    profileDigest: "digest",
+    connectionId: TEST_CONNECTION_ID,
+    ...releaseSpecColumns(),
     runtimeConfigSnapshot: {},
     effectiveTools: [],
   });

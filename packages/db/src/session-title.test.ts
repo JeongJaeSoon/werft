@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { PGlite } from "@electric-sql/pglite";
+import { normalizeSessionTitle } from "@werft-ai/contracts";
 import {
-  type CatalogProfile,
   createAuthorizationPolicy,
   createSessionService,
+  deriveSessionTitle,
   type SessionCatalog,
   SessionServiceError,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import { testCaller } from "@werft-ai/testkit/callers";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
@@ -27,35 +27,23 @@ import {
   workspaces,
 } from "./schema.ts";
 import { createPostgresSessionTitleStore } from "./session-titles.ts";
+import {
+  fixtureRelease,
+  TEST_CONNECTION_ID,
+  TEST_MODEL,
+  testSessionCatalog,
+} from "./testing/spec-pins.ts";
 import { createPostgresUsageReader } from "./usage-reader.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 const OWNER = testCaller("owner-a");
 const OTHER = testCaller("owner-b");
 
-const PROFILE: CatalogProfile = {
-  runtime_kind: "claude_agent_sdk",
-  runtime_version: "0.3.270",
-  model: "claude-sonnet-5",
-  tools: ["Read"],
-  permission_mode: "default",
-  provider: {
-    kind: "anthropic",
-    endpoint: "https://sonnet.invalid",
-    auth: {
-      kind: "api_key",
-      value: "provider-key",
-      ref: { value_env: "PROVIDER_KEY" },
-    },
-  },
-};
-const CATALOG: SessionCatalog = withSeededInstallation({
-  profiles: { sonnet: PROFILE },
+const CATALOG: SessionCatalog = testSessionCatalog({
   repositories: {
     app: {
       url: "https://example.invalid/app.git",
       branch: "main",
-      profiles: ["sonnet"],
       auth: { kind: "github_app", registered: true },
     },
   },
@@ -88,12 +76,29 @@ const service = () =>
     },
   });
 
+// As the service's create stores it: the store is what is under test.
 async function create(body: { message: string; title?: string }) {
-  const created = await service().createSession(OWNER, {
+  const created = await createPostgresSessionUnitOfWork(db).acceptInputAtomic({
+    principal: OWNER,
     idempotencyKey: crypto.randomUUID(),
-    body: { profile_id: "sonnet", repository_id: "app", ...body },
+    payloadHash: crypto.randomUUID(),
+    title:
+      body.title === undefined
+        ? deriveSessionTitle(body.message)
+        : normalizeSessionTitle(body.title),
+    titleSource: body.title === undefined ? "derived" : "user",
+    repository: {
+      id: "app",
+      url: "https://example.invalid/app.git",
+      branch: "main",
+    },
+    agentReleaseId: await fixtureRelease(db),
+    model: TEST_MODEL,
+    message: body.message,
+    limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
   });
-  return created.session_id;
+  if (created.outcome !== "accepted") throw new Error(created.outcome);
+  return created.response.session_id;
 }
 
 async function statusEvents(sessionId: string) {
@@ -294,7 +299,8 @@ describe("generated titles (94S-1005)", () => {
       outcome: "issued",
       message: "fix the flaky test",
       result: "Fixed it.",
-      profileId: "sonnet",
+      connectionId: TEST_CONNECTION_ID,
+      model: TEST_MODEL,
     });
     const authorized = await titles().authorizeAtomic({ tokenHash: hash("a") });
     expect(authorized).toMatchObject({ outcome: "ok", sessionId, attemptId });

@@ -103,7 +103,7 @@ export interface ModelOption {
  * field keeps it.
  */
 export function modelOptions(
-  connection: ConnectionOption | undefined,
+  connection: Pick<ConnectionOption, "models"> | undefined,
   current: string,
 ): ModelOption[] {
   const models = connection?.models ?? [];
@@ -151,6 +151,15 @@ export function AgentCardFields({
   const connection = catalog.data?.items.find(
     (item) => item.id === connectionId,
   );
+  // Before a connection is picked, every model some connection offers.
+  const offered =
+    connectionId === "" && catalog.data
+      ? {
+          models: [
+            ...new Set(catalog.data.items.flatMap((item) => item.models)),
+          ].sort(),
+        }
+      : connection;
   return (
     <>
       {catalog.isPending ? (
@@ -166,7 +175,6 @@ export function AgentCardFields({
           <Field>
             <FieldLabel>{t("agentCard.connection")}</FieldLabel>
             <NativeSelect
-              required
               value={connectionId}
               onChange={(event) => onConnectionChange(event.target.value)}
             >
@@ -188,7 +196,7 @@ export function AgentCardFields({
             ) : null}
           </Field>
           <ModelSelect
-            options={modelOptions(connection, draft.model)}
+            options={modelOptions(offered, draft.model)}
             value={draft.model}
             error={errors.model}
             onChange={(model) => set("model", model)}

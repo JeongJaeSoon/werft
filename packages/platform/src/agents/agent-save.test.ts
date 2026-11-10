@@ -13,8 +13,11 @@ import type {
   InsertReleaseResult,
   UpdateAgentResult,
 } from "../ports/agent-store.ts";
-import type { CatalogProfile, SessionCatalog } from "../sessions/catalog.ts";
-import { withSeededInstallation } from "../sessions/profile-registry.ts";
+import {
+  TEST_CONNECTION_ID,
+  TEST_RUNTIMES,
+  testCatalog,
+} from "../testing/catalog-fakes.ts";
 import { createAgentService } from "./agent-service.ts";
 import { cardContentSha256, deriveReleaseId } from "./release-ids.ts";
 
@@ -24,30 +27,11 @@ const AGENT = "019a0000-0000-7000-8000-0000000000a1";
 const VERSION = "019a0000-0000-7000-8000-0000000000a2";
 const AT = "2026-10-11T00:00:00.000Z";
 
-const PROFILE: CatalogProfile = {
-  runtime_kind: "claude_agent_sdk",
-  runtime_version: "0.3.270",
-  model: "claude-sonnet-5",
-  tools: ["Read"],
-  permission_mode: "default",
-  repository: "optional",
-  provider: {
-    kind: "litellm",
-    endpoint: "https://litellm.invalid",
-    auth: {
-      kind: "api_key",
-      value: "catalog-provider-key",
-      ref: { value_env: "PROVIDER_KEY" },
-    },
-  },
-};
-const CATALOG: SessionCatalog = withSeededInstallation({
-  profiles: { coding: PROFILE },
+const CATALOG = testCatalog({
   repositories: {
     app: {
       url: "https://example.invalid/app.git",
       branch: "main",
-      profiles: ["coding"],
       auth: { kind: "github_app", registered: true },
     },
   },
@@ -85,9 +69,8 @@ function activeRelease(): AgentRelease {
   const identity = {
     agent_id: AGENT,
     card_sha256: "b".repeat(64),
-    runtime_profile_id: "coding",
+    connection_id: TEST_CONNECTION_ID,
     repository_id: "app",
-    profile_digest: "digest",
     runtime_config_snapshot: { model: "claude-sonnet-5" },
     effective_tools: { tools: ["Read"], mcp: [] },
     policy_pins: { github: GITHUB },
@@ -130,7 +113,6 @@ function record(): AgentRecord {
     releases: [active],
     active_release: active,
     behavior_revision: 5,
-    model_source: "profile",
     draft: null,
   };
 }
@@ -185,7 +167,6 @@ function scripted(script: Script) {
     modelMigrationCandidates: async () => [],
     activationActor: async () => null,
     notifyModelMigrationFailed: async () => 0,
-    followProfile: async () => ({ outcome: "updated" as const }),
     insertRelease: async (input) => {
       calls.insert.push(input);
       const outcome = inserts.shift() ?? "created";
@@ -228,6 +209,7 @@ function scripted(script: Script) {
     store,
     catalog: CATALOG,
     credentials: { unboundRefs: async () => [] },
+    runtimes: TEST_RUNTIMES,
   });
   void createAuthorizationPolicy;
   return { service, calls };
@@ -374,7 +356,7 @@ describe("a card save asks releaseAgent for what the request changes", () => {
     expect(superseded.release.version_id).toBe(VERSION);
   });
 
-  test("a model the profile lacks is a failed draft naming model_not_in_profile", async () => {
+  test("a model the connection does not offer is a failed draft naming model_not_in_connection", async () => {
     const wrong = agentCardSchema.parse({
       ...card,
       model: "other-model",
@@ -396,10 +378,10 @@ describe("a card save asks releaseAgent for what the request changes", () => {
           },
         ],
       },
-      { card: wrong, model_source: "fixed" } as never,
+      { card: wrong },
     );
     const saved = await result;
-    expect(saved.release.reason).toBe("model_not_in_profile");
+    expect(saved.release.reason).toBe("model_not_in_connection");
     expect(calls.insert).toEqual([]);
   });
 });

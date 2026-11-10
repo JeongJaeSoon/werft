@@ -14,10 +14,6 @@ import type {
   SettingsDocumentStore,
   SettingsRow,
 } from "../ports/settings-document-store.ts";
-import {
-  catalogProfileConfigSchema,
-  catalogProviderSchema,
-} from "./catalog.ts";
 import { SessionServiceError } from "./session-service.ts";
 import { createSettingsConsoleService } from "./settings-console-service.ts";
 import type { SettingsKind } from "./settings-document.ts";
@@ -94,9 +90,7 @@ function service(
     result?: SettingsConsoleResult;
     secretStoreOn?: boolean;
     leftOut?: string[];
-    profiles?: Record<string, ReturnType<typeof stored>>;
     use?: { agents: number; sessions: number; judgeNamed: boolean };
-    refreshFails?: boolean;
   } = {},
 ) {
   const writes: unknown[][] = [];
@@ -126,6 +120,7 @@ function service(
     setValue: record("setValue"),
     convertConnection: record("convertConnection"),
     setConnectionAutoMode: record("setConnectionAutoMode"),
+    setConnectionModels: record("setConnectionModels"),
     disable: record("disable"),
     enableConnection: record("enableConnection"),
     setMcpWorkspaces: record("setMcpWorkspaces"),
@@ -142,42 +137,10 @@ function service(
     reread: async () => {
       rereads += 1;
     },
-    profiles: {
-      refresh: async () => {
-        if (options.refreshFails) throw new Error("database is down");
-      },
-      catalog: {
-        profiles: {},
-        installation: new Map(Object.entries(options.profiles ?? {})),
-      },
-      settings: () => ({ connections: CONNECTIONS, connection_aliases: {} }),
-    },
   });
   return { settings, writes, uses, rereads: () => rereads };
 }
 
-const PROVIDER = catalogProviderSchema.parse({
-  kind: "anthropic",
-  endpoint: "https://api.anthropic.invalid",
-  auth: { kind: "api_key", stored: "connection:console" },
-});
-const CONNECTIONS = { console: PROVIDER };
-
-/** An installation profile entry running over `PROVIDER`. */
-const stored = (id: string, state: "usable" | "retired" = "usable") => ({
-  id,
-  origin: "console" as const,
-  state,
-  repository_ids: [],
-  definition: catalogProfileConfigSchema.parse({
-    runtime_kind: "claude_agent_sdk",
-    runtime_version: "0.3.270",
-    model: "claude-sonnet-5",
-    tools: ["Read"],
-    permission_mode: "default",
-    provider: PROVIDER,
-  }),
-});
 
 const NEW_CONNECTION = {
   id: "console",
@@ -560,39 +523,97 @@ describe("what disabling a connection would leave without a model", () => {
     expect(uses).toEqual([]);
   });
 
-  test("the profiles, then what runs on them, come back as counts only", async () => {
+  test("what runs on the connection comes back as counts only", async () => {
     const { settings, uses } = service({
       rows,
-      profiles: {
-        op_a_v1: stored("op_a_v1"),
-        op_a_v0: stored("op_a_v0", "retired"),
-      },
       use: { agents: 3, sessions: 2, judgeNamed: true },
     });
     const impact = await settings.connectionImpact(caller("owner"), "console");
     expect(impact).toEqual({
       id: "console",
-      profile_count: 1,
       agent_count: 3,
       session_count: 2,
       judge_used: true,
     });
-    // The past version is looked up for releases and sessions, not counted.
-    expect(uses).toEqual([
-      { profileIds: ["op_a_v0", "op_a_v1"], connectionId: "console" },
+    expect(uses).toEqual([{ connectionId: "console" }]);
+  });
+});
+
+describe("a connection's models", () => {
+  test("only the signed-in owner sets them", async () => {
+    const { settings, writes } = service({
+      rows: { connection: [connectionRow("console")] },
+    });
+    for (const who of [caller("admin"), caller("member"), apiKey]) {
+      expect(
+        (
+          await refusal(
+            settings.setConnectionModels(who, "console", { models: ["m"] }),
+          )
+        ).code,
+      ).toBe("FORBIDDEN");
+    }
+    expect(writes).toEqual([]);
+  });
+
+  test("are written with their series, and a repeat or a shared rank is refused", async () => {
+    const { settings, writes } = service({
+      rows: { connection: [connectionRow("console")] },
+    });
+    for (const request of [
+      { models: ["a", "a"] },
+      {
+        models: ["a", "b"],
+        model_families: {
+          a: { family: "f", rank: 1 },
+          b: { family: "f", rank: 1 },
+        },
+      },
+    ]) {
+      expect(
+        (
+          await refusal(
+            settings.setConnectionModels(caller("owner"), "console", request),
+          )
+        ).code,
+      ).toBe("BAD_REQUEST");
+    }
+    expect(writes).toEqual([]);
+    await settings.setConnectionModels(caller("owner"), "console", {
+      models: ["a", "b"],
+      model_families: { a: { family: "f", rank: 1 } },
+    });
+    expect(writes).toEqual([
+      [
+        "setConnectionModels",
+        "console",
+        { models: ["a", "b"], model_families: { a: { family: "f", rank: 1 } } },
+      ],
     ]);
   });
 
-  test("a failed read of the profiles is an error, never a count from a stale snapshot", async () => {
-    const { settings, uses } = service({
-      rows,
-      profiles: { op_a_v1: stored("op_a_v1") },
-      refreshFails: true,
+  test("are listed with the connection", async () => {
+    const { settings } = service({
+      rows: {
+        connection: [
+          connectionRow("console", {
+            models: ["claude-sonnet-5"],
+            modelFamilies: { "claude-sonnet-5": { family: "sonnet", rank: 5 } },
+          }),
+          connectionRow("bare"),
+        ],
+      },
     });
+    const listed = await settings.listConnections(caller("owner"));
     expect(
-      (await refusal(settings.connectionImpact(caller("owner"), "console")))
-        .code,
-    ).toBe("BACKEND_UNAVAILABLE");
-    expect(uses).toEqual([]);
+      listed.items.map((item) => [item.id, item.models, item.model_families]),
+    ).toEqual([
+      ["bare", [], null],
+      [
+        "console",
+        ["claude-sonnet-5"],
+        { "claude-sonnet-5": { family: "sonnet", rank: 5 } },
+      ],
+    ]);
   });
 });

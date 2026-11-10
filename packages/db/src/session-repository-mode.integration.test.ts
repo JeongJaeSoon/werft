@@ -26,6 +26,7 @@ import {
 } from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
 import { sessions } from "./schema.ts";
+import { fixtureRelease, TEST_MODEL } from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -174,12 +175,13 @@ integration("sessions.repository_mode", () => {
   test('"none" is accepted as a session without a repository, a refused pair is not', async () => {
     await migrate(db, { migrationsFolder: MIGRATIONS });
     const inputs = createPostgresSessionUnitOfWork(db);
-    const accept = (repository: AcceptSessionInput["repository"]) =>
+    const accept = async (repository: AcceptSessionInput["repository"]) =>
       inputs.acceptInputAtomic({
         principal: { ownerId: `owner-${randomUUID()}` },
         idempotencyKey: randomUUID(),
         payloadHash: randomUUID(),
-        profileId: "general",
+        agentReleaseId: await fixtureRelease(db),
+        model: TEST_MODEL,
         repository,
         message: "hello",
         limits: LIMITS,
@@ -224,12 +226,13 @@ integration("sessions.repository_mode", () => {
     const inputs = createPostgresSessionUnitOfWork(db);
     const reader = createPostgresSessionReader(db);
     const ownerId = `owner-${randomUUID()}`;
-    const accept = (attachedRepositoryIds?: string[]) =>
+    const accept = async (attachedRepositoryIds?: string[]) =>
       inputs.acceptInputAtomic({
         principal: { ownerId },
         idempotencyKey: randomUUID(),
         payloadHash: randomUUID(),
-        profileId: "general",
+        agentReleaseId: await fixtureRelease(db),
+        model: TEST_MODEL,
         repository: {
           id: "repo-a",
           url: "https://example.invalid/a.git",
@@ -263,7 +266,8 @@ integration("sessions.repository_mode", () => {
         principal: { ownerId },
         idempotencyKey: randomUUID(),
         payloadHash: randomUUID(),
-        profileId: "general",
+        agentReleaseId: await fixtureRelease(db),
+        model: TEST_MODEL,
         repository: "none",
         ...(attachedRepositoryIds === undefined
           ? {}

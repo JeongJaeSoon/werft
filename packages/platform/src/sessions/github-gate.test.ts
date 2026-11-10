@@ -35,7 +35,7 @@ import {
   type RegisteredGitHubConnection,
 } from "../ports/github-gate.ts";
 import { agentPolicy, releasePolicy } from "../testing/github-fakes.ts";
-import type { InstallationProfileEntry, SessionCatalog } from "./catalog.ts";
+import type { SessionCatalog } from "./catalog.ts";
 import {
   createGitHubConnectionResolver,
   type GitHubConnectionResolver,
@@ -55,7 +55,7 @@ const ALL_ON: GitHubCeiling = {
 };
 
 const CATALOG = {
-  profiles: {},
+  connections: {},
   repositories: {
     app: {
       url: "https://github.com/acme/app.git",
@@ -206,7 +206,15 @@ function harness(
     policy: options.policy,
     githubEnabled: options.githubEnabled ?? true,
     ceiling: options.ceiling ?? GITHUB_CEILING_NONE,
-    repositoryCeiling: options.repositoryCeiling ?? null,
+    // The workspace ceiling judges every session; by default it holds every
+    // repository the fixtures name.
+    repositoryCeiling:
+      options.repositoryCeiling === undefined
+        ? ({
+            repository_ids: ["app", "ghes", "docs", "tools"],
+            github_app_repositories: "listed",
+          } satisfies RepositoryCeiling)
+        : options.repositoryCeiling,
   };
   const pinned =
     state.repositoryId !== null &&
@@ -231,7 +239,6 @@ function harness(
             ownerId: "owner-a",
             sessionId,
             repositoryId: state.repositoryId,
-            profileId: "default",
             attachedRepositoryIds: state.attached,
             repository,
             startedBy: STARTER,
@@ -945,10 +952,9 @@ describe("workflow allow-list", () => {
 });
 
 describe("another repository than the session's", () => {
-  // `docs` is on the session's profile; `app` is the session's own.
+  // `docs` is in the settings; `app` is the session's own.
   const MULTI = {
     ...CATALOG,
-    profiles: { default: {} as SessionCatalog["profiles"][string] },
     repositories: {
       ...CATALOG.repositories,
       docs: {
@@ -957,17 +963,6 @@ describe("another repository than the session's", () => {
         auth: { kind: "github_app", registered: true },
       },
     },
-    installation: new Map<string, InstallationProfileEntry>([
-      [
-        "default",
-        {
-          id: "default",
-          origin: "catalog",
-          state: "usable",
-          repository_ids: ["app", "docs"],
-        },
-      ],
-    ]),
   } satisfies SessionCatalog;
 
   test("is granted for the repository named, as its release lists it", async () => {
@@ -1044,7 +1039,7 @@ describe("another repository than the session's", () => {
     }
   });
 
-  test("is repository_not_allowed off the release's list, the profile or with GitHub off", async () => {
+  test("is repository_not_allowed off the release's list, the settings, the ceiling or with GitHub off", async () => {
     const cases: Array<Parameters<typeof harness>[0]> = [
       { catalog: MULTI, github: settings({ repositories: ["app"] }) },
       { catalog: CATALOG, github: settings({ repositories: ["app", "docs"] }) },
@@ -1098,17 +1093,6 @@ describe("another repository than the session's", () => {
           auth: { kind: "github_app", registered: true },
         },
       },
-      installation: new Map<string, InstallationProfileEntry>([
-        [
-          "default",
-          {
-            id: "default",
-            origin: "catalog",
-            state: "usable",
-            repository_ids: ["app", "docs", "tools"],
-          },
-        ],
-      ]),
     } satisfies SessionCatalog;
     const released = settings({ repositories: ["app", "docs", "tools"] });
 
@@ -1251,23 +1235,6 @@ describe("a session under the agent's settings", () => {
     github_app_repositories: "listed",
   };
   const onList = settings({ repositories: ["app"] });
-  const WORKSPACE_PROFILE = {
-    ...CATALOG,
-    profiles: { default: {} as SessionCatalog["profiles"][string] },
-    installation: new Map<string, InstallationProfileEntry>([
-      [
-        "default",
-        {
-          id: "default",
-          origin: "catalog",
-          state: "usable",
-          repository_ids: ["app"],
-          repository_scope: "workspace",
-        },
-      ],
-    ]),
-  } satisfies SessionCatalog;
-
   test("is granted on the list, in the ceiling; the receipt names the source", async () => {
     const { grant, receipts } = harness({
       policy: agentPolicy(onList, { revision: 7 }),
@@ -1353,20 +1320,18 @@ describe("a session under the agent's settings", () => {
     ).toBe("github_settings_unsupported");
   });
 
-  test("a release session on a workspace profile: the ceiling judges, the pin lists", async () => {
+  test("a release session: the ceiling judges, the pin lists", async () => {
     const inCeiling = harness({
-      catalog: WORKSPACE_PROFILE,
       repositoryCeiling: IN_CEILING,
     });
     await inCeiling.grant({ purpose: "clone" });
     const outside = harness({
-      catalog: WORKSPACE_PROFILE,
       repositoryCeiling: { ...IN_CEILING, repository_ids: [] },
     });
     expect((await refused(outside.grant({ purpose: "clone" }))).reason).toBe(
       "repository_not_allowed",
     );
-    const none = harness({ catalog: WORKSPACE_PROFILE });
+    const none = harness({ repositoryCeiling: null });
     expect((await refused(none.grant({ purpose: "clone" }))).reason).toBe(
       "repository_not_allowed",
     );

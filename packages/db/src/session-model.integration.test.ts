@@ -17,7 +17,6 @@ import {
   profileFingerprint,
   profilePins,
   type SessionCatalog,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import {
   createTempDatabase,
@@ -33,6 +32,7 @@ import * as schema from "./schema.ts";
 import { attempts, sessions, unassignedSessions } from "./schema.ts";
 import { backfillSessionModels } from "./session-model-backfill.ts";
 import { launchSession } from "./testing/launches.ts";
+import { testSessionCatalog } from "./testing/spec-pins.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -78,13 +78,11 @@ const profile: CatalogProfile = {
     },
   },
 };
-const catalog: SessionCatalog = withSeededInstallation({
-  profiles: { [PROFILE_ID]: profile },
+const catalog: SessionCatalog = testSessionCatalog({
   repositories: {
     "sample-app": {
       url: "https://example.invalid/app.git",
       branch: "main",
-      profiles: [PROFILE_ID],
       auth: { kind: "github_app", registered: true },
     },
   },

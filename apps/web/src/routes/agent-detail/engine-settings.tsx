@@ -32,8 +32,8 @@ const GRANT_IDS = [
 
 /**
  * An agent's own run rules, with what also applies to it beside them: the
- * workspace's rules (read only here), the restrictions its profile left, and
- * which allow entries reach nothing.
+ * workspace's rules (read only here) and which allow entries reach
+ * nothing.
  */
 export function EngineSettings({
   agentId,

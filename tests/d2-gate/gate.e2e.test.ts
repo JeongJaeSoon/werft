@@ -317,7 +317,7 @@ async function collectMeta(): Promise<void> {
 describe.skipIf(env === null)("D2 gate", () => {
   beforeAll(async () => {
     if (!env) return;
-    api = new PublicApi(env.apiUrl, env.apiKey);
+    api = new PublicApi(env.apiUrl, env.apiKey, env.releaseId);
     db = database(env.databaseUrl);
     bucket = new Bucket(env.s3Url);
     chaos = new Chaos(env.chaosUrl);
@@ -379,7 +379,7 @@ describe.skipIf(env === null)("D2 gate", () => {
       criterion: "HTTP→scheduler→빌드 이미지 worker",
       title:
         "public HTTP creates the session and the scheduler launches this build's worker image",
-      input: `POST /v1/sessions profile d2-gate, repository gate-app`,
+      input: `POST /v1/sessions release of the gate agent, repository gate-app`,
       expected: `turn 1 completed, worker from ${env?.workerImage}`,
       actual: {
         status: turn1.status,

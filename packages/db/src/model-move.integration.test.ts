@@ -6,7 +6,6 @@ import {
   profileFingerprint,
   releaseSpecRecord,
   verifyReleaseSpec,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import {
   createTempDatabase,
@@ -26,6 +25,13 @@ import {
   unassignedSessions,
 } from "./schema.ts";
 import { launchSession } from "./testing/launches.ts";
+import {
+  TEST_CONNECTION_ID,
+  TEST_MODEL,
+  fixtureRelease,
+  releaseSpecColumns,
+  testSessionCatalog,
+} from "./testing/spec-pins.ts";
 import {
   createPostgresWorkerUnitOfWork,
   moveSessionsToSuccessors,
@@ -88,13 +94,11 @@ integration("a model moved at the next turn's claim", () => {
   const gatewayFor = (profile: CatalogProfile) =>
     createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
-      catalog: withSeededInstallation({
-        profiles: { p: profile },
+      catalog: testSessionCatalog({
         repositories: {
           app: {
             url: "https://example.invalid/app.git",
             branch: "main",
-            profiles: ["p"],
             auth: { kind: "github_app", registered: true },
           },
         },
@@ -125,7 +129,8 @@ integration("a model moved at the next turn's claim", () => {
       principal: { ownerId: `owner-${crypto.randomUUID()}` },
       idempotencyKey: crypto.randomUUID(),
       payloadHash: crypto.randomUUID(),
-      profileId: "p",
+      agentReleaseId: await fixtureRelease(db),
+      model: TEST_MODEL,
       repository: {
         id: "app",
         url: "https://example.invalid/app.git",
@@ -227,8 +232,8 @@ integration("a model moved at the next turn's claim", () => {
         agentId,
         versionId: crypto.randomUUID(),
         cardSha256: "0".repeat(64),
-        runtimeProfileId: "p",
-        profileDigest: "digest",
+        connectionId: TEST_CONNECTION_ID,
+        ...releaseSpecColumns(),
         runtimeConfigSnapshot: {},
         effectiveTools: { tools: [], mcp: [] },
       });
@@ -345,8 +350,8 @@ integration("a model moved at the next turn's claim", () => {
           agentId: crypto.randomUUID(),
           versionId: crypto.randomUUID(),
           cardSha256: "0".repeat(64),
-          runtimeProfileId: "p",
-          profileDigest: "digest",
+          connectionId: TEST_CONNECTION_ID,
+          ...releaseSpecColumns(),
           runtimeConfigSnapshot: {},
           effectiveTools: { tools: [], mcp: [] },
           specSource: record.spec_source,
@@ -436,8 +441,8 @@ integration("a model moved at the next turn's claim", () => {
             agentId: crypto.randomUUID(),
             versionId: crypto.randomUUID(),
             cardSha256: "0".repeat(64),
-            runtimeProfileId: "p",
-            profileDigest: "digest",
+            connectionId: TEST_CONNECTION_ID,
+            ...releaseSpecColumns(),
             runtimeConfigSnapshot: {},
             effectiveTools: { tools: [], mcp: [] },
             ...(id === withSpec
@@ -465,7 +470,7 @@ integration("a model moved at the next turn's claim", () => {
           principal: { ownerId: crypto.randomUUID() },
           idempotencyKey: crypto.randomUUID(),
           payloadHash: crypto.randomUUID(),
-          profileId: "p",
+          model: TEST_MODEL,
           repository: "none",
           model: "sonnet-5-1",
           agentReleaseId: releaseId,

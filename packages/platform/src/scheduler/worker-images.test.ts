@@ -32,7 +32,7 @@ describe("workerImageRuntimesFromEnv", () => {
         WORKER_IMAGE_RUNTIME: JSON.stringify(current),
         WORKER_IMAGE_PREVIOUS_RUNTIME: JSON.stringify({
           ...previous,
-          profiles: {},
+          connections: {},
         }),
       }),
     ).toEqual({ current, previous });

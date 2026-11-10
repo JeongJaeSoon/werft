@@ -112,7 +112,7 @@ describe("a person's reason survives the tool answer", () => {
   const SESSION = "11111111-1111-4111-8111-111111111111";
   const PUSH = "22222222-2222-4222-8222-222222222222";
   const COMMIT = "a".repeat(40);
-  const CATALOG = { profiles: {}, repositories: {} } satisfies SessionCatalog;
+  const CATALOG = { connections: {}, repositories: {} } satisfies SessionCatalog;
 
   function row(overrides: Partial<PushRequest>): PushRequest {
     return {

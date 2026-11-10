@@ -1,12 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { PGlite } from "@electric-sql/pglite";
 import {
-  type CatalogProfile,
   createAuthorizationPolicy,
   createSessionService,
   type SessionCatalog,
   SessionServiceError,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import { testCaller } from "@werft-ai/testkit/callers";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
@@ -19,36 +17,20 @@ import {
 } from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
 import { sessions } from "./schema.ts";
+import {
+  fixtureRelease,
+  TEST_MODEL,
+  testSessionCatalog,
+} from "./testing/spec-pins.ts";
 
 const OWNER = testCaller("owner-a");
 const OTHER = testCaller("owner-b");
 
-const PROFILE: CatalogProfile = {
-  runtime_kind: "claude_agent_sdk",
-  runtime_version: "0.3.270",
-  model: "claude-sonnet-5",
-  tools: ["Read"],
-  permission_mode: "default",
-  provider: {
-    kind: "anthropic",
-    endpoint: "https://sonnet.invalid",
-    auth: {
-      kind: "api_key",
-      value: "provider-key",
-      ref: { value_env: "PROVIDER_KEY" },
-    },
-  },
-};
-const CATALOG: SessionCatalog = withSeededInstallation({
-  profiles: {
-    sonnet: PROFILE,
-    general: { ...PROFILE, repository: "optional" },
-  },
+const CATALOG: SessionCatalog = testSessionCatalog({
   repositories: {
     app: {
       url: "https://github.com/acme/app.git",
       branch: "release/1.2",
-      profiles: ["sonnet", "general"],
       auth: { kind: "github_app", registered: true },
     },
   },
@@ -87,12 +69,27 @@ const service = (catalog: SessionCatalog = CATALOG) =>
     },
   });
 
-async function create(body: { profile_id: string; repository_id?: string }) {
-  const created = await service().createSession(OWNER, {
+// As the service's create stores it: the reading is what is under test.
+async function create(body: { repository_id?: string }) {
+  const entry =
+    body.repository_id === undefined
+      ? undefined
+      : CATALOG.repositories[body.repository_id];
+  const created = await createPostgresSessionUnitOfWork(db).acceptInputAtomic({
+    principal: OWNER,
     idempotencyKey: crypto.randomUUID(),
-    body: { message: "hello", ...body },
+    payloadHash: crypto.randomUUID(),
+    repository:
+      entry === undefined || body.repository_id === undefined
+        ? "none"
+        : { id: body.repository_id, url: entry.url, branch: entry.branch },
+    agentReleaseId: await fixtureRelease(db),
+    model: TEST_MODEL,
+    message: "hello",
+    limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
   });
-  return created.session_id;
+  if (created.outcome !== "accepted") throw new Error(created.outcome);
+  return created.response.session_id;
 }
 
 async function read(id: string, catalog?: SessionCatalog) {
@@ -107,7 +104,7 @@ async function read(id: string, catalog?: SessionCatalog) {
 
 describe("session repository (94S-822, 94S-820)", () => {
   test("list and detail carry the repository the session was created against", async () => {
-    const id = await create({ profile_id: "sonnet", repository_id: "app" });
+    const id = await create({ repository_id: "app" });
     const { listed, detail } = await read(id);
     const repository = {
       id: "app",
@@ -120,14 +117,13 @@ describe("session repository (94S-822, 94S-820)", () => {
   });
 
   test("a changed or removed catalog entry does not change it", async () => {
-    const id = await create({ profile_id: "sonnet", repository_id: "app" });
+    const id = await create({ repository_id: "app" });
     const moved: SessionCatalog = {
       ...CATALOG,
       repositories: {
         app: {
           url: "https://github.com/other/renamed.git",
           branch: "main",
-          profiles: ["sonnet"],
           auth: { kind: "github_app", registered: true },
         },
       },
@@ -148,7 +144,7 @@ describe("session repository (94S-822, 94S-820)", () => {
   });
 
   test("a session created without a repository has none", async () => {
-    const id = await create({ profile_id: "general" });
+    const id = await create({});
     const { listed, detail } = await read(id);
     expect(listed?.repository).toBeNull();
     expect(detail.repository).toBeNull();
@@ -156,12 +152,11 @@ describe("session repository (94S-822, 94S-820)", () => {
   });
 
   test("a pre-catalog row has no key and is named from its URL", async () => {
-    const id = await create({ profile_id: "sonnet", repository_id: "app" });
+    const id = await create({ repository_id: "app" });
     await db
       .update(sessions)
       .set({
         repositoryId: null,
-        profileId: null,
         repoUrl: "https://github.com/legacy-org/legacy-repo",
         branch: "trunk",
       })
@@ -177,13 +172,12 @@ describe("session repository (94S-822, 94S-820)", () => {
   });
 
   test("no credential in a stored or catalog URL reaches any response", async () => {
-    const legacy = await create({ profile_id: "sonnet", repository_id: "app" });
-    const keyed = await create({ profile_id: "sonnet", repository_id: "app" });
+    const legacy = await create({ repository_id: "app" });
+    const keyed = await create({ repository_id: "app" });
     await db
       .update(sessions)
       .set({
         repositoryId: null,
-        profileId: null,
         repoUrl: `https://agent:${USERINFO_MARK}@github.com/acme/app.git?access_token=${QUERY_MARK}`,
       })
       .where(eq(sessions.id, legacy));
@@ -200,7 +194,6 @@ describe("session repository (94S-822, 94S-820)", () => {
       repositories: {
         app: {
           branch: "release/1.2",
-          profiles: ["sonnet", "general"],
           auth: { kind: "github_app", registered: true },
           url: `https://agent:${CATALOG_MARK}@github.com/acme/app.git?token=${CATALOG_MARK}`,
         },
@@ -228,7 +221,7 @@ describe("session repository (94S-822, 94S-820)", () => {
   });
 
   test("another owner neither lists nor reads it", async () => {
-    const id = await create({ profile_id: "sonnet", repository_id: "app" });
+    const id = await create({ repository_id: "app" });
     const list = await service().listSessions(OTHER, { limit: 50 });
     expect(list.items).toEqual([]);
     const refused = await service()

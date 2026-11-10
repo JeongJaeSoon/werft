@@ -22,13 +22,14 @@ import { createPostgresSessionReader } from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
 import { sessions } from "./schema.ts";
 import { projectToolCalls } from "./tool-calls.ts";
+import { sessionPinColumns } from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
-// A codec stand-in for profile "known": what a codec adds, from the
-// engine's `message` a v1 event carries. Profile "unknown" has no codec.
-const neutralize: NeutralizeEvent = (profileId, event) => {
-  if (profileId !== "known") return event;
+// A codec stand-in for the claude engine: what a codec adds, from the
+// engine's `message` a v1 event carries. A session with no runtime has none.
+const neutralize: NeutralizeEvent = (runtimeKind, event) => {
+  if (runtimeKind !== "claude_agent_sdk") return event;
   const data = event.data as Record<string, unknown>;
   const message = data.message as { call?: string; said?: string } | undefined;
   const added: Record<string, unknown> =
@@ -74,14 +75,16 @@ integration("neutral field fill on PostgreSQL", () => {
     );
   });
 
-  async function session(profileId: string | null): Promise<string> {
+  // "known": pinned on the claude engine, which has a codec; "unknown":
+  // no spec, so no runtime and no codec.
+  async function session(runtime: "known" | "unknown"): Promise<string> {
     const id = crypto.randomUUID();
     await db.insert(sessions).values({
       id,
       ownerId: "owner-a",
       repoUrl: "https://example.invalid/app.git",
       branch: "main",
-      profileId,
+      ...(runtime === "known" ? sessionPinColumns() : {}),
     });
     return id;
   }

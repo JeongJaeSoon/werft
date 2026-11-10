@@ -314,17 +314,17 @@ describe("presentTurnEvent", () => {
       ],
       error: true,
     });
-    // A profile (its connection) that is gone has its own sentence, with the
+    // A connection that is gone has its own sentence, with the
     // model; an event from before the field reads as a removed model.
     expect(
       presentTurnEvent({
         event: "error",
-        data: { ...cut, cause: "profile_removed" },
+        data: { ...cut, cause: "connection_removed" },
       }),
     ).toMatchObject({
       summary: [
         {
-          key: "session.event.error.modelProfileRemoved",
+          key: "session.event.error.modelConnectionRemoved",
           params: { model: "claude-old" },
         },
       ],

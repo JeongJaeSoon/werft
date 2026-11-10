@@ -49,26 +49,6 @@ const RULES: readonly (readonly [string, RegExp])[] = [
 
 const EMAIL = /(?<![\w.+-])[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g;
 const ALLOWED_EMAIL = /@example\.test$/i;
-// A tool catalog id is `<name>@<x.y.z>` joined by `+`, not a mailbox. The
-// shape alone cannot tell it from `user@<ipv4>` (0.3.270 reads as an address),
-// so it is exempt only as the whole `id` of a `tool_catalogs` entry in the one
-// answer that carries them.
-const VERSION_PINS = /^[\w-]+@\d+\.\d+\.\d+(?:\+[\w-]+@\d+\.\d+\.\d+)*$/;
-const CATALOG_ID_ANSWER = "/v1/installation-profiles/options";
-
-function catalogIds(key: string, response: unknown): ReadonlySet<string> {
-  if (key !== CATALOG_ID_ANSWER) return new Set();
-  const catalogs = (response as { json?: { tool_catalogs?: unknown } } | null)
-    ?.json?.tool_catalogs;
-  if (!Array.isArray(catalogs)) return new Set();
-  return new Set(
-    catalogs
-      .map((entry) => (entry as { id?: unknown } | null)?.id)
-      .filter(
-        (id): id is string => typeof id === "string" && VERSION_PINS.test(id),
-      ),
-  );
-}
 
 /**
  * Addresses of the recording stack that a visitor's copy should not carry:
@@ -91,7 +71,6 @@ export function scanFixtures(fixtures: {
 }): Finding[] {
   const findings: Finding[] = [];
   Object.entries(fixtures.responses).forEach(([key, response], answer) => {
-    const pinned = catalogIds(key, response);
     for (const value of [key, ...strings(response)]) {
       const { stages, encoded } = reveal(value);
       // One value per string: its decoding stages repeat it.
@@ -107,11 +86,9 @@ export function scanFixtures(fixtures: {
       for (const text of stages) {
         for (const [rule, pattern] of RULES)
           for (const [match] of text.matchAll(pattern)) found(rule, match);
-        const pinsOnly = pinned.has(value);
-        if (!pinsOnly)
-          for (const [match] of text.matchAll(EMAIL))
-            if (!ALLOWED_EMAIL.test(match))
-              found("email outside example.test", match);
+        for (const [match] of text.matchAll(EMAIL))
+          if (!ALLOWED_EMAIL.test(match))
+            found("email outside example.test", match);
         for (const [match] of text.matchAll(IPV6_CANDIDATE))
           if (isPrivateIpv6(match)) found("private address", match);
       }

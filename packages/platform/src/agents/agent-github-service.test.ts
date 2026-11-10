@@ -12,14 +12,10 @@ import {
 import { callerFor, createAuthorizationPolicy } from "../musterrolle/policy.ts";
 import type { AgentGitHubStore } from "../ports/agent-github-store.ts";
 import type { SessionCatalog } from "../sessions/catalog.ts";
-import { withSeededInstallation } from "../sessions/profile-registry.ts";
 import { createAgentGitHubService } from "./agent-github-service.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000a1";
 const AGENT = "019a0000-0000-7000-8000-0000000000c1";
-const PROFILE = "claude-coding-v1";
-const OPTIONAL = "claude-optional-v1";
-const NONE = "claude-none-v1";
 
 const app = (extra: object = {}) => ({
   kind: "github_app" as const,
@@ -35,50 +31,26 @@ const enterprise = {
   ref: { value_env: "PEM" },
 };
 
-const profile = {
-  runtime_kind: "claude_agent_sdk",
-  runtime_version: "0.3.270",
-  model: "claude-sonnet-5",
-  tools: ["Read"],
-  permission_mode: "default",
-  provider: {
-    kind: "litellm",
-    endpoint: "https://litellm.invalid",
-    auth: {
-      kind: "api_key",
-      value: "provider-key",
-      ref: { value_env: "PROVIDER_KEY" },
-    },
-  },
-};
-
-const catalog = withSeededInstallation({
-  profiles: {
-    [PROFILE]: profile,
-    [OPTIONAL]: { ...profile, repository: "optional" },
-    [NONE]: { ...profile, repository: "none" },
-  },
+const catalog: SessionCatalog = {
+  connections: {},
   repositories: {
     "sample-app": {
       url: "https://github.com/acme/sample-app",
       branch: "main",
-      profiles: [PROFILE, OPTIONAL],
       auth: app(),
     },
     "elsewhere-app": {
       url: "https://github.com/acme/elsewhere",
       branch: "main",
-      profiles: ["another-profile"],
       auth: app(),
     },
     "ghe-app": {
       url: "https://ghe.example.com/acme/app",
       branch: "main",
-      profiles: [PROFILE],
       auth: enterprise,
     },
   },
-} as SessionCatalog);
+};
 
 const ALL_ON: GitHubCeiling = {
   workflows: true,
@@ -119,7 +91,6 @@ function serviceWith(input: {
     ? null
     : {
         id: "sha256:release",
-        runtime_profile_id: PROFILE,
         repository_id: "sample-app",
         policy_pins: input.github === undefined ? {} : { github: input.github },
       };

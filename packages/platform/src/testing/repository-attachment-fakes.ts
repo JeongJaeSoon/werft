@@ -94,7 +94,8 @@ export function attachmentContext(
       review: false,
       merge: false,
     },
-    repositoryCeiling: null,
+    // The workspace ceiling takes every console-App repository.
+    repositoryCeiling: { repository_ids: [], github_app_repositories: "installed" },
     ceilingRevision: 0,
     ...overrides,
   };

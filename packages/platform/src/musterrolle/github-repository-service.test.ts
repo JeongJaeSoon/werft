@@ -18,10 +18,6 @@ import {
   type GitHubPinStore,
   type GitHubRepositoryPin,
 } from "../ports/github-app-store.ts";
-import {
-  ceilingAppRepositories,
-  profileAllowsRepository,
-} from "../sessions/catalog.ts";
 import { SessionServiceError } from "../sessions/session-service.ts";
 import { createGitHubRepositoryService } from "./github-repository-service.ts";
 import { callerFor, createAuthorizationPolicy } from "./policy.ts";
@@ -736,46 +732,6 @@ const reasonOf = async (promise: Promise<unknown>) => {
     return (error.details as { reason_code?: string } | undefined)?.reason_code;
   }
 };
-
-describe("an installed ceiling", () => {
-  const ceiling = (apps: "listed" | "installed") => ({
-    profiles: {},
-    installation: new Map([
-      [
-        "c",
-        {
-          id: "c",
-          origin: "console" as const,
-          state: "usable" as const,
-          repository_ids: ["named"],
-          github_app_repositories: apps,
-        },
-      ],
-    ]),
-    repositories: {
-      named: { url: "https://github.com/acme/named.git", branch: "main" },
-      app: {
-        url: "https://github.com/acme/app.git",
-        branch: "main",
-        github_app: true as const,
-      },
-      pat: { url: "https://github.com/acme/pat.git", branch: "main" },
-    },
-  });
-
-  test("runs every console-App repository beside its list, and nothing else", () => {
-    const installed = ceiling("installed");
-    expect(profileAllowsRepository(installed, "c", "named")).toBe(true);
-    expect(profileAllowsRepository(installed, "c", "app")).toBe(true);
-    expect(profileAllowsRepository(installed, "c", "pat")).toBe(false);
-    expect(profileAllowsRepository(installed, "c", "missing")).toBe(false);
-    const listed = ceiling("listed");
-    expect(profileAllowsRepository(listed, "c", "named")).toBe(true);
-    expect(profileAllowsRepository(listed, "c", "app")).toBe(false);
-    expect(ceilingAppRepositories(listed, "c")).toBe("listed");
-    expect(ceilingAppRepositories(listed, "nope")).toBeNull();
-  });
-});
 
 describe("picking a GitHub App repository for an agent", () => {
   test("a public repository the installation does not cover reads by id but is refused", async () => {

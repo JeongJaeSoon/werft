@@ -41,6 +41,7 @@ import {
   workspaces,
 } from "./schema.ts";
 import { fixtureTeam } from "./testing/fixture-team.ts";
+import { TEST_CONNECTION_ID, releaseSpecColumns } from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 const MANAGERS = MANAGEMENT_ROLES["workspace.manage"] ?? [];
@@ -736,8 +737,8 @@ integration("the GitHub App on PostgreSQL", () => {
       agentId,
       versionId,
       cardSha256: "sha",
-      runtimeProfileId: "coding",
-      profileDigest: "digest",
+      connectionId: TEST_CONNECTION_ID,
+      ...releaseSpecColumns(),
       runtimeConfigSnapshot: {},
       effectiveTools: [],
       policyPins: { github: { repositories: [repo("two")] } },

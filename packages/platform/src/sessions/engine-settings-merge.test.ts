@@ -1,8 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { AdminDenyEntry } from "@werft-ai/contracts";
 import type { EffectiveEngineSettings } from "./engine-settings.ts";
 import {
-  applicableAdminDeny,
   mcpCallDenied,
   mergeEngineSettings,
 } from "./engine-settings-merge.ts";
@@ -34,7 +32,7 @@ const agent = (
 describe("mergeEngineSettings", () => {
   test("nothing anywhere sends nothing", () => {
     expect(
-      mergeEngineSettings({ workspace: null, agent: noAgent, adminDeny: [] }),
+      mergeEngineSettings({ workspace: null, agent: noAgent }),
     ).toEqual({
       kind: "rules",
       engine: undefined,
@@ -50,19 +48,12 @@ describe("mergeEngineSettings", () => {
         auto_mode: {},
       },
       agent: agent({ deny: ["mcp__github__delete_repo", "Read(./.env)"] }),
-      adminDeny: [
-        {
-          exempt_release_ids: [],
-          permissions_deny: ["Skill"],
-          mcp_deny: ["mcp__x__y"],
-        },
-      ],
     });
     expect(merged).toEqual({
       kind: "rules",
       engine: { permissions: { deny: ["Bash(rm:*)", "Read(./.env)"] } },
-      disallowedTools: ["Skill", "WebFetch"],
-      mcpDeny: ["mcp__github__delete_repo", "mcp__x__y"],
+      disallowedTools: ["WebFetch"],
+      mcpDeny: ["mcp__github__delete_repo"],
     });
   });
 
@@ -76,7 +67,6 @@ describe("mergeEngineSettings", () => {
         { ask: ["Edit"], allow: ["Bash(ls:*)", "Bash(cat:*)"] },
         { soft_deny: ["b"], hard_deny: ["c"], allow: ["w"] },
       ),
-      adminDeny: [],
     });
     if (merged.kind !== "rules") throw new Error("closed");
     // Bash(cat:*) is the agent's alone and `e` the workspace's alone: neither
@@ -94,7 +84,6 @@ describe("mergeEngineSettings", () => {
         auto_mode: { allow: ["w"], environment: ["e"] },
       },
       agent: noAgent,
-      adminDeny: [],
     });
     expect(merged).toEqual({
       kind: "rules",
@@ -109,7 +98,6 @@ describe("mergeEngineSettings", () => {
       mergeEngineSettings({
         workspace: null,
         agent: { kind: "closed", reason: "row_missing" },
-        adminDeny: [],
       }),
     ).toEqual({ kind: "closed", reason: "agent_row_missing" });
   });
@@ -121,27 +109,12 @@ describe("mergeEngineSettings", () => {
         auto_mode: {},
       },
       agent: agent({ deny: ["Bash(a:*)"] }),
-      adminDeny: [],
     });
     if (merged.kind !== "rules") throw new Error("closed");
     expect(merged.engine?.permissions?.deny).toEqual([
       "Bash(a:*)",
       "Bash(b:*)",
     ]);
-  });
-});
-
-describe("applicableAdminDeny", () => {
-  const entries: AdminDenyEntry[] = [
-    { exempt_release_ids: ["r1"], permissions_deny: ["Skill"], mcp_deny: [] },
-    { exempt_release_ids: [], permissions_deny: ["Task"], mcp_deny: [] },
-  ];
-  test("an exempt release skips only its entry", () => {
-    expect(applicableAdminDeny(entries, "r1")).toEqual(entries.slice(1));
-    expect(applicableAdminDeny(entries, "r2")).toEqual(entries);
-  });
-  test("no release means no inherited entry applies", () => {
-    expect(applicableAdminDeny(entries, null)).toEqual([]);
   });
 });
 

@@ -861,13 +861,11 @@ describe("WorkerGateway", () => {
           "sample-app": {
             url: "https://example.invalid/app.git",
             branch: "main",
-            profiles: ["claude-coding-v1", "other"],
             auth: { kind: "github_app", registered: true },
           },
           docs: {
             url: "https://example.invalid/docs.git",
             branch: "trunk",
-            profiles: ["other"],
             auth: { kind: "github_app", registered: true },
           },
         },
@@ -988,7 +986,6 @@ describe("WorkerGateway", () => {
       repository: repositoryBinding("sample-app", {
         url: "https://example.invalid/app.git",
         branch: "main",
-        profiles: ["claude-coding-v1", "other"],
         auth: { kind: "github_app", registered: true },
       }),
     });
@@ -1273,7 +1270,6 @@ describe("WorkerGateway", () => {
       "gone-from-catalog": {
         url: "https://github.com/team/app.git",
         branch: "release",
-        profiles: ["claude-coding-v1"],
         auth: { kind: "github_app", registered: true },
       } as never,
     };
@@ -1361,7 +1357,6 @@ describe("WorkerGateway", () => {
       "gone-from-catalog": {
         url: "https://github.com/team/app.git",
         branch: "release",
-        profiles: ["claude-coding-v1"],
       } as never,
     };
     expect((await claimOf()).git_author).toBeNull();
@@ -1382,7 +1377,6 @@ describe("WorkerGateway", () => {
       "gone-from-catalog": {
         url: "https://github.com/team/app.git",
         branch: "release",
-        profiles: ["claude-coding-v1"],
         auth: { kind: "github_app", registered: true },
       } as never,
     };
@@ -1576,13 +1570,11 @@ describe("WorkerGateway", () => {
           app: {
             url: "https://example.invalid/app.git",
             branch: "main",
-            profiles: ["p"],
             auth: { kind: "github_app", registered: true } as const,
           },
           docs: {
             url: "https://example.invalid/docs.git",
             branch: "trunk",
-            profiles: ["p"],
             auth: { kind: "github_app", registered: true } as const,
           },
         },
@@ -1799,7 +1791,6 @@ describe("WorkerGateway", () => {
             app: {
               url: "https://example.invalid/app.git",
               branch: "main",
-              profiles: ["required", "optional"],
               auth: { kind: "github_app", registered: true } as const,
             },
           },
@@ -3245,7 +3236,6 @@ describe("authorizeEgress", () => {
   const repository: CatalogRepository = {
     url: "https://git.invalid/team/app.git",
     branch: "main",
-    profiles: ["p"],
     auth: { kind: "github_app", registered: true },
   };
   const granted = (binding: string, costUsd = 0): EgressAuthorization => ({
@@ -3356,7 +3346,7 @@ describe("authorizeEgress", () => {
     // A workspace version still stored whose base profile moved on does not
     // run, but nothing was deleted: no "profile removed" note either.
     const baseMoved = authorizer(retired, {
-      profiles: {},
+      connections: {},
       repositories: { app: repository },
       workspace_profiles: {
         records: new Map([
@@ -3555,7 +3545,6 @@ describe("authorizeEgress through a forge", () => {
   const app: CatalogRepository = {
     url: "https://github.com/acme/app.git",
     branch: "main",
-    profiles: ["p"],
     auth: {
       kind: "github_app",
       app_id: 101,
@@ -3885,7 +3874,6 @@ describe("unmetered sessions", () => {
             app: {
               url: "https://example.invalid/app.git",
               branch: "main",
-              profiles: ["local"],
               auth: { kind: "github_app", registered: true },
             },
           },
@@ -3934,7 +3922,6 @@ describe("egress and claim through the real GitHub gate", () => {
   const onGitHub = (name: string): CatalogRepository => ({
     url: `https://github.com/acme/${name}.git`,
     branch: "main",
-    profiles: ["p"],
     auth: { kind: "github_app", registered: true },
   });
   const catalog = withSeededInstallation({

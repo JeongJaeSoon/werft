@@ -39,6 +39,12 @@ import {
 } from "./schema.ts";
 import { createPostgresSessionShareStore } from "./session-shares.ts";
 import { fixtureTeam } from "./testing/fixture-team.ts";
+import {
+  TEST_CONNECTION_ID,
+  TEST_MODEL,
+  fixtureRelease,
+  releaseSpecColumns,
+} from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -225,22 +231,26 @@ integration("session writes re-judge their requester on PostgreSQL", () => {
       agentId,
       versionId,
       cardSha256: "a".repeat(64),
-      runtimeProfileId: "coding",
-      profileDigest: "digest",
+      connectionId: TEST_CONNECTION_ID,
+      ...releaseSpecColumns(),
       runtimeConfigSnapshot: {},
       effectiveTools: [],
     });
     return { agentId, releaseId };
   }
 
-  function create(by: Caller, releaseId?: string, idempotencyKey?: string) {
+  async function create(
+    by: Caller,
+    releaseId?: string,
+    idempotencyKey?: string,
+  ) {
     return uow().acceptInputAtomic({
       principal: by,
       idempotencyKey: idempotencyKey ?? randomUUID(),
       payloadHash: "create",
-      profileId: "coding",
+      model: TEST_MODEL,
       repository: "none",
-      ...(releaseId ? { agentReleaseId: releaseId } : {}),
+      agentReleaseId: releaseId ?? (await fixtureRelease(db)),
       message: "start",
       limits: LIMITS,
     });

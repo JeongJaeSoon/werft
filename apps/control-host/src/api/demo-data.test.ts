@@ -1,6 +1,6 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import { join } from "node:path";
-import type { Connections } from "@werft-ai/platform";
+import type { CatalogProviderConfig } from "@werft-ai/platform";
 import {
   DEMO_SESSIONS,
   DemoClient,
@@ -13,7 +13,7 @@ const local = {
   DEMO_ACCOUNTS: "local",
   DATABASE_URL: "postgresql://postgres:dev@postgres:5432/sessions",
 };
-const fixture = async (name: string): Promise<Connections> =>
+const fixture = async (name: string): Promise<Record<string, CatalogProviderConfig>> =>
   (
     await Bun.file(
       join(import.meta.dir, `../../../../tests/fixtures/settings/${name}.json`),

@@ -61,9 +61,7 @@ export async function newSessionPin(
       SELECT spec_source, runtime_spec, spec_source_digest, spec_digest
       FROM agent_releases WHERE id = ${releaseId}`),
   );
-  return row === undefined
-    ? null
-    : sessionPinFromRelease(row, model);
+  return row === undefined ? null : sessionPinFromRelease(row, model);
 }
 
 /**

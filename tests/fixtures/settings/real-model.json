@@ -8,9 +8,7 @@
         "kind": "api_key",
         "value_env": "ANTHROPIC_API_KEY"
       },
-      "models": [
-        "claude-sonnet-5"
-      ]
+      "models": ["claude-sonnet-5"]
     }
   },
   "repositories": {

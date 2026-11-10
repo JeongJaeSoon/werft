@@ -41,6 +41,7 @@ import {
 import { createPostgresSlackAppStore, slackAppKind } from "./slack-apps.ts";
 import { createPostgresSlackConfigTokenStore } from "./slack-config-tokens.ts";
 import { fixtureTeam } from "./testing/fixture-team.ts";
+import { TEST_CONNECTION_ID, releaseSpecColumns } from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 const MANAGERS = MANAGEMENT_ROLES["workspace.manage"] ?? [];
@@ -133,8 +134,8 @@ integration("Slack apps and the config token on PostgreSQL", () => {
       agentId,
       versionId,
       cardSha256: "0".repeat(64),
-      runtimeProfileId: "coding",
-      profileDigest: "digest",
+      connectionId: TEST_CONNECTION_ID,
+      ...releaseSpecColumns(),
       runtimeConfigSnapshot: {},
       effectiveTools: [],
     });

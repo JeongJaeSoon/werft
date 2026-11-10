@@ -17,7 +17,6 @@ import {
   type WorkerGateway,
   WorkerGatewayError,
   type WorkerPrincipal,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import {
   createTempDatabase,
@@ -68,6 +67,13 @@ import {
   launchSession,
   type TestLaunch,
 } from "./testing/launches.ts";
+import {
+  RELEASE_SPEC_SQL_COLUMNS,
+  TEST_MODEL,
+  fixtureRelease,
+  releaseSpecSqlValues,
+  testSessionCatalog,
+} from "./testing/spec-pins.ts";
 import {
   CHECKPOINT_RESTORE_FALLBACK,
   createPostgresWorkerUnitOfWork,
@@ -130,30 +136,21 @@ integration("worker gateway on PostgreSQL", () => {
             },
           }) as GitHubGrant,
       },
-      catalog: withSeededInstallation({
-        profiles: {
-          "claude-coding-v1": {
-            runtime_kind: "claude_agent_sdk",
-            runtime_version: "0.3.270",
-            model: "claude-sonnet-5",
-            tools: ["Read", "Edit", "Bash"],
-            permission_mode: "default",
-            provider: {
-              kind: "litellm",
-              endpoint: "https://litellm.invalid",
-              auth: {
-                kind: "api_key",
-                value: "catalog-provider-key",
-                ref: { value_env: "PROVIDER_KEY" },
-              },
-            },
+      catalog: testSessionCatalog({
+        provider: {
+          kind: "litellm",
+          endpoint: "https://litellm.invalid",
+          auth: {
+            kind: "api_key",
+            value: "catalog-provider-key",
+            ref: { value_env: "PROVIDER_KEY" },
           },
         },
+        models: ["claude-sonnet-5"],
         repositories: {
           "sample-app": {
             url: "https://example.invalid/app.git",
             branch: "main",
-            profiles: ["claude-coding-v1"],
             auth: { kind: "github_app", registered: true },
           },
         },
@@ -213,30 +210,21 @@ integration("worker gateway on PostgreSQL", () => {
     createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
       ...(neutralize === undefined ? {} : { neutralize }),
-      catalog: withSeededInstallation({
-        profiles: {
-          "claude-coding-v1": {
-            runtime_kind: "claude_agent_sdk",
-            runtime_version: "0.3.270",
-            model: "claude-sonnet-5",
-            tools: ["Read", "Edit", "Bash"],
-            permission_mode: "default",
-            provider: {
-              kind: "litellm",
-              endpoint: "https://litellm.invalid",
-              auth: {
-                kind: "api_key",
-                value: "catalog-provider-key",
-                ref: { value_env: "PROVIDER_KEY" },
-              },
-            },
+      catalog: testSessionCatalog({
+        provider: {
+          kind: "litellm",
+          endpoint: "https://litellm.invalid",
+          auth: {
+            kind: "api_key",
+            value: "catalog-provider-key",
+            ref: { value_env: "PROVIDER_KEY" },
           },
         },
+        models: ["claude-sonnet-5"],
         repositories: {
           "sample-app": {
             url: "https://example.invalid/app.git",
             branch: "main",
-            profiles: ["claude-coding-v1"],
             auth: { kind: "github_app", registered: true },
           },
         },
@@ -270,7 +258,8 @@ integration("worker gateway on PostgreSQL", () => {
       principal: { ownerId },
       idempotencyKey: crypto.randomUUID(),
       payloadHash: crypto.randomUUID(),
-      profileId: "claude-coding-v1",
+      agentReleaseId: await fixtureRelease(db),
+      model: TEST_MODEL,
       repository: {
         id: "sample-app",
         url: "https://example.invalid/app.git",
@@ -326,30 +315,21 @@ integration("worker gateway on PostgreSQL", () => {
   const skewedGateway = (offsetMs: number, leaseTtlMs: number) =>
     createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
-      catalog: withSeededInstallation({
-        profiles: {
-          "claude-coding-v1": {
-            runtime_kind: "claude_agent_sdk",
-            runtime_version: "0.3.270",
-            model: "claude-sonnet-5",
-            tools: ["Read", "Edit", "Bash"],
-            permission_mode: "default",
-            provider: {
-              kind: "litellm",
-              endpoint: "https://litellm.invalid",
-              auth: {
-                kind: "api_key",
-                value: "catalog-provider-key",
-                ref: { value_env: "PROVIDER_KEY" },
-              },
-            },
+      catalog: testSessionCatalog({
+        provider: {
+          kind: "litellm",
+          endpoint: "https://litellm.invalid",
+          auth: {
+            kind: "api_key",
+            value: "catalog-provider-key",
+            ref: { value_env: "PROVIDER_KEY" },
           },
         },
+        models: ["claude-sonnet-5"],
         repositories: {
           "sample-app": {
             url: "https://example.invalid/app.git",
             branch: "main",
-            profiles: ["claude-coding-v1"],
             auth: { kind: "github_app", registered: true },
           },
         },
@@ -717,16 +697,15 @@ integration("worker gateway on PostgreSQL", () => {
       pool
         .query(
           `INSERT INTO agent_releases (id, agent_id, version_id, card_sha256,
-             runtime_profile_id, repository_id, profile_digest,
-             runtime_config_snapshot, effective_tools, policy_pins)
-           VALUES ($1, $2, $3, $4, 'claude-coding-v1', 'sample-app', $5, '{}', '{}', $6)
+             repository_id, runtime_config_snapshot, effective_tools,
+             policy_pins, ${RELEASE_SPEC_SQL_COLUMNS})
+           VALUES ($1, $2, $3, $4, 'sample-app', '{}', '{}', $5, ${releaseSpecSqlValues()})
            RETURNING id`,
           [
             `sha256:${crypto.randomUUID()}`,
             agentId,
             versionId,
             "a".repeat(64),
-            `sha256:${"c".repeat(64)}`,
             JSON.stringify(pins),
           ],
         )
@@ -1787,30 +1766,21 @@ integration("worker gateway on PostgreSQL", () => {
     // the fence has to judge the commit by the clock at commit time.
     const slow = createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
-      catalog: withSeededInstallation({
-        profiles: {
-          "claude-coding-v1": {
-            runtime_kind: "claude_agent_sdk",
-            runtime_version: "0.3.270",
-            model: "claude-sonnet-5",
-            tools: ["Read", "Edit", "Bash"],
-            permission_mode: "default",
-            provider: {
-              kind: "litellm",
-              endpoint: "https://litellm.invalid",
-              auth: {
-                kind: "api_key",
-                value: "catalog-provider-key",
-                ref: { value_env: "PROVIDER_KEY" },
-              },
-            },
+      catalog: testSessionCatalog({
+        provider: {
+          kind: "litellm",
+          endpoint: "https://litellm.invalid",
+          auth: {
+            kind: "api_key",
+            value: "catalog-provider-key",
+            ref: { value_env: "PROVIDER_KEY" },
           },
         },
+        models: ["claude-sonnet-5"],
         repositories: {
           "sample-app": {
             url: "https://example.invalid/app.git",
             branch: "main",
-            profiles: ["claude-coding-v1"],
             auth: { kind: "github_app", registered: true },
           },
         },
@@ -1926,16 +1896,11 @@ integration("worker gateway on PostgreSQL", () => {
     };
     const host = createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
-      catalog: withSeededInstallation({
-        profiles: {
-          "claude-coding-v1": { ...coding, repository: "optional" },
-          general,
-        },
+      catalog: testSessionCatalog({
         repositories: {
           "sample-app": {
             url: "https://example.invalid/app.git",
             branch: "main",
-            profiles: ["claude-coding-v1"],
             auth: { kind: "github_app", registered: true },
           },
         },
@@ -1982,7 +1947,8 @@ integration("worker gateway on PostgreSQL", () => {
       principal: { ownerId: `owner-${crypto.randomUUID()}` },
       idempotencyKey: crypto.randomUUID(),
       payloadHash: crypto.randomUUID(),
-      profileId: "general",
+      agentReleaseId: await fixtureRelease(db),
+      model: TEST_MODEL,
       profileFingerprint: profileFingerprint(general),
       model: general.model,
       repository: "none",
@@ -2090,30 +2056,21 @@ integration("worker gateway on PostgreSQL", () => {
     const withTokenTtl = (sessionTokenTtlMs: number) =>
       createWorkerGateway({
         work: uow,
-        catalog: withSeededInstallation({
-          profiles: {
-            "claude-coding-v1": {
-              runtime_kind: "claude_agent_sdk",
-              runtime_version: "0.3.270",
-              model: "claude-sonnet-5",
-              tools: ["Read", "Edit", "Bash"],
-              permission_mode: "default",
-              provider: {
-                kind: "litellm",
-                endpoint: "https://litellm.invalid",
-                auth: {
-                  kind: "api_key",
-                  value: "catalog-provider-key",
-                  ref: { value_env: "PROVIDER_KEY" },
-                },
-              },
+        catalog: testSessionCatalog({
+          provider: {
+            kind: "litellm",
+            endpoint: "https://litellm.invalid",
+            auth: {
+              kind: "api_key",
+              value: "catalog-provider-key",
+              ref: { value_env: "PROVIDER_KEY" },
             },
           },
+          models: ["claude-sonnet-5"],
           repositories: {
             "sample-app": {
               url: "https://example.invalid/app.git",
               branch: "main",
-              profiles: ["claude-coding-v1"],
               auth: { kind: "github_app", registered: true },
             },
           },
@@ -3223,8 +3180,7 @@ integration("worker gateway on PostgreSQL", () => {
     ): WorkerGateway =>
       createWorkerGateway({
         work: createPostgresWorkerUnitOfWork(db),
-        catalog: withSeededInstallation({
-          profiles: { "claude-coding-v1": profile, other: profile },
+        catalog: testSessionCatalog({
           repositories,
         }),
         checkpoints: {

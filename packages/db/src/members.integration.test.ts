@@ -7,7 +7,6 @@ import {
   type Principal,
   type WorkerGateway,
   type WorkerPrincipal,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import {
   createTempDatabase,
@@ -38,6 +37,13 @@ import {
 } from "./schema.ts";
 import { fixtureTeam } from "./testing/fixture-team.ts";
 import { launchSession } from "./testing/launches.ts";
+import {
+  TEST_CONNECTION_ID,
+  TEST_MODEL,
+  fixtureRelease,
+  releaseSpecColumns,
+  testSessionCatalog,
+} from "./testing/spec-pins.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -64,30 +70,21 @@ integration("members, identity and takeover on PostgreSQL", () => {
     db = drizzle(pool, { schema });
     gateway = createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
-      catalog: withSeededInstallation({
-        profiles: {
-          "claude-coding-v1": {
-            runtime_kind: "claude_agent_sdk",
-            runtime_version: "0.3.270",
-            model: "claude-sonnet-5",
-            tools: ["Read", "Edit", "Bash"],
-            permission_mode: "default",
-            provider: {
-              kind: "litellm",
-              endpoint: "https://litellm.invalid",
-              auth: {
-                kind: "api_key",
-                value: "catalog-provider-key",
-                ref: { value_env: "PROVIDER_KEY" },
-              },
-            },
+      catalog: testSessionCatalog({
+        provider: {
+          kind: "litellm",
+          endpoint: "https://litellm.invalid",
+          auth: {
+            kind: "api_key",
+            value: "catalog-provider-key",
+            ref: { value_env: "PROVIDER_KEY" },
           },
         },
+        models: ["claude-sonnet-5"],
         repositories: {
           "sample-app": {
             url: "https://example.invalid/app.git",
             branch: "main",
-            profiles: ["claude-coding-v1"],
             auth: { kind: "github_app", registered: true },
           },
         },
@@ -176,8 +173,8 @@ integration("members, identity and takeover on PostgreSQL", () => {
         agentId,
         versionId,
         cardSha256: "a".repeat(64),
-        runtimeProfileId: "claude-coding-v1",
-        profileDigest: "digest",
+        connectionId: TEST_CONNECTION_ID,
+        ...releaseSpecColumns(),
         runtimeConfigSnapshot: {},
         effectiveTools: [],
       });
@@ -251,7 +248,8 @@ integration("members, identity and takeover on PostgreSQL", () => {
       principal,
       idempotencyKey: randomUUID(),
       payloadHash: randomUUID(),
-      profileId: "claude-coding-v1",
+      agentReleaseId: await fixtureRelease(db),
+      model: TEST_MODEL,
       repository: {
         id: "sample-app",
         url: "https://example.invalid/app.git",
@@ -491,7 +489,8 @@ integration("members, identity and takeover on PostgreSQL", () => {
         principal: asUser(ws, leaver),
         idempotencyKey: randomUUID(),
         payloadHash: randomUUID(),
-        profileId: "claude-coding-v1",
+        agentReleaseId: await fixtureRelease(db),
+        model: TEST_MODEL,
         repository: {
           id: "sample-app",
           url: "https://example.invalid/app.git",

@@ -271,9 +271,7 @@ export async function agentSummaries(
     ]),
   );
 
-  const connections = new Map(
-    heads.map((head) => [head.id, head.connection]),
-  );
+  const connections = new Map(heads.map((head) => [head.id, head.connection]));
   const models = new Map(heads.map((head) => [head.id, head.model]));
   const labels = new Map(
     heads.map((head) => [

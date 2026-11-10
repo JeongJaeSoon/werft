@@ -35,6 +35,7 @@ import {
   workspaces,
 } from "./schema.ts";
 import { fixtureTeam } from "./testing/fixture-team.ts";
+import { TEST_CONNECTION_ID, releaseSpecColumns } from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -168,8 +169,8 @@ integration("the agent MCP settings writer on PostgreSQL", () => {
       agentId,
       versionId,
       cardSha256: "0".repeat(64),
-      runtimeProfileId: "coding",
-      profileDigest: "digest",
+      connectionId: TEST_CONNECTION_ID,
+      ...releaseSpecColumns(),
       // A release is immutable once written, so a test names its snapshot here.
       runtimeConfigSnapshot: options.snapshot ?? {},
       effectiveTools: { tools: [], mcp: [READ] },

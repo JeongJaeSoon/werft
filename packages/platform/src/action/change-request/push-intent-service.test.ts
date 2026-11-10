@@ -17,7 +17,6 @@ import type {
   PushRequestStore,
 } from "../../ports/push-requests.ts";
 import type {
-  InstallationProfileEntry,
   SessionCatalog,
 } from "../../sessions/catalog.ts";
 import { SessionServiceError } from "../../sessions/session-service.ts";
@@ -27,32 +26,19 @@ const SESSION = "11111111-1111-4111-8111-111111111111";
 const PUSH = "22222222-2222-4222-8222-222222222222";
 const COMMIT = "a".repeat(40);
 const CATALOG = {
-  profiles: { default: {} as SessionCatalog["profiles"][string] },
+  connections: {},
   repositories: {
     "sample-app": {
       url: "https://git.example/acme/sample-app.git",
       branch: "main",
-      profiles: ["default"],
       auth: { kind: "github_app", registered: true },
     },
     docs: {
       url: "https://git.example/acme/docs.git",
       branch: "main",
-      profiles: ["default"],
       auth: { kind: "github_app", registered: true },
     },
   },
-  installation: new Map<string, InstallationProfileEntry>([
-    [
-      "default",
-      {
-        id: "default",
-        origin: "catalog",
-        state: "usable",
-        repository_ids: ["sample-app", "docs"],
-      },
-    ],
-  ]),
 } satisfies SessionCatalog;
 
 const actor = {

@@ -248,6 +248,7 @@ describe("모델 연결", () => {
     ).toEqual([
       "console-key 값 바꾸기",
       "console-key의 자동 모드 판정",
+      "console-key의 모델 목록",
       "console-key 사용 중지",
     ]);
 
@@ -260,6 +261,7 @@ describe("모델 연결", () => {
     ).toEqual([
       "ops-ref 화면에서 키 넣기",
       "ops-ref의 자동 모드 판정",
+      "ops-ref의 모델 목록",
       "ops-ref 사용 중지",
     ]);
 
@@ -379,6 +381,35 @@ describe("모델 연결", () => {
     expect(writes(api.calls).map((call) => [call.path, call.body])).toEqual([
       [`${CONNECTIONS}/console-key/credential`, { value: "rotated-key" }],
       [`${CONNECTIONS}/console-key/disable`, null],
+    ]);
+  });
+
+  test("the owner sets a connection's models, one per line or comma separated", async () => {
+    const { api } = renderAt(CONNECTIONS_PAGE, {
+      ...routes(),
+      [`POST ${CONNECTIONS}/console-key/models`]: () =>
+        json(200, CHANGE("console-key")),
+    });
+    const user = await setupUser();
+    const table = await screen.findByRole("table", { name: "모델 연결" });
+    expect(rowOf(table, "console-key").textContent).toContain(
+      "claude-sonnet-5",
+    );
+    await user.click(
+      within(table).getByRole("button", { name: "console-key의 모델 목록" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    const field = named(dialog, "models") as HTMLTextAreaElement;
+    expect(field.value).toBe("claude-sonnet-5");
+    await user.clear(field);
+    await user.type(field, "claude-sonnet-5{Enter}claude-haiku-5, claude-opus-5");
+    await user.click(within(dialog).getByRole("button", { name: "모델 저장" }));
+    await screen.findByText("console-key의 모델 3개를 저장했습니다.");
+    expect(writes(api.calls).map((call) => [call.path, call.body])).toEqual([
+      [
+        `${CONNECTIONS}/console-key/models`,
+        { models: ["claude-sonnet-5", "claude-haiku-5", "claude-opus-5"] },
+      ],
     ]);
   });
 

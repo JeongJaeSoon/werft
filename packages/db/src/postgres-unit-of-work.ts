@@ -24,9 +24,9 @@ import {
   type SlackMessageRef,
   type SpecSource,
   SSE_SCHEMA_VERSION,
-  specSourceSchema,
   type SseEvent,
   type SurfaceKind,
+  specSourceSchema,
   sseEventSchema,
   type TurnDetail,
   type TurnSummary,
@@ -150,9 +150,8 @@ import {
   sameChunks,
 } from "./session-event-archives.ts";
 import { recordStatus } from "./session-events.ts";
-import { pinRefusesLive } from "./session-spec-pin.ts";
 import { sessionRelationIs, sessionVisibleTo } from "./session-shares.ts";
-import { newSessionPin } from "./session-spec-pin.ts";
+import { newSessionPin, pinRefusesLive } from "./session-spec-pin.ts";
 import { readArchivedWorkspaceLimit } from "./workspace-limit.ts";
 
 export const CREATE_SESSION = "create_session";
@@ -592,10 +591,7 @@ export function createPostgresSessionUnitOfWork(
         }
         // This input revives a failed session, which an authoritative spec
         // pin refuses unless the session has one on its own model.
-        if (
-          session.status === "failed" &&
-          pinRefusesLive(session)
-        ) {
+        if (session.status === "failed" && pinRefusesLive(session)) {
           return { outcome: "pin_required" };
         }
         const refused = await admitInput(tx, {

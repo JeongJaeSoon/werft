@@ -61,7 +61,6 @@ const DOCUMENT = {
     app: {
       url: "https://github.com/acme/app.git",
       branch: "main",
-      profiles: ["coding"],
       auth: { kind: "github_app" },
     },
     ghec: {
@@ -222,7 +221,6 @@ integration("settings document import and export", () => {
           owner: row.owner,
           name: row.name,
           auth: row.auth,
-          profiles: row.profiles,
         },
       ]),
     );
@@ -234,7 +232,6 @@ integration("settings document import and export", () => {
         owner: "agent",
         name: "sample-app",
         auth: null,
-        profiles: null,
       },
       app: {
         authKind: "github_app",
@@ -243,7 +240,6 @@ integration("settings document import and export", () => {
         owner: "acme",
         name: "app",
         auth: null,
-        profiles: ["coding"],
       },
       ghec: {
         authKind: "github_app_explicit",
@@ -252,7 +248,6 @@ integration("settings document import and export", () => {
         owner: "acme",
         name: "ghec",
         auth: DOCUMENT.repositories.ghec.auth,
-        profiles: null,
       },
     });
     const read = await createPostgresInstallationSettingsStore(db, null).read();

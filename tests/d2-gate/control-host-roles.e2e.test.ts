@@ -73,7 +73,11 @@ async function reconnect(): Promise<void> {
   };
   const apiUrl = new URL(env.apiUrl);
   apiUrl.host = await published("api", 3000);
-  api = new PublicApi(apiUrl.toString().replace(/\/$/, ""), env.apiKey);
+  api = new PublicApi(
+    apiUrl.toString().replace(/\/$/, ""),
+    env.apiKey,
+    env.releaseId,
+  );
   const databaseUrl = new URL(env.databaseUrl);
   databaseUrl.host = await published("postgres", 5432);
   const previous = db;
@@ -143,7 +147,7 @@ async function executions(sessionId: string) {
 describe.skipIf(env === null)("control host roles", () => {
   beforeAll(async () => {
     if (!env) return;
-    api = new PublicApi(env.apiUrl, env.apiKey);
+    api = new PublicApi(env.apiUrl, env.apiKey, env.releaseId);
     db = database(env.databaseUrl);
     messages = new Messages(env.messagesUrl);
     workers = new Workers(env.installation, env.out);

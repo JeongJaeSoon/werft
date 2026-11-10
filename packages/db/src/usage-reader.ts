@@ -231,11 +231,7 @@ function breakdownByModel(inPeriod: SQL, pairs: SQL, preMetered: SQL) {
 // time is floored on the running total as the series does, so the groups
 // add up to the totals' one floor. The one-row `one` keeps the totals when
 // no session falls in the period.
-function summaryGroups(
-  inPeriod: SQL,
-  until: SQL,
-  by: "agent" | "user",
-) {
+function summaryGroups(inPeriod: SQL, until: SQL, by: "agent" | "user") {
   const grouping = {
     agent: {
       key: sql`${agentReleases.agentId}`,

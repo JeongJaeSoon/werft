@@ -1,6 +1,5 @@
 {{- if .Values.slack.enabled }}
 {{- $health := list "bun" "run" "apps/control-host/src/main.ts" "slack" "--health" -}}
-{{- $unattended := "PLATFORM_ALLOW_UNATTENDED_PERMISSIONS" -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -54,10 +53,6 @@ spec:
             {{- end }}
             - name: LOG_LEVEL
               value: {{ .Values.config.logLevel | quote }}
-            {{- if and (hasKey .Values.api.extraEnv $unattended) (not (hasKey .Values.slack.extraEnv $unattended)) }}
-            - name: {{ $unattended }}
-              value: {{ index .Values.api.extraEnv $unattended | toString | quote }}
-            {{- end }}
             {{- include "ap.extraEnv" .Values.slack.extraEnv | nindent 12 }}
           startupProbe:
             exec:

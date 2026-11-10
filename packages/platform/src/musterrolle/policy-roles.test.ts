@@ -187,7 +187,6 @@ const TABLE: [
     onWorkspace,
     "oxxxxx",
   ],
-  ["프로필 버전 정의", "profile.define", onWorkspace, "ooxxxx"],
   ["팀 만들기·구성원 관리", "team.manage", onWorkspace, "ooxxxx"],
   ["모든 에이전트의 key 발급·폐기", "api_key.manage", onWorkspace, "ooxxxx"],
   ["그 에이전트의 key 발급·폐기", "api_key.manage", onAgentA, "ooxoxx"],

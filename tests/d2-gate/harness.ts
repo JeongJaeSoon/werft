@@ -43,6 +43,8 @@ export type GateEnv = {
   network: string;
   out: string;
   project: string;
+  /** The gate agent's release every session runs (`D2_GATE_RELEASE_ID`). */
+  releaseId: string;
   s3Url: string;
   workerImage: string;
 };
@@ -73,6 +75,7 @@ export function gateEnv(): GateEnv | null {
     databaseUrl: need("D2_GATE_DATABASE_URL"),
     installation: need("EXECUTION_INSTALLATION_ID"),
     messagesUrl: need("D2_GATE_MESSAGES_URL"),
+    releaseId: need("D2_GATE_RELEASE_ID"),
     network: need("D2_GATE_NETWORK"),
     out: need("D2_GATE_OUT"),
     project: need("D2_GATE_PROJECT"),
@@ -196,6 +199,7 @@ export class PublicApi {
   constructor(
     private readonly base: string,
     private readonly key: string,
+    private readonly releaseId: string,
   ) {}
 
   async call(method: string, path: string, body?: unknown): Promise<ApiResult> {
@@ -218,7 +222,7 @@ export class PublicApi {
 
   async createSession(message: string): Promise<CreateSessionResponse> {
     const created = await this.call("POST", "/v1/sessions", {
-      profile_id: "d2-gate",
+      agent_release_id: this.releaseId,
       repository_id: "gate-app",
       message,
     });
@@ -257,8 +261,7 @@ export class PublicApi {
 
   /**
    * Waits the turn out, allowing every permission it asks for the way a
-   * user would: the gate's profile runs Write without asking, but whatever
-   * does ask must not be what decides the outcome.
+   * user would: whatever asks must not be what decides the outcome.
    */
   async settle(
     sessionId: string,

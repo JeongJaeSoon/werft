@@ -8,7 +8,6 @@ import {
 import {
   type ActingOwner,
   type Caller,
-  type CatalogProfile,
   callerFor,
   createAgentService,
   createAuthorizationPolicy,
@@ -40,31 +39,18 @@ import {
   users,
   workspaces,
 } from "./schema.ts";
+import {
+  releaseSpecColumns,
+  TEST_CONNECTION_ID,
+  TEST_RUNTIMES,
+  testSessionCatalog,
+} from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
 const AGENT_KEY_ISSUERS: readonly WorkspaceRole[] = ["owner", "admin"];
 
-const PROFILE: CatalogProfile = {
-  runtime_kind: "claude_agent_sdk",
-  runtime_version: "0.3.270",
-  model: "claude-sonnet-5",
-  tools: ["Read"],
-  permission_mode: "default",
-  provider: {
-    kind: "litellm",
-    endpoint: "https://litellm.invalid",
-    auth: {
-      kind: "api_key",
-      value: "catalog-provider-key",
-      ref: { value_env: "PROVIDER_KEY" },
-    },
-  },
-};
-const CATALOG: SessionCatalog = {
-  profiles: { coding: PROFILE },
-  repositories: {},
-};
+const CATALOG: SessionCatalog = testSessionCatalog();
 const CARD = agentCardRequestSchema.parse({
   role: "재무 분석가",
   instructions: "v1",
@@ -177,6 +163,7 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
       store: createPostgresAgentStore(db),
       catalog: CATALOG,
       credentials: createPostgresCredentialBindingStore(db),
+      runtimes: TEST_RUNTIMES,
     });
   }
 
@@ -426,8 +413,8 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
       agentId: agent.agent.id,
       versionId: version.id,
       cardSha256: version.contentSha256,
-      runtimeProfileId: "coding",
-      profileDigest: "digest",
+      connectionId: TEST_CONNECTION_ID,
+      ...releaseSpecColumns(),
       runtimeConfigSnapshot: {},
       effectiveTools: [],
     });

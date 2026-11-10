@@ -14,14 +14,16 @@ import {
   additionalRepositoryAllowed,
 } from "./additional-repositories.ts";
 import {
-  allowedPair,
-  allowedRun,
-  type InstallationProfileEntry,
+  connectionRefusal,
   releaseStartable,
   repositoryInCeiling,
   type SessionCatalog,
-  usesWorkspaceCeiling,
 } from "./catalog.ts";
+import {
+  TEST_CONNECTION_ID,
+  testCatalog,
+  testConnection,
+} from "../testing/catalog-fakes.ts";
 
 const repository = (
   name: string,
@@ -33,41 +35,13 @@ const repository = (
     auth,
   }) as SessionCatalog["repositories"][string];
 
-const entry = (
-  id: string,
-  repositoryIds: string[],
-  extra: Partial<InstallationProfileEntry> = {},
-): [string, InstallationProfileEntry] => [
-  id,
-  {
-    id,
-    origin: "catalog",
-    state: "usable",
-    repository_ids: repositoryIds,
-    ...extra,
-  },
-];
-
-const profile = (mode: string) =>
-  ({ repository: mode }) as unknown as SessionCatalog["profiles"][string];
-
-const CATALOG = {
-  profiles: {
-    coding: profile("required"),
-    optional: profile("optional"),
-    broad: profile("required"),
-  },
+const CATALOG = testCatalog({
   repositories: {
     app: repository("app", { kind: "github_app", registered: true }),
     docs: repository("docs", { kind: "github_app", registered: true }),
     outside: repository("outside", { kind: "github_app", registered: true }),
   },
-  installation: new Map<string, InstallationProfileEntry>([
-    entry("coding", ["app", "docs"]),
-    entry("optional", ["app"]),
-    entry("broad", ["app"], { repository_scope: "workspace" }),
-  ]),
-} satisfies SessionCatalog;
+});
 
 const SETTINGS: AgentGitHub = {
   repositories: ["app", "docs"],
@@ -99,11 +73,10 @@ const context = (
   overrides: Partial<AdditionalRepositoryContext>,
 ): AdditionalRepositoryContext => ({
   repositoryId: "app",
-  profileId: "coding",
   attached: null,
   policySource: "release",
   github: SETTINGS,
-  repositoryCeiling: null,
+  repositoryCeiling: ceilingOf("app", "docs"),
   githubEnabled: true,
   ...overrides,
 });
@@ -145,24 +118,6 @@ describe("with no settings row, every reader answers as before", () => {
   });
 
   test.each([
-    { profile: "coding", id: "app", pair: true, run: true },
-    { profile: "coding", id: "docs", pair: true, run: true },
-    { profile: "coding", id: "outside", pair: false, run: false },
-    { profile: "coding", id: null, pair: false, run: false },
-    { profile: "optional", id: null, pair: false, run: true },
-    { profile: "missing", id: "app", pair: false, run: false },
-  ])("catalog pair: $profile with $id", (row) => {
-    expect(
-      row.id !== null && allowedPair(CATALOG, row.profile, row.id) !== null,
-    ).toBe(row.pair);
-    expect(allowedRun(CATALOG, row.profile, row.id) !== null).toBe(row.run);
-    // The default and the stored `release` are one reading.
-    expect(allowedRun(CATALOG, row.profile, row.id, "release") !== null).toBe(
-      row.run,
-    );
-  });
-
-  test.each([
     {
       name: "the release's list, less its own",
       input: {},
@@ -181,34 +136,34 @@ describe("with no settings row, every reader answers as before", () => {
       ids: [],
     },
     {
-      name: "the workspace ceiling plays no part",
+      name: "no workspace ceiling lists nothing",
       input: { repositoryCeiling: null },
-      ids: ["docs"],
+      ids: [],
     },
   ] as const)("additional repositories: $name", ({ input, ids }) => {
     const attached = "attached" in input ? [...input.attached] : null;
     expect(idsOf(context({ ...input, attached }))).toEqual([...ids]);
   });
 
+  const MODEL = "claude-sonnet-5";
   test.each([
-    { profile: "coding", id: "app", starts: true },
-    { profile: "coding", id: "outside", starts: false },
-    { profile: "coding", id: null, starts: false },
-    { profile: "optional", id: null, starts: true },
-    { profile: "missing", id: "app", starts: false },
-  ])("Slack's start check: $profile with $id", (row) => {
+    { connection: TEST_CONNECTION_ID, model: MODEL, id: "app", starts: true },
+    { connection: TEST_CONNECTION_ID, model: MODEL, id: "outside", starts: false },
+    { connection: TEST_CONNECTION_ID, model: MODEL, id: "unknown", starts: false },
+    { connection: TEST_CONNECTION_ID, model: MODEL, id: null, starts: true },
+    { connection: "gone", model: MODEL, id: null, starts: false },
+    { connection: TEST_CONNECTION_ID, model: "retired", id: null, starts: false },
+    { connection: TEST_CONNECTION_ID, model: undefined, id: null, starts: false },
+  ])("Slack's start check: $model over $connection with $id", (row) => {
     const release = {
-      runtime_profile_id: row.profile,
+      connection_id: row.connection,
+      model: row.model,
       repository_id: row.id,
       policy_pins: {},
     };
-    expect(releaseStartable(CATALOG, release, null, null)).toBe(row.starts);
-    expect(allowedRun(CATALOG, row.profile, row.id) !== null).toBe(row.starts);
-  });
-
-  test("a stored profile keeps its own ceiling", () => {
-    expect(usesWorkspaceCeiling(CATALOG, "coding", "release")).toBe(false);
-    expect(usesWorkspaceCeiling(CATALOG, "missing", "release")).toBe(false);
+    expect(
+      releaseStartable(CATALOG, release, null, ceilingOf("app", "docs")),
+    ).toBe(row.starts);
   });
 });
 
@@ -230,14 +185,6 @@ describe("an `agent` session", () => {
       SETTINGS,
     );
     expect(startRepositoryOf(undefined, none, "app")).toBeNull();
-  });
-
-  test("runs off the profile's list and without a required repository: the workspace ceiling judges it", () => {
-    expect(allowedPair(CATALOG, "coding", "outside", "agent")).not.toBeNull();
-    expect(allowedRun(CATALOG, "coding", null, "agent")).not.toBeNull();
-    expect(allowedPair(CATALOG, "missing", "app", "agent")).toBeNull();
-    expect(allowedPair(CATALOG, "coding", "unknown", "agent")).toBeNull();
-    expect(usesWorkspaceCeiling(CATALOG, "coding", "agent")).toBe(true);
   });
 
   test.each([
@@ -314,49 +261,19 @@ describe("an `agent` session", () => {
       starts: false,
     },
     {
-      name: "no start repository on a required profile",
+      name: "no start repository",
       agent: row({ startRepositoryId: null }),
       ceiling: null,
       starts: true,
     },
   ])("Slack's start check: $name", ({ agent, ceiling, starts }) => {
     const release = {
-      runtime_profile_id: "coding",
+      connection_id: TEST_CONNECTION_ID,
+      model: "claude-sonnet-5",
       repository_id: "app",
       policy_pins: {},
     };
     expect(releaseStartable(CATALOG, release, agent, ceiling)).toBe(starts);
-  });
-});
-
-describe("a profile with repository_scope = workspace", () => {
-  test("the workspace ceiling judges it even on a release session", () => {
-    expect(usesWorkspaceCeiling(CATALOG, "broad", "release")).toBe(true);
-    expect(allowedPair(CATALOG, "broad", "docs", "release")).not.toBeNull();
-    expect(
-      idsOf(
-        context({
-          profileId: "broad",
-          repositoryCeiling: ceilingOf("docs"),
-        }),
-      ),
-    ).toEqual(["docs"]);
-    expect(idsOf(context({ profileId: "broad" }))).toEqual([]);
-  });
-
-  test("Slack's start check reads the ceiling, not the profile's list", () => {
-    const release = {
-      runtime_profile_id: "broad",
-      repository_id: "docs",
-      policy_pins: {},
-    };
-    expect(releaseStartable(CATALOG, release, null, ceilingOf("docs"))).toBe(
-      true,
-    );
-    expect(releaseStartable(CATALOG, release, null, ceilingOf("app"))).toBe(
-      false,
-    );
-    expect(releaseStartable(CATALOG, release, null, null)).toBe(false);
   });
 });
 
@@ -385,5 +302,44 @@ describe("the repository ceiling", () => {
     };
     expect(repositoryInCeiling(INSTALLED, ceiling, "unknown")).toBe(false);
     expect(repositoryInCeiling(INSTALLED, ceiling, "console")).toBe(true);
+  });
+});
+
+describe("connectionRefusal", () => {
+  const families = {
+    "sonnet-1": { family: "sonnet", rank: 1 },
+    "sonnet-2": { family: "sonnet", rank: 2 },
+    "opus-1": { family: "opus", rank: 1 },
+  };
+  const catalog = testCatalog({
+    connections: {
+      [TEST_CONNECTION_ID]: testConnection({
+        models: ["sonnet-2"],
+        model_families: families,
+      }),
+    },
+  });
+
+  test("a listed model on an enabled connection runs", () => {
+    expect(connectionRefusal(catalog, TEST_CONNECTION_ID, "sonnet-2")).toBeNull();
+  });
+
+  test("a retired model with a successor still runs: its session moves", () => {
+    expect(connectionRefusal(catalog, TEST_CONNECTION_ID, "sonnet-1")).toBeNull();
+  });
+
+  test("a retired model with no successor is refused", () => {
+    expect(connectionRefusal(catalog, TEST_CONNECTION_ID, "opus-1")).toBe(
+      "model_removed",
+    );
+    expect(connectionRefusal(catalog, TEST_CONNECTION_ID, "unknown")).toBe(
+      "model_removed",
+    );
+  });
+
+  test("a disabled or missing connection is refused", () => {
+    expect(connectionRefusal(catalog, "gone", "sonnet-2")).toBe(
+      "connection_missing",
+    );
   });
 });

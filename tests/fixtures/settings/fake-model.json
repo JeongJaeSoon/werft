@@ -8,9 +8,7 @@
         "kind": "api_key",
         "secret_id": "werft/local/fake-messages"
       },
-      "models": [
-        "claude-sonnet-5"
-      ]
+      "models": ["claude-sonnet-5"]
     }
   },
   "repositories": {
@@ -34,9 +32,7 @@
         "kind": "bearer",
         "secret_id": "werft/local/fake-mcp"
       },
-      "workspaces": [
-        "verify"
-      ]
+      "workspaces": ["verify"]
     }
   }
 }

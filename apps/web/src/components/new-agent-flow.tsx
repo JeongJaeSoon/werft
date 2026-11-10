@@ -660,9 +660,10 @@ function JobStep({
   const { t } = useI18n();
   const draft = useWatch({ control: form.control }) as CardDraft;
   const { errors, isSubmitted, isSubmitting } = form.formState;
-  const connection = catalog.data?.items.find(
-    (item) => item.id === connectionId,
-  );
+  // Until one is picked, the first connection listed.
+  const chosen =
+    connectionId !== "" ? connectionId : (catalog.data?.items[0]?.id ?? "");
+  const connection = catalog.data?.items.find((item) => item.id === chosen);
   // The card's model has to be one the chosen connection offers.
   const runs =
     connection !== undefined && connection.models.includes(draft.model);
@@ -684,7 +685,7 @@ function JobStep({
       onSubmit={submitStep(
         form,
         async (values) => {
-          if (runs) await onSave(values, connectionId);
+          if (runs) await onSave(values, chosen);
         },
         refuse,
       )}
@@ -694,7 +695,7 @@ function JobStep({
       <AgentCardFields
         draft={draft}
         catalog={catalog}
-        connectionId={connectionId}
+        connectionId={chosen}
         onConnectionChange={onConnectionChange}
         onChange={change}
         errors={fieldErrors}

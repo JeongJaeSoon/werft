@@ -3,7 +3,6 @@ import { setupUser } from "@werft-ai/ui/test-support/dom";
 import { AGENT_ID, agentServer } from "../../test-support/fake-agents.ts";
 import {
   agentEngineSettings,
-  apiError,
   json,
   me,
   RECEIPT_ID,
@@ -40,7 +39,6 @@ describe("에이전트 실행 규칙 탭", () => {
               },
               settings_revision: 5,
             },
-            inherited: { entries: 2, rules: 7 },
             reach: {
               agent_allow_without_effect: {
                 permissions: ["Read"],
@@ -61,9 +59,6 @@ describe("에이전트 실행 규칙 탭", () => {
     expect(rules.textContent).toContain("Staging only");
     // The workspace's rules are read only: no box of theirs to type in.
     expect(within(rules).queryByRole("textbox")).toBeNull();
-    await screen.findByText(
-      "프로필에서 물려받은 막는 규칙: 항목 2개에 규칙 7개. 운영자가 관리하며 여기서 바꿀 수 없습니다.",
-    );
     // The note names the list that does not reach, not a kind of list.
     await screen.findByText(
       "워크스페이스는 환경 문장을(를) 허용하지만 이 에이전트의 같은 목록이 비어 있어, 워크스페이스의 허용이 이 에이전트에 닿지 않습니다.",
@@ -137,25 +132,6 @@ describe("에이전트 실행 규칙 탭", () => {
       },
     });
     await waitFor(() => expect(deny.value).toBe("WebFetch\nBash(rm:*)"));
-  });
-
-  test("저장이 닫히는 순간 거절되면 닫혔다고 알리고 입력은 남는다", async () => {
-    renderAt(TAB, {
-      ...meOk,
-      ...agentServer().routes,
-      [`GET ${PATH}`]: () => json(200, agentEngineSettings()),
-      [`PUT ${PATH}`]: () =>
-        apiError(403, "FORBIDDEN", "closed", false, {
-          reason_code: "engine_settings_writes_closed",
-        }),
-    });
-    const user = await setupUser();
-    const deny = (await box("거부")) as HTMLTextAreaElement;
-    await user.type(deny, "Read");
-    await user.click(await saveButton());
-    const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain("지금은 저장이 닫혀 있습니다");
-    expect(deny.value).toBe("Read");
   });
 
   // The server's limit is per list. Two lists of 20 are within it, so the page

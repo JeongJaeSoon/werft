@@ -37,6 +37,12 @@ import {
 } from "./schema.ts";
 import { fixtureTeam } from "./testing/fixture-team.ts";
 import { launchSession } from "./testing/launches.ts";
+import {
+  TEST_CONNECTION_ID,
+  TEST_MODEL,
+  releaseSpecColumns,
+  testClaimCatalog,
+} from "./testing/spec-pins.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -111,8 +117,8 @@ integration("user variables on PostgreSQL", () => {
       agentId,
       versionId,
       cardSha256: "0".repeat(64),
-      runtimeProfileId: "coding",
-      profileDigest: "digest",
+      connectionId: TEST_CONNECTION_ID,
+      ...releaseSpecColumns(),
       runtimeConfigSnapshot: {},
       effectiveTools: { tools: [], mcp: [] },
       policyPins: {
@@ -184,7 +190,7 @@ integration("user variables on PostgreSQL", () => {
       principal: principal(workspaceId),
       idempotencyKey,
       payloadHash: "h",
-      profileId: "claude-coding-v1",
+      model: TEST_MODEL,
       repository: "none",
       agentReleaseId: releaseId,
       ...(envNames === undefined ? {} : { envNames }),
@@ -829,15 +835,8 @@ integration("user variables on PostgreSQL", () => {
         ...(userEnv ? { userEnv: true as const } : {}),
         settingsGeneration: Number.MAX_SAFE_INTEGER,
         unsettledRepositoryIds: new Set(),
-        settledProfileIds: new Set(["claude-coding-v1"]),
-        runnable: [
-          {
-            profileId: "claude-coding-v1",
-            profileFingerprint: `sha256:${"a".repeat(64)}`,
-            model: null,
-            repositoryId: null,
-          },
-        ],
+        settledConnectionIds: new Set([TEST_CONNECTION_ID]),
+        runnable: testClaimCatalog(),
         costLimitUsd: 1_000,
         tokenLimit: null,
         nonceHash: hashWorkerToken(launch.nonce),

@@ -15,6 +15,7 @@ import { Pool } from "pg";
 import { createPostgresGitHubGateStore } from "./github-settings.ts";
 import { createPostgresRepositoryAttachments } from "./repository-attachments.ts";
 import * as schema from "./schema.ts";
+import { releaseSpecColumns, TEST_CONNECTION_ID } from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -316,21 +317,26 @@ integration("repository attachments on PostgreSQL", () => {
        VALUES ($1, $2, 1, '{}', $3)`,
       [versionId, agentId, "a".repeat(64)],
     );
-    const release = async (pins: object, profileId = "claude-coding-v1") => {
+    const release = async (pins: object) => {
       const id = `sha256:${randomUUID()}`;
+      const spec = releaseSpecColumns();
       await pool.query(
         `INSERT INTO agent_releases (id, agent_id, version_id, card_sha256,
-           runtime_profile_id, repository_id, profile_digest,
-           runtime_config_snapshot, effective_tools, policy_pins)
-         VALUES ($1, $2, $3, $4, $7, 'sample-app', $5, '{}', '{}', $6)`,
+           connection_id, repository_id, runtime_config_snapshot,
+           effective_tools, policy_pins, spec_source, spec_source_digest,
+           runtime_spec, spec_digest)
+         VALUES ($1, $2, $3, $4, $5, 'sample-app', '{}', '{}', $6, $7, $8, $9, $10)`,
         [
           id,
           agentId,
           versionId,
           "a".repeat(64),
-          `sha256:${"c".repeat(64)}`,
+          TEST_CONNECTION_ID,
           JSON.stringify(pins),
-          profileId,
+          JSON.stringify(spec.specSource),
+          spec.specSourceDigest,
+          JSON.stringify(spec.runtimeSpec),
+          spec.specDigest,
         ],
       );
       return id;
@@ -351,18 +357,13 @@ integration("repository attachments on PostgreSQL", () => {
     );
     expect(await store.activeRelease(s.sessionId)).toEqual({
       id: pinned,
-      profileId: "claude-coding-v1",
       github: github(["sample-app"]),
     });
 
-    const newer = await release(
-      { github: github(["sample-app", "docs"]) },
-      "general",
-    );
+    const newer = await release({ github: github(["sample-app", "docs"]) });
     await activate(newer, 1);
     expect(await store.activeRelease(s.sessionId.toUpperCase())).toEqual({
       id: newer,
-      profileId: "general",
       github: github(["sample-app", "docs"]),
     });
 
@@ -370,7 +371,6 @@ integration("repository attachments on PostgreSQL", () => {
     await activate(bare, 2);
     expect(await store.activeRelease(s.sessionId)).toEqual({
       id: bare,
-      profileId: "claude-coding-v1",
       github: null,
     });
 
@@ -378,7 +378,6 @@ integration("repository attachments on PostgreSQL", () => {
     await activate(broken, 3);
     expect(await store.activeRelease(s.sessionId)).toEqual({
       id: broken,
-      profileId: "claude-coding-v1",
       github: "invalid",
     });
   });

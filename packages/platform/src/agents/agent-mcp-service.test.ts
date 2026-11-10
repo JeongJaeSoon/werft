@@ -9,7 +9,7 @@ const AGENT = "019a0000-0000-7000-8000-0000000000c1";
 const USER = "019a0000-0000-7000-8000-0000000000d1";
 
 const catalog = {
-  profiles: {},
+  connections: {},
   repositories: {},
   mcp_servers: {
     docs: { credential_ref: "docs-key", workspaces: ["acme"] },

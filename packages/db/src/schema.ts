@@ -4638,7 +4638,6 @@ export const agentActivationEvents = pgTable(
   ],
 );
 
-
 // docs/contributing/decisions/achievement-rules.md §3: what a workspace counts
 // as an achievement. Categories group rules; a type is what a rule counts.
 export const achievementCategories = pgTable(

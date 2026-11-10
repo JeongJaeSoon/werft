@@ -29,7 +29,6 @@ import {
   type SessionCatalog,
   SessionServiceError,
   type TeamActor,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import {
   createTempDatabase,
@@ -55,6 +54,7 @@ import * as schema from "./schema.ts";
 import { agents, receipts } from "./schema.ts";
 import { createPostgresSurfaceBindingStore } from "./surface-bindings.ts";
 import { fixtureTeam } from "./testing/fixture-team.ts";
+import { testSessionCatalog } from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -77,8 +77,7 @@ const PROFILE: CatalogProfile = {
     },
   },
 };
-const CATALOG: SessionCatalog = withSeededInstallation({
-  profiles: { coding: PROFILE },
+const CATALOG: SessionCatalog = testSessionCatalog({
   repositories: {},
 });
 

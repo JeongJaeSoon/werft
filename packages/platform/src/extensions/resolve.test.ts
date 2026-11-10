@@ -170,16 +170,6 @@ describe("resolveExtensions: scope rules", () => {
     expect(result.ok && result.extensions[0]?.digest).toBe("b".repeat(64));
   });
 
-  test("a profile-scope requirement binds the scopes inside it", () => {
-    const result = resolveExtensions({
-      ...base,
-      scopes: {
-        profile: [entry("required", ref("policy", "c"))],
-        agent: [entry("forbidden", ref("policy", "c"))],
-      },
-    });
-    expect(refusalOf(result).code).toBe("required_removed");
-  });
 });
 
 describe("resolveExtensions: name collisions", () => {

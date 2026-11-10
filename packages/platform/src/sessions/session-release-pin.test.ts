@@ -71,7 +71,6 @@ const catalog: SessionCatalog = withSeededInstallation({
     app: {
       url: "https://example.invalid/app.git",
       branch: "main",
-      profiles: ["coding-v1", "review-v1"],
       auth: { kind: "github_app", registered: true },
     },
   },
@@ -317,19 +316,16 @@ describe("a session pinned to an agent release", () => {
         docs: {
           url: "https://example.invalid/docs.git",
           branch: "main",
-          profiles: ["coding-v1", "either-v1"],
           auth: { kind: "github_app", registered: true },
         },
         tools: {
           url: "https://example.invalid/tools.git",
           branch: "main",
-          profiles: ["coding-v1", "either-v1"],
           auth: { kind: "github_app", registered: true },
         },
         elsewhere: {
           url: "https://example.invalid/elsewhere.git",
           branch: "main",
-          profiles: ["review-v1"],
           auth: { kind: "github_app", registered: true },
         },
       },
@@ -1404,13 +1400,11 @@ describe("attached repositories in a session read", () => {
       docs: {
         url: "https://github.com/acme/docs.git",
         branch: "main",
-        profiles: ["coding-v1"],
         auth: { kind: "github_app", registered: true },
       },
       tools: {
         url: "file:///srv/git/tools.git",
         branch: "main",
-        profiles: ["coding-v1"],
         auth: { kind: "github_app", registered: true },
       },
     },
@@ -1481,7 +1475,6 @@ describe("a session recorded on the example git host", () => {
         repositories: {
           app: {
             ...example,
-            profiles: ["coding-v1"],
             auth: { kind: "github_app", registered: true },
           },
         },

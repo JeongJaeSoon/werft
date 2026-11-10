@@ -195,9 +195,7 @@ reconciler:
   extraEnv: {}
 
 # Drains the Slack inbox, claiming rows for leaseSec at a time; one replica
-# is enough. It loads the api's catalog, so
-# PLATFORM_ALLOW_UNATTENDED_PERMISSIONS follows api.extraEnv unless
-# extraEnv here sets it.
+# is enough. It loads the api's catalog.
 slack:
   enabled: true
   replicas: 1

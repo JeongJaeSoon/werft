@@ -58,13 +58,11 @@ const catalogOf = (profile: CatalogProfile): SessionCatalog =>
       "sample-app": {
         url: "https://github.com/acme/sample-app",
         branch: "main",
-        profiles: ["coding", "either"],
         auth: { kind: "github_app", registered: true },
       },
       "other-app": {
         url: "https://github.com/acme/other-app",
         branch: "main",
-        profiles: ["either"],
         auth: { kind: "github_app", registered: true },
       },
     },
@@ -727,19 +725,16 @@ describe("a release's GitHub settings", () => {
       "sample-app": {
         url: "https://github.com/acme/sample-app",
         branch: "main",
-        profiles: ["coding", "either"],
         auth: app,
       },
       "docs-app": {
         url: "https://github.com/acme/docs-app",
         branch: "main",
-        profiles: ["coding", "either"],
         auth: app,
       },
       "review-only": {
         url: "https://github.com/acme/review-only",
         branch: "main",
-        profiles: ["either"],
         auth: app,
       },
     },

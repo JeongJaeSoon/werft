@@ -9,6 +9,7 @@ import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
 import { sessions } from "./schema.ts";
+import { fixtureRelease, TEST_MODEL } from "./testing/spec-pins.ts";
 
 let client: PGlite;
 let db: PgliteDatabase<typeof schema>;
@@ -30,7 +31,7 @@ const prompt: PlatformPrompt = {
   repository: "acme/app",
 };
 
-function accept(
+async function accept(
   extra: Partial<AcceptSessionInput>,
   idempotencyKey = randomUUID(),
 ) {
@@ -39,7 +40,8 @@ function accept(
     principal: { ownerId: "owner-a" },
     idempotencyKey,
     payloadHash: "hash",
-    profileId: "claude-coding-v1",
+    agentReleaseId: await fixtureRelease(db),
+    model: TEST_MODEL,
     repository: {
       id: "app",
       url: "https://github.com/acme/app.git",

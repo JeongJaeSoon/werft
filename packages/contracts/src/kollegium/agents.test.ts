@@ -286,7 +286,7 @@ describe("AgentCard", () => {
     );
   });
 
-  test("holds no built-in tool field: the profile decides the tools", () => {
+  test("holds no built-in tool field: the runtime decides the tools", () => {
     const parsed = agentCardSchema.safeParse({
       ...card,
       capabilities: { ...card.capabilities, tools: ["Read"] },
@@ -516,9 +516,8 @@ describe("agent, version and release", () => {
       agent_id: AGENT_ID,
       version_id: VERSION_ID,
       card_sha256: "a".repeat(64),
-      runtime_profile_id: "claude-coding-v1",
+      connection_id: "fake-messages",
       repository_id: null,
-      profile_digest: "sha256:fp",
       runtime_config_snapshot: {
         model: "claude-sonnet-5",
         api_key_ref: "env:KEY",
@@ -558,7 +557,7 @@ describe("agent, version and release", () => {
     const request = (extra: object) =>
       createAgentReleaseRequestSchema.safeParse({
         version_id: VERSION_ID,
-        runtime_profile_id: "claude-coding-v1",
+        connection_id: "fake-messages",
         ...extra,
       });
     expect(request({}).success).toBe(true);
@@ -581,7 +580,7 @@ describe("agent, version and release", () => {
     const request = (note?: string) =>
       createAgentReleaseRequestSchema.safeParse({
         version_id: VERSION_ID,
-        runtime_profile_id: "claude-coding-v1",
+        connection_id: "fake-messages",
         ...(note === undefined ? {} : { note }),
       });
     // 200 emoji are 400 UTF-16 units but 200 characters to char_length.
@@ -611,9 +610,8 @@ describe("agent, version and release", () => {
       agent_id: AGENT_ID,
       version_id: VERSION_ID,
       card_sha256: "a".repeat(64),
-      runtime_profile_id: "claude-coding-v1",
+      connection_id: "fake-messages",
       repository_id: null,
-      profile_digest: "sha256:fp",
       runtime_config_snapshot: { model: "claude-sonnet-5" },
       effective_tools: { tools: ["Read"], mcp: [] },
       policy_pins: PINS,
@@ -627,7 +625,7 @@ describe("agent, version and release", () => {
       deactivated_at: null,
     };
     // This is the repository's own ClaudeRuntimeConfig shape: handing a
-    // resolved profile straight to the release used to persist the key.
+    // resolved runtime config straight to the release used to persist the key.
     expect(
       agentReleaseSchema.safeParse({
         ...release,
@@ -653,7 +651,7 @@ describe("agent, version and release", () => {
         },
       }).success,
     ).toBe(false);
-    // The names that actually appear in a runtime profile are compound.
+    // The names that actually appear in a runtime config are compound.
     for (const key of [
       "api_key",
       "apiKey",
@@ -706,9 +704,8 @@ describe("agent, version and release", () => {
       agent_id: AGENT_ID,
       version_id: VERSION_ID,
       card_sha256: "a".repeat(64),
-      runtime_profile_id: "claude-coding-v1",
+      connection_id: "fake-messages",
       repository_id: null,
-      profile_digest: "sha256:fp",
       runtime_config_snapshot: { model: "claude-sonnet-5" },
       effective_tools: { tools: ["Read"], mcp: [] },
       policy_pins: PINS,
@@ -893,7 +890,7 @@ describe("agent list summary", () => {
       mcp_servers: [],
       credential_refs: ["github"],
     },
-    runtime_profile_id: null,
+    connection_id: null,
     release_label: null,
     release_model: null,
     bound_credential_refs: [],

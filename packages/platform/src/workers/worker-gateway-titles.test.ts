@@ -5,11 +5,12 @@ import type {
   TitleEgressAuthorization,
 } from "../ports/session-title-store.ts";
 import type { WorkerUnitOfWork } from "../ports/worker-unit-of-work.ts";
-import type { CatalogProfile, SessionCatalog } from "../sessions/catalog.ts";
+import type { SessionCatalog } from "../sessions/catalog.ts";
 import {
   hashTitleToken,
   type SessionTitler,
 } from "../sessions/session-titler.ts";
+import { testCatalog, testConnection } from "../testing/catalog-fakes.ts";
 import { createWorkerGateway } from "./worker-gateway.ts";
 
 const sessionId = "0b3f1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2d";
@@ -28,19 +29,21 @@ const principal = {
   executionGeneration: 1,
   authRevision: 0,
 } as const;
-const profile: CatalogProfile = {
-  runtime_kind: "claude_agent_sdk",
-  runtime_version: "0.3.270",
-  model: "claude-sonnet-5",
-  tools: ["Read"],
-  permission_mode: "default",
-  provider: {
-    kind: "anthropic",
-    endpoint: "https://api.anthropic.invalid",
-    auth: { kind: "api_key", value: "provider-key", ref: { value_env: "K" } },
+const catalog: SessionCatalog = testCatalog({
+  connections: {
+    "conn-1": testConnection({
+      provider: {
+        kind: "anthropic",
+        endpoint: "https://api.anthropic.invalid",
+        auth: {
+          kind: "api_key",
+          value: "provider-key",
+          ref: { value_env: "K" },
+        },
+      },
+    }),
   },
-};
-const catalog: SessionCatalog = { profiles: { p: profile }, repositories: {} };
+});
 
 function notReached(): never {
   throw new Error("not reached");
@@ -92,15 +95,14 @@ const titleGrant: TitleEgressAuthorization = {
   outcome: "ok",
   sessionId,
   attemptId: "att_first",
-  profileId: "p",
-  profileFingerprint: null,
+  connectionId: "conn-1",
   model: "claude-sonnet-5",
   costUsd: 0,
   providerTokens: 0,
 };
 
 describe("title requests on the provider route", () => {
-  test("a title token gets the profile's provider, charged to the first turn's attempt", async () => {
+  test("a title token gets the session connection's provider, charged to the first turn's attempt", async () => {
     const { instance, authorized } = harness({ title: titleGrant });
     const grant = await instance.authorizeEgress({
       token: "wet_title",
@@ -135,10 +137,10 @@ describe("title requests on the provider route", () => {
     ).rejects.toMatchObject({ status: 403, code: "BUDGET_EXCEEDED" });
   });
 
-  test("a profile gone from the catalog is refused", async () => {
+  test("a connection gone from the catalog is refused", async () => {
     const { instance } = harness({
       title: titleGrant,
-      catalog: { profiles: {}, repositories: {} },
+      catalog: { connections: {}, repositories: {} },
     });
     await expect(
       instance.authorizeEgress({ token: "wet_title", purpose: "provider" }),

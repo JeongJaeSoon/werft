@@ -19,7 +19,7 @@ const server = {
   workspaces: ["default"],
 };
 const catalog: SessionCatalog = {
-  profiles: {},
+  connections: {},
   repositories: {},
   mcp_servers: { fake: server },
 };

@@ -14,7 +14,6 @@ import {
   createAgentService,
   createAuthorizationPolicy,
   type SessionCatalog,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import {
   createTempDatabase,
@@ -39,6 +38,7 @@ import {
   users,
   workspaces,
 } from "./schema.ts";
+import { testSessionCatalog } from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -60,21 +60,12 @@ const PROFILE: CatalogProfile = {
     },
   },
 };
-const CATALOG: SessionCatalog = withSeededInstallation({
-  profiles: {
-    coding: PROFILE,
-    // Another default model, and the first one still allowed.
-    newer: {
-      ...PROFILE,
-      model: "claude-opus-5",
-      models: ["claude-opus-5", "claude-sonnet-5"],
-    },
-  },
+const CATALOG: SessionCatalog = testSessionCatalog({
+  models: ["claude-opus-5", "claude-sonnet-5"],
   repositories: {
     app: {
       url: "https://example.invalid/app.git",
       branch: "main",
-      profiles: ["coding", "newer"],
       auth: { kind: "github_app", registered: true },
     },
   },

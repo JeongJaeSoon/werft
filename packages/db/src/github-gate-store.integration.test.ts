@@ -18,6 +18,10 @@ import {
 } from "./github-settings.ts";
 import { createPostgresPushRequests } from "./push-requests.ts";
 import * as schema from "./schema.ts";
+import {
+  RELEASE_SPEC_SQL_COLUMNS,
+  releaseSpecSqlValues,
+} from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -90,17 +94,10 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
     );
     await pool.query(
       `INSERT INTO agent_releases (id, agent_id, version_id, card_sha256,
-         runtime_profile_id, repository_id, profile_digest,
-         runtime_config_snapshot, effective_tools, policy_pins)
-       VALUES ($1, $2, $3, $4, 'claude-coding-v1', 'sample-app', $5, '{}', '{}', $6)`,
-      [
-        releaseId,
-        agentId,
-        versionId,
-        "a".repeat(64),
-        `sha256:${"c".repeat(64)}`,
-        JSON.stringify(pins),
-      ],
+         repository_id, runtime_config_snapshot, effective_tools, policy_pins,
+         ${RELEASE_SPEC_SQL_COLUMNS})
+       VALUES ($1, $2, $3, $4, 'sample-app', '{}', '{}', $5, ${releaseSpecSqlValues()})`,
+      [releaseId, agentId, versionId, "a".repeat(64), JSON.stringify(pins)],
     );
     await pool.query(
       "UPDATE agents SET active_release_id = $2, activation_revision = 0 WHERE id = $1",
@@ -143,7 +140,6 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
       ownerId: workspaceId,
       sessionId,
       repositoryId: "sample-app",
-      profileId: null,
       attachedRepositoryIds: null,
       repository: { url: "https://github.com/acme/app.git", branch: "main" },
       startedBy: userId,
@@ -455,7 +451,6 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
     const found = await pushes.findSession(workspaceId, sessionId);
     expect(found).toEqual({
       repositoryId: "sample-app",
-      profileId: null,
       // The pointer set above: approvability reads it from here.
       checkpointRevision: 1,
       attached: null,
@@ -492,7 +487,6 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
     const other = await session(workspaceId, plain.releaseId, userId);
     expect(await pushes.findSession(workspaceId, other)).toEqual({
       repositoryId: "sample-app",
-      profileId: null,
       checkpointRevision: null,
       attached: null,
       policySource: "release",

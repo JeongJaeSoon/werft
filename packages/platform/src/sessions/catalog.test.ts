@@ -48,7 +48,6 @@ const configured = {
 const repository = {
   url: "https://github.com/team/app.git",
   branch: "main",
-  profiles: ["p"],
   auth: { kind: "github_app" as const },
 };
 const resolvedRepository = {

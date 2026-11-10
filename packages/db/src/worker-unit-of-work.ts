@@ -70,10 +70,10 @@ import {
   transcriptLimitReachedEvent,
   transcriptWarnBytes,
   verifyReleaseSpec,
-  withEarlierConfig,
   type WorkerBinding,
   type WorkerFence,
   type WorkerUnitOfWork,
+  withEarlierConfig,
 } from "@werft-ai/platform";
 import {
   and,

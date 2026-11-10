@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
   type ExistingSettings,
-  parseSeedDocument,
   parseSettingsDocument,
   planSettingsImport,
   repositoryNameOf,
@@ -86,6 +85,7 @@ describe("parseSettingsDocument", () => {
   test("holds the file catalog's rules", () => {
     for (const bad of [
       { ...DOCUMENT, version: 2 },
+      // A document from before profiles were removed.
       { ...DOCUMENT, profiles: {} },
       {
         ...DOCUMENT,
@@ -210,74 +210,8 @@ describe("parseSettingsDocument", () => {
   });
 });
 
-describe("parseSeedDocument", () => {
-  const PROFILE = {
-    runtime_kind: "claude_agent_sdk",
-    runtime_version: "0.3.270",
-    model: "claude-sonnet-5",
-    repository: "none",
-    tools: ["Read"],
-    permission_mode: "plan",
-    provider: DOCUMENT.connections.main,
-  };
-
-  test("a document without `profiles` seeds nothing", () => {
-    expect(parseSeedDocument(DOCUMENT)).toEqual({
-      entries: parseSettingsDocument(DOCUMENT),
-      profiles: null,
-    });
-  });
-
-  test("the operator's `profiles` is the seed, and the API's parser still refuses it", () => {
-    const document = { ...DOCUMENT, profiles: { general: PROFILE } };
-    const seed = parseSeedDocument(document);
-    expect(Object.keys(seed.profiles ?? {})).toEqual(["general"]);
-    expect(seed.entries).toEqual(parseSettingsDocument(DOCUMENT));
-    expect(() => parseSettingsDocument(document)).toThrow(
-      SettingsDocumentError,
-    );
-  });
-
-  test("a seed that does not parse refuses the document", () => {
-    expect(() =>
-      parseSeedDocument({
-        ...DOCUMENT,
-        profiles: { general: { ...PROFILE, permission_mode: "whatever" } },
-      }),
-    ).toThrow(SettingsDocumentError);
-  });
-});
-
 describe("planSettingsImport", () => {
   const entries = parseSettingsDocument(DOCUMENT);
-
-  test("a repository's seed `profiles` is no conflict with its row", () => {
-    const seeded = parseSettingsDocument({
-      ...DOCUMENT,
-      repositories: {
-        open: { ...DOCUMENT.repositories.open, profiles: ["general"] },
-      },
-    });
-    const plan = planSettingsImport(
-      seeded,
-      {
-        ...NONE,
-        repositories: new Map([
-          [
-            "open",
-            {
-              entry: entries.repositories.open,
-              active: true,
-              has_value: false,
-            },
-          ],
-        ]),
-      },
-      { allowExternal: true },
-    );
-    expect(plan.conflicts).toEqual([]);
-    expect(plan.unchanged).toContain("repository:open");
-  });
 
   test("a connection the console moved to a stored value is kept, not a conflict", () => {
     const moved = {
@@ -545,4 +479,53 @@ test("repositoryNameOf reads an App repository's owner and name from its URL", (
       auth: { kind: "github_app" },
     }),
   ).toEqual({ owner: "acme", name: "app" });
+});
+
+describe("a connection's models in the document", () => {
+  const withModels = {
+    ...DOCUMENT,
+    connections: {
+      ...DOCUMENT.connections,
+      main: {
+        ...DOCUMENT.connections.main,
+        models: ["claude-sonnet-5", "claude-opus-5"],
+        model_families: {
+          "claude-sonnet-5": { family: "sonnet", rank: 5 },
+        },
+      },
+    },
+  };
+
+  test("are kept beside the definition, not in it", () => {
+    const entries = parseSettingsDocument(withModels);
+    expect(entries.connections.main).not.toHaveProperty("models");
+    expect(entries.connection_models?.main).toEqual({
+      models: ["claude-sonnet-5", "claude-opus-5"],
+      model_families: { "claude-sonnet-5": { family: "sonnet", rank: 5 } },
+    });
+  });
+
+  test("survive an export and a re-import", () => {
+    const entries = parseSettingsDocument(withModels);
+    const again = parseSettingsDocument(settingsDocumentOf(entries));
+    expect(again.connection_models?.main).toEqual(
+      entries.connection_models?.main,
+    );
+    expect(
+      (settingsDocumentOf(entries).connections.main as { models: string[] })
+        .models,
+    ).toEqual(["claude-sonnet-5", "claude-opus-5"]);
+  });
+
+  test("a model listed twice refuses the document", () => {
+    expect(() =>
+      parseSettingsDocument({
+        ...DOCUMENT,
+        connections: {
+          ...DOCUMENT.connections,
+          main: { ...DOCUMENT.connections.main, models: ["a", "a"] },
+        },
+      }),
+    ).toThrow("must not repeat a model");
+  });
 });

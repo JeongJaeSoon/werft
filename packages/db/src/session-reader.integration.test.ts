@@ -27,6 +27,7 @@ import {
   users,
 } from "./schema.ts";
 import { encodeArchiveChunk } from "./session-event-archives.ts";
+import { fixtureRelease, TEST_MODEL } from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -185,7 +186,8 @@ integration("session reader on PostgreSQL", () => {
       },
       idempotencyKey: "first",
       payloadHash: "first",
-      profileId: "claude-coding-v1",
+      agentReleaseId: await fixtureRelease(db),
+      model: TEST_MODEL,
       repository: "none",
       channel: "slack",
       message: "first",

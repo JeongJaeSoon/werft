@@ -4,7 +4,6 @@ import {
   createSessionRequestSchema,
   type InputWaitEventData,
   inputWaitEventDataSchema,
-  listProfilesResponseSchema,
   MAX_PERMISSION_WAIT_SECONDS,
   pendingRequestSchema,
   postSessionAnswerResponseSchema,
@@ -146,7 +145,7 @@ describe("the public wait contract", () => {
 
   test("a session may ask for its own waits, within the installation's bound", () => {
     const create = {
-      profile_id: "claude-coding-v1",
+      agent_release_id: `sha256:${"a".repeat(64)}`,
       message: "hello",
     };
     expect(
@@ -167,41 +166,6 @@ describe("the public wait contract", () => {
           .success,
       ).toBe(false);
     }
-  });
-
-  test("a profile says what its sessions wait and where each value came from", () => {
-    const profile = {
-      id: "claude-coding-v1",
-      source: "operator",
-      model: "claude-sonnet-5",
-      models: ["claude-sonnet-5"],
-      tools: [],
-      permission_mode: "default",
-      runtime_kind: "claude_agent_sdk",
-      runtime_version: "0.3.270",
-      billing: "metered",
-      repository_mode: "optional",
-    };
-    expect(
-      listProfilesResponseSchema.safeParse({
-        items: [
-          {
-            ...profile,
-            permission_wait: {
-              park_after_seconds: 1800,
-              expire_after_seconds: 86_400,
-              source: {
-                park_after_seconds: "installation",
-                expire_after_seconds: "profile",
-              },
-            },
-          },
-        ],
-      }).success,
-    ).toBe(true);
-    expect(
-      listProfilesResponseSchema.safeParse({ items: [profile] }).success,
-    ).toBe(true);
   });
 
   test("an answer's response from before parks still reads; the new fields ride beside it", () => {
@@ -322,9 +286,9 @@ describe("the worker's park contract", () => {
       runtime: {
         kind: "claude_agent_sdk",
         version: "0.3.270",
-        profile_id: "claude-coding-v1",
+        connection_id: "fake-messages",
       },
-      profile_fingerprint: `sha256:${HASH}`,
+      spec_digest: `sha256:${HASH}`,
       runtime_config: {
         model: "claude-sonnet-5",
         tools: [],

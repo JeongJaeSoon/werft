@@ -3,39 +3,21 @@ import type {
   SessionTitleStore,
   TitleRequestIssue,
 } from "../ports/session-title-store.ts";
-import {
-  type CatalogProfile,
-  catalogProfileConfigSchema,
-  profileFingerprint,
-  type SessionCatalog,
-} from "./catalog.ts";
+import type { SessionCatalog } from "./catalog.ts";
 import {
   createSessionTitler,
   hashTitleToken,
   titleOf,
 } from "./session-titler.ts";
+import { testCatalog, testConnection } from "../testing/catalog-fakes.ts";
 
-const profile: CatalogProfile = {
-  runtime_kind: "claude_agent_sdk",
-  runtime_version: "0.3.270",
-  model: "claude-sonnet-5",
-  title_model: "claude-haiku-4-5",
-  tools: ["Read"],
-  permission_mode: "default",
-  provider: {
-    kind: "anthropic",
-    endpoint: "https://api.anthropic.invalid",
-    auth: { kind: "api_key", value: "provider-key", ref: { value_env: "K" } },
-  },
-};
-const catalog: SessionCatalog = { profiles: { p: profile }, repositories: {} };
+const catalog: SessionCatalog = testCatalog();
 const session = { sessionId: "s-1", attemptId: "att-1" };
 const issued: TitleRequestIssue = {
   outcome: "issued",
   message: "Fix the flaky checkout test",
   result: "Done: the retry was racing the cart.",
-  profileId: "p",
-  profileFingerprint: null,
+  connectionId: "conn-1",
   model: "claude-sonnet-5",
 };
 
@@ -89,7 +71,7 @@ describe("createSessionTitler", () => {
       issuedHashes[0] as Uint8Array,
     );
     const body = JSON.parse(call?.init.body as string);
-    expect(body.model).toBe("claude-haiku-4-5");
+    expect(body.model).toBe("claude-sonnet-5");
     expect(body.tools).toBeUndefined();
     expect(body.messages[0].content).toContain("Fix the flaky checkout test");
     expect(body.messages[0].content).toContain("racing the cart");
@@ -98,15 +80,27 @@ describe("createSessionTitler", () => {
     ]);
   });
 
-  test("a profile without title_model names it with the session's model", async () => {
-    const { title_model: _unset, ...plain } = profile;
-    const { titler, calls } = harness({
-      catalog: { profiles: { p: plain }, repositories: {} },
+  test("a Responses connection is not asked: the derived title stays", async () => {
+    const { titler, calls, settled } = harness({
+      catalog: testCatalog({
+        connections: {
+          "conn-1": testConnection({
+            provider: {
+              kind: "openai_responses",
+              endpoint: "https://api.openai.invalid",
+              auth: {
+                kind: "api_key",
+                value: "k",
+                ref: { value_env: "K" },
+              },
+            },
+          }),
+        },
+      }),
     });
-    await titler.afterFirstTurn(session);
-    expect(JSON.parse(calls[0]?.init.body as string).model).toBe(
-      "claude-sonnet-5",
-    );
+    expect(await titler.afterFirstTurn(session)).toBe("kept");
+    expect(calls).toHaveLength(0);
+    expect(settled.map((entry) => entry.title)).toEqual([null]);
   });
 
   test("a refused call settles with no title and reports why", async () => {
@@ -148,9 +142,9 @@ describe("createSessionTitler", () => {
     expect(settled).toHaveLength(0);
   });
 
-  test("a profile gone from the catalog keeps the derived title", async () => {
+  test("a connection gone from the catalog keeps the derived title", async () => {
     const { titler, calls, settled } = harness({
-      catalog: { profiles: {}, repositories: {} },
+      catalog: { connections: {}, repositories: {} },
     });
     expect(await titler.afterFirstTurn(session)).toBe("kept");
     expect(calls).toHaveLength(0);
@@ -198,28 +192,5 @@ describe("titleOf", () => {
     expect(titleOf(answer("<title> </title>"))).toBeNull();
     expect(titleOf({ content: [{ type: "tool_use" }] })).toBeNull();
     expect(titleOf(null)).toBeNull();
-  });
-});
-
-describe("title_model in the catalog", () => {
-  test("is read from config and leaves the profile's fingerprint as it was", () => {
-    const { title_model: _unset, ...plain } = profile;
-    expect(profileFingerprint(profile)).toBe(profileFingerprint(plain));
-    const config = {
-      runtime_kind: "claude_agent_sdk",
-      runtime_version: "0.3.270",
-      model: "claude-sonnet-5",
-      title_model: "claude-haiku-4-5",
-      tools: ["Read"],
-      permission_mode: "default",
-      provider: {
-        kind: "anthropic",
-        endpoint: "https://api.anthropic.invalid",
-        auth: { kind: "api_key", value_env: "K" },
-      },
-    };
-    expect(catalogProfileConfigSchema.parse(config).title_model).toBe(
-      "claude-haiku-4-5",
-    );
   });
 });

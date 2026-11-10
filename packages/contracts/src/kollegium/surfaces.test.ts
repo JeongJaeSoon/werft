@@ -124,7 +124,6 @@ describe("surfaces", () => {
       thread_id: "1700000000.000100",
       agent_id: AGENT_ID,
       release_id: "rel_9f2c",
-      profile_id: "claude-coding-v1",
       role: "primary",
       visibility: "full",
       muted: false,
@@ -169,7 +168,7 @@ describe("surfaces", () => {
         surface_ref: formatSurfaceRef(long, long),
       }).success,
     ).toBe(true);
-    for (const field of ["release_id", "profile_id"] as const) {
+    for (const field of ["release_id"] as const) {
       expect(
         sessionLinkSchema.safeParse({ ...link, [field]: null }).success,
       ).toBe(false);
