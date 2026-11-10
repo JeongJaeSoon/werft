@@ -1437,13 +1437,9 @@ export async function slackExports(repo: string): Promise<Counts> {
   return counts;
 }
 
-/** A function type, written inline or through a type alias declared in the same file. */
-/** `aliases` minus the names a type parameter of an enclosing declaration shadows. */
-function visibleAliases(
-  node: ts.Node,
-  aliases: ReadonlyMap<string, ts.TypeNode>,
-): ReadonlyMap<string, ts.TypeNode> {
-  const visible = new Map(aliases);
+/** Type parameter names of the declarations around `node`; they hide a same-named alias. */
+function typeParameterNames(node: ts.Node): Set<string> {
+  const names = new Set<string>();
   for (let up: ts.Node | undefined = node; up; up = up.parent)
     if (
       (ts.isInterfaceDeclaration(up) ||
@@ -1452,28 +1448,38 @@ function visibleAliases(
         ts.isFunctionTypeNode(up)) &&
       up.typeParameters
     )
-      for (const parameter of up.typeParameters)
-        visible.delete(parameter.name.text);
-  return visible;
+      for (const parameter of up.typeParameters) names.add(parameter.name.text);
+  return names;
 }
 
+/**
+ * A function type, written inline or through a type alias declared in the
+ * same file. `shadowed` names hide an alias only where the member itself
+ * writes them, not inside the alias it then follows.
+ */
 function isFunctionType(
   type: ts.TypeNode,
   aliases: ReadonlyMap<string, ts.TypeNode>,
+  shadowed: ReadonlySet<string> = new Set(),
   followed: ReadonlySet<string> = new Set(),
 ): boolean {
   if (ts.isFunctionTypeNode(type)) return true;
   if (ts.isParenthesizedTypeNode(type))
-    return isFunctionType(type.type, aliases, followed);
+    return isFunctionType(type.type, aliases, shadowed, followed);
   if (ts.isUnionTypeNode(type))
     return type.types.some((member) =>
-      isFunctionType(member, aliases, followed),
+      isFunctionType(member, aliases, shadowed, followed),
     );
   if (ts.isTypeReferenceNode(type) && ts.isIdentifier(type.typeName)) {
     const name = type.typeName.text;
     const target = aliases.get(name);
-    if (!target || followed.has(name)) return false;
-    return isFunctionType(target, aliases, new Set([...followed, name]));
+    if (!target || shadowed.has(name) || followed.has(name)) return false;
+    return isFunctionType(
+      target,
+      aliases,
+      new Set(),
+      new Set([...followed, name]),
+    );
   }
   return false;
 }
@@ -1498,7 +1504,7 @@ export async function optionalCapabilityMethods(
           (ts.isPropertySignature(node) &&
             node.questionToken &&
             node.type &&
-            isFunctionType(node.type, visibleAliases(node, aliases)))
+            isFunctionType(node.type, aliases, typeParameterNames(node)))
         )
           found.push(
             `${slashed(relative(repo, file))} -> ${node.name.getText(source)}`,
@@ -3236,7 +3242,8 @@ describe("architecture", () => {
             "}",
             "type Send = () => Promise<void>;",
             "type Plain = { id: string };",
-            "export interface Generic<Send> { data?: Send }",
+            "export interface Generic<Send> { data?: Send; run?: Chained }",
+            "type Chained = Send;",
             "export type Api = { close?(): void };",
           ].join("\n"),
           [platformFile("surface/ports/notice.ts")]:
@@ -3254,6 +3261,7 @@ describe("architecture", () => {
       `${ports} -> close`,
       `${ports} -> onDone`,
       `${ports} -> retry`,
+      `${ports} -> run`,
       `${platformFile("surface/ports/notice.ts")} -> send`,
     ]);
   });
