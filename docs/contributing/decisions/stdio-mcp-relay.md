@@ -98,7 +98,9 @@ export function mcpRelay(server: { name: string; tools: readonly string[] }, ups
 | 컨트롤 플레인(호출 시점 판정) | release deny, 저장된 엔진 규칙 deny, 호출자 상한 [94S-919]을 **지금 값**으로 deny 우선 판정 | egress `decide`(`mcp-egress.ts`) | **새 worker 경로** `POST` 판정 요청. `decide`와 같은 판정 함수를 부른다 |
 | worker relay | 고정된 목록 밖 `tools/list`·`tools/call` 거절, 판정 결과 집행 | 있음 | 있음 |
 
-**stdio의 호출 시점 판정이 가는 길.** egress `/mcp/<name>` 경로는 쓰지 않는다(위 이유 1~3). 대신 worker가 attempt에 묶인 인증으로 컨트롤 플레인에 묻는 **판정 전용 경로**를 둔다. 이 경로는 egress `decide`에서 서버·자격·regrant 검사를 빼고 **도구 판정 부분만** 뽑아낸 함수를 공유한다. 두 소비자(egress와 이 경로)가 한 함수를 부르므로 deny 규칙이 갈라지지 않는다. 새 worker 경로는 `packages/core`의 응답 표에도 올려야 한다.
+**stdio의 호출 시점 판정이 가는 길.** egress `/mcp/<name>` 경로는 쓰지 않는다(위 이유 1~3). 대신 worker가 attempt에 묶인 인증으로 컨트롤 플레인에 묻는 **판정 전용 경로**를 둔다. 공유할 것은 `decide` 안의 조각이 아니다. `decide`는 이미 계산된 `state.tools`에 `mcpToolPermitted`를 적용할 뿐이고, 현재 설정 교차는 DB의 `sessionEffectiveMcp`, 저장 deny의 조회·적용은 `withoutSavedMcpDenies`(`packages/db/src/mcp-egress.ts:97`, `:192`)에 있다. 그래서 둘을 구분한다: ① **정책 입력을 읽는 공통 경로**(현재 설정 행, 저장 deny, 호출자 상한을 DB에서 읽음)와 ② **순수 판정 함수**(`visibleMcpTools`). U2b는 ①을 egress와 새 경로가 같이 부르도록 뽑는다. `effectiveMcp`는 지금 세션의 서버를 **하나**로 가정하므로(`mcp-settings.ts`의 `server`), 번들의 stdio 서버 여럿에는 서버 이름별로 부르고 서버마다 세션에 고정한 상한을 `start` 입력으로 준다. 이 매핑을 U2b의 첫 시험으로 둔다(서버 둘이 있는 세션에서 한쪽에만 deny를 더하면 그쪽만 좁아진다).
+
+**새 경로의 연결은 worker 프로토콜을 따른다.** `packages/core`의 응답 표(`schemas/responses.ts`)는 공개 클라이언트의 `OperationKey`용이고 기존 worker 경로는 거기에 없다. 새 경로를 거기에 올리지 않는다. 연결은 `packages/contracts`의 worker-protocol 스키마 → `apps/control-host/src/api/routes/worker.ts`의 `jsonWithSchema` → worker gateway client의 decoder다. 인증은 `gateway.authenticate` 뒤 `requireScope`(`packages/platform/src/workers/worker-gateway.ts:1630`)로 session·attempt·lease epoch·execution generation·auth revision을 대조하고, `requireScope`가 토큰이 DB보다 오래됐을 수 있다고 명시하므로 **현재 DB 소유권을 확인하는 fenced read**로 서버·고정 상한을 읽는다. bootstrap 토큰, 다른 attempt, 낡은 fence는 거절하는 시험을 둔다.
 
 relay가 쓰는 인터페이스는 relay가 소유하고 작게 둔다.
 
@@ -112,9 +114,11 @@ export interface McpToolGate {
 ```
 
 - `tools/list`: 캐시된 목록(입력 스키마 포함)을 `visible()`로 걸러 돌려준다. 스키마는 시작 때의 것이고 이름 집합만 지금 값이다.
-- `tools/call`: 서버로 보내기 전에 `permits()`를 부른다. 거절이면 서버를 띄우지도 않고 `isError`로 돌려준다.
+- `tools/call`: 순서는 **`quiesce` 대기 → `permits()` → 서버 호출**이다. 대기 뒤에 판정을 받아야 승인 답으로 재개된 호출이 대기 중에 더해진 deny를 우회하지 못한다("캐시하지 않는다"의 한 가지 뜻). 판정이 거절이면 서버를 띄우지도 않고 `isError`로 돌려준다. 시험: 대기 중 deny를 더하면 대기가 풀린 뒤 호출이 거절된다(U3/U4).
+- **시간과 중단.** gate를 기다리는 호출은 ledger에서 실행 중이므로 체크포인트 lease가 `tool_in_flight`로 거절한다. 그래서 gate 요청에는 자체 시한을 둔다(초기 10초, 시험에서 조정)과 호출자의 `AbortSignal`을 결합한다. worker gateway client의 `post()`는 요청 시한은 있으나 `AbortSignal`을 받지 않으므로 U2b/U3이 이를 더한다. 재시도는 하지 않는다(시한 초과는 닫힌 채 실패). 서버 호출의 30분 시한은 gate 이전의 대기를 덮지 않는다.
 - **캐시하지 않는다.** 판정 결과에 시한을 두면 그 시한만큼 새 deny가 무시된다. 호출당 컨트롤 플레인 왕복 하나를 쓴다(도구 호출 지연 증가). 도구 호출은 이미 모델 한 번의 왕복 뒤에 있어 이 비용을 받아들인다.
-- **닫힌 채 실패한다.** 컨트롤 플레인에 닿지 못하거나 판정이 오류면 호출은 `isError`(정책 판정 불가)로 거절한다. 허용으로 넘기지 않는다.
+- **닫힌 채 실패한다.** 컨트롤 플레인에 닿지 못하거나 판정이 오류면 `tools/call`은 `isError`(정책 판정 불가)로 거절한다. 허용으로 넘기지 않는다. `tools/list`의 판정 실패는 `CallToolResult`가 아니라 **JSON-RPC 오류**로 돌려준다(빈 목록으로 숨기면 모델이 도구가 없다고 믿는다).
+- **원격과의 동등성은 허용 집합과 호출 판정에 한한다.** 원격의 `decide`는 `tools/list`를 허용하고 `remote-mcp.ts`는 고정 목록으로만 거르므로 원격 목록은 새 deny로 즉시 줄지 않는다. stdio는 목록도 호출 시점 판정으로 거른다. 동등성 시험은 같은 입력에서 **현재 허용 집합과 `tools/call` 판정**이 같음을 비교한다. 원격 목록의 즉시 축소는 이 문서가 바꾸지 않는다.
 - 호출 시점 판정이 불가능한 배치는 이 불변식을 어기므로 고르지 않는다: 이 배치(worker 안 relay + 판정 전용 경로)가 불변식을 지키는 가장 단순한 길이다.
 - 판정 함수는 넓히지 못한다. 반환은 항상 세션에 고정한 목록의 부분집합이다. 실행 중 정책이 넓어져도 이미 시작된 세션에는 닿지 않는다(원격과 같다).
 
@@ -244,8 +248,8 @@ stdio 전송은 SDK의 `StdioClientTransport`가 프로세스를 직접 띄운�
 |---|---|---|---|
 | **U1** relay 분리 | `remote-mcp.ts`의 동작을 시험으로 먼저 고정(고정 밖 거절, 목록 필터, 설명 기록)하고 `McpUpstream` + `mcpRelay` + `CachedListing`으로 쪼갠다. 원격 동작은 바뀌지 않는다. 서버발 요청 거절 처리기와 계약 시험 파일을 둔다. relay가 소유하는 `McpToolGate`(선택 인자)와 fake gate 시험(거절은 서버를 부르지 않음, 목록이 gate로 걸러짐)도 여기서 정의한다 | 없음 | 4 (relay 쪽) |
 | **U2** 해석·이름 | manifest의 stdio 선언을 읽어 `선언 ∩ 상한`을 `visibleMcpTools`(main에 있음)로 계산해 세션 행에 고정, 이름 정규식과 이름 공간 단일화 검사(release 활성화·세션 생성), claim이 선언·고정 목록을 싣는 계약, 지문 binding, 선언에서 요구 기능 `stdio_mcp`를 강제로 도출해 claim에 싣음. **호출자 상한 입력을 비워 둔 채 머지하지 않는다** | 94S-869(manifest 모양), 94S-871(관문), 94S-870(승인), 94S-919(호출자 상한 집행) | 2, 3, 8(계약) |
-| **U2b** 호출 시점 판정 경로 | egress `decide`에서 도구 판정 부분을 공유 함수로 뽑고(원격 동작 불변을 시험으로 먼저 고정), 그 함수를 부르는 판정 전용 worker 경로(`visible`·`permits`)와 `packages/core` 응답 표 항목을 더한다. 계약 시험: 같은 입력에서 egress와 이 경로의 판정이 같다, 시작 뒤 더한 저장 deny가 다음 판정에 반영된다, 세션 설정을 넓혀도 상한을 넘지 않는다, 판정 불가는 거절 | U2, 94S-919(호출자 상한 교차) | 2 |
-| **U3** worker stdio upstream | `McpUpstream`의 stdio 구현, `McpToolGate`의 worker 구현(U2b 경로 호출, 캐시 없음, 닫힌 채 실패), 프로세스 그룹 실행기(94S-872)에 서버 항목(`mcp:<이름>` 종류)으로 오르기, 능력 없는 클라이언트, 세션 시작 준비(띄움·`initialize`·`tools/list` 캐시), `upstream.ready()`와 `run.ready()` 연결, `required` 게이트, `started`·`exited`·`tool_filtered` 발행. spawn 전에 worker의 활성 기능 상수 `stdio_mcp`를 검사하고 상수는 아직 꺼져 있다 | U1, U2, U2b, 94S-872 | 1, 4, 7, 8 |
+| **U2b** 호출 시점 판정 경로 | 정책 입력을 읽는 공통 경로(현재 설정·저장 deny·호출자 상한)를 egress에서 뽑고(원격 동작 불변을 시험으로 먼저 고정), 그 경로와 `visibleMcpTools`를 부르는 판정 전용 worker 경로(`visible`·`permits`)를 더한다. 연결은 contracts worker-protocol 스키마, `routes/worker.ts`, gateway client decoder이며 `packages/core` 응답 표에는 올리지 않는다. gateway client `post()`에 `AbortSignal`을 더한다. 계약 시험: 서버 둘 중 한쪽 deny만 그쪽을 좁힘, 같은 입력에서 egress와 이 경로의 허용 집합·호출 판정이 같음, 시작 뒤 더한 저장 deny가 다음 판정에 반영됨, 설정을 넓혀도 상한을 넘지 않음, 판정 불가는 거절(`tools/list`는 JSON-RPC 오류), bootstrap 토큰·다른 attempt·낡은 fence 거절 | U2, 94S-919(호출자 상한 교차) | 2 |
+| **U3** worker stdio upstream | `McpUpstream`의 stdio 구현, `McpToolGate`의 worker 구현(U2b 경로 호출, 캐시 없음, 닫힌 채 실패, 순서는 `quiesce` 대기 → `permits` → 호출, 대기 중 deny 시험), 프로세스 그룹 실행기(94S-872)에 서버 항목(`mcp:<이름>` 종류)으로 오르기, 능력 없는 클라이언트, 세션 시작 준비(띄움·`initialize`·`tools/list` 캐시), `upstream.ready()`와 `run.ready()` 연결, `required` 게이트, `started`·`exited`·`tool_filtered` 발행. spawn 전에 worker의 활성 기능 상수 `stdio_mcp`를 검사하고 상수는 아직 꺼져 있다 | U1, U2, U2b, 94S-872 | 1, 4, 7, 8 |
 | **U4** 체크포인트 정리 | 턴 끝과 승인 대기 캡처에 "lease → `quiesce()`(막음·회수·SIGTERM/SIGKILL·확인) → 캡처 → lease 해제 → 핸들 해제"를 넣는다. 막힘 소유권 상태(`open`/`quiesced`/`closed`). 다음 턴 첫 `tools/call`에서 다시 띄움. 확인 실패는 턴 끝 `background_writer`, 승인 대기는 건너뜀 | U3, 94S-873(Claude 콜백이 닿는 같은 구간), 94S-874(같은 `worker-host.ts` 구간이라 충돌을 피하려는 순서이며 논리 선행은 아니다) | 5 |
 | **U5** 비정상 경로, 켬 | abort·close·소유권 유실에서 같은 정리(`closed`). 일반 턴 interrupt는 `closed`가 아니라 되돌릴 수 있는 `quiesce()`로 처리하고 다음 턴이 서버를 다시 띄운다([2절](#2-프로세스-자리와-수명)), 종료 확인 전에는 체크포인트·정상 release 금지, 스스로 죽은 서버의 재기동 금지. **마지막에 `stdio_mcp` 기능 상수를 켜고 worker가 알린다** | U3, U4, 94S-872 | 6 |
 
@@ -317,4 +321,18 @@ U3과 U4는 한 PR로 합치지 않는다. U3은 세션 시작에서 끝나고 U
 | 3 | 서버 준비를 "엔진 시작 전"과 "첫 입력 전"으로 둘 다 적었다 | **수용.** "첫 입력 전"으로 통일: 준비는 `start()` 전에 시작하고 `run.ready()`가 기다린다 |
 | 4 | 승인 대기 호출의 대기가 `APPROVAL_CHECKPOINT_MS`로 제한된다는 설명이 틀렸다(`worker-host.ts:2743`) | **수용.** 대기는 lease 해제까지이며 호출 자신의 중단 신호로만 빠져나온다. 핸들을 일찍 풀면 캡처와 서버 쓰기가 겹치므로 별도 시한을 만들지 않는다 |
 
-Act-on 2건과 Consider 2건을 모두 반영했고 남은 Act-on은 없다. 수정 뒤 4회차는 하지 않았다: 3회차의 수정은 문장 정합이고 결정의 방향(lease 먼저, 되돌릴 수 있는 `quiesce`, 기능 게이트)을 바꾸지 않았다. 수정한 head에서 링크·앵커를 다시 확인했다.
+Act-on 2건과 Consider 2건을 모두 반영했다. 수정한 head에서 링크·앵커를 다시 확인했다.
+
+**4회차**(`1637310ef..7bee77c6f`, 리드의 호출 시점 deny-first 결정을 담은 변경). Act-on 3, Consider 3, Noted 1. 8개 완료 조건의 대응은 유지됨을 확인했다.
+
+| # | 지적 | 처리 |
+|---|---|---|
+| 1 | 공유할 조각이 `decide`가 아니다. 설정 교차는 DB `sessionEffectiveMcp`, 저장 deny는 `withoutSavedMcpDenies`에 있고 `effectiveMcp`는 서버 하나를 가정한다 | **수용.** 정책 입력을 읽는 공통 경로와 순수 판정 함수를 구분했고, 여러 stdio 서버는 서버별 호출로 대응한다. 서버 둘 시험을 U2b의 첫 시험으로 둔다([3절](#3-relay가-stdio-서버를-내보내는-방법과-판정-자리)) |
+| 2 | `permits → … → quiesce 대기 → 재기동` 순서면 대기 중 더한 deny를 우회한다 | **수용.** 순서를 `quiesce 대기 → permits → 서버 호출`로 정했고 대기 중 deny 시험을 U3/U4에 둔다 |
+| 3 | `packages/core` 응답 표는 공개 `OperationKey`용이고 worker 경로는 거기 없다 | **수용.** 코드로 확인했다(`responses.ts`에 worker 항목 없음). contracts worker-protocol → `routes/worker.ts` → gateway client decoder로 고쳤다. 앞서 적은 "core 응답 표에 올린다"는 잘못이었다 |
+| 4 | attempt 인증만으로 소유권 fencing이 완성되지 않는다 | **수용.** `requireScope` + 현재 DB 소유권을 확인하는 fenced read, 거절 시험(bootstrap 토큰·다른 attempt·낡은 fence)을 U2b에 더했다 |
+| 5 | gate의 시한과 중단 계약이 없다. `post()`는 `AbortSignal`을 받지 않는다 | **수용.** 자체 시한(초기 10초)과 호출자 `AbortSignal` 결합, 재시도 없음. `post()`에 `AbortSignal`을 더하는 일은 U2b/U3 |
+| 6 | 원격은 목록이 새 deny로 즉시 줄지 않는다. `tools/list` 판정 실패는 `isError`가 아니다 | **수용.** 동등성을 허용 집합·호출 판정으로 좁혔다. `tools/list` 실패는 JSON-RPC 오류 |
+| 7 | 완료 조건 대응 유지, 새 보장의 시험을 수용 기준에 연결하라 | 시험은 U2b·U3 행에 적었다 |
+
+Act-on 3건과 Consider 3건을 모두 반영했다. 5회차는 하지 않았다: 이 수정은 4회차 지적의 코드 대조 정정이고 결정의 방향(호출 시점 deny-first, 닫힌 채 실패, 캐시 없음)을 바꾸지 않았다.
