@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import type { EngineSettings } from "@werft-ai/contracts";
+import {
+  ADMIN_DENY_RULES_BYTES_MAX,
+  ENGINE_SETTINGS_LIMITS,
+  type EngineSettings,
+} from "@werft-ai/contracts";
 import { PLATFORM_AUTO_MODE } from "./auto-mode.ts";
 import type { ClaudeRuntimeConfig, PermissionMode } from "./config.ts";
 import { claudeProfileConfig } from "./contract.ts";
@@ -175,6 +179,48 @@ describe("engine_settings from a claim", () => {
     });
     big.cwd = `/${"w".repeat(100_000)}`;
     expect(() => buildSdkOptions(big, hooks)).toThrow(/bytes of arguments/);
+  });
+
+  // The saved-rule byte limits are chosen so the most a claim can merge
+  // (workspace + agent twice + inherited) still starts: this composes those
+  // maxima from the limits themselves, so raising one limit fails here first.
+  test("the largest merge the saved-rule limits allow still starts in every mode", () => {
+    const { workspace, agent } = ENGINE_SETTINGS_LIMITS;
+    const permissionBytes =
+      workspace.permissionBytes +
+      2 * agent.permissionBytes +
+      ADMIN_DENY_RULES_BYTES_MAX;
+    const autoBytes = workspace.autoModeBytes + 2 * agent.autoModeBytes;
+    const unique = (count: number, make: (i: number) => string) =>
+      Array.from({ length: count }, (_, i) => make(i));
+    // 256-character rules, the longest one list entry may be.
+    const rule = (i: number) =>
+      `Bash(${String(i).padStart(4, "0")}${"a".repeat(246)})`;
+    const rules = Math.ceil(permissionBytes / 260);
+    const sentence = (i: number) =>
+      `${String(i).padStart(4, "0")}${"s".repeat(1019)}`;
+    const sentences = Math.ceil(autoBytes / 1030);
+    const half = (n: number) => Math.ceil(n / 2);
+    const settings: EngineSettings = {
+      permissions: {
+        ask: unique(half(rules), rule),
+        deny: unique(rules - half(rules), (i) => rule(i + 1000)),
+      },
+      autoMode: {
+        soft_deny: unique(half(sentences), sentence),
+        hard_deny: unique(sentences - half(sentences), (i) =>
+          sentence(i + 1000),
+        ),
+      },
+    };
+    const written = Buffer.byteLength(JSON.stringify(settings), "utf8");
+    expect(written).toBeGreaterThan(permissionBytes + autoBytes);
+    for (const permissionMode of MODES) {
+      const config = configOf({ engineSettings: settings });
+      if (permissionMode !== undefined) config.permissionMode = permissionMode;
+      config.disallowedTools = unique(64, (i) => `Tool${i}`);
+      expect(() => buildSdkOptions(config, hooks)).not.toThrow();
+    }
   });
 
   test("it is not in the checkpoint fingerprint's input", () => {

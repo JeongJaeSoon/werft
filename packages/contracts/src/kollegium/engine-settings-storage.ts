@@ -32,19 +32,26 @@ export const ENGINE_AUTO_MODE_RULE_MAX_LENGTH = 1024;
  * twice (the settings it started with and the current ones):
  * 48 + 32 + 24 + 24 = 128 rules in a permission list; 16 + 16 + 16 = 48
  * sentences in an auto mode list. Bytes are the JSON text of the whole
- * `permissions` or `auto_mode` object, escapes included. The byte figures are
- * measured against the engine's baseline when the merge ships.
+ * `permissions` or `auto_mode` object, escapes included.
+ *
+ * Measured against the claude adapter: the default and bypass modes start at
+ * 75,870 bytes of the engine's 100,000, so the permission rules of one claim
+ * (6 KB workspace + 3 KB agent twice + 4 KB inherited = 16 KB, plus up to
+ * 64 whole-tool names) must stay near 20 KB. Auto mode sentences only count
+ * in auto mode, which starts at 3,253 bytes. The adapter's
+ * `engine-settings-claim.test.ts` composes these maxima and fails first when
+ * a limit here is raised past what starts.
  */
 export const ENGINE_SETTINGS_LIMITS = {
   workspace: {
     permissionRules: 48,
-    permissionBytes: 12 * 1024,
+    permissionBytes: 6 * 1024,
     autoModeRules: 16,
     autoModeBytes: 6 * 1024,
   },
   agent: {
     permissionRules: 24,
-    permissionBytes: 6 * 1024,
+    permissionBytes: 3 * 1024,
     autoModeRules: 16,
     autoModeBytes: 4 * 1024,
   },
@@ -53,7 +60,7 @@ export type EngineSettingsSource = keyof typeof ENGINE_SETTINGS_LIMITS;
 
 /** Inherited restrictions in `agent_engine_settings.admin_deny`, all entries together. */
 export const ADMIN_DENY_RULES_MAX = 32;
-export const ADMIN_DENY_RULES_BYTES_MAX = 8 * 1024;
+export const ADMIN_DENY_RULES_BYTES_MAX = 4 * 1024;
 /** The releases that existed when an entry was made; stored data the engine never gets. */
 export const ADMIN_DENY_EXEMPT_BYTES_MAX = 256 * 1024;
 

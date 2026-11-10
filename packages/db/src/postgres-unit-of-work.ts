@@ -91,6 +91,7 @@ import {
   rethrowCursorCastError,
 } from "./cursors.ts";
 import { drainAttention } from "./drain.ts";
+import { captureEngineSettingsStart } from "./engine-settings-start.ts";
 import { enqueueWithin } from "./enqueue.ts";
 import {
   captureEnvStart,
@@ -361,6 +362,10 @@ export function createPostgresSessionUnitOfWork(
           input.agentReleaseId !== undefined
             ? await captureGitHubPolicyStart(tx, input.agentReleaseId)
             : null;
+        const engineSettingsStart =
+          input.agentReleaseId === undefined
+            ? null
+            : await captureEngineSettingsStart(tx, input.agentReleaseId);
         await tx.insert(sessions).values({
           id: sessionId,
           ownerId: scope.principal,
@@ -370,6 +375,7 @@ export function createPostgresSessionUnitOfWork(
           githubPolicySource: input.githubPolicySource ?? "release",
           githubPolicyStart,
           mcpStart,
+          engineSettingsStart,
           envStart:
             envCapture.outcome === "resolved" ? envCapture.envStart : null,
           title: input.title ?? null,

@@ -99,6 +99,8 @@ export function reconstructLegacyRuntimeConfigs(
 export function storableLegacyConfig(config: RuntimeConfig): RuntimeConfig {
   const {
     disallowed_tools: _denied,
+    // Re-merged at every claim from the rules saved then, like the denies.
+    engine_settings: _settings,
     env: _env,
     extensions: _extensions,
     mcp_servers: _mcp,

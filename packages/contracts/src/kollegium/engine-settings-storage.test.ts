@@ -119,7 +119,7 @@ describe("validateEngineSettings", () => {
 
   test("permission rules have a byte limit apart from the count", () => {
     // Three lists of 24 rules of 253 characters: within every count, about
-    // 18 KB of JSON against the 6 KB an agent may save.
+    // 18 KB of JSON against the 3 KB an agent may save.
     const list = (tag: string) =>
       Array.from(
         { length: 24 },
@@ -375,7 +375,8 @@ describe("validateAdminDeny", () => {
   });
 
   test("the rule text has a byte limit of its own", () => {
-    // 32 rules within the count limit, each 253 characters: over 8 KB of JSON.
+    // 32 rules within the count limit, each 253 characters: over 8 KB of JSON,
+    // against the 4 KB the inherited rules may take.
     const long = Array.from(
       { length: 32 },
       (_, index) =>
@@ -385,7 +386,7 @@ describe("validateAdminDeny", () => {
       "settings_too_large",
     );
     expect(
-      refused([entry({ permissions_deny: long.slice(0, 16), mcp_deny: [] })]),
+      refused([entry({ permissions_deny: long.slice(0, 10), mcp_deny: [] })]),
     ).toBe("accepted");
   });
 

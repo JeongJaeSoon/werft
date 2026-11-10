@@ -20,7 +20,10 @@ import {
   GitHubGateError,
   type GitHubWork,
 } from "../ports/github-gate.ts";
-import type { GitHubMcpSessionState } from "../ports/github-mcp.ts";
+import {
+  type GitHubMcpSessionState,
+  SavedRulesUnavailable,
+} from "../ports/github-mcp.ts";
 import {
   PULL_REQUEST_REFUSAL_ERRORS,
   type ScheduleRef,
@@ -1160,6 +1163,43 @@ describe("tools/call", () => {
       body: { refusal: { code: "internal_error" } },
     });
     await expect(rpc("tools/list", {})).rejects.toThrow("database unavailable");
+  });
+
+  test("a saved deny keeps the tool listed and refuses the call before it runs", async () => {
+    const h = harness({ blockedTools: ["request_push"] });
+    const listed = await h.handle(
+      grant,
+      { jsonrpc: "2.0", id: 1, method: "tools/list" },
+      "req-1",
+    );
+    expect(toolNames(listed)).toContain("request_push");
+    const refused = await h.call("request_push", {});
+    expect(JSON.stringify(refused)).toContain("-32001");
+    expect(h.pushes).toEqual([]);
+  });
+
+  test("saved rules that cannot be read are a thrown fault even for a call, so the transport answers retryably", async () => {
+    const handle = createGitHubMcpServer({
+      store: {
+        sessionState: async () => {
+          throw new SavedRulesUnavailable();
+        },
+        runningTurn: async () => null,
+      },
+      services: () => ({}) as GitHubMcpServices,
+    });
+    await expect(
+      handle(
+        grant,
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: "list_repositories" },
+        },
+        "req-1",
+      ),
+    ).rejects.toBeInstanceOf(SavedRulesUnavailable);
   });
 
   test("a call GitHub did not take is github and retryable", async () => {

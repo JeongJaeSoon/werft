@@ -13,12 +13,15 @@ import {
   type McpEgressStore,
   type McpRefusalRecord,
   type McpSessionState,
+  mcpCallDenied,
   mcpDenyOf,
   pinnedMcpTools,
+  SavedRulesUnavailable,
   type SessionGitHubMcp,
   type SessionMcp,
 } from "@werft-ai/platform";
 import { and, eq, isNull, sql } from "drizzle-orm";
+import { mcpDeniedBy } from "./claim-engine-settings.ts";
 import { githubPolicyColumns, githubPolicyOfRow } from "./github-settings.ts";
 import { mcpSettingsOfRelease } from "./mcp-settings.ts";
 import type { Database } from "./queries.ts";
@@ -184,6 +187,41 @@ export function creatorOf(
 }
 
 /** What the built-in `github` server is judged on, read fresh per exchange. */
+async function withoutSavedMcpDenies(
+  db: Database,
+  session: {
+    workspaceId: string | null;
+    agentReleaseId: string | null;
+    engineSettingsStart: unknown;
+  },
+  tools: readonly string[],
+): Promise<readonly string[]> {
+  const denied = await mcpDeniedBy(db, session);
+  if (denied === null) return [];
+  return tools.filter((tool) => !mcpCallDenied(denied, tool));
+}
+
+async function blockedGitHubTools(
+  db: Database,
+  session: {
+    workspaceId: string | null;
+    agentReleaseId: string | null;
+    engineSettingsStart: unknown;
+  },
+): Promise<string[]> {
+  let denied: string[] | null;
+  try {
+    denied = await mcpDeniedBy(db, session);
+  } catch (cause) {
+    throw new SavedRulesUnavailable({ cause });
+  }
+  return GITHUB_MCP_FIXED_TOOLS.filter(
+    (tool) =>
+      denied === null ||
+      mcpCallDenied(denied, githubMcpToolNames([tool])[0] as string),
+  );
+}
+
 export function createPostgresGitHubMcpStore(db: Database): GitHubMcpStore {
   return {
     async sessionState(sessionId) {
@@ -193,6 +231,8 @@ export function createPostgresGitHubMcpStore(db: Database): GitHubMcpStore {
           agentReleaseId: sessions.agentReleaseId,
           createdByUserId: sessions.createdByUserId,
           createdByApiKeyId: sessions.createdByApiKeyId,
+          workspaceId: sessions.workspaceId,
+          engineSettingsStart: sessions.engineSettingsStart,
           agentId: agentReleases.agentId,
           enabled: agents.githubEnabled,
           ...githubPolicyColumns,
@@ -216,6 +256,7 @@ export function createPostgresGitHubMcpStore(db: Database): GitHubMcpStore {
         github: policy.settings === "invalid" ? null : policy.settings,
         // Off now, or off as the session started: both close it.
         enabled: (session.enabled ?? false) && policy.enabledAtStart,
+        blockedTools: await blockedGitHubTools(db, session),
         actor: creatorOf(session, session.agentId),
       };
     },
@@ -249,6 +290,7 @@ export function createPostgresMcpEgressStore(db: Database): McpEgressStore {
           createdByUserId: sessions.createdByUserId,
           createdByApiKeyId: sessions.createdByApiKeyId,
           mcpStart: sessions.mcpStart,
+          engineSettingsStart: sessions.engineSettingsStart,
         })
         .from(sessions)
         .leftJoin(workspaces, eq(workspaces.id, sessions.workspaceId))
@@ -293,7 +335,12 @@ export function createPostgresMcpEgressStore(db: Database): McpEgressStore {
         agentId: release.agentId,
         releaseId: session.agentReleaseId,
         server: effective.server,
-        tools: effective.tools,
+        // Saved `mcp__` denies are enforced here, per call and from the rows
+        // as they are now: the claim's `tools` is in the checkpoint
+        // fingerprint and stays what the release allows. Unreadable rules
+        // allow nothing. A failed read throws, so the caller answers
+        // retryably and nothing has been forwarded yet.
+        tools: await withoutSavedMcpDenies(db, session, effective.tools),
         boundRefs: bound.map((row) => row.ref),
         turnId: turn === undefined ? null : String(turn.sequence),
         actor: creatorOf(session, release.agentId),

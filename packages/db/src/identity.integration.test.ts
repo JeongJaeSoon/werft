@@ -96,6 +96,8 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     "mcp_start",
     // 0249
     "env_start",
+    // 0262
+    "engine_settings_start",
     // 0251
     "extensions",
     // 0255

@@ -1383,6 +1383,11 @@ export const sessions = pgTable(
     // on a session started without a settings row, which follows its
     // release's card and pins.
     mcpStart: jsonb("mcp_start").$type<unknown>(),
+    // The agent's engine settings and their revision as they were when the
+    // session started (`engineSettingsStartSchema`); later changes can only
+    // restrict it further. Null on a session started without a settings row
+    // or without a release: restrict-only, never granted anything.
+    engineSettingsStart: jsonb("engine_settings_start").$type<unknown>(),
     // The user variables the session took when it was accepted
     // (`envStartSchema`). A plain entry keeps its value so claims, retries and
     // restores replay it; a trigger drops the values when the session closes.

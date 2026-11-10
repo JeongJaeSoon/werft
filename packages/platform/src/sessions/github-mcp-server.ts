@@ -22,7 +22,10 @@ import {
   refusalOf,
 } from "../action-broker/refusal.ts";
 import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
-import type { GitHubMcpStore } from "../ports/github-mcp.ts";
+import {
+  type GitHubMcpStore,
+  SavedRulesUnavailable,
+} from "../ports/github-mcp.ts";
 import type { GitHubWorkService } from "./github-work-service.ts";
 import type { PullRequestService } from "./pull-request-service.ts";
 import type { PushActor, PushRequestService } from "./push-request-service.ts";
@@ -541,7 +544,12 @@ export function createGitHubMcpServer(deps: {
       state = await deps.store.sessionState(grant.sessionId);
     } catch (error) {
       // Other methods have no tool to answer for: the transport reports it.
-      if (askedTool === null) throw error;
+      // The same for the saved rules: nothing has run yet, and a failure to
+      // read them is the transport's retryable 503, not a tool result that
+      // says "internal error" and that nobody retries.
+      if (askedTool === null || error instanceof SavedRulesUnavailable) {
+        throw error;
+      }
       return internalFault(askedTool, error);
     }
     if (
@@ -552,8 +560,12 @@ export function createGitHubMcpServer(deps: {
     ) {
       return fail(-32001, "GitHub tools are not available to this session");
     }
+    const blocked = state.blockedTools ?? [];
     if (message.method === "tools/list") {
       return answer({
+        // A saved deny does not change what is listed: the model sees what
+        // the release exposes and the call is refused, as for the general
+        // MCP route.
         tools: toolList(
           state.source === "release"
             ? githubMcpTools(state.github)
@@ -570,6 +582,9 @@ export function createGitHubMcpServer(deps: {
       return fail(-32602, "Unknown tool");
     }
     const tool = name as GitHubMcpTool;
+    if (blocked.includes(tool)) {
+      return fail(-32001, "A saved rule denies this tool");
+    }
     try {
       return answer(
         await call(
