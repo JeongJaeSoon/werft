@@ -233,7 +233,7 @@ describe("slackOutboxPresentation", () => {
     });
     expect(text.length).toBeLessThanOrEqual(40_000);
     expect(text).toEndWith(
-      "…\n\n<https://console.example/sessions/s1|웹에서 열기>",
+      "…\n\n<https://console.example/sessions/s1|Open on the web>",
     );
     expect(SLACK_TEXT_MAX).toBe(40_000);
   });
