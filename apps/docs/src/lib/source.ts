@@ -22,10 +22,14 @@ const pageTreeFixes: LoaderPlugin = {
   name: "page-tree-fixes",
   transformPageTree: {
     file(node) {
-      if (node.external && node.url.startsWith("/")) {
-        return { ...node, url: withBasePath(node.url) };
+      // The sidebar never shows a description, but the tree is serialised into
+      // the HTML and every RSC payload of every page. Operation descriptions run
+      // to several paragraphs, so keeping them made the static site ~1.3 GB.
+      const { description: _description, ...slim } = node;
+      if (slim.external && slim.url.startsWith("/")) {
+        return { ...slim, url: withBasePath(slim.url) };
       }
-      return node;
+      return slim;
     },
     folder(node, folderPath) {
       return folderPath === "reference/http-api"

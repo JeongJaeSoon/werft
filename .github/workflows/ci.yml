@@ -791,6 +791,15 @@ jobs:
           path: storybook-dist
       - name: Pages site layout
         run: scripts/pages-site.sh docs-out storybook-dist _site
+      # GitHub Pages documents a 1 GB limit on a published site, and the Pages
+      # deployment stalled in the queue when the site was ~1.3 GB. Fail here, on the
+      # pull request, instead of on the main deploy.
+      - name: Pages site stays under its size budget
+        run: |
+          mb=$(du -sm _site | cut -f1)
+          echo "_site is ${mb} MB in $(find _site -type f | wc -l) files"
+          [ "$mb" -le 900 ] \
+            || { echo "::error::_site is ${mb} MB; the budget is 900 MB (Pages limit 1 GB)"; exit 1; }
 
   # The only place the workspace byte ceiling can actually be exercised. The
   # `local` volume driver honours `size` only when the storage under the
