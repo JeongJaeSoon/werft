@@ -16,6 +16,7 @@ import { callerFor, createAuthorizationPolicy } from "../musterrolle/policy.ts";
 import type { AgentContact } from "../ports/credential-binding-store.ts";
 import type {
   AcceptSessionInput,
+  AcceptSessionResult,
   SessionDetailRecord,
   SessionRecord,
 } from "../ports/session-unit-of-work.ts";
@@ -162,8 +163,14 @@ function setup(
           }),
     },
     inputs: {
-      async acceptInputAtomic(input) {
+      async acceptInputAtomic(
+        input: AcceptSessionInput,
+      ): Promise<AcceptSessionResult> {
         accepted.push(input);
+        // Like the database, after it finds no earlier acceptance of the key.
+        if (input.notRunnableReason && options.accept !== "replayed") {
+          return { outcome: "not_runnable", reason: input.notRunnableReason };
+        }
         if (
           options.accept === "credential_unbound" ||
           (input.credentialsUnbound && options.accept !== "replayed")
@@ -766,9 +773,21 @@ describe("a session pinned to an agent release", () => {
         code: "AGENT_NOT_RUNNABLE",
         details: { reason_code: "agent_inactive", agent_id: AGENT },
       });
-      expect(accepted).toHaveLength(0);
+      expect(accepted[0]?.notRunnableReason).toBe("agent_inactive");
     },
   );
+
+  test("a retry of a session made before the agent was paused gets its first answer", async () => {
+    const { service, caller } = setup({
+      agentStatus: "paused",
+      accept: "replayed",
+    });
+    const created = await service.createSession(caller, {
+      idempotencyKey: "k",
+      body: { ...body, agent_release_id: "rel-1" },
+    });
+    expect(created.session_id).toBe("019a0000-0000-7000-8000-00000000e0a1");
+  });
 
   test("refuses a release that was never approved with release_unapproved", async () => {
     const { service, caller, accepted } = setup({ approvedAt: null });
@@ -782,7 +801,7 @@ describe("a session pinned to an agent release", () => {
       code: "AGENT_NOT_RUNNABLE",
       details: { reason_code: "release_unapproved", release_id: "rel-1" },
     });
-    expect(accepted).toHaveLength(0);
+    expect(accepted[0]?.notRunnableReason).toBe("release_unapproved");
   });
 
   test("an approved release starts while the agent is active, whether or not it is the active release", async () => {
@@ -792,6 +811,7 @@ describe("a session pinned to an agent release", () => {
       body: { ...body, agent_release_id: "rel-1" },
     });
     expect(accepted).toHaveLength(1);
+    expect(accepted[0]?.notRunnableReason).toBeUndefined();
   });
 
   test("a workspace version is not taken on what was read before a failed read: another replica may have retired it", async () => {

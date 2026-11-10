@@ -686,25 +686,25 @@ export function createSessionService(deps: {
         `Release ${release.id} runs on profile ${release.runtime_profile_id}, not ${body.profile_id}`,
       );
     }
-    const notRunnable = await deps.releases.notRunnableReason(
-      actor.ownerId,
-      release,
-    );
-    if (notRunnable !== null) {
-      throw new SessionServiceError(
-        "AGENT_NOT_RUNNABLE",
-        notRunnable === "agent_inactive"
-          ? "This agent is paused or archived and starts no new session"
-          : "This release was never approved; activate it before starting a session on it",
-        undefined,
-        {
-          reason_code: notRunnable,
-          agent_id: release.agent_id,
-          release_id: release.id,
-        },
-      );
-    }
     return release;
+  }
+
+  function notRunnable(
+    reason: "agent_inactive" | "release_unapproved",
+    release: { id: string; agent_id: string },
+  ) {
+    return new SessionServiceError(
+      "AGENT_NOT_RUNNABLE",
+      reason === "agent_inactive"
+        ? "This agent is paused or archived and starts no new session"
+        : "This release was never approved; activate it before starting a session on it",
+      undefined,
+      {
+        reason_code: reason,
+        agent_id: release.agent_id,
+        release_id: release.id,
+      },
+    );
   }
 
   async function detailOf(
@@ -774,6 +774,13 @@ export function createSessionService(deps: {
       },
     ): Promise<CreateSessionResponse> {
       const release = await pinnedRelease(actor, input.body);
+      // Judged here but refused by the acceptance, after it finds no earlier
+      // acceptance of this key: a retry of a session made before the agent
+      // was paused still gets its original answer.
+      const notRunnableReason =
+        release && deps.releases
+          ? await deps.releases.notRunnableReason(actor.ownerId, release)
+          : null;
       // The contract refuses a body with neither.
       const profileId = (input.body.profile_id ??
         release?.runtime_profile_id) as string;
@@ -1000,6 +1007,7 @@ export function createSessionService(deps: {
           ? { captureGitHubPolicyStart: true as const }
           : {}),
         ...(credentialsUnbound ? { credentialsUnbound: true as const } : {}),
+        ...(notRunnableReason === null ? {} : { notRunnableReason }),
         ...(envNames.length === 0 ? {} : { envNames }),
         ...(input.shareScope === undefined
           ? {}
@@ -1016,6 +1024,11 @@ export function createSessionService(deps: {
       switch (result.outcome) {
         case "conflict":
           return idempotencyConflict();
+        case "not_runnable":
+          if (!release) {
+            throw new Error("Only a pinned release can be not runnable");
+          }
+          throw notRunnable(result.reason, release);
         case "credential_unbound":
           if (!release) {
             throw new Error("Only a pinned release names credentials");

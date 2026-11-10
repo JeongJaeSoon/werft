@@ -85,6 +85,10 @@ export type AcceptSessionInput = {
   // earlier acceptance goes through. Without it, the names are rechecked
   // under lock against a concurrent unbind.
   credentialsUnbound?: true;
+  // The pinned agent is paused or archived, or the release never approved:
+  // only a replay of an earlier acceptance goes through, and the check runs
+  // before the unbound one.
+  notRunnableReason?: "agent_inactive" | "release_unapproved";
   // The variable names the release's card declares. The accept resolves them
   // against the agent's and the workspace's variables and keeps the values
   // with the session. Left out or empty, the session takes none and nothing
@@ -106,6 +110,7 @@ export type AcceptSessionResult =
   | { outcome: "actor_inactive" }
   /** Outside the agent while axis A is not `use`, judged in the write. */
   | { outcome: "agent_use_refused" }
+  | { outcome: "not_runnable"; reason: "agent_inactive" | "release_unapproved" }
   | { outcome: "credential_unbound"; receiptId: string }
   /** A declared name has no value for this agent; no session was created. */
   | { outcome: "variables_refused"; reason: EnvRefusal; receiptId: string }

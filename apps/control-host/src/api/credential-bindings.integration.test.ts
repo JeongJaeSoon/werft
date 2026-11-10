@@ -220,6 +220,8 @@ integration("credential bindings over HTTP on PostgreSQL", () => {
   let agentId = "";
   let releaseId = "";
   let agentKey = "";
+  // The Idempotency-Key of the session accepted before the agent was paused.
+  let acceptedKey = crypto.randomUUID();
   const bindingsPath = () => `/v1/agents/${agentId}/credential-bindings`;
 
   async function login(email: string) {
@@ -424,6 +426,7 @@ integration("credential bindings over HTTP on PostgreSQL", () => {
 
   test("unbinding counts the running session that keeps it, and the next session is refused before it starts", async () => {
     const runningKey = crypto.randomUUID();
+    acceptedKey = runningKey;
     const running = await createSession(bearer(agentKey), runningKey);
     expect(running.status).toBe(201);
     const { session_id } = createSessionResponseSchema.parse(
@@ -590,5 +593,9 @@ integration("credential bindings over HTTP on PostgreSQL", () => {
       code: "AGENT_NOT_RUNNABLE",
       details: { reason_code: "agent_inactive", agent_id: agentId },
     });
+    // Only a new session is refused: the key of one accepted earlier still
+    // answers with it.
+    const replayed = await createSession(bearer(agentKey), acceptedKey);
+    expect(replayed.status).toBe(201);
   });
 });

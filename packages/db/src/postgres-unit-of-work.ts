@@ -244,6 +244,12 @@ export function createPostgresSessionUnitOfWork(
             response: createSessionResponseSchema.parse(existing.result),
           };
         }
+        if (input.notRunnableReason !== undefined) {
+          return {
+            outcome: "not_runnable" as const,
+            reason: input.notRunnableReason,
+          };
+        }
         const unbound = async (releaseId: string) => {
           const { receiptId } = await recordUnboundRefusal(tx, {
             ownerId: scope.principal,
