@@ -4,7 +4,7 @@ import {
   DEFAULT_PULL_REQUEST_SETTINGS,
   type PullRequestSettings,
 } from "@werft-ai/contracts";
-import { claimGitOf } from "./git-attribution.ts";
+import { claimGitOf } from "../../sessions/git-attribution.ts";
 import { resolvePullRequestSettings } from "./pull-request-settings.ts";
 
 const workspace = (

@@ -5,6 +5,8 @@ import {
   SLACK_NOTICE_MESSAGES,
   type UserLocale,
 } from "@werft-ai/contracts";
+import type { PushSource } from "../action/change-request/push-request-service.ts";
+import { pushApprovability } from "../decision/push-approvability.ts";
 import type { SlackNoticeSink } from "../ports/slack-notice-sink.ts";
 import type {
   SlackCardClaim,
@@ -19,8 +21,6 @@ import type {
   SlackUnansweredTurn,
   SlackUnpostedInstruction,
 } from "../ports/slack-outbox-store.ts";
-import { pushApprovability } from "../sessions/push-approvability.ts";
-import type { PushSource } from "../sessions/push-request-service.ts";
 import {
   SlackApiError,
   type SlackBotApi,

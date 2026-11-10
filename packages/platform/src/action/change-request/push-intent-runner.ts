@@ -1,4 +1,7 @@
-import type { PushIntentJob, PushIntentStore } from "../ports/push-intents.ts";
+import type {
+  PushIntentJob,
+  PushIntentStore,
+} from "../../ports/push-intents.ts";
 
 export const PUSH_INTENT_LEASE_MS = 60_000;
 export const PUSH_INTENT_POLL_INTERVAL_MS = 3_000;

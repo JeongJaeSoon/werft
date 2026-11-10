@@ -1,9 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Principal } from "@werft-ai/contracts";
 import { testCaller } from "@werft-ai/testkit";
-import { ForgeCredentialError } from "../action/ports/forge.ts";
-import type { GitHubApi } from "../action/ports/github-api.ts";
-import { createAuthorizationPolicy } from "../musterrolle/policy.ts";
+import { createAuthorizationPolicy } from "../../musterrolle/policy.ts";
 import {
   GitHubCallError,
   type GitHubGate,
@@ -11,12 +9,14 @@ import {
   type GitHubGateReceipt,
   type GitHubGrant,
   type GitHubWork,
-} from "../ports/github-gate.ts";
+} from "../../ports/github-gate.ts";
+import { SessionServiceError } from "../../sessions/session-service.ts";
+import { ForgeCredentialError } from "../ports/forge.ts";
+import type { GitHubApi } from "../ports/github-api.ts";
 import {
   createGitHubWorkService,
   type GitHubWorkStore,
 } from "./github-work-service.ts";
-import { SessionServiceError } from "./session-service.ts";
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
 const SECRET_INPUT = "s3cret-input-value";

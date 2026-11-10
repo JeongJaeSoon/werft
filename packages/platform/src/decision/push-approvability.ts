@@ -3,7 +3,28 @@ import type {
   PushRequestOrigin,
   PushRequestState,
 } from "@werft-ai/contracts";
-import type { PushSource } from "./push-request-service.ts";
+
+/**
+ * What the verdict reads from the checkpoint store. Declared here, narrower
+ * than the push service's own source type, so decision/ depends on no action
+ * module: the service's `PushSource` satisfies it structurally.
+ */
+type PushSourceReading =
+  | {
+      status: "ready";
+      gitCommit: string;
+      revision: number;
+      sources?: ReadonlyArray<{ commit: string }> | undefined;
+    }
+  | { status: "none" }
+  | { status: "unavailable" };
+interface PushApprovabilitySource {
+  readPushSource(sessionId: string): Promise<PushSourceReading>;
+  readPushSourceAt(
+    sessionId: string,
+    revision: number,
+  ): Promise<PushSourceReading>;
+}
 
 // The verdict's shape is contracts', so every surface words the same reasons.
 export type {
@@ -56,7 +77,7 @@ export function pinnedCarries(
 export async function pushApprovability(
   session: PushApprovabilitySession,
   request: PushApprovabilityRequest,
-  source?: PushSource,
+  source?: PushApprovabilitySource,
 ): Promise<PushApprovabilityVerdict> {
   if (request.state !== "requested") {
     return { approvable: false, reason: "not_requested" };
