@@ -1,7 +1,12 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useWerft } from "@werft-ai/react";
-import { Section, Skeleton, Text } from "@werft-ai/ui";
-import { useId } from "react";
+import {
+  Code,
+  KeyValueList,
+  SettingsSection,
+  Skeleton,
+  Text,
+} from "@werft-ai/ui";
 import {
   agentEngineSettingsKey,
   agentEngineSettingsQuery,
@@ -16,8 +21,14 @@ import {
   listId,
 } from "../../components/engine-settings-lists.ts";
 import { LoadFailure } from "../../components/load-failure.tsx";
-import { SECTION_BODY } from "../../components/section-body.ts";
 import { type MessageKey, useI18n } from "../../i18n/i18n.tsx";
+
+// The lists where an allow needs both the workspace and the agent.
+const GRANT_IDS = [
+  "permissions.allow",
+  "auto_mode.allow",
+  "auto_mode.environment",
+] as const;
 
 /**
  * An agent's own run rules, with what also applies to it beside them: the
@@ -36,64 +47,85 @@ export function EngineSettings({
   const queryClient = useQueryClient();
   const role = useRole();
   const query = useQuery(agentEngineSettingsQuery(client, agentId));
-  return (
-    <Section
-      title={t("engine.agent.title")}
-      description={t("engine.agent.description")}
-    >
-      <div className={SECTION_BODY}>
-        {query.data === undefined ? (
-          query.isError ? (
-            <LoadFailure
-              error={query.error}
-              onRetry={() => void query.refetch()}
-            />
-          ) : (
-            <Skeleton width="60%" />
-          )
+  const title = t("engine.agent.title");
+  const description = t("engine.agent.description");
+  if (query.data === undefined) {
+    return (
+      <SettingsSection title={title} description={description} box>
+        {query.isError ? (
+          <LoadFailure
+            error={query.error}
+            onRetry={() => void query.refetch()}
+          />
         ) : (
-          <>
-            {/* A failed refetch keeps the editor: its unsaved draft is the work. */}
-            {query.isError ? (
-              <LoadFailure
-                error={query.error}
-                onRetry={() => void query.refetch()}
-              />
-            ) : null}
-            <EngineSettingsEditor
-              source="agent"
-              settings={query.data.settings}
-              revision={query.data.settings_revision}
-              writesOpen={query.data.writes_open}
-              withheld={
-                manages ? undefined : permissionReason(t, "agent.manage", role)
-              }
-              save={(body) => putAgentEngineSettings(client, agentId, body)}
-              refresh={() =>
-                queryClient.invalidateQueries({
-                  queryKey: agentEngineSettingsKey(client, agentId),
-                })
-              }
-            >
-              <Beside
-                workspace={query.data.workspace.settings}
-                inherited={query.data.inherited}
-                reach={query.data.reach}
-              />
-            </EngineSettingsEditor>
-          </>
+          <Skeleton width="60%" />
         )}
-      </div>
-    </Section>
+      </SettingsSection>
+    );
+  }
+  return (
+    <>
+      <Beside
+        workspace={query.data.workspace.settings}
+        agent={query.data.settings}
+        inherited={query.data.inherited}
+        reach={query.data.reach}
+      />
+      {/* A failed refetch keeps the editor: its unsaved draft is the work. */}
+      {query.isError ? (
+        <LoadFailure error={query.error} onRetry={() => void query.refetch()} />
+      ) : null}
+      <EngineSettingsEditor
+        source="agent"
+        title={title}
+        description={description}
+        settings={query.data.settings}
+        revision={query.data.settings_revision}
+        writesOpen={query.data.writes_open}
+        withheld={
+          manages ? undefined : permissionReason(t, "agent.manage", role)
+        }
+        save={(body) => putAgentEngineSettings(client, agentId, body)}
+        refresh={() =>
+          queryClient.invalidateQueries({
+            queryKey: agentEngineSettingsKey(client, agentId),
+          })
+        }
+      />
+    </>
+  );
+}
+
+/** Rules with a key that stays unique when a list repeats one. */
+function keyed(rules: readonly string[]) {
+  const seen = new Map<string, number>();
+  return rules.map((rule) => {
+    const nth = (seen.get(rule) ?? 0) + 1;
+    seen.set(rule, nth);
+    return { rule, key: `${nth}:${rule}` };
+  });
+}
+
+function RuleLines({ rules }: { readonly rules: readonly string[] }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-1">
+      {keyed(rules).map(({ rule, key }) => (
+        <Code key={key} size="inherit" className="wrap-anywhere">
+          {rule}
+        </Code>
+      ))}
+    </div>
   );
 }
 
 function Beside({
   workspace,
+  agent,
   inherited,
   reach,
 }: {
   readonly workspace: EngineRules;
+  readonly agent: EngineRules;
   readonly inherited: { readonly entries: number; readonly rules: number };
   readonly reach: {
     readonly agent_allow_without_effect: {
@@ -105,68 +137,74 @@ function Beside({
   };
 }) {
   const { t } = useI18n();
-  const headingId = useId();
-  const shown = ENGINE_LISTS.filter(
-    (list) => draftOf(workspace)[listId(list)] !== "",
+  const workspaceDraft = draftOf(workspace);
+  const agentDraft = draftOf(agent);
+  const name = (id: string) => t(`engine.list.${id}` as MessageKey);
+  const shown = ENGINE_LISTS.filter((list) => workspaceDraft[listId(list)]);
+  // Each allow list is named, so the note says which one does not reach.
+  const inactive = reach.workspace_allow_inactive
+    ? GRANT_IDS.filter((id) => workspaceDraft[id] && !agentDraft[id])
+    : [];
+  const withoutEffect = [
+    ["permissions.allow", reach.agent_allow_without_effect.permissions],
+    ["auto_mode.allow", reach.agent_allow_without_effect.auto_mode_allow],
+    [
+      "auto_mode.environment",
+      reach.agent_allow_without_effect.auto_mode_environment,
+    ],
+  ].flatMap(([id, entries]) =>
+    typeof id === "string" && Array.isArray(entries) && entries.length > 0
+      ? [{ id, label: name(id), value: <RuleLines rules={entries} /> }]
+      : [],
   );
-  const unused = [
-    ...reach.agent_allow_without_effect.permissions,
-    ...reach.agent_allow_without_effect.auto_mode_allow,
-    ...reach.agent_allow_without_effect.auto_mode_environment,
-  ];
   return (
-    <div className="flex min-w-0 flex-col gap-3">
-      <section
-        aria-labelledby={headingId}
-        className="flex min-w-0 flex-col gap-2"
-      >
-        <Text as="div" variant="body" id={headingId} className="font-medium">
-          {t("engine.workspaceRules.title")}
+    <SettingsSection
+      title={t("engine.workspaceRules.title")}
+      description={t("engine.workspaceRules.hint")}
+      box
+    >
+      {shown.length === 0 ? (
+        <Text as="div" variant="meta">
+          {t("engine.workspaceRules.empty")}
         </Text>
-        <Text as="p" variant="meta">
-          {t("engine.workspaceRules.hint")}
-        </Text>
-        {shown.length === 0 ? (
-          <Text as="p" variant="meta">
-            {t("engine.workspaceRules.empty")}
-          </Text>
-        ) : (
-          <dl className="m-0 flex flex-col gap-3">
-            {shown.map((list) => (
-              <div key={listId(list)} className="min-w-0">
-                <dt className="font-medium text-sm">
-                  {t(`engine.list.${listId(list)}` as MessageKey)}
-                </dt>
-                <dd className="m-0 break-words font-mono text-xs">
-                  {draftOf(workspace)
-                    [listId(list)]?.split("\n")
-                    .map((rule) => (
-                      <div key={rule}>{rule}</div>
-                    ))}
-                </dd>
-              </div>
-            ))}
-          </dl>
-        )}
-      </section>
+      ) : (
+        <KeyValueList
+          variant="grid"
+          stack="sm"
+          items={shown.map((list) => ({
+            id: listId(list),
+            label: name(listId(list)),
+            value: (
+              <RuleLines
+                rules={(workspaceDraft[listId(list)] ?? "").split("\n")}
+              />
+            ),
+          }))}
+        />
+      )}
       {inherited.entries > 0 ? (
-        <Text as="p" variant="meta">
+        <Text as="div" variant="meta">
           {t("engine.inherited", {
             entries: inherited.entries,
             rules: inherited.rules,
           })}
         </Text>
       ) : null}
-      {reach.workspace_allow_inactive ? (
-        <Text as="p" variant="meta">
-          {t("engine.reach.inactive")}
+      {inactive.length > 0 ? (
+        <Text as="div" variant="meta">
+          {t("engine.reach.inactive", {
+            lists: inactive.map(name).join(", "),
+          })}
         </Text>
       ) : null}
-      {unused.length > 0 ? (
-        <Text as="p" variant="meta">
-          {t("engine.reach.withoutEffect", { entries: unused.join(", ") })}
-        </Text>
+      {withoutEffect.length > 0 ? (
+        <>
+          <Text as="div" variant="meta">
+            {t("engine.reach.withoutEffect")}
+          </Text>
+          <KeyValueList variant="grid" stack="sm" items={withoutEffect} />
+        </>
       ) : null}
-    </div>
+    </SettingsSection>
   );
 }

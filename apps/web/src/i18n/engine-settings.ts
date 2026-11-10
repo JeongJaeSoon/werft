@@ -51,11 +51,11 @@ export const engineSettingsKo = {
     "워크스페이스 설정에서 바꿉니다. 이 에이전트에도 적용됩니다.",
   "engine.workspaceRules.empty": "워크스페이스 규칙이 없습니다.",
   "engine.inherited":
-    "프로필에서 물려받은 막는 규칙이 {entries}건({rules}개) 있습니다. 운영자가 관리하며 여기서 바꿀 수 없습니다.",
+    "프로필에서 물려받은 막는 규칙: 항목 {entries}개에 규칙 {rules}개. 운영자가 관리하며 여기서 바꿀 수 없습니다.",
   "engine.reach.inactive":
-    "워크스페이스는 허용하지만 이 에이전트가 같은 종류를 허용하지 않아 워크스페이스의 허용이 닿지 않습니다.",
+    "워크스페이스는 {lists}을(를) 허용하지만 이 에이전트의 같은 목록이 비어 있어, 워크스페이스의 허용이 이 에이전트에 닿지 않습니다.",
   "engine.reach.withoutEffect":
-    "워크스페이스가 허용하지 않아 효과가 없는 허용 항목: {entries}",
+    "아래 허용 항목은 워크스페이스가 같은 목록에서 허용하지 않아 효과가 없습니다.",
 } as const;
 
 export const engineSettingsEn: Record<keyof typeof engineSettingsKo, string> = {
@@ -111,11 +111,11 @@ export const engineSettingsEn: Record<keyof typeof engineSettingsKo, string> = {
     "Change them in the workspace settings. They apply to this agent too.",
   "engine.workspaceRules.empty": "The workspace has no rules.",
   "engine.inherited":
-    "{entries} restriction entries ({rules} rules) are inherited from the profile. The operator manages them; they cannot be changed here.",
+    "Restrictions inherited from the profile: {entries} entries holding {rules} rules. The operator manages them; they cannot be changed here.",
   "engine.reach.inactive":
-    "The workspace allows something this agent does not allow, so the workspace's allow does not reach it.",
+    "The workspace allows {lists}, but this agent's list of the same kind is empty, so the workspace's allow does not reach this agent.",
   "engine.reach.withoutEffect":
-    "Allow entries without effect because the workspace does not allow them: {entries}",
+    "These allow entries have no effect because the workspace does not allow them in the same list.",
 };
 
 export const engineSettingsJa: Record<keyof typeof engineSettingsKo, string> = {
@@ -172,9 +172,9 @@ export const engineSettingsJa: Record<keyof typeof engineSettingsKo, string> = {
     "ワークスペース設定で変更します。このエージェントにも適用されます。",
   "engine.workspaceRules.empty": "ワークスペースのルールはありません。",
   "engine.inherited":
-    "プロファイルから引き継いだ制限が{entries}件({rules}個)あります。運営者が管理しており、ここでは変更できません。",
+    "プロファイルから引き継いだ制限: {entries}項目、ルール{rules}個。運営者が管理しており、ここでは変更できません。",
   "engine.reach.inactive":
-    "ワークスペースは許可していますが、このエージェントが同じ種類を許可していないため、ワークスペースの許可は届きません。",
+    "ワークスペースは{lists}を許可していますが、このエージェントの同じ一覧が空のため、ワークスペースの許可はこのエージェントに届きません。",
   "engine.reach.withoutEffect":
-    "ワークスペースが許可していないため効果のない許可項目: {entries}",
+    "次の許可項目は、ワークスペースが同じ一覧で許可していないため効果がありません。",
 };

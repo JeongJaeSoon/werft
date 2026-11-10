@@ -2,13 +2,20 @@ import { useMutation } from "@tanstack/react-query";
 import type { ApiError } from "@werft-ai/client";
 import type { PutEngineSettingsResponse } from "@werft-ai/contracts";
 import {
+  Alert,
+  AlertDescription,
+  Button,
   buttonVariants,
   Field,
+  FieldDescription,
   FieldLabel,
+  FieldLegend,
+  FieldSet,
+  SettingsSection,
   Text,
   Textarea,
 } from "@werft-ai/ui";
-import { type FormEvent, type ReactNode, useId, useState } from "react";
+import { type FormEvent, useId, useState } from "react";
 import { refusalOf } from "../api/engine-settings.ts";
 import { ReasonButton } from "../auth/reason-button.tsx";
 import { type MessageKey, useI18n } from "../i18n/i18n.tsx";
@@ -47,6 +54,8 @@ const REFUSALS = [
 
 export interface EngineSettingsEditorProps {
   readonly source: "workspace" | "agent";
+  readonly title: string;
+  readonly description: string;
   readonly settings: EngineRules;
   /** The row's revision; null while nothing was saved. */
   readonly revision: number | null;
@@ -60,24 +69,28 @@ export interface EngineSettingsEditorProps {
   }) => Promise<PutEngineSettingsResponse>;
   /** Called after a save or a reload so the caller refetches the settings. */
   readonly refresh: () => Promise<unknown>;
-  readonly children?: ReactNode;
 }
 
 /**
  * One rule per line in a box per list. Untouched, a box follows the server's
  * value as it refreshes; a typed draft stays until it is saved or discarded.
+ * The boxes sit in one bordered section and the save row under it, as the
+ * settings page's other sections do.
  */
 export function EngineSettingsEditor({
   source,
+  title,
+  description,
   settings,
   revision,
   writesOpen,
   withheld,
   save,
   refresh,
-  children,
 }: EngineSettingsEditorProps) {
   const { t } = useI18n();
+  const closedId = useId();
+  const readOnlyId = useId();
   // A draft keeps the revision it was started from: a refetch that brings a
   // newer revision must not make the save look like it saw those rules.
   const [typed, setTyped] = useState<{
@@ -160,18 +173,22 @@ export function EngineSettingsEditor({
     await refresh();
   };
 
+  // What explains a box that cannot be typed in, read with the box.
+  const describedBy =
+    [writesOpen ? undefined : closedId, readOnly ? readOnlyId : undefined]
+      .filter((id) => id !== undefined)
+      .join(" ") || undefined;
+
   const group = (name: "permissions" | "auto_mode") => {
     const lists = ENGINE_LISTS.filter((list) => list.group === name);
     // The server's limit is per list, not per group.
     const max = ENGINE_RULE_LIMITS[source][name];
     return (
-      <fieldset className="m-0 flex min-w-0 flex-col gap-3 border-0 p-0">
-        <legend className="mb-1 p-0 font-medium text-sm">
-          {t(`engine.group.${name}`)}
-        </legend>
-        <Text as="div" variant="meta">
+      <FieldSet className="gap-3">
+        <FieldLegend className="mb-0">{t(`engine.group.${name}`)}</FieldLegend>
+        <FieldDescription>
           {t(`engine.list.${name}.hint` as MessageKey)}
-        </Text>
+        </FieldDescription>
         {lists.map((list) => (
           <ListBox
             key={listId(list)}
@@ -181,6 +198,7 @@ export function EngineSettingsEditor({
             max={max}
             locked={locked.has(listId(list))}
             readOnly={readOnly}
+            describedBy={describedBy}
             onChange={(text) =>
               setTyped({
                 draft: { ...draft, [listId(list)]: text },
@@ -189,54 +207,63 @@ export function EngineSettingsEditor({
             }
           />
         ))}
-      </fieldset>
+      </FieldSet>
     );
   };
 
   return (
-    <form className="flex min-w-0 flex-col gap-6" onSubmit={submit}>
+    <SettingsSection
+      title={title}
+      description={description}
+      box
+      onSubmit={submit}
+      foot={
+        <>
+          <div className="flex flex-wrap items-center gap-2">
+            <ReasonButton
+              type="submit"
+              className={buttonVariants({ size: "sm" })}
+              reason={withheld}
+              // aria-disabled, not disabled: a disabled button drops its focus.
+              aria-disabled={
+                mutation.isPending || !dirty || !writesOpen || undefined
+              }
+            >
+              {t(mutation.isPending ? "engine.saving" : "engine.save")}
+            </ReasonButton>
+            {conflict ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => void reload()}
+              >
+                {t("engine.reload")}
+              </Button>
+            ) : null}
+            {!dirty && withheld === undefined && writesOpen ? (
+              <Text as="span" variant="meta">
+                {t("engine.unchanged")}
+              </Text>
+            ) : null}
+          </div>
+          {readOnly ? (
+            <Text as="span" variant="meta" id={readOnlyId}>
+              {t("workspace.readOnlyMark")}
+            </Text>
+          ) : null}
+        </>
+      }
+    >
       <OutcomeLine outcome={outcome} />
       {writesOpen ? null : (
-        <Text as="div" variant="meta">
-          {t("engine.writesClosed")}
-        </Text>
+        <Alert variant="amber" id={closedId}>
+          <AlertDescription>{t("engine.writesClosed")}</AlertDescription>
+        </Alert>
       )}
-      {children}
       {group("permissions")}
       {group("auto_mode")}
-      <div className="flex flex-wrap items-center gap-2">
-        <ReasonButton
-          type="submit"
-          className={buttonVariants({ size: "sm" })}
-          reason={withheld}
-          // aria-disabled, not disabled: a disabled button drops its focus.
-          aria-disabled={
-            mutation.isPending || !dirty || !writesOpen || undefined
-          }
-        >
-          {t(mutation.isPending ? "engine.saving" : "engine.save")}
-        </ReasonButton>
-        {conflict ? (
-          <button
-            type="button"
-            className={buttonVariants({ size: "sm", variant: "outline" })}
-            onClick={() => void reload()}
-          >
-            {t("engine.reload")}
-          </button>
-        ) : null}
-        {readOnly ? (
-          <Text as="span" variant="meta">
-            {t("workspace.readOnlyMark")}
-          </Text>
-        ) : null}
-        {!dirty && withheld === undefined && writesOpen ? (
-          <Text as="span" variant="meta">
-            {t("engine.unchanged")}
-          </Text>
-        ) : null}
-      </div>
-    </form>
+    </SettingsSection>
   );
 }
 
@@ -247,6 +274,7 @@ function ListBox({
   max,
   locked,
   readOnly,
+  describedBy,
   onChange,
 }: {
   readonly list: EngineList;
@@ -255,35 +283,32 @@ function ListBox({
   readonly max: number;
   readonly locked: boolean;
   readonly readOnly: boolean;
+  readonly describedBy: string | undefined;
   readonly onChange: (text: string) => void;
 }) {
   const { t } = useI18n();
-  const id = useId();
+  const inert = readOnly || locked;
+  // Field wires the label and every FieldDescription to the box.
   return (
     <Field>
-      <div className="flex items-baseline justify-between gap-2">
-        <FieldLabel htmlFor={id}>
-          {t(`engine.list.${listId(list)}` as MessageKey)}
-        </FieldLabel>
-        <Text as="span" variant="meta">
-          {t("engine.list.count", { count, max })}
-        </Text>
-      </div>
+      <FieldLabel>{t(`engine.list.${listId(list)}` as MessageKey)}</FieldLabel>
       <Textarea
-        id={id}
         value={value}
-        readOnly={readOnly || locked}
+        readOnly={inert}
+        aria-describedby={describedBy}
         spellCheck={false}
         autoCapitalize="off"
         autoCorrect="off"
-        className="font-mono"
+        // A box that cannot be typed in reads as a value, not a field.
+        className="font-mono read-only:bg-muted read-only:text-muted-foreground read-only:hover:border-input"
         rows={3}
         onChange={(event) => onChange(event.target.value)}
       />
+      <FieldDescription>
+        {t("engine.list.count", { count, max })}
+      </FieldDescription>
       {locked ? (
-        <Text as="div" variant="meta">
-          {t("engine.multiline")}
-        </Text>
+        <FieldDescription>{t("engine.multiline")}</FieldDescription>
       ) : null}
     </Field>
   );

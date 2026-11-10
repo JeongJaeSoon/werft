@@ -22,12 +22,13 @@ const renderAt: typeof harness.renderAt = (path, routes, locale) =>
     locale,
   );
 
-const card = () => screen.findByRole("region", { name: "실행 규칙" });
-// The card is there while the rules load, so wait for its button too.
-const saveButton = async () =>
-  within(await card()).findByRole("button", { name: "저장" });
-const box = async (name: string) =>
-  within(await card()).findByRole("textbox", { name });
+const card = () => screen.getByRole("region", { name: "실행 규칙" });
+// A loading card is swapped for the editor's, so ask the page again on each
+// try rather than holding the first region.
+const saveButton = () =>
+  waitFor(() => within(card()).getByRole("button", { name: "저장" }));
+const box = (name: string) =>
+  waitFor(() => within(card()).getByRole("textbox", { name }));
 
 describe("워크스페이스 실행 규칙", () => {
   test("소유자는 규칙을 적어 저장하고, 읽은 revision을 expected_revision으로 보낸다", async () => {
@@ -136,7 +137,21 @@ describe("워크스페이스 실행 규칙", () => {
     const user = await setupUser();
     const deny = (await box("거부")) as HTMLTextAreaElement;
     expect(deny.readOnly).toBe(true);
-    await screen.findByText(/지금은 저장이 닫혀 있습니다/);
+    const closed = await screen.findByText(/지금은 저장이 닫혀 있습니다/);
+    // A banner, not grey help text, and every box is read with it.
+    const banner = closed.closest("[data-slot=alert]");
+    expect(banner === null).toBe(false);
+    expect(deny.getAttribute("aria-describedby")?.split(" ")).toContain(
+      banner?.id ?? "no banner",
+    );
+    // The read-only mark and the list's count are read with the box as well.
+    const described = (deny.getAttribute("aria-describedby") ?? "").split(" ");
+    expect(described.length).toBe(3);
+    expect(
+      described.some(
+        (id) => document.getElementById(id)?.textContent === "0 / 48개",
+      ),
+    ).toBe(true);
     await user.click(await saveButton());
     expect(api.calls.some((c) => c.method === "PUT")).toBe(false);
   });
@@ -270,7 +285,7 @@ describe("워크스페이스 실행 규칙", () => {
     expect(environment.readOnly).toBe(true);
     await screen.findByText(/여러 줄로 된 항목이 있어 여기서 바꿀 수 없습니다/);
     // Two entries, though the box shows three lines.
-    expect(within(await card()).getAllByText("2 / 16개")).toHaveLength(1);
+    expect(within(card()).getAllByText("2 / 16개")).toHaveLength(1);
     // Opening the screen is not a change.
     expect((await saveButton()).getAttribute("aria-disabled")).toBe("true");
     await user.type(await box("거부"), "Bash(rm:*)");

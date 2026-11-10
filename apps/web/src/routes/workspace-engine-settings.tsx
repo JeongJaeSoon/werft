@@ -31,51 +31,45 @@ export function WorkspaceEngineSettings() {
     ...workspaceEngineSettingsQuery(client, workspaceId),
     enabled: workspaceId !== "",
   });
-  return (
-    <SettingsSection
-      title={t("engine.workspace.title")}
-      description={t("engine.workspace.description")}
-      box
-    >
-      {query.data === undefined ? (
-        query.isError ? (
+  const title = t("engine.workspace.title");
+  const description = t("engine.workspace.description");
+  if (query.data === undefined) {
+    return (
+      <SettingsSection title={title} description={description} box>
+        {query.isError ? (
           <LoadFailure
             error={query.error}
             onRetry={() => void query.refetch()}
           />
         ) : (
           <Skeleton width="60%" />
-        )
-      ) : (
-        <>
-          {/* A failed refetch keeps the editor: its unsaved draft is the work. */}
-          {query.isError ? (
-            <LoadFailure
-              error={query.error}
-              onRetry={() => void query.refetch()}
-            />
-          ) : null}
-          <EngineSettingsEditor
-            source="workspace"
-            settings={query.data.settings}
-            revision={query.data.settings_revision}
-            writesOpen={query.data.writes_open}
-            withheld={
-              manages
-                ? undefined
-                : permissionReason(t, "workspace.manage", role)
-            }
-            save={(body) =>
-              putWorkspaceEngineSettings(client, workspaceId, body)
-            }
-            refresh={() =>
-              queryClient.invalidateQueries({
-                queryKey: workspaceEngineSettingsKey(client, workspaceId),
-              })
-            }
-          />
-        </>
-      )}
-    </SettingsSection>
+        )}
+      </SettingsSection>
+    );
+  }
+  return (
+    <>
+      {/* A failed refetch keeps the editor: its unsaved draft is the work. */}
+      {query.isError ? (
+        <LoadFailure error={query.error} onRetry={() => void query.refetch()} />
+      ) : null}
+      <EngineSettingsEditor
+        source="workspace"
+        title={title}
+        description={description}
+        settings={query.data.settings}
+        revision={query.data.settings_revision}
+        writesOpen={query.data.writes_open}
+        withheld={
+          manages ? undefined : permissionReason(t, "workspace.manage", role)
+        }
+        save={(body) => putWorkspaceEngineSettings(client, workspaceId, body)}
+        refresh={() =>
+          queryClient.invalidateQueries({
+            queryKey: workspaceEngineSettingsKey(client, workspaceId),
+          })
+        }
+      />
+    </>
   );
 }

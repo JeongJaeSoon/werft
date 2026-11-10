@@ -62,14 +62,47 @@ describe("에이전트 실행 규칙 탭", () => {
     // The workspace's rules are read only: no box of theirs to type in.
     expect(within(rules).queryByRole("textbox")).toBeNull();
     await screen.findByText(
-      "프로필에서 물려받은 막는 규칙이 2건(7개) 있습니다. 운영자가 관리하며 여기서 바꿀 수 없습니다.",
+      "프로필에서 물려받은 막는 규칙: 항목 2개에 규칙 7개. 운영자가 관리하며 여기서 바꿀 수 없습니다.",
+    );
+    // The note names the list that does not reach, not a kind of list.
+    await screen.findByText(
+      "워크스페이스는 환경 문장을(를) 허용하지만 이 에이전트의 같은 목록이 비어 있어, 워크스페이스의 허용이 이 에이전트에 닿지 않습니다.",
     );
     await screen.findByText(
-      "워크스페이스는 허용하지만 이 에이전트가 같은 종류를 허용하지 않아 워크스페이스의 허용이 닿지 않습니다.",
+      "아래 허용 항목은 워크스페이스가 같은 목록에서 허용하지 않아 효과가 없습니다.",
     );
-    await screen.findByText(
-      "워크스페이스가 허용하지 않아 효과가 없는 허용 항목: Read",
+    const without = within(await panel()).getByText("Read", {
+      selector: "[data-slot=code]",
+    });
+    expect(without.closest("dd")?.previousElementSibling?.textContent).toBe(
+      "허용",
     );
+  });
+
+  test("워크스페이스가 같은 규칙을 두 번 적었어도 두 줄을 모두 보인다", async () => {
+    renderAt(TAB, {
+      ...meOk,
+      ...agentServer().routes,
+      [`GET ${PATH}`]: () =>
+        json(
+          200,
+          agentEngineSettings({
+            workspace: {
+              settings: {
+                permissions: { deny: ["WebFetch", "WebFetch"] },
+                auto_mode: {},
+              },
+              settings_revision: 5,
+            },
+          }),
+        ),
+    });
+    const rules = await within(await panel()).findByRole("region", {
+      name: "워크스페이스 규칙",
+    });
+    expect(
+      within(rules).getAllByText("WebFetch", { selector: "[data-slot=code]" }),
+    ).toHaveLength(2);
   });
 
   test("저장은 이 에이전트의 규칙만 읽은 revision과 함께 보낸다", async () => {
