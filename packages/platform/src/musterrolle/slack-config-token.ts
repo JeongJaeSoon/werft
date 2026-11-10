@@ -1,11 +1,11 @@
 import type { SecretAudit } from "../ports/secret-store.ts";
 import type {
   ConfigTokenSummary,
+  RotatedConfigToken,
   SlackConfigTokenStore,
 } from "../ports/slack-config-token-store.ts";
 import { SessionServiceError } from "../sessions/session-service.ts";
 import {
-  type RotatedConfigToken,
   SLACK_APP_GONE_CODES,
   SlackApiError,
   type SlackConfigApi,

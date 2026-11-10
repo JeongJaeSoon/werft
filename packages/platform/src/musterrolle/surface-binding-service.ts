@@ -8,7 +8,6 @@ import {
   SLACK_BINDING_LIST_LIMIT,
   SLACK_BINDING_MESSAGES,
   type SurfaceBinding,
-  type SurfaceChannelKind,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
 import type {
@@ -19,13 +18,14 @@ import {
   requirePermitted,
   SessionServiceError,
 } from "../sessions/session-service.ts";
+import type { AgentWelcomable } from "../surface/ports/agent-welcomable.ts";
+import type { ChannelJoinable } from "../surface/ports/channel-joinable.ts";
+import type { ChannelKindReadable } from "../surface/ports/channel-kind-readable.ts";
 import {
   type AuthorizationPolicy,
   type Caller,
   MANAGEMENT_ROLES,
 } from "./policy.ts";
-import type { SlackChannelJoiner } from "./slack-channel-join.ts";
-import type { SlackWelcome } from "./slack-welcome.ts";
 
 // Design 4.1's "Slack 앱 설치·채널 설정" row: `binding.manage` on the
 // agent, which owner, admin and that agent's admins hold.
@@ -63,25 +63,13 @@ export function surfaceBindingView(
   };
 }
 
-/**
- * What Slack says a channel of the agent's install is (`conversations.info`
- * with the bot token). Throws a SessionServiceError the route answers with.
- */
-export type SlackChannelKinds = {
-  kindOf(
-    workspaceId: string,
-    agentId: string,
-    channelId: string,
-  ): Promise<SurfaceChannelKind>;
-};
-
 export function createSurfaceBindingService(deps: {
   authorization: AuthorizationPolicy;
   store: SurfaceBindingStore;
-  channels: SlackChannelKinds;
+  channels: ChannelKindReadable;
   /** Joins a bound channel; absent where no bot token can be read. */
-  join?: SlackChannelJoiner;
-  welcome?: Pick<SlackWelcome, "welcome">;
+  join?: ChannelJoinable;
+  welcome?: Pick<AgentWelcomable, "welcome">;
 }) {
   const { authorization, store, channels } = deps;
 

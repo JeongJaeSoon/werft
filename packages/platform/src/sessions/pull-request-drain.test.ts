@@ -1,13 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { DEFAULT_PULL_REQUEST_SETTINGS } from "@werft-ai/contracts";
+import type { ForgePullRequestWithBody } from "../action/ports/forge.ts";
+import { ForgeCredentialError } from "../action/ports/forge.ts";
+import type { GitHubApi } from "../action/ports/github-api.ts";
 import { createAuthorizationPolicy } from "../musterrolle/policy.ts";
-import type { ForgePullRequestWithBody } from "../ports/forge.ts";
-import { ForgeCredentialError } from "../ports/forge.ts";
-import {
-  type GitHubApi,
-  type GitHubGate,
-  GitHubGateError,
-} from "../ports/github-gate.ts";
+import { type GitHubGate, GitHubGateError } from "../ports/github-gate.ts";
 import {
   PULL_REQUEST_MAX_ATTEMPTS,
   type PullRequestDrainOutcome,
