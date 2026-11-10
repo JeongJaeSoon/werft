@@ -8,6 +8,7 @@ import {
   type PendingRememberRule,
   type PendingRequest,
   pendingQuestionSchema,
+  presentPendingRequest,
   questionAnswerMismatch,
   sessionMessageSchema,
 } from "@werft-ai/contracts";
@@ -812,7 +813,24 @@ export function createPostgresPendingRequests(
           asc(pendingRequests.createdAt),
           asc(pendingRequests.requestId),
         );
-      return rows.map(publicPendingRequest);
+      // The same line a Slack card shows; a GitHub tool's input holds only
+      // ids, so the repository and branch come from the platform's rows.
+      return Promise.all(
+        rows.map(async (row) => {
+          const item = publicPendingRequest(row);
+          if (item.kind !== "permission") return item;
+          const context = await toolSummaryContext(
+            db,
+            sessionId,
+            item.tool,
+            item.input,
+          );
+          return {
+            ...item,
+            summary: presentPendingRequest(item.tool, item.input, context),
+          };
+        }),
+      );
     },
 
     answerAtomic(input: AnswerRequestInput): Promise<AnswerRequestResult> {

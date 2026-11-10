@@ -1,5 +1,15 @@
-import type { PushRequestOrigin, PushRequestState } from "@werft-ai/contracts";
+import type {
+  PushApprovabilityVerdict,
+  PushRequestOrigin,
+  PushRequestState,
+} from "@werft-ai/contracts";
 import type { PushSource } from "./push-request-service.ts";
+
+// The verdict's shape is contracts', so every surface words the same reasons.
+export type {
+  PushApprovabilityVerdict,
+  PushUnapprovableReason,
+} from "@werft-ai/contracts";
 
 export type PushApprovabilitySession = {
   id: string;
@@ -13,15 +23,6 @@ export type PushApprovabilityRequest = {
   /** Absent means a direct request. */
   origin?: PushRequestOrigin;
 };
-
-export type PushUnapprovableReason =
-  | "not_requested"
-  | "checkpoint_moved"
-  | "pinned_source_invalid";
-
-export type PushApprovabilityVerdict =
-  | { approvable: true }
-  | { approvable: false; reason: PushUnapprovableReason };
 
 /** The commit a pinned revision holds as its snapshot or as a kept branch's tip. */
 export function pinnedCarries(

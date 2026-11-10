@@ -6119,6 +6119,18 @@ export interface components {
                 kind: "permission";
                 tool: string;
                 input: unknown;
+                /** @description What the tool does and to what, as message keys (`presentPendingRequest`): the same line a Slack card shows over the raw `input`. */
+                summary?: {
+                    verb: {
+                        /** @enum {string} */
+                        key: "action.tool.runCommand" | "action.tool.editFile" | "action.tool.writeFile" | "action.tool.readFile" | "action.tool.findFiles" | "action.tool.searchContents" | "action.tool.readWebPage" | "action.tool.searchWeb" | "action.tool.requestPush" | "action.tool.openPullRequest" | "action.tool.updatePullRequest" | "action.tool.commentPullRequest" | "action.tool.closePullRequest" | "action.tool.reopenPullRequest" | "action.tool.attachRepository" | "action.tool.useTool" | "action.tool.useMcpTool";
+                        params?: {
+                            [key: string]: string;
+                        };
+                    };
+                    target: string | null;
+                    excerpt: string | null;
+                };
             } | {
                 request_id: string;
                 turn_id: string;
@@ -6504,6 +6516,14 @@ export interface components {
             pr_number: number | null;
             /** @default null */
             pr_url: string | null;
+            /** @description Whether an approval would pass the server's decision check now, and if not why (`presentPushRequest`). A hint for what to offer; the approval is judged again. */
+            approvability?: {
+                approvable: boolean;
+                reason: {
+                    /** @enum {string} */
+                    key: "action.push.unapprovable.not_requested" | "action.push.unapprovable.checkpoint_moved" | "action.push.unapprovable.pinned_source_invalid";
+                } | null;
+            };
         };
         ListPushRequestsResponse: {
             items: components["schemas"]["PushRequest"][];

@@ -12,6 +12,7 @@ import {
   sessionIdSchema,
   timestampSchema,
 } from "../shared/index.ts";
+import { PUSH_UNAPPROVABLE_REASON_VALUES } from "./present-action.ts";
 import { githubPolicyReceiptFieldsSchema } from "./receipt.ts";
 
 // requested → approved | rejected is a human decision; approved → pushing →
@@ -221,6 +222,20 @@ export const pushDeciderSchema = z.union([
     .strict(),
 ]);
 
+// presentPushRequest's result: a message key, not text; each surface words it.
+export const pushRequestPresentationSchema = z.object({
+  approvable: z.boolean(),
+  reason: z
+    .object({
+      key: z.enum(
+        PUSH_UNAPPROVABLE_REASON_VALUES.map(
+          (reason) => `action.push.unapprovable.${reason}` as const,
+        ),
+      ),
+    })
+    .nullable(),
+});
+
 export const pushRequestSchema = z.object({
   id: pushRequestIdSchema,
   session_id: sessionIdSchema,
@@ -251,6 +266,11 @@ export const pushRequestSchema = z.object({
   // The recorded pull request, once there is one.
   pr_number: z.number().int().positive().nullable().default(null),
   pr_url: z.string().nullable().default(null),
+  // Set by list and get only; absent from a server older than it.
+  approvability: pushRequestPresentationSchema.optional().meta({
+    description:
+      "Whether an approval would pass the server's decision check now, and if not why (`presentPushRequest`). A hint for what to offer; the approval is judged again.",
+  }),
 });
 
 export const createPushRequestRequestSchema = z

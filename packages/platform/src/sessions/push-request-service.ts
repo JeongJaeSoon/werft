@@ -8,6 +8,7 @@ import {
   type PushRequest,
   type PushRequestSnapshot,
   type PushResolution,
+  presentPushRequest,
   pushBranchFor,
   type ReceiptActor,
 } from "@werft-ai/contracts";
@@ -27,7 +28,7 @@ import {
 } from "../ports/push-requests.ts";
 import { additionalRepositoryAllowed } from "./additional-repositories.ts";
 import { repositoryBinding, type SessionCatalog } from "./catalog.ts";
-import { pinnedCarries } from "./push-approvability.ts";
+import { pinnedCarries, pushApprovability } from "./push-approvability.ts";
 import {
   idempotencyConflict,
   payloadHash,
@@ -161,6 +162,34 @@ export function createPushRequestService(deps: {
       kind: "session",
       id: sessionId,
     });
+
+  // The verdict the decision check would give now, worded by contracts, so a
+  // surface that lists requests shows the reason Slack shows.
+  async function withApprovability(
+    ownerId: string,
+    sessionId: string,
+    requests: PushRequest[],
+  ): Promise<PushRequest[]> {
+    const session = await store.findSession(ownerId, sessionId);
+    const pointer = session?.checkpointRevision ?? null;
+    return Promise.all(
+      requests.map(async (request) => ({
+        ...request,
+        approvability: presentPushRequest(
+          await pushApprovability(
+            { id: sessionId, checkpointRevision: pointer },
+            {
+              state: request.state,
+              checkpointRevision: request.checkpoint_revision,
+              gitCommit: request.git_commit,
+              origin: request.origin,
+            },
+            source,
+          ),
+        ),
+      })),
+    );
+  }
 
   // The checks that need no checkpoint: the repository is the session's or
   // one its release allows, and the attached-repository policy does not
@@ -479,7 +508,10 @@ export function createPushRequestService(deps: {
       if (items === null) {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
       }
-      return { items, intents: await intents.list(actor.ownerId, sessionId) };
+      return {
+        items: await withApprovability(actor.ownerId, sessionId, items),
+        intents: await intents.list(actor.ownerId, sessionId),
+      };
     },
 
     async get(
@@ -493,7 +525,10 @@ export function createPushRequestService(deps: {
       if (request === null) {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
       }
-      return request;
+      const [withVerdict] = await withApprovability(actor.ownerId, sessionId, [
+        request,
+      ]);
+      return withVerdict ?? request;
     },
 
     /** `get_push_request`: needs `session.read` only, like `get`. */

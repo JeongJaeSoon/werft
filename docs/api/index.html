@@ -7785,7 +7785,71 @@
                       "type": "string",
                       "minLength": 1
                     },
-                    "input": {}
+                    "input": {},
+                    "summary": {
+                      "description": "What the tool does and to what, as message keys (`presentPendingRequest`): the same line a Slack card shows over the raw `input`.",
+                      "type": "object",
+                      "properties": {
+                        "verb": {
+                          "type": "object",
+                          "properties": {
+                            "key": {
+                              "type": "string",
+                              "enum": [
+                                "action.tool.runCommand",
+                                "action.tool.editFile",
+                                "action.tool.writeFile",
+                                "action.tool.readFile",
+                                "action.tool.findFiles",
+                                "action.tool.searchContents",
+                                "action.tool.readWebPage",
+                                "action.tool.searchWeb",
+                                "action.tool.requestPush",
+                                "action.tool.openPullRequest",
+                                "action.tool.updatePullRequest",
+                                "action.tool.commentPullRequest",
+                                "action.tool.closePullRequest",
+                                "action.tool.reopenPullRequest",
+                                "action.tool.attachRepository",
+                                "action.tool.useTool",
+                                "action.tool.useMcpTool"
+                              ]
+                            },
+                            "params": {
+                              "type": "object",
+                              "propertyNames": {
+                                "type": "string"
+                              },
+                              "additionalProperties": {
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "required": [
+                            "key"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "target": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "excerpt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "verb",
+                        "target",
+                        "excerpt"
+                      ],
+                      "additionalProperties": false
+                    }
                   },
                   "required": [
                     "request_id",
@@ -9603,6 +9667,44 @@
               "string",
               "null"
             ]
+          },
+          "approvability": {
+            "description": "Whether an approval would pass the server's decision check now, and if not why (`presentPushRequest`). A hint for what to offer; the approval is judged again.",
+            "type": "object",
+            "properties": {
+              "approvable": {
+                "type": "boolean"
+              },
+              "reason": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string",
+                        "enum": [
+                          "action.push.unapprovable.not_requested",
+                          "action.push.unapprovable.checkpoint_moved",
+                          "action.push.unapprovable.pinned_source_invalid"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "key"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "approvable",
+              "reason"
+            ],
+            "additionalProperties": false
           }
         },
         "required": [

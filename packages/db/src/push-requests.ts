@@ -386,6 +386,7 @@ export function createPostgresPushRequests(
         .select({
           repositoryId: sessions.repositoryId,
           profileId: sessions.profileId,
+          checkpointRevision: sessions.checkpointRevision,
           attached: sessions.attachedRepositoryIds,
           releaseId: agentReleases.id,
           githubEnabled: agents.githubEnabled,
@@ -416,6 +417,7 @@ export function createPostgresPushRequests(
       return {
         repositoryId: row.repositoryId,
         profileId: row.profileId,
+        checkpointRevision: row.checkpointRevision,
         attached: row.attached,
         policySource: policy.source,
         github: policy.settings,
