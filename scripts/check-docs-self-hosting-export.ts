@@ -132,7 +132,7 @@ for (const [file, page] of cache) {
     const current = file.slice(output.length).replace(/\/index\.html$/, "/");
     const url = new URL(href, `https://docs.invalid/werft${current}`);
     const target = decodeURIComponent(url.pathname.replace(/^\/werft\//, ""));
-    if (/^(api|storybook)(\/|$)/.test(target)) continue;
+    if (/^api(\/|$)/.test(target)) continue;
     const pathname = target.replace(/\/$/, "");
     const exact = join(output, pathname);
     const html = join(exact, "index.html");
