@@ -32,7 +32,22 @@ COPY packages ./packages
 # installed runtimes' image:verify checks each engine executable and drops the
 # platform builds the engine will not run (for Claude, the ~200 MB musl twin),
 # before this layer is copied into the runtime stage.
-RUN bun install --frozen-lockfile --production \
+#
+# WORKER_RUNTIME picks the one engine this image holds (the platform runs one
+# engine per worker image). claude_agent_sdk is the registry as checked in;
+# any other kind copies registry/variants/<kind>.* over package.json and
+# src/index.ts first, so the import, the installed closure and image:verify
+# change together. An unknown kind fails the build instead of shipping Claude.
+ARG WORKER_RUNTIME=claude_agent_sdk
+RUN reg=packages/adapters/runtimes/registry \
+  && if [ "$WORKER_RUNTIME" != claude_agent_sdk ]; then \
+       test -f "$reg/variants/$WORKER_RUNTIME.ts" \
+         && test -f "$reg/variants/$WORKER_RUNTIME.package.json" \
+         || { echo "unknown WORKER_RUNTIME: $WORKER_RUNTIME" >&2; exit 1; }; \
+       cp "$reg/variants/$WORKER_RUNTIME.ts" "$reg/src/index.ts"; \
+       cp "$reg/variants/$WORKER_RUNTIME.package.json" "$reg/package.json"; \
+     fi \
+  && bun install --frozen-lockfile --production \
     --filter ./apps/worker \
   && bun run --filter @werft-ai/runtime-registry image:verify
 

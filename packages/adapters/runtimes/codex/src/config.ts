@@ -94,7 +94,9 @@ export function connectionOf(
 
 /**
  * Settings the engine cannot honor are refused at start, never dropped: a
- * deny rule or a budget that is silently ignored is a promise broken.
+ * deny rule that is silently ignored is a promise broken. A budget is not on
+ * the list: the platform's egress meters every Responses call and answers
+ * BUDGET_EXCEEDED, so the engine has nothing to enforce.
  */
 export function assertStartable(
   config: RuntimeStart["config"],
@@ -103,7 +105,6 @@ export function assertStartable(
   const refuse = (what: string) => {
     throw new Error(`The Codex engine cannot honor ${what}`);
   };
-  if (config.maxBudgetUsd !== undefined) refuse("a budget");
   if (config.maxTurns !== undefined) refuse("a turn limit");
   if ((config.disallowedTools ?? []).length > 0) refuse("deny rules");
   if (config.engineSettings !== undefined) refuse("engine permission rules");

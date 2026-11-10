@@ -388,6 +388,29 @@ describe("app Dockerfiles", () => {
     );
   });
 
+  test("WORKER_RUNTIME swaps the registry's import, closure and image:verify together", () => {
+    const source = basePins.worker.source;
+    expect(source).toContain("ARG WORKER_RUNTIME=claude_agent_sdk\n");
+    expect(source).toContain("unknown WORKER_RUNTIME");
+    const dir = "packages/adapters/runtimes/registry";
+    const base = JSON.parse(read(`${dir}/package.json`)) as {
+      dependencies: Record<string, string>;
+    };
+    const variant = JSON.parse(
+      read(`${dir}/variants/codex_app_server.package.json`),
+    ) as { dependencies: Record<string, string> };
+    // The swap must leave exactly one engine package in each registry.
+    const engines = (deps: Record<string, string>) =>
+      Object.keys(deps).filter((n) =>
+        /^@werft-ai\/runtime-(claude|codex)$/.test(n),
+      );
+    expect(engines(base.dependencies)).toEqual(["@werft-ai/runtime-claude"]);
+    expect(engines(variant.dependencies)).toEqual(["@werft-ai/runtime-codex"]);
+    expect(read(`${dir}/variants/codex_app_server.ts`)).toContain(
+      "installedRuntimes",
+    );
+  });
+
   test("only the worker carries the Agent SDK", () => {
     expect(basePins.worker.source).toContain(
       "bun run --filter @werft-ai/runtime-registry image:verify",
