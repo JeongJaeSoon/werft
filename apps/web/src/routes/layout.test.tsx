@@ -346,9 +346,14 @@ describe("app shell", () => {
       ).toEqual(["세션"]),
     );
     const current = nav.querySelector("a[aria-current=page]");
-    expect(current?.className).toContain(
+    for (const cls of [
+      "aria-[current=page]:bg-sidebar-selected",
       "aria-[current=page]:text-sidebar-selected-text",
-    );
+      "data-[status=active]:bg-sidebar-selected",
+      "data-[status=active]:text-sidebar-selected-text",
+    ]) {
+      expect(current?.className).toContain(cls);
+    }
     expect(current?.querySelector("svg")?.getAttribute("class")).not.toMatch(
       /text-/,
     );
