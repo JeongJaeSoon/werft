@@ -35,7 +35,7 @@ Each `v*` tag produces a GitHub Release with `release-manifest.json` attached. O
 ```bash
 TAG=v0.1.2   # the release tag to read
 gh release download "$TAG" -R JeongJaeSoon/werft -p release-manifest.json -D "$TAG"   # one directory per tag
-jq -r '.images[] | "\(.image)@\(.digest)"' "$TAG/release-manifest.json"   # the three digests used for deployment
+jq -r '.images[] | "\(.image)@\(.digest)"' "$TAG/release-manifest.json"   # image digests (deployment uses control-host, worker and egress-proxy)
 jq -c .workerRuntime "$TAG/release-manifest.json"                          # worker runtime
 jq -r '"\(.chart.ref) \(.chart.version)"' "$TAG/release-manifest.json"     # chart location and version
 helm show chart "$(jq -r .chart.ref "$TAG/release-manifest.json")" --version "$(jq -r .chart.version "$TAG/release-manifest.json")"
