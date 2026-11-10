@@ -493,6 +493,7 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
     expect(await pushes.findSession(workspaceId, other)).toEqual({
       repositoryId: "sample-app",
       profileId: null,
+      checkpointRevision: null,
       attached: null,
       policySource: "release",
       github: null,
