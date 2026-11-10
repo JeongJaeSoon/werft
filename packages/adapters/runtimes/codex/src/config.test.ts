@@ -170,7 +170,6 @@ describe("what the engine cannot honor is refused, not dropped", () => {
   const base = startOf().config;
 
   test.each([
-    ["a budget", { maxBudgetUsd: 1 }],
     ["a turn limit", { maxTurns: 3 }],
     ["deny rules", { disallowedTools: ["exec_command"] }],
     ["engine permission rules", { engineSettings: {} }],
@@ -180,6 +179,15 @@ describe("what the engine cannot honor is refused, not dropped", () => {
     expect(() =>
       assertStartable({ ...base, ...change } as RuntimeStart["config"], bundle),
     ).toThrow(`cannot honor ${what}`);
+  });
+
+  test("a budget is accepted: the gateway enforces it, not the engine", () => {
+    expect(() =>
+      assertStartable(
+        { ...base, maxBudgetUsd: 1 } as RuntimeStart["config"],
+        bundle,
+      ),
+    ).not.toThrow();
   });
 
   test("MCP servers and extension bundles", () => {
