@@ -3,14 +3,14 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
-import { SLACK_INBOUND_MAX_ATTEMPTS } from "@werft-ai/contracts";
 import {
   drainSlackInbox,
   noopSlackInboundHandler,
-  type SlackInboundEventStore,
   slackConversationKey,
   slackInboundBackoffMs,
-} from "@werft-ai/platform";
+} from "@werft-ai/chat-slack";
+import { SLACK_INBOUND_MAX_ATTEMPTS } from "@werft-ai/contracts";
+import type { SlackInboundEventStore } from "@werft-ai/platform";
 import { eq, sql } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { migrate } from "./migrate.ts";

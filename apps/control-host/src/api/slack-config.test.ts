@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { slackEventsUrl, slackLinkRedirectUrl } from "@werft-ai/platform";
+import { slackEventsUrl, slackLinkRedirectUrl } from "@werft-ai/chat-slack";
 import {
   consoleOriginFrom,
   SlackConfigError,

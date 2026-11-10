@@ -1,4 +1,4 @@
-import type { SlackInboxLogger } from "@werft-ai/platform";
+import type { SlackInboxLogger } from "./slack-inbox.ts";
 import type { SlackNoticeSink } from "./slack-notice-sink.ts";
 
 /**

@@ -6,17 +6,17 @@ import {
 } from "@werft-ai/contracts";
 import type {
   AgentStore,
-  SlackInstalled,
   SlackOutboxEntry,
   SurfaceBindingRecord,
   SurfaceBindingStore,
 } from "@werft-ai/platform";
+import { createSlackChannelJoiner } from "./slack-channel-join.ts";
 import {
   SlackApiError,
   type SlackBotApi,
   type SlackChannelMembership,
-} from "@werft-ai/platform";
-import { createSlackChannelJoiner } from "./slack-channel-join.ts";
+} from "./slack-config-api.ts";
+import type { SlackInstalled } from "./slack-install-service.ts";
 import { slackOutboxText } from "./slack-outbox.ts";
 import {
   createSlackWelcome,

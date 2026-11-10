@@ -9,11 +9,18 @@ import {
 import { randomBytes, randomUUID } from "node:crypto";
 import { PGlite } from "@electric-sql/pglite";
 import {
+  agentSlackBotToken,
   createRowDelivery,
+  createSlackBotApi,
   createSlackChannelJoiner,
+  createSlackChannelKinds,
   createSlackWelcome,
   deploymentWelcomeKey,
+  drainSlackInbox,
   drainSlackOutbox,
+  type SlackInstalled,
+  slackBotToken,
+  slackConversationKey,
   slackWelcomeText,
 } from "@werft-ai/chat-slack";
 import {
@@ -44,19 +51,12 @@ import {
 import { migrate } from "@werft-ai/db/migrate";
 import { createLogger } from "@werft-ai/observability";
 import {
-  agentSlackBotToken,
   type Caller,
   callerFor,
   createAgentService,
   createAuthorizationPolicy,
-  createSlackBotApi,
-  createSlackChannelKinds,
   createSurfaceBindingService,
-  drainSlackInbox,
   SecretKey,
-  type SlackInstalled,
-  slackBotToken,
-  slackConversationKey,
 } from "@werft-ai/platform";
 import { startFakeSlackApi } from "@werft-ai/testkit/fake-slack-api";
 import {

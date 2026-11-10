@@ -26,7 +26,6 @@ import type {
   PushActor,
   PushFollowUpStore,
   PushRequestService,
-  SlackInboxLogger,
   SlackOutboxStore,
   SurfaceBindingStore,
 } from "@werft-ai/platform";
@@ -36,9 +35,8 @@ import {
   type Caller,
   type SessionService,
   SessionServiceError,
-  type SlackBotApi,
-  type SlackBotSender,
 } from "@werft-ai/platform";
+import type { SlackBotApi, SlackBotSender } from "./slack-config-api.ts";
 import {
   authorizeSlackInput,
   type SlackDecision,
@@ -48,6 +46,7 @@ import {
   type SlackSigningSecrets,
   verifySlackSignature,
 } from "./slack-events-service.ts";
+import type { SlackInboxLogger } from "./slack-inbox.ts";
 import {
   SLACK_CARD_SETTLE_TIMING,
   settleSlackCards,

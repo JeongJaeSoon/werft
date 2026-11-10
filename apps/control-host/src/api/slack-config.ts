@@ -1,4 +1,4 @@
-import { SLACK_API_URL, slackLinkRedirectUrl } from "@werft-ai/platform";
+import { SLACK_API_URL, slackLinkRedirectUrl } from "../wiring/chat-slack.ts";
 
 const PLAIN_HTTP_HOSTS = new Set([
   "localhost",

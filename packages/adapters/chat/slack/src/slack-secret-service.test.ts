@@ -4,23 +4,23 @@ import {
   scopesForRole,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
-import { refusal } from "../testing/refusal.ts";
-import {
-  createFakeSlackConfigApi,
-  createMemoryConfigTokenStore,
-  createMemorySecretStore,
-} from "../testing/slack-fakes.ts";
 import {
   type AgentAuthority,
   type Caller,
   callerFor,
   createAuthorizationPolicy,
-} from "./policy.ts";
+} from "@werft-ai/platform";
+import { refusal } from "@werft-ai/platform/testing/refusal";
 import { createSlackConfigTokens } from "./slack-config-token.ts";
 import {
   createSlackSecretService,
   slackPublicUrlsOf,
 } from "./slack-secret-service.ts";
+import {
+  createFakeSlackConfigApi,
+  createMemoryConfigTokenStore,
+  createMemorySecretStore,
+} from "./testing/slack-fakes.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
 const OTHER_WORKSPACE = "019a0000-0000-7000-8000-0000000000f2";

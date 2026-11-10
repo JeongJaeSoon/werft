@@ -4,13 +4,12 @@ import {
   type AgentWelcomable,
   agentForSlackEvent,
   type ChannelJoinable,
-  SlackApiError,
-  type SlackBotApi,
   type SlackInboundClaim,
-  type SlackInboundHandler,
   type SurfaceBindingStore,
 } from "@werft-ai/platform";
 import { z } from "zod";
+import { SlackApiError, type SlackBotApi } from "./slack-config-api.ts";
+import type { SlackInboundHandler } from "./slack-inbox.ts";
 
 // Slack refusing the token or the app, not saying the bot is out: the
 // console shows these apart from a missing invite.

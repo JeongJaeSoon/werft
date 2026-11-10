@@ -11,13 +11,19 @@ import { PGlite } from "@electric-sql/pglite";
 import {
   createOutboxSlackNoticeSink,
   createRowDelivery,
+  createSlackBotApi,
+  drainSlackInbox,
   drainSlackOutbox,
   reconcileSlackThreadStatuses,
   SLACK_CARD_SETTLE_TIMING,
   SLACK_OUTBOX_MESSAGES,
   SLACK_RETRY_AFTER_MAX_MS,
   SLACK_THREAD_STATUS_TIMING,
+  SlackApiError,
+  type SlackBotApi,
   settleSlackCards,
+  slackBotToken,
+  slackConversationKey,
   writeSlackThreadStatuses,
 } from "@werft-ai/chat-slack";
 import {
@@ -68,14 +74,8 @@ import {
   callerFor,
   createAgentService,
   createAuthorizationPolicy,
-  createSlackBotApi,
-  drainSlackInbox,
   type PushSource,
   SecretKey,
-  SlackApiError,
-  type SlackBotApi,
-  slackBotToken,
-  slackConversationKey,
 } from "@werft-ai/platform";
 import { startFakeSlackApi } from "@werft-ai/testkit/fake-slack-api";
 import {

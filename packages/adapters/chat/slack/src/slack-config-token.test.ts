@@ -1,18 +1,18 @@
 import { describe, expect, test } from "bun:test";
 import { scopesForRole } from "@werft-ai/contracts";
-import { refusal } from "../testing/refusal.ts";
-import {
-  createFakeSlackConfigApi,
-  createMemoryConfigTokenStore,
-  createMemorySecretStore,
-} from "../testing/slack-fakes.ts";
-import { callerFor } from "./policy.ts";
+import { callerFor } from "@werft-ai/platform";
+import { refusal } from "@werft-ai/platform/testing/refusal";
 import { SLACK_HTTP_TIMEOUT_MS, SlackApiError } from "./slack-config-api.ts";
 import {
   CONFIG_TOKEN_LEASE_MS,
   CONFIG_TOKEN_REFRESH_MARGIN_MS,
   createSlackConfigTokens,
 } from "./slack-config-token.ts";
+import {
+  createFakeSlackConfigApi,
+  createMemoryConfigTokenStore,
+  createMemorySecretStore,
+} from "./testing/slack-fakes.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
 const OWNER = "019a0000-0000-7000-8000-0000000000a1";

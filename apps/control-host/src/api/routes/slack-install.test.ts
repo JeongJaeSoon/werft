@@ -1,5 +1,20 @@
 import { describe, expect, test } from "bun:test";
 import {
+  createSlackAppService,
+  createSlackConfigTokens,
+  createSlackInstallService,
+  SlackApiError,
+  type SlackInstalled,
+} from "@werft-ai/chat-slack";
+import {
+  createFakeSlackConfigApi,
+  createMemoryAgentIdentityStore,
+  createMemoryConfigTokenStore,
+  createMemorySecretStore,
+  createMemorySlackAppStore,
+  createMemorySlackInstallStore,
+} from "@werft-ai/chat-slack/testing/slack";
+import {
   apiErrorResponseSchema,
   BOT_SCOPES,
   CSRF_HEADER_NAME,
@@ -12,23 +27,10 @@ import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import {
   type AgentAuthority,
   createAuthorizationPolicy,
-  createSlackAppService,
-  createSlackConfigTokens,
-  createSlackInstallService,
   type IdentityStore,
   type MembershipRole,
   type ResolvedWebSession,
-  SlackApiError,
-  type SlackInstalled,
 } from "@werft-ai/platform";
-import {
-  createFakeSlackConfigApi,
-  createMemoryAgentIdentityStore,
-  createMemoryConfigTokenStore,
-  createMemorySecretStore,
-  createMemorySlackAppStore,
-  createMemorySlackInstallStore,
-} from "@werft-ai/platform/testing/slack";
 import { generateWebSessionToken, hashWebSessionToken } from "../auth.ts";
 import { hashApiKey } from "../keys.ts";
 import { recordRouteErrors } from "../route-error-coverage.ts";
