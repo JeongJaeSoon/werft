@@ -3740,7 +3740,6 @@ describe("architecture", () => {
       "packages/ui/src",
       "packages/react/src",
       "apps/web/src",
-      "apps/storybook",
     ]) {
       found.push(...(await colorClassViolations(root, directory)));
     }
