@@ -8,8 +8,6 @@ import { receiptIdSchema } from "../shared/index.ts";
  * (`unknown_tool`, `too_many_rules`, `settings_too_large`, ...).
  */
 export const ENGINE_SETTINGS_REFUSAL_VALUES = [
-  // Saving is closed installation-wide; rules already saved still apply.
-  "engine_settings_writes_closed",
   // The installed tool catalogs read the same rule as different tools.
   "engine_settings_catalog_ambiguous",
   // No tool catalog is installed, so nothing can check the rules.
