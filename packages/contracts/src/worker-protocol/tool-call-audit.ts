@@ -15,7 +15,6 @@ export const TOOL_AUDIT_DECISION_VALUES = [
 export const toolAuditDecisionSchema = z.enum(TOOL_AUDIT_DECISION_VALUES);
 export type ToolAuditDecision = z.infer<typeof toolAuditDecisionSchema>;
 
-/** The decision each basis can stand under (design 7.3.2). */
 export const TOOL_AUDIT_BASIS_VERDICT = {
   trusted_tool: "allow",
   permission_mode: "allow",
@@ -38,7 +37,6 @@ export const TOOL_AUDIT_BASIS_VALUES = Object.keys(
 ) as [ToolAuditBasis, ...ToolAuditBasis[]];
 export const toolAuditBasisSchema = z.enum(TOOL_AUDIT_BASIS_VALUES);
 
-/** Bases whose claim the API checks against `pending_requests` (design 7.3.1). */
 export const TOOL_AUDIT_APPROVAL_BASIS_VALUES = [
   "approval",
   "approval_denied",
@@ -46,9 +44,7 @@ export const TOOL_AUDIT_APPROVAL_BASIS_VALUES = [
   "approval_cancelled",
 ] as const satisfies readonly ToolAuditBasis[];
 
-// A worker states what it saw. `approval_asked` is the platform's own row and
-// `approval_unverified` is what the API turns a failed check into.
-const WORKER_REPORT_BASIS_VALUES = TOOL_AUDIT_BASIS_VALUES.filter(
+const WORKER_REPORTABLE_BASES = TOOL_AUDIT_BASIS_VALUES.filter(
   (basis) => basis !== "approval_asked" && basis !== "approval_unverified",
 ) as [ToolAuditBasis, ...ToolAuditBasis[]];
 
@@ -57,21 +53,16 @@ export const TOOL_AUDIT_SOURCE_VALUES = ["platform", "worker_report"] as const;
 export const TOOL_AUDIT_RECORD_VERSION = 1;
 export const INVALID_TOOL_NAME = "invalid_tool_name";
 
-/** What an externally supplied id may look like; anything else is not stored. */
 const AUDIT_ID_PATTERN = /^[A-Za-z0-9_.:-]{1,128}$/;
-// `t:<tool_use_id>` or `n:<ordinal in the turn>`: the prefix keeps the two
-// name spaces from colliding, so the cap is the id's 128 plus two.
 const CALL_KEY_PATTERN = /^[tn]:[A-Za-z0-9_.:-]{1,128}$/;
 const MCP_TOOL_PATTERN = /^mcp__([^_](?:[^_]|_(?!_))*)__.+$/;
 
-/** An id for the audit table, or null when it is not of the allowed shape. */
 export function auditIdOf(value: string | undefined | null): string | null {
   return typeof value === "string" && AUDIT_ID_PATTERN.test(value)
     ? value
     : null;
 }
 
-/** The server of an `mcp__<server>__<tool>` name, when it is a storable id. */
 export function mcpServerOf(toolName: string): string | null {
   const match = MCP_TOOL_PATTERN.exec(toolName);
   return match?.[1] === undefined ? null : auditIdOf(match[1]);
@@ -89,13 +80,11 @@ export const toolDecisionReportSchema = z
     tool_name: z.string().min(1).max(512),
     tool_use_id: z.string().max(512).optional(),
     parent_tool_use_id: z.string().max(512).optional(),
-    // Of the redacted input in canonical form; both or neither.
     input_sha256: sha256HexSchema.optional(),
     input_bytes: z.number().int().min(0).max(INT4_MAX).optional(),
     decision: toolAuditDecisionSchema.exclude(["require_approval"]),
-    basis: z.enum(WORKER_REPORT_BASIS_VALUES),
+    basis: z.enum(WORKER_REPORTABLE_BASES),
     pending_request_id: z.string().max(512).optional(),
-    // Over the arguments before redaction, to be compared and thrown away.
     approval_input_hash: sha256HexSchema.optional(),
   })
   .strict()
@@ -118,7 +107,6 @@ export const toolDecisionReportSchema = z
   });
 export type ToolDecisionReport = z.infer<typeof toolDecisionReportSchema>;
 
-/** The most reports one append may carry. */
 export const TOOL_DECISIONS_PER_APPEND_MAX = 500;
 
 /**
@@ -130,7 +118,6 @@ export const toolDecisionsFieldSchema = z
   .array(toolDecisionReportSchema.or(z.unknown().transform(() => null)))
   .max(TOOL_DECISIONS_PER_APPEND_MAX);
 
-/** A report once its strings are cleaned: what the platform hands the store. */
 export type SanitizedToolDecision = {
   callKey: string;
   toolName: string;
@@ -164,7 +151,6 @@ export function sanitizeToolDecision(
   };
 }
 
-/** The stored record (design 7.3). */
 export const toolCallAuditEntrySchema = z
   .object({
     id: z.uuid(),
@@ -174,8 +160,6 @@ export const toolCallAuditEntrySchema = z
     session_id: z.uuid(),
     turn_id: z.number().int().positive(),
     attempt_id: z.string().min(1),
-    // `r:<request_id>` is the platform's, for an `asked` row whose call has no
-    // usable id; a worker only reports `t:` and `n:`.
     call_key: z.string().regex(/^[tnr]:[A-Za-z0-9_.:-]{1,128}$/),
     phase: z.enum(TOOL_AUDIT_PHASE_VALUES),
     tool_use_id: z.string().regex(AUDIT_ID_PATTERN).nullable(),

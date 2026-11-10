@@ -38,8 +38,6 @@ const DEFAULT_MAX_BATCH_SIZE = 32;
 const DEFAULT_RETRY_DELAY_MS = 500;
 // Far more calls than one turn waits on at once.
 const TOOL_USES_REMEMBERED = 1_000;
-// Judgments wait for an event batch of their own turn to ride on. A stream
-// that stalls for long keeps the newest, so memory stays bounded.
 const AUDITS_QUEUED_MAX = 2_000;
 
 /**
@@ -115,12 +113,6 @@ export class EventPublisher {
     this.kick();
   }
 
-  /**
-   * Queues a judgment on a tool call. It goes out with the next batch of its
-   * turn, in the same request as the events, and is dropped once that is
-   * acknowledged: the API stores both in one transaction, and a resend of
-   * the batch carries the same judgments again.
-   */
   audit(report: ToolDecisionReport, turnId: string): void {
     if (this.failure !== undefined) return;
     this.audits.push({ report, turnId });

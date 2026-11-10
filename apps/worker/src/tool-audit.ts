@@ -13,24 +13,13 @@ import type {
 import type { SecretScrubber } from "./secret-scrubber.ts";
 
 export type ToolAuditCollectorOptions = {
-  /** Read per judgment: the claim that brings the secrets arrives after the host is built. */
   scrubber: () => SecretScrubber;
-  /** The turn a judgment belongs to; null between turns, where nothing is recorded. */
   turnId: () => string | null;
-  /** The request id this worker registered for the run's local id, once it did. */
   requestIdOf: (localId: string) => string | undefined;
   enqueue: (report: ToolDecisionReport, turnId: string) => void;
 };
 
-/**
- * Turns what the runtime saw into the report the API records. Only a digest
- * and a size of the input leave: the input is scrubbed of the secrets this
- * worker holds first, so the digest is of the same text the events show.
- *
- * It records whether or not tracing is on, and never throws into the engine.
- */
 export class ToolAuditCollector implements ToolDecisionObserver {
-  // Calls without a usable id are numbered within their turn.
   private ordinalTurn: string | null = null;
   private ordinal = 0;
 
@@ -82,7 +71,6 @@ export class ToolAuditCollector implements ToolDecisionObserver {
     };
   }
 
-  // An id the scrubber would change held a secret: it is not an id to keep.
   private usableId(
     scrubber: SecretScrubber,
     id: string | undefined,
@@ -102,7 +90,6 @@ export class ToolAuditCollector implements ToolDecisionObserver {
         bytes: Buffer.byteLength(canonical),
       };
     } catch {
-      // Not representable as canonical JSON: the call is recorded without one.
       return undefined;
     }
   }

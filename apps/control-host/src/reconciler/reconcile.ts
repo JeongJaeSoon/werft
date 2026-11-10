@@ -108,7 +108,6 @@ export async function runReconciler(input: {
     limit: number;
   }): Promise<AnnouncedInputReturn[]>;
   expireDecisions(options: { dryRun: boolean; limit: number }): Promise<number>;
-  // Same retention rule as the decisions above (audit_retention_days).
   expireToolAudits(options: {
     dryRun: boolean;
     limit: number;

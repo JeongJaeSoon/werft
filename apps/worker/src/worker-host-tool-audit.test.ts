@@ -120,7 +120,6 @@ describe("tool decisions through the worker host", () => {
         basis: "permission_mode",
       },
     ]);
-    // Nothing of the input travels, in the audit or anywhere else in the append.
     expect(JSON.stringify(gateway.batches)).not.toContain(SECRET);
     expect(JSON.stringify(decisions)).not.toContain("/work");
   });

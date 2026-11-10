@@ -622,9 +622,6 @@ export function createWorkerGateway(deps: {
     error: unknown,
     cut: { sessionId: string; attemptId: string },
   ) => void;
-  // Told after an append whose tool judgments were not all stored as
-  // reported: items dropped for their shape, a report that clashed with a
-  // stored one, an approval that did not check out. The append stands.
   onToolAudit?: (finding: {
     sessionId: string;
     attemptId: string;
@@ -2592,8 +2589,6 @@ export function createWorkerGateway(deps: {
       const fence = requireScope(principal, request);
       const profileId =
         principal.kind === "session" ? (principal.profileId ?? null) : null;
-      // A report that failed its schema arrives as null: it is counted and
-      // left out, and the events next to it are stored all the same.
       const reported = request.tool_decisions ?? [];
       const toolAudits = reported.flatMap((report) =>
         report === null ? [] : [sanitizeToolDecision(report)],

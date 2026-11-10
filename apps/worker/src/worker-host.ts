@@ -105,7 +105,6 @@ export type RuntimeLaunch = RuntimeResumePlan & {
   maxBudgetUsd?: number;
   principal: ClaimPrincipal;
   runtimeConfig: RuntimeConfig;
-  /** Told of each judgment on a tool call, for the audit record. */
   toolDecisions?: ToolDecisionObserver;
   /** The claim's; absent is a session with a repository. */
   workspace?: WorkspaceDescriptor;
@@ -549,7 +548,6 @@ export class WorkerHost {
           reason: error.message,
         }),
     });
-    // Always on: recording a tool judgment does not depend on tracing.
     const toolAudit = new ToolAuditCollector({
       scrubber: () => this.scrubber,
       turnId: () => this.scope.turn_id,
@@ -2651,8 +2649,6 @@ export class WorkerHost {
     }
     const grant = this.takeGrant(request);
     if (grant !== undefined) {
-      // The allow was registered and answered by an earlier turn; the audit of
-      // this use names that request.
       this.pending.bind(request.localId, grant.request_id);
       void answer({
         kind: "selected",

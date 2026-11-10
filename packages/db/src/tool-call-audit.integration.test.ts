@@ -57,7 +57,6 @@ integration("tool_call_audits on PostgreSQL", () => {
       })
       .returning({ id: toolCallAudits.id });
     const id = row?.id ?? "";
-    // The trigger forbids exactly this, so age a row the way a test must.
     const client = await pool.connect();
     try {
       await client.query("BEGIN");

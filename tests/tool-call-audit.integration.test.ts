@@ -30,12 +30,6 @@ import { Pool } from "pg";
 import { createApiApp } from "../apps/control-host/src/api/app.ts";
 import { registerSessionRoutes } from "../apps/control-host/src/api/routes/sessions.ts";
 
-/**
- * Tool judgments a worker reports travel with its events into
- * tool_call_audits (94S-1489). Driven through the gateway, the unit of work
- * and PostgreSQL, with no tracer and no OTEL_* variable set: the audit does
- * not read telemetry.
- */
 const databaseUrl = process.env.QUEUE_DATABASE_URL;
 const integration = databaseUrl ? describe : describe.skip;
 
@@ -68,7 +62,6 @@ const catalog: SessionCatalog = withSeededInstallation({
   },
 });
 
-// Fixed, so a resent batch is byte-for-byte the batch it repeats.
 const OCCURRED_AT = "2026-01-01T00:00:00.000Z";
 const SHA = "a".repeat(64);
 const OTHER_SHA = "b".repeat(64);
@@ -132,7 +125,6 @@ integration("tool call audit end to end", () => {
     await database?.drop();
   }, 90_000);
 
-  /** A running turn 1 on a live attempt, the way a worker reaches one. */
   async function startWorker(): Promise<Worker> {
     const created = await fetch(`http://127.0.0.1:${server.port}/v1/sessions`, {
       method: "POST",
@@ -196,15 +188,12 @@ integration("tool call audit end to end", () => {
     };
   }
 
-  /** One status event per append, so each append is a distinct batch. */
   function append(
     worker: Worker,
     decisions: unknown[] | undefined,
     sequence = worker.nextSequence,
   ) {
     worker.nextSequence = Math.max(worker.nextSequence, sequence + 1);
-    // Through the route's schema, as a request reaches the gateway: a
-    // malformed item arrives as null.
     return workers.appendEvents(
       worker.principal,
       appendEventsRequestSchema.parse({
@@ -399,7 +388,6 @@ integration("tool call audit end to end", () => {
       events.filter((event) => event.attemptId === worker.scope.attempt_id),
     ).toHaveLength(0);
     expect(await rowsOf(worker.sessionId)).toHaveLength(0);
-    // The worker's retry of the same batch now lands in full.
     worker.nextSequence = 1;
     const retried = await append(worker, [report()], 1);
     expect(retried.accepted_through).toBe(1);
@@ -409,7 +397,6 @@ integration("tool call audit end to end", () => {
   test("a refused append leaves no audit row", async () => {
     const worker = await startWorker();
     await append(worker, undefined, 1);
-    // Sequence 1 again with other content: the events are refused.
     const clash = workers.appendEvents(worker.principal, {
       ...worker.scope,
       batch_key: "clash",

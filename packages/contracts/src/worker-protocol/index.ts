@@ -795,8 +795,6 @@ export const appendEventsRequestSchema = workerScopeSchema
   .extend({
     batch_key: z.string().min(1),
     events: z.array(workerEventSchema).min(1),
-    // The tool judgments seen on this turn, stored in the transaction that
-    // stores `events`. Absent from an older worker.
     tool_decisions: toolDecisionsFieldSchema.optional(),
   })
   .strict();

@@ -23,9 +23,7 @@ type PendingRow = typeof pendingRequests.$inferSelect;
 export type ToolAuditAppend = {
   session: SessionRow;
   attemptId: string;
-  /** The turn the append is for: its row id and its public, per-session number. */
   turn: { id: number; sequence: number };
-  /** The database clock, as the caller's transaction read it. */
   now: Date;
   reports: readonly SanitizedToolDecision[];
 };
@@ -78,7 +76,6 @@ export async function insertToolCallAudits(
     );
   const storedByKey = new Map(stored.map((row) => [row.callKey, row]));
 
-  // First of a key wins, within the batch as against the table.
   const fresh = new Map<string, SanitizedToolDecision>();
   for (const report of append.reports) {
     const row = storedByKey.get(report.callKey);
@@ -120,13 +117,10 @@ export async function insertToolCallAudits(
         });
       if (verified) {
         answer = answerCopy(request);
-        // The row now answers for this request: a second call using the
-        // same approval is told apart above.
         if (basis === "approval") approvedElsewhere.add(request.requestId);
       } else {
         basis = "approval_unverified";
         decision = "unknown";
-        // Left out so it never meets the one-approval-per-request index.
         pendingRequestId = null;
         outcome.unverified += 1;
       }
@@ -166,10 +160,6 @@ export async function insertToolCallAudits(
   return outcome;
 }
 
-/**
- * The `asked` row of a permission request, written by the transaction that
- * registers the request. Idempotent: a replayed registration finds its row.
- */
 export async function insertAskedToolCallAudit(
   tx: Database,
   input: {
@@ -198,7 +188,6 @@ export async function insertAskedToolCallAudit(
       toolUseId: input.toolUseId,
       toolName: input.tool.name,
       mcpServer: input.tool.mcpServer,
-      // The arguments are shown to the person who is asked, not recorded here.
       inputSha256: null,
       inputBytes: null,
       decision: "require_approval",
@@ -213,10 +202,6 @@ export async function insertAskedToolCallAudit(
 
 export type SanitizedToolName = { name: string; mcpServer: string | null };
 
-/**
- * The only way a row leaves the table: the retention pass, by the same rule
- * as `expireAuthzDecisions`. There is no per-row delete.
- */
 export function expireToolCallAudits(
   db: Database,
   input: { limit: number; dryRun: boolean },
@@ -224,7 +209,6 @@ export function expireToolCallAudits(
   return expireByAuditRetention(db, toolCallAudits, input);
 }
 
-/** Who made the call, from the rows that say so; none of it is the worker's word. */
 async function subjectOf(
   tx: Database,
   session: SessionRow,
@@ -265,7 +249,6 @@ async function subjectOf(
     actorUserId: turn?.actorId ?? null,
     principalKind: principal?.kind ?? null,
     principalId: principal?.id ?? null,
-    // The turn's own surface; the session's when the turn has none.
     surface: turn?.channel ?? session.channel ?? null,
   };
 }
@@ -313,7 +296,6 @@ async function grantsOf(
   return new Map(rows.map((row) => [row.requestId, row]));
 }
 
-/** The requests whose approval already grounds a call in the table. */
 async function approvedRequests(
   tx: Database,
   requestIds: string[],
@@ -332,7 +314,6 @@ async function approvedRequests(
   return new Set(rows.flatMap((row) => (row.requestId ? [row.requestId] : [])));
 }
 
-/** Design 7.3.1, checks 1 to 6. */
 function verifiesApproval(
   report: SanitizedToolDecision,
   request: PendingRow,
@@ -344,28 +325,21 @@ function verifiesApproval(
     at: Date;
   },
 ): boolean {
-  // 1: a permission request of this session (the lookup was by session).
   if (request.kind !== "permission") return false;
-  // 2
   if (request.tool === null || request.tool !== report.toolName) return false;
-  // 3: the pre-redaction hash, compared and not kept.
   if (
     report.approvalInputHash === null ||
     request.inputHash !== report.approvalInputHash
   ) {
     return false;
   }
-  // 4: the report's basis is what the row says happened.
   if (!basisMatchesRow(report.basis, request, context.at)) return false;
-  // 5: the approval was meant for this call. Only an allow is ever carried
-  // over to a resumed turn.
   if (
     report.basis === "approval" &&
     !servesThisCall(report, request, context)
   ) {
     return false;
   }
-  // 6: one approval, one call.
   if (report.basis === "approval" && context.spent) return false;
   return true;
 }
@@ -406,14 +380,12 @@ function servesThisCall(
     granted: { turnId: number; attemptId: string | null } | undefined;
   },
 ): boolean {
-  // The answer reached the attempt that asked, for the call that asked.
   const sameCall =
     report.toolUseId !== null &&
     request.toolUseId === report.toolUseId &&
     request.attemptId === context.attemptId &&
     request.turnId === context.turnRowId;
   if (sameCall) return true;
-  // Or a resumed turn spent the grant the answer left for it.
   const grant = context.granted;
   return (
     grant !== undefined &&
@@ -437,13 +409,10 @@ function answerCopy(request: PendingRow) {
   };
 }
 
-/** Whether a stored row is this report said again. */
 function isResendOf(
   row: typeof toolCallAudits.$inferSelect,
   report: SanitizedToolDecision,
 ): boolean {
-  // An approval that was written as `approval_unverified` the first time
-  // stays so when the same report comes again.
   const unverified =
     row.basis === "approval_unverified" && isApprovalBasis(report.basis);
   return (

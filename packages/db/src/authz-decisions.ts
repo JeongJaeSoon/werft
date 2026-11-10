@@ -92,11 +92,6 @@ export function expireAuthzDecisions(
   return expireByAuditRetention(db, authzDecisions, input);
 }
 
-/**
- * Deletes the oldest rows of an audit table past their workspace's
- * `audit_retention_days`, a batch at a time. The one retention rule for every
- * table that follows it, so there is one setting to explain.
- */
 export async function expireByAuditRetention(
   db: Database,
   table: typeof authzDecisions | typeof toolCallAudits,
@@ -105,7 +100,6 @@ export async function expireByAuditRetention(
   const expired = sql`
     SELECT d.id FROM ${table} d
     LEFT JOIN ${workspaces} w ON w.id = d.workspace_id
-    -- The bare floor lets the table's own "at" index bound the scan.
     WHERE d.at < statement_timestamp() - make_interval(days => ${AUDIT_RETENTION_MIN_DAYS}::int)
       AND d.at < statement_timestamp() - make_interval(days => greatest(
       ${AUDIT_RETENTION_MIN_DAYS}::int,

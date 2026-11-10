@@ -29,7 +29,6 @@ function configOf(
 
 type Hooks = Parameters<typeof buildSdkOptions>[1];
 
-// Everything a test needs to drive the adapter the way the engine does.
 function rig(
   config: ClaudeRuntimeConfig,
   hooks: Hooks = { onPermission: async () => ({ behavior: "allow" }) },
@@ -138,7 +137,6 @@ describe("tool decisions the adapter reports", () => {
     await hook("PostToolUse", "Bash", { command: "ls" }, "toolu_1");
     await hook("PreToolUse", "Bash", { command: "rm x" }, "toolu_2");
     await hook("PermissionDenied", "Bash", { command: "rm x" }, "toolu_2");
-    // Settling twice credits once.
     await hook("PostToolUse", "Bash", { command: "ls" }, "toolu_1");
     expect(summary(observed)).toEqual([
       ["toolu_1", "Bash", "allow", "permission_mode"],

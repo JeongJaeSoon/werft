@@ -123,7 +123,6 @@ describe("ToolAuditCollector", () => {
       pending_request_id: "req_abc",
       approval_input_hash: "a".repeat(64),
     });
-    // No registration: the API cannot verify it, and says so.
     expect(sent[1]?.report).not.toHaveProperty("pending_request_id");
     expect(sent[1]?.report.approval_input_hash).toBe("b".repeat(64));
   });

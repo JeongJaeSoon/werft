@@ -60,7 +60,6 @@ export function sanitizeNativeMessage(
   return sanitizeValue(message) as NativeSdkMessage;
 }
 
-/** A tool call's arguments as the events show them: the same rule, the same copy. */
 export function redactToolInput(
   input: Record<string, unknown>,
 ): Record<string, unknown> {

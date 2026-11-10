@@ -2073,11 +2073,6 @@ export const authzDecisions = pgTable(
   ],
 );
 
-// One row per judgment on one tool call (observability design, section 7).
-// Append-only like authz_decisions: UPDATE is refused by a trigger and only
-// the retention job deletes. No foreign keys, so a row outlives the session,
-// key and user it names for its retention period. Every text column is an id
-// or a member of a closed list; there is no column for input text or a result.
 export const toolCallAudits = pgTable(
   "tool_call_audits",
   {
@@ -2086,22 +2081,17 @@ export const toolCallAudits = pgTable(
     workspaceId: uuid("workspace_id"),
     ownerId: text("owner_id").notNull(),
     sessionId: uuid("session_id").notNull(),
-    // The public turn id: the turn's position in its session, not turns.id.
     turnId: bigint("turn_id", { mode: "number" }).notNull(),
     attemptId: text("attempt_id").notNull(),
-    // `t:<tool_use_id>`, `n:<ordinal in the turn>`, or `r:<request_id>` for
-    // a platform `asked` row whose call has no usable id.
     callKey: text("call_key").notNull(),
     phase: text().notNull(),
     toolUseId: text("tool_use_id"),
     parentToolUseId: text("parent_tool_use_id"),
     toolName: text("tool_name").notNull(),
     mcpServer: text("mcp_server"),
-    // Of the redacted input in canonical form, never of the raw arguments.
     inputSha256: text("input_sha256"),
     inputBytes: integer("input_bytes"),
     decision: text().notNull(),
-    // Checked by the contracts schema, so a new basis needs no migration.
     basis: text().notNull(),
     agentId: uuid("agent_id"),
     agentReleaseId: text("agent_release_id"),
@@ -2117,7 +2107,6 @@ export const toolCallAudits = pgTable(
     recordVersion: integer("record_version").notNull(),
   },
   (table) => [
-    // A resend of the same report is this key again.
     uniqueIndex("tool_call_audits_call_idx").on(
       table.sessionId,
       table.attemptId,
@@ -2125,13 +2114,11 @@ export const toolCallAudits = pgTable(
       table.callKey,
       table.phase,
     ),
-    // One request's approval can ground one call only.
     uniqueIndex("tool_call_audits_approval_once_idx")
       .on(table.pendingRequestId)
       .where(sql`${table.phase} = 'decided' AND ${table.basis} = 'approval'`),
     index("tool_call_audits_session_at_idx").on(table.sessionId, table.at),
     index("tool_call_audits_workspace_at_idx").on(table.workspaceId, table.at),
-    // What the retention job scans.
     index("tool_call_audits_at_idx").on(table.at),
     check(
       "tool_call_audits_phase_check",

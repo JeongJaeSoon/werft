@@ -186,7 +186,6 @@ export function buildSdkOptions(
     }
     return {};
   };
-  // The engine refused it by its own rules: not a judgment the adapter saw.
   const settleRefused: HookCallback = async (input) => {
     if ("tool_use_id" in input) {
       ledger.toolSettled(input.tool_use_id);
@@ -237,9 +236,6 @@ export function buildSdkOptions(
       }
       const admission = ledger.permissionStarting(options.toolUseID);
       if (!admission.allowed) return deny(admission.message, "hook_deny");
-      // From here a person answers, and the run that asks reports the answer
-      // (`ToolDecisionObserver` with an `approval`), so the call is not
-      // credited to a mode or an engine rule afterwards.
       decisions.answeredElsewhere(options.toolUseID);
       let allowed = false;
       try {
@@ -366,9 +362,6 @@ export function buildSdkOptions(
                   },
                 };
               }
-              // Left to the engine. If it asks canUseTool the answer is
-              // reported there; if the tool simply runs, the mode or an
-              // engine rule let it, and `ran` says which we can claim.
               decisions.admitted(
                 input.tool_use_id,
                 toolName,
