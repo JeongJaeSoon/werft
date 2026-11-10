@@ -125,6 +125,8 @@ export * from "./sessions/git-attribution.ts";
 export * from "./sessions/github-connection-resolver.ts";
 export * from "./sessions/github-gate.ts";
 export * from "./action/github/github-mcp-server.ts";
+export type { GitHubMcpServices } from "./action/tools/handler.ts";
+export { sessionBoundAuthorization } from "./action/tools/session-bound.ts";
 export * from "./sessions/mcp-settings.ts";
 export * from "./sessions/mcp-tool-decision.ts";
 export * from "./sessions/repository-attachment-service.ts";

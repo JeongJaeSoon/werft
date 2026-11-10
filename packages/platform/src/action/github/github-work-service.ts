@@ -27,7 +27,18 @@ import {
   pushReceiptActor,
   requireVerified,
 } from "../change-request/push-request-service.ts";
+import type {
+  GrantWith,
+  PullRequestReadable,
+  Reviewable,
+  WorkflowRunnable,
+} from "../ports/capabilities.ts";
 import { ForgeCredentialError } from "../ports/forge.ts";
+
+/** The grant this service holds: workflow runs, and the read and review of one pull request. */
+type WorkGrant = GrantWith<
+  WorkflowRunnable & Reviewable & Pick<PullRequestReadable, "getPullRequest">
+>;
 
 export interface GitHubWorkStore
   extends Pick<GitHubGateStore, "recordReceipt"> {
@@ -94,7 +105,7 @@ export function createGitHubWorkService(deps: {
     rawSessionId: string,
     action: "session.read" | "session.submit",
     work: Omit<GitHubWork, "sessionId" | "actor">,
-  ): Promise<GitHubGrant> {
+  ): Promise<WorkGrant> {
     requireVerified(actor);
     const sessionId = rawSessionId.toLowerCase();
     await requirePermitted(authorization, actor.caller, action, {
@@ -132,7 +143,7 @@ export function createGitHubWorkService(deps: {
   }
 
   /** What every receipt of this work names, beyond the gate's own fields. */
-  const fieldsOf = (grant: GitHubGrant) => ({
+  const fieldsOf = (grant: WorkGrant) => ({
     session_id: grant.context.sessionId,
     agent_id: grant.context.agentId,
     agent_release_id: grant.context.agentReleaseId,
@@ -142,7 +153,7 @@ export function createGitHubWorkService(deps: {
   });
 
   async function failed(
-    grant: GitHubGrant,
+    grant: WorkGrant,
     actor: PushActor,
     operation: "dispatch_workflow" | "rerun_workflow" | "review_pull_request",
     result: Record<string, unknown>,
