@@ -331,7 +331,9 @@ describe("POST /v1/sessions resolves extensions once", () => {
   });
 
   test("an approved scripted skill runs: its review lets it", async () => {
-    const ok = setup({ extensions: extensionDeps([attach(tools, "required")]) });
+    const ok = setup({
+      extensions: extensionDeps([attach(tools, "required")]),
+    });
     await ok.service.createSession(ok.caller, { idempotencyKey: "k", body });
     expect(ok.accepted[0]?.extensions?.[0]?.name).toBe("tools");
   });

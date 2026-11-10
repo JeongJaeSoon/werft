@@ -1,9 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { EffectiveEngineSettings } from "./engine-settings.ts";
-import {
-  mcpCallDenied,
-  mergeEngineSettings,
-} from "./engine-settings-merge.ts";
+import { mcpCallDenied, mergeEngineSettings } from "./engine-settings-merge.ts";
 
 const noAgent: EffectiveEngineSettings = {
   kind: "rules",
@@ -31,9 +28,7 @@ const agent = (
 
 describe("mergeEngineSettings", () => {
   test("nothing anywhere sends nothing", () => {
-    expect(
-      mergeEngineSettings({ workspace: null, agent: noAgent }),
-    ).toEqual({
+    expect(mergeEngineSettings({ workspace: null, agent: noAgent })).toEqual({
       kind: "rules",
       engine: undefined,
       disallowedTools: [],

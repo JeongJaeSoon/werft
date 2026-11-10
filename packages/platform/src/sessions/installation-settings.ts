@@ -12,7 +12,6 @@ import {
   resolveSessionCatalog,
 } from "./catalog.ts";
 
-
 /**
  * What the registry runs from one read of the installation's settings
  * (settings-replace-file-catalog.md §1), credentials resolved.
@@ -77,7 +76,13 @@ export function settingsSnapshot(
   }));
   const unavailable = invalidRepositoryIds(settings);
   const connections: Record<string, CatalogConnection> = {};
-  for (const { id, provider, auto_mode, models, model_families } of settings.connections) {
+  for (const {
+    id,
+    provider,
+    auto_mode,
+    models,
+    model_families,
+  } of settings.connections) {
     try {
       connections[id] = {
         provider: resolveProvider(id, provider, lookup),

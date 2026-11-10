@@ -97,11 +97,7 @@ describe("the catalog a registry makes", () => {
       settings: snapshot(1),
       rows: [row("app")],
     });
-    const catalog = registryCatalog(
-      { repositories: {} },
-      registry,
-      merge,
-    );
+    const catalog = registryCatalog({ repositories: {} }, registry, merge);
     await catalog.refresh();
     const [connections, repositories] = [
       catalog.connections,
@@ -130,11 +126,7 @@ describe("the catalog a registry makes", () => {
       settings: snapshot(1, { repositories: { app: testRepository("app") } }),
       rows: [row("docs")],
     });
-    const catalog = registryCatalog(
-      { repositories: {} },
-      registry,
-      merge,
-    );
+    const catalog = registryCatalog({ repositories: {} }, registry, merge);
     await catalog.refresh();
     expect(Object.keys(catalog.repositories).sort()).toEqual(["app", "docs"]);
   });

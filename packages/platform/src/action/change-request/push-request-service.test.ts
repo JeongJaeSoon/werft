@@ -19,9 +19,7 @@ import type {
   PushRefusalRecord,
   PushRequestStore,
 } from "../../ports/push-requests.ts";
-import type {
-  SessionCatalog,
-} from "../../sessions/catalog.ts";
+import type { SessionCatalog } from "../../sessions/catalog.ts";
 import { SessionServiceError } from "../../sessions/session-service.ts";
 import {
   createPushRequestService,

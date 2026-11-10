@@ -1,5 +1,4 @@
 import type {
-  SpecSource,
   AdmissionState,
   CountSessionsQuery,
   CountSessionsResponse,
@@ -16,6 +15,7 @@ import type {
   SessionExtension,
   SessionSummary,
   SlackMessageRef,
+  SpecSource,
   SseEvent,
   SurfaceKind,
   TurnDetail,

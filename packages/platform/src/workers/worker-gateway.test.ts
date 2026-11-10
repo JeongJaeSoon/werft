@@ -1420,7 +1420,6 @@ describe("WorkerGateway", () => {
         }),
       }),
       catalog: testCatalog({
-        
         repositories: {
           app: {
             url: "https://example.invalid/app.git",

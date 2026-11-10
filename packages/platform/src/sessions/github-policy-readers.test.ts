@@ -9,6 +9,11 @@ import {
   startRepositoryOf,
 } from "@werft-ai/contracts";
 import {
+  TEST_CONNECTION_ID,
+  testCatalog,
+  testConnection,
+} from "../testing/catalog-fakes.ts";
+import {
   type AdditionalRepositoryContext,
   additionalRepositoriesOf,
   additionalRepositoryAllowed,
@@ -19,11 +24,6 @@ import {
   repositoryInCeiling,
   type SessionCatalog,
 } from "./catalog.ts";
-import {
-  TEST_CONNECTION_ID,
-  testCatalog,
-  testConnection,
-} from "../testing/catalog-fakes.ts";
 
 const repository = (
   name: string,
@@ -148,12 +148,32 @@ describe("with no settings row, every reader answers as before", () => {
   const MODEL = "claude-sonnet-5";
   test.each([
     { connection: TEST_CONNECTION_ID, model: MODEL, id: "app", starts: true },
-    { connection: TEST_CONNECTION_ID, model: MODEL, id: "outside", starts: false },
-    { connection: TEST_CONNECTION_ID, model: MODEL, id: "unknown", starts: false },
+    {
+      connection: TEST_CONNECTION_ID,
+      model: MODEL,
+      id: "outside",
+      starts: false,
+    },
+    {
+      connection: TEST_CONNECTION_ID,
+      model: MODEL,
+      id: "unknown",
+      starts: false,
+    },
     { connection: TEST_CONNECTION_ID, model: MODEL, id: null, starts: true },
     { connection: "gone", model: MODEL, id: null, starts: false },
-    { connection: TEST_CONNECTION_ID, model: "retired", id: null, starts: false },
-    { connection: TEST_CONNECTION_ID, model: undefined, id: null, starts: false },
+    {
+      connection: TEST_CONNECTION_ID,
+      model: "retired",
+      id: null,
+      starts: false,
+    },
+    {
+      connection: TEST_CONNECTION_ID,
+      model: undefined,
+      id: null,
+      starts: false,
+    },
   ])("Slack's start check: $model over $connection with $id", (row) => {
     const release = {
       connection_id: row.connection,
@@ -321,11 +341,15 @@ describe("connectionRefusal", () => {
   });
 
   test("a listed model on an enabled connection runs", () => {
-    expect(connectionRefusal(catalog, TEST_CONNECTION_ID, "sonnet-2")).toBeNull();
+    expect(
+      connectionRefusal(catalog, TEST_CONNECTION_ID, "sonnet-2"),
+    ).toBeNull();
   });
 
   test("a retired model with a successor still runs: its session moves", () => {
-    expect(connectionRefusal(catalog, TEST_CONNECTION_ID, "sonnet-1")).toBeNull();
+    expect(
+      connectionRefusal(catalog, TEST_CONNECTION_ID, "sonnet-1"),
+    ).toBeNull();
   });
 
   test("a retired model with no successor is refused", () => {

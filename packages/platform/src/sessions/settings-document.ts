@@ -217,7 +217,9 @@ export function parseSettingsDocument(input: unknown): SettingsEntries {
   const document = shape.data;
   const split = splitModels(document.connections);
   const connections = catalogConnectionsSchema.safeParse(
-    resolvedConnections(ownedAll("connection", "connections", split.definitions)),
+    resolvedConnections(
+      ownedAll("connection", "connections", split.definitions),
+    ),
   );
   if (!connections.success) {
     throw new SettingsDocumentError(

@@ -84,5 +84,4 @@ describe("RuntimeFeatureGate", () => {
       "Runtime codex_app_server is not installed (installed: claude_agent_sdk, pi_coding_agent)",
     );
   });
-
 });

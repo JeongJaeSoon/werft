@@ -169,7 +169,6 @@ describe("resolveExtensions: scope rules", () => {
     });
     expect(result.ok && result.extensions[0]?.digest).toBe("b".repeat(64));
   });
-
 });
 
 describe("resolveExtensions: name collisions", () => {

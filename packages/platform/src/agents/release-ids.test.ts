@@ -118,9 +118,9 @@ describe("deriveReleaseId", () => {
 
   test("a repository is hashed only when the release names one", () => {
     const identity = identityOf();
-    expect(deriveReleaseId({ ...identity, repository_id: "sample-app" })).not.toBe(
-      deriveReleaseId(identity),
-    );
+    expect(
+      deriveReleaseId({ ...identity, repository_id: "sample-app" }),
+    ).not.toBe(deriveReleaseId(identity));
   });
 
   test("treats array order as data", () => {
@@ -255,7 +255,10 @@ describe("resolveReleaseContent", () => {
         ...run,
         connection: {
           ...run.connection,
-          provider: { ...run.connection.provider, endpoint: "https://other.invalid" },
+          provider: {
+            ...run.connection.provider,
+            endpoint: "https://other.invalid",
+          },
         },
       },
     ]) {
@@ -288,9 +291,9 @@ describe("resolveReleaseContent", () => {
       identityOf(card, { ...run, project_settings: { claude_md: true } })
         .runtime_config_snapshot.project_settings,
     ).toEqual({ claude_md: true });
-    expect(
-      Object.keys(identityOf().runtime_config_snapshot),
-    ).not.toContain("project_settings");
+    expect(Object.keys(identityOf().runtime_config_snapshot)).not.toContain(
+      "project_settings",
+    );
   });
 
   test("runs every tool the runtime offers, whatever a card stored earlier lists or forbids", () => {

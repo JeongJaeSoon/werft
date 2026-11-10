@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { testConnection } from "../testing/catalog-fakes.ts";
 import {
   type CatalogConnection,
   modelFamiliesSchema,
   modelMoves,
   modelSuccessor,
 } from "./catalog.ts";
-import { testConnection } from "../testing/catalog-fakes.ts";
 
 const base: CatalogConnection = {
   ...testConnection(),

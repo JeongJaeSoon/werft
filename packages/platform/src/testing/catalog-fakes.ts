@@ -76,7 +76,9 @@ export function testCatalog(overrides: Partial<TestCatalog> = {}): TestCatalog {
 }
 
 /** A spec source on the test connection. */
-export function testSpecSource(overrides: Partial<SpecSource> = {}): SpecSource {
+export function testSpecSource(
+  overrides: Partial<SpecSource> = {},
+): SpecSource {
   return {
     derivation_version: 2,
     runtime: { kind: "claude_agent_sdk", version: TEST_RUNTIME_VERSION },

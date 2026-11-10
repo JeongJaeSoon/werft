@@ -1,7 +1,4 @@
-import type {
-  EngineSettings,
-  StoredEngineSettings,
-} from "@werft-ai/contracts";
+import type { EngineSettings, StoredEngineSettings } from "@werft-ai/contracts";
 
 import type { EffectiveEngineSettings } from "./engine-settings.ts";
 

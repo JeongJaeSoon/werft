@@ -209,15 +209,19 @@ describe("billing", () => {
       );
     }
     // per_token fits anywhere.
-    expect(
-      billingFitsEndpoint({ endpoint: "https://api.anthropic.com" }),
-    ).toBe(true);
+    expect(billingFitsEndpoint({ endpoint: "https://api.anthropic.com" })).toBe(
+      true,
+    );
     expect(BILLING_NONE_ENDPOINT_MESSAGE).toContain("billing none");
   });
 
   test("an unknown value is refused", () => {
     expect(() =>
-      connect({ ...provider, endpoint: "http://litellm:4000", billing: "free" }),
+      connect({
+        ...provider,
+        endpoint: "http://litellm:4000",
+        billing: "free",
+      }),
     ).toThrow(/connections\.c\.billing/);
   });
 });
@@ -290,8 +294,8 @@ describe("catalog config schema", () => {
       const other = generateKeyPairSync("rsa", { modulusLength: 2048 })
         .privateKey.export({ type: "pkcs1", format: "pem" })
         .toString();
-      const rotated = load(config({ app: github }), keyed(other))
-        .repositories.app;
+      const rotated = load(config({ app: github }), keyed(other)).repositories
+        .app;
       if (!rotated) throw new Error("no repository");
       expect(repositoryBinding("app", rotated)).toBe(
         repositoryBinding("app", app),
@@ -368,9 +372,7 @@ describe("catalog config schema", () => {
           "repositories.app.auth.value_env: GITHUB_APP_KEY is not an RSA private key PEM",
         );
       }
-      expect(() =>
-        load(config({ app: github }), keyed("")),
-      ).toThrow(
+      expect(() => load(config({ app: github }), keyed(""))).toThrow(
         /^repositories\.app\.auth\.value_env: GITHUB_APP_KEY is not set$/,
       );
     });
@@ -391,8 +393,7 @@ describe("catalog config schema", () => {
         { ...github, url: "https://github.com/acme/app/tree/main" },
       ]) {
         expect(
-          sessionCatalogConfigSchema.safeParse(config({ app }))
-            .success,
+          sessionCatalogConfigSchema.safeParse(config({ app })).success,
         ).toBe(false);
       }
     });
@@ -408,17 +409,15 @@ describe("catalog config schema", () => {
       expect(app.auth).toEqual({ kind: "github_app", registered: true });
       expect(
         catalogCredentialRefs(
-          sessionCatalogConfigSchema.parse(
-            config({ app: registered }),
-          ),
+          sessionCatalogConfigSchema.parse(config({ app: registered })),
         ).some(({ path }) => path.startsWith("repositories.")),
       ).toBe(false);
       expect(() => repositoryUpstreamOf(app)).toThrow(
         /needs an issued credential/,
       );
       // Moving to it from a keyed entry moves the binding once.
-      const keyedApp = load(config({ app: github }), keyed(pem))
-        .repositories.app;
+      const keyedApp = load(config({ app: github }), keyed(pem)).repositories
+        .app;
       if (!keyedApp) throw new Error("no repository");
       expect(repositoryBinding("app", app)).not.toBe(
         repositoryBinding("app", keyedApp),
@@ -452,8 +451,7 @@ describe("catalog config schema", () => {
     });
 
     test("its route sends the credential the forge issued, never the key", () => {
-      const app = load(config({ app: github }), keyed(pem))
-        .repositories.app;
+      const app = load(config({ app: github }), keyed(pem)).repositories.app;
       if (!app) throw new Error("no repository");
       expect(() => repositoryUpstreamOf(app)).toThrow(
         /needs an issued credential/,
@@ -474,7 +472,6 @@ describe("catalog config schema", () => {
       });
     });
   });
-
 
   test("a repository URL carrying a credential is refused; login names without one are not", () => {
     for (const url of [
@@ -558,7 +555,8 @@ describe("the catalog view (94S-791)", () => {
       },
     });
     const connections = {
-      main: catalogConnectionsSchema.parse({ main: provider }).main as CatalogProviderConfig,
+      main: catalogConnectionsSchema.parse({ main: provider })
+        .main as CatalogProviderConfig,
     };
     expect(catalogCredentialRefs(parsed, connections)).toEqual([
       {

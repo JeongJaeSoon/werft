@@ -822,9 +822,10 @@ export function createSessionService(deps: {
           ? {
               // A session asked for no model runs the release's own; one
               // whose model left the list starts on the next of its series.
-              model: successor === null || wantedModel === undefined
-                ? model
-                : wantedModel,
+              model:
+                successor === null || wantedModel === undefined
+                  ? model
+                  : wantedModel,
               unmetered: connection.provider.billing === "none",
             }
           : {}),
@@ -1341,21 +1342,19 @@ export function createSessionService(deps: {
         viewerOf(actor),
       );
       return {
-        items: page.items.map(
-          ({ spec, ...item }) => {
-            const attached = attachedRepositoriesOf(
-              item.attached_repository_ids,
-              catalog.repositories,
-            );
-            return {
-              ...item,
-              ...(attached === undefined
-                ? {}
-                : { attached_repositories: attached }),
-              runtime: runtimeFor(spec),
-            };
-          },
-        ),
+        items: page.items.map(({ spec, ...item }) => {
+          const attached = attachedRepositoriesOf(
+            item.attached_repository_ids,
+            catalog.repositories,
+          );
+          return {
+            ...item,
+            ...(attached === undefined
+              ? {}
+              : { attached_repositories: attached }),
+            runtime: runtimeFor(spec),
+          };
+        }),
         next_cursor: page.next_cursor,
       };
     },

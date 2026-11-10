@@ -510,7 +510,10 @@ export type CatalogConnectionView = Omit<CatalogConnection, "provider"> & {
  * `auth` holds no secret.
  */
 export type CatalogRepositoryView = Omit<CatalogRepository, "auth"> & {
+  /** The console's GitHub App reaches it. */
   github_app?: true;
+  /** A GitHub App the settings document names reaches it. */
+  own_github_app?: true;
 };
 
 /**
@@ -743,7 +746,23 @@ function ceilingHolds(
   const repository = Object.hasOwn(catalog.repositories, repositoryId)
     ? catalog.repositories[repositoryId]
     : undefined;
-  return repository !== undefined && usesConsoleApp(repository);
+  return repository !== undefined && usesGitHubApp(repository);
+}
+
+/**
+ * Whether a GitHub App reaches the repository: the console's, or one the
+ * settings document names for it. An `installed` ceiling opens these; a
+ * repository on a personal token is open only where a ceiling names it.
+ */
+export function usesGitHubApp(
+  repository: CatalogRepositoryView | CatalogRepository,
+): boolean {
+  if (usesConsoleApp(repository)) return true;
+  if ("own_github_app" in repository && repository.own_github_app === true) {
+    return true;
+  }
+  const auth = "auth" in repository ? repository.auth : undefined;
+  return auth?.kind === "github_app";
 }
 
 /** The workspace's ceiling on a repository; null allows none. */
@@ -963,7 +982,10 @@ export function connectionRefusal(
  */
 export function releaseStartable(
   catalog: SessionCatalogView,
-  release: Pick<AgentRelease, "connection_id" | "repository_id" | "policy_pins"> & {
+  release: Pick<
+    AgentRelease,
+    "connection_id" | "repository_id" | "policy_pins"
+  > & {
     model: string | undefined;
   },
   agentRow: AgentGitHubSettingsRow | null,
@@ -1078,9 +1100,9 @@ export function repositoryView(
   },
 ): CatalogRepositoryView {
   const { auth, ...rest } = repository;
-  return auth !== undefined && "registered" in auth
-    ? { ...rest, github_app: true }
-    : rest;
+  if (auth === undefined) return rest;
+  if ("registered" in auth) return { ...rest, github_app: true };
+  return auth.kind === "github_app" ? { ...rest, own_github_app: true } : rest;
 }
 
 /** One reference's value, refused naming `path` when it cannot go into a header. */

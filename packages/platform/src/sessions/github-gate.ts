@@ -30,10 +30,7 @@ import {
   additionalRepositoriesOf,
   additionalRepositoryAllowed,
 } from "./additional-repositories.ts";
-import {
-  repositoryInCeiling,
-  type SessionCatalog,
-} from "./catalog.ts";
+import { repositoryInCeiling, type SessionCatalog } from "./catalog.ts";
 import {
   createGitHubConnectionResolver,
   type GitHubConnectionResolver,

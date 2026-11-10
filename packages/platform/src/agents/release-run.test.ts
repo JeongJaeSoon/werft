@@ -19,7 +19,11 @@ const responses = testConnection({
 
 describe("releaseRunOf", () => {
   test("runs the connection kind's runtime at the image's version, with its whole tool catalog", () => {
-    const found = releaseRunOf(testCatalog(), TEST_RUNTIMES, TEST_CONNECTION_ID);
+    const found = releaseRunOf(
+      testCatalog(),
+      TEST_RUNTIMES,
+      TEST_CONNECTION_ID,
+    );
     if (!found.ok) throw new Error(found.message);
     expect(found.run).toMatchObject({
       connection_id: TEST_CONNECTION_ID,
@@ -79,9 +83,9 @@ describe("releaseRunOf", () => {
 
   test("refuses when no tool catalog is installed for the runtime", () => {
     const { tool_catalogs: _none, ...bare } = testCatalog();
-    expect(
-      releaseRunOf(bare, TEST_RUNTIMES, TEST_CONNECTION_ID),
-    ).toMatchObject({ ok: false, reason_code: "tools_unknown" });
+    expect(releaseRunOf(bare, TEST_RUNTIMES, TEST_CONNECTION_ID)).toMatchObject(
+      { ok: false, reason_code: "tools_unknown" },
+    );
     const unknown = testCatalog({
       tool_catalogs: { ...testToolCatalogs(), for: () => undefined },
     });

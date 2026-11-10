@@ -187,7 +187,7 @@ function serviceWith(
           name: input.name,
           url: input.url,
           branch: input.branch,
-                  source: "selection",
+          source: "selection",
           version: 1,
           created_at: "",
           updated_at: "",

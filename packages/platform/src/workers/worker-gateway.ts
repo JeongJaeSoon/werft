@@ -57,6 +57,7 @@ import {
 } from "@werft-ai/contracts";
 import type { RuntimeFingerprint } from "@werft-ai/runtime-core";
 import { repoRefOf } from "../action/ports/forge.ts";
+import { runtimeConfigOfSpec } from "../agents/release-spec.ts";
 import {
   type CheckpointRequestDecision,
   type RestoreFallback,
@@ -116,7 +117,6 @@ import {
   hashJudgmentToken,
   JUDGMENT_TOKEN_PREFIX,
 } from "../sessions/achievements/judgment-token.ts";
-import { runtimeConfigOfSpec } from "../agents/release-spec.ts";
 import {
   type ClaimedMcpServer,
   connectionModels,
@@ -1542,7 +1542,8 @@ export function createWorkerGateway(deps: {
             runtime: {
               kind: binding.spec.runtime.kind,
               version:
-                binding.launchRuntime?.sdkVersion ?? binding.spec.runtime.version,
+                binding.launchRuntime?.sdkVersion ??
+                binding.spec.runtime.version,
               connection_id: binding.spec.connection.id,
             },
             spec_digest: binding.specDigest,
@@ -1624,13 +1625,7 @@ export function createWorkerGateway(deps: {
             lease_remaining_ms: binding.leaseRemainingMs,
             ...resolved,
             ...withRestoreExtensions(
-              restoreRuntimesOf(
-                binding,
-                current,
-                providerToken,
-                mcp,
-                mcpToken,
-              ),
+              restoreRuntimesOf(binding, current, providerToken, mcp, mcpToken),
               extensions,
             ),
             packages: {

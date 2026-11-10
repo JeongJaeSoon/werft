@@ -3,13 +3,13 @@ import type {
   SessionTitleStore,
   TitleRequestIssue,
 } from "../ports/session-title-store.ts";
+import { testCatalog, testConnection } from "../testing/catalog-fakes.ts";
 import type { SessionCatalog } from "./catalog.ts";
 import {
   createSessionTitler,
   hashTitleToken,
   titleOf,
 } from "./session-titler.ts";
-import { testCatalog, testConnection } from "../testing/catalog-fakes.ts";
 
 const catalog: SessionCatalog = testCatalog();
 const session = { sessionId: "s-1", attemptId: "att-1" };

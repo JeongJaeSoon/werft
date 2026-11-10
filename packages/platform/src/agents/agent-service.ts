@@ -4,8 +4,8 @@ import type {
   CreateAgentReleaseResponse,
   CreateAgentRequest,
   ListAgentsQuery,
-  ListConnectionOptionsResponse,
   ListAgentsResponse,
+  ListConnectionOptionsResponse,
   UpdateAgentRequest,
 } from "@werft-ai/contracts";
 import {
@@ -277,8 +277,13 @@ export function createAgentService(deps: {
 
   // A release is refused here for what its sessions would be refused for,
   // so Slack, which names no repository, gets one that can start.
-  function releaseRepositoryRefusal(repositoryId: string | null): string | null {
-    if (repositoryId === null || Object.hasOwn(catalog.repositories, repositoryId)) {
+  function releaseRepositoryRefusal(
+    repositoryId: string | null,
+  ): string | null {
+    if (
+      repositoryId === null ||
+      Object.hasOwn(catalog.repositories, repositoryId)
+    ) {
       return null;
     }
     return `Repository ${repositoryId} is not in the catalog`;
@@ -657,7 +662,8 @@ export function createAgentService(deps: {
       if (outcome === "not_found") return NOT_FOUND();
       return outcome === "actor_inactive" ? ACTOR_INACTIVE() : OUTRANKED();
     };
-    const asked = fields.card !== undefined || fields.connection_id !== undefined;
+    const asked =
+      fields.card !== undefined || fields.connection_id !== undefined;
     for (let attempt = 1; ; attempt++) {
       const record = await store.get(caller.ownerId, agentId);
       if (!record) throw NOT_FOUND();

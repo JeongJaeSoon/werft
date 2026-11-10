@@ -141,7 +141,6 @@ function service(
   return { settings, writes, uses, rereads: () => rereads };
 }
 
-
 const NEW_CONNECTION = {
   id: "console",
   kind: "anthropic" as const,

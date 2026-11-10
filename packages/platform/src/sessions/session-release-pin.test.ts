@@ -21,15 +21,15 @@ import type {
   SessionRecord,
 } from "../ports/session-unit-of-work.ts";
 import {
-  attachCatalog,
-  attachmentContext,
-  memoryAttachmentStore,
-} from "../testing/repository-attachment-fakes.ts";
-import {
   testCatalog,
   testConnection,
   testSpecSource,
 } from "../testing/catalog-fakes.ts";
+import {
+  attachCatalog,
+  attachmentContext,
+  memoryAttachmentStore,
+} from "../testing/repository-attachment-fakes.ts";
 import type { SessionCatalogView } from "./catalog.ts";
 import { createRepositoryAttachmentService } from "./repository-attachment-service.ts";
 import {
@@ -466,7 +466,9 @@ describe("a session pinned to an agent release", () => {
   test("a new session says which model left the list, whether the request or the release named it", async () => {
     // The connection no longer offers claude-opus-5-5, the release's model.
     const narrowed = testCatalog({
-      connections: { "conn-1": testConnection({ models: ["claude-haiku-5-5"] }) },
+      connections: {
+        "conn-1": testConnection({ models: ["claude-haiku-5-5"] }),
+      },
       repositories: { app: APP },
     });
     const refused = async (extra: object) => {
@@ -1073,30 +1075,29 @@ describe("a session recorded on the example git host", () => {
   const RECORDED = "http://fake-git:3000/agent/sample-app.git";
   const root = join(import.meta.dir, "../../../..");
 
-  test.each([
-    "real-model",
-    "fake-model",
-    "local-model",
-  ])("keeps running under %s", async (name) => {
-    const { repositories } = (await Bun.file(
-      join(root, "tests/fixtures/settings", `${name}.json`),
-    ).json()) as {
-      repositories: Record<string, { url: string; branch: string }>;
-    };
-    const example = repositories["sample-app"];
-    if (example === undefined) throw new Error(`${name} has no sample-app`);
-    const { service, caller } = setup({
-      catalog: testCatalog({
-        connections: catalog.connections,
-        repositories: {
-          app: { ...example, auth: { kind: "github_app", registered: true } },
-        },
-      }),
-      session: { ...sessionOn(), repo_url: RECORDED },
-    });
-    const { attention } = await service.getSession(caller, SESSION);
-    expect(attention).toBeNull();
-  });
+  test.each(["real-model", "fake-model", "local-model"])(
+    "keeps running under %s",
+    async (name) => {
+      const { repositories } = (await Bun.file(
+        join(root, "tests/fixtures/settings", `${name}.json`),
+      ).json()) as {
+        repositories: Record<string, { url: string; branch: string }>;
+      };
+      const example = repositories["sample-app"];
+      if (example === undefined) throw new Error(`${name} has no sample-app`);
+      const { service, caller } = setup({
+        catalog: testCatalog({
+          connections: catalog.connections,
+          repositories: {
+            app: { ...example, auth: { kind: "github_app", registered: true } },
+          },
+        }),
+        session: { ...sessionOn(), repo_url: RECORDED },
+      });
+      const { attention } = await service.getSession(caller, SESSION);
+      expect(attention).toBeNull();
+    },
+  );
 });
 
 describe("a session pinned to a release whose card declares variables", () => {

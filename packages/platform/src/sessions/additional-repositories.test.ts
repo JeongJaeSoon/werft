@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import type { AgentGitHub } from "@werft-ai/contracts";
+import { testCatalog, testRepository } from "../testing/catalog-fakes.ts";
 import {
   type AdditionalRepositoryContext,
   additionalRepositoriesOf,
   additionalRepositoryAllowed,
 } from "./additional-repositories.ts";
-import { testCatalog, testRepository } from "../testing/catalog-fakes.ts";
 
 const catalog = testCatalog({
   repositories: {

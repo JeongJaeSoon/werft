@@ -6,11 +6,7 @@ const SKILL_TOOL = "Skill";
 export type ExtensionMode = (typeof EXTENSION_MODES)[number];
 
 /** Outermost first: a later scope can only narrow what an earlier one set. */
-export const EXTENSION_SCOPES = [
-  "workspace",
-  "agent",
-  "session",
-] as const;
+export const EXTENSION_SCOPES = ["workspace", "agent", "session"] as const;
 export type ExtensionScope = (typeof EXTENSION_SCOPES)[number];
 
 export type ExtensionRef = {
