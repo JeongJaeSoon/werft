@@ -9,15 +9,7 @@ import {
   waitingSessionsByQuery,
   waitingSessionsQuery,
 } from "@werft-ai/core";
-import {
-  Avatar,
-  avatarInitials,
-  avatarTone,
-  Badge,
-  cn,
-  RowAction,
-  Skeleton,
-} from "@werft-ai/ui";
+import { Badge, cn, RowAction, Skeleton } from "@werft-ai/ui";
 import {
   type ReactNode,
   useEffect,
@@ -26,6 +18,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { AgentMark } from "../components/agent-mark.tsx";
 import { useMinute } from "../components/session/use-minute.ts";
 import { useWerft } from "../provider.tsx";
 import type { PendingRail } from "./pending-rail.tsx";
@@ -505,7 +498,6 @@ function WaitingSession({
  * what it asks and until when are shown.
  */
 function PanelLine({
-  session,
   request,
   heading,
   meta,
@@ -523,22 +515,9 @@ function PanelLine({
   readonly onOpen: (opener: HTMLElement) => void;
 }) {
   const { t } = useBlockText();
-  // An agent's own colour; a session without one shows its starter, uncoloured.
-  const agent = session.agent?.name;
   return (
     <div className="flex min-h-[var(--werft-row-min-height)] items-center gap-3 px-[var(--werft-row-padding-x)] py-[var(--werft-row-padding-y)]">
-      <Avatar
-        size="two-line"
-        shape="square"
-        tone={agent === undefined ? "default" : avatarTone(agent)}
-        initials={avatarInitials(
-          agent ?? session.created_by?.display_name ?? "",
-        )}
-        // The meta names the agent, never the starter.
-        label={
-          agent === undefined ? session.created_by?.display_name : undefined
-        }
-      />
+      <AgentMark size="two-line" />
       <div className="flex min-w-0 flex-1 flex-col gap-(--werft-row-line-gap)">
         {/* On a narrow line the badge goes under the title rather than
             both being cut. */}

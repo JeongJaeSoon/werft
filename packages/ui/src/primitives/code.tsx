@@ -21,7 +21,7 @@ export function Code({
     <code
       data-slot="code"
       className={cn(
-        "font-mono",
+        "rounded-sm bg-muted px-1.5 py-0.5 font-mono",
         size === "caption"
           ? "font-normal text-caption"
           : "[font-size:inherit] [font-weight:inherit]",

@@ -42,25 +42,14 @@ export function Message({
       data-slot="message"
       data-from={from}
       className={cn(
-        "flex w-fit min-w-0 max-w-[85%] flex-col gap-1 rounded-card border px-3 py-2 text-sm",
-        // Mine sit on the right in the solid primary; the text and the meta
-        // lines keep full strength so they stay readable on it.
-        user
-          ? "ml-auto border-transparent bg-primary text-primary-foreground"
-          : "bg-card",
-        error && "border-destructive",
+        "flex w-fit min-w-0 max-w-[85%] flex-col gap-1 text-sm",
+        // Mine sit on the right; who and when stand over the bubble, not in it.
+        user && "ml-auto items-end",
         className,
       )}
     >
-      <header
-        className={cn(
-          "flex flex-wrap items-baseline gap-x-2 text-xs",
-          !user && "text-muted-foreground",
-        )}
-      >
-        <span className={cn("font-medium", !user && "text-foreground")}>
-          {author}
-        </span>
+      <header className="flex flex-wrap items-baseline gap-x-2 text-muted-foreground text-xs">
+        <span className="font-medium text-foreground">{author}</span>
         {occurredAt ? (
           <time dateTime={occurredAt}>
             {formatTimestamp(occurredAt, locale)}
@@ -68,29 +57,30 @@ export function Message({
         ) : null}
         {source}
       </header>
-      <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{text}</p>
+      <p
+        className={cn(
+          "whitespace-pre-wrap rounded-card px-3 py-2 [overflow-wrap:anywhere]",
+          user ? "bg-primary/10" : "border bg-card",
+          error && "border border-destructive",
+        )}
+      >
+        {text}
+      </p>
       {receipt || error ? (
         <footer className="flex flex-col gap-1">
           {receipt ? (
             <span
               data-receipt={receipt.status}
               className={cn(
-                "text-xs",
-                !user && "text-muted-foreground",
-                receipt.status === "failed" &&
-                  (user ? "font-medium underline" : "text-destructive"),
+                "text-muted-foreground text-xs",
+                receipt.status === "failed" && "text-destructive",
               )}
             >
               {receipt.label}
             </span>
           ) : null}
           {error ? (
-            <p
-              className={cn(
-                "text-xs [overflow-wrap:anywhere]",
-                user ? "font-medium underline" : "text-destructive",
-              )}
-            >
+            <p className="text-destructive text-xs [overflow-wrap:anywhere]">
               {error}
             </p>
           ) : null}

@@ -229,6 +229,7 @@ export function SessionDetail({
               view={view}
               pending={listedRequests(pending)}
               turns={turns.data?.items}
+              agentName={detail.agent?.name}
             />
             {timelineExtra?.(detail)}
           </div>

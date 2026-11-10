@@ -21,8 +21,6 @@ import { ApprovalInbox, usePendingRail } from "@werft-ai/react/blocks";
 import {
   DetailLayout,
   OPERATIONS_MESSAGES,
-  SessionOverviewRow,
-  SessionOverviewTable,
   useMinute,
 } from "@werft-ai/react/components";
 import {
@@ -30,8 +28,6 @@ import {
   Card,
   cn,
   EmptyState,
-  formatElapsed,
-  formatExactTime,
   formatRelativeTime,
   formatTimestamp,
   Heading,
@@ -50,9 +46,6 @@ import {
   Steps,
   Text,
   Link as TextLink,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
 } from "@werft-ai/ui";
 import {
   Bot,
@@ -88,11 +81,7 @@ import { MyTeams } from "../components/my-teams.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, type MessageKey, useI18n } from "../i18n/i18n.tsx";
 import { expiryState } from "./api-keys.tsx";
-import {
-  sessionLink,
-  useSessionOverviewHead,
-  useSessionOverviewRowMessages,
-} from "./session-overview.tsx";
+import { SessionTable } from "./session-list-table.tsx";
 import { loadError, useUnavailable } from "./sessions.tsx";
 import { settingsConnectionsQuery } from "./settings-entries.tsx";
 import { duration, usageSummaryQuery } from "./usage.tsx";
@@ -814,7 +803,7 @@ export function HomeScreen() {
               <ArrowLink to="/sessions">{t("home.recent.all")}</ArrowLink>
             }
           >
-            <RecentSessionTable waitingSince={requests?.since} now={now} />
+            <RecentSessionTable />
           </Section>
           <AdministeredAgents showEmpty={false} />
           {/* Without member.manage there is no 구성원 item in the sidebar
@@ -1217,21 +1206,10 @@ function GlanceCard({
 }
 
 /** The newest of the viewer's sessions, in the session list's own table. */
-function RecentSessionTable({
-  waitingSince,
-  now,
-}: {
-  /** When each waiting session's oldest request came in, once every list is read. */
-  readonly waitingSince: Readonly<Record<string, string>> | undefined;
-  readonly now: number;
-}) {
-  const { t, locale } = useI18n();
+function RecentSessionTable() {
+  const { t } = useI18n();
   const sessions = useSessions();
   const items = sessions.data?.pages[0]?.items ?? [];
-  // Home has no room for who started each session; they are all the viewer's.
-  // Without startedBy the table takes its home column template.
-  const { startedBy: _startedBy, ...head } = useSessionOverviewHead();
-  const messages = useSessionOverviewRowMessages();
 
   if (sessions.isPending) return <StatusScreen kind="loading" />;
   if (sessions.error)
@@ -1245,43 +1223,10 @@ function RecentSessionTable({
     // Framed as the table it stands in for.
     return <EmptyState framed size="sm" title={t("sessions.empty")} />;
   return (
-    <SessionOverviewTable label={t("home.recent.title")} messages={head}>
-      {items.slice(0, RECENT_LIMIT).map((session) => {
-        const since =
-          session.status === "needs_input"
-            ? waitingSince?.[session.id]
-            : undefined;
-        return (
-          <SessionOverviewRow
-            key={session.id}
-            session={session}
-            locale={locale}
-            now={now}
-            messages={messages}
-            renderLink={sessionLink(session.id)}
-            statusDetail={
-              since ? (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <time
-                      dateTime={since}
-                      // biome-ignore lint/a11y/noNoninteractiveTabindex: keyboard users reach the exact time only through focus
-                      tabIndex={0}
-                      className="rounded-sm focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2"
-                    >
-                      {formatElapsed(since, locale, now)}
-                    </time>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {formatExactTime(since, locale)}
-                  </TooltipContent>
-                </Tooltip>
-              ) : undefined
-            }
-          />
-        );
-      })}
-    </SessionOverviewTable>
+    <SessionTable
+      label={t("home.recent.title")}
+      sessions={items.slice(0, RECENT_LIMIT)}
+    />
   );
 }
 

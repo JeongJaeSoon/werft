@@ -211,7 +211,7 @@ function AgentView({
         </TabsList>
       </div>
       <TabsContent {...tabPanel("overview")}>
-        <OverviewTab detail={detail} manages={manages} toRelease={toRelease} />
+        <OverviewTab detail={detail} manages={manages} />
       </TabsContent>
       <TabsContent {...tabPanel("access")}>
         <AccessTab

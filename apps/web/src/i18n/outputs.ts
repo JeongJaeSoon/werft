@@ -59,9 +59,10 @@ export const outputsKo = {
   "session.outcomes.event.COMMENT": "코멘트",
   "session.outcomes.submittedAt": "제출",
   "session.outcomes.otherSessionPullRequest": "다른 세션이 연 PR",
-  "session.outcomes.state.open": "열림",
-  "session.outcomes.state.merged": "머지됨",
-  "session.outcomes.state.closed": "닫힘",
+  // GitHub's own words, as its pages show them.
+  "session.outcomes.state.open": "Open",
+  "session.outcomes.state.merged": "Merged",
+  "session.outcomes.state.closed": "Closed",
   "session.outcomes.mergedAt": "머지",
   "session.outcomes.closedAt": "닫음",
   "session.outcomes.checkedAt": "상태 확인",

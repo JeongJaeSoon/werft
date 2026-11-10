@@ -49,7 +49,10 @@ import { SEARCH_MAX, useSearchTerm } from "../components/search-term.ts";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
 import { SessionGitHubWork } from "./session-github-work.tsx";
-import { SessionListTable } from "./session-list-table.tsx";
+import {
+  SessionListSkeleton,
+  SessionListTable,
+} from "./session-list-table.tsx";
 import { SessionOutputsTab } from "./session-outputs.tsx";
 import { SessionReleaseBlock } from "./session-release.tsx";
 import { SessionShareBlock } from "./session-share.tsx";
@@ -158,12 +161,15 @@ export function SessionsScreen() {
                   value={tab}
                   onValueChange={pick}
                 >
-                  {/* No counts on the tabs: a waiting session is marked in the list. */}
-                  <SegmentedControlItem value="all">
+                  <SegmentedControlItem value="all" count={counts.data?.total}>
                     {t("sessionList.filter.all")}
                   </SegmentedControlItem>
                   {SESSION_FILTERS.map((name) => (
-                    <SegmentedControlItem key={name} value={name}>
+                    <SegmentedControlItem
+                      key={name}
+                      value={name}
+                      count={counts.data?.counts[name]}
+                    >
                       {t(`sessions.status.${name}`)}
                     </SegmentedControlItem>
                   ))}
@@ -260,6 +266,10 @@ interface SessionsFilter {
 function useListedSessions(filter: SessionsFilter) {
   const { client } = useWerft();
   const unfiltered = Object.keys(filter).length === 0;
+  // A page fills the screen and then some, so the first read needs no scroll.
+  const [limit] = useState(() =>
+    Math.min(100, Math.max(20, Math.ceil(window.innerHeight / 48) + 16)),
+  );
   return useInfiniteQuery({
     // Unfiltered, it is the list the session hooks refresh by its exact key;
     // the rest sit under the sessions key, so those refreshes reach them too.
@@ -270,7 +280,11 @@ function useListedSessions(filter: SessionsFilter) {
       unwrap(
         client.GET("/v1/sessions", {
           params: {
-            query: { ...filter, ...(pageParam ? { cursor: pageParam } : {}) },
+            query: {
+              ...filter,
+              limit,
+              ...(pageParam ? { cursor: pageParam } : {}),
+            },
           },
         }),
       ) as Promise<ListSessionsResponse>,
@@ -321,7 +335,7 @@ function SessionsView({
   const busy = sessions.isPlaceholderData;
 
   if (sessions.isPending || (busy && items.length === 0)) {
-    return <StatusScreen kind="loading" />;
+    return <SessionListSkeleton />;
   }
   if (sessions.error && items.length === 0) {
     return loadError(sessions.error, () => void sessions.refetch());

@@ -8,7 +8,7 @@ import {
   Text,
   Textarea,
 } from "@werft-ai/ui";
-import { SendHorizontal } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import {
   type Dispatch,
   type FormEvent,
@@ -146,13 +146,13 @@ export function Composer({
         <Button
           type="submit"
           size="icon"
-          className="shrink-0 rounded-full"
+          className="size-[var(--werft-control-height)] shrink-0 rounded-full"
           aria-label={messages.send}
           title={messages.send}
           disabled={blocked || !text.trim()}
           aria-busy={pending || sending || undefined}
         >
-          <SendHorizontal strokeWidth={1.5} aria-hidden="true" />
+          <ArrowRight strokeWidth={1.5} aria-hidden="true" />
         </Button>
       </form>
     </div>

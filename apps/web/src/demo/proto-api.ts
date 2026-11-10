@@ -699,6 +699,43 @@ export function createProtoFetch(options: ProtoOptions = {}): typeof fetch {
   on("GET", "/v1/sessions/{id}/github/work", (_r, p) =>
     json(200, { session_id: p.id, items: [], intents: [] }),
   );
+  // A session that ran to a stop left one pull request behind.
+  on("GET", "/v1/sessions/{id}/outcomes", (_r, p) => {
+    const s = byId(p.id!);
+    if (!s) return apiError(404, "NOT_FOUND", "Not found");
+    if (s.summary.status !== "idle") return json(200, { items: [] });
+    const at = s.summary.updated_at;
+    const number = 100 + sessions.indexOf(s);
+    return json(200, {
+      items: [
+        {
+          id: uuid(9, number),
+          type: "github_pull_request",
+          url: `https://github.com/acme/sample-app/pull/${number}`,
+          repository_id: null,
+          external_id: String(number),
+          state: number % 3 === 0 ? "merged" : "open",
+          state_changed_at: at,
+          merged_at: number % 3 === 0 ? at : null,
+          closed_at: null,
+          state_checked_at: at,
+          check_error: null,
+          created_at: at,
+          metadata: {
+            title: s.summary.title,
+            head: `agent/${s.summary.id.slice(0, 8)}`,
+            base: "main",
+            adopted: false,
+            merge_commit_sha: null,
+            additions: 42,
+            deletions: 7,
+            changed_files: 3,
+            commits: 2,
+          },
+        },
+      ],
+    });
+  });
   on("GET", "/v1/sessions/{id}/events", (r, p) => {
     const s = byId(p.id!);
     if (!s) return apiError(404, "NOT_FOUND", "Not found");

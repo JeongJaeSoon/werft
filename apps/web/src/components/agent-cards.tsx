@@ -9,10 +9,8 @@ import type {
   ListCredentialBindingsResponse,
 } from "@werft-ai/contracts";
 import { useWerft } from "@werft-ai/react";
+import { AgentMark } from "@werft-ai/react/components";
 import {
-  Avatar,
-  avatarInitials,
-  avatarTone,
   Badge,
   Card,
   CardAction,
@@ -466,20 +464,12 @@ export function CredentialNeed({
   );
 }
 
-/** The design's square initials mark, one colour per name. */
+/** The agent's icon: one bot mark for every agent, its name beside it. */
 export function AgentAvatar({
-  name,
   size = "lg",
 }: {
-  readonly name: string;
+  readonly name?: string;
   readonly size?: "lg" | "two-line";
 }) {
-  return (
-    <Avatar
-      size={size}
-      shape="square"
-      tone={avatarTone(name)}
-      initials={avatarInitials(name)}
-    />
-  );
+  return <AgentMark size={size} />;
 }

@@ -20,6 +20,7 @@ export {
   type DetailRailToggle,
   useDetailRailToggle,
 } from "./layout/detail-layout.tsx";
+export { AgentMark } from "./agent-mark.tsx";
 export {
   ListToolbar,
   type ListToolbarProps,

@@ -209,9 +209,9 @@
     --werft-space-section: var(--werft-space-8);
     --werft-space-block: var(--werft-space-4);
 
-    /* Controls 6px; cards, menus and dialogs 8px; pills. */
-    --werft-radius-control: 0.375rem;
-    --werft-radius-card: 0.5rem;
+    /* Controls 8px; cards, menus and dialogs 12px; pills. */
+    --werft-radius-control: 0.5rem;
+    --werft-radius-card: 0.75rem;
     --werft-radius-pill: 999px;
 
     /* A coloured icon tile beside one line, such as a sidebar item. */
@@ -273,7 +273,7 @@
     --werft-row-action-button-min-width: 3rem;
     /* A table's long-text column floor; below it the frame scrolls. */
     --werft-row-text-min-width: 10rem;
-    --werft-control-height: 2rem;
+    --werft-control-height: 2.25rem;
     --werft-control-height-sm: 1.75rem;
     --werft-text-title: 1.25rem;
     --werft-leading-title: 1.75rem;

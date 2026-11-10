@@ -195,7 +195,10 @@ export function SessionTimeline({
   request,
   pending,
   turns,
+  agentName,
 }: {
+  /** Names the agent over its replies; see `Timeline`. */
+  readonly agentName?: string | undefined;
   readonly events: readonly SessionEventFrame[];
   readonly state: EventStreamState;
   readonly debug?: boolean;
@@ -280,6 +283,7 @@ export function SessionTimeline({
       </output>
       <Timeline
         entries={entries}
+        agentName={agentName}
         formatMessage={formatMessage}
         messages={{
           label: t("session.events"),

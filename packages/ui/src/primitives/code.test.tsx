@@ -21,7 +21,7 @@ describe("Code", () => {
     expect(code?.parentElement?.tagName).toBe("P");
     for (const name of ["font-mono", "text-caption", "font-normal"])
       expect(classesOf(code)).toContain(name);
-    expect(classesOf(code).some((name) => name.startsWith("bg-"))).toBe(false);
+    expect(classesOf(code)).toContain("bg-muted");
   });
 
   test('size="inherit"는 부모의 크기와 굵기를 따른다', () => {

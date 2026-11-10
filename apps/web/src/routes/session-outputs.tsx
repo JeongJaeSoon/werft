@@ -192,7 +192,10 @@ function PullRequestRow({ outcome }: { readonly outcome: PullRequestOutcome }) {
             number={outcome.external_id ?? ""}
             kind={t("session.outcomes.kind.pullRequest")}
           />
-          <Badge variant={STATE_BADGE[state] ?? "gray"}>
+          <Badge
+            variant={STATE_BADGE[state] ?? "gray"}
+            className="shrink-0 whitespace-nowrap"
+          >
             {t(`session.outcomes.state.${state}`)}
           </Badge>
         </Text>

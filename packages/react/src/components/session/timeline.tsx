@@ -11,6 +11,7 @@ import {
   type TimestampLocale,
 } from "@werft-ai/ui";
 import {
+  Bot,
   ChevronRight,
   CircleDot,
   CircleX,
@@ -181,6 +182,8 @@ export interface TimelineProps {
    * turn was asked; null leaves the turn as it is.
    */
   readonly prompt?: ((turnId: string) => ReactNode) | undefined;
+  /** Who the agent's replies are from: with it they are drawn as chat. */
+  readonly agentName?: string | undefined;
 }
 
 export interface TimelineRow extends TimelineEntry {
@@ -454,6 +457,7 @@ export function Timeline({
   request,
   held,
   prompt,
+  agentName,
 }: TimelineProps): JSX.Element {
   const idBase = useId();
   const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
@@ -545,6 +549,7 @@ export function Timeline({
             last={last}
             request={request}
             held={held}
+            agentName={agentName}
           />
         ),
     });
@@ -774,6 +779,7 @@ function EventItem({
   last,
   request,
   held,
+  agentName,
 }: LineProps & {
   readonly row: TimelineRow;
   readonly time: TimeContext;
@@ -781,8 +787,44 @@ function EventItem({
   readonly innerShown: (inner: TimelineEntry) => boolean;
   readonly request: TimelineProps["request"];
   readonly held: TimelineProps["held"];
+  readonly agentName: string | undefined;
 }): JSX.Element {
   const { presentation, result } = row;
+  if (
+    agentName !== undefined &&
+    presentation.reply !== undefined &&
+    presentation.error !== true &&
+    timelineKind(presentation) === "agent"
+  ) {
+    // The agent's words as chat: its icon and name over a bubble.
+    return (
+      <li
+        data-kind="agent"
+        className="flex items-start gap-3 border-b py-3 last:border-b-0"
+      >
+        <span
+          role="img"
+          aria-label={messages.kind?.("agent") ?? agentName}
+          className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
+        >
+          <Bot size={16} strokeWidth={1.5} aria-hidden="true" />
+        </span>
+        <div className="flex min-w-0 flex-col gap-1">
+          <div className="flex flex-wrap items-baseline gap-x-2 text-control">
+            <span className="font-medium">{agentName}</span>
+            <Stamp at={row.occurredAt} time={time} />
+          </div>
+          <div className="min-w-0 rounded-card bg-muted px-3 py-2">
+            <Summary
+              entry={row}
+              formatMessage={formatMessage}
+              messages={messages}
+            />
+          </div>
+        </div>
+      </li>
+    );
+  }
   const callText = turnSummaryText(presentation.summary, formatMessage);
   const innerStamp = (inner: TimelineEntry) =>
     innerShown(inner) ? (

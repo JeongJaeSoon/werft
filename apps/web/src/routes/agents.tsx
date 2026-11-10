@@ -7,7 +7,7 @@ import type {
   CountAgentsResponse,
 } from "@werft-ai/contracts";
 import { useWerft } from "@werft-ai/react";
-import { ListToolbar } from "@werft-ai/react/components";
+import { AgentMark, ListToolbar } from "@werft-ai/react/components";
 import {
   Button,
   buttonVariants,
@@ -22,8 +22,9 @@ import {
   Page,
   RelativeTime,
   RowLines,
-  SegmentedControl,
-  SegmentedControlItem,
+  Tabs,
+  TabsList,
+  TabsTrigger,
   Text,
 } from "@werft-ai/ui";
 import { useRef, useState } from "react";
@@ -194,19 +195,17 @@ function AgentList({
     <div className="flex flex-col gap-4">
       <ListToolbar
         filter={
-          <SegmentedControl
-            aria-label={t("agents.tabs.label")}
-            size="toolbar"
+          <Tabs
             value={scope}
             onValueChange={(next) => setScope(next as typeof scope)}
           >
-            <SegmentedControlItem value="all">
-              {t("agents.tabs.all")}
-            </SegmentedControlItem>
-            <SegmentedControlItem value="administered">
-              {t("agents.tabs.administered")}
-            </SegmentedControlItem>
-          </SegmentedControl>
+            <TabsList variant="line" aria-label={t("agents.tabs.label")}>
+              <TabsTrigger value="all">{t("agents.tabs.all")}</TabsTrigger>
+              <TabsTrigger value="administered">
+                {t("agents.tabs.administered")}
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
         }
         search={{
           ref: search,
@@ -342,7 +341,8 @@ function AgentTable({ agents }: { readonly agents: readonly AgentListItem[] }) {
             inactive={agentState(agent) === "archived"}
             className={OPENS_ROW}
           >
-            <GridTableCell>
+            <GridTableCell className="gap-3">
+              <AgentMark />
               <RowLines>
                 <Link
                   to="/agents/$id"
