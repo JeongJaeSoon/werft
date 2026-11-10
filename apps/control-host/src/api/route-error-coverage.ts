@@ -259,6 +259,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
   "routes/agents.test.ts": [
     "GET /v1/agents",
     "GET /v1/agents/counts",
+    "GET /v1/usable-agents",
     "POST /v1/agents",
     "GET /v1/agents/{id}",
     "PATCH /v1/agents/{id}",

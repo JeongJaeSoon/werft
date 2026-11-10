@@ -165,6 +165,7 @@ import {
   listTeamsResponseSchema,
   listTurnsQuerySchema,
   listTurnsResponseSchema,
+  listUsableAgentsResponseSchema,
   listWorkspaceSlackAppsResponseSchema,
   loginMethodsResponseSchema,
   loginRequestSchema,
@@ -645,6 +646,7 @@ const responseComponents = {
   AgentAdminChangeResponse: agentAdminChangeResponseSchema,
   SetAgentManagingTeamResponse: setAgentManagingTeamResponseSchema,
   ListAdministeredAgentsResponse: listAdministeredAgentsResponseSchema,
+  ListUsableAgentsResponse: listUsableAgentsResponseSchema,
   ListMyTeamsResponse: listMyTeamsResponseSchema,
   CreateCredentialBindingRequest: createCredentialBindingRequestSchema,
   CreateCredentialBindingResponse: createCredentialBindingResponseSchema,
@@ -1241,6 +1243,7 @@ const EXAMPLE_SESSION_SUMMARY = {
     release_label: "2026-10-11_17:00:00",
     release_is_active: true,
   },
+  agent_hidden: false,
   created_by: {
     user_id: "1b2c3d4e-5f60-4718-8a9b-0c1d2e3f4a5b",
     display_name: "Mina Park",
@@ -6513,6 +6516,33 @@ export const API_ROUTE_DECLARATIONS = [
       "Directly or through a team, as of this request: what an agent's admin needs to issue that agent's own key.",
     auth: "session",
     success: { status: 200, schema: "ListAdministeredAgentsResponse" },
+    errors: [401, 403, 503],
+  },
+  {
+    method: "get",
+    path: "/v1/usable-agents",
+    operationId: "listUsableAgents",
+    tag: "Agents",
+    summary: "The agents the caller could start a session with now",
+    description:
+      "Every agent `POST /v1/sessions` would accept a start on for this caller at this request, oldest first, at most 200: the agent is `active` with an `active_release_id`, the caller may use it (open to the workspace; or a private agent whose teams the caller is in, or that the caller administers or manages, or a workspace owner or admin), the release's runtime profile is still in the catalog and unchanged, and every credential the release names is bound. Where the workspace limits agents to those inside them (axis A is not `use`), only agents the caller is inside are listed. A key bound to an agent lists that agent alone when it could start there, and a service key bound to none lists the agents open to the workspace. A private agent the caller may not use is not in the list, and nothing in the answer tells that it exists. Needs `sessions:write`. `active_release_id` is what to send as `agent_release_id`.",
+    scope: "write",
+    success: {
+      status: 200,
+      schema: "ListUsableAgentsResponse",
+      example: {
+        items: [
+          {
+            id: EXAMPLE_AGENT_ID,
+            slug: "finance",
+            name: "Finance analyst",
+            description: "Reads the quarterly reports and flags outliers.",
+            managing_team_name: "Finance",
+            active_release_id: "rel_example",
+          },
+        ],
+      },
+    },
     errors: [401, 403, 503],
   },
   {

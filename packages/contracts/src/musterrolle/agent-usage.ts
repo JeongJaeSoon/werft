@@ -1,7 +1,15 @@
 import { z } from "zod";
 
-import { receiptIdSchema } from "../shared/index.ts";
-import { teamIdSchema, teamNameSchema } from "./teams.ts";
+import {
+  agentDescriptionSchema,
+  agentSlugSchema,
+} from "../kollegium/agents.ts";
+import {
+  agentIdSchema,
+  agentReleaseIdSchema,
+  receiptIdSchema,
+} from "../shared/index.ts";
+import { TEAM_LIST_LIMIT, teamIdSchema, teamNameSchema } from "./teams.ts";
 
 // Who may use an agent (94S-900). `workspace` is every member of the
 // workspace; `private` is the members of the listed teams. Owners, admins and
@@ -70,6 +78,31 @@ export const putAgentUsageResponseSchema = z
   })
   .strict();
 
+/**
+ * One agent the caller could start a session with right now (94S-902). Only
+ * what a new-session screen picks from; the managing team's name is public to
+ * whoever may use the agent, and no admin or creator is named.
+ */
+export const usableAgentSchema = z
+  .object({
+    id: agentIdSchema,
+    slug: agentSlugSchema,
+    name: z.string().min(1).max(120),
+    description: agentDescriptionSchema.nullable(),
+    managing_team_name: z.string().min(1),
+    /** The release a session on this agent pins when it names none. */
+    active_release_id: agentReleaseIdSchema,
+  })
+  .strict();
+
+export const listUsableAgentsResponseSchema = z
+  .object({ items: z.array(usableAgentSchema).max(TEAM_LIST_LIMIT) })
+  .strict();
+
+export type UsableAgent = z.infer<typeof usableAgentSchema>;
+export type ListUsableAgentsResponse = z.infer<
+  typeof listUsableAgentsResponseSchema
+>;
 export type AgentUsageScope = z.infer<typeof agentUsageScopeSchema>;
 export type PutAgentUsageRequest = z.infer<typeof putAgentUsageRequestSchema>;
 export type AgentUsage = z.infer<typeof agentUsageSchema>;

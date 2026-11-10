@@ -36,6 +36,7 @@ import { alias } from "drizzle-orm/pg-core";
 import {
   administers,
   agentReadable,
+  agentUsable,
   insideAgent,
   liveMember,
 } from "./administers.ts";
@@ -415,6 +416,8 @@ export async function lockAgentToChange(
   return { agent };
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export function createPostgresAgentStore(db: Database): AgentStore {
   return {
     async list(workspaceId, query, reader): Promise<ListAgentsResponse> {
@@ -482,6 +485,42 @@ export function createPostgresAgentStore(db: Database): AgentStore {
               })
             : null,
       };
+    },
+
+    async listUsable(workspaceId, who, limit) {
+      const keyAgentId =
+        who.keyAgentId !== null && UUID.test(who.keyAgentId)
+          ? who.keyAgentId.toLowerCase()
+          : null;
+      // A key bound to an agent reaches that agent and nothing else.
+      if (who.keyAgentId !== null && keyAgentId === null) return [];
+      const rows = await db
+        .select({ agent: agents, teamName: managingTeamName })
+        .from(agents)
+        .where(
+          and(
+            eq(agents.workspaceId, workspaceId),
+            eq(agents.status, "active"),
+            isNotNull(agents.activeReleaseId),
+            keyAgentId === null ? undefined : eq(agents.id, keyAgentId),
+            agentUsable(db, workspaceId, who, agents.id),
+            // Axis A: outside an agent a start needs `use`, as the policy has it.
+            // An agent key is inside its own agent, the only one it lists.
+            who.outsideUse || keyAgentId !== null
+              ? undefined
+              : who.userId === null
+                ? sql`false`
+                : insideAgent(
+                    db,
+                    workspaceId,
+                    who.userId.toLowerCase(),
+                    agents.id,
+                  ),
+          ),
+        )
+        .orderBy(asc(agents.createdAt), asc(agents.id))
+        .limit(limit);
+      return rows.map((row) => agentOf(row.agent, row.teamName));
     },
 
     async count(workspaceId, reader) {

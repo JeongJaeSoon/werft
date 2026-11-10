@@ -3443,6 +3443,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/usable-agents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The agents the caller could start a session with now
+         * @description Every agent `POST /v1/sessions` would accept a start on for this caller at this request, oldest first, at most 200: the agent is `active` with an `active_release_id`, the caller may use it (open to the workspace; or a private agent whose teams the caller is in, or that the caller administers or manages, or a workspace owner or admin), the release's runtime profile is still in the catalog and unchanged, and every credential the release names is bound. Where the workspace limits agents to those inside them (axis A is not `use`), only agents the caller is inside are listed. A key bound to an agent lists that agent alone when it could start there, and a service key bound to none lists the agents open to the workspace. A private agent the caller may not use is not in the list, and nothing in the answer tells that it exists. Needs `sessions:write`. `active_release_id` is what to send as `agent_release_id`.
+         *
+         *     **Scope:** `sessions:write` (API key or cookie session).
+         */
+        get: operations["listUsableAgents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/profiles": {
         parameters: {
             query?: never;
@@ -5467,6 +5489,11 @@ export interface components {
                 release_is_active: boolean | null;
             } | null;
             /**
+             * @description True when the session has an agent the caller may not use (a private agent outside the caller's teams): `agent` is then null, as are the agent's name and id everywhere else in this session. The session itself is shown as shared. False otherwise, including a session with no agent.
+             * @default false
+             */
+            agent_hidden: boolean;
+            /**
              * @description Who started the session: the signed-in person, or for an API key the person who created the key. It stays the same after a takeover hands the session to someone else. Null for sessions from before people were recorded and for a key with no creator.
              * @default null
              */
@@ -5635,6 +5662,11 @@ export interface components {
                 /** @default null */
                 release_is_active: boolean | null;
             } | null;
+            /**
+             * @description True when the session has an agent the caller may not use (a private agent outside the caller's teams): `agent` is then null, as are the agent's name and id everywhere else in this session. The session itself is shown as shared. False otherwise, including a session with no agent.
+             * @default false
+             */
+            agent_hidden: boolean;
             /**
              * @description Who started the session: the signed-in person, or for an API key the person who created the key. It stays the same after a takeover hands the session to someone else. Null for sessions from before people were recorded and for a key with no creator.
              * @default null
@@ -10035,6 +10067,17 @@ export interface components {
                 created_at: string;
                 /** Format: date-time */
                 updated_at: string;
+            }[];
+        };
+        ListUsableAgentsResponse: {
+            items: {
+                /** Format: uuid */
+                id: string;
+                slug: string;
+                name: string;
+                description: string | null;
+                managing_team_name: string;
+                active_release_id: string;
             }[];
         };
         ListMyTeamsResponse: {
@@ -16920,6 +16963,7 @@ export interface operations {
                      *             "release_label": "2026-10-11_17:00:00",
                      *             "release_is_active": true
                      *           },
+                     *           "agent_hidden": false,
                      *           "created_by": {
                      *             "user_id": "1b2c3d4e-5f60-4718-8a9b-0c1d2e3f4a5b",
                      *             "display_name": "Mina Park"
@@ -17364,6 +17408,7 @@ export interface operations {
                      *         "release_label": "2026-10-11_17:00:00",
                      *         "release_is_active": true
                      *       },
+                     *       "agent_hidden": false,
                      *       "created_by": {
                      *         "user_id": "1b2c3d4e-5f60-4718-8a9b-0c1d2e3f4a5b",
                      *         "display_name": "Mina Park"
@@ -17521,6 +17566,7 @@ export interface operations {
                      *         "release_label": "2026-10-11_17:00:00",
                      *         "release_is_active": true
                      *       },
+                     *       "agent_hidden": false,
                      *       "created_by": {
                      *         "user_id": "1b2c3d4e-5f60-4718-8a9b-0c1d2e3f4a5b",
                      *         "display_name": "Mina Park"
@@ -35591,6 +35637,88 @@ export interface operations {
                 };
             };
             /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    listUsableAgents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "id": "8d2c4f1a-6b3e-4a9d-b7c5-2e1f0a9b8c7d",
+                     *           "slug": "finance",
+                     *           "name": "Finance analyst",
+                     *           "description": "Reads the quarterly reports and flags outliers.",
+                     *           "managing_team_name": "Finance",
+                     *           "active_release_id": "rel_example"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ListUsableAgentsResponse"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:write`, checked before the body or the resource is read. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];

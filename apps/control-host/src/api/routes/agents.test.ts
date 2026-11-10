@@ -149,6 +149,7 @@ const outage = () =>
 function store(overrides: Partial<AgentStore> = {}): AgentStore {
   return {
     list: async () => ({ items: [detail.agent], next_cursor: null }),
+    listUsable: async () => [],
     count: async () => ({
       all: 1,
       administered: 0,
@@ -259,6 +260,8 @@ function app(
           listAgents: (caller, query) =>
             service.listAgents(asPerson(caller), query),
           countAgents: (caller) => service.countAgents(asPerson(caller)),
+          listUsableAgents: (caller) =>
+            service.listUsableAgents(asPerson(caller)),
           getAgent: (caller, id) => service.getAgent(asPerson(caller), id),
           createAgent: (caller, body) =>
             service.createAgent(asPerson(caller), body),

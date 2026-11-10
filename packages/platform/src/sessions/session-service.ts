@@ -775,7 +775,11 @@ export function createSessionService(deps: {
     actor: Caller,
     sessionId: string,
   ): Promise<SessionDetail> {
-    const record = await reader.getSession(actor.ownerId, sessionId);
+    const record = await reader.getSession(
+      actor.ownerId,
+      sessionId,
+      viewerOf(actor),
+    );
     if (!record) {
       throw new SessionServiceError("NOT_FOUND", "Resource not found");
     }

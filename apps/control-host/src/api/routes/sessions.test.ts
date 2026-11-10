@@ -1197,6 +1197,7 @@ describe("session titles (94S-804)", () => {
     id: sessionId,
     title: "Renamed",
     agent: null,
+    agent_hidden: false,
     created_by: null,
     channel: null,
     slack_permalink: null,

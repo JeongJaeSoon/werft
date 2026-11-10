@@ -219,9 +219,12 @@ export interface SessionReader {
     query: CountSessionsQuery,
     viewer: SessionViewer,
   ): Promise<CountSessionsResponse>;
+  // With `viewer`, a session whose agent the viewer may not use carries no
+  // agent (`agent_hidden`); without, the read is internal and shows it.
   getSession(
     ownerId: string,
     sessionId: string,
+    viewer?: SessionViewer,
   ): Promise<SessionDetailRecord | null>;
   // null when the session is not visible to the owner.
   listTurns(

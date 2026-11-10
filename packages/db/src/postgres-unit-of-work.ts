@@ -69,6 +69,7 @@ import {
   or,
   sql,
 } from "drizzle-orm";
+import { agentUsable } from "./administers.ts";
 import { contextGapAttention } from "./context-gap.ts";
 import {
   containsPattern,
@@ -1058,6 +1059,9 @@ export function createPostgresSessionReader(
     }[],
     // READ_AT of the statement that read awaitingInput.
     readAt: string,
+    // Whose eyes: a session whose agent this viewer may not use shows no
+    // agent. Absent for a read that never reaches a person (internal).
+    viewer?: SessionViewer,
   ): Promise<SessionRecord[]> {
     if (rows.length === 0) return [];
     const ids = rows.map(({ session }) => session.id);
@@ -1128,6 +1132,32 @@ export function createPostgresSessionReader(
         ),
       );
 
+    const agentIds = [...new Set(releases.map((release) => release.id))];
+    const usable =
+      viewer === undefined || agentIds.length === 0
+        ? null
+        : new Set(
+            (
+              await executor
+                .select({ id: agents.id })
+                .from(agents)
+                .where(
+                  and(
+                    inArray(agents.id, agentIds),
+                    agentUsable(
+                      executor,
+                      agents.workspaceId,
+                      {
+                        userId: viewer.userId,
+                        keyAgentId: viewer.keyAgentId ?? null,
+                      },
+                      agents.id,
+                    ),
+                  ),
+                )
+            ).map((agent) => agent.id),
+          );
+
     return rows.map(({ session: row, awaitingInput, lastEventAt }) => {
       const mine = openTurns.filter((turn) => turn.sessionId === row.id);
       const current = mine
@@ -1139,15 +1169,19 @@ export function createPostgresSessionReader(
       return {
         id: row.id,
         title: row.title,
-        agent: release
-          ? {
-              id: release.id,
-              name: release.name,
-              release_version_no: release.release_version_no,
-              release_label: releaseLabel(release.createdAt, release.earlier),
-              release_is_active: release.activeReleaseId === release.releaseId,
-            }
-          : null,
+        agent_hidden:
+          release !== undefined && usable?.has(release.id) === false,
+        agent:
+          release && usable?.has(release.id) !== false
+            ? {
+                id: release.id,
+                name: release.name,
+                release_version_no: release.release_version_no,
+                release_label: releaseLabel(release.createdAt, release.earlier),
+                release_is_active:
+                  release.activeReleaseId === release.releaseId,
+              }
+            : null,
         created_by:
           creators.find((creator) => creator.user_id === starterOf(row)) ??
           null,
@@ -1288,7 +1322,7 @@ export function createPostgresSessionReader(
           const page = rows.slice(0, query.limit);
           const last = page[page.length - 1];
           return {
-            items: last ? await summarize(tx, page, last.readAt) : [],
+            items: last ? await summarize(tx, page, last.readAt, viewer) : [],
             next_cursor:
               rows.length > query.limit && last
                 ? encodeCreatedAtCursor({
@@ -1305,6 +1339,7 @@ export function createPostgresSessionReader(
     getSession(
       ownerId: string,
       sessionId: string,
+      viewer?: SessionViewer,
     ): Promise<SessionDetailRecord | null> {
       // One snapshot for every field: read one by one, a turn starting
       // between two reads showed running beside current_turn_id null.
@@ -1342,6 +1377,7 @@ export function createPostgresSessionReader(
               },
             ],
             read.readAt,
+            viewer,
           );
           if (!summary) return null;
           // A pool launch carries whatever generation its backend picked, so
