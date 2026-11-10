@@ -78,7 +78,7 @@ pending.json が残ると start と以前の release への upgrade は拒否さ
 <a id="실행-전-게이트" />
 ## 実行前ゲート
 
-incremental checkpoint と release ツール復元候補の下限を両方含む最初の正式リリースは `v0.1.0` です。リリース設置者はそれより前のイメージへ戻しません。正式リリース前の `main-<12>` 環境は、この下限を満たすか別途確認する必要があります。デプロイ時は [release manifest](/run-server/self-hosting/reference/packages#릴리스-manifest-읽기)の commit と三つの digest を一緒に確認します。
+incremental checkpoint と release ツール復元候補の下限を両方含む最初のタグは `v0.1.0` です。このタグが rollback の下限で、最新の公開リリースは `v0.1.2` です。リリース設置者は `v0.1.0` より前のイメージへ戻しません。正式リリース前の `main-<12>` 環境は、この下限を満たすか別途確認する必要があります。デプロイ時は [release manifest](/run-server/self-hosting/reference/packages#릴리스-manifest-읽기)の commit と三つの digest を一緒に確認します。
 
 対象の変更履歴と現在のデプロイバージョンを照合します。次に該当する場合、機能の有効化や worker 変更前にすべてを満たします。
 
