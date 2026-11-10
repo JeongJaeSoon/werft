@@ -256,23 +256,31 @@ cmp -s "$work/ids-expected" "$work/ids-resumed" || {
 pass
 
 step spread
-sessions=()
+# A worker Pod stays while its session is idle and asks for a CPU and
+# several GiB, so a small node holds two or three: the sessions go in pairs,
+# one created on each replica, and each pair is terminated before the next.
+terminate() {
+  local revision
+  revision="$(get "$1" "/v1/sessions/$2" | jq .revision)"
+  post "$1" "/v1/sessions/$2/terminate" "$(jq -nc --argjson r "$revision" '{expected_revision: $r, reason: "replicas test"}')" >/dev/null
+}
+terminate "$PORT_A" "$sid"
 spec3='{"id":"replicas-spread","steps":[],"final":"spread done"}'
 body3="$(jq -nc --arg m "GATE-SPEC ${spec3}" '{profile_id: "claude-coding-local", repository_id: "sample-app", message: $m}')"
-for i in $(seq 1 "$SPREAD_SESSIONS"); do
-  port="$PORT_A"
-  [ $((i % 2)) = 0 ] && port="$PORT_B"
-  sessions+=("${port}:$(post "$port" /v1/sessions "$body3" | jq -r .session_id)")
-done
-for entry in "${sessions[@]}"; do
-  port="${entry%%:*}"
-  s="${entry#*:}"
-  other="$PORT_A"
-  [ "$port" = "$PORT_A" ] && other="$PORT_B"
-  wait_turn "$other" "$s" 1
-  reported="$(get "$port" "/v1/sessions/${s}/usage" | jq .cost.reported_turn_count)"
-  printf 'created on :%s, completed read on :%s  %s  reported turns %s\n' "$port" "$other" "$s" "$reported"
-  [ "$reported" = 1 ] || fail "session ${s} reported ${reported} turns"
+for pair in $(seq 1 $((SPREAD_SESSIONS / 2))); do
+  on_a="$(post "$PORT_A" /v1/sessions "$body3" | jq -r .session_id)"
+  on_b="$(post "$PORT_B" /v1/sessions "$body3" | jq -r .session_id)"
+  for entry in "${PORT_A}:${PORT_B}:${on_a}" "${PORT_B}:${PORT_A}:${on_b}"; do
+    port="${entry%%:*}"
+    rest="${entry#*:}"
+    other="${rest%%:*}"
+    s="${rest#*:}"
+    wait_turn "$other" "$s" 1
+    reported="$(get "$port" "/v1/sessions/${s}/usage" | jq .cost.reported_turn_count)"
+    printf 'pair %s: created on :%s, completed read on :%s  %s  reported turns %s\n' "$pair" "$port" "$other" "$s" "$reported"
+    [ "$reported" = 1 ] || fail "session ${s} reported ${reported} turns"
+    terminate "$other" "$s"
+  done
 done
 pass
 
