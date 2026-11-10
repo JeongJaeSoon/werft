@@ -306,12 +306,13 @@ describe("resolveReleaseContent and mcp_deny", () => {
         identityOf(card, { ...profile, mcp_deny: [] }).runtime_config_snapshot,
       ),
     ).not.toContain("mcp_deny");
-    // Pinned from the code before mcp_deny existed.
+    // The digest is pinned from the code before mcp_deny existed. The release
+    // id moved once, when the snapshot began to record the card's `language`.
     expect(identity.profile_digest).toBe(
       "sha256:92cc3e8a92fdbfe720590f535b087346da8ab6b9d76f509c1cbb3980288a2517",
     );
     expect(deriveReleaseId(identity)).toBe(
-      "sha256:e36018a6078119d3094de9a6d8c2aeb05d2ccc881343270e5e9e51fceafb5af5",
+      "sha256:da28cf8930e0aafb030800262e956538288756e0a9a2b0e5448b7d5e0b1a863a",
     );
   });
 
@@ -342,8 +343,20 @@ describe("resolveReleaseContent", () => {
       tools: ["Read", "Grep", "Edit", "Bash"],
       permission_mode: "default",
       provider: { kind: "litellm", endpoint: "https://litellm.invalid" },
+      language: "ko",
     });
     expect(() => releaseOf(identity)).not.toThrow();
+  });
+
+  test("a release records the card's language, so a card edit never reaches a session that opened it", () => {
+    for (const language of ["follow-user", "ko", "en", "ja"] as const) {
+      expect(
+        identityOf({ ...card, language }).runtime_config_snapshot.language,
+      ).toBe(language);
+    }
+    expect(deriveReleaseId(identityOf({ ...card, language: "ja" }))).not.toBe(
+      deriveReleaseId(identityOf({ ...card, language: "en" })),
+    );
   });
 
   test("a changed profile is a different digest and so a different release", () => {

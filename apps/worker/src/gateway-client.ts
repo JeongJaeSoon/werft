@@ -57,6 +57,7 @@ const REFUSABLE_CAPABILITIES = [
   "user_env",
   "permission_rules",
   "engine_settings",
+  "response_language",
 ] as const;
 
 // Only what a response body has to answer, so the worker never imports zod.

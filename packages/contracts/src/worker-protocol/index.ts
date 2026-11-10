@@ -17,8 +17,8 @@ import {
   terminalTurnStatusSchema,
 } from "../api/session.ts";
 import {
-  AGENT_CARD_LANGUAGE_VALUES,
   mcpServerIdSchema,
+  RESPONSE_LANGUAGE_VALUES,
 } from "../kollegium/agents.ts";
 import { runtimeEnvSchema } from "../kollegium/env-variables.ts";
 import { AGENT_DESCRIPTION_MAX_LENGTH } from "../shared/agent-card.ts";
@@ -88,6 +88,8 @@ export const checkpointRefSchema = z.object({
 //   engine_settings: `runtime_config` may carry `engine_settings`, the
 //     merged permission and auto mode rules the engine's settings are
 //     extended with
+//   response_language: `runtime_config` may carry `response_language`, the
+//     language the engine is asked to answer in
 // A server older than a key refuses the body as a 400 whose `details.issues`
 // names it; the worker sends once more without the refused key, so neither
 // side has to deploy first.
@@ -98,6 +100,7 @@ export const workerCapabilitiesSchema = z
     user_env: z.literal(true).optional(),
     permission_rules: z.literal(true).optional(),
     engine_settings: z.literal(true).optional(),
+    response_language: z.literal(true).optional(),
   })
   .strict();
 
@@ -311,7 +314,9 @@ export const platformPromptSchema = z
       })
       .strict(),
     origin_surface: z.enum(PLATFORM_PROMPT_SURFACE_VALUES),
-    language: z.enum(AGENT_CARD_LANGUAGE_VALUES),
+    // Only what a revision-0..6 session was created with; the card's wider
+    // `language` reaches the engine as `runtime_config.response_language`.
+    language: z.enum(["ko", "en"]),
     // The session's own repository.
     repository: githubRepositoryNameSchema.nullable(),
   })
@@ -400,6 +405,11 @@ export const runtimeConfigSchema = z
     // the claim instead of running without a deny. Not part of any
     // fingerprint: the workspace's settings can change between claims.
     engine_settings: engineSettingsSchema.optional(),
+    // The language the agent's release asks the engine to answer in; absent
+    // for `follow-user` and for a release made before the field. Only sent to
+    // a worker that announced `response_language`, and not part of any
+    // fingerprint: a session must resume whichever worker built it.
+    response_language: z.enum(RESPONSE_LANGUAGE_VALUES).optional(),
     permission_mode: permissionModeSchema,
     provider: runtimeProviderSchema,
     project_settings: projectSettingsSchema.optional(),

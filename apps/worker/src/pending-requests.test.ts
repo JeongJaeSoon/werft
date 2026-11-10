@@ -397,6 +397,7 @@ describe("PendingRequestRegistry", () => {
           permission_rules: true,
           engine_settings: true,
           user_env: true,
+          response_language: true,
         });
       }
     });

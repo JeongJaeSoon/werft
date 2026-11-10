@@ -84,6 +84,10 @@ export type WorkerBinding = {
   // session without a release, a release not yet backfilled, or a stored pair
   // that does not hold; the claim then reads the profile as before.
   releaseSpec?: RuntimeSpec | null;
+  // The answer language the release pins (`runtime_config_snapshot.language`),
+  // only ko, en or ja. Null, or absent, for `follow-user`, a release made
+  // before the field, and a session without a release.
+  releaseLanguage?: "ko" | "en" | "ja" | null;
   // The session row's platform prompt as stored. Null, or absent, for a
   // revision 0 session.
   platformPrompt?: PlatformPrompt | null;

@@ -2998,8 +2998,10 @@
                 "default": "ko",
                 "type": "string",
                 "enum": [
+                  "follow-user",
                   "ko",
-                  "en"
+                  "en",
+                  "ja"
                 ]
               },
               "model": {
@@ -3199,8 +3201,10 @@
                 "default": "ko",
                 "type": "string",
                 "enum": [
+                  "follow-user",
                   "ko",
-                  "en"
+                  "en",
+                  "ja"
                 ]
               },
               "model": {
@@ -23505,8 +23509,10 @@
                       "default": "ko",
                       "type": "string",
                       "enum": [
+                        "follow-user",
                         "ko",
-                        "en"
+                        "en",
+                        "ja"
                       ]
                     },
                     "model": {
@@ -24690,8 +24696,10 @@
                       "default": "ko",
                       "type": "string",
                       "enum": [
+                        "follow-user",
                         "ko",
-                        "en"
+                        "en",
+                        "ja"
                       ]
                     },
                     "model": {

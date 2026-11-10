@@ -5046,7 +5046,7 @@ export interface components {
                  * @default ko
                  * @enum {string}
                  */
-                language: "ko" | "en";
+                language: "follow-user" | "ko" | "en" | "ja";
                 model: string;
                 capabilities: {
                     mcp: {
@@ -5087,7 +5087,7 @@ export interface components {
                  * @default ko
                  * @enum {string}
                  */
-                language: "ko" | "en";
+                language: "follow-user" | "ko" | "en" | "ja";
                 model: string;
                 capabilities: {
                     mcp: {
@@ -9063,7 +9063,7 @@ export interface components {
                      * @default ko
                      * @enum {string}
                      */
-                    language: "ko" | "en";
+                    language: "follow-user" | "ko" | "en" | "ja";
                     model: string;
                     capabilities: {
                         mcp: {
@@ -9276,7 +9276,7 @@ export interface components {
                      * @default ko
                      * @enum {string}
                      */
-                    language: "ko" | "en";
+                    language: "follow-user" | "ko" | "en" | "ja";
                     model: string;
                     capabilities: {
                         mcp: {

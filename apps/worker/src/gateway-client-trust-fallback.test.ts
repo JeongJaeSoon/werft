@@ -105,6 +105,7 @@ describe("claim against a control-host older than platform_tool_trust", () => {
       permission_rules: true,
       engine_settings: true,
       user_env: true,
+      response_language: true,
     });
   });
 
@@ -123,12 +124,14 @@ describe("claim against a control-host older than platform_tool_trust", () => {
         permission_rules: true,
         engine_settings: true,
         user_env: true,
+        response_language: true,
       },
       {
         approval_remember: true,
         permission_rules: true,
         engine_settings: true,
         user_env: true,
+        response_language: true,
       },
     ]);
   });
@@ -159,18 +162,21 @@ describe("claim against a control-host older than platform_tool_trust", () => {
         permission_rules: true,
         engine_settings: true,
         user_env: true,
+        response_language: true,
       },
       {
         approval_remember: true,
         permission_rules: true,
         engine_settings: true,
         user_env: true,
+        response_language: true,
       },
       {
         approval_remember: true,
         permission_rules: true,
         engine_settings: true,
         user_env: true,
+        response_language: true,
       },
     ]);
   });
@@ -239,12 +245,14 @@ describe("claim against a control-host older than user_env", () => {
         permission_rules: true,
         engine_settings: true,
         user_env: true,
+        response_language: true,
       },
       {
         approval_remember: true,
         platform_tool_trust: true,
         permission_rules: true,
         engine_settings: true,
+        response_language: true,
       },
     ]);
   });
@@ -263,11 +271,13 @@ describe("claim against a control-host older than user_env", () => {
         permission_rules: true,
         engine_settings: true,
         user_env: true,
+        response_language: true,
       },
       {
         approval_remember: true,
         permission_rules: true,
         engine_settings: true,
+        response_language: true,
       },
     ]);
   });
@@ -304,23 +314,53 @@ describe("claim against a control-host older than user_env", () => {
         permission_rules: true,
         engine_settings: true,
         user_env: true,
+        response_language: true,
       },
       {
         approval_remember: true,
         platform_tool_trust: true,
         permission_rules: true,
         engine_settings: true,
+        response_language: true,
       },
       {
         approval_remember: true,
         platform_tool_trust: true,
         permission_rules: true,
         engine_settings: true,
+        response_language: true,
       },
       {
         approval_remember: true,
         permission_rules: true,
         engine_settings: true,
+        response_language: true,
+      },
+    ]);
+  });
+
+  test("a control-host that does not know response_language is claimed again without it only", async () => {
+    const { gateway, sent } = gatewayAgainst((request) =>
+      lacks(request, "response_language")
+        ? json(200, claimAnswer)
+        : badRequest(refusing("response_language")),
+    );
+    await gateway.bootstrapClaim(withUserEnv);
+    expect(sent.map((entry) => entry.body.capabilities)).toEqual([
+      {
+        approval_remember: true,
+        platform_tool_trust: true,
+        permission_rules: true,
+        engine_settings: true,
+        user_env: true,
+        response_language: true,
+      },
+      {
+        approval_remember: true,
+        platform_tool_trust: true,
+        permission_rules: true,
+        engine_settings: true,
+        user_env: true,
       },
     ]);
   });
@@ -339,12 +379,14 @@ describe("claim against a control-host older than user_env", () => {
         permission_rules: true,
         engine_settings: true,
         user_env: true,
+        response_language: true,
       },
       {
         approval_remember: true,
         platform_tool_trust: true,
         permission_rules: true,
         user_env: true,
+        response_language: true,
       },
     ]);
   });

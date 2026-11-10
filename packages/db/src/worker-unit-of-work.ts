@@ -8,6 +8,7 @@ import {
   type ModelCutCause,
   type PendingRememberRule,
   type PermissionGrant,
+  RESPONSE_LANGUAGE_VALUES,
   rememberRuleSchema,
   type SessionExtension,
   type TerminalTurnStatus,
@@ -1679,9 +1680,11 @@ function pinnedExtensionsOf(
 async function releaseRunOf(
   tx: Database,
   session: SessionRow,
-): Promise<Pick<WorkerBinding, "releaseTools" | "releaseSpec">> {
+): Promise<
+  Pick<WorkerBinding, "releaseTools" | "releaseSpec" | "releaseLanguage">
+> {
   if (session.agentReleaseId === null) {
-    return { releaseTools: null, releaseSpec: null };
+    return { releaseTools: null, releaseSpec: null, releaseLanguage: null };
   }
   const [release] = await tx
     .select({
@@ -1711,7 +1714,17 @@ async function releaseRunOf(
         ? tools
         : [],
     releaseSpec: verdict?.ok === true ? verdict.record.runtime_spec : null,
+    releaseLanguage: responseLanguageOf(release?.snapshot),
   };
+}
+
+// `follow-user`, a value this image does not know and a release made before
+// the field all ask for nothing, so no session is refused over a language.
+function responseLanguageOf(
+  snapshot: unknown,
+): (typeof RESPONSE_LANGUAGE_VALUES)[number] | null {
+  const language = (snapshot as { language?: unknown } | undefined)?.language;
+  return RESPONSE_LANGUAGE_VALUES.find((value) => value === language) ?? null;
 }
 
 // Only for a turn not yet finished: a grant outlives nothing past the turn

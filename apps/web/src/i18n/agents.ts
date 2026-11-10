@@ -82,6 +82,9 @@ export const agentsKo = {
   "agents.flow.leave": "나가기",
   "agents.flow.stay": "계속 쓰기",
   "agentCard.language": "답변 언어",
+  "agentCard.language.followUser": "사용자 언어 따라가기",
+  "agentCard.language.hint":
+    "고르면 이 언어로 답하고, 사용자가 다른 언어로 쓰면 그 언어를 따릅니다. 새 릴리스부터 적용되고 이미 시작한 세션은 그대로입니다.",
   "agentCard.model": "모델",
   "agentCard.modelHint":
     "고른 모델을 돌리는 프로필만 아래에서 고를 수 있습니다",
@@ -532,6 +535,9 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agents.flow.leave": "Leave",
   "agents.flow.stay": "Keep editing",
   "agentCard.language": "Reply language",
+  "agentCard.language.followUser": "Follow the user's language",
+  "agentCard.language.hint":
+    "A chosen language is used unless the person writes in another one. It applies from the next release; sessions already started keep theirs.",
   "agentCard.model": "Model",
   "agentCard.modelHint":
     "Only profiles that run the model you pick can be chosen below",
@@ -980,6 +986,9 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agents.flow.leave": "移動する",
   "agents.flow.stay": "編集を続ける",
   "agentCard.language": "回答言語",
+  "agentCard.language.followUser": "ユーザーの言語に合わせる",
+  "agentCard.language.hint":
+    "選んだ言語で答えますが、相手が別の言語で書いたらそちらに合わせます。次のリリースから適用され、開始済みのセッションは変わりません。",
   "agentCard.model": "モデル",
   "agentCard.modelHint": "選んだモデルを実行するプロファイルだけを下で選べます",
   "agentCard.blockedTools": "プロファイルがブロックしているツール",
