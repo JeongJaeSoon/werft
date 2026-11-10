@@ -1,0 +1,21 @@
+# The Codex worker overlay: builds the worker image that holds the Codex
+# engine instead of Claude Code (apps/worker/Dockerfile, WORKER_RUNTIME).
+# One worker image holds one engine, so a stack that runs Codex sessions points
+# WORKER_IMAGE at this image; the Claude image and this one are two images, not
+# a switch inside one.
+#
+#   export WORKER_IMAGE=werft-worker-codex:dev
+#   COMPOSE_FILE=infra/compose.yml:infra/compose.local.yml:infra/compose.codex-worker.yml
+#
+# It names no path, so it merges under either project directory. The provider
+# host api.openai.com:443 goes on the credential allowlist of a deployment that
+# calls the real Responses API (infra/test-ops.env.example); the fake-model
+# stack answers on its own address and needs nothing.
+services:
+  worker:
+    build:
+      args:
+        WORKER_RUNTIME: codex_app_server
+    # The smoke the worker entry runs once: resolves the Codex executable the
+    # way the runtime does and prints its version, failing on any other build.
+    command: ["bun", "run", "--filter", "@werft-ai/runtime-registry", "image:verify"]
