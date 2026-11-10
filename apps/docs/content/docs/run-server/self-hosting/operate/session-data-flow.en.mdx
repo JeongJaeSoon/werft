@@ -4,7 +4,7 @@ description: Where session events are stored, where secrets are masked, who can 
 ---
 
 The session data the worker receives from the engine (model replies, tool calls and results, permission requests, state changes) goes to the `events` table in the database. This table is the source of truth that features rely on. This page says what the table holds, what breaks when the flow is cut, where secrets are masked, who can read the content, and how to start the Langfuse collector example.
-Current monitoring (stdout JSON logs, `/readyz`, and DB queries collected by the Datadog Agent) is in [Datadog monitoring baseline](/run-server/self-hosting/operate/monitoring-datadog). The app has no OpenTelemetry (OTel) dependency and no trace exporter. The `trace_id` in the logs exists only as a field of the observability context, and nothing fills it.
+Current monitoring (stdout JSON logs, `/readyz`, and DB queries collected by the Datadog Agent) is in [Datadog monitoring baseline](/run-server/self-hosting/operate/monitoring-datadog). Traces are exported over standard OTLP when the operator configures it, and are off by default ([keys and how to turn it on](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#트레이스-내보내기-otlp)). When on, the `trace_id` and `span_id` in the logs are filled inside an active span.
 
 ## At a glance
 
@@ -72,7 +72,7 @@ The content of `events` is never deleted. The rows of a session that has been id
 
 There are two collector examples in `infra/observability/`. How to start Grafana LGTM and find a trace is in [Observability (OTel)](/observability); this page covers the Langfuse example. Both examples are compose projects that start apart from the Werft stack, and each puts an OpenTelemetry Collector in front to accept standard OTLP/HTTP. They are for checking OTLP reception on one computer and are not a recommended production setup. Which collector to use and how to run it is up to the operator.
 
-**What you can see.** Werft does not emit OTel traces. Running a Werft session creates no trace in the collector. What this section lets you check is that the example collector receives an OTLP trace and shows it on screen, and the trace it receives is a fake span made by `send-test-span.sh`.
+**What you can see.** The examples in this section assume trace export is off. With export on, Werft sends traces, but not through this section. What this section lets you check is that the example collector receives an OTLP trace and shows it on screen, and the trace it receives is a fake span made by `send-test-span.sh`.
 
 | Example | Directory | OTLP/HTTP endpoint | Screen | Signals |
 |---|---|---|---|---|

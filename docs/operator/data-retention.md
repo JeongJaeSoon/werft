@@ -8,7 +8,7 @@
 
 - **세션은 지우지 않고, 이벤트는 보관한 뒤에만 DB에서 뺀다.** `schema.ts`의 `toolCalls` 주석이 "Nothing deletes sessions; event rows leave only once archived"라고 적는다. 세션을 지우는 API도 없다. 세션 route에는 GET·POST·PATCH만 있다(`packages/core/src/schemas/responses.ts:161-214`). 그래서 세션에 딸린 행(turn, 이벤트, 도구 호출, 대기 요청, 사용량, receipt)은 세션을 닫아도 남는다. 오래 쉰 세션의 이벤트만 [세션 이벤트 보관](#세션-이벤트-보관)이 checkpoint bucket으로 옮긴다. 옮겨도 API 응답은 같다.
 - **기간이 지나면 지우는 것은 넷이다.** 권한 판정 기록(`authz_decisions`, 기본 90일), 로그인 세션(`web_sessions`, 만료 30일 뒤), Slack 설치 state(10분), 멈춘 세션의 worker 작업 공간(24시간)이다. checkpoint object는 기간이 아니라 pointer 기준으로 GC가 지운다.
-- **트레이스는 내보내지 않는다.** 지금 앱에는 OTLP exporter가 없다([트레이스와의 경계](#트레이스와-플랫폼-정본의-경계)).
+- **트레이스는 기본으로 내보내지 않는다.** 운영자가 `OTEL_TRACES_EXPORTER=otlp`와 수집기 주소를 설정해야 내보낸다([트레이스와의 경계](#트레이스와-플랫폼-정본의-경계)).
 
 ## 세션 실행 데이터 (PostgreSQL)
 
@@ -175,7 +175,7 @@ bucket은 `S3_BUCKET`(기본 `claude-sessions`, `infra/compose.core.yml:290`, `d
 - **D1 = C(혼합).** 기능이 기대는 이벤트는 DB `events` 표에 남기고, 이것이 세션 화면·SSE 재연결·turn 종료 판정·질문 알림·복구 판정의 정본이다. 트레이스는 운영자가 고른 OTLP 수집기로 내보내는 관측 신호이고 best effort다. 트레이스가 빠져도 플랫폼의 기록은 그대로다.
 - **D11 = OTLP 내보내기까지.** 플랫폼은 span을 만들어 표준 OTLP로 내보내는 데까지 맡는다. 수집기 선택, 수집기 안의 보존 기간, 대시보드는 운영자 몫이다. 그래서 트레이스의 보존 기간은 이 문서가 다루지 않는다.
 - **D8.** 이벤트 표 trim은 지금 무기한이고, 정책은 따로 정한다.
-- **지금 상태.** 앱에는 OTel 의존성도 trace exporter도 없다. 로그의 `trace_id`는 필드만 있고 채우지 않는다(`packages/observability/src/index.ts:21`). 엔진의 telemetry도 켜지 않는다. 내보내기는 그 결정의 1단계 구현이 넣는다. 내보낼 곳(OTLP 엔드포인트·헤더)은 설치처가 설정에서 정한다. 들어가면 트레이스에도 내용(프롬프트·답변·도구 입출력)이 기본으로 실리므로(D2), 그때 이 절과 [마스킹 절](#내용이-남는-곳과-마스킹)에 트레이스 쪽 마스킹을 더한다.
+- **지금 상태.** API가 OTLP exporter를 갖고 있고 기본은 꺼짐이다. 켜면 로그의 `trace_id`·`span_id`가 활성 span 안에서 채워진다. 엔진의 telemetry는 켜지 않는다. 내보낼 곳(OTLP 엔드포인트·헤더)은 설치처가 설정에서 정하며 키는 [api-server.md](api-server.md#트레이스-내보내기-otlp)에 있다. 켠 설치에서는 트레이스에 내용(프롬프트·답변·도구 입출력)이 기본으로 실린다(D2). 내용을 싣지 않으려면 `TRACE_CONTENT_MODE=metadata`로 설치 상한을 낮춘다. 워크스페이스별 content mode는 아직 없고 설치 상한만 적용된다. 이 절과 [마스킹 절](#내용이-남는-곳과-마스킹)의 트레이스 쪽 마스킹은 그 단위가 들어올 때 더한다.
 
 ## 세션 하나 따라가기
 
