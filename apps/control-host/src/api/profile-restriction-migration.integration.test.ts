@@ -219,6 +219,8 @@ integration("the profile restriction migration on PostgreSQL", () => {
       ]);
       expect(shut.code).toBe(1);
       expect(shut.out.gate_closed).toBe(true);
+      // The final check did not run: null, not an empty list.
+      expect(shut.out.still_needed).toBeNull();
       expect(await rowOf(db, agentId)).toBeUndefined();
 
       await setEngineSettingsGate(db, true);
