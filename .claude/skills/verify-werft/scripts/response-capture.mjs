@@ -55,8 +55,11 @@ const SECRET_KEY = new RegExp(`${SECRET_WORDS}|\\bsid\\b`, "i");
 const SESSION_NAME = /session$/i;
 const CODE_KEY = /^code$|[a-z][_-]?code$/i;
 const ERROR_KEY = /^errors?$|^error[_-]?code$|^status[_-]?code$/i;
-function secretName(rawName, parent = "", value = undefined) {
+function secretName(rawName, rawParent = "", value = undefined) {
+  // Both names are read as plain letters: a parent spelled sess\u0069on or
+  // sess%69on is still a session.
   const name = unescapeLetters(decodeAscii(rawName));
+  const parent = unescapeLetters(decodeAscii(rawParent));
   if (SECRET_KEY.test(name)) return true;
   const path = name.split(/[.[\]]+/).filter(Boolean);
   if (path.length > 1)

@@ -1255,6 +1255,18 @@ describe("maskBody: review inputs", () => {
       "197c87a/1 cut escaped key, two levels",
       `{"pass\\u0077ord":{"meta":{"message":"${S}`,
     ],
+    // d228542 Act-on 1: a session parent spelled with escapes still hides
+    // the id under it.
+    [
+      "d228542/1 cut escaped session, id below",
+      `{"sess\\u0069on":{"status":"run","id":"${S}"`,
+      ['"status":"run"'],
+    ],
+    [
+      "d228542/1 parsed %-encoded session, id below",
+      str({ ["sess" + "%69on"]: { status: "run", id: S } }),
+      ['"status":"run"'],
+    ],
     // A name the deny list never had: the allow list hides it anyway.
     [
       "6a56b53/x unknown secret name",
