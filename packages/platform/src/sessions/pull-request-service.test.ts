@@ -9,14 +9,17 @@ import {
 } from "@werft-ai/contracts";
 import { testCaller } from "@werft-ai/testkit";
 import {
+  ForgeCredentialError,
+  type ForgePullRequest,
+} from "../action/ports/forge.ts";
+import type { GitHubApi } from "../action/ports/github-api.ts";
+import {
   type AuthorizationPolicy,
   callerFor,
   createAuthorizationPolicy,
   type SessionAccess,
 } from "../musterrolle/policy.ts";
-import { ForgeCredentialError, type ForgePullRequest } from "../ports/forge.ts";
 import {
-  type GitHubApi,
   GitHubCallError,
   type GitHubGate,
   GitHubGateError,

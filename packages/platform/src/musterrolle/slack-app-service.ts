@@ -10,6 +10,7 @@ import type {
   SlackWarning,
 } from "@werft-ai/contracts";
 import type {
+  CreatedSlackApp,
   SlackAppActor,
   SlackAppRecord,
   SlackAppStore,
@@ -25,7 +26,6 @@ import {
 } from "./policy.ts";
 import { ACTOR_INACTIVE, NOT_FOUND, OUTRANKED } from "./service-errors.ts";
 import {
-  type CreatedSlackApp,
   SLACK_APP_GONE_CODES,
   SlackApiError,
   type SlackConfigApi,

@@ -32,7 +32,7 @@ import {
   type WorkspaceProfileState,
 } from "@werft-ai/contracts";
 import { z } from "zod";
-import { type GitCredential, repoRefOf } from "../ports/forge.ts";
+import { type GitCredential, repoRefOf } from "../action/ports/forge.ts";
 import type { InstallationProfileRecord } from "../ports/installation-profile-store.ts";
 import type { ToolCatalogs } from "./profile-tools.ts";
 
