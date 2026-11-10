@@ -219,6 +219,27 @@ async function insertQueuedTurn(
   });
 }
 
+/**
+ * Whether the release's agent runs and the release was approved, read under
+ * a share lock on the agent row so a pause that commits later waits for this
+ * acceptance, and one that committed earlier is seen.
+ */
+async function lockedNotRunnable(
+  tx: Database,
+  releaseId: string,
+): Promise<"agent_inactive" | "release_unapproved" | null> {
+  const [row] = await tx
+    .select({ status: agents.status, approvedAt: agentReleases.approvedAt })
+    .from(agentReleases)
+    .innerJoin(agents, eq(agents.id, agentReleases.agentId))
+    .where(eq(agentReleases.id, releaseId))
+    .limit(1)
+    .for("share", { of: agents });
+  if (!row) return null;
+  if (row.status !== "active") return "agent_inactive";
+  return row.approvedAt === null ? "release_unapproved" : null;
+}
+
 export function createPostgresSessionUnitOfWork(
   db: Database,
 ): SessionUnitOfWork {
@@ -249,6 +270,10 @@ export function createPostgresSessionUnitOfWork(
             outcome: "not_runnable" as const,
             reason: input.notRunnableReason,
           };
+        }
+        if (input.agentReleaseId !== undefined) {
+          const reason = await lockedNotRunnable(tx, input.agentReleaseId);
+          if (reason !== null) return { outcome: "not_runnable", reason };
         }
         const unbound = async (releaseId: string) => {
           const { receiptId } = await recordUnboundRefusal(tx, {

@@ -115,6 +115,7 @@ integration("credential bindings over HTTP on PostgreSQL", () => {
   let pool: Pool;
   let db: NodePgDatabase<typeof schema>;
   let app: ReturnType<typeof createApiApp>;
+  let staleApp: ReturnType<typeof createApiApp>;
 
   beforeAll(async () => {
     database = await createTempDatabase({ prefix: "credential_bindings_api" });
@@ -141,20 +142,35 @@ integration("credential bindings over HTTP on PostgreSQL", () => {
       catalog,
       credentials,
     });
-    const service = createSessionService({
-      limits: {
-        queuedInputLimitPerSession: 1_000,
-        storageLimitBytes: 1e15,
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
-      },
-      authorization,
-      inputs: createPostgresSessionUnitOfWork(db),
-      controls: createPostgresSessionControl(db),
-      reader: createPostgresSessionReader(db),
-      catalog,
-      releases: { ...agents, ...newSessionGitHubReaders(db) },
-      credentials,
+    const sessionsWith = (
+      releases: NonNullable<
+        Parameters<typeof createSessionService>[0]["releases"]
+      >,
+    ) =>
+      createSessionService({
+        limits: {
+          queuedInputLimitPerSession: 1_000,
+          storageLimitBytes: 1e15,
+          sessionCostLimitUsd: 1_000,
+          sessionTokenLimit: null,
+        },
+        authorization,
+        inputs: createPostgresSessionUnitOfWork(db),
+        controls: createPostgresSessionControl(db),
+        reader: createPostgresSessionReader(db),
+        catalog,
+        releases,
+        credentials,
+      });
+    const service = sessionsWith({
+      ...agents,
+      ...newSessionGitHubReaders(db),
+    });
+    // Its read of the agent is stale: it still finds the agent runnable.
+    const staleService = sessionsWith({
+      ...agents,
+      ...newSessionGitHubReaders(db),
+      notRunnableReason: async () => null,
     });
     const keys = createApiKeyService({
       authorization,
@@ -182,6 +198,14 @@ integration("credential bindings over HTTP on PostgreSQL", () => {
         registerApiKeyRoutes(router, keys);
         registerCredentialBindingRoutes(router, bindings);
       },
+    });
+    staleApp = createApiApp({
+      authMode: "api-key",
+      logger,
+      keyStore: new DatabaseApiKeyStore(db),
+      identity,
+      authorization,
+      registerRoutes: (router) => registerSessionRoutes(router, staleService),
     });
   }, 60_000);
 
@@ -597,5 +621,27 @@ integration("credential bindings over HTTP on PostgreSQL", () => {
     // answers with it.
     const replayed = await createSession(bearer(agentKey), acceptedKey);
     expect(replayed.status).toBe(201);
+
+    // A service that read the agent as runnable before the pause committed
+    // is stopped by the acceptance, which reads it again under lock.
+    const raced = await staleApp.request("/v1/sessions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...bearer(agentKey),
+        "Idempotency-Key": crypto.randomUUID(),
+      },
+      body: JSON.stringify({
+        profile_id: "claude-coding-v1",
+        repository_id: "sample-app",
+        message: "Summarise the minutes.",
+        agent_release_id: releaseId,
+      }),
+    });
+    expect(raced.status).toBe(409);
+    expect(await errorOf(raced)).toMatchObject({
+      code: "AGENT_NOT_RUNNABLE",
+      details: { reason_code: "agent_inactive" },
+    });
   });
 });
