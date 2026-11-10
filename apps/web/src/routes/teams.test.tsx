@@ -1844,7 +1844,12 @@ describe("에이전트 관리자", () => {
     expect(await screen.findByText(refusal)).toBeDefined();
     await waitFor(() => expect(picker.disabled).toBe(false));
     // Nothing was added, nothing is announced as done.
-    expect(screen.queryByText("결제팀")).toBeNull();
+    // 결제팀 also names the team page, so look for its admin row. `=== null`,
+    // not toBeNull: bun's toBeNull on a present element passes after ~50s.
+    expect(
+      screen.queryByRole("button", { name: "결제팀을(를) 관리자에서 빼기" }) ===
+        null,
+    ).toBe(true);
     expect(screen.getByText("Mate")).toBeDefined();
     // A toast region mounts as soon as one is raised and is filled later, so
     // its absence is the check; reading its text would pass before the fill.
