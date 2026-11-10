@@ -1,5 +1,5 @@
 {
-  "id": "34fca440-575f-45bc-bcba-f7002b988309",
+  "id": "a44b84d2-4d30-481a-90a6-db77e8d03583",
   "prevId": "ddc4b99d-3ecb-4b4f-9c6a-5d9c3d54b2e7",
   "version": "7",
   "dialect": "postgresql",
@@ -1979,7 +1979,13 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "agent_usage_workspace_agent_uniq": {
+          "name": "agent_usage_workspace_agent_uniq",
+          "nullsNotDistinct": false,
+          "columns": ["workspace_id", "agent_id"]
+        }
+      },
       "policies": {},
       "checkConstraints": {
         "agent_usage_scope_check": {
@@ -2108,21 +2114,21 @@
         }
       },
       "foreignKeys": {
-        "agent_usage_targets_agent_id_agent_usage_agent_id_fk": {
-          "name": "agent_usage_targets_agent_id_agent_usage_agent_id_fk",
-          "tableFrom": "agent_usage_targets",
-          "tableTo": "agent_usage",
-          "columnsFrom": ["agent_id"],
-          "columnsTo": ["agent_id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
         "agent_usage_targets_created_by_users_id_fk": {
           "name": "agent_usage_targets_created_by_users_id_fk",
           "tableFrom": "agent_usage_targets",
           "tableTo": "users",
           "columnsFrom": ["created_by"],
           "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "agent_usage_targets_usage_fk": {
+          "name": "agent_usage_targets_usage_fk",
+          "tableFrom": "agent_usage_targets",
+          "tableTo": "agent_usage",
+          "columnsFrom": ["workspace_id", "agent_id"],
+          "columnsTo": ["workspace_id", "agent_id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },

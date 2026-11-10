@@ -22,9 +22,10 @@ import {
 } from "./service-errors.ts";
 
 // Who may use an agent (94S-900): its scope and teams, edited by owners,
-// admins and the agent's admins (`agent.usage.manage`) and read by whoever
-// reads its settings. The setting decides nothing here; a session create or
-// input reads it elsewhere (94S-901).
+// admins and the agent's admins (`agent.usage.manage`), who are also the only
+// ones to read it: a plain member of the managing team reads settings but not
+// who else may use the agent. The setting decides nothing here; a session
+// create or input reads it elsewhere (94S-901).
 
 const NO_LONGER_MANAGER = () =>
   new SessionServiceError(
@@ -45,7 +46,7 @@ export function createAgentUsageService(deps: {
 
   return {
     async getAgentUsage(caller: Caller, agentId: string): Promise<AgentUsage> {
-      await requirePermitted(authorization, caller, "agent.settings_read", {
+      await requirePermitted(authorization, caller, "agent.usage.manage", {
         kind: "agent",
         id: agentId,
       });

@@ -5,11 +5,12 @@ import type {
   PutAgentUsageResult,
 } from "@werft-ai/platform";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
-import { lockedAdministers } from "./agent-admins.ts";
 import { lockPeople, receiptActorOf } from "./control-shared.ts";
 import { DB_NOW } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import {
+  agentAdmins,
+  agentAdminTeams,
   agents,
   agentUsage,
   agentUsageTargets,
@@ -22,31 +23,42 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // The edit takes rows in the order the notes' P1.6c gives (see also the list
 // in requester-locks.ts): user → membership → agent → agent_usage → admin rows
-// → the teams being added (id order) → agent_usage_targets → their member
-// rows. A team's archive takes agent_usage before the team, so the two meet
-// in that order and one waits for the other.
+// → every team it reads (id order) → relation rows → the actor's member rows.
+// A team's archive takes agent_usage before the team, so the two meet in that
+// order and one waits for the other.
 
 type Reader = Pick<Database, "select">;
 
+// One statement, so the scope and revision belong to the teams beside them.
 async function readState(
   tx: Reader,
   agentId: string,
 ): Promise<AgentUsageState | null> {
-  const [row] = await tx
-    .select({ scope: agentUsage.scope, revision: agentUsage.revision })
+  const rows = await tx
+    .select({
+      scope: agentUsage.scope,
+      revision: agentUsage.revision,
+      teamId: memberTeams.id,
+      teamName: memberTeams.name,
+    })
     .from(agentUsage)
-    .where(eq(agentUsage.agentId, agentId));
-  if (!row) return null;
-  const teams = await tx
-    .select({ id: memberTeams.id, name: memberTeams.name })
-    .from(agentUsageTargets)
-    .innerJoin(memberTeams, eq(memberTeams.id, agentUsageTargets.teamId))
-    .where(eq(agentUsageTargets.agentId, agentId))
+    .leftJoin(
+      agentUsageTargets,
+      eq(agentUsageTargets.agentId, agentUsage.agentId),
+    )
+    .leftJoin(memberTeams, eq(memberTeams.id, agentUsageTargets.teamId))
+    .where(eq(agentUsage.agentId, agentId))
     .orderBy(asc(memberTeams.name), asc(memberTeams.id));
+  const first = rows[0];
+  if (!first) return null;
   return {
-    scope: row.scope as AgentUsageScope,
-    teams,
-    revision: row.revision,
+    scope: first.scope as AgentUsageScope,
+    teams: rows.flatMap((row) =>
+      row.teamId !== null && row.teamName !== null
+        ? [{ id: row.teamId, name: row.teamName }]
+        : [],
+    ),
+    revision: first.revision,
   };
 }
 
@@ -89,60 +101,123 @@ async function put(
       .for("update");
     if (!usage) throw new Error(`agent_usage ${agentId} vanished under a lock`);
 
-    if (!manager) {
-      const administers = await lockedAdministers(
-        tx,
-        workspaceId,
-        agentId,
-        actor.userId,
-      );
-      if (!administers) return { outcome: "actor_inactive" };
-    }
-    if (usage.revision !== input.ifMatch) {
-      return { outcome: "version_mismatch", current: usage.revision };
-    }
-
-    const before = await tx
+    // Whoever writes this agent's targets holds its agent_usage row (this
+    // edit, a team's archive), so the list cannot move under the reads below
+    // and its own rows need no lock of their own.
+    const listed = await tx
       .select({ teamId: agentUsageTargets.teamId })
       .from(agentUsageTargets)
-      .where(eq(agentUsageTargets.agentId, agentId))
-      .orderBy(asc(agentUsageTargets.teamId))
-      .for("update");
-    const current = before.flatMap((row) => (row.teamId ? [row.teamId] : []));
+      .where(eq(agentUsageTargets.agentId, agentId));
+    const current = listed.flatMap((row) => (row.teamId ? [row.teamId] : []));
     const added = wanted.filter((id) => !current.includes(id));
     const removed = current.filter((id) => !wanted.includes(id));
 
-    if (added.length > 0) {
-      const live = await tx
-        .select({ id: memberTeams.id })
+    // Admin rows, then every team this decision reads in one id-ordered
+    // statement, then the relation rows, then the actor's member rows. A
+    // manager's right needs no team; only the teams being added are read.
+    let directAdmin = false;
+    let adminTeams: string[] = [];
+    let managingTeam: string | null = null;
+    if (!manager) {
+      const [direct] = await tx
+        .select({ userId: agentAdmins.userId })
+        .from(agentAdmins)
+        .where(
+          and(
+            eq(agentAdmins.workspaceId, workspaceId),
+            eq(agentAdmins.agentId, agentId),
+            eq(agentAdmins.userId, actor.userId),
+          ),
+        )
+        .for("share");
+      directAdmin = direct !== undefined;
+      // The agent row is held, so no admin team is added or dropped meanwhile.
+      adminTeams = (
+        await tx
+          .select({ teamId: agentAdminTeams.teamId })
+          .from(agentAdminTeams)
+          .where(
+            and(
+              eq(agentAdminTeams.workspaceId, workspaceId),
+              eq(agentAdminTeams.agentId, agentId),
+            ),
+          )
+      ).map((row) => row.teamId);
+      const [row] = await tx
+        .select({ teamId: agents.managingTeamId })
+        .from(agents)
+        .where(eq(agents.id, agentId));
+      managingTeam = row?.teamId ?? null;
+    }
+    const readTeams = [
+      ...new Set([
+        ...added,
+        ...adminTeams,
+        ...(managingTeam ? [managingTeam] : []),
+      ]),
+    ].sort();
+    const liveTeams = new Set<string>();
+    const roleIn = new Map<string, string>();
+    if (readTeams.length > 0) {
+      const teams = await tx
+        .select({ id: memberTeams.id, archivedAt: memberTeams.archivedAt })
         .from(memberTeams)
         .where(
           and(
             eq(memberTeams.workspaceId, workspaceId),
-            inArray(memberTeams.id, added),
-            isNull(memberTeams.archivedAt),
+            inArray(memberTeams.id, readTeams),
           ),
         )
         .orderBy(asc(memberTeams.id))
         .for("share");
-      if (live.length !== added.length) return { outcome: "team_not_found" };
+      for (const team of teams) {
+        if (team.archivedAt === null) liveTeams.add(team.id);
+      }
       if (!manager) {
+        if (adminTeams.length > 0) {
+          await tx
+            .select({ teamId: agentAdminTeams.teamId })
+            .from(agentAdminTeams)
+            .where(eq(agentAdminTeams.agentId, agentId))
+            .orderBy(asc(agentAdminTeams.teamId))
+            .for("share");
+        }
         const mine = await tx
-          .select({ teamId: memberTeamMembers.teamId })
+          .select({
+            teamId: memberTeamMembers.teamId,
+            role: memberTeamMembers.role,
+          })
           .from(memberTeamMembers)
           .where(
             and(
-              inArray(memberTeamMembers.teamId, added),
+              inArray(memberTeamMembers.teamId, readTeams),
               eq(memberTeamMembers.userId, actor.userId),
               isNull(memberTeamMembers.removedAt),
             ),
           )
           .orderBy(asc(memberTeamMembers.teamId))
           .for("share");
-        if (new Set(mine.map((row) => row.teamId)).size !== added.length) {
-          return { outcome: "team_not_allowed" };
-        }
+        for (const row of mine) roleIn.set(row.teamId, row.role);
       }
+    }
+
+    if (!manager) {
+      const administers =
+        directAdmin ||
+        adminTeams.some((id) => liveTeams.has(id) && roleIn.has(id)) ||
+        (managingTeam !== null &&
+          liveTeams.has(managingTeam) &&
+          roleIn.get(managingTeam) === "lead");
+      if (!administers) return { outcome: "actor_inactive" };
+    }
+    if (usage.revision !== input.ifMatch) {
+      return { outcome: "version_mismatch", current: usage.revision };
+    }
+    if (added.some((id) => !liveTeams.has(id))) {
+      return { outcome: "team_not_found" };
+    }
+    if (!manager && added.some((id) => !roleIn.has(id))) {
+      return { outcome: "team_not_allowed" };
     }
 
     const stored = await readState(tx, agentId);

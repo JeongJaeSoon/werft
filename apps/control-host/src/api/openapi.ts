@@ -6453,7 +6453,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Who may use an agent",
     description:
-      "`scope` is `workspace` (every member of the workspace) or `private` (the members of `teams`). Whoever can read the agent's settings reads it. `revision` is the `If-Match` of the next edit; it moves with every change, and with the archive of a team the agent lists. Reading it changes no session: this is the setting, not a decision.",
+      "`scope` is `workspace` (every member of the workspace) or `private` (the members of `teams`). Owners, admins and the agent's own admins read it, as they edit it; never an API key. `revision` is the `If-Match` of the next edit; it moves with every change, and with the archive of a team the agent lists. Reading it changes no session: this is the setting, not a decision.",
     auth: "session",
     success: {
       status: 200,

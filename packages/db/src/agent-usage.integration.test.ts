@@ -365,6 +365,19 @@ integration("agent usage on PostgreSQL", () => {
     expect(
       await refused(insertTeam, [agentId, workspaceId, randomUUID()]),
     ).toContain("agent_usage_targets_team_fk");
+    // A real team of another workspace, with either workspace id: a target
+    // cannot cross from its agent's workspace.
+    const foreign = await cast();
+    expect(
+      await refused(insertTeam, [agentId, workspaceId, foreign.managing]),
+    ).toContain("agent_usage_targets_team_fk");
+    expect(
+      await refused(insertTeam, [
+        agentId,
+        foreign.workspaceId,
+        foreign.managing,
+      ]),
+    ).toContain("agent_usage_targets_usage_fk");
     // A person target is one or the other, and the storage keeps it unique.
     const insertUser =
       "INSERT INTO agent_usage_targets (agent_id, workspace_id, user_id) VALUES ($1, $2, $3)";

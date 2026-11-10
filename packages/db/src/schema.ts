@@ -3845,6 +3845,12 @@ export const agentUsage = pgTable(
       columns: [table.workspaceId, table.agentId],
       foreignColumns: [agents.workspaceId, agents.id],
     }),
+    // The key agent_usage_targets points at, so a target cannot name another
+    // workspace than its agent's.
+    unique("agent_usage_workspace_agent_uniq").on(
+      table.workspaceId,
+      table.agentId,
+    ),
     check(
       "agent_usage_scope_check",
       sql`${table.scope} IN ('workspace','private')`,
@@ -3864,9 +3870,7 @@ export const agentUsageTargets = pgTable(
   "agent_usage_targets",
   {
     id: uuid().primaryKey().default(sql`gen_random_uuid()`),
-    agentId: uuid("agent_id")
-      .notNull()
-      .references(() => agentUsage.agentId),
+    agentId: uuid("agent_id").notNull(),
     workspaceId: uuid("workspace_id").notNull(),
     userId: uuid("user_id"),
     teamId: uuid("team_id"),
@@ -3886,6 +3890,11 @@ export const agentUsageTargets = pgTable(
     uniqueIndex("agent_usage_targets_user_uniq")
       .on(table.agentId, table.userId)
       .where(sql`${table.userId} IS NOT NULL`),
+    foreignKey({
+      name: "agent_usage_targets_usage_fk",
+      columns: [table.workspaceId, table.agentId],
+      foreignColumns: [agentUsage.workspaceId, agentUsage.agentId],
+    }),
     foreignKey({
       name: "agent_usage_targets_team_fk",
       columns: [table.workspaceId, table.teamId],
