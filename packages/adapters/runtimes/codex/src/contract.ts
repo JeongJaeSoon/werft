@@ -55,10 +55,22 @@ export class CodexAgentRuntime implements AgentRuntime {
     try {
       launch = codexLaunch(start, this.deps, this.host, relay);
       mkdirSync(launch.home, { recursive: true, mode: 0o700 });
+      return this.spawn(start, launch, relay, (made) => {
+        run = made;
+      });
     } catch (error) {
       relay?.close();
       throw error;
     }
+  }
+
+  private spawn(
+    start: RuntimeStart,
+    launch: ReturnType<typeof codexLaunch>,
+    relay: McpRelay | undefined,
+    publish: (run: CodexRun) => void,
+  ): CodexRun {
+    const servers = start.bundle.mcpServers;
     const process = spawnAppServer({
       command: codexExecutable(),
       args: launch.args,
@@ -66,7 +78,7 @@ export class CodexAgentRuntime implements AgentRuntime {
       env: launch.env,
       observer: this.deps.processObserver,
     });
-    run = new CodexRun({
+    const run: CodexRun = new CodexRun({
       transport: process.transport,
       launch,
       cwd: start.config.cwd,
@@ -97,6 +109,7 @@ export class CodexAgentRuntime implements AgentRuntime {
             },
           }),
     });
+    publish(run);
     return run;
   }
 }

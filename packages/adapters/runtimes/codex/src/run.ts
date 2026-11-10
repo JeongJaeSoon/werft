@@ -175,6 +175,9 @@ export class CodexRun implements AgentRun {
     });
     void options.transport.closed.then((info) => {
       if (this.closing) return;
+      this.closing = true;
+      this.stop.abort();
+      this.options.mcp?.release();
       this.endTurnWith(
         `The Codex app-server ended (${info.signal ?? `code ${String(info.code)}`})`,
       );
@@ -662,11 +665,29 @@ export class CodexRun implements AgentRun {
     if (early !== undefined) return refuse(early);
     const mcp = this.options.mcp;
     if (mcp === undefined) return refuse("No platform tools are served here");
+    // In flight from here, so a checkpoint cannot start while the pre-check or
+    // a person is still being waited on.
+    const token = `${call.tool}:${randomUUID()}`;
+    this.relayCalls.add(token);
+    const verdict = await this.judgeInFlight(call, mcp, idle);
+    if (verdict !== undefined) {
+      this.relayCalls.delete(token);
+      return refuse(verdict);
+    }
+    return { allowed: true, done: () => this.relayCalls.delete(token) };
+  }
+
+  /** The refusal text for a call that may not go upstream, or undefined when it may. */
+  private async judgeInFlight(
+    call: RelayCall,
+    mcp: NonNullable<CodexRunOptions["mcp"]>,
+    idle: () => string | undefined,
+  ): Promise<string | undefined> {
     if (this.options.precheckTool !== undefined) {
       const advice = await this.options
         .precheckTool(call.tool, call.arguments)
         .catch(() => null);
-      if (advice !== null) return refuse(advice);
+      if (advice !== null) return advice;
     }
     const itemId = this.claimMcpItem(call);
     if (!mcp.trusted.has(call.tool)) {
@@ -675,7 +696,7 @@ export class CodexRun implements AgentRun {
       // answers, except where the mode answers for them with a refusal.
       if (approvalPolicy !== "never") {
         if (answers === "none") {
-          return refuse("This tool is not permitted in the session's mode.");
+          return "This tool is not permitted in the session's mode.";
         }
         const allowed = await this.askPerson(
           `mcp:${itemId}`,
@@ -683,15 +704,12 @@ export class CodexRun implements AgentRun {
           itemId,
           call.arguments,
           { server: call.server },
+          call.signal,
         );
-        if (!allowed) return refuse("The tool call was not approved.");
-        const late = idle();
-        if (late !== undefined) return refuse(late);
+        if (!allowed) return "The tool call was not approved.";
       }
     }
-    const token = `${itemId}:${randomUUID()}`;
-    this.relayCalls.add(token);
-    return { allowed: true, done: () => this.relayCalls.delete(token) };
+    return idle();
   }
 
   /** The engine's item for a relay call: the oldest announced one for the tool not yet claimed, or a new one announced here. */
@@ -724,6 +742,7 @@ export class CodexRun implements AgentRun {
     itemId: string,
     input: Record<string, unknown>,
     display: Record<string, unknown>,
+    cancel?: AbortSignal,
   ): Promise<boolean> {
     let inputHash: string;
     try {
@@ -745,7 +764,12 @@ export class CodexRun implements AgentRun {
       localId: request.localId,
       answeredByUs: false,
     });
-    const answered = this.channel.request(request, this.stop.signal);
+    const answered = this.channel.request(
+      request,
+      cancel === undefined
+        ? this.stop.signal
+        : AbortSignal.any([this.stop.signal, cancel]),
+    );
     this.events$.push({ type: "approval.requested", request });
     const answer = await answered;
     this.open.delete(request.localId);

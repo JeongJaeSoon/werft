@@ -440,6 +440,51 @@ describe("the run judging a platform tool call", () => {
     await expect(ask("github", "thread-2")).rejects.toThrow();
   });
 
+  test("a call waiting on its pre-check is a tool in flight, and a lease taken meanwhile refuses it", async () => {
+    let finish: (advice: string | null) => void = () => {};
+    const t = setup({
+      precheck: () =>
+        new Promise<string | null>((resolve) => {
+          finish = resolve;
+        }),
+    });
+    await t.run.ready();
+    const pending = t.call();
+    expect(await t.run.prepareCheckpoint("turn_end")).toMatchObject({
+      status: "rejected",
+      reason: "tool_in_flight",
+    });
+    // A lease cannot be taken over an in-flight call, so the call is the one
+    // that has to notice a checkpoint that started some other way.
+    finish(null);
+    expect((await pending).allowed).toBe(true);
+  });
+
+  test("a request the engine cancels while a person is asked leaves nothing open", async () => {
+    const t = setup({ trusted: [] });
+    await t.run.ready();
+    const abort = new AbortController();
+    const waiting = t.run.judgeMcpCall({
+      tool: PUSH,
+      server: "github",
+      arguments: {},
+      signal: abort.signal,
+    });
+    await t.asked();
+    abort.abort();
+    expect((await waiting).allowed).toBe(false);
+    expect((await t.run.prepareCheckpoint("turn_end")).status).toBe("ready");
+  });
+
+  test("an engine that exits ends the relay and refuses later calls", async () => {
+    const t = setup();
+    await t.run.ready();
+    t.server.exit({ code: 1, signal: null, stderr: "" });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(t.released()).toBe(true);
+    expect((await t.call()).allowed).toBe(false);
+  });
+
   test("a closed run refuses, and ends the relay", async () => {
     const t = setup();
     await t.run.ready();
