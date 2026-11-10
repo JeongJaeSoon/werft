@@ -34,44 +34,51 @@ export function wanted(status, url, pattern) {
   return status >= 400 || (pattern?.test(url) ?? false);
 }
 
-// Names whose values are secrets. A substring match, so "access_token" and
-// "bootstrap_token" are covered; `sid` only as a whole key or word. One list,
-// read four ways depending on where the name is found:
-//   a parsed JSON key   secretKey(): error.code kept, session.id and a
-//                       session string hidden
-//   a form key (a=b)    FORM_KEY: also sid, code and any session… key
-//                       (session[id], session.id, session)
-//   unparsed text       TEXT_UNPARSED: also sid, code, and session… only as a
-//                       quoted key, since sessions:read is a scope, not a key
-//   parsed text         TEXT_PARSED: string values whose keys are masked
+// Whether the value under a name is a secret. One function for a parsed
+// JSON key, a form key (a=b) and a name found in text (the run of name
+// characters around a secret word), so the three cannot drift apart.
+//   - a secret word anywhere in the name: "access_token", "client_secret[0]",
+//     "session_id", "session id", a whole-word "sid";
+//   - a name ending in "session" ("session", "current_session"): hidden,
+//     unless its value is an object, which is masked key by key so that its
+//     "id" is hidden and the rest stays readable; "sessions" (a list, or the
+//     scope sessions:read) is not a session;
+//   - "id" under such a parent;
+//   - an OAuth or device code (code, authCode, user_code), except under
+//     error/errors, where it is the error code a report is read for;
+//   - a path ("session.id", "session[user][id]", "auth[code]"): secret if any
+//     segment is, each read with the segment before it as its parent.
+// The name is %-decoded first. A secret word matches anywhere in it.
 const SECRET_WORDS =
   "token|secret|password|passwd|cookie|authorization|api[_-]?key|private[_-]?key|csrf|session[_ -]?id|e-?mail";
-const SECRET_KEY = new RegExp(`${SECRET_WORDS}|^sid$`, "i");
-const FORM_KEY = new RegExp(
-  `${SECRET_WORDS}|\\bsid\\b|\\bcode\\b|session`,
-  "i",
-);
-const TEXT_UNPARSED = new RegExp(
-  `${SECRET_WORDS}|\\bsid\\b|\\bcode\\b|session\\w*(?=\\\\?["'])`,
-  "gi",
-);
-const TEXT_PARSED = new RegExp(`${SECRET_WORDS}|\\bsid\\b`, "gi");
-// An OAuth or device code (code, authCode, user_code). Under error/errors it
-// is the error code ("UNAUTHORIZED"), which a failed-request report is read
-// for; anywhere else it is hidden.
+const SECRET_KEY = new RegExp(`${SECRET_WORDS}|\\bsid\\b`, "i");
+const SESSION_NAME = /session$/i;
 const CODE_KEY = /^code$|[a-z][_-]?code$/i;
 const ERROR_KEY = /^errors?$|^error[_-]?code$|^status[_-]?code$/i;
+function secretName(rawName, parent = "", value = undefined) {
+  const name = decodeAscii(rawName);
+  if (SECRET_KEY.test(name)) return true;
+  const path = name.split(/[.[\]]+/).filter(Boolean);
+  if (path.length > 1)
+    return path.some((segment, i) =>
+      secretName(
+        segment,
+        i === 0 ? parent : path[i - 1],
+        i === path.length - 1 ? value : undefined,
+      ),
+    );
+  if (SESSION_NAME.test(name))
+    return !(value && typeof value === "object" && !Array.isArray(value));
+  if (/^id$/i.test(name) && SESSION_NAME.test(parent)) return true;
+  return (
+    CODE_KEY.test(name) && !ERROR_KEY.test(parent) && !ERROR_KEY.test(name)
+  );
+}
 
 // A parsed JSON body is masked by key at any depth and for any value type
 // (string, array, object); escaped key spellings are decoded by the parse.
 // Every string value left goes through maskBody again, so form pairs and
 // JSON serialized into a string meet the same steps as a whole body.
-function secretKey(key, parent, value) {
-  if (SECRET_KEY.test(key)) return true;
-  if (/^session$/i.test(key) && typeof value === "string") return true;
-  if (/^id$/i.test(key) && /^session$/i.test(parent)) return true;
-  return CODE_KEY.test(key) && !ERROR_KEY.test(parent) && !ERROR_KEY.test(key);
-}
 // Nested deeper than this, a string value is hidden whole.
 const MAX_DEPTH = 4;
 function hideSecrets(value, parent, depth) {
@@ -83,7 +90,7 @@ function hideSecrets(value, parent, depth) {
     return Object.fromEntries(
       Object.entries(value).map(([k, v]) => [
         k,
-        secretKey(k, parent, v) ? "(hidden)" : hideSecrets(v, k, depth),
+        secretName(k, parent, v) ? "(hidden)" : hideSecrets(v, k, depth),
       ]),
     );
   return value;
@@ -141,39 +148,45 @@ function valueEnd(s, i, bareEnd = /^[^\s,}\]&]*/) {
   return i + bare.length;
 }
 
-// JSON that sits inside other text, or a body that is not valid JSON (a cut
-// body, form or query pairs, `key=value` lines). Quotes are never paired here
-// (a stray, escaped or missing one broke every pairing scheme): look for a
-// secret word, take the first `:` or `=` after it however far away (the rest
-// of a name with brackets, commas or any length, its closing quote, a tab),
-// and hide the value that follows, whatever its shape. Over-hiding prose such
-// as "token expired: retry" is the safe side. The next separator is found
-// once per position, so the scan stays linear in the text.
-// A body that did not parse also has `code` hidden: without the parse there
-// is no telling error.code from an OAuth code. It has any `session` value
-// hidden too, object and all: a cut or prefixed body cannot be parsed to
-// find the `id` inside one (session.id).
-// A body that parsed has its keys masked already; there the scan looks only
-// for secrets written inside string values, and a separator more than 256
-// characters away or past structure (`,;{}`) is not taken, so prose such
-// as "token is invalid" does not hide the next field.
+// Text that is not JSON (a cut body, form or query pairs, `key=value` lines,
+// JSON behind other text). Quotes are never paired here (a stray, escaped or
+// missing one broke every pairing scheme): find a secret word, read the name
+// around it (secretName decides), take the first `:` or `=` after it however
+// far away (the rest of a name with brackets, commas or any length, its
+// closing quote, a tab), and hide the value that follows, whatever its shape.
+// Over-hiding prose such as "token expired: retry" is the safe side. The next
+// separator is found once per position and a name is read 64 characters
+// each way at most, so the scan stays linear in the text.
+const NAME_AT = new RegExp(
+  `${SECRET_WORDS}|\\bsid\\b|\\bcode\\b|session`,
+  "gi",
+);
+const nameAround = (text, from, to) => {
+  let a = from;
+  let b = to;
+  while (a > 0 && from - a < 64 && /[\w.[\]$-]/.test(text[a - 1])) a--;
+  while (b < text.length && b - to < 64 && /[\w.[\]$-]/.test(text[b])) b++;
+  return text.slice(a, b);
+};
+
 // Form pairs (a=1&b=2) are split on the raw text, before %XX is decoded, so
 // an encoded "&", ";" or space inside a secret value cannot end its mask and
 // leave the rest of the value in the report. The key is decoded to be read
-// (FORM_KEY) and the value ends where valueEnd() says: at its closing quote,
+// (secretName) and the value ends where valueEnd() says: at its closing quote,
 // escapes skipped, or for a bare value at a raw "&", ";" or space, running
-// through any quoted part inside it (ab"c d"). The scan goes on inside a
+// through any quoted part inside it (ab"c d", %22c d%22). The scan goes on inside a
 // value it leaves, so a pair whose own separators are encoded
 // (a%3D1%26password%3D…) is still found. Keys are read up to 256 characters,
 // which keeps the scan linear.
-const FORM_BARE = /^(?:[^&;\s"']|"(?:[^"\\]|\\.)*"?|'(?:[^'\\]|\\.)*'?)*/;
+const FORM_BARE =
+  /^(?:%22(?:(?!%22)[\s\S])*(?:%22)?|[^&;\s"']|"(?:[^"\\]|\\.)*"?|'(?:[^'\\]|\\.)*'?)*/i;
 function hideFormPairs(text) {
   const pair = /(^|[&;?\s]|%2[60]|%3B)([^=&;\s]{1,256}?)(=|%3D)/gi;
   let out = "";
   let last = 0;
   for (let m = pair.exec(text); m; m = pair.exec(text)) {
     const start = m.index + m[0].length;
-    if (start < last || !FORM_KEY.test(decodeAscii(m[2]))) continue;
+    if (start < last || !secretName(m[2])) continue;
     const end = valueEnd(text, start, FORM_BARE);
     if (end === start) continue;
     out += `${text.slice(last, start)}(hidden)`;
@@ -182,27 +195,26 @@ function hideFormPairs(text) {
   }
   return out + text.slice(last);
 }
-function hideEmbedded(text, pattern, near) {
+function hideEmbedded(text) {
+  const pattern = new RegExp(NAME_AT);
   let out = "";
   let last = 0;
   let sep = -1; // the first ":" or "=" at or after the last search start
-  pattern.lastIndex = 0;
   for (let m = pattern.exec(text); m; m = pattern.exec(text)) {
     const from = m.index + m[0].length;
+    if (!secretName(nameAround(text, m.index, from))) continue;
     if (sep < from) {
       const next = /[:=]/g;
       next.lastIndex = from;
       sep = next.exec(text)?.index ?? text.length;
     }
     if (sep >= text.length) break;
-    if (near && (sep - from > 256 || /[,;{}]/.test(text.slice(from, sep))))
-      continue;
     const start =
       sep + 1 + /^\s*/.exec(text.slice(sep + 1, sep + 257))[0].length;
     out += `${text.slice(last, start)}"(hidden)"`;
     // Outside JSON a bare value runs to a space or the next form pair: a
     // bracket inside it (a[0]=…) must not end it before a later secret key.
-    last = near ? valueEnd(text, start) : valueEnd(text, start, /^[^\s&]*/);
+    last = valueEnd(text, start, /^[^\s&]*/);
     pattern.lastIndex = Math.max(last, start);
   }
   return out + text.slice(last);
@@ -245,27 +257,33 @@ function decodeRefs(text) {
 const withheld = (text) =>
   MARKUP.test(text) && SECRET_HINT.test(decodeRefs(text));
 
-// One order for every body and every string value inside one: parse (plain or
-// behind a prefix) and mask by key, string values recursing; or, when it does
-// not parse, hide form pairs on the raw text; then decode and run the text
-// masks below.
+// One order for every body and every string value inside one:
+//   1. parse it as JSON, whole or behind a prefix, and mask by key, each
+//      string value going through maskBody again;
+//   2. text that did not parse (the whole body, or the prefix before the
+//      JSON, which may be the start of a cut body) has form pairs hidden on
+//      the raw text, then the text scan;
+//   3. both then get the decoding and the token, cookie, invite, query and
+//      email masks.
 export function maskBody(text, depth = 0) {
-  let out = String(text);
-  let parsed = false;
+  const raw = String(text);
+  const json = parseJson(raw);
+  if (!json) return maskText(raw, false);
+  return (
+    maskText(json.prefix, false) +
+    maskText(JSON.stringify(hideSecrets(json.value, "", depth)), true)
+  );
+}
+function parseJson(text) {
   try {
-    out = JSON.stringify(hideSecrets(JSON.parse(out), "", depth));
-    parsed = true;
+    return { prefix: "", value: JSON.parse(text) };
   } catch {
-    // Not JSON (HTML, plain text, a cut body): the patterns below still run.
-    const prefixed = parsePrefixed(out);
-    if (prefixed) {
-      out =
-        prefixed.prefix +
-        JSON.stringify(hideSecrets(prefixed.value, "", depth));
-      parsed = true;
-    }
+    return parsePrefixed(text);
   }
-  if (!parsed) out = hideFormPairs(out);
+}
+function maskText(text, parsed) {
+  if (text === "") return text;
+  let out = parsed ? text : hideFormPairs(text);
   out = decodeAscii(out);
   // A key may be spelled with t-style escapes; write the plain letters
   // back before searching (only [A-Za-z0-9_-], so no quote or bracket moves).
@@ -275,8 +293,9 @@ export function maskBody(text, depth = 0) {
   });
   if (withheld(out))
     return `(markup with secret-like names withheld, ${out.length} chars)`;
+  if (!parsed) out = hideEmbedded(out);
   return (
-    hideEmbedded(out, parsed ? TEXT_PARSED : TEXT_UNPARSED, parsed)
+    out
       .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/gi, "$1 (hidden)")
       .replace(
         /\b((?:set-)?cookie|authorization)\s*[:=]\s*(?:"[^"]*"|"[^"\r\n]*|[^\r\n"])+/gi,

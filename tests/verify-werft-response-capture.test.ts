@@ -992,7 +992,11 @@ describe("maskBody: encoded separators and cut nested JSON", () => {
       false,
     );
     expect(leaks('{"current_session":{"id":"SENTINEL')).toBe(false);
-    expect(leaks('{"sessions":[{"id":"SENTINEL","x":1}')).toBe(false);
+    // A session record id in a list is a resource id, not a credential: the
+    // same as in a parsed body (see "session ids in a list").
+    expect(maskBody('{"sessions":[{"id":"sess-one","x":1}')).toContain(
+      "sess-one",
+    );
   });
 
   test("a session id nested in a cut JSON body behind a prefix", () => {
@@ -1139,6 +1143,57 @@ describe("maskBody: review inputs", () => {
     // 0f37bf3 Consider: a session string value, "session id:" in prose.
     ["0f37bf3/C session string", str({ session: S, ok: 1 }), ['"ok":1']],
     ["0f37bf3/C session id prose", str({ message: `session id: ${S}` })],
+    // f6ef4a5 Act-on 1: a cut body ending in a closed array; the text
+    // before the array was masked as parsed.
+    [
+      "f6ef4a5/1 cut before a closed array",
+      `{"session":{"id":"${S}","roles":["a","b"]`,
+    ],
+    [
+      "f6ef4a5/1 the same behind while(1);",
+      `while(1);{"session":{"id":"${S}","roles":["a"]`,
+    ],
+    [
+      "f6ef4a5/1 the same in a string value",
+      str({ detail: `{"session":{"id":"${S}","roles":["a"]` }),
+    ],
+    ["f6ef4a5/1 session form pair before JSON", `session=${S}{"a":1}`],
+    // f6ef4a5 Act-on 2: session keys with a path, as JSON keys and form keys.
+    [
+      "f6ef4a5/2 JSON key session.id",
+      str({ ["session" + ".id"]: S, ok: 1 }),
+      ['"ok":1'],
+    ],
+    [
+      "f6ef4a5/2 JSON key session[id]",
+      str({ ["session" + "[id]"]: S, ok: 1 }),
+      ['"ok":1'],
+    ],
+    [
+      "f6ef4a5/2 JSON key session[user][id]",
+      str({ ["session" + "[user][id]"]: S }),
+    ],
+    [
+      "f6ef4a5/2 form key session[user][id]",
+      `a=1&session[user][id]=${S}`,
+      ["a=1"],
+    ],
+    // f6ef4a5 Consider: a session array, unquoted JS objects, plain
+    // "session: value", an encoded quote around a value with a space.
+    ["f6ef4a5/C session array", str({ session: [S], ok: 1 }), ['"ok":1']],
+    [
+      "f6ef4a5/C session object keeps its status",
+      str({ session: { status: "run", id: S } }),
+      ['"status":"run"'],
+    ],
+    ["f6ef4a5/C unquoted JS object, cut", `{session:{id:'${S}`],
+    ["f6ef4a5/C unquoted JS object", `{session: {id: '${S}'}}`],
+    ["f6ef4a5/C plain session: value", `session: ${S}`],
+    [
+      "f6ef4a5/C encoded quote, raw space",
+      `password=%22keep ${S}%22&x=1`,
+      ["x=1"],
+    ],
   ];
   test.each(rows)("%s", (_name, body, keep = []) => {
     const out = maskBody(body);
@@ -1175,6 +1230,18 @@ describe("maskBody: review inputs", () => {
       "plain form fields",
       "error=denied&reason=expired",
       ["error=denied&reason=expired"],
+    ],
+    // f6ef4a5 Consider: a session record id in a list is a resource id
+    // (/v1/sessions/{id}, read with an API key), not a credential.
+    [
+      "session ids in a list",
+      str({ sessions: [{ id: "sess-one", status: "idle" }] }),
+      ["sess-one", "idle"],
+    ],
+    [
+      "sessions:read as a form value",
+      "scope=sessions:read",
+      ["scope=sessions:read"],
     ],
   ];
   test.each(readable)("keeps %s", (_name, body, keep) => {
