@@ -177,6 +177,8 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     "channel",
     // 0193
     "slack_message",
+    // 0263
+    "trace_context",
   ],
   // kind arrives as 'service'
   api_keys: [
