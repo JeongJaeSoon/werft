@@ -5,7 +5,8 @@ import {
   PULL_REQUEST_TEMPLATE_MAX_BYTES,
   type PullRequestTemplateRecord,
 } from "@werft-ai/contracts";
-import type { GitHubApi, GitTreeEntry } from "../ports/github-gate.ts";
+import type { RepositoryReadable } from "../action/ports/capabilities.ts";
+import type { GitTreeEntry } from "../action/ports/github-api.ts";
 import { closeOpenBlocks } from "./git-attribution.ts";
 import { breakReferences, stripEngineSignatures } from "./pull-request-text.ts";
 
@@ -68,11 +69,6 @@ export type TemplateRead =
       error?: string;
     };
 
-export type TemplateForge = Pick<
-  GitHubApi,
-  "getRepository" | "getBranchHead" | "readTree" | "readBlob"
->;
-
 class Skip extends Error {
   constructor(
     readonly reason: TemplateSkip,
@@ -101,7 +97,7 @@ function recordedPath(parts: readonly string[]): string {
  * caller opens the pull request on the platform's default template.
  */
 export async function readRepositoryTemplate(
-  forge: TemplateForge,
+  forge: RepositoryReadable,
   options: {
     templateName?: string | null;
   } = {},

@@ -19,14 +19,20 @@ import {
   type UpdatePullRequestRequest,
   type UpdatePullRequestResponse,
 } from "@werft-ai/contracts";
-import type { AuthorizationPolicy } from "../musterrolle/policy.ts";
+import type {
+  Commentable,
+  PullRequestMergeable,
+  PullRequestReadable,
+  PullRequestWritable,
+  RepositoryReadable,
+} from "../action/ports/capabilities.ts";
 import {
   ForgeCredentialError,
   type ForgePullRequest,
   type ForgePullRequestDetail,
-} from "../ports/forge.ts";
+} from "../action/ports/forge.ts";
+import type { AuthorizationPolicy } from "../musterrolle/policy.ts";
 import {
-  type GitHubApi,
   GitHubCallError,
   type GitHubGate,
   GitHubGateError,
@@ -139,6 +145,13 @@ const EMPTY_RESULT: PullRequestReceiptResult = {
   created: null,
 };
 
+/** What this service asks of a forge: no workflow runs, no reviews. */
+type PullRequestForge = PullRequestReadable &
+  PullRequestWritable &
+  PullRequestMergeable &
+  Commentable &
+  RepositoryReadable;
+
 /** The hidden line that tells the platform's comment apart on the forge. */
 export function commentMarker(sessionId: string, marker: string): string {
   return `<!-- werft:${sessionId}:${marker} -->`;
@@ -222,7 +235,7 @@ export function createPullRequestService(deps: {
    * leaves the tail alone. Both entries that write a body come through here.
    */
   async function bodyFor(
-    forge: GitHubApi,
+    forge: RepositoryReadable,
     content: {
       body?: string | undefined;
       summary?: string | undefined;
@@ -472,7 +485,8 @@ export function createPullRequestService(deps: {
       throw error;
     }
     if (grant === null) return await refuse("no_forge", fields);
-    return { forge: grant.api, base: entry.branch };
+    const forge: PullRequestForge = grant.api;
+    return { forge, base: entry.branch };
   }
 
   async function pullRequestOf(ownerId: string, source: PullRequestSource) {
@@ -765,7 +779,7 @@ export function createPullRequestService(deps: {
       // the stage waits out its backoff; any other commit, a failed compare
       // and the last attempt all end the stage.
       const lagsBehind = async (
-        forge: GitHubApi,
+        forge: PullRequestReadable,
         headSha: string,
       ): Promise<boolean> => {
         try {
@@ -776,7 +790,7 @@ export function createPullRequestService(deps: {
         }
       };
       const headMoved = async (
-        forge: GitHubApi,
+        forge: PullRequestReadable,
         seen: { number: number; url: string; headSha: string },
       ): Promise<PullRequestDrainOutcome> => {
         if (
@@ -835,7 +849,7 @@ export function createPullRequestService(deps: {
         throw error;
       }
       if (grant === null) return stop("failed", "no_forge");
-      const forge = grant.api;
+      const forge: PullRequestForge = grant.api;
       const repository = `${grant.repo.owner}/${grant.repo.name}`.toLowerCase();
 
       let listed: Awaited<ReturnType<typeof forge.findPullRequestsForBranch>>;

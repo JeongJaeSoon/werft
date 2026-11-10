@@ -2,6 +2,7 @@ import type {
   AgentCard,
   AgentDetail,
   AgentRelease,
+  AgentStatus,
   AgentSummary,
   AgentVersion,
   CountAgentsResponse,
@@ -238,6 +239,11 @@ export interface AgentStore {
     workspaceId: string,
     releaseId: string,
   ): Promise<AgentRelease | null>;
+  /** The agent's status alone, for a check that must not read its releases. */
+  agentStatus(
+    workspaceId: string,
+    agentId: string,
+  ): Promise<AgentStatus | null>;
   /**
    * Whether a release of the agent made after this one has ever been
    * activated: going back to this one is then a rollback.

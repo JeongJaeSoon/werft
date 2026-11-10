@@ -13,7 +13,7 @@ import {
   ForgeCredentialError,
   type GitCredential,
   repoRefOf,
-} from "../ports/forge.ts";
+} from "../action/ports/forge.ts";
 import {
   type GitHubConnections,
   type GitHubGate,

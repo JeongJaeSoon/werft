@@ -55,6 +55,7 @@ import {
   MAX_RESTORE_PROFILES,
 } from "@werft-ai/contracts";
 import type { RuntimeFingerprint } from "@werft-ai/runtime-core";
+import { repoRefOf } from "../action/ports/forge.ts";
 import {
   type CheckpointRequestDecision,
   type RestoreFallback,
@@ -78,7 +79,6 @@ import type {
   CheckpointVerifier,
 } from "../ports/checkpoint-verifier.ts";
 import type { CommitAttributionLedger } from "../ports/commit-attributions.ts";
-import { repoRefOf } from "../ports/forge.ts";
 import {
   type GitHubGate,
   GitHubGateError,

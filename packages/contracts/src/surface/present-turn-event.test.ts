@@ -1,12 +1,11 @@
 import { describe, expect, test } from "bun:test";
-
-import * as contracts from "../index.ts";
 import {
   SESSION_EVENT_NAMES,
   type SessionEventName,
   STATUS_EVENT_PHASE_VALUES,
   sseEventSchema,
-} from "./event.ts";
+} from "../api/event.ts";
+import * as contracts from "../index.ts";
 import {
   presentTurnEvent,
   type TurnEventPresentation,
