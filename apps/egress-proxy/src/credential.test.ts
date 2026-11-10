@@ -781,6 +781,19 @@ describe("startCredentialProxy", () => {
         message({ type: "input_file", file_id: "file_1" }),
         message({ type: "input_image", image_url: "https://x.test/a.png" }),
         message({ type: "input_image", file_id: "file_2" }),
+        // A tool result carries its parts in `output`, not `content`.
+        JSON.stringify({
+          model: "gpt-5.5",
+          input: [
+            {
+              type: "function_call_output",
+              call_id: "call_1",
+              output: [
+                { type: "input_image", image_url: "https://x.test/b.png" },
+              ],
+            },
+          ],
+        }),
       ]) {
         expect((await responses(server.port, { body })).status).toBe(400);
       }

@@ -218,7 +218,11 @@ function carriesRemoteInput(value: unknown, depth: number): boolean {
         !part.image_url.startsWith("data:"))
     );
   }
-  return carriesRemoteInput(part.content, depth + 1);
+  // A message's parts are in `content`; a tool result's, in `output`.
+  return (
+    carriesRemoteInput(part.content, depth + 1) ||
+    carriesRemoteInput(part.output, depth + 1)
+  );
 }
 const PROVIDER_PATHS = new Set([
   "/v1/messages",
