@@ -810,6 +810,7 @@ describe("Slack payload fixtures: what the drain sends", () => {
       "model-notice-link": await sent(
         claim({
           kind: "model_notice",
+          channelId: "U0RECIPIENT",
           threadTs: "",
           body: { text: "The model was changed", locale: "en" },
         }),
@@ -1032,7 +1033,7 @@ describe("Slack payload fixtures: card edits and status writes", () => {
     const facts = (
       over: Partial<SlackThreadStatusFacts>,
     ): SlackThreadStatusFacts => ({
-      admissionState: "open" as never,
+      admissionState: "active",
       executionRevoked: false,
       unknownTurn: false,
       checkpointRevision: null,
@@ -1048,7 +1049,7 @@ describe("Slack payload fixtures: card edits and status writes", () => {
       "waiting-on-request": await statusWritten(
         facts({ answerableRequest: true }),
       ),
-      closed: await statusWritten(facts({ admissionState: "closed" as never })),
+      closed: await statusWritten(facts({ admissionState: "closed" })),
       "unchanged-is-skipped": await statusWritten(facts({}), "active"),
     });
   });

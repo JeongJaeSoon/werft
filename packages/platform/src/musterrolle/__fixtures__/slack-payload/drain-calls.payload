@@ -146,7 +146,7 @@
     [
       "postMessage",
       {
-        "channelId": "C0OPS",
+        "channelId": "U0RECIPIENT",
         "text": "The model was changed\n\n<https://console.example/sessions/019a0000-0000-7000-8000-0000000000a5|Open on the web>",
         "threadTs": ""
       }
