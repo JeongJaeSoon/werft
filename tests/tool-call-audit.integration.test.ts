@@ -21,7 +21,6 @@ import {
   createWorkerGateway,
   type SessionCatalog,
   type WorkerPrincipal,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { and, eq, sql } from "drizzle-orm";
@@ -29,35 +28,32 @@ import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createApiApp } from "../apps/control-host/src/api/app.ts";
 import { registerSessionRoutes } from "../apps/control-host/src/api/routes/sessions.ts";
+import { testCatalog } from "../apps/control-host/src/testing/catalog.ts";
+import {
+  allowingPolicy,
+  allowRepositories,
+  releaseIn,
+  sessionReleases,
+  startingInWorkspace,
+} from "../apps/control-host/src/testing/releases.ts";
 
 const databaseUrl = process.env.QUEUE_DATABASE_URL;
 const integration = databaseUrl ? describe : describe.skip;
 
-const PROFILE_ID = "claude-coding-v1";
-const catalog: SessionCatalog = withSeededInstallation({
-  profiles: {
-    [PROFILE_ID]: {
-      runtime_kind: "claude_agent_sdk",
-      runtime_version: "0.3.270",
-      model: "claude-sonnet-5",
-      tools: [],
-      permission_mode: "default",
-      provider: {
-        kind: "litellm",
-        endpoint: "https://litellm.invalid",
-        auth: {
-          kind: "api_key",
-          value: "catalog-provider-key",
-          ref: { value_env: "PROVIDER_KEY" },
-        },
-      },
+const catalog: SessionCatalog = testCatalog({
+  provider: {
+    kind: "litellm",
+    endpoint: "https://litellm.invalid",
+    auth: {
+      kind: "api_key",
+      value: "catalog-provider-key",
+      ref: { value_env: "PROVIDER_KEY" },
     },
   },
   repositories: {
     "sample-app": {
       url: "https://example.invalid/app.git",
       branch: "main",
-      profiles: [PROFILE_ID],
     },
   },
 });
@@ -81,25 +77,34 @@ integration("tool call audit end to end", () => {
   let server: ReturnType<typeof Bun.serve>;
   let workers: ReturnType<typeof createWorkerGateway>;
   let findings: Array<Record<string, unknown>> = [];
-  const owner = `owner-${crypto.randomUUID()}`;
+  const owner = crypto.randomUUID();
+  let releaseId = "";
 
   beforeAll(async () => {
     database = await createTempDatabase({ prefix: "tool_call_audit_e2e" });
     pool = new Pool({ connectionString: database.url, max: 8 });
     db = drizzle(pool, { schema });
-    const sessions = createSessionService({
-      authorization: createAuthorizationPolicy(),
-      inputs: createPostgresSessionUnitOfWork(db),
-      controls: createPostgresSessionControl(db),
-      reader: createPostgresSessionReader(db),
-      catalog,
-      limits: {
-        queuedInputLimitPerSession: 1_000,
-        storageLimitBytes: 1e15,
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
-      },
-    });
+    releaseId = await releaseIn(db, owner);
+    await allowRepositories(db, owner, ["sample-app"]);
+    const service = (authorization: typeof allowingPolicy) =>
+      createSessionService({
+        authorization,
+        inputs: createPostgresSessionUnitOfWork(db),
+        controls: createPostgresSessionControl(db),
+        reader: createPostgresSessionReader(db),
+        catalog,
+        limits: {
+          queuedInputLimitPerSession: 1_000,
+          storageLimitBytes: 1e15,
+          sessionCostLimitUsd: 1_000,
+          sessionTokenLimit: null,
+        },
+        releases: sessionReleases(db, catalog),
+      });
+    const sessions = startingInWorkspace(
+      service(createAuthorizationPolicy()),
+      service(allowingPolicy),
+    );
     workers = createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
       catalog,
@@ -134,7 +139,7 @@ integration("tool call audit end to end", () => {
         "X-Owner-Id": owner,
       },
       body: JSON.stringify({
-        profile_id: PROFILE_ID,
+        agent_release_id: releaseId,
         repository_id: "sample-app",
         message: "first turn",
       }),

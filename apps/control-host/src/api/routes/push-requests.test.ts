@@ -36,7 +36,6 @@ const RECEIPT = "33333333-3333-4333-8333-333333333333";
 const COMMIT = "a".repeat(40);
 // A session whose release has no GitHub settings: its own repository only.
 const NO_GITHUB = {
-  profileId: null,
   attached: null,
   policySource: "release" as const,
   github: null,
@@ -339,7 +338,6 @@ describe("push request routes", () => {
       });
     const session = {
       repositoryId: "sample-app",
-      profileId: "default",
       attached: null,
       policySource: "release" as const,
       github,
