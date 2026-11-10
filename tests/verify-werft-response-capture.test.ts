@@ -1078,3 +1078,107 @@ describe("maskBody: session as a word, not a key", () => {
     expect(out).toContain("sessions:write");
   });
 });
+
+// Every input from the orchestrator reviews of werft#1327 (a16528c, 62a1f6c,
+// 0f37bf3), in one table so a later change that reopens one of them fails
+// here. Secrets are built by concatenation from a placeholder word; `keep`
+// lists text that must stay readable.
+describe("maskBody: review inputs", () => {
+  const S = ["SENT", "INEL"].join("");
+  const str = JSON.stringify;
+  let layers = str({ session: { id: S } });
+  for (let i = 0; i < 4; i++) layers = str({ detail: layers });
+  const rows: [string, string, string[]?][] = [
+    // a16528c Act-on 1: an encoded separator inside a form value.
+    [
+      "a16528c/1 encoded & and space",
+      `password=keep%26${S}%20${S}&x=1`,
+      ["x=1"],
+    ],
+    ["a16528c/1 double encoded &", `a=1&client_secret=one%2526${S}`, ["a=1"]],
+    ["a16528c/1 encoded ;", `x=1&access_token=one%20${S}%3B${S}`, ["x=1"]],
+    // a16528c Act-on 2: a nested session id in a cut or prefixed JSON body.
+    [
+      "a16528c/2 cut session.id",
+      `{"ok":1,"session":{"status":"run","id":"${S}`,
+    ],
+    ["a16528c/2 cut, object first", `{"session":{"meta":{"a":1},"id":"${S}`],
+    ["a16528c/2 prefixed cut", `)]}'\n{"session":{"id":"${S}","x":1`],
+    ["a16528c/2 current_session", `{"current_session":{"id":"${S}`],
+    // 62a1f6c Act-on 1: a quoted form value with a space.
+    ["62a1f6c/1 double quote", `password="keep ${S}"&x=1`, ["x=1"]],
+    ["62a1f6c/1 client secret", `a=1&client_secret="one ${S} two"`, ["a=1"]],
+    ["62a1f6c/1 no closing quote", `password="cut ${S}`],
+    ["62a1f6c/1 single quote", `token='one ${S}'&x=1`, ["x=1"]],
+    // 62a1f6c Act-on 2: form pairs in a string value of a parsed body.
+    ["62a1f6c/2 message &", str({ message: `a=1&password=keep%26${S}` })],
+    ["62a1f6c/2 message space", str({ message: `password=one%20${S}` })],
+    // 62a1f6c Act-on 3: JSON serialized into a string value.
+    ["62a1f6c/3 one layer", str({ detail: str({ session: { id: S } }) })],
+    ["62a1f6c/3 five layers", layers],
+    [
+      "62a1f6c/3 cut layer",
+      str({ detail: str({ session: { id: S } }).slice(0, -3) }),
+    ],
+    // 62a1f6c Consider: a form pair whose separators are all encoded.
+    ["62a1f6c/C all encoded", `a%3D1%26password%3Dkeep%2526${S}`],
+    // 0f37bf3 Act-on 1: an escaped quote inside a quoted form value.
+    ["0f37bf3/1 escaped double quote", `password="keep\\" ${S}"&x=1`, ["x=1"]],
+    ["0f37bf3/1 escaped single quote", `password='keep\\' ${S}'&x=1`, ["x=1"]],
+    [
+      "0f37bf3/1 in a JSON message",
+      str({ message: `password="keep\\" ${S}"&x=1` }),
+    ],
+    // 0f37bf3 Act-on 2: session form keys and a single-quoted cut object.
+    ["0f37bf3/2 session[id]", `a=1&session[id]=${S}`, ["a=1"]],
+    ["0f37bf3/2 session.id", `session.id=${S}&a=1`, ["a=1"]],
+    ["0f37bf3/2 bare session", `session=${S}`],
+    ["0f37bf3/2 single-quoted cut", `{'session':{'id':'${S}`],
+    // 0f37bf3 Consider: a quote inside an unquoted form value.
+    ["0f37bf3/C quote mid value", `password=ab"c ${S}"&x=1`, ["x=1"]],
+    // 0f37bf3 Consider: a session string value, "session id:" in prose.
+    ["0f37bf3/C session string", str({ session: S, ok: 1 }), ['"ok":1']],
+    ["0f37bf3/C session id prose", str({ message: `session id: ${S}` })],
+  ];
+  test.each(rows)("%s", (_name, body, keep = []) => {
+    const out = maskBody(body);
+    expect(out).not.toContain(S);
+    for (const k of keep) expect(out).toContain(k);
+  });
+
+  // What the reviews and the live stack required to stay readable.
+  const readable: [string, string, string[]][] = [
+    [
+      "scopes",
+      str({ scopes: ["sessions:read", "sessions:write"] }),
+      ["sessions:read", "sessions:write"],
+    ],
+    [
+      "retryable after a token message",
+      str({
+        error: { code: "UNAUTHORIZED", message: "Bootstrap token is invalid" },
+        retryable: false,
+      }),
+      ["UNAUTHORIZED", "Bootstrap token is invalid", '"retryable":false'],
+    ],
+    [
+      "error.code in a prefixed body",
+      `)]}'\n${str({ error: { code: "UNAUTHORIZED" } })}`,
+      ["UNAUTHORIZED"],
+    ],
+    [
+      "error.code serialized in a string",
+      str({ detail: str({ error: { code: "E_ONE" } }) }),
+      ["E_ONE"],
+    ],
+    [
+      "plain form fields",
+      "error=denied&reason=expired",
+      ["error=denied&reason=expired"],
+    ],
+  ];
+  test.each(readable)("keeps %s", (_name, body, keep) => {
+    const out = maskBody(body);
+    for (const k of keep) expect(out).toContain(k);
+  });
+});
