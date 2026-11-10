@@ -47,26 +47,54 @@ export const WithIcon: Story = {
   },
 };
 
-/** `size="sm"` inside a flush card, as the home's waiting list (v4 L528). */
-export const SmallInCard: Story = {
-  args: { icon: <Inbox size={16} strokeWidth={1.5} />, size: "sm" },
-  decorators: [
-    (Story) => (
-      <div className="rounded-card border bg-card">
-        <Story />
-      </div>
-    ),
-  ],
+/**
+ * `framed` + `size="sm"`: an empty list standing in a card's or a framed
+ * table's place, as the home's waiting list and the settings tables.
+ */
+export const SmallFramed: Story = {
+  args: {
+    icon: <Inbox size={16} strokeWidth={1.5} />,
+    size: "sm",
+    framed: true,
+  },
 };
 
-export const SmallInCardDark: Story = {
-  ...SmallInCard,
-  name: "Small in card (dark)",
+export const SmallFramedDark: Story = {
+  ...SmallFramed,
+  name: "Small framed (dark)",
   globals: { theme: "dark" },
 };
 
-export const SmallInCardMobile: Story = {
-  ...SmallInCard,
-  name: "Small in card (390px)",
+export const SmallFramedMobile: Story = {
+  ...SmallFramed,
+  name: "Small framed (390px)",
   globals: { viewport: { value: "mobile390", isRotated: false } },
+};
+
+export const FramedEnglish: Story = {
+  name: "Framed (en)",
+  args: {
+    framed: true,
+    size: "sm",
+    title: "No sessions yet",
+    description: "Send an agent its first instruction and it shows up here.",
+  },
+  globals: { locale: "en" },
+};
+
+export const FramedJapanese: Story = {
+  name: "Framed (日本語)",
+  args: {
+    framed: true,
+    size: "sm",
+    title: "まだセッションがありません",
+    description: "エージェントに最初の指示を送るとここに表示されます。",
+  },
+  globals: { locale: "ja" },
+};
+
+export const FramedJapaneseDark: Story = {
+  ...FramedJapanese,
+  name: "Framed (日本語, dark)",
+  globals: { locale: "ja", theme: "dark" },
 };

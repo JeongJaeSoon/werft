@@ -587,7 +587,7 @@ function KeyList({
   );
 
   if (items.length === 0) {
-    return <EmptyState className="rounded-card border bg-card" title={empty} />;
+    return <EmptyState framed title={empty} />;
   }
 
   return (

@@ -2,6 +2,7 @@ import { type components, isApiError } from "@werft-ai/client";
 import {
   Badge,
   Button,
+  EmptyState,
   Field,
   FieldLabel,
   NativeSelect,
@@ -181,7 +182,7 @@ export function InstalledRepositoryPage<R extends InstalledRepository>({
     <div className="flex flex-col gap-2">
       {picker}
       {page.repositories.length === 0 ? (
-        <p className="m-0 text-caption">{t("github.repo.pickEmpty")}</p>
+        <EmptyState size="sm" title={t("github.repo.pickEmpty")} />
       ) : (
         <RowList variant="joined">
           {page.repositories.map((repository) => (

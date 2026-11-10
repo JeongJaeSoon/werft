@@ -103,10 +103,7 @@ export function McpServersScreen() {
             onRetry={() => void servers.refetch()}
           />
         ) : servers.data.items.length === 0 ? (
-          <EmptyState
-            className="rounded-card border bg-card"
-            title={t("settings.mcp.empty")}
-          />
+          <EmptyState framed title={t("settings.mcp.empty")} />
         ) : (
           <GridTable
             // The settings layout zeroes the row inset; a framed table needs it.
