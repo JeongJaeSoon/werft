@@ -7,6 +7,7 @@ import {
   type ReceiptActor,
 } from "@werft-ai/contracts";
 import {
+  deniedMcpTools,
   type EffectiveMcp,
   effectiveMcp,
   type GitHubMcpStore,
@@ -19,6 +20,7 @@ import {
   SavedRulesUnavailable,
   type SessionGitHubMcp,
   type SessionMcp,
+  visibleMcpTools,
 } from "@werft-ai/platform";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { mcpDeniedBy } from "./claim-engine-settings.ts";
@@ -101,7 +103,7 @@ async function sessionEffectiveMcp(
         release.server === null
           ? []
           : pinnedMcpTools(release.server, release.perTool),
-      deny: release.deny,
+      deny: [...release.deny, ...deniedMcpTools(release.perTool)],
     },
   });
 }
@@ -194,11 +196,12 @@ async function withoutSavedMcpDenies(
     agentReleaseId: string | null;
     engineSettingsStart: unknown;
   },
+  server: string | null,
   tools: readonly string[],
 ): Promise<readonly string[]> {
   const denied = await mcpDeniedBy(db, session);
-  if (denied === null) return [];
-  return tools.filter((tool) => !mcpCallDenied(denied, tool));
+  if (denied === null || server === null) return [];
+  return visibleMcpTools(server, tools, denied);
 }
 
 async function blockedGitHubTools(
@@ -340,7 +343,12 @@ export function createPostgresMcpEgressStore(db: Database): McpEgressStore {
         // fingerprint and stays what the release allows. Unreadable rules
         // allow nothing. A failed read throws, so the caller answers
         // retryably and nothing has been forwarded yet.
-        tools: await withoutSavedMcpDenies(db, session, effective.tools),
+        tools: await withoutSavedMcpDenies(
+          db,
+          session,
+          effective.server,
+          effective.tools,
+        ),
         boundRefs: bound.map((row) => row.ref),
         turnId: turn === undefined ? null : String(turn.sequence),
         actor: creatorOf(session, release.agentId),
