@@ -1454,32 +1454,41 @@ function typeParameterNames(node: ts.Node): Set<string> {
 
 /**
  * A function type, written inline or through a type alias declared in the
- * same file. `shadowed` names hide an alias only where the member itself
- * writes them, not inside the alias it then follows.
+ * same file. A type parameter hides a same-named alias; inside a followed
+ * alias it stands for the type argument written at the use, which is judged
+ * where that use is. `args` carries those arguments, `shadowed` the names with
+ * no argument.
  */
 function isFunctionType(
   type: ts.TypeNode,
   aliases: ReadonlyMap<string, ts.TypeAliasDeclaration>,
   shadowed: ReadonlySet<string> = new Set(),
   followed: ReadonlySet<string> = new Set(),
+  args: ReadonlyMap<string, () => boolean> = new Map(),
 ): boolean {
+  const again = (inner: ts.TypeNode) =>
+    isFunctionType(inner, aliases, shadowed, followed, args);
   if (ts.isFunctionTypeNode(type)) return true;
-  if (ts.isParenthesizedTypeNode(type))
-    return isFunctionType(type.type, aliases, shadowed, followed);
-  if (ts.isUnionTypeNode(type))
-    return type.types.some((member) =>
-      isFunctionType(member, aliases, shadowed, followed),
-    );
+  if (ts.isParenthesizedTypeNode(type)) return again(type.type);
+  if (ts.isUnionTypeNode(type)) return type.types.some(again);
   if (ts.isTypeReferenceNode(type) && ts.isIdentifier(type.typeName)) {
     const name = type.typeName.text;
+    const bound = args.get(name);
+    if (bound) return bound();
     const target = aliases.get(name);
     if (!target || shadowed.has(name) || followed.has(name)) return false;
+    const parameters = target.typeParameters ?? [];
+    const next = new Map<string, () => boolean>();
+    parameters.forEach((parameter, index) => {
+      const argument = type.typeArguments?.[index];
+      if (argument) next.set(parameter.name.text, () => again(argument));
+    });
     return isFunctionType(
       target.type,
       aliases,
-      // The alias's own type parameters hide aliases inside its body.
-      new Set((target.typeParameters ?? []).map((p) => p.name.text)),
+      new Set(parameters.map((parameter) => parameter.name.text)),
       new Set([...followed, name]),
+      next,
     );
   }
   return false;
@@ -3246,7 +3255,7 @@ describe("architecture", () => {
             "export interface Generic<Send> { data?: Send; run?: Chained }",
             "type Chained = Send;",
             "type Boxed<Send> = Send;",
-            "export interface Wrapped { box?: Boxed<string> }",
+            "export interface Wrapped { box?: Boxed<string>; fn?: Boxed<Send> }",
             "export type Api = { close?(): void };",
           ].join("\n"),
           [platformFile("surface/ports/notice.ts")]:
@@ -3262,6 +3271,7 @@ describe("architecture", () => {
       `${ports} -> aliased`,
       `${ports} -> cancel`,
       `${ports} -> close`,
+      `${ports} -> fn`,
       `${ports} -> onDone`,
       `${ports} -> retry`,
       `${ports} -> run`,
