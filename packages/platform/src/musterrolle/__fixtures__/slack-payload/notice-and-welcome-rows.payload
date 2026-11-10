@@ -96,8 +96,8 @@
     {
       "agentId": "agent-1",
       "body": {
-        "locale": "ko",
-        "text": "지금은 요청을 처리하지 못했어요. 잠시 뒤 다시 시도해 주세요"
+        "locale": "en",
+        "text": "We couldn't process the request right now. Try again shortly"
       },
       "channelId": "C0OPS",
       "dedupeKey": "notice:install:C0OPS:U0NONE",

@@ -359,7 +359,7 @@
       "postMessage",
       {
         "channelId": "C0OPS",
-        "text": "*done* &lt;@U0ELSE&gt;\n\n<https://console.example/sessions/019a0000|웹에서 열기>",
+        "text": "*done* &lt;@U0ELSE&gt;\n\n<https://console.example/sessions/019a0000|Open on the web>",
         "threadTs": "100.000100"
       }
     ],
@@ -393,8 +393,8 @@
         "agentId": "agent-1",
         "body": {
           "link_url": "https://console.example/sessions/019a0000-0000-7000-8000-0000000000a5",
-          "locale": "ko",
-          "text": "답을 보냈는지 확인하지 못했어요. 웹에서 확인해 주세요"
+          "locale": "en",
+          "text": "We couldn't confirm the answer was sent. Check it on the web"
         },
         "channelId": "C0OPS",
         "dedupeKey": "uncertain:outbox-1",
