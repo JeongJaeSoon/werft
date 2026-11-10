@@ -1,6 +1,8 @@
-import type { AgentIdentityStore } from "../ports/agent-identity-store.ts";
-import type { SecretStore } from "../ports/secret-store.ts";
-import type { SlackInstallStore } from "../ports/slack-install-store.ts";
+import type {
+  AgentIdentityStore,
+  SecretStore,
+  SlackInstallStore,
+} from "@werft-ai/platform";
 import { SlackApiError } from "./slack-config-api.ts";
 
 // Slack's answers for a bot token that no longer works.

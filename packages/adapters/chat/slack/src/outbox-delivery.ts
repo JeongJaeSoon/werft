@@ -3,14 +3,11 @@ import type {
   ClaimedOutboxRow,
   DeliveryInput,
   DeliveryOutcome,
+  Notifiable,
   SlackOutboxSettle,
 } from "@werft-ai/platform";
-import {
-  type Notifiable,
-  SlackApiError,
-  type SlackBotSender,
-  slackInboundBackoffMs,
-} from "@werft-ai/platform";
+import { SlackApiError, type SlackBotSender } from "./slack-config-api.ts";
+import { slackInboundBackoffMs } from "./slack-inbox.ts";
 import {
   sessionUrl,
   slackInstructionFallbackText,

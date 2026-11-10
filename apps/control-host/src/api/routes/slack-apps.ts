@@ -14,8 +14,11 @@ import {
   workspaceParamsSchema,
 } from "@werft-ai/contracts";
 import type { StructuredLogger } from "@werft-ai/observability";
-import type { SlackAppService, SlackSecretService } from "@werft-ai/platform";
 import { stringify } from "yaml";
+import type {
+  SlackAppService,
+  SlackSecretService,
+} from "../../wiring/chat-slack.ts";
 import {
   ApiHttpError,
   type ApiRouter,
