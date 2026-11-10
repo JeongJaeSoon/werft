@@ -2,13 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { waitingSessionsQuery } from "@werft-ai/core";
 import { useWerft } from "@werft-ai/react";
-import {
-  cn,
-  IconTile,
-  Text,
-  Link as TextLink,
-  type TileHue,
-} from "@werft-ai/ui";
+import { cn, Text, Link as TextLink } from "@werft-ai/ui";
 import {
   Bell,
   BookOpen,
@@ -80,8 +74,6 @@ export interface NavItem {
   readonly to: NavPath;
   readonly label: MessageKey;
   readonly icon: NavIcon;
-  /** The sidebar tile's colour; the settings nav draws no icons. */
-  readonly hue?: TileHue;
   /** The path prefix the item stands for when it is wider than `to`. */
   readonly match?: string;
   /**
@@ -139,7 +131,6 @@ const MEMBERS_ITEM: NavItem = {
   to: "/members",
   label: "nav.members",
   icon: Users,
-  hue: "green",
 };
 // Every settings page sits behind one item (V4-SETTINGS-LAYOUT A); the
 // settings nav beside the page lists them.
@@ -148,7 +139,6 @@ const SETTINGS_ITEM: NavItem = {
   match: "/settings",
   label: "nav.settings",
   icon: SettingsIcon,
-  hue: "slate",
 };
 
 /**
@@ -169,19 +159,9 @@ export function useNavGroups(): readonly NavGroup[] {
   // member's own settings open from the account menu; the screens and the
   // server keep the rights.
   const workspace: NavItem[] = [
-    {
-      to: "/profiles",
-      label: "nav.profiles",
-      icon: SlidersHorizontal,
-      hue: "teal",
-    },
-    { to: "/operations", label: "nav.operations", icon: Gauge, hue: "pink" },
-    {
-      to: "/achievements",
-      label: "nav.achievements",
-      icon: Trophy,
-      hue: "sky",
-    },
+    { to: "/profiles", label: "nav.profiles", icon: SlidersHorizontal },
+    { to: "/operations", label: "nav.operations", icon: Gauge },
+    { to: "/achievements", label: "nav.achievements", icon: Trophy },
   ];
   if (memberManage) workspace.push(MEMBERS_ITEM);
   if (workspaceManage || retentionManage) workspace.push(SETTINGS_ITEM);
@@ -189,14 +169,9 @@ export function useNavGroups(): readonly NavGroup[] {
     {
       label: "shell.group.work",
       items: [
-        { to: "/", label: "nav.home", icon: House, hue: "blue" },
-        {
-          to: "/sessions",
-          label: "nav.sessions",
-          icon: ListIcon,
-          hue: "violet",
-        },
-        { to: "/agents", label: "nav.agents", icon: Bot, hue: "orange" },
+        { to: "/", label: "nav.home", icon: House },
+        { to: "/sessions", label: "nav.sessions", icon: ListIcon },
+        { to: "/agents", label: "nav.agents", icon: Bot },
       ],
     },
     { label: "shell.group.workspace", items: workspace },
@@ -461,24 +436,20 @@ function NavSection({
                 : undefined
             }
             onClick={onNavigate}
-            // Each page's icon sits on its own hue (owner, 2026-10-31); the
-            // current page takes `active`.
+            // The current page takes a light primary row (owner, 2026-11-11);
+            // the icon follows the text colour, so it turns primary with it.
             className={cn(
               "flex h-8 items-center gap-2 rounded-control px-2 font-medium text-control text-foreground no-underline",
               "hover:bg-sidebar-hover",
-              "data-[status=active]:bg-sidebar-accent",
-              "aria-[current=page]:bg-sidebar-accent",
+              "data-[status=active]:bg-sidebar-selected data-[status=active]:text-sidebar-selected-text",
+              "aria-[current=page]:bg-sidebar-selected aria-[current=page]:text-sidebar-selected-text",
             )}
           >
-            {item.hue ? (
-              <IconTile icon={item.icon} hue={item.hue} />
-            ) : (
-              <item.icon
-                aria-hidden="true"
-                strokeWidth={RAIL_STROKE}
-                className="size-4 shrink-0 text-muted-foreground"
-              />
-            )}
+            <item.icon
+              aria-hidden="true"
+              strokeWidth={RAIL_STROKE}
+              className="size-4 shrink-0"
+            />
             <span className="min-w-0 flex-1 truncate">{t(item.label)}</span>
             {item.to === "/sessions" ? <WaitingBadge /> : null}
           </Link>
