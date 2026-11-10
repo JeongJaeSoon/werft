@@ -557,7 +557,61 @@ export const claimGitStripSchema = z
   )
   .max(32);
 
+export const TRACE_CONTENT_MODE_VALUES = ["full", "metadata"] as const;
+export const traceContentModeSchema = z.enum(TRACE_CONTENT_MODE_VALUES);
+
+export const TRACE_SAMPLER_VALUES = [
+  "always_on",
+  "always_off",
+  "traceidratio",
+] as const;
+export const traceSamplerSchema = z.enum(TRACE_SAMPLER_VALUES);
+
+// What the API tells the worker about tracing, once per attempt. Off is only
+// `enabled: false`: no address and no mode to act on. `sampler` and
+// `sampler_arg` are optional because an API that predates them sends neither;
+// read the pair with `claimTelemetrySampler`, never field by field.
+export const claimTelemetrySchema = z.discriminatedUnion("enabled", [
+  z.object({ enabled: z.literal(false) }).strict(),
+  z
+    .object({
+      enabled: z.literal(true),
+      ingest_url: z.url(),
+      content_mode: traceContentModeSchema,
+      content_max_bytes: z.number().int().positive(),
+      sampler: traceSamplerSchema.optional(),
+      sampler_arg: z.number().min(0).max(1).optional(),
+    })
+    .strict(),
+]);
+
+export type ClaimTelemetry = z.infer<typeof claimTelemetrySchema>;
+export type TraceContentMode = z.infer<typeof traceContentModeSchema>;
+
+/**
+ * The sampler a claim asks for. A claim without the pair (an older API) reads
+ * as `always_on`; a `traceidratio` without its ratio reads as 1, the key's
+ * default. `ratio` feeds `sampleByTraceId`.
+ */
+export function claimTelemetrySampler(telemetry: ClaimTelemetry | undefined): {
+  kind: (typeof TRACE_SAMPLER_VALUES)[number];
+  ratio: number;
+} {
+  if (telemetry?.enabled !== true) return { kind: "always_on", ratio: 1 };
+  switch (telemetry.sampler) {
+    case "always_off":
+      return { kind: "always_off", ratio: 0 };
+    case "traceidratio":
+      return { kind: "traceidratio", ratio: telemetry.sampler_arg ?? 1 };
+    default:
+      return { kind: "always_on", ratio: 1 };
+  }
+}
+
 export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
+  // Absent from an older API: the worker traces nothing. Top-level so an
+  // older worker drops it.
+  telemetry: claimTelemetrySchema.optional(),
   session_credential: z.string().min(1),
   lease_expires_at: timestampSchema,
   lease_remaining_ms: leaseRemainingMsSchema,
@@ -712,6 +766,11 @@ export const nextInputResponseSchema = z.object({
         .string()
         .regex(/^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/)
         .optional(),
+      // How much content this turn's spans may carry, read again every turn
+      // because the workspace can change it between turns. Never above the
+      // installation's ceiling. Absent while tracing is off and from a
+      // control host that predates it; the claim's `content_mode` stands.
+      content_mode: traceContentModeSchema.optional(),
     })
     .nullable(),
   lease_expires_at: timestampSchema,

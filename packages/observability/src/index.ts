@@ -10,10 +10,18 @@ export {
   sanitizeText,
 } from "./redaction.ts";
 export {
+  type ContentMode,
   parseTracingSettings,
   type SamplerKind,
   type TracingSettings,
 } from "./tracing/config.ts";
+export {
+  type ClaimTelemetry,
+  createTelemetryPolicy,
+  effectiveContentMode,
+  endpointOnEgressAllowlist,
+  type TelemetryPolicy,
+} from "./tracing/telemetry-policy.ts";
 export { turnTraceId } from "./tracing/trace-id.ts";
 export {
   currentSpanContext,

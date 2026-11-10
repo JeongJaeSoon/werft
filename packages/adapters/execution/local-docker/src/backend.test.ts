@@ -949,6 +949,33 @@ test("hands the worker the installation's turn and retry limits when they are se
   ]);
 });
 
+test("hands the worker no OTEL_* key even when the scheduler's own environment has them", () => {
+  // Standard OTel keys mean something to auto-configuring libraries: a worker
+  // given them would export to whatever they name. Tracing reaches the worker
+  // through the bootstrap claim only.
+  const keys = {
+    OTEL_TRACES_EXPORTER: "otlp",
+    OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4318",
+    OTEL_EXPORTER_OTLP_HEADERS: "authorization=SECRET",
+    OTEL_TRACES_SAMPLER: "traceidratio",
+  };
+  const before = { ...process.env };
+  Object.assign(process.env, keys);
+  try {
+    const env = workerEnvironmentFor(
+      configFor("unix:///fake.sock"),
+      intentFor(),
+      "nonce-abc",
+    );
+    expect(env.filter((entry) => entry.startsWith("OTEL_"))).toEqual([]);
+    expect(env.join("\n")).not.toContain("SECRET");
+  } finally {
+    for (const key of Object.keys(keys)) {
+      if (before[key] === undefined) delete process.env[key];
+    }
+  }
+});
+
 test("hands the worker the scheduler's LOG_LEVEL without changing the isolation stamp", () => {
   const intent = intentFor();
   const base = configFor("unix:///fake.sock");

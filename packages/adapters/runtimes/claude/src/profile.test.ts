@@ -159,6 +159,18 @@ describe("runtime profiles", () => {
     expect(environment.HOST_PRIVATE_VALUE).toBeUndefined();
   });
 
+  test("the host's OTEL_* keys do not reach the engine", () => {
+    const environment = runtimeEnvironment(baseConfig, {
+      PATH: "/bin",
+      OTEL_TRACES_EXPORTER: "otlp",
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4318",
+      OTEL_EXPORTER_OTLP_HEADERS: "authorization=SECRET",
+    });
+    expect(
+      Object.keys(environment).filter((k) => k.startsWith("OTEL_")),
+    ).toEqual([]);
+  });
+
   describe("user variables", () => {
     const host = { PATH: "/bin", LANG: "C.UTF-8" };
 

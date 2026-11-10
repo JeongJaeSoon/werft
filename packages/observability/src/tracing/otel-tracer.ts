@@ -36,7 +36,13 @@ import {
 /** Same shape as the SDK's exporter, so a worker can plug in an ingest exporter. */
 export type SpanExporterLike = SpanExporter;
 
-export interface OtelTracerConfig extends Omit<TracingSettings, "endpoint"> {
+// Only what the exporter reads: content and ingest settings are the API's and
+// the listener's, not the tracer's.
+export interface OtelTracerConfig
+  extends Pick<
+    TracingSettings,
+    "serviceName" | "sampler" | "headers" | "tenantHeaders"
+  > {
   readonly endpoint?: string;
   /** Replaces the OTLP exporter; endpoint and headers are then unused. */
   readonly exporter?: SpanExporterLike;
