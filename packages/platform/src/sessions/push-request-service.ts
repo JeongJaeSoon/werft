@@ -7,6 +7,7 @@ import {
   type PushRefusal,
   type PushRequest,
   type PushRequestSnapshot,
+  type PushRequestView,
   type PushResolution,
   presentPushRequest,
   pushBranchFor,
@@ -169,7 +170,7 @@ export function createPushRequestService(deps: {
     ownerId: string,
     rawSessionId: string,
     requests: PushRequest[],
-  ): Promise<PushRequest[]> {
+  ): Promise<PushRequestView[]> {
     // The stored id, as decide judges it: a manifest names its session in lower case.
     const sessionId = rawSessionId.toLowerCase();
     const session = await store.findSession(ownerId, sessionId);
@@ -510,9 +511,18 @@ export function createPushRequestService(deps: {
       if (items === null) {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
       }
+      return { items, intents: await intents.list(actor.ownerId, sessionId) };
+    },
+
+    /** `list` for the REST API: each request with what `decide` would say now. */
+    async listView(
+      actor: PushActor,
+      sessionId: string,
+    ): Promise<ListPushRequestsResponse> {
+      const listed = await this.list(actor, sessionId);
       return {
-        items: await withApprovability(actor.ownerId, sessionId, items),
-        intents: await intents.list(actor.ownerId, sessionId),
+        ...listed,
+        items: await withApprovability(actor.ownerId, sessionId, listed.items),
       };
     },
 
@@ -527,6 +537,16 @@ export function createPushRequestService(deps: {
       if (request === null) {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
       }
+      return request;
+    },
+
+    /** `get` for the REST API; the agent's tools keep the plain request. */
+    async getView(
+      actor: PushActor,
+      sessionId: string,
+      pushRequestId: string,
+    ): Promise<PushRequestView> {
+      const request = await this.get(actor, sessionId, pushRequestId);
       const [withVerdict] = await withApprovability(actor.ownerId, sessionId, [
         request,
       ]);

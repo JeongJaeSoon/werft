@@ -4,6 +4,7 @@ import type {
   ListPushRequestsResponse,
   PushIntent,
   PushRequest,
+  PushRequestView,
   SessionDetail,
 } from "@werft-ai/contracts";
 import { queryKeysOf, sessionGithubWorkQuery } from "@werft-ai/core";
@@ -61,7 +62,7 @@ const prErrorKey = (code: string | null): MessageKey | null =>
     : null;
 
 type Row =
-  | { kind: "request"; at: string; request: PushRequest }
+  | { kind: "request"; at: string; request: PushRequestView }
   | { kind: "intent"; at: string; intent: PushIntent };
 
 /**
@@ -192,7 +193,7 @@ function Decision({
   request,
   sessionId,
 }: {
-  readonly request: PushRequest;
+  readonly request: PushRequestView;
   readonly sessionId: string;
 }) {
   const { t } = useI18n();
@@ -261,7 +262,7 @@ function RequestRow({
   names,
   sessionId,
 }: {
-  readonly request: PushRequest;
+  readonly request: PushRequestView;
   readonly names: Names;
   readonly sessionId: string;
 }) {

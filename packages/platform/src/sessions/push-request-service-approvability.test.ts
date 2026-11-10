@@ -75,7 +75,7 @@ describe("a listed push request carries what Slack would decide", () => {
       requests: [request({})],
       source: NONE,
     });
-    const listed = await push.list(actor, SESSION);
+    const listed = await push.listView(actor, SESSION);
     expect(listed.items[0]?.approvability).toEqual({
       approvable: true,
       reason: null,
@@ -88,7 +88,7 @@ describe("a listed push request carries what Slack would decide", () => {
       requests: [request({})],
       source: NONE,
     });
-    const got = await push.get(actor, SESSION, "any");
+    const got = await push.getView(actor, SESSION, "any");
     expect(got.approvability).toEqual({
       approvable: false,
       reason: { key: "action.push.unapprovable.checkpoint_moved" },
@@ -105,7 +105,7 @@ describe("a listed push request carries what Slack would decide", () => {
       requests: [request({ origin: "intent" })],
       source: { ...NONE, readPushSourceAt: async () => pinned },
     });
-    const listed = await push.list(actor, SESSION);
+    const listed = await push.listView(actor, SESSION);
     expect(listed.items[0]?.approvability?.approvable).toBe(true);
 
     const broken = service({
@@ -113,12 +113,12 @@ describe("a listed push request carries what Slack would decide", () => {
       requests: [request({ origin: "intent" })],
       source: NONE,
     });
-    expect((await broken.list(actor, SESSION)).items[0]?.approvability).toEqual(
-      {
-        approvable: false,
-        reason: { key: "action.push.unapprovable.pinned_source_invalid" },
-      },
-    );
+    expect(
+      (await broken.listView(actor, SESSION)).items[0]?.approvability,
+    ).toEqual({
+      approvable: false,
+      reason: { key: "action.push.unapprovable.pinned_source_invalid" },
+    });
   });
 
   test("an uppercase session id is judged under the stored id, as decide does", async () => {
@@ -141,9 +141,31 @@ describe("a listed push request carries what Slack would decide", () => {
         },
       } as never,
     });
-    const listed = await push.list(actor, stored.toUpperCase());
+    const listed = await push.listView(actor, stored.toUpperCase());
     expect(read).toEqual([stored]);
     expect(listed.items[0]?.approvability?.approvable).toBe(true);
+  });
+
+  test("the agent's plain get and list carry no verdict and read no checkpoint", async () => {
+    let reads = 0;
+    const push = service({
+      pointer: 4,
+      requests: [request({})],
+      source: {
+        readPushSource: async () => {
+          reads += 1;
+          return { status: "none" };
+        },
+        readPushSourceAt: async () => ({ status: "none" }),
+      },
+    });
+    expect("approvability" in (await push.get(actor, SESSION, "any"))).toBe(
+      false,
+    );
+    expect(
+      "approvability" in ((await push.list(actor, SESSION)).items[0] ?? {}),
+    ).toBe(false);
+    expect(reads).toBe(0);
   });
 
   test("a request that is no longer waiting is not approvable", async () => {
@@ -152,7 +174,7 @@ describe("a listed push request carries what Slack would decide", () => {
       requests: [request({ state: "approved" })],
       source: NONE,
     });
-    const listed = await push.list(actor, SESSION);
+    const listed = await push.listView(actor, SESSION);
     expect(listed.items[0]?.approvability?.reason?.key).toBe(
       "action.push.unapprovable.not_requested",
     );

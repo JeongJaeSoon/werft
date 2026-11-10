@@ -102,6 +102,7 @@ import {
   postSessionAnswerResponseSchema,
   postSessionMessageResponseSchema,
   pushRequestSchema,
+  pushRequestViewSchema,
   putAgentGitHubEnabledResponseSchema,
   putAgentGitHubRepositoryAccessResponseSchema,
   putAgentGitHubSettingsResponseSchema,
@@ -291,7 +292,8 @@ export const responseSchemas = {
   "POST /v1/sessions/{id}/recovery-decisions": receiptAcceptedResponseSchema,
   "POST /v1/sessions/{id}/push-requests": pushRequestSchema,
   "GET /v1/sessions/{id}/push-requests": listPushRequestsResponseSchema,
-  "GET /v1/sessions/{id}/push-requests/{push_request_id}": pushRequestSchema,
+  "GET /v1/sessions/{id}/push-requests/{push_request_id}":
+    pushRequestViewSchema,
   "POST /v1/sessions/{id}/push-requests/{push_request_id}/approve":
     pushRequestSchema,
   "POST /v1/sessions/{id}/push-requests/{push_request_id}/reject":

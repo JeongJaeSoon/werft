@@ -266,12 +266,18 @@ export const pushRequestSchema = z.object({
   // The recorded pull request, once there is one.
   pr_number: z.number().int().positive().nullable().default(null),
   pr_url: z.string().nullable().default(null),
-  // Set by list and get only; absent from a server older than it.
+});
+
+// What the REST list and get return. Kept off `pushRequestSchema`, which the
+// agent's GitHub tools also carry as their output.
+export const pushRequestViewSchema = pushRequestSchema.extend({
+  // Absent from a server older than it.
   approvability: pushRequestPresentationSchema.optional().meta({
     description:
       "Whether an approval would pass the server's decision check now, and if not why (`presentPushRequest`). A hint for what to offer; the approval is judged again.",
   }),
 });
+export type PushRequestView = z.infer<typeof pushRequestViewSchema>;
 
 export const createPushRequestRequestSchema = z
   .object({
@@ -298,7 +304,7 @@ export const resolvePushRequestRequestSchema = z
   .strict();
 
 export const listPushRequestsResponseSchema = z.object({
-  items: z.array(pushRequestSchema),
+  items: z.array(pushRequestViewSchema),
   // Pushes a turn asked for that have no request yet, or ended without one.
   intents: z.array(pushIntentSchema).default([]),
 });
