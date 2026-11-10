@@ -2073,6 +2073,97 @@ export const authzDecisions = pgTable(
   ],
 );
 
+// One row per judgment on one tool call (observability design, section 7).
+// Append-only like authz_decisions: UPDATE is refused by a trigger and only
+// the retention job deletes. No foreign keys, so a row outlives the session,
+// key and user it names for its retention period. Every text column is an id
+// or a member of a closed list; there is no column for input text or a result.
+export const toolCallAudits = pgTable(
+  "tool_call_audits",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    at: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    workspaceId: uuid("workspace_id"),
+    ownerId: text("owner_id").notNull(),
+    sessionId: uuid("session_id").notNull(),
+    // The public turn id: the turn's position in its session, not turns.id.
+    turnId: bigint("turn_id", { mode: "number" }).notNull(),
+    attemptId: text("attempt_id").notNull(),
+    // `t:<tool_use_id>`, `n:<ordinal in the turn>`, or `r:<request_id>` for
+    // a platform `asked` row whose call has no usable id.
+    callKey: text("call_key").notNull(),
+    phase: text().notNull(),
+    toolUseId: text("tool_use_id"),
+    parentToolUseId: text("parent_tool_use_id"),
+    toolName: text("tool_name").notNull(),
+    mcpServer: text("mcp_server"),
+    // Of the redacted input in canonical form, never of the raw arguments.
+    inputSha256: text("input_sha256"),
+    inputBytes: integer("input_bytes"),
+    decision: text().notNull(),
+    // Checked by the contracts schema, so a new basis needs no migration.
+    basis: text().notNull(),
+    agentId: uuid("agent_id"),
+    agentReleaseId: text("agent_release_id"),
+    actorUserId: uuid("actor_user_id"),
+    principalKind: text("principal_kind"),
+    principalId: text("principal_id"),
+    surface: text().$type<SurfaceKind>(),
+    pendingRequestId: text("pending_request_id"),
+    answeredBy: jsonb("answered_by"),
+    answerSurface: text("answer_surface").$type<SurfaceKind>(),
+    answerDecisionId: uuid("answer_decision_id"),
+    source: text().notNull(),
+    recordVersion: integer("record_version").notNull(),
+  },
+  (table) => [
+    // A resend of the same report is this key again.
+    uniqueIndex("tool_call_audits_call_idx").on(
+      table.sessionId,
+      table.attemptId,
+      table.turnId,
+      table.callKey,
+      table.phase,
+    ),
+    // One request's approval can ground one call only.
+    uniqueIndex("tool_call_audits_approval_once_idx")
+      .on(table.pendingRequestId)
+      .where(sql`${table.phase} = 'decided' AND ${table.basis} = 'approval'`),
+    index("tool_call_audits_session_at_idx").on(table.sessionId, table.at),
+    index("tool_call_audits_workspace_at_idx").on(table.workspaceId, table.at),
+    // What the retention job scans.
+    index("tool_call_audits_at_idx").on(table.at),
+    check(
+      "tool_call_audits_phase_check",
+      sql`${table.phase} IN ('asked', 'decided')`,
+    ),
+    check(
+      "tool_call_audits_decision_check",
+      sql`${table.decision} IN ('allow', 'deny', 'require_approval', 'unknown')`,
+    ),
+    check(
+      "tool_call_audits_phase_decision_check",
+      sql`(${table.phase} = 'asked') = (${table.decision} = 'require_approval')`,
+    ),
+    check(
+      "tool_call_audits_source_check",
+      sql`${table.source} IN ('platform', 'worker_report')`,
+    ),
+    check(
+      "tool_call_audits_principal_check",
+      sql`(${table.principalKind} IS NULL) = (${table.principalId} IS NULL)`,
+    ),
+    check(
+      "tool_call_audits_input_check",
+      sql`(${table.inputSha256} IS NULL) = (${table.inputBytes} IS NULL)`,
+    ),
+    check(
+      "tool_call_audits_surface_check",
+      sql`${table.surface} IS NULL OR ${table.surface} IN (${sql.raw(sqlList(SURFACE_KIND_VALUES))})`,
+    ),
+  ],
+);
+
 export const idempotencyKeys = pgTable(
   "idempotency_keys",
   {

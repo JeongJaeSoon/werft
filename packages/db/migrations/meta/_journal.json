@@ -1212,6 +1212,13 @@
       "when": 1794307807856,
       "tag": "0263_turn_trace_context",
       "breakpoints": true
+    },
+    {
+      "idx": 264,
+      "version": "7",
+      "when": 1794321197456,
+      "tag": "0264_tool_call_audits",
+      "breakpoints": true
     }
   ]
 }

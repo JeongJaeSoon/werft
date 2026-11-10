@@ -210,6 +210,7 @@ import {
   streamClock,
 } from "./session-events.ts";
 import { movedSessionPin } from "./session-spec-pin.ts";
+import { insertToolCallAudits } from "./tool-call-audit.ts";
 import {
   settleTurnInterrupts,
   turnInterruptPending,
@@ -2990,9 +2991,11 @@ export function createPostgresWorkerUnitOfWork(
         }
 
         let turnRowId: number | null = null;
+        let turnSequence: number | null = null;
         let turnStatus: string | null = null;
         if (input.turnId !== null) {
           const sequence = parseTurnSequence(input.turnId);
+          turnSequence = sequence ?? null;
           // Only the turn this attempt is running: the fence alone would let
           // a live worker write history onto a queued or foreign turn.
           const [turn] = sequence
@@ -3098,6 +3101,21 @@ export function createPostgresWorkerUnitOfWork(
             }),
           );
         }
+        // Written here, not after the commit: a failure of this insert rolls
+        // the events back too and the worker resends the same batch.
+        const toolAudit =
+          input.toolAudits !== undefined &&
+          input.toolAudits.length > 0 &&
+          turnRowId !== null &&
+          turnSequence !== null
+            ? await insertToolCallAudits(tx, {
+                session: fenced.session,
+                attemptId: fence.attemptId,
+                turn: { id: turnRowId, sequence: turnSequence },
+                now: fenced.at,
+                reports: input.toolAudits,
+              })
+            : undefined;
         const [latest] = await tx
           .select({ id: max(events.id) })
           .from(events)
@@ -3114,6 +3132,7 @@ export function createPostgresWorkerUnitOfWork(
           outcome: "ok",
           acceptedThrough: await contiguousThrough(tx, fence),
           cursor: encodeEventCursor(latest?.id ?? 0),
+          ...(toolAudit === undefined ? {} : { toolAudit }),
         };
       });
     },

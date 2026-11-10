@@ -10,6 +10,7 @@ import type {
   PermissionGrant,
   PlatformPrompt,
   RuntimeSpec,
+  SanitizedToolDecision,
   SessionExtension,
   WorkerEvent,
   WorkspaceRepository,
@@ -422,17 +423,41 @@ export type HeartbeatResult =
     }
   | FenceRejection;
 
+/**
+ * What storing a batch of tool judgments came to. The adapter reports it
+ * because the store alone sees a resend, a clash with a stored row or a
+ * failed approval check.
+ */
+export type ToolAuditOutcome = {
+  inserted: number;
+  // A resend of a stored report: nothing written.
+  duplicates: number;
+  // The same call, a different report: the first one stays.
+  conflicts: number;
+  // Approval claims written as `unknown/approval_unverified`.
+  unverified: number;
+};
+
 export type CommitEventsInput = {
   fence: WorkerFence;
   turnId: string | null;
   now: Date;
   events: WorkerEvent[];
+  // The judgments reported with these events, already cleaned. Stored in
+  // the transaction that stores the events, so both are there or neither;
+  // an append for no turn has no turn to attribute them to and drops them.
+  toolAudits?: readonly SanitizedToolDecision[];
   // The engine-neutral fields stored beside a new event's data, never in it:
   // a resend is compared against the data as the worker sent it.
   neutral?: (event: WorkerEvent) => Record<string, unknown> | null;
 };
 export type CommitEventsResult =
-  | { outcome: "ok"; acceptedThrough: number; cursor: string }
+  | {
+      outcome: "ok";
+      acceptedThrough: number;
+      cursor: string;
+      toolAudit?: ToolAuditOutcome;
+    }
   | { outcome: "turn_not_found" }
   // A source_sequence this attempt already stored, with different content.
   | { outcome: "event_conflict" }

@@ -8,7 +8,13 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { lockActorAccount } from "./control-shared.ts";
 import { rowsOf } from "./control-unit-of-work.ts";
 import type { Database } from "./queries.ts";
-import { authzDecisions, memberships, users, workspaces } from "./schema.ts";
+import {
+  authzDecisions,
+  memberships,
+  type toolCallAudits,
+  users,
+  workspaces,
+} from "./schema.ts";
 
 export function createPostgresDecisionLog(db: Database): DecisionLog {
   return {
@@ -79,14 +85,27 @@ export function createPostgresAuditRetention(
   };
 }
 
-export async function expireAuthzDecisions(
+export function expireAuthzDecisions(
   db: Database,
   input: { limit: number; dryRun: boolean },
 ): Promise<number> {
+  return expireByAuditRetention(db, authzDecisions, input);
+}
+
+/**
+ * Deletes the oldest rows of an audit table past their workspace's
+ * `audit_retention_days`, a batch at a time. The one retention rule for every
+ * table that follows it, so there is one setting to explain.
+ */
+export async function expireByAuditRetention(
+  db: Database,
+  table: typeof authzDecisions | typeof toolCallAudits,
+  input: { limit: number; dryRun: boolean },
+): Promise<number> {
   const expired = sql`
-    SELECT d.id FROM ${authzDecisions} d
+    SELECT d.id FROM ${table} d
     LEFT JOIN ${workspaces} w ON w.id = d.workspace_id
-    -- The bare floor lets authz_decisions_at_idx bound the scan.
+    -- The bare floor lets the table's own "at" index bound the scan.
     WHERE d.at < statement_timestamp() - make_interval(days => ${AUDIT_RETENTION_MIN_DAYS}::int)
       AND d.at < statement_timestamp() - make_interval(days => greatest(
       ${AUDIT_RETENTION_MIN_DAYS}::int,
@@ -101,7 +120,7 @@ export async function expireAuthzDecisions(
   const result = await db.execute<{ id: string }>(
     input.dryRun
       ? expired
-      : sql`DELETE FROM ${authzDecisions} WHERE id IN (${expired} FOR UPDATE OF d SKIP LOCKED) RETURNING id`,
+      : sql`DELETE FROM ${table} WHERE id IN (${expired} FOR UPDATE OF d SKIP LOCKED) RETURNING id`,
   );
   return rowsOf<{ id: string }>(result).length;
 }

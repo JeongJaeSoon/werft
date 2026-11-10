@@ -174,7 +174,9 @@ export const toolCallAuditEntrySchema = z
     session_id: z.uuid(),
     turn_id: z.number().int().positive(),
     attempt_id: z.string().min(1),
-    call_key: z.string().regex(CALL_KEY_PATTERN),
+    // `r:<request_id>` is the platform's, for an `asked` row whose call has no
+    // usable id; a worker only reports `t:` and `n:`.
+    call_key: z.string().regex(/^[tnr]:[A-Za-z0-9_.:-]{1,128}$/),
     phase: z.enum(TOOL_AUDIT_PHASE_VALUES),
     tool_use_id: z.string().regex(AUDIT_ID_PATTERN).nullable(),
     parent_tool_use_id: z.string().regex(AUDIT_ID_PATTERN).nullable(),
