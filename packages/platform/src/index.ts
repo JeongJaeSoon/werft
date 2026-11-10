@@ -126,6 +126,7 @@ export * from "./scheduler/worker-images.ts";
 export * from "./secrets/secret-cipher.ts";
 export * from "./sessions/catalog.ts";
 export * from "./sessions/engine-settings.ts";
+export * from "./sessions/engine-settings-merge.ts";
 export * from "./sessions/event-codecs.ts";
 export * from "./sessions/feature-gate.ts";
 export * from "./sessions/git-attribution.ts";

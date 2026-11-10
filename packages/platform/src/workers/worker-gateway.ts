@@ -1767,6 +1767,10 @@ export function createWorkerGateway(deps: {
         ...(request.capabilities?.user_env === true
           ? { userEnv: true as const }
           : {}),
+        engineSettingsCaps: {
+          engineSettings: request.capabilities?.engine_settings === true,
+          permissionRules: request.capabilities?.permission_rules === true,
+        },
       });
       switch (result.outcome) {
         case "invalid_credential":
@@ -1813,6 +1817,23 @@ export function createWorkerGateway(deps: {
             "BACKEND_UNAVAILABLE",
             "The session holds variables and this worker does not carry them yet",
             true,
+          );
+        // Retryable, nothing consumed: the saved rules need a field this
+        // worker does not carry. It never runs a session without them.
+        case "engine_settings_unsupported":
+          throw new WorkerGatewayError(
+            503,
+            "BACKEND_UNAVAILABLE",
+            "The session has saved rules and this worker does not carry them yet",
+            true,
+          );
+        // Not retryable: a source of the rules cannot be read, and running
+        // without them would widen what the session may do.
+        case "engine_settings_closed":
+          throw new WorkerGatewayError(
+            403,
+            "FORBIDDEN",
+            "The rules saved for this session cannot be read, so it does not start",
           );
         // Not retryable, as above: the session was failed and the launch given up.
         case "variables_refused":
@@ -1871,6 +1892,22 @@ export function createWorkerGateway(deps: {
               // Only for a worker that announced `user_env` (the claim
               // refused otherwise), and absent when there are none.
               ...(binding.env === undefined ? {} : { env: binding.env }),
+              // Only for a worker that announced the capability (the claim
+              // was refused otherwise); absent when no rule is saved, so a
+              // rule-free agent's claim is what it was.
+              ...(binding.engineSettings?.engine === undefined
+                ? {}
+                : { engine_settings: binding.engineSettings.engine }),
+              ...((binding.engineSettings?.disallowedTools.length ?? 0) === 0
+                ? {}
+                : {
+                    disallowed_tools: [
+                      ...new Set([
+                        ...(profile.runtime_config.disallowed_tools ?? []),
+                        ...(binding.engineSettings?.disallowedTools ?? []),
+                      ]),
+                    ].sort(),
+                  }),
               // Only for a worker that announced `response_language`: an
               // older one refuses the field, so it runs without the language
               // rather than not at all. Outside every fingerprint.

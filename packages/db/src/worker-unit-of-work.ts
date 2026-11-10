@@ -25,6 +25,7 @@ import {
   type CheckpointPointer,
   type CheckpointStateInput,
   type CheckpointStateResult,
+  type ClaimEngineSettings,
   type ClaimInput,
   type ClaimResult,
   type CommitEventsInput,
@@ -98,6 +99,7 @@ import {
   runtimeOfColumns,
   sessionRuntimeOnce,
 } from "./checkpoint-runtime.ts";
+import { claimEngineSettingsOf } from "./claim-engine-settings.ts";
 import { finishClose } from "./close-control.ts";
 import { contextCoverage, contextGap, raiseContextGap } from "./context-gap.ts";
 import {
@@ -1629,12 +1631,25 @@ function envOf(session: SessionRow): { env?: Record<string, string> } {
   return env === undefined ? {} : { env };
 }
 
+// A worker that announced nothing carries no saved rules.
+function claimRuleSupport(input: {
+  engineSettingsCaps?: { engineSettings: boolean; permissionRules: boolean };
+}) {
+  return (
+    input.engineSettingsCaps ?? {
+      engineSettings: false,
+      permissionRules: false,
+    }
+  );
+}
+
 async function bindingOf(
   tx: Database,
   session: SessionRow,
   attempt: AttemptRow,
   at: Date,
   restore?: CheckpointRef | null,
+  engineSettings?: ClaimEngineSettings,
 ): Promise<WorkerBinding> {
   return {
     sessionId: session.id,
@@ -1660,6 +1675,11 @@ async function bindingOf(
     mcp: await sessionMcpOf(tx, session),
     githubMcp: await sessionGitHubMcpOf(tx, session),
     ...(await releaseRunOf(tx, session)),
+    ...(engineSettings === undefined ||
+    (engineSettings.engine === undefined &&
+      engineSettings.disallowedTools.length === 0)
+      ? {}
+      : { engineSettings }),
     platformPrompt: session.platformPrompt,
     ...envOf(session),
     ...(pinnedExtensionsOf(session).length === 0
@@ -2117,6 +2137,22 @@ export function createPostgresWorkerUnitOfWork(
           ) {
             return { outcome: "user_env_unsupported" };
           }
+          // Same rule for the saved engine rules: judged before anything
+          // rotates, from the rows as they are now.
+          const replayRules = await claimEngineSettingsOf(
+            tx,
+            bound.session,
+            claimRuleSupport(input),
+          );
+          if (replayRules.kind === "unsupported") {
+            return { outcome: "engine_settings_unsupported" };
+          }
+          if (replayRules.kind === "closed") {
+            return {
+              outcome: "engine_settings_closed",
+              reason: replayRules.reason,
+            };
+          }
           // A retry can land on a replica whose catalog lost this profile.
           // Rotating the token first would revoke the old one, bump the
           // revision and then fail on the way out, leaving a binding nobody
@@ -2177,7 +2213,14 @@ export function createPostgresWorkerUnitOfWork(
           return {
             outcome: "replayed",
             binding: withLaunchRuntime(
-              await bindingOf(tx, session, attempt, at),
+              await bindingOf(
+                tx,
+                session,
+                attempt,
+                at,
+                undefined,
+                replayRules.settings,
+              ),
               launch,
             ),
           };
@@ -2302,6 +2345,17 @@ export function createPostgresWorkerUnitOfWork(
         ) {
           return { outcome: "user_env_unsupported" };
         }
+        const rules = await claimEngineSettingsOf(
+          tx,
+          locked,
+          claimRuleSupport(input),
+        );
+        if (rules.kind === "unsupported") {
+          return { outcome: "engine_settings_unsupported" };
+        }
+        if (rules.kind === "closed") {
+          return { outcome: "engine_settings_closed", reason: rules.reason };
+        }
 
         // Read once: the binding hands the worker exactly the restore the
         // session holds this attempt to reporting ready from.
@@ -2384,7 +2438,7 @@ export function createPostgresWorkerUnitOfWork(
         return {
           outcome: "claimed",
           binding: withLaunchRuntime(
-            await bindingOf(tx, session, attempt, at, restore),
+            await bindingOf(tx, session, attempt, at, restore, rules.settings),
             launch,
           ),
         };
