@@ -14,8 +14,9 @@ const TIMEOUT = 600_000;
 
 /** An event id is `ev_` and the stored row's id in base 36. */
 function position(id: string | undefined): number {
-  const value = Number.parseInt(String(id).replace(/^ev_/, ""), 36);
-  expect(Number.isInteger(value)).toBe(true);
+  expect(id).toMatch(/^ev_[0-9a-z]{1,11}$/);
+  const value = Number.parseInt(String(id).slice(3), 36);
+  expect(Number.isSafeInteger(value)).toBe(true);
   return value;
 }
 
@@ -43,7 +44,9 @@ describe(`session lifecycle on ${engine.runtimeKind}`, () => {
       );
       expect(events.map((event) => event.event)).toContain("result");
       const ids = events.map((event) => position(event.id));
-      expect(ids).toEqual([...ids].sort((a, b) => a - b));
+      for (const [at, id] of ids.entries()) {
+        if (at > 0) expect(id).toBeGreaterThan(ids[at - 1] ?? Infinity);
+      }
 
       // 3. replay: reconnecting with Last-Event-ID resumes strictly after it.
       const cut = Math.floor(events.length / 2);
@@ -62,12 +65,20 @@ describe(`session lifecycle on ${engine.runtimeKind}`, () => {
 
       // 4. message: a second turn on the same session, whose events a stream
       // opened after the first turn's last one delivers.
+      let opened = () => {};
+      const connected = new Promise<void>((resolve) => {
+        opened = resolve;
+      });
       const tail = api.events(
         sessionId,
         (event) => event.event === "result" && event.data.turn_id === "2",
         180_000,
         lastId,
+        opened,
       );
+      // The message goes out only once the stream is open, so turn 2's
+      // events can reach it only live.
+      await Promise.race([connected, tail]);
       const second = await api.send(
         sessionId,
         engine.prompt({ id: scriptId("life-2"), commands: [], final: "two" }),

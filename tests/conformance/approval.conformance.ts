@@ -35,7 +35,9 @@ async function askForApproval(name: string) {
   );
   const question = events.at(-1);
   expect(question?.data.turn_id).toBe("1");
-  const [request] = await api.pendingUntil(sessionId, 1);
+  const asked = await api.pendingUntil(sessionId, 1);
+  expect(asked).toHaveLength(1);
+  const [request] = asked;
   expect(request).toMatchObject({
     kind: "permission",
     turn_id: "1",

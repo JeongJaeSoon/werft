@@ -433,6 +433,8 @@ export class Api {
     timeoutMs = 180_000,
     /** Replays strictly after this event id; the whole history without it. */
     lastEventId?: string,
+    /** Called once the server has accepted the stream, before any event is read. */
+    onOpen?: () => void,
   ): Promise<SseEvent[]> {
     const abort = new AbortController();
     const timer = setTimeout(() => abort.abort(), timeoutMs);
@@ -453,6 +455,7 @@ export class Api {
       if (response.status !== 200 || response.body === null) {
         throw new Error(`events answered ${response.status}`);
       }
+      onOpen?.();
       for await (const event of parseSse(response.body)) {
         seen.push(event);
         if (stop(event)) return seen;
