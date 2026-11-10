@@ -210,6 +210,13 @@ export const runtimeProviderSchema = z.discriminatedUnion("kind", [
       auth: egressTokenAuthSchema,
     })
     .strict(),
+  z
+    .object({
+      kind: z.literal("openai_responses"),
+      endpoint: z.url(),
+      auth: egressTokenAuthSchema,
+    })
+    .strict(),
 ]);
 // Which of the checked-out repository's own Claude project settings the run
 // takes in. Only its root CLAUDE.md can be let in, as text the worker reads

@@ -126,7 +126,7 @@ config:
     privateAllowlist: ""
     # Upstreams only the credential routes reach: provider, repository,
     # object store, and the packages route's public registries.
-    credentialAllowlist: "api.anthropic.com:443,registry.npmjs.org:443,rubygems.org:443,proxy.golang.org:443,sum.golang.org:443"
+    credentialAllowlist: "api.anthropic.com:443,api.openai.com:443,registry.npmjs.org:443,rubygems.org:443,proxy.golang.org:443,sum.golang.org:443"
     credentialPrivateAllowlist: ""
     # Public hosts the packages route follows a registry's redirect to.
     packagesRedirectAllowlist: ""
