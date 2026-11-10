@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { RuntimeStart } from "@werft-ai/runtime-core";
 
 import { claudeRuntimeModule, claudeStartConfig } from "./contract.ts";
+import { buildSdkOptions } from "./runtime.ts";
 
 function start(
   responseLanguage?: "ko" | "en" | "ja",
@@ -32,34 +33,51 @@ function start(
 
 const deps = { stateDir: "/tenant/config" };
 
+function engineSettings(
+  responseLanguage?: "ko" | "en" | "ja",
+): Record<string, unknown> {
+  const { settings } = buildSdkOptions(
+    claudeStartConfig(start(responseLanguage), deps),
+    { onPermission: async () => ({ behavior: "allow" }) },
+  );
+  return typeof settings === "object" ? settings : {};
+}
+
 describe("the answer language", () => {
   test.each([
-    ["ko", "Korean"],
-    ["en", "English"],
-    ["ja", "Japanese"],
+    ["ko", "korean"],
+    ["en", "english"],
+    ["ja", "japanese"],
   ] as const)(
-    "%s adds one instruction that holds whatever language the person writes",
+    "%s goes to the engine as settings.language",
     (language, name) => {
-      expect(claudeStartConfig(start(language), deps).appendSystemPrompt).toBe(
-        `Always answer in ${name}, whatever language the person writes in.`,
-      );
+      expect(engineSettings(language).language).toBe(name);
     },
   );
 
-  test("none adds nothing: follow-user and a release before the field run as before", () => {
-    expect(claudeStartConfig(start(), deps)).not.toHaveProperty(
-      "appendSystemPrompt",
-    );
+  test("none passes nothing: follow-user and a release before the field run as before", () => {
+    expect(engineSettings()).not.toHaveProperty("language");
   });
 
-  test("follows the platform's own instructions, after a blank line", () => {
-    expect(
-      claudeStartConfig(start("ja", [{ text: "Platform paragraph." }]), deps)
-        .appendSystemPrompt,
-    ).toBe(
-      "Platform paragraph.\n\nAlways answer in Japanese, whatever language the person writes in.",
-    );
-  });
+  test.each(["ko", "en", "ja"] as const)(
+    "%s never reaches the system prompt",
+    (language) => {
+      expect(claudeStartConfig(start(language), deps)).not.toHaveProperty(
+        "appendSystemPrompt",
+      );
+      expect(
+        claudeStartConfig(
+          start(language, [{ text: "Platform paragraph." }]),
+          deps,
+        ).appendSystemPrompt,
+      ).toBe("Platform paragraph.");
+      const { systemPrompt } = buildSdkOptions(
+        claudeStartConfig(start(language), deps),
+        { onPermission: async () => ({ behavior: "allow" }) },
+      );
+      expect(JSON.stringify(systemPrompt)).not.toMatch(/answer in/i);
+    },
+  );
 
   test("is outside the checkpoint fingerprint: a session resumes on a worker with or without it", () => {
     for (const scheme of [1, 2]) {
