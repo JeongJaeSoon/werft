@@ -1,9 +1,10 @@
 # 결정(설계): 승인된 번들의 stdio MCP 서버를 worker가 띄우고 원격 MCP relay 뒤에 둔다
 
-- 상태: 설계. 이 문서가 머지된 뒤 [94S-875](https://linear.app/94soon/issue/94S-875)를 [10절](#10-구현-단위)의 단위로 나눠 진행한다. 이 PR은 코드를 바꾸지 않는다.
+- 상태: 설계. 이 문서가 머지된 뒤 이 구현 티켓을 [10절](#10-구현-단위)의 단위로 나눠 진행한다. 이 PR은 코드를 바꾸지 않는다.
+- 티켓 번호: 저장소의 마크다운은 티켓 번호를 적지 못한다(`tests/docs-links.test.ts`). 그래서 티켓을 이름으로 부른다. 이름과 번호의 대응은 이 문서를 들인 PR 본문에 있다.
 - 기준 커밋: `origin/main` `88440d0d8`. `파일:줄`은 이 커밋에서 직접 읽은 값이다. 새로 만든 모듈 이름은 제안이고, 이름이 아닌 경계와 순서가 결정이다.
-- 선행 티켓은 아직 모두 열려 있다: [94S-869](https://linear.app/94soon/issue/94S-869)(분류·manifest), [94S-870](https://linear.app/94soon/issue/94S-870)(승인 화면), [94S-871](https://linear.app/94soon/issue/94S-871)(프로필 상한·관문 하나), [94S-872](https://linear.app/94soon/issue/94S-872)(hook 실행기), [94S-873](https://linear.app/94soon/issue/94S-873)(Claude 콜백), [94S-874](https://linear.app/94soon/issue/94S-874)(hook ledger). 아직 없는 코드를 이 문서가 인용할 때는 그 티켓의 완료 조건을 근거로 쓰고, 코드처럼 적지 않는다.
-- 관련: [94S-780](https://linear.app/94soon/issue/94S-780)(원격 MCP relay, Done), [94S-919](https://linear.app/94soon/issue/94S-919)(호출자 상한 집행), [94S-1487](https://linear.app/94soon/issue/94S-1487)(도구 이름 deny 우선 판정, PR #1502).
+- 선행 티켓은 아직 모두 열려 있다: 분류 티켓(분류·manifest), 승인 화면 티켓, 프로필 상한 티켓(프로필 상한·관문 하나), hook 실행기 티켓, Claude 콜백 티켓, hook ledger 티켓. 아직 없는 코드를 이 문서가 인용할 때는 그 티켓의 완료 조건을 근거로 쓰고, 코드처럼 적지 않는다.
+- 관련: 원격 MCP 설계 티켓(원격 MCP relay, 완료), 호출자 상한 티켓(호출자 상한 집행), deny 우선 판정(도구 이름 단위, PR #1502).
 - 원 결정: [action-broker.md](action-broker.md#대안)는 commit 도구를 "worker 안 stdio MCP 서버"로 두는 안을 골랐다가 접었다. 이유는 둘이었다(플랫폼 MCP 서버는 remote만 받는다, 세션 내내 사는 서버 프로세스가 턴 끝 capture의 자손 관측에 걸린다). 이 문서는 그 결론을 바꾸지 않는다. 같은 두 이유를 **턴 안에서만 사는 프로세스**로 푼다([2절](#2-프로세스-자리와-수명)).
 
 ## 요약
@@ -15,7 +16,7 @@
 | 판정 | 엔진에 보이는 도구 = 승인된 선언 도구 ∩ 상한. 컨트롤 플레인이 main에 있는 deny 우선 함수(`visibleMcpTools`) 하나로 해석해 세션 행에 상한으로 고정한다. **호출 시점에도** 같은 함수로 `tools/call`과 `tools/list`를 판정하므로(판정 전용 worker 경로, 캐시 없음, 닫힌 채 실패) 실행 중 deny 추가를 따라간다. 원격과의 동등성은 허용 집합과 호출 판정에 한한다(원격 목록은 즉시 줄지 않는다) 넓어지는 방향은 따르지 않는다([3절](#3-relay가-stdio-서버를-내보내는-방법과-판정-자리)) |
 | identity | `{번들 digest, 서버 이름}`. 이름 공간은 하나이고 겹치면 release 활성화·세션 생성이 거부한다 |
 | 클라이언트 능력 | relay의 upstream 클라이언트는 능력을 하나도 선언하지 않는다. sampling·roots·elicitation은 오류로 거절한다 |
-| env·cwd | hook과 같은 실행기를 쓴다(94S-872). 서버만의 규칙을 더하지 않는다 |
+| env·cwd | hook과 같은 실행기를 쓴다(hook 실행기 티켓). 서버만의 규칙을 더하지 않는다 |
 | 실패 | `required` 서버가 시작·첫 `tools/list`에 실패하면 첫 입력 전에 `run.ready()`가 거절한다. 그 밖의 실패는 경고하고 계속한다 |
 
 ## 1. 범위와 현재 코드
@@ -45,20 +46,20 @@
 
 **막힘의 소유권.** 서버 관리자는 상태가 셋이다: `open`, `quiesced(핸들)`, `closed`(영구). `quiesce()`는 핸들을 돌려주고 `핸들.release()`는 멱등이며 `quiesced`일 때만 `open`으로 돌린다. `closed`는 attempt 종료(abort·close·소유권 유실)가 만든 상태이고 어떤 `release()`도 되돌리지 못한다. **일반 턴 interrupt는 `closed`가 아니다.** interrupt는 턴만 멈추고 같은 run의 턴 루프가 계속되므로(`worker-host.ts:1999`, `:1100`) 턴 끝과 같은 `quiesce()`(되돌릴 수 있음)를 쓰고 다음 턴 첫 호출이 서버를 다시 띄운다. 이 규칙은 코드가 가진 경로에 맞춘다: 캡처 거절·예외로 즉시 lease를 놓는 경로, finalize가 불확실해 미결 요청까지 lease를 유지하는 경로, 기다리던 쪽이 포기한 뒤 늦게 lease를 돌려주는 경로(`worker-host.ts:1721`, `:1862`, `:2882`). lease를 얻지 못했으면 `quiesce()`를 부르지 않았으므로 풀 것도 없다. 늦은 `release()`가 정리 중이거나 끝난 attempt의 서버 입장을 다시 열지 못한다. 중첩 정리는 하나의 종료 Promise를 공유한다.
 
-attempt가 끝날 때(abort·close·소유권 유실)는 같은 정리를 하고(`closed`), 종료 확인 전에는 체크포인트도 정상 release도 하지 않는다. 이 등록부와 release 조건은 94S-872가 hook용으로 만든다. 서버는 거기에 **같은 종류의 항목으로 오르는 소비자**이고, 등록부의 항목은 소유 종류(`hook` · `mcp:<서버>`)를 가진다. 턴 경계의 `quiesce()`는 `mcp` 종류만 끄고 hook은 건드리지 않는다. hook은 짧고 94S-874의 ledger 항목으로 따로 지켜진다.
+attempt가 끝날 때(abort·close·소유권 유실)는 같은 정리를 하고(`closed`), 종료 확인 전에는 체크포인트도 정상 release도 하지 않는다. 이 등록부와 release 조건은 hook 실행기 티켓이 hook용으로 만든다. 서버는 거기에 **같은 종류의 항목으로 오르는 소비자**이고, 등록부의 항목은 소유 종류(`hook` · `mcp:<서버>`)를 가진다. 턴 경계의 `quiesce()`는 `mcp` 종류만 끄고 hook은 건드리지 않는다. hook은 짧고 hook ledger 티켓의 ledger 항목으로 따로 지켜진다.
 
 종료 방식 두 가지를 구분한다. 턴 끝에 우리가 끈 서버는 다음 턴에 다시 띄울 수 있다. **스스로 죽은** 서버는 그 attempt 안에서 다시 띄우지 않는다(티켓). 호출은 `isError` 결과로 돌려주고 경고한다.
 
-서버가 쓰는 작업 폴더 파일은 에이전트 Bash의 것과 같이 그 턴 체크포인트에 들어간다. lease 안에서 프로세스가 죽은 것을 확인한 뒤 capture하므로 겹치지 않는다. 그룹을 벗어난 자손은 기존 cwd 검사가 `background_writer`로 잡는다. cwd를 밖으로 옮기거나 조회를 막은 프로세스는 못 잡는 위험은 94S-874와 에이전트 Bash가 이미 수용한 것과 같다.
+서버가 쓰는 작업 폴더 파일은 에이전트 Bash의 것과 같이 그 턴 체크포인트에 들어간다. lease 안에서 프로세스가 죽은 것을 확인한 뒤 capture하므로 겹치지 않는다. 그룹을 벗어난 자손은 기존 cwd 검사가 `background_writer`로 잡는다. cwd를 밖으로 옮기거나 조회를 막은 프로세스는 못 잡는 위험은 hook ledger 티켓와 에이전트 Bash가 이미 수용한 것과 같다.
 
-ledger 항목은 서버에 열지 않는다. 94S-874의 `hook:<id>` 항목은 짧은 호출이 체크포인트와 겹치지 않게 하려는 것이다. 서버는 lease 안에서 끄고 확인한 뒤 캡처하고(앞의 순서), 호출이 없다는 것은 lease의 도구 검사가 이미 보장하므로 ledger가 더할 것이 없다. 서버가 받는 도구 호출 자체는 엔진의 도구 호출이라서 기존 `toolStarting`·`toolSettled`가 이미 기록한다.
+ledger 항목은 서버에 열지 않는다. hook ledger 티켓의 `hook:<id>` 항목은 짧은 호출이 체크포인트와 겹치지 않게 하려는 것이다. 서버는 lease 안에서 끄고 확인한 뒤 캡처하고(앞의 순서), 호출이 없다는 것은 lease의 도구 검사가 이미 보장하므로 ledger가 더할 것이 없다. 서버가 받는 도구 호출 자체는 엔진의 도구 호출이라서 기존 `toolStarting`·`toolSettled`가 이미 기록한다.
 
 ### 대안 (고르지 않음)
 
 - **세션 내내 사는 프로세스.** 가장 단순하지만 [action-broker.md](action-broker.md#대안)가 접은 바로 그 이유로 모든 턴 끝 capture를 `background_writer`로 막는다. 거부.
 - **도구 호출마다 띄우고 끄기.** capture와 겹칠 일이 없으나, MCP는 `initialize` 핸드셰이크와 서버 상태(열린 브라우저, DB 연결)를 전제하고 호출마다 시작 비용을 낸다. `tools/list` 캐시도 의미가 없어진다. 거부.
 - **세션 시작 때만 띄우고 목록만 캐시한 뒤 끄기.** 첫 도구 호출이 항상 재시작이 되어 위의 이점이 없다. 시작 시 띄운 프로세스를 첫 턴까지 두는 쪽이 더 단순하다.
-- **컨트롤 호스트나 별도 컨테이너에서 실행.** 번들 스크립트는 세션의 작업 폴더와 에이전트 Bash와 같은 env·네트워크에서 돌기로 사람이 결정했다(94S-870 문구). 공유 인프라에서 승인된 외부 코드를 돌리는 새 위협면을 만든다. 거부.
+- **컨트롤 호스트나 별도 컨테이너에서 실행.** 번들 스크립트는 세션의 작업 폴더와 에이전트 Bash와 같은 env·네트워크에서 돌기로 사람이 결정했다(승인 화면 티켓 문구). 공유 인프라에서 승인된 외부 코드를 돌리는 새 위협면을 만든다. 거부.
 - **서버마다 ledger 항목.** 위에서 설명한 대로 얻는 것이 없다. 거부.
 
 ## 3. relay가 stdio 서버를 내보내는 방법과 판정 자리
@@ -88,17 +89,17 @@ export function mcpRelay(server: { name: string; tools: readonly string[] }, ups
 - stdio upstream은 **worker**(`apps/worker`)가 만든다. 프로세스 그룹, 등록부, 막는 상태는 worker의 자원이고, 어댑터가 가진 능력은 `McpUpstream`뿐이다. 어댑터 `contract.ts`는 `RuntimeStart.bundle.mcpServers`처럼 런타임 코어 타입을 통해 받는다. 런타임 코어에 더하는 것은 "upstream을 주입하는 서버 항목" 하나다(`url`·`token` 대신 `upstream`을 가진 변형).
 - 목록 캐시는 stdio upstream을 만드는 worker 쪽 `CachedListing`이 맡는다. 시작 때 한 번 받은 입력 스키마 포함 목록을 항상 돌려주고, relay의 필터·호출 거절은 relay가 맡는다. 책임이 겹치지 않는다: relay는 "무엇이 보이고 불릴 수 있나", stdio upstream은 "프로세스가 언제 살아 있나"를 맡는다.
 
-**불변식(리드 결정, 94S-1487).** deny-first는 전송 수단과 무관해야 한다. 원격은 호출마다 egress가 저장된 엔진 규칙의 `mcp__` deny까지 보고 판정한다(`packages/db/src/mcp-egress.ts:192-203` `withoutSavedMcpDenies`). stdio 서버 뒤에서 새 deny를 무시하면 "deny가 이긴다"가 전송 수단에 달리게 된다. 그래서 **모든 stdio `tools/call`과 `tools/list` 응답이 호출 시점에 같은 deny-first 판정을 거친다.** 세션에 고정한 목록은 판정의 **상한**(넓어지지 않음)이고, 호출 시점 판정은 그 안에서만 좁힌다.
+**불변식(리드 결정, #1502의 deny 우선 판정).** deny-first는 전송 수단과 무관해야 한다. 원격은 호출마다 egress가 저장된 엔진 규칙의 `mcp__` deny까지 보고 판정한다(`packages/db/src/mcp-egress.ts:192-203` `withoutSavedMcpDenies`). stdio 서버 뒤에서 새 deny를 무시하면 "deny가 이긴다"가 전송 수단에 달리게 된다. 그래서 **모든 stdio `tools/call`과 `tools/list` 응답이 호출 시점에 같은 deny-first 판정을 거친다.** 세션에 고정한 목록은 판정의 **상한**(넓어지지 않음)이고, 호출 시점 판정은 그 안에서만 좁힌다.
 
 **판정은 세 자리에 나뉜다.**
 
 | 자리 | 하는 일 | 원격 | stdio |
 |---|---|---|---|
-| 컨트롤 플레인(세션 해석) | 선언 ∩ 상한을 계산해 세션 행에 고정 [94S-871, 94S-919] | 시작 스냅샷 | 같은 방식으로 고정(상한) |
-| 컨트롤 플레인(호출 시점 판정) | release deny, 저장된 엔진 규칙 deny, 호출자 상한 [94S-919]을 **지금 값**으로 deny 우선 판정 | egress `decide`(`mcp-egress.ts`) | **새 worker 경로** `POST` 판정 요청. `decide`와 같은 판정 함수를 부른다 |
+| 컨트롤 플레인(세션 해석) | 선언 ∩ 상한을 계산해 세션 행에 고정 (프로필 상한 티켓, 호출자 상한 티켓) | 시작 스냅샷 | 같은 방식으로 고정(상한) |
+| 컨트롤 플레인(호출 시점 판정) | release deny, 저장된 엔진 규칙 deny, 호출자 상한 (호출자 상한 티켓)을 **지금 값**으로 deny 우선 판정 | egress `decide`(`mcp-egress.ts`) | **새 worker 경로** `POST` 판정 요청. `decide`와 같은 판정 함수를 부른다 |
 | worker relay | 고정된 목록 밖 `tools/list`·`tools/call` 거절, 판정 결과 집행 | 있음 | 있음 |
 
-**stdio의 호출 시점 판정이 가는 길.** egress `/mcp/<name>` 경로는 쓰지 않는다(위 이유 1~3). 대신 worker가 attempt에 묶인 인증으로 컨트롤 플레인에 묻는 **판정 전용 경로**를 둔다. 공유할 것은 `decide` 안의 조각이 아니다. `decide`는 이미 계산된 `state.tools`에 `mcpToolPermitted`를 적용할 뿐이고, 현재 설정 교차는 DB의 `sessionEffectiveMcp`, 저장 deny의 조회·적용은 `withoutSavedMcpDenies`(`packages/db/src/mcp-egress.ts:92`, `:192`)에 있다. 그래서 둘을 구분한다: ① **deny 쪽 정책 입력을 읽는 공통 경로**(저장 deny와 release deny, 호출자 상한을 DB에서 읽음. egress와 stdio가 **함께** 쓴다)와 ② **순수 판정 함수**(`visibleMcpTools`). 현재 MCP **설정 행**을 교차하는 `sessionEffectiveMcp`는 원격 전용으로 남고 공유하지 않는다. U2b는 ①을 egress와 새 경로가 같이 부르도록 뽑는다. `effectiveMcp`는 시작 스냅샷을 받는 분기에서 에이전트의 **단일 서버 설정 행**을 입력으로 받고, 행이 없거나 서버가 다르면 빈 집합을 돌려준다(`mcp-settings.ts:60`. 스냅샷과 행이 모두 없으면 release 도구를 돌려준다, `:73-76`). 번들의 stdio 서버는 그 행에 없으므로 **`effectiveMcp`를 stdio에 쓰지 않는다.** stdio의 호출 시점 입력은 셋이다: 서버마다 세션에 고정한 상한(허용 이름 목록), 지금의 release deny와 저장된 엔진 규칙 deny(`mcpDeniedBy`, `packages/db/src/claim-engine-settings.ts`가 원격과 같은 읽기 경로), 호출자 상한(94S-919). 판정은 `visibleMcpTools(서버, 고정 상한, ...deny)`이고 설정 행이 없다는 것은 아무것도 뜻하지 않는다(행이 없다고 거절하지 않는다). 그래서 상한은 넓어질 수 없고 deny만 줄인다. 첫 시험: 서버 둘이 있는 세션이 **처음에는 둘 다 허용**되고, 한쪽에만 deny를 더하면 그쪽만 좁아진다.
+**stdio의 호출 시점 판정이 가는 길.** egress `/mcp/<name>` 경로는 쓰지 않는다(위 이유 1~3). 대신 worker가 attempt에 묶인 인증으로 컨트롤 플레인에 묻는 **판정 전용 경로**를 둔다. 공유할 것은 `decide` 안의 조각이 아니다. `decide`는 이미 계산된 `state.tools`에 `mcpToolPermitted`를 적용할 뿐이고, 현재 설정 교차는 DB의 `sessionEffectiveMcp`, 저장 deny의 조회·적용은 `withoutSavedMcpDenies`(`packages/db/src/mcp-egress.ts:92`, `:192`)에 있다. 그래서 둘을 구분한다: ① **deny 쪽 정책 입력을 읽는 공통 경로**(저장 deny와 release deny, 호출자 상한을 DB에서 읽음. egress와 stdio가 **함께** 쓴다)와 ② **순수 판정 함수**(`visibleMcpTools`). 현재 MCP **설정 행**을 교차하는 `sessionEffectiveMcp`는 원격 전용으로 남고 공유하지 않는다. U2b는 ①을 egress와 새 경로가 같이 부르도록 뽑는다. `effectiveMcp`는 시작 스냅샷을 받는 분기에서 에이전트의 **단일 서버 설정 행**을 입력으로 받고, 행이 없거나 서버가 다르면 빈 집합을 돌려준다(`mcp-settings.ts:60`. 스냅샷과 행이 모두 없으면 release 도구를 돌려준다, `:73-76`). 번들의 stdio 서버는 그 행에 없으므로 **`effectiveMcp`를 stdio에 쓰지 않는다.** stdio의 호출 시점 입력은 셋이다: 서버마다 세션에 고정한 상한(허용 이름 목록), 지금의 release deny와 저장된 엔진 규칙 deny(`mcpDeniedBy`, `packages/db/src/claim-engine-settings.ts`가 원격과 같은 읽기 경로), 호출자 상한(호출자 상한 티켓). 판정은 `visibleMcpTools(서버, 고정 상한, ...deny)`이고 설정 행이 없다는 것은 아무것도 뜻하지 않는다(행이 없다고 거절하지 않는다). 그래서 상한은 넓어질 수 없고 deny만 줄인다. 첫 시험: 서버 둘이 있는 세션이 **처음에는 둘 다 허용**되고, 한쪽에만 deny를 더하면 그쪽만 좁아진다.
 
 **새 경로의 연결은 worker 프로토콜을 따른다.** `packages/core`의 응답 표(`schemas/responses.ts`)는 공개 클라이언트의 `OperationKey`용이고 기존 worker 경로는 거기에 없다. 새 경로를 거기에 올리지 않는다. 연결은 `packages/contracts`의 worker-protocol 스키마 → `apps/control-host/src/api/routes/worker.ts`의 `jsonWithSchema` → worker gateway client의 decoder다. 인증은 `gateway.authenticate` 뒤 `requireScope`(`packages/platform/src/workers/worker-gateway.ts:1630`)로 session·attempt·lease epoch·execution generation·auth revision을 대조하고, `requireScope`가 토큰이 DB보다 오래됐을 수 있다고 명시하므로 **현재 DB 소유권을 확인하는 fenced read**로 서버·고정 상한을 읽는다. bootstrap 토큰, 다른 attempt, 낡은 fence는 거절하는 시험을 둔다.
 
@@ -126,7 +127,7 @@ export interface McpToolGate {
 
 ### 해석 함수
 
-main에는 이미 deny 우선 함수가 있다: `visibleMcpTools(server, allow, ...denies)`와 `mcpToolPermitted`(`packages/platform/src/sessions/mcp-tool-decision.ts:13-60`, 94S-1487). 원격의 claim과 egress가 둘 다 이 함수에서 나온다. stdio도 새 함수를 만들지 않고 이것을 부른다.
+main에는 이미 deny 우선 함수가 있다: `visibleMcpTools(server, allow, ...denies)`와 `mcpToolPermitted`(`packages/platform/src/sessions/mcp-tool-decision.ts:13-60`, deny 우선 판정(#1502)). 원격의 claim과 egress가 둘 다 이 함수에서 나온다. stdio도 새 함수를 만들지 않고 이것을 부른다.
 
 - `server` = 번들 서버 이름. `allow` = 선언 도구를 `mcp__<이름>__<도구>`로 쓴 목록 ∩ 세션의 `tools` 상한(profile·release). `denies` = release deny, 스냅샷 `mcp_deny`, 저장된 엔진 규칙, 호출자 상한이 뺀 도구. 일치는 정확 일치이며 접두어 일치가 아니다(그 함수의 계약).
 - 출력: 그 함수는 허용된 이름의 정렬된 배열만 돌려준다. 뺀 도구와 이유(`undeclared`·`over_limit`·`denied`)는 **U2 호출부가** 입력 목록과의 차이로 계산해 해석 결과에 남긴다.
@@ -150,9 +151,9 @@ main에는 이미 deny 우선 함수가 있다: `visibleMcpTools(server, allow, 
 **결정.** 서버 identity는 `{번들 digest, 서버 이름}`. 엔진이 보는 도구 이름은 `mcp__<이름>__<도구>`이므로 이름 공간은 세션의 **모든 번들 stdio 서버와 catalog 원격 서버가 하나**다.
 
 - 같은 이름이 둘 이상이면(번들끼리, 번들과 catalog 원격, 번들과 `platform` 서버) **release 활성화와 세션 생성이 거부**한다. 서버 이름을 번들 이름으로 덮어쓰거나 접두어를 붙이지 않는다.
-- 이름 형식을 제한한다: `^[a-z0-9][a-z0-9-]{0,30}$`. 엔진이 `mcp__<서버>__<도구>`에서 서버 이름을 `__`로 나누므로 `__`는 안 된다. 94S-869의 완료 조건에는 이 검사가 없으므로 **U2가 소유**한다(release 활성화·세션 생성의 같은 검사 자리). 869가 manifest 단계에서 같은 정규식을 더 일찍 거절해도 U2의 검사는 남는다.
+- 이름 형식을 제한한다: `^[a-z0-9][a-z0-9-]{0,30}$`. 엔진이 `mcp__<서버>__<도구>`에서 서버 이름을 `__`로 나누므로 `__`는 안 된다. 분류 티켓의 완료 조건에는 이 검사가 없으므로 **U2가 소유**한다(release 활성화·세션 생성의 같은 검사 자리). 869가 manifest 단계에서 같은 정규식을 더 일찍 거절해도 U2의 검사는 남는다.
 - 현재 코드는 이름을 객체 키로 쓴다(`contract.ts:162-174`의 `Object.fromEntries`). 겹치면 뒤의 항목이 앞의 relay를 **조용히 덮는다**. 이 검사는 그 덮어쓰기가 도달하기 전 한 곳(세션 해석)에서 해야 하고, 어댑터는 겹침을 만나면 던지는 단언 하나를 더 둔다.
-- 같은 번들의 두 버전은 한 세션에 같이 오르지 않는다(세션이 번들마다 버전 하나를 고정한다, 94S-867).
+- 같은 번들의 두 버전은 한 세션에 같이 오르지 않는다(세션이 번들마다 버전 하나를 고정한다, 세션 해석 티켓).
 
 ### 대안 (고르지 않음)
 
@@ -175,12 +176,12 @@ main에는 이미 deny 우선 함수가 있다: `visibleMcpTools(server, allow, 
 
 ## 6. env·cwd·샌드박스와 hook 공유
 
-**결정.** hook(94S-872)과 같은 실행기로 띄운다. 서버를 위한 규칙을 따로 만들지 않는다.
+**결정.** hook(hook 실행기 티켓)과 같은 실행기로 띄운다. 서버를 위한 규칙을 따로 만들지 않는다.
 
-- 새 프로세스 그룹. cwd는 세션 작업 디렉터리. env는 엔진에 넘기는 env에서 `CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR`를 빼고 `CLAUDE_PLUGIN_ROOT`·`CLAUDE_PROJECT_DIR`를 더한 값. worker `process.env`와 fd 3은 주지 않는다. 이 노출은 사람이 수용한 위험이다(94S-872).
+- 새 프로세스 그룹. cwd는 세션 작업 디렉터리. env는 엔진에 넘기는 env에서 `CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR`를 빼고 `CLAUDE_PLUGIN_ROOT`·`CLAUDE_PROJECT_DIR`를 더한 값. worker `process.env`와 fd 3은 주지 않는다. 이 노출은 사람이 수용한 위험이다(hook 실행기 티켓).
 - 샌드박스 없음. 외부 서드파티 번들을 받을 때 다시 본다([LATER](#later)).
-- `extensions.scripts`가 `hooks`인 프로필에서만 stdio MCP가 돈다(94S-871). 승인되지 않은 번들 버전이나 상한 밖 프로필은 release 활성화·세션 생성에서 거부한다.
-- 스크립트가 든 세션은 `ptrace_scope ≥ 1`이 아니면 시작하지 않는다(94S-871). 서버도 같은 조건을 받는다.
+- `extensions.scripts`가 `hooks`인 프로필에서만 stdio MCP가 돈다(프로필 상한 티켓). 승인되지 않은 번들 버전이나 상한 밖 프로필은 release 활성화·세션 생성에서 거부한다.
+- 스크립트가 든 세션은 `ptrace_scope ≥ 1`이 아니면 시작하지 않는다(프로필 상한 티켓). 서버도 같은 조건을 받는다.
 - 서버만의 차이: 파이프 연결(stdin/stdout은 MCP, stderr는 비워서 막힘을 방지), 호출 시한은 relay의 30분(`remote-mcp.ts:12`) 그대로, 시작 시한은 15초(초기 값, [LATER](#later)).
 - stderr는 마지막 64 KiB를 링 버퍼로 두고 비정상 종료 때 worker 로그(경고)에만 쓴다. 이벤트·transcript에는 넣지 않는다. env가 에이전트 Bash와 같으므로 값에 비밀이 섞일 수 있다.
 
@@ -193,14 +194,14 @@ interface ProcessGroupHost {
 }
 ```
 
-hook 쪽은 `spawn`을 짧은 호출에, 서버는 긴 수명에 쓴다. 94S-872가 이미 다른 모양으로 나온 뒤라면 그 모양이 이긴다. U3의 첫 일이 이 인터페이스에 맞추는 것이다.
+hook 쪽은 `spawn`을 짧은 호출에, 서버는 긴 수명에 쓴다. hook 실행기 티켓이 이미 다른 모양으로 나온 뒤라면 그 모양이 이긴다. U3의 첫 일이 이 인터페이스에 맞추는 것이다.
 
 stdio 전송은 SDK의 `StdioClientTransport`가 프로세스를 직접 띄운다. 이 전송이 프로세스 그룹과 등록부 소유를 우리에게 주는지는 이 PR에서 **확인하지 못했다**(worktree에 의존성이 설치돼 있지 않다). U3의 첫 시험으로 확인한다. 안 되면 SDK의 `Transport` 인터페이스를 직접 구현한다(`ReadBuffer`·`serializeMessage`로 줄 단위 JSON-RPC를 읽고 쓰는 약 40줄). 어느 쪽이든 `McpUpstream` 밖의 코드는 모른다.
 
 ### 대안 (고르지 않음)
 
 - **서버용 읽기 전용 샌드박스.** 티켓이 "정하지 않는 것"으로 둔 일이다. 외부 번들 지원 때 본다.
-- **서버를 hook과 다른 env로.** 에이전트 Bash와 같은 env라는 한 가지 위협 모델을 한 곳에 적어 두는 쪽이 승인 화면 문구(94S-870)와 어긋나지 않는다.
+- **서버를 hook과 다른 env로.** 에이전트 Bash와 같은 env라는 한 가지 위협 모델을 한 곳에 적어 두는 쪽이 승인 화면 문구(승인 화면 티켓)와 어긋나지 않는다.
 
 ## 7. 실패와 ready() 의미
 
@@ -208,7 +209,7 @@ stdio 전송은 SDK의 `StdioClientTransport`가 프로세스를 직접 띄운�
 - 선택 서버의 시작 실패, 시작 뒤 종료, 재기동 실패, 호출 오류는 경고하고 계속한다. 호출은 `isError` 결과로 돌려준다.
 - 티켓은 `required` 서버가 **시작 뒤** 죽은 경우를 따로 적지 않는다. 이 문서는 시작 뒤 실패를 모두 "경고하고 계속"으로 읽는다. `required`의 의미는 세션 시작 게이트까지다([LATER](#later) 첫 항목).
 - 스스로 죽은 서버는 attempt 안에서 다시 띄우지 않는다. 턴 끝에 우리가 끈 서버만 다음 턴에 다시 띄운다([2절](#2-프로세스-자리와-수명)).
-- 종료를 확인하지 못하면 체크포인트와 정상 release를 하지 않는다(94S-872가 만든 release 조건에 서버가 오른다).
+- 종료를 확인하지 못하면 체크포인트와 정상 release를 하지 않는다(hook 실행기 티켓이 만든 release 조건에 서버가 오른다).
 
 ### 대안 (고르지 않음)
 
@@ -217,7 +218,7 @@ stdio 전송은 SDK의 `StdioClientTransport`가 프로세스를 직접 띄운�
 
 ## 8. 이벤트
 
-`extension.mcp.started`·`extension.mcp.exited`·`extension.mcp.tool_filtered`. hook의 `extension.hook.ran`(94S-872)과 같은 게시 경로를 쓴다.
+`extension.mcp.started`·`extension.mcp.exited`·`extension.mcp.tool_filtered`. hook의 `extension.hook.ran`(hook 실행기 티켓)과 같은 게시 경로를 쓴다.
 
 | 이벤트 | 담는 것 | 담지 않는 것 |
 |---|---|---|
@@ -229,7 +230,7 @@ stdio 전송은 SDK의 `StdioClientTransport`가 프로세스를 직접 띄운�
 
 ## 9. 완료 조건 대응
 
-| 94S-875 완료 조건 | 이 문서 | 단위 |
+| 이 구현 티켓 완료 조건 | 이 문서 | 단위 |
 |---|---|---|
 | 1. 서버를 hook과 같은 env·cwd로 띄우고 relay가 말한다. 엔진에 `stdio`가 가지 않는다 | [3](#3-relay가-stdio-서버를-내보내는-방법과-판정-자리), [6](#6-envcwd샌드박스와-hook-공유) | U1, U3 |
 | 2. 엔진에 보이는 도구 = 선언 ∩ 상한, 세션 행에 고정 (호출 시점 deny-first는 리드 결정으로 더함) | [3절 해석 함수](#해석-함수), 호출 시점 판정 | U2, U2b |
@@ -247,11 +248,11 @@ stdio 전송은 SDK의 `StdioClientTransport`가 프로세스를 직접 띄운�
 | 단위 | 내용 | 선행 | 완료 조건 |
 |---|---|---|---|
 | **U1** relay 분리 | `remote-mcp.ts`의 동작을 시험으로 먼저 고정(고정 밖 거절, 목록 필터, 설명 기록)하고 `McpUpstream` + `mcpRelay` + `CachedListing`으로 쪼갠다. 원격 동작은 바뀌지 않는다. 서버발 요청 거절 처리기와 계약 시험 파일을 둔다. relay가 소유하는 `McpToolGate`(선택 인자)와 fake gate 시험(거절은 서버를 부르지 않음, 목록이 gate로 걸러짐)도 여기서 정의한다 | 없음 | 4 (relay 쪽) |
-| **U2** 해석·이름 | manifest의 stdio 선언을 읽어 `선언 ∩ 상한`을 `visibleMcpTools`(main에 있음)로 계산해 세션 행에 고정, 이름 정규식과 이름 공간 단일화 검사(release 활성화·세션 생성), claim이 선언·고정 목록을 싣는 계약, 지문 binding, 선언에서 요구 기능 `stdio_mcp`를 강제로 도출해 claim에 싣음. **호출자 상한 입력을 비워 둔 채 머지하지 않는다** | 94S-869(manifest 모양), 94S-871(관문), 94S-870(승인), 94S-919(호출자 상한 집행) | 2, 3, 8(계약) |
-| **U2b** 호출 시점 판정 경로 | deny 쪽 정책 입력을 읽는 공통 경로(release deny·저장 deny·호출자 상한. 설정 행 교차는 원격 전용으로 남김)를 egress에서 뽑고(원격 동작 불변을 시험으로 먼저 고정), 그 경로와 `visibleMcpTools`를 부르는 판정 전용 worker 경로(`visible`·`permits`)를 더한다. 연결은 contracts worker-protocol 스키마, `routes/worker.ts`, gateway client decoder이며 `packages/core` 응답 표에는 올리지 않는다. gateway client `post()`에 `AbortSignal`을 더한다. 계약 시험: 서버 둘 중 한쪽 deny만 그쪽을 좁힘, 같은 입력에서 egress와 이 경로의 허용 집합·호출 판정이 같음, 시작 뒤 더한 저장 deny가 다음 판정에 반영됨, 설정을 넓혀도 상한을 넘지 않음, 판정 불가는 거절(`tools/list`는 JSON-RPC 오류), bootstrap 토큰·다른 attempt·낡은 fence 거절 | U2, 94S-919(호출자 상한 교차) | 2 |
-| **U3** worker stdio upstream | `McpUpstream`의 stdio 구현, `McpToolGate`의 worker 구현(U2b 경로 호출, 캐시 없음, 닫힌 채 실패, 순서는 `quiesce` 대기 → `permits` → 호출, 대기 중 deny 시험), 프로세스 그룹 실행기(94S-872)에 서버 항목(`mcp:<이름>` 종류)으로 오르기, 능력 없는 클라이언트, 세션 시작 준비(띄움·`initialize`·`tools/list` 캐시), `upstream.ready()`와 `run.ready()` 연결, `required` 게이트, `started`·`exited`·`tool_filtered` 발행. spawn 전에 worker의 활성 기능 상수 `stdio_mcp`를 검사하고 상수는 아직 꺼져 있다 | U1, U2, U2b, 94S-872 | 1, 4, 7, 8 |
-| **U4** 체크포인트 정리 | 턴 끝과 승인 대기 캡처에 "lease → `quiesce()`(막음·회수·SIGTERM/SIGKILL·확인) → 캡처 → lease 해제 → 핸들 해제"를 넣는다. 막힘 소유권 상태(`open`/`quiesced`/`closed`). 다음 턴 첫 `tools/call`에서 다시 띄움. 확인 실패는 턴 끝 `background_writer`, 승인 대기는 건너뜀 | U3, 94S-873(Claude 콜백이 닿는 같은 구간), 94S-874(같은 `worker-host.ts` 구간이라 충돌을 피하려는 순서이며 논리 선행은 아니다) | 5 |
-| **U5** 비정상 경로, 켬 | abort·close·소유권 유실에서 같은 정리(`closed`). 일반 턴 interrupt는 `closed`가 아니라 되돌릴 수 있는 `quiesce()`로 처리하고 다음 턴이 서버를 다시 띄운다([2절](#2-프로세스-자리와-수명)), 종료 확인 전에는 체크포인트·정상 release 금지, 스스로 죽은 서버의 재기동 금지. **마지막에 `stdio_mcp` 기능 상수를 켜고 worker가 알린다** | U3, U4, 94S-872 | 6 |
+| **U2** 해석·이름 | manifest의 stdio 선언을 읽어 `선언 ∩ 상한`을 `visibleMcpTools`(main에 있음)로 계산해 세션 행에 고정, 이름 정규식과 이름 공간 단일화 검사(release 활성화·세션 생성), claim이 선언·고정 목록을 싣는 계약, 지문 binding, 선언에서 요구 기능 `stdio_mcp`를 강제로 도출해 claim에 싣음. **호출자 상한 입력을 비워 둔 채 머지하지 않는다** | 분류 티켓(manifest 모양), 프로필 상한 티켓(관문), 승인 화면 티켓(승인), 호출자 상한 티켓(호출자 상한 집행) | 2, 3, 8(계약) |
+| **U2b** 호출 시점 판정 경로 | deny 쪽 정책 입력을 읽는 공통 경로(release deny·저장 deny·호출자 상한. 설정 행 교차는 원격 전용으로 남김)를 egress에서 뽑고(원격 동작 불변을 시험으로 먼저 고정), 그 경로와 `visibleMcpTools`를 부르는 판정 전용 worker 경로(`visible`·`permits`)를 더한다. 연결은 contracts worker-protocol 스키마, `routes/worker.ts`, gateway client decoder이며 `packages/core` 응답 표에는 올리지 않는다. gateway client `post()`에 `AbortSignal`을 더한다. 계약 시험: 서버 둘 중 한쪽 deny만 그쪽을 좁힘, 같은 입력에서 egress와 이 경로의 허용 집합·호출 판정이 같음, 시작 뒤 더한 저장 deny가 다음 판정에 반영됨, 설정을 넓혀도 상한을 넘지 않음, 판정 불가는 거절(`tools/list`는 JSON-RPC 오류), bootstrap 토큰·다른 attempt·낡은 fence 거절 | U2, 호출자 상한 티켓(호출자 상한 교차) | 2 |
+| **U3** worker stdio upstream | `McpUpstream`의 stdio 구현, `McpToolGate`의 worker 구현(U2b 경로 호출, 캐시 없음, 닫힌 채 실패, 순서는 `quiesce` 대기 → `permits` → 호출, 대기 중 deny 시험), 프로세스 그룹 실행기(hook 실행기 티켓)에 서버 항목(`mcp:<이름>` 종류)으로 오르기, 능력 없는 클라이언트, 세션 시작 준비(띄움·`initialize`·`tools/list` 캐시), `upstream.ready()`와 `run.ready()` 연결, `required` 게이트, `started`·`exited`·`tool_filtered` 발행. spawn 전에 worker의 활성 기능 상수 `stdio_mcp`를 검사하고 상수는 아직 꺼져 있다 | U1, U2, U2b, hook 실행기 티켓 | 1, 4, 7, 8 |
+| **U4** 체크포인트 정리 | 턴 끝과 승인 대기 캡처에 "lease → `quiesce()`(막음·회수·SIGTERM/SIGKILL·확인) → 캡처 → lease 해제 → 핸들 해제"를 넣는다. 막힘 소유권 상태(`open`/`quiesced`/`closed`). 다음 턴 첫 `tools/call`에서 다시 띄움. 확인 실패는 턴 끝 `background_writer`, 승인 대기는 건너뜀 | U3, Claude 콜백 티켓(Claude 콜백이 닿는 같은 구간), hook ledger 티켓(같은 `worker-host.ts` 구간이라 충돌을 피하려는 순서이며 논리 선행은 아니다) | 5 |
+| **U5** 비정상 경로, 켬 | abort·close·소유권 유실에서 같은 정리(`closed`). 일반 턴 interrupt는 `closed`가 아니라 되돌릴 수 있는 `quiesce()`로 처리하고 다음 턴이 서버를 다시 띄운다([2절](#2-프로세스-자리와-수명)), 종료 확인 전에는 체크포인트·정상 release 금지, 스스로 죽은 서버의 재기동 금지. **마지막에 `stdio_mcp` 기능 상수를 켜고 worker가 알린다** | U3, U4, hook 실행기 티켓 | 6 |
 
 **중간 상태의 안전.** U3~U4 동안 서버를 띄우는 길은 두 겹으로 닫혀 있다. 지금의 기능 요구 계산(`packages/runtime-core/src/features.ts:16`)은 번들 선언을 읽지 않고, worker의 기능 검사도 `run.ready()` 뒤라서(`worker-host.ts:874`) manifest의 표기나 시작 후 거절만으로는 부족하다.
 1. **U2가 요구 기능을 선언에서 강제로 도출한다.** 번들에 stdio MCP 선언이 있으면 claim의 요구 기능에 `stdio_mcp`가 반드시 들어간다(manifest의 선택적 표기에 맡기지 않는다). 그 기능이 없는 worker는 claim 단계에서 세션을 받지 못한다.
@@ -295,7 +296,7 @@ U3과 U4는 한 PR로 합치지 않는다. U3은 세션 시작에서 끝나고 U
 | 4 | `exited{turn_end}`가 finalize 경계보다 늦다 | **수용하되 경계 안에 넣지 않는다.** (3회차에서 종료된 턴 id를 거부하는 게이트웨이 규칙이 더 나와 전송 범위를 attempt로 바꿨다.) 이벤트를 텔레메트리로 정하고 귀속·내구성 계약을 적었다. 정산 앞으로 옮기면 lease 없이 끄게 되어 2번 결정이 깨지므로 거절한다([8절](#8-이벤트)) |
 | 5 | U3만 활성화되면 수명 관리 없는 서버가 돈다. `terminateAll`이 hook까지 닫는다 | **수용.** `requires.features: stdio_mcp`를 U2가 더하고 worker가 알리는 것은 U5다([10절](#10-구현-단위)). 실행기의 종료는 소유 종류별로 하고 턴 경계는 `mcp`만 끈다([6절](#6-envcwd샌드박스와-hook-공유)) |
 | 6 | `required` 실패가 `ready()`에 이어진다는 단정, 약한 시험 | **수용.** `upstream.ready()`를 run이 가지고 `run.ready()`가 직접 거절하는 경계를 정했고 시험도 그것으로 고쳤다([7절](#7-실패와-ready-의미)) |
-| 7 | 94S-1487이 이미 머지됐다. `visibleMcpTools`가 있다 | **수용.** 확인했다(`mcp-tool-decision.ts:13`). 새 함수를 만들지 않고 그것을 부른다. 기준 커밋과 PR 번호 문장을 고쳤다([3절](#해석-함수)) |
+| 7 | deny 우선 판정(#1502)이 이미 머지됐다. `visibleMcpTools`가 있다 | **수용.** 확인했다(`mcp-tool-decision.ts:13`). 새 함수를 만들지 않고 그것을 부른다. 기준 커밋과 PR 번호 문장을 고쳤다([3절](#해석-함수)) |
 | 8 | 원격은 `effectiveMcp`로 실행 중 정책 축소를 따른다. 같은 함수 호출 시험으로는 이 의미가 보존되지 않는다 | **수용. 초안은 차이를 받아들였으나 리드가 뒤집었다**(4회차 전 리드 결정): stdio도 호출 시점에 같은 deny-first 판정을 받아 실행 중 축소를 따른다([3절](#3-relay가-stdio-서버를-내보내는-방법과-판정-자리), U2b) |
 | 9 | 이름 정규식은 869의 완료 조건에 없다. 919가 없을 때 호출자 상한을 비운 채 머지하는 것은 보장을 어긴다 | **수용.** 이름 검사는 U2가 소유한다. U2는 919를 하드 선행으로 두고 상한을 비운 채 머지하지 않는다([10절](#10-구현-단위)) |
 | 10 | `McpUpstream` 공통 시험의 책임이 인터페이스와 안 맞는다 | **수용.** relay 계약, upstream 계약, stdio 수명·전송 시험 셋으로 나눴다([5절](#5-거절하는-클라이언트-능력-그리고-시험-계약)). 캐시는 worker 쪽 stdio upstream 소유다 |
