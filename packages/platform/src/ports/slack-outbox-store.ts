@@ -47,7 +47,7 @@ export type SlackOutboxStatus =
  * only Slack users the text may notify (a reply's requester). `sender`: the
  * name an instruction is shown under, and the Slack account whose profile
  * image goes with it. `locale`: the language of the words the platform adds,
- * the link's label included; rows from before it have none and read Korean.
+ * the link's label included; rows from before it have none and read English.
  */
 export type SlackOutboxBody = {
   text: string;

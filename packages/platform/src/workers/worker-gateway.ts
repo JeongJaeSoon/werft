@@ -2517,6 +2517,9 @@ export function createWorkerGateway(deps: {
                   delivery_started_at:
                     result.input.deliveryStartedAt.toISOString(),
                   ...(coAuthor === undefined ? {} : { co_author: coAuthor }),
+                  ...(result.input.traceContext === null
+                    ? {}
+                    : { trace_context: result.input.traceContext }),
                 }
               : null,
             lease_expires_at: result.leaseExpiresAt.toISOString(),

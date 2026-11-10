@@ -17,7 +17,11 @@ import {
   isConnectionFailure,
   RequestDeadlineExceededError,
 } from "@werft-ai/db/pool";
-import { createLogger, type StructuredLogger } from "@werft-ai/observability";
+import {
+  createLogger,
+  type StructuredLogger,
+  type Tracer,
+} from "@werft-ai/observability";
 import {
   type AuthorizationPolicy,
   type Caller,
@@ -47,6 +51,7 @@ import {
   buildOpenApiDocument,
 } from "./openapi.ts";
 import type { ReadinessProbe } from "./readiness.ts";
+import { RequestTracing } from "./request-tracing.ts";
 import { actionForScope, missingScope } from "./scope-policy.ts";
 import { createWebDistHandler } from "./web-dist.ts";
 
@@ -210,6 +215,8 @@ export interface CreateApiAppOptions {
   requestDeadlineMs?: number;
   webDistDir?: string;
   authorization?: AuthorizationPolicy;
+  // Without one, requests are not traced and nothing else changes.
+  tracer?: Tracer;
 }
 
 export class ApiHttpError extends Error {
@@ -464,41 +471,45 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
   const logger = options.logger ?? createLogger();
   const app = new OpenAPIHono<ApiEnvironment>({ strict: false });
   const v1 = new OpenAPIHono<ApiEnvironment>({ strict: false });
+  const tracing = new RequestTracing(options.tracer);
   app.use("*", async (context, next) => {
     const requestId = crypto.randomUUID();
     const startedAt = performance.now();
     context.set("requestId", requestId);
     context.header("X-Request-Id", requestId);
-    await logger.withContext({ request_id: requestId }, async () => {
-      try {
-        await next();
-      } finally {
-        const status = context.res.status;
-        // Worker routes are too frequent to log every call; their 5xx are
-        // what a lost lease is traced back to.
-        if (
-          context.req.path === "/v1" ||
-          context.req.path.startsWith("/v1/") ||
-          (status >= 500 && context.req.path.startsWith("/internal/"))
-        ) {
-          logger.info("API request completed", {
-            event: "api.request.completed",
-            operation: "api_request",
-            outcome:
-              status < 400
-                ? "succeeded"
-                : status < 500
-                  ? "client_error"
-                  : "server_error",
-            reason_code: status < 400 ? "none" : `http_${status}`,
-            route_template: context.req.routePath,
-            method: context.req.method,
-            status,
-            duration_ms: Math.round(performance.now() - startedAt),
-          });
+    // The span encloses the completion log below, so that line carries it.
+    await logger.withContext({ request_id: requestId }, () =>
+      tracing.traceApiRequest(context, requestId, async () => {
+        try {
+          await next();
+        } finally {
+          const status = context.res.status;
+          // Worker routes are too frequent to log every call; their 5xx are
+          // what a lost lease is traced back to.
+          if (
+            context.req.path === "/v1" ||
+            context.req.path.startsWith("/v1/") ||
+            (status >= 500 && context.req.path.startsWith("/internal/"))
+          ) {
+            logger.info("API request completed", {
+              event: "api.request.completed",
+              operation: "api_request",
+              outcome:
+                status < 400
+                  ? "succeeded"
+                  : status < 500
+                    ? "client_error"
+                    : "server_error",
+              reason_code: status < 400 ? "none" : `http_${status}`,
+              route_template: context.req.routePath,
+              method: context.req.method,
+              status,
+              duration_ms: Math.round(performance.now() - startedAt),
+            });
+          }
         }
-      }
-    });
+      }),
+    );
   });
 
   if (authMode === "none") {

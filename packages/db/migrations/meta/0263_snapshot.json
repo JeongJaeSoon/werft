@@ -1,5 +1,5 @@
 {
-  "id": "eb5636dd-5d35-482c-a886-95b5f4f170c1",
+  "id": "25c69908-19b7-4923-ad27-8a6ee61370f8",
   "prevId": "be698bd5-e432-40af-9f98-c34be0dea6f3",
   "version": "7",
   "dialect": "postgresql",
@@ -11977,13 +11977,6 @@
           "notNull": true,
           "default": "'release'"
         },
-        "runtime_tools_source": {
-          "name": "runtime_tools_source",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'profile'"
-        },
         "github_policy_start": {
           "name": "github_policy_start",
           "type": "jsonb",
@@ -12199,10 +12192,6 @@
         "sessions_github_policy_source_check": {
           "name": "sessions_github_policy_source_check",
           "value": "\"sessions\".\"github_policy_source\" IN ('release','agent')"
-        },
-        "sessions_runtime_tools_source_check": {
-          "name": "sessions_runtime_tools_source_check",
-          "value": "\"sessions\".\"runtime_tools_source\" IN ('profile','release')"
         },
         "sessions_pause_reason_check": {
           "name": "sessions_pause_reason_check",
@@ -14523,6 +14512,12 @@
         "slack_message": {
           "name": "slack_message",
           "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "trace_context": {
+          "name": "trace_context",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         }
