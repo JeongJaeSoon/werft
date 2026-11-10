@@ -271,10 +271,6 @@ export function createPostgresSessionUnitOfWork(
             reason: input.notRunnableReason,
           };
         }
-        if (input.agentReleaseId !== undefined) {
-          const reason = await lockedNotRunnable(tx, input.agentReleaseId);
-          if (reason !== null) return { outcome: "not_runnable", reason };
-        }
         const unbound = async (releaseId: string) => {
           const { receiptId } = await recordUnboundRefusal(tx, {
             ownerId: scope.principal,
@@ -287,6 +283,10 @@ export function createPostgresSessionUnitOfWork(
           return { outcome: "credential_unbound" as const, receiptId };
         };
         if (input.credentialsUnbound && input.agentReleaseId !== undefined) {
+          // No requester lock follows here, so the agent row can be locked
+          // first without crossing the order a key revoke takes (key, agent).
+          const reason = await lockedNotRunnable(tx, input.agentReleaseId);
+          if (reason !== null) return { outcome: "not_runnable", reason };
           return unbound(input.agentReleaseId);
         }
 
@@ -317,6 +317,12 @@ export function createPostgresSessionUnitOfWork(
           ))
         ) {
           return { outcome: "agent_use_refused" };
+        }
+        // After the requester's rows, so the agent row is never taken before
+        // a key row (a key revoke locks the key, then the agent).
+        if (input.agentReleaseId !== undefined) {
+          const reason = await lockedNotRunnable(tx, input.agentReleaseId);
+          if (reason !== null) return { outcome: "not_runnable", reason };
         }
         // The settings are locked and read before the names are judged, so
         // the session stores the very list that was checked.
