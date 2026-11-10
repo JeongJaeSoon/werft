@@ -29,16 +29,17 @@ integration("the profile freeze on PostgreSQL", () => {
   let pool: Pool;
   let db: Database;
 
+  // A fresh database per test runs every migration; the first can exceed bun's 5s.
   beforeEach(async () => {
     database = await createTempDatabase({ prefix: "profile_freeze_it" });
     pool = new Pool({ connectionString: database.url, max: 6 });
     db = drizzle(pool, { schema }) as unknown as Database;
-  });
+  }, 60_000);
 
   afterEach(async () => {
     await pool?.end();
     await database?.drop();
-  });
+  }, 60_000);
 
   const ok = <T extends { ok: boolean }>(result: T) => {
     expect(result.ok).toBe(true);
@@ -54,8 +55,9 @@ integration("the profile freeze on PostgreSQL", () => {
   /** A writer in flight: BEGIN, the barrier first (FOR SHARE), no COMMIT yet. */
   const writerInFlight = async (
     barrier: (tx: Database) => Promise<void>,
+    from: Pool = pool,
   ): Promise<{ client: PoolClient; finish: () => Promise<void> }> => {
-    const client = await pool.connect();
+    const client = await from.connect();
     await client.query("BEGIN");
     try {
       await barrier(drizzle(client, { schema }) as unknown as Database);
@@ -191,28 +193,75 @@ integration("the profile freeze on PostgreSQL", () => {
     expect((await readFreeze(db))?.phase).toBe("finalized");
   });
 
-  test("the row guards hold against direct SQL before cleanup too", async () => {
-    await expect(
-      pool.query("UPDATE profile_freeze SET phase = 'cleanup_started'"),
-    ).rejects.toThrow();
-    await expect(
-      pool.query("UPDATE profile_freeze SET reconcile_generation = -1"),
-    ).rejects.toThrow();
-    await expect(pool.query("DELETE FROM profile_freeze")).rejects.toThrow();
+  // The guard's own message, so a CHECK that happens to refuse the same
+  // statement cannot stand in for a trigger rule that was dropped.
+  const guardRefuses = (statement: string, message: RegExp) =>
+    expect(pool.query(statement)).rejects.toThrow(message);
+
+  test("the row guards hold against direct SQL, each by its own rule", async () => {
+    await guardRefuses(
+      "UPDATE profile_freeze SET reconcile_generation = -1",
+      /generation cannot fall|profile_freeze_generation_check/,
+    );
+    await guardRefuses("DELETE FROM profile_freeze", /cannot be deleted/);
+    await guardRefuses(
+      "TRUNCATE profile_freeze",
+      /cannot be deleted or truncated/,
+    );
     await expect(
       pool.query("INSERT INTO profile_freeze (id) VALUES (2)"),
-    ).rejects.toThrow();
+    ).rejects.toThrow(/profile_freeze_single/);
+    // Open and unfrozen: a freeze that keeps the generation, or that also certifies.
+    await guardRefuses(
+      "UPDATE profile_freeze SET writes_frozen = true",
+      /must open a new generation/,
+    );
+    await guardRefuses(
+      "UPDATE profile_freeze SET writes_frozen = true, phase = 'certified', certified_generation = reconcile_generation",
+      /must open a new generation/,
+    );
+    await guardRefuses(
+      "UPDATE profile_freeze SET reconcile_generation = 5",
+      /moves only with a freeze/,
+    );
     ok(await freezeProfiles(db));
+    // Frozen and uncertified: straight to cleanup would skip the pass.
+    await guardRefuses(
+      "UPDATE profile_freeze SET phase = 'cleanup_started', certified_generation = reconcile_generation, cleanup_started_at = now()",
+      /cannot skip/,
+    );
+    // Unfreeze and freeze again by hand without a new generation: the replay Codex found.
+    await guardRefuses(
+      "UPDATE profile_freeze SET writes_frozen = false",
+      /must open a new generation/,
+    );
+    await guardRefuses(
+      "UPDATE profile_freeze SET writes_frozen = false, reconcile_generation = reconcile_generation + 2",
+      /must open a new generation/,
+    );
     ok(await certifyProfiles(db, 1));
     // A certified window cannot be unfrozen or re-numbered under the pass.
-    await expect(
-      pool.query("UPDATE profile_freeze SET writes_frozen = false"),
-    ).rejects.toThrow();
-    await expect(
-      pool.query(
-        "UPDATE profile_freeze SET reconcile_generation = 2, certified_generation = 2",
-      ),
-    ).rejects.toThrow();
+    await guardRefuses(
+      "UPDATE profile_freeze SET writes_frozen = false, phase = 'open', certified_generation = NULL, reconcile_generation = 2",
+      /must open a new generation/,
+    );
+    await guardRefuses(
+      "UPDATE profile_freeze SET reconcile_generation = 2, certified_generation = 2",
+      /moves only with a freeze/,
+    );
+  });
+
+  test("a pass for one window cannot be replayed on a later window with the same number", async () => {
+    ok(await freezeProfiles(db));
+    // Hand-made: unfreeze and freeze without bumping. Both statements are refused.
+    await guardRefuses(
+      "UPDATE profile_freeze SET writes_frozen = false",
+      /must open a new generation/,
+    );
+    expect((await readFreeze(db))?.reconcileGeneration).toBe(1);
+    ok(await unfreezeProfiles(db));
+    ok(await freezeProfiles(db));
+    expect(await refusal(certifyProfiles(db, 1))).toBe("generation_mismatch");
   });
 
   test("a missing row fails closed", async () => {
@@ -257,12 +306,39 @@ integration("the profile freeze on PostgreSQL", () => {
     ok(await freezeProfiles(db));
   });
 
-  test("a writer that starts after the freeze commits is refused; one that started first is not lost", async () => {
+  test("a writer that starts after the freeze commits is refused and gives its connection back", async () => {
     ok(await freezeProfiles(db));
-    const late = writerInFlight(assertProfileTablesWritable);
-    await expect(late).rejects.toBeInstanceOf(ProfilesFrozenError);
-    // The refused writer's connection is back in the pool and usable.
-    const { rows } = await pool.query("SELECT 1 AS one");
-    expect(rows).toEqual([{ one: 1 }]);
+    // One connection: a leaked one would leave the next query waiting for ever.
+    const single = new Pool({ connectionString: database.url, max: 1 });
+    try {
+      await expect(
+        writerInFlight(assertProfileTablesWritable, single),
+      ).rejects.toBeInstanceOf(ProfilesFrozenError);
+      const { rows } = await Promise.race([
+        single.query("SELECT 1 AS one"),
+        Bun.sleep(3_000).then(() => {
+          throw new Error("the refused writer kept its connection");
+        }),
+      ]);
+      expect(rows).toEqual([{ one: 1 }]);
+    } finally {
+      await single.end();
+    }
+  });
+
+  test("a writer in flight is not lost: the freeze waits and the write commits", async () => {
+    const writer = await writerInFlight(assertProfileTablesWritable);
+    await writer.client.query(
+      "CREATE TEMP TABLE written_by_writer (n integer) ON COMMIT PRESERVE ROWS",
+    );
+    await writer.client.query("INSERT INTO written_by_writer VALUES (1)");
+    const freezing = freezeProfiles(db, { lockTimeoutMs: 20_000 });
+    await waitForLockWait();
+    const { rows } = await writer.client.query(
+      "SELECT n FROM written_by_writer",
+    );
+    expect(rows).toEqual([{ n: 1 }]);
+    await writer.finish();
+    ok(await freezing);
   });
 });

@@ -41,6 +41,20 @@ BEGIN
     RAISE EXCEPTION 'profile_freeze generation cannot fall'
       USING ERRCODE = 'check_violation';
   END IF;
+  -- A freeze or an unfreeze opens a new window: exactly one generation up and
+  -- no pass carried over. Nothing else moves the generation. Without this a
+  -- pass for window g could be replayed on a later window that is also g.
+  IF NEW.writes_frozen IS DISTINCT FROM OLD.writes_frozen THEN
+    IF OLD.phase <> 'open' OR NEW.phase <> 'open'
+       OR NEW.reconcile_generation <> OLD.reconcile_generation + 1
+       OR NEW.certified_generation IS NOT NULL THEN
+      RAISE EXCEPTION 'profile_freeze freeze or unfreeze must open a new generation in phase open'
+        USING ERRCODE = 'check_violation';
+    END IF;
+  ELSIF NEW.reconcile_generation <> OLD.reconcile_generation THEN
+    RAISE EXCEPTION 'profile_freeze generation moves only with a freeze or unfreeze'
+      USING ERRCODE = 'check_violation';
+  END IF;
   IF new_rank > old_rank + 1 THEN
     RAISE EXCEPTION 'profile_freeze phase cannot skip from % to %', OLD.phase, NEW.phase
       USING ERRCODE = 'check_violation';

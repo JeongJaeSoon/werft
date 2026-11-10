@@ -137,7 +137,13 @@ type Step = (
   before: FreezeState,
 ) => Promise<TransitionRefusal | { set: ReturnType<typeof sql> }>;
 
-/** Takes the row FOR UPDATE, so writers in flight finish first and later ones see the new state. */
+/**
+ * Takes the row FOR UPDATE, so writers in flight finish first and later ones
+ * see the new state. `db` is the top-level handle, never a transaction: the
+ * lock_timeout and the row lock last to the end of the transaction they run in,
+ * and a writer that holds the row FOR SHARE and then calls this would wait on
+ * itself. Operators run each transition on its own.
+ */
 async function transition(
   db: Database,
   options: Options,
