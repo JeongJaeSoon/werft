@@ -1653,7 +1653,13 @@ function moduleReferences(source: ts.SourceFile): string[] {
           node.expression.text === "require"))
     )
       reference = node.arguments[0];
-    while (reference && ts.isParenthesizedExpression(reference))
+    while (
+      reference &&
+      (ts.isParenthesizedExpression(reference) ||
+        ts.isAsExpression(reference) ||
+        ts.isSatisfiesExpression(reference) ||
+        ts.isNonNullExpression(reference))
+    )
       reference = reference.expression;
     if (reference && ts.isStringLiteralLike(reference))
       found.push(reference.text);
@@ -1690,9 +1696,9 @@ export async function reactAriaImporters(repo: string): Promise<string[]> {
       )
         continue;
       const text = await readFile(file, "utf8");
-      // A specifier names its package unless escapes build it, so only files
-      // with either are worth parsing.
-      if (!/aria|stately|internationalized|\\[ux0-7]/.test(text)) continue;
+      // A specifier names its package unless an escape (any backslash) builds
+      // it, so only files with either are worth parsing.
+      if (!/aria|stately|internationalized|\\/.test(text)) continue;
       for (const specifier of moduleReferences(parseText(file, text)))
         if (isReactAria(specifier)) offenders.push(`${path} ${specifier}`);
     }
@@ -1703,19 +1709,42 @@ export async function reactAriaImporters(repo: string): Promise<string[]> {
 const tailwindPalette =
   "slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose";
 const colorUtility =
-  "(?:bg|text|border(?:-[trblxyse])?|ring|ring-offset|outline|divide|fill|stroke|from|via|to|shadow|decoration|accent|caret|placeholder)";
+  "(?:bg|text|border(?:-[trblxyse])?|ring|ring-offset|inset-ring|outline|divide|fill|stroke|from|via|to|shadow|inset-shadow|drop-shadow|text-shadow|decoration|accent|caret|placeholder)";
+
+/**
+ * The utility itself: variants (`hover:`, `dark:`, `[&>a]:`) and the
+ * important marker (`!` before or after) are not part of what it colours.
+ */
+function classBase(token: string): string {
+  let depth = 0;
+  let cut = 0;
+  for (const [i, ch] of [...token].entries()) {
+    if (ch === "[") depth++;
+    else if (ch === "]") depth--;
+    else if (ch === ":" && depth === 0) cut = i + 1;
+  }
+  return token.slice(cut).replace(/^!|!$/g, "");
+}
+
 /** What a component class must not say: colour comes from the semantic tokens. */
 const colorClassRules = {
-  "dark: variant": /(?:^|:)dark:/,
-  "Tailwind palette": new RegExp(
-    `(?:^|[:!])${colorUtility}-(?:${tailwindPalette})-\\d{2,3}(?:/.+)?$`,
-  ),
-  "black/white": new RegExp(
-    `(?:^|[:!])${colorUtility}-(?:black|white)(?:/.+)?$`,
-  ),
-  "arbitrary colour": new RegExp(
-    `(?:^|[:!])${colorUtility}-\\[(?:#|(?:rgba?|hsla?|oklch|oklab|lab|lch|color-mix|color)\\()|(?:^|:)\\[(?:color|background(?:-color)?|border-color|fill|stroke):`,
-  ),
+  "dark: variant": (token: string) => /(?:^|:)!?dark:/.test(token),
+  "Tailwind palette": (token: string) =>
+    new RegExp(`-(?:${tailwindPalette})-\\d{2,3}(?:/.+)?$`).test(
+      classBase(token),
+    ),
+  "black/white": (token: string) =>
+    new RegExp(`^${colorUtility}-(?:black|white)(?:/.+)?$`).test(
+      classBase(token),
+    ),
+  "arbitrary colour": (token: string) =>
+    new RegExp(
+      `^${colorUtility}-\\[(?:#|[a-z]+\\]|(?:rgba?|hsla?|oklch|oklab|lab|lch|color-mix|color)\\(|color:)|^\\[(?:color|background(?:-color)?|border-color|fill|stroke):`,
+    ).test(classBase(token)) &&
+    // Keywords that name no colour of their own.
+    !/-\[(?:inherit|current|currentcolor|transparent|initial|unset)\]/i.test(
+      token,
+    ),
 } as const;
 
 /** Where a component may name a colour anyway: file, class token, why. */
@@ -1761,8 +1790,8 @@ export async function colorClassViolations(
       )
         return;
       for (const token of node.text.split(/\s+/)) {
-        for (const [rule, pattern] of Object.entries(colorClassRules)) {
-          if (!pattern.test(token)) continue;
+        for (const [rule, violates] of Object.entries(colorClassRules)) {
+          if (!violates(token)) continue;
           if (
             colorClassExceptions.some(
               (e) => e.file === path && e.token === token,
@@ -3643,11 +3672,16 @@ describe("architecture", () => {
         "apps/web/src/f.ts":
           'import "react-router";\nconst s = "react-aria-components";',
         "packages/ui/src/g.tsx": 'import "react-aria-components";',
+        "apps/web/src/h.ts": 'import "react-ari\\a-components";',
+        "apps/web/src/i.ts":
+          'const m = import("react-aria-components" as string);',
       },
       async (repo) => {
         expect(await reactAriaImporters(repo)).toEqual([
           "apps/web/src/a.tsx react-aria-components",
           "apps/web/src/b.ts @react-aria/utils",
+          "apps/web/src/h.ts react-aria-components",
+          "apps/web/src/i.ts react-aria-components",
           "packages/react/src/c.ts react-stately",
           "packages/react/src/d.ts @internationalized/date",
           "scripts/e.ts react-aria/Button",
@@ -3687,6 +3721,11 @@ describe("architecture", () => {
         ].join("\n"),
         "src/a.test.tsx": 'export const t = "dark:bg-black";',
         "src/b.ts": 'export const c = "group-hover:dark:text-white";',
+        "src/c.ts": [
+          'export const d = "bg-red-500! text-white! bg-[red] text-[color:#fff]";',
+          'export const e = "drop-shadow-red-500 text-shadow-red-500 inset-shadow-black";',
+          'export const f = "bg-[inherit] border-[length:2px] w-[calc(100%-2px)] text-[14px]";',
+        ].join("\n"),
       },
       async (repo) => {
         expect(await colorClassViolations(repo, "src")).toEqual([
@@ -3698,6 +3737,13 @@ describe("architecture", () => {
           "src/a.tsx:6 hover:[color:red] (arbitrary colour)",
           "src/b.ts:1 group-hover:dark:text-white (black/white)",
           "src/b.ts:1 group-hover:dark:text-white (dark: variant)",
+          "src/c.ts:1 bg-[red] (arbitrary colour)",
+          "src/c.ts:1 bg-red-500! (Tailwind palette)",
+          "src/c.ts:1 text-[color:#fff] (arbitrary colour)",
+          "src/c.ts:1 text-white! (black/white)",
+          "src/c.ts:2 drop-shadow-red-500 (Tailwind palette)",
+          "src/c.ts:2 inset-shadow-black (black/white)",
+          "src/c.ts:2 text-shadow-red-500 (Tailwind palette)",
         ]);
       },
     );
