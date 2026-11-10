@@ -675,9 +675,9 @@ integration("startup failures before ready on PostgreSQL", () => {
       ).map(({ payload }) => payload);
     const statusBefore = (await statusEvents()).length;
 
-    // The held session may carry the status of an ended one, which neither
-    // the gate nor the reconciliation reads. With the pin authoritative and
-    // none on the row, retrying is refused in words, not by the trigger.
+    // The held session may carry the status of an ended one, which the gate
+    // does not count. This one has no release to pin from, so with the pin
+    // authoritative retrying is refused in words, not by the trigger.
     await db
       .update(sessions)
       .set({ status: "failed" })

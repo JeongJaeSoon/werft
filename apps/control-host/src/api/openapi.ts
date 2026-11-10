@@ -3303,7 +3303,7 @@ export const API_ROUTE_DECLARATIONS = [
         receipt_status: "accepted",
       },
     },
-    errors: [400, 401, 404, 409, 413, 429, 503],
+    errors: [400, 401, 404, 409, 413, 422, 429, 503],
     errorCodes: {
       409: [
         "IDEMPOTENCY_CONFLICT",
@@ -3320,6 +3320,8 @@ export const API_ROUTE_DECLARATIONS = [
       413: ["PAYLOAD_TOO_LARGE", "STORAGE_LIMIT_EXCEEDED"],
     },
     errorNotes: {
+      UNSUPPORTED_CAPABILITY:
+        "A failed session that has no runtime spec pinned on its own model, which it needs to run again once specs are authoritative; nothing is queued.",
       RATE_LIMITED:
         "The session already holds the installation's maximum of queued inputs; `Retry-After` is 5.",
       PROFILE_BLOCKED:

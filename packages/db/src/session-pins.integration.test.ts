@@ -347,6 +347,66 @@ integration("session pin reconciliation on PostgreSQL", () => {
   );
 
   test(
+    "once the pin is authoritative, a new input revives a failed session only if it has a pin on its own model, and a refusal records nothing",
+    async () => {
+      const ownerId = crypto.randomUUID();
+      const inputs = createPostgresSessionUnitOfWork(db);
+      const limits = {
+        queuedInputLimitPerSession: 1_000,
+        storageLimitBytes: 1e15,
+      };
+      const first = async (releaseId: string | null) => {
+        const accepted = await inputs.acceptInputAtomic({
+          limits,
+          principal: { ownerId },
+          idempotencyKey: crypto.randomUUID(),
+          payloadHash: crypto.randomUUID(),
+          profileId: "p",
+          repository: "none",
+          model: "sonnet-5-0",
+          ...(releaseId === null ? {} : { agentReleaseId: releaseId }),
+          message: "go",
+        });
+        if (accepted.outcome !== "accepted") throw new Error(accepted.outcome);
+        const id = accepted.response.session_id;
+        await db
+          .update(sessions)
+          .set({ status: "failed" })
+          .where(eq(sessions.id, id));
+        return id;
+      };
+      const append = (sessionId: string) =>
+        inputs.appendInputAtomic({
+          limits,
+          principal: { ownerId },
+          sessionId,
+          idempotencyKey: crypto.randomUUID(),
+          payloadHash: crypto.randomUUID(),
+          message: "again",
+        });
+      const pinned = await first(await release(true));
+      const bare = await first(null);
+
+      await db
+        .update(sessionPinCutover)
+        .set({ authoritative: true, flippedAt: new Date() });
+      try {
+        const before = await rowOf(bare);
+        expect(await append(bare)).toEqual({ outcome: "pin_required" });
+        expect(await rowOf(bare)).toEqual(before);
+        const revived = await append(pinned);
+        expect(revived.outcome).toBe("accepted");
+        expect((await rowOf(pinned)).status).toBe("queued");
+      } finally {
+        await db
+          .update(sessionPinCutover)
+          .set({ authoritative: false, flippedAt: null });
+      }
+    },
+    TIMEOUT_MS,
+  );
+
+  test(
     "an ended session is pinned too, because a resume, a recovery decision or a new input brings it back and the flip refuses a live session without a pin",
     async () => {
       const rel = await release(true);

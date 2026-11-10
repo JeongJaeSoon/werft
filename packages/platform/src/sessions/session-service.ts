@@ -1110,6 +1110,11 @@ export function createSessionService(deps: {
             result.agentId,
             result.receiptId,
           );
+        case "pin_required":
+          throw new SessionServiceError(
+            "UNSUPPORTED_CAPABILITY",
+            "This session has no runtime spec pinned on its own model, so it takes no more input; create a new session",
+          );
         case "queue_full":
         case "storage_exhausted":
           throw limitError(result);

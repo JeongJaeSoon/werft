@@ -575,6 +575,12 @@ describe("POST /v1/sessions/{id}/messages validation", () => {
     expect(full.status).toBe(429);
     expect(full.headers.get("Retry-After")).toBe("5");
     expect(await errorCode(full)).toBe("RATE_LIMITED");
+    const unpinned = await postMessage(
+      { message: "hi" },
+      { appendInputAtomic: async () => ({ outcome: "pin_required" }) },
+    );
+    expect(unpinned.status).toBe(422);
+    expect(await errorCode(unpinned)).toBe("UNSUPPORTED_CAPABILITY");
   });
 
   test("maps storage connection failures to a retryable 503", async () => {
