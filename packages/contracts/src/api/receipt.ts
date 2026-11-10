@@ -215,6 +215,18 @@ export const RECEIPT_OPERATION_VALUES = [
 
 export const receiptStatusSchema = z.enum(RECEIPT_STATUS_VALUES);
 export const receiptOperationSchema = z.enum(RECEIPT_OPERATION_VALUES);
+/**
+ * The receipts the GitHub gate and the work service write for one session,
+ * refused ones included. The session's refusal list and the readers in the
+ * database take their operations from here.
+ */
+export const GITHUB_GATE_RECEIPT_OPERATION_VALUES = [
+  "mint_github_token",
+  "dispatch_workflow",
+  "rerun_workflow",
+  "review_pull_request",
+  "merge_pull_request",
+] as const satisfies readonly ReceiptOperation[];
 // The alpha shape, unchanged: every session operation still answers with
 // exactly these three fields.
 // Strict on both sides, so a target can only ever be one of the two: a value

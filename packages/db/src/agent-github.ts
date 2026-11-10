@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   agentGitHubSettingsSchema,
   GITHUB_FEATURES_NONE,
+  GITHUB_GATE_RECEIPT_OPERATION_VALUES,
 } from "@werft-ai/contracts";
 import type {
   AgentGitHubStore,
@@ -39,13 +40,13 @@ const AGENT_OPERATIONS = [
   "create_agent_release",
   "activate_agent",
 ] as const;
-/** The gate's and the work service's receipts, which name a session. */
-const SESSION_OPERATIONS = [
-  "mint_github_token",
-  "review_pull_request",
-  "dispatch_workflow",
-  "rerun_workflow",
-] as const;
+/**
+ * The gate's and the work service's receipts, which name a session. A merge
+ * receipt is not part of the agent's activity.
+ */
+const SESSION_OPERATIONS = GITHUB_GATE_RECEIPT_OPERATION_VALUES.filter(
+  (operation) => operation !== "merge_pull_request",
+);
 
 type SettingsValues = {
   repositories: unknown;
