@@ -10,7 +10,6 @@ import { createLogger } from "@werft-ai/observability";
 import {
   acceptAllCheckpoints,
   createWorkerGateway,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
@@ -19,6 +18,7 @@ import {
   EGRESS_AUTHORIZER_PATH,
   EGRESS_USAGE_PATH,
 } from "./egress-authorizer.ts";
+import { releaseOnConnection, TEST_OWNER } from "../test-support/releases.ts";
 
 // The provider route's decision is the session's connection kind together with
 // the path the proxy parsed: `/v1/responses` belongs to an `openai_responses`
@@ -34,14 +34,9 @@ let authorize: (request: Request) => Promise<Response>;
 function build(costLimitUsd: number) {
   const gateway = createWorkerGateway({
     work: createPostgresWorkerUnitOfWork(db),
-    catalog: withSeededInstallation({
-      profiles: {
-        "claude-v1": {
-          runtime_kind: "claude_agent_sdk",
-          runtime_version: "0.3.270",
-          model: "claude-sonnet-5",
-          tools: ["Read"],
-          permission_mode: "default",
+    catalog: {
+      connections: {
+        claude: {
           provider: {
             kind: "anthropic",
             endpoint: "https://api.anthropic.invalid",
@@ -51,13 +46,10 @@ function build(costLimitUsd: number) {
               ref: { value_env: "CLAUDE_KEY" },
             },
           },
+          models: ["claude-sonnet-5"],
+          auto_mode: "unknown",
         },
-        "openai-v1": {
-          runtime_kind: "claude_agent_sdk",
-          runtime_version: "0.3.270",
-          model: "gpt-5.5",
-          tools: ["Read"],
-          permission_mode: "default",
+        openai: {
           provider: {
             kind: "openai_responses",
             endpoint: "https://api.openai.invalid",
@@ -67,17 +59,18 @@ function build(costLimitUsd: number) {
               ref: { value_env: "OPENAI_KEY" },
             },
           },
+          models: ["gpt-5.5"],
+          auto_mode: "unknown",
         },
       },
       repositories: {
         "sample-app": {
           url: "https://git.invalid/agent/app.git",
           branch: "main",
-          profiles: ["claude-v1", "openai-v1"],
           auth: { kind: "github_app", registered: true },
         },
       },
-    }),
+    },
     checkpoints: acceptAllCheckpoints,
     options: {
       sessionCostLimitUsd: costLimitUsd,
@@ -105,13 +98,38 @@ afterEach(async () => {
   await client.close();
 });
 
-async function claimed(profileId: "claude-v1" | "openai-v1") {
+/** A release on the connection, its spec naming that connection. */
+async function releaseOn(connectionId: "claude" | "openai") {
+  const model = connectionId === "claude" ? "claude-sonnet-5" : "gpt-5.5";
+  const releaseId = await releaseOnConnection(db, {
+    model,
+    connection:
+      connectionId === "claude"
+        ? {
+            id: "claude",
+            kind: "anthropic",
+            endpoint: "https://api.anthropic.invalid",
+            billing: "per_token",
+          }
+        : {
+            id: "openai",
+            kind: "openai_responses",
+            endpoint: "https://api.openai.invalid",
+            billing: "per_token",
+          },
+  });
+  return { releaseId, model };
+}
+
+async function claimed(connectionId: "claude" | "openai") {
+  const { releaseId, model } = await releaseOn(connectionId);
   const accepted = await createPostgresSessionUnitOfWork(db).acceptInputAtomic({
     limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
-    principal: { ownerId: "owner-a" },
+    principal: { ownerId: TEST_OWNER },
     idempotencyKey: crypto.randomUUID(),
     payloadHash: "hash",
-    profileId,
+    agentReleaseId: releaseId,
+    model,
     repository: {
       id: "sample-app",
       url: "https://git.invalid/agent/app.git",
@@ -151,7 +169,7 @@ const tokenOf = (claim: Claim) => claim.runtime_config.provider.auth.token;
 
 describe("provider route by connection kind", () => {
   test("an openai_responses session is granted /v1/responses with the key as a bearer, and nothing of the Messages family", async () => {
-    const claim = await claimed("openai-v1");
+    const claim = await claimed("openai");
     expect(claim.runtime_config.provider.kind).toBe("openai_responses");
 
     const granted = await ask({
@@ -176,7 +194,7 @@ describe("provider route by connection kind", () => {
   });
 
   test("a Claude session is refused /v1/responses and keeps its Messages route", async () => {
-    const claim = await claimed("claude-v1");
+    const claim = await claimed("claude");
     const refused = await ask({
       token: tokenOf(claim),
       purpose: "provider",
@@ -198,7 +216,7 @@ describe("provider route by connection kind", () => {
   });
 
   test("the path is the one Responses path or nothing, and only on the provider purpose", async () => {
-    const claim = await claimed("openai-v1");
+    const claim = await claimed("openai");
     for (const body of [
       { token: tokenOf(claim), purpose: "provider", path: "/v1/messages" },
       { token: tokenOf(claim), purpose: "provider", path: "/v1/responses/x" },
@@ -210,7 +228,7 @@ describe("provider route by connection kind", () => {
   });
 
   test("a token of another route does not open /v1/responses", async () => {
-    const claim = await claimed("openai-v1");
+    const claim = await claimed("openai");
     const repository = claim.repository_access?.token;
     // The repository token is for the git route; the provider purpose must
     // not honor it, whatever path is named.
@@ -238,7 +256,7 @@ describe("provider route by connection kind", () => {
 describe("a session past its budget on /v1/responses", () => {
   test("is refused BUDGET_EXCEEDED once its Responses usage is priced, and its usage lands on the session", async () => {
     gateway = build(0.5);
-    const claim = await claimed("openai-v1");
+    const claim = await claimed("openai");
     const call = {
       token: tokenOf(claim),
       purpose: "provider",
@@ -278,7 +296,7 @@ describe("a session past its budget on /v1/responses", () => {
 
   test("a Claude session's Responses attempt is refused by its connection even before its budget is read", async () => {
     gateway = build(0.5);
-    const claim = await claimed("claude-v1");
+    const claim = await claimed("claude");
     expect(
       (
         await ask({

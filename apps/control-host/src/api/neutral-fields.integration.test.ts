@@ -19,6 +19,7 @@ import { sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { eventNeutralizer } from "./neutral-fields.ts";
+import { fixtureRelease, TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -68,7 +69,8 @@ integration("events stored before the neutral fields, once filled", () => {
       ownerId: OWNER,
       repoUrl: "https://example.invalid/app.git",
       branch: "main",
-      profileId: "coding",
+      agentReleaseId: await fixtureRelease(db),
+      model: TEST_MODEL,
     });
     const [turn] = await db
       .insert(turns)

@@ -32,7 +32,7 @@ function close(
       sessionTokenLimit: null,
     },
     authorization: createAuthorizationPolicy(),
-    catalog: { profiles: {}, repositories: {} },
+    catalog: { connections: {}, repositories: {} },
     inputs: { acceptInputAtomic: notReached, appendInputAtomic: notReached },
     controls: {
       terminateAtomic: notReached,
@@ -40,7 +40,6 @@ function close(
       closeAtomic,
       decideRecoveryAtomic: notReached,
       resumeAtomic: notReached,
-      changeProfileAtomic: notReached,
       renameAtomic: notReached,
     },
     reader: {

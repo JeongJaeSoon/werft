@@ -27,7 +27,6 @@ import { createLogger, MemoryLogSink } from "@werft-ai/observability";
 import {
   createAuthorizationPolicy,
   createSessionService,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
@@ -37,6 +36,7 @@ import { DatabaseApiKeyStore, issueApiKey } from "./keys.ts";
 import { registerEventRoutes } from "./routes/events.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
 import { PostgresSessionNotifier } from "./session-notifier.ts";
+import { testCatalog } from "../test-support/catalog.ts";
 
 const databaseUrl = process.env.QUEUE_DATABASE_URL;
 const integration = databaseUrl ? describe : describe.skip;
@@ -129,32 +129,15 @@ integration("GET /v1/sessions/{id}/events on PostgreSQL", () => {
       reader: createPostgresSessionReader(db, {
         logger: createLogger({ sinks: [sink] }),
       }),
-      catalog: withSeededInstallation({
-        profiles: {
-          "claude-coding-v1": {
-            runtime_kind: "claude_agent_sdk",
-            runtime_version: "0.3.270",
-            model: "claude-sonnet-5",
-            tools: ["Read", "Edit", "Bash"],
-            permission_mode: "default",
-            provider: {
-              kind: "litellm",
-              endpoint: "https://litellm.invalid",
-              auth: {
-                kind: "api_key",
-                ref: { value_env: "PROVIDER_KEY" },
-              },
-            },
-          },
-        },
-        repositories: {
+      catalog: testCatalog({
+repositories: {
           "sample-app": {
             url: "https://example.invalid/app.git",
             branch: "main",
-            profiles: ["claude-coding-v1"],
+            auth: { kind: "github_app", registered: true } as const,
           },
         },
-      }),
+}),
     });
     notifier = new PostgresSessionNotifier(
       databaseUrl ?? "",
@@ -224,7 +207,6 @@ integration("GET /v1/sessions/{id}/events on PostgreSQL", () => {
         "Idempotency-Key": crypto.randomUUID(),
       },
       body: JSON.stringify({
-        profile_id: "claude-coding-v1",
         repository_id: "sample-app",
         message: "Inspect the failing unit test and propose a fix.",
       }),

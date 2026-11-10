@@ -32,7 +32,6 @@ import {
   createAuthorizationPolicy,
   createSessionService,
   type SessionCatalog,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { eq, sql } from "drizzle-orm";
@@ -48,21 +47,15 @@ import { DatabaseApiKeyStore } from "./keys.ts";
 import { registerAgentRoutes } from "./routes/agents.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
+import { TEST_CONNECTION_ID, TEST_RUNTIMES, testCatalog } from "../test-support/catalog.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 
 const SETUP_TOKEN = "console-session-start-integration-setup";
 const LOGIN = "console-session-start-login";
 
-const catalog: SessionCatalog = withSeededInstallation({
-  profiles: {
-    "claude-coding-v1": {
-      runtime_kind: "claude_agent_sdk",
-      runtime_version: "0.3.270",
-      model: "claude-sonnet-5",
-      tools: ["Read"],
-      permission_mode: "default",
-      provider: {
+const catalog: SessionCatalog = testCatalog({
+provider: {
         kind: "litellm",
         endpoint: "https://litellm.invalid",
         auth: {
@@ -71,13 +64,10 @@ const catalog: SessionCatalog = withSeededInstallation({
           ref: { value_env: "PROVIDER_KEY" },
         },
       },
-    },
-  },
-  repositories: {
+repositories: {
     "sample-app": {
       url: "https://example.invalid/app.git",
       branch: "main",
-      profiles: ["claude-coding-v1"],
       auth: { kind: "github_app", registered: true } as const,
     },
   },
@@ -188,7 +178,8 @@ integration("starting an agent's session from the console", () => {
       catalog,
       credentials,
       keys: createPostgresWorkspaceKeyStore(db),
-    });
+      runtimes: TEST_RUNTIMES,
+});
     const service = createSessionService({
       limits: {
         queuedInputLimitPerSession: 1_000,
@@ -266,7 +257,7 @@ integration("starting an agent's session from the console", () => {
       asCookie(cookies.owner),
       {
         version_id: detail.versions[0]?.id,
-        runtime_profile_id: "claude-coding-v1",
+        connection_id: TEST_CONNECTION_ID,
         repository_id: "sample-app",
       },
     );

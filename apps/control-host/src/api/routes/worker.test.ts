@@ -30,7 +30,6 @@ import { createOtelTracer } from "@werft-ai/observability/otel";
 import {
   acceptAllCheckpoints,
   createWorkerGateway,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { and, count, eq, isNotNull } from "drizzle-orm";
@@ -38,6 +37,9 @@ import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { createApiApp } from "../app.ts";
 import { RequestTracing } from "../request-tracing.ts";
 import { registerWorkerRoutes } from "./worker.ts";
+import { testCatalog } from "../../test-support/catalog.ts";
+import { TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
+import { releaseIn, TEST_OWNER } from "../../test-support/releases.ts";
 
 // Every call in a test that expects success has to land inside one lease on
 // a loaded runner; only the expiry test waits it out.
@@ -61,15 +63,8 @@ beforeEach(async () => {
       archive: async (workspaceId, digest) =>
         archives.get(`${workspaceId}/${digest}`) ?? null,
     },
-    catalog: withSeededInstallation({
-      profiles: {
-        "claude-coding-v1": {
-          runtime_kind: "claude_agent_sdk",
-          runtime_version: "0.3.270",
-          model: "claude-sonnet-5",
-          tools: ["Read", "Edit", "Bash"],
-          permission_mode: "default",
-          provider: {
+    catalog: testCatalog({
+provider: {
             kind: "litellm",
             endpoint: "https://litellm.invalid",
             auth: {
@@ -78,17 +73,14 @@ beforeEach(async () => {
               ref: { value_env: "PROVIDER_KEY" },
             },
           },
-        },
-      },
-      repositories: {
+repositories: {
         "sample-app": {
           url: "https://example.invalid/app.git",
           branch: "main",
-          profiles: ["claude-coding-v1"],
           auth: { kind: "github_app", registered: true } as const,
         },
       },
-    }),
+}),
     checkpoints: acceptAllCheckpoints,
     options: {
       sessionCostLimitUsd: 1_000,
@@ -111,10 +103,11 @@ afterEach(async () => {
 async function seedSession(extensions?: SessionExtension[]) {
   const result = await createPostgresSessionUnitOfWork(db).acceptInputAtomic({
     limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
-    principal: { ownerId: "owner-a" },
+    principal: { ownerId: TEST_OWNER },
     idempotencyKey: crypto.randomUUID(),
     payloadHash: "hash",
-    profileId: "claude-coding-v1",
+    agentReleaseId: await releaseIn(db),
+    model: TEST_MODEL,
     repository: {
       id: "sample-app",
       url: "https://example.invalid/app.git",
@@ -206,7 +199,7 @@ describe("/internal/worker", () => {
                 );
               },
             },
-            catalog: { profiles: {}, repositories: {} },
+            catalog: { connections: {}, repositories: {} },
             checkpoints: acceptAllCheckpoints,
             options: {
               sessionCostLimitUsd: 1_000,
@@ -254,7 +247,7 @@ describe("/internal/worker", () => {
                   });
                 },
               },
-              catalog: { profiles: {}, repositories: {} },
+              catalog: { connections: {}, repositories: {} },
               checkpoints: acceptAllCheckpoints,
               options: {
                 sessionCostLimitUsd: 1_000,
@@ -382,7 +375,7 @@ describe("/internal/worker", () => {
     });
     expect(JSON.stringify(binding)).not.toContain("catalog-provider-key");
     // The seeded session's owner rides the claim as the checkpoint principal.
-    expect(binding.principal).toEqual({ owner_scope: "owner-a" });
+    expect(binding.principal).toEqual({ owner_scope: TEST_OWNER });
 
     const next = nextInputResponseSchema.parse(
       await (await post("next-input", token, scope(binding))).json(),
@@ -603,7 +596,7 @@ describe("/internal/worker", () => {
           router,
           createWorkerGateway({
             work: createPostgresWorkerUnitOfWork(db),
-            catalog: { profiles: {}, repositories: {} },
+            catalog: { connections: {}, repositories: {} },
             checkpoints: acceptAllCheckpoints,
             checkpointProtocol: {
               async requestCheckpoint(input) {
@@ -787,7 +780,7 @@ describe("/internal/worker bundles", () => {
     });
     const again = bootstrapClaimResponseSchema.parse(await replay.json());
     expect(again.runtime_config.extensions).toEqual([LINT]);
-    archives.set(`owner-a/${LINT.digest}`, bytes);
+    archives.set(`${TEST_OWNER}/${LINT.digest}`, bytes);
     const served = await get(
       binding.attempt_id,
       LINT.digest,
@@ -803,7 +796,7 @@ describe("/internal/worker bundles", () => {
     const { binding } = await claimed(
       (await seedSession(pinned(LINT))).session_id,
     );
-    archives.set(`owner-a/${OTHER.digest}`, bytes);
+    archives.set(`${TEST_OWNER}/${OTHER.digest}`, bytes);
     const response = await get(
       binding.attempt_id,
       OTHER.digest,
@@ -815,7 +808,7 @@ describe("/internal/worker bundles", () => {
   test("another session's token, another attempt's path, no token and an unknown token are refused", async () => {
     const mine = await claimed((await seedSession(pinned(LINT))).session_id);
     const theirs = await claimed((await seedSession(pinned(LINT))).session_id);
-    archives.set(`owner-a/${LINT.digest}`, bytes);
+    archives.set(`${TEST_OWNER}/${LINT.digest}`, bytes);
     expect(
       await errorOf(
         await get(
@@ -842,7 +835,7 @@ describe("/internal/worker bundles", () => {
     const { binding } = await claimed(
       (await seedSession(pinned(LINT))).session_id,
     );
-    archives.set(`owner-a/${LINT.digest}`, bytes);
+    archives.set(`${TEST_OWNER}/${LINT.digest}`, bytes);
     await new Promise((resolve) => setTimeout(resolve, LEASE_TTL_MS + 50));
     expect(
       await errorOf(

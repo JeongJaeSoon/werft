@@ -70,7 +70,6 @@ function appRepository(
   return {
     url,
     branch: "main",
-    profiles: ["default"],
     auth: {
       kind: "github_app" as const,
       app_id: 101,
@@ -85,7 +84,7 @@ function appRepository(
 function catalogOf(
   repositories: SessionCatalog["repositories"],
 ): SessionCatalog {
-  return { profiles: {}, repositories };
+  return { connections: {}, repositories };
 }
 
 let sessions = 0;

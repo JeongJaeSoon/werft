@@ -23,6 +23,7 @@ import {
   runMcpSettingsMigration,
   sha256Of,
 } from "./mcp-settings-migration.ts";
+import { releaseSpecColumns, TEST_CONNECTION_ID } from "@werft-ai/db/testing/spec-pins";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 
@@ -140,8 +141,8 @@ async function releaseOf(
     agentId,
     versionId,
     cardSha256: "0".repeat(64),
-    runtimeProfileId: "coding",
-    profileDigest: "digest",
+    connectionId: TEST_CONNECTION_ID,
+    ...releaseSpecColumns(),
     runtimeConfigSnapshot: {},
     effectiveTools: { tools: [], mcp: [] },
     policyPins: {

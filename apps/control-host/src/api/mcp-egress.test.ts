@@ -16,7 +16,6 @@ import {
   createWorkerGateway,
   mcpBinding,
   type SessionCatalog,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { eq } from "drizzle-orm";
@@ -25,19 +24,14 @@ import {
   createEgressAuthorizer,
   EGRESS_AUTHORIZER_PATH,
 } from "./egress-authorizer.ts";
+import { testCatalog } from "../test-support/catalog.ts";
+import { TEST_MODEL, releaseSpecColumns, TEST_CONNECTION_ID } from "@werft-ai/db/testing/spec-pins";
 
 const AUTHORIZER_TOKEN = "authorizer-token-of-at-least-32-characters";
 const SERVICE_ACCOUNT = "sa-value-kept-from-the-worker";
 
-const catalog: SessionCatalog = withSeededInstallation({
-  profiles: {
-    coding: {
-      runtime_kind: "claude_agent_sdk",
-      runtime_version: "0.3.270",
-      model: "claude-sonnet-5",
-      tools: ["Read"],
-      permission_mode: "default",
-      provider: {
+const catalog: SessionCatalog = testCatalog({
+provider: {
         kind: "anthropic",
         endpoint: "https://api.anthropic.invalid",
         auth: {
@@ -46,17 +40,14 @@ const catalog: SessionCatalog = withSeededInstallation({
           ref: { value_env: "PROVIDER_KEY" },
         },
       },
-    },
-  },
-  repositories: {
+repositories: {
     app: {
       url: "https://git.invalid/agent/app.git",
       branch: "main",
-      profiles: ["coding"],
       auth: { kind: "github_app", registered: true } as const,
     },
   },
-  mcp_servers: {
+mcp_servers: {
     fake: {
       url: "http://fake-mcp:4020/mcp",
       credential_ref: "mcp/fake",
@@ -147,8 +138,8 @@ async function seeded(slug = "default") {
     agentId,
     versionId,
     cardSha256: "0".repeat(64),
-    runtimeProfileId: "coding",
-    profileDigest: "digest",
+    connectionId: TEST_CONNECTION_ID,
+    ...releaseSpecColumns(),
     runtimeConfigSnapshot: { tools: ["Read"] },
     effectiveTools: { tools: ["Read"], mcp: ["mcp__fake__whoami"] },
     policyPins: {
@@ -183,7 +174,7 @@ async function seeded(slug = "default") {
     },
     idempotencyKey: randomUUID(),
     payloadHash: "hash",
-    profileId: "coding",
+    model: TEST_MODEL,
     repository: {
       id: "app",
       url: "https://git.invalid/agent/app.git",

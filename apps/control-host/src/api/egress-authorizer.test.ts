@@ -13,7 +13,6 @@ import {
   createWorkerGateway,
   hashJudgmentToken,
   WorkerGatewayError,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import { createObjectRouteSigner } from "@werft-ai/storage";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
@@ -27,6 +26,9 @@ import {
   egressAuthorizerConfigFromEnv,
 } from "./egress-authorizer.ts";
 import { registerWorkerRoutes } from "./routes/worker.ts";
+import { testCatalog } from "../test-support/catalog.ts";
+import { TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
+import { releaseIn, TEST_OWNER } from "../test-support/releases.ts";
 
 const AUTHORIZER_TOKEN = "authorizer-token-for-tests-0123456789";
 
@@ -40,15 +42,8 @@ beforeEach(async () => {
   db = drizzle(client, { schema });
   gateway = createWorkerGateway({
     work: createPostgresWorkerUnitOfWork(db),
-    catalog: withSeededInstallation({
-      profiles: {
-        "claude-coding-v1": {
-          runtime_kind: "claude_agent_sdk",
-          runtime_version: "0.3.270",
-          model: "claude-sonnet-5",
-          tools: ["Read"],
-          permission_mode: "default",
-          provider: {
+    catalog: testCatalog({
+provider: {
             kind: "anthropic",
             endpoint: "https://api.anthropic.invalid",
             auth: {
@@ -57,17 +52,14 @@ beforeEach(async () => {
               ref: { value_env: "PROVIDER_KEY" },
             },
           },
-        },
-      },
-      repositories: {
+repositories: {
         "sample-app": {
           url: "https://git.invalid/agent/app.git",
           branch: "main",
-          profiles: ["claude-coding-v1"],
           auth: { kind: "github_app", registered: true },
         },
       },
-    }),
+}),
     checkpoints: acceptAllCheckpoints,
     options: {
       sessionCostLimitUsd: 1_000,
@@ -89,10 +81,11 @@ afterEach(async () => {
 async function claimed() {
   const accepted = await createPostgresSessionUnitOfWork(db).acceptInputAtomic({
     limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
-    principal: { ownerId: "owner-a" },
+    principal: { ownerId: TEST_OWNER },
     idempotencyKey: crypto.randomUUID(),
     payloadHash: "hash",
-    profileId: "claude-coding-v1",
+    agentReleaseId: await releaseIn(db),
+    model: TEST_MODEL,
     repository: {
       id: "sample-app",
       url: "https://git.invalid/agent/app.git",
@@ -449,7 +442,7 @@ describe("the judgment route", () => {
     await db.insert(schema.achievementJudgments).values({
       id: judgmentId,
       workspaceId,
-      ownerId: "owner-a",
+      ownerId: TEST_OWNER,
       sessionId: claim.session_id,
       trigger: "evidence",
       status: "running",
@@ -460,7 +453,9 @@ describe("the judgment route", () => {
     });
     const judged = createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
-      catalog: withSeededInstallation({ profiles: {}, repositories: {} }),
+      catalog: testCatalog({
+repositories: {},
+}),
       checkpoints: acceptAllCheckpoints,
       judgments: {
         store: createPostgresJudgmentEgress(db),

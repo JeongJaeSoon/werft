@@ -35,9 +35,6 @@ const unusedControls: SessionControl = {
   resumeAtomic: async () => {
     throw new Error("not reached");
   },
-  changeProfileAtomic: async () => {
-    throw new Error("not reached");
-  },
   renameAtomic: async () => {
     throw new Error("not reached");
   },
@@ -168,7 +165,7 @@ function harness(
     },
     authorization: createAuthorizationPolicy(),
     controls: unusedControls,
-    catalog: { profiles: {}, repositories: {} },
+    catalog: { connections: {}, repositories: {} },
     inputs: {
       acceptInputAtomic: async () => {
         throw new Error("not reached");
@@ -427,7 +424,7 @@ describe("GET /v1/sessions/{id}/events", () => {
       },
       authorization: createAuthorizationPolicy(),
       controls: unusedControls,
-      catalog: { profiles: {}, repositories: {} },
+      catalog: { connections: {}, repositories: {} },
       inputs: {
         acceptInputAtomic: async () => {
           throw new Error("not reached");
@@ -532,7 +529,7 @@ describe("GET /v1/sessions/{id}/events", () => {
       },
       authorization: createAuthorizationPolicy(),
       controls: unusedControls,
-      catalog: { profiles: {}, repositories: {} },
+      catalog: { connections: {}, repositories: {} },
       inputs: {
         acceptInputAtomic: async () => {
           throw new Error("not reached");
@@ -589,7 +586,7 @@ describe("GET /v1/sessions/{id}/events", () => {
       },
       authorization: createAuthorizationPolicy(),
       controls: unusedControls,
-      catalog: { profiles: {}, repositories: {} },
+      catalog: { connections: {}, repositories: {} },
       inputs: {
         acceptInputAtomic: async () => {
           throw new Error("not reached");
@@ -648,7 +645,7 @@ describe("GET /v1/sessions/{id}/events", () => {
       },
       authorization: createAuthorizationPolicy(),
       controls: unusedControls,
-      catalog: { profiles: {}, repositories: {} },
+      catalog: { connections: {}, repositories: {} },
       inputs: {
         acceptInputAtomic: async () => {
           throw new Error("not reached");
@@ -714,7 +711,7 @@ describe("GET /v1/sessions/{id}/events", () => {
       },
       authorization: createAuthorizationPolicy(),
       controls: unusedControls,
-      catalog: { profiles: {}, repositories: {} },
+      catalog: { connections: {}, repositories: {} },
       inputs: {
         acceptInputAtomic: async () => {
           throw new Error("not reached");
@@ -786,7 +783,7 @@ describe("GET /v1/sessions/{id}/events", () => {
       },
       authorization: createAuthorizationPolicy(),
       controls: unusedControls,
-      catalog: { profiles: {}, repositories: {} },
+      catalog: { connections: {}, repositories: {} },
       inputs: {
         acceptInputAtomic: async () => {
           throw new Error("not reached");
@@ -867,7 +864,7 @@ describe("GET /v1/sessions/{id}/events", () => {
       },
       authorization: createAuthorizationPolicy(),
       controls: unusedControls,
-      catalog: { profiles: {}, repositories: {} },
+      catalog: { connections: {}, repositories: {} },
       inputs: {
         acceptInputAtomic: async () => {
           throw new Error("not reached");
@@ -962,7 +959,7 @@ describe("GET /v1/sessions/{id}/events", () => {
       },
       authorization: createAuthorizationPolicy(),
       controls: unusedControls,
-      catalog: { profiles: {}, repositories: {} },
+      catalog: { connections: {}, repositories: {} },
       inputs: {
         acceptInputAtomic: async () => {
           throw new Error("not reached");

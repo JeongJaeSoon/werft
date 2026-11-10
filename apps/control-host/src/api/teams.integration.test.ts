@@ -47,13 +47,14 @@ import { DatabaseApiKeyStore } from "./keys.ts";
 import { registerAgentRoutes } from "./routes/agents.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerTeamRoutes } from "./routes/teams.ts";
+import { TEST_RUNTIMES } from "../test-support/catalog.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 
 const BOOTSTRAP_TOKEN = "integration-bootstrap-token-0123456789";
 const PASSWORD = "an adequately long password";
 
-const catalog: SessionCatalog = { profiles: {}, repositories: {} };
+const catalog: SessionCatalog = { connections: {}, repositories: {} };
 
 const card = {
   role: "리뷰어",
@@ -106,7 +107,8 @@ integration("teams as agent admins over HTTP on PostgreSQL", () => {
             store: createPostgresAgentStore(db),
             catalog,
             credentials: createPostgresCredentialBindingStore(db),
-          }),
+            runtimes: TEST_RUNTIMES,
+}),
         );
         registerTeamRoutes(
           router,

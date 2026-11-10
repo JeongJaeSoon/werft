@@ -47,7 +47,6 @@ import {
   createSessionShareService,
   createUsageService,
   type SessionCatalog,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { and, eq } from "drizzle-orm";
@@ -71,6 +70,7 @@ import { registerSessionShareRoutes } from "./routes/session-shares.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
 import { registerUsageRoutes } from "./routes/usage.ts";
 import { PostgresSessionNotifier } from "./session-notifier.ts";
+import { testCatalog } from "../test-support/catalog.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 
@@ -79,15 +79,8 @@ const PASSWORD = "an adequately long password";
 // Long enough that only the share change's NOTIFY can end a stream in time.
 const KEEPALIVE_MS = 30_000;
 
-const catalog: SessionCatalog = withSeededInstallation({
-  profiles: {
-    "claude-coding-v1": {
-      runtime_kind: "claude_agent_sdk",
-      runtime_version: "0.3.270",
-      model: "claude-sonnet-5",
-      tools: ["Read"],
-      permission_mode: "default",
-      provider: {
+const catalog: SessionCatalog = testCatalog({
+provider: {
         kind: "litellm",
         endpoint: "https://litellm.invalid",
         auth: {
@@ -96,13 +89,10 @@ const catalog: SessionCatalog = withSeededInstallation({
           ref: { value_env: "PROVIDER_KEY" },
         },
       },
-    },
-  },
-  repositories: {
+repositories: {
     "sample-app": {
       url: "https://example.invalid/app.git",
       branch: "main",
-      profiles: ["claude-coding-v1"],
       auth: { kind: "github_app", registered: true } as const,
     },
   },
@@ -487,7 +477,6 @@ integration("session share scopes over HTTP on PostgreSQL", () => {
       "/v1/sessions",
       { ...asCookie(cookies.creator), "Idempotency-Key": crypto.randomUUID() },
       {
-        profile_id: "claude-coding-v1",
         repository_id: "sample-app",
         message: "Summarise the minutes.",
       },
@@ -1045,7 +1034,6 @@ integration("session share scopes over HTTP on PostgreSQL", () => {
       "/v1/sessions",
       { ...asCookie(cookies.creator), "Idempotency-Key": crypto.randomUUID() },
       {
-        profile_id: "claude-coding-v1",
         repository_id: "sample-app",
         message: "Draft the follow-up.",
       },

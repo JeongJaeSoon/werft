@@ -46,14 +46,12 @@ const catalog: SessionCatalog = {
     "sample-app": {
       url: "https://example.invalid/app.git",
       branch: "main",
-      profiles: ["claude-coding-v1"],
       auth: { kind: "github_app", registered: true } as const,
     },
     // Registered, but only claude-review-v1 may run against it.
     "other-app": {
       url: "https://example.invalid/other.git",
       branch: "main",
-      profiles: ["claude-review-v1"],
       auth: { kind: "github_app", registered: true } as const,
     },
   },
@@ -104,9 +102,6 @@ function app(
         throw new Error("not reached");
       },
       resumeAtomic: async () => {
-        throw new Error("not reached");
-      },
-      changeProfileAtomic: async () => {
         throw new Error("not reached");
       },
       renameAtomic: async () => {
@@ -1029,9 +1024,6 @@ describe("POST /v1/sessions/{id}/recovery-decisions validation", () => {
           throw new Error("must not reach the transaction");
         },
         resumeAtomic: async () => {
-          throw new Error("not reached");
-        },
-        changeProfileAtomic: async () => {
           throw new Error("not reached");
         },
         renameAtomic: async () => {

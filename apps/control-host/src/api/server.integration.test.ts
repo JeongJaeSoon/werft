@@ -14,7 +14,6 @@ import { launchSession } from "@werft-ai/db/testing/launches";
 import {
   acceptAllCheckpoints,
   createWorkerGateway,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import {
   createTempDatabase,
@@ -26,6 +25,8 @@ import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { seedSettings, settingsDocument } from "../test-support/settings.ts";
 import { SHUTDOWN_DRAIN_MS } from "./shutdown.ts";
+import { testCatalog } from "../test-support/catalog.ts";
+import { fixtureRelease, TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 const MASTER_KEY = "ab".repeat(32);
@@ -447,7 +448,6 @@ integration("API server on PostgreSQL", () => {
           expect(unknown.status, JSON.stringify(body)).toBe(422);
         }
         const created = await call(plaintext, "POST", "/sessions", {
-          profile_id: "coding",
           repository_id: "app",
           message: "hi",
         });
@@ -479,7 +479,6 @@ integration("API server on PostgreSQL", () => {
           });
         }
         const writeWithoutScope = await call(readOnly, "POST", "/sessions", {
-          profile_id: "coding",
           repository_id: "app",
           message: "hi",
         });
@@ -699,15 +698,8 @@ integration("API server on PostgreSQL", () => {
       const repositoryId = `long-poll-${crypto.randomUUID()}`;
       const gateway = createWorkerGateway({
         work: createPostgresWorkerUnitOfWork(db),
-        catalog: withSeededInstallation({
-          profiles: {
-            coding: {
-              runtime_kind: "claude_agent_sdk",
-              runtime_version: "0.3.270",
-              model: "claude-sonnet-5",
-              tools: ["Read"],
-              permission_mode: "default",
-              provider: {
+        catalog: testCatalog({
+provider: {
                 kind: "anthropic",
                 endpoint: "https://api.anthropic.invalid",
                 auth: {
@@ -716,17 +708,14 @@ integration("API server on PostgreSQL", () => {
                   ref: { value_env: "INTEGRATION_PROVIDER_KEY" },
                 },
               },
-            },
-          },
-          repositories: {
+repositories: {
             [repositoryId]: {
               url: "https://github.com/team/app.git",
               branch: "main",
-              profiles: ["coding"],
               auth: { kind: "github_app", registered: true } as const,
             },
           },
-        }),
+}),
         checkpoints: acceptAllCheckpoints,
         options: {
           sessionCostLimitUsd: 25,
@@ -741,7 +730,8 @@ integration("API server on PostgreSQL", () => {
         principal: { ownerId },
         idempotencyKey: crypto.randomUUID(),
         payloadHash: "hash",
-        profileId: "coding",
+        agentReleaseId: await fixtureRelease(db),
+        model: TEST_MODEL,
         repository: {
           id: repositoryId,
           url: "https://github.com/team/app.git",

@@ -22,7 +22,6 @@ import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import {
   createAuthorizationPolicy,
   createSessionService,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { eq, sql } from "drizzle-orm";
@@ -40,6 +39,7 @@ import { DatabaseApiKeyStore, issueApiKey } from "./keys.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerEventRoutes } from "./routes/events.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
+import { testCatalog } from "../test-support/catalog.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 
@@ -87,32 +87,15 @@ integration("auth API on PostgreSQL", () => {
       inputs: createPostgresSessionUnitOfWork(db),
       controls: createPostgresSessionControl(db),
       reader: createPostgresSessionReader(db),
-      catalog: withSeededInstallation({
-        profiles: {
-          "claude-coding-v1": {
-            runtime_kind: "claude_agent_sdk",
-            runtime_version: "0.3.270",
-            model: "claude-sonnet-5",
-            tools: ["Read", "Edit", "Bash"],
-            permission_mode: "default",
-            provider: {
-              kind: "litellm",
-              endpoint: "https://litellm.invalid",
-              auth: {
-                kind: "api_key",
-                ref: { value_env: "PROVIDER_KEY" },
-              },
-            },
-          },
-        },
-        repositories: {
+      catalog: testCatalog({
+repositories: {
           "sample-app": {
             url: "https://example.invalid/app.git",
             branch: "main",
-            profiles: ["claude-coding-v1"],
+            auth: { kind: "github_app", registered: true } as const,
           },
         },
-      }),
+}),
     });
     app = createApiApp({
       authMode: "api-key",
@@ -168,7 +151,6 @@ integration("auth API on PostgreSQL", () => {
   const cookieOf = (response: Response) =>
     (response.headers.get("Set-Cookie") ?? "").split(";")[0] ?? "";
   const sessionBody = {
-    profile_id: "claude-coding-v1",
     repository_id: "sample-app",
     message: "Inspect the failing unit test and propose a fix.",
   };

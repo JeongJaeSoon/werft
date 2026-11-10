@@ -32,6 +32,7 @@ import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createApiApp } from "./app.ts";
 import { registerUsageRoutes } from "./routes/usage.ts";
+import { fixtureRelease, TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -106,7 +107,8 @@ integration("usage API on PostgreSQL", () => {
       principal: { ownerId },
       idempotencyKey: crypto.randomUUID(),
       payloadHash: crypto.randomUUID(),
-      profileId: "claude-coding-v1",
+      agentReleaseId: await fixtureRelease(db),
+      model: TEST_MODEL,
       repository: {
         id: "sample-app",
         url: "https://example.invalid/app.git",

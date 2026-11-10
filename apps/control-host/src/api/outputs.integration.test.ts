@@ -28,7 +28,6 @@ import {
   createSessionService,
   type SessionCatalog,
   type SessionOutputSource,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import type { StoredOutput } from "@werft-ai/runtime-core";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
@@ -44,21 +43,15 @@ import { DatabaseApiKeyStore } from "./keys.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerSessionOutputRoutes } from "./routes/outputs.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
+import { testCatalog } from "../test-support/catalog.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 
 const BOOTSTRAP_TOKEN = "outputs-bootstrap-token-0123456789";
 const PASSWORD = "outputs-password-0123456789";
 
-const catalog: SessionCatalog = withSeededInstallation({
-  profiles: {
-    "claude-coding-v1": {
-      runtime_kind: "claude_agent_sdk",
-      runtime_version: "0.3.270",
-      model: "claude-sonnet-5",
-      tools: ["Read"],
-      permission_mode: "default",
-      provider: {
+const catalog: SessionCatalog = testCatalog({
+provider: {
         kind: "litellm",
         endpoint: "https://litellm.invalid",
         auth: {
@@ -67,13 +60,10 @@ const catalog: SessionCatalog = withSeededInstallation({
           ref: { value_env: "PROVIDER_KEY" },
         },
       },
-    },
-  },
-  repositories: {
+repositories: {
     "sample-app": {
       url: "https://example.invalid/app.git",
       branch: "main",
-      profiles: ["claude-coding-v1"],
       auth: { kind: "github_app", registered: true } as const,
     },
   },
@@ -228,7 +218,6 @@ integration("session outputs over HTTP on PostgreSQL", () => {
       "/v1/sessions",
       { ...as(who), "Idempotency-Key": crypto.randomUUID() },
       {
-        profile_id: "claude-coding-v1",
         repository_id: "sample-app",
         message: "Write the report to out/report.md.",
       },

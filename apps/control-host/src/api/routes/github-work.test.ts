@@ -139,12 +139,11 @@ function app(
   } = {},
 ) {
   const catalog: SessionCatalog = {
-    profiles: {},
+    connections: {},
     repositories: {
       app: {
         url: `${github.origin}/acme/app.git`,
         branch: "main",
-        profiles: ["default"],
         auth: {
           kind: "github_app",
           app_id: 101,

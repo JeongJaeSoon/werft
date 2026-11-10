@@ -42,7 +42,6 @@ import {
   createAuthorizationPolicy,
   createGitHubSettingsService,
   type SessionCatalog,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
@@ -60,21 +59,15 @@ import { registerAgentRoutes } from "./routes/agents.ts";
 import { registerApiKeyRoutes } from "./routes/api-keys.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerGitHubSettingsRoutes } from "./routes/github-settings.ts";
+import { TEST_CONNECTION_ID, TEST_RUNTIMES, testCatalog } from "../test-support/catalog.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 
 const BOOTSTRAP_TOKEN = "bootstrap-token-for-the-agent-github-tab";
 const PASSWORD = "correct horse battery staple";
 
-const catalog: SessionCatalog = withSeededInstallation({
-  profiles: {
-    "claude-coding-v1": {
-      runtime_kind: "claude_agent_sdk",
-      runtime_version: "0.3.270",
-      model: "claude-sonnet-5",
-      tools: ["Read", "Edit", "Bash"],
-      permission_mode: "default",
-      provider: {
+const catalog: SessionCatalog = testCatalog({
+provider: {
         kind: "litellm",
         endpoint: "https://litellm.invalid",
         auth: {
@@ -83,30 +76,10 @@ const catalog: SessionCatalog = withSeededInstallation({
           ref: { value_env: "PROVIDER_KEY" },
         },
       },
-    },
-    "claude-optional-v1": {
-      runtime_kind: "claude_agent_sdk",
-      runtime_version: "0.3.270",
-      model: "claude-sonnet-5",
-      tools: ["Read", "Edit", "Bash"],
-      permission_mode: "default",
-      repository: "optional",
-      provider: {
-        kind: "litellm",
-        endpoint: "https://litellm.invalid",
-        auth: {
-          kind: "api_key",
-          value: "catalog-provider-key",
-          ref: { value_env: "PROVIDER_KEY" },
-        },
-      },
-    },
-  },
-  repositories: {
+repositories: {
     "sample-app": {
       url: "https://github.com/acme/sample-app",
       branch: "main",
-      profiles: ["claude-coding-v1", "claude-optional-v1"],
       auth: { kind: "github_app", registered: true },
     },
   },
@@ -170,7 +143,8 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
       catalog,
       credentials,
       githubSettings,
-    });
+      runtimes: TEST_RUNTIMES,
+});
     const keys = createApiKeyService({
       authorization,
       store: createPostgresWorkspaceKeyStore(db),
@@ -299,7 +273,7 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
       `/v1/agents/${agentId}/releases`,
       asCookie(cookies.admin),
       {
-        runtime_profile_id: "claude-coding-v1",
+        connection_id: TEST_CONNECTION_ID,
         repository_id: "sample-app",
         ...body,
       },
@@ -698,7 +672,7 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
       asCookie(cookies.admin),
       {
         version_id: versionId,
-        runtime_profile_id: "claude-coding-v1",
+        connection_id: TEST_CONNECTION_ID,
         repository_id: "sample-app",
         github: GITHUB,
       },
@@ -845,7 +819,7 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
       asCookie(cookies.admin),
       {
         version_id: otherDetail.versions[0]?.id,
-        runtime_profile_id: "claude-coding-v1",
+        connection_id: TEST_CONNECTION_ID,
         repository_id: "sample-app",
       },
     );
@@ -879,7 +853,7 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
         asCookie(cookies.admin),
         {
           version_id: made.versions[0]?.id,
-          runtime_profile_id: "claude-optional-v1",
+          connection_id: TEST_CONNECTION_ID,
           ...body,
         },
       );
@@ -999,7 +973,7 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
       asCookie(cookies.admin),
       {
         version_id: made.versions[0]?.id,
-        runtime_profile_id: "claude-optional-v1",
+        connection_id: TEST_CONNECTION_ID,
       },
     );
     expect(released.status).toBe(200);

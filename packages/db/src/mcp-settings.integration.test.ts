@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { agentCardSchema, scopesForRole } from "@werft-ai/contracts";
+import { scopesForRole } from "@werft-ai/contracts";
 import { type Caller, callerFor } from "@werft-ai/platform";
 import {
   createTempDatabase,

@@ -42,12 +42,11 @@ const KEYS: Record<string, readonly SessionScope[]> = {
   csp_agent: ["sessions:read", "sessions:write"],
 };
 const CATALOG = {
-  profiles: {},
+  connections: {},
   repositories: {
     app: {
       url: "https://github.com/acme/app.git",
       branch: "main",
-      profiles: ["default"],
       auth: { kind: "github_app", registered: true } as const,
     },
   },

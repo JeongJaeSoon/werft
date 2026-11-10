@@ -8,7 +8,6 @@ import {
 import {
   type AgentService,
   type Caller,
-  type CatalogProfile,
   callerFor,
   cardContentSha256,
   createAgentService,
@@ -38,30 +37,16 @@ import {
   users,
   workspaces,
 } from "./schema.ts";
-import { testSessionCatalog } from "./testing/spec-pins.ts";
+import {
+  TEST_CONNECTION_ID,
+  TEST_RUNTIMES,
+  testSessionCatalog,
+} from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
-const PROFILE: CatalogProfile = {
-  runtime_kind: "claude_agent_sdk",
-  runtime_version: "0.3.270",
-  model: "claude-sonnet-5",
-  title_model: "claude-haiku-5",
-  tools: ["Read", "Grep", "Edit"],
-  permission_mode: "default",
-  repository: "optional",
-  provider: {
-    kind: "litellm",
-    endpoint: "https://litellm.invalid",
-    auth: {
-      kind: "api_key",
-      value: "catalog-provider-key",
-      ref: { value_env: "PROVIDER_KEY" },
-    },
-  },
-};
-const CATALOG: SessionCatalog = testSessionCatalog({
-  models: ["claude-opus-5", "claude-sonnet-5"],
+const BASE: SessionCatalog = testSessionCatalog({
+  models: ["claude-sonnet-5", "claude-opus-5"],
   repositories: {
     app: {
       url: "https://example.invalid/app.git",
@@ -70,6 +55,20 @@ const CATALOG: SessionCatalog = testSessionCatalog({
     },
   },
 });
+const NEWER = "newer";
+// Two connections: the test one and `newer`, both offering both models.
+const CATALOG: SessionCatalog = {
+  ...BASE,
+  connections: {
+    ...BASE.connections,
+    [NEWER]: {
+      ...(BASE.connections[
+        TEST_CONNECTION_ID
+      ] as SessionCatalog["connections"][string]),
+      models: ["claude-opus-5", "claude-sonnet-5"],
+    },
+  },
+};
 
 // `tag` only tells two cards apart: it is the text of the card's one rule.
 function card(tag: string, model = "claude-sonnet-5") {
@@ -106,6 +105,7 @@ integration("a card save releases (Z1) on PostgreSQL", () => {
       store: store(),
       catalog: CATALOG,
       credentials: createPostgresCredentialBindingStore(db),
+      runtimes: TEST_RUNTIMES,
     });
   }
 
@@ -138,8 +138,7 @@ integration("a card save releases (Z1) on PostgreSQL", () => {
     caller: Caller,
     request: {
       card?: AgentCardRequest;
-      runtime_profile_id?: string;
-      model_source?: "fixed" | "profile";
+      connection_id?: string;
     } = {},
   ) {
     const teamId = randomUUID();
@@ -153,12 +152,9 @@ integration("a card save releases (Z1) on PostgreSQL", () => {
       name: "재무 분석가",
       managing_team_id: teamId,
       card: request.card ?? card("v1"),
-      ...(request.runtime_profile_id === undefined
+      ...(request.connection_id === undefined
         ? {}
-        : { runtime_profile_id: request.runtime_profile_id }),
-      ...(request.model_source === undefined
-        ? {}
-        : { model_source: request.model_source }),
+        : { connection_id: request.connection_id }),
     });
   }
 
@@ -177,37 +173,34 @@ integration("a card save releases (Z1) on PostgreSQL", () => {
         .where(eq(agentVersions.agentId, agentId))
     ).length;
 
-  test("a create with a profile makes the first release and activates it, following the profile's model", async () => {
+  test("a create with a connection makes the first release and activates it, on the card's model", async () => {
     const caller = await owner();
     const made = await newAgent(caller, {
-      card: card("v1", "claude-haiku-5"),
-      runtime_profile_id: "coding",
+      card: card("v1", "claude-opus-5"),
+      connection_id: TEST_CONNECTION_ID,
     });
     expect(made.release.status).toBe("applied");
     expect(made.agent.active_release_id).toBe(made.release.release_id);
-    expect(made.model_source).toBe("profile");
     expect(made.draft).toBeNull();
-    // The card is the model it runs: the profile's, not the one sent.
-    expect(made.versions.map((v) => v.card.model)).toEqual(["claude-sonnet-5"]);
+    expect(made.versions.map((v) => v.card.model)).toEqual(["claude-opus-5"]);
+    expect(made.active_release?.connection_id).toBe(TEST_CONNECTION_ID);
     expect(made.active_release?.runtime_config_snapshot.model).toBe(
-      "claude-sonnet-5",
+      "claude-opus-5",
     );
     expect(made.effective_behavior.applied).toEqual({
-      runtime_profile_id: "coding",
-      model: "claude-sonnet-5",
-      model_source: "profile",
-      title_model: "claude-haiku-5",
+      connection_id: TEST_CONNECTION_ID,
+      model: "claude-opus-5",
     });
     expect(made.effective_behavior.draft).toBeNull();
   });
 
-  test("a create without a profile stays a draft agent", async () => {
+  test("a create without a connection stays a draft agent", async () => {
     const caller = await owner();
     const made = await newAgent(caller);
     expect(made.release.status).toBe("unchanged");
     expect(made.agent.active_release_id).toBeNull();
     expect(made.draft).toBeNull();
-    // A card saved with no profile to release on still names its version.
+    // A card saved with no connection to release on still names its version.
     expect(made.release.version_id).toBe(made.versions[0]?.id as string);
     const edited = await service().updateAgent(caller, made.agent.id, {
       card: card("v2"),
@@ -221,7 +214,7 @@ integration("a card save releases (Z1) on PostgreSQL", () => {
   test("the same behavior is unchanged, makes no release, and still takes a revision", async () => {
     const caller = await owner();
     const agentsService = service();
-    const made = await newAgent(caller, { runtime_profile_id: "coding" });
+    const made = await newAgent(caller, { connection_id: TEST_CONNECTION_ID });
     const again = await agentsService.updateAgent(caller, made.agent.id, {
       card: card("v1"),
     });
@@ -245,7 +238,7 @@ integration("a card save releases (Z1) on PostgreSQL", () => {
   test("a changed card releases and records why; going back to old content releases the old version", async () => {
     const caller = await owner();
     const agentsService = service();
-    const made = await newAgent(caller, { runtime_profile_id: "coding" });
+    const made = await newAgent(caller, { connection_id: TEST_CONNECTION_ID });
     const second = await agentsService.updateAgent(caller, made.agent.id, {
       card: card("v2"),
     });
@@ -274,76 +267,42 @@ integration("a card save releases (Z1) on PostgreSQL", () => {
     ]);
   });
 
-  test("a profile alone re-saves the card on it; a followed default model moves with the profile", async () => {
+  test("a connection alone re-saves the card on it, on the same model", async () => {
     const caller = await owner();
     const agentsService = service();
-    const made = await newAgent(caller, { runtime_profile_id: "coding" });
+    const made = await newAgent(caller, { connection_id: TEST_CONNECTION_ID });
     const moved = await agentsService.updateAgent(caller, made.agent.id, {
-      runtime_profile_id: "newer",
+      connection_id: NEWER,
     });
     expect(moved.release.status).toBe("applied");
-    expect(moved.active_release?.runtime_profile_id).toBe("newer");
+    expect(moved.active_release?.connection_id).toBe(NEWER);
     expect(moved.active_release?.runtime_config_snapshot.model).toBe(
-      "claude-opus-5",
+      "claude-sonnet-5",
     );
-    expect(moved.model_source).toBe("profile");
+    expect(await versionCount(made.agent.id)).toBe(1);
     const reasons = await pool.query(
       `SELECT result->>'reason' AS reason FROM receipts
        WHERE operation = 'activate_agent' AND target_ref->'resource'->>'id' = $1
        ORDER BY created_at DESC LIMIT 1`,
       [made.agent.id],
     );
-    expect(reasons.rows[0]?.reason).toBe("profile_changed");
-  });
-
-  test("a model chosen by hand is fixed; picking the profile's own model by hand is not unchanged-by-source", async () => {
-    const caller = await owner();
-    const agentsService = service();
-    const made = await newAgent(caller, { runtime_profile_id: "newer" });
-    const chosen = await agentsService.updateAgent(caller, made.agent.id, {
-      card: card("v1", "claude-sonnet-5"),
-    });
-    // The card's model is not the one running, so the source reads as a choice.
-    expect(chosen.model_source).toBe("fixed");
-    expect(chosen.release.status).toBe("applied");
-    expect(chosen.active_release?.runtime_config_snapshot.model).toBe(
-      "claude-sonnet-5",
-    );
-    // Back to following: the profile's model equals the one running only if
-    // it does; here it does not, so it releases.
-    const follow = await agentsService.updateAgent(caller, made.agent.id, {
-      model_source: "profile",
-    });
-    expect(follow.release.status).toBe("applied");
-    expect(follow.active_release?.runtime_config_snapshot.model).toBe(
-      "claude-opus-5",
-    );
-    // Fixed at the model that is running: no release, only the source moves.
-    const fixedNow = await agentsService.updateAgent(caller, made.agent.id, {
-      model_source: "fixed",
-    });
-    expect(fixedNow.release.status).toBe("unchanged");
-    expect(fixedNow.model_source).toBe("fixed");
-    expect(fixedNow.agent.active_release_id).toBe(
-      follow.agent.active_release_id,
-    );
+    expect(reasons.rows[0]?.reason).toBe("connection_changed");
   });
 
   test("a refused release keeps the card version and shows as a failed draft until a good save clears it", async () => {
     const caller = await owner();
     const agentsService = service();
-    const made = await newAgent(caller, { runtime_profile_id: "coding" });
+    const made = await newAgent(caller, { connection_id: TEST_CONNECTION_ID });
     const refused = await agentsService.updateAgent(caller, made.agent.id, {
       card: card("v2", "gpt-never"),
-      model_source: "fixed",
     });
     expect(refused.release).toEqual({
       status: "failed",
-      reason: "model_not_in_profile",
+      reason: "model_not_in_connection",
       release_id: null,
       version_id: refused.versions.at(-1)?.id as string,
     });
-    expect(refused.draft?.failure).toBe("model_not_in_profile");
+    expect(refused.draft?.failure).toBe("model_not_in_connection");
     expect(refused.agent.active_release_id).toBe(made.release.release_id);
     expect(await versionCount(made.agent.id)).toBe(2);
     expect(refused.effective_behavior.draft?.model).toBe("gpt-never");
@@ -351,8 +310,7 @@ integration("a card save releases (Z1) on PostgreSQL", () => {
     // Discarding: the active behavior saved again clears the draft.
     const discarded = await agentsService.updateAgent(caller, made.agent.id, {
       card: card("v1"),
-      runtime_profile_id: "coding",
-      model_source: "profile",
+      connection_id: TEST_CONNECTION_ID,
     });
     expect(discarded.release.status).toBe("unchanged");
     expect(discarded.draft).toBeNull();
@@ -362,7 +320,7 @@ integration("a card save releases (Z1) on PostgreSQL", () => {
     const caller = await owner();
     const agentsService = service();
     const agentsStore = store();
-    const made = await newAgent(caller, { runtime_profile_id: "coding" });
+    const made = await newAgent(caller, { connection_id: TEST_CONNECTION_ID });
     const roles = ["owner", "admin"] as const;
     // A: a different card, judged and waiting for its release.
     const a = card("A");
@@ -374,7 +332,7 @@ integration("a card save releases (Z1) on PostgreSQL", () => {
         card: a,
         contentSha256: cardContentSha256(a),
       },
-      behavior: { runtimeProfileId: "coding", modelSource: "profile" },
+      behavior: { connectionId: TEST_CONNECTION_ID },
       updatedBy: caller.actor?.userId ?? "",
       managerRoles: roles,
     });
@@ -385,7 +343,7 @@ integration("a card save releases (Z1) on PostgreSQL", () => {
     expect(judged.detail.draft?.version_id).toBe(judged.saved.versionId);
     const release = await agentsService.createRelease(caller, made.agent.id, {
       version_id: judged.saved.versionId,
-      runtime_profile_id: "coding",
+      connection_id: TEST_CONNECTION_ID,
     });
     // B: the active behavior again, unchanged. It takes the next revision.
     const b = await agentsService.updateAgent(caller, made.agent.id, {
@@ -405,7 +363,6 @@ integration("a card save releases (Z1) on PostgreSQL", () => {
         kind: "save",
         behaviorRevision: judged.saved.behaviorRevision,
         draftVersionId: judged.saved.versionId,
-        modelSource: "profile",
       },
     });
     expect(activated.outcome).toBe("superseded");
@@ -427,7 +384,7 @@ integration("a card save releases (Z1) on PostgreSQL", () => {
     const caller = await owner();
     const agentsService = service();
     const agentsStore = store();
-    const made = await newAgent(caller, { runtime_profile_id: "coding" });
+    const made = await newAgent(caller, { connection_id: TEST_CONNECTION_ID });
     const roles = ["owner", "admin"] as const;
     const a = card("same");
     const judge = () =>
@@ -436,7 +393,7 @@ integration("a card save releases (Z1) on PostgreSQL", () => {
         workspaceId: caller.ownerId,
         agentId: made.agent.id,
         card: { card: a, contentSha256: cardContentSha256(a) },
-        behavior: { runtimeProfileId: "coding", modelSource: "profile" },
+        behavior: { connectionId: TEST_CONNECTION_ID },
         updatedBy: caller.actor?.userId ?? "",
         managerRoles: roles,
       });
@@ -456,7 +413,7 @@ integration("a card save releases (Z1) on PostgreSQL", () => {
     );
     const release = await agentsService.createRelease(caller, made.agent.id, {
       version_id: first.saved.versionId,
-      runtime_profile_id: "coding",
+      connection_id: TEST_CONNECTION_ID,
     });
     const activate = (behaviorRevision: number) =>
       agentsStore.activate({
@@ -471,7 +428,6 @@ integration("a card save releases (Z1) on PostgreSQL", () => {
           kind: "save",
           behaviorRevision,
           draftVersionId: first.saved?.versionId ?? "",
-          modelSource: "profile",
         },
       });
     expect((await activate(first.saved.behaviorRevision)).outcome).toBe(
@@ -485,7 +441,7 @@ integration("a card save releases (Z1) on PostgreSQL", () => {
   test("of two concurrent different saves the revision check lets one finish; the active release is the last one judged", async () => {
     const caller = await owner();
     const agentsService = service();
-    const made = await newAgent(caller, { runtime_profile_id: "coding" });
+    const made = await newAgent(caller, { connection_id: TEST_CONNECTION_ID });
     const results = await Promise.all([
       agentsService.updateAgent(caller, made.agent.id, { card: card("X") }),
       agentsService.updateAgent(caller, made.agent.id, { card: card("Y") }),
@@ -514,7 +470,7 @@ integration("a card save releases (Z1) on PostgreSQL", () => {
   test("an agent without a settings row keeps the active release's GitHub pin and repository; one with a row carries neither", async () => {
     const caller = await owner();
     const agentsService = service();
-    const made = await newAgent(caller, { runtime_profile_id: "coding" });
+    const made = await newAgent(caller, { connection_id: TEST_CONNECTION_ID });
     const github = {
       repositories: ["app"],
       push_approval: true,
@@ -529,7 +485,7 @@ integration("a card save releases (Z1) on PostgreSQL", () => {
     };
     const pinned = await agentsService.createRelease(caller, made.agent.id, {
       version_id: made.versions[0]?.id ?? "",
-      runtime_profile_id: "coding",
+      connection_id: TEST_CONNECTION_ID,
       repository_id: "app",
       github,
       note: "pinned",
@@ -563,47 +519,27 @@ integration("a card save releases (Z1) on PostgreSQL", () => {
     expect(withRow.active_release?.repository_id).toBeNull();
   });
 
-  test("a direct activation (a rollback) takes a revision, leaves the draft, and stops following a profile whose default the release did not run", async () => {
+  test("a direct activation (a rollback) takes a revision and runs the release it names", async () => {
     const caller = await owner();
     const agentsService = service();
-    const made = await newAgent(caller, { runtime_profile_id: "newer" });
-    // v1 ran claude-opus-5 (the default of newer). Pick sonnet by hand, then
-    // follow again: two releases, the second the default.
-    await agentsService.updateAgent(caller, made.agent.id, {
-      card: card("v1", "claude-sonnet-5"),
+    const made = await newAgent(caller, { connection_id: TEST_CONNECTION_ID });
+    const saved = await agentsService.updateAgent(caller, made.agent.id, {
+      card: card("v2", "claude-opus-5"),
     });
-    const following = await agentsService.updateAgent(caller, made.agent.id, {
-      model_source: "profile",
-    });
-    expect(following.model_source).toBe("profile");
-    const sonnetRelease = (
-      await agentsService.getAgent(caller, made.agent.id)
-    ).releases.find(
-      (r) => r.runtime_config_snapshot.model === "claude-sonnet-5",
-    );
+    expect(saved.release.status).toBe("applied");
     const before = await agentsService.getAgent(caller, made.agent.id);
     await agentsService.activateAgent(caller, made.agent.id, {
-      release_id: sonnetRelease?.id ?? "",
+      release_id: made.release.release_id ?? "",
       expected_revision: before.agent.activation_revision,
     });
     const after = await agentsService.getAgent(caller, made.agent.id);
     expect(after.behavior_revision).toBe(before.behavior_revision + 1);
-    expect(after.model_source).toBe("fixed");
-    // Going to the release that ran the default keeps following.
-    const defaultRelease = after.releases.find(
-      (r) => r.runtime_config_snapshot.model === "claude-opus-5",
+    expect(after.agent.active_release_id).toBe(made.release.release_id);
+    expect(after.active_release?.runtime_config_snapshot.model).toBe(
+      "claude-sonnet-5",
     );
-    await db
-      .update(agents)
-      .set({ modelSource: "profile" })
-      .where(eq(agents.id, made.agent.id));
-    await agentsService.activateAgent(caller, made.agent.id, {
-      release_id: defaultRelease?.id ?? "",
-      expected_revision: after.agent.activation_revision,
-    });
-    expect(
-      (await agentsService.getAgent(caller, made.agent.id)).model_source,
-    ).toBe("profile");
+    expect(after.draft).toBeNull();
+    void agents;
     void receipts;
     void sql;
   });

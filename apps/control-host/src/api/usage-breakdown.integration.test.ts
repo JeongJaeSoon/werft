@@ -40,6 +40,7 @@ import {
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { fixtureRelease, TEST_MODEL, releaseSpecColumns, TEST_CONNECTION_ID } from "@werft-ai/db/testing/spec-pins";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -136,8 +137,8 @@ integration("usage breakdown on PostgreSQL", () => {
         agentId,
         versionId,
         cardSha256: "card",
-        runtimeProfileId: "coding",
-        profileDigest: "digest",
+        connectionId: TEST_CONNECTION_ID,
+        ...releaseSpecColumns(),
         runtimeConfigSnapshot: {},
         effectiveTools: [],
       });
@@ -180,7 +181,8 @@ integration("usage breakdown on PostgreSQL", () => {
         principal: user(who, who === "owner" ? "owner" : "member"),
         idempotencyKey: crypto.randomUUID(),
         payloadHash: crypto.randomUUID(),
-        profileId: "claude-coding-v1",
+        agentReleaseId: agent ? (releaseOf[agent] as string) : await fixtureRelease(db),
+        model: TEST_MODEL,
         repository: "none",
         message: "count me",
       },

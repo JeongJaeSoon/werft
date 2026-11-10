@@ -32,7 +32,6 @@ import {
   createAuthorizationPolicy,
   createSessionService,
   type SessionCatalog,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import { asc, count, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
@@ -42,6 +41,7 @@ import { createApiPool, createProbePool } from "./pool.ts";
 import { createReadinessProbe } from "./readiness.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
+import { testCatalog } from "../test-support/catalog.ts";
 
 const coding: CatalogProfile = {
   runtime_kind: "claude_agent_sdk",
@@ -59,17 +59,11 @@ const coding: CatalogProfile = {
     },
   },
 };
-const catalog: SessionCatalog = withSeededInstallation({
-  profiles: {
-    "claude-coding-v1": coding,
-    "claude-coding-optional": { ...coding, repository: "optional" },
-    general: { ...coding, tools: ["Read", "Write"], repository: "none" },
-  },
-  repositories: {
+const catalog: SessionCatalog = testCatalog({
+repositories: {
     "sample-app": {
       url: "https://example.invalid/app.git",
       branch: "main",
-      profiles: ["claude-coding-v1", "claude-coding-optional"],
       auth: { kind: "github_app", registered: true } as const,
     },
   },
@@ -87,7 +81,6 @@ integration("sessions API on PostgreSQL", () => {
   const owner = `owner-${crypto.randomUUID()}`;
   const stranger = `owner-${crypto.randomUUID()}`;
   const body = {
-    profile_id: "claude-coding-v1",
     repository_id: "sample-app",
     message: "Inspect the failing unit test and propose a fix.",
   };
@@ -568,7 +561,6 @@ integration("sessions API on PostgreSQL", () => {
       runtime: {
         kind: "claude_agent_sdk",
         version: "0.3.270",
-        profile_id: "claude-coding-v1",
         model: "claude-sonnet-5",
         permission_mode: "default",
       },
@@ -1316,7 +1308,6 @@ integration("sessions API on PostgreSQL", () => {
     });
     expect(
       await refusal({
-        profile_id: "general",
         repository_id: "sample-app",
         message,
       }),
@@ -1325,7 +1316,6 @@ integration("sessions API on PostgreSQL", () => {
       message: "Profile general runs without a repository: omit repository_id",
     });
     const nulled = await create(crypto.randomUUID(), {
-      profile_id: "general",
       repository_id: null,
       message,
     });
@@ -1365,7 +1355,6 @@ integration("sessions API on PostgreSQL", () => {
     expect(
       await rowOf(
         await created({
-          profile_id: "claude-coding-optional",
           repository_id: "sample-app",
           message,
         }),
@@ -1405,13 +1394,9 @@ integration("sessions API on PostgreSQL", () => {
             inputs: createPostgresSessionUnitOfWork(db),
             controls: createPostgresSessionControl(db),
             reader: createPostgresSessionReader(db),
-            catalog: withSeededInstallation({
-              profiles: {
-                "claude-coding-v1": coding,
-                "claude-coding-optional": coding,
-              },
-              repositories: catalog.repositories,
-            }),
+            catalog: testCatalog({
+repositories: catalog.repositories,
+}),
           }),
         ),
     });
@@ -1466,7 +1451,6 @@ integration("sessions API on PostgreSQL", () => {
 
   test("a session without a repository is judged by its profile alone: CATALOG_MISMATCH and profile changes", async () => {
     const response = await create(crypto.randomUUID(), {
-      profile_id: "general",
       message: "Draft the weekly report.",
     });
     expect(response.status).toBe(201);
@@ -1489,7 +1473,6 @@ integration("sessions API on PostgreSQL", () => {
           "Idempotency-Key": crypto.randomUUID(),
         },
         body: JSON.stringify({
-          profile_id: profileId,
           expected_revision: expectedRevision,
         }),
       });

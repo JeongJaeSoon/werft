@@ -11,7 +11,6 @@ import {
   type GitHubGrant,
   hashWorkerToken,
   type NeutralizeEvent,
-  profileFingerprint,
   recordedPointer,
   transcriptWarnBytes,
   type WorkerGateway,
@@ -68,10 +67,12 @@ import {
   type TestLaunch,
 } from "./testing/launches.ts";
 import {
-  RELEASE_SPEC_SQL_COLUMNS,
-  TEST_MODEL,
   fixtureRelease,
+  makeFixtureRelease,
+  RELEASE_SPEC_SQL_COLUMNS,
   releaseSpecSqlValues,
+  TEST_CONNECTION_ID,
+  TEST_MODEL,
   testSessionCatalog,
 } from "./testing/spec-pins.ts";
 import {
@@ -438,14 +439,14 @@ integration("worker gateway on PostgreSQL", () => {
     expect(first.execution_generation).toBe(1);
     expect(first.runtime).toEqual({
       kind: "claude_agent_sdk",
-      version: "0.3.270",
-      profile_id: "claude-coding-v1",
+      version: expect.any(String),
+      connection_id: TEST_CONNECTION_ID,
     });
     expect(first.restore).toBeNull();
     expect(first.session_credential.startsWith("wsc_")).toBe(true);
     // The repository comes from the row, bound only because the catalog
-    // still registers that id at that URL and branch for this profile. The
-    // profile comes from the catalog, resolved at claim time.
+    // still registers that id at that URL and branch. The run comes from the
+    // session's spec, pinned when it was accepted.
     expect(first.workspace).toEqual({
       repository: {
         id: "sample-app",
@@ -501,7 +502,7 @@ integration("worker gateway on PostgreSQL", () => {
       kind: "session",
       attemptId: first.attempt_id,
       sessionId: first.session_id,
-      profileId: "claude-coding-v1",
+      runtimeKind: "claude_agent_sdk",
       leaseEpoch: retry.lease_epoch,
       executionGeneration: retry.execution_generation,
       authRevision: retry.auth_revision,
@@ -1832,14 +1833,14 @@ integration("worker gateway on PostgreSQL", () => {
     expect(stored?.committed).toBe(0);
   });
 
-  test("a session whose profile this host does not know is not claimed", async () => {
-    const partition = partitionFor("profile");
+  test("a session whose connection this host does not hold is not claimed", async () => {
+    const partition = partitionFor("connection");
     const session = await queuedSession(partition);
     // A pool worker: the host it lands on chooses among what is queued.
     const l = await insertUnreservedLaunch(db, { partition });
     const stranger = createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
-      catalog: { profiles: {}, repositories: {} },
+      catalog: { connections: {}, repositories: {} },
       checkpoints: {
         async verify() {
           return { status: "verified" };
@@ -1868,32 +1869,11 @@ integration("worker gateway on PostgreSQL", () => {
       .from(unassignedSessions)
       .where(eq(unassignedSessions.sessionId, session.session_id));
     expect(waiting).toHaveLength(1);
-    // A host that knows the profile takes it.
+    // A host that holds the connection takes it.
     expect((await claim(l)).session_id).toBe(session.session_id);
   });
 
-  test("a session without a repository is claimed by profile alone; a row from before the catalog is not", async () => {
-    const coding = {
-      runtime_kind: "claude_agent_sdk" as const,
-      runtime_version: "0.3.270",
-      model: "claude-sonnet-5",
-      tools: ["Read", "Edit", "Bash"],
-      permission_mode: "default" as const,
-      provider: {
-        kind: "litellm" as const,
-        endpoint: "https://litellm.invalid",
-        auth: {
-          kind: "api_key" as const,
-          value: "catalog-provider-key",
-          ref: { value_env: "PROVIDER_KEY" },
-        },
-      },
-    };
-    const general = {
-      ...coding,
-      tools: ["Read", "Write"],
-      repository: "none" as const,
-    };
+  test("a session without a repository is claimed by its connection alone; a row from before the catalog is not", async () => {
     const host = createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
       catalog: testSessionCatalog({
@@ -1947,10 +1927,10 @@ integration("worker gateway on PostgreSQL", () => {
       principal: { ownerId: `owner-${crypto.randomUUID()}` },
       idempotencyKey: crypto.randomUUID(),
       payloadHash: crypto.randomUUID(),
-      agentReleaseId: await fixtureRelease(db),
+      agentReleaseId: await makeFixtureRelease(db, {
+        spec: { tools: ["Read", "Write"], repository_mode: "none" },
+      }),
       model: TEST_MODEL,
-      profileFingerprint: profileFingerprint(general),
-      model: general.model,
       repository: "none",
       message: "first input",
     });
@@ -2393,14 +2373,14 @@ integration("worker gateway on PostgreSQL", () => {
     expect(turn).toEqual({ status: "queued", attemptId: null });
   });
 
-  test("a claim replayed on a host without the profile rotates nothing", async () => {
-    const partition = partitionFor("replayprofile");
+  test("a claim replayed on a host without the connection rotates nothing", async () => {
+    const partition = partitionFor("replayconnection");
     const queued = await queuedSession(partition);
     const l = await launch(queued.session_id);
     const claimed = await claim(l);
     const stranger = createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
-      catalog: { profiles: {}, repositories: {} },
+      catalog: { connections: {}, repositories: {} },
       checkpoints: {
         async verify() {
           return { status: "verified" };
@@ -2928,7 +2908,8 @@ integration("worker gateway on PostgreSQL", () => {
       principal: { ownerId },
       idempotencyKey: crypto.randomUUID(),
       payloadHash: crypto.randomUUID(),
-      profileId: "claude-coding-v1",
+      agentReleaseId: await fixtureRelease(db),
+      model: TEST_MODEL,
       repository: {
         id: "sample-app",
         url: "https://example.invalid/app.git",
@@ -3152,27 +3133,9 @@ integration("worker gateway on PostgreSQL", () => {
   });
 
   test("claim binds only a pair the catalog allows, at the URL and branch it registers now", async () => {
-    const profile = {
-      runtime_kind: "claude_agent_sdk" as const,
-      runtime_version: "0.3.270",
-      model: "claude-sonnet-5",
-      tools: ["Read"],
-      permission_mode: "default" as const,
-      provider: {
-        kind: "litellm" as const,
-        endpoint: "https://litellm.invalid",
-        auth: {
-          kind: "api_key" as const,
-          value: "catalog-provider-key",
-          ref: { value_env: "PROVIDER_KEY" },
-        },
-      },
-      project_settings: { claude_md: true },
-    };
     const registered = {
       url: "https://example.invalid/app.git",
       branch: "main",
-      profiles: ["claude-coding-v1"],
       auth: { kind: "github_app", registered: true } as const,
     };
     const gatewayFor = (
@@ -3206,10 +3169,6 @@ integration("worker gateway on PostgreSQL", () => {
         credential: { kind: "launch_nonce", nonce: l.nonce },
       });
     const refused: Array<[string, Record<string, typeof registered>]> = [
-      [
-        "the repository lists another profile",
-        { "sample-app": { ...registered, profiles: ["other"] } },
-      ],
       [
         "the id now points at another URL",
         {
@@ -3254,7 +3213,7 @@ integration("worker gateway on PostgreSQL", () => {
     const first = await claimOn(gatewayFor({ "sample-app": registered }), l);
     await expect(
       claimOn(
-        gatewayFor({ "sample-app": { ...registered, profiles: ["other"] } }),
+        gatewayFor({ "sample-app": { ...registered, branch: "release" } }),
         l,
       ),
     ).rejects.toMatchObject({ status: 503, code: "BACKEND_UNAVAILABLE" });
@@ -4028,7 +3987,7 @@ integration("worker gateway on PostgreSQL", () => {
     expect((await claimAs(l, PREVIOUS_IMAGE_RUNTIME)).runtime).toEqual({
       kind: "claude_agent_sdk",
       version: "0.3.260",
-      profile_id: "claude-coding-v1",
+      connection_id: TEST_CONNECTION_ID,
     });
     // A worker too old to say what it is still gets the launch's SDK.
     const claimed = await claim(l);

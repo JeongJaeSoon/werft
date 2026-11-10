@@ -7,6 +7,7 @@ import {
   type ReleaseSpecRecord,
   releaseSpecRecord,
   type SessionCatalog,
+  type ToolCatalogs,
 } from "@werft-ai/platform";
 import type { Database } from "../queries.ts";
 import { agentReleases, agents, agentVersions, workspaces } from "../schema.ts";
@@ -177,9 +178,26 @@ const TEST_PROVIDER: CatalogProvider = {
   },
 };
 
+/** The built-in tools the test runtime installs, for every version. */
+export const TEST_TOOLS = ["Read", "Grep", "Glob", "Edit", "Write", "Bash"];
+
+export function testToolCatalogs(
+  tools: readonly string[] = TEST_TOOLS,
+): ToolCatalogs {
+  const catalog = {
+    id: "test@1",
+    runtimeKind: "claude_agent_sdk",
+    sdkVersion: TEST_RUNTIME_VERSION,
+    engineVersion: TEST_RUNTIME_VERSION,
+    tools: tools.map((name) => ({ name, boundary: "local" as const })),
+  };
+  return { all: [catalog], for: () => catalog };
+}
+
 /**
  * A catalog whose one connection (`TEST_CONNECTION_ID`) offers `models`
- * through `provider`, with the rest of the catalog as given.
+ * through `provider`, with the rest of the catalog as given, and the test
+ * runtime's tool catalog an agent service makes releases with.
  */
 export function testSessionCatalog(
   input: Omit<SessionCatalog, "connections"> & {
@@ -188,9 +206,10 @@ export function testSessionCatalog(
     model_families?: CatalogConnection["model_families"];
     auto_mode?: CatalogConnection["auto_mode"];
   } = { repositories: {} },
-): SessionCatalog {
+): SessionCatalog & { tool_catalogs: ToolCatalogs } {
   const { provider, models, model_families, auto_mode, ...rest } = input;
   return {
+    tool_catalogs: testToolCatalogs(),
     connections: {
       [TEST_CONNECTION_ID]: {
         provider: provider ?? TEST_PROVIDER,

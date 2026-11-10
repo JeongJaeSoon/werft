@@ -56,6 +56,7 @@ import {
 import { DatabaseApiKeyStore } from "./keys.ts";
 import { registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerUsageRoutes } from "./routes/usage.ts";
+import { fixtureRelease, TEST_MODEL, releaseSpecColumns, TEST_CONNECTION_ID } from "@werft-ai/db/testing/spec-pins";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -138,8 +139,8 @@ integration("usage summary on PostgreSQL", () => {
       agentId,
       versionId,
       cardSha256: "a".repeat(64),
-      runtimeProfileId: "claude-coding-v1",
-      profileDigest: "digest",
+      connectionId: TEST_CONNECTION_ID,
+      ...releaseSpecColumns(),
       runtimeConfigSnapshot: {},
       effectiveTools: [],
     });
@@ -208,17 +209,23 @@ integration("usage summary on PostgreSQL", () => {
         principal: caller,
         idempotencyKey: crypto.randomUUID(),
         payloadHash: crypto.randomUUID(),
-        profileId: "claude-coding-v1",
+        model: TEST_MODEL,
         repository: "none",
         message: "count me",
-        ...(release ? { agentReleaseId: release } : {}),
+        agentReleaseId: release ?? (await fixtureRelease(db)),
       },
     );
     if (created.outcome !== "accepted") throw new Error(created.outcome);
     const id = created.response.session_id;
     await db
       .update(sessions)
-      .set({ createdAt: new Date(createdAt), costUsd, providerTokens: tokens })
+      .set({
+        createdAt: new Date(createdAt),
+        costUsd,
+        providerTokens: tokens,
+        // A session of no agent: the release only let it be made.
+        ...(release ? {} : { agentReleaseId: null }),
+      })
       .where(eq(sessions.id, id));
     await setTurn(id, {
       status: "completed",
@@ -375,8 +382,8 @@ integration("usage summary on PostgreSQL", () => {
         agentId: agent,
         versionId,
         cardSha256: "b".repeat(64),
-        runtimeProfileId: "claude-coding-v1",
-        profileDigest: "digest",
+        connectionId: TEST_CONNECTION_ID,
+        ...releaseSpecColumns(),
         runtimeConfigSnapshot: {},
         effectiveTools: [],
       });
@@ -1086,29 +1093,20 @@ integration("usage summary on PostgreSQL", () => {
     await halfSecond(a2, "2006-01-03T00:00:00Z");
     const b1 = await session(bob, "2006-01-04T00:00:00Z", 0.3, 3);
     await setTurn(b1, { status: "failed", resultJson: null });
-    const k1 = await session(
+    await session(
       key(agentKey, null),
       "2006-01-05T00:00:00Z",
       0.4,
       4,
       agentReleaseId,
     );
-    // A profile the session moved to, and a session with none.
-    await db
-      .update(sessions)
-      .set({ profileId: "claude-review-v1" })
-      .where(eq(sessions.id, b1));
-    await db
-      .update(sessions)
-      .set({ profileId: null })
-      .where(eq(sessions.id, k1));
 
     const whole = await summary(user("owner", "owner"), {
       scope: "installation",
       ...period,
     });
     expect(whole).toMatchObject({ session_count: 4, cost_complete: false });
-    for (const group_by of ["agent", "user", "profile"] as const) {
+    for (const group_by of ["agent", "user"] as const) {
       const grouped = await summary(user("owner", "owner"), {
         scope: "installation",
         ...period,
@@ -1168,31 +1166,6 @@ integration("usage summary on PostgreSQL", () => {
       [ids.alice, "alice", 2, "0.350000"],
       [ids.bob, "bob", 1, "0.300000"],
     ]);
-    const byProfile = await summary(user("owner", "owner"), {
-      scope: "installation",
-      ...period,
-      group_by: "profile",
-    });
-    expect(
-      byProfile.groups?.map((g) => [
-        g.id,
-        g.name,
-        g.session_count,
-        g.cost_usd,
-        g.cost_complete,
-      ]),
-    ).toEqual([
-      [null, null, 1, "0.400000", true],
-      ["claude-coding-v1", "claude-coding-v1", 2, "0.350000", true],
-      ["claude-review-v1", "claude-review-v1", 1, "0.300000", false],
-    ]);
-    // Under scope=me the profiles of the caller's sessions are named.
-    expect(
-      (
-        await summary(bob, { scope: "me", ...period, group_by: "profile" })
-      ).groups?.map((g) => [g.id, g.name, g.session_count]),
-    ).toEqual([["claude-review-v1", "claude-review-v1", 1]]);
-
     // scope=me groups only the caller's own sessions.
     const mine = await summary(alice, {
       scope: "me",

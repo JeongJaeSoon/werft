@@ -37,7 +37,6 @@ import {
   createAuthorizationPolicy,
   createSessionService,
   type SessionCatalog,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { and, eq, sql } from "drizzle-orm";
@@ -60,21 +59,15 @@ import { registerApiKeyRoutes } from "./routes/api-keys.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
+import { TEST_CONNECTION_ID, TEST_RUNTIMES, testCatalog } from "../test-support/catalog.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 
 const BOOTSTRAP_TOKEN = "integration-bootstrap-token-0123456789";
 const PASSWORD = "an adequately long password";
 
-const catalog: SessionCatalog = withSeededInstallation({
-  profiles: {
-    "claude-coding-v1": {
-      runtime_kind: "claude_agent_sdk",
-      runtime_version: "0.3.270",
-      model: "claude-sonnet-5",
-      tools: ["Read", "Edit", "Bash"],
-      permission_mode: "default",
-      provider: {
+const catalog: SessionCatalog = testCatalog({
+provider: {
         kind: "litellm",
         endpoint: "https://litellm.invalid",
         auth: {
@@ -83,13 +76,10 @@ const catalog: SessionCatalog = withSeededInstallation({
           ref: { value_env: "PROVIDER_KEY" },
         },
       },
-    },
-  },
-  repositories: {
+repositories: {
     "sample-app": {
       url: "https://example.invalid/app.git",
       branch: "main",
-      profiles: ["claude-coding-v1"],
       auth: { kind: "github_app", registered: true } as const,
     },
   },
@@ -137,7 +127,8 @@ integration("API keys by authority over HTTP on PostgreSQL", () => {
       catalog,
       credentials,
       keys: createPostgresWorkspaceKeyStore(db),
-    });
+      runtimes: TEST_RUNTIMES,
+});
     const service = createSessionService({
       limits: {
         queuedInputLimitPerSession: 1_000,
@@ -282,7 +273,7 @@ integration("API keys by authority over HTTP on PostgreSQL", () => {
       asCookie(cookie),
       {
         version_id: versionId,
-        runtime_profile_id: "claude-coding-v1",
+        connection_id: TEST_CONNECTION_ID,
         repository_id: "sample-app",
       },
     );
@@ -311,7 +302,6 @@ integration("API keys by authority over HTTP on PostgreSQL", () => {
       "/v1/sessions",
       { ...headers, "Idempotency-Key": crypto.randomUUID() },
       {
-        profile_id: "claude-coding-v1",
         repository_id: "sample-app",
         message: "Review the change.",
         ...(agentReleaseId ? { agent_release_id: agentReleaseId } : {}),

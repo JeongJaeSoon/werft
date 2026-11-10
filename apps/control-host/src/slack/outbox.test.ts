@@ -496,6 +496,7 @@ type PlanNode = {
   "Relation Name"?: string;
   Alias?: string;
   "Index Cond"?: string;
+  "Recheck Cond"?: string;
   Plans?: PlanNode[];
 };
 
@@ -509,7 +510,8 @@ const reads = (node: PlanNode, relation: string): boolean =>
 // index: probed once per live link, never per session or whole.
 function turnsReadPerLink(plan: PlanNode, linkedOuter = false): boolean {
   if (plan["Relation Name"] === "turns" && plan.Alias === "turns") {
-    const cond = plan["Index Cond"] ?? "";
+    // A bitmap scan by the same ids keeps its condition as the recheck.
+    const cond = plan["Index Cond"] ?? plan["Recheck Cond"] ?? "";
     return (
       /\bid = ANY \(/.test(cond) ||
       (linkedOuter && /\bsession_id = /.test(cond))
