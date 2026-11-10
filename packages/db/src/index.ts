@@ -7,6 +7,7 @@ export * from "./agent-engine-settings.ts";
 export * from "./agent-github.ts";
 export * from "./agent-identities.ts";
 export * from "./agent-mcp.ts";
+export * from "./agent-usage.ts";
 export * from "./agents.ts";
 export * from "./api-keys.ts";
 export * from "./authz-decisions.ts";

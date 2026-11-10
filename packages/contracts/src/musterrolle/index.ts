@@ -1,4 +1,5 @@
 export * from "./agent-identities.ts";
+export * from "./agent-usage.ts";
 export * from "./api-keys.ts";
 export * from "./auth.ts";
 export * from "./authorization.ts";
