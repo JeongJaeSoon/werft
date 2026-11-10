@@ -16,8 +16,9 @@
 #                  blocked now answers. The blocks were the policy's doing.
 #   3. restored    helm upgrade with it back on: step 1's answers again.
 #
-# Nothing answers on 169.254.169.254 on kind, with or without a policy, so it
-# is blocked in every step; on a cloud node the policy is what stops it.
+# 169.254.169.254 answers on a CI runner and not on a laptop, with or without
+# a policy. The unlabelled Pod tells which: with the policy the worker Pod is
+# blocked either way, and without it answers like the unlabelled one.
 #
 #   deploy/kind/netpol.sh        run all of it; delete the cluster and registry
 #                                at the end if this run created them
@@ -70,6 +71,9 @@ finish() {
     echo "== k8s-netpol: state after the failure" >&2
     k get deploy,pods,networkpolicy -o wide >&2 || true
     k get pods --show-labels >&2 || true
+  fi
+  if [ -f "$KUBECONFIG" ]; then
+    k delete pod netpol-worker netpol-control --ignore-not-found --wait=false >/dev/null 2>&1 || true
   fi
   if [ -n "$created" ] && [ "${KEEP_CLUSTER:-}" != 1 ]; then
     "$here/up.sh" down || true
@@ -130,7 +134,6 @@ EOF
 probe_pod netpol-worker "app.kubernetes.io/part-of: werft, app.kubernetes.io/component: worker, werft.installation: \"${installation}\""
 probe_pod netpol-control "app: netpol-probe"
 k get pod netpol-worker netpol-control --show-labels
-trap 'k delete pod netpol-worker netpol-control --wait=false >/dev/null 2>&1 || true; finish' EXIT
 
 bad=0
 # expect <pod> <what> <open|blocked> <command...>: polls until the answer is the
@@ -177,8 +180,15 @@ matrix() {
   expect netpol-control "kube-apiserver ${apiserver}:443" "$c_rest" $(tcp "$apiserver" 443)
   expect netpol-control "outside ${OUTSIDE_ADDRESS}" "$c_rest" $(tcp "$outside_host" "$outside_port")
 }
+# Whether the metadata address answers depends on where the cluster runs: not
+# on a laptop, yes on a CI runner. The unlabelled Pod says which, and the
+# worker Pod must then be blocked with the policy and answer like it without.
 metadata() {
-  expect netpol-worker "metadata 169.254.169.254:80" blocked $(tcp 169.254.169.254 80)
+  local control=blocked want="$1"
+  k exec netpol-control -- timeout 8 $(tcp 169.254.169.254 80) >/dev/null 2>&1 && control=open
+  printf '%-14s %-38s %-8s (not asserted)\n' netpol-control "metadata 169.254.169.254:80" "$control"
+  [ "$want" = blocked ] || want="$control"
+  expect netpol-worker "metadata 169.254.169.254:80" "$want" $(tcp 169.254.169.254 80)
 }
 policy_count() { k get networkpolicy -o name | wc -l | tr -d ' '; }
 
@@ -187,7 +197,7 @@ step enforced
 k get networkpolicy
 # Only the proxy admits workers, and only the proxy reaches the authorizer.
 matrix open blocked blocked open blocked
-metadata
+metadata blocked
 [ "$bad" = 0 ] || fail "a connection above is not what the NetworkPolicy should allow"
 pass
 
@@ -198,7 +208,7 @@ helm upgrade "$RELEASE" "$here/../helm/werft" --namespace "$NAMESPACE" \
 # The worker's and the unlabelled Pod's answers are now the same: the cluster
 # is open. The authorizer and the proxy answer both.
 matrix open open open open open
-metadata
+metadata open
 [ "$bad" = 0 ] || fail "without the NetworkPolicy a connection is still blocked: the block was not the policy's"
 pass
 
@@ -207,7 +217,7 @@ helm upgrade "$RELEASE" "$here/../helm/werft" --namespace "$NAMESPACE" \
   --reuse-values --set networkPolicy.enabled=true --timeout 10m
 [ "$(policy_count)" != 0 ] || fail "the NetworkPolicies did not come back"
 matrix open blocked blocked open blocked
-metadata
+metadata blocked
 [ "$bad" = 0 ] || fail "after restoring the NetworkPolicy a connection is not what it should allow"
 pass
 
