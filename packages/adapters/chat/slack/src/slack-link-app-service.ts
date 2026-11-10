@@ -1,20 +1,18 @@
 import type { SlackApp, SlackWarning } from "@werft-ai/contracts";
-import type {
-  CreatedSlackApp,
-  SlackAppActor,
-  SlackAppRecord,
-  SlackAppStore,
-} from "../ports/slack-app-store.ts";
 import {
-  requirePermitted,
-  SessionServiceError,
-} from "../sessions/session-service.ts";
-import {
+  ACTOR_INACTIVE,
   type AuthorizationPolicy,
   type Caller,
+  type CreatedSlackApp,
   MANAGEMENT_ROLES,
-} from "./policy.ts";
-import { ACTOR_INACTIVE, NOT_FOUND, OUTRANKED } from "./service-errors.ts";
+  NOT_FOUND,
+  OUTRANKED,
+  requirePermitted,
+  SessionServiceError,
+  type SlackAppActor,
+  type SlackAppRecord,
+  type SlackAppStore,
+} from "@werft-ai/platform";
 import {
   SLACK_APP_CREATE_STALE_MS,
   slackAppView,

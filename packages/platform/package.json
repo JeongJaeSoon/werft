@@ -10,7 +10,7 @@
     "./testing": "./src/testing/execution-backend-contract.ts",
     "./testing/checkpoints": "./src/testing/checkpoints.ts",
     "./testing/github": "./src/testing/github-fakes.ts",
-    "./testing/slack": "./src/testing/slack-fakes.ts"
+    "./testing/refusal": "./src/testing/refusal.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"

@@ -6,7 +6,7 @@ import {
   searchSlackChannelsResponseSchema,
 } from "@werft-ai/contracts";
 import type { StructuredLogger } from "@werft-ai/observability";
-import type { SlackChannelSearchService } from "@werft-ai/platform";
+import type { SlackChannelSearchService } from "../../wiring/chat-slack.ts";
 import { type ApiRouter, apiRoute, jsonWithSchema } from "../app.ts";
 import { mapped, requireParams, requireQuery } from "./errors.ts";
 

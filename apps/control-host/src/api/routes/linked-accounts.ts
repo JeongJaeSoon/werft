@@ -14,9 +14,11 @@ import type { StructuredLogger } from "@werft-ai/observability";
 import type {
   GitHubOAuthStore,
   LinkedAccountService,
+} from "@werft-ai/platform";
+import type {
   SlackLinkAppService,
   SlackLinkClient,
-} from "@werft-ai/platform";
+} from "../../wiring/chat-slack.ts";
 import {
   ApiHttpError,
   type ApiRouter,

@@ -7,27 +7,22 @@ import {
   type SlackFinalizeWarning,
   type StartSlackInstallResponse,
 } from "@werft-ai/contracts";
-import type { AgentIdentityStore } from "../ports/agent-identity-store.ts";
-import { type SecretStore, secretOwnerRef } from "../ports/secret-store.ts";
-import type {
-  SlackAppRecord,
-  SlackAppStore,
-} from "../ports/slack-app-store.ts";
-import type {
-  SlackInstallState,
-  SlackInstallStore,
-} from "../ports/slack-install-store.ts";
 import {
-  requirePermitted,
-  SessionServiceError,
-} from "../sessions/session-service.ts";
-import { agentIdentityView } from "./agent-identity-service.ts";
-import {
+  type AgentIdentityStore,
   type AuthorizationPolicy,
+  agentIdentityView,
   type Caller,
   MANAGEMENT_ROLES,
-} from "./policy.ts";
-import { NOT_FOUND } from "./service-errors.ts";
+  NOT_FOUND,
+  requirePermitted,
+  type SecretStore,
+  SessionServiceError,
+  type SlackAppRecord,
+  type SlackAppStore,
+  type SlackInstallState,
+  type SlackInstallStore,
+  secretOwnerRef,
+} from "@werft-ai/platform";
 import { slackAppView } from "./slack-app-service.ts";
 import {
   SlackApiError,

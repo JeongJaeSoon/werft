@@ -5,7 +5,7 @@ import {
 import type {
   SlackInboundClaim,
   SlackInboundEventStore,
-} from "../ports/slack-inbound-event-store.ts";
+} from "@werft-ai/platform";
 
 /**
  * The thread an event belongs to, `<slack_app_id>:<channel>:<thread_ts ??

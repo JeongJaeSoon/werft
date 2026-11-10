@@ -1,5 +1,9 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { authorizeSlackInput } from "@werft-ai/chat-slack";
+import {
+  authorizeSlackInput,
+  createSlackBotApi,
+  createSlackChannelSearchService,
+} from "@werft-ai/chat-slack";
 import {
   apiErrorResponseSchema,
   bootstrapResponseSchema,
@@ -37,8 +41,6 @@ import {
   agentForSlackEvent,
   createAgentIdentityService,
   createAuthorizationPolicy,
-  createSlackBotApi,
-  createSlackChannelSearchService,
   createSurfaceBindingService,
 } from "@werft-ai/platform";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";

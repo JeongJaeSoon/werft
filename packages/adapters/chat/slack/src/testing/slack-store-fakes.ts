@@ -11,45 +11,35 @@ import {
   type SlackInboundDropReason,
   type SlackInboundEventStatus,
 } from "@werft-ai/contracts";
-import type {
-  SlackConfigApi,
-  SlackInstallApi,
-  SlackInstallGrant,
-} from "../musterrolle/slack-config-api.ts";
-import { SlackApiError } from "../musterrolle/slack-config-api.ts";
-import type {
-  AgentIdentityRecord,
-  AgentIdentityStore,
-} from "../ports/agent-identity-store.ts";
 import {
+  type AgentIdentityRecord,
+  type AgentIdentityStore,
+  type ConfigTokenSummary,
+  type CreatedSlackApp,
+  lastFour,
+  type RotatedConfigToken,
   type SecretAudit,
   type SecretSlot,
   type SecretStore,
   type SecretSummary,
+  type SlackAppAgent,
+  type SlackAppRecord,
+  type SlackAppStore,
+  type SlackConfigTokenStore,
+  type SlackInboundClaim,
+  type SlackInboundEventInput,
+  type SlackInboundEventStore,
+  type SlackInboundFence,
+  type SlackInstallState,
+  type SlackInstallStore,
   secretOwnerRef,
-} from "../ports/secret-store.ts";
-import type {
-  CreatedSlackApp,
-  SlackAppAgent,
-  SlackAppRecord,
-  SlackAppStore,
-} from "../ports/slack-app-store.ts";
-import type {
-  ConfigTokenSummary,
-  RotatedConfigToken,
-  SlackConfigTokenStore,
-} from "../ports/slack-config-token-store.ts";
-import type {
-  SlackInboundClaim,
-  SlackInboundEventInput,
-  SlackInboundEventStore,
-  SlackInboundFence,
-} from "../ports/slack-inbound-event-store.ts";
-import type {
-  SlackInstallState,
-  SlackInstallStore,
-} from "../ports/slack-install-store.ts";
-import { lastFour } from "../secrets/secret-cipher.ts";
+} from "@werft-ai/platform";
+import {
+  SlackApiError,
+  type SlackConfigApi,
+  type SlackInstallApi,
+  type SlackInstallGrant,
+} from "../slack-config-api.ts";
 
 /** Token-shaped values are made per run, never written into a file. */
 export function fakeSlackValue(prefix: string): string {
