@@ -9,7 +9,7 @@ import {
 import { cn } from "../foundations/cn.ts";
 import { Link } from "../primitives/link.tsx";
 import { ItemCount } from "../primitives/segmented-control.tsx";
-import { tabTriggerClassName } from "../primitives/tabs.tsx";
+import { underlineTabClassName } from "../primitives/tabs.tsx";
 
 /*
  * Route tabs: each tab is an address, so they are links in a `nav`, the one
@@ -117,8 +117,9 @@ export function LinkTab({
         aria-current={current ? "page" : undefined}
         asChild={child !== null}
         className={cn(
-          tabTriggerClassName,
-          "no-underline! aria-[current=page]:text-foreground aria-[current=page]:after:opacity-100",
+          "relative flex items-center gap-2 whitespace-nowrap font-medium text-control text-muted-foreground no-underline!",
+          "hover:text-foreground aria-[current=page]:text-foreground aria-[current=page]:after:opacity-100",
+          underlineTabClassName,
           className,
         )}
         {...props}

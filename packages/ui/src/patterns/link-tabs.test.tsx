@@ -243,6 +243,17 @@ describe("LinkTabs", () => {
     // Link's own colour would change the tab's look, and v4 keeps one weight
     // for the current tab and the rest.
     expect(classes).not.toContain("text-link");
+    // Only the underline's size and bar are shared with Tabs; its
+    // transitions, radius and svg rules would change how a route tab looks.
+    for (const name of [
+      "transition-all",
+      "after:transition-opacity",
+      "rounded-control",
+      "border",
+      "flex-1",
+    ]) {
+      expect(classes).not.toContain(name);
+    }
     expect(classes.some((name) => name.includes("font-semibold"))).toBe(false);
     // Room for the outline inside the scroll clip, but no negative right
     // margin: that would widen the page past a parent with no padding.
