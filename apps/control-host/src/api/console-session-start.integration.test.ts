@@ -273,6 +273,14 @@ integration("starting an agent's session from the console", () => {
     expect(released.status).toBe(200);
     releaseId = createAgentReleaseResponseSchema.parse(await released.json())
       .release.id;
+    // A session starts only on a release an activation approved.
+    const activated = await send(
+      "POST",
+      `/v1/agents/${detail.agent.id}/activate`,
+      asCookie(cookies.owner),
+      { release_id: releaseId, expected_revision: -1 },
+    );
+    expect(activated.status).toBe(200);
   }, 60_000);
 
   afterAll(async () => {

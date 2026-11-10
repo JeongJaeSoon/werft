@@ -220,24 +220,23 @@ async function insertQueuedTurn(
 }
 
 /**
- * Whether the release's agent runs and the release was approved, read under
- * a share lock on the agent row so a pause that commits later waits for this
- * acceptance, and one that committed earlier is seen.
+ * Whether the release's agent is paused or archived, read under a share lock
+ * on the agent row so a pause that commits later waits for this acceptance,
+ * and one that committed earlier is seen. Approval is not read again: it is
+ * recorded once and never withdrawn, so what the service saw cannot go stale.
  */
-async function lockedNotRunnable(
+async function lockedAgentInactive(
   tx: Database,
   releaseId: string,
-): Promise<"agent_inactive" | "release_unapproved" | null> {
+): Promise<"agent_inactive" | null> {
   const [row] = await tx
-    .select({ status: agents.status, approvedAt: agentReleases.approvedAt })
+    .select({ status: agents.status })
     .from(agentReleases)
     .innerJoin(agents, eq(agents.id, agentReleases.agentId))
     .where(eq(agentReleases.id, releaseId))
     .limit(1)
     .for("share", { of: agents });
-  if (!row) return null;
-  if (row.status !== "active") return "agent_inactive";
-  return row.approvedAt === null ? "release_unapproved" : null;
+  return row !== undefined && row.status !== "active" ? "agent_inactive" : null;
 }
 
 export function createPostgresSessionUnitOfWork(
@@ -285,7 +284,7 @@ export function createPostgresSessionUnitOfWork(
         if (input.credentialsUnbound && input.agentReleaseId !== undefined) {
           // No requester lock follows here, so the agent row can be locked
           // first without crossing the order a key revoke takes (key, agent).
-          const reason = await lockedNotRunnable(tx, input.agentReleaseId);
+          const reason = await lockedAgentInactive(tx, input.agentReleaseId);
           if (reason !== null) return { outcome: "not_runnable", reason };
           return unbound(input.agentReleaseId);
         }
@@ -321,7 +320,7 @@ export function createPostgresSessionUnitOfWork(
         // After the requester's rows, so the agent row is never taken before
         // a key row (a key revoke locks the key, then the agent).
         if (input.agentReleaseId !== undefined) {
-          const reason = await lockedNotRunnable(tx, input.agentReleaseId);
+          const reason = await lockedAgentInactive(tx, input.agentReleaseId);
           if (reason !== null) return { outcome: "not_runnable", reason };
         }
         // The settings are locked and read before the names are judged, so
