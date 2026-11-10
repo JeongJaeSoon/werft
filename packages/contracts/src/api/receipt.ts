@@ -201,6 +201,10 @@ export const RECEIPT_OPERATION_VALUES = [
   // What a claim evaluated of the saved engine rules: revisions, result and
   // rule counts. Never a rule's text.
   "resolve_session_engine_settings",
+  // A save of the saved engine rules: revisions before and after and rule
+  // counts. Never a rule's text.
+  "set_workspace_engine_settings",
+  "set_agent_engine_settings",
   // Skill-only extension bundles (94S-865). Names, digests and review states
   // only; a bundle's files are never written to a receipt.
   "register_extension",
