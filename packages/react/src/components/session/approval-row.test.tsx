@@ -144,7 +144,7 @@ describe("ApprovalRow", () => {
       />,
     );
     // The folded input is the first stop, then the actions. happy-dom does
-    // not open <details> from the keyboard; the stories check that.
+    // not open <details> from the keyboard, so opening it is not checked here.
     await user.tab();
     expect(document.activeElement?.tagName).toBe("SUMMARY");
     await user.tab();
