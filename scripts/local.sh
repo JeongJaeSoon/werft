@@ -12,6 +12,10 @@
 #   scripts/local.sh status              containers and /readyz
 #   scripts/local.sh key <owner> --scopes <scope>[,<scope>...]
 #                                        print a new API key once (same CLI as `bun run keys create`)
+#   scripts/local.sh demo-key --scopes <scope>[,<scope>...]
+#                                        print a new personal API key of the demo owner in workspace `demo`
+#   scripts/local.sh demo-release <agent slug>
+#                                        print the active release id of a demo agent (e.g. release-notes)
 #   scripts/local.sh forget-lost-checkpoints
 #                                        after a Docker restart: give up the lost checkpoints, keep the rest
 #   scripts/local.sh demo-accounts       add whichever demo account, agent or session is missing to a running stack
@@ -358,6 +362,35 @@ key() {
   compose exec -T api bun run apps/control-host/src/api/keys.ts create "$@"
 }
 
+# A read of the demo data `up --fake-model` added: one row, or nothing.
+demo_read() {
+  compose exec -T postgres psql -U postgres -d sessions -At -F ' ' -v ON_ERROR_STOP=1 -c "$1"
+}
+
+# Sessions run an agent release in a workspace, so the guides' key is the
+# demo owner's own key in workspace `demo`, not an operator key.
+demo_key() {
+  local ids workspace user
+  ids=$(demo_read "SELECT w.id, u.id FROM workspaces w
+    JOIN memberships m ON m.workspace_id = w.id AND m.role = 'owner'
+    JOIN users u ON u.id = m.user_id
+    WHERE w.slug = 'demo' AND u.email = 'demo-owner@example.test'")
+  read -r workspace user <<<"$ids"
+  [ -n "${user:-}" ] || die "no demo owner in workspace demo; start the stack with scripts/local.sh up --fake-model"
+  key --workspace "$workspace" --personal "$user" "$@"
+}
+
+demo_release() {
+  [ "$#" -eq 1 ] || die "usage: scripts/local.sh demo-release <agent slug>"
+  [[ "$1" =~ ^[a-z0-9-]+$ ]] || die "an agent slug is lowercase letters, digits and hyphens"
+  local release
+  release=$(demo_read "SELECT a.active_release_id FROM agents a
+    JOIN workspaces w ON w.id = a.workspace_id
+    WHERE w.slug = 'demo' AND a.slug = '$1' AND a.active_release_id IS NOT NULL")
+  [ -n "$release" ] || die "demo agent $1 has no active release; start the stack with scripts/local.sh up --fake-model"
+  printf '%s\n' "$release"
+}
+
 # The API refuses to start in exactly the state this fixes, so a one-off
 # api container runs it; `run` starts postgres, migrate and LocalStack first.
 # Built first: an image from before this command has no CLI to run.
@@ -383,6 +416,8 @@ case "${1:-}" in
   reset) shift; mode "$@"; preflight; secret_key; down; up ;;
   status) status ;;
   key) shift; key "$@" ;;
+  demo-key) shift; demo_key "$@" ;;
+  demo-release) shift; demo_release "$@" ;;
   forget-lost-checkpoints) forget_lost_checkpoints ;;
   demo-accounts) demo_accounts ;;
   *) usage ;;

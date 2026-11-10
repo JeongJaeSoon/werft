@@ -18,12 +18,13 @@ OpenAPI: [`getApiRoot`](/reference/http-api/auth/getApiRoot)
 
 **Goal.** Get a Bearer API key and confirm in one call the minimum scopes the later use cases need. Reading, session input, approval, control and recovery are split into `sessions:read`, `sessions:write`, `sessions:approve`, `sessions:control` and `sessions:recover`.
 
-**Steps.** Start the local stack with the fake model that needs no key (`--fake-model`, [Run a development server](/run-server/dev-server)), issue a key, and check with `GET /v1` that the key is valid. In production, put the key your platform administrator issued into `KEY` and skip the two `scripts/local.sh` lines.
+**Steps.** Start the local stack with the fake model that needs no key (`--fake-model`, [Run a development server](/run-server/dev-server)), issue a key, and check with `GET /v1` that the key is valid. `demo-key` issues the demo owner's personal key and `demo-release` prints the active release id of the demo agent `release-notes`. In production, skip the `scripts/local.sh` lines, put your key into `KEY` and the active release id of the agent you use (the agent's Release tab) into `WERFT_AGENT_RELEASE_ID`.
 
 ```bash
 scripts/local.sh up --fake-model
-KEY=$(scripts/local.sh key api-guide \
+KEY=$(scripts/local.sh demo-key \
   --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover)
+export WERFT_AGENT_RELEASE_ID=$(scripts/local.sh demo-release release-notes)
 API=http://127.0.0.1:3000
 AUTH=(-H "Authorization: Bearer $KEY" -H 'Content-Type: application/json')
 

@@ -55,8 +55,9 @@ cd werft
 
 ```bash
 scripts/local.sh up --fake-model
-KEY=$(scripts/local.sh key quickstart \
+KEY=$(scripts/local.sh demo-key \
   --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover)
+export WERFT_AGENT_RELEASE_ID=$(scripts/local.sh demo-release release-notes)
 echo "${KEY:0:12}…"
 scripts/local.sh status
 ```
@@ -68,7 +69,7 @@ scripts/local.sh status
 - `reconciler`(pass가 끝날 때마다 10초 쉬고 다음 pass를 돈다. lease가 만료된 세션과 orphan 세션을 다시 queue에 넣거나 복구 대상으로 표시하고, 기한을 넘긴 interrupt·terminate receipt를 `unknown`으로 마감한다. 사용량 API가 읽는 도구 호출 표도 이 pass가 채운다)
 - `worker`는 상주하지 않는다. 이미지 빌드와 `claude --version` 확인만 하고 끝난다. 실제 워커는 scheduler가 세션마다 띄운다
 
-`key`는 API 컨테이너 안에서 key CLI(`apps/control-host/src/api/keys.ts`)를 돌린다. key는 stdout에 **한 번만** 출력되고, 폐기할 때 쓰는 key id는 stderr의 `key_id …` 줄에 나온다. 위 `echo`는 발급됐는지만 앞 12자로 확인한다. `quickstart`는 key의 owner id다. 웹 콘솔 사용자와 세션을 공유하려면 그 사용자의 workspace id를 쓴다. `--scopes`는 필수이며 위 목록이 전부다. 복구 결정(`sessions:recover`)을 빼면 ⑨의 recovery 호출이 403이다.
+`key`는 API 컨테이너 안에서 key CLI(`apps/control-host/src/api/keys.ts`)를 돌린다. key는 stdout에 **한 번만** 출력되고, 폐기할 때 쓰는 key id는 stderr의 `key_id …` 줄에 나온다. 위 `echo`는 발급됐는지만 앞 12자로 확인한다. `demo-key`는 데모 owner(`demo-owner@example.test`)의 개인 key를 workspace `demo`에 발급한다(`key --workspace <workspace id> --personal <user id>`와 같다). 세션은 언제나 에이전트 release로 만들므로, `demo-release release-notes`가 데모 에이전트 `release-notes`의 활성 release id를 읽어 `WERFT_AGENT_RELEASE_ID`에 넣는다. 둘 다 `up --fake-model`이 만든 데모 데이터를 읽기만 한다. `--scopes`는 필수이며 위 목록이 전부다. 복구 결정(`sessions:recover`)을 빼면 ⑨의 recovery 호출이 403이다.
 
 `status`는 컨테이너 목록과 `/readyz` 응답을 보여 준다. api·scheduler·reconciler가 running이면 다음 장으로 넘어간다.
 
@@ -101,7 +102,7 @@ fake-git(`http://127.0.0.1:3001`)은 로컬 GitHub App 모의 서버다. 샘플 
 
 ## 2. curl 준비
 
-아래 블록을 **같은 터미널**에 한 번 붙여 넣는다. 3장의 명령이 모두 이 함수와 `KEY`를 쓴다. 세션은 언제나 에이전트 release로 만들므로, 웹 콘솔에서 데모 에이전트 `release-notes`의 활성 release id를 복사해 `export WERFT_AGENT_RELEASE_ID=…`로 먼저 넣는다. 셸을 새로 열었으면 1장의 `KEY=…` 줄부터 다시 한다.
+아래 블록을 **같은 터미널**에 한 번 붙여 넣는다. 3장의 명령이 모두 이 함수와 `KEY`를 쓴다. 셸을 새로 열었으면 1장의 `KEY=…`·`export WERFT_AGENT_RELEASE_ID=…` 줄부터 다시 한다.
 
 ```bash
 API=http://127.0.0.1:3000

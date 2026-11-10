@@ -20,12 +20,13 @@ OpenAPI: [`getApiRoot`](/reference/http-api/auth/getApiRoot)
 
 **목적.** Bearer API key를 발급하고, 이후 유즈케이스에 필요한 최소 scope를 한 번에 확인한다. 읽기·세션 입력·승인·제어·복구는 각각 `sessions:read`, `sessions:write`, `sessions:approve`, `sessions:control`, `sessions:recover`로 나뉜다.
 
-**순서.** 로컬 스택을 key 없이 도는 fake 모델(`--fake-model`, [개발용 서버 실행](/run-server/dev-server))로 띄우고 key를 발급한 뒤, `GET /v1`으로 key가 유효한지 확인한다. 운영에서는 플랫폼 관리자가 발급한 key를 `KEY`에 넣고 `scripts/local.sh` 두 줄은 생략한다.
+**순서.** 로컬 스택을 key 없이 도는 fake 모델(`--fake-model`, [개발용 서버 실행](/run-server/dev-server))로 띄우고 key를 발급한 뒤, `GET /v1`으로 key가 유효한지 확인한다. `demo-key`는 데모 owner의 개인 key를, `demo-release`는 데모 에이전트 `release-notes`의 활성 release id를 준다. 운영에서는 `scripts/local.sh` 줄을 생략하고, 내 key를 `KEY`에, 쓸 에이전트의 활성 release id(에이전트 상세의 릴리스 탭)를 `WERFT_AGENT_RELEASE_ID`에 넣는다.
 
 ```bash
 scripts/local.sh up --fake-model
-KEY=$(scripts/local.sh key api-guide \
+KEY=$(scripts/local.sh demo-key \
   --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover)
+export WERFT_AGENT_RELEASE_ID=$(scripts/local.sh demo-release release-notes)
 API=http://127.0.0.1:3000
 AUTH=(-H "Authorization: Bearer $KEY" -H 'Content-Type: application/json')
 

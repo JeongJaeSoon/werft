@@ -18,12 +18,13 @@ OpenAPI: [`getApiRoot`](/reference/http-api/auth/getApiRoot)
 
 **目標.** Bearer API key を用意し、後のユースケースに必要な最小限の scope を 1 回の呼び出しで確認します。読み取り、セッション入力、承認、制御、復旧は `sessions:read`、`sessions:write`、`sessions:approve`、`sessions:control`、`sessions:recover` に分かれています。
 
-**手順.** key の要らない fake モデル(`--fake-model`、[開発用サーバーの実行](/run-server/dev-server))でローカルスタックを起動し、key を発行して、`GET /v1` で key が有効なことを確認します。本番ではプラットフォーム管理者が発行した key を `KEY` に入れ、`scripts/local.sh` の 2 行は省きます。
+**手順.** key の要らない fake モデル(`--fake-model`、[開発用サーバーの実行](/run-server/dev-server))でローカルスタックを起動し、key を発行して、`GET /v1` で key が有効なことを確認します。`demo-key` はデモ owner の個人 key を、`demo-release` はデモエージェント `release-notes` の有効な release id を返します。本番では `scripts/local.sh` の行を省き、自分の key を `KEY` に、使うエージェントの有効な release id(エージェント詳細のリリースタブ)を `WERFT_AGENT_RELEASE_ID` に入れます。
 
 ```bash
 scripts/local.sh up --fake-model
-KEY=$(scripts/local.sh key api-guide \
+KEY=$(scripts/local.sh demo-key \
   --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover)
+export WERFT_AGENT_RELEASE_ID=$(scripts/local.sh demo-release release-notes)
 API=http://127.0.0.1:3000
 AUTH=(-H "Authorization: Bearer $KEY" -H 'Content-Type: application/json')
 
