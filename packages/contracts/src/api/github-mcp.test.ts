@@ -11,11 +11,14 @@ import {
   type ActionClass,
   actionPolicyOf,
   GITHUB_MCP_FIXED_TOOLS,
+  GITHUB_MCP_REFUSAL_OVERRIDES,
   GITHUB_MCP_TOOL_ARGUMENTS,
   GITHUB_MCP_TOOL_CLASSES,
   GITHUB_MCP_TOOL_DESCRIPTIONS,
+  GITHUB_MCP_TOOL_FEATURES,
   GITHUB_MCP_TOOL_OUTPUTS,
   GITHUB_MCP_TOOL_REFUSALS,
+  GITHUB_MCP_TOOLS,
   type GitHubMcpTool,
   githubMcpRefusalSpec,
   githubMcpToolNames,
@@ -40,6 +43,55 @@ const settings = (features: Partial<AgentGitHub["features"]>): AgentGitHub => ({
   push_approval: true,
   features: { ...off, ...features },
   actions_allow: [],
+});
+
+describe("the tool table", () => {
+  // Pinned by name so that a row dropped from GITHUB_MCP_TOOLS fails here,
+  // not only in the columns derived from it.
+  const TOOL_NAMES = [
+    "request_push",
+    "open_pull_request",
+    "get_push_request",
+    "update_pull_request",
+    "comment_pull_request",
+    "close_pull_request",
+    "reopen_pull_request",
+    "merge_pull_request",
+    "dispatch_workflow",
+    "get_workflow_run",
+    "rerun_workflow",
+    "submit_review",
+    "list_repositories",
+    "attach_repository",
+  ];
+
+  test("holds exactly the shipped tools, and every column covers each row", () => {
+    expect(Object.keys(GITHUB_MCP_TOOLS)).toEqual(TOOL_NAMES);
+    for (const column of [
+      GITHUB_MCP_TOOL_ARGUMENTS,
+      GITHUB_MCP_TOOL_FEATURES,
+      GITHUB_MCP_TOOL_CLASSES,
+      GITHUB_MCP_TOOL_DESCRIPTIONS,
+      GITHUB_MCP_TOOL_OUTPUTS,
+      GITHUB_MCP_TOOL_REFUSALS,
+    ]) {
+      expect(Object.keys(column)).toEqual(TOOL_NAMES);
+    }
+    expect([...GITHUB_MCP_FIXED_TOOLS] as string[]).toEqual(TOOL_NAMES);
+  });
+
+  test("keeps a refusal override only on a row that lists the code", () => {
+    for (const [tool, overrides] of Object.entries(
+      GITHUB_MCP_REFUSAL_OVERRIDES,
+    )) {
+      expect(TOOL_NAMES).toContain(tool);
+      const listed: readonly string[] =
+        GITHUB_MCP_TOOL_REFUSALS[tool as GitHubMcpTool];
+      for (const code of Object.keys(overrides)) {
+        expect(listed).toContain(code);
+      }
+    }
+  });
 });
 
 describe("the action class every tool carries", () => {
