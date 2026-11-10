@@ -230,6 +230,7 @@ async function setup(
   options: {
     consoleOrigin?: string | null;
     eventsPublicUrl?: string;
+    logger?: { warn(message: string, fields?: Record<string, unknown>): void };
     activeReleaseWarning?: (
       workspaceId: string,
       agentId: string,
@@ -281,6 +282,7 @@ async function setup(
     consoleOrigin:
       options.consoleOrigin === undefined ? ORIGIN : options.consoleOrigin,
     eventsPublicUrl: options.eventsPublicUrl ?? null,
+    ...(options.logger ? { logger: options.logger } : {}),
     ...(options.activeReleaseWarning
       ? { activeReleaseWarning: options.activeReleaseWarning }
       : {}),
@@ -450,6 +452,47 @@ describe("Slack app service", () => {
       replace_uncertain: false,
     });
     expect(out.created).toBe(true);
+  });
+
+  test("a refused manifest logs Slack's error detail, not only the code", async () => {
+    const lines: { message: string; fields?: Record<string, unknown> }[] = [];
+    const { service, slack } = await setup({
+      logger: {
+        warn: (message, fields) =>
+          lines.push({ message, ...(fields ? { fields } : {}) }),
+      },
+    });
+    slack.state.next.create = async () => {
+      throw new SlackApiError(
+        "apps.manifest.create",
+        "invalid_manifest",
+        true,
+        {
+          httpStatus: 200,
+          details: [
+            "/features/agent_view/agent_description: The description cannot be empty",
+          ],
+        },
+      );
+    };
+    await refusal(
+      service.createAgentApp(user("owner"), AGENT, {
+        replace_uncertain: false,
+      }),
+    );
+    expect(lines).toEqual([
+      {
+        message: "Slack refused the app manifest",
+        fields: {
+          method: "apps.manifest.create",
+          slack_error: "invalid_manifest",
+          http_status: 200,
+          details: [
+            "/features/agent_view/agent_description: The description cannot be empty",
+          ],
+        },
+      },
+    ]);
   });
 
   test("an agent without an active release is refused before Slack is asked", async () => {

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { BOT_SCOPES, SLACK_AGENT_BOT_EVENTS } from "@werft-ai/contracts";
 import {
+  AGENT_DESCRIPTION_FALLBACK,
   buildAgentAppManifest,
   buildLinkAppManifest,
   LINK_APP_COPY,
@@ -115,6 +116,21 @@ describe("agent app manifest", () => {
     expect([...manifest.display_information.name]).toHaveLength(35);
     expect(manifest.features.bot_user.display_name).toHaveLength(80);
     expect(manifest.features.agent_view.agent_description).toHaveLength(300);
+  });
+
+  test("an empty description never reaches Slack, which rejects it as invalid_manifest", () => {
+    for (const description of ["", "   \n"]) {
+      const manifest = buildAgentAppManifest({
+        name: "Release notes",
+        botName: "release-notes",
+        description,
+        redirectUrl: REDIRECT,
+      });
+      expect(manifest.features.agent_view.agent_description).toBe(
+        AGENT_DESCRIPTION_FALLBACK,
+      );
+    }
+    expect(AGENT_DESCRIPTION_FALLBACK.trim()).not.toBe("");
   });
 
   test("the redirect is the console's callback page for the agent", () => {
