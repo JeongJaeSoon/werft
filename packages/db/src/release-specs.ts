@@ -5,6 +5,7 @@ import type {
 } from "@werft-ai/platform";
 import { sql } from "drizzle-orm";
 import { rowsOf } from "./control-unit-of-work.ts";
+import { assertReleasesWritable } from "./profile-freeze.ts";
 import type { Database } from "./queries.ts";
 
 type PendingRow = {
@@ -53,19 +54,24 @@ export function releaseSpecStore(db: Database): SpecBackfillStore {
       );
     },
 
+    // A transaction of its own, for the freeze barrier: while releases are
+    // frozen this throws, and the backfill pass retries when it is lifted.
     async save(releaseId: string, record: ReleaseSpecRecord) {
-      const updated = rowsOf<{ id: string }>(
-        await db.execute(sql`
-          UPDATE agent_releases
-          SET runtime_spec = ${JSON.stringify(record.runtime_spec)}::jsonb,
-              spec_source = ${JSON.stringify(record.spec_source)}::jsonb,
-              spec_source_digest = ${record.spec_source_digest},
-              spec_digest = ${record.spec_digest}
-          WHERE id = ${releaseId} AND runtime_spec IS NULL
-          RETURNING id
-        `),
-      );
-      return updated.length === 1;
+      return db.transaction(async (tx) => {
+        await assertReleasesWritable(tx);
+        const updated = rowsOf<{ id: string }>(
+          await tx.execute(sql`
+            UPDATE agent_releases
+            SET runtime_spec = ${JSON.stringify(record.runtime_spec)}::jsonb,
+                spec_source = ${JSON.stringify(record.spec_source)}::jsonb,
+                spec_source_digest = ${record.spec_source_digest},
+                spec_digest = ${record.spec_digest}
+            WHERE id = ${releaseId} AND runtime_spec IS NULL
+            RETURNING id
+          `),
+        );
+        return updated.length === 1;
+      });
     },
   };
 }

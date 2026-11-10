@@ -12,13 +12,16 @@ import {
 import { and, asc, desc, eq, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { lockPeople, receiptActorOf } from "./control-shared.ts";
 import { lockSettingsGeneration } from "./installation-settings.ts";
+import { assertProfileTablesWritable } from "./profile-freeze.ts";
 import { writeProfileRollout } from "./profile-rollouts.ts";
 import type { Database } from "./queries.ts";
 import { installationProfiles, receipts } from "./schema.ts";
 
 // Imports and console saves take the same lock, so a version number and an
-// id are decided by one writer at a time.
+// id are decided by one writer at a time. The freeze comes first: a writer
+// that is refused leaves with nothing locked, and the order never changes.
 export const lockWrites = async (tx: Database) => {
+  await assertProfileTablesWritable(tx);
   await tx.execute(
     sql`SELECT pg_advisory_xact_lock(hashtext('profiles:import'))`,
   );
@@ -390,6 +393,7 @@ export function createPostgresInstallationProfileStore(
     async retire(input) {
       const { actor } = input;
       return db.transaction(async (tx) => {
+        await assertProfileTablesWritable(tx);
         await lockSettingsGeneration(tx);
         if (!(await actorOperates(tx, actor))) {
           return { outcome: "actor_inactive" as const };
@@ -424,6 +428,7 @@ export function createPostgresInstallationProfileStore(
     async setBlocked(input) {
       const { actor } = input;
       return db.transaction(async (tx) => {
+        await assertProfileTablesWritable(tx);
         await lockSettingsGeneration(tx);
         if (!(await actorOperates(tx, actor))) {
           return { outcome: "actor_inactive" as const };

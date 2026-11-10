@@ -10,6 +10,7 @@ import type {
 } from "@werft-ai/platform";
 import { and, asc, eq, max, sql } from "drizzle-orm";
 import { findPgError, lockPeople, receiptActorOf } from "./control-shared.ts";
+import { assertProfileTablesWritable } from "./profile-freeze.ts";
 import type { Database } from "./queries.ts";
 import { receipts, workspaceProfiles, workspaces } from "./schema.ts";
 
@@ -107,6 +108,7 @@ export function createPostgresWorkspaceProfileStore(
       const { actor } = input;
       try {
         return await db.transaction(async (tx) => {
+          await assertProfileTablesWritable(tx);
           if (!(await actorManages(tx, actor))) {
             return { outcome: "actor_inactive" as const };
           }
@@ -171,6 +173,7 @@ export function createPostgresWorkspaceProfileStore(
     async retire(input) {
       const { actor } = input;
       return db.transaction(async (tx) => {
+        await assertProfileTablesWritable(tx);
         if (!(await actorManages(tx, actor))) {
           return { outcome: "actor_inactive" as const };
         }

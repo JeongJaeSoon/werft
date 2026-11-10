@@ -55,6 +55,10 @@ import {
 import { DB_NOW } from "./db-clock.ts";
 import { enqueueModelMoveNotices } from "./model-move-notices.ts";
 import {
+  assertProfileTablesWritable,
+  assertReleasesWritable,
+} from "./profile-freeze.ts";
+import {
   isNewestProfile,
   openRolloutStep,
   resolveFailedItems,
@@ -800,6 +804,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
 
     followProfile(input) {
       return db.transaction(async (tx) => {
+        await assertProfileTablesWritable(tx);
         const locked = await lockAgentToChange(tx, input, input.agentId);
         if ("outcome" in locked) return locked;
         // The judgment that the agent already runs the newest version was
@@ -910,6 +915,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
     insertRelease(input) {
       const { release } = input;
       return db.transaction(async (tx) => {
+        await assertReleasesWritable(tx);
         // A release's label counts the agent's earlier releases in the same
         // second, so releases are made one at a time per agent and stamped
         // after the lock: the label they answer with is the one they keep.
@@ -995,6 +1001,16 @@ export function createPostgresAgentStore(db: Database): AgentStore {
 
     activate(input): Promise<ActivateResult> {
       return db.transaction(async (tx) => {
+        // Before any lock of the agent's: the freeze holds still what a
+        // reconcile reads. Only the intents that write rollout items touch a
+        // profile table.
+        await assertReleasesWritable(tx);
+        if (
+          input.intent?.kind === "raise" ||
+          input.intent?.kind === "tool_unlock"
+        ) {
+          await assertProfileTablesWritable(tx);
+        }
         // The lock queues concurrent activations; the UPDATE below is the
         // compare-and-swap each of them is then judged by.
         const locked = await lockAgentToChange(tx, input, input.agentId);
