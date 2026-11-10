@@ -42,6 +42,7 @@ import { ReasonButton } from "../auth/reason-button.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { type MessageKey, useI18n } from "../i18n/i18n.tsx";
+import { WorkspaceEngineSettings } from "./workspace-engine-settings.tsx";
 
 // The server's ceiling; the web takes contracts as types only, so a test
 // keeps this equal to the contract's value.
@@ -81,6 +82,7 @@ export function WorkspaceSettingsScreen() {
       <OutcomeLine outcome={outcome} />
       <Basics />
       <AllowedModels />
+      <WorkspaceEngineSettings />
       {editable ? (
         <>
           <AgentAccess onOutcome={setOutcome} />

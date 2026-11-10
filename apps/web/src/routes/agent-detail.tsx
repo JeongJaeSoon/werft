@@ -64,6 +64,7 @@ import {
   unboundRefs,
 } from "./agent-detail/credentials.tsx";
 import { EffectiveBehavior } from "./agent-detail/effective-behavior.tsx";
+import { EngineSettings } from "./agent-detail/engine-settings.tsx";
 import { mcpSettingsQuery } from "./agent-detail/mcp-settings.ts";
 import {
   NewSessionButton,
@@ -101,6 +102,7 @@ export const AGENT_TABS = [
   "card",
   "release",
   "access",
+  "engine",
   "admins",
   "slack",
   "github",
@@ -739,6 +741,9 @@ function AgentView({
           result={<PlacedOutcome placed={placed} at="credentials" />}
           onOutcome={outcomeAt("credentials")}
         />
+      </TabsContent>
+      <TabsContent {...tabPanel("engine")}>
+        <EngineSettings agentId={agent.id} manages={manages} />
       </TabsContent>
       <TabsContent {...tabPanel("admins")}>
         <AdminsTab
