@@ -140,9 +140,10 @@ type Step = (
 /**
  * Takes the row FOR UPDATE, so writers in flight finish first and later ones
  * see the new state. `db` is the top-level handle, never a transaction: the
- * lock_timeout and the row lock last to the end of the transaction they run in,
- * and a writer that holds the row FOR SHARE and then calls this would wait on
- * itself. Operators run each transition on its own.
+ * lock_timeout and the row lock last to the end of the transaction they run in
+ * (inside a transaction this is a savepoint, and both outlive it). A writer
+ * that keeps its transaction open and calls this on another connection waits
+ * for itself until the timeout. Operators run each transition on its own.
  */
 async function transition(
   db: Database,

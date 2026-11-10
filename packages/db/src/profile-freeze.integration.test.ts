@@ -217,7 +217,8 @@ integration("the profile freeze on PostgreSQL", () => {
       /must open a new generation/,
     );
     await guardRefuses(
-      "UPDATE profile_freeze SET writes_frozen = true, phase = 'certified', certified_generation = reconcile_generation",
+      // One generation up, so only the phase rule is left to refuse it.
+      "UPDATE profile_freeze SET writes_frozen = true, phase = 'certified', reconcile_generation = reconcile_generation + 1, certified_generation = reconcile_generation + 1",
       /must open a new generation/,
     );
     await guardRefuses(
@@ -309,7 +310,12 @@ integration("the profile freeze on PostgreSQL", () => {
   test("a writer that starts after the freeze commits is refused and gives its connection back", async () => {
     ok(await freezeProfiles(db));
     // One connection: a leaked one would leave the next query waiting for ever.
-    const single = new Pool({ connectionString: database.url, max: 1 });
+    const single = new Pool({
+      connectionString: database.url,
+      max: 1,
+      // A leaked connection must fail the test, not hang the pool's shutdown.
+      connectionTimeoutMillis: 2_000,
+    });
     try {
       await expect(
         writerInFlight(assertProfileTablesWritable, single),
@@ -327,18 +333,21 @@ integration("the profile freeze on PostgreSQL", () => {
   });
 
   test("a writer in flight is not lost: the freeze waits and the write commits", async () => {
+    await pool.query("CREATE TABLE written_by_writer (n integer)");
     const writer = await writerInFlight(assertProfileTablesWritable);
-    await writer.client.query(
-      "CREATE TEMP TABLE written_by_writer (n integer) ON COMMIT PRESERVE ROWS",
-    );
     await writer.client.query("INSERT INTO written_by_writer VALUES (1)");
     const freezing = freezeProfiles(db, { lockTimeoutMs: 20_000 });
     await waitForLockWait();
-    const { rows } = await writer.client.query(
-      "SELECT n FROM written_by_writer",
+    // Not committed yet: another connection sees nothing, and the freeze has not happened.
+    expect((await pool.query("SELECT n FROM written_by_writer")).rows).toEqual(
+      [],
     );
-    expect(rows).toEqual([{ n: 1 }]);
+    expect((await readFreeze(db))?.writesFrozen).toBe(false);
     await writer.finish();
     ok(await freezing);
+    // After the commit, from a different connection.
+    expect((await pool.query("SELECT n FROM written_by_writer")).rows).toEqual([
+      { n: 1 },
+    ]);
   });
 });
