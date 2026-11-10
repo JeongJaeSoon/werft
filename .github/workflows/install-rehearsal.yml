@@ -154,33 +154,18 @@ jobs:
               "anthropic": {
                 "kind": "anthropic",
                 "endpoint": "https://api.anthropic.com",
-                "auth": { "kind": "api_key", "value_env": "ANTHROPIC_API_KEY" }
+                "auth": { "kind": "api_key", "value_env": "ANTHROPIC_API_KEY" },
+                "models": ["claude-sonnet-5"]
               }
             },
             "repositories": {
               "sample-app": {
                 "url": "https://github.com/JeongJaeSoon/werft.git",
                 "branch": "main",
-                "auth": { "kind": "github_app" },
-                "profiles": ["claude-coding"]
+                "auth": { "kind": "github_app" }
               }
             },
-            "mcp_servers": {},
-            "profiles": {
-              "claude-coding": {
-                "runtime_kind": "claude_agent_sdk",
-                "runtime_version": "0.3.270",
-                "model": "claude-sonnet-5",
-                "tools": ["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
-                "permission_mode": "default",
-                "provider": {
-                  "kind": "anthropic",
-                  "endpoint": "https://api.anthropic.com",
-                  "auth": { "kind": "api_key", "value_env": "ANTHROPIC_API_KEY" }
-                },
-                "project_settings": { "claude_md": true }
-              }
-            }
+            "mcp_servers": {}
           }
           JSON
           chmod 644 "$(dirname "$TEST_OPS_ENV_FILE")/settings.json"

@@ -13,6 +13,11 @@ import {
   createPostgresWorkerPendingStore,
   createPostgresWorkerUnitOfWork,
 } from "@werft-ai/db";
+import {
+  TEST_MODEL,
+  TEST_RUNTIME_VERSION,
+  testSpecSource,
+} from "@werft-ai/db/testing/spec-pins";
 import { createLogger } from "@werft-ai/observability";
 import {
   createAuthorizationPolicy,
@@ -34,6 +39,13 @@ import { Pool } from "pg";
 import { createApiApp } from "../apps/control-host/src/api/app.ts";
 import { registerSessionRoutes } from "../apps/control-host/src/api/routes/sessions.ts";
 import { registerWorkerRoutes } from "../apps/control-host/src/api/routes/worker.ts";
+import { testCatalog } from "../apps/control-host/src/testing/catalog.ts";
+import {
+  allowingPolicy,
+  releaseOnConnection,
+  sessionReleases,
+  startingInWorkspace,
+} from "../apps/control-host/src/testing/releases.ts";
 import { unwiredCheckpoints } from "../apps/worker/src/checkpoint.ts";
 import { HttpWorkerGatewayClient } from "../apps/worker/src/gateway-client.ts";
 import { ScriptedRun } from "../apps/worker/src/testing/scripted-run.ts";
@@ -42,18 +54,6 @@ import {
   type WorkerRunSummary,
 } from "../apps/worker/src/worker-host.ts";
 import { noWorkspace } from "../apps/worker/src/workspace.ts";
-import {
-  allowingPolicy,
-  releaseOnConnection,
-  sessionReleases,
-  startingInWorkspace,
-} from "../apps/control-host/src/test-support/releases.ts";
-import {
-  TEST_MODEL,
-  TEST_RUNTIME_VERSION,
-  testSpecSource,
-} from "@werft-ai/db/testing/spec-pins";
-import { testCatalog } from "../apps/control-host/src/test-support/catalog.ts";
 
 /**
  * A release the control plane let through, run by a worker whose engine
@@ -69,8 +69,7 @@ const CATALOG: SessionCatalog = testCatalog({
   repositories: {},
   auto_mode: "supported",
 });
-const REASON =
-  `Runtime claude_agent_sdk ${TEST_RUNTIME_VERSION} cannot run this session's settings: it does not support classifier_review`;
+const REASON = `Runtime claude_agent_sdk ${TEST_RUNTIME_VERSION} cannot run this session's settings: it does not support classifier_review`;
 
 /** Runs a real WorkerHost over a run with no classifier for each container started. */
 class WorkerBackend implements ExecutionBackend {
@@ -200,33 +199,36 @@ beforeAll(async () => {
     connection: testSpecSource().connection,
     spec: { permission_mode: "auto", repository_mode: "none" },
   });
-  const sessions = startingInWorkspace(createSessionService({
-    authorization: createAuthorizationPolicy(),
-    inputs: createPostgresSessionUnitOfWork(db),
-    controls: createPostgresSessionControl(db),
-    reader: createPostgresSessionReader(db),
-    catalog: CATALOG,
-    limits: {
-      queuedInputLimitPerSession: 1_000,
-      storageLimitBytes: 1e15,
-      sessionCostLimitUsd: 1_000,
-      sessionTokenLimit: null,
-    },
-  releases: sessionReleases(db, CATALOG),
-}), createSessionService({
-    authorization: allowingPolicy,
-    inputs: createPostgresSessionUnitOfWork(db),
-    controls: createPostgresSessionControl(db),
-    reader: createPostgresSessionReader(db),
-    catalog: CATALOG,
-    limits: {
-      queuedInputLimitPerSession: 1_000,
-      storageLimitBytes: 1e15,
-      sessionCostLimitUsd: 1_000,
-      sessionTokenLimit: null,
-    },
-  releases: sessionReleases(db, CATALOG),
-}));
+  const sessions = startingInWorkspace(
+    createSessionService({
+      authorization: createAuthorizationPolicy(),
+      inputs: createPostgresSessionUnitOfWork(db),
+      controls: createPostgresSessionControl(db),
+      reader: createPostgresSessionReader(db),
+      catalog: CATALOG,
+      limits: {
+        queuedInputLimitPerSession: 1_000,
+        storageLimitBytes: 1e15,
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+      },
+      releases: sessionReleases(db, CATALOG),
+    }),
+    createSessionService({
+      authorization: allowingPolicy,
+      inputs: createPostgresSessionUnitOfWork(db),
+      controls: createPostgresSessionControl(db),
+      reader: createPostgresSessionReader(db),
+      catalog: CATALOG,
+      limits: {
+        queuedInputLimitPerSession: 1_000,
+        storageLimitBytes: 1e15,
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+      },
+      releases: sessionReleases(db, CATALOG),
+    }),
+  );
   const gateway = createWorkerGateway({
     work: createPostgresWorkerUnitOfWork(db),
     catalog: CATALOG,

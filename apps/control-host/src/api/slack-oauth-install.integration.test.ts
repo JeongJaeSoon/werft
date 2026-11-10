@@ -33,6 +33,10 @@ import {
 } from "@werft-ai/db";
 import { fixtureTeam } from "@werft-ai/db/testing/fixture-team";
 import {
+  releaseSpecColumns,
+  TEST_CONNECTION_ID,
+} from "@werft-ai/db/testing/spec-pins";
+import {
   callerFor,
   composeSlackFinalize,
   createAuthorizationPolicy,
@@ -55,7 +59,6 @@ import {
 import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { releaseSpecColumns, TEST_CONNECTION_ID } from "@werft-ai/db/testing/spec-pins";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 const CONSOLE = "http://127.0.0.1:3000";

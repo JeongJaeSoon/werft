@@ -13,7 +13,9 @@ const local = {
   DEMO_ACCOUNTS: "local",
   DATABASE_URL: "postgresql://postgres:dev@postgres:5432/sessions",
 };
-const fixture = async (name: string): Promise<Record<string, CatalogProviderConfig>> =>
+const fixture = async (
+  name: string,
+): Promise<Record<string, CatalogProviderConfig>> =>
   (
     await Bun.file(
       join(import.meta.dir, `../../../../tests/fixtures/settings/${name}.json`),

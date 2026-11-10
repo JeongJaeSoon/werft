@@ -1967,6 +1967,7 @@ const controlHostRoles: Campaign = {
         D2_GATE_COMMAND: `scripts/soak/campaign.sh ${ctx.id}`,
         D2_GATE_API_URL: ctx.env.apiUrl,
         D2_GATE_API_KEY: ctx.env.apiKey,
+        D2_GATE_RELEASE_ID: process.env.D2_GATE_RELEASE_ID ?? "",
         D2_GATE_DATABASE_URL: ctx.env.databaseUrl,
         D2_GATE_S3_URL: ctx.env.s3Url,
         D2_GATE_CHAOS_URL: ctx.env.chaosUrl,

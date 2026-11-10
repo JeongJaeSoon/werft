@@ -9,8 +9,10 @@ import {
 import * as schema from "@werft-ai/db";
 import {
   apiKeys,
+  createDatabaseIdentityReader,
   createPostgresSessionControl,
   createPostgresSessionReader,
+  createPostgresSessionShareStore,
   createPostgresSessionUnitOfWork,
   encodeEventCursor,
   eventPageQuery,
@@ -21,8 +23,6 @@ import {
   sessions,
   turns,
   unassignedSessions,
-  createDatabaseIdentityReader,
-  createPostgresSessionShareStore,
 } from "@werft-ai/db";
 import { migrate } from "@werft-ai/db/migrate";
 import { createLogger, MemoryLogSink } from "@werft-ai/observability";
@@ -34,19 +34,19 @@ import {
 import { and, asc, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { createApiApp } from "./app.ts";
-import { DatabaseApiKeyStore, issueApiKey } from "./keys.ts";
-import { registerEventRoutes } from "./routes/events.ts";
-import { registerSessionRoutes } from "./routes/sessions.ts";
-import { PostgresSessionNotifier } from "./session-notifier.ts";
-import { testCatalog } from "../test-support/catalog.ts";
+import { testCatalog } from "../testing/catalog.ts";
 import {
   allowingPolicy,
   allowRepositories,
   releaseIn,
   sessionReleases,
   startingInWorkspace,
-} from "../test-support/releases.ts";
+} from "../testing/releases.ts";
+import { createApiApp } from "./app.ts";
+import { DatabaseApiKeyStore, issueApiKey } from "./keys.ts";
+import { registerEventRoutes } from "./routes/events.ts";
+import { registerSessionRoutes } from "./routes/sessions.ts";
+import { PostgresSessionNotifier } from "./session-notifier.ts";
 
 const databaseUrl = process.env.QUEUE_DATABASE_URL;
 const integration = databaseUrl ? describe : describe.skip;
@@ -137,22 +137,23 @@ integration("GET /v1/sessions/{id}/events on PostgreSQL", () => {
         },
       },
     });
-    const build = (authorization: AuthorizationPolicy) => createSessionService({
-      limits: {
-        queuedInputLimitPerSession: 1_000,
-        storageLimitBytes: 1e15,
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
-      },
-      authorization,
-      inputs: createPostgresSessionUnitOfWork(db),
-      controls: createPostgresSessionControl(db),
-      reader: createPostgresSessionReader(db, {
-        logger: createLogger({ sinks: [sink] }),
-      }),
-      catalog,
-      releases: sessionReleases(db, catalog),
-    });
+    const build = (authorization: AuthorizationPolicy) =>
+      createSessionService({
+        limits: {
+          queuedInputLimitPerSession: 1_000,
+          storageLimitBytes: 1e15,
+          sessionCostLimitUsd: 1_000,
+          sessionTokenLimit: null,
+        },
+        authorization,
+        inputs: createPostgresSessionUnitOfWork(db),
+        controls: createPostgresSessionControl(db),
+        reader: createPostgresSessionReader(db, {
+          logger: createLogger({ sinks: [sink] }),
+        }),
+        catalog,
+        releases: sessionReleases(db, catalog),
+      });
     const service = startingInWorkspace(
       build(createAuthorizationPolicy()),
       build(allowingPolicy),

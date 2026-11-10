@@ -10,18 +10,18 @@ import {
   confirmExecutionGone,
   launchSession,
 } from "@werft-ai/db/testing/launches";
+import { TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
 import { createLogger } from "@werft-ai/observability";
-import {
-  acceptAllCheckpoints,
-  createWorkerGateway,
-} from "@werft-ai/platform";
+import { acceptAllCheckpoints, createWorkerGateway } from "@werft-ai/platform";
 import { createObjectRouteSigner } from "@werft-ai/storage";
 import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { createEgressAuthorizer } from "../apps/control-host/src/api/egress-authorizer.ts";
-import { testCatalog } from "../apps/control-host/src/test-support/catalog.ts";
-import { TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
-import { releaseIn, TEST_OWNER } from "../apps/control-host/src/test-support/releases.ts";
+import { testCatalog } from "../apps/control-host/src/testing/catalog.ts";
+import {
+  releaseIn,
+  TEST_OWNER,
+} from "../apps/control-host/src/testing/releases.ts";
 
 /**
  * The control plane side of the object store route, real from the
@@ -35,7 +35,6 @@ import { releaseIn, TEST_OWNER } from "../apps/control-host/src/test-support/rel
  * each later one sees the previous execution gone, as the scheduler would,
  * and claims the next. It returns the new attempt's object store token.
  */
-
 
 type ObjectRouteSession = {
   sessionId: string;
@@ -68,24 +67,24 @@ export async function startObjectRouteFixture(options: {
   const gateway = createWorkerGateway({
     work: createPostgresWorkerUnitOfWork(db),
     catalog: testCatalog({
-provider: {
-            kind: "anthropic",
-            endpoint: "http://provider.invalid",
-            auth: {
-              kind: "api_key",
-              value: "catalog-provider-value",
-              ref: { value_env: "PROVIDER_KEY" },
-            },
-          },
-models: ["claude-sonnet-5", "claude-sonnet-4-5"],
-repositories: {
+      provider: {
+        kind: "anthropic",
+        endpoint: "http://provider.invalid",
+        auth: {
+          kind: "api_key",
+          value: "catalog-provider-value",
+          ref: { value_env: "PROVIDER_KEY" },
+        },
+      },
+      models: ["claude-sonnet-5", "claude-sonnet-4-5"],
+      repositories: {
         app: {
           url: "http://git.invalid/app.git",
           branch: "main",
           auth: { kind: "github_app", registered: true } as const,
         },
       },
-}),
+    }),
     checkpoints: acceptAllCheckpoints,
     options: {
       sessionCostLimitUsd: 1_000,

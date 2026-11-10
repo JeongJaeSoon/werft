@@ -29,15 +29,15 @@ import { Pool } from "pg";
 import { createApiApp } from "../apps/control-host/src/api/app.ts";
 import { registerSessionRoutes } from "../apps/control-host/src/api/routes/sessions.ts";
 import { registerWorkerRoutes } from "../apps/control-host/src/api/routes/worker.ts";
-import { HttpWorkerGatewayClient } from "../apps/worker/src/gateway-client.ts";
-import { testCatalog } from "../apps/control-host/src/test-support/catalog.ts";
+import { testCatalog } from "../apps/control-host/src/testing/catalog.ts";
 import {
   allowingPolicy,
   allowRepositories,
   releaseIn,
   sessionReleases,
   startingInWorkspace,
-} from "../apps/control-host/src/test-support/releases.ts";
+} from "../apps/control-host/src/testing/releases.ts";
+import { HttpWorkerGatewayClient } from "../apps/worker/src/gateway-client.ts";
 
 /**
  * The traceparent of the request that queued a turn travels through the
@@ -48,16 +48,16 @@ const integration = databaseUrl ? describe : describe.skip;
 
 const PROFILE_ID = "claude-coding-v1";
 const catalog: SessionCatalog = testCatalog({
-provider: {
-        kind: "litellm",
-        endpoint: "https://litellm.invalid",
-        auth: {
-          kind: "api_key",
-          value: "catalog-provider-key",
-          ref: { value_env: "PROVIDER_KEY" },
-        },
-      },
-repositories: {
+  provider: {
+    kind: "litellm",
+    endpoint: "https://litellm.invalid",
+    auth: {
+      kind: "api_key",
+      value: "catalog-provider-key",
+      ref: { value_env: "PROVIDER_KEY" },
+    },
+  },
+  repositories: {
     "sample-app": {
       url: "https://example.invalid/app.git",
       branch: "main",
@@ -95,33 +95,36 @@ integration("turn trace context end to end", () => {
         shutdown: async () => {},
       },
     });
-    const sessions = startingInWorkspace(createSessionService({
-      authorization: createAuthorizationPolicy(),
-      inputs: createPostgresSessionUnitOfWork(db),
-      controls: createPostgresSessionControl(db),
-      reader: createPostgresSessionReader(db),
-      catalog,
-      limits: {
-        queuedInputLimitPerSession: 1_000,
-        storageLimitBytes: 1e15,
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
-      },
-  releases: sessionReleases(db, catalog),
-}), createSessionService({
-      authorization: allowingPolicy,
-      inputs: createPostgresSessionUnitOfWork(db),
-      controls: createPostgresSessionControl(db),
-      reader: createPostgresSessionReader(db),
-      catalog,
-      limits: {
-        queuedInputLimitPerSession: 1_000,
-        storageLimitBytes: 1e15,
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
-      },
-  releases: sessionReleases(db, catalog),
-}));
+    const sessions = startingInWorkspace(
+      createSessionService({
+        authorization: createAuthorizationPolicy(),
+        inputs: createPostgresSessionUnitOfWork(db),
+        controls: createPostgresSessionControl(db),
+        reader: createPostgresSessionReader(db),
+        catalog,
+        limits: {
+          queuedInputLimitPerSession: 1_000,
+          storageLimitBytes: 1e15,
+          sessionCostLimitUsd: 1_000,
+          sessionTokenLimit: null,
+        },
+        releases: sessionReleases(db, catalog),
+      }),
+      createSessionService({
+        authorization: allowingPolicy,
+        inputs: createPostgresSessionUnitOfWork(db),
+        controls: createPostgresSessionControl(db),
+        reader: createPostgresSessionReader(db),
+        catalog,
+        limits: {
+          queuedInputLimitPerSession: 1_000,
+          storageLimitBytes: 1e15,
+          sessionCostLimitUsd: 1_000,
+          sessionTokenLimit: null,
+        },
+        releases: sessionReleases(db, catalog),
+      }),
+    );
     const workers = createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
       catalog,

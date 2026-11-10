@@ -7,18 +7,15 @@ import {
 } from "@werft-ai/db";
 import { launchSession } from "@werft-ai/db/testing/launches";
 import { createLogger } from "@werft-ai/observability";
-import {
-  acceptAllCheckpoints,
-  createWorkerGateway,
-} from "@werft-ai/platform";
+import { acceptAllCheckpoints, createWorkerGateway } from "@werft-ai/platform";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
+import { releaseOnConnection, TEST_OWNER } from "../testing/releases.ts";
 import {
   createEgressAuthorizer,
   EGRESS_AUTHORIZER_PATH,
   EGRESS_USAGE_PATH,
 } from "./egress-authorizer.ts";
-import { releaseOnConnection, TEST_OWNER } from "../test-support/releases.ts";
 
 // The provider route's decision is the session's connection kind together with
 // the path the proxy parsed: `/v1/responses` belongs to an `openai_responses`

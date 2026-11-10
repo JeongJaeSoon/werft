@@ -7,7 +7,13 @@
  */
 import { createHash } from "node:crypto";
 
-export type E2eEnv = { apiKey: string; apiUrl: string; messagesUrl: string };
+export type E2eEnv = {
+  apiKey: string;
+  apiUrl: string;
+  messagesUrl: string;
+  /** The agent release every session of the suite runs; see e2eStack. */
+  releaseId?: string;
+};
 
 /**
  * The stack tests/e2e/run.sh started; the suite never starts one. A stack on
@@ -26,9 +32,8 @@ export function e2eEnv({ needsMessages = true } = {}): E2eEnv {
   return { apiKey, apiUrl, messagesUrl };
 }
 
-export const PROFILE_ID = "claude-coding-local";
 export const REPOSITORY_ID = "sample-app";
-export const NO_REPOSITORY_PROFILE_ID = "general";
+export const E2E_AGENT_SLUG = "e2e-runner";
 
 /**
  * Derived from the bootstrap token, so every suite on one stack, and a
@@ -85,6 +90,130 @@ export async function firstOwnerCookie(
     );
   }
   return cookie;
+}
+
+/**
+ * The stack as a suite drives it: the first owner's agent on the stack's
+ * connection (the first `GET /v1/connections` lists, or E2E_CONNECTION_ID),
+ * released on the sample repository and activated, and a personal key of
+ * that owner, which starts sessions on it. Every session runs an agent
+ * release; a key from before workspaces names none. Made once per stack:
+ * a later suite finds the agent and reuses its active release.
+ */
+export async function e2eStack({
+  needsMessages = true,
+  connectionId = process.env.E2E_CONNECTION_ID,
+  repositoryId = REPOSITORY_ID,
+}: {
+  needsMessages?: boolean;
+  connectionId?: string | undefined;
+  /** The repository the release names. */
+  repositoryId?: string;
+} = {}): Promise<E2eEnv & { releaseId: string }> {
+  const env = e2eEnv({ needsMessages });
+  const bootstrapToken = process.env.E2E_BOOTSTRAP_TOKEN ?? "";
+  if (!bootstrapToken) {
+    throw new Error(
+      "E2E_BOOTSTRAP_TOKEN is unset: run tests/e2e/run.sh, or source its vars.sh (E2E_UP_ONLY=1)",
+    );
+  }
+  const cookie = await firstOwnerCookie(env.apiUrl, bootstrapToken);
+  const web = async <T>(
+    status: number,
+    method: string,
+    path: string,
+    body?: unknown,
+  ): Promise<T> => {
+    const response = await fetch(`${env.apiUrl}${path}`, {
+      method,
+      headers: {
+        cookie,
+        "x-requested-with": "werft-web",
+        ...(method === "POST"
+          ? { "idempotency-key": crypto.randomUUID() }
+          : {}),
+        ...(body === undefined ? {} : { "content-type": "application/json" }),
+      },
+      body: body === undefined ? null : JSON.stringify(body),
+    });
+    const text = await response.text();
+    if (response.status !== status) {
+      throw new Error(
+        `${method} ${path} answered ${response.status}, expected ${status}: ${text}`,
+      );
+    }
+    return (text === "" ? null : JSON.parse(text)) as T;
+  };
+  const { items: connections } = await web<{
+    items: { id: string; models: string[] }[];
+  }>(200, "GET", "/v1/connections");
+  const connection =
+    connectionId === undefined
+      ? connections[0]
+      : connections.find((item) => item.id === connectionId);
+  const model = connection?.models[0];
+  if (connection === undefined || model === undefined) {
+    throw new Error("the stack offers no connection with a model");
+  }
+  // One agent per connection a suite asks for.
+  const slug =
+    connectionId === undefined ? E2E_AGENT_SLUG : `e2e-${connectionId}`;
+  const agents = await web<{
+    items: { id: string; slug: string; active_release_id: string | null }[];
+  }>(200, "GET", "/v1/agents?limit=100");
+  let releaseId = agents.items.find(
+    (agent) => agent.slug === slug,
+  )?.active_release_id;
+  if (!releaseId) {
+    const { team } = await web<{ team: { id: string } }>(
+      201,
+      "POST",
+      "/v1/teams",
+      { name: `e2e-${crypto.randomUUID().slice(0, 8)}` },
+    );
+    const made = await web<{
+      agent: { id: string; activation_revision: number };
+      versions: { id: string }[];
+    }>(201, "POST", "/v1/agents", {
+      slug,
+      name: `E2E runner (${connection.id})`,
+      managing_team_id: team.id,
+      card: {
+        role: "e2e runner",
+        instructions: "Do what the scripted prompt says.",
+        language: "en",
+        model,
+        capabilities: { mcp: null, forbidden: [] },
+        rules: [],
+      },
+    });
+    const { release } = await web<{ release: { id: string } }>(
+      200,
+      "POST",
+      `/v1/agents/${made.agent.id}/releases`,
+      {
+        version_id: made.versions[0]?.id,
+        connection_id: connection.id,
+        repository_id: repositoryId,
+      },
+    );
+    await web(200, "POST", `/v1/agents/${made.agent.id}/activate`, {
+      release_id: release.id,
+      expected_revision: made.agent.activation_revision,
+    });
+    releaseId = release.id;
+  }
+  const key = await web<{ secret: string }>(201, "POST", "/v1/api-keys", {
+    kind: "personal",
+    scopes: [
+      "sessions:read",
+      "sessions:write",
+      "sessions:approve",
+      "sessions:control",
+      "sessions:recover",
+    ],
+  });
+  return { ...env, apiKey: key.secret, releaseId };
 }
 
 export type Step = {
@@ -225,13 +354,18 @@ export class Api {
     return response.body;
   }
 
-  /** `repositoryId: null` leaves `repository_id` out of the body. */
+  /**
+   * A session on the stack's release (e2eStack); `repositoryId: null`
+   * leaves `repository_id` out of the body.
+   */
   createSession(
     message: string,
     idempotencyKey?: string,
-    profileId = PROFILE_ID,
     repositoryId: string | null = REPOSITORY_ID,
   ) {
+    if (this.env.releaseId === undefined) {
+      throw new Error("this Api names no release: build it from e2eStack()");
+    }
     return this.request<{
       receipt_id: string;
       session_id: string;
@@ -241,7 +375,7 @@ export class Api {
       "POST",
       "/v1/sessions",
       {
-        profile_id: profileId,
+        agent_release_id: this.env.releaseId,
         ...(repositoryId === null ? {} : { repository_id: repositoryId }),
         message,
       },

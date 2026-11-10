@@ -37,6 +37,11 @@ import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import {
+  TEST_CONNECTION_ID,
+  TEST_RUNTIMES,
+  testCatalog,
+} from "../testing/catalog.ts";
 import { createApiApp } from "./app.ts";
 import {
   createBootstrapGate,
@@ -47,7 +52,6 @@ import { DatabaseApiKeyStore } from "./keys.ts";
 import { registerAgentRoutes } from "./routes/agents.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
-import { TEST_CONNECTION_ID, TEST_RUNTIMES, testCatalog } from "../test-support/catalog.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 
@@ -55,16 +59,16 @@ const SETUP_TOKEN = "console-session-start-integration-setup";
 const LOGIN = "console-session-start-login";
 
 const catalog: SessionCatalog = testCatalog({
-provider: {
-        kind: "litellm",
-        endpoint: "https://litellm.invalid",
-        auth: {
-          kind: "api_key",
-          value: "catalog-provider-key",
-          ref: { value_env: "PROVIDER_KEY" },
-        },
-      },
-repositories: {
+  provider: {
+    kind: "litellm",
+    endpoint: "https://litellm.invalid",
+    auth: {
+      kind: "api_key",
+      value: "catalog-provider-key",
+      ref: { value_env: "PROVIDER_KEY" },
+    },
+  },
+  repositories: {
     "sample-app": {
       url: "https://example.invalid/app.git",
       branch: "main",
@@ -179,7 +183,7 @@ integration("starting an agent's session from the console", () => {
       credentials,
       keys: createPostgresWorkspaceKeyStore(db),
       runtimes: TEST_RUNTIMES,
-});
+    });
     const service = createSessionService({
       limits: {
         queuedInputLimitPerSession: 1_000,

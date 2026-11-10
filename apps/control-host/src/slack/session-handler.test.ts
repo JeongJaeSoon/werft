@@ -30,8 +30,8 @@ import {
   createPostgresSurfaceBindingStore,
   type Database,
   linkedAccounts,
-  providerConnections,
   memberships,
+  providerConnections,
   registerSlackInstallation,
   sessionLinks,
   sessionShares,
@@ -73,7 +73,7 @@ import {
   settingsCatalog,
   settingsDocument,
 } from "../test-support/settings.ts";
-import { TEST_RUNTIMES } from "../test-support/catalog.ts";
+import { TEST_RUNTIMES } from "../testing/catalog.ts";
 import { slackCatalog, slackSessionHandler } from "./main.ts";
 
 const APP_ID = "A0NOTES";
@@ -389,21 +389,21 @@ function handler(
   // reads it, so a setting changed between two deliveries is seen.
   const catalog = slackCatalog(db, LIMITS);
   const handle = slackSessionHandler({
-      catalog,
-      db,
-      pool: {
-        connect: () => {
-          throw new Error("no session control is asked of this role");
-        },
+    catalog,
+    db,
+    pool: {
+      connect: () => {
+        throw new Error("no session control is asked of this role");
       },
-      environment: LIMITS,
-      logger: log,
-      secretKey: key,
-      leaseMs: 30_000,
-      notices: notices.sink,
-      slackApiUrl: slack.url,
-      ...(inbox === undefined ? {} : { inbox }),
-    });
+    },
+    environment: LIMITS,
+    logger: log,
+    secretKey: key,
+    leaseMs: 30_000,
+    notices: notices.sink,
+    slackApiUrl: slack.url,
+    ...(inbox === undefined ? {} : { inbox }),
+  });
   return {
     notices: notices.notices,
     handle: async (claim: SlackInboundClaim) => {
@@ -621,7 +621,8 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
         ...loaded,
         connections: {
           ...loaded.connections,
-          retired: loaded.connections.main as SessionCatalog["connections"][string],
+          retired: loaded.connections
+            .main as SessionCatalog["connections"][string],
         },
       }),
     });

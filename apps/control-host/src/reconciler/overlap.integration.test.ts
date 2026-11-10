@@ -16,6 +16,7 @@ import {
   workers,
 } from "@werft-ai/db";
 import { launchSession } from "@werft-ai/db/testing/launches";
+import { TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
 import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import {
   createAuthorizationPolicy,
@@ -34,24 +35,23 @@ import {
 import { eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { testCatalog } from "../testing/catalog.ts";
+import { releaseIn } from "../testing/releases.ts";
 import { reconcileOnce } from "./main.ts";
-import { testCatalog } from "../test-support/catalog.ts";
-import { TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
-import { releaseIn } from "../test-support/releases.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
 const catalog: SessionCatalog = testCatalog({
-provider: {
-        kind: "litellm",
-        endpoint: "https://litellm.invalid",
-        auth: {
-          kind: "api_key",
-          value: "catalog-provider-key",
-          ref: { value_env: "PROVIDER_KEY" },
-        },
-      },
-repositories: {
+  provider: {
+    kind: "litellm",
+    endpoint: "https://litellm.invalid",
+    auth: {
+      kind: "api_key",
+      value: "catalog-provider-key",
+      ref: { value_env: "PROVIDER_KEY" },
+    },
+  },
+  repositories: {
     "sample-app": {
       url: "https://example.invalid/app.git",
       branch: "main",

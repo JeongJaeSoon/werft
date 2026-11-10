@@ -40,6 +40,9 @@ export EXECUTION_INSTALLATION_ID=soak135
 export API_IMAGE="werft-control-host:${project}"
 export WORKER_IMAGE="werft-worker:${project}"
 export EGRESS_PROXY_IMAGE="werft-egress-proxy:${project}"
+# The first owner's token: the soak's agent is released as that owner
+# (scripts/d2-gate/release.ts). Kept across runs on a kept stack.
+export BOOTSTRAP_TOKEN="${SOAK_BOOTSTRAP_TOKEN:-soak-bootstrap-token-for-the-local-stack}"
 compose_files=(-f infra/compose.yml -f scripts/d2-gate/compose.yml -f scripts/soak/compose.yml)
 dc() { docker compose -p "$project" "${compose_files[@]}" --profile apps --profile worker "$@"; }
 
@@ -77,9 +80,13 @@ up() {
   port() { dc port "$1" "$2" | sed 's/.*://'; }
 
   echo "== fixture" >&2
-  local key
-  key="$(dc exec -T api bun run apps/control-host/src/api/keys.ts create soak-owner \
-    --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover | tail -n 1)"
+  # Every session runs an agent release: the first owner releases the gate's
+  # agent on gate-messages and holds the key the soak uses.
+  local key release vars
+  vars="$(D2_GATE_API_URL="http://127.0.0.1:$(port api 3000)" bun scripts/d2-gate/release.ts)"
+  key="$(printf '%s\n' "$vars" | sed -n 's/^D2_GATE_API_KEY=//p')"
+  release="$(printf '%s\n' "$vars" | sed -n 's/^D2_GATE_RELEASE_ID=//p')"
+  [ -n "$key" ] && [ -n "$release" ] || { echo "the soak agent was not released" >&2; return 1; }
 
   # The reconciler runs as the product runs it, on its own loop.
   dc up -d --wait scheduler reconciler >>"$state/up.log" 2>&1
@@ -94,6 +101,7 @@ up() {
     echo "export SOAK_SCHEDULER_INTERVAL_SEC='${SOAK_SCHEDULER_INTERVAL_SEC:-5}'"
     echo "export SOAK_API_URL='http://127.0.0.1:$(port api 3000)'"
     echo "export SOAK_API_KEY='${key}'"
+    echo "export D2_GATE_RELEASE_ID='${release}'"
     echo "export SOAK_DATABASE_URL='postgres://postgres:dev@127.0.0.1:$(port postgres 5432)/sessions'"
     echo "export SOAK_S3_URL='http://127.0.0.1:$(port localstack 4566)'"
     echo "export SOAK_CHAOS_URL='http://127.0.0.1:$(port gate-chaos 8099)'"

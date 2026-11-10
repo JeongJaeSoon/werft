@@ -1233,7 +1233,6 @@ exit 0
         expect(found).toContain("repository sample");
         expect(found).toContain('"auth": {"kind": "github_app"}');
         expect(found).toContain("remove the entry or give it a new id");
-        expect(found).toContain('top-level "profiles"');
         expect(found).toContain("copy the fixed manifest over it");
       }
       await writeFile(

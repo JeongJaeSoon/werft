@@ -104,7 +104,7 @@ describe("real-model compose layers", () => {
     );
   });
 
-  test("the proxy allows the profile's endpoint and the limits cap one run", async () => {
+  test("the proxy allows the connection's endpoint and the limits cap one run", async () => {
     const base = layeredServices<Service>(LOCAL_LAYERS);
     const overlay = (await compose(OVERLAY)).services;
     const endpoint = new URL("https://api.anthropic.com");
@@ -342,7 +342,7 @@ echo " 0 fail"
     expect(argv).not.toContain(OVERLAY);
     expect(argv).toContain(`-f ${FAKE_MODEL}`);
     expect(argv).toContain(
-      "bun test ./tests/e2e/remote-mcp.e2e.ts ./tests/e2e/operator-profiles.e2e.ts ./tests/e2e/alpha-path.e2e.ts ./tests/e2e/pause-coverage.e2e.ts ./tests/e2e/workspace-loss.e2e.ts --timeout 900000",
+      "bun test ./tests/e2e/remote-mcp.e2e.ts ./tests/e2e/alpha-path.e2e.ts ./tests/e2e/pause-coverage.e2e.ts ./tests/e2e/workspace-loss.e2e.ts --timeout 900000",
     );
     const record = await Bun.file(join(result.out, "record.txt")).text();
     expect(record).toContain("command: tests/e2e/run.sh\n");

@@ -37,6 +37,7 @@ import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { TEST_RUNTIMES } from "../testing/catalog.ts";
 import { createApiApp } from "./app.ts";
 import {
   createBootstrapGate,
@@ -47,7 +48,6 @@ import { DatabaseApiKeyStore } from "./keys.ts";
 import { registerAgentRoutes } from "./routes/agents.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerTeamRoutes } from "./routes/teams.ts";
-import { TEST_RUNTIMES } from "../test-support/catalog.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 
@@ -108,7 +108,7 @@ integration("teams as agent admins over HTTP on PostgreSQL", () => {
             catalog,
             credentials: createPostgresCredentialBindingStore(db),
             runtimes: TEST_RUNTIMES,
-}),
+          }),
         );
         registerTeamRoutes(
           router,

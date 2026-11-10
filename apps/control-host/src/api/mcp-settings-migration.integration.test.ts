@@ -14,6 +14,11 @@ import {
   workspaces,
 } from "@werft-ai/db";
 import { fixtureTeam } from "@werft-ai/db/testing/fixture-team";
+import {
+  releaseSpecColumns,
+  sessionPinColumns,
+  TEST_CONNECTION_ID,
+} from "@werft-ai/db/testing/spec-pins";
 import { createTempDatabase } from "@werft-ai/testkit";
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
@@ -23,8 +28,6 @@ import {
   runMcpSettingsMigration,
   sha256Of,
 } from "./mcp-settings-migration.ts";
-import { releaseSpecColumns, TEST_CONNECTION_ID } from "@werft-ai/db/testing/spec-pins";
-import { sessionPinColumns } from "@werft-ai/db/testing/spec-pins";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 

@@ -8,6 +8,7 @@ import {
   turns,
   workerLaunches,
 } from "@werft-ai/db";
+import { TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
 import {
   DockerClient,
   LABELS,
@@ -34,9 +35,11 @@ import { createApiApp } from "../apps/control-host/src/api/app.ts";
 import { createEgressAuthorizer } from "../apps/control-host/src/api/egress-authorizer.ts";
 import { registerWorkerRoutes } from "../apps/control-host/src/api/routes/worker.ts";
 import { main } from "../apps/control-host/src/scheduler/main.ts";
-import { testCatalog } from "../apps/control-host/src/test-support/catalog.ts";
-import { TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
-import { releaseIn, TEST_OWNER } from "../apps/control-host/src/test-support/releases.ts";
+import { testCatalog } from "../apps/control-host/src/testing/catalog.ts";
+import {
+  releaseIn,
+  TEST_OWNER,
+} from "../apps/control-host/src/testing/releases.ts";
 
 /**
  * Launch claim end to end: a container the scheduler launched trades
@@ -226,22 +229,22 @@ integration(
       const gateway = createWorkerGateway({
         work: createPostgresWorkerUnitOfWork(db),
         catalog: testCatalog({
-provider: {
-                kind: "litellm",
-                endpoint: `http://host.docker.internal:${messagesPort}`,
-                auth: {
-                  kind: "api_key",
-                  value: PROVIDER_KEY_VALUE,
-                  ref: { value_env: "PROVIDER_KEY" },
-                },
-              },
-repositories: {
+          provider: {
+            kind: "litellm",
+            endpoint: `http://host.docker.internal:${messagesPort}`,
+            auth: {
+              kind: "api_key",
+              value: PROVIDER_KEY_VALUE,
+              ref: { value_env: "PROVIDER_KEY" },
+            },
+          },
+          repositories: {
             "sample-app": {
               url: "https://example.invalid/app.git",
               branch: "main",
             },
           },
-}),
+        }),
         checkpoints: acceptAllCheckpoints,
         options: {
           leaseTtlMs: 60_000,

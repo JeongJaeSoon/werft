@@ -17,10 +17,7 @@ import {
   type SessionReader,
   type SessionUnitOfWork,
 } from "@werft-ai/platform";
-import {
-  TEST_CONNECTION_ID,
-  testCatalog,
-} from "../../test-support/catalog.ts";
+import { TEST_CONNECTION_ID, testCatalog } from "../../testing/catalog.ts";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerSessionRoutes } from "./sessions.ts";
 
@@ -108,67 +105,68 @@ function app(
   authorization: AuthorizationPolicy = createAuthorizationPolicy(),
   options: { workspace?: boolean; connectionId?: string } = {},
 ) {
-  const build = (policy: AuthorizationPolicy) => createSessionService({
-    limits: {
-      queuedInputLimitPerSession: 1_000,
-      storageLimitBytes: 1e15,
-      sessionCostLimitUsd: 1_000,
-      sessionTokenLimit: null,
-    },
-    authorization: policy,
-    catalog,
-    releases: {
-      resolveRelease: async () => release(options.connectionId),
-      notRunnableReason: async () => null,
-      agentGitHubSettings: async () => null,
-      repositoryCeiling: async () => ({
-        repository_ids: ["sample-app", "gone-app"],
-        github_app_repositories: "listed",
-      }),
-    },
-    inputs: {
-      acceptInputAtomic: async () => {
-        throw new Error("not reached");
+  const build = (policy: AuthorizationPolicy) =>
+    createSessionService({
+      limits: {
+        queuedInputLimitPerSession: 1_000,
+        storageLimitBytes: 1e15,
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
       },
-      appendInputAtomic: async () => {
-        throw new Error("not reached");
+      authorization: policy,
+      catalog,
+      releases: {
+        resolveRelease: async () => release(options.connectionId),
+        notRunnableReason: async () => null,
+        agentGitHubSettings: async () => null,
+        repositoryCeiling: async () => ({
+          repository_ids: ["sample-app", "gone-app"],
+          github_app_repositories: "listed",
+        }),
       },
-      ...overrides,
-    },
-    controls: {
-      terminateAtomic: async () => {
-        throw new Error("not reached");
+      inputs: {
+        acceptInputAtomic: async () => {
+          throw new Error("not reached");
+        },
+        appendInputAtomic: async () => {
+          throw new Error("not reached");
+        },
+        ...overrides,
       },
-      pauseAtomic: async () => {
-        throw new Error("not reached");
+      controls: {
+        terminateAtomic: async () => {
+          throw new Error("not reached");
+        },
+        pauseAtomic: async () => {
+          throw new Error("not reached");
+        },
+        closeAtomic: async () => {
+          throw new Error("not reached");
+        },
+        decideRecoveryAtomic: async () => {
+          throw new Error("not reached");
+        },
+        resumeAtomic: async () => {
+          throw new Error("not reached");
+        },
+        renameAtomic: async () => {
+          throw new Error("not reached");
+        },
+        ...overrides,
       },
-      closeAtomic: async () => {
-        throw new Error("not reached");
+      reader: {
+        listSessions: async () => ({ items: [], next_cursor: null }),
+        countSessions: async () => {
+          throw new Error("not reached");
+        },
+        getSession: async () => null,
+        listTurns: async () => null,
+        getTurn: async () => null,
+        getReceipt: async () => null,
+        readEvents: async () => null,
+        ...overrides,
       },
-      decideRecoveryAtomic: async () => {
-        throw new Error("not reached");
-      },
-      resumeAtomic: async () => {
-        throw new Error("not reached");
-      },
-      renameAtomic: async () => {
-        throw new Error("not reached");
-      },
-      ...overrides,
-    },
-    reader: {
-      listSessions: async () => ({ items: [], next_cursor: null }),
-      countSessions: async () => {
-        throw new Error("not reached");
-      },
-      getSession: async () => null,
-      listTurns: async () => null,
-      getTurn: async () => null,
-      getReceipt: async () => null,
-      readEvents: async () => null,
-      ...overrides,
-    },
-  });
+    });
   const service = build(authorization);
   // A workspace key whose scopes the policy would read from its stored row;
   // what is tested here is the session service's own checks.
@@ -229,9 +227,9 @@ describe("POST /v1/sessions validation", () => {
       return requestBodyInvalidDetailsSchema.parse(error.details).issues;
     };
     const { agent_release_id: _, ...withoutRelease } = valid;
-    expect(
-      (await issuesOf(withoutRelease)).map((issue) => issue.path),
-    ).toEqual(["agent_release_id"]);
+    expect((await issuesOf(withoutRelease)).map((issue) => issue.path)).toEqual(
+      ["agent_release_id"],
+    );
     expect(
       (await issuesOf({ ...valid, message: "", title: 7 })).map(
         (issue) => issue.path,

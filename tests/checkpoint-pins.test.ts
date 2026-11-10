@@ -32,7 +32,7 @@ import {
   createGitBundleChain,
   type GitBundleFixture,
 } from "@werft-ai/testkit/git-bundle";
-import { testCatalog } from "../apps/control-host/src/test-support/catalog.ts";
+import { testCatalog } from "../apps/control-host/src/testing/catalog.ts";
 import {
   imageClaimFingerprint,
   imageRuntimeOf,
@@ -1046,8 +1046,9 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
     const resolved = await catalog();
     const base = sessionClaim(await sessionOf({}), resolved).runtime_config;
     const earlier = (model: string): RuntimeConfig => ({ ...base, model });
-    const legacyConfigs = Array.from({ length: MAX_RESTORE_CONFIGS + 2 }, (_, i) =>
-      earlier(`claude-earlier-${i}`),
+    const legacyConfigs = Array.from(
+      { length: MAX_RESTORE_CONFIGS + 2 },
+      (_, i) => earlier(`claude-earlier-${i}`),
     );
     const claims = restoreClaims(
       { ...(await sessionOf({ legacyConfigs })), id: "s" },

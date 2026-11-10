@@ -11,10 +11,8 @@ import {
   createPostgresWorkerUnitOfWork,
 } from "@werft-ai/db";
 import { launchSession } from "@werft-ai/db/testing/launches";
-import {
-  acceptAllCheckpoints,
-  createWorkerGateway,
-} from "@werft-ai/platform";
+import { TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
+import { acceptAllCheckpoints, createWorkerGateway } from "@werft-ai/platform";
 import {
   createTempDatabase,
   type TempDatabase,
@@ -24,10 +22,9 @@ import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { seedSettings, settingsDocument } from "../test-support/settings.ts";
+import { testCatalog } from "../testing/catalog.ts";
+import { allowRepositories, releaseIn } from "../testing/releases.ts";
 import { SHUTDOWN_DRAIN_MS } from "./shutdown.ts";
-import { testCatalog } from "../test-support/catalog.ts";
-import { TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
-import { allowRepositories, releaseIn } from "../test-support/releases.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 const MASTER_KEY = "ab".repeat(32);
@@ -719,23 +716,23 @@ integration("API server on PostgreSQL", () => {
       const gateway = createWorkerGateway({
         work: createPostgresWorkerUnitOfWork(db),
         catalog: testCatalog({
-provider: {
-                kind: "anthropic",
-                endpoint: "https://api.anthropic.invalid",
-                auth: {
-                  kind: "api_key",
-                  value: PROVIDER_KEY,
-                  ref: { value_env: "INTEGRATION_PROVIDER_KEY" },
-                },
-              },
-repositories: {
+          provider: {
+            kind: "anthropic",
+            endpoint: "https://api.anthropic.invalid",
+            auth: {
+              kind: "api_key",
+              value: PROVIDER_KEY,
+              ref: { value_env: "INTEGRATION_PROVIDER_KEY" },
+            },
+          },
+          repositories: {
             [repositoryId]: {
               url: "https://github.com/team/app.git",
               branch: "main",
               auth: { kind: "github_app", registered: true } as const,
             },
           },
-}),
+        }),
         checkpoints: acceptAllCheckpoints,
         options: {
           sessionCostLimitUsd: 25,

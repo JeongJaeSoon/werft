@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   Api,
   bash,
-  e2eEnv,
+  e2eStack,
   type SessionDetail,
   scripted,
   type Turn,
@@ -15,7 +15,7 @@ import {
  * publish is reported as the advisory `publish_failed` and the turn is
  * finalized without a revision, so the pointer stops short of it.
  */
-const api = new Api(e2eEnv());
+const api = new Api(await e2eStack());
 const TIMEOUT = 600_000;
 
 async function completed(

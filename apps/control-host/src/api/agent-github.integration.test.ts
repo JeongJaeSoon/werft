@@ -32,6 +32,7 @@ import {
   memberships,
   users,
 } from "@werft-ai/db";
+import { sessionPinValues } from "@werft-ai/db/testing/spec-pins";
 import { createGitHubAppDirectory } from "@werft-ai/forge-github";
 import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import {
@@ -46,6 +47,11 @@ import {
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import {
+  TEST_CONNECTION_ID,
+  TEST_RUNTIMES,
+  testCatalog,
+} from "../testing/catalog.ts";
 import { createApiApp } from "./app.ts";
 import {
   createBootstrapGate,
@@ -59,8 +65,6 @@ import { registerAgentRoutes } from "./routes/agents.ts";
 import { registerApiKeyRoutes } from "./routes/api-keys.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerGitHubSettingsRoutes } from "./routes/github-settings.ts";
-import { TEST_CONNECTION_ID, TEST_RUNTIMES, testCatalog } from "../test-support/catalog.ts";
-import { sessionPinValues } from "@werft-ai/db/testing/spec-pins";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 
@@ -68,16 +72,16 @@ const BOOTSTRAP_TOKEN = "bootstrap-token-for-the-agent-github-tab";
 const PASSWORD = "correct horse battery staple";
 
 const catalog: SessionCatalog = testCatalog({
-provider: {
-        kind: "litellm",
-        endpoint: "https://litellm.invalid",
-        auth: {
-          kind: "api_key",
-          value: "catalog-provider-key",
-          ref: { value_env: "PROVIDER_KEY" },
-        },
-      },
-repositories: {
+  provider: {
+    kind: "litellm",
+    endpoint: "https://litellm.invalid",
+    auth: {
+      kind: "api_key",
+      value: "catalog-provider-key",
+      ref: { value_env: "PROVIDER_KEY" },
+    },
+  },
+  repositories: {
     "sample-app": {
       url: "https://github.com/acme/sample-app",
       branch: "main",
@@ -145,7 +149,7 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
       credentials,
       githubSettings,
       runtimes: TEST_RUNTIMES,
-});
+    });
     const keys = createApiKeyService({
       authorization,
       store: createPostgresWorkspaceKeyStore(db),

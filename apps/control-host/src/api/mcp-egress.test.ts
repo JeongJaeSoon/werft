@@ -10,6 +10,11 @@ import {
 } from "@werft-ai/db";
 import { fixtureTeam } from "@werft-ai/db/testing/fixture-team";
 import { launchSession } from "@werft-ai/db/testing/launches";
+import {
+  releaseSpecColumns,
+  TEST_CONNECTION_ID,
+  TEST_MODEL,
+} from "@werft-ai/db/testing/spec-pins";
 import { createLogger } from "@werft-ai/observability";
 import {
   acceptAllCheckpoints,
@@ -20,34 +25,33 @@ import {
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { eq } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
+import { testCatalog } from "../testing/catalog.ts";
 import {
   createEgressAuthorizer,
   EGRESS_AUTHORIZER_PATH,
 } from "./egress-authorizer.ts";
-import { testCatalog } from "../test-support/catalog.ts";
-import { TEST_MODEL, releaseSpecColumns, TEST_CONNECTION_ID } from "@werft-ai/db/testing/spec-pins";
 
 const AUTHORIZER_TOKEN = "authorizer-token-of-at-least-32-characters";
 const SERVICE_ACCOUNT = "sa-value-kept-from-the-worker";
 
 const catalog: SessionCatalog = testCatalog({
-provider: {
-        kind: "anthropic",
-        endpoint: "https://api.anthropic.invalid",
-        auth: {
-          kind: "api_key",
-          value: "catalog-provider-key",
-          ref: { value_env: "PROVIDER_KEY" },
-        },
-      },
-repositories: {
+  provider: {
+    kind: "anthropic",
+    endpoint: "https://api.anthropic.invalid",
+    auth: {
+      kind: "api_key",
+      value: "catalog-provider-key",
+      ref: { value_env: "PROVIDER_KEY" },
+    },
+  },
+  repositories: {
     app: {
       url: "https://git.invalid/agent/app.git",
       branch: "main",
       auth: { kind: "github_app", registered: true } as const,
     },
   },
-mcp_servers: {
+  mcp_servers: {
     fake: {
       url: "http://fake-mcp:4020/mcp",
       credential_ref: "mcp/fake",

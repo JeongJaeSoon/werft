@@ -245,9 +245,11 @@ sdk_version="$(sed -n 's/.*"@anthropic-ai\/claude-agent-sdk": "\([^"]*\)".*/\1/p
 
 export E2E_API_URL="http://127.0.0.1:$(dc port api 3000 | sed 's/.*://')"
 export E2E_API_KEY="$api_key"
+# Every suite signs in as the first owner to release its agent on the
+# stack's connection (tests/e2e/client.ts e2eStack): a session runs a release.
+export E2E_BOOTSTRAP_TOKEN="$BOOTSTRAP_TOKEN"
 if [ -z "$real_model$local_model" ]; then
   export E2E_MESSAGES_URL="http://127.0.0.1:$(dc port fake-messages 4011 | sed 's/.*://')"
-  export E2E_BOOTSTRAP_TOKEN="$BOOTSTRAP_TOKEN"
   export E2E_FAKE_MCP_URL="http://127.0.0.1:$(dc port fake-mcp 4021 | sed 's/.*://')"
   E2E_FAKE_MCP_BEARER_HASH="$(dc exec -T secrets awslocal secretsmanager get-secret-value \
     --secret-id werft/local/fake-mcp --query SecretString --output text |
@@ -267,9 +269,9 @@ set +e
 if [ -n "$real_model$local_model" ]; then
   suites=(./tests/e2e/real-model.e2e.ts)
 else
-  # remote-mcp and operator-profiles first: the other suites leave their
-  # sessions holding every execution slot.
-  suites=(./tests/e2e/remote-mcp.e2e.ts ./tests/e2e/operator-profiles.e2e.ts ./tests/e2e/alpha-path.e2e.ts ./tests/e2e/pause-coverage.e2e.ts ./tests/e2e/workspace-loss.e2e.ts)
+  # remote-mcp first: the other suites leave their sessions holding every
+  # execution slot.
+  suites=(./tests/e2e/remote-mcp.e2e.ts ./tests/e2e/alpha-path.e2e.ts ./tests/e2e/pause-coverage.e2e.ts ./tests/e2e/workspace-loss.e2e.ts)
 fi
 # The suites drive the public API and never need the provider key.
 env -u ANTHROPIC_API_KEY bun test "${suites[@]}" --timeout 900000 \

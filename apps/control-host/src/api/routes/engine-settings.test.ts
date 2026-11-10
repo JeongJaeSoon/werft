@@ -126,10 +126,7 @@ function appWith(
       : null;
   const store: EngineSettingsStore = {
     workspace: async () => workspace,
-    agent: async (_workspaceId, agentId) =>
-      agentId === AGENT
-        ? agent
-        : null,
+    agent: async (_workspaceId, agentId) => (agentId === AGENT ? agent : null),
     async putWorkspace(input) {
       const refused = outcome(workspace, input.expectedRevision);
       if (refused !== null) return refused;

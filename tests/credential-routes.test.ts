@@ -47,6 +47,10 @@ import {
   EGRESS_AUTHORIZER_PATH,
 } from "../apps/control-host/src/api/egress-authorizer.ts";
 import {
+  releaseOnConnection,
+  TEST_OWNER,
+} from "../apps/control-host/src/testing/releases.ts";
+import {
   type CredentialProxyServer,
   startCredentialProxy,
 } from "../apps/egress-proxy/src/credential.ts";
@@ -57,10 +61,6 @@ import {
   SecretScrubber,
 } from "../apps/worker/src/secret-scrubber.ts";
 import { GitWorkspace } from "../apps/worker/src/workspace.ts";
-import {
-  releaseOnConnection,
-  TEST_OWNER,
-} from "../apps/control-host/src/test-support/releases.ts";
 
 /**
  * Credential routes end to end in one process: the real gateway issues a claim,

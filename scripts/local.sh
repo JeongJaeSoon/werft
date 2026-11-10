@@ -35,8 +35,8 @@
 # real-model e2e's cost limits (infra/compose.real-model.yml,
 # docs/real-claude.md). The key is optional: it comes from the shell or,
 # failing that, the repository's .env, and without it the stack still starts
-# on this overlay with no model connection (profiles show `connection_missing`)
-# until the key is entered on the console's model connections screen. A
+# on this overlay with no model connection (no agent can be released) until
+# the key is entered on the console's model connections screen. A
 # malformed .env line stops `up` before anything is touched.
 #
 # --fake-model runs without a key instead (infra/compose.fake-model.yml):
@@ -49,7 +49,7 @@
 # out. Only a stack on this machine's Docker whose api listens on loopback
 # gets them: their password is in the repository. On a --fake-model stack
 # the demo agents and sessions follow (LOCAL_DEMO_DATA=0 leaves them out);
-# their CLI refuses any profile that would call a real provider.
+# their CLI refuses any connection that would call a real provider.
 #
 # PLATFORM_SECRET_KEY comes from the shell or .env; failing both, `up` makes
 # one per project under AGENT_PLATFORM_STATE_DIR (~/.local/state/werft)

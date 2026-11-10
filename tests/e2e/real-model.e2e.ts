@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { Api, e2eEnv, poll, type SseEvent, type Turn } from "./client.ts";
+import { Api, e2eStack, poll, type SseEvent, type Turn } from "./client.ts";
 
 /**
  * The alpha path against the real Messages API, run by
@@ -9,18 +9,20 @@ import { Api, e2eEnv, poll, type SseEvent, type Turn } from "./client.ts";
  * repository's state) and what the platform recorded (turns, attempts,
  * checkpoint, the engine session, usage).
  */
-const api = new Api(e2eEnv({ needsMessages: false }));
-// Set by run.sh from its flag; the same path runs once on each profile of
-// the mode's catalog. Also the test's name and the run record's key.
-const PROFILES = {
-  real: ["claude-coding-real"],
-  local: ["local-ollama", "local-litellm"],
+// The connection's agent and key, set by each run of the test below.
+let api: Api;
+// Set by run.sh from its flag; the same path runs once on each connection of
+// the mode's settings, an agent released on each. Also the test's name and
+// the run record's key.
+const CONNECTIONS = {
+  real: ["anthropic"],
+  local: ["ollama", "litellm"],
 } as const;
 const MODE = process.env.E2E_MODEL_MODE || "real";
-if (!Object.hasOwn(PROFILES, MODE)) {
+if (!Object.hasOwn(CONNECTIONS, MODE)) {
   throw new Error(`E2E_MODEL_MODE ${MODE} is neither real nor local`);
 }
-const PROFILE_IDS = PROFILES[MODE as keyof typeof PROFILES];
+const CONNECTION_IDS = CONNECTIONS[MODE as keyof typeof CONNECTIONS];
 const SESSION_COST_LIMIT_USD = process.env.SESSION_COST_LIMIT_USD;
 if (!SESSION_COST_LIMIT_USD) {
   throw new Error("SESSION_COST_LIMIT_USD is unset; run tests/e2e/run.sh");
@@ -117,15 +119,12 @@ function commitSeen(events: SseEvent[]): string {
   return commit;
 }
 
-test.each(PROFILE_IDS)(
+test.each(CONNECTION_IDS)(
   `two turns, a checkpoint and a resume on a new worker, against the ${MODE} model (%s)`,
-  async (profileId) => {
+  async (connectionId) => {
+    api = new Api(await e2eStack({ needsMessages: false, connectionId }));
     // 1. The model writes and commits a file; workspace writes and local git are pre-approved.
-    const created = await api.createSession(
-      exactly(write),
-      undefined,
-      profileId,
-    );
+    const created = await api.createSession(exactly(write));
     expect(created.status).toBe(201);
     const sessionId = created.body.session_id;
     const first = await completed(sessionId, "1");
@@ -199,7 +198,7 @@ test.each(PROFILE_IDS)(
     console.log(
       JSON.stringify({
         [`${MODE}_model`]: {
-          profile_id: profileId,
+          connection_id: connectionId,
           session_id: sessionId,
           commit,
           engine_session: engineSession(thirdEvents),

@@ -26,6 +26,11 @@ import {
   unassignedSessions,
 } from "@werft-ai/db";
 import { migrate } from "@werft-ai/db/migrate";
+import {
+  sessionPinColumns,
+  TEST_MODEL,
+  TEST_RUNTIME_VERSION,
+} from "@werft-ai/db/testing/spec-pins";
 import { createLogger } from "@werft-ai/observability";
 import {
   type AuthorizationPolicy,
@@ -36,24 +41,19 @@ import {
 import { asc, count, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { createApiApp, isStorageUnavailable } from "./app.ts";
-import { createApiPool, createProbePool } from "./pool.ts";
-import { createReadinessProbe } from "./readiness.ts";
-import { registerReceiptRoutes } from "./routes/receipts.ts";
-import { registerSessionRoutes } from "./routes/sessions.ts";
-import {
-  sessionPinColumns,
-  TEST_MODEL,
-  TEST_RUNTIME_VERSION,
-} from "@werft-ai/db/testing/spec-pins";
-import { testCatalog } from "../test-support/catalog.ts";
+import { testCatalog } from "../testing/catalog.ts";
 import {
   allowingPolicy,
   allowRepositories,
   sessionReleases,
   startingInWorkspace,
   workspaceRelease,
-} from "../test-support/releases.ts";
+} from "../testing/releases.ts";
+import { createApiApp, isStorageUnavailable } from "./app.ts";
+import { createApiPool, createProbePool } from "./pool.ts";
+import { createReadinessProbe } from "./readiness.ts";
+import { registerReceiptRoutes } from "./routes/receipts.ts";
+import { registerSessionRoutes } from "./routes/sessions.ts";
 
 const catalog: SessionCatalog = testCatalog({
   provider: {

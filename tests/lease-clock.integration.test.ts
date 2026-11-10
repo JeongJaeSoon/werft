@@ -36,6 +36,14 @@ import { Pool } from "pg";
 import { createApiApp } from "../apps/control-host/src/api/app.ts";
 import { registerSessionRoutes } from "../apps/control-host/src/api/routes/sessions.ts";
 import { registerWorkerRoutes } from "../apps/control-host/src/api/routes/worker.ts";
+import { testCatalog } from "../apps/control-host/src/testing/catalog.ts";
+import {
+  allowingPolicy,
+  allowRepositories,
+  releaseIn,
+  sessionReleases,
+  startingInWorkspace,
+} from "../apps/control-host/src/testing/releases.ts";
 import type { WorkerCheckpointPort } from "../apps/worker/src/checkpoint.ts";
 import {
   type FetchLike,
@@ -50,14 +58,6 @@ import {
   type WorkerLogger,
 } from "../apps/worker/src/worker-host.ts";
 import { noWorkspace } from "../apps/worker/src/workspace.ts";
-import { testCatalog } from "../apps/control-host/src/test-support/catalog.ts";
-import {
-  allowingPolicy,
-  allowRepositories,
-  releaseIn,
-  sessionReleases,
-  startingInWorkspace,
-} from "../apps/control-host/src/test-support/releases.ts";
 
 /** PostgreSQL lock, fencing and delayed-heartbeat contracts through HTTP. */
 const databaseUrl = process.env.QUEUE_DATABASE_URL;
@@ -69,16 +69,16 @@ const MARGIN_MS = 3_000;
 const HEARTBEAT_MS = 300;
 
 const catalog: SessionCatalog = testCatalog({
-provider: {
-        kind: "litellm",
-        endpoint: "https://litellm.invalid",
-        auth: {
-          kind: "api_key",
-          value: "catalog-provider-key",
-          ref: { value_env: "PROVIDER_KEY" },
-        },
-      },
-repositories: {
+  provider: {
+    kind: "litellm",
+    endpoint: "https://litellm.invalid",
+    auth: {
+      kind: "api_key",
+      value: "catalog-provider-key",
+      ref: { value_env: "PROVIDER_KEY" },
+    },
+  },
+  repositories: {
     "sample-app": {
       url: "https://example.invalid/app.git",
       branch: "main",
@@ -120,33 +120,36 @@ integration("worker lease on the monotonic clock end to end", () => {
     releaseId = await releaseIn(db, owner);
     await allowRepositories(db, owner, ["sample-app"]);
     const logger = createLogger({ sinks: [] });
-    const sessions = startingInWorkspace(createSessionService({
-      authorization: createAuthorizationPolicy(),
-      inputs: createPostgresSessionUnitOfWork(db),
-      controls: createPostgresSessionControl(db),
-      reader: createPostgresSessionReader(db),
-      catalog,
-      limits: {
-        queuedInputLimitPerSession: 1_000,
-        storageLimitBytes: 1e15,
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
-      },
-  releases: sessionReleases(db, catalog),
-}), createSessionService({
-      authorization: allowingPolicy,
-      inputs: createPostgresSessionUnitOfWork(db),
-      controls: createPostgresSessionControl(db),
-      reader: createPostgresSessionReader(db),
-      catalog,
-      limits: {
-        queuedInputLimitPerSession: 1_000,
-        storageLimitBytes: 1e15,
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
-      },
-  releases: sessionReleases(db, catalog),
-}));
+    const sessions = startingInWorkspace(
+      createSessionService({
+        authorization: createAuthorizationPolicy(),
+        inputs: createPostgresSessionUnitOfWork(db),
+        controls: createPostgresSessionControl(db),
+        reader: createPostgresSessionReader(db),
+        catalog,
+        limits: {
+          queuedInputLimitPerSession: 1_000,
+          storageLimitBytes: 1e15,
+          sessionCostLimitUsd: 1_000,
+          sessionTokenLimit: null,
+        },
+        releases: sessionReleases(db, catalog),
+      }),
+      createSessionService({
+        authorization: allowingPolicy,
+        inputs: createPostgresSessionUnitOfWork(db),
+        controls: createPostgresSessionControl(db),
+        reader: createPostgresSessionReader(db),
+        catalog,
+        limits: {
+          queuedInputLimitPerSession: 1_000,
+          storageLimitBytes: 1e15,
+          sessionCostLimitUsd: 1_000,
+          sessionTokenLimit: null,
+        },
+        releases: sessionReleases(db, catalog),
+      }),
+    );
     const serve = (leaseTtlMs: number) => {
       const workers = createWorkerGateway({
         work: createPostgresWorkerUnitOfWork(db),

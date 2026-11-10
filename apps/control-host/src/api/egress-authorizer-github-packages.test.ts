@@ -6,6 +6,7 @@ import {
   createPostgresWorkerUnitOfWork,
 } from "@werft-ai/db";
 import { launchSession } from "@werft-ai/db/testing/launches";
+import { TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
 import { createLogger } from "@werft-ai/observability";
 import {
   acceptAllCheckpoints,
@@ -15,13 +16,12 @@ import {
 } from "@werft-ai/platform";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
+import { testCatalog } from "../testing/catalog.ts";
+import { releaseIn, TEST_OWNER } from "../testing/releases.ts";
 import {
   createEgressAuthorizer,
   EGRESS_AUTHORIZER_PATH,
 } from "./egress-authorizer.ts";
-import { testCatalog } from "../test-support/catalog.ts";
-import { TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
-import { releaseIn, TEST_OWNER } from "../test-support/releases.ts";
 
 const BEARER = "authorizer-bearer-for-tests";
 const BOT = "fake-bot-credential-for-tests";
@@ -61,23 +61,23 @@ beforeEach(async () => {
   gateway = createWorkerGateway({
     work: createPostgresWorkerUnitOfWork(db),
     catalog: testCatalog({
-provider: {
-            kind: "anthropic",
-            endpoint: "https://api.anthropic.invalid",
-            auth: {
-              kind: "api_key",
-              value: "catalog-provider-key",
-              ref: { value_env: "PROVIDER_KEY" },
-            },
-          },
-repositories: {
+      provider: {
+        kind: "anthropic",
+        endpoint: "https://api.anthropic.invalid",
+        auth: {
+          kind: "api_key",
+          value: "catalog-provider-key",
+          ref: { value_env: "PROVIDER_KEY" },
+        },
+      },
+      repositories: {
         "sample-app": {
           url: "https://git.invalid/agent/app.git",
           branch: "main",
           auth: { kind: "github_app", registered: true } as const,
         },
       },
-}),
+    }),
     checkpoints: acceptAllCheckpoints,
     options: {
       sessionCostLimitUsd: 1_000,

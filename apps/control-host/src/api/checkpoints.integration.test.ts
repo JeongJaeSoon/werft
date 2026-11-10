@@ -14,6 +14,7 @@ import {
 import { migrate } from "@werft-ai/db/migrate";
 import { commitCheckpoint } from "@werft-ai/db/testing/checkpoints";
 import { launchSession } from "@werft-ai/db/testing/launches";
+import { TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
 import {
   type CheckpointService,
   createWorkerGateway,
@@ -52,14 +53,13 @@ import {
 import { and, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { testCatalog } from "../testing/catalog.ts";
+import { releaseIn, TEST_OWNER } from "../testing/releases.ts";
 import {
   assertCheckpointBucketProtection,
   type CheckpointStorageConfig,
   createApiCheckpoints,
 } from "./checkpoints.ts";
-import { testCatalog } from "../test-support/catalog.ts";
-import { TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
-import { releaseIn, TEST_OWNER } from "../test-support/releases.ts";
 
 /**
  * The product composition against real stores: the worker gateway bound to
@@ -153,23 +153,23 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
     gateway = createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
       catalog: testCatalog({
-provider: {
-              kind: "litellm",
-              endpoint: "https://litellm.invalid",
-              auth: {
-                kind: "api_key",
-                value: "catalog-provider-key",
-                ref: { value_env: "PROVIDER_KEY" },
-              },
-            },
-repositories: {
+        provider: {
+          kind: "litellm",
+          endpoint: "https://litellm.invalid",
+          auth: {
+            kind: "api_key",
+            value: "catalog-provider-key",
+            ref: { value_env: "PROVIDER_KEY" },
+          },
+        },
+        repositories: {
           "sample-app": {
             url: "https://example.invalid/app.git",
             branch: "main",
             auth: { kind: "github_app", registered: true } as const,
           },
         },
-}),
+      }),
       checkpoints: checkpoints.verifier,
       checkpointProtocol: checkpoints.protocol,
       options: {

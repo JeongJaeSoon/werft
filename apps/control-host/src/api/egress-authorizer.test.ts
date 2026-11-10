@@ -7,6 +7,7 @@ import {
   createPostgresWorkerUnitOfWork,
 } from "@werft-ai/db";
 import { launchSession } from "@werft-ai/db/testing/launches";
+import { TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
 import { createLogger } from "@werft-ai/observability";
 import {
   acceptAllCheckpoints,
@@ -18,6 +19,8 @@ import { createObjectRouteSigner } from "@werft-ai/storage";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { eq } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
+import { testCatalog } from "../testing/catalog.ts";
+import { releaseIn, TEST_OWNER } from "../testing/releases.ts";
 import { createApiApp } from "./app.ts";
 import {
   createEgressAuthorizer,
@@ -26,9 +29,6 @@ import {
   egressAuthorizerConfigFromEnv,
 } from "./egress-authorizer.ts";
 import { registerWorkerRoutes } from "./routes/worker.ts";
-import { testCatalog } from "../test-support/catalog.ts";
-import { TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
-import { releaseIn, TEST_OWNER } from "../test-support/releases.ts";
 
 const AUTHORIZER_TOKEN = "authorizer-token-for-tests-0123456789";
 
@@ -43,23 +43,23 @@ beforeEach(async () => {
   gateway = createWorkerGateway({
     work: createPostgresWorkerUnitOfWork(db),
     catalog: testCatalog({
-provider: {
-            kind: "anthropic",
-            endpoint: "https://api.anthropic.invalid",
-            auth: {
-              kind: "api_key",
-              value: "catalog-provider-key",
-              ref: { value_env: "PROVIDER_KEY" },
-            },
-          },
-repositories: {
+      provider: {
+        kind: "anthropic",
+        endpoint: "https://api.anthropic.invalid",
+        auth: {
+          kind: "api_key",
+          value: "catalog-provider-key",
+          ref: { value_env: "PROVIDER_KEY" },
+        },
+      },
+      repositories: {
         "sample-app": {
           url: "https://git.invalid/agent/app.git",
           branch: "main",
           auth: { kind: "github_app", registered: true },
         },
       },
-}),
+    }),
     checkpoints: acceptAllCheckpoints,
     options: {
       sessionCostLimitUsd: 1_000,
@@ -454,8 +454,8 @@ describe("the judgment route", () => {
     const judged = createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
       catalog: testCatalog({
-repositories: {},
-}),
+        repositories: {},
+      }),
       checkpoints: acceptAllCheckpoints,
       judgments: {
         store: createPostgresJudgmentEgress(db),

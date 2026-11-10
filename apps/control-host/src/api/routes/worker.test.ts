@@ -25,21 +25,18 @@ import {
   insertUnreservedLaunch,
   launchSession,
 } from "@werft-ai/db/testing/launches";
+import { TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
 import { formatTraceparent, turnTraceId } from "@werft-ai/observability";
 import { createOtelTracer } from "@werft-ai/observability/otel";
-import {
-  acceptAllCheckpoints,
-  createWorkerGateway,
-} from "@werft-ai/platform";
+import { acceptAllCheckpoints, createWorkerGateway } from "@werft-ai/platform";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { and, count, eq, isNotNull } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
+import { testCatalog } from "../../testing/catalog.ts";
+import { releaseIn, TEST_OWNER } from "../../testing/releases.ts";
 import { createApiApp } from "../app.ts";
 import { RequestTracing } from "../request-tracing.ts";
 import { registerWorkerRoutes } from "./worker.ts";
-import { testCatalog } from "../../test-support/catalog.ts";
-import { TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
-import { releaseIn, TEST_OWNER } from "../../test-support/releases.ts";
 
 // Every call in a test that expects success has to land inside one lease on
 // a loaded runner; only the expiry test waits it out.
@@ -64,23 +61,23 @@ beforeEach(async () => {
         archives.get(`${workspaceId}/${digest}`) ?? null,
     },
     catalog: testCatalog({
-provider: {
-            kind: "litellm",
-            endpoint: "https://litellm.invalid",
-            auth: {
-              kind: "api_key",
-              value: "catalog-provider-key",
-              ref: { value_env: "PROVIDER_KEY" },
-            },
-          },
-repositories: {
+      provider: {
+        kind: "litellm",
+        endpoint: "https://litellm.invalid",
+        auth: {
+          kind: "api_key",
+          value: "catalog-provider-key",
+          ref: { value_env: "PROVIDER_KEY" },
+        },
+      },
+      repositories: {
         "sample-app": {
           url: "https://example.invalid/app.git",
           branch: "main",
           auth: { kind: "github_app", registered: true } as const,
         },
       },
-}),
+    }),
     checkpoints: acceptAllCheckpoints,
     options: {
       sessionCostLimitUsd: 1_000,

@@ -99,8 +99,9 @@ describe("the old catalog directory", () => {
     });
     const config = await readCatalogConfig(dir);
     expect(Object.keys(config.repositories)).toEqual(["sample-app"]);
-    expect(Object.hasOwn(config.repositories["sample-app"] ?? {}, "profiles"))
-      .toBe(false);
+    expect(
+      Object.hasOwn(config.repositories["sample-app"] ?? {}, "profiles"),
+    ).toBe(false);
   });
 
   test("a directory without connections.yaml is refused, naming the file", async () => {

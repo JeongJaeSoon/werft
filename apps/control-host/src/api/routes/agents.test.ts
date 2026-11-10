@@ -30,7 +30,7 @@ import {
   TEST_CONNECTION_ID,
   TEST_RUNTIMES,
   testCatalog,
-} from "../../test-support/catalog.ts";
+} from "../../testing/catalog.ts";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerAgentRoutes } from "./agents.ts";
 

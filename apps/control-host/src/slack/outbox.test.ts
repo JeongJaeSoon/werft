@@ -91,7 +91,7 @@ import {
   settingsCatalog,
   settingsDocument,
 } from "../test-support/settings.ts";
-import { TEST_RUNTIMES } from "../test-support/catalog.ts";
+import { TEST_RUNTIMES } from "../testing/catalog.ts";
 import { slackCatalog, slackSessionHandler } from "./main.ts";
 
 const CONNECTIONS = `connections:

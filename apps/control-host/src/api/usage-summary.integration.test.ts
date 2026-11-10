@@ -31,6 +31,11 @@ import {
 } from "@werft-ai/db";
 import { fixtureTeam } from "@werft-ai/db/testing/fixture-team";
 import {
+  releaseSpecColumns,
+  TEST_CONNECTION_ID,
+  TEST_MODEL,
+} from "@werft-ai/db/testing/spec-pins";
+import {
   type Caller,
   callerFor,
   createAuthorizationPolicy,
@@ -47,6 +52,7 @@ import {
 import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { releaseIn } from "../testing/releases.ts";
 import { createApiApp } from "./app.ts";
 import {
   createBootstrapGate,
@@ -56,8 +62,6 @@ import {
 import { DatabaseApiKeyStore } from "./keys.ts";
 import { registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerUsageRoutes } from "./routes/usage.ts";
-import { TEST_MODEL, releaseSpecColumns, TEST_CONNECTION_ID } from "@werft-ai/db/testing/spec-pins";
-import { releaseIn } from "../test-support/releases.ts";
 
 // A legacy key's owner: a uuid now, since its sessions run a release of a
 // workspace by that id.

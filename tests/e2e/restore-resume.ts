@@ -1,4 +1,4 @@
-import { Api, e2eEnv, poll, scripted, type Turn } from "./client.ts";
+import { Api, e2eEnv, e2eStack, poll, scripted, type Turn } from "./client.ts";
 
 /**
  * The public-API half of tests/e2e/restore-resume.sh: each step
@@ -11,7 +11,7 @@ import { Api, e2eEnv, poll, scripted, type Turn } from "./client.ts";
  *   bun run tests/e2e/restore-resume.ts pause <session>
  *   bun run tests/e2e/restore-resume.ts resume <session>
  */
-const api = new Api(e2eEnv());
+const api = new Api(await e2eStack());
 
 const bash = (command: string) => ({
   tool: "Bash",

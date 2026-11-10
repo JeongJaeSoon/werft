@@ -8,6 +8,10 @@ import {
   sessions,
   turns,
 } from "@werft-ai/db";
+import {
+  fixtureRelease,
+  sessionPinColumns,
+} from "@werft-ai/db/testing/spec-pins";
 import { createLogger } from "@werft-ai/observability";
 import {
   createTempDatabase,
@@ -18,10 +22,6 @@ import { sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { eventNeutralizer } from "./neutral-fields.ts";
-import {
-  fixtureRelease,
-  sessionPinColumns,
-} from "@werft-ai/db/testing/spec-pins";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 

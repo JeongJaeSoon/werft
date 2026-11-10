@@ -13,6 +13,7 @@ import {
   turns,
   workerLaunches,
 } from "@werft-ai/db";
+import { TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
 import {
   type Caller,
   callerFor,
@@ -30,10 +31,9 @@ import {
 import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { releaseIn } from "../testing/releases.ts";
 import { createApiApp } from "./app.ts";
 import { registerUsageRoutes } from "./routes/usage.ts";
-import { TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
-import { releaseIn } from "../test-support/releases.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 

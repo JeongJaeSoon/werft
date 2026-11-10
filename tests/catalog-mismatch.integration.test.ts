@@ -16,6 +16,7 @@ import {
   createPostgresWorkerUnitOfWork,
   queueMessages,
 } from "@werft-ai/db";
+import { sessionPinColumns, TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
 import { createLogger } from "@werft-ai/observability";
 import {
   createAuthorizationPolicy,
@@ -41,6 +42,14 @@ import { createApiApp } from "../apps/control-host/src/api/app.ts";
 import { registerReceiptRoutes } from "../apps/control-host/src/api/routes/receipts.ts";
 import { registerSessionRoutes } from "../apps/control-host/src/api/routes/sessions.ts";
 import { registerWorkerRoutes } from "../apps/control-host/src/api/routes/worker.ts";
+import { testCatalog } from "../apps/control-host/src/testing/catalog.ts";
+import {
+  allowingPolicy,
+  allowRepositories,
+  releaseIn,
+  sessionReleases,
+  startingInWorkspace,
+} from "../apps/control-host/src/testing/releases.ts";
 import type { WorkerCheckpointPort } from "../apps/worker/src/checkpoint.ts";
 import { HttpWorkerGatewayClient } from "../apps/worker/src/gateway-client.ts";
 import {
@@ -54,15 +63,6 @@ import {
   type WorkerRunSummary,
 } from "../apps/worker/src/worker-host.ts";
 import { noWorkspace } from "../apps/worker/src/workspace.ts";
-import { testCatalog } from "../apps/control-host/src/test-support/catalog.ts";
-import {
-  allowingPolicy,
-  allowRepositories,
-  releaseIn,
-  sessionReleases,
-  startingInWorkspace,
-} from "../apps/control-host/src/test-support/releases.ts";
-import { sessionPinColumns, TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
 
 /**
  * Catalog mismatch end to end in one process: an operator
@@ -274,33 +274,36 @@ integration("a session whose pair left the catalog, end to end", () => {
   let releaseId = "";
 
   const serviceFor = (catalog: SessionCatalog) =>
-    startingInWorkspace(createSessionService({
-      authorization: createAuthorizationPolicy(),
-      inputs: createPostgresSessionUnitOfWork(db),
-      controls: createPostgresSessionControl(db),
-      reader: createPostgresSessionReader(db),
-      catalog,
-      limits: {
-        queuedInputLimitPerSession: 1_000,
-        storageLimitBytes: 1e15,
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
-      },
-  releases: sessionReleases(db, catalog),
-}), createSessionService({
-      authorization: allowingPolicy,
-      inputs: createPostgresSessionUnitOfWork(db),
-      controls: createPostgresSessionControl(db),
-      reader: createPostgresSessionReader(db),
-      catalog,
-      limits: {
-        queuedInputLimitPerSession: 1_000,
-        storageLimitBytes: 1e15,
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
-      },
-  releases: sessionReleases(db, catalog),
-}));
+    startingInWorkspace(
+      createSessionService({
+        authorization: createAuthorizationPolicy(),
+        inputs: createPostgresSessionUnitOfWork(db),
+        controls: createPostgresSessionControl(db),
+        reader: createPostgresSessionReader(db),
+        catalog,
+        limits: {
+          queuedInputLimitPerSession: 1_000,
+          storageLimitBytes: 1e15,
+          sessionCostLimitUsd: 1_000,
+          sessionTokenLimit: null,
+        },
+        releases: sessionReleases(db, catalog),
+      }),
+      createSessionService({
+        authorization: allowingPolicy,
+        inputs: createPostgresSessionUnitOfWork(db),
+        controls: createPostgresSessionControl(db),
+        reader: createPostgresSessionReader(db),
+        catalog,
+        limits: {
+          queuedInputLimitPerSession: 1_000,
+          storageLimitBytes: 1e15,
+          sessionCostLimitUsd: 1_000,
+          sessionTokenLimit: null,
+        },
+        releases: sessionReleases(db, catalog),
+      }),
+    );
 
   beforeAll(async () => {
     database = await createTempDatabase({ prefix: "catalog_mismatch_e2e" });

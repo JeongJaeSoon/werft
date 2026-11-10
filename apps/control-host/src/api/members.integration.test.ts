@@ -36,6 +36,12 @@ import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { testCatalog } from "../testing/catalog.ts";
+import {
+  allowRepositories,
+  releaseIn,
+  sessionReleases,
+} from "../testing/releases.ts";
 import { createApiApp } from "./app.ts";
 import {
   createBootstrapGate,
@@ -48,12 +54,6 @@ import { registerEventRoutes } from "./routes/events.ts";
 import { registerMemberRoutes } from "./routes/members.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
-import { testCatalog } from "../test-support/catalog.ts";
-import {
-  allowRepositories,
-  releaseIn,
-  sessionReleases,
-} from "../test-support/releases.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 

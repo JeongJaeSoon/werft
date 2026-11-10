@@ -11,21 +11,21 @@ import {
   users,
   workspaces,
 } from "@werft-ai/db";
-import {
-  agentEnvNames,
-  releaseNotRunnableReason,
-  resolveAgentRelease,
-  type AuthorizationPolicy,
-  type Caller,
-  deriveReleaseId,
-  type SessionCatalogView,
-} from "@werft-ai/platform";
 import { fixtureTeam } from "@werft-ai/db/testing/fixture-team";
 import {
   releaseSpecColumns,
   TEST_MODEL,
   testSpecSource,
 } from "@werft-ai/db/testing/spec-pins";
+import {
+  type AuthorizationPolicy,
+  agentEnvNames,
+  type Caller,
+  deriveReleaseId,
+  releaseNotRunnableReason,
+  resolveAgentRelease,
+  type SessionCatalogView,
+} from "@werft-ai/platform";
 
 /**
  * A new workspace with an active agent and one release on the test
@@ -212,7 +212,10 @@ export function startingInWorkspace<
   return {
     ...service,
     createSession: ((caller: Caller, input: never) =>
-      starter.createSession(asWorkspaceKey(caller), input)) as S["createSession"],
+      starter.createSession(
+        asWorkspaceKey(caller),
+        input,
+      )) as S["createSession"],
   };
 }
 
