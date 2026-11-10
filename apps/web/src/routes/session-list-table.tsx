@@ -138,11 +138,13 @@ export function SessionListTable({
     return () => watch.disconnect();
   }, [hasMore, sessions.length]);
 
-  const visible = sessions.slice(range.from, range.to + 1);
-  const before = range.from * rowHeight;
+  // A refresh can shorten the list below the scrolled range until the next scroll.
+  const from = Math.min(range.from, Math.max(0, sessions.length - 1));
+  const visible = sessions.slice(from, range.to + 1);
+  const before = from * rowHeight;
   const after = Math.max(
     0,
-    (sessions.length - range.from - visible.length) * rowHeight,
+    (sessions.length - from - visible.length) * rowHeight,
   );
   const totalRows = total ?? sessions.length;
   const loadingMore = list.isFetchingNextPage;
@@ -167,7 +169,7 @@ export function SessionListTable({
               <SessionListRow
                 key={session.id}
                 session={session}
-                index={range.from + offset + 2}
+                index={from + offset + 2}
                 locale={locale}
                 height={rowHeight}
               />

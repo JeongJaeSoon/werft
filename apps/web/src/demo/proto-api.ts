@@ -1044,7 +1044,34 @@ export function createProtoFetch(options: ProtoOptions = {}): typeof fetch {
     ok(workspaceEngineSettings()),
   );
   on("GET", "/v1/workspaces/{id}/agent-access", ok(owner.workspace?.settings));
-  on("GET", "/v1/limits", ok({ items: [] }));
+  on(
+    "GET",
+    "/v1/limits",
+    ok({
+      scope: "installation",
+      refreshed_at: new Date().toISOString(),
+      limits: {
+        execution_slot_limit: 20,
+        queued_input_limit_per_session: 10,
+        storage_limit_bytes: 107374182400,
+        max_turn_seconds: 3600,
+        session_cost_limit_usd: 25,
+        session_token_limit: null,
+        provider_max_retries: 3,
+      },
+      usage: {
+        execution_slots_used: 4,
+        queued_input_count: 1,
+        storage: {
+          used_bytes: 2147483648,
+          accounted_content: [],
+          updated_at: null,
+        },
+        outputs: { used_bytes: 524288000, updated_at: null, complete: true },
+        archived_events: { used_bytes: 10485760, updated_at: null },
+      },
+    }),
+  );
   on("GET", "/v1/agents/{id}/identities", ok({ items: [] }));
   const queryOf = (r: Request) => new URL(r.url).searchParams;
   const daysOf = (r: Request) => {
@@ -1072,7 +1099,13 @@ export function createProtoFetch(options: ProtoOptions = {}): typeof fetch {
   );
   // No Slack app or GitHub setup yet: the screens show their empty states.
   on("GET", "/v1/agents/{id}/slack/app", () =>
-    apiError(404, "NOT_FOUND", "Not found"),
+    json(200, {
+      slack_app: null,
+      event_url: null,
+      events: { state: "pending", checked_at: null, url: null },
+      warnings: [],
+      config_token: "unset",
+    }),
   );
   on("GET", "/v1/agents/{id}/github", () =>
     apiError(404, "NOT_FOUND", "Not found"),

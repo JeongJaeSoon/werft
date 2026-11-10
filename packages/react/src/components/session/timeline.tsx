@@ -855,7 +855,13 @@ function EventItem({
     <li
       data-error={error || undefined}
       data-kind={kind}
-      className={cn(ROW, "py-3 last:border-b-0")}
+      className={cn(
+        ROW,
+        "py-3 last:border-b-0",
+        // A tool call sits in its own bordered row, as the first mockup drew it.
+        kind === "tool" &&
+          "my-1 rounded-card border bg-muted/40 px-3 py-2 last:border-b",
+      )}
     >
       <Rail top="h-3" bottom="top-9" first={first} last={last} />
       <KindIcon kind={kind} messages={messages} running={running && !error} />
