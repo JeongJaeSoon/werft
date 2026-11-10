@@ -80,7 +80,7 @@ export type RuntimeStartConfig = RuntimeMode & {
   /**
    * The language the agent's release asks the engine to answer in
    * (`runtime_config.response_language`). An adapter appends one instruction
-   * to its system prompt: the person's own language wins over it. Absent for
+   * to its system prompt asking for that language whatever the person writes. Absent for
    * `follow-user` and for a release that predates the field. Never part of a
    * checkpoint's fingerprint, so a session resumes on any worker.
    */

@@ -38,10 +38,10 @@ describe("the answer language", () => {
     ["en", "English"],
     ["ja", "Japanese"],
   ] as const)(
-    "%s adds one instruction that the person's own language overrides",
+    "%s adds one instruction that holds whatever language the person writes",
     (language, name) => {
       expect(claudeStartConfig(start(language), deps).appendSystemPrompt).toBe(
-        `Answer in ${name} unless the person writes in another language.`,
+        `Always answer in ${name}, whatever language the person writes in.`,
       );
     },
   );
@@ -57,7 +57,7 @@ describe("the answer language", () => {
       claudeStartConfig(start("ja", [{ text: "Platform paragraph." }]), deps)
         .appendSystemPrompt,
     ).toBe(
-      "Platform paragraph.\n\nAnswer in Japanese unless the person writes in another language.",
+      "Platform paragraph.\n\nAlways answer in Japanese, whatever language the person writes in.",
     );
   });
 

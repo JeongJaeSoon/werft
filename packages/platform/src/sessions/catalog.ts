@@ -765,10 +765,10 @@ export function mcpUpstreamOf(server: CatalogMcpServer): EgressUpstream {
   };
 }
 
-/** The release's MCP tools a session runs: its `allow` pins for the server. */
-export function pinnedMcpTools(
+function pinnedWith(
   serverId: string,
   perTool: Readonly<Record<string, string>>,
+  wanted: string,
 ): string[] {
   const prefix = `${MCP_TOOL_PREFIX}${serverId}__`;
   return Object.entries(perTool)
@@ -776,7 +776,31 @@ export function pinnedMcpTools(
       ([tool, policy]) =>
         tool.startsWith(prefix) &&
         tool.length > prefix.length &&
-        policy === "allow",
+        policy === wanted,
+    )
+    .map(([tool]) => tool)
+    .sort();
+}
+
+/** The release's MCP tools a session runs: its `allow` pins for the server. */
+export function pinnedMcpTools(
+  serverId: string,
+  perTool: Readonly<Record<string, string>>,
+): string[] {
+  return pinnedWith(serverId, perTool, "allow");
+}
+
+/**
+ * Every `mcp__` tool the release pins as `deny`, whichever server it names.
+ * An explicit block list: the agent's saved settings may follow another
+ * server than the card's, and cannot reopen a name the release denies.
+ */
+export function deniedMcpTools(
+  perTool: Readonly<Record<string, string>>,
+): string[] {
+  return Object.entries(perTool)
+    .filter(
+      ([tool, policy]) => tool.startsWith(MCP_TOOL_PREFIX) && policy === "deny",
     )
     .map(([tool]) => tool)
     .sort();

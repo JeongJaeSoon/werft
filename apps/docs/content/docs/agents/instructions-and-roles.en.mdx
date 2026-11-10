@@ -53,7 +53,7 @@ Earlier cards had "Role" (`role`) and "Instructions" (`instructions`) fields, an
 | `capabilities.forbidden` | | Tool names to forbid. The web console puts `[]` on a new card, and only shows and clears an existing value |
 | `capabilities.tool_policy` | | `allow`, `ask`, or `deny` per tool |
 | `capabilities.credential_refs` | | Names of the credentials to use (not the values). [Permissions](/agents/permissions) |
-| `language` | | Reply language: `follow-user` (follow the person's language), `ko` (default), `en` or `ja`. A card created in the web console starts on `follow-user`. `ko`, `en` and `ja` ask for that language unless the person writes in another one; it applies from the next release, and sessions already started keep theirs |
+| `language` | | Reply language: `follow-user` (default; follow the person's language), `ko`, `en` or `ja`. Left out, it is `follow-user`. `ko`, `en` and `ja` always answer in that language, even when the person writes in another one; it applies from the next release, and sessions already started keep theirs |
 | `rules` | | List of `{id, text, source}`. `source` is `user` or `correction` |
 | `role`, `instructions` | | Values from earlier cards. Not passed to the model. New cards do not send them |
 
@@ -82,7 +82,7 @@ The text of item 1 is also placed at the workspace root as `AGENTS.md`, with `CL
 The platform adds no other paragraph to the model's prompt. It writes no sentences that set a role or behavior and passes on facts only. The platform paragraph that earlier builds added is gone; the worker still recognizes the checkpoint fingerprints made with it, so existing sessions resume as before.
 
 <Callout type="warn">
-The card's `role`, `instructions`, and `rules`, the agent's name and description, and the card's `language` are not passed to the model. Write anything the model must know, such as the answer language, in the repository's `AGENTS.md` or `CLAUDE.md`.
+The card's `role`, `instructions`, and `rules`, and the agent's name and description, are not passed to the model. Write anything the model must know in the repository's `AGENTS.md` or `CLAUDE.md`. The card's `language` is passed only as `ko`, `en` or `ja`, as one sentence asking for that language; `follow-user` passes nothing.
 </Callout>
 
 ## Editing and versions
@@ -102,7 +102,7 @@ curl -sS -X PATCH "$API/v1/agents/$AID" "${WEB[@]}" -d '{
 ```
 
 ```text
-{"version_no":1,"language":"ko"}
+{"version_no":1,"language":"follow-user"}
 {"version_no":2,"language":"en"}
 ```
 
