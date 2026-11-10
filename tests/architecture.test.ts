@@ -1636,6 +1636,20 @@ async function inFixture<T>(
 
 const manifestOf = (name: string) => JSON.stringify({ name });
 
+/** `(x)`, `x as T`, `<T>x`, `x satisfies T` and `x!` all evaluate to `x`. */
+function unwrapExpression(node: ts.Expression): ts.Expression {
+  let current = node;
+  while (
+    ts.isParenthesizedExpression(current) ||
+    ts.isAsExpression(current) ||
+    ts.isTypeAssertionExpression(current) ||
+    ts.isSatisfiesExpression(current) ||
+    ts.isNonNullExpression(current)
+  )
+    current = current.expression;
+  return current;
+}
+
 /** Every module a file names, whichever way: import, export-from, require, import(). */
 function moduleReferences(source: ts.SourceFile): string[] {
   const found: string[] = [];
@@ -1646,21 +1660,15 @@ function moduleReferences(source: ts.SourceFile): string[] {
     else if (ts.isExternalModuleReference(node)) reference = node.expression;
     else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument))
       reference = node.argument.literal;
-    else if (
-      ts.isCallExpression(node) &&
-      (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
-        (ts.isIdentifier(node.expression) &&
-          node.expression.text === "require"))
-    )
-      reference = node.arguments[0];
-    while (
-      reference &&
-      (ts.isParenthesizedExpression(reference) ||
-        ts.isAsExpression(reference) ||
-        ts.isSatisfiesExpression(reference) ||
-        ts.isNonNullExpression(reference))
-    )
-      reference = reference.expression;
+    else if (ts.isCallExpression(node)) {
+      const callee = unwrapExpression(node.expression);
+      if (
+        callee.kind === ts.SyntaxKind.ImportKeyword ||
+        (ts.isIdentifier(callee) && callee.text === "require")
+      )
+        reference = node.arguments[0];
+    }
+    if (reference) reference = unwrapExpression(reference);
     if (reference && ts.isStringLiteralLike(reference))
       found.push(reference.text);
   });
@@ -1737,14 +1745,36 @@ const colorClassRules = {
     new RegExp(`^${colorUtility}-(?:black|white)(?:/.+)?$`).test(
       classBase(token),
     ),
-  "arbitrary colour": (token: string) =>
-    new RegExp(
-      `^${colorUtility}-\\[(?:#|[a-z]+\\]|(?:rgba?|hsla?|oklch|oklab|lab|lch|color-mix|color)\\(|color:)|^\\[(?:color|background(?:-color)?|border-color|fill|stroke):`,
-    ).test(classBase(token)) &&
-    // Keywords that name no colour of their own.
-    !/-\[(?:inherit|current|currentcolor|transparent|initial|unset)\]/i.test(
-      token,
-    ),
+  "arbitrary colour": (token: string) => {
+    const base = classBase(token);
+    if (/^\[(?:[a-z-]+-color|color|background|fill|stroke):/i.test(base))
+      return !/^\[[a-z-]+:(?:inherit|current|currentcolor|transparent|initial|unset)\]$/i.test(
+        base,
+      );
+    const value = new RegExp(`^${colorUtility}-\\[(.*)\\]$`).exec(base)?.[1];
+    if (value === undefined) return false;
+    return (
+      /^color:/i.test(value) ||
+      /#|\b(?:rgba?|hsla?|hwb|oklch|oklab|lab|lch|color-mix|color|light-dark)\(/i.test(
+        value,
+      ) ||
+      // A bare word (`red`, `Red`, or one inside `0_0_2px_red`) is a colour
+      // name unless it is a keyword that names none.
+      value
+        .split(/[_\s,]+/)
+        .some(
+          (word) =>
+            /^[a-z]+$/i.test(word) &&
+            !/^(?:inherit|current|currentcolor|transparent|initial|unset|inset|none|auto|solid|dashed|dotted|double|wavy|hidden|underline|overline)$/i.test(
+              word,
+            ) &&
+            // CSS system colours follow the user's theme and forced-colors mode.
+            !/^(?:canvas|canvastext|field|fieldtext|highlight|highlighttext|buttonface|buttontext|buttonborder|linktext|visitedtext|activetext|graytext|mark|marktext|selecteditem|selecteditemtext|accentcolor|accentcolortext)$/i.test(
+              word,
+            ),
+        )
+    );
+  },
 } as const;
 
 /** Where a component may name a colour anyway: file, class token, why. */
@@ -3675,6 +3705,11 @@ describe("architecture", () => {
         "apps/web/src/h.ts": 'import "react-ari\\a-components";',
         "apps/web/src/i.ts":
           'const m = import("react-aria-components" as string);',
+        "apps/web/src/j.ts":
+          'const m = import(<string>"react-aria-components");',
+        "apps/web/src/k.ts": 'const m = (require)("react-aria-components");',
+        "apps/web/src/l.ts":
+          'const m = import("react-aria-components" satisfies string);',
       },
       async (repo) => {
         expect(await reactAriaImporters(repo)).toEqual([
@@ -3682,6 +3717,9 @@ describe("architecture", () => {
           "apps/web/src/b.ts @react-aria/utils",
           "apps/web/src/h.ts react-aria-components",
           "apps/web/src/i.ts react-aria-components",
+          "apps/web/src/j.ts react-aria-components",
+          "apps/web/src/k.ts react-aria-components",
+          "apps/web/src/l.ts react-aria-components",
           "packages/react/src/c.ts react-stately",
           "packages/react/src/d.ts @internationalized/date",
           "scripts/e.ts react-aria/Button",
@@ -3726,6 +3764,11 @@ describe("architecture", () => {
           'export const e = "drop-shadow-red-500 text-shadow-red-500 inset-shadow-black";',
           'export const f = "bg-[inherit] border-[length:2px] w-[calc(100%-2px)] text-[14px]";',
         ].join("\n"),
+        "src/d.ts": [
+          'export const g = "bg-[Red] bg-[light-dark(#fff,#000)] [border-top-color:red] shadow-[0_0_2px_red]";',
+          'export const h = "!bg-red-500 !dark:p-2 inset-shadow-red-500";',
+          'export const i = "shadow-[inset_0_0_2px_var(--ring)] bg-[url(/a.png)] [color:inherit] bg-[Transparent]";',
+        ].join("\n"),
       },
       async (repo) => {
         expect(await colorClassViolations(repo, "src")).toEqual([
@@ -3744,6 +3787,13 @@ describe("architecture", () => {
           "src/c.ts:2 drop-shadow-red-500 (Tailwind palette)",
           "src/c.ts:2 inset-shadow-black (black/white)",
           "src/c.ts:2 text-shadow-red-500 (Tailwind palette)",
+          "src/d.ts:1 [border-top-color:red] (arbitrary colour)",
+          "src/d.ts:1 bg-[Red] (arbitrary colour)",
+          "src/d.ts:1 bg-[light-dark(#fff,#000)] (arbitrary colour)",
+          "src/d.ts:1 shadow-[0_0_2px_red] (arbitrary colour)",
+          "src/d.ts:2 !bg-red-500 (Tailwind palette)",
+          "src/d.ts:2 !dark:p-2 (dark: variant)",
+          "src/d.ts:2 inset-shadow-red-500 (Tailwind palette)",
         ]);
       },
     );
