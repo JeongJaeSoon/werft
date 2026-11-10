@@ -24,7 +24,7 @@ import { memberships, receipts, users, workspaces } from "./schema.ts";
 
 // Holds the actor's membership under a share lock: the same lock offboarding
 // takes, so a manager disabled mid-request cannot still write a setting.
-async function lockManager(
+export async function lockManager(
   tx: Database,
   workspaceId: string,
   actorUserId: string,

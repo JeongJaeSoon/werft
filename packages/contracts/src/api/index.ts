@@ -4,6 +4,7 @@ export * from "./agent-github.ts";
 export * from "./agent-mcp.ts";
 export * from "./answer.ts";
 export * from "./control.ts";
+export * from "./engine-settings.ts";
 export * from "./event.ts";
 export * from "./github-mcp.ts";
 export * from "./github-work.ts";

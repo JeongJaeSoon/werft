@@ -11,6 +11,7 @@ import {
   agentAdminChangeResponseSchema,
   agentAdminsViewSchema,
   agentDetailSchema,
+  agentEngineSettingsResponseSchema,
   agentEnvVariablesSchema,
   agentGitHubActivityResponseSchema,
   agentGitHubResponseSchema,
@@ -107,6 +108,7 @@ import {
   putAgentGitHubSettingsResponseSchema,
   putAgentMcpSettingsResponseSchema,
   putAgentPullRequestSettingsResponseSchema,
+  putEngineSettingsResponseSchema,
   putEnvVariableGrantsResponseSchema,
   putEnvVariableResponseSchema,
   putGitHubAppResponseSchema,
@@ -160,6 +162,7 @@ import {
   usageSummaryResponseSchema,
   usageToolCallsResponseSchema,
   usageToolsResponseSchema,
+  workspaceEngineSettingsResponseSchema,
   workspaceProfileChangeResponseSchema,
 } from "@werft-ai/contracts";
 // biome-ignore lint/style/noRestrictedImports: the schemas entry is where the core may name zod; the root entry still may not.
@@ -251,6 +254,11 @@ export const responseSchemas = {
     putAgentGitHubRepositoryAccessResponseSchema,
   "GET /v1/agents/{id}/mcp/settings": agentMcpResponseSchema,
   "PUT /v1/agents/{id}/mcp/settings": putAgentMcpSettingsResponseSchema,
+  "GET /v1/agents/{id}/engine-settings": agentEngineSettingsResponseSchema,
+  "PUT /v1/agents/{id}/engine-settings": putEngineSettingsResponseSchema,
+  "GET /v1/workspaces/{id}/engine-settings":
+    workspaceEngineSettingsResponseSchema,
+  "PUT /v1/workspaces/{id}/engine-settings": putEngineSettingsResponseSchema,
   "GET /v1/agents/{id}/github/repositories":
     listAgentGitHubRepositoriesResponseSchema,
   "POST /v1/agents/{id}/github/repositories":
