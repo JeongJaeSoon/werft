@@ -1544,6 +1544,50 @@ describe("에이전트 관리자", () => {
     expect(agentAdminsViewSchema.safeParse(admins()).success).toBe(true);
   });
 
+  test("member인 에이전트 관리자는 팀을 붙이는 길이 없고 이유를 듣는다. 이미 붙은 팀은 뗄 수 있다 (94S-837)", async () => {
+    const { api } = renderAt(`/agents/${AGENT_ID}?tab=admins`, {
+      ...agentServer().routes,
+      ...teamServer().routes,
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      [`GET /v1/agents/${AGENT_ID}/admins`]: () =>
+        json(
+          200,
+          admins({
+            users: [
+              {
+                user_id: USER_ID,
+                email: "owner@example.com",
+                display_name: "Owner",
+                created_by: USER_ID,
+                created_at: AT,
+              },
+            ],
+            teams: [
+              {
+                team_id: TEAM_ID,
+                name: "결제팀",
+                created_by: USER_ID,
+                created_at: AT,
+              },
+            ],
+          }),
+        ),
+    });
+    const picker = (await screen.findByRole("combobox", {
+      name: "관리자로 추가할 사람이나 팀",
+    })) as HTMLInputElement;
+    // No team list is read for someone who cannot name a team, and the
+    // picker says why instead of offering one.
+    expect(picker.getAttribute("aria-describedby")).not.toBeNull();
+    expect(api.calls.some((c) => c.path === "/v1/teams")).toBe(false);
+    expect(picker.disabled).toBe(true);
+    expect(
+      await screen.findByRole("button", {
+        name: "결제팀을(를) 관리자에서 빼기",
+      }),
+    ).toBeDefined();
+  });
+
   test("사람 고르기 칸에 키보드로 오면 그때 구성원을 읽는다", async () => {
     const { api } = renderAt(`/agents/${AGENT_ID}?tab=admins`, {
       ...agentServer().routes,
