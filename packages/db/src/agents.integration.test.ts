@@ -1135,7 +1135,10 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       agent_id: created.agent.id,
       version_id: second.id,
       card_sha256: second.content_sha256,
-      effective_tools: { tools: ["Read", "Grep", "Edit", "Bash"], mcp: [] },
+      effective_tools: {
+        tools: ["Read", "Grep", "Edit", "Bash", "Agent"],
+        mcp: [],
+      },
       created_by: owner.actor?.userId,
       approved_by: null,
       approved_at: null,
@@ -1840,6 +1843,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
           Grep: "allow",
           Edit: "allow",
           Bash: "allow",
+          Agent: "allow",
           mcp__docs__search: "ask",
         },
       },
@@ -1940,6 +1944,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       Grep: "allow",
       Edit: "allow",
       Bash: "allow",
+      Agent: "allow",
     });
   });
 
