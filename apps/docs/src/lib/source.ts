@@ -15,7 +15,7 @@ const docs = defineDocs({
   meta: { schema: metaSchema },
 });
 
-// `external:[..](/storybook/)` in a meta.json names a sibling site on the same
+// `external:[..](/api/)` in a meta.json names a sibling site on the same
 // Pages origin; it renders as a plain <a>, so the base path is added here. The
 // generated reference folder has no meta.json to title it.
 const pageTreeFixes: LoaderPlugin = {

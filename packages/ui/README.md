@@ -94,8 +94,8 @@ bun scripts/ui-pack-smoke.ts              # 빈 Vite+React 앱에 설치해 렌�
 - `package.json`: 저장소 것에서 만든다. exports는 `dist` 파일을 가리키고 `./test-support/*`는 뺀다. `react`·`react-dom`은 peer 그대로다.
 - `LICENSE`: 저장소 루트 것을 복사한다.
 
-키트 요소에 거는 preflight 대체 규칙은 `src/foundations/scoped-preflight.css` 한 곳에 있다. 빌드가 배포 `styles.css`에 넣고,
-Storybook의 Foundations/No preflight가 같은 파일을 읽는다. 워크스페이스 `styles.css`는 import하지 않는다(콘솔은 Tailwind preflight를 쓴다).
+키트 요소에 거는 preflight 대체 규칙은 `src/foundations/scoped-preflight.css` 한 곳에 있다. 빌드가 배포 `styles.css`에 넣는다.
+워크스페이스 `styles.css`는 import하지 않는다(콘솔은 Tailwind preflight를 쓴다).
 
 저장소 밖 앱에서 tarball을 설치해 쓰는 법은 문서 사이트의 [저장소 밖 앱에 설치](../../apps/docs/content/docs/ui/package.mdx)에 있다.
 
@@ -193,9 +193,9 @@ Tailwind에는 `theme.css`가 이어 붙인다(`--color-surface: var(--werft-col
 
 계약 타입을 받는 도메인 조각은 `packages/react/src/components`(`@werft-ai/react/components`)에 있다: `StatusLabel`(admission·turn·receipt·execution **네 축**을 따로 그린다), `ReceiptSummary`·`ReceiptLink`(`unknown`은 성공으로 그리지 않는다), `ApiErrorState`(`error.code`별 "할 일"을 채운 `ErrorState`), `Session*`·`Timeline`·`Message`·`Composer`·`ApprovalCard`·`ApprovalRow`·`QuestionCard`·`StageIndicator`.
 
-### 시안은 Storybook screens 스토리로만 만든다
+### 시안은 실제 부품으로만 만든다
 
-- 시안은 `apps/storybook/src/screens/*`의 스토리다. 실제 `@werft-ai/ui`·`@werft-ai/react` 부품을 조립하고 데모 데이터를 넣는다.
+- 시안은 실제 `@werft-ai/ui`·`@werft-ai/react` 부품을 조립하고 데모 데이터를 넣어 만든다.
 - 따로 그린 HTML 캔버스 시안은 만들지 않는다.
 - 시안에서 고른 모양은 먼저 부품에 넣고(ui-kit), 화면은 그 부품으로 조립한다(web-ui).
 - 시안에 필요한 모양이 부품에 없으면 부품 추가 요청이다. 시안 안에서 따로 그리지 않는다.

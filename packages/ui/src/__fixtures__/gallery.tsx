@@ -19,8 +19,7 @@ import { Skeleton } from "../primitives/skeleton.tsx";
 
 /*
  * One render that touches every token and every component state, so a
- * snapshot catches drift; apps/storybook shows the same set one story at a
- * time. Everything in it is fixed — no clocks, no ids, no randomness — or the
+ * snapshot catches drift. Everything in it is fixed — no clocks, no ids, no randomness — or the
  * snapshot would be noise. The contracts-typed pieces have their own gallery
  * in packages/react/src/components.
  */

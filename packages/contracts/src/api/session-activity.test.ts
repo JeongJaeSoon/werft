@@ -5,8 +5,7 @@ import {
   type SessionSummary,
 } from "./session.ts";
 
-// The agent map's list cards (apps/storybook/src/domain/agent-map/
-// agent-map-fixtures.ts SESSIONS), as the list API answers them.
+// The agent map's list cards, as the list API answers them.
 const NOW = Date.parse("2026-10-25T01:30:00Z");
 const ago = (minutes: number) => new Date(NOW - minutes * 60_000).toISOString();
 

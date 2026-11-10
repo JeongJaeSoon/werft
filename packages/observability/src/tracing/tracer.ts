@@ -17,7 +17,8 @@ export interface Span {
   setAttribute(key: string, value: SpanAttributeValue): void;
   /** Marks the span failed. `message` is a redacted string, never an Error object. */
   setError(message: string): void;
-  end(): void;
+  /** `endTime` is epoch milliseconds, for a span whose end was seen after the fact. */
+  end(endTime?: number): void;
 }
 
 export interface StartSpanOptions {
@@ -29,9 +30,18 @@ export interface StartSpanOptions {
   readonly parent?: SpanContext | "root";
   /** A trace id chosen by the caller, for `werft.turn` only. */
   readonly traceId?: string;
+  /** Epoch milliseconds; omitted means now. */
+  readonly startTime?: number;
 }
 
 export interface Tracer {
+  /**
+   * Starts a span the caller ends itself, for the ones whose start and end sit
+   * in different callbacks (a permission wait). It does not become the active
+   * span; pass it as `parent` to nest under it. A span never ended is never
+   * exported, so callers own the `end()`.
+   */
+  startSpan(name: string, options: StartSpanOptions): Span;
   /** Runs `fn` with the new span active; ends it, and marks it failed if `fn` throws. */
   withSpan<T>(
     name: string,
@@ -97,5 +107,6 @@ const INERT_SPAN: Span = {
 
 /** The tracer used while tracing is off: creates no span and exports nothing. */
 export const noopTracer: Tracer = {
+  startSpan: () => INERT_SPAN,
   withSpan: (_name, _options, fn) => fn(INERT_SPAN),
 };
