@@ -8,7 +8,12 @@
  * Fast mode has its own rates, and each web search adds its
  * per-search fee. US-only inference costs 1.1x on every token rate.
  * An estimate, not a bill: code execution container time is not priced.
+ *
+ * An OpenAI model, which an `openai_responses` session calls, is priced from
+ * `model-prices-openai.ts`.
  */
+
+import { OPENAI_SHORT_RATES, openAiRatesFor } from "./model-prices-openai.ts";
 
 type ModelPrice = {
   inputUsdPerMtok: number;
@@ -129,6 +134,7 @@ const FALLBACK_PRICE: ModelPrice = (() => {
   const prices = [
     ...Object.values(MODEL_PRICES),
     ...Object.values(FAST_MODEL_PRICES),
+    ...OPENAI_SHORT_RATES,
   ];
   return price(
     Math.max(...prices.map((known) => known.inputUsdPerMtok)),
@@ -168,6 +174,24 @@ export function priceProviderUsage(usage: ProviderUsage): {
   costUsd: number;
   pricedBy: "table" | "fallback";
 } {
+  // An OpenAI model has no speed or geo to price: its own table decides, and
+  // a model or prompt length it does not cover falls through to the fallback.
+  const openAi = openAiRatesFor(
+    usage.model,
+    usage.inputTokens +
+      usage.cacheCreationInputTokens +
+      usage.cacheReadInputTokens,
+  );
+  if (openAi !== undefined) {
+    return {
+      costUsd:
+        (usage.inputTokens * openAi.inputUsdPerMtok +
+          usage.cacheReadInputTokens * openAi.cacheReadUsdPerMtok +
+          usage.outputTokens * openAi.outputUsdPerMtok) /
+        1_000_000,
+      pricedBy: "table",
+    };
+  }
   const table: Readonly<Record<string, ModelPrice>> =
     usage.speed === "standard"
       ? MODEL_PRICES

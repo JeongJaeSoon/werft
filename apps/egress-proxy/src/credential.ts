@@ -151,7 +151,16 @@ export type CredentialRoute = {
   search: string;
 };
 
-const PROVIDER_PATHS = new Set(["/v1/messages", "/v1/messages/count_tokens"]);
+// `/v1/responses` is parsed here for every session, but only the authorizer
+// knows the session's provider kind: it grants this path to an
+// `openai_responses` session and refuses it to every other, and refuses the
+// Messages paths to that session in turn.
+const RESPONSES_PATH = "/v1/responses";
+const PROVIDER_PATHS = new Set([
+  "/v1/messages",
+  "/v1/messages/count_tokens",
+  RESPONSES_PATH,
+]);
 // The achievement judge's one call, made by the API with a judgment token.
 const JUDGMENT_PATH = "/decisions/v1/decisions";
 // Claude Code asks for the beta surface with `?beta=true`; nothing else.
@@ -257,7 +266,9 @@ export function routeOf(
     if (
       method === "POST" &&
       PROVIDER_PATHS.has(path) &&
-      PROVIDER_QUERIES.has(search)
+      PROVIDER_QUERIES.has(search) &&
+      // `?beta=true` is Claude Code's; the Responses API takes no query here.
+      (path !== RESPONSES_PATH || search === "")
     ) {
       return { purpose: "provider", path, search };
     }
@@ -745,6 +756,10 @@ const DROPPED_REQUEST_HEADERS = new Set([
   "transfer-encoding",
   "upgrade",
   "x-api-key",
+  // The injected key reaches whatever organization or project the worker
+  // names here, so the connection's own default is the only one.
+  "openai-organization",
+  "openai-project",
 ]);
 
 const DROPPED_RESPONSE_HEADERS = new Set([
@@ -1019,18 +1034,17 @@ export function startCredentialProxy(
     );
   }
 
-  // In the Messages API's error shape, so the engine shows why it was
+  // In the called API's error shape, so the engine shows why it was
   // refused. The turn's reason comes from the session's spend at finalize,
   // not from this text.
-  function budgetExceededReply(): Response {
+  function budgetExceededReply(path: string): Response {
+    const message = `${BUDGET_EXCEEDED}: the session has reached its cost or token limit`;
     return Response.json(
-      {
-        type: "error",
-        error: {
-          type: "permission_error",
-          message: `${BUDGET_EXCEEDED}: the session has reached its cost or token limit`,
-        },
-      },
+      path === RESPONSES_PATH
+        ? {
+            error: { type: "permission_error", code: BUDGET_EXCEEDED, message },
+          }
+        : { type: "error", error: { type: "permission_error", message } },
       { status: 403 },
     );
   }
@@ -1690,10 +1704,12 @@ export function startCredentialProxy(
           }),
         ),
       ) ?? null;
-    // count_tokens is free; only a Messages answer and a judgment are metered.
+    // count_tokens is free; only a Messages or Responses answer and a
+    // judgment are metered.
     if (
       route.purpose !== "judgment" &&
-      (route.purpose !== "provider" || route.path !== "/v1/messages")
+      (route.purpose !== "provider" ||
+        (route.path !== "/v1/messages" && route.path !== RESPONSES_PATH))
     ) {
       return new Response(guarded, { status: response.status, headers });
     }
@@ -1860,9 +1876,14 @@ export function startCredentialProxy(
             }
           : route.purpose === "packages"
             ? { registry: route.registry, path: `${route.path}${route.search}` }
-            : route.repository === undefined
-              ? {}
-              : { repository_id: route.repository };
+            : route.purpose === "provider" && route.path === RESPONSES_PATH
+              ? // Sent only for the path that needs a kind check, so a proxy
+                // and an authorizer of different releases still agree on
+                // every Messages call: no `path` means Messages.
+                { path: route.path }
+              : route.repository === undefined
+                ? {}
+                : { repository_id: route.repository };
       // Decided before anything is awaited: Bun takes the body off the
       // socket meanwhile, and only a request answered now is never held.
       const reservation = bodyReservation(request.headers, route.purpose);
@@ -2002,7 +2023,7 @@ export function startCredentialProxy(
         if (authorized.kind === "refused") {
           release();
           if (authorized.budgetExceeded && route.purpose === "provider") {
-            return budgetExceededReply();
+            return budgetExceededReply(route.path);
           }
           return reply(
             authorized.status,

@@ -23,8 +23,19 @@
  * the answer counted in `usage.server_tool_use`, and where it ran
  * the answer's `usage.inference_geo`, else the request's `inference_geo`,
  * else `unknown`, since a workspace's default may be the dearer one.
+ *
+ * A Responses call (`/v1/responses`) is read into the same figures. Its JSON
+ * answer carries `usage` whole, and a streamed one ends with
+ * `response.completed` (or `response.incomplete`), whose `response` has the
+ * model and the usage; a stream cut before one is charged like a cut Messages
+ * stream. Its `input_tokens` count the cached ones too, so the cached share
+ * (`input_tokens_details.cached_tokens`) moves to `cache_read_input_tokens`
+ * and only the rest stays input. The request's `max_output_tokens` bounds
+ * the estimate where `max_tokens` does for Messages. Its reasoning tokens are
+ * already inside `output_tokens`.
  */
 
+/** The figures of one metered call, whichever API the answer came from. */
 export type MessagesUsage = {
   model: string;
   input_tokens: number;
@@ -100,7 +111,7 @@ function requested(request: Uint8Array | null): {
         typeof body?.model === "string" && body.model !== ""
           ? body.model
           : UNKNOWN_MODEL,
-      maxTokens: count(body?.max_tokens) ?? 0,
+      maxTokens: count(body?.max_tokens) ?? count(body?.max_output_tokens) ?? 0,
       speed: nameOf(body?.speed) ?? "standard",
       inferenceGeo: nameOf(body?.inference_geo) ?? "unknown",
     };
@@ -126,6 +137,18 @@ function countsOf(value: unknown): Counts {
   for (const name of COUNTS) {
     const found = count((value as Record<string, unknown>)[name]);
     if (found !== undefined) counts[name] = found;
+  }
+  // A Responses answer: its input already includes the cached tokens.
+  const details = (value as Record<string, unknown>).input_tokens_details;
+  const cached =
+    typeof details === "object" && details !== null
+      ? count((details as Record<string, unknown>).cached_tokens)
+      : undefined;
+  if (cached !== undefined) {
+    counts.cache_read_input_tokens = cached;
+    if (counts.input_tokens !== undefined) {
+      counts.input_tokens = Math.max(0, counts.input_tokens - cached);
+    }
   }
   const split = (value as Record<string, unknown>).cache_creation;
   if (typeof split === "object" && split !== null) {
@@ -221,8 +244,32 @@ export function usageMeter(
         return;
       }
       if (typeof parsed !== "object" || parsed === null) return;
-      const { type, message, usage, delta } = parsed as Record<string, unknown>;
-      if (type === "message_start" && typeof message === "object") {
+      const { type, message, usage, delta, response } = parsed as Record<
+        string,
+        unknown
+      >;
+      if (typeof type === "string" && type.startsWith("response.")) {
+        const answer =
+          typeof response === "object" && response !== null
+            ? (response as Record<string, unknown>)
+            : undefined;
+        if (typeof answer?.model === "string") model = answer.model;
+        if (
+          type === "response.completed" ||
+          type === "response.incomplete" ||
+          type === "response.failed"
+        ) {
+          counts = { ...counts, ...countsOf(answer?.usage) };
+          // A failed response, or one that names no usage, is not a full
+          // account: it is charged like a stream that was cut.
+          stopped =
+            type !== "response.failed" &&
+            typeof answer?.usage === "object" &&
+            answer.usage !== null;
+        } else if (type.endsWith(".delta") && typeof delta === "string") {
+          delivered += delta.length;
+        }
+      } else if (type === "message_start" && typeof message === "object") {
         const started = message as Record<string, unknown> | null;
         if (typeof started?.model === "string") model = started.model;
         counts = { ...counts, ...countsOf(started?.usage) };

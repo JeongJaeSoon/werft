@@ -395,3 +395,128 @@ describe("usageMeter", () => {
     });
   });
 });
+
+describe("usageMeter on a Responses answer", () => {
+  const responsesRequest = encoder.encode(
+    JSON.stringify({ model: "gpt-5.5", max_output_tokens: 700, input: "hi" }),
+  );
+  const meter = (contentType: string, chunks: string[]) => {
+    const m = usageMeter(contentType);
+    for (const chunk of chunks) m.observe(encoder.encode(chunk));
+    return m.result(responsesRequest);
+  };
+  const usage = {
+    input_tokens: 1000,
+    output_tokens: 80,
+    input_tokens_details: { cached_tokens: 600 },
+    output_tokens_details: { reasoning_tokens: 30 },
+  };
+  const read = {
+    model: "gpt-5.5-2026-04-23",
+    input_tokens: 400,
+    output_tokens: 80,
+    cache_creation_input_tokens: 0,
+    cache_read_input_tokens: 600,
+    cache_creation_1h_input_tokens: 0,
+    ...noTools,
+    estimated: false,
+  };
+
+  test("a JSON answer moves its cached input to the cache side and keeps the rest as input", () => {
+    const body = JSON.stringify({
+      object: "response",
+      model: "gpt-5.5-2026-04-23",
+      usage,
+    });
+    expect(
+      meter("application/json", [body.slice(0, 15), body.slice(15)]),
+    ).toEqual(read);
+  });
+
+  test("a stream is read from response.completed, whatever came before it", () => {
+    const stream = sse([
+      { type: "response.created", response: { model: "gpt-5.5-2026-04-23" } },
+      { type: "response.output_text.delta", delta: "hello" },
+      {
+        type: "response.completed",
+        response: { model: "gpt-5.5-2026-04-23", usage },
+      },
+    ]);
+    expect(
+      meter("text/event-stream", [stream.slice(0, 40), stream.slice(40)]),
+    ).toEqual(read);
+  });
+
+  test("response.incomplete still carries a full account", () => {
+    const stream = sse([
+      {
+        type: "response.incomplete",
+        response: { model: "gpt-5.5", usage },
+      },
+    ]);
+    expect(meter("text/event-stream", [stream])).toMatchObject({
+      input_tokens: 400,
+      cache_read_input_tokens: 600,
+      estimated: false,
+    });
+  });
+
+  test("an input with no cached share stays whole input", () => {
+    const body = JSON.stringify({
+      model: "gpt-5.5",
+      usage: { input_tokens: 50, output_tokens: 5 },
+    });
+    expect(meter("application/json", [body])).toMatchObject({
+      input_tokens: 50,
+      cache_read_input_tokens: 0,
+      estimated: false,
+    });
+  });
+
+  test("a stream cut before response.completed charges a token per character delivered", () => {
+    const stream = sse([
+      { type: "response.created", response: { model: "gpt-5.5" } },
+      { type: "response.output_text.delta", delta: "x".repeat(300) },
+    ]);
+    expect(meter("text/event-stream", [stream])).toMatchObject({
+      model: "gpt-5.5",
+      output_tokens: 300,
+      estimated: true,
+    });
+  });
+
+  test("a completed response that names no usage is estimated, not charged nothing", () => {
+    const stream = sse([
+      { type: "response.output_text.delta", delta: "x".repeat(120) },
+      { type: "response.completed", response: { model: "gpt-5.5" } },
+    ]);
+    expect(meter("text/event-stream", [stream])).toMatchObject({
+      output_tokens: 120,
+      estimated: true,
+    });
+  });
+
+  test("a failed response is estimated even when it reports usage", () => {
+    const stream = sse([
+      {
+        type: "response.failed",
+        response: { model: "gpt-5.5", usage },
+      },
+    ]);
+    expect(meter("text/event-stream", [stream])).toMatchObject({
+      estimated: true,
+    });
+  });
+
+  test("a JSON answer with no usage is charged from its request, bounded by max_output_tokens", () => {
+    expect(meter("application/json", ['{"error":{}}'])).toMatchObject({
+      model: "gpt-5.5",
+      input_tokens: responsesRequest.byteLength,
+      output_tokens: 700,
+      estimated: true,
+    });
+    expect(requestEstimate(responsesRequest)).toMatchObject({
+      output_tokens: 700,
+    });
+  });
+});
