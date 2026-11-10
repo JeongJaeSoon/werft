@@ -7,10 +7,12 @@ import packageJson from "../package.json" with { type: "json" };
 // contracts are not marked side-effect free, so a bundler keeps all of them.
 const BUDGET_BYTES: Record<string, number> = {
   ".": 4 * 1024,
-  // 140 KiB: the agent engine settings storage schemas and their validator
-  // (4c) put ./schemas 141 bytes over 139. ./forms stays at 139.
-  "./schemas": 140 * 1024,
-  "./forms": 139 * 1024,
+  // 141 KiB: the agent engine settings storage schemas and their validator
+  // (4c) put ./schemas 141 bytes over 139, then raised it to 140. The tool call
+  // audit report schemas put it 38 bytes over that, and ./forms 243 bytes over
+  // its 139, so ./forms moves to 140.
+  "./schemas": 141 * 1024,
+  "./forms": 140 * 1024,
 };
 
 test("every entry has a budget", () => {

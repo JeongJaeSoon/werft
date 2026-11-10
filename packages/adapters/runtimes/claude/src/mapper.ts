@@ -60,6 +60,12 @@ export function sanitizeNativeMessage(
   return sanitizeValue(message) as NativeSdkMessage;
 }
 
+export function redactToolInput(
+  input: Record<string, unknown>,
+): Record<string, unknown> {
+  return sanitizeValue(input) as Record<string, unknown>;
+}
+
 export function projectPublicEvents(
   envelope: NativeEnvelope,
   cursor: string,

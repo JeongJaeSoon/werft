@@ -1,4 +1,7 @@
 import {
+  auditIdOf,
+  INVALID_TOOL_NAME,
+  mcpServerOf,
   type PendingSettlement,
   postSessionAnswerRequestSchema,
   surfaceKindSchema,
@@ -41,6 +44,7 @@ import {
   recordEvent,
   recordStatus,
 } from "./session-events.ts";
+import { insertAskedToolCallAudit } from "./tool-call-audit.ts";
 import { openInterruptFor, turnInterruptPending } from "./turn-interrupts.ts";
 
 const CANCELLED_BEFORE_ANSWER = {
@@ -143,7 +147,11 @@ export function createPostgresWorkerPendingStore(
         const sequence = parseTurnSequence(input.turnId);
         const [turn] = sequence
           ? await tx
-              .select({ id: turns.id, status: turns.status })
+              .select({
+                id: turns.id,
+                status: turns.status,
+                sequence: turns.sequence,
+              })
               .from(turns)
               .where(
                 and(
@@ -262,6 +270,20 @@ export function createPostgresWorkerPendingStore(
           tool: input.announce?.tool ?? null,
           checkpointRef: checkpoint?.manifestRef ?? null,
         });
+        if (input.request.kind === "permission" && input.announce) {
+          const name = auditIdOf(input.announce.tool) ?? INVALID_TOOL_NAME;
+          await insertAskedToolCallAudit(tx, {
+            session: fenced.session,
+            attemptId: fence.attemptId,
+            turn: { id: turn.id, sequence: turn.sequence },
+            requestId: input.requestId,
+            toolUseId: auditIdOf(input.announce.tool_use_id),
+            tool: {
+              name,
+              mcpServer: name === INVALID_TOOL_NAME ? null : mcpServerOf(name),
+            },
+          });
+        }
         if (checkpoint !== undefined) {
           // The engine was still waiting on every row of the turn no answer
           // has reached yet when this was captured, so it covers them too;

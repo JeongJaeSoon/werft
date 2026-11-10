@@ -47,7 +47,7 @@ The chart resource is `<fullname>-metrics`. If the release name contains werft, 
 | Datadog Agent (Helm) | Use an Autodiscovery `openmetrics` check. Add `ad.datadoghq.com/metrics.checks` to `metrics.podAnnotations`. The collector configuration determines the names stored in Datadog, including dotted names |
 | OpenTelemetry Collector | Scrape the same endpoint with a `prometheus` receiver and forward via OTLP |
 
-The platform does not push metrics over OTLP. A single pull endpoint lets any collector read the same definitions without configuring a collector address or SDK in the app. Session traces are not yet exported. See [Observability (OTel)](/observability).
+The platform does not push metrics over OTLP. A single pull endpoint lets any collector read the same definitions without configuring a collector address or SDK in the app. Session traces are exported over OTLP when configured (off by default). See [Observability (OTel)](/observability).
 
 <a id="3-endpoint-확인" />
 ### 3. Check the endpoint

@@ -38,6 +38,9 @@ import {
   timestampSchema,
   turnIdSchema,
 } from "../shared/index.ts";
+import { toolDecisionsFieldSchema } from "./tool-call-audit.ts";
+
+export * from "./tool-call-audit.ts";
 
 // Every post-claim call carries the fenced identity the gateway verifies in
 // the same transaction as the write.
@@ -860,6 +863,7 @@ export const appendEventsRequestSchema = workerScopeSchema
   .extend({
     batch_key: z.string().min(1),
     events: z.array(workerEventSchema).min(1),
+    tool_decisions: toolDecisionsFieldSchema.optional(),
   })
   .strict();
 export const appendEventsResponseSchema = z.object({

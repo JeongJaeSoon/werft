@@ -110,7 +110,7 @@ if [ -n "$base" ]; then
   fi
 fi
 
-# Main site builds belong to pages.yml; CI verifies the site on PRs and by hand.
+# Site builds and deploys belong to pages.yml on release tags; CI verifies the site on PRs and by hand.
 if [ "$event" = push ]; then
   site=false
 fi

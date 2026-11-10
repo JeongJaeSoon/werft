@@ -4,6 +4,7 @@ import type {
   AgentRuntime,
   RuntimeHostDeps,
   RuntimeStart,
+  ToolDecisionObserver,
 } from "@werft-ai/runtime-core";
 import {
   type InterruptCut,
@@ -72,7 +73,10 @@ export class FakeAgentRuntime {
 
   run(
     config: ClaudeRuntimeConfig,
-    options: { toolCallWaitMs?: number } = {},
+    options: {
+      toolCallWaitMs?: number;
+      toolDecisions?: ToolDecisionObserver;
+    } = {},
   ): AgentRun {
     return claudeContractRun((hooks) => this.start(config, hooks), options);
   }
@@ -97,12 +101,14 @@ export function scriptedClaudeRuntime(
   const runtime: AgentRuntime = {
     descriptor: CLAUDE_DESCRIPTOR,
     start: (start: RuntimeStart) =>
-      fake.run(
-        claudeStartConfig(start, hostDeps),
-        hostDeps.toolCallWaitMs === undefined
+      fake.run(claudeStartConfig(start, hostDeps), {
+        ...(hostDeps.toolCallWaitMs === undefined
           ? {}
-          : { toolCallWaitMs: hostDeps.toolCallWaitMs },
-      ),
+          : { toolCallWaitMs: hostDeps.toolCallWaitMs }),
+        ...(start.toolDecisions === undefined
+          ? {}
+          : { toolDecisions: start.toolDecisions }),
+      }),
   };
   return {
     descriptor: runtime.descriptor,

@@ -42,7 +42,7 @@ chart 리소스는 `<fullname>-metrics`다. release 이름에 werft가 있으면
 | Datadog Agent(Helm) | Autodiscovery `openmetrics` 체크. `metrics.podAnnotations`에 `ad.datadoghq.com/metrics.checks`를 넣는다. Datadog에 어떤 이름(점 표기 등)으로 저장할지는 수집기 쪽 설정이다 |
 | OpenTelemetry Collector | `prometheus` receiver로 같은 엔드포인트를 scrape해 OTLP로 보낸다 |
 
-플랫폼이 OTLP로 지표를 밀어내지는 않는다. pull 엔드포인트 하나를 두면 수집기 종류와 상관없이 같은 정의를 읽고, 앱에 수집기 주소나 SDK 설정이 필요 없다. 세션 트레이스는 아직 내보내지 않는다. [관측 (OTel)](/observability)을 본다.
+플랫폼이 OTLP로 지표를 밀어내지는 않는다. pull 엔드포인트 하나를 두면 수집기 종류와 상관없이 같은 정의를 읽고, 앱에 수집기 주소나 SDK 설정이 필요 없다. 세션 트레이스는 설정하면 OTLP로 내보낸다(기본은 꺼짐). [관측 (OTel)](/observability)을 본다.
 
 ### 3. endpoint 확인
 

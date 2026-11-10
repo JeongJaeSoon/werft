@@ -3,6 +3,7 @@ import type {
   AppendEventsRequest,
   AppendEventsResponse,
   SessionEvent,
+  ToolDecisionReport,
   WorkerScope,
 } from "@werft-ai/contracts";
 import { WorkerGatewayRequestError } from "@werft-ai/runtime-core";
@@ -266,6 +267,88 @@ describe("EventPublisher", () => {
     await events.idle();
     expect(events.acceptedThrough).toBe(3);
     expect(batches.at(-1)?.turn_id).toBeNull();
+  });
+
+  describe("tool decisions", () => {
+    const report = (id: string): ToolDecisionReport => ({
+      call_key: `t:${id}`,
+      tool_name: "Bash",
+      tool_use_id: id,
+      decision: "allow",
+      basis: "permission_mode",
+    });
+
+    test("ride in the append of their own turn and not another's", async () => {
+      const { batches, publisher: events } = publisher(async (request) =>
+        accepted(request),
+      );
+      events.audit(report("a"), "1");
+      events.audit(report("b"), "2");
+      events.publish([systemEvent("x")], "1");
+      await events.idle();
+      expect(batches).toHaveLength(1);
+      expect(batches[0]?.tool_decisions).toEqual([report("a")]);
+
+      events.publish([systemEvent("y")], "2");
+      await events.idle();
+      expect(batches[1]?.tool_decisions).toEqual([report("b")]);
+    });
+
+    test("are sent again with a batch that is retried, and dropped once it is acknowledged", async () => {
+      let attempts = 0;
+      const { batches, publisher: events } = publisher(async (request) => {
+        attempts += 1;
+        if (attempts === 1) {
+          throw new WorkerGatewayRequestError(503, null, "gateway down", true);
+        }
+        return accepted(request);
+      });
+      events.audit(report("a"), "1");
+      events.publish([systemEvent("x")], "1");
+      await events.idle();
+      expect(batches.map((batch) => batch.tool_decisions)).toEqual([
+        [report("a")],
+        [report("a")],
+      ]);
+
+      events.publish([systemEvent("y")], "1");
+      await events.idle();
+      expect(batches[2]).not.toHaveProperty("tool_decisions");
+    });
+
+    test("leave the field out when there is nothing to report, so an older API is unaffected", async () => {
+      const { batches, publisher: events } = publisher(async (request) =>
+        accepted(request),
+      );
+      events.publish([systemEvent("x")], "1");
+      await events.idle();
+      expect(batches[0]).not.toHaveProperty("tool_decisions");
+    });
+
+    test("past the queue bound the oldest are dropped and the drop is reported", () => {
+      const dropped: number[] = [];
+      const events = new EventPublisher({
+        gateway: { appendEvents: async (request) => accepted(request) },
+        scope: () => ({ ...scope, turn_id: "1" }),
+        onAuditsDropped: (count) => dropped.push(count),
+      });
+      for (let index = 0; index < 2_002; index += 1) {
+        events.audit(report(`toolu_${index}`), "1");
+      }
+      expect(dropped).toEqual([1, 1]);
+    });
+
+    test("an abandoned stream forgets them", async () => {
+      const { batches, publisher: events } = publisher(async (request) =>
+        accepted(request),
+      );
+      events.audit(report("a"), "1");
+      events.abandon("lost");
+      events.audit(report("b"), "1");
+      events.publish([systemEvent("x")], "1");
+      await events.idle().catch(() => {});
+      expect(batches).toHaveLength(0);
+    });
   });
 
   test("strips the frame cursor that is not this stream's", async () => {
