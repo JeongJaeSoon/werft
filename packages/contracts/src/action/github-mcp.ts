@@ -1,5 +1,34 @@
 import { z } from "zod";
-
+import {
+  dispatchWorkflowRequestSchema,
+  dispatchWorkflowResponseSchema,
+  githubWorkflowRunSchema,
+  rerunWorkflowRequestSchema,
+  rerunWorkflowResponseSchema,
+  submitPullRequestReviewRequestSchema,
+  submitPullRequestReviewResponseSchema,
+} from "../api/github-work.ts";
+import {
+  commentPullRequestRequestSchema,
+  commentPullRequestResponseSchema,
+  mergePullRequestResponseSchema,
+  openPullRequestRequestSchema,
+  openPullRequestResultSchema,
+  setPullRequestStateResponseSchema,
+  updatePullRequestRequestSchema,
+  updatePullRequestResponseSchema,
+} from "../api/pull-request.ts";
+import {
+  createPushRequestRequestSchema,
+  pullRequestStageSchema,
+  pushIntentRefusalSchema,
+  pushIntentStatusSchema,
+  pushRequestIdSchema,
+  pushRequestSchema,
+  pushRequestStateSchema,
+  sourceRefSchema,
+} from "../api/push-request.ts";
+import { githubPolicyReceiptFieldsSchema } from "../api/receipt.ts";
 import {
   type AgentGitHub,
   MCP_TOOL_PREFIX,
@@ -13,36 +42,6 @@ import {
   actionRefusalSpec,
   actionResultSchema,
 } from "./action-broker.ts";
-import {
-  dispatchWorkflowRequestSchema,
-  dispatchWorkflowResponseSchema,
-  githubWorkflowRunSchema,
-  rerunWorkflowRequestSchema,
-  rerunWorkflowResponseSchema,
-  submitPullRequestReviewRequestSchema,
-  submitPullRequestReviewResponseSchema,
-} from "./github-work.ts";
-import {
-  commentPullRequestRequestSchema,
-  commentPullRequestResponseSchema,
-  mergePullRequestResponseSchema,
-  openPullRequestRequestSchema,
-  openPullRequestResultSchema,
-  setPullRequestStateResponseSchema,
-  updatePullRequestRequestSchema,
-  updatePullRequestResponseSchema,
-} from "./pull-request.ts";
-import {
-  createPushRequestRequestSchema,
-  pullRequestStageSchema,
-  pushIntentRefusalSchema,
-  pushIntentStatusSchema,
-  pushRequestIdSchema,
-  pushRequestSchema,
-  pushRequestStateSchema,
-  sourceRefSchema,
-} from "./push-request.ts";
-import { githubPolicyReceiptFieldsSchema } from "./receipt.ts";
 
 /** Exactly one of the two ids names the push the call is about. */
 const hasOneOfPushIds = (a: {
