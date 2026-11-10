@@ -955,9 +955,26 @@ function baselineCounts(key: keyof Baseline): Counts {
   return Array.isArray(listed) ? tally(listed) : { ...listed };
 }
 
+/**
+ * Files under `directory`/src, .ts and .tsx, tests included, that import a
+ * package `forbidden` names. Read from the AST, so require(), import types and
+ * re-exports count and a commented-out import does not.
+ */
+async function forbiddenModuleImports(
+  directory: string,
+  forbidden: readonly string[],
+): Promise<string[]> {
+  const found: string[] = [];
+  for (const file of await scriptsIn(join(directory, "src")))
+    for (const specifier of importedModules(await parse(file)))
+      if (isForbidden(packageOf(specifier), forbidden))
+        found.push(`${slashed(relative(directory, file))} -> ${specifier}`);
+  return found.sort();
+}
+
 /** A1: contracts imports no platform, db, adapter package or app. */
 export async function contractsDirection(repo: string): Promise<string[]> {
-  return forbiddenImports(join(repo, "packages", "contracts"), [
+  return forbiddenModuleImports(join(repo, "packages", "contracts"), [
     "@werft-ai/platform",
     "@werft-ai/db",
     ...(await adapterPackages(repo)).map(({ name }) => name),
@@ -994,7 +1011,9 @@ export async function crossDomainImports(repo: string): Promise<string[]> {
       if (!surface) found.push(`${from.join("/")} -> ${target}`);
     }
   }
-  return found.sort();
+  // A pair, not an import statement: a type import and a value import of the
+  // same file are one dependency.
+  return [...new Set(found)].sort();
 }
 
 /** A3: nothing under a ports/ directory imports from a tools/ directory. */
@@ -1011,11 +1030,19 @@ export async function portsImportingTools(repo: string): Promise<string[]> {
   return found.sort();
 }
 
+/** Every name a binding introduces, destructuring included. */
+function bindingNames(name: ts.BindingName): string[] {
+  if (ts.isIdentifier(name)) return [name.text];
+  return name.elements.flatMap((element) =>
+    ts.isOmittedExpression(element) ? [] : bindingNames(element.name),
+  );
+}
+
 /** The names a statement declares, types included. */
 function declaredNames(statement: ts.Statement): string[] {
   if (ts.isVariableStatement(statement))
     return statement.declarationList.declarations.flatMap((declaration) =>
-      ts.isIdentifier(declaration.name) ? [declaration.name.text] : [],
+      bindingNames(declaration.name),
     );
   if (
     ts.isFunctionDeclaration(statement) ||
@@ -1054,13 +1081,57 @@ export async function contractsBehaviour(repo: string): Promise<Counts> {
       )
         found.push(`${name} async`);
     });
-    for (const statement of source.statements)
-      if (isExported(statement) && !isTypeDeclaration(statement))
-        for (const exported of declaredNames(statement))
-          if (/^handle[A-Z]|Handler$/.test(exported))
-            found.push(`${name} handler`);
+    const functions = functionNames(source);
+    for (const { exported, local } of exportedBindings(source))
+      if (
+        functions.has(local) &&
+        (handlerName.test(exported) || handlerName.test(local))
+      )
+        found.push(`${name} handler`);
   }
   return tally(found);
+}
+
+const handlerName = /^handle[A-Z]|Handler$/;
+
+/** Top-level functions: declarations and consts bound to an arrow or function expression. */
+function functionNames(source: ts.SourceFile): Set<string> {
+  const names = new Set<string>();
+  for (const statement of source.statements) {
+    if (ts.isFunctionDeclaration(statement) && statement.name)
+      names.add(statement.name.text);
+    if (ts.isVariableStatement(statement))
+      for (const declaration of statement.declarationList.declarations)
+        if (
+          ts.isIdentifier(declaration.name) &&
+          declaration.initializer &&
+          (ts.isArrowFunction(declaration.initializer) ||
+            ts.isFunctionExpression(declaration.initializer))
+        )
+          names.add(declaration.name.text);
+  }
+  return names;
+}
+
+/** What a module exports under which name, `export { a as b }` included; re-exports have no local. */
+function exportedBindings(
+  source: ts.SourceFile,
+): Array<{ exported: string; local: string }> {
+  const bindings: Array<{ exported: string; local: string }> = [];
+  for (const statement of source.statements) {
+    if (ts.isExportDeclaration(statement)) {
+      const clause = statement.exportClause;
+      if (!statement.moduleSpecifier && clause && ts.isNamedExports(clause))
+        for (const element of clause.elements)
+          bindings.push({
+            exported: element.name.text,
+            local: (element.propertyName ?? element.name).text,
+          });
+    } else if (isExported(statement))
+      for (const name of declaredNames(statement))
+        bindings.push({ exported: name, local: name });
+  }
+  return bindings;
 }
 
 /** The forge and chat adapters, as opposed to the execution and runtime ones. */
@@ -1071,34 +1142,44 @@ function isChannelAdapter(repo: string, directory: string): boolean {
   return kind === "forge" || kind === "chat";
 }
 
-/** R2: forge and chat adapters take platform, contracts, observability, storage and their own SDK only. */
+// The workspace packages a forge or chat adapter may use. testkit is the one
+// shared test dependency every package may declare as a devDependency.
+const channelAdapterAllowed = new Set([
+  "@werft-ai/platform",
+  "@werft-ai/contracts",
+  "@werft-ai/observability",
+  "@werft-ai/storage",
+  "@werft-ai/testkit",
+]);
+
+/**
+ * R2: a forge or chat adapter takes platform, contracts, observability,
+ * storage and its own SDK only: any other workspace package (another adapter,
+ * db, runtime-core, an app) is a violation, in package.json or in an import.
+ */
 export async function adapterBoundaryViolations(
   repo: string,
 ): Promise<string[]> {
-  const adapters = await adapterPackages(repo);
-  const apps = await appPackages(repo);
   const found: string[] = [];
-  for (const adapter of adapters) {
+  for (const adapter of await adapterPackages(repo)) {
     if (!isChannelAdapter(repo, adapter.dir)) continue;
-    const forbidden = [
-      "@werft-ai/db",
-      ...adapters
-        .filter((other) => other.name !== adapter.name)
-        .map((o) => o.name),
-      ...apps.map((app) => app.name),
-    ];
+    const outside = (name: string) =>
+      name.startsWith("@werft-ai/") &&
+      name !== adapter.name &&
+      !channelAdapterAllowed.has(name);
+    const where = slashed(relative(repo, adapter.dir));
     const pkg = await manifest(adapter.dir);
     for (const declared of [
       ...declaredDependencies(pkg),
       ...Object.keys(pkg.devDependencies ?? {}),
     ])
-      if (isForbidden(declared, forbidden))
-        found.push(
-          `${slashed(relative(repo, adapter.dir))}/package.json -> ${declared}`,
-        );
-    if (existsSync(join(adapter.dir, "src")))
-      for (const hit of await forbiddenImports(adapter.dir, forbidden))
-        found.push(`${slashed(relative(repo, adapter.dir))}/${hit}`);
+      if (outside(declared)) found.push(`${where}/package.json -> ${declared}`);
+    for (const file of await scriptsIn(join(adapter.dir, "src")))
+      for (const specifier of importedModules(await parse(file)))
+        if (outside(packageOf(specifier)))
+          found.push(
+            `${where}/${slashed(relative(adapter.dir, file))} -> ${specifier}`,
+          );
   }
   return found.sort();
 }
@@ -1194,10 +1275,13 @@ export async function decisionEntranceProblems(
             element.name.text,
           );
       else values.push(clause.name.text);
-    } else if (isExported(statement))
-      (isTypeDeclaration(statement) ? types : values).push(
-        ...declaredNames(statement),
-      );
+    } else if (ts.isExportAssignment(statement)) values.push("default");
+    else if (isExported(statement)) {
+      const names = declaredNames(statement);
+      // An anonymous `export default function () {}` declares no name.
+      if (names.length === 0) values.push("default");
+      (isTypeDeclaration(statement) ? types : values).push(...names);
+    }
   }
   return [
     ...values.map(
@@ -1243,6 +1327,17 @@ function globalReferences(
       ts.isIdentifier(parent.expression) &&
       parent.expression.text === "globalThis";
     if (viaGlobalThis || !isNamePosition(node)) found.push(node.text);
+  });
+  // globalThis["fetch"] has no identifier to find.
+  walk(source, (node) => {
+    if (
+      ts.isElementAccessExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === "globalThis" &&
+      ts.isStringLiteralLike(node.argumentExpression) &&
+      names.has(node.argumentExpression.text)
+    )
+      found.push(node.argumentExpression.text);
   });
   return found;
 }
@@ -1326,10 +1421,27 @@ export async function slackExports(repo: string): Promise<Counts> {
   return counts;
 }
 
-const isFunctionType = (type: ts.TypeNode): boolean =>
-  ts.isFunctionTypeNode(type) ||
-  (ts.isParenthesizedTypeNode(type) && isFunctionType(type.type)) ||
-  (ts.isUnionTypeNode(type) && type.types.some(isFunctionType));
+/** A function type, written inline or through a type alias declared in the same file. */
+function isFunctionType(
+  type: ts.TypeNode,
+  aliases: ReadonlyMap<string, ts.TypeNode>,
+  followed: ReadonlySet<string> = new Set(),
+): boolean {
+  if (ts.isFunctionTypeNode(type)) return true;
+  if (ts.isParenthesizedTypeNode(type))
+    return isFunctionType(type.type, aliases, followed);
+  if (ts.isUnionTypeNode(type))
+    return type.types.some((member) =>
+      isFunctionType(member, aliases, followed),
+    );
+  if (ts.isTypeReferenceNode(type) && ts.isIdentifier(type.typeName)) {
+    const name = type.typeName.text;
+    const target = aliases.get(name);
+    if (!target || followed.has(name)) return false;
+    return isFunctionType(target, aliases, new Set([...followed, name]));
+  }
+  return false;
+}
 
 /** R9: capability ports (platform action/ports, surface/ports) have no `method?:`. */
 export async function optionalCapabilityMethods(
@@ -1341,13 +1453,17 @@ export async function optionalCapabilityMethods(
       join(platformSrc(repo), domain, "ports"),
     )) {
       const source = await parse(file);
+      const aliases = new Map<string, ts.TypeNode>();
+      for (const statement of source.statements)
+        if (ts.isTypeAliasDeclaration(statement))
+          aliases.set(statement.name.text, statement.type);
       walk(source, (node) => {
         if (
           (ts.isMethodSignature(node) && node.questionToken) ||
           (ts.isPropertySignature(node) &&
             node.questionToken &&
             node.type &&
-            isFunctionType(node.type))
+            isFunctionType(node.type, aliases))
         )
           found.push(
             `${slashed(relative(repo, file))} -> ${node.name.getText(source)}`,
@@ -2628,6 +2744,12 @@ describe("architecture", () => {
             'import { d } from "@werft-ai/control-host";',
             'import { z } from "zod";',
           ].join("\n"),
+          "packages/contracts/src/leak.tsx":
+            'export { f } from "@werft-ai/platform";',
+          "packages/contracts/src/req.ts":
+            'export const p = require("@werft-ai/platform");',
+          "packages/contracts/src/commented.ts":
+            '// import { x } from "@werft-ai/platform";',
         },
         contractsDirection,
       ),
@@ -2636,6 +2758,8 @@ describe("architecture", () => {
       "src/leak.ts -> @werft-ai/control-host",
       "src/leak.ts -> @werft-ai/db/pool",
       "src/leak.ts -> @werft-ai/platform",
+      "src/leak.tsx -> @werft-ai/platform",
+      "src/req.ts -> @werft-ai/platform",
     ]);
   });
 
@@ -2655,6 +2779,7 @@ describe("architecture", () => {
         {
           [platformFile("alpha/service.ts")]: [
             'import "../beta/policy.ts";',
+            'import type { T } from "../beta/policy.ts";',
             'import "../beta/deep/inner.ts";',
             'import "../beta/ports/store.ts";',
             'import "../beta";',
@@ -2718,6 +2843,9 @@ describe("architecture", () => {
             "export async function load() { return await Promise.resolve(1); }",
             "export type EventHandler = () => void;",
             "export const data = { handler: 1 };",
+            'export const EventHandlerName = "event-handler";',
+            'const handleLater = () => console.log("x");',
+            "export { handleLater };",
           ].join("\n"),
           [`${src}/bad.test.ts`]: "export class InATest {}",
           [`${src}/ok.ts`]: "export const A = 1;\nexport const f = () => A;",
@@ -2727,7 +2855,7 @@ describe("architecture", () => {
     ).toEqual({
       "api/bad.ts class": 1,
       "api/bad.ts async": 2,
-      "api/bad.ts handler": 1,
+      "api/bad.ts handler": 2,
     });
   });
 
@@ -2752,6 +2880,7 @@ describe("architecture", () => {
             'import "@werft-ai/db";',
             'import "@werft-ai/chat-slack";',
             'import "@werft-ai/control-host";',
+            'import "@werft-ai/runtime-core";',
             'import "@octokit/rest";',
           ].join("\n"),
           "packages/adapters/chat/slack/package.json": manifestOf(
@@ -2780,6 +2909,7 @@ describe("architecture", () => {
       "packages/adapters/forge/github/src/index.ts -> @werft-ai/chat-slack",
       "packages/adapters/forge/github/src/index.ts -> @werft-ai/control-host",
       "packages/adapters/forge/github/src/index.ts -> @werft-ai/db",
+      "packages/adapters/forge/github/src/index.ts -> @werft-ai/runtime-core",
     ]);
   });
 
@@ -2909,6 +3039,7 @@ describe("architecture", () => {
             "export interface C {}",
             "export const decide = () => 1;",
             'export * from "./other.ts";',
+            "export default function () { return 1; }",
           ].join("\n"),
         },
         decisionEntranceProblems,
@@ -2916,6 +3047,7 @@ describe("architecture", () => {
     ).toEqual([
       "decision/index.ts exports decide, which is not a type",
       "decision/index.ts exports *, which is not a type",
+      "decision/index.ts exports default, which is not a type",
       "decision/index.ts exports 3 types, expected 2",
     ]);
   });
@@ -2949,6 +3081,7 @@ describe("architecture", () => {
             "export const env = () => process.env.X;",
             'export const get = () => fetch("/x");',
             "export const g = () => globalThis.fetch;",
+            'export const d = () => new globalThis["Date"]();',
           ].join("\n"),
           [`${surface}/bad.test.ts`]: "export const t = new Date();",
           [`${surface}/ok.ts`]: [
@@ -2961,6 +3094,7 @@ describe("architecture", () => {
         surfaceImpurities,
       ),
     ).toEqual([
+      `${bad} -> Date`,
       `${bad} -> Date`,
       `${bad} -> Intl`,
       `${bad} -> fetch`,
@@ -2990,6 +3124,7 @@ describe("architecture", () => {
             'export const get = () => fetch("/x");',
             "export type Deps = { fetch?: typeof fetch };",
             "export const d = (deps: Deps) => deps.fetch ?? globalThis.fetch;",
+            'export const e = () => globalThis["fetch"]("/x");',
             "// fetch in a comment",
             'export const text = "fetch";',
           ].join("\n"),
@@ -2997,7 +3132,7 @@ describe("architecture", () => {
         },
         directFetch,
       ),
-    ).toEqual({ "a/net.ts": 3 });
+    ).toEqual({ "a/net.ts": 4 });
   });
 
   test("R8: platform gains no file or export name with slack in it", async () => {
@@ -3027,6 +3162,7 @@ describe("architecture", () => {
         'export * as Slack from "./other.ts";',
         "export interface SlackShape {}",
         "export type Plain = string;",
+        "export const { SlackClient, nested: [SlackItem] } = { SlackClient: 1, nested: [2] };",
       ].join("\n"),
       [platformFile("a/slack-thing.test.ts")]: "export const SlackTest = 1;",
       [platformFile("a/other.ts")]: "export const Chat = 1;",
@@ -3037,7 +3173,7 @@ describe("architecture", () => {
       "slack/inner.ts",
     ]);
     expect(await inFixture(files, slackExports)).toEqual({
-      "a/slack-thing.ts": 5,
+      "a/slack-thing.ts": 7,
     });
   });
 
@@ -3057,7 +3193,11 @@ describe("architecture", () => {
             "  onDone?: (id: string) => void;",
             "  note?: string;",
             "  retry?: (() => void) | undefined;",
+            "  aliased?: Send;",
+            "  data?: Plain;",
             "}",
+            "type Send = () => Promise<void>;",
+            "type Plain = { id: string };",
             "export type Api = { close?(): void };",
           ].join("\n"),
           [platformFile("surface/ports/notice.ts")]:
@@ -3070,6 +3210,7 @@ describe("architecture", () => {
         optionalCapabilityMethods,
       ),
     ).toEqual([
+      `${ports} -> aliased`,
       `${ports} -> cancel`,
       `${ports} -> close`,
       `${ports} -> onDone`,
