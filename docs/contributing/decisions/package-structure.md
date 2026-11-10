@@ -161,7 +161,7 @@ packages/platform/src/
 - **contracts**: `defineTool({ name, arguments, output, class, feature, description, refusals })`가 한 건을 만들고, 도메인별 목록(`GITHUB_MCP_TOOLS`)이 이름 → 정의 `Record`다. 실행 코드는 없다. web과 SDK도 이 목록을 읽는다.
 - **platform**: `tools/`의 handler 표가 `satisfies Record<GitHubMcpToolName, ToolHandler>`로 정의 목록의 이름 집합과 맞물린다. 도구를 더하면 정의를 빼먹을 수도, handler를 빼먹을 수도 없다(컴파일 오류). 지금의 `switch`는 이 표로 바뀐다.
 - **도구 공통 파이프라인**: 정의 조회 → 인수 검증 → handler 호출 → 결과 봉투까지만 `tools/dispatch.ts`에 둔다. **인가, 자격 발급, receipt 기록은 지금처럼 서비스와 gate가 소유한다.** receipt는 호출 뒤 후처리가 아니다: `github-work-service.ts:35`는 dispatch receipt와 workflow 행을, `:45`는 review receipt와 outcome을 한 트랜잭션으로 쓰고, `github-gate.ts:416`은 작업 실행 전에 토큰 발급 receipt를 남긴다(Codex 반론). 공통 dispatcher로 옮기면 원자성과 기록 시점이 바뀌고 기존 기록과 중복된다. 새 내장 서버(예: action-broker 문서의 `platform` 서버)는 같은 dispatch에 정의 목록과 handler 표를 꽂는다.
-- **이름**: `action-broker/`는 현행 `refusal.ts`를 그대로 두고, `tools/dispatch.ts`는 도메인 밖 공통이므로 `platform/src/tools/`(도메인이 아닌 공통 레지스트리)에 둔다. `action-broker.md`의 약속 문장은 이 위치로 정정한다. (정정: [surface·action 모듈](surface-action-modules.md) 7.2절과 U6b가 `platform/src/action/tools/`로 정했고, `action-broker.md` 1절은 그 위치로 고쳤다.) 둘을 하나로 합칠지는 dispatch를 실제로 옮기는 S5 카드에서 정한다.
+- **이름**: `action-broker/`는 현행 `refusal.ts`를 그대로 두고, `tools/dispatch.ts`는 도메인 밖 공통이므로 `platform/src/tools/`(도메인이 아닌 공통 레지스트리)에 둔다. `action-broker.md`의 약속 문장은 이 위치로 정정한다. (정정: [surface·action 모듈](surface-action-modules.md) 7.2절과 U6b가 `platform/src/action/tools/`로 정했고, `action-broker.md` 1절은 그 위치로 고쳤다.) 둘을 하나로 합칠지는 U6b가 정했다(9절).
 - **receipt operation 목록**: S0이 단일화한 값을 그대로 쓰고, 이 설계는 더 건드리지 않는다.
 
 ### 4.3 어댑터
