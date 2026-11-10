@@ -122,17 +122,18 @@ export function DetailRail({
       )}
       {...props}
     >
-      {sheet ? (
+      {toggle !== undefined ? (
         <div className="flex items-center justify-between gap-2 px-4 pt-4 md:px-[var(--werft-space-6)]">
           <span className="font-medium text-control">{label}</span>
+          {/* Named in words: an icon alone left the owner searching for it. */}
           <Button
             type="button"
-            variant="ghost"
-            size="icon"
-            aria-label={toggle.closeLabel}
+            variant="outline"
+            size="sm"
             onClick={toggle.close}
           >
             <X strokeWidth={1.5} aria-hidden="true" />
+            {toggle.closeLabel}
           </Button>
         </div>
       ) : null}

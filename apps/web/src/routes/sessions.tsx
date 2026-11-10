@@ -26,28 +26,31 @@ import {
   SessionDetail,
   usePendingRail,
 } from "@werft-ai/react/blocks";
-import { DetailLayout, ListToolbar } from "@werft-ai/react/components";
+import {
+  DetailLayout,
+  DetailRailSection,
+  ListToolbar,
+} from "@werft-ai/react/components";
 import {
   Button,
-  buttonVariants,
   EmptyState,
   FilterMenu,
   Page,
+  PageBreadcrumb,
+  PageBreadcrumbCurrent,
+  PageBreadcrumbLink,
   SegmentedControl,
   SegmentedControlItem,
-  Text,
 } from "@werft-ai/ui";
-import { ArrowLeft } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useCan } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
-import { PagedListFooter } from "../components/paged-list-footer.tsx";
 import { SEARCH_MAX, useSearchTerm } from "../components/search-term.ts";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
 import { SessionGitHubWork } from "./session-github-work.tsx";
-import { SessionOutputsCount, SessionOutputsTab } from "./session-outputs.tsx";
-import { SessionsOverview } from "./session-overview.tsx";
+import { SessionListTable } from "./session-list-table.tsx";
+import { SessionOutputsTab } from "./session-outputs.tsx";
 import { SessionReleaseBlock } from "./session-release.tsx";
 import { SessionShareBlock } from "./session-share.tsx";
 import { SessionWorkspaceLimit } from "./session-workspace-limit.tsx";
@@ -137,18 +140,7 @@ export function SessionsScreen() {
   };
   return (
     <DetailLayout rail={rail.rail}>
-      <Page
-        title={t("sessions.title")}
-        description={t("sessions.intro")}
-        actions={
-          <Link
-            to="/sessions/map"
-            className={buttonVariants({ variant: "outline" })}
-          >
-            {t("sessionList.map")}
-          </Link>
-        }
-      >
+      <Page title={t("sessions.title")} description={t("sessions.intro")}>
         <div className="flex flex-col gap-[var(--werft-space-block)]">
           <ApprovalInbox
             layout="summary"
@@ -166,15 +158,12 @@ export function SessionsScreen() {
                   value={tab}
                   onValueChange={pick}
                 >
-                  <SegmentedControlItem value="all" count={counts.data?.total}>
+                  {/* No counts on the tabs: a waiting session is marked in the list. */}
+                  <SegmentedControlItem value="all">
                     {t("sessionList.filter.all")}
                   </SegmentedControlItem>
                   {SESSION_FILTERS.map((name) => (
-                    <SegmentedControlItem
-                      key={name}
-                      value={name}
-                      count={counts.data?.counts[name]}
-                    >
+                    <SegmentedControlItem key={name} value={name}>
                       {t(`sessions.status.${name}`)}
                     </SegmentedControlItem>
                   ))}
@@ -210,6 +199,9 @@ export function SessionsScreen() {
                 ...(relation ? { relation } : {}),
                 ...(q ? { q } : {}),
               }}
+              total={
+                tab === "all" ? counts.data?.total : counts.data?.counts[tab]
+              }
               onClear={clear}
             />
           </div>
@@ -314,9 +306,11 @@ function useSessionCounts(
 /** The caller's sessions for the filters picked, a page at a time. */
 function SessionsView({
   filter,
+  total,
   onClear,
 }: {
   readonly filter: SessionsFilter;
+  readonly total: number | undefined;
   readonly onClear: () => void;
 }) {
   const { t } = useI18n();
@@ -363,17 +357,18 @@ function SessionsView({
       data-busy={busy}
       className="flex flex-col items-start gap-4 transition-opacity data-[busy=true]:opacity-60 data-[busy=true]:delay-150"
     >
-      <SessionsOverview sessions={items} />
       {isApiError(sessions.error, "FORBIDDEN") ? (
         // Asking again would be refused again: say who may see it instead.
         <StatusScreen kind="forbidden" />
       ) : (
         // A next page of the last filter's rows would land under the new one.
-        <PagedListFooter list={sessions} stale={busy} />
+        <SessionListTable
+          sessions={items}
+          total={total}
+          list={sessions}
+          stale={busy}
+        />
       )}
-      <Text variant="meta">
-        {t("sessionList.shown", { count: items.length })}
-      </Text>
     </div>
   );
 }
@@ -400,15 +395,21 @@ export function SessionDetailScreen() {
     // The screen fills the area under the top bar, so its rail reaches the bottom.
     <div className="flex flex-1 flex-col">
       <SessionDetail
-        back={
-          <Link
-            to="/sessions"
-            className={buttonVariants({ variant: "outline", size: "sm" })}
-          >
-            <ArrowLeft strokeWidth={1.5} aria-hidden="true" />
-            {t("session.back")}
-          </Link>
-        }
+        breadcrumb={(session) => (
+          <PageBreadcrumb label={t("session.back")} className="mb-2">
+            <PageBreadcrumbLink asChild>
+              <Link to="/sessions">{t("nav.sessions")}</Link>
+            </PageBreadcrumbLink>
+            <PageBreadcrumbCurrent>
+              {session.title || session.id.slice(0, 8)}
+            </PageBreadcrumbCurrent>
+          </PageBreadcrumb>
+        )}
+        railSections={(session) => (
+          <DetailRailSection title={t("session.outputs.title")}>
+            <SessionOutputsTab session={session} />
+          </DetailRailSection>
+        )}
         id={id}
         loading={<StatusScreen kind="loading" />}
         renderError={loadError}
@@ -419,14 +420,6 @@ export function SessionDetailScreen() {
             <SessionShareBlock id={session.id} />
           </>
         )}
-        tabs={(session) => [
-          {
-            value: "outputs",
-            label: t("session.outputs.title"),
-            count: <SessionOutputsCount session={session} />,
-            content: <SessionOutputsTab session={session} />,
-          },
-        ]}
         timelineExtra={(session) => (
           <div className="px-4 pb-4">
             <SessionGitHubWork session={session} />

@@ -9,6 +9,9 @@ import {
   ConfirmDialog,
   cn,
   formatTimestamp,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
   RowAction,
   Tooltip,
   TooltipContent,
@@ -16,6 +19,7 @@ import {
 } from "@werft-ai/ui";
 import {
   ChevronDown,
+  Ellipsis,
   type LucideIcon,
   Play,
   Power,
@@ -628,7 +632,7 @@ export interface SessionControlsProps extends SessionActionProps {
    * keep the title beside labelled buttons; `icons` draws square icon
    * buttons at every width; `buttons` (the default) draws labelled buttons.
    */
-  readonly variant?: "buttons" | "head" | "icons";
+  readonly variant?: "buttons" | "head" | "icons" | "menu";
   /** Drawn after the commands at the right end of their row, such as a back link. */
   readonly trailing?: ReactNode;
 }
@@ -707,6 +711,7 @@ export function SessionControls({
     });
   };
 
+  const [menuOpen, setMenuOpen] = useState(false);
   const head = variant !== "buttons";
   const icons = variant === "icons";
   const buttons = actions.map((action) => {
@@ -762,11 +767,84 @@ export function SessionControls({
       </Tooltip>
     );
   });
-  const group = (
-    <div ref={groupRef} className="flex flex-wrap gap-2">
-      {buttons}
-    </div>
-  );
+  // `menu`: only resume stands outside; every other command sits behind ⋯.
+  const menuActions =
+    variant === "menu" ? actions.filter((action) => action !== "resume") : [];
+  const group =
+    variant === "menu" ? (
+      <div ref={groupRef} className="flex items-center gap-2">
+        {actions.includes("resume") ? (
+          <Button
+            type="button"
+            data-action="resume"
+            size="sm"
+            aria-disabled={
+              reason !== undefined || control.isPending || undefined
+            }
+            title={reason}
+            className="aria-disabled:opacity-50"
+            onClick={() => {
+              if (reason === undefined && !control.isPending) run("resume");
+            }}
+          >
+            {t("session.control.resume")}
+          </Button>
+        ) : null}
+        {menuActions.length > 0 ? (
+          <Popover open={menuOpen} onOpenChange={setMenuOpen}>
+            <PopoverTrigger asChild={true}>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon-sm"
+                aria-label={t("session.control.more")}
+                title={t("session.control.more")}
+              >
+                <Ellipsis strokeWidth={1.5} aria-hidden="true" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-44 p-1">
+              <div role="menu" aria-label={t("session.control.more")}>
+                {menuActions.map((action) => {
+                  const Icon = CONTROL_ICON[action];
+                  return (
+                    <button
+                      key={action}
+                      type="button"
+                      role="menuitem"
+                      data-action={action}
+                      aria-disabled={reason !== undefined || undefined}
+                      title={reason}
+                      className={cn(
+                        "flex h-8 w-full items-center gap-2 rounded-control px-2 text-start text-control hover:bg-hover focus-visible:bg-hover focus-visible:outline-none aria-disabled:opacity-50",
+                        action === "terminate" && "text-destructive",
+                      )}
+                      onClick={() => {
+                        if (reason !== undefined || control.isPending) return;
+                        setMenuOpen(false);
+                        if (action === "terminate") setConfirming(true);
+                        else run(action);
+                      }}
+                    >
+                      <Icon
+                        className="size-4 shrink-0"
+                        strokeWidth={1.5}
+                        aria-hidden="true"
+                      />
+                      {t(`session.control.${action}`)}
+                    </button>
+                  );
+                })}
+              </div>
+            </PopoverContent>
+          </Popover>
+        ) : null}
+      </div>
+    ) : (
+      <div ref={groupRef} className="flex flex-wrap gap-2">
+        {buttons}
+      </div>
+    );
 
   return (
     <>

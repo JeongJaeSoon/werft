@@ -8,30 +8,19 @@ import type {
 import {
   Badge,
   Button,
+  Checkbox,
   formatTimestamp,
   KeyValueList,
   PageHeader,
-  SegmentedControl,
-  SegmentedControlItem,
   Tabs,
   TabsContent,
   TabsList,
   TabsTrigger,
   Section as TitledBlock,
 } from "@werft-ai/ui";
-import {
-  ArrowDown,
-  Bot,
-  Copy,
-  Folder,
-  Gauge,
-  type LucideIcon,
-  PanelRightClose,
-  PanelRightOpen,
-  UserRound,
-} from "lucide-react";
+import { ArrowDown, Copy, PanelRightOpen } from "lucide-react";
 import { type ReactNode, useState } from "react";
-import { CircleCheck, GitBranch } from "../components/console-icons.ts";
+import { CircleCheck } from "../components/console-icons.ts";
 import {
   DetailLayout,
   DetailRail,
@@ -82,8 +71,10 @@ export interface SessionDetailTab {
 
 export interface SessionDetailProps extends SessionActionProps {
   readonly id: string;
-  /** The way back to the list, at the right end of the head's row. */
-  readonly back?: ReactNode;
+  /** The way back to the list: the path over the title, drawn by the host. */
+  readonly breadcrumb?: (session: SessionDetailData) => ReactNode;
+  /** Sections the host adds to the panel, between the info and operations. */
+  readonly railSections?: (session: SessionDetailData) => ReactNode;
   /** Shown until the session arrives. */
   readonly loading: ReactNode;
   /** The host's words for a read that failed, with the way to ask again. */
@@ -101,7 +92,8 @@ export interface SessionDetailProps extends SessionActionProps {
 
 export function SessionDetail({
   id,
-  back,
+  breadcrumb,
+  railSections,
   loading,
   renderError,
   controls,
@@ -186,19 +178,20 @@ export function SessionDetail({
           <TabsTrigger value="info">{t("session.tabs.info")}</TabsTrigger>
         </TabsList>
         {tab === "timeline" ? (
-          <SegmentedControl
-            aria-label={t("session.events.view")}
-            value={view}
-            onValueChange={(next) => setView(next === "all" ? "all" : "focus")}
-            className="mb-1"
-          >
-            <SegmentedControlItem value="focus">
-              {t("session.events.view.focus")}
-            </SegmentedControlItem>
-            <SegmentedControlItem value="all">
-              {t("session.events.view.all")}
-            </SegmentedControlItem>
-          </SegmentedControl>
+          // Checked is the default; clearing it shows every event.
+          // biome-ignore lint/a11y/noLabelWithoutControl: the checkbox is a Radix button, which a label still names
+          <label className="mb-1 inline-flex items-center gap-2 text-control">
+            <Checkbox
+              checked={view === "focus"}
+              onCheckedChange={(next) =>
+                setView(next === true ? "focus" : "all")
+              }
+            />
+            {t("session.events.view.focusMode")}
+            <span className="text-caption text-muted-foreground">
+              · {t("session.events.view.focusHint")}
+            </span>
+          </label>
         ) : null}
       </div>
       {/* Kept mounted on other tabs: the composer holds a send in flight. */}
@@ -329,6 +322,10 @@ export function SessionDetail({
           ) : null}
         </div>
       </DetailRailSection>
+      <DetailRailSection title={t("session.info.title")}>
+        <SessionMeta session={detail} usage={usage.data} />
+      </DetailRailSection>
+      {railSections?.(detail)}
       <Operations
         session={detail}
         answerable={pending.data?.answerable}
@@ -352,6 +349,7 @@ export function SessionDetail({
           : undefined
       }
     >
+      {breadcrumb?.(detail)}
       <PageHeader
         // The commands run from one to four buttons: they go under the title
         // when the row cannot hold both, so the title, status and meta line
@@ -383,25 +381,13 @@ export function SessionDetail({
             )}
           </span>
         }
-        description={
-          <SessionMeta
-            session={detail}
-            usage={usage.data}
-            className="mt-1 flex flex-wrap items-center gap-x-6 gap-y-2 text-control text-muted-foreground"
-          />
-        }
         actions={
           <SessionControls
             session={detail}
             unavailable={unavailable}
             refusal={refusal}
-            variant="head"
-            trailing={
-              <span className="flex flex-wrap gap-2">
-                <PanelToggle panel={panel} waiting={pendingCount ?? 0} />
-                {back}
-              </span>
-            }
+            variant="menu"
+            trailing={<PanelToggle panel={panel} waiting={pendingCount ?? 0} />}
           />
         }
       />
@@ -427,33 +413,36 @@ function PanelToggle({
   const { t } = useBlockText();
   // Open, the rail shows the requests itself, and the head keeps its room.
   const shown = waiting > 0 && !panel.open;
-  const Icon = panel.open ? PanelRightClose : PanelRightOpen;
   return (
     <>
-      <Button
-        ref={panel.triggerRef}
-        type="button"
-        variant="outline"
-        size={shown ? "sm" : "icon-sm"}
-        aria-expanded={panel.open}
-        aria-controls={panel.id}
-        // The head's commands already crowd the title on a narrow page, so
-        // the button is an icon with the count; the native tooltip names it
-        // as it does the commands' icons.
-        title={t("session.panel")}
-        onClick={panel.toggle}
-      >
-        <Icon strokeWidth={1.5} aria-hidden="true" />
-        <span className="sr-only">{t("session.panel")}</span>
-        {shown ? (
-          <Badge variant="amber" className="tabular-nums">
-            <span aria-hidden="true">{waiting}</span>
-            <span className="sr-only">
-              {t("session.panel.waiting", { count: waiting })}
-            </span>
-          </Badge>
-        ) : null}
-      </Button>
+      {/* Open, the panel's own head has the button that folds it. Folded,
+          this one brings it back; a request waiting shows as one red dot,
+          never a count. */}
+      {panel.open ? null : (
+        <Button
+          ref={panel.triggerRef}
+          type="button"
+          variant="outline"
+          size="sm"
+          aria-expanded={panel.open}
+          aria-controls={panel.id}
+          onClick={panel.toggle}
+        >
+          <PanelRightOpen strokeWidth={1.5} aria-hidden="true" />
+          {t("session.panel.show")}
+          {waiting > 0 ? (
+            <>
+              <span
+                aria-hidden="true"
+                className="size-2 rounded-full bg-destructive"
+              />
+              <span className="sr-only">
+                {t("session.panel.waiting", { count: waiting })}
+              </span>
+            </>
+          ) : null}
+        </Button>
+      )}
       {/* Folded, the rail's own live region is gone from the page; a new
           request is still announced. */}
       <output className="sr-only">
@@ -525,90 +514,63 @@ function startedBy(session: SessionDetailData, t: BlockText): ReactNode {
 function SessionMeta({
   session,
   usage,
-  className,
 }: {
   readonly session: SessionDetailData;
   readonly usage: SessionUsageResponse | undefined;
-  readonly className: string;
 }) {
   const { t } = useBlockText();
   const [copied, setCopied] = useState(false);
   const label = t("session.id.copy");
   const repositories = sessionRepositoriesOf(session);
   return (
-    <span className={className}>
-      <span className="inline-flex items-center gap-2">
-        <span className="font-mono text-caption">{session.id.slice(0, 8)}</span>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          aria-label={label}
-          title={label}
-          onClick={() => {
-            void navigator.clipboard?.writeText(session.id).then(
-              () => setCopied(true),
-              () => setCopied(false),
-            );
-          }}
-        >
-          <Copy className="size-3.5" strokeWidth={1.5} aria-hidden="true" />
-        </Button>
-        <output className="sr-only">
-          {copied ? t("session.id.copied") : null}
-        </output>
-      </span>
-      <MetaItem icon={Bot} label={t("session.info.agent")}>
-        <AgentName session={session} />
-      </MetaItem>
-      <MetaItem icon={UserRound} label={t("session.info.startedBy")}>
-        {startedBy(session, t)}
-      </MetaItem>
-      <MetaItem
-        icon={repositories.length === 0 ? Folder : GitBranch}
-        label={t("session.meta.repository")}
-      >
-        <RepositorySummary
-          repositories={repositories}
-          messages={{
-            none: t("session.repository.none"),
-            unknown: t("session.repositories.unknown"),
-            more: (count) =>
-              count === 1
-                ? t("session.repositories.more.one")
-                : t("session.repositories.more", { count }),
-          }}
-        />
-      </MetaItem>
-      {usage ? (
-        <MetaItem icon={Gauge} label={t("session.usage")}>
-          <Cost usage={usage} />
-        </MetaItem>
-      ) : null}
-    </span>
-  );
-}
-
-function MetaItem({
-  icon: Icon,
-  label,
-  children,
-}: {
-  readonly icon: LucideIcon;
-  /** Read before the value; text that names itself needs none. */
-  readonly label?: string;
-  readonly children: ReactNode;
-}) {
-  return (
-    <span className="inline-flex min-w-0 items-center gap-2 [overflow-wrap:anywhere]">
-      <Icon
-        className="size-3.5 shrink-0"
-        strokeWidth={1.5}
-        aria-hidden="true"
-      />
-      {label ? <span className="sr-only">{label}: </span> : null}
-      {children}
-    </span>
+    <Facts
+      rows={[
+        [
+          t("session.info.id"),
+          <span key="id" className="inline-flex items-center gap-1">
+            <span className="font-mono text-caption">
+              {session.id.slice(0, 8)}
+            </span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label={label}
+              title={label}
+              onClick={() => {
+                void navigator.clipboard?.writeText(session.id).then(
+                  () => setCopied(true),
+                  () => setCopied(false),
+                );
+              }}
+            >
+              <Copy className="size-3.5" strokeWidth={1.5} aria-hidden="true" />
+            </Button>
+            <output className="sr-only">
+              {copied ? t("session.id.copied") : null}
+            </output>
+          </span>,
+        ],
+        [t("session.info.agent"), <AgentName key="agent" session={session} />],
+        [t("session.info.startedBy"), startedBy(session, t)],
+        [
+          t("session.meta.repository"),
+          <RepositorySummary
+            key="repo"
+            repositories={repositories}
+            messages={{
+              none: t("session.repository.none"),
+              unknown: t("session.repositories.unknown"),
+              more: (count) =>
+                count === 1
+                  ? t("session.repositories.more.one")
+                  : t("session.repositories.more", { count }),
+            }}
+          />,
+        ],
+        usage ? [t("session.usage"), <Cost key="usage" usage={usage} />] : null,
+      ]}
+    />
   );
 }
 

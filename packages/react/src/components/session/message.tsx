@@ -43,13 +43,24 @@ export function Message({
       data-from={from}
       className={cn(
         "flex w-fit min-w-0 max-w-[85%] flex-col gap-1 rounded-card border px-3 py-2 text-sm",
-        user ? "ml-auto bg-secondary" : "bg-card",
+        // Mine sit on the right in the solid primary; the text and the meta
+        // lines keep full strength so they stay readable on it.
+        user
+          ? "ml-auto border-transparent bg-primary text-primary-foreground"
+          : "bg-card",
         error && "border-destructive",
         className,
       )}
     >
-      <header className="flex flex-wrap items-baseline gap-x-2 text-muted-foreground text-xs">
-        <span className="font-medium text-foreground">{author}</span>
+      <header
+        className={cn(
+          "flex flex-wrap items-baseline gap-x-2 text-xs",
+          !user && "text-muted-foreground",
+        )}
+      >
+        <span className={cn("font-medium", !user && "text-foreground")}>
+          {author}
+        </span>
         {occurredAt ? (
           <time dateTime={occurredAt}>
             {formatTimestamp(occurredAt, locale)}
@@ -64,15 +75,22 @@ export function Message({
             <span
               data-receipt={receipt.status}
               className={cn(
-                "text-muted-foreground text-xs",
-                receipt.status === "failed" && "text-destructive",
+                "text-xs",
+                !user && "text-muted-foreground",
+                receipt.status === "failed" &&
+                  (user ? "font-medium underline" : "text-destructive"),
               )}
             >
               {receipt.label}
             </span>
           ) : null}
           {error ? (
-            <p className="text-destructive text-xs [overflow-wrap:anywhere]">
+            <p
+              className={cn(
+                "text-xs [overflow-wrap:anywhere]",
+                user ? "font-medium underline" : "text-destructive",
+              )}
+            >
               {error}
             </p>
           ) : null}

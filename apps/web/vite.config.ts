@@ -52,7 +52,11 @@ function demoEntry(): Plugin {
     transformIndexHtml: {
       order: "pre",
       handler: (html) =>
-        html.replace('src="/src/main.tsx"', 'src="/src/demo/main.tsx"'),
+        html.replace(
+          'src="/src/main.tsx"',
+          // DEMO_ENTRY=proto: the clickable prototype with its own stateful fake API.
+          `src="/src/demo/${process.env.DEMO_ENTRY === "proto" ? "proto-main" : "main"}.tsx"`,
+        ),
     },
   };
 }

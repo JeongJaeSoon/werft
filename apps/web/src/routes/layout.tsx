@@ -1,28 +1,26 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   type ErrorComponentProps,
-  Link,
   Outlet,
   useNavigate,
   useRouter,
   useRouterState,
 } from "@tanstack/react-router";
 import { ApiError, isApiError, unwrap } from "@werft-ai/client";
-import { queryScopeOf, sessionQuery } from "@werft-ai/core";
+import { queryScopeOf } from "@werft-ai/core";
 import { QueryScopeProvider, useWerft } from "@werft-ai/react";
 import {
   Button,
+  cn,
   Field,
   FieldLabel,
   NativeSelect,
   NativeSelectOption,
-  PageBreadcrumb,
-  PageBreadcrumbCurrent,
-  PageBreadcrumbLink,
   PageFrame,
   SkipLink,
-  Text,
+  useMediaQuery,
 } from "@werft-ai/ui";
+import { Menu } from "lucide-react";
 import {
   type ReactNode,
   useEffect,
@@ -31,15 +29,11 @@ import {
   useRef,
   useState,
 } from "react";
-import { agentQuery } from "../api/queries.ts";
 import { useMe } from "../auth/guard.tsx";
 import {
   AppSidebar,
-  MANAGER_NAV_GROUP,
-  type NavGroup,
-  navItemFor,
+  UserMenu,
   useNavGroups,
-  useSettingsNavGroups,
 } from "../components/app-sidebar.tsx";
 import { FormError } from "../components/auth-page.tsx";
 import { MAIN_CONTENT_ID, Main } from "../components/main.tsx";
@@ -169,10 +163,6 @@ function LocaleSwitch() {
   );
 }
 
-// The router opens these with a trailing slash too.
-const SESSION_PATH = /^\/sessions\/([^/]+)\/?$/;
-const MAP_PATH = /^\/sessions\/map\/?$/;
-const AGENT_PATH = /^\/agents\/([^/]+)\/?$/;
 // The agent map, under the sessions path, sits in the page frame.
 const RAIL_PATH = /^\/(sessions(\/(?!map\/?$)[^/]+)?|operations\/tools)?\/?$/;
 const SETTINGS_PATH = /^\/settings(\/|$)/;
@@ -192,7 +182,6 @@ export function AuthedLayout() {
 
 function AuthedShell() {
   const { t } = useI18n();
-  const me = useMe();
   useSavedLocale();
   const groups = useNavGroups();
   const { client } = useWerft();
@@ -200,6 +189,9 @@ function AuthedShell() {
   const navigate = useNavigate();
   const sidebarId = useId();
   const [menuOpen, setMenuOpen] = useState(false);
+  // From md up the sidebar is always there; the menu button folds it away.
+  const [collapsed, setCollapsed] = useState(false);
+  const isWide = useMediaQuery("(min-width: 48rem)", true);
   const logout = useMutation<unknown, ApiError>({
     // A 401 means the session is already gone, which is what was asked.
     meta: { public: true },
@@ -217,38 +209,62 @@ function AuthedShell() {
     },
   });
 
+  const closeMenu = () => {
+    if (!menuOpen) return;
+    setMenuOpen(false);
+    // The followed link hides with the menu; focus lands on the page.
+    document.getElementById(MAIN_CONTENT_ID)?.focus();
+  };
+
   return (
     // Header, sidebar, main in reading order: below md the open menu unfolds
     // under its button; from md on the grid puts the sidebar on the left.
-    <div className="flex flex-1 flex-col md:grid md:grid-cols-[var(--werft-layout-sidebar-width)_minmax(0,1fr)] md:grid-rows-[auto_1fr]">
-      <header className="flex min-h-[var(--werft-topbar-h)] items-center gap-3 border-b bg-surface px-4 md:col-start-2 md:row-start-1 md:px-6">
+    <div
+      className={cn(
+        "flex flex-1 flex-col md:grid md:grid-rows-[auto_1fr]",
+        collapsed
+          ? "md:grid-cols-[minmax(0,1fr)]"
+          : "md:grid-cols-[var(--werft-layout-sidebar-width)_minmax(0,1fr)]",
+      )}
+    >
+      {/* The bar holds the menu button and the account only; the page's own
+          head says where it is. */}
+      <header
+        className={cn(
+          "flex min-h-[var(--werft-topbar-h)] items-center justify-between gap-3 border-b bg-surface px-4 md:row-start-1 md:px-6",
+          collapsed ? "md:col-start-1" : "md:col-start-2",
+        )}
+      >
         <Button
           type="button"
           variant="outline"
-          size="sm"
-          className="md:hidden"
-          aria-expanded={menuOpen}
+          size="icon-sm"
+          aria-expanded={menuOpen || (!collapsed && isWide)}
           aria-controls={sidebarId}
-          onClick={() => setMenuOpen((open) => !open)}
+          title={menuOpen ? t("shell.closeMenu") : t("shell.openMenu")}
+          onClick={() =>
+            isWide
+              ? setCollapsed((value) => !value)
+              : setMenuOpen((open) => !open)
+          }
         >
-          {menuOpen ? t("shell.closeMenu") : t("shell.openMenu")}
+          <Menu aria-hidden="true" strokeWidth={1.5} />
+          <span className="sr-only">
+            {menuOpen ? t("shell.closeMenu") : t("shell.openMenu")}
+          </span>
         </Button>
-        <PageTrail
-          groups={groups}
-          fallback={me?.workspace?.name ?? t("common.appName")}
+        <UserMenu
+          variant="topbar"
+          logout={{ pending: logout.isPending, run: () => logout.mutate() }}
+          onNavigate={closeMenu}
         />
       </header>
       <AppSidebar
         id={sidebarId}
         openBelowMd={menuOpen}
+        collapsed={collapsed}
         groups={groups}
-        onNavigate={() => {
-          if (!menuOpen) return;
-          setMenuOpen(false);
-          // The followed link hides with the menu; focus lands on the page.
-          document.getElementById(MAIN_CONTENT_ID)?.focus();
-        }}
-        logout={{ pending: logout.isPending, run: () => logout.mutate() }}
+        onNavigate={closeMenu}
       />
       <ShellMain>
         {logout.error ? (
@@ -259,86 +275,6 @@ function AuthedShell() {
         <Outlet />
       </ShellMain>
     </div>
-  );
-}
-
-function usePathname() {
-  return useRouterState({ select: (state) => state.location.pathname });
-}
-
-/**
- * What a screen under a sidebar item is called after it, when it is not the
- * item's own list: a session by its title, an agent by its name (console v4
- * crumb). Read from the cache the screen fills, so the bar asks for nothing.
- */
-function useLeafTitle(pathname: string): string | undefined {
-  const { t } = useI18n();
-  const { client } = useWerft();
-  const sessionId = SESSION_PATH.exec(pathname)?.[1];
-  const agentId = AGENT_PATH.exec(pathname)?.[1];
-  const sessionRead = useQuery({
-    ...sessionQuery(client, sessionId ?? ""),
-    enabled: false,
-  });
-  const agentRead = useQuery({
-    ...agentQuery(client, agentId === "new" ? "" : (agentId ?? "")),
-    enabled: false,
-  });
-  // A refetch that failed keeps the old data; the screen has dropped it (a
-  // share taken back, a deletion), so the bar drops it too.
-  const session = sessionRead.isError ? undefined : sessionRead.data;
-  const agent = agentRead.isError ? undefined : agentRead.data;
-  // Until the screen has it, or when it failed, the bar names only the item:
-  // no separator left hanging before an empty name.
-  if (session && sessionId !== undefined) {
-    // A server from before titles sends none, as the page head shows.
-    return session.title || sessionId.slice(0, 8);
-  }
-  if (agentId === "new") return t("agents.newTitle");
-  if (MAP_PATH.test(pathname)) return t("sessionList.map");
-  return agent?.agent.name;
-}
-
-function PageTrail({
-  groups,
-  fallback,
-}: {
-  readonly groups: readonly NavGroup[];
-  readonly fallback: string;
-}) {
-  const { t } = useI18n();
-  const pathname = usePathname();
-  // A settings page reads as its own name, not the one sidebar item.
-  const settingsGroups = useSettingsNavGroups();
-  const here = navItemFor(
-    [...settingsGroups, ...groups, MANAGER_NAV_GROUP],
-    pathname,
-  );
-  const leaf = useLeafTitle(pathname);
-  if (!here) {
-    return (
-      <Text weight="medium" truncate>
-        {fallback}
-      </Text>
-    );
-  }
-  // The same words as the sidebar item and the page title; a screen under an
-  // item leads with the item, a link back to its list (console v4 `.crumbs`).
-  return (
-    // Named apart from a page's own breadcrumb under its title.
-    <PageBreadcrumb label={t("shell.menuTrail")}>
-      {leaf === undefined ? null : (
-        <PageBreadcrumbLink asChild>
-          {/* The list is above this page, not this page. */}
-          <Link to={here.item.to} activeOptions={{ exact: true }}>
-            {t(here.item.label)}
-          </Link>
-        </PageBreadcrumbLink>
-      )}
-      <PageBreadcrumbCurrent className="wrap-anywhere">
-        {leaf ?? t(here.item.label)}
-      </PageBreadcrumbCurrent>
-    </PageBreadcrumb>
   );
 }
 

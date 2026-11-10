@@ -25,6 +25,33 @@ const STATE_LABEL = {
   archived: "agents.status.archived",
 } as const;
 
+/**
+ * The state as a word: a released agent gets a green dot (the word stays for
+ * screen readers), every other state is written out.
+ */
+export function AgentStateText({ agent }: { readonly agent: AgentSummary }) {
+  const { t } = useI18n();
+  const state = agentState(agent);
+  return (
+    <span
+      data-state={state}
+      className="inline-flex items-center gap-1.5 text-control"
+    >
+      {state === "active" ? (
+        <>
+          <span
+            aria-hidden="true"
+            className="size-2 shrink-0 rounded-full bg-[var(--werft-tone-success-fg)]"
+          />
+          <span className="sr-only">{t(STATE_LABEL[state])}</span>
+        </>
+      ) : (
+        <span className="text-muted-foreground">{t(STATE_LABEL[state])}</span>
+      )}
+    </span>
+  );
+}
+
 export function AgentStateBadge({ agent }: { readonly agent: AgentSummary }) {
   const { t } = useI18n();
   const state = agentState(agent);

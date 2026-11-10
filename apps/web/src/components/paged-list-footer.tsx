@@ -63,7 +63,7 @@ export function PagedListFooter({
 }
 
 /** A later page that failed: the rows already shown stay above it. */
-function MoreFailure({
+export function MoreFailure({
   error,
   busy,
   onRetry,

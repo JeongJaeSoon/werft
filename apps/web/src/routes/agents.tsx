@@ -7,7 +7,7 @@ import type {
   CountAgentsResponse,
 } from "@werft-ai/contracts";
 import { useWerft } from "@werft-ai/react";
-import { ListToolbar, ListViewSwitch } from "@werft-ai/react/components";
+import { ListToolbar } from "@werft-ai/react/components";
 import {
   Button,
   buttonVariants,
@@ -26,31 +26,19 @@ import {
   SegmentedControlItem,
   Text,
 } from "@werft-ai/ui";
-import { LayoutGrid, List } from "lucide-react";
 import { useRef, useState } from "react";
 import {
   administeredAgentsQuery,
   agentCountsQuery,
   agentPagesQuery,
 } from "../api/queries.ts";
-import {
-  permissionReason,
-  useHasPermission,
-  useMe,
-  useRole,
-} from "../auth/guard.tsx";
+import { permissionReason, useHasPermission, useRole } from "../auth/guard.tsx";
 import { ReasonButton } from "../auth/reason-button.tsx";
 import {
   ADMINISTERED_LIST_LIMIT,
   AdministeredAgents,
 } from "../components/agent-admins.tsx";
-import { AgentCards } from "../components/agent-cards.tsx";
-import { AgentStateBadge, agentState } from "../components/agent-state.tsx";
-import {
-  AGENT_VIEWS,
-  type AgentView,
-  useAgentView,
-} from "../components/agent-view.ts";
+import { AgentStateText, agentState } from "../components/agent-state.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { ManagingTeamName } from "../components/managing-team.tsx";
 import { NewAgentFlow } from "../components/new-agent-flow.tsx";
@@ -131,13 +119,22 @@ export function AgentsScreen() {
       description={t("agents.intro")}
       actions={
         failed ? undefined : (
-          <ReasonButton
-            className={buttonVariants()}
-            reason={reason}
-            onClick={() => void navigate({ to: "/agents/new" })}
-          >
-            {t("agents.new")}
-          </ReasonButton>
+          <>
+            {/* The map is another way to read the same agents. */}
+            <Link
+              to="/sessions/map"
+              className={buttonVariants({ variant: "outline" })}
+            >
+              {t("sessionList.map.open")}
+            </Link>
+            <ReasonButton
+              className={buttonVariants()}
+              reason={reason}
+              onClick={() => void navigate({ to: "/agents/new" })}
+            >
+              {t("agents.new")}
+            </ReasonButton>
+          </>
         )
       }
     >
@@ -162,8 +159,6 @@ export function AgentsScreen() {
   );
 }
 
-const VIEW_ICON = { cards: LayoutGrid, table: List } as const;
-
 function AgentList({
   counts,
 }: {
@@ -171,10 +166,6 @@ function AgentList({
 }) {
   const { t } = useI18n();
   const { client } = useWerft();
-  const principal = useMe()?.principal;
-  const [view, setView] = useAgentView(
-    principal?.kind === "user" ? principal.id : undefined,
-  );
   const [scope, setScope] = useState<"all" | "administered">("all");
   const [query, setQuery] = useState("");
   const q = useSearchTerm(query);
@@ -209,28 +200,13 @@ function AgentList({
             value={scope}
             onValueChange={(next) => setScope(next as typeof scope)}
           >
-            <SegmentedControlItem value="all" count={counts.all}>
+            <SegmentedControlItem value="all">
               {t("agents.tabs.all")}
             </SegmentedControlItem>
-            <SegmentedControlItem
-              value="administered"
-              count={counts.administered}
-            >
+            <SegmentedControlItem value="administered">
               {t("agents.tabs.administered")}
             </SegmentedControlItem>
           </SegmentedControl>
-        }
-        view={
-          <ListViewSwitch
-            aria-label={t("agents.view.label")}
-            value={view}
-            onValueChange={setView}
-            options={AGENT_VIEWS.map((option) => ({
-              value: option,
-              label: t(`agents.view.${option}`),
-              icon: VIEW_ICON[option],
-            }))}
-          />
         }
         search={{
           ref: search,
@@ -261,12 +237,7 @@ function AgentList({
           />
         ) : (
           <div className="flex flex-col gap-4">
-            <AgentsIn
-              view={view}
-              agents={shown ?? []}
-              onClear={clear}
-              summarized
-            />
+            <AgentsIn agents={shown ?? []} onClear={clear} />
             <PagedListFooter list={pages} />
           </div>
         )
@@ -288,7 +259,7 @@ function AgentList({
               })}
             </Text>
           ) : null}
-          <AgentsIn view={view} agents={shown ?? []} onClear={clear} />
+          <AgentsIn agents={shown ?? []} onClear={clear} />
         </div>
       )}
     </div>
@@ -309,16 +280,12 @@ function matchesAgentQuery(agent: Agent, query: string) {
 }
 
 function AgentsIn({
-  view,
   agents,
   onClear,
-  summarized = false,
 }: {
-  readonly view: AgentView;
   /** The list after the search. */
   readonly agents: readonly AgentListItem[];
   readonly onClear: () => void;
-  readonly summarized?: boolean;
 }) {
   const { t } = useI18n();
   if (agents.length === 0) {
@@ -334,11 +301,7 @@ function AgentsIn({
       />
     );
   }
-  return view === "cards" ? (
-    <AgentCards agents={agents} summarized={summarized} />
-  ) : (
-    <AgentTable agents={agents} />
-  );
+  return <AgentTable agents={agents} />;
 }
 
 function AgentTable({ agents }: { readonly agents: readonly AgentListItem[] }) {
@@ -416,7 +379,7 @@ function AgentTable({ agents }: { readonly agents: readonly AgentListItem[] }) {
               <ManagingTeamName agent={agent} />
             </GridTableCell>
             <GridTableCell>
-              <AgentStateBadge agent={agent} />
+              <AgentStateText agent={agent} />
             </GridTableCell>
             <GridTableCell
               align="end"

@@ -312,15 +312,16 @@ function WaitingBadge() {
 export function AppSidebar({
   id,
   openBelowMd,
+  collapsed = false,
   groups,
   onNavigate,
-  logout,
 }: {
   readonly id: string;
   readonly openBelowMd: boolean;
+  /** From md up, the top bar's menu button hides the sidebar. */
+  readonly collapsed?: boolean;
   readonly groups: readonly NavGroup[];
   readonly onNavigate: () => void;
-  readonly logout: { readonly pending: boolean; readonly run: () => void };
 }) {
   const { t } = useI18n();
   const me = useMe();
@@ -332,7 +333,10 @@ export function AppSidebar({
       // Only the nav scrolls, so the user block stays in view at any height;
       // below md the open menu is capped to the screen under the header.
       // z-10: the language submenu opens past the sidebar, over the page.
-      className="hidden max-h-[calc(100dvh-var(--werft-topbar-h))] flex-col gap-2 border-b bg-sidebar px-2 py-3 text-foreground data-[open=true]:flex md:sticky md:top-0 md:z-10 md:col-start-1 md:row-span-2 md:row-start-1 md:flex md:h-dvh md:max-h-none md:border-r md:border-b-0 md:pt-0"
+      className={cn(
+        "hidden max-h-[calc(100dvh-var(--werft-topbar-h))] flex-col gap-2 border-b bg-sidebar px-2 py-3 text-foreground data-[open=true]:flex md:sticky md:top-0 md:z-10 md:col-start-1 md:row-span-2 md:row-start-1 md:h-dvh md:max-h-none md:border-r md:border-b-0 md:pt-0",
+        collapsed ? "md:hidden" : "md:flex",
+      )}
     >
       {/* The top bar's height and lower line, so one rule runs across the shell. */}
       <div className="-mx-2 hidden h-[var(--werft-topbar-h)] shrink-0 items-center gap-2 border-b px-4 md:flex">
@@ -374,7 +378,7 @@ export function AppSidebar({
           />
         ))}
       </nav>
-      <UserBar logout={logout} onNavigate={onNavigate} />
+      <UserBar onNavigate={onNavigate} />
     </div>
   );
 }
@@ -504,19 +508,26 @@ function moveFocus(items: readonly HTMLElement[], key: string) {
 
 const ARROWS = ["ArrowDown", "ArrowUp", "Home", "End"];
 
-/** The account pill and, beside it, the bell for sessions waiting on me. */
-function UserBar({
-  logout,
-  onNavigate,
-}: {
-  readonly logout: { readonly pending: boolean; readonly run: () => void };
-  readonly onNavigate: () => void;
-}) {
+/**
+ * The sidebar's foot: the personal-settings link (the account menu moved to
+ * the top bar) and, beside it, the bell for sessions waiting on me.
+ */
+function UserBar({ onNavigate }: { readonly onNavigate: () => void }) {
+  const { t } = useI18n();
   return (
-    // Below md the account menu takes this bar's width, the screen's less the
-    // gutters; from md it sits on the pill at the sidebar's width.
     <div className="relative flex shrink-0 items-center justify-between gap-2 border-t pt-2">
-      <UserMenu logout={logout} onNavigate={onNavigate} />
+      <Link
+        to="/settings/preferences"
+        onClick={onNavigate}
+        className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-control px-2 font-medium text-control text-foreground no-underline hover:bg-sidebar-hover aria-[current=page]:bg-sidebar-selected aria-[current=page]:text-sidebar-selected-text"
+      >
+        <SlidersHorizontal
+          aria-hidden="true"
+          strokeWidth={RAIL_STROKE}
+          className="size-4 shrink-0"
+        />
+        <span className="min-w-0 truncate">{t("shell.group.personal")}</span>
+      </Link>
       <WaitingBell onNavigate={onNavigate} />
     </div>
   );
@@ -549,13 +560,20 @@ function WaitingBell({ onNavigate }: { readonly onNavigate: () => void }) {
   );
 }
 
-function UserMenu({
+/**
+ * The account menu. `topbar` is the avatar alone at the bar's right end and
+ * opens downward; `sidebar` is the pill at the sidebar's foot.
+ */
+export function UserMenu({
   logout,
   onNavigate,
+  variant = "sidebar",
 }: {
   readonly logout: { readonly pending: boolean; readonly run: () => void };
   readonly onNavigate: () => void;
+  readonly variant?: "sidebar" | "topbar";
 }) {
+  const topbar = variant === "topbar";
   const { t, locale, setLocale } = useI18n();
   const me = useMe();
   const role = useRole();
@@ -678,7 +696,9 @@ function UserMenu({
             // sidebar is the screen's width, so it covers the item instead.
             className={cn(
               MENU_CARD,
-              "inset-x-0 bottom-0 md:inset-x-auto md:left-full md:ml-2 md:w-44",
+              topbar
+                ? "inset-x-0 top-0"
+                : "inset-x-0 bottom-0 md:inset-x-auto md:left-full md:ml-2 md:w-44",
             )}
             onKeyDown={onSubmenuKey}
           >
@@ -740,7 +760,7 @@ function UserMenu({
     <section
       ref={sectionRef}
       aria-label={t("shell.account")}
-      className="min-w-0 md:relative"
+      className={cn("min-w-0", topbar ? "relative" : "md:relative")}
       onKeyDown={(event) => {
         if (event.key !== "Escape" || !open) return;
         setOpen(false);
@@ -755,7 +775,9 @@ function UserMenu({
           // As wide as the sidebar, not the pill it opens from.
           className={cn(
             MENU_CARD,
-            "inset-x-0 bottom-full mb-1 md:right-auto md:w-[calc(var(--werft-layout-sidebar-width)-1rem)]",
+            topbar
+              ? "top-full right-0 mt-1 w-64"
+              : "inset-x-0 bottom-full mb-1 md:right-auto md:w-[calc(var(--werft-layout-sidebar-width)-1rem)]",
           )}
           onKeyDown={onAccountKey}
         >
@@ -857,7 +879,12 @@ function UserMenu({
           event.preventDefault();
           setOpen(true);
         }}
-        className="inline-flex min-h-9 max-w-full items-center gap-2 rounded-full px-2 py-1 text-left hover:bg-sidebar-hover aria-expanded:bg-sidebar-accent"
+        className={cn(
+          "inline-flex items-center gap-2 text-left aria-expanded:bg-sidebar-accent hover:bg-sidebar-hover",
+          topbar
+            ? "size-9 justify-center rounded-full"
+            : "min-h-9 max-w-full rounded-full px-2 py-1",
+        )}
       >
         <span
           aria-hidden="true"
@@ -865,7 +892,7 @@ function UserMenu({
         >
           {initial(me?.user?.display_name ?? me?.workspace?.name ?? "")}
         </span>
-        <span className="flex min-w-0 flex-col">
+        <span className={cn("flex min-w-0 flex-col", topbar && "sr-only")}>
           <Text as="span" weight="medium" truncate>
             {name}
           </Text>
@@ -886,10 +913,12 @@ function UserMenu({
             {t("shell.accountRole", { role: roleLabel })}
           </span>
         ) : null}
-        <ChevronDown
-          aria-hidden="true"
-          className="size-3.5 shrink-0 text-muted-foreground"
-        />
+        {topbar ? null : (
+          <ChevronDown
+            aria-hidden="true"
+            className="size-3.5 shrink-0 text-muted-foreground"
+          />
+        )}
       </button>
     </section>
   );

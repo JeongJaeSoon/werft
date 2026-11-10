@@ -8,6 +8,7 @@ import {
   Text,
   Textarea,
 } from "@werft-ai/ui";
+import { SendHorizontal } from "lucide-react";
 import {
   type Dispatch,
   type FormEvent,
@@ -122,12 +123,15 @@ export function Composer({
           </ol>
         </div>
       ) : null}
-      <form className="flex flex-col gap-2" onSubmit={submit}>
-        <Field data-disabled={disabled || undefined}>
-          <FieldLabel>{messages.label}</FieldLabel>
+      <form className="flex items-start gap-2" onSubmit={submit}>
+        <Field data-disabled={disabled || undefined} className="min-w-0 flex-1">
+          {/* One line at rest; the label stays for screen readers. */}
+          <FieldLabel className="sr-only">{messages.label}</FieldLabel>
           <Textarea
+            rows={1}
+            className="min-h-[var(--werft-control-height)]"
             value={text}
-            placeholder={placeholder}
+            placeholder={placeholder ?? messages.label}
             disabled={disabled}
             onChange={(event) => setText(event.target.value)}
             onKeyDown={sendFromKeyboard}
@@ -141,11 +145,14 @@ export function Composer({
         </Field>
         <Button
           type="submit"
-          className="self-end"
+          size="icon"
+          className="shrink-0 rounded-full"
+          aria-label={messages.send}
+          title={messages.send}
           disabled={blocked || !text.trim()}
           aria-busy={pending || sending || undefined}
         >
-          {messages.send}
+          <SendHorizontal strokeWidth={1.5} aria-hidden="true" />
         </Button>
       </form>
     </div>

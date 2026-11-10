@@ -228,7 +228,7 @@ describe("Composer", () => {
     expect(document.activeElement).toBe(field);
     await user.keyboard("run the tests");
     await user.tab();
-    expect(document.activeElement?.textContent).toBe("Send");
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("Send");
     await user.keyboard("{Enter}");
     expect(onSend).toHaveBeenCalledWith("run the tests");
     await waitFor(() => expect(field.value).toBe(""));
