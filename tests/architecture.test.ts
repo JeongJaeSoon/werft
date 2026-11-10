@@ -1644,7 +1644,8 @@ function unwrapExpression(node: ts.Expression): ts.Expression {
     ts.isAsExpression(current) ||
     ts.isTypeAssertionExpression(current) ||
     ts.isSatisfiesExpression(current) ||
-    ts.isNonNullExpression(current)
+    ts.isNonNullExpression(current) ||
+    ts.isExpressionWithTypeArguments(current)
   )
     current = current.expression;
   return current;
@@ -1751,7 +1752,10 @@ const colorClassRules = {
       return !/^\[[a-z-]+:(?:inherit|current|currentcolor|transparent|initial|unset)\]$/i.test(
         base,
       );
-    const value = new RegExp(`^${colorUtility}-\\[(.*)\\]$`).exec(base)?.[1];
+    // An opacity modifier (`bg-[#fff]/50`) may follow the closing bracket.
+    const value = new RegExp(`^${colorUtility}-\\[(.*)\\](?:/[^\\]]+)?$`).exec(
+      base,
+    )?.[1];
     if (value === undefined) return false;
     return (
       /^color:/i.test(value) ||
@@ -3708,6 +3712,8 @@ describe("architecture", () => {
         "apps/web/src/j.ts":
           'const m = import(<string>"react-aria-components");',
         "apps/web/src/k.ts": 'const m = (require)("react-aria-components");',
+        "apps/web/src/m.ts":
+          'const m = (require<string>)("react-aria-components");',
         "apps/web/src/l.ts":
           'const m = import("react-aria-components" satisfies string);',
       },
@@ -3720,6 +3726,7 @@ describe("architecture", () => {
           "apps/web/src/j.ts react-aria-components",
           "apps/web/src/k.ts react-aria-components",
           "apps/web/src/l.ts react-aria-components",
+          "apps/web/src/m.ts react-aria-components",
           "packages/react/src/c.ts react-stately",
           "packages/react/src/d.ts @internationalized/date",
           "scripts/e.ts react-aria/Button",
@@ -3768,6 +3775,7 @@ describe("architecture", () => {
           'export const g = "bg-[Red] bg-[light-dark(#fff,#000)] [border-top-color:red] shadow-[0_0_2px_red]";',
           'export const h = "!bg-red-500 !dark:p-2 inset-shadow-red-500";',
           'export const i = "shadow-[inset_0_0_2px_var(--ring)] bg-[url(/a.png)] [color:inherit] bg-[Transparent]";',
+          'export const j = "bg-[#fff]/50 text-[red]/80 bg-[rgb(0_0_0)]/50";',
         ].join("\n"),
       },
       async (repo) => {
@@ -3794,6 +3802,9 @@ describe("architecture", () => {
           "src/d.ts:2 !bg-red-500 (Tailwind palette)",
           "src/d.ts:2 !dark:p-2 (dark: variant)",
           "src/d.ts:2 inset-shadow-red-500 (Tailwind palette)",
+          "src/d.ts:4 bg-[#fff]/50 (arbitrary colour)",
+          "src/d.ts:4 bg-[rgb(0_0_0)]/50 (arbitrary colour)",
+          "src/d.ts:4 text-[red]/80 (arbitrary colour)",
         ]);
       },
     );
