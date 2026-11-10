@@ -25,6 +25,8 @@ import {
   insertUnreservedLaunch,
   launchSession,
 } from "@werft-ai/db/testing/launches";
+import { formatTraceparent, turnTraceId } from "@werft-ai/observability";
+import { createOtelTracer } from "@werft-ai/observability/otel";
 import {
   acceptAllCheckpoints,
   createWorkerGateway,
@@ -34,6 +36,7 @@ import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { and, count, eq, isNotNull } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { createApiApp } from "../app.ts";
+import { RequestTracing } from "../request-tracing.ts";
 import { registerWorkerRoutes } from "./worker.ts";
 
 // Every call in a test that expects success has to land inside one lease on
@@ -846,5 +849,75 @@ describe("/internal/worker bundles", () => {
         await get(binding.attempt_id, LINT.digest, binding.session_credential),
       ),
     ).toEqual({ status: 409, code: "LEASE_EXPIRED" });
+  });
+
+  // 94S-731: a gateway call joins a turn trace only when its own session acts.
+  test("a call joins its turn's trace only for the token's own session", async () => {
+    const exported: string[] = [];
+    const tracer = createOtelTracer({
+      serviceName: "werft-api-test",
+      sampler: { kind: "always_on", ratio: 1 },
+      headers: {},
+      tenantHeaders: () => ({}),
+      exporter: {
+        export(batch, done) {
+          for (const span of batch) exported.push(span.spanContext().traceId);
+          done({ code: 0 });
+        },
+        shutdown: async () => {},
+      },
+    });
+    const traced = (using: typeof tracer) =>
+      createApiApp({
+        authMode: "api-key",
+        tracer: using,
+        registerInternalRoutes: (router) =>
+          registerWorkerRoutes(router, gateway, new RequestTracing(using)),
+      });
+    app = traced(tracer);
+    const { binding } = await claimed((await seedSession()).session_id);
+    const call = (sessionId: string, traceparentOf: string) =>
+      app.request("/internal/worker/next-input", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${binding.session_credential}`,
+          traceparent: formatTraceparent({
+            traceId: turnTraceId(traceparentOf, 1),
+            spanId: "00f067aa0ba902b7",
+            sampled: true,
+          }),
+        },
+        body: JSON.stringify({
+          ...scope(binding, "1"),
+          session_id: sessionId,
+          wait_ms: 0,
+        }),
+      });
+
+    // Another session's turn trace, named in the body: no span.
+    const other = crypto.randomUUID();
+    await call(other, other);
+    await tracer.shutdown();
+    expect(exported).toEqual([]);
+
+    // The same call for the token's own session is traced.
+    const own = createOtelTracer({
+      serviceName: "werft-api-test",
+      sampler: { kind: "always_on", ratio: 1 },
+      headers: {},
+      tenantHeaders: () => ({}),
+      exporter: {
+        export(batch, done) {
+          for (const span of batch) exported.push(span.spanContext().traceId);
+          done({ code: 0 });
+        },
+        shutdown: async () => {},
+      },
+    });
+    app = traced(own);
+    await call(binding.session_id, binding.session_id);
+    await own.shutdown();
+    expect(exported).toEqual([turnTraceId(binding.session_id, 1)]);
   });
 });

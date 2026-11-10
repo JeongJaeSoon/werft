@@ -234,9 +234,12 @@ integration("turn trace context end to end", () => {
       })
       .from(schema.turns)
       .where(eq(schema.turns.sessionId, sessionId));
+    const first = rows.find((row) => row.sequence === 1);
     const second = rows.find((row) => row.sequence === 2);
     const stored = parseTraceparent(second?.traceContext ?? "");
     expect(stored).toBeDefined();
     expect(stored?.traceId).not.toBe("0af7651916cd43dd8448eb211c80319c");
+    // Its own request span, not the context turn 1 was queued under.
+    expect(second?.traceContext).not.toBe(first?.traceContext);
   }, 60_000);
 });

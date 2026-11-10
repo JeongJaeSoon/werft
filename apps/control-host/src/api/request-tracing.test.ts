@@ -208,6 +208,41 @@ describe("worker gateway call span", () => {
     expect(span.attributes["http.response.status_code"]).toBe(200);
   });
 
+  // The gateway routes throw ApiHttpError and let the app turn it into the
+  // response, so the span sees an exception carrying the status.
+  test.each([
+    [409, false],
+    [503, true],
+  ])(
+    "a handler that throws status %d is error=%p, with its status recorded",
+    async (status, isError) => {
+      const { tracer, spans } = recordingTracer();
+      const tracing = new RequestTracing(tracer);
+      const app = new Hono();
+      app.post("/internal/worker/next-input", (context) =>
+        tracing.traceGatewayCall(
+          context,
+          { session_id: SESSION, turn_id: "1" },
+          async () => {
+            throw Object.assign(new Error("refused"), { status });
+          },
+        ),
+      );
+      await app.request("/internal/worker/next-input", {
+        method: "POST",
+        headers: { traceparent: formatTraceparent(turnContext) },
+      });
+      await tracer.shutdown();
+
+      const [span] = spans as [Exported];
+      expect(span.attributes["http.response.status_code"]).toBe(status);
+      expect(span.status.code === 2).toBe(isError);
+      expect(span.attributes["error.type"]).toBe(
+        isError ? `http_${status}` : undefined,
+      );
+    },
+  );
+
   test("makes no span without a traceparent or for another trace id", async () => {
     const { tracer, spans } = recordingTracer();
     const app = gatewayApp(new RequestTracing(tracer));

@@ -20,6 +20,15 @@ function spanName(context: Context): string {
     : `${context.req.method} ${template}`;
 }
 
+// ApiHttpError lives in app.ts, which imports this module.
+function httpStatusOf(error: unknown): number | undefined {
+  if (typeof error !== "object" || error === null) return undefined;
+  const status = (error as { status?: unknown }).status;
+  return typeof status === "number" && status >= 400 && status < 600
+    ? status
+    : undefined;
+}
+
 function sessionIdParam(context: Context): string | undefined {
   return context.req.path.startsWith("/v1/sessions/")
     ? context.req.param("id")
@@ -95,7 +104,9 @@ export class RequestTracing {
   ): Promise<Response> {
     const parent = this.turnParent(context, scope);
     if (parent === undefined) return work();
-    return this.tracer.withSpan(
+    const outcome = await this.tracer.withSpan<
+      { response: Response } | { refusal: unknown }
+    >(
       spanName(context),
       {
         kind: "server",
@@ -107,12 +118,27 @@ export class RequestTracing {
         },
       },
       async (span) => {
-        // A handler that throws has no response yet; withSpan marks it failed.
-        const response = await work();
-        span.setAttribute("http.response.status_code", response.status);
-        return response;
+        try {
+          const response = await work();
+          span.setAttribute("http.response.status_code", response.status);
+          return { response };
+        } catch (error) {
+          // The gateway routes throw an HTTP error the app turns into the
+          // response later. Settle the span like a response, then rethrow
+          // outside it, so a 409 is not an error span.
+          const status = httpStatusOf(error);
+          if (status === undefined) throw error;
+          span.setAttribute("http.response.status_code", status);
+          if (status >= 500) {
+            span.setAttribute("error.type", `http_${status}`);
+            span.setError(`HTTP ${status}`);
+          }
+          return { refusal: error };
+        }
       },
     );
+    if ("refusal" in outcome) throw outcome.refusal;
+    return outcome.response;
   }
 
   private turnParent(
