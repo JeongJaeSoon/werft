@@ -100,6 +100,11 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     "engine_settings_start",
     // 0264; arrives as 'profile'
     "runtime_tools_source",
+    // 0266
+    "usage_basis",
+    "usage_team_id",
+    "requester_kind",
+    "requester_id",
     // 0251
     "extensions",
     // 0255
@@ -181,6 +186,11 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     "slack_message",
     // 0263
     "trace_context",
+    // 0266
+    "usage_basis",
+    "usage_team_id",
+    "requester_kind",
+    "requester_id",
   ],
   // kind arrives as 'service'
   api_keys: [

@@ -1387,7 +1387,7 @@ export const sessions = pgTable(
     usageBasis: text("usage_basis"),
     usageTeamId: uuid("usage_team_id"),
     requesterKind: text("requester_kind"),
-    requesterId: uuid("requester_id"),
+    requesterId: text("requester_id"),
     // An `agent` session's GitHub settings as they were when it started
     // (`githubPolicyStartSchema`); later changes can only narrow them for it.
     // Null on a session without one, which reads the row alone.
@@ -1575,7 +1575,8 @@ export const turns = pgTable(
     usageBasis: text("usage_basis"),
     usageTeamId: uuid("usage_team_id"),
     requesterKind: text("requester_kind"),
-    requesterId: uuid("requester_id"),
+    // Opaque text, as a principal's ids are elsewhere on the row.
+    requesterId: text("requester_id"),
   },
   (table) => [
     uniqueIndex("turns_session_sequence_uniq").on(

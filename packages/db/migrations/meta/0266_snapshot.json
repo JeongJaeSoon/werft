@@ -1,5 +1,5 @@
 {
-  "id": "08a56f70-5309-42bc-8f9f-b8b47d5037d9",
+  "id": "424c1134-d01b-415d-ab3b-cd50ca7099c7",
   "prevId": "a44b84d2-4d30-481a-90a6-db77e8d03583",
   "version": "7",
   "dialect": "postgresql",
@@ -12260,7 +12260,7 @@
         },
         "requester_id": {
           "name": "requester_id",
-          "type": "uuid",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
@@ -14832,7 +14832,7 @@
         },
         "requester_id": {
           "name": "requester_id",
-          "type": "uuid",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         }
