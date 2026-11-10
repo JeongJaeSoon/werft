@@ -62,7 +62,7 @@
 | `GitHubApi` | `ports/github-gate.ts` | `apps/control-host/src/api/forge-github.ts` |
 | `GitPusher` | `ports/git-push.ts:66` | `apps/control-host/src/api/git-push.ts:34` |
 | `CheckpointObjectCollector` | `ports/checkpoint-collection.ts:17` | S3, `packages/storage/src/checkpoint-objects.ts:307` |
-| `CheckpointVerifier`·`WorkspaceBundleVerifier` | `ports/checkpoint-verifier.ts`·`workspace-bundle-verifier.ts` | `control-host/src/api/checkpoints.ts` 등. 구조적 검증 구현이 포트 파일 안에 있다 |
+| `CheckpointVerifier`·`WorkspaceBundleVerifier` | `ports/checkpoint-verifier.ts`·`workspace-bundle-verifier.ts` | `CheckpointVerifier`는 포트 파일 안(`ports/checkpoint-verifier.ts:107`), 운영용 `WorkspaceBundleVerifier`는 `packages/storage/src/git-workspace-bundle-verifier.ts:146`. `control-host/src/api/checkpoints.ts:72,293`은 이들을 연결하는 조립 위치다 |
 | `GitHubPackagesTokenVerifier` | `ports/github-packages.ts:107` | HTTP 호출이 `platform/src/musterrolle/github-packages-service.ts:217`에 있다 |
 | `SlackNoticeSink` | `ports/slack-notice-sink.ts` | `platform/src/musterrolle/slack-notice-log.ts:8`, `slack-outbox.ts:292`(`control-host/src/slack/main.ts`는 조립 위치) |
 
@@ -119,7 +119,7 @@
 - `bunfig.toml:5`가 preload하는 `packages/db/src/pglite-release.ts`, `scripts/image-prune.sh:43`이 같은 경로를 지정한다
 - `tests/integration-jobs.test.ts:168`이 정확한 경로로 단언하는 `packages/db/src/migrate.integration.test.ts`
 
-S1이 `git grep`으로 이런 경로 고정 참조를 전부 모아 "이동 금지 목록"으로 문서화하고, 이동 PR이 그 목록의 파일을 건드리면 시험이 실패하게 한다. 이동 제외 목록에 없더라도 경로를 문자열로 가리키는 곳(설정, 스크립트, 시험)은 이동 PR이 `git grep <옛 경로>`로 확인한다.
+S1이 `git grep`으로 이런 경로 고정 참조를 전부 모아 "이동 금지 목록"으로 문서화하고, 이동 PR이 그 목록의 파일을 **옮기거나 지우면** 시험이 실패하게 한다. 파일 안의 import 경로를 고치는 수정은 허용한다(`platform/src/testing/slack-fakes.ts:20-21`은 S3에서 옮길 `musterrolle/slack-config-api.ts`를 직접 import한다). 이동 제외 목록에 없더라도 경로를 문자열로 가리키는 곳(설정, 스크립트, 시험)은 이동 PR이 `git grep <옛 경로>`로 확인한다.
 
 ## 4. 목표 구조
 
