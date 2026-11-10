@@ -13,6 +13,8 @@ import {
   type RuntimeStart,
 } from "@werft-ai/runtime-core";
 
+import type { McpRelay } from "./mcp-relay.ts";
+
 /** The one provider the engine is configured with; its name appears in the rollout. */
 export const PROVIDER_ID = "werft";
 
@@ -107,10 +109,15 @@ export function assertStartable(
   if (config.maxTurns !== undefined) refuse("a turn limit");
   if ((config.disallowedTools ?? []).length > 0) refuse("deny rules");
   if (config.engineSettings !== undefined) refuse("engine permission rules");
-  if (bundle.mcpServers.length > 0) refuse("MCP servers");
+  // Only the platform's own servers, which the relay judges call by call; a
+  // remote server an administrator named has no such path here.
+  const remote = bundle.mcpServers.filter((server) => server.platform !== true);
+  if (remote.length > 0) refuse("MCP servers other than the platform's");
   if ((bundle.extensions ?? []).length > 0) refuse("extension bundles");
   const unknown = config.tools.filter(
-    (tool) => !(CODEX_BUILTIN_TOOLS as readonly string[]).includes(tool),
+    (tool) =>
+      !(CODEX_BUILTIN_TOOLS as readonly string[]).includes(tool) &&
+      !bundle.mcpServers.some((server) => server.tools.includes(tool)),
   );
   if (unknown.length > 0) refuse(`the tools ${unknown.join(", ")}`);
   for (const tool of CODEX_BUILTIN_TOOLS) {
@@ -185,10 +192,14 @@ const HOST_PROXY_VARIABLES = [
   "no_proxy",
 ] as const;
 
+/** The variable the engine reads the relay's secret from; the attempt's token is not it. */
+export const MCP_RELAY_SECRET_VARIABLE = "WERFT_MCP_RELAY_SECRET";
+
 export function codexLaunch(
   start: RuntimeStart,
   deps: Pick<RuntimeHostDeps, "stateDir">,
   host: NodeJS.ProcessEnv = process.env,
+  relay?: Pick<McpRelay, "urls" | "secret">,
 ): CodexLaunch {
   const { bindings, bundle, config } = start;
   assertStartable(config, bundle);
@@ -238,6 +249,25 @@ export function codexLaunch(
     // The repository's instructions come from the bundle, as committed.
     ["project_doc_max_bytes", 0],
   ];
+  // A platform server is reached through the relay in this process, with a
+  // secret of its own; the engine is shown the server's pinned tools only.
+  for (const server of bundle.mcpServers) {
+    const url = relay?.urls.get(server.name);
+    if (url === undefined) {
+      throw new Error(`The MCP relay has no route for ${server.name}`);
+    }
+    const prefix = `mcp__${server.name}__`;
+    overrides.push([
+      `mcp_servers.${server.name}`,
+      {
+        url,
+        bearer_token_env_var: MCP_RELAY_SECRET_VARIABLE,
+        enabled_tools: server.tools
+          .filter((tool) => tool.startsWith(prefix))
+          .map((tool) => tool.slice(prefix.length)),
+      },
+    ]);
+  }
 
   const noProxy = host.NO_PROXY ?? host.no_proxy;
   const env: Record<string, string> = {
@@ -256,7 +286,15 @@ export function codexLaunch(
   }
   // The egress route is plain HTTP on the worker network and not to be sent
   // through the forward proxy.
-  const bypass = [noProxy, connection.transportHost]
+  if (relay !== undefined && bundle.mcpServers.length > 0) {
+    env[MCP_RELAY_SECRET_VARIABLE] = relay.secret;
+  }
+  const bypass = [
+    noProxy,
+    connection.transportHost,
+    // The relay is a loopback port of this process, not the proxy's to carry.
+    ...(relay === undefined ? [] : ["127.0.0.1"]),
+  ]
     .filter((entry) => entry !== undefined && entry !== "")
     .join(",");
   env.NO_PROXY = bypass;
@@ -309,6 +347,20 @@ export function codexProfileDigest(profile: RuntimeProfileInput): string {
         instructions:
           developerInstructionsOf({ bundle: profile.bundle }) ?? null,
         model: profile.config.model,
+        // Present only with servers, so a session without any keeps the
+        // digest every earlier checkpoint was stamped with. The binding is the
+        // server's release identity; its address and token are left out.
+        ...(profile.bundle.mcpServers.length === 0
+          ? {}
+          : {
+              mcp: profile.bundle.mcpServers
+                .map((server) => ({
+                  name: server.name,
+                  binding: server.binding,
+                  tools: [...server.tools].sort(),
+                }))
+                .sort((a, b) => (a.name < b.name ? -1 : 1)),
+            }),
         ownerScope: connection.ownerScope,
         permissionMode: profile.config.permissionMode,
         tools: [...profile.config.tools].sort(),

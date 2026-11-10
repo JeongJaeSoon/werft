@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { RuntimeEvent } from "@werft-ai/runtime-core";
 import { createMemoryCheckpointObjectStore } from "@werft-ai/testkit/checkpoint-objects";
+import { sha256Hex, startFakeMcp } from "@werft-ai/testkit/fake-mcp";
 
 import { codexExecutable } from "./binary.ts";
 import { CodexAgentRuntime, codexRuntimeModule } from "./contract.ts";
@@ -223,5 +224,112 @@ describe.skipIf(!available)("the pinned codex app-server", () => {
       proxy.stop(true);
       await server.stop(true);
     }
+  }, 60_000);
+
+  /** One turn in which the model calls the platform tool, the run judging it with `refusal`. */
+  async function platformToolTurn(refusal: string | null) {
+    const upstream = await startFakeMcp({
+      bearer: "upstream-bearer-real",
+      marker: "real",
+    });
+    const seen: Seen[] = [];
+    const server = fakeResponses(seen, (call) =>
+      call === 1
+        ? [
+            {
+              type: "function_call",
+              call_id: "call_mcp_1",
+              namespace: "mcp__fake",
+              name: "whoami",
+              arguments: "{}",
+            },
+          ]
+        : [assistantMessage("done")],
+    );
+    const label = refusal === null ? "ok" : "no";
+    const work = join(root, `work-mcp-${label}`);
+    await Bun.write(join(work, ".keep"), "");
+    const base = startOf({
+      port: server.port as number,
+      work,
+      egressToken: "egress-token-mcp",
+    });
+    const tool = "mcp__fake__whoami";
+    const start = {
+      ...base,
+      bundle: {
+        ...base.bundle,
+        mcpServers: [
+          {
+            name: "fake",
+            binding: "release-real",
+            url: `http://127.0.0.1:${upstream.port}/mcp`,
+            token: "upstream-bearer-real",
+            tools: [tool],
+            platform: true,
+            trusted: [tool],
+          },
+        ],
+      },
+      config: { ...base.config, tools: ["exec_command", tool] },
+    } as unknown as typeof base;
+    const asked: string[] = [];
+    const runtime = new CodexAgentRuntime(
+      {
+        stateDir: join(root, `mcp-state-${label}`),
+        precheckTool: async (name: string) => {
+          asked.push(name);
+          return refusal;
+        },
+      } as never,
+      { ...process.env },
+    );
+    const run = runtime.start(start);
+    try {
+      const events = await turn(run, "in-1", "who am i");
+      return { events, seen, asked, tool, reached: upstream.calls() };
+    } finally {
+      await run.close();
+      await server.stop(true);
+      await upstream.stop();
+    }
+  }
+
+  test("a platform tool is reached only through the relay, judged per call, with the server's own bearer", async () => {
+    const { events, seen, asked, tool, reached } = await platformToolTurn(null);
+    expect(events.find((e) => e.type === "turn.ended")).toMatchObject({
+      turn: { isError: false },
+    });
+    // The engine lists the server's tools in the namespace `mcp__<server>`,
+    // called one, and the judgment ran for exactly that call.
+    const first = JSON.parse(
+      seen.find((s) => s.path.endsWith("/responses"))?.body ?? "{}",
+    ) as { tools?: unknown };
+    expect(JSON.stringify(first.tools)).toContain('"name":"mcp__fake"');
+    expect(asked).toEqual([tool]);
+    // The server was called once, with its own bearer and nothing else.
+    expect(reached.calls).toBe(1);
+    expect(reached.authorization_sha256).toEqual([
+      sha256Hex("upstream-bearer-real"),
+    ]);
+    // The model got the server's answer back.
+    expect(seen.at(-1)?.body).toContain("ok:real");
+    // The public events carry the tool under the platform's name.
+    const names = events.flatMap((e) =>
+      e.type === "tool.called" ? [e.tool] : [],
+    );
+    expect(names).toContain(tool);
+  }, 60_000);
+
+  test("a call the run refuses never reaches the server, and the model reads why", async () => {
+    const { events, seen, asked, tool, reached } = await platformToolTurn(
+      "refused: unrelated_history",
+    );
+    expect(asked).toEqual([tool]);
+    expect(reached.calls).toBe(0);
+    expect(seen.at(-1)?.body).toContain("refused: unrelated_history");
+    expect(events.find((e) => e.type === "turn.ended")).toMatchObject({
+      turn: { isError: false },
+    });
   }, 60_000);
 });
