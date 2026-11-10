@@ -280,6 +280,14 @@ describe("backfillReleaseSpecs", () => {
     expect((await backfillReleaseSpecs(store, () => null)).skipped).toEqual([
       { release_id: release.id, reason: "profile_gone" },
     ]);
+    // A resolver that knows why the profile cannot be read says so.
+    expect(
+      (
+        await backfillReleaseSpecs(store, () => ({
+          skip: "profile_blocked",
+        }))
+      ).skipped,
+    ).toEqual([{ release_id: release.id, reason: "profile_blocked" }]);
     const racing = {
       ...store,
       save: async () => false,

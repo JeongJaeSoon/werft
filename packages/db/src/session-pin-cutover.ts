@@ -1,6 +1,7 @@
 import { and, asc, eq, isNull, notInArray, sql } from "drizzle-orm";
 import type { Database } from "./queries.ts";
 import {
+  agentReleases,
   checkpoints,
   queueMessages,
   sessionPinCutover,
@@ -155,6 +156,42 @@ export async function listStrandedSessions(
     .where(
       and(
         isNull(sessions.agentReleaseId),
+        notInArray(sessions.status, ["failed", "stopped"]),
+      ),
+    )
+    .orderBy(asc(sessions.id))
+    .limit(limit);
+  return rows;
+}
+
+export type HeldSession = {
+  id: string;
+  status: string;
+  releaseId: string;
+  profileId: string;
+};
+
+/**
+ * Live sessions whose release has no spec: they hold the gate closed until
+ * the profile can be read again (an operator block lifted) or they end. The
+ * owner decides which; the list says which release and profile each is on.
+ */
+export async function listUnspeccedLiveSessions(
+  db: Database,
+  limit = 500,
+): Promise<HeldSession[]> {
+  const rows = await db
+    .select({
+      id: sessions.id,
+      status: sessions.status,
+      releaseId: agentReleases.id,
+      profileId: agentReleases.runtimeProfileId,
+    })
+    .from(sessions)
+    .innerJoin(agentReleases, eq(agentReleases.id, sessions.agentReleaseId))
+    .where(
+      and(
+        isNull(agentReleases.specSource),
         notInArray(sessions.status, ["failed", "stopped"]),
       ),
     )

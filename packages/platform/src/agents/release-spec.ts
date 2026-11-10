@@ -198,11 +198,16 @@ export type SpecBackfillReport = {
  */
 export async function backfillReleaseSpecs(
   store: SpecBackfillStore,
-  resolve: (release: SpecRelease) => {
-    profile: CatalogProfile;
-    connectionId: string | null;
-    acceptedVersions?: readonly string[];
-  } | null,
+  resolve: (release: SpecRelease) =>
+    | {
+        profile: CatalogProfile;
+        connectionId: string | null;
+        acceptedVersions?: readonly string[];
+      }
+    // No profile to read: `profile_blocked` when the operator blocked it (it
+    // runs again once unblocked), else `profile_gone`. Null is the latter.
+    | { skip: "profile_blocked" | "profile_gone" }
+    | null,
   pageSize = 200,
 ): Promise<SpecBackfillReport> {
   const report: SpecBackfillReport = { stored: 0, raced: 0, skipped: [] };
@@ -213,8 +218,11 @@ export async function backfillReleaseSpecs(
     for (const release of page) {
       after = release.id;
       const found = resolve(release);
-      if (found === null) {
-        report.skipped.push({ release_id: release.id, reason: "profile_gone" });
+      if (found === null || "skip" in found) {
+        report.skipped.push({
+          release_id: release.id,
+          reason: found === null ? "profile_gone" : found.skip,
+        });
         continue;
       }
       const built = buildSpecSource({ release, ...found });
