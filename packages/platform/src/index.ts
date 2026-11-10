@@ -22,6 +22,7 @@ export * from "./checkpoints/durability.ts";
 export * from "./limits/installation-limits.ts";
 export * from "./limits/model-prices.ts";
 export * from "./musterrolle/agent-admin-service.ts";
+export * from "./musterrolle/agent-usage-decision.ts";
 export * from "./musterrolle/agent-usage-service.ts";
 export * from "./musterrolle/agent-identity-service.ts";
 export * from "./musterrolle/api-key-service.ts";

@@ -1382,6 +1382,12 @@ export const sessions = pgTable(
     runtimeToolsSource: text("runtime_tools_source")
       .notNull()
       .default("profile"),
+    // The first turn's usage basis and requester (turns.usage_basis, 94S-901),
+    // kept on the session for what later limits read; never changed.
+    usageBasis: text("usage_basis"),
+    usageTeamId: uuid("usage_team_id"),
+    requesterKind: text("requester_kind"),
+    requesterId: uuid("requester_id"),
     // An `agent` session's GitHub settings as they were when it started
     // (`githubPolicyStartSchema`); later changes can only narrow them for it.
     // Null on a session without one, which reads the row alone.
@@ -1562,6 +1568,14 @@ export const turns = pgTable(
     slackMessage: jsonb("slack_message").$type<SlackMessageRef>(),
     /** W3C traceparent of the API request span that queued the turn; null before 0263 or when the request was untraced. */
     traceContext: text("trace_context"),
+    // Why the person or key that queued the turn could use the agent, and
+    // who they were (94S-901). Null before 0266, for a session without an
+    // agent, and for a caller with no workspace. No foreign keys: the row
+    // is a record of what held then.
+    usageBasis: text("usage_basis"),
+    usageTeamId: uuid("usage_team_id"),
+    requesterKind: text("requester_kind"),
+    requesterId: uuid("requester_id"),
   },
   (table) => [
     uniqueIndex("turns_session_sequence_uniq").on(
