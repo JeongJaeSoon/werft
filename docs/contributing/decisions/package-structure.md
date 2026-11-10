@@ -54,9 +54,23 @@
 | 사람·접근 (6) | `identity-store`(352), `member-store`, `team-store`, `api-key-store`, `linked-account-store`, `decision-log` | `db/src/`, `IdentityStore`는 `control-host/src/api/app.ts`·`auth.ts`에도 |
 | 사용량 (1) | `usage-reader`(332) | `db/src/usage-reader.ts` |
 
+정정(Codex 반론, 2026-11-10): 위 표의 구현 열은 "같은 이름의 타입을 가진 파일"을 찾은 값이라 일부는 구현이 아니라 조립 위치다. 한 파일에 인터페이스가 여럿이므로 **분류 단위는 파일이 아니라 인터페이스**다. 비저장소 인터페이스와 실제 구현은 다음과 같다.
+
+| 인터페이스 | 포트 파일 | 실제 구현 |
+|---|---|---|
+| `ExecutionBackend` | `ports/execution-backend.ts` | `packages/adapters/execution/{local-docker,kubernetes}` |
+| `GitHubApi` | `ports/github-gate.ts` | `apps/control-host/src/api/forge-github.ts` |
+| `GitPusher` | `ports/git-push.ts:66` | `apps/control-host/src/api/git-push.ts:34` |
+| `CheckpointObjectCollector` | `ports/checkpoint-collection.ts:17` | S3, `packages/storage/src/checkpoint-objects.ts:307` |
+| `CheckpointVerifier`·`WorkspaceBundleVerifier` | `ports/checkpoint-verifier.ts`·`workspace-bundle-verifier.ts` | `control-host/src/api/checkpoints.ts` 등. 구조적 검증 구현이 포트 파일 안에 있다 |
+| `GitHubPackagesTokenVerifier` | `ports/github-packages.ts:107` | HTTP 호출이 `platform/src/musterrolle/github-packages-service.ts:217`에 있다 |
+| `SlackNoticeSink` | `ports/slack-notice-sink.ts` | `platform/src/musterrolle/slack-notice-log.ts:8`, `slack-outbox.ts:292`(`control-host/src/slack/main.ts`는 조립 위치) |
+
+표의 `SlackAppStore`는 `db/src/slack-apps.ts:201`이 구현하고(`control-host/src/api/slack-app.ts`는 소비), `IdentityStore`의 구현 `DatabaseIdentityStore`는 `control-host/src/api/auth.ts:62`에 있다(`app.ts`는 조립). 이 정정은 아래 결론을 바꾸지 않는다.
+
 읽을 점 두 가지:
 
-1. **포트의 대부분이 저장소 포트다.** 62개 중 바깥 서비스를 부르는 것은 `execution-backend`, `github-gate`(`GitHubApi`), `slack-notice-sink`, `checkpoint-verifier`, `workspace-bundle-verifier`뿐이다. 나머지는 `db` 패키지가 구현하고, 구현 파일 이름이 포트 파일 이름과 같다(`ports/pull-requests.ts` ↔ `db/src/pull-requests.ts`). 그래서 "포트를 어댑터 패키지로 옮긴다"는 모델은 맞지 않고, **저장소 포트는 도메인 안에 두고 db도 같은 도메인으로 나눈다**가 맞다.
+1. **포트의 대부분이 저장소 포트다.** 바깥 서비스를 부르거나 바깥 저장소(S3, git)를 쓰는 인터페이스는 위 표의 8개 안팎이고, 나머지 50여 개는 `db` 패키지가 구현하며 구현 파일 이름이 포트 파일 이름과 같다(`ports/pull-requests.ts` ↔ `db/src/pull-requests.ts`). 그래서 "포트를 어댑터 패키지로 옮긴다"는 모델은 맞지 않고, **저장소 포트는 도메인 안에 두고 db도 같은 도메인으로 나눈다**가 맞다. 비저장소 구현은 세 곳(control-host, storage, platform 안)에 흩어져 있어 어댑터 패턴으로 모으는 일은 이번 범위가 아니다([4.3절](#43-어댑터)).
 2. **`platform/src/index.ts`는 184줄의 `export *` 목록이다.** 맨 위 주석(`biome-ignore-all … Bun 1.3.14's bundler fails to resolve the sessions/*.ts exports that follow a sessions/ subdirectory export`)이 말하듯 export 순서가 Bun 번들러 버그를 피하려고 고정돼 있다. 폴더를 옮기면 이 순서가 깨질 수 있다([7절](#7-위험)).
 
 ### 1.3 GitHub 한 도구가 흩어진 곳
@@ -99,7 +113,13 @@
 - `@werft-ai/platform`을 부르는 파일은 `apps/control-host` 190개, `packages/db` 201개, `packages/adapters` 13개, `packages/storage` 3개이고, 모두 패키지 이름만 쓴다. `package.json`의 `exports`는 `"."`와 `./testing/*` 넷뿐이라 `platform/src/ports/...` 같은 깊은 경로 import는 막혀 있다(바깥의 `ports/` 문자열 import 검색 결과 platform 안의 179개 파일뿐).
 - `@werft-ai/db`의 하위 경로 export는 `./migrate`, `./pool`, `./testing/*`이고, 가장 많이 쓰이는 `@werft-ai/db/pool`(26곳)도 파일 하나다. `@werft-ai/contracts`도 `./settings`, `./execution`, `./agent-card` 셋뿐이다.
 
-그러므로 **패키지 안의 폴더 이동은 그 패키지 안의 상대 import와 `index.ts`만 바꾼다.** 다른 패키지의 열린 PR과는 만나지 않고, 충돌 면은 "같은 패키지의 같은 파일을 고치는 다른 PR"로 줄어든다. 단 하위 경로 export가 가리키는 파일(`db/src/pool.ts`, `migrate.ts`, `contracts/src/shared/{settings,execution,agent-card}.ts`와 testing 파일)은 이동 목록에서 뺀다.
+그러므로 **import 문은 패키지 안의 상대 import와 `index.ts`만 바꾸면 된다.** 실제 import에서 미공개 deep import나 이를 우회하는 tsconfig alias는 없다(Codex 반론이 같은 결론). 다만 import 아닌 **경로 고정 참조**가 있다. 이 파일들은 이동 목록에서 뺀다.
+
+- 하위 경로 export가 가리키는 파일: `db/src/pool.ts`, `migrate.ts`, `contracts/src/shared/{settings,execution,agent-card}.ts`, testing 파일
+- `bunfig.toml:5`가 preload하는 `packages/db/src/pglite-release.ts`, `scripts/image-prune.sh:43`이 같은 경로를 지정한다
+- `tests/integration-jobs.test.ts:168`이 정확한 경로로 단언하는 `packages/db/src/migrate.integration.test.ts`
+
+S1이 `git grep`으로 이런 경로 고정 참조를 전부 모아 "이동 금지 목록"으로 문서화하고, 이동 PR이 그 목록의 파일을 건드리면 시험이 실패하게 한다. 이동 제외 목록에 없더라도 경로를 문자열로 가리키는 곳(설정, 스크립트, 시험)은 이동 PR이 `git grep <옛 경로>`로 확인한다.
 
 ## 4. 목표 구조
 
@@ -110,8 +130,7 @@ packages/platform/src/
   index.ts                  // 그대로: 공개 표면
   github/
     ports/                  // github-app-store, github-gate(자격 부분), github-settings, github-packages, github-mcp, forge, mcp-egress
-    policy/                 // 허용 판정: sessions/github-gate의 정책 부분
-    service/                // github-{app,packages,repository,settings}-service, github-work-service, connection-resolver
+    service/                // github-gate(쪼개지 않음), github-{app,packages,repository,settings}-service, github-work-service, connection-resolver
     tools/                  // 4.2절: github-mcp-server → handler들
   change-request/           // push-*, pull-request-*, commit-attributions (지금 ports 10개 + sessions의 push/pull 10여 개)
   slack/                    // slack-* 포트 7, musterrolle/slack-* 서비스, SlackNoticeSink
@@ -121,13 +140,15 @@ packages/platform/src/
   testing/                  // 현행 유지
 ```
 
+**이동과 책임 분리는 별개 변경이다.** S2~S4는 기존 모듈을 **통째로** 도메인 폴더에 옮기기만 한다(Codex 반론 수용). 아래 `ports/service/policy/tools`는 옮긴 파일이 앉을 자리를 정하는 이름이고, 파일 안의 로직을 쪼개지 않는다. 지금도 `ports/forge.ts:90,97`에 함수가, `ports/checkpoint-verifier.ts:107`에 구현이, `musterrolle/github-packages-service.ts:227`에 HTTP 호출이 있고, `sessions/github-gate.ts`는 판정과 receipt 기록을 함께 한다(`:119`, `:149`, `:416`). 이런 파일은 가장 가까운 자리에 그대로 두고, 책임 분리가 필요하면 이 시리즈 밖의 별도 설계로 다룬다. 특히 **`github-gate`는 쪼개지 않고 `github/` 안에 한 모듈로 둔다**(`policy/`로 가르지 않는다).
+
 디렉터리 안쪽 이름은 네 가지로 고정한다.
 
 | 하위 | 두는 것 | 두지 않는 것 |
 |---|---|---|
-| `ports/` | 인터페이스, 입력·출력 타입, 포트가 던지는 오류 클래스 | 로직 |
-| `service/` | 포트를 조합하는 유스케이스 | HTTP·SQL·SDK |
-| `policy/` | 순수 판정 함수(허용, 승인 가능 여부, 귀속) | 포트 호출 |
+| `ports/` | 인터페이스, 입력·출력 타입, 포트가 던지는 오류 클래스, 이미 같은 파일에 있는 작은 순수 도우미 | 새 로직 |
+| `service/` | 포트를 조합하는 유스케이스, 기존 gate | 새 HTTP·SQL·SDK |
+| `policy/` | 순수 판정 함수(허용, 승인 가능 여부, 귀속). 이미 따로 있는 파일만 | 포트 호출 |
 | `tools/` | 내장 도구 handler | 도구 메타데이터(contracts에 있다) |
 
 `policy/`와 `tools/`는 도메인이 필요로 할 때만 만든다(YAGNI). 파일이 몇 개 안 되는 도메인은 하위 폴더 없이 시작해도 된다. `musterrolle/`는 이름을 바꾸지 않는다([8절](#8-하지-않을-것)). 인가 정책과 서비스는 `access/`가 아니라 `musterrolle/`에 남기고, 거기 섞인 `slack-*` 27개(시험 제외)만 `slack/`으로 나간다.
@@ -138,7 +159,7 @@ packages/platform/src/
 
 - **contracts**: `defineTool({ name, arguments, output, class, feature, description, refusals })`가 한 건을 만들고, 도메인별 목록(`GITHUB_MCP_TOOLS`)이 이름 → 정의 `Record`다. 실행 코드는 없다. web과 SDK도 이 목록을 읽는다.
 - **platform**: `tools/`의 handler 표가 `satisfies Record<GitHubMcpToolName, ToolHandler>`로 정의 목록의 이름 집합과 맞물린다. 도구를 더하면 정의를 빼먹을 수도, handler를 빼먹을 수도 없다(컴파일 오류). 지금의 `switch`는 이 표로 바뀐다.
-- **도구 공통 파이프라인**: 인수 검증 → 행동 부류 정책 판정 → handler → 결과 봉투 → receipt를 한 곳(`tools/dispatch.ts`)에 둔다. 새 내장 서버(예: action-broker 문서의 `platform` 서버)는 같은 파이프라인에 정의 목록과 handler 표를 꽂는다.
+- **도구 공통 파이프라인**: 정의 조회 → 인수 검증 → handler 호출 → 결과 봉투까지만 `tools/dispatch.ts`에 둔다. **인가, 자격 발급, receipt 기록은 지금처럼 서비스와 gate가 소유한다.** receipt는 호출 뒤 후처리가 아니다: `github-work-service.ts:35`는 dispatch receipt와 workflow 행을, `:45`는 review receipt와 outcome을 한 트랜잭션으로 쓰고, `github-gate.ts:416`은 작업 실행 전에 토큰 발급 receipt를 남긴다(Codex 반론). 공통 dispatcher로 옮기면 원자성과 기록 시점이 바뀌고 기존 기록과 중복된다. 새 내장 서버(예: action-broker 문서의 `platform` 서버)는 같은 dispatch에 정의 목록과 handler 표를 꽂는다.
 - **이름**: `action-broker/`는 현행 `refusal.ts`를 그대로 두고, `tools/dispatch.ts`는 도메인 밖 공통이므로 `platform/src/tools/`(도메인이 아닌 공통 레지스트리)에 둔다. `action-broker.md`의 약속 문장은 이 위치로 정정한다. 둘을 하나로 합칠지는 dispatch를 실제로 옮기는 S5 카드에서 정한다.
 - **receipt operation 목록**: S0이 단일화한 값을 그대로 쓰고, 이 설계는 더 건드리지 않는다.
 
@@ -149,8 +170,8 @@ packages/platform/src/
 | 포트 | 지금 구현 | 목표 |
 |---|---|---|
 | `ExecutionBackend` | `adapters/execution/*` | 그대로 |
-| `GitHubApi` | `control-host/src/api/forge-github.ts` | `packages/adapters/forge/github`. 새 forge를 더하는 날 `ForgeKind`를 넓힌다. 그 전에는 위치만 옮긴다 |
-| Slack Web API 호출 | `control-host/src/slack/main.ts` 등에 흩어짐(S6 카드가 위치부터 조사한다) | `packages/adapters/chat/slack` 후보 |
+| `GitHubApi` | `control-host/src/api/forge-github.ts` | **지금은 옮기지 않는다.** 루트 `package.json:6`의 workspace 목록에 `packages/adapters/forge/*`가 없어서, 옮기려면 workspace 등록·manifest·control-host 의존성·lockfile이 필요하고, 폴더만 만들어 앱이 상대 import하면 `tests/architecture.test.ts:808`에 걸린다. 두 번째 forge가 실제로 생길 때 패키지로 만들고 `ForgeKind`를 함께 넓힌다. 그 전에는 `control-host/src/api/` 안에서 위치만 정리한다 |
+| Slack Web API 호출 | `control-host/src/slack/main.ts` 등에 흩어짐(S6 카드가 위치부터 조사한다) | 위와 같은 이유로 지금은 패키지로 만들지 않는다. 후보는 `packages/adapters/chat/slack` |
 | 저장소 포트(50여 개) | `packages/db/src/` | 어댑터 패키지로 옮기지 않는다. `db/src/<도메인>/`으로 나눈다 |
 
 어댑터 패키지가 platform의 포트 타입을 import하는 것은 `execution` 어댑터가 이미 하는 일이라 허용한다(architecture 시험에서 "Claude 어댑터는 platform·db·storage에 닿지 않는다"는 규칙은 `runtimes/claude`에만 걸려 있다). 새 어댑터는 `db`를 import하지 않는다.
@@ -180,12 +201,12 @@ adapters/*  ──┘ (포트 타입만)         db  →  platform(포트), cont
 | # | 규칙 | 비고 |
 |---|---|---|
 | A1 | `contracts`는 `platform`·`db`·어댑터·앱을 import하지 않는다 | 이미 지킨다(`contracts/src`에 `@werft-ai/platform`·`@werft-ai/db` import 0건). 기준선 없이 바로 막는다 |
-| A2 | 도메인 디렉터리는 다른 도메인의 **`ports/`와 `index.ts`**만 import한다. `service/`·`policy/`·`tools/`는 도메인 안에서만 | 현재 위반을 파일 목록으로 기준선(allowlist)에 박고, 이동 PR이 목록을 줄이는 방향만 허용한다 |
+| A2 | 도메인 디렉터리는 다른 도메인의 **`ports/`와 `index.ts`**만 import한다. `service/`·`policy/`·`tools/`는 도메인 안에서만 | 현재 위반을 **(소스 파일 → 대상 모듈) 쌍**으로 기준선에 박는다. 파일 전체를 예외로 두면 허용된 파일이 다른 도메인 내부 import를 더해도 통과한다(`musterrolle/slack-outbox.ts:22`는 정책 함수를, `:23`은 서비스 타입을 부른다). 쌍의 수는 **늘 수 없다**. 순수 이동은 쌍의 경로만 바꾸므로 감소를 강제하지 않는다 |
 | A3 | `tools/`는 contracts의 정의를 import하고, `ports/`는 `tools/`를 import하지 않는다 | 의존 사이클 방지 |
 | A4 | `contracts`에는 `class`·함수 본문 handler를 두지 않는다. `export const` 데이터와 zod 스키마, 순수 변환만 | 현재 `contracts/src`의 비테스트 `export class`는 0개다. 함수 본문 handler 여부는 S1에서 TS AST로 센다(정규식 스캔 금지, 시험이 이미 쓰는 `typescript` 파서). 위반이 있으면 목록으로 시작한다 |
 | A5 | 모든 도구 이름은 정의와 handler 양쪽에 있다 | 타입(`satisfies`)과 시험으로 이중 |
 
-기준선 방식을 쓰는 이유: 현재 `sessions/`와 `musterrolle/`가 서로 import한다(`sessions` 14개 파일이 `../musterrolle/`를, `musterrolle` 28개 파일이 `../sessions/`를 부른다, 시험 파일 제외). 도메인으로 나누면 이 상호 참조가 A2 위반 후보로 드러나고, 한 번에 고치는 것은 이 작업의 범위가 아니다. 시험이 **새 위반만 막고 옛 위반을 줄이는 PR을 알아본다**가 목표다.
+기준선 방식을 쓰는 이유: 현재 `sessions/`와 `musterrolle/`가 서로 import한다(`sessions` 14개 파일이 `../musterrolle/`를, `musterrolle` 28개 파일이 `../sessions/`를 부른다, 시험 파일 제외). 이 상호 참조는 A2 도입을 막지 않는다: 쌍 단위 기준선에 남기면 된다(Codex 반론이 같은 결론). 한 번에 고치는 것은 이 작업의 범위가 아니다. 시험의 목표는 **새 위반을 막고, 위반이 사라지는 PR을 기준선 갱신으로 알아본다**이다.
 
 ## 6. 이행 순서
 
@@ -199,13 +220,13 @@ adapters/*  ──┘ (포트 타입만)         db  →  platform(포트), cont
 | **S3** | `platform/src/slack/`: ports 7 + `musterrolle/slack-*` | S1 |
 | **S4** | `change-request/`(push·PR 계열 ports 10 + sessions 10여 개), `session/`·`scheduler/`·`checkpoint/` | S2 |
 | **S5** | (동작 변경 없는 구조 변경) `tools/` 레지스트리: `switch` → handler 표, `dispatch.ts` 공통화, A5 시험 | S0, S2 |
-| **S6** | `GitHubApi`를 `adapters/forge/github`로, Slack API 호출 위치 확정 | S2 |
+| **S6** | `GitHubApi` 구현(`forge-github.ts`)과 Slack API 호출 코드의 위치를 `control-host/src/api/` 안에서 정리한다. 새 패키지는 만들지 않는다([4.3절](#43-어댑터)) | S2 |
 | **S7** | `db/src/<도메인>/`(platform 이동 뒤), `control-host/routes/<도메인>/` | S2~S4 |
 | **S8** | 남은 기준선 정리와 index 순서 점검, 이 문서 상태를 "완료"로 | 전부 |
 
 ### 6.1 프로필 제거 계열과의 충돌
 
-프로필 제거 3a·4 계열(최근 머지: #1488, #1489, #1490)이 만지는 파일 이름은 `*profile*`, `engine-settings*`, `installation-*`, `profile-rollout-*`, `workspace-profile-*`, `claim-engine-settings*`다(ports·sessions·agents·db 모두). 이 파일들은 **S2~S7에서 이동 대상에서 뺀다.** 제거 계열이 끝난 뒤 S8에서 남은 것을 한 번에 정리한다. 이 시점에서 열린 PR은 이 문서를 쓰는 중에는 #1327(verify-werft 스크립트) 하나라 지금 부딪히는 PR은 없지만, 단계 시작 때마다 `gh pr list`로 이동 대상 파일을 건드리는 열린 PR을 다시 확인한다.
+프로필 제거 3a·4 계열(최근 머지: #1488, #1489, #1490)이 만지는 파일은 이름 패턴으로 잡히지 않는다. `*profile*`, `*engine-settings*`(`agent-engine-settings`, `workspace-engine-settings`, `claim-engine-settings`, `engine-settings-start`, `engine-settings-merge`), `installation-*`, `profile-rollout-*`뿐 아니라, 같은 계열 커밋 `2b1143d48`이 실제로 고친 `db/src/mcp-egress.ts`, `platform/src/ports/github-mcp.ts`, `platform/src/workers/github-mcp-egress.ts`, `sessions/github-mcp-server.ts`, `workers/worker-gateway.ts`, `ports/worker-unit-of-work.ts`, `db/src/worker-unit-of-work.ts`, `db/src/postgres-unit-of-work.ts`도 있다(이 중 `github-mcp*`·`mcp-egress`는 S2·S7의 이동 대상이다). 그래서 **제외 대상은 파일명 패턴이 아니라 그 계열 PR들의 실제 변경 파일 목록으로 관리한다.** S1이 `gh pr list --search`와 `git log --name-only`로 목록을 만들어 문서에 남기고, 각 이동 단계가 시작할 때 갱신한다. 목록의 파일은 계열이 끝날 때까지 이동에서 빼고, 끝난 뒤 S8에서 한 번에 정리한다. 이 때문에 S2의 GitHub 이동은 `github-mcp*`와 `mcp-egress` 계열을 마지막 묶음으로 미루거나, 계열이 먼저 끝나기를 기다린다. 이 시점에서 열린 PR은 이 문서를 쓰는 중에는 #1327(verify-werft 스크립트) 하나라 지금 부딪히는 PR은 없지만, 단계 시작 때마다 `gh pr list`로 이동 대상 파일을 건드리는 열린 PR을 다시 확인한다.
 
 ### 6.2 import 경로를 한꺼번에 바꾸지 않는 방법
 
@@ -234,13 +255,13 @@ S5만 동작 불변을 시험으로 증명한다: 이동 전 `github-mcp-server.
 | `index.ts` export 순서가 Bun 번들러 버그에 묶여 있다(`platform/src/index.ts` 1행) | 이동 PR마다 번들 확인. 버그가 Bun 갱신으로 풀렸는지는 S8에서 확인하고, 풀렸으면 주석과 순서 제약을 없앤다 |
 | 열린 PR과의 충돌(큰 이동 PR은 오래 열려 있을수록 깨진다) | 한 PR 한 도메인, 이동 순수. 단계 시작 때 열린 PR 확인. 충돌이 나면 이동 PR을 다시 만든다(`git mv`라 재생산이 싸다) |
 | `ports/`가 곧 platform의 공개 표면이라 도메인으로 나누면 이름이 겹친다(`github-settings`가 ports와 contracts에 둘) | 파일 이름은 바꾸지 않고 디렉터리만 옮긴다. 이름 충돌은 contracts와 platform이 다른 패키지라 지금도 없다 |
-| 기준선(A2)이 형식적인 목록이 된다 | 이동 PR이 목록을 줄이지 못하면 리뷰에서 막는다. S8에서 목록이 비었는지 보고 남은 것은 사유와 함께 남긴다 |
+| 기준선(A2)이 형식적인 목록이 된다 | (파일→모듈) 쌍 단위라 새 의존은 막힌다. 순수 이동은 감소를 강제하지 않으므로 S8에서 남은 쌍을 사유와 함께 정리한다 |
 | 폴더가 늘어 import가 길어진다 | 도메인 안에서는 짧게(`./ports/x.ts`), 도메인 사이에서는 `index.ts`를 경유 |
 | 프로필 제거 계열의 후속 PR이 옮긴 파일을 건드린다 | 6.1절대로 해당 파일을 이동에서 뺀다 |
 
 ## 8. 하지 않을 것
 
-- **새 워크스페이스 패키지를 만들지 않는다**(`packages/github` 같은 것). 패키지를 쪼개면 `platform은 contracts·runtime-core·zod만 의존` 시험, 빌드, 버전 고정이 모두 걸린다. 도메인 디렉터리로 같은 효과를 낸다.
+- **새 워크스페이스 패키지를 만들지 않는다**(`packages/github`, `packages/adapters/forge/*` 같은 것). 이 시리즈에는 예외가 없다. 패키지를 쪼개면 `platform은 contracts·runtime-core·zod만 의존` 시험, 빌드, 버전 고정이 모두 걸린다. 도메인 디렉터리로 같은 효과를 낸다.
 - **`musterrolle`이라는 이름을 바꾸지 않는다.** 인가 경계의 용어이고 [musterrolle-boundary.md](musterrolle-boundary.md)가 계약이다.
 - **스키마와 마이그레이션을 바꾸지 않는다**(`schema.ts`, `migrations/`).
 - **`ForgeKind`를 미리 일반화하지 않는다.** 두 번째 forge가 실제로 생길 때 한다.
