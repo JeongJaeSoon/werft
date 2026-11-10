@@ -100,6 +100,8 @@ export const membersKo = {
   "members.tab.members": "구성원",
   "members.tab.teams": "팀",
   "members.tab.invites": "초대",
+  "members.invites.refreshFailed":
+    "초대 목록을 새로 읽지 못했습니다. 아래는 마지막으로 읽은 목록입니다.",
 };
 
 export const membersEn: Record<keyof typeof membersKo, string> = {
@@ -202,6 +204,8 @@ export const membersEn: Record<keyof typeof membersKo, string> = {
   "members.tab.members": "Members",
   "members.tab.teams": "Teams",
   "members.tab.invites": "Invites",
+  "members.invites.refreshFailed":
+    "Couldn't refresh the invites. Below is the list as last read.",
 };
 
 export const membersJa: Record<keyof typeof membersKo, string> = {
@@ -307,4 +311,6 @@ export const membersJa: Record<keyof typeof membersKo, string> = {
   "members.tab.members": "メンバー",
   "members.tab.teams": "チーム",
   "members.tab.invites": "招待",
+  "members.invites.refreshFailed":
+    "招待一覧を再読み込みできませんでした。下は最後に読み込んだ一覧です。",
 };

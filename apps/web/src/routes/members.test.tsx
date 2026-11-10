@@ -1730,13 +1730,23 @@ describe("구성원 · 팀 · 초대 탭", () => {
         "GET /v1/invites": () => json(200, { items }),
       });
 
-    test("초대가 열 개까지는 검색 칸이 없다", async () => {
-      open(many(10));
-      expect(await screen.findByText("person0@example.com")).toBeDefined();
+    test("남은 초대가 없으면 상자에 빈 상태만 있고 검색 칸은 없다", async () => {
+      open([]);
+      expect(
+        await screen.findByText("남아 있는 초대가 없습니다."),
+      ).toBeDefined();
       expect(screen.queryByRole("searchbox")).toBeNull();
     });
 
-    test("열한 개부터 검색 칸이 생기고, 검색은 이메일로 거른다", async () => {
+    test("초대가 하나라도 있으면 구성원·팀 목록처럼 검색 칸이 있다", async () => {
+      open(many(1));
+      expect(await screen.findByText("person0@example.com")).toBeDefined();
+      expect(
+        screen.getByRole("searchbox", { name: "이메일로 찾기" }),
+      ).toBeDefined();
+    });
+
+    test("검색은 이메일로 거른다", async () => {
       open(many(11));
       const user = await setupUser();
       const box = await screen.findByRole("searchbox", {
@@ -1749,8 +1759,8 @@ describe("구성원 · 팀 · 초대 탭", () => {
       expect(screen.getByText("person10@example.com")).toBeDefined();
     });
 
-    test("목록이 열 개 아래로 줄어도 한 번 보인 검색 칸은 남고 포커스를 받는다", async () => {
-      let items = many(11);
+    test("검색하는 사이 목록이 줄어도 검색 칸은 남고 포커스를 받는다", async () => {
+      let items = many(2);
       const { services } = renderAt("/members/invites", {
         "GET /v1/auth/me": () => json(200, me()),
         "GET /v1/members": () =>
@@ -1763,7 +1773,7 @@ describe("구성원 · 팀 · 초대 탭", () => {
       });
       await user.type(box, "nobody");
       await screen.findByRole("button", { name: "검색어 지우기" });
-      items = many(10);
+      items = many(1);
       await act(() => services.queryClient.refetchQueries());
       await user.click(screen.getByRole("button", { name: "검색어 지우기" }));
       await waitFor(() =>
@@ -1790,6 +1800,46 @@ describe("구성원 · 팀 · 초대 탭", () => {
       expect(document.activeElement === box).toBe(true);
       expect((box as HTMLInputElement).value).toBe("");
     });
+  });
+
+  test("초대 목록을 다시 읽다 실패하면 마지막 목록을 두고 위에서 원인과 다시 시도를 말한다", async () => {
+    let fail = false;
+    const { services } = renderAt("/members/invites", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [owner], next_cursor: null })),
+      "GET /v1/invites": () =>
+        fail
+          ? apiError(500, "INTERNAL_ERROR", "the invites read failed")
+          : json(200, { items: [pendingInvite] }),
+    });
+    await screen.findByText(pendingInvite.email);
+    fail = true;
+    await act(() => services.queryClient.refetchQueries());
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(
+      "초대 목록을 새로 읽지 못했습니다. 아래는 마지막으로 읽은 목록입니다.",
+    );
+    expect(alert.textContent).toContain("잠시 뒤 다시 시도하세요");
+    expect(screen.getByText(pendingInvite.email)).toBeDefined();
+    expect(
+      screen.getByRole("searchbox", { name: "이메일로 찾기" }),
+    ).toBeDefined();
+    fail = false;
+    await (await setupUser()).click(
+      within(alert).getByRole("button", { name: "다시 시도" }),
+    );
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+  });
+
+  test("구성원 목록을 읽을 권한이 없다고 하면 검색 칸 없이 그 까닭만 보인다", async () => {
+    renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () => apiError(403, "FORBIDDEN", "not allowed"),
+      ...noInvites,
+    });
+    await screen.findByText("이 화면을 볼 권한이 없습니다");
+    expect(screen.queryByRole("searchbox")).toBeNull();
   });
 
   test("초대 탭에서 구성원 목록을 못 불러오면 초대 버튼 대신 오류와 다시 시도를 보인다", async () => {

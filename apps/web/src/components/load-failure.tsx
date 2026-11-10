@@ -24,12 +24,15 @@ export function LoadFailure({
   onRetry,
   guidance,
   kept = false,
+  title,
 }: {
   readonly error: unknown;
   readonly onRetry: () => void;
   /** The screen's own instruction, where it knows more than the code. */
   readonly guidance?: string | undefined;
   readonly kept?: boolean;
+  /** A kept alert's heading, naming what failed to refresh. */
+  readonly title?: string | undefined;
 }) {
   const { t, locale } = useI18n();
   const code = error instanceof ApiError ? error.code : undefined;
@@ -42,7 +45,7 @@ export function LoadFailure({
   if (kept) {
     return (
       <Alert variant="red" role="alert">
-        <AlertTitle>{t("status.loadFailed")}</AlertTitle>
+        <AlertTitle>{title ?? t("status.loadFailed")}</AlertTitle>
         <AlertDescription>
           {said ?? guidanceFor(code, locale) ?? t("error.UNKNOWN")}
         </AlertDescription>

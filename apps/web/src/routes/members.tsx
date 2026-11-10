@@ -77,9 +77,6 @@ import {
 } from "../i18n/i18n.tsx";
 import { InviteDialog } from "./invite-dialog.tsx";
 
-// Past more invites than this the list is searched like the member list.
-export const INVITE_SEARCH_THRESHOLD = 10;
-
 type MemberAction = "role" | "disable" | "enable";
 
 // What each server reason says beside the control it withholds. `unchanged`
@@ -233,6 +230,8 @@ export function MembersScreen() {
   // only the empty state (R4).
   const listEmpty =
     !members.isPending && !members.error && items.length === 0 && query === "";
+  // A refused read leaves nothing to search: the box goes with the list.
+  const refused = isApiError(members.error, "FORBIDDEN") && items.length === 0;
 
   return (
     <SettingsSection
@@ -245,7 +244,7 @@ export function MembersScreen() {
     >
       {listEmpty ? (
         <EmptyState title={t("members.empty")} />
-      ) : (
+      ) : refused ? null : (
         <ListToolbar
           filter={null}
           search={{
@@ -766,12 +765,6 @@ function InviteList() {
   const shown = term
     ? listed.filter((invite) => invite.email.toLowerCase().includes(term))
     : listed;
-  // Once shown the box stays: a revoke that brings the list under the
-  // threshold must not remove the field that holds the focus.
-  const [shownBefore, setShownBefore] = useState(false);
-  const searchable =
-    shownBefore || listed.length > INVITE_SEARCH_THRESHOLD || query !== "";
-  if (searchable && !shownBefore) setShownBefore(true);
   // The clear button leaves with the empty state; focus goes back to the box.
   const clear = () => {
     setQuery("");
@@ -779,9 +772,12 @@ function InviteList() {
   };
 
   const invite = useInviteButton();
-  // A search box left over from a revoke stays out of the empty box (R4).
+  // The members area's one rule (R4): a list empty to begin with holds only
+  // its empty state in the box; any other list has its search box on top.
   const listEmpty =
-    !invites.isPending && !invites.error && listed.length === 0 && !searchable;
+    !invites.isPending && !invites.error && listed.length === 0 && query === "";
+  // A refresh that failed keeps the invites last read, under the failure.
+  const kept = invites.error && invites.data !== undefined;
 
   return (
     <SettingsSection
@@ -796,7 +792,7 @@ function InviteList() {
           onRetry={() => void invite.failure?.refetch()}
         />
       ) : null}
-      {searchable ? (
+      {listEmpty || isApiError(invites.error, "FORBIDDEN") ? null : (
         <ListToolbar
           filter={null}
           search={{
@@ -809,10 +805,18 @@ function InviteList() {
             onChange: (event) => setQuery(event.target.value),
           }}
         />
+      )}
+      {kept ? (
+        <LoadFailure
+          kept
+          title={t("members.invites.refreshFailed")}
+          error={invites.error}
+          onRetry={() => void invites.refetch()}
+        />
       ) : null}
       {invites.isPending ? (
         <StatusScreen kind="loading" />
-      ) : invites.error ? (
+      ) : invites.error && !kept ? (
         isApiError(invites.error, "FORBIDDEN") ? (
           <FormError>{refusal(t, invites.error, role)}</FormError>
         ) : (

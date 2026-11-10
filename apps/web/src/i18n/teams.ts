@@ -79,6 +79,10 @@ export const teamsKo = {
     "이 팀이 담당 팀인 에이전트 {count}개가 있어 삭제하지 못했습니다. 각 에이전트의 담당 팀을 먼저 바꾸세요.",
   "teams.deleteManagesList": "이 팀이 담당 팀인 에이전트",
   "teams.deleteManagesMore": "그 밖에 {count}개",
+  "teams.refreshFailed":
+    "팀 정보를 새로 읽지 못했습니다. 아래는 마지막으로 읽은 내용입니다.",
+  "teams.rolesFailed":
+    "구성원의 워크스페이스 역할을 읽지 못해 역할 열을 숨겼습니다.",
 };
 
 export const teamsEn: Record<keyof typeof teamsKo, string> = {
@@ -162,6 +166,10 @@ export const teamsEn: Record<keyof typeof teamsKo, string> = {
     "The team was not deleted: it is the responsible team of {count} agents. Give each of them another responsible team first.",
   "teams.deleteManagesList": "Agents this team manages",
   "teams.deleteManagesMore": "{count} more",
+  "teams.refreshFailed":
+    "Couldn't refresh this team. Below is what was last read.",
+  "teams.rolesFailed":
+    "Couldn't read the members' workspace roles, so that column is hidden.",
 };
 
 export const teamsJa: Record<keyof typeof teamsKo, string> = {
@@ -246,4 +254,8 @@ export const teamsJa: Record<keyof typeof teamsKo, string> = {
     "このチームが担当チームのエージェントが {count} 件あるため、削除できませんでした。先に各エージェントの担当チームを変更してください。",
   "teams.deleteManagesList": "このチームが担当チームのエージェント",
   "teams.deleteManagesMore": "ほか {count} 件",
+  "teams.refreshFailed":
+    "チーム情報を再読み込みできませんでした。下は最後に読み込んだ内容です。",
+  "teams.rolesFailed":
+    "メンバーのワークスペースロールを読み込めなかったため、ロール列を隠しています。",
 };

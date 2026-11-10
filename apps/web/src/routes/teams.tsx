@@ -327,21 +327,34 @@ function TeamPage({ id }: { readonly id: string }) {
   // A team's own members read it; only managers see what changes it.
   const manages = useHasPermission("team.manage");
   if (team.isPending) return <StatusScreen kind="loading" />;
+  // A refresh that failed keeps the team last read, with the failure above
+  // it; a team that is gone or withheld now is not shown from memory.
+  const gone =
+    isApiError(team.error, "NOT_FOUND") || isApiError(team.error, "FORBIDDEN");
+  const shown = team.data && !gone ? team.data : null;
   // Inside the 팀 tab (v3 M-03): the page head stays 구성원 and the team's
   // name heads the tab. The way back is the 팀 tab above, which stays current
   // on a team's address, or the browser's back.
   return (
     <div className="flex flex-col gap-[var(--werft-space-section)]">
       <Heading className="min-w-0 [overflow-wrap:anywhere]">
-        {team.error ? t("teams.title") : team.data.name}
+        {shown ? shown.name : t("teams.title")}
       </Heading>
-      {team.error ? (
+      {!shown ? (
         <ListError error={team.error} onRetry={() => void team.refetch()} />
       ) : (
         <>
-          {manages && <TeamSettings team={team.data} />}
-          <TeamMembers team={team.data} manages={manages} />
-          {manages && <TeamDangerZone team={team.data} />}
+          {team.error ? (
+            <LoadFailure
+              kept
+              title={t("teams.refreshFailed")}
+              error={team.error}
+              onRetry={() => void team.refetch()}
+            />
+          ) : null}
+          {manages && <TeamSettings team={shown} />}
+          <TeamMembers team={shown} manages={manages} />
+          {manages && <TeamDangerZone team={shown} />}
         </>
       )}
     </div>
@@ -632,6 +645,9 @@ function TeamMembers({
     <AddMembersDialog key={team.id} team={team} />
   ) : null;
   const listEmpty = team.members.length === 0;
+  // Without the roles the column is left out; say why, and ask again.
+  const rolesFailed =
+    members.isError && !isApiError(members.error, "FORBIDDEN");
 
   return (
     <SettingsSection
@@ -645,10 +661,18 @@ function TeamMembers({
       actions={addMembers}
       box={listEmpty}
     >
+      {rolesFailed ? (
+        <LoadFailure
+          kept
+          title={t("teams.rolesFailed")}
+          error={members.error}
+          onRetry={() => void members.refetch()}
+        />
+      ) : null}
       {listEmpty ? (
         <EmptyState title={t("teams.noMembers")} />
       ) : (
-        <div className="flex flex-col gap-3">
+        <>
           <ListToolbar
             filter={null}
             search={{
@@ -791,7 +815,7 @@ function TeamMembers({
               })}
             </MemberTableFrame>
           )}
-        </div>
+        </>
       )}
       <ConfirmDialog
         open={removing !== null}
