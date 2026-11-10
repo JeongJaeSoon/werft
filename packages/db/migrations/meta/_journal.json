@@ -1184,6 +1184,13 @@
       "when": 1794265052794,
       "tag": "0259_sessions_pin_required",
       "breakpoints": true
+    },
+    {
+      "idx": 260,
+      "version": "7",
+      "when": 1794278748969,
+      "tag": "0260_agent_engine_settings",
+      "breakpoints": true
     }
   ]
 }

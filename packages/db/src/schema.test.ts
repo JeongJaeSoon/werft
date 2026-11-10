@@ -129,6 +129,7 @@ describe("database schema", () => {
       "agent_activation_events",
       "agent_admin_teams",
       "agent_admins",
+      "agent_engine_settings",
       "agent_github_settings",
       "agent_identities",
       "agent_mcp_settings",

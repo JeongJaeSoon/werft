@@ -3,6 +3,7 @@ export * from "./achievement-rules.ts";
 export * from "./action-notices.ts";
 export * from "./agent-admins.ts";
 export * from "./agent-authority.ts";
+export * from "./agent-engine-settings.ts";
 export * from "./agent-github.ts";
 export * from "./agent-identities.ts";
 export * from "./agent-mcp.ts";
