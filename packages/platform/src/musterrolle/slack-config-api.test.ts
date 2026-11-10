@@ -205,6 +205,29 @@ describe("how an oauth.v2.access call failed", () => {
     expect(JSON.stringify(error.details)).not.toContain(leaked);
   });
 
+  test("the errors lines are bounded in count and length, and a missing pointer leaves the bare message", async () => {
+    const api = createSlackConfigApi({
+      apiUrl: "http://slack.invalid/api",
+      fetch: (async () =>
+        Response.json({
+          ok: false,
+          error: "invalid_manifest",
+          errors: [
+            { message: "m".repeat(500) },
+            ...Array.from({ length: 20 }, () => ({ message: "again" })),
+          ],
+        })) as unknown as typeof fetch,
+    });
+    const error = await api.createApp("fixture-token", {}).then(
+      () => null,
+      (caught: unknown) => caught,
+    );
+    if (!(error instanceof SlackApiError)) throw new Error("no SlackApiError");
+    expect(error.details).toHaveLength(10);
+    expect(error.details[0]).toBe("m".repeat(300));
+    expect(error.details[1]).toBe("again");
+  });
+
   test("an ok:true answer that does not parse is unexpected_answer, without its body", async () => {
     expect(
       await failureOf(() =>
