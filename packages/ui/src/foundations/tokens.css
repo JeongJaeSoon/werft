@@ -36,6 +36,10 @@
     --werft-color-sidebar: #fafafa;
     --werft-color-sidebar-hover: #f2f2f2;
     --werft-color-sidebar-accent: #ebebeb;
+    /* The current page's row: accent at 10% over `sidebar`, its text and icon
+     in accent (4.85:1). Hover stays neutral. */
+    --werft-color-sidebar-selected: #e1ebf6;
+    --werft-color-sidebar-selected-text: #0060d1;
     --werft-color-surface: #ffffff;
     /* The main background's old name, still read by apps/docs. */
     --werft-color-canvas: var(--werft-color-surface);
@@ -297,6 +301,10 @@
       --werft-color-sidebar: #000000;
       --werft-color-sidebar-hover: #1a1a1a;
       --werft-color-sidebar-accent: #232323;
+      /* Accent at 16% over black; the text is lighter than accent, which is
+       4.13:1 here (6.62:1 this way). */
+      --werft-color-sidebar-selected: #001227;
+      --werft-color-sidebar-selected-text: #4d9aff;
       --werft-color-surface: #0a0a0a;
       --werft-color-surface-sunken: #111111;
       --werft-color-skeleton: #1f1f1f;
@@ -390,6 +398,8 @@
     --werft-color-sidebar: #000000;
     --werft-color-sidebar-hover: #1a1a1a;
     --werft-color-sidebar-accent: #232323;
+    --werft-color-sidebar-selected: #001227;
+    --werft-color-sidebar-selected-text: #4d9aff;
     --werft-color-surface: #0a0a0a;
     --werft-color-surface-sunken: #111111;
     --werft-color-skeleton: #1f1f1f;
