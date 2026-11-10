@@ -1003,11 +1003,12 @@ export function createPostgresAgentStore(db: Database): AgentStore {
       return db.transaction(async (tx) => {
         // Before any lock of the agent's: the freeze holds still what a
         // reconcile reads. Only the intents that write rollout items touch a
-        // profile table.
+        // profile table: a raise, and a tool unlock that belongs to a rollout.
         await assertReleasesWritable(tx);
         if (
           input.intent?.kind === "raise" ||
-          input.intent?.kind === "tool_unlock"
+          (input.intent?.kind === "tool_unlock" &&
+            input.intent.rolloutId !== null)
         ) {
           await assertProfileTablesWritable(tx);
         }

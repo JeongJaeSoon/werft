@@ -102,6 +102,12 @@ integration("the writers of profile and release tables meet the freeze", () => {
     ];
   };
 
+  // A tool unlock writes a rollout item only when it belongs to a rollout.
+  const unlockWithRollout = (rolloutId: string | null) => () =>
+    createPostgresAgentStore(db).activate({
+      intent: { kind: "tool_unlock", rolloutId },
+    } as never);
+
   // Writers of agent_releases (and the agent's move between them).
   const releaseWriters = (): [string, () => Promise<unknown>][] => {
     const agents = createPostgresAgentStore(db);
@@ -155,5 +161,12 @@ integration("the writers of profile and release tables meet the freeze", () => {
         throw new Error(`${name}: ${String(error)}`);
       });
     }
+  });
+
+  test("once certified, a tool unlock is refused only when it writes a rollout item", async () => {
+    await freezeProfiles(db);
+    await certifyProfiles(db, 1);
+    await refused(unlockWithRollout("rollout-1"));
+    await letThrough(unlockWithRollout(null));
   });
 });
