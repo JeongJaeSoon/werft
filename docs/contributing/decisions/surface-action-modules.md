@@ -961,3 +961,14 @@ U5a 회차(2026-11-11, 대상: `@werft-ai/chat-slack` 이동 PR). 이동을 하�
 Codex 리뷰 1회차(대상 `8e70a5f76`)는 Act-on 0건, Consider 1건이었다. Consider(계약 시험 문장이 `DeliveryOutcome`을 아직 "네 가지"로 적음)는 반영했다.
 
 U5b 회차(2026-11-11, 대상: 렌더·순수 판정 일곱 파일 이동 PR). import 그래프를 시험 포함으로 뽑았다. 일곱 파일을 import하는 platform 파일은 `index.ts`뿐이어서 [10.1절](#101-slack-이동의-순서와-재수출) 표의 "아니다"가 맞았다. 일곱은 platform의 포트·서비스 타입(`@werft-ai/platform`)만 아래 방향으로 import하므로 순서나 묶음을 바꿀 일이 없었다. 비-import diff는 0이다. `slack-thread-shadow.test.ts`는 U5a에서 이미 어댑터에 있었고, platform index에서는 임시 재수출 여섯 줄(`slack-decision`, `slack-mrkdwn`, `slack-presentation`, `slack-prompts`, `slack-send-result`, `slack-thread-shadow`)이 빠졌다.
+
+U6b 회차(2026-11-11, 대상: `action/tools/` 구조 변경 PR). 구조 변경이라 증거는 스냅샷이다. `github-mcp-envelope.test.ts`의 스냅샷 파일은 전후 sha1이 같고(`ce5c4902`), `github-mcp-server.test.ts`와 envelope 시험은 import 줄만 고쳤다.
+
+| 항목 | 결정 |
+|---|---|
+| 공통 dispatch | `action/tools/dispatch.ts`가 기능 게이트 → 인수 검증 → handler → 봉투를 맡는다. 서버는 JSON-RPC 프로토콜(`initialize`·`ping`·`tools/list`·`tools/call`)과 grant만 남긴다. 프로토콜 `switch`는 도구가 아니라 메서드를 가르고, 중간에 세션 상태 읽기가 끼어 표로 바꾸지 않았다 |
+| handler 표 | `action/tools/github-handlers.ts`의 `GITHUB_TOOL_HANDLERS: ToolHandlers`. 도구 하나에 줄 하나이고, 인수 타입은 도구마다 맞물린다. 새 도구는 표에 한 줄을 더한다. 옛 `run()`의 `request_push` 분기는 `requestIntent` 경로가 먼저 받아 닿지 않는 코드였고 표에서 빠졌다 |
+| `refusal.ts`와 `tools/` | 합치지 않는다. 둘은 이미 `action/` 아래 한 디렉터리에 있고(7.2절), `refusal.ts`는 서비스 오류를 봉투로 바꾸는 번역 하나라 dispatch만 쓰는 것이 아니다. `tools/` 안으로 넣으면 이름이 같은 층에 있는 `ports/`·`github/`와 맞지 않는다 |
+| A5 | `tests/architecture.test.ts`가 TS AST로 정의한 모든 도구가 표에 한 줄씩 있고 표에 다른 줄이 없는지, 표가 `ToolHandlers`로 선언됐는지, 서버와 dispatch에 도구 이름 문자열 분기가 없는지 센다. 현재 위반 0건이라 기준선이 없다 |
+| `grant.api` 좁히기 | `GrantWith<Api>`(`action/ports/capabilities.ts`)를 더했다. `github-work-service`는 `WorkflowRunnable & Reviewable & getPullRequest`, `push-executor`는 `getRepository`만 받는다 |
+| 기준선 | A2 쌍 하나를 옮겼다(`github-mcp-server.ts -> musterrolle/policy.ts`가 `tools/session-bound.ts -> musterrolle/policy.ts`로). 순증 0, R4 변화 없음 |
