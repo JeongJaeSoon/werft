@@ -1,0 +1,72 @@
+{
+  "plain-has-no-blocks": null,
+  "plain-no-link": "hello",
+  "plain-text": "*Done*\n\n• one\n• two\n\n`code` and *bold* &lt;@U0ELSE&gt;\n\n<https://console.example/sessions/019a0000|Open on the web>",
+  "table-blocks": [
+    {
+      "text": {
+        "text": "저장소는 2개입니다. &lt;!here&gt; *굵게*\n",
+        "type": "mrkdwn"
+      },
+      "type": "section"
+    },
+    {
+      "column_settings": [
+        {
+          "is_wrapped": true
+        },
+        {
+          "is_wrapped": true
+        }
+      ],
+      "rows": [
+        [
+          {
+            "text": "저장소",
+            "type": "raw_text"
+          },
+          {
+            "text": "상태",
+            "type": "raw_text"
+          }
+        ],
+        [
+          {
+            "text": "acme/web",
+            "type": "raw_text"
+          },
+          {
+            "text": "기본 저장소",
+            "type": "raw_text"
+          }
+        ],
+        [
+          {
+            "text": "acme/api",
+            "type": "raw_text"
+          },
+          {
+            "text": "붙일 수 있음",
+            "type": "raw_text"
+          }
+        ]
+      ],
+      "type": "table"
+    },
+    {
+      "text": {
+        "text": "끝: 문서 (https://docs.example/a)",
+        "type": "mrkdwn"
+      },
+      "type": "section"
+    },
+    {
+      "text": {
+        "text": "<https://console.example/sessions/019a0000|웹에서 열기>",
+        "type": "mrkdwn"
+      },
+      "type": "section"
+    }
+  ],
+  "table-text": "저장소는 2개입니다. &lt;!here&gt; *굵게*\n\n*acme/web* — 상태: 기본 저장소\n*acme/api* — 상태: 붙일 수 있음\n\n끝: 문서 (https://docs.example/a)\n\n<https://console.example/sessions/019a0000|웹에서 열기>"
+}

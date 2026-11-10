@@ -1,0 +1,211 @@
+{
+  "choices-and-free": {
+    "blocks": [
+      {
+        "block_id": "q0",
+        "element": {
+          "action_id": "v",
+          "options": [
+            {
+              "text": {
+                "emoji": false,
+                "text": "main",
+                "type": "plain_text"
+              },
+              "value": "0"
+            },
+            {
+              "text": {
+                "emoji": false,
+                "text": "release/2026-11",
+                "type": "plain_text"
+              },
+              "value": "1"
+            }
+          ],
+          "type": "static_select"
+        },
+        "label": {
+          "emoji": false,
+          "text": "Which branch should I rebase onto?",
+          "type": "plain_text"
+        },
+        "optional": true,
+        "type": "input"
+      },
+      {
+        "block_id": "q0.text",
+        "element": {
+          "action_id": "v",
+          "multiline": true,
+          "type": "plain_text_input"
+        },
+        "label": {
+          "emoji": false,
+          "text": "Your own answer",
+          "type": "plain_text"
+        },
+        "optional": true,
+        "type": "input"
+      },
+      {
+        "block_id": "q1.text",
+        "element": {
+          "action_id": "v",
+          "multiline": true,
+          "type": "plain_text_input"
+        },
+        "label": {
+          "emoji": false,
+          "text": "Anything else I should know?",
+          "type": "plain_text"
+        },
+        "optional": false,
+        "type": "input"
+      }
+    ],
+    "callback_id": "question.answer",
+    "close": {
+      "emoji": false,
+      "text": "Cancel",
+      "type": "plain_text"
+    },
+    "private_metadata": "{\"session_id\":\"019a0000-0000-7000-8000-0000000000a5\",\"request_id\":\"q_1\",\"channel_id\":\"C0OPS\",\"message_ts\":\"100.000100\"}",
+    "submit": {
+      "emoji": false,
+      "text": "Send",
+      "type": "plain_text"
+    },
+    "title": {
+      "emoji": false,
+      "text": "Answer the question",
+      "type": "plain_text"
+    },
+    "type": "modal"
+  },
+  "multi-select": {
+    "blocks": [
+      {
+        "block_id": "q0",
+        "element": {
+          "action_id": "v",
+          "options": [
+            {
+              "text": {
+                "emoji": false,
+                "text": "main",
+                "type": "plain_text"
+              },
+              "value": "0"
+            },
+            {
+              "text": {
+                "emoji": false,
+                "text": "release/2026-11",
+                "type": "plain_text"
+              },
+              "value": "1"
+            }
+          ],
+          "type": "multi_static_select"
+        },
+        "label": {
+          "emoji": false,
+          "text": "Which branch should I rebase onto?",
+          "type": "plain_text"
+        },
+        "optional": false,
+        "type": "input"
+      }
+    ],
+    "callback_id": "question.answer",
+    "close": {
+      "emoji": false,
+      "text": "취소",
+      "type": "plain_text"
+    },
+    "private_metadata": "{\"session_id\":\"019a0000-0000-7000-8000-0000000000a5\",\"request_id\":\"q_1\",\"channel_id\":\"C0OPS\",\"message_ts\":\"100.000100\"}",
+    "submit": {
+      "emoji": false,
+      "text": "보내기",
+      "type": "plain_text"
+    },
+    "title": {
+      "emoji": false,
+      "text": "질문에 답하기",
+      "type": "plain_text"
+    },
+    "type": "modal"
+  },
+  "notice": {
+    "en": {
+      "blocks": [
+        {
+          "text": {
+            "emoji": false,
+            "text": "We couldn't process the request right now. Try again shortly",
+            "type": "plain_text"
+          },
+          "type": "section"
+        }
+      ],
+      "close": {
+        "emoji": false,
+        "text": "Cancel",
+        "type": "plain_text"
+      },
+      "title": {
+        "emoji": false,
+        "text": "Answer the question",
+        "type": "plain_text"
+      },
+      "type": "modal"
+    },
+    "ja": {
+      "blocks": [
+        {
+          "text": {
+            "emoji": false,
+            "text": "現在リクエストを処理できませんでした。しばらくしてからもう一度お試しください",
+            "type": "plain_text"
+          },
+          "type": "section"
+        }
+      ],
+      "close": {
+        "emoji": false,
+        "text": "キャンセル",
+        "type": "plain_text"
+      },
+      "title": {
+        "emoji": false,
+        "text": "質問に回答",
+        "type": "plain_text"
+      },
+      "type": "modal"
+    },
+    "ko": {
+      "blocks": [
+        {
+          "text": {
+            "emoji": false,
+            "text": "지금은 요청을 처리하지 못했어요. 잠시 뒤 다시 시도해 주세요",
+            "type": "plain_text"
+          },
+          "type": "section"
+        }
+      ],
+      "close": {
+        "emoji": false,
+        "text": "취소",
+        "type": "plain_text"
+      },
+      "title": {
+        "emoji": false,
+        "text": "질문에 답하기",
+        "type": "plain_text"
+      },
+      "type": "modal"
+    }
+  }
+}

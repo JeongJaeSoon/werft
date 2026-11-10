@@ -1,0 +1,411 @@
+{
+  "input-notice-blocks": [
+    [
+      "postMessage",
+      {
+        "blocks": [
+          {
+            "text": {
+              "text": "<@U0ASKER> *A tool needs your permission*",
+              "type": "mrkdwn"
+            },
+            "type": "section"
+          },
+          {
+            "text": {
+              "emoji": false,
+              "text": "Run a command: ls",
+              "type": "plain_text"
+            },
+            "type": "section"
+          },
+          {
+            "child_blocks": [
+              {
+                "elements": [
+                  {
+                    "elements": [
+                      {
+                        "text": "command: ls",
+                        "type": "text"
+                      }
+                    ],
+                    "type": "rich_text_preformatted"
+                  }
+                ],
+                "type": "rich_text"
+              }
+            ],
+            "default_collapsed": true,
+            "is_collapsible": true,
+            "title": {
+              "emoji": false,
+              "text": "Raw input (Bash)",
+              "type": "plain_text"
+            },
+            "type": "container"
+          },
+          {
+            "elements": [
+              {
+                "action_id": "permission.allow",
+                "style": "primary",
+                "text": {
+                  "emoji": false,
+                  "text": "Allow",
+                  "type": "plain_text"
+                },
+                "type": "button",
+                "value": "{\"s\":\"019a0000-0000-7000-8000-0000000000a5\",\"r\":\"toolu_1\"}"
+              },
+              {
+                "action_id": "permission.deny",
+                "style": "danger",
+                "text": {
+                  "emoji": false,
+                  "text": "Deny",
+                  "type": "plain_text"
+                },
+                "type": "button",
+                "value": "{\"s\":\"019a0000-0000-7000-8000-0000000000a5\",\"r\":\"toolu_1\"}"
+              }
+            ],
+            "type": "actions"
+          },
+          {
+            "block_id": "prompt.meta",
+            "elements": [
+              {
+                "text": "Expires at <!date^1793664000^{date_short_pretty} {time}|2026-11-03T00:00:00Z> if no one answers · <https://console.example/sessions/019a0000|Open on the web>",
+                "type": "mrkdwn"
+              }
+            ],
+            "type": "context"
+          }
+        ],
+        "channelId": "C0OPS",
+        "text": "<@U0ASKER> A tool needs your permission\nRun a command: ls\n<https://console.example/sessions/019a0000|Open on the web>",
+        "threadTs": "100.000100"
+      }
+    ],
+    [
+      "settle",
+      {
+        "slackTs": "200.000200",
+        "status": "sent"
+      }
+    ]
+  ],
+  "instruction-sender": [
+    [
+      "postMessage",
+      {
+        "channelId": "C0OPS",
+        "iconUrl": "https://images.example/owner.png",
+        "text": "Add a test",
+        "threadTs": "100.000100",
+        "username": "Owner (Web console)"
+      }
+    ],
+    [
+      "settle",
+      {
+        "slackTs": "200.000200",
+        "status": "sent"
+      }
+    ]
+  ],
+  "instruction-sender-refused": [
+    [
+      "postMessage",
+      {
+        "channelId": "C0OPS",
+        "iconUrl": "https://images.example/owner.png",
+        "text": "Add a test",
+        "threadTs": "100.000100",
+        "username": "Owner (Web console)"
+      }
+    ],
+    [
+      "postMessage",
+      {
+        "channelId": "C0OPS",
+        "text": "Owner (Web console)\nAdd a test",
+        "threadTs": "100.000100"
+      }
+    ],
+    [
+      "settle",
+      {
+        "slackTs": "200.000200",
+        "status": "sent"
+      }
+    ]
+  ],
+  "notice-ephemeral": [
+    [
+      "postEphemeral",
+      {
+        "channelId": "C0OPS",
+        "text": "Link your Slack account on the web",
+        "threadTs": "100.000100",
+        "userId": "U0READER"
+      }
+    ],
+    [
+      "settle",
+      {
+        "slackTs": "200.000200",
+        "status": "sent"
+      }
+    ]
+  ],
+  "presentation": [
+    {
+      "blocks": [
+        {
+          "column_settings": [
+            {
+              "is_wrapped": true
+            },
+            {
+              "is_wrapped": true
+            }
+          ],
+          "rows": [
+            [
+              {
+                "text": "a",
+                "type": "raw_text"
+              },
+              {
+                "text": "b",
+                "type": "raw_text"
+              }
+            ],
+            [
+              {
+                "text": "1",
+                "type": "raw_text"
+              },
+              {
+                "text": "2",
+                "type": "raw_text"
+              }
+            ]
+          ],
+          "type": "table"
+        },
+        {
+          "text": {
+            "text": "<https://console.example/sessions/019a0000|Open on the web>",
+            "type": "mrkdwn"
+          },
+          "type": "section"
+        }
+      ],
+      "fallback": true,
+      "kind": "blocks"
+    },
+    {
+      "kind": "text"
+    }
+  ],
+  "reply-table": [
+    [
+      "postMessage",
+      {
+        "blocks": [
+          {
+            "column_settings": [
+              {
+                "is_wrapped": true
+              },
+              {
+                "is_wrapped": true
+              }
+            ],
+            "rows": [
+              [
+                {
+                  "text": "a",
+                  "type": "raw_text"
+                },
+                {
+                  "text": "b",
+                  "type": "raw_text"
+                }
+              ],
+              [
+                {
+                  "text": "1",
+                  "type": "raw_text"
+                },
+                {
+                  "text": "2",
+                  "type": "raw_text"
+                }
+              ]
+            ],
+            "type": "table"
+          },
+          {
+            "text": {
+              "text": "<https://console.example/sessions/019a0000|Open on the web>",
+              "type": "mrkdwn"
+            },
+            "type": "section"
+          }
+        ],
+        "channelId": "C0OPS",
+        "text": "*1* — b: 2\n\n<https://console.example/sessions/019a0000|Open on the web>",
+        "threadTs": "100.000100"
+      }
+    ],
+    [
+      "settle",
+      {
+        "slackTs": "200.000200",
+        "status": "sent"
+      }
+    ]
+  ],
+  "reply-table-blocks-refused": [
+    [
+      "postMessage",
+      {
+        "blocks": [
+          {
+            "column_settings": [
+              {
+                "is_wrapped": true
+              },
+              {
+                "is_wrapped": true
+              }
+            ],
+            "rows": [
+              [
+                {
+                  "text": "a",
+                  "type": "raw_text"
+                },
+                {
+                  "text": "b",
+                  "type": "raw_text"
+                }
+              ],
+              [
+                {
+                  "text": "1",
+                  "type": "raw_text"
+                },
+                {
+                  "text": "2",
+                  "type": "raw_text"
+                }
+              ]
+            ],
+            "type": "table"
+          },
+          {
+            "text": {
+              "text": "<https://console.example/sessions/019a0000|Open on the web>",
+              "type": "mrkdwn"
+            },
+            "type": "section"
+          }
+        ],
+        "channelId": "C0OPS",
+        "text": "*1* — b: 2\n\n<https://console.example/sessions/019a0000|Open on the web>",
+        "threadTs": "100.000100"
+      }
+    ],
+    [
+      "postMessage",
+      {
+        "channelId": "C0OPS",
+        "text": "*1* — b: 2\n\n<https://console.example/sessions/019a0000|Open on the web>",
+        "threadTs": "100.000100"
+      }
+    ],
+    [
+      "settle",
+      {
+        "slackTs": "200.000200",
+        "status": "sent"
+      }
+    ]
+  ],
+  "reply-text": [
+    [
+      "postMessage",
+      {
+        "channelId": "C0OPS",
+        "text": "*done* &lt;@U0ELSE&gt;\n\n<https://console.example/sessions/019a0000|웹에서 열기>",
+        "threadTs": "100.000100"
+      }
+    ],
+    [
+      "settle",
+      {
+        "slackTs": "200.000200",
+        "status": "sent"
+      }
+    ]
+  ],
+  "uncertain-reply-then-notice": [
+    [
+      "postMessage",
+      {
+        "channelId": "C0OPS",
+        "text": "hi",
+        "threadTs": "100.000100"
+      }
+    ],
+    [
+      "settle",
+      {
+        "errorCode": "unreadable_answer",
+        "status": "uncertain"
+      }
+    ],
+    [
+      "enqueue",
+      {
+        "agentId": "agent-1",
+        "body": {
+          "link_url": "https://console.example/sessions/019a0000-0000-7000-8000-0000000000a5",
+          "locale": "ko",
+          "text": "답을 보냈는지 확인하지 못했어요. 웹에서 확인해 주세요"
+        },
+        "channelId": "C0OPS",
+        "dedupeKey": "uncertain:outbox-1",
+        "installationId": "installation-1",
+        "kind": "failure_notice",
+        "sessionId": "019a0000-0000-7000-8000-0000000000a5",
+        "slackAppId": "app-1",
+        "slackUserId": null,
+        "threadTs": "100.000100",
+        "workspaceId": "workspace-1"
+      }
+    ]
+  ],
+  "welcome-text": [
+    [
+      "postMessage",
+      {
+        "channelId": "C0OPS",
+        "text": "안녕하세요, Werft입니다. 이 채널에 연결됐어요. 멘션하면 답할게요",
+        "threadTs": ""
+      }
+    ],
+    [
+      "settle",
+      {
+        "slackTs": "200.000200",
+        "status": "sent"
+      }
+    ]
+  ]
+}

@@ -1,0 +1,342 @@
+[
+  {
+    "agentId": "agent-1",
+    "body": {
+      "link_url": "https://console.example/sessions/019a0000-0000-7000-8000-0000000000a5",
+      "locale": "ko",
+      "mention_user_ids": [
+        "U0ASKER"
+      ],
+      "text": "저장소는 2개입니다. <!here> *굵게*\n\n| 저장소 | 상태 |\n| --- | --- |\n| acme/web | 기본 저장소 |\n| acme/api | 붙일 수 있음 |\n\n끝: [문서](https://docs.example/a)"
+    },
+    "channelId": "C0OPS",
+    "dedupeKey": "reply:link-1:1",
+    "installationId": "installation-1",
+    "kind": "reply",
+    "sessionId": "019a0000-0000-7000-8000-0000000000a5",
+    "slackAppId": "app-1",
+    "slackUserId": null,
+    "threadTs": "100.000100",
+    "workspaceId": "workspace-1"
+  },
+  {
+    "agentId": "agent-1",
+    "body": {
+      "link_url": "https://console.example/sessions/019a0000-0000-7000-8000-0000000000a5",
+      "locale": "en",
+      "text": "The answer is done. See it on the web"
+    },
+    "channelId": "C0OPS",
+    "dedupeKey": "reply:link-1:2",
+    "installationId": "installation-1",
+    "kind": "reply",
+    "sessionId": "019a0000-0000-7000-8000-0000000000a5",
+    "slackAppId": "app-1",
+    "slackUserId": null,
+    "threadTs": "100.000100",
+    "workspaceId": "workspace-1"
+  },
+  {
+    "agentId": "agent-1",
+    "body": {
+      "link_url": "https://console.example/sessions/019a0000-0000-7000-8000-0000000000a5",
+      "locale": "ja",
+      "mention_user_ids": [
+        "U0ASKER"
+      ],
+      "text": "現在リクエストを処理できませんでした。しばらくしてからもう一度お試しください"
+    },
+    "channelId": "C0OPS",
+    "dedupeKey": "failure:link-1:3",
+    "installationId": "installation-1",
+    "kind": "failure_notice",
+    "sessionId": "019a0000-0000-7000-8000-0000000000a5",
+    "slackAppId": "app-1",
+    "slackUserId": null,
+    "threadTs": "100.000100",
+    "workspaceId": "workspace-1"
+  },
+  {
+    "agentId": "agent-1",
+    "body": {
+      "sender": {
+        "slack_user_id": "U0OWNER",
+        "username": "Owner (Web console)"
+      },
+      "text": "Add a test <!here>"
+    },
+    "channelId": "C0OPS",
+    "dedupeKey": "instruction:link-1:4",
+    "installationId": "installation-1",
+    "kind": "instruction",
+    "sessionId": "019a0000-0000-7000-8000-0000000000a5",
+    "slackAppId": "app-1",
+    "slackUserId": null,
+    "threadTs": "100.000100",
+    "workspaceId": "workspace-1"
+  },
+  {
+    "agentId": "agent-1",
+    "body": {
+      "sender": {
+        "username": "API"
+      },
+      "text": "테스트를 더해 줘"
+    },
+    "channelId": "C0OPS",
+    "dedupeKey": "instruction:link-1:5",
+    "installationId": "installation-1",
+    "kind": "instruction",
+    "sessionId": "019a0000-0000-7000-8000-0000000000a5",
+    "slackAppId": "app-1",
+    "slackUserId": null,
+    "threadTs": "100.000100",
+    "workspaceId": "workspace-1"
+  },
+  {
+    "agentId": "agent-1",
+    "body": {
+      "blocks": [
+        {
+          "text": {
+            "text": "<@U0ASKER> *A tool needs your permission*",
+            "type": "mrkdwn"
+          },
+          "type": "section"
+        },
+        {
+          "text": {
+            "emoji": false,
+            "text": "Run a command: git status",
+            "type": "plain_text"
+          },
+          "type": "section"
+        },
+        {
+          "child_blocks": [
+            {
+              "elements": [
+                {
+                  "elements": [
+                    {
+                      "text": "command: git status",
+                      "type": "text"
+                    }
+                  ],
+                  "type": "rich_text_preformatted"
+                }
+              ],
+              "type": "rich_text"
+            }
+          ],
+          "default_collapsed": true,
+          "is_collapsible": true,
+          "title": {
+            "emoji": false,
+            "text": "Raw input (Bash)",
+            "type": "plain_text"
+          },
+          "type": "container"
+        },
+        {
+          "elements": [
+            {
+              "action_id": "permission.allow",
+              "style": "primary",
+              "text": {
+                "emoji": false,
+                "text": "Allow",
+                "type": "plain_text"
+              },
+              "type": "button",
+              "value": "{\"s\":\"019a0000-0000-7000-8000-0000000000a5\",\"r\":\"toolu_1\"}"
+            },
+            {
+              "action_id": "permission.deny",
+              "style": "danger",
+              "text": {
+                "emoji": false,
+                "text": "Deny",
+                "type": "plain_text"
+              },
+              "type": "button",
+              "value": "{\"s\":\"019a0000-0000-7000-8000-0000000000a5\",\"r\":\"toolu_1\"}"
+            }
+          ],
+          "type": "actions"
+        },
+        {
+          "block_id": "prompt.meta",
+          "elements": [
+            {
+              "text": "Expires at <!date^1793664000^{date_short_pretty} {time}|2026-11-03T00:00:00Z> if no one answers · <https://console.example/sessions/019a0000-0000-7000-8000-0000000000a5|Open on the web>",
+              "type": "mrkdwn"
+            }
+          ],
+          "type": "context"
+        }
+      ],
+      "link_url": "https://console.example/sessions/019a0000-0000-7000-8000-0000000000a5",
+      "locale": "en",
+      "mention_user_ids": [
+        "U0ASKER"
+      ],
+      "text": "<@U0ASKER> A tool needs your permission\nRun a command: git status\n<https://console.example/sessions/019a0000-0000-7000-8000-0000000000a5|Open on the web>"
+    },
+    "channelId": "C0OPS",
+    "dedupeKey": "prompt:link-1:toolu_1",
+    "installationId": "installation-1",
+    "kind": "input_notice",
+    "sessionId": "019a0000-0000-7000-8000-0000000000a5",
+    "slackAppId": "app-1",
+    "slackUserId": null,
+    "threadTs": "100.000100",
+    "workspaceId": "workspace-1"
+  },
+  {
+    "agentId": "agent-1",
+    "body": {
+      "blocks": [
+        {
+          "text": {
+            "text": "*push 승인이 필요해요*",
+            "type": "mrkdwn"
+          },
+          "type": "section"
+        },
+        {
+          "fields": [
+            {
+              "emoji": false,
+              "text": "저장소",
+              "type": "plain_text"
+            },
+            {
+              "emoji": false,
+              "text": "acme/web",
+              "type": "plain_text"
+            },
+            {
+              "emoji": false,
+              "text": "브랜치",
+              "type": "plain_text"
+            },
+            {
+              "emoji": false,
+              "text": "agent/fix-login",
+              "type": "plain_text"
+            },
+            {
+              "emoji": false,
+              "text": "커밋",
+              "type": "plain_text"
+            },
+            {
+              "emoji": false,
+              "text": "abcdef1",
+              "type": "plain_text"
+            }
+          ],
+          "type": "section"
+        },
+        {
+          "child_blocks": [
+            {
+              "elements": [
+                {
+                  "elements": [
+                    {
+                      "text": "브랜치: agent/fix-login\n커밋: abcdef1234567890000000000000000000000000",
+                      "type": "text"
+                    }
+                  ],
+                  "type": "rich_text_preformatted"
+                }
+              ],
+              "type": "rich_text"
+            }
+          ],
+          "default_collapsed": true,
+          "is_collapsible": true,
+          "title": {
+            "emoji": false,
+            "text": "자세히",
+            "type": "plain_text"
+          },
+          "type": "container"
+        },
+        {
+          "elements": [
+            {
+              "action_id": "push.approve",
+              "confirm": {
+                "confirm": {
+                  "emoji": false,
+                  "text": "승인",
+                  "type": "plain_text"
+                },
+                "deny": {
+                  "emoji": false,
+                  "text": "취소",
+                  "type": "plain_text"
+                },
+                "text": {
+                  "emoji": false,
+                  "text": "이 커밋을 브랜치에 push해요\nagent/fix-login ← abcdef123456",
+                  "type": "plain_text"
+                },
+                "title": {
+                  "emoji": false,
+                  "text": "push 승인이 필요해요",
+                  "type": "plain_text"
+                }
+              },
+              "style": "primary",
+              "text": {
+                "emoji": false,
+                "text": "승인",
+                "type": "plain_text"
+              },
+              "type": "button",
+              "value": "{\"s\":\"019a0000-0000-7000-8000-0000000000a5\",\"r\":\"push-1\"}"
+            },
+            {
+              "action_id": "push.reject",
+              "style": "danger",
+              "text": {
+                "emoji": false,
+                "text": "거절",
+                "type": "plain_text"
+              },
+              "type": "button",
+              "value": "{\"s\":\"019a0000-0000-7000-8000-0000000000a5\",\"r\":\"push-1\"}"
+            }
+          ],
+          "type": "actions"
+        },
+        {
+          "block_id": "prompt.meta",
+          "elements": [
+            {
+              "text": "<https://console.example/sessions/019a0000-0000-7000-8000-0000000000a5|웹에서 열기>",
+              "type": "mrkdwn"
+            }
+          ],
+          "type": "context"
+        }
+      ],
+      "link_url": "https://console.example/sessions/019a0000-0000-7000-8000-0000000000a5",
+      "locale": "ko",
+      "text": "push 승인이 필요해요\nacme/web · agent/fix-login\n<https://console.example/sessions/019a0000-0000-7000-8000-0000000000a5|웹에서 열기>"
+    },
+    "channelId": "C0OPS",
+    "dedupeKey": "push:link-1:push-1",
+    "installationId": "installation-1",
+    "kind": "input_notice",
+    "sessionId": "019a0000-0000-7000-8000-0000000000a5",
+    "slackAppId": "app-1",
+    "slackUserId": null,
+    "threadTs": "100.000100",
+    "workspaceId": "workspace-1"
+  }
+]
