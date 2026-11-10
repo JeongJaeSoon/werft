@@ -456,6 +456,8 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
     expect(found).toEqual({
       repositoryId: "sample-app",
       profileId: null,
+      // The pointer set above: approvability reads it from here.
+      checkpointRevision: 1,
       attached: null,
       policySource: "release",
       github: expect.objectContaining({ repositories: ["sample-app"] }),
