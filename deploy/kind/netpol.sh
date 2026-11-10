@@ -17,8 +17,9 @@
 #   3. restored    helm upgrade with it back on: step 1's answers again.
 #
 # 169.254.169.254 answers on a CI runner and not on a laptop, with or without
-# a policy. The unlabelled Pod tells which: with the policy the worker Pod is
-# blocked either way, and without it answers like the unlabelled one.
+# a policy. With the policy the worker Pod is blocked either way. Without it
+# the worker Pod must answer, which only shows where the unlabelled Pod does:
+# elsewhere the step prints UNPROVEN, and fails when CI is set.
 #
 #   deploy/kind/netpol.sh        run all of it; delete the cluster and registry
 #                                at the end if this run created them
@@ -27,6 +28,8 @@
 # Settings, besides up.sh's (REGISTRY_PORT, the CI mirror):
 #   CLUSTER_NAME         default werft-netpol
 #   KEEP_CLUSTER=1       leave the cluster up for a look afterwards
+#   REUSE_CLUSTER=1      run on a cluster of that name that already exists
+#                        (refused otherwise; such a cluster is never deleted)
 #   PROBE_IMAGE          busybox for the probes, by digest
 #   OUTSIDE_ADDRESS      host:port the "outside" probe dials (default 1.1.1.1:443)
 #   SETTLE_SEC           how long a changed policy may take to show (default 90)
@@ -64,7 +67,15 @@ fail() { echo "FAIL ${current}: $*" >&2; exit 1; }
 # would then delete a cluster this run did not create.
 clusters="$(kind get clusters)"
 created=""
-printf '%s\n' "$clusters" | grep -qx "$CLUSTER_NAME" || created=1
+if printf '%s\n' "$clusters" | grep -qx "$CLUSTER_NAME"; then
+  # Its Pods and policies are not this run's to change or to trust.
+  [ "${REUSE_CLUSTER:-}" = 1 ] || {
+    echo "a cluster named ${CLUSTER_NAME} already exists; set CLUSTER_NAME, or REUSE_CLUSTER=1 to run on it" >&2
+    exit 1
+  }
+else
+  created=1
+fi
 finish() {
   local status=$?
   if [ "$status" != 0 ] && [ -f "$KUBECONFIG" ]; then
@@ -145,7 +156,17 @@ expect() {
   while :; do
     got=blocked
     k exec "$pod" -- timeout 8 "$@" >/dev/null 2>&1 && got=open
-    [ "$got" = "$want" ] && break
+    if [ "$got" = "$want" ]; then
+      # A block must hold: one refused attempt can be a hiccup, and a policy
+      # still reaching the node would let a later attempt through.
+      if [ "$want" = blocked ]; then
+        for _ in 1 2; do
+          sleep 1
+          k exec "$pod" -- timeout 8 "$@" >/dev/null 2>&1 && got=open
+        done
+      fi
+      break
+    fi
     [ "$SECONDS" -lt "$deadline" ] || break
     sleep 2
   done
@@ -184,11 +205,23 @@ matrix() {
 # on a laptop, yes on a CI runner. The unlabelled Pod says which, and the
 # worker Pod must then be blocked with the policy and answer like it without.
 metadata() {
-  local control=blocked want="$1"
-  k exec netpol-control -- timeout 8 $(tcp 169.254.169.254 80) >/dev/null 2>&1 && control=open
-  printf '%-14s %-38s %-8s (not asserted)\n' netpol-control "metadata 169.254.169.254:80" "$control"
-  [ "$want" = blocked ] || want="$control"
-  expect netpol-worker "metadata 169.254.169.254:80" "$want" $(tcp 169.254.169.254 80)
+  local want="$1" deadline
+  if [ "$want" = blocked ]; then
+    expect netpol-worker "metadata 169.254.169.254:80" blocked $(tcp 169.254.169.254 80)
+    return
+  fi
+  deadline=$((SECONDS + SETTLE_SEC))
+  until k exec netpol-control -- timeout 8 $(tcp 169.254.169.254 80) >/dev/null 2>&1; do
+    if [ "$SECONDS" -ge "$deadline" ]; then
+      # Without an answer from the unlabelled Pod, an unanswering worker Pod
+      # shows nothing about the policy. A CI run must not pass on that.
+      echo "UNPROVEN metadata 169.254.169.254:80: nothing answers here, so the policy's block of it cannot be shown"
+      [ -z "${CI:-}" ] || bad=1
+      return
+    fi
+    sleep 2
+  done
+  expect netpol-worker "metadata 169.254.169.254:80" open $(tcp 169.254.169.254 80)
 }
 policy_count() { k get networkpolicy -o name | wc -l | tr -d ' '; }
 

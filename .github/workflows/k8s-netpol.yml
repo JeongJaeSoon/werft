@@ -5,15 +5,17 @@
 # than the `k8s-smoke` job in ci.yml, whose `egress` step checks the same
 # Pods once on every pull request. This one stays off that path.
 #
-# Not a required check. The pull request trigger covers only the policy, the
-# script and this file.
+# Not a required check. The pull request trigger covers only the templates
+# that hold a NetworkPolicy, the scripts and this file.
 name: K8s NetworkPolicy
 
 on:
   pull_request:
     paths:
       - deploy/helm/werft/templates/networkpolicies.yaml
+      - deploy/helm/werft/templates/metrics.yaml
       - deploy/kind/netpol.sh
+      - deploy/kind/up.sh
       - .github/workflows/k8s-netpol.yml
   workflow_dispatch:
 
