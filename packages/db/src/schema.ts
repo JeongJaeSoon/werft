@@ -3513,6 +3513,83 @@ export const agentMcpSettings = pgTable(
   ],
 );
 
+// Structure only: an object of string lists under the given keys, at most 64
+// strings each, none empty or over `maxLength`. Whether a rule is one the
+// engine takes is the parser's, which a CHECK cannot run. `strict` keeps a
+// nested array from being unwrapped and passing as its elements. The strings
+// are constants, so they are inlined; a DDL statement takes no parameters.
+function stringListsCheck(
+  column: AnyPgColumn,
+  keys: readonly string[],
+  maxLength: number,
+) {
+  // A regex repeat count stops at 255, so a longer limit is blocks of 128: one
+  // character past `blocks * 128` is over the limit. Flag `s` lets `.` match a
+  // line break, which it does not by default; without it a newline ends the
+  // count and a longer string passes.
+  if (maxLength % 128 !== 0) throw new Error("maxLength is a multiple of 128");
+  const over = `^(.{128}){${maxLength / 128}}.`;
+  const known = keys.map((key) => `@.key == "${key}"`).join(" || ");
+  const path = (filter: string) => sql.raw(`'strict ${filter}'`);
+  return sql`jsonb_typeof(${column}) = 'object'
+    AND NOT jsonb_path_exists(${column}, ${path(`$.keyvalue() ? (!(${known}))`)})
+    AND NOT jsonb_path_exists(${column}, ${path('$.* ? (@.type() != "array")')})
+    AND NOT jsonb_path_exists(${column}, ${path("$.* ? (@.size() > 64)")})
+    AND NOT jsonb_path_exists(${column}, ${path('$.*[*] ? (@.type() != "string")')})
+    AND NOT jsonb_path_exists(${column}, ${path(`$.*[*] ? (@ == "" || @ like_regex "${over}" flag "s")`)})`;
+}
+
+// An agent's engine settings: the permission rules and auto mode sentences it
+// runs with, outside the card, so a change makes no release. No row, or two
+// empty objects, means no rules. A row is never deleted: clearing writes
+// empty objects and raises `revision`, so a revision is never reused. Nothing
+// writes this table yet; the write path ships with the merge that sends the
+// settings to the engine. A session follows it as `start ∩ now`, never wider
+// than it started.
+export const agentEngineSettings = pgTable(
+  "agent_engine_settings",
+  {
+    agentId: uuid("agent_id").primaryKey(),
+    workspaceId: uuid("workspace_id").notNull(),
+    // `{allow?, ask?, deny?}`, each a list of rules in the engine's spelling.
+    permissions: jsonb()
+      .$type<Record<string, string[]>>()
+      .notNull()
+      .default({}),
+    // `{allow?, soft_deny?, hard_deny?, environment?}`, each a list of sentences.
+    autoMode: jsonb("auto_mode")
+      .$type<Record<string, string[]>>()
+      .notNull()
+      .default({}),
+    revision: integer().notNull().default(1),
+    /** No foreign key: the row outlives the account. */
+    updatedBy: uuid("updated_by"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: "agent_engine_settings_agent_fk",
+      columns: [table.workspaceId, table.agentId],
+      foreignColumns: [agents.workspaceId, agents.id],
+    }),
+    check(
+      "agent_engine_settings_permissions_check",
+      stringListsCheck(table.permissions, ["allow", "ask", "deny"], 256),
+    ),
+    check(
+      "agent_engine_settings_auto_mode_check",
+      stringListsCheck(
+        table.autoMode,
+        ["allow", "soft_deny", "hard_deny", "environment"],
+        1024,
+      ),
+    ),
+    check("agent_engine_settings_revision_check", sql`${table.revision} >= 1`),
+  ],
+);
+
 // How an agent's pull request bodies differ from the workspace's. Apart from
 // `agent_github_settings`: a row there makes the agent's sessions follow it
 // instead of their release, and saving a template must not do that. No row:
