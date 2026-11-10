@@ -1094,6 +1094,17 @@ export async function contractsBehaviour(repo: string): Promise<Counts> {
 
 const handlerName = /^handle[A-Z]|Handler$/;
 
+/** An arrow or function expression, parentheses and `as`/`satisfies` wrappers looked through. */
+function isFunctionValue(expression: ts.Expression): boolean {
+  if (
+    ts.isParenthesizedExpression(expression) ||
+    ts.isAsExpression(expression) ||
+    ts.isSatisfiesExpression(expression)
+  )
+    return isFunctionValue(expression.expression);
+  return ts.isArrowFunction(expression) || ts.isFunctionExpression(expression);
+}
+
 /** Top-level functions: declarations and consts bound to an arrow or function expression. */
 function functionNames(source: ts.SourceFile): Set<string> {
   const names = new Set<string>();
@@ -1105,8 +1116,7 @@ function functionNames(source: ts.SourceFile): Set<string> {
         if (
           ts.isIdentifier(declaration.name) &&
           declaration.initializer &&
-          (ts.isArrowFunction(declaration.initializer) ||
-            ts.isFunctionExpression(declaration.initializer))
+          isFunctionValue(declaration.initializer)
         )
           names.add(declaration.name.text);
   }
@@ -1121,12 +1131,18 @@ function exportedBindings(
   for (const statement of source.statements) {
     if (ts.isExportDeclaration(statement)) {
       const clause = statement.exportClause;
-      if (!statement.moduleSpecifier && clause && ts.isNamedExports(clause))
+      if (
+        !statement.isTypeOnly &&
+        !statement.moduleSpecifier &&
+        clause &&
+        ts.isNamedExports(clause)
+      )
         for (const element of clause.elements)
-          bindings.push({
-            exported: element.name.text,
-            local: (element.propertyName ?? element.name).text,
-          });
+          if (!element.isTypeOnly)
+            bindings.push({
+              exported: element.name.text,
+              local: (element.propertyName ?? element.name).text,
+            });
     } else if (isExported(statement))
       for (const name of declaredNames(statement))
         bindings.push({ exported: name, local: name });
@@ -1422,6 +1438,25 @@ export async function slackExports(repo: string): Promise<Counts> {
 }
 
 /** A function type, written inline or through a type alias declared in the same file. */
+/** `aliases` minus the names a type parameter of an enclosing declaration shadows. */
+function visibleAliases(
+  node: ts.Node,
+  aliases: ReadonlyMap<string, ts.TypeNode>,
+): ReadonlyMap<string, ts.TypeNode> {
+  const visible = new Map(aliases);
+  for (let up: ts.Node | undefined = node; up; up = up.parent)
+    if (
+      (ts.isInterfaceDeclaration(up) ||
+        ts.isTypeAliasDeclaration(up) ||
+        ts.isMethodSignature(up) ||
+        ts.isFunctionTypeNode(up)) &&
+      up.typeParameters
+    )
+      for (const parameter of up.typeParameters)
+        visible.delete(parameter.name.text);
+  return visible;
+}
+
 function isFunctionType(
   type: ts.TypeNode,
   aliases: ReadonlyMap<string, ts.TypeNode>,
@@ -1463,7 +1498,7 @@ export async function optionalCapabilityMethods(
           (ts.isPropertySignature(node) &&
             node.questionToken &&
             node.type &&
-            isFunctionType(node.type, aliases))
+            isFunctionType(node.type, visibleAliases(node, aliases)))
         )
           found.push(
             `${slashed(relative(repo, file))} -> ${node.name.getText(source)}`,
@@ -2843,7 +2878,10 @@ describe("architecture", () => {
             "export async function load() { return await Promise.resolve(1); }",
             "export type EventHandler = () => void;",
             "export const data = { handler: 1 };",
-            'export const EventHandlerName = "event-handler";',
+            'export const OtherHandler = "event-handler";',
+            "export type { handleTyped };",
+            "function handleTyped() {}",
+            "export const handleWrapped = (() => 1);",
             'const handleLater = () => console.log("x");',
             "export { handleLater };",
           ].join("\n"),
@@ -2855,7 +2893,7 @@ describe("architecture", () => {
     ).toEqual({
       "api/bad.ts class": 1,
       "api/bad.ts async": 2,
-      "api/bad.ts handler": 2,
+      "api/bad.ts handler": 3,
     });
   });
 
@@ -3198,6 +3236,7 @@ describe("architecture", () => {
             "}",
             "type Send = () => Promise<void>;",
             "type Plain = { id: string };",
+            "export interface Generic<Send> { data?: Send }",
             "export type Api = { close?(): void };",
           ].join("\n"),
           [platformFile("surface/ports/notice.ts")]:
