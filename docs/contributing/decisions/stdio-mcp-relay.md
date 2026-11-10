@@ -12,7 +12,7 @@
 |---|---|
 | 자리와 수명 | worker 프로세스가 서버를 새 프로세스 그룹으로 띄운다. 수명은 **턴**이다: 세션 시작에 한 번 띄워 목록을 캐시하고, 체크포인트(턴 끝·승인 대기) 때 **lease를 쥔 뒤** 끄고, 다음 턴 첫 도구 호출에 다시 띄운다 |
 | 노출 | 원격 relay와 같은 `type: "sdk"` in-process relay. 상대만 HTTP에서 **worker가 든 stdio 연결**로 바뀐다. egress 프록시의 `/mcp/<name>` 길은 쓰지 않는다 |
-| 판정 | 엔진에 보이는 도구 = 승인된 선언 도구 ∩ 상한. 컨트롤 플레인이 main에 있는 deny 우선 함수(`visibleMcpTools`) 하나로 해석해 세션 행에 상한으로 고정한다. **호출 시점에도** 같은 함수로 `tools/call`과 `tools/list`를 판정하므로(판정 전용 worker 경로, 캐시 없음, 닫힌 채 실패) 실행 중 정책 축소를 원격과 똑같이 따라간다. 넓어지는 방향은 따르지 않는다([3절](#3-relay가-stdio-서버를-내보내는-방법과-판정-자리)) |
+| 판정 | 엔진에 보이는 도구 = 승인된 선언 도구 ∩ 상한. 컨트롤 플레인이 main에 있는 deny 우선 함수(`visibleMcpTools`) 하나로 해석해 세션 행에 상한으로 고정한다. **호출 시점에도** 같은 함수로 `tools/call`과 `tools/list`를 판정하므로(판정 전용 worker 경로, 캐시 없음, 닫힌 채 실패) 실행 중 deny 추가를 따라간다. 원격과의 동등성은 허용 집합과 호출 판정에 한한다(원격 목록은 즉시 줄지 않는다) 넓어지는 방향은 따르지 않는다([3절](#3-relay가-stdio-서버를-내보내는-방법과-판정-자리)) |
 | identity | `{번들 digest, 서버 이름}`. 이름 공간은 하나이고 겹치면 release 활성화·세션 생성이 거부한다 |
 | 클라이언트 능력 | relay의 upstream 클라이언트는 능력을 하나도 선언하지 않는다. sampling·roots·elicitation은 오류로 거절한다 |
 | env·cwd | hook과 같은 실행기를 쓴다(94S-872). 서버만의 규칙을 더하지 않는다 |
@@ -98,7 +98,7 @@ export function mcpRelay(server: { name: string; tools: readonly string[] }, ups
 | 컨트롤 플레인(호출 시점 판정) | release deny, 저장된 엔진 규칙 deny, 호출자 상한 [94S-919]을 **지금 값**으로 deny 우선 판정 | egress `decide`(`mcp-egress.ts`) | **새 worker 경로** `POST` 판정 요청. `decide`와 같은 판정 함수를 부른다 |
 | worker relay | 고정된 목록 밖 `tools/list`·`tools/call` 거절, 판정 결과 집행 | 있음 | 있음 |
 
-**stdio의 호출 시점 판정이 가는 길.** egress `/mcp/<name>` 경로는 쓰지 않는다(위 이유 1~3). 대신 worker가 attempt에 묶인 인증으로 컨트롤 플레인에 묻는 **판정 전용 경로**를 둔다. 공유할 것은 `decide` 안의 조각이 아니다. `decide`는 이미 계산된 `state.tools`에 `mcpToolPermitted`를 적용할 뿐이고, 현재 설정 교차는 DB의 `sessionEffectiveMcp`, 저장 deny의 조회·적용은 `withoutSavedMcpDenies`(`packages/db/src/mcp-egress.ts:97`, `:192`)에 있다. 그래서 둘을 구분한다: ① **정책 입력을 읽는 공통 경로**(현재 설정 행, 저장 deny, 호출자 상한을 DB에서 읽음)와 ② **순수 판정 함수**(`visibleMcpTools`). U2b는 ①을 egress와 새 경로가 같이 부르도록 뽑는다. `effectiveMcp`는 지금 세션의 서버를 **하나**로 가정하므로(`mcp-settings.ts`의 `server`), 번들의 stdio 서버 여럿에는 서버 이름별로 부르고 서버마다 세션에 고정한 상한을 `start` 입력으로 준다. 이 매핑을 U2b의 첫 시험으로 둔다(서버 둘이 있는 세션에서 한쪽에만 deny를 더하면 그쪽만 좁아진다).
+**stdio의 호출 시점 판정이 가는 길.** egress `/mcp/<name>` 경로는 쓰지 않는다(위 이유 1~3). 대신 worker가 attempt에 묶인 인증으로 컨트롤 플레인에 묻는 **판정 전용 경로**를 둔다. 공유할 것은 `decide` 안의 조각이 아니다. `decide`는 이미 계산된 `state.tools`에 `mcpToolPermitted`를 적용할 뿐이고, 현재 설정 교차는 DB의 `sessionEffectiveMcp`, 저장 deny의 조회·적용은 `withoutSavedMcpDenies`(`packages/db/src/mcp-egress.ts:97`, `:192`)에 있다. 그래서 둘을 구분한다: ① **정책 입력을 읽는 공통 경로**(현재 설정 행, 저장 deny, 호출자 상한을 DB에서 읽음)와 ② **순수 판정 함수**(`visibleMcpTools`). U2b는 ①을 egress와 새 경로가 같이 부르도록 뽑는다. `effectiveMcp`는 에이전트의 **단일 서버 설정 행**을 입력으로 받고 행이 없거나 서버가 다르면 빈 집합을 돌려준다(`mcp-settings.ts:60`). 번들의 stdio 서버는 그 행에 없으므로 **`effectiveMcp`를 stdio에 쓰지 않는다.** stdio의 호출 시점 입력은 셋이다: 서버마다 세션에 고정한 상한(허용 이름 목록), 지금의 release deny와 저장된 엔진 규칙 deny(`mcpDeniedBy`, `packages/db/src/claim-engine-settings.ts`가 원격과 같은 읽기 경로), 호출자 상한(94S-919). 판정은 `visibleMcpTools(서버, 고정 상한, ...deny)`이고 설정 행이 없다는 것은 아무것도 뜻하지 않는다(행이 없다고 거절하지 않는다). 그래서 상한은 넓어질 수 없고 deny만 줄인다. 첫 시험: 서버 둘이 있는 세션이 **처음에는 둘 다 허용**되고, 한쪽에만 deny를 더하면 그쪽만 좁아진다.
 
 **새 경로의 연결은 worker 프로토콜을 따른다.** `packages/core`의 응답 표(`schemas/responses.ts`)는 공개 클라이언트의 `OperationKey`용이고 기존 worker 경로는 거기에 없다. 새 경로를 거기에 올리지 않는다. 연결은 `packages/contracts`의 worker-protocol 스키마 → `apps/control-host/src/api/routes/worker.ts`의 `jsonWithSchema` → worker gateway client의 decoder다. 인증은 `gateway.authenticate` 뒤 `requireScope`(`packages/platform/src/workers/worker-gateway.ts:1630`)로 session·attempt·lease epoch·execution generation·auth revision을 대조하고, `requireScope`가 토큰이 DB보다 오래됐을 수 있다고 명시하므로 **현재 DB 소유권을 확인하는 fenced read**로 서버·고정 상한을 읽는다. bootstrap 토큰, 다른 attempt, 낡은 fence는 거절하는 시험을 둔다.
 
@@ -132,7 +132,7 @@ main에는 이미 deny 우선 함수가 있다: `visibleMcpTools(server, allow, 
 - 출력: 그 함수는 허용된 이름의 정렬된 배열만 돌려준다. 뺀 도구와 이유(`undeclared`·`over_limit`·`denied`)는 **U2 호출부가** 입력 목록과의 차이로 계산해 해석 결과에 남긴다.
 - 선언 밖 도구(서버가 `tools/list`에 선언에 없는 도구를 돌려줄 때)는 빼고 `extension.mcp.tool_filtered`를 남긴다. 상한이나 deny로 빠진 **선언된** 도구는 해석 결과에 이유와 함께 남기고, worker 이벤트는 만들지 않는다. 정책의 결과는 런타임 사건이 아니다.
 - 결과를 세션 행에 고정하고 claim·restore가 같은 값을 다시 쓴다. 체크포인트 지문에 들어가는 서버 binding은 `stdio:<digest>:<이름>:<고정 도구 해시>`로 한다. 번들 digest가 같아도 상한이 바뀐 세션은 지문이 다르다.
-- **실행 중 정책 축소를 따라간다.** 원격은 `effectiveMcp`(`packages/platform/src/sessions/mcp-settings.ts:35-75`)가 시작 스냅샷과 지금의 설정 행을 교차해 설정이 줄면 이미 도는 세션도 바로 좁아진다. stdio도 같은 의미를 갖는다: 호출 시점 판정이 이 교차를 같은 함수로 계산한다. 넓어지는 방향은 따르지 않는다(세션에 고정한 목록이 상한). 시험 두 개를 고정한다: (1) 세션 시작 뒤 저장된 엔진 규칙에 `mcp__` deny를 더하면 다음 `tools/call`이 거절되고 `tools/list`에서 빠진다, (2) 세션 시작 뒤 설정을 넓혀도 목록이 넓어지지 않는다.
+- **실행 중 정책 축소를 따라간다.** 원격은 `effectiveMcp`(`packages/platform/src/sessions/mcp-settings.ts:35-75`)가 시작 스냅샷과 지금의 설정 행을 교차해 설정이 줄면 이미 도는 세션도 바로 좁아진다. stdio는 그 설정 행이 아니라 deny 쪽 입력(release deny, 저장된 엔진 규칙, 호출자 상한)으로 같은 결과를 얻는다: 호출 시점 판정이 고정 상한에서 지금의 deny를 뺀다. 넓어지는 방향은 따르지 않는다(세션에 고정한 목록이 상한). 시험 두 개를 고정한다: (1) 세션 시작 뒤 저장된 엔진 규칙에 `mcp__` deny를 더하면 다음 `tools/call`이 거절되고 `tools/list`에서 빠진다, (2) 세션 시작 뒤 설정을 넓히거나 deny를 지워도 고정한 목록 밖으로 넓어지지 않는다.
 
 ### 대안 (고르지 않음)
 
@@ -327,7 +327,7 @@ Act-on 2건과 Consider 2건을 모두 반영했다. 수정한 head에서 링크
 
 | # | 지적 | 처리 |
 |---|---|---|
-| 1 | 공유할 조각이 `decide`가 아니다. 설정 교차는 DB `sessionEffectiveMcp`, 저장 deny는 `withoutSavedMcpDenies`에 있고 `effectiveMcp`는 서버 하나를 가정한다 | **수용.** 정책 입력을 읽는 공통 경로와 순수 판정 함수를 구분했고, 여러 stdio 서버는 서버별 호출로 대응한다. 서버 둘 시험을 U2b의 첫 시험으로 둔다([3절](#3-relay가-stdio-서버를-내보내는-방법과-판정-자리)) |
+| 1 | 공유할 조각이 `decide`가 아니다. 설정 교차는 DB `sessionEffectiveMcp`, 저장 deny는 `withoutSavedMcpDenies`에 있고 `effectiveMcp`는 서버 하나를 가정한다 | **수용.** 정책 입력을 읽는 공통 경로와 순수 판정 함수를 구분했다. 서버 둘 시험을 U2b의 첫 시험으로 둔다([3절](#3-relay가-stdio-서버를-내보내는-방법과-판정-자리)). 5회차에서 "서버별 `start`로 `effectiveMcp`를 반복 호출"이 틀렸음이 드러나 정정했다(아래) |
 | 2 | `permits → … → quiesce 대기 → 재기동` 순서면 대기 중 더한 deny를 우회한다 | **수용.** 순서를 `quiesce 대기 → permits → 서버 호출`로 정했고 대기 중 deny 시험을 U3/U4에 둔다 |
 | 3 | `packages/core` 응답 표는 공개 `OperationKey`용이고 worker 경로는 거기 없다 | **수용.** 코드로 확인했다(`responses.ts`에 worker 항목 없음). contracts worker-protocol → `routes/worker.ts` → gateway client decoder로 고쳤다. 앞서 적은 "core 응답 표에 올린다"는 잘못이었다 |
 | 4 | attempt 인증만으로 소유권 fencing이 완성되지 않는다 | **수용.** `requireScope` + 현재 DB 소유권을 확인하는 fenced read, 거절 시험(bootstrap 토큰·다른 attempt·낡은 fence)을 U2b에 더했다 |
@@ -335,4 +335,14 @@ Act-on 2건과 Consider 2건을 모두 반영했다. 수정한 head에서 링크
 | 6 | 원격은 목록이 새 deny로 즉시 줄지 않는다. `tools/list` 판정 실패는 `isError`가 아니다 | **수용.** 동등성을 허용 집합·호출 판정으로 좁혔다. `tools/list` 실패는 JSON-RPC 오류 |
 | 7 | 완료 조건 대응 유지, 새 보장의 시험을 수용 기준에 연결하라 | 시험은 U2b·U3 행에 적었다 |
 
-Act-on 3건과 Consider 3건을 모두 반영했다. 5회차는 하지 않았다: 이 수정은 4회차 지적의 코드 대조 정정이고 결정의 방향(호출 시점 deny-first, 닫힌 채 실패, 캐시 없음)을 바꾸지 않았다.
+Act-on 3건과 Consider 3건을 모두 반영했다.
+
+**5회차**(`7bee77c6f..066b02bb3`, 4회차 반영분만). 6개 항목 가운데 5개는 해소로 확인됐고(대기 뒤 판정 순서, worker 프로토콜 연결, `requireScope`와 DB 소유권, gate 시한·중단, 동등성 범위), 1개는 미해결, 새 지적은 Act-on 1·Consider 1·Noted 1이었다.
+
+| # | 지적 | 처리 |
+|---|---|---|
+| 1 | 서버별 `start`로 `effectiveMcp`를 부른다는 매핑이 틀렸다. `effectiveMcp`는 에이전트의 단일 서버 설정 행을 받고 행이 없거나 서버가 다르면 빈 집합이다(`mcp-settings.ts:60`, `packages/db/src/mcp-settings.ts:12`). A만 있는 행이면 B는 deny 전부터 전부 거절된다 | **수용.** 코드로 확인했다. stdio는 `effectiveMcp`를 쓰지 않고 `visibleMcpTools(서버, 고정 상한, ...deny)`로 판정한다. 입력은 고정 상한, 지금의 release·저장 규칙 deny(`mcpDeniedBy`), 호출자 상한이다. 설정 행의 부재는 거절 사유가 아니다. 첫 시험을 "처음에는 둘 다 허용"으로 고쳤다([3절](#3-relay가-stdio-서버를-내보내는-방법과-판정-자리)) |
+| 2 | 요약 15행이 목록도 원격과 똑같이 줄어든다고 남아 있다 | **수용.** 요약을 허용 집합·호출 판정으로 한정했다 |
+| 3 | 참조 경로·라인·링크 오류 없음(`:97`은 호출 위치이고 선언은 `:92`) | 변경 없음 |
+
+5회차의 수정은 위 1·2번 하나뿐이고 결정의 방향을 바꾸지 않았다. 이 변경은 별도 reviewer 확인을 받는다(아래 6회차).
