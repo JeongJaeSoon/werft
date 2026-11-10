@@ -13,7 +13,6 @@ import type { CommitAttributionLedger } from "../../ports/commit-attributions.ts
 import {
   type GitHubGate,
   GitHubGateError,
-  type GitHubGrant,
   GitHubUnavailableError,
 } from "../../ports/github-gate.ts";
 import type {
@@ -26,6 +25,7 @@ import {
   repositoryUpstreamOf,
   type SessionCatalog,
 } from "../../sessions/index.ts";
+import type { GrantWith, RepositoryReadable } from "../ports/capabilities.ts";
 import type { Pushable } from "../ports/git-push.ts";
 
 /**
@@ -115,7 +115,7 @@ export function createPushExecutor(deps: {
       return refuse("target_refused", remote);
     }
     if (branch === repository.branch) return refuse("default_branch", remote);
-    let grant: GitHubGrant | null;
+    let grant: GrantWith<Pick<RepositoryReadable, "getRepository">> | null;
     try {
       grant = await deps.gate.grant({
         sessionId: job.sessionId,
