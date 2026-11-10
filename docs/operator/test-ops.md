@@ -323,7 +323,7 @@ unset API_IMAGE WORKER_IMAGE EGRESS_PROXY_IMAGE
 
 ### 게시된 이미지를 쓸 때
 
-`main` 머지마다 Images workflow(`.github/workflows/images.yml`)가 세 이미지를 `ghcr.io/jeongjaesoon/werft-<app>:main-<12>`로 게시한다. `v*` 태그마다 GitHub Release가 생기고 `release-manifest.json`이 붙는다. 최신 게시 릴리스는 `v0.1.2`다. 설치하는 운영자는 태그를 달지 않는다. 태그와 게시는 [저장소 관리자의 절차](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/images-and-supply-chain/#저장소-관리자-v-태그로-게시)다. 게시본은 `linux/amd64`와 `linux/arm64`를 담는 index다.
+`main` 머지마다 Images workflow(`.github/workflows/images.yml`)가 세 이미지를 `ghcr.io/jeongjaesoon/werft-<app>:main-<12>`로 게시한다. `v*` 태그의 게시 절차가 성공하면 GitHub Release가 게시되고 `release-manifest.json`이 붙는다. 태그만 있고 Release가 없는 경우도 있다(`v0.1.1`). 최신 게시 릴리스는 `v0.1.2`다. 설치하는 운영자는 태그를 달지 않는다. 태그와 게시는 [저장소 관리자의 절차](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/images-and-supply-chain/#저장소-관리자-v-태그로-게시)다. 게시본은 `linux/amd64`와 `linux/arm64`를 담는 index다.
 
 릴리스(`v*` 태그)를 쓸 때는 그 GitHub Release의 `release-manifest.json`에서 읽는다. 아래 명령이 이 문서의 manifest 이미지 줄과 `source_commit`을 채운다. `settings_digest`는 위 `settings-digest`의 출력을 더한다. 저장소 checkout은 필요 없다.
 
