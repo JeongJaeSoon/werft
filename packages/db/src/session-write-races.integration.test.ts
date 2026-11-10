@@ -40,10 +40,10 @@ import {
 import { createPostgresSessionShareStore } from "./session-shares.ts";
 import { fixtureTeam } from "./testing/fixture-team.ts";
 import {
-  TEST_CONNECTION_ID,
-  TEST_MODEL,
   fixtureRelease,
   releaseSpecColumns,
+  TEST_CONNECTION_ID,
+  TEST_MODEL,
 } from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;

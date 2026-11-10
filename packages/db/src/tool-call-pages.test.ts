@@ -27,9 +27,9 @@ import {
   workspaces,
 } from "./schema.ts";
 import { fixtureTeam } from "./testing/fixture-team.ts";
+import { releaseSpecColumns, TEST_CONNECTION_ID } from "./testing/spec-pins.ts";
 import { toolCallDays, toolCallPage } from "./tool-call-pages.ts";
 import { projectToolCalls } from "./tool-calls.ts";
-import { TEST_CONNECTION_ID, releaseSpecColumns } from "./testing/spec-pins.ts";
 
 const OWNER = "owner-a";
 const ME = "00000000-0000-4000-8000-000000000001";

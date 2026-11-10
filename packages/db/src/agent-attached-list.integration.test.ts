@@ -30,6 +30,12 @@ import { createPostgresPushRequests } from "./push-requests.ts";
 import { createPostgresRepositoryAttachments } from "./repository-attachments.ts";
 import * as schema from "./schema.ts";
 import { pushIntents, pushRequests, sessions } from "./schema.ts";
+import {
+  RELEASE_SPEC_SQL_COLUMNS,
+  releaseSpecSqlValues,
+  SESSION_PIN_SQL_COLUMNS,
+  sessionPinSqlValues,
+} from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -45,22 +51,12 @@ const quiet = { info: () => {}, warn: () => {} };
 const repo = (name: string, branch = "main") => ({
   url: `https://example.invalid/acme/${name}.git`,
   branch,
-  profiles: ["p"],
   auth: { kind: "github_app" as const, registered: true as const },
 });
 // Only what the list and attach paths read: an agent session is judged by the
-// workspace ceiling, so the profile needs no repository list of its own.
+// workspace ceiling, so the connection needs no repository list of its own.
 const CATALOG = {
-  profiles: {
-    p: {
-      runtime_kind: "claude",
-      runtime_version: "1",
-      model: "claude-sonnet-5",
-      tools: ["Read"],
-      permission_mode: "default",
-      provider: { kind: "anthropic", endpoint: "https://api.invalid" },
-    },
-  },
+  connections: {},
   repositories: {
     "sample-app": repo("app"),
     docs: repo("docs", "trunk"),
@@ -144,15 +140,14 @@ integration("an agent session's own attached list on PostgreSQL", () => {
     };
     await pool.query(
       `INSERT INTO agent_releases (id, agent_id, version_id, card_sha256,
-         runtime_profile_id, repository_id, profile_digest,
-         runtime_config_snapshot, effective_tools, policy_pins)
-       VALUES ($1, $2, $3, $4, 'p', 'sample-app', $5, '{}', '{}', $6)`,
+         repository_id, runtime_config_snapshot, effective_tools, policy_pins,
+         ${RELEASE_SPEC_SQL_COLUMNS})
+       VALUES ($1, $2, $3, $4, 'sample-app', '{}', '{}', $5, ${releaseSpecSqlValues()})`,
       [
         releaseId,
         agentId,
         versionId,
         "a".repeat(64),
-        `sha256:${"c".repeat(64)}`,
         JSON.stringify({ github: pin }),
       ],
     );
@@ -175,9 +170,10 @@ integration("an agent session's own attached list on PostgreSQL", () => {
     await pool.query(
       `INSERT INTO sessions (id, owner_id, repo_url, branch, repository_id,
          workspace_id, agent_release_id, created_by_user_id, github_policy_source,
-         checkpoint_revision, github_policy_start, attached_repository_ids, profile_id)
+         checkpoint_revision, github_policy_start, attached_repository_ids,
+       ${SESSION_PIN_SQL_COLUMNS})
        VALUES ($1, $2, 'https://example.invalid/acme/app.git', 'main', 'sample-app',
-         $3, $4, $5, $6, 1, $7, $8, 'p')`,
+         $3, $4, $5, $6, 1, $7, $8, ${sessionPinSqlValues()})`,
       [
         sessionId,
         workspaceId,

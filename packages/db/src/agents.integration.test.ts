@@ -17,6 +17,7 @@ import {
   createAuthorizationPolicy,
   deriveReleaseId,
   InvalidCursorError,
+  releaseRunOf,
   resolveReleaseContent,
   type SessionCatalog,
   SessionServiceError,
@@ -79,6 +80,13 @@ const CATALOG: SessionCatalog = testSessionCatalog({
     },
   },
 });
+
+// The run a release on the test connection gets, as the service resolves it.
+const TEST_RUN = (() => {
+  const found = releaseRunOf(CATALOG, TEST_RUNTIMES, TEST_CONNECTION_ID);
+  if (!found.ok) throw new Error(found.message);
+  return found.run;
+})();
 
 function cardWith(instructions: string, tools: string[] | null = ["Read"]) {
   return agentCardRequestSchema.parse({
@@ -1235,11 +1243,13 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     const insertNote = (note: string) =>
       db.execute(sql`
         INSERT INTO agent_releases (id, agent_id, version_id, card_sha256,
-          runtime_profile_id, profile_digest, runtime_config_snapshot,
-          effective_tools, policy_pins, note)
+          connection_id, spec_source, spec_source_digest, runtime_spec,
+          spec_digest, runtime_config_snapshot, effective_tools, policy_pins,
+          note)
         SELECT ${`rel-${randomUUID()}`}, agent_id, version_id, card_sha256,
-          runtime_profile_id, profile_digest, runtime_config_snapshot,
-          effective_tools, policy_pins, ${note}
+          connection_id, spec_source, spec_source_digest, runtime_spec,
+          spec_digest, runtime_config_snapshot, effective_tools, policy_pins,
+          ${note}
         FROM agent_releases WHERE id = ${bare.release.id}`);
     await insertNote("🚀".repeat(200));
     for (const note of ["", "a".repeat(201)]) {
@@ -1398,11 +1408,13 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       const id = `rel-${randomUUID()}`;
       await db.execute(sql`
         INSERT INTO agent_releases (id, agent_id, version_id, card_sha256,
-          runtime_profile_id, profile_digest, runtime_config_snapshot,
-          effective_tools, policy_pins, created_at)
+          connection_id, spec_source, spec_source_digest, runtime_spec,
+          spec_digest, runtime_config_snapshot, effective_tools, policy_pins,
+          created_at)
         SELECT ${id}, agent_id, version_id, card_sha256,
-          runtime_profile_id, profile_digest, runtime_config_snapshot,
-          effective_tools, policy_pins, ${createdAt}::timestamptz
+          connection_id, spec_source, spec_source_digest, runtime_spec,
+          spec_digest, runtime_config_snapshot, effective_tools, policy_pins,
+          ${createdAt}::timestamptz
         FROM agent_releases WHERE id = ${second.id}`);
       return id;
     };
@@ -1544,7 +1556,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     });
   });
 
-  test("a release refuses to resolve once its profile has changed", async () => {
+  test("a release refuses to resolve once its connection or its model is gone", async () => {
     const workspaceId = await workspace();
     const owner = await person(workspaceId, "owner");
     const created = await newAgent(service(), owner);
@@ -1555,29 +1567,26 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       connection_id: TEST_CONNECTION_ID,
     });
 
-    const edited = service({
-      ...CATALOG,
-      profiles: { coding: { ...PROFILE, tools: ["Read", "Grep"] } },
-    });
-    expect(await codeOf(edited.resolveRelease(workspaceId, release.id))).toBe(
-      "PROFILE_DIGEST_MISMATCH",
+    for (const catalog of [
+      { ...CATALOG, connections: {} },
+      testSessionCatalog({ models: ["claude-other"], repositories: {} }),
+    ]) {
+      const edited = service(catalog);
+      expect(await codeOf(edited.resolveRelease(workspaceId, release.id))).toBe(
+        "RELEASE_SPEC_UNAVAILABLE",
+      );
+      expect(
+        await codeOf(
+          edited.activateAgent(owner, created.agent.id, {
+            release_id: release.id,
+            expected_revision: -1,
+          }),
+        ),
+      ).toBe("RELEASE_SPEC_UNAVAILABLE");
+    }
+    expect((await service().resolveRelease(workspaceId, release.id)).id).toBe(
+      release.id,
     );
-    expect(
-      await codeOf(
-        edited.activateAgent(owner, created.agent.id, {
-          release_id: release.id,
-          expected_revision: -1,
-        }),
-      ),
-    ).toBe("PROFILE_DIGEST_MISMATCH");
-    const rereleased = await edited.createRelease(owner, created.agent.id, {
-      version_id: version.id,
-      connection_id: TEST_CONNECTION_ID,
-    });
-    expect(rereleased.release.id).not.toBe(release.id);
-    expect(
-      (await edited.resolveRelease(workspaceId, rereleased.release.id)).id,
-    ).toBe(rereleased.release.id);
   });
 
   test("an agent id in upper case releases and activates the same release", async () => {
@@ -1603,7 +1612,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     expect(activated.active_release_id).toBe(release.id);
   });
 
-  test("a card asking for more than the profile allows is released on the profile's tools; an unknown profile is not", async () => {
+  test("a card asking for more than the runtime installs is released on the runtime's tools; an unknown connection is not", async () => {
     const workspaceId = await workspace();
     const owner = await person(workspaceId, "owner");
     const created = await newAgent(
@@ -1876,7 +1885,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     const created = await newAgent(agentsService, owner, cardWith("legacy"));
     const v1 = created.versions[0];
     if (!v1) throw new Error("no version");
-    const resolved = resolveReleaseContent(v1.card, "coding", PROFILE);
+    const resolved = resolveReleaseContent(v1.card, TEST_RUN);
     if (!resolved.ok) throw new Error(resolved.error.message);
     // What 94S-154 wrote: the same content with the `{}` placeholder.
     const identity = {
@@ -1943,11 +1952,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     });
 
     // And the release made from it then, stored as a row.
-    const resolved = resolveReleaseContent(
-      storedCard as AgentCard,
-      "coding",
-      PROFILE,
-    );
+    const resolved = resolveReleaseContent(storedCard as AgentCard, TEST_RUN);
     if (!resolved.ok) throw new Error(resolved.error.message);
     const identity = {
       ...resolved.content,
@@ -2020,8 +2025,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
 
     const resolved = resolveReleaseContent(
       storedCard as unknown as AgentCard,
-      "coding",
-      PROFILE,
+      TEST_RUN,
     );
     if (!resolved.ok) throw new Error(resolved.error.message);
     const identity = {

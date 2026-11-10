@@ -35,7 +35,7 @@ import {
   workspaces,
 } from "./schema.ts";
 import { fixtureTeam } from "./testing/fixture-team.ts";
-import { TEST_CONNECTION_ID, releaseSpecColumns } from "./testing/spec-pins.ts";
+import { releaseSpecColumns, TEST_CONNECTION_ID } from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -47,7 +47,7 @@ const SEARCH = "mcp__docs__search";
 const DOCS_WORKSPACES: string[] = [];
 
 const CATALOG = {
-  profiles: {},
+  connections: {},
   repositories: {},
   mcp_servers: {
     docs: {

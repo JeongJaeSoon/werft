@@ -38,10 +38,10 @@ import {
 import { fixtureTeam } from "./testing/fixture-team.ts";
 import { launchSession } from "./testing/launches.ts";
 import {
-  TEST_CONNECTION_ID,
-  TEST_MODEL,
   fixtureRelease,
   releaseSpecColumns,
+  TEST_CONNECTION_ID,
+  TEST_MODEL,
   testSessionCatalog,
 } from "./testing/spec-pins.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";

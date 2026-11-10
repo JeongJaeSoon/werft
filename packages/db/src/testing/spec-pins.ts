@@ -240,3 +240,22 @@ export function releaseSpecSqlValues(
     text(spec.specDigest),
   ].join(", ");
 }
+
+/** A session's pin columns, for a raw `INSERT INTO sessions`. */
+export const SESSION_PIN_SQL_COLUMNS = `model, ${RELEASE_SPEC_SQL_COLUMNS.replace("connection_id, ", "")}`;
+
+/** SQL literals for `SESSION_PIN_SQL_COLUMNS`, in the same order. */
+export function sessionPinSqlValues(
+  model = TEST_MODEL,
+  overrides: Partial<SpecSource> = {},
+): string {
+  const pin = sessionPinColumns(model, overrides);
+  const text = (value: string) => `'${value.replaceAll("'", "''")}'`;
+  return [
+    text(model),
+    `${text(JSON.stringify(pin.specSource))}::jsonb`,
+    text(pin.specSourceDigest),
+    `${text(JSON.stringify(pin.runtimeSpec))}::jsonb`,
+    text(pin.specDigest),
+  ].join(", ");
+}

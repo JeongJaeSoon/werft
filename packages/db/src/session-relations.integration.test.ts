@@ -36,7 +36,7 @@ import {
   workspaces,
 } from "./schema.ts";
 import { fixtureTeam } from "./testing/fixture-team.ts";
-import { TEST_CONNECTION_ID, releaseSpecColumns } from "./testing/spec-pins.ts";
+import { releaseSpecColumns, TEST_CONNECTION_ID } from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 

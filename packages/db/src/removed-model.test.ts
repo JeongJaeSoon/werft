@@ -15,9 +15,11 @@ const session = (over: Partial<Session> = {}): Session => ({
   ...over,
 });
 
-const catalog = (
-  connections: ClaimCatalog["connections"],
-): ClaimCatalog => ({ connections, repositories: [], runtimeVersions: null });
+const catalog = (connections: ClaimCatalog["connections"]): ClaimCatalog => ({
+  connections,
+  repositories: [],
+  runtimeVersions: null,
+});
 
 describe("removedModelOf", () => {
   test("names the model when its connection still offers others but not it", () => {

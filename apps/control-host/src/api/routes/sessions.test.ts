@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  type AgentRelease,
   type ApiErrorCode,
   apiErrorResponseSchema,
   requestBodyInvalidDetailsSchema,
@@ -7,26 +8,26 @@ import {
 import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import {
   type AuthorizationPolicy,
+  type Caller,
   createAuthorizationPolicy,
   createSessionService,
   InvalidCursorError,
-  type SessionCatalog,
   type SessionControl,
   type SessionDetailRecord,
   type SessionReader,
   type SessionUnitOfWork,
 } from "@werft-ai/platform";
+import {
+  TEST_CONNECTION_ID,
+  testCatalog,
+} from "../../test-support/catalog.ts";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerSessionRoutes } from "./sessions.ts";
 
 const createApiApp = recordRouteErrors("routes/sessions.test.ts");
 
-const codingProfile: SessionCatalog["profiles"][string] = {
-  runtime_kind: "claude_agent_sdk",
-  runtime_version: "0.3.270",
-  model: "claude-sonnet-5",
-  tools: ["Read", "Edit", "Bash"],
-  permission_mode: "default",
+const RELEASE = `sha256:${"a".repeat(64)}`;
+const catalog = testCatalog({
   provider: {
     kind: "litellm",
     endpoint: "https://litellm.invalid",
@@ -36,48 +37,94 @@ const codingProfile: SessionCatalog["profiles"][string] = {
       ref: { value_env: "PROVIDER_KEY" },
     },
   },
-};
-const catalog: SessionCatalog = {
-  profiles: {
-    "claude-coding-v1": codingProfile,
-    "claude-review-v1": codingProfile,
-  },
   repositories: {
     "sample-app": {
       url: "https://example.invalid/app.git",
       branch: "main",
       auth: { kind: "github_app", registered: true } as const,
     },
-    // Registered, but only claude-review-v1 may run against it.
+    // Registered, but outside the workspace ceiling.
     "other-app": {
       url: "https://example.invalid/other.git",
       branch: "main",
       auth: { kind: "github_app", registered: true } as const,
     },
   },
+});
+
+/** The release every session here runs, on the test connection. */
+function release(connectionId: string = TEST_CONNECTION_ID): AgentRelease {
+  return {
+    id: RELEASE,
+    agent_id: "019a0000-0000-7000-8000-0000000000a1",
+    version_id: "019a0000-0000-7000-8000-0000000000a2",
+    card_sha256: "a".repeat(64),
+    connection_id: connectionId,
+    repository_id: null,
+    runtime_config_snapshot: {
+      model: "claude-sonnet-5",
+      runtime: { kind: "claude_agent_sdk", version: "0.3.319" },
+    },
+    effective_tools: { tools: ["Read"], mcp: [] },
+    policy_pins: {},
+    created_by: null,
+    created_at: "2026-10-11T00:00:00.000Z",
+    approved_by: null,
+    approved_at: "2026-10-11T00:00:00.000Z",
+    note: null,
+    label: "2026-10-11_09:00:00",
+    activated_at: null,
+    deactivated_at: null,
+  } as AgentRelease;
+}
+
+const allowing: AuthorizationPolicy = {
+  authorize: async () => ({
+    outcome: "allow",
+    reason_code: "ok",
+    effective_scopes: [],
+    policy_version: "test",
+    decision_id: crypto.randomUUID(),
+  }),
 };
+
+/** The caller as a workspace key: only such a caller names a release. */
+function inWorkspace(caller: Caller): Caller {
+  const principal = caller.subject.principal;
+  return principal
+    ? {
+        ...caller,
+        subject: {
+          ...caller.subject,
+          principal: { ...principal, workspace_id: caller.ownerId },
+        },
+      }
+    : caller;
+}
 
 function app(
   overrides: Partial<SessionUnitOfWork & SessionReader & SessionControl> = {},
   logger?: StructuredLogger,
   authorization: AuthorizationPolicy = createAuthorizationPolicy(),
+  options: { workspace?: boolean; connectionId?: string } = {},
 ) {
-  const service = createSessionService({
+  const build = (policy: AuthorizationPolicy) => createSessionService({
     limits: {
       queuedInputLimitPerSession: 1_000,
       storageLimitBytes: 1e15,
       sessionCostLimitUsd: 1_000,
       sessionTokenLimit: null,
     },
-    authorization,
+    authorization: policy,
     catalog,
     releases: {
-      resolveRelease: async () => {
-        throw new Error("not reached");
-      },
+      resolveRelease: async () => release(options.connectionId),
       notRunnableReason: async () => null,
       agentGitHubSettings: async () => null,
-      repositoryCeiling: async () => null,
+      repositoryCeiling: async () => ({
+        repository_ids: ["sample-app", "gone-app"],
+        github_app_repositories: "listed",
+      }),
     },
     inputs: {
       acceptInputAtomic: async () => {
@@ -122,10 +169,24 @@ function app(
       ...overrides,
     },
   });
+  const service = build(authorization);
+  // A workspace key whose scopes the policy would read from its stored row;
+  // what is tested here is the session service's own checks.
+  const starter = build(allowing);
   return createApiApp({
     authMode: "none",
     ...(logger ? { logger } : {}),
-    registerRoutes: (router) => registerSessionRoutes(router, service),
+    registerRoutes: (router) =>
+      registerSessionRoutes(
+        router,
+        options.workspace === false
+          ? service
+          : {
+              ...service,
+              createSession: (caller, input) =>
+                starter.createSession(inWorkspace(caller), input),
+            },
+      ),
   });
 }
 
@@ -143,7 +204,7 @@ function post(body: unknown, headers: Record<string, string> = {}) {
 }
 
 const valid = {
-  profile_id: "claude-coding-v1",
+  agent_release_id: RELEASE,
   repository_id: "sample-app",
   message: "hello",
 };
@@ -167,13 +228,10 @@ describe("POST /v1/sessions validation", () => {
       expect(error.message).toBe("Request body is invalid");
       return requestBodyInvalidDetailsSchema.parse(error.details).issues;
     };
-    const { profile_id: _, ...withoutProfile } = valid;
-    expect(await issuesOf(withoutProfile)).toEqual([
-      {
-        path: "profile_id",
-        message: "profile_id is required without agent_release_id",
-      },
-    ]);
+    const { agent_release_id: _, ...withoutRelease } = valid;
+    expect(
+      (await issuesOf(withoutRelease)).map((issue) => issue.path),
+    ).toEqual(["agent_release_id"]);
     expect(
       (await issuesOf({ ...valid, message: "", title: 7 })).map(
         (issue) => issue.path,
@@ -181,7 +239,7 @@ describe("POST /v1/sessions validation", () => {
     ).toEqual(["title", "message"]);
   });
 
-  test("attached_repository_ids: 400 for a repeated or invalid id; 403 without an agent release, at any count", async () => {
+  test("attached_repository_ids: 400 for a repeated or invalid id; 403 for an agent with no GitHub settings, at any count", async () => {
     for (const ids of [
       ["docs", "docs"],
       ["../docs"],
@@ -219,10 +277,15 @@ describe("POST /v1/sessions validation", () => {
     }
   });
 
-  test("rejects unknown profile or repository with 422", async () => {
+  test("a repository outside the workspace ceiling is 403; one the catalog lost is 422", async () => {
     const unsupported = async () => ({ outcome: "unsupported" }) as const;
-    const request = (body: unknown) =>
-      app({ acceptInputAtomic: unsupported }).request("/v1/sessions", {
+    const request = (body: unknown, connectionId?: string) =>
+      app(
+        { acceptInputAtomic: unsupported },
+        undefined,
+        undefined,
+        connectionId === undefined ? {} : { connectionId },
+      ).request("/v1/sessions", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -231,41 +294,21 @@ describe("POST /v1/sessions validation", () => {
         },
         body: JSON.stringify(body),
       });
-    const response = await request({ ...valid, profile_id: "nope" });
-    expect(response.status).toBe(422);
-    expect(await errorCode(response)).toBe("UNSUPPORTED_CAPABILITY");
-    expect((await request({ ...valid, repository_id: "nope" })).status).toBe(
-      422,
-    );
-    // Inherited object keys are not registered profiles.
-    expect((await request({ ...valid, profile_id: "toString" })).status).toBe(
-      422,
-    );
-    // Both ids registered, but the repository does not allow the profile.
-    const disallowed = await request({ ...valid, repository_id: "other-app" });
-    expect(disallowed.status).toBe(422);
-    expect(await errorCode(disallowed)).toBe("UNSUPPORTED_CAPABILITY");
+    const outside = await request({ ...valid, repository_id: "other-app" });
+    expect(outside.status).toBe(403);
+    expect(await errorCode(outside)).toBe("GITHUB_REFUSED");
+    // Inside the ceiling, but no longer in the catalog.
+    const gone = await request({ ...valid, repository_id: "gone-app" });
+    expect(gone.status).toBe(422);
+    expect(await errorCode(gone)).toBe("UNSUPPORTED_CAPABILITY");
+    // A model the connection does not run cannot start either.
+    const elsewhere = await request(valid, "removed-connection");
+    expect(elsewhere.status).toBe(422);
   });
 
   test("a key from before workspaces names no agent release", async () => {
-    const response = await post({ ...valid, agent_release_id: "rel-1" });
-    expect(response.status).toBe(404);
-  });
-
-  test("replays an accepted receipt even when the catalog no longer lists the profile", async () => {
-    const replayed = {
-      session_id: crypto.randomUUID(),
-      turn_id: "1",
-      receipt_id: crypto.randomUUID(),
-      receipt_status: "accepted",
-      status: "queued",
-    } as const;
-    const response = await app({
-      acceptInputAtomic: async (input) => {
-        expect(input.repository).toBeNull();
-        expect(input.channel).toBe("api");
-        return { outcome: "replayed", response: replayed };
-      },
+    const response = await app({}, undefined, undefined, {
+      workspace: false,
     }).request("/v1/sessions", {
       method: "POST",
       headers: {
@@ -273,7 +316,38 @@ describe("POST /v1/sessions validation", () => {
         "X-Owner-Id": "owner-a",
         "Idempotency-Key": "key-1",
       },
-      body: JSON.stringify({ ...valid, profile_id: "removed-profile" }),
+      body: JSON.stringify(valid),
+    });
+    expect(response.status).toBe(404);
+  });
+
+  test("replays an accepted receipt even when the catalog no longer lists the release's connection", async () => {
+    const replayed = {
+      session_id: crypto.randomUUID(),
+      turn_id: "1",
+      receipt_id: crypto.randomUUID(),
+      receipt_status: "accepted",
+      status: "queued",
+    } as const;
+    const response = await app(
+      {
+        acceptInputAtomic: async (input) => {
+          expect(input.repository).toBeNull();
+          expect(input.channel).toBe("api");
+          return { outcome: "replayed", response: replayed };
+        },
+      },
+      undefined,
+      undefined,
+      { connectionId: "removed-connection" },
+    ).request("/v1/sessions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Owner-Id": "owner-a",
+        "Idempotency-Key": "key-1",
+      },
+      body: JSON.stringify(valid),
     });
     expect(response.status).toBe(201);
     expect(await response.json()).toEqual(replayed);
@@ -1216,7 +1290,7 @@ describe("session titles (94S-804)", () => {
       checkpoint_fallback_revision: null,
       context_reset_turn_id: null,
     },
-    profile_id: "claude-coding-v1",
+    spec: null,
     model: "claude-sonnet-5",
     cost_usd: 0,
     provider_tokens: 0,
@@ -1224,7 +1298,6 @@ describe("session titles (94S-804)", () => {
     branch: "main",
     repository_mode: "repository",
     github_policy_source: "release",
-    profile_fingerprint: null,
     auto_model_migration: true,
   };
   const accepted = {

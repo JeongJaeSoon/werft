@@ -32,9 +32,9 @@ import {
 import { createPostgresSessionShareStore } from "./session-shares.ts";
 import { fixtureTeam } from "./testing/fixture-team.ts";
 import {
+  releaseSpecColumns,
   TEST_CONNECTION_ID,
   TEST_MODEL,
-  releaseSpecColumns,
 } from "./testing/spec-pins.ts";
 import { createPostgresAgentAccessSetting } from "./workspace-settings.ts";
 

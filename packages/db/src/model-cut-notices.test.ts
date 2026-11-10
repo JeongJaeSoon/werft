@@ -24,8 +24,8 @@ import {
   users,
   workspaces,
 } from "./schema.ts";
+import { releaseSpecColumns, TEST_CONNECTION_ID } from "./testing/spec-pins.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
-import { TEST_CONNECTION_ID, releaseSpecColumns } from "./testing/spec-pins.ts";
 
 let client: PGlite;
 let db: Database;

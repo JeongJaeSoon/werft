@@ -319,7 +319,7 @@ integration("postgres pull request drain", () => {
         [installation, workspace, appId],
       );
       await client.query(
-        "INSERT INTO session_links (id, workspace_id, owner_id, session_id, installation_id, surface_binding_id, surface_ref, channel_id, thread_id, opened_by_ts, agent_id, release_id, profile_id) VALUES ($1, $2, $3, $4, $5, $6, $7, 'C1', '1.1', '1.1', $8, 'r1', 'p1')",
+        "INSERT INTO session_links (id, workspace_id, owner_id, session_id, installation_id, surface_binding_id, surface_ref, channel_id, thread_id, opened_by_ts, agent_id, release_id) VALUES ($1, $2, $3, $4, $5, $6, $7, 'C1', '1.1', '1.1', $8, 'r1')",
         [
           crypto.randomUUID(),
           workspace,

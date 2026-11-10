@@ -21,8 +21,8 @@ import { fillNeutralFields, NEUTRAL_FILL_LOCK_KEY } from "./neutral-fields.ts";
 import { createPostgresSessionReader } from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
 import { sessions } from "./schema.ts";
-import { projectToolCalls } from "./tool-calls.ts";
 import { sessionPinColumns } from "./testing/spec-pins.ts";
+import { projectToolCalls } from "./tool-calls.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
