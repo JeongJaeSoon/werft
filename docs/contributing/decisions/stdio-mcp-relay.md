@@ -33,7 +33,7 @@
 
 **결정.** worker 프로세스가 서버를 직접 띄운다. 수명은 턴이다.
 
-1. 세션 시작(엔진을 띄우기 전): 선언된 서버를 모두 띄우고 MCP `initialize`와 `tools/list`(입력 스키마 포함)를 받아 **캐시**한다. `required` 서버가 여기서 실패하면 세션 시작이 실패한다([7절](#7-실패와-ready-의미)).
+1. 세션 시작(**첫 입력 전**. 준비는 `start()` 전에 시작하고 `run.ready()`가 끝을 기다린다, [7절](#7-실패와-ready-의미)): 선언된 서버를 모두 띄우고 MCP `initialize`와 `tools/list`(입력 스키마 포함)를 받아 **캐시**한다. `required` 서버가 여기서 실패하면 세션 시작이 실패한다([7절](#7-실패와-ready-의미)).
 2. 턴 중: 도구 호출은 떠 있는 프로세스로 간다. 꺼져 있으면 첫 `tools/call`이 다시 띄운다(재연결 포함).
 3. 체크포인트 직전, **lease를 먼저 잡고** 그 안에서 정리한다. 체크포인트를 잡는 곳은 둘이다: 턴 끝(`worker-host.ts:2845`)과 승인 대기(`:2684`, `:2709`). 승인 대기 캡처는 자손 검사도 서버 종료도 하지 않으므로 같은 `quiesce()`를 두 곳 모두에 넣는다.
    1. `leaseCheckpoint`가 거부하면(`tool_in_flight` 등) **아무것도 끄지 않는다.** lease가 있으면 엔진의 새 도구 호출은 `leasedAdmission`으로 거절되고(`turn-ledger.ts:144`), 실행 중인 도구가 있으면 lease 자체가 거절되므로, lease를 쥔 시점에는 서버에 가는 호출이 없다. 서버를 먼저 끄면 실행 중인 호출을 끊게 되므로 이 순서가 필요하다.
@@ -41,7 +41,7 @@
    2'. 서버를 끈 뒤 **자손 검사**(`engines.descendants()`)를 한다. 턴 끝은 이미 하는 검사이고, 승인 대기 경로에는 없다(`worker-host.ts:2851`은 턴 끝뿐이다). 승인 대기에서는 stdio 서버를 쓰는 세션일 때만 같은 검사를 더한다. 다른 세션의 승인 대기 동작은 바꾸지 않는다. 그룹을 벗어난 서버 자손의 쓰기가 승인 대기 캡처와 겹치지 않게 하기 위해서다.
    3. 확인하지 못하면 체크포인트를 잡지 않는다. 턴 끝은 기존 사유 `background_writer`로 거부하고 detail에 서버 이름을 적는다(새 사유를 `packages/contracts/src/worker-protocol/index.ts:722` 목록에 더하지 않는다). 승인 대기는 기존의 "건너뜀"(`lease === null` 경로와 같은 `return null`)으로 처리한다.
    4. 확인되면 캡처하고, lease를 놓은 뒤 `quiesce` 핸들을 푼다.
-4. 막힌 동안 `tools/list`는 서버를 건드리지 않는다. 시작 때 받은 캐시를 돌려주는 것이 **항상의 규칙**이다(막힘 여부와 무관하게 `tools/list`는 살아 있는 서버로 전달하지 않는다). 그래서 "막힌 중 목록 요청이 서버를 깨운다"는 경쟁이 없다. `tools/call`이 `quiesced` 서버로 오면 오류로 끊지 않고 **핸들이 풀릴 때까지 기다린 뒤** 서버를 다시 띄워 호출한다. 턴 끝 lease는 새 도구 호출을 거절하므로 거의 오지 않지만, 승인 대기 캡처는 이미 승인 대기 중인 호출을 lease가 막지 못한다(`turn-ledger.ts:318`은 승인 대기 호출을 실행 중 검사에서 뺀다. `runtime.ts:206`은 답변 뒤 lease를 다시 보지 않고 allow를 돌려준다). 승인 답이 정리 도중에 와도 호출이 서버가 꺼지는 순간에 끊기지 않고 캡처 동안 서버가 되살아나지도 않게 하는 장벽이 이 대기다. 대기는 캡처 구간(승인 대기는 `APPROVAL_CHECKPOINT_MS`)으로 제한된다. `closed`이면 `isError`로 거절한다. 캡처 뒤에 늦게 적용된 승인 답은 기존의 `answersThrough` 검사가 그 캡처를 무효로 다룬다(`worker-host.ts:2709` 근처).
+4. 막힌 동안 `tools/list`는 서버를 건드리지 않는다. 시작 때 받은 캐시를 돌려주는 것이 **항상의 규칙**이다(막힘 여부와 무관하게 `tools/list`는 살아 있는 서버로 전달하지 않는다). 그래서 "막힌 중 목록 요청이 서버를 깨운다"는 경쟁이 없다. `tools/call`이 `quiesced` 서버로 오면 오류로 끊지 않고 **핸들이 풀릴 때까지 기다린 뒤** 서버를 다시 띄워 호출한다. 턴 끝 lease는 새 도구 호출을 거절하므로 거의 오지 않지만, 승인 대기 캡처는 이미 승인 대기 중인 호출을 lease가 막지 못한다(`turn-ledger.ts:318`은 승인 대기 호출을 실행 중 검사에서 뺀다. `runtime.ts:206`은 답변 뒤 lease를 다시 보지 않고 allow를 돌려준다). 승인 답이 정리 도중에 와도 호출이 서버가 꺼지는 순간에 끊기지 않고 캡처 동안 서버가 되살아나지도 않게 하는 장벽이 이 대기다. 대기의 길이는 핸들이 풀리는 때, 곧 lease가 풀리는 때까지다. 승인 체크포인트의 lease는 캡처가 돌아온 뒤에도 정산이 끝날 때까지 유지되므로(`worker-host.ts:2743`) `APPROVAL_CHECKPOINT_MS`보다 길 수 있다. 호출은 자기 중단 신호(엔진 interrupt)로 대기에서 빠져나올 수 있고, 그 밖의 시한을 새로 만들지 않는다: 핸들을 일찍 풀면 캡처와 서버 쓰기가 겹친다. `closed`이면 `isError`로 거절한다. 캡처 뒤에 늦게 적용된 승인 답은 기존의 `answersThrough` 검사가 그 캡처를 무효로 다룬다(`worker-host.ts:2709` 근처).
 
 **막힘의 소유권.** 서버 관리자는 상태가 셋이다: `open`, `quiesced(핸들)`, `closed`(영구). `quiesce()`는 핸들을 돌려주고 `핸들.release()`는 멱등이며 `quiesced`일 때만 `open`으로 돌린다. `closed`는 attempt 종료(abort·close·소유권 유실)가 만든 상태이고 어떤 `release()`도 되돌리지 못한다. **일반 턴 interrupt는 `closed`가 아니다.** interrupt는 턴만 멈추고 같은 run의 턴 루프가 계속되므로(`worker-host.ts:1999`, `:1100`) 턴 끝과 같은 `quiesce()`(되돌릴 수 있음)를 쓰고 다음 턴 첫 호출이 서버를 다시 띄운다. 이 규칙은 코드가 가진 경로에 맞춘다: 캡처 거절·예외로 즉시 lease를 놓는 경로, finalize가 불확실해 미결 요청까지 lease를 유지하는 경로, 기다리던 쪽이 포기한 뒤 늦게 lease를 돌려주는 경로(`worker-host.ts:1721`, `:1862`, `:2882`). lease를 얻지 못했으면 `quiesce()`를 부르지 않았으므로 풀 것도 없다. 늦은 `release()`가 정리 중이거나 끝난 attempt의 서버 입장을 다시 열지 못한다. 중첩 정리는 하나의 종료 Promise를 공유한다.
 
@@ -195,7 +195,7 @@ stdio 전송은 SDK의 `StdioClientTransport`가 프로세스를 직접 띄운�
 | `exited` | 번들 digest, 서버 이름, 사유(`turn_end` · `crashed` · `start_failed` · `close` · `abort` · `ownership_lost`), exit code·signal, SIGKILL 여부 | stderr 본문 |
 | `tool_filtered` | 번들 digest, 서버 이름, 뺀 도구 이름과 이유(`undeclared`) | 도구 설명·스키마 |
 
-**경계와 내구성.** 턴 정산은 publisher를 flush하고 `hold()`로 `finalSourceSequence`를 고정한 뒤 캡처한다(`worker-host.ts:1638`, `apps/worker/src/event-publisher.ts:193`). `quiesce()`가 내는 `exited{turn_end}`는 그 뒤에 나오므로 **그 턴의 finalize 경계 안에 들지 않는다.** 이 이벤트는 끝난 턴의 id를 달고 hold가 풀릴 때 게시되는 텔레메트리이며, `extension.hook.ran`과 같은 경로의 같은 내구성(베스트 에포트)을 갖는다. 소비자는 턴의 최종 순번에 이것이 있다고 가정하지 않는다. 이벤트 시험은 "게시된다"와 "턴 id를 단다"만 고정한다. 경계 안에 넣으려면 `quiesce()`를 정산 앞으로 옮겨야 하는데, 그러면 lease 없이 서버를 끄게 되어 위 [2절](#2-프로세스-자리와-수명)의 순서가 깨지므로 하지 않는다.
+**경계와 내구성.** 턴 정산은 publisher를 flush하고 `hold()`로 `finalSourceSequence`를 고정한 뒤 캡처한다(`worker-host.ts:1638`, `apps/worker/src/event-publisher.ts:193`). `quiesce()`가 내는 `exited{turn_end}`는 그 뒤에 나오므로 **그 턴의 finalize 경계 안에 들지 않는다.** 게이트웨이는 종료된 턴에 새 이벤트를 거부하고(`worker-unit-of-work.ts:3060-3067`) 그 실패가 publisher를 멈출 수 있으므로, 이 이벤트는 끝난 턴의 id를 **전송 범위에 달지 않는다.** 전송 범위는 `turn_id: null`(attempt 범위)로 하고 원래 턴 id는 payload의 `ended_turn_id`에 둔다. 이는 hold가 풀릴 때 게시되는 텔레메트리이며, `extension.hook.ran`과 같은 경로의 같은 내구성(베스트 에포트)을 갖는다. 소비자는 턴의 최종 순번에 이것이 있다고 가정하지 않는다. 이벤트 시험은 "실제 게이트웨이를 통과해 게시된다"와 "payload에 `ended_turn_id`가 있다"를 고정한다. 경계 안에 넣으려면 `quiesce()`를 정산 앞으로 옮겨야 하는데, 그러면 lease 없이 서버를 끄게 되어 위 [2절](#2-프로세스-자리와-수명)의 순서가 깨지므로 하지 않는다.
 
 ## 9. 완료 조건 대응
 
@@ -220,7 +220,7 @@ stdio 전송은 SDK의 `StdioClientTransport`가 프로세스를 직접 띄운�
 | **U2** 해석·이름 | manifest의 stdio 선언을 읽어 `선언 ∩ 상한`을 `visibleMcpTools`(main에 있음)로 계산해 세션 행에 고정, 이름 정규식과 이름 공간 단일화 검사(release 활성화·세션 생성), claim이 선언·고정 목록을 싣는 계약, 지문 binding, 선언에서 요구 기능 `stdio_mcp`를 강제로 도출해 claim에 싣음. **호출자 상한 입력을 비워 둔 채 머지하지 않는다** | 94S-869(manifest 모양), 94S-871(관문), 94S-870(승인), 94S-919(호출자 상한 집행) | 2, 3, 8(계약) |
 | **U3** worker stdio upstream | `McpUpstream`의 stdio 구현, 프로세스 그룹 실행기(94S-872)에 서버 항목(`mcp:<이름>` 종류)으로 오르기, 능력 없는 클라이언트, 세션 시작 준비(띄움·`initialize`·`tools/list` 캐시), `upstream.ready()`와 `run.ready()` 연결, `required` 게이트, `started`·`exited`·`tool_filtered` 발행. spawn 전에 worker의 활성 기능 상수 `stdio_mcp`를 검사하고 상수는 아직 꺼져 있다 | U1, U2, 94S-872 | 1, 4, 7, 8 |
 | **U4** 체크포인트 정리 | 턴 끝과 승인 대기 캡처에 "lease → `quiesce()`(막음·회수·SIGTERM/SIGKILL·확인) → 캡처 → lease 해제 → 핸들 해제"를 넣는다. 막힘 소유권 상태(`open`/`quiesced`/`closed`). 다음 턴 첫 `tools/call`에서 다시 띄움. 확인 실패는 턴 끝 `background_writer`, 승인 대기는 건너뜀 | U3, 94S-873(Claude 콜백이 닿는 같은 구간), 94S-874(같은 `worker-host.ts` 구간이라 충돌을 피하려는 순서이며 논리 선행은 아니다) | 5 |
-| **U5** 비정상 경로, 켬 | interrupt·abort·close·소유권 유실에서 같은 정리(`closed`), 종료 확인 전에는 체크포인트·정상 release 금지, 스스로 죽은 서버의 재기동 금지. **마지막에 `stdio_mcp` 기능 상수를 켜고 worker가 알린다** | U3, U4, 94S-872 | 6 |
+| **U5** 비정상 경로, 켬 | abort·close·소유권 유실에서 같은 정리(`closed`). 일반 턴 interrupt는 `closed`가 아니라 되돌릴 수 있는 `quiesce()`로 처리하고 다음 턴이 서버를 다시 띄운다([2절](#2-프로세스-자리와-수명)), 종료 확인 전에는 체크포인트·정상 release 금지, 스스로 죽은 서버의 재기동 금지. **마지막에 `stdio_mcp` 기능 상수를 켜고 worker가 알린다** | U3, U4, 94S-872 | 6 |
 
 **중간 상태의 안전.** U3~U4 동안 서버를 띄우는 길은 두 겹으로 닫혀 있다. 지금의 기능 요구 계산(`packages/runtime-core/src/features.ts:16`)은 번들 선언을 읽지 않고, worker의 기능 검사도 `run.ready()` 뒤라서(`worker-host.ts:874`) manifest의 표기나 시작 후 거절만으로는 부족하다.
 1. **U2가 요구 기능을 선언에서 강제로 도출한다.** 번들에 stdio MCP 선언이 있으면 claim의 요구 기능에 `stdio_mcp`가 반드시 들어간다(manifest의 선택적 표기에 맡기지 않는다). 그 기능이 없는 worker는 claim 단계에서 세션을 받지 못한다.
@@ -261,7 +261,7 @@ U3과 U4는 한 PR로 합치지 않는다. U3은 세션 시작에서 끝나고 U
 | 1 | 승인 대기 캡처(`worker-host.ts:2684`, `:2709`)는 서버를 끄지도 자손을 보지도 않아 서버 쓰기와 겹친다 | **수용.** 코드를 확인했다. `quiesce()`를 턴 끝과 승인 대기 두 곳에 넣는다([2절](#2-프로세스-자리와-수명)). 승인 대기에서 확인에 실패하면 체크포인트를 건너뛴다 |
 | 2 | lease 전에 막으면 새 호출을 못 막고, 실행 중인 호출을 SIGTERM으로 끊을 수 있다 | **수용, 순서를 뒤집었다.** lease를 먼저 쥐면 엔진의 새 도구 호출이 거절되고 실행 중인 도구가 있으면 lease가 거절된다. 그 뒤에 끄면 끊을 호출이 없다. 티켓의 "차단"은 서버 시작·재연결 차단이고 이 순서와 맞는다. `tools/list`는 항상 캐시라 막힌 중 경쟁이 없다 |
 | 3 | 막힘 해제의 소유권, lease 미획득·늦은 완료·중첩 정리 | **수용.** `open`/`quiesced`/`closed` 세 상태와 멱등 `release()`, `closed`는 되돌릴 수 없음, 정리 Promise 공유([2절](#2-프로세스-자리와-수명)) |
-| 4 | `exited{turn_end}`가 finalize 경계보다 늦다 | **수용하되 경계 안에 넣지 않는다.** 이벤트를 텔레메트리로 정하고 귀속·내구성 계약을 적었다. 정산 앞으로 옮기면 lease 없이 끄게 되어 2번 결정이 깨지므로 거절한다([8절](#8-이벤트)) |
+| 4 | `exited{turn_end}`가 finalize 경계보다 늦다 | **수용하되 경계 안에 넣지 않는다.** (3회차에서 종료된 턴 id를 거부하는 게이트웨이 규칙이 더 나와 전송 범위를 attempt로 바꿨다.) 이벤트를 텔레메트리로 정하고 귀속·내구성 계약을 적었다. 정산 앞으로 옮기면 lease 없이 끄게 되어 2번 결정이 깨지므로 거절한다([8절](#8-이벤트)) |
 | 5 | U3만 활성화되면 수명 관리 없는 서버가 돈다. `terminateAll`이 hook까지 닫는다 | **수용.** `requires.features: stdio_mcp`를 U2가 더하고 worker가 알리는 것은 U5다([10절](#10-구현-단위)). 실행기의 종료는 소유 종류별로 하고 턴 경계는 `mcp`만 끈다([6절](#6-envcwd샌드박스와-hook-공유)) |
 | 6 | `required` 실패가 `ready()`에 이어진다는 단정, 약한 시험 | **수용.** `upstream.ready()`를 run이 가지고 `run.ready()`가 직접 거절하는 경계를 정했고 시험도 그것으로 고쳤다([7절](#7-실패와-ready-의미)) |
 | 7 | 94S-1487이 이미 머지됐다. `visibleMcpTools`가 있다 | **수용.** 확인했다(`mcp-tool-decision.ts:13`). 새 함수를 만들지 않고 그것을 부른다. 기준 커밋과 PR 번호 문장을 고쳤다([3절](#해석-함수)) |
@@ -281,4 +281,13 @@ U3과 U4는 한 PR로 합치지 않는다. U3은 세션 시작에서 끝나고 U
 | 5 | 판정 함수의 출력을 과장했다(허용 이름 배열만 돌려준다) | **수용.** 제외 사유는 U2 호출부가 입력과의 차이로 계산한다고 책임을 적었다 |
 | 6 | 구현 검증은 후속이다 | 변경 없음. 이 PR은 설계이고 검증은 단위 PR마다 한다 |
 
-3회차는 하지 않았다. 새 틈 넷은 모두 1회차 결정의 경계를 코드에 맞게 좁힌 것이고 결정의 방향(lease 먼저, 되돌릴 수 있는 `quiesce`, 기능 게이트)을 바꾸지 않았다. PR에 대한 Codex 리뷰는 PR 본문에 기록한다.
+**3회차**(PR #1521 diff 기준 독립 리뷰). Act-on 2, Consider 2, Noted 2. 완료 조건 8개가 모두 절에 대응하고 링크·앵커 40개가 해석됨을 확인했다.
+
+| # | 지적 | 처리 |
+|---|---|---|
+| 1 | 종료 이벤트를 끝난 턴 id로 게시하면 게이트웨이가 거부한다(`worker-unit-of-work.ts:3060-3067`) | **수용.** 전송 범위는 `turn_id: null`, 원래 턴은 payload `ended_turn_id`. 시험은 실제 게이트웨이를 통과하게 한다([8절](#8-이벤트)) |
+| 2 | U5가 interrupt를 다시 `closed`로 묶어 2회차 #4와 충돌한다 | **수용.** U5 행에서 interrupt를 뺐다 |
+| 3 | 서버 준비를 "엔진 시작 전"과 "첫 입력 전"으로 둘 다 적었다 | **수용.** "첫 입력 전"으로 통일: 준비는 `start()` 전에 시작하고 `run.ready()`가 기다린다 |
+| 4 | 승인 대기 호출의 대기가 `APPROVAL_CHECKPOINT_MS`로 제한된다는 설명이 틀렸다(`worker-host.ts:2743`) | **수용.** 대기는 lease 해제까지이며 호출 자신의 중단 신호로만 빠져나온다. 핸들을 일찍 풀면 캡처와 서버 쓰기가 겹치므로 별도 시한을 만들지 않는다 |
+
+Act-on 2건과 Consider 2건을 모두 반영했고 남은 Act-on은 없다. 수정 뒤 4회차는 하지 않았다: 3회차의 수정은 문장 정합이고 결정의 방향(lease 먼저, 되돌릴 수 있는 `quiesce`, 기능 게이트)을 바꾸지 않았다. 수정한 head에서 링크·앵커를 다시 확인했다.
