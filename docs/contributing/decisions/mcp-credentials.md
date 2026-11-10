@@ -47,7 +47,7 @@
 - **동의 흐름.** authorization code + PKCE(S256). 상태값은 (에이전트, 서버, 로그인 세션)에 묶고 redirect URI는 API 호스트 하나로 고정한다.
 - **목적지.** 서버 행의 `auth`를 bearer 하나에서 `bearer` | `oauth`의 합집합으로 넓힌다. `oauth`는 issuer, authorization·token·(있으면) revocation endpoint, scope 목록, `resource`(RFC 8707)를 설치 owner가 행에 적고, url처럼 제자리에서 바꾸지 않는다. endpoint는 모두 https이고, control-host의 OAuth 요청도 proxy와 같은 검사를 지난다: DNS 해석 뒤 사설 주소 거부, redirect 금지, 짧은 timeout. 이 호출들은 `packages/platform`의 공용 검사 함수 하나로 모아 proxy와 control-host가 같은 규칙을 쓴다. 발급받은 token은 행의 `resource`에 묶인 것만 받는다.
 - **클라이언트.** OAuth client id·secret은 설치 owner가 서버 행과 같이 등록한다(결정 4의 설치 범위). 동적 클라이언트 등록(DCR)은 쓰지 않는다. DCR은 신뢰할 수 없는 서버의 메타데이터를 따라가야 하므로 위의 고정 목적지 계약과 양립하지 않는다. 호환성 때문에 필요해지면 LATER의 별도 선택으로 둔다.
-- **저장과 연결 상태.** refresh token과 access token은 `secret_values`에 암호화해 둔다(owner_ref `mcp-oauth:<server>:agent:<agentId>`, 결정 4의 범위). 따로 연결 행 `mcp_oauth_connections`(서버, 에이전트, `generation`, 상태 `active` | `needs_reauth` | `revoked`, 동의한 사람, 외부 계정 식별자, 받은 scope)를 둔다. 로그·이벤트·receipt `result`에는 값이 없다.
+- **저장과 연결 상태.** refresh token과 access token은 `secret_values`에 암호화해 둔다(owner_ref `mcp-oauth:<server>:agent:<agentId>`, 결정 4의 범위). 따로 연결 행 `mcp_oauth_connections`(서버, 에이전트, `generation`, 상태 `pending` | `active` | `needs_reauth` | `revoked`, 동의한 사람, 외부 계정 식별자, 받은 scope)를 둔다. 로그·이벤트·receipt `result`에는 값이 없다.
 - **갱신.** control-host만 갱신하고, 연결 행을 `FOR UPDATE`로 잠근 채 한 번에 하나만 한다. 보장 범위는 이렇다. 새 refresh token을 받은 뒤 commit 전에 프로세스가 죽거나 commit이 실패하면, IdP가 옛 token을 이미 무효화했다면 새 token을 잃는다(외부 IdP까지 원자화할 수 없다). 그 경우 다음 갱신이 `invalid_grant`를 받아 연결이 `needs_reauth`가 되고 사람이 다시 연결한다. 회전하지 않는 IdP에는 해당 없다. access token은 만료 60초 전까지, 최대 5분 authorizer 응답에 실어 proxy가 쓴다.
 - **실패.** `invalid_grant`는 `needs_reauth`로 두고 거절한다(reason `oauth_needs_reauth`, receipt). 저장소·IdP 장애도 거절이다(`credential_unavailable`). 재시도 폭주를 막으려고 연결마다 backoff를 둔다.
 - **연결 상태 전이.** 연결 행의 상태는 `pending` | `active` | `needs_reauth` | `revoked`이고 `generation`을 가진다. 연결·재인증을 시작하면 행을 잠그고(없으면 만들고) `generation`을 하나 올려 그 값을 이 시도에 예약하며 상태를 `pending`으로 둔다(토큰 없음, egress는 거절). 콜백은 상태값에 실린 예약 `generation`이 행의 현재 값과 같고 상태가 `pending`일 때만, 한 transaction에서 token 저장과 `active` 전환을 한다. 그러므로 새 시도가 이전 시도의 늦은 콜백을 무효로 만들고, 콜백 순서가 뒤바뀌어도 마지막 시도만 이긴다.
@@ -109,14 +109,19 @@ export interface McpUpstreamCredential {
 
 | 단계 | 쓰기 | 읽기 | 지원하는 롤백 |
 |---|---|---|---|
-| R1 컬럼·인덱스 추가, 읽기·쓰기 규칙 도입 | **읽은 곳에 쓴다.** 설치 행이 있으면 거기, 없으면 옛 행. 이 단계에는 설치 행이 아직 없다 | 설치 행 먼저, 없으면 옛 행. 두 AAD 모두 | R0(앞 이미지). 설치 행이 없어 안전 |
-| R2 backfill | 위 규칙 그대로. backfill이 옛 행을 설치 행으로 복사한다(옛 행은 둔다) | 위와 같음 | R1까지. R0은 낡은 옛 행을 읽으므로 지원하지 않는다 |
-| R3 옛 행 삭제 | 설치 행 | 설치 행 | R1까지(R1은 설치 행을 먼저 읽는다) |
+| R1 컬럼·인덱스·이전 단계 값(`dual`) 추가, 읽기·쓰기 규칙 도입 | **기존 행은 읽은 곳에 쓴다**(설치 행이 있으면 거기). **새 행은 이전 단계 값이 정한 곳에 만든다**: `dual`이면 옛 위치, `installation`이면 설치 위치. 옛 위치에는 v1 AAD로 쓴다 | 설치 행 먼저, 없으면 옛 행. 두 AAD 모두 | R0(앞 이미지). 설치 행이 없고 옛 위치는 v1이라 R0이 읽는다 |
+| R2 이전 단계를 `installation`으로 바꾸고 backfill | 새 행은 설치 위치(v2). 기존 행은 위 규칙. backfill이 옛 행을 설치 행으로 복사한다(옛 행은 둔다) | 위와 같음 | R1까지. R0은 낡은 옛 행을 읽으므로 지원하지 않는다 |
+| R3 옛 행 삭제 | 설치 행 | 설치 행 | R1까지(R1은 설치 행을 먼저 읽고 새 행도 이전 단계 값에 따라 설치 위치에 만든다) |
+
+  - **이전 단계 값**은 DB에 하나만 있는 영속 값(`dual` | `installation`)이고 행의 존재와 무관하다. 그래서 backfill 뒤에 R1·R2 이미지가 새 자격을 만들거나 지운 자격을 다시 만들어도 `installation` 단계에서는 설치 위치에 생긴다. **R3 시작 조건:** (1) 배포 capability 기록이 모든 인스턴스의 R1 이상을 보임, (2) 이전 단계 값이 `installation`이고 그 뒤 옛 위치에만 있는 행을 찾는 훑기 결과가 0건(있으면 backfill을 다시 돌린다). 시험: 새 생성, 삭제 뒤 재생성, R3→R1 롤백 뒤 새 생성, R1 쓰기→R0 읽기.
 
   - **잠금.** 설치 범위에 올 수 있는 owner_ref(`connection:`·`repository:`·`mcp:`·`mcp-oauth:`)는 `lockSlot`의 키를 `workspace_id`와 무관하게 `(owner_ref, purpose)`로 잡는다. 두 위치에 쓰는 이미지들이 같은 잠금으로 직렬화된다. 삭제는 잠금 안에서 두 행을 다 지운다.
   - **A→B 시험.** 설치 행에 값 A가 있고 R1 이미지가 회전해 B를 쓰면 설치 행이 B가 된다(읽은 곳에 쓴다). R1·R2 혼합 배포에서도 같다. 삭제한 자격이 R1 이미지에서 되살아나지 않는다.
   - **R2 시작 조건.** 모든 살아 있는 control-host가 `secret_scope_v1` capability를 갖고 있음을 아래 배포 capability 기록으로 확인한다. R0 이미지가 R2 이후 다시 들어오는 일은 지원하지 않는다고 운영 문서에 적고, 기록이 그 위반을 화면에 드러낸다([설정 DB 결정](settings-replace-file-catalog.md)이 같은 범위의 파괴적 변경을 오너가 허용했다).
-- **배포 capability 기록.** control-host 프로세스는 기동할 때와 주기적으로 (인스턴스 id, capability 목록, 마지막으로 본 시각)을 작은 테이블 `control_host_instances`에 쓴다. 쓰는 곳은 이것 하나이고 읽는 쪽은 "최근에 본 인스턴스가 모두 X를 갖고 있는가"를 묻는 포트 하나다. 설정 generation은 변경 순서일 뿐 실행 이미지의 능력을 증명하지 않으므로 쓰지 않는다. 이 기록은 되돌릴 수 없는 단계(R2, 와일드카드 저장)를 시작하는 순간의 증명이다. 그 뒤에 옛 이미지가 돌아오는 것은 막지 못하고 드러낼 뿐이므로 해당 롤백은 지원하지 않는다고 명시한다.
+- **배포 capability 기록.** control-host 프로세스는 기동할 때와 주기적으로 (인스턴스 id, capability 목록, 마지막으로 본 시각)을 작은 테이블 `control_host_instances`에 쓴다. 쓰는 곳은 이것 하나이고 읽는 쪽은 "모든 인스턴스가 X를 갖고 있는가"를 묻는 포트 하나다. 설정 generation은 변경 순서일 뿐 실행 이미지의 능력을 증명하지 않으므로 쓰지 않는다. 기록하지 않는 구버전은 기록에 보이지 않으므로, gate는 기록된 인스턴스만이 아니라 **기대 개수**와 대조한다.
+  - **기대 개수.** 배포 설정이 control-host의 기대 replica 수를 주입한다(helm은 `replicaCount`, compose는 1). gate는 최근에 본 인스턴스의 수가 기대 개수와 정확히 같고 모두 capability를 가졌을 때만 참이다. 기록이 비었거나, 기대보다 적거나(기록하지 않는 구버전이 남은 경우를 포함한다), 읽을 수 없으면 거짓이다. 기대보다 많으면(롤링 중) 거짓이다.
+  - **부트스트랩.** 기록 기능을 가진 첫 이미지(M0b)가 모든 replica를 교체한 뒤에야 gate를 쓰는 단계를 시작할 수 있고, 그 확인이 위의 개수 대조다.
+  - **한계.** 이 기록은 되돌릴 수 없는 단계(R2, 와일드카드 저장)를 시작하는 순간의 증명이다. 그 뒤에 옛 이미지가 돌아오는 것은 막지 못하고 기대 개수 불일치로 드러낼 뿐이므로 해당 롤백은 지원하지 않는다고 명시한다.
 - **워크스페이스·에이전트 비밀 값**(비밀 값 주입 티켓)은 `scope = 'workspace'`, owner_ref `workspace:<이름>`·`agent:<id>:<이름>`이다.
 - **같은 서버에 워크스페이스마다 다른 자격**이 필요하면 서버 id를 따로 만든다(`workspaces` 목록이 다른 두 행). 서버 행에 워크스페이스별 자격을 얹지 않는다(url·자격이 한 행에 묶여 바뀌지 않는 성질을 지킨다).
 
@@ -134,8 +139,8 @@ export interface McpUpstreamCredential {
 | 에이전트 선택 | 에이전트 관리자 | 에이전트 MCP 설정: 서버, 허용 도구, 에이전트 deny | 그대로(서버 여럿은 결정 3) |
 | 집행 | egress | 위 전부를 합집합 deny, 교집합 allow로 호출마다 | 그대로 |
 
-- **서버 통째 deny.** `mcp__<서버>__*`는 deny 쪽에서만 받는다. 원격 서버(`visibleMcpTools`), 내장 `github`(`mcpCallDenied`), 앞으로 나올 stdio 서버가 deny 해석 하나(`packages/platform/src/sessions`의 공용 함수)를 쓰게 하고, 위 두 함수를 그 위로 옮긴다. allow 쪽의 와일드카드는 검증에서 거절한다(deny-first, 넓히는 방향은 열지 않는다). 해석하지 못하는 규칙은 닫는다.
-- **배포 순서.** 옛 control-host는 와일드카드를 그냥 문자열로 보고 아무것도 막지 않는다. 그래서 M1을 둘로 나눈다. M1a는 집행(공용 해석)을 먼저 내보내고, 모든 집행 replica가 M1a 이상일 때만 M1b가 저장과 화면에서 와일드카드를 받는다. M1b의 저장 검증은 배포 capability 기록(결정 4)에서 최근 본 모든 control-host가 `deny_wildcard` capability를 갖고 있을 때만 통과하고, 기록을 읽을 수 없으면 거절한다. 저장 뒤에 M1a 미만 이미지가 돌아오면 와일드카드가 무시되므로 그 롤백은 지원하지 않는다고 운영 문서에 적고, 기록이 그 위반을 드러낸다.
+- **서버 통째 deny.** `mcp__<서버>__*`는 deny 쪽에서만 받는다. 원격 서버(`visibleMcpTools`), 내장 `github`(`mcpCallDenied`)가 deny 해석 하나(`packages/platform/src/sessions`의 공용 함수)를 쓰게 하고, 위 두 함수를 그 위로 옮긴다. allow 쪽의 와일드카드는 검증에서 거절한다(deny-first, 넓히는 방향은 열지 않는다). 해석하지 못하는 규칙은 닫는다.
+- **배포 순서.** 옛 control-host는 와일드카드를 그냥 문자열로 보고 아무것도 막지 않는다. 그래서 M1을 둘로 나눈다. M1a는 집행(공용 해석)을 먼저 내보내고, 모든 집행 replica가 M1a 이상일 때만 M1b가 저장과 화면에서 와일드카드를 받는다. M1b의 저장 검증은 배포 capability 기록(결정 4)의 gate(기대 replica 수와 일치하는 모든 control-host가 `deny_wildcard` capability를 가짐)를 통과할 때만 허용하고, 기록을 읽을 수 없으면 거절한다. 저장 뒤에 M1a 미만 이미지가 돌아오면 와일드카드가 무시되므로 그 롤백은 지원하지 않는다고 운영 문서에 적고, 기록이 그 위반을 드러낸다.
 - **워크스페이스 admin 등록은 이번에 열지 않는다.** url·자격이 한 행에 묶이므로 다른 사람의 값이 새 목적지로 가는 길은 없다. 막는 이유는 따로 있다. 워크스페이스 범위 비밀 값(결정 4)이 먼저 있어야 하고, 저장 때 host가 `EGRESS_CREDENTIAL_ALLOWLIST`에 있는지를 지금은 경고로만 알려 준다. 워크스페이스 admin이 쓰는 면에서는 경고가 아니라 막아야 하는데 API가 proxy의 env를 모른다. 이 둘이 없는 채로 열면 내부 허용 host로 임의 bearer를 보내는 입구가 된다.
 - **열 때의 모양(LATER).** `mcp_servers`에 `owner_scope`(`installation` | `workspace`)와 워크스페이스 id를 더하고, id는 설치 서버와 겹치지 않는 이름공간을 쓴다. 저장 때 host가 허용 목록에 있는지 API가 확인하도록 목록을 API에도 준다.
 
@@ -148,8 +153,8 @@ export interface McpUpstreamCredential {
 | 단위 | 내용 | 대응 티켓 | 선행 |
 |---|---|---|---|
 | M0 | 이 결정 문서 | 이 티켓 | 없음 |
-| M0b | 배포 capability 기록: `control_host_instances` 테이블, 쓰는 곳 하나, 읽기 포트 하나. 시험: 최근 본 인스턴스 중 하나라도 capability가 없으면 거짓, 기록을 못 읽으면 거짓 | 새 단위 | 없음 |
-| M1a | 서버 통째 deny의 집행: 원격·내장 `github`·stdio가 deny 해석 하나를 쓰게 옮김(동작 불변을 시험으로 먼저 고정). 시험: 같은 입력에서 egress와 claim의 집합이 같음, `mcp__github__*`가 GitHub 도구를 막음 | 새 단위 | 없음 |
+| M0b | 배포 capability 기록: `control_host_instances` 테이블, 쓰는 곳 하나, 읽기 포트 하나. 기대 replica 수 주입. 시험: 기록이 비었을 때, 인스턴스가 하나 빠졌을 때(기록하지 않는 구버전), 기대보다 많을 때, capability가 없는 인스턴스가 하나 있을 때, 기록을 못 읽을 때 모두 거짓 | 새 단위 | 없음 |
+| M1a | 서버 통째 deny의 집행: 지금 있는 원격·내장 `github`이 deny 해석 하나를 쓰게 옮김(동작 불변을 시험으로 먼저 고정). 시험: 같은 입력에서 egress와 claim의 집합이 같음, `mcp__github__*`가 GitHub 도구를 막음. stdio 서버의 호출 시점 판정은 [stdio 결정](stdio-mcp-relay.md)의 U2b가 이 공용 해석을 쓰게 한다(M1a의 완료 조건이 아니다) | 새 단위 | 없음 |
 | M1b | 와일드카드의 저장·검증(allow 쪽 거절)과 콘솔 입력 | 새 단위 | M0b, M1a(기록이 모든 replica의 `deny_wildcard`를 보임) |
 | M2 | 자격 해석 포트 `McpUpstreamCredential`과 정적 구현 추출. 동작을 시험으로 먼저 고정 | 새 단위 | 없음 |
 | M3 | 서버 여러 개: 유일 키에 `scope_key`, token이 서버 경계(내장 `github` 분기 포함, 서버 간 token 교환 거절 시험), 에이전트 설정이 서버 여럿을 받음, claim 상한과 `multi_mcp` capability, `mcp_start`의 `servers`, egress 상태가 집합, fingerprint 서버별 | 에이전트 하나가 원격 MCP 서버를 여러 개 쓸 수 있게 한다 | M2, 카드의 `mcp`를 설정으로 옮기는 작업 |
@@ -203,4 +208,14 @@ export interface McpUpstreamCredential {
 | 12 | 설치 행은 설치 관리 권한만 읽는다는 문장이 소비 경로와 모순 | 수용. 관리 API 접근과 내부 소비를 나눠 문장을 고침 |
 | 15 | 설정 generation은 replica의 집행 버전을 증명하지 않는다 | 수용. 배포 capability 기록(`control_host_instances`)과 선행 단위 M0b를 더하고, 되돌릴 수 없는 단계 뒤의 옛 이미지 복귀는 지원하지 않는다고 명시 |
 
-3라운드(PR diff 검토) 결과는 PR에 남긴다.
+3라운드(PR diff 검토): Act-on 2건과 Consider 3건을 받았다.
+
+| # | 지적 | 처리 |
+|---|---|---|
+| 1 | 새 행·삭제 뒤 재생성이 "읽은 곳에 쓴다"로는 R3에서 사라진다 | 수용. 행의 존재와 무관한 영속 이전 단계 값(`dual` \| `installation`)이 새 행의 위치를 정한다. R3 시작 조건에 옛 위치만 있는 행 0건을 넣고 시험을 더했다 |
+| 2 | 기록하지 않는 구버전은 capability 기록에 보이지 않는다 | 수용. gate가 기대 replica 수와 정확히 일치할 때만 참이다. 부트스트랩 절차와 시험(빈 기록, 하나 빠짐, 초과, capability 없음, 읽기 실패)을 M0b에 넣었다 |
+| 4 | 연결 상태 열거에 `pending`이 빠졌다 | 수용. 고쳤다 |
+| 6 | M1a가 stdio 선행(U2b)을 숨겼다 | 수용. M1a를 지금 있는 원격·내장 `github`까지로 한정하고 stdio는 U2b가 공용 해석을 쓰게 한다고 적었다 |
+| 7 | R1 쓰기는 R0 롤백을 위해 v1 AAD여야 한다 | 수용. R1 옛 위치는 v1로 쓰고 R1 쓰기→R0 읽기 시험을 더했다 |
+
+4라운드(수정본 델타)는 PR에 남긴다.
