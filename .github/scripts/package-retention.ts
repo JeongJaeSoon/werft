@@ -254,7 +254,15 @@ export async function audit(
   const rows: Row[] = [];
   for (const pkg of PACKAGES) {
     const path = `${prefix}/${encodeURIComponent(pkg)}`;
-    const metadata = object(api.json(path));
+    let metadata: Record<string, unknown>;
+    try {
+      metadata = object(api.json(path));
+    } catch (error) {
+      // Nothing is published as the Codex worker image until its first release.
+      if (pkg === "werft-worker-codex" && String(error).includes("(HTTP 404)"))
+        continue;
+      throw error;
+    }
     if (object(metadata.repository).full_name !== repository)
       throw new Error(`${pkg} is not linked to the requested repository`);
     const versions = api.list(`${path}/versions?per_page=100`) as Version[];
@@ -277,7 +285,9 @@ function gh(path: string, paginated = false, asset = false): unknown {
   if (asset) args.push("-H", "Accept: application/octet-stream");
   const result = Bun.spawnSync(args, { stdout: "pipe", stderr: "pipe" });
   if (result.exitCode !== 0)
-    throw new Error(`GitHub read failed (${result.exitCode}): ${path}`);
+    throw new Error(
+      `GitHub read failed (${result.exitCode}): ${path}${/HTTP 404/.test(result.stderr.toString()) ? " (HTTP 404)" : ""}`,
+    );
   const data: unknown = JSON.parse(result.stdout.toString());
   if (!paginated) return data;
   if (!Array.isArray(data) || !data.every(Array.isArray))
