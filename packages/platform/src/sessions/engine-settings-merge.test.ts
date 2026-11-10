@@ -14,7 +14,11 @@ const noAgent: EffectiveEngineSettings = {
 };
 const agent = (
   over: Partial<{ ask: string[]; deny: string[]; allow: string[] }> = {},
-  auto: Partial<{ soft_deny: string[]; hard_deny: string[] }> = {},
+  auto: Partial<{
+    allow: string[];
+    soft_deny: string[];
+    hard_deny: string[];
+  }> = {},
 ): EffectiveEngineSettings => ({
   kind: "rules",
   permissions: { allow: [], ask: [], deny: [], ...over },
@@ -133,7 +137,7 @@ describe("applicableAdminDeny", () => {
     { exempt_release_ids: [], permissions_deny: ["Task"], mcp_deny: [] },
   ];
   test("an exempt release skips only its entry", () => {
-    expect(applicableAdminDeny(entries, "r1")).toEqual([entries[1]]);
+    expect(applicableAdminDeny(entries, "r1")).toEqual(entries.slice(1));
     expect(applicableAdminDeny(entries, "r2")).toEqual(entries);
   });
   test("no release means no inherited entry applies", () => {
