@@ -12,6 +12,7 @@ export class OtlpDecodeError extends Error {}
 
 type Json = Record<string, unknown>;
 
+const MAX_RESOURCE_CHARS = 8 * 1024;
 const TRACE_ID = /^[0-9a-f]{32}$/;
 const SPAN_ID = /^[0-9a-f]{16}$/;
 const NANOS = /^[0-9]{1,20}$/;
@@ -150,6 +151,11 @@ export function decodeTraceRequest(body: string): IngestSpan[] {
         : object(resourceSpans.resource, "resource").attributes,
       "resource attributes",
     );
+    // Every span repeats its resource, so a large one multiplies the work of
+    // the whole request; real resources are a handful of short attributes.
+    if (JSON.stringify(resource).length > MAX_RESOURCE_CHARS) {
+      throw new OtlpDecodeError("The resource attributes are too large");
+    }
     for (const ss of list(resourceSpans.scopeSpans, "scopeSpans")) {
       const scopeSpans = object(ss, "scopeSpans entry");
       const rawScope =

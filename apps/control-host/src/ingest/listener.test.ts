@@ -198,6 +198,75 @@ describe("limits", () => {
   });
 });
 
+describe("review findings", () => {
+  test("a fence lost while the body was arriving is judged at the end", async () => {
+    const now = 10_000_000;
+    const answers = [
+      attemptOf(),
+      attemptOf({ fence: { state: "lost", lostAt: new Date(now - 400_000) } }),
+    ];
+    const sink = new RecordingSink();
+    const drops = new CountingDrops();
+    const handler = createIngestHandler({
+      authenticator: { authenticate: async () => answers.shift() ?? null },
+      turns: turnsOf([TURN_TRACE]),
+      queue: new ForwardQueue(sink, drops),
+      masker: valueMasker,
+      drops,
+      contentMode: () => "full",
+      limits: LIMITS,
+      clock: { now: () => now },
+    });
+    expect((await handler(post(batch({})))).status).toBe(409);
+    expect(sink.sent).toHaveLength(0);
+  });
+
+  test("a body that does not finish in time is cut off", async () => {
+    const { handler, sink } = setup({ limits: { bodyTimeoutMs: 50 } });
+    const slow = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("{"));
+      },
+    });
+    const response = await handler(
+      new Request("http://ingest.test/v1/traces", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer tok",
+          "content-type": "application/json",
+        },
+        body: slow,
+        duplex: "half",
+      } as RequestInit),
+    );
+    expect(response.status).toBe(408);
+    expect(sink.sent).toHaveLength(0);
+  });
+
+  test("the trace budget counts UTF-8 bytes, not UTF-16 units", async () => {
+    const { handler, sink, flush } = setup({
+      limits: { maxBytesPerTrace: 4000 },
+    });
+    const korean: [string, string][] = [
+      ["gen_ai.tool.call.result", "한".repeat(1200)],
+    ];
+    await handler(post(batch({ attributes: korean })));
+    await handler(post(batch({ attributes: korean })));
+    await flush();
+    expect(sink.sent[1]?.attributes["werft.content_dropped"]).toBe(true);
+  });
+
+  test("a large shared resource is refused instead of multiplied by every span", async () => {
+    const { handler } = setup();
+    const body = batch(
+      ...Array.from({ length: 50 }, () => ({
+        resource: [["big", "r".repeat(64 * 1024)] as [string, string]],
+      })),
+    );
+    expect((await handler(post(body))).status).toBe(400);
+  });
+});
+
 describe("request shape", () => {
   test("only POST /v1/traces with application/json and no encoding", async () => {
     const { handler } = setup();

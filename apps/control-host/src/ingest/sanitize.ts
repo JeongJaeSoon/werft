@@ -39,6 +39,28 @@ export interface SanitizeContext {
   readonly masker: ValueMasker;
 }
 
+// Without content, only keys known to describe the work (not its payload)
+// pass: a list of what to remove can never be complete, since a worker may
+// name its content anything (`output.value`). Values are short for the same
+// reason. This narrows the channel; it cannot close it for a worker that
+// hides text in a `werft.*` value, which the same-session limit in the design
+// (2.2) already accepts.
+const METADATA_PREFIXES = [
+  "werft.",
+  "gen_ai.",
+  "service.",
+  "telemetry.",
+  "error.",
+  "http.",
+] as const;
+const METADATA_VALUE_CHARS = 256;
+
+function metadataValue(value: string | number | boolean) {
+  return typeof value === "string" && value.length > METADATA_VALUE_CHARS
+    ? value.slice(0, METADATA_VALUE_CHARS)
+    : value;
+}
+
 function clean(
   attributes: IngestAttributes,
   keepContent: boolean,
@@ -47,12 +69,19 @@ function clean(
   const out: Record<string, string | number | boolean> = {};
   for (const [key, value] of Object.entries(attributes)) {
     if (owned(key)) continue;
-    if (isContentAttribute(key)) {
-      if (!keepContent) continue;
-      out[key] = typeof value === "string" ? masker.mask(value) : value;
+    if (!keepContent) {
+      if (
+        !isContentAttribute(key) &&
+        METADATA_PREFIXES.some((prefix) => key.startsWith(prefix))
+      ) {
+        out[key] = metadataValue(value);
+      }
       continue;
     }
-    out[key] = value;
+    out[key] =
+      isContentAttribute(key) && typeof value === "string"
+        ? masker.mask(value)
+        : value;
   }
   return out;
 }
@@ -77,6 +106,7 @@ export function sanitizeSpan(
   const { attempt } = ctx;
   return {
     ...span,
+    name: keepContent ? span.name : span.name.slice(0, METADATA_VALUE_CHARS),
     // Always the credential's session: a worker cannot place a span elsewhere.
     attributes: {
       ...clean(span.attributes, keepContent, ctx.masker),
@@ -86,15 +116,19 @@ export function sanitizeSpan(
     },
     events: span.events.map((event) => ({
       ...event,
+      name: keepContent
+        ? event.name
+        : event.name.slice(0, METADATA_VALUE_CHARS),
       attributes: clean(event.attributes, keepContent, ctx.masker),
     })),
     links: span.links.map((link) => ({
       ...link,
       attributes: clean(link.attributes, keepContent, ctx.masker),
     })),
+    // A failure message is free text: it stays only where content does.
     status:
-      span.status.message === undefined
-        ? span.status
+      span.status.message === undefined || !keepContent
+        ? { code: span.status.code }
         : { ...span.status, message: ctx.masker.mask(span.status.message) },
     resource: {
       ...clean(span.resource, false, ctx.masker),

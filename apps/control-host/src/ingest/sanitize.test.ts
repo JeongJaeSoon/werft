@@ -109,6 +109,35 @@ describe("content mode", () => {
     }
   });
 
+  test("metadata mode passes only keys that describe the work", () => {
+    const out = run(
+      {
+        attributes: [
+          ["output.value", "private tool output"],
+          ["input.value", "private"],
+          ["werft.tool.name", "x".repeat(1000)],
+        ],
+        eventAttributes: [["output.value", "private tool output"]],
+        resource: [
+          ["output.value", "private"],
+          ["service.name", "worker"],
+        ],
+        statusMessage: "free text with private details",
+      },
+      { contentMode: "metadata" },
+    );
+    for (const level of [
+      out.attributes,
+      out.resource,
+      out.events[0]?.attributes ?? {},
+    ]) {
+      expect(JSON.stringify(level)).not.toContain("private");
+    }
+    expect(out.attributes["werft.tool.name"]).toHaveLength(256);
+    expect(out.resource["service.name"]).toBe("worker");
+    expect(out.status.message).toBeUndefined();
+  });
+
   test("full mode keeps content, masked a second time", () => {
     const out = run({
       attributes: [

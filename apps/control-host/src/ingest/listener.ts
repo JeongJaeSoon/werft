@@ -11,6 +11,7 @@ import type {
   AttemptAuthenticator,
   Clock,
   DropCounter,
+  IngestAttempt,
   TurnTraceDirectory,
   ValueMasker,
 } from "./ports.ts";
@@ -23,7 +24,11 @@ export interface IngestLimits {
   readonly fencedGraceSec: number;
   /** Requests being read or checked at once; more get a 503. */
   readonly maxConcurrent: number;
+  /** How long a body may take to arrive. */
+  readonly bodyTimeoutMs?: number;
 }
+
+const DEFAULT_BODY_TIMEOUT_MS = 10_000;
 
 export interface IngestDeps {
   readonly authenticator: AttemptAuthenticator;
@@ -56,21 +61,44 @@ function bearer(request: Request): string | undefined {
   return match?.[1];
 }
 
-/** Reads at most `limit` bytes; undefined when the body is larger. */
+/**
+ * Reads at most `limit` bytes within `timeoutMs`. "too_large" for a larger
+ * body, "timeout" for one that is still arriving at the deadline: a slow
+ * sender holds a concurrency slot and an authentication result that ages.
+ */
 async function readBounded(
   request: Request,
   limit: number,
-): Promise<Uint8Array | undefined> {
+  timeoutMs: number,
+): Promise<Uint8Array | "too_large" | "timeout"> {
   const declared = Number(request.headers.get("content-length"));
-  if (Number.isFinite(declared) && declared > limit) return undefined;
+  if (Number.isFinite(declared) && declared > limit) return "too_large";
   if (request.body === null) return new Uint8Array();
+  const reader = request.body.getReader();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    void reader.cancel().catch(() => {});
+  }, timeoutMs);
   const chunks: Uint8Array[] = [];
   let size = 0;
-  for await (const chunk of request.body as AsyncIterable<Uint8Array>) {
-    size += chunk.byteLength;
-    if (size > limit) return undefined;
-    chunks.push(chunk);
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > limit) {
+        void reader.cancel().catch(() => {});
+        return "too_large";
+      }
+      chunks.push(value);
+    }
+  } catch {
+    return "timeout";
+  } finally {
+    clearTimeout(timer);
   }
+  if (timedOut) return "timeout";
   const body = new Uint8Array(size);
   let at = 0;
   for (const chunk of chunks) {
@@ -89,26 +117,44 @@ export function createIngestHandler(
   const budget = new TraceByteBudget(limits.maxBytesPerTrace, clock);
   let inFlight = 0;
 
-  async function handle(request: Request): Promise<Response> {
-    const token = bearer(request);
-    if (token === undefined) {
-      return reply(401, { error: "A bearer session credential is required" });
-    }
+  // The credential and fence as they stand now. Asked twice per request: a
+  // body can take seconds to arrive, and what was true before it is not
+  // what the spans are accepted under.
+  async function authorize(
+    token: string,
+  ): Promise<{ attempt: IngestAttempt; fenced: boolean } | Response> {
     const attempt = await deps.authenticator.authenticate(token);
     if (attempt === null) {
       return reply(401, { error: "The credential is unknown or expired" });
     }
-    let fenced = false;
     if (attempt.fence.state === "lost") {
       const lostForMs = clock.now() - attempt.fence.lostAt.getTime();
       if (lostForMs > limits.fencedGraceSec * 1000) {
         return reply(409, { error: "The attempt no longer owns its session" });
       }
-      fenced = true;
+      return { attempt, fenced: true };
     }
+    return { attempt, fenced: false };
+  }
 
-    const bytes = await readBounded(request, limits.maxRequestBytes);
-    if (bytes === undefined) return reply(413, { error: "Body too large" });
+  async function handle(request: Request): Promise<Response> {
+    const token = bearer(request);
+    if (token === undefined) {
+      return reply(401, { error: "A bearer session credential is required" });
+    }
+    const first = await authorize(token);
+    if (first instanceof Response) return first;
+
+    const bytes = await readBounded(
+      request,
+      limits.maxRequestBytes,
+      limits.bodyTimeoutMs ?? DEFAULT_BODY_TIMEOUT_MS,
+    );
+    if (bytes === "too_large") return reply(413, { error: "Body too large" });
+    if (bytes === "timeout") return reply(408, { error: "Body too slow" });
+    const second = await authorize(token);
+    if (second instanceof Response) return second;
+    const { attempt, fenced } = second;
     const limited = rate.admit(attempt.attemptId, bytes.byteLength);
     if (limited !== undefined) {
       deps.drops.dropped("rate_limited", 1);
@@ -138,7 +184,11 @@ export function createIngestHandler(
         rejected += 1;
         continue;
       }
-      const size = JSON.stringify(span).length;
+      // UTF-8 bytes, as the limit is stated. The shared resource is left out:
+      // it repeats on every span of the request and is capped when decoded.
+      const size = Buffer.byteLength(
+        JSON.stringify({ ...span, resource: undefined }),
+      );
       const { overBudget } = budget.charge(span.traceId, size);
       accepted.push(
         sanitizeSpan(span, {

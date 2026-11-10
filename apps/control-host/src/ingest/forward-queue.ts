@@ -12,6 +12,8 @@ export interface ForwardQueueOptions {
   readonly sendTimeoutMs: number;
 }
 
+const MAX_ABANDONED_SENDS = 4;
+
 export const DEFAULT_FORWARD_QUEUE: ForwardQueueOptions = {
   maxQueuedSpans: 20_000,
   maxSpansPerSend: 512,
@@ -21,6 +23,7 @@ export const DEFAULT_FORWARD_QUEUE: ForwardQueueOptions = {
 export class ForwardQueue {
   private readonly pending: IngestSpan[] = [];
   private draining: Promise<void> | undefined;
+  private abandoned = 0;
   private closed = false;
 
   constructor(
@@ -71,6 +74,13 @@ export class ForwardQueue {
   }
 
   private async send(batch: IngestSpan[]): Promise<void> {
+    // Sends that timed out are still holding sockets. While several are,
+    // the collector is treated as down and batches are dropped at once
+    // instead of piling more on.
+    if (this.abandoned >= MAX_ABANDONED_SENDS) {
+      this.drops.dropped("send_failed", batch.length);
+      return;
+    }
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const timedOut = new Promise<never>((_, reject) => {
@@ -79,11 +89,26 @@ export class ForwardQueue {
           this.options.sendTimeoutMs,
         );
       });
-      // The sink's own promise is left running when the timeout wins; it can
-      // only hold its own socket, not this queue.
+      // The sink's own promise is left running when the timeout wins; it is
+      // counted as abandoned until it settles.
       const sent = this.sink.send(batch);
-      sent.catch(() => {});
-      await Promise.race([sent, timedOut]);
+      let settled = false;
+      let abandoned = false;
+      sent
+        .catch(() => {})
+        .finally(() => {
+          settled = true;
+          if (abandoned) this.abandoned -= 1;
+        });
+      try {
+        await Promise.race([sent, timedOut]);
+      } catch (error) {
+        if (!settled) {
+          abandoned = true;
+          this.abandoned += 1;
+        }
+        throw error;
+      }
     } catch {
       this.drops.dropped("send_failed", batch.length);
     } finally {

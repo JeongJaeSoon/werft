@@ -51,6 +51,7 @@ export class AttemptRateLimiter {
 
 const TRACE_IDLE_MS = 60 * 60_000;
 const MAX_TRACKED_TRACES = 10_000;
+const MAX_EXHAUSTED_TRACES = 200_000;
 
 /** Bytes forwarded per trace; past the cap a trace loses its content, not its spans. */
 export class TraceByteBudget {
@@ -64,17 +65,32 @@ export class TraceByteBudget {
     private readonly clock: Clock,
   ) {}
 
+  // A trace that used its budget stays remembered after it goes idle, or
+  // waiting out the idle time would hand it a fresh budget. Turn trace ids
+  // are finite per session, so this set only grows with turns; the bound
+  // below is a backstop, oldest first.
+  private readonly exhausted = new Set<string>();
+
   /** Records `bytes` and says whether the trace was already over its cap. */
   charge(traceId: string, bytes: number): { overBudget: boolean } {
+    if (this.exhausted.has(traceId)) return { overBudget: true };
     const now = this.clock.now();
     this.forgetIdle(now);
     const entry = this.traces.get(traceId) ?? { bytes: 0, lastSeen: now };
     const overBudget = entry.bytes >= this.maxBytesPerTrace;
     entry.bytes += bytes;
     entry.lastSeen = now;
-    // Re-inserted last, so Map order is least-recently-seen first.
     this.traces.delete(traceId);
-    this.traces.set(traceId, entry);
+    if (entry.bytes >= this.maxBytesPerTrace) {
+      this.exhausted.add(traceId);
+      if (this.exhausted.size > MAX_EXHAUSTED_TRACES) {
+        const oldest = this.exhausted.values().next().value;
+        if (oldest !== undefined) this.exhausted.delete(oldest);
+      }
+    } else {
+      // Re-inserted last, so Map order is least-recently-seen first.
+      this.traces.set(traceId, entry);
+    }
     return { overBudget };
   }
 
