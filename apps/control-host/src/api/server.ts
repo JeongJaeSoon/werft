@@ -13,6 +13,7 @@ import {
   createPostgresAgentIdentityStore,
   createPostgresAgentMcpStore,
   createPostgresAgentStore,
+  createPostgresAgentUsageStore,
   createPostgresAuditRetention,
   createPostgresCatalogRepositoryStore,
   createPostgresCommitAttributionLedger,
@@ -92,6 +93,7 @@ import {
   createAgentMcpService,
   createAgentPullRequestService,
   createAgentService,
+  createAgentUsageService,
   createApiKeyService,
   createAuthorizationPolicy,
   createCredentialBindingService,
@@ -243,6 +245,7 @@ import { registerAgentGitHubRoutes } from "./routes/agent-github.ts";
 import { registerAgentIdentityRoutes } from "./routes/agent-identities.ts";
 import { registerAgentMcpRoutes } from "./routes/agent-mcp.ts";
 import { registerAgentPullRequestRoutes } from "./routes/agent-pull-request.ts";
+import { registerAgentUsageRoutes } from "./routes/agent-usage.ts";
 import { registerAgentRoutes } from "./routes/agents.ts";
 import { registerApiKeyRoutes } from "./routes/api-keys.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
@@ -855,6 +858,10 @@ const agentAdmins = createAgentAdminService({
   authorization,
   store: createPostgresAgentAdminStore(db),
 });
+const agentUsage = createAgentUsageService({
+  authorization,
+  store: createPostgresAgentUsageStore(db),
+});
 const inviteStore = createPostgresInviteStore(db);
 const invites = createInviteService({ authorization, store: inviteStore });
 const githubAppStore =
@@ -1444,6 +1451,7 @@ const app = createApiApp({
     registerSlackInstallRoutes(router, { service: slackInstall, logger });
     registerApiKeyRoutes(router, apiKeys);
     registerTeamRoutes(router, teams, agentAdmins);
+    registerAgentUsageRoutes(router, agentUsage);
     registerCredentialBindingRoutes(router, credentialBindingService);
     registerEnvVariableRoutes(router, envVariableService);
     registerEventRoutes(router, sessions, {

@@ -27,11 +27,12 @@ import { lockAgentAccessSettings } from "./workspace-settings.ts";
 // revokes what they rely on, takes rows in this one order:
 //
 //   user → membership → linked account → api key → session → workspace →
-//   agent → agent_admins → member_teams (id order) →
-//   agent_admin_teams · session_shares · session_share_targets →
-//   member_team_members (id order)
+//   agent → agent_usage → agent_admins → member_teams (id order) →
+//   agent_admin_teams · agent_usage_targets · session_shares ·
+//   session_share_targets → member_team_members (id order)
 //
-// Agent usage grants (design P1 ②) lock their rows beside agent_admin_teams.
+// A team's archive takes the agent_usage rows of the agents that list it,
+// in id order, before the team (member-teams.ts, delete).
 // The workspace row carries the agent access settings and is held FOR KEY
 // SHARE (lockAgentAccessSettings); a create has no session row yet.
 

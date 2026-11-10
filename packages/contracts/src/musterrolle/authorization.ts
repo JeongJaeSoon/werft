@@ -342,6 +342,8 @@ export const AUTHORIZATION_ACTION_VALUES = [
   // Bringing an archived agent back is the owner's alone.
   "agent.restore",
   "agent.admin.manage",
+  // Who may use an agent: its scope and teams (94S-900).
+  "agent.usage.manage",
   "credential.bind",
   // User variables (E-41): a workspace's own, and one agent's.
   "variable.workspace.manage",
@@ -421,6 +423,7 @@ const ACTION_RESOURCE_KINDS: Record<
   "agent.manage": new Set(["workspace", "agent"]),
   "agent.restore": new Set(["agent"]),
   "agent.admin.manage": new Set(["agent"]),
+  "agent.usage.manage": new Set(["agent"]),
   "credential.bind": new Set(["agent"]),
   "variable.workspace.manage": new Set(["workspace"]),
   "variable.agent.manage": new Set(["agent"]),

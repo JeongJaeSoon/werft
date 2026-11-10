@@ -59,8 +59,8 @@ if [ -n "$base" ]; then
     docs_only=true
     guide=false
     site=false
-    # The web console and its Storybook: nothing else imports them, and the
-    # only test that reads their files needs no service, so `check` covers it.
+    # The web console: nothing else imports it, and the only test that reads
+    # its files needs no service, so `check` covers it.
     # apps/egress-proxy looks like a leaf too, but service-backed tests import
     # it. Any path outside these and the prose list is shared or unknown, and
     # keeps the full plan.
@@ -76,7 +76,7 @@ if [ -n "$base" ]; then
       esac
       if ! is_doc_path "$path"; then
         case "$path" in
-          apps/web/* | apps/storybook/*) ;;
+          apps/web/*) ;;
           *) shared=true ;;
         esac
       fi
@@ -95,7 +95,7 @@ if [ -n "$base" ]; then
       # Only the web console (and prose) changed. The control-host image
       # bundles apps/web, so e2e and the product jobs stay on; what drops out
       # is the work no changed path can reach. The surface domain owns
-      # apps/web and apps/storybook.
+      # apps/web.
       site=true
       helm=false
       k8s=false

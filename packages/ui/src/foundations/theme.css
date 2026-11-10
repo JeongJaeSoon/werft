@@ -1,7 +1,7 @@
 /*
  * Tailwind 4 only: the one place tokens.css becomes utilities, for every
- * consumer (apps/web, Storybook, a host app compiling this package). Import it
- * after `tailwindcss`; without Tailwind this file does nothing.
+ * consumer (apps/web, a host app compiling this package). Import it after
+ * `tailwindcss`; without Tailwind this file does nothing.
  *
  * shadcn's semantic names (`bg-primary`, `border-input`…) exist only as these
  * Tailwind keys and point straight at `--werft-*`: there is no unprefixed

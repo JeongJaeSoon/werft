@@ -3899,6 +3899,94 @@ export const agentAdminTeams = pgTable(
   ],
 );
 
+// Who may use an agent (94S-900): one row per agent. `workspace` is every
+// member, `private` the members of the teams in agent_usage_targets. Every
+// agent has its row from creation (0265 backfilled the rest). `revision` is
+// the If-Match of an edit and moves when the scope or the targets do;
+// `limits_revision` is for the caller limits that read it (94S-917).
+export const agentUsage = pgTable(
+  "agent_usage",
+  {
+    agentId: uuid("agent_id").primaryKey(),
+    workspaceId: uuid("workspace_id").notNull(),
+    scope: text().notNull().default("workspace"),
+    revision: integer().notNull().default(1),
+    limitsRevision: integer("limits_revision").notNull().default(1),
+    updatedBy: uuid("updated_by").references(() => users.id),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: "agent_usage_agent_fk",
+      columns: [table.workspaceId, table.agentId],
+      foreignColumns: [agents.workspaceId, agents.id],
+    }),
+    // The key agent_usage_targets points at, so a target cannot name another
+    // workspace than its agent's.
+    unique("agent_usage_workspace_agent_uniq").on(
+      table.workspaceId,
+      table.agentId,
+    ),
+    check(
+      "agent_usage_scope_check",
+      sql`${table.scope} IN ('workspace','private')`,
+    ),
+    check("agent_usage_revision_check", sql`${table.revision} > 0`),
+    check(
+      "agent_usage_limits_revision_check",
+      sql`${table.limitsRevision} > 0`,
+    ),
+  ],
+);
+
+// What a private agent lists: a team (the v1 API) or a person, never both. A
+// team's archive deletes its rows; scope = private with no row left admits no
+// one but the people who manage the agent.
+export const agentUsageTargets = pgTable(
+  "agent_usage_targets",
+  {
+    id: uuid().primaryKey().default(sql`gen_random_uuid()`),
+    agentId: uuid("agent_id").notNull(),
+    workspaceId: uuid("workspace_id").notNull(),
+    userId: uuid("user_id"),
+    teamId: uuid("team_id"),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    check(
+      "agent_usage_targets_one_target_check",
+      sql`(${table.userId} IS NULL) <> (${table.teamId} IS NULL)`,
+    ),
+    uniqueIndex("agent_usage_targets_team_uniq")
+      .on(table.agentId, table.teamId)
+      .where(sql`${table.teamId} IS NOT NULL`),
+    uniqueIndex("agent_usage_targets_user_uniq")
+      .on(table.agentId, table.userId)
+      .where(sql`${table.userId} IS NOT NULL`),
+    foreignKey({
+      name: "agent_usage_targets_usage_fk",
+      columns: [table.workspaceId, table.agentId],
+      foreignColumns: [agentUsage.workspaceId, agentUsage.agentId],
+    }),
+    foreignKey({
+      name: "agent_usage_targets_team_fk",
+      columns: [table.workspaceId, table.teamId],
+      foreignColumns: [memberTeams.workspaceId, memberTeams.id],
+    }),
+    foreignKey({
+      name: "agent_usage_targets_member_fk",
+      columns: [table.workspaceId, table.userId],
+      foreignColumns: [memberships.workspaceId, memberships.userId],
+    }),
+    index("agent_usage_targets_team_idx").on(table.teamId),
+  ],
+);
+
 // Who sees a session (design 4.6). No row reads as `workspace`, which is
 // what every session made before this table, and every web, API and channel
 // session since, starts as.

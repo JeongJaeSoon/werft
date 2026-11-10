@@ -1,5 +1,5 @@
 {
-  "id": "fdb3359a-77f5-4ee2-902d-db0802f187e6",
+  "id": "a44b84d2-4d30-481a-90a6-db77e8d03583",
   "prevId": "ddc4b99d-3ecb-4b4f-9c6a-5d9c3d54b2e7",
   "version": "7",
   "dialect": "postgresql",
@@ -1902,6 +1902,262 @@
         "agent_releases_note_check": {
           "name": "agent_releases_note_check",
           "value": "\"agent_releases\".\"note\" IS NULL OR char_length(\"agent_releases\".\"note\") BETWEEN 1 AND 200"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.agent_usage": {
+      "name": "agent_usage",
+      "schema": "",
+      "columns": {
+        "agent_id": {
+          "name": "agent_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scope": {
+          "name": "scope",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'workspace'"
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "limits_revision": {
+          "name": "limits_revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "updated_by": {
+          "name": "updated_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "agent_usage_updated_by_users_id_fk": {
+          "name": "agent_usage_updated_by_users_id_fk",
+          "tableFrom": "agent_usage",
+          "tableTo": "users",
+          "columnsFrom": ["updated_by"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "agent_usage_agent_fk": {
+          "name": "agent_usage_agent_fk",
+          "tableFrom": "agent_usage",
+          "tableTo": "agents",
+          "columnsFrom": ["workspace_id", "agent_id"],
+          "columnsTo": ["workspace_id", "id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "agent_usage_workspace_agent_uniq": {
+          "name": "agent_usage_workspace_agent_uniq",
+          "nullsNotDistinct": false,
+          "columns": ["workspace_id", "agent_id"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "agent_usage_scope_check": {
+          "name": "agent_usage_scope_check",
+          "value": "\"agent_usage\".\"scope\" IN ('workspace','private')"
+        },
+        "agent_usage_revision_check": {
+          "name": "agent_usage_revision_check",
+          "value": "\"agent_usage\".\"revision\" > 0"
+        },
+        "agent_usage_limits_revision_check": {
+          "name": "agent_usage_limits_revision_check",
+          "value": "\"agent_usage\".\"limits_revision\" > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.agent_usage_targets": {
+      "name": "agent_usage_targets",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "agent_id": {
+          "name": "agent_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "team_id": {
+          "name": "team_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "agent_usage_targets_team_uniq": {
+          "name": "agent_usage_targets_team_uniq",
+          "columns": [
+            {
+              "expression": "agent_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "team_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"agent_usage_targets\".\"team_id\" IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "agent_usage_targets_user_uniq": {
+          "name": "agent_usage_targets_user_uniq",
+          "columns": [
+            {
+              "expression": "agent_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"agent_usage_targets\".\"user_id\" IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "agent_usage_targets_team_idx": {
+          "name": "agent_usage_targets_team_idx",
+          "columns": [
+            {
+              "expression": "team_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "agent_usage_targets_created_by_users_id_fk": {
+          "name": "agent_usage_targets_created_by_users_id_fk",
+          "tableFrom": "agent_usage_targets",
+          "tableTo": "users",
+          "columnsFrom": ["created_by"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "agent_usage_targets_usage_fk": {
+          "name": "agent_usage_targets_usage_fk",
+          "tableFrom": "agent_usage_targets",
+          "tableTo": "agent_usage",
+          "columnsFrom": ["workspace_id", "agent_id"],
+          "columnsTo": ["workspace_id", "agent_id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "agent_usage_targets_team_fk": {
+          "name": "agent_usage_targets_team_fk",
+          "tableFrom": "agent_usage_targets",
+          "tableTo": "member_teams",
+          "columnsFrom": ["workspace_id", "team_id"],
+          "columnsTo": ["workspace_id", "id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "agent_usage_targets_member_fk": {
+          "name": "agent_usage_targets_member_fk",
+          "tableFrom": "agent_usage_targets",
+          "tableTo": "memberships",
+          "columnsFrom": ["workspace_id", "user_id"],
+          "columnsTo": ["workspace_id", "user_id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "agent_usage_targets_one_target_check": {
+          "name": "agent_usage_targets_one_target_check",
+          "value": "(\"agent_usage_targets\".\"user_id\" IS NULL) <> (\"agent_usage_targets\".\"team_id\" IS NULL)"
         }
       },
       "isRLSEnabled": false
@@ -13895,337 +14151,6 @@
         "surface_bindings_revision_check": {
           "name": "surface_bindings_revision_check",
           "value": "\"surface_bindings\".\"revision\" >= 1"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.tool_call_audits": {
-      "name": "tool_call_audits",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "at": {
-          "name": "at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "owner_id": {
-          "name": "owner_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "session_id": {
-          "name": "session_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "turn_id": {
-          "name": "turn_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "attempt_id": {
-          "name": "attempt_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "call_key": {
-          "name": "call_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "phase": {
-          "name": "phase",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "tool_use_id": {
-          "name": "tool_use_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "parent_tool_use_id": {
-          "name": "parent_tool_use_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "tool_name": {
-          "name": "tool_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "mcp_server": {
-          "name": "mcp_server",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "input_sha256": {
-          "name": "input_sha256",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "input_bytes": {
-          "name": "input_bytes",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "decision": {
-          "name": "decision",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "basis": {
-          "name": "basis",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "agent_id": {
-          "name": "agent_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "agent_release_id": {
-          "name": "agent_release_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "actor_user_id": {
-          "name": "actor_user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "principal_kind": {
-          "name": "principal_kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "principal_id": {
-          "name": "principal_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "surface": {
-          "name": "surface",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "pending_request_id": {
-          "name": "pending_request_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "answered_by": {
-          "name": "answered_by",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "answer_surface": {
-          "name": "answer_surface",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "answer_decision_id": {
-          "name": "answer_decision_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "source": {
-          "name": "source",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "record_version": {
-          "name": "record_version",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {
-        "tool_call_audits_call_idx": {
-          "name": "tool_call_audits_call_idx",
-          "columns": [
-            {
-              "expression": "session_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "attempt_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "turn_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "call_key",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "phase",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "tool_call_audits_approval_once_idx": {
-          "name": "tool_call_audits_approval_once_idx",
-          "columns": [
-            {
-              "expression": "pending_request_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"tool_call_audits\".\"phase\" = 'decided' AND \"tool_call_audits\".\"basis\" = 'approval'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "tool_call_audits_session_at_idx": {
-          "name": "tool_call_audits_session_at_idx",
-          "columns": [
-            {
-              "expression": "session_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "tool_call_audits_workspace_at_idx": {
-          "name": "tool_call_audits_workspace_at_idx",
-          "columns": [
-            {
-              "expression": "workspace_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "tool_call_audits_at_idx": {
-          "name": "tool_call_audits_at_idx",
-          "columns": [
-            {
-              "expression": "at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "tool_call_audits_phase_check": {
-          "name": "tool_call_audits_phase_check",
-          "value": "\"tool_call_audits\".\"phase\" IN ('asked', 'decided')"
-        },
-        "tool_call_audits_decision_check": {
-          "name": "tool_call_audits_decision_check",
-          "value": "\"tool_call_audits\".\"decision\" IN ('allow', 'deny', 'require_approval', 'unknown')"
-        },
-        "tool_call_audits_phase_decision_check": {
-          "name": "tool_call_audits_phase_decision_check",
-          "value": "(\"tool_call_audits\".\"phase\" = 'asked') = (\"tool_call_audits\".\"decision\" = 'require_approval')"
-        },
-        "tool_call_audits_source_check": {
-          "name": "tool_call_audits_source_check",
-          "value": "\"tool_call_audits\".\"source\" IN ('platform', 'worker_report')"
-        },
-        "tool_call_audits_principal_check": {
-          "name": "tool_call_audits_principal_check",
-          "value": "(\"tool_call_audits\".\"principal_kind\" IS NULL) = (\"tool_call_audits\".\"principal_id\" IS NULL)"
-        },
-        "tool_call_audits_input_check": {
-          "name": "tool_call_audits_input_check",
-          "value": "(\"tool_call_audits\".\"input_sha256\" IS NULL) = (\"tool_call_audits\".\"input_bytes\" IS NULL)"
-        },
-        "tool_call_audits_surface_check": {
-          "name": "tool_call_audits_surface_check",
-          "value": "\"tool_call_audits\".\"surface\" IS NULL OR \"tool_call_audits\".\"surface\" IN ('web','slack','api')"
         }
       },
       "isRLSEnabled": false

@@ -1,6 +1,6 @@
 #!/bin/sh
-# What a published image does not ship: test sources, test helpers, the
-# Storybook app, testkit, benchmarks and the demo-account tools.
+# What a published image does not ship: test sources, test helpers,
+# testkit, benchmarks and the demo-account tools.
 #
 #   image-prune.sh --list   <root>   print every such path under <root>
 #   image-prune.sh --delete <root>   remove them, then the workspace links in
@@ -27,7 +27,6 @@ matches() {
   find $dirs \
     -name node_modules -prune -o \
     \( -type d \( \
-         -path apps/storybook -o \
          -path packages/testkit -o \
          -path apps/web/src/demo -o \
          -path '*/src/testing' -o \
@@ -39,7 +38,6 @@ matches() {
        \) -print -prune \) -o \
     \( -type f \( \
          -name '*.test.ts' -o -name '*.test.tsx' -o \
-         -name '*.stories.ts' -o -name '*.stories.tsx' -o \
          -name '*.fixture.ts' -o \
          -path packages/db/src/pglite-release.ts -o \
          -path '*/src/testing.ts' -o \
