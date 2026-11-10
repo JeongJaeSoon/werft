@@ -13,6 +13,7 @@ import {
   count,
   eq,
   exists,
+  inArray,
   isNull,
   ne,
   type SQL,
@@ -29,10 +30,13 @@ import {
   encodeTeamCursor,
   type TeamCursor,
 } from "./cursors.ts";
+import { DB_NOW } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import {
   agentAdminTeams,
   agents,
+  agentUsage,
+  agentUsageTargets,
   memberships,
   memberTeamMembers,
   memberTeams,
@@ -154,6 +158,53 @@ async function lockLiveTeam(tx: Database, workspaceId: string, teamId: string) {
     )
     .for("update");
   return row ?? null;
+}
+
+// An archive races agents being given the team; past this many restarts it
+// answers conflict and the caller asks again (94S-900).
+const ARCHIVE_ATTEMPTS = 3;
+
+/**
+ * The agents that list `teamId` in agent_usage_targets, their agent_usage
+ * rows locked in id order. Called before the team row is locked.
+ */
+async function lockUsageListing(
+  tx: Database,
+  teamId: string,
+): Promise<string[]> {
+  if (!UUID.test(teamId)) return [];
+  const listed = await tx
+    .select({ agentId: agentUsageTargets.agentId })
+    .from(agentUsageTargets)
+    .where(eq(agentUsageTargets.teamId, teamId.toLowerCase()))
+    .orderBy(asc(agentUsageTargets.agentId));
+  const ids = listed.map((row) => row.agentId);
+  if (ids.length > 0) {
+    await tx
+      .select({ id: agentUsage.agentId })
+      .from(agentUsage)
+      .where(inArray(agentUsage.agentId, ids))
+      .orderBy(asc(agentUsage.agentId))
+      .for("update");
+  }
+  return ids;
+}
+
+/** With the team locked: still the same agents list it. */
+async function sameListing(
+  tx: Database,
+  teamId: string,
+  locked: readonly string[],
+): Promise<boolean> {
+  const now = await tx
+    .select({ agentId: agentUsageTargets.agentId })
+    .from(agentUsageTargets)
+    .where(eq(agentUsageTargets.teamId, teamId))
+    .orderBy(asc(agentUsageTargets.agentId));
+  return (
+    now.length === locked.length &&
+    now.every((row, index) => row.agentId === locked[index])
+  );
 }
 
 async function teamOf(
@@ -304,57 +355,85 @@ export function createPostgresTeamStore(db: Database): TeamStore {
       }
     },
 
-    delete(input) {
+    async delete(input) {
+      // The agents that list the team are known only once its row is locked,
+      // yet their agent_usage rows come before the team in the lock order. So
+      // an attempt names them, locks them, locks the team and reads again; a
+      // change in between ends the attempt (nothing written, every lock
+      // released) and the next one starts from the new list.
       const { actor } = input;
-      return db.transaction(async (tx) => {
-        if (!(await actorManagesTeams(tx, actor))) {
-          return { outcome: "actor_inactive" };
-        }
-        const team = await lockLiveTeam(tx, actor.workspaceId, input.teamId);
-        if (!team) return { outcome: "not_found" };
-        // Not locked: naming a managing team share-locks this team row, so a
-        // naming in flight committed before the lock above or reads the
-        // archive after it.
-        const managed = await tx
-          .select({ id: agents.id })
-          .from(agents)
-          .where(
-            and(
-              eq(agents.managingTeamId, team.id),
-              ne(agents.status, "archived"),
-            ),
-          )
-          .orderBy(asc(agents.id));
-        if (managed.length > 0) {
-          return {
-            outcome: "manages_agents",
-            agentIds: managed.map((row) => row.id),
-          };
-        }
-        // The authority a team lent ends with it; the member rows stay as
-        // history behind an archived team that no decision reads.
-        const dropped = await tx
-          .delete(agentAdminTeams)
-          .where(eq(agentAdminTeams.teamId, team.id))
-          .returning({ agentId: agentAdminTeams.agentId });
-        await tx
-          .update(memberTeams)
-          .set({
-            archivedAt: sql`now()`,
-            revision: sql`${memberTeams.revision} + 1`,
-          })
-          .where(eq(memberTeams.id, team.id));
-        await writeReceipt(tx, actor, {
-          id: input.receiptId,
-          operation: "delete_team",
-          targetRef: teamTarget(team.id, actor.workspaceId),
-          result: {
-            name: team.name,
-            agent_ids: dropped.map((row) => row.agentId),
-          },
+      for (let attempt = 0; attempt < ARCHIVE_ATTEMPTS; attempt++) {
+        const result = await db.transaction(async (tx) => {
+          if (!(await actorManagesTeams(tx, actor))) {
+            return { outcome: "actor_inactive" as const };
+          }
+          const listing = await lockUsageListing(tx, input.teamId);
+          const team = await lockLiveTeam(tx, actor.workspaceId, input.teamId);
+          if (!team) return { outcome: "not_found" as const };
+          if (!(await sameListing(tx, team.id, listing))) {
+            return { outcome: "restart" as const };
+          }
+          // Not locked: naming a managing team share-locks this team row, so a
+          // naming in flight committed before the lock above or reads the
+          // archive after it.
+          const managed = await tx
+            .select({ id: agents.id })
+            .from(agents)
+            .where(
+              and(
+                eq(agents.managingTeamId, team.id),
+                ne(agents.status, "archived"),
+              ),
+            )
+            .orderBy(asc(agents.id));
+          if (managed.length > 0) {
+            return {
+              outcome: "manages_agents" as const,
+              agentIds: managed.map((row) => row.id),
+            };
+          }
+          // The authority a team lent ends with it; the member rows stay as
+          // history behind an archived team that no decision reads.
+          const dropped = await tx
+            .delete(agentAdminTeams)
+            .where(eq(agentAdminTeams.teamId, team.id))
+            .returning({ agentId: agentAdminTeams.agentId });
+          // The agents' usage lists lose the team; their revisions move so an
+          // If-Match read before the archive no longer matches.
+          if (listing.length > 0) {
+            await tx
+              .delete(agentUsageTargets)
+              .where(eq(agentUsageTargets.teamId, team.id));
+            await tx
+              .update(agentUsage)
+              .set({
+                revision: sql`${agentUsage.revision} + 1`,
+                updatedAt: DB_NOW,
+              })
+              .where(inArray(agentUsage.agentId, listing));
+          }
+          await tx
+            .update(memberTeams)
+            .set({
+              archivedAt: sql`now()`,
+              revision: sql`${memberTeams.revision} + 1`,
+            })
+            .where(eq(memberTeams.id, team.id));
+          await writeReceipt(tx, actor, {
+            id: input.receiptId,
+            operation: "delete_team",
+            targetRef: teamTarget(team.id, actor.workspaceId),
+            result: {
+              name: team.name,
+              agent_ids: dropped.map((row) => row.agentId),
+              usage_agent_ids: listing,
+            },
+          });
+          return { outcome: "deleted" as const };
         });
-        return { outcome: "deleted" };
-      });
+        if (result.outcome !== "restart") return result;
+      }
+      return { outcome: "conflict" };
     },
 
     addMember(input) {

@@ -68,6 +68,7 @@ import {
   agentGitHubSettings,
   agentReleases,
   agents,
+  agentUsage,
   agentVersions,
   memberTeams,
   receipts,
@@ -601,6 +602,12 @@ export function createPostgresAgentStore(db: Database): AgentStore {
           card: input.card,
           contentSha256: input.contentSha256,
           createdBy: input.createdBy,
+        });
+        // Every agent starts usable by the whole workspace (94S-900).
+        await tx.insert(agentUsage).values({
+          agentId,
+          workspaceId: input.workspaceId,
+          updatedBy: input.createdBy,
         });
         // D3: whoever creates an agent administers it.
         await tx.insert(agentAdmins).values({
