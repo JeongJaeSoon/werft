@@ -906,9 +906,12 @@ describe("claimToolLists", () => {
       release: ["Glob", "Read"],
       runs: "release",
     });
-    expect(claimToolLists(profile, null, true, profile.tools).release).toEqual(
-      profile.tools,
-    );
+    // The profile's own list runs once and is not its own restore candidate.
+    expect(claimToolLists(profile, null, true, [...profile.tools])).toEqual({
+      profile: profile.tools,
+      release: null,
+      runs: "profile",
+    });
     expect(claimToolLists(profile, null, true, []).release).toEqual([]);
     expect(claimToolLists(profile, null, false, ["Read"]).runs).toBe("profile");
   });
