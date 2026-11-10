@@ -8,7 +8,11 @@ import {
   teamDetailSchema,
 } from "@werft-ai/contracts";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
-import { AGENT_ID, agentServer } from "../test-support/fake-agents.ts";
+import {
+  AGENT_ID,
+  agentServer,
+  settingsSection,
+} from "../test-support/fake-agents.ts";
 import {
   apiError,
   json,
@@ -2049,7 +2053,11 @@ describe("에이전트 관리자", () => {
       [`GET /v1/agents/${AGENT_ID}/admins`]: () =>
         apiError(503, "BACKEND_UNAVAILABLE", "Backend unavailable"),
     });
-    const alert = await screen.findByRole("alert");
+    // The settings tab also mounts Slack and GitHub, whose unrouted reads raise
+    // their own alerts; only the admins section's alert is this test's.
+    const alert = await waitFor(() =>
+      within(settingsSection("admins")).getByRole("alert"),
+    );
     expect(alert.textContent).toContain(
       "서버가 응답하지 않습니다 — 잠시 뒤 다시 시도하세요.",
     );

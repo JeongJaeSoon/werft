@@ -254,7 +254,8 @@ describe("에이전트 GitHub 탭", () => {
         await screen.findByRole("heading", { name: "에이전트가 쓰는 저장소" });
         await openSection(user, "최근 기록");
       }
-      const alert = await inGitHub().findByRole("alert");
+      // The page may not have rendered the section yet on a slow runner.
+      const alert = await waitFor(() => inGitHub().getByRole("alert"));
       expect(alert.textContent).toContain("불러오지 못했습니다");
       await user.click(
         within(alert).getByRole("button", { name: "다시 시도" }),
