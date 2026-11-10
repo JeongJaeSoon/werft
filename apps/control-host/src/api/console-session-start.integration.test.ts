@@ -302,10 +302,16 @@ integration("starting an agent's session from the console", () => {
       .select({
         creator: sessions.createdByUserId,
         channel: sessions.channel,
+        toolsSource: sessions.runtimeToolsSource,
       })
       .from(sessions)
       .where(eq(sessions.id, created.session_id));
-    expect(row).toEqual({ creator: outsiderId, channel: "web" });
+    // A session started on a release runs that release's tools.
+    expect(row).toEqual({
+      creator: outsiderId,
+      channel: "web",
+      toolsSource: "release",
+    });
     const [receipt] = await db
       .select({ operation: receipts.operation })
       .from(receipts)

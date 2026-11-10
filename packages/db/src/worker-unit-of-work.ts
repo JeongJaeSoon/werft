@@ -4,12 +4,14 @@ import {
   type CheckpointRef,
   checkpointBlockReasonSchema,
   type EnvRefusal,
+  effectiveToolsSchema,
   MODEL_NOT_ALLOWED_EVENT_CODE,
   type ModelCutCause,
   type PendingRememberRule,
   type PermissionGrant,
   RESPONSE_LANGUAGE_VALUES,
   rememberRuleSchema,
+  runtimeToolsSourceOf,
   type SessionExtension,
   type TerminalTurnStatus,
   TURN_BUDGET_EXCEEDED_REASON,
@@ -1705,14 +1707,29 @@ async function releaseRunOf(
   tx: Database,
   session: SessionRow,
 ): Promise<
-  Pick<WorkerBinding, "releaseTools" | "releaseSpec" | "releaseLanguage">
+  Pick<
+    WorkerBinding,
+    | "releaseTools"
+    | "releaseSpec"
+    | "releaseLanguage"
+    | "runtimeToolsSource"
+    | "releaseEffectiveTools"
+  >
 > {
+  const source = runtimeToolsSourceOf(session.runtimeToolsSource);
   if (session.agentReleaseId === null) {
-    return { releaseTools: null, releaseSpec: null, releaseLanguage: null };
+    return {
+      releaseTools: null,
+      releaseSpec: null,
+      releaseLanguage: null,
+      runtimeToolsSource: source,
+      releaseEffectiveTools: null,
+    };
   }
   const [release] = await tx
     .select({
       snapshot: agentReleases.runtimeConfigSnapshot,
+      effectiveTools: agentReleases.effectiveTools,
       runtimeSpec: agentReleases.runtimeSpec,
       specSource: agentReleases.specSource,
       specSourceDigest: agentReleases.specSourceDigest,
@@ -1739,6 +1756,14 @@ async function releaseRunOf(
         : [],
     releaseSpec: verdict?.ok === true ? verdict.record.runtime_spec : null,
     releaseLanguage: responseLanguageOf(release?.snapshot),
+    runtimeToolsSource: source,
+    // Only a `release` session reads it; a value this image cannot parse
+    // allows no tool, like an unreadable snapshot above.
+    releaseEffectiveTools:
+      source === "release"
+        ? (effectiveToolsSchema.safeParse(release?.effectiveTools).data
+            ?.tools ?? [])
+        : null,
   };
 }
 
