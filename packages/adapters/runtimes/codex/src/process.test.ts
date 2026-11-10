@@ -97,14 +97,9 @@ describe("descendantsOf", () => {
     },
   );
 
-  test.skipIf(process.platform === "linux")(
-    "says it cannot tell where /proc is not there",
-    () => {
-      expect(descendantsOf(process.pid)).toBeUndefined();
-    },
-  );
-
-  test("a pid that does not exist cannot be listed", () => {
+  // The same path answers where /proc is not there at all (macOS): the root's
+  // task directory cannot be read, so the answer is "unknown", never "empty".
+  test("a pid whose children cannot be read is unknown, not empty", () => {
     expect(descendantsOf(2 ** 22 + 12345)).toBeUndefined();
   });
 });
