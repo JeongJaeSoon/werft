@@ -39,7 +39,11 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createCollector, globToRegExp } from "./response-capture.mjs";
+import {
+  createCollector,
+  globToRegExp,
+  NETWORK_ENABLE,
+} from "./response-capture.mjs";
 
 const CHROME =
   process.env.CHROME ??
@@ -329,7 +333,7 @@ async function reportCaptures() {
 
 await send("Page.enable");
 await send("Runtime.enable");
-await send("Network.enable");
+await send("Network.enable", NETWORK_ENABLE);
 await send("Emulation.setDeviceMetricsOverride", {
   width: W,
   height: H,
@@ -641,7 +645,7 @@ switch (cmd) {
   }
   case "blockshot": {
     const [target, pattern, name] = args;
-    await send("Network.enable");
+    await send("Network.enable", NETWORK_ENABLE);
     await send("Network.setBlockedURLs", { urls: [pattern] });
     await navigate(target);
     await sleep(3000);
@@ -657,7 +661,7 @@ switch (cmd) {
   }
   case "slowshot": {
     const [target, name, ms] = args;
-    await send("Network.enable");
+    await send("Network.enable", NETWORK_ENABLE);
     await send("Network.setCacheDisabled", { cacheDisabled: true });
     await send("Network.emulateNetworkConditions", {
       offline: false,

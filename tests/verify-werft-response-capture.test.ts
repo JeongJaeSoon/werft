@@ -5,6 +5,9 @@ import {
   formatCapture,
   globToRegExp,
   maskBody,
+  NETWORK_ENABLE,
+  READ_BUDGET,
+  READ_LIMIT,
   shortBody,
   wanted,
   // @ts-expect-error plain .mjs next to the verify skill's scripts
@@ -423,8 +426,8 @@ describe("createCollector", () => {
     c.onEvent(finished("2"));
     const out = await c.report();
     expect(sent).toEqual([]);
-    expect(out[0]).toContain("not read (1000000 bytes");
-    expect(out[1]).toContain("not read (1000000 bytes");
+    expect(out[0]).toContain("body omitted: 1000000 bytes");
+    expect(out[1]).toContain("body omitted: 1000000 bytes");
   });
 
   test("a body of unknown size is not read", async () => {
@@ -825,5 +828,119 @@ describe("formatCapture", () => {
         body: "",
       }),
     ).toBe("GET /v1/x -> 404 | (empty body)");
+  });
+});
+
+// Follow-ups of werft#1327 (hold queue 7 and 8). Values are placeholders; no
+// real-looking secret literal is used.
+describe("maskBody: prefixed JSON and form bodies", () => {
+  const leaks = (text: string) => maskBody(text).includes("SENTINEL");
+
+  test("JSON behind an anti-hijacking prefix is masked like plain JSON", () => {
+    expect(leaks(`)]}'\n{"session":{"id":"SENTINEL"}}`)).toBe(false);
+    expect(leaks(`)]}',\n{"a":[{"client_secret":"SENTINEL"}]}`)).toBe(false);
+    expect(leaks(`while(1);{"auth":{"token":["SENTINEL"]}}`)).toBe(false);
+    // The parse keeps error.code readable here too.
+    expect(maskBody(`)]}'\n{"error":{"code":"UNAUTHORIZED"}}`)).toContain(
+      "UNAUTHORIZED",
+    );
+  });
+
+  test("a key with brackets or a comma in a body that is not JSON", () => {
+    expect(leaks(`)]}'\n{"token,x":"SENTINEL"`)).toBe(false);
+    expect(leaks(`)]}'\n{"token[0]":"SENTINEL"`)).toBe(false);
+    expect(leaks(`)]}'\n{"api_key]":"SENTINEL"`)).toBe(false);
+  });
+
+  test("form and query shaped bodies", () => {
+    expect(leaks("a=1&client_secret[0]=SENTINEL")).toBe(false);
+    expect(leaks("password[]=SENTINEL&b=2")).toBe(false);
+    expect(leaks("token%5Bx%5D=SENTINEL")).toBe(false);
+    expect(leaks("api_key,v2=SENTINEL")).toBe(false);
+    expect(leaks("refresh_token = SENTINEL\nnext=1")).toBe(false);
+  });
+
+  test("a key longer than 256 characters after the secret word", () => {
+    expect(leaks(`x token${"y".repeat(300)}=SENTINEL`)).toBe(false);
+    expect(leaks(`)]}'\n{"token${"y".repeat(300)},":"SENTINEL"`)).toBe(false);
+  });
+
+  test("many secret words with no separator stay fast", () => {
+    const started = performance.now();
+    maskBody(`x ${"token ".repeat(20_000)}`);
+    expect(performance.now() - started).toBeLessThan(500);
+  });
+});
+
+describe("createCollector: body size bound", () => {
+  const sent: string[] = [];
+  const setup = (answer: () => Promise<unknown>) => {
+    sent.length = 0;
+    return createCollector({
+      send: (method: string) => {
+        sent.push(method);
+        return answer();
+      },
+      settleMs: 500,
+    });
+  };
+  const events = (id: string, headers: Record<string, string>, data = 0) => [
+    {
+      method: "Network.requestWillBeSent",
+      params: { requestId: id, request: { method: "GET", url: "http://h/x" } },
+    },
+    {
+      method: "Network.responseReceived",
+      params: {
+        requestId: id,
+        response: {
+          status: 500,
+          url: "http://h/x",
+          mimeType: "application/json",
+          headers,
+        },
+      },
+    },
+    ...(data
+      ? [
+          {
+            method: "Network.dataReceived",
+            params: { requestId: id, dataLength: data },
+          },
+        ]
+      : []),
+    { method: "Network.loadingFinished", params: { requestId: id } },
+  ];
+
+  test("a Content-Length over the limit is not read and says how big", async () => {
+    const c = setup(async () => ({ body: "x", base64Encoded: false }));
+    for (const m of events("1", { "Content-Length": "5000000" })) c.onEvent(m);
+    const out = await c.report();
+    expect(sent).toEqual([]);
+    expect(out[0]).toContain("body omitted: 5000000 bytes");
+  });
+
+  test("received bytes over the limit are not read", async () => {
+    const c = setup(async () => ({ body: "x", base64Encoded: false }));
+    for (const m of events("1", {}, 3_000_000)) c.onEvent(m);
+    const out = await c.report();
+    expect(sent).toEqual([]);
+    expect(out[0]).toContain("body omitted: 3000000 bytes");
+  });
+
+  test("a body that turns out larger than reported is dropped, not kept", async () => {
+    const big = `{"error":"${"y".repeat(2_000_000)}"}`;
+    const c = setup(async () => ({ body: big, base64Encoded: false }));
+    for (const m of events("1", {}, 64)) c.onEvent(m);
+    const out = await c.report();
+    expect(out[0]).toContain(`body omitted: ${Buffer.byteLength(big)} bytes`);
+    expect(out[0]).not.toContain("yyyy");
+  });
+
+  test("the browser is told not to keep bodies over the limit", () => {
+    expect(NETWORK_ENABLE.maxResourceBufferSize).toBe(READ_LIMIT);
+    expect(NETWORK_ENABLE.maxTotalBufferSize).toBeGreaterThanOrEqual(
+      READ_BUDGET,
+    );
   });
 });

@@ -9,6 +9,13 @@ export const BODY_LIMIT = 2000;
 export const READ_LIMIT = 64 * 1024;
 export const READ_BUDGET = 256 * 1024;
 export const MAX_LISTED = 100;
+// Network.enable parameters: the browser keeps no body over READ_LIMIT, so a
+// body larger than its reported size cannot reach this process whole, and
+// bounds what it buffers in all.
+export const NETWORK_ENABLE = {
+  maxResourceBufferSize: READ_LIMIT,
+  maxTotalBufferSize: 16 * READ_BUDGET,
+};
 const TEXT_MIME =
   /^(?:text\/|application\/(?:[\w.+-]*\+)?(?:json|xml|javascript|x-www-form-urlencoded)\b)/i;
 
@@ -107,30 +114,57 @@ function valueEnd(s, i) {
   return i + bare.length;
 }
 
-// JSON that sits inside other text, or a body that is not valid JSON. Quotes
-// are never paired here (a stray, escaped or missing one broke every pairing
-// scheme): look for a secret word, allow up to 256 characters after it that
-// are not structure (the rest of the name, its closing quote, escapes, a tab
-// before the colon), then `:` or `=`, and hide the value that follows,
-// whatever its shape. Over-hiding prose such as "token expired: retry" is the
-// safe side; the 256 bound keeps the search linear in the text.
+// JSON that sits inside other text, or a body that is not valid JSON (a cut
+// body, form or query pairs, `key=value` lines). Quotes are never paired here
+// (a stray, escaped or missing one broke every pairing scheme): look for a
+// secret word, take the first `:` or `=` after it however far away (the rest
+// of a name with brackets, commas or any length, its closing quote, a tab),
+// and hide the value that follows, whatever its shape. Over-hiding prose such
+// as "token expired: retry" is the safe side. The next separator is found
+// once per position, so the scan stays linear in the text.
 // A body that did not parse also has `code` hidden: without the parse there
 // is no telling error.code from an OAuth code.
-const secretAt = (words) =>
-  new RegExp(`(?:${words})[^:=,;{}\\[\\]]{0,256}?[:=]\\s*`, "gi");
-const SECRET_AT = secretAt(`${SECRET_WORDS}|\\bsid\\b`);
-const SECRET_OR_CODE_AT = secretAt(`${SECRET_WORDS}|\\bsid\\b|\\bcode\\b`);
+const SECRET_AT = new RegExp(`${SECRET_WORDS}|\\bsid\\b`, "gi");
+const SECRET_OR_CODE_AT = new RegExp(
+  `${SECRET_WORDS}|\\bsid\\b|\\bcode\\b`,
+  "gi",
+);
 function hideEmbedded(text, pattern) {
   let out = "";
   let last = 0;
+  let sep = -1; // the first ":" or "=" at or after the last search start
   pattern.lastIndex = 0;
   for (let m = pattern.exec(text); m; m = pattern.exec(text)) {
-    const start = m.index + m[0].length;
+    const from = m.index + m[0].length;
+    if (sep < from) {
+      const next = /[:=]/g;
+      next.lastIndex = from;
+      sep = next.exec(text)?.index ?? text.length;
+    }
+    if (sep >= text.length) break;
+    const start =
+      sep + 1 + /^\s*/.exec(text.slice(sep + 1, sep + 257))[0].length;
     out += `${text.slice(last, start)}"(hidden)"`;
     last = valueEnd(text, start);
     pattern.lastIndex = Math.max(last, start);
   }
   return out + text.slice(last);
+}
+
+// JSON behind a prefix, e.g. the anti-hijacking `)]}'` line or `while(1);`:
+// parse from the first `{` or `[` so the value is masked by key like plain
+// JSON. The prefix itself still meets the text masks.
+function parsePrefixed(text) {
+  for (const open of ["{", "["]) {
+    const at = text.indexOf(open);
+    if (at <= 0) continue;
+    try {
+      return { prefix: text.slice(0, at), value: JSON.parse(text.slice(at)) };
+    } catch {
+      // Try the other bracket, then fall back to the text masks.
+    }
+  }
+  return undefined;
 }
 
 // Markup is not parsed: a body with a tag and a secret-like name anywhere is
@@ -162,6 +196,11 @@ export function maskBody(text) {
     parsed = true;
   } catch {
     // Not JSON (HTML, plain text, a cut body): the patterns below still run.
+    const prefixed = parsePrefixed(out);
+    if (prefixed) {
+      out = prefixed.prefix + JSON.stringify(hideSecrets(prefixed.value));
+      parsed = true;
+    }
   }
   out = decodeAscii(out);
   // A key may be spelled with t-style escapes; write the plain letters
@@ -242,9 +281,10 @@ export function safeUrl(raw) {
 
 export function formatCapture(c) {
   const head = `${c.method} ${safeUrl(c.url)} -> ${c.status ?? "no response"}`;
+  if (c.omitted !== undefined)
+    return `${head} | body omitted: ${c.omitted} bytes (over the ${READ_LIMIT}-byte read limit)`;
   if (c.bodyError) return `${head} | body unavailable: ${c.bodyError}`;
-  const cut = c.readCut ? ` [first ${READ_LIMIT} chars read]` : "";
-  return `${head} | ${c.body === "" ? "(empty body)" : shortBody(c.body)}${cut}`;
+  return `${head} | ${c.body === "" ? "(empty body)" : shortBody(c.body)}`;
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -288,34 +328,34 @@ export function createCollector({
     if (rec.mimeType && !TEXT_MIME.test(rec.mimeType))
       return `not read (${rec.mimeType})`;
     const size = Math.max(rec.size, rec.wire ?? 0);
-    if (size > READ_LIMIT)
-      return `not read (${size} bytes, over ${READ_LIMIT})`;
+    if (size > READ_LIMIT) return { omitted: size };
     if (!final) return undefined;
     if (!rec.sizeKnown) return "not read (size unknown)";
     if (reserved + rec.size > READ_BUDGET)
       return "not read (capture budget for this command spent)";
     return undefined;
   };
+  const skip = (rec, why) =>
+    settle(rec, typeof why === "string" ? { bodyError: why } : why);
   const read = (id, rec) => {
     const why = unreadable(rec, true);
-    if (why) return settle(rec, { bodyError: why });
+    if (why) return skip(rec, why);
     const take = rec.size;
     reserved += take;
     send("Network.getResponseBody", { requestId: id }).then(
       (r) => {
         // Settled in bytes actually read, in case the reported size was low.
-        reserved +=
-          Buffer.byteLength(r.body, r.base64Encoded ? "base64" : "utf8") - take;
-        // Cut before masking: what lies past READ_LIMIT is never printed,
-        // and the masks hide to the end of a value that the cut leaves open.
-        const raw = r.base64Encoded
-          ? Buffer.from(
-              r.body.slice(0, Math.ceil(READ_LIMIT / 3) * 4),
-              "base64",
-            ).toString("utf8")
+        const bytes = Buffer.byteLength(
+          r.body,
+          r.base64Encoded ? "base64" : "utf8",
+        );
+        reserved += bytes - take;
+        // Larger than reported: dropped whole rather than cut and kept.
+        if (bytes > READ_LIMIT) return settle(rec, { omitted: bytes });
+        const body = r.base64Encoded
+          ? Buffer.from(r.body, "base64").toString("utf8")
           : r.body;
-        const body = raw.slice(0, READ_LIMIT);
-        settle(rec, { body, readCut: raw.length > READ_LIMIT });
+        settle(rec, { body });
       },
       (error) =>
         settle(rec, {
@@ -384,7 +424,7 @@ export function createCollector({
       }
       if (wanted(rec.status, rec.url, pattern)) track(rec);
       const why = waiting.has(rec) && unreadable(rec, false);
-      if (why) settle(rec, { bodyError: why });
+      if (why) skip(rec, why);
     } else if (m.method === "Network.dataReceived") {
       const rec = current.get(p.requestId);
       if (rec) {
