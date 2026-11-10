@@ -37,6 +37,7 @@ function snapshot(
     mcp_servers: {},
     left_out: [],
     unavailable_repositories: new Set(),
+    unavailable_connections: new Set(),
     ...over,
   };
 }

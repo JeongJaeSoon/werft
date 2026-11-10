@@ -29,13 +29,18 @@ export type SettingsSnapshot = {
    * replica may resolve them, so a session on one is not failed here.
    */
   unavailable_repositories: ReadonlySet<string>;
+  /** Connection ids a row holds that this read could not resolve. */
+  unavailable_connections: ReadonlySet<string>;
 };
 
-function invalidRepositoryIds(settings: InstallationSettings): Set<string> {
+function invalidIds(
+  settings: InstallationSettings,
+  kind: "repository" | "connection",
+): Set<string> {
   return new Set(
     settings.invalid
-      .filter((entry) => entry.startsWith("repository:"))
-      .map((entry) => entry.slice("repository:".length)),
+      .filter((entry) => entry.startsWith(`${kind}:`))
+      .map((entry) => entry.slice(kind.length + 1)),
   );
 }
 
@@ -74,7 +79,8 @@ export function settingsSnapshot(
     entry,
     reason: "does not parse",
   }));
-  const unavailable = invalidRepositoryIds(settings);
+  const unavailable = invalidIds(settings, "repository");
+  const unavailableConnections = invalidIds(settings, "connection");
   const connections: Record<string, CatalogConnection> = {};
   for (const {
     id,
@@ -91,6 +97,7 @@ export function settingsSnapshot(
         auto_mode: auto_mode ?? "unknown",
       };
     } catch (error) {
+      unavailableConnections.add(id);
       left_out.push({
         entry: `connection:${id}`,
         reason: describeConfigError(error),
@@ -132,6 +139,7 @@ export function settingsSnapshot(
     mcp_servers,
     left_out,
     unavailable_repositories: unavailable,
+    unavailable_connections: unavailableConnections,
   };
 }
 
@@ -207,6 +215,7 @@ export function settingsView(
       entry,
       reason: "does not parse",
     })),
-    unavailable_repositories: invalidRepositoryIds(settings),
+    unavailable_repositories: invalidIds(settings, "repository"),
+    unavailable_connections: invalidIds(settings, "connection"),
   };
 }

@@ -127,10 +127,11 @@ export type ClaimInput = {
   // (a credential it cannot read): another may, so a session on one is not
   // given up on here.
   unsettledRepositoryIds: ReadonlySet<string>;
-  // The connection ids whose runnability here is every replica's: the ones
-  // this host resolved. A pinned launch on any other is not given up on:
-  // another replica may hold the credential it needs, and runs it.
-  settledConnectionIds: ReadonlySet<string>;
+  // Connection ids the installation's settings hold that this host could
+  // not resolve (a credential it cannot read): another replica may, so a
+  // session on one is not given up on here. A connection the settings do
+  // not hold at all is gone for every replica.
+  unsettledConnectionIds: ReadonlySet<string>;
   // A session that has spent this much is not bound: it would only be told
   // to release again at its first nextInput.
   costLimitUsd: number;

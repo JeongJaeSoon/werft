@@ -234,7 +234,7 @@ function claim(ref: ExecutionRef, nonce: string) {
     attemptId: `att-${crypto.randomUUID()}`,
     settingsGeneration: null,
     unsettledRepositoryIds: new Set(),
-    settledConnectionIds: new Set([TEST_CONNECTION_ID]),
+    unsettledConnectionIds: new Set(),
     costLimitUsd: 1_000,
     tokenLimit: null,
     credentialHash: hashWorkerToken(`wkt-${crypto.randomUUID()}`),

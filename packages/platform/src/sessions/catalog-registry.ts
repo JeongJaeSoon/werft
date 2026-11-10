@@ -222,6 +222,9 @@ export function registryCatalog<R extends CatalogRepositoryView>(
     get settings_generation() {
       return registry.settings?.generation;
     },
+    get unavailable_connections() {
+      return registry.settings?.unavailable_connections;
+    },
     get unavailable_repositories() {
       return registry.settings?.unavailable_repositories;
     },

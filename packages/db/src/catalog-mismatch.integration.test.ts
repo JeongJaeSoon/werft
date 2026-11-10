@@ -104,7 +104,7 @@ class ClaimingBackend implements ExecutionBackend {
       const result = await createPostgresWorkerUnitOfWork(this.db).claimAtomic({
         settingsGeneration: CAUGHT_UP,
         unsettledRepositoryIds: new Set(),
-        settledConnectionIds: new Set([TEST_CONNECTION_ID]),
+        unsettledConnectionIds: new Set(),
         runnable: this.runnable,
         costLimitUsd: 1_000,
         tokenLimit: null,
@@ -383,7 +383,7 @@ integration("claim against a catalog that dropped the pair", () => {
     const result = await createPostgresWorkerUnitOfWork(db).claimAtomic({
       settingsGeneration: CAUGHT_UP,
       unsettledRepositoryIds: new Set(),
-      settledConnectionIds: new Set([TEST_CONNECTION_ID]),
+      unsettledConnectionIds: new Set(),
       runnable: catalogAt(REGISTERED),
       costLimitUsd: 1_000,
       tokenLimit: null,
@@ -461,7 +461,7 @@ integration("claim against a catalog that dropped the pair", () => {
     const result = await createPostgresWorkerUnitOfWork(db).claimAtomic({
       settingsGeneration: CAUGHT_UP,
       unsettledRepositoryIds: new Set(),
-      settledConnectionIds: new Set([TEST_CONNECTION_ID]),
+      unsettledConnectionIds: new Set(),
       runnable: catalogAt(REGISTERED),
       costLimitUsd: 1_000,
       tokenLimit: null,
@@ -534,7 +534,7 @@ integration("claim against a catalog that dropped the pair", () => {
     function claim(
       launch: { ref: ExecutionRef; nonce: string },
       costLimitUsd = 1_000,
-      settledConnectionIds: ReadonlySet<string> = new Set([TEST_CONNECTION_ID]),
+      unsettledConnectionIds: ReadonlySet<string> = new Set(),
       settings: {
         generation?: number | null;
         unsettledRepositoryIds?: ReadonlySet<string>;
@@ -544,7 +544,7 @@ integration("claim against a catalog that dropped the pair", () => {
         settingsGeneration:
           settings.generation === undefined ? CAUGHT_UP : settings.generation,
         unsettledRepositoryIds: settings.unsettledRepositoryIds ?? new Set(),
-        settledConnectionIds,
+        unsettledConnectionIds,
         runnable: catalogAt(REGISTERED),
         costLimitUsd,
         tokenLimit: null,
@@ -611,10 +611,12 @@ integration("claim against a catalog that dropped the pair", () => {
 
     // A connection another replica may hold the credential of; that replica
     // runs the session.
-    test("a connection this host has not settled", async () => {
+    test("a connection this host could not resolve", async () => {
       const session = await queuedSession(MOVED_TO);
       const launch = await reserved(session.session_id);
-      expect((await claim(launch, 1_000, new Set())).outcome).toBe(
+      expect(
+        (await claim(launch, 1_000, new Set([TEST_CONNECTION_ID]))).outcome,
+      ).toBe(
         "no_session",
       );
       await untouched(session.session_id, launch.ref);

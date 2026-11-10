@@ -835,7 +835,7 @@ integration("user variables on PostgreSQL", () => {
         ...(userEnv ? { userEnv: true as const } : {}),
         settingsGeneration: Number.MAX_SAFE_INTEGER,
         unsettledRepositoryIds: new Set(),
-        settledConnectionIds: new Set([TEST_CONNECTION_ID]),
+        unsettledConnectionIds: new Set(),
         runnable: testClaimCatalog(),
         costLimitUsd: 1_000,
         tokenLimit: null,

@@ -950,7 +950,7 @@ export function createWorkerGateway(deps: {
       | "modelMoves"
       | "settingsGeneration"
       | "unsettledRepositoryIds"
-      | "settledConnectionIds"
+      | "unsettledConnectionIds"
     >;
   } | null = null;
   function claimCatalog(): NonNullable<typeof runnableOf>["input"] {
@@ -993,7 +993,8 @@ export function createWorkerGateway(deps: {
           settingsGeneration,
           unsettledRepositoryIds:
             catalog.unavailable_repositories ?? new Set<string>(),
-          settledConnectionIds: new Set(Object.keys(connections)),
+          unsettledConnectionIds:
+            catalog.unavailable_connections ?? new Set<string>(),
         },
       };
     }

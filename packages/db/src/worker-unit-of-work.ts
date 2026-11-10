@@ -1306,7 +1306,7 @@ async function giveUpOnCatalogMismatch(
     | "runnable"
     | "settingsGeneration"
     | "unsettledRepositoryIds"
-    | "settledConnectionIds"
+    | "unsettledConnectionIds"
     | "costLimitUsd"
     | "tokenLimit"
   >,
@@ -1328,7 +1328,7 @@ async function giveUpOnCatalogMismatch(
     session.executionId !== launch.executionId ||
     budgetExceeded(session, budgetOf(input)) ||
     runsHere(session, runnable) ||
-    !input.settledConnectionIds.has(specConnectionId(session) ?? "") ||
+    input.unsettledConnectionIds.has(specConnectionId(session) ?? "") ||
     (session.repositoryId !== null &&
       input.unsettledRepositoryIds.has(session.repositoryId))
   ) {

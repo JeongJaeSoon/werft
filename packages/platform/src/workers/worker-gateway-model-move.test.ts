@@ -139,7 +139,7 @@ describe("what a claim asks the store to match", () => {
       { id: "conn-1", models: ["sonnet-5-1", "opus-5-0"] },
     ]);
     expect(seen[0]?.runnable.runtimeVersions).toEqual(["0.3.270", "0.3.250"]);
-    expect([...(seen[0]?.settledConnectionIds ?? [])]).toEqual(["conn-1"]);
+    expect([...(seen[0]?.unsettledConnectionIds ?? [])]).toEqual([]);
   });
 
   test("no accepted list leaves the runtime version open", async () => {

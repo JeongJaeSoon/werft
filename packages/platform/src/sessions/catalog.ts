@@ -494,6 +494,11 @@ export type SessionCatalog = {
   settings_generation?: number | undefined;
   /** Repository ids the settings hold that did not resolve here. */
   unavailable_repositories?: ReadonlySet<string> | undefined;
+  /**
+   * Connection ids the settings hold that this read could not resolve:
+   * another replica may, so a session on one is not failed here.
+   */
+  unavailable_connections?: ReadonlySet<string> | undefined;
   runtime_versions?: RuntimeVersions;
 };
 
