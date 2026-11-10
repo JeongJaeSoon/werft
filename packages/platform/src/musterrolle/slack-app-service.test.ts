@@ -756,6 +756,37 @@ describe("Slack app service", () => {
     ).not.toBe("deleted");
   });
 
+  test.each([
+    [
+      "answers another code",
+      new SlackApiError("apps.manifest.export", "no_permission", true),
+    ],
+    [
+      "gets no answer",
+      new SlackApiError("apps.manifest.export", "timeout", false),
+    ],
+  ])(
+    "delete stays refused on no_permission when export %s",
+    async (_name, probeError) => {
+      const { service, slack } = await setup();
+      const made = await service.createAgentApp(user("owner"), AGENT, {
+        replace_uncertain: false,
+      });
+      slack.api.deleteApp = async () => {
+        throw new SlackApiError("apps.manifest.delete", "no_permission", true);
+      };
+      slack.api.exportApp = async () => {
+        throw probeError;
+      };
+      await refusal(
+        service.deleteApp(user("owner"), WORKSPACE, made.slack_app.id),
+      );
+      expect(
+        (await service.getAgentApp(user("owner"), AGENT)).slack_app?.state,
+      ).not.toBe("deleted");
+    },
+  );
+
   test("a manifest update reads the app id from the workspace's own rows", async () => {
     const { service, slack } = await setup();
     const made = await service.createAgentApp(user("owner"), AGENT, {

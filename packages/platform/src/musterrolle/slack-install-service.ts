@@ -30,7 +30,6 @@ import {
 import { NOT_FOUND } from "./service-errors.ts";
 import { slackAppView } from "./slack-app-service.ts";
 import {
-  SLACK_APP_GONE_CODES,
   SlackApiError,
   type SlackConfigApi,
   type SlackInstallApi,
@@ -38,6 +37,7 @@ import {
 import {
   configTokenInvalid,
   type SlackConfigTokens,
+  slackLacksApp,
 } from "./slack-config-token.ts";
 import { slackAuthorizeUrl } from "./slack-manifest.ts";
 
@@ -246,30 +246,6 @@ export function createSlackInstallService(deps: {
     return null;
   }
 
-  // Slack's consent screen answers "Invalid client_id" for an app it does
-  // not have. Only Slack saying so stops the link; a check that fails any
-  // other way leaves the consent screen to decide.
-  async function slackLacksApp(
-    tokens: SlackConfigTokens,
-    workspaceId: string,
-    app: { appId: string; maker: string },
-  ): Promise<boolean> {
-    try {
-      // The token in hand, not the one described before, must be the maker's.
-      return await tokens.withToken(workspaceId, async (token, issuer) => {
-        if (issuer !== app.maker) return false;
-        await api.exportApp(token, app.appId);
-        return false;
-      });
-    } catch (error) {
-      return (
-        error instanceof SlackApiError &&
-        error.answered &&
-        SLACK_APP_GONE_CODES.has(error.code)
-      );
-    }
-  }
-
   return {
     /** A fresh single-use link to Slack's consent screen for the agent's app. */
     async start(
@@ -304,7 +280,9 @@ export function createSlackInstallService(deps: {
       if (
         app.createdByTokenUser !== null &&
         app.createdByTokenUser === issuer?.userId &&
-        (await slackLacksApp(tokens, workspaceId, {
+        // Slack's consent screen answers "Invalid client_id" for an app it
+        // does not have; only Slack saying so stops the link.
+        (await slackLacksApp(api, tokens, workspaceId, {
           appId: app.appId,
           maker: app.createdByTokenUser,
         }))
