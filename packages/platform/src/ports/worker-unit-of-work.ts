@@ -9,7 +9,6 @@ import type {
   PauseBlockedReason,
   PermissionGrant,
   PlatformPrompt,
-  RuntimeSpec,
   SanitizedToolDecision,
   SessionExtension,
   SpecSource,
