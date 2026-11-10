@@ -31,8 +31,6 @@ function start(
 }
 
 const deps = { stateDir: "/tenant/config" };
-const fingerprintOf = (s: RuntimeStart) =>
-  claudeRuntimeModule.fingerprint(s, 1).profileSha256;
 
 describe("the answer language", () => {
   test.each([
@@ -64,9 +62,13 @@ describe("the answer language", () => {
   });
 
   test("is outside the checkpoint fingerprint: a session resumes on a worker with or without it", () => {
-    const without = fingerprintOf(start());
-    for (const language of ["ko", "en", "ja"] as const) {
-      expect(fingerprintOf(start(language))).toBe(without);
+    for (const scheme of [1, 2]) {
+      const without = claudeRuntimeModule.fingerprint(start(), scheme);
+      for (const language of ["ko", "en", "ja"] as const) {
+        expect(
+          claudeRuntimeModule.fingerprint(start(language), scheme),
+        ).toEqual(without);
+      }
     }
   });
 });

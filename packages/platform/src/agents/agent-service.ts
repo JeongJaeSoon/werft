@@ -156,10 +156,18 @@ export async function resolveAgentRelease(
   return release;
 }
 
-function sameRuntime(a: unknown, b: unknown): boolean {
+/** Exported for its test: whether two snapshots run the same runtime. */
+export function sameRuntime(a: unknown, b: unknown): boolean {
   const form = (snapshot: unknown) => {
-    const { tools, ...rest } = (snapshot ?? {}) as {
+    // `language` is the card's, pinned beside the runtime: a release made
+    // before the field has none, and that is not a different runtime.
+    const {
+      tools,
+      language: _language,
+      ...rest
+    } = (snapshot ?? {}) as {
       tools?: readonly string[];
+      language?: unknown;
     };
     return canonicalJson({ ...rest, tools: [...(tools ?? [])].sort() });
   };

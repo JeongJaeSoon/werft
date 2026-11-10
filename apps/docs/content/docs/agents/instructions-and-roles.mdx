@@ -53,7 +53,7 @@ description: 이름·설명과 저장소의 CLAUDE.md·AGENTS.md의 차이, 에�
 | `capabilities.forbidden` | | 금지할 도구 이름. 웹 콘솔은 새 카드에 `[]`를 넣고, 기존 값은 보이고 지우기만 한다 |
 | `capabilities.tool_policy` | | 도구별 `allow`·`ask`·`deny` |
 | `capabilities.credential_refs` | | 쓸 자격 증명의 이름(값이 아니다). [권한](/agents/permissions) |
-| `language` | | `ko`(기본) 또는 `en` |
+| `language` | | 답변 언어: `follow-user`(사용자 언어를 따른다), `ko`(기본), `en`, `ja`. 웹에서 새로 만드는 카드의 기본은 `follow-user`다. `ko`·`en`·`ja`는 사용자가 다른 언어로 쓰지 않는 한 그 언어로 답하게 하며, 새 릴리스부터 적용되고 이미 시작한 세션은 그대로다 |
 | `rules` | | `{id, text, source}` 목록. `source`는 `user` 또는 `correction` |
 | `role`·`instructions` | | 이전 카드의 값. 모델에 전달되지 않는다. 새 카드에는 보내지 않는다 |
 

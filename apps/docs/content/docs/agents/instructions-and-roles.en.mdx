@@ -53,7 +53,7 @@ Earlier cards had "Role" (`role`) and "Instructions" (`instructions`) fields, an
 | `capabilities.forbidden` | | Tool names to forbid. The web console puts `[]` on a new card, and only shows and clears an existing value |
 | `capabilities.tool_policy` | | `allow`, `ask`, or `deny` per tool |
 | `capabilities.credential_refs` | | Names of the credentials to use (not the values). [Permissions](/agents/permissions) |
-| `language` | | `ko` (default) or `en` |
+| `language` | | Reply language: `follow-user` (follow the person's language), `ko` (default), `en` or `ja`. A card created in the web console starts on `follow-user`. `ko`, `en` and `ja` ask for that language unless the person writes in another one; it applies from the next release, and sessions already started keep theirs |
 | `rules` | | List of `{id, text, source}`. `source` is `user` or `correction` |
 | `role`, `instructions` | | Values from earlier cards. Not passed to the model. New cards do not send them |
 
