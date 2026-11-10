@@ -12,7 +12,10 @@ export class OtlpDecodeError extends Error {}
 
 type Json = Record<string, unknown>;
 
-const MAX_RESOURCE_CHARS = 8 * 1024;
+const MAX_RESOURCE_BYTES = 8 * 1024;
+// The scope repeats on every span like the resource does, and names a
+// library; a longer value is cut rather than refused.
+const MAX_SCOPE_CHARS = 128;
 const TRACE_ID = /^[0-9a-f]{32}$/;
 const SPAN_ID = /^[0-9a-f]{16}$/;
 const NANOS = /^[0-9]{1,20}$/;
@@ -153,7 +156,7 @@ export function decodeTraceRequest(body: string): IngestSpan[] {
     );
     // Every span repeats its resource, so a large one multiplies the work of
     // the whole request; real resources are a handful of short attributes.
-    if (JSON.stringify(resource).length > MAX_RESOURCE_CHARS) {
+    if (Buffer.byteLength(JSON.stringify(resource)) > MAX_RESOURCE_BYTES) {
       throw new OtlpDecodeError("The resource attributes are too large");
     }
     for (const ss of list(resourceSpans.scopeSpans, "scopeSpans")) {
@@ -162,8 +165,10 @@ export function decodeTraceRequest(body: string): IngestSpan[] {
         scopeSpans.scope === undefined ? {} : object(scopeSpans.scope, "scope");
       const version = rawScope.version;
       const scope = {
-        name: text(rawScope.name, "scope name", ""),
-        ...(typeof version === "string" && version !== "" ? { version } : {}),
+        name: text(rawScope.name, "scope name", "").slice(0, MAX_SCOPE_CHARS),
+        ...(typeof version === "string" && version !== ""
+          ? { version: version.slice(0, MAX_SCOPE_CHARS) }
+          : {}),
       };
       for (const span of list(scopeSpans.spans, "spans")) {
         spans.push(spanOf(span, resource, scope));

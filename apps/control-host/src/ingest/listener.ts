@@ -185,9 +185,10 @@ export function createIngestHandler(
         continue;
       }
       // UTF-8 bytes, as the limit is stated. The shared resource is left out:
-      // it repeats on every span of the request and is capped when decoded.
+      // it and the scope repeat on every span of the request and are capped
+      // when decoded.
       const size = Buffer.byteLength(
-        JSON.stringify({ ...span, resource: undefined }),
+        JSON.stringify({ ...span, resource: undefined, scope: undefined }),
       );
       const { overBudget } = budget.charge(span.traceId, size);
       accepted.push(

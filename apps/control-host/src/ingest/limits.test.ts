@@ -4,6 +4,20 @@ import { TraceByteBudget } from "./limits.ts";
 import { decodeTraceRequest } from "./otlp-json.ts";
 import { batch, CountingDrops } from "./test-support.ts";
 
+describe("decoder bounds on repeated parts", () => {
+  test("a huge scope name is cut, not carried on every span", () => {
+    const body = JSON.parse(batch({}));
+    body.resourceSpans[0].scopeSpans[0].scope.name = "s".repeat(1024 * 1024);
+    const [span] = decodeTraceRequest(JSON.stringify(body));
+    expect(span?.scope.name).toHaveLength(128);
+  });
+
+  test("the resource limit is in UTF-8 bytes", () => {
+    const body = batch({ resource: [["service.name", "한".repeat(3000)]] });
+    expect(() => decodeTraceRequest(body)).toThrow("too large");
+  });
+});
+
 describe("TraceByteBudget", () => {
   test("a trace that used its budget stays over it after an idle hour", () => {
     let now = 0;
