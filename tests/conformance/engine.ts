@@ -33,6 +33,12 @@ export type Script = {
  */
 export type Capability = "provider_budget";
 
+/** Why an engine without the capability is skipped; it goes into the report. */
+const SKIP_REASON: Record<Capability, string> = {
+  provider_budget:
+    "the engine SDK enforces the budget itself, so this scenario is for engines only the egress proxy enforces",
+};
+
 /** One call the fake provider answered for a script. */
 export type ModelCall = {
   /** Ids of the scripts the call's history replays, oldest first. */
@@ -84,7 +90,7 @@ export function scenario(
     test(name, run, timeoutMs);
   } else {
     test.skip(
-      `${name} [declared skip: ${engine.runtimeKind} lacks ${capability}]`,
+      `${name} [declared skip: ${engine.runtimeKind} lacks ${capability}, ${SKIP_REASON[capability]}]`,
       run,
     );
   }
