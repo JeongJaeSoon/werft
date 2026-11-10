@@ -45,8 +45,6 @@ export const workspaceEngineSettingsResponseSchema = z
     settings: storedEngineSettingsSchema,
     /** The row's revision; null while the workspace has saved nothing. */
     settings_revision: revisionSchema.nullable(),
-    /** Whether a save is accepted now. Reading is always open. */
-    writes_open: z.boolean(),
   })
   .strict();
 export type WorkspaceEngineSettingsResponse = z.infer<
@@ -64,18 +62,7 @@ export const agentEngineSettingsResponseSchema = z
         settings_revision: revisionSchema.nullable(),
       })
       .strict(),
-    /**
-     * Restrictions the agent inherited from its profile, written by the
-     * operator and never by this API: counts only, not the rules.
-     */
-    inherited: z
-      .object({
-        entries: z.number().int().nonnegative(),
-        rules: z.number().int().nonnegative(),
-      })
-      .strict(),
     reach: engineSettingsAllowReachSchema,
-    writes_open: z.boolean(),
   })
   .strict();
 export type AgentEngineSettingsResponse = z.infer<

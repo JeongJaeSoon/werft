@@ -87,7 +87,6 @@ export const scopedSessionBindingSchema = z
     sessionId: sessionIdSchema,
     agentId: agentIdSchema,
     releaseId: agentReleaseIdSchema,
-    profileId: z.string().min(1).max(128),
   })
   .strict();
 

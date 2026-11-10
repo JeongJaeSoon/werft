@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { repositoryModeSchema } from "../api/profiles.ts";
+import { repositoryModeSchema } from "../api/repository-ceiling.ts";
 import { PERMISSION_MODE_VALUES, RUNTIME_KIND_VALUES } from "../api/session.ts";
 import {
   deriveRuntimeSpec,

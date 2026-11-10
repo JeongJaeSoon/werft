@@ -128,23 +128,22 @@ export const slackWarningSchema = z
 /**
  * Why the agent's Slack mentions and DMs are refused with a notice while
  * connecting still goes ahead. `repository_required`: the active release
- * runs on a profile whose sessions must name a repository and names none.
- * `profile_unavailable`: the catalog no longer has the active release's
- * profile, defines it otherwise than it was released, or an owner blocked
- * it. `no_active_release`:
+ * needs a repository and names none, or its GitHub settings cannot be read.
+ * `release_unavailable`: the active release's connection is disabled or
+ * gone, or its model left the connection's list. `no_active_release`:
  * nothing is activated yet.
  */
 export const slackAgentWarningSchema = z.discriminatedUnion("code", [
   z
     .object({
       code: z.literal("repository_required"),
-      profile_id: z.string(),
+      release_id: z.string(),
     })
     .strict(),
   z
     .object({
-      code: z.literal("profile_unavailable"),
-      profile_id: z.string(),
+      code: z.literal("release_unavailable"),
+      release_id: z.string(),
     })
     .strict(),
   z.object({ code: z.literal("no_active_release") }).strict(),

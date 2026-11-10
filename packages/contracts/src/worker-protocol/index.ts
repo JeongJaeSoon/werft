@@ -237,7 +237,7 @@ export const projectSettingsSchema = z
   .strict();
 
 // Everything the engine needs beyond the identity in `runtime`: resolved by
-// the server from the profile the session was created with. The provider
+// the server from the spec the session was created with. The provider
 // key does not ride here: the egress proxy injects it, and what the
 // worker holds is a token that is worthless off the worker network and dies
 // with the attempt. That token is still a secret for as long as it lives, so
@@ -333,7 +333,7 @@ export const runtimeExtensionSchema = z
   .object({
     name: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
     digest: z.string().regex(/^[0-9a-f]{64}$/),
-    scope: z.enum(["profile", "workspace", "agent", "session"]),
+    scope: z.enum(["workspace", "agent", "session"]),
   })
   .strict();
 
@@ -460,11 +460,11 @@ export const runtimeConfigSchema = z
   })
   .strict();
 
-// The catalog's name for the settings in `runtime_config`: a hash
-// of the profile without its credential. The settings still ride in full —
-// the engine needs them — and this is what a log line or a later
-// comparison can hold instead.
-export const profileFingerprintSchema = z
+// The name for the settings in `runtime_config`: the session's spec digest,
+// which holds no credential. The settings still ride in full — the engine
+// needs them — and this is what a log line or a later comparison can hold
+// instead.
+export const specDigestSchema = z
   .string()
   .regex(/^sha256:[0-9a-f]{64}$/, "must be sha256:<64 hex>");
 
@@ -489,16 +489,17 @@ export const WORKER_LEASE_SAFETY_MARGIN_MS = 10_000;
 // reclaims the execution can record that without reading its output.
 export const WORKER_EXIT_LEASE_LOST = 75;
 
-// How many earlier profiles a claim offers for a restore: one per change the
-// checkpoints still reachable from the pointer went through, at most.
-export const MAX_RESTORE_PROFILES = 16;
+// How many earlier runtime configs a claim offers for a restore: one per
+// change the checkpoints still reachable from the pointer went through, at
+// most.
+export const MAX_RESTORE_CONFIGS = 16;
 
 // What a restore plan request may list: for the claim's config and each earlier
-// profile, the digest of its current form, of the form an older session was
+// config, the digest of its current form, of the form an older session was
 // stamped with, and of each of those under the one earlier digest scheme an
 // image still resumes. Platform deploys before worker, so a gateway that
 // reads this limit is up before a worker sends past the old one.
-export const MAX_RESTORE_ALTERNATES = 4 * (MAX_RESTORE_PROFILES + 1);
+export const MAX_RESTORE_ALTERNATES = 4 * (MAX_RESTORE_CONFIGS + 1);
 
 export const permissionGrantSchema = z
   .object({
@@ -621,7 +622,7 @@ export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   lease_expires_at: timestampSchema,
   lease_remaining_ms: leaseRemainingMsSchema,
   runtime: sessionRuntimeSchema,
-  profile_fingerprint: profileFingerprintSchema,
+  spec_digest: specDigestSchema,
   runtime_config: runtimeConfigSchema,
   workspace: workspaceDescriptorSchema,
   // The object store route's capability: the worker holds no
@@ -650,18 +651,18 @@ export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   principal: claimPrincipalSchema,
   restore: checkpointRefSchema.nullable(),
   // Present when the session's checkpoints up to `restore` were committed
-  // under other profiles than the one it runs now (its profile was changed):
+  // under other configs than the one it runs now (its model was moved):
   // the checkpoint restored, the pointer's or a fallback's, may be checked
   // against any of these configs. The engine runs on runtime_config.
   restore_runtime_configs: z
     .array(runtimeConfigSchema)
     .min(1)
-    .max(MAX_RESTORE_PROFILES)
+    .max(MAX_RESTORE_CONFIGS)
     .optional(),
   // SESSION_COST_LIMIT_USD less what the session had spent at the claim: the
   // most this attempt's engine may spend before it ends the turn in flight
   // . A second line only; the gate stays the stored sum against the
-  // limit, checked before every turn. Null when the session's profile
+  // limit, checked before every turn. Null when the session's connection
   // declared `billing: none`: no dollar limit applies to it.
   remaining_budget_usd: z.number().nonnegative().nullable(),
   // Applied at claim time; older workers drop this top-level field.
@@ -724,7 +725,7 @@ export function loggableBootstrapClaim(response: BootstrapClaimResponse) {
     lease_expires_at: response.lease_expires_at,
     lease_remaining_ms: response.lease_remaining_ms,
     runtime: response.runtime,
-    profile_fingerprint: response.profile_fingerprint,
+    spec_digest: response.spec_digest,
     model: response.runtime_config.model,
     permission_mode: response.runtime_config.permission_mode,
     provider_kind: response.runtime_config.provider.kind,

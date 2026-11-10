@@ -24,7 +24,7 @@ import {
   type EditorStart,
   ProfileEditor,
 } from "./profile-editor.tsx";
-import { installationOptionsQuery } from "./profile-tools.tsx";
+import { installationOptionsQuery } from "./tool-names.tsx";
 import { latestVersion } from "./profile-tools-model.ts";
 import { profileName } from "./profiles.tsx";
 

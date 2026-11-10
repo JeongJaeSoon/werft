@@ -1,8 +1,8 @@
 import { MCP_TOOL_PREFIX } from "../kollegium/agents.ts";
-import { isMcpToolName, type ToolCatalogView } from "./profile-tools.ts";
+import { isMcpToolName, type ToolCatalogView } from "./tool-names.ts";
 
 /**
- * The deny rules a profile or an organization may write, in the engine's own
+ * The deny rules a workspace or an agent may write, in the engine's own
  * rule spelling. v1 takes the narrow set the engine documents and the
  * platform can explain to a person:
  *

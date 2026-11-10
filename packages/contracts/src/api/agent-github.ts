@@ -21,7 +21,7 @@ export const AGENT_GITHUB_FEATURE_UNAVAILABLE_VALUES = [
 
 /** Why a catalog repository cannot be picked. */
 export const AGENT_GITHUB_REPOSITORY_UNAVAILABLE_VALUES = [
-  // The release's runtime profile does not allow it.
+  // The workspace ceiling does not allow it.
   "repository_not_allowed",
   // A PAT repository: its token cannot be narrowed.
   "app_required",

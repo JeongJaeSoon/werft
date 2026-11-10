@@ -13,7 +13,7 @@ import {
   type ToolCatalogView,
   toolsUnder,
   unsupportedTools,
-} from "./profile-tools.ts";
+} from "./tool-names.ts";
 
 const CATALOG: ToolCatalogView = {
   id: "engine@2",

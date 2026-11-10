@@ -6,7 +6,7 @@ import {
   type PermissionRuleRefusal,
   parsePermissionRules,
 } from "../api/permission-rules.ts";
-import type { ToolCatalogView } from "../api/profile-tools.ts";
+import type { ToolCatalogView } from "../api/tool-names.ts";
 
 /**
  * What an agent's saved engine settings hold: the permission rules and the
@@ -28,15 +28,15 @@ export const ENGINE_AUTO_MODE_RULE_MAX_LENGTH = 1024;
  * still fit the worker's contract (128 permission rules and 64 sentences a
  * list, and the engine's 100,000 byte limit on the settings it starts with).
  *
- * A claim merges the workspace's, the inherited `admin_deny`, and the agent's
- * twice (the settings it started with and the current ones):
- * 48 + 32 + 24 + 24 = 128 rules in a permission list; 16 + 16 + 16 = 48
+ * A claim merges the workspace's and the agent's twice (the settings it
+ * started with and the current ones): 48 + 24 + 24 = 96 of the 128 rules in a
+ * permission list; 16 + 16 + 16 = 48
  * sentences in an auto mode list. Bytes are the JSON text of the whole
  * `permissions` or `auto_mode` object, escapes included.
  *
  * Measured against the claude adapter: the default and bypass modes start at
  * 75,870 bytes of the engine's 100,000, so the permission rules of one claim
- * (6 KB workspace + 3 KB agent twice + 4 KB inherited = 16 KB, plus up to
+ * (6 KB workspace + 3 KB agent twice = 12 KB, plus up to
  * 64 whole-tool names) must stay near 20 KB. Auto mode sentences only count
  * in auto mode, which starts at 3,253 bytes. The adapter's
  * `engine-settings-claim.test.ts` composes these maxima and fails first when
@@ -57,12 +57,6 @@ export const ENGINE_SETTINGS_LIMITS = {
   },
 } as const;
 export type EngineSettingsSource = keyof typeof ENGINE_SETTINGS_LIMITS;
-
-/** Inherited restrictions in `agent_engine_settings.admin_deny`, all entries together. */
-export const ADMIN_DENY_RULES_MAX = 32;
-export const ADMIN_DENY_RULES_BYTES_MAX = 4 * 1024;
-/** The releases that existed when an entry was made; stored data the engine never gets. */
-export const ADMIN_DENY_EXEMPT_BYTES_MAX = 256 * 1024;
 
 export const STORED_PERMISSION_KEYS = ["allow", "ask", "deny"] as const;
 export const STORED_AUTO_MODE_KEYS = [
@@ -137,7 +131,6 @@ export type EngineSettingsRefusal =
     }
   | {
       readonly reason_code: "settings_shape";
-      /** Empty, or the rule that sits in the wrong list of `admin_deny`. */
       readonly rule: string;
       readonly message: string;
     }
@@ -311,113 +304,3 @@ export function validateEngineSettings(
   };
 }
 
-/**
- * One entry of `agent_engine_settings.admin_deny`: a restriction an agent
- * inherits from what its profile and the installation blocked, written by an
- * operator and never by the web API. It applies to a session only when the
- * session's release is not one of `exempt_release_ids`, the releases the agent
- * already had when the entry was made. A release that existed keeps what it
- * was pinned with, including after a rollback to it.
- */
-export const adminDenyEntrySchema = z
-  .object({
-    exempt_release_ids: z.array(z.string().min(1).max(128)),
-    permissions_deny: z.array(z.string().min(1)),
-    mcp_deny: z.array(z.string().min(1)),
-  })
-  .strict();
-export type AdminDenyEntry = z.infer<typeof adminDenyEntrySchema>;
-export const adminDenySchema = z.array(adminDenyEntrySchema);
-
-/**
- * The entries as they would be stored, or why not. Every rule goes through the
- * same parser as a saved rule; `permissions_deny` takes tool and pattern rules
- * and `mcp_deny` only `mcp__` rules, because they are enforced by different
- * routes: the first goes to the engine, the second only to the MCP egress,
- * per call and deny first. The rule budget counts the union of all entries: an
- * entry's deny holds for every release it covers, so entries add up.
- */
-export function validateAdminDeny(
-  catalog: ToolCatalogView,
-  input: unknown,
-):
-  | { readonly entries: AdminDenyEntry[] }
-  | { readonly refusal: EngineSettingsRefusal } {
-  const shape = adminDenySchema.safeParse(input);
-  if (!shape.success) {
-    return {
-      refusal: {
-        reason_code: "settings_shape",
-        rule: "",
-        message:
-          "admin_deny is a list of exempt_release_ids, permissions_deny and mcp_deny",
-      },
-    };
-  }
-  const entries: AdminDenyEntry[] = [];
-  const union = new Set<string>();
-  for (const entry of shape.data) {
-    const out: AdminDenyEntry = {
-      exempt_release_ids: [...new Set(entry.exempt_release_ids)],
-      permissions_deny: [],
-      mcp_deny: [],
-    };
-    for (const key of ["permissions_deny", "mcp_deny"] as const) {
-      if (entry[key].length === 0) continue;
-      const parsed = parsePermissionRules(catalog, entry[key]);
-      if ("refusal" in parsed) return parsed;
-      for (const rule of parsed.rules) {
-        if ((rule.kind === "mcp") !== (key === "mcp_deny")) {
-          return {
-            refusal: {
-              reason_code: "settings_shape",
-              rule: rule.rule,
-              message:
-                key === "mcp_deny"
-                  ? `${rule.rule} is not an mcp__ rule`
-                  : `${rule.rule} is an mcp__ rule: it goes in mcp_deny`,
-            },
-          };
-        }
-        union.add(rule.rule);
-        if (!out[key].includes(rule.rule)) out[key].push(rule.rule);
-      }
-    }
-    entries.push(out);
-  }
-  const bodies = entries.map(({ permissions_deny, mcp_deny }) => ({
-    permissions_deny,
-    mcp_deny,
-  }));
-  if (union.size > ADMIN_DENY_RULES_MAX) {
-    return {
-      refusal: {
-        reason_code: "too_many_rules",
-        rule: "",
-        message: `The inherited restrictions of an agent are at most ${ADMIN_DENY_RULES_MAX} rules`,
-      },
-    };
-  }
-  if (jsonBytes(bodies) > ADMIN_DENY_RULES_BYTES_MAX) {
-    return {
-      refusal: {
-        reason_code: "settings_too_large",
-        rule: "",
-        message: `The inherited restrictions of an agent are at most ${ADMIN_DENY_RULES_BYTES_MAX} bytes`,
-      },
-    };
-  }
-  if (
-    jsonBytes(entries.map((entry) => entry.exempt_release_ids)) >
-    ADMIN_DENY_EXEMPT_BYTES_MAX
-  ) {
-    return {
-      refusal: {
-        reason_code: "settings_too_large",
-        rule: "",
-        message: `The release lists of the inherited restrictions are at most ${ADMIN_DENY_EXEMPT_BYTES_MAX} bytes`,
-      },
-    };
-  }
-  return { entries };
-}

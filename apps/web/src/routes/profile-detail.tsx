@@ -61,7 +61,7 @@ import {
   successorOf,
 } from "../components/profile-options.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
-import { installationOptionsQuery } from "./profile-tools.tsx";
+import { installationOptionsQuery } from "./tool-names.tsx";
 import { blockedNewTools } from "./profile-tools-model.ts";
 import { profileName, STATE_BADGE, stateOf, versionOf } from "./profiles.tsx";
 

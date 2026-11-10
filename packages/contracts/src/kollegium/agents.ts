@@ -22,6 +22,7 @@ import {
   workspaceIdSchema,
 } from "../shared/index.ts";
 import { cardEnvDeclarationSchema } from "./env-variables.ts";
+import { providerKindSchema } from "../shared/provider-kind.ts";
 
 export {
   AGENT_DESCRIPTION_MAX_LENGTH,
@@ -92,8 +93,8 @@ const mcpToolNameSchema = toolNameSchema.refine(
 );
 
 /**
- * A card's say over the MCP tools it calls. Built-in tools follow the runtime
- * profile and have no entry here.
+ * A card's say over the MCP tools it calls. Built-in tools are the runtime's
+ * and have no entry here.
  * TODO(94S-1373): removed with `mcp` when the MCP server moves to agent settings.
  */
 export const cardToolPolicySchema = z
@@ -178,7 +179,7 @@ export const agentCapabilitiesSchema = z
  *
  * `.strict()` is what enforces "a card holds no secrets": there is
  * structurally nowhere to put one, and a credential field is rejected rather
- * than silently stored. Credentials stay in the runtime profile.
+ * than silently stored. Credentials stay with the provider connection.
  */
 export const agentCardSchema = z
   .object({
@@ -189,7 +190,7 @@ export const agentCardSchema = z
       .max(CARD_LEGACY_INSTRUCTIONS_MAX_LENGTH)
       .optional(),
     language: z.enum(AGENT_CARD_LANGUAGE_VALUES).default("follow-user"),
-    /** Must sit inside the runtime profile's model allowlist. */
+    /** Must be one of the models the release's connection offers. */
     model: z.string().min(1).max(128),
     capabilities: agentCapabilitiesSchema,
     rules: z.array(agentRuleSchema).default([]),
@@ -205,7 +206,7 @@ const isMcpTool = (name: unknown) =>
 /**
  * Capabilities as an older client or an older stored card wrote them, without
  * what no longer exists: `tools`, built-in names in `forbidden` and in
- * `tool_policy.per_tool`, and `tool_policy.default`. The profile decides
+ * `tool_policy.per_tool`, and `tool_policy.default`. The runtime decides
  * built-in tools, and these were already ignored when a release is made, so
  * they are dropped rather than refused. MCP entries pass through.
  */
@@ -326,7 +327,7 @@ export const agentSchema = z
     activation_revision: activationRevisionSchema,
     /**
      * Off: nothing moves the agent to the next model of its series when its
-     * model leaves the profile's list, neither its release, nor its sessions
+     * model leaves its connection's list, neither its release, nor its sessions
      * at their next turn, nor a new session.
      */
     auto_model_migration: z.boolean(),
@@ -358,7 +359,7 @@ export const effectiveToolsSchema = z
 
 // A structural guard at the trust boundary, not secret detection: the
 // repository's own `ClaudeRuntimeConfig` carries the live key at
-// `profile.auth.value`, so handing a resolved config straight to this schema
+// `provider.auth.value`, so handing a resolved config straight to this schema
 // used to persist it. Rejecting the key names that hold a credential makes
 // that mistake fail loudly at the parse instead of quietly in the database.
 //
@@ -451,7 +452,7 @@ function assertCredentialFree(
   }
 }
 
-/** The resolved profile config, with every credential left behind. */
+/** The resolved runtime config, with every credential left behind. */
 export const runtimeConfigSnapshotSchema = z
   .record(z.string(), z.unknown())
   .superRefine((snapshot, ctx) => {
@@ -473,7 +474,7 @@ export const runtimeConfigSnapshotSchema = z
 
 /**
  * What an agent's GitHub work may reach, pinned on its release. A release
- * without it runs as before: every repository its profile allows, a person
+ * without it runs as before: every repository the workspace ceiling allows, a person
  * approving each push, no optional permission.
  */
 export const agentGitHubSchema = z
@@ -613,10 +614,6 @@ export function githubPolicySourceOf(stored: unknown): GitHubPolicySource {
   return stored === "release" ? "release" : "agent";
 }
 
-/** Which ceiling judges a profile's repositories. */
-export const REPOSITORY_SCOPE_VALUES = ["profile", "workspace"] as const;
-export type RepositoryScope = (typeof REPOSITORY_SCOPE_VALUES)[number];
-
 /** An `agent_github_settings` row; the jsonb columns as read, unparsed. */
 export type AgentGitHubSettingsRow = {
   repositories: unknown;
@@ -703,7 +700,7 @@ const UNSET = {
 
 /**
  * The one answer to what GitHub work a session may do (design
- * profile-github 4.2). Everything that judges a session's GitHub work reads
+ * github 4.2). Everything that judges a session's GitHub work reads
  * this. A value this image cannot read is "invalid", which every reader
  * refuses.
  *
@@ -859,8 +856,7 @@ export function newSessionGitHubPolicy(
  * The repository a session starts on: the one the caller named, else none.
  * An agent with a settings row starts without a repository and attaches what
  * the task needs; `start_repository_id` stays on the row but no longer starts
- * anything. An agent with no row keeps its release's repository, because a
- * profile that requires one cannot start without it.
+ * anything. An agent with no row keeps its release's repository.
  */
 export function startRepositoryOf(
   requested: string | null | undefined,
@@ -921,9 +917,8 @@ export const releaseLabelSchema = z
 /**
  * A version pinned to the runtime settings it was released against.
  *
- * The resolved config travels with the release so a profile edit cannot
- * change an in-flight session; a digest mismatch at start is refused and
- * asks for a re-release instead. Everything but `created_by`, `approved_by`,
+ * The resolved config travels with the release so a connection or card
+ * edit cannot change an in-flight session. Everything but `created_by`, `approved_by`,
  * `note`, `label` and the timestamps goes into the release id.
  */
 export const agentReleaseSchema = z
@@ -932,14 +927,14 @@ export const agentReleaseSchema = z
     agent_id: agentIdSchema,
     version_id: agentVersionIdSchema,
     card_sha256: sha256HexSchema,
-    runtime_profile_id: z.string().min(1).max(128),
+    /** The provider connection the release's model is called through. */
+    connection_id: z.string().min(1).max(128),
     /**
      * The catalog repository a session of the release starts on when it names
      * none and the agent has no GitHub settings; an agent with settings starts
-     * without one. Null: none, as the profile allows.
+     * without one. Null: none.
      */
     repository_id: z.string().min(1).max(128).nullable(),
-    profile_digest: z.string().min(1).max(128),
     runtime_config_snapshot: runtimeConfigSnapshotSchema,
     effective_tools: effectiveToolsSchema,
     policy_pins: policyPinsSchema,
@@ -961,14 +956,6 @@ export const agentReleaseSchema = z
 export const agentIdParamsSchema = z.object({ id: agentIdSchema });
 
 /**
- * Where an agent's run model comes from. `profile`: the profile's default
- * model, followed when that changes. `fixed`: the model a person chose.
- */
-export const MODEL_SOURCE_VALUES = ["fixed", "profile"] as const;
-export const modelSourceSchema = z.enum(MODEL_SOURCE_VALUES);
-export type ModelSource = z.infer<typeof modelSourceSchema>;
-
-/**
  * What a card does when it runs: the card without the fields no run reads
  * (`role`, `instructions`), with `model` set to the model it runs as. Two
  * saves with the same key change nothing a session sees, whichever card
@@ -977,7 +964,7 @@ export type ModelSource = z.infer<typeof modelSourceSchema>;
 export function behaviorKey(
   card: AgentCard,
   model: string,
-  runtimeProfileId: string,
+  connectionId: string,
 ): string {
   const { role: _role, instructions: _instructions, ...behavior } = card;
   const { tool_policy: policy, ...capabilities } = behavior.capabilities;
@@ -990,19 +977,18 @@ export function behaviorKey(
       },
       model,
     },
-    runtime_profile_id: runtimeProfileId,
+    connection_id: connectionId,
   });
 }
 
 /**
- * A saved card, profile and model source that is not the active release yet:
- * waiting for its release (`failure` null) or refused (`failure` set).
+ * A saved card and connection that is not the active release yet: waiting
+ * for its release (`failure` null) or refused (`failure` set).
  */
 export const agentDraftSchema = z
   .object({
     version_id: agentVersionIdSchema,
-    runtime_profile_id: z.string().min(1).max(128),
-    model_source: modelSourceSchema,
+    connection_id: z.string().min(1).max(128),
     failure: z.string().min(1).max(128).nullable(),
   })
   .strict();
@@ -1010,11 +996,8 @@ export const agentDraftSchema = z
 /** What a session started now runs with, or would once the draft applies. */
 export const behaviorValuesSchema = z
   .object({
-    runtime_profile_id: z.string().min(1).max(128),
+    connection_id: z.string().min(1).max(128),
     model: z.string().min(1).max(128),
-    model_source: modelSourceSchema,
-    /** The profile's, for sessions' titles only; null when it has none. */
-    title_model: z.string().min(1).max(128).nullable(),
   })
   .strict();
 
@@ -1027,20 +1010,6 @@ export const effectiveBehaviorSchema = z
   })
   .strict();
 
-export const profileTrackingSchema = z.enum(["follow", "pinned"]);
-
-/**
- * An agent's open step of a profile rollout: `pending` waits for the
- * scheduler, `failed` stays until a person retries it (`reason` says why).
- */
-export const profileRolloutStepSchema = z
-  .object({
-    status: z.enum(["pending", "failed"]),
-    reason: z.string().min(1).max(128).nullable(),
-    target_profile_id: z.string().min(1).max(200),
-  })
-  .strict();
-
 export const agentDetailSchema = z
   .object({
     agent: agentSchema,
@@ -1049,18 +1018,8 @@ export const agentDetailSchema = z
     active_release: agentReleaseSchema.nullable(),
     /** Bumped by every intent to change what the agent does. */
     behavior_revision: z.number().int().min(0).max(INT4_MAX),
-    /** Of the active release; the draft carries its own. */
-    model_source: modelSourceSchema,
     draft: agentDraftSchema.nullable(),
     effective_behavior: effectiveBehaviorSchema,
-    /**
-     * Optional so a reader ahead of its server reads an agent without it.
-     * `pinned`: a profile rollout leaves this agent on the profile version it
-     * runs; `follow`: it moves to a new version of its profile.
-     */
-    profile_tracking: profileTrackingSchema.optional(),
-    /** The profile rollout step still open for this agent, if any. */
-    profile_rollout: profileRolloutStepSchema.nullable().optional(),
   })
   .strict();
 
@@ -1123,13 +1082,13 @@ export const agentSummarySchema = z
         credential_refs: z.array(credentialRefSchema),
       })
       .strict(),
-    /** The active release's, or null before any activation. */
-    runtime_profile_id: z.string().min(1).max(128).nullable(),
+    /** The active release's connection, or null before any activation. */
+    connection_id: z.string().min(1).max(128).nullable(),
     /** The active release's, or null before any activation. */
     release_label: releaseLabelSchema.nullable(),
     /**
      * The model the active release runs, or null before any activation. A
-     * screen compares it with its profile's allowed list to warn when the
+     * screen compares it with its connection's model list to warn when the
      * model has left it.
      */
     release_model: z.string().min(1).nullable(),
@@ -1176,9 +1135,9 @@ export const listAgentsQuerySchema = paginationQuerySchema.extend({
     .meta({
       description: `Comma-separated agent ids, at most ${AGENT_IDS_MAX}: keeps those of them in the workspace, in the list's order. An id of no agent there is left out.`,
     }),
-  runtime_profile_id: z.string().min(1).max(128).optional().meta({
+  connection_id: z.string().min(1).max(128).optional().meta({
     description:
-      "Keeps the agents whose active release runs on this runtime profile. An agent with no active release is left out, and so is one whose settings the caller does not read: the profile is one of them.",
+      "Keeps the agents whose active release runs on this provider connection. An agent with no active release is left out, and so is one whose settings the caller does not read: the connection is one of them.",
   }),
 });
 export const listAgentsResponseSchema = pageSchema(agentListItemSchema);
@@ -1222,20 +1181,18 @@ export const createAgentRequestSchema = z
     }),
     card: agentCardRequestSchema,
     /**
-     * The profile the first release runs on. With it the save makes and
-     * activates that release; without it the agent stays a draft.
+     * The provider connection the first release runs on. With it the save
+     * makes and activates that release; without it the agent stays a draft.
      */
-    runtime_profile_id: z.string().min(1).max(128).optional(),
-    /** Absent: `fixed` (the card's model is kept as sent). */
-    model_source: modelSourceSchema.optional(),
+    connection_id: z.string().min(1).max(128).optional(),
   })
   .strict();
 /**
  * A `card` adds a version unless it equals one the agent already has;
- * `name` and `description` change the row only. A card, a profile or a model
- * source changes what the agent does: the save then makes a release of it and
+ * `name` and `description` change the row only. A card or a connection
+ * changes what the agent does: the save then makes a release of it and
  * activates it, unless it equals what the agent already runs (`unchanged`).
- * A profile or source alone re-saves the card the agent runs now.
+ * A connection alone re-saves the card the agent runs now.
  */
 export const updateAgentRequestSchema = z
   .object({
@@ -1244,29 +1201,13 @@ export const updateAgentRequestSchema = z
     /** Changes the row only, at once; no release is made. */
     auto_model_migration: z.boolean().optional(),
     card: agentCardRequestSchema.optional(),
-    /** Absent: the profile the agent runs on, else the one its draft names. */
-    runtime_profile_id: z.string().min(1).max(128).optional(),
-    /**
-     * Absent: the current source while the card's model is the one running,
-     * else `fixed`. `profile` runs the profile's default model.
-     */
-    model_source: modelSourceSchema.optional(),
-    /**
-     * The agent follows its profile again and runs the newest version of it,
-     * the way a profile rollout does. Alone: it names no other field.
-     */
-    follow_latest_profile: z.literal(true).optional(),
+    /** Absent: the connection the agent runs on, else the one its draft names. */
+    connection_id: z.string().min(1).max(128).optional(),
   })
   .strict()
   .refine(
     (patch) => Object.keys(patch).length > 0,
     "at least one field is required",
-  )
-  .refine(
-    (patch) =>
-      patch.follow_latest_profile === undefined ||
-      Object.keys(patch).length === 1,
-    "follow_latest_profile goes alone",
   );
 
 /** One-line hiring: a small model fills the card, a person edits it. */
@@ -1287,10 +1228,9 @@ export const draftAgentResponseSchema = z
 export const createAgentReleaseRequestSchema = z
   .object({
     version_id: agentVersionIdSchema,
-    runtime_profile_id: z.string().min(1).max(128),
+    connection_id: z.string().min(1).max(128),
     /** Trimmed; blank is refused. Leaves an existing release's note as is. */
     note: z.string().trim().pipe(releaseNoteSchema).optional(),
-    /** Required when the profile's `repository_mode` is `required`, refused when `none`. */
     repository_id: z.string().min(1).max(128).optional(),
     /** Absent: the active release's, unless this one has no repository. */
     github: agentGitHubSchema.optional(),
@@ -1318,15 +1258,27 @@ export const activateAgentResponseSchema = z
   })
   .strict();
 
-/** config, read-only, so a card can pick a model it is allowed to use. */
-export const runtimeProfileSummarySchema = z
+/**
+ * GET /v1/connections: the provider connections an agent release may name,
+ * with the models each offers. Only what an editor picks by: the endpoint
+ * and the credential stay with the operator.
+ */
+export const connectionOptionSchema = z
   .object({
     id: z.string().min(1).max(128),
-    fingerprint: z.string().min(1).max(128),
+    kind: providerKindSchema,
+    /** `none`: calls through it are not billed per token. */
+    billing: z.enum(["metered", "none"]),
     models: z.array(z.string().min(1).max(128)),
-    tools: z.array(toolNameSchema).nullable(),
-    mcp: z.array(toolNameSchema).nullable(),
+    /**
+     * Each model the connection dropped that has a successor, with the listed
+     * model of the same series a session on it moves to at its next turn.
+     */
+    model_successors: z.record(z.string().min(1), z.string().min(1)),
   })
+  .strict();
+export const listConnectionOptionsResponseSchema = z
+  .object({ items: z.array(connectionOptionSchema) })
   .strict();
 
 export type AgentStatus = z.infer<typeof agentStatusSchema>;
@@ -1346,8 +1298,6 @@ export type DraftAgentRequest = z.infer<typeof draftAgentRequestSchema>;
 export type DraftAgentResponse = z.infer<typeof draftAgentResponseSchema>;
 export type AgentDetail = z.infer<typeof agentDetailSchema>;
 export type AgentDraft = z.infer<typeof agentDraftSchema>;
-export type ProfileTracking = z.infer<typeof profileTrackingSchema>;
-export type ProfileRolloutStep = z.infer<typeof profileRolloutStepSchema>;
 export type BehaviorValues = z.infer<typeof behaviorValuesSchema>;
 export type EffectiveBehavior = z.infer<typeof effectiveBehaviorSchema>;
 export type ReleaseStatus = z.infer<typeof releaseStatusSchema>;
@@ -1369,4 +1319,7 @@ export type CreateAgentReleaseResponse = z.infer<
 >;
 export type ActivateAgentRequest = z.infer<typeof activateAgentRequestSchema>;
 export type ActivateAgentResponse = z.infer<typeof activateAgentResponseSchema>;
-export type RuntimeProfileSummary = z.infer<typeof runtimeProfileSummarySchema>;
+export type ConnectionOption = z.infer<typeof connectionOptionSchema>;
+export type ListConnectionOptionsResponse = z.infer<
+  typeof listConnectionOptionsResponseSchema
+>;

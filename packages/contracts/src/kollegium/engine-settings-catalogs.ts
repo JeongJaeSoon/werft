@@ -1,4 +1,4 @@
-import type { ToolCatalogView } from "../api/profile-tools.ts";
+import type { ToolCatalogView } from "../api/tool-names.ts";
 import {
   type EngineSettingsRefusal,
   type EngineSettingsSource,

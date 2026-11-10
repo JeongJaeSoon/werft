@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type { ToolCatalogView } from "../api/profile-tools.ts";
+import type { ToolCatalogView } from "../api/tool-names.ts";
 import {
   ADMIN_DENY_RULES_MAX,
   ENGINE_AUTO_MODE_RULE_MAX_LENGTH,

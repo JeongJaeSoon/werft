@@ -119,16 +119,18 @@ export const permissionModeSchema = z.enum(PERMISSION_MODE_VALUES);
 export const sessionRuntimeSchema = z.object({
   kind: runtimeKindSchema,
   version: z.string().min(1),
-  profile_id: z.string().min(1),
+  connection_id: z.string().min(1).meta({
+    description:
+      "The provider connection the session's model is called through, as its agent release named it.",
+  }),
 });
 // The worker protocol carries the model in runtime_config instead.
 export const sessionRuntimeViewSchema = sessionRuntimeSchema.extend({
   model: z.string().min(1).meta({
     description:
-      "The model the session runs: the one named at create, or the profile's default.",
+      "The model the session runs: the one named at create, or its agent release's card model.",
   }),
-  // Fixed with the session: changing it in the catalog makes the session
-  // CATALOG_MISMATCH rather than run under the new one.
+  // Fixed with the session's spec: a later release does not change it.
   permission_mode: permissionModeSchema,
 });
 export const executionObservationSchema = z.object({
@@ -186,30 +188,19 @@ export const sessionAttentionSchema = z.discriminatedUnion("code", [
     last_ran_turn_id: turnIdSchema,
     checkpointed_turn_id: turnIdSchema.nullable(),
   }),
-  // The catalog does not allow the session's profile and repository pair as
-  // it stands now, or defines the profile with other settings than the
-  // session was created with, so no worker will run it; a launch
-  // reserved for it fails the session with CATALOG_MISMATCH. Judged on every
+  // The session's connection is disabled or gone, its model left the
+  // connection's list, or its repository left the catalog, so no worker will
+  // run it; a launch reserved for it fails the session with CATALOG_MISMATCH. Judged on every
   // read: restoring the pair or the settings clears it, and the next message
   // runs again.
   z.object({
     code: z.literal("CATALOG_MISMATCH"),
     reason: z.string().min(1),
   }),
-  // The operator blocked the session's profile (`blocked`) or the
-  // installation profile its workspace profile narrows (`base_blocked`).
-  // Said in place of CATALOG_MISMATCH: new messages are refused with 409
-  // PROFILE_BLOCKED until the operator unblocks it, and then run again.
-  z.object({
-    code: z.literal("PROFILE_BLOCKED"),
-    reason: z.string().min(1),
-    reason_code: z.enum(["blocked", "base_blocked"]),
-    profile_id: z.string().min(1),
-  }),
   // Workers claimed with the session's checkpoint kept ending before the
   // restore finished. While retry_at is set the next launch waits
   // for it; null means the limit was reached and the session is held in
-  // recovery_required. A deterministic runtime/profile mismatch stops after
+  // recovery_required. A deterministic runtime mismatch stops after
   // the first launch with reason incompatible_checkpoint. After the
   // cause is fixed, retry_restore tries the same checkpoint again; start_fresh
   // continues without it, close ends the session. A restore that succeeds
@@ -457,7 +448,7 @@ export const inputWaitSchema = z
   })
   .strict();
 
-// Seconds, both optional: the profile's value stands for one left out.
+// Seconds, both optional: the installation's value stands for one left out.
 export const MAX_PERMISSION_WAIT_SECONDS = 604_800;
 export const permissionWaitRequestSchema = z
   .object({
@@ -477,7 +468,6 @@ export const permissionWaitRequestSchema = z
   .strict();
 
 export const SESSION_EXTENSION_SCOPE_VALUES = [
-  "profile",
   "workspace",
   "agent",
   "session",
@@ -492,7 +482,7 @@ export const sessionExtensionSchema = z
     digest: z.string().regex(/^[0-9a-f]{64}$/),
     scope: z.enum(SESSION_EXTENSION_SCOPE_VALUES).meta({
       description:
-        "The scope that put the bundle on the session: `profile`, `workspace` or `agent` required it, or the session's own request turned an `optional` one on.",
+        "The scope that put the bundle on the session: `workspace` or `agent` required it, or the session's own request turned an `optional` one on.",
     }),
   })
   .strict();
@@ -551,13 +541,12 @@ export const sessionSummarySchema = z.object({
     description:
       "Which stage the session's wait for an answer is in; null when it waits on none. `GET /v1/sessions/{id}` says what it waits on. Absent from a server older than the field.",
   }),
-  // What the catalog says the session's profile runs, or null when it cannot
-  // say: a legacy row with no profile key, or a key the catalog no longer
-  // has (detail reports CATALOG_MISMATCH). Never an estimate.
+  // What the session's spec runs, or null for a session without one (a
+  // legacy row). Never an estimate.
   runtime: sessionRuntimeViewSchema.nullable(),
   model: z.string().min(1).nullable().meta({
     description:
-      "The model the session was created to run: the one named at create, else the agent release's card model, else the profile's default. Changing the session's profile sets it to the new profile's default. Null for a session from before the field whose model could not be told from its catalog entry.",
+      "The model the session was created to run: the one named at create, else the agent release's card model. Null for a session from before the field.",
   }),
   // Catalog key only. Sessions created before the catalog existed (M0
   // legacy rows) carry no key and surface null; the stored repo URL is
@@ -574,7 +563,7 @@ export const sessionSummarySchema = z.object({
     .optional()
     .meta({
       description:
-        "The catalog repositories besides `repository_id` the session works on: those it was created with (`attached_repository_ids` at create) and those its agent attached since with `attach_repository`. The session reaches only those of them its agent release's GitHub settings still list. Null on a session that attaches none (no agent release, or a profile whose `repository_mode` is `none`), and on one created before an omitted list meant `[]`: every repository the release lists, besides its own, is reachable. Absent from a server older than the field.",
+        "The catalog repositories besides `repository_id` the session works on: those it was created with (`attached_repository_ids` at create) and those its agent attached since with `attach_repository`. The session reaches only those of them its agent release's GitHub settings still list. Null on a session that attaches none (no agent release), and on one created before an omitted list meant `[]`: every repository the release lists, besides its own, is reachable. Absent from a server older than the field.",
     }),
   attached_repositories: z
     .array(sessionAttachedRepositorySchema)
@@ -637,16 +626,12 @@ export const messageTextSchema = z
 
 export const createSessionRequestSchema = z
   .object({
-    profile_id: z.string().min(1).optional().meta({
-      description:
-        "The catalog profile the session runs on. Required without `agent_release_id`; with it, omitted means the release's profile, and sent it must be that profile.",
-    }),
     title: sessionTitleSchema.optional().meta({
       description: `The session's name. Omitted, it is derived from \`message\`: whitespace and line breaks collapsed to one space, the ends trimmed, and text longer than ${SESSION_TITLE_MAX_GRAPHEMES} characters cut to ${SESSION_TITLE_MAX_GRAPHEMES - 1} and an ellipsis (…). Rename it later with \`PATCH /v1/sessions/{id}\`.`,
     }),
     repository_id: z.string().min(1).optional().meta({
       description:
-        "The catalog repository the session works on. Where the catalog judges the pair, required when the profile's `repository_mode` is `required`, refused when it is `none`, either when it is `optional`; a session on the agent's GitHub settings or a workspace-scoped profile is judged by the workspace ceiling and the agent's list instead. Omitted, a session of an agent with GitHub settings starts without a repository and attaches what it needs, a session of an agent with none works on the release's `repository_id` when `agent_release_id` is sent, else starts in an empty workspace with no repository of its own, pushing only to those in `attached_repository_ids`.",
+        "The catalog repository the session works on, judged by the workspace ceiling and the agent's GitHub settings. Omitted, a session of an agent with GitHub settings starts without a repository and attaches what it needs, a session of an agent with none works on the release's `repository_id` when `agent_release_id` is sent, else starts in an empty workspace with no repository of its own, pushing only to those in `attached_repository_ids`.",
     }),
     attached_repository_ids: z
       .array(
@@ -662,7 +647,7 @@ export const createSessionRequestSchema = z
       })
       .optional()
       .meta({
-        description: `Catalog repositories besides the session's own that it may fetch, push to and open pull requests on. Each one has to be listed in the agent release's GitHub settings (\`github.repositories\`), allowed for the profile, and other than the session's repository; otherwise 403 \`GITHUB_REFUSED\` with \`repository_not_allowed\`, as is any list sent for a session without an agent release, or for a profile whose \`repository_mode\` is \`none\` when the agent has no GitHub settings. A session started without a repository on an \`optional\` profile works on these alone, and names one in each push request. Omitted, the same as \`[]\`: the session starts with none besides its own, and its agent attaches others the release lists with the built-in MCP tool \`attach_repository\` when it needs them.`,
+        description: `Catalog repositories besides the session's own that it may fetch, push to and open pull requests on. Each one has to be listed in the agent release's GitHub settings (\`github.repositories\`), inside the workspace ceiling, and other than the session's repository; otherwise 403 \`GITHUB_REFUSED\` with \`repository_not_allowed\`, as is any list sent for an agent with no GitHub settings. A session started without a repository works on these alone, and names one in each push request. Omitted, the same as \`[]\`: the session starts with none besides its own, and its agent attaches others the release lists with the built-in MCP tool \`attach_repository\` when it needs them.`,
       }),
     extensions: z
       .object({
@@ -676,28 +661,19 @@ export const createSessionRequestSchema = z
           "Turns extension bundles on or off for this session, by the bundle ids the workspace registered. Only a bundle its agent or workspace left `optional` can be named; a `required` one is always on and a `forbidden` one cannot be turned on, else `UNSUPPORTED_CAPABILITY` with `details.reason_code` naming why (`required_removed`, `required_replaced`, `forbidden_revived`, `not_optional`, `bundle_not_found`, `bundle_not_approved`, `skill_name_collision`, `feature_unsupported`, `scripts_need_default_mode`) and `details.bundle` the bundle name. An `optional` bundle not named in `enable` stays off. The resolved list is fixed at create and returned as `extensions`.",
       }),
     message: messageTextSchema,
-    // Pins the session to this release of an agent: the session then belongs
-    // to that agent, and an agent's key may create it. The run itself still
-    // follows profile_id, which has to be the release's profile.
-    agent_release_id: agentReleaseIdSchema.optional(),
+    // Pins the session to this release of an agent: the session belongs to
+    // that agent, runs the release's spec, and an agent's key may create it.
+    agent_release_id: agentReleaseIdSchema,
     model: z.string().min(1).optional().meta({
       description:
-        "One of the models the profile offers (its `model` or one of its `models` in the catalog). Omitted, the model of the agent release's card when `agent_release_id` is sent, else the profile's default `model`. Kept until the session's profile is changed, after which the new profile's default `model` runs.",
+        "One of the models the release's connection offers. Omitted, the model of the agent release's card.",
     }),
     permission_wait: permissionWaitRequestSchema.optional().meta({
       description:
-        "How long the session's permission and question requests wait for an answer, in seconds: `park_after_seconds` before the platform parks the turn and frees its worker (0 parks at once), `expire_after_seconds` from the request until it stops taking answers and is denied. Each can only shorten the profile's value (`GET /v1/profiles`, `permission_wait`); a longer one is 400 `PERMISSION_WAIT_ABOVE_PROFILE`. Omitted, the profile's values apply. A request takes the values in force when it is raised.",
+        "How long the session's permission and question requests wait for an answer, in seconds: `park_after_seconds` before the platform parks the turn and frees its worker (0 parks at once), `expire_after_seconds` from the request until it stops taking answers and is denied. Each can only shorten the installation's value; a longer one is 400 `PERMISSION_WAIT_ABOVE_LIMIT`. Omitted, the installation's values apply. A request takes the values in force when it is raised.",
     }),
   })
-  .strict()
-  .refine(
-    (body) =>
-      body.profile_id !== undefined || body.agent_release_id !== undefined,
-    {
-      path: ["profile_id"],
-      message: "profile_id is required without agent_release_id",
-    },
-  );
+  .strict();
 export const createSessionResponseSchema = z.object({
   session_id: sessionIdSchema,
   turn_id: turnIdSchema,

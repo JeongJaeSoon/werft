@@ -34,7 +34,7 @@ import {
 import { z } from "zod";
 import { type GitCredential, repoRefOf } from "../action/ports/forge.ts";
 import type { InstallationProfileRecord } from "../ports/installation-profile-store.ts";
-import type { ToolCatalogs } from "./profile-tools.ts";
+import type { ToolCatalogs } from "./tool-names.ts";
 
 // An entry never holds a credential value outside `secret_values`: it names a
 // stored value, an environment variable or a Secrets Manager secret.

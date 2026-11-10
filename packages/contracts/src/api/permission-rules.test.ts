@@ -6,7 +6,7 @@ import {
   parsePermissionRule,
   parsePermissionRules,
 } from "./permission-rules.ts";
-import type { ToolCatalogView } from "./profile-tools.ts";
+import type { ToolCatalogView } from "./tool-names.ts";
 
 const catalog: ToolCatalogView = {
   id: "test@1",

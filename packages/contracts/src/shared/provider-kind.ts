@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 // A leaf with no imports of its own, like runtime-kind.ts: the release spec,
-// the settings API, the profile options and the worker protocol all name the
+// the settings API, the connection options and the worker protocol all name the
 // connection kinds, and none of them may import another to do it.
 //
 // `openai_responses` is an OpenAI-compatible endpoint spoken to over the

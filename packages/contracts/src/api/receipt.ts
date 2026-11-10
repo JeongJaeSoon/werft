@@ -38,8 +38,6 @@ export const RECEIPT_OPERATION_VALUES = [
   "terminate",
   "resume",
   "recovery_decision",
-  // A session moved onto another catalog profile from its next turn on.
-  "change_profile",
   // The operator's execution revocation; written on the session
   // owner's receipt list so the owner sees why the session stopped.
   "revoke_execution",
@@ -171,12 +169,6 @@ export const RECEIPT_OPERATION_VALUES = [
   "set_github_packages_allowlist",
   // One GitHub Packages request through the egress proxy, allowed or refused.
   "fetch_github_package",
-  "create_workspace_profile",
-  "retire_workspace_profile",
-  "create_installation_profile",
-  "retire_installation_profile",
-  "block_installation_profile",
-  "unblock_installation_profile",
   // Achievement rules: ids and versions only, never a definition's text.
   "create_achievement_category",
   "update_achievement_category",

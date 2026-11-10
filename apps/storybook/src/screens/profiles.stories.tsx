@@ -91,7 +91,7 @@ type Tool = {
   readonly fresh?: boolean;
 };
 
-/** routes/profile-tools.tsx DenyChecklist: a ticked box blocks the tool. */
+/** routes/tool-names.tsx DenyChecklist: a ticked box blocks the tool. */
 function ToolChecklist({
   tools,
   catalog,

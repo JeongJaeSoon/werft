@@ -42,7 +42,7 @@ import {
   reasonOf,
   toolField,
   toolRefusalKey,
-} from "./profile-tools.tsx";
+} from "./tool-names.tsx";
 import {
   allBlockedOf,
   askAgain,

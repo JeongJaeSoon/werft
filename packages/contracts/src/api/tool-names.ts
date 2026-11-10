@@ -35,7 +35,7 @@ export function mcpToolOfServer(name: string, server: string): boolean {
 
 /**
  * The one rule for an `mcp__` tool name that is allowed (an agent's MCP
- * settings), blocked (a profile's deny) and compared (what a session runs).
+ * settings), blocked (an engine settings deny) and compared (what a session runs).
  */
 export const mcpToolNameSchema = z
   .string()
@@ -44,8 +44,8 @@ export const mcpToolNameSchema = z
 export type ToolBoundaryValue = "local" | "egress" | "provider";
 
 /**
- * A built-in tool catalog as a profile's deny reads it: the runtime's
- * (with `aliases`) or the options response's (without).
+ * A built-in tool catalog as a rule reads it: the runtime's (with
+ * `aliases`) or a response's (without).
  */
 export type ToolCatalogView = {
   readonly id: string;
