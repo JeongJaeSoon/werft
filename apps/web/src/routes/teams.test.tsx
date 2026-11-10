@@ -281,7 +281,7 @@ describe("팀 화면", () => {
       ).toBe(true),
     );
     await user.keyboard("지원팀{Enter}");
-    expect(await toastSaid()).toBe("지원팀 팀을 만들었습니다.");
+    expect(await toastSaid()).toBe("팀을 만들었습니다: 지원팀");
     // A confirmation is polite: a screen reader waits for a pause to read it.
     expect(toastRegion()?.tagName).toBe("OUTPUT");
     expect(toastRegion()?.getAttribute("aria-live")).toBe("polite");
@@ -462,7 +462,7 @@ describe("팀 화면", () => {
       ).toBeGreaterThan(lists),
     );
     // The team exists whichever tab asked: the toast says so.
-    expect(await toastSaid()).toBe("지원팀 팀을 만들었습니다.");
+    expect(await toastSaid()).toBe("팀을 만들었습니다: 지원팀");
   });
 
   test("팀 상세의 주 버튼은 구성원 구역 제목 줄의 구성원 추가 하나이고 팀 만들기·초대는 없다", async () => {
@@ -582,7 +582,7 @@ describe("팀 화면", () => {
         receipt_id: RECEIPT_ID,
       }),
     );
-    expect(await toastSaid()).toBe("지원팀 팀을 만들었습니다.");
+    expect(await toastSaid()).toBe("팀을 만들었습니다: 지원팀");
     expect(api.calls.filter((c) => c.method === "POST")).toHaveLength(1);
     expect(screen.queryByRole("dialog")).toBeNull();
   });
@@ -1092,7 +1092,7 @@ describe("팀 화면", () => {
     await user.click(removeMate);
     const removeDialog = await screen.findByRole("dialog");
     expect(removeDialog.textContent).toContain(
-      "Mate님을 결제팀 팀에서 제외할까요?",
+      "Mate님을 다음 팀에서 제외할까요? 결제팀",
     );
     await user.click(
       within(removeDialog).getByRole("button", { name: "제외" }),
@@ -1135,7 +1135,7 @@ describe("팀 화면", () => {
     expect(server.team).toBeNull();
     expect(await screen.findByText("아직 팀이 없습니다.")).toBeDefined();
     // The page that raised it is gone; the toast stays with the tabs.
-    expect(await toastSaid()).toBe("청구팀 팀을 삭제했습니다.");
+    expect(await toastSaid()).toBe("팀을 삭제했습니다: 청구팀");
   });
 
   const mateMember: TeamDetail["members"][number] = {
