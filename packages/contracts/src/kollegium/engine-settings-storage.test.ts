@@ -40,6 +40,21 @@ describe("validateEngineSettings", () => {
     });
   });
 
+  test("refuses text PostgreSQL cannot hold in jsonb: NUL and a lone surrogate", () => {
+    for (const text of ["read\u0000docs", "read\ud800docs"]) {
+      expect(refusedAs({ permissions: {}, auto_mode: { allow: [text] } })).toBe(
+        "settings_shape",
+      );
+      expect(
+        refusedAs({ permissions: { deny: [`Bash(${text})`] }, auto_mode: {} }),
+      ).toBe("settings_shape");
+    }
+    // Ordinary non-ASCII text, including a paired surrogate (an emoji), is fine.
+    expect(
+      refusedAs({ permissions: {}, auto_mode: { allow: ["문서 읽기 📄"] } }),
+    ).toBe("accepted");
+  });
+
   test("an empty settings object is accepted and stored as empty", () => {
     expect(settings({ permissions: {}, auto_mode: {} })).toEqual({
       settings: { permissions: {}, auto_mode: {} },

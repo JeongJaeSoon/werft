@@ -5603,7 +5603,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Workspace settings",
     summary: "The workspace's saved engine rules",
     description:
-      "The rules every agent of the workspace runs under: `settings.permissions` (`allow`, `ask`, `deny`: tool rules in the engine's spelling) and `settings.auto_mode` (`allow`, `soft_deny`, `hard_deny`, `environment`: sentences the auto-mode classifier reads). A list that is absent holds nothing. `settings_revision` is null while nothing is saved. `writes_open` says whether a save is accepted now; reading is always open. A workspace member reads it with a console session or a personal API key.",
+      "The rules every agent of the workspace runs under: `settings.permissions` (`allow`, `ask`, `deny`: tool rules in the engine's spelling) and `settings.auto_mode` (`allow`, `soft_deny`, `hard_deny`, `environment`: sentences the auto-mode classifier reads). A list that is absent holds nothing. `settings_revision` is null while nothing is saved. `writes_open` says whether a save is accepted now; reading is always open. Any member of the workspace reads it with a console session; an API key is refused.",
     auth: "session",
     success: {
       status: 200,

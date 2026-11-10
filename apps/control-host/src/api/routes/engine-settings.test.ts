@@ -222,6 +222,16 @@ describe("the workspace engine settings API", () => {
     expect(read.status).toBe(403);
   });
 
+  test("both reads are console-session operations: a personal API key is refused too", async () => {
+    const { call } = appWith();
+    expect(
+      (await call("GET", workspacePath(), { personalKey: true })).status,
+    ).toBe(403);
+    expect((await call("GET", agentPath(), { personalKey: true })).status).toBe(
+      403,
+    );
+  });
+
   test("saving another workspace's id is not found; a huge body is a 413", async () => {
     const { call, saved } = appWith();
     const other = await call("PUT", workspacePath(OTHER_WORKSPACE), {
@@ -294,6 +304,19 @@ describe("the workspace engine settings API", () => {
     });
     expect(refused.status).toBe(400);
     expect(reason(refused.json)).toBeString();
+    expect(saved).toEqual([]);
+  });
+
+  test("text the database cannot hold is a 400, not a server error", async () => {
+    const { call, saved } = appWith();
+    for (const text of ["read\u0000docs", "read\ud800docs"]) {
+      const refused = await call("PUT", workspacePath(), {
+        cookie: cookieFor("owner"),
+        body: body({ permissions: {}, auto_mode: { allow: [text] } }),
+      });
+      expect(refused.status).toBe(400);
+      expect(reason(refused.json)).toBe("settings_shape");
+    }
     expect(saved).toEqual([]);
   });
 
