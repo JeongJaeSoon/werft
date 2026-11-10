@@ -90,7 +90,10 @@ describe("pages.yml", () => {
     const waitMs = attempts.map((s) => Number(s.with?.timeout));
     // Healthy deploys take under 30s; both attempts plus the ~2 min of
     // assembly before them must fit the job limit.
-    for (const ms of waitMs) expect(ms).toBeLessThanOrEqual(180_000);
+    // The action replaces a zero or negative value with its 10 minute default.
+    for (const ms of waitMs) expect(ms).toBe(180_000);
+    // The last attempt must fail the job when it fails.
+    expect(attempts[1]?.["continue-on-error"]).toBeUndefined();
     const total = waitMs.reduce((a, b) => a + b, 0) / 60_000 + 3;
     expect(total).toBeLessThan(deploy?.["timeout-minutes"] ?? 0);
   });
