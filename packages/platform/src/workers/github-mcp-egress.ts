@@ -62,6 +62,13 @@ export function createGitHubMcpEgress(deps: {
     if (method === "tools/call" && (tool === null || !exposed.includes(tool))) {
       return forbidden("The release does not expose this GitHub tool");
     }
+    if (
+      method === "tools/call" &&
+      tool !== null &&
+      state.blockedTools?.includes(tool) === true
+    ) {
+      return forbidden("A saved rule denies this GitHub tool");
+    }
     const bearer = signGitHubMcpGrant(deps.grantKey, fenced, now());
     return {
       kind: "granted",

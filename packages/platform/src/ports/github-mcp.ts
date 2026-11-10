@@ -18,6 +18,12 @@ export type GitHubMcpSessionState = {
   /** `agents.github_enabled` now. */
   enabled: boolean;
   /**
+   * Built-in tools a saved `mcp__github__<tool>` deny blocks, by their short
+   * names, from the rows as they are now. All of them when the rules cannot
+   * be read. Absent from a store that predates it, which blocks none.
+   */
+  blockedTools?: readonly string[];
+  /**
    * The credential that created the session, with the release's agent: who
    * an MCP call acts as. Null when the session recorded none.
    */

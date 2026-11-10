@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { PGlite } from "@electric-sql/pglite";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
-import { claimEngineSettingsOf } from "./claim-engine-settings.ts";
+import { claimEngineSettingsOf, mcpDeniedBy } from "./claim-engine-settings.ts";
 import * as schema from "./schema.ts";
 import { fixtureTeamSql } from "./testing/fixture-team.ts";
 
@@ -153,6 +153,16 @@ describe("claimEngineSettingsOf", () => {
     expect(
       await claimEngineSettingsOf(db, session({ agentReleaseId: null }), both),
     ).toEqual({ kind: "ok", settings: { disallowedTools: [] } });
+  });
+
+  test("mcpDeniedBy lists the saved mcp__ denies and is null when rules cannot be read", async () => {
+    await workspaceRules({ deny: ["mcp__github__delete_repo", "Skill"] });
+    expect(await mcpDeniedBy(db, session())).toEqual([
+      "mcp__github__delete_repo",
+    ]);
+    expect(
+      await mcpDeniedBy(db, session({ agentReleaseId: "sha256:missing" })),
+    ).toBeNull();
   });
 
   test("a release that cannot be resolved closes the claim", async () => {

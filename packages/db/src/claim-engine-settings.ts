@@ -34,13 +34,50 @@ export type ClaimEngineSettingsResult =
  */
 export async function claimEngineSettingsOf(
   tx: Database,
-  session: {
-    workspaceId: string | null;
-    agentReleaseId: string | null;
-    engineSettingsStart: unknown;
-  },
+  session: RuleSession,
   supports: { engineSettings: boolean; permissionRules: boolean },
 ): Promise<ClaimEngineSettingsResult> {
+  const merged = await mergedRulesOf(tx, session);
+  if (merged.kind === "closed") return merged;
+  if (merged.engine !== undefined && !supports.engineSettings) {
+    return { kind: "unsupported" };
+  }
+  if (merged.disallowedTools.length > 0 && !supports.permissionRules) {
+    return { kind: "unsupported" };
+  }
+  return {
+    kind: "ok",
+    settings: {
+      ...(merged.engine === undefined ? {} : { engine: merged.engine }),
+      disallowedTools: merged.disallowedTools,
+    },
+  };
+}
+
+type RuleSession = {
+  workspaceId: string | null;
+  agentReleaseId: string | null;
+  engineSettingsStart: unknown;
+};
+
+/**
+ * The `mcp__` tool names saved rules deny for the session, or null when the
+ * rules cannot be read. Callers treat null as "deny every MCP tool": the
+ * platform enforces these at call time because the engine adapter takes no
+ * `mcp__` rule in deny or ask.
+ */
+export async function mcpDeniedBy(
+  executor: Database,
+  session: RuleSession,
+): Promise<string[] | null> {
+  const merged = await mergedRulesOf(executor, session);
+  return merged.kind === "closed" ? null : merged.mcpDeny;
+}
+
+async function mergedRulesOf(
+  tx: Database,
+  session: RuleSession,
+): Promise<ReturnType<typeof mergeEngineSettings>> {
   let workspace = null;
   if (session.workspaceId !== null) {
     const [row] = await tx
@@ -87,7 +124,7 @@ export async function claimEngineSettingsOf(
     }
   }
 
-  const merged = mergeEngineSettings({
+  return mergeEngineSettings({
     workspace,
     agent: effectiveEngineSettings({
       start: session.engineSettingsStart,
@@ -95,18 +132,4 @@ export async function claimEngineSettingsOf(
     }),
     adminDeny,
   });
-  if (merged.kind === "closed") return merged;
-  if (merged.engine !== undefined && !supports.engineSettings) {
-    return { kind: "unsupported" };
-  }
-  if (merged.disallowedTools.length > 0 && !supports.permissionRules) {
-    return { kind: "unsupported" };
-  }
-  return {
-    kind: "ok",
-    settings: {
-      ...(merged.engine === undefined ? {} : { engine: merged.engine }),
-      disallowedTools: merged.disallowedTools,
-    },
-  };
 }

@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { type AgentGitHub, GITHUB_MCP_FIXED_TOOLS } from "@werft-ai/contracts";
+import {
+  type AgentGitHub,
+  GITHUB_MCP_FIXED_TOOLS,
+  githubMcpTools,
+} from "@werft-ai/contracts";
 import type { GitHubMcpSessionState } from "../ports/github-mcp.ts";
 import { verifyGitHubMcpGrant } from "../sessions/github-mcp-server.ts";
 import {
@@ -122,5 +126,28 @@ describe("createGitHubMcpEgress", () => {
         await egress(current)(fenced, call(null, "initialize")),
       ).toMatchObject({ kind: "refused", status: 403 });
     }
+  });
+});
+
+describe("saved mcp__github__ denies", () => {
+  test("refuse a blocked tool and still grant the others", async () => {
+    const blockedTools = ["submit_review"];
+    const refused = await egress({ blockedTools })(
+      fenced,
+      call("submit_review"),
+    );
+    expect(refused.kind).toBe("refused");
+    const other = githubMcpTools(settings).find(
+      (tool) => tool !== "submit_review",
+    );
+    expect(other).toBeDefined();
+    const granted = await egress({ blockedTools })(fenced, call(other ?? null));
+    expect(granted.kind).toBe("granted");
+  });
+
+  test("a store that predates the field blocks nothing", async () => {
+    expect((await egress()(fenced, call("submit_review"))).kind).toBe(
+      "granted",
+    );
   });
 });

@@ -552,12 +552,14 @@ export function createGitHubMcpServer(deps: {
     ) {
       return fail(-32001, "GitHub tools are not available to this session");
     }
+    const blocked = state.blockedTools ?? [];
     if (message.method === "tools/list") {
       return answer({
         tools: toolList(
-          state.source === "release"
+          (state.source === "release"
             ? githubMcpTools(state.github)
-            : GITHUB_MCP_FIXED_TOOLS,
+            : GITHUB_MCP_FIXED_TOOLS
+          ).filter((tool) => !blocked.includes(tool)),
         ),
       });
     }
@@ -570,6 +572,9 @@ export function createGitHubMcpServer(deps: {
       return fail(-32602, "Unknown tool");
     }
     const tool = name as GitHubMcpTool;
+    if (blocked.includes(tool)) {
+      return fail(-32001, "A saved rule denies this tool");
+    }
     try {
       return answer(
         await call(
