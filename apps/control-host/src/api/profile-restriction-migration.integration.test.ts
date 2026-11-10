@@ -113,8 +113,19 @@ async function agentWithRelease(
     slug: `a-${agentId.slice(0, 8)}`,
     name: `agent-${agentId.slice(0, 4)}`,
   });
+  const releaseIds = await releasesFor(db, agentId, tools, more + 1);
+  return { agentId, releaseIds };
+}
+
+/** Gives an existing agent `count` releases and activates the last. */
+async function releasesFor(
+  db: Db,
+  agentId: string,
+  tools: string[],
+  count: number,
+) {
   const releaseIds: string[] = [];
-  for (let n = 0; n <= more; n += 1) {
+  for (let n = 0; n < count; n += 1) {
     const versionId = randomUUID();
     await db.insert(agentVersions).values({
       id: versionId,
@@ -137,13 +148,18 @@ async function agentWithRelease(
     });
     releaseIds.push(id);
   }
-  const active = releaseIds.at(-1) as string;
   await db
     .update(agents)
-    .set({ activeReleaseId: active, activationRevision: 0 })
+    .set({
+      activeReleaseId: releaseIds.at(-1) as string,
+      activationRevision: 0,
+    })
     .where(eq(agents.id, agentId));
-  return { agentId, releaseIds };
+  return releaseIds;
 }
+
+const agentWithReleaseFor = (db: Db, agentId: string, tools: string[]) =>
+  releasesFor(db, agentId, tools, 1);
 
 const rowOf = async (db: Db, agentId: string) =>
   (
@@ -363,6 +379,59 @@ integration("the profile restriction migration on PostgreSQL", () => {
       ]);
       expect(await rowOf(db, first.agentId)).toBeUndefined();
       expect(await rowOf(db, later.agentId)).toBeUndefined();
+    });
+  });
+
+  test("an agent that comes to need an entry while the apply runs is found after the writes and fails the run", async () => {
+    await withDatabase(async (context) => {
+      const { db, pool, run } = context;
+      const workspaceId = await workspaceOf(db);
+      const a = await agentWithRelease(db, workspaceId, ALL_TOOLS.slice(0, 2));
+      // B has no release when the report is made.
+      const bId = randomUUID();
+      await db.insert(agents).values({
+        id: bId,
+        workspaceId,
+        managingTeamId: await fixtureTeam(db, workspaceId),
+        slug: `a-${bId.slice(0, 8)}`,
+        name: "b",
+      });
+      await setEngineSettingsGate(db, true);
+      const { out } = await plan(context);
+      const text = await readFile(out, "utf8");
+
+      const holder = await pool.connect();
+      await holder.query("BEGIN");
+      await holder.query("SELECT id FROM agents WHERE id = $1 FOR UPDATE", [
+        a.agentId,
+      ]);
+      const pending = run([
+        "--apply",
+        "--report",
+        out,
+        "--report-sha256",
+        sha256Of(text),
+      ]);
+      let waiting = false;
+      for (let tries = 0; tries < 300 && !waiting; tries += 1) {
+        const { rows } = await pool.query(
+          `SELECT 1 FROM pg_stat_activity
+           WHERE wait_event_type = 'Lock' AND query ILIKE '%FROM agents WHERE id%FOR UPDATE%'`,
+        );
+        waiting = rows.length > 0;
+        if (!waiting) await new Promise((done) => setTimeout(done, 50));
+      }
+      expect(waiting).toBe(true);
+      // B gets its first release while the apply waits on A.
+      await agentWithReleaseFor(db, bId, ALL_TOOLS.slice(0, 2));
+      await holder.query("COMMIT");
+      holder.release();
+      const result = await pending;
+      expect(result.out.written).toEqual([a.agentId]);
+      expect(result.out.still_needed).toEqual([
+        { agent_id: bId, reason: null },
+      ]);
+      expect(result.code).toBe(1);
     });
   });
 

@@ -223,7 +223,13 @@ async function apply(
       skipped_existing_count: skippedExisting.length,
       changed_since_report_count: changed.length,
       blocked_count: blocked.length,
+      still_needed: stillNeeded,
+      still_needed_count: stillNeeded.length,
     });
+    // The agents the data needs an entry for after the writes. A release made
+    // while this ran is not stopped (that needs the profile freeze), but it
+    // is found here, named, and makes the exit code 1.
+    let stillNeeded: { agent_id: string; reason: string | null }[] = [];
     try {
       for (const entry of plan.agents) {
         if (entry.decision !== "write") continue;
@@ -251,8 +257,18 @@ async function apply(
       say({ ...summary(), error: String(error) });
       throw error;
     }
+    if (!gateClosed) {
+      stillNeeded = (await planNow(deps)).agents
+        .filter((entry) => entry.decision === "write")
+        .map((entry) => ({ agent_id: entry.agent_id, reason: entry.reason }));
+    }
     say(summary());
-    return gateClosed || changed.length > 0 || blocked.length > 0 ? 1 : 0;
+    return gateClosed ||
+      changed.length > 0 ||
+      blocked.length > 0 ||
+      stillNeeded.length > 0
+      ? 1
+      : 0;
   } finally {
     await lock.release();
   }
