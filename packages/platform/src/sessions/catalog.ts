@@ -883,17 +883,15 @@ export function modelMoves(
 
 /**
  * The engine versions the configured worker images ship (each image's SDK
- * and CLI version). A worker image upgrade moves a profile's
- * `runtime_version` while a session pinned before it resumes on the
- * previous image, so a pin taken under any `accepted` version still names
- * the profile. `current` is the image new sessions start on.
+ * and CLI version). A session whose spec names any `accepted` version runs;
+ * `current` is the image new releases are made on.
  */
 export type RuntimeVersions = {
   readonly accepted: readonly string[];
   readonly current: readonly string[];
 };
 
-/** Without configured images: a pin matches the profile as written only. */
+/** Without configured images: none is listed, and every version runs. */
 export function acceptedRuntimeVersions(catalog: {
   runtime_versions?: RuntimeVersions | undefined;
 }): readonly string[] {

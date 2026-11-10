@@ -158,36 +158,6 @@ export type ResumeSessionResult =
   // not expired.
   | { outcome: "pending_requests_open"; waitingFor: number };
 
-// The states a profile change is accepted in: nothing is on its way in or
-// out. A pausing or resuming session settles first.
-export const PROFILE_CHANGE_ADMISSION_STATES = [
-  "active",
-  "paused",
-  "stopped",
-] as const satisfies readonly AdmissionState[];
-
-export type ChangeProfileInput = {
-  principal: Principal;
-  sessionId: string;
-  idempotencyKey: string;
-  payloadHash: string;
-  expectedRevision: number;
-  // Judged against the catalog for the session's repository and its
-  // profile `judgedFrom`; null when the catalog refuses it, which is
-  // answered only after a replay of the same key has been.
-  profile: {
-    id: string;
-    fingerprint: string;
-    // The new profile's default, which the session runs from the change on.
-    model: string;
-    unmetered: boolean;
-  } | null;
-  // The session's profile the judgement was made against; another one under
-  // the lock means the session moved since it was read.
-  judgedFrom: string | null;
-  now: Date;
-};
-
 export type RenameSessionInput = {
   principal: Principal;
   sessionId: string;
@@ -200,25 +170,6 @@ export type RenameSessionResult =
   | { outcome: "not_found" }
   | { outcome: "actor_inactive" }
   | { outcome: "renamed"; changed: boolean };
-
-export type ChangeProfileResult =
-  | { outcome: "accepted" | "replayed"; response: ControlAcceptedResponse }
-  | { outcome: "conflict" | "not_found" }
-  | { outcome: "revision_conflict"; currentRevision: number }
-  | {
-      outcome: "rejected";
-      admissionState: Exclude<
-        AdmissionState,
-        (typeof PROFILE_CHANGE_ADMISSION_STATES)[number]
-      >;
-    }
-  // The session belongs to an agent release, whose profile it runs.
-  | { outcome: "release_bound"; releaseId: string }
-  // `billing: none` on one side only: the session's cost limit would start
-  // or stop applying mid-session, so the change is refused.
-  | { outcome: "billing_mismatch" }
-  // The catalog refused the profile for this session (input.profile null).
-  | { outcome: "unsupported" };
 
 /**
  * api.md § 승인·중단·강제 종료: the terminate transaction blocks dispatch,
@@ -266,12 +217,6 @@ export interface SessionControl {
    * instead and the session is active again with the same worker.
    */
   resumeAtomic(input: ResumeSessionInput): Promise<ResumeSessionResult>;
-  /**
-   * Moves the session onto another profile, effective at its next claim:
-   * the bound attempt, if any, finishes the turn it holds on its own
-   * profile and is handed no more input. Settles at once.
-   */
-  changeProfileAtomic(input: ChangeProfileInput): Promise<ChangeProfileResult>;
   /**
    * Sets the title in any admission state and, when it changed, writes a
    * `status` event carrying it. Neither the revision nor a receipt moves:

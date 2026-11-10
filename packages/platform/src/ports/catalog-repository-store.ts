@@ -12,8 +12,6 @@ export interface CatalogRepositoryRow {
   name: string;
   url: string;
   branch: string;
-  /** A seeded row's yaml `profiles`; null otherwise. */
-  profiles: string[] | null;
   source: "seed" | "console" | "selection";
   version: number;
   created_at: string;

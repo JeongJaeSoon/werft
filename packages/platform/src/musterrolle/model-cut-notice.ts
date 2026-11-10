@@ -6,7 +6,7 @@ import {
 
 /**
  * One DM per person per session, however many attempts the proxy cuts after
- * the model left the profile's list. Someone who becomes an administrator
+ * the model left the connection's list. Someone who becomes an administrator
  * between two cuts is told at the next one.
  */
 export function modelCutDedupeKey(
@@ -43,7 +43,7 @@ const COPY: Record<
 
 /**
  * The notice's words in the reader's language (English when unknown). `model`
- * is an id from the profile's list; the outbox escapes Slack controls anyway.
+ * is an id from the connection's list; the outbox escapes Slack controls anyway.
  * The session link goes in the row's `link_url`.
  */
 export function modelCutNoticeText(
@@ -60,6 +60,6 @@ export function modelCutEventMessage(
   cause: ModelCutCause,
 ): string {
   return cause === "model_removed"
-    ? `The model ${model} is no longer on the profile's allowed list, so its model requests were blocked`
-    : `The profile or model connection that served ${model} is gone, so its model requests were blocked`;
+    ? `The model ${model} is no longer on its connection's model list, so its model requests were blocked`
+    : `The model connection that served ${model} is gone, so its model requests were blocked`;
 }

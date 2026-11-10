@@ -303,7 +303,7 @@ export interface UsageReader {
   usageSummaryGroups(
     filter: UsageSummaryFilter,
     period: { since: Date; until?: Date },
-    by: "agent" | "user" | "profile",
+    by: "agent" | "user",
   ): Promise<UsageSummaryGroupsRecord>;
   usageSeries(
     filter: UsageSummaryFilter,

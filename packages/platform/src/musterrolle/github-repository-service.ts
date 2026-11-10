@@ -566,8 +566,7 @@ export function createGitHubRepositoryService(deps: {
 
   /**
    * An agent's repositories may be picked among the App's when the
-   * workspace's ceiling says `installed` (design 3.2); the profile of its
-   * release no longer decides.
+   * workspace's ceiling says `installed` (design 3.2).
    */
   async function installedCeiling(workspaceId: string, agentId: string) {
     const detail = await deps.agents.get(workspaceId, agentId);
