@@ -342,7 +342,10 @@ export const runtimeExtensionSchema = z
 // order. The worker appends them after its own baseline rules; it never
 // replaces the baseline and never reorders what the platform merged.
 // `permissions.deny` takes the pattern form (`Bash(rm:*)`); a rule that names
-// a whole tool or an MCP server goes in `disallowed_tools`.
+// a whole built-in tool goes in `disallowed_tools`. An `mcp__<server>__<tool>`
+// rule is written in the same deny list but reaches neither field: the MCP
+// egress enforces it per call, deny first (`mergeEngineSettings` splits it
+// out as `mcpDeny`).
 const ENGINE_SETTINGS_RULES_MAX = 128;
 // Classifier rules are sentences, not patterns.
 const ENGINE_CLASSIFIER_RULES_MAX = 64;
@@ -395,9 +398,11 @@ export const runtimeConfigSchema = z
     // With an MCP server, also its `mcp__<name>__<tool>` names the release
     // allows.
     tools: z.array(z.string().min(1)),
-    // Deny rules in the engine's spelling, organization and profile merged
-    // by the platform. The engine gets them as `disallowedTools`, which holds
-    // in every permission mode. Absent when nothing is denied, so a claim
+    // Whole built-in tool denies in the engine's spelling, from the workspace
+    // and agent engine settings and the admin deny, merged by the platform.
+    // The engine gets them as `disallowedTools`, which holds in every
+    // permission mode. `mcp__` rules are not here: the MCP egress enforces
+    // them per call. Absent when nothing is denied, so a claim
     // without rules stays what it was. In the strict claim config, so a
     // worker that does not know the field refuses the claim instead of
     // running without the rules. Not part of any fingerprint.
