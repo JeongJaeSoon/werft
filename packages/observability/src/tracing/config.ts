@@ -29,11 +29,12 @@ const SAMPLERS: readonly SamplerKind[] = [
 // caller's handling, so both parts are checked at startup. Names are lowercased
 // because HTTP treats them case-insensitively and precedence depends on it.
 const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
-// biome-ignore lint/suspicious/noControlCharactersInRegex: rejecting control characters is the point
-const HEADER_VALUE_FORBIDDEN = /[\u0000-\u001f\u007f]/;
+// Tab, space and printable ASCII only: the HTTP client also rejects anything
+// above U+00FF, and a non-ASCII byte is rarely what an operator meant.
+const HEADER_VALUE = /^[\t\x20-\x7e]*$/;
 
 function validHeaderValue(value: string): boolean {
-  return !HEADER_VALUE_FORBIDDEN.test(value);
+  return HEADER_VALUE.test(value);
 }
 
 function blankToUndefined(value: string | undefined): string | undefined {

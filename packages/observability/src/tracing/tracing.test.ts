@@ -163,6 +163,8 @@ describe("parseTracingSettings", () => {
     ["OTEL_EXPORTER_OTLP_HEADERS", "bad name=SECRET"],
     ["TRACE_TENANT_HEADER", "bad name: {workspace_id}"],
     ["TRACE_TENANT_HEADER", "X-Org: a\nb"],
+    ["OTEL_EXPORTER_OTLP_HEADERS", "authorization=SECRET%E2%82%AC"],
+    ["TRACE_TENANT_HEADER", "X-Org: SECRET€"],
   ])("rejects an invalid HTTP header in %s at startup", (key, value) => {
     try {
       parseTracingSettings({
@@ -191,6 +193,7 @@ describe("parseTracingSettings", () => {
       "x-scope-orgid": "install",
     });
     expect(settings?.tenantHeaders("ws\n1")).toEqual({});
+    expect(settings?.tenantHeaders("ws-€")).toEqual({});
   });
 });
 
