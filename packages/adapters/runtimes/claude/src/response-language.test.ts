@@ -55,6 +55,28 @@ describe("the answer language", () => {
     },
   );
 
+  test.each(["plan", "auto", "bypassPermissions"] as const)(
+    "survives %s mode and the claim's engine rules",
+    (permissionMode) => {
+      const base = start("ja");
+      const { settings } = buildSdkOptions(
+        claudeStartConfig(
+          {
+            ...base,
+            config: {
+              ...base.config,
+              permissionMode,
+              engineSettings: { permissions: { deny: ["Bash(rm:*)"] } },
+            },
+          } as RuntimeStart,
+          deps,
+        ),
+        { onPermission: async () => ({ behavior: "allow" }) },
+      );
+      expect(settings).toHaveProperty("language", "japanese");
+    },
+  );
+
   test("none passes nothing: follow-user and a release before the field run as before", () => {
     expect(engineSettings()).not.toHaveProperty("language");
   });
