@@ -6386,7 +6386,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Name a person or a team an agent's admin",
     description:
-      "Owners, admins and the agent's own admins. A team's members administer the agent while they are in it, so anyone but an owner or admin adds only a team they lead (403 FORBIDDEN, `details.reason_code` `team_not_allowed`); admin teams added before stay. Writes an `add_agent_admin` receipt unless they already were one (`receipt_id` null).",
+      "Owners, admins and the agent's own admins name a person. A team's members administer the agent while they are in it, so naming a team needs `team.manage` (owners and admins): anyone else gets 403 FORBIDDEN (`details.reason_code` `role`). A role lost during the request is read again when the team is saved: 403 `team_not_allowed` while the caller still administers the agent, `role` once they no longer do. Taking a team off stays with the agent's admins; admin teams added before stay. Writes an `add_agent_admin` receipt unless they already were one (`receipt_id` null).",
     auth: "session",
     body: "AddAgentAdminRequest",
     requestExample: { team_id: EXAMPLE_TEAM_ID },
