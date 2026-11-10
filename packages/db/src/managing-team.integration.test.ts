@@ -1036,7 +1036,7 @@ integration("the managing team on PostgreSQL", () => {
     });
   });
 
-  test("a team joins an agent's admins only by a manager or its lead", async () => {
+  test("a team joins an agent's admins only by a manager, never by its lead (94S-837)", async () => {
     const { workspaceId, owner, member, agentId } = await cast();
     const direct = await person(workspaceId, "member");
     await admins().add({
@@ -1059,10 +1059,11 @@ integration("the managing team on PostgreSQL", () => {
 
     expect(await add(direct, extra)).toEqual({ outcome: "team_not_allowed" });
     await setRole(owner, extra, direct, "lead");
-    expect(await add(direct, extra)).toMatchObject({ outcome: "added" });
-    // A team already there stays; an owner adds a team nobody leads.
+    expect(await add(direct, extra)).toEqual({ outcome: "team_not_allowed" });
+    // An owner adds a team, led or not.
     const plain = await newTeam(owner);
     await join(owner, plain, member);
+    expect(await add(owner, extra)).toMatchObject({ outcome: "added" });
     expect(await add(owner, plain)).toMatchObject({ outcome: "added" });
     await setRole(owner, extra, direct, "member");
     const listed = await admins().list(workspaceId, agentId);
