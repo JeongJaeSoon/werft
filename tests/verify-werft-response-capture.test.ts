@@ -1248,6 +1248,13 @@ describe("maskBody: review inputs", () => {
       `{"tokens":[{"id":"${S}","type":"${S}"}`,
     ],
     ["0e6434b/1 cut id two levels down", `{"token":{"meta":{"id":"${S}`],
+    // 197c87a Act-on 1: a secret key spelled with \u00XX escapes in a cut
+    // body still sets the secret context for the object under it.
+    ["197c87a/1 cut escaped key, id below", `{"t\\u006fken":{"id":"${S}"`],
+    [
+      "197c87a/1 cut escaped key, two levels",
+      `{"pass\\u0077ord":{"meta":{"message":"${S}`,
+    ],
     // A name the deny list never had: the allow list hides it anyway.
     [
       "6a56b53/x unknown secret name",

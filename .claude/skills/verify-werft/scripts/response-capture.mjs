@@ -56,7 +56,7 @@ const SESSION_NAME = /session$/i;
 const CODE_KEY = /^code$|[a-z][_-]?code$/i;
 const ERROR_KEY = /^errors?$|^error[_-]?code$|^status[_-]?code$/i;
 function secretName(rawName, parent = "", value = undefined) {
-  const name = decodeAscii(rawName);
+  const name = unescapeLetters(decodeAscii(rawName));
   if (SECRET_KEY.test(name)) return true;
   const path = name.split(/[.[\]]+/).filter(Boolean);
   if (path.length > 1)
@@ -73,6 +73,16 @@ function secretName(rawName, parent = "", value = undefined) {
   return (
     CODE_KEY.test(name) && !ERROR_KEY.test(parent) && !ERROR_KEY.test(name)
   );
+}
+
+// A name may be spelled with \\u00XX escapes (t\\u006fken); the plain letters
+// are written back before a name is judged or text is searched. Only
+// [A-Za-z0-9_-] come back, so no quote or bracket moves.
+function unescapeLetters(text) {
+  return text.replace(/\\u00([0-7][0-9a-f])/gi, (whole, hex) => {
+    const c = String.fromCharCode(Number.parseInt(hex, 16));
+    return /[A-Za-z0-9_-]/.test(c) ? c : whole;
+  });
 }
 
 // Printable ASCII escapes (%76 -> v, %2F -> /) are decoded, again and again
@@ -422,12 +432,7 @@ function maskText(text, parsed) {
   if (text === "") return text;
   let out = parsed ? text : hideFormPairs(text);
   out = decodeAscii(out);
-  // A key may be spelled with t-style escapes; write the plain letters
-  // back before searching (only [A-Za-z0-9_-], so no quote or bracket moves).
-  out = out.replace(/\\u00([0-7][0-9a-f])/gi, (whole, hex) => {
-    const c = String.fromCharCode(Number.parseInt(hex, 16));
-    return /[A-Za-z0-9_-]/.test(c) ? c : whole;
-  });
+  out = unescapeLetters(out);
   if (withheld(out))
     return `(markup with secret-like names withheld, ${out.length} chars)`;
   if (!parsed) out = hideEmbedded(out);
