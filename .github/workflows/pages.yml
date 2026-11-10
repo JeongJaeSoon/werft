@@ -106,7 +106,7 @@ jobs:
       id-token: write
     environment:
       name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
+      url: ${{ steps.retry.outputs.page_url || steps.deploy.outputs.page_url }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -132,5 +132,19 @@ jobs:
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: _site
+      # A healthy deploy finishes in 14-28s whatever the site size (runs
+      # 42748378902..42773191225). Twice (42742765531, 42775912684) GitHub's
+      # side stalled in deployment_queued / syncing_files until the job's own
+      # 10 minute limit cancelled it, with a same-sized artifact. Waiting does
+      # not clear a stall, so give up at 3 minutes and start a fresh
+      # deployment once.
       - id: deploy
+        continue-on-error: true
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+        with:
+          timeout: 180000
+      - id: retry
+        if: steps.deploy.outcome == 'failure'
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+        with:
+          timeout: 180000

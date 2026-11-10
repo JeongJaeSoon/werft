@@ -23,6 +23,7 @@ export * from "./control-unit-of-work.ts";
 export * from "./credential-bindings.ts";
 export { decodeEventCursor, encodeEventCursor } from "./cursors.ts";
 export * from "./drain.ts";
+export * from "./engine-settings-store.ts";
 export * from "./enqueue.ts";
 export * from "./env-variables.ts";
 export * from "./execution-revocation.ts";

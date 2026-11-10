@@ -110,93 +110,6 @@ export const LIST_REPOSITORIES_LIMIT_DEFAULT = 100;
 export const LIST_REPOSITORIES_LIMIT_MAX = 500;
 
 /**
- * Each tool's arguments: the session API's body plus what that API takes
- * from the path. Never a session id: the attempt token names the session.
- */
-export const GITHUB_MCP_TOOL_ARGUMENTS = {
-  request_push: createPushRequestRequestSchema
-    .safeExtend({ source_ref: sourceRefSchema.optional() })
-    .strict(),
-  open_pull_request: openPullRequestRequestSchema
-    .safeExtend({
-      push_request_id: pushRequestIdSchema.optional(),
-      push_intent_id: z.uuid().optional(),
-    })
-    .refine(hasOneOfPushIds, { message: ONE_PUSH_ID_MESSAGE }),
-  get_push_request: z
-    .object({
-      push_request_id: pushRequestIdSchema.optional(),
-      push_intent_id: z.uuid().optional(),
-    })
-    .strict()
-    .refine(hasOneOfPushIds, { message: ONE_PUSH_ID_MESSAGE }),
-  update_pull_request: updatePullRequestRequestSchema.safeExtend({
-    push_request_id: pushRequestIdSchema,
-  }),
-  comment_pull_request: commentPullRequestRequestSchema.extend({
-    push_request_id: pushRequestIdSchema,
-  }),
-  close_pull_request: z
-    .object({ push_request_id: pushRequestIdSchema })
-    .strict(),
-  reopen_pull_request: z
-    .object({ push_request_id: pushRequestIdSchema })
-    .strict(),
-  merge_pull_request: z
-    .object({ push_request_id: pushRequestIdSchema })
-    .strict(),
-  dispatch_workflow: dispatchWorkflowRequestSchema,
-  get_workflow_run: z
-    .object({ run_id: runIdSchema, wait_seconds: waitSecondsSchema })
-    .strict(),
-  rerun_workflow: rerunWorkflowRequestSchema.extend({ run_id: runIdSchema }),
-  submit_review: submitPullRequestReviewRequestSchema.safeExtend({
-    number: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
-  }),
-  list_repositories: z
-    .object({
-      limit: z
-        .number()
-        .int()
-        .min(1)
-        .max(LIST_REPOSITORIES_LIMIT_MAX)
-        .optional(),
-      cursor: z.string().min(1).max(256).optional(),
-      query: z.string().min(1).max(128).optional(),
-    })
-    .strict(),
-  attach_repository: z
-    .object({
-      repository_id: z.string().min(1).max(128),
-      wait_seconds: waitSecondsSchema,
-    })
-    .strict(),
-} as const;
-
-export type GitHubMcpTool = keyof typeof GITHUB_MCP_TOOL_ARGUMENTS;
-
-/** The release feature a tool needs; null for the default work. */
-export const GITHUB_MCP_TOOL_FEATURES: Record<
-  GitHubMcpTool,
-  keyof AgentGitHub["features"] | null
-> = {
-  request_push: null,
-  open_pull_request: null,
-  get_push_request: null,
-  update_pull_request: null,
-  comment_pull_request: null,
-  close_pull_request: null,
-  reopen_pull_request: null,
-  merge_pull_request: null,
-  dispatch_workflow: "actions",
-  get_workflow_run: "actions",
-  rerun_workflow: "actions",
-  submit_review: "review",
-  list_repositories: null,
-  attach_repository: null,
-};
-
-/**
  * One repository `list_repositories` names: the session's own or one on its
  * attached list (`attached`, or the fetch's `pending`/`failed`), one the
  * release allows that `attach_repository` would add (`not_attached`), or one
@@ -364,29 +277,6 @@ export const ACTION_CLASS_VALUES = [
 ] as const;
 export type ActionClass = (typeof ACTION_CLASS_VALUES)[number];
 
-/**
- * Every tool's class. A `Record` over the tool names, so a tool added to
- * `GITHUB_MCP_TOOL_ARGUMENTS` without a class here does not typecheck, and
- * `listedGitHubMcpTools` leaves out one that slips through at run time.
- */
-export const GITHUB_MCP_TOOL_CLASSES: Record<GitHubMcpTool, ActionClass> = {
-  request_push: "push",
-  open_pull_request: "pull_request.write",
-  // A read of the push the model asked for; its class is the push's.
-  get_push_request: "push",
-  update_pull_request: "pull_request.write",
-  comment_pull_request: "pull_request.write",
-  close_pull_request: "pull_request.write",
-  reopen_pull_request: "pull_request.write",
-  merge_pull_request: "pull_request.merge",
-  dispatch_workflow: "workflow",
-  get_workflow_run: "workflow",
-  rerun_workflow: "workflow",
-  submit_review: "review",
-  list_repositories: "repository.read",
-  attach_repository: "repository.read",
-};
-
 /** The names that have a class: the only tools a session can list or call. */
 export function listedGitHubMcpTools(
   names: readonly string[],
@@ -454,48 +344,6 @@ export function githubMcpTools(github: AgentGitHub): GitHubMcpTool[] {
   );
 }
 
-/**
- * The tools an `agent` session always sees, whatever its settings say now:
- * its runtime config, and so its checkpoint fingerprint, must not follow a
- * change to them. Each call is judged instead.
- */
-export const GITHUB_MCP_FIXED_TOOLS = listedGitHubMcpTools(
-  Object.keys(GITHUB_MCP_TOOL_FEATURES),
-);
-
-/**
- * What each tool does, in terms of its fields, effects and purpose. Never an
- * instruction to the model: what to do next is the model's call, and what a
- * refusal means is its code.
- */
-export const GITHUB_MCP_TOOL_DESCRIPTIONS: Record<GitHubMcpTool, string> = {
-  request_push:
-    "Request a push to GitHub; `git push` from the workspace does not reach GitHub. The branch is agent/<session-id>, or agent/<session-id>-<branch> when `branch` is given. `repository_id` names the repository to push to: an attached repository, or, omitted, the session's own. `source_ref` names the local branch of the workspace (for example `guard-docs`) whose latest commit is pushed; without it the commit the workspace is on is pushed. Only commits are pushed, never uncommitted edits. One call pushes one repository, and `source_ref` is the local branch whose latest commit is pushed to the `repository_id` (a branch that shares no history with the target's default branch is refused as `unrelated_history`; an existing target branch gives `non_fast_forward` instead). Once two pushes are asked for, every one needs its `source_ref`: a call refused as `source_ref_required` names the target that lacks one in `details.target_branch`. The answer is `deferred` with `push_intent_id`: the platform makes the push request from the checkpoint saved when the reply ends, and `open_pull_request` accepts that `push_intent_id` at once, also while the push waits for approval. A push waits for a person's approval when the release requires one, and its pull request opens once the push succeeds. A call outside a running turn is refused as `no_running_turn`.",
-  get_push_request:
-    "Read where one push stands: the intent (`intent_status`, `intent_refusal`), the push request (`push_state`) and its pull request stage (`pull_request_stage`, `pull_request_error`, `pull_request`). Give `push_request_id` or `push_intent_id`, never both; both ids answer the same push once the intent became a push request.",
-  open_pull_request:
-    "Open, or return the already open, pull request from the branch and commit of a pushed push request (`push_request_id`), or schedule it with `push_intent_id` (or a push request that is not pushed yet): `scheduled` means the platform opens it once the push finishes, with the content of the first call. A push request that was rejected or failed is refused with `not_pushed` and its state. A pull request already open for the branch on another commit than the pushed one is refused with `head_moved` and not adopted. Content fields: `title`; `summary` (what changed and why, a few sentences); `changes` (one change per item); `rationale` (the reason for the change); `testing` (how it was checked); `notes` (what a reviewer needs to know); `related` (issues: `number`, optional `repository_id`, `closes` to close it on merge). `body` is the legacy single text and cannot be combined with the fields above.",
-  update_pull_request:
-    "Set the title or the content of the pull request that the push request's branch has open. Given any of `summary`, `changes`, `rationale`, `testing`, `notes` or `related`, the body is written again from those fields (a field left out is empty); `body` (legacy) replaces the body as text; `title` alone leaves the body. The platform's closing lines stay, naming the push request's commit.",
-  comment_pull_request:
-    "Add a comment to the pull request of a pushed push request. The same `marker` edits the same comment.",
-  close_pull_request:
-    "Close the pull request of a pushed push request without merging it; the branch stays. `changed` is false when it was already closed.",
-  reopen_pull_request:
-    "Reopen the closed pull request of a pushed push request. `changed` is false when it was already open.",
-  merge_pull_request:
-    "Squash-merge the pull request of a pushed push request of this session, on the commit that push request pushed. Only while the workspace allows it: otherwise the call is refused with `github_refused` (`reason_code` `merge_off`) before GitHub is called. GitHub still decides on required checks, reviews and conversations (`merge_blocked`); a pull request whose head is not the pushed commit is refused with `head_moved`. `changed` is false and `method` null when the pull request was already merged on that commit.",
-  dispatch_workflow:
-    "Dispatch an allow-listed workflow on a branch. `inputs` go to GitHub only.",
-  get_workflow_run: `Read a workflow run of the session's repository. \`wait_seconds\` (0 to ${GITHUB_MCP_WAIT_SECONDS_MAX}, default 0) holds the answer until the run is \`completed\` or the seconds have passed. \`final\` is true when the run is \`completed\`, false when it was still running at the end of the wait.`,
-  rerun_workflow:
-    "Rerun a workflow run that the platform dispatched for the session's repository.",
-  submit_review:
-    "Submit a review of a pull request as the reviewer App, on the commit named by `commit_id`.",
-  list_repositories: `List the repositories this session works with, ${LIST_REPOSITORIES_LIMIT_DEFAULT} a page (\`limit\` 1 to ${LIST_REPOSITORIES_LIMIT_MAX}): the one named when the session was created, and those the agent's settings allow it to attach. Listing fetches nothing and changes nothing. \`status\` is \`attached\` (the platform lists it as added to the session; \`remote\` is the git remote name it was given, \`origin\` for the repository named when the session was created), \`pending\` or \`failed\` (its fetch is running, or ended with an error), \`not_attached\` (allowed, not added yet), \`allowed_in_newer_release\` (only the agent's current release allows it) or \`revoked\` (it was added, but the agent's settings no longer allow it; its working copy stays, and it has no \`remote\`). \`next_cursor\` is non-null when more follow; \`cursor\` takes it for the next page. \`query\` keeps those whose id or name contains it. Each repository's \`meaning\` is its status in plain words.`,
-  attach_repository: `Attach one allowed repository to the session as a git remote named \`repository_id\`, with its default branch fetched to \`<repository_id>/<branch>\`. A session has no repository in its workspace until one is attached (or was named when the session was created). A new attach is recorded on the session; a repository already attached, or the session's own, is answered as attached with nothing new recorded. It is meant for a repository whose code the task reads or changes, and \`list_repositories\` needs no attach. \`status\` is \`pending\` while the fetch runs. \`wait_seconds\` (0 to ${GITHUB_MCP_WAIT_SECONDS_MAX}, default 0) holds the answer until the fetch ends or the seconds have passed; \`final\` is false when the fetch was still running at the end of the wait. Attaching an attached repository changes nothing, so a repeat with the same arguments is safe. A failure that comes from the connection (an \`upstream connection failed\` answer, or HTTP 502 or 503) is transient and says nothing about the repository; \`repository_not_allowed\` is a refusal by the agent's settings, not a connection failure. The fetch leaves no working tree, so Read, Glob and Grep cannot see the repository; it is read with Bash, for example \`git ls-tree -r <repository_id>/<branch>\`, \`git show <repository_id>/<branch>:<path>\` or \`git grep <pattern> <repository_id>/<branch>\`. A session without Bash can attach a repository but cannot read it. A git worktree or clone outside the workspace is not part of what a push or checkpoint holds.`,
-};
-
 const requestPushResultSchema = z.union([
   pushRequestSchema,
   // Inside a running turn: the push is of what this turn ends with, and the
@@ -511,24 +359,6 @@ const requestPushResultSchema = z.union([
     })
     .strict(),
 ]);
-
-/** The envelope each tool answers with, as `outputSchema` states it. */
-export const GITHUB_MCP_TOOL_OUTPUTS = {
-  request_push: actionResultSchema(requestPushResultSchema),
-  open_pull_request: actionResultSchema(openPullRequestResultSchema),
-  get_push_request: actionResultSchema(pushRequestSnapshotSchema),
-  update_pull_request: actionResultSchema(updatePullRequestResponseSchema),
-  comment_pull_request: actionResultSchema(commentPullRequestResponseSchema),
-  close_pull_request: actionResultSchema(setPullRequestStateResponseSchema),
-  reopen_pull_request: actionResultSchema(setPullRequestStateResponseSchema),
-  merge_pull_request: actionResultSchema(mergePullRequestResponseSchema),
-  dispatch_workflow: actionResultSchema(dispatchWorkflowResponseSchema),
-  get_workflow_run: actionResultSchema(waitedWorkflowRunSchema),
-  rerun_workflow: actionResultSchema(rerunWorkflowResponseSchema),
-  submit_review: actionResultSchema(submitPullRequestReviewResponseSchema),
-  list_repositories: actionResultSchema(listRepositoriesResponseSchema),
-  attach_repository: actionResultSchema(waitedRepositoryAttachmentSchema),
-} as const satisfies Record<GitHubMcpTool, z.ZodType>;
 
 const COMMON_REFUSALS = [
   "validation_error",
@@ -564,77 +394,316 @@ const GITHUB_WORK_REFUSALS = [
   "backend_unavailable",
 ] as const satisfies readonly ActionRefusalCode[];
 
+/** One row of `GITHUB_MCP_TOOLS`: everything the platform knows about a tool. */
+type GitHubMcpToolDefinition = {
+  /**
+   * The tool's arguments: the session API's body plus what that API takes
+   * from the path. Never a session id: the attempt token names the session.
+   */
+  arguments: z.ZodType;
+  /** The envelope the tool answers with, as `outputSchema` states it. */
+  output: z.ZodType;
+  /** The release feature the tool needs; null for the default work. */
+  feature: keyof AgentGitHub["features"] | null;
+  /** The policy unit the tool is judged under. */
+  actionClass: ActionClass;
+  /**
+   * What the tool does, in terms of its fields, effects and purpose. Never an
+   * instruction to the model: what to do next is the model's call, and what a
+   * refusal means is its code.
+   */
+  description: string;
+  /**
+   * The codes the tool can refuse with (catalog 5.5 to 5.7). A refusal
+   * carries the `by` and `retryable` its code fixes in `ACTION_REFUSAL_CODES`,
+   * unless `refusalOverrides` says otherwise for this tool.
+   */
+  refusals: readonly ActionRefusalCode[];
+  refusalOverrides?: Partial<Record<ActionRefusalCode, ActionRefusalSpec>>;
+};
+
 /**
- * The codes a tool can refuse with (catalog 5.5 to 5.7). A refusal of a
- * tool carries the `by` and `retryable` its code fixes in
- * `ACTION_REFUSAL_CODES`, unless `GITHUB_MCP_REFUSAL_OVERRIDES` says
- * otherwise for that tool.
+ * Every GitHub MCP tool, one row each. The other `GITHUB_MCP_TOOL_*` exports
+ * are columns of this table: a tool is added, changed or removed here and
+ * nowhere else. A tool with no row is not listed and cannot be called, and
+ * `listedGitHubMcpTools` leaves out a name that slips through at run time.
  */
+export const GITHUB_MCP_TOOLS = {
+  request_push: {
+    arguments: createPushRequestRequestSchema
+      .safeExtend({ source_ref: sourceRefSchema.optional() })
+      .strict(),
+    output: actionResultSchema(requestPushResultSchema),
+    feature: null,
+    actionClass: "push",
+    description:
+      "Request a push to GitHub; `git push` from the workspace does not reach GitHub. The branch is agent/<session-id>, or agent/<session-id>-<branch> when `branch` is given. `repository_id` names the repository to push to: an attached repository, or, omitted, the session's own. `source_ref` names the local branch of the workspace (for example `guard-docs`) whose latest commit is pushed; without it the commit the workspace is on is pushed. Only commits are pushed, never uncommitted edits. One call pushes one repository, and `source_ref` is the local branch whose latest commit is pushed to the `repository_id` (a branch that shares no history with the target's default branch is refused as `unrelated_history`; an existing target branch gives `non_fast_forward` instead). Once two pushes are asked for, every one needs its `source_ref`: a call refused as `source_ref_required` names the target that lacks one in `details.target_branch`. The answer is `deferred` with `push_intent_id`: the platform makes the push request from the checkpoint saved when the reply ends, and `open_pull_request` accepts that `push_intent_id` at once, also while the push waits for approval. A push waits for a person's approval when the release requires one, and its pull request opens once the push succeeds. A call outside a running turn is refused as `no_running_turn`.",
+    refusals: [
+      ...COMMON_REFUSALS,
+      "missing_scope",
+      "unverified_principal",
+      "not_found",
+      "no_repository",
+      "repository_not_allowed",
+      "no_checkpoint",
+      "checkpoint_unavailable",
+      "request_open",
+      "catalog_changed",
+      "default_branch",
+      "target_refused",
+      "attribution_mismatch",
+      "uncommitted_changes",
+      "pull_request_needs_tool_call",
+      "github_settings_unsupported",
+      "github_refused",
+      "backend_unavailable",
+      "source_ref_unsupported",
+      "source_ref_required",
+      "no_running_turn",
+    ],
+  },
+  open_pull_request: {
+    arguments: openPullRequestRequestSchema
+      .safeExtend({
+        push_request_id: pushRequestIdSchema.optional(),
+        push_intent_id: z.uuid().optional(),
+      })
+      .refine(hasOneOfPushIds, { message: ONE_PUSH_ID_MESSAGE }),
+    output: actionResultSchema(openPullRequestResultSchema),
+    feature: null,
+    actionClass: "pull_request.write",
+    description:
+      "Open, or return the already open, pull request from the branch and commit of a pushed push request (`push_request_id`), or schedule it with `push_intent_id` (or a push request that is not pushed yet): `scheduled` means the platform opens it once the push finishes, with the content of the first call. A push request that was rejected or failed is refused with `not_pushed` and its state. A pull request already open for the branch on another commit than the pushed one is refused with `head_moved` and not adopted. Content fields: `title`; `summary` (what changed and why, a few sentences); `changes` (one change per item); `rationale` (the reason for the change); `testing` (how it was checked); `notes` (what a reviewer needs to know); `related` (issues: `number`, optional `repository_id`, `closes` to close it on merge). `body` is the legacy single text and cannot be combined with the fields above.",
+    refusals: PULL_REQUEST_REFUSALS,
+    refusalOverrides: { push_failed: actionRefusalSpec("platform") },
+  },
+  get_push_request: {
+    arguments: z
+      .object({
+        push_request_id: pushRequestIdSchema.optional(),
+        push_intent_id: z.uuid().optional(),
+      })
+      .strict()
+      .refine(hasOneOfPushIds, { message: ONE_PUSH_ID_MESSAGE }),
+    output: actionResultSchema(pushRequestSnapshotSchema),
+    feature: null,
+    // A read of the push the model asked for; its class is the push's.
+    actionClass: "push",
+    description:
+      "Read where one push stands: the intent (`intent_status`, `intent_refusal`), the push request (`push_state`) and its pull request stage (`pull_request_stage`, `pull_request_error`, `pull_request`). Give `push_request_id` or `push_intent_id`, never both; both ids answer the same push once the intent became a push request.",
+    refusals: [
+      ...COMMON_REFUSALS,
+      "missing_scope",
+      "unverified_principal",
+      "not_found",
+      "backend_unavailable",
+    ],
+  },
+  update_pull_request: {
+    arguments: updatePullRequestRequestSchema.safeExtend({
+      push_request_id: pushRequestIdSchema,
+    }),
+    output: actionResultSchema(updatePullRequestResponseSchema),
+    feature: null,
+    actionClass: "pull_request.write",
+    description:
+      "Set the title or the content of the pull request that the push request's branch has open. Given any of `summary`, `changes`, `rationale`, `testing`, `notes` or `related`, the body is written again from those fields (a field left out is empty); `body` (legacy) replaces the body as text; `title` alone leaves the body. The platform's closing lines stay, naming the push request's commit.",
+    refusals: [...PULL_REQUEST_REFUSALS, "no_pull_request"],
+    refusalOverrides: { push_failed: actionRefusalSpec("platform") },
+  },
+  comment_pull_request: {
+    arguments: commentPullRequestRequestSchema.extend({
+      push_request_id: pushRequestIdSchema,
+    }),
+    output: actionResultSchema(commentPullRequestResponseSchema),
+    feature: null,
+    actionClass: "pull_request.write",
+    description:
+      "Add a comment to the pull request of a pushed push request. The same `marker` edits the same comment.",
+    refusals: [...PULL_REQUEST_REFUSALS, "no_pull_request"],
+    refusalOverrides: { push_failed: actionRefusalSpec("platform") },
+  },
+  close_pull_request: {
+    arguments: z.object({ push_request_id: pushRequestIdSchema }).strict(),
+    output: actionResultSchema(setPullRequestStateResponseSchema),
+    feature: null,
+    actionClass: "pull_request.write",
+    description:
+      "Close the pull request of a pushed push request without merging it; the branch stays. `changed` is false when it was already closed.",
+    refusals: [
+      ...PULL_REQUEST_REFUSALS,
+      "no_pull_request",
+      "pull_request_merged",
+    ],
+    // The service answers a GitHub outage and a permanent refusal of the state
+    // change (a pull request merged between its read and its PATCH) with the
+    // same `forge_failed`, so a retry cannot be promised.
+    refusalOverrides: {
+      push_failed: actionRefusalSpec("platform"),
+      forge_failed: actionRefusalSpec("github"),
+    },
+  },
+  reopen_pull_request: {
+    arguments: z.object({ push_request_id: pushRequestIdSchema }).strict(),
+    output: actionResultSchema(setPullRequestStateResponseSchema),
+    feature: null,
+    actionClass: "pull_request.write",
+    description:
+      "Reopen the closed pull request of a pushed push request. `changed` is false when it was already open.",
+    refusals: [
+      ...PULL_REQUEST_REFUSALS,
+      "no_pull_request",
+      "pull_request_merged",
+    ],
+    refusalOverrides: {
+      push_failed: actionRefusalSpec("platform"),
+      forge_failed: actionRefusalSpec("github"),
+    },
+  },
+  merge_pull_request: {
+    arguments: z.object({ push_request_id: pushRequestIdSchema }).strict(),
+    output: actionResultSchema(mergePullRequestResponseSchema),
+    feature: null,
+    actionClass: "pull_request.merge",
+    description:
+      "Squash-merge the pull request of a pushed push request of this session, on the commit that push request pushed. Only while the workspace allows it: otherwise the call is refused with `github_refused` (`reason_code` `merge_off`) before GitHub is called. GitHub still decides on required checks, reviews and conversations (`merge_blocked`); a pull request whose head is not the pushed commit is refused with `head_moved`. `changed` is false and `method` null when the pull request was already merged on that commit.",
+    refusals: [
+      ...PULL_REQUEST_REFUSALS,
+      "no_pull_request",
+      "merge_off",
+      "merge_blocked",
+      "pull_request_closed",
+    ],
+    // A pull request tool reads a push request that failed as final (catalog
+    // 5.6); the same code on `request_push` is a push that can be tried again.
+    refusalOverrides: { push_failed: actionRefusalSpec("platform") },
+  },
+  dispatch_workflow: {
+    arguments: dispatchWorkflowRequestSchema,
+    output: actionResultSchema(dispatchWorkflowResponseSchema),
+    feature: "actions",
+    actionClass: "workflow",
+    description:
+      "Dispatch an allow-listed workflow on a branch. `inputs` go to GitHub only.",
+    refusals: GITHUB_WORK_REFUSALS,
+  },
+  get_workflow_run: {
+    arguments: z
+      .object({ run_id: runIdSchema, wait_seconds: waitSecondsSchema })
+      .strict(),
+    output: actionResultSchema(waitedWorkflowRunSchema),
+    feature: "actions",
+    actionClass: "workflow",
+    description: `Read a workflow run of the session's repository. \`wait_seconds\` (0 to ${GITHUB_MCP_WAIT_SECONDS_MAX}, default 0) holds the answer until the run is \`completed\` or the seconds have passed. \`final\` is true when the run is \`completed\`, false when it was still running at the end of the wait.`,
+    refusals: GITHUB_WORK_REFUSALS,
+  },
+  rerun_workflow: {
+    arguments: rerunWorkflowRequestSchema.extend({ run_id: runIdSchema }),
+    output: actionResultSchema(rerunWorkflowResponseSchema),
+    feature: "actions",
+    actionClass: "workflow",
+    description:
+      "Rerun a workflow run that the platform dispatched for the session's repository.",
+    refusals: GITHUB_WORK_REFUSALS,
+  },
+  submit_review: {
+    arguments: submitPullRequestReviewRequestSchema.safeExtend({
+      number: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+    }),
+    output: actionResultSchema(submitPullRequestReviewResponseSchema),
+    feature: "review",
+    actionClass: "review",
+    description:
+      "Submit a review of a pull request as the reviewer App, on the commit named by `commit_id`.",
+    refusals: [...GITHUB_WORK_REFUSALS, "stale_commit"],
+  },
+  list_repositories: {
+    arguments: z
+      .object({
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(LIST_REPOSITORIES_LIMIT_MAX)
+          .optional(),
+        cursor: z.string().min(1).max(256).optional(),
+        query: z.string().min(1).max(128).optional(),
+      })
+      .strict(),
+    output: actionResultSchema(listRepositoriesResponseSchema),
+    feature: null,
+    actionClass: "repository.read",
+    description: `List the repositories this session works with, ${LIST_REPOSITORIES_LIMIT_DEFAULT} a page (\`limit\` 1 to ${LIST_REPOSITORIES_LIMIT_MAX}): the one named when the session was created, and those the agent's settings allow it to attach. Listing fetches nothing and changes nothing. \`status\` is \`attached\` (the platform lists it as added to the session; \`remote\` is the git remote name it was given, \`origin\` for the repository named when the session was created), \`pending\` or \`failed\` (its fetch is running, or ended with an error), \`not_attached\` (allowed, not added yet), \`allowed_in_newer_release\` (only the agent's current release allows it) or \`revoked\` (it was added, but the agent's settings no longer allow it; its working copy stays, and it has no \`remote\`). \`next_cursor\` is non-null when more follow; \`cursor\` takes it for the next page. \`query\` keeps those whose id or name contains it. Each repository's \`meaning\` is its status in plain words.`,
+    refusals: GITHUB_WORK_REFUSALS,
+  },
+  attach_repository: {
+    arguments: z
+      .object({
+        repository_id: z.string().min(1).max(128),
+        wait_seconds: waitSecondsSchema,
+      })
+      .strict(),
+    output: actionResultSchema(waitedRepositoryAttachmentSchema),
+    feature: null,
+    actionClass: "repository.read",
+    description: `Attach one allowed repository to the session as a git remote named \`repository_id\`, with its default branch fetched to \`<repository_id>/<branch>\`. A session has no repository in its workspace until one is attached (or was named when the session was created). A new attach is recorded on the session; a repository already attached, or the session's own, is answered as attached with nothing new recorded. It is meant for a repository whose code the task reads or changes, and \`list_repositories\` needs no attach. \`status\` is \`pending\` while the fetch runs. \`wait_seconds\` (0 to ${GITHUB_MCP_WAIT_SECONDS_MAX}, default 0) holds the answer until the fetch ends or the seconds have passed; \`final\` is false when the fetch was still running at the end of the wait. Attaching an attached repository changes nothing, so a repeat with the same arguments is safe. A failure that comes from the connection (an \`upstream connection failed\` answer, or HTTP 502 or 503) is transient and says nothing about the repository; \`repository_not_allowed\` is a refusal by the agent's settings, not a connection failure. The fetch leaves no working tree, so Read, Glob and Grep cannot see the repository; it is read with Bash, for example \`git ls-tree -r <repository_id>/<branch>\`, \`git show <repository_id>/<branch>:<path>\` or \`git grep <pattern> <repository_id>/<branch>\`. A session without Bash can attach a repository but cannot read it. A git worktree or clone outside the workspace is not part of what a push or checkpoint holds.`,
+    refusals: [
+      ...GITHUB_WORK_REFUSALS,
+      "repository_not_allowed",
+      "allowed_in_newer_release",
+    ],
+  },
+} as const satisfies Record<string, GitHubMcpToolDefinition>;
+
+type GitHubMcpTools = typeof GITHUB_MCP_TOOLS;
+export type GitHubMcpTool = keyof GitHubMcpTools;
+
+type RequiredColumn = Exclude<
+  keyof GitHubMcpToolDefinition,
+  "refusalOverrides"
+>;
+
+/** One field of every row, keyed by tool name, in the table's order. */
+function column<K extends RequiredColumn>(
+  key: K,
+): { [N in GitHubMcpTool]: GitHubMcpTools[N][K] } {
+  return Object.fromEntries(
+    (Object.keys(GITHUB_MCP_TOOLS) as GitHubMcpTool[]).map((name) => [
+      name,
+      (GITHUB_MCP_TOOLS[name] as GitHubMcpToolDefinition)[key],
+    ]),
+  ) as { [N in GitHubMcpTool]: GitHubMcpTools[N][K] };
+}
+
+/** Each tool's arguments (a column of `GITHUB_MCP_TOOLS`). */
+export const GITHUB_MCP_TOOL_ARGUMENTS = column("arguments");
+
+/** The release feature a tool needs; null for the default work. */
+export const GITHUB_MCP_TOOL_FEATURES: Record<
+  GitHubMcpTool,
+  keyof AgentGitHub["features"] | null
+> = column("feature");
+
+/**
+ * Every tool's class. A `Record` over the tool names, so a column that lost
+ * a tool does not typecheck, and `listedGitHubMcpTools` leaves out a name that
+ * slips through at run time.
+ */
+export const GITHUB_MCP_TOOL_CLASSES: Record<GitHubMcpTool, ActionClass> =
+  column("actionClass");
+
+/** What each tool does, in terms of its fields, effects and purpose. */
+export const GITHUB_MCP_TOOL_DESCRIPTIONS: Record<GitHubMcpTool, string> =
+  column("description");
+
+/** The envelope each tool answers with, as `outputSchema` states it. */
+export const GITHUB_MCP_TOOL_OUTPUTS = column("output");
+
+/** The codes each tool can refuse with (catalog 5.5 to 5.7). */
 export const GITHUB_MCP_TOOL_REFUSALS: Record<
   GitHubMcpTool,
   readonly ActionRefusalCode[]
-> = {
-  request_push: [
-    ...COMMON_REFUSALS,
-    "missing_scope",
-    "unverified_principal",
-    "not_found",
-    "no_repository",
-    "repository_not_allowed",
-    "no_checkpoint",
-    "checkpoint_unavailable",
-    "request_open",
-    "catalog_changed",
-    "default_branch",
-    "target_refused",
-    "attribution_mismatch",
-    "uncommitted_changes",
-    "pull_request_needs_tool_call",
-    "github_settings_unsupported",
-    "github_refused",
-    "backend_unavailable",
-    "source_ref_unsupported",
-    "source_ref_required",
-    "no_running_turn",
-  ],
-  open_pull_request: PULL_REQUEST_REFUSALS,
-  get_push_request: [
-    ...COMMON_REFUSALS,
-    "missing_scope",
-    "unverified_principal",
-    "not_found",
-    "backend_unavailable",
-  ],
-  update_pull_request: [...PULL_REQUEST_REFUSALS, "no_pull_request"],
-  comment_pull_request: [...PULL_REQUEST_REFUSALS, "no_pull_request"],
-  close_pull_request: [
-    ...PULL_REQUEST_REFUSALS,
-    "no_pull_request",
-    "pull_request_merged",
-  ],
-  reopen_pull_request: [
-    ...PULL_REQUEST_REFUSALS,
-    "no_pull_request",
-    "pull_request_merged",
-  ],
-  merge_pull_request: [
-    ...PULL_REQUEST_REFUSALS,
-    "no_pull_request",
-    "merge_off",
-    "merge_blocked",
-    "pull_request_closed",
-  ],
-  dispatch_workflow: GITHUB_WORK_REFUSALS,
-  get_workflow_run: GITHUB_WORK_REFUSALS,
-  rerun_workflow: GITHUB_WORK_REFUSALS,
-  submit_review: [...GITHUB_WORK_REFUSALS, "stale_commit"],
-  list_repositories: GITHUB_WORK_REFUSALS,
-  attach_repository: [
-    ...GITHUB_WORK_REFUSALS,
-    "repository_not_allowed",
-    "allowed_in_newer_release",
-  ],
-};
+> = column("refusals");
 
 /**
  * A pull request tool reads a push request that failed as final (catalog
@@ -642,23 +711,22 @@ export const GITHUB_MCP_TOOL_REFUSALS: Record<
  */
 export const GITHUB_MCP_REFUSAL_OVERRIDES: Partial<
   Record<GitHubMcpTool, Partial<Record<ActionRefusalCode, ActionRefusalSpec>>>
-> = {
-  open_pull_request: { push_failed: actionRefusalSpec("platform") },
-  update_pull_request: { push_failed: actionRefusalSpec("platform") },
-  comment_pull_request: { push_failed: actionRefusalSpec("platform") },
-  // The service answers a GitHub outage and a permanent refusal of the state
-  // change (a pull request merged between its read and its PATCH) with the
-  // same `forge_failed`, so a retry cannot be promised.
-  close_pull_request: {
-    push_failed: actionRefusalSpec("platform"),
-    forge_failed: actionRefusalSpec("github"),
-  },
-  reopen_pull_request: {
-    push_failed: actionRefusalSpec("platform"),
-    forge_failed: actionRefusalSpec("github"),
-  },
-  merge_pull_request: { push_failed: actionRefusalSpec("platform") },
-};
+> = Object.fromEntries(
+  (Object.keys(GITHUB_MCP_TOOLS) as GitHubMcpTool[]).flatMap((name) => {
+    const overrides = (GITHUB_MCP_TOOLS[name] as GitHubMcpToolDefinition)
+      .refusalOverrides;
+    return overrides === undefined ? [] : [[name, overrides]];
+  }),
+);
+
+/**
+ * The tools an `agent` session always sees, whatever its settings say now:
+ * its runtime config, and so its checkpoint fingerprint, must not follow a
+ * change to them. Each call is judged instead.
+ */
+export const GITHUB_MCP_FIXED_TOOLS = listedGitHubMcpTools(
+  Object.keys(GITHUB_MCP_TOOL_FEATURES),
+);
 
 /** The `by` and `retryable` of a tool's code, or null if it has no such code. */
 export function githubMcpRefusalSpec(

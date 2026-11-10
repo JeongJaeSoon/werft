@@ -1,6 +1,7 @@
 // biome-ignore-all assist/source/organizeImports: Bun 1.3.14's bundler fails to resolve the sessions/*.ts exports that follow a sessions/ subdirectory export, so the achievements exports stay last.
 export * from "./agents/agent-github-service.ts";
 export * from "./agents/agent-mcp-service.ts";
+export * from "./agents/engine-settings-service.ts";
 export * from "./agents/mcp-release-values.ts";
 export * from "./agents/mcp-settings-migration.ts";
 export * from "./agents/agent-pull-request-service.ts";
@@ -60,6 +61,7 @@ export * from "./musterrolle/team-service.ts";
 export * from "./ports/agent-admin-store.ts";
 export * from "./ports/agent-github-store.ts";
 export * from "./ports/agent-mcp-store.ts";
+export * from "./ports/engine-settings-store.ts";
 export * from "./ports/agent-identity-store.ts";
 export * from "./ports/agent-store.ts";
 export * from "./ports/api-key-store.ts";

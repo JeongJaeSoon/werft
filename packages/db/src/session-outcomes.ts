@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  GITHUB_GATE_RECEIPT_OPERATION_VALUES,
   GITHUB_PURPOSE_VALUES,
   GITHUB_REFUSAL_VALUES,
   GITHUB_REVIEW_EVENT_VALUES,
@@ -110,14 +111,6 @@ function publicOutcome(row: Row): SessionOutcome {
         metadata: metadataOf(row),
       };
 }
-
-const GATE_OPERATIONS = [
-  "mint_github_token",
-  "dispatch_workflow",
-  "rerun_workflow",
-  "review_pull_request",
-  "merge_pull_request",
-] as const;
 
 export function createPostgresSessionOutcomes(
   db: Database,
@@ -397,7 +390,7 @@ export function createPostgresSessionOutcomes(
           values.map((value) => sql`${value}`),
           sql`, `,
         );
-      const operations = listed(GATE_OPERATIONS);
+      const operations = listed(GITHUB_GATE_RECEIPT_OPERATION_VALUES);
       const { rows } = (await db.execute(sql`
         SELECT id, operation, result ->> 'purpose' AS purpose,
                result ->> 'reason_code' AS reason_code, created_at

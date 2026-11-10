@@ -6,6 +6,7 @@ import {
 } from "../musterrolle/github-settings.ts";
 import { receiptIdSchema, timestampSchema } from "../shared/index.ts";
 import { GITHUB_REVIEW_EVENT_VALUES } from "./github-work.ts";
+import { GITHUB_GATE_RECEIPT_OPERATION_VALUES } from "./receipt.ts";
 
 /**
  * What a session made, by kind (design github-agent.md §10). Only the server
@@ -112,13 +113,7 @@ export const SESSION_GITHUB_REFUSALS_LIMIT = 10;
 /** One refusal of the GitHub gate for the session, as its receipt names it. */
 export const sessionGitHubRefusalSchema = z.object({
   receipt_id: receiptIdSchema,
-  operation: z.enum([
-    "mint_github_token",
-    "dispatch_workflow",
-    "rerun_workflow",
-    "review_pull_request",
-    "merge_pull_request",
-  ]),
+  operation: z.enum(GITHUB_GATE_RECEIPT_OPERATION_VALUES),
   purpose: githubPurposeSchema,
   reason_code: githubRefusalSchema,
   created_at: timestampSchema,

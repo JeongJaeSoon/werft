@@ -18,6 +18,7 @@ import {
   createPostgresCommitAttributionLedger,
   createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
+  createPostgresEngineSettingsStore,
   createPostgresEnvVariableStore,
   createPostgresGitHubAppManifestStore,
   createPostgresGitHubAppStore,
@@ -88,6 +89,7 @@ import {
   createAuthorizationPolicy,
   createCredentialBindingService,
   createDecisionsClient,
+  createEngineSettingsService,
   createEnvVariableService,
   createGitHubAppService,
   createGitHubConnectionResolver,
@@ -236,6 +238,7 @@ import { registerApiKeyRoutes } from "./routes/api-keys.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerCloseRoutes } from "./routes/close.ts";
 import { registerCredentialBindingRoutes } from "./routes/credential-bindings.ts";
+import { registerEngineSettingsRoutes } from "./routes/engine-settings.ts";
 import { registerEnvVariableRoutes } from "./routes/env-variables.ts";
 import { registerEventRoutes } from "./routes/events.ts";
 import { registerGitHubAppRoutes } from "./routes/github-app.ts";
@@ -954,6 +957,11 @@ const agentMcp = createAgentMcpService({
   store: createPostgresAgentMcpStore(db),
   catalog,
 });
+const engineSettings = createEngineSettingsService({
+  authorization,
+  store: createPostgresEngineSettingsStore(db),
+  catalogs: installedToolCatalogView.all,
+});
 const agentPullRequest = createAgentPullRequestService({
   authorization,
   agents: agentStore,
@@ -1333,6 +1341,7 @@ const app = createApiApp({
     registerGitHubPackagesRoutes(router, githubPackages);
     registerAgentGitHubRoutes(router, agentGitHub);
     registerAgentMcpRoutes(router, agentMcp);
+    registerEngineSettingsRoutes(router, engineSettings);
     registerAgentPullRequestRoutes(router, agentPullRequest);
     registerSessionRoutes(router, sessions);
     registerSessionOutputRoutes(router, sessionOutputs);

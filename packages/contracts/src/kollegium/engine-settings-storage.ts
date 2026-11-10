@@ -153,6 +153,10 @@ export type EngineSettingsRefusal =
       readonly message: string;
     };
 
+/** A UTF-16 surrogate with no partner, which JSON text in jsonb rejects. */
+const LONE_SURROGATE =
+  /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
 const jsonBytes = (value: unknown) =>
   new TextEncoder().encode(JSON.stringify(value)).length;
 
@@ -198,6 +202,25 @@ export function validateEngineSettings(
         reason_code: "settings_shape",
         rule: "",
         message: "Settings are permissions and auto_mode lists of strings",
+      },
+    };
+  }
+
+  // jsonb holds neither U+0000 nor a lone surrogate; a save would fail inside
+  // the database and surface as a server error instead of a refusal.
+  const unstorable = [
+    ...Object.values(shape.data.permissions),
+    ...Object.values(shape.data.auto_mode),
+  ]
+    .flatMap((list) => list ?? [])
+    .find((text) => text.includes("\u0000") || LONE_SURROGATE.test(text));
+  if (unstorable !== undefined) {
+    return {
+      refusal: {
+        reason_code: "settings_shape",
+        rule: unstorable.slice(0, 32),
+        message:
+          "Rules cannot contain a NUL character or an unpaired surrogate",
       },
     };
   }
