@@ -73,7 +73,13 @@ import {
   slackAppKind,
   workspaceRepositoryCeiling,
 } from "@werft-ai/db";
-import { createLogger, sanitizeText } from "@werft-ai/observability";
+import {
+  createLogger,
+  noopTracer,
+  parseTracingSettings,
+  sanitizeText,
+  type Tracer,
+} from "@werft-ai/observability";
 import {
   agentSlackBotToken,
   composeSlackFinalize,
@@ -164,6 +170,14 @@ import {
 } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import {
+  connectionsOf,
+  createAppBotUsers,
+  createGitHubAppDirectory,
+  createGitHubManifestConverter,
+  createGitPusher,
+  createRegisteredGitHubConnections,
+} from "../wiring/forge-github.ts";
+import {
   API_READINESS_REQUIRED_ENV,
   ApiSettingsError,
   apiReadinessConfigProblems,
@@ -204,14 +218,6 @@ import {
   sessionTitleEgressUrlFromEnv,
 } from "./egress-authorizer.ts";
 import { extensionDepsFor } from "./extension-deps.ts";
-import {
-  connectionsOf,
-  createAppBotUsers,
-  createGitHubAppDirectory,
-  createGitHubManifestConverter,
-  createRegisteredGitHubConnections,
-} from "./forge-github.ts";
-import { createGitPusher } from "./git-push.ts";
 import { githubCallbackUrl } from "./github-link.ts";
 import { githubPackagesConfigFromEnv } from "./github-packages-config.ts";
 import { createGoogleLogin, googleLoginConfigFromEnv } from "./google-login.ts";
@@ -225,6 +231,7 @@ import { eventNeutralizer, startNeutralFill } from "./neutral-fields.ts";
 import { createApiPool, createProbePool } from "./pool.ts";
 import { createSlackEventsLimiter } from "./rate-limit.ts";
 import { createReadinessProbe } from "./readiness.ts";
+import { RequestTracing } from "./request-tracing.ts";
 import {
   registerAchievementRoutes,
   registerSessionAchievementRoutes,
@@ -304,6 +311,16 @@ if (!databaseUrl) {
 }
 
 const logger = createLogger();
+// A bad OTEL_* value throws here and stops the process at startup. The SDK
+// adapter is only loaded when tracing is on.
+const tracingSettings = parseTracingSettings(process.env);
+const otelTracer =
+  tracingSettings === undefined
+    ? undefined
+    : (await import("@werft-ai/observability/otel")).createOtelTracer(
+        tracingSettings,
+      );
+const tracer: Tracer = otelTracer ?? noopTracer;
 const limits = (() => {
   try {
     return installationLimitsFromEnv(process.env);
@@ -1302,6 +1319,7 @@ const probePool = createProbePool(databaseUrl, logger);
 const app = createApiApp({
   ...(authMode === undefined ? {} : { authMode }),
   logger,
+  tracer,
   keyStore: new DatabaseApiKeyStore(db),
   identity,
   authorization,
@@ -1413,7 +1431,8 @@ const app = createApiApp({
       ...settings.sse,
     });
   },
-  registerInternalRoutes: (router) => registerWorkerRoutes(router, workers),
+  registerInternalRoutes: (router) =>
+    registerWorkerRoutes(router, workers, new RequestTracing(tracer)),
   ...(settings.webDistDir === undefined
     ? {}
     : { webDistDir: settings.webDistDir }),
@@ -1475,6 +1494,10 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
         { name: "outcome-refresher", close: () => outcomeRefresher.stop() },
         { name: "achievement-judge", close: () => achievementJudge.stop() },
         { name: "event-listener", close: () => notifier.close() },
+        // Flushes the spans of the requests that just drained.
+        ...(otelTracer === undefined
+          ? []
+          : [{ name: "tracer", close: () => otelTracer.shutdown() }]),
         { name: "pool", close: () => pool.end() },
         { name: "probe-pool", close: () => probePool.end() },
       ],

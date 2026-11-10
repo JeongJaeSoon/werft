@@ -94,6 +94,9 @@ export const API_ERROR_CODE_VALUES = [
   // A release names a credential its agent has no live binding for: at
   // activation, and again when a session starts (design 4.4, D11).
   "CREDENTIAL_UNBOUND",
+  // A new session named an agent that is paused or archived, or a release
+  // that was never approved (details.reason_code says which).
+  "AGENT_NOT_RUNNABLE",
   // An agent identity holds the credential name, or the name is bound to an
   // agent an identity would take it from.
   "CREDENTIAL_REF_IN_USE",

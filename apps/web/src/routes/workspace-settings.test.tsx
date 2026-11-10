@@ -8,6 +8,7 @@ import {
   RECEIPT_ID,
   STORE_OFF,
   WORKSPACE_ID,
+  workspaceEngineSettings,
 } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
@@ -28,6 +29,8 @@ const renderAt: typeof harness.renderAt = (path, routes, locale) =>
     path,
     {
       "GET /v1/profiles": () => json(200, PROFILES),
+      [`GET /v1/workspaces/${WORKSPACE_ID}/engine-settings`]: () =>
+        json(200, workspaceEngineSettings()),
       [`GET ${TOKEN}`]: () => json(200, REGISTERED_TOKEN),
       [`GET ${APPS}`]: () => json(200, { items: [] }),
       ...routes,
@@ -603,9 +606,9 @@ describe("워크스페이스 설정", () => {
         [...models.querySelectorAll("li")].map((li) => li.textContent),
       ).toEqual(["claude-haiku-5", "claude-sonnet-5"]),
     );
-    // Only the retention and agent access cards save; the name and models
-    // have no API to.
-    expect(screen.getAllByRole("button", { name: "저장" })).toHaveLength(2);
+    // Only the run rules, retention and agent access cards save; the name and
+    // models have no API to.
+    expect(screen.getAllByRole("button", { name: "저장" })).toHaveLength(3);
     expect(screen.getAllByText("읽기 전용")).toHaveLength(2);
   });
 

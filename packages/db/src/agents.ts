@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   type Agent,
   type AgentRelease,
+  type AgentStatus,
   type AgentVersion,
   agentReleaseSchema,
   behaviorKey,
@@ -545,6 +546,15 @@ export function createPostgresAgentStore(db: Database): AgentStore {
         ),
       );
       return release ?? null;
+    },
+
+    async agentStatus(workspaceId, agentId) {
+      const [row] = await db
+        .select({ status: agents.status })
+        .from(agents)
+        .where(and(eq(agents.id, agentId), eq(agents.workspaceId, workspaceId)))
+        .limit(1);
+      return (row?.status as AgentStatus | undefined) ?? null;
     },
 
     releaseSuperseded: (workspaceId, agentId, releaseId) =>

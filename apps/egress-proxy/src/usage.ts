@@ -23,8 +23,19 @@
  * the answer counted in `usage.server_tool_use`, and where it ran
  * the answer's `usage.inference_geo`, else the request's `inference_geo`,
  * else `unknown`, since a workspace's default may be the dearer one.
+ *
+ * A Responses call (`/v1/responses`) is read into the same figures. Its JSON
+ * answer carries `usage` whole, and a streamed one ends with
+ * `response.completed` (or `response.incomplete`), whose `response` has the
+ * model and the usage; a stream cut before one is charged like a cut Messages
+ * stream. Its `input_tokens` count the cached ones too, so the cached share
+ * (`input_tokens_details.cached_tokens`) moves to `cache_read_input_tokens`
+ * and only the rest stays input. The request's `max_output_tokens` bounds
+ * the estimate where `max_tokens` does for Messages. Its reasoning tokens are
+ * already inside `output_tokens`.
  */
 
+/** The figures of one metered call, whichever API the answer came from. */
 export type MessagesUsage = {
   model: string;
   input_tokens: number;
@@ -100,8 +111,8 @@ function requested(request: Uint8Array | null): {
         typeof body?.model === "string" && body.model !== ""
           ? body.model
           : UNKNOWN_MODEL,
-      maxTokens: count(body?.max_tokens) ?? 0,
-      speed: nameOf(body?.speed) ?? "standard",
+      maxTokens: count(body?.max_tokens) ?? count(body?.max_output_tokens) ?? 0,
+      speed: nameOf(body?.speed) ?? tierSpeed(body?.service_tier),
       inferenceGeo: nameOf(body?.inference_geo) ?? "unknown",
     };
   } catch {
@@ -112,6 +123,51 @@ function requested(request: Uint8Array | null): {
       inferenceGeo: "unknown",
     };
   }
+}
+
+// Tiers priced as a standard call. `flex` is billed below it and `scale` at a
+// contract rate, so both err high or exact here, never low.
+const STANDARD_TIERS: ReadonlySet<string> = new Set([
+  "auto",
+  "default",
+  "flex",
+  "scale",
+]);
+
+/**
+ * A Responses `service_tier` as a speed. `priority` and `fast` are the fast
+ * speed; a tier named by none of them is reported under its own name, which
+ * the price table cannot match and so prices high.
+ */
+function tierSpeed(tier: unknown): string {
+  if (tier === undefined || tier === null) return "standard";
+  if (tier === "priority" || tier === "fast") return "fast";
+  if (typeof tier === "string" && STANDARD_TIERS.has(tier)) return "standard";
+  return nameOf(tier) ?? "unknown";
+}
+
+/** Output charged to a cut Responses stream whose request set no cap. */
+const UNCAPPED_OUTPUT_ALLOWANCE = 32_768;
+
+/**
+ * What a Responses object says beside its `usage`: the tier it ran at, and
+ * the searches that ran (a failed one is not billed).
+ */
+function responseExtras(answer: unknown): Counts {
+  if (typeof answer !== "object" || answer === null) return {};
+  const { service_tier: tier, output } = answer as Record<string, unknown>;
+  const extras: Counts = {};
+  if (typeof tier === "string") extras.speed = tierSpeed(tier);
+  if (Array.isArray(output)) {
+    extras.web_search_requests = output.filter(
+      (item) =>
+        typeof item === "object" &&
+        item !== null &&
+        (item as Record<string, unknown>).type === "web_search_call" &&
+        (item as Record<string, unknown>).status !== "failed",
+    ).length;
+  }
+  return extras;
 }
 
 function count(value: unknown): number | undefined {
@@ -126,6 +182,41 @@ function countsOf(value: unknown): Counts {
   for (const name of COUNTS) {
     const found = count((value as Record<string, unknown>)[name]);
     if (found !== undefined) counts[name] = found;
+  }
+  // A Responses answer: its input already includes the cached tokens.
+  const details = (value as Record<string, unknown>).input_tokens_details;
+  const cached =
+    typeof details === "object" && details !== null
+      ? count((details as Record<string, unknown>).cached_tokens)
+      : undefined;
+  if (cached !== undefined) {
+    counts.cache_read_input_tokens = cached;
+  }
+  // GPT-5.6 and later also report what the call wrote to the cache, by
+  // lifetime; a write is billed above the plain input rate, so it comes out
+  // of the input too. The 12-hour write rides the one-hour slot.
+  const written =
+    typeof details === "object" && details !== null
+      ? count((details as Record<string, unknown>).cache_write_tokens)
+      : undefined;
+  if (written !== undefined) {
+    counts.cache_creation_input_tokens = written;
+    const lifetimes = (details as Record<string, unknown>)
+      .cache_write_tokens_details;
+    const twelveHours =
+      typeof lifetimes === "object" && lifetimes !== null
+        ? count((lifetimes as Record<string, unknown>).ttl_12h_tokens)
+        : undefined;
+    if (twelveHours !== undefined) counts.oneHour = twelveHours;
+  }
+  if (
+    (cached !== undefined || written !== undefined) &&
+    counts.input_tokens !== undefined
+  ) {
+    counts.input_tokens = Math.max(
+      0,
+      counts.input_tokens - (cached ?? 0) - (written ?? 0),
+    );
   }
   const split = (value as Record<string, unknown>).cache_creation;
   if (typeof split === "object" && split !== null) {
@@ -174,13 +265,19 @@ function usageOf(
 }
 
 /** A call charged from its request alone: see the module comment. */
-export function requestEstimate(request: Uint8Array | null): MessagesUsage {
+export function requestEstimate(
+  request: Uint8Array | null,
+  responses = false,
+): MessagesUsage {
   const { model, maxTokens, speed, inferenceGeo } = requested(request);
   return usageOf(
     model,
     {
       input_tokens: request?.byteLength ?? 0,
-      output_tokens: maxTokens,
+      // A Messages request must set its cap; a Responses request may not, and
+      // then bills whatever the model reasoned.
+      output_tokens:
+        maxTokens === 0 && responses ? UNCAPPED_OUTPUT_ALLOWANCE : maxTokens,
       speed,
       inferenceGeo,
     },
@@ -202,7 +299,7 @@ export type UsageMeter = {
  */
 export function usageMeter(
   contentType: string | null,
-  options: { requestModel?: boolean } = {},
+  options: { requestModel?: boolean; responses?: boolean } = {},
 ): UsageMeter {
   const decoder = new TextDecoder();
   if ((contentType ?? "").toLowerCase().startsWith("text/event-stream")) {
@@ -211,6 +308,9 @@ export function usageMeter(
     let stopped = false;
     let delivered = 0;
     let searched = 0;
+    // A Responses stream states its usage only in the last event, so one cut
+    // short has no count to start from.
+    let responses = options.responses === true;
     let line = "";
     let skipping = false;
     const event = (data: string) => {
@@ -221,8 +321,51 @@ export function usageMeter(
         return;
       }
       if (typeof parsed !== "object" || parsed === null) return;
-      const { type, message, usage, delta } = parsed as Record<string, unknown>;
-      if (type === "message_start" && typeof message === "object") {
+      const { type, message, usage, delta, response, item } = parsed as Record<
+        string,
+        unknown
+      >;
+      if (typeof type === "string" && type.startsWith("response.")) {
+        const answer =
+          typeof response === "object" && response !== null
+            ? (response as Record<string, unknown>)
+            : undefined;
+        if (typeof answer?.model === "string") model = answer.model;
+        responses = true;
+        // The tier the call runs at is known from its first event on, which
+        // matters for a request that left it to `auto`.
+        if (typeof answer?.service_tier === "string") {
+          counts = { ...counts, speed: tierSpeed(answer.service_tier) };
+        }
+        if (
+          type === "response.completed" ||
+          type === "response.incomplete" ||
+          type === "response.failed"
+        ) {
+          counts = {
+            ...counts,
+            ...countsOf(answer?.usage),
+            ...responseExtras(answer),
+          };
+          // A failed response, or one that names no usage, is not a full
+          // account: it is charged like a stream that was cut.
+          stopped =
+            type !== "response.failed" &&
+            typeof answer?.usage === "object" &&
+            answer.usage !== null;
+        } else if (type.endsWith(".delta") && typeof delta === "string") {
+          delivered += delta.length;
+        } else if (
+          type === "response.output_item.done" &&
+          typeof item === "object" &&
+          item !== null &&
+          (item as Record<string, unknown>).type === "web_search_call" &&
+          (item as Record<string, unknown>).status !== "failed"
+        ) {
+          // A search done before the stream was cut is already billed.
+          searched += 1;
+        }
+      } else if (type === "message_start" && typeof message === "object") {
         const started = message as Record<string, unknown> | null;
         if (typeof started?.model === "string") model = started.model;
         counts = { ...counts, ...countsOf(started?.usage) };
@@ -290,13 +433,26 @@ export function usageMeter(
         }
       },
       result(request) {
-        if (model === undefined) return requestEstimate(request);
+        if (model === undefined) return requestEstimate(request, responses);
         if (stopped) return usageOf(model, counts, false, request);
+        // Hidden reasoning is billed as output yet never delivered, so a cut
+        // Responses stream is charged what the request allowed.
+        const allowed = responses ? requestEstimate(request, true) : undefined;
         return usageOf(
           model,
           {
             ...counts,
-            output_tokens: Math.max(counts.output_tokens ?? 0, delivered),
+            ...(allowed === undefined
+              ? {}
+              : {
+                  input_tokens: counts.input_tokens ?? allowed.input_tokens,
+                  speed: counts.speed ?? allowed.speed,
+                }),
+            output_tokens: Math.max(
+              counts.output_tokens ?? 0,
+              delivered,
+              allowed?.output_tokens ?? 0,
+            ),
             web_search_requests: Math.max(
               counts.web_search_requests ?? 0,
               searched,
@@ -330,11 +486,16 @@ export function usageMeter(
             typeof body.usage === "object" &&
             body.usage !== null
           ) {
-            return usageOf(model, countsOf(body.usage), false, request);
+            return usageOf(
+              model,
+              { ...countsOf(body.usage), ...responseExtras(body) },
+              false,
+              request,
+            );
           }
         } catch {}
       }
-      return requestEstimate(request);
+      return requestEstimate(request, options.responses === true);
     },
   };
 }

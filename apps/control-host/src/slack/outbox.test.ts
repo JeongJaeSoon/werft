@@ -57,6 +57,7 @@ import {
   createAgentService,
   createAuthorizationPolicy,
   createOutboxSlackNoticeSink,
+  createRowDelivery,
   createSlackBotApi,
   drainSlackInbox,
   drainSlackOutbox,
@@ -206,6 +207,8 @@ async function agentInSlack() {
     email: `${ownerId}@example.invalid`,
     passwordHash: "argon2id$placeholder",
     displayName: "owner",
+    // Saved on purpose: a person with none reads English (see the test below).
+    locale: "ko",
   });
   await db
     .insert(memberships)
@@ -416,17 +419,25 @@ function outboxPass(
   overrides: Partial<Parameters<typeof drainSlackOutbox>[0]> = {},
 ) {
   const secrets = createPostgresSecretStore(db, key);
+  const slackApi = createSlackBotApi({ apiUrl: slack.url });
+  const botToken = (workspaceId: string, slackAppId: string) =>
+    slackBotToken(secrets, workspaceId, slackAppId);
   return drainSlackOutbox({
     outbox: createPostgresSlackOutboxStore(db),
-    slack: createSlackBotApi({ apiUrl: slack.url }),
-    botToken: (workspaceId, slackAppId) =>
-      slackBotToken(secrets, workspaceId, slackAppId),
+    slack: slackApi,
+    botToken,
     logger,
     consoleOrigin: CONSOLE,
     batchSize: 10,
     leaseMs: 30_000,
     deadline: Date.now() + 10_000,
     ...overrides,
+    // A test that swaps the Slack client or the token swaps it for the send too.
+    delivery: createRowDelivery({
+      slack: overrides.slack ?? slackApi,
+      botToken: overrides.botToken ?? botToken,
+      consoleOrigin: CONSOLE,
+    }),
   });
 }
 
@@ -1048,6 +1059,18 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     expect((await rows()).map((row) => row.kind)).toEqual(["failure_notice"]);
   });
 
+  test("a person with no saved language reads English", async () => {
+    const fixture = await agentInSlack();
+    await db.update(users).set({ locale: null });
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await endTurn(sessionId, 1, "failed");
+    await outboxPass();
+    expect(posted().map((message) => message.text)).toEqual([
+      `${SLACK_NOTICE_MESSAGES.en.failed}\n\n<${CONSOLE}/sessions/${sessionId}|${SLACK_OUTBOX_MESSAGES.en.link}>`,
+    ]);
+  });
+
   test("a thread reads in the language of whoever started the session", async () => {
     const fixture = await agentInSlack();
     // The fixture's one user, the person who mentions the agent.
@@ -1082,6 +1105,7 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
         teamId: TEAM,
         slackUserId,
       });
+    await db.update(users).set({ locale: null });
     expect(await reader(PERSON)).toBeNull();
     await db.update(users).set({ locale: "ja" });
     expect(await reader(PERSON)).toBe("ja");
@@ -1625,7 +1649,8 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
         channelId: CHANNEL,
         threadTs: THREAD,
         userId: STRANGER,
-        text: `${SLACK_NOTICE_MESSAGES.ko.connect}\n\n<${CONSOLE}/settings/linked-accounts|${SLACK_OUTBOX_MESSAGES.ko.link}>`,
+        // A stranger has no language of their own: English.
+        text: `${SLACK_NOTICE_MESSAGES.en.connect}\n\n<${CONSOLE}/settings/linked-accounts|${SLACK_OUTBOX_MESSAGES.en.link}>`,
         ts: expect.any(String),
         options: { link_names: "false" },
       },

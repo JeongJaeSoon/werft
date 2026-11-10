@@ -442,6 +442,10 @@ API 서비스만 읽는 설정이다. 기본은 꺼짐이라 키를 하나도 �
 | `TRACE_TENANT_HEADER` | 없음 | `<헤더 이름>: <값 틀>`. 값 틀의 `{workspace_id}`를 워크스페이스 id로 바꿔 batch마다 붙인다 |
 | `TRACE_INSTALL_TENANT` | 없음 | 워크스페이스가 없는 span의 테넌트 값 |
 
+켜면 `/v1/**` 요청마다 `{METHOD} {route_template}` span(예: `POST /v1/sessions/:id/turns`)이 새 root로 생긴다. 클라이언트가 보낸 `traceparent`는 부모가 아니라 link로만 남고, 그 sampled 플래그는 따르지 않는다. 헬스·메트릭 경로와 worker gateway(`/internal/**`)는 span이 없고, gateway는 worker가 그 turn의 trace id로 `traceparent`를 보낸 호출만 그 trace의 자식 span을 만든다.
+
+turn을 큐에 넣은 요청(세션 생성의 첫 turn, `POST /v1/sessions/{id}/messages`)의 span `traceparent`는 `turns.trace_context`(마이그레이션 0263, nullable)에 같은 트랜잭션으로 저장되고, worker의 `nextInput` 응답에 `trace_context`로 실린다. 꺼져 있거나 마이그레이션 이전의 turn은 null이라 필드가 빠진다.
+
 ## checkpoint object store
 
 API는 checkpoint object store 설정을 기동 시 요구한다 — `S3_BUCKET`·`AWS_REGION`(+ 선택 `AWS_ENDPOINT_URL`)이 없으면 기동하지 않는다. `AWS_ACCESS_KEY_ID`·`AWS_SECRET_ACCESS_KEY`는 둘 다 주거나 둘 다 뺀다. 하나만 있으면 기동하지 않는다. 둘 다 빼면 AWS SDK 기본 credential chain이 서명한다. EKS에서는 api ServiceAccount의 IRSA role이 그 자리에 오고, chart는 `secrets.objectStoreKeys: false`로 이 경로를 쓴다. chain이 아무 credential도 찾지 못하면 요청은 서명 없이 나가지 않고 실패한다. 이 credential은 워커의 object store route 요청을 서명하는 데도 쓰인다. object store 없이 띄우려면 `CHECKPOINT_OBJECT_STORE=disabled`를 명시한다: 모든 checkpoint가 거절되고 워커 checkpoint 프로토콜은 409 `CHECKPOINT_UNAVAILABLE`로 답하며 기동 로그에 경고가 남는다. 빠진 bucket이 checkpoint 없는 finalize 뒤에 숨지 않도록 침묵 기본값을 두지 않았다. compose `apps` profile은 localstack 값을 기본으로 넣는다.
@@ -692,7 +696,7 @@ key는 웹(cookie 세션)에서 `POST /v1/api-keys`로 발급한다.
 
 - 요청한 `scopes`가 발급자의 지금 scope를 넘으면 `403 SCOPE_NOT_GRANTABLE`이다. admin은 `sessions:recover`가 든 key를 만들 수 없다. 그 안에서는 개인 key와 에이전트 key가 같은 scope를 고른다(`sessions:approve` 포함). 이미 발급한 key의 scope는 바뀌지 않는다.
 - 권한이 없으면 `403 FORBIDDEN`이고 `error.details.reason_code`에 판정 이유(`role`, `agent_ceiling` 등)가 있다.
-- 에이전트 key로 세션을 만들려면 `POST /v1/sessions`에 그 에이전트의 `agent_release_id`를 넣는다. `profile_id`는 빼면 그 release의 프로필이고, 보내면 그 프로필이어야 한다(`409 RELEASE_PROFILE_MISMATCH`). `repository_id`를 빼면 GitHub 설정 행이 있는 에이전트는 저장소 없이 시작하고, 행이 없는 에이전트는 release의 `repository_id`로 시작한다(아래 "새 세션의 시작 저장소" 절). release의 프로필이 카탈로그에서 빠졌거나 release 뒤에 바뀌었으면 `409 PROFILE_DIGEST_MISMATCH`다. release를 넣지 않은 세션이나 다른 에이전트의 세션은 `403`(`agent_ceiling`)이다. 세션 목록과 receipt 조회도 에이전트를 가리지 못해 `403`이다. 실행은 아직 `profile_id`를 따르고, release의 지시문과 도구 정책은 세션에 고정만 된다.
+- 에이전트 key로 세션을 만들려면 `POST /v1/sessions`에 그 에이전트의 `agent_release_id`를 넣는다. `profile_id`는 빼면 그 release의 프로필이고, 보내면 그 프로필이어야 한다(`409 RELEASE_PROFILE_MISMATCH`). `repository_id`를 빼면 GitHub 설정 행이 있는 에이전트는 저장소 없이 시작하고, 행이 없는 에이전트는 release의 `repository_id`로 시작한다(아래 "새 세션의 시작 저장소" 절). release의 프로필이 카탈로그에서 빠졌거나 release 뒤에 바뀌었으면 `409 PROFILE_DIGEST_MISMATCH`다. 에이전트가 일시중지·보관 상태이면 `409 AGENT_NOT_RUNNABLE`(`error.details.reason_code: agent_inactive`)이고, release가 한 번도 승인(활성화)되지 않았으면 같은 코드에 `reason_code: release_unapproved`다. 승인은 그 release의 `approved_at`이 정한다. 그래서 지금 활성이 아니어도 승인된 이전 release에 묶은 세션은 에이전트가 활성인 동안 그대로 시작한다. 이미 만들어진 세션을 다시 여는 요청은 이 검사를 받지 않는다. Slack에서 온 입력도 같은 검사를 받아 거절되고, 사용자에게는 일반 실패 안내가 가며 코드와 `reason_code`는 로그에 남는다. release를 넣지 않은 세션이나 다른 에이전트의 세션은 `403`(`agent_ceiling`)이다. 세션 목록과 receipt 조회도 에이전트를 가리지 못해 `403`이다. 실행은 아직 `profile_id`를 따르고, release의 지시문과 도구 정책은 세션에 고정만 된다.
 - 목록(`GET /v1/api-keys`)은 자기 개인 key와 자기가 관리하는 에이전트의 key만 보인다. 비밀값은 발급 응답에서 한 번만 나온다.
 - 폐기는 `DELETE /v1/api-keys/{id}`이고 발급과 같은 권한이 든다. 남의 개인 key는 `404`다. 이미 폐기한 key는 아무것도 바꾸지 않고 `receipt_id: null`을 돌려준다.
 - 발급·폐기는 `create_api_key`·`revoke_api_key` receipt와 `api_key.manage`·`api_key.manage_own` 판정 행을 남긴다. receipt에는 key의 종류·에이전트·scope만 있고 비밀값은 없다.

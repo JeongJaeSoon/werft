@@ -19,16 +19,16 @@ import {
   slackViewSubmissionPayloadSchema,
   type UserLocale,
 } from "@werft-ai/contracts";
+import type {
+  PushActor,
+  PushRequestService,
+} from "../action/change-request/push-request-service.ts";
+import type { PendingRequestService } from "../decision/pending-service.ts";
 import type { AgentIdentityStore } from "../ports/agent-identity-store.ts";
 import type { LinkedAccountStore } from "../ports/linked-account-store.ts";
 import type { PushFollowUpStore } from "../ports/push-follow-ups.ts";
 import type { SlackOutboxStore } from "../ports/slack-outbox-store.ts";
 import type { SurfaceBindingStore } from "../ports/surface-binding-store.ts";
-import type { PendingRequestService } from "../sessions/pending-service.ts";
-import type {
-  PushActor,
-  PushRequestService,
-} from "../sessions/push-request-service.ts";
 import {
   type SessionService,
   SessionServiceError,
