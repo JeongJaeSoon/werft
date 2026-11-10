@@ -78,7 +78,7 @@ Applying a previous release still follows upgrade checks and [gate](#실행-전-
 <a id="실행-전-게이트" />
 ## Pre-upgrade gates
 
-The first official release including both incremental checkpoints and release-tool restoration candidates is `v0.1.0`. Release installations must not revert to earlier images. Pre-release `main-<12>` installations must check this floor separately. Verify the commit and all three digests in the [release manifest](/run-server/self-hosting/reference/packages#릴리스-manifest-읽기) together.
+The first tag including both incremental checkpoints and release-tool restoration candidates is `v0.1.0`. That tag is the rollback floor, and the latest published release is `v0.1.2`. Release installations must not revert to images earlier than `v0.1.0`. Pre-release `main-<12>` installations must check this floor separately. Verify the commit and all three digests in the [release manifest](/run-server/self-hosting/reference/packages#릴리스-manifest-읽기) together.
 
 Compare target changelog actions with your deployed version. Meet every applicable condition before enabling features or changing workers.
 
