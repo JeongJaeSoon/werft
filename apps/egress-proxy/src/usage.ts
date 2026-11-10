@@ -125,10 +125,29 @@ function requested(request: Uint8Array | null): {
   }
 }
 
-/** A Responses `service_tier` of `priority` or `fast` is the fast speed. */
+// Tiers priced as a standard call. `flex` is billed below it and `scale` at a
+// contract rate, so both err high or exact here, never low.
+const STANDARD_TIERS: ReadonlySet<string> = new Set([
+  "auto",
+  "default",
+  "flex",
+  "scale",
+]);
+
+/**
+ * A Responses `service_tier` as a speed. `priority` and `fast` are the fast
+ * speed; a tier named by none of them is reported under its own name, which
+ * the price table cannot match and so prices high.
+ */
 function tierSpeed(tier: unknown): string {
-  return tier === "priority" || tier === "fast" ? "fast" : "standard";
+  if (tier === undefined || tier === null) return "standard";
+  if (tier === "priority" || tier === "fast") return "fast";
+  if (typeof tier === "string" && STANDARD_TIERS.has(tier)) return "standard";
+  return nameOf(tier) ?? "unknown";
 }
+
+/** Output charged to a cut Responses stream whose request set no cap. */
+const UNCAPPED_OUTPUT_ALLOWANCE = 32_768;
 
 /**
  * What a Responses object says beside its `usage`: the tier it ran at, and
@@ -296,7 +315,7 @@ export function usageMeter(
         return;
       }
       if (typeof parsed !== "object" || parsed === null) return;
-      const { type, message, usage, delta, response } = parsed as Record<
+      const { type, message, usage, delta, response, item } = parsed as Record<
         string,
         unknown
       >;
@@ -307,6 +326,11 @@ export function usageMeter(
             : undefined;
         if (typeof answer?.model === "string") model = answer.model;
         responses = true;
+        // The tier the call runs at is known from its first event on, which
+        // matters for a request that left it to `auto`.
+        if (typeof answer?.service_tier === "string") {
+          counts = { ...counts, speed: tierSpeed(answer.service_tier) };
+        }
         if (
           type === "response.completed" ||
           type === "response.incomplete" ||
@@ -325,6 +349,15 @@ export function usageMeter(
             answer.usage !== null;
         } else if (type.endsWith(".delta") && typeof delta === "string") {
           delivered += delta.length;
+        } else if (
+          type === "response.output_item.done" &&
+          typeof item === "object" &&
+          item !== null &&
+          (item as Record<string, unknown>).type === "web_search_call" &&
+          (item as Record<string, unknown>).status !== "failed"
+        ) {
+          // A search done before the stream was cut is already billed.
+          searched += 1;
         }
       } else if (type === "message_start" && typeof message === "object") {
         const started = message as Record<string, unknown> | null;
@@ -412,7 +445,11 @@ export function usageMeter(
             output_tokens: Math.max(
               counts.output_tokens ?? 0,
               delivered,
-              allowed?.output_tokens ?? 0,
+              allowed === undefined
+                ? 0
+                : allowed.output_tokens > 0
+                  ? allowed.output_tokens
+                  : UNCAPPED_OUTPUT_ALLOWANCE,
             ),
             web_search_requests: Math.max(
               counts.web_search_requests ?? 0,

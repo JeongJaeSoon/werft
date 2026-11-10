@@ -364,6 +364,17 @@ describe("priceProviderUsage for an OpenAI model", () => {
     );
   });
 
+  test("a tier the table does not know is priced like the fast one, not as standard", () => {
+    const call = { ...openAi, model: "gpt-6.1-sol", outputTokens: 100_000 };
+    const standard = priceProviderUsage(call).costUsd;
+    expect(
+      priceProviderUsage({ ...call, speed: "ultrafast" }).costUsd,
+    ).toBeCloseTo(standard * 2, 9);
+    expect(
+      priceProviderUsage({ ...call, speed: "unknown" }).costUsd,
+    ).toBeCloseTo(standard * 2, 9);
+  });
+
   test("a web search adds its call fee to the tokens", () => {
     const call = {
       ...openAi,

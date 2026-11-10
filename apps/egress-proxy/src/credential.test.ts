@@ -767,6 +767,26 @@ describe("startCredentialProxy", () => {
       expect(plain.status).toBe(200);
     });
 
+    test("a request that continues a stored response or conversation is refused, a null one is not", async () => {
+      const up = upstream(() => Response.json({ id: "resp_1" }));
+      const auth = authorizer(bearerKey(up));
+      const server = proxy(auth.url, up.port);
+      for (const body of [
+        '{"model":"gpt-5.5","previous_response_id":"resp_0"}',
+        '{"model":"gpt-5.5","conversation":"conv_1"}',
+        '{"model":"gpt-5.5","conversation":{"id":"conv_1"}}',
+      ]) {
+        const refused = await responses(server.port, { body });
+        expect(refused.status).toBe(400);
+      }
+      expect(auth.asked).toEqual([]);
+      expect(up.seen).toEqual([]);
+      const plain = await responses(server.port, {
+        body: '{"model":"gpt-5.5","previous_response_id":null,"conversation":null}',
+      });
+      expect(plain.status).toBe(200);
+    });
+
     test("a Messages call still asks without a path, so an authorizer of the earlier release answers it", async () => {
       const up = upstream(() => Response.json({ id: "msg_1" }));
       const auth = authorizer(
@@ -926,8 +946,10 @@ describe("startCredentialProxy", () => {
       const cutAuth = authorizer(bearerKey(cut));
       await (await responses(proxy(cutAuth.url, cut.port).port)).text();
       await until(() => cutAuth.reported.length === 1);
+      // The request set no output cap, so the cut is charged the allowance
+      // rather than the 200 characters it delivered.
       expect(cutAuth.reported[0]?.usage).toMatchObject({
-        output_tokens: 200,
+        output_tokens: 32_768,
         estimated: true,
       });
     });

@@ -203,9 +203,9 @@ export function priceProviderUsage(usage: ProviderUsage): {
       1_000_000;
     return {
       costUsd:
-        // Only the speeds the Responses meter names: a report that names
-        // none (an earlier proxy's) is a standard call.
-        tokenCost * (usage.speed === "fast" ? OPENAI_FAST_MULTIPLIER : 1) +
+        // As for Claude, a speed that is not `standard` (`fast`, a tier the
+        // table does not know, or none reported) is priced at the fast rate.
+        tokenCost * (usage.speed === "standard" ? 1 : OPENAI_FAST_MULTIPLIER) +
         (usage.webSearchRequests * WEB_SEARCH_MICRO_USD) / 1_000_000,
       pricedBy: "table",
     };

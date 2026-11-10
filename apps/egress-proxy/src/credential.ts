@@ -158,20 +158,31 @@ export type CredentialRoute = {
 const RESPONSES_PATH = "/v1/responses";
 
 /**
- * A `background` response is queued and keeps generating after the
- * connection that would meter it has closed, so it is refused outright.
+ * Why a Responses request cannot be metered, or null. A `background` response
+ * keeps generating after the connection that would meter it has closed; one
+ * that continues a stored response or conversation is billed for context the
+ * request does not carry, so a cut stream's input cannot be bounded by its
+ * bytes. Both are refused outright.
  */
-function runsInBackground(body: Uint8Array): boolean {
+function unmeterableResponsesRequest(body: Uint8Array): string | null {
+  let parsed: unknown;
   try {
-    const parsed: unknown = JSON.parse(new TextDecoder().decode(body));
-    return (
-      typeof parsed === "object" &&
-      parsed !== null &&
-      (parsed as Record<string, unknown>).background === true
-    );
+    parsed = JSON.parse(new TextDecoder().decode(body));
   } catch {
-    return false;
+    return null;
   }
+  if (typeof parsed !== "object" || parsed === null) return null;
+  const request = parsed as Record<string, unknown>;
+  if (request.background === true) {
+    return "a background response outlives the metered connection";
+  }
+  if (
+    (request.previous_response_id ?? null) !== null ||
+    (request.conversation ?? null) !== null
+  ) {
+    return "a stored response or conversation is not carried by the request";
+  }
+  return null;
 }
 const PROVIDER_PATHS = new Set([
   "/v1/messages",
@@ -2038,13 +2049,13 @@ export function startCredentialProxy(
         }
         if (route.purpose === "provider" && route.path === RESPONSES_PATH) {
           const read = whole === null ? null : await whole;
-          if (read instanceof Uint8Array && runsInBackground(read)) {
+          const unmeterable =
+            read instanceof Uint8Array
+              ? unmeterableResponsesRequest(read)
+              : null;
+          if (unmeterable !== null) {
             release();
-            return reply(
-              400,
-              "a background response outlives the metered connection",
-              route.purpose,
-            );
+            return reply(400, unmeterable, route.purpose);
           }
         }
         const authorized = await authorize(token, route.purpose, question);

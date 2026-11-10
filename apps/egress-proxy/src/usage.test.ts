@@ -559,6 +559,59 @@ describe("usageMeter on a Responses answer", () => {
     });
   });
 
+  test("a cut stream of a request with no output cap is charged a fixed allowance", () => {
+    const uncapped = usageMeter("text/event-stream");
+    uncapped.observe(
+      encoder.encode(
+        sse([{ type: "response.created", response: { model: "gpt-5.5" } }]),
+      ),
+    );
+    expect(
+      uncapped.result(encoder.encode(JSON.stringify({ model: "gpt-5.5" }))),
+    ).toMatchObject({ output_tokens: 32_768, estimated: true });
+  });
+
+  test("a search finished before the stream was cut is still counted", () => {
+    const stream = sse([
+      { type: "response.created", response: { model: "gpt-5.5" } },
+      {
+        type: "response.output_item.done",
+        item: { type: "web_search_call", status: "completed" },
+      },
+      {
+        type: "response.output_item.done",
+        item: { type: "web_search_call", status: "failed" },
+      },
+    ]);
+    expect(meter("text/event-stream", [stream])).toMatchObject({
+      web_search_requests: 1,
+      estimated: true,
+    });
+  });
+
+  test("the tier a stream announces in response.created prices a cut stream, whatever the request said", () => {
+    const stream = sse([
+      {
+        type: "response.created",
+        response: { model: "gpt-5.5", service_tier: "priority" },
+      },
+    ]);
+    expect(meter("text/event-stream", [stream])).toMatchObject({
+      speed: "fast",
+    });
+  });
+
+  test("a tier that is not standard or fast is reported under its own name, flex and auto as standard", () => {
+    const tier = (service_tier: string) =>
+      meter("application/json", [
+        JSON.stringify({ model: "gpt-5.5", service_tier, usage }),
+      ]).speed;
+    expect(tier("ultrafast")).toBe("ultrafast");
+    expect(tier("flex")).toBe("standard");
+    expect(tier("auto")).toBe("standard");
+    expect(tier("default")).toBe("standard");
+  });
+
   test("a priority or fast service_tier is the fast speed, in JSON and in a stream", () => {
     const answer = { model: "gpt-5.5", service_tier: "priority", usage };
     expect(meter("application/json", [JSON.stringify(answer)])).toMatchObject({

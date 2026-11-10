@@ -258,6 +258,7 @@ describe("a session past its budget on /v1/responses", () => {
           cache_creation_input_tokens: 0,
           cache_creation_1h_input_tokens: 0,
           cache_read_input_tokens: 2_000,
+          speed: "standard",
           estimated: false,
         },
       },
