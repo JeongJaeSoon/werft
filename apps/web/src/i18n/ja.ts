@@ -7,6 +7,7 @@ import { agentsJa } from "./agents.ts";
 import { apiKeysJa } from "./api-keys.ts";
 import { authJa } from "./auth.ts";
 import { commonJa } from "./common.ts";
+import { engineSettingsJa } from "./engine-settings.ts";
 import { errorsJa } from "./errors.ts";
 import { githubJa } from "./github.ts";
 import { githubUserLinkJa } from "./github-user-link.ts";
@@ -244,6 +245,7 @@ export const ja: Record<MessageKey, string> = {
   ...githubUserLinkJa,
   ...agentGitHubJa,
   ...agentAccessJa,
+  ...engineSettingsJa,
   ...usageJa,
   ...achievementsJa,
   ...achievementRulesJa,
