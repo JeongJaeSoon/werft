@@ -19,7 +19,7 @@
 
 | 프로세스 | 구현 | 한 줄의 모양 | 레벨 | `LOG_LEVEL`이 틀릴 때 | 마스킹 | 호출 수 |
 |---|---|---|---|---|---|---|
-| API·scheduler·reconciler·slack·metrics, DB migrate | `packages/observability/src/index.ts:93-178` `StructuredLogger` | `{timestamp, level, event?, message, session_id?·turn_id?·pod_id?·request_id?·trace_id?, fields?}`. `fields.event`가 문자열이면 최상위 `event`로 올린다(`:141-156`). context는 `withContext`로 최상위에 붙는다 | `debug` `info` `warn` `error` | 기동 시 `logLevelFromEnv`가 거부한다(`:68-77`) | `redaction.ts`. 메시지 본문 키(`message`·`body`·`input` 등)는 뺀다 | 260 |
+| API·scheduler·reconciler·slack·metrics, DB migrate | `packages/observability/src/index.ts:93-178` `StructuredLogger` | `{timestamp, level, event?, message, session_id?·turn_id?·pod_id?·request_id?·trace_id?·span_id?, fields?}`. `fields.event`가 문자열이면 최상위 `event`로 올린다(`:141-156`). context는 `withContext`로 최상위에 붙는다 | `debug` `info` `warn` `error` | 기동 시 `logLevelFromEnv`가 거부한다(`:68-77`) | `redaction.ts`. 메시지 본문 키(`message`·`body`·`input` 등)는 뺀다 | 260 |
 | worker | `apps/worker/src/console-logger.ts:17-45` `createConsoleLogger` | `{timestamp, level, event, ...fields}`. 필드를 최상위에 펼치고, 그 뒤에 머리 세 칸을 다시 써서 필드가 덮지 못하게 한다(`:36-41`). `message`는 호출이 `message` 필드를 넘길 때만 최상위에 생긴다(`session-checkpoints.ts:819-820`의 `worker.checkpoint.result` 하나). `session_id`·`turn_id`도 호출이 넘긴 필드로 최상위에 놓인다 | `info` `warn` `error`(`debug` 메서드 없음, `worker-host.ts:104-108`) | `resolveLogLevel`이 `info`로 바꾼다(`packages/observability/src/index.ts:56-61`). scheduler가 검사한 값을 넘기므로 실제로는 틀린 값이 오지 않는다 | `redaction.ts` + `SecretScrubber`(`<redacted>`). 메시지 본문 키를 남긴다(`includeMessageBodies=true`) | 74 |
 | egress proxy | `apps/egress-proxy/src/logger.ts:44-68` `createProxyLogger` | `{level, message, timestamp, fields?}`. `event`가 없고 `message`는 사람이 읽는 문장이다 | `debug` `info` `warn` `error` | 기동 시 거부한다(`:33-42`) | `redaction.ts`의 바이트 단위 사본. `logger.test.ts:8-15`가 두 파일이 같은지 본다 | 46 |
 
@@ -124,14 +124,16 @@ type LogRecord = {
   turn_id?: string | number;
   pod_id?: string;
   request_id?: string;
-  trace_id?: string;
+  trace_id?: string;            // 32 lowercase hex; written only inside an active span
+  span_id?: string;             // 16 lowercase hex; same rule as trace_id
   fields?: Record<string, unknown>; // everything else; never an Error object
 };
 ```
 
 규칙:
 
-- 최상위 키는 위 열 개뿐이다. 그 밖의 값은 모두 `fields` 아래에 둔다. `fields`가 최상위 키를 덮을 길이 없다.
+- 최상위 키는 위 열한 개뿐이다. 그 밖의 값은 모두 `fields` 아래에 둔다. `fields`가 최상위 키를 덮을 길이 없다.
+- `trace_id`·`span_id`는 로거가 줄을 쓰는 순간 활성 span(`currentSpanContext()`)에서 채운다. span 밖이거나 tracing이 꺼져 있으면 두 키를 쓰지 않는다. 이 두 키는 활성 span만 채우고 `withContext`로 넣은 값은 줄에 싣지 않는다([관측 결정 4.3절](observability-otel-and-tool-call-audit.md)).
 - 최상위 context 다섯 키는 `StructuredLogger#withContext`만 쓴다. 호출이 `session_id`·`turn_id`를 필드로 넘기면 `fields.session_id`·`fields.turn_id`다. 플랫폼은 지금도 그렇게 찍고(`packages/observability/src/index.ts:138-161`), Datadog facet 목록도 `@fields.session_id`를 그 경로로 적는다. worker에는 context 장치가 없으므로 L2 뒤 worker의 `session_id`·`turn_id`는 `fields` 아래에 있다.
 - `event`를 주는 로그는 그 이름을 바꾸지 않는다. `event`가 없는 로그는 `message` 문장이 식별자 노릇을 한다. Datadog pipeline이 그것을 `event`로 복사하고, 운영 문서와 metric이 그 문장을 인용한다(2절의 62개). 그래서 이 문장을 바꾸는 것도 로그 필드 변경이다.
 - metric·monitor·테스트가 새로 읽을 로그에는 `event`를 준다.
@@ -142,7 +144,7 @@ type LogRecord = {
 
 ```ts
 // packages/observability/src/record-contract.ts — no imports, like redaction.ts
-export const LOG_RECORD_KEYS: readonly string[]; // the ten keys above
+export const LOG_RECORD_KEYS: readonly string[]; // the eleven keys above
 export function logRecordProblems(line: string): string[]; // [] when the line conforms
 ```
 
