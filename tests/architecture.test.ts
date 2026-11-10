@@ -465,6 +465,23 @@ function walk(node: ts.Node, visit: (node: ts.Node) => void): void {
   ts.forEachChild(node, (child) => walk(child, visit));
 }
 
+/** `declare module "@werft-ai/contracts"` in any form: augmentation or ambient. */
+function contractsModuleDeclarations(source: ts.SourceFile): string[] {
+  const found: string[] = [];
+  walk(source, (node) => {
+    if (
+      ts.isModuleDeclaration(node) &&
+      ts.isStringLiteral(node.name) &&
+      node.name.text === "@werft-ai/contracts"
+    ) {
+      found.push(
+        source.getLineAndCharacterOfPosition(node.getStart()).line + 1 + "",
+      );
+    }
+  });
+  return found;
+}
+
 function isExported(node: ts.Node): boolean {
   return (
     ts.canHaveModifiers(node) &&
@@ -3584,5 +3601,36 @@ describe("architecture", () => {
         ).toEqual(["packages/db/src/testing/x.ts"]);
       },
     );
+  });
+
+  test("no file declares a module named @werft-ai/contracts", async () => {
+    const directories = [...(await workspacePackages()), join(root, "tests")];
+    const offenders: string[] = [];
+    for (const directory of directories) {
+      for (const file of await typescriptFiles(directory, () => true)) {
+        if (file.includes(`${sep}dist${sep}`)) continue;
+        for (const line of contractsModuleDeclarations(await parse(file))) {
+          offenders.push(`${slashed(relative(root, file))}:${line}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  test("the contracts module ban sees an augmentation and an ambient declaration, not a string or a comment", () => {
+    const hits = (text: string) =>
+      contractsModuleDeclarations(parseText("x.ts", text));
+    expect(hits('declare module "@werft-ai/contracts" { }')).toHaveLength(1);
+    expect(
+      hits(
+        'declare module "@werft-ai/contracts" { interface A {} }\nexport {};',
+      ),
+    ).toHaveLength(1);
+    expect(hits('declare module "other" { }')).toEqual([]);
+    expect(
+      hits(
+        '// declare module "@werft-ai/contracts"\nconst a = "declare module";',
+      ),
+    ).toEqual([]);
   });
 });

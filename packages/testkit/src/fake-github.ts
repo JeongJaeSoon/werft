@@ -61,6 +61,8 @@ export type FakeGitHubPullRequest = {
   state: "open" | "closed";
   merged_at: string | null;
   closed_at: string | null;
+  /** The pending squash merge's uuid (`merge-async`), once one was asked for. */
+  merge_uuid?: string;
   /** The App whose installation token opened it. */
   author_app_id: number;
   html_url: string;
@@ -197,6 +199,11 @@ export type FakeGitHub = {
     number: number,
     body: string,
   ): FakeGitHubComment;
+  /**
+   * Adds one commit on top of `branch`, which must exist, keeping its tree.
+   * Returns the commit.
+   */
+  appendCommit(owner: string, name: string, branch: string): Promise<string>;
   /** What `GET /repos` and the git `HEAD` both report as the default. */
   setDefaultBranch(owner: string, name: string, branch: string): Promise<void>;
   stop(): Promise<void>;
@@ -834,6 +841,154 @@ export async function startFakeGitHub(
         return Response.json({}, { status: 201 });
       }
     }
+
+    // Reads of the served repository's git objects and history.
+    const bare = join(root, owner, `${name}.git`);
+    const gitOr404 = async (args: string[]) => {
+      try {
+        return await runTestGit(args, bare);
+      } catch {
+        return undefined;
+      }
+    };
+    const branch = /^\/branches\/(.+)$/.exec(rest);
+    if (branch?.[1] && method === "GET") {
+      if (!can("contents", "read")) return forbidden();
+      const ref = decodeURIComponent(branch[1]);
+      const commit = (
+        await gitOr404(["rev-parse", "--verify", `refs/heads/${ref}^{commit}`])
+      )?.trim();
+      const tree = (
+        await gitOr404(["rev-parse", "--verify", `refs/heads/${ref}^{tree}`])
+      )?.trim();
+      return commit === undefined || tree === undefined
+        ? notFound()
+        : Response.json({
+            name: ref,
+            commit: { sha: commit, commit: { tree: { sha: tree } } },
+          });
+    }
+    const treeRead = /^\/git\/trees\/([0-9a-f]{40})$/.exec(rest);
+    if (treeRead?.[1] && method === "GET") {
+      if (!can("contents", "read")) return forbidden();
+      const listed = await gitOr404(["ls-tree", "-l", treeRead[1]]);
+      if (listed === undefined) return notFound();
+      return Response.json({
+        sha: treeRead[1],
+        truncated: false,
+        tree: listed
+          .split("\n")
+          .filter((line) => line !== "")
+          .map((line) => {
+            const [meta = "", path = ""] = line.split("\t");
+            const [mode = "", type = "", sha = "", size = "-"] =
+              meta.split(/\s+/);
+            return {
+              path,
+              mode,
+              type,
+              sha,
+              ...(size === "-" ? {} : { size: Number(size) }),
+            };
+          }),
+      });
+    }
+    const blobRead = /^\/git\/blobs\/([0-9a-f]{40})$/.exec(rest);
+    if (blobRead?.[1] && method === "GET") {
+      if (!can("contents", "read")) return forbidden();
+      // Text only: the fake's repositories hold text files.
+      const content = await gitOr404(["cat-file", "blob", blobRead[1]]);
+      return content === undefined
+        ? notFound()
+        : Response.json({
+            encoding: "base64",
+            size: Buffer.byteLength(content),
+            content: Buffer.from(content).toString("base64"),
+          });
+    }
+    const compare = /^\/compare\/([0-9a-f]{40})\.\.\.([0-9a-f]{40})$/.exec(
+      rest,
+    );
+    if (compare?.[1] && compare[2] && method === "GET") {
+      if (!can("contents", "read")) return forbidden();
+      const known = await Promise.all(
+        [compare[1], compare[2]].map((sha) =>
+          gitOr404(["cat-file", "-e", `${sha}^{commit}`]),
+        ),
+      );
+      if (known.some((answer) => answer === undefined)) return notFound();
+      const isAncestor = async (a: string, b: string) =>
+        (await gitOr404(["merge-base", "--is-ancestor", a, b])) !== undefined;
+      const status =
+        compare[1] === compare[2]
+          ? "identical"
+          : (await isAncestor(compare[1], compare[2]))
+            ? "ahead"
+            : (await isAncestor(compare[2], compare[1]))
+              ? "behind"
+              : "diverged";
+      return Response.json({ status });
+    }
+
+    // merge-async: a squash merge of the head as of `sha`, polled by uuid.
+    const mergeAsync = /^\/pulls\/(\d+)\/merge-async(?:\/([^/]+))?$/.exec(rest);
+    if (mergeAsync?.[1]) {
+      const pull = found.pulls.find(
+        (entry) => entry.number === Number(mergeAsync[1]),
+      );
+      if (pull === undefined) return notFound();
+      if (!can("pull_requests", method === "PUT" ? "write" : "read")) {
+        return forbidden();
+      }
+      const mergedAnswer = {
+        status: "merged",
+        details: { message: "merged", sha: "c".repeat(40) },
+      };
+      if (method === "PUT") {
+        if (pull.merged_at !== null) return Response.json(mergedAnswer);
+        if (pull.state === "closed") {
+          return Response.json(
+            { message: "Pull Request is not mergeable" },
+            { status: 405 },
+          );
+        }
+        if (input.sha !== (pull.head_sha ?? "1".repeat(40))) {
+          return Response.json(
+            {
+              message:
+                "Head branch was modified. Review and try the merge again.",
+            },
+            { status: 409 },
+          );
+        }
+        pull.merge_uuid = `merge-${pull.number}`;
+        return Response.json(
+          {
+            status: "pending",
+            details: {
+              message: "queued",
+              uuid: pull.merge_uuid,
+              merge_method: "squash",
+              merge_action: "direct_merge",
+              expected_head_sha: input.sha,
+              bypass_rules: false,
+            },
+          },
+          { status: 202 },
+        );
+      }
+      if (
+        method === "GET" &&
+        mergeAsync[2] !== undefined &&
+        mergeAsync[2] === pull.merge_uuid
+      ) {
+        const at = now().toISOString();
+        pull.state = "closed";
+        pull.merged_at = at;
+        pull.closed_at = at;
+        return Response.json(mergedAnswer);
+      }
+    }
     return notFound();
   }
 
@@ -1012,7 +1167,9 @@ export async function startFakeGitHub(
           "token",
         );
         const body =
-          request.method === "POST" || request.method === "PATCH"
+          request.method === "POST" ||
+          request.method === "PATCH" ||
+          request.method === "PUT"
             ? await request.json().catch(() => null)
             : undefined;
         const response = await rest(request.method, path, url, carried, body);
@@ -1231,6 +1388,29 @@ export async function startFakeGitHub(
         )
       ).trim();
       await runTestGit(["update-ref", `refs/heads/${branch}`, commit], bare);
+      return commit;
+    },
+    async appendCommit(owner, name, branch) {
+      const bare = join(root, owner, `${name}.git`);
+      const parent = `refs/heads/${branch}`;
+      const commit = (
+        await runTestGit(
+          [
+            "-c",
+            "user.name=testkit",
+            "-c",
+            "user.email=testkit@example.test",
+            "commit-tree",
+            `${parent}^{tree}`,
+            "-p",
+            parent,
+            "-m",
+            "next",
+          ],
+          bare,
+        )
+      ).trim();
+      await runTestGit(["update-ref", parent, commit], bare);
       return commit;
     },
     async setDefaultBranch(owner, name, branch) {

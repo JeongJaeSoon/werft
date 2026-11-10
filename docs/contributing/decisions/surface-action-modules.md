@@ -462,7 +462,7 @@ export interface Approvable {
 
 **웹·SSE는 끌어가는 채널이라 `Approvable`·`Notifiable`을 구현하지 않는다.** 대신 같은 요청을 같은 view model로 그린다는 것을 계약 시험으로 보장한다. 같은 입력 fixture(contracts의 `surface/`)를 `presentPendingRequest`·`presentPushRequest`에 넣은 결과에서 ① Slack 구현이 카드를 만들고 ② 웹 컴포넌트(`ApprovalCard`·`QuestionCard`, push 승인 화면)가 화면을 그린다. 두 쪽이 같은 view model 필드를 빠짐없이 쓰는지 단언한다(웹 시험은 `packages/react`, Slack 시험은 어댑터 쪽).
 
-**계약 시험 위치.** `describeNotifiableContract`, `describeApprovableContract`를 platform의 `./testing/*` export에 둔다. 적용 대상은 Slack 구현과, 시험이 전송 결과를 지정해 주는 가짜 구현이다. Slack 쪽 파일은 `packages/adapters/chat/slack/src/notifiable.contract.test.ts`, `approvable.contract.test.ts`다. 담는 약속은 구현이 Slack 응답·예외를 `DeliveryOutcome` 다섯 가지(`lease_lost` 포함: `begin`이 거절하면 아무것도 보내지 않고 행도 정산하지 않는다)로 분류하는 것이다. 지금 코드가 이미 지키는 분류(`slack-outbox.ts:430`, `slack-send-result.ts`, 전송 예외, lease 만료)만 적는다([5.5절](#55-리스코프-치환lsp)). 다시 보내지 않는다(`failed`, `uncertain`)와 행을 남긴다(`retry`)는 구현이 아니라 **전송기와 저장소**의 약속이라서, 그 사례는 `outbox.test.ts`가 그대로 지킨다. 같은 사람에게 한 번이라는 보장(`onceKey`)은 넣는 함수의 계약 시험이 맡는다. 웹·SSE 보장은 위 view model 시험이다.
+**계약 시험 위치.** `describeNotifiableContract`, `describeApprovableContract`를 platform의 `./testing/*` export에 둔다. 적용 대상은 Slack 구현과, 시험이 전송 결과를 지정해 주는 가짜 구현이다. Slack 쪽 파일은 `packages/adapters/chat/slack/src/outbox-delivery.contract.test.ts` 하나다. 두 능력이 `createRowDelivery` 하나를 같이 쓰므로(`outbox-delivery.ts`) 같은 파일에서 행 종류만 바꿔 두 함수를 돌린다. 담는 약속은 구현이 Slack 응답·예외를 `DeliveryOutcome` 다섯 가지(`lease_lost` 포함: `begin`이 거절하면 아무것도 보내지 않고 행도 정산하지 않는다)로 분류하는 것이다. 지금 코드가 이미 지키는 분류(`slack-outbox.ts:430`, `slack-send-result.ts`, 전송 예외, lease 만료)만 적는다([5.5절](#55-리스코프-치환lsp)). 다시 보내지 않는다(`failed`, `uncertain`)와 행을 남긴다(`retry`)는 구현이 아니라 **전송기와 저장소**의 약속이라서, 그 사례는 `outbox.test.ts`가 그대로 지킨다. 같은 사람에게 한 번이라는 보장(`onceKey`)은 넣는 함수의 계약 시험이 맡는다. 웹·SSE 보장은 위 view model 시험이다.
 
 **인터페이스를 만들지 않는 것.** 턴 답 전달(`reply`, `instruction`), `welcome` 행의 전송, 진행 상태, 결정 뒤 정리는 platform 서비스도 전송기도 포트로 부르지 않는다. 환영 메시지를 만드는 일은 `AgentWelcomable`이 맡고, 그 행을 보내는 일은 전송기가 직접 한다. slack role의 pass loop가 어댑터 안쪽의 넣기·상태 pass를 돈다(`slack-outbox.ts:328`, `slack-session-status.ts:160`). 여기에 이름만 붙인 인터페이스를 씌우면 어댑터 내부 호출에 이름을 붙인 것이 된다. 이 셋의 계약은 **데이터**다. 두 번째 밀어 보내는 채널이 생겨 공통 모양이 보이면 그때 인터페이스를 만든다([6.3절](#63-예정-능력)).
 
@@ -740,7 +740,7 @@ surface·action 범위 밖의 시험은 이 문서가 후보를 고르지 않는
 |---|---|---|
 | 순수 unit 파일 비율(L1) | 452 / 879 = 51% | 새 surface·action 로직 시험은 모두 L1. 비율은 내려가지 않는다 |
 | DB·프로세스를 여는 파일 비율(L3) | (185 + 121) / 879 = 35% | 늘지 않는다. 새 L3 사례는 "저장소가 있어야 보이는 결과"를 제목에 쓴다 |
-| 능력 인터페이스 가운데 계약 시험이 있는 것 | 0 | [6.2절](#62-능력-인터페이스)의 능력 전부. 구현과 가짜가 같은 시험을 통과한다 |
+| 능력 인터페이스 가운데 계약 시험이 있는 것 | 0 → 13(U7: action 일곱과 `Pushable`, surface 다섯) | [6.2절](#62-능력-인터페이스)의 능력 전부. 구현과 가짜가 같은 시험을 통과한다. 가짜가 없는 능력은 [15절](#15-검토-기록) U7 회차에 적었다 |
 | 이름이 층과 다른 파일 | 121 | surface·action 범위에서 0(M1), 나머지는 M5 |
 | 일곱 job의 시험 시간 합 | 1,648초 | 이 시리즈로 늘지 않는다. 이동 PR마다 같은 방법으로 다시 잰다 |
 | e2e | API 한 길(alpha path) | 그대로. Slack 채널 e2e는 mock Slack이 스택에 들어갈 때 다시 본다 |
@@ -972,3 +972,17 @@ U6b 회차(2026-11-11, 대상: `action/tools/` 구조 변경 PR). 구조 변경�
 | A5 | `tests/architecture.test.ts`가 TS AST로 정의한 모든 도구가 표에 한 줄씩 있고 표에 다른 줄이 없는지, 표가 `ToolHandlers`로 선언됐는지, 서버와 dispatch에 도구 이름 문자열 분기가 없는지 센다. 현재 위반 0건이라 기준선이 없다 |
 | `grant.api` 좁히기 | `GrantWith<Api>`(`action/ports/capabilities.ts`)를 더했다. `github-work-service`는 `WorkflowRunnable & Reviewable & getPullRequest`, `push-executor`는 `getRepository`만 받는다 |
 | 기준선 | A2 쌍 하나를 옮겼다(`github-mcp-server.ts -> musterrolle/policy.ts`가 `tools/session-bound.ts -> musterrolle/policy.ts`로). 순증 0, R4 변화 없음 |
+
+U7 회차(2026-11-11, 대상: 어댑터 계약 시험 PR). 제품 코드는 바꾸지 않았다. 능력마다 시험 함수를 platform `./testing/*`에 두고 실제 어댑터와 가짜에 돌렸다.
+
+| 항목 | 결정 |
+|---|---|
+| 능력과 함수 | action: `RepositoryReadable`, `PullRequestReadable`, `PullRequestWritable`, `PullRequestMergeable`, `Commentable`, `Reviewable`, `WorkflowRunnable`, `Pushable`. surface: `Notifiable`, `Approvable`, `AgentWelcomable`, `ChannelJoinable`, `ChannelKindReadable`. 함수 하나가 능력 하나의 약속을 적는다 |
+| 약속의 범위 | 지금 주석과 구현이 하는 약속만 적었다. 오류는 능력마다 갈린다. `GitHubCallError`를 던지는 쪽(`getRepository`, `getPullRequest`, merge, dispatch, 리뷰 제출 등)과 `ForgeCredentialError`를 던지는 쪽(`find*`, `createPullRequest`, 댓글 등)을 그대로 단언한다 |
+| 가짜 | `GitHubApi`는 실제 구현이 하나뿐이다. 그래서 가짜는 실제 어댑터 밑의 `testkit/fake-github` 서버이고, 계약이 실제 어댑터와 이 가짜 서버를 함께 시험한다. 가짜에 빠진 엔드포인트(브랜치·트리·blob·compare·비동기 merge)를 더해 일곱 forge 능력을 모두 시험할 수 있게 했다 |
+| 가짜가 없는 능력 | `Pushable`(git HTTP 가짜 하나), `AgentWelcomable`(저장소를 시험 안에서 만든 메모리 스토어로 대신함)은 구현 쪽이 하나다. surface 다섯 가운데 `ChannelKindReadable`·`ChannelJoinable`은 가짜 Slack HTTP와 스크립트한 메모리 `SlackBotApi` 둘에 돌린다 |
+| `Notifiable`·`Approvable` | [6.2절](#62-능력-인터페이스)의 파일 두 개 대신 한 파일에 둔다. 둘이 `createRowDelivery`를 같이 쓰므로 공통 전달 계약(`delivery-contract.ts`)을 두고 행 종류만 바꿔 돌린다. 담은 것은 `DeliveryOutcome` 다섯 가지(`sent`, `retry`, `failed`, `uncertain`, `lease_lost`)를 지금 코드가 가르는 대로다 |
+| D1 | `createOutboxSlackNoticeSink`의 계약("같은 사람은 한 번, 다른 사람은 따로")을 outbox 구현과 메모리 가짜 양쪽에 돌렸다. outbox 구현은 `dedupeKey`를 지키는 메모리 outbox 위에서 돌렸고 Postgres 위의 시험은 아직 없다 |
+| 웹·Slack 같은 view model | Slack은 `slack-prompts.view-model.test.ts`, 웹은 `packages/react`의 `tool-summary.view-model.test.tsx`다. 같은 요청 목록을 두 파일이 각자 갖고(스토리 없음) `presentPendingRequest`의 동사·대상·발췌가 각 채널 출력에 나오는지 본다. Slack 푸시 카드는 승인 가능일 때 승인·거절, 불가일 때 거절만이고 사유를 보인다. 웹 push 화면(`session-github-work.tsx`)은 이 PR의 범위 밖이라 단언하지 않았다 |
+| 선언 금지 | `tests/architecture.test.ts`가 TS AST로 저장소 전체에서 `declare module "@werft-ai/contracts"`를 센다. 지금 0건이라 기준선이 없다 |
+| M3 | `forge-github-pulls.test.ts`의 사례는 옮기지 않고 남겼다. 계약과 겹치지만 스크립트한 응답 모양에 묶여 있어 어댑터 시험이다 |
