@@ -61,6 +61,7 @@ const DEFAULT_USAGE_REPORT_BACKOFF_MS = [1_000, 5_000, 15_000];
  */
 const DEFAULT_EXCHANGE_TIMEOUT_MS = 35 * 60_000;
 const DEFAULT_MAX_EXCHANGES = 256;
+const MAX_UNREPORTED_SESSIONS = 10_000;
 /**
  * How often an open exchange asks again whether its grant still stands. A
  * revoked token stops new exchanges at once; one already streaming learns
@@ -1073,6 +1074,7 @@ export function startCredentialProxy(
     allow: [],
     allowPrivate: [],
   };
+  const unreportedSessions = new Set<string>();
   let open = 0;
   let bodyBytes = 0;
   const perClient = new Map<string, number>();
@@ -1178,6 +1180,15 @@ export function startCredentialProxy(
   // to the session's cost. After the exchange, never in its way
   // the worker already has its answer, and the ids come from the grant, so
   // an attempt that has since lost its session is still charged for it.
+  function markUnreported(sessionId: string): void {
+    // Bounded: a session that ended no longer asks, so the oldest can go.
+    if (unreportedSessions.size >= MAX_UNREPORTED_SESSIONS) {
+      const oldest = unreportedSessions.values().next().value;
+      if (oldest !== undefined) unreportedSessions.delete(oldest);
+    }
+    unreportedSessions.add(sessionId);
+  }
+
   async function reportUsage(
     grant: EgressGrant,
     exchangeId: string,
@@ -1213,6 +1224,9 @@ export function startCredentialProxy(
       const backoff = usageBackoffMs[tried];
       if ((status !== null && status < 500) || backoff === undefined) {
         logger.error("Provider usage went unreported", { ...fields, status });
+        // Fail closed: the session's stored cost now undercounts, so its
+        // later provider calls are refused as a spent budget.
+        if (grant.sessionId !== null) markUnreported(grant.sessionId);
         return;
       }
       await Bun.sleep(backoff);
@@ -2124,6 +2138,19 @@ export function startCredentialProxy(
             purpose: route.purpose,
           });
           return reply(503, "egress token refused", route.purpose);
+        }
+        // A session whose spend went unreported has a stored cost below its
+        // real one, so the budget gate can no longer be trusted for it.
+        if (
+          route.purpose === "provider" &&
+          authorized.grant.sessionId !== null &&
+          unreportedSessions.has(authorized.grant.sessionId)
+        ) {
+          release();
+          logger.warn("Provider call refused: session usage unreported", {
+            session_id: authorized.grant.sessionId,
+          });
+          return budgetExceededReply(route.path);
         }
         // Authorized: from here the exchange deadline bounds it, not the
         // idle clock, which a silent non-streaming call would trip.
