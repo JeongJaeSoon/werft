@@ -954,3 +954,21 @@ describe("maskBody: a parsed body keeps fields after a secret word in prose", ()
     expect(maskBody('{"message":"token=SENTINEL"}')).not.toContain("SENTINEL");
   });
 });
+
+describe("maskBody: form pairs one after another", () => {
+  test("a bracket in one value does not end it before the next secret key", () => {
+    const out = maskBody(
+      "error=denied&client_secret[0]=placeholder&token%5Bx%5D=SENTINEL",
+    );
+    expect(out).not.toContain("SENTINEL");
+    expect(out).toContain("error=denied");
+  });
+});
+
+describe("maskBody: form pairs inside a JSON string", () => {
+  test("bracketed keys in a value of a parsed body", () => {
+    expect(
+      maskBody('{"message":"a=1&client_secret[0]=p&token[y]=SENTINEL"}'),
+    ).not.toContain("SENTINEL");
+  });
+});

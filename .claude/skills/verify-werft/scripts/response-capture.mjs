@@ -82,7 +82,7 @@ function decodeAscii(text) {
 // Where the JSON value that starts at `i` ends. A string, array or object that
 // is cut off (no closing mark) runs to the end of the text: hiding too much of
 // a truncated body is the safe side.
-function valueEnd(s, i) {
+function valueEnd(s, i, bareEnd = /^[^\s,}\]&]*/) {
   const open = s[i];
   if (open === '"') {
     for (let j = i + 1; j < s.length; j++) {
@@ -110,7 +110,7 @@ function valueEnd(s, i) {
     const e = s.indexOf('\\"', i + 2);
     return e === -1 ? s.length : e + 2;
   }
-  const bare = /^[^\s,}\]]*/.exec(s.slice(i))[0];
+  const bare = bareEnd.exec(s.slice(i))[0];
   return i + bare.length;
 }
 
@@ -126,7 +126,7 @@ function valueEnd(s, i) {
 // is no telling error.code from an OAuth code.
 // A body that parsed has its keys masked already; there the scan looks only
 // for secrets written inside string values, and a separator more than 256
-// characters away or past structure (`,;{}[]`) is not taken, so prose such
+// characters away or past structure (`,;{}`) is not taken, so prose such
 // as "token is invalid" does not hide the next field.
 const SECRET_AT = new RegExp(`${SECRET_WORDS}|\\bsid\\b`, "gi");
 const SECRET_OR_CODE_AT = new RegExp(
@@ -146,12 +146,14 @@ function hideEmbedded(text, pattern, near) {
       sep = next.exec(text)?.index ?? text.length;
     }
     if (sep >= text.length) break;
-    if (near && (sep - from > 256 || /[,;{}[\]]/.test(text.slice(from, sep))))
+    if (near && (sep - from > 256 || /[,;{}]/.test(text.slice(from, sep))))
       continue;
     const start =
       sep + 1 + /^\s*/.exec(text.slice(sep + 1, sep + 257))[0].length;
     out += `${text.slice(last, start)}"(hidden)"`;
-    last = valueEnd(text, start);
+    // Outside JSON a bare value runs to a space or the next form pair: a
+    // bracket inside it (a[0]=…) must not end it before a later secret key.
+    last = near ? valueEnd(text, start) : valueEnd(text, start, /^[^\s&]*/);
     pattern.lastIndex = Math.max(last, start);
   }
   return out + text.slice(last);
