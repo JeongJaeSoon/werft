@@ -39,7 +39,7 @@
 #   tests/e2e/run.sh --local-model
 #
 # The same suite against the Ollama on this machine instead: migrate imports
-# tests/fixtures/settings/local-model.json, whose two profiles call Ollama
+# tests/fixtures/settings/local-model.json, whose two connections call Ollama
 # directly and through a LiteLLM proxy (infra/compose.local-model.yml), and the suite runs once on
 # each. Needs Ollama on localhost:11434 with gemma4:26b-mlx pulled; nothing
 # is paid. docs/contributing/local-model.md says what it shows and what it does not.
@@ -52,13 +52,19 @@ cd "$root"
 settings_values() {
   sed -n "s/^ *\"$1\": \"\(.*\)\",\{0,1\}\$/\1/p" "$2" | sort -u
 }
+# Every model the settings document's connections offer, one per line.
+# (each connection's "models" list sits on one line in the fixtures).
+settings_models() {
+  sed -n 's/^ *"models": \[\(.*\)\],\{0,1\}$/\1/p' "$1" | tr ',' '\n' |
+    sed 's/^ *"//; s/" *$//' | grep -v '^$' | sort -u
+}
 
 real_model=""
 model_overlay=infra/compose.fake-model.yml
 local_model=""
 # E2E_MODEL_MODE is set here alone, over whatever the shell (say, a sourced
 # vars.sh of another run) left: tests/e2e/real-model.e2e.ts picks its
-# profiles from it. A model run sets the session cost limit itself, the same
+# connections from it. A model run sets the session cost limit itself, the same
 # default its overlay or compose.core.yml has, so the suite compares the
 # session's limit with what the stack was given rather than a default.
 case "$*" in
@@ -84,7 +90,7 @@ if [ -n "$local_model" ]; then
   litellm_names="$(sed -n 's/^ *- model_name: //p' infra/local-model/litellm.yaml)"
   for model in $(
     {
-      settings_values model tests/fixtures/settings/local-model.json | grep -vxF "$litellm_names"
+      settings_models tests/fixtures/settings/local-model.json | grep -vxF "$litellm_names"
       sed -n 's/^ *model: ollama_chat\///p' infra/local-model/litellm.yaml
     } | sort -u
   ); do
@@ -224,7 +230,7 @@ sdk_version="$(sed -n 's/.*"@anthropic-ai\/claude-agent-sdk": "\([^"]*\)".*/\1/p
   echo "claude_agent_sdk: ${sdk_version}"
   echo "claude_code: ${claude_version}"
   if [ -n "$real_model" ]; then
-    echo "model: $(settings_values model tests/fixtures/settings/real-model.json)"
+    echo "model: $(settings_models tests/fixtures/settings/real-model.json)"
     echo "provider_endpoint: $(settings_values endpoint tests/fixtures/settings/real-model.json)"
   fi
   if [ -n "$real_model$local_model" ]; then
@@ -232,7 +238,7 @@ sdk_version="$(sed -n 's/.*"@anthropic-ai\/claude-agent-sdk": "\([^"]*\)".*/\1/p
   fi
   if [ -n "$local_model" ]; then
     echo "ollama: $(curl -s http://127.0.0.1:11434/api/version)"
-    echo "models: $(settings_values model tests/fixtures/settings/local-model.json | paste -sd, -)"
+    echo "models: $(settings_models tests/fixtures/settings/local-model.json | paste -sd, -)"
     echo "provider_endpoints: $(settings_values endpoint tests/fixtures/settings/local-model.json | paste -sd, -)"
   fi
 } | tee "$out/record.txt" >&2

@@ -49,25 +49,21 @@ function defaults(...layers: Array<Service | undefined>) {
 }
 
 describe("real-model settings", () => {
-  test("its profiles call api.anthropic.com with the key from the API's environment", async () => {
+  test("its connection calls api.anthropic.com with the key from the API's environment", async () => {
     const catalog = await fixtureCatalog("real-model", {
       [KEY_VARIABLE]: PROBE,
     });
-    expect(Object.keys(catalog.profiles)).toEqual(["claude-coding-real"]);
-    expect(catalog.repositories["sample-app"]?.profiles).toEqual([
-      "claude-coding-real",
-    ]);
-    expect(catalog.profiles["claude-coding-real"]?.permission_mode).toBe(
-      "auto",
-    );
-    const profile = catalog.profiles["claude-coding-real"];
-    if (profile === undefined) throw new Error("no profile");
-    expect(providerUpstreamOf(profile)).toEqual({
+    expect(Object.keys(catalog.connections)).toEqual(["anthropic"]);
+    expect(Object.keys(catalog.repositories)).toEqual(["sample-app"]);
+    const connection = catalog.connections.anthropic;
+    if (connection === undefined) throw new Error("no connection");
+    expect(connection.models).toContain("claude-sonnet-5");
+    expect(providerUpstreamOf(connection.provider)).toEqual({
       url: "https://api.anthropic.com",
       headers: [["x-api-key", PROBE]],
     });
     // What a worker is handed: the route and its egress token, no key.
-    const worker = runtimeProviderOf(profile, "egress-token");
+    const worker = runtimeProviderOf(connection.provider, "egress-token");
     expect(worker.auth).toEqual({
       kind: "egress_token",
       token: "egress-token",
@@ -75,7 +71,7 @@ describe("real-model settings", () => {
     expect(JSON.stringify(worker)).not.toContain(PROBE);
   });
 
-  test("without the key the profile does not resolve", async () => {
+  test("without the key the connection does not resolve", async () => {
     for (const env of [{}, { [KEY_VARIABLE]: "" }]) {
       await expect(fixtureCatalog("real-model", env)).rejects.toThrow(
         `value_env: ${KEY_VARIABLE} is not set`,

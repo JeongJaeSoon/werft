@@ -268,7 +268,8 @@ export function createPostgresSettingsDocumentStore(
               row.definition as SettingsEntries["connections"][string];
             const families = modelFamiliesSchema.safeParse(row.modelFamilies);
             if (row.models.length > 0 || families.success) {
-              (entries.connection_models ??= {})[row.id] = {
+              entries.connection_models ??= {};
+              entries.connection_models[row.id] = {
                 models: [...row.models],
                 ...(families.success ? { model_families: families.data } : {}),
               };

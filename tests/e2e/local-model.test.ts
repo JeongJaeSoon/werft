@@ -51,19 +51,16 @@ const catalog = () =>
   });
 
 describe("local-model catalog", () => {
-  test("one profile calls Ollama with a key, the other LiteLLM with a bearer", async () => {
-    const { profiles, repositories } = await catalog();
-    expect(Object.keys(profiles)).toEqual(["local-ollama", "local-litellm"]);
-    expect(repositories["sample-app"]?.profiles).toEqual([
-      "local-ollama",
-      "local-litellm",
-    ]);
+  test("one connection calls Ollama with a key, the other LiteLLM with a bearer", async () => {
+    const { connections, repositories } = await catalog();
+    expect(Object.keys(connections)).toEqual(["ollama", "litellm"]);
+    expect(Object.keys(repositories)).toEqual(["sample-app"]);
     const [ollama, litellm] = [
-      profiles["local-ollama"],
-      profiles["local-litellm"],
+      connections.ollama?.provider,
+      connections.litellm?.provider,
     ];
     if (ollama === undefined || litellm === undefined) {
-      throw new Error("missing profile");
+      throw new Error("missing connection");
     }
     expect(providerUpstreamOf(ollama)).toEqual({
       url: "http://ollama.internal:11434",
@@ -100,14 +97,14 @@ describe("local-model compose overlay", () => {
     }
   });
 
-  test("the proxy reaches every profile's endpoint on the credential route alone", async () => {
+  test("the proxy reaches every connection's endpoint on the credential route alone", async () => {
     const base = layeredServices<Service>(LOCAL_LAYERS);
     const proxy = egressProxyConfigFromEnv(
       defaults(base["egress-proxy"], (await overlay())["egress-proxy"]),
     );
     const forward = [...proxy.allow, ...proxy.allowPrivate];
-    for (const profile of Object.values((await catalog()).profiles)) {
-      const url = new URL(profile.provider.endpoint);
+    for (const connection of Object.values((await catalog()).connections)) {
+      const url = new URL(connection.provider.endpoint);
       const destination = { host: url.hostname, port: Number(url.port) };
       expect(proxy.credential?.allowPrivate).toContainEqual(destination);
       expect(forward).not.toContainEqual(destination);
