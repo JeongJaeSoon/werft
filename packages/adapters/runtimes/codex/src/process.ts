@@ -13,8 +13,8 @@ export type AppServerHandle = {
   transport: AppServerTransport;
   /** Ends the process and everything it started, now. */
   kill(): void;
-  /** Processes the engine started that are still running (Linux; empty where unreadable). */
-  descendants(): readonly number[];
+  /** Processes the engine started that are still running; undefined where the system cannot list them. */
+  descendants(): readonly number[] | undefined;
   /** Why the engine started badly, e.g. a setting it ignored. */
   startupProblem(): string | undefined;
 };
@@ -26,34 +26,37 @@ export type AppServerProcess = AppServerHandle & {
 };
 
 /**
- * The processes below `pid`, read from `/proc/<pid>/task/*\/children`. A
- * kernel without that file reports none, which a checkpoint then takes as
- * quiet; the run's own tool tracking is the other half of the judgment.
+ * The processes below `pid`, read from `/proc/<pid>/task/*\/children`;
+ * undefined when the engine's own entry cannot be read (no `/proc`, or a
+ * kernel without `children`), which a checkpoint must not take as quiet. A
+ * process further down that vanished while the tree was walked is gone, not
+ * unknown.
  */
-export function descendantsOf(pid: number): number[] {
+export function descendantsOf(pid: number): number[] | undefined {
   const found: number[] = [];
-  const visit = (parent: number) => {
+  const visit = (parent: number, root: boolean): boolean => {
     let tasks: string[];
     try {
       tasks = readdirSync(`/proc/${parent}/task`);
     } catch {
-      return;
+      return !root;
     }
     for (const task of tasks) {
       let text: string;
       try {
         text = readFileSync(`/proc/${parent}/task/${task}/children`, "utf8");
       } catch {
+        if (root) return false;
         continue;
       }
       for (const child of text.split(/\s+/).filter(Boolean).map(Number)) {
         found.push(child);
-        visit(child);
+        if (!visit(child, false)) return false;
       }
     }
+    return true;
   };
-  visit(pid);
-  return found;
+  return visit(pid, true) ? found : undefined;
 }
 
 // The engine logs this once at start for a `-c` key it does not know.
@@ -139,8 +142,11 @@ export function spawnAppServer(options: {
   child.on("spawn", () => {
     if (child.pid !== undefined) options.observer?.onSpawn(child.pid);
   });
+  // `close` waits for every holder of the engine's stdio to let go, so a tool
+  // that outlives the engine with a pipe open would keep it from ever coming.
+  // The group is ended at `exit`; the pipes then close and `close` follows.
+  child.on("exit", () => kill());
   child.on("close", (code, signal) => {
-    // Whatever the engine's tools left behind goes with it.
     kill();
     if (child.pid !== undefined) {
       options.observer?.onExit?.(child.pid, code, signal);
@@ -153,7 +159,7 @@ export function spawnAppServer(options: {
     kill,
     stderr: () => tail,
     descendants: () =>
-      child.pid === undefined ? [] : descendantsOf(child.pid),
+      child.pid === undefined ? undefined : descendantsOf(child.pid),
     startupProblem: () => problem,
   };
 }

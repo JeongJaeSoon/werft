@@ -21,10 +21,11 @@ export type AdapterConformanceHarness = {
    * to a pull request description, in a run started with `permissionMode`.
    * `undefined` means the adapter left the engine's default in place.
    */
-  engineSignature(permissionMode: PermissionMode): {
-    commit: string | undefined;
-    pr: string | undefined;
-  };
+  engineSignature(
+    permissionMode: PermissionMode,
+  ):
+    | { commit: string | undefined; pr: string | undefined }
+    | Promise<{ commit: string | undefined; pr: string | undefined }>;
   /**
    * How a run started with `gitEnvironment` launches the engine: the
    * environment its process gets, and everything else the adapter passes
@@ -71,10 +72,13 @@ export type AdapterConformanceItem = {
 export const ADAPTER_CONFORMANCE: readonly AdapterConformanceItem[] = [
   {
     name: "1. the engine adds no signature of its own to commits or pull requests",
-    check(harness) {
+    async check(harness) {
       for (const permissionMode of PERMISSION_MODE_VALUES) {
         deepStrictEqual(
-          { permissionMode, ...harness.engineSignature(permissionMode) },
+          {
+            permissionMode,
+            ...(await harness.engineSignature(permissionMode)),
+          },
           { permissionMode, commit: "", pr: "" },
         );
       }

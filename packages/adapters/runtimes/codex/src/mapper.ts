@@ -111,7 +111,7 @@ function toolCall(
   ];
 }
 
-function changePaths(item: Item): string[] {
+export function changePaths(item: Item): string[] {
   const changes = Array.isArray(item.changes) ? item.changes : [];
   return changes.flatMap((change) => {
     const path = record(change).path;

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { Dirent } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import {
@@ -26,8 +26,10 @@ import type { CodexLaunch } from "./config.ts";
 import {
   addUsage,
   COMMAND_TOOL,
+  changePaths,
   EMPTY_USAGE,
   FILE_CHANGE_TOOL,
+  type Item,
   itemCompleted,
   itemOf,
   itemStarted,
@@ -55,7 +57,7 @@ export type CodexRunOptions = {
   /** The inputs the thread already holds, read when a resumed run asks. */
   heldInputs: (threadId: string) => Promise<ReadonlySet<string>>;
   /** Descendants of the engine process, to judge the run quiet. */
-  descendants: () => readonly number[];
+  descendants: () => readonly number[] | undefined;
   /** Ends the engine process and everything it started. */
   kill: () => void;
   /** Why the engine started badly (settings it ignored), if it did. */
@@ -143,6 +145,9 @@ export class CodexRun implements AgentRun {
   private starting: Promise<void> | undefined;
   private inputClosed = false;
   private leased = false;
+  private checkpointing = false;
+  /** File changes the engine announced, by item id: what an approval is bound to. */
+  private readonly fileChanges = new Map<string, Item>();
   private closing = false;
   private idle = true;
 
@@ -209,8 +214,44 @@ export class CodexRun implements AgentRun {
     return { stillQueued };
   }
 
-  async prepareCheckpoint(
+  prepareCheckpoint(point: CheckpointPoint): Promise<CheckpointPreparation> {
+    return this.prepare(point, false);
+  }
+
+  /**
+   * Why the run is not quiet now, if it is not. A process whose children
+   * cannot be listed is not called quiet: an unreadable `/proc` says nothing
+   * about a writer the engine left behind.
+   */
+  private notQuiet(withQueue: boolean): RejectedCheckpoint | undefined {
+    if (this.turn !== undefined || !this.idle) {
+      return rejected("turn_in_flight", "A turn is running");
+    }
+    if (withQueue && this.queue.length > 0) {
+      return rejected("turn_in_flight", "An input is queued");
+    }
+    if (this.running.size > 0 || this.channel.open > 0) {
+      return rejected("tool_in_flight", "A tool call has not finished");
+    }
+    const below = this.options.descendants();
+    if (below === undefined) {
+      return rejected(
+        "background_writer",
+        "The processes the engine started cannot be listed on this system",
+      );
+    }
+    if (below.length > 0) {
+      return rejected(
+        "background_writer",
+        "A process the engine started is still running",
+      );
+    }
+    return undefined;
+  }
+
+  private async prepare(
     point: CheckpointPoint,
+    lease: boolean,
   ): Promise<CheckpointPreparation> {
     if (point !== "turn_end") {
       return rejected(
@@ -222,41 +263,42 @@ export class CodexRun implements AgentRun {
     if (threadId === undefined) {
       return rejected("no_engine_session", "The engine has no thread yet");
     }
-    if (this.leased) {
+    if (this.leased || this.checkpointing) {
       return rejected("checkpoint_lease_held", "A checkpoint is being taken");
     }
-    if (this.turn !== undefined || this.queue.length > 0 || !this.idle) {
-      return rejected("turn_in_flight", "A turn is running or queued");
+    const busy = this.notQuiet(true);
+    if (busy !== undefined) return busy;
+    // Held from here with no await in between, so no second checkpoint and no
+    // turn can begin while the engine's record is being flushed.
+    this.checkpointing = true;
+    try {
+      // The engine writes its record from its own task; a request that comes
+      // back through it is the one barrier the protocol offers.
+      await this.options.transport.request("thread/read", {
+        threadId,
+        includeTurns: false,
+      });
+      // Something the engine did while we waited (a tool it started on its own).
+      const late = this.notQuiet(false);
+      if (late !== undefined) return late;
+      if (lease) this.leased = true;
+      return {
+        status: "ready",
+        checkpoint: {
+          engine: CODEX_DESCRIPTOR.checkpointEngine,
+          resume: threadId,
+          sdkVersion: CODEX_CLI_VERSION,
+        },
+      };
+    } finally {
+      this.checkpointing = false;
+      if (!this.leased) void this.pump();
     }
-    if (this.running.size > 0 || this.channel.open > 0) {
-      return rejected("tool_in_flight", "A tool call has not finished");
-    }
-    if (this.options.descendants().length > 0) {
-      return rejected(
-        "background_writer",
-        "A process the engine started is still running",
-      );
-    }
-    // The engine writes its record from its own task; a request that comes
-    // back through it is the one barrier the protocol offers.
-    await this.options.transport.request("thread/read", {
-      threadId,
-      includeTurns: false,
-    });
-    return {
-      status: "ready",
-      checkpoint: {
-        engine: CODEX_DESCRIPTOR.checkpointEngine,
-        resume: threadId,
-        sdkVersion: CODEX_CLI_VERSION,
-      },
-    };
   }
 
   async leaseCheckpoint(point: CheckpointPoint): Promise<CheckpointLeaseGrant> {
-    const preparation = await this.prepareCheckpoint(point);
+    const preparation = await this.prepare(point, true);
     if (preparation.status === "rejected") return { lease: null, preparation };
-    this.leased = true;
     return {
       preparation,
       lease: {
@@ -343,6 +385,7 @@ export class CodexRun implements AgentRun {
       this.threadId === undefined ||
       this.turn !== undefined ||
       this.leased ||
+      this.checkpointing ||
       this.closing
     ) {
       this.maybeFinish();
@@ -411,7 +454,8 @@ export class CodexRun implements AgentRun {
       this.inputClosed &&
       this.queue.length === 0 &&
       this.turn === undefined &&
-      !this.leased
+      !this.leased &&
+      !this.checkpointing
     ) {
       this.events$.end();
     }
@@ -436,6 +480,7 @@ export class CodexRun implements AgentRun {
         if (item === undefined) return;
         if (item.type === "commandExecution" || item.type === "fileChange") {
           this.running.add(item.id);
+          if (item.type === "fileChange") this.fileChanges.set(item.id, item);
           this.announce(item.id, () => itemStarted(item, this.inputs));
         }
         return;
@@ -553,20 +598,33 @@ export class CodexRun implements AgentRun {
       typeof params.itemId === "string" ? params.itemId : undefined;
     if (itemId === undefined) return "decline";
     const isCommand = tool === COMMAND_TOOL;
+    // A file change is approved for the changes the engine announced, not for
+    // the directory it asks to write under: two patches to different files
+    // would otherwise carry one hash. One the engine never announced is not
+    // something an answer can be bound to.
+    const change = isCommand ? undefined : this.fileChanges.get(itemId);
+    if (!isCommand && change === undefined) return "decline";
     const input: Record<string, unknown> = isCommand
       ? { command: params.command ?? null, cwd: params.cwd ?? null }
-      : { grant_root: params.grantRoot ?? null };
+      : {
+          paths: changePaths(change as Item),
+          changes_sha256: createHash("sha256")
+            .update(JSON.stringify(change?.changes ?? null))
+            .digest("hex"),
+          grant_root: params.grantRoot ?? null,
+        };
     this.announce(itemId, () =>
       itemStarted(
         isCommand
           ? { type: "commandExecution", id: itemId, ...input }
-          : { type: "fileChange", id: itemId, changes: [] },
+          : (change as Item),
         this.inputs,
       ),
     );
     const { answers } = this.options.launch;
+    if (answers === "none") return "decline";
+    // acceptEdits: file changes go through, commands still go to the person.
     if (answers === "edits" && !isCommand) return "accept";
-    if (answers !== "ask") return "decline";
     if (isCommand && this.options.precheckTool !== undefined) {
       const refusal = await this.options.precheckTool(tool, input);
       if (refusal !== null) return "decline";
@@ -587,7 +645,7 @@ export class CodexRun implements AgentRun {
       display: {
         ...(isCommand
           ? { command: params.command ?? null, cwd: params.cwd ?? null }
-          : { grant_root: params.grantRoot ?? null }),
+          : { paths: input.paths, grant_root: params.grantRoot ?? null }),
         reason: params.reason ?? null,
       },
     };

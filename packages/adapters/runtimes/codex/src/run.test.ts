@@ -71,6 +71,17 @@ async function started(t: ReturnType<typeof setup>) {
   );
 }
 
+function announcePatch(
+  t: ReturnType<typeof setup>,
+  id: string,
+  changes: Array<{ path: string; kind: string; diff: string }>,
+) {
+  t.server.emit("item/started", {
+    threadId: "thread-1",
+    item: { type: "fileChange", id, status: "inProgress", changes },
+  });
+}
+
 function askCommand(t: ReturnType<typeof setup>) {
   t.server.emit("item/started", { threadId: "thread-1", item: COMMAND });
   return t.server.ask("item/commandExecution/requestApproval", {
@@ -177,15 +188,72 @@ describe("approvals", () => {
     expect(t.seen.some((e) => e.type === "approval.requested")).toBe(false);
   });
 
-  test("acceptEdits accepts a file change and still asks about commands", async () => {
+  test("acceptEdits accepts a file change and still asks the person about commands", async () => {
     const t = setup("edits");
     await started(t);
+    announcePatch(t, "patch-1", [{ path: "a.txt", kind: "add", diff: "+hi" }]);
     const change = await t.server.ask("item/fileChange/requestApproval", {
       threadId: "thread-1",
       itemId: "patch-1",
+      grantRoot: "/work",
     });
     expect(change).toEqual({ decision: "accept" });
-    expect(await askCommand(t)).toEqual({ decision: "decline" });
+
+    const reply = askCommand(t);
+    const asked = await t.until(t.ofType("approval.requested"));
+    if (asked.type !== "approval.requested") throw new Error("unreachable");
+    expect(asked.request.tool.name).toBe("exec_command");
+    await t.run.answer({
+      localId: asked.request.localId,
+      inputHash: asked.request.inputHash,
+      kind: "selected",
+      optionKind: "allow_once",
+    });
+    expect(await reply).toEqual({ decision: "accept" });
+  });
+
+  test("a file change the engine never announced is declined, in every mode", async () => {
+    for (const answers of ["ask", "edits"] as const) {
+      const t = setup(answers);
+      await started(t);
+      expect(
+        await t.server.ask("item/fileChange/requestApproval", {
+          threadId: "thread-1",
+          itemId: "unseen",
+          grantRoot: "/work",
+        }),
+      ).toEqual({ decision: "decline" });
+    }
+  });
+
+  test("an approval is bound to the changes, not to the directory they are under", async () => {
+    const t = setup();
+    await started(t);
+    const hashes: string[] = [];
+    for (const [id, path] of [
+      ["patch-a", "a.txt"],
+      ["patch-b", "b.txt"],
+    ] as const) {
+      announcePatch(t, id, [{ path, kind: "update", diff: `+${path}` }]);
+      void t.server.ask("item/fileChange/requestApproval", {
+        threadId: "thread-1",
+        itemId: id,
+        grantRoot: "/work",
+      });
+      await t.until(() =>
+        t.seen.filter((e) => e.type === "approval.requested").length ===
+        hashes.length + 1
+          ? ({ type: "x" } as never)
+          : undefined,
+      );
+      const asked = t.seen
+        .filter((e) => e.type === "approval.requested")
+        .at(-1);
+      if (asked?.type !== "approval.requested") throw new Error("unreachable");
+      expect(asked.request.tool.input).toMatchObject({ paths: [path] });
+      hashes.push(asked.request.inputHash);
+    }
+    expect(hashes[0]).not.toBe(hashes[1]);
   });
 
   test("a tool the host refuses is declined before anyone is asked", async () => {
@@ -325,6 +393,78 @@ describe("checkpoints", () => {
 
   test("a process the engine left behind is not a checkpoint", async () => {
     const t = setup("ask", { descendants: () => [4242] });
+    await t.run.ready();
+    expect(await t.run.prepareCheckpoint("turn_end")).toMatchObject({
+      status: "rejected",
+      reason: "background_writer",
+    });
+  });
+
+  test("two checkpoints asked at once: one is taken, one is told a checkpoint is being taken", async () => {
+    const t = setup();
+    await t.run.ready();
+    let release!: () => void;
+    t.server.on(
+      "thread/read",
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve({ thread: { id: "thread-1" } });
+        }),
+    );
+    const one = t.run.leaseCheckpoint("turn_end");
+    const two = t.run.leaseCheckpoint("turn_end");
+    expect((await two).preparation).toMatchObject({
+      status: "rejected",
+      reason: "checkpoint_lease_held",
+    });
+    release();
+    expect((await one).preparation).toMatchObject({ status: "ready" });
+  });
+
+  test("no turn starts while the engine's record is being flushed", async () => {
+    const t = setup();
+    await t.run.ready();
+    let release!: () => void;
+    t.server.on(
+      "thread/read",
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve({ thread: { id: "thread-1" } });
+        }),
+    );
+    const preparing = t.run.prepareCheckpoint("turn_end");
+    t.run.send({ uuid: "in-1", message: "hi" });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(t.server.started("turn/start")).toBeUndefined();
+    release();
+    expect(await preparing).toMatchObject({ status: "ready" });
+    await t.until(() =>
+      t.server.started("turn/start") ? ({ type: "x" } as never) : undefined,
+    );
+  });
+
+  test("a tool the engine started while the record was flushed is not a checkpoint", async () => {
+    const t = setup();
+    await t.run.ready();
+    let release!: () => void;
+    t.server.on(
+      "thread/read",
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve({ thread: { id: "thread-1" } });
+        }),
+    );
+    const preparing = t.run.prepareCheckpoint("turn_end");
+    t.server.emit("item/started", { threadId: "thread-1", item: COMMAND });
+    release();
+    expect(await preparing).toMatchObject({
+      status: "rejected",
+      reason: "tool_in_flight",
+    });
+  });
+
+  test("a system that cannot list the engine's children is not called quiet", async () => {
+    const t = setup("ask", { descendants: () => undefined });
     await t.run.ready();
     expect(await t.run.prepareCheckpoint("turn_end")).toMatchObject({
       status: "rejected",

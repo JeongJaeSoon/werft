@@ -1,14 +1,23 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { RuntimeStart } from "@werft-ai/runtime-core";
 import {
   ADAPTER_CONFORMANCE,
   type AdapterConformanceHarness,
 } from "@werft-ai/runtime-core/testing/conformance";
 
-import { codexLaunch } from "./config.ts";
+import { codexLaunch, modeRunOf } from "./config.ts";
+import { CodexAgentRuntime } from "./contract.ts";
+import {
+  assistantMessage,
+  fakeResponses,
+  startOf as realStartOf,
+  type Seen,
+} from "./testing/fake-responses.ts";
 
 function startOf(overrides: {
-  permissionMode?: string;
   gitEnvironment?: unknown;
   mcp?: boolean;
 }): RuntimeStart {
@@ -19,7 +28,7 @@ function startOf(overrides: {
         endpoint: "https://api.openai.example/",
         auth: {
           kind: "egress_token",
-          token: "placeholder",
+          token: "conformance-egress",
           transport: "http://egress.internal:8080/provider",
         },
       },
@@ -36,7 +45,7 @@ function startOf(overrides: {
       cwd: "/tenant/workspace",
       home: "/tenant/home",
       model: "primary",
-      permissionMode: overrides.permissionMode ?? "default",
+      permissionMode: "default",
       tools: ["exec_command"],
       ...(overrides.gitEnvironment === undefined
         ? {}
@@ -47,20 +56,59 @@ function startOf(overrides: {
 
 const DEPS = { stateDir: "/state" };
 
-const harness: AdapterConformanceHarness = {
-  // The engine's own commit and PR text is a Codex setting this adapter does
-  // not pass; whatever the launch carries is searched for it.
-  engineSignature(permissionMode) {
-    const modes = ["default", "acceptEdits", "dontAsk", "bypassPermissions"];
-    // A mode the engine does not run in has no launch to read; it cannot
-    // sign what it never writes.
-    const launch = modes.includes(permissionMode)
-      ? codexLaunch(startOf({ permissionMode }), DEPS, {})
-      : undefined;
-    const text = JSON.stringify(launch?.args ?? []);
-    expect(text).not.toMatch(/attribution|co-authored|generated with/i);
+/**
+ * What the pinned engine would put in a commit message or a pull request
+ * description: it is run for one turn in `permissionMode` and the requests it
+ * sent are searched for the text it is built to add on its own. Nothing is
+ * inferred from the launch arguments.
+ */
+async function signatureOf(permissionMode: string) {
+  // A mode the engine refuses to start in writes nothing, so it signs nothing.
+  try {
+    modeRunOf(permissionMode as never);
+  } catch {
     return { commit: "", pr: "" };
-  },
+  }
+  const root = await mkdtemp(join(tmpdir(), "codex-signature-"));
+  const seen: Seen[] = [];
+  const server = fakeResponses(seen, () => [assistantMessage("ok")]);
+  try {
+    const run = new CodexAgentRuntime({
+      stateDir: join(root, "state"),
+    } as never).start(
+      realStartOf({
+        port: server.port as number,
+        work: root,
+        egressToken: "conformance-egress",
+        permissionMode,
+      }),
+    );
+    try {
+      await run.ready();
+      const ended = (async () => {
+        for await (const event of run.events()) {
+          if (event.type === "turn.ended") return;
+        }
+      })();
+      run.send({ uuid: "sig-1", message: "hello" });
+      await ended;
+    } finally {
+      await run.close();
+    }
+  } finally {
+    await server.stop(true);
+    await rm(root, { recursive: true, force: true });
+  }
+  if (seen.length === 0) throw new Error("The engine sent no request");
+  const bodies = seen.map((s) => s.body).join("\n");
+  return {
+    commit: /Co-authored-by: Codex/.test(bodies) ? "Co-authored-by: Codex" : "",
+    pr: /Generated with \[?Codex/.test(bodies) ? "Generated with Codex" : "",
+  };
+}
+
+const harness: AdapterConformanceHarness = {
+  engineSignature: signatureOf,
   engineLaunch(gitEnvironment) {
     const launch = codexLaunch(startOf({ gitEnvironment }), DEPS, {});
     return {
@@ -84,7 +132,7 @@ const harness: AdapterConformanceHarness = {
 
 describe("Codex adapter conformance", () => {
   for (const item of ADAPTER_CONFORMANCE) {
-    test(item.name, () => item.check(harness));
+    test(item.name, () => item.check(harness), 60_000);
   }
 
   test("item 3 is not satisfied by a harness that shows nothing", async () => {
@@ -96,5 +144,15 @@ describe("Codex adapter conformance", () => {
     await expect(Promise.resolve(item?.check(empty))).rejects.toThrow(
       "mcpBundle",
     );
+  });
+
+  test("item 1 fails for an engine that does sign", async () => {
+    const signing: AdapterConformanceHarness = {
+      ...harness,
+      engineSignature: () => ({ commit: "Co-authored-by: Codex", pr: "" }),
+    };
+    await expect(
+      Promise.resolve(ADAPTER_CONFORMANCE[0]?.check(signing)),
+    ).rejects.toThrow();
   });
 });
