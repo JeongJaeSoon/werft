@@ -9,6 +9,7 @@ import {
   startGitHubAppManifestResponseSchema,
   WEB_SESSION_COOKIE_NAME,
 } from "@werft-ai/contracts";
+import { createGitHubManifestConverter } from "@werft-ai/forge-github";
 import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import {
   createAuthorizationPolicy,
@@ -24,7 +25,6 @@ import {
   type ResolvedWebSession,
 } from "@werft-ai/platform";
 import { generateWebSessionToken, hashWebSessionToken } from "../auth.ts";
-import { createGitHubManifestConverter } from "../forge-github.ts";
 import { hashApiKey } from "../keys.ts";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerGitHubAppRoutes } from "./github-app.ts";

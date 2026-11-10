@@ -164,6 +164,14 @@ import {
 } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import {
+  connectionsOf,
+  createAppBotUsers,
+  createGitHubAppDirectory,
+  createGitHubManifestConverter,
+  createGitPusher,
+  createRegisteredGitHubConnections,
+} from "../wiring/forge-github.ts";
+import {
   API_READINESS_REQUIRED_ENV,
   ApiSettingsError,
   apiReadinessConfigProblems,
@@ -204,14 +212,6 @@ import {
   sessionTitleEgressUrlFromEnv,
 } from "./egress-authorizer.ts";
 import { extensionDepsFor } from "./extension-deps.ts";
-import {
-  connectionsOf,
-  createAppBotUsers,
-  createGitHubAppDirectory,
-  createGitHubManifestConverter,
-  createRegisteredGitHubConnections,
-} from "./forge-github.ts";
-import { createGitPusher } from "./git-push.ts";
 import { githubCallbackUrl } from "./github-link.ts";
 import { githubPackagesConfigFromEnv } from "./github-packages-config.ts";
 import { createGoogleLogin, googleLoginConfigFromEnv } from "./google-login.ts";

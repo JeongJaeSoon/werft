@@ -260,6 +260,7 @@ jobs:
               - apps/control-host/src/metrics/
               - apps/control-host/src/pass-loop/
               - apps/control-host/src/reconciler/
+              - packages/adapters/forge/
               - tests/catalog-mismatch.
               - tests/context-gap-flow.
               - tests/drain-park-flow.
