@@ -5603,8 +5603,8 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Workspace settings",
     summary: "The workspace's saved engine rules",
     description:
-      "The rules every agent of the workspace runs under: `settings.permissions` (`allow`, `ask`, `deny`: tool rules in the engine's spelling) and `settings.auto_mode` (`allow`, `soft_deny`, `hard_deny`, `environment`: sentences the auto-mode classifier reads). A list that is absent holds nothing. `settings_revision` is null while nothing is saved. `writes_open` says whether a save is accepted now; reading is always open. Any member of the workspace reads it with a console session; an API key is refused.",
-    auth: "session",
+      "The rules every agent of the workspace runs under: `settings.permissions` (`allow`, `ask`, `deny`: tool rules in the engine's spelling) and `settings.auto_mode` (`allow`, `soft_deny`, `hard_deny`, `environment`: sentences the auto-mode classifier reads). A list that is absent holds nothing. `settings_revision` is null while nothing is saved. `writes_open` says whether a save is accepted now; reading is always open. Any member of the workspace reads it, with a console session or with that member's personal API key; an agent's key and the operator key read nothing here.",
+    scope: "read",
     success: {
       status: 200,
       schema: "WorkspaceEngineSettingsResponse",
@@ -5654,8 +5654,8 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "The agent's saved engine rules next to the workspace's",
     description:
-      "`settings` are the agent's own rules and `settings_revision` guards them (null while none are saved). `workspace` repeats the workspace's rules, which also apply, read only here. `inherited` counts the restrictions the agent took over from its profile (`entries`, `rules`); the rules themselves are an operator's and are not shown. `reach` says what the allow lists do together: `agent_allow_without_effect` names the agent's `allow`/`environment` entries the workspace does not share, which do nothing because a grant needs both sides, and `workspace_allow_inactive` is true when the workspace allows something the agent's own list leaves empty. `writes_open` says whether a save is accepted now. Whoever manages the agent reads it, and so do the live members of its managing team.",
-    auth: "session",
+      "`settings` are the agent's own rules and `settings_revision` guards them (null while none are saved). `workspace` repeats the workspace's rules, which also apply, read only here. `inherited` counts the restrictions the agent took over from its profile (`entries`, `rules`); the rules themselves are an operator's and are not shown. `reach` says what the allow lists do together: `agent_allow_without_effect` names the agent's `allow`/`environment` entries the workspace does not share, which do nothing because a grant needs both sides, and `workspace_allow_inactive` is true when the workspace allows something the agent's own list leaves empty. `writes_open` says whether a save is accepted now. Whoever manages the agent reads it, and so do the live members of its managing team, with a console session or with their personal API key; an agent's own key does not.",
+    scope: "read",
     success: {
       status: 200,
       schema: "AgentEngineSettingsResponse",

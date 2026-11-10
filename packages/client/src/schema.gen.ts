@@ -2880,9 +2880,9 @@ export interface paths {
         };
         /**
          * The workspace's saved engine rules
-         * @description The rules every agent of the workspace runs under: `settings.permissions` (`allow`, `ask`, `deny`: tool rules in the engine's spelling) and `settings.auto_mode` (`allow`, `soft_deny`, `hard_deny`, `environment`: sentences the auto-mode classifier reads). A list that is absent holds nothing. `settings_revision` is null while nothing is saved. `writes_open` says whether a save is accepted now; reading is always open. Any member of the workspace reads it with a console session; an API key is refused.
+         * @description The rules every agent of the workspace runs under: `settings.permissions` (`allow`, `ask`, `deny`: tool rules in the engine's spelling) and `settings.auto_mode` (`allow`, `soft_deny`, `hard_deny`, `environment`: sentences the auto-mode classifier reads). A list that is absent holds nothing. `settings_revision` is null while nothing is saved. `writes_open` says whether a save is accepted now; reading is always open. Any member of the workspace reads it, with a console session or with that member's personal API key; an agent's key and the operator key read nothing here.
          *
-         *     **Auth:** cookie session only; no scope.
+         *     **Scope:** `sessions:read` (API key or cookie session).
          */
         get: operations["getWorkspaceEngineSettings"];
         /**
@@ -2908,9 +2908,9 @@ export interface paths {
         };
         /**
          * The agent's saved engine rules next to the workspace's
-         * @description `settings` are the agent's own rules and `settings_revision` guards them (null while none are saved). `workspace` repeats the workspace's rules, which also apply, read only here. `inherited` counts the restrictions the agent took over from its profile (`entries`, `rules`); the rules themselves are an operator's and are not shown. `reach` says what the allow lists do together: `agent_allow_without_effect` names the agent's `allow`/`environment` entries the workspace does not share, which do nothing because a grant needs both sides, and `workspace_allow_inactive` is true when the workspace allows something the agent's own list leaves empty. `writes_open` says whether a save is accepted now. Whoever manages the agent reads it, and so do the live members of its managing team.
+         * @description `settings` are the agent's own rules and `settings_revision` guards them (null while none are saved). `workspace` repeats the workspace's rules, which also apply, read only here. `inherited` counts the restrictions the agent took over from its profile (`entries`, `rules`); the rules themselves are an operator's and are not shown. `reach` says what the allow lists do together: `agent_allow_without_effect` names the agent's `allow`/`environment` entries the workspace does not share, which do nothing because a grant needs both sides, and `workspace_allow_inactive` is true when the workspace allows something the agent's own list leaves empty. `writes_open` says whether a save is accepted now. Whoever manages the agent reads it, and so do the live members of its managing team, with a console session or with their personal API key; an agent's own key does not.
          *
-         *     **Auth:** cookie session only; no scope.
+         *     **Scope:** `sessions:read` (API key or cookie session).
          */
         get: operations["getAgentEngineSettings"];
         /**
@@ -30833,7 +30833,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, checked before the body or the resource is read. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -31128,7 +31128,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, checked before the body or the resource is read. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];

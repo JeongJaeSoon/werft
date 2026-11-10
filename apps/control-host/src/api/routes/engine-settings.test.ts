@@ -15,6 +15,7 @@ import {
   createAuthorizationPolicy,
   createEngineSettingsService,
   type EngineSettingsStore,
+  type IdentityReader,
   type IdentityStore,
   type MembershipRole,
   type ResolvedWebSession,
@@ -58,6 +59,25 @@ const identity = {
   },
 } as unknown as IdentityStore;
 
+const AGENT_KEY_ID = "019a0000-0000-7000-8000-0000000000d1";
+const PERSONAL_KEY_ID = "019a0000-0000-7000-8000-0000000000d2";
+const KEY_CREATOR = "019a0000-0000-7000-8000-0000000000e1";
+
+// The policy learns who made a key only from the identity reader.
+const keyCreators: IdentityReader = {
+  async reread(subject) {
+    const { principal } = subject;
+    if (principal.kind !== "api_key") return { status: "ok", principal };
+    return principal.id === AGENT_KEY_ID
+      ? { status: "ok", principal, keyAgentId: AGENT }
+      : {
+          status: "ok",
+          principal,
+          keyCreator: { userId: KEY_CREATOR, role: "owner" },
+        };
+  },
+};
+
 const KEY = { plaintext: `csp_${crypto.randomUUID()}` };
 const AGENT_KEY = { plaintext: `csp_${crypto.randomUUID()}` };
 const keyStore = {
@@ -67,12 +87,12 @@ const keyStore = {
     if (!matches(KEY) && !matches(AGENT_KEY)) return null;
     const forAgent = matches(AGENT_KEY);
     return {
-      id: crypto.randomUUID(),
+      id: forAgent ? AGENT_KEY_ID : PERSONAL_KEY_ID,
       ownerId: WORKSPACE,
       workspaceId: WORKSPACE,
       kind: forAgent ? ("agent" as const) : ("personal" as const),
       agentId: forAgent ? AGENT : null,
-      createdByUserId: crypto.randomUUID(),
+      createdByUserId: KEY_CREATOR,
       creatorRole: "owner" as const,
       scopes: ["sessions:read" as const, "sessions:write" as const],
     };
@@ -136,7 +156,7 @@ function appWith(
       registerEngineSettingsRoutes(
         router,
         createEngineSettingsService({
-          authorization: createAuthorizationPolicy({}),
+          authorization: createAuthorizationPolicy({ identity: keyCreators }),
           store,
           catalogs: [catalog],
         }),
@@ -222,13 +242,13 @@ describe("the workspace engine settings API", () => {
     expect(read.status).toBe(403);
   });
 
-  test("both reads are console-session operations: a personal API key is refused too", async () => {
+  test("a member's personal API key reads both; saving stays with the web session", async () => {
     const { call } = appWith();
     expect(
       (await call("GET", workspacePath(), { personalKey: true })).status,
-    ).toBe(403);
+    ).toBe(200);
     expect((await call("GET", agentPath(), { personalKey: true })).status).toBe(
-      403,
+      200,
     );
   });
 
