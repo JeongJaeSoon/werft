@@ -277,6 +277,7 @@ jobs:
             docker: false
             paths:
               - apps/control-host/src/slack/
+              - packages/adapters/chat/
               - packages/contracts/
               - packages/client/
               - packages/sdk/

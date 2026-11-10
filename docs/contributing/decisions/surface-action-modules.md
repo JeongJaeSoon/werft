@@ -419,17 +419,22 @@ U3은 앞의 타입 셋을 Slack 파일에서 `surface/ports/`로 옮기고 이�
 - **기존 `SlackNoticeSink`와의 관계.** 지금의 `SlackNoticeSink.record()`는 거절 안내를 **outbox에 넣는** 함수이고(`void` 반환, 중복 제거는 enqueue의 `dedupeKey`, `slack-outbox.ts:292`) 보내지 않는다. 이 넣는 일은 어댑터 안쪽의 함수로 남고(`createOutboxSlackNoticeSink`), `Notifiable`은 그 행을 **보내는** 쪽을 채널 중립 이름으로 세운 것이다. 그래서 `onceKey` 한 번의 보장은 `Notifiable`이 아니라 넣는 함수와 그 가짜의 계약이다([9.4절](#94-지울-후보) D1).
 
 ```ts
-// packages/platform/src/surface/ports/delivery.ts (draft; U5 ① fixes the fields against
-// slack-outbox.ts:430 and slack-send-result.ts)
+// packages/platform/src/surface/ports/delivery.ts (as U5-seam, JeongJaeSoon/werft#1532, fixed it)
 export type DeliveryOutcome =
   | { kind: "sent"; ref: string }                       // channel-side reference, e.g. the Slack message ts
-  | { kind: "retry"; code: string; retryAfterMs?: number } // transient; the sender decides the next attempt from `attempts`
+  | { kind: "retry"; code: string; retryAfterMs: number } // transient; the channel says how long to wait
   | { kind: "failed"; code: string }                    // permanent: never sent again
-  | { kind: "uncertain"; code: string };                // may have gone out: never sent again
+  | { kind: "uncertain"; code: string }                 // may have gone out: never sent again
+  | { kind: "lease_lost" };                             // `begin` refused: nothing went out, the row is not settled
 
 // What the sender hands over: the claimed row (address and rendered body are in it,
-// the schema is unchanged) and how many attempts it has had.
-export type DeliveryInput = { row: ClaimedOutboxRow; attempts: number };
+// the schema is unchanged), how many attempts it has had, and `begin`.
+export type DeliveryInput = {
+  row: ClaimedOutboxRow;
+  attempts: number;
+  /** Called once, right before the request leaves. False: the send lease is gone. */
+  begin: () => Promise<boolean>;
+};
 
 // packages/platform/src/surface/ports/notifiable.ts (the sending side of today's SlackNoticeSink)
 export interface Notifiable {
@@ -444,7 +449,14 @@ export interface Approvable {
 }
 ```
 
-`ClaimedOutboxRow`는 지금의 `SlackOutboxEntry`(`ports/slack-outbox-store.ts:52`)에서 채널 주소와 렌더된 본문을 그대로 실은 타입이다. 이름과 필드는 초안이다. 행이 렌더된 `text`·`blocks`를 담으므로(카드를 만드는 일은 넣을 때 끝난다, `slack-outbox.ts:328`), 첫 단계의 `Approvable`은 "카드를 만든다"가 아니라 "만들어 둔 카드를 보낸다"다. 렌더를 보내는 쪽으로 옮겨 `DecisionRequest` view model을 입력으로 받게 하는 일은 U9 ②의 책임 분리 몫이고 이 설계는 정하지 않는다. 선택 메서드는 두지 않는다(R9).
+**U5-seam이 초안과 다르게 정한 네 가지.** 초안은 `DeliveryInput`을 `{ row, attempts }`, 결과를 네 가지로 적었다. 구현(JeongJaeSoon/werft#1532)에서 코드가 요구한 대로 아래 넷이 달라졌다.
+
+1. **`DeliveryInput.begin`.** 전송기가 행을 "보내는 중"으로 표시하는 일(`beginSend`)은 채널이 토큰과 발신자 이미지를 읽은 **뒤**에 돌아야 한다. 느린 `users.info`가 send lease를 먼저 써 버리면 안 되기 때문이다. 그래서 전송기는 표시 함수를 `begin` 콜백으로 넘기고, 채널이 요청이 나가기 직전에 한 번 부른다.
+2. **`DeliveryOutcome`의 다섯째 `lease_lost`.** `begin`이 거절하면(lease가 이미 없다) 아무것도 나가지 않았고 행도 정산하지 않는다. 전송기는 lost를 하나 세고 넘어간다. 네 결과 어디에도 맞지 않는 상태다.
+3. **`retry.retryAfterMs`는 필수.** 채널이 다음 시도까지의 간격을 정해서 내준다. 선택이면 전송기가 채널의 백오프 규칙을 다시 계산해야 해서 채널 지식이 전송기로 새어 나온다.
+4. **구현 파일 이름은 `outbox-delivery.ts`.** 초안은 어댑터 안의 `slack-notifiable.ts`·`slack-approvable.ts` 둘을 말했다. 이동 전에는 R8이 platform에 `slack`이 든 새 파일 이름과 export를 막아서 `outbox-delivery.ts` 하나(`createRowDelivery`)로 두었다. U5a가 이 파일을 어댑터로 옮길 때 이름을 **바꾸지 않았다**. 이름을 바꾸는 일은 이동 순도를 깨고, 파일을 둘로 나누는 일은 U9 ②의 책임 분리 몫이다. 어댑터 안에는 R8이 없으므로 그때 `slack-` 접두로 바꿀 수 있다.
+
+`ClaimedOutboxRow`는 지금의 `SlackOutboxClaim`(`ports/slack-outbox-store.ts`)의 별칭으로, 채널 주소와 렌더된 본문을 그대로 싣는다. 행이 렌더된 `text`·`blocks`를 담으므로(카드를 만드는 일은 넣을 때 끝난다, `slack-outbox.ts:328`), 첫 단계의 `Approvable`은 "카드를 만든다"가 아니라 "만들어 둔 카드를 보낸다"다. 렌더를 보내는 쪽으로 옮겨 `DecisionRequest` view model을 입력으로 받게 하는 일은 U9 ②의 책임 분리 몫이고 이 설계는 정하지 않는다. 선택 메서드는 두지 않는다(R9).
 
 **결정 응답은 `Approvable`이 받지 않는다.** 사람의 답은 채널이 무엇이든 결정 서비스(`decision/`) 두 입구로 들어간다(R5). `Approvable`은 묻는 쪽, `decision/`은 답을 받는 쪽이고 둘은 서로를 부르지 않는다.
 
@@ -860,7 +872,7 @@ platform index에 한 PR 주기 동안 재수출을 둘 수는 **없다.** platf
 - 조립 지점이 role 다섯 개(api, metrics, scheduler, reconciler, slack)에 어댑터를 어떻게 나눠 주는지는 U4가 `server.ts`와 `slack/main.ts`를 읽고 정한다. 이 문서는 "어댑터 import는 `wiring/`에서만"까지만 정했다.
 - `GitHubGrant.api`를 일의 종류별 타입으로 좁힐지. 지금 안은 함수 인자에서만 좁힌다([6.2절](#62-능력-인터페이스)). 좁히면 시험 가짜가 작아지지만 게이트의 타입이 바뀐다. U3이 가짜를 채우는 시험 수를 세고 정한다.
 - 나머지 밀어 보내는 일(턴 답 전달, 진행 상태, 결정 뒤 정리)의 인터페이스는 두 번째 push 채널이 정해질 때 만든다. 그 전에 slack role의 pass loop가 어댑터 함수를 직접 도는 것이 불편해지면(R3 때문에 `wiring/`이 pass 목록을 넘겨야 한다) U5 ①이 pass 목록의 타입 하나를 control-host 안에 둔다. platform에는 두지 않는다.
-- **`Notifiable`·`Approvable` 입력의 필드와 `DeliveryOutcome`의 오류 코드.** 행이 렌더된 본문을 담고 있어서(`slack-outbox.ts:328`) 입력은 지금 행이다. 필드는 U5 ①이 `slack-outbox.ts:430`의 분류, 전송 예외, lease 만료 처리와 맞춰 확정한다. 호출자 없이 포트만 먼저 두지 않으므로 U3에서는 만들지 않는다.
+- ~~**`Notifiable`·`Approvable` 입력의 필드와 `DeliveryOutcome`의 오류 코드.**~~ U5-seam(JeongJaeSoon/werft#1532)이 정했다. 확정한 모양과 초안과의 차이 네 가지는 [6.2절](#62-능력-인터페이스)이다.
 - 렌더를 보내는 쪽으로 옮겨 `Approvable`이 view model을 입력으로 받게 할지, 전송기 루프를 platform `surface/`로 올릴지는 U9 ②가 정한다. 이행 순서(D0 → U1 → … → S8)는 바뀌지 않는다.
 - M5(118개 파일 이름 변경)의 시점은 unit job을 PR마다 돌릴지에 달려 있다.
 
@@ -936,3 +948,12 @@ Consider 2건도 반영했다: 책임 표(4.1절, 5.3절)에 전송기 루프와
 | C안의 요건(`emitDecoratorMetadata`, Reflect 폴리필)과 Bun 위험 서술이 부정확하다 | 요건을 고치고 Bun 위험은 검증되지 않은 위험이라 밝혔다. 제외 결정은 유지했다. 2차 리뷰의 Act-on 1건(요건이 쓰임에 따라 다르다)도 반영했다 |
 
 Consider 2건도 반영했다: 비교표의 단정을 누그러뜨렸고(Awilix는 보통 실행 때, 가짜 주입은 예시), U4~U5의 `wiring/` 신설과 W1의 정리를 나눠 적었다.
+
+U5a 회차(2026-11-11, 대상: `@werft-ai/chat-slack` 이동 PR). 이동을 하면서 설계가 정한 것과 코드가 다른 곳을 읽었고 아래처럼 맞췄다.
+
+| 차이 | 처리 |
+|---|---|
+| [6.2절](#62-능력-인터페이스)의 `DeliveryInput`·`DeliveryOutcome`·파일 이름이 U5-seam(JeongJaeSoon/werft#1532)이 정한 것과 다르다 | 6.2절을 확정한 모양으로 고치고 달라진 네 가지(`begin`, `lease_lost`, 필수 `retryAfterMs`, `outbox-delivery.ts`)를 적었다 |
+| [10.1절](#101-slack-이동의-순서와-재수출) U5 ①의 여덟 파일 밖에서 `slack-outbox.ts`·`slack-session-handler.ts`를 import하는 파일이 더 있다 | `outbox-delivery.ts`(U5-seam이 만든 구현)와 `slack-notice-sink.ts`를 함께 옮겼고, 시험 `slack-outbox-policy`·`slack-payload`·`slack-table`·`slack-thread-shadow`도 옮긴 파일을 import해서 같이 갔다 |
+| `testing/slack-fakes.ts`는 U5 ②·③ 파일의 시험 일곱이 아직 쓴다 | platform 시험은 어댑터를 import할 수 없으므로(R1) 파일을 통째로 옮기지 않았다. `createMemorySlackNoticeSink`만 어댑터 `src/testing/`으로 갔고 나머지는 U5 ③이 옮긴다 |
+| `finalReplyText`를 부르던 `event-codecs.test.ts`의 단언 | [10.1절](#101-slack-이동의-순서와-재수출) 표대로 어댑터의 `slack-final-reply.test.ts`로 옮겼다 |

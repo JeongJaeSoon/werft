@@ -5,8 +5,9 @@ import {
   SLACK_NOTICE_MESSAGES,
   type UserLocale,
 } from "@werft-ai/contracts";
-import type { SlackNoticeSink } from "../ports/slack-notice-sink.ts";
 import type {
+  DeliveryInput,
+  DeliveryOutcome,
   SlackCardClaim,
   SlackCardRendered,
   SlackCardSettleStore,
@@ -18,32 +19,29 @@ import type {
   SlackPendingPrompt,
   SlackUnansweredTurn,
   SlackUnpostedInstruction,
-} from "../ports/slack-outbox-store.ts";
-import { pushApprovability } from "../sessions/push-approvability.ts";
-import type { PushSource } from "../sessions/push-request-service.ts";
-import type {
-  DeliveryInput,
-  DeliveryOutcome,
-} from "../surface/ports/delivery.ts";
-import type { RowDelivery } from "./outbox-delivery.ts";
+} from "@werft-ai/platform";
 import {
+  classifySlackSendResult,
+  escapeSlackControls,
+  markdownToSlackMrkdwn,
+  markdownToSlackParts,
+  type PushSource,
+  pushApprovability,
   SlackApiError,
   type SlackBotApi,
   type SlackBotSender,
+  type SlackInboxLogger,
   SlackRateLimitedError,
   type SlackSendResponse,
-} from "./slack-config-api.ts";
-import { type SlackInboxLogger, slackInboundBackoffMs } from "./slack-inbox.ts";
-import { markdownToSlackMrkdwn, markdownToSlackParts } from "./slack-mrkdwn.ts";
-import { escapeSlackControls } from "./slack-presentation.ts";
-import {
   slackDoneCard,
+  slackInboundBackoffMs,
   slackPromptMessage,
   slackRejectOnlyCard,
   slackSettledCard,
   slackSettledResult,
-} from "./slack-prompts.ts";
-import { classifySlackSendResult } from "./slack-send-result.ts";
+} from "@werft-ai/platform";
+import type { RowDelivery } from "./outbox-delivery.ts";
+import type { SlackNoticeSink } from "./slack-notice-sink.ts";
 import {
   reconcileSlackThreadStatuses,
   writeSlackThreadStatuses,

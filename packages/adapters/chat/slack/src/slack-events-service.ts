@@ -10,17 +10,19 @@ import {
   slackEventEnvelopeSchema,
   slackUrlVerificationSchema,
 } from "@werft-ai/contracts";
-import type { AgentIdentityStore } from "../ports/agent-identity-store.ts";
-import type { SecretStore } from "../ports/secret-store.ts";
-import type { SlackAppStore } from "../ports/slack-app-store.ts";
 import type {
+  AgentIdentityStore,
+  SecretStore,
+  SlackAppStore,
   SlackInboundEventInput,
   SlackInboundEventStore,
-} from "../ports/slack-inbound-event-store.ts";
-import type { SlackInstallStore } from "../ports/slack-install-store.ts";
-import type { SurfaceBindingStore } from "../ports/surface-binding-store.ts";
-import { agentForSlackEvent } from "./agent-identity-service.ts";
-import { slackConversationKey } from "./slack-inbox.ts";
+} from "@werft-ai/platform";
+import {
+  agentForSlackEvent,
+  type SlackInstallStore,
+  type SurfaceBindingStore,
+  slackConversationKey,
+} from "@werft-ai/platform";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Bounds how long another API replica keeps a deleted app's secret. */

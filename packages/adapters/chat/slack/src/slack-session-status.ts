@@ -1,15 +1,15 @@
 import type {
+  SlackInboxLogger,
   SlackThreadStatusFacts,
   SlackThreadStatusStore,
-} from "../ports/slack-outbox-store.ts";
-import { pushApprovability } from "../sessions/push-approvability.ts";
-import type { PushSource } from "../sessions/push-request-service.ts";
+} from "@werft-ai/platform";
 import {
+  type PushSource,
+  pushApprovability,
   SlackApiError,
   type SlackBotApi,
   SlackRateLimitedError,
-} from "./slack-config-api.ts";
-import type { SlackInboxLogger } from "./slack-inbox.ts";
+} from "@werft-ai/platform";
 
 /** What `agents.sessions.setStatus` shows under a Slack thread. */
 export type SlackThreadStatus =

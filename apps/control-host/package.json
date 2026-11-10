@@ -23,6 +23,7 @@
     "tool-unlock": "bun run src/api/tool-unlock.ts"
   },
   "dependencies": {
+    "@werft-ai/chat-slack": "workspace:*",
     "@werft-ai/contracts": "workspace:*",
     "@werft-ai/db": "workspace:*",
     "@werft-ai/execution-kubernetes": "workspace:*",
