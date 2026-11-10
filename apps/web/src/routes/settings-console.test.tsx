@@ -30,6 +30,7 @@ const connection = (
   endpoint: "https://api.anthropic.com",
   billing: "per_token",
   auth_kind: "api_key",
+  auto_mode: "unknown",
   credential: { source: "stored", last4: "abcd" },
   created_at: AT,
   disabled_at: null,
@@ -246,7 +247,11 @@ describe("모델 연결", () => {
       within(stored)
         .getAllByRole("button")
         .map((button) => button.getAttribute("aria-label")),
-    ).toEqual(["console-key 값 바꾸기", "console-key 사용 중지"]);
+    ).toEqual([
+      "console-key 값 바꾸기",
+      "console-key의 자동 모드 판정",
+      "console-key 사용 중지",
+    ]);
 
     // An operator reference: no replace, but it can move to a typed key.
     const ref = rowOf(table, "ops-ref");
@@ -254,7 +259,11 @@ describe("모델 연결", () => {
       within(ref)
         .getAllByRole("button")
         .map((button) => button.getAttribute("aria-label")),
-    ).toEqual(["ops-ref 화면에서 키 넣기", "ops-ref 사용 중지"]);
+    ).toEqual([
+      "ops-ref 화면에서 키 넣기",
+      "ops-ref의 자동 모드 판정",
+      "ops-ref 사용 중지",
+    ]);
 
     const fresh = rowOf(table, "fresh");
     expect(fresh.textContent).toContain("값 필요");
@@ -848,6 +857,33 @@ describe("모델 연결", () => {
     await screen.findByText("anthropic의 키를 저장했습니다.");
     expect(writes(api.calls).map((call) => [call.path, call.body])).toEqual([
       [`${CONNECTIONS}/anthropic/convert`, { value: "typed-key-value" }],
+    ]);
+  });
+
+  test("a connection's auto mode is judged from its row: the dialog says what 'supported' does and sends the choice to its own route", async () => {
+    const { api } = renderAt(CONNECTIONS_PAGE, {
+      ...routes(),
+      [`POST ${CONNECTIONS}/console-key/auto-mode`]: () =>
+        json(200, CHANGE("console-key")),
+    });
+    const user = await setupUser();
+    const table = await screen.findByRole("table", { name: "모델 연결" });
+    await user.click(
+      within(table).getByRole("button", {
+        name: "console-key의 자동 모드 판정",
+      }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog.textContent).toContain("다음 claim부터 auto로 실행됩니다");
+    const select = within(dialog).getByLabelText("판정") as HTMLSelectElement;
+    expect(select.value).toBe("unknown");
+    await user.selectOptions(select, "supported");
+    await user.click(within(dialog).getByRole("button", { name: "저장" }));
+    await screen.findByText(
+      "console-key의 자동 모드를 '지원함'(으)로 기록했습니다.",
+    );
+    expect(writes(api.calls).map((call) => [call.path, call.body])).toEqual([
+      [`${CONNECTIONS}/console-key/auto-mode`, { auto_mode: "supported" }],
     ]);
   });
 

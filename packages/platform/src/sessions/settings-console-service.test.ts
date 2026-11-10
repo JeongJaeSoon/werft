@@ -125,6 +125,7 @@ function service(
     create: record("create"),
     setValue: record("setValue"),
     convertConnection: record("convertConnection"),
+    setConnectionAutoMode: record("setConnectionAutoMode"),
     disable: record("disable"),
     enableConnection: record("enableConnection"),
     setMcpWorkspaces: record("setMcpWorkspaces"),
@@ -208,6 +209,10 @@ describe("settings console service", () => {
       ).toBe("FORBIDDEN");
       expect(
         (await refusal(settings.convertConnection(who, "c", "v"))).code,
+      ).toBe("FORBIDDEN");
+      expect(
+        (await refusal(settings.setConnectionAutoMode(who, "c", "supported")))
+          .code,
       ).toBe("FORBIDDEN");
     }
     expect(writes).toEqual([]);
@@ -362,6 +367,47 @@ describe("settings console service", () => {
     expect(moved).toEqual({ id: "main", receipt_id: RECEIPT });
     expect(writes).toEqual([["convertConnection", "main", "typed-key-value"]]);
     expect(rereads()).toBe(1);
+  });
+
+  test("a connection's auto mode is passed to the store and the settings are read again", async () => {
+    const { settings, writes, rereads } = service();
+    const set = await settings.setConnectionAutoMode(
+      caller("owner"),
+      "main",
+      "supported",
+    );
+    expect(set).toEqual({ id: "main", receipt_id: RECEIPT });
+    expect(writes).toEqual([["setConnectionAutoMode", "main", "supported"]]);
+    expect(rereads()).toBe(1);
+  });
+
+  test("the list names each connection's judged auto mode, unknown when the store has none", async () => {
+    const entry = {
+      kind: "anthropic",
+      endpoint: "https://api.anthropic.com",
+      billing: "per_token",
+      auth: { kind: "api_key", stored: true },
+    };
+    const row = (id: string, autoMode?: "supported" | "unsupported") => ({
+      id,
+      entry,
+      origin: "console" as const,
+      last4: "abcd",
+      createdAt: new Date("2026-10-01T00:00:00.000Z"),
+      disabledAt: null,
+      ...(autoMode === undefined ? {} : { autoMode }),
+    });
+    const { settings } = service({
+      rows: {
+        connection: [row("a", "supported"), row("b", "unsupported"), row("c")],
+      },
+    });
+    const listed = await settings.listConnections(caller("owner"));
+    expect(listed.items.map((item) => [item.id, item.auto_mode])).toEqual([
+      ["a", "supported"],
+      ["b", "unsupported"],
+      ["c", "unknown"],
+    ]);
   });
 
   test("the store's refusals map to their codes and reason", async () => {

@@ -103,6 +103,17 @@ const consoleEntryId = z
 /** A value typed into the console: sealed at once, never echoed. */
 const credentialValue = z.string().min(1).max(8192);
 
+/**
+ * Whether the operator judged that the connection's models run Claude Code's
+ * auto-mode classifier. Only `supported` lets the stored default, acceptEdits,
+ * dontAsk and plan modes run as `auto`; anything else keeps them as stored.
+ */
+export const connectionAutoModeSchema = z.enum([
+  "supported",
+  "unsupported",
+  "unknown",
+]);
+
 export const settingsConnectionSchema = z
   .object({
     id: z.string().min(1),
@@ -112,6 +123,7 @@ export const settingsConnectionSchema = z
     endpoint: z.string(),
     billing: z.enum(["per_token", "none"]),
     auth_kind: z.enum(["api_key", "bearer"]),
+    auto_mode: connectionAutoModeSchema,
     credential: settingsCredentialViewSchema,
     ...entryTimes,
   })
@@ -179,6 +191,10 @@ export const setSettingsCredentialRequestSchema = z
   .object({ value: credentialValue })
   .strict();
 
+export const setConnectionAutoModeRequestSchema = z
+  .object({ auto_mode: connectionAutoModeSchema })
+  .strict();
+
 export const setSettingsMcpServerRequestSchema = z
   .object({ workspaces: z.array(z.string().min(1)).min(1) })
   .strict();
@@ -215,6 +231,7 @@ export type SettingsCredentialView = z.infer<
   typeof settingsCredentialViewSchema
 >;
 export type SettingsConnection = z.infer<typeof settingsConnectionSchema>;
+export type ConnectionAutoMode = z.infer<typeof connectionAutoModeSchema>;
 export type SettingsMcpServer = z.infer<typeof settingsMcpServerSchema>;
 export type ListSettingsConnectionsResponse = z.infer<
   typeof listSettingsConnectionsResponseSchema

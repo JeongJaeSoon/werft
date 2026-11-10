@@ -152,6 +152,7 @@ export function createSettingsConsoleService(deps: {
         last4: string | null;
         created_at: string;
         disabled_at: string | null;
+        auto_mode: "supported" | "unsupported" | "unknown";
       },
     ) => T | null,
   ): Promise<T[]> {
@@ -164,6 +165,7 @@ export function createSettingsConsoleService(deps: {
         last4: row.last4,
         created_at: row.createdAt.toISOString(),
         disabled_at: row.disabledAt?.toISOString() ?? null,
+        auto_mode: row.autoMode ?? "unknown",
       });
       if (item !== null) items.push({ id: row.id, item });
     }
@@ -293,6 +295,7 @@ export function createSettingsConsoleService(deps: {
             endpoint: provider.endpoint,
             billing: provider.billing === "none" ? "none" : "per_token",
             auth_kind: provider.auth.kind,
+            auto_mode: meta.auto_mode,
             credential: credentialOf(provider.auth, meta.last4),
             created_at: meta.created_at,
             disabled_at: meta.disabled_at,
@@ -443,6 +446,16 @@ export function createSettingsConsoleService(deps: {
       }
       return onRow(caller, "connection", id, (actor) =>
         store.convertConnection(id, value, actor),
+      );
+    },
+
+    setConnectionAutoMode(
+      caller: Caller,
+      id: string,
+      autoMode: "supported" | "unsupported" | "unknown",
+    ) {
+      return onRow(caller, "connection", id, (actor) =>
+        store.setConnectionAutoMode(id, autoMode, actor),
       );
     },
 

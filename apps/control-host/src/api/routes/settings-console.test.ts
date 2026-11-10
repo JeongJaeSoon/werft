@@ -147,6 +147,15 @@ const WRITES: ReadonlyArray<{
     args: ["console", "example-key"],
   },
   {
+    method: "POST",
+    path: `${BASE}/connections/console/auto-mode`,
+    service: "setConnectionAutoMode",
+    body: { auto_mode: "supported" },
+    invalid: { auto_mode: "yes" },
+    status: 200,
+    args: ["console", "supported"],
+  },
+  {
     method: "PATCH",
     path: `${BASE}/mcp-servers/console`,
     service: "setMcpWorkspaces",
@@ -171,6 +180,7 @@ describe("GET /v1/installation/settings/{kind}", () => {
               endpoint: "http://fake-model:8080",
               billing: "none",
               auth_kind: "api_key",
+              auto_mode: "unknown",
               credential: { source: "external", value_env: "FAKE_KEY" },
               created_at: "2026-11-04T03:00:00.000Z",
               disabled_at: null,

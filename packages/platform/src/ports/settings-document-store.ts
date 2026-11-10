@@ -104,6 +104,17 @@ export interface SettingsDocumentStore {
     value: string,
     actor: TeamActor,
   ): Promise<SettingsConsoleResult>;
+  /**
+   * Records the operator's judgement of whether the connection's models run
+   * the auto-mode classifier. Changes that column only, never the stored
+   * definition (the profile fingerprint hashes it). A disabled connection is
+   * refused. Running sessions keep the claim they hold; the next claim reads it.
+   */
+  setConnectionAutoMode(
+    id: string,
+    autoMode: "supported" | "unsupported" | "unknown",
+    actor: TeamActor,
+  ): Promise<SettingsConsoleResult>;
   /** For a repository: removed. Never undone; the id stays taken. */
   disable(
     owner: { kind: SettingsKind; id: string },
@@ -135,6 +146,8 @@ export type SettingsRow = {
   createdAt: Date;
   /** Disabled, or for a repository removed. */
   disabledAt: Date | null;
+  /** A connection's judged auto mode; absent on the other kinds. */
+  autoMode?: "supported" | "unsupported" | "unknown";
 };
 
 export type SettingsConsoleResult =
