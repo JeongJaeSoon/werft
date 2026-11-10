@@ -968,7 +968,7 @@ U6b 회차(2026-11-11, 대상: `action/tools/` 구조 변경 PR). 구조 변경�
 |---|---|
 | 공통 dispatch | `action/tools/dispatch.ts`가 기능 게이트 → 인수 검증 → handler → 봉투를 맡는다. 서버는 JSON-RPC 프로토콜(`initialize`·`ping`·`tools/list`·`tools/call`)과 grant만 남긴다. 프로토콜 `switch`는 도구가 아니라 메서드를 가르고, 중간에 세션 상태 읽기가 끼어 표로 바꾸지 않았다 |
 | handler 표 | `action/tools/github-handlers.ts`의 `GITHUB_TOOL_HANDLERS: ToolHandlers`. 도구 하나에 줄 하나이고, 인수 타입은 도구마다 맞물린다. 새 도구는 표에 한 줄을 더한다. 옛 `run()`의 `request_push` 분기는 `requestIntent` 경로가 먼저 받아 닿지 않는 코드였고 표에서 빠졌다 |
-| `refusal.ts`와 `tools/` | 합치지 않는다. 둘은 이미 `action/` 아래 한 디렉터리에 있고(7.2절), `refusal.ts`는 서비스 오류를 봉투로 바꾸는 번역 하나라 dispatch만 쓰는 것이 아니다. `tools/` 안으로 넣으면 이름이 같은 층에 있는 `ports/`·`github/`와 맞지 않는다 |
+| `refusal.ts`와 `tools/` | 합치지 않는다. 둘은 이미 `action/` 아래 한 디렉터리에 있고(7.2절), `refusal.ts`는 서비스 오류를 봉투로 바꾸는 번역이고 dispatch뿐 아니라 서버도 `refusalOf`를 쓴다. 다만 `GitHubMcpTool`과 MCP 거절 카탈로그에 묶여 있어 다른 surface가 그대로 재사용할 번역은 아니다. 위치를 바꿀 이유가 없어 둔다 |
 | A5 | `tests/architecture.test.ts`가 TS AST로 정의한 모든 도구가 표에 한 줄씩 있고 표에 다른 줄이 없는지, 표가 `ToolHandlers`로 선언됐는지, 서버와 dispatch에 도구 이름 문자열 분기가 없는지 센다. 현재 위반 0건이라 기준선이 없다 |
 | `grant.api` 좁히기 | `GrantWith<Api>`(`action/ports/capabilities.ts`)를 더했다. `github-work-service`는 `WorkflowRunnable & Reviewable & getPullRequest`, `push-executor`는 `getRepository`만 받는다 |
 | 기준선 | A2 쌍 하나를 옮겼다(`github-mcp-server.ts -> musterrolle/policy.ts`가 `tools/session-bound.ts -> musterrolle/policy.ts`로). 순증 0, R4 변화 없음 |
