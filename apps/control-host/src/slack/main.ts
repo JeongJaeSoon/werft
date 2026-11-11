@@ -70,21 +70,17 @@ import { eventNeutralizer } from "../api/neutral-fields.ts";
 import { consoleOriginFrom, slackApiUrlFrom } from "../api/slack-config.ts";
 import { PASS_LOOP_ROLES, passLoopConfigFromEnv } from "../pass-loop/loop.ts";
 import {
-  createLoggingSlackNoticeSink,
-  createOutboxSlackNoticeSink,
-  createRowDelivery,
-  createSlackBotApi,
-  createSlackMemberJoinedHandler,
-  createSlackMemberLeftHandler,
-  createSlackSessionHandler,
-  createSlackWelcome,
   drainSlackInbox,
   drainSlackOutbox,
   type SlackInboundHandler,
   type SlackInboxDrain,
   type SlackNoticeSink,
-  slackBotToken,
 } from "../wiring/chat-slack.ts";
+import {
+  wireSlackInbound,
+  wireSlackOutbound,
+  wireSlackOutboxNotices,
+} from "../wiring/slack-worker.ts";
 
 type Environment = Readonly<Record<string, string | undefined>>;
 
@@ -235,14 +231,14 @@ export function slackSessionHandler(deps: {
   const consoleOrigin = consoleOriginFrom(environment);
   const identities = createPostgresAgentIdentityStore(db);
   const bindings = createPostgresSurfaceBindingStore(db);
-  const slackApi = createSlackBotApi({
+  return wireSlackInbound({
     apiUrl: deps.slackApiUrl ?? slackApiUrlFrom(environment),
-  });
-  const sessionHandler = createSlackSessionHandler({
+    secrets,
+    consoleOrigin,
     inbox: deps.inbox ?? createPostgresSlackInboundEventStore(db),
     leaseMs: deps.leaseMs,
     authorization,
-    agents: identities,
+    identities,
     links: createPostgresLinkedAccountStore(db),
     bindings,
     settings: {
@@ -264,36 +260,11 @@ export function slackSessionHandler(deps: {
         )
       );
     },
-    slack: slackApi,
-    botToken: (workspaceId, slackAppId) =>
-      slackBotToken(secrets, workspaceId, slackAppId),
-    notices: deps.notices ?? createLoggingSlackNoticeSink(logger),
+    notices: deps.notices,
+    welcomeAgents: agentStore,
+    welcomeApps: createPostgresSlackAppStore(db, secretKey),
+    welcomeOutbox: createPostgresSlackOutboxStore(db),
     logger,
-    connectUrl:
-      consoleOrigin === null
-        ? ""
-        : new URL("/settings/linked-accounts", consoleOrigin).toString(),
-  });
-  const memberJoined = createSlackMemberJoinedHandler({
-    agents: identities,
-    bindings,
-    welcome: createSlackWelcome({
-      agents: agentStore,
-      bindings,
-      apps: createPostgresSlackAppStore(db, secretKey),
-      outbox: createPostgresSlackOutboxStore(db),
-      join: null,
-      logger,
-    }),
-    slack: slackApi,
-    botToken: (workspaceId, slackAppId) =>
-      slackBotToken(secrets, workspaceId, slackAppId),
-    next: sessionHandler,
-  });
-  return createSlackMemberLeftHandler({
-    agents: identities,
-    bindings,
-    next: memberJoined,
   });
 }
 
@@ -340,7 +311,7 @@ export async function main(
         logger,
         secretKey,
         leaseMs: settings.leaseMs,
-        notices: createOutboxSlackNoticeSink(outbox),
+        notices: wireSlackOutboxNotices(outbox),
         profiles,
       }),
       logger,
@@ -350,21 +321,21 @@ export async function main(
     });
     if (drain.claimed > 0) logger.info("Slack inbox pass", drain);
     const secrets = createPostgresSecretStore(db, secretKey);
-    const slackApi = createSlackBotApi({
-      apiUrl: slackApiUrlFrom(environment),
-    });
-    const botToken = (workspaceId: string, slackAppId: string) =>
-      slackBotToken(secrets, workspaceId, slackAppId);
     const consoleOrigin = consoleOriginFrom(environment);
+    const {
+      api: slackApi,
+      botToken,
+      delivery,
+    } = wireSlackOutbound({
+      apiUrl: slackApiUrlFrom(environment),
+      secrets,
+      consoleOrigin,
+    });
     const sent = await drainSlackOutbox({
       outbox,
       slack: slackApi,
       botToken,
-      delivery: createRowDelivery({
-        slack: slackApi,
-        botToken,
-        consoleOrigin,
-      }),
+      delivery,
       logger,
       consoleOrigin,
       batchSize: settings.batchSize,
