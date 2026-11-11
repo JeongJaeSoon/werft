@@ -864,9 +864,17 @@ function importedModules(source: ts.SourceFile): string[] {
     )
       found.push(node.expression.text);
     else if (ts.isCallExpression(node)) {
-      // import(("x")) loads the same module as import("x").
+      // import(("x")) and import("x" as string) load the same module as
+      // import("x"): parentheses and type-only wrappers do not change the value.
       let first = node.arguments[0];
-      while (first && ts.isParenthesizedExpression(first))
+      while (
+        first &&
+        (ts.isParenthesizedExpression(first) ||
+          ts.isAsExpression(first) ||
+          ts.isSatisfiesExpression(first) ||
+          ts.isNonNullExpression(first) ||
+          ts.isTypeAssertionExpression(first))
+      )
         first = first.expression;
       const callee = node.expression;
       if (
@@ -3207,7 +3215,7 @@ describe("architecture", () => {
     expect(await musterrolleOutwardImports(root)).toEqual([]);
   });
 
-  test("A6 catches another domain's internals, its index.ts and the package root in every import form, but not its ports/, the shared dirs, a sibling or a test", async () => {
+  test("A6 catches another domain's internals, its index.ts and the package root in each import form the scan reads, but not its ports/, the shared dirs, a sibling or a test", async () => {
     expect(
       await inFixture(
         {
@@ -3226,6 +3234,11 @@ describe("architecture", () => {
           [platformFile("musterrolle/wrapped.ts")]: [
             'export const m = import(("../beta/service.ts"));',
             'export const n = require((("../gamma/index.ts")));',
+          ].join("\n"),
+          [platformFile("musterrolle/asserted.ts")]: [
+            'export const a = import("../beta/service.ts" as string);',
+            'export const b = import("../gamma/index.ts" satisfies string);',
+            'export const c = import("../beta/index.ts"!);',
           ].join("\n"),
           [platformFile("musterrolle/root.ts")]: 'import "../index.ts";',
           [platformFile("musterrolle/named.ts")]: [
@@ -3255,6 +3268,9 @@ describe("architecture", () => {
         musterrolleOutwardImports,
       ),
     ).toEqual([
+      "musterrolle/asserted.ts -> beta/index.ts",
+      "musterrolle/asserted.ts -> beta/service.ts",
+      "musterrolle/asserted.ts -> gamma/index.ts",
       "musterrolle/dynamic.ts -> beta/index.ts",
       "musterrolle/entrance.ts -> beta/index.ts",
       "musterrolle/entrance.ts -> gamma/index.ts",
