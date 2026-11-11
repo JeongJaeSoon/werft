@@ -21,6 +21,7 @@ import { runtimeStart } from "./composition.ts";
 import type { WorkerTimeouts } from "./config.ts";
 import { EngineProcesses } from "./engine-processes.ts";
 import { FakeWorkerGateway } from "./testing/fake-gateway.ts";
+import { waitFor as pollFor } from "./testing/wait-for.ts";
 import {
   inputUuid,
   type RuntimeRegistry,
@@ -331,13 +332,8 @@ function abandonedBy(signal: AbortSignal, ms: number): Promise<void> {
   });
 }
 
-async function waitFor(condition: () => boolean, label: string): Promise<void> {
-  for (let waited = 0; waited < 30_000; waited += 20) {
-    if (condition()) return;
-    await Bun.sleep(20);
-  }
-  throw new Error(`Timed out waiting for ${label}`);
-}
+const waitFor = (condition: () => boolean, label: string): Promise<void> =>
+  pollFor(condition, label, { timeoutMs: 30_000, stepMs: 20 });
 
 /** Commits a checkpoint whenever the run says one is ready. */
 function committing(): WorkerCheckpointPort & { refs: CheckpointRef[] } {

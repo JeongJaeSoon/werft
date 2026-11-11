@@ -8,7 +8,7 @@
 # app Dockerfiles on the same digest; bump them together.
 #
 # The pin fixes Bun, not Debian: oven/bun does not rebuild a released tag, so
-# the base's packages age with it (94S-363). Every shipped stage therefore
+# the base's packages age with it. Every shipped stage therefore
 # runs `apt-get upgrade`, keyed by APT_UPGRADE_KEY: images.yml passes the UTC
 # date, so its layer cache takes each day's security fixes once; a local
 # build keeps its cached layer. Two builds of one commit on different days
@@ -21,7 +21,7 @@ ARG BUN_IMAGE=oven/bun:1.3.14@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188a
 
 FROM ${BUN_IMAGE} AS deps
 WORKDIR /app
-# THIRD_PARTY_NOTICES.md: the licenses of what this image ships (94S-338).
+# THIRD_PARTY_NOTICES.md: the licenses of what this image ships.
 COPY package.json bun.lock bunfig.toml tsconfig.base.json THIRD_PARTY_NOTICES.md ./
 COPY apps ./apps
 COPY packages ./packages
@@ -59,8 +59,8 @@ RUN --mount=type=bind,source=scripts/image-prune.sh,target=/tmp/image-prune.sh \
 
 # Git LFS, for a session's LFS objects through the proxy's repository route.
 # Built here from upstream's release source rather than taken as its binary or
-# Debian's package: both link a golang.org/x/net the image scan fails on
-# (94S-1194), and the scan takes no exception for it. The same holds for
+# Debian's package: both link a golang.org/x/net the image scan fails on,
+# and the scan takes no exception for it. The same holds for
 # github.com/klauspost/compress 1.19.1 (GO-2026-6865, fixed in 1.20.2). The
 # build moves x/net to GIT_LFS_X_NET and compress to GIT_LFS_COMPRESS;
 # go.mod and go.sum must then hash to the pins below, which
@@ -94,7 +94,7 @@ ADD --checksum=sha256:a06e99309dbcbdca1a8ccd2282c3ee146e55930886e26b4f1193269587
 # package, pinned to its archive sha256 and unpacked only (no maintainer
 # scripts): Go reads every certificate under SSL_CERT_DIR. Not an ADD: that
 # has no retry, and snapshot.debian.org has answered with a body of another
-# hash for this pin (94S-1396). Bun carries its own roots; fetch-pinned.ts
+# hash for this pin. Bun carries its own roots; fetch-pinned.ts
 # retries a wrong body like a failed request and writes only the pinned bytes.
 RUN --mount=type=bind,source=scripts/fetch-pinned.ts,target=/tmp/fetch-pinned.ts \
   bun /tmp/fetch-pinned.ts \
@@ -158,7 +158,7 @@ RUN apt-get update --error-on=any \
   && rm -rf /var/lib/apt/lists/*
 # The author and committer of Claude's commits when neither the repository nor
 # the session sets one; without it git refuses to commit and Claude asks the
-# user who they are (94S-423). System scope, so a `git config` the session
+# user who they are. System scope, so a `git config` the session
 # runs still wins; the worker's own git reads no system config. The include
 # comes after them: when the session's repository uses the console's GitHub
 # App, the worker writes that App's bot user there (git-trailers.ts), and a
@@ -211,7 +211,7 @@ COPY --from=pruned --chown=1000:1000 /app /app
 RUN bun run --filter @werft-ai/runtime-registry image:verify
 # DEBIAN_SOURCES.md: the source package and version of every Debian package
 # in this image, with its snapshot.debian.org address, which is how the
-# notices meet the GPL's source obligation (94S-375). Written from this
+# notices meet the GPL's source obligation. Written from this
 # image's own dpkg database after the last apt-get, because the upgrade makes
 # the versions a property of the build, not of the commit. images.yml fails
 # the build when a later step changes the installed packages.

@@ -53,10 +53,11 @@ import { noteTurnCoAuthor } from "./attribution-repair.ts";
 import { WORKER_CAPABILITIES } from "./capabilities.ts";
 import type { RuntimeResumePlan, WorkerCheckpointPort } from "./checkpoint.ts";
 import { LEASE_SAFETY_MARGIN_MS, type WorkerTimeouts } from "./config.ts";
-import { consoleLogger } from "./console-logger.ts";
+import { createConsoleLogger, type WorkerLogger } from "./console-logger.ts";
 import type { EngineExitWatch } from "./engine-processes.ts";
 import { EventPublisher } from "./event-publisher.ts";
 import { Heartbeat } from "./heartbeat.ts";
+import { messageOf as describe } from "./message-of.ts";
 import {
   type ApprovalCheckpointer,
   PendingRequestRegistry,
@@ -131,11 +132,7 @@ export interface RuntimeRegistry {
   launcherFor(runtime: SessionRuntime): RuntimeLauncher;
 }
 
-export type WorkerLogger = {
-  info(event: string, fields?: Record<string, unknown>): void;
-  warn(event: string, fields?: Record<string, unknown>): void;
-  error(event: string, fields?: Record<string, unknown>): void;
-};
+export type { WorkerLogger };
 
 /** A worker never cancels a turn; cancellation is the control plane's call. */
 export type WorkerTerminalStatus = Exclude<TerminalTurnStatus, "cancelled">;
@@ -180,8 +177,9 @@ export type WorkerHostOptions = {
   /** Absent when the checkpoint port is a fake that needs no token. */
   objectStoreAccess?: ObjectStoreAccess;
   /**
-   * Secrets this process holds besides the ones the claim brings, kept out
-   * of events by value (`SecretScrubber`): the object store key, say.
+   * More values for the `SecretScrubber` to keep out of events and logs, on
+   * top of the nonce and what the claim brings. The composition root passes
+   * none; for tests.
    */
   secrets?: readonly string[];
   /** Overrides APPROVAL_CHECKPOINT_MS; for tests. */
@@ -440,7 +438,7 @@ export class WorkerHost {
       ...(options.secrets ?? []),
     ]);
     this.logger = scrubbingLogger(
-      options.logger ?? consoleLogger,
+      options.logger ?? createConsoleLogger(),
       () => this.scrubber,
     );
     this.abandoned = new Promise<void>((resolve) => {
@@ -1821,7 +1819,7 @@ export class WorkerHost {
         checkpoint = captured.ref;
       }
       if (this.ownerLost) return;
-      // api.md: a turn is `interrupted` only when the engine's terminal comes
+      // A turn is `interrupted` only when the engine's terminal comes
       // with a checkpoint consistent with it; without one nobody can say what
       // the transcript holds, and the turn goes to recovery instead.
       const unconfirmed: Settlement = {
@@ -3441,10 +3439,6 @@ function unknownOutcome(
   },
 ): Settlement {
   return { ...ended, reason, status: "outcome_unknown", synthetic: true };
-}
-
-function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function releaseReason(error: unknown): string {

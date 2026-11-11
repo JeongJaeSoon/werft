@@ -21,9 +21,8 @@ import {
 } from "@werft-ai/runtime-core";
 import { messageOf } from "./message-of.ts";
 
-// Provisional: the real limit is open (94S-878 "정하지 않는 것", design note U5)
-// until the start-latency measurement says what a bundle may cost.
-export const MAX_BUNDLE_BYTES = 32 * 1024 * 1024;
+// Provisional until the start-latency measurement says what a bundle may cost.
+const MAX_BUNDLE_BYTES = 32 * 1024 * 1024;
 
 const RETRY_INITIAL_MS = 500;
 const RETRY_MAX_MS = 8_000;

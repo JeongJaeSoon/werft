@@ -1,4 +1,4 @@
-import type { Server } from "node:http";
+import type { Server } from "node:net";
 
 /** Binds a test peer to an ephemeral loopback port and returns its base URL. */
 export async function listen(server: Server): Promise<string> {

@@ -1,6 +1,7 @@
 import { isIP } from "node:net";
 import type { Server } from "bun";
 import { createProxyLogger, type ProxyLogger } from "./logger.ts";
+import { messageOf } from "./message-of.ts";
 import {
   classifyAddress,
   decideEgress,
@@ -461,7 +462,7 @@ export function isPushAdvertisement(
  * `fatal: remote error: <notice>`. The same for every caller, so it asks
  * the authorizer nothing and tells nothing about the token or the session.
  */
-export function pushNotice(): Response {
+function pushNotice(): Response {
   const line = new TextEncoder().encode(`ERR ${PUSH_NOTICE}\n`);
   const length = (line.length + 4).toString(16).padStart(4, "0");
   return new Response(new Blob([length, line]), {
@@ -1466,7 +1467,7 @@ export function startCredentialProxy(
           ...who,
           host: judged.host,
           port: judged.port,
-          error: error instanceof Error ? error.message : String(error),
+          error: messageOf(error),
         });
         return {
           refused: reply(502, "upstream connection failed", "packages"),
@@ -1530,7 +1531,7 @@ export function startCredentialProxy(
         ...who,
         host: judged.host,
         port: judged.port,
-        error: error instanceof Error ? error.message : String(error),
+        error: messageOf(error),
       });
       return { refused: reply(502, "upstream connection failed") };
     }
@@ -1690,7 +1691,7 @@ export function startCredentialProxy(
           if (backoff === undefined || Date.now() + backoff > deadline) {
             logger.warn("Credential route upstream unavailable", {
               ...fields,
-              error: error instanceof Error ? error.message : String(error),
+              error: messageOf(error),
             });
             return builtinUnavailable();
           }
@@ -1710,7 +1711,7 @@ export function startCredentialProxy(
       }
       logger.warn("Credential route upstream failed", {
         ...fields,
-        error: error instanceof Error ? error.message : String(error),
+        error: messageOf(error),
       });
       return reply(502, "upstream connection failed", route.purpose);
     }

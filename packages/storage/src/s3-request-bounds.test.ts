@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createServer as createHttpServer } from "node:http";
-import { createServer, type Server, type Socket } from "node:net";
+import { createServer, type Socket } from "node:net";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 
 import { createCheckpointObjectStore } from "./checkpoint-objects.ts";
@@ -10,6 +10,7 @@ import {
   S3_MAX_ATTEMPTS,
   S3_REQUEST_BOUNDS,
 } from "./s3.ts";
+import { listen } from "./testing/listen.ts";
 
 /**
  * The other half of the problem `body-stall.test.ts` pins down: not a peer
@@ -227,15 +228,4 @@ function configFor(s3Endpoint: string): { s3: StorageS3Settings } {
       region: "ap-northeast-1",
     },
   };
-}
-
-async function listen(server: Server | ReturnType<typeof createHttpServer>) {
-  await new Promise<void>((resolve) => {
-    server.listen(0, "127.0.0.1", resolve);
-  });
-  const address = server.address();
-  if (address === null || typeof address === "string") {
-    throw new Error("Test peer did not bind a port");
-  }
-  return `http://127.0.0.1:${address.port}`;
 }

@@ -10,6 +10,7 @@ import {
   type WorkerGatewayClient,
   WorkerGatewayRequestError,
 } from "@werft-ai/runtime-core";
+import { messageOf } from "./message-of.ts";
 
 /**
  * A lease as the gateway granted it: what was left of it on the database
@@ -330,5 +331,5 @@ function message(error: unknown): string {
   if (error instanceof WorkerGatewayRequestError && error.code !== null) {
     return `${error.code}: ${error.message}`;
   }
-  return error instanceof Error ? error.message : String(error);
+  return messageOf(error);
 }

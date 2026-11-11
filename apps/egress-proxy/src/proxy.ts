@@ -2,6 +2,7 @@ import { isIP } from "node:net";
 import type { Socket, TCPSocketListener } from "bun";
 import type { ProxyLogger } from "./logger.ts";
 import { createProxyLogger } from "./logger.ts";
+import { messageOf } from "./message-of.ts";
 import {
   decideEgress,
   type EgressPolicy,
@@ -407,7 +408,7 @@ export async function startEgressProxy(
       );
     } catch (error) {
       if (closed()) return;
-      const reason = error instanceof Error ? error.message : String(error);
+      const reason = messageOf(error);
       logger.warn("Egress lookup timed out", {
         host: request.host,
         port: request.port,
@@ -454,7 +455,7 @@ export async function startEgressProxy(
             : null,
         );
       } catch (error) {
-        lastError = error instanceof Error ? error.message : String(error);
+        lastError = messageOf(error);
         if (closed()) return;
         logger.warn("Upstream connection failed", {
           address,

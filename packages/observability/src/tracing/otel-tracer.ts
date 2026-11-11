@@ -1,5 +1,6 @@
-// The only file that imports @opentelemetry/*. It implements the `Tracer` port
-// with the official SDK; services never see an SDK type.
+// The OpenTelemetry SDK is imported only here and in bounded-exporter.ts, both
+// reachable only through the `./otel` entry. This file implements the `Tracer`
+// port with the official SDK; services never see an SDK type.
 import {
   type Context,
   ROOT_CONTEXT,
@@ -23,6 +24,7 @@ import {
 } from "@opentelemetry/sdk-trace";
 
 import { sanitizeText } from "../redaction.ts";
+import type { SpanExporterLike } from "./bounded-exporter.ts";
 import type { TracingSettings } from "./config.ts";
 import type { IngestSpan } from "./ingest-span.ts";
 import {
@@ -34,9 +36,6 @@ import {
   sampleByTraceId,
   type Tracer,
 } from "./tracer.ts";
-
-/** Same shape as the SDK's exporter, so a worker can plug in an ingest exporter. */
-export type SpanExporterLike = SpanExporter;
 
 // Only what the exporter reads: content and ingest settings are the API's and
 // the listener's, not the tracer's.
@@ -66,6 +65,7 @@ export {
   type BoundedExporterOptions,
   type BoundedSpanExporter,
   createBoundedSpanExporter,
+  type SpanExporterLike,
 } from "./bounded-exporter.ts";
 
 const WORKSPACE_ATTRIBUTE = "werft.workspace_id";

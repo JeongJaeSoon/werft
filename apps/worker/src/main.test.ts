@@ -3,11 +3,8 @@ import { mkdir, mkdtemp, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import {
-  exitCodeFor,
-  verifyWorkspace,
-  workspaceEvidenceFromEnv,
-} from "./main.ts";
+import { workspaceEvidenceFromEnv } from "./config.ts";
+import { exitCodeFor, verifyWorkspace } from "./main.ts";
 import { workspaceLimitMode } from "./workspace-limit-mode.ts";
 
 test.each([

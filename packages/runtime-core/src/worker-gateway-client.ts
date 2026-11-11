@@ -138,7 +138,7 @@ export class WorkerGatewayRequestError extends Error {
 }
 
 /** Codes that mean this attempt no longer owns the session and must stop. */
-export const OWNERSHIP_LOST_CODES: ReadonlySet<WorkerGatewayErrorCode> =
+const OWNERSHIP_LOST_CODES: ReadonlySet<WorkerGatewayErrorCode> =
   new Set<WorkerGatewayErrorCode>([
     "LEASE_EXPIRED",
     "STALE_EPOCH",

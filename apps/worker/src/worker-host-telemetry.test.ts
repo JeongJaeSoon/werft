@@ -23,6 +23,7 @@ import {
 import { SpanEmitter } from "./telemetry/turn-spans.ts";
 import { FakeWorkerGateway } from "./testing/fake-gateway.ts";
 import { ScriptedRun } from "./testing/scripted-run.ts";
+import { waitFor as pollFor } from "./testing/wait-for.ts";
 import { WorkerHost } from "./worker-host.ts";
 import { noWorkspace } from "./workspace.ts";
 
@@ -194,12 +195,8 @@ function answerEvery(run: ScriptedRun, text = "hello") {
   };
 }
 
-async function until(condition: () => boolean, label: string): Promise<void> {
-  for (let waited = 0; !condition(); waited += 5) {
-    if (waited > 3_000) throw new Error(`Timed out waiting for ${label}`);
-    await Bun.sleep(5);
-  }
-}
+const until = (condition: () => boolean, label: string): Promise<void> =>
+  pollFor(condition, label, { timeoutMs: 3_000 });
 
 const named = (finished: Finished[], name: string) =>
   finished.filter((span) => span.name === name);

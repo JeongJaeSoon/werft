@@ -11,28 +11,45 @@ import {
   type S3RequestBounds,
 } from "./s3.ts";
 
-export * from "./checkpoint-objects.ts";
-export * from "./commit-range-attribution.ts";
-export * from "./git-runner.ts";
-export * from "./git-workspace-bundle-verifier.ts";
-export * from "./object-route.ts";
+export {
+  bucketHoldsObjectVersion,
+  createCheckpointObjectCollector,
+  createCheckpointObjectStore,
+  describeBucketEncryption,
+  describeBucketProtection,
+} from "./checkpoint-objects.ts";
+export { rangeAttribution } from "./commit-range-attribution.ts";
+export {
+  defaultGitRunner,
+  GIT_TIMEOUT_EXIT_CODE,
+  type GitCommandOptions,
+  type GitCommandRunner,
+  type GitResourceLimits,
+} from "./git-runner.ts";
+export {
+  createGitWorkspaceBundleVerifier,
+  DEFAULT_GIT_VERIFY_TIMEOUT_MS,
+  DEFAULT_MAX_GIT_MEMORY_BYTES,
+  gitRefNameAcceptable,
+  gitVerifyTimeoutMs,
+} from "./git-workspace-bundle-verifier.ts";
+export {
+  createObjectRouteClient,
+  createObjectRouteSigner,
+  type ObjectRouteSigner,
+} from "./object-route.ts";
 export {
   BodyLimitError,
   type BodyReadBounds,
   BodyStallError,
   BodyTruncatedError,
-  DEFAULT_BODY_READ_BOUNDS,
   FreshAddressHttpHandler,
-  MAX_BUDGETED_READ_BYTES,
-  MIN_TRANSFER_BYTES_PER_SECOND,
-  readBudgetMs,
-  S3_MAX_ATTEMPTS,
   S3_REQUEST_BOUNDS,
   type S3ClientLike,
   type S3RequestBounds,
   transferBudgetMs,
 } from "./s3.ts";
-export * from "./scoped-objects.ts";
+export { scopedCheckpointObjectStore } from "./scoped-objects.ts";
 
 export interface StorageS3Settings {
   readonly credentials?: StorageS3StaticKeys;

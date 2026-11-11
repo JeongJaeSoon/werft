@@ -10,6 +10,7 @@ import {
   type ScriptedStep,
   scriptedRuntimes,
 } from "./testing/golden-runtime.ts";
+import { waitFor as pollFor } from "./testing/wait-for.ts";
 import { inputUuid, WorkerHost, type WorkerLogger } from "./worker-host.ts";
 import { noWorkspace } from "./workspace.ts";
 
@@ -101,13 +102,8 @@ function harness(steps: ScriptedStep[], gateway = new FakeWorkerGateway()) {
   return { gateway, host, runtime };
 }
 
-async function waitFor(condition: () => boolean, label: string): Promise<void> {
-  for (let waited = 0; waited < 5_000; waited += 2) {
-    if (condition()) return;
-    await Bun.sleep(2);
-  }
-  throw new Error(`Timed out waiting for ${label}`);
-}
+const waitFor = (condition: () => boolean, label: string): Promise<void> =>
+  pollFor(condition, label, { timeoutMs: 5_000, stepMs: 2 });
 
 const REQUEST_ID =
   /^req_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;

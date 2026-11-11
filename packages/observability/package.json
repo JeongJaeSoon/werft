@@ -1,6 +1,6 @@
 {
   "name": "@werft-ai/observability",
-  "description": "Kiel session runtime: structured logger and log redaction",
+  "description": "Kiel session runtime: structured logger, log redaction and tracing",
   "version": "0.0.0",
   "private": true,
   "license": "PolyForm-Small-Business-1.0.0",

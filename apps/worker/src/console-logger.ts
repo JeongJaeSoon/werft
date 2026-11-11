@@ -6,7 +6,11 @@ import {
   sanitizeText,
 } from "@werft-ai/observability";
 
-import type { WorkerLogger } from "./worker-host.ts";
+export type WorkerLogger = {
+  info(event: string, fields?: Record<string, unknown>): void;
+  warn(event: string, fields?: Record<string, unknown>): void;
+  error(event: string, fields?: Record<string, unknown>): void;
+};
 
 /**
  * One JSON object per line: `timestamp`, `level`, `event`, then the fields,
@@ -16,7 +20,7 @@ import type { WorkerLogger } from "./worker-host.ts";
  */
 export function createConsoleLogger(
   options: {
-    level?: string;
+    level?: string | undefined;
     now?: () => Date;
     write?: (line: string) => void;
   } = {},
@@ -43,5 +47,3 @@ export function createConsoleLogger(
     };
   return { info: emit("info"), warn: emit("warn"), error: emit("error") };
 }
-
-export const consoleLogger: WorkerLogger = createConsoleLogger();
