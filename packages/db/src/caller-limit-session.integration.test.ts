@@ -719,6 +719,39 @@ integration("caller limits on session create and input", () => {
     });
   });
 
+  describe("a release session without a GitHub pin", () => {
+    test("the agent's saved list narrows its own repository only, so a sender limited to that repository still gets in", async () => {
+      const ws = await workspace();
+      const owner = await person(ws, "owner");
+      const creator = await person(ws, "owner");
+      const narrow = await person(ws);
+      const repoA = await repository();
+      const repoB = await repository();
+      const { agentId, releaseId } = await agentRelease(ws);
+      const id = await session(creator, releaseId, repoA);
+      await db.insert(agentGitHubSettings).values({
+        agentId,
+        workspaceId: ws,
+        repositories: [repoA.id, repoB.id],
+        pushApproval: false,
+        features: {
+          workflows: false,
+          actions: false,
+          checks: false,
+          issues: false,
+          review: false,
+        },
+        actionsAllow: [],
+        updatedBy: randomUUID(),
+      });
+      const narrowTeam = await team(owner, [narrow]);
+      await setRules(owner, agentId, [
+        rule({ kind: "team", id: narrowTeam }, { repositories: [repoA.id] }),
+      ]);
+      expect((await append(narrow, id)).outcome).toBe("accepted");
+    });
+  });
+
   describe("usable agents", () => {
     test("an agent whose active release needs a denied credential is left out; a repository limit never hides one", async () => {
       const ws = await workspace();

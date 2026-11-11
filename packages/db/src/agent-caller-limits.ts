@@ -396,11 +396,9 @@ async function policyRepositories(
     start: session.githubPolicyStart,
     attachedRepositoryIds: null,
   });
-  const listed =
-    policy.settings === null || policy.settings === "invalid"
-      ? []
-      : policy.settings.repositories;
-  return [...listed, ...(policy.currentRepositories ?? [])];
+  return policy.settings === null || policy.settings === "invalid"
+    ? []
+    : policy.settings.repositories;
 }
 
 export async function sessionReach(
