@@ -1,5 +1,6 @@
 import type {
   AdmissionState,
+  AuthorizationSubject,
   CountSessionsQuery,
   CountSessionsResponse,
   CreateSessionResponse,
@@ -20,6 +21,7 @@ import type {
   TurnDetail,
   TurnSummary,
 } from "@werft-ai/contracts";
+import type { CallerLimitDimension } from "../musterrolle/caller-limit.ts";
 import type { Principal } from "../musterrolle/policy.ts";
 import type { SessionViewer } from "./session-share-store.ts";
 import type { SessionTitleSource } from "./session-title-store.ts";
@@ -92,6 +94,8 @@ export type AcceptSessionInput = {
   // it the write still judges the requester over locked rows. Carries the
   // visibility result and nothing else.
   agentPrivate?: true;
+  callerLimited?: CallerLimitDimension;
+  callerSubject?: AuthorizationSubject;
   // The pinned agent is paused or archived, or the release never approved:
   // only a replay of an earlier acceptance goes through, and the check runs
   // before the unbound one.
@@ -119,6 +123,7 @@ export type AcceptSessionResult =
   | { outcome: "agent_use_refused" }
   /** The agent is private and the requester is not among those who use it. */
   | { outcome: "agent_private" }
+  | { outcome: "caller_limited"; dimension: CallerLimitDimension }
   | { outcome: "not_runnable"; reason: "agent_inactive" | "release_unapproved" }
   | { outcome: "credential_unbound"; receiptId: string }
   /** A declared name has no value for this agent; no session was created. */
@@ -143,6 +148,8 @@ export type AppendMessageInput = {
   profileBlocked?: true;
   // As `AcceptSessionInput.agentPrivate`: only a replay goes through.
   agentPrivate?: true;
+  profileTools?: readonly string[];
+  callerSubject?: AuthorizationSubject;
 };
 
 export type AppendMessageResult =
@@ -150,6 +157,7 @@ export type AppendMessageResult =
   | { outcome: "conflict" | "not_found" | "profile_blocked" }
   /** A session the requester sees, of an agent they may not use. */
   | { outcome: "agent_private" }
+  | { outcome: "caller_limited"; dimension: CallerLimitDimension }
   // The session exists but its admission state does not take new input.
   | { outcome: "rejected"; admissionState: Exclude<AdmissionState, "active"> }
   // The session cannot be checkpointed (blocking pending reason): a turn run

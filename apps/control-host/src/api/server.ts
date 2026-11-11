@@ -16,6 +16,7 @@ import {
   createPostgresAgentStore,
   createPostgresAgentUsageStore,
   createPostgresAuditRetention,
+  createPostgresCallerLimitGate,
   createPostgresCatalogRepositoryStore,
   createPostgresCommitAttributionLedger,
   createPostgresCredentialBindingStore,
@@ -599,6 +600,7 @@ const sessions = createSessionService({
   releases: { ...agents, ...newSessionGitHubReaders(db) },
   extensions: extensionDeps,
   credentials: credentialBindings,
+  callerLimits: createPostgresCallerLimitGate(db),
   limits,
 });
 const sessionOutputs = createSessionOutputService({

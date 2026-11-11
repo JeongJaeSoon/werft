@@ -1,6 +1,10 @@
 {
   "every-notice-copy": {
     "en": {
+      "callerLimitedCredential": "A limit set on the people who use this agent doesn't allow this agent's credential settings",
+      "callerLimitedMcpServer": "A limit set on the people who use this agent doesn't allow this session's MCP server",
+      "callerLimitedRepository": "A limit set on the people who use this agent doesn't allow starting with this repository",
+      "callerLimitedTool": "A limit set on the people who use this agent doesn't allow a tool this session uses",
       "connect": "Link your Slack account on the web",
       "credentialUnbound": "The connection settings changed, so the agent couldn't start. Contact the agent's admin",
       "failed": "We couldn't process the request right now. Try again shortly",
@@ -15,6 +19,10 @@
       "repositoryRequired": "The agent couldn't start because its release has no repository it can use (none was chosen, it was removed from the catalog, or the profile or workspace ceiling does not allow it) or its GitHub settings can't be read. An agent admin needs to check the GitHub settings in the web console and, if a repository is needed, choose one, then create and activate a new release"
     },
     "ja": {
+      "callerLimitedCredential": "このエージェントを使う人に設定された制限のため、このエージェントの認証情報設定は使えません",
+      "callerLimitedMcpServer": "このエージェントを使う人に設定された制限のため、このセッションのMCPサーバーは使えません",
+      "callerLimitedRepository": "このエージェントを使う人に設定された制限のため、このリポジトリでは開始できません",
+      "callerLimitedTool": "このエージェントを使う人に設定された制限のため、このセッションが使うツールは使えません",
       "connect": "WebでSlackアカウントを連携してください",
       "credentialUnbound": "接続設定が変更されたため、開始できませんでした。エージェントの管理者にお問い合わせください",
       "failed": "現在リクエストを処理できませんでした。しばらくしてからもう一度お試しください",
@@ -29,6 +37,10 @@
       "repositoryRequired": "このエージェントのリリースで使えるリポジトリがないか(リポジトリが選ばれていない、カタログから外れている、またはプロファイルやワークスペースの上限が許可していません)、エージェントのGitHub設定を読み取れないため、開始できませんでした。エージェントの管理者がWebコンソールでGitHub設定を確認し、リポジトリが必要なら選んで、新しいリリースを作成して有効化する必要があります"
     },
     "ko": {
+      "callerLimitedCredential": "이 에이전트를 쓰는 사람에게 걸린 제한 때문에 이 에이전트의 자격 설정을 쓸 수 없어요",
+      "callerLimitedMcpServer": "이 에이전트를 쓰는 사람에게 걸린 제한 때문에 이 세션의 MCP 서버를 쓸 수 없어요",
+      "callerLimitedRepository": "이 에이전트를 쓰는 사람에게 걸린 제한 때문에 이 저장소로는 시작할 수 없어요",
+      "callerLimitedTool": "이 에이전트를 쓰는 사람에게 걸린 제한 때문에 이 세션이 쓰는 도구를 쓸 수 없어요",
       "connect": "웹에서 Slack 계정을 연결해 주세요",
       "credentialUnbound": "연결 설정이 바뀌어 시작하지 못했어요. 에이전트 관리자에게 문의하세요",
       "failed": "지금은 요청을 처리하지 못했어요. 잠시 뒤 다시 시도해 주세요",

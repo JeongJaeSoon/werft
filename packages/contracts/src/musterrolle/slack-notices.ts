@@ -25,6 +25,14 @@ const SLACK_NOTICE_MESSAGES_KO = {
   noActiveRelease:
     "이 에이전트는 아직 활성화된 릴리스가 없어요. 에이전트 관리자가 웹 콘솔에서 릴리스를 활성화해야 해요",
   pendingApproval: "이 채널은 관리자 승인을 기다리고 있어요",
+  callerLimitedRepository:
+    "이 에이전트를 쓰는 사람에게 걸린 제한 때문에 이 저장소로는 시작할 수 없어요",
+  callerLimitedCredential:
+    "이 에이전트를 쓰는 사람에게 걸린 제한 때문에 이 에이전트의 자격 설정을 쓸 수 없어요",
+  callerLimitedMcpServer:
+    "이 에이전트를 쓰는 사람에게 걸린 제한 때문에 이 세션의 MCP 서버를 쓸 수 없어요",
+  callerLimitedTool:
+    "이 에이전트를 쓰는 사람에게 걸린 제한 때문에 이 세션이 쓰는 도구를 쓸 수 없어요",
 } as const;
 
 export type SlackNoticeMessage = keyof typeof SLACK_NOTICE_MESSAGES_KO;
@@ -55,6 +63,14 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
     noActiveRelease:
       "このエージェントにはまだ有効なリリースがありません。エージェントの管理者がWebコンソールでリリースを有効化する必要があります",
     pendingApproval: "このチャンネルは管理者の承認を待っています",
+    callerLimitedRepository:
+      "このエージェントを使う人に設定された制限のため、このリポジトリでは開始できません",
+    callerLimitedCredential:
+      "このエージェントを使う人に設定された制限のため、このエージェントの認証情報設定は使えません",
+    callerLimitedMcpServer:
+      "このエージェントを使う人に設定された制限のため、このセッションのMCPサーバーは使えません",
+    callerLimitedTool:
+      "このエージェントを使う人に設定された制限のため、このセッションが使うツールは使えません",
   },
   en: {
     connect: "Link your Slack account on the web",
@@ -75,6 +91,14 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
     noActiveRelease:
       "This agent has no active release yet. An agent admin needs to activate a release in the web console",
     pendingApproval: "This channel is waiting for an admin's approval",
+    callerLimitedRepository:
+      "A limit set on the people who use this agent doesn't allow starting with this repository",
+    callerLimitedCredential:
+      "A limit set on the people who use this agent doesn't allow this agent's credential settings",
+    callerLimitedMcpServer:
+      "A limit set on the people who use this agent doesn't allow this session's MCP server",
+    callerLimitedTool:
+      "A limit set on the people who use this agent doesn't allow a tool this session uses",
   },
 };
 
@@ -91,6 +115,7 @@ const NOTICE_FOR: Record<
   surface_ceiling: "noRight",
   agent_ceiling: "noRight",
   agent_private: "noRight",
+  caller_limited: "noRight",
   disabled: "noRight",
   guest_disabled: "guestDisabled",
   external_user: "membersOnly",

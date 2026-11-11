@@ -7,6 +7,7 @@ import {
   createPostgresAgentAccessSetting,
   createPostgresAgentIdentityStore,
   createPostgresAgentStore,
+  createPostgresCallerLimitGate,
   createPostgresCatalogRepositoryStore,
   createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
@@ -226,6 +227,7 @@ export function slackSessionHandler(deps: {
     },
     extensions: extensionDepsFor(db),
     credentials,
+    callerLimits: createPostgresCallerLimitGate(db),
     limits: installationLimitsFromEnv(environment),
   });
   const { secretKey } = deps;
