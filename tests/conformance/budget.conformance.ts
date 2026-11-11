@@ -1,5 +1,6 @@
 import { describe, expect } from "bun:test";
 import { Api, e2eStack } from "../e2e/client.ts";
+import { docker, serviceContainer } from "./docker.ts";
 import { scenario, scriptId } from "./engine.ts";
 import { engineFromEnv } from "./engines.ts";
 
@@ -16,43 +17,15 @@ const api = new Api(
 );
 const TIMEOUT = 600_000;
 
-async function docker(args: string[]): Promise<string> {
-  const run = Bun.spawn(["docker", ...args], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  // The container writes its log to both streams.
-  const [out, err] = await Promise.all([
-    new Response(run.stdout).text(),
-    new Response(run.stderr).text(),
-  ]);
-  if ((await run.exited) !== 0) throw new Error(`docker ${args[0]} failed`);
-  return `${out}\n${err}`;
-}
-
 /**
  * How many provider egress authorizations this stack's gateway has refused
  * for the budget. The log line carries no session id, so the scenario counts
  * before and after: the stack is the run's own and no other scenario spends.
  */
 async function budgetRefusals(): Promise<number> {
-  const project = process.env.E2E_COMPOSE_PROJECT;
-  if (!project) throw new Error("E2E_COMPOSE_PROJECT is unset");
-  const ids = (
-    await docker([
-      "ps",
-      "-q",
-      "--filter",
-      `label=com.docker.compose.project=${project}`,
-      "--filter",
-      "label=com.docker.compose.service=api",
-    ])
-  )
-    .split("\n")
-    .filter((line) => line.trim() !== "");
-  expect(ids.length).toBe(1);
   let count = 0;
-  for (const line of (await docker(["logs", ids[0] as string])).split("\n")) {
+  const log = await docker(["logs", await serviceContainer("api")]);
+  for (const line of log.split("\n")) {
     const start = line.indexOf("{");
     if (start < 0) continue;
     try {

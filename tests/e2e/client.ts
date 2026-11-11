@@ -352,10 +352,12 @@ export class Api {
       ? crypto.randomUUID()
       : null,
   ): Promise<ApiResponse<T>> {
-    // An answer goes under the other key: the one that started the session
-    // is refused (`self_approval`).
+    // An answer, and a push request's approval or rejection, go under the
+    // other key: the one that started the session is refused
+    // (`self_approval`).
     const key =
-      method === "POST" && /\/answers$/.test(path)
+      method === "POST" &&
+      /\/answers$|\/push-requests\/[^/]+\/(approve|reject)$/.test(path)
         ? (this.env.approveKey ?? this.env.apiKey)
         : this.env.apiKey;
     const headers: Record<string, string> = {
