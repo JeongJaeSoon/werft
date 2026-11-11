@@ -1,6 +1,9 @@
 // The API role's Slack chat adapters, built in the stages the role needs them:
 // the platform services between the stages take the earlier stage's output.
-// Every adapter is created exactly once, in the order the role used before.
+// Every adapter is created exactly once, and a stage runs after the stages
+// whose output it takes. The stores a stage takes are already built when it
+// runs, the outbox store included: constructing that store only closes over
+// the database handle, so where it is built changes nothing observable.
 import type { StructuredLogger } from "@werft-ai/observability";
 import type {
   AgentIdentityStore,
