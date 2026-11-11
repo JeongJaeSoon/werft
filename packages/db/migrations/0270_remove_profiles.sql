@@ -8,6 +8,110 @@
 -- the installation's settings stay; an agent is released again on a
 -- connection before it runs.
 
+-- A release takes only a model its connection lists, and 0254 added the
+-- list empty. Before the profiles go, each connection still at '[]' gets the
+-- models of the profiles that ran on it, so its agents can be released again.
+-- A profile belongs to the connection the profile registry gave it: the first
+-- live connection by id whose definition is the profile's provider, else the
+-- first whose former key (replaces_auth) is, while no live connection holds
+-- that provider as its own. A profile counts unless it is blocked, derives
+-- from a blocked, missing or circular lineage, or is retired with no agent's
+-- active release on it; a workspace profile counts by the same retired rule
+-- through its base, retired or not. Models keep the order they were offered
+-- in: installation profiles before workspace ones, oldest first, each
+-- profile's default before its others.
+-- model_families is copied only when every installation profile counted
+-- carries the same one.
+WITH RECURSIVE
+  "in_use" AS (
+    SELECT "r"."runtime_profile_id" AS "id"
+    FROM "agents" "a"
+    JOIN "agent_releases" "r" ON "r"."agent_id" = "a"."id" AND "r"."id" = "a"."active_release_id"
+  ),
+  "chain" ("id", "cur", "path") AS (
+    SELECT "id", "derived_from", ARRAY["id"] FROM "installation_profiles" WHERE "derived_from" IS NOT NULL
+    UNION ALL
+    SELECT "c"."id", "p"."derived_from", "c"."path" || "p"."id"
+    FROM "chain" "c" JOIN "installation_profiles" "p" ON "p"."id" = "c"."cur"
+    WHERE "p"."blocked_at" IS NULL AND "p"."derived_from" IS NOT NULL AND NOT "p"."id" = ANY("c"."path")
+  ),
+  "broken" AS (
+    SELECT "c"."id" FROM "chain" "c" LEFT JOIN "installation_profiles" "p" ON "p"."id" = "c"."cur"
+    WHERE "p"."id" IS NULL OR "p"."blocked_at" IS NOT NULL OR "c"."cur" = ANY("c"."path")
+  ),
+  -- Runnable decides the connection, also for the workspace profiles on it;
+  -- "usable" decides whether its own models count.
+  "runnable" AS (
+    SELECT "p".* FROM "installation_profiles" "p"
+    WHERE "p"."blocked_at" IS NULL
+      AND "p"."id" NOT IN (SELECT "id" FROM "broken")
+      AND jsonb_typeof("p"."definition"->'provider') = 'object'
+  ),
+  "usable" AS (
+    SELECT * FROM "runnable"
+    WHERE "retired_at" IS NULL OR "id" IN (SELECT "id" FROM "in_use")
+  ),
+  "matched" AS (
+    SELECT DISTINCT ON ("u"."id") "u"."id" AS "profile_id", "c"."id" AS "connection_id"
+    FROM "runnable" "u"
+    JOIN "provider_connections" "c" ON "c"."disabled_at" IS NULL AND (
+      "c"."definition" = "u"."definition"->'provider'
+      OR (
+        "c"."replaces_auth" IS NOT NULL
+        AND "c"."definition" || jsonb_build_object('auth', "c"."replaces_auth") = "u"."definition"->'provider'
+        AND NOT EXISTS (
+          SELECT 1 FROM "provider_connections" "o"
+          WHERE "o"."disabled_at" IS NULL AND "o"."definition" = "u"."definition"->'provider'
+        )
+      )
+    )
+    ORDER BY "u"."id", ("c"."definition" = "u"."definition"->'provider') DESC, "c"."id"
+  ),
+  "offered" ("connection_id", "src", "created_at", "profile_id", "pos", "model") AS (
+    SELECT "m"."connection_id", 0, "u"."created_at", "u"."id", 0::bigint, "u"."definition"->>'model'
+    FROM "matched" "m" JOIN "usable" "u" ON "u"."id" = "m"."profile_id"
+    WHERE jsonb_typeof("u"."definition"->'model') = 'string'
+    UNION ALL
+    SELECT "m"."connection_id", 0, "u"."created_at", "u"."id", "e"."ord", "e"."value" #>> '{}'
+    FROM "matched" "m" JOIN "usable" "u" ON "u"."id" = "m"."profile_id"
+    CROSS JOIN LATERAL jsonb_array_elements(
+      CASE WHEN jsonb_typeof("u"."definition"->'models') = 'array' THEN "u"."definition"->'models' ELSE '[]'::jsonb END
+    ) WITH ORDINALITY "e" ("value", "ord")
+    WHERE jsonb_typeof("e"."value") = 'string'
+    UNION ALL
+    SELECT "m"."connection_id", 1, "w"."created_at", "w"."id", 0::bigint, "w"."model"
+    FROM "workspace_profiles" "w" JOIN "matched" "m" ON "m"."profile_id" = "w"."base_profile_id"
+    WHERE "w"."retired_at" IS NULL OR "w"."id" IN (SELECT "id" FROM "in_use")
+    UNION ALL
+    SELECT "m"."connection_id", 1, "w"."created_at", "w"."id", "e"."ord", "e"."value" #>> '{}'
+    FROM "workspace_profiles" "w" JOIN "matched" "m" ON "m"."profile_id" = "w"."base_profile_id"
+    CROSS JOIN LATERAL jsonb_array_elements(
+      CASE WHEN jsonb_typeof("w"."models") = 'array' THEN "w"."models" ELSE '[]'::jsonb END
+    ) WITH ORDINALITY "e" ("value", "ord")
+    WHERE ("w"."retired_at" IS NULL OR "w"."id" IN (SELECT "id" FROM "in_use"))
+      AND jsonb_typeof("e"."value") = 'string'
+  ),
+  "firsts" AS (
+    SELECT DISTINCT ON ("connection_id", "model") *
+    FROM "offered" WHERE "model" <> ''
+    ORDER BY "connection_id", "model", "src", "created_at", "profile_id", "pos"
+  ),
+  "lists" AS (
+    SELECT "connection_id", jsonb_agg("model" ORDER BY "src", "created_at", "profile_id", "pos") AS "models"
+    FROM "firsts" GROUP BY "connection_id"
+  ),
+  "families" AS (
+    SELECT "m"."connection_id", (array_agg(DISTINCT "u"."definition"->'model_families'))[1] AS "families"
+    FROM "matched" "m" JOIN "usable" "u" ON "u"."id" = "m"."profile_id"
+    GROUP BY "m"."connection_id"
+    HAVING count(*) FILTER (WHERE jsonb_typeof("u"."definition"->'model_families') IS DISTINCT FROM 'object') = 0
+      AND count(DISTINCT "u"."definition"->'model_families') = 1
+  )
+UPDATE "provider_connections" "c"
+SET "models" = "l"."models", "model_families" = COALESCE("c"."model_families", "f"."families")
+FROM "lists" "l" LEFT JOIN "families" "f" ON "f"."connection_id" = "l"."connection_id"
+WHERE "c"."id" = "l"."connection_id" AND "c"."models" = '[]'::jsonb;--> statement-breakpoint
+
 -- Slack outbox rows that name no session (welcome and other notices) are not
 -- session data: they are set aside here and put back after the truncate.
 CREATE TEMP TABLE "slack_outbox_kept" AS SELECT * FROM "slack_outbox" WHERE "session_id" IS NULL;--> statement-breakpoint
