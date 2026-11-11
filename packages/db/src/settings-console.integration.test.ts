@@ -27,7 +27,7 @@ import {
   users,
   workspaces,
 } from "./schema.ts";
-import { writeSecretInTx } from "./secret-values.ts";
+import { writeSecretInTx } from "./secrets/secret-values.ts";
 import { createPostgresSettingsDocumentStore } from "./settings-document.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;

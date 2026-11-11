@@ -5,6 +5,7 @@ import {
   GITHUB_FEATURES_NONE,
   type ReceiptActor,
 } from "@werft-ai/contracts";
+import { acceptAllCheckpoints } from "../checkpoints/ports/checkpoint-verifier.ts";
 import type {
   GitHubConnection,
   GitHubGateReceipt,
@@ -12,10 +13,9 @@ import type {
   GitHubSessionContext,
 } from "../github/ports/github-gate.ts";
 import { createGitHubGate } from "../github/service/github-gate.ts";
-import { acceptAllCheckpoints } from "../ports/checkpoint-verifier.ts";
-import type { WorkerPendingStore } from "../ports/pending-requests.ts";
 import type { WorkerUnitOfWork } from "../ports/worker-unit-of-work.ts";
 import type { CatalogRepository } from "../sessions/catalog.ts";
+import type { WorkerPendingStore } from "../sessions/ports/pending-requests.ts";
 import { createRepositoryAttachmentService } from "../sessions/repository-attachment-service.ts";
 import { testBinding, testCatalog } from "../testing/catalog-fakes.ts";
 import { releasePolicy } from "../testing/github-fakes.ts";

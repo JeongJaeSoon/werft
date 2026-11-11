@@ -714,6 +714,23 @@ export function runtimeProviderOf(
 }
 
 /**
+ * A built-in tool list without the tools a session's caller limit denies.
+ * `mcp__` names pass through untouched: MCP decisions are not made here.
+ * The list itself comes back when nothing is removed.
+ */
+export function withoutDeniedTools<T extends readonly string[]>(
+  tools: T,
+  denied: readonly string[] | undefined,
+): T | string[] {
+  if (denied === undefined || denied.length === 0) return tools;
+  const out = new Set(denied.filter((tool) => !tool.startsWith("mcp__")));
+  const kept = tools.filter(
+    (tool) => tool.startsWith("mcp__") || !out.has(tool),
+  );
+  return kept.length === tools.length ? tools : kept;
+}
+
+/**
  * A release's tool list as the worker binding reads it from the release's
  * `runtime_config_snapshot`: a snapshot this image cannot read allows no tool
  * rather than guessing (db worker-unit-of-work `releaseRunOf`).

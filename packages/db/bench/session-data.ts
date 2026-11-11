@@ -26,7 +26,7 @@ import {
 } from "../src/index.ts";
 import { migrate } from "../src/migrate.ts";
 import * as schema from "../src/schema.ts";
-import { readSessionActivity } from "../src/session-activity.ts";
+import { readSessionActivity } from "../src/sessions/session-activity.ts";
 
 const url = process.env.BENCH_DATABASE_URL;
 if (!url) throw new Error("BENCH_DATABASE_URL names the database to use");
@@ -331,7 +331,7 @@ const middle = await pool.query<{ id: string }>(
   `SELECT id FROM events WHERE session_id = $1 ORDER BY id OFFSET ${Math.floor(eventsPerListed / 2)} LIMIT 1`,
   [detail],
 );
-const { encodeEventCursor } = await import("../src/cursors.ts");
+const { encodeEventCursor } = await import("../src/sessions/cursors.ts");
 const middleCursor = encodeEventCursor(Number(middle.rows[0]?.id ?? 0));
 const page = (after: string | undefined) =>
   reader.readEvents(OWNER, detail, {

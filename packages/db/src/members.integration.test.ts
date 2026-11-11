@@ -16,11 +16,11 @@ import {
 import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { issuePasswordReset } from "./identity.ts";
-import { createDatabaseIdentityReader } from "./identity-reader.ts";
-import { createPostgresMemberStore } from "./members.ts";
+import { issuePasswordReset } from "./musterrolle/identity.ts";
+import { createDatabaseIdentityReader } from "./musterrolle/identity-reader.ts";
+import { createPostgresMemberStore } from "./musterrolle/members.ts";
 import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
-import { createPostgresSchedulerStore } from "./scheduler-store.ts";
+import { createPostgresSchedulerStore } from "./scheduler/scheduler-store.ts";
 import * as schema from "./schema.ts";
 import {
   agents,

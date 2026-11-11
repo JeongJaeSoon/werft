@@ -15,10 +15,9 @@ import {
 import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { createPostgresAgentAdminStore } from "./agent-admins.ts";
-import { createPostgresAgentUsageStore } from "./agent-usage.ts";
-import { createPostgresTeamStore } from "./member-teams.ts";
-import { createPostgresPendingRequests } from "./pending-requests.ts";
+import { createPostgresPendingRequests } from "./decision/pending-requests.ts";
+import { createPostgresAgentAdminStore } from "./musterrolle/agent-admins.ts";
+import { createPostgresTeamStore } from "./musterrolle/member-teams.ts";
 import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
 import {
@@ -41,6 +40,7 @@ import {
   TEST_CONNECTION_ID,
   TEST_MODEL,
 } from "./testing/spec-pins.ts";
+import { createPostgresAgentUsageStore } from "./usage/agent-usage.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 

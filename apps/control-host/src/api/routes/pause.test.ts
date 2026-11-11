@@ -7,7 +7,7 @@ import {
   type SessionControl,
 } from "@werft-ai/platform";
 import { recordRouteErrors } from "../route-error-coverage.ts";
-import { registerPauseRoutes } from "./pause.ts";
+import { registerPauseRoutes } from "./sessions/pause.ts";
 
 const createApiApp = recordRouteErrors("routes/pause.test.ts");
 

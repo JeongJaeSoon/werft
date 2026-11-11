@@ -17,7 +17,7 @@ import type {
 import { and, eq, inArray, lte, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import type { PoolClient } from "pg";
-import { closeAtomic } from "./close-control.ts";
+import { renameAtomic } from "./agents/rename-control.ts";
 import { logControlResult } from "./control-observability.ts";
 import {
   BindingMoved,
@@ -34,18 +34,15 @@ import {
   receiptActorOf,
 } from "./control-shared.ts";
 import { dbNow, fromDbNow } from "./db-clock.ts";
-import { drainOf, openDrainReceipt } from "./drain.ts";
-import { pauseAtomic } from "./pause-control.ts";
 import {
   awaitingInputAt,
   cancelParkedRequests,
   closeWorkerRequests,
   publicStatus,
   recordLostInputWait,
-} from "./pending-requests.ts";
+} from "./decision/pending-requests.ts";
 import type { Database } from "./queries.ts";
 import { decideRecoveryAtomic, resumeAtomic } from "./recovery-control.ts";
-import { renameAtomic } from "./rename-control.ts";
 import { openResumeReceipt } from "./resume-control.ts";
 import * as schema from "./schema.ts";
 import {
@@ -60,11 +57,14 @@ import {
   turns,
   workerLaunches,
 } from "./schema.ts";
+import { closeAtomic } from "./sessions/close-control.ts";
+import { drainOf, openDrainReceipt } from "./sessions/drain.ts";
+import { pauseAtomic } from "./sessions/pause-control.ts";
 import {
   announceInputWaitEnded,
   inputWaitBefore,
   recordStatus,
-} from "./session-events.ts";
+} from "./sessions/session-events.ts";
 
 const TERMINATE = "terminate";
 export const REVOKE_EXECUTION = "revoke_execution";

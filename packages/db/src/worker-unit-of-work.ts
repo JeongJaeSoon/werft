@@ -92,19 +92,18 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
-import { queueAchievementJudgment } from "./achievement-judgments.ts";
+import { followUpFact, queuePushFollowUps } from "./action/push-follow-ups.ts";
+import { settleTurnPushIntents } from "./action/push-intents.ts";
 import {
   type RuntimeFingerprint,
   runtimeColumns,
   runtimeOfColumns,
   sessionRuntimeOnce,
-} from "./checkpoint-runtime.ts";
+} from "./checkpoints/checkpoint-runtime.ts";
 import {
   claimEngineSettingsOf,
   recordClaimRules,
 } from "./claim-engine-settings.ts";
-import { finishClose } from "./close-control.ts";
-import { contextCoverage, contextGap, raiseContextGap } from "./context-gap.ts";
 import {
   type ControlResultEvent,
   logControlResult,
@@ -124,33 +123,7 @@ import {
   KILL_RECEIPT_OPERATIONS,
   terminateReceiptResult,
 } from "./control-unit-of-work.ts";
-import { encodeEventCursor } from "./cursors.ts";
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
-import { CLOSE, drainBlocker, drainOf, openDrainReceipt } from "./drain.ts";
-import {
-  envStartRefusal,
-  plainEnvOf,
-  recordEnvRefusal,
-} from "./env-variables.ts";
-import {
-  type AttemptRow,
-  acquireFence,
-  leaseHeld,
-  type SessionRow,
-} from "./fence.ts";
-import {
-  catalogMismatchCause,
-  quarantineLaunch,
-  variablesRefusedCause,
-} from "./launch-quarantine.ts";
-import { sessionGitHubMcpOf, sessionMcpOf } from "./mcp-egress.ts";
-import { writeModelCut } from "./model-cut-notices.ts";
-import {
-  abandonUndeliveredParked,
-  closeParkedGroup,
-  settleContinuationInputs,
-} from "./parked-group.ts";
-import { openPauseReceipt, pauseReceiptResult } from "./pause-control.ts";
 import {
   abandonUndeliveredAnswers,
   awaitingInputAt,
@@ -158,9 +131,20 @@ import {
   parkTurnRequests,
   publicStatus,
   recordLostInputWait,
-} from "./pending-requests.ts";
-import { followUpFact, queuePushFollowUps } from "./push-follow-ups.ts";
-import { settleTurnPushIntents } from "./push-intents.ts";
+} from "./decision/pending-requests.ts";
+import {
+  catalogMismatchCause,
+  quarantineLaunch,
+  variablesRefusedCause,
+} from "./launch-quarantine.ts";
+import { sessionGitHubMcpOf, sessionMcpOf } from "./mcp-egress.ts";
+import { builtinToolsDenyOf } from "./musterrolle/agent-caller-limits.ts";
+import {
+  envStartRefusal,
+  plainEnvOf,
+  recordEnvRefusal,
+} from "./musterrolle/env-variables.ts";
+import { writeModelCut } from "./musterrolle/model-cut-notices.ts";
 import type { Database } from "./queries.ts";
 import {
   boundedReason,
@@ -200,19 +184,48 @@ import {
   workerLaunches,
   workers,
 } from "./schema.ts";
+import { movedSessionPin } from "./session-spec-pin.ts";
+import { queueAchievementJudgment } from "./sessions/achievement-judgments.ts";
+import { finishClose } from "./sessions/close-control.ts";
+import {
+  contextCoverage,
+  contextGap,
+  raiseContextGap,
+} from "./sessions/context-gap.ts";
+import { encodeEventCursor } from "./sessions/cursors.ts";
+import {
+  CLOSE,
+  drainBlocker,
+  drainOf,
+  openDrainReceipt,
+} from "./sessions/drain.ts";
+import {
+  type AttemptRow,
+  acquireFence,
+  leaseHeld,
+  type SessionRow,
+} from "./sessions/fence.ts";
+import {
+  abandonUndeliveredParked,
+  closeParkedGroup,
+  settleContinuationInputs,
+} from "./sessions/parked-group.ts";
+import {
+  openPauseReceipt,
+  pauseReceiptResult,
+} from "./sessions/pause-control.ts";
 import {
   notBefore,
   recordEvent,
   recordInputWaitStage,
   recordStatus,
   streamClock,
-} from "./session-events.ts";
-import { movedSessionPin } from "./session-spec-pin.ts";
-import { insertToolCallAudits } from "./tool-call-audit.ts";
+} from "./sessions/session-events.ts";
+import { insertToolCallAudits } from "./sessions/tool-call-audit.ts";
 import {
   settleTurnInterrupts,
   turnInterruptPending,
-} from "./turn-interrupts.ts";
+} from "./sessions/turn-interrupts.ts";
 
 type ImageRuntime = NonNullable<WorkerBinding["launchRuntime"]>;
 
@@ -1669,14 +1682,20 @@ export function sessionSpecOf(
 async function releaseRunOf(
   tx: Database,
   session: SessionRow,
-): Promise<Pick<WorkerBinding, "releaseLanguage">> {
-  if (session.agentReleaseId === null) return { releaseLanguage: null };
+): Promise<Pick<WorkerBinding, "releaseLanguage" | "callerToolsDeny">> {
+  const callerToolsDeny = builtinToolsDenyOf(session.callerLimit);
+  if (session.agentReleaseId === null) {
+    return { callerToolsDeny, releaseLanguage: null };
+  }
   const [release] = await tx
     .select({ snapshot: agentReleases.runtimeConfigSnapshot })
     .from(agentReleases)
     .where(eq(agentReleases.id, session.agentReleaseId))
     .limit(1);
-  return { releaseLanguage: responseLanguageOf(release?.snapshot) };
+  return {
+    callerToolsDeny,
+    releaseLanguage: responseLanguageOf(release?.snapshot),
+  };
 }
 
 // `follow-user`, a value this image does not know and a release made before

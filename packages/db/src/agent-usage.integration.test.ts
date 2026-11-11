@@ -29,16 +29,16 @@ import {
 } from "@werft-ai/testkit/postgres";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool, type PoolClient } from "pg";
-import { createPostgresAgentAdminStore } from "./agent-admins.ts";
 import { createDatabaseAgentAuthority } from "./agent-authority.ts";
-import { createPostgresAgentUsageStore } from "./agent-usage.ts";
 import { createPostgresAgentStore } from "./agents.ts";
-import { createPostgresCredentialBindingStore } from "./credential-bindings.ts";
-import { createDatabaseIdentityReader } from "./identity-reader.ts";
-import { createPostgresTeamStore } from "./member-teams.ts";
 import { migrate } from "./migrate.ts";
+import { createPostgresAgentAdminStore } from "./musterrolle/agent-admins.ts";
+import { createPostgresCredentialBindingStore } from "./musterrolle/credential-bindings.ts";
+import { createDatabaseIdentityReader } from "./musterrolle/identity-reader.ts";
+import { createPostgresTeamStore } from "./musterrolle/member-teams.ts";
 import * as schema from "./schema.ts";
 import { TEST_RUNTIMES, testSessionCatalog } from "./testing/spec-pins.ts";
+import { createPostgresAgentUsageStore } from "./usage/agent-usage.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 

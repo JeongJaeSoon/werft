@@ -30,10 +30,10 @@ import {
 import { and, asc, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { createPostgresAgentAdminStore } from "./agent-admins.ts";
 import { createPostgresAgentStore } from "./agents.ts";
-import { createPostgresCredentialBindingStore } from "./credential-bindings.ts";
-import { createDatabaseIdentityReader } from "./identity-reader.ts";
+import { createPostgresAgentAdminStore } from "./musterrolle/agent-admins.ts";
+import { createPostgresCredentialBindingStore } from "./musterrolle/credential-bindings.ts";
+import { createDatabaseIdentityReader } from "./musterrolle/identity-reader.ts";
 import { createPostgresSessionReader } from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
 import {

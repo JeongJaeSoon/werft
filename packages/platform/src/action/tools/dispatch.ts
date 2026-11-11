@@ -15,7 +15,7 @@ import {
 import { z } from "zod";
 import type { GitHubMcpStore } from "../../ports/github-mcp.ts";
 import { SessionServiceError } from "../../sessions/index.ts";
-import type { PushActor } from "../change-request/push-request-service.ts";
+import type { PushActor } from "../change-request/push-decision.ts";
 import {
   type PersonRejection,
   refusalFromServiceError,

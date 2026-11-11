@@ -6,12 +6,12 @@ import {
 } from "@werft-ai/runtime-core";
 
 import type { CheckpointService } from "../checkpoints/checkpoint-service.ts";
-import type { CheckpointFence } from "../ports/checkpoint-store.ts";
+import type { CheckpointFence } from "../checkpoints/ports/checkpoint-store.ts";
 import {
   type CheckpointOutputObject,
   checkpointOutputObjects,
   checkpointOutputsDigest,
-} from "../ports/checkpoint-verifier.ts";
+} from "../checkpoints/ports/checkpoint-verifier.ts";
 
 export type CommitCheckpointInput = {
   checkpoint: CheckpointRef;

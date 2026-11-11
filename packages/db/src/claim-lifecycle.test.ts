@@ -14,8 +14,7 @@ import {
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { eq, sql } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
-import { enqueueWithin } from "./enqueue.ts";
-import { createPostgresSchedulerStore } from "./scheduler-store.ts";
+import { createPostgresSchedulerStore } from "./scheduler/scheduler-store.ts";
 import * as schema from "./schema.ts";
 import {
   agentReleases,
@@ -27,6 +26,7 @@ import {
   workerLaunches,
   workspaces,
 } from "./schema.ts";
+import { enqueueWithin } from "./sessions/enqueue.ts";
 import { fixtureTeam } from "./testing/fixture-team.ts";
 import { insertUnreservedLaunch } from "./testing/launches.ts";
 import {

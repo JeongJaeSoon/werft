@@ -13,7 +13,7 @@ import {
   turns,
   unassignedSessions,
 } from "./schema.ts";
-import { recordStatus } from "./session-events.ts";
+import { recordStatus } from "./sessions/session-events.ts";
 
 /** Why a launch was given up on, as the session's reader will see it. */
 export type LaunchGiveUpCause = {

@@ -50,9 +50,9 @@ import {
 } from "./auth.ts";
 import { DatabaseApiKeyStore, issueApiKey } from "./keys.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
-import { registerEventRoutes } from "./routes/events.ts";
-import { registerMemberRoutes } from "./routes/members.ts";
-import { registerReceiptRoutes } from "./routes/receipts.ts";
+import { registerMemberRoutes } from "./routes/musterrolle/members.ts";
+import { registerEventRoutes } from "./routes/sessions/events.ts";
+import { registerReceiptRoutes } from "./routes/sessions/receipts.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;

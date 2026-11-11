@@ -3,14 +3,14 @@ import {
   bootstrapClaimResponseSchema,
   runtimeConfigSchema,
 } from "@werft-ai/contracts";
+import { acceptAllCheckpoints } from "../checkpoints/ports/checkpoint-verifier.ts";
 import { BundleIntegrityError } from "../extensions/bundle-service.ts";
-import { acceptAllCheckpoints } from "../ports/checkpoint-verifier.ts";
-import type { WorkerPendingStore } from "../ports/pending-requests.ts";
 import type {
   ExtensionsStateResult,
   WorkerBinding,
   WorkerUnitOfWork,
 } from "../ports/worker-unit-of-work.ts";
+import type { WorkerPendingStore } from "../sessions/ports/pending-requests.ts";
 import { testBinding, testCatalog } from "../testing/catalog-fakes.ts";
 import {
   createWorkerGateway,

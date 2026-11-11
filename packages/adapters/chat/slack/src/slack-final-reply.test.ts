@@ -6,7 +6,7 @@ import {
   workerEventSchema,
 } from "@werft-ai/contracts";
 import { createNeutralizer, neutralFieldsOf } from "@werft-ai/platform";
-import { finalReplyText } from "./slack-outbox.ts";
+import { finalReplyText } from "./slack-outbox-enqueue.ts";
 
 type EventCodec = Parameters<typeof createNeutralizer>[0][number];
 

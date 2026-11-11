@@ -37,7 +37,7 @@ import {
 } from "./auth.ts";
 import { DatabaseApiKeyStore } from "./keys.ts";
 import { registerPublicAuthRoutes } from "./routes/auth.ts";
-import { registerUsageRoutes } from "./routes/usage.ts";
+import { registerUsageRoutes } from "./routes/usage/usage.ts";
 
 const integration = testDatabaseUrl() ? test : test.skip;
 

@@ -23,11 +23,6 @@ import {
   type GitHubMcpSessionState,
   SavedRulesUnavailable,
 } from "../../ports/github-mcp.ts";
-import {
-  PULL_REQUEST_REFUSAL_ERRORS,
-  type ScheduleRef,
-} from "../../ports/pull-requests.ts";
-import { PUSH_REFUSAL_ERRORS } from "../../ports/push-requests.ts";
 import { createRepositoryAttachmentService } from "../../sessions/repository-attachment-service.ts";
 import { SessionServiceError } from "../../sessions/session-service.ts";
 import {
@@ -35,8 +30,13 @@ import {
   attachmentContext,
   memoryAttachmentStore,
 } from "../../testing/repository-attachment-fakes.ts";
-import type { PushActor } from "../change-request/push-request-service.ts";
+import type { PushActor } from "../change-request/push-decision.ts";
 import type { GitHubApi } from "../ports/github-api.ts";
+import {
+  PULL_REQUEST_REFUSAL_ERRORS,
+  type ScheduleRef,
+} from "../ports/pull-requests.ts";
+import { PUSH_REFUSAL_ERRORS } from "../ports/push-requests.ts";
 import type { GitHubMcpServices } from "../tools/handler.ts";
 import { sessionBoundAuthorization } from "../tools/session-bound.ts";
 import {

@@ -39,7 +39,7 @@ import {
   actionableOfTurn,
   actionableRequest,
   createPostgresPendingRequests,
-} from "./pending-requests.ts";
+} from "./decision/pending-requests.ts";
 import {
   catalogName,
   createPostgresPushRequests,
@@ -62,11 +62,11 @@ import {
   turns,
   users,
 } from "./schema.ts";
-import { channelLeft } from "./slack-channel-left.ts";
+import { channelLeft } from "./surface/slack-channel-left.ts";
 import {
   createPostgresSlackThreadStatusStore,
   touchSlackThreadStatus,
-} from "./slack-thread-status.ts";
+} from "./surface/slack-thread-status.ts";
 
 const t = slackOutbox;
 

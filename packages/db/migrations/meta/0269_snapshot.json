@@ -1,5 +1,5 @@
 {
-  "id": "0a9cc31b-d910-4fdd-a967-e81f304f49d2",
+  "id": "8f402a30-7fb9-483d-86eb-3b6f19e1a476",
   "prevId": "283a1f2d-f282-4754-8818-afb4b450ea59",
   "version": "7",
   "dialect": "postgresql",
@@ -1375,6 +1375,13 @@
           "notNull": true,
           "default": "'{}'::jsonb"
         },
+        "admin_deny": {
+          "name": "admin_deny",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
         "revision": {
           "name": "revision",
           "type": "integer",
@@ -1412,6 +1419,10 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
+        "agent_engine_settings_admin_deny_check": {
+          "name": "agent_engine_settings_admin_deny_check",
+          "value": "jsonb_typeof(\"agent_engine_settings\".\"admin_deny\") = 'array'"
+        },
         "agent_engine_settings_permissions_check": {
           "name": "agent_engine_settings_permissions_check",
           "value": "jsonb_typeof(\"agent_engine_settings\".\"permissions\") = 'object'\n    AND NOT jsonb_path_exists(\"agent_engine_settings\".\"permissions\", 'strict $.keyvalue() ? (!(@.key == \"allow\" || @.key == \"ask\" || @.key == \"deny\"))')\n    AND NOT jsonb_path_exists(\"agent_engine_settings\".\"permissions\", 'strict $.* ? (@.type() != \"array\")')\n    AND NOT jsonb_path_exists(\"agent_engine_settings\".\"permissions\", 'strict $.* ? (@.size() > 64)')\n    AND NOT jsonb_path_exists(\"agent_engine_settings\".\"permissions\", 'strict $.*[*] ? (@.type() != \"string\")')\n    AND NOT jsonb_path_exists(\"agent_engine_settings\".\"permissions\", 'strict $.*[*] ? (@ == \"\" || @ like_regex \"^(.{128}){2}.\" flag \"s\")')"
@@ -1903,8 +1914,8 @@
           "primaryKey": false,
           "notNull": true
         },
-        "connection_id": {
-          "name": "connection_id",
+        "runtime_profile_id": {
+          "name": "runtime_profile_id",
           "type": "text",
           "primaryKey": false,
           "notNull": true
@@ -1914,6 +1925,12 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
+        },
+        "profile_digest": {
+          "name": "profile_digest",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
         },
         "runtime_config_snapshot": {
           "name": "runtime_config_snapshot",
@@ -1969,25 +1986,25 @@
           "name": "runtime_spec",
           "type": "jsonb",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "spec_source": {
           "name": "spec_source",
           "type": "jsonb",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "spec_source_digest": {
           "name": "spec_source_digest",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "spec_digest": {
           "name": "spec_digest",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         }
       },
       "indexes": {},
@@ -2039,6 +2056,10 @@
       },
       "policies": {},
       "checkConstraints": {
+        "agent_releases_spec_check": {
+          "name": "agent_releases_spec_check",
+          "value": "(\"agent_releases\".\"runtime_spec\" IS NULL) = (\"agent_releases\".\"spec_source\" IS NULL) AND (\"agent_releases\".\"runtime_spec\" IS NULL) = (\"agent_releases\".\"spec_source_digest\" IS NULL) AND (\"agent_releases\".\"runtime_spec\" IS NULL) = (\"agent_releases\".\"spec_digest\" IS NULL)"
+        },
         "agent_releases_approval_check": {
           "name": "agent_releases_approval_check",
           "value": "(\"agent_releases\".\"approved_by\" IS NULL) = (\"agent_releases\".\"approved_at\" IS NULL)"
@@ -2520,6 +2541,13 @@
           "primaryKey": false,
           "notNull": true
         },
+        "profile_tracking": {
+          "name": "profile_tracking",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'follow'"
+        },
         "behavior_revision": {
           "name": "behavior_revision",
           "type": "integer",
@@ -2527,14 +2555,27 @@
           "notNull": true,
           "default": 0
         },
+        "model_source": {
+          "name": "model_source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'fixed'"
+        },
         "draft_version_id": {
           "name": "draft_version_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
         },
-        "draft_connection_id": {
-          "name": "draft_connection_id",
+        "draft_profile_id": {
+          "name": "draft_profile_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "draft_model_source": {
+          "name": "draft_model_source",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -2661,13 +2702,21 @@
       },
       "policies": {},
       "checkConstraints": {
+        "agents_profile_tracking_check": {
+          "name": "agents_profile_tracking_check",
+          "value": "\"agents\".\"profile_tracking\" IN ('follow', 'pinned')"
+        },
+        "agents_model_source_check": {
+          "name": "agents_model_source_check",
+          "value": "\"agents\".\"model_source\" IN ('fixed', 'profile')"
+        },
         "agents_behavior_revision_check": {
           "name": "agents_behavior_revision_check",
           "value": "\"agents\".\"behavior_revision\" >= 0"
         },
         "agents_draft_check": {
           "name": "agents_draft_check",
-          "value": "(\"agents\".\"draft_version_id\" IS NULL) = (\"agents\".\"draft_connection_id\" IS NULL) AND (\"agents\".\"draft_failure\" IS NULL OR \"agents\".\"draft_version_id\" IS NOT NULL)"
+          "value": "(\"agents\".\"draft_version_id\" IS NULL) = (\"agents\".\"draft_profile_id\" IS NULL) AND (\"agents\".\"draft_version_id\" IS NULL) = (\"agents\".\"draft_model_source\" IS NULL) AND (\"agents\".\"draft_model_source\" IS NULL OR \"agents\".\"draft_model_source\" IN ('fixed', 'profile')) AND (\"agents\".\"draft_failure\" IS NULL OR \"agents\".\"draft_version_id\" IS NOT NULL)"
         },
         "agents_status_check": {
           "name": "agents_status_check",
@@ -3169,6 +3218,18 @@
           "primaryKey": false,
           "notNull": false
         },
+        "profile_id": {
+          "name": "profile_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "profile_fingerprint": {
+          "name": "profile_fingerprint",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "model": {
           "name": "model",
           "type": "text",
@@ -3514,6 +3575,12 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "profiles": {
+          "name": "profiles",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
         },
         "auth_kind": {
           "name": "auth_kind",
@@ -4168,6 +4235,18 @@
           "primaryKey": false,
           "notNull": false
         },
+        "profile_id": {
+          "name": "profile_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "profile_fingerprint": {
+          "name": "profile_fingerprint",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "model": {
           "name": "model",
           "type": "text",
@@ -4556,6 +4635,51 @@
         "credential_bindings_ref_check": {
           "name": "credential_bindings_ref_check",
           "value": "\"credential_bindings\".\"credential_ref\" ~ '^[a-z0-9][a-z0-9._:/-]{0,127}$'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.engine_settings_gate": {
+      "name": "engine_settings_gate",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "default": 1
+        },
+        "writes_open": {
+          "name": "writes_open",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "changed_at": {
+          "name": "changed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "changed_by": {
+          "name": "changed_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "engine_settings_gate_single": {
+          "name": "engine_settings_gate_single",
+          "value": "\"engine_settings_gate\".\"id\" = 1"
         }
       },
       "isRLSEnabled": false
@@ -6401,6 +6525,322 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.installation_profiles": {
+      "name": "installation_profiles",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "origin": {
+          "name": "origin",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "definition": {
+          "name": "definition",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "permission_mode": {
+          "name": "permission_mode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "fingerprint": {
+          "name": "fingerprint",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "repository_ids": {
+          "name": "repository_ids",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "github_app_repositories": {
+          "name": "github_app_repositories",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'listed'"
+        },
+        "repository_scope": {
+          "name": "repository_scope",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'profile'"
+        },
+        "derived_from": {
+          "name": "derived_from",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "display_name": {
+          "name": "display_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "migrated_from": {
+          "name": "migrated_from",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "deny": {
+          "name": "deny",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tool_catalog_id": {
+          "name": "tool_catalog_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "previous_id": {
+          "name": "previous_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "retired_at": {
+          "name": "retired_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "retired_by": {
+          "name": "retired_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "blocked_at": {
+          "name": "blocked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "blocked_by": {
+          "name": "blocked_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "installation_profiles_console_version_key": {
+          "name": "installation_profiles_console_version_key",
+          "columns": [
+            {
+              "expression": "name",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "version",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"installation_profiles\".\"origin\" = 'console'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "installation_profiles_migrated_from_key": {
+          "name": "installation_profiles_migrated_from_key",
+          "columns": [
+            {
+              "expression": "migrated_from",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"installation_profiles\".\"migrated_from\" IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "installation_profiles_workspace_lineage_key": {
+          "name": "installation_profiles_workspace_lineage_key",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "display_name",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "version",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"installation_profiles\".\"workspace_id\" IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "installation_profiles_workspace_id_workspaces_id_fk": {
+          "name": "installation_profiles_workspace_id_workspaces_id_fk",
+          "tableFrom": "installation_profiles",
+          "tableTo": "workspaces",
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "installation_profiles_created_by_users_id_fk": {
+          "name": "installation_profiles_created_by_users_id_fk",
+          "tableFrom": "installation_profiles",
+          "tableTo": "users",
+          "columnsFrom": ["created_by"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "installation_profiles_retired_by_users_id_fk": {
+          "name": "installation_profiles_retired_by_users_id_fk",
+          "tableFrom": "installation_profiles",
+          "tableTo": "users",
+          "columnsFrom": ["retired_by"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "installation_profiles_blocked_by_users_id_fk": {
+          "name": "installation_profiles_blocked_by_users_id_fk",
+          "tableFrom": "installation_profiles",
+          "tableTo": "users",
+          "columnsFrom": ["blocked_by"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "installation_profiles_derived_from_fk": {
+          "name": "installation_profiles_derived_from_fk",
+          "tableFrom": "installation_profiles",
+          "tableTo": "installation_profiles",
+          "columnsFrom": ["derived_from"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "installation_profiles_id_check": {
+          "name": "installation_profiles_id_check",
+          "value": "\"installation_profiles\".\"id\" NOT LIKE 'ws\\_%'"
+        },
+        "installation_profiles_origin_check": {
+          "name": "installation_profiles_origin_check",
+          "value": "\"installation_profiles\".\"origin\" IN ('catalog', 'console')"
+        },
+        "installation_profiles_repository_scope_check": {
+          "name": "installation_profiles_repository_scope_check",
+          "value": "\"installation_profiles\".\"repository_scope\" IN ('profile','workspace')"
+        },
+        "installation_profiles_name_check": {
+          "name": "installation_profiles_name_check",
+          "value": "(\"installation_profiles\".\"origin\" = 'catalog') = (\"installation_profiles\".\"name\" IS NULL)"
+        },
+        "installation_profiles_version_check": {
+          "name": "installation_profiles_version_check",
+          "value": "\"installation_profiles\".\"version\" >= 1"
+        },
+        "installation_profiles_permission_mode_check": {
+          "name": "installation_profiles_permission_mode_check",
+          "value": "\"installation_profiles\".\"permission_mode\" IN ('default','acceptEdits','dontAsk','plan','bypassPermissions','auto')"
+        },
+        "installation_profiles_definition_mode_check": {
+          "name": "installation_profiles_definition_mode_check",
+          "value": "\"installation_profiles\".\"permission_mode\" = \"installation_profiles\".\"definition\"->>'permission_mode'"
+        },
+        "installation_profiles_retired_check": {
+          "name": "installation_profiles_retired_check",
+          "value": "(\"installation_profiles\".\"retired_at\" IS NULL) = (\"installation_profiles\".\"retired_by\" IS NULL)"
+        },
+        "installation_profiles_blocked_check": {
+          "name": "installation_profiles_blocked_check",
+          "value": "(\"installation_profiles\".\"blocked_at\" IS NULL) = (\"installation_profiles\".\"blocked_by\" IS NULL)"
+        },
+        "installation_profiles_repository_ids_check": {
+          "name": "installation_profiles_repository_ids_check",
+          "value": "\"installation_profiles\".\"repository_ids\" IS NOT NULL OR \"installation_profiles\".\"origin\" = 'catalog' OR \"installation_profiles\".\"repository_scope\" IS NULL"
+        },
+        "installation_profiles_github_app_repositories_check": {
+          "name": "installation_profiles_github_app_repositories_check",
+          "value": "\"installation_profiles\".\"github_app_repositories\" IN ('listed', 'installed')"
+        },
+        "installation_profiles_deny_check": {
+          "name": "installation_profiles_deny_check",
+          "value": "\"installation_profiles\".\"deny\" IS NULL OR (jsonb_typeof(\"installation_profiles\".\"deny\") = 'array' AND \"installation_profiles\".\"tool_catalog_id\" IS NOT NULL)"
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.invites": {
       "name": "invites",
       "schema": "",
@@ -8019,6 +8459,262 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.profile_fill": {
+      "name": "profile_fill",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "default": 1
+        },
+        "completed_at": {
+          "name": "completed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "profile_fill_single_check": {
+          "name": "profile_fill_single_check",
+          "value": "\"profile_fill\".\"id\" = 1"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.profile_rollout_items": {
+      "name": "profile_rollout_items",
+      "schema": "",
+      "columns": {
+        "rollout_id": {
+          "name": "rollout_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "agent_id": {
+          "name": "agent_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "generation": {
+          "name": "generation",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "reason_code": {
+          "name": "reason_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "attempts": {
+          "name": "attempts",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "locked_until": {
+          "name": "locked_until",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "locked_by": {
+          "name": "locked_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "profile_rollout_items_pending_idx": {
+          "name": "profile_rollout_items_pending_idx",
+          "columns": [
+            {
+              "expression": "locked_until",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"profile_rollout_items\".\"status\" = 'pending'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "profile_rollout_items_agent_idx": {
+          "name": "profile_rollout_items_agent_idx",
+          "columns": [
+            {
+              "expression": "agent_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "profile_rollout_items_rollout_id_profile_rollouts_id_fk": {
+          "name": "profile_rollout_items_rollout_id_profile_rollouts_id_fk",
+          "tableFrom": "profile_rollout_items",
+          "tableTo": "profile_rollouts",
+          "columnsFrom": ["rollout_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "profile_rollout_items_agent_id_agents_id_fk": {
+          "name": "profile_rollout_items_agent_id_agents_id_fk",
+          "tableFrom": "profile_rollout_items",
+          "tableTo": "agents",
+          "columnsFrom": ["agent_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "profile_rollout_items_pkey": {
+          "name": "profile_rollout_items_pkey",
+          "columns": ["rollout_id", "agent_id", "generation"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "profile_rollout_items_generation_check": {
+          "name": "profile_rollout_items_generation_check",
+          "value": "\"profile_rollout_items\".\"generation\" >= -1"
+        },
+        "profile_rollout_items_attempts_check": {
+          "name": "profile_rollout_items_attempts_check",
+          "value": "\"profile_rollout_items\".\"attempts\" >= 0"
+        },
+        "profile_rollout_items_status_check": {
+          "name": "profile_rollout_items_status_check",
+          "value": "\"profile_rollout_items\".\"status\" IN ('pending','applied','superseded','failed')"
+        },
+        "profile_rollout_items_failed_check": {
+          "name": "profile_rollout_items_failed_check",
+          "value": "\"profile_rollout_items\".\"status\" <> 'failed' OR \"profile_rollout_items\".\"reason_code\" IS NOT NULL"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.profile_rollouts": {
+      "name": "profile_rollouts",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "target_profile_id": {
+          "name": "target_profile_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "profile_rollouts_target_profile_id_installation_profiles_id_fk": {
+          "name": "profile_rollouts_target_profile_id_installation_profiles_id_fk",
+          "tableFrom": "profile_rollouts",
+          "tableTo": "installation_profiles",
+          "columnsFrom": ["target_profile_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "profile_rollouts_created_by_users_id_fk": {
+          "name": "profile_rollouts_created_by_users_id_fk",
+          "tableFrom": "profile_rollouts",
+          "tableTo": "users",
+          "columnsFrom": ["created_by"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "profile_rollouts_target_kind_key": {
+          "name": "profile_rollouts_target_kind_key",
+          "nullsNotDistinct": false,
+          "columns": ["target_profile_id", "kind"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "profile_rollouts_kind_check": {
+          "name": "profile_rollouts_kind_check",
+          "value": "\"profile_rollouts\".\"kind\" IN ('profile_update','tool_unlock')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.provider_connections": {
@@ -10268,6 +10964,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "profile_id": {
+          "name": "profile_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
         "role": {
           "name": "role",
           "type": "text",
@@ -10708,6 +11410,48 @@
         "session_outcomes_lease_check": {
           "name": "session_outcomes_lease_check",
           "value": "(\"session_outcomes\".\"lease_token\" IS NULL) = (\"session_outcomes\".\"lease_expires_at\" IS NULL)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.session_pin_cutover": {
+      "name": "session_pin_cutover",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "default": 1
+        },
+        "authoritative": {
+          "name": "authoritative",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "flipped_at": {
+          "name": "flipped_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "session_pin_cutover_single": {
+          "name": "session_pin_cutover_single",
+          "value": "\"session_pin_cutover\".\"id\" = 1"
+        },
+        "session_pin_cutover_flipped": {
+          "name": "session_pin_cutover_flipped",
+          "value": "\"session_pin_cutover\".\"authoritative\" = (\"session_pin_cutover\".\"flipped_at\" IS NOT NULL)"
         }
       },
       "isRLSEnabled": false
@@ -11320,6 +12064,18 @@
           "primaryKey": false,
           "notNull": false
         },
+        "profile_id": {
+          "name": "profile_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "profile_fingerprint": {
+          "name": "profile_fingerprint",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "model": {
           "name": "model",
           "type": "text",
@@ -11642,6 +12398,13 @@
           "notNull": true,
           "default": "'release'"
         },
+        "runtime_tools_source": {
+          "name": "runtime_tools_source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'profile'"
+        },
         "usage_basis": {
           "name": "usage_basis",
           "type": "text",
@@ -11662,6 +12425,18 @@
         },
         "requester_id": {
           "name": "requester_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "caller_limit": {
+          "name": "caller_limit",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "caller_limit_digest": {
+          "name": "caller_limit_digest",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -11881,6 +12656,10 @@
         "sessions_github_policy_source_check": {
           "name": "sessions_github_policy_source_check",
           "value": "\"sessions\".\"github_policy_source\" IN ('release','agent')"
+        },
+        "sessions_runtime_tools_source_check": {
+          "name": "sessions_runtime_tools_source_check",
+          "value": "\"sessions\".\"runtime_tools_source\" IN ('profile','release')"
         },
         "sessions_pause_reason_check": {
           "name": "sessions_pause_reason_check",
@@ -14564,6 +15343,18 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
+        },
+        "caller_channel": {
+          "name": "caller_channel",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "caller_limit_digest": {
+          "name": "caller_limit_digest",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -15394,6 +16185,197 @@
         "workspace_engine_settings_revision_check": {
           "name": "workspace_engine_settings_revision_check",
           "value": "\"workspace_engine_settings\".\"revision\" >= 1"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.workspace_profiles": {
+      "name": "workspace_profiles",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "base_profile_id": {
+          "name": "base_profile_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "base_fingerprint": {
+          "name": "base_fingerprint",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "base_runtime_version": {
+          "name": "base_runtime_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "base_billing": {
+          "name": "base_billing",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "base_repository_mode": {
+          "name": "base_repository_mode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "model": {
+          "name": "model",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "models": {
+          "name": "models",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tools": {
+          "name": "tools",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "deny": {
+          "name": "deny",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tool_catalog_id": {
+          "name": "tool_catalog_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "permission_mode": {
+          "name": "permission_mode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "retired_at": {
+          "name": "retired_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "retired_by": {
+          "name": "retired_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "workspace_profiles_workspace_id_workspaces_id_fk": {
+          "name": "workspace_profiles_workspace_id_workspaces_id_fk",
+          "tableFrom": "workspace_profiles",
+          "tableTo": "workspaces",
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "workspace_profiles_created_by_users_id_fk": {
+          "name": "workspace_profiles_created_by_users_id_fk",
+          "tableFrom": "workspace_profiles",
+          "tableTo": "users",
+          "columnsFrom": ["created_by"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "workspace_profiles_retired_by_users_id_fk": {
+          "name": "workspace_profiles_retired_by_users_id_fk",
+          "tableFrom": "workspace_profiles",
+          "tableTo": "users",
+          "columnsFrom": ["retired_by"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "workspace_profiles_version_key": {
+          "name": "workspace_profiles_version_key",
+          "nullsNotDistinct": false,
+          "columns": ["workspace_id", "name", "version"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "workspace_profiles_id_check": {
+          "name": "workspace_profiles_id_check",
+          "value": "\"workspace_profiles\".\"id\" LIKE 'ws\\_%'"
+        },
+        "workspace_profiles_version_check": {
+          "name": "workspace_profiles_version_check",
+          "value": "\"workspace_profiles\".\"version\" >= 1"
+        },
+        "workspace_profiles_permission_mode_check": {
+          "name": "workspace_profiles_permission_mode_check",
+          "value": "\"workspace_profiles\".\"permission_mode\" IN ('default','acceptEdits','dontAsk','plan','bypassPermissions','auto')"
+        },
+        "workspace_profiles_base_billing_check": {
+          "name": "workspace_profiles_base_billing_check",
+          "value": "\"workspace_profiles\".\"base_billing\" IN ('metered', 'none')"
+        },
+        "workspace_profiles_base_repository_mode_check": {
+          "name": "workspace_profiles_base_repository_mode_check",
+          "value": "\"workspace_profiles\".\"base_repository_mode\" IN ('required', 'optional', 'none')"
+        },
+        "workspace_profiles_retired_check": {
+          "name": "workspace_profiles_retired_check",
+          "value": "(\"workspace_profiles\".\"retired_at\" IS NULL) = (\"workspace_profiles\".\"retired_by\" IS NULL)"
+        },
+        "workspace_profiles_deny_check": {
+          "name": "workspace_profiles_deny_check",
+          "value": "\"workspace_profiles\".\"deny\" IS NULL OR (jsonb_typeof(\"workspace_profiles\".\"deny\") = 'array' AND \"workspace_profiles\".\"tool_catalog_id\" IS NOT NULL)"
         }
       },
       "isRLSEnabled": false

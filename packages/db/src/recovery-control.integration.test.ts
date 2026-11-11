@@ -17,13 +17,13 @@ import {
 import { and, asc, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { forgetLostCheckpoints } from "./checkpoint-store.ts";
+import { forgetLostCheckpoints } from "./checkpoints/checkpoint-store.ts";
 import { createPostgresSessionControl } from "./control-unit-of-work.ts";
 import {
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,
 } from "./postgres-unit-of-work.ts";
-import { createPostgresSchedulerStore } from "./scheduler-store.ts";
+import { createPostgresSchedulerStore } from "./scheduler/scheduler-store.ts";
 import * as schema from "./schema.ts";
 import {
   checkpoints,

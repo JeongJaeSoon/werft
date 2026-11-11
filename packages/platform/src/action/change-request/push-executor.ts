@@ -8,25 +8,25 @@ import {
   type PushReasonCode,
   type PushRefusal,
 } from "@werft-ai/contracts";
-import type { PushBundlesResult } from "../../checkpoints/checkpoint-service.ts";
+import type { PushBundlesResult } from "../../checkpoints/index.ts";
 import {
   type GitHubGate,
   GitHubGateError,
   GitHubUnavailableError,
 } from "../../github/ports/github-gate.ts";
-import type { CommitAttributionLedger } from "../../ports/commit-attributions.ts";
-import type {
-  PushJob,
-  PushOutcome,
-  PushRequestStore,
-} from "../../ports/push-requests.ts";
 import {
   repositoryBinding,
   repositoryUpstreamOf,
   type SessionCatalog,
 } from "../../sessions/index.ts";
 import type { GrantWith, RepositoryReadable } from "../ports/capabilities.ts";
+import type { CommitAttributionLedger } from "../ports/commit-attributions.ts";
 import type { Pushable } from "../ports/git-push.ts";
+import type {
+  PushJob,
+  PushOutcome,
+  PushRequestStore,
+} from "../ports/push-requests.ts";
 
 /**
  * How long a claim holds its row. The push's git is cut off at

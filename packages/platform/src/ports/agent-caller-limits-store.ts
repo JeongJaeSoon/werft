@@ -1,9 +1,13 @@
 import type {
   AgentCallerLimitRule,
   AgentCallerLimits,
+  AuthorizationSubject,
   WorkspaceRole,
 } from "@werft-ai/contracts";
+import type { CallerLimitDimension } from "../musterrolle/caller-limit.ts";
 import type { TeamActor } from "./team-store.ts";
+
+export type { CallerLimitDimension };
 
 /**
  * A stored rule as the enforcement layer reads it (94S-918): every target
@@ -44,6 +48,20 @@ export type PutAgentCallerLimitsResult =
         | "team_not_found"
         | "team_not_allowed";
     };
+
+export interface CallerLimitGate {
+  startRefusal(input: {
+    workspaceId: string;
+    agentId: string;
+    releaseId: string;
+    userId: string | null;
+    channelId: string | null;
+    subject: AuthorizationSubject;
+    requestId: string;
+    githubPolicySource: string;
+    repositoryIds: readonly string[];
+  }): Promise<CallerLimitDimension | null>;
+}
 
 export interface AgentCallerLimitsStore {
   get(workspaceId: string, agentId: string): Promise<AgentCallerLimits | null>;

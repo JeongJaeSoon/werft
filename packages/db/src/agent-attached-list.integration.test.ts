@@ -23,9 +23,9 @@ import {
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { createPostgresPushIntents } from "./action/push-intents.ts";
 import { createPostgresGitHubGateStore } from "./github-settings.ts";
 import { createPostgresGitHubMcpStore } from "./mcp-egress.ts";
-import { createPostgresPushIntents } from "./push-intents.ts";
 import { createPostgresPushRequests } from "./push-requests.ts";
 import { createPostgresRepositoryAttachments } from "./repository-attachments.ts";
 import * as schema from "./schema.ts";

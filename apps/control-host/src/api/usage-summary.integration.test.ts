@@ -61,7 +61,7 @@ import {
 } from "./auth.ts";
 import { DatabaseApiKeyStore } from "./keys.ts";
 import { registerPublicAuthRoutes } from "./routes/auth.ts";
-import { registerUsageRoutes } from "./routes/usage.ts";
+import { registerUsageRoutes } from "./routes/usage/usage.ts";
 
 // A legacy key's owner: a uuid now, since its sessions run a release of a
 // workspace by that id.

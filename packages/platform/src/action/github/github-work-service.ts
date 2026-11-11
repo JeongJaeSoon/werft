@@ -26,7 +26,7 @@ import {
   type PushActor,
   pushReceiptActor,
   requireVerified,
-} from "../change-request/push-request-service.ts";
+} from "../change-request/push-decision.ts";
 import type {
   GrantWith,
   PullRequestReadable,

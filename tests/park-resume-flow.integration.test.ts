@@ -46,12 +46,12 @@ import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createApiApp } from "../apps/control-host/src/api/app.ts";
-import { registerEventRoutes } from "../apps/control-host/src/api/routes/events.ts";
-import { registerInterruptRoutes } from "../apps/control-host/src/api/routes/interrupt.ts";
-import { registerPendingRoutes } from "../apps/control-host/src/api/routes/pending.ts";
-import { registerReceiptRoutes } from "../apps/control-host/src/api/routes/receipts.ts";
+import { registerEventRoutes } from "../apps/control-host/src/api/routes/sessions/events.ts";
+import { registerInterruptRoutes } from "../apps/control-host/src/api/routes/sessions/interrupt.ts";
+import { registerPendingRoutes } from "../apps/control-host/src/api/routes/sessions/pending.ts";
+import { registerReceiptRoutes } from "../apps/control-host/src/api/routes/sessions/receipts.ts";
 import { registerSessionRoutes } from "../apps/control-host/src/api/routes/sessions.ts";
-import { registerWorkerRoutes } from "../apps/control-host/src/api/routes/worker.ts";
+import { registerWorkerRoutes } from "../apps/control-host/src/api/routes/workers/worker.ts";
 import { PostgresSessionNotifier } from "../apps/control-host/src/api/session-notifier.ts";
 import { testCatalog } from "../apps/control-host/src/testing/catalog.ts";
 import {

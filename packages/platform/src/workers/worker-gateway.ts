@@ -57,7 +57,12 @@ import {
   sanitizeToolDecision,
 } from "@werft-ai/contracts";
 import type { RuntimeFingerprint } from "@werft-ai/runtime-core";
+import type { CommitAttributionLedger } from "../action/ports/commit-attributions.ts";
 import { repoRefOf } from "../action/ports/forge.ts";
+import type {
+  SessionAttributionRecord,
+  SessionAttributionStore,
+} from "../action/ports/session-attribution.ts";
 import {
   type CheckpointRequestDecision,
   type RestoreFallback,
@@ -67,6 +72,11 @@ import {
 } from "../checkpoints/checkpoint-service.ts";
 import { own } from "../checkpoints/checkpoint-support.ts";
 import { checkpointPendingReason } from "../checkpoints/durability.ts";
+import type { CheckpointPointer } from "../checkpoints/ports/checkpoint-store.ts";
+import type {
+  CheckpointOutputObject,
+  CheckpointVerifier,
+} from "../checkpoints/ports/checkpoint-verifier.ts";
 import { BundleIntegrityError } from "../extensions/bundle-service.ts";
 import type { GitHubConnectionResolver } from "../github/index.ts";
 import {
@@ -88,23 +98,8 @@ import {
   priceJudgmentUsage,
   priceProviderUsage,
 } from "../limits/model-prices.ts";
-import type { CheckpointPointer } from "../ports/checkpoint-store.ts";
-import type {
-  CheckpointOutputObject,
-  CheckpointVerifier,
-} from "../ports/checkpoint-verifier.ts";
-import type { CommitAttributionLedger } from "../ports/commit-attributions.ts";
 import type { GitHubMcpStore } from "../ports/github-mcp.ts";
-import type {
-  ApprovalCheckpointCommit,
-  WorkerPendingStore,
-} from "../ports/pending-requests.ts";
 import type { RepositoryAttachmentStore } from "../ports/repository-attachments.ts";
-import type {
-  SessionAttributionRecord,
-  SessionAttributionStore,
-} from "../ports/session-attribution.ts";
-import type { SessionTitleStore } from "../ports/session-title-store.ts";
 import type {
   ClaimInput as ClaimInputOf,
   EgressBindings,
@@ -141,6 +136,7 @@ import {
   type SessionGitHubMcp,
   type SessionMcp,
   trustedGitHubTools,
+  withoutDeniedTools,
 } from "../sessions/catalog.ts";
 import {
   type NeutralizeEvent,
@@ -151,6 +147,11 @@ import {
   claimGitOf,
   coAuthorOfLink,
 } from "../sessions/git-attribution.ts";
+import type {
+  ApprovalCheckpointCommit,
+  WorkerPendingStore,
+} from "../sessions/ports/pending-requests.ts";
+import type { SessionTitleStore } from "../sessions/ports/session-title-store.ts";
 import {
   hashTitleToken,
   type SessionTitler,
@@ -670,7 +671,10 @@ export function createWorkerGateway(deps: {
   // The session's config as its spec says, with the platform prompt its row
   // holds, which a checkpoint's fingerprint holds whichever config made it.
   function specConfigOf(
-    binding: Pick<WorkerBinding, "spec" | "platformPrompt" | "repository">,
+    binding: Pick<
+      WorkerBinding,
+      "spec" | "platformPrompt" | "repository" | "callerToolsDeny"
+    >,
     providerToken: string,
   ): RuntimeConfig {
     const config = runtimeConfigOfSpec(
@@ -678,8 +682,10 @@ export function createWorkerGateway(deps: {
       providerToken,
       binding.repository !== null,
     );
+    const tools = withoutDeniedTools(config.tools, binding.callerToolsDeny);
+    const limited = tools === config.tools ? config : { ...config, tools };
     const prompt = binding.platformPrompt;
-    return prompt ? { ...config, platform_prompt: prompt } : config;
+    return prompt ? { ...limited, platform_prompt: prompt } : limited;
   }
 
   // Only a primary repository on a console App: the App it is pinned to
@@ -1066,7 +1072,14 @@ export function createWorkerGateway(deps: {
   // checkpoint made under any of them, and runs the engine on
   // runtime_config.
   function restoreRuntimesOf(
-    binding: Pick<WorkerBinding, "legacyRuntimeConfigs">,
+    binding: Pick<
+      WorkerBinding,
+      | "legacyRuntimeConfigs"
+      | "spec"
+      | "platformPrompt"
+      | "repository"
+      | "callerToolsDeny"
+    >,
     current: RuntimeConfig,
     providerToken: string,
     mcp: readonly ClaimedMcpServer[],
@@ -1083,9 +1096,22 @@ export function createWorkerGateway(deps: {
       ...(running ? [] : [withMcp(config, mcp, mcpToken)]),
       ...(attached ? [withMcp(config, legacy, mcpToken)] : []),
     ];
+    // First, ahead of the cap: what the session ran before its limit removed
+    // a tool is the config its own checkpoints carry.
+    const unlimited = specConfigOf(
+      { ...binding, callerToolsDeny: [] },
+      providerToken,
+    );
+    const beforeLimit =
+      unlimited.tools.length === current.tools.length
+        ? []
+        : offerings(unlimited, false);
     const offered = appendNew(
-      offerings(current, true),
-      kept.flatMap((config) => offerings(config, false)),
+      beforeLimit,
+      appendNew(
+        offerings(current, true),
+        kept.flatMap((config) => offerings(config, false)),
+      ),
     ).slice(0, MAX_RESTORE_CONFIGS);
     return offered.length === 0 ? {} : { restore_runtime_configs: offered };
   }

@@ -4,11 +4,11 @@ import {
   githubNoreplyEmail,
   type SessionGitHubAttribution,
 } from "@werft-ai/contracts";
-import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
 import type {
   SessionAttributionRecord,
   SessionAttributionStore,
-} from "../ports/session-attribution.ts";
+} from "../action/ports/session-attribution.ts";
+import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
 import { requirePermitted, SessionServiceError } from "./session-service.ts";
 
 /** The session's page in the console; null when the console has no origin. */

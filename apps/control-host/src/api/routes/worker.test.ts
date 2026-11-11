@@ -36,7 +36,7 @@ import { testCatalog } from "../../testing/catalog.ts";
 import { releaseIn, TEST_OWNER } from "../../testing/releases.ts";
 import { createApiApp } from "../app.ts";
 import { RequestTracing } from "../request-tracing.ts";
-import { registerWorkerRoutes } from "./worker.ts";
+import { registerWorkerRoutes } from "./workers/worker.ts";
 
 // Every call in a test that expects success has to land inside one lease on
 // a loaded runner; only the expiry test waits it out.

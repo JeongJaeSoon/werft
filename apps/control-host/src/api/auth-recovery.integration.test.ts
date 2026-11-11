@@ -44,7 +44,7 @@ import {
   LoginLockout,
 } from "./auth.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
-import { registerReceiptRoutes } from "./routes/receipts.ts";
+import { registerReceiptRoutes } from "./routes/sessions/receipts.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 

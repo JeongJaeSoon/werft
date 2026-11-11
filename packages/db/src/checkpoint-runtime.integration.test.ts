@@ -21,7 +21,7 @@ import { Pool } from "pg";
 import {
   listUncollectedSessionPointers,
   readPointerRuntime,
-} from "./checkpoint-runtime.ts";
+} from "./checkpoints/checkpoint-runtime.ts";
 import { migrate } from "./migrate.ts";
 import * as schema from "./schema.ts";
 import {

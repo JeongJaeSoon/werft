@@ -14,7 +14,7 @@ import {
 } from "@werft-ai/platform";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import type { SessionEventWakeup } from "../session-notifier.ts";
-import { registerEventRoutes } from "./events.ts";
+import { registerEventRoutes } from "./sessions/events.ts";
 
 const createApiApp = recordRouteErrors("routes/events.test.ts");
 

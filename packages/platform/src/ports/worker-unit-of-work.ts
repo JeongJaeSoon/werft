@@ -16,10 +16,10 @@ import type {
   WorkspaceRepository,
 } from "@werft-ai/contracts";
 import type { ImageRuntime, RuntimeFingerprint } from "@werft-ai/runtime-core";
+import type { CheckpointPointer } from "../checkpoints/ports/checkpoint-store.ts";
+import type { CheckpointOutputObject } from "../checkpoints/ports/checkpoint-verifier.ts";
 import type { PricedBy, ProviderUsage } from "../limits/model-prices.ts";
 import type { SessionGitHubMcp, SessionMcp } from "../sessions/catalog.ts";
-import type { CheckpointPointer } from "./checkpoint-store.ts";
-import type { CheckpointOutputObject } from "./checkpoint-verifier.ts";
 
 // The identity every post-claim write is fenced on. The storage adapter puts
 // these values in the WHERE clause of each write; a row that no longer
@@ -70,6 +70,9 @@ export type WorkerBinding = {
   providerTokens: number;
   mcp?: SessionMcp | null;
   githubMcp?: SessionGitHubMcp | null;
+  // The built-in (non-`mcp__`) tools the session's pinned caller limit denies
+  // (`sessions.caller_limit.tools_deny`). Absent or empty: nothing is removed.
+  callerToolsDeny?: readonly string[];
   // The answer language the release pins (`runtime_config_snapshot.language`),
   // only ko, en or ja. Null, or absent, for `follow-user`, a release made
   // before the field, and a session without a release.

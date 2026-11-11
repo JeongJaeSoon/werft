@@ -21,14 +21,14 @@ import {
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createDatabaseAgentAuthority } from "./agent-authority.ts";
+import { createPostgresAgentStore } from "./agents.ts";
 import {
   callerLimitsOf,
   createPostgresAgentCallerLimitsStore,
-} from "./agent-caller-limits.ts";
-import { createPostgresAgentStore } from "./agents.ts";
-import { createPostgresCredentialBindingStore } from "./credential-bindings.ts";
-import { createDatabaseIdentityReader } from "./identity-reader.ts";
-import { createPostgresTeamStore } from "./member-teams.ts";
+} from "./musterrolle/agent-caller-limits.ts";
+import { createPostgresCredentialBindingStore } from "./musterrolle/credential-bindings.ts";
+import { createDatabaseIdentityReader } from "./musterrolle/identity-reader.ts";
+import { createPostgresTeamStore } from "./musterrolle/member-teams.ts";
 import * as schema from "./schema.ts";
 import { TEST_RUNTIMES, testSessionCatalog } from "./testing/spec-pins.ts";
 

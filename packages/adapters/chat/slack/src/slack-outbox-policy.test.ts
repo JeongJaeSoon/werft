@@ -4,20 +4,19 @@ import type {
   SlackOutboxSettle,
   SlackOutboxStore,
 } from "@werft-ai/platform";
-import { createRowDelivery } from "./outbox-delivery.ts";
+import { createRowDelivery, slackOutboxSettleFor } from "./outbox-delivery.ts";
 import {
   createSlackBotApi,
   type SlackBotSender,
   type SlackSendResponse,
 } from "./slack-config-api.ts";
+import { drainSlackOutbox } from "./slack-outbox.ts";
 import {
-  drainSlackOutbox,
   SLACK_TEXT_MAX,
   slackInstructionFallbackText,
   slackOutboxPresentation,
-  slackOutboxSettleFor,
   slackOutboxText,
-} from "./slack-outbox.ts";
+} from "./slack-outbox-render.ts";
 
 const TABLE_REPLY = [
   "저장소는 2개입니다.",

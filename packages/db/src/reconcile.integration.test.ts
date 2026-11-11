@@ -23,7 +23,6 @@ import {
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { reconcileExpiredLeases } from "./lease-reconcile.ts";
 import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
 import { type Database, reconcileOrphanedSessions } from "./queries.ts";
 import * as schema from "./schema.ts";
@@ -38,6 +37,7 @@ import {
   workerLaunches,
   workers,
 } from "./schema.ts";
+import { reconcileExpiredLeases } from "./sessions/lease-reconcile.ts";
 import { confirmExecutionGone, launchSession } from "./testing/launches.ts";
 import {
   makeFixtureRelease,

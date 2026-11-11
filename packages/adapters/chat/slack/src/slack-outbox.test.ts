@@ -7,16 +7,18 @@ import type {
   SlackOpenPushCard,
   SlackOutboxEntry,
 } from "@werft-ai/platform";
+import { settleSlackCards } from "./slack-card-settle.ts";
 import {
   createOutboxSlackNoticeSink,
   finalReplyText,
-  SLACK_OUTBOX_MESSAGES,
-  SLACK_TEXT_MAX,
-  settleSlackCards,
-  slackOutboxText,
   slackPromptDedupeKey,
   slackTurnDedupeKey,
-} from "./slack-outbox.ts";
+} from "./slack-outbox-enqueue.ts";
+import {
+  SLACK_OUTBOX_MESSAGES,
+  SLACK_TEXT_MAX,
+  slackOutboxText,
+} from "./slack-outbox-render.ts";
 
 describe("settleSlackCards", () => {
   test("a claim reached after the deadline goes back unsent, keeping its error", async () => {

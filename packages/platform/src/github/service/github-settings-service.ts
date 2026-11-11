@@ -13,7 +13,8 @@ import {
   type PutGitHubUserLinkAppRequest,
   type PutGitHubUserLinkAppResponse,
 } from "@werft-ai/contracts";
-import { prepareTemplateText } from "../../action/change-request/pull-request-template.ts";
+import { prepareTemplateText } from "../../action/index.ts";
+import type { PullRequestSettingsStore } from "../../action/ports/pull-request-settings.ts";
 import {
   ACTOR_INACTIVE,
   type AuthorizationPolicy,
@@ -23,7 +24,6 @@ import {
   OUTRANKED,
   receiptActorOf,
 } from "../../musterrolle/index.ts";
-import type { PullRequestSettingsStore } from "../../ports/pull-request-settings.ts";
 import { requirePermitted, SessionServiceError } from "../../sessions/index.ts";
 import {
   type GitHubAppCredential,

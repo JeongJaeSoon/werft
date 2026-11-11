@@ -4,11 +4,11 @@ import type {
   PushRequestOrigin,
   UserLocale,
 } from "@werft-ai/contracts";
+import type { PushRequestDisplay } from "../action/ports/push-requests.ts";
 import type {
   PendingRequestDisplay,
   ToolSummaryContext,
-} from "./pending-requests.ts";
-import type { PushRequestDisplay } from "./push-requests.ts";
+} from "../sessions/ports/pending-requests.ts";
 
 /**
  * `reply`: a turn's answer in its thread. `failure_notice`: a turn the model

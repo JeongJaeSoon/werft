@@ -18,14 +18,8 @@ import {
   createPostgresSessionControl,
   expireOverdueTerminations,
 } from "./control-unit-of-work.ts";
-import {
-  EXECUTION_RESTORED,
-  EXECUTION_REVOKED,
-  restoreExecutionAtomic,
-  revokeExecutionAtomic,
-} from "./execution-revocation.ts";
 import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
-import { createPostgresSchedulerStore } from "./scheduler-store.ts";
+import { createPostgresSchedulerStore } from "./scheduler/scheduler-store.ts";
 import * as schema from "./schema.ts";
 import {
   events,
@@ -36,6 +30,12 @@ import {
   unassignedSessions,
   workerCredentials,
 } from "./schema.ts";
+import {
+  EXECUTION_RESTORED,
+  EXECUTION_REVOKED,
+  restoreExecutionAtomic,
+  revokeExecutionAtomic,
+} from "./sessions/execution-revocation.ts";
 import { confirmExecutionGone, launchSession } from "./testing/launches.ts";
 import {
   fixtureRelease,

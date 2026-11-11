@@ -14,12 +14,6 @@ import {
 import { releaseNotRunnableReason } from "../agents/agent-service.ts";
 import { callerFor, createAuthorizationPolicy } from "../musterrolle/policy.ts";
 import type { AgentContact } from "../ports/credential-binding-store.ts";
-import type {
-  AcceptSessionInput,
-  AcceptSessionResult,
-  SessionDetailRecord,
-  SessionRecord,
-} from "../ports/session-unit-of-work.ts";
 import {
   testCatalog,
   testConnection,
@@ -31,6 +25,12 @@ import {
   memoryAttachmentStore,
 } from "../testing/repository-attachment-fakes.ts";
 import type { SessionCatalogView } from "./catalog.ts";
+import type {
+  AcceptSessionInput,
+  AcceptSessionResult,
+  SessionDetailRecord,
+  SessionRecord,
+} from "./ports/session-unit-of-work.ts";
 import { createRepositoryAttachmentService } from "./repository-attachment-service.ts";
 import {
   createSessionService,

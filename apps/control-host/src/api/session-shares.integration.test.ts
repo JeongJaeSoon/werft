@@ -68,15 +68,15 @@ import {
 } from "./auth.ts";
 import { DatabaseApiKeyStore } from "./keys.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
-import { registerEventRoutes } from "./routes/events.ts";
-import { registerInterruptRoutes } from "./routes/interrupt.ts";
-import { registerMemberRoutes } from "./routes/members.ts";
-import { registerPauseRoutes } from "./routes/pause.ts";
-import { registerPendingRoutes } from "./routes/pending.ts";
-import { registerReceiptRoutes } from "./routes/receipts.ts";
-import { registerSessionShareRoutes } from "./routes/session-shares.ts";
+import { registerMemberRoutes } from "./routes/musterrolle/members.ts";
+import { registerSessionShareRoutes } from "./routes/musterrolle/session-shares.ts";
+import { registerEventRoutes } from "./routes/sessions/events.ts";
+import { registerInterruptRoutes } from "./routes/sessions/interrupt.ts";
+import { registerPauseRoutes } from "./routes/sessions/pause.ts";
+import { registerPendingRoutes } from "./routes/sessions/pending.ts";
+import { registerReceiptRoutes } from "./routes/sessions/receipts.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
-import { registerUsageRoutes } from "./routes/usage.ts";
+import { registerUsageRoutes } from "./routes/usage/usage.ts";
 import { PostgresSessionNotifier } from "./session-notifier.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;

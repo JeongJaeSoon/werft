@@ -59,12 +59,12 @@ import {
   LoginLockout,
 } from "./auth.ts";
 import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
-import { registerAgentGitHubRoutes } from "./routes/agent-github.ts";
-import { registerAgentPullRequestRoutes } from "./routes/agent-pull-request.ts";
+import { registerAgentPullRequestRoutes } from "./routes/action/agent-pull-request.ts";
 import { registerAgentRoutes } from "./routes/agents.ts";
-import { registerApiKeyRoutes } from "./routes/api-keys.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
-import { registerGitHubSettingsRoutes } from "./routes/github-settings.ts";
+import { registerAgentGitHubRoutes } from "./routes/github/agent-github.ts";
+import { registerGitHubSettingsRoutes } from "./routes/github/github-settings.ts";
+import { registerApiKeyRoutes } from "./routes/musterrolle/api-keys.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 

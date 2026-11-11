@@ -15,6 +15,7 @@ import {
   createPostgresAgentStore,
   createPostgresAgentUsageStore,
   createPostgresAuditRetention,
+  createPostgresCallerLimitGate,
   createPostgresCatalogRepositoryStore,
   createPostgresCommitAttributionLedger,
   createPostgresCredentialBindingStore,
@@ -145,37 +146,23 @@ import {
   withConsoleRepositories,
 } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
+import { forgettingChannelsOnBindingPut } from "../wiring/chat-slack.ts";
 import {
-  agentSlackBotToken,
-  composeSlackFinalize,
-  createSlackAppService,
-  createSlackBotApi,
-  createSlackChannelJoiner,
-  createSlackChannelKinds,
-  createSlackChannelSearchService,
-  createSlackConfigApi,
-  createSlackConfigTokens,
-  createSlackEventsFinalize,
-  createSlackEventsService,
-  createSlackInstallService,
-  createSlackInteractionService,
-  createSlackLinkAppService,
-  createSlackSecretService,
-  createSlackSigningSecrets,
-  createSlackTokenRevoked,
-  createSlackWelcome,
-  forgettingChannelsOnBindingPut,
-  slackBotToken,
-  slackPublicUrlsOf,
-} from "../wiring/chat-slack.ts";
+  wireAppBotUsers,
+  wireGitHubAppDirectory,
+  wireGitHubConnections,
+  wireGitHubManifestConverter,
+  wireGitHubRegistry,
+  wireGitPusher,
+} from "../wiring/github-api.ts";
 import {
-  connectionsOf,
-  createAppBotUsers,
-  createGitHubAppDirectory,
-  createGitHubManifestConverter,
-  createGitPusher,
-  createRegisteredGitHubConnections,
-} from "../wiring/forge-github.ts";
+  type SlackServicesStageDeps,
+  wireSlackBot,
+  wireSlackChannels,
+  wireSlackConfig,
+  wireSlackInteractions,
+  wireSlackServices,
+} from "../wiring/slack-api.ts";
 import {
   API_READINESS_REQUIRED_ENV,
   ApiSettingsError,
@@ -228,63 +215,63 @@ import { createApiPool, createProbePool } from "./pool.ts";
 import { createSlackEventsLimiter } from "./rate-limit.ts";
 import { createReadinessProbe } from "./readiness.ts";
 import { RequestTracing } from "./request-tracing.ts";
-import {
-  registerAchievementRoutes,
-  registerSessionAchievementRoutes,
-} from "./routes/achievements.ts";
-import { registerAgentCallerLimitsRoutes } from "./routes/agent-caller-limits.ts";
-import { registerAgentGitHubRoutes } from "./routes/agent-github.ts";
-import { registerAgentIdentityRoutes } from "./routes/agent-identities.ts";
-import { registerAgentMcpRoutes } from "./routes/agent-mcp.ts";
-import { registerAgentPullRequestRoutes } from "./routes/agent-pull-request.ts";
-import { registerAgentUsageRoutes } from "./routes/agent-usage.ts";
+import { registerAgentPullRequestRoutes } from "./routes/action/agent-pull-request.ts";
+import { registerPullRequestRoutes } from "./routes/action/pull-requests.ts";
+import { registerPushRequestRoutes } from "./routes/action/push-requests.ts";
+import { registerAgentMcpRoutes } from "./routes/agents/agent-mcp.ts";
+import { registerEngineSettingsRoutes } from "./routes/agents/engine-settings.ts";
 import { registerAgentRoutes } from "./routes/agents.ts";
-import { registerApiKeyRoutes } from "./routes/api-keys.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
-import { registerCloseRoutes } from "./routes/close.ts";
-import { registerCredentialBindingRoutes } from "./routes/credential-bindings.ts";
-import { registerEngineSettingsRoutes } from "./routes/engine-settings.ts";
-import { registerEnvVariableRoutes } from "./routes/env-variables.ts";
-import { registerEventRoutes } from "./routes/events.ts";
-import { registerGitHubAppRoutes } from "./routes/github-app.ts";
-import { registerGitHubPackagesRoutes } from "./routes/github-packages.ts";
-import { registerGitHubRepositoryRoutes } from "./routes/github-repositories.ts";
-import { registerGitHubSettingsRoutes } from "./routes/github-settings.ts";
+import { registerAgentGitHubRoutes } from "./routes/github/agent-github.ts";
+import { registerGitHubAppRoutes } from "./routes/github/github-app.ts";
+import { registerGitHubPackagesRoutes } from "./routes/github/github-packages.ts";
+import { registerGitHubRepositoryRoutes } from "./routes/github/github-repositories.ts";
+import { registerGitHubSettingsRoutes } from "./routes/github/github-settings.ts";
 import {
   registerGitHubWorkRoutes,
   registerSessionAttributionRoutes,
   registerSessionOutcomeRoutes,
-} from "./routes/github-work.ts";
+} from "./routes/github/github-work.ts";
 import {
   registerInstallationSettingsRoutes,
   registerSettingsConsoleRoutes,
 } from "./routes/installation-settings.ts";
-import { registerInterruptRoutes } from "./routes/interrupt.ts";
+import { registerAgentCallerLimitsRoutes } from "./routes/musterrolle/agent-caller-limits.ts";
+import { registerAgentIdentityRoutes } from "./routes/musterrolle/agent-identities.ts";
+import { registerAgentUsageRoutes } from "./routes/musterrolle/agent-usage.ts";
+import { registerApiKeyRoutes } from "./routes/musterrolle/api-keys.ts";
+import { registerCredentialBindingRoutes } from "./routes/musterrolle/credential-bindings.ts";
+import { registerEnvVariableRoutes } from "./routes/musterrolle/env-variables.ts";
 import {
   registerInviteRoutes,
   registerPublicInviteRoutes,
-} from "./routes/invites.ts";
-import { registerLinkedAccountRoutes } from "./routes/linked-accounts.ts";
-import { registerMemberRoutes } from "./routes/members.ts";
-import { registerSessionOutputRoutes } from "./routes/outputs.ts";
-import { registerPauseRoutes } from "./routes/pause.ts";
-import { registerPendingRoutes } from "./routes/pending.ts";
-import { registerPullRequestRoutes } from "./routes/pull-requests.ts";
-import { registerPushRequestRoutes } from "./routes/push-requests.ts";
-import { registerReceiptRoutes } from "./routes/receipts.ts";
-import { registerSessionShareRoutes } from "./routes/session-shares.ts";
+} from "./routes/musterrolle/invites.ts";
+import { registerLinkedAccountRoutes } from "./routes/musterrolle/linked-accounts.ts";
+import { registerMemberRoutes } from "./routes/musterrolle/members.ts";
+import { registerSessionShareRoutes } from "./routes/musterrolle/session-shares.ts";
+import { registerTeamRoutes } from "./routes/musterrolle/teams.ts";
+import { registerWorkspaceRoutes } from "./routes/musterrolle/workspaces.ts";
+import {
+  registerAchievementRoutes,
+  registerSessionAchievementRoutes,
+} from "./routes/sessions/achievements.ts";
+import { registerCloseRoutes } from "./routes/sessions/close.ts";
+import { registerEventRoutes } from "./routes/sessions/events.ts";
+import { registerInterruptRoutes } from "./routes/sessions/interrupt.ts";
+import { registerSessionOutputRoutes } from "./routes/sessions/outputs.ts";
+import { registerPauseRoutes } from "./routes/sessions/pause.ts";
+import { registerPendingRoutes } from "./routes/sessions/pending.ts";
+import { registerReceiptRoutes } from "./routes/sessions/receipts.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
-import { registerSlackAppRoutes } from "./routes/slack-apps.ts";
-import { registerSlackBindingRoutes } from "./routes/slack-bindings.ts";
-import { registerSlackChannelRoutes } from "./routes/slack-channels.ts";
-import { registerSlackEventRoutes } from "./routes/slack-events.ts";
-import { registerSlackInstallRoutes } from "./routes/slack-install.ts";
-import { registerSlackInteractionRoutes } from "./routes/slack-interactions.ts";
-import { registerSlackSecretRoutes } from "./routes/slack-secrets.ts";
-import { registerTeamRoutes } from "./routes/teams.ts";
-import { registerUsageRoutes } from "./routes/usage.ts";
-import { registerWorkerRoutes } from "./routes/worker.ts";
-import { registerWorkspaceRoutes } from "./routes/workspaces.ts";
+import { registerSlackAppRoutes } from "./routes/surface/slack-apps.ts";
+import { registerSlackBindingRoutes } from "./routes/surface/slack-bindings.ts";
+import { registerSlackChannelRoutes } from "./routes/surface/slack-channels.ts";
+import { registerSlackEventRoutes } from "./routes/surface/slack-events.ts";
+import { registerSlackInstallRoutes } from "./routes/surface/slack-install.ts";
+import { registerSlackInteractionRoutes } from "./routes/surface/slack-interactions.ts";
+import { registerSlackSecretRoutes } from "./routes/surface/slack-secrets.ts";
+import { registerUsageRoutes } from "./routes/usage/usage.ts";
+import { registerWorkerRoutes } from "./routes/workers/worker.ts";
 import { PostgresSessionNotifier } from "./session-notifier.ts";
 import { createShutdown } from "./shutdown.ts";
 import {
@@ -466,36 +453,23 @@ const authorization = createAuthorizationPolicy({
 });
 const agentStore = createPostgresAgentStore(db);
 const surfaceBindingStore = createPostgresSurfaceBindingStore(db);
-const slackBotApi = createSlackBotApi({ apiUrl: slackApiUrlFrom(process.env) });
+const slackSecretStore =
+  secretKey === null ? null : () => createPostgresSecretStore(db, secretKey);
 const slackAppStore =
   secretKey === null ? null : createPostgresSlackAppStore(db, secretKey);
-const slackJoin =
-  secretKey === null || slackAppStore === null // narrows both
-    ? null
-    : createSlackChannelJoiner({
-        bindings: surfaceBindingStore,
-        slack: slackBotApi,
-        botToken: (workspaceId, agentId) =>
-          agentSlackBotToken(
-            {
-              apps: slackAppStore,
-              secrets: createPostgresSecretStore(db, secretKey),
-            },
-            workspaceId,
-            agentId,
-          ),
-      });
-const slackWelcome =
-  slackAppStore === null
-    ? null
-    : createSlackWelcome({
-        agents: agentStore,
-        bindings: surfaceBindingStore,
-        apps: slackAppStore,
-        outbox: createPostgresSlackOutboxStore(db),
-        join: slackJoin,
-        logger,
-      });
+const {
+  api: slackBotApi,
+  join: slackJoin,
+  welcome: slackWelcome,
+} = wireSlackBot({
+  apiUrl: slackApiUrlFrom(process.env),
+  appStore: slackAppStore,
+  secrets: slackSecretStore,
+  bindings: surfaceBindingStore,
+  agents: agentStore,
+  outbox: () => createPostgresSlackOutboxStore(db),
+  logger,
+});
 const githubSettingsStore = createPostgresGitHubSettingsStore(db);
 const extensionDeps = extensionDepsFor(db);
 const agents = createAgentService({
@@ -527,6 +501,7 @@ const sessions = createSessionService({
   releases: { ...agents, ...newSessionGitHubReaders(db) },
   extensions: extensionDeps,
   credentials: credentialBindings,
+  callerLimits: createPostgresCallerLimitGate(db),
   limits,
 });
 const sessionOutputs = createSessionOutputService({
@@ -554,29 +529,22 @@ const agentIdentities = createAgentIdentityService({
   authorization,
   store: slackIdentityStore,
 });
-// A Slack call answered `token_revoked` with no uninstall event sent.
-const slackTokenRevoked =
-  secretKey === null
-    ? undefined
-    : createSlackTokenRevoked({
-        identities: slackIdentityStore,
-        installs: slackInstallStore,
-        secrets: createPostgresSecretStore(db, secretKey),
-        onError: (error) =>
-          logger.warn("Slack token_revoked could not revoke the install", {
-            error: error instanceof Error ? error.message : String(error),
-          }),
-      });
+const { tokenRevoked: slackTokenRevoked, channelKinds: slackChannelKinds } =
+  wireSlackChannels({
+    api: slackBotApi,
+    appStore: slackAppStore,
+    secrets: slackSecretStore,
+    identities: slackIdentityStore,
+    installs: slackInstallStore,
+    onTokenRevokedError: (error) =>
+      logger.warn("Slack token_revoked could not revoke the install", {
+        error: error instanceof Error ? error.message : String(error),
+      }),
+  });
 const slackBindings = createSurfaceBindingService({
   authorization,
   store: surfaceBindingStore,
-  channels: createSlackChannelKinds({
-    apps: slackAppStore,
-    secrets:
-      secretKey === null ? null : createPostgresSecretStore(db, secretKey),
-    slack: slackBotApi,
-    ...(slackTokenRevoked ? { tokenRevoked: slackTokenRevoked } : {}),
-  }),
+  channels: slackChannelKinds,
   ...(slackJoin === null ? {} : { join: slackJoin }),
   ...(slackWelcome === null ? {} : { welcome: slackWelcome }),
 });
@@ -586,16 +554,13 @@ const linkedAccounts = createLinkedAccountService({
 });
 const slackIssuer = slackIssuerFrom(process.env);
 for (const warning of slackEnvWarnings(process.env)) logger.warn(warning, {});
-const slackConfigApi = createSlackConfigApi({
+const { api: slackConfigApi, tokens: slackConfigTokens } = wireSlackConfig({
   apiUrl: slackApiUrlFrom(process.env),
+  tokenStore:
+    secretKey === null
+      ? null
+      : createPostgresSlackConfigTokenStore(db, secretKey),
 });
-const slackConfigTokens =
-  secretKey === null
-    ? null
-    : createSlackConfigTokens({
-        store: createPostgresSlackConfigTokenStore(db, secretKey),
-        api: slackConfigApi,
-      });
 const consoleOrigin = consoleOriginFrom(process.env);
 if (consoleOrigin === null) {
   logger.warn(
@@ -606,39 +571,8 @@ if (consoleOrigin === null) {
 const slackLinkOff = signInWithSlackOff(consoleOrigin, secretKey !== null);
 if (slackLinkOff !== null) logger.warn(slackLinkOff, {});
 const slackEventsPublicUrl = slackEventsPublicUrlFrom(process.env);
-const slackSecrets = createSlackSecretService({
-  authorization,
-  store: secretKey === null ? null : createPostgresSecretStore(db, secretKey),
-  tokens: slackConfigTokens,
-  urls: slackPublicUrlsOf(consoleOrigin, slackEventsPublicUrl),
-  appKind: (workspaceId, slackAppId) =>
-    slackAppKind(db, workspaceId, slackAppId),
-});
-const slackSigningSecrets =
-  secretKey === null || slackAppStore === null // narrows both
-    ? null
-    : createSlackSigningSecrets({
-        apps: slackAppStore,
-        secrets: createPostgresSecretStore(db, secretKey),
-      });
-const slackChannels = createSlackChannelSearchService({
-  authorization,
-  agents: createDatabaseAgentAuthority(db),
-  apps: slackAppStore,
-  secrets: secretKey === null ? null : createPostgresSecretStore(db, secretKey),
-  api: slackBotApi,
-  ...(slackTokenRevoked ? { tokenRevoked: slackTokenRevoked } : {}),
-});
-const slackApps = createSlackAppService({
-  authorization,
-  apps: slackAppStore,
-  tokens: slackConfigTokens,
-  api: slackConfigApi,
-  consoleOrigin,
-  eventsPublicUrl: slackEventsPublicUrl,
-  logger,
-  onAgentAppChanged: (agentId) => slackSigningSecrets?.invalidate(agentId),
-  activeReleaseWarning: async (workspaceId, agentId) => {
+const slackActiveReleaseWarning: SlackServicesStageDeps["activeReleaseWarning"] =
+  async (workspaceId, agentId) => {
     const release = (await agentStore.get(workspaceId, agentId))
       ?.active_release;
     if (!release) return { code: "no_active_release" };
@@ -666,7 +600,35 @@ const slackApps = createSlackAppService({
     )
       ? null
       : { code: "repository_required", release_id: release.id };
-  },
+  };
+const {
+  secrets: slackSecrets,
+  signingSecrets: slackSigningSecrets,
+  channels: slackChannels,
+  apps: slackApps,
+  events: slackEvents,
+  install: slackInstall,
+  linkApps: slackLinkApps,
+} = wireSlackServices({
+  authorization,
+  appStore: slackAppStore,
+  secrets: slackSecretStore,
+  config: { api: slackConfigApi, tokens: slackConfigTokens },
+  botApi: slackBotApi,
+  welcome: slackWelcome,
+  tokenRevoked: slackTokenRevoked,
+  agentAuthority: createDatabaseAgentAuthority(db),
+  inbox: createPostgresSlackInboundEventStore(db),
+  identities: slackIdentityStore,
+  installs: slackInstallStore,
+  bindings: surfaceBindingStore,
+  installStates: secretKey === null ? null : slackInstallStore,
+  consoleOrigin,
+  eventsPublicUrl: slackEventsPublicUrl,
+  appKind: (workspaceId, slackAppId) =>
+    slackAppKind(db, workspaceId, slackAppId),
+  activeReleaseWarning: slackActiveReleaseWarning,
+  logger,
 });
 if (slackEventsPublicUrl === null) {
   logger.warn(
@@ -674,42 +636,6 @@ if (slackEventsPublicUrl === null) {
     {},
   );
 }
-const slackEvents = createSlackEventsService({
-  signingSecrets: slackSigningSecrets ?? { forAgent: async () => null },
-  inbox: createPostgresSlackInboundEventStore(db),
-  apps: slackAppStore ?? { setEventsUnlessVerified: async () => {} },
-  identities: slackIdentityStore,
-  installs: slackInstallStore,
-  bindings: surfaceBindingStore,
-});
-const slackInstall = createSlackInstallService({
-  authorization,
-  apps: slackAppStore,
-  states: secretKey === null ? null : slackInstallStore,
-  secrets: secretKey === null ? null : createPostgresSecretStore(db, secretKey),
-  tokens: slackConfigTokens,
-  identities: slackIdentityStore,
-  api: slackConfigApi,
-  ...(slackAppStore === null || slackWelcome === null
-    ? {}
-    : {
-        finalize: composeSlackFinalize(
-          createSlackEventsFinalize({
-            apps: slackApps,
-            agents: slackAppStore,
-            publicUrl: slackEventsPublicUrl,
-          }),
-          slackWelcome.finalize,
-        ),
-      }),
-});
-const slackLinkApps = createSlackLinkAppService({
-  authorization,
-  apps: slackAppStore,
-  tokens: slackConfigTokens,
-  api: slackConfigApi,
-  consoleOrigin,
-});
 const credentialBindingService = createCredentialBindingService({
   authorization,
   store: credentialBindings,
@@ -772,8 +698,8 @@ const inviteStore = createPostgresInviteStore(db);
 const invites = createInviteService({ authorization, store: inviteStore });
 const githubAppStore =
   secretKey === null ? null : createPostgresGitHubAppStore(db, secretKey);
-const registeredGitHub = createRegisteredGitHubConnections({
-  store: githubAppStore,
+const registeredGitHub = wireGitHubRegistry({
+  appStore: githubAppStore,
   logger,
 });
 const reloadRegisteredGitHub = (): Promise<void> => registeredGitHub.refresh();
@@ -787,7 +713,7 @@ const refreshRegisteredGitHub = (): Promise<void> =>
   });
 void refreshRegisteredGitHub();
 setInterval(refreshRegisteredGitHub, CATALOG_REFRESH_MS).unref();
-const githubAppDirectory = createGitHubAppDirectory({ logger });
+const githubAppDirectory = wireGitHubAppDirectory({ logger });
 const githubRepositories = createGitHubRepositoryService({
   authorization,
   store: catalogRepositoryStore,
@@ -816,7 +742,7 @@ const githubApps = createGitHubAppService({
   changed: reloadRegisteredGitHub,
   manifests: {
     states: createPostgresGitHubAppManifestStore(db),
-    convert: createGitHubManifestConverter({ logger }),
+    convert: wireGitHubManifestConverter({ logger }),
     consoleOrigin,
     callbackUrl: githubCallbackUrl(consoleOrigin),
     webBase: "https://github.com",
@@ -832,9 +758,10 @@ const githubApps = createGitHubAppService({
 // Every GitHub token (clone, push, pull requests, Actions) is issued here,
 // from one connection per repository and so one token cache.
 const githubGateStore = createPostgresGitHubGateStore(db);
-const githubConnections = connectionsOf(catalog, {
+const githubConnections = wireGitHubConnections({
+  catalog,
+  registry: registeredGitHub,
   logger,
-  registered: (role) => registeredGitHub.connections(role),
 });
 const githubResolver = createGitHubConnectionResolver({
   connections: githubConnections,
@@ -980,7 +907,7 @@ const pushExecutor = createPushExecutor({
   catalog,
   gate: github,
   bundles: checkpoints.pushSource,
-  pusher: createGitPusher({ maxGitMemoryBytes: checkpointGitMemoryBytes }),
+  pusher: wireGitPusher({ maxGitMemoryBytes: checkpointGitMemoryBytes }),
   attributions: commitAttributions,
   logger,
 }).start();
@@ -1080,7 +1007,7 @@ const workers = createWorkerGateway({
     consoleOrigin,
     sessionLink: async (workspaceId) =>
       (await pullRequestSettings.get(workspaceId)).settings.session_link,
-    appBotUserId: createAppBotUsers({ logger }),
+    appBotUserId: wireAppBotUsers({ logger }),
     commitPin: {
       resolver: githubResolver,
       onFailed: (failure) =>
@@ -1213,8 +1140,10 @@ const auth = {
   ),
   logger,
 };
-const slackInteractions = createSlackInteractionService({
-  signingSecrets: slackSigningSecrets ?? { forAgent: async () => null },
+const slackInteractions = wireSlackInteractions({
+  secrets: slackSecretStore,
+  signingSecrets: slackSigningSecrets,
+  botApi: slackBotApi,
   authorization,
   agents: slackIdentityStore,
   links: createPostgresLinkedAccountStore(db),
@@ -1223,20 +1152,8 @@ const slackInteractions = createSlackInteractionService({
   pushes: pushRequests,
   sessions,
   followUps: createPostgresPushFollowUpStore(db),
-  slack: slackBotApi,
-  botToken: async (workspaceId, slackAppId) =>
-    secretKey === null
-      ? null
-      : slackBotToken(
-          createPostgresSecretStore(db, secretKey),
-          workspaceId,
-          slackAppId,
-        ),
   outbox: createPostgresSlackOutboxStore(db),
-  connectUrl:
-    consoleOrigin === null
-      ? ""
-      : new URL("/settings/linked-accounts", consoleOrigin).toString(),
+  consoleOrigin,
   logger,
 });
 const probePool = createProbePool(databaseUrl, logger);

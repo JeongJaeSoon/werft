@@ -1,7 +1,3 @@
-import type {
-  NetworkReconcileResult,
-  TerminateExecutionResult,
-} from "../ports/execution-backend.ts";
 import type { ReclaimOptions, SchedulerRunSummary } from "./options.ts";
 import {
   fieldsOf,
@@ -10,6 +6,10 @@ import {
   type PassContext,
   refOf,
 } from "./pass-context.ts";
+import type {
+  NetworkReconcileResult,
+  TerminateExecutionResult,
+} from "./ports/execution-backend.ts";
 
 /** The first half of step 2: provider resources without a matching row. */
 export async function terminateOrphans(ctx: PassContext): Promise<void> {

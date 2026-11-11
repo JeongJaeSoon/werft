@@ -105,6 +105,8 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     "usage_team_id",
     "requester_kind",
     "requester_id",
+    "caller_limit",
+    "caller_limit_digest",
     // 0251
     "extensions",
     // 0255
@@ -191,6 +193,8 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     "usage_team_id",
     "requester_kind",
     "requester_id",
+    "caller_channel",
+    "caller_limit_digest",
   ],
   // kind arrives as 'service'
   api_keys: [

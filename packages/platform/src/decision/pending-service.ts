@@ -8,10 +8,6 @@ import {
   type Caller,
   deciderKeyOf,
 } from "../musterrolle/policy.ts";
-import type {
-  PendingRequestOutcome,
-  PendingRequestStore,
-} from "../ports/pending-requests.ts";
 import {
   idempotencyConflict,
   payloadHash,
@@ -20,6 +16,10 @@ import {
   SessionServiceError,
   selfApproval,
 } from "../sessions/index.ts";
+import type {
+  PendingRequestOutcome,
+  PendingRequestStore,
+} from "../sessions/ports/pending-requests.ts";
 
 // api.md § 승인·중단·강제 종료. Kept apart from the session service so the
 // answer path owns its own error vocabulary: REQUEST_EXPIRED and

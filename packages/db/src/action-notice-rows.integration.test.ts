@@ -12,11 +12,11 @@ import {
 import { asc, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { createPostgresPullRequestDrain } from "./pull-request-drain.ts";
+import { createPostgresPullRequestDrain } from "./action/pull-request-drain.ts";
 import {
   createPostgresPushIntents,
   settleTurnPushIntents,
-} from "./push-intents.ts";
+} from "./action/push-intents.ts";
 import { createPostgresPushRequests } from "./push-requests.ts";
 import * as schema from "./schema.ts";
 import {

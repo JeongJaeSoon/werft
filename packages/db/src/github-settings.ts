@@ -19,8 +19,7 @@ import type {
   GitHubWorkStore,
 } from "@werft-ai/platform";
 import { and, desc, eq, sql } from "drizzle-orm";
-import { queueAchievementJudgment } from "./achievement-judgments.ts";
-import { lockedRole } from "./api-keys.ts";
+import { lockedRole } from "./musterrolle/api-keys.ts";
 import type { Database } from "./queries.ts";
 import {
   agentGitHubSettings,
@@ -35,6 +34,7 @@ import {
   sessions,
   turns,
 } from "./schema.ts";
+import { queueAchievementJudgment } from "./sessions/achievement-judgments.ts";
 
 /** No row reads all false; a row a later image wrote in another shape, too. */
 function ceilingOf(stored: unknown): GitHubCeiling {

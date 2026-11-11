@@ -26,7 +26,7 @@ import {
 import { generateWebSessionToken, hashWebSessionToken } from "../auth.ts";
 import { hashApiKey } from "../keys.ts";
 import { recordRouteErrors } from "../route-error-coverage.ts";
-import { registerPushRequestRoutes } from "./push-requests.ts";
+import { registerPushRequestRoutes } from "./action/push-requests.ts";
 
 const createApiApp = recordRouteErrors("routes/push-requests.test.ts");
 

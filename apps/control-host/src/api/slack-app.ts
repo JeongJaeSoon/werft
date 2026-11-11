@@ -14,14 +14,15 @@ import {
   type SlackAppStore,
 } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
+import { slackEventsUrl } from "../wiring/chat-slack.ts";
 import {
-  createSlackAppService,
-  createSlackConfigApi,
-  createSlackConfigTokens,
-  createSlackEventsFinalize,
-  createSlackLinkAppService,
-  slackEventsUrl,
-} from "../wiring/chat-slack.ts";
+  type SlackCliDeps,
+  wireSlackCliApi,
+  wireSlackCliAppService,
+  wireSlackCliDeps,
+  wireSlackCliEventsFinalize,
+  wireSlackCliLinkAppService,
+} from "../wiring/slack-config-cli.ts";
 import { loadSecretKey, SECRET_KEY_SETTING } from "./catalog-config.ts";
 import {
   consoleOriginFrom,
@@ -170,7 +171,7 @@ const EXIT_BY_CODE: Partial<Record<string, number>> = {
 
 async function finalize(
   agentId: string,
-  deps: Parameters<typeof createSlackAppService>[0] & { apps: SlackAppStore },
+  deps: SlackCliDeps & { apps: SlackAppStore },
   io: SlackAppIo,
 ): Promise<number> {
   const app = await deps.apps.findAgentApp(agentId);
@@ -179,8 +180,8 @@ async function finalize(
     return SLACK_APP_EXIT.agent_not_found;
   }
   const publicUrl = slackEventsPublicUrlFrom(io.env);
-  const result = await createSlackEventsFinalize({
-    apps: createSlackAppService(deps),
+  const result = await wireSlackCliEventsFinalize({
+    apps: wireSlackCliAppService(deps),
     agents: deps.apps,
     publicUrl,
   })({ workspaceId: app.workspaceId, agentId, slackAppId: app.id });
@@ -227,7 +228,7 @@ export async function runSlackApp(
         "CONSOLE_ORIGIN is required: the app's OAuth redirect is on the console's origin",
       );
     }
-    const api = createSlackConfigApi({
+    const api = wireSlackCliApi({
       apiUrl: slackApiUrlFrom(io.env),
       ...(io.fetch ? { fetch: io.fetch } : {}),
     });
@@ -241,21 +242,18 @@ export async function runSlackApp(
 
     const database = await io.openDatabase(databaseUrl);
     try {
-      const deps = {
+      const deps = wireSlackCliDeps({
         authorization: createAuthorizationPolicy({}),
         apps: createPostgresSlackAppStore(database.db, key),
-        tokens: createSlackConfigTokens({
-          store: createPostgresSlackConfigTokenStore(database.db, key),
-          api,
-        }),
+        tokenStore: createPostgresSlackConfigTokenStore(database.db, key),
         api,
         consoleOrigin,
-      };
+      });
       if (command.command === "finalize") {
         return await finalize(command.agentId, deps, io);
       }
       if (command.kind === "link") {
-        const result = await createSlackLinkAppService(
+        const result = await wireSlackCliLinkAppService(
           deps,
         ).createLinkAppAsOperator(command.workspaceId, {
           replace_uncertain: command.replaceUncertain,
@@ -274,7 +272,7 @@ export async function runSlackApp(
         );
         return SLACK_APP_EXIT.created;
       }
-      const service = createSlackAppService(deps);
+      const service = wireSlackCliAppService(deps);
       const result = await service.createAgentAppAsOperator(
         command.workspaceId,
         command.agentId,

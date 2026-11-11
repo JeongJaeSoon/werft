@@ -22,18 +22,20 @@ import type {
   SlackThreadStatusStore,
 } from "@werft-ai/platform";
 import { createRowDelivery } from "./outbox-delivery.ts";
+import { settleSlackCards } from "./slack-card-settle.ts";
 import type { SlackBotSender, SlackSendResponse } from "./slack-config-api.ts";
+import { drainSlackOutbox } from "./slack-outbox.ts";
 import {
   createOutboxSlackNoticeSink,
-  drainSlackOutbox,
   enqueueSlackInstructions,
   enqueueSlackPrompts,
   enqueueSlackTurnAnswers,
-  settleSlackCards,
+} from "./slack-outbox-enqueue.ts";
+import {
   slackOutboxPresentation,
   slackOutboxText,
   slackReplyBlocks,
-} from "./slack-outbox.ts";
+} from "./slack-outbox-render.ts";
 import {
   SLACK_PROMPT_MESSAGES,
   type SlackPrompt,

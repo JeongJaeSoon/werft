@@ -15,13 +15,14 @@ import {
   lockCatalogWrites,
 } from "./catalog-repositories.ts";
 import { receiptActorOf } from "./control-shared.ts";
-import { lockGitHubApps } from "./github-apps.ts";
-import { createPostgresGitHubPinStore } from "./github-pins.ts";
+import { lockGitHubApps } from "./github/github-apps.ts";
+import { createPostgresGitHubPinStore } from "./github/github-pins.ts";
 import {
   agentGitHubSettingsOf,
   ensureRepositoryCeilingWhenUnset,
   workspaceRepositoryCeiling,
 } from "./github-settings.ts";
+import { sessionVisibleTo } from "./musterrolle/session-shares.ts";
 import { receiptFromRow } from "./postgres-unit-of-work.ts";
 import type { Database } from "./queries.ts";
 import {
@@ -32,7 +33,6 @@ import {
   receipts,
   sessions,
 } from "./schema.ts";
-import { sessionVisibleTo } from "./session-shares.ts";
 
 const AGENT_OPERATIONS = [
   "set_agent_github",

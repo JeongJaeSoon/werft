@@ -222,9 +222,11 @@ adapters/*  ──┘ (포트 타입만)         db  →  platform(포트), cont
 | | 상태: 19개 가운데 `forge`는 `action/ports/`로, `github-mcp-server`·`github-work-service`는 `action/github/`로 U6a에서 옮겨졌다. 나머지 14개는 `github/{ports,service,egress}/`로 옮겼다. `ports/github-mcp.ts`·`workers/github-mcp-egress.ts`는 프로필 제거 계열 목록에 있어 제자리에 두고, 계열이 끝나면 옮긴다 | |
 | **S3** | `platform/src/slack/`: ports 7 + `musterrolle/slack-*` | S1 |
 | **S4** | `change-request/`(push·PR 계열 ports 10 + sessions 10여 개), `session/`·`scheduler/`·`checkpoint/` | S2 |
+| | 상태: 기존 이름 유지, 리드 결정 2026-11-11. 위 `change-request/`·`session/`·`checkpoint/`는 옛 표기다. push·PR 계열 ports 8개는 `action/ports/`로, `agent-github-store`는 `github/ports/`로, session 계열 ports 8개는 `sessions/ports/`로, checkpoint 계열 ports는 `checkpoints/ports/`로, scheduler 계열 ports 2개는 `scheduler/ports/`로 옮겼다. A2는 `<도메인>/ports/` 직속과 `index.ts`만 입구로 세므로 `action/change-request/ports/`는 쓰지 않았다. `ports/worker-unit-of-work.ts`는 프로필 제거 계열 목록에 있어 제자리에 둔다 | |
 | **S5** | (동작 변경 없는 구조 변경) `tools/` 레지스트리: `switch` → handler 표, `dispatch.ts` 공통화, A5 시험 | S0, S2 |
 | **S6** | `GitHubApi` 구현(`forge-github.ts`)과 Slack API 호출 코드의 위치를 `control-host/src/api/` 안에서 정리한다. 새 패키지는 만들지 않는다([4.3절](#43-어댑터)) | S2 |
 | **S7** | `db/src/<도메인>/`(platform 이동 뒤), `control-host/routes/<도메인>/` | S2~S4 |
+| | 상태: 도메인 이름은 platform을 따른다(`sessions/`·`checkpoints/` 복수). `db/src`의 파일 139개를 `action/`·`checkpoints/`·`decision/`·`extensions/`·`github/`·`limits/`·`musterrolle/`·`scheduler/`·`secrets/`·`sessions/`·`surface/`(Slack 저장소)·`usage/`·`agents/`로 옮겼다(U9a PR-1). `engine-settings-start.ts`·`mcp-egress.ts`와 프로필 제거 계열(#1567)이 고치는 파일은 제자리에 두고 S8에서 옮긴다. `apps/control-host/src/api/routes/`는 같은 이름으로 `action/ agents/ github/ musterrolle/ sessions/ surface/ usage/ workers/`에 파일 73개를 옮겼다(U9a PR-2). `auth`·`errors`와 #1567 계열(`agents`, `sessions`, `profiles`, `installation-settings.ts` 등 #1567이 고치는 파일)은 제자리에 두고 S8에서 옮긴다 | |
 | **S8** | 남은 기준선 정리와 index 순서 점검, 이 문서 상태를 "완료"로 | 전부 |
 
 ### 6.1 프로필 제거 계열과의 충돌

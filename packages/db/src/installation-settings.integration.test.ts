@@ -47,7 +47,7 @@ import {
   settingsGeneration,
   workspaces,
 } from "./schema.ts";
-import { createPostgresSecretStore } from "./secret-values.ts";
+import { createPostgresSecretStore } from "./secrets/secret-values.ts";
 import { createPostgresSettingsDocumentStore } from "./settings-document.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;

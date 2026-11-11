@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { testCatalog, testConnection } from "../testing/catalog-fakes.ts";
+import type { SessionCatalog } from "./catalog.ts";
 import type {
   SessionTitleStore,
   TitleRequestIssue,
-} from "../ports/session-title-store.ts";
-import { testCatalog, testConnection } from "../testing/catalog-fakes.ts";
-import type { SessionCatalog } from "./catalog.ts";
+} from "./ports/session-title-store.ts";
 import {
   createSessionTitler,
   hashTitleToken,

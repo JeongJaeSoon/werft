@@ -10,7 +10,7 @@ import {
   type SessionReader,
 } from "@werft-ai/platform";
 import { recordRouteErrors } from "../route-error-coverage.ts";
-import { registerReceiptRoutes } from "./receipts.ts";
+import { registerReceiptRoutes } from "./sessions/receipts.ts";
 
 const createApiApp = recordRouteErrors("routes/receipts.test.ts");
 

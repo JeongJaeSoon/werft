@@ -28,7 +28,7 @@ import {
 import { releasePolicy } from "@werft-ai/platform/testing/github";
 import { hashApiKey } from "../keys.ts";
 import { recordRouteErrors } from "../route-error-coverage.ts";
-import { registerPullRequestRoutes } from "./pull-requests.ts";
+import { registerPullRequestRoutes } from "./action/pull-requests.ts";
 
 const createApiApp = recordRouteErrors("routes/pull-requests.test.ts");
 

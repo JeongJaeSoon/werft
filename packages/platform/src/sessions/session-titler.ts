@@ -1,10 +1,10 @@
 import { createHash, randomBytes } from "node:crypto";
-import type { SessionTitleStore } from "../ports/session-title-store.ts";
 import {
   type CatalogConnection,
   connectionOf,
   type SessionCatalog,
 } from "./catalog.ts";
+import type { SessionTitleStore } from "./ports/session-title-store.ts";
 import { deriveSessionTitle } from "./session-title.ts";
 
 export const TITLE_TOKEN_PREFIX = "wet_";

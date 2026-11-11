@@ -177,6 +177,7 @@ export async function authorizeSlackInput(
       slack_user_kind: slackUserKindOf(input.user, input.event.teamId),
       ceiling: binding?.ceiling ?? NO_CEILING,
       agent_id: agentId,
+      ...(input.channel.dm ? {} : { channel_id: input.channel.id }),
     },
   };
   const { resource } = input;

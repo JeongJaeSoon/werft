@@ -3,7 +3,8 @@ import type {
   PutAgentPullRequestSettingsRequest,
   PutAgentPullRequestSettingsResponse,
 } from "@werft-ai/contracts";
-import { prepareTemplateText } from "../action/change-request/pull-request-template.ts";
+import { prepareTemplateText } from "../action/index.ts";
+import type { PullRequestSettingsStore } from "../action/ports/pull-request-settings.ts";
 import {
   type AuthorizationPolicy,
   type Caller,
@@ -15,7 +16,6 @@ import {
   OUTRANKED,
 } from "../musterrolle/service-errors.ts";
 import type { AgentStore } from "../ports/agent-store.ts";
-import type { PullRequestSettingsStore } from "../ports/pull-request-settings.ts";
 import {
   requirePermitted,
   SessionServiceError,

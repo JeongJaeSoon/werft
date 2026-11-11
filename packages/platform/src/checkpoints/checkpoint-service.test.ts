@@ -25,17 +25,6 @@ import {
   createGitBundle,
   createGitBundleChain,
 } from "@werft-ai/testkit/git-bundle";
-
-import {
-  CHECKPOINT_ROOT_PARENT,
-  type CheckpointFence,
-  type CheckpointPointer,
-  type CheckpointStore,
-} from "../ports/checkpoint-store.ts";
-import {
-  structuralBundleVerifier,
-  type WorkspaceBundleVerifier,
-} from "../ports/workspace-bundle-verifier.ts";
 import {
   type CommitCheckpointInput,
   type CommitCheckpointResult,
@@ -48,6 +37,16 @@ import {
   manifestRefFor,
   sessionObjectPrefix,
 } from "./checkpoint-service.ts";
+import {
+  CHECKPOINT_ROOT_PARENT,
+  type CheckpointFence,
+  type CheckpointPointer,
+  type CheckpointStore,
+} from "./ports/checkpoint-store.ts";
+import {
+  structuralBundleVerifier,
+  type WorkspaceBundleVerifier,
+} from "./ports/workspace-bundle-verifier.ts";
 
 const sessionId = "11111111-1111-4111-8111-111111111111";
 const attemptId = "attempt-1";

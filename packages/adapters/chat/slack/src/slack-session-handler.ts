@@ -63,6 +63,22 @@ function reasonCodeOf(details: unknown): string | undefined {
   return typeof reason === "string" ? reason : undefined;
 }
 
+const CALLER_LIMITED_NOTICE = {
+  repository: "callerLimitedRepository",
+  credential: "callerLimitedCredential",
+  mcp_server: "callerLimitedMcpServer",
+  tool: "callerLimitedTool",
+} as const;
+
+function callerLimitDimensionOf(
+  details: unknown,
+): keyof typeof CALLER_LIMITED_NOTICE {
+  const dimension = (details as { dimension?: unknown } | null)?.dimension;
+  return typeof dimension === "string" && dimension in CALLER_LIMITED_NOTICE
+    ? (dimension as keyof typeof CALLER_LIMITED_NOTICE)
+    : "tool";
+}
+
 const RETRYABLE_SESSION_CODES = new Set([
   "RATE_LIMITED",
   "BACKEND_UNAVAILABLE",
@@ -474,6 +490,10 @@ export function createSlackSessionHandler(
         await notice("repository_required", { message: "repositoryRequired" });
       } else if (error.code === "RELEASE_SPEC_UNAVAILABLE") {
         await notice("release_unavailable", { message: "releaseUnavailable" });
+      } else if (reasonCodeOf(error.details) === "caller_limited") {
+        await notice("caller_limited", {
+          message: CALLER_LIMITED_NOTICE[callerLimitDimensionOf(error.details)],
+        });
       } else {
         await notice(error.code, { message: "failed" });
       }

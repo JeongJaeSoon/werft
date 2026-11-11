@@ -136,7 +136,7 @@ test("unit parts isolate slow Slack fixtures and reject every empty part", async
   const { PARTS, partOf, pick } = await import(
     "../.github/scripts/unit-part.ts"
   );
-  expect(partOf("apps/control-host/src/slack/outbox.test.ts")).toBe(
+  expect(partOf("apps/control-host/src/slack/main.test.ts")).toBe(
     "control-slack",
   );
   expect(partOf("apps/control-host/src/slack-extra/a.test.ts")).toBe("rest");

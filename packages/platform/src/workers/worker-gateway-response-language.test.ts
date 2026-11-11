@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { runtimeConfigSchema } from "@werft-ai/contracts";
 
-import { acceptAllCheckpoints } from "../ports/checkpoint-verifier.ts";
-import type { WorkerPendingStore } from "../ports/pending-requests.ts";
+import { acceptAllCheckpoints } from "../checkpoints/ports/checkpoint-verifier.ts";
 import type {
   ClaimInput,
   ClaimResult,
   WorkerUnitOfWork,
 } from "../ports/worker-unit-of-work.ts";
+import type { WorkerPendingStore } from "../sessions/ports/pending-requests.ts";
 import { testBinding, testCatalog } from "../testing/catalog-fakes.ts";
 import { createWorkerGateway } from "./worker-gateway.ts";
 

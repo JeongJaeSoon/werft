@@ -24,7 +24,7 @@ import {
 import { generateWebSessionToken, hashWebSessionToken } from "../auth.ts";
 import { hashApiKey } from "../keys.ts";
 import { recordRouteErrors } from "../route-error-coverage.ts";
-import { registerEngineSettingsRoutes } from "./engine-settings.ts";
+import { registerEngineSettingsRoutes } from "./agents/engine-settings.ts";
 
 const createApiApp = recordRouteErrors("routes/engine-settings.test.ts");
 

@@ -52,7 +52,7 @@ import {
 import { createApiApp, isStorageUnavailable } from "./app.ts";
 import { createApiPool, createProbePool } from "./pool.ts";
 import { createReadinessProbe } from "./readiness.ts";
-import { registerReceiptRoutes } from "./routes/receipts.ts";
+import { registerReceiptRoutes } from "./routes/sessions/receipts.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
 
 const catalog: SessionCatalog = testCatalog({

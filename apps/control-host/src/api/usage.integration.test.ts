@@ -33,7 +33,7 @@ import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { releaseIn } from "../testing/releases.ts";
 import { createApiApp } from "./app.ts";
-import { registerUsageRoutes } from "./routes/usage.ts";
+import { registerUsageRoutes } from "./routes/usage/usage.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 

@@ -44,7 +44,7 @@ import {
 } from "../testing/releases.ts";
 import { createApiApp } from "./app.ts";
 import { DatabaseApiKeyStore, issueApiKey } from "./keys.ts";
-import { registerEventRoutes } from "./routes/events.ts";
+import { registerEventRoutes } from "./routes/sessions/events.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
 import { PostgresSessionNotifier } from "./session-notifier.ts";
 
@@ -109,7 +109,6 @@ integration("GET /v1/sessions/{id}/events on PostgreSQL", () => {
   let notifier: PostgresSessionNotifier;
   let app: ReturnType<typeof createApiApp>;
   let apiKeyApp: ReturnType<typeof createApiApp>;
-  let handle: ReturnType<typeof registerEventRoutes>;
   const sink = new MemoryLogSink();
   // Owners are workspaces: a session runs a release of its own workspace.
   const owner = crypto.randomUUID();
@@ -181,7 +180,7 @@ integration("GET /v1/sessions/{id}/events on PostgreSQL", () => {
       logger,
       registerRoutes: (router) => {
         registerSessionRoutes(router, service);
-        handle = registerEventRoutes(router, service, {
+        registerEventRoutes(router, service, {
           wakeup: notifier,
           keepaliveMs: KEEPALIVE_MS,
           logger,
@@ -564,22 +563,6 @@ integration("GET /v1/sessions/{id}/events on PostgreSQL", () => {
     );
     expect(reopened.status).toBe(401);
   }, 15_000);
-
-  test("a disconnecting client releases the server handle", async () => {
-    const sessionId = await createdSession();
-    const controller = new AbortController();
-    const before = handle.activeStreams();
-    const response = await stream(sessionId, {}, app, {
-      signal: controller.signal,
-    });
-    expect(response.status).toBe(200);
-    expect(handle.activeStreams()).toBe(before + 1);
-    controller.abort();
-    for (let i = 0; i < 200 && handle.activeStreams() > before; i += 1) {
-      await Bun.sleep(5);
-    }
-    expect(handle.activeStreams()).toBe(before);
-  });
 
   test("a cursor from another session or from the future is 400", async () => {
     const mine = await createdSession();

@@ -5,6 +5,8 @@ import {
   GITHUB_FEATURES_NONE,
   runtimeConfigSchema,
 } from "@werft-ai/contracts";
+import type { SessionAttributionRecord } from "../action/ports/session-attribution.ts";
+import { acceptAllCheckpoints } from "../checkpoints/ports/checkpoint-verifier.ts";
 import {
   type GitHubConnection,
   type GitHubGate,
@@ -16,8 +18,6 @@ import {
 } from "../github/ports/github-gate.ts";
 import type { GitHubConnectionResolver } from "../github/service/github-connection-resolver.ts";
 import { createGitHubGate } from "../github/service/github-gate.ts";
-import { acceptAllCheckpoints } from "../ports/checkpoint-verifier.ts";
-import type { SessionAttributionRecord } from "../ports/session-attribution.ts";
 import type {
   ClaimInput,
   EgressAuthorization,

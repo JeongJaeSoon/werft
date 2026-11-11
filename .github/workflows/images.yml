@@ -923,7 +923,8 @@ jobs:
 
   # The tag comes last, after the approval and after everything it names has
   # been published, so a rejected or failed release leaves no tag behind.
-  # A GITHUB_TOKEN tag starts no run of its own: nothing else publishes.
+  # A GITHUB_TOKEN tag starts no run of its own: nothing else publishes, and
+  # pages-release asks for the docs site by hand.
   release-tag:
     needs: [release-detect, chart-publish-release]
     if: needs.release-detect.outputs.tag != ''
@@ -956,6 +957,23 @@ jobs:
       RELEASE_REF: refs/tags/${{ needs.release-detect.outputs.tag }}
       ARTIFACT_SUFFIX: -release
     steps: *release-steps
+
+  # pages.yml deploys on a v* tag push, which release-tag's GITHUB_TOKEN tag
+  # never starts; workflow_dispatch is the one event that token may start.
+  pages-release:
+    needs: [release-detect, release-publish]
+    if: needs.release-detect.outputs.tag != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Deploy the release's docs site
+        env:
+          TAG: ${{ needs.release-detect.outputs.tag }}
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run pages.yml --ref "$TAG"
 
   # The daily run's failed verdict as an issue: nobody watches a scheduled
   # run, and a PR's findings are already in its own checks. A manual run

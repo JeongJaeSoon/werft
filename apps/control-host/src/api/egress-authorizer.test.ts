@@ -28,7 +28,7 @@ import {
   EGRESS_USAGE_PATH,
   egressAuthorizerConfigFromEnv,
 } from "./egress-authorizer.ts";
-import { registerWorkerRoutes } from "./routes/worker.ts";
+import { registerWorkerRoutes } from "./routes/workers/worker.ts";
 
 const AUTHORIZER_TOKEN = "authorizer-token-for-tests-0123456789";
 

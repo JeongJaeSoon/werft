@@ -3,8 +3,8 @@ import type {
   InterruptSessionRequest,
 } from "@werft-ai/contracts";
 import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
-import type { TurnInterrupts } from "../ports/turn-interrupts.ts";
-import { TERMINATE_DEADLINE_MS } from "../scheduler/session-scheduler.ts";
+import { TERMINATE_DEADLINE_MS } from "../scheduler/index.ts";
+import type { TurnInterrupts } from "./ports/turn-interrupts.ts";
 import {
   idempotencyConflict,
   payloadHash,

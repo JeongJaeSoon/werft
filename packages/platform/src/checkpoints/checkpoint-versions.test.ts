@@ -15,14 +15,6 @@ import {
   type MemoryCheckpointObjectStore,
 } from "@werft-ai/testkit/checkpoint-objects";
 import { createGitBundle } from "@werft-ai/testkit/git-bundle";
-
-import type {
-  CheckpointFence,
-  CheckpointPointer,
-  CheckpointStore,
-} from "../ports/checkpoint-store.ts";
-import { serviceCheckpointVerifier } from "../ports/checkpoint-verifier.ts";
-import { structuralBundleVerifier } from "../ports/workspace-bundle-verifier.ts";
 import {
   type CommitCheckpointInput,
   finalizeCheckpoint,
@@ -32,6 +24,13 @@ import {
   manifestRefFor,
   sessionObjectPrefix,
 } from "./checkpoint-service.ts";
+import type {
+  CheckpointFence,
+  CheckpointPointer,
+  CheckpointStore,
+} from "./ports/checkpoint-store.ts";
+import { serviceCheckpointVerifier } from "./ports/checkpoint-verifier.ts";
+import { structuralBundleVerifier } from "./ports/workspace-bundle-verifier.ts";
 
 /**
  * what a checkpoint verified is what it restores. Every object is

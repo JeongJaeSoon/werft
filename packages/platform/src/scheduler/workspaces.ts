@@ -1,12 +1,3 @@
-import type {
-  ManagedWorkspace,
-  WorkspaceRemovalResult,
-} from "../ports/execution-backend.ts";
-import type {
-  PendingWorkspaceReclaim,
-  SchedulerStore,
-  WorkspaceReclaimClaim,
-} from "../ports/scheduler-store.ts";
 import {
   DEFAULT_STOPPED_WORKSPACE_TTL_MS,
   type ReclaimOptions,
@@ -14,6 +5,15 @@ import {
   type SchedulerRunSummary,
 } from "./options.ts";
 import { messageOf } from "./pass-context.ts";
+import type {
+  ManagedWorkspace,
+  WorkspaceRemovalResult,
+} from "./ports/execution-backend.ts";
+import type {
+  PendingWorkspaceReclaim,
+  SchedulerStore,
+  WorkspaceReclaimClaim,
+} from "./ports/scheduler-store.ts";
 
 /**
  * Reclaim the workspace volumes of sessions nothing will come back to, and

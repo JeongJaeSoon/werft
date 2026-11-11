@@ -1,6 +1,4 @@
 import { WORKER_EXIT_LEASE_LOST } from "@werft-ai/contracts";
-import type { TerminateExecutionResult } from "../ports/execution-backend.ts";
-import type { ActiveExecution } from "../ports/scheduler-store.ts";
 import { confirmGone, kill, killRequested } from "./kill.ts";
 import { launchFailed, reensure } from "./launch.ts";
 import {
@@ -14,6 +12,8 @@ import {
   storedSpecOf,
   unknownObservation,
 } from "./pass-context.ts";
+import type { TerminateExecutionResult } from "./ports/execution-backend.ts";
+import type { ActiveExecution } from "./ports/scheduler-store.ts";
 import { replace, teardown } from "./replace.ts";
 
 /** Step 1: reconcile rows against the provider. */

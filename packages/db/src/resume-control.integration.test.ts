@@ -17,14 +17,13 @@ import { and, asc, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresSessionControl } from "./control-unit-of-work.ts";
-import { reconcileExpiredLeases } from "./lease-reconcile.ts";
-import { createPostgresWorkerPendingStore } from "./pending-control.ts";
+import { createPostgresWorkerPendingStore } from "./decision/pending-control.ts";
 import {
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,
 } from "./postgres-unit-of-work.ts";
 import { RESUME_LAUNCH_LIMIT } from "./resume-control.ts";
-import { createPostgresSchedulerStore } from "./scheduler-store.ts";
+import { createPostgresSchedulerStore } from "./scheduler/scheduler-store.ts";
 import * as schema from "./schema.ts";
 import {
   attempts,
@@ -34,6 +33,7 @@ import {
   turns,
   unassignedSessions,
 } from "./schema.ts";
+import { reconcileExpiredLeases } from "./sessions/lease-reconcile.ts";
 import { confirmExecutionGone, launchSession } from "./testing/launches.ts";
 import {
   fixtureRelease,

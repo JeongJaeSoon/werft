@@ -60,9 +60,9 @@ import {
   issueApiKey,
 } from "./keys.ts";
 import { registerAgentRoutes } from "./routes/agents.ts";
-import { registerApiKeyRoutes } from "./routes/api-keys.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
-import { registerReceiptRoutes } from "./routes/receipts.ts";
+import { registerApiKeyRoutes } from "./routes/musterrolle/api-keys.ts";
+import { registerReceiptRoutes } from "./routes/sessions/receipts.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;

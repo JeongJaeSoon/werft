@@ -10,12 +10,12 @@ import type {
   ExtensionAttachment,
   ExtensionBundle,
 } from "../ports/extension-bundle-store.ts";
+import { testCatalog, testSpecSource } from "../testing/catalog-fakes.ts";
+import type { SessionCatalogView } from "./catalog.ts";
 import type {
   AcceptSessionInput,
   SessionDetailRecord,
-} from "../ports/session-unit-of-work.ts";
-import { testCatalog, testSpecSource } from "../testing/catalog-fakes.ts";
-import type { SessionCatalogView } from "./catalog.ts";
+} from "./ports/session-unit-of-work.ts";
 import {
   createSessionService,
   SessionServiceError,

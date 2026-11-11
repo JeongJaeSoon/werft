@@ -20,7 +20,7 @@ import { eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresEngineSettingsStore } from "./engine-settings-store.ts";
-import { createDatabaseIdentityReader } from "./identity-reader.ts";
+import { createDatabaseIdentityReader } from "./musterrolle/identity-reader.ts";
 import * as schema from "./schema.ts";
 import {
   agentEngineSettings,

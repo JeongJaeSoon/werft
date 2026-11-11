@@ -7,13 +7,13 @@ import type {
 import { SESSION_SCOPE_VALUES } from "@werft-ai/contracts";
 import type { UsageDecision } from "../musterrolle/agent-usage-decision.ts";
 import { type AuthorizationPolicy, callerFor } from "../musterrolle/policy.ts";
+import { testCatalog } from "../testing/catalog-fakes.ts";
 import type {
   AcceptSessionInput,
   AcceptSessionResult,
   AppendMessageInput,
   AppendMessageResult,
-} from "../ports/session-unit-of-work.ts";
-import { testCatalog } from "../testing/catalog-fakes.ts";
+} from "./ports/session-unit-of-work.ts";
 import {
   createSessionService,
   SessionServiceError,

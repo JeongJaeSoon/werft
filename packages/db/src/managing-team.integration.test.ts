@@ -37,21 +37,21 @@ import {
 import { eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool, type PoolClient } from "pg";
-import { insideAgent } from "./administers.ts";
-import { createPostgresAgentAdminStore } from "./agent-admins.ts";
 import { createDatabaseAgentAuthority } from "./agent-authority.ts";
 import { createPostgresAgentGitHubStore } from "./agent-github.ts";
-import { createPostgresAgentIdentityStore } from "./agent-identities.ts";
 import { createPostgresAgentStore } from "./agents.ts";
 import { createPostgresCatalogRepositoryStore } from "./catalog-repositories.ts";
-import { createPostgresCredentialBindingStore } from "./credential-bindings.ts";
-import { createDatabaseIdentityReader } from "./identity-reader.ts";
-import { createPostgresTeamStore } from "./member-teams.ts";
 import { migrate } from "./migrate.ts";
-import { lockSessionReach } from "./requester-locks.ts";
+import { insideAgent } from "./musterrolle/administers.ts";
+import { createPostgresAgentAdminStore } from "./musterrolle/agent-admins.ts";
+import { createPostgresAgentIdentityStore } from "./musterrolle/agent-identities.ts";
+import { createPostgresCredentialBindingStore } from "./musterrolle/credential-bindings.ts";
+import { createDatabaseIdentityReader } from "./musterrolle/identity-reader.ts";
+import { createPostgresTeamStore } from "./musterrolle/member-teams.ts";
+import { createPostgresSurfaceBindingStore } from "./musterrolle/surface-bindings.ts";
 import * as schema from "./schema.ts";
 import { agents, receipts } from "./schema.ts";
-import { createPostgresSurfaceBindingStore } from "./surface-bindings.ts";
+import { lockSessionReach } from "./sessions/requester-locks.ts";
 import { fixtureTeam } from "./testing/fixture-team.ts";
 import {
   TEST_CONNECTION_ID,

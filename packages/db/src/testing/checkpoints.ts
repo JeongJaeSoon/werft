@@ -2,9 +2,8 @@ import type {
   CommitCheckpointInput,
   CommitCheckpointResult,
 } from "@werft-ai/platform/testing/checkpoints";
-
-import { acquireFence } from "../fence.ts";
 import type { Database } from "../queries.ts";
+import { acquireFence } from "../sessions/fence.ts";
 import { advanceCheckpointPointer } from "../worker-unit-of-work.ts";
 
 /**

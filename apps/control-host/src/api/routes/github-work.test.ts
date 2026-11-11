@@ -43,7 +43,7 @@ import {
   registerGitHubWorkRoutes,
   registerSessionAttributionRoutes,
   registerSessionOutcomeRoutes,
-} from "./github-work.ts";
+} from "./github/github-work.ts";
 
 const createApiApp = recordRouteErrors("routes/github-work.test.ts");
 
