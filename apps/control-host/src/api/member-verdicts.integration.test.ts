@@ -35,8 +35,8 @@ import {
 } from "./auth.ts";
 import { DatabaseApiKeyStore } from "./keys.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
-import { registerInviteRoutes } from "./routes/invites.ts";
-import { registerMemberRoutes } from "./routes/members.ts";
+import { registerInviteRoutes } from "./routes/musterrolle/invites.ts";
+import { registerMemberRoutes } from "./routes/musterrolle/members.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 

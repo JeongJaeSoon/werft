@@ -43,8 +43,8 @@ import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import {
   registerInviteRoutes,
   registerPublicInviteRoutes,
-} from "./routes/invites.ts";
-import { registerMemberRoutes } from "./routes/members.ts";
+} from "./routes/musterrolle/invites.ts";
+import { registerMemberRoutes } from "./routes/musterrolle/members.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 

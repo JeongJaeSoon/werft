@@ -34,7 +34,7 @@ import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createApiApp } from "./app.ts";
 import { DatabaseApiKeyStore, issueApiKey } from "./keys.ts";
-import { registerEventRoutes } from "./routes/events.ts";
+import { registerEventRoutes } from "./routes/sessions/events.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
 import { PostgresSessionNotifier } from "./session-notifier.ts";
 

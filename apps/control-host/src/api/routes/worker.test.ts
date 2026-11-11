@@ -37,7 +37,7 @@ import { and, count, eq, isNotNull } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { createApiApp } from "../app.ts";
 import { RequestTracing } from "../request-tracing.ts";
-import { registerWorkerRoutes } from "./worker.ts";
+import { registerWorkerRoutes } from "./workers/worker.ts";
 
 // Every call in a test that expects success has to land inside one lease on
 // a loaded runner; only the expiry test waits it out.

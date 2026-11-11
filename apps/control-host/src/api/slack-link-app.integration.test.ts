@@ -64,9 +64,9 @@ import {
 } from "./auth.ts";
 import { DatabaseApiKeyStore } from "./keys.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
-import { registerLinkedAccountRoutes } from "./routes/linked-accounts.ts";
-import { registerSlackAppRoutes } from "./routes/slack-apps.ts";
-import { registerSlackSecretRoutes } from "./routes/slack-secrets.ts";
+import { registerLinkedAccountRoutes } from "./routes/musterrolle/linked-accounts.ts";
+import { registerSlackAppRoutes } from "./routes/surface/slack-apps.ts";
+import { registerSlackSecretRoutes } from "./routes/surface/slack-secrets.ts";
 import { SLACK_LINK_COOKIE_NAME } from "./slack-link.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
