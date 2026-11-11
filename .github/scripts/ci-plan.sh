@@ -36,6 +36,23 @@ is_doc_path() {
   esac
 }
 
+# Paths k8s-smoke (deploy/kind) builds, deploys or runs beyond the app code
+# quickstart and e2e already run: the chart and the kind scripts, the
+# execution backends and the scheduler that drive worker Pods, the stand-ins
+# up.sh mounts, the images and their lockfile, and this plan and job.
+is_k8s_path() {
+  case "$1" in
+    deploy/* | packages/adapters/execution/* | apps/control-host/src/scheduler/* | \
+      packages/platform/src/scheduler/* | packages/platform/src/testing/execution-backend-contract.ts | \
+      packages/testkit/src/local-github* | packages/testkit/src/fake-messages-main.ts | \
+      packages/testkit/src/fake-anthropic.ts | packages/testkit/src/scripted-messages.ts | \
+      infra/localstack/* | Dockerfile* | */Dockerfile* | .dockerignore | bun.lock | \
+      .github/workflows/ci.yml | .github/scripts/ci-plan.sh | \
+      .github/scripts/assert-no-docker-hub-images.sh | .github/actions/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 event=${GITHUB_EVENT_NAME:-}
 base=
 if [ "$event" = pull_request ] && [ "${BASE_REF:-}" = main ]; then
@@ -65,6 +82,7 @@ if [ -n "$base" ]; then
     # it. Any path outside these and the prose list is shared or unknown, and
     # keeps the full plan.
     shared=false
+    k8s_path=false
     while IFS= read -r -d '' path; do
       count=$((count + 1))
       is_doc_path "$path" || docs_only=false
@@ -80,6 +98,7 @@ if [ -n "$base" ]; then
           *) shared=true ;;
         esac
       fi
+      is_k8s_path "$path" && k8s_path=true
     done <"$paths"
     if [ "$count" -eq 0 ]; then
       docs_only=false
@@ -104,6 +123,13 @@ if [ -n "$base" ]; then
     else
       site=true
       quickstart=true
+      # A pull request runs k8s-smoke only when it touches what the kind
+      # install builds, deploys or runs. Over 2026-10-20..11-11 no app
+      # regression failed k8s-smoke alone on a PR: quickstart, e2e,
+      # integration or check failed in the same run. Main pushes keep it.
+      if [ "$event" = pull_request ] && [ "$k8s_path" = false ]; then
+        k8s=false
+      fi
     fi
   else
     echo "Event base differs from the checkout parent; keeping full validation"
