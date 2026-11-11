@@ -34,6 +34,7 @@ import { DB_NOW } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import {
   agentAdminTeams,
+  agentCallerLimits,
   agents,
   agentUsage,
   agentUsageTargets,
@@ -164,21 +165,38 @@ async function lockLiveTeam(tx: Database, workspaceId: string, teamId: string) {
 // answers conflict and the caller asks again (94S-900).
 const ARCHIVE_ATTEMPTS = 3;
 
+type Listing = { usage: string[]; limits: string[] };
+
+// The agents that list the team (agent_usage_targets) and those with a caller
+// limit rule for it (agent_caller_limits), each in agent id order.
+async function readListing(tx: Database, teamId: string): Promise<Listing> {
+  const usage = await tx
+    .select({ agentId: agentUsageTargets.agentId })
+    .from(agentUsageTargets)
+    .where(eq(agentUsageTargets.teamId, teamId))
+    .orderBy(asc(agentUsageTargets.agentId));
+  const limits = await tx
+    .select({ agentId: agentCallerLimits.agentId })
+    .from(agentCallerLimits)
+    .where(eq(agentCallerLimits.teamId, teamId))
+    .orderBy(asc(agentCallerLimits.agentId));
+  return {
+    usage: usage.map((row) => row.agentId),
+    limits: limits.map((row) => row.agentId),
+  };
+}
+
 /**
- * The agents that list `teamId` in agent_usage_targets, their agent_usage
+ * The agents that list `teamId` or hold a rule for it, their agent_usage
  * rows locked in id order. Called before the team row is locked.
  */
 async function lockUsageListing(
   tx: Database,
   teamId: string,
-): Promise<string[]> {
-  if (!UUID.test(teamId)) return [];
-  const listed = await tx
-    .select({ agentId: agentUsageTargets.agentId })
-    .from(agentUsageTargets)
-    .where(eq(agentUsageTargets.teamId, teamId.toLowerCase()))
-    .orderBy(asc(agentUsageTargets.agentId));
-  const ids = listed.map((row) => row.agentId);
+): Promise<Listing> {
+  if (!UUID.test(teamId)) return { usage: [], limits: [] };
+  const listing = await readListing(tx, teamId.toLowerCase());
+  const ids = [...new Set([...listing.usage, ...listing.limits])].sort();
   if (ids.length > 0) {
     await tx
       .select({ id: agentUsage.agentId })
@@ -187,24 +205,19 @@ async function lockUsageListing(
       .orderBy(asc(agentUsage.agentId))
       .for("update");
   }
-  return ids;
+  return listing;
 }
 
 /** With the team locked: still the same agents list it. */
 async function sameListing(
   tx: Database,
   teamId: string,
-  locked: readonly string[],
+  locked: Listing,
 ): Promise<boolean> {
-  const now = await tx
-    .select({ agentId: agentUsageTargets.agentId })
-    .from(agentUsageTargets)
-    .where(eq(agentUsageTargets.teamId, teamId))
-    .orderBy(asc(agentUsageTargets.agentId));
-  return (
-    now.length === locked.length &&
-    now.every((row, index) => row.agentId === locked[index])
-  );
+  const now = await readListing(tx, teamId);
+  const same = (a: readonly string[], b: readonly string[]) =>
+    a.length === b.length && a.every((id, index) => id === b[index]);
+  return same(now.usage, locked.usage) && same(now.limits, locked.limits);
 }
 
 async function teamOf(
@@ -400,7 +413,7 @@ export function createPostgresTeamStore(db: Database): TeamStore {
             .returning({ agentId: agentAdminTeams.agentId });
           // The agents' usage lists lose the team; their revisions move so an
           // If-Match read before the archive no longer matches.
-          if (listing.length > 0) {
+          if (listing.usage.length > 0) {
             await tx
               .delete(agentUsageTargets)
               .where(eq(agentUsageTargets.teamId, team.id));
@@ -410,7 +423,21 @@ export function createPostgresTeamStore(db: Database): TeamStore {
                 revision: sql`${agentUsage.revision} + 1`,
                 updatedAt: DB_NOW,
               })
-              .where(inArray(agentUsage.agentId, listing));
+              .where(inArray(agentUsage.agentId, listing.usage));
+          }
+          // Likewise the rules for the team, and the revision their edits
+          // are matched against; an agent with no rule for it keeps its own.
+          if (listing.limits.length > 0) {
+            await tx
+              .delete(agentCallerLimits)
+              .where(eq(agentCallerLimits.teamId, team.id));
+            await tx
+              .update(agentUsage)
+              .set({
+                limitsRevision: sql`${agentUsage.limitsRevision} + 1`,
+                updatedAt: DB_NOW,
+              })
+              .where(inArray(agentUsage.agentId, listing.limits));
           }
           await tx
             .update(memberTeams)
@@ -426,7 +453,8 @@ export function createPostgresTeamStore(db: Database): TeamStore {
             result: {
               name: team.name,
               agent_ids: dropped.map((row) => row.agentId),
-              usage_agent_ids: listing,
+              usage_agent_ids: listing.usage,
+              limits_agent_ids: listing.limits,
             },
           });
           return { outcome: "deleted" as const };

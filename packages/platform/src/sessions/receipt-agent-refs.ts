@@ -33,7 +33,9 @@ const EXCHANGE = { agents: ["agent_id"], releases: ["release_id"] } as const;
 export const RECEIPT_AGENT_REFS: Partial<Record<ReceiptOperation, AgentRefs>> =
   {
     // The usage listing of a team that went, and the agents it left.
-    delete_team: { agents: ["agent_ids", "usage_agent_ids"] },
+    delete_team: {
+      agents: ["agent_ids", "usage_agent_ids", "limits_agent_ids"],
+    },
 
     // The agent's own settings: the target is the agent.
     create_agent: ON_AGENT,
@@ -45,6 +47,7 @@ export const RECEIPT_AGENT_REFS: Partial<Record<ReceiptOperation, AgentRefs>> =
     },
     set_agent_managing_team: ON_AGENT,
     set_agent_usage: ON_AGENT,
+    set_agent_caller_limits: ON_AGENT,
     add_agent_admin: ON_AGENT,
     remove_agent_admin: ON_AGENT,
     bind_credential: ON_AGENT,
