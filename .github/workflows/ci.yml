@@ -1064,6 +1064,18 @@ jobs:
           COMPOSE_FILE: compose.yaml:tests/e2e/compose.ci-mirror.yml:tests/e2e/compose.ci-cache.yml
           QUICKSTART_OUT: ${{ runner.temp }}/api-guide
         run: tests/e2e/quickstart.sh apps/docs/content/docs/reference/api-guide.mdx
+      # On the containerd image store (.github/actions/image-cache) an image
+      # built on the daemon carries a RepoDigest as well, which the check
+      # below reads as a pull. The guides build only the compose project's
+      # werft-* images and pull none by that name; `scripts/local.sh down`
+      # keeps them, so they go before the check.
+      - if: '!cancelled() && needs.changes.outputs.quickstart == ''true'''
+        name: Remove the images the guides built
+        run: |
+          built="$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -E '^werft-[a-z-]+:' || true)"
+          echo "built by the guides: ${built:-(none)}"
+          # shellcheck disable=SC2086 # one argument per image
+          [ -z "$built" ] || docker image rm $built
       - if: '!cancelled() && needs.changes.outputs.quickstart == ''true'''
         name: Nothing pulled from Docker Hub
         run: .github/scripts/assert-no-docker-hub-images.sh docker
