@@ -1,15 +1,13 @@
 import { parseArgs } from "node:util";
-import * as schema from "@werft-ai/db";
 import {
   type RestoreExecutionResult,
   type RevokeExecutionResult,
   restoreExecutionAtomic,
   revokeExecutionAtomic,
 } from "@werft-ai/db";
-import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
 import { createLogger } from "@werft-ai/observability";
 import { messageOf } from "@werft-ai/platform";
-import { drizzle } from "drizzle-orm/node-postgres";
+import { withJobDatabase } from "../job-database.ts";
 
 // The operator's execution Grant command. Alpha has no Grant
 // management API or UI (architecture.md 실행 권한 회수와 API key 회수), so
@@ -105,33 +103,29 @@ async function main(): Promise<void> {
   if (!databaseUrl) {
     throw new Error("DATABASE_URL is required");
   }
-  const pool = createEnforcedPool(
+  await withJobDatabase(
+    "grants",
     databaseUrl,
     createLogger(),
-    "grants",
-    JOB_POOL_TIMEOUTS,
+    async ({ db }) => {
+      const input = {
+        sessionId: command.sessionId,
+        reason: command.reason,
+        now: new Date(),
+      };
+      const result =
+        command.command === "revoke"
+          ? await revokeExecutionAtomic(db, input)
+          : await restoreExecutionAtomic(db, input);
+      const { ok, line } = describeGrantsResult(command.sessionId, result);
+      if (ok) {
+        console.log(line);
+      } else {
+        console.error(line);
+        process.exitCode = 1;
+      }
+    },
   );
-  try {
-    const db = drizzle(pool, { schema });
-    const input = {
-      sessionId: command.sessionId,
-      reason: command.reason,
-      now: new Date(),
-    };
-    const result =
-      command.command === "revoke"
-        ? await revokeExecutionAtomic(db, input)
-        : await restoreExecutionAtomic(db, input);
-    const { ok, line } = describeGrantsResult(command.sessionId, result);
-    if (ok) {
-      console.log(line);
-    } else {
-      console.error(line);
-      process.exitCode = 1;
-    }
-  } finally {
-    await pool.end();
-  }
 }
 
 if (import.meta.main) {

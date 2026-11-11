@@ -5,11 +5,11 @@ import {
 } from "@werft-ai/contracts";
 import { Jwt } from "hono/utils/jwt";
 import type { HonoJsonWebKey } from "hono/utils/jwt/jws";
+import { providerFetch } from "./provider-fetch.ts";
 import { sameString } from "./same-string.ts";
 
 export const GOOGLE_ISSUER = "https://accounts.google.com";
 const FLOW_TTL_MS = GOOGLE_LOGIN_FLOW_TTL_MINUTES * 60 * 1000;
-const PROVIDER_TIMEOUT_MS = 10_000;
 
 export type GoogleLoginConfig = {
   clientId: string;
@@ -139,24 +139,15 @@ function randomToken(): string {
   return randomBytes(32).toString("base64url");
 }
 
-async function providerFetch(url: string, init?: RequestInit) {
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      ...init,
-      signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
-    });
-  } catch (error) {
-    throw new GoogleUnavailableError(
-      `Google sign-in provider unreachable: ${error instanceof Error ? error.name : "error"}`,
-    );
-  }
-  if (response.status >= 500) {
-    throw new GoogleUnavailableError(
-      `Google sign-in provider answered ${response.status}`,
-    );
-  }
-  return response;
+function googleFetch(url: string, init?: RequestInit): Promise<Response> {
+  return providerFetch(url, init, {
+    unreachable: (error) =>
+      new GoogleUnavailableError(
+        `Google sign-in provider unreachable: ${error instanceof Error ? error.name : "error"}`,
+      ),
+    answered: (status) =>
+      new GoogleUnavailableError(`Google sign-in provider answered ${status}`),
+  });
 }
 
 export interface GoogleLogin {
@@ -177,7 +168,7 @@ export function createGoogleLogin(
   let discovery: Promise<Discovery> | undefined;
   const discover = () => {
     discovery ??= (async () => {
-      const response = await providerFetch(
+      const response = await googleFetch(
         `${config.issuer.replace(/\/$/, "")}/.well-known/openid-configuration`,
       );
       if (!response.ok) {
@@ -255,7 +246,7 @@ export function createGoogleLogin(
         throw new GoogleLoginInvalidError("Sign-in flow expired");
       }
       const endpoints = await discover();
-      const tokenResponse = await providerFetch(endpoints.token_endpoint, {
+      const tokenResponse = await googleFetch(endpoints.token_endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
@@ -278,7 +269,7 @@ export function createGoogleLogin(
       if (typeof idToken !== "string") {
         throw new GoogleLoginInvalidError("Token response has no id_token");
       }
-      const jwksResponse = await providerFetch(endpoints.jwks_uri);
+      const jwksResponse = await googleFetch(endpoints.jwks_uri);
       if (!jwksResponse.ok) {
         throw new GoogleUnavailableError(
           `JWKS answered ${jwksResponse.status}`,

@@ -1,8 +1,6 @@
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
-import * as schema from "@werft-ai/db";
 import { createPostgresSettingsDocumentStore } from "@werft-ai/db";
-import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
 import { createLogger } from "@werft-ai/observability";
 import {
   messageOf,
@@ -13,7 +11,7 @@ import {
   settingsDocumentDigest,
   settingsDocumentOf,
 } from "@werft-ai/platform";
-import { drizzle } from "drizzle-orm/node-postgres";
+import { withJobDatabase } from "../job-database.ts";
 import {
   dirIsEmpty,
   PLATFORM_FILE,
@@ -236,28 +234,24 @@ async function main(): Promise<void> {
   const command = parseSettingsCommand(Bun.argv.slice(2));
   const databaseUrl = Bun.env.DATABASE_URL;
   if (!databaseUrl) throw new Error("DATABASE_URL is required");
-  const pool = createEnforcedPool(
+  await withJobDatabase(
+    "settings",
     databaseUrl,
     createLogger(),
-    "settings",
-    JOB_POOL_TIMEOUTS,
+    async ({ db }) => {
+      const ok = await runSettingsCommand(
+        command,
+        {
+          settings: createPostgresSettingsDocumentStore(db),
+        },
+        {
+          out: (line) => process.stdout.write(`${line}\n`),
+          err: (line) => process.stderr.write(`${line}\n`),
+        },
+      );
+      if (!ok) process.exitCode = 1;
+    },
   );
-  try {
-    const db = drizzle(pool, { schema });
-    const ok = await runSettingsCommand(
-      command,
-      {
-        settings: createPostgresSettingsDocumentStore(db),
-      },
-      {
-        out: (line) => process.stdout.write(`${line}\n`),
-        err: (line) => process.stderr.write(`${line}\n`),
-      },
-    );
-    if (!ok) process.exitCode = 1;
-  } finally {
-    await pool.end();
-  }
 }
 
 if (import.meta.main) {

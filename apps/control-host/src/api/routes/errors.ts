@@ -2,8 +2,10 @@ import {
   type ApiErrorCode,
   githubRefusalStatus,
   idempotencyKeySchema,
+  sessionIdParamsSchema,
 } from "@werft-ai/contracts";
 import {
+  type Caller,
   InvalidCursorError,
   type PushActor,
   SessionServiceError,
@@ -11,7 +13,14 @@ import {
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { z } from "zod";
-import { type ApiEnvironment, ApiHttpError } from "../app.ts";
+import {
+  type ApiEnvironment,
+  ApiHttpError,
+  type ApiRouter,
+  apiRoute,
+  jsonWithSchema,
+  parseJsonBody,
+} from "../app.ts";
 
 // The one table from a service error code to its HTTP status on the /v1
 // routes. A code missing here answers 500.
@@ -161,6 +170,31 @@ export function requireQuery<T extends z.ZodType>(
     throw new ApiHttpError(400, "BAD_REQUEST", "Query parameters are invalid");
   }
   return query.data;
+}
+
+export function sessionControlRoute<
+  Req extends z.ZodType,
+  Res extends z.ZodType,
+>(
+  router: ApiRouter,
+  operationId: Parameters<typeof apiRoute>[1],
+  requestSchema: Req,
+  responseSchema: Res,
+  call: (
+    caller: Caller,
+    sessionId: string,
+    input: { idempotencyKey: string; body: z.infer<Req> },
+  ) => Promise<z.input<Res>>,
+): void {
+  apiRoute(router, operationId, async (context) => {
+    const params = requireParams(context, sessionIdParamsSchema);
+    const key = requireIdempotencyKey(context);
+    const body = await parseJsonBody(context, requestSchema);
+    const accepted = await mapped(() =>
+      call(context.get("caller"), params.id, { idempotencyKey: key, body }),
+    );
+    return jsonWithSchema(context, responseSchema, accepted, 202);
+  });
 }
 
 export function rateLimited(retryAfterMs: number, what: string): ApiHttpError {

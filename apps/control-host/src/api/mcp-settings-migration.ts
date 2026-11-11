@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
-import * as schema from "@werft-ai/db";
 import {
   acquireMigrationLock,
   copyMcpSettingsRow,
@@ -10,16 +9,15 @@ import {
   readMcpMigrationFacts,
   revertMcpCopyRow,
 } from "@werft-ai/db";
-import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
 import { createLogger } from "@werft-ai/observability";
 import {
   type McpMigrationPlan,
   messageOf,
   planMcpSettingsMigration,
 } from "@werft-ai/platform";
-import { drizzle } from "drizzle-orm/node-postgres";
 import type { Pool } from "pg";
 import { queueDatabaseUrl } from "../database-url.ts";
+import { withJobDatabase } from "../job-database.ts";
 
 const USAGE = [
   "usage:",
@@ -270,34 +268,20 @@ export async function runMcpSettingsMigration(
   return revert(deps, say);
 }
 
-/** The database this one-time job reads and writes; nothing else is opened. */
-async function openJobDatabase(
-  name: string,
-  environment: NodeJS.ProcessEnv,
-): Promise<McpSettingsMigrationDeps> {
-  const databaseUrl = queueDatabaseUrl(environment);
-  const pool = createEnforcedPool(
-    databaseUrl,
-    createLogger({ level: "warn" }),
-    name,
-    JOB_POOL_TIMEOUTS,
-    { max: 4 },
-  );
-  return { db: drizzle(pool, { schema }), pool };
-}
-
 async function mcpSettingsMigration(
   argv: string[],
   environment: NodeJS.ProcessEnv = process.env,
   out: (line: string) => void = console.log,
 ): Promise<number> {
   parseArgs(argv);
-  const opened = await openJobDatabase("mcp-settings-migration", environment);
-  try {
-    return await runMcpSettingsMigration(argv, opened, out);
-  } finally {
-    await opened.pool.end();
-  }
+  // The database this one-time job reads and writes; nothing else is opened.
+  return withJobDatabase(
+    "mcp-settings-migration",
+    queueDatabaseUrl(environment),
+    createLogger({ level: "warn" }),
+    (opened) => runMcpSettingsMigration(argv, opened, out),
+    { max: 4 },
+  );
 }
 
 if (import.meta.main) {
