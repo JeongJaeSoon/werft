@@ -1,5 +1,6 @@
 import type { Folder, Node, Root } from "fumadocs-core/page-tree";
 import type { Locale } from "./i18n";
+import { SECTION_DEPLOY, SECTION_USE } from "./sidebar-sections";
 
 export interface SidebarLabels {
   use: string;
@@ -37,7 +38,7 @@ export const sidebarLabels: Record<Locale, SidebarLabels> = {
   },
 };
 
-// Each top-level content entry belongs to one of two tabs. The files and URLs
+// Each top-level content entry belongs to one of two sections. The files and URLs
 // stay where they are; only the tree the sidebar shows is rebuilt.
 const HOME = ["index"];
 const FEATURES = [
@@ -112,7 +113,7 @@ function sectionsToFolders(children: Node[]): Node[] {
   return out;
 }
 
-/** Splits the content tree into the two tabs, "use" and "deploy". */
+/** Splits the content tree into two separator-headed sections, "use" and "deploy". */
 export function buildSidebarTree(tree: Root, labels: SidebarLabels): Root {
   const top = new Map<string, Node[]>();
   for (const node of tree.children) {
@@ -129,29 +130,19 @@ export function buildSidebarTree(tree: Root, labels: SidebarLabels): Root {
   const selfHosting = runServer.find((n): n is Folder => n.type === "folder");
   const observability = pick(["observability"]).find((n) => n.type === "page");
 
-  // Fumadocs compares `$id` to find the active tab; without one every
-  // folder without an id would match every tab.
-  const use: Folder = {
-    type: "folder",
-    $id: "tab:use",
-    name: labels.use,
-    root: true,
-    // A tab's link is its first direct page child, so the home page stays
-    // outside the groups.
-    children: [
-      ...pick(HOME),
-      group(labels.start, [
-        ...pick(["getting-started"]).flatMap(flatten),
-        ...trialServer,
-      ]),
-      group(labels.features, pick(FEATURES)),
-      ...pick(UI),
-      group(labels.reference, pick(REFERENCE).flatMap(flatten)),
-    ],
-  };
+  const use: Node[] = [
+    ...pick(HOME),
+    group(labels.start, [
+      ...pick(["getting-started"]).flatMap(flatten),
+      ...trialServer,
+    ]),
+    group(labels.features, pick(FEATURES)),
+    ...pick(UI),
+    group(labels.reference, pick(REFERENCE).flatMap(flatten)),
+  ];
 
   const sections = sectionsToFolders(selfHosting?.children ?? []);
-  // Observability is documented under "use"; the deploy tab only links to it.
+  // Observability is documented under "use"; the deploy section only links to it.
   // The fourth section is "operations"; the meta's leading `index` is a plain
   // child here, so it is not counted.
   const metrics = sections.filter((n) => n.type === "folder")[3];
@@ -162,15 +153,21 @@ export function buildSidebarTree(tree: Root, labels: SidebarLabels): Root {
       url: observability.url,
     });
   }
-  const deploy: Folder = {
-    type: "folder",
-    $id: "tab:deploy",
-    name: labels.deploy,
-    root: true,
-    children: [...(selfHosting?.index ? [selfHosting.index] : []), ...sections],
-  };
+  const deploy: Node[] = [
+    ...(selfHosting?.index ? [selfHosting.index] : []),
+    ...sections,
+  ];
 
-  // The contributing guide is reached from the header link, not a tab; it
-  // stays in the tree so the llms index and page navigation still list it.
-  return { ...tree, children: [use, deploy, ...pick(["contributing"])] };
+  // The contributing guide is reached from the header link only; the layout
+  // drops it from the sidebar, but it stays here so the llms index lists it.
+  return {
+    ...tree,
+    children: [
+      { type: "separator", $id: SECTION_USE, name: labels.use },
+      ...use,
+      { type: "separator", $id: SECTION_DEPLOY, name: labels.deploy },
+      ...deploy,
+      ...pick(["contributing"]),
+    ],
+  };
 }

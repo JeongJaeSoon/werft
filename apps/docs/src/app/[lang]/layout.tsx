@@ -4,6 +4,7 @@ import { Languages } from "lucide-react";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { Provider } from "@/components/provider";
+import { SidebarSectionSeparator } from "@/components/sidebar-separator";
 import { isLocale, messages } from "@/lib/i18n";
 import { baseOptions } from "@/lib/layout.shared";
 import { appName } from "@/lib/shared";
@@ -38,16 +39,23 @@ export default async function Layout({ children, params }: Props) {
   }
 
   const { nav, ...base } = baseOptions(lang);
+  const tree = source.getPageTree(lang);
+  // The contributing guide is the header link's; the sidebar leaves it out.
+  const contributing = `/${lang}/contributing`;
+  const sidebarTree = {
+    ...tree,
+    children: tree.children.filter(
+      (node) => !(node.type === "page" && node.url === contributing),
+    ),
+  };
   return (
     <html lang={lang} suppressHydrationWarning>
       <body className="flex min-h-screen flex-col">
         <Provider lang={lang}>
           <DocsLayout
-            tree={source.getPageTree(lang)}
+            tree={sidebarTree}
             {...base}
-            // The tabs are a dropdown atop the sidebar, not a second header row;
-            // the home page cards lead to both.
-            tabMode="sidebar"
+            sidebar={{ components: { Separator: SidebarSectionSeparator } }}
             nav={{
               ...nav,
               mode: "top",
