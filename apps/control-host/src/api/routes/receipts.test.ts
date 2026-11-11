@@ -342,6 +342,24 @@ describe("GET /v1/receipts/{id}", () => {
         )
       ).text();
       expect(pushed).not.toContain("rel-hidden");
+
+      const byKey: Receipt = {
+        ...push,
+        result: {
+          approved_by: {
+            principal: { kind: "api_key", id: "key" },
+            actor_user_id: null,
+            agent_id: HIDDEN,
+          },
+        },
+      };
+      const keyed = await (
+        await get(
+          app(async () => byKey, hiding([HIDDEN])),
+          byKey.id,
+        )
+      ).text();
+      expect(keyed).not.toContain(HIDDEN);
     });
 
     test("a receipt that names no agent is not looked up", async () => {

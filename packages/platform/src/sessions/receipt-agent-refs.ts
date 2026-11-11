@@ -65,9 +65,16 @@ export const RECEIPT_AGENT_REFS: Partial<Record<ReceiptOperation, AgentRefs>> =
       target: "agent",
       agents: ["before.agents", "after.agents"],
     },
-    // A push the agent's own policy approved names the release that decided.
-    resolve_push: { releases: ["approved_by.agent_release_id"] },
-    push: { releases: ["approved_by.agent_release_id"] },
+    // `approved_by` is the policy that approved (its release) or the actor
+    // that did (an agent key's agent).
+    resolve_push: {
+      agents: ["approved_by.agent_id"],
+      releases: ["approved_by.agent_release_id"],
+    },
+    push: {
+      agents: ["approved_by.agent_id"],
+      releases: ["approved_by.agent_release_id"],
+    },
     // An extension on one agent (the bundle's own receipts carry no agent).
     attach_extension: { target: "agent" },
     detach_extension: { target: "agent" },
