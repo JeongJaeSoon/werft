@@ -22,7 +22,7 @@ Kubernetes 설치는 `scripts/test-ops.sh`를 쓰지 않는다. 같은 일을 �
 
 ## object store
 
-2026-09-25 사용자 결정으로 AWS 계정은 아직 쓰지 않는다. 그래서 기본값은 LocalStack이다. 배포할 때 `TEST_OPS_OBJECT_STORE`로 고른다.
+기본값은 LocalStack이라 AWS 계정이 없어도 된다. 배포할 때 `TEST_OPS_OBJECT_STORE`로 고른다.
 
 | 값 | 저장소 | compose layer |
 |---|---|---|

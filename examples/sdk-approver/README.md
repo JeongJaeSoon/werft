@@ -1,6 +1,6 @@
 # SDK 세션 샘플
 
-`src/session-close.ts`는 FAKE 모델로 세션 생성 → SSE 타임라인 → 메시지 전송 → 권한 요청 답변 → 결과 읽기 → 종료 receipt 확인을 실행하는 작은 CLI다. 새 앱 대신 기존 예제를 확장했다.
+`src/session-close.ts`는 FAKE 모델로 세션 생성 → SSE 타임라인 → 메시지 전송 → 권한 요청 답변 → 결과 읽기 → 종료 receipt 확인을 실행하는 작은 CLI다.
 
 ## 준비
 

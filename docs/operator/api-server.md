@@ -250,11 +250,11 @@ github.com의 비공개 저장소로 확인하는 절차다. `scripts/local.sh u
 
 ### 에이전트 세션의 저장소 목록: 시작 뒤에 켠 저장소와 `revoked`
 
-에이전트 설정에서 시작하는 세션(`github_policy_source = 'agent'`)은 시작할 때 저장소 목록의 스냅샷을 남긴다. 예전에는 판정이 스냅샷과 지금 저장된 목록의 교집합이어서, 에이전트가 세션이 시작된 뒤에 켠 저장소는 세션이 `attach_repository`로 붙일 수 없었다. 이제 세션이 자기 붙인 목록(`attached_repository_ids`)을 가진 경우에만(NULL이 아닌 배열이면, 빈 배열도 포함) 목록 칸에서 스냅샷 교집합을 뺀다. 지금 저장된 목록이 그대로 기준이 된다.
+에이전트 설정에서 시작하는 세션(`github_policy_source = 'agent'`)은 시작할 때 저장소 목록의 스냅샷을 남긴다. 세션이 자기 붙인 목록(`attached_repository_ids`)을 가진 경우에만(NULL이 아닌 배열이면, 빈 배열도 포함) 저장소 목록은 스냅샷과 교차하지 않고, 지금 저장된 목록이 그대로 기준이 된다. 그래서 에이전트가 세션이 시작된 뒤에 켠 저장소도 세션이 `attach_repository`로 붙일 수 있다.
 
 - 풀리는 것은 저장소 목록뿐이다. 기능 스위치, push 승인, 첨부 저장소 push 정책, Actions 허용 목록은 시작 스냅샷과 지금 값 중 더 엄격한 쪽 그대로다. 위 "push 규칙" 절도 그대로 모든 저장소에 적용된다.
-- `attached_repository_ids`가 NULL인 세션(붙인 저장소가 없는 세션과, 빈 목록을 NULL로 저장하던 옛 행)과 release에서 시작한 세션은 이전과 같이 교집합 또는 pin을 따른다. 워크스페이스 상한, GitHub 스위치, 저장소 카탈로그 검사는 그대로다.
-- 에이전트가 저장소를 목록에서 빼거나 스위치를 끄면 그 저장소는 attach·gate·push intent 실행에서 거절되고, 붙인 저장소의 push 요청도 거절된다(세션 주 저장소는 attach 호출이 정책 검사 없이 이미 붙은 것으로 답하고, push 요청도 요청 시점에 목록을 다시 보지 않는다. 주 저장소의 실제 GitHub 접근은 gate가 막는다. 이 부분은 이번에 바뀌지 않았다). `list_repositories`는 예전에 붙였지만 지금은 허용되지 않는 저장소를 `revoked`로 보이고, 세션의 주 저장소가 허용되지 않게 되면 그것도 `revoked`로 보인다. 작업 공간 디렉터리, 붙인 목록, 이미 만든 push 요청은 지우거나 회수하지 않는다. 다시 켜면 그대로 되살아난다. 끝나지 않은 fetch(`pending`·`failed`)는 자기 상태를 유지한다.
+- `attached_repository_ids`가 NULL인 세션(붙인 저장소가 없는 세션과, 빈 목록을 NULL로 저장하던 옛 행)과 release에서 시작한 세션은 교집합 또는 pin을 따른다. 워크스페이스 상한, GitHub 스위치, 저장소 카탈로그 검사는 그대로다.
+- 에이전트가 저장소를 목록에서 빼거나 스위치를 끄면 그 저장소는 attach·gate·push intent 실행에서 거절되고, 붙인 저장소의 push 요청도 거절된다(세션 주 저장소는 attach 호출이 정책 검사 없이 이미 붙은 것으로 답하고, push 요청도 요청 시점에 목록을 다시 보지 않는다. 주 저장소의 실제 GitHub 접근은 gate가 막는다). `list_repositories`는 예전에 붙였지만 지금은 허용되지 않는 저장소를 `revoked`로 보이고, 세션의 주 저장소가 허용되지 않게 되면 그것도 `revoked`로 보인다. 작업 공간 디렉터리, 붙인 목록, 이미 만든 push 요청은 지우거나 회수하지 않는다. 다시 켜면 그대로 되살아난다. 끝나지 않은 fetch(`pending`·`failed`)는 자기 상태를 유지한다.
 - 이행할 데이터는 없다. 영향을 받는 세션을 세려면 읽기 전용으로 `SELECT status, count(*) FROM sessions WHERE github_policy_source = 'agent' AND attached_repository_ids IS NOT NULL AND status NOT IN ('failed', 'stopped') GROUP BY status`를 쓴다. 이 세션들은 이후 에이전트가 새로 켠 저장소를 붙일 수 있게 된다.
 
 **이전 이미지로 롤백해도 안전하다(fail-closed).** 이전 이미지의 `effectiveGitHubPolicy`(`packages/contracts/src/kollegium/agents.ts`)는 시작 스냅샷과 지금 저장된 설정을 `meetGitHubSettings`로 교차해서, 시작 뒤에 켠 저장소를 여전히 거절한다. 새로 켠 저장소가 열린 채 남는 일이 없다. 달라지는 것은 이전 이미지의 `list_repositories`가 `revoked`를 아예 내지 않는다는 것(이 상태는 이번에 처음 나온다)과, 시작 뒤에 켠 저장소를 붙일 수 없다는 것뿐이다. 혼합 구간에서도 새 replica가 연 저장소를 구 replica가 거절할 뿐 구 replica가 더 열어 주는 일은 없으므로, 위 "교체 절차"처럼 replica를 먼저 멈출 필요가 없다.
@@ -416,7 +416,7 @@ EGRESS_PRIVATE_ALLOWLIST=api:3000,host.docker.internal:3000,api:4319
 - 테넌트 헤더를 설정하지 않은 단일 테넌트 설치에서는 모든 워크스페이스의 트레이스가 한 곳에 모인다. 백엔드 UI 접근을 운영자에게만 준다.
 - 내용(프롬프트·답변·도구 입출력)은 `TRACE_CONTENT_MODE=full`일 때 수집기로 간다. 워크스페이스별 content mode는 아직 없고 설치 상한만 적용된다(나중 단위에서 더한다). 내용을 내보내지 않으려면 `metadata`로 둔다.
 
-데이터 흐름(무엇이 어떤 경로로 어디까지 가는지)을 따로 적은 `docs/observability.md`는 이 저장소에 아직 없다. 생기면 여기서 링크만 건다.
+세션 데이터가 `events` 표로 흐르는 길, 비밀값 마스킹, 예제 OTLP 수집기는 [세션 데이터가 흐르는 길](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/session-data-flow/)에 있다.
 
 `OTEL_*` 키는 worker와 엔진에 넘어가지 않는다. worker는 bootstrap claim의 `telemetry`(`enabled`, `ingest_url`, `content_mode`, `content_max_bytes`, `sampler`, `sampler_arg`)와 `nextInput`의 `content_mode`로만 설정을 받는다. 수집기 호스트가 `EGRESS_PRIVATE_ALLOWLIST`나 `EGRESS_ALLOWLIST`에 있으면 api가 시작할 때 경고를 한 번 남긴다.
 
@@ -1016,7 +1016,7 @@ printf '{"value":"%s"}' "$(cat ~/.config/werft/slack-config-token)" |
 - 통과하면 이 순서다: bot token을 `slack_app:<id>/slack_bot_token`에 저장하고 `slack_apps.bot_token_ref`를 채운다 → 그 token으로 `auth.test`·`bots.info`를 불러 app·team을 다시 확인한다 → 설치 행을 등록·확인한다 → `agent_identities`에 연결한다(`credential_ref`는 bot token의 이름 `slack_app:<id>/slack_bot_token`, `link_agent_identity` receipt). 같은 설치가 다른 workspace에 있으면 `409 SLACK_INSTALL_CONFLICT`, 앱이 다른 에이전트에 연결돼 있으면 `409 AGENT_IDENTITY_TAKEN`이다.
 - bot token을 저장한 뒤의 모든 거절(`auth.test`·`bots.info` 불일치나 무응답, `SLACK_INSTALL_CONFLICT`, `AGENT_IDENTITY_TAKEN`, `CREDENTIAL_REF_IN_USE`, `REVISION_CONFLICT`, 보관된 에이전트, 그 사이 권한을 잃은 사람의 `403` 등)에는 저장한 token이 남고, 설치를 등록한 뒤의 거절이면 확인된 설치 행도 남는다. 그래서 `secrets.slack_bot_token.configured`는 설치됐다는 뜻이 아니다. 설치됐는지는 에이전트의 `slack_bot` 신원으로 본다. 원인을 고친 뒤 start부터 다시 하면 token이 바뀐다.
 - 다시 설치하면 bot token이 새 버전으로 바뀌고 설치 행·연결은 그대로 하나다(`receipt_id: null`).
-- 끝나면 마무리 단계(`SlackInstallFinalize`)를 한 번 부른다. 지금은 ① 이벤트 연결뿐이다(아래 "Slack 이벤트 수신"). 환영 메시지는 뒤 티켓이다. 마무리가 실패하거나 https 이벤트 주소를 알 수 없으면(`CONSOLE_ORIGIN`이 없거나 https가 아니고 `SLACK_EVENTS_PUBLIC_URL`도 없음) 설치는 남고 `finalized: false`다. 이유는 `warnings`(`events_url_unset`, `reinstall_required`, 단계가 실패하면 `finalize_failed`)에 온다.
+- 끝나면 마무리 단계(`SlackInstallFinalize`)를 한 번 부른다. ① 이벤트 연결(아래 "Slack 이벤트 수신"), ② 채널 참가와 환영([채널 참가와 배포 환영](#채널-참가와-배포-환영)) 순서다. 마무리가 실패하거나 https 이벤트 주소를 알 수 없으면(`CONSOLE_ORIGIN`이 없거나 https가 아니고 `SLACK_EVENTS_PUBLIC_URL`도 없음) 설치는 남고 `finalized: false`다. 이유는 `warnings`(`events_url_unset`, `reinstall_required`, 단계가 실패하면 `finalize_failed`)에 온다.
 - complete 응답에는 `Referrer-Policy: no-referrer`가 붙는다. bot token·code·state는 응답·로그·오류·receipt에 나오지 않는다. 로그는 `Slack app installed`와 id만 남긴다.
 
 **Slack 이벤트 수신**
