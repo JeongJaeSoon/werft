@@ -530,6 +530,45 @@ integration("agent caller limits on PostgreSQL", () => {
     expect((await limits().get(owner.ownerId, agentId))?.revision).toBe(3);
   });
 
+  test("channel ids that differ only by case are two targets: moving an allowance to one adds it there", async () => {
+    const { agentId, owner } = await cast();
+    const gone = `repo-gone-${randomUUID().slice(0, 8)}`;
+    const live = `repo-live-${randomUUID().slice(0, 8)}`;
+    await catalogRepository(live);
+    await catalogRepository(gone);
+    await put(
+      owner,
+      agentId,
+      [rule({ kind: "channel", id: "C1" }, { repositories: [gone] })],
+      1,
+    );
+    await pool.query(
+      "UPDATE catalog_repositories SET removed_at = now() WHERE id = $1",
+      [gone],
+    );
+    // Same id, other case: a new target, so the dropped id counts as added.
+    expect(
+      await put(
+        owner,
+        agentId,
+        [rule({ kind: "channel", id: "c1" }, { repositories: [gone] })],
+        2,
+      ),
+    ).toEqual({ outcome: "repository_not_in_catalog", repositoryIds: [gone] });
+    // Both stay as two rules, each keeping what it holds.
+    const both = await put(
+      owner,
+      agentId,
+      [
+        rule({ kind: "channel", id: "C1" }, { repositories: [gone] }),
+        rule({ kind: "channel", id: "c1" }, { repositories: [live] }),
+      ],
+      2,
+    );
+    expect(both).toMatchObject({ outcome: "set", limits: { revision: 3 } });
+    expect(both.outcome === "set" && both.limits.rules).toHaveLength(2);
+  });
+
   test("an edit leaves a person's rule as it is, and the reader sees it", async () => {
     const { agentId, owner, workspaceId, managing } = await cast();
     await pool.query(

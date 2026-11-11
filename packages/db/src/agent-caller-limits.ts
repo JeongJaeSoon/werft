@@ -56,10 +56,10 @@ function ruleOf(row: Row): CallerLimitRuleFacts {
 
 const KIND_ORDER = { workspace: 0, team: 1, channel: 2, user: 3 } as const;
 
+// A channel id is stored as sent and Slack's differ by case; only a uuid is lowered.
 function keyOf(target: CallerLimitRuleFacts["target"]): string {
-  return target.kind === "workspace"
-    ? "workspace"
-    : `${target.kind}:${target.id.toLowerCase()}`;
+  if (target.kind === "workspace") return "workspace";
+  return `${target.kind}:${target.kind === "channel" ? target.id : target.id.toLowerCase()}`;
 }
 
 function inOrder(rules: CallerLimitRuleFacts[]): CallerLimitRuleFacts[] {

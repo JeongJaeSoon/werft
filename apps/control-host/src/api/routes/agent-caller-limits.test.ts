@@ -174,6 +174,35 @@ describe("PUT /v1/agents/{id}/caller-limits", () => {
     ).toBe(413);
   });
 
+  test("channel ids that differ only by case are two targets; team ids are not", async () => {
+    const reached: unknown[] = [];
+    const api = app({
+      putAgentCallerLimits: async (_caller, _agent, request) => {
+        reached.push(request);
+        return { limits: { rules: [], revision: 3 }, receipt_id: null };
+      },
+    });
+    const channels = {
+      rules: [
+        rule({ target: { kind: "channel", id: "C1" } }),
+        rule({ target: { kind: "channel", id: "c1" } }),
+      ],
+    };
+    expect((await call(api, "PUT", channels, { "If-Match": "2" })).status).toBe(
+      200,
+    );
+    const teams = {
+      rules: [
+        rule({ target: { kind: "team", id: TEAM } }),
+        rule({ target: { kind: "team", id: TEAM.toUpperCase() } }),
+      ],
+    };
+    expect((await call(api, "PUT", teams, { "If-Match": "2" })).status).toBe(
+      400,
+    );
+    expect(reached).toHaveLength(1);
+  });
+
   test("an empty set is a valid replacement", async () => {
     const put = await call(
       app({

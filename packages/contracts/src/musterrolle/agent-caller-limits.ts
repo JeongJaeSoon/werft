@@ -74,10 +74,13 @@ export const putAgentCallerLimitsRequestSchema = z
   })
   .strict()
   .superRefine((request, ctx) => {
+    // A channel id is kept as sent (Slack's differ by case); a uuid is lowered.
     const keys = request.rules.map((rule) =>
       rule.target.kind === "workspace"
         ? "workspace"
-        : `${rule.target.kind}:${rule.target.id.toLowerCase()}`,
+        : rule.target.kind === "channel"
+          ? `channel:${rule.target.id}`
+          : `team:${rule.target.id.toLowerCase()}`,
     );
     if (new Set(keys).size !== keys.length) {
       ctx.addIssue({
