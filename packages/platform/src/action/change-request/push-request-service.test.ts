@@ -24,10 +24,8 @@ import type {
   PushRefusalRecord,
   PushRequestStore,
 } from "../ports/push-requests.ts";
-import {
-  createPushRequestService,
-  mayDecidePush,
-} from "./push-request-service.ts";
+import { mayDecidePush } from "./push-decision.ts";
+import { createPushRequestService } from "./push-request-service.ts";
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
 const PUSH = "22222222-2222-4222-8222-222222222222";
