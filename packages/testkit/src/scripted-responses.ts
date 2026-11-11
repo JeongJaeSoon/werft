@@ -85,12 +85,29 @@ function toolNames(body: ResponsesRequest): string[] {
   });
 }
 
-/** `mcp__github__request_push` is the model's `request_push` in the `mcp__github` namespace. */
-function mcpCall(tool: string): { name: string; namespace?: string } {
-  const match = /^(mcp__.+?)__(.+)$/.exec(tool);
-  return match === null
-    ? { name: tool }
-    : { namespace: match[1] as string, name: match[2] as string };
+/**
+ * `mcp__github__request_push` is the model's `request_push` in the
+ * `mcp__github` namespace. The split is read off the namespaces the request
+ * offered, so a server id that ends in `_` cannot be cut at the wrong `__`.
+ */
+function mcpCall(
+  tool: string,
+  body: ResponsesRequest,
+): { name: string; namespace?: string } {
+  for (const entry of body.tools ?? []) {
+    const { name, tools } = entry as { name?: unknown; tools?: unknown };
+    if (typeof name !== "string" || !Array.isArray(tools)) continue;
+    const rest = tool.startsWith(`${name}__`)
+      ? tool.slice(name.length + 2)
+      : undefined;
+    if (
+      rest !== undefined &&
+      tools.some((child) => (child as { name?: unknown }).name === rest)
+    ) {
+      return { namespace: name, name: rest };
+    }
+  }
+  return { name: tool };
 }
 
 function outputTexts(items: readonly Item[]): string[] {
@@ -140,7 +157,7 @@ export function replyFor(
           toolCalls: [
             {
               callId: `call_gate_${spec.id}_${step}`,
-              ...mcpCall(next.tool),
+              ...mcpCall(next.tool, body),
               arguments: JSON.stringify(next.input),
             },
           ],

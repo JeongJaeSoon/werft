@@ -15,6 +15,8 @@ export async function pushAgent(
   env: E2eEnv,
   name: string,
 ): Promise<PushAgent> {
+  // A stack kept between runs still holds the earlier team and agent.
+  const unique = `${name}-${crypto.randomUUID().slice(0, 6)}`;
   const token = process.env.E2E_BOOTSTRAP_TOKEN;
   if (!token) throw new Error("E2E_BOOTSTRAP_TOKEN is unset");
   const cookie = await firstOwnerCookie(env.apiUrl, token);
@@ -43,14 +45,14 @@ export async function pushAgent(
   };
 
   const team = await web<{ team: { id: string } }>("POST", "/v1/teams", {
-    name,
+    name: unique,
   });
   const agent = await web<{
     agent: { id: string };
     versions: { id: string }[];
   }>("POST", "/v1/agents", {
-    slug: name,
-    name,
+    slug: unique,
+    name: unique,
     managing_team_id: team.body.team.id,
     card: {
       role: "conformance push agent",

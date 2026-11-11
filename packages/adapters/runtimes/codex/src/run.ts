@@ -416,6 +416,8 @@ export class CodexRun implements AgentRun {
     const deadline = Date.now() + MCP_STARTUP_TIMEOUT_MS;
     for (const name of names) {
       for (;;) {
+        if (this.closing)
+          throw new Error("The run ended before its MCP servers started");
         const state = this.mcpStartup.get(name);
         if (state?.status === "ready") break;
         if (state?.status === "failed" || state?.status === "cancelled") {
@@ -430,9 +432,15 @@ export class CodexRun implements AgentRun {
           );
         }
         await new Promise<void>((resolve) => {
-          this.mcpStartupChanged = resolve;
-          setTimeout(resolve, left).unref?.();
+          const timer = setTimeout(done, left);
+          function done() {
+            clearTimeout(timer);
+            resolve();
+          }
+          this.mcpStartupChanged = done;
+          this.stop.signal.addEventListener("abort", done, { once: true });
         });
+        this.mcpStartupChanged = undefined;
       }
     }
   }

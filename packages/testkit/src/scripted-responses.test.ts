@@ -102,6 +102,29 @@ describe("scripted Responses API", () => {
     expect(recorded[1]?.outputs).toEqual(["ok"]);
   });
 
+  test("a server id ending in an underscore keeps its namespace whole", async () => {
+    const prompt = user(
+      spec({
+        id: "u",
+        steps: [{ tool: "mcp__foo___bar", input: {} }],
+        final: "done",
+      }),
+    );
+    const offered = [
+      ...tools,
+      {
+        type: "namespace",
+        name: "mcp__foo_",
+        tools: [{ type: "function", name: "bar" }],
+      },
+    ];
+    const reply = await replyFor({ input: [prompt], tools: offered }, []);
+    expect(reply.toolCalls?.[0]).toMatchObject({
+      namespace: "mcp__foo_",
+      name: "bar",
+    });
+  });
+
   test("a request without tools never reads the spec", async () => {
     const recorded: ScriptedCall[] = [];
     const reply = await replyFor(

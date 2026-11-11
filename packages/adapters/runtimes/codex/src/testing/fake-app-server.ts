@@ -38,7 +38,7 @@ export class FakeAppServer implements AppServerTransport {
       this.settle = resolve;
     });
     this.on("initialize", () => ({ userAgent: "fake" }));
-    this.on("thread/start", () => {
+    const startServers = () => {
       for (const [name, end] of Object.entries(mcp)) {
         this.emit("mcpServer/startupStatus/updated", {
           name,
@@ -55,9 +55,15 @@ export class FakeAppServer implements AppServerTransport {
           });
         }, 0);
       }
+    };
+    this.on("thread/start", () => {
+      startServers();
       return { thread: { id: threadId } };
     });
-    this.on("thread/resume", (params) => ({ thread: { id: params.threadId } }));
+    this.on("thread/resume", (params) => {
+      startServers();
+      return { thread: { id: params.threadId } };
+    });
     this.on("thread/read", () => ({ thread: { id: threadId } }));
     this.on("turn/start", () => ({ turn: { id: "turn-1" } }));
     this.on("turn/interrupt", () => ({}));

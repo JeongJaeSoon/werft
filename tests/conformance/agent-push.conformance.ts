@@ -20,9 +20,7 @@ const WATCH_INTERVAL_MS = 500;
 
 type PushRequest = { git_commit: string; id: string; state: string };
 
-async function agentPushed(
-  name: string,
-): Promise<{
+async function agentPushed(name: string): Promise<{
   agent: PushAgent;
   content: string;
   file: string;
