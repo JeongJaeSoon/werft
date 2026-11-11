@@ -12,7 +12,7 @@ on:
         type: choice
         required: false
         default: all
-        options: [all, check, integration, workspace-quota, e2e, quickstart, helm-chart, k8s-smoke, agent-sdk-compat, docs, demo, ui-pack, sdk-pack-smoke]
+        options: [all, check, integration, workspace-quota, e2e, conformance, quickstart, helm-chart, k8s-smoke, agent-sdk-compat, docs, demo, ui-pack, sdk-pack-smoke]
       allow_parallel:
         description: 'Allow independent parallel manual runs for deliberate flake testing (uses extra minutes)'
         type: boolean
@@ -356,6 +356,7 @@ jobs:
               - packages/testkit/src/fake-github.
               - packages/testkit/src/fake-responses.
               - packages/testkit/src/scripted-messages.
+              - packages/testkit/src/scripted-responses.
               - packages/testkit/src/workspace.
               - tests/agent-sdk-compat/
               - tests/architecture.
@@ -587,7 +588,7 @@ jobs:
 
   # Heavy jobs stay cancellable; this required gate rejects missing or cancelled results.
   integration:
-    needs: [changes, integration-domain, e2e, quickstart]
+    needs: [changes, integration-domain, e2e, conformance, quickstart]
     if: >-
       always()
       && contains(fromJSON('["all","integration"]'), github.event.inputs.only || 'all')
@@ -599,6 +600,7 @@ jobs:
         env:
           RESULT: ${{ needs.integration-domain.result }}
           E2E: ${{ needs.e2e.result }}
+          CONFORMANCE: ${{ needs.conformance.result }}
           QUICKSTART: ${{ needs.quickstart.result }}
           EVENT: ${{ github.event_name }}
           ONLY: ${{ github.event.inputs.only || 'all' }}
@@ -607,9 +609,9 @@ jobs:
           DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
         run: |
           [ "$PLAN" = success ] || exit 1
-          case "$EVENT:$ONLY:$E2E:$QUICKSTART" in
-            pull_request:all:success:success | push:all:success:success | workflow_dispatch:all:success:success) ;;
-            workflow_dispatch:integration:skipped:skipped) ;;
+          case "$EVENT:$ONLY:$E2E:$CONFORMANCE:$QUICKSTART" in
+            pull_request:all:success:success:success | push:all:success:success:success | workflow_dispatch:all:success:success:success) ;;
+            workflow_dispatch:integration:skipped:skipped:skipped) ;;
             *) echo "::error::required scenario or guide jobs did not pass"; exit 1 ;;
           esac
           case "$TESTS:$DOCS_ONLY:$RESULT" in
@@ -918,6 +920,80 @@ jobs:
             true:false:success) echo "e2e: scenario passed" ;;
             false:true:skipped) echo "e2e: intentionally omitted for documentation-only inputs" ;;
             *) echo "::error::required e2e scenario did not pass"; exit 1 ;;
+          esac
+      - id: cancelled
+        if: cancelled()
+        run: |
+          echo "::error::workflow was cancelled"
+          exit 1
+
+  # The engine-parametrized conformance suite (tests/conformance): the same
+  # scenarios on each runtime engine's own worker image and fake provider.
+  # The two engines run in parallel as matrix entries rather than one after
+  # the other in a single job.
+  conformance:
+    name: conformance (${{ matrix.engine }})
+    needs: changes
+    if: >-
+      !cancelled()
+      && contains(fromJSON('["all","conformance"]'), github.event.inputs.only || 'all')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [claude_agent_sdk, codex_app_server]
+    steps:
+      - name: Validate product test plan
+        if: '!cancelled()'
+        env:
+          PLAN: ${{ needs.changes.result }}
+          PRODUCT: ${{ needs.changes.outputs.product }}
+          DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
+        run: |
+          [ "$PLAN" = success ] || exit 1
+          case "$PRODUCT:$DOCS_ONLY" in
+            true:false) echo "conformance: product inputs changed; running the suite" ;;
+            false:true) echo "conformance: documentation-only PR; product inputs unchanged" ;;
+            *) echo "::error::invalid product test plan"; exit 1 ;;
+          esac
+      - if: success() && !cancelled() && needs.changes.outputs.product == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - if: success() && !cancelled() && needs.changes.outputs.product == 'true'
+        uses: ./.github/actions/bun-setup
+      - if: success() && !cancelled() && needs.changes.outputs.product == 'true'
+        run: bun install --frozen-lockfile
+      - if: success() && !cancelled() && needs.changes.outputs.product == 'true'
+        id: scenario
+        name: Conformance suite against the compose stack
+        env:
+          E2E_COMPOSE_OVERRIDE: tests/e2e/compose.ci-mirror.yml
+          E2E_OUT: ${{ runner.temp }}/conformance
+        run: tests/e2e/run.sh --conformance ${{ matrix.engine }}
+      - if: '!cancelled() && needs.changes.outputs.product == ''true'''
+        name: Nothing pulled from Docker Hub
+        run: .github/scripts/assert-no-docker-hub-images.sh docker
+      - if: always() && needs.changes.outputs.product == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: conformance-record-${{ matrix.engine }}
+          path: ${{ runner.temp }}/conformance
+          if-no-files-found: ignore
+          retention-days: 14
+      - id: verdict
+        name: Required scenario verdict
+        if: always() && !cancelled()
+        env:
+          PLAN: ${{ needs.changes.result }}
+          PRODUCT: ${{ needs.changes.outputs.product }}
+          DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
+          SCENARIO: ${{ steps.scenario.outcome }}
+        run: |
+          [ "$PLAN" = success ] || exit 1
+          case "$PRODUCT:$DOCS_ONLY:$SCENARIO" in
+            true:false:success) echo "conformance: suite passed" ;;
+            false:true:skipped) echo "conformance: intentionally omitted for documentation-only inputs" ;;
+            *) echo "::error::required conformance suite did not pass"; exit 1 ;;
           esac
       - id: cancelled
         if: cancelled()

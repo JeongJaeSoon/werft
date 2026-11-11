@@ -30,6 +30,8 @@ export type GateSpec = {
   finalDelayMs?: number;
   id: string;
   steps: GateStep[];
+  /** Tokens each scripted reply reports; only the Responses fake reads it. */
+  usage?: { input_tokens: number; output_tokens: number };
 };
 
 type Message = { content: unknown; role: string };
@@ -115,7 +117,7 @@ export function specIdsIn(messages: readonly unknown[]): string[] {
 }
 
 /** The spec is followed by whatever the engine appends to a prompt. */
-function firstJsonObject(text: string): string {
+export function firstJsonObject(text: string): string {
   let depth = 0;
   let inString = false;
   for (let index = 0; index < text.length; index++) {

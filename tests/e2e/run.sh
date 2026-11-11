@@ -61,13 +61,30 @@ local_model=""
 # profiles from it. A model run sets the session cost limit itself, the same
 # default its overlay or compose.core.yml has, so the suite compares the
 # session's limit with what the stack was given rather than a default.
+conformance=""
+conf_files=()
 case "$*" in
   "") unset E2E_MODEL_MODE ;;
+  "--conformance claude_agent_sdk"|"--conformance codex_app_server")
+    # The engine-parametrized suite (tests/conformance) on the same stack
+    # lifecycle: one engine's worker image, its fake provider, the scripted
+    # prompts. The engine's overlay names the provider the profiles call.
+    unset E2E_MODEL_MODE
+    conformance="${2}"
+    conf_files=(-f tests/conformance/compose.yml)
+    # Low enough that one scripted reply with a large usage spends it
+    # (tests/conformance/budget.conformance.ts), high enough that the other
+    # scenarios' replies never do.
+    export SESSION_COST_LIMIT_USD="${SESSION_COST_LIMIT_USD:-0.25}"
+    if [ "$conformance" = codex_app_server ]; then
+      conf_files=(-f infra/compose.codex-worker.yml "${conf_files[@]}")
+      model_overlay=tests/conformance/compose.codex.yml
+    fi ;;
   --real-model) real_model=1; model_overlay=infra/compose.real-model.yml; export E2E_MODEL_MODE=real
     export SESSION_COST_LIMIT_USD="${SESSION_COST_LIMIT_USD:-1}" ;;
   --local-model) local_model=1; model_overlay=infra/compose.local-model.yml; export E2E_MODEL_MODE=local
     export SESSION_COST_LIMIT_USD="${SESSION_COST_LIMIT_USD:-25}" ;;
-  *) echo "usage: tests/e2e/run.sh [--real-model | --local-model]" >&2; exit 2 ;;
+  *) echo "usage: tests/e2e/run.sh [--real-model | --local-model | --conformance <runtime_kind>]" >&2; exit 2 ;;
 esac
 if [ -n "$local_model" ]; then
   tags_status=0
@@ -142,7 +159,7 @@ volume_label="${EXECUTION_VOLUME_LABEL_NAMESPACE:-werft}.installation=${EXECUTIO
 # tests/e2e/compose.ci-mirror.yml to pull from its image mirror.
 dc() {
   docker compose -p "$project" -f infra/compose.yml -f tests/e2e/compose.yml \
-    -f "$model_overlay" \
+    ${conf_files[@]+"${conf_files[@]}"} -f "$model_overlay" \
     ${E2E_COMPOSE_OVERRIDE:+-f "$E2E_COMPOSE_OVERRIDE"} --profile apps "$@"
 }
 
@@ -215,7 +232,7 @@ claude_version="$(dc logs --no-color worker 2>/dev/null | sed -n 's/.*| //p' | t
 sdk_version="$(sed -n 's/.*"@anthropic-ai\/claude-agent-sdk": "\([^"]*\)".*/\1/p' \
   packages/adapters/runtimes/claude/package.json)"
 {
-  echo "command: tests/e2e/run.sh${real_model:+ --real-model}${local_model:+ --local-model}"
+  echo "command: tests/e2e/run.sh${real_model:+ --real-model}${local_model:+ --local-model}${conformance:+ --conformance ${conformance}}"
   echo "tested_sha: ${sha} (uncommitted paths: ${dirty})"
   echo "docker_engine: ${docker_version}"
   echo "api_image: ${API_IMAGE} $(image_id "$API_IMAGE")"
@@ -239,7 +256,10 @@ sdk_version="$(sed -n 's/.*"@anthropic-ai\/claude-agent-sdk": "\([^"]*\)".*/\1/p
 
 export E2E_API_URL="http://127.0.0.1:$(dc port api 3000 | sed 's/.*://')"
 export E2E_API_KEY="$api_key"
-if [ -z "$real_model$local_model" ]; then
+if [ "$conformance" = codex_app_server ]; then
+  export E2E_RESPONSES_URL="http://127.0.0.1:$(dc port fake-responses 4031 | sed 's/.*://')"
+fi
+if [ -z "$real_model$local_model" ] && [ "$conformance" != codex_app_server ]; then
   export E2E_MESSAGES_URL="http://127.0.0.1:$(dc port fake-messages 4011 | sed 's/.*://')"
   export E2E_BOOTSTRAP_TOKEN="$BOOTSTRAP_TOKEN"
   export E2E_FAKE_MCP_URL="http://127.0.0.1:$(dc port fake-mcp 4021 | sed 's/.*://')"
@@ -248,17 +268,22 @@ if [ -z "$real_model$local_model" ]; then
     tr -d '\r\n' | shasum -a 256 | cut -d' ' -f1)"
   export E2E_FAKE_MCP_BEARER_HASH
 fi
+export CONFORMANCE_RUNTIME_KIND="$conformance"
+# Lets a scenario read this stack's container logs and no other stack's.
+export E2E_COMPOSE_PROJECT="$project"
 if [ "${E2E_UP_ONLY:-0}" = 1 ]; then
   export E2E_KEEP=1
   # Holds the API key, so only here and never in a CI artifact.
-  export -p | grep -E ' (E2E_[A-Z_]*|DOCKER_HOST|EXECUTION_INSTALLATION_ID|SESSION_COST_LIMIT_USD|[A-Z_]+_IMAGE)=' >"$out/vars.sh"
+  export -p | grep -E ' (E2E_[A-Z_]*|CONFORMANCE_RUNTIME_KIND|DOCKER_HOST|EXECUTION_INSTALLATION_ID|SESSION_COST_LIMIT_USD|[A-Z_]+_IMAGE)=' >"$out/vars.sh"
   echo "stack up: source $out/vars.sh" >&2
   exit 0
 fi
 
 echo "== tests/e2e" >&2
 set +e
-if [ -n "$real_model$local_model" ]; then
+if [ -n "$conformance" ]; then
+  suites=(./tests/conformance/*.conformance.ts)
+elif [ -n "$real_model$local_model" ]; then
   suites=(./tests/e2e/real-model.e2e.ts)
 else
   # remote-mcp and operator-profiles first: the other suites leave their
@@ -287,5 +312,23 @@ fail="$(count fail)"
     "$out/junit.xml" 2>/dev/null || true
 } | tee -a "$out/record.txt" >&2
 [ "$status" = 0 ] || exit "$status"
-[ "${skip:-0}" = 0 ] || { echo "e2e: ${skip} test(s) skipped" >&2; exit 1; }
+# The conformance suite skips a scenario an engine lacks the capability for,
+# under a name that says so (tests/conformance/engine.ts `scenario`); any
+# other skip is a missing variable or a disabled test.
+declared=0
+if [ -n "$conformance" ]; then
+  # Bun prints no `(skip)` line off a terminal; the junit file marks each
+  # skipped testcase with a <skipped> child. A declared name on a test that ran
+  # is as wrong as a skip without the name, so both are counted apart.
+  declared="$(awk '
+    /<testcase / { marked = ($0 ~ /\[declared skip: /) }
+    /<skipped/ && marked { n++ }
+    END { print n + 0 }
+  ' "$out/junit.xml")"
+  grep -o '<testcase name="[^"]*\[declared skip: [^"]*"' "$out/junit.xml" |
+    sed 's/<testcase name=/declared skip: /' | tee -a "$out/record.txt" >&2 || true
+  marked="$(grep -c '<testcase name="[^"]*\[declared skip: ' "$out/junit.xml" || true)"
+  [ "$marked" = "$declared" ] || { echo "e2e: ${marked} test(s) named as a declared skip, ${declared} skipped" >&2; exit 1; }
+fi
+[ "${skip:-0}" = "$declared" ] || { echo "e2e: ${skip} test(s) skipped, ${declared} declared" >&2; exit 1; }
 [ "${pass:-0}" -gt 0 ] || { echo "e2e: nothing passed" >&2; exit 1; }

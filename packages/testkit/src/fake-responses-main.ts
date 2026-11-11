@@ -1,4 +1,5 @@
 import { startFakeResponsesServer } from "./fake-responses.ts";
+import { planOf, replyFor, type ScriptedCall } from "./scripted-responses.ts";
 
 // The local stack's Responses API: the Codex example settings
 // (tests/fixtures/settings/fake-model-codex.json) point here, so a Codex
@@ -22,6 +23,7 @@ type Summary = {
   carriesToolOutput: boolean;
 };
 const summaries: Summary[] = [];
+const calls: ScriptedCall[] = [];
 
 function inputItems(body: Record<string, unknown>): Record<string, unknown>[] {
   return Array.isArray(body.input)
@@ -32,6 +34,12 @@ function inputItems(body: Record<string, unknown>): Record<string, unknown>[] {
 const server = startFakeResponsesServer(
   (request) => {
     const items = inputItems(request.body);
+    // A GATE-SPEC prompt plays its own script (tests/conformance); anything
+    // else falls through to the keyword behaviour below.
+    if ((request.body.tools ?? []).length > 0 && planOf(items) !== null) {
+      if (calls.length >= KEEP_RECORDED) calls.splice(0, KEEP_RECORDED / 2);
+      return replyFor(request.body, calls, FALLBACK);
+    }
     const carriesToolOutput = items.some(
       (item) => item.type === "function_call_output",
     );
@@ -77,6 +85,21 @@ Bun.serve({
   fetch(request) {
     const url = new URL(request.url);
     if (url.pathname === "/healthz") return new Response("ok");
+    // The scripted calls, as the fake Messages API's /requests lists them:
+    // which spec and step each reached and which earlier specs it replayed.
+    if (url.pathname === "/calls") {
+      const spec = url.searchParams.get("spec");
+      return Response.json(
+        calls
+          .filter((entry) => spec === null || entry.specId === spec)
+          .map(({ at, history, specId, step }) => ({
+            at,
+            spec_id: specId,
+            step,
+            history,
+          })),
+      );
+    }
     if (url.pathname !== "/requests") {
       return new Response("not found", { status: 404 });
     }
