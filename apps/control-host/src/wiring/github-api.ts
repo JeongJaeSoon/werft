@@ -1,6 +1,6 @@
-// The API role's GitHub forge adapters. The factories are lazy (no I/O at
-// construction), so building them together is the same as building them where
-// each is first used; every adapter is still created exactly once.
+// The API role's GitHub forge adapters, one builder per adapter: the role
+// builds each where its first consumer is, so creation order stays as it was
+// and every adapter is created exactly once.
 import type { StructuredLogger } from "@werft-ai/observability";
 import {
   connectionsOf,
@@ -11,42 +11,70 @@ import {
   createRegisteredGitHubConnections,
 } from "./forge-github.ts";
 
-type Param<F extends (...args: never[]) => unknown> = Parameters<F>[0];
-
-export interface GitHubApiWiringDeps {
+export interface GitHubRegistryDeps {
   /** The registered GitHub App store; null when no master key is set. */
-  appStore: Param<typeof createRegisteredGitHubConnections>["store"];
+  appStore: Parameters<typeof createRegisteredGitHubConnections>[0]["store"];
+  logger: StructuredLogger;
+}
+
+export type GitHubRegistry = ReturnType<
+  typeof createRegisteredGitHubConnections
+>;
+
+export function wireGitHubRegistry(deps: GitHubRegistryDeps): GitHubRegistry {
+  return createRegisteredGitHubConnections({
+    store: deps.appStore,
+    logger: deps.logger,
+  });
+}
+
+export type GitHubAppDirectory = ReturnType<typeof createGitHubAppDirectory>;
+
+export function wireGitHubAppDirectory(deps: {
+  logger: StructuredLogger;
+}): GitHubAppDirectory {
+  return createGitHubAppDirectory({ logger: deps.logger });
+}
+
+export type GitHubManifestConverter = ReturnType<
+  typeof createGitHubManifestConverter
+>;
+
+export function wireGitHubManifestConverter(deps: {
+  logger: StructuredLogger;
+}): GitHubManifestConverter {
+  return createGitHubManifestConverter({ logger: deps.logger });
+}
+
+export interface GitHubConnectionsDeps {
   /** The catalog the per-repository connections read on every call. */
   catalog: Parameters<typeof connectionsOf>[0];
+  registry: GitHubRegistry;
   logger: StructuredLogger;
-  maxGitMemoryBytes: number;
 }
 
-export interface GitHubApiWiring {
-  registered: ReturnType<typeof createRegisteredGitHubConnections>;
-  directory: ReturnType<typeof createGitHubAppDirectory>;
-  manifestConverter: ReturnType<typeof createGitHubManifestConverter>;
-  /** One connection per repository, so one token cache. */
-  connections: ReturnType<typeof connectionsOf>;
-  pusher: ReturnType<typeof createGitPusher>;
-  appBotUsers: ReturnType<typeof createAppBotUsers>;
-}
+/** One connection per repository, so one token cache. */
+export type GitHubConnections = ReturnType<typeof connectionsOf>;
 
-export function wireGitHubApi(deps: GitHubApiWiringDeps): GitHubApiWiring {
-  const { logger } = deps;
-  const registered = createRegisteredGitHubConnections({
-    store: deps.appStore,
-    logger,
+export function wireGitHubConnections(
+  deps: GitHubConnectionsDeps,
+): GitHubConnections {
+  return connectionsOf(deps.catalog, {
+    logger: deps.logger,
+    registered: (role) => deps.registry.connections(role),
   });
-  return {
-    registered,
-    directory: createGitHubAppDirectory({ logger }),
-    manifestConverter: createGitHubManifestConverter({ logger }),
-    connections: connectionsOf(deps.catalog, {
-      logger,
-      registered: (role) => registered.connections(role),
-    }),
-    pusher: createGitPusher({ maxGitMemoryBytes: deps.maxGitMemoryBytes }),
-    appBotUsers: createAppBotUsers({ logger }),
-  };
+}
+
+export type GitPusher = ReturnType<typeof createGitPusher>;
+
+export function wireGitPusher(deps: { maxGitMemoryBytes: number }): GitPusher {
+  return createGitPusher({ maxGitMemoryBytes: deps.maxGitMemoryBytes });
+}
+
+export type AppBotUsers = ReturnType<typeof createAppBotUsers>;
+
+export function wireAppBotUsers(deps: {
+  logger: StructuredLogger;
+}): AppBotUsers {
+  return createAppBotUsers({ logger: deps.logger });
 }

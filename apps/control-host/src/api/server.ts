@@ -155,7 +155,14 @@ import {
 } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { forgettingChannelsOnBindingPut } from "../wiring/chat-slack.ts";
-import { wireGitHubApi } from "../wiring/github-api.ts";
+import {
+  wireAppBotUsers,
+  wireGitHubAppDirectory,
+  wireGitHubConnections,
+  wireGitHubManifestConverter,
+  wireGitHubRegistry,
+  wireGitPusher,
+} from "../wiring/github-api.ts";
 import {
   type SlackServicesStageDeps,
   wireSlackBot,
@@ -518,7 +525,7 @@ const authorization = createAuthorizationPolicy({
 const agentStore = createPostgresAgentStore(db);
 const surfaceBindingStore = createPostgresSurfaceBindingStore(db);
 const slackSecretStore =
-  secretKey === null ? null : createPostgresSecretStore(db, secretKey);
+  secretKey === null ? null : () => createPostgresSecretStore(db, secretKey);
 const slackAppStore =
   secretKey === null ? null : createPostgresSlackAppStore(db, secretKey);
 const {
@@ -531,7 +538,7 @@ const {
   secrets: slackSecretStore,
   bindings: surfaceBindingStore,
   agents: agentStore,
-  outbox: createPostgresSlackOutboxStore(db),
+  outbox: () => createPostgresSlackOutboxStore(db),
   logger,
 });
 const githubSettingsStore = createPostgresGitHubSettingsStore(db);
@@ -792,18 +799,9 @@ const inviteStore = createPostgresInviteStore(db);
 const invites = createInviteService({ authorization, store: inviteStore });
 const githubAppStore =
   secretKey === null ? null : createPostgresGitHubAppStore(db, secretKey);
-const {
-  registered: registeredGitHub,
-  directory: githubAppDirectory,
-  manifestConverter: githubManifestConverter,
-  connections: githubConnections,
-  pusher: gitPusher,
-  appBotUsers,
-} = wireGitHubApi({
+const registeredGitHub = wireGitHubRegistry({
   appStore: githubAppStore,
-  catalog,
   logger,
-  maxGitMemoryBytes: checkpointGitMemoryBytes,
 });
 const reloadRegisteredGitHub = (): Promise<void> => registeredGitHub.refresh();
 const githubPins = createPostgresGitHubPinStore(db);
@@ -816,6 +814,7 @@ const refreshRegisteredGitHub = (): Promise<void> =>
   });
 void refreshRegisteredGitHub();
 setInterval(refreshRegisteredGitHub, WORKSPACE_PROFILE_REFRESH_MS).unref();
+const githubAppDirectory = wireGitHubAppDirectory({ logger });
 const githubRepositories = createGitHubRepositoryService({
   authorization,
   store: catalogRepositoryStore,
@@ -844,7 +843,7 @@ const githubApps = createGitHubAppService({
   changed: reloadRegisteredGitHub,
   manifests: {
     states: createPostgresGitHubAppManifestStore(db),
-    convert: githubManifestConverter,
+    convert: wireGitHubManifestConverter({ logger }),
     consoleOrigin,
     callbackUrl: githubCallbackUrl(consoleOrigin),
     webBase: "https://github.com",
@@ -860,6 +859,11 @@ const githubApps = createGitHubAppService({
 // Every GitHub token (clone, push, pull requests, Actions) is issued here,
 // from one connection per repository and so one token cache.
 const githubGateStore = createPostgresGitHubGateStore(db);
+const githubConnections = wireGitHubConnections({
+  catalog,
+  registry: registeredGitHub,
+  logger,
+});
 const githubResolver = createGitHubConnectionResolver({
   connections: githubConnections,
   pins: githubPins,
@@ -1004,7 +1008,7 @@ const pushExecutor = createPushExecutor({
   catalog,
   gate: github,
   bundles: checkpoints.pushSource,
-  pusher: gitPusher,
+  pusher: wireGitPusher({ maxGitMemoryBytes: checkpointGitMemoryBytes }),
   attributions: commitAttributions,
   logger,
 }).start();
@@ -1114,7 +1118,7 @@ const workers = createWorkerGateway({
     consoleOrigin,
     sessionLink: async (workspaceId) =>
       (await pullRequestSettings.get(workspaceId)).settings.session_link,
-    appBotUserId: appBotUsers,
+    appBotUserId: wireAppBotUsers({ logger }),
     commitPin: {
       resolver: githubResolver,
       onFailed: (failure) =>
