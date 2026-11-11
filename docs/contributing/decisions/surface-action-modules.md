@@ -253,11 +253,11 @@ export const pushExecutor = createPushExecutor({ pusher: createGitPusher(options
 |---|---|---|
 | 무엇을 보여 줄지(채널 중립) | `contracts/src/surface/` | `present-turn-event.ts`, `present-action.ts` |
 | 어떤 모양으로 그릴지 | 어댑터의 렌더 파일 | `slack-prompts.ts`, `slack-mrkdwn.ts`, `slack-presentation.ts` |
-| 보내고 다시 보낼지 | 지금은 어댑터의 전송 파일. 루프(lease, 결과 기록, 재시도 예약)와 응답 분류의 분리는 U9 ② | `slack-outbox.ts`의 `drainSlackOutbox`(`:848`), `slack-send-result.ts`. 보내는 이음매가 `Notifiable`·`Approvable`([6.2절](#62-능력-인터페이스)) |
+| 보내고 다시 보낼지 | 지금은 어댑터의 전송 파일. 루프(lease, 결과 기록, 재시도 예약)와 응답 분류의 분리는 U9 ② | `slack-outbox.ts`의 `drainSlackOutbox`(루프만 남음), `outbox-delivery.ts`의 `slackOutboxSettleFor`(응답 분류), `slack-send-result.ts`. 보내는 이음매가 `Notifiable`·`Approvable`([6.2절](#62-능력-인터페이스)) |
 | 답을 판정하고 기록 | `platform/src/decision/` | `pending-service.ts`, `push-request-service.ts`의 `decide` |
 | 해도 되는가 | 정책 함수와 게이트 | `push-approvability.ts`, `github-gate.ts` |
 
-- **어기는 곳.** `slack-outbox.ts`(1,159줄)에 넣기(`:328`), 그리기(`slackOutboxText` `:263`, `slackReplyBlocks` `:232`), 카드 정리(`:614`), 전송(`:848`)이 함께 있다. `push-request-service.ts`에는 요청 생성과 결정이 함께 있다.
+- **어기는 곳.** ~~`slack-outbox.ts`(1,159줄)에 넣기, 그리기, 카드 정리, 전송이 함께 있다~~ 는 U9b PR-1로 풀렸다: 넣기는 `slack-outbox-enqueue.ts`, 그리기는 `slack-outbox-render.ts`, 카드 정리는 `slack-card-settle.ts`, 전송 루프는 `slack-outbox.ts`에 남았다. `push-request-service.ts`에는 요청 생성과 결정이 함께 있다.
 - **강제.** 이동 단계에서는 파일을 쪼개지 않는다(구조화 설계의 "이동과 책임 분리는 별개"). 단 하나의 예외는 U5 ①의 포트 이음매다: Slack으로 보내는 줄의 구현을 `slack-notifiable.ts`·`slack-approvable.ts`로 뽑아 `Notifiable`·`Approvable`로 주입하는 일은 책임 분리가 아니라 포트를 세우는 일이라서 이동 PR 앞에 **별도 PR**로 먼저 낸다([10.1절](#101-slack-이동의-순서와-재수출)). 쪼개는 일은 이동이 끝난 뒤 파일마다 별도 PR이고, 이 문서는 그 순서만 정한다: `slack-outbox.ts`를 넣기·그리기·전송으로, `push-request-service.ts`에서 `decide`를 `decision/`으로.
 
 ### 5.4 개방·폐쇄(OCP)
@@ -760,7 +760,7 @@ surface·action 범위 밖의 시험은 이 문서가 후보를 고르지 않는
 | **U7** | 검증 추가 | 계약 시험: 능력마다 시험 함수, 어댑터와 가짜에 적용(M3). `Notifiable`·`Approvable` 계약(`describeNotifiableContract`, `describeApprovableContract`)과 웹·Slack이 같은 view model을 쓰는지 보는 시험 포함 | U4, U5 | 새 단계 |
 | **U8** | 시험 변경 | D1(U7 뒤), D2, D3, D4, M1, M2. 각 D는 [9.4절](#94-지울-후보)의 조건이 채워진 것만 | U2, U5, **U7** | 새 단계 |
 | **W1** | 구조 변경 | `apps/control-host/src/wiring/`에서 역할별 조립 코드를 타입이 붙은 wiring 모듈로 정리한다. DI 컨테이너는 넣지 않는다([5.6절](#56-oop-상속-없이-구조적-인터페이스와-합성)). 동작은 그대로다 | U4~U8 | 새 단계. 오너 결정 d279 |
-| **U9** | ① 이동 ② 책임 분리 | ① `db/src/`와 `control-host/routes/`가 같은 이름을 따라간다. ② 5.3절의 파일 쪼개기(`slack-outbox.ts`, `push-request-service.ts`의 `decide`). ②는 파일마다 별도 PR이다. 상태: ①의 `db/src` 이동은 U9a PR-1로 끝났고(프로필 제거 계열 파일은 S8에서), `apps/control-host/src/api/routes/` 이동은 U9a PR-2로 끝났다(#1567 계열 파일은 S8에서) | U5, U6 | S7 |
+| **U9** | ① 이동 ② 책임 분리 | ① `db/src/`와 `control-host/routes/`가 같은 이름을 따라간다. ② 5.3절의 파일 쪼개기(`slack-outbox.ts`, `push-request-service.ts`의 `decide`). ②는 파일마다 별도 PR이다. 상태: ①의 `db/src` 이동은 U9a PR-1로 끝났고(프로필 제거 계열 파일은 S8에서), `apps/control-host/src/api/routes/` 이동은 U9a PR-2로 끝났다(#1567 계열 파일은 S8에서). ②의 `slack-outbox.ts` 쪼개기는 U9b PR-1로 끝났다(넣기·그리기·카드 정리·전송 루프 네 파일) | U5, U6 | S7 |
 
 ### 10.1 Slack 이동의 순서와 재수출
 

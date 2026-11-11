@@ -36,6 +36,10 @@ import {
   type SessionService,
   SessionServiceError,
 } from "@werft-ai/platform";
+import {
+  SLACK_CARD_SETTLE_TIMING,
+  settleSlackCards,
+} from "./slack-card-settle.ts";
 import type { SlackBotApi, SlackBotSender } from "./slack-config-api.ts";
 import {
   authorizeSlackInput,
@@ -47,11 +51,7 @@ import {
   verifySlackSignature,
 } from "./slack-events-service.ts";
 import type { SlackInboxLogger } from "./slack-inbox.ts";
-import {
-  SLACK_CARD_SETTLE_TIMING,
-  settleSlackCards,
-  slackOutboxText,
-} from "./slack-outbox.ts";
+import { slackOutboxText } from "./slack-outbox-render.ts";
 import {
   SLACK_PROMPT_MESSAGES,
   type SlackPromptResult,

@@ -1,6 +1,7 @@
 export * from "./outbox-delivery.ts";
 export * from "./slack-app-service.ts";
 export * from "./slack-bot-token.ts";
+export * from "./slack-card-settle.ts";
 export * from "./slack-channel-join.ts";
 export * from "./slack-channel-search.ts";
 export * from "./slack-config-api.ts";
@@ -17,6 +18,8 @@ export * from "./slack-mrkdwn.ts";
 export * from "./slack-notice-log.ts";
 export * from "./slack-notice-sink.ts";
 export * from "./slack-outbox.ts";
+export * from "./slack-outbox-enqueue.ts";
+export * from "./slack-outbox-render.ts";
 export * from "./slack-presentation.ts";
 export * from "./slack-prompts.ts";
 export * from "./slack-secret-service.ts";

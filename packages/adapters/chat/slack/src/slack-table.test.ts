@@ -4,7 +4,7 @@ import {
   markdownToSlackParts,
   SLACK_TABLE_MAX,
 } from "./slack-mrkdwn.ts";
-import { slackOutboxText, slackReplyBlocks } from "./slack-outbox.ts";
+import { slackOutboxText, slackReplyBlocks } from "./slack-outbox-render.ts";
 
 const table = (rows: number, columns: number, cell = "x") =>
   [

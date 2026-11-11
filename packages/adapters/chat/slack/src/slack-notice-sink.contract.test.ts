@@ -4,7 +4,7 @@ import type {
   SlackNoticeRecord,
   SlackNoticeSink,
 } from "./slack-notice-sink.ts";
-import { createOutboxSlackNoticeSink } from "./slack-outbox.ts";
+import { createOutboxSlackNoticeSink } from "./slack-outbox-enqueue.ts";
 import { createMemorySlackNoticeSink } from "./testing/slack-fakes.ts";
 
 // `SlackNoticeSink` is the Slack adapter's own seam (the function that puts a
