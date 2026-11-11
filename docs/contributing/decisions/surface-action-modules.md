@@ -988,3 +988,15 @@ U7 회차(2026-11-11, 대상: 어댑터 계약 시험 PR). 제품 코드는 바�
 | 웹·Slack 같은 view model | Slack은 `slack-prompts.view-model.test.ts`, 웹은 `packages/react`의 `tool-summary.view-model.test.tsx`다. 같은 요청 목록을 두 파일이 각자 갖고(스토리 없음) `presentPendingRequest`의 동사·대상·발췌가 각 채널 출력에 나오는지 본다. Slack 푸시 카드는 승인 가능일 때 승인·거절, 불가일 때 거절만이고 사유를 보인다. 웹 push 화면(`session-github-work.tsx`)은 이 PR의 범위 밖이라 단언하지 않았다 |
 | 선언 금지 | `tests/architecture.test.ts`가 TS AST로 저장소 전체에서 `declare module "@werft-ai/contracts"`를 센다. 지금 0건이라 기준선이 없다 |
 | M3 | `forge-github-pulls.test.ts`의 사례는 옮기지 않고 남겼다. 계약과 겹치지만 스크립트한 응답 모양에 묶여 있어 어댑터 시험이다 |
+
+U8 회차 1(2026-11-11, 대상: D1·D3, M2, 보류 두 건. D4와 D2는 이름 변경 PR). 제품 코드는 바꾸지 않았다. 지우는 시험마다 대신 지키는 시험을 일부러 깨뜨려 실패하는 것을 봤다.
+
+| 항목 | 결정 |
+|---|---|
+| D1 | `slack-notice-log.test.ts`의 "the fake keeps one notice per person and thread"를 지웠다. 대신 `slack-notice-sink.contract.test.ts`의 "tells another person on their own…"가 가짜의 중복 키를 `threadTs`로 바꾸면 실패한다 |
+| D2 | `outbox.test.ts`를 고치므로 M1 이름 변경 PR에서 한다 |
+| D3 | 입력 하나씩 대조했다. contracts에는 Write의 앞 세 줄만 있었다. Edit·MultiEdit·내용 없는 Write·길이 상한은 없어 M2로 옮겼다. 지운 뒤 `EXCERPT_MAX`나 `editedText`를 바꾸면 contracts 시험이 실패한다 |
+| D4 | 통합 사례는 `activeStreams`만 봤고 라우트 시험(`routes/events.test.ts` "releases its handle when the client disconnects")은 같은 값에 더해 wakeup 대기자 해제까지 본다. `active -= 1`을 빼면 라우트 시험이 실패한다. 같은 파일을 고치는 #1567과 겹쳐 M1 이름 변경 PR에서 지운다 |
+| M2 | `:76`·`:105`·`:278`과 `:256`의 view model 부분을 `present-action.test.ts`로 옮겼다. `:152`·`:216`·`:228`·`:286`은 Slack에 남고, 언어별 문구 시험 한 건이 `:256`의 문구 부분을 맡는다 |
+| db → chat-slack | 어댑터는 db를 가질 수 없어(R2) 어댑터 쪽이 아니라 배선 층으로 옮겼다. `slack-apps.integration.test.ts`는 어댑터 서비스를 PostgreSQL 저장소 위에서 돌리므로 control-host로 갔고, `slack-inbound-claims.test.ts`는 저장소만 보도록 고쳐 revoked 분기·백오프 상한·대기 중 no-op 핸들러 사례를 `slack-inbox.test.ts`로 보냈다 |
+| 루트 typecheck | `tests/`에 기존 타입 오류 97건이 있어 전체를 넣지 않았다. `scripts/typecheck-test-imports.ts`가 `tests/tsconfig.json`으로 tsc를 돌려 import가 깨진 오류(TS2305·2307·2459·2460·2614·2724)만 실패로 센다 |

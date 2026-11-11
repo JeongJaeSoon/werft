@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createLoggingSlackNoticeSink } from "./slack-notice-log.ts";
 import type { SlackNoticeRecord } from "./slack-notice-sink.ts";
-import { createMemorySlackNoticeSink } from "./testing/slack-fakes.ts";
 
 const notice = (slackUserId: string): SlackNoticeRecord => ({
   workspaceId: "ws-1",
@@ -38,13 +37,5 @@ describe("Slack notices before 94S-792 sends them", () => {
     const written = JSON.stringify(lines);
     expect(written).not.toContain("connect");
     expect(written).not.toContain("console.example");
-  });
-
-  test("the fake keeps one notice per person and thread", async () => {
-    const { sink, notices } = createMemorySlackNoticeSink();
-    await sink.record(notice("U0A"));
-    await sink.record(notice("U0A"));
-    await sink.record(notice("U0B"));
-    expect(notices.map((held) => held.slackUserId)).toEqual(["U0A", "U0B"]);
   });
 });
