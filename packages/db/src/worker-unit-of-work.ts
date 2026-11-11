@@ -1311,6 +1311,18 @@ async function earlierConfigs(tx: Database, sessionId: string) {
   );
 }
 
+function versionUnknownHere(
+  session: RunnableFields,
+  runnable: ClaimCatalog,
+): boolean {
+  const version = specRuntimeVersion(session);
+  return (
+    version !== null &&
+    runnable.runtimeVersions !== null &&
+    !runnable.runtimeVersions.includes(version)
+  );
+}
+
 async function giveUpOnCatalogMismatch(
   tx: Database,
   launch: typeof workerLaunches.$inferSelect,
@@ -1342,6 +1354,10 @@ async function giveUpOnCatalogMismatch(
     session.executionId !== launch.executionId ||
     budgetExceeded(session, budgetOf(input)) ||
     runsHere(session, runnable) ||
+    // A runtime version this image does not ship is a newer replica's
+    // session during a rolling upgrade, not a catalog mismatch: it is left
+    // for a replica that runs it.
+    versionUnknownHere(session, runnable) ||
     input.unsettledConnectionIds.has(specConnectionId(session) ?? "") ||
     (session.repositoryId !== null &&
       input.unsettledRepositoryIds.has(session.repositoryId))

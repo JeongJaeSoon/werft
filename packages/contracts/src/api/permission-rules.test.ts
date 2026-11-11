@@ -35,6 +35,30 @@ const refusedAs = (rule: string) => {
   return "refusal" in result ? result.refusal.reason_code : "accepted";
 };
 
+describe("the subagent tool a release adds", () => {
+  // The measured catalogs leave `Agent` out (a subagent cannot be checked from
+  // inside a subagent); the release adds it, so a deny rule on it must be taken.
+  const withoutAgent: ToolCatalogView = {
+    ...catalog,
+    tools: catalog.tools.filter((tool) => tool.name !== "Agent"),
+  };
+
+  test("a deny rule on Agent, or its old name Task, is stored as Agent", () => {
+    for (const rule of ["Agent", "Task"]) {
+      expect(parsePermissionRule(withoutAgent, rule)).toEqual({
+        parsed: { rule: "Agent", kind: "tool", tool: "Agent" },
+      });
+    }
+  });
+
+  test("a tool no catalog or runtime offers is still refused", () => {
+    const result = parsePermissionRule(withoutAgent, "NoSuchTool");
+    expect("refusal" in result && result.refusal.reason_code).toBe(
+      "rule_no_effect",
+    );
+  });
+});
+
 describe("parsePermissionRule", () => {
   test("a whole catalog tool is stored under its current name", () => {
     expect(parsed("WebSearch")).toEqual({

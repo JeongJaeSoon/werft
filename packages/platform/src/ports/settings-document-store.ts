@@ -118,10 +118,14 @@ export interface SettingsDocumentStore {
    * The models an agent may name on the connection and their series. Beside
    * the definition, never in it: the list changes over a connection's life
    * where what it points at does not. A disabled connection is refused.
+   * `model_families` left out keeps the stored series; `null` clears them.
    */
   setConnectionModels(
     id: string,
-    models: { models: readonly string[]; model_families: ModelFamilies | null },
+    models: {
+      models: readonly string[];
+      model_families?: ModelFamilies | null;
+    },
     actor: TeamActor,
   ): Promise<SettingsConsoleResult>;
   /** For a repository: removed. Never undone; the id stays taken. */

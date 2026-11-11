@@ -591,6 +591,27 @@ describe("a connection's models", () => {
     ]);
   });
 
+  test("a list sent without model_families leaves the stored series alone; an explicit null clears them", async () => {
+    const { settings, writes } = service({
+      rows: { connection: [connectionRow("console")] },
+    });
+    await settings.setConnectionModels(caller("owner"), "console", {
+      models: ["a"],
+    });
+    await settings.setConnectionModels(caller("owner"), "console", {
+      models: ["a"],
+      model_families: null,
+    });
+    expect(writes).toEqual([
+      ["setConnectionModels", "console", { models: ["a"] }],
+      [
+        "setConnectionModels",
+        "console",
+        { models: ["a"], model_families: null },
+      ],
+    ]);
+  });
+
   test("are listed with the connection", async () => {
     const { settings } = service({
       rows: {

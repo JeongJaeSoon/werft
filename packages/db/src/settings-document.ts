@@ -780,7 +780,9 @@ function consoleWrites(
           .update(providerConnections)
           .set({
             models: [...models.models],
-            modelFamilies: models.model_families,
+            ...(models.model_families === undefined
+              ? {}
+              : { modelFamilies: models.model_families }),
           })
           .where(eq(providerConnections.id, id));
         const receiptId = await consoleReceipt(

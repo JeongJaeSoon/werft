@@ -450,6 +450,7 @@ export function createSettingsConsoleService(deps: {
           ),
         );
       }
+      // Left out keeps the stored series; an explicit null clears them.
       const families =
         request.model_families === undefined || request.model_families === null
           ? null
@@ -467,7 +468,12 @@ export function createSettingsConsoleService(deps: {
       return onRow(caller, "connection", id, (actor) =>
         store.setConnectionModels(
           id,
-          { models, model_families: families === null ? null : families.data },
+          {
+            models,
+            ...(request.model_families === undefined
+              ? {}
+              : { model_families: families === null ? null : families.data }),
+          },
           actor,
         ),
       );

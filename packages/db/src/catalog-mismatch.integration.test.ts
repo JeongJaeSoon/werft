@@ -538,6 +538,7 @@ integration("claim against a catalog that dropped the pair", () => {
       settings: {
         generation?: number | null;
         unsettledRepositoryIds?: ReadonlySet<string>;
+        runtimeVersions?: readonly string[];
       } = {},
     ) {
       return createPostgresWorkerUnitOfWork(db).claimAtomic({
@@ -545,7 +546,10 @@ integration("claim against a catalog that dropped the pair", () => {
           settings.generation === undefined ? CAUGHT_UP : settings.generation,
         unsettledRepositoryIds: settings.unsettledRepositoryIds ?? new Set(),
         unsettledConnectionIds,
-        runnable: catalogAt(REGISTERED),
+        runnable: {
+          ...catalogAt(REGISTERED),
+          runtimeVersions: settings.runtimeVersions ?? null,
+        },
         costLimitUsd,
         tokenLimit: null,
         nonceHash: hashWorkerToken(launch.nonce),
@@ -606,6 +610,18 @@ integration("claim against a catalog that dropped the pair", () => {
         .set({ desiredState: "terminated" })
         .where(eq(executions.id, launch.ref.executionId));
       expect((await claim(launch)).outcome).toBe("no_session");
+      await untouched(session.session_id, launch.ref);
+    });
+
+    // A session of a newer image during a rolling upgrade: the replica that
+    // ships its runtime version runs it, and this one must not fail it.
+    test("a runtime version this image does not ship", async () => {
+      const session = await queuedSession(REGISTERED);
+      const launch = await reserved(session.session_id);
+      expect(
+        (await claim(launch, 1_000, new Set(), { runtimeVersions: ["0.0.1"] }))
+          .outcome,
+      ).toBe("no_session");
       await untouched(session.session_id, launch.ref);
     });
 
