@@ -11,7 +11,8 @@ import { Button, Page } from "@werft-ai/ui";
 import { useEffect, useRef } from "react";
 import { useToast } from "../../components/toast.tsx";
 import { useI18n } from "../../i18n/i18n.tsx";
-import { slackFailure, slackKey } from "./slack.tsx";
+import { slackKey } from "./slack/queries.ts";
+import { slackFailure } from "./slack/shared.ts";
 
 type CompleteSlackInstallResponse =
   components["schemas"]["CompleteSlackInstallResponse"];

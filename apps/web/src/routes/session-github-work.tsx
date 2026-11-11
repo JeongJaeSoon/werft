@@ -93,7 +93,7 @@ function rowsOf(data: ListPushRequestsResponse): Row[] {
  * first block does not, so the name is cut there and the whole one is the
  * hover title.
  */
-export function shortBranch(branch: string): string {
+function shortBranch(branch: string): string {
   return branch.replace(/^(agent\/[0-9a-f]{8})[0-9a-f-]{20,}$/i, "$1…");
 }
 

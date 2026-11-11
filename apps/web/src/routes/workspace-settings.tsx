@@ -98,9 +98,6 @@ export function WorkspaceSettingsScreen() {
   );
 }
 
-// The GitHub settings screens still import it by this name.
-export { SettingsSection as SettingsCard };
-
 export function ReadOnlyMark() {
   const { t } = useI18n();
   return (
@@ -116,7 +113,7 @@ export function ReadOnlyMark() {
 }
 
 /**
- * The name and id only read: no API renames a workspace yet (94S-817).
+ * The name and id only read: no API renames a workspace yet.
  * Labels sit above the values and help under them.
  */
 function Basics() {
@@ -242,8 +239,8 @@ function ReadOnlySettings() {
 /**
  * How long refused and allowed decisions are kept. Only an owner changes it;
  * the floor is the server's, so a short value goes there and comes back as
- * the refusal. The mockup's output retention (7/30/90 days) has no API yet
- * (94S-817); this card is the audit retention, a different value.
+ * the refusal. The mockup's output retention (7/30/90 days) has no API yet;
+ * this card is the audit retention, a different value.
  */
 function AuditRetention({ onOutcome }: { readonly onOutcome: OnOutcome }) {
   const { t } = useI18n();

@@ -27,7 +27,7 @@ import { useI18n } from "../i18n/i18n.tsx";
 
 type MadeApp = ListWorkspaceSlackAppsResponse["items"][number];
 
-export const SLACK_APPS_ANCHOR = "slack-apps";
+const SLACK_APPS_ANCHOR = "slack-apps";
 
 /** The apps the console made; only owners and admins may read them. */
 export function useWorkspaceSlackApps() {

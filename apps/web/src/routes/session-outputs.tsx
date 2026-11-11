@@ -43,7 +43,7 @@ import {
 
 const UNITS = ["byte", "kilobyte", "megabyte", "gigabyte"] as const;
 
-export function formatBytes(bytes: number, locale: string): string {
+function formatBytes(bytes: number, locale: string): string {
   let value = bytes;
   let unit = 0;
   while (value >= 1024 && unit < UNITS.length - 1) {
@@ -414,11 +414,7 @@ export function SessionOutputsTab({
  * with a repository; a failed read leaves the line out, as the outputs do not
  * depend on it.
  */
-export function SessionAttribution({
-  session,
-}: {
-  readonly session: SessionDetail;
-}) {
+function SessionAttribution({ session }: { readonly session: SessionDetail }) {
   const { t } = useI18n();
   const { client } = useWerft();
   const attribution = useQuery({

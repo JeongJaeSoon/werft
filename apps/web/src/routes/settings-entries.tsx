@@ -47,7 +47,7 @@ const SEGMENT = {
   mcp: "mcp-servers",
 } as const satisfies Record<SettingsKind, string>;
 
-export const PERMISSION: Record<SettingsKind, ManagedPermission> = {
+const PERMISSION: Record<SettingsKind, ManagedPermission> = {
   connection: "installation.settings.manage",
   mcp: "installation.settings.manage",
 };
@@ -103,7 +103,7 @@ function impactOf(body: unknown): ConnectionImpact {
  * Read each time the disable confirmation opens, never reused: the counts
  * move with every session and release, and the answer to a write is too late.
  */
-export function settingsConnectionImpactQuery(
+function settingsConnectionImpactQuery(
   client: ApiClient,
   id: string,
   enabled: boolean,
@@ -150,7 +150,7 @@ const REASONS = [
 ] as const;
 
 /** The words for a refused settings write: the server's reason first. */
-export function settingsRefusal(
+function settingsRefusal(
   t: Translate,
   error: ApiError,
   kind: SettingsKind,
@@ -200,7 +200,7 @@ export function useSettingsWrite<V>(
   });
 }
 
-export function setCredential(
+function setCredential(
   client: ApiClient,
   kind: SettingsKind,
   id: string,
@@ -225,7 +225,7 @@ export function setCredential(
   }
 }
 
-export function convertConnection(
+function convertConnection(
   client: ApiClient,
   id: string,
   value: string,
@@ -238,7 +238,7 @@ export function convertConnection(
   );
 }
 
-export function disableEntry(
+function disableEntry(
   client: ApiClient,
   kind: SettingsKind,
   id: string,
@@ -263,7 +263,7 @@ export function disableEntry(
 }
 
 /** Connections only: an MCP server cannot be enabled again. */
-export function enableConnection(
+function enableConnection(
   client: ApiClient,
   id: string,
 ): Promise<SettingsChangeResponse> {

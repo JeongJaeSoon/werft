@@ -6,7 +6,7 @@ import type { Locale } from "@werft-ai/react";
  * remembers or the browser's; the console links its own language, which can
  * differ from both.
  */
-export const DOCS_SITE_URL = "https://jeongjaesoon.github.io/werft/";
+const DOCS_SITE_URL = "https://jeongjaesoon.github.io/werft/";
 
 export function docsSiteUrl(locale: Locale): string {
   return `${DOCS_SITE_URL}${locale}/`;

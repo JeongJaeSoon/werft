@@ -12,6 +12,7 @@ import {
   SessionRowOpener,
   SessionStatusLabel,
   StatusLabel,
+  shortSessionId,
 } from "@werft-ai/react/components";
 import {
   Badge,
@@ -397,7 +398,7 @@ function AgentSessionRow({
   readonly locale: Locale;
 }) {
   const { t } = useI18n();
-  const shortId = session.id.slice(0, 8);
+  const shortId = shortSessionId(session.id);
   return (
     <GridTableRow data-status={session.status}>
       <GridTableCell lines={true}>

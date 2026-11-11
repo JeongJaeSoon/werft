@@ -56,7 +56,7 @@ export function useGitHubSettings(): UseQueryResult<GitHubSettingsResponse> {
   });
 }
 
-export const levelText = (t: Translate, level: GitHubAppPermissionLevel) =>
+const levelText = (t: Translate, level: GitHubAppPermissionLevel) =>
   t(`github.permissions.level.${level}`);
 
 // A permission this build has no words for is shown as GitHub names it.

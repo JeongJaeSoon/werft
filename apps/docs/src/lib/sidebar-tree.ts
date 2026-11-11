@@ -2,7 +2,7 @@ import type { Folder, Node, Root } from "fumadocs-core/page-tree";
 import type { Locale } from "./i18n";
 import { SECTION_DEPLOY, SECTION_USE } from "./sidebar-sections";
 
-export interface SidebarLabels {
+interface SidebarLabels {
   use: string;
   start: string;
   features: string;

@@ -1,14 +1,18 @@
 import type { SessionStatus, SessionSummary } from "@werft-ai/contracts";
 
-import { type RunTree, type RunTreeNode, runRows } from "../../run-tree.ts";
+import {
+  type RunTree,
+  type RunTreeNode,
+  runRows,
+  SPAWNING_TOOLS,
+} from "../../run-tree.ts";
+import { shortSessionId } from "../session/session-overview.tsx";
 import { laneOf } from "./lane-board.tsx";
 import type { AgentMapMessages } from "./messages.ts";
 import type { Lane, MapRunNode, MapSession, MapToolCall } from "./types.ts";
 
 /** Chips a run row shows before "+n". */
 export const ROW_TOOLS = 3;
-
-const SPAWNING = new Set(["Task", "Agent"]);
 
 /** A card from the list's summary, as the board draws it before placement. */
 export function mapSessionOf(
@@ -54,7 +58,7 @@ export function mapSessionOf(
         : undefined;
   return {
     id: summary.id,
-    title: summary.title ?? summary.id.slice(0, 8),
+    title: summary.title ?? shortSessionId(summary.id),
     agent: summary.agent?.name ?? messages.noAgent,
     status: summary.status,
     model: summary.model ?? "",
@@ -114,7 +118,7 @@ function newestChips(
   let used = 0;
   for (let i = run.tools.length - 1; i >= 0; i -= 1) {
     const call = run.tools[i] as RunTreeNode["tools"][number];
-    const kind = SPAWNING.has(call.name)
+    const kind = SPAWNING_TOOLS.has(call.name)
       ? (spawned.get(call.id) ?? call.target)
       : null;
     const previous = tools[tools.length - 1];

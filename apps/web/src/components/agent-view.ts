@@ -4,7 +4,7 @@ export const AGENT_VIEWS = ["cards", "table"] as const;
 export type AgentView = (typeof AGENT_VIEWS)[number];
 
 /** Per user, so two people sharing a browser keep their own choice. */
-export function agentViewKey(userId: string | undefined) {
+function agentViewKey(userId: string | undefined) {
   return `ap.agents.view.${userId ?? "anonymous"}`;
 }
 
@@ -12,7 +12,7 @@ function isAgentView(value: unknown): value is AgentView {
   return AGENT_VIEWS.includes(value as AgentView);
 }
 
-export function storedAgentView(userId: string | undefined): AgentView {
+function storedAgentView(userId: string | undefined): AgentView {
   try {
     const stored = globalThis.localStorage?.getItem(agentViewKey(userId));
     if (isAgentView(stored)) return stored;

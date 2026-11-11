@@ -48,7 +48,7 @@ afterEach(() => viewport.show(() => true));
 afterAll(() => viewport.restore());
 // After the DOM exists: Radix picks a no-op layout effect when loaded before
 // it, and its dialogs then never reach the page.
-const { agentRefusal } = await import("./agents.tsx");
+const { agentRefusal } = await import("../components/agent-refusal.ts");
 const { avatarTone } = await import("@werft-ai/ui");
 const { translate } = await import("../i18n/i18n.tsx");
 const { createBrowserHistory } = await import("@tanstack/react-router");

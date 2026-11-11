@@ -26,6 +26,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { shortSessionId } from "../components/session/session-overview.tsx";
 import { useMinute } from "../components/session/use-minute.ts";
 import { useWerft } from "../provider.tsx";
 import type { PendingRail } from "./pending-rail.tsx";
@@ -381,9 +382,9 @@ function WaitingSession({
     id: session.id,
     className: "font-mono text-link underline underline-offset-2",
     "aria-label": `${t("inbox.open")} ${session.id}`,
-    children: <code>{session.id.slice(0, 8)}…</code>,
+    children: <code>{shortSessionId(session.id)}…</code>,
   });
-  const short = session.id.slice(0, 8);
+  const short = shortSessionId(session.id);
   const summary = layout === "summary";
   const heading = summary
     ? renderLink({

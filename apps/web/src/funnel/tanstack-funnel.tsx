@@ -38,6 +38,8 @@ const tanstackRouterOver =
     const stepKey = `${id}.step`;
     const historyKey = `${id}.histories`;
 
+    // HistoryState lists its keys and has no index signature; this key is
+    // built from the flow's id.
     const saved = (location.state as unknown as Record<string, unknown>)[
       historyKey
     ];

@@ -7,7 +7,10 @@ import type {
   UsageAchievementsResponse,
 } from "@werft-ai/contracts";
 import { useWerft } from "@werft-ai/react";
-import { OPERATIONS_MESSAGES } from "@werft-ai/react/components";
+import {
+  OPERATIONS_MESSAGES,
+  shortSessionId,
+} from "@werft-ai/react/components";
 import {
   Badge,
   Button,
@@ -39,7 +42,7 @@ import { useI18n } from "../i18n/i18n.tsx";
 
 const DAY_MS = 86_400_000;
 
-export const ACHIEVEMENT_PERIODS = ["30", "7", "month"] as const;
+const ACHIEVEMENT_PERIODS = ["30", "7", "month"] as const;
 export type AchievementPeriod = (typeof ACHIEVEMENT_PERIODS)[number];
 
 // Cut at the next UTC midnight, as the usage screens are, so the query key
@@ -445,7 +448,7 @@ function RecentRow({ row }: { readonly row: Recent }) {
         ) : (
           <Link asChild variant="table">
             <RouterLink to="/sessions/$id" params={{ id: row.session_id }}>
-              {row.session_title || row.session_id.slice(0, 8)}
+              {row.session_title || shortSessionId(row.session_id)}
             </RouterLink>
           </Link>
         )}

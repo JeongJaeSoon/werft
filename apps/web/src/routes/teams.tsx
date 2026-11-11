@@ -817,7 +817,7 @@ function TeamMembers({
 
 const TEAM_ROLES: readonly TeamMemberRole[] = ["lead", "member"];
 
-export function TeamRoleBadge({ role }: { readonly role: TeamMemberRole }) {
+function TeamRoleBadge({ role }: { readonly role: TeamMemberRole }) {
   const { t } = useI18n();
   return (
     <Badge variant={role === "lead" ? "blue" : "gray"}>

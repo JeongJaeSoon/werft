@@ -131,7 +131,7 @@ export function ReleaseChangesSummary({
   );
 }
 
-export function ReleaseChangeList({
+function ReleaseChangeList({
   changes,
   beforeLabel,
   afterLabel,

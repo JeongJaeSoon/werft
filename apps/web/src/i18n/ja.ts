@@ -163,8 +163,6 @@ export const slackJa = {
   "slack.useColumn": "使用",
   "slack.basic": "基本",
   "slack.advanced": "詳細",
-  "slack.connection": "接続",
-  "slack.status": "状態",
   "slack.homeChannel": "ホームチャンネル",
   "slack.homeUnset": "未選択",
   "slack.channelId": "チャンネル ID: {id}",
@@ -184,7 +182,6 @@ export const slackJa = {
   "slack.inUseOf": "{channel} で使用",
   "slack.mentionOnly": "メンション時のみ応答",
   "slack.search": "チャンネルを検索",
-  "slack.invite": "参加待ち",
   "slack.privateInvite": "/invite が必要",
   "slack.pendingApproval": "承認待ち",
   "slack.pendingApprovalHint":

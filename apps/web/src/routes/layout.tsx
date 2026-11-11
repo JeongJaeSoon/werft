@@ -10,6 +10,7 @@ import {
 import { ApiError, isApiError, unwrap } from "@werft-ai/client";
 import { queryScopeOf, sessionQuery } from "@werft-ai/core";
 import { QueryScopeProvider, useWerft } from "@werft-ai/react";
+import { shortSessionId } from "@werft-ai/react/components";
 import {
   Button,
   Field,
@@ -292,7 +293,7 @@ function useLeafTitle(pathname: string): string | undefined {
   // no separator left hanging before an empty name.
   if (session && sessionId !== undefined) {
     // A server from before titles sends none, as the page head shows.
-    return session.title || sessionId.slice(0, 8);
+    return session.title || shortSessionId(sessionId);
   }
   if (agentId === "new") return t("agents.newTitle");
   if (MAP_PATH.test(pathname)) return t("sessionList.map");

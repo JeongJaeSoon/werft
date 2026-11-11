@@ -1,8 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
 import type { ConnectionOption } from "@werft-ai/contracts";
-import { useWerft } from "@werft-ai/react";
 import { NativeSelectOption } from "@werft-ai/ui";
-import { connectionsQuery } from "../api/queries.ts";
 import { useI18n } from "../i18n/i18n.tsx";
 
 /** Whether a release of a card naming `model` may run on it, as the server checks. */
@@ -19,12 +16,6 @@ export const successorOf = (
   connection.models.includes(model)
     ? undefined
     : connection.model_successors[model];
-
-/** The installation's enabled connections, as `GET /v1/connections` lists them. */
-export function useConnections(): readonly ConnectionOption[] | undefined {
-  const { client } = useWerft();
-  return useQuery(connectionsQuery(client)).data?.items;
-}
 
 /**
  * One option per connection: those that `fits` first. One that does not fit

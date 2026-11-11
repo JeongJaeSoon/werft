@@ -39,12 +39,12 @@ import { type ReactNode, type RefObject, useState } from "react";
 import { agentListsFilter, queryKeysOf } from "../../api/queries.ts";
 import { permissionReason, useRole } from "../../auth/guard.tsx";
 import { useManagesAgent } from "../../components/agent-access.tsx";
+import { agentRefusal } from "../../components/agent-refusal.ts";
 import { LoadFailure } from "../../components/load-failure.tsx";
 import type { Outcome } from "../../components/outcome.tsx";
 import { SECTION_BODY } from "../../components/section-body.ts";
 import { StatusScreen } from "../../components/status-screen.tsx";
 import { type Translate, useI18n } from "../../i18n/i18n.tsx";
-import { agentRefusal } from "../agents.tsx";
 import { mcpSettingsKey, mcpSettingsQuery } from "./mcp-settings.ts";
 
 /** Under the agent's key, so whatever refreshes the agent refreshes these. */

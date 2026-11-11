@@ -1,27 +1,16 @@
 import { type components, isApiError } from "@werft-ai/client";
 import {
-  Badge,
   Button,
-  EmptyState,
   Field,
   FieldLabel,
   NativeSelect,
   NativeSelectOption,
-  RowList,
-  SettingRow,
 } from "@werft-ai/ui";
-import { type ReactNode, useId } from "react";
+import { useId } from "react";
 import { type MessageKey, useI18n } from "../i18n/i18n.tsx";
 
 type AgentPage = components["schemas"]["ListAgentGitHubRepositoriesResponse"];
 export type InstalledRepository = AgentPage["repositories"][number];
-type Page<R> = Pick<
-  AgentPage,
-  "installations" | "installation_id" | "page" | "per_page" | "total_count"
-> & {
-  repositories: readonly R[];
-  unavailable: string | null;
-};
 
 /** The page size the console asks for; GitHub allows up to 100. */
 export const INSTALLED_PER_PAGE = 30;
@@ -58,7 +47,7 @@ export function InstallationSelect({
   page,
   onInstallation,
 }: {
-  readonly page: Pick<Page<never>, "installations" | "installation_id">;
+  readonly page: Pick<AgentPage, "installations" | "installation_id">;
   readonly onInstallation: (installationId: number) => void;
 }) {
   const { t } = useI18n();
@@ -104,7 +93,7 @@ export function InstalledPageNav({
   shown,
   onPage,
 }: {
-  readonly page: Pick<Page<never>, "page" | "per_page" | "total_count">;
+  readonly page: Pick<AgentPage, "page" | "per_page" | "total_count">;
   readonly shown: number;
   readonly onPage: (page: number) => void;
 }) {
@@ -143,69 +132,5 @@ export function InstalledPageNav({
         {t("github.repo.nextPage")}
       </Button>
     </nav>
-  );
-}
-
-/**
- * One page of the repositories an installation of the author App reaches,
- * as GitHub pages them: an installation picker when there are several, the
- * rows, and previous/next.
- */
-export function InstalledRepositoryPage<R extends InstalledRepository>({
-  page,
-  onInstallation,
-  onPage,
-  meta,
-  action,
-}: {
-  readonly page: Page<R>;
-  readonly onInstallation: (installationId: number) => void;
-  readonly onPage: (page: number) => void;
-  readonly meta?: (repository: R) => ReactNode;
-  readonly action?: (repository: R) => ReactNode;
-}) {
-  const { t } = useI18n();
-  const picker = (
-    <InstallationSelect page={page} onInstallation={onInstallation} />
-  );
-  if (page.unavailable !== null) {
-    return (
-      <div className="flex flex-col gap-2">
-        <p className="m-0 text-caption">
-          {t(UNAVAILABLE[page.unavailable] ?? "github.repo.pickNoInstallation")}
-        </p>
-        {picker}
-      </div>
-    );
-  }
-  return (
-    <div className="flex flex-col gap-2">
-      {picker}
-      {page.repositories.length === 0 ? (
-        <EmptyState size="sm" title={t("github.repo.pickEmpty")} />
-      ) : (
-        <RowList variant="joined">
-          {page.repositories.map((repository) => (
-            <SettingRow
-              key={repository.github_repository_id}
-              title={repository.full_name}
-              badge={
-                repository.private ? (
-                  <Badge>{t("github.repo.private")}</Badge>
-                ) : null
-              }
-              description={`${t("github.repo.branch")} ${repository.default_branch}`}
-              meta={meta?.(repository)}
-              actions={action?.(repository)}
-            />
-          ))}
-        </RowList>
-      )}
-      <InstalledPageNav
-        page={page}
-        shown={page.repositories.length}
-        onPage={onPage}
-      />
-    </div>
   );
 }

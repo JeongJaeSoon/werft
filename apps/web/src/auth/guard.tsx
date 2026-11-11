@@ -59,10 +59,6 @@ export function useMe(): AuthMeResponse | undefined {
   return useMeQuery().data;
 }
 
-/**
- * Whether the effective scopes allow an action. This only decides what the
- * page offers; the server decides what happens, and its 403 is shown as is.
- */
 /** The signed-in user's role; an API key principal has none. */
 export function useRole(): string | undefined {
   const principal = useMe()?.principal;
@@ -78,6 +74,10 @@ export function useHasPermission(action: AuthorizationAction): boolean {
   return useMe()?.permissions.includes(action) ?? false;
 }
 
+/**
+ * Whether the effective scopes allow an action. This only decides what the
+ * page offers; the server decides what happens, and its 403 is shown as is.
+ */
 export function useCan(scope: SessionScope): boolean {
   return useMe()?.scopes.includes(scope) ?? false;
 }
