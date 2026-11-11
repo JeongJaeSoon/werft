@@ -19,7 +19,7 @@
   - 삭제 조건: 없음. close는 `admission_state`를 `closed`로 바꿀 뿐 행을 지우지 않는다(`packages/db/src/sessions/close-control.ts:54-110`).
   - 바꾸기: 없음. 이 절의 다른 표(turn, 이벤트, 도구 호출, 대기 요청, 실행 이력, checkpoint 행, receipt, GitHub 작업, Slack 입출력)도 같다. 보존 기간을 정하는 설정이 없다.
 - **turn과 입력 원문** — `turns` 표(`schema.ts:1241`)
-  - 담는 것: 사용자가 보낸 메시지 원문 `message`(`schema.ts:1249`), 보낸 사람 `actor_id`(`schema.ts:1262`), 끝난 turn의 결과·사용량 `result_json`(`schema.ts:1253`, 쓰는 곳 `packages/db/src/worker-unit-of-work.ts:2512-2522`).
+  - 담는 것: 사용자가 보낸 메시지 원문 `message`(`schema.ts:1249`), 보낸 사람 `actor_id`(`schema.ts:1262`), 끝난 turn의 결과·사용량 `result_json`(`schema.ts:1253`, 쓰는 곳 `packages/db/src/worker-unit-of-work.ts:2511-2521`).
   - 만드는 시점: 입력을 받을 때(`postgres-unit-of-work.ts:177`).
   - 보존 기간: 무기한. 입력 원문의 바이트는 설치 상한 `STORAGE_LIMIT_BYTES`에 계속 센다. 상한은 지우지 않고 새 입력을 413으로 거절할 뿐이다. 설치처는 `STORAGE_LIMIT_BYTES`(Helm `config.limits.STORAGE_LIMIT_BYTES`, 기본 1 GiB, `values.yaml:126`)로 상한을 바꾼다([configuration.md](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/configuration/)).
   - 삭제 조건: 없음. close·terminate는 대기 중인 turn을 `cancelled`로 바꿀 뿐이다.
@@ -53,7 +53,7 @@
   - 판정 행(`authz_decisions`)은 감사 보존 기간이 지나면 지워지지만 `answered_by`는 이 행에 남는다. 그래서 기간이 지난 뒤에도 누가 답했는지는 남고, 그 판정의 세부만 사라진다.
   - 만드는 시점: worker가 요청을 등록할 때(`packages/db/src/decision/pending-control.ts:248`).
   - 보존 기간: 무기한. close는 열린 요청에 `resolved_at`만 적는다(`close-control.ts:75-83`).
-  - 삭제 조건: `pending_requests`는 없음. `permission_grants`·`turn_continuations`는 대기 중인 turn을 취소할 때 지운다(`packages/db/src/control-unit-of-work.ts:213-217`).
+  - 삭제 조건: `pending_requests`는 없음. `permission_grants`·`turn_continuations`는 대기 중인 turn을 취소할 때 지운다(`packages/db/src/control-unit-of-work.ts:201-205`).
 - **실행 이력** — `attempts`(`schema.ts:2036`), `executions`, `worker_launches`, `worker_credentials`
   - 만드는 시점: worker가 세션을 claim할 때(`worker-unit-of-work.ts:1732`)와 scheduler가 worker를 띄울 때.
   - 보존 기간: 무기한. 삭제 조건: 없음.
@@ -118,7 +118,7 @@ bucket은 `S3_BUCKET`(기본 `claude-sessions`, `infra/compose.core.yml:290`, `d
 ## 계정·권한·감사 (PostgreSQL)
 
 - **권한 판정 기록** — `authz_decisions`(`schema.ts:1574`)
-  - 만드는 시점: 판정할 때(`packages/db/src/musterrolle/authz-decisions.ts:17`). 무엇이 남는지는 [api-server.md](api-server.md#판정-감사와-보존-기간).
+  - 만드는 시점: 판정할 때(`packages/db/src/musterrolle/authz-decisions.ts:16`). 무엇이 남는지는 [api-server.md](api-server.md#판정-감사와-보존-기간).
   - 보존 기간: 워크스페이스의 `settings.audit_retention_days`, 기본 90일, 30~3650일(`packages/contracts/src/musterrolle/workspaces.ts:33-36`).
   - 삭제 조건: reconciler pass마다(`RECONCILER_INTERVAL_SEC`, 기본 10초) 기간이 지난 행을 오래된 것부터 `RECONCILER_BATCH_SIZE`(기본 100)개씩 지운다(`authz-decisions.ts:82-106`, 호출 `reconcile.ts:180`). `RECONCILER_DRY_RUN=true`면 세기만 한다.
   - 바꾸기: 워크스페이스 owner가 `POST /v1/workspaces/{id}/audit-retention`으로 30~3650일 안에서 바꾼다([api-server.md](api-server.md#판정-감사와-보존-기간)). 지우는 속도는 Helm `reconciler.intervalSec`·`batchSize`(`values.yaml:202`, `206`).

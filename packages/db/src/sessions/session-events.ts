@@ -12,7 +12,7 @@ import {
   actionableOfSession,
   awaitingInputAt,
   publicStatus,
-} from "../decision/pending-requests.ts";
+} from "../decision/pending-status.ts";
 import type { Database } from "../queries.ts";
 import { events, sessionEventArchives, sessions } from "../schema.ts";
 

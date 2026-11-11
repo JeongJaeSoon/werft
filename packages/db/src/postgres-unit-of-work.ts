@@ -88,6 +88,7 @@ import {
   lockIdempotencyScope,
   parseTurnSequence,
 } from "./control-shared.ts";
+import { readInputWaits } from "./decision/pending-requests.ts";
 import {
   AWAITABLE_STATUSES,
   actionableOfSession,
@@ -95,8 +96,7 @@ import {
   IN_FLIGHT_STATUSES,
   publicStatus,
   READ_AT,
-  readInputWaits,
-} from "./decision/pending-requests.ts";
+} from "./decision/pending-status.ts";
 import { captureGitHubPolicyStart } from "./github-settings.ts";
 import { admitInput } from "./input-limits.ts";
 import { readArchivedWorkspaceLimit } from "./limits/workspace-limit.ts";

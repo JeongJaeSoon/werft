@@ -16,7 +16,6 @@ import {
 } from "@werft-ai/platform";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { lockAgentToChange } from "../agents.ts";
-import { rowsOf } from "../control-unit-of-work.ts";
 import type { Database } from "../queries.ts";
 import {
   agentMcpSettings,
@@ -25,6 +24,7 @@ import {
   receipts,
   workspaces,
 } from "../schema.ts";
+import { rowsOf } from "../statement-rows.ts";
 
 type Values = Pick<AgentMcpRow, "server" | "allowedTools" | "credentialRefs">;
 
@@ -46,7 +46,7 @@ const rowOf = (found: typeof agentMcpSettings.$inferSelect): AgentMcpRow => ({
   updatedBy: found.updatedBy,
 });
 
-export async function agentMcpRowOf(
+async function agentMcpRowOf(
   executor: Database,
   agentId: string,
 ): Promise<AgentMcpRow | null> {

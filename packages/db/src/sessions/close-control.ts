@@ -22,7 +22,7 @@ import {
   transactionWithBindingRetry,
 } from "../control-shared.ts";
 import { dbNow } from "../db-clock.ts";
-import { awaitingInputAt, publicStatus } from "../decision/pending-requests.ts";
+import { awaitingInputAt, publicStatus } from "../decision/pending-status.ts";
 import type { Database } from "../queries.ts";
 import {
   cancelQueuedInput,
@@ -43,7 +43,7 @@ import { pauseBlocker } from "./pause-control.ts";
 import { hasRestorePoint, restoreBaseRevision } from "./pause-policy.ts";
 import { recordEvent, recordStatus } from "./session-events.ts";
 
-export const SESSION_CLOSED_SUBTYPE = "session_closed";
+const SESSION_CLOSED_SUBTYPE = "session_closed";
 
 type SessionRow = typeof sessions.$inferSelect;
 

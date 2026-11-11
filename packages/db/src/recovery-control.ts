@@ -26,11 +26,8 @@ import {
   transactionWithBindingRetry,
 } from "./control-shared.ts";
 import { dbNow } from "./db-clock.ts";
-import {
-  awaitingInputAt,
-  cancelParkedRequests,
-  publicStatus,
-} from "./decision/pending-requests.ts";
+import { cancelParkedRequests } from "./decision/pending-requests.ts";
+import { awaitingInputAt, publicStatus } from "./decision/pending-status.ts";
 import type { Database } from "./queries.ts";
 import {
   INCOMPATIBLE_CHECKPOINT_REASON,

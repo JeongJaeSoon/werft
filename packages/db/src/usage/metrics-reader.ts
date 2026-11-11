@@ -1,7 +1,6 @@
 import type { SessionBudget } from "@werft-ai/platform";
 import { type AnyColumn, and, eq, gt, isNull, lte, sql } from "drizzle-orm";
-import { rowsOf } from "../control-unit-of-work.ts";
-import { actionableOfSession } from "../decision/pending-requests.ts";
+import { actionableOfSession } from "../decision/pending-status.ts";
 import type { Database } from "../queries.ts";
 import { awaitingLaunch } from "../scheduler/scheduler-store.ts";
 import {
@@ -11,11 +10,12 @@ import {
   turns,
   unassignedSessions,
 } from "../schema.ts";
+import { rowsOf } from "../statement-rows.ts";
 
 // Endings a turn keeps. outcome_unknown is left out: an operator's recovery
 // decision rewrites it to completed or cancelled (recovery-control.ts), and
 // a counter must never lose what it counted.
-export const SETTLED_TURN_STATUSES = [
+const SETTLED_TURN_STATUSES = [
   "completed",
   "failed",
   "interrupted",

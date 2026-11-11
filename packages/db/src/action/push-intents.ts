@@ -9,7 +9,6 @@ import {
 } from "@werft-ai/contracts";
 import type { PushIntentStore, PushIntentTransition } from "@werft-ai/platform";
 import { and, asc, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
-import { rowsOf } from "../control-unit-of-work.ts";
 import { enqueueEndedIntentNotices } from "../musterrolle/action-notices.ts";
 import { createPostgresPushRequests } from "../push-requests.ts";
 import type { Database } from "../queries.ts";
@@ -21,10 +20,11 @@ import {
   turnContinuations,
   turns,
 } from "../schema.ts";
+import { rowsOf } from "../statement-rows.ts";
 
 type Row = typeof pushIntents.$inferSelect;
 
-export function publicPushIntent(row: Row): PushIntent {
+function publicPushIntent(row: Row): PushIntent {
   return {
     id: row.id,
     session_id: row.sessionId,

@@ -9,7 +9,6 @@ import {
 import { PGlite } from "@electric-sql/pglite";
 import { sql } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
-import { rowsOf } from "./control-unit-of-work.ts";
 import { migrate } from "./migrate.ts";
 import * as schema from "./schema.ts";
 import {
@@ -23,6 +22,7 @@ import {
 } from "./schema.ts";
 import { projectToolCalls, toolCallTotals } from "./sessions/tool-calls.ts";
 import { bucketMs, histMedianMs } from "./sessions/tool-calls-hist.ts";
+import { rowsOf } from "./statement-rows.ts";
 import { fixtureTeam } from "./testing/fixture-team.ts";
 import {
   releaseSpecColumns,

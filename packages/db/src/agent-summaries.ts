@@ -10,7 +10,7 @@ import { earlierInSecond, releaseLabel } from "./agents/release-labels.ts";
 import {
   actionableOfSession,
   IN_FLIGHT_STATUSES,
-} from "./decision/pending-requests.ts";
+} from "./decision/pending-status.ts";
 import { insideAgent } from "./musterrolle/administers.ts";
 import { sessionVisibleTo } from "./musterrolle/session-shares.ts";
 import type { Database } from "./queries.ts";

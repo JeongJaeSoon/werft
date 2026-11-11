@@ -4,7 +4,6 @@ import type {
   GitHubInstallationStore,
 } from "@werft-ai/platform";
 import { and, eq, lt, sql } from "drizzle-orm";
-import { rowsOf } from "../control-unit-of-work.ts";
 import type { Database } from "../queries.ts";
 import {
   githubApps,
@@ -13,6 +12,7 @@ import {
   githubInstallationStates,
   users,
 } from "../schema.ts";
+import { rowsOf } from "../statement-rows.ts";
 
 const isDateOrNull = (value: unknown): value is string | null =>
   value === null ||

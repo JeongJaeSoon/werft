@@ -1,9 +1,9 @@
 import type { RuntimeKind } from "@werft-ai/contracts";
 import { type NeutralizeEvent, neutralFieldsOf } from "@werft-ai/platform";
 import { sql } from "drizzle-orm";
-import { rowsOf } from "./control-unit-of-work.ts";
 import type { Database } from "./queries.ts";
 import { TOOL_CALL_CURSOR_MARGIN_SECONDS } from "./sessions/tool-calls.ts";
+import { rowsOf } from "./statement-rows.ts";
 
 // pg_try_advisory_xact_lock key: one replica fills a batch at a time; the
 // others find it taken and leave the pass to it.

@@ -1,8 +1,8 @@
 import type { UsageSummaryFilter } from "@werft-ai/platform";
 import { type SQL, sql } from "drizzle-orm";
 import { findPgError } from "../control-shared.ts";
-import { rowsOf } from "../control-unit-of-work.ts";
 import type { Database } from "../queries.ts";
+import { rowsOf } from "../statement-rows.ts";
 import { eventWithNeutralFields } from "./event-payload.ts";
 import { histMedianMs } from "./tool-calls-hist.ts";
 

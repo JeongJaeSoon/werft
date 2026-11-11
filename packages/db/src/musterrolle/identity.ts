@@ -31,7 +31,6 @@ import {
   or,
   sql,
 } from "drizzle-orm";
-import { rowsOf } from "../control-unit-of-work.ts";
 import { DB_NOW, fromDbNow } from "../db-clock.ts";
 import { ensureInstalledRepositoryCeiling } from "../github-settings.ts";
 import type { Database } from "../queries.ts";
@@ -47,6 +46,7 @@ import {
   workspaces,
 } from "../schema.ts";
 import { insertBuiltinAchievementTypes } from "../sessions/achievement-rules.ts";
+import { rowsOf } from "../statement-rows.ts";
 
 // Identity queries for the cookie-session path. API keys keep
 // their own helpers in queries.ts so that path is untouched.
