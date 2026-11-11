@@ -573,6 +573,7 @@ export const AUTHORIZATION_REASON_VALUES = [
   // A private agent used by someone outside its teams, admins and managers
   // (94S-901). A start is answered as a missing release instead.
   "agent_private",
+  "caller_limited",
   "disabled",
   "stale_link",
   "credential_unbound",
@@ -635,11 +636,17 @@ export const authorizationSurfaceSchema = z
     // The agent whose Slack app received the input. An installation speaks
     // for that agent alone, so a slack request without one is refused.
     agent_id: agentIdSchema.optional(),
+    channel_id: opaqueIdSchema.optional(),
   })
   .strict()
   .superRefine((surface, ctx) => {
     if (surface.kind === "slack") return;
-    for (const key of ["slack_user_kind", "ceiling", "agent_id"] as const) {
+    for (const key of [
+      "slack_user_kind",
+      "ceiling",
+      "agent_id",
+      "channel_id",
+    ] as const) {
       if (surface[key] !== undefined) {
         ctx.addIssue({
           code: "custom",

@@ -1,23 +1,48 @@
-import type {
-  AgentCallerLimitRule,
-  AgentCallerLimits,
+import { randomUUID } from "node:crypto";
+import {
+  type AgentCallerLimitRule,
+  type AgentCallerLimits,
+  type AuthorizationSubject,
+  effectiveGitHubPolicy,
+  effectiveToolsSchema,
+  GITHUB_MCP_SERVER,
+  type McpStart,
+  mcpStartSchema,
 } from "@werft-ai/contracts";
-import type {
-  AgentCallerLimitsStore,
-  CallerLimitRuleFacts,
-  CallerLimitsFacts,
-  PutAgentCallerLimitsResult,
+import {
+  type AgentCallerLimitsStore,
+  type CallerLimit,
+  type CallerLimitDimension,
+  type CallerLimitGate,
+  type CallerLimitRuleFacts,
+  type CallerLimitsFacts,
+  callerLimitedEntry,
+  callerLimitRefusal,
+  mergeCallerLimit,
+  narrowReach,
+  type PutAgentCallerLimitsResult,
+  runningTools,
+  type SessionReach,
+  withLiveRepositories,
 } from "@werft-ai/platform";
 import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { lockEditRight } from "./agent-usage.ts";
+import { createPostgresDecisionLog } from "./authz-decisions.ts";
 import { lockPeople, receiptActorOf } from "./control-shared.ts";
 import { DB_NOW } from "./db-clock.ts";
+import { agentGitHubSettingsOf } from "./github-settings.ts";
+import { sessionGitHubMcpOf, sessionMcpOf } from "./mcp-egress.ts";
+import { captureMcpStart } from "./mcp-settings.ts";
 import type { Database } from "./queries.ts";
 import {
   agentCallerLimits,
+  agentReleases,
   agents,
   agentUsage,
+  agentVersions,
   catalogRepositories,
+  memberTeamMembers,
+  memberTeams,
   receipts,
 } from "./schema.ts";
 
@@ -126,6 +151,355 @@ export async function callerLimitsOf(
   return (
     (await readFacts(tx, input.agentId, true)) ?? { rules: [], revision: 1 }
   );
+}
+
+type Caller = {
+  workspaceId: string;
+  agentId: string;
+  userId: string | null;
+  channelId: string | null;
+};
+
+async function liveRepositoryIds(
+  tx: Reader,
+  rules: readonly CallerLimitRuleFacts[],
+): Promise<Set<string>> {
+  const named = [...new Set(rules.flatMap((rule) => rule.repositories ?? []))];
+  if (named.length === 0) return new Set();
+  const rows = await tx
+    .select({ id: catalogRepositories.id })
+    .from(catalogRepositories)
+    .where(
+      and(
+        inArray(catalogRepositories.id, named),
+        isNull(catalogRepositories.removedAt),
+      ),
+    );
+  return new Set(rows.map((row) => row.id));
+}
+
+/**
+ * The limit that reaches the caller, merged from the agent's rules. With
+ * `lock`, after callerLimitsOf's agent_usage share lock come the live teams
+ * the rules name (id order) and then the caller's member rows of them, FOR
+ * SHARE: the order of P1.6c, so a team's archive (agent_usage first) and a
+ * member's removal (team, then member rows) either wait for this transaction
+ * or are seen by it.
+ */
+async function callerLimitOf(
+  tx: Reader,
+  input: Caller,
+  lock: boolean,
+): Promise<CallerLimit | null> {
+  const facts = await callerLimitsOf(tx, {
+    workspaceId: input.workspaceId,
+    agentId: input.agentId,
+    lock,
+  });
+  const named = [
+    ...new Set(
+      facts.rules.flatMap((rule) =>
+        rule.target.kind === "team" ? [rule.target.id.toLowerCase()] : [],
+      ),
+    ),
+  ].sort();
+  let teamIds: string[] = [];
+  if (input.userId !== null && named.length > 0) {
+    const teams = tx
+      .select({ id: memberTeams.id })
+      .from(memberTeams)
+      .where(
+        and(
+          eq(memberTeams.workspaceId, input.workspaceId),
+          inArray(memberTeams.id, named),
+          isNull(memberTeams.archivedAt),
+        ),
+      )
+      .orderBy(asc(memberTeams.id));
+    const live = (lock ? await teams.for("share") : await teams).map(
+      (row) => row.id,
+    );
+    if (live.length > 0) {
+      const mine = tx
+        .select({ teamId: memberTeamMembers.teamId })
+        .from(memberTeamMembers)
+        .where(
+          and(
+            inArray(memberTeamMembers.teamId, live),
+            eq(memberTeamMembers.userId, input.userId.toLowerCase()),
+            isNull(memberTeamMembers.removedAt),
+          ),
+        )
+        .orderBy(asc(memberTeamMembers.teamId), asc(memberTeamMembers.id));
+      teamIds = (lock ? await mine.for("share") : await mine).map(
+        (row) => row.teamId,
+      );
+    }
+  }
+  const live = await liveRepositoryIds(tx, facts.rules);
+  return mergeCallerLimit(
+    withLiveRepositories(facts.rules, (id) => live.has(id)),
+    { teamIds, channelId: input.channelId },
+    facts.revision,
+  );
+}
+
+/**
+ * A session create's or input's own read of the limit, inside its
+ * transaction and after `lockAgentUsage` (the agent and agent_usage rows come
+ * first, then the teams and members read here).
+ */
+export function lockCallerLimit(
+  tx: Database,
+  input: Caller,
+): Promise<CallerLimit | null> {
+  return callerLimitOf(tx, input, true);
+}
+
+const strings = (value: unknown): string[] =>
+  Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+
+type ReleaseFacts = {
+  agentId: string;
+  credentialRefs: string[];
+  server: string | null;
+  snapshot: unknown;
+  effectiveTools: unknown;
+};
+
+async function releaseFacts(
+  tx: Reader,
+  releaseId: string,
+): Promise<ReleaseFacts | null> {
+  const [row] = await tx
+    .select({
+      agentId: agentReleases.agentId,
+      card: agentVersions.card,
+      snapshot: agentReleases.runtimeConfigSnapshot,
+      effectiveTools: agentReleases.effectiveTools,
+    })
+    .from(agentReleases)
+    .innerJoin(agentVersions, eq(agentVersions.id, agentReleases.versionId))
+    .where(eq(agentReleases.id, releaseId))
+    .limit(1);
+  if (!row) return null;
+  const capabilities = (
+    row.card as {
+      capabilities?: { credential_refs?: unknown; mcp?: unknown };
+    } | null
+  )?.capabilities;
+  const first = Array.isArray(capabilities?.mcp)
+    ? (capabilities.mcp[0] as { server?: unknown } | undefined)
+    : undefined;
+  return {
+    agentId: row.agentId,
+    credentialRefs: strings(capabilities?.credential_refs),
+    server: typeof first?.server === "string" ? first.server : null,
+    snapshot: row.snapshot,
+    effectiveTools: row.effectiveTools,
+  };
+}
+
+// The union of what the card and the release declare and what the MCP route
+// and the built-in GitHub server expose to the session: a tool or server any
+// of them reaches counts.
+async function reachOf(
+  tx: Database,
+  releaseId: string,
+  release: ReleaseFacts,
+  input: {
+    builtinTools: readonly string[];
+    mcpStart: McpStart | null;
+    githubPolicySource: string;
+    repositories: readonly string[];
+  },
+): Promise<SessionReach> {
+  const exposed = await sessionMcpOf(tx, {
+    agentReleaseId: releaseId,
+    mcpStart: input.mcpStart,
+  });
+  const github = await sessionGitHubMcpOf(tx, {
+    agentReleaseId: releaseId,
+    githubPolicySource: input.githubPolicySource,
+  });
+  const declared =
+    input.mcpStart === null ? release.server : input.mcpStart.server;
+  const servers = new Set<string>();
+  for (const server of [declared, exposed?.server ?? null]) {
+    if (server !== null) servers.add(server);
+  }
+  if (github !== null && github.tools.length > 0)
+    servers.add(GITHUB_MCP_SERVER);
+  const effective = effectiveToolsSchema.safeParse(release.effectiveTools);
+  return {
+    tools: [
+      ...new Set([
+        ...input.builtinTools,
+        ...(effective.success ? effective.data.mcp : []),
+        ...(exposed?.tools ?? []),
+        ...(github?.tools ?? []),
+      ]),
+    ],
+    repositories: input.repositories,
+    mcp_servers: [...servers],
+    credentials:
+      input.mcpStart === null
+        ? release.credentialRefs
+        : input.mcpStart.credential_refs,
+  };
+}
+
+function releaseBuiltinTools(release: ReleaseFacts): string[] {
+  const effective = effectiveToolsSchema.safeParse(release.effectiveTools);
+  return effective.success ? effective.data.tools : [];
+}
+
+// A session started on a release always runs that release's tools.
+export async function startReach(
+  tx: Database,
+  input: {
+    releaseId: string;
+    mcpStart: McpStart | null;
+    githubPolicySource: string;
+    repositoryIds: readonly string[];
+  },
+): Promise<SessionReach | null> {
+  const release = await releaseFacts(tx, input.releaseId);
+  if (!release) return null;
+  return reachOf(tx, input.releaseId, release, {
+    builtinTools: releaseBuiltinTools(release),
+    mcpStart: input.mcpStart,
+    githubPolicySource: input.githubPolicySource,
+    repositories: input.repositoryIds,
+  });
+}
+
+// A session whose attached list is null may attach any repository its GitHub
+// policy lists, so those count as its reach.
+async function policyRepositories(
+  tx: Database,
+  releaseId: string,
+  agentId: string,
+  session: { githubPolicySource: unknown; githubPolicyStart: unknown },
+): Promise<string[]> {
+  const [pinned] = await tx
+    .select({ pin: sql<unknown>`${agentReleases.policyPins} -> 'github'` })
+    .from(agentReleases)
+    .where(eq(agentReleases.id, releaseId))
+    .limit(1);
+  const policy = effectiveGitHubPolicy({
+    source: session.githubPolicySource,
+    releasePin: pinned?.pin ?? null,
+    agentRow: await agentGitHubSettingsOf(tx, agentId),
+    start: session.githubPolicyStart,
+    attachedRepositoryIds: null,
+  });
+  return policy.settings === null || policy.settings === "invalid"
+    ? []
+    : policy.settings.repositories;
+}
+
+export async function sessionReach(
+  tx: Database,
+  session: {
+    agentReleaseId: string | null;
+    runtimeToolsSource: string;
+    repositoryId: string | null;
+    attachedRepositoryIds: readonly string[] | null;
+    mcpStart: unknown;
+    githubPolicySource: string;
+    githubPolicyStart: unknown;
+  },
+  profileTools: readonly string[],
+): Promise<SessionReach | null> {
+  if (session.agentReleaseId === null) return null;
+  const release = await releaseFacts(tx, session.agentReleaseId);
+  if (!release) return null;
+  const attached =
+    session.attachedRepositoryIds ??
+    (await policyRepositories(
+      tx,
+      session.agentReleaseId,
+      release.agentId,
+      session,
+    ));
+  return reachOf(tx, session.agentReleaseId, release, {
+    builtinTools:
+      session.runtimeToolsSource === "release"
+        ? releaseBuiltinTools(release)
+        : runningTools({ tools: [...profileTools] }, release.snapshot),
+    mcpStart: mcpStartSchema.safeParse(session.mcpStart).data ?? null,
+    githubPolicySource: session.githubPolicySource,
+    repositories: [
+      ...(session.repositoryId === null ? [] : [session.repositoryId]),
+      ...attached,
+    ],
+  });
+}
+
+export function pinnedLimitOf(value: unknown): CallerLimit | null {
+  const pinned = value as Partial<CallerLimit> | null;
+  return pinned !== null &&
+    typeof pinned === "object" &&
+    pinned.v === 1 &&
+    Array.isArray(pinned.tools_deny) &&
+    Array.isArray(pinned.credentials_deny)
+    ? (pinned as CallerLimit)
+    : null;
+}
+
+export function inputRefusal(
+  sender: CallerLimit | null,
+  reach: SessionReach,
+  pinned: CallerLimit | null,
+): CallerLimitDimension | null {
+  return callerLimitRefusal(sender, narrowReach(reach, pinned));
+}
+
+export async function recordCallerLimited(
+  tx: Database,
+  input: {
+    subject: AuthorizationSubject;
+    ownerId: string;
+    requestId: string;
+    agentId: string;
+    releaseId: string;
+    sessionId: string | null;
+  },
+): Promise<void> {
+  await createPostgresDecisionLog(tx).record(
+    callerLimitedEntry({ ...input, decisionId: randomUUID() }),
+  );
+}
+
+export function createPostgresCallerLimitGate(db: Database): CallerLimitGate {
+  return {
+    async startRefusal(input) {
+      const limit = await callerLimitOf(db, input, false);
+      if (limit === null) return null;
+      const reach = await startReach(db, {
+        releaseId: input.releaseId,
+        mcpStart: await captureMcpStart(db, input.releaseId),
+        githubPolicySource: input.githubPolicySource,
+        repositoryIds: input.repositoryIds,
+      });
+      const dimension =
+        reach === null ? null : callerLimitRefusal(limit, reach);
+      if (dimension !== null) {
+        await recordCallerLimited(db, {
+          subject: input.subject,
+          ownerId: input.workspaceId,
+          requestId: input.requestId,
+          agentId: input.agentId,
+          releaseId: input.releaseId,
+          sessionId: null,
+        }).catch(() => undefined);
+      }
+      return dimension;
+    },
+  };
 }
 
 function sameRule(a: CallerLimitRuleFacts, b: CallerLimitRuleFacts): boolean {

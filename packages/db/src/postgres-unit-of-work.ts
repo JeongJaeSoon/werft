@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  type AuthorizationSubject,
   attemptStateSchema,
   type CheckpointBlockReason,
   type CountSessionsQuery,
@@ -48,6 +49,9 @@ import type {
   UsageDecision,
 } from "@werft-ai/platform";
 import {
+  type CallerLimit,
+  callerLimitDigest,
+  callerLimitRefusal,
   InvalidCursorError,
   projectDurability,
   sessionRepositoryOf,
@@ -71,6 +75,14 @@ import {
   sql,
 } from "drizzle-orm";
 import { agentUsable } from "./administers.ts";
+import {
+  inputRefusal,
+  lockCallerLimit,
+  pinnedLimitOf,
+  recordCallerLimited,
+  sessionReach,
+  startReach,
+} from "./agent-caller-limits.ts";
 import { contextGapAttention } from "./context-gap.ts";
 import {
   containsPattern,
@@ -215,9 +227,34 @@ function usageRecord(usage: UsageDecision | null, requester: Requester) {
   };
 }
 
+function callerRecord(
+  limit: CallerLimit | null,
+  subject: AuthorizationSubject | undefined,
+) {
+  return {
+    callerChannel:
+      limit === null ? null : (subject?.surface.channel_id ?? null),
+    callerLimitDigest: limit === null ? null : callerLimitDigest(limit),
+  };
+}
+
+async function agentOfRelease(
+  tx: Database,
+  releaseId: string,
+): Promise<string | null> {
+  const [row] = await tx
+    .select({ agentId: agentReleases.agentId })
+    .from(agentReleases)
+    .where(eq(agentReleases.id, releaseId))
+    .limit(1);
+  return row?.agentId ?? null;
+}
+
 async function insertQueuedTurn(
   tx: Database,
   input: {
+    callerChannel?: string | null;
+    callerLimitDigest?: string | null;
     sessionId: string;
     sequence: number;
     message: string;
@@ -250,6 +287,8 @@ async function insertQueuedTurn(
       usageTeamId: input.usageTeamId ?? null,
       requesterKind: input.requesterKind ?? null,
       requesterId: input.requesterId ?? null,
+      callerChannel: input.callerChannel ?? null,
+      callerLimitDigest: input.callerLimitDigest ?? null,
     })
     .returning({ id: turns.id });
   if (!turn) throw new Error("Failed to insert turn");
@@ -334,6 +373,8 @@ export function createPostgresSessionUnitOfWork(
         // AUTH_MODE=none and keys from before workspaces have no settings.
         const workspaceId = input.principal.actor?.workspaceId;
         let usage: UsageDecision | null = null;
+        let callerLimit: CallerLimit | null = null;
+        let limitedAgentId: string | null = null;
         if (input.agentReleaseId !== undefined && workspaceId) {
           // Before any lock on a team (lockAgentUse below): see lockAgentUsage.
           usage = await lockAgentUsage(
@@ -344,6 +385,23 @@ export function createPostgresSessionUnitOfWork(
           );
           if (input.agentPrivate || !usage.allowed) {
             return { outcome: "agent_private" };
+          }
+          if (input.callerLimited !== undefined) {
+            return {
+              outcome: "caller_limited",
+              dimension: input.callerLimited,
+            };
+          }
+          // Right after the usage rows, so the rule's teams and the caller's
+          // member rows are taken in id order before lockAgentUse's.
+          limitedAgentId = await agentOfRelease(tx, input.agentReleaseId);
+          if (limitedAgentId !== null) {
+            callerLimit = await lockCallerLimit(tx, {
+              workspaceId,
+              agentId: limitedAgentId,
+              userId: requester.userId,
+              channelId: input.callerSubject?.surface.channel_id ?? null,
+            });
           }
         }
         if (input.notRunnableReason !== undefined) {
@@ -384,6 +442,42 @@ export function createPostgresSessionUnitOfWork(
           input.agentReleaseId === undefined
             ? null
             : await captureMcpStart(tx, input.agentReleaseId);
+        // The same merge and the same coverage check as the service made,
+        // over the rows locked above: when a rule moved since, this answer
+        // wins. Before the unbound check, which would hide a limit that
+        // keeps the caller from the card's credentials at all.
+        if (
+          callerLimit !== null &&
+          input.agentReleaseId !== undefined &&
+          limitedAgentId !== null
+        ) {
+          const reach = await startReach(tx, {
+            releaseId: input.agentReleaseId,
+            mcpStart,
+            githubPolicySource: input.githubPolicySource ?? "release",
+            repositoryIds: [
+              ...(typeof input.repository === "object"
+                ? [input.repository.id]
+                : []),
+              ...(input.attachedRepositoryIds ?? []),
+            ],
+          });
+          const dimension =
+            reach === null ? null : callerLimitRefusal(callerLimit, reach);
+          if (dimension !== null) {
+            if (input.callerSubject !== undefined) {
+              await recordCallerLimited(tx, {
+                subject: input.callerSubject,
+                ownerId: scope.principal,
+                requestId: input.principal.requestId ?? "",
+                agentId: limitedAgentId,
+                releaseId: input.agentReleaseId,
+                sessionId: null,
+              });
+            }
+            return { outcome: "caller_limited", dimension };
+          }
+        }
         if (
           input.agentReleaseId !== undefined &&
           (
@@ -494,6 +588,9 @@ export function createPostgresSessionUnitOfWork(
           createdByUserId: actor?.userId ?? null,
           createdByApiKeyId: actor?.apiKeyId ?? null,
           ...usageRecord(usage, requester),
+          callerLimit,
+          callerLimitDigest:
+            callerLimit === null ? null : callerLimitDigest(callerLimit),
         });
         if (input.shareScope !== undefined) {
           if (!actor?.workspaceId) {
@@ -515,6 +612,7 @@ export function createPostgresSessionUnitOfWork(
           slackMessage: input.slackMessage ?? null,
           traceContext: input.traceContext ?? null,
           ...usageRecord(usage, requester),
+          ...callerRecord(callerLimit, input.callerSubject),
         });
 
         if (envCapture.outcome === "resolved") {
@@ -592,6 +690,13 @@ export function createPostgresSessionUnitOfWork(
             agentReleaseId: sessions.agentReleaseId,
             runtimeSpec: sessions.runtimeSpec,
             model: sessions.model,
+            runtimeToolsSource: sessions.runtimeToolsSource,
+            repositoryId: sessions.repositoryId,
+            attachedRepositoryIds: sessions.attachedRepositoryIds,
+            mcpStart: sessions.mcpStart,
+            githubPolicySource: sessions.githubPolicySource,
+            githubPolicyStart: sessions.githubPolicyStart,
+            callerLimit: sessions.callerLimit,
           })
           .from(sessions)
           .where(
@@ -620,6 +725,19 @@ export function createPostgresSessionUnitOfWork(
                 session.agentReleaseId,
               )
             : null;
+        const limitedAgentId =
+          usage !== null && session.agentReleaseId !== null
+            ? await agentOfRelease(tx, session.agentReleaseId)
+            : null;
+        const senderLimit =
+          limitedAgentId !== null && session.workspaceId !== null
+            ? await lockCallerLimit(tx, {
+                workspaceId: session.workspaceId,
+                agentId: limitedAgentId,
+                userId: requester.userId,
+                channelId: input.callerSubject?.surface.channel_id ?? null,
+              })
+            : null;
         if ((await lockSessionReach(tx, requester, session)) !== "ok") {
           return { outcome: "not_found" };
         }
@@ -629,6 +747,38 @@ export function createPostgresSessionUnitOfWork(
         // After the reach and the usage, so the block's words (the profile's
         // name) are said only to someone who sees the session and its agent.
         if (input.profileBlocked) return { outcome: "profile_blocked" };
+        if (
+          senderLimit !== null &&
+          limitedAgentId !== null &&
+          session.agentReleaseId !== null
+        ) {
+          const reach = await sessionReach(
+            tx,
+            session,
+            input.profileTools ?? [],
+          );
+          const dimension =
+            reach === null
+              ? null
+              : inputRefusal(
+                  senderLimit,
+                  reach,
+                  pinnedLimitOf(session.callerLimit),
+                );
+          if (dimension !== null) {
+            if (input.callerSubject !== undefined) {
+              await recordCallerLimited(tx, {
+                subject: input.callerSubject,
+                ownerId: scope.principal,
+                requestId: input.principal.requestId ?? "",
+                agentId: limitedAgentId,
+                releaseId: session.agentReleaseId,
+                sessionId,
+              });
+            }
+            return { outcome: "caller_limited", dimension };
+          }
+        }
         if (session.takeoverRequiredAt !== null) {
           return { outcome: "awaiting_takeover" };
         }
@@ -696,6 +846,7 @@ export function createPostgresSessionUnitOfWork(
           slackMessage: input.slackMessage ?? null,
           traceContext: input.traceContext ?? null,
           ...usageRecord(usage, requester),
+          ...callerRecord(senderLimit, input.callerSubject),
         });
         await tx
           .update(sessions)

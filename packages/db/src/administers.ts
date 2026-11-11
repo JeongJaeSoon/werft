@@ -223,6 +223,36 @@ export function agentUsable(
   return or(...branches) as SQL;
 }
 
+export function credentialsAllowed(
+  workspaceId: string | SQLWrapper,
+  userId: string | null,
+  agentId: string | SQLWrapper,
+): SQL {
+  const teams =
+    userId !== null && UUID.test(userId)
+      ? sql`l.team_id IN (
+          SELECT m.team_id FROM member_team_members m
+          JOIN member_teams t ON t.id = m.team_id
+          WHERE m.user_id = ${userId.toLowerCase()}::uuid
+            AND m.removed_at IS NULL AND t.archived_at IS NULL
+            AND t.workspace_id = ${workspaceId})`
+      : sql`false`;
+  return sql`NOT EXISTS (
+    SELECT 1 FROM agent_caller_limits l
+    WHERE l.agent_id = ${agentId}
+      AND l.workspace_id = ${workspaceId}
+      AND (l.target_kind = 'workspace' OR (l.target_kind = 'team' AND ${teams}))
+      AND l.credentials_deny && ARRAY(
+        SELECT jsonb_array_elements_text(
+          CASE WHEN s.agent_id IS NOT NULL THEN s.credential_refs
+               ELSE coalesce(v.card -> 'capabilities' -> 'credential_refs', '[]'::jsonb) END)
+        FROM agents a
+        JOIN agent_releases r ON r.id = a.active_release_id
+        JOIN agent_versions v ON v.id = r.version_id
+        LEFT JOIN agent_mcp_settings s ON s.agent_id = a.id
+        WHERE a.id = ${agentId}))`;
+}
+
 /**
  * True where `userId` may read `agentId`'s list row (agent.read): every live
  * member, unless the workspace hides agents from those outside them.
