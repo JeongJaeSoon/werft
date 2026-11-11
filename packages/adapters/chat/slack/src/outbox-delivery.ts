@@ -6,16 +6,69 @@ import type {
   Notifiable,
   SlackOutboxSettle,
 } from "@werft-ai/platform";
-import { SlackApiError, type SlackBotSender } from "./slack-config-api.ts";
+import {
+  SlackApiError,
+  type SlackBotSender,
+  type SlackSendResponse,
+} from "./slack-config-api.ts";
 import { slackInboundBackoffMs } from "./slack-inbox.ts";
 import {
   sessionUrl,
   slackInstructionFallbackText,
   slackOutboxPresentation,
-  slackOutboxSettleFor,
   slackOutboxText,
-} from "./slack-outbox.ts";
-import { SLACK_SEND_MAX_ATTEMPTS } from "./slack-send-result.ts";
+} from "./slack-outbox-render.ts";
+import {
+  classifySlackSendResult,
+  SLACK_SEND_MAX_ATTEMPTS,
+} from "./slack-send-result.ts";
+
+/** The longest Retry-After the outbox honours before asking again. */
+export const SLACK_RETRY_AFTER_MAX_MS = 5 * 60_000;
+/** Claims, rate-limited ones included, before a row gives up. */
+export const SLACK_OUTBOX_MAX_ATTEMPTS = 10;
+
+export function slackOutboxSettleFor(
+  attempts: number,
+  response: SlackSendResponse,
+): SlackOutboxSettle {
+  // A 2xx or 5xx whose answer could not be read: Slack may hold the
+  // message, so this is no failure to retry. A 4xx, 429 included, is
+  // judged by its status and Retry-After alone.
+  if (
+    response.body === null &&
+    ((response.httpStatus >= 200 && response.httpStatus < 300) ||
+      response.httpStatus >= 500)
+  ) {
+    return { status: "uncertain", errorCode: "unreadable_answer" };
+  }
+  const outcome = classifySlackSendResult({
+    httpStatus: response.httpStatus,
+    retryAfterHeader: response.retryAfterHeader,
+    body: response.body,
+    attempts,
+  });
+  switch (outcome.kind) {
+    case "sent":
+      return { status: "sent", slackTs: outcome.ts };
+    case "failed":
+      return { status: "failed", errorCode: outcome.code };
+    case "retry_after":
+      return attempts >= SLACK_OUTBOX_MAX_ATTEMPTS
+        ? { status: "failed", errorCode: "ratelimited" }
+        : {
+            status: "pending",
+            errorCode: "ratelimited",
+            retryInMs: Math.min(outcome.waitMs, SLACK_RETRY_AFTER_MAX_MS),
+          };
+    case "retry":
+      return {
+        status: "pending",
+        errorCode: outcome.code,
+        retryInMs: slackInboundBackoffMs(attempts),
+      };
+  }
+}
 
 /**
  * The outbox sender's way out to the channel. `notifiable` and `approvable`

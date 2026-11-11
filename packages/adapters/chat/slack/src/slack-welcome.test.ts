@@ -17,7 +17,7 @@ import {
   type SlackChannelMembership,
 } from "./slack-config-api.ts";
 import type { SlackInstalled } from "./slack-install-service.ts";
-import { slackOutboxText } from "./slack-outbox.ts";
+import { slackOutboxText } from "./slack-outbox-render.ts";
 import {
   createSlackWelcome,
   deploymentWelcomeKey,
