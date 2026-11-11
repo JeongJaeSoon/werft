@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { PGlite } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
+import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { eq } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { queuePushFollowUps } from "../action/push-follow-ups.ts";
-import { migrate } from "../migrate.ts";
 import * as schema from "../schema.ts";
 import { sessions, turns } from "../schema.ts";
 import { createPostgresCommitAttributionLedger } from "./commit-attributions.ts";
@@ -13,11 +13,8 @@ let client: PGlite;
 let db: PgliteDatabase<typeof schema>;
 
 beforeEach(async () => {
-  client = new PGlite();
+  client = await migratedPGlite();
   db = drizzle(client, { schema });
-  await migrate(db, {
-    migrationsFolder: `${import.meta.dir}/../../migrations`,
-  });
   await client.query("SET session_replication_role = replica");
 });
 

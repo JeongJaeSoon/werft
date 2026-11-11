@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { PGlite } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 import {
   ADMISSION_STATE_VALUES,
   CREDENTIAL_REF_PATTERN as CONTRACT_CREDENTIAL_REF_PATTERN,
@@ -7,6 +7,7 @@ import {
   RECEIPT_STATUS_VALUES,
   SESSION_STATUS_VALUES,
 } from "@werft-ai/contracts";
+import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "./migrate.ts";
 import {
@@ -24,12 +25,12 @@ import {
 
 const databases: PGlite[] = [];
 
+// A copy of a database migrated once per process: each test still gets its
+// own, without paying for the migrations again.
 async function migratedDatabase() {
-  const client = new PGlite();
+  const client = await migratedPGlite();
   databases.push(client);
-  const db = drizzle(client);
-  await migrate(db, { migrationsFolder: `${import.meta.dir}/../migrations` });
-  return { client, db };
+  return { client, db: drizzle(client) };
 }
 
 afterEach(async () => {

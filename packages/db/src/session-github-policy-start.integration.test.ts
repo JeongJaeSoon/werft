@@ -25,6 +25,12 @@ import {
   migrationsThrough as migrationsUpTo,
 } from "./testing/migrations-through.ts";
 
+// Each test applies the migration chain itself, on a fresh database the way
+// its hooks prepare one. That is about a second on a quiet runner and went past
+// bun's 5s default on a busy one (runs 43076026816 and 43076744519), so the
+// tests get the same headroom as their hooks.
+const MIGRATION_CHAIN_TIMEOUT = 60_000;
+
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
 // Up to the profile removal: 0270 empties the session tables these rows sit in.
@@ -114,89 +120,99 @@ integration("sessions.github_policy_start and the repository cap", () => {
       [agentId, workspaceId, repositories(count)],
     );
 
-  test("rows from before read the same; 33 repositories were refused before and are accepted after", async () => {
-    await migrate(db, { migrationsFolder: before });
-    const { agentId } = await agentWith(32);
-    const sessionId = randomUUID();
-    await pool.query(
-      `INSERT INTO sessions (id, owner_id, repo_url, branch, repository_id)
+  test(
+    "rows from before read the same; 33 repositories were refused before and are accepted after",
+    async () => {
+      await migrate(db, { migrationsFolder: before });
+      const { agentId } = await agentWith(32);
+      const sessionId = randomUUID();
+      await pool.query(
+        `INSERT INTO sessions (id, owner_id, repo_url, branch, repository_id)
        VALUES ($1, 'owner', 'https://example.invalid/a.git', 'main', 'repo-a')`,
-      [sessionId],
-    );
-    const second = await agentWith(2);
-    await expect(
-      pool.query(
-        "UPDATE agent_github_settings SET repositories = $2::jsonb WHERE agent_id = $1",
-        [second.agentId, repositories(33)],
-      ),
-    ).rejects.toThrow("agent_github_settings_repositories_check");
+        [sessionId],
+      );
+      const second = await agentWith(2);
+      await expect(
+        pool.query(
+          "UPDATE agent_github_settings SET repositories = $2::jsonb WHERE agent_id = $1",
+          [second.agentId, repositories(33)],
+        ),
+      ).rejects.toThrow("agent_github_settings_repositories_check");
 
-    await migrateBeforeRemoval(db);
+      await migrateBeforeRemoval(db);
 
-    const { rows } = await pool.query<{ n: number; push_approval: boolean }>(
-      `SELECT jsonb_array_length(repositories) AS n, push_approval
+      const { rows } = await pool.query<{ n: number; push_approval: boolean }>(
+        `SELECT jsonb_array_length(repositories) AS n, push_approval
          FROM agent_github_settings WHERE agent_id = $1`,
-      [agentId],
-    );
-    expect(rows).toEqual([{ n: 32, push_approval: true }]);
-    expect(
-      (
-        await pool.query(
-          "SELECT github_policy_start, github_policy_source FROM sessions WHERE id = $1",
-          [sessionId],
-        )
-      ).rows,
-    ).toEqual([{ github_policy_start: null, github_policy_source: "release" }]);
+        [agentId],
+      );
+      expect(rows).toEqual([{ n: 32, push_approval: true }]);
+      expect(
+        (
+          await pool.query(
+            "SELECT github_policy_start, github_policy_source FROM sessions WHERE id = $1",
+            [sessionId],
+          )
+        ).rows,
+      ).toEqual([
+        { github_policy_start: null, github_policy_source: "release" },
+      ]);
 
-    await pool.query(
-      "UPDATE agent_github_settings SET repositories = $2::jsonb WHERE agent_id = $1",
-      [second.agentId, repositories(40)],
-    );
-    expect(
-      (
-        await pool.query(
-          "SELECT jsonb_array_length(repositories) AS n FROM agent_github_settings WHERE agent_id = $1",
+      await pool.query(
+        "UPDATE agent_github_settings SET repositories = $2::jsonb WHERE agent_id = $1",
+        [second.agentId, repositories(40)],
+      );
+      expect(
+        (
+          await pool.query(
+            "SELECT jsonb_array_length(repositories) AS n FROM agent_github_settings WHERE agent_id = $1",
+            [second.agentId],
+          )
+        ).rows,
+      ).toEqual([{ n: 40 }]);
+      // Only the shape is still checked.
+      await expect(
+        pool.query(
+          "UPDATE agent_github_settings SET repositories = '{}'::jsonb WHERE agent_id = $1",
           [second.agentId],
-        )
-      ).rows,
-    ).toEqual([{ n: 40 }]);
-    // Only the shape is still checked.
-    await expect(
-      pool.query(
-        "UPDATE agent_github_settings SET repositories = '{}'::jsonb WHERE agent_id = $1",
-        [second.agentId],
-      ),
-    ).rejects.toThrow("agent_github_settings_repositories_check");
-  });
+        ),
+      ).rejects.toThrow("agent_github_settings_repositories_check");
+    },
+    MIGRATION_CHAIN_TIMEOUT,
+  );
 
-  test("the image from before still writes sessions, and the migration can run again", async () => {
-    await migrate(db, { migrationsFolder: before });
-    await migrate(db, { migrationsFolder: MIGRATIONS });
-    // A session written without the column lands with it null.
-    const sessionId = randomUUID();
-    await pool.query(
-      `INSERT INTO sessions (id, owner_id, repo_url, branch, repository_id)
+  test(
+    "the image from before still writes sessions, and the migration can run again",
+    async () => {
+      await migrate(db, { migrationsFolder: before });
+      await migrate(db, { migrationsFolder: MIGRATIONS });
+      // A session written without the column lands with it null.
+      const sessionId = randomUUID();
+      await pool.query(
+        `INSERT INTO sessions (id, owner_id, repo_url, branch, repository_id)
        VALUES ($1, 'owner', 'https://example.invalid/a.git', 'main', 'repo-a')`,
-      [sessionId],
-    );
-    expect(
-      (
-        await pool.query(
-          "SELECT github_policy_start FROM sessions WHERE id = $1",
-          [sessionId],
-        )
-      ).rows,
-    ).toEqual([{ github_policy_start: null }]);
+        [sessionId],
+      );
+      expect(
+        (
+          await pool.query(
+            "SELECT github_policy_start FROM sessions WHERE id = $1",
+            [sessionId],
+          )
+        ).rows,
+      ).toEqual([{ github_policy_start: null }]);
 
-    // A part-way failure leaves the statements before it committed: the file
-    // run a second time changes nothing.
-    const sql = await readFile(
-      join(MIGRATIONS, "0234_session_github_policy_start.sql"),
-      "utf8",
-    );
-    for (const statement of sql.split("--> statement-breakpoint")) {
-      await pool.query(statement);
-    }
-    await agentWith(40);
-  });
+      // A part-way failure leaves the statements before it committed: the file
+      // run a second time changes nothing.
+      const sql = await readFile(
+        join(MIGRATIONS, "0234_session_github_policy_start.sql"),
+        "utf8",
+      );
+      for (const statement of sql.split("--> statement-breakpoint")) {
+        await pool.query(statement);
+      }
+      await agentWith(40);
+    },
+    MIGRATION_CHAIN_TIMEOUT,
+  );
 });

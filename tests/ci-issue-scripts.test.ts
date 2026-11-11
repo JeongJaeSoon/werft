@@ -16,6 +16,7 @@ type Outcome = {
  * Runs a script with a fake `gh` first on PATH. The fake logs every invocation
  * to a file and answers from `replies`, keyed by the first words of the
  * invocation; an unmatched call exits 9 so a test never passes by accident.
+ * A reply of `FAIL` makes that call fail the way an HTTP 502 does.
  */
 /** A reply per call, in order; the last one repeats. */
 type Replies = Record<string, string | string[]>;
@@ -49,6 +50,10 @@ answer() {
   echo $((n + 1)) >"$counter"
   [ "$n" -ge "$#" ] && n=$(($# - 1))
   shift "$n"
+  if [ "$1" = FAIL ]; then
+    echo "gh: Server Error (HTTP 502)" >&2
+    exit 1
+  fi
   printf '%b\\n' "$1"
 }
 case "$*" in
@@ -63,6 +68,8 @@ esac
       env: {
         ...Bun.env,
         GH_REPO: "octo/repo",
+        // Scripts that ask a failed call again wait between attempts.
+        GH_RETRY_DELAY: "0",
         ...env,
         PATH: `${directory}:${Bun.env.PATH}`,
       },
@@ -606,7 +613,7 @@ describe("check-agent-sdk-compat-job.sh", () => {
   const runUrl = "https://github.com/octo/repo/actions/runs/555";
   const runQuery = "api repos/octo/repo/actions/runs/555 --jq";
   const jobsQuery =
-    "api repos/octo/repo/actions/runs/555/jobs?filter=all&per_page=100";
+    "api repos/octo/repo/actions/runs/555/jobs?filter=all&per_page=30";
   const issuesQuery = `api repos/octo/repo/issues?labels=ci-agent-sdk-compat-failure&state=all&since=${created}&per_page=100`;
   const commentsQuery = `api repos/octo/repo/issues/comments?since=${created}&per_page=100`;
   const completedRun = `completed ${created} ${runUrl} abc1234def`;
@@ -747,6 +754,33 @@ describe("check-agent-sdk-compat-job.sh", () => {
     });
 
     expect(outcome.stdout).toBe(`unreported cancelled ${runUrl} abc1234def\n`);
+  });
+
+  test("a 502 on the jobs listing is asked again before it counts", async () => {
+    const outcome = await run("check-agent-sdk-compat-job.sh", ["555"], {
+      [runQuery]: completedRun,
+      [jobsQuery]: ["FAIL", "jobs 4\\nagent-sdk-compat 1 completed success"],
+    });
+
+    expect(outcome.exitCode).toBe(0);
+    expect(outcome.stdout).toBe("ok success\n");
+    expect(
+      outcome.calls.filter((call) => call.startsWith(jobsQuery)),
+    ).toHaveLength(2);
+  });
+
+  test("a listing that keeps failing still ends the check with exit 2", async () => {
+    const outcome = await run("check-agent-sdk-compat-job.sh", ["555"], {
+      [runQuery]: completedRun,
+      [jobsQuery]: "FAIL",
+    });
+
+    expect(outcome.exitCode).toBe(2);
+    expect(outcome.stdout).toBe("");
+    expect(outcome.stderr).toContain("GitHub API call failed: runs/555/jobs");
+    expect(
+      outcome.calls.filter((call) => call.startsWith(jobsQuery)),
+    ).toHaveLength(3);
   });
 
   test("a job still running is pending", async () => {

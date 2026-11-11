@@ -246,6 +246,21 @@ jobs:
             paths:
               - packages/db/
               - packages/testkit/src/postgres.
+          # The session queue on PostgreSQL: sessions and their turns, the
+          # scheduler's claims, worker leases and fencing, parked and pending
+          # requests. Split from `db`, whose suite alone outran every other
+          # job; the longer prefixes take these files from `packages/db/`.
+          - domain: sessions
+            postgres: true
+            localstack: false
+            docker: false
+            paths:
+              - packages/db/src/session
+              - packages/db/src/scheduler/
+              - packages/db/src/worker-unit-of-work.
+              - packages/db/src/parked-requests.
+              - packages/db/src/pending-
+              - packages/db/src/reconcile.
           # HTTP routes and the control-host flows they drive. Keep their
           # database and lifecycle checks apart from API consumer suites.
           - domain: api
@@ -270,10 +285,12 @@ jobs:
               - tests/tool-call-audit.
               - tests/turn-trace-context.
           # Slack and the contracts, clients and web apps that consume the API.
-          # Enable PostgreSQL and LocalStack so service-gated tests do not skip.
+          # PostgreSQL only: no file here reads object storage, and LocalStack
+          # took 30-39s to get ready for nothing. A file that comes to need it
+          # skips without STORAGE_LOCALSTACK_TEST, which `verify` rejects.
           - domain: surface
             postgres: true
-            localstack: true
+            localstack: false
             docker: false
             paths:
               - apps/control-host/src/slack/

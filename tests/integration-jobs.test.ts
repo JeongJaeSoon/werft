@@ -115,6 +115,38 @@ describe("integration-jobs.ts", () => {
     });
   });
 
+  test("gives a file under nested prefixes to the job with the longest one", () => {
+    const assigned = assign(
+      [
+        "packages/db/src/a.test.ts",
+        "packages/db/src/session-b.test.ts",
+        "packages/db/src/sessions/c.test.ts",
+      ],
+      [
+        job("db", ["packages/db/"]),
+        job("sessions", ["packages/db/src/session"]),
+      ],
+    );
+
+    expect(Object.fromEntries(assigned)).toEqual({
+      db: ["packages/db/src/a.test.ts"],
+      sessions: [
+        "packages/db/src/session-b.test.ts",
+        "packages/db/src/sessions/c.test.ts",
+      ],
+    });
+    // A prefix every file of which a longer one took owns nothing.
+    expect(() =>
+      assign(
+        ["packages/db/src/session-b.test.ts"],
+        [
+          job("db", ["packages/db/"]),
+          job("sessions", ["packages/db/src/session"]),
+        ],
+      ),
+    ).toThrow("db: packages/db/ matches no test file");
+  });
+
   test("names every file that belongs to no job or to two, and every stale prefix or empty job", () => {
     expect(() =>
       assign(
