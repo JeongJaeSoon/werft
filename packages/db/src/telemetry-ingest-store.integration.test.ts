@@ -14,10 +14,10 @@ import {
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { revokeExecutionAtomic } from "./execution-revocation.ts";
 import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
 import { sessions, unassignedSessions } from "./schema.ts";
+import { revokeExecutionAtomic } from "./sessions/execution-revocation.ts";
 import { createPostgresTelemetryIngestStore } from "./telemetry-ingest-store.ts";
 import { launchSession } from "./testing/launches.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";

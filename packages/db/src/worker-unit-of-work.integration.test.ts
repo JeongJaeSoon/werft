@@ -27,17 +27,16 @@ import {
 import { and, count, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { readPointerRuntime } from "./checkpoint-runtime.ts";
-import { createPostgresCheckpointStore } from "./checkpoint-store.ts";
+import { readPointerRuntime } from "./checkpoints/checkpoint-runtime.ts";
+import { createPostgresCheckpointStore } from "./checkpoints/checkpoint-store.ts";
 import { fromDbNow } from "./db-clock.ts";
 import { createPostgresGitHubGateStore } from "./github-settings.ts";
-import { pauseBlocker } from "./pause-control.ts";
 import {
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,
 } from "./postgres-unit-of-work.ts";
 import { reconcileOrphanedSessions } from "./queries.ts";
-import { createPostgresSchedulerStore } from "./scheduler-store.ts";
+import { createPostgresSchedulerStore } from "./scheduler/scheduler-store.ts";
 import * as schema from "./schema.ts";
 import {
   achievementCategories,
@@ -61,6 +60,7 @@ import {
   workers,
   workspaces,
 } from "./schema.ts";
+import { pauseBlocker } from "./sessions/pause-control.ts";
 import { commitCheckpoint } from "./testing/checkpoints.ts";
 import {
   confirmExecutionGone,

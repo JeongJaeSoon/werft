@@ -14,7 +14,7 @@ import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresSessionControl } from "./control-unit-of-work.ts";
-import { createPostgresSchedulerStore } from "./scheduler-store.ts";
+import { createPostgresSchedulerStore } from "./scheduler/scheduler-store.ts";
 import * as schema from "./schema.ts";
 import { idempotencyKeys, receipts, sessions } from "./schema.ts";
 

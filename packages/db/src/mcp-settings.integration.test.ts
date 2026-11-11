@@ -18,9 +18,9 @@ import {
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { lockUnboundRefs } from "./credential-bindings.ts";
+import { captureMcpStart } from "./agents/mcp-settings.ts";
 import { createPostgresMcpEgressStore, sessionMcpOf } from "./mcp-egress.ts";
-import { captureMcpStart } from "./mcp-settings.ts";
+import { lockUnboundRefs } from "./musterrolle/credential-bindings.ts";
 import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
 import {

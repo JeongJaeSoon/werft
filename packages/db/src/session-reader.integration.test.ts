@@ -26,7 +26,7 @@ import {
   turns,
   users,
 } from "./schema.ts";
-import { encodeArchiveChunk } from "./session-event-archives.ts";
+import { encodeArchiveChunk } from "./sessions/session-event-archives.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 

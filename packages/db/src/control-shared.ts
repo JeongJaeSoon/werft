@@ -372,7 +372,10 @@ export function controlClock(callerNow: Date, startedAt: number): Date {
   return new Date(callerNow.getTime() + Math.max(0, Date.now() - startedAt));
 }
 
-export { hasRestorePoint, restoreBaseRevision } from "./pause-policy.ts";
+export {
+  hasRestorePoint,
+  restoreBaseRevision,
+} from "./sessions/pause-policy.ts";
 
 /**
  * Reports accepted receipts matching `overdue` as unknown, at most `limit`

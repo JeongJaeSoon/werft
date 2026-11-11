@@ -21,10 +21,10 @@ import {
 import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { createPostgresGitHubAppManifestStore } from "./github-app-manifest-states.ts";
-import { createPostgresGitHubAppStore } from "./github-apps.ts";
-import { createPostgresGitHubOAuthStore } from "./github-oauth.ts";
-import { createPostgresGitHubPinStore } from "./github-pins.ts";
+import { createPostgresGitHubAppManifestStore } from "./github/github-app-manifest-states.ts";
+import { createPostgresGitHubAppStore } from "./github/github-apps.ts";
+import { createPostgresGitHubOAuthStore } from "./github/github-oauth.ts";
+import { createPostgresGitHubPinStore } from "./github/github-pins.ts";
 import * as schema from "./schema.ts";
 import {
   agentReleases,

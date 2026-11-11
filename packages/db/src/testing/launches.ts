@@ -10,7 +10,7 @@ import {
 
 import { fromDbNow } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
-import { createPostgresSchedulerStore } from "../scheduler-store.ts";
+import { createPostgresSchedulerStore } from "../scheduler/scheduler-store.ts";
 import { workerLaunches } from "../schema.ts";
 import { createPostgresWorkerUnitOfWork } from "../worker-unit-of-work.ts";
 

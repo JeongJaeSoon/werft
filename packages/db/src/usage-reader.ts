@@ -19,6 +19,7 @@ import {
 } from "drizzle-orm";
 import { rowsOf } from "./control-unit-of-work.ts";
 import { INSTALLATION_STORAGE_SCOPE } from "./input-limits.ts";
+import { sessionVisibleTo } from "./musterrolle/session-shares.ts";
 import type { Database } from "./queries.ts";
 import {
   achievementCategories,
@@ -41,9 +42,8 @@ import {
   users,
   workerLaunches,
 } from "./schema.ts";
-import { sessionVisibleTo } from "./session-shares.ts";
-import { toolCallDays, toolCallPage } from "./tool-call-pages.ts";
-import { toolCallTotals, toolDescriptionsOf } from "./tool-calls.ts";
+import { toolCallDays, toolCallPage } from "./sessions/tool-call-pages.ts";
+import { toolCallTotals, toolDescriptionsOf } from "./sessions/tool-calls.ts";
 
 // An open period ends at the read, and never before it starts.
 const untilOf = (period: { since: Date; until?: Date }) =>

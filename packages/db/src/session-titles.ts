@@ -5,10 +5,10 @@ import {
   transactionWithBindingRetry,
 } from "./control-shared.ts";
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
-import { awaitingInputAt, publicStatus } from "./pending-requests.ts";
+import { awaitingInputAt, publicStatus } from "./decision/pending-requests.ts";
 import type { Database } from "./queries.ts";
 import { sessions, sessionTitleRequests, turns } from "./schema.ts";
-import { recordStatus } from "./session-events.ts";
+import { recordStatus } from "./sessions/session-events.ts";
 
 export function createPostgresSessionTitleStore(
   db: Database,

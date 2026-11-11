@@ -26,10 +26,8 @@ import {
 import { and, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { createPostgresTurnInterrupts } from "./interrupt-control.ts";
-import { reconcileOverdueInterrupts } from "./lease-reconcile.ts";
-import { createPostgresWorkerPendingStore } from "./pending-control.ts";
-import { createPostgresPendingRequests } from "./pending-requests.ts";
+import { createPostgresWorkerPendingStore } from "./decision/pending-control.ts";
+import { createPostgresPendingRequests } from "./decision/pending-requests.ts";
 import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
 import {
@@ -40,8 +38,10 @@ import {
   turns,
   unassignedSessions,
 } from "./schema.ts";
+import { createPostgresTurnInterrupts } from "./sessions/interrupt-control.ts";
+import { reconcileOverdueInterrupts } from "./sessions/lease-reconcile.ts";
+import { expireOverdueInterrupts } from "./sessions/turn-interrupts.ts";
 import { confirmExecutionGone, launchSession } from "./testing/launches.ts";
-import { expireOverdueInterrupts } from "./turn-interrupts.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;

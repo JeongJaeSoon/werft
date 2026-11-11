@@ -12,7 +12,7 @@ import {
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
-import { createPostgresGitHubPackagesStore } from "./github-packages.ts";
+import { createPostgresGitHubPackagesStore } from "./github/github-packages.ts";
 import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
 import type { Database } from "./queries.ts";
 import * as schema from "./schema.ts";

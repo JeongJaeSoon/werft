@@ -14,11 +14,10 @@ import {
 import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { agentUsable } from "./administers.ts";
-import { createPostgresAgentAdminStore } from "./agent-admins.ts";
-import { createPostgresAgentUsageStore, usageOf } from "./agent-usage.ts";
 import { createPostgresAgentStore } from "./agents.ts";
-import { createPostgresTeamStore } from "./member-teams.ts";
+import { agentUsable } from "./musterrolle/administers.ts";
+import { createPostgresAgentAdminStore } from "./musterrolle/agent-admins.ts";
+import { createPostgresTeamStore } from "./musterrolle/member-teams.ts";
 import {
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,
@@ -36,6 +35,7 @@ import {
   workspaces,
 } from "./schema.ts";
 import { fixtureTeam } from "./testing/fixture-team.ts";
+import { createPostgresAgentUsageStore, usageOf } from "./usage/agent-usage.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 

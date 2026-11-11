@@ -18,7 +18,7 @@ import {
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,
 } from "./postgres-unit-of-work.ts";
-import { createPostgresSchedulerStore } from "./scheduler-store.ts";
+import { createPostgresSchedulerStore } from "./scheduler/scheduler-store.ts";
 import * as schema from "./schema.ts";
 import { executions, sessions, workerLaunches } from "./schema.ts";
 import { launchSession } from "./testing/launches.ts";

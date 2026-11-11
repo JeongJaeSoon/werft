@@ -5,8 +5,8 @@ import type {
   CatalogRepositoryStore,
 } from "@werft-ai/platform";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
-import { holdsRight, lockedRole } from "./api-keys.ts";
 import { lockSettingsGeneration } from "./installation-settings.ts";
+import { holdsRight, lockedRole } from "./musterrolle/api-keys.ts";
 import type { Database } from "./queries.ts";
 import {
   agentReleases,

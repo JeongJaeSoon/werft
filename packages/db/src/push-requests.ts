@@ -30,13 +30,13 @@ import {
   type ToolSummaryContext,
 } from "@werft-ai/platform";
 import { and, desc, eq, inArray, or, type SQL, sql } from "drizzle-orm";
-import { enqueueActionNotice } from "./action-notices.ts";
 import {
   findIdempotent,
   type IdempotencyScope,
   lockIdempotencyScope,
 } from "./control-shared.ts";
 import { githubPolicyColumns, githubPolicyOfRow } from "./github-settings.ts";
+import { enqueueActionNotice } from "./musterrolle/action-notices.ts";
 import type { Database } from "./queries.ts";
 import {
   agentGitHubSettings,

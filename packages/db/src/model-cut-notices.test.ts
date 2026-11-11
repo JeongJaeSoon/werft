@@ -3,7 +3,7 @@ import type { PGlite } from "@electric-sql/pglite";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
-import { enqueueModelCutNotices } from "./model-cut-notices.ts";
+import { enqueueModelCutNotices } from "./musterrolle/model-cut-notices.ts";
 import type { Database } from "./queries.ts";
 import * as schema from "./schema.ts";
 import {

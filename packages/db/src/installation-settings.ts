@@ -20,7 +20,7 @@ import {
   settingsGeneration,
   workspaces,
 } from "./schema.ts";
-import { openSecretsOf, writeSecretInTx } from "./secret-values.ts";
+import { openSecretsOf, writeSecretInTx } from "./secrets/secret-values.ts";
 
 const PURPOSE = "settings_credential";
 

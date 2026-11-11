@@ -26,9 +26,9 @@ import {
   users,
   workspaces,
 } from "./schema.ts";
+import { toolCallDays, toolCallPage } from "./sessions/tool-call-pages.ts";
+import { projectToolCalls } from "./sessions/tool-calls.ts";
 import { fixtureTeam } from "./testing/fixture-team.ts";
-import { toolCallDays, toolCallPage } from "./tool-call-pages.ts";
-import { projectToolCalls } from "./tool-calls.ts";
 
 const OWNER = "owner-a";
 const ME = "00000000-0000-4000-8000-000000000001";
