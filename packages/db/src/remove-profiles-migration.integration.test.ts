@@ -19,11 +19,12 @@ import {
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
 /**
- * 0269 drops the profiles and what was made against them: an installation
- * that ran on profiles keeps its agents, versions, teams and settings, and
- * loses its releases, sessions and the profile tables, as the migration says.
+ * 0270 drops the profiles and what was made against them: an installation
+ * that ran on profiles keeps its agents, versions, teams, settings and the
+ * Slack notices that name no session, and loses its releases, sessions and
+ * the profile tables, as the migration says.
  */
-integration("0269 removes the profiles from a database that used them", () => {
+integration("0270 removes the profiles from a database that used them", () => {
   let database: TempDatabase;
   let pool: Pool;
   let before: string;
@@ -33,6 +34,8 @@ integration("0269 removes the profiles from a database that used them", () => {
   const releaseId = `sha256:${"r".repeat(64)}`;
   const sessionId = randomUUID();
   const attemptId = randomUUID();
+  const slackAppId = randomUUID();
+  let keptOutboxSeq = 0;
 
   const tableExists = async (name: string) =>
     (
@@ -113,6 +116,38 @@ integration("0269 removes the profiles from a database that used them", () => {
       "INSERT INTO turns (session_id, sequence, message, status) VALUES ($1, 1, 'hello', 'queued')",
       [sessionId],
     );
+    await pool.query(
+      `INSERT INTO slack_apps (id, workspace_id, kind, agent_id, state, redirect_url)
+       VALUES ($1, $2, 'agent', $3, 'creating', 'https://example.test/cb')`,
+      [slackAppId, workspaceId, agentId],
+    );
+    for (const [dedupeKey, kind, session] of [
+      ["welcome-1", "welcome", null],
+      ["reply-1", "reply", sessionId],
+    ] as const) {
+      await pool.query(
+        `INSERT INTO slack_outbox (id, workspace_id, agent_id, slack_app_id, installation_id,
+           kind, channel_id, thread_ts, session_id, body, dedupe_key)
+         VALUES ($1, $2, $3, $4, $5, $6, 'C1', '1.1', $7, '{"text":"hi"}', $8)`,
+        [
+          randomUUID(),
+          workspaceId,
+          agentId,
+          slackAppId,
+          randomUUID(),
+          kind,
+          session,
+          dedupeKey,
+        ],
+      );
+    }
+    keptOutboxSeq = Number(
+      (
+        await pool.query(
+          "SELECT seq FROM slack_outbox WHERE dedupe_key = 'welcome-1'",
+        )
+      ).rows[0]?.seq,
+    );
 
     await migrate(drizzle(pool), { migrationsFolder: MIGRATIONS_FOLDER });
   }, 120_000);
@@ -148,6 +183,27 @@ integration("0269 removes the profiles from a database that used them", () => {
     ]) {
       expect(await count(table), table).toBe(0);
     }
+  });
+
+  test("a Slack notice that names no session stays, with its send order; one that names a session goes", async () => {
+    const { rows } = await pool.query<{
+      dedupe_key: string;
+      session_id: string | null;
+      seq: string;
+    }>("SELECT dedupe_key, session_id, seq FROM slack_outbox");
+    expect(rows.map((row) => row.dedupe_key)).toEqual(["welcome-1"]);
+    expect(rows[0]?.session_id).toBeNull();
+    expect(Number(rows[0]?.seq)).toBe(keptOutboxSeq);
+
+    // The sequence kept running, so a new row never reuses a kept row's seq.
+    const next = await pool.query<{ seq: string }>(
+      `INSERT INTO slack_outbox (id, workspace_id, agent_id, slack_app_id, installation_id,
+         kind, channel_id, thread_ts, body, dedupe_key)
+       VALUES ($1, $2, $3, $4, $5, 'welcome', 'C1', '2.2', '{"text":"hi"}', 'welcome-2')
+       RETURNING seq`,
+      [randomUUID(), workspaceId, agentId, slackAppId, randomUUID()],
+    );
+    expect(Number(next.rows[0]?.seq)).toBeGreaterThan(keptOutboxSeq);
   });
 
   test("the agent, its version, its team and its rules stay; it runs nothing until released again", async () => {

@@ -139,7 +139,7 @@ integrationTest(
           String(Buffer.byteLength("legacy message")),
         );
         // The legacy session went through every migration and then, with
-        // everything recorded under sessions, out at 0269 (the profile
+        // everything recorded under sessions, out at 0270 (the profile
         // removal drops the sessions it cannot carry over).
         expect(session.rows).toEqual([]);
         expect(turnStatus.rows).toEqual([]);

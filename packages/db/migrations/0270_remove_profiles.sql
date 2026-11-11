@@ -8,7 +8,24 @@
 -- the installation's settings stay; an agent is released again on a
 -- connection before it runs.
 
--- Session data, all of it hangs off sessions.
+-- Slack outbox rows that name no session (welcome and other notices) are not
+-- session data: they are set aside here and put back after the truncate.
+CREATE TEMP TABLE "slack_outbox_kept" AS SELECT * FROM "slack_outbox" WHERE "session_id" IS NULL;--> statement-breakpoint
+-- Session data, all of it hangs off sessions. The CASCADE empties these 45
+-- tables (the 6 named and the 39 that reference them): achievement_judgment_usage,
+-- achievement_judgments, approval_checkpoint_voids, approval_checkpoints,
+-- attempts, checkpoint_outputs, checkpoint_restore_check, checkpoints,
+-- control_intents, events, executions, github_workflow_dispatches,
+-- pending_requests, permission_grants, provider_usage, pull_requests,
+-- push_continuations, push_follow_ups, push_intents, push_requests,
+-- queue_messages, session_achievements, session_commit_attributions,
+-- session_event_archives, session_outcomes, session_repository_attachments,
+-- session_share_targets, session_shares, session_title_requests,
+-- slack_outbox, slack_thread_status, turn_continuations, turns,
+-- unassigned_sessions, worker_credentials, worker_launches, plus the six
+-- named below and, in the second TRUNCATE, agent_activation_events,
+-- session_links and agent_releases. agents, agent_usage and
+-- tool_call_audits are not in the closure and keep their rows.
 TRUNCATE "sessions", "session_model_usage", "session_pre_metering_cost", "tool_calls", "tool_descriptions", "checkpoint_output_objects" CASCADE;--> statement-breakpoint
 -- No agent keeps an active release or a pending draft.
 ALTER TABLE "agents" DROP CONSTRAINT "agents_active_release_fk";--> statement-breakpoint
@@ -16,6 +33,9 @@ ALTER TABLE "agents" DROP CONSTRAINT "agents_draft_check";--> statement-breakpoi
 UPDATE "agents" SET "active_release_id" = NULL, "activation_revision" = -1, "draft_version_id" = NULL, "draft_profile_id" = NULL, "draft_model_source" = NULL, "draft_failure" = NULL;--> statement-breakpoint
 TRUNCATE "agent_activation_events", "session_links", "agent_releases" CASCADE;--> statement-breakpoint
 ALTER TABLE "agents" ADD CONSTRAINT "agents_active_release_fk" FOREIGN KEY ("id","active_release_id") REFERENCES "public"."agent_releases"("agent_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+
+INSERT INTO "slack_outbox" SELECT * FROM "slack_outbox_kept";--> statement-breakpoint
+DROP TABLE "slack_outbox_kept";--> statement-breakpoint
 
 -- The profile tables and the gates of the staged removal.
 DROP TABLE "profile_rollout_items";--> statement-breakpoint

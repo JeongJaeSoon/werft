@@ -27,7 +27,7 @@ import {
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
-// Up to the profile removal: 0269 empties the session tables these rows sit in.
+// Up to the profile removal: 0270 empties the session tables these rows sit in.
 async function migrateBeforeRemoval(db: Parameters<typeof migrate>[0]) {
   const folder = migrationsUpTo(BEFORE_PROFILE_REMOVAL);
   try {

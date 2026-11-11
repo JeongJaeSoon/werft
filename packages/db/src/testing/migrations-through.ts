@@ -5,10 +5,10 @@ import { MIGRATIONS_FOLDER } from "../migration-folder.ts";
 
 /**
  * The last migration before the one that dropped the profiles and the rows
- * that named them (0269). A test of an earlier migration's backfill reads
- * the rows it counted here: 0269 empties the session tables after it.
+ * that named them (0270). A test of an earlier migration's backfill reads
+ * the rows it counted here: 0270 empties the session tables after it.
  */
-export const BEFORE_PROFILE_REMOVAL = "0268_agent_caller_limits";
+export const BEFORE_PROFILE_REMOVAL = "0269_session_caller_limit";
 
 /**
  * A copy of the migrations folder whose journal ends at `lastTag` (or just

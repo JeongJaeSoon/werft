@@ -1,6 +1,6 @@
 # 결정: GitHub App 저장소를 DB 카탈로그로 옮긴다
 
-후속(2026-11-11): 실행 프로필은 통째로 지웠다(migration `0269_remove_profiles`, 기존 데이터는 이전하지 않고 지움). 이 문서의 프로필·상한·롤아웃 언급은 그때의 기록이다. 지금은 에이전트 release가 provider 연결과 카드 모델로 실행 spec(런타임·도구·권한 모드)을 고정하고, 묻기·막기 규칙은 워크스페이스와 에이전트의 실행 규칙(`workspace_engine_settings`, `agent_engine_settings`)이 정한다.
+후속(2026-11-11): 실행 프로필은 통째로 지웠다(migration `0270_remove_profiles`, 기존 데이터는 이전하지 않고 지움). 이 문서의 프로필·상한·롤아웃 언급은 그때의 기록이다. 지금은 에이전트 release가 provider 연결과 카드 모델로 실행 spec(런타임·도구·권한 모드)을 고정하고, 묻기·막기 규칙은 워크스페이스와 에이전트의 실행 규칙(`workspace_engine_settings`, `agent_engine_settings`)이 정한다.
 
 상태: 결정(2026-11-01). 운영자 파일 `repositories.yaml`을 읽는 것([4절](#4-시드)의 시드, 비밀값을 쓰는 저장소의 파일 보관)과 콘솔의 저장소 추가·제거([5절](#5-api))는 대체됨 → [settings-replace-file-catalog.md](settings-replace-file-catalog.md)([1절](settings-replace-file-catalog.md#1-데이터-모델), [1.1절](settings-replace-file-catalog.md#11-github-app-저장소-등록-없이-설치-목록이-정본), 2026-11-02).
 
