@@ -78,7 +78,7 @@ import {
 import { InviteDialog } from "./invite-dialog.tsx";
 
 // Past more invites than this the list is searched like the member list.
-export const INVITE_SEARCH_THRESHOLD = 10;
+const INVITE_SEARCH_THRESHOLD = 10;
 
 type MemberAction = "role" | "disable" | "enable";
 

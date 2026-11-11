@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 /** Below this width a detail page puts its side panel above the body. */
-export const DETAIL_NARROW_WIDTH = 900;
+const DETAIL_NARROW_WIDTH = 900;
 
 const DETAIL_LAYOUT = {
   wide: "grid min-w-0 grid-cols-[minmax(0,1fr)_var(--werft-layout-detail-panel-width)] items-start gap-6",

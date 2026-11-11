@@ -161,8 +161,6 @@ export const slackEn = {
   "slack.useColumn": "In use",
   "slack.basic": "Basic",
   "slack.advanced": "Advanced",
-  "slack.connection": "Connection",
-  "slack.status": "Status",
   "slack.homeChannel": "Home channel",
   "slack.homeUnset": "Not selected",
   "slack.channelId": "Channel ID: {id}",
@@ -182,7 +180,6 @@ export const slackEn = {
   "slack.inUseOf": "Use in {channel}",
   "slack.mentionOnly": "Respond only when mentioned",
   "slack.search": "Find channels",
-  "slack.invite": "Waiting to join",
   "slack.privateInvite": "/invite required",
   "slack.pendingApproval": "Awaiting approval",
   "slack.pendingApprovalHint":

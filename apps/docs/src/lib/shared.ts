@@ -5,7 +5,7 @@ export const appName = "Werft";
 export const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 
 export const searchIndexRoute = "/search-index.json";
-export const markdownRoute = "/llms.mdx";
+const markdownRoute = "/llms.mdx";
 
 export function withBasePath(path: string): string {
   return `${basePath}${path}`;

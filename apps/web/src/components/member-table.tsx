@@ -9,9 +9,9 @@ import { useI18n } from "../i18n/i18n.tsx";
 
 // Role and actions keep one width on every row, so badges and buttons line
 // up under their headers; the actions track never drops below its button.
-export const MEMBER_COLUMNS =
+const MEMBER_COLUMNS =
   "minmax(0,1.6fr) 120px minmax(var(--werft-row-action-min-width),1fr)";
-export const MEMBER_NARROW_COLUMNS =
+const MEMBER_NARROW_COLUMNS =
   "minmax(0,1fr) 72px var(--werft-row-action-min-width)";
 // 320px of columns plus the frame's 1px border on each side.
 const MEMBER_TABLE_MIN = "min-w-[322px]";

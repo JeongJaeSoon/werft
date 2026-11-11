@@ -80,6 +80,8 @@ const fits = (
 export function createFunnel(router: FunnelRouter): UseFunnel {
   const useCoreFunnel = createUseFunnel((option) => {
     const result = router(option);
+    // The core spreads the hook's options into this call, so the refs that
+    // useFunnel adds below arrive on `option`, outside its declared type.
     const channel = option as unknown as Channel;
     channel.routerRef.current = result;
     const current = result.history[result.currentIndex];

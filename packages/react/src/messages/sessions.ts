@@ -18,7 +18,6 @@ export const sessionsKo = {
   "sessions.column.lastEvent": "최근 이벤트",
   "sessions.column.created": "만든 시각",
   "sessions.tableLabel": "세션 표",
-  "session.factsTable": "{title} 표",
   "sessions.none": "—",
 
   "sessions.status.queued": "대기 중",
@@ -108,7 +107,6 @@ export const sessionsKo = {
   "session.back": "세션 목록",
   "session.notFound":
     "이 세션을 찾을 수 없습니다. 지워졌거나 볼 권한이 없는 세션입니다.",
-  "session.overview": "상태",
   "session.currentTurn": "진행 중인 작업",
   "session.queuedTurns": "대기 중인 작업",
   "session.attention": "확인 필요",
@@ -269,7 +267,6 @@ export const sessionsKo = {
   "inbox.why.shared": "공유받은 세션",
   "inbox.why.administered": "관리하는 에이전트",
   "panel.close": "패널 닫기",
-  "panel.done": "닫기",
   "panel.openSession": "세션 화면에서 열기",
   "panel.timeline": "세션 진행",
   "panel.note": "답을 기다리는 요청은 타임라인의 그 행에서 바로 답합니다.",
@@ -323,7 +320,6 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "sessions.column.lastEvent": "Last event",
   "sessions.column.created": "Created",
   "sessions.tableLabel": "Sessions table",
-  "session.factsTable": "{title} table",
   "sessions.none": "—",
 
   "sessions.status.queued": "Queued",
@@ -412,7 +408,6 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.back": "All sessions",
   "session.notFound":
     "This session cannot be found. It was removed, or you may not see it.",
-  "session.overview": "Status",
   "session.currentTurn": "Work in progress",
   "session.queuedTurns": "Queued turns",
   "session.attention": "Needs attention",
@@ -576,7 +571,6 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "inbox.why.shared": "Shared with you",
   "inbox.why.administered": "An agent you manage",
   "panel.close": "Close panel",
-  "panel.done": "Close",
   "panel.openSession": "Open session page",
   "panel.timeline": "Session progress",
   "panel.note": "Answer a waiting request right on its line in the timeline.",
@@ -630,7 +624,6 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
   "sessions.column.lastEvent": "最新イベント",
   "sessions.column.created": "作成日時",
   "sessions.tableLabel": "セッション一覧表",
-  "session.factsTable": "{title}の表",
   "sessions.none": "—",
 
   "sessions.status.queued": "待機中",
@@ -721,7 +714,6 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
   "session.back": "セッション一覧",
   "session.notFound":
     "このセッションは見つかりません。削除されたか、閲覧権限がありません。",
-  "session.overview": "状態",
   "session.currentTurn": "進行中の作業",
   "session.queuedTurns": "待機中の作業",
   "session.attention": "要確認",
@@ -920,7 +912,6 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
   "inbox.why.shared": "共有されたセッション",
   "inbox.why.administered": "担当エージェント",
   "panel.close": "パネルを閉じる",
-  "panel.done": "閉じる",
   "panel.openSession": "セッション画面で開く",
   "panel.timeline": "セッションの進行",
   "panel.note":

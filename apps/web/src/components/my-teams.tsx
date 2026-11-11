@@ -20,7 +20,7 @@ import { SECTION_BODY } from "./section-body.ts";
 
 /**
  * The teams the viewer is in, each linking to its page: a team's members
- * read it, and only managers change it (D23, 94S-719).
+ * read it, and only managers change it (D23).
  */
 export function MyTeams({
   showEmpty,

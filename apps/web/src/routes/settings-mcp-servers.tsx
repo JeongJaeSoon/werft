@@ -49,11 +49,11 @@ const COLUMNS = [
   SETTINGS_NARROW_COLUMNS,
 ] as const;
 
-/** The tool names a server's tools get in a session (94S-1322 Z5 keys on it). */
-export const mcpToolNamespace = (id: string) => `mcp__${id}__*`;
+/** The tool names a server's tools get in a session (Z5 keys on it). */
+const mcpToolNamespace = (id: string) => `mcp__${id}__*`;
 
 /** Workspace slugs typed as a list. */
-export const slugList = (text: string): string[] =>
+const slugList = (text: string): string[] =>
   text
     .split(",")
     .map((item) => item.trim())

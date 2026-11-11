@@ -23,6 +23,7 @@ import {
   OPERATIONS_MESSAGES,
   SessionOverviewRow,
   SessionOverviewTable,
+  shortSessionId,
   useMinute,
 } from "@werft-ai/react/components";
 import {
@@ -487,7 +488,7 @@ export function HomeScreen() {
                         params={{ id: oldest.sessionId }}
                         title={oldest.sessionId}
                       >
-                        {oldest.sessionId.slice(0, 8)}
+                        {shortSessionId(oldest.sessionId)}
                       </Link>
                     </TextLink>
                     {" · "}

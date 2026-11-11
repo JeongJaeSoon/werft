@@ -70,6 +70,7 @@ export function stepResolver<S extends StepSchema>(
       settle(await schema.safeParseAsync(values, { reportInput: true })),
   };
   return zodResolver(
+    // Not a whole schema: only the members zodResolver reads off one.
     worded as unknown as z.ZodType<z.output<S>, z.input<S>>,
   ) as Resolver<z.input<S>, unknown, z.output<S>>;
 }

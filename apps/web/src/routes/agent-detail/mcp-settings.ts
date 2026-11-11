@@ -31,7 +31,7 @@ export interface McpEdit {
   readonly refs: readonly string[];
 }
 
-export const CREDENTIAL_REFS_MAX = 32;
+const CREDENTIAL_REFS_MAX = 32;
 
 export const editOf = (data: AgentMcpResponse): McpEdit => ({
   server: data.settings.server,

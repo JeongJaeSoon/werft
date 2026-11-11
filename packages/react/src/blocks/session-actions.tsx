@@ -38,6 +38,7 @@ import {
   ApprovalRow,
   Composer,
   QuestionCard,
+  shortSessionId,
 } from "../components/index.ts";
 import { useExpired, useExpiryFocus } from "../components/session/expiry.ts";
 import {
@@ -300,7 +301,7 @@ export function PendingAnswers({
   const { t, locale } = useBlockText();
   const summary = layout === "summary";
   const Approval = layout === "card" ? ApprovalCard : ApprovalRow;
-  const short = sessionId.slice(0, 8);
+  const short = shortSessionId(sessionId);
   // A summary line always names its session, given a heading or not.
   const lineHeading = heading ?? subject ?? short;
   const answer = useAnswer(sessionId);

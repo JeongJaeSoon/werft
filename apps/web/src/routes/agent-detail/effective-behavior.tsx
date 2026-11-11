@@ -23,8 +23,8 @@ import {
   cardFromDraft,
   draftFromCard,
 } from "../../components/agent-card-form.tsx";
+import { agentRefusal } from "../../components/agent-refusal.ts";
 import { useI18n } from "../../i18n/i18n.tsx";
-import { agentRefusal } from "../agents.tsx";
 import { draftVersion, shownVersion } from "./versions.tsx";
 
 type Translate = ReturnType<typeof useI18n>["t"];

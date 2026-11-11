@@ -89,7 +89,6 @@ export const membersKo = {
   "members.description": "워크스페이스에 속한 사람과 역할입니다.",
   "members.editFor": "{name} 편집",
   "members.edit.title": "구성원 편집",
-  "members.edit.save": "저장",
   "members.edit.disabledNote":
     "비활성 구성원의 역할은 다시 활성화한 뒤 바꿀 수 있습니다.",
   "members.roleHelp.owner": "워크스페이스 설정과 소유자까지 모두 바꿉니다.",
@@ -189,7 +188,6 @@ export const membersEn: Record<keyof typeof membersKo, string> = {
   "members.description": "The people in this workspace and their roles.",
   "members.editFor": "Edit {name}",
   "members.edit.title": "Edit member",
-  "members.edit.save": "Save",
   "members.edit.disabledNote":
     "Re-enable this member before changing their role.",
   "members.roleHelp.owner":
@@ -294,7 +292,6 @@ export const membersJa: Record<keyof typeof membersKo, string> = {
   "members.description": "このワークスペースに所属する人とロールです。",
   "members.editFor": "{name}を編集",
   "members.edit.title": "メンバーを編集",
-  "members.edit.save": "保存",
   "members.edit.disabledNote":
     "無効のメンバーのロールは、再有効化してから変更できます。",
   "members.roleHelp.owner":

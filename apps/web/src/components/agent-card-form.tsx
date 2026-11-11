@@ -1,5 +1,5 @@
 import type { UseQueryResult } from "@tanstack/react-query";
-import type { ApiError } from "@werft-ai/client";
+import type { ApiError, components } from "@werft-ai/client";
 import type {
   AgentCard,
   ConnectionOption,
@@ -16,7 +16,6 @@ import {
   NativeSelectOption,
   Skeleton,
 } from "@werft-ai/ui";
-import type { components } from "../api/schema.gen.ts";
 import { errorKey, LOCALE_NAMES, useI18n } from "../i18n/i18n.tsx";
 import { ConnectionOptions } from "./connection-options.tsx";
 
@@ -50,7 +49,11 @@ export const EMPTY_DRAFT: CardDraft = {
   model: "",
 };
 
-export type ApiCard = components["schemas"]["CreateAgentRequest"]["card"];
+type ApiCard = components["schemas"]["CreateAgentRequest"]["card"];
+
+// The contract types an optional key as `T | undefined`, which the generated
+// request type refuses under exactOptionalPropertyTypes; JSON drops it.
+export const toApiCard = (card: AgentCard): ApiCard => card as ApiCard;
 
 export function draftFromCard(card: AgentCard): CardDraft {
   return {
@@ -83,12 +86,12 @@ export function cardDraftOf(value: unknown): CardDraft | null {
  * credential_refs, an earlier role and instructions) survive the save.
  */
 export function cardFromDraft(draft: CardDraft, base?: AgentCard): ApiCard {
-  return {
+  return toApiCard({
     ...(base ?? { rules: [] }),
     language: draft.language,
     model: draft.model.trim(),
     capabilities: draftCapabilities(base?.capabilities),
-  } as unknown as ApiCard;
+  });
 }
 
 export interface ModelOption {

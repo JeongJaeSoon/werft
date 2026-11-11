@@ -42,7 +42,7 @@ export function fixtureKey(url: URL): string {
  * The exact recording, or else the one on the same path sharing the most
  * query parameters: a screen asks for date ranges computed from today.
  */
-export function findResponse(
+function findResponse(
   fixtures: DemoFixtures,
   url: URL,
 ): DemoResponse | undefined {

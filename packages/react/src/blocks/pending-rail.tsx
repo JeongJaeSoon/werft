@@ -15,6 +15,7 @@ import {
   DetailRail,
   DetailRailSection,
   SessionStatusLabel,
+  shortSessionId,
 } from "../components/index.ts";
 import { useWerft } from "../provider.tsx";
 import {
@@ -172,7 +173,7 @@ function RailBody({
   // dropped from it.
   const onTop = seen.filter((requestId) => !asked.has(requestId));
   const status = detail.data?.status ?? listed.status;
-  const title = detail.data?.title ?? listed.title ?? id.slice(0, 8);
+  const title = detail.data?.title ?? listed.title ?? shortSessionId(id);
   const forms =
     pending.data && page
       ? seen.map((requestId) =>
@@ -202,7 +203,7 @@ function RailBody({
       : null;
   const facts = [
     listed.agent?.name,
-    id.slice(0, 8),
+    shortSessionId(id),
     detail.data?.runtime?.model,
   ].filter((fact) => fact !== undefined);
 

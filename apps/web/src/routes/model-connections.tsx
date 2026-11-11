@@ -387,7 +387,7 @@ function AutoModeDialog({
 }
 
 /** One model per line or comma, trimmed, repeats dropped, in order. */
-export function modelsOf(text: string): string[] {
+function modelsOf(text: string): string[] {
   return [
     ...new Set(
       text
@@ -476,7 +476,7 @@ function ModelsDialog({
 }
 
 /** `host:port` of an endpoint, the port spelled out as the proxy lists it. */
-export function endpointHost(endpoint: string): string | null {
+function endpointHost(endpoint: string): string | null {
   try {
     const url = new URL(endpoint);
     if (url.protocol !== "http:" && url.protocol !== "https:") return null;

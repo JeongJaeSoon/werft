@@ -95,7 +95,7 @@ function useConfigToken() {
  * works and no app exists, nothing else can take effect, so only the card's
  * start is shown.
  */
-export function WorkspaceSlackScreen() {
+function WorkspaceSlackScreen() {
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const canManage = useHasPermission("workspace.manage");
   const token = useConfigToken();

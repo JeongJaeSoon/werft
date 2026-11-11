@@ -73,7 +73,6 @@ export const agentsKo = {
   "agents.flow.later": "나중에 하기",
   "agents.flow.done":
     "{name}을(를) 켰습니다. 이제 새 세션이 이 에이전트를 씁니다.",
-  "agents.flow.open": "에이전트 보기",
   "agents.flow.leaveTitle": "저장하지 않고 나갈까요?",
   "agents.flow.leaveConsequence":
     "여기서 쓰고 저장하지 않은 내용은 사라집니다. 남기려면 '저장하고 다음'을 누르세요.",
@@ -497,7 +496,6 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
     "The agent was saved, but its first release could not be made: {reason}. Saving again edits the same agent and tries again.",
   "agents.flow.later": "Do this later",
   "agents.flow.done": "{name} is on. New sessions now use this agent.",
-  "agents.flow.open": "Open agent",
   "agents.flow.leaveTitle": "Leave without saving?",
   "agents.flow.leaveConsequence":
     "What you typed here and did not save is lost. To keep it, press 'Save and continue'.",
@@ -915,7 +913,6 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agents.flow.later": "あとで設定",
   "agents.flow.done":
     "{name}を有効にしました。新しいセッションでこのエージェントが使われます。",
-  "agents.flow.open": "エージェントを表示",
   "agents.flow.leaveTitle": "保存せずに移動しますか？",
   "agents.flow.leaveConsequence":
     "ここで入力して保存していない内容は失われます。残すには「保存して次へ」を押してください。",
