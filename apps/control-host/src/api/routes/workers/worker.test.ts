@@ -28,7 +28,8 @@ import {
 import { TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
 import { formatTraceparent, turnTraceId } from "@werft-ai/observability";
 import { createOtelTracer } from "@werft-ai/observability/otel";
-import { acceptAllCheckpoints, createWorkerGateway } from "@werft-ai/platform";
+import { createWorkerGateway } from "@werft-ai/platform";
+import { acceptAllCheckpoints } from "@werft-ai/platform/testing/checkpoints";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { and, count, eq, isNotNull } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";

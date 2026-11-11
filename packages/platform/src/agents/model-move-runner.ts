@@ -135,5 +135,3 @@ export function createModelMoveRunner(deps: {
 
   return { runOnce, start };
 }
-
-export type ModelMoveRunner = ReturnType<typeof createModelMoveRunner>;

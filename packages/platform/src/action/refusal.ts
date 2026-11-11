@@ -7,7 +7,7 @@ import {
 } from "@werft-ai/contracts";
 import type { SessionServiceError } from "../musterrolle/index.ts";
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 

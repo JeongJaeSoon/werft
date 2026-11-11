@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { WorkspaceRole } from "@werft-ai/contracts";
-import type { CheckpointObjectStore } from "@werft-ai/runtime-core";
+import {
+  BundleArchiveError,
+  type CheckpointObjectStore,
+  packBundleTar,
+  unpackBundleTar,
+} from "@werft-ai/runtime-core";
 import type { Principal } from "../musterrolle/index.ts";
 import type {
   AttachmentReceiptResult,
@@ -10,11 +15,6 @@ import type {
   ExtensionBundleStore,
   ReviewExtensionBundleResult,
 } from "../ports/extension-bundle-store.ts";
-import {
-  BundleArchiveError,
-  packBundleTar,
-  unpackBundleTar,
-} from "./bundle-archive.ts";
 import {
   type BundleInputFile,
   type BundleIssue,
@@ -249,7 +249,3 @@ export function createExtensionBundleService(deps: {
     },
   };
 }
-
-export type ExtensionBundleService = ReturnType<
-  typeof createExtensionBundleService
->;

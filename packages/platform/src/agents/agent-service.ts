@@ -996,7 +996,7 @@ export function createAgentService(deps: {
     },
 
     /**
-     * The agents the caller could start a session with now (94S-902): the
+     * The agents the caller could start a session with now: the
      * scope check of a start, then the store's usage predicate, then the
      * checks a start makes on the release itself (its connection still in
      * the catalog and its spec verified, every credential bound). A start refused for

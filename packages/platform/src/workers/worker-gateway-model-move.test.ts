@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import { bootstrapClaimResponseSchema } from "@werft-ai/contracts";
-import { acceptAllCheckpoints } from "../checkpoints/ports/checkpoint-verifier.ts";
 import type {
   ClaimInput,
   WorkerBinding,
@@ -13,6 +12,7 @@ import {
   testConnection,
   testSpecSource,
 } from "../testing/catalog-fakes.ts";
+import { acceptAllCheckpoints } from "../testing/checkpoints.ts";
 import {
   LEGACY_CONFIG_TOKEN,
   storableLegacyConfig,

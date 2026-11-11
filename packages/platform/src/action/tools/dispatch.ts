@@ -17,6 +17,7 @@ import type { GitHubMcpStore } from "../../github/ports/github-mcp.ts";
 import { SessionServiceError } from "../../musterrolle/index.ts";
 import type { PushActor } from "../change-request/push-decision.ts";
 import {
+  isRecord,
   type PersonRejection,
   refusalFromServiceError,
   refusalOf,
@@ -28,10 +29,6 @@ import {
   type ToolHandlers,
 } from "./handler.ts";
 import { actorFor } from "./session-bound.ts";
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 /**
  * A tool's answer: the envelope as `structuredContent`, and the same JSON as

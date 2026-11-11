@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import { bootstrapClaimResponseSchema } from "@werft-ai/contracts";
-import { acceptAllCheckpoints } from "../checkpoints/ports/checkpoint-verifier.ts";
 import type {
   WorkerBinding,
   WorkerUnitOfWork,
@@ -11,6 +10,7 @@ import {
   testCatalog,
   testSpecSource,
 } from "../testing/catalog-fakes.ts";
+import { acceptAllCheckpoints } from "../testing/checkpoints.ts";
 import { createWorkerGateway } from "./worker-gateway.ts";
 
 const TOOLS = ["Read", "Bash", "Write"];

@@ -77,7 +77,7 @@ export function uuidV5(name: string): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-function forbidden(message: string): McpEgressDecision {
+export function forbidden(message: string): McpEgressDecision {
   return { kind: "refused", status: 403, code: "FORBIDDEN", message };
 }
 

@@ -62,11 +62,6 @@ const CARDS: Readonly<Record<string, Card>> = {
   "gpt-5-nano": card(rates(0.05, 0.005, 0.4)),
 };
 
-/** Every short-context rate, for the fallback's "highest of all" rule. */
-export const OPENAI_SHORT_RATES: readonly OpenAiRates[] = Object.values(
-  CARDS,
-).map((entry) => entry.short);
-
 /** Short and long rates both: the fallback must not undercut a long card. */
 export const OPENAI_ALL_RATES: readonly OpenAiRates[] = Object.values(
   CARDS,

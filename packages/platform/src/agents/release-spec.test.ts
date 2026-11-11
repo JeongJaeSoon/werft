@@ -12,7 +12,6 @@ import {
 import {
   buildSpecSource,
   releaseSpecRecord,
-  specWithModel,
   verifyReleaseSpec,
 } from "./release-spec.ts";
 
@@ -177,18 +176,6 @@ describe("verifyReleaseSpec", () => {
     ],
   ])("refuses %s", (_name, tamper) => {
     expect(verifyReleaseSpec(tamper(stored())).ok).toBe(false);
-  });
-});
-
-describe("specWithModel", () => {
-  test("another model is another spec; the same model is the same source", () => {
-    const source = sourceOf();
-    expect(specWithModel(source, source.model)).toBe(source);
-    const moved = specWithModel(source, "claude-opus-5");
-    expect(moved).toEqual({ ...source, model: "claude-opus-5" });
-    expect(releaseSpecRecord(moved).spec_digest).not.toBe(
-      releaseSpecRecord(source).spec_digest,
-    );
   });
 });
 

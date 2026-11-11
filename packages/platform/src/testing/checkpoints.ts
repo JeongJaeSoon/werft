@@ -9,9 +9,19 @@ import type { CheckpointService } from "../checkpoints/checkpoint-service.ts";
 import type { CheckpointFence } from "../checkpoints/ports/checkpoint-store.ts";
 import {
   type CheckpointOutputObject,
+  type CheckpointVerifier,
   checkpointOutputObjects,
   checkpointOutputsDigest,
 } from "../checkpoints/ports/checkpoint-verifier.ts";
+
+// Test-only: accepts any structurally valid ref. A deployment that wires
+// this promotes checkpoint pointers nobody has read, and the damage only
+// surfaces at the next restore, when the execution that wrote them is gone.
+export const acceptAllCheckpoints: CheckpointVerifier = {
+  async verify() {
+    return { status: "verified" };
+  },
+};
 
 export type CommitCheckpointInput = {
   checkpoint: CheckpointRef;

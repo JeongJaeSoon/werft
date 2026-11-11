@@ -55,7 +55,7 @@ const OWNER_PROTECTED = () =>
   );
 
 /**
- * Invites and roles (94S-153). Every entry point asks the policy for
+ * Invites and roles. Every entry point asks the policy for
  * `member.manage` first, so which roles may manage members is the policy's
  * table, not this file's. That an admin cannot touch the owner role is the
  * store's to say: it reads both roles inside the change's transaction.

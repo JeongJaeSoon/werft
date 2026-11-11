@@ -256,7 +256,7 @@ export type SlackThreadStatusReconcile = SlackThreadStatusTarget & {
 };
 
 /**
- * The `slack` role's thread status rows (94S-1292). Every write after
+ * The `slack` role's thread status rows. Every write after
  * `claim` is fenced by its token except `uncertain`, which must land even
  * when the lease is lost.
  */

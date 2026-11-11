@@ -29,6 +29,7 @@ import {
   OUTRANKED,
   receiptActorOf,
   requirePermitted,
+  SECRET_STORE_OFF,
   SessionServiceError,
 } from "../../musterrolle/index.ts";
 import type { AgentStore } from "../../ports/agent-store.ts";
@@ -912,12 +913,7 @@ export function createGitHubRepositoryService(deps: {
       const row = await ownRow(repositoryId);
       const body = await readBody();
       if (deps.pins === null || deps.apps === null) {
-        throw new SessionServiceError(
-          "BACKEND_UNAVAILABLE",
-          "The secret store is off: the API was started without PLATFORM_SECRET_KEY",
-          undefined,
-          { reason_code: "secret_store_off" },
-        );
+        throw SECRET_STORE_OFF();
       }
       const connectionId = body.connection_id.toLowerCase();
       const app = (await credentials(workspaceId, role)).find(

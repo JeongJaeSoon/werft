@@ -7,7 +7,8 @@ import {
 } from "@werft-ai/db";
 import { launchSession } from "@werft-ai/db/testing/launches";
 import { createLogger } from "@werft-ai/observability";
-import { acceptAllCheckpoints, createWorkerGateway } from "@werft-ai/platform";
+import { createWorkerGateway } from "@werft-ai/platform";
+import { acceptAllCheckpoints } from "@werft-ai/platform/testing/checkpoints";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { releaseOnConnection, TEST_OWNER } from "../testing/releases.ts";

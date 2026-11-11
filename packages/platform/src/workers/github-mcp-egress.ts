@@ -3,6 +3,7 @@ import { signGitHubMcpGrant } from "../action/github/github-mcp-server.ts";
 import type { GitHubMcpStore } from "../github/ports/github-mcp.ts";
 import {
   ALLOWED_MCP_METHODS,
+  forbidden,
   type McpEgressDecision,
   type McpEgressRequest,
 } from "./mcp-egress.ts";
@@ -12,10 +13,6 @@ import {
  * resolves against the authorizer it asked, a listener no worker reaches.
  */
 export const GITHUB_MCP_UPSTREAM_PATH = "/mcp/github";
-
-function forbidden(message: string): McpEgressDecision {
-  return { kind: "refused", status: 403, code: "FORBIDDEN", message };
-}
 
 /**
  * The `/mcp/github` route's decision (design github-agent.md §3 "내장 MCP

@@ -54,7 +54,7 @@ export interface PushBundleSource {
 }
 
 /**
- * The platform's half of a push request (94S-629): takes an approved request,
+ * The platform's half of a push request: takes an approved request,
  * checks it may still go where it was pinned, and pushes exactly its commit to
  * `agent/<session-id>` without force. Every way it ends is a `push` receipt.
  *
@@ -274,5 +274,3 @@ export function createPushExecutor(deps: {
 
   return { runOnce, start };
 }
-
-export type PushExecutor = ReturnType<typeof createPushExecutor>;

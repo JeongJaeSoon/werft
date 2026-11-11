@@ -29,6 +29,7 @@ import {
   NOT_FOUND,
   OUTRANKED,
   requirePermitted,
+  SECRET_STORE_OFF,
   SessionServiceError,
 } from "../../musterrolle/index.ts";
 import type { SecretAudit } from "../../ports/secret-store.ts";
@@ -48,14 +49,6 @@ import {
 } from "../ports/github-app-store.ts";
 
 const MANAGERS = MANAGEMENT_ROLES["workspace.manage"] ?? [];
-
-const STORE_OFF = () =>
-  new SessionServiceError(
-    "BACKEND_UNAVAILABLE",
-    "The secret store is off: the API was started without PLATFORM_SECRET_KEY",
-    undefined,
-    { reason_code: "secret_store_off" },
-  );
 
 const refused = (reasonCode: string, message: string) =>
   new SessionServiceError("BAD_REQUEST", message, undefined, {
@@ -225,12 +218,12 @@ export function createGitHubAppService(deps: {
         { reason_code: "web_session_required" },
       );
     }
-    if (deps.store === null) throw STORE_OFF();
+    if (deps.store === null) throw SECRET_STORE_OFF();
     return deps.store;
   }
 
   const installationsOn = () => {
-    if (!deps.installations) throw STORE_OFF();
+    if (!deps.installations) throw SECRET_STORE_OFF();
     return deps.installations;
   };
 

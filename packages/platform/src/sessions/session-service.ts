@@ -481,7 +481,7 @@ export function createSessionService(deps: {
     );
   }
 
-  // The release a start pins, in this order (94S-901): the release, its
+  // The release a start pins, in this order: the release, its
   // agent, whether the requester may see a private agent, and only then
   // what would tell them it exists (a release that fails its integrity
   // check, a paused agent). A requester outside a private agent gets
@@ -1526,8 +1526,8 @@ export function createSessionService(deps: {
       // Resolve only within the caller's partition. A null session would
       // incorrectly require an agent key to read across all agents.
       const receipt = await reader.getReceipt(actor.ownerId, receiptId);
-      // A receipt names an agent or release only to those who may use it
-      // (94S-902): one aimed at a private agent they may not use is not
+      // A receipt names an agent or release only to those who may use it:
+      // one aimed at a private agent they may not use is not
       // there for them, and one on a session they see is shown without the
       // ids the table in receipt-agent-refs.ts lists. This comes before the
       // permission check, so a refusal never tells a hidden receipt from a
