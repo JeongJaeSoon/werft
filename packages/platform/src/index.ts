@@ -151,6 +151,13 @@ export * from "./action/change-request/pull-request-text.ts";
 export * from "./action/change-request/push-executor.ts";
 export * from "./action/change-request/push-intent-runner.ts";
 export * from "./decision/push-approvability.ts";
+export {
+  mayDecidePush,
+  type PushActor,
+  type PushSource,
+  pushReceiptActor,
+  requireVerified,
+} from "./action/change-request/push-decision.ts";
 export * from "./action/change-request/push-request-service.ts";
 export * from "./sessions/session-outcome-service.ts";
 export * from "./sessions/session-repository.ts";

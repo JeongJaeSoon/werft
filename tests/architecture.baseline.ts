@@ -30,8 +30,8 @@ export type Baseline = {
 export const baseline: Baseline = {
   crossDomainImports: [
     "action/change-request/pull-request-service.ts -> musterrolle/policy.ts",
-    "action/change-request/push-request-service.ts -> decision/push-approvability.ts",
-    "action/change-request/push-request-service.ts -> musterrolle/policy.ts",
+    "action/change-request/push-decision.ts -> decision/push-approvability.ts",
+    "action/change-request/push-decision.ts -> musterrolle/policy.ts",
     "action/github/github-work-service.ts -> musterrolle/policy.ts",
     "action/tools/session-bound.ts -> musterrolle/policy.ts",
     "agents/agent-mcp-service.ts -> musterrolle/policy.ts",

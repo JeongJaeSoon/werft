@@ -90,7 +90,7 @@ import {
   type PushActor,
   pushReceiptActor,
   requireVerified,
-} from "./push-request-service.ts";
+} from "./push-decision.ts";
 
 /** `mergeable_state` values GitHub merges from; anything else is not sent. */
 const MERGEABLE_STATES: ReadonlySet<string> = new Set([

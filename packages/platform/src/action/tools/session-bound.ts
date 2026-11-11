@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { ReceiptActor } from "@werft-ai/contracts";
 import type { AuthorizationPolicy, Caller } from "../../musterrolle/policy.ts";
-import type { PushActor } from "../change-request/push-request-service.ts";
+import type { PushActor } from "../change-request/push-decision.ts";
 import type { GitHubMcpServices } from "./handler.ts";
 
 /** The session services, made with the authorization they run under. */

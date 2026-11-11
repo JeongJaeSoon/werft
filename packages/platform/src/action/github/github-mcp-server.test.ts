@@ -30,7 +30,7 @@ import {
   attachmentContext,
   memoryAttachmentStore,
 } from "../../testing/repository-attachment-fakes.ts";
-import type { PushActor } from "../change-request/push-request-service.ts";
+import type { PushActor } from "../change-request/push-decision.ts";
 import type { GitHubApi } from "../ports/github-api.ts";
 import {
   PULL_REQUEST_REFUSAL_ERRORS,

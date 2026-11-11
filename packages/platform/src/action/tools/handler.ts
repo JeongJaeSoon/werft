@@ -8,10 +8,8 @@ import type {
 import type { z } from "zod";
 import type { RepositoryAttachmentService } from "../../sessions/index.ts";
 import type { PullRequestService } from "../change-request/pull-request-service.ts";
-import type {
-  PushActor,
-  PushRequestService,
-} from "../change-request/push-request-service.ts";
+import type { PushActor } from "../change-request/push-decision.ts";
+import type { PushRequestService } from "../change-request/push-request-service.ts";
 import type { GitHubWorkService } from "../github/github-work-service.ts";
 
 /** The session services a built-in tool calls, made with the call's authorization. */

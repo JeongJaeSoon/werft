@@ -1,8 +1,6 @@
 import { expect, test } from "bun:test";
-import type {
-  PushActor,
-  PushRequestService,
-} from "../action/change-request/push-request-service.ts";
+import type { PushActor } from "../action/change-request/push-decision.ts";
+import type { PushRequestService } from "../action/change-request/push-request-service.ts";
 import type {
   PendingAnswerEntrance,
   PushDecisionEntrance,
