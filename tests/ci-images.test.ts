@@ -19,7 +19,7 @@ type Entry = { name: string; source: string; tag: string; digest: string };
 type Job = {
   env?: Record<string, unknown>;
   services?: Record<string, { image?: string }>;
-  steps?: { env?: Record<string, unknown> }[];
+  steps?: { env?: Record<string, unknown>; uses?: string }[];
   strategy?: { matrix?: { include?: Entry[] } };
 };
 type Workflow = { jobs: Record<string, Job> };
@@ -310,6 +310,73 @@ describe("ci.yml", () => {
   });
 });
 
+const CACHE_OVERLAY = "tests/e2e/compose.ci-cache.yml";
+
+describe("the image build cache overlay", () => {
+  type Build = {
+    args?: Record<string, string>;
+    cache_from?: string[];
+    cache_to?: string[];
+  };
+  const overlay = (
+    Bun.YAML.parse(read(CACHE_OVERLAY)) as {
+      services: Record<string, { build?: Build }>;
+    }
+  ).services;
+  const stack = layeredServices<{ build?: unknown }>(LOCAL_LAYERS);
+
+  test("every built service reads main's images.yml scopes and writes nothing", () => {
+    const built = Object.entries(stack)
+      .filter(([, { build }]) => build)
+      .map(([service]) => service)
+      .sort();
+    expect(Object.keys(overlay).sort()).toEqual(built);
+    for (const [service, { build }] of Object.entries(overlay)) {
+      expect({ service, cacheTo: build?.cache_to }).toEqual({
+        service,
+        cacheTo: undefined,
+      });
+      expect(build?.cache_from?.length).toBeGreaterThan(0);
+      for (const source of build?.cache_from ?? []) {
+        expect(source).toMatch(
+          /^type=gha,scope=images-(control-host|worker|worker-codex|egress-proxy)-amd64$/,
+        );
+      }
+      expect(build?.args).toEqual({
+        APT_UPGRADE_KEY: "$" + "{APT_UPGRADE_KEY:-}",
+      });
+    }
+  });
+
+  test("only the jobs that hand builds the cache runtime lay it over the stack", () => {
+    for (const job of ["e2e", "conformance", "quickstart", "k8s-smoke"]) {
+      const steps = ci.jobs[job]?.steps ?? [];
+      const runtime = steps.findIndex(
+        (step) => step.uses === "./.github/actions/image-cache",
+      );
+      const consumer = steps.findIndex(({ env = {} }) =>
+        Object.values(env).some(
+          (value) =>
+            String(value).includes(CACHE_OVERLAY) || "IMAGE_CACHE_ARCH" in env,
+        ),
+      );
+      expect({ job, runtime: runtime > -1 }).toEqual({ job, runtime: true });
+      expect({ job, before: consumer > runtime }).toEqual({
+        job,
+        before: true,
+      });
+    }
+    // up.sh reads the cache and never names one to write.
+    const up = read("deploy/kind/up.sh");
+    expect(up).toContain("--cache-from");
+    expect(up).not.toContain("--cache-to");
+    // The action never configures a cache to write either.
+    expect(read(".github/actions/image-cache/action.yml")).not.toMatch(
+      /cache[-_]to/,
+    );
+  });
+});
+
 describe("the e2e compose overlay", () => {
   // `e2e` and `quickstart` start the product compose stack, whose
   // images stay on Docker Hub for local users; CI lays this over it.
@@ -392,8 +459,8 @@ describe("the e2e compose overlay", () => {
       );
     expect(stepValues("e2e", "E2E_COMPOSE_OVERRIDE")).toEqual([OVERLAY]);
     expect(stepValues("quickstart", "COMPOSE_FILE")).toEqual([
-      `compose.yaml:${OVERLAY}`,
-      `compose.yaml:${OVERLAY}`,
+      `compose.yaml:${OVERLAY}:${CACHE_OVERLAY}`,
+      `compose.yaml:${OVERLAY}:${CACHE_OVERLAY}`,
     ]);
     expect(read("docs/quickstart.md")).not.toContain("ci-mirror");
     expect(

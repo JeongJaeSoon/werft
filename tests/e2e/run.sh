@@ -163,10 +163,13 @@ label="werft.installation=${EXECUTION_INSTALLATION_ID}"
 volume_label="${EXECUTION_VOLUME_LABEL_NAMESPACE:-werft}.installation=${EXECUTION_INSTALLATION_ID}"
 # E2E_COMPOSE_OVERRIDE: one more overlay after ours; CI passes
 # tests/e2e/compose.ci-mirror.yml to pull from its image mirror.
+# E2E_COMPOSE_CACHE: one more after that; CI passes
+# tests/e2e/compose.ci-cache.yml to read main's image build cache.
 dc() {
   docker compose -p "$project" -f infra/compose.yml -f tests/e2e/compose.yml \
     ${conf_files[@]+"${conf_files[@]}"} -f "$model_overlay" \
-    ${E2E_COMPOSE_OVERRIDE:+-f "$E2E_COMPOSE_OVERRIDE"} --profile apps "$@"
+    ${E2E_COMPOSE_OVERRIDE:+-f "$E2E_COMPOSE_OVERRIDE"} \
+    ${E2E_COMPOSE_CACHE:+-f "$E2E_COMPOSE_CACHE"} --profile apps "$@"
 }
 
 events_pid=""

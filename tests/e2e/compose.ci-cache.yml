@@ -1,0 +1,38 @@
+# CI-only overlay, laid after compose.ci-mirror.yml by the jobs that run
+# .github/actions/image-cache: the app images read the buildkit layer cache
+# images.yml writes on main (scope images-<app>-amd64) and build with the
+# day's APT_UPGRADE_KEY, as images.yml does, so that the layers match. It
+# names no cache_to: PR code reads that cache and never writes it
+# (docs/contributing/ci.md). tests/ci-images.test.ts holds it to that.
+x-apt-key: &apt-key
+  APT_UPGRADE_KEY: ${APT_UPGRADE_KEY:-}
+
+services:
+  fake-git:
+    build:
+      args: *apt-key
+      cache_from:
+        - type=gha,scope=images-control-host-amd64
+  migrate:
+    build:
+      args: *apt-key
+      cache_from:
+        - type=gha,scope=images-control-host-amd64
+  api:
+    build:
+      args: *apt-key
+      cache_from:
+        - type=gha,scope=images-control-host-amd64
+  egress-proxy:
+    build:
+      args: *apt-key
+      cache_from:
+        - type=gha,scope=images-egress-proxy-amd64
+  worker:
+    build:
+      args: *apt-key
+      # The codex engine's image (conformance) shares every layer below its
+      # runtime argument with the claude one.
+      cache_from:
+        - type=gha,scope=images-worker-amd64
+        - type=gha,scope=images-worker-codex-amd64

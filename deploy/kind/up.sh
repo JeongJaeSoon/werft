@@ -44,6 +44,9 @@
 #   KIND_IMAGE_MIRROR                prefix the stand-ins' images are pulled
 #                                    from instead, by the same digest
 #   BUN_IMAGE, BUILDKIT_SYNTAX       build args of the app images
+# and reads main's image build cache (.github/actions/image-cache):
+#   IMAGE_CACHE_ARCH                 arch of the images.yml cache scopes
+#   APT_UPGRADE_KEY                  the day's key images.yml builds with
 set -euo pipefail
 
 CLUSTER_NAME="${CLUSTER_NAME:-werft-dev}"
@@ -163,10 +166,14 @@ publish() {
   if [ "$1" = control-host ] && grep -q '^FROM .* AS local$' "$root/apps/$1/Dockerfile"; then
     target=(--target local)
   fi
+  # IMAGE_CACHE_ARCH (CI, after .github/actions/image-cache): read the layer
+  # cache images.yml writes on main for this app and arch, never write it.
   docker build -q -f "$root/apps/$1/Dockerfile" -t "$ref" \
     ${target[@]+"${target[@]}"} \
     ${BUN_IMAGE:+--build-arg "BUN_IMAGE=$BUN_IMAGE"} \
     ${BUILDKIT_SYNTAX:+--build-arg "BUILDKIT_SYNTAX=$BUILDKIT_SYNTAX"} \
+    ${APT_UPGRADE_KEY:+--build-arg "APT_UPGRADE_KEY=$APT_UPGRADE_KEY"} \
+    ${IMAGE_CACHE_ARCH:+--cache-from "type=gha,scope=images-$1-${IMAGE_CACHE_ARCH}"} \
     "$root" >/dev/null || return
   if [ "$CLUSTER_PROVIDER" = orbstack ]; then
     local digest
@@ -184,9 +191,36 @@ publish() {
 }
 image_values=()
 if [ -z "${CHART_PACKAGE:-}" ]; then
-  control_host_digest="$(publish control-host)"
-  egress_proxy_digest="$(publish egress-proxy)"
-  worker_digest="$(publish worker)"
+  # The three builds share nothing but their base images, so they run side by
+  # side: one after another they took ~130s of a CI k8s-smoke run, most of it
+  # each image's own apt and download layers. Each writes its digest to a
+  # file; a build that fails is named and stops the install.
+  built="$(mktemp -d)"
+  pids=()
+  apps=(control-host egress-proxy worker)
+  for app in "${apps[@]}"; do
+    publish "$app" >"$built/$app" &
+    pids+=("$!")
+  done
+  failed=()
+  for i in "${!apps[@]}"; do
+    wait "${pids[$i]}" || failed+=("${apps[$i]}")
+  done
+  if [ "${#failed[@]}" -gt 0 ]; then
+    rm -rf "$built"
+    echo "image build failed: ${failed[*]}" >&2
+    exit 1
+  fi
+  control_host_digest="$(<"$built/control-host")"
+  egress_proxy_digest="$(<"$built/egress-proxy")"
+  worker_digest="$(<"$built/worker")"
+  rm -rf "$built"
+  for digest in "$control_host_digest" "$egress_proxy_digest" "$worker_digest"; do
+    [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+      echo "an image build printed no digest: '${digest}'" >&2
+      exit 1
+    }
+  done
   image_values=(
     --set "images.controlHost.repository=${image_repo}-control-host"
     --set "images.controlHost.digest=${control_host_digest}"

@@ -130,6 +130,18 @@ const full = {
   domains: JSON.stringify(allDomains),
 };
 
+/** The full plan of a pull request that touches nothing k8s-smoke builds or runs. */
+const shared = { ...full, k8s: "false" };
+/** Paths that keep k8s-smoke on a pull request (ci-plan.sh is_k8s_path). */
+const K8S_PATHS = new Set([
+  ".github/workflows/ci.yml",
+  ".github/scripts/ci-plan.sh",
+  ".github/actions/setup/README.md",
+  "bun.lock",
+  "deploy/helm/werft/values.yaml",
+]);
+const prPlan = (path: string) => (K8S_PATHS.has(path) ? full : shared);
+
 test("prose-only PRs keep a small explicit plan", () => {
   const result = plan(fixture(undefined, ["docs/operator/settings.md"]));
   expect(result.exitCode).toBe(0);
@@ -180,7 +192,7 @@ test("generated, executable and workflow files next to prose are not prose", () 
     ".github/actions/setup/README.md",
     ".github/scripts/ci-plan.sh",
   ]) {
-    expect(plan(fixture(undefined, [path])).output).toEqual(full);
+    expect(plan(fixture(undefined, [path])).output).toEqual(prPlan(path));
   }
 });
 
@@ -205,11 +217,11 @@ test("a web-only PR drops the domains, chart jobs and guides no changed path rea
 
 test("the egress proxy stays on the full plan: service-backed suites import it", () => {
   const result = plan(fixture(undefined, ["apps/egress-proxy/src/a.ts"]));
-  expect(result.output).toEqual(full);
+  expect(result.output).toEqual(shared);
 });
 
 test("any shared path next to a web change brings back everything", () => {
-  for (const shared of [
+  for (const path of [
     "packages/core/src/a.ts",
     "apps/control-host/src/a.ts",
     "apps/worker/src/a.ts",
@@ -221,9 +233,45 @@ test("any shared path next to a web change brings back everything", () => {
     "scripts/a.ts",
   ]) {
     expect(
-      plan(fixture(undefined, ["apps/web/src/a.ts", shared])).output,
-    ).toEqual(full);
+      plan(fixture(undefined, ["apps/web/src/a.ts", path])).output,
+    ).toEqual(prPlan(path));
   }
+});
+
+test("a pull request runs k8s-smoke only for what the kind install builds or runs", () => {
+  for (const path of [
+    "deploy/kind/up.sh",
+    "deploy/helm/werft/templates/api.yaml",
+    "packages/adapters/execution/kubernetes/src/backend.ts",
+    "apps/control-host/src/scheduler/launch.ts",
+    "packages/platform/src/scheduler/index.ts",
+    "packages/testkit/src/local-github-main.ts",
+    "packages/testkit/src/fake-messages-main.ts",
+    "infra/localstack/init/10-create-resources.sh",
+    "apps/worker/Dockerfile",
+    "bun.lock",
+    ".github/actions/image-cache/action.yml",
+  ]) {
+    expect({ path, k8s: plan(fixture(undefined, [path])).output.k8s }).toEqual({
+      path,
+      k8s: "true",
+    });
+  }
+  for (const path of [
+    "packages/db/src/a.ts",
+    "apps/control-host/src/api/a.ts",
+    "apps/worker/src/a.ts",
+  ]) {
+    expect({ path, plan: plan(fixture(undefined, [path])).output }).toEqual({
+      path,
+      plan: shared,
+    });
+  }
+});
+
+test("a main push keeps k8s-smoke whatever it touches", () => {
+  const f = fixture(undefined, ["packages/db/src/a.ts"]);
+  expect(plan(f, "push").output.k8s).toBe("true");
 });
 
 test("site content keeps the current docs and assembly chain", () => {
@@ -260,7 +308,7 @@ test("mixed, unknown, workflow and dependency changes always use the full plan",
       fixture(undefined, ["docs/operator/settings.md", path]),
     );
     expect(result.exitCode).toBe(0);
-    expect(result.output).toEqual(full);
+    expect(result.output).toEqual(prPlan(path));
   }
 });
 
@@ -295,7 +343,7 @@ test("a later prose commit cannot hide code already in the PR", () => {
   put(f.repo, "docs/operator/settings.md", "prose\n");
   commit(f.repo);
   mergePullRequest(f);
-  expect(plan(f).output).toEqual(full);
+  expect(plan(f).output).toEqual(shared);
 });
 
 test("a merge checkout keeps multi-commit prose PRs eligible", () => {
@@ -321,7 +369,7 @@ test("renames and deletions classify the old path as well as the new one", () =>
   mkdirSync(join(f.repo, "docs"));
   git(f.repo, "mv", "packages/a.ts", "docs/renamed.md");
   commit(f.repo);
-  expect(plan(f).output).toEqual(full);
+  expect(plan(f).output).toEqual(shared);
   const deleted = fixture(["README.md", "docs/operator/settings.md"]);
   git(deleted.repo, "rm", "docs/operator/settings.md");
   commit(deleted.repo);
