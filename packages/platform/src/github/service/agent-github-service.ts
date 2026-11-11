@@ -29,7 +29,6 @@ import {
   NOT_FOUND,
   OUTRANKED,
 } from "../../musterrolle/index.ts";
-import type { AgentGitHubStore } from "../../ports/agent-github-store.ts";
 import type { AgentStore } from "../../ports/agent-store.ts";
 import {
   GITHUB_API_BASE,
@@ -39,6 +38,7 @@ import {
   SessionServiceError,
   viewerOf,
 } from "../../sessions/index.ts";
+import type { AgentGitHubStore } from "../ports/agent-github-store.ts";
 import type {
   GitHubAppStore,
   GitHubPinStore,

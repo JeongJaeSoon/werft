@@ -9,15 +9,15 @@ import {
   scopesForRole,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
+import type {
+  PullRequestSettingsRead,
+  PullRequestSettingsStore,
+} from "../../action/ports/pull-request-settings.ts";
 import {
   type Caller,
   callerFor,
   createAuthorizationPolicy,
 } from "../../musterrolle/policy.ts";
-import type {
-  PullRequestSettingsRead,
-  PullRequestSettingsStore,
-} from "../../ports/pull-request-settings.ts";
 import { fakeGitHubClientSecret } from "../../testing/github-fakes.ts";
 import { refusal } from "../../testing/refusal.ts";
 import {

@@ -4,7 +4,7 @@ import {
   type PullRequestDrainStore,
   type PullRequestJob,
   pullRequestBackoffMs,
-} from "../../ports/pull-request-drain.ts";
+} from "../ports/pull-request-drain.ts";
 
 /**
  * How long a claim holds its row. The forge calls are cut off at

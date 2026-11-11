@@ -58,7 +58,12 @@ import {
   sanitizeToolDecision,
 } from "@werft-ai/contracts";
 import type { RuntimeFingerprint } from "@werft-ai/runtime-core";
+import type { CommitAttributionLedger } from "../action/ports/commit-attributions.ts";
 import { repoRefOf } from "../action/ports/forge.ts";
+import type {
+  SessionAttributionRecord,
+  SessionAttributionStore,
+} from "../action/ports/session-attribution.ts";
 import {
   type CheckpointRequestDecision,
   type RestoreFallback,
@@ -94,17 +99,12 @@ import type {
   CheckpointOutputObject,
   CheckpointVerifier,
 } from "../ports/checkpoint-verifier.ts";
-import type { CommitAttributionLedger } from "../ports/commit-attributions.ts";
 import type { GitHubMcpStore } from "../ports/github-mcp.ts";
 import type {
   ApprovalCheckpointCommit,
   WorkerPendingStore,
 } from "../ports/pending-requests.ts";
 import type { RepositoryAttachmentStore } from "../ports/repository-attachments.ts";
-import type {
-  SessionAttributionRecord,
-  SessionAttributionStore,
-} from "../ports/session-attribution.ts";
 import type { SessionTitleStore } from "../ports/session-title-store.ts";
 import type {
   EgressBindings,

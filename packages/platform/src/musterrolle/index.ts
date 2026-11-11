@@ -4,6 +4,7 @@ export {
   type AuthorizationPolicy,
   type Caller,
   MANAGEMENT_ROLES,
+  type Principal,
   receiptActorOf,
 } from "./policy.ts";
 export { ACTOR_INACTIVE, NOT_FOUND, OUTRANKED } from "./service-errors.ts";
