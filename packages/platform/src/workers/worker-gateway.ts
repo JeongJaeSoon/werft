@@ -163,6 +163,7 @@ import {
   trustedGitHubTools,
   usesWorkspaceCeiling,
   type WorkspaceProfiles,
+  withoutDeniedTools,
   workspaceCatalogProfiles,
 } from "../sessions/catalog.ts";
 import {
@@ -272,11 +273,15 @@ type ReleaseRun = Pick<
   | "platformPrompt"
   | "runtimeToolsSource"
   | "releaseEffectiveTools"
+  | "callerToolsDeny"
 >;
 
 type ToolConfigs = {
   profile: RuntimeConfig;
   release: RuntimeConfig | null;
+  // The same lists before the caller limit removed tools, only where it
+  // removed one: a checkpoint made earlier carries their fingerprints.
+  unlimited: { profile: RuntimeConfig | null; release: RuntimeConfig | null };
   runs: ToolList;
   // The mode the profile stores. The configs above carry the mode the claim
   // runs, which is `auto` for a convertible stored mode on a connection whose
@@ -749,9 +754,22 @@ export function createWorkerGateway(deps: {
         ...(prompt ? { platform_prompt: prompt } : {}),
       };
     };
+    const denied = release.callerToolsDeny;
+    const limited = (tools: readonly string[] | null) =>
+      tools === null ? null : withoutDeniedTools(tools, denied);
+    const profileTools = limited(lists.profile) ?? lists.profile;
+    const releaseTools = limited(lists.release);
     return {
-      profile: configOf(lists.profile),
-      release: lists.release === null ? null : configOf(lists.release),
+      profile: configOf(profileTools),
+      release: releaseTools === null ? null : configOf(releaseTools),
+      unlimited: {
+        profile:
+          profileTools === lists.profile ? null : configOf(lists.profile),
+        release:
+          lists.release === null || releaseTools === lists.release
+            ? null
+            : configOf(lists.release),
+      },
       runs: lists.runs,
       storedMode: profile.permission_mode,
     };
@@ -1335,9 +1353,10 @@ export function createWorkerGateway(deps: {
     mcpToken: string,
   ): { restore_runtime_configs?: RuntimeConfig[] } {
     const alternates = earlierProfileConfigs(binding, catalog, (profile) =>
+      // Earlier profiles stand for checkpoints already made: no limit applies.
       toolConfigsOf(
         profile,
-        binding,
+        { ...binding, callerToolsDeny: [] },
         providerToken,
         binding.repository !== null,
       ),
@@ -1393,6 +1412,7 @@ export function createWorkerGateway(deps: {
     // before any release list. Within one list the current profile goes first.
     const ofLists = lists.flatMap((list) => {
       const config = current[list];
+      const before = current.unlimited[list];
       return [
         ...(config === null
           ? []
@@ -1401,6 +1421,11 @@ export function createWorkerGateway(deps: {
                 inMode(config, mode),
                 current.runs === list && mode === runsAs,
               ),
+            )),
+        ...(before === null || !resuming
+          ? []
+          : currentModes.flatMap((mode) =>
+              offerings(inMode(before, mode), false),
             )),
         ...alternates.flatMap((configs) => {
           const earlier = configs[list];

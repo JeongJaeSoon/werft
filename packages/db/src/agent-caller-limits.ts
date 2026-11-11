@@ -450,6 +450,17 @@ export function pinnedLimitOf(value: unknown): CallerLimit | null {
     : null;
 }
 
+/**
+ * The built-in tools a session's pinned limit denies. `mcp__` names are left
+ * to the MCP paths; a row with no readable limit denies nothing.
+ */
+export function builtinToolsDenyOf(value: unknown): string[] {
+  return (pinnedLimitOf(value)?.tools_deny ?? []).filter(
+    (tool): tool is string =>
+      typeof tool === "string" && !tool.startsWith("mcp__"),
+  );
+}
+
 export function inputRefusal(
   sender: CallerLimit | null,
   reach: SessionReach,
