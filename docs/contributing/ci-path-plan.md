@@ -18,7 +18,7 @@ main을 대상으로 다음 경로로만 이뤄진 PR이 문서 전용 후보이
 
 문서 전용이 아니어도, 바뀐 경로가 모두 웹 콘솔(`apps/web/`)이거나 문서 경로면 닿지 않는 job을 건너뛴다. 다른 곳이 가져다 쓰지 않고, 이 파일을 읽는 테스트도 서비스 없이 `check`에서 돌기 때문이다. 그 밖의 경로가 하나라도 있으면(공용 `packages/`, `apps/control-host/`, `apps/worker/`, `apps/egress-proxy/`, lockfile, workflow, `tests/`, `scripts/`, `deploy/` 등) 전체 검증이다. `apps/egress-proxy/`는 말단처럼 보이지만 LocalStack·Docker가 필요한 `tests/`가 직접 가져다 쓰므로 좁히지 않는다.
 
-전체 검증인 PR에서도 `k8s-smoke`는 kind 설치가 빌드·배포·실행하는 경로가 바뀔 때만 돈다. 그 경로는 계획 스크립트의 `is_k8s_path`가 정한다([ci.md](ci.md)). main push와 수동 실행에서는 늘 돈다.
+전체 검증인 PR에서도 `k8s-smoke`는 kind 설치가 빌드·배포·실행하는 경로가 바뀔 때만 돈다. 그 경로는 계획 스크립트의 `is_k8s_path`가 정한다([ci.md](ci.md)). main push에는 이 경로 규칙이 없어서, 문서 전용이나 웹 콘솔 전용 계획이 아니면 돈다. 수동 실행은 전체 계획이고, `only`가 `all`(기본값)이거나 `k8s-smoke`일 때 돈다.
 
 | 바뀐 영역 | integration 도메인 | `helm-chart` | `k8s-smoke` | `quickstart` | `workspace-quota` |
 | --- | --- | --- | --- | --- | --- |
