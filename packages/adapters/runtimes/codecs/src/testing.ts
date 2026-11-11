@@ -1,4 +1,4 @@
-import { digestParts } from "@werft-ai/runtime-claude-codec";
+import { digestParts } from "@werft-ai/runtime-codec-kit";
 import type { ObjectRef } from "@werft-ai/runtime-core";
 
 // Both engines digest a revision's parts with the same shared codec kit, so

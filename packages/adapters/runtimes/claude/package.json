@@ -18,6 +18,7 @@
   "dependencies": {
     "@werft-ai/contracts": "workspace:*",
     "@werft-ai/runtime-claude-codec": "workspace:*",
+    "@werft-ai/runtime-codec-kit": "workspace:*",
     "@werft-ai/runtime-core": "workspace:*",
     "@anthropic-ai/claude-agent-sdk": "0.3.319",
     "@modelcontextprotocol/sdk": "1.32.1",

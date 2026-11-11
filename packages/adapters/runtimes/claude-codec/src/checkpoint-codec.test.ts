@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { digestParts } from "@werft-ai/runtime-codec-kit";
 import type { CheckpointManifest } from "@werft-ai/runtime-core";
 import {
   CLAUDE_RUNTIME_FINGERPRINT,
@@ -7,7 +8,6 @@ import {
   encodeCheckpointManifest,
   validateCompatibility,
 } from "./checkpoint-codec.ts";
-import { digestParts } from "./transcript-digest.ts";
 
 const profileSha256 = "a".repeat(64);
 const runtime = { ...CLAUDE_RUNTIME_FINGERPRINT, profileSha256 };

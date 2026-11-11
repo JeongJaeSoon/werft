@@ -14,7 +14,7 @@ import type {
   PendingRequest,
   PostSessionMessageResponse,
 } from "@werft-ai/contracts";
-import { digestParts } from "@werft-ai/runtime-claude-codec";
+import { digestParts } from "@werft-ai/runtime-codec-kit";
 import {
   checkpointBundleRefs,
   PEELED_REF_FORMAT,

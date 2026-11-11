@@ -50,7 +50,7 @@ FROM ${BUN_IMAGE} AS runtime
 # repository (94S-228); without the executable every checkpoint finalize
 # fails with ENOENT and no pointer ever advances. The smoke test checks it.
 # ca-certificates: the approved push runs git over https from this container
-# (packages/platform/src/sessions/push-executor.ts). --no-install-recommends
+# (packages/platform/src/action/change-request/push-executor.ts). --no-install-recommends
 # drops it from git, and without it every https push fails at ls-remote.
 # tini: see ENTRYPOINT.
 # The upgrade: see APT_UPGRADE_KEY in apps/worker/Dockerfile.
