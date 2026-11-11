@@ -391,33 +391,6 @@ export const sessionCatalogConfigSchema = z
 
 export type SessionCatalogConfig = z.infer<typeof sessionCatalogConfigSchema>;
 
-/**
- * `sessionCatalogConfigSchema.safeParse`, except that with
- * `tolerateNoRepositories` a catalog left without any repository (every
- * entry was an old one the import skipped) is not refused for that alone.
- * Every other rule still applies.
- */
-export function safeParseCatalogConfig(
-  input: { repositories: Record<string, unknown> } & Record<string, unknown>,
-  tolerateNoRepositories: boolean,
-) {
-  if (!tolerateNoRepositories || Object.keys(input.repositories).length > 0) {
-    return sessionCatalogConfigSchema.safeParse(input);
-  }
-  const placeholder = "placeholder";
-  const parsed = sessionCatalogConfigSchema.safeParse({
-    ...input,
-    repositories: {
-      [placeholder]: {
-        url: "https://github.com/placeholder/placeholder",
-        branch: "main",
-        auth: { kind: "github_app" },
-      },
-    },
-  });
-  if (parsed.success) delete parsed.data.repositories[placeholder];
-  return parsed;
-}
 export type CatalogProviderConfig = z.infer<typeof catalogProviderSchema>;
 export type CatalogRepositoryConfig = z.infer<typeof catalogRepositorySchema>;
 export type RepositoryCredential =
@@ -920,13 +893,6 @@ export type RuntimeVersions = {
   readonly accepted: readonly string[];
   readonly current: readonly string[];
 };
-
-/** Without configured images: none is listed, and every version runs. */
-export function acceptedRuntimeVersions(catalog: {
-  runtime_versions?: RuntimeVersions | undefined;
-}): readonly string[] {
-  return catalog.runtime_versions?.accepted ?? [];
-}
 
 /** Whether a release's runtime version runs on the configured images. */
 export function runtimeVersionAccepted(

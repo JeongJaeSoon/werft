@@ -133,8 +133,3 @@ export function verifyReleaseSpec(stored: {
   }
   return { ok: true, record };
 }
-
-/** The source with another model: what a session that moved models runs. */
-export function specWithModel(source: SpecSource, model: string): SpecSource {
-  return model === source.model ? source : { ...source, model };
-}

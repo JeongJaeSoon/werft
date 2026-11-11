@@ -312,8 +312,6 @@ export function createCheckpointCollector(
   };
 }
 
-export type CheckpointCollector = ReturnType<typeof createCheckpointCollector>;
-
 /**
  * `<prefix><revision>/<attempt>/…` as `manifestRefFor` mints it. Anything
  * else under the prefix was not written by a checkpoint publish and is not

@@ -9,11 +9,11 @@ import { launchSession } from "@werft-ai/db/testing/launches";
 import { TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
 import { createLogger } from "@werft-ai/observability";
 import {
-  acceptAllCheckpoints,
   createWorkerGateway,
   type GitHubPackageFetchRecord,
   type GitHubPackagesStore,
 } from "@werft-ai/platform";
+import { acceptAllCheckpoints } from "@werft-ai/platform/testing/checkpoints";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { testCatalog } from "../testing/catalog.ts";

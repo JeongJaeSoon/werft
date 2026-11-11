@@ -368,5 +368,3 @@ export function createOutcomeRefresher(deps: {
 
   return { runOnce, start };
 }
-
-export type OutcomeRefresher = ReturnType<typeof createOutcomeRefresher>;

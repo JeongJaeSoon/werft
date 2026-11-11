@@ -6,7 +6,6 @@ import {
   runtimeConfigSchema,
 } from "@werft-ai/contracts";
 import type { SessionAttributionRecord } from "../action/ports/session-attribution.ts";
-import { acceptAllCheckpoints } from "../checkpoints/ports/checkpoint-verifier.ts";
 import {
   type GitHubConnection,
   type GitHubGate,
@@ -40,6 +39,7 @@ import {
   testConnection,
   testSpecSource,
 } from "../testing/catalog-fakes.ts";
+import { acceptAllCheckpoints } from "../testing/checkpoints.ts";
 import { releasePolicy } from "../testing/github-fakes.ts";
 import {
   type CheckpointProtocol,

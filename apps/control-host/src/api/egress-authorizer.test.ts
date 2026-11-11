@@ -10,11 +10,11 @@ import { launchSession } from "@werft-ai/db/testing/launches";
 import { TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
 import { createLogger } from "@werft-ai/observability";
 import {
-  acceptAllCheckpoints,
   createWorkerGateway,
   hashJudgmentToken,
   WorkerGatewayError,
 } from "@werft-ai/platform";
+import { acceptAllCheckpoints } from "@werft-ai/platform/testing/checkpoints";
 import { createObjectRouteSigner } from "@werft-ai/storage";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { eq } from "drizzle-orm";

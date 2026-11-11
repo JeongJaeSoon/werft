@@ -10,7 +10,7 @@ import {
   type GitHubMcpStore,
   SavedRulesUnavailable,
 } from "../../github/ports/github-mcp.ts";
-import { refusalOf } from "../refusal.ts";
+import { isRecord, refusalOf } from "../refusal.ts";
 import {
   createToolDispatcher,
   definedTool,
@@ -108,10 +108,6 @@ export type JsonRpcResponse = {
   result?: unknown;
   error?: { code: number; message: string };
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 export function createGitHubMcpServer(deps: {
   store: GitHubMcpStore;

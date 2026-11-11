@@ -31,9 +31,9 @@ import {
   type FinalizeCheckpointInput,
   finalizeCheckpoint,
 } from "../testing/checkpoints.ts";
+import { MAX_COOLING_BUNDLES } from "./bundle-throttle.ts";
 import {
   createCheckpointService,
-  MAX_COOLING_BUNDLES,
   manifestRefFor,
   sessionObjectPrefix,
 } from "./checkpoint-service.ts";

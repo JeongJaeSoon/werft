@@ -123,5 +123,3 @@ export function createPullRequestDrain(deps: {
 
   return { runOnce, start };
 }
-
-export type PullRequestDrain = ReturnType<typeof createPullRequestDrain>;

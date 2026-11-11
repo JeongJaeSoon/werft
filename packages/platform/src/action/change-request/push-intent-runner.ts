@@ -77,5 +77,3 @@ export function createPushIntentRunner(deps: {
 
   return { runOnce, start };
 }
-
-export type PushIntentRunner = ReturnType<typeof createPushIntentRunner>;

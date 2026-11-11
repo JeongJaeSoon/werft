@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { packBundleTar } from "@werft-ai/runtime-core";
 import { createMemoryCheckpointObjectStore } from "@werft-ai/testkit/checkpoint-objects";
 import type {
   ExtensionBundle,
   ExtensionBundleStore,
   RegisterExtensionBundleResult,
 } from "../ports/extension-bundle-store.ts";
-import { packBundleTar } from "./bundle-archive.ts";
 import {
   BundleIntegrityError,
   bundleObjectKey,

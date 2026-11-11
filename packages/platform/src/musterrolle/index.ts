@@ -22,6 +22,7 @@ export {
   ACTOR_INACTIVE,
   NOT_FOUND,
   OUTRANKED,
+  SECRET_STORE_OFF,
   SessionServiceError,
   TEAM_HOLDING,
   TEAM_NOT_ALLOWED,

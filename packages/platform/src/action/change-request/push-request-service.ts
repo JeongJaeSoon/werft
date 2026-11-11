@@ -34,18 +34,18 @@ import {
 } from "./push-decision.ts";
 
 /**
- * Push requests (94S-628): a human asks for the session's latest checkpoint
+ * Push requests: a human asks for the session's latest checkpoint
  * to be pushed to `agent/<session-id>`, and a holder of sessions:approve other
  * than the key that started the session approves or rejects exactly that
  * commit (GA-8). The push itself is the platform's
- * (94S-629, push-executor.ts).
+ * (push-executor.ts).
  */
 export function createPushRequestService(deps: {
   authorization: AuthorizationPolicy;
   store: PushRequestStore;
   intents: PushIntentStore;
   source: PushSource;
-  /** Pins the repository entry the push must still match (94S-629). */
+  /** Pins the repository entry the push must still match. */
   catalog: SessionCatalog;
 }) {
   const { authorization, store, intents, source, catalog } = deps;

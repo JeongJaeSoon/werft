@@ -544,5 +544,3 @@ export function createAchievementJudge(deps: {
 
   return { runOnce, start };
 }
-
-export type AchievementJudge = ReturnType<typeof createAchievementJudge>;

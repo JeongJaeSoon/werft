@@ -7,7 +7,7 @@ import {
 } from "@werft-ai/runtime-core";
 
 /**
- * Registration-time validator for skill-only extension bundles (94S-866).
+ * Registration-time validator for skill-only extension bundles.
  *
  * The engine loads a bundle as a Claude plugin directory, and a plugin
  * directory is a code-execution surface: `hooks/hooks.json` and `.mcp.json`
@@ -75,7 +75,7 @@ export type ValidatedBundle = {
   manifest: BundleManifest;
   /** `<slug>:<skill>` names the engine must report in system/init.skills. */
   expectedSkills: string[];
-  /** sha256 of the canonical file list, in the format 94S-865 stores. */
+  /** sha256 of the canonical file list, in the stored format. */
   digest: string;
   /** Root CLAUDE.md / AGENTS.md are not bundle content; they are offered as instruction candidates. */
   instructionCandidates: { name: "CLAUDE.md" | "AGENTS.md"; text: string }[];

@@ -326,7 +326,6 @@ export const DEFAULT_MAX_RESTORE_FALLBACKS = 3;
 // The git verifier's own timeout: a bundle that keeps throwing then holds a
 // verification slot at most half the time.
 export const DEFAULT_BUNDLE_RETRY_COOLDOWN_MS = 60_000;
-export { MAX_COOLING_BUNDLES } from "./bundle-throttle.ts";
 // One revision tried can cost the manifest's full object limit in reads plus
 // a bundle hashed whole; this is what keeps a restore from becoming a scan.
 export const MAX_RESTORE_FALLBACKS_CEILING = 10;

@@ -196,7 +196,7 @@ export interface AgentAuthority {
     releaseId: string,
   ): Promise<string | null>;
   /**
-   * Whether the person behind a caller may use the agent (94S-901), read
+   * Whether the person behind a caller may use the agent, read
    * without a lock. Without it every agent is open: a deployment with no
    * agent store has no private ones.
    */
@@ -519,8 +519,8 @@ export function createAuthorizationPolicy(
       (await agents.isAdmin(workspaceId, agentId.toLowerCase(), principal.id))
     );
   }
-  // 94S-798: seeing a session through its share is not answering for it,
-  // nor renaming it (94S-804). Its creator answers (a key's session: that
+  // Seeing a session through its share is not answering for it,
+  // nor renaming it. Its creator answers (a key's session: that
   // key renames it but never approves it), as do its agent's admins, the
   // workspace's managers and its agent's keys, which the agent ceiling holds
   // to that agent.
@@ -713,8 +713,8 @@ export function createAuthorizationPolicy(
           if ((await outsideAccess.access(resource.owner_scope)) === "none") {
             return ["not_found", scopes];
           }
-          // A private agent the reader may not use reads as a missing one
-          // (94S-1512), checked before any answer that names it.
+          // A private agent the reader may not use reads as a missing one,
+          // checked before any answer that names it.
           if (
             !(await usageFor(reading, resource.owner_scope, agentId)).allowed
           ) {
@@ -794,7 +794,7 @@ export function createAuthorizationPolicy(
     }
     // No agent identity has a ceiling to multiply by yet.
     if (subject.agent !== undefined) return ["agent_ceiling", scopes];
-    // Who may use a private agent (94S-901), after every refusal that is
+    // Who may use a private agent, after every refusal that is
     // the same for a public one, and before the credential check, whose
     // answer names the agent's admins. A workspace's session that is
     // visible to the requester is answered here too: the share does not

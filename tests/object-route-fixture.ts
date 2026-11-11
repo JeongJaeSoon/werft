@@ -12,7 +12,8 @@ import {
 } from "@werft-ai/db/testing/launches";
 import { TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
 import { createLogger } from "@werft-ai/observability";
-import { acceptAllCheckpoints, createWorkerGateway } from "@werft-ai/platform";
+import { createWorkerGateway } from "@werft-ai/platform";
+import { acceptAllCheckpoints } from "@werft-ai/platform/testing/checkpoints";
 import { createObjectRouteSigner } from "@werft-ai/storage";
 import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";

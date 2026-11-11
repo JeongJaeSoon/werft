@@ -206,7 +206,7 @@ export function createUsageService(deps: {
       };
     },
 
-    // Summed over every owner, so the installation owner's alone (94S-762).
+    // Summed over every owner, so the installation owner's alone.
     async getInstallationLimits(
       actor: Caller,
     ): Promise<InstallationLimitsResponse> {
