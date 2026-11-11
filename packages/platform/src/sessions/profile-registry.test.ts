@@ -9,9 +9,9 @@ import {
   createAgentService,
   resolveAgentRelease,
 } from "../agents/agent-service.ts";
+import { acceptAllCheckpoints } from "../checkpoints/ports/checkpoint-verifier.ts";
 import { callerFor, createAuthorizationPolicy } from "../musterrolle/policy.ts";
 import type { AgentStore } from "../ports/agent-store.ts";
-import { acceptAllCheckpoints } from "../ports/checkpoint-verifier.ts";
 import type { InstallationProfileRecord } from "../ports/installation-profile-store.ts";
 import type {
   ClaimInput,

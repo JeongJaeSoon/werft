@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { acceptAllCheckpoints } from "../ports/checkpoint-verifier.ts";
+import { acceptAllCheckpoints } from "../checkpoints/ports/checkpoint-verifier.ts";
 import type { WorkerUnitOfWork } from "../ports/worker-unit-of-work.ts";
 import type { JudgmentEgressStore } from "../sessions/achievements/achievement-judgment-store.ts";
 import { hashJudgmentToken } from "../sessions/achievements/judgment-token.ts";

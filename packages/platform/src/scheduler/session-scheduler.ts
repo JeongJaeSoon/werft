@@ -1,6 +1,3 @@
-import type { LaunchIntent } from "../ports/execution-backend.ts";
-import { parseExecutionResources } from "../ports/execution-backend.ts";
-import type { StoredLaunchIntent } from "../ports/scheduler-store.ts";
 import { fillSlots } from "./launch.ts";
 import {
   DEFAULT_DRAIN_DEADLINE_MS,
@@ -14,6 +11,9 @@ import {
 } from "./options.ts";
 import { reconcileNetworks, terminateOrphans } from "./orphans.ts";
 import { type PassContext, refOf, storedSpecOf } from "./pass-context.ts";
+import type { LaunchIntent } from "./ports/execution-backend.ts";
+import { parseExecutionResources } from "./ports/execution-backend.ts";
+import type { StoredLaunchIntent } from "./ports/scheduler-store.ts";
 import { reconcileRows } from "./reconcile.ts";
 import { collectWorkspaces } from "./workspaces.ts";
 

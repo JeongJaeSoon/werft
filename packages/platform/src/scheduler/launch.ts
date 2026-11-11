@@ -1,13 +1,4 @@
 import type { ImageRuntime } from "@werft-ai/runtime-core";
-import type {
-  EnsureExecutionResult,
-  ExecutionRef,
-} from "../ports/execution-backend.ts";
-import type {
-  ActiveExecution,
-  LaunchFailureOutcome,
-  ReplaceReason,
-} from "../ports/scheduler-store.ts";
 import { confirmGone, kill, killRequested } from "./kill.ts";
 import { launchRetryDelayMs } from "./options.ts";
 import {
@@ -21,6 +12,15 @@ import {
   seenIncarnation,
   storedIntentOf,
 } from "./pass-context.ts";
+import type {
+  EnsureExecutionResult,
+  ExecutionRef,
+} from "./ports/execution-backend.ts";
+import type {
+  ActiveExecution,
+  LaunchFailureOutcome,
+  ReplaceReason,
+} from "./ports/scheduler-store.ts";
 import {
   sameCombination,
   selectWorkerImage,

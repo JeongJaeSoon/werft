@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { WORKER_EXIT_LEASE_LOST } from "@werft-ai/contracts";
 import type { ImageRuntime } from "@werft-ai/runtime-core";
+import type { ExecutionIncarnation } from "../ports/worker-unit-of-work.ts";
+import {
+  hashWorkerToken,
+  launchNonceFingerprint,
+} from "../workers/worker-gateway.ts";
 import type {
   EnsureExecutionResult,
   ExecutionBackend,
@@ -14,12 +19,12 @@ import type {
   TerminateExecutionResult,
   TerminateOptions,
   WorkspaceRemovalResult,
-} from "../ports/execution-backend.ts";
+} from "./ports/execution-backend.ts";
 import {
   LaunchOutcomeUnknownError,
   LaunchSpecMismatchError,
   launchSpecFingerprint,
-} from "../ports/execution-backend.ts";
+} from "./ports/execution-backend.ts";
 import type {
   ActiveExecution,
   HoldIncompatibleInput,
@@ -32,12 +37,7 @@ import type {
   StoredLaunchIntent,
   WorkerImageRefusal,
   WorkspaceReclaimClaim,
-} from "../ports/scheduler-store.ts";
-import type { ExecutionIncarnation } from "../ports/worker-unit-of-work.ts";
-import {
-  hashWorkerToken,
-  launchNonceFingerprint,
-} from "../workers/worker-gateway.ts";
+} from "./ports/scheduler-store.ts";
 import {
   DEFAULT_LAUNCH_FAILURE_LIMIT,
   DEFAULT_STOPPED_WORKSPACE_TTL_MS,

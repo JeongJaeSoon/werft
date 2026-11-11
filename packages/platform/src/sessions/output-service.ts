@@ -3,7 +3,7 @@ import type { StoredOutput } from "@werft-ai/runtime-core";
 import type {
   SessionOutputBodyResult,
   SessionOutputsResult,
-} from "../checkpoints/checkpoint-service.ts";
+} from "../checkpoints/index.ts";
 import type { Caller } from "../musterrolle/policy.ts";
 import { type SessionService, SessionServiceError } from "./session-service.ts";
 

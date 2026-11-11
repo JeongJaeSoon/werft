@@ -5,13 +5,6 @@ import {
   TRANSCRIPT_MIRROR_DIRECTORY,
   transcriptGenerationOf,
 } from "@werft-ai/runtime-core";
-
-import type {
-  CheckpointCollectionStore,
-  CheckpointObjectCollector,
-  StoredObjectVersion,
-} from "../ports/checkpoint-collection.ts";
-import type { CheckpointPointer } from "../ports/checkpoint-store.ts";
 import {
   DEFAULT_MAX_RESTORE_FALLBACKS,
   type ObjectProtection,
@@ -25,6 +18,12 @@ import {
   parentOf,
   sha256,
 } from "./checkpoint-support.ts";
+import type {
+  CheckpointCollectionStore,
+  CheckpointObjectCollector,
+  StoredObjectVersion,
+} from "./ports/checkpoint-collection.ts";
+import type { CheckpointPointer } from "./ports/checkpoint-store.ts";
 
 export type CheckpointCollectorDependencies = {
   codecs: Readonly<Record<string, CheckpointCodec>>;

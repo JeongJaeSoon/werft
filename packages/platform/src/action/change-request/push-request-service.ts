@@ -14,7 +14,7 @@ import {
   type ReceiptActor,
 } from "@werft-ai/contracts";
 import { namesWorkingTreeSnapshot } from "@werft-ai/runtime-core";
-import type { PushSourceResult } from "../../checkpoints/checkpoint-service.ts";
+import type { PushSourceResult } from "../../checkpoints/index.ts";
 import {
   pinnedCarries,
   pushApprovability,

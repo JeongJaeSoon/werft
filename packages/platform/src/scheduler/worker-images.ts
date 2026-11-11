@@ -6,7 +6,7 @@ import {
   type RuntimeFingerprint,
   restorableSchemesOf,
 } from "@werft-ai/runtime-core";
-import type { RuntimeVersions } from "../sessions/catalog.ts";
+import type { RuntimeVersions } from "../sessions/index.ts";
 
 export type WorkerImagesEnvironment = {
   WORKER_IMAGE_PREVIOUS_RUNTIME?: string | undefined;

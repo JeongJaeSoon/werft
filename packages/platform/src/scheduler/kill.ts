@@ -1,8 +1,3 @@
-import type {
-  ExecutionRef,
-  TerminateExecutionResult,
-} from "../ports/execution-backend.ts";
-import type { ActiveExecution } from "../ports/scheduler-store.ts";
 import type { ExecutionIncarnation } from "../ports/worker-unit-of-work.ts";
 import {
   fieldsOf,
@@ -10,6 +5,11 @@ import {
   type PassContext,
   refOf,
 } from "./pass-context.ts";
+import type {
+  ExecutionRef,
+  TerminateExecutionResult,
+} from "./ports/execution-backend.ts";
+import type { ActiveExecution } from "./ports/scheduler-store.ts";
 
 // The snapshot is checked first, then the row: a terminate that committed
 // after listActiveExecutions still gets its kill this pass.

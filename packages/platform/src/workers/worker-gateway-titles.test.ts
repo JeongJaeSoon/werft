@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { acceptAllCheckpoints } from "../ports/checkpoint-verifier.ts";
+import { acceptAllCheckpoints } from "../checkpoints/ports/checkpoint-verifier.ts";
 import type {
   SessionTitleStore,
   TitleEgressAuthorization,

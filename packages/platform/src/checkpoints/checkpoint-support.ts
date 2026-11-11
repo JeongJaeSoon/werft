@@ -8,7 +8,7 @@ import {
 import {
   CHECKPOINT_ROOT_PARENT,
   type CheckpointPointer,
-} from "../ports/checkpoint-store.ts";
+} from "./ports/checkpoint-store.ts";
 
 /**
  * The revision a checkpoint's state was built on. Rows from before the

@@ -1,5 +1,5 @@
 // The entrance other platform domains import (A2 in package-structure.md):
-// only the names action/, decision/ and github/ use, not a barrel over the directory.
+// only the names action/, decision/, github/ and scheduler/ use, not a barrel over the directory.
 export {
   additionalContextOf,
   additionalRepositoriesOf,
@@ -7,6 +7,7 @@ export {
 } from "./additional-repositories.ts";
 export {
   GITHUB_API_BASE,
+  type RuntimeVersions,
   repositoryBinding,
   repositoryInCeiling,
   repositoryUpstreamOf,
