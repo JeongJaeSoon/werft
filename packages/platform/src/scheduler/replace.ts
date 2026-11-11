@@ -1,11 +1,3 @@
-import type {
-  ExecutionObservation,
-  TerminateExecutionResult,
-} from "../ports/execution-backend.ts";
-import type {
-  ActiveExecution,
-  ReplaceReason,
-} from "../ports/scheduler-store.ts";
 import { confirmGone } from "./kill.ts";
 import { backingOff, launchFailed, reensure } from "./launch.ts";
 import {
@@ -17,6 +9,14 @@ import {
   seenIncarnation,
   storedIntentOf,
 } from "./pass-context.ts";
+import type {
+  ExecutionObservation,
+  TerminateExecutionResult,
+} from "./ports/execution-backend.ts";
+import type {
+  ActiveExecution,
+  ReplaceReason,
+} from "./ports/scheduler-store.ts";
 
 /**
  * Tears the resource down and builds it again from the stored intent. The

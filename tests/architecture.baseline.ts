@@ -30,8 +30,6 @@ export type Baseline = {
 export const baseline: Baseline = {
   crossDomainImports: [
     "action/change-request/pull-request-service.ts -> musterrolle/policy.ts",
-    "action/change-request/push-executor.ts -> checkpoints/checkpoint-service.ts",
-    "action/change-request/push-request-service.ts -> checkpoints/checkpoint-service.ts",
     "action/change-request/push-request-service.ts -> decision/push-approvability.ts",
     "action/change-request/push-request-service.ts -> musterrolle/policy.ts",
     "action/github/github-work-service.ts -> musterrolle/policy.ts",
@@ -73,7 +71,6 @@ export const baseline: Baseline = {
     "musterrolle/session-share-service.ts -> sessions/session-service.ts",
     "musterrolle/surface-binding-service.ts -> sessions/session-service.ts",
     "musterrolle/team-service.ts -> sessions/session-service.ts",
-    "scheduler/worker-images.ts -> sessions/catalog.ts",
     "sessions/achievements/achievement-rules.ts -> musterrolle/policy.ts",
     "sessions/achievements/achievement-rules.ts -> musterrolle/service-errors.ts",
     "sessions/achievements/session-achievement-service.ts -> musterrolle/policy.ts",
@@ -82,8 +79,6 @@ export const baseline: Baseline = {
     "sessions/installation-profiles.ts -> musterrolle/policy.ts",
     "sessions/installation-profiles.ts -> musterrolle/service-errors.ts",
     "sessions/interrupt-service.ts -> musterrolle/policy.ts",
-    "sessions/interrupt-service.ts -> scheduler/session-scheduler.ts",
-    "sessions/output-service.ts -> checkpoints/checkpoint-service.ts",
     "sessions/output-service.ts -> musterrolle/policy.ts",
     "sessions/session-outcome-service.ts -> musterrolle/policy.ts",
     "sessions/session-service.ts -> agents/release-ids.ts",

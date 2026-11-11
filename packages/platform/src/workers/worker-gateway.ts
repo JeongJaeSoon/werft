@@ -73,6 +73,11 @@ import {
 } from "../checkpoints/checkpoint-service.ts";
 import { own } from "../checkpoints/checkpoint-support.ts";
 import { checkpointPendingReason } from "../checkpoints/durability.ts";
+import type { CheckpointPointer } from "../checkpoints/ports/checkpoint-store.ts";
+import type {
+  CheckpointOutputObject,
+  CheckpointVerifier,
+} from "../checkpoints/ports/checkpoint-verifier.ts";
 import { BundleIntegrityError } from "../extensions/bundle-service.ts";
 import type { GitHubConnectionResolver } from "../github/index.ts";
 import {
@@ -94,11 +99,6 @@ import {
   priceJudgmentUsage,
   priceProviderUsage,
 } from "../limits/model-prices.ts";
-import type { CheckpointPointer } from "../ports/checkpoint-store.ts";
-import type {
-  CheckpointOutputObject,
-  CheckpointVerifier,
-} from "../ports/checkpoint-verifier.ts";
 import type { GitHubMcpStore } from "../ports/github-mcp.ts";
 import type {
   ApprovalCheckpointCommit,

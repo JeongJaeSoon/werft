@@ -7,6 +7,7 @@ export {
 } from "./additional-repositories.ts";
 export {
   GITHUB_API_BASE,
+  type RuntimeVersions,
   repositoryBinding,
   repositoryInCeiling,
   repositoryUpstreamOf,

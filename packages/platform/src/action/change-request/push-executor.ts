@@ -8,7 +8,7 @@ import {
   type PushReasonCode,
   type PushRefusal,
 } from "@werft-ai/contracts";
-import type { PushBundlesResult } from "../../checkpoints/checkpoint-service.ts";
+import type { PushBundlesResult } from "../../checkpoints/index.ts";
 import {
   type GitHubGate,
   GitHubGateError,

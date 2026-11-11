@@ -33,17 +33,6 @@ import {
   transcriptSizeProblem,
   workspacePathsProblem,
 } from "@werft-ai/runtime-core";
-
-import type {
-  CheckpointFence,
-  CheckpointPointer,
-  CheckpointStore,
-} from "../ports/checkpoint-store.ts";
-import {
-  rejectUnverifiedWorkspaceBundles,
-  type WorkspaceBundleFile,
-  type WorkspaceBundleVerifier,
-} from "../ports/workspace-bundle-verifier.ts";
 import { createCooldown, createGate } from "./bundle-throttle.ts";
 import {
   chainOf,
@@ -54,6 +43,16 @@ import {
   parentOf,
   sha256,
 } from "./checkpoint-support.ts";
+import type {
+  CheckpointFence,
+  CheckpointPointer,
+  CheckpointStore,
+} from "./ports/checkpoint-store.ts";
+import {
+  rejectUnverifiedWorkspaceBundles,
+  type WorkspaceBundleFile,
+  type WorkspaceBundleVerifier,
+} from "./ports/workspace-bundle-verifier.ts";
 
 export type CheckpointRequest = {
   /** Where this attempt must upload its manifest. */

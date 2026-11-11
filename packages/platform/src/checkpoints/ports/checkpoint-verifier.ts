@@ -8,9 +8,9 @@ import {
   transcriptBytes,
   transcriptParts,
 } from "@werft-ai/runtime-core";
-import type { ManifestVerdict } from "../checkpoints/checkpoint-service.ts";
+import type { WorkerFence } from "../../ports/worker-unit-of-work.ts";
+import type { ManifestVerdict } from "../checkpoint-service.ts";
 import type { CheckpointFence } from "./checkpoint-store.ts";
-import type { WorkerFence } from "./worker-unit-of-work.ts";
 
 export type CheckpointOutputObject = { key: string; bytes: number };
 

@@ -6,7 +6,7 @@ import {
   type TraceContentMode,
 } from "@werft-ai/contracts";
 
-import { acceptAllCheckpoints } from "../ports/checkpoint-verifier.ts";
+import { acceptAllCheckpoints } from "../checkpoints/ports/checkpoint-verifier.ts";
 import type { WorkerPendingStore } from "../ports/pending-requests.ts";
 import type { WorkerUnitOfWork } from "../ports/worker-unit-of-work.ts";
 import type { CatalogProfile } from "../sessions/catalog.ts";

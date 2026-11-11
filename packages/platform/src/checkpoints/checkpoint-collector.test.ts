@@ -22,14 +22,6 @@ import {
   createGitBundle,
   createGitBundleChain,
 } from "@werft-ai/testkit/git-bundle";
-
-import type { CheckpointCollectionStore } from "../ports/checkpoint-collection.ts";
-import type {
-  CheckpointFence,
-  CheckpointPointer,
-  CheckpointStore,
-} from "../ports/checkpoint-store.ts";
-import { structuralBundleVerifier } from "../ports/workspace-bundle-verifier.ts";
 import {
   type CommitCheckpointInput,
   type CommitCheckpointResult,
@@ -41,6 +33,13 @@ import {
   manifestRefFor,
   sessionObjectPrefix,
 } from "./checkpoint-service.ts";
+import type { CheckpointCollectionStore } from "./ports/checkpoint-collection.ts";
+import type {
+  CheckpointFence,
+  CheckpointPointer,
+  CheckpointStore,
+} from "./ports/checkpoint-store.ts";
+import { structuralBundleVerifier } from "./ports/workspace-bundle-verifier.ts";
 
 /**
  * garbage collection releases and deletes what no restore can reach

@@ -3,8 +3,8 @@ import type {
   ExecutionBackend,
   ExecutionRef,
   ExecutionResources,
-} from "../ports/execution-backend.ts";
-import type { SchedulerStore } from "../ports/scheduler-store.ts";
+} from "./ports/execution-backend.ts";
+import type { SchedulerStore } from "./ports/scheduler-store.ts";
 
 /** api.md: a kill not observed within this is reported unknown. */
 export const TERMINATE_DEADLINE_MS = 30_000;

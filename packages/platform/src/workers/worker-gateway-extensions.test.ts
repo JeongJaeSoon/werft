@@ -3,8 +3,8 @@ import {
   bootstrapClaimResponseSchema,
   runtimeConfigSchema,
 } from "@werft-ai/contracts";
+import { acceptAllCheckpoints } from "../checkpoints/ports/checkpoint-verifier.ts";
 import { BundleIntegrityError } from "../extensions/bundle-service.ts";
-import { acceptAllCheckpoints } from "../ports/checkpoint-verifier.ts";
 import type { WorkerPendingStore } from "../ports/pending-requests.ts";
 import type {
   ExtensionsStateResult,

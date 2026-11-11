@@ -13,7 +13,7 @@ import {
   type LaunchIntent,
   LaunchSpecMismatchError,
   launchSpecFingerprint,
-} from "../ports/execution-backend.ts";
+} from "../scheduler/ports/execution-backend.ts";
 import {
   hashWorkerToken,
   launchNonceFingerprint,

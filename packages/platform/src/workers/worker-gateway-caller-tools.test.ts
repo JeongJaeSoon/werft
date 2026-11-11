@@ -3,7 +3,7 @@ import {
   bootstrapClaimResponseSchema,
   MAX_RESTORE_PROFILES,
 } from "@werft-ai/contracts";
-import { acceptAllCheckpoints } from "../ports/checkpoint-verifier.ts";
+import { acceptAllCheckpoints } from "../checkpoints/ports/checkpoint-verifier.ts";
 import type {
   WorkerBinding,
   WorkerUnitOfWork,
