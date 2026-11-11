@@ -33,7 +33,8 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - api가 worker 전용 ingest 포트(`TRACE_INGEST_PORT`, 기본 `4319`, Helm은 `config.tracing.ingestPort`)를 더 연다. worker는 egress proxy를 지나 이 포트에 닿으므로 compose는 `EGRESS_PRIVATE_ALLOWLIST`에 `api:<포트>`를 더하고, Helm은 `config.egress.privateAllowlist`를 `<api Service 이름>:3000,<api Service 이름>:<포트>`로 직접 지정한다.
   - 키를 비운 설치는 할 일이 없다. 절차는 `docs/operator/api-server.md`를 따른다.
 - **DB 마이그레이션 7개(`0263`~`0269`)가 `migrate`에서 적용된다.** 열·테이블·인덱스를 더하는 것이 대부분이다. `0265_agent_usage`는 기존 에이전트마다 `scope = workspace` 행을 넣는다(JeongJaeSoon/werft#1553). `0264_runtime_tools_source`는 트랜잭션 없이 돌며 `sessions`에 기본값 `profile`인 NOT NULL 열과 CHECK를 더한다. 중간에 실패하면 이미 커밋된 문장은 남고, 다음 `migrate`가 이 파일을 처음부터 다시 돌린다(JeongJaeSoon/werft#1524). 올리기 전에 DB를 백업한다.
-- **API로 만든 카드에서 `language`를 빼면 이제 `follow-user`다**(JeongJaeSoon/werft#1504). 전에는 `ko`로 저장됐다. 한국어 고정이 필요한 카드는 `language: ko`를 적는다. 고정 언어(`en`·`ja`·`ko`)는 이제 사용자가 다른 언어로 써도 그 언어로 답한다.
+- **API로 만든 카드에서 `language`를 빼면 이제 `follow-user`다**(JeongJaeSoon/werft#1504). 전에는 `ko`로 저장됐다. 이미 저장된 `ko`는 바뀌지 않는다. 한국어 고정이 필요한 새 카드는 `language: ko`를 적는다. 고정 언어(`en`·`ja`·`ko`)는 이제 사용자가 다른 언어로 써도 그 언어로 답한다.
+
 ## v0.1.2
 
 `v0.1.0` 뒤 첫 게시 릴리스다. `v0.1.1` 태그는 게시에 실패해 패키지와 Release가 없으므로, 아래 `v0.1.1` 절의 변경도 모두 이 버전에 들어 있다. `v0.1.0`에서 올릴 때 따를 절차는 이 절의 "운영자가 할 일"이다. `v0.1.1` 절의 "운영자가 할 일"은 그 시점의 기록이라 마이그레이션 범위와 `AGENT_ACTION_FLOWS` 절차가 이 버전에는 맞지 않으므로 따르지 않는다.
