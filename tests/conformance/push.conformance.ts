@@ -15,6 +15,8 @@ const engine = engineFromEnv();
 const api = new Api(e2eEnv({ needsMessages: false }));
 const TIMEOUT = 600_000;
 const SESSION_ID = /^[0-9a-f-]{36}$/;
+const WATCH_LOOKS = 10;
+const WATCH_INTERVAL_MS = 500;
 
 type PushRequest = {
   git_commit: string;
@@ -23,12 +25,16 @@ type PushRequest = {
   target_branch: string;
 };
 
-async function sessionWithCommit(name: string): Promise<string> {
+type Committed = { content: string; file: string; sessionId: string };
+
+/** A session whose turn committed a file only this scenario writes. */
+async function sessionWithCommit(name: string): Promise<Committed> {
   const id = scriptId(name);
+  const file = `${id}.txt`;
   const commit = [
     "cd /workspace",
-    `echo ${id} > ${id}.txt`,
-    `git add ${id}.txt`,
+    `echo ${id} > ${file}`,
+    `git add ${file}`,
     "git -c user.name=conformance -c user.email=conformance@example.test commit -q -m conformance",
   ].join(" && ");
   const created = await api.createSession(
@@ -45,7 +51,7 @@ async function sessionWithCommit(name: string): Promise<string> {
     "has checkpointed turn 1",
     (s) => s.durability.last_checkpointed_turn_id === "1",
   );
-  return sessionId;
+  return { content: id, file, sessionId };
 }
 
 async function requestPush(sessionId: string): Promise<PushRequest> {
@@ -60,19 +66,40 @@ async function requestPush(sessionId: string): Promise<PushRequest> {
   return made.body;
 }
 
-/** The commit the forge holds on the session's agent branch, or null. */
-async function forgeBranch(sessionId: string): Promise<string | null> {
-  expect(sessionId).toMatch(SESSION_ID);
+/**
+ * Runs git in the fake forge's repository. The glob must name exactly one
+ * repository, so a leftover from an earlier crash fails loudly instead of
+ * splitting git's arguments.
+ */
+async function forgeGit(args: string[]): Promise<string> {
   const repo = `/tmp/testkit-fake-github-*/agent/${engine.repositoryId}.git`;
-  const out = await docker([
+  return docker([
     "exec",
     await serviceContainer("fake-git"),
     "sh",
     "-c",
-    `git --git-dir=$(ls -d ${repo}) for-each-ref --format='%(objectname)' refs/heads/agent/${sessionId}`,
+    `n=0; for d in ${repo}; do n=$((n+1)); dir=$d; done; [ "$n" = 1 ] || exit 3; exec git --git-dir="$dir" "$@"`,
+    "sh",
+    ...args,
   ]);
-  const sha = out.trim();
+}
+
+/** The commit the forge holds on the session's agent branch, or null. */
+async function forgeBranch(sessionId: string): Promise<string | null> {
+  expect(sessionId).toMatch(SESSION_ID);
+  const sha = (
+    await forgeGit([
+      "for-each-ref",
+      "--format=%(objectname)",
+      `refs/heads/agent/${sessionId}`,
+    ])
+  ).trim();
   return sha === "" ? null : sha;
+}
+
+/** A file's content at a commit the forge holds. */
+async function forgeFile(commit: string, file: string): Promise<string> {
+  return (await forgeGit(["show", `${commit}:${file}`])).trim();
 }
 
 async function stateOf(sessionId: string, id: string): Promise<string> {
@@ -89,7 +116,8 @@ describe(`push approval on ${engine.runtimeKind}`, () => {
   test(
     "approving pushes the requested commit to the agent branch on the forge",
     async () => {
-      const sessionId = await sessionWithCommit("push-approve");
+      const { content, file, sessionId } =
+        await sessionWithCommit("push-approve");
       expect(await forgeBranch(sessionId)).toBeNull();
       const request = await requestPush(sessionId);
 
@@ -113,6 +141,9 @@ describe(`push approval on ${engine.runtimeKind}`, () => {
       );
       expect(state).toBe("pushed");
       expect(await forgeBranch(sessionId)).toBe(request.git_commit);
+
+      // A turn whose command failed would still leave a checkpoint to push.
+      expect(await forgeFile(request.git_commit, file)).toBe(content);
     },
     TIMEOUT,
   );
@@ -120,7 +151,7 @@ describe(`push approval on ${engine.runtimeKind}`, () => {
   test(
     "rejecting pushes nothing and the request stays rejected",
     async () => {
-      const sessionId = await sessionWithCommit("push-reject");
+      const { sessionId } = await sessionWithCommit("push-reject");
       const request = await requestPush(sessionId);
 
       const rejected = await api.request<PushRequest>(
@@ -130,8 +161,15 @@ describe(`push approval on ${engine.runtimeKind}`, () => {
       );
       expect(rejected.status).toBe(200);
       expect(rejected.body.state).toBe("rejected");
-      expect(await stateOf(sessionId, request.id)).toBe("rejected");
-      expect(await forgeBranch(sessionId)).toBeNull();
+
+      // The platform's push is asynchronous: an approved request is on the
+      // forge within a second, so a push wrongly queued by the rejection
+      // would show inside this window.
+      for (let look = 0; look < WATCH_LOOKS; look += 1) {
+        expect(await stateOf(sessionId, request.id)).toBe("rejected");
+        expect(await forgeBranch(sessionId)).toBeNull();
+        await Bun.sleep(WATCH_INTERVAL_MS);
+      }
     },
     TIMEOUT,
   );
