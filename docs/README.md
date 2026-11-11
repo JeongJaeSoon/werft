@@ -59,6 +59,7 @@ API로 세션을 만들고 쓰는 사람.
 | [결정(설계안): 에이전트의 PR 본문 읽기](contributing/decisions/pull-request-read.md) | 에이전트가 PR 본문을 읽는 도구(`get_pull_request`), 덮어쓰기 막기(`expected_body_sha256`), 기존 PR 꼬리 교체의 실제 GitHub 확인 절차. 오너 결정 전 |
 | [결정: 워크스페이스 성과 규칙과 판정](contributing/decisions/achievement-rules.md) | 근거 사실과 성과 두 층, 구분·성과 type·규칙(1:1:1), 바로 인정과 Luna(OpenAI Decisions API) 판정, 판정 비용 원장, 성과당 비용 |
 | [결정: GitHub Packages bot token](contributing/decisions/github-packages-bot-token.md) | 조직 bot classic PAT를 proxy가 붙이는 방식: 저장·scope 확인, 경로 기반 허용 목록, 실패하면 닫히는 감사, npm·Bundler 설정 |
+| [결정(설계안): MCP 서버의 자격 주체, OAuth, 토큰 단위, 비밀 값 범위, 서버 등록 권한](contributing/decisions/mcp-credentials.md) | 원격 MCP 자격 주체를 에이전트로 고정하는 이유, OAuth(동의·저장·갱신·철회), 서버마다 egress token을 따로 내는 단위, 설치 소유 비밀 값의 범위와 이전 단계, 서버 등록·선택·deny 층과 서버 통째 차단, 구현 단위 순서. 오너 확인 전 |
 | [결정: GitHub Packages와 App token](contributing/decisions/github-packages-app-token.md) | App installation token으로 사설 npm·gem을 읽을 수 없다는 실측과 근거, 대신 고른 bot PAT 주입 방식과 나머지 대안 |
 | [결정: GitHub App manifest](contributing/decisions/github-app-manifest.md) | 콘솔에서 작성용 App을 manifest로 만드는 흐름, 일회용 state, 키·client secret을 한 트랜잭션에 저장, 교체 확인, 로그 마스킹 |
 | [결정: 실행 프로필 DB 단일 관리(폐기)](contributing/decisions/profile-db.md) | 실행 프로필을 DB에서 관리하던 계약의 기록. 프로필은 migration 0270에서 지웠다 |
