@@ -16,7 +16,7 @@
 ## 지금 있는 것
 
 - **등록.** 원격 서버는 DB 행 `mcp_servers`이고 설치 owner(`installation.settings.manage`)만 만든다. 행은 `url`, `credential_ref`, bearer 값, 허용 `workspaces`(slug)를 묶고 url과 자격은 제자리에서 바꾸지 않는다. 값은 `secret_values`(owner_ref `mcp:<id>`) 또는 외부 참조(`secret_id`)다.
-- **선택.** 에이전트 관리자가 에이전트 MCP 설정(`agent_mcp_settings`)에 서버 하나, 허용 도구, `credential_refs`를 저장한다. 고를 수 있는 서버는 워크스페이스 slug가 `workspaces`에 있는 것이다. 에이전트 카드의 `capabilities.mcp`는 서버 하나(`max(1)`)이고, 설정으로 옮기는 작업이 코드의 TODO로 걸려 있다.
+- **선택.** 에이전트 관리자가 에이전트 MCP 설정(`agent_mcp_settings`)에 서버 하나, 허용 도구, `credential_refs`를 저장한다. 고를 수 있는 서버는 워크스페이스 slug가 `workspaces`에 있는 것이다. 에이전트 카드의 `capabilities.mcp`는 서버 하나(`max(1)`)이고, 카드에서 이 필드를 빼는 일은 아직 하지 않았다.
 - **집행.** `packages/platform/src/workers/mcp-egress.ts`가 egress마다 세션 상태를 다시 읽는다: 서버가 release의 것인지, 카탈로그 binding이 claim 때와 같은지, 에이전트에 자격 binding이 살아 있는지, 워크스페이스가 허용됐는지, JSON-RPC 메서드와 도구가 허용인지. 거절은 receipt를 남긴다. 값은 `mcpUpstreamOf`가 `Authorization: Bearer`로 만들어 proxy에 돌려준다. worker는 attempt 범위 token만 갖는다. worker 쪽 연결은 `apps/worker/src/composition.ts`의 `mcpServersOf`다.
 - **deny.** `visibleMcpTools`(`packages/platform/src/sessions/mcp-tool-decision.ts`)가 원격 서버의 claim 도구 집합과 egress의 `tools/call` 판정을 같은 함수로 낸다. 일치는 정확 이름이다. 내장 `github` 서버는 이 함수가 아니라 `mcpCallDenied`(`engine-settings-merge.ts`)로 막고, 이것도 정확 일치다. 즉 deny 해석이 두 곳이다.
 - **분기.** `authorizeMcpEgress`(`worker-gateway.ts`)는 요청의 서버 이름이 `github`인지로 분기하고, 내장 `github` 쪽은 token의 binding을 대조하지 않는다. 판정은 세션 상태로 하므로 지금은 세션이 가진 권한 밖으로 나가지 않지만, 서버별 token(결정 3)에서는 이 분기도 token의 서버와 맞춰야 한다.

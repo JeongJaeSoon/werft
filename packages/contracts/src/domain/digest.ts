@@ -55,8 +55,8 @@ export const costUsdSchema = z.string().regex(/^\d+(\.\d+)?$/);
 /**
  * Layer 1 of three: the `session_digests` row.
  *
- * Dispatch candidate search and the Slack thread summary read it; nothing else
- * writes it. TODO(94S-159): Implement the row end to end.
+ * Nothing reads or writes the row yet. Dispatch candidate search and the Slack
+ * thread summary are its planned readers.
  */
 const sessionDigestRowSchema = z
   .object({
