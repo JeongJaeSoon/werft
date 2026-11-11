@@ -7,7 +7,6 @@ import {
   test,
 } from "bun:test";
 import { randomBytes, randomUUID } from "node:crypto";
-import { PGlite } from "@electric-sql/pglite";
 import {
   createOutboxSlackNoticeSink,
   createRowDelivery,
@@ -66,7 +65,6 @@ import {
   verifySlackInstallation,
   workspaces,
 } from "@werft-ai/db";
-import { migrate } from "@werft-ai/db/migrate";
 import { createLogger, type LogRecord } from "@werft-ai/observability";
 import {
   type Caller,
@@ -78,6 +76,7 @@ import {
   SecretKey,
 } from "@werft-ai/platform";
 import { startFakeSlackApi } from "@werft-ai/testkit/fake-slack-api";
+import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import {
   createTempDatabase,
   testDatabaseUrl,
@@ -166,11 +165,8 @@ function useDatabase(engine: string) {
   let close = async () => {};
   beforeEach(async () => {
     if (engine === "PGlite") {
-      const client = new PGlite();
+      const client = await migratedPGlite();
       const pglite = drizzle(client, { schema });
-      await migrate(pglite, {
-        migrationsFolder: `${import.meta.dir}/../../../../packages/db/migrations`,
-      });
       db = pglite as unknown as Database;
       close = () => client.close();
     } else {
