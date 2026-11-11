@@ -11,6 +11,7 @@ import {
   type ReadEventsQuery,
   type SessionControl,
   type SessionReader,
+  SessionServiceError,
 } from "@werft-ai/platform";
 import { recordRouteErrors } from "../../route-error-coverage.ts";
 import type { SessionEventWakeup } from "../../session-notifier.ts";
@@ -645,6 +646,108 @@ describe("GET /v1/sessions/{id}/events", () => {
     scopes = ["sessions:write"];
     // Still the same live key, but no longer one that may read.
     expect(await frames.ended()).toBe(true);
+  });
+
+  test("a read refused for a revoked key closes as a revocation, not a failed read", async () => {
+    const { store, wakeup } = harness();
+    let revoked = false;
+    // The key store stays silent once the key is revoked, so the only check
+    // that can answer is the one the refused read asks for, at its bound.
+    let releaseFind: () => void = () => {};
+    const silent = new Promise<null>((resolve) => {
+      releaseFind = () => resolve(null);
+    });
+    const readEvents = store.reader();
+    const records: Array<{
+      message: string;
+      fields?: Record<string, unknown>;
+    }> = [];
+    const service = createSessionService({
+      limits: {
+        queuedInputLimitPerSession: 1_000,
+        storageLimitBytes: 1e15,
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+      },
+      authorization: createAuthorizationPolicy(),
+      controls: unusedControls,
+      catalog: { connections: {}, repositories: {} },
+      inputs: {
+        acceptInputAtomic: async () => {
+          throw new Error("not reached");
+        },
+        appendInputAtomic: async () => {
+          throw new Error("not reached");
+        },
+      },
+      reader: {
+        listSessions: async () => ({ items: [], next_cursor: null }),
+        countSessions: async () => {
+          throw new Error("not reached");
+        },
+        getSession: async () => null,
+        listTurns: async () => null,
+        getTurn: async () => null,
+        getReceipt: async () => null,
+        hiddenAgentRefs: async () => ({
+          agentIds: new Set<string>(),
+          releaseIds: new Set<string>(),
+        }),
+        // What the stored-key policy answers for a revoked key: the read
+        // itself is refused, before the watchdog has said anything.
+        readEvents: async (...args) => {
+          if (revoked) {
+            throw new SessionServiceError(
+              "FORBIDDEN",
+              "This principal does not hold sessions:read",
+            );
+          }
+          return readEvents(...args);
+        },
+      },
+    });
+    const app = createApiApp({
+      authMode: "api-key",
+      keyStore: {
+        async find() {
+          return revoked ? silent : KEY;
+        },
+      },
+      registerRoutes: (router) => {
+        registerEventRoutes(router, service, {
+          wakeup,
+          // Long enough that the watchdog's first check is still ahead when
+          // the NOTIFY below makes the loop read.
+          keepaliveMs: 1_000,
+          logger: {
+            info(message, fields) {
+              records.push({ message, ...(fields ? { fields } : {}) });
+            },
+            warn(message, fields) {
+              records.push({ message, ...(fields ? { fields } : {}) });
+            },
+          },
+        });
+      },
+    });
+    try {
+      const response = await open(app, { Authorization: "Bearer csp_test" });
+      expect(response.status).toBe(200);
+      const frames = new FrameReader(response);
+      await wakeup.armed();
+      revoked = true;
+      wakeup.notify();
+      expect(await frames.ended()).toBe(true);
+      const closed = records.find(
+        (record) => record.message === "SSE stream closed",
+      );
+      expect(closed?.fields?.reason).toBe("credential_revoked");
+      expect(records.some((r) => r.message === "SSE stream failed")).toBe(
+        false,
+      );
+    } finally {
+      releaseFind();
+    }
   });
 
   test("a revoked credential ends a stream whose writes are blocked", async () => {
