@@ -699,7 +699,11 @@ describe(`engine harness for catalog ${catalog?.id}`, () => {
       expect(quiescent).toBe("ready");
     }, 120_000);
 
-    for (const permissionMode of ["default", "bypassPermissions"] as const) {
+    for (const permissionMode of [
+      "default",
+      "auto",
+      "bypassPermissions",
+    ] as const) {
       test(`${path}: a catalog tool the profile leaves out is not offered and never runs (${permissionMode})`, async () => {
         const options: RunOptions = {
           path,
