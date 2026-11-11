@@ -12,7 +12,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "./migrate.ts";
-import { MIGRATIONS_FOLDER, readJournal } from "./migration-folder.ts";
+import { MIGRATIONS_FOLDER, readJournal } from "./migration-journal.ts";
 import {
   BEFORE_PROFILE_REMOVAL,
   migrationsThrough,

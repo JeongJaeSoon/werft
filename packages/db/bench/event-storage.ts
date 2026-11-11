@@ -1,5 +1,5 @@
 /**
- * Event storage forms compared on PostgreSQL (94S-1119): the events table's
+ * Event storage forms compared on PostgreSQL: the events table's
  * shape (a row per event, payload jsonb compressed with pglz), the same with
  * payload compressed by lz4, and one jsonb array per session. Seeds
  * <sessions> sessions of <events> events each, interleaved as concurrent

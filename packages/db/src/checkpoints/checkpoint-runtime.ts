@@ -5,9 +5,9 @@ import {
 } from "@werft-ai/platform";
 import { and, asc, eq, inArray, isNull, type SQL, sql } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
-import { hasRestorePoint } from "../control-shared.ts";
 import type { Database } from "../queries.ts";
 import { checkpoints, sessions } from "../schema.ts";
+import { hasRestorePoint } from "../sessions/pause-policy.ts";
 
 export type RuntimeFingerprint = NonNullable<
   FinalizeInput["checkpointRuntime"]

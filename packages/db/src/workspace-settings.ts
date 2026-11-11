@@ -9,6 +9,7 @@ import type {
   SlackGuestSetting,
   SlackGuestSettingStore,
 } from "@werft-ai/platform";
+import { receiptActorOf } from "@werft-ai/platform";
 import {
   and,
   eq,
@@ -18,7 +19,7 @@ import {
   type SQLWrapper,
   sql,
 } from "drizzle-orm";
-import { lockActorAccount, receiptActorOf } from "./control-shared.ts";
+import { lockActorAccount } from "./control-shared.ts";
 import type { Database } from "./queries.ts";
 import { memberships, receipts, users, workspaces } from "./schema.ts";
 
@@ -84,7 +85,7 @@ export function createPostgresSlackGuestSetting(
  * Axis A as stored: a missing key is the default `use`; a value no write
  * could have stored hides the agent (fail-closed).
  */
-export function outsiderAccessOf(settings: unknown): AgentOutsiderAccess {
+function outsiderAccessOf(settings: unknown): AgentOutsiderAccess {
   const value = (settings as Record<string, unknown> | null)
     ?.agent_outsider_access;
   if (value === undefined) return "use";

@@ -5,7 +5,7 @@ import { asc, eq } from "drizzle-orm";
 import type { Database } from "../queries.ts";
 import { sessionCommitAttributions } from "../schema.ts";
 
-export function expectationDigest(expectation: AttributionExpectation) {
+function expectationDigest(expectation: AttributionExpectation) {
   return createHash("sha256")
     .update(
       JSON.stringify([

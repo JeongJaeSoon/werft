@@ -59,7 +59,7 @@ export async function countUsers(db: Database): Promise<number> {
 }
 
 // A disabled account and a disabled membership both leave nobody able to
-// act as owner, so either one makes the owner "not live" (94S-264).
+// act as owner, so either one makes the owner "not live".
 export async function countLiveOwners(db: Database): Promise<number> {
   const [row] = await db
     .select({ count: sql<string>`count(*)::text` })

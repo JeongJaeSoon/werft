@@ -1,15 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { rmSync } from "node:fs";
-import {
-  copyFile,
-  mkdir,
-  mkdtemp,
-  readFile,
-  rm,
-  writeFile,
-} from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import {
   createTempDatabase,
@@ -19,10 +11,11 @@ import {
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { migrate } from "./migrate.ts";
+import { MIGRATIONS_FOLDER } from "./migration-journal.ts";
 import * as schema from "./schema.ts";
 import {
   BEFORE_PROFILE_REMOVAL,
-  migrationsThrough as migrationsUpTo,
+  migrationsThrough,
 } from "./testing/migrations-through.ts";
 
 // Each test applies the migration chain itself, on a fresh database the way
@@ -35,7 +28,7 @@ const integration = testDatabaseUrl() ? describe : describe.skip;
 
 // Up to the profile removal: 0270 empties the session tables these rows sit in.
 async function migrateBeforeRemoval(db: Parameters<typeof migrate>[0]) {
-  const folder = migrationsUpTo(BEFORE_PROFILE_REMOVAL);
+  const folder = migrationsThrough(BEFORE_PROFILE_REMOVAL);
   try {
     await migrate(db, { migrationsFolder: folder });
   } finally {
@@ -43,29 +36,7 @@ async function migrateBeforeRemoval(db: Parameters<typeof migrate>[0]) {
   }
 }
 
-const MIGRATIONS = join(import.meta.dir, "../migrations");
 const BEFORE = "0231_agent_github_settings";
-
-type Journal = { entries: Array<{ tag: string }> };
-
-async function migrationsThrough(lastTag: string): Promise<string> {
-  const folder = await mkdtemp(join(tmpdir(), "github-policy-start-"));
-  await mkdir(join(folder, "meta"));
-  const journal: Journal = JSON.parse(
-    await readFile(join(MIGRATIONS, "meta/_journal.json"), "utf8"),
-  );
-  const last = journal.entries.findIndex((entry) => entry.tag === lastTag);
-  if (last === -1) throw new Error(`no migration ${lastTag}`);
-  const entries = journal.entries.slice(0, last + 1);
-  await writeFile(
-    join(folder, "meta/_journal.json"),
-    JSON.stringify({ ...journal, entries }),
-  );
-  for (const { tag } of entries) {
-    await copyFile(join(MIGRATIONS, `${tag}.sql`), join(folder, `${tag}.sql`));
-  }
-  return folder;
-}
 
 const repositories = (count: number) =>
   JSON.stringify(Array.from({ length: count }, (_, i) => `repo-${i}`));
@@ -185,7 +156,7 @@ integration("sessions.github_policy_start and the repository cap", () => {
     "the image from before still writes sessions, and the migration can run again",
     async () => {
       await migrate(db, { migrationsFolder: before });
-      await migrate(db, { migrationsFolder: MIGRATIONS });
+      await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER });
       // A session written without the column lands with it null.
       const sessionId = randomUUID();
       await pool.query(
@@ -205,7 +176,7 @@ integration("sessions.github_policy_start and the repository cap", () => {
       // A part-way failure leaves the statements before it committed: the file
       // run a second time changes nothing.
       const sql = await readFile(
-        join(MIGRATIONS, "0234_session_github_policy_start.sql"),
+        join(MIGRATIONS_FOLDER, "0234_session_github_policy_start.sql"),
         "utf8",
       );
       for (const statement of sql.split("--> statement-breakpoint")) {

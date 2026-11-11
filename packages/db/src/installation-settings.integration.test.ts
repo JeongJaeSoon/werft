@@ -1,15 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { generateKeyPairSync, randomUUID } from "node:crypto";
-import {
-  copyFile,
-  mkdir,
-  mkdtemp,
-  readFile,
-  rm,
-  writeFile,
-} from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { rm } from "node:fs/promises";
 import { type AgentCard, agentCardSchema } from "@werft-ai/contracts";
 import {
   type CatalogProviderConfig,
@@ -39,6 +30,7 @@ import { Pool } from "pg";
 import { createPostgresCatalogRepositoryStore } from "./catalog-repositories.ts";
 import { createPostgresInstallationSettingsStore } from "./installation-settings.ts";
 import { migrate } from "./migrate.ts";
+import { MIGRATIONS_FOLDER } from "./migration-journal.ts";
 import * as schema from "./schema.ts";
 import {
   catalogRepositories,
@@ -49,6 +41,7 @@ import {
 } from "./schema.ts";
 import { createPostgresSecretStore } from "./secrets/secret-values.ts";
 import { createPostgresSettingsDocumentStore } from "./settings-document.ts";
+import { migrationsThrough } from "./testing/migrations-through.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -407,29 +400,6 @@ integration("installation settings", () => {
   });
 });
 
-const MIGRATIONS = join(import.meta.dir, "../migrations");
-
-async function migrationsThrough(lastTag: string): Promise<string> {
-  const folder = await mkdtemp(
-    join(tmpdir(), "installation-settings-migrations-"),
-  );
-  await mkdir(join(folder, "meta"));
-  const journal: { entries: Array<{ tag: string }> } = JSON.parse(
-    await readFile(join(MIGRATIONS, "meta/_journal.json"), "utf8"),
-  );
-  const last = journal.entries.findIndex((entry) => entry.tag === lastTag);
-  if (last === -1) throw new Error(`no migration ${lastTag}`);
-  const entries = journal.entries.slice(0, last + 1);
-  await writeFile(
-    join(folder, "meta/_journal.json"),
-    JSON.stringify({ ...journal, entries }),
-  );
-  for (const { tag } of entries) {
-    await copyFile(join(MIGRATIONS, `${tag}.sql`), join(folder, `${tag}.sql`));
-  }
-  return folder;
-}
-
 integration(
   "installation settings migration over an installation's rows",
   () => {
@@ -448,7 +418,7 @@ integration(
          VALUES ('app', 'team', 'app', 'https://github.com/team/app.git', 'main', '["coding"]', 'seed')`,
         );
         const store = createPostgresCatalogRepositoryStore(db);
-        await migrate(db, { migrationsFolder: MIGRATIONS });
+        await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER });
         const rows = await store.readCatalog();
         expect(rows?.map(({ id, url }) => ({ id, url }))).toEqual([
           { id: "app", url: "https://github.com/team/app.git" },

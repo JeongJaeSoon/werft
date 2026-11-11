@@ -15,10 +15,8 @@ import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "../src/migrate.ts";
-import {
-  migrationFolderProblems,
-  readJournal,
-} from "../src/migration-folder.ts";
+import { migrationFolderProblems } from "../src/migration-folder.ts";
+import { readJournal } from "../src/migration-journal.ts";
 
 // db:restack runs on git history, so each case builds it in a scratch
 // repository holding a copy of this package: `fork` is where the branch left

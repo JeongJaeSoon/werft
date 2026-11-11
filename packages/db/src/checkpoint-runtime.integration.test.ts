@@ -1,16 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { rmSync } from "node:fs";
-import {
-  copyFile,
-  mkdir,
-  mkdtemp,
-  readFile,
-  rm,
-  writeFile,
-} from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { rm } from "node:fs/promises";
 import {
   createTempDatabase,
   type TempDatabase,
@@ -26,42 +17,19 @@ import { migrate } from "./migrate.ts";
 import * as schema from "./schema.ts";
 import {
   BEFORE_PROFILE_REMOVAL,
-  migrationsThrough as migrationsUpTo,
+  migrationsThrough,
 } from "./testing/migrations-through.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
 // Up to the profile removal: 0270 empties the session tables these rows sit in.
 async function migrateBeforeRemoval(db: Parameters<typeof migrate>[0]) {
-  const folder = migrationsUpTo(BEFORE_PROFILE_REMOVAL);
+  const folder = migrationsThrough(BEFORE_PROFILE_REMOVAL);
   try {
     await migrate(db, { migrationsFolder: folder });
   } finally {
     rmSync(folder, { recursive: true, force: true });
   }
-}
-
-const MIGRATIONS = join(import.meta.dir, "../migrations");
-
-type Journal = { entries: Array<{ tag: string }> };
-
-async function migrationsThrough(lastTag: string): Promise<string> {
-  const folder = await mkdtemp(join(tmpdir(), "checkpoint-runtime-"));
-  await mkdir(join(folder, "meta"));
-  const journal: Journal = JSON.parse(
-    await readFile(join(MIGRATIONS, "meta/_journal.json"), "utf8"),
-  );
-  const last = journal.entries.findIndex((entry) => entry.tag === lastTag);
-  if (last === -1) throw new Error(`no migration ${lastTag}`);
-  const entries = journal.entries.slice(0, last + 1);
-  await writeFile(
-    join(folder, "meta/_journal.json"),
-    JSON.stringify({ ...journal, entries }),
-  );
-  for (const { tag } of entries) {
-    await copyFile(join(MIGRATIONS, `${tag}.sql`), join(folder, `${tag}.sql`));
-  }
-  return folder;
 }
 
 integration("checkpoint runtime columns, expand", () => {

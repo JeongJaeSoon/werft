@@ -1,16 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { rmSync } from "node:fs";
-import {
-  copyFile,
-  mkdir,
-  mkdtemp,
-  readFile,
-  rm,
-  writeFile,
-} from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { rm } from "node:fs/promises";
 import type { AcceptSessionInput } from "@werft-ai/platform";
 import {
   createTempDatabase,
@@ -21,6 +12,7 @@ import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { migrate } from "./migrate.ts";
+import { MIGRATIONS_FOLDER } from "./migration-journal.ts";
 import {
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,
@@ -29,7 +21,7 @@ import * as schema from "./schema.ts";
 import { sessions } from "./schema.ts";
 import {
   BEFORE_PROFILE_REMOVAL,
-  migrationsThrough as migrationsUpTo,
+  migrationsThrough,
 } from "./testing/migrations-through.ts";
 import { fixtureRelease, TEST_MODEL } from "./testing/spec-pins.ts";
 
@@ -43,7 +35,7 @@ const integration = testDatabaseUrl() ? describe : describe.skip;
 
 // Up to the profile removal: 0270 empties the session tables these rows sit in.
 async function migrateBeforeRemoval(db: Parameters<typeof migrate>[0]) {
-  const folder = migrationsUpTo(BEFORE_PROFILE_REMOVAL);
+  const folder = migrationsThrough(BEFORE_PROFILE_REMOVAL);
   try {
     await migrate(db, { migrationsFolder: folder });
   } finally {
@@ -51,31 +43,7 @@ async function migrateBeforeRemoval(db: Parameters<typeof migrate>[0]) {
   }
 }
 
-const MIGRATIONS = join(import.meta.dir, "../migrations");
 const LIMITS = { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 };
-
-type Journal = { entries: Array<{ tag: string }> };
-
-// The packaged migrations up to and including `lastTag`, so a database can
-// hold rows written before the next one runs.
-async function migrationsThrough(lastTag: string): Promise<string> {
-  const folder = await mkdtemp(join(tmpdir(), "repository-mode-migrations-"));
-  await mkdir(join(folder, "meta"));
-  const journal: Journal = JSON.parse(
-    await readFile(join(MIGRATIONS, "meta/_journal.json"), "utf8"),
-  );
-  const last = journal.entries.findIndex((entry) => entry.tag === lastTag);
-  if (last === -1) throw new Error(`no migration ${lastTag}`);
-  const entries = journal.entries.slice(0, last + 1);
-  await writeFile(
-    join(folder, "meta/_journal.json"),
-    JSON.stringify({ ...journal, entries }),
-  );
-  for (const { tag } of entries) {
-    await copyFile(join(MIGRATIONS, `${tag}.sql`), join(folder, `${tag}.sql`));
-  }
-  return folder;
-}
 
 integration("sessions.repository_mode", () => {
   let database: TempDatabase;
@@ -147,7 +115,7 @@ integration("sessions.repository_mode", () => {
   test(
     "the CHECK refuses a row whose columns disagree with its mode",
     async () => {
-      await migrate(db, { migrationsFolder: MIGRATIONS });
+      await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER });
       const insert = (row: {
         mode: string;
         repositoryId: string | null;
@@ -206,7 +174,7 @@ integration("sessions.repository_mode", () => {
   test(
     '"none" is accepted as a session without a repository, a refused pair is not',
     async () => {
-      await migrate(db, { migrationsFolder: MIGRATIONS });
+      await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER });
       const inputs = createPostgresSessionUnitOfWork(db);
       const accept = async (repository: AcceptSessionInput["repository"]) =>
         inputs.acceptInputAtomic({
@@ -259,7 +227,7 @@ integration("sessions.repository_mode", () => {
   test(
     "the attached list is written as given and read back, null when not given",
     async () => {
-      await migrate(db, { migrationsFolder: MIGRATIONS });
+      await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER });
       const inputs = createPostgresSessionUnitOfWork(db);
       const reader = createPostgresSessionReader(db);
       const ownerId = randomUUID();
@@ -298,7 +266,7 @@ integration("sessions.repository_mode", () => {
   test(
     "a session without a repository keeps an attached list",
     async () => {
-      await migrate(db, { migrationsFolder: MIGRATIONS });
+      await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER });
       const inputs = createPostgresSessionUnitOfWork(db);
       const reader = createPostgresSessionReader(db);
       const ownerId = randomUUID();

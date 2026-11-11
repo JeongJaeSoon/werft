@@ -9,12 +9,12 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pgTable, text } from "drizzle-orm/pg-core";
+import { migrationFolderProblems } from "./migration-folder.ts";
 import {
   type JournalEntry,
   MIGRATIONS_FOLDER,
-  migrationFolderProblems,
   readJournal,
-} from "./migration-folder.ts";
+} from "./migration-journal.ts";
 import * as schema from "./schema.ts";
 
 const copies: string[] = [];

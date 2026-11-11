@@ -24,11 +24,8 @@
 import { spawnSync } from "node:child_process";
 import { readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import {
-  MIGRATIONS_FOLDER,
-  migrationFolderProblems,
-  readJournal,
-} from "../src/migration-folder.ts";
+import { migrationFolderProblems } from "../src/migration-folder.ts";
+import { MIGRATIONS_FOLDER, readJournal } from "../src/migration-journal.ts";
 import * as schema from "../src/schema.ts";
 
 const BREAKPOINT = "--> statement-breakpoint";

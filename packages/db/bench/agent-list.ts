@@ -18,6 +18,7 @@ import {
   RELEASE_SPEC_SQL_COLUMNS,
   releaseSpecSqlValues,
 } from "../src/testing/spec-pins.ts";
+import { timedMs } from "./lib.ts";
 
 const agentCount = Number(process.argv[2] ?? 50);
 const otherAgents = Number(process.argv[3] ?? 5000);
@@ -110,19 +111,7 @@ const listed = Math.min(agentCount, PAGE);
 if (ids.length !== listed || summaries.size !== listed)
   throw new Error("seed failed");
 
-async function timed(fn: () => Promise<unknown>) {
-  await fn();
-  const samples: number[] = [];
-  for (let run = 0; run < RUNS; run += 1) {
-    const started = performance.now();
-    await fn();
-    samples.push(performance.now() - started);
-  }
-  samples.sort((a, b) => a - b);
-  const at = (q: number) =>
-    Number((samples[Math.ceil(q * samples.length) - 1] ?? 0).toFixed(1));
-  return { p50_ms: at(0.5), p95_ms: at(0.95), max_ms: at(1) };
-}
+const timed = (fn: () => Promise<unknown>) => timedMs(fn, RUNS);
 
 console.table({
   [`list(limit ${PAGE})`]: await timed(() =>

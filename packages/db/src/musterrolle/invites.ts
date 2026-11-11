@@ -18,6 +18,7 @@ import {
   managesMembers,
   mayGrantRole,
   memberVerdict,
+  receiptActorOf,
 } from "@werft-ai/platform";
 import {
   and,
@@ -32,11 +33,7 @@ import {
   or,
   sql,
 } from "drizzle-orm";
-import {
-  containsPattern,
-  lockActorAccount,
-  receiptActorOf,
-} from "../control-shared.ts";
+import { containsPattern, lockActorAccount } from "../control-shared.ts";
 import { DB_NOW, dbNow, fromDbNow } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
 import {
@@ -55,7 +52,7 @@ import {
 import { decodeMemberCursor, encodeMemberCursor } from "../sessions/cursors.ts";
 import { createWebSession } from "./identity.ts";
 
-// Invites and roles (94S-153). Lock order, everywhere here: invite, then
+// Invites and roles. Lock order, everywhere here: invite, then
 // user, then membership, then web session — the user -> link -> session
 // order of identity.ts with the invite in front of it.
 

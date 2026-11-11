@@ -18,6 +18,7 @@ import type {
   Principal,
   SavedBehavior,
 } from "@werft-ai/platform";
+import { receiptActorOf } from "@werft-ai/platform";
 import {
   and,
   asc,
@@ -34,11 +35,7 @@ import {
 import { alias } from "drizzle-orm/pg-core";
 import { agentSummaries } from "./agent-summaries.ts";
 import { earlierInSecond, releaseLabel } from "./agents/release-labels.ts";
-import {
-  actorStillMember,
-  containsPattern,
-  receiptActorOf,
-} from "./control-shared.ts";
+import { actorStillMember, containsPattern, UUID } from "./control-shared.ts";
 import { DB_NOW } from "./db-clock.ts";
 import {
   administers,
@@ -400,10 +397,8 @@ export async function lockAgentToChange(
   return { agent };
 }
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 // A private agent the reader may not use is not in their list or counts, the
-// same predicate the start decision and /v1/usable-agents read (94S-1512).
+// same predicate the start decision and /v1/usable-agents read.
 function visibleTo(
   db: Database,
   workspaceId: string,
@@ -634,7 +629,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
           contentSha256: input.contentSha256,
           createdBy: input.createdBy,
         });
-        // Every agent starts usable by the whole workspace (94S-900).
+        // Every agent starts usable by the whole workspace.
         await tx.insert(agentUsage).values({
           agentId,
           workspaceId: input.workspaceId,

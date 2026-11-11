@@ -14,6 +14,7 @@ import type {
   TerminateSessionInput,
   TerminateSessionResult,
 } from "@werft-ai/platform";
+import { receiptActorOf } from "@werft-ai/platform";
 import { and, eq, inArray, lte, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import type { PoolClient } from "pg";
@@ -31,7 +32,6 @@ import {
   INPUT_RECEIPT_OPERATIONS,
   lockIdempotencyScope,
   lockSessionForControl,
-  receiptActorOf,
 } from "./control-shared.ts";
 import { dbNow, fromDbNow } from "./db-clock.ts";
 import {
@@ -74,8 +74,6 @@ export const REVOKE_EXECUTION = "revoke_execution";
 // revocation blocks it), so the session identifies the execution.
 export const KILL_RECEIPT_OPERATIONS = [TERMINATE, REVOKE_EXECUTION];
 
-export { earliestUnknownTurn } from "./control-shared.ts";
-
 /**
  * The receipt a terminate settles with once its execution is gone; the same
  * shape is written by confirmExecutionGoneAtomic, so a reader sees one
@@ -94,7 +92,7 @@ export function terminateReceiptResult(input: {
 }
 
 /**
- * api.md: a kill not observed within the deadline is reported unknown, not
+ * A kill not observed within the deadline is reported unknown, not
  * left pending. The intent stays on the executions row, so reconciliation
  * continues and confirmExecutionGoneAtomic still settles the receipt later.
  * Both the scheduler pass and the DB-only reconciler run this, so a Docker
@@ -160,7 +158,7 @@ export function rowsOf<T>(result: unknown): T[] {
 
 /**
  * What stopping a session's execution writes, apart from the session row:
- * the terminate transaction (api.md § 승인·중단·강제 종료) and the operator's
+ * the terminate transaction and the operator's
  * execution revocation make the same writes. Queued input is
  * cancelled, open questions are closed, the bound generation's kill intent
  * is recorded and a pause or resume still in flight is superseded. The

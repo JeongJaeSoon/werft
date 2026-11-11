@@ -7,12 +7,12 @@
  *
  *   bun packages/db/bench/tool-call-pages.ts <postgres-url>
  */
-import { performance } from "node:perf_hooks";
 import type { UsageSummaryFilter } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import * as schema from "../src/index.ts";
 import { toolCallDays, toolCallPage } from "../src/sessions/tool-call-pages.ts";
+import { type stats, timed } from "./lib.ts";
 
 const url = process.argv[2];
 if (!url) throw new Error("usage: tool-call-pages.ts <postgres-url>");
@@ -28,24 +28,6 @@ const pool = new Pool({
   statement_timeout: 10_000,
 });
 const db = drizzle(pool, { schema });
-
-const stats = (samples: number[]) => {
-  const sorted = [...samples].sort((a, b) => a - b);
-  const at = (q: number) =>
-    Number((sorted[Math.ceil(q * sorted.length) - 1] ?? 0).toFixed(1));
-  return { n: sorted.length, p50: at(0.5), p95: at(0.95), max: at(1) };
-};
-
-async function timed(fn: () => Promise<unknown>, runs = 20) {
-  await fn();
-  const samples: number[] = [];
-  for (let i = 0; i < runs; i += 1) {
-    const started = performance.now();
-    await fn();
-    samples.push(performance.now() - started);
-  }
-  return stats(samples);
-}
 
 const DAY = 86_400_000;
 const until = new Date();

@@ -1,5 +1,6 @@
 import type { SessionBudget } from "@werft-ai/platform";
 import { type AnyColumn, and, eq, gt, isNull, lte, sql } from "drizzle-orm";
+import { rowsOf } from "../control-unit-of-work.ts";
 import { actionableOfSession } from "../decision/pending-requests.ts";
 import type { Database } from "../queries.ts";
 import { awaitingLaunch } from "../scheduler/scheduler-store.ts";
@@ -14,7 +15,7 @@ import {
 // Endings a turn keeps. outcome_unknown is left out: an operator's recovery
 // decision rewrites it to completed or cancelled (recovery-control.ts), and
 // a counter must never lose what it counted.
-export const SETTLED_TURN_STATUSES = [
+const SETTLED_TURN_STATUSES = [
   "completed",
   "failed",
   "interrupted",
@@ -130,7 +131,14 @@ async function readSettledTurns(db: Database, buckets: readonly number[]) {
     (bound) =>
       sql`count(*) FILTER (WHERE ${timed} AND ${seconds} <= ${bound})::int`,
   );
-  const { rows } = (await db.execute(sql`
+  const rows = rowsOf<{
+    status: SettledTurnStatus;
+    count: number;
+    timed: number;
+    seconds: number;
+    le: (number | null)[];
+  }>(
+    await db.execute(sql`
     SELECT ${turns.status} AS status,
       count(*)::int AS count,
       count(*) FILTER (WHERE ${timed})::int AS timed,
@@ -142,15 +150,8 @@ async function readSettledTurns(db: Database, buckets: readonly number[]) {
       sql`, `,
     )})
     GROUP BY 1
-  `)) as unknown as {
-    rows: {
-      status: SettledTurnStatus;
-      count: number;
-      timed: number;
-      seconds: number;
-      le: (number | null)[];
-    }[];
-  };
+  `),
+  );
   return rows.map((row) => ({
     status: row.status,
     count: Number(row.count),
@@ -175,7 +176,13 @@ async function readOutcomeUnknownTurns(db: Database) {
 // few denied ones are moved here. `first_at` is the name's first call,
 // across its outcomes.
 async function readToolCalls(db: Database) {
-  const { rows } = (await db.execute(sql`
+  const rows = rowsOf<{
+    name: string;
+    outcome: ToolCallOutcome;
+    count: number | string;
+    first_at: Date | string;
+  }>(
+    await db.execute(sql`
     WITH denied AS (
       SELECT DISTINCT session_id, tool_use_id FROM pending_requests
       WHERE kind = 'permission' AND (answer ->> 'decision') = 'deny'
@@ -198,14 +205,8 @@ async function readToolCalls(db: Database) {
     FROM counted
     JOIN (SELECT name, min(first_at) AS first_at FROM tool_call_outcomes GROUP BY name) f
       ON f.name = counted.name
-    WHERE counted.calls > 0`)) as unknown as {
-    rows: {
-      name: string;
-      outcome: ToolCallOutcome;
-      count: number | string;
-      first_at: Date | string;
-    }[];
-  };
+    WHERE counted.calls > 0`),
+  );
   return rows.map((row) => ({
     name: row.name,
     outcome: row.outcome,

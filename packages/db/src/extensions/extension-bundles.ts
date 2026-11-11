@@ -9,8 +9,9 @@ import type {
   ExtensionMode,
   Principal,
 } from "@werft-ai/platform";
+import { receiptActorOf } from "@werft-ai/platform";
 import { and, asc, eq, isNull, or, sql } from "drizzle-orm";
-import { receiptActorOf } from "../control-shared.ts";
+import { UUID } from "../control-shared.ts";
 import { DB_NOW } from "../db-clock.ts";
 import { lockedRole } from "../musterrolle/api-keys.ts";
 import type { Database } from "../queries.ts";
@@ -20,8 +21,6 @@ import {
   extensionBundles,
   receipts,
 } from "../schema.ts";
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type Row = typeof extensionBundles.$inferSelect;
 

@@ -1,11 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { SessionLinkRecord, SessionLinkStore } from "@werft-ai/platform";
 import { and, eq, isNull } from "drizzle-orm";
+import { UUID } from "./control-shared.ts";
 import { CREATE_SESSION, SESSIONS_RESOURCE } from "./postgres-unit-of-work.ts";
 import type { Database } from "./queries.ts";
 import { idempotencyKeys, receipts, sessionLinks } from "./schema.ts";
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const t = sessionLinks;
 

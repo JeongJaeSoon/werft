@@ -122,7 +122,7 @@ function periodBounds(period: { since: Date; until?: Date }) {
 async function executeWithoutJit<Row>(db: Database, query: SQL) {
   return db.transaction(async (tx) => {
     await tx.execute(sql`SET LOCAL jit = off`);
-    const { rows } = (await tx.execute(query)) as unknown as { rows: Row[] };
+    const rows = rowsOf<Row>(await tx.execute(query));
     return rows;
   });
 }

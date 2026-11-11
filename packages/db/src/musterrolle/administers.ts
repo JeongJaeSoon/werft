@@ -11,6 +11,7 @@ import {
   sql,
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
+import { UUID } from "../control-shared.ts";
 import type { Database } from "../queries.ts";
 import {
   agentAdmins,
@@ -154,14 +155,13 @@ export function insideAgent(
   ) as SQL;
 }
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const usageScope = alias(agentUsage, "usage_scope");
 const usageTarget = alias(agentUsageTargets, "usage_target");
 const usageTeam = alias(memberTeams, "usage_team");
 const usageMember = alias(memberTeamMembers, "usage_member");
 
 /**
- * The one SQL answer to "may this requester use this agent" (94S-902): the
+ * The one SQL answer to "may this requester use this agent": the
  * session start's re-decision (`usageOf` in agent-usage.ts, which parity
  * tests run against this on the same rows), `GET /v1/usable-agents` and the
  * hiding of a private agent all read it.

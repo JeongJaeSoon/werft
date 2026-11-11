@@ -1,15 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { generateKeyPairSync, randomBytes, randomUUID } from "node:crypto";
-import {
-  copyFile,
-  mkdir,
-  mkdtemp,
-  readFile,
-  rm,
-  writeFile,
-} from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { rm } from "node:fs/promises";
 import { SecretKey } from "@werft-ai/platform";
 import {
   createTempDatabase,
@@ -19,34 +10,13 @@ import {
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { migrate } from "../migrate.ts";
+import { MIGRATIONS_FOLDER } from "../migration-journal.ts";
 import * as schema from "../schema.ts";
 import { writeSecretInTx } from "../secrets/secret-values.ts";
+import { migrationsThrough } from "../testing/migrations-through.ts";
 import { createPostgresGitHubAppStore } from "./github-apps.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
-
-const MIGRATIONS = join(import.meta.dir, "../../migrations");
-
-type Journal = { entries: Array<{ tag: string }> };
-
-async function migrationsThrough(lastTag: string): Promise<string> {
-  const folder = await mkdtemp(join(tmpdir(), "github-agent-migrations-"));
-  await mkdir(join(folder, "meta"));
-  const journal: Journal = JSON.parse(
-    await readFile(join(MIGRATIONS, "meta/_journal.json"), "utf8"),
-  );
-  const last = journal.entries.findIndex((entry) => entry.tag === lastTag);
-  if (last === -1) throw new Error(`no migration ${lastTag}`);
-  const entries = journal.entries.slice(0, last + 1);
-  await writeFile(
-    join(folder, "meta/_journal.json"),
-    JSON.stringify({ ...journal, entries }),
-  );
-  for (const { tag } of entries) {
-    await copyFile(join(MIGRATIONS, `${tag}.sql`), join(folder, `${tag}.sql`));
-  }
-  return folder;
-}
 
 // The expand step of the GitHub agent settings (github-agent.md §5): what a
 // database from before it holds reads the same, and what the image from
@@ -94,7 +64,7 @@ integration("GitHub agent settings, expand", () => {
       [agentId, workspaceId],
     );
 
-    await migrate(db, { migrationsFolder: MIGRATIONS });
+    await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER });
 
     expect(
       (
@@ -196,7 +166,7 @@ integration("GitHub agent settings, expand", () => {
     );
     const none = await workspace();
 
-    await migrate(db, { migrationsFolder: MIGRATIONS });
+    await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER });
 
     const rows = (
       await pool.query(
@@ -218,7 +188,7 @@ integration("GitHub agent settings, expand", () => {
   });
 
   test("a person may hold a GitHub link beside a Slack one; other providers stay refused", async () => {
-    await migrate(db, { migrationsFolder: MIGRATIONS });
+    await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER });
     const workspaceId = randomUUID();
     const userId = randomUUID();
     await pool.query(
@@ -248,7 +218,7 @@ integration("GitHub agent settings, expand", () => {
   });
 
   test("workspace GitHub settings hold one row per workspace", async () => {
-    await migrate(db, { migrationsFolder: MIGRATIONS });
+    await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER });
     const workspaceId = randomUUID();
     await pool.query(
       "INSERT INTO workspaces (id, slug, name) VALUES ($1, $2, 'ws')",

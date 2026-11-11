@@ -4,6 +4,7 @@ import type {
   GitHubInstallationStore,
 } from "@werft-ai/platform";
 import { and, eq, lt, sql } from "drizzle-orm";
+import { rowsOf } from "../control-unit-of-work.ts";
 import type { Database } from "../queries.ts";
 import {
   githubApps,
@@ -133,7 +134,8 @@ export function createPostgresGitHubInstallationStore(
     },
 
     async recordLink(input) {
-      const { rows } = (await db.execute(sql`
+      const rows = rowsOf<unknown>(
+        await db.execute(sql`
         INSERT INTO ${githubInstallationLinks}
           (connection_id, installation_id, app_id, workspace_id, connected_by)
         SELECT ${githubApps.id}, ${input.installationId}, ${githubApps.appId},
@@ -143,7 +145,8 @@ export function createPostgresGitHubInstallationStore(
           AND ${githubApps.workspaceId} = ${input.workspaceId}
           AND ${githubApps.appId} = ${input.appId}
         ON CONFLICT (connection_id, installation_id) DO NOTHING
-        RETURNING installation_id`)) as unknown as { rows: unknown[] };
+        RETURNING installation_id`),
+      );
       return rows.length === 1;
     },
 

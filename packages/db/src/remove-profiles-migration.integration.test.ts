@@ -9,7 +9,7 @@ import {
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { migrate } from "./migrate.ts";
-import { MIGRATIONS_FOLDER } from "./migration-folder.ts";
+import { MIGRATIONS_FOLDER } from "./migration-journal.ts";
 import { fixtureTeamSql } from "./testing/fixture-team.ts";
 import {
   BEFORE_PROFILE_REMOVAL,

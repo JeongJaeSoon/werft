@@ -107,17 +107,16 @@ import {
 } from "./control-observability.ts";
 import {
   ENDED_ATTEMPT_STATES,
-  hasRestorePoint,
+  earliestUnknownTurn,
   INPUT_RECEIPT_OPERATIONS,
   LAUNCHABLE_ADMISSION_STATES,
   OPEN_TURN_STATUSES,
   parseTurnSequence,
-  restoreBaseRevision,
   withinBudget,
 } from "./control-shared.ts";
 import {
-  earliestUnknownTurn,
   KILL_RECEIPT_OPERATIONS,
+  rowsOf,
   terminateReceiptResult,
 } from "./control-unit-of-work.ts";
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
@@ -216,6 +215,10 @@ import {
   pauseReceiptResult,
 } from "./sessions/pause-control.ts";
 import {
+  hasRestorePoint,
+  restoreBaseRevision,
+} from "./sessions/pause-policy.ts";
+import {
   notBefore,
   recordEvent,
   recordInputWaitStage,
@@ -265,8 +268,6 @@ const RECEIPT_STATUS_BY_TERMINAL: Record<
   cancelled: "failed",
   outcome_unknown: "unknown",
 };
-
-export { acquireFence, leaseHeld };
 
 // Every fenced write repeats these predicates so a row the lock did not
 // cover (or a concurrent epoch bump) can never be written by a stale
@@ -1026,7 +1027,7 @@ type RunnableFields = Pick<
 >;
 
 /** The connection the session's spec names; null without a spec. */
-export function specConnectionId(session: {
+function specConnectionId(session: {
   runtimeSpec: Record<string, unknown> | null;
 }): string | null {
   const id = (session.runtimeSpec?.connection as { id?: unknown } | undefined)
@@ -1243,13 +1244,15 @@ export async function moveSessionsToSuccessors(
     for (const { id } of rows) {
       // A share lock on the agent row orders this move against the switch's
       // update: a switch committed after the filter above is seen here.
-      const { rows: held } = (await tx.execute(sql`
+      const held = rowsOf<{ on: boolean }>(
+        await tx.execute(sql`
         SELECT a.auto_model_migration AS "on"
         FROM ${sessions} AS s
         JOIN ${agentReleases} AS r ON r.id = s.agent_release_id
         JOIN ${agents} AS a ON a.id = r.agent_id
         WHERE s.id = ${id}
-        FOR SHARE OF a`)) as unknown as { rows: { on: boolean }[] };
+        FOR SHARE OF a`),
+      );
       if (held.some((row) => row.on === false)) continue;
       moved += 1;
       // The spec pin follows the model in the same statement, so a replica
@@ -1680,7 +1683,7 @@ function pinnedExtensionsOf(
  * binds only a session whose spec names a connection and model it runs, so
  * one that does not verify here is a broken row, never a guess.
  */
-export function sessionSpecOf(
+function sessionSpecOf(
   session: Pick<
     SessionRow,
     | "id"
@@ -3072,7 +3075,7 @@ export function createPostgresWorkerUnitOfWork(
         const probe = await probeFinalize(tx, fence, input, true);
         if (probe.state !== "open") return probe.result;
         const { turn, terminalHash } = probe;
-        // api.md: `interrupted` is only ever recorded together with the
+        // `interrupted` is only ever recorded together with the
         // checkpoint that makes it consistent; without one the worker has to
         // say outcome_unknown. A replay above is still answered as stored.
         if (input.terminal.status === "interrupted" && !input.checkpoint) {

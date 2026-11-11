@@ -1,10 +1,8 @@
-import { join } from "node:path";
 import { createLogger, type StructuredLogger } from "@werft-ai/observability";
 import { type MigrationMeta, readMigrationFiles } from "drizzle-orm/migrator";
 import { Pool, type PoolClient } from "pg";
+import { MIGRATIONS_FOLDER } from "./migration-journal.ts";
 import { createEnforcedPool, type PoolTimeouts } from "./pool.ts";
-
-const packagedMigrationsFolder = join(import.meta.dir, "../migrations");
 
 // Drizzle's migrator applies every pending migration in one transaction, where
 // CREATE INDEX CONCURRENTLY is refused. A migration whose first line is this
@@ -41,7 +39,7 @@ export interface MigrationSummary {
 // `up` forever, and loose enough for a DDL statement that rewrites a table
 // or waits out a lock held by a running API. Raise it, or make it a setting,
 // once a migration needs longer.
-export const MIGRATION_POOL_TIMEOUTS: PoolTimeouts = {
+const MIGRATION_POOL_TIMEOUTS: PoolTimeouts = {
   connectMs: 5_000,
   statementMs: 300_000,
   queryMs: 330_000,
@@ -66,7 +64,7 @@ export async function migrateDatabase(
     "migrate",
     options.timeouts ?? MIGRATION_POOL_TIMEOUTS,
   );
-  const migrationsFolder = options.migrationsFolder ?? packagedMigrationsFolder;
+  const migrationsFolder = options.migrationsFolder ?? MIGRATIONS_FOLDER;
   // A second migrate (a manual run beside the Helm hook Job) waits here and
   // then finds nothing pending; unlocked, its DROP INDEX CONCURRENTLY IF
   // EXISTS could remove an index the first one already recorded as built.

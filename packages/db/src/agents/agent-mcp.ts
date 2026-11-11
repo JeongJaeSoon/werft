@@ -12,10 +12,10 @@ import {
   mcpDenyOf,
   mcpValuesOfCard,
   planMcpSettingsMigration,
+  receiptActorOf,
 } from "@werft-ai/platform";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { lockAgentToChange } from "../agents.ts";
-import { receiptActorOf } from "../control-shared.ts";
 import { rowsOf } from "../control-unit-of-work.ts";
 import type { Database } from "../queries.ts";
 import {
@@ -46,7 +46,7 @@ const rowOf = (found: typeof agentMcpSettings.$inferSelect): AgentMcpRow => ({
   updatedBy: found.updatedBy,
 });
 
-export async function agentMcpRowOf(
+async function agentMcpRowOf(
   executor: Database,
   agentId: string,
 ): Promise<AgentMcpRow | null> {

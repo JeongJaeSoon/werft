@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { runsOutsideTransaction } from "./migrate.ts";
-import { readJournal } from "./migration-folder.ts";
+import { readJournal } from "./migration-journal.ts";
 
 // Tables that grow with use. DDL that rewrites one, or scans it under a lock
 // that blocks writes, stalls the API for as long as the table is large; a
@@ -46,8 +46,8 @@ export const GROWING_TABLES: readonly string[] = [
 ];
 
 // Migrations up to this one were reviewed when the rules were written
-// (94S-1120) and have run on every installation; only later ones are checked.
-export const SAFETY_CHECKED_AFTER_IDX = 200;
+// and have run on every installation; only later ones are checked.
+const SAFETY_CHECKED_AFTER_IDX = 200;
 
 const VOLATILE_DEFAULT =
   /\bDEFAULT\s+[^,;]*\b(gen_random_uuid|uuid_generate_v\d\w*|random|clock_timestamp|timeofday|nextval)\s*\(/i;

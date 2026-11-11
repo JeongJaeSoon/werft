@@ -242,7 +242,7 @@ type ResumeContext = {
 };
 
 /**
- * api.md § 일시 중지와 저장 상태, the pause family. From `paused` the
+ * The pause family. From `paused` the
  * session goes `resuming` and a new worker is launched to restore the
  * pause's checkpoint; the receipt succeeds only once that worker reports
  * ready. From `pausing`, before the stop intent, the resume cancels the

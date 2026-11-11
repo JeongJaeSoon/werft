@@ -49,6 +49,7 @@ import { readPointerImageRuntime } from "../checkpoints/checkpoint-runtime.ts";
 import {
   LAUNCHABLE_ADMISSION_STATES,
   OPEN_TURN_STATUSES,
+  UUID,
   withinBudget,
 } from "../control-shared.ts";
 import { expireOverdueTerminations } from "../control-unit-of-work.ts";
@@ -128,9 +129,6 @@ const LAUNCH_ERROR_MAX_CHARS = 1_000;
  * than in one statement that can outlast the pass.
  */
 export const OVERDUE_TERMINATION_SWEEP_LIMIT = 100;
-
-/** `sessions.id` is a uuid column; anything else cannot be asked about. */
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * The one ledger. A launch holds its slot — and its session — from the
