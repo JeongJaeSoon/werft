@@ -5,11 +5,13 @@ import type {
   ReviewAchievementResponse,
 } from "@werft-ai/contracts";
 import {
+  type AuthorizationPolicy,
+  type Caller,
+  NOT_FOUND,
+  OUTRANKED,
   requirePermitted,
   SessionServiceError,
 } from "../../musterrolle/index.ts";
-import type { AuthorizationPolicy, Caller } from "../../musterrolle/policy.ts";
-import { NOT_FOUND, OUTRANKED } from "../../musterrolle/service-errors.ts";
 import type { TeamActor } from "../../ports/team-store.ts";
 import type { AchievementJudgmentStore } from "./achievement-judgment-store.ts";
 

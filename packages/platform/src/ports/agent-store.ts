@@ -12,7 +12,7 @@ import type {
   WorkspaceRole,
 } from "@werft-ai/contracts";
 import type { ReleaseSpecRecord } from "../agents/release-spec.ts";
-import type { OutsideAgentAccess, Principal } from "../musterrolle/policy.ts";
+import type { OutsideAgentAccess, Principal } from "../musterrolle/index.ts";
 import type { SessionViewer } from "../sessions/ports/session-share-store.ts";
 
 /** Who lists agents, and what the workspace lets members outside one see. */

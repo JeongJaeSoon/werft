@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { WorkspaceRole } from "@werft-ai/contracts";
 import type { CheckpointObjectStore } from "@werft-ai/runtime-core";
-import type { Principal } from "../musterrolle/policy.ts";
+import type { Principal } from "../musterrolle/index.ts";
 import type {
   AttachmentReceiptResult,
   ExtensionAttachment,

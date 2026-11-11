@@ -4,7 +4,7 @@ import type {
   AuthorizationSubject,
   WorkspaceRole,
 } from "@werft-ai/contracts";
-import type { CallerLimitDimension } from "../musterrolle/caller-limit.ts";
+import type { CallerLimitDimension } from "../musterrolle/index.ts";
 import type { TeamActor } from "./team-store.ts";
 
 export type { CallerLimitDimension };

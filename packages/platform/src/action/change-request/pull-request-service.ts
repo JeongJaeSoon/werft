@@ -27,10 +27,10 @@ import {
   GitHubUnavailableError,
 } from "../../github/ports/github-gate.ts";
 import {
+  type AuthorizationPolicy,
   requirePermitted,
   SessionServiceError,
 } from "../../musterrolle/index.ts";
-import type { AuthorizationPolicy } from "../../musterrolle/policy.ts";
 import {
   pullRequestTail,
   pushRequestMarkerOf,

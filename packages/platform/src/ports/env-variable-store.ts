@@ -1,4 +1,4 @@
-import type { Principal } from "../musterrolle/policy.ts";
+import type { Principal } from "../musterrolle/index.ts";
 
 /** A workspace's own variables (`agentId` null) or one agent's. */
 export type EnvVariableScope = { workspaceId: string; agentId: string | null };

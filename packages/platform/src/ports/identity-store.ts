@@ -3,7 +3,7 @@ import type {
   UserLocale,
   WorkspaceRole,
 } from "@werft-ai/contracts";
-import type { Principal } from "../musterrolle/policy.ts";
+import type { Principal } from "../musterrolle/index.ts";
 
 export type IdentityUser = {
   id: string;

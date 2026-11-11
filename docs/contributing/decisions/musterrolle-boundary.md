@@ -1,5 +1,6 @@
 # 결정(설계): Musterrolle 코드를 한 모듈 경계로 모으는 순서
 
+- 후속(2026-11-12): `SessionServiceError`는 지금 `packages/platform/src/musterrolle/service-errors.ts`에, `requirePermitted`·`requireAllowed`는 `packages/platform/src/musterrolle/require-permitted.ts`에 있다. 아래 `파일:줄`은 기준 커밋의 기록이다.
 - 상태: 설계(2026-11-02).
 - 기준 커밋: `origin/main` `ebe54b10a`. 아래 `파일:줄`과 수는 모두 이 커밋 기준이다.
 - 오너 원문(2026-11-02, 오케스트레이터 전달): "8은 미리 먼저 해두는게 좋지 않을까". 같은 날 정한 진행 방식(요지): 단계별 PR 계획 설계 문서를 먼저 쓰고, 진행 중인 다른 작업의 파일을 만지는 단계는 그 작업이 land 된 뒤에 한다.

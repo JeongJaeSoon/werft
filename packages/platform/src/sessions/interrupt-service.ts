@@ -2,8 +2,12 @@ import type {
   ControlAcceptedResponse,
   InterruptSessionRequest,
 } from "@werft-ai/contracts";
-import { requirePermitted, SessionServiceError } from "../musterrolle/index.ts";
-import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
+import {
+  type AuthorizationPolicy,
+  type Caller,
+  requirePermitted,
+  SessionServiceError,
+} from "../musterrolle/index.ts";
 import { TERMINATE_DEADLINE_MS } from "../scheduler/index.ts";
 import type { TurnInterrupts } from "./ports/turn-interrupts.ts";
 import { idempotencyConflict, payloadHash } from "./session-service.ts";

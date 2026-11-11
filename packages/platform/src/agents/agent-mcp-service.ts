@@ -6,17 +6,16 @@ import {
   type PutAgentMcpSettingsRequest,
   type PutAgentMcpSettingsResponse,
 } from "@werft-ai/contracts";
-import { requirePermitted, SessionServiceError } from "../musterrolle/index.ts";
 import {
+  ACTOR_INACTIVE,
   type AuthorizationPolicy,
   type Caller,
   MANAGEMENT_ROLES,
-} from "../musterrolle/policy.ts";
-import {
-  ACTOR_INACTIVE,
   NOT_FOUND,
   OUTRANKED,
-} from "../musterrolle/service-errors.ts";
+  requirePermitted,
+  SessionServiceError,
+} from "../musterrolle/index.ts";
 import type { AgentMcpStore } from "../ports/agent-mcp-store.ts";
 import type { SessionCatalog } from "../sessions/catalog.ts";
 import { mcpValuesOfCard } from "./mcp-release-values.ts";

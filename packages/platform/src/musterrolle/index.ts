@@ -4,7 +4,11 @@ export type { CallerLimitDimension } from "./caller-limit.ts";
 export {
   type AuthorizationPolicy,
   type Caller,
+  deciderKeyOf,
   MANAGEMENT_ROLES,
+  type OutsideAgentAccess,
+  type OutsideAgentAccessSetting,
+  outsideAgentsUse,
   type Principal,
   receiptActorOf,
 } from "./policy.ts";
@@ -19,4 +23,7 @@ export {
   NOT_FOUND,
   OUTRANKED,
   SessionServiceError,
+  TEAM_HOLDING,
+  TEAM_NOT_ALLOWED,
+  TEAM_NOT_FOUND,
 } from "./service-errors.ts";
