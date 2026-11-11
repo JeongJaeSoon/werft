@@ -38,7 +38,7 @@ API와 slack 역할은 설정 파일을 읽지 않는다. 연결·저장소·MCP
 - **빈 설치에는 연결이 없다.** 새 DB에는 연결도 저장소도 없다. 콘솔에서 연결을 더하고(설정 > 에이전트 연결 > **모델 연결**) 그 연결에 에이전트가 고를 모델 목록을 넣은 뒤, 에이전트를 그 연결로 release한다. 예시 스택(`scripts/local.sh up --fake-model`, E2E)은 `tests/fixtures/settings/`의 문서를 migrate 단계에서 가져와 미리 채운다(아래 "예시 설정 문서"). `SETTINGS_DOCUMENT=` 처럼 비워 띄우면 빈 설치를 그대로 볼 수 있다.
 - **release가 실행 설정을 고정한다.** 에이전트 release는 연결 하나와 카드의 모델을 고르고, 그 연결의 종류에 맞는 런타임(이미지가 싣는 버전), 그 런타임의 내장 도구 전부, 권한 모드(분류기가 동작하면 `auto`, 아니면 `default`)를 spec으로 고정한다. 세션은 그 spec을 그대로 복사해 돈다. 묻기·막기는 워크스페이스와 에이전트의 실행 규칙(`workspace_engine_settings`, `agent_engine_settings`)이 정한다.
 - **연결의 모델 목록.** 연결의 `models`가 release와 세션이 고를 수 있는 모델이다. 목록에서 모델을 빼면 그 모델로 도는 세션은 다음 claim에서 멈춘다. 다만 `model_families`로 같은 계열의 다음 판이 목록에 있고 에이전트의 자동 모델 이동이 켜져 있으면 release와 세션이 그 판으로 옮긴다. 연결을 사용 중지하면 그 위의 release와 세션이 모두 멈춘다.
-- **프로필은 없다.** 실행 프로필(`installation_profiles`, `workspace_profiles`, 롤아웃)은 migration `0270_remove_profiles`가 지웠다. 그 전에 만든 release와 세션도 함께 지워졌으므로 에이전트는 연결을 골라 다시 release한다. 설정 문서에 `profiles` 항목이 있으면 가져오기가 거절한다.
+- **프로필은 없다.** 실행 프로필(`installation_profiles`, `workspace_profiles`, 롤아웃)은 migration `0270_remove_profiles`가 지웠다. 그 전에 만든 release와 세션도 함께 지워졌으므로 에이전트는 연결을 골라 다시 release한다. 연결의 모델 목록은 그 연결에서 돌던 프로필의 모델로 채워지고, 어느 프로필도 돌지 않은 연결은 비어 있으므로 설정 → 모델 연결에서 넣는다. 설정 문서에 `profiles` 항목이 있으면 가져오기가 거절한다.
 
 ### 설정 문서 가져오기·내보내기
 
