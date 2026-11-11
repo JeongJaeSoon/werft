@@ -462,13 +462,13 @@ export interface Approvable {
 
 **웹·SSE는 끌어가는 채널이라 `Approvable`·`Notifiable`을 구현하지 않는다.** 대신 같은 요청을 같은 view model로 그린다는 것을 계약 시험으로 보장한다. 같은 입력 fixture(contracts의 `surface/`)를 `presentPendingRequest`·`presentPushRequest`에 넣은 결과에서 ① Slack 구현이 카드를 만들고 ② 웹 컴포넌트(`ApprovalCard`·`QuestionCard`, push 승인 화면)가 화면을 그린다. 두 쪽이 같은 view model 필드를 빠짐없이 쓰는지 단언한다(웹 시험은 `packages/react`, Slack 시험은 어댑터 쪽).
 
-**계약 시험 위치.** `describeNotifiableContract`, `describeApprovableContract`를 platform의 `./testing/*` export에 둔다. 적용 대상은 Slack 구현과, 시험이 전송 결과를 지정해 주는 가짜 구현이다. Slack 쪽 파일은 `packages/adapters/chat/slack/src/outbox-delivery.contract.test.ts` 하나다. 두 능력이 `createRowDelivery` 하나를 같이 쓰므로(`outbox-delivery.ts`) 같은 파일에서 행 종류만 바꿔 두 함수를 돌린다. 담는 약속은 구현이 Slack 응답·예외를 `DeliveryOutcome` 다섯 가지(`lease_lost` 포함: `begin`이 거절하면 아무것도 보내지 않고 행도 정산하지 않는다)로 분류하는 것이다. 지금 코드가 이미 지키는 분류(`slack-outbox.ts:430`, `slack-send-result.ts`, 전송 예외, lease 만료)만 적는다([5.5절](#55-리스코프-치환lsp)). 다시 보내지 않는다(`failed`, `uncertain`)와 행을 남긴다(`retry`)는 구현이 아니라 **전송기와 저장소**의 약속이라서, 그 사례는 `outbox.test.ts`가 그대로 지킨다. 같은 사람에게 한 번이라는 보장(`onceKey`)은 넣는 함수의 계약 시험이 맡는다. 웹·SSE 보장은 위 view model 시험이다.
+**계약 시험 위치.** `describeNotifiableContract`, `describeApprovableContract`를 platform의 `./testing/*` export에 둔다. 적용 대상은 Slack 구현과, 시험이 전송 결과를 지정해 주는 가짜 구현이다. Slack 쪽 파일은 `packages/adapters/chat/slack/src/outbox-delivery.contract.test.ts` 하나다. 두 능력이 `createRowDelivery` 하나를 같이 쓰므로(`outbox-delivery.ts`) 같은 파일에서 행 종류만 바꿔 두 함수를 돌린다. 담는 약속은 구현이 Slack 응답·예외를 `DeliveryOutcome` 다섯 가지(`lease_lost` 포함: `begin`이 거절하면 아무것도 보내지 않고 행도 정산하지 않는다)로 분류하는 것이다. 지금 코드가 이미 지키는 분류(`slack-outbox.ts:430`, `slack-send-result.ts`, 전송 예외, lease 만료)만 적는다([5.5절](#55-리스코프-치환lsp)). 다시 보내지 않는다(`failed`, `uncertain`)와 행을 남긴다(`retry`)는 구현이 아니라 **전송기와 저장소**의 약속이라서, 그 사례는 `outbox.integration.test.ts`가 그대로 지킨다. 같은 사람에게 한 번이라는 보장(`onceKey`)은 넣는 함수의 계약 시험이 맡는다. 웹·SSE 보장은 위 view model 시험이다.
 
 **인터페이스를 만들지 않는 것.** 턴 답 전달(`reply`, `instruction`), `welcome` 행의 전송, 진행 상태, 결정 뒤 정리는 platform 서비스도 전송기도 포트로 부르지 않는다. 환영 메시지를 만드는 일은 `AgentWelcomable`이 맡고, 그 행을 보내는 일은 전송기가 직접 한다. slack role의 pass loop가 어댑터 안쪽의 넣기·상태 pass를 돈다(`slack-outbox.ts:328`, `slack-session-status.ts:160`). 여기에 이름만 붙인 인터페이스를 씌우면 어댑터 내부 호출에 이름을 붙인 것이 된다. 이 셋의 계약은 **데이터**다. 두 번째 밀어 보내는 채널이 생겨 공통 모양이 보이면 그때 인터페이스를 만든다([6.3절](#63-예정-능력)).
 
 | 일 | 계약 | 고정하는 시험 |
 |---|---|---|
-| 턴 답 전달 | 세션 이벤트 행, `slack_outbox` 행 | `outbox.test.ts`의 중복 전송·`uncertain` 사례([9.6절](#96-남길-시험)) |
+| 턴 답 전달 | 세션 이벤트 행, `slack_outbox` 행 | `outbox.integration.test.ts`의 중복 전송·`uncertain` 사례([9.6절](#96-남길-시험)) |
 | 결정 요청 표시 | `Approvable`. 입력은 `DeliveryInput`(claim한 `input_notice` 행과 `attempts`). 행의 카드는 view model `presentPendingRequest`·`presentPushRequest`의 결과로 넣을 때 그려져 있다 | `Approvable` 계약 시험, `present-action.test.ts`, payload fixture([10.2절](#102-단계별-검증)) |
 | 결정 답 받기 | 결정 서비스의 두 입구 | R5 |
 | 결과 알림 | `Notifiable`. 입력은 `DeliveryInput`(claim한 알림 계열 행과 `attempts`). 행은 `ActionNotice` 값(`action-notice.ts:38`)과 dedupe key로 상태 변경과 같은 트랜잭션에서 쓴다([2절](#2-surface와-action의-경계)) | `Notifiable` 계약 시험, `packages/db`의 알림 통합 시험 |
@@ -729,7 +729,7 @@ surface·action 범위 밖의 시험은 이 문서가 후보를 고르지 않는
 
 - **계약 스냅샷**: `sessions/__snapshots__/github-mcp-envelope.test.ts.snap`(2,951줄). 모든 도구의 출력 스키마와 거절 코드를 고정한다. action 이동의 동작 불변 증거다.
 - **결정 경로**: `slack-decision.test.ts`(26건), `slack-interactions.test.ts`(40건), `push-request-service.test.ts`, `routes/pending.test.ts`·`routes/push-requests.test.ts`. 누가 답할 수 있는가는 보안 동작이다.
-- **데이터 손실·중복 전송**: `outbox.test.ts`의 `uncertain`·lease·동시 pass 사례(`:1592`, `:1670`, `:1771`~`:1931`). 분류가 아니라 "다시 보내지 않는다"를 DB 상태로 확인한다.
+- **데이터 손실·중복 전송**: `outbox.integration.test.ts`의 `uncertain`·lease·동시 pass 사례(`:1592`, `:1670`, `:1771`~`:1931`). 분류가 아니라 "다시 보내지 않는다"를 DB 상태로 확인한다.
 - **view model**: `present-turn-event.test.ts`, `present-action.test.ts`. 모든 채널이 여기에 기댄다.
 - **화면 구조**: `approval-card.test.tsx:40`. DOM 위치를 단언하지만 사람이 본 배치 결함의 회귀 시험이다.
 - **구조 규칙**: `tests/architecture.test.ts`.
@@ -798,7 +798,7 @@ platform index에 한 PR 주기 동안 재수출을 둘 수는 **없다.** platf
 |---|---|---|
 | 이동 | U2, U4, U5, U6 ①, U9 ① | 구조화 설계 6.3절의 여섯 가지(전체 타입체크, 시험, 공개 표면 이름 목록 동일, 이동 순도, 생성물 바이트 비교, 번들). 실행 건수가 전후로 같다 |
 | 타입·경계 변경 | U3 | 전체 타입체크, 시험 건수 동일, 실행 코드의 diff가 타입 선언과 import 줄뿐임 |
-| 포트 의존 주입 | U5 ① 가운데 `Notifiable`·`Approvable` 부분 | 이동 순도와 "타입 선언과 import 줄뿐"은 이 부분에 요구하지 않는다. 보내는 호출이 포트 호출로 바뀌고 `SlackNoticeSink`의 파일이 `Notifiable`로 대체되기 때문이다. 대신 payload fixture가 바이트 단위로 같고, `outbox.test.ts`의 중복 전송·`uncertain`·lease 사례가 import 줄 말고는 그대로 통과하며, 시험 건수가 같거나 는다. 이 부분은 U5 ①의 이동 PR 앞에 별도 PR로 내고, 이동 PR은 이동 순도를 그대로 보인다 |
+| 포트 의존 주입 | U5 ① 가운데 `Notifiable`·`Approvable` 부분 | 이동 순도와 "타입 선언과 import 줄뿐"은 이 부분에 요구하지 않는다. 보내는 호출이 포트 호출로 바뀌고 `SlackNoticeSink`의 파일이 `Notifiable`로 대체되기 때문이다. 대신 payload fixture가 바이트 단위로 같고, `outbox.integration.test.ts`의 중복 전송·`uncertain`·lease 사례가 import 줄 말고는 그대로 통과하며, 시험 건수가 같거나 는다. 이 부분은 U5 ①의 이동 PR 앞에 별도 PR로 내고, 이동 PR은 이동 순도를 그대로 보인다 |
 | 구조 변경·책임 분리 | U6 ②, U9 ② | 스냅샷과 payload fixture가 바이트 단위로 같다. 시험 건수는 같거나 는다. 이동 순도는 요구하지 않는다 |
 | 검사·검증 추가 | U1, U7, payload fixture | 새 시험이 일부러 어긴 입력에서 실패하는 것을 한 번 보인다. 건수가 는다 |
 | 시험 변경 | U8 | 지운 건수를 D 번호로 적고, 지우기 전에 [9.3절](#93-층과-기준)의 깨뜨려 보기를 한 출력을 붙인다 |
