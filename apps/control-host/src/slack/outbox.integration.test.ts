@@ -1724,20 +1724,6 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     ]);
   });
 
-  test("ok without a ts fails and is never sent again", async () => {
-    const fixture = await agentInSlack();
-    await mention(fixture, THREAD);
-    await endTurn(await sessionOf(fixture), 1, "completed", [[text("hi")]]);
-    slack.missingTs.add("chat.postMessage");
-    expect(await outboxPass()).toMatchObject({ failed: 1 });
-    await outboxPass();
-    expect(posted()).toHaveLength(1);
-    expect((await rows())[0]).toMatchObject({
-      status: "failed",
-      errorCode: "missing_ts",
-    });
-  });
-
   const TABLE_REPLY = [
     "저장소는 2개입니다.",
     "",
@@ -1791,6 +1777,14 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     expect((await rows())[0]).toMatchObject({
       status: "failed",
       errorCode: "not_in_channel",
+      attempts: 1,
+    });
+    // A failed row is not sent again, even once Slack would take it.
+    slack.failures.clear();
+    expect(await outboxPass()).toMatchObject({ sent: 0, failed: 0 });
+    expect(posted()).toHaveLength(0);
+    expect((await rows())[0]).toMatchObject({
+      status: "failed",
       attempts: 1,
     });
   });
