@@ -38,7 +38,7 @@ API와 slack 역할은 설정 파일을 읽지 않는다. 연결·저장소·MCP
 - **빈 설치에는 연결이 없다.** 새 DB에는 연결도 저장소도 없다. 콘솔에서 연결을 더하고(설정 > 에이전트 연결 > **모델 연결**) 그 연결에 에이전트가 고를 모델 목록을 넣은 뒤, 에이전트를 그 연결로 release한다. 예시 스택(`scripts/local.sh up --fake-model`, E2E)은 `tests/fixtures/settings/`의 문서를 migrate 단계에서 가져와 미리 채운다(아래 "예시 설정 문서"). `SETTINGS_DOCUMENT=` 처럼 비워 띄우면 빈 설치를 그대로 볼 수 있다.
 - **release가 실행 설정을 고정한다.** 에이전트 release는 연결 하나와 카드의 모델을 고르고, 그 연결의 종류에 맞는 런타임(이미지가 싣는 버전), 그 런타임의 내장 도구 전부, 권한 모드(분류기가 동작하면 `auto`, 아니면 `default`)를 spec으로 고정한다. 세션은 그 spec을 그대로 복사해 돈다. 묻기·막기는 워크스페이스와 에이전트의 실행 규칙(`workspace_engine_settings`, `agent_engine_settings`)이 정한다.
 - **연결의 모델 목록.** 연결의 `models`가 release와 세션이 고를 수 있는 모델이다. 목록에서 모델을 빼면 그 모델로 도는 세션은 다음 claim에서 멈춘다. 다만 `model_families`로 같은 계열의 다음 판이 목록에 있고 에이전트의 자동 모델 이동이 켜져 있으면 release와 세션이 그 판으로 옮긴다. 연결을 사용 중지하면 그 위의 release와 세션이 모두 멈춘다.
-- **프로필은 없다.** 실행 프로필(`installation_profiles`, `workspace_profiles`, 롤아웃)은 migration `0268_remove_profiles`가 지웠다. 그 전에 만든 release와 세션도 함께 지워졌으므로 에이전트는 연결을 골라 다시 release한다. 설정 문서에 `profiles` 항목이 있으면 가져오기가 거절한다.
+- **프로필은 없다.** 실행 프로필(`installation_profiles`, `workspace_profiles`, 롤아웃)은 migration `0269_remove_profiles`가 지웠다. 그 전에 만든 release와 세션도 함께 지워졌으므로 에이전트는 연결을 골라 다시 release한다. 설정 문서에 `profiles` 항목이 있으면 가져오기가 거절한다.
 
 ### 설정 문서 가져오기·내보내기
 
@@ -698,12 +698,14 @@ curl -s -b jar -X POST http://127.0.0.1:3000/v1/api-keys \
 - 에이전트 관리자 지정·해제는 owner·admin과 그 에이전트의 관리자가 한다(`agent.admin.manage`). 사람이나 팀 하나를 고른다. 관리자 팀은 구성원 모두를 관리자로 만들므로, 팀을 새로 넣는 것은 `team.manage`를 가진 owner·admin만 한다. 에이전트 관리자(member)가 팀을 넣으면 `403`(`reason_code: role`)이고, 팀을 빼는 것과 사람을 넣고 빼는 것은 그대로 에이전트 관리자도 한다. 판정 뒤 역할이 내려갔다면 쓰는 트랜잭션이 다시 읽어 거절한다. 그래도 그 에이전트의 관리자이면 `403`(`reason_code: team_not_allowed`), 아니면 `403`(`reason_code: role`)이다. 이미 들어가 있는 관리자 팀은 그대로 남는다.
 - 팀 구성원에는 역할(`lead`·`member`)이 있다. 처음 넣으면 `member`이고, owner·admin이 `PATCH /v1/teams/{team_id}/members/{user_id}` `{"role"}`로 바꾼다. 바꿀 때마다 `set_team_member_role` receipt가 남는다. `GET /v1/my-teams`는 팀마다 내 `role`을 함께 준다.
 - 에이전트에는 담당 팀(`managing_team_id`)이 하나 있다. 담당 팀의 `lead`는 그 에이전트의 관리자다. 담당 팀의 `member`는 관리 권한이 없고 설정을 읽기만 한다(아래). 담당 팀은 비울 수 없고 바꾸기만 한다(`PUT …/managing-team`). 열은 `NOT NULL`이다(0243). 담당 팀을 필수로 받기 전에 만든 에이전트는 마이그레이션이 채웠다. 담당 팀이 없던 에이전트는 모두 워크스페이스마다 하나씩 만든 구성원 없는 `Unassigned agents` 팀(`created_by` 없음)이 맡았다. 관리자 팀은 소유 조직의 근거가 아니라서 쓰지 않는다. 되돌릴 때 이 팀 하나가 이행 대상 목록이다. 이름이 겹치면 `Unassigned agents (<8자리 id>)`다. 이름은 영어 하나로 고정되어 있으니, 소유자·관리자는 팀 목록에서 이 이름으로 찾아 이름을 바꾸고 에이전트를 맞는 팀으로 옮긴다(`PUT …/managing-team`). 새로 얻는 구성원이나 `lead`가 없으므로 이 단계에서 아무도 권한을 더 얻지 않는다. 이 팀에는 `member_teams.holds_unassigned`가 켜져 있어, 그 에이전트들의 `workspace` 세션은 축 B가 `managing_team`이어도 이전처럼 멤버 모두에게 보인다. 에이전트를 다른 팀으로 옮기면 그 순간부터 그 팀의 규칙이 적용된다. 이 플래그는 마이그레이션만 켜고 API로는 바꾸지 못한다. 보관 팀에 구성원을 넣으면 `member`는 그 에이전트들의 설정을 읽고 사용할 수 있게 되고 `lead`는 설정을 바꾸는 관리까지 하게 되니, 에이전트를 옮기기 전에는 넣지 않는다. 이름을 바꾸거나 구성원을 넣어도 플래그는 그대로다.
-- 에이전트 읽기는 두 단계다. **정보**(이름·slug·설명·담당 팀 id와 이름·상태·활성 릴리스 id, `GET /v1/agents`의 행)는 workspace의 모든 멤버가 읽는다(`agent.read`). 담당 팀 이름(`managing_team_name`)은 그 팀을 읽지 못하는 멤버에게도 행과 함께 간다. `GET /v1/agents`와 `GET /v1/agents/counts`는 행마다 이 판정으로 거른다. 담당 팀이 없는 에이전트는 없으므로 `managing_team=unassigned` 필터와 개수의 `unassigned`는 없다(쿼리는 엄격하지 않아 `managing_team` 값을 보내도 무시되고 전체가 온다). **설정**(카드·버전·릴리스, 관리자, 자격 증명 연결, GitHub, Slack 연결·앱·identity)은 owner·admin, 그 에이전트의 관리자, 담당 팀의 살아 있는 구성원만 읽는다(`agent.settings_read`). `GET /v1/agents/{id}`와 설정 조회가 여기에 든다. 그 밖의 멤버는 `403`(`reason_code: role`)이고, 그 에이전트는 목록의 `ids`로 행만 읽는다. `include=summary`의 요약은 설정을 읽을 수 있는 에이전트에만 붙는다. 설정을 바꾸는 요청은 지금처럼 owner·admin과 관리자만 한다. Slack 채널 이름 조회·검색(`…/slack-channels`, `…/slack/channels`)과 GitHub 저장소 후보(`…/github/repositories`)는 연결·고르기에 쓰는 것이라 바꾸는 사람만 쓴다. 허용된 읽기는 `authz_decisions`에 남지 않고 거절만 남는다.
+- 에이전트 읽기는 두 단계다. **정보**(이름·slug·설명·담당 팀 id와 이름·상태·활성 릴리스 id, `GET /v1/agents`의 행)는 workspace의 모든 멤버가 읽는다(`agent.read`). 담당 팀 이름(`managing_team_name`)은 그 팀을 읽지 못하는 멤버에게도 행과 함께 간다. `GET /v1/agents`와 `GET /v1/agents/counts`는 행마다 이 판정으로 거르고, 쓸 수 없는 비공개 에이전트(`agent_usable`, 세션 시작과 `GET /v1/usable-agents`와 같은 술어)는 목록·개수·`ids`·`q`·페이지 경계 어디에도 나오지 않는다. owner·admin, 에이전트 관리자, 담당 팀 구성원은 계속 본다. `GET /v1/agents/{id}`는 그런 에이전트를 없는 id와 같은 `404`(본문까지 같다)로 답한다. 담당 팀이 없는 에이전트는 없으므로 `managing_team=unassigned` 필터와 개수의 `unassigned`는 없다(쿼리는 엄격하지 않아 `managing_team` 값을 보내도 무시되고 전체가 온다). **설정**(카드·버전·릴리스, 관리자, 자격 증명 연결, GitHub, Slack 연결·앱·identity)은 owner·admin, 그 에이전트의 관리자, 담당 팀의 살아 있는 구성원만 읽는다(`agent.settings_read`). `GET /v1/agents/{id}`와 설정 조회가 여기에 든다. 그 밖의 멤버는 `403`(`reason_code: role`)이고, 그 에이전트는 목록의 `ids`로 행만 읽는다. `include=summary`의 요약은 설정을 읽을 수 있는 에이전트에만 붙는다. 설정을 바꾸는 요청은 지금처럼 owner·admin과 관리자만 한다. Slack 채널 이름 조회·검색(`…/slack-channels`, `…/slack/channels`)과 GitHub 저장소 후보(`…/github/repositories`)는 연결·고르기에 쓰는 것이라 바꾸는 사람만 쓴다. 허용된 읽기는 `authz_decisions`에 남지 않고 거절만 남는다.
 - 에이전트 설정을 바꾼 receipt(`target_ref.resource`가 그 에이전트이거나 그 Slack 연결)는 설정을 읽을 수 있는 사람과 그 사람의 개인 key만 `GET /v1/receipts/{id}`로 읽는다. 자격 증명이 연결되지 않아 거절된 세션 시작(`create_session`)의 receipt는 지금처럼 workspace의 누구나 읽는다.
 - 담당 팀은 만들 때(`POST /v1/agents`의 `managing_team_id`) 꼭 넣는다. 빠지면 `400 BAD_REQUEST`이고 `details.issues`에 `path: managing_team_id`, `message: managing_team_id is required`가 있다. 그래서 속한 팀이 없는 member는 에이전트를 만들지 못한다. 이 필드 없이 만들던 API 호출(SDK·스크립트)은 이 이미지부터 실패한다. 롤백 하한은 이 마이그레이션(0243)이다. 담당 팀을 이미 필수로 받던 직전 이미지로 내리면 생성은 계속 되지만 `holds_unassigned`를 모르므로, 보관 팀 에이전트의 `workspace` 세션이 축 B(`managing_team`)에서 바깥 멤버에게 다시 숨겨진다. 담당 팀 없이 INSERT하던 더 오래된 이미지는 `NOT NULL` 위반으로 생성이 실패한다(500). 그 아래로 내리려면 쓰기를 멈추고 `managing_team_id`의 `NOT NULL`을 풀어야 하며, 풀어도 백필과 이전 가시성은 되돌려지지 않는다. 보관 팀은 새로 담당 팀으로 고를 수 없다(`403`, `reason_code: team_holding`, 만들 때도 같다). 에이전트가 이미 거기 있는 채로 같은 팀을 다시 보내는 요청만 `unchanged`다. 담당 팀은 `PUT /v1/agents/{id}/managing-team` `{"team_id"}`로 바꾼다. 바꾸는 것은 owner·admin과 그 에이전트의 관리자다. owner·admin은 살아 있는 팀 아무것이나, 그 밖의 사람은 자기가 속한 팀만 고른다(아니면 `403`, `reason_code: team_not_allowed`). 담당 팀을 비우는 요청은 없다. 바꿀 때마다 `set_agent_managing_team` receipt가 남고 `result`에 바꾸기 전후 팀 id가 있다.
 - 보관되지 않은 에이전트의 담당 팀인 팀은 지울 수 없다(`409 TEAM_MANAGES_AGENTS`, `details.agent_ids`). 먼저 그 에이전트들의 담당 팀을 옮기거나 에이전트를 보관한다.
 - 담당 팀을 옮기거나 `lead`를 `member`로 내리면, 그 권한으로 진행 중이던 에이전트 설정 쓰기(수정·릴리스·켜기, GitHub 켜기, 저장소 고르기)도 저장 직전에 다시 판정되어 `403`(`reason_code: role`)으로 끝난다.
 - 에이전트 관리자는 `GET /v1/administered-agents`로 자기가 지금 관리하는 에이전트(직접 지정과 팀 경유)를 본다. 여기서 얻은 `agent_id`로 그 에이전트의 에이전트 key를 발급한다.
+- 새 세션 화면이 고를 목록은 `GET /v1/usable-agents`다. 세션 시작이 받아들일 에이전트만 싣는다(`sessions:write`, `active` 상태와 활성 release, 사용 허가, 프로필 digest 일치, 모든 자격 연결). 묶인 key는 자기 에이전트 하나만 본다. 비공개 에이전트를 쓸 수 없는 사람의 목록에는 그 에이전트가 없고, 있다는 사실도 응답에 나오지 않는다.
+- 쓸 수 없는 비공개 에이전트의 세션이 공유로 보이면, 세션 목록·상세의 `agent`는 `null`이고 `agent_hidden`이 `true`다. 그런 에이전트의 id를 싣는 receipt는 `delete_team`의 `agent_ids`처럼 그 id만 빠진 채 읽히고, 대상이 그 에이전트나 release인 receipt는 없는 receipt와 같은 404다. 어느 operation이 어느 필드에 에이전트 id를 싣는지는 `packages/platform/src/sessions/receipt-agent-refs.ts`의 표가 정하고, 표에 없는 operation이 id를 싣는 코드는 `tests/receipt-agent-refs.test.ts`가 실패시킨다.
 
 | 요청 | 하는 일 |
 |---|---|
@@ -716,16 +718,18 @@ curl -s -b jar -X POST http://127.0.0.1:3000/v1/api-keys \
 | `DELETE /v1/teams/{team_id}/members/{user_id}` | 구성원 제거 |
 | `PUT /v1/agents/{id}/managing-team` `{"team_id"}` | 담당 팀 지정·변경 |
 | `GET /v1/agents/{id}/usage`, `PUT /v1/agents/{id}/usage` `{"scope","teams":[{"id"}]}` | 에이전트를 쓸 수 있는 범위. `workspace`는 워크스페이스 전원, `private`은 나열한 팀의 구성원. PUT은 전체 교체이고 `If-Match: <revision>`이 필수다(어긋나면 `412 VERSION_MISMATCH`, 없으면 `428 PRECONDITION_REQUIRED`) |
+| `GET /v1/agents/{id}/caller-limits`, `PUT /v1/agents/{id}/caller-limits` `{"rules":[{"target","tools_deny","repositories","mcp_servers","credentials_deny"}]}` | 호출자별 제한 규칙. 대상(`target`)은 `{"kind":"workspace"}`·`{"kind":"team","id"}`·`{"kind":"channel","id"}`이고 대상마다 규칙은 하나다(사람 대상은 400). PUT은 전체 교체이고 `If-Match: <revision>`(`limits_revision`)이 필수다 |
 | `GET /v1/agents/{id}/admins` | 에이전트의 관리자(사람·팀) |
 | `POST /v1/agents/{id}/admins` `{"user_id"}` 또는 `{"team_id"}` | 관리자 지정 |
 | `DELETE /v1/agents/{id}/admins/users/{user_id}`, `…/admins/teams/{team_id}` | 관리자 해제 |
 | `GET /v1/administered-agents` | 내가 관리하는 에이전트 |
+| `GET /v1/usable-agents` | 지금 세션을 시작할 수 있는 에이전트(사용 허가·활성 release·프로필·자격 연결을 세션 시작과 같은 조건으로 본다) |
 
 바꾼 것이 없으면(이미 구성원, 이미 관리자, 같은 이름, 같은 역할, 같은 담당 팀, 같은 사용 범위) `receipt_id`가 `null`이다. 판정은 `team.manage`·`agent.admin.manage`·`agent.usage.manage` 행으로 `authz_decisions`에 남는다.
 
 사용 범위(`agent_usage`, 마이그레이션 0265)는 이 단계에서 세션 동작을 바꾸지 않는다. 설정과 편집 API만 있고, 세션을 만들거나 입력할 때 읽는 판정은 뒤 단계다.
 
-- 마이그레이션이 기존 에이전트마다 `scope = workspace` 한 행을 넣고, `POST /v1/agents`도 같은 트랜잭션에서 넣는다. `limits_revision`은 호출자 한도(뒤 단계)가 쓰며 이 API는 읽지도 올리지도 않는다.
+- 마이그레이션이 기존 에이전트마다 `scope = workspace` 한 행을 넣고, `POST /v1/agents`도 같은 트랜잭션에서 넣는다. `limits_revision`은 호출자 제한 규칙(`agent_caller_limits`)의 버전이며 `PUT …/usage`는 읽지도 올리지도 않는다.
 - `agent.usage.manage`는 owner·admin과 그 에이전트의 관리자(사람만, API key는 403)다. 읽기도 같은 사람만 한다(담당 팀의 일반 구성원은 설정은 읽어도 누가 쓰는지는 읽지 못한다).
 - `private`은 팀이 1개 이상이고 `workspace`는 팀이 없다(아니면 `400`). 팀을 새로 넣는 사람은 owner·admin이거나 그 팀의 구성원이어야 한다(아니면 `403`, `reason_code: team_not_allowed`). 빼기, 이미 있는 팀을 유지하기는 `agent.usage.manage`면 된다.
 - 팀을 삭제하면 그 팀을 나열한 모든 에이전트에서 팀이 빠지고 그 에이전트들의 `revision`이 오른다. 팀이 모두 빠진 `private` 에이전트는 `private`인 채로 남고, 에이전트를 관리하는 사람 말고는 쓸 수 없는 상태가 된다. 삭제와 겹치는 PUT 때문에 삭제가 3번 시도해도 정리되지 않으면 `409 REVISION_CONFLICT`이고 아무것도 쓰지 않으니 다시 보낸다.
@@ -739,6 +743,15 @@ curl -s -b jar -X POST "http://127.0.0.1:3000/v1/teams/$TEAM_ID/members" \
 curl -s -b jar -X POST "http://127.0.0.1:3000/v1/agents/$AGENT_ID/admins" \
   -H 'X-Requested-With: werft-web' -H 'Content-Type: application/json' -d "{\"team_id\":\"$TEAM_ID\"}"
 ```
+
+호출자 제한 규칙(`agent_caller_limits`, 마이그레이션 0268)도 이 단계에서 세션 동작을 바꾸지 않는다. 저장과 편집 API만 있고 판정·집행은 뒤 단계다.
+
+- 규칙은 대상마다 하나다. 대상은 워크스페이스 전체(`workspace`), 팀(`team`), Slack 채널(`channel`)이다. 표에는 사람(`user`) 대상도 담을 수 있지만 v1 API는 받지도 돌려주지도 않으며(PUT에 넣으면 `400`), PUT이 그 행을 지우지도 않는다.
+- `tools_deny`·`credentials_deny`는 거부 목록, `repositories`·`mcp_servers`는 허용 목록이다. 허용 목록의 `null`은 제한 없음, `[]`는 아무것도 허용하지 않음이다. 도구·MCP 서버·자격 이름은 어디와도 대조하지 않는다. 채널 id도 연결 여부를 보지 않는다.
+- 저장소 id는 카탈로그에 있어야 하지만, 이번 PUT이 그 대상에 새로 넣는 id만 본다(없거나 제거됐으면 `400`, `details.reason_code: repository_not_in_catalog`, `details.repository_ids`). 그 대상에 이미 저장된 id는 카탈로그에서 빠졌어도 그대로 두고 다른 필드를 고칠 수 있다. 집행하는 쪽은 카탈로그에 없는 id를 허용으로 세지 않는다.
+- `limits_revision`은 PUT마다 하나 오르고, 규칙이 같으면(`receipt_id: null`) 그대로다. 팀을 삭제하면 그 팀의 `team` 규칙이 지워지고, 그 규칙을 가진 에이전트의 `limits_revision`만 오른다. 삭제 전에 읽은 `If-Match`는 `412`다. 편집 잠금 순서는 `PUT …/usage`와 같다.
+- 팀 규칙을 새로 넣는 사람은 owner·admin이거나 그 팀의 구성원이어야 한다(`403`, `reason_code: team_not_allowed`). 이미 있는 규칙을 고치거나 빼는 데는 `agent.usage.manage`면 된다. receipt는 `set_agent_caller_limits`다.
+- 롤백 하한은 0268이다. 이전 이미지로 내려도 아무 판정이 행을 읽지 않으므로 테이블은 그대로 남는다.
 
 ### 세션 공유 범위와 감사 열람
 

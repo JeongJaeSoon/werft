@@ -1,10 +1,16 @@
 // The entrance other platform domains import (A2 in package-structure.md):
 // only the names other domains use, not a barrel over the directory.
-export { additionalRepositoryAllowed } from "./additional-repositories.ts";
+export {
+  additionalContextOf,
+  additionalRepositoriesOf,
+  additionalRepositoryAllowed,
+} from "./additional-repositories.ts";
 export {
   type CatalogConnectionView,
   connectionOf,
+  GITHUB_API_BASE,
   repositoryBinding,
+  repositoryInCeiling,
   repositoryUpstreamOf,
   runtimeKindOfProvider,
   type SessionCatalog,
@@ -26,5 +32,6 @@ export {
   requirePermitted,
   SessionServiceError,
   selfApproval,
+  viewerOf,
 } from "./session-service.ts";
 export type { ToolCatalogs } from "./tool-names.ts";

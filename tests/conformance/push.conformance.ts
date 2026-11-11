@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { Api, e2eStack, poll } from "../e2e/client.ts";
-import { docker, serviceContainer } from "./docker.ts";
 import { scriptId } from "./engine.ts";
 import { engineFromEnv } from "./engines.ts";
+import { forgeBranch, forgeFile } from "./forge.ts";
 
 /**
  * A commit the session made goes to the agent branch on the forge only after
@@ -16,7 +16,6 @@ const api = new Api(
   await e2eStack({ needsMessages: false, connectionId: engine.connectionId }),
 );
 const TIMEOUT = 600_000;
-const SESSION_ID = /^[0-9a-f-]{36}$/;
 const WATCH_LOOKS = 10;
 const WATCH_INTERVAL_MS = 500;
 
@@ -67,42 +66,6 @@ async function requestPush(sessionId: string): Promise<PushRequest> {
   return made.body;
 }
 
-/**
- * Runs git in the fake forge's repository. The glob must name exactly one
- * repository, so a leftover from an earlier crash fails loudly instead of
- * splitting git's arguments.
- */
-async function forgeGit(args: string[]): Promise<string> {
-  const repo = `/tmp/testkit-fake-github-*/agent/${engine.repositoryId}.git`;
-  return docker([
-    "exec",
-    await serviceContainer("fake-git"),
-    "sh",
-    "-c",
-    `n=0; for d in ${repo}; do n=$((n+1)); dir=$d; done; [ "$n" = 1 ] || exit 3; exec git --git-dir="$dir" "$@"`,
-    "sh",
-    ...args,
-  ]);
-}
-
-/** The commit the forge holds on the session's agent branch, or null. */
-async function forgeBranch(sessionId: string): Promise<string | null> {
-  expect(sessionId).toMatch(SESSION_ID);
-  const sha = (
-    await forgeGit([
-      "for-each-ref",
-      "--format=%(objectname)",
-      `refs/heads/agent/${sessionId}`,
-    ])
-  ).trim();
-  return sha === "" ? null : sha;
-}
-
-/** A file's content at a commit the forge holds. */
-async function forgeFile(commit: string, file: string): Promise<string> {
-  return (await forgeGit(["show", `${commit}:${file}`])).trim();
-}
-
 async function stateOf(sessionId: string, id: string): Promise<string> {
   const list = await api.request<{ items: PushRequest[] }>(
     "GET",
@@ -119,11 +82,11 @@ describe(`push approval on ${engine.runtimeKind}`, () => {
     async () => {
       const { content, file, sessionId } =
         await sessionWithCommit("push-approve");
-      expect(await forgeBranch(sessionId)).toBeNull();
+      expect(await forgeBranch(engine, sessionId)).toBeNull();
       const request = await requestPush(sessionId);
 
       // Asking pushes nothing: the branch waits for a decision.
-      expect(await forgeBranch(sessionId)).toBeNull();
+      expect(await forgeBranch(engine, sessionId)).toBeNull();
 
       const approved = await api.request<PushRequest>(
         "POST",
@@ -141,10 +104,10 @@ describe(`push approval on ${engine.runtimeKind}`, () => {
         },
       );
       expect(state).toBe("pushed");
-      expect(await forgeBranch(sessionId)).toBe(request.git_commit);
+      expect(await forgeBranch(engine, sessionId)).toBe(request.git_commit);
 
       // A turn whose command failed would still leave a checkpoint to push.
-      expect(await forgeFile(request.git_commit, file)).toBe(content);
+      expect(await forgeFile(engine, request.git_commit, file)).toBe(content);
     },
     TIMEOUT,
   );
@@ -168,7 +131,7 @@ describe(`push approval on ${engine.runtimeKind}`, () => {
       // would show inside this window.
       for (let look = 0; look < WATCH_LOOKS; look += 1) {
         expect(await stateOf(sessionId, request.id)).toBe("rejected");
-        expect(await forgeBranch(sessionId)).toBeNull();
+        expect(await forgeBranch(engine, sessionId)).toBeNull();
         await Bun.sleep(WATCH_INTERVAL_MS);
       }
     },

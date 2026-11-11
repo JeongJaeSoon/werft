@@ -9,7 +9,6 @@ import type {
   SubmitPullRequestReviewRequest,
   SubmitPullRequestReviewResponse,
 } from "@werft-ai/contracts";
-import type { AuthorizationPolicy } from "../../musterrolle/policy.ts";
 import {
   GitHubCallError,
   type GitHubGate,
@@ -19,7 +18,8 @@ import {
   GitHubUnavailableError,
   type GitHubWork,
   type GitHubWorkContext,
-} from "../../ports/github-gate.ts";
+} from "../../github/ports/github-gate.ts";
+import type { AuthorizationPolicy } from "../../musterrolle/policy.ts";
 import { requirePermitted, SessionServiceError } from "../../sessions/index.ts";
 import { cleanBody } from "../change-request/pull-request-text.ts";
 import {

@@ -8,6 +8,7 @@ import {
   createPostgresAchievementRuleStore,
   createPostgresAgentAccessSetting,
   createPostgresAgentAdminStore,
+  createPostgresAgentCallerLimitsStore,
   createPostgresAgentGitHubStore,
   createPostgresAgentIdentityStore,
   createPostgresAgentMcpStore,
@@ -83,6 +84,7 @@ import {
   createAchievementJudge,
   createAchievementRuleService,
   createAgentAdminService,
+  createAgentCallerLimitsService,
   createAgentGitHubService,
   createAgentIdentityService,
   createAgentMcpService,
@@ -230,6 +232,7 @@ import {
   registerAchievementRoutes,
   registerSessionAchievementRoutes,
 } from "./routes/achievements.ts";
+import { registerAgentCallerLimitsRoutes } from "./routes/agent-caller-limits.ts";
 import { registerAgentGitHubRoutes } from "./routes/agent-github.ts";
 import { registerAgentIdentityRoutes } from "./routes/agent-identities.ts";
 import { registerAgentMcpRoutes } from "./routes/agent-mcp.ts";
@@ -760,6 +763,10 @@ const agentAdmins = createAgentAdminService({
 const agentUsage = createAgentUsageService({
   authorization,
   store: createPostgresAgentUsageStore(db),
+});
+const agentCallerLimits = createAgentCallerLimitsService({
+  authorization,
+  store: createPostgresAgentCallerLimitsStore(db),
 });
 const inviteStore = createPostgresInviteStore(db);
 const invites = createInviteService({ authorization, store: inviteStore });
@@ -1340,6 +1347,7 @@ const app = createApiApp({
     registerApiKeyRoutes(router, apiKeys);
     registerTeamRoutes(router, teams, agentAdmins);
     registerAgentUsageRoutes(router, agentUsage);
+    registerAgentCallerLimitsRoutes(router, agentCallerLimits);
     registerCredentialBindingRoutes(router, credentialBindingService);
     registerEnvVariableRoutes(router, envVariableService);
     registerEventRoutes(router, sessions, {

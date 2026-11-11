@@ -11,6 +11,7 @@ import {
   type ListAgentsQuery,
   listAgentsResponseSchema,
   listConnectionOptionsResponseSchema,
+  listUsableAgentsResponseSchema,
   requestBodyInvalidDetailsSchema,
   saveAgentResponseSchema,
 } from "@werft-ai/contracts";
@@ -133,6 +134,7 @@ const outage = () =>
 function store(overrides: Partial<AgentStore> = {}): AgentStore {
   return {
     list: async () => ({ items: [detail.agent], next_cursor: null }),
+    listUsable: async () => [],
     count: async () => ({
       all: 1,
       administered: 0,
@@ -205,9 +207,12 @@ function app(
     authorization?: AuthorizationPolicy;
     person?: boolean;
     unbound?: string[];
+    /** The release's connection is gone from the catalog. */
+    blocked?: boolean;
   } = {},
 ) {
   const catalog = testCatalog({
+    ...(options.blocked ? { connections: {} } : {}),
     provider: {
       kind: "litellm",
       endpoint: "https://litellm.invalid",
@@ -241,6 +246,8 @@ function app(
           countAgents: (caller) => service.countAgents(asPerson(caller)),
           listConnections: (caller) =>
             service.listConnections(asPerson(caller)),
+          listUsableAgents: (caller) =>
+            service.listUsableAgents(asPerson(caller)),
           getAgent: (caller, id) => service.getAgent(asPerson(caller), id),
           createAgent: (caller, body) =>
             service.createAgent(asPerson(caller), body),
@@ -503,6 +510,95 @@ describe("GET /v1/agents/counts", () => {
     expect(
       (await send(app(store({ count: outage })), "GET", "/v1/agents/counts"))
         .status,
+    ).toBe(503);
+  });
+});
+
+describe("GET /v1/usable-agents", () => {
+  const usable = {
+    ...detail.agent,
+    active_release_id: storedRelease().id,
+  };
+
+  test("lists what the store finds usable, as the new-session screen reads it", async () => {
+    const asked: unknown[] = [];
+    const requested: unknown[] = [];
+    const response = await send(
+      app(
+        store({
+          listUsable: async (workspaceId, who, limit) => {
+            asked.push({ workspaceId, who, limit });
+            return [usable];
+          },
+        }),
+        {
+          authorization: {
+            authorize: async (request) => {
+              requested.push([request.action, request.resource]);
+              return allowing.authorize(request);
+            },
+          },
+        },
+      ),
+      "GET",
+      "/v1/usable-agents",
+    );
+    expect(response.status).toBe(200);
+    expect(listUsableAgentsResponseSchema.parse(await response.json())).toEqual(
+      {
+        items: [
+          {
+            id: usable.id,
+            slug: usable.slug,
+            name: usable.name,
+            description: usable.description,
+            managing_team_name: usable.managing_team_name,
+            active_release_id: usable.active_release_id,
+          },
+        ],
+      },
+    );
+    expect(asked).toEqual([
+      {
+        workspaceId: "owner-a",
+        who: { userId: OWNER_USER, keyAgentId: null, outsideUse: true },
+        limit: 200,
+      },
+    ]);
+    // The scope of a start, asked once for the list.
+    expect(requested).toEqual([
+      ["session.submit", { kind: "session", id: null, owner_scope: "owner-a" }],
+    ]);
+  });
+
+  test("leaves out an agent a start would refuse on its release", async () => {
+    const listing = store({ listUsable: async () => [usable] });
+    const unbound = await send(
+      app(listing, { unbound: ["GITHUB_TOKEN"] }),
+      "GET",
+      "/v1/usable-agents",
+    );
+    expect(await unbound.json()).toEqual({ items: [] });
+    const blocked = await send(
+      app(listing, { blocked: true }),
+      "GET",
+      "/v1/usable-agents",
+    );
+    expect(await blocked.json()).toEqual({ items: [] });
+  });
+
+  test("requires authentication and maps an outage to 503", async () => {
+    expect(
+      (await send(app(), "GET", "/v1/usable-agents", undefined, {})).status,
+    ).toBe(401);
+    expect(
+      (
+        await send(
+          app(store({ listUsable: outage })),
+          "GET",
+          "/v1/usable-agents",
+        )
+      ).status,
     ).toBe(503);
   });
 });

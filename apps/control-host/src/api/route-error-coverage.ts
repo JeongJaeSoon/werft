@@ -227,6 +227,10 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "DELETE /v1/agents/{id}/admins/{kind}/{subject_id}",
     "GET /v1/administered-agents",
   ],
+  "routes/agent-caller-limits.test.ts": [
+    "GET /v1/agents/{id}/caller-limits",
+    "PUT /v1/agents/{id}/caller-limits",
+  ],
   "routes/agent-usage.test.ts": [
     "GET /v1/agents/{id}/usage",
     "PUT /v1/agents/{id}/usage",
@@ -248,6 +252,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
   "routes/agents.test.ts": [
     "GET /v1/agents",
     "GET /v1/agents/counts",
+    "GET /v1/usable-agents",
     "POST /v1/agents",
     "GET /v1/agents/{id}",
     "PATCH /v1/agents/{id}",

@@ -9,22 +9,22 @@ import {
 } from "../action/ports/forge.ts";
 import type { GitHubRateLimit } from "../action/ports/github-api.ts";
 import {
+  createGitHubConnectionResolver,
+  type GitHubConnectionResolver,
+} from "../github/index.ts";
+import {
   GitHubCallError,
   type GitHubConnections,
   type GitHubGate,
   GitHubGateError,
   GitHubUnavailableError,
-} from "../ports/github-gate.ts";
+} from "../github/ports/github-gate.ts";
 import type {
   ClaimedOutcome,
   OutcomeCheck,
   SessionOutcomeStore,
 } from "../ports/session-outcomes.ts";
 import type { SessionCatalog } from "./catalog.ts";
-import {
-  createGitHubConnectionResolver,
-  type GitHubConnectionResolver,
-} from "./github-connection-resolver.ts";
 
 export const OUTCOME_REFRESH_INTERVAL_MS = 60_000;
 /** A claimed row a dead replica held is claimed again after this. */

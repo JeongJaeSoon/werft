@@ -2224,7 +2224,7 @@ export interface paths {
         };
         /**
          * The workspace's agents
-         * @description Lists the workspace's agents oldest `created_at` first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. Every member of the workspace lists it, each agent's row being its information (name, slug, description, managing team id and name, status, active release id). `include=summary` adds to each item a `summary` of what a card shows (the version people talk to, its connection, live credential bindings, admins, and how many of the agent's sessions the caller can see are `needs_input` and `running`, as `GET /v1/sessions` shows them), read for the whole page at once, only on the agents whose settings the caller reads (`GET /v1/agents/{id}`); the other items come without it. Without `include` the items are as before. `q` keeps the agents whose name or slug contains it, ignoring case, `ids` the agents named (at most 100; an id of no agent in the workspace is left out); each narrows the same order, so the cursor works as before. An agent key that holds `sessions:write` gets its own agent alone, on one page, so it can find the `active_release_id` to send as `agent_release_id` to `POST /v1/sessions`; it is refused `include=summary`, `q` and `ids` keep its agent only when it matches them, and every other API key is refused.
+         * @description Lists the workspace's agents oldest `created_at` first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. Every member of the workspace lists it, except that a private agent the caller may not use is left out, as if it did not exist (the same rule as `GET /v1/usable-agents` and a session start; owners, admins, the agent's admins and its managing team's members keep it), each agent's row being its information (name, slug, description, managing team id and name, status, active release id). `include=summary` adds to each item a `summary` of what a card shows (the version people talk to, its connection, live credential bindings, admins, and how many of the agent's sessions the caller can see are `needs_input` and `running`, as `GET /v1/sessions` shows them), read for the whole page at once, only on the agents whose settings the caller reads (`GET /v1/agents/{id}`); the other items come without it. Without `include` the items are as before. `q` keeps the agents whose name or slug contains it, ignoring case, `ids` the agents named (at most 100; an id of no agent in the workspace is left out); each narrows the same order, so the cursor works as before. An agent key that holds `sessions:write` gets its own agent alone, on one page, so it can find the `active_release_id` to send as `agent_release_id` to `POST /v1/sessions`; it is refused `include=summary`, `q` and `ids` keep its agent only when it matches them, and every other API key is refused.
          *
          *     **Scope:** `sessions:write` (API key or cookie session).
          */
@@ -2252,7 +2252,7 @@ export interface paths {
         };
         /**
          * How many agents the workspace has, by state, and how many the caller administers
-         * @description `all` is how many agents GET /v1/agents lists read to the last page; `administered` is how many of them the caller administers now, directly or through a team they are a live member of; `active` is how many are `active` with an `active_release_id`, and `draft` how many are not `archived` and have none yet. Answered for the same callers as the list, over the same agents: every member counts what the list shows them. API keys are refused. It changes nothing.
+         * @description `all` is how many agents GET /v1/agents lists read to the last page; `administered` is how many of them the caller administers now, directly or through a team they are a live member of; `active` is how many are `active` with an `active_release_id`, and `draft` how many are not `archived` and have none yet. Answered for the same callers as the list, over the same agents: every member counts what the list shows them, so a private agent the caller may not use is in no count. API keys are refused. It changes nothing.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -2274,7 +2274,7 @@ export interface paths {
         };
         /**
          * An agent with its versions, releases and active release
-         * @description The agent's settings: its card versions, releases and active release. Read by the workspace's owners and admins and by those inside the agent: its admins and the live members of its managing team. A member outside it gets 403 and reads the agent's row from `GET /v1/agents` (`ids`) instead, or 404 while the workspace's `agent_outsider_access` is `none`, since the agent is then hidden from them; an id of no agent in the workspace is 404. It changes nothing.
+         * @description The agent's settings: its card versions, releases and active release. Read by the workspace's owners and admins and by those inside the agent: its admins and the live members of its managing team. A member outside it gets 403 and reads the agent's row from `GET /v1/agents` (`ids`) instead, or 404 while the workspace's `agent_outsider_access` is `none`, since the agent is then hidden from them; an id of no agent in the workspace is 404. A private agent the caller may not use is 404 too, with the body of an id of no agent, whatever the caller's other rights outside it. It changes nothing.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -3397,6 +3397,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents/{id}/caller-limits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What callers may do through an agent
+         * @description One rule per caller target: the whole `workspace`, a `team` or a Slack `channel`. A rule's `tools_deny` and `credentials_deny` name what the caller may not use; `repositories` and `mcp_servers` name all the caller may use, `null` meaning no limit and `[]` none. Owners, admins and the agent's own admins read it, as they edit it; never an API key. `revision` is the `If-Match` of the next edit; it moves with every change, and with the archive of a team the agent has a rule for. Reading it changes no session: these are stored rules, not a decision.
+         *
+         *     **Auth:** cookie session only; no scope.
+         */
+        get: operations["getAgentCallerLimits"];
+        /**
+         * Replace what callers may do through an agent
+         * @description Owners, admins and the agent's own admins; never an API key. The whole set is replaced and `If-Match: <revision>` is required, so two edits cannot overwrite each other: the later one answers 412. A target is a `workspace`, a `team` or a Slack `channel`, once each; a person is not a target here (400). Tool, MCP server and credential names are not checked. A repository id this edit adds to a target must be in the catalog (400, `details.reason_code` `repository_not_in_catalog`, `details.repository_ids`); an id the target already holds stays, whatever the catalog says now, and counts as no allowance. An owner or admin names any live team; anyone else adds a rule only for a team they are in (403 FORBIDDEN, `details.reason_code` `team_not_allowed`), and removing a rule needs only this right. A team that is not in the workspace or is deleted is 404. Archiving a team deletes its rules and moves the `revision` of the agents that had one. This changes no session by itself. Writes a `set_agent_caller_limits` receipt with the rules before and after unless nothing changed (`receipt_id` null, `revision` kept).
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        put: operations["putAgentCallerLimits"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/administered-agents": {
         parameters: {
             query?: never;
@@ -3411,6 +3439,28 @@ export interface paths {
          *     **Auth:** cookie session only; no scope.
          */
         get: operations["listAdministeredAgents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/usable-agents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The agents the caller could start a session with now
+         * @description Every agent `POST /v1/sessions` would accept a start on for this caller at this request, oldest first, at most 200: the agent is `active` with an `active_release_id`, the caller may use it (open to the workspace; or a private agent whose teams the caller is in, or that the caller administers or manages, or a workspace owner or admin), the release's connection is still in the catalog and its spec verified, and every credential the release names is bound. Where the workspace limits agents to those inside them (axis A is not `use`), only agents the caller is inside are listed. A key bound to an agent lists that agent alone when it could start there, and a service key bound to none lists the agents open to the workspace. A private agent the caller may not use is not in the list, and nothing in the answer tells that it exists. Needs `sessions:write`. `active_release_id` is what to send as `agent_release_id`.
+         *
+         *     **Scope:** `sessions:write` (API key or cookie session).
+         */
+        get: operations["listUsableAgents"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4262,7 +4312,7 @@ export interface paths {
          *     - `set_slack_secret`, `delete_slack_secret`: `{purpose, last4}`; the value itself is never in a receipt.
          *     - `set_github_app`, `delete_github_app`: `{app_id}`; the private key is never in a receipt.
          *
-         *     Any credential of the same owner can read a receipt, except that a receipt about a session needs that session to be visible to the caller, and one that changed an agent's settings (`target_ref.resource` an agent or one of its Slack bindings, other than a refused `create_session`) is read only by those who read the agent's settings: its workspace's owners and admins, its admins, the live members of its managing team, and their personal keys; anyone else gets 403. It changes nothing.
+         *     Any credential of the same owner can read a receipt, except that a receipt about a session needs that session to be visible to the caller, and one that changed an agent's settings (`target_ref.resource` an agent or one of its Slack bindings, other than a refused `create_session`) is read only by those who read the agent's settings: its workspace's owners and admins, its admins, the live members of its managing team, and their personal keys; anyone else gets 403. A receipt that names an agent or a release of one (`agent_id`, `agent_ids`, `release_id`, `agent_release_id`, or the agent as `target_ref` or `actor.agent_id`) is shown only with those ids to a reader who may use that agent (`GET /v1/usable-agents`); for anyone else a private agent's ids are left out (a list loses them, a single field is `null`) and a receipt whose target is that agent or one of its releases answers 404, as a receipt that does not exist does. It changes nothing.
          *
          *     **Scope:** `sessions:read` (API key or cookie session).
          */
@@ -5118,6 +5168,27 @@ export interface components {
                 id: string;
             }[];
         };
+        PutAgentCallerLimitsRequest: {
+            rules: {
+                target: {
+                    /** @constant */
+                    kind: "workspace";
+                } | {
+                    /** @constant */
+                    kind: "team";
+                    /** Format: uuid */
+                    id: string;
+                } | {
+                    /** @constant */
+                    kind: "channel";
+                    id: string;
+                };
+                tools_deny: string[];
+                repositories: string[] | null;
+                mcp_servers: string[] | null;
+                credentials_deny: string[];
+            }[];
+        };
         LinkAgentIdentityRequest: {
             /** @enum {string} */
             provider: "slack_bot";
@@ -5230,6 +5301,11 @@ export interface components {
                 /** @default null */
                 release_is_active: boolean | null;
             } | null;
+            /**
+             * @description True when the session has an agent the caller may not use (a private agent outside the caller's teams): `agent` is then null, as are the agent's name and id everywhere else in this session. The session itself is shown as shared. False otherwise, including a session with no agent.
+             * @default false
+             */
+            agent_hidden: boolean;
             /**
              * @description Who started the session: the signed-in person, or for an API key the person who created the key. It stays the same after a takeover hands the session to someone else. Null for sessions from before people were recorded and for a key with no creator.
              * @default null
@@ -5400,6 +5476,11 @@ export interface components {
                 /** @default null */
                 release_is_active: boolean | null;
             } | null;
+            /**
+             * @description True when the session has an agent the caller may not use (a private agent outside the caller's teams): `agent` is then null, as are the agent's name and id everywhere else in this session. The session itself is shown as shared. False otherwise, including a session with no agent.
+             * @default false
+             */
+            agent_hidden: boolean;
             /**
              * @description Who started the session: the signed-in person, or for an API key the person who created the key. It stays the same after a takeover hands the session to someone else. Null for sessions from before people were recorded and for a key with no creator.
              * @default null
@@ -7199,7 +7280,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** @enum {string} */
-            operation: "create_session" | "append_message" | "answer" | "interrupt" | "pause" | "close" | "terminate" | "resume" | "recovery_decision" | "revoke_execution" | "issue_password_reset" | "reset_password" | "recover_owner" | "takeover" | "link_account" | "unlink_account" | "invite_member" | "accept_invite" | "revoke_invite" | "change_member_role" | "disable_member" | "enable_member" | "disable_user" | "enable_user" | "create_agent" | "update_agent" | "create_agent_release" | "activate_agent" | "create_api_key" | "revoke_api_key" | "create_team" | "rename_team" | "delete_team" | "add_team_member" | "remove_team_member" | "set_team_member_role" | "set_agent_managing_team" | "set_agent_usage" | "set_agent_access_settings" | "add_agent_admin" | "remove_agent_admin" | "bind_credential" | "unbind_credential" | "link_agent_identity" | "revoke_agent_identity" | "set_surface_binding" | "request_surface_binding" | "resolve_surface_binding" | "share_session" | "request_push" | "resolve_push" | "decide_push" | "push" | "open_pull_request" | "update_pull_request" | "comment_pull_request" | "close_pull_request" | "reopen_pull_request" | "merge_pull_request" | "call_mcp" | "set_slack_secret" | "delete_slack_secret" | "set_github_app" | "delete_github_app" | "mint_github_token" | "set_github_ceiling" | "set_github_pull_request_settings" | "set_agent_pull_request_settings" | "add_repository" | "set_repository_branch" | "remove_repository" | "import_repository" | "import_connection" | "import_mcp_server" | "create_connection" | "create_mcp_server" | "set_settings_credential" | "set_connection_auto_mode" | "set_connection_models" | "disable_connection" | "enable_connection" | "disable_mcp_server" | "set_mcp_server_workspaces" | "resolve_repository" | "set_agent_github" | "set_agent_mcp" | "set_repository_github_app" | "review_pull_request" | "dispatch_workflow" | "rerun_workflow" | "attach_repository" | "set_github_packages_token" | "delete_github_packages_token" | "set_github_packages_allowlist" | "fetch_github_package" | "create_achievement_category" | "update_achievement_category" | "archive_achievement_category" | "create_achievement_type" | "update_achievement_type" | "archive_achievement_type" | "create_achievement_rule" | "update_achievement_rule" | "disable_achievement_rule" | "enable_achievement_rule" | "set_achievement_judge" | "rejudge_session" | "review_achievement" | "set_env_variable" | "delete_env_variable" | "set_env_variable_grants" | "resolve_session_env" | "reject_session_env" | "resolve_session_engine_settings" | "set_workspace_engine_settings" | "set_agent_engine_settings" | "register_extension" | "approve_extension" | "attach_extension" | "detach_extension";
+            operation: "create_session" | "append_message" | "answer" | "interrupt" | "pause" | "close" | "terminate" | "resume" | "recovery_decision" | "revoke_execution" | "issue_password_reset" | "reset_password" | "recover_owner" | "takeover" | "link_account" | "unlink_account" | "invite_member" | "accept_invite" | "revoke_invite" | "change_member_role" | "disable_member" | "enable_member" | "disable_user" | "enable_user" | "create_agent" | "update_agent" | "create_agent_release" | "activate_agent" | "create_api_key" | "revoke_api_key" | "create_team" | "rename_team" | "delete_team" | "add_team_member" | "remove_team_member" | "set_team_member_role" | "set_agent_managing_team" | "set_agent_usage" | "set_agent_caller_limits" | "set_agent_access_settings" | "add_agent_admin" | "remove_agent_admin" | "bind_credential" | "unbind_credential" | "link_agent_identity" | "revoke_agent_identity" | "set_surface_binding" | "request_surface_binding" | "resolve_surface_binding" | "share_session" | "request_push" | "resolve_push" | "decide_push" | "push" | "open_pull_request" | "update_pull_request" | "comment_pull_request" | "close_pull_request" | "reopen_pull_request" | "merge_pull_request" | "call_mcp" | "set_slack_secret" | "delete_slack_secret" | "set_github_app" | "delete_github_app" | "mint_github_token" | "set_github_ceiling" | "set_github_pull_request_settings" | "set_agent_pull_request_settings" | "add_repository" | "set_repository_branch" | "remove_repository" | "import_repository" | "import_connection" | "import_mcp_server" | "create_connection" | "create_mcp_server" | "set_settings_credential" | "set_connection_auto_mode" | "set_connection_models" | "disable_connection" | "enable_connection" | "disable_mcp_server" | "set_mcp_server_workspaces" | "resolve_repository" | "set_agent_github" | "set_agent_mcp" | "set_repository_github_app" | "review_pull_request" | "dispatch_workflow" | "rerun_workflow" | "attach_repository" | "set_github_packages_token" | "delete_github_packages_token" | "set_github_packages_allowlist" | "fetch_github_package" | "create_achievement_category" | "update_achievement_category" | "archive_achievement_category" | "create_achievement_type" | "update_achievement_type" | "archive_achievement_type" | "create_achievement_rule" | "update_achievement_rule" | "disable_achievement_rule" | "enable_achievement_rule" | "set_achievement_judge" | "rejudge_session" | "review_achievement" | "set_env_variable" | "delete_env_variable" | "set_env_variable_grants" | "resolve_session_env" | "reject_session_env" | "resolve_session_engine_settings" | "set_workspace_engine_settings" | "set_agent_engine_settings" | "register_extension" | "approve_extension" | "attach_extension" | "detach_extension";
             target_ref: {
                 /** Format: uuid */
                 session_id: string;
@@ -9480,6 +9561,32 @@ export interface components {
             usage: components["schemas"]["AgentUsage"];
             receipt_id: string | null;
         };
+        AgentCallerLimits: {
+            rules: {
+                target: {
+                    /** @constant */
+                    kind: "workspace";
+                } | {
+                    /** @constant */
+                    kind: "team";
+                    /** Format: uuid */
+                    id: string;
+                } | {
+                    /** @constant */
+                    kind: "channel";
+                    id: string;
+                };
+                tools_deny: string[];
+                repositories: string[] | null;
+                mcp_servers: string[] | null;
+                credentials_deny: string[];
+            }[];
+            revision: number;
+        };
+        PutAgentCallerLimitsResponse: {
+            limits: components["schemas"]["AgentCallerLimits"];
+            receipt_id: string | null;
+        };
         AgentAdmins: {
             users: {
                 /** Format: uuid */
@@ -9563,6 +9670,17 @@ export interface components {
                 model_successors: {
                     [key: string]: string;
                 };
+            }[];
+        };
+        ListUsableAgentsResponse: {
+            items: {
+                /** Format: uuid */
+                id: string;
+                slug: string;
+                name: string;
+                description: string | null;
+                managing_team_name: string;
+                active_release_id: string;
             }[];
         };
         ListMyTeamsResponse: {
@@ -16446,6 +16564,7 @@ export interface operations {
                      *             "release_label": "2026-10-11_17:00:00",
                      *             "release_is_active": true
                      *           },
+                     *           "agent_hidden": false,
                      *           "created_by": {
                      *             "user_id": "1b2c3d4e-5f60-4718-8a9b-0c1d2e3f4a5b",
                      *             "display_name": "Mina Park"
@@ -16888,6 +17007,7 @@ export interface operations {
                      *         "release_label": "2026-10-11_17:00:00",
                      *         "release_is_active": true
                      *       },
+                     *       "agent_hidden": false,
                      *       "created_by": {
                      *         "user_id": "1b2c3d4e-5f60-4718-8a9b-0c1d2e3f4a5b",
                      *         "display_name": "Mina Park"
@@ -17045,6 +17165,7 @@ export interface operations {
                      *         "release_label": "2026-10-11_17:00:00",
                      *         "release_is_active": true
                      *       },
+                     *       "agent_hidden": false,
                      *       "created_by": {
                      *         "user_id": "1b2c3d4e-5f60-4718-8a9b-0c1d2e3f4a5b",
                      *         "display_name": "Mina Park"
@@ -34876,6 +34997,327 @@ export interface operations {
             };
         };
     };
+    getAgentCallerLimits: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The agent's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The agent's caller limit rules. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "rules": [
+                     *         {
+                     *           "target": {
+                     *             "kind": "team",
+                     *             "id": "019a0000-0000-7000-8000-00000000b0a1"
+                     *           },
+                     *           "tools_deny": [
+                     *             "shell"
+                     *           ],
+                     *           "repositories": [
+                     *             "platform"
+                     *           ],
+                     *           "mcp_servers": null,
+                     *           "credentials_deny": []
+                     *         }
+                     *       ],
+                     *       "revision": 2
+                     *     }
+                     */
+                    "application/json": components["schemas"]["AgentCallerLimits"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    putAgentCallerLimits: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The `revision` last read, as a number (an entity tag's quotes are allowed). A different one answers `412 VERSION_MISMATCH`; none answers `428 PRECONDITION_REQUIRED`. */
+                "If-Match": string;
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
+            };
+            path: {
+                /** @description The agent's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "rules": [
+                 *         {
+                 *           "target": {
+                 *             "kind": "team",
+                 *             "id": "019a0000-0000-7000-8000-00000000b0a1"
+                 *           },
+                 *           "tools_deny": [
+                 *             "shell"
+                 *           ],
+                 *           "repositories": [
+                 *             "platform"
+                 *           ],
+                 *           "mcp_servers": null,
+                 *           "credentials_deny": []
+                 *         }
+                 *       ]
+                 *     }
+                 */
+                "application/json": components["schemas"]["PutAgentCallerLimitsRequest"];
+            };
+        };
+        responses: {
+            /** @description The rules now held, and their new `revision`. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "limits": {
+                     *         "rules": [
+                     *           {
+                     *             "target": {
+                     *               "kind": "team",
+                     *               "id": "019a0000-0000-7000-8000-00000000b0a1"
+                     *             },
+                     *             "tools_deny": [
+                     *               "shell"
+                     *             ],
+                     *             "repositories": [
+                     *               "platform"
+                     *             ],
+                     *             "mcp_servers": null,
+                     *             "credentials_deny": []
+                     *           }
+                     *         ],
+                     *         "revision": 3
+                     *       },
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["PutAgentCallerLimitsResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `VERSION_MISMATCH`: `If-Match` names another version than the current one, the variable does not exist, or `If-None-Match: *` met one that does. Read it again and retry. */
+            412: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "VERSION_MISMATCH";
+                        };
+                    };
+                };
+            };
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB. */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "PAYLOAD_TOO_LARGE";
+                        };
+                    };
+                };
+            };
+            /** @description - `PRECONDITION_REQUIRED`: The write sent neither `If-Match` nor `If-None-Match: *`. */
+            428: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "PRECONDITION_REQUIRED";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
     listAdministeredAgents: {
         parameters: {
             query?: never;
@@ -34911,6 +35353,88 @@ export interface operations {
                 };
             };
             /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    listUsableAgents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The agents a start would accept, oldest first. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "id": "8d2c4f1a-6b3e-4a9d-b7c5-2e1f0a9b8c7d",
+                     *           "slug": "finance",
+                     *           "name": "Finance analyst",
+                     *           "description": "Reads the quarterly reports and flags outliers.",
+                     *           "managing_team_name": "Finance",
+                     *           "active_release_id": "rel_example"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ListUsableAgentsResponse"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:write`, checked before the body or the resource is read. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];

@@ -25,6 +25,7 @@ import {
   agentAdminChangeResponseSchema,
   agentAdminParamsSchema,
   agentAdminsViewSchema,
+  agentCallerLimitsSchema,
   agentDetailSchema,
   agentEngineSettingsResponseSchema,
   agentEnvVariablesSchema,
@@ -160,6 +161,7 @@ import {
   listTeamsResponseSchema,
   listTurnsQuerySchema,
   listTurnsResponseSchema,
+  listUsableAgentsResponseSchema,
   listWorkspaceSlackAppsResponseSchema,
   loginMethodsResponseSchema,
   loginRequestSchema,
@@ -188,6 +190,8 @@ import {
   pushRequestParamsSchema,
   pushRequestSchema,
   pushRequestViewSchema,
+  putAgentCallerLimitsRequestSchema,
+  putAgentCallerLimitsResponseSchema,
   putAgentGitHubEnabledRequestSchema,
   putAgentGitHubEnabledResponseSchema,
   putAgentGitHubRepositoryAccessRequestSchema,
@@ -454,6 +458,7 @@ const requestComponents = {
   AddAgentAdminRequest: addAgentAdminRequestSchema,
   SetAgentManagingTeamRequest: setAgentManagingTeamRequestSchema,
   PutAgentUsageRequest: putAgentUsageRequestSchema,
+  PutAgentCallerLimitsRequest: putAgentCallerLimitsRequestSchema,
   LinkAgentIdentityRequest: linkAgentIdentityRequestSchema,
   PutSlackBindingRequest: putSlackBindingRequestSchema,
   ResolveSlackBindingRequest: resolveSlackBindingRequestSchema,
@@ -626,11 +631,14 @@ const responseComponents = {
   DeleteTeamResponse: deleteTeamResponseSchema,
   AgentUsage: agentUsageSchema,
   PutAgentUsageResponse: putAgentUsageResponseSchema,
+  AgentCallerLimits: agentCallerLimitsSchema,
+  PutAgentCallerLimitsResponse: putAgentCallerLimitsResponseSchema,
   AgentAdmins: agentAdminsViewSchema,
   AgentAdminChangeResponse: agentAdminChangeResponseSchema,
   SetAgentManagingTeamResponse: setAgentManagingTeamResponseSchema,
   ListAdministeredAgentsResponse: listAdministeredAgentsResponseSchema,
   ListConnectionOptionsResponse: listConnectionOptionsResponseSchema,
+  ListUsableAgentsResponse: listUsableAgentsResponseSchema,
   ListMyTeamsResponse: listMyTeamsResponseSchema,
   CreateCredentialBindingRequest: createCredentialBindingRequestSchema,
   CreateCredentialBindingResponse: createCredentialBindingResponseSchema,
@@ -1177,6 +1185,7 @@ const EXAMPLE_SESSION_SUMMARY = {
     release_label: "2026-10-11_17:00:00",
     release_is_active: true,
   },
+  agent_hidden: false,
   created_by: {
     user_id: "1b2c3d4e-5f60-4718-8a9b-0c1d2e3f4a5b",
     display_name: "Mina Park",
@@ -4683,7 +4692,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "The workspace's agents",
     description:
-      "Lists the workspace's agents oldest `created_at` first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. Every member of the workspace lists it, each agent's row being its information (name, slug, description, managing team id and name, status, active release id). `include=summary` adds to each item a `summary` of what a card shows (the version people talk to, its connection, live credential bindings, admins, and how many of the agent's sessions the caller can see are `needs_input` and `running`, as `GET /v1/sessions` shows them), read for the whole page at once, only on the agents whose settings the caller reads (`GET /v1/agents/{id}`); the other items come without it. Without `include` the items are as before. `q` keeps the agents whose name or slug contains it, ignoring case, `ids` the agents named (at most 100; an id of no agent in the workspace is left out); each narrows the same order, so the cursor works as before. An agent key that holds `sessions:write` gets its own agent alone, on one page, so it can find the `active_release_id` to send as `agent_release_id` to `POST /v1/sessions`; it is refused `include=summary`, `q` and `ids` keep its agent only when it matches them, and every other API key is refused.",
+      "Lists the workspace's agents oldest `created_at` first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. Every member of the workspace lists it, except that a private agent the caller may not use is left out, as if it did not exist (the same rule as `GET /v1/usable-agents` and a session start; owners, admins, the agent's admins and its managing team's members keep it), each agent's row being its information (name, slug, description, managing team id and name, status, active release id). `include=summary` adds to each item a `summary` of what a card shows (the version people talk to, its connection, live credential bindings, admins, and how many of the agent's sessions the caller can see are `needs_input` and `running`, as `GET /v1/sessions` shows them), read for the whole page at once, only on the agents whose settings the caller reads (`GET /v1/agents/{id}`); the other items come without it. Without `include` the items are as before. `q` keeps the agents whose name or slug contains it, ignoring case, `ids` the agents named (at most 100; an id of no agent in the workspace is left out); each narrows the same order, so the cursor works as before. An agent key that holds `sessions:write` gets its own agent alone, on one page, so it can find the `active_release_id` to send as `agent_release_id` to `POST /v1/sessions`; it is refused `include=summary`, `q` and `ids` keep its agent only when it matches them, and every other API key is refused.",
     // A key needs sessions:write here, the right to start a session on the
     // agent it finds; a person's role holds it.
     scope: "write",
@@ -4708,7 +4717,7 @@ export const API_ROUTE_DECLARATIONS = [
     summary:
       "How many agents the workspace has, by state, and how many the caller administers",
     description:
-      "`all` is how many agents GET /v1/agents lists read to the last page; `administered` is how many of them the caller administers now, directly or through a team they are a live member of; `active` is how many are `active` with an `active_release_id`, and `draft` how many are not `archived` and have none yet. Answered for the same callers as the list, over the same agents: every member counts what the list shows them. API keys are refused. It changes nothing.",
+      "`all` is how many agents GET /v1/agents lists read to the last page; `administered` is how many of them the caller administers now, directly or through a team they are a live member of; `active` is how many are `active` with an `active_release_id`, and `draft` how many are not `archived` and have none yet. Answered for the same callers as the list, over the same agents: every member counts what the list shows them, so a private agent the caller may not use is in no count. API keys are refused. It changes nothing.",
     auth: "session",
     success: {
       status: 200,
@@ -4747,7 +4756,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "An agent with its versions, releases and active release",
     description:
-      "The agent's settings: its card versions, releases and active release. Read by the workspace's owners and admins and by those inside the agent: its admins and the live members of its managing team. A member outside it gets 403 and reads the agent's row from `GET /v1/agents` (`ids`) instead, or 404 while the workspace's `agent_outsider_access` is `none`, since the agent is then hidden from them; an id of no agent in the workspace is 404. It changes nothing.",
+      "The agent's settings: its card versions, releases and active release. Read by the workspace's owners and admins and by those inside the agent: its admins and the live members of its managing team. A member outside it gets 403 and reads the agent's row from `GET /v1/agents` (`ids`) instead, or 404 while the workspace's `agent_outsider_access` is `none`, since the agent is then hidden from them; an id of no agent in the workspace is 404. A private agent the caller may not use is 404 too, with the body of an id of no agent, whatever the caller's other rights outside it. It changes nothing.",
     auth: "session",
     success: { status: 200, schema: "AgentDetail" },
     errors: [401, 403, 404, 503],
@@ -6389,6 +6398,83 @@ export const API_ROUTE_DECLARATIONS = [
   },
   {
     method: "get",
+    path: "/v1/agents/{id}/caller-limits",
+    operationId: "getAgentCallerLimits",
+    tag: "Agents",
+    summary: "What callers may do through an agent",
+    description:
+      "One rule per caller target: the whole `workspace`, a `team` or a Slack `channel`. A rule's `tools_deny` and `credentials_deny` name what the caller may not use; `repositories` and `mcp_servers` name all the caller may use, `null` meaning no limit and `[]` none. Owners, admins and the agent's own admins read it, as they edit it; never an API key. `revision` is the `If-Match` of the next edit; it moves with every change, and with the archive of a team the agent has a rule for. Reading it changes no session: these are stored rules, not a decision.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "AgentCallerLimits",
+      description: "The agent's caller limit rules.",
+      example: {
+        rules: [
+          {
+            target: { kind: "team", id: EXAMPLE_TEAM_ID },
+            tools_deny: ["shell"],
+            repositories: ["platform"],
+            mcp_servers: null,
+            credentials_deny: [],
+          },
+        ],
+        revision: 2,
+      },
+    },
+    errors: [401, 403, 404, 503],
+  },
+  {
+    method: "put",
+    path: "/v1/agents/{id}/caller-limits",
+    operationId: "putAgentCallerLimits",
+    tag: "Agents",
+    summary: "Replace what callers may do through an agent",
+    description:
+      "Owners, admins and the agent's own admins; never an API key. The whole set is replaced and `If-Match: <revision>` is required, so two edits cannot overwrite each other: the later one answers 412. A target is a `workspace`, a `team` or a Slack `channel`, once each; a person is not a target here (400). Tool, MCP server and credential names are not checked. A repository id this edit adds to a target must be in the catalog (400, `details.reason_code` `repository_not_in_catalog`, `details.repository_ids`); an id the target already holds stays, whatever the catalog says now, and counts as no allowance. An owner or admin names any live team; anyone else adds a rule only for a team they are in (403 FORBIDDEN, `details.reason_code` `team_not_allowed`), and removing a rule needs only this right. A team that is not in the workspace or is deleted is 404. Archiving a team deletes its rules and moves the `revision` of the agents that had one. This changes no session by itself. Writes a `set_agent_caller_limits` receipt with the rules before and after unless nothing changed (`receipt_id` null, `revision` kept).",
+    auth: "session",
+    body: "PutAgentCallerLimitsRequest",
+    requestExample: {
+      rules: [
+        {
+          target: { kind: "team", id: EXAMPLE_TEAM_ID },
+          tools_deny: ["shell"],
+          repositories: ["platform"],
+          mcp_servers: null,
+          credentials_deny: [],
+        },
+      ],
+    },
+    success: {
+      status: 200,
+      schema: "PutAgentCallerLimitsResponse",
+      description: "The rules now held, and their new `revision`.",
+      example: {
+        limits: {
+          rules: [
+            {
+              target: { kind: "team", id: EXAMPLE_TEAM_ID },
+              tools_deny: ["shell"],
+              repositories: ["platform"],
+              mcp_servers: null,
+              credentials_deny: [],
+            },
+          ],
+          revision: 3,
+        },
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
+    errors: [400, 401, 403, 404, 412, 413, 428, 503],
+    errorCodes: {
+      412: ["VERSION_MISMATCH"],
+      428: ["PRECONDITION_REQUIRED"],
+    },
+    ifMatch: "revision",
+    idempotent: false,
+  },
+  {
+    method: "get",
     path: "/v1/administered-agents",
     operationId: "listAdministeredAgents",
     tag: "Agents",
@@ -6397,6 +6483,34 @@ export const API_ROUTE_DECLARATIONS = [
       "Directly or through a team, as of this request: what an agent's admin needs to issue that agent's own key.",
     auth: "session",
     success: { status: 200, schema: "ListAdministeredAgentsResponse" },
+    errors: [401, 403, 503],
+  },
+  {
+    method: "get",
+    path: "/v1/usable-agents",
+    operationId: "listUsableAgents",
+    tag: "Agents",
+    summary: "The agents the caller could start a session with now",
+    description:
+      "Every agent `POST /v1/sessions` would accept a start on for this caller at this request, oldest first, at most 200: the agent is `active` with an `active_release_id`, the caller may use it (open to the workspace; or a private agent whose teams the caller is in, or that the caller administers or manages, or a workspace owner or admin), the release's connection is still in the catalog and its spec verified, and every credential the release names is bound. Where the workspace limits agents to those inside them (axis A is not `use`), only agents the caller is inside are listed. A key bound to an agent lists that agent alone when it could start there, and a service key bound to none lists the agents open to the workspace. A private agent the caller may not use is not in the list, and nothing in the answer tells that it exists. Needs `sessions:write`. `active_release_id` is what to send as `agent_release_id`.",
+    scope: "write",
+    success: {
+      status: 200,
+      schema: "ListUsableAgentsResponse",
+      description: "The agents a start would accept, oldest first.",
+      example: {
+        items: [
+          {
+            id: EXAMPLE_AGENT_ID,
+            slug: "finance",
+            name: "Finance analyst",
+            description: "Reads the quarterly reports and flags outliers.",
+            managing_team_name: "Finance",
+            active_release_id: "rel_example",
+          },
+        ],
+      },
+    },
     errors: [401, 403, 503],
   },
   {
@@ -7511,7 +7625,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Limits & receipts",
     summary: "Current outcome of an accepted command",
     description:
-      "Reads the current outcome of a command by the `receipt_id` its response returned: `accepted` while it is in progress, then `succeeded`, `failed` (with `error`) or `unknown` (nobody can say; `error` explains). Poll until it leaves `accepted`. `result` depends on `operation`:\n\n- `create_session`, `append_message`: the acceptance response exactly as first returned, never rewritten. The turn's outcome is read from `GET /v1/sessions/{session_id}/turns/{turn_id}` using `target_ref`.\n- `interrupt`: `{turn_id, terminal, no_op}` once settled.\n- `pause`, `resume`: `{resulting_admission_state, checkpoint_revision, queued_turn_count}`.\n- `close`: `{resulting_admission_state, checkpoint_revision, cancelled_turn_count}`; `checkpoint_revision` is null only for a session that never ran a turn.\n- `terminate`: `{execution_gone, checkpoint_revision, unconfirmed_turn_id, external_effects_reverted}`.\n- `recovery_decision`: `{resulting_admission_state, checkpoint_revision, resumable}`.\n- `answer`: null; only `status` and `error` change.\n- `request_push`, `resolve_push`, `push`: `{push_request_id, action, verdict, refusal, repository_id, checkpoint_revision, git_commit, target_branch}`; `verdict` is `allow` or `refuse`, a refused attempt is `failed` with the reason in `refusal` and `error`, and fields the attempt never read are null. `actor` names who made it. Receipts written before the rename say `decide_push`, `decision`, `already_decided` and `PUSH_REQUEST_DECIDED` instead.\n- `open_pull_request`, `update_pull_request`, `comment_pull_request`: `{push_request_id, verdict, refusal, repository_id, number, url, head, base, created}`, and for a comment also `{comment_id, comment_url, marker}`, and for an open or update whose body came from structured fields also `template` (`{commit, path?, blob_sha?, skipped?}`: the default branch's commit read, the template used or the reason one was passed over; never its text); `created` is false when the call answered an open pull request, edited the marked comment, or (always, for `update_pull_request`) changed the title or body of the pull request with the built-in `github` MCP server's `update_pull_request`.\n- `close_pull_request`, `reopen_pull_request`: the same fields plus `{state, changed}`, written when the session's agent closes or reopens the pull request of its push request with the built-in `github` MCP server's tools of those names; `state` is the pull request's state after the call and `changed` is false when it was already in that state. A merged pull request is refused with `pull_request_merged` (`PULL_REQUEST_MERGED`).\n- `merge_pull_request`: the same fields as `close_pull_request` plus `{merged, changed, head_sha, merge_commit_sha, method}`, written when the session's agent squash-merges the pull request of its push request with the built-in `github` MCP server's `merge_pull_request`; `method` is `squash`, or null when the pull request was already merged on the pushed commit (`changed` false). A refusal is `failed` with `reason_code` `merge_off` (the workspace has not allowed merging; `GITHUB_REFUSED`) before GitHub is called, or `merge_blocked` (`PULL_REQUEST_MERGE_BLOCKED`), `head_moved` or `pull_request_closed` (`PULL_REQUEST_CLOSED`). A receipt refused with `merge_off` names no connection, App or role.\n- `attach_repository`: `{session_id, attempt_id, agent_id, agent_release_id, repository_id, branch, commit, failure, reason_code}`, written when the session's agent attaches a repository with the built-in `github` MCP server's `attach_repository`. It is `accepted` until the worker reports the fetch, then `succeeded` with `commit` or `failed` with `failure` (`fetch_timeout`, `fetch_too_large`, `fetch_failed`). A refused call is `failed` at once with `reason_code` `repository_not_allowed` (not on the release's list, outside the workspace ceiling, or the agent's GitHub off; `error.code` `GITHUB_REFUSED`), `allowed_in_newer_release` (off the session's release but allowed by the agent's active release: the session keeps the release it started with, and a new session can attach it; `GITHUB_REFUSED`) or `attempt_ended` (`STALE_EPOCH`). `agent_release_id` is the release whose list allowed it.\n- `set_slack_secret`, `delete_slack_secret`: `{purpose, last4}`; the value itself is never in a receipt.\n- `set_github_app`, `delete_github_app`: `{app_id}`; the private key is never in a receipt.\n\nAny credential of the same owner can read a receipt, except that a receipt about a session needs that session to be visible to the caller, and one that changed an agent's settings (`target_ref.resource` an agent or one of its Slack bindings, other than a refused `create_session`) is read only by those who read the agent's settings: its workspace's owners and admins, its admins, the live members of its managing team, and their personal keys; anyone else gets 403. It changes nothing.",
+      "Reads the current outcome of a command by the `receipt_id` its response returned: `accepted` while it is in progress, then `succeeded`, `failed` (with `error`) or `unknown` (nobody can say; `error` explains). Poll until it leaves `accepted`. `result` depends on `operation`:\n\n- `create_session`, `append_message`: the acceptance response exactly as first returned, never rewritten. The turn's outcome is read from `GET /v1/sessions/{session_id}/turns/{turn_id}` using `target_ref`.\n- `interrupt`: `{turn_id, terminal, no_op}` once settled.\n- `pause`, `resume`: `{resulting_admission_state, checkpoint_revision, queued_turn_count}`.\n- `close`: `{resulting_admission_state, checkpoint_revision, cancelled_turn_count}`; `checkpoint_revision` is null only for a session that never ran a turn.\n- `terminate`: `{execution_gone, checkpoint_revision, unconfirmed_turn_id, external_effects_reverted}`.\n- `recovery_decision`: `{resulting_admission_state, checkpoint_revision, resumable}`.\n- `answer`: null; only `status` and `error` change.\n- `request_push`, `resolve_push`, `push`: `{push_request_id, action, verdict, refusal, repository_id, checkpoint_revision, git_commit, target_branch}`; `verdict` is `allow` or `refuse`, a refused attempt is `failed` with the reason in `refusal` and `error`, and fields the attempt never read are null. `actor` names who made it. Receipts written before the rename say `decide_push`, `decision`, `already_decided` and `PUSH_REQUEST_DECIDED` instead.\n- `open_pull_request`, `update_pull_request`, `comment_pull_request`: `{push_request_id, verdict, refusal, repository_id, number, url, head, base, created}`, and for a comment also `{comment_id, comment_url, marker}`, and for an open or update whose body came from structured fields also `template` (`{commit, path?, blob_sha?, skipped?}`: the default branch's commit read, the template used or the reason one was passed over; never its text); `created` is false when the call answered an open pull request, edited the marked comment, or (always, for `update_pull_request`) changed the title or body of the pull request with the built-in `github` MCP server's `update_pull_request`.\n- `close_pull_request`, `reopen_pull_request`: the same fields plus `{state, changed}`, written when the session's agent closes or reopens the pull request of its push request with the built-in `github` MCP server's tools of those names; `state` is the pull request's state after the call and `changed` is false when it was already in that state. A merged pull request is refused with `pull_request_merged` (`PULL_REQUEST_MERGED`).\n- `merge_pull_request`: the same fields as `close_pull_request` plus `{merged, changed, head_sha, merge_commit_sha, method}`, written when the session's agent squash-merges the pull request of its push request with the built-in `github` MCP server's `merge_pull_request`; `method` is `squash`, or null when the pull request was already merged on the pushed commit (`changed` false). A refusal is `failed` with `reason_code` `merge_off` (the workspace has not allowed merging; `GITHUB_REFUSED`) before GitHub is called, or `merge_blocked` (`PULL_REQUEST_MERGE_BLOCKED`), `head_moved` or `pull_request_closed` (`PULL_REQUEST_CLOSED`). A receipt refused with `merge_off` names no connection, App or role.\n- `attach_repository`: `{session_id, attempt_id, agent_id, agent_release_id, repository_id, branch, commit, failure, reason_code}`, written when the session's agent attaches a repository with the built-in `github` MCP server's `attach_repository`. It is `accepted` until the worker reports the fetch, then `succeeded` with `commit` or `failed` with `failure` (`fetch_timeout`, `fetch_too_large`, `fetch_failed`). A refused call is `failed` at once with `reason_code` `repository_not_allowed` (not on the release's list, outside the workspace ceiling, or the agent's GitHub off; `error.code` `GITHUB_REFUSED`), `allowed_in_newer_release` (off the session's release but allowed by the agent's active release: the session keeps the release it started with, and a new session can attach it; `GITHUB_REFUSED`) or `attempt_ended` (`STALE_EPOCH`). `agent_release_id` is the release whose list allowed it.\n- `set_slack_secret`, `delete_slack_secret`: `{purpose, last4}`; the value itself is never in a receipt.\n- `set_github_app`, `delete_github_app`: `{app_id}`; the private key is never in a receipt.\n\nAny credential of the same owner can read a receipt, except that a receipt about a session needs that session to be visible to the caller, and one that changed an agent's settings (`target_ref.resource` an agent or one of its Slack bindings, other than a refused `create_session`) is read only by those who read the agent's settings: its workspace's owners and admins, its admins, the live members of its managing team, and their personal keys; anyone else gets 403. A receipt that names an agent or a release of one (`agent_id`, `agent_ids`, `release_id`, `agent_release_id`, or the agent as `target_ref` or `actor.agent_id`) is shown only with those ids to a reader who may use that agent (`GET /v1/usable-agents`); for anyone else a private agent's ids are left out (a list loses them, a single field is `null`) and a receipt whose target is that agent or one of its releases answers 404, as a receipt that does not exist does. It changes nothing.",
     scope: "read",
     success: {
       status: 200,

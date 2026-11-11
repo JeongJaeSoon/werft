@@ -1,6 +1,6 @@
 import type { RepositoryReadable } from "../action/ports/capabilities.ts";
 import type { GitTreeEntry } from "../action/ports/github-api.ts";
-import { GitHubCallError } from "../ports/github-gate.ts";
+import { GitHubCallError } from "../github/ports/github-gate.ts";
 
 export type FakeFile =
   | string

@@ -100,7 +100,7 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     "engine_settings_start",
     // 0264; arrives as 'profile'
     "runtime_tools_source",
-    // 0268
+    // 0267
     "usage_basis",
     "usage_team_id",
     "requester_kind",
@@ -186,7 +186,7 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     "slack_message",
     // 0263
     "trace_context",
-    // 0268
+    // 0267
     "usage_basis",
     "usage_team_id",
     "requester_kind",
@@ -284,7 +284,7 @@ integration("0100 identity migration on PostgreSQL", () => {
       ]);
 
       await withPool(database.url, async (pool) => {
-        // 0268 drops every session and what hangs off it (the profile
+        // 0269 drops every session and what hangs off it (the profile
         // removal); the keys and receipts stay as they were.
         const after = await legacySnapshot(pool);
         expect(after.api_keys).toEqual(before.api_keys);
@@ -329,7 +329,7 @@ integration("0100 identity migration on PostgreSQL", () => {
           scopes: string[] | null;
         }>("SELECT workspace_id, scopes FROM api_keys");
         expect(key.rows[0]).toEqual({ workspace_id: null, scopes: null });
-        // The turns went with their sessions (0268); the receipt keeps no actor.
+        // The turns went with their sessions (0269); the receipt keeps no actor.
         const actor = await pool.query<{ actor: unknown }>(
           "SELECT actor FROM receipts LIMIT 1",
         );

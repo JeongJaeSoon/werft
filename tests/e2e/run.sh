@@ -279,6 +279,9 @@ fi
 export CONFORMANCE_RUNTIME_KIND="$conformance"
 # Lets a scenario read this stack's container logs and no other stack's.
 export E2E_COMPOSE_PROJECT="$project"
+# A conformance scenario that needs a person (an owner cookie) bootstraps the
+# stack the way every other suite does, whichever engine the stack runs.
+if [ -n "$conformance" ]; then export E2E_BOOTSTRAP_TOKEN="$BOOTSTRAP_TOKEN"; fi
 if [ "${E2E_UP_ONLY:-0}" = 1 ]; then
   export E2E_KEEP=1
   # Holds the API key, so only here and never in a CI artifact.

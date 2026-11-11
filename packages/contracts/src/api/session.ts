@@ -528,6 +528,10 @@ export const sessionSummarySchema = z.object({
       description:
         "The agent the session was created for and the release it is pinned to: `release_version_no` is the card version that release runs, `release_label` the release's label (the Asia/Seoul second it was made, as `2026-10-30_14:30:28`, with `-2`, `-3`, … for a later release of the agent in the same second), `release_is_active` whether that release is the agent's active release when read (false while it has none; a session keeps the release it started on). `name` is the agent's name now, not when the session started. Null for a session created without `agent_release_id`.",
     }),
+  agent_hidden: z.boolean().default(false).meta({
+    description:
+      "True when the session has an agent the caller may not use (a private agent outside the caller's teams): `agent` is then null, as are the agent's name and id everywhere else in this session. The session itself is shown as shared. False otherwise, including a session with no agent.",
+  }),
   created_by: z
     .object({ user_id: userIdSchema, display_name: z.string() })
     .nullable()

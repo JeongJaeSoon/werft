@@ -10,6 +10,7 @@ import {
   listAgentsQuerySchema,
   listAgentsResponseSchema,
   listConnectionOptionsResponseSchema,
+  listUsableAgentsResponseSchema,
   saveAgentResponseSchema,
   updateAgentRequestSchema,
 } from "@werft-ai/contracts";
@@ -53,6 +54,13 @@ export function registerAgentRoutes(
       listConnectionOptionsResponseSchema,
       options,
     );
+  });
+
+  apiRoute(router, "listUsableAgents", async (context) => {
+    const usable = await mapped(() =>
+      service.listUsableAgents(context.get("caller")),
+    );
+    return jsonWithSchema(context, listUsableAgentsResponseSchema, usable);
   });
 
   // Before getAgent, so "counts" is never read as an agent id.

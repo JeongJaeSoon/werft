@@ -35,6 +35,7 @@ import { alias } from "drizzle-orm/pg-core";
 import {
   administers,
   agentReadable,
+  agentUsable,
   insideAgent,
   liveMember,
 } from "./administers.ts";
@@ -398,6 +399,22 @@ export async function lockAgentToChange(
   return { agent };
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// A private agent the reader may not use is not in their list or counts, the
+// same predicate the start decision and /v1/usable-agents read (94S-1512).
+function visibleTo(
+  db: Database,
+  workspaceId: string,
+  userId: string,
+  outsideAccess: Parameters<typeof agentReadable>[4],
+) {
+  return and(
+    agentReadable(db, workspaceId, userId, agents.id, outsideAccess),
+    agentUsable(db, workspaceId, { userId, keyAgentId: null }, agents.id),
+  );
+}
+
 export function createPostgresAgentStore(db: Database): AgentStore {
   return {
     async list(workspaceId, query, reader): Promise<ListAgentsResponse> {
@@ -412,11 +429,10 @@ export function createPostgresAgentStore(db: Database): AgentStore {
         .where(
           and(
             eq(agents.workspaceId, workspaceId),
-            agentReadable(
+            visibleTo(
               db,
               workspaceId,
               reader.userId.toLowerCase(),
-              agents.id,
               reader.outsideAccess,
             ),
             query.q === undefined
@@ -467,6 +483,42 @@ export function createPostgresAgentStore(db: Database): AgentStore {
       };
     },
 
+    async listUsable(workspaceId, who, limit) {
+      const keyAgentId =
+        who.keyAgentId !== null && UUID.test(who.keyAgentId)
+          ? who.keyAgentId.toLowerCase()
+          : null;
+      // A key bound to an agent reaches that agent and nothing else.
+      if (who.keyAgentId !== null && keyAgentId === null) return [];
+      const rows = await db
+        .select({ agent: agents, teamName: managingTeamName })
+        .from(agents)
+        .where(
+          and(
+            eq(agents.workspaceId, workspaceId),
+            eq(agents.status, "active"),
+            isNotNull(agents.activeReleaseId),
+            keyAgentId === null ? undefined : eq(agents.id, keyAgentId),
+            agentUsable(db, workspaceId, who, agents.id),
+            // Axis A: outside an agent a start needs `use`, as the policy has it.
+            // An agent key is inside its own agent, the only one it lists.
+            who.outsideUse || keyAgentId !== null
+              ? undefined
+              : who.userId === null
+                ? sql`false`
+                : insideAgent(
+                    db,
+                    workspaceId,
+                    who.userId.toLowerCase(),
+                    agents.id,
+                  ),
+          ),
+        )
+        .orderBy(asc(agents.createdAt), asc(agents.id))
+        .limit(limit);
+      return rows.map((row) => agentOf(row.agent, row.teamName));
+    },
+
     async count(workspaceId, reader) {
       const person = reader.userId.toLowerCase();
       const [row] = await db
@@ -483,13 +535,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
         .where(
           and(
             eq(agents.workspaceId, workspaceId),
-            agentReadable(
-              db,
-              workspaceId,
-              person,
-              agents.id,
-              reader.outsideAccess,
-            ),
+            visibleTo(db, workspaceId, person, reader.outsideAccess),
           ),
         );
       return {

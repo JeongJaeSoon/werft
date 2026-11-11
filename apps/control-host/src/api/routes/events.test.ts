@@ -183,6 +183,10 @@ function harness(
       listTurns: async () => null,
       getTurn: async () => null,
       getReceipt: async () => null,
+      hiddenAgentRefs: async () => ({
+        agentIds: new Set<string>(),
+        releaseIds: new Set<string>(),
+      }),
       readEvents: store.reader(),
     },
   });
@@ -442,6 +446,10 @@ describe("GET /v1/sessions/{id}/events", () => {
         listTurns: async () => null,
         getTurn: async () => null,
         getReceipt: async () => null,
+        hiddenAgentRefs: async () => ({
+          agentIds: new Set<string>(),
+          releaseIds: new Set<string>(),
+        }),
         readEvents: async (ownerId, sessionId, query) => {
           await Bun.sleep(2);
           return store.reader()(ownerId, sessionId, query);
@@ -547,6 +555,10 @@ describe("GET /v1/sessions/{id}/events", () => {
         listTurns: async () => null,
         getTurn: async () => null,
         getReceipt: async () => null,
+        hiddenAgentRefs: async () => ({
+          agentIds: new Set<string>(),
+          releaseIds: new Set<string>(),
+        }),
         readEvents: store.reader(),
       },
     });
@@ -604,6 +616,10 @@ describe("GET /v1/sessions/{id}/events", () => {
         listTurns: async () => null,
         getTurn: async () => null,
         getReceipt: async () => null,
+        hiddenAgentRefs: async () => ({
+          agentIds: new Set<string>(),
+          releaseIds: new Set<string>(),
+        }),
         readEvents: store.reader(),
       },
     });
@@ -663,6 +679,10 @@ describe("GET /v1/sessions/{id}/events", () => {
         listTurns: async () => null,
         getTurn: async () => null,
         getReceipt: async () => null,
+        hiddenAgentRefs: async () => ({
+          agentIds: new Set<string>(),
+          releaseIds: new Set<string>(),
+        }),
         readEvents: store.reader(),
       },
     });
@@ -729,6 +749,10 @@ describe("GET /v1/sessions/{id}/events", () => {
         listTurns: async () => null,
         getTurn: async () => null,
         getReceipt: async () => null,
+        hiddenAgentRefs: async () => ({
+          agentIds: new Set<string>(),
+          releaseIds: new Set<string>(),
+        }),
         readEvents: async (ownerId, sessionId, query) => {
           if (query.after === undefined) {
             // The first page waits on "the pool" longer than a keepalive.
@@ -801,6 +825,10 @@ describe("GET /v1/sessions/{id}/events", () => {
         listTurns: async () => null,
         getTurn: async () => null,
         getReceipt: async () => null,
+        hiddenAgentRefs: async () => ({
+          agentIds: new Set<string>(),
+          releaseIds: new Set<string>(),
+        }),
         readEvents: async (ownerId, sessionId, query) => {
           if (query.after === "ev_1") {
             // The live read hangs on "the pool" past the revocation window.
@@ -882,6 +910,10 @@ describe("GET /v1/sessions/{id}/events", () => {
         listTurns: async () => null,
         getTurn: async () => null,
         getReceipt: async () => null,
+        hiddenAgentRefs: async () => ({
+          agentIds: new Set<string>(),
+          releaseIds: new Set<string>(),
+        }),
         readEvents: store.reader(),
       },
     });
@@ -977,6 +1009,10 @@ describe("GET /v1/sessions/{id}/events", () => {
         listTurns: async () => null,
         getTurn: async () => null,
         getReceipt: async () => null,
+        hiddenAgentRefs: async () => ({
+          agentIds: new Set<string>(),
+          releaseIds: new Set<string>(),
+        }),
         // The first read fails at 70 ms: after the half-interval check has
         // started (50 ms) and before it answers (90 ms).
         readEvents: async () => {

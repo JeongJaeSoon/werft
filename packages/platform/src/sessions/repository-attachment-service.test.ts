@@ -3,7 +3,7 @@ import {
   LISTED_REPOSITORY_MEANING as MEANING,
   type ReceiptActor,
 } from "@werft-ai/contracts";
-import type { GitHubSessionContext } from "../ports/github-gate.ts";
+import type { GitHubSessionContext } from "../github/ports/github-gate.ts";
 import { agentPolicy, releasePolicy } from "../testing/github-fakes.ts";
 import { refusal } from "../testing/refusal.ts";
 import {

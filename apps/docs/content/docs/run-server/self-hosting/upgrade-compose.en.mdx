@@ -134,7 +134,7 @@ Workers included in `v0.1.0` upload incremental bundles containing only new obje
 <a id="프로필-제거의-롤백-하한" />
 ### Rollback floor of the profile removal
 
-The release that removes run profiles runs migration `0268_remove_profiles`, which drops the profile tables and columns and deletes the releases made on profiles, their sessions, and the records under those sessions (turns, events, checkpoint rows and so on). Agents and their card versions, teams, keys and the installation settings stay. From then on every session runs the spec its release pinned (connection, model, runtime, tools), and an agent runs again once it is released on a connection. Give each connection the model list (`models`) agents may pick from. **You cannot roll back to a build older than this release.** To go back, restore the database from the backup taken before the upgrade.
+The release that removes run profiles runs migration `0269_remove_profiles`, which drops the profile tables and columns and deletes the releases made on profiles, their sessions, and the records under those sessions (turns, events, checkpoint rows and so on). Agents and their card versions, teams, keys and the installation settings stay. From then on every session runs the spec its release pinned (connection, model, runtime, tools), and an agent runs again once it is released on a connection. Give each connection the model list (`models`) agents may pick from. **You cannot roll back to a build older than this release.** To go back, restore the database from the backup taken before the upgrade.
 
 <a id="worker-protocol-필드를-걷어내는-순서" />
 ### Removing worker protocol fields

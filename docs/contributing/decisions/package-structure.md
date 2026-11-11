@@ -1,6 +1,6 @@
 # 결정(설계): 패키지 구조화 — 포트·내장 도구·큰 디렉터리
 
-- 후속(2026-11-11): 실행 프로필은 통째로 지웠다(migration `0268_remove_profiles`, 기존 데이터는 이전하지 않고 지움). 이 문서의 프로필·상한·롤아웃 언급은 그때의 기록이다. 지금은 에이전트 release가 provider 연결과 카드 모델로 실행 spec(런타임·도구·권한 모드)을 고정하고, 묻기·막기 규칙은 워크스페이스와 에이전트의 실행 규칙(`workspace_engine_settings`, `agent_engine_settings`)이 정한다.
+- 후속(2026-11-11): 실행 프로필은 통째로 지웠다(migration `0269_remove_profiles`, 기존 데이터는 이전하지 않고 지움). 이 문서의 프로필·상한·롤아웃 언급은 그때의 기록이다. 지금은 에이전트 release가 provider 연결과 카드 모델로 실행 spec(런타임·도구·권한 모드)을 고정하고, 묻기·막기 규칙은 워크스페이스와 에이전트의 실행 규칙(`workspace_engine_settings`, `agent_engine_settings`)이 정한다.
 - 상태: 설계. 이 문서가 머지된 뒤 이행 단계 S0~S8([6절](#6-이행-순서))을 단계마다 별도 카드와 PR로 진행한다. 이 PR은 코드를 옮기지 않는다.
 - 기준 커밋: `origin/main` `2d5e8fbbe`. 파일 수·줄 수는 이 커밋에서 직접 센 값이고(`*.ts`·`*.tsx`, 같은 디렉터리의 직속 파일만, 줄 수는 테스트를 뺀 소스), `파일:줄`도 이 커밋 기준이다.
 - 오너 원문(2026-11-10): "github 같은 내장 도구를 구성하는게 점점 많아질거 같은데 어떻게 생각해? packages/platform/src/ports 안에 엄청 많은 도구가 있는데 제대로 구조화 해두는게 좋을거 같은데 / 애초에 한 디렉토리에 파일이 많은것들도 잘 검토해서 패키지 구조화 리팩토링을 진행하는게 좋을듯"
@@ -219,6 +219,7 @@ adapters/*  ──┘ (포트 타입만)         db  →  platform(포트), cont
 | **S0** | (impl lead) `GITHUB_MCP_TOOLS` 한 표, receipt operation 단일화 | — |
 | **S1** | 규칙·기준선: `tests/architecture.test.ts`에 A1~A4 추가, 현재 위반 목록 고정, `action-broker.md` 정정 링크. 코드 이동 없음 | 이 문서 머지 |
 | **S2** | `platform/src/github/` 만들기: ports 7, sessions 4, musterrolle 4, workers 3, agents 1을 `git mv`하고 `index.ts` 갱신 | S0, S1, `github-gate`·`github-mcp-server`를 건드리는 열린 PR 없음 |
+| | 상태: 19개 가운데 `forge`는 `action/ports/`로, `github-mcp-server`·`github-work-service`는 `action/github/`로 U6a에서 옮겨졌다. 나머지 14개는 `github/{ports,service,egress}/`로 옮겼다. `ports/github-mcp.ts`·`workers/github-mcp-egress.ts`는 프로필 제거 계열 목록에 있어 제자리에 두고, 계열이 끝나면 옮긴다 | |
 | **S3** | `platform/src/slack/`: ports 7 + `musterrolle/slack-*` | S1 |
 | **S4** | `change-request/`(push·PR 계열 ports 10 + sessions 10여 개), `session/`·`scheduler/`·`checkpoint/` | S2 |
 | **S5** | (동작 변경 없는 구조 변경) `tools/` 레지스트리: `switch` → handler 표, `dispatch.ts` 공통화, A5 시험 | S0, S2 |

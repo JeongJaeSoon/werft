@@ -43,6 +43,7 @@ const DETAIL: SessionDetail = {
   id: SESSION,
   title: null,
   agent: null,
+  agent_hidden: false,
   created_by: null,
   channel: null,
   slack_permalink: null,

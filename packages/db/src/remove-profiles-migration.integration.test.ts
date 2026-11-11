@@ -19,11 +19,11 @@ import {
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
 /**
- * 0268 drops the profiles and what was made against them: an installation
+ * 0269 drops the profiles and what was made against them: an installation
  * that ran on profiles keeps its agents, versions, teams and settings, and
  * loses its releases, sessions and the profile tables, as the migration says.
  */
-integration("0268 removes the profiles from a database that used them", () => {
+integration("0269 removes the profiles from a database that used them", () => {
   let database: TempDatabase;
   let pool: Pool;
   let before: string;
@@ -59,7 +59,7 @@ integration("0268 removes the profiles from a database that used them", () => {
     before = migrationsThrough(BEFORE_PROFILE_REMOVAL);
     await migrate(drizzle(pool), { migrationsFolder: before });
 
-    // What an installation on profiles held at 0267.
+    // What an installation on profiles held at 0268.
     await pool.query(
       "INSERT INTO workspaces (id, slug, name) VALUES ($1, 'acme', 'acme')",
       [workspaceId],

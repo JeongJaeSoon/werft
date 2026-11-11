@@ -9,12 +9,12 @@ import {
   type PushRefusal,
 } from "@werft-ai/contracts";
 import type { PushBundlesResult } from "../../checkpoints/checkpoint-service.ts";
-import type { CommitAttributionLedger } from "../../ports/commit-attributions.ts";
 import {
   type GitHubGate,
   GitHubGateError,
   GitHubUnavailableError,
-} from "../../ports/github-gate.ts";
+} from "../../github/ports/github-gate.ts";
+import type { CommitAttributionLedger } from "../../ports/commit-attributions.ts";
 import type {
   PushJob,
   PushOutcome,

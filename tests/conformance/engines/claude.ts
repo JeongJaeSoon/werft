@@ -1,5 +1,10 @@
 import { bash, scripted } from "../../e2e/client.ts";
-import type { Capability, EngineFixture, ModelCall } from "../engine.ts";
+import {
+  type Capability,
+  type EngineFixture,
+  type ModelCall,
+  PUSH_TOOL,
+} from "../engine.ts";
 
 const MESSAGES_URL = "E2E_MESSAGES_URL";
 
@@ -10,6 +15,7 @@ export function claudeEngine(env = process.env): EngineFixture {
   return {
     runtimeKind: "claude_agent_sdk",
     connectionId: "fake-messages",
+    cardModel: "claude-sonnet-5",
     repositoryId: "sample-app",
     // The Claude engine enforces its budget inside the SDK, and the fake
     // Messages API reports no scripted usage.
@@ -20,10 +26,18 @@ export function claudeEngine(env = process.env): EngineFixture {
     prompt: (script) =>
       scripted(
         script.id,
-        script.commands.map(bash),
+        [
+          ...script.commands.map(bash),
+          ...(script.pushTool ? [{ tool: PUSH_TOOL, input: {} }] : []),
+        ],
         script.final,
         script.finalDelayMs,
       ),
+    async pushToolShown(id) {
+      return (await this.modelCalls(id)).some((call) =>
+        call.tools.includes(PUSH_TOOL),
+      );
+    },
     async modelCalls(id) {
       const response = await fetch(
         `${messagesUrl}/requests?spec=${encodeURIComponent(id)}`,

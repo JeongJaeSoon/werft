@@ -45,6 +45,8 @@ export type GateRequest = {
   specId: string | null;
   step: number | null;
   system: unknown;
+  /** Names of the tools the request offered. */
+  tools: string[];
 };
 
 function blocksOf(message: Message): Block[] {
@@ -148,6 +150,14 @@ export function replyFor(
     specId: plan?.spec.id ?? null,
     step: plan?.step ?? null,
     system: request.body.system,
+    // A deferred tool is not in front of the model until a search loads it.
+    tools: (request.body.tools ?? []).flatMap((tool) => {
+      const { name, defer_loading } = tool as {
+        defer_loading?: unknown;
+        name?: unknown;
+      };
+      return typeof name === "string" && defer_loading !== true ? [name] : [];
+    }),
   });
   if (plan === null) return textReply(fallback);
   const { spec, step } = plan;

@@ -1,5 +1,8 @@
 import { createHash } from "node:crypto";
-import type { McpEgressStore, McpRefusalReason } from "../ports/mcp-egress.ts";
+import type {
+  McpEgressStore,
+  McpRefusalReason,
+} from "../github/ports/mcp-egress.ts";
 import {
   type EgressUpstream,
   mcpBinding,

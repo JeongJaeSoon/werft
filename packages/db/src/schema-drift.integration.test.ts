@@ -78,7 +78,7 @@ const MIGRATIONS_ONLY = [
   // 0127, capped by 0129: a session's provider tokens are counted as usage
   // rows are inserted; usage_breakdown_rollup also keeps session_model_usage.
   "function sessions_count_provider_tokens() trigger language plpgsql volatility=v parallel=u body md5 d379ea7e669588977ef342b8f7d882d5",
-  // 0259, 0268: a live session of a release needs a spec pin on its model.
+  // 0259, 0269: a live session of a release needs a spec pin on its model.
   "function sessions_pin_required() trigger language plpgsql volatility=v parallel=u body md5 8c7a7d0511d31a3e8cb3167922d9b680",
   "function slack_thread_status_of_row() trigger language plpgsql volatility=v parallel=u body md5 82b785c73c74e41ac9d4ca426506e7d3",
   "function slack_thread_status_of_session() trigger language plpgsql volatility=v parallel=u body md5 2dfe6ae6f5da387e822bf624ebaeb999",

@@ -3,12 +3,6 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
-import {
-  drainSlackInbox,
-  noopSlackInboundHandler,
-  slackConversationKey,
-  slackInboundBackoffMs,
-} from "@werft-ai/chat-slack";
 import { SLACK_INBOUND_MAX_ATTEMPTS } from "@werft-ai/contracts";
 import type { SlackInboundEventStore } from "@werft-ai/platform";
 import { eq, sql } from "drizzle-orm";
@@ -27,6 +21,15 @@ import { fixtureTeam } from "./testing/fixture-team.ts";
 
 const migrations = join(import.meta.dir, "../migrations");
 const LEASE = { leaseMs: 60_000, maxAttempts: SLACK_INBOUND_MAX_ATTEMPTS };
+
+// The store takes the wait and the key as given; the Slack adapter's own
+// tests pin how it derives them.
+const BACKOFF_MS = [30_000, 60_000, 120_000, 240_000, 300_000];
+const backoffMs = (attempts: number) => BACKOFF_MS[attempts - 1] ?? 300_000;
+const conversationKeyOf = (
+  slackAppId: string,
+  event: { channel: string; ts: string; thread?: string | undefined },
+) => `${slackAppId}:${event.channel}:${event.thread ?? event.ts}`;
 
 let client: PGlite;
 let db: PgliteDatabase<typeof schema>;
@@ -110,7 +113,11 @@ async function mention(
     eventTime: new Date((input.at ?? 1_792_800_000) * 1000),
     status: "received",
     payload: { type: "event_callback", event_id: eventId, event },
-    conversationKey: slackConversationKey(app.slackAppId, event),
+    conversationKey: conversationKeyOf(app.slackAppId, {
+      channel: event.channel,
+      ts: event.ts,
+      thread: input.thread,
+    }),
   });
   return eventId;
 }
@@ -262,7 +269,7 @@ describe("claiming the Slack inbox", () => {
       expect(claim?.attempts).toBe(attempt);
       if (!claim) throw new Error(`attempt ${attempt} not claimed`);
       const outcome = await inbox.fail(claim, {
-        retryInMs: slackInboundBackoffMs(claim.attempts),
+        retryInMs: backoffMs(claim.attempts),
         maxAttempts: SLACK_INBOUND_MAX_ATTEMPTS,
       });
       if (attempt < SLACK_INBOUND_MAX_ATTEMPTS) {
@@ -271,9 +278,7 @@ describe("claiming the Slack inbox", () => {
         const waited = await db.execute<{ secs: number }>(
           sql`SELECT round(extract(epoch FROM next_attempt_at - now()))::int AS secs FROM slack_inbound_events WHERE event_id = ${id}`,
         );
-        expect(waited.rows[0]?.secs).toBe(
-          slackInboundBackoffMs(attempt) / 1000,
-        );
+        expect(waited.rows[0]?.secs).toBe(backoffMs(attempt) / 1000);
         // Its backoff over, as the database clock will see it.
         await db
           .update(slackInboundEvents)
@@ -290,12 +295,6 @@ describe("claiming the Slack inbox", () => {
       nextAttemptAt: null,
     });
     expect(await inbox.claim({ limit: 1, ...LEASE })).toEqual([]);
-  });
-
-  test("backoff doubles from 30s and stops at 5 minutes", () => {
-    expect([1, 2, 3, 4, 5, 6, 12].map(slackInboundBackoffMs)).toEqual([
-      30_000, 60_000, 120_000, 240_000, 300_000, 300_000, 300_000,
-    ]);
   });
 
   test("a lease that runs out on the last attempt ends the row failed", async () => {
@@ -325,19 +324,11 @@ describe("claiming the Slack inbox", () => {
       .update(slackInstallations)
       .set({ status: "revoked", revokedAt: sql`now()` })
       .where(eq(slackInstallations.appId, app.appId));
-    const handled: string[] = [];
-    const drain = await drainSlackInbox({
-      inbox,
-      handler: async (event) => {
-        handled.push(event.eventId);
-      },
-      logger: { info() {}, warn() {} },
-      batchSize: 10,
-      leaseMs: 60_000,
-      deadline: Date.now() + 10_000,
-    });
-    expect(handled).toEqual([]);
-    expect(drain).toMatchObject({ claimed: 1, dropped: 1, processed: 0 });
+    // The drain drops a revoked install's event without calling its handler.
+    const [claim] = await inbox.claim({ limit: 10, ...LEASE });
+    expect(claim?.installationStatus).toBe("revoked");
+    if (!claim) throw new Error("not claimed");
+    expect(await inbox.drop(claim, "installation_revoked")).toBe(true);
     expect(await row(id)).toMatchObject({
       status: "dropped",
       dropReason: "installation_revoked",
@@ -345,25 +336,6 @@ describe("claiming the Slack inbox", () => {
       conversationKey: null,
       claimToken: null,
     });
-  });
-
-  test("the no-op handler marks every claimed event processed", async () => {
-    await settle();
-    const app = await agentApp();
-    const ids = [
-      await mention(app, { ts: "1792800000.000800" }),
-      await mention(app, { ts: "1792800000.000900" }),
-    ];
-    const drain = await drainSlackInbox({
-      inbox,
-      handler: noopSlackInboundHandler,
-      logger: { info() {}, warn() {} },
-      batchSize: 1,
-      leaseMs: 60_000,
-      deadline: Date.now() + 10_000,
-    });
-    expect(drain).toMatchObject({ claimed: 2, processed: 2 });
-    for (const id of ids) expect((await row(id)).status).toBe("processed");
   });
 
   test("two apps of one team keep one row each for one event_id; a retry is a duplicate", async () => {
@@ -475,7 +447,7 @@ describe("migration 0160 over 0159 rows", () => {
         event: { type: "app_uninstalled" },
       });
       await insert("Ev4", "T1", "dropped", null);
-      // Read the way slackConversationKey reads them.
+      // Read the way the Slack adapter's slackConversationKey reads them.
       await insert("Ev5", "T1", "received", {
         event: { channel: "C1", ts: "5.0", thread_ts: "" },
       });
@@ -540,14 +512,6 @@ describe("migration 0160 over 0159 rows", () => {
           claim_token: null,
         })),
       ]);
-      for (const [eventId, event] of [
-        ["Ev5", { channel: "C1", ts: "5.0", thread_ts: "" }],
-        ["Ev6", { channel: "", ts: "6.0" }],
-        ["Ev7", { channel: "C1", ts: 7 }],
-      ] as const) {
-        const [stored] = rows.rows.filter((row) => row.event_id === eventId);
-        expect(stored?.conversation_key).toBe(slackConversationKey(app, event));
-      }
       // (app_id, event_id) now, not (team_id, event_id); and `failed` is a status.
       await expect(insert("Ev1", "T2", "received", {})).rejects.toThrow();
       await pg.query(

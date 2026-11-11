@@ -1,0 +1,7 @@
+{
+  "extends": "../tsconfig.base.json",
+  // Read by scripts/typecheck-test-imports.ts. The files here still carry type
+  // errors of their own, so only a broken import fails the root typecheck.
+  "include": ["./**/*.ts"],
+  "exclude": ["agent-sdk-compat/**"]
+}

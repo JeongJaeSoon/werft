@@ -20,6 +20,14 @@ export type FakeToolCall = {
   /** The id the model's caller answers with. */
   callId: string;
   name: string;
+  /** Set for an MCP tool, which Codex offers and calls inside `mcp__<server>`. */
+  namespace?: string;
+  /**
+   * `tool_search` is Codex's client-side search over the tools it defers, with
+   * `arguments` the `{ query }` JSON; its answer comes back as a
+   * `tool_search_output` item, not a `function_call_output`.
+   */
+  kind?: "tool_search";
   /** The arguments as a JSON string, as the API sends them. */
   arguments: string;
 };
@@ -250,10 +258,22 @@ function outputOf(reply: FakeResponse): OutputItem[] {
     });
   }
   for (const call of reply.toolCalls ?? []) {
+    if (call.kind === "tool_search") {
+      items.push({
+        type: "tool_search_call",
+        id: `ts_${crypto.randomUUID()}`,
+        call_id: call.callId,
+        execution: "client",
+        arguments: JSON.parse(call.arguments),
+        status: "completed",
+      });
+      continue;
+    }
     items.push({
       type: "function_call",
       id: `fc_${crypto.randomUUID()}`,
       call_id: call.callId,
+      ...(call.namespace === undefined ? {} : { namespace: call.namespace }),
       name: call.name,
       arguments: call.arguments,
       status: "completed",
@@ -332,7 +352,7 @@ function responsesResponse(
           text,
         },
       );
-    } else {
+    } else if (item.type === "function_call") {
       events.push(
         {
           type: "response.function_call_arguments.delta",

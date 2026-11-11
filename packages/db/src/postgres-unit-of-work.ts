@@ -68,10 +68,12 @@ import {
   inArray,
   isNull,
   max,
+  not,
   notExists,
   or,
   sql,
 } from "drizzle-orm";
+import { agentUsable } from "./administers.ts";
 import { contextGapAttention } from "./context-gap.ts";
 import {
   containsPattern,
@@ -156,6 +158,9 @@ import { recordStatus } from "./session-events.ts";
 import { sessionRelationIs, sessionVisibleTo } from "./session-shares.ts";
 import { newSessionPin, pinRefusesLive } from "./session-spec-pin.ts";
 import { readArchivedWorkspaceLimit } from "./workspace-limit.ts";
+
+const isUuid = (value: string) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 
 export const CREATE_SESSION = "create_session";
 const APPEND_MESSAGE = "append_message";
@@ -1051,6 +1056,9 @@ export function createPostgresSessionReader(
     }[],
     // READ_AT of the statement that read awaitingInput.
     readAt: string,
+    // Whose eyes: a session whose agent this viewer may not use shows no
+    // agent. Absent for a read that never reaches a person (internal).
+    viewer?: SessionViewer,
   ): Promise<SessionRecord[]> {
     if (rows.length === 0) return [];
     const ids = rows.map(({ session }) => session.id);
@@ -1121,6 +1129,32 @@ export function createPostgresSessionReader(
         ),
       );
 
+    const agentIds = [...new Set(releases.map((release) => release.id))];
+    const usable =
+      viewer === undefined || agentIds.length === 0
+        ? null
+        : new Set(
+            (
+              await executor
+                .select({ id: agents.id })
+                .from(agents)
+                .where(
+                  and(
+                    inArray(agents.id, agentIds),
+                    agentUsable(
+                      executor,
+                      agents.workspaceId,
+                      {
+                        userId: viewer.userId,
+                        keyAgentId: viewer.keyAgentId ?? null,
+                      },
+                      agents.id,
+                    ),
+                  ),
+                )
+            ).map((agent) => agent.id),
+          );
+
     return rows.map(({ session: row, awaitingInput, lastEventAt }) => {
       const mine = openTurns.filter((turn) => turn.sessionId === row.id);
       const current = mine
@@ -1132,15 +1166,19 @@ export function createPostgresSessionReader(
       return {
         id: row.id,
         title: row.title,
-        agent: release
-          ? {
-              id: release.id,
-              name: release.name,
-              release_version_no: release.release_version_no,
-              release_label: releaseLabel(release.createdAt, release.earlier),
-              release_is_active: release.activeReleaseId === release.releaseId,
-            }
-          : null,
+        agent_hidden:
+          release !== undefined && usable?.has(release.id) === false,
+        agent:
+          release && usable?.has(release.id) !== false
+            ? {
+                id: release.id,
+                name: release.name,
+                release_version_no: release.release_version_no,
+                release_label: releaseLabel(release.createdAt, release.earlier),
+                release_is_active:
+                  release.activeReleaseId === release.releaseId,
+              }
+            : null,
         created_by:
           creators.find((creator) => creator.user_id === starterOf(row)) ??
           null,
@@ -1266,7 +1304,23 @@ export function createPostgresSessionReader(
                       db
                         .select({ id: agentReleases.id })
                         .from(agentReleases)
-                        .where(eq(agentReleases.agentId, query.agent_id)),
+                        .innerJoin(agents, eq(agents.id, agentReleases.agentId))
+                        .where(
+                          and(
+                            eq(agentReleases.agentId, query.agent_id),
+                            // An agent the viewer may not use filters like one
+                            // that is not there (94S-902).
+                            agentUsable(
+                              db,
+                              agents.workspaceId,
+                              {
+                                userId: viewer.userId,
+                                keyAgentId: viewer.keyAgentId ?? null,
+                              },
+                              agents.id,
+                            ),
+                          ),
+                        ),
                     )
                   : undefined,
                 cursor
@@ -1280,7 +1334,7 @@ export function createPostgresSessionReader(
           const page = rows.slice(0, query.limit);
           const last = page[page.length - 1];
           return {
-            items: last ? await summarize(tx, page, last.readAt) : [],
+            items: last ? await summarize(tx, page, last.readAt, viewer) : [],
             next_cursor:
               rows.length > query.limit && last
                 ? encodeCreatedAtCursor({
@@ -1297,6 +1351,7 @@ export function createPostgresSessionReader(
     getSession(
       ownerId: string,
       sessionId: string,
+      viewer?: SessionViewer,
     ): Promise<SessionDetailRecord | null> {
       // One snapshot for every field: read one by one, a turn starting
       // between two reads showed running beside current_turn_id null.
@@ -1334,6 +1389,7 @@ export function createPostgresSessionReader(
               },
             ],
             read.readAt,
+            viewer,
           );
           if (!summary) return null;
           // A pool launch carries whatever generation its backend picked, so
@@ -1603,6 +1659,64 @@ export function createPostgresSessionReader(
         .where(and(eq(receipts.id, receiptId), eq(receipts.ownerId, ownerId)))
         .limit(1);
       return row ? receiptFromRow(row) : null;
+    },
+
+    async hiddenAgentRefs(ownerId, viewer, refs) {
+      const agentIds = new Set<string>();
+      const releaseIds = new Set<string>();
+      if (!isUuid(ownerId)) return { agentIds, releaseIds };
+      const who = {
+        userId: viewer.userId,
+        keyAgentId: viewer.keyAgentId ?? null,
+      };
+      const unusable = not(agentUsable(db, ownerId, who, agents.id));
+      const named = refs.agentIds.filter(isUuid).map((id) => id.toLowerCase());
+      if (named.length > 0) {
+        for (const row of await db
+          .select({ id: agents.id })
+          .from(agents)
+          .where(
+            and(
+              eq(agents.workspaceId, ownerId),
+              inArray(agents.id, named),
+              unusable,
+            ),
+          )) {
+          agentIds.add(row.id);
+        }
+      }
+      const releaseWhere = [
+        refs.releaseIds.length > 0
+          ? inArray(agentReleases.id, [...refs.releaseIds])
+          : undefined,
+        refs.sessionId !== null && isUuid(refs.sessionId)
+          ? inArray(
+              agentReleases.id,
+              db
+                .select({ id: sessions.agentReleaseId })
+                .from(sessions)
+                .where(
+                  and(
+                    eq(sessions.id, refs.sessionId),
+                    eq(sessions.ownerId, ownerId),
+                  ),
+                ),
+            )
+          : undefined,
+      ].filter((clause) => clause !== undefined);
+      if (releaseWhere.length > 0) {
+        for (const row of await db
+          .select({ id: agentReleases.id, agentId: agentReleases.agentId })
+          .from(agentReleases)
+          .innerJoin(agents, eq(agents.id, agentReleases.agentId))
+          .where(
+            and(eq(agents.workspaceId, ownerId), or(...releaseWhere), unusable),
+          )) {
+          releaseIds.add(row.id);
+          agentIds.add(row.agentId);
+        }
+      }
+      return { agentIds, releaseIds };
     },
 
     async readEvents(

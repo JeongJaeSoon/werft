@@ -80,6 +80,8 @@ export const RECEIPT_OPERATION_VALUES = [
   "set_agent_managing_team",
   // Who may use an agent: its scope and teams (94S-900).
   "set_agent_usage",
+  // What a caller may do through an agent, per caller target (94S-917).
+  "set_agent_caller_limits",
   // The workspace's two agent access settings (agent-rbac (c)).
   "set_agent_access_settings",
   "add_agent_admin",

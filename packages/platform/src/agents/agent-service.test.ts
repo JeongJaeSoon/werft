@@ -110,6 +110,7 @@ function memoryStore(
   const racing = { settingsRow: false };
   const store: AgentStore = {
     list: async () => ({ items: [detail.agent], next_cursor: null }),
+    listUsable: async () => [],
     count: async () => ({
       all: 1,
       administered: 0,
