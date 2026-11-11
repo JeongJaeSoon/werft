@@ -15,7 +15,6 @@ import type {
   ListConnectionOptionsResponse,
   SaveAgentResponse,
 } from "@werft-ai/contracts";
-import { AGENT_DESCRIPTION_MAX_LENGTH } from "@werft-ai/contracts/agent-card";
 import { agentCardStep, agentIdentityStep } from "@werft-ai/core/forms";
 import {
   formAlerts,
@@ -53,6 +52,7 @@ import {
   queryKeysOf,
   scopedKey,
 } from "../api/queries.ts";
+import { AGENT_DESCRIPTION_MAX_LENGTH } from "../auth/limits.ts";
 import { FunnelResetNotice, useFunnel } from "../funnel/tanstack-funnel.tsx";
 import { type MessageKey, useI18n } from "../i18n/i18n.tsx";
 import { saveFailureText } from "../routes/agent-detail/effective-behavior.tsx";

@@ -6,7 +6,6 @@ import type {
   AgentVersion,
   SaveAgentResponse,
 } from "@werft-ai/contracts";
-import { AGENT_DESCRIPTION_MAX_LENGTH } from "@werft-ai/contracts/agent-card";
 import { useWerft } from "@werft-ai/react";
 import {
   Alert,
@@ -34,6 +33,7 @@ import {
   queryKeysOf,
 } from "../../api/queries.ts";
 import { useRole } from "../../auth/guard.tsx";
+import { AGENT_DESCRIPTION_MAX_LENGTH } from "../../auth/limits.ts";
 import {
   AGENT_FORM,
   AgentCardFields,

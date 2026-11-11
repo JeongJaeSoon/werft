@@ -137,7 +137,7 @@ gh는 로그인한 사용자의 인증을 쓰므로, 주기 실행은 그 사용
 ## 테스트·스크립트 배치
 
 - 한 패키지·앱 안에서 닫히는 테스트는 대상 소스 옆에 `*.test.ts`로 둔다. PostgreSQL·LocalStack·Docker·실제 SDK가 필요한 테스트는 `*.integration.test.ts`다. 예외로 `packages/storage`의 `*.localstack.test.ts` 둘과, unit 파일 안에 opt-in LocalStack 블록을 둔 파일이 있다. 그래서 CI는 파일 이름이 아니라 opt-in 변수로 나눈다([ci.md](ci.md)). `__tests__` 디렉터리는 쓰지 않는다.
-- 여러 앱·패키지를 엮는 흐름 테스트와 저장소·CI·`scripts`를 검사하는 테스트는 루트 `tests/`에 둔다. 루트 `scripts/`와 `.github/` 안의 테스트는 `bun test` 필터에 걸리지 않아 돌지 않는다. 루트 `tests/`·`scripts/`는 앱 내부를 상대 경로(`../apps/<앱>/src/...`)로 import하고, 패키지는 `@werft-ai/<패키지>`로 import한다.
+- 여러 앱·패키지를 엮는 흐름 테스트와 저장소·CI·`scripts`를 검사하는 테스트는 루트 `tests/`에 둔다. 루트 `scripts/`와 `.github/` 안의 테스트는 `bun test` 필터에 걸리지 않아 돌지 않는다. 루트 `tests/`·`scripts/`는 앱 내부를 상대 경로(`../apps/<앱>/src/...`)로 import하고, 패키지는 `@werft-ai/<패키지>`로 import한다. 설치 없이 도는 job(`.github/scripts/chart-package.ts`, `deploy/helm/render-check.ts`)과 compose 서비스 안에서 `bun run /app/scripts/...`로 도는 `scripts/d2-gate/fake-messages.ts`·`scripts/soak/messages.ts`, 자기 lock으로 설치해 workspace 패키지가 없는 `scripts/agent-sdk-compat/src/harness.ts`는 패키지를 상대 경로로 import하는 예외다.
 - 실행 도구는 `scripts/<이름>/`에, 그 테스트는 `tests/<이름>/`에 짝으로 둔다. `d2-gate`는 스택 전체를 띄우는 harness이고, `tests/soak`는 `scripts/soak` 판정 함수의 단위 테스트다. e2e는 실행기와 테스트를 함께 `tests/e2e`에 둔다.
 - 자기 lock으로 SDK를 고정한 호환 harness는 `scripts/<이름>/`에 두고 CI 전용 job이 돌린다. `scripts/agent-sdk-compat`이 그렇고, 제품과 같은 SDK 버전인지는 짝 테스트 `tests/agent-sdk-compat`이 검사한다.
 - 테스트 전용 도우미는 대상의 `src/testing/`에 둔다(예: `apps/egress-proxy/src/testing`). 여러 패키지가 쓰는 fixture는 `packages/testkit`에 둔다. 예외: `local-docker`와 `runtime-codecs`가 `./testing` export로 내주는 도우미는 파일 하나(`src/testing.ts`)이고, `packages/ui`는 happy-dom 도우미를 `src/test-support/`에, 스냅샷 fixture를 `src/__fixtures__/`에 둔다.

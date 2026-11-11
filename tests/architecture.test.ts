@@ -52,16 +52,16 @@ async function manifest(directory: string): Promise<Manifest> {
   ) as Manifest;
 }
 
-async function workspacePackages(): Promise<string[]> {
+async function workspacePackages(repo = root): Promise<string[]> {
   const directories: string[] = [];
-  for (const pattern of (await manifest(root)).workspaces ?? []) {
+  for (const pattern of (await manifest(repo)).workspaces ?? []) {
     if (!pattern.endsWith("/*")) throw new Error(`Unsupported glob ${pattern}`);
     const group = pattern.slice(0, -2);
-    for (const entry of await readdir(join(root, group), {
+    for (const entry of await readdir(join(repo, group), {
       withFileTypes: true,
     })) {
       if (!entry.isDirectory()) continue;
-      const directory = join(root, group, entry.name);
+      const directory = join(repo, group, entry.name);
       if (await Bun.file(join(directory, "package.json")).exists())
         directories.push(directory);
     }
@@ -81,7 +81,7 @@ async function typescriptFiles(
     .filter(
       (entry) =>
         entry.isFile() &&
-        entry.name.endsWith(".ts") &&
+        /\.tsx?$/.test(entry.name) &&
         keep(entry.name) &&
         !entry.parentPath.includes(`${join(directory, "node_modules")}`),
     )
@@ -89,11 +89,11 @@ async function typescriptFiles(
 }
 
 function sourceFiles(directory: string): Promise<string[]> {
-  return typescriptFiles(directory, (name) => !name.endsWith(".test.ts"));
+  return typescriptFiles(directory, (name) => !/\.test\.tsx?$/.test(name));
 }
 
 function testFiles(directory: string): Promise<string[]> {
-  return typescriptFiles(directory, (name) => name.endsWith(".test.ts"));
+  return typescriptFiles(directory, (name) => /\.test\.tsx?$/.test(name));
 }
 
 // Static imports, re-exports and import() calls, whichever quote they use.
@@ -361,11 +361,13 @@ const isTestFile = (file: string) =>
 
 /**
  * The web app's view of the workspace: every `@werft-ai/*` package it
- * imports, and each runtime file whose contracts import carries values. The
- * bundle ships to browsers, so it takes contracts as types (no zod), calls the
- * API through packages/client, keys its cache through packages/core, takes
- * the client from packages/react's provider and draws through packages/ui;
- * nothing behind the API is reachable from it.
+ * imports, and each runtime file whose contracts import carries values, from
+ * the package root or any of its subpath entries. Only `import type` and
+ * `export type` statements and import types count as types. The bundle ships
+ * to browsers, so it takes contracts as types (no zod), calls the API through
+ * packages/client, keys its cache through packages/core, takes the client
+ * from packages/react's provider and draws through packages/ui; nothing
+ * behind the API is reachable from it.
  */
 export async function webBoundaryViolations(
   directory: string,
@@ -387,11 +389,13 @@ export async function webBoundaryViolations(
         offenders.push(`${name} -> ${specifier}`);
     }
     if (isTestFile(file)) continue;
-    for (const match of source.matchAll(
-      /import\s+(type\s+)?[^;]*?from\s*["']@werft-ai\/contracts["']/g,
-    )) {
-      if (!match[1]) offenders.push(`${name} -> contracts value import`);
-    }
+    for (const { specifier, erased } of moduleReferences(
+      parseText(file, source),
+    ))
+      if (!erased && packageOf(specifier) === "@werft-ai/contracts")
+        offenders.push(
+          `${name} -> ${specifier.slice("@werft-ai/".length)} value import`,
+        );
   }
   return offenders.sort();
 }
@@ -848,21 +852,35 @@ async function productSourcesIn(directory: string): Promise<string[]> {
   return (await scriptsIn(directory)).filter((file) => !isTestFile(file));
 }
 
-/** Static imports, re-exports, import() and require() calls, and import types. */
-function importedModules(source: ts.SourceFile): string[] {
-  const found: string[] = [];
+/**
+ * Static imports, re-exports, import() and require() calls, and import types.
+ * `erased` marks the forms that load nothing at run time: `import type`,
+ * `export type` and import types.
+ */
+function moduleReferences(
+  source: ts.SourceFile,
+): Array<{ specifier: string; erased: boolean }> {
+  const found: Array<{ specifier: string; erased: boolean }> = [];
   walk(source, (node) => {
     if (
       (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
       node.moduleSpecifier &&
       ts.isStringLiteral(node.moduleSpecifier)
     )
-      found.push(node.moduleSpecifier.text);
+      found.push({
+        specifier: node.moduleSpecifier.text,
+        erased: ts.isImportDeclaration(node)
+          ? node.importClause?.phaseModifier === ts.SyntaxKind.TypeKeyword
+          : node.isTypeOnly,
+      });
     else if (
       ts.isExternalModuleReference(node) &&
       ts.isStringLiteral(node.expression)
     )
-      found.push(node.expression.text);
+      found.push({
+        specifier: node.expression.text,
+        erased: node.parent.isTypeOnly,
+      });
     else if (ts.isCallExpression(node)) {
       // import(("x")) and import("x" as string) load the same module as
       // import("x"): parentheses and type-only wrappers do not change the value.
@@ -883,15 +901,19 @@ function importedModules(source: ts.SourceFile): string[] {
         (callee.kind === ts.SyntaxKind.ImportKeyword ||
           (ts.isIdentifier(callee) && callee.text === "require"))
       )
-        found.push(first.text);
+        found.push({ specifier: first.text, erased: false });
     } else if (
       ts.isImportTypeNode(node) &&
       ts.isLiteralTypeNode(node.argument) &&
       ts.isStringLiteral(node.argument.literal)
     )
-      found.push(node.argument.literal.text);
+      found.push({ specifier: node.argument.literal.text, erased: true });
   });
   return found;
+}
+
+function importedModules(source: ts.SourceFile): string[] {
+  return moduleReferences(source).map(({ specifier }) => specifier);
 }
 
 /** The file a relative specifier names, or the bare path when none exists. */
@@ -978,6 +1000,27 @@ export function baselineRatchet(
 function baselineCounts(key: keyof Baseline): Counts {
   const listed = baseline[key];
   return Array.isArray(listed) ? tally(listed) : { ...listed };
+}
+
+/**
+ * Relative imports in a workspace package's test files that leave the
+ * package, as "<file> -> <specifier>" with the file written from `repo`. A
+ * test reaches another package the way a source file does: through an entry
+ * the package exports.
+ */
+export async function escapingTestImports(repo: string): Promise<string[]> {
+  const found: string[] = [];
+  for (const directory of await workspacePackages(repo))
+    for (const file of await testFiles(join(directory, "src")))
+      for (const specifier of importedModules(await parse(file)))
+        if (
+          specifier.startsWith(".") &&
+          relative(directory, resolve(dirname(file), specifier)).startsWith(
+            "..",
+          )
+        )
+          found.push(`${slashed(relative(repo, file))} -> ${specifier}`);
+  return found.sort();
 }
 
 /**
@@ -1790,6 +1833,80 @@ describe("architecture", () => {
     } finally {
       await rm(fixture, { recursive: true, force: true });
     }
+  });
+
+  test("the source and test file lists read .tsx, so the relative-import check sees a .tsx source", async () => {
+    expect(
+      await inFixture(
+        {
+          "src/view.tsx": [
+            'import { pool } from "../../db/src/pool.ts";',
+            "export const View = () => <p>{pool}</p>;",
+          ].join("\n"),
+          "src/view.test.tsx": 'import "../../db/src/pool.ts";',
+          "src/plain.ts": "export const x = 1;\n",
+          "src/plain.test.ts": 'import "./plain.ts";',
+        },
+        async (repo) => ({
+          escaping: (await escapingRelativeImports(repo)).map(
+            (hit) => hit.split(" -> ")[1],
+          ),
+          sources: (await sourceFiles(join(repo, "src")))
+            .map((file) => slashed(relative(repo, file)))
+            .sort(),
+          tests: (await testFiles(join(repo, "src")))
+            .map((file) => slashed(relative(repo, file)))
+            .sort(),
+        }),
+      ),
+    ).toEqual({
+      escaping: ["../../db/src/pool.ts"],
+      sources: ["src/plain.ts", "src/view.tsx"],
+      tests: ["src/plain.test.ts", "src/view.test.tsx"],
+    });
+  });
+
+  test("no test file reaches outside its own package through a relative import beyond the baseline", async () => {
+    expect(
+      baselineRatchet(
+        "test relative import",
+        tally(await escapingTestImports(root)),
+        baselineCounts("testRelativeImports"),
+      ),
+    ).toEqual([]);
+  });
+
+  test("the test-file relative-import check catches a path that leaves the package in .ts and .tsx tests, not a source file, a sibling, a package entry or a string", async () => {
+    expect(
+      await inFixture(
+        {
+          "package.json": JSON.stringify({
+            workspaces: ["apps/*", "packages/*"],
+          }),
+          "apps/a/package.json": manifestOf("@werft-ai/a"),
+          "packages/b/package.json": manifestOf("@werft-ai/b"),
+          "apps/a/src/flow.test.ts": [
+            'import { b } from "../../../packages/b/src/b.ts";',
+            'import spec from "../../../docs/openapi.json" with { type: "json" };',
+            'import pkg from "../package.json" with { type: "json" };',
+            'import { a } from "./a.ts";',
+            'import { entry } from "@werft-ai/b";',
+            "const text = 'import \"../../b/src/b.ts\";';",
+            '// import "../../b/src/b.ts";',
+          ].join("\n"),
+          "apps/a/src/view.test.tsx":
+            'const load = () => import("../../../packages/b/src/b.ts");',
+          "apps/a/src/a.ts": 'import "../../../packages/b/src/b.ts";',
+          "packages/b/src/b.ts": "export const b = 1;\n",
+          "packages/b/src/b.test.ts": 'import "./b.ts";',
+        },
+        escapingTestImports,
+      ),
+    ).toEqual([
+      "apps/a/src/flow.test.ts -> ../../../docs/openapi.json",
+      "apps/a/src/flow.test.ts -> ../../../packages/b/src/b.ts",
+      "apps/a/src/view.test.tsx -> ../../../packages/b/src/b.ts",
+    ]);
   });
 
   test("workspace globs include every nested package directory", async () => {
@@ -2639,6 +2756,38 @@ describe("architecture", () => {
     } finally {
       await rm(fixture, { recursive: true, force: true });
     }
+  });
+
+  test("the web boundary check catches a value import from a contracts subpath in every import form and lets the type-only forms and tests through", async () => {
+    expect(
+      await inFixture(
+        {
+          "card.tsx": [
+            'import { AGENT_DESCRIPTION_MAX_LENGTH } from "@werft-ai/contracts/agent-card";',
+            'import type { Settings } from "@werft-ai/contracts/settings";',
+            'export type { Execution } from "@werft-ai/contracts/execution";',
+            'export type Card = import("@werft-ai/contracts/agent-card").Card;',
+            '// import { x } from "@werft-ai/contracts/settings";',
+            "const text = 'import { x } from \"@werft-ai/contracts/settings\";';",
+          ].join("\n"),
+          "inline.ts":
+            'import { type Settings } from "@werft-ai/contracts/settings";',
+          "reexport.ts": 'export { x } from "@werft-ai/contracts/settings";',
+          "lazy.ts":
+            'export const load = () => import("@werft-ai/contracts/execution");',
+          "star.ts": 'export * from "@werft-ai/contracts";',
+          "card.test.tsx":
+            'import { AGENT_DESCRIPTION_MAX_LENGTH } from "@werft-ai/contracts/agent-card";',
+        },
+        webBoundaryViolations,
+      ),
+    ).toEqual([
+      "card.tsx -> contracts/agent-card value import",
+      "inline.ts -> contracts/settings value import",
+      "lazy.ts -> contracts/execution value import",
+      "reexport.ts -> contracts/settings value import",
+      "star.ts -> contracts value import",
+    ]);
   });
 
   test("the web app loads code-split components with lazyRouteComponent, never React.lazy", async () => {

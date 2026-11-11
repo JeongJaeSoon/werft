@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { RecordedRequest } from "../../packages/testkit/src/fake-anthropic.ts";
+import type { RecordedRequest } from "@werft-ai/testkit/fake-anthropic";
 import { bunTestRows, CAMPAIGNS } from "../../scripts/soak/campaigns.ts";
 import { distribution, percentile } from "../../scripts/soak/lib.ts";
 import {

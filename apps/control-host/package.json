@@ -40,6 +40,7 @@
   },
   "devDependencies": {
     "@scalar/api-reference": "1.72.1",
+    "@werft-ai/runtime-core": "workspace:*",
     "@werft-ai/testkit": "workspace:*",
     "@electric-sql/pglite": "0.3.10",
     "@types/pg": "8.15.5"

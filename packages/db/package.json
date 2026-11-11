@@ -26,6 +26,7 @@
     "@werft-ai/contracts": "workspace:*",
     "@werft-ai/observability": "workspace:*",
     "@werft-ai/platform": "workspace:*",
+    "@werft-ai/runtime-core": "workspace:*",
     "@werft-ai/system": "workspace:*",
     "drizzle-orm": "0.45.2",
     "pg": "8.16.3",
