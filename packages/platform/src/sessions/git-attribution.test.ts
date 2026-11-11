@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { SessionAttributionRecord } from "../ports/session-attribution.ts";
+import type { SessionAttributionRecord } from "../action/ports/session-attribution.ts";
 import {
   appBotAuthor,
   attributionView,

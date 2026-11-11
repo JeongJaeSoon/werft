@@ -20,15 +20,6 @@ import {
   createAuthorizationPolicy,
   type SessionAccess,
 } from "../../musterrolle/policy.ts";
-import type {
-  PullRequestReceipt,
-  PullRequestSource,
-  PullRequestStore,
-} from "../../ports/pull-requests.ts";
-import type {
-  SessionAttributionRecord,
-  TurnRequester,
-} from "../../ports/session-attribution.ts";
 import {
   repositoryBinding,
   type SessionCatalog,
@@ -41,6 +32,15 @@ import { SessionServiceError } from "../../sessions/session-service.ts";
 import { fakeRepositoryReads } from "../../testing/repository-tree-fake.ts";
 import { ForgeCredentialError, type ForgePullRequest } from "../ports/forge.ts";
 import type { GitHubApi } from "../ports/github-api.ts";
+import type {
+  PullRequestReceipt,
+  PullRequestSource,
+  PullRequestStore,
+} from "../ports/pull-requests.ts";
+import type {
+  SessionAttributionRecord,
+  TurnRequester,
+} from "../ports/session-attribution.ts";
 import {
   commentMarker,
   createPullRequestService,
