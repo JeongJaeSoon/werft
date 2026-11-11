@@ -285,6 +285,48 @@ describe("a private agent's usage", () => {
   });
 });
 
+// 94S-1512: a private agent the reader may not use reads as a missing one.
+describe("reading a private agent", () => {
+  const reading = (action: "agent.read" | "agent.settings_read", id: string) =>
+    ({
+      subject: web.subject,
+      action,
+      resource: { kind: "agent", id, owner_scope: web.ownerId },
+      request_id: web.requestId,
+    }) satisfies AuthorizationRequest;
+
+  test("an outsider gets the decision a missing agent gets, for both read actions", async () => {
+    const { agents } = authority(CLOSED, {
+      agentOf: async (_workspace, resource) =>
+        resource.id === AGENT ? AGENT : null,
+    });
+    const policy = policyOf(agents);
+    for (const action of ["agent.read", "agent.settings_read"] as const) {
+      const hidden = await policy.authorize(reading(action, AGENT));
+      const missing = await policy.authorize(reading(action, OTHER_AGENT));
+      expect(hidden).toMatchObject({
+        outcome: "deny",
+        reason_code: "not_found",
+      });
+      expect({ ...hidden, resource: null, decision_id: null }).toEqual({
+        ...missing,
+        resource: null,
+        decision_id: null,
+      });
+    }
+  });
+
+  test("a person who may use it still reads it as before", async () => {
+    const { agents } = authority(OPEN);
+    expect(
+      await policyOf(agents).authorize(reading("agent.read", AGENT)),
+    ).toMatchObject({ outcome: "allow" });
+    expect(
+      await policyOf(agents).authorize(reading("agent.settings_read", AGENT)),
+    ).toMatchObject({ outcome: "deny", reason_code: "role" });
+  });
+});
+
 describe("usageOfRelease", () => {
   test("names the release's agent and what the person may do with it", async () => {
     const { agents } = authority(CLOSED);

@@ -715,6 +715,13 @@ export function createAuthorizationPolicy(
           if ((await outsideAccess.access(resource.owner_scope)) === "none") {
             return ["not_found", scopes];
           }
+          // A private agent the reader may not use reads as a missing one
+          // (94S-1512), checked before any answer that names it.
+          if (
+            !(await usageFor(reading, resource.owner_scope, agentId)).allowed
+          ) {
+            return ["not_found", scopes];
+          }
           if (action === "agent.settings_read") return ["role", scopes];
         }
       }

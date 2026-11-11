@@ -412,6 +412,68 @@ integration("agent_usable on PostgreSQL", () => {
     expect(await list(idOf(w.outsider), null)).toEqual([]);
   });
 
+  // 94S-1512: the agent list and its counts answer the same question as the
+  // start decision, for every kind of requester, on the same rows.
+  test("the agent list and counts hide exactly what the start decision refuses", async () => {
+    const w = await world();
+    const store = createPostgresAgentStore(db);
+    const hidden = await db
+      .select({ name: agents.name, slug: agents.slug })
+      .from(agents)
+      .where(eq(agents.id, w.agentId));
+    const table: [string, Caller][] = [
+      ["member of the usage team", w.insider],
+      ["member outside the usage team", w.outsider],
+      ["workspace owner", w.owner],
+      ["workspace admin", w.wsAdmin],
+      ["direct agent admin", w.directAdmin],
+      ["member of a lent admin team", w.lentMember],
+      ["member of the managing team", w.managingMember],
+      ["member who left the usage team", w.former],
+    ];
+    for (const outsideAccess of ["use", "view"] as const) {
+      for (const [name, caller] of table) {
+        const reader = { userId: idOf(caller), outsideAccess };
+        const decision = (
+          await both(
+            w.ws,
+            { userId: idOf(caller), keyAgentId: null },
+            w.agentId,
+          )
+        ).decision;
+        const listed = (await store.list(w.ws, { limit: 50 }, reader)).items;
+        const counted = await store.count(w.ws, reader);
+        expect({
+          name,
+          outsideAccess,
+          listed: listed.some((item) => item.id === w.agentId),
+          all: counted.all,
+        }).toEqual({
+          name,
+          outsideAccess,
+          listed: decision,
+          all: decision ? 2 : 1,
+        });
+        // The open agent stays for everyone.
+        expect(listed.some((item) => item.id === w.other.agentId)).toBe(true);
+      }
+    }
+
+    // Nothing narrows its way back to a hidden agent, and a page boundary
+    // does not show one.
+    const outside = { userId: idOf(w.outsider), outsideAccess: "use" } as const;
+    for (const query of [
+      { limit: 50, q: hidden[0]?.name ?? "" },
+      { limit: 50, q: hidden[0]?.slug ?? "" },
+      { limit: 50, ids: [w.agentId] },
+    ]) {
+      expect((await store.list(w.ws, query, outside)).items).toEqual([]);
+    }
+    const first = await store.list(w.ws, { limit: 1 }, outside);
+    expect(first.items.map((item) => item.id)).toEqual([w.other.agentId]);
+    expect(first.next_cursor).toBeNull();
+  });
+
   test("a session of an agent the viewer may not use shows no agent, in the list and in the detail", async () => {
     const w = await world();
     const start = async (by: Caller, releaseId: string) => {
