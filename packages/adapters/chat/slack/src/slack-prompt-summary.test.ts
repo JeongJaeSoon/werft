@@ -18,135 +18,30 @@ function githubInput(tool: GitHubMcpTool, raw: unknown): unknown {
   return GITHUB_MCP_TOOL_ARGUMENTS[tool].parse(raw);
 }
 
-/** The line alone; the file tools' excerpt has tests of its own. */
+/** The line alone; which verb and target a tool gets is contracts' to test. */
 const ko = (tool: string, input: unknown, context = {}) => {
   const { verb, target } = summarizeToolRequest(tool, input, context, "ko");
   return { verb, target };
 };
 
 describe("summarizeToolRequest", () => {
-  test("a file tool's excerpt is the first lines of what it writes, with real line breaks", () => {
-    // The owner's report: a Write card showed this as one JSON string.
-    const content =
-      "# werft-sandbox\n\nWerft의 GitHub 연동을 점검하기 위한 테스트 저장소입니다.\n\n## 구성\n\n- `notes/`: 예시 텍스트 파일\n";
-    const write = summarizeToolRequest(
-      "Write",
-      { file_path: "README.md", content },
-      {},
-      "ko",
-    );
-    expect(write).toEqual({
-      verb: "파일 쓰기",
-      target: "README.md",
-      excerpt:
-        "# werft-sandbox\n\nWerft의 GitHub 연동을 점검하기 위한 테스트 저장소입니다.\n…",
-    });
-    expect(write.excerpt).not.toContain("\\n");
+  test("a tool's verb, target and excerpt arrive in the reader's language", () => {
     expect(
       summarizeToolRequest(
-        "Edit",
-        { file_path: "a.ts", old_string: "x", new_string: "const a = 1;" },
+        "Bash",
+        { command: "npm test", description: "Run the tests" },
         {},
         "ko",
-      ).excerpt,
-    ).toBe("const a = 1;");
+      ),
+    ).toEqual({ verb: "명령 실행", target: "Run the tests", excerpt: null });
     expect(
       summarizeToolRequest(
-        "MultiEdit",
-        { file_path: "a.ts", edits: [{ old_string: "x", new_string: "y" }] },
+        "Write",
+        { file_path: "a.ts", content: "1\n2\n3\n4" },
         {},
-        "ko",
-      ).excerpt,
-    ).toBe("y");
-    expect(
-      summarizeToolRequest("Write", { file_path: "a" }, {}, "ko").excerpt,
-    ).toBeNull();
-    expect(
-      summarizeToolRequest("Bash", { command: "ls" }, {}, "ko").excerpt,
-    ).toBeNull();
-    const long = summarizeToolRequest(
-      "Write",
-      { file_path: "a", content: "x".repeat(1000) },
-      {},
-      "ko",
-    ).excerpt;
-    expect([...(long ?? "")].length).toBeLessThanOrEqual(300);
-  });
-
-  test("an excerpt keeps the content's own first lines, marks what it leaves out and stays within 300", () => {
-    const write = (text: string) =>
-      summarizeToolRequest("Write", { file_path: "a", content: text }, {}, "ko")
-        .excerpt;
-    // Indentation and leading blank lines are part of what gets written.
-    expect(write("    first\n    second")).toBe("    first\n    second");
-    expect(write("\n\n\nfourth")).toBe("\n\n\n…");
-    const full = write(
-      `${"a".repeat(100)}\n${"b".repeat(100)}\n${"c".repeat(98)}\nd`,
-    );
-    expect([...(full ?? "")].length).toBeLessThanOrEqual(300);
-    expect(full).toEndWith("…");
-    // A second edit is not hidden behind the first.
-    expect(
-      summarizeToolRequest(
-        "MultiEdit",
-        {
-          file_path: "a.ts",
-          edits: [
-            { old_string: "x", new_string: "safe" },
-            { old_string: "y", new_string: "dangerous second change" },
-          ],
-        },
-        {},
-        "ko",
-      ).excerpt,
-    ).toBe("safe\n…");
-  });
-
-  test("built-in tools", () => {
-    expect(
-      ko("Bash", { command: "npm test", description: "Run the tests" }),
-    ).toEqual({ verb: "명령 실행", target: "Run the tests" });
-    expect(ko("Bash", { command: "\n  npm test\nnpm run lint" })).toEqual({
-      verb: "명령 실행",
-      target: "npm test",
-    });
-    expect(ko("Bash", { command: "x".repeat(500) }).target).toHaveLength(120);
-    expect(ko("Edit", { file_path: "/w/a.ts" })).toEqual({
-      verb: "파일 수정",
-      target: "/w/a.ts",
-    });
-    expect(ko("MultiEdit", { file_path: "/w/a.ts" }).verb).toBe("파일 수정");
-    expect(ko("NotebookEdit", { notebook_path: "/w/n.ipynb" })).toEqual({
-      verb: "파일 수정",
-      target: "/w/n.ipynb",
-    });
-    expect(ko("Write", { file_path: "/w/b.ts" })).toEqual({
-      verb: "파일 쓰기",
-      target: "/w/b.ts",
-    });
-    expect(ko("Read", { file_path: "/w/c.ts" }).verb).toBe("파일 읽기");
-    expect(ko("Glob", { pattern: "**/*.ts" })).toEqual({
-      verb: "파일 찾기",
-      target: "**/*.ts",
-    });
-    expect(ko("Grep", { pattern: "TODO" })).toEqual({
-      verb: "내용 찾기",
-      target: "TODO",
-    });
-    expect(
-      ko("WebFetch", { url: "https://docs.slack.dev/reference/block-kit?x=1" }),
-    ).toEqual({
-      verb: "웹 페이지 읽기",
-      target: "docs.slack.dev/reference/block-kit",
-    });
-    expect(ko("WebFetch", { url: "not a url" })).toEqual({
-      verb: "웹 페이지 읽기",
-      target: null,
-    });
-    expect(ko("WebSearch", { query: "slack container block" })).toEqual({
-      verb: "웹 검색",
-      target: "slack container block",
-    });
+        "en",
+      ),
+    ).toEqual({ verb: "Write a file", target: "a.ts", excerpt: "1\n2\n3\n…" });
   });
 
   test("GitHub tools read the push row and the catalog through their context", () => {
@@ -253,7 +148,7 @@ describe("summarizeToolRequest", () => {
     ).toEqual({ verb: "PR 고치기", target: BRANCH });
   });
 
-  test("other tools say which tool, and which remote MCP server", () => {
+  test("the tool and server names are filled into each language's wording", () => {
     expect(ko("mcp__linear__save_issue", { title: "x" })).toEqual({
       verb: "linear의 save_issue 도구 사용",
       target: null,
@@ -267,18 +162,6 @@ describe("summarizeToolRequest", () => {
     });
     expect(ko("Task", { prompt: "x" })).toEqual({
       verb: "Task 도구 사용",
-      target: null,
-    });
-    expect(ko("mcp__broken", {})).toEqual({
-      verb: "mcp__broken 도구 사용",
-      target: null,
-    });
-  });
-
-  test("a missing or odd input field gives no target", () => {
-    expect(ko("Bash", null)).toEqual({ verb: "명령 실행", target: null });
-    expect(ko("Edit", { file_path: 3 })).toEqual({
-      verb: "파일 수정",
       target: null,
     });
   });

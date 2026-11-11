@@ -34,6 +34,131 @@ describe("presentPendingRequest", () => {
     expect(presented.excerpt).toBe("1\n2\n3\n…");
   });
 
+  test("an excerpt keeps real line breaks, whatever the file tool", () => {
+    // The owner's report: a Write card showed this as one JSON string.
+    const content =
+      "# werft-sandbox\n\nWerft의 GitHub 연동을 점검하기 위한 테스트 저장소입니다.\n\n## 구성\n\n- `notes/`: 예시 텍스트 파일\n";
+    const write = presentPendingRequest("Write", {
+      file_path: "README.md",
+      content,
+    });
+    expect(write).toEqual({
+      verb: { key: "action.tool.writeFile" },
+      target: "README.md",
+      excerpt:
+        "# werft-sandbox\n\nWerft의 GitHub 연동을 점검하기 위한 테스트 저장소입니다.\n…",
+    });
+    expect(write.excerpt).not.toContain("\\n");
+    expect(
+      presentPendingRequest("Edit", {
+        file_path: "a.ts",
+        old_string: "x",
+        new_string: "const a = 1;",
+      }).excerpt,
+    ).toBe("const a = 1;");
+    expect(
+      presentPendingRequest("MultiEdit", {
+        file_path: "a.ts",
+        edits: [{ old_string: "x", new_string: "y" }],
+      }).excerpt,
+    ).toBe("y");
+    expect(
+      presentPendingRequest("Write", { file_path: "a" }).excerpt,
+    ).toBeNull();
+    expect(presentPendingRequest("Bash", { command: "ls" }).excerpt).toBeNull();
+  });
+
+  test("an excerpt keeps the content's own first lines, marks what it leaves out and stays within 300", () => {
+    const write = (text: string) =>
+      presentPendingRequest("Write", { file_path: "a", content: text }).excerpt;
+    // Indentation and leading blank lines are part of what gets written.
+    expect(write("    first\n    second")).toBe("    first\n    second");
+    expect(write("\n\n\nfourth")).toBe("\n\n\n…");
+    const full = write(
+      `${"a".repeat(100)}\n${"b".repeat(100)}\n${"c".repeat(98)}\nd`,
+    );
+    expect([...(full ?? "")].length).toBeLessThanOrEqual(300);
+    expect(full).toEndWith("…");
+    expect([...(write("x".repeat(1000)) ?? "")].length).toBeLessThanOrEqual(
+      300,
+    );
+    // A second edit is not hidden behind the first.
+    expect(
+      presentPendingRequest("MultiEdit", {
+        file_path: "a.ts",
+        edits: [
+          { old_string: "x", new_string: "safe" },
+          { old_string: "y", new_string: "dangerous second change" },
+        ],
+      }).excerpt,
+    ).toBe("safe\n…");
+  });
+
+  test("built-in tools say what they do and to what", () => {
+    const line = (tool: string, input: unknown) => {
+      const { verb, target } = presentPendingRequest(tool, input);
+      return { verb: verb.key, target };
+    };
+    expect(line("Bash", { command: "\n  npm test\nnpm run lint" })).toEqual({
+      verb: "action.tool.runCommand",
+      target: "npm test",
+    });
+    expect(
+      line("Bash", { command: "npm test", description: "Run the tests" }),
+    ).toEqual({ verb: "action.tool.runCommand", target: "Run the tests" });
+    expect(line("Edit", { file_path: "/w/a.ts" })).toEqual({
+      verb: "action.tool.editFile",
+      target: "/w/a.ts",
+    });
+    expect(line("MultiEdit", { file_path: "/w/a.ts" }).verb).toBe(
+      "action.tool.editFile",
+    );
+    expect(line("NotebookEdit", { notebook_path: "/w/n.ipynb" })).toEqual({
+      verb: "action.tool.editFile",
+      target: "/w/n.ipynb",
+    });
+    expect(line("Write", { file_path: "/w/b.ts" })).toEqual({
+      verb: "action.tool.writeFile",
+      target: "/w/b.ts",
+    });
+    expect(line("Read", { file_path: "/w/c.ts" }).verb).toBe(
+      "action.tool.readFile",
+    );
+    expect(line("Glob", { pattern: "**/*.ts" })).toEqual({
+      verb: "action.tool.findFiles",
+      target: "**/*.ts",
+    });
+    expect(line("Grep", { pattern: "TODO" })).toEqual({
+      verb: "action.tool.searchContents",
+      target: "TODO",
+    });
+    expect(
+      line("WebFetch", {
+        url: "https://docs.slack.dev/reference/block-kit?x=1",
+      }),
+    ).toEqual({
+      verb: "action.tool.readWebPage",
+      target: "docs.slack.dev/reference/block-kit",
+    });
+    expect(line("WebFetch", { url: "not a url" })).toEqual({
+      verb: "action.tool.readWebPage",
+      target: null,
+    });
+    expect(line("WebSearch", { query: "slack container block" })).toEqual({
+      verb: "action.tool.searchWeb",
+      target: "slack container block",
+    });
+  });
+
+  test("a missing or odd input field gives no target", () => {
+    expect(presentPendingRequest("Bash", null)).toEqual({
+      verb: { key: "action.tool.runCommand" },
+      target: null,
+      excerpt: null,
+    });
+    expect(presentPendingRequest("Edit", { file_path: 3 }).target).toBeNull();
+  });
+
   test("reads a GitHub tool's repository and branch from the context", () => {
     expect(
       presentPendingRequest(
@@ -56,6 +181,15 @@ describe("presentPendingRequest", () => {
     expect(presentPendingRequest("mcp__linear__save_issue", {}).verb).toEqual({
       key: "action.tool.useMcpTool",
       params: { server: "linear", tool: "save_issue" },
+    });
+    expect(presentPendingRequest("Task", { prompt: "x" })).toEqual({
+      verb: { key: "action.tool.useTool", params: { tool: "Task" } },
+      target: null,
+      excerpt: null,
+    });
+    expect(presentPendingRequest("mcp__broken", {}).verb).toEqual({
+      key: "action.tool.useTool",
+      params: { tool: "mcp__broken" },
     });
   });
 
