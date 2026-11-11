@@ -232,6 +232,126 @@ async function readState(
   };
 }
 
+/**
+ * The tail of an edit's lock order, shared by every edit that needs the
+ * agent's `agent.usage.manage` right (usage, caller limits): admin rows, then
+ * every team the decision reads in one id-ordered statement, then the relation
+ * rows, then the actor's member rows. The caller holds the agent and
+ * agent_usage rows already. A manager's right needs no team; only the teams
+ * being `added` are read. Null when the actor no longer manages the agent.
+ */
+export async function lockEditRight(
+  tx: Database,
+  input: {
+    workspaceId: string;
+    agentId: string;
+    actorUserId: string;
+    manager: boolean;
+    added: readonly string[];
+  },
+): Promise<{
+  liveTeams: Set<string>;
+  roleIn: Map<string, string>;
+} | null> {
+  const { workspaceId, agentId, manager, added } = input;
+  let directAdmin = false;
+  let adminTeams: string[] = [];
+  let managingTeam: string | null = null;
+  if (!manager) {
+    const [direct] = await tx
+      .select({ userId: agentAdmins.userId })
+      .from(agentAdmins)
+      .where(
+        and(
+          eq(agentAdmins.workspaceId, workspaceId),
+          eq(agentAdmins.agentId, agentId),
+          eq(agentAdmins.userId, input.actorUserId),
+        ),
+      )
+      .for("share");
+    directAdmin = direct !== undefined;
+    // The agent row is held, so no admin team is added or dropped meanwhile.
+    adminTeams = (
+      await tx
+        .select({ teamId: agentAdminTeams.teamId })
+        .from(agentAdminTeams)
+        .where(
+          and(
+            eq(agentAdminTeams.workspaceId, workspaceId),
+            eq(agentAdminTeams.agentId, agentId),
+          ),
+        )
+    ).map((row) => row.teamId);
+    const [row] = await tx
+      .select({ teamId: agents.managingTeamId })
+      .from(agents)
+      .where(eq(agents.id, agentId));
+    managingTeam = row?.teamId ?? null;
+  }
+  const readTeams = [
+    ...new Set([
+      ...added,
+      ...adminTeams,
+      ...(managingTeam ? [managingTeam] : []),
+    ]),
+  ].sort();
+  const liveTeams = new Set<string>();
+  const roleIn = new Map<string, string>();
+  if (readTeams.length > 0) {
+    const teams = await tx
+      .select({ id: memberTeams.id, archivedAt: memberTeams.archivedAt })
+      .from(memberTeams)
+      .where(
+        and(
+          eq(memberTeams.workspaceId, workspaceId),
+          inArray(memberTeams.id, readTeams),
+        ),
+      )
+      .orderBy(asc(memberTeams.id))
+      .for("share");
+    for (const team of teams) {
+      if (team.archivedAt === null) liveTeams.add(team.id);
+    }
+    if (!manager) {
+      if (adminTeams.length > 0) {
+        await tx
+          .select({ teamId: agentAdminTeams.teamId })
+          .from(agentAdminTeams)
+          .where(eq(agentAdminTeams.agentId, agentId))
+          .orderBy(asc(agentAdminTeams.teamId))
+          .for("share");
+      }
+      const mine = await tx
+        .select({
+          teamId: memberTeamMembers.teamId,
+          role: memberTeamMembers.role,
+        })
+        .from(memberTeamMembers)
+        .where(
+          and(
+            inArray(memberTeamMembers.teamId, readTeams),
+            eq(memberTeamMembers.userId, input.actorUserId),
+            isNull(memberTeamMembers.removedAt),
+          ),
+        )
+        .orderBy(asc(memberTeamMembers.teamId))
+        .for("share");
+      for (const row of mine) roleIn.set(row.teamId, row.role);
+    }
+  }
+
+  if (!manager) {
+    const administers =
+      directAdmin ||
+      adminTeams.some((id) => liveTeams.has(id) && roleIn.has(id)) ||
+      (managingTeam !== null &&
+        liveTeams.has(managingTeam) &&
+        roleIn.get(managingTeam) === "lead");
+    if (!administers) return null;
+  }
+  return { liveTeams, roleIn };
+}
+
 async function put(
   db: Database,
   input: Parameters<AgentUsageStore["put"]>[0],
@@ -282,104 +402,15 @@ async function put(
     const added = wanted.filter((id) => !current.includes(id));
     const removed = current.filter((id) => !wanted.includes(id));
 
-    // Admin rows, then every team this decision reads in one id-ordered
-    // statement, then the relation rows, then the actor's member rows. A
-    // manager's right needs no team; only the teams being added are read.
-    let directAdmin = false;
-    let adminTeams: string[] = [];
-    let managingTeam: string | null = null;
-    if (!manager) {
-      const [direct] = await tx
-        .select({ userId: agentAdmins.userId })
-        .from(agentAdmins)
-        .where(
-          and(
-            eq(agentAdmins.workspaceId, workspaceId),
-            eq(agentAdmins.agentId, agentId),
-            eq(agentAdmins.userId, actor.userId),
-          ),
-        )
-        .for("share");
-      directAdmin = direct !== undefined;
-      // The agent row is held, so no admin team is added or dropped meanwhile.
-      adminTeams = (
-        await tx
-          .select({ teamId: agentAdminTeams.teamId })
-          .from(agentAdminTeams)
-          .where(
-            and(
-              eq(agentAdminTeams.workspaceId, workspaceId),
-              eq(agentAdminTeams.agentId, agentId),
-            ),
-          )
-      ).map((row) => row.teamId);
-      const [row] = await tx
-        .select({ teamId: agents.managingTeamId })
-        .from(agents)
-        .where(eq(agents.id, agentId));
-      managingTeam = row?.teamId ?? null;
-    }
-    const readTeams = [
-      ...new Set([
-        ...added,
-        ...adminTeams,
-        ...(managingTeam ? [managingTeam] : []),
-      ]),
-    ].sort();
-    const liveTeams = new Set<string>();
-    const roleIn = new Map<string, string>();
-    if (readTeams.length > 0) {
-      const teams = await tx
-        .select({ id: memberTeams.id, archivedAt: memberTeams.archivedAt })
-        .from(memberTeams)
-        .where(
-          and(
-            eq(memberTeams.workspaceId, workspaceId),
-            inArray(memberTeams.id, readTeams),
-          ),
-        )
-        .orderBy(asc(memberTeams.id))
-        .for("share");
-      for (const team of teams) {
-        if (team.archivedAt === null) liveTeams.add(team.id);
-      }
-      if (!manager) {
-        if (adminTeams.length > 0) {
-          await tx
-            .select({ teamId: agentAdminTeams.teamId })
-            .from(agentAdminTeams)
-            .where(eq(agentAdminTeams.agentId, agentId))
-            .orderBy(asc(agentAdminTeams.teamId))
-            .for("share");
-        }
-        const mine = await tx
-          .select({
-            teamId: memberTeamMembers.teamId,
-            role: memberTeamMembers.role,
-          })
-          .from(memberTeamMembers)
-          .where(
-            and(
-              inArray(memberTeamMembers.teamId, readTeams),
-              eq(memberTeamMembers.userId, actor.userId),
-              isNull(memberTeamMembers.removedAt),
-            ),
-          )
-          .orderBy(asc(memberTeamMembers.teamId))
-          .for("share");
-        for (const row of mine) roleIn.set(row.teamId, row.role);
-      }
-    }
-
-    if (!manager) {
-      const administers =
-        directAdmin ||
-        adminTeams.some((id) => liveTeams.has(id) && roleIn.has(id)) ||
-        (managingTeam !== null &&
-          liveTeams.has(managingTeam) &&
-          roleIn.get(managingTeam) === "lead");
-      if (!administers) return { outcome: "actor_inactive" };
-    }
+    const right = await lockEditRight(tx, {
+      workspaceId,
+      agentId,
+      actorUserId: actor.userId,
+      manager,
+      added,
+    });
+    if (!right) return { outcome: "actor_inactive" };
+    const { liveTeams, roleIn } = right;
     if (usage.revision !== input.ifMatch) {
       return { outcome: "version_mismatch", current: usage.revision };
     }

@@ -10,6 +10,7 @@ import type {
 import type {
   AchievementRuleService,
   AgentAdminService,
+  AgentCallerLimitsService,
   AgentGitHubService,
   AgentIdentityService,
   AgentMcpService,
@@ -56,6 +57,7 @@ import {
   registerAchievementRoutes,
   registerSessionAchievementRoutes,
 } from "./routes/achievements.ts";
+import { registerAgentCallerLimitsRoutes } from "./routes/agent-caller-limits.ts";
 import { registerAgentGitHubRoutes } from "./routes/agent-github.ts";
 import { registerAgentIdentityRoutes } from "./routes/agent-identities.ts";
 import { registerAgentMcpRoutes } from "./routes/agent-mcp.ts";
@@ -179,6 +181,7 @@ function apiApp() {
       registerApiKeyRoutes(router, {} as ApiKeyService);
       registerTeamRoutes(router, {} as TeamService, {} as AgentAdminService);
       registerAgentUsageRoutes(router, {} as AgentUsageService);
+      registerAgentCallerLimitsRoutes(router, {} as AgentCallerLimitsService);
       registerCredentialBindingRoutes(router, {} as CredentialBindingService);
       registerEnvVariableRoutes(router, {} as EnvVariableService);
       registerPauseRoutes(router, {} as SessionService);

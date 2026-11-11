@@ -4002,6 +4002,76 @@ export const agentUsageTargets = pgTable(
   ],
 );
 
+// What a caller may do through an agent (94S-917), one row per caller target:
+// the workspace, a team, a Slack channel, or (stored, not taken by the v1 API)
+// a person. `tools_deny` and `credentials_deny` list what is refused;
+// `repositories` and `mcp_servers` list all that is allowed, NULL meaning no
+// limit and an empty array none. Names are not checked against anything, and
+// a repository id the catalog later drops stays here. A team's archive deletes
+// its rows. The agent's `agent_usage.limits_revision` versions the whole set.
+export const agentCallerLimits = pgTable(
+  "agent_caller_limits",
+  {
+    id: uuid().primaryKey().default(sql`gen_random_uuid()`),
+    agentId: uuid("agent_id").notNull(),
+    workspaceId: uuid("workspace_id").notNull(),
+    targetKind: text("target_kind")
+      .$type<"workspace" | "team" | "channel" | "user">()
+      .notNull(),
+    teamId: uuid("team_id"),
+    channelId: text("channel_id"),
+    userId: uuid("user_id"),
+    toolsDeny: text("tools_deny").array().notNull().default(sql`'{}'`),
+    repositories: text().array(),
+    mcpServers: text("mcp_servers").array(),
+    credentialsDeny: text("credentials_deny")
+      .array()
+      .notNull()
+      .default(sql`'{}'`),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    // Exactly the column of the kind is set (none for the workspace).
+    check(
+      "agent_caller_limits_target_check",
+      sql`(${table.targetKind} = 'workspace' AND ${table.teamId} IS NULL AND ${table.channelId} IS NULL AND ${table.userId} IS NULL)
+        OR (${table.targetKind} = 'team' AND ${table.teamId} IS NOT NULL AND ${table.channelId} IS NULL AND ${table.userId} IS NULL)
+        OR (${table.targetKind} = 'channel' AND ${table.teamId} IS NULL AND ${table.channelId} IS NOT NULL AND ${table.userId} IS NULL)
+        OR (${table.targetKind} = 'user' AND ${table.teamId} IS NULL AND ${table.channelId} IS NULL AND ${table.userId} IS NOT NULL)`,
+    ),
+    // One rule per target; NULLS NOT DISTINCT so the workspace's, whose
+    // target columns are all NULL, cannot repeat either.
+    unique("agent_caller_limits_target_uniq")
+      .on(
+        table.agentId,
+        table.targetKind,
+        table.teamId,
+        table.channelId,
+        table.userId,
+      )
+      .nullsNotDistinct(),
+    foreignKey({
+      name: "agent_caller_limits_usage_fk",
+      columns: [table.workspaceId, table.agentId],
+      foreignColumns: [agentUsage.workspaceId, agentUsage.agentId],
+    }),
+    foreignKey({
+      name: "agent_caller_limits_team_fk",
+      columns: [table.workspaceId, table.teamId],
+      foreignColumns: [memberTeams.workspaceId, memberTeams.id],
+    }),
+    foreignKey({
+      name: "agent_caller_limits_member_fk",
+      columns: [table.workspaceId, table.userId],
+      foreignColumns: [memberships.workspaceId, memberships.userId],
+    }),
+    index("agent_caller_limits_team_idx").on(table.teamId),
+  ],
+);
+
 // Who sees a session (design 4.6). No row reads as `workspace`, which is
 // what every session made before this table, and every web, API and channel
 // session since, starts as.

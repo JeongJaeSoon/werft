@@ -25,6 +25,7 @@ import {
   agentAdminChangeResponseSchema,
   agentAdminParamsSchema,
   agentAdminsViewSchema,
+  agentCallerLimitsSchema,
   agentDetailSchema,
   agentEngineSettingsResponseSchema,
   agentEnvVariablesSchema,
@@ -194,6 +195,8 @@ import {
   pushRequestParamsSchema,
   pushRequestSchema,
   pushRequestViewSchema,
+  putAgentCallerLimitsRequestSchema,
+  putAgentCallerLimitsResponseSchema,
   putAgentGitHubEnabledRequestSchema,
   putAgentGitHubEnabledResponseSchema,
   putAgentGitHubRepositoryAccessRequestSchema,
@@ -467,6 +470,7 @@ const requestComponents = {
   AddAgentAdminRequest: addAgentAdminRequestSchema,
   SetAgentManagingTeamRequest: setAgentManagingTeamRequestSchema,
   PutAgentUsageRequest: putAgentUsageRequestSchema,
+  PutAgentCallerLimitsRequest: putAgentCallerLimitsRequestSchema,
   LinkAgentIdentityRequest: linkAgentIdentityRequestSchema,
   PutSlackBindingRequest: putSlackBindingRequestSchema,
   ResolveSlackBindingRequest: resolveSlackBindingRequestSchema,
@@ -642,6 +646,8 @@ const responseComponents = {
   DeleteTeamResponse: deleteTeamResponseSchema,
   AgentUsage: agentUsageSchema,
   PutAgentUsageResponse: putAgentUsageResponseSchema,
+  AgentCallerLimits: agentCallerLimitsSchema,
+  PutAgentCallerLimitsResponse: putAgentCallerLimitsResponseSchema,
   AgentAdmins: agentAdminsViewSchema,
   AgentAdminChangeResponse: agentAdminChangeResponseSchema,
   SetAgentManagingTeamResponse: setAgentManagingTeamResponseSchema,
@@ -6493,6 +6499,83 @@ export const API_ROUTE_DECLARATIONS = [
         usage: {
           scope: "private",
           teams: [{ id: EXAMPLE_TEAM_ID, name: "Platform" }],
+          revision: 3,
+        },
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
+    errors: [400, 401, 403, 404, 412, 413, 428, 503],
+    errorCodes: {
+      412: ["VERSION_MISMATCH"],
+      428: ["PRECONDITION_REQUIRED"],
+    },
+    ifMatch: "revision",
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/agents/{id}/caller-limits",
+    operationId: "getAgentCallerLimits",
+    tag: "Agents",
+    summary: "What callers may do through an agent",
+    description:
+      "One rule per caller target: the whole `workspace`, a `team` or a Slack `channel`. A rule's `tools_deny` and `credentials_deny` name what the caller may not use; `repositories` and `mcp_servers` name all the caller may use, `null` meaning no limit and `[]` none. Owners, admins and the agent's own admins read it, as they edit it; never an API key. `revision` is the `If-Match` of the next edit; it moves with every change, and with the archive of a team the agent has a rule for. Reading it changes no session: these are stored rules, not a decision.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "AgentCallerLimits",
+      description: "The agent's caller limit rules.",
+      example: {
+        rules: [
+          {
+            target: { kind: "team", id: EXAMPLE_TEAM_ID },
+            tools_deny: ["shell"],
+            repositories: ["platform"],
+            mcp_servers: null,
+            credentials_deny: [],
+          },
+        ],
+        revision: 2,
+      },
+    },
+    errors: [401, 403, 404, 503],
+  },
+  {
+    method: "put",
+    path: "/v1/agents/{id}/caller-limits",
+    operationId: "putAgentCallerLimits",
+    tag: "Agents",
+    summary: "Replace what callers may do through an agent",
+    description:
+      "Owners, admins and the agent's own admins; never an API key. The whole set is replaced and `If-Match: <revision>` is required, so two edits cannot overwrite each other: the later one answers 412. A target is a `workspace`, a `team` or a Slack `channel`, once each; a person is not a target here (400). Tool, MCP server and credential names are not checked. A repository id this edit adds to a target must be in the catalog (400, `details.reason_code` `repository_not_in_catalog`, `details.repository_ids`); an id the target already holds stays, whatever the catalog says now, and counts as no allowance. An owner or admin names any live team; anyone else adds a rule only for a team they are in (403 FORBIDDEN, `details.reason_code` `team_not_allowed`), and removing a rule needs only this right. A team that is not in the workspace or is deleted is 404. Archiving a team deletes its rules and moves the `revision` of the agents that had one. This changes no session by itself. Writes a `set_agent_caller_limits` receipt with the rules before and after unless nothing changed (`receipt_id` null, `revision` kept).",
+    auth: "session",
+    body: "PutAgentCallerLimitsRequest",
+    requestExample: {
+      rules: [
+        {
+          target: { kind: "team", id: EXAMPLE_TEAM_ID },
+          tools_deny: ["shell"],
+          repositories: ["platform"],
+          mcp_servers: null,
+          credentials_deny: [],
+        },
+      ],
+    },
+    success: {
+      status: 200,
+      schema: "PutAgentCallerLimitsResponse",
+      description: "The rules now held, and their new `revision`.",
+      example: {
+        limits: {
+          rules: [
+            {
+              target: { kind: "team", id: EXAMPLE_TEAM_ID },
+              tools_deny: ["shell"],
+              repositories: ["platform"],
+              mcp_servers: null,
+              credentials_deny: [],
+            },
+          ],
           revision: 3,
         },
         receipt_id: EXAMPLE_RECEIPT_ID,

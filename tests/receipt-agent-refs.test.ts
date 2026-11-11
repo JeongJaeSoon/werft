@@ -21,7 +21,7 @@ const OPERATIONS = new Set<string>(RECEIPT_OPERATION_VALUES);
 
 // A key that holds an agent or release id.
 const REF_KEY =
-  /^(agent_?ids?|usage_agent_ids|agent_?release_?id|release_?id|previous_release_id)$/;
+  /^(agent_?ids?|usage_agent_ids|limits_agent_ids|agent_?release_?id|release_?id|previous_release_id)$/;
 const RECEIPT_PARTS = new Set(["result", "targetRef", "target_ref"]);
 
 function sourceFiles(dir: string): string[] {

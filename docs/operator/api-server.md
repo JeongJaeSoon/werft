@@ -775,6 +775,7 @@ curl -s -b jar -X POST http://127.0.0.1:3000/v1/api-keys \
 | `DELETE /v1/teams/{team_id}/members/{user_id}` | 구성원 제거 |
 | `PUT /v1/agents/{id}/managing-team` `{"team_id"}` | 담당 팀 지정·변경 |
 | `GET /v1/agents/{id}/usage`, `PUT /v1/agents/{id}/usage` `{"scope","teams":[{"id"}]}` | 에이전트를 쓸 수 있는 범위. `workspace`는 워크스페이스 전원, `private`은 나열한 팀의 구성원. PUT은 전체 교체이고 `If-Match: <revision>`이 필수다(어긋나면 `412 VERSION_MISMATCH`, 없으면 `428 PRECONDITION_REQUIRED`) |
+| `GET /v1/agents/{id}/caller-limits`, `PUT /v1/agents/{id}/caller-limits` `{"rules":[{"target","tools_deny","repositories","mcp_servers","credentials_deny"}]}` | 호출자별 제한 규칙. 대상(`target`)은 `{"kind":"workspace"}`·`{"kind":"team","id"}`·`{"kind":"channel","id"}`이고 대상마다 규칙은 하나다(사람 대상은 400). PUT은 전체 교체이고 `If-Match: <revision>`(`limits_revision`)이 필수다 |
 | `GET /v1/agents/{id}/admins` | 에이전트의 관리자(사람·팀) |
 | `POST /v1/agents/{id}/admins` `{"user_id"}` 또는 `{"team_id"}` | 관리자 지정 |
 | `DELETE /v1/agents/{id}/admins/users/{user_id}`, `…/admins/teams/{team_id}` | 관리자 해제 |
@@ -785,7 +786,7 @@ curl -s -b jar -X POST http://127.0.0.1:3000/v1/api-keys \
 
 사용 범위(`agent_usage`, 마이그레이션 0265)는 이 단계에서 세션 동작을 바꾸지 않는다. 설정과 편집 API만 있고, 세션을 만들거나 입력할 때 읽는 판정은 뒤 단계다.
 
-- 마이그레이션이 기존 에이전트마다 `scope = workspace` 한 행을 넣고, `POST /v1/agents`도 같은 트랜잭션에서 넣는다. `limits_revision`은 호출자 한도(뒤 단계)가 쓰며 이 API는 읽지도 올리지도 않는다.
+- 마이그레이션이 기존 에이전트마다 `scope = workspace` 한 행을 넣고, `POST /v1/agents`도 같은 트랜잭션에서 넣는다. `limits_revision`은 호출자 제한 규칙(`agent_caller_limits`)의 버전이며 `PUT …/usage`는 읽지도 올리지도 않는다.
 - `agent.usage.manage`는 owner·admin과 그 에이전트의 관리자(사람만, API key는 403)다. 읽기도 같은 사람만 한다(담당 팀의 일반 구성원은 설정은 읽어도 누가 쓰는지는 읽지 못한다).
 - `private`은 팀이 1개 이상이고 `workspace`는 팀이 없다(아니면 `400`). 팀을 새로 넣는 사람은 owner·admin이거나 그 팀의 구성원이어야 한다(아니면 `403`, `reason_code: team_not_allowed`). 빼기, 이미 있는 팀을 유지하기는 `agent.usage.manage`면 된다.
 - 팀을 삭제하면 그 팀을 나열한 모든 에이전트에서 팀이 빠지고 그 에이전트들의 `revision`이 오른다. 팀이 모두 빠진 `private` 에이전트는 `private`인 채로 남고, 에이전트를 관리하는 사람 말고는 쓸 수 없는 상태가 된다. 삭제와 겹치는 PUT 때문에 삭제가 3번 시도해도 정리되지 않으면 `409 REVISION_CONFLICT`이고 아무것도 쓰지 않으니 다시 보낸다.
@@ -799,6 +800,15 @@ curl -s -b jar -X POST "http://127.0.0.1:3000/v1/teams/$TEAM_ID/members" \
 curl -s -b jar -X POST "http://127.0.0.1:3000/v1/agents/$AGENT_ID/admins" \
   -H 'X-Requested-With: werft-web' -H 'Content-Type: application/json' -d "{\"team_id\":\"$TEAM_ID\"}"
 ```
+
+호출자 제한 규칙(`agent_caller_limits`, 마이그레이션 0268)도 이 단계에서 세션 동작을 바꾸지 않는다. 저장과 편집 API만 있고 판정·집행은 뒤 단계다.
+
+- 규칙은 대상마다 하나다. 대상은 워크스페이스 전체(`workspace`), 팀(`team`), Slack 채널(`channel`)이다. 표에는 사람(`user`) 대상도 담을 수 있지만 v1 API는 받지도 돌려주지도 않으며(PUT에 넣으면 `400`), PUT이 그 행을 지우지도 않는다.
+- `tools_deny`·`credentials_deny`는 거부 목록, `repositories`·`mcp_servers`는 허용 목록이다. 허용 목록의 `null`은 제한 없음, `[]`는 아무것도 허용하지 않음이다. 도구·MCP 서버·자격 이름은 어디와도 대조하지 않는다. 채널 id도 연결 여부를 보지 않는다.
+- 저장소 id는 카탈로그에 있어야 하지만, 이번 PUT이 그 대상에 새로 넣는 id만 본다(없거나 제거됐으면 `400`, `details.reason_code: repository_not_in_catalog`, `details.repository_ids`). 그 대상에 이미 저장된 id는 카탈로그에서 빠졌어도 그대로 두고 다른 필드를 고칠 수 있다. 집행하는 쪽은 카탈로그에 없는 id를 허용으로 세지 않는다.
+- `limits_revision`은 PUT마다 하나 오르고, 규칙이 같으면(`receipt_id: null`) 그대로다. 팀을 삭제하면 그 팀의 `team` 규칙이 지워지고, 그 규칙을 가진 에이전트의 `limits_revision`만 오른다. 삭제 전에 읽은 `If-Match`는 `412`다. 편집 잠금 순서는 `PUT …/usage`와 같다.
+- 팀 규칙을 새로 넣는 사람은 owner·admin이거나 그 팀의 구성원이어야 한다(`403`, `reason_code: team_not_allowed`). 이미 있는 규칙을 고치거나 빼는 데는 `agent.usage.manage`면 된다. receipt는 `set_agent_caller_limits`다.
+- 롤백 하한은 0268이다. 이전 이미지로 내려도 아무 판정이 행을 읽지 않으므로 테이블은 그대로 남는다.
 
 ### 세션 공유 범위와 감사 열람
 
