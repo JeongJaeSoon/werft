@@ -46,7 +46,6 @@ U=.claude/skills/verify-werft/scripts/web-user.mjs
 - **me.** `ap_web GET /v1/auth/me` → `200`, `principal.kind: "user"`, `user.email: "owner@example.test"`, `workspace.slug: "verify"`, `workspace.settings`(`audit_retention_days: 90`, `slack_guest_enabled: false` 등), owner의 `permissions`에 `member.manage`·`api_key.manage`·`usage.installation_read` 등이 있다(고정 개수를 기대하지 않는다).
 - **로그아웃.** `ap_web POST /v1/auth/logout` → `204`. 이어서 `ap_web GET /v1/auth/me` → `401`.
 - **증거.** 위 블록을 `{ …; } 2>&1 | tee "$EVIDENCE/web-login.txt"`로 감싼다. cookie·비밀번호 값은 출력되지 않는다.
-- 2026-10-21 run `20261021-031642-23898`에서 bootstrap-bad-token → bootstrap(201) → 두 번째(409) → login-no-csrf(403) → login-wrong(401) → login(200) → `me`(200, permissions 15)를 이 명령들로 확인했다. agent-guard 거부는 없었다.
 
 ## Gotchas
 

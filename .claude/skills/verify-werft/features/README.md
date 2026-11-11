@@ -1,13 +1,13 @@
-# agent-platform 검증 map
+# werft 검증 map
 
-이 디렉터리는 agent-platform의 사용자 표면을 확인하는 정본이다. 몰기 전에 이 index를 읽고, 해당 기능 파일을 절차로 쓴다.
+이 디렉터리는 werft의 사용자 표면을 확인하는 정본이다. 몰기 전에 이 index를 읽고, 해당 기능 파일을 절차로 쓴다.
 
 ## 기본 전제
 
 - `scripts/up.sh`로 이 run만의 스택을 띄웠고, 출력된 run id를 기록했다(fake model, ephemeral 포트, 이 run의 bootstrap token).
 - `scripts/doctor.sh <run id>`가 exit 0이고 checkout SHA가 확인하려는 커밋이다.
 - 드라이브하는 Bash 호출마다 `. .claude/skills/verify-werft/scripts/lib.sh <run id>`를 source한다. run id는 `up.sh`가 출력한 값이고 기본값은 없다.
-- 이 run이 띄우지 않은 스택(기본 project `agent-platform`, 다른 `verify-ap-*`)은 몰지 않는다.
+- 이 run이 띄우지 않은 스택(기본 project `werft`, 다른 `verify-ap-*`)은 몰지 않는다.
 
 ## 몰기 규칙
 
