@@ -641,7 +641,6 @@ export type GitHubSettingsInstallation = z.infer<
 export type GitHubInstallationDetail = z.infer<
   typeof githubInstallationDetailSchema
 >;
-export type GitHubConnectionCheck = z.infer<typeof githubConnectionCheckSchema>;
 export type GitHubUnavailable = (typeof GITHUB_UNAVAILABLE_VALUES)[number];
 export type GitHubSettingsResponse = z.infer<
   typeof githubSettingsResponseSchema

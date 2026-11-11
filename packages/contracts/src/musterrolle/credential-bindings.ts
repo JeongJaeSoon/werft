@@ -9,7 +9,7 @@ import {
 } from "../shared/index.ts";
 
 /**
- * What a requester whose session could not start reads (design 4.4, D11):
+ * What a requester whose session could not start reads:
  * no credential names, which are the admins' to fix, only who to ask.
  */
 export const CREDENTIAL_UNBOUND_GUIDANCE =
@@ -49,7 +49,6 @@ export const activationCredentialUnboundDetailsSchema = z
   })
   .strict();
 
-export type AgentContactView = z.infer<typeof agentContactSchema>;
 export type SessionCredentialUnboundDetails = z.infer<
   typeof sessionCredentialUnboundDetailsSchema
 >;

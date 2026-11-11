@@ -18,7 +18,6 @@ export const settingsDocumentSchema = z
     mcp_servers: z.record(z.string().min(1), z.record(z.string(), z.unknown())),
   })
   .strict();
-export type SettingsDocumentBody = z.infer<typeof settingsDocumentSchema>;
 
 export const exportSettingsResponseSchema = z
   .object({
@@ -252,7 +251,6 @@ export type SettingsCredentialView = z.infer<
   typeof settingsCredentialViewSchema
 >;
 export type SettingsConnection = z.infer<typeof settingsConnectionSchema>;
-export type ConnectionAutoMode = z.infer<typeof connectionAutoModeSchema>;
 export type SettingsMcpServer = z.infer<typeof settingsMcpServerSchema>;
 export type ListSettingsConnectionsResponse = z.infer<
   typeof listSettingsConnectionsResponseSchema
@@ -268,7 +266,4 @@ export type CreateSettingsMcpServerRequest = z.infer<
 >;
 export type SettingsChangeResponse = z.infer<
   typeof settingsChangeResponseSchema
->;
-export type SetConnectionModelsRequest = z.infer<
-  typeof setConnectionModelsRequestSchema
 >;

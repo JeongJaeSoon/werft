@@ -86,19 +86,14 @@ export const getTurnResponseSchema = turnDetailSchema;
 
 export const unassignedSessionSignalSchema = z.undefined();
 
-export type SessionMessage = z.infer<typeof sessionMessageSchema>;
 export type PostSessionMessageRequest = z.infer<
   typeof postSessionMessageRequestSchema
 >;
 export type PostSessionMessageResponse = z.infer<
   typeof postSessionMessageResponseSchema
 >;
-export type AttemptSummary = z.infer<typeof attemptSummarySchema>;
 export type TurnSummary = z.infer<typeof turnSummarySchema>;
 export type TurnDetail = z.infer<typeof turnDetailSchema>;
 export type ListTurnsQuery = z.infer<typeof listTurnsQuerySchema>;
 export type ListTurnsResponse = z.infer<typeof listTurnsResponseSchema>;
 export type GetTurnResponse = z.infer<typeof getTurnResponseSchema>;
-export type UnassignedSessionSignal = z.infer<
-  typeof unassignedSessionSignalSchema
->;

@@ -241,9 +241,6 @@ export type PutAgentGitHubRepositoryAccessRequest = z.infer<
 export type PutAgentGitHubRepositoryAccessResponse = z.infer<
   typeof putAgentGitHubRepositoryAccessResponseSchema
 >;
-export type PutAgentGitHubEnabledRequest = z.infer<
-  typeof putAgentGitHubEnabledRequestSchema
->;
 export type PutAgentGitHubEnabledResponse = z.infer<
   typeof putAgentGitHubEnabledResponseSchema
 >;

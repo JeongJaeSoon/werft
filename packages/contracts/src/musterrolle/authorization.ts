@@ -24,7 +24,7 @@ import {
 // ---------------------------------------------------------------------------
 
 // API keys and users share this scope vocabulary; users derive it from a role
-// so one ceiling check covers both authentication paths (03 §3.2).
+// so one ceiling check covers both authentication paths.
 export const SESSION_SCOPE_VALUES = [
   "sessions:read",
   "sessions:write",
@@ -40,8 +40,8 @@ export const workspaceRoleSchema = z.enum(WORKSPACE_ROLE_VALUES);
 export type SessionScope = z.infer<typeof sessionScopeSchema>;
 export type WorkspaceRole = z.infer<typeof workspaceRoleSchema>;
 
-// 03 §3.2: owner gets everything; admin and member everything but recovery
-// (design 4.1: admin's session rights are a member's).
+// Owner gets everything; admin and member everything but recovery
+// (admin's session rights are a member's).
 const MEMBER_SCOPES = SESSION_SCOPE_VALUES.filter(
   (scope) => scope !== "sessions:recover",
 );
@@ -76,9 +76,9 @@ export const PRINCIPAL_KIND_VALUES = [
 export const principalKindSchema = z.enum(PRINCIPAL_KIND_VALUES);
 
 /**
- * A chat installation's ceiling. Recovery is an operator power (03b §4.1
- * "복구 | sessions:recover | operator 권한") and a chat app is not an
- * operator, so it is not in the vocabulary an installation can even name.
+ * A chat installation's ceiling. Recovery is an operator power and a chat
+ * app is not an operator, so it is not in the vocabulary an installation
+ * can even name.
  */
 export const INSTALLATION_SESSION_SCOPE_VALUES = [
   "sessions:read",
@@ -138,7 +138,7 @@ export const principalSchema = z
       })
       .strict(),
     // A signed chat webhook carries no bearer key, so what authenticated is
-    // the installation, not the person who typed (03b §4.1). The human stays
+    // the installation, not the person who typed. The human stays
     // the actor: the app's authority is never inherited by them, and theirs is
     // never lent to the app. A Slack user with no internal mapping still
     // produces a representable context — it simply has no `actor_user_id`, and
@@ -187,7 +187,7 @@ export const authorizationContextSchema = z
     /**
      * The installation or app carrying the request. It lends no authority of
      * its own; a grant match compares it, so a context assembled without it
-     * cannot ask about a grant that names one (03b §4.1).
+     * cannot ask about a grant that names one.
      */
     service_principal: serviceActorSchema.optional(),
     owner_scope: ownerScopeSchema,
@@ -271,7 +271,6 @@ export const authorizationContextSchema = z
     }
   });
 
-export type PrincipalKind = z.infer<typeof principalKindSchema>;
 export type PrincipalRef = z.infer<typeof principalRefSchema>;
 export type Principal = z.infer<typeof principalSchema>;
 export type AuthorizationContext = z.infer<typeof authorizationContextSchema>;
@@ -296,7 +295,7 @@ export const RESOURCE_KIND_VALUES = [
   // Receipt targets only: no action is granted on a key or a team.
   "api_key",
   "team",
-  // Receipt targets only: a stored extension bundle (94S-865).
+  // Receipt targets only: a stored extension bundle.
   "extension_bundle",
 ] as const;
 export const resourceKindSchema = z.enum(RESOURCE_KIND_VALUES);
@@ -318,7 +317,7 @@ export const audienceRefSchema = z
 export const AUTHORIZATION_ACTION_VALUES = [
   "workspace.read",
   "workspace.manage",
-  // Owner-only, unlike the rest of the workspace settings (design 4.1).
+  // Owner-only, unlike the rest of the workspace settings.
   "audit_retention.manage",
   // Invites, roles, offboarding and taking over what a member leaves behind.
   "member.manage",
@@ -330,7 +329,7 @@ export const AUTHORIZATION_ACTION_VALUES = [
   "api_key.manage_own",
   // Linking and unlinking the caller's own account on another service.
   "account.link",
-  // Any member may create an agent and becomes its admin (D3).
+  // Any member may create an agent and becomes its admin.
   "agent.create",
   // An agent's information (name, slug, description, managing team, status,
   // active release id): its list row. On the workspace, listing at all.
@@ -342,7 +341,7 @@ export const AUTHORIZATION_ACTION_VALUES = [
   // Bringing an archived agent back is the owner's alone.
   "agent.restore",
   "agent.admin.manage",
-  // Who may use an agent: its scope and teams (94S-900).
+  // Who may use an agent: its scope and teams.
   "agent.usage.manage",
   "credential.bind",
   // User variables (E-41): a workspace's own, and one agent's.
@@ -357,20 +356,20 @@ export const AUTHORIZATION_ACTION_VALUES = [
   "session.control",
   "session.recover",
   // Changing who sees a session: its creator, or for a key's session the
-  // workspace's managers and the agent's admins (D21).
+  // workspace's managers and the agent's admins.
   "session.share",
-  // Renaming a session: whoever answers its requests (94S-798) and nobody
+  // Renaming a session: whoever answers its requests and nobody
   // who only sees it through its share.
   "session.rename",
-  // Reading a session outside its share, read-only and with a reason (D22).
+  // Reading a session outside its share, read-only and with a reason.
   "session.audit_read",
-  // Every session's metadata, none of its content (design 4.6).
+  // Every session's metadata, none of its content.
   "session.admin_list",
   // Figures summed over every owner: GET /v1/limits and the installation
-  // usage summary (94S-762: the owner's alone).
+  // usage summary (the owner's alone).
   "usage.installation_read",
-  // One agent's summed usage: its workspace's managers and its admins
-  // (94S-1016), recorded under its own name rather than agent.manage.
+  // One agent's summed usage: its workspace's managers and its admins,
+  // recorded under its own name rather than agent.manage.
   "usage.agent_read",
   // The installation's connections, repositories and remote MCP servers,
   // and the settings document that exports and imports them: the owner
@@ -388,12 +387,7 @@ export const AUTHORIZATION_ACTION_VALUES = [
 ] as const;
 export const authorizationActionSchema = z.enum(AUTHORIZATION_ACTION_VALUES);
 
-export type ActorRef = z.infer<typeof actorRefSchema>;
-export type HumanActor = z.infer<typeof humanActorSchema>;
-export type ServiceActor = z.infer<typeof serviceActorSchema>;
 export type ResourceKind = z.infer<typeof resourceKindSchema>;
-export type ResourceRef = z.infer<typeof resourceRefSchema>;
-export type AudienceRef = z.infer<typeof audienceRefSchema>;
 export type AuthorizationAction = z.infer<typeof authorizationActionSchema>;
 
 // Ported from Kollegium v1 `core/src/schema.ts`: an action can only ever be
@@ -528,13 +522,10 @@ export const receiptActorSchema = z
     }
   });
 
-/** The `turns.actor_id` column: the human whose input started the turn. */
-export const turnActorIdSchema = userIdSchema.nullable();
-
 export type ReceiptActor = z.infer<typeof receiptActorSchema>;
 
 // ---------------------------------------------------------------------------
-// The authorize() decision (Musterrolle design, appendix A.3)
+// The authorize() decision
 // ---------------------------------------------------------------------------
 
 /** The partition every existing store reads and writes under. */
@@ -562,8 +553,8 @@ export const AUTHORIZATION_REASON_VALUES = [
   "role",
   "surface_ceiling",
   "agent_ceiling",
-  // A private agent used by someone outside its teams, admins and managers
-  // (94S-901). A start is answered as a missing release instead.
+  // A private agent used by someone outside its teams, admins and managers.
+  // A start is answered as a missing release instead.
   "agent_private",
   "caller_limited",
   "disabled",
@@ -588,7 +579,7 @@ export const SLACK_USER_KIND_VALUES = ["member", "guest", "external"] as const;
 export const slackUserKindSchema = z.enum(SLACK_USER_KIND_VALUES);
 
 /**
- * The fields of a Slack user object the decision reads (design A.3 step 4).
+ * The fields of a Slack user object the decision reads.
  * Not strict: Slack sends many more, and they are dropped.
  */
 export const slackUserSchema = z.object({
@@ -692,7 +683,7 @@ export const authorizationResourceSchema = z
     agent_id: agentIdSchema.optional(),
     /**
      * The release that session is to run, so the decision sees the
-     * credentials it names are still bound (design 4.4). A stored binding
+     * credentials it names are still bound. A stored binding
      * is identified and still starts one.
      */
     release_id: agentReleaseIdSchema.optional(),
@@ -752,7 +743,6 @@ export const authorizationDecisionSchema = z
     }
   });
 
-export type AuthorizationOutcome = z.infer<typeof authorizationOutcomeSchema>;
 export type AuthorizationReason = z.infer<typeof authorizationReasonSchema>;
 export type AuthorizationSurface = z.infer<typeof authorizationSurfaceSchema>;
 export type SlackUserKind = z.infer<typeof slackUserKindSchema>;

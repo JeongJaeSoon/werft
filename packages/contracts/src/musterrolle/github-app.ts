@@ -394,13 +394,10 @@ export type ListGitHubAppsResponse = z.infer<
 >;
 export type GitHubAppUsage = z.infer<typeof githubAppUsageSchema>;
 export type GitHubApp = z.infer<typeof githubAppSchema>;
-export type GitHubAppInstallation = z.infer<typeof githubAppInstallationSchema>;
 export type GitHubAppRepository = z.infer<typeof githubAppRepositorySchema>;
 export type GitHubAppCheckFailure =
   (typeof GITHUB_APP_CHECK_FAILURE_VALUES)[number];
 export type GetGitHubAppResponse = z.infer<typeof getGitHubAppResponseSchema>;
-export type GitHubAppManifestBlocked =
-  (typeof GITHUB_APP_MANIFEST_BLOCKED_VALUES)[number];
 export type StartGitHubAppManifestRequest = z.infer<
   typeof startGitHubAppManifestRequestSchema
 >;

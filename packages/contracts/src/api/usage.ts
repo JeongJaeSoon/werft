@@ -758,7 +758,6 @@ export type UsageAchievementsResponse = z.infer<
 export type UsageSummaryResponse = z.infer<typeof usageSummaryResponseSchema>;
 export type UsageToolsQuery = z.infer<typeof usageToolsQuerySchema>;
 export type UsageToolsResponse = z.infer<typeof usageToolsResponseSchema>;
-export type UsageToolCallsParams = z.infer<typeof usageToolCallsParamsSchema>;
 export type UsageToolCallsQuery = z.infer<typeof usageToolCallsQuerySchema>;
 export type UsageToolCallsResponse = z.infer<
   typeof usageToolCallsResponseSchema
@@ -768,5 +767,4 @@ export type InstallationLimitsResponse = z.infer<
 >;
 export type MemberLimitsResponse = z.infer<typeof memberLimitsResponseSchema>;
 export type LimitsResponse = z.infer<typeof limitsResponseSchema>;
-export type LimitsQuery = z.infer<typeof limitsQuerySchema>;
 export type SessionUsageResponse = z.infer<typeof sessionUsageResponseSchema>;

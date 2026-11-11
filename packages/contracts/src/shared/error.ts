@@ -42,7 +42,7 @@ export const API_ERROR_CODE_VALUES = [
   // The person who asked for the session was offboarded; it takes no input
   // until an owner takes it over.
   "TAKEOVER_REQUIRED",
-  // Linking a Slack account (94S-577): the workspace has no verified Slack
+  // Linking a Slack account: the workspace has no verified Slack
   // install, the account is from another Slack team, it is linked to someone
   // else, or the caller already linked a different account in that team.
   "SLACK_NOT_INSTALLED",
@@ -78,7 +78,7 @@ export const API_ERROR_CODE_VALUES = [
   "INVITE_USED",
   // The change would leave the workspace with no live owner.
   "LAST_OWNER",
-  // An admin granting the owner role or changing an owner's (design 4.1).
+  // An admin granting the owner role or changing an owner's.
   "OWNER_PROTECTED",
   // A manager changing their own role or access.
   "SELF_PROTECTED",
@@ -87,10 +87,10 @@ export const API_ERROR_CODE_VALUES = [
   // A role change or membership enable for a suspended account: only lifting
   // the suspension brings the person back.
   "ACCOUNT_DISABLED",
-  // A key asked for more than its issuer holds now (design 4.1).
+  // A key asked for more than its issuer holds now.
   "SCOPE_NOT_GRANTABLE",
   // A release names a credential its agent has no live binding for: at
-  // activation, and again when a session starts (design 4.4, D11).
+  // activation, and again when a session starts.
   "CREDENTIAL_UNBOUND",
   // A new session named an agent that is paused or archived, or a release
   // that was never approved (details.reason_code says which).
@@ -99,7 +99,7 @@ export const API_ERROR_CODE_VALUES = [
   // agent an identity would take it from.
   "CREDENTIAL_REF_IN_USE",
   // An external login whose verified address already has an account: it is
-  // never joined by email, the owner links it after signing in (design 3.1).
+  // never joined by email, the owner links it after signing in.
   "LOGIN_LINK_REQUIRED",
   // A release whose spec no longer runs here: it has none, or its connection
   // was disabled or its model taken off the connection's list. It has to be
@@ -203,5 +203,3 @@ export type ApiErrorCode = z.infer<typeof apiErrorCodeSchema>;
 export type RequestBodyInvalidDetails = z.infer<
   typeof requestBodyInvalidDetailsSchema
 >;
-export type ApiError = z.infer<typeof apiErrorSchema>;
-export type ApiErrorResponse = z.infer<typeof apiErrorResponseSchema>;

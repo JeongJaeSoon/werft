@@ -17,8 +17,8 @@ import {
 } from "../shared/index.ts";
 
 // These envelopes are the internal contract between a chat adapter and the
-// platform, not public API JSON, so they keep the camelCase field names of
-// 03b §3 rather than the snake_case of `src/api`.
+// platform, not public API JSON, so their field names are camelCase rather
+// than the snake_case of `src/api`.
 
 export const CHAT_ENVELOPE_VERSION = 1 as const;
 
@@ -49,7 +49,7 @@ export const chatInboundEnvelopeSchema = z
     /**
      * The person who spoke. Never replaced by the app's own principal — and
      * the kinds are pinned so an adapter that swaps the two fields fails here
-     * instead of handing the human service authority (03b §4.1).
+     * instead of handing the human service authority.
      */
     actor: humanActorSchema,
     /** The installation acting on their behalf; it lends no authority of its own. */
@@ -109,7 +109,7 @@ export const chatContentSchema = z
 /**
  * The audience captured when the intent was created. Delivery re-checks the
  * current ACL against it and sends to the intersection, so a widened channel
- * never fans an older, narrower result out (03b §3 step 6).
+ * never fans an older, narrower result out.
  */
 export const chatAudienceSchema = z
   .object({

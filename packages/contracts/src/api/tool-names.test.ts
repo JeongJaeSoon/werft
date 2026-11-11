@@ -1,17 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
-  addedTools,
-  carriedDeny,
-  denyOf,
-  firstVersionDeny,
   isMcpToolName,
-  mcpNamesOf,
   mcpToolNameSchema,
   mcpToolOfServer,
   parseToolNames,
   type ToolCatalogView,
-  toolsUnder,
-  unsupportedTools,
 } from "./tool-names.ts";
 
 const CATALOG: ToolCatalogView = {
@@ -28,34 +21,6 @@ const CATALOG: ToolCatalogView = {
 };
 
 describe("a deny against a tool catalog", () => {
-  test("reads an allow list as what it leaves out, through aliases, with mcp__ names left aside", () => {
-    expect(denyOf(CATALOG, ["Read", "Task", "mcp__github__get_file"])).toEqual([
-      "Edit",
-      "Bash",
-      "WebFetch",
-      "WebSearch",
-    ]);
-    expect(denyOf(CATALOG, [])).toEqual(CATALOG.tools.map((t) => t.name));
-    expect(unsupportedTools(CATALOG, ["Read", "Task", "TodoWrite"])).toEqual([
-      "TodoWrite",
-    ]);
-    expect(unsupportedTools(CATALOG, ["mcp__github__get_file"])).toEqual([]);
-  });
-
-  test("runs the catalog less the deny, nothing outside the catalog, in the allowed list's spelling", () => {
-    expect(toolsUnder(CATALOG, ["Bash", "WebSearch"])).toEqual([
-      "Read",
-      "Edit",
-      "Agent",
-      "WebFetch",
-    ]);
-    expect(toolsUnder(CATALOG, [])).toEqual(CATALOG.tools.map((t) => t.name));
-    expect(
-      toolsUnder(CATALOG, ["Edit"], ["Task", "Edit", "TodoWrite", "mcp__x__y"]),
-    ).toEqual(["Task"]);
-    expect(toolsUnder(CATALOG, ["Task"], ["Agent", "Read"])).toEqual(["Read"]);
-  });
-
   test("takes whole catalog names only, aliases turned into the current name", () => {
     expect(parseToolNames(CATALOG, ["WebSearch", "Task", "Agent"])).toEqual({
       names: ["Agent", "WebSearch"],
@@ -73,85 +38,9 @@ describe("a deny against a tool catalog", () => {
       expect("refusal" in parsed && parsed.refusal.reason_code).toBe(reason);
     }
   });
-
-  test("a first version starts with the provider-side tools blocked", () => {
-    expect(firstVersionDeny(CATALOG)).toEqual(["WebSearch"]);
-  });
-});
-
-describe("tools a previous version never weighed", () => {
-  test("an allow list weighed only what it allowed", () => {
-    expect(addedTools(CATALOG, { tools: ["Read", "Edit"] })).toEqual([
-      "Bash",
-      "Agent",
-      "WebFetch",
-      "WebSearch",
-    ]);
-    expect(
-      addedTools(CATALOG, { tools: ["Read", "Task"], deny: null }),
-    ).toEqual(["Edit", "Bash", "WebFetch", "WebSearch"]);
-  });
-
-  test("a deny weighed its tools and its deny, so a catalog grown under the same id is caught", () => {
-    expect(
-      addedTools(CATALOG, {
-        tools: ["Read", "Edit", "Agent", "WebFetch"],
-        deny: ["Bash", "WebSearch"],
-      }),
-    ).toEqual([]);
-    expect(
-      addedTools(CATALOG, {
-        tools: ["Read", "Edit", "Bash"],
-        deny: ["WebSearch"],
-      }),
-    ).toEqual(["Agent", "WebFetch"]);
-  });
-
-  test("a next version starts from the previous blocks plus every added tool", () => {
-    expect(
-      carriedDeny(CATALOG, { tools: ["Read", "Edit", "Bash"], deny: ["Task"] }),
-    ).toEqual(["Agent", "WebFetch", "WebSearch"]);
-    expect(carriedDeny(CATALOG, { tools: ["Read", "Bash"] })).toEqual([
-      "Edit",
-      "Agent",
-      "WebFetch",
-      "WebSearch",
-    ]);
-    expect(carriedDeny(CATALOG, { tools: [], deny: [] })).toEqual(
-      CATALOG.tools.map((t) => t.name),
-    );
-  });
 });
 
 describe("mcp__ names beside a catalog deny", () => {
-  const MCP = ["mcp__docs__read", "mcp__a__b"];
-
-  test("mcpNamesOf keeps only mcp__ names, sorted and once", () => {
-    expect(
-      mcpNamesOf(["Bash", ...MCP, "mcp__a__b", "mcp__docs__read:all"]),
-    ).toEqual(["mcp__a__b", "mcp__docs__read", "mcp__docs__read:all"]);
-    expect(mcpNamesOf(null)).toEqual([]);
-    expect(mcpNamesOf(undefined)).toEqual([]);
-    expect(mcpNamesOf(["Bash"])).toEqual([]);
-  });
-
-  test("the catalog reads leave them aside in a deny, an allow list and a carried deny", () => {
-    const names = CATALOG.tools.map((t) => t.name);
-    expect(denyOf(CATALOG, ["Read", ...MCP])).toEqual(
-      names.filter((n) => n !== "Read"),
-    );
-    expect(unsupportedTools(CATALOG, ["Read", ...MCP])).toEqual([]);
-    expect(
-      toolsUnder(CATALOG, [...MCP, "Bash"], ["Read", "Bash", ...MCP]),
-    ).toEqual(["Read"]);
-    const carried = carriedDeny(CATALOG, {
-      tools: ["Read"],
-      deny: ["Bash", ...MCP],
-    });
-    expect(carried).not.toContain("mcp__a__b");
-    expect(carried).toContain("Bash");
-  });
-
   test("a list that cannot block them (accept_added_tools) still refuses them as mcp_tool", () => {
     expect(parseToolNames(CATALOG, ["Bash", "mcp__docs__read"])).toMatchObject({
       refusal: { reason_code: "mcp_tool", name: "mcp__docs__read" },

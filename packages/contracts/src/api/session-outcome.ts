@@ -37,7 +37,6 @@ export const SESSION_OUTCOME_CHECK_ERROR_VALUES = [
   "github_refused",
 ] as const;
 
-export const sessionOutcomeTypeSchema = z.enum(SESSION_OUTCOME_TYPE_VALUES);
 export const sessionOutcomeCheckErrorSchema = z.enum(
   SESSION_OUTCOME_CHECK_ERROR_VALUES,
 );

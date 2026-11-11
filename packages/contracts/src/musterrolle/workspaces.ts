@@ -81,7 +81,7 @@ export const workspaceSettingsSchema = z
   .object({
     /** Model the dispatch classifier uses; null falls back to the deployment default. */
     dispatch_model: z.string().min(1).max(128).nullable().default(null),
-    /** Workspace-wide stop: new dispatches become needs_confirm only (03 §7). */
+    /** Workspace-wide stop: new dispatches become needs_confirm only. */
     kill_switch: z.boolean().default(false),
     daily_cost_limit_usd: z.number().nonnegative().nullable().default(null),
     /** Minutes of silence before the reconciler pauses a session. */
@@ -92,7 +92,7 @@ export const workspaceSettingsSchema = z
     ),
     /**
      * Whether a Slack guest may call an agent at all. On, a guest still has
-     * to link their Slack account like anyone else (D25).
+     * to link their Slack account like anyone else.
      */
     slack_guest_enabled: z.boolean().default(false),
     agent_outsider_access: agentOutsiderAccessSchema.default("use"),
@@ -332,7 +332,7 @@ export const memberUserParamsSchema = z
   .object({ user_id: userIdSchema })
   .strict();
 
-// Deactivation is its own route (94S-464); this patch changes the role only.
+// Deactivation is its own route; this patch changes the role only.
 export const updateMemberRequestSchema = z
   .object({ role: workspaceRoleSchema })
   .strict();
@@ -399,15 +399,10 @@ export const listInvitesResponseSchema = z
   .object({ items: z.array(inviteSchema).max(INVITE_LIST_LIMIT) })
   .strict();
 
-export type WorkspaceSettings = z.infer<typeof workspaceSettingsSchema>;
 export type AuditRetentionRequest = z.infer<typeof auditRetentionRequestSchema>;
 export type SlackGuestRequest = z.infer<typeof slackGuestRequestSchema>;
 export type AgentOutsiderAccess = z.infer<typeof agentOutsiderAccessSchema>;
-export type AgentOutsiderSessionVisibility = z.infer<
-  typeof agentOutsiderSessionVisibilitySchema
->;
 export type AgentAccessSettings = z.infer<typeof agentAccessSettingsSchema>;
-export type AgentAccessRequest = z.infer<typeof agentAccessRequestSchema>;
 export type AgentAccessResponse = z.infer<typeof agentAccessResponseSchema>;
 export type AchievementJudgeSettings = z.infer<
   typeof achievementJudgeSettingsSchema
@@ -419,22 +414,12 @@ export type AchievementJudgeChangeResponse = z.infer<
   typeof achievementJudgeChangeResponseSchema
 >;
 export type Workspace = z.infer<typeof workspaceSchema>;
-export type User = z.infer<typeof userSchema>;
-export type Membership = z.infer<typeof membershipSchema>;
 export type MemberView = z.infer<typeof memberViewSchema>;
-export type AdministeredAgent = z.infer<typeof administeredAgentSchema>;
 export type MemberRefusal = z.infer<typeof memberRefusalSchema>;
 export type MemberVerdict = z.infer<typeof memberVerdictSchema>;
 export type MemberActions = z.infer<typeof memberActionsSchema>;
 export type MemberRow = z.infer<typeof memberRowSchema>;
-export type InviteStatus = z.infer<typeof inviteStatusSchema>;
 export type Invite = z.infer<typeof inviteSchema>;
-export type CreateInviteRequest = z.infer<typeof createInviteRequestSchema>;
-export type CreateInviteResponse = z.infer<typeof createInviteResponseSchema>;
-export type UpdateMemberRequest = z.infer<typeof updateMemberRequestSchema>;
-export type UpdateMemberResponse = z.infer<typeof updateMemberResponseSchema>;
-export type SetAccessRequest = z.infer<typeof setAccessRequestSchema>;
-export type SetAccessResponse = z.infer<typeof setAccessResponseSchema>;
 export type ListMembersQuery = z.infer<typeof listMembersQuerySchema>;
 export type ListMembersResponse = z.infer<typeof listMembersResponseSchema>;
 export type ListInvitesResponse = z.infer<typeof listInvitesResponseSchema>;

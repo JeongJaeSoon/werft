@@ -55,8 +55,6 @@ export const PULL_REQUEST_STRUCTURED_FIELDS = [
   "notes",
   "related",
 ] as const;
-export type PullRequestStructuredField =
-  (typeof PULL_REQUEST_STRUCTURED_FIELDS)[number];
 
 const pullRequestContentShape = {
   title: z
@@ -351,9 +349,6 @@ export const pullRequestReceiptResultSchema = z.object({
   template: pullRequestTemplateRecordSchema.optional(),
 });
 
-export type ScheduledPullRequestResponse = z.infer<
-  typeof scheduledPullRequestResponseSchema
->;
 export type OpenPullRequestResult = z.infer<typeof openPullRequestResultSchema>;
 export type PullRequest = z.infer<typeof pullRequestSchema>;
 export type OpenPullRequestRequest = z.infer<

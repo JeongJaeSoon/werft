@@ -28,7 +28,6 @@ import {
   pushRequestStateSchema,
   sourceRefSchema,
 } from "../api/push-request.ts";
-import { githubPolicyReceiptFieldsSchema } from "../api/receipt.ts";
 import {
   type AgentGitHub,
   MCP_TOOL_PREFIX,
@@ -245,26 +244,8 @@ export type RepositoryAttachFailure = z.infer<
 >;
 
 /**
- * `result` of an `attach_repository` receipt: who asked from which attempt,
- * under which release, and what the worker fetched. `reason_code` is the
- * gate's refusal, as on the GitHub gate's own receipts.
- */
-export const attachRepositoryReceiptResultSchema = z.object({
-  session_id: z.string(),
-  attempt_id: z.string(),
-  agent_id: z.string().nullable(),
-  agent_release_id: z.string().nullable(),
-  repository_id: z.string(),
-  branch: z.string().nullable(),
-  commit: z.string().nullable(),
-  failure: repositoryAttachFailureSchema.nullable(),
-  reason_code: z.string().nullable(),
-  ...githubPolicyReceiptFieldsSchema.shape,
-});
-
-/**
- * What kind of action a tool is, the unit a policy value is set on (design
- * 8.1). `push` is judged by `pushDecisionOf`. There is no `administration`: no tool does that.
+ * What kind of action a tool is, the unit a policy value is set on. `push`
+ * is judged by `pushDecisionOf`. There is no `administration`: no tool does that.
  */
 export const ACTION_CLASS_VALUES = [
   "push",
