@@ -1,5 +1,5 @@
 import Link from "fumadocs-core/link";
-import { findNeighbour } from "fumadocs-core/page-tree";
+import { flattenTree, type Root } from "fumadocs-core/page-tree";
 import { Callout } from "fumadocs-ui/components/callout";
 import { Card } from "fumadocs-ui/components/card";
 import {
@@ -68,7 +68,7 @@ export default async function Page(props: Props) {
       full={page.data.full ?? isHome}
       // The layout's tree leaves contributing out of the sidebar; previous and
       // next come from the whole tree so that page keeps its neighbours.
-      footer={{ items: findNeighbour(source.getPageTree(lang), page.url) }}
+      footer={{ items: neighbours(source.getPageTree(lang), page.url) }}
     >
       {isHome ? null : (
         <>
@@ -117,6 +117,17 @@ function localizedHomeHero(lang: Locale) {
   return function LocalizedHomeHero() {
     return <HomeHero lang={lang} />;
   };
+}
+
+/**
+ * Previous and next pages over the whole tree, contributing included. External
+ * links such as the Scalar reference are not pages, so they are skipped.
+ */
+function neighbours(tree: Root, url: string) {
+  const items = flattenTree(tree.children).filter((item) => !item.external);
+  const index = items.findIndex((item) => item.url === url);
+  if (index === -1) return {};
+  return { previous: items[index - 1], next: items[index + 1] };
 }
 
 /** `/sessions/start/` as it was before languages, from its `[lang]` and slug. */
