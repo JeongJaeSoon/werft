@@ -8,9 +8,9 @@
  * violation missing from the list fails the test. Nothing is ever added.
  * A move PR that only changes a path rewrites the key; it does not add one.
  *
- * Keys are paths under packages/platform/src with "/" separators. A pair is
- * "<importing file> -> <imported file>". A count is the number of occurrences
- * in the file.
+ * Keys are paths under packages/platform/src with "/" separators unless the
+ * entry says otherwise. A pair is "<importing file> -> <imported file>". A
+ * count is the number of occurrences in the file.
  */
 export type Baseline = {
   /** A2: (file, target) pairs where a domain imports another domain's internals. */
@@ -25,6 +25,11 @@ export type Baseline = {
   slackFiles: readonly string[];
   /** R8: exported names containing "slack" per platform file. */
   slackExports: Readonly<Record<string, number>>;
+  /**
+   * Test files whose relative import leaves their package, as
+   * "<test file> -> <specifier>" with the file written from the repository root.
+   */
+  testRelativeImports: readonly string[];
 };
 
 export const baseline: Baseline = {
@@ -85,6 +90,17 @@ export const baseline: Baseline = {
     "ports/slack-outbox-store.ts": 25,
     "ports/workspace-settings.ts": 1,
   },
+  testRelativeImports: [
+    // The package entries that export these two (`@werft-ai/react/agent-map`,
+    // `@werft-ai/react/components`) load Radix, which decides at import time
+    // whether a DOM exists. This test registers none, so going through them
+    // leaves every later DOM test in the same process without its portals.
+    "apps/web/src/i18n/i18n.test.ts -> ../../../../packages/react/src/components/agent-map/messages.ts",
+    "apps/web/src/i18n/i18n.test.ts -> ../../../../packages/react/src/components/operations/messages.ts",
+    "apps/worker/src/workspace-storage-declaration.integration.test.ts -> ../../../packages/adapters/execution/kubernetes/src/specs.ts",
+    "apps/worker/src/workspace-storage-declaration.integration.test.ts -> ../../control-host/src/scheduler/config.ts",
+    "packages/sdk/src/client.test.ts -> ../../../docs/openapi.json",
+  ],
 };
 
 /**
