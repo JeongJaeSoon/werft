@@ -11,15 +11,15 @@ import type {
   ExtensionAttachment,
   ExtensionBundle,
 } from "../ports/extension-bundle-store.ts";
-import type {
-  AcceptSessionInput,
-  SessionDetailRecord,
-} from "../ports/session-unit-of-work.ts";
 import {
   type ConnectionAutoMode,
   profileFingerprint,
   type SessionCatalog,
 } from "./catalog.ts";
+import type {
+  AcceptSessionInput,
+  SessionDetailRecord,
+} from "./ports/session-unit-of-work.ts";
 import { withSeededInstallation } from "./profile-registry.ts";
 import {
   createSessionService,

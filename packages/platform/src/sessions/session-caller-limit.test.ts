@@ -10,7 +10,7 @@ import type {
   AcceptSessionResult,
   AppendMessageInput,
   AppendMessageResult,
-} from "../ports/session-unit-of-work.ts";
+} from "./ports/session-unit-of-work.ts";
 import { withSeededInstallation } from "./profile-registry.ts";
 import {
   createSessionService,

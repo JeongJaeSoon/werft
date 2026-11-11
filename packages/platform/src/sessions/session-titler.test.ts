@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import type {
-  SessionTitleStore,
-  TitleRequestIssue,
-} from "../ports/session-title-store.ts";
 import {
   type CatalogProfile,
   catalogProfileConfigSchema,
   profileFingerprint,
   type SessionCatalog,
 } from "./catalog.ts";
+import type {
+  SessionTitleStore,
+  TitleRequestIssue,
+} from "./ports/session-title-store.ts";
 import {
   createSessionTitler,
   hashTitleToken,

@@ -3,7 +3,7 @@ import type {
   SessionShareScope,
   SessionStatus,
 } from "@werft-ai/contracts";
-import type { Principal } from "../musterrolle/policy.ts";
+import type { Principal } from "../../musterrolle/index.ts";
 
 /**
  * Who is looking at a session. A key no person stands behind (a service

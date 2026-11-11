@@ -1,5 +1,6 @@
 // The entrance other platform domains import (A2 in package-structure.md):
-// only the names github/ uses, not a barrel over the directory.
+// only the names other domains use, not a barrel over the directory.
+export type { CallerLimitDimension } from "./caller-limit.ts";
 export {
   type AuthorizationPolicy,
   type Caller,

@@ -64,17 +64,6 @@ import type {
   CallerLimitGate,
 } from "../ports/agent-caller-limits-store.ts";
 import type { CredentialBindingStore } from "../ports/credential-binding-store.ts";
-import type { SessionControl } from "../ports/session-control.ts";
-import type { SessionViewer } from "../ports/session-share-store.ts";
-import type {
-  EventPage,
-  InputAcceptance,
-  InputLimitRefusal,
-  InputLimits,
-  ReadEventsQuery,
-  SessionDetailRecord,
-  SessionReader,
-} from "../ports/session-unit-of-work.ts";
 import { additionalRepositoryAllowed } from "./additional-repositories.ts";
 import {
   acceptedRuntimeVersions,
@@ -99,6 +88,17 @@ import {
   usesWorkspaceCeiling,
   workspaceProfileRefusal,
 } from "./catalog.ts";
+import type { SessionControl } from "./ports/session-control.ts";
+import type { SessionViewer } from "./ports/session-share-store.ts";
+import type {
+  EventPage,
+  InputAcceptance,
+  InputLimitRefusal,
+  InputLimits,
+  ReadEventsQuery,
+  SessionDetailRecord,
+  SessionReader,
+} from "./ports/session-unit-of-work.ts";
 import {
   agentRefsOf,
   maskAgentRefs,

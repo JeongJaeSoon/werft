@@ -21,8 +21,10 @@ import type {
   TurnDetail,
   TurnSummary,
 } from "@werft-ai/contracts";
-import type { CallerLimitDimension } from "../musterrolle/caller-limit.ts";
-import type { Principal } from "../musterrolle/policy.ts";
+import type {
+  CallerLimitDimension,
+  Principal,
+} from "../../musterrolle/index.ts";
 import type { SessionViewer } from "./session-share-store.ts";
 import type { SessionTitleSource } from "./session-title-store.ts";
 

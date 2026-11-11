@@ -19,12 +19,12 @@ import {
   GitHubGateError,
   GitHubUnavailableError,
 } from "../github/ports/github-gate.ts";
+import type { SessionCatalog } from "./catalog.ts";
 import type {
   ClaimedOutcome,
   OutcomeCheck,
   SessionOutcomeStore,
-} from "../ports/session-outcomes.ts";
-import type { SessionCatalog } from "./catalog.ts";
+} from "./ports/session-outcomes.ts";
 
 export const OUTCOME_REFRESH_INTERVAL_MS = 60_000;
 /** A claimed row a dead replica held is claimed again after this. */

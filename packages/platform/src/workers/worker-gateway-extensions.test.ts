@@ -5,7 +5,6 @@ import {
 } from "@werft-ai/contracts";
 import { acceptAllCheckpoints } from "../checkpoints/ports/checkpoint-verifier.ts";
 import { BundleIntegrityError } from "../extensions/bundle-service.ts";
-import type { WorkerPendingStore } from "../ports/pending-requests.ts";
 import type {
   ExtensionsStateResult,
   WorkerBinding,
@@ -16,6 +15,7 @@ import {
   catalogProfile,
   profileFingerprint,
 } from "../sessions/catalog.ts";
+import type { WorkerPendingStore } from "../sessions/ports/pending-requests.ts";
 import { withSeededInstallation } from "../sessions/profile-registry.ts";
 import {
   createWorkerGateway,

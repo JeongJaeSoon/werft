@@ -14,12 +14,6 @@ import {
 import { releaseNotRunnableReason } from "../agents/agent-service.ts";
 import { callerFor, createAuthorizationPolicy } from "../musterrolle/policy.ts";
 import type { AgentContact } from "../ports/credential-binding-store.ts";
-import type {
-  AcceptSessionInput,
-  AcceptSessionResult,
-  SessionDetailRecord,
-  SessionRecord,
-} from "../ports/session-unit-of-work.ts";
 import {
   attachCatalog,
   attachmentContext,
@@ -36,6 +30,12 @@ import {
   workspaceProfileRefusal,
   workspaceProfileState,
 } from "./catalog.ts";
+import type {
+  AcceptSessionInput,
+  AcceptSessionResult,
+  SessionDetailRecord,
+  SessionRecord,
+} from "./ports/session-unit-of-work.ts";
 import { withSeededInstallation } from "./profile-registry.ts";
 import { createRepositoryAttachmentService } from "./repository-attachment-service.ts";
 import {

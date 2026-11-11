@@ -13,8 +13,8 @@ import {
 } from "@werft-ai/contracts";
 import { createPendingRequestService } from "../decision/pending-service.ts";
 import type { DecisionLog } from "../ports/decision-log.ts";
-import type { PendingRequestStore } from "../ports/pending-requests.ts";
-import type { SessionViewer } from "../ports/session-share-store.ts";
+import type { PendingRequestStore } from "../sessions/ports/pending-requests.ts";
+import type { SessionViewer } from "../sessions/ports/session-share-store.ts";
 import { SessionServiceError } from "../sessions/session-service.ts";
 import {
   type AgentAuthority,
