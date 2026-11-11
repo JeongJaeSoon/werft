@@ -6,7 +6,6 @@ import { z } from "zod";
  * settings and the workspace ceiling judge which repositories it reaches.
  */
 export const repositoryModeSchema = z.enum(["required", "optional", "none"]);
-export type RepositoryMode = z.infer<typeof repositoryModeSchema>;
 
 /**
  * Which GitHub App repositories the workspace ceiling reaches besides its

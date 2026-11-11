@@ -38,7 +38,7 @@ export type LookupSlackChannelsResponse = z.infer<
 >;
 
 // Searching the channels an agent's Slack bot can see, for the console's
-// channel picker (94S-898). The server reads Slack's whole list into a short
+// channel picker. The server reads Slack's whole list into a short
 // cache and pages through it with a cursor of its own.
 
 export const SLACK_CHANNEL_SEARCH_LIMIT_DEFAULT = 20;

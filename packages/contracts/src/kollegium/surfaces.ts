@@ -16,7 +16,7 @@ import {
   workspaceIdSchema,
 } from "../shared/index.ts";
 
-/** Where a conversation happens (03 §5). `api` is a direct client. */
+/** Where a conversation happens. `api` is a direct client. */
 export const SURFACE_KIND_VALUES = ["web", "slack", "api"] as const;
 export const surfaceKindSchema = z.enum(SURFACE_KIND_VALUES);
 
@@ -112,7 +112,7 @@ export const SLACK_SURFACE_ACTION_VALUES = [
 ] as const;
 export const slackSurfaceActionSchema = z.enum(SLACK_SURFACE_ACTION_VALUES);
 
-/** `summary`: reads in this channel get a summary and a web link (D13). */
+/** `summary`: reads in this channel get a summary and a web link. */
 export const SURFACE_DISCLOSURE_VALUES = ["full", "summary"] as const;
 export const surfaceDisclosureSchema = z.enum(SURFACE_DISCLOSURE_VALUES);
 
@@ -141,7 +141,7 @@ export const surfaceBindingSchema = z
   .object({
     id: surfaceBindingIdSchema,
     workspace_id: workspaceIdSchema,
-    /** The server-issued service owner, never the chat team id (03b §5). */
+    /** The server-issued service owner, never the chat team id. */
     owner_id: ownerScopeSchema,
     surface: surfaceKindSchema,
     installation_id: installationIdSchema.nullable(),
@@ -369,9 +369,5 @@ export type SurfaceBindingStatus = z.infer<typeof surfaceBindingStatusSchema>;
 export type SurfaceMembership = z.infer<typeof surfaceMembershipSchema>;
 export type SurfaceMembershipState = SurfaceMembership["state"];
 export type SlackSurfaceAction = z.infer<typeof slackSurfaceActionSchema>;
-export type SurfaceDisclosure = z.infer<typeof surfaceDisclosureSchema>;
 export type SurfaceCeiling = z.infer<typeof surfaceCeilingSchema>;
 export type SurfaceBinding = z.infer<typeof surfaceBindingSchema>;
-export type SessionLinkRole = z.infer<typeof sessionLinkRoleSchema>;
-export type SessionLinkVisibility = z.infer<typeof sessionLinkVisibilitySchema>;
-export type SessionLink = z.infer<typeof sessionLinkSchema>;

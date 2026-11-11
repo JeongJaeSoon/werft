@@ -13,7 +13,7 @@ import {
 } from "../shared/index.ts";
 
 // How an agent answers in each Slack channel of its app's install, and in
-// its DMs (94S-177). One write sets one channel; the DM binding is the
+// its DMs. One write sets one channel; the DM binding is the
 // install's single row with no channel id.
 
 /**
@@ -123,7 +123,6 @@ export const SLACK_BINDING_MESSAGES = {
     "이 채널은 승인을 기다리고 있지 않거나, 그 사이에 바뀌었어요. 목록을 새로 읽고 다시 시도하세요",
 } as const;
 
-export type SlackBindingMode = z.infer<typeof slackBindingModeSchema>;
 export type PutSlackBindingRequest = z.infer<
   typeof putSlackBindingRequestSchema
 >;

@@ -11,9 +11,9 @@ import {
   workspaceIdSchema,
 } from "../shared/index.ts";
 
-// Teams (design 4.7): a group of people in a workspace. Naming a team an
+// Teams: a group of people in a workspace. Naming a team an
 // agent's admin makes every member of it one. Only an owner or an admin
-// changes a team (`team.manage`, D23), and a person added joins at once.
+// changes a team (`team.manage`), and a person added joins at once.
 
 /** How many agents GET /v1/administered-agents returns at most. */
 export const TEAM_LIST_LIMIT = 200;
@@ -97,7 +97,7 @@ export const listTeamsQuerySchema = paginationQuerySchema.extend({
 export const listTeamsResponseSchema = pageSchema(teamViewSchema);
 
 // ---------------------------------------------------------------------------
-// Agent admins (design 4.1): people and teams
+// Agent admins: people and teams
 // ---------------------------------------------------------------------------
 
 export const AGENT_ADMIN_KIND_VALUES = ["users", "teams"] as const;
@@ -181,7 +181,7 @@ export const setAgentManagingTeamResponseSchema = z
 
 /**
  * The teams the caller belongs to now, with the caller's role in each. Names
- * only: who else is in a team is for the people who manage teams (D23).
+ * only: who else is in a team is for the people who manage teams.
  */
 export const listMyTeamsQuerySchema = paginationQuerySchema;
 export const listMyTeamsResponseSchema = pageSchema(
@@ -195,12 +195,9 @@ export const listMyTeamsResponseSchema = pageSchema(
 );
 
 export type TeamView = z.infer<typeof teamViewSchema>;
-export type TeamMemberView = z.infer<typeof teamMemberViewSchema>;
 export type TeamDetail = z.infer<typeof teamDetailSchema>;
 export type CreateTeamRequest = z.infer<typeof createTeamRequestSchema>;
 export type UpdateTeamRequest = z.infer<typeof updateTeamRequestSchema>;
-export type AddTeamMemberRequest = z.infer<typeof addTeamMemberRequestSchema>;
-export type AddAgentAdminRequest = z.infer<typeof addAgentAdminRequestSchema>;
 export type TeamChangeResponse = z.infer<typeof teamChangeResponseSchema>;
 export type DeleteTeamResponse = z.infer<typeof deleteTeamResponseSchema>;
 export type ListTeamsQuery = z.infer<typeof listTeamsQuerySchema>;
@@ -216,9 +213,6 @@ export type ListAdministeredAgentsResponse = z.infer<
 export type TeamMemberRole = z.infer<typeof teamMemberRoleSchema>;
 export type SetTeamMemberRoleRequest = z.infer<
   typeof setTeamMemberRoleRequestSchema
->;
-export type SetAgentManagingTeamRequest = z.infer<
-  typeof setAgentManagingTeamRequestSchema
 >;
 export type SetAgentManagingTeamResponse = z.infer<
   typeof setAgentManagingTeamResponseSchema

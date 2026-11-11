@@ -32,8 +32,6 @@ export const sessionOutputParamsSchema = sessionIdParamsSchema.extend({
   path: z.string().min(1).max(4096),
 });
 
-export type SessionOutput = z.infer<typeof sessionOutputSchema>;
 export type ListSessionOutputsResponse = z.infer<
   typeof listSessionOutputsResponseSchema
 >;
-export type SessionOutputParams = z.infer<typeof sessionOutputParamsSchema>;

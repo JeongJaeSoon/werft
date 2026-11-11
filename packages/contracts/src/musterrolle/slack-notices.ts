@@ -6,7 +6,7 @@ import type {
 } from "./authorization.ts";
 
 // What the person a Slack decision refused sees, only them and once per
-// thread (design 3.3). Product copy: plain words, no internal module names.
+// thread. Product copy: plain words, no internal module names.
 const SLACK_NOTICE_MESSAGES_KO = {
   connect: "웹에서 Slack 계정을 연결해 주세요",
   noRequestRight: "이 채널에서 이 에이전트에게 요청할 권한이 없어요",

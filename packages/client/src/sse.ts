@@ -82,7 +82,7 @@ export interface SessionEventFrame {
   readonly payload: SessionEventPayload;
 }
 
-export type FrameReading =
+type FrameReading =
   | {
       readonly kind: "event";
       readonly frame: SessionEventFrame;

@@ -15,7 +15,7 @@ export const MEMORY_TYPE_VALUES = ["semantic", "episodic"] as const;
 export const memoryTypeSchema = z.enum(MEMORY_TYPE_VALUES);
 
 /**
- * Who may read a record (03 §9, 03b §4.3). Ported from Kollegium v1's
+ * Who may read a record. Ported from Kollegium v1's
  * `kollege|channel|user` with `kollege` renamed to `agent`: the widest scope
  * an agent can write is its own working set, and promotion to `workspace`
  * ("Team shared") is a human decision, never automatic.

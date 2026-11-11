@@ -15,6 +15,7 @@ import {
   requestIdSchema,
   revisionSchema,
   sessionIdSchema,
+  sha256HexSchema,
   timestampSchema,
   turnIdSchema,
   userIdSchema,
@@ -490,7 +491,7 @@ export const sessionExtensionSchema = z
       description:
         "The bundle's plugin slug. Its skills reach the session as `<name>:<skill>`.",
     }),
-    digest: z.string().regex(/^[0-9a-f]{64}$/),
+    digest: sha256HexSchema,
     scope: z.enum(SESSION_EXTENSION_SCOPE_VALUES).meta({
       description:
         "The scope that put the bundle on the session: `workspace` or `agent` required it, or the session's own request turned an `optional` one on.",
@@ -765,7 +766,6 @@ export type ExecutionBackend = z.infer<typeof executionBackendSchema>;
 export type PermissionMode = z.infer<typeof permissionModeSchema>;
 export type SessionRuntime = z.infer<typeof sessionRuntimeSchema>;
 export type SessionRuntimeView = z.infer<typeof sessionRuntimeViewSchema>;
-export type ExecutionObservation = z.infer<typeof executionObservationSchema>;
 export type SessionAttention = z.infer<typeof sessionAttentionSchema>;
 export type PauseBlockedReason = z.infer<typeof pauseBlockedReasonSchema>;
 export type CloseBlockedReason = z.infer<typeof closeBlockedReasonSchema>;
@@ -776,8 +776,6 @@ export type SessionAttachedRepository = z.infer<
 >;
 export type SessionActivity = z.infer<typeof sessionActivitySchema>;
 export type SessionSummary = z.infer<typeof sessionSummarySchema>;
-export type PauseReason = z.infer<typeof pauseReasonSchema>;
-export type InputWaitState = z.infer<typeof inputWaitStateSchema>;
 export type InputWait = z.infer<typeof inputWaitSchema>;
 export type PermissionWaitRequest = z.infer<typeof permissionWaitRequestSchema>;
 export type SessionDetail = z.infer<typeof sessionDetailSchema>;

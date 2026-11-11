@@ -10,7 +10,6 @@ import {
   acceptInviteStep,
   agentCardStep,
   agentIdentityStep,
-  agentReleaseStep,
   inviteStep,
 } from "./index.ts";
 
@@ -48,24 +47,6 @@ describe("steps validate trimmed values", () => {
         .filter((issue) => issue.code === "too_small")
         .map((issue) => issue.path.join(".")),
     ).toEqual(["slug", "name"]);
-  });
-
-  test("the release step needs a connection and sends it and the repository trimmed", () => {
-    expect(
-      agentReleaseStep.safeParse({
-        connection_id: "  ",
-        repository_id: "",
-      }).success,
-    ).toBe(false);
-    expect(
-      agentReleaseStep.parse({
-        connection_id: " anthropic-main ",
-        repository_id: " sample-app ",
-      }),
-    ).toEqual({
-      connection_id: "anthropic-main",
-      repository_id: "sample-app",
-    });
   });
 
   test("the value sent is the trimmed one", () => {

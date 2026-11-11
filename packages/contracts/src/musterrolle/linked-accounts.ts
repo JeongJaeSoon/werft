@@ -8,10 +8,10 @@ import {
   userIdSchema,
 } from "../shared/index.ts";
 
-// A person's account on another service, tied to their user (design A.2,
-// D2). Slack links through Sign in with Slack, GitHub through the author
-// App's user authorization; no token is kept. A GitHub row's tenant is
-// `github.com`, its user id GitHub's numeric id and its user name the login.
+// A person's account on another service, tied to their user. Slack links
+// through Sign in with Slack, GitHub through the author App's user
+// authorization; no token is kept. A GitHub row's tenant is `github.com`,
+// its user id GitHub's numeric id and its user name the login.
 
 export const LINKED_ACCOUNT_PROVIDER_VALUES = ["slack", "github"] as const;
 export const linkedAccountProviderSchema = z.enum(
@@ -145,18 +145,12 @@ export const LINK_MESSAGES = {
 
 export type LinkedAccountProvider = z.infer<typeof linkedAccountProviderSchema>;
 export type LinkedAccountStatus = z.infer<typeof linkedAccountStatusSchema>;
-export type LinkedAccountRevokedReason = z.infer<
-  typeof linkedAccountRevokedReasonSchema
->;
 export type LinkedAccount = z.infer<typeof linkedAccountSchema>;
 export type ListLinkedAccountsResponse = z.infer<
   typeof listLinkedAccountsResponseSchema
 >;
 export type StartSlackLinkResponse = z.infer<
   typeof startSlackLinkResponseSchema
->;
-export type SlackLinkCallbackRequest = z.infer<
-  typeof slackLinkCallbackRequestSchema
 >;
 export type SlackLinkCallbackResponse = z.infer<
   typeof slackLinkCallbackResponseSchema

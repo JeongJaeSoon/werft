@@ -111,7 +111,6 @@ export const resumeReceiptResultSchema = z.object({
   queued_turn_count: z.number().int().nonnegative(),
 });
 
-export type RecoveryDecision = z.infer<typeof recoveryDecisionSchema>;
 export type InterruptSessionRequest = z.infer<
   typeof interruptSessionRequestSchema
 >;

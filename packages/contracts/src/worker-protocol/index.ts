@@ -69,7 +69,7 @@ export const objectVersionSchema = z
 export const checkpointRefSchema = z.object({
   revision: revisionSchema,
   manifest_ref: z.string().min(1),
-  manifest_sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  manifest_sha256: sha256HexSchema,
   // The version `putImmutable` answered for the manifest. The server verifies
   // that version, records it on the pointer and restores from it; a server
   // that requires versions refuses a checkpoint without one.
@@ -339,7 +339,7 @@ export const platformPromptSchema = z
 export const runtimeExtensionSchema = z
   .object({
     name: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
-    digest: z.string().regex(/^[0-9a-f]{64}$/),
+    digest: sha256HexSchema,
     scope: z.enum(["workspace", "agent", "session"]),
   })
   .strict();
@@ -667,8 +667,8 @@ export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
     .max(MAX_RESTORE_CONFIGS)
     .optional(),
   // SESSION_COST_LIMIT_USD less what the session had spent at the claim: the
-  // most this attempt's engine may spend before it ends the turn in flight
-  // . A second line only; the gate stays the stored sum against the
+  // most this attempt's engine may spend before it ends the turn in flight.
+  // A second line only; the gate stays the stored sum against the
   // limit, checked before every turn. Null when the session's connection
   // declared `billing: none`: no dollar limit applies to it.
   remaining_budget_usd: z.number().nonnegative().nullable(),
@@ -1184,7 +1184,7 @@ export const runtimeFingerprintSchema = z
     engine: z.string().min(1),
     sdk_version: z.string().min(1),
     cli_version: z.string().min(1),
-    profile_sha256: z.string().regex(/^[0-9a-f]{64}$/),
+    profile_sha256: sha256HexSchema,
   })
   .strict();
 export const restorePlanRequestSchema = workerScopeSchema
@@ -1195,7 +1195,7 @@ export const restorePlanRequestSchema = workerScopeSchema
     // runtime's. Sent only when there are some, so an older gateway's strict
     // parse never sees the field.
     alternate_profile_sha256s: z
-      .array(z.string().regex(/^[0-9a-f]{64}$/))
+      .array(sha256HexSchema)
       .min(1)
       .max(MAX_RESTORE_ALTERNATES)
       .optional(),
@@ -1208,7 +1208,7 @@ export const restorePlanRequestSchema = workerScopeSchema
 const restoreObjectSchema = z.object({
   key: z.string().min(1),
   bytes: z.number().int().nonnegative(),
-  sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  sha256: sha256HexSchema,
   version: objectVersionSchema.optional(),
 });
 export const restoreArtifactSchema = z.discriminatedUnion("kind", [
@@ -1247,7 +1247,7 @@ export const restorePlanSchema = z.object({
   // What the restored revision's manifest must hash to. It equals the
   // claim's restore digest unless `fallback` says an earlier revision is
   // restored, and then only this names it.
-  manifest_sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  manifest_sha256: sha256HexSchema,
   manifest_version: objectVersionSchema.optional(),
   engine: z.string().min(1),
   resume: z.string().min(1),
@@ -1394,12 +1394,9 @@ export type AdditionalWorkspaceRepository = z.infer<
   typeof additionalWorkspaceRepositorySchema
 >;
 export type ClaimPrincipal = z.infer<typeof claimPrincipalSchema>;
-export type RuntimeProvider = z.infer<typeof runtimeProviderSchema>;
 export type RuntimeConfig = z.infer<typeof runtimeConfigSchema>;
 export type EngineSettings = z.infer<typeof engineSettingsSchema>;
-export type RuntimeExtension = z.infer<typeof runtimeExtensionSchema>;
 export type PlatformPrompt = z.infer<typeof platformPromptSchema>;
-export type PlatformPromptSurface = PlatformPrompt["origin_surface"];
 export type NextInputRequest = z.infer<typeof nextInputRequestSchema>;
 export type NextInputResponse = z.infer<typeof nextInputResponseSchema>;
 export type CheckpointBlockReason = z.infer<typeof checkpointBlockReasonSchema>;
@@ -1415,7 +1412,6 @@ export type ProtectedCommitsRequest = z.infer<
 export type ProtectedCommitsResponse = z.infer<
   typeof protectedCommitsResponseSchema
 >;
-export type RuntimeFingerprintWire = z.infer<typeof runtimeFingerprintSchema>;
 export type RestorePlanRequest = z.infer<typeof restorePlanRequestSchema>;
 export type RestorePlanWire = z.infer<typeof restorePlanSchema>;
 export type RestorePlanResponse = z.infer<typeof restorePlanResponseSchema>;

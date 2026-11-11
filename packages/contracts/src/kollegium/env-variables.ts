@@ -122,7 +122,6 @@ export const envVariableNameSchema = z
 
 export const ENV_VARIABLE_KIND_VALUES = ["plain", "secret"] as const;
 export const envVariableKindSchema = z.enum(ENV_VARIABLE_KIND_VALUES);
-export type EnvVariableKind = z.infer<typeof envVariableKindSchema>;
 
 /** A secret is never read back, so no shape that is read may carry its value. */
 const NO_SECRET_VALUE = "a secret variable carries no value";
@@ -171,7 +170,6 @@ const valueSchema = z.string().superRefine((value, ctx) => {
 export const runtimeEnvSchema = z
   .record(envVariableNameSchema, valueSchema)
   .refine((env) => Object.keys(env).length > 0, "env must not be empty");
-export type RuntimeEnv = z.infer<typeof runtimeEnvSchema>;
 
 // ---- API -----------------------------------------------------------------
 
@@ -227,7 +225,6 @@ export const putEnvVariableRequestSchema =
       ctx.addIssue({ code: "custom", path: ["value"], message: problem });
     }
   });
-export type PutEnvVariableRequest = z.infer<typeof putEnvVariableRequestSchema>;
 
 export const putEnvVariableResponseSchema = z
   .object({

@@ -303,7 +303,6 @@ export type ToolResult = z.infer<typeof toolResultSchema>;
 export type EngineEvent = z.infer<typeof engineEventSchema>;
 export type EngineEventCategory = EngineEvent["category"];
 export type TurnEnd = z.infer<typeof turnEndSchema>;
-export type RuntimeRef = z.infer<typeof runtimeRefSchema>;
 export type StatusEventPhase = z.infer<typeof statusEventPhaseSchema>;
 export type InputWaitEventData = z.infer<typeof inputWaitEventDataSchema>;
 export type SessionEventPayload = z.infer<typeof sessionEventPayloadSchema>;

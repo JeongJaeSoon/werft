@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { admissionStateSchema, sessionStatusSchema } from "../api/index.ts";
+import { admissionStateSchema, sessionStatusSchema } from "../api/session.ts";
 import {
   agentIdSchema,
   agentReleaseIdSchema,
@@ -11,7 +11,7 @@ import {
   workspaceIdSchema,
 } from "../shared/index.ts";
 
-// 03 §6 caps the title twice: code points keep it one line in the list, bytes
+// The title is capped twice: code points keep it one line in the list, bytes
 // keep it inside the column. Korean hits the byte cap long before the other.
 export const DIGEST_TITLE_MAX_CODE_POINTS = 120;
 export const DIGEST_TITLE_MAX_BYTES = 480;

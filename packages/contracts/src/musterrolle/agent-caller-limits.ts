@@ -4,7 +4,7 @@ import { opaqueIdSchema, receiptIdSchema } from "../shared/index.ts";
 import { catalogRepositoryIdSchema } from "./github-repository.ts";
 import { teamIdSchema } from "./teams.ts";
 
-// What a caller may do through an agent (94S-917): rules stored per caller
+// What a caller may do through an agent: rules stored per caller
 // target, edited by owners, admins and the agent's admins
 // (`agent.usage.manage`). This contract carries the data and the edit and
 // decides nothing about a session; the consumer reads the rules elsewhere.
@@ -18,14 +18,6 @@ import { teamIdSchema } from "./teams.ts";
 
 export const AGENT_CALLER_LIMIT_RULE_MAX = 100;
 export const AGENT_CALLER_LIMIT_NAME_MAX = 200;
-
-/** `user` is stored but the v1 API neither reads nor takes it. */
-export const AGENT_CALLER_LIMIT_TARGET_KINDS = [
-  "workspace",
-  "team",
-  "channel",
-  "user",
-] as const;
 
 export const agentCallerLimitTargetSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("workspace") }).strict(),
@@ -107,9 +99,6 @@ export const putAgentCallerLimitsResponseSchema = z
   })
   .strict();
 
-export type AgentCallerLimitTarget = z.infer<
-  typeof agentCallerLimitTargetSchema
->;
 export type AgentCallerLimitRule = z.infer<typeof agentCallerLimitRuleSchema>;
 export type PutAgentCallerLimitsRequest = z.infer<
   typeof putAgentCallerLimitsRequestSchema
