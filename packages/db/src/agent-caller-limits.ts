@@ -28,10 +28,10 @@ import { lockEditRight } from "./agent-usage.ts";
 import { createPostgresDecisionLog } from "./authz-decisions.ts";
 import { lockPeople, receiptActorOf } from "./control-shared.ts";
 import { DB_NOW } from "./db-clock.ts";
+import { captureMcpStart } from "./mcp-settings.ts";
 import type { Database } from "./queries.ts";
 import {
   agentCallerLimits,
-  agentMcpSettings,
   agentReleases,
   agents,
   agentUsage,
@@ -298,6 +298,30 @@ async function releaseFacts(
   };
 }
 
+function releaseTools(release: ReleaseFacts): string[] {
+  const effective = effectiveToolsSchema.safeParse(release.effectiveTools);
+  return effective.success
+    ? [...effective.data.tools, ...effective.data.mcp]
+    : [];
+}
+
+function reachOf(
+  release: ReleaseFacts,
+  tools: readonly string[],
+  mcpStart: McpStart | null,
+  repositories: readonly string[],
+): SessionReach {
+  const server = mcpStart === null ? release.server : mcpStart.server;
+  return {
+    tools,
+    repositories,
+    mcp_servers: server === null ? [] : [server],
+    credentials:
+      mcpStart === null ? release.credentialRefs : mcpStart.credential_refs,
+  };
+}
+
+// A session started on a release always runs that release's tools.
 export async function startReach(
   tx: Reader,
   input: {
@@ -305,17 +329,15 @@ export async function startReach(
     mcpStart: McpStart | null;
     repositoryIds: readonly string[];
   },
-): Promise<SessionReach> {
+): Promise<SessionReach | null> {
   const release = await releaseFacts(tx, input.releaseId);
-  return {
-    tools: [],
-    mcp_servers: [],
-    repositories: input.repositoryIds,
-    credentials:
-      input.mcpStart === null
-        ? (release?.credentialRefs ?? [])
-        : input.mcpStart.credential_refs,
-  };
+  if (!release) return null;
+  return reachOf(
+    release,
+    releaseTools(release),
+    input.mcpStart,
+    input.repositoryIds,
+  );
 }
 
 export async function sessionReach(
@@ -332,27 +354,17 @@ export async function sessionReach(
   if (session.agentReleaseId === null) return null;
   const release = await releaseFacts(tx, session.agentReleaseId);
   if (!release) return null;
-  const mcpStart = mcpStartSchema.safeParse(session.mcpStart).data ?? null;
-  let tools: readonly string[];
-  if (session.runtimeToolsSource === "release") {
-    const effective = effectiveToolsSchema.safeParse(release.effectiveTools);
-    tools = effective.success
-      ? [...effective.data.tools, ...effective.data.mcp]
-      : [];
-  } else {
-    tools = runningTools({ tools: [...profileTools] }, release.snapshot);
-  }
-  const server = mcpStart === null ? release.server : mcpStart.server;
-  return {
-    tools,
-    repositories: [
+  return reachOf(
+    release,
+    session.runtimeToolsSource === "release"
+      ? releaseTools(release)
+      : runningTools({ tools: [...profileTools] }, release.snapshot),
+    mcpStartSchema.safeParse(session.mcpStart).data ?? null,
+    [
       ...(session.repositoryId === null ? [] : [session.repositoryId]),
       ...(session.attachedRepositoryIds ?? []),
     ],
-    mcp_servers: server === null ? [] : [server],
-    credentials:
-      mcpStart === null ? release.credentialRefs : mcpStart.credential_refs,
-  };
+  );
 }
 
 export function pinnedLimitOf(value: unknown): CallerLimit | null {
@@ -395,17 +407,13 @@ export function createPostgresCallerLimitGate(db: Database): CallerLimitGate {
     async startRefusal(input) {
       const limit = await callerLimitOf(db, input, false);
       if (limit === null) return null;
-      const release = await releaseFacts(db, input.releaseId);
-      const [settings] = await db
-        .select({ refs: agentMcpSettings.credentialRefs })
-        .from(agentMcpSettings)
-        .where(eq(agentMcpSettings.agentId, input.agentId));
-      const dimension = callerLimitRefusal(limit, {
-        tools: [],
-        mcp_servers: [],
-        repositories: input.repositoryIds,
-        credentials: settings?.refs ?? release?.credentialRefs ?? [],
+      const reach = await startReach(db, {
+        releaseId: input.releaseId,
+        mcpStart: await captureMcpStart(db, input.releaseId),
+        repositoryIds: input.repositoryIds,
       });
+      const dimension =
+        reach === null ? null : callerLimitRefusal(limit, reach);
       if (dimension !== null) {
         await recordCallerLimited(db, {
           subject: input.subject,

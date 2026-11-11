@@ -451,19 +451,18 @@ export function createPostgresSessionUnitOfWork(
           input.agentReleaseId !== undefined &&
           limitedAgentId !== null
         ) {
-          const dimension = callerLimitRefusal(
-            callerLimit,
-            await startReach(tx, {
-              releaseId: input.agentReleaseId,
-              mcpStart,
-              repositoryIds: [
-                ...(typeof input.repository === "object"
-                  ? [input.repository.id]
-                  : []),
-                ...(input.attachedRepositoryIds ?? []),
-              ],
-            }),
-          );
+          const reach = await startReach(tx, {
+            releaseId: input.agentReleaseId,
+            mcpStart,
+            repositoryIds: [
+              ...(typeof input.repository === "object"
+                ? [input.repository.id]
+                : []),
+              ...(input.attachedRepositoryIds ?? []),
+            ],
+          });
+          const dimension =
+            reach === null ? null : callerLimitRefusal(callerLimit, reach);
           if (dimension !== null) {
             if (input.callerSubject !== undefined) {
               await recordCallerLimited(tx, {

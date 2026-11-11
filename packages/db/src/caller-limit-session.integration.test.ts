@@ -372,6 +372,48 @@ integration("caller limits on session create and input", () => {
       });
     });
 
+    test("a tool the release loads and the caller's limit denies is refused and logged; one the release lacks is not", async () => {
+      const ws = await workspace();
+      const owner = await person(ws, "owner");
+      const member = await person(ws);
+      const { agentId, releaseId } = await agentRelease(ws, {
+        tools: ["Bash", "Read"],
+      });
+      await setRules(owner, agentId, [
+        rule({ kind: "workspace" }, { tools_deny: ["Write"] }),
+      ]);
+      expect((await create(member, releaseId)).outcome).toBe("accepted");
+      await setRules(owner, agentId, [
+        rule({ kind: "workspace" }, { tools_deny: ["Bash"] }),
+      ]);
+      expect(await create(member, releaseId)).toEqual({
+        outcome: "caller_limited",
+        dimension: "tool",
+      });
+      expect(await refusals(ws)).toHaveLength(1);
+    });
+
+    test("an MCP server outside the caller's limit is refused", async () => {
+      const ws = await workspace();
+      const owner = await person(ws, "owner");
+      const member = await person(ws);
+      const { agentId, releaseId } = await agentRelease(ws);
+      await db.insert(agentMcpSettings).values({
+        agentId,
+        workspaceId: ws,
+        server: "github",
+        allowedTools: [],
+        credentialRefs: [],
+      });
+      await setRules(owner, agentId, [
+        rule({ kind: "workspace" }, { mcp_servers: ["jira"] }),
+      ]);
+      expect(await create(member, releaseId)).toEqual({
+        outcome: "caller_limited",
+        dimension: "mcp_server",
+      });
+    });
+
     test("a repository the catalog lost is no allowance", async () => {
       const ws = await workspace();
       const owner = await person(ws, "owner");
@@ -502,16 +544,34 @@ integration("caller limits on session create and input", () => {
       const ws = await workspace();
       const owner = await person(ws, "owner");
       const member = await person(ws);
-      const { agentId, releaseId } = await agentRelease(ws, {
-        tools: ["Bash"],
-      });
+      const { agentId, releaseId } = await agentRelease(ws);
+      const id = await session(member, releaseId);
+      // A profile-sourced session keeps its tools open to the profile; the
+      // pinned limit already took Bash away from it.
+      await db
+        .update(sessions)
+        .set({
+          runtimeToolsSource: "profile",
+          callerLimit: {
+            v: 1,
+            tools_deny: ["Bash"],
+            repositories: null,
+            mcp_servers: null,
+            credentials_deny: [],
+            revision: 1,
+          },
+        })
+        .where(eq(sessions.id, id));
       await setRules(owner, agentId, [
         rule({ kind: "workspace" }, { tools_deny: ["Bash"] }),
       ]);
-      const id = await session(member, releaseId);
-      expect((await append(member, id)).outcome).toBe("accepted");
+      expect(
+        (await append(member, id, { profileTools: ["Bash"] })).outcome,
+      ).toBe("accepted");
       const channelSender = await person(ws, "owner");
-      expect((await append(channelSender, id)).outcome).toBe("accepted");
+      expect(
+        (await append(channelSender, id, { profileTools: ["Bash"] })).outcome,
+      ).toBe("accepted");
     });
 
     test("a narrower sender cannot move a session made wider; the session's repository and MCP server count", async () => {
