@@ -26,6 +26,7 @@ import {
   gitCommand,
   killProcessGroup,
 } from "@werft-ai/system";
+import { messageOf } from "./message-of.ts";
 
 /** What the host needs from a workspace before it starts an engine in it. */
 export interface WorkspacePreparer {
@@ -765,7 +766,7 @@ async function cloneStaged(root: string): Promise<boolean> {
  * no `.gitignore` of its own: dependencies and caches an engine rebuilds,
  * which would otherwise fill the bundle up to its limit.
  */
-export const LOCAL_WORKSPACE_EXCLUDES = [
+const LOCAL_WORKSPACE_EXCLUDES = [
   "node_modules/",
   ".venv/",
   "__pycache__/",
@@ -868,7 +869,7 @@ const MAX_LINK_TARGET_BYTES = 4096;
  * Resolves `rev` to the commit it names now and reads `file` from that
  * commit, so the text and the commit a checkpoint later pins are the same.
  */
-export async function pinInstructions(
+async function pinInstructions(
   git: Git,
   cwd: string,
   rev: string,
@@ -907,7 +908,7 @@ export async function readCommittedInstructions(
     if (signal.aborted) throw error;
     return {
       kind: "refused",
-      reason: error instanceof Error ? error.message : String(error),
+      reason: messageOf(error),
     };
   }
 }

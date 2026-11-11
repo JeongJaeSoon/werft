@@ -12,7 +12,6 @@ export {
 export {
   type ContentMode,
   parseTracingSettings,
-  type SamplerKind,
   type TracingSettings,
 } from "./tracing/config.ts";
 export { isContentAttribute } from "./tracing/content-attributes.ts";
@@ -20,15 +19,10 @@ export type {
   IngestAttributes,
   IngestAttributeValue,
   IngestSpan,
-  IngestSpanEvent,
-  IngestSpanLink,
 } from "./tracing/ingest-span.ts";
 export {
-  type ClaimTelemetry,
   createTelemetryPolicy,
-  effectiveContentMode,
   endpointOnEgressAllowlist,
-  type TelemetryPolicy,
 } from "./tracing/telemetry-policy.ts";
 export { turnTraceId } from "./tracing/trace-id.ts";
 export {
@@ -134,7 +128,7 @@ export class MemoryLogSink implements LogSink {
   }
 }
 
-export class StdoutLogSink implements LogSink {
+class StdoutLogSink implements LogSink {
   write(record: LogRecord): void {
     console.log(JSON.stringify(record));
   }

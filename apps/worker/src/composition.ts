@@ -20,7 +20,7 @@ import { installedRuntimes } from "@werft-ai/runtime-registry";
 import { REPAIR_TOOL_PATH } from "./attribution-repair.ts";
 import type { WorkerCheckpointPort } from "./checkpoint.ts";
 import type { WorkerConfig, WorkerTimeouts } from "./config.ts";
-import { consoleLogger } from "./console-logger.ts";
+import { createConsoleLogger, type WorkerLogger } from "./console-logger.ts";
 import { EngineProcesses } from "./engine-processes.ts";
 import {
   publishExtensionBundles,
@@ -55,7 +55,6 @@ import {
   type RuntimeRegistry,
   type WorkerGatewaySession,
   WorkerHost,
-  type WorkerLogger,
 } from "./worker-host.ts";
 import { GitWorkspace, type WorkspacePreparer } from "./workspace.ts";
 import type { WorkspaceObserver } from "./workspace-observer.ts";
@@ -88,7 +87,7 @@ export function createWorkerHost(
 ): WorkerHost {
   const engines =
     overrides.engines ?? new EngineProcesses("/proc", config.runtime.cwd);
-  const logger = overrides.logger ?? consoleLogger;
+  const logger = overrides.logger ?? createConsoleLogger();
   const imageHooks = existsSync(IMAGE_GIT_HOOKS) ? IMAGE_GIT_HOOKS : undefined;
   const gateway =
     overrides.gateway ??

@@ -54,7 +54,7 @@ export const DEFAULT_GIT_VERIFY_TIMEOUT_MS = 60_000;
  * The bundle size the fixed timeout covers; larger bundles receive time in
  * direct proportion through `gitVerifyTimeoutMs`.
  */
-export const GIT_VERIFY_TIMEOUT_REFERENCE_BYTES = 256 * 1024 * 1024;
+const GIT_VERIFY_TIMEOUT_REFERENCE_BYTES = 256 * 1024 * 1024;
 
 /**
  * Each git's timeout, and so its CPU limit, for a bundle of `bytes`:
@@ -69,7 +69,7 @@ export function gitVerifyTimeoutMs(
     Math.ceil((bytes / GIT_VERIFY_TIMEOUT_REFERENCE_BYTES) * timeoutMs),
   );
 }
-export const DEFAULT_MAX_PACK_OBJECTS = 1_000_000;
+const DEFAULT_MAX_PACK_OBJECTS = 1_000_000;
 /**
  * 1.5 GiB. Git may hold a base and resolved result near
  * `core.bigFileThreshold` at once. The cap leaves margin for that valid case

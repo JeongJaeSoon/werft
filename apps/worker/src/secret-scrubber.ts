@@ -1,7 +1,7 @@
 import type { BootstrapClaimResponse } from "@werft-ai/contracts";
 import type { WorkerGatewayClient } from "@werft-ai/runtime-core";
 
-import type { WorkerLogger } from "./worker-host.ts";
+import type { WorkerLogger } from "./console-logger.ts";
 
 /**
  * A value this short is replaced only where it stands alone: the local

@@ -31,7 +31,7 @@ export function bundleDigest(
 }
 
 /**
- * The tar a stored bundle travels in (94S-865). Tar is only a transport: the
+ * The tar a stored bundle travels in. Tar is only a transport: the
  * digest is taken over the canonical file list, so a different tar library,
  * compression or mtime never changes a bundle's version. The writer is
  * byte-for-byte deterministic anyway, so a stored object is reproducible.

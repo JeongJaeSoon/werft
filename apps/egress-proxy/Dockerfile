@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
-# Egress proxy image: the only route off every worker network (94S-216), so
+# Egress proxy image: the only route off every worker network, so
 # it ships as a released, digest-pinned image like the other apps instead of
-# a source tree mounted into a stock Bun image (94S-323). Built from the
+# a source tree mounted into a stock Bun image. Built from the
 # repository root (`docker build -f apps/egress-proxy/Dockerfile .`).
 #
 # Base pinned by the multi-arch index digest of oven/bun:1.3.14; see
@@ -22,10 +22,10 @@ WORKDIR /app
 # Owned by root and only readable by the proxy's user, so a compromised
 # proxy cannot rewrite the code the next start runs.
 COPY apps/egress-proxy/package.json ./
-# The licenses of what this image ships: the Bun base (94S-338).
+# The licenses of what this image ships: the Bun base.
 COPY THIRD_PARTY_NOTICES.md ./
 COPY apps/egress-proxy/src ./src
-# The corresponding source of every Debian package in this image (94S-375);
+# The corresponding source of every Debian package in this image;
 # see apps/worker/Dockerfile.
 RUN --mount=type=bind,source=scripts/third-party-notices.ts,target=/tmp/third-party-notices.ts \
   bun /tmp/third-party-notices.ts --debian-sources >DEBIAN_SOURCES.md

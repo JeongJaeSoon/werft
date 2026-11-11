@@ -13,6 +13,7 @@ import { unwiredCheckpoints, type WorkerCheckpointPort } from "./checkpoint.ts";
 import type { WorkerTimeouts } from "./config.ts";
 import { FakeWorkerGateway } from "./testing/fake-gateway.ts";
 import { scriptedRuntime, startScripted } from "./testing/scripted-engine.ts";
+import { waitFor as pollFor } from "./testing/wait-for.ts";
 import {
   inputUuid,
   type RuntimeRegistry,
@@ -121,13 +122,8 @@ function harness(
   return { gateway, host, runtime, starts: () => starts };
 }
 
-async function waitFor(condition: () => boolean, label: string): Promise<void> {
-  for (let waited = 0; waited < 5_000; waited += 2) {
-    if (condition()) return;
-    await Bun.sleep(2);
-  }
-  throw new Error(`Timed out waiting for ${label}`);
-}
+const waitFor = (condition: () => boolean, label: string): Promise<void> =>
+  pollFor(condition, label, { timeoutMs: 5_000, stepMs: 2 });
 
 /** Replaces the run's interrupt, leaving everything else as it is. */
 function withInterrupt(

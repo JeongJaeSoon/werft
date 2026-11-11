@@ -7,7 +7,7 @@
  */
 export type GitEnvironment = Readonly<Record<string, string>>;
 
-export const GIT_ENVIRONMENT_KEYS = [
+const GIT_ENVIRONMENT_KEYS = [
   "core.hooksPath",
   "user.name",
   "user.email",

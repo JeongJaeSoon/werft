@@ -77,9 +77,9 @@ import {
   stageCheckpointBundle,
   stagedInstructions,
 } from "./checkpoint-restore.ts";
+import type { WorkerLogger } from "./console-logger.ts";
 import { messageOf as describe } from "./message-of.ts";
 import { isObjectStoreOutage } from "./object-store.ts";
-import type { WorkerLogger } from "./worker-host.ts";
 import {
   committedInstructionsOf,
   storableRepositoryUrl,

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { workerEnvironmentFor } from "../../../packages/adapters/execution/kubernetes/src/specs.ts";
 import { schedulerConfigFromEnv } from "../../control-host/src/scheduler/config.ts";
-import { workspaceEvidenceFromEnv } from "./main.ts";
+import { workspaceEvidenceFromEnv } from "./config.ts";
 import { WorkspaceObserver } from "./workspace-observer.ts";
 
 test.each([undefined, "false", "true"])(

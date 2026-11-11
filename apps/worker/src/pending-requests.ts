@@ -29,6 +29,7 @@ import {
 } from "@werft-ai/runtime-core";
 
 import { WORKER_CAPABILITIES } from "./capabilities.ts";
+import { messageOf } from "./message-of.ts";
 import { settledWithin } from "./waits.ts";
 
 export type PendingRequestsOptions = {
@@ -594,7 +595,7 @@ export class PendingRequestRegistry {
       this.close(requestId, {
         kind: "cancelled",
         reason: "refused",
-        message: `The events before this request could not be stored: ${error instanceof Error ? error.message : String(error)}`,
+        message: `The events before this request could not be stored: ${messageOf(error)}`,
       });
       this.settlements.delete(requestId);
       return;
@@ -677,7 +678,7 @@ export class PendingRequestRegistry {
           this.close(requestId, {
             kind: "cancelled",
             reason: "refused",
-            message: `The control plane did not take this request: ${error instanceof Error ? error.message : String(error)}`,
+            message: `The control plane did not take this request: ${messageOf(error)}`,
           });
           this.settlements.delete(requestId);
           return;

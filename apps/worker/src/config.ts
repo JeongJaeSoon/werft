@@ -2,6 +2,7 @@ import {
   WORKER_HEARTBEAT_INTERVAL_MS,
   WORKER_LEASE_SAFETY_MARGIN_MS,
 } from "@werft-ai/contracts";
+import { DEFAULT_WORKSPACE_QUOTA_MB } from "@werft-ai/contracts/execution";
 import {
   integerSetting,
   positiveNumberSetting,
@@ -12,16 +13,21 @@ import {
   type WorkerObjectStoreEnvironment,
 } from "./object-store.ts";
 import { type AttachLimits, DEFAULT_ATTACH_LIMITS } from "./workspace.ts";
+import type { WorkspaceLimitEvidence } from "./workspace-limit-mode.ts";
+import type { WorkspaceQuotaLimits } from "./workspace-quota.ts";
 
 /**
  * Everything the worker reads from its environment. The first block is what
- * `LocalDockerBackend` injects (`backend.ts` `ENV`), object store included;
- * the rest is timers, which no launcher sets today. What the engine runs —
- * model, tools, permission mode, provider — is not here: the claim carries
- * it, resolved by the server from the session's spec.
+ * the execution backends inject (`ENV` in
+ * `packages/contracts/src/shared/execution.ts`), object store included; the
+ * rest is timers and limits, of which a launcher sets only
+ * `WORKER_MAX_TURN_SEC` and `WORKER_PROVIDER_MAX_RETRIES`. What the engine
+ * runs — model, tools, permission mode, provider — is not here: the claim
+ * carries it, resolved by the server from the session's spec.
  */
 export type WorkerEnvironment = WorkerObjectStoreEnvironment & {
   HOME?: string | undefined;
+  LOG_LEVEL?: string | undefined;
   WORKER_BOOTSTRAP_NONCE?: string | undefined;
   WORKER_EGRESS_CREDENTIAL_URL?: string | undefined;
   WORKER_EXECUTION_GENERATION?: string | undefined;
@@ -29,7 +35,9 @@ export type WorkerEnvironment = WorkerObjectStoreEnvironment & {
   WORKER_GATEWAY_URL?: string | undefined;
   WORKER_STOP_GRACE_SEC?: string | undefined;
   WORKER_WORKSPACE_DIR?: string | undefined;
+  WORKER_WORKSPACE_ENFORCED_BY_STORAGE?: string | undefined;
   WORKER_WORKSPACE_MOUNT_DIR?: string | undefined;
+  WORKER_WORKSPACE_PVC_CAPACITY_BYTES?: string | undefined;
   WORKER_WORKSPACE_QUOTA_BYTES?: string | undefined;
   WORKER_WORKSPACE_QUOTA_MODE?: string | undefined;
 
@@ -159,9 +167,17 @@ export type WorkerConfig = {
   attachLimits?: AttachLimits;
 };
 
+/** The workspace volume as the launcher described it. */
+export type WorkerWorkspaceSettings = {
+  /** The checkout directory when the launcher names no mount point. */
+  mountDir: string;
+  quota: WorkspaceQuotaLimits;
+  evidence: WorkspaceLimitEvidence;
+};
+
 export function workerConfigFromEnv(
   environment: WorkerEnvironment,
-): WorkerConfig {
+): WorkerConfig & { workspace: WorkerWorkspaceSettings } {
   const home = required(environment.HOME, "HOME");
   const stopGraceMs =
     environment.WORKER_STOP_GRACE_SEC === undefined
@@ -191,7 +207,7 @@ export function workerConfigFromEnv(
     ),
     "WORKER_EGRESS_CREDENTIAL_URL",
   );
-  return {
+  const config: WorkerConfig = {
     bootstrapNonce: required(
       environment.WORKER_BOOTSTRAP_NONCE,
       "WORKER_BOOTSTRAP_NONCE",
@@ -271,6 +287,43 @@ export function workerConfigFromEnv(
           1024 ** 2,
       ),
     },
+  };
+  const evidence = workspaceEvidenceFromEnv(environment);
+  return {
+    ...config,
+    workspace: {
+      mountDir: environment.WORKER_WORKSPACE_MOUNT_DIR ?? config.runtime.cwd,
+      quota: {
+        bytes:
+          evidence.requestedBytes ?? DEFAULT_WORKSPACE_QUOTA_MB * 1024 * 1024,
+        inodes: 1_000_000,
+      },
+      evidence,
+    },
+  };
+}
+
+export function workspaceEvidenceFromEnv(
+  environment: WorkerEnvironment,
+): WorkspaceLimitEvidence {
+  const requestedBytes = Number(environment.WORKER_WORKSPACE_QUOTA_BYTES);
+  const pvcCapacityBytes = Number(
+    environment.WORKER_WORKSPACE_PVC_CAPACITY_BYTES,
+  );
+  const quotaMode = environment.WORKER_WORKSPACE_QUOTA_MODE;
+  return {
+    ...(Number.isSafeInteger(pvcCapacityBytes) && pvcCapacityBytes > 0
+      ? { pvcCapacityBytes }
+      : {}),
+    ...(Number.isSafeInteger(requestedBytes) && requestedBytes > 0
+      ? { requestedBytes }
+      : {}),
+    ...(quotaMode === "enforced" || quotaMode === "off"
+      ? { localQuota: quotaMode }
+      : {}),
+    ...(environment.WORKER_WORKSPACE_ENFORCED_BY_STORAGE === "true"
+      ? { enforcedByStorage: true }
+      : {}),
   };
 }
 

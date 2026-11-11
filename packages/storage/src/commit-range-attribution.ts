@@ -1,6 +1,7 @@
-// The control host's push reaches the range check through this package, as it
-// does the rest of its git (git-runner.ts); the check itself is runtime-core's,
-// shared with the worker's checkpoint manifest.
+// The forge adapter's push (packages/adapters/forge/github/src/git-push.ts) may
+// import storage but not runtime-core, so the range check is re-exported here;
+// the check itself is runtime-core's, shared with the worker's checkpoint
+// manifest.
 export {
   type RangeAttribution,
   type RangeGit,

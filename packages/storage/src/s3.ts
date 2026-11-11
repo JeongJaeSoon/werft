@@ -62,7 +62,7 @@ export const S3_REQUEST_BOUNDS: S3RequestBounds = {
  * at the reference bundle size. Scaling by it keeps every size on the same
  * terms.
  */
-export const MIN_TRANSFER_BYTES_PER_SECOND = (256 * 1024 * 1024) / 300;
+const MIN_TRANSFER_BYTES_PER_SECOND = (256 * 1024 * 1024) / 300;
 
 /**
  * How long moving `bytes` may take: `floorMs`, or longer for a body that
@@ -82,7 +82,7 @@ export function transferBudgetMs(bytes: number, floorMs: number): number {
  * larger claim — a misreported length, a stranger at the key — earns no
  * more time than this.
  */
-export const MAX_BUDGETED_READ_BYTES = 512 * 1024 * 1024;
+const MAX_BUDGETED_READ_BYTES = 512 * 1024 * 1024;
 
 /** `transferBudgetMs` for a read of a body the store says is `bytes`. */
 export function readBudgetMs(bytes: number, floorMs: number): number {
@@ -372,7 +372,7 @@ export function sha256(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
-export function concatBytes(parts: readonly Uint8Array[]): Uint8Array {
+function concatBytes(parts: readonly Uint8Array[]): Uint8Array {
   const combined = new Uint8Array(
     parts.reduce((sum, part) => sum + part.byteLength, 0),
   );

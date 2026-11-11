@@ -92,7 +92,7 @@ export interface IngestOptions {
   readonly eventCodecFor?: (kind: string) => EventCodec | undefined;
 }
 
-export function ingestSender(
+function ingestSender(
   ingestUrl: string,
   credential: () => string,
   options: IngestOptions,
