@@ -8,6 +8,7 @@ import {
 } from "@werft-ai/db";
 import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
 import { createLogger } from "@werft-ai/observability";
+import { messageOf } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 
 // The operator's execution Grant command. Alpha has no Grant
@@ -29,9 +30,7 @@ export function parseGrantsCommand(argv: string[]): GrantsCommand {
   try {
     parsed = parse(argv);
   } catch (error) {
-    throw new Error(
-      `${error instanceof Error ? error.message : String(error)}\n${USAGE}`,
-    );
+    throw new Error(`${messageOf(error)}\n${USAGE}`);
   }
   const [command, sessionId, ...extra] = parsed.positionals;
   if (

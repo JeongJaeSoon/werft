@@ -5,6 +5,7 @@ import { createPostgresSettingsDocumentStore } from "@werft-ai/db";
 import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
 import { createLogger } from "@werft-ai/observability";
 import {
+  messageOf,
   parseSettingsDocument,
   type SettingsDocument,
   type SettingsDocumentStore,
@@ -44,9 +45,7 @@ export function parseSettingsCommand(argv: string[]): SettingsCommand {
   try {
     parsed = parse(argv);
   } catch (error) {
-    throw new Error(
-      `${error instanceof Error ? error.message : String(error)}\n${USAGE}`,
-    );
+    throw new Error(`${messageOf(error)}\n${USAGE}`);
   }
   const { positionals, values } = parsed;
   const [command, ...extra] = positionals;
@@ -135,9 +134,7 @@ async function readDocument(path: string): Promise<unknown> {
   try {
     return JSON.parse(await file.text());
   } catch (error) {
-    throw new Error(
-      `${path} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    throw new Error(`${path} is not valid JSON: ${messageOf(error)}`);
   }
 }
 

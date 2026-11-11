@@ -14,10 +14,12 @@ import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
 import { createLogger } from "@werft-ai/observability";
 import {
   type McpMigrationPlan,
+  messageOf,
   planMcpSettingsMigration,
 } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import type { Pool } from "pg";
+import { queueDatabaseUrl } from "../database-url.ts";
 
 const USAGE = [
   "usage:",
@@ -92,7 +94,7 @@ export function parseArgs(argv: string[]): Mode {
   return { kind: "revert" };
 }
 
-export const reportBytes = (plan: McpMigrationPlan) =>
+const reportBytes = (plan: McpMigrationPlan) =>
   `${JSON.stringify(plan, null, 2)}\n`;
 
 export const sha256Of = (text: string) =>
@@ -269,15 +271,11 @@ export async function runMcpSettingsMigration(
 }
 
 /** The database this one-time job reads and writes; nothing else is opened. */
-export async function openJobDatabase(
+async function openJobDatabase(
   name: string,
   environment: NodeJS.ProcessEnv,
 ): Promise<McpSettingsMigrationDeps> {
-  const databaseUrl =
-    environment.DATABASE_URL || environment.QUEUE_DATABASE_URL;
-  if (!databaseUrl) {
-    throw new Error("DATABASE_URL or QUEUE_DATABASE_URL is required");
-  }
+  const databaseUrl = queueDatabaseUrl(environment);
   const pool = createEnforcedPool(
     databaseUrl,
     createLogger({ level: "warn" }),
@@ -288,7 +286,7 @@ export async function openJobDatabase(
   return { db: drizzle(pool, { schema }), pool };
 }
 
-export async function mcpSettingsMigration(
+async function mcpSettingsMigration(
   argv: string[],
   environment: NodeJS.ProcessEnv = process.env,
   out: (line: string) => void = console.log,
@@ -306,7 +304,7 @@ if (import.meta.main) {
   try {
     process.exitCode = await mcpSettingsMigration(process.argv.slice(2));
   } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    console.error(messageOf(error));
     process.exitCode = 2;
   }
 }

@@ -160,6 +160,8 @@ function registerOpenApiRoute(
   const registered = options.middleware
     ? { ...route, middleware: options.middleware }
     : route;
+  // The config is found by operation id at runtime, so there is no per-route
+  // type for OpenAPIHono to check the handler against.
   router.openapi(registered as never, handler as never);
 }
 

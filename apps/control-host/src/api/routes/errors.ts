@@ -3,7 +3,11 @@ import {
   githubRefusalStatus,
   idempotencyKeySchema,
 } from "@werft-ai/contracts";
-import { InvalidCursorError, SessionServiceError } from "@werft-ai/platform";
+import {
+  InvalidCursorError,
+  type PushActor,
+  SessionServiceError,
+} from "@werft-ai/platform";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { z } from "zod";
@@ -157,4 +161,23 @@ export function requireQuery<T extends z.ZodType>(
     throw new ApiHttpError(400, "BAD_REQUEST", "Query parameters are invalid");
   }
   return query.data;
+}
+
+export function rateLimited(retryAfterMs: number, what: string): ApiHttpError {
+  return new ApiHttpError(
+    429,
+    "RATE_LIMITED",
+    `${what}, try again later`,
+    true,
+    Math.ceil(retryAfterMs / 1000),
+  );
+}
+
+export function actorOf(context: Context<ApiEnvironment>): PushActor {
+  return {
+    caller: context.get("caller"),
+    principal: context.get("principal"),
+    ownerId: context.get("ownerId"),
+    verified: context.get("verified"),
+  };
 }

@@ -7,6 +7,7 @@ import {
   WorkspaceMigrator,
 } from "@werft-ai/execution-local-docker";
 import { createLogger } from "@werft-ai/observability";
+import { messageOf } from "@werft-ai/platform";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { schedulerConfigFromEnv } from "./config.ts";
@@ -146,7 +147,7 @@ export async function migrateWorkspaces(
         } catch (error) {
           failed++;
           logger.error("Workspace migration failed", {
-            error: error instanceof Error ? error.message : String(error),
+            error: messageOf(error),
             session_id: sessionId,
           });
           if (lock.signal.aborted) break;
@@ -171,7 +172,7 @@ if (import.meta.main) {
   try {
     process.exitCode = await migrateWorkspaces(process.argv.slice(2));
   } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    console.error(messageOf(error));
     process.exitCode = 2;
   }
 }

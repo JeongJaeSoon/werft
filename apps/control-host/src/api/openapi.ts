@@ -761,7 +761,7 @@ type ComponentName =
 type ApiTagName = (typeof OPENAPI_TAGS)[number]["name"];
 
 // Scalar renders these as the sections of the reference sidebar.
-export const OPENAPI_TAG_GROUPS = [
+const OPENAPI_TAG_GROUPS = [
   { name: "Getting started", tags: ["Auth", "API keys"] },
   { name: "Agents", tags: ["Agents"] },
   {
@@ -8262,6 +8262,7 @@ export function apiRouteConfig(
 export function buildOpenApiDocument() {
   const registry = new OpenAPIHono();
   for (const route of API_ROUTE_DECLARATIONS) {
+    // A config found by operation id has no per-route type to infer from.
     registry.openapi(
       apiRouteConfig(route.operationId) as never,
       (() => new Response()) as never,

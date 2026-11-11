@@ -14,8 +14,7 @@ import {
   jsonWithSchema,
   parseJsonBody,
 } from "../../app.ts";
-import { mapped, requireParams, requireQuery } from "../errors.ts";
-import { actorOf } from "./push-requests.ts";
+import { actorOf, mapped, requireParams, requireQuery } from "../errors.ts";
 
 export function registerPullRequestRoutes(
   router: ApiRouter,

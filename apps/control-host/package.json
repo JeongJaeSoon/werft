@@ -1,6 +1,6 @@
 {
   "name": "@werft-ai/control-host",
-  "description": "Kiel session runtime: control host (api, scheduler and reconciler roles) serving the public /v1 API and the worker gateway",
+  "description": "Kiel session runtime: control host (api, metrics, scheduler, reconciler and slack roles) serving the public /v1 API and the worker gateway",
   "version": "0.0.0",
   "private": true,
   "license": "PolyForm-Small-Business-1.0.0",

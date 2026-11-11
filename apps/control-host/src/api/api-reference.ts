@@ -43,7 +43,7 @@ export const STYLE_NONCE_SCRIPT = `(() => {
 })();
 `;
 
-export function htmlAttribute(value: unknown): string {
+function htmlAttribute(value: unknown): string {
   return JSON.stringify(value)
     .replaceAll("&", "&amp;")
     .replaceAll('"', "&quot;")

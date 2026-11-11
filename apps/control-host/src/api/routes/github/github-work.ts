@@ -24,8 +24,7 @@ import {
   jsonWithSchema,
   parseJsonBody,
 } from "../../app.ts";
-import { actorOf } from "../action/push-requests.ts";
-import { mapped, requireParams } from "../errors.ts";
+import { actorOf, mapped, requireParams } from "../errors.ts";
 
 export function registerGitHubWorkRoutes(
   router: ApiRouter,

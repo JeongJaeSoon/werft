@@ -1,4 +1,4 @@
-export class WindowRateLimiter {
+class WindowRateLimiter {
   readonly #windows = new Map<string, { startedAt: number; count: number }>();
 
   constructor(
@@ -39,8 +39,8 @@ export class WindowRateLimiter {
 
 // Slack sends at most ~30,000 events an hour per app (500 a minute), so
 // neither limit is near what a real workspace sends.
-export const SLACK_EVENTS_GLOBAL_LIMIT_PER_MINUTE = 1000;
-export const SLACK_EVENTS_AGENT_LIMIT_PER_MINUTE = 600;
+const SLACK_EVENTS_GLOBAL_LIMIT_PER_MINUTE = 1000;
+const SLACK_EVENTS_AGENT_LIMIT_PER_MINUTE = 600;
 
 export function createSlackEventsLimiter(options?: {
   globalPerMinute?: number;

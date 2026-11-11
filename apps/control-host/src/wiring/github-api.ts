@@ -12,8 +12,10 @@ import {
 } from "./forge-github.ts";
 
 export interface GitHubRegistryDeps {
-  /** The registered GitHub App store; null when no master key is set. */
-  appStore: Parameters<typeof createRegisteredGitHubConnections>[0]["store"];
+  /** The registered GitHub App store. */
+  appStore: NonNullable<
+    Parameters<typeof createRegisteredGitHubConnections>[0]["store"]
+  >;
   logger: StructuredLogger;
 }
 

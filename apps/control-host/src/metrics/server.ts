@@ -11,16 +11,17 @@ import {
 } from "@werft-ai/observability";
 import {
   installationLimitsFromEnv,
+  messageOf,
   type SessionBudget,
   sessionBudgetOf,
 } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { renderMetrics, TURN_DURATION_BUCKETS } from "./families.ts";
 
-export const DEFAULT_METRICS_PORT = 9464;
+const DEFAULT_METRICS_PORT = 9464;
 const CONTENT_TYPE = "text/plain; version=0.0.4; charset=utf-8";
 
-export function metricsPort(environment: NodeJS.ProcessEnv): number {
+function metricsPort(environment: NodeJS.ProcessEnv): number {
   const raw = environment.METRICS_PORT;
   if (raw === undefined || raw === "") return DEFAULT_METRICS_PORT;
   const port = Number(raw);
@@ -58,7 +59,7 @@ export function metricsHandler(
       });
     } catch (error) {
       logger.error("metrics read failed", {
-        error: error instanceof Error ? error.message : String(error),
+        error: messageOf(error),
       });
       return new Response("metrics read failed\n", { status: 503 });
     }

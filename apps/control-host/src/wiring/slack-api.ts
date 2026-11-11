@@ -1,6 +1,9 @@
 // The API role's Slack chat adapters, built in the stages the role needs them:
 // the platform services between the stages take the earlier stage's output.
-// Every adapter is created exactly once, in the order the role used before.
+// Every adapter is created exactly once, and a stage runs after the stages
+// whose output it takes. The stores a stage takes are already built when it
+// runs, the outbox store included: constructing that store only closes over
+// the database handle, so where it is built changes nothing observable.
 import type { StructuredLogger } from "@werft-ai/observability";
 import type {
   AgentIdentityStore,
@@ -31,8 +34,7 @@ import {
   slackBotToken,
   slackPublicUrlsOf,
 } from "./chat-slack.ts";
-
-type Param<F extends (...args: never[]) => unknown> = Parameters<F>[0];
+import { type Param, slackConnectUrl } from "./slack-shared.ts";
 
 /**
  * Makes a secret store on each call, as the role did at every use: the stores
@@ -42,50 +44,41 @@ export type SecretStoreSource = () => SecretStore;
 
 export interface SlackBotStageDeps {
   apiUrl: string;
-  /** Null (with `secrets`) when no master key is set. */
-  appStore: SlackAppStore | null;
-  secrets: SecretStoreSource | null;
+  appStore: SlackAppStore;
+  secrets: SecretStoreSource;
   bindings: SurfaceBindingStore;
   agents: Param<typeof createSlackWelcome>["agents"];
-  /** Called only when there is an app store to welcome from. */
-  outbox: () => Param<typeof createSlackWelcome>["outbox"];
+  outbox: Param<typeof createSlackWelcome>["outbox"];
   logger: StructuredLogger;
 }
 
 export interface SlackBotStage {
   api: ReturnType<typeof createSlackBotApi>;
-  /** Null when no master key is set: there is no token to join with. */
-  join: ReturnType<typeof createSlackChannelJoiner> | null;
-  welcome: ReturnType<typeof createSlackWelcome> | null;
+  join: ReturnType<typeof createSlackChannelJoiner>;
+  welcome: ReturnType<typeof createSlackWelcome>;
 }
 
 export function wireSlackBot(deps: SlackBotStageDeps): SlackBotStage {
   const { appStore, secrets } = deps;
   const api = createSlackBotApi({ apiUrl: deps.apiUrl });
-  const join =
-    secrets === null || appStore === null // narrows both
-      ? null
-      : createSlackChannelJoiner({
-          bindings: deps.bindings,
-          slack: api,
-          botToken: (workspaceId, agentId) =>
-            agentSlackBotToken(
-              { apps: appStore, secrets: secrets() },
-              workspaceId,
-              agentId,
-            ),
-        });
-  const welcome =
-    appStore === null
-      ? null
-      : createSlackWelcome({
-          agents: deps.agents,
-          bindings: deps.bindings,
-          apps: appStore,
-          outbox: deps.outbox(),
-          join,
-          logger: deps.logger,
-        });
+  const join = createSlackChannelJoiner({
+    bindings: deps.bindings,
+    slack: api,
+    botToken: (workspaceId, agentId) =>
+      agentSlackBotToken(
+        { apps: appStore, secrets: secrets() },
+        workspaceId,
+        agentId,
+      ),
+  });
+  const welcome = createSlackWelcome({
+    agents: deps.agents,
+    bindings: deps.bindings,
+    apps: appStore,
+    outbox: deps.outbox,
+    join,
+    logger: deps.logger,
+  });
   return { api, join, welcome };
 }
 
@@ -100,52 +93,45 @@ export interface SlackChannelsStageDeps {
 
 export interface SlackChannelsStage {
   /** A Slack call answered `token_revoked` with no uninstall event sent. */
-  tokenRevoked: ReturnType<typeof createSlackTokenRevoked> | undefined;
+  tokenRevoked: ReturnType<typeof createSlackTokenRevoked>;
   channelKinds: ReturnType<typeof createSlackChannelKinds>;
 }
 
 export function wireSlackChannels(
   deps: SlackChannelsStageDeps,
 ): SlackChannelsStage {
-  const tokenRevoked =
-    deps.secrets === null
-      ? undefined
-      : createSlackTokenRevoked({
-          identities: deps.identities,
-          installs: deps.installs,
-          secrets: deps.secrets(),
-          onError: deps.onTokenRevokedError,
-        });
+  const tokenRevoked = createSlackTokenRevoked({
+    identities: deps.identities,
+    installs: deps.installs,
+    secrets: deps.secrets(),
+    onError: deps.onTokenRevokedError,
+  });
   return {
     tokenRevoked,
     channelKinds: createSlackChannelKinds({
       apps: deps.appStore,
-      secrets: deps.secrets === null ? null : deps.secrets(),
+      secrets: deps.secrets(),
       slack: deps.api,
-      ...(tokenRevoked ? { tokenRevoked } : {}),
+      tokenRevoked,
     }),
   };
 }
 
 export interface SlackConfigStageDeps {
   apiUrl: string;
-  /** Null when no master key is set. */
-  tokenStore: Param<typeof createSlackConfigTokens>["store"] | null;
+  tokenStore: Param<typeof createSlackConfigTokens>["store"];
 }
 
 export interface SlackConfigStage {
   api: ReturnType<typeof createSlackConfigApi>;
-  tokens: ReturnType<typeof createSlackConfigTokens> | null;
+  tokens: ReturnType<typeof createSlackConfigTokens>;
 }
 
 export function wireSlackConfig(deps: SlackConfigStageDeps): SlackConfigStage {
   const api = createSlackConfigApi({ apiUrl: deps.apiUrl });
   return {
     api,
-    tokens:
-      deps.tokenStore === null
-        ? null
-        : createSlackConfigTokens({ store: deps.tokenStore, api }),
+    tokens: createSlackConfigTokens({ store: deps.tokenStore, api }),
   };
 }
 
@@ -162,8 +148,7 @@ export interface SlackServicesStageDeps {
   identities: AgentIdentityStore;
   installs: SlackInstallStore;
   bindings: SurfaceBindingStore;
-  /** Null when the install flow has no key to seal the state with. */
-  installStates: Param<typeof createSlackInstallService>["states"];
+  installStates: NonNullable<Param<typeof createSlackInstallService>["states"]>;
   consoleOrigin: string | null;
   eventsPublicUrl: string | null;
   appKind: Param<typeof createSlackSecretService>["appKind"];
@@ -175,8 +160,7 @@ export interface SlackServicesStageDeps {
 
 export interface SlackServicesStage {
   secrets: ReturnType<typeof createSlackSecretService>;
-  /** Null when no master key or app store is set. */
-  signingSecrets: ReturnType<typeof createSlackSigningSecrets> | null;
+  signingSecrets: ReturnType<typeof createSlackSigningSecrets>;
   channels: ReturnType<typeof createSlackChannelSearchService>;
   apps: ReturnType<typeof createSlackAppService>;
   events: ReturnType<typeof createSlackEventsService>;
@@ -190,22 +174,22 @@ export function wireSlackServices(
   const { appStore, secrets, config, authorization } = deps;
   const secretService = createSlackSecretService({
     authorization,
-    store: secrets === null ? null : secrets(),
+    store: secrets(),
     tokens: config.tokens,
     urls: slackPublicUrlsOf(deps.consoleOrigin, deps.eventsPublicUrl),
     appKind: deps.appKind,
   });
-  const signingSecrets =
-    secrets === null || appStore === null // narrows both
-      ? null
-      : createSlackSigningSecrets({ apps: appStore, secrets: secrets() });
+  const signingSecrets = createSlackSigningSecrets({
+    apps: appStore,
+    secrets: secrets(),
+  });
   const channels = createSlackChannelSearchService({
     authorization,
     agents: deps.agentAuthority,
     apps: appStore,
-    secrets: secrets === null ? null : secrets(),
+    secrets: secrets(),
     api: deps.botApi,
-    ...(deps.tokenRevoked ? { tokenRevoked: deps.tokenRevoked } : {}),
+    tokenRevoked: deps.tokenRevoked,
   });
   const apps = createSlackAppService({
     authorization,
@@ -215,13 +199,13 @@ export function wireSlackServices(
     consoleOrigin: deps.consoleOrigin,
     eventsPublicUrl: deps.eventsPublicUrl,
     logger: deps.logger,
-    onAgentAppChanged: (agentId) => signingSecrets?.invalidate(agentId),
+    onAgentAppChanged: (agentId) => signingSecrets.invalidate(agentId),
     activeReleaseWarning: deps.activeReleaseWarning,
   });
   const events = createSlackEventsService({
-    signingSecrets: signingSecrets ?? { forAgent: async () => null },
+    signingSecrets,
     inbox: deps.inbox,
-    apps: appStore ?? { setEventsUnlessVerified: async () => {} },
+    apps: appStore,
     identities: deps.identities,
     installs: deps.installs,
     bindings: deps.bindings,
@@ -230,22 +214,18 @@ export function wireSlackServices(
     authorization,
     apps: appStore,
     states: deps.installStates,
-    secrets: secrets === null ? null : secrets(),
+    secrets: secrets(),
     tokens: config.tokens,
     identities: deps.identities,
     api: config.api,
-    ...(appStore === null || deps.welcome === null
-      ? {}
-      : {
-          finalize: composeSlackFinalize(
-            createSlackEventsFinalize({
-              apps,
-              agents: appStore,
-              publicUrl: deps.eventsPublicUrl,
-            }),
-            deps.welcome.finalize,
-          ),
-        }),
+    finalize: composeSlackFinalize(
+      createSlackEventsFinalize({
+        apps,
+        agents: appStore,
+        publicUrl: deps.eventsPublicUrl,
+      }),
+      deps.welcome.finalize,
+    ),
   });
   const linkApps = createSlackLinkAppService({
     authorization,
@@ -285,7 +265,7 @@ export interface SlackInteractionsStageDeps {
 export function wireSlackInteractions(deps: SlackInteractionsStageDeps) {
   const { secrets } = deps;
   return createSlackInteractionService({
-    signingSecrets: deps.signingSecrets ?? { forAgent: async () => null },
+    signingSecrets: deps.signingSecrets,
     authorization: deps.authorization,
     agents: deps.agents,
     links: deps.links,
@@ -296,14 +276,9 @@ export function wireSlackInteractions(deps: SlackInteractionsStageDeps) {
     followUps: deps.followUps,
     slack: deps.botApi,
     botToken: async (workspaceId, slackAppId) =>
-      secrets === null
-        ? null
-        : slackBotToken(secrets(), workspaceId, slackAppId),
+      slackBotToken(secrets(), workspaceId, slackAppId),
     outbox: deps.outbox,
-    connectUrl:
-      deps.consoleOrigin === null
-        ? ""
-        : new URL("/settings/linked-accounts", deps.consoleOrigin).toString(),
+    connectUrl: slackConnectUrl(deps.consoleOrigin),
     logger: deps.logger,
   });
 }
