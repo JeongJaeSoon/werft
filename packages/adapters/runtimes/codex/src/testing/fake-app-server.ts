@@ -25,13 +25,45 @@ export class FakeAppServer implements AppServerTransport {
   private nextServerId = 100;
   private readonly handlers = new Map<string, Handler>();
 
-  constructor(threadId = "thread-1") {
+  /**
+   * `mcp` names the servers the engine reports starting after `thread/start`,
+   * and how each ends: `ready` (the default) or `failed`, or `never` to leave
+   * it for the test to emit.
+   */
+  constructor(
+    threadId = "thread-1",
+    mcp: Record<string, "ready" | "failed" | "never"> = {},
+  ) {
     this.closed = new Promise((resolve) => {
       this.settle = resolve;
     });
     this.on("initialize", () => ({ userAgent: "fake" }));
-    this.on("thread/start", () => ({ thread: { id: threadId } }));
-    this.on("thread/resume", (params) => ({ thread: { id: params.threadId } }));
+    const startServers = () => {
+      for (const [name, end] of Object.entries(mcp)) {
+        this.emit("mcpServer/startupStatus/updated", {
+          name,
+          status: "starting",
+          threadId: null,
+        });
+        if (end === "never") continue;
+        setTimeout(() => {
+          this.emit("mcpServer/startupStatus/updated", {
+            name,
+            status: end,
+            threadId: null,
+            ...(end === "failed" ? { error: "connection refused" } : {}),
+          });
+        }, 0);
+      }
+    };
+    this.on("thread/start", () => {
+      startServers();
+      return { thread: { id: threadId } };
+    });
+    this.on("thread/resume", (params) => {
+      startServers();
+      return { thread: { id: params.threadId } };
+    });
     this.on("thread/read", () => ({ thread: { id: threadId } }));
     this.on("turn/start", () => ({ turn: { id: "turn-1" } }));
     this.on("turn/interrupt", () => ({}));

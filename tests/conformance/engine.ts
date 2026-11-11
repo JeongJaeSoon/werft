@@ -24,6 +24,11 @@ export type Script = {
    * reports scripted usage (`provider_budget`) plays it.
    */
   usage?: { input_tokens: number; output_tokens: number };
+  /**
+   * After the commands, the model calls the agent's `request_push` tool (the
+   * built-in `github` server's), however its engine names MCP tools.
+   */
+  pushTool?: boolean;
 };
 
 /**
@@ -45,18 +50,30 @@ export type ModelCall = {
   history: string[];
   /** The command step the call reached; `commands.length` is the final text. */
   step: number | null;
+  /** Tool names the call offered; a namespace's tools read `namespace/tool`. */
+  tools: string[];
+  /** Names the call's tool-search answers returned, when the provider records them. */
+  found?: string[];
 };
 
 export interface EngineFixture {
   /** A command the engine asks permission for before it runs. */
   readonly approvalCommand: string;
   readonly capabilities: ReadonlySet<Capability>;
+  /** The model an agent card names for this engine. */
+  readonly cardModel: string;
   /** Profile the sessions run on. */
   readonly profileId: string;
   readonly repositoryId: string;
   readonly runtimeKind: RuntimeKind;
   /** Calls the engine's fake provider recorded for the script `id`. */
   modelCalls(id: string): Promise<ModelCall[]>;
+  /**
+   * Whether the model was shown the push tool in the script `id`: offered in
+   * the request, or returned by the engine's own tool discovery. A call the
+   * script makes to a tool the model never saw proves nothing about the engine.
+   */
+  pushToolShown(id: string): Promise<boolean>;
   /** The prompt that makes the engine's fake provider play `script`. */
   prompt(script: Script): string;
 }
@@ -95,6 +112,9 @@ export function scenario(
     );
   }
 }
+
+/** The tool call the model makes for `Script.pushTool`: the platform's tool name, whatever the engine. */
+export const PUSH_TOOL = "mcp__github__request_push";
 
 /** A script id no other test of the run reuses, so provider logs never mix. */
 export function scriptId(name: string): string {

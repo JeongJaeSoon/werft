@@ -69,6 +69,150 @@ describe("scripted Responses API", () => {
     ]);
   });
 
+  test("an MCP tool is called inside its namespace, and the record shows what was offered and answered", async () => {
+    const recorded: ScriptedCall[] = [];
+    const prompt = user(
+      spec({
+        id: "m",
+        steps: [{ tool: "mcp__github__request_push", input: {} }],
+        final: "done",
+      }),
+    );
+    const offered = [
+      ...tools,
+      {
+        type: "namespace",
+        name: "mcp__github",
+        tools: [{ type: "function", name: "request_push" }],
+      },
+    ];
+    const first = await replyFor({ input: [prompt], tools: offered }, recorded);
+    expect(first.toolCalls?.[0]).toMatchObject({
+      namespace: "mcp__github",
+      name: "request_push",
+    });
+    await replyFor(
+      { input: [prompt, output("call_gate_m_0")], tools: offered },
+      recorded,
+    );
+    expect(recorded[0]?.tools).toEqual([
+      "exec_command",
+      "mcp__github/request_push",
+    ]);
+    expect(recorded[1]?.outputs).toEqual(["ok"]);
+  });
+
+  test("a server id ending in an underscore keeps its namespace whole", async () => {
+    const prompt = user(
+      spec({
+        id: "u",
+        steps: [{ tool: "mcp__foo___bar", input: {} }],
+        final: "done",
+      }),
+    );
+    const offered = [
+      ...tools,
+      {
+        type: "namespace",
+        name: "mcp__foo_",
+        tools: [{ type: "function", name: "bar" }],
+      },
+    ];
+    const reply = await replyFor({ input: [prompt], tools: offered }, []);
+    expect(reply.toolCalls?.[0]).toMatchObject({
+      namespace: "mcp__foo_",
+      name: "bar",
+    });
+  });
+
+  test("an MCP tool the model was never shown stays a plain name", async () => {
+    const prompt = user(
+      spec({
+        id: "d",
+        steps: [{ tool: "mcp__github__request_push", input: {} }],
+        final: "done",
+      }),
+    );
+    const reply = await replyFor({ input: [prompt], tools }, []);
+    expect(reply.toolCalls?.[0]).toMatchObject({
+      name: "mcp__github__request_push",
+    });
+    expect(reply.toolCalls?.[0]?.namespace).toBeUndefined();
+  });
+
+  test("a tool_search step finds the namespace the next call is made in", async () => {
+    const recorded: ScriptedCall[] = [];
+    const prompt = user(
+      spec({
+        id: "q",
+        steps: [
+          { tool: "tool_search", input: { query: "request_push" } },
+          { tool: "mcp__github__request_push", input: {} },
+        ],
+        final: "done",
+      }),
+    );
+    const withSearch = [...tools, { type: "tool_search", execution: "client" }];
+    const first = await replyFor(
+      { input: [prompt], tools: withSearch },
+      recorded,
+    );
+    expect(first.toolCalls?.[0]).toMatchObject({
+      kind: "tool_search",
+      callId: "call_gate_q_0",
+    });
+    const found = {
+      type: "tool_search_output",
+      call_id: "call_gate_q_0",
+      execution: "client",
+      status: "completed",
+      tools: [
+        {
+          type: "namespace",
+          name: "mcp__github",
+          tools: [{ type: "function", name: "request_push" }],
+        },
+      ],
+    };
+    const second = await replyFor(
+      { input: [prompt, found], tools: withSearch },
+      recorded,
+    );
+    expect(second.toolCalls?.[0]).toMatchObject({
+      namespace: "mcp__github",
+      name: "request_push",
+    });
+    expect(recorded.map((call) => call.step)).toEqual([0, 1]);
+    expect(recorded[0]?.tools).toEqual(["exec_command", "tool_search"]);
+    expect(recorded[1]?.outputs).toEqual(["mcp__github/request_push"]);
+    expect(recorded[1]?.found).toEqual(["mcp__github/request_push"]);
+  });
+
+  test("a tool_search step in a request that offers no search is a plain name", async () => {
+    const prompt = user(
+      spec({
+        id: "n",
+        steps: [{ tool: "tool_search", input: { query: "x" } }],
+        final: "done",
+      }),
+    );
+    const reply = await replyFor({ input: [prompt], tools }, []);
+    expect(reply.toolCalls?.[0]?.kind).toBeUndefined();
+    expect(reply.toolCalls?.[0]?.name).toBe("tool_search");
+  });
+
+  test("a plain tool output that happens to name a tool is not a search answer", async () => {
+    const recorded: ScriptedCall[] = [];
+    const prompt = user(spec({ id: "p", steps: [], final: "done" }));
+    const plain = {
+      type: "function_call_output",
+      call_id: "c",
+      output: "mcp__github/request_push",
+    };
+    await replyFor({ input: [prompt, plain], tools }, recorded);
+    expect(recorded[0]?.found).toEqual([]);
+  });
+
   test("a request without tools never reads the spec", async () => {
     const recorded: ScriptedCall[] = [];
     const reply = await replyFor(

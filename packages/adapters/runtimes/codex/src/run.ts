@@ -45,6 +45,8 @@ import { type AppServerTransport, RpcError, type RpcId } from "./transport.ts";
 const COMMAND_APPROVAL = "item/commandExecution/requestApproval";
 const FILE_CHANGE_APPROVAL = "item/fileChange/requestApproval";
 const MCP_ELICITATION = "mcpServer/elicitation/request";
+const MCP_STARTUP = "mcpServer/startupStatus/updated";
+const MCP_STARTUP_TIMEOUT_MS = 30_000;
 
 export type CodexRunOptions = {
   transport: AppServerTransport;
@@ -164,6 +166,11 @@ export class CodexRun implements AgentRun {
   private idle = true;
   /** MCP calls the engine announced and the relay has not yet claimed or finished. */
   private mcpItems: Item[] = [];
+  private readonly mcpStartup = new Map<
+    string,
+    { status: string; error?: string }
+  >();
+  private mcpStartupChanged: (() => void) | undefined;
   private readonly mcpClaimed = new Set<string>();
   /** Relay calls between their judgment and the end of the upstream call; `running` is cleared per turn, these are not. */
   private readonly relayCalls = new Set<string>();
@@ -388,6 +395,7 @@ export class CodexRun implements AgentRun {
     }
     const problem = this.options.startupProblem();
     if (problem !== undefined) throw new Error(problem);
+    await this.mcpStarted();
     this.threadId = id;
     this.events$.push(startedEvent(id, this.options.model));
     void this.pump();
@@ -395,6 +403,48 @@ export class CodexRun implements AgentRun {
       effective: CODEX_DESCRIPTOR.capabilities,
       effectiveExtraFeatures: CODEX_DESCRIPTOR.extraFeatures,
     };
+  }
+
+  /**
+   * The engine fixes the tools a turn offers the model when the turn starts, so
+   * a relay server still connecting then is missing from that turn. Waiting
+   * here keeps the first turn from running without the platform's tools.
+   */
+  private async mcpStarted(): Promise<void> {
+    const names = this.options.mcp?.servers;
+    if (names === undefined || names.size === 0) return;
+    const deadline = Date.now() + MCP_STARTUP_TIMEOUT_MS;
+    for (const name of names) {
+      for (;;) {
+        if (this.closing)
+          throw new Error("The run ended before its MCP servers started");
+        const state = this.mcpStartup.get(name);
+        if (state?.status === "ready") break;
+        if (state?.status === "failed" || state?.status === "cancelled") {
+          throw new Error(
+            `The Codex app-server could not start the ${name} MCP server (${state.status}${state.error === undefined ? "" : `: ${state.error}`})`,
+          );
+        }
+        const left = deadline - Date.now();
+        if (left <= 0) {
+          throw new Error(
+            `The Codex app-server did not start the ${name} MCP server in ${String(MCP_STARTUP_TIMEOUT_MS / 1000)}s`,
+          );
+        }
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(done, left);
+          const signal = this.stop.signal;
+          function done() {
+            clearTimeout(timer);
+            signal.removeEventListener("abort", done);
+            resolve();
+          }
+          this.mcpStartupChanged = done;
+          signal.addEventListener("abort", done, { once: true });
+        });
+        this.mcpStartupChanged = undefined;
+      }
+    }
   }
 
   private async threadAfterReady(): Promise<string> {
@@ -496,6 +546,18 @@ export class CodexRun implements AgentRun {
     method: string,
     params: Record<string, unknown>,
   ): void {
+    if (method === MCP_STARTUP) {
+      // Before the thread id is known, and not filtered by it: the servers
+      // start while `thread/start` is still answering.
+      if (typeof params.name === "string") {
+        this.mcpStartup.set(params.name, {
+          status: String(params.status),
+          ...(typeof params.error === "string" ? { error: params.error } : {}),
+        });
+        this.mcpStartupChanged?.();
+      }
+      return;
+    }
     if (params.threadId !== undefined && params.threadId !== this.threadId) {
       return;
     }

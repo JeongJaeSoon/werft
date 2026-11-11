@@ -250,7 +250,7 @@ describe("the run judging a platform tool call", () => {
       precheck?: CodexRunOptions["precheckTool"];
     } = {},
   ) {
-    const server = new FakeAppServer();
+    const server = new FakeAppServer("thread-1", { github: "ready" });
     let released = false;
     const run = new CodexRun({
       transport: server,
@@ -510,5 +510,95 @@ describe("the run judging a platform tool call", () => {
     t.run.abort();
     expect((await t.call()).allowed).toBe(false);
     expect(t.released()).toBe(true);
+  });
+});
+
+describe("the run waiting for the relay servers", () => {
+  const runOver = (server: FakeAppServer) =>
+    new CodexRun({
+      transport: server,
+      launch: {
+        answers: "ask",
+        approvalPolicy: "untrusted",
+        developerInstructions: undefined,
+        threadConfig: {},
+      },
+      cwd: "/work",
+      model: "gpt-test",
+      heldInputs: async () => new Set(),
+      descendants: () => [],
+      kill: () => {},
+      startupProblem: () => undefined,
+      mcp: {
+        servers: new Set(["github"]),
+        trusted: new Set(),
+        release: () => {},
+      },
+    });
+
+  test("is not ready, and starts no turn, until the engine reports the server ready", async () => {
+    const server = new FakeAppServer("thread-1", { github: "never" });
+    const run = runOver(server);
+    let ready = false;
+    const readying = run.ready().then(() => {
+      ready = true;
+    });
+    run.send({ uuid: "in-1", message: "hello" });
+    await Bun.sleep(20);
+    expect(ready).toBe(false);
+    expect(server.started("turn/start")).toBeUndefined();
+    server.emit("mcpServer/startupStatus/updated", {
+      name: "github",
+      status: "ready",
+      threadId: null,
+    });
+    await readying;
+    await Bun.sleep(0);
+    expect(server.started("turn/start")).toBeDefined();
+    run.abort();
+  });
+
+  test("a run aborted while waiting ends at once with its own reason", async () => {
+    const run = runOver(new FakeAppServer("thread-1", { github: "never" }));
+    const readying = run.ready();
+    await Bun.sleep(10);
+    run.abort();
+    await expect(readying).rejects.toThrow("ended before its MCP servers");
+  });
+
+  test("a resumed thread waits for the servers too", async () => {
+    const server = new FakeAppServer("thread-1", { github: "ready" });
+    const run = new CodexRun({
+      transport: server,
+      resume: "thread-1",
+      launch: {
+        answers: "ask",
+        approvalPolicy: "untrusted",
+        developerInstructions: undefined,
+        threadConfig: {},
+      },
+      cwd: "/work",
+      model: "gpt-test",
+      heldInputs: async () => new Set(),
+      descendants: () => [],
+      kill: () => {},
+      startupProblem: () => undefined,
+      mcp: {
+        servers: new Set(["github"]),
+        trusted: new Set(),
+        release: () => {},
+      },
+    });
+    await run.ready();
+    expect(server.started("thread/resume")).toBeDefined();
+    run.abort();
+  });
+
+  test("refuses to start when the engine could not start the server", async () => {
+    const run = runOver(new FakeAppServer("thread-1", { github: "failed" }));
+    await expect(run.ready()).rejects.toThrow(
+      "could not start the github MCP server (failed: connection refused)",
+    );
+    run.abort();
   });
 });
