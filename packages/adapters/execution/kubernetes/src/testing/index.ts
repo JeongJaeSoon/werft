@@ -3,10 +3,10 @@
  * backend: a namespace of their own, out-of-band removal, and cleanup.
  * Opt in with `K8S_BACKEND_TEST=1` and a `KUBECONFIG` for the cluster.
  */
-import type { KubernetesBackend } from "./backend.ts";
-import { KubernetesClient, kubernetesConnectionFromEnv } from "./client.ts";
-import type { KubernetesBackendConfig } from "./config.ts";
-import { LABELS } from "./specs.ts";
+import type { KubernetesBackend } from "../backend.ts";
+import { KubernetesClient, kubernetesConnectionFromEnv } from "../client.ts";
+import type { KubernetesBackendConfig } from "../config.ts";
+import { LABELS } from "../specs.ts";
 
 export const TEST_ENABLED = Bun.env.K8S_BACKEND_TEST === "1";
 

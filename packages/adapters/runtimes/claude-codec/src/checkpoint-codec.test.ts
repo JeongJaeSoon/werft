@@ -4,10 +4,13 @@ import type { CheckpointManifest } from "@werft-ai/runtime-core";
 import {
   CLAUDE_RUNTIME_FINGERPRINT,
   claudeCheckpointCodec,
-  decodeCheckpointManifest,
-  encodeCheckpointManifest,
-  validateCompatibility,
 } from "./checkpoint-codec.ts";
+
+const {
+  decode: decodeCheckpointManifest,
+  encode: encodeCheckpointManifest,
+  validateCompatibility,
+} = claudeCheckpointCodec;
 
 const profileSha256 = "a".repeat(64);
 const runtime = { ...CLAUDE_RUNTIME_FINGERPRINT, profileSha256 };

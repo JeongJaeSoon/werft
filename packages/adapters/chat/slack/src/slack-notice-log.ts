@@ -2,8 +2,8 @@ import type { SlackInboxLogger } from "./slack-inbox.ts";
 import type { SlackNoticeSink } from "./slack-notice-sink.ts";
 
 /**
- * Keeps each refusal notice as one log line until 94S-792's outbox sends
- * it; the notice's text and link stay out of the log.
+ * Keeps each refusal notice as one log line instead of sending it; the
+ * notice's text and link stay out of the log.
  */
 export function createLoggingSlackNoticeSink(
   logger: SlackInboxLogger,

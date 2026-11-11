@@ -88,14 +88,6 @@ export type KubernetesBackendEnvironment = {
 export const IN_CLUSTER_NAMESPACE_FILE =
   "/var/run/secrets/kubernetes.io/serviceaccount/namespace";
 
-export {
-  DEFAULT_INSTALLATION_ID,
-  DEFAULT_WORKER_USER,
-  DEFAULT_WORKSPACE_GC_MIN_AGE_SEC,
-  DEFAULT_WORKSPACE_QUOTA_MB,
-  MIN_WORKSPACE_QUOTA_MB,
-} from "@werft-ai/contracts/execution";
-
 export const DEFAULT_STOP_TIMEOUT_SECONDS = 120;
 export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 export const DEFAULT_WORKER_EPHEMERAL_STORAGE_MB = 1024;

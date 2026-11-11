@@ -8,7 +8,7 @@ import {
   KubernetesApiError,
   type KubernetesClient,
   KubernetesTimeoutError,
-} from "./client.ts";
+} from "../client.ts";
 
 type Stored = { metadata: Record<string, unknown> & { name: string } } & Record<
   string,

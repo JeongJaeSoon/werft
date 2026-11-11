@@ -31,7 +31,7 @@ import {
   type SlackTokenRevoked,
 } from "./slack-token-gone.ts";
 
-// The channel picker's search (94S-898): one app's whole channel list is read
+// The channel picker's search: one app's whole channel list is read
 // from Slack into a short cache, then filtered and paged here, so typing in
 // the picker costs no Slack call. The cursor is ours, not Slack's: it names
 // the cached list it pages through and stops working once that list is

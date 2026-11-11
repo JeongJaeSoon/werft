@@ -1,8 +1,4 @@
 import type { EngineSettings } from "@werft-ai/contracts";
-import {
-  CLAUDE_AGENT_SDK_VERSION,
-  CLAUDE_CODE_VERSION,
-} from "@werft-ai/runtime-claude-codec";
 import type {
   GitEnvironment,
   TranscriptMirror,
@@ -10,8 +6,6 @@ import type {
 } from "@werft-ai/runtime-core";
 
 import type { DriverConfig } from "./driver.ts";
-
-export { CLAUDE_AGENT_SDK_VERSION, CLAUDE_CODE_VERSION };
 
 export type PermissionMode =
   | "default"

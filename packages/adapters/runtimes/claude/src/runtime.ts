@@ -526,8 +526,6 @@ function spawnEngine(
   } as SpawnedProcess;
 }
 
-export type { RuntimeProcessObserver };
-
 export function resolvePinnedClaudeExecutable(): string {
   const { platform, arch } = process;
   if (arch !== "x64" && arch !== "arm64") {
