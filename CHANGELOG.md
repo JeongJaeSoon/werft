@@ -12,6 +12,29 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ## 미출시
 
+## v0.1.3
+
+`v0.1.2` 뒤 `main`에 들어간 변경이다. 권한 판정을 고친 항목이 있으므로 `v0.1.2`를 쓰는 곳은 올리기를 권한다.
+
+### 보안
+
+- **release가 `per_tool: deny`로 막은 MCP 도구를 에이전트 설정의 허용이 다시 열 수 있었다**(JeongJaeSoon/werft#1502). `v0.1.2`가 영향을 받는다. 이제 claim의 도구 목록과 egress의 `tools/call` 판정이 같은 함수로 deny를 먼저 본다. 막힌 호출은 기존과 같은 `403 FORBIDDEN`이다.
+- **팀 `lead`인 member 에이전트 관리자가 관리자 팀을 붙여 그 팀 전원에게 관리 권한을 줄 수 있었다**(JeongJaeSoon/werft#1508). `v0.1.2`가 영향을 받는다. 이제 관리자 팀 추가(`POST /v1/agents/{id}/admins`의 `team_id`)는 `team.manage`(owner·admin)가 있어야 하고, 아니면 `403`이다. 이미 붙은 팀, 팀 떼기, 사람 붙이기·떼기는 그대로다. 이 호출을 자동화한 곳은 owner·admin 계정으로 바꾼다.
+- **일시중지·보관된 에이전트와 승인된 적 없는 release로도 세션이 시작됐다**(JeongJaeSoon/werft#1513). `v0.1.2`가 영향을 받는다. 이제 `POST /v1/sessions`는 `409 AGENT_NOT_RUNNABLE`(`reason_code`: `agent_inactive`·`release_unapproved`)로 거절하고, Slack 경로도 같다. 승인된 이전 release는 에이전트가 활성인 동안 계속 쓸 수 있다. 세션을 만드는 자동화는 활성 에이전트와 승인된 release를 고르게 바꾼다.
+- **provider 사용량 보고가 끝내 실패한 세션이 예산 한도를 넘어 계속 호출할 수 있었다**(JeongJaeSoon/werft#1515). `v0.1.2`가 영향을 받는다. 이제 egress proxy는 그 세션의 이후 provider 호출을 예산 소진(`BUDGET_EXCEEDED`)으로 거절하고 `Provider usage went unreported`를 로그에 남긴다.
+
+### 운영자가 할 일
+
+- **egress proxy를 control-host보다 먼저 올린다**(JeongJaeSoon/werft#1515). `openai_responses` 연결의 `/v1/responses`는 새 프록시에만 있고, 옛 프록시는 이 경로를 `404`로 거절한다.
+- **API를 worker보다 먼저 올린다**(JeongJaeSoon/werft#1539). 새 worker는 도구 호출 판단(`tool_decisions`)을 함께 보내고, 옛 API는 이 칸이 든 요청을 거절한다. 옛 worker는 새 API와 그대로 동작한다.
+- **api env에 `OTEL_TRACES_EXPORTER=otlp`가 있으면 이 버전부터 트레이스를 내보낸다**(JeongJaeSoon/werft#1534, JeongJaeSoon/werft#1546, JeongJaeSoon/werft#1558).
+  - `TRACE_CONTENT_MODE` 기본값이 `full`이라 프롬프트·답변·도구 입출력이 수집기로 간다. 내용을 내보내지 않으려면 `metadata`로 둔다.
+  - `TRACE_INGEST_URL`이 없으면 api가 키 이름을 밝히고 시작하지 않는다. worker가 닿는 api의 ingest 주소를 넣는다.
+  - api가 worker 전용 ingest 포트(`TRACE_INGEST_PORT`, 기본 `4319`, Helm은 `config.tracing.ingestPort`)를 더 연다. worker는 egress proxy를 지나 이 포트에 닿으므로 compose는 `EGRESS_PRIVATE_ALLOWLIST`에 `api:<포트>`를 더하고, Helm은 `config.egress.privateAllowlist`를 `<api Service 이름>:3000,<api Service 이름>:<포트>`로 직접 지정한다.
+  - 키를 비운 설치는 할 일이 없다. 절차는 `docs/operator/api-server.md`를 따른다.
+- **DB 마이그레이션 7개(`0263`~`0269`)가 `migrate`에서 적용된다.** 열·테이블·인덱스를 더하는 것이 대부분이다. `0265_agent_usage`는 기존 에이전트마다 `scope = workspace` 행을 넣는다(JeongJaeSoon/werft#1553). `0264_runtime_tools_source`는 트랜잭션 없이 돌며 `sessions`에 기본값 `profile`인 NOT NULL 열과 CHECK를 더한다. 중간에 실패하면 이미 커밋된 문장은 남고, 다음 `migrate`가 이 파일을 처음부터 다시 돌린다(JeongJaeSoon/werft#1524). 올리기 전에 DB를 백업한다.
+- **API로 만든 카드에서 `language`를 빼면 이제 `follow-user`다**(JeongJaeSoon/werft#1504). 전에는 `ko`로 저장됐다. 이미 저장된 `ko`는 바뀌지 않는다. 한국어 고정이 필요한 새 카드는 `language: ko`를 적는다. 고정 언어(`en`·`ja`·`ko`)는 이제 사용자가 다른 언어로 써도 그 언어로 답한다.
+
 ## v0.1.2
 
 `v0.1.0` 뒤 첫 게시 릴리스다. `v0.1.1` 태그는 게시에 실패해 패키지와 Release가 없으므로, 아래 `v0.1.1` 절의 변경도 모두 이 버전에 들어 있다. `v0.1.0`에서 올릴 때 따를 절차는 이 절의 "운영자가 할 일"이다. `v0.1.1` 절의 "운영자가 할 일"은 그 시점의 기록이라 마이그레이션 범위와 `AGENT_ACTION_FLOWS` 절차가 이 버전에는 맞지 않으므로 따르지 않는다.
