@@ -1305,20 +1305,22 @@ async function earlierConfigs(tx: Database, sessionId: string) {
     LEGACY_CONFIG_TOKEN,
     held.repositoryMode === "repository",
   );
-  const withPrompt = (of: typeof config) =>
+  // The limit is pinned when the session is made, so every checkpoint it
+  // wrote was digested over the list the limit left: keep that list, not the
+  // spec's whole one.
+  const limited = {
+    ...config,
+    tools: withoutDeniedTools(
+      config.tools,
+      builtinToolsDenyOf(held.callerLimit),
+    ),
+  };
+  return withEarlierConfig(
+    held.legacy,
     held.platformPrompt === null
-      ? of
-      : { ...of, platform_prompt: held.platformPrompt };
-  const kept = withEarlierConfig(held.legacy, withPrompt(config));
-  // A checkpoint made while a caller limit held was digested over the list
-  // the limit left, so that list is kept as well, and offered first.
-  const tools = withoutDeniedTools(
-    config.tools,
-    builtinToolsDenyOf(held.callerLimit),
+      ? limited
+      : { ...limited, platform_prompt: held.platformPrompt },
   );
-  return tools === config.tools
-    ? kept
-    : withEarlierConfig(kept, withPrompt({ ...config, tools }));
 }
 
 function versionUnknownHere(

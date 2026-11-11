@@ -204,7 +204,7 @@ integration("a model moved at the next turn's claim", () => {
   );
 
   test(
-    "a session under a caller limit keeps both its limited and its unlimited config for a restore",
+    "a session under a caller limit keeps the limited list as its earlier config, one config per move",
     async () => {
       const offer = offerOf(["sonnet-5-1", "haiku-5-0"], SERIES);
       const id = await waiting(`limited-${crypto.randomUUID()}`, "sonnet-5-0");
@@ -221,10 +221,11 @@ integration("a model moved at the next turn's claim", () => {
         tools: string[];
       }>;
       const old = kept.filter((config) => config.model === "sonnet-5-0");
-      // A checkpoint made while the limit held was digested over the list
-      // without Bash; one made before it, over the whole list.
-      expect(old.some((config) => !config.tools.includes("Bash"))).toBe(true);
-      expect(old.some((config) => config.tools.includes("Bash"))).toBe(true);
+      // The limit is pinned at creation, so every checkpoint was digested
+      // over the list without Bash, and the move adds exactly one config.
+      expect(old).toHaveLength(1);
+      expect(old[0]?.tools).not.toContain("Bash");
+      expect(old[0]?.tools.length).toBeGreaterThan(0);
     },
     TIMEOUT_MS,
   );
