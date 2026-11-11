@@ -87,6 +87,9 @@ export type WorkerBinding = {
   // The release's `effective_tools.tools`, read only for a `release` session;
   // `[]` when the stored value cannot be read, which allows no tool.
   releaseEffectiveTools?: readonly string[] | null;
+  // The built-in (non-`mcp__`) tools the session's pinned caller limit denies
+  // (`sessions.caller_limit.tools_deny`). Absent or empty: nothing is removed.
+  callerToolsDeny?: readonly string[];
   // The release's runtime spec, only when it is stored and verifies against
   // its source and digests (`verifyReleaseSpec`). Null, or absent, for a
   // session without a release, a release not yet backfilled, or a stored pair

@@ -95,6 +95,7 @@ import {
   sql,
 } from "drizzle-orm";
 import { queueAchievementJudgment } from "./achievement-judgments.ts";
+import { builtinToolsDenyOf } from "./agent-caller-limits.ts";
 import {
   type RuntimeFingerprint,
   runtimeColumns,
@@ -1714,11 +1715,14 @@ async function releaseRunOf(
     | "releaseLanguage"
     | "runtimeToolsSource"
     | "releaseEffectiveTools"
+    | "callerToolsDeny"
   >
 > {
   const source = runtimeToolsSourceOf(session.runtimeToolsSource);
+  const callerToolsDeny = builtinToolsDenyOf(session.callerLimit);
   if (session.agentReleaseId === null) {
     return {
+      callerToolsDeny,
       releaseTools: null,
       releaseSpec: null,
       releaseLanguage: null,
@@ -1750,6 +1754,7 @@ async function releaseRunOf(
           spec_digest: release.specDigest,
         });
   return {
+    callerToolsDeny,
     releaseTools:
       Array.isArray(tools) && tools.every((tool) => typeof tool === "string")
         ? tools
