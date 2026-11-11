@@ -11,15 +11,17 @@ import type {
   CredentialBindingStore,
 } from "../ports/credential-binding-store.ts";
 import {
-  requirePermitted,
-  SessionServiceError,
-} from "../sessions/session-service.ts";
-import {
   type AuthorizationPolicy,
   type Caller,
   MANAGEMENT_ROLES,
 } from "./policy.ts";
-import { ACTOR_INACTIVE, NOT_FOUND, OUTRANKED } from "./service-errors.ts";
+import { requirePermitted } from "./require-permitted.ts";
+import {
+  ACTOR_INACTIVE,
+  NOT_FOUND,
+  OUTRANKED,
+  SessionServiceError,
+} from "./service-errors.ts";
 
 // Binding a credential name to an agent (design 4.4, D11): owners, admins
 // and that agent's admins, never a key. The value never reaches Werft.

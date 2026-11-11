@@ -5,6 +5,7 @@ import {
   resolveSessionExtensions,
   type SessionExtensionsDeps,
 } from "../extensions/session-extensions.ts";
+import { SessionServiceError } from "../musterrolle/index.ts";
 import { callerFor, createAuthorizationPolicy } from "../musterrolle/policy.ts";
 import type {
   ExtensionAttachment,
@@ -16,10 +17,7 @@ import type {
   AcceptSessionInput,
   SessionDetailRecord,
 } from "./ports/session-unit-of-work.ts";
-import {
-  createSessionService,
-  SessionServiceError,
-} from "./session-service.ts";
+import { createSessionService } from "./session-service.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
 const MEMBER = "019a0000-0000-7000-8000-0000000000a1";

@@ -8,7 +8,7 @@ import type {
   SurfaceBindingRecord,
   SurfaceBindingStore,
 } from "../ports/surface-binding-store.ts";
-import { SessionServiceError } from "../sessions/session-service.ts";
+import { SessionServiceError } from "./service-errors.ts";
 import { createSurfaceBindingService } from "./surface-binding-service.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-000000000001";

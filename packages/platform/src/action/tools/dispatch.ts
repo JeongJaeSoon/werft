@@ -14,7 +14,7 @@ import {
 } from "@werft-ai/contracts";
 import { z } from "zod";
 import type { GitHubMcpStore } from "../../github/ports/github-mcp.ts";
-import { SessionServiceError } from "../../sessions/index.ts";
+import { SessionServiceError } from "../../musterrolle/index.ts";
 import type { PushActor } from "../change-request/push-decision.ts";
 import {
   type PersonRejection,

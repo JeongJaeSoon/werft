@@ -4,7 +4,6 @@ import type {
   PutAgentUsageResponse,
 } from "@werft-ai/contracts";
 import type { AgentUsageStore } from "../ports/agent-usage-store.ts";
-import { requirePermitted, SessionServiceError } from "../sessions/index.ts";
 import { personOf } from "./agent-admin-service.ts";
 import { ifMatchOf } from "./env-variable-service.ts";
 import {
@@ -12,8 +11,10 @@ import {
   type Caller,
   MANAGEMENT_ROLES,
 } from "./policy.ts";
+import { requirePermitted } from "./require-permitted.ts";
 import {
   NOT_FOUND,
+  SessionServiceError,
   TEAM_NOT_ALLOWED,
   TEAM_NOT_FOUND,
 } from "./service-errors.ts";

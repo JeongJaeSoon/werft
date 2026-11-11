@@ -12,6 +12,7 @@ import type {
   GitHubGateStore,
   GitHubSessionContext,
 } from "../github/ports/github-gate.ts";
+import { SessionServiceError } from "../musterrolle/index.ts";
 import type {
   RepositoryAttachmentRow,
   RepositoryAttachmentStore,
@@ -24,7 +25,6 @@ import {
 } from "./additional-repositories.ts";
 import type { SessionCatalog } from "./catalog.ts";
 import { pathNameOf } from "./session-repository.ts";
-import { SessionServiceError } from "./session-service.ts";
 
 const ATTACH_POLL_MS = 500;
 

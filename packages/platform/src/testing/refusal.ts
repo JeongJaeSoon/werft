@@ -1,4 +1,4 @@
-import { SessionServiceError } from "../sessions/session-service.ts";
+import { SessionServiceError } from "../musterrolle/service-errors.ts";
 
 /** Awaits a call that must be refused and returns the refusal's code and details. */
 export async function refusal(promise: Promise<unknown>) {

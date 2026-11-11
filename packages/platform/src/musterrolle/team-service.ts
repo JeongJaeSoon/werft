@@ -17,12 +17,9 @@ import type {
   TeamDetail,
   TeamStore,
 } from "../ports/team-store.ts";
-import {
-  requirePermitted,
-  SessionServiceError,
-} from "../sessions/session-service.ts";
 import type { AuthorizationPolicy, Caller } from "./policy.ts";
-import { NOT_FOUND } from "./service-errors.ts";
+import { requirePermitted } from "./require-permitted.ts";
+import { NOT_FOUND, SessionServiceError } from "./service-errors.ts";
 
 // Teams (design 4.7). Every route asks the policy for `team.manage` on the
 // workspace (owner, admin: D23), and the store re-reads that role under a

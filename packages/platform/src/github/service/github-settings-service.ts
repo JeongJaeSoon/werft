@@ -23,8 +23,9 @@ import {
   NOT_FOUND,
   OUTRANKED,
   receiptActorOf,
+  requirePermitted,
+  SessionServiceError,
 } from "../../musterrolle/index.ts";
-import { requirePermitted, SessionServiceError } from "../../sessions/index.ts";
 import {
   type GitHubAppCredential,
   type GitHubAppDirectory,

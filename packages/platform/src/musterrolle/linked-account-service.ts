@@ -11,11 +11,9 @@ import type {
   LinkedAccountRecord,
   LinkedAccountStore,
 } from "../ports/linked-account-store.ts";
-import {
-  requirePermitted,
-  SessionServiceError,
-} from "../sessions/session-service.ts";
 import type { AuthorizationPolicy, Caller } from "./policy.ts";
+import { requirePermitted } from "./require-permitted.ts";
+import { SessionServiceError } from "./service-errors.ts";
 
 function linkedAccountView(record: LinkedAccountRecord): LinkedAccount {
   return {

@@ -28,13 +28,14 @@ import {
   NOT_FOUND,
   OUTRANKED,
   receiptActorOf,
+  requirePermitted,
+  SessionServiceError,
 } from "../../musterrolle/index.ts";
 import type { AgentStore } from "../../ports/agent-store.ts";
 import type {
   CatalogRepositoryRow,
   CatalogRepositoryStore,
 } from "../../ports/catalog-repository-store.ts";
-import { requirePermitted, SessionServiceError } from "../../sessions/index.ts";
 import {
   GitHubAppCheckError,
   type GitHubAppCredential,

@@ -9,8 +9,8 @@ import {
   type GitHubGrant,
   type GitHubWork,
 } from "../../github/ports/github-gate.ts";
+import { SessionServiceError } from "../../musterrolle/index.ts";
 import { createAuthorizationPolicy } from "../../musterrolle/policy.ts";
-import { SessionServiceError } from "../../sessions/session-service.ts";
 import { ForgeCredentialError } from "../ports/forge.ts";
 import type { GitHubApi } from "../ports/github-api.ts";
 import {

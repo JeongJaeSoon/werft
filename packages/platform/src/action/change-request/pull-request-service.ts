@@ -26,14 +26,16 @@ import {
   type GitHubGrant,
   GitHubUnavailableError,
 } from "../../github/ports/github-gate.ts";
+import {
+  requirePermitted,
+  SessionServiceError,
+} from "../../musterrolle/index.ts";
 import type { AuthorizationPolicy } from "../../musterrolle/policy.ts";
 import {
   pullRequestTail,
   pushRequestMarkerOf,
   repositoryBinding,
-  requirePermitted,
   type SessionCatalog,
-  SessionServiceError,
   sessionUrlOf,
   surfaceOfChannel,
   type TailRequester,

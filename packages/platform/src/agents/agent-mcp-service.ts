@@ -6,6 +6,7 @@ import {
   type PutAgentMcpSettingsRequest,
   type PutAgentMcpSettingsResponse,
 } from "@werft-ai/contracts";
+import { requirePermitted, SessionServiceError } from "../musterrolle/index.ts";
 import {
   type AuthorizationPolicy,
   type Caller,
@@ -18,10 +19,6 @@ import {
 } from "../musterrolle/service-errors.ts";
 import type { AgentMcpStore } from "../ports/agent-mcp-store.ts";
 import type { SessionCatalog } from "../sessions/catalog.ts";
-import {
-  requirePermitted,
-  SessionServiceError,
-} from "../sessions/session-service.ts";
 import { mcpValuesOfCard } from "./mcp-release-values.ts";
 
 const refused = (field: string, reason: string) =>

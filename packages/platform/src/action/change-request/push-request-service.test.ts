@@ -8,13 +8,13 @@ import {
 } from "@werft-ai/contracts";
 import { testCaller } from "@werft-ai/testkit";
 import type { PushSourceResult } from "../../checkpoints/checkpoint-service.ts";
+import { SessionServiceError } from "../../musterrolle/index.ts";
 import {
   type AuthorizationPolicy,
   callerFor,
   createAuthorizationPolicy,
 } from "../../musterrolle/policy.ts";
 import type { SessionCatalog } from "../../sessions/catalog.ts";
-import { SessionServiceError } from "../../sessions/session-service.ts";
 import type {
   CreatePushRequestInput,
   PushPolicyApproval,

@@ -38,6 +38,7 @@ export * from "./musterrolle/linked-account-service.ts";
 export * from "./musterrolle/member-rules.ts";
 export * from "./musterrolle/member-service.ts";
 export * from "./musterrolle/policy.ts";
+export * from "./musterrolle/require-permitted.ts";
 export * from "./musterrolle/session-share-service.ts";
 export * from "./musterrolle/service-errors.ts";
 export * from "./musterrolle/action-notice.ts";

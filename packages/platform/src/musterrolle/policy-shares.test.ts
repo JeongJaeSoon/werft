@@ -15,7 +15,6 @@ import { createPendingRequestService } from "../decision/pending-service.ts";
 import type { DecisionLog } from "../ports/decision-log.ts";
 import type { PendingRequestStore } from "../sessions/ports/pending-requests.ts";
 import type { SessionViewer } from "../sessions/ports/session-share-store.ts";
-import { SessionServiceError } from "../sessions/session-service.ts";
 import {
   type AgentAuthority,
   type Caller,
@@ -24,6 +23,7 @@ import {
   type IdentityReader,
   type SessionAccess,
 } from "./policy.ts";
+import { SessionServiceError } from "./service-errors.ts";
 
 // Design 4.6 and A.3 step 2: a session outside its share does not exist,
 // save for what a manager does with a reason.

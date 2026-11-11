@@ -11,8 +11,9 @@ import {
   MANAGEMENT_ROLES,
   NOT_FOUND,
   OUTRANKED,
+  requirePermitted,
+  SessionServiceError,
 } from "../../musterrolle/index.ts";
-import { requirePermitted, SessionServiceError } from "../../sessions/index.ts";
 import type {
   GitHubPackagesStore,
   GitHubPackagesTokenVerifier,

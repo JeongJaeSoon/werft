@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { SurfaceChannelKind } from "@werft-ai/contracts";
-import { SessionServiceError } from "../sessions/session-service.ts";
+import { SessionServiceError } from "../musterrolle/service-errors.ts";
 import type { ChannelKindReadable } from "../surface/ports/channel-kind-readable.ts";
 
 export type ChannelKindSubject = {

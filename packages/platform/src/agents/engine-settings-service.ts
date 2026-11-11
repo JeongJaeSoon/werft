@@ -8,6 +8,7 @@ import {
   validateEngineSettingsAcrossCatalogs,
   type WorkspaceEngineSettingsResponse,
 } from "@werft-ai/contracts";
+import { requirePermitted, SessionServiceError } from "../musterrolle/index.ts";
 import {
   type AuthorizationPolicy,
   type Caller,
@@ -22,10 +23,6 @@ import type {
   EngineSettingsStore,
   PutEngineSettingsResult,
 } from "../ports/engine-settings-store.ts";
-import {
-  requirePermitted,
-  SessionServiceError,
-} from "../sessions/session-service.ts";
 
 const GRANT_LISTS = [
   ["permissions", "allow"],

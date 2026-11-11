@@ -5,6 +5,7 @@ import type {
 } from "@werft-ai/contracts";
 import { prepareTemplateText } from "../action/index.ts";
 import type { PullRequestSettingsStore } from "../action/ports/pull-request-settings.ts";
+import { requirePermitted, SessionServiceError } from "../musterrolle/index.ts";
 import {
   type AuthorizationPolicy,
   type Caller,
@@ -16,10 +17,6 @@ import {
   OUTRANKED,
 } from "../musterrolle/service-errors.ts";
 import type { AgentStore } from "../ports/agent-store.ts";
-import {
-  requirePermitted,
-  SessionServiceError,
-} from "../sessions/session-service.ts";
 
 export function createAgentPullRequestService(deps: {
   authorization: AuthorizationPolicy;

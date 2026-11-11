@@ -14,10 +14,6 @@ import type {
   SurfaceBindingRecord,
   SurfaceBindingStore,
 } from "../ports/surface-binding-store.ts";
-import {
-  requirePermitted,
-  SessionServiceError,
-} from "../sessions/session-service.ts";
 import type { AgentWelcomable } from "../surface/ports/agent-welcomable.ts";
 import type { ChannelJoinable } from "../surface/ports/channel-joinable.ts";
 import type { ChannelKindReadable } from "../surface/ports/channel-kind-readable.ts";
@@ -26,6 +22,8 @@ import {
   type Caller,
   MANAGEMENT_ROLES,
 } from "./policy.ts";
+import { requirePermitted } from "./require-permitted.ts";
+import { SessionServiceError } from "./service-errors.ts";
 
 // Design 4.1's "Slack 앱 설치·채널 설정" row: `binding.manage` on the
 // agent, which owner, admin and that agent's admins hold.

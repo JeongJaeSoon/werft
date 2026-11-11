@@ -12,6 +12,7 @@ import type {
   SettingsEntryState,
   SettingsMcpServer,
 } from "@werft-ai/contracts";
+import { requirePermitted, SessionServiceError } from "../musterrolle/index.ts";
 import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
 import type {
   SettingsConsoleResult,
@@ -28,7 +29,6 @@ import {
   type ModelFamilies,
   modelFamiliesSchema,
 } from "./catalog.ts";
-import { requirePermitted, SessionServiceError } from "./session-service.ts";
 import {
   type SettingsKind as DocumentSettingsKind,
   parseSettingsDocument,
