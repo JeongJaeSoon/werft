@@ -305,6 +305,7 @@ const SESSION: SessionSummary = {
   id: "0192f0c4-7d3a-7b4e-9f00-000000000001",
   title: null,
   agent: null,
+  agent_hidden: false,
   created_by: null,
   channel: null,
   slack_permalink: null,

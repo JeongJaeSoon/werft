@@ -22,9 +22,12 @@ import {
   GITHUB_CEILING_NONE,
   type GitHubRefusal,
   githubFeaturesOverCeiling,
+  type ListUsableAgentsResponse,
   type ModelSource,
   type SaveAgentResponse,
   type SaveRelease,
+  TEAM_LIST_LIMIT,
+  type UsableAgent,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
 import type { ExtensionRefusal } from "../extensions/resolve.ts";
@@ -1574,6 +1577,58 @@ export function createAgentService(deps: {
           return summary ? { ...agent, summary } : agent;
         }),
       };
+    },
+
+    /**
+     * The agents the caller could start a session with now (94S-902): the
+     * scope check of a start, then the store's usage predicate, then the
+     * checks a start makes on the release itself (its profile still in the
+     * catalog and unchanged, every credential bound). A start refused for
+     * any of them is not listed.
+     */
+    async listUsableAgents(caller: Caller): Promise<ListUsableAgentsResponse> {
+      const keyAgentId = caller.actor?.agentId ?? null;
+      await requirePermitted(authorization, caller, "session.submit", {
+        kind: "session",
+        id: null,
+        ...(keyAgentId === null ? {} : { agent_id: keyAgentId }),
+      });
+      const candidates = await store.listUsable(
+        caller.ownerId,
+        {
+          userId: caller.actor?.userId ?? null,
+          keyAgentId,
+          outsideUse: (await outsideAgents.access(caller.ownerId)) === "use",
+        },
+        TEAM_LIST_LIMIT,
+      );
+      const items: UsableAgent[] = [];
+      for (const agent of candidates) {
+        const releaseId = agent.active_release_id;
+        if (releaseId === null) continue;
+        try {
+          await resolveAgentRelease(
+            { store, catalog },
+            caller.ownerId,
+            releaseId,
+          );
+        } catch (error) {
+          if (error instanceof SessionServiceError) continue;
+          throw error;
+        }
+        if ((await credentials.unboundRefs(caller.ownerId, releaseId)).length) {
+          continue;
+        }
+        items.push({
+          id: agent.id,
+          slug: agent.slug,
+          name: agent.name,
+          description: agent.description,
+          managing_team_name: agent.managing_team_name,
+          active_release_id: releaseId,
+        });
+      }
+      return { items };
     },
 
     async countAgents(caller: Caller): Promise<CountAgentsResponse> {

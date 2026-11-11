@@ -95,6 +95,12 @@ import {
   usesWorkspaceCeiling,
   workspaceProfileRefusal,
 } from "./catalog.ts";
+import {
+  agentRefsOf,
+  maskAgentRefs,
+  RECEIPT_AGENT_REFS,
+  targetsHidden,
+} from "./receipt-agent-refs.ts";
 import { attachedRepositoriesOf } from "./session-repository.ts";
 import { deriveSessionTitle } from "./session-title.ts";
 
@@ -775,7 +781,11 @@ export function createSessionService(deps: {
     actor: Caller,
     sessionId: string,
   ): Promise<SessionDetail> {
-    const record = await reader.getSession(actor.ownerId, sessionId);
+    const record = await reader.getSession(
+      actor.ownerId,
+      sessionId,
+      viewerOf(actor),
+    );
     if (!record) {
       throw new SessionServiceError("NOT_FOUND", "Resource not found");
     }
@@ -1553,7 +1563,7 @@ export function createSessionService(deps: {
         case "release_bound":
           throw new SessionServiceError(
             "RELEASE_PROFILE_MISMATCH",
-            `The session runs agent release ${result.releaseId}, which sets its profile`,
+            "The session runs an agent release, which sets its profile",
           );
         case "billing_mismatch":
           throw new SessionServiceError(
@@ -1911,7 +1921,47 @@ export function createSessionService(deps: {
       // Resolve only within the caller's partition. A null session would
       // incorrectly require an agent key to read across all agents.
       const receipt = await reader.getReceipt(actor.ownerId, receiptId);
+      // A receipt names an agent or release only to those who may use it
+      // (94S-902): one aimed at a private agent they may not use is not
+      // there for them, and one on a session they see is shown without the
+      // ids the table in receipt-agent-refs.ts lists. This comes before the
+      // permission check, so a refusal never tells a hidden receipt from a
+      // missing one.
+      let hidden: Awaited<ReturnType<SessionReader["hiddenAgentRefs"]>> | null =
+        null;
+      // Answers as a receipt that is not there does, permission refusal
+      // included (an agent key may hold sessions:read and still be refused).
+      const notThere = async (): Promise<never> => {
+        await requirePermitted(authorization, actor, "session.read", {
+          kind: "session",
+          id: null,
+        });
+        throw new SessionServiceError("NOT_FOUND", "Resource not found");
+      };
+      if (receipt !== null) {
+        const refs = agentRefsOf(receipt);
+        const sessionId =
+          "session_id" in receipt.target_ref
+            ? receipt.target_ref.session_id
+            : null;
+        if (
+          refs.agentIds.length > 0 ||
+          refs.releaseIds.length > 0 ||
+          (sessionId !== null && receipt.operation in RECEIPT_AGENT_REFS)
+        ) {
+          hidden = await reader.hiddenAgentRefs(
+            actor.ownerId,
+            viewerOf(actor),
+            { ...refs, sessionId },
+          );
+          if (targetsHidden(receipt, hidden)) return notThere();
+        }
+      }
       const agentId = receipt === null ? null : settingsAgentOf(receipt);
+      // A binding receipt is read as its agent's settings, so it hides with it.
+      if (agentId !== null && hidden?.agentIds.has(agentId.toLowerCase())) {
+        return notThere();
+      }
       await (agentId === null
         ? requirePermitted(authorization, actor, "session.read", {
             kind: "session",
@@ -1927,7 +1977,7 @@ export function createSessionService(deps: {
       if (!receipt) {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
       }
-      return receipt;
+      return hidden === null ? receipt : maskAgentRefs(receipt, hidden);
     },
   };
 }

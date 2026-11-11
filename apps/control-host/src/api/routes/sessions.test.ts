@@ -123,6 +123,10 @@ function app(
       listTurns: async () => null,
       getTurn: async () => null,
       getReceipt: async () => null,
+      hiddenAgentRefs: async () => ({
+        agentIds: new Set<string>(),
+        releaseIds: new Set<string>(),
+      }),
       readEvents: async () => null,
       ...overrides,
     },
@@ -1047,6 +1051,10 @@ describe("POST /v1/sessions/{id}/recovery-decisions validation", () => {
         listTurns: async () => null,
         getTurn: async () => null,
         getReceipt: async () => null,
+        hiddenAgentRefs: async () => ({
+          agentIds: new Set<string>(),
+          releaseIds: new Set<string>(),
+        }),
         readEvents: async () => null,
       },
     });
@@ -1197,6 +1205,7 @@ describe("session titles (94S-804)", () => {
     id: sessionId,
     title: "Renamed",
     agent: null,
+    agent_hidden: false,
     created_by: null,
     channel: null,
     slack_permalink: null,

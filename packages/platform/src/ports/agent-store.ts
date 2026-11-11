@@ -1,4 +1,5 @@
 import type {
+  Agent,
   AgentCard,
   AgentDetail,
   AgentRelease,
@@ -224,6 +225,22 @@ export interface AgentStore {
     agentIds: readonly string[],
     viewer: SessionViewer,
   ): Promise<Map<string, AgentSummary>>;
+  /**
+   * The active agents `who` could start a session with, as of this read
+   * (94S-902): the store's `agentUsable`, the one the start decision's
+   * re-read agrees with. `outsideUse` is axis A: when false only those inside
+   * an agent start on it. A key bound to an agent lists that agent alone.
+   * Profile and credential checks are the service's.
+   */
+  listUsable(
+    workspaceId: string,
+    who: {
+      userId: string | null;
+      keyAgentId: string | null;
+      outsideUse: boolean;
+    },
+    limit: number,
+  ): Promise<Agent[]>;
   /** What `list` holds for `reader` read to the end, and how many of it they administer. */
   count(
     workspaceId: string,

@@ -761,6 +761,8 @@ curl -s -b jar -X POST http://127.0.0.1:3000/v1/api-keys \
 - 보관되지 않은 에이전트의 담당 팀인 팀은 지울 수 없다(`409 TEAM_MANAGES_AGENTS`, `details.agent_ids`). 먼저 그 에이전트들의 담당 팀을 옮기거나 에이전트를 보관한다.
 - 담당 팀을 옮기거나 `lead`를 `member`로 내리면, 그 권한으로 진행 중이던 에이전트 설정 쓰기(수정·릴리스·켜기, GitHub 켜기, 저장소 고르기)도 저장 직전에 다시 판정되어 `403`(`reason_code: role`)으로 끝난다.
 - 에이전트 관리자는 `GET /v1/administered-agents`로 자기가 지금 관리하는 에이전트(직접 지정과 팀 경유)를 본다. 여기서 얻은 `agent_id`로 그 에이전트의 에이전트 key를 발급한다.
+- 새 세션 화면이 고를 목록은 `GET /v1/usable-agents`다. 세션 시작이 받아들일 에이전트만 싣는다(`sessions:write`, `active` 상태와 활성 release, 사용 허가, 프로필 digest 일치, 모든 자격 연결). 묶인 key는 자기 에이전트 하나만 본다. 비공개 에이전트를 쓸 수 없는 사람의 목록에는 그 에이전트가 없고, 있다는 사실도 응답에 나오지 않는다.
+- 쓸 수 없는 비공개 에이전트의 세션이 공유로 보이면, 세션 목록·상세의 `agent`는 `null`이고 `agent_hidden`이 `true`다. 그런 에이전트의 id를 싣는 receipt는 `delete_team`의 `agent_ids`처럼 그 id만 빠진 채 읽히고, 대상이 그 에이전트나 release인 receipt는 없는 receipt와 같은 404다. 어느 operation이 어느 필드에 에이전트 id를 싣는지는 `packages/platform/src/sessions/receipt-agent-refs.ts`의 표가 정하고, 표에 없는 operation이 id를 싣는 코드는 `tests/receipt-agent-refs.test.ts`가 실패시킨다.
 
 | 요청 | 하는 일 |
 |---|---|
@@ -777,6 +779,7 @@ curl -s -b jar -X POST http://127.0.0.1:3000/v1/api-keys \
 | `POST /v1/agents/{id}/admins` `{"user_id"}` 또는 `{"team_id"}` | 관리자 지정 |
 | `DELETE /v1/agents/{id}/admins/users/{user_id}`, `…/admins/teams/{team_id}` | 관리자 해제 |
 | `GET /v1/administered-agents` | 내가 관리하는 에이전트 |
+| `GET /v1/usable-agents` | 지금 세션을 시작할 수 있는 에이전트(사용 허가·활성 release·프로필·자격 연결을 세션 시작과 같은 조건으로 본다) |
 
 바꾼 것이 없으면(이미 구성원, 이미 관리자, 같은 이름, 같은 역할, 같은 담당 팀, 같은 사용 범위) `receipt_id`가 `null`이다. 판정은 `team.manage`·`agent.admin.manage`·`agent.usage.manage` 행으로 `authz_decisions`에 남는다.
 

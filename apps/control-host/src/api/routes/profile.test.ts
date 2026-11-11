@@ -73,6 +73,7 @@ const record: SessionDetailRecord = {
   id: sessionId,
   title: null,
   agent: null,
+  agent_hidden: false,
   created_by: null,
   channel: null,
   slack_permalink: null,
@@ -146,6 +147,7 @@ function change(
       listTurns: notReached,
       getTurn: notReached,
       getReceipt: notReached,
+      hiddenAgentRefs: notReached,
       readEvents: notReached,
     },
   });

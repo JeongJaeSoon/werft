@@ -365,6 +365,7 @@ jobs:
               - tests/ci-plan.
               - tests/ci-static-checks.
               - tests/install-rehearsal.
+              - tests/receipt-agent-refs.
               - tests/d2-gate/
               - tests/dev/
               - tests/docs-i18n-code.
