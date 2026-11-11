@@ -4,6 +4,7 @@ import {
   exists,
   inArray,
   isNull,
+  ne,
   or,
   type SQL,
   type SQLWrapper,
@@ -15,6 +16,8 @@ import {
   agentAdmins,
   agentAdminTeams,
   agents,
+  agentUsage,
+  agentUsageTargets,
   memberships,
   memberTeamMembers,
   memberTeams,
@@ -149,6 +152,75 @@ export function insideAgent(
       inManagingTeam(db, workspaceId, userId, agentId, false),
     ),
   ) as SQL;
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const usageScope = alias(agentUsage, "usage_scope");
+const usageTarget = alias(agentUsageTargets, "usage_target");
+const usageTeam = alias(memberTeams, "usage_team");
+const usageMember = alias(memberTeamMembers, "usage_member");
+
+/**
+ * The one SQL answer to "may this requester use this agent" (94S-902): the
+ * session start's re-decision (`usageOf` in agent-usage.ts, which parity
+ * tests run against this on the same rows), `GET /v1/usable-agents` and the
+ * hiding of a private agent all read it.
+ *
+ * True where the key is bound to this very agent; or the agent is open to the
+ * workspace (no usage row reads as open); or the requester is a live member
+ * of the workspace and is inside the agent (`insideAgent`) or in a live team
+ * the agent lists. A usage row without a team (a user row) lists no one. A
+ * requester with no person and no matching key uses nothing private.
+ */
+export function agentUsable(
+  db: Database,
+  workspaceId: string | SQLWrapper,
+  who: { userId: string | null; keyAgentId: string | null },
+  agentId: string | SQLWrapper,
+): SQL {
+  const closed = exists(
+    db
+      .select({ one: sql`1` })
+      .from(usageScope)
+      .where(
+        and(eq(usageScope.agentId, agentId), ne(usageScope.scope, "workspace")),
+      ),
+  );
+  const branches: SQL[] = [sql`NOT ${closed}`];
+  // A malformed id names nobody; it must not reach a uuid comparison.
+  if (who.keyAgentId !== null && UUID.test(who.keyAgentId)) {
+    branches.push(sql`${agentId} = ${who.keyAgentId.toLowerCase()}::uuid`);
+  }
+  if (who.userId !== null && UUID.test(who.userId)) {
+    const userId = who.userId.toLowerCase();
+    const listed = exists(
+      db
+        .select({ one: sql`1` })
+        .from(usageTarget)
+        .innerJoin(
+          usageTeam,
+          and(
+            eq(usageTeam.id, usageTarget.teamId),
+            isNull(usageTeam.archivedAt),
+          ),
+        )
+        .innerJoin(
+          usageMember,
+          and(
+            eq(usageMember.teamId, usageTarget.teamId),
+            isNull(usageMember.removedAt),
+          ),
+        )
+        .where(
+          and(eq(usageTarget.agentId, agentId), eq(usageMember.userId, userId)),
+        ),
+    );
+    branches.push(
+      insideAgent(db, workspaceId, userId, agentId),
+      and(liveMember(db, workspaceId, userId), listed) as SQL,
+    );
+  }
+  return or(...branches) as SQL;
 }
 
 /**

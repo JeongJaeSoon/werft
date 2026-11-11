@@ -50,6 +50,7 @@ function pause(
       listTurns: notReached,
       getTurn: notReached,
       getReceipt: notReached,
+      hiddenAgentRefs: notReached,
       readEvents: notReached,
     },
   });

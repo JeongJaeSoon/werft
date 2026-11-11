@@ -159,6 +159,7 @@ function scripted(script: Script) {
   };
   const store: AgentStore = {
     list: async () => ({ items: [], next_cursor: null }),
+    listUsable: async () => [],
     count: async () => ({
       all: 0,
       administered: 0,

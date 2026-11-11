@@ -236,6 +236,7 @@ function setup(
       listTurns: unreached,
       getTurn: unreached,
       getReceipt: unreached,
+      hiddenAgentRefs: unreached,
       readEvents: unreached,
     },
     limits: {
@@ -1356,6 +1357,7 @@ function sessionOn(profileId: string): SessionDetailRecord {
     id: SESSION,
     title: "On a ceiling",
     agent: null,
+    agent_hidden: false,
     created_by: null,
     channel: null,
     slack_permalink: null,

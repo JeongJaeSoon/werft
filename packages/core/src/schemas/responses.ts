@@ -93,6 +93,7 @@ import {
   listTakeoversResponseSchema,
   listTeamsResponseSchema,
   listTurnsResponseSchema,
+  listUsableAgentsResponseSchema,
   listWorkspaceSlackAppsResponseSchema,
   loginMethodsResponseSchema,
   loginResponseSchema,
@@ -396,6 +397,7 @@ export const responseSchemas = {
   "DELETE /v1/agents/{id}/admins/{kind}/{subject_id}":
     agentAdminChangeResponseSchema,
   "GET /v1/administered-agents": listAdministeredAgentsResponseSchema,
+  "GET /v1/usable-agents": listUsableAgentsResponseSchema,
   "GET /v1/profiles": listProfilesResponseSchema,
   "POST /v1/workspace-profiles": workspaceProfileChangeResponseSchema,
   "POST /v1/workspace-profiles/{profile_id}/retire":
