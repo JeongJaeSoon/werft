@@ -81,7 +81,7 @@ verify 스택은 `up.sh infra/compose.dev.yml`로 띄운다. 이 스택에서 �
 
 ## 문서 사이트 게시 (GitHub Pages)
 
-CI의 `pages` job이 [apps/docs](../../apps/docs) 문서 사이트를 루트에, API 레퍼런스를 `/api/`에 모은다. 배포는 별도 workflow `pages.yml`이 한다. 공개 사이트는 릴리스된 제품을 설명하므로 릴리스 태그(`v*`) push에서만 배포한다. 다음 릴리스 전에 급히 고칠 문서는 main에서 수동 실행으로 내보내고, 태그를 골라 수동 실행하면 그 릴리스를 다시 배포한다. 수동 실행은 고른 ref에 있는 `pages.yml`을 쓰므로, 이 규칙이 들어가기 전에 만든 태그는 빌드만 하고 배포는 건너뛴다. 태그가 main에 없는 커밋을 가리키면 배포하지 않는다. 진행 중인 배포는 취소하지 않고 줄 세운다. PR에서는 `ci.yml`의 `docs`·`pages` job이 같은 빌드와 배치(`scripts/pages-site.sh`)를 검사만 한다.
+CI의 `pages` job이 [apps/docs](../../apps/docs) 문서 사이트를 루트에, API 레퍼런스를 `/api/`에 모은다. 배포는 별도 workflow `pages.yml`이 한다. 공개 사이트는 릴리스된 제품을 설명하므로 릴리스 태그(`v*`)에서만 배포한다. 사람이 push한 태그는 `pages.yml`을 바로 시작한다. main merge로 만드는 릴리스의 태그는 `GITHUB_TOKEN`으로 만들어져 다른 workflow를 시작하지 못하므로, Images의 `pages-release` job이 Release를 게시한 뒤 그 태그로 `pages.yml`을 수동 실행한다. 다음 릴리스 전에 급히 고칠 문서는 main에서 수동 실행으로 내보내고, 태그를 골라 수동 실행하면 그 릴리스를 다시 배포한다. 수동 실행은 고른 ref에 있는 `pages.yml`을 쓰므로, 이 규칙이 들어가기 전에 만든 태그는 빌드만 하고 배포는 건너뛴다. 태그가 main에 없는 커밋을 가리키면 배포하지 않는다. 진행 중인 배포는 취소하지 않고 줄 세운다. PR에서는 `ci.yml`의 `docs`·`pages` job이 같은 빌드와 배치(`scripts/pages-site.sh`)를 검사만 한다.
 
 ## e2e·gate·soak 도구 진입점
 
