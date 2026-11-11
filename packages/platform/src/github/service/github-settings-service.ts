@@ -13,7 +13,18 @@ import {
   type PutGitHubUserLinkAppRequest,
   type PutGitHubUserLinkAppResponse,
 } from "@werft-ai/contracts";
-import { prepareTemplateText } from "../action/change-request/pull-request-template.ts";
+import { prepareTemplateText } from "../../action/change-request/pull-request-template.ts";
+import {
+  ACTOR_INACTIVE,
+  type AuthorizationPolicy,
+  type Caller,
+  MANAGEMENT_ROLES,
+  NOT_FOUND,
+  OUTRANKED,
+  receiptActorOf,
+} from "../../musterrolle/index.ts";
+import type { PullRequestSettingsStore } from "../../ports/pull-request-settings.ts";
+import { requirePermitted, SessionServiceError } from "../../sessions/index.ts";
 import {
   type GitHubAppCredential,
   type GitHubAppDirectory,
@@ -29,19 +40,7 @@ import type {
   GitHubOAuthStore,
   GitHubSettingsStore,
 } from "../ports/github-settings.ts";
-import type { PullRequestSettingsStore } from "../ports/pull-request-settings.ts";
-import {
-  requirePermitted,
-  SessionServiceError,
-} from "../sessions/session-service.ts";
 import { INSTALLATION_COUNT_MAX } from "./github-repository-service.ts";
-import {
-  type AuthorizationPolicy,
-  type Caller,
-  MANAGEMENT_ROLES,
-  receiptActorOf,
-} from "./policy.ts";
-import { ACTOR_INACTIVE, NOT_FOUND, OUTRANKED } from "./service-errors.ts";
 
 const MANAGERS = MANAGEMENT_ROLES["workspace.manage"] ?? [];
 

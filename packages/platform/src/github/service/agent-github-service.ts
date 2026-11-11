@@ -20,20 +20,25 @@ import {
   type RepositoryCeiling,
   repositoryRefOf,
 } from "@werft-ai/contracts";
-import { repoRefOf } from "../action/ports/forge.ts";
-import type { GitHubRepositoryService } from "../musterrolle/github-repository-service.ts";
+import { repoRefOf } from "../../action/ports/forge.ts";
 import {
+  ACTOR_INACTIVE,
   type AuthorizationPolicy,
   type Caller,
   MANAGEMENT_ROLES,
-} from "../musterrolle/policy.ts";
-import {
-  ACTOR_INACTIVE,
   NOT_FOUND,
   OUTRANKED,
-} from "../musterrolle/service-errors.ts";
-import type { AgentGitHubStore } from "../ports/agent-github-store.ts";
-import type { AgentStore } from "../ports/agent-store.ts";
+} from "../../musterrolle/index.ts";
+import type { AgentGitHubStore } from "../../ports/agent-github-store.ts";
+import type { AgentStore } from "../../ports/agent-store.ts";
+import {
+  GITHUB_API_BASE,
+  repositoryInCeiling,
+  requirePermitted,
+  type SessionCatalog,
+  SessionServiceError,
+  viewerOf,
+} from "../../sessions/index.ts";
 import type {
   GitHubAppStore,
   GitHubPinStore,
@@ -41,19 +46,10 @@ import type {
 import type { GitHubConnections } from "../ports/github-gate.ts";
 import type { GitHubSettingsStore } from "../ports/github-settings.ts";
 import {
-  GITHUB_API_BASE,
-  repositoryInCeiling,
-  type SessionCatalog,
-} from "../sessions/catalog.ts";
-import {
   createGitHubConnectionResolver,
   type GitHubConnectionResolver,
-} from "../sessions/github-connection-resolver.ts";
-import {
-  requirePermitted,
-  SessionServiceError,
-  viewerOf,
-} from "../sessions/session-service.ts";
+} from "./github-connection-resolver.ts";
+import type { GitHubRepositoryService } from "./github-repository-service.ts";
 
 type Repository = SessionCatalog["repositories"][string];
 

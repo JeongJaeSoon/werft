@@ -10,8 +10,11 @@ import type {
   ReceiptActor,
   RepositoryCeiling,
 } from "@werft-ai/contracts";
-import type { GitCredential, RepoRef } from "../action/ports/forge.ts";
-import type { GitHubApi, GitHubRateLimit } from "../action/ports/github-api.ts";
+import type { GitCredential, RepoRef } from "../../action/ports/forge.ts";
+import type {
+  GitHubApi,
+  GitHubRateLimit,
+} from "../../action/ports/github-api.ts";
 
 export type GitHubPermissions = Readonly<Record<string, "read" | "write">>;
 

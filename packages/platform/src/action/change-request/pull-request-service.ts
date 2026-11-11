@@ -19,14 +19,14 @@ import {
   type UpdatePullRequestRequest,
   type UpdatePullRequestResponse,
 } from "@werft-ai/contracts";
-import type { AuthorizationPolicy } from "../../musterrolle/policy.ts";
 import {
   GitHubCallError,
   type GitHubGate,
   GitHubGateError,
   type GitHubGrant,
   GitHubUnavailableError,
-} from "../../ports/github-gate.ts";
+} from "../../github/ports/github-gate.ts";
+import type { AuthorizationPolicy } from "../../musterrolle/policy.ts";
 import {
   PULL_REQUEST_MAX_ATTEMPTS,
   type PullRequestDrainOutcome,

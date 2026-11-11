@@ -5,7 +5,7 @@ import type {
   GitHubFeatures,
   ReceiptActor,
 } from "@werft-ai/contracts";
-import type { SecretAudit } from "./secret-store.ts";
+import type { SecretAudit } from "../../ports/secret-store.ts";
 
 /** What a GA-1 image answered for a release with GitHub settings. */
 export const GITHUB_SETTINGS_UNSUPPORTED: {

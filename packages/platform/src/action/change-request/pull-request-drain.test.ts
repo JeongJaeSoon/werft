@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { DEFAULT_PULL_REQUEST_SETTINGS } from "@werft-ai/contracts";
+import {
+  type GitHubGate,
+  GitHubGateError,
+} from "../../github/ports/github-gate.ts";
 import { createAuthorizationPolicy } from "../../musterrolle/policy.ts";
-import { type GitHubGate, GitHubGateError } from "../../ports/github-gate.ts";
 import {
   PULL_REQUEST_MAX_ATTEMPTS,
   type PullRequestDrainOutcome,

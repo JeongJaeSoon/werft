@@ -10,6 +10,17 @@ import {
   type WorkspaceRole,
 } from "@werft-ai/contracts";
 import {
+  type Caller,
+  callerFor,
+  createAuthorizationPolicy,
+} from "../../musterrolle/policy.ts";
+import type {
+  PullRequestSettingsRead,
+  PullRequestSettingsStore,
+} from "../../ports/pull-request-settings.ts";
+import { fakeGitHubClientSecret } from "../../testing/github-fakes.ts";
+import { refusal } from "../../testing/refusal.ts";
+import {
   GitHubAppCheckError,
   type GitHubAppDirectory,
   type GitHubAppInstallationView,
@@ -23,14 +34,7 @@ import type {
   GitHubSettingsStore,
   GitHubWorkspaceSettings,
 } from "../ports/github-settings.ts";
-import type {
-  PullRequestSettingsRead,
-  PullRequestSettingsStore,
-} from "../ports/pull-request-settings.ts";
-import { fakeGitHubClientSecret } from "../testing/github-fakes.ts";
-import { refusal } from "../testing/refusal.ts";
 import { createGitHubSettingsService } from "./github-settings-service.ts";
-import { type Caller, callerFor, createAuthorizationPolicy } from "./policy.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
 const OTHER = "019a0000-0000-7000-8000-0000000000f2";

@@ -32,6 +32,7 @@ import {
   checkAgentExtensions,
   type SessionExtensionsDeps,
 } from "../extensions/session-extensions.ts";
+import type { GitHubSettingsStore } from "../github/ports/github-settings.ts";
 import {
   type AuthorizationPolicy,
   type Caller,
@@ -57,7 +58,6 @@ import type {
 } from "../ports/agent-store.ts";
 import type { WorkspaceKeyStore } from "../ports/api-key-store.ts";
 import type { CredentialBindingStore } from "../ports/credential-binding-store.ts";
-import type { GitHubSettingsStore } from "../ports/github-settings.ts";
 import type { ProfileRolloutStore } from "../ports/profile-rollout-store.ts";
 import {
   acceptedRuntimeVersions,

@@ -13,7 +13,15 @@ import {
   ForgeCredentialError,
   type GitCredential,
   repoRefOf,
-} from "../action/ports/forge.ts";
+} from "../../action/ports/forge.ts";
+import {
+  additionalContextOf,
+  additionalRepositoriesOf,
+  additionalRepositoryAllowed,
+  repositoryInCeiling,
+  type SessionCatalog,
+  usesWorkspaceCeiling,
+} from "../../sessions/index.ts";
 import {
   type GitHubConnections,
   type GitHubGate,
@@ -25,16 +33,6 @@ import {
   GitHubUnavailableError,
   type GitHubWork,
 } from "../ports/github-gate.ts";
-import {
-  additionalContextOf,
-  additionalRepositoriesOf,
-  additionalRepositoryAllowed,
-} from "./additional-repositories.ts";
-import {
-  repositoryInCeiling,
-  type SessionCatalog,
-  usesWorkspaceCeiling,
-} from "./catalog.ts";
 import {
   createGitHubConnectionResolver,
   type GitHubConnectionResolver,

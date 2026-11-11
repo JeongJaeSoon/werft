@@ -4,7 +4,7 @@ import type {
   GitHubPackagesRegistry,
   ReceiptActor,
 } from "@werft-ai/contracts";
-import type { SecretAudit, SecretSummary } from "./secret-store.ts";
+import type { SecretAudit, SecretSummary } from "../../ports/secret-store.ts";
 
 /** The workspace's GitHub Packages settings as the console reads them. */
 export type GitHubPackagesSettings = {

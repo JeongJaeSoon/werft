@@ -4,7 +4,7 @@ import {
   type GitHubPolicySource,
   type RepositoryCeiling,
 } from "@werft-ai/contracts";
-import type { GitHubSessionContext } from "../ports/github-gate.ts";
+import type { GitHubSessionContext } from "../github/ports/github-gate.ts";
 import {
   allowedPair,
   type CatalogProfileView,

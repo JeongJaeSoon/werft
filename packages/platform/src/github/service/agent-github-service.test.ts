@@ -9,10 +9,13 @@ import {
   type RepositoryCeiling,
   repositoryRefOf,
 } from "@werft-ai/contracts";
-import { callerFor, createAuthorizationPolicy } from "../musterrolle/policy.ts";
-import type { AgentGitHubStore } from "../ports/agent-github-store.ts";
-import type { SessionCatalog } from "../sessions/catalog.ts";
-import { withSeededInstallation } from "../sessions/profile-registry.ts";
+import {
+  callerFor,
+  createAuthorizationPolicy,
+} from "../../musterrolle/policy.ts";
+import type { AgentGitHubStore } from "../../ports/agent-github-store.ts";
+import type { SessionCatalog } from "../../sessions/catalog.ts";
+import { withSeededInstallation } from "../../sessions/profile-registry.ts";
 import { createAgentGitHubService } from "./agent-github-service.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000a1";
