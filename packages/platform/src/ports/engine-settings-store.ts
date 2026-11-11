@@ -1,5 +1,5 @@
 import type { StoredEngineSettings, WorkspaceRole } from "@werft-ai/contracts";
-import type { Principal } from "../musterrolle/policy.ts";
+import type { Principal } from "../musterrolle/index.ts";
 
 /** What a scope has saved; a scope that has saved nothing reads as no rules. */
 export type SavedEngineSettings = {

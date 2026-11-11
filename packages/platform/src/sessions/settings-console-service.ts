@@ -12,8 +12,12 @@ import type {
   SettingsEntryState,
   SettingsMcpServer,
 } from "@werft-ai/contracts";
-import { requirePermitted, SessionServiceError } from "../musterrolle/index.ts";
-import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
+import {
+  type AuthorizationPolicy,
+  type Caller,
+  requirePermitted,
+  SessionServiceError,
+} from "../musterrolle/index.ts";
 import type {
   SettingsConsoleResult,
   SettingsDocumentStore,

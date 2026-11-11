@@ -50,12 +50,13 @@ import {
   type SessionSpend,
 } from "../limits/installation-limits.ts";
 import {
+  type AuthorizationPolicy,
   agentPrivateError,
+  type Caller,
   isAgentPrivate,
   requirePermitted,
   SessionServiceError,
 } from "../musterrolle/index.ts";
-import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
 import type {
   CallerLimitDimension,
   CallerLimitGate,

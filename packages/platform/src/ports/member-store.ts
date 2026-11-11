@@ -1,5 +1,5 @@
 import type { SessionStatus } from "@werft-ai/contracts";
-import type { Principal } from "../musterrolle/policy.ts";
+import type { Principal } from "../musterrolle/index.ts";
 import type { ActingOwner, MemberRecord } from "./identity-store.ts";
 
 /** A workspace membership, or the account across every workspace. */

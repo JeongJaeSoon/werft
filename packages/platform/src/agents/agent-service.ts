@@ -35,23 +35,22 @@ import {
   type SessionExtensionsDeps,
 } from "../extensions/session-extensions.ts";
 import type { GitHubSettingsStore } from "../github/ports/github-settings.ts";
-import { requirePermitted, SessionServiceError } from "../musterrolle/index.ts";
 import {
+  ACTOR_INACTIVE,
   type AuthorizationPolicy,
   type Caller,
   MANAGEMENT_ROLES,
+  NOT_FOUND,
+  OUTRANKED,
   type OutsideAgentAccessSetting,
   outsideAgentsUse,
   type Principal,
-} from "../musterrolle/policy.ts";
-import {
-  ACTOR_INACTIVE,
-  NOT_FOUND,
-  OUTRANKED,
+  requirePermitted,
+  SessionServiceError,
   TEAM_HOLDING,
   TEAM_NOT_ALLOWED,
   TEAM_NOT_FOUND,
-} from "../musterrolle/service-errors.ts";
+} from "../musterrolle/index.ts";
 import type {
   ActivationIntent,
   AgentReader,

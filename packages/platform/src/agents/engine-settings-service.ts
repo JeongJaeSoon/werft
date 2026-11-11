@@ -8,17 +8,16 @@ import {
   validateEngineSettingsAcrossCatalogs,
   type WorkspaceEngineSettingsResponse,
 } from "@werft-ai/contracts";
-import { requirePermitted, SessionServiceError } from "../musterrolle/index.ts";
 import {
+  ACTOR_INACTIVE,
   type AuthorizationPolicy,
   type Caller,
   MANAGEMENT_ROLES,
-} from "../musterrolle/policy.ts";
-import {
-  ACTOR_INACTIVE,
   NOT_FOUND,
   OUTRANKED,
-} from "../musterrolle/service-errors.ts";
+  requirePermitted,
+  SessionServiceError,
+} from "../musterrolle/index.ts";
 import type {
   EngineSettingsStore,
   PutEngineSettingsResult,

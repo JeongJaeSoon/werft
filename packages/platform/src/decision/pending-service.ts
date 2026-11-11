@@ -4,15 +4,13 @@ import type {
   PostSessionAnswerResponse,
 } from "@werft-ai/contracts";
 import {
+  type AuthorizationPolicy,
+  type Caller,
+  deciderKeyOf,
   requireAllowed,
   requirePermitted,
   SessionServiceError,
 } from "../musterrolle/index.ts";
-import {
-  type AuthorizationPolicy,
-  type Caller,
-  deciderKeyOf,
-} from "../musterrolle/policy.ts";
 import {
   idempotencyConflict,
   payloadHash,

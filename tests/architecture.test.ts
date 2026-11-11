@@ -864,7 +864,18 @@ function importedModules(source: ts.SourceFile): string[] {
     )
       found.push(node.expression.text);
     else if (ts.isCallExpression(node)) {
-      const [first] = node.arguments;
+      // import(("x")) and import("x" as string) load the same module as
+      // import("x"): parentheses and type-only wrappers do not change the value.
+      let first = node.arguments[0];
+      while (
+        first &&
+        (ts.isParenthesizedExpression(first) ||
+          ts.isAsExpression(first) ||
+          ts.isSatisfiesExpression(first) ||
+          ts.isNonNullExpression(first) ||
+          ts.isTypeAssertionExpression(first))
+      )
+        first = first.expression;
       const callee = node.expression;
       if (
         first &&
@@ -1173,6 +1184,39 @@ export async function toolHandlerGaps(
     });
   }
   return found.sort();
+}
+
+/**
+ * A6: musterrolle is the bottom platform domain (docs/contributing/
+ * architecture.md, boundaries section). Its product sources import another
+ * domain only through that domain's ports/: not its internals and not its
+ * index.ts. The package root is closed too, since it re-exports every domain:
+ * a file directly under src, or the package's own name. The shared ports/ and
+ * testing/ stay open, as in A2.
+ */
+export async function musterrolleOutwardImports(
+  repo: string,
+): Promise<string[]> {
+  const src = platformSrc(repo);
+  const found: string[] = [];
+  for (const file of await productSourcesIn(join(src, "musterrolle"))) {
+    const from = slashed(relative(src, file));
+    for (const specifier of importedModules(await parse(file)))
+      if (packageOf(specifier) === "@werft-ai/platform")
+        found.push(`${from} -> ${specifier}`);
+    for (const target of await relativeTargets(file, src)) {
+      const to = target.split("/");
+      const other = to[0] ?? "";
+      if (
+        other.startsWith("..") ||
+        other === "musterrolle" ||
+        sharedPlatformDirs.has(other)
+      )
+        continue;
+      if (to[1] !== "ports") found.push(`${from} -> ${target}`);
+    }
+  }
+  return [...new Set(found)].sort();
 }
 
 const handlerName = /^handle[A-Z]|Handler$/;
@@ -3164,6 +3208,80 @@ describe("architecture", () => {
       `${dir}/tools/dispatch.ts branches on the tool beta`,
       "two handlers for alpha",
       "two handlers for alpha",
+    ]);
+  });
+
+  test("A6: musterrolle imports another platform domain only through its ports/", async () => {
+    expect(await musterrolleOutwardImports(root)).toEqual([]);
+  });
+
+  test("A6 catches another domain's internals, its index.ts and the package root in each import form the scan reads, but not its ports/, the shared dirs, a sibling or a test", async () => {
+    expect(
+      await inFixture(
+        {
+          [platformFile("musterrolle/internal.ts")]:
+            'import { a } from "../beta/service.ts";',
+          [platformFile("musterrolle/entrance.ts")]: [
+            'import { a } from "../beta/index.ts";',
+            'import { b } from "../gamma";',
+          ].join("\n"),
+          [platformFile("musterrolle/typed.ts")]:
+            'import type { T } from "../beta/service.ts";',
+          [platformFile("musterrolle/reexport.ts")]:
+            'export * from "../beta/deep/inner.ts";',
+          [platformFile("musterrolle/dynamic.ts")]:
+            'export const m = import("../beta/index.ts");',
+          [platformFile("musterrolle/wrapped.ts")]: [
+            'export const m = import(("../beta/service.ts"));',
+            'export const n = require((("../gamma/index.ts")));',
+          ].join("\n"),
+          [platformFile("musterrolle/asserted.ts")]: [
+            'export const a = import("../beta/service.ts" as string);',
+            'export const b = import("../gamma/index.ts" satisfies string);',
+            'export const c = import("../beta/index.ts"!);',
+          ].join("\n"),
+          [platformFile("musterrolle/root.ts")]: 'import "../index.ts";',
+          [platformFile("musterrolle/named.ts")]: [
+            'import { a } from "@werft-ai/platform";',
+            'import { b } from "@werft-ai/platform/testing/refusal";',
+            'import { c } from "@werft-ai/contracts";',
+          ].join("\n"),
+          [platformFile("musterrolle/allowed.ts")]: [
+            'import "../beta/ports/store.ts";',
+            'import "../ports/shared.ts";',
+            'import "../testing/refusal.ts";',
+            'import "./policy.ts";',
+          ].join("\n"),
+          [platformFile("musterrolle/internal.test.ts")]:
+            'import "../beta/service.ts";',
+          [platformFile("musterrolle/policy.ts")]: stub,
+          // Only musterrolle is held to this: beta may import an entrance.
+          [platformFile("beta/service.ts")]: 'import "../gamma/index.ts";',
+          [platformFile("beta/deep/inner.ts")]: stub,
+          [platformFile("beta/ports/store.ts")]: stub,
+          [platformFile("beta/index.ts")]: stub,
+          [platformFile("gamma/index.ts")]: stub,
+          [platformFile("ports/shared.ts")]: stub,
+          [platformFile("testing/refusal.ts")]: stub,
+          [platformFile("index.ts")]: stub,
+        },
+        musterrolleOutwardImports,
+      ),
+    ).toEqual([
+      "musterrolle/asserted.ts -> beta/index.ts",
+      "musterrolle/asserted.ts -> beta/service.ts",
+      "musterrolle/asserted.ts -> gamma/index.ts",
+      "musterrolle/dynamic.ts -> beta/index.ts",
+      "musterrolle/entrance.ts -> beta/index.ts",
+      "musterrolle/entrance.ts -> gamma/index.ts",
+      "musterrolle/internal.ts -> beta/service.ts",
+      "musterrolle/named.ts -> @werft-ai/platform",
+      "musterrolle/named.ts -> @werft-ai/platform/testing/refusal",
+      "musterrolle/reexport.ts -> beta/deep/inner.ts",
+      "musterrolle/root.ts -> index.ts",
+      "musterrolle/typed.ts -> beta/service.ts",
+      "musterrolle/wrapped.ts -> beta/service.ts",
+      "musterrolle/wrapped.ts -> gamma/index.ts",
     ]);
   });
 

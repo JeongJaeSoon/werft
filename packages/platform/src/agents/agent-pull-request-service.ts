@@ -5,17 +5,16 @@ import type {
 } from "@werft-ai/contracts";
 import { prepareTemplateText } from "../action/index.ts";
 import type { PullRequestSettingsStore } from "../action/ports/pull-request-settings.ts";
-import { requirePermitted, SessionServiceError } from "../musterrolle/index.ts";
 import {
+  ACTOR_INACTIVE,
   type AuthorizationPolicy,
   type Caller,
   MANAGEMENT_ROLES,
-} from "../musterrolle/policy.ts";
-import {
-  ACTOR_INACTIVE,
   NOT_FOUND,
   OUTRANKED,
-} from "../musterrolle/service-errors.ts";
+  requirePermitted,
+  SessionServiceError,
+} from "../musterrolle/index.ts";
 import type { AgentStore } from "../ports/agent-store.ts";
 
 export function createAgentPullRequestService(deps: {

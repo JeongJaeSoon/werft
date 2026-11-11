@@ -1,7 +1,7 @@
 import type { WorkspaceRole } from "@werft-ai/contracts";
 import type { BundleManifest } from "../extensions/bundle-validator.ts";
 import type { ExtensionMode } from "../extensions/resolve.ts";
-import type { Principal } from "../musterrolle/policy.ts";
+import type { Principal } from "../musterrolle/index.ts";
 
 export const EXTENSION_BUNDLE_REVIEWS = [
   "pending",
