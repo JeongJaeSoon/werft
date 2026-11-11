@@ -12,28 +12,28 @@ export interface SidebarLabels {
 
 export const sidebarLabels: Record<Locale, SidebarLabels> = {
   ko: {
-    use: "사용하기",
+    use: "가이드",
     start: "시작",
     features: "기능",
     reference: "레퍼런스",
-    deploy: "배포하기",
-    observabilityLink: "관측 (사용하기)",
+    deploy: "셀프 호스팅",
+    observabilityLink: "관측 (가이드)",
   },
   en: {
-    use: "Use",
+    use: "Guides",
     start: "Get started",
     features: "Features",
     reference: "Reference",
-    deploy: "Deploy",
-    observabilityLink: "Observability (Use)",
+    deploy: "Self-hosting",
+    observabilityLink: "Observability (Guides)",
   },
   ja: {
-    use: "使う",
+    use: "ガイド",
     start: "はじめに",
     features: "機能",
     reference: "リファレンス",
-    deploy: "設置する",
-    observabilityLink: "観測 (使う)",
+    deploy: "セルフホスト",
+    observabilityLink: "観測 (ガイド)",
   },
 };
 

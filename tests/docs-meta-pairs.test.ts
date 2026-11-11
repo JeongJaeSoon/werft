@@ -115,7 +115,7 @@ function urls(node: Node): string[] {
 
 describe("buildSidebarTree", () => {
   test("makes two root folders, use and deploy", () => {
-    expect(names(out.children)).toEqual(["Use", "Deploy", "/en/contributing"]);
+    expect(names(out.children)).toEqual(["Guides", "Self-hosting", "/en/contributing"]);
     for (const c of out.children.slice(0, 2)) {
       expect((c as Folder).root).toBe(true);
     }
@@ -140,19 +140,19 @@ describe("buildSidebarTree", () => {
 
   test("use groups start, features, UI and reference", () => {
     // The first direct page child is what the tab links to.
-    expect(tab("Use")?.children[0]).toMatchObject({ type: "page", url: "/en" });
-    expect(names(tab("Use")?.children.slice(1) ?? [])).toEqual([
+    expect(tab("Guides")?.children[0]).toMatchObject({ type: "page", url: "/en" });
+    expect(names(tab("Guides")?.children.slice(1) ?? [])).toEqual([
       "Get started",
       "Features",
       "UI",
       "Reference",
     ]);
-    const start = tab("Use")?.children[1] as Folder;
+    const start = tab("Guides")?.children[1] as Folder;
     expect(urls(start)).toContain("/en/run-server/dev-server");
   });
 
   test("deploy has the index page and five sections that fold", () => {
-    const deploy = tab("Deploy");
+    const deploy = tab("Self-hosting");
     expect(deploy?.children[0]).toMatchObject({
       type: "page",
       url: "/en/run-server/self-hosting",
@@ -169,19 +169,19 @@ describe("buildSidebarTree", () => {
   });
 
   test("deploy links to observability inside Operations, as a plain page", () => {
-    const deploy = tab("Deploy") as Folder;
+    const deploy = tab("Self-hosting") as Folder;
     const operations = deploy.children.find(
       (c): c is Folder => c.type === "folder" && c.name === "Operations",
     );
     const link = operations?.children.at(-1);
     expect(link).toMatchObject({
       type: "page",
-      name: "Observability (Use)",
+      name: "Observability (Guides)",
       url: "/en/observability",
     });
     // An external link would skip the site's base path.
     expect((link as { external?: boolean }).external).toBeUndefined();
-    expect(urls(tab("Use") as Folder)).toContain("/en/observability");
+    expect(urls(tab("Guides") as Folder)).toContain("/en/observability");
   });
 
   test("a tree of unlisted pages is returned unchanged", () => {
@@ -190,8 +190,8 @@ describe("buildSidebarTree", () => {
   });
 
   test("each page sits in exactly one tab and contributing in none", () => {
-    const use = urls(tab("Use") as Folder);
-    const deploy = urls(tab("Deploy") as Folder);
+    const use = urls(tab("Guides") as Folder);
+    const deploy = urls(tab("Self-hosting") as Folder);
     // The only shared URL is the deploy tab's link to observability.
     expect(use.filter((u) => deploy.includes(u))).toEqual([
       "/en/observability",

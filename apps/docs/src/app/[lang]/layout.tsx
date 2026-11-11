@@ -45,8 +45,9 @@ export default async function Layout({ children, params }: Props) {
           <DocsLayout
             tree={source.getPageTree(lang)}
             {...base}
-            // Both tabs stay visible in the header instead of a sidebar dropdown.
-            tabMode="navbar"
+            // The tabs are a dropdown atop the sidebar, not a second header row;
+            // the home page cards lead to both.
+            tabMode="sidebar"
             nav={{
               ...nav,
               mode: "top",
