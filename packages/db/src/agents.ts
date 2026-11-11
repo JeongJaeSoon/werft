@@ -418,6 +418,20 @@ export async function lockAgentToChange(
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// A private agent the reader may not use is not in their list or counts, the
+// same predicate the start decision and /v1/usable-agents read (94S-1512).
+function visibleTo(
+  db: Database,
+  workspaceId: string,
+  userId: string,
+  outsideAccess: Parameters<typeof agentReadable>[4],
+) {
+  return and(
+    agentReadable(db, workspaceId, userId, agents.id, outsideAccess),
+    agentUsable(db, workspaceId, { userId, keyAgentId: null }, agents.id),
+  );
+}
+
 export function createPostgresAgentStore(db: Database): AgentStore {
   return {
     async list(workspaceId, query, reader): Promise<ListAgentsResponse> {
@@ -432,11 +446,10 @@ export function createPostgresAgentStore(db: Database): AgentStore {
         .where(
           and(
             eq(agents.workspaceId, workspaceId),
-            agentReadable(
+            visibleTo(
               db,
               workspaceId,
               reader.userId.toLowerCase(),
-              agents.id,
               reader.outsideAccess,
             ),
             query.q === undefined
@@ -539,13 +552,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
         .where(
           and(
             eq(agents.workspaceId, workspaceId),
-            agentReadable(
-              db,
-              workspaceId,
-              person,
-              agents.id,
-              reader.outsideAccess,
-            ),
+            visibleTo(db, workspaceId, person, reader.outsideAccess),
           ),
         );
       return {
