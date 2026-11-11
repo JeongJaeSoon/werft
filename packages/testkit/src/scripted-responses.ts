@@ -88,7 +88,8 @@ function toolNames(body: ResponsesRequest): string[] {
 /**
  * `mcp__github__request_push` is the model's `request_push` in the
  * `mcp__github` namespace. The split is read off the namespaces the request
- * offered, so a server id that ends in `_` cannot be cut at the wrong `__`.
+ * offered when it lists them, so a server id that ends in `_` is not cut at
+ * the wrong `__`.
  */
 function mcpCall(
   tool: string,
@@ -107,7 +108,13 @@ function mcpCall(
       return { namespace: name, name: rest };
     }
   }
-  return { name: tool };
+  // Codex may not list an MCP server's tools in the request (it defers them)
+  // yet still runs a call into the namespace, so an unlisted name splits at its
+  // first `__` after the prefix.
+  const split = /^(mcp__.+?)__(.+)$/.exec(tool);
+  return split === null
+    ? { name: tool }
+    : { namespace: split[1] as string, name: split[2] as string };
 }
 
 function outputTexts(items: readonly Item[]): string[] {

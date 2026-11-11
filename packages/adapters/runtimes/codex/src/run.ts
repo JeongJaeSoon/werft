@@ -433,12 +433,14 @@ export class CodexRun implements AgentRun {
         }
         await new Promise<void>((resolve) => {
           const timer = setTimeout(done, left);
+          const signal = this.stop.signal;
           function done() {
             clearTimeout(timer);
+            signal.removeEventListener("abort", done);
             resolve();
           }
           this.mcpStartupChanged = done;
-          this.stop.signal.addEventListener("abort", done, { once: true });
+          signal.addEventListener("abort", done, { once: true });
         });
         this.mcpStartupChanged = undefined;
       }

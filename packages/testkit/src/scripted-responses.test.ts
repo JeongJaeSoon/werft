@@ -125,6 +125,21 @@ describe("scripted Responses API", () => {
     });
   });
 
+  test("an MCP tool the request does not list is still called inside its namespace", async () => {
+    const prompt = user(
+      spec({
+        id: "d",
+        steps: [{ tool: "mcp__github__request_push", input: {} }],
+        final: "done",
+      }),
+    );
+    const reply = await replyFor({ input: [prompt], tools }, []);
+    expect(reply.toolCalls?.[0]).toMatchObject({
+      namespace: "mcp__github",
+      name: "request_push",
+    });
+  });
+
   test("a request without tools never reads the spec", async () => {
     const recorded: ScriptedCall[] = [];
     const reply = await replyFor(
