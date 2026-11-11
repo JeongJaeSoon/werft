@@ -40,9 +40,9 @@ import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createApiApp } from "../apps/control-host/src/api/app.ts";
-import { registerReceiptRoutes } from "../apps/control-host/src/api/routes/receipts.ts";
+import { registerReceiptRoutes } from "../apps/control-host/src/api/routes/sessions/receipts.ts";
 import { registerSessionRoutes } from "../apps/control-host/src/api/routes/sessions.ts";
-import { registerWorkerRoutes } from "../apps/control-host/src/api/routes/worker.ts";
+import { registerWorkerRoutes } from "../apps/control-host/src/api/routes/workers/worker.ts";
 import type { WorkerCheckpointPort } from "../apps/worker/src/checkpoint.ts";
 import { HttpWorkerGatewayClient } from "../apps/worker/src/gateway-client.ts";
 import {

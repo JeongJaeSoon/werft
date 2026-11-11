@@ -42,7 +42,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/sessions/{id}/resume",
     "POST /v1/sessions/{id}/recovery-decisions",
   ],
-  "routes/session-shares.test.ts": [
+  "routes/musterrolle/session-shares.test.ts": [
     "GET /v1/sessions/{id}/share",
     "POST /v1/sessions/{id}/share",
     "POST /v1/sessions/{id}/audit-read",
@@ -51,7 +51,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/admin/sessions/{id}/recovery-decisions",
   ],
   "routes/receipts.test.ts": ["GET /v1/receipts/{id}"],
-  "routes/pending.test.ts": [
+  "routes/sessions/pending.test.ts": [
     "GET /v1/sessions/{id}/pending-requests",
     "POST /v1/sessions/{id}/answers",
   ],
@@ -75,11 +75,11 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "GET /v1/sessions/{id}/outcomes",
     "POST /v1/sessions/{id}/github/pull-requests/{number}/reviews",
   ],
-  "routes/interrupt.test.ts": ["POST /v1/sessions/{id}/interrupt"],
+  "routes/sessions/interrupt.test.ts": ["POST /v1/sessions/{id}/interrupt"],
   "routes/pause.test.ts": ["POST /v1/sessions/{id}/pause"],
   "routes/close.test.ts": ["POST /v1/sessions/{id}/close"],
   "routes/profile.test.ts": ["POST /v1/sessions/{id}/profile"],
-  "routes/usage.test.ts": [
+  "routes/usage/usage.test.ts": [
     "GET /v1/limits",
     "GET /v1/sessions/{id}/usage",
     "GET /v1/usage/summary",
@@ -90,7 +90,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "GET /v1/usage/tools",
     "GET /v1/usage/tools/{name}/calls",
   ],
-  "routes/outputs.test.ts": [
+  "routes/sessions/outputs.test.ts": [
     "GET /v1/sessions/{id}/outputs",
     "GET /v1/sessions/{id}/outputs/{path}",
   ],
@@ -105,7 +105,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/installation-profiles/{profile_id}/block",
     "POST /v1/installation-profiles/{profile_id}/unblock",
   ],
-  "routes/installation-settings.test.ts": [
+  "routes/musterrolle/installation-settings.test.ts": [
     "GET /v1/installation/settings/export",
     "POST /v1/installation/settings/import",
   ],
@@ -125,7 +125,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/installation/settings/mcp-servers/{id}/disable",
   ],
   "routes/events.test.ts": ["GET /v1/sessions/{id}/events"],
-  "routes/members.test.ts": [
+  "routes/musterrolle/members.test.ts": [
     "GET /v1/members",
     "PATCH /v1/members/{user_id}",
     "POST /v1/members/{user_id}/disable",
@@ -135,7 +135,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "GET /v1/takeovers",
     "POST /v1/sessions/{id}/takeover",
   ],
-  "routes/linked-accounts.test.ts": [
+  "routes/musterrolle/linked-accounts.test.ts": [
     "POST /v1/linked-accounts/slack/start",
     "POST /v1/linked-accounts/slack/callback",
     "POST /v1/linked-accounts/github/start",
@@ -143,18 +143,18 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "GET /v1/linked-accounts",
     "DELETE /v1/linked-accounts/{id}",
   ],
-  "routes/invites.test.ts": [
+  "routes/musterrolle/invites.test.ts": [
     "POST /v1/invites",
     "GET /v1/invites",
     "DELETE /v1/invites/{id}",
     "POST /v1/invites/accept",
   ],
-  "routes/workspaces.test.ts": [
+  "routes/musterrolle/workspaces.test.ts": [
     "POST /v1/workspaces/{id}/audit-retention",
     "POST /v1/workspaces/{id}/slack-guest",
     "PATCH /v1/workspaces/{id}/agent-access",
   ],
-  "routes/github-app.test.ts": [
+  "routes/github/github-app.test.ts": [
     "GET /v1/workspaces/{id}/github-app",
     "PUT /v1/workspaces/{id}/github-app",
     "DELETE /v1/workspaces/{id}/github-app",
@@ -166,11 +166,11 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/workspaces/{id}/github-apps/{connectionId}/installations/start",
     "POST /v1/workspaces/{id}/github-apps/installations/complete",
   ],
-  "routes/github-app-manifest.test.ts": [
+  "routes/github/github-app-manifest.test.ts": [
     "POST /v1/workspaces/{id}/github-apps/author/manifest",
     "POST /v1/workspaces/{id}/github-apps/author/manifest/complete",
   ],
-  "routes/github-repositories.test.ts": [
+  "routes/github/github-repositories.test.ts": [
     "GET /v1/workspaces/{id}/github-repositories",
     "PATCH /v1/workspaces/{id}/github-repositories/{repositoryId}",
     "GET /v1/workspaces/{id}/github-repositories/{repositoryId}/app-pins",
@@ -178,14 +178,14 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "GET /v1/agents/{id}/github/repositories",
     "POST /v1/agents/{id}/github/repositories",
   ],
-  "routes/agent-github.test.ts": [
+  "routes/github/agent-github.test.ts": [
     "GET /v1/agents/{id}/github",
     "PUT /v1/agents/{id}/github/enabled",
     "PUT /v1/agents/{id}/github/settings",
     "PUT /v1/agents/{id}/github/repository-access",
     "GET /v1/agents/{id}/github/activity",
   ],
-  "routes/agent-mcp.test.ts": [
+  "routes/agents/agent-mcp.test.ts": [
     "GET /v1/agents/{id}/mcp/settings",
     "PUT /v1/agents/{id}/mcp/settings",
   ],
@@ -195,34 +195,34 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "GET /v1/agents/{id}/engine-settings",
     "PUT /v1/agents/{id}/engine-settings",
   ],
-  "routes/agent-pull-request.test.ts": [
+  "routes/action/agent-pull-request.test.ts": [
     "GET /v1/agents/{id}/github/pull-request",
     "PUT /v1/agents/{id}/github/pull-request",
   ],
-  "routes/github-settings.test.ts": [
+  "routes/github/github-settings.test.ts": [
     "GET /v1/workspaces/{id}/github-settings",
     "PUT /v1/workspaces/{id}/github-settings",
     "PUT /v1/workspaces/{id}/github-settings/oauth-client-secret",
     "PUT /v1/workspaces/{id}/github-settings/pull-request",
     "PUT /v1/workspaces/{id}/github-settings/user-link-app",
   ],
-  "routes/github-packages.test.ts": [
+  "routes/github/github-packages.test.ts": [
     "GET /v1/workspaces/{id}/github-packages",
     "PUT /v1/workspaces/{id}/github-packages/token",
     "DELETE /v1/workspaces/{id}/github-packages/token",
     "PUT /v1/workspaces/{id}/github-packages/allowlist",
   ],
-  "routes/slack-secrets.test.ts": [
+  "routes/surface/slack-secrets.test.ts": [
     "GET /v1/workspaces/{id}/slack/config-token",
     "PUT /v1/workspaces/{id}/slack/config-token",
     "DELETE /v1/workspaces/{id}/slack/config-token",
   ],
-  "routes/api-keys.test.ts": [
+  "routes/musterrolle/api-keys.test.ts": [
     "POST /v1/api-keys",
     "GET /v1/api-keys",
     "DELETE /v1/api-keys/{id}",
   ],
-  "routes/teams.test.ts": [
+  "routes/musterrolle/teams.test.ts": [
     "POST /v1/teams",
     "GET /v1/teams",
     "GET /v1/my-teams",
@@ -238,15 +238,15 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "DELETE /v1/agents/{id}/admins/{kind}/{subject_id}",
     "GET /v1/administered-agents",
   ],
-  "routes/agent-caller-limits.test.ts": [
+  "routes/musterrolle/agent-caller-limits.test.ts": [
     "GET /v1/agents/{id}/caller-limits",
     "PUT /v1/agents/{id}/caller-limits",
   ],
-  "routes/agent-usage.test.ts": [
+  "routes/musterrolle/agent-usage.test.ts": [
     "GET /v1/agents/{id}/usage",
     "PUT /v1/agents/{id}/usage",
   ],
-  "routes/env-variables.test.ts": [
+  "routes/musterrolle/env-variables.test.ts": [
     "GET /v1/workspace/variables",
     "PUT /v1/workspace/variables/{name}",
     "DELETE /v1/workspace/variables/{name}",
@@ -255,7 +255,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "PUT /v1/agents/{id}/variables/{name}",
     "DELETE /v1/agents/{id}/variables/{name}",
   ],
-  "routes/credential-bindings.test.ts": [
+  "routes/musterrolle/credential-bindings.test.ts": [
     "GET /v1/agents/{id}/credential-bindings",
     "POST /v1/agents/{id}/credential-bindings",
     "DELETE /v1/agents/{id}/credential-bindings/{binding_id}",
@@ -270,22 +270,22 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/agents/{id}/releases",
     "POST /v1/agents/{id}/activate",
   ],
-  "routes/agent-identities.test.ts": [
+  "routes/musterrolle/agent-identities.test.ts": [
     "POST /v1/agents/{id}/identities",
     "GET /v1/agents/{id}/identities",
     "DELETE /v1/agents/{id}/identities/{identity_id}",
   ],
-  "routes/slack-bindings.test.ts": [
+  "routes/surface/slack-bindings.test.ts": [
     "GET /v1/agents/{id}/slack-bindings",
     "PUT /v1/agents/{id}/slack-bindings",
     "POST /v1/agents/{id}/slack-bindings/{binding_id}/approve",
     "POST /v1/agents/{id}/slack-bindings/{binding_id}/reject",
   ],
-  "routes/slack-channels.test.ts": [
+  "routes/surface/slack-channels.test.ts": [
     "GET /v1/agents/{id}/slack/channels",
     "GET /v1/agents/{id}/slack-channels",
   ],
-  "routes/slack-apps.test.ts": [
+  "routes/surface/slack-apps.test.ts": [
     "GET /v1/agents/{id}/slack/app",
     "POST /v1/agents/{id}/slack/app/events/recheck",
     "GET /v1/agents/{id}/slack/app/manifest",
@@ -296,15 +296,15 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "DELETE /v1/workspaces/{id}/slack/apps/{app_id}",
     "PUT /v1/workspaces/{id}/slack/apps/{app_id}/secrets/{purpose}",
   ],
-  "routes/slack-install.test.ts": [
+  "routes/surface/slack-install.test.ts": [
     "POST /v1/agents/{id}/slack/install/start",
     "POST /v1/slack/install/complete",
   ],
-  "routes/slack-events.test.ts": ["POST /v1/slack/events/{agent_id}"],
-  "routes/slack-interactions.test.ts": [
+  "routes/surface/slack-events.test.ts": ["POST /v1/slack/events/{agent_id}"],
+  "routes/surface/slack-interactions.test.ts": [
     "POST /v1/slack/interactions/{agent_id}",
   ],
-  "routes/achievements.test.ts": [
+  "routes/sessions/achievements.test.ts": [
     "GET /v1/achievement-categories",
     "POST /v1/achievement-categories",
     "PATCH /v1/achievement-categories/{id}",

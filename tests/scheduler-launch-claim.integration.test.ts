@@ -33,7 +33,7 @@ import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createApiApp } from "../apps/control-host/src/api/app.ts";
 import { createEgressAuthorizer } from "../apps/control-host/src/api/egress-authorizer.ts";
-import { registerWorkerRoutes } from "../apps/control-host/src/api/routes/worker.ts";
+import { registerWorkerRoutes } from "../apps/control-host/src/api/routes/workers/worker.ts";
 import { main } from "../apps/control-host/src/scheduler/main.ts";
 
 /**

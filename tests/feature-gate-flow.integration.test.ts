@@ -34,7 +34,7 @@ import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createApiApp } from "../apps/control-host/src/api/app.ts";
 import { registerSessionRoutes } from "../apps/control-host/src/api/routes/sessions.ts";
-import { registerWorkerRoutes } from "../apps/control-host/src/api/routes/worker.ts";
+import { registerWorkerRoutes } from "../apps/control-host/src/api/routes/workers/worker.ts";
 import { unwiredCheckpoints } from "../apps/worker/src/checkpoint.ts";
 import { HttpWorkerGatewayClient } from "../apps/worker/src/gateway-client.ts";
 import { ScriptedRun } from "../apps/worker/src/testing/scripted-run.ts";

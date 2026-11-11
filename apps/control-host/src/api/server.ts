@@ -226,64 +226,64 @@ import { createApiPool, createProbePool } from "./pool.ts";
 import { createSlackEventsLimiter } from "./rate-limit.ts";
 import { createReadinessProbe } from "./readiness.ts";
 import { RequestTracing } from "./request-tracing.ts";
-import {
-  registerAchievementRoutes,
-  registerSessionAchievementRoutes,
-} from "./routes/achievements.ts";
-import { registerAgentCallerLimitsRoutes } from "./routes/agent-caller-limits.ts";
-import { registerAgentGitHubRoutes } from "./routes/agent-github.ts";
-import { registerAgentIdentityRoutes } from "./routes/agent-identities.ts";
-import { registerAgentMcpRoutes } from "./routes/agent-mcp.ts";
-import { registerAgentPullRequestRoutes } from "./routes/agent-pull-request.ts";
-import { registerAgentUsageRoutes } from "./routes/agent-usage.ts";
+import { registerAgentPullRequestRoutes } from "./routes/action/agent-pull-request.ts";
+import { registerPullRequestRoutes } from "./routes/action/pull-requests.ts";
+import { registerPushRequestRoutes } from "./routes/action/push-requests.ts";
+import { registerAgentMcpRoutes } from "./routes/agents/agent-mcp.ts";
+import { registerEngineSettingsRoutes } from "./routes/agents/engine-settings.ts";
 import { registerAgentRoutes } from "./routes/agents.ts";
-import { registerApiKeyRoutes } from "./routes/api-keys.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
-import { registerCloseRoutes } from "./routes/close.ts";
-import { registerCredentialBindingRoutes } from "./routes/credential-bindings.ts";
-import { registerEngineSettingsRoutes } from "./routes/engine-settings.ts";
-import { registerEnvVariableRoutes } from "./routes/env-variables.ts";
-import { registerEventRoutes } from "./routes/events.ts";
-import { registerGitHubAppRoutes } from "./routes/github-app.ts";
-import { registerGitHubPackagesRoutes } from "./routes/github-packages.ts";
-import { registerGitHubRepositoryRoutes } from "./routes/github-repositories.ts";
-import { registerGitHubSettingsRoutes } from "./routes/github-settings.ts";
+import { registerAgentGitHubRoutes } from "./routes/github/agent-github.ts";
+import { registerGitHubAppRoutes } from "./routes/github/github-app.ts";
+import { registerGitHubPackagesRoutes } from "./routes/github/github-packages.ts";
+import { registerGitHubRepositoryRoutes } from "./routes/github/github-repositories.ts";
+import { registerGitHubSettingsRoutes } from "./routes/github/github-settings.ts";
 import {
   registerGitHubWorkRoutes,
   registerSessionAttributionRoutes,
   registerSessionOutcomeRoutes,
-} from "./routes/github-work.ts";
+} from "./routes/github/github-work.ts";
 import {
   registerInstallationSettingsRoutes,
   registerSettingsConsoleRoutes,
 } from "./routes/installation-settings.ts";
-import { registerInterruptRoutes } from "./routes/interrupt.ts";
+import { registerAgentCallerLimitsRoutes } from "./routes/musterrolle/agent-caller-limits.ts";
+import { registerAgentIdentityRoutes } from "./routes/musterrolle/agent-identities.ts";
+import { registerAgentUsageRoutes } from "./routes/musterrolle/agent-usage.ts";
+import { registerApiKeyRoutes } from "./routes/musterrolle/api-keys.ts";
+import { registerCredentialBindingRoutes } from "./routes/musterrolle/credential-bindings.ts";
+import { registerEnvVariableRoutes } from "./routes/musterrolle/env-variables.ts";
 import {
   registerInviteRoutes,
   registerPublicInviteRoutes,
-} from "./routes/invites.ts";
-import { registerLinkedAccountRoutes } from "./routes/linked-accounts.ts";
-import { registerMemberRoutes } from "./routes/members.ts";
-import { registerSessionOutputRoutes } from "./routes/outputs.ts";
-import { registerPauseRoutes } from "./routes/pause.ts";
-import { registerPendingRoutes } from "./routes/pending.ts";
+} from "./routes/musterrolle/invites.ts";
+import { registerLinkedAccountRoutes } from "./routes/musterrolle/linked-accounts.ts";
+import { registerMemberRoutes } from "./routes/musterrolle/members.ts";
+import { registerSessionShareRoutes } from "./routes/musterrolle/session-shares.ts";
+import { registerTeamRoutes } from "./routes/musterrolle/teams.ts";
+import { registerWorkspaceRoutes } from "./routes/musterrolle/workspaces.ts";
 import { registerProfileRoutes } from "./routes/profiles.ts";
-import { registerPullRequestRoutes } from "./routes/pull-requests.ts";
-import { registerPushRequestRoutes } from "./routes/push-requests.ts";
-import { registerReceiptRoutes } from "./routes/receipts.ts";
-import { registerSessionShareRoutes } from "./routes/session-shares.ts";
+import {
+  registerAchievementRoutes,
+  registerSessionAchievementRoutes,
+} from "./routes/sessions/achievements.ts";
+import { registerCloseRoutes } from "./routes/sessions/close.ts";
+import { registerEventRoutes } from "./routes/sessions/events.ts";
+import { registerInterruptRoutes } from "./routes/sessions/interrupt.ts";
+import { registerSessionOutputRoutes } from "./routes/sessions/outputs.ts";
+import { registerPauseRoutes } from "./routes/sessions/pause.ts";
+import { registerPendingRoutes } from "./routes/sessions/pending.ts";
+import { registerReceiptRoutes } from "./routes/sessions/receipts.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
-import { registerSlackAppRoutes } from "./routes/slack-apps.ts";
-import { registerSlackBindingRoutes } from "./routes/slack-bindings.ts";
-import { registerSlackChannelRoutes } from "./routes/slack-channels.ts";
-import { registerSlackEventRoutes } from "./routes/slack-events.ts";
-import { registerSlackInstallRoutes } from "./routes/slack-install.ts";
-import { registerSlackInteractionRoutes } from "./routes/slack-interactions.ts";
-import { registerSlackSecretRoutes } from "./routes/slack-secrets.ts";
-import { registerTeamRoutes } from "./routes/teams.ts";
-import { registerUsageRoutes } from "./routes/usage.ts";
-import { registerWorkerRoutes } from "./routes/worker.ts";
-import { registerWorkspaceRoutes } from "./routes/workspaces.ts";
+import { registerSlackAppRoutes } from "./routes/surface/slack-apps.ts";
+import { registerSlackBindingRoutes } from "./routes/surface/slack-bindings.ts";
+import { registerSlackChannelRoutes } from "./routes/surface/slack-channels.ts";
+import { registerSlackEventRoutes } from "./routes/surface/slack-events.ts";
+import { registerSlackInstallRoutes } from "./routes/surface/slack-install.ts";
+import { registerSlackInteractionRoutes } from "./routes/surface/slack-interactions.ts";
+import { registerSlackSecretRoutes } from "./routes/surface/slack-secrets.ts";
+import { registerUsageRoutes } from "./routes/usage/usage.ts";
+import { registerWorkerRoutes } from "./routes/workers/worker.ts";
 import { PostgresSessionNotifier } from "./session-notifier.ts";
 import { createShutdown } from "./shutdown.ts";
 import {

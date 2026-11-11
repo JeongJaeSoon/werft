@@ -54,10 +54,10 @@ import {
   LoginLockout,
 } from "./auth.ts";
 import { DatabaseApiKeyStore } from "./keys.ts";
-import { registerAgentIdentityRoutes } from "./routes/agent-identities.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
-import { registerSlackBindingRoutes } from "./routes/slack-bindings.ts";
-import { registerSlackChannelRoutes } from "./routes/slack-channels.ts";
+import { registerAgentIdentityRoutes } from "./routes/musterrolle/agent-identities.ts";
+import { registerSlackBindingRoutes } from "./routes/surface/slack-bindings.ts";
+import { registerSlackChannelRoutes } from "./routes/surface/slack-channels.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 

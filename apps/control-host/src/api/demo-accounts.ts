@@ -22,7 +22,7 @@ import {
   WEB_SESSION_TTL_MS,
   WEB_SESSIONS_PER_USER,
 } from "./auth.ts";
-import { generateInviteToken } from "./routes/invites.ts";
+import { generateInviteToken } from "./routes/musterrolle/invites.ts";
 
 // The web console's demo sign-ins for a local development stack, the same
 // on every machine (docs/quickstart.md "웹 콘솔 데모 계정"). Public on

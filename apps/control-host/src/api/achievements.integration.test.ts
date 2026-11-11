@@ -37,7 +37,7 @@ import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createApiApp } from "./app.ts";
 import { generateWebSessionToken, hashWebSessionToken } from "./auth.ts";
-import { registerAchievementRoutes } from "./routes/achievements.ts";
+import { registerAchievementRoutes } from "./routes/sessions/achievements.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
