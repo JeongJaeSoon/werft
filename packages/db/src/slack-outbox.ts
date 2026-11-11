@@ -366,7 +366,7 @@ const settledAs = (rendered: SQL) =>
   sql`CASE WHEN coalesce(${rendered}, 'open') IN ('open', 'reject_only') THEN NULL ELSE 'settled' END`;
 
 /** The `slack` role's redraws of posted cards (design slack-approval-ui §4). */
-function createPostgresSlackCardSettleStore(
+export function createPostgresSlackCardSettleStore(
   db: Database,
 ): SlackCardSettleStore {
   // Design §4 rule 6, as the thread status writer has it.

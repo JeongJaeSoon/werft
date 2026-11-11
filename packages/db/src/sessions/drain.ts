@@ -21,7 +21,7 @@ export const CLOSE = "close";
  * (the worker sees a `pause` control either way); only the settlement and
  * the receipt's operation differ.
  */
-const DRAINING = {
+export const DRAINING = {
   pausing: { operation: PAUSE, settlesInto: "paused" },
   closing: { operation: CLOSE, settlesInto: "closed" },
 } as const satisfies Partial<

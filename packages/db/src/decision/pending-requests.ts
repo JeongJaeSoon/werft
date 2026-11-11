@@ -131,7 +131,7 @@ function actionable(at: Date | typeof DB_NOW) {
  * live attempt. `pending_request_count` counts the same rows, so the summary
  * and the list never disagree.
  */
-function actionablePendingWhere(sessionId: string) {
+export function actionablePendingWhere(sessionId: string) {
   return and(eq(pendingRequests.sessionId, sessionId), actionable(DB_NOW));
 }
 
@@ -229,7 +229,7 @@ export function actionableNow() {
   return actionable(STATEMENT_NOW);
 }
 
-function isInFlight(status: string): boolean {
+export function isInFlight(status: string): boolean {
   return (IN_FLIGHT_STATUSES as string[]).includes(status);
 }
 
@@ -575,7 +575,7 @@ export async function readInputWaits(
   return result;
 }
 
-function publicPendingRequest(row: {
+export function publicPendingRequest(row: {
   requestId: string;
   turnSequence: number;
   attemptId: string;

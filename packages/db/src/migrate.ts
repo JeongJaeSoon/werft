@@ -39,7 +39,7 @@ export interface MigrationSummary {
 // `up` forever, and loose enough for a DDL statement that rewrites a table
 // or waits out a lock held by a running API. Raise it, or make it a setting,
 // once a migration needs longer.
-const MIGRATION_POOL_TIMEOUTS: PoolTimeouts = {
+export const MIGRATION_POOL_TIMEOUTS: PoolTimeouts = {
   connectMs: 5_000,
   statementMs: 300_000,
   queryMs: 330_000,

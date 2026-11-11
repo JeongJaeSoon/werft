@@ -195,7 +195,7 @@ const TEST_PROVIDER: CatalogProvider = {
 };
 
 /** The built-in tools the test runtime installs, for every version. */
-const TEST_TOOLS = ["Read", "Grep", "Glob", "Edit", "Write", "Bash"];
+export const TEST_TOOLS = ["Read", "Grep", "Glob", "Edit", "Write", "Bash"];
 
 export function testToolCatalogs(
   tools: readonly string[] = TEST_TOOLS,

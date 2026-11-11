@@ -43,7 +43,7 @@ import { pauseBlocker } from "./pause-control.ts";
 import { hasRestorePoint, restoreBaseRevision } from "./pause-policy.ts";
 import { recordEvent, recordStatus } from "./session-events.ts";
 
-const SESSION_CLOSED_SUBTYPE = "session_closed";
+export const SESSION_CLOSED_SUBTYPE = "session_closed";
 
 type SessionRow = typeof sessions.$inferSelect;
 

@@ -85,7 +85,7 @@ export function createPostgresSlackGuestSetting(
  * Axis A as stored: a missing key is the default `use`; a value no write
  * could have stored hides the agent (fail-closed).
  */
-function outsiderAccessOf(settings: unknown): AgentOutsiderAccess {
+export function outsiderAccessOf(settings: unknown): AgentOutsiderAccess {
   const value = (settings as Record<string, unknown> | null)
     ?.agent_outsider_access;
   if (value === undefined) return "use";

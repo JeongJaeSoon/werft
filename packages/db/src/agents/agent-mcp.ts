@@ -46,7 +46,7 @@ const rowOf = (found: typeof agentMcpSettings.$inferSelect): AgentMcpRow => ({
   updatedBy: found.updatedBy,
 });
 
-async function agentMcpRowOf(
+export async function agentMcpRowOf(
   executor: Database,
   agentId: string,
 ): Promise<AgentMcpRow | null> {

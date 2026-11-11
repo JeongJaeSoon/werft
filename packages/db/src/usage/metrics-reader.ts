@@ -15,7 +15,7 @@ import {
 // Endings a turn keeps. outcome_unknown is left out: an operator's recovery
 // decision rewrites it to completed or cancelled (recovery-control.ts), and
 // a counter must never lose what it counted.
-const SETTLED_TURN_STATUSES = [
+export const SETTLED_TURN_STATUSES = [
   "completed",
   "failed",
   "interrupted",

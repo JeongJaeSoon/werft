@@ -24,7 +24,7 @@ import {
 
 type Row = typeof pushIntents.$inferSelect;
 
-function publicPushIntent(row: Row): PushIntent {
+export function publicPushIntent(row: Row): PushIntent {
   return {
     id: row.id,
     session_id: row.sessionId,

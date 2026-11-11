@@ -34,7 +34,7 @@ import { mergeActivity, readActivityRange } from "./session-activity.ts";
 
 export const SESSION_ARCHIVE_PREFIX = "session-archive/";
 export const ARCHIVE_CHUNK_EVENTS = 1000;
-const ARCHIVE_CHUNK_BYTES = 8 * 1024 * 1024;
+export const ARCHIVE_CHUNK_BYTES = 8 * 1024 * 1024;
 
 /** What archiving needs of the checkpoint object store. */
 export type ArchiveObjectStore = {
@@ -81,7 +81,7 @@ export function decodeArchiveChunk(body: Uint8Array): string[] {
 const sha256 = (body: Uint8Array) =>
   createHash("sha256").update(body).digest("hex");
 
-function archiveObjectKey(
+export function archiveObjectKey(
   sessionId: string,
   fromId: number,
   throughId: number,
@@ -105,7 +105,7 @@ export type ArchiveChunkRow = {
  * Reads an archived chunk at its version and refuses one that is not what
  * was recorded. Lines come back with their event ids, in id order.
  */
-async function readArchiveChunk(
+export async function readArchiveChunk(
   source: ArchivedEventSource,
   chunk: ArchiveChunkRow,
 ): Promise<{ id: number; line: string }[]> {
@@ -283,7 +283,7 @@ function settled(sessionId: SQL, cap: number): SQL {
  * nothing running or waiting on anyone, an event past their last chunk, and
  * none past `cap`. A page of `limit`, ids after `afterId`.
  */
-async function archivableSessions(
+export async function archivableSessions(
   db: Database,
   input: { afterDays: number; cap: number; afterId: string; limit: number },
 ): Promise<{ id: string; after: number }[]> {

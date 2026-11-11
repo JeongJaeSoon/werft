@@ -269,6 +269,8 @@ const RECEIPT_STATUS_BY_TERMINAL: Record<
   outcome_unknown: "unknown",
 };
 
+export { acquireFence, leaseHeld };
+
 // Every fenced write repeats these predicates so a row the lock did not
 // cover (or a concurrent epoch bump) can never be written by a stale
 // attempt, independently of the application-level check.
@@ -1027,7 +1029,7 @@ type RunnableFields = Pick<
 >;
 
 /** The connection the session's spec names; null without a spec. */
-function specConnectionId(session: {
+export function specConnectionId(session: {
   runtimeSpec: Record<string, unknown> | null;
 }): string | null {
   const id = (session.runtimeSpec?.connection as { id?: unknown } | undefined)
@@ -1683,7 +1685,7 @@ function pinnedExtensionsOf(
  * binds only a session whose spec names a connection and model it runs, so
  * one that does not verify here is a broken row, never a guess.
  */
-function sessionSpecOf(
+export function sessionSpecOf(
   session: Pick<
     SessionRow,
     | "id"

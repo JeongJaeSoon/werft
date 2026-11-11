@@ -74,6 +74,8 @@ export const REVOKE_EXECUTION = "revoke_execution";
 // revocation blocks it), so the session identifies the execution.
 export const KILL_RECEIPT_OPERATIONS = [TERMINATE, REVOKE_EXECUTION];
 
+export { earliestUnknownTurn } from "./control-shared.ts";
+
 /**
  * The receipt a terminate settles with once its execution is gone; the same
  * shape is written by confirmExecutionGoneAtomic, so a reader sees one

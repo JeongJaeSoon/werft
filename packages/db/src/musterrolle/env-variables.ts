@@ -54,7 +54,7 @@ function scopeWhere(scope: EnvVariableScope): SQL {
  * serializes the writes of one scope, which is what a delete's affected counts
  * need to stay true.
  */
-async function lockEnvVariableScope(
+export async function lockEnvVariableScope(
   tx: Database,
   scope: EnvVariableScope,
 ): Promise<void> {

@@ -45,7 +45,7 @@ export async function lockedAdministers(
  * `lockedAdministers`, saying on what: `teamId` null for an admin row of
  * their own, else the lent team or the managing team they hold it through.
  */
-async function lockedAdminBasis(
+export async function lockedAdminBasis(
   tx: Database,
   workspaceId: string,
   agentId: string,
@@ -118,7 +118,7 @@ async function lockedAdminBasis(
  * rows share-locked: an archive, a removal or a role change waits for this
  * write or is seen by it. Team before member row, as team writers lock them.
  */
-async function lockedTeamRow(
+export async function lockedTeamRow(
   tx: Database,
   workspaceId: string,
   teamId: string,
