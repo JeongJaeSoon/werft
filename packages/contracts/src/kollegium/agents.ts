@@ -95,7 +95,6 @@ const mcpToolNameSchema = toolNameSchema.refine(
 /**
  * A card's say over the MCP tools it calls. Built-in tools are the runtime's
  * and have no entry here.
- * TODO(94S-1373): removed with `mcp` when the MCP server moves to agent settings.
  */
 export const cardToolPolicySchema = z
   .object({ per_tool: z.record(mcpToolNameSchema, toolPolicySchema) })
@@ -140,7 +139,7 @@ export const agentCapabilitiesSchema = z
      * Null for none, so a card written before it keeps its content hash.
      */
     mcp: z.array(cardMcpServerSchema).min(1).max(1).nullable(),
-    /** MCP tools the release must not allow. TODO(94S-1373): goes with `mcp`. */
+    /** MCP tools the release must not allow. */
     forbidden: z.array(mcpToolNameSchema).default([]),
     /**
      * Optional, with no default, so a card written before it existed keeps

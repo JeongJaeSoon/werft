@@ -1502,7 +1502,6 @@ export const sessionTitleRequests = pgTable(
 // it, and admitInput checks STORAGE_LIMIT_BYTES under this row's lock, so no
 // concurrent writer can race past the limit. One row per scope: today only
 // "installation".
-// TODO(94S-187): Add per-workspace rows for memory revisions.
 export const storageUsage = pgTable(
   "storage_usage",
   {

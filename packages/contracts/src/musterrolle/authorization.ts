@@ -212,7 +212,6 @@ export const authorizationContextSchema = z
       // between the three is checkable from the context alone. Closing it
       // means carrying the whole principal here instead of a ref, which is a
       // different contract from this schema.
-      // TODO(94S-152): Carry the authenticated principal needed to check it.
       //
       // What authenticated is also what acts for the human, so a context
       // claiming installation A must not match grants naming service B.
