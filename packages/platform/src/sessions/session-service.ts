@@ -95,6 +95,12 @@ import {
   usesWorkspaceCeiling,
   workspaceProfileRefusal,
 } from "./catalog.ts";
+import {
+  agentRefsOf,
+  maskAgentRefs,
+  RECEIPT_AGENT_REFS,
+  targetsHidden,
+} from "./receipt-agent-refs.ts";
 import { attachedRepositoriesOf } from "./session-repository.ts";
 import { deriveSessionTitle } from "./session-title.ts";
 
@@ -1931,7 +1937,29 @@ export function createSessionService(deps: {
       if (!receipt) {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
       }
-      return receipt;
+      // A receipt names an agent or release only to those who may use it
+      // (94S-902): one aimed at a private agent they may not use is not
+      // there for them, and one on a session they see is shown without the
+      // ids the table in receipt-agent-refs.ts lists.
+      const refs = agentRefsOf(receipt);
+      const sessionId =
+        "session_id" in receipt.target_ref
+          ? receipt.target_ref.session_id
+          : null;
+      const names =
+        refs.agentIds.length > 0 ||
+        refs.releaseIds.length > 0 ||
+        (sessionId !== null && receipt.operation in RECEIPT_AGENT_REFS);
+      if (!names) return receipt;
+      const hidden = await reader.hiddenAgentRefs(
+        actor.ownerId,
+        viewerOf(actor),
+        { ...refs, sessionId },
+      );
+      if (targetsHidden(receipt, hidden)) {
+        throw new SessionServiceError("NOT_FOUND", "Resource not found");
+      }
+      return maskAgentRefs(receipt, hidden);
     },
   };
 }

@@ -147,6 +147,7 @@ function change(
       listTurns: notReached,
       getTurn: notReached,
       getReceipt: notReached,
+      hiddenAgentRefs: notReached,
       readEvents: notReached,
     },
   });

@@ -236,6 +236,7 @@ function setup(
       listTurns: unreached,
       getTurn: unreached,
       getReceipt: unreached,
+      hiddenAgentRefs: unreached,
       readEvents: unreached,
     },
     limits: {

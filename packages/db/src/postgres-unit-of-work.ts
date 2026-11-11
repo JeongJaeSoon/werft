@@ -65,6 +65,7 @@ import {
   inArray,
   isNull,
   max,
+  not,
   notExists,
   or,
   sql,
@@ -155,6 +156,9 @@ import { pinRefusesLive } from "./session-pin-cutover.ts";
 import { sessionRelationIs, sessionVisibleTo } from "./session-shares.ts";
 import { newSessionPin } from "./session-spec-pin.ts";
 import { readArchivedWorkspaceLimit } from "./workspace-limit.ts";
+
+const isUuid = (value: string) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 
 export const CREATE_SESSION = "create_session";
 const APPEND_MESSAGE = "append_message";
@@ -1648,6 +1652,64 @@ export function createPostgresSessionReader(
         .where(and(eq(receipts.id, receiptId), eq(receipts.ownerId, ownerId)))
         .limit(1);
       return row ? receiptFromRow(row) : null;
+    },
+
+    async hiddenAgentRefs(ownerId, viewer, refs) {
+      const agentIds = new Set<string>();
+      const releaseIds = new Set<string>();
+      if (!isUuid(ownerId)) return { agentIds, releaseIds };
+      const who = {
+        userId: viewer.userId,
+        keyAgentId: viewer.keyAgentId ?? null,
+      };
+      const unusable = not(agentUsable(db, ownerId, who, agents.id));
+      const named = refs.agentIds.filter(isUuid).map((id) => id.toLowerCase());
+      if (named.length > 0) {
+        for (const row of await db
+          .select({ id: agents.id })
+          .from(agents)
+          .where(
+            and(
+              eq(agents.workspaceId, ownerId),
+              inArray(agents.id, named),
+              unusable,
+            ),
+          )) {
+          agentIds.add(row.id);
+        }
+      }
+      const releaseWhere = [
+        refs.releaseIds.length > 0
+          ? inArray(agentReleases.id, [...refs.releaseIds])
+          : undefined,
+        refs.sessionId !== null && isUuid(refs.sessionId)
+          ? inArray(
+              agentReleases.id,
+              db
+                .select({ id: sessions.agentReleaseId })
+                .from(sessions)
+                .where(
+                  and(
+                    eq(sessions.id, refs.sessionId),
+                    eq(sessions.ownerId, ownerId),
+                  ),
+                ),
+            )
+          : undefined,
+      ].filter((clause) => clause !== undefined);
+      if (releaseWhere.length > 0) {
+        for (const row of await db
+          .select({ id: agentReleases.id, agentId: agentReleases.agentId })
+          .from(agentReleases)
+          .innerJoin(agents, eq(agents.id, agentReleases.agentId))
+          .where(
+            and(eq(agents.workspaceId, ownerId), or(...releaseWhere), unusable),
+          )) {
+          releaseIds.add(row.id);
+          agentIds.add(row.agentId);
+        }
+      }
+      return { agentIds, releaseIds };
     },
 
     async readEvents(

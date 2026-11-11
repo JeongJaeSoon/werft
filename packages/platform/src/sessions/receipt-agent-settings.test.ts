@@ -99,7 +99,13 @@ function service(stored: Receipt, sessionVisible = true) {
     controls: unreachable,
     catalog: unreachable,
     limits: unreachable,
-    reader: { getReceipt: async () => stored } as never,
+    reader: {
+      getReceipt: async () => stored,
+      hiddenAgentRefs: async () => ({
+        agentIds: new Set<string>(),
+        releaseIds: new Set<string>(),
+      }),
+    } as never,
   });
 }
 

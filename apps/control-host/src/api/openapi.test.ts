@@ -458,6 +458,7 @@ describe("OpenAPI document", () => {
         "/v1/agents/{id}/admins",
         "/v1/agents/{id}/admins/{kind}/{subject_id}",
         "/v1/administered-agents",
+        "/v1/usable-agents",
         "/v1/teams",
         "/v1/my-teams",
         "/v1/teams/{team_id}",

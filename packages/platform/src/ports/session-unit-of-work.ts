@@ -240,6 +240,24 @@ export interface SessionReader {
   ): Promise<TurnDetail | null>;
   // null when the receipt does not exist or belongs to another owner.
   getReceipt(ownerId: string, receiptId: string): Promise<Receipt | null>;
+  /**
+   * Which of these agents and releases `viewer` may not use (94S-902): the ids
+   * given that name such an agent or a release of one, and, when `sessionId`
+   * is given, that session's own agent and release when it is one. An id of
+   * no agent is not hidden; there is nothing to hide.
+   */
+  hiddenAgentRefs(
+    ownerId: string,
+    viewer: SessionViewer,
+    refs: {
+      agentIds: readonly string[];
+      releaseIds: readonly string[];
+      sessionId: string | null;
+    },
+  ): Promise<{
+    agentIds: ReadonlySet<string>;
+    releaseIds: ReadonlySet<string>;
+  }>;
   // Events after the cursor in session order: at most `limit` rows and,
   // past the first row, at most `maxBytes` of payload, so one page never
   // holds more memory than that whatever the history looks like. `more` is

@@ -29,7 +29,13 @@ const receipt: Receipt = {
   updated_at: "2026-09-22T00:00:00.000Z",
 };
 
-function app(getReceipt: SessionReader["getReceipt"]) {
+function app(
+  getReceipt: SessionReader["getReceipt"],
+  hiddenAgentRefs: SessionReader["hiddenAgentRefs"] = async () => ({
+    agentIds: new Set<string>(),
+    releaseIds: new Set<string>(),
+  }),
+) {
   const service = createSessionService({
     limits: {
       queuedInputLimitPerSession: 1_000,
@@ -79,6 +85,7 @@ function app(getReceipt: SessionReader["getReceipt"]) {
       listTurns: async () => null,
       getTurn: async () => null,
       getReceipt,
+      hiddenAgentRefs,
       readEvents: async () => null,
     },
   });
@@ -145,6 +152,119 @@ describe("GET /v1/receipts/{id}", () => {
       null,
     );
     expect(response.status).toBe(401);
+  });
+
+  describe("agents the reader may not use (94S-902)", () => {
+    const HIDDEN = "8d2c4f1a-6b3e-4a9d-b7c5-2e1f0a9b8c7d";
+    const OPEN = "9e3d5a2b-7c4f-4bae-88d6-3f2a1b0c9d8e";
+    const hiding = (agentIds: string[], releaseIds: string[] = []) =>
+      (async () => ({
+        agentIds: new Set(agentIds),
+        releaseIds: new Set(releaseIds),
+      })) as SessionReader["hiddenAgentRefs"];
+
+    test("a delete_team receipt loses the hidden agents from both lists", async () => {
+      const stored: Receipt = {
+        ...receipt,
+        operation: "delete_team",
+        target_ref: {
+          resource: {
+            kind: "team",
+            id: "5f7a1b2c-3d4e-4f60-8a9b-0c1d2e3f4a5b",
+          },
+          workspace_id: null,
+        },
+        status: "succeeded",
+        result: {
+          name: "finance",
+          agent_ids: [HIDDEN, OPEN],
+          usage_agent_ids: [HIDDEN],
+        },
+      };
+      const response = await get(
+        app(async () => stored, hiding([HIDDEN])),
+        stored.id,
+      );
+      expect(response.status).toBe(200);
+      const text = await response.text();
+      expect(text).not.toContain(HIDDEN);
+      expect(JSON.parse(text).result).toEqual({
+        name: "finance",
+        agent_ids: [OPEN],
+        usage_agent_ids: [],
+      });
+    });
+
+    test("a receipt aimed at a hidden agent is not found, as a missing one is", async () => {
+      const stored: Receipt = {
+        ...receipt,
+        operation: "create_session",
+        target_ref: {
+          resource: { kind: "agent", id: HIDDEN },
+          workspace_id: null,
+        },
+        status: "failed",
+        result: { agent_id: HIDDEN, release_id: "rel-hidden" },
+        error: { code: "CREDENTIAL_UNBOUND", message: "unbound" },
+      };
+      const hidden = await get(
+        app(async () => stored, hiding([HIDDEN], ["rel-hidden"])),
+        stored.id,
+      );
+      const missing = await get(
+        app(async () => null),
+        stored.id,
+      );
+      expect(hidden.status).toBe(404);
+      const { request_id: _hidden, ...hiddenError } = (
+        (await hidden.json()) as { error: Record<string, unknown> }
+      ).error;
+      const { request_id: _missing, ...missingError } = (
+        (await missing.json()) as { error: Record<string, unknown> }
+      ).error;
+      expect(hiddenError).toEqual(missingError);
+    });
+
+    test("a gate receipt on a visible session shows without the agent and release", async () => {
+      const stored: Receipt = {
+        ...receipt,
+        operation: "merge_pull_request",
+        status: "succeeded",
+        result: {
+          session_id: "0b3f1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2d",
+          agent_id: HIDDEN,
+          agent_release_id: "rel-hidden",
+          repository_id: "sample-app",
+        },
+      };
+      const response = await get(
+        app(async () => stored, hiding([HIDDEN], ["rel-hidden"])),
+        stored.id,
+      );
+      expect(response.status).toBe(200);
+      const text = await response.text();
+      expect(text).not.toContain(HIDDEN);
+      expect(text).not.toContain("rel-hidden");
+      expect(JSON.parse(text).result).toEqual({
+        session_id: "0b3f1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2d",
+        agent_id: null,
+        agent_release_id: null,
+        repository_id: "sample-app",
+      });
+    });
+
+    test("a receipt that names no agent is not looked up", async () => {
+      let asked = 0;
+      const response = await get(
+        app(async () => ({ ...receipt, operation: "pause" }), (async () => {
+          asked += 1;
+          return { agentIds: new Set<string>(), releaseIds: new Set<string>() };
+        }) as SessionReader["hiddenAgentRefs"]),
+        receipt.id,
+      );
+      expect(response.status).toBe(200);
+      expect(asked).toBe(0);
+    });
   });
 
   test("maps a storage outage to a retryable 503", async () => {

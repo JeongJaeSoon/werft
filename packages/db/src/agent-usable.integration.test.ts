@@ -494,4 +494,56 @@ integration("agent_usable on PostgreSQL", () => {
         ?.id,
     ).toBe(w.agentId);
   });
+
+  test("hiddenAgentRefs names the agents, releases and session agent a viewer may not use", async () => {
+    const w = await world();
+    const reader = createPostgresSessionReader(db);
+    const viewer = (caller: Caller) => ({
+      userId: idOf(caller),
+      apiKeyId: null,
+      keyAgentId: null,
+    });
+    const asked = {
+      agentIds: [w.agentId, w.other.agentId, randomUUID()],
+      releaseIds: [w.releaseId, w.other.releaseId, "rel-nothing"],
+      sessionId: null,
+    };
+    const outside = await reader.hiddenAgentRefs(
+      w.ws,
+      viewer(w.outsider),
+      asked,
+    );
+    expect([...outside.agentIds]).toEqual([w.agentId]);
+    expect([...outside.releaseIds]).toEqual([w.releaseId]);
+    const inside = await reader.hiddenAgentRefs(w.ws, viewer(w.insider), asked);
+    expect([...inside.agentIds]).toEqual([]);
+    expect([...inside.releaseIds]).toEqual([]);
+
+    // A session of the private agent hides its agent and release too, with
+    // nothing else named.
+    const created = await uow().acceptInputAtomic({
+      principal: w.insider,
+      idempotencyKey: randomUUID(),
+      payloadHash: "create",
+      profileId: "coding",
+      repository: "none",
+      agentReleaseId: w.releaseId,
+      message: "start",
+      limits: LIMITS,
+    });
+    if (created.outcome !== "accepted") throw new Error(created.outcome);
+    const bySession = await reader.hiddenAgentRefs(w.ws, viewer(w.outsider), {
+      agentIds: [],
+      releaseIds: [],
+      sessionId: created.response.session_id,
+    });
+    expect([...bySession.agentIds]).toEqual([w.agentId]);
+    expect([...bySession.releaseIds]).toEqual([w.releaseId]);
+
+    // A malformed owner names nothing.
+    expect(
+      (await reader.hiddenAgentRefs("legacy-owner", viewer(w.outsider), asked))
+        .agentIds.size,
+    ).toBe(0);
+  });
 });

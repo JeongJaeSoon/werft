@@ -4462,7 +4462,7 @@ export interface paths {
          *     - `set_slack_secret`, `delete_slack_secret`: `{purpose, last4}`; the value itself is never in a receipt.
          *     - `set_github_app`, `delete_github_app`: `{app_id}`; the private key is never in a receipt.
          *
-         *     Any credential of the same owner can read a receipt, except that a receipt about a session needs that session to be visible to the caller, and one that changed an agent's settings (`target_ref.resource` an agent or one of its Slack bindings, other than a refused `create_session`) is read only by those who read the agent's settings: its workspace's owners and admins, its admins, the live members of its managing team, and their personal keys; anyone else gets 403. It changes nothing.
+         *     Any credential of the same owner can read a receipt, except that a receipt about a session needs that session to be visible to the caller, and one that changed an agent's settings (`target_ref.resource` an agent or one of its Slack bindings, other than a refused `create_session`) is read only by those who read the agent's settings: its workspace's owners and admins, its admins, the live members of its managing team, and their personal keys; anyone else gets 403. A receipt that names an agent or a release of one (`agent_id`, `agent_ids`, `release_id`, `agent_release_id`, or the agent as `target_ref` or `actor.agent_id`) is shown only with those ids to a reader who may use that agent (`GET /v1/usable-agents`); for anyone else a private agent's ids are left out (a list loses them, a single field is `null`) and a receipt whose target is that agent or one of its releases answers 404, as a receipt that does not exist does. It changes nothing.
          *
          *     **Scope:** `sessions:read` (API key or cookie session).
          */
@@ -35679,7 +35679,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description The agents a start would accept, oldest first. */
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
