@@ -25,7 +25,11 @@ import {
   unassignedSessions,
 } from "@werft-ai/db";
 import { migrate } from "@werft-ai/db/migrate";
-import { createLogger, MemoryLogSink } from "@werft-ai/observability";
+import {
+  createLogger,
+  type LogRecord,
+  MemoryLogSink,
+} from "@werft-ai/observability";
 import {
   type AuthorizationPolicy,
   createAuthorizationPolicy,
@@ -103,13 +107,62 @@ async function collect(
   }
 }
 
+// A memory sink that can be awaited: the route writes some records after the
+// response body has already ended (the revocation closes the body first and
+// logs from the stream loop's `finally`), so a test that saw the stream end
+// waits for the record itself instead of assuming it is already there.
+class WatchedLogSink extends MemoryLogSink {
+  private readonly waiters = new Set<{
+    match: (record: LogRecord) => boolean;
+    resolve: (record: LogRecord) => void;
+  }>();
+
+  override write(record: LogRecord): void {
+    super.write(record);
+    for (const waiter of this.waiters) {
+      if (waiter.match(record)) {
+        this.waiters.delete(waiter);
+        waiter.resolve(record);
+      }
+    }
+  }
+
+  // Resolves with the first record, already written or still to come, that
+  // matches; rejects only if none arrives before the deadline.
+  async next(
+    match: (record: LogRecord) => boolean,
+    timeoutMs = 5_000,
+  ): Promise<LogRecord> {
+    const written = this.records.find(match);
+    if (written) return written;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const waiter = {
+      match,
+      resolve: (_record: LogRecord) => {},
+    };
+    try {
+      return await new Promise<LogRecord>((resolve, reject) => {
+        waiter.resolve = resolve;
+        this.waiters.add(waiter);
+        timer = setTimeout(
+          () => reject(new Error("no matching log record")),
+          timeoutMs,
+        );
+      });
+    } finally {
+      clearTimeout(timer);
+      this.waiters.delete(waiter);
+    }
+  }
+}
+
 integration("GET /v1/sessions/{id}/events on PostgreSQL", () => {
   let pool: Pool;
   let db: NodePgDatabase<typeof schema>;
   let notifier: PostgresSessionNotifier;
   let app: ReturnType<typeof createApiApp>;
   let apiKeyApp: ReturnType<typeof createApiApp>;
-  const sink = new MemoryLogSink();
+  const sink = new WatchedLogSink();
   // Owners are workspaces: a session runs a release of its own workspace.
   const owner = crypto.randomUUID();
   const stranger = crypto.randomUUID();
@@ -548,13 +601,14 @@ integration("GET /v1/sessions/{id}/events on PostgreSQL", () => {
     }
     // The re-check runs every half interval, so one interval is the bound.
     expect(Date.now() - revokedAt).toBeLessThan(KEEPALIVE_MS + 50);
-    expect(
-      sink.records.some(
-        (record) =>
-          record.message === "SSE stream closed" &&
-          record.fields?.reason === "credential_revoked",
-      ),
-    ).toBe(true);
+    // The watchdog aborts the body before the stream loop unwinds and logs
+    // the close, so the record can land after the reader has seen the end.
+    const closedRecord = await sink.next(
+      (record) =>
+        record.message === "SSE stream closed" &&
+        record.fields?.session_id === sessionId,
+    );
+    expect(closedRecord.fields?.reason).toBe("credential_revoked");
     // And the key opens nothing new.
     const reopened = await stream(
       sessionId,
