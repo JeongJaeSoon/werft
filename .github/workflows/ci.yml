@@ -368,7 +368,6 @@ jobs:
               - packages/system/
               - packages/ui/
               - packages/testkit/src/fake-anthropic.
-              - packages/testkit/src/fake-git.
               - packages/testkit/src/fake-github.
               - packages/testkit/src/fake-responses.
               - packages/testkit/src/scripted-messages.

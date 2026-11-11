@@ -7,11 +7,7 @@
  * The manifest body is the one every engine shares (runtime-codec-kit
  * `createCheckpointCodec`); only the engine's name is Claude's.
  */
-import {
-  createCheckpointCodec,
-  sha256Hex,
-  validateCompatibility,
-} from "@werft-ai/runtime-codec-kit";
+import { createCheckpointCodec } from "@werft-ai/runtime-codec-kit";
 import type { CheckpointCodec } from "@werft-ai/runtime-core";
 
 import { CLAUDE_AGENT_SDK_VERSION, CLAUDE_CODE_VERSION } from "./versions.ts";
@@ -28,7 +24,3 @@ export const claudeCheckpointCodec: CheckpointCodec = createCheckpointCodec({
   engine: CLAUDE_CHECKPOINT_ENGINE,
   label: "Claude",
 });
-
-export const encodeCheckpointManifest = claudeCheckpointCodec.encode;
-export const decodeCheckpointManifest = claudeCheckpointCodec.decode;
-export { sha256Hex, validateCompatibility };

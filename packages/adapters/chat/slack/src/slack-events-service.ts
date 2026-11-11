@@ -207,8 +207,9 @@ export function createSlackEventsService(deps: {
     if (resolved.status === "dropped") {
       return { status: "dropped", dropReason: resolved.reason };
     }
-    // member_joined_channel names the bot when it is invited; 94S-794
-    // needs exactly that one, so the bot rules apply to messages only.
+    // member_joined_channel names the bot when it is invited; the
+    // member-joined handler needs exactly that one, so the bot rules apply
+    // to messages only.
     if (event.type === "message" || event.type === "app_mention") {
       if (event.bot_id !== undefined) {
         return { status: "dropped", dropReason: "bot_message" };

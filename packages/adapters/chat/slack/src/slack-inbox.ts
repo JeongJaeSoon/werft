@@ -27,11 +27,9 @@ export function slackConversationKey(
 
 /**
  * Acts on one claimed event. Throwing gives it back for a later attempt;
- * returning marks it processed. 94S-791 puts sessions behind it.
+ * returning marks it processed.
  */
 export type SlackInboundHandler = (event: SlackInboundClaim) => Promise<void>;
-
-export const noopSlackInboundHandler: SlackInboundHandler = async () => {};
 
 /** Thrown by a handler to end the event `dropped` instead of retrying it. */
 export class SlackInboundDropped extends Error {

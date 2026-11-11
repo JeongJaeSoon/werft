@@ -49,12 +49,7 @@ export const ANNOTATIONS = {
   workspaceSize: "werft.workspace-size",
 } as const;
 
-export {
-  ENV,
-  egressCredentialUrlOf,
-  NO_PROXY_VALUE,
-  noProxyValueFor,
-} from "@werft-ai/contracts/execution";
+export { ENV } from "@werft-ai/contracts/execution";
 
 /** The key in the nonce Secret the worker's env reads. */
 export const NONCE_KEY = "nonce";

@@ -6,7 +6,7 @@ import type {
 export * from "./slack-store-fakes.ts";
 
 /**
- * Keeps one notice per `onceKey`, as 94S-792's delivery will: a person who
+ * Keeps one notice per `onceKey`, as the outbox delivery does: a person who
  * keeps writing into a thread they may not use hears about it once.
  */
 export function createMemorySlackNoticeSink() {

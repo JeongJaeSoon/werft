@@ -57,7 +57,7 @@ export type SlackFinalizeResult = {
 
 /**
  * Runs once the install is verified and the identity linked: registering
- * events (94S-789), then the home channel and welcome (94S-794), joined with
+ * events, then the home channel and welcome, joined with
  * `composeSlackFinalize`. A step that cannot run says so in its result; one
  * that throws leaves the install in place and is reported as
  * `finalized: false`.

@@ -18,7 +18,7 @@ import {
   workspaceClaimFor,
   workspaceClaimNameFor,
 } from "./specs.ts";
-import { testConfig } from "./testing.ts";
+import { testConfig } from "./testing/index.ts";
 
 const config = {
   ...testConfig("agents", "prod"),
