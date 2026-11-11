@@ -65,7 +65,7 @@ export const docsLlms = llms(source, {
   renderName: (node, { lang }) => {
     if (node.type === "page")
       return source.getNodePage(node, lang)?.data.title ?? String(node.name);
-    return node.type === "folder"
+    return node.type === "folder" || node.type === "separator"
       ? String(node.name)
       : messages[(lang ?? i18n.defaultLanguage) as Locale].siteTitle;
   },

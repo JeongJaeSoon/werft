@@ -1,4 +1,5 @@
 import Link from "fumadocs-core/link";
+import { findNeighbour } from "fumadocs-core/page-tree";
 import { Callout } from "fumadocs-ui/components/callout";
 import { Card } from "fumadocs-ui/components/card";
 import {
@@ -62,7 +63,13 @@ export default async function Page(props: Props) {
   const MDX = page.data.body;
   const isHome = page.slugs.length === 0;
   return (
-    <DocsPage toc={toc} full={page.data.full ?? isHome}>
+    <DocsPage
+      toc={toc}
+      full={page.data.full ?? isHome}
+      // The layout's tree leaves contributing out of the sidebar; previous and
+      // next come from the whole tree so that page keeps its neighbours.
+      footer={{ items: findNeighbour(source.getPageTree(lang), page.url) }}
+    >
       {isHome ? null : (
         <>
           <DocsTitle lang={contentLang}>{page.data.title}</DocsTitle>
