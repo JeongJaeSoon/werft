@@ -1,4 +1,4 @@
-import type { GitHubGrant } from "../../ports/github-gate.ts";
+import type { GitHubGrant } from "../../github/ports/github-gate.ts";
 import type { GitHubApi } from "./github-api.ts";
 
 /** A grant whose `api` is only what the holder calls. */

@@ -1,10 +1,17 @@
 // The entrance other platform domains import (A2 in package-structure.md):
-// only the names action/ and decision/ use, not a barrel over the directory.
-export { additionalRepositoryAllowed } from "./additional-repositories.ts";
+// only the names action/, decision/ and github/ use, not a barrel over the directory.
 export {
+  additionalContextOf,
+  additionalRepositoriesOf,
+  additionalRepositoryAllowed,
+} from "./additional-repositories.ts";
+export {
+  GITHUB_API_BASE,
   repositoryBinding,
+  repositoryInCeiling,
   repositoryUpstreamOf,
   type SessionCatalog,
+  usesWorkspaceCeiling,
 } from "./catalog.ts";
 export {
   closeOpenBlocks,
@@ -23,4 +30,5 @@ export {
   requirePermitted,
   SessionServiceError,
   selfApproval,
+  viewerOf,
 } from "./session-service.ts";

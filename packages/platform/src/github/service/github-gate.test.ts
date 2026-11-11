@@ -15,8 +15,13 @@ import {
   ForgeCredentialError,
   type GitCredential,
   type RepoRef,
-} from "../action/ports/forge.ts";
-import type { GitHubApi } from "../action/ports/github-api.ts";
+} from "../../action/ports/forge.ts";
+import type { GitHubApi } from "../../action/ports/github-api.ts";
+import type {
+  InstallationProfileEntry,
+  SessionCatalog,
+} from "../../sessions/catalog.ts";
+import { agentPolicy, releasePolicy } from "../../testing/github-fakes.ts";
 import type {
   GitHubPinStore,
   GitHubRepositoryPin,
@@ -34,8 +39,6 @@ import {
   type GitHubWork,
   type RegisteredGitHubConnection,
 } from "../ports/github-gate.ts";
-import { agentPolicy, releasePolicy } from "../testing/github-fakes.ts";
-import type { InstallationProfileEntry, SessionCatalog } from "./catalog.ts";
 import {
   createGitHubConnectionResolver,
   type GitHubConnectionResolver,

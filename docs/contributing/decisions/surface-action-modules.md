@@ -878,6 +878,8 @@ platform index에 한 PR 주기 동안 재수출을 둘 수는 **없다.** platf
 
 ## 15. 검토 기록
 
+S2 잔여(구조화 설계 S2): U6a가 옮기지 않은 GitHub 파일을 `platform/src/github/`로 옮겼다. 인가·토큰·receipt를 맡은 게이트는 7.1절대로 `github/`에 남고 `action/`으로 가지 않는다. 다른 도메인에서 오는 import는 `sessions/index.ts`·`musterrolle/index.ts`를 거치고, `github/index.ts`가 `sessions/`·`workers/`의 입구다.
+
 1~3회차 표의 이름은 그 회차 때의 이름(역할 명사)이다. 이름은 4회차의 정정으로 `-able`이 되었다([6.5절](#65-이름-관례)).
 
 Codex 반론 1회차(대상 `d903f76da`)는 Act-on 11건이었고 모두 반영했다. 고친 내용은 이렇다.

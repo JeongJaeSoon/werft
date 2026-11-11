@@ -3,7 +3,7 @@ import type {
   McpEgressStore,
   McpRefusalRecord,
   McpSessionState,
-} from "../ports/mcp-egress.ts";
+} from "../github/ports/mcp-egress.ts";
 import { mcpBinding, type SessionCatalog } from "../sessions/catalog.ts";
 import { visibleMcpTools } from "../sessions/mcp-tool-decision.ts";
 import { createMcpEgress, uuidV5 } from "./mcp-egress.ts";

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { GitHubCallError } from "../ports/github-gate.ts";
+import { GitHubCallError } from "../github/ports/github-gate.ts";
 import type {
   ForgeContractSubject,
   MakeForgeSubject,

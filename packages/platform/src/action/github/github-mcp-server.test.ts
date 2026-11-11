@@ -11,14 +11,14 @@ import {
 } from "@werft-ai/contracts";
 import { testCaller } from "@werft-ai/testkit";
 import {
-  type AuthorizationPolicy,
-  createAuthorizationPolicy,
-} from "../../musterrolle/policy.ts";
-import {
   type GitHubGate,
   GitHubGateError,
   type GitHubWork,
-} from "../../ports/github-gate.ts";
+} from "../../github/ports/github-gate.ts";
+import {
+  type AuthorizationPolicy,
+  createAuthorizationPolicy,
+} from "../../musterrolle/policy.ts";
 import {
   type GitHubMcpSessionState,
   SavedRulesUnavailable,
