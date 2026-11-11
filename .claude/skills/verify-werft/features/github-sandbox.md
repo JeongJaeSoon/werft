@@ -115,10 +115,13 @@ ap_web POST "/v1/sessions/$SID/push-requests/$PRID/approve" "$(jq -nc --arg c "$
 for i in $(seq 1 30); do s=$(ap_get "/v1/sessions/$SID/push-requests/$PRID" | head -1 | jq -r .state); case $s in pushed|failed) break ;; esac; sleep 2; done; echo "$s"
 ap_post "/v1/sessions/$SID/push-requests/$PRID/pull-request" '{"title":"verify-werft: GitHub sandbox flow"}' | tee "$EVIDENCE/gh-pr.txt"
 ap_post "/v1/sessions/$SID/push-requests/$PRID/pull-request" '{}'      # 같은 PR, created: false
+ap_post "/v1/sessions/$SID/push-requests/$PRID/pull-request/comments" '{"body":"verify-werft: sandbox comment"}'   # 201, comment.created: true
 printf 'PRID=%s\n' "$PRID"
 ```
 
 기대: push 요청 `201` `state: "requested"`, `target_branch: "agent/<SID>"`, 요청 id는 `.id`다(`push_request_id`가 아니다). 결정 `200`(cookie로. 다른 `git_commit`이면 `409 CHECKPOINT_MOVED`, `details.refusal: "commit_mismatch"`, 요청은 `requested`로 남는다). 상태 `pushed`. PR `201` `created: true`와 `pull_request.url`, 두 번째 `200` `created: false`. `gh pr view <n> -R JeongJaeSoon/werft-sandbox --json author,headRefName,state`는 `app/werft-sandbox-agent`, `agent/<SID>`, `OPEN`.
+
+기대: 코멘트 `201` `comment.created: true`와 `comment.url`·`receipt_id`. 같은 `marker`(기본 `status`)로 다시 부르면 새로 달지 않고 그 코멘트를 고쳐 `200` `created: false`다. PR을 열 때와 같은 key로 부르고, GitHub에서 코멘트 작성자는 PR 작성자와 같은 App이다.
 
 ```sh
 # 5b. 성과: PR 근거 → 바로 인정 성과
@@ -147,6 +150,10 @@ ap_compose exec -T postgres psql -U postgres -d sessions -c "select operation, s
 ```
 
 기대: 오류는 모두 `error.code: "GITHUB_REFUSED"`와 `details.reason_code`·`details.receipt_id`다. 목록 밖 `403 workflow_not_allowed`, `agent/` ref `403 agent_ref_refused`, 기록 없는 run의 rerun `403 run_ref_unprovable`은 GitHub를 부르지 않고 `dispatch_workflow`·`rerun_workflow` failed receipt를 남긴다. receipt `result`에는 `workflow`·`ref`·`purpose`·`agent_id`·`agent_release_id`·`repository_id`·`reason_code`가 있고 `inputs` 값은 없다. 목록 안 dispatch와 run 조회는 App 권한과 sandbox 워크플로에 달렸다(Gotchas). activity(최근 순)와 DB에 `mint_github_token`(`clone`·`push`·`pull_request`)이 succeeded, `create_agent_release`·`activate_agent`가 있다.
+
+기대: receipt의 `actor`는 플랫폼 쪽 행위자다. `open_pull_request`와 `comment_pull_request`는 그 route를 부른 호출자, 곧 이 절차의 개인 key(`principal.kind: "api_key"`)와 그 소유자(`actor_user_id`)다. `push` receipt는 `actor`가 null이고 `result.approved_by`가 승인한 사람이다. 작성용 App은 receipt가 아니라 GitHub 쪽 결과(PR 작성자, 코멘트 작성자)에서 확인하고, 두 쪽이 서로 어긋나지 않아야 한다. `actor`는 위 DB 조회에 `actor`와 `result->'approved_by'` 칸을 더해 읽는다.
+
+기대: 성공 `mint_github_token` receipt는 토큰을 새로 발급할 때만 남는다. 토큰은 api 프로세스 안에서 저장소와 권한 조합별로 캐시되어(만료 10분 전까지 다시 쓴다), 같은 세션의 다음 turn이나 같은 스택의 다른 세션이 캐시 토큰을 쓰면 receipt가 늘지 않는다. 그래서 같은 스택의 두 번째 세션에는 `mint_github_token` `clone`이 없을 수 있다. api 컨테이너를 재시작하면 캐시가 비어 다음 발급에서 receipt가 새로 남는다.
 
 ```sh
 # 7. 정리: 자기 PR 닫기, 스택 내리기(volume 유지), 잠금 놓기
@@ -199,7 +206,7 @@ ap_compose exec -T postgres psql -U postgres -d sessions -At -c "select result::
 
 - **api만 재시작하면 주소가 바뀐다.** `ap_compose restart api`는 ephemeral 포트를 새로 받아 `state.env`의 주소와 어긋난다. `lib.sh`를 source한 뒤 `ap_as` 다음 줄에 `API=http://127.0.0.1:$(ap_compose port api 3000 | cut -d: -f2)`로 바꿔야 `ap_*`가 닿는다(`VERIFY_API`가 아니라 `API`를 읽는다). `state.env`는 agent-guard가 막으므로 열지 않는다.
 
-- **운영자 단계에 달린 항목.** 설계 문서 9절의 운영자 단계 1(App의 Actions 권한)·4(werft-sandbox `main`의 `.github/workflows/`)가 끝나지 않았으면 목록 안 dispatch는 `409 app_permission_missing`(GitHub가 `actions: write` 발급을 거절)에서 멈추고, run 조회(`actions_read`)도 같은 이유로 거절된다. 성공·run 조회·rerun 성공은 운영자 단계 뒤에 같은 명령으로 확인한다. 워크플로만 없으면 GitHub가 dispatch를 404로 답한다.
+- **운영자 단계에 달린 항목.** 목록 안 dispatch와 run 조회는 설계 문서 9절의 운영자 단계 1(App의 Actions 권한)과 4(werft-sandbox `main`의 `.github/workflows/`)에 달렸다. 1단계가 승인되지 않았으면 4단계와 무관하게 목록 안 dispatch가 `409 app_permission_missing`에서 멈춘다(GitHub가 `actions: write` 토큰 발급을 거절해 dispatch 호출까지 가지 않는다). run 조회(`actions_read`)도 같은 이유로 `409 app_permission_missing`이다. 1단계는 승인됐고 4단계의 워크플로만 없으면 토큰은 발급되고 GitHub가 dispatch 호출에 404로 답한다. 이때 API 응답은 404가 아니라 `503 BACKEND_UNAVAILABLE`(`details.receipt_id`)이고, 그 `dispatch_workflow` failed receipt의 `result.status`가 `404`다. 성공·run 조회·rerun 성공은 두 단계가 모두 끝난 뒤 같은 명령으로 확인한다.
 - **릴리스 없는 세션은 GitHub 설정이 없다.** 개인 key로 `repository_id: "sandbox"`만 주고 만든 세션은 기본 설정(Actions 꺼짐)이라 dispatch가 `403 feature_off`다(코드 기준: `packages/platform/src/github/service/github-gate.ts`의 `settings === null`). dispatch를 보려면 위처럼 `agent_release_id`로 만든다.
 - **키 경로를 명령에 쓰지 않는다.** agent-guard가 키 파일 모양의 경로가 든 명령을 막는다. 다른 파일이면 `VERIFY_GITHUB_APP_KEY_FILE`을 따로 export하는 줄도 같은 이유로 막힐 수 있으니, 기본 경로에 둔다.
 - **머지는 사람의 리뷰가 있어야 한다.** werft-sandbox `main`의 ruleset이 승인 리뷰 1개를 요구해 `gh pr merge`가 거절된다. `--admin`으로 넘지 않는다. 그래서 머지 뒤 근거 상태(`merged`)와 Luna 규칙의 다시 판정은 이 절차로 보지 못한다(연결 저장 뒤 후속 검증).
