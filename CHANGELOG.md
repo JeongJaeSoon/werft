@@ -12,6 +12,18 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ## 미출시
 
+## v0.1.3
+
+`v0.1.2` 뒤 `main`에 들어간 변경이다. 올리는 순서는 egress proxy, control-host·API·검증기·GC·세션 보관 CronJob, worker 순이다. 아래 항목이 그 이유다.
+
+### 운영자가 할 일
+
+- **egress proxy를 control-host보다 먼저 올린다**(JeongJaeSoon/werft#1515). `openai_responses` 연결의 `/v1/responses` 사용량은 프록시가 계량하는데, 옛 프록시는 `priority` 처리 등급을 알리지 못해 standard로 보고한다. 순서가 바뀌면 그 사이의 `priority` 요청이 오류 없이 standard 단가로 계량된다.
+- **API를 worker보다 먼저 올린다**(JeongJaeSoon/werft#1539). 새 worker는 도구 호출 판단(`tool_decisions`)을 함께 보내고, 옛 API는 이 칸이 든 요청을 거절한다. 옛 worker는 새 API와 그대로 동작한다.
+- **DB 마이그레이션 7개(`0263`~`0269`)가 `migrate`에서 적용된다.** 열·테이블·인덱스를 더하는 것이 대부분이다. `0265_agent_usage`는 기존 에이전트마다 `scope = workspace` 행을 넣는다(JeongJaeSoon/werft#1553). `0264_runtime_tools_source`는 트랜잭션 없이 돌며 `sessions`에 기본값 `profile`인 NOT NULL 열과 CHECK를 더한다. 중간에 실패하면 다음 실행이 처음부터 다시 한다(JeongJaeSoon/werft#1524). 올리기 전에 DB를 백업한다.
+- **이미 `OTEL_TRACES_EXPORTER=otlp`인 설치는 `TRACE_INGEST_URL`을 더해야 api가 시작한다**(JeongJaeSoon/werft#1534, JeongJaeSoon/werft#1558). 없으면 키 이름을 밝히고 멈춘다. `otlp`이면 api가 worker 전용 ingest 포트 `TRACE_INGEST_PORT`(기본 `4319`, Helm은 `config.tracing.ingestPort`)를 더 연다(JeongJaeSoon/werft#1546). worker는 egress proxy를 지나 이 포트에 닿으므로 compose는 `EGRESS_PRIVATE_ALLOWLIST`에 `api:4319`를 더하고, Helm은 `config.egress.privateAllowlist`를 `<api Service 이름>:3000,<api Service 이름>:4319`로 직접 지정한다. 키를 비운 설치는 할 일이 없다. 절차는 `docs/operator/api-server.md`를 따른다.
+- **release manifest와 chart에 Codex worker 이미지가 더해졌다**(JeongJaeSoon/werft#1562). 게시 이미지는 `control-host`·`worker`·`worker-codex`·`egress-proxy` 네 개다. manifest에는 `images["worker-codex"]`와 `workerCodexRuntime`, chart values에는 `images.workerCodex`가 생긴다. 배포되는 worker는 그대로 `images.worker`(Claude)이고 `images.workerCodex`는 digest만 싣는다. 기존 키는 바뀌지 않아 manifest를 읽는 쪽이 고칠 것은 없다.
+
 ## v0.1.2
 
 `v0.1.0` 뒤 첫 게시 릴리스다. `v0.1.1` 태그는 게시에 실패해 패키지와 Release가 없으므로, 아래 `v0.1.1` 절의 변경도 모두 이 버전에 들어 있다. `v0.1.0`에서 올릴 때 따를 절차는 이 절의 "운영자가 할 일"이다. `v0.1.1` 절의 "운영자가 할 일"은 그 시점의 기록이라 마이그레이션 범위와 `AGENT_ACTION_FLOWS` 절차가 이 버전에는 맞지 않으므로 따르지 않는다.
