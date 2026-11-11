@@ -1,4 +1,7 @@
-/** Polls a synchronous condition for up to two seconds, then fails with `label`. */
+/**
+ * Polls a synchronous condition every `stepMs` until `timeoutMs` (two seconds
+ * by default) has been waited, then fails with `label`.
+ */
 export async function waitFor(
   condition: () => boolean,
   label: string,
