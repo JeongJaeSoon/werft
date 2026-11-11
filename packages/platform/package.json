@@ -10,7 +10,22 @@
     "./testing": "./src/testing/execution-backend-contract.ts",
     "./testing/checkpoints": "./src/testing/checkpoints.ts",
     "./testing/github": "./src/testing/github-fakes.ts",
-    "./testing/refusal": "./src/testing/refusal.ts"
+    "./testing/refusal": "./src/testing/refusal.ts",
+    "./testing/forge-subject": "./src/testing/forge-contract-subject.ts",
+    "./testing/repository-readable": "./src/testing/repository-readable-contract.ts",
+    "./testing/pull-request-readable": "./src/testing/pull-request-readable-contract.ts",
+    "./testing/pull-request-writable": "./src/testing/pull-request-writable-contract.ts",
+    "./testing/pull-request-mergeable": "./src/testing/pull-request-mergeable-contract.ts",
+    "./testing/commentable": "./src/testing/commentable-contract.ts",
+    "./testing/reviewable": "./src/testing/reviewable-contract.ts",
+    "./testing/workflow-runnable": "./src/testing/workflow-runnable-contract.ts",
+    "./testing/pushable": "./src/testing/pushable-contract.ts",
+    "./testing/delivery": "./src/testing/delivery-contract.ts",
+    "./testing/notifiable": "./src/testing/notifiable-contract.ts",
+    "./testing/approvable": "./src/testing/approvable-contract.ts",
+    "./testing/agent-welcomable": "./src/testing/agent-welcomable-contract.ts",
+    "./testing/channel-joinable": "./src/testing/channel-joinable-contract.ts",
+    "./testing/channel-kind-readable": "./src/testing/channel-kind-readable-contract.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"
