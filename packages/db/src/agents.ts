@@ -37,6 +37,7 @@ import {
   administers,
   agentReadable,
   agentUsable,
+  credentialsAllowed,
   insideAgent,
   liveMember,
 } from "./administers.ts";
@@ -517,6 +518,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
             isNotNull(agents.activeReleaseId),
             keyAgentId === null ? undefined : eq(agents.id, keyAgentId),
             agentUsable(db, workspaceId, who, agents.id),
+            credentialsAllowed(workspaceId, who.userId, agents.id),
             // Axis A: outside an agent a start needs `use`, as the policy has it.
             // An agent key is inside its own agent, the only one it lists.
             who.outsideUse || keyAgentId !== null

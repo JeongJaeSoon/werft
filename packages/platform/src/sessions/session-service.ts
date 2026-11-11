@@ -59,6 +59,10 @@ import {
   type Caller,
   scopeOf,
 } from "../musterrolle/policy.ts";
+import type {
+  CallerLimitDimension,
+  CallerLimitGate,
+} from "../ports/agent-caller-limits-store.ts";
 import type { CredentialBindingStore } from "../ports/credential-binding-store.ts";
 import type { SessionControl } from "../ports/session-control.ts";
 import type { SessionViewer } from "../ports/session-share-store.ts";
@@ -330,6 +334,19 @@ export function agentPrivateError(): SessionServiceError {
   );
 }
 
+// Names the kind that was blocked and nothing else: not the rule, the team it
+// came from or the value, which the caller may not be shown.
+export function callerLimitedError(
+  dimension: CallerLimitDimension,
+): SessionServiceError {
+  return new SessionServiceError(
+    "FORBIDDEN",
+    `A limit set on the people who use this agent does not allow this ${dimension.replace("_", " ")}`,
+    undefined,
+    { reason_code: "caller_limited", dimension },
+  );
+}
+
 export function isAgentPrivate(error: unknown): error is SessionServiceError {
   return (
     error instanceof SessionServiceError &&
@@ -457,6 +474,7 @@ export function createSessionService(deps: {
   extensions?: SessionExtensionsDeps;
   // Who a requester refused for an unbound credential is told to ask.
   credentials?: Pick<CredentialBindingStore, "contacts">;
+  callerLimits?: CallerLimitGate;
   limits: InputLimits & {
     sessionCostLimitUsd: number;
     sessionTokenLimit: number | null;
@@ -1085,10 +1103,29 @@ export function createSessionService(deps: {
           message: "This server does not offer extension bundles",
         });
       }
+      const callerLimited =
+        release && deps.callerLimits
+          ? await deps.callerLimits.startRefusal({
+              workspaceId: actor.ownerId,
+              agentId: release.agent_id,
+              releaseId: release.id,
+              userId: actor.actor?.userId ?? null,
+              channelId: actor.subject.surface.channel_id ?? null,
+              subject: actor.subject,
+              requestId: actor.requestId,
+              githubPolicySource: policy.source,
+              repositoryIds: [
+                ...(repositoryId === null ? [] : [repositoryId]),
+                ...(attached ?? []),
+              ],
+            })
+          : null;
       const result = await inputs.acceptInputAtomic({
         principal: actor,
         idempotencyKey: input.idempotencyKey,
         payloadHash: payloadHash(input.body),
+        callerSubject: actor.subject,
+        ...(callerLimited === null ? {} : { callerLimited }),
         ...(extensions === undefined ? {} : { extensions }),
         ...(extensionRefusal === null
           ? {}
@@ -1153,6 +1190,8 @@ export function createSessionService(deps: {
         // policy decided: a start answers it as a release that is not there.
         case "agent_private":
           throw new SessionServiceError("NOT_FOUND", "Resource not found");
+        case "caller_limited":
+          throw callerLimitedError(result.dimension);
         case "not_runnable":
           if (!release) {
             throw new Error("Only a pinned release can be not runnable");
@@ -1249,6 +1288,12 @@ export function createSessionService(deps: {
         payloadHash: payloadHash(input.body),
         message: input.body.message,
         limits: inputLimits,
+        callerSubject: actor.subject,
+        ...(profileId === null
+          ? {}
+          : {
+              profileTools: catalogProfile(catalog, profileId)?.tools ?? [],
+            }),
         channel: actor.subject.surface.kind,
         ...(input.slackMessage === undefined
           ? {}
@@ -1264,6 +1309,8 @@ export function createSessionService(deps: {
           return idempotencyConflict();
         case "agent_private":
           throw agentPrivate ?? agentPrivateError();
+        case "caller_limited":
+          throw callerLimitedError(result.dimension);
         case "profile_blocked":
           if (!block) throw new Error("Only a blocked profile refuses input");
           throw blockedError(block);
