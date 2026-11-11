@@ -1,0 +1,24 @@
+# The Codex engine's overlay for tests/e2e/run.sh --conformance
+# codex_app_server, in place of infra/compose.fake-model.yml: the fake
+# Responses API and the secrets service on, the conformance settings
+# (tests/fixtures/settings/conformance-codex.json) imported, and the fake
+# Responses control port published so the suite can read what each model call
+# carried. The worker image is infra/compose.codex-worker.yml's.
+services:
+  secrets:
+    profiles: !reset []
+  fake-responses:
+    profiles: !reset []
+    ports:
+      - "127.0.0.1::4031"
+  migrate:
+    environment:
+      SETTINGS_DOCUMENT: /settings/conformance-codex.json
+  api:
+    environment:
+      ANTHROPIC_API_KEY: ""
+    depends_on:
+      fake-responses:
+        condition: service_healthy
+      secrets:
+        condition: service_healthy

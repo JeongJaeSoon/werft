@@ -1,0 +1,33 @@
+import type { EngineFixture, ModelCall } from "../engine.ts";
+
+const RESPONSES_URL = "E2E_RESPONSES_URL";
+
+/** codex_app_server against the compose fake Responses API. */
+export function codexEngine(env = process.env): EngineFixture {
+  const responsesUrl = env[RESPONSES_URL];
+  if (!responsesUrl) throw new Error(`${RESPONSES_URL} is unset`);
+  return {
+    runtimeKind: "codex_app_server",
+    connectionId: "fake-responses",
+    repositoryId: "sample-app",
+    approvalCommand: "echo conformance | tee approved.txt",
+    prompt: (script) =>
+      `GATE-SPEC ${JSON.stringify({
+        id: script.id,
+        steps: script.commands.map((cmd) => ({
+          tool: "exec_command",
+          input: { cmd },
+        })),
+        final: script.final,
+        ...(script.finalDelayMs === undefined
+          ? {}
+          : { finalDelayMs: script.finalDelayMs }),
+      })}`,
+    async modelCalls(id) {
+      const response = await fetch(
+        `${responsesUrl}/calls?spec=${encodeURIComponent(id)}`,
+      );
+      return (await response.json()) as ModelCall[];
+    },
+  };
+}

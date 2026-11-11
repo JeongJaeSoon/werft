@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "connections": {
+    "fake-responses": {
+      "kind": "openai_responses",
+      "endpoint": "http://fake-responses:4030",
+      "auth": {
+        "kind": "api_key",
+        "secret_id": "werft/local/fake-messages"
+      },
+      "models": ["gpt-5.5"]
+    }
+  },
+  "repositories": {
+    "sample-app": {
+      "url": "http://fake-git:3000/agent/sample-app.git",
+      "branch": "main",
+      "auth": {
+        "kind": "github_app",
+        "app_id": 1,
+        "installation_id": 1,
+        "api_base": "http://fake-git:3000",
+        "secret_id": "werft/local/fake-github-app"
+      }
+    }
+  },
+  "mcp_servers": {}
+}

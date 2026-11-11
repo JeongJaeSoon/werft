@@ -461,6 +461,7 @@ test("required integration never treats an unplanned skip as success", () => {
     "changes",
     "integration-domain",
     "e2e",
+    "conformance",
     "quickstart",
   ]);
   expect(job?.if).toMatch(/^always\(\)/);
@@ -475,6 +476,7 @@ test("required integration never treats an unplanned skip as success", () => {
     EVENT: "pull_request",
     ONLY: "all",
     E2E: "success",
+    CONFORMANCE: "success",
     QUICKSTART: "success",
   };
   expect(verdict("integration", product)).toBe(0);
@@ -505,9 +507,10 @@ test("integration refuses cancelled heavy jobs even after every domain passed", 
     EVENT: "pull_request",
     ONLY: "all",
     E2E: "success",
+    CONFORMANCE: "success",
     QUICKSTART: "success",
   };
-  for (const key of ["E2E", "QUICKSTART"]) {
+  for (const key of ["E2E", "CONFORMANCE", "QUICKSTART"]) {
     for (const result of ["failure", "cancelled", "skipped", ""]) {
       expect(verdict("integration", { ...passed, [key]: result })).not.toBe(0);
     }
@@ -517,10 +520,11 @@ test("integration refuses cancelled heavy jobs even after every domain passed", 
     EVENT: "workflow_dispatch",
     ONLY: "integration",
     E2E: "skipped",
+    CONFORMANCE: "skipped",
     QUICKSTART: "skipped",
   };
   expect(verdict("integration", manual)).toBe(0);
-  for (const key of ["E2E", "QUICKSTART"]) {
+  for (const key of ["E2E", "CONFORMANCE", "QUICKSTART"]) {
     for (const result of ["failure", "cancelled", "success", ""]) {
       expect(verdict("integration", { ...manual, [key]: result })).not.toBe(0);
     }
@@ -539,6 +543,7 @@ test("integration refuses cancelled heavy jobs even after every domain passed", 
   }
   const env = workflow.jobs.integration?.steps[0]?.env;
   expect(env?.E2E).toBe(`\${{ needs.e2e.result }}`);
+  expect(env?.CONFORMANCE).toBe(`\${{ needs.conformance.result }}`);
   expect(env?.QUICKSTART).toBe(`\${{ needs.quickstart.result }}`);
   expect(env?.EVENT).toBe(`\${{ github.event_name }}`);
   expect(env?.ONLY).toBe(`\${{ github.event.inputs.only || 'all' }}`);
