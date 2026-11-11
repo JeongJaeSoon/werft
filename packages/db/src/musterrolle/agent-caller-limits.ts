@@ -21,12 +21,13 @@ import {
   mergeCallerLimit,
   narrowReach,
   type PutAgentCallerLimitsResult,
+  receiptActorOf,
   type SessionReach,
   withLiveRepositories,
 } from "@werft-ai/platform";
 import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { captureMcpStart } from "../agents/mcp-settings.ts";
-import { lockPeople, receiptActorOf } from "../control-shared.ts";
+import { lockPeople, UUID } from "../control-shared.ts";
 import { DB_NOW } from "../db-clock.ts";
 import { sessionGitHubMcpOf, sessionMcpOf } from "../github/mcp-egress.ts";
 import { agentGitHubSettingsOf } from "../github-settings.ts";
@@ -44,8 +45,6 @@ import {
 } from "../schema.ts";
 import { lockEditRight } from "../usage/agent-usage.ts";
 import { createPostgresDecisionLog } from "./authz-decisions.ts";
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // An edit takes rows in the order of agent-usage.ts: user → membership →
 // agent → agent_usage → admin rows → teams (id order) → relation rows → the
@@ -127,7 +126,7 @@ async function readFacts(
 }
 
 /**
- * The rules the enforcement layer (94S-918) reads in its own transaction.
+ * The rules the enforcement layer reads in its own transaction.
  * Take it after the agent row, as `usageOf` does; with `lock` the agent_usage
  * row is held FOR SHARE, so an edit or a team's archive waits for this
  * transaction or is seen by it.

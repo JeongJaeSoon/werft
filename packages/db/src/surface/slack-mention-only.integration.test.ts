@@ -1,15 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import {
-  copyFile,
-  mkdir,
-  mkdtemp,
-  readFile,
-  rm,
-  writeFile,
-} from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { rm } from "node:fs/promises";
 import {
   createTempDatabase,
   type TempDatabase,
@@ -18,32 +9,11 @@ import {
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { migrate } from "../migrate.ts";
+import { MIGRATIONS_FOLDER } from "../migration-journal.ts";
 import * as schema from "../schema.ts";
+import { migrationsThrough } from "../testing/migrations-through.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
-
-const MIGRATIONS = join(import.meta.dir, "../../migrations");
-
-type Journal = { entries: Array<{ tag: string }> };
-
-async function migrationsThrough(lastTag: string): Promise<string> {
-  const folder = await mkdtemp(join(tmpdir(), "mention-only-migrations-"));
-  await mkdir(join(folder, "meta"));
-  const journal: Journal = JSON.parse(
-    await readFile(join(MIGRATIONS, "meta/_journal.json"), "utf8"),
-  );
-  const last = journal.entries.findIndex((entry) => entry.tag === lastTag);
-  if (last === -1) throw new Error(`no migration ${lastTag}`);
-  const entries = journal.entries.slice(0, last + 1);
-  await writeFile(
-    join(folder, "meta/_journal.json"),
-    JSON.stringify({ ...journal, entries }),
-  );
-  for (const { tag } of entries) {
-    await copyFile(join(MIGRATIONS, `${tag}.sql`), join(folder, `${tag}.sql`));
-  }
-  return folder;
-}
 
 integration("agents.slack_mention_only", () => {
   let database: TempDatabase;
@@ -95,7 +65,7 @@ integration("agents.slack_mention_only", () => {
     await binding("C0AMBIENT", "ambient");
     await binding("C0OFF", "off");
 
-    await migrate(db, { migrationsFolder: MIGRATIONS });
+    await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER });
 
     const settings = await pool.query(
       "SELECT slug, slack_mention_only FROM agents ORDER BY slug",

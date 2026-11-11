@@ -8,13 +8,13 @@ import type {
   AgentGitHubStore,
   SetAgentGitHubRepositoryResult,
 } from "@werft-ai/platform";
+import { receiptActorOf } from "@werft-ai/platform";
 import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { lockAgentToChange } from "./agents.ts";
 import {
   createPostgresCatalogRepositoryStore,
   lockCatalogWrites,
 } from "./catalog-repositories.ts";
-import { receiptActorOf } from "./control-shared.ts";
 import { lockGitHubApps } from "./github/github-apps.ts";
 import { createPostgresGitHubPinStore } from "./github/github-pins.ts";
 import {

@@ -34,6 +34,8 @@ import {
   sql,
 } from "drizzle-orm";
 import { releaseSuperseded } from "./agents.ts";
+import { UUID } from "./control-shared.ts";
+import { rowsOf } from "./control-unit-of-work.ts";
 import {
   actionableNow,
   actionableOfTurn,
@@ -63,6 +65,7 @@ import {
   users,
 } from "./schema.ts";
 import { channelLeft } from "./surface/slack-channel-left.ts";
+import { ms, type Raw, released } from "./surface/slack-shared.ts";
 import {
   createPostgresSlackThreadStatusStore,
   touchSlackThreadStatus,
@@ -83,8 +86,6 @@ const entry = {
   body: t.body,
   dedupeKey: t.dedupeKey,
 };
-
-const released = { claimToken: null, leaseExpiresAt: null } as const;
 
 // The fence alone, with no lease test: a claimed row whose lease ran out is
 // either reclaimed (a new token) or, mid-send, moved to `uncertain` (no
@@ -191,8 +192,6 @@ const requestWaits = (db: Database, row: SQL) => sql`(
       AND EXISTS (${actionableOfTurn(db)})
   ) ELSE true END
 )`;
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** A question request's card, or none when its stored questions are bad. */
 // A stored offer that does not parse is no offer: the card then has no
@@ -347,13 +346,6 @@ async function promptCardOf(
   };
 }
 
-type Raw = Record<string, unknown>;
-
-const rowsOf = async (db: Database, query: SQL) =>
-  ((await db.execute(query)) as unknown as { rows: Raw[] }).rows;
-
-const ms = (value: number) => sql`make_interval(secs => ${value / 1000})`;
-
 // The sent cards a redraw may still be owed (slack_outbox_settle_idx).
 const SENT_CARD = sql`
   o.kind = 'input_notice' AND o.status = 'sent' AND o.slack_ts IS NOT NULL
@@ -385,12 +377,11 @@ export function createPostgresSlackCardSettleStore(
 
   const markDueWhere = async (where: SQL) =>
     (
-      await rowsOf(
-        db,
-        sql`
+      await rowsOf<Raw>(
+        await db.execute(sql`
           UPDATE slack_outbox o SET settle_state = 'due'
           WHERE ${SENT_CARD} AND ${where}
-          RETURNING o.id`,
+          RETURNING o.id`),
       )
     ).length;
 
@@ -417,9 +408,8 @@ export function createPostgresSlackCardSettleStore(
     },
 
     async openPushCards({ limit, afterSeq }) {
-      const rows = await rowsOf(
-        db,
-        sql`
+      const rows = await rowsOf<Raw>(
+        await db.execute(sql`
           SELECT o.id, o.seq, o.session_id, coalesce(o.settle_rendered, 'open') AS rendered,
             s.checkpoint_revision AS session_revision,
             p.checkpoint_revision, p.git_commit, p.origin
@@ -435,7 +425,7 @@ export function createPostgresSlackCardSettleStore(
               OR o.settle_rendered = 'reject_only')
             AND (${afterSeq}::bigint IS NULL OR o.seq > ${afterSeq}::bigint)
           ORDER BY o.seq
-          LIMIT ${limit}`,
+          LIMIT ${limit}`),
       );
       return rows.map((row) => ({
         id: row.id as string,
@@ -451,23 +441,21 @@ export function createPostgresSlackCardSettleStore(
     },
 
     async expireInflight({ graceMs, windowMs }) {
-      const rows = await rowsOf(
-        db,
-        sql`
+      const rows = await rowsOf<Raw>(
+        await db.execute(sql`
           UPDATE slack_outbox SET
             ${recordUncertain(sql`settle_inflight_at`, windowMs)},
             ${CARD_RELEASED}
           WHERE settle_inflight_at IS NOT NULL
             AND settle_lease_expires_at + ${ms(graceMs)} <= now()
-          RETURNING id`,
+          RETURNING id`),
       );
       return rows.length;
     },
 
     async claim({ limit, leaseMs, graceMs, only }) {
-      const rows = await rowsOf(
-        db,
-        sql`
+      const rows = await rowsOf<Raw>(
+        await db.execute(sql`
           UPDATE slack_outbox st SET
             settle_claim_token = gen_random_uuid(),
             settle_lease_expires_at = now() + ${ms(leaseMs)}
@@ -491,7 +479,7 @@ export function createPostgresSlackCardSettleStore(
             st.slack_app_id, st.session_id, st.channel_id, st.slack_ts,
             st.dedupe_key, st.body, st.settle_rendered, st.settle_uncertain_rev,
             st.settle_uncertain_latest_at IS NOT NULL AS uncertain,
-            pick.inherited, st.settle_attempts`,
+            pick.inherited, st.settle_attempts`),
       );
       return rows.map(
         (row): SlackCardClaim => ({
@@ -536,23 +524,21 @@ export function createPostgresSlackCardSettleStore(
     },
 
     async turnWaits(claim) {
-      const [row] = await rowsOf(
-        db,
-        sql`SELECT ${requestWaits(db, sql.raw("o"))} AS waits
-          FROM slack_outbox o WHERE o.id = ${claim.id}`,
+      const [row] = await rowsOf<Raw>(
+        await db.execute(sql`SELECT ${requestWaits(db, sql.raw("o"))} AS waits
+          FROM slack_outbox o WHERE o.id = ${claim.id}`),
       );
       return Boolean(row?.waits);
     },
 
     async beginSend(fence, minLeaseLeftMs) {
-      const [row] = await rowsOf(
-        db,
-        sql`
+      const [row] = await rowsOf<Raw>(
+        await db.execute(sql`
           UPDATE slack_outbox SET settle_inflight_at = now()
           WHERE ${cardFenced(fence)}
             AND NOT ${channelLeft(sql`slack_outbox.installation_id`, sql`slack_outbox.channel_id`)}
             AND settle_lease_expires_at > now() + ${ms(minLeaseLeftMs)}
-          RETURNING settle_inflight_at`,
+          RETURNING settle_inflight_at`),
       );
       return row === undefined
         ? null
@@ -563,9 +549,8 @@ export function createPostgresSlackCardSettleStore(
       // settle_inflight_at is this edit's own start, to the microsecond.
       const clears = sql`settle_uncertain_rev = ${sent.uncertainRev}
         AND settle_inflight_at >= settle_uncertain_latest_at + ${ms(sent.windowMs)}`;
-      const rows = await rowsOf(
-        db,
-        sql`
+      const rows = await rowsOf<Raw>(
+        await db.execute(sql`
           UPDATE slack_outbox SET
             settle_rendered = ${sent.rendered},
             settle_state = ${settledAs(sql`${sent.rendered}::text`)},
@@ -576,20 +561,19 @@ export function createPostgresSlackCardSettleStore(
               THEN NULL ELSE settle_next_at END,
             ${CARD_RELEASED}
           WHERE ${cardFenced(fence)} AND settle_inflight_at IS NOT NULL
-          RETURNING id`,
+          RETURNING id`),
       );
       return rows.length > 0;
     },
 
     async skip(fence) {
-      const rows = await rowsOf(
-        db,
-        sql`
+      const rows = await rowsOf<Raw>(
+        await db.execute(sql`
           UPDATE slack_outbox SET
             settle_state = ${settledAs(sql`settle_rendered`)},
             ${CARD_RELEASED}
           WHERE ${cardFenced(fence)}
-          RETURNING id`,
+          RETURNING id`),
       );
       return rows.length > 0;
     },
@@ -611,30 +595,28 @@ export function createPostgresSlackCardSettleStore(
     },
 
     async defer(fence, input) {
-      const rows = await rowsOf(
-        db,
-        sql`
+      const rows = await rowsOf<Raw>(
+        await db.execute(sql`
           UPDATE slack_outbox SET
             settle_next_at = greatest(settle_next_at, now() + ${ms(input.retryInMs)}),
             settle_attempts = settle_attempts + ${input.failed ? 1 : 0},
             settle_error = coalesce(${input.error}::text, settle_error),
             ${CARD_RELEASED}
           WHERE ${cardFenced(fence)}
-          RETURNING id`,
+          RETURNING id`),
       );
       return rows.length > 0;
     },
 
     async abandon(fence, error) {
-      const rows = await rowsOf(
-        db,
-        sql`
+      const rows = await rowsOf<Raw>(
+        await db.execute(sql`
           UPDATE slack_outbox SET
             settle_state = 'abandoned',
             settle_error = ${error},
             ${CARD_RELEASED}
           WHERE ${cardFenced(fence)}
-          RETURNING id`,
+          RETURNING id`),
       );
       return rows.length > 0;
     },
@@ -685,9 +667,9 @@ export function createPostgresSlackOutboxStore(
           }
           if (input.kind === "welcome") {
             // The key covers one binding. A channel bound again after the
-            // install was disconnected has a new binding, and rows from
-            // before 94S-1298 keyed each release: the channel heard it all
-            // the same. Channel ids are only unique within a Slack team.
+            // install was disconnected has a new binding, and older rows
+            // keyed each release: the channel heard it all the same. Channel
+            // ids are only unique within a Slack team.
             const team = tx
               .select({ teamId: slackInstallations.teamId })
               .from(slackInstallations)
@@ -741,7 +723,8 @@ export function createPostgresSlackOutboxStore(
 
     async advanceAnswered() {
       // Writes only links whose mark moves, so a quiet pass writes nothing.
-      const { rows } = (await db.execute(sql`
+      const rows = rowsOf<unknown>(
+        await db.execute(sql`
         UPDATE session_links l SET answered_through = m.mark
         FROM (
           SELECT l2.id, coalesce(
@@ -771,7 +754,8 @@ export function createPostgresSlackOutboxStore(
         ) m
         WHERE l.id = m.id AND m.mark > l.answered_through
         RETURNING l.id
-      `)) as unknown as { rows: unknown[] };
+      `),
+      );
       return rows.length;
     },
 

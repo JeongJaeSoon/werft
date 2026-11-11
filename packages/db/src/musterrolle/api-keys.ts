@@ -8,6 +8,7 @@ import type {
   WorkspaceKey,
   WorkspaceKeyStore,
 } from "@werft-ai/platform";
+import { receiptActorOf } from "@werft-ai/platform";
 import {
   and,
   desc,
@@ -20,7 +21,7 @@ import {
   sql,
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
-import { lockActorAccount, receiptActorOf } from "../control-shared.ts";
+import { lockActorAccount, UUID } from "../control-shared.ts";
 import { DB_NOW } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
 import { agents, apiKeys, memberships, receipts, users } from "../schema.ts";
@@ -32,7 +33,7 @@ import {
 import { administers } from "./administers.ts";
 import { lockedAdministers } from "./agent-admins.ts";
 
-// Keys issued from the web or the API (94S-574). Lock order: the actor's
+// Keys issued from the web or the API. Lock order: the actor's
 // membership, then the agent, then the key, as the agent store takes them.
 
 const liveMembership = (workspaceId: string, userId: string) =>
@@ -60,8 +61,6 @@ export async function lockedRole(
     .for("share", { of: memberships });
   return (row?.role as WorkspaceRole | undefined) ?? null;
 }
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const keyColumns = {
   id: apiKeys.id,

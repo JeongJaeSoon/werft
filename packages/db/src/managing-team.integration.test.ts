@@ -1,15 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import {
-  copyFile,
-  mkdir,
-  mkdtemp,
-  readFile,
-  rm,
-  writeFile,
-} from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { rm } from "node:fs/promises";
 import {
   agentCardRequestSchema,
   scopesForRole,
@@ -42,6 +33,7 @@ import { createPostgresAgentGitHubStore } from "./agent-github.ts";
 import { createPostgresAgentStore } from "./agents.ts";
 import { createPostgresCatalogRepositoryStore } from "./catalog-repositories.ts";
 import { migrate } from "./migrate.ts";
+import { MIGRATIONS_FOLDER } from "./migration-journal.ts";
 import { insideAgent } from "./musterrolle/administers.ts";
 import { createPostgresAgentAdminStore } from "./musterrolle/agent-admins.ts";
 import { createPostgresAgentIdentityStore } from "./musterrolle/agent-identities.ts";
@@ -53,6 +45,7 @@ import * as schema from "./schema.ts";
 import { agents, receipts } from "./schema.ts";
 import { lockSessionReach } from "./sessions/requester-locks.ts";
 import { fixtureTeam } from "./testing/fixture-team.ts";
+import { migrationsThrough } from "./testing/migrations-through.ts";
 import {
   TEST_CONNECTION_ID,
   TEST_RUNTIMES,
@@ -90,27 +83,6 @@ async function codeOf(work: Promise<unknown>): Promise<string> {
     throw error;
   }
   return "ok";
-}
-
-const MIGRATIONS = join(import.meta.dir, "../migrations");
-
-async function migrationsThrough(lastTag: string): Promise<string> {
-  const folder = await mkdtemp(join(tmpdir(), "managing-team-migrations-"));
-  await mkdir(join(folder, "meta"));
-  const journal: { entries: Array<{ tag: string }> } = JSON.parse(
-    await readFile(join(MIGRATIONS, "meta/_journal.json"), "utf8"),
-  );
-  const last = journal.entries.findIndex((entry) => entry.tag === lastTag);
-  if (last === -1) throw new Error(`no migration ${lastTag}`);
-  const entries = journal.entries.slice(0, last + 1);
-  await writeFile(
-    join(folder, "meta/_journal.json"),
-    JSON.stringify({ ...journal, entries }),
-  );
-  for (const { tag } of entries) {
-    await copyFile(join(MIGRATIONS, `${tag}.sql`), join(folder, `${tag}.sql`));
-  }
-  return folder;
 }
 
 integration("team roles and the managing team, expand", () => {
@@ -153,7 +125,7 @@ integration("team roles and the managing team, expand", () => {
         [agent, ws],
       );
 
-      await migrate(db, { migrationsFolder: MIGRATIONS });
+      await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER });
       expect(
         (await pool.query("SELECT role FROM member_team_members")).rows,
       ).toEqual([{ role: "member" }]);
@@ -262,7 +234,7 @@ integration("0243 gives every agent a managing team", () => {
       await adminTeam(ws, onlyArchived, gone, "2026-01-01T00:00:00Z");
       const tidy = await agent(clean, "tidy", await team(clean, "t"));
 
-      await migrate(db, { migrationsFolder: MIGRATIONS });
+      await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER });
 
       const teamOf = async (id: string) =>
         (

@@ -9,6 +9,7 @@ import type {
   SlackGuestSetting,
   SlackGuestSettingStore,
 } from "@werft-ai/platform";
+import { receiptActorOf } from "@werft-ai/platform";
 import {
   and,
   eq,
@@ -18,7 +19,7 @@ import {
   type SQLWrapper,
   sql,
 } from "drizzle-orm";
-import { lockActorAccount, receiptActorOf } from "./control-shared.ts";
+import { lockActorAccount } from "./control-shared.ts";
 import type { Database } from "./queries.ts";
 import { memberships, receipts, users, workspaces } from "./schema.ts";
 

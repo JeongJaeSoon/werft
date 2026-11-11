@@ -34,6 +34,7 @@ import {
   findIdempotent,
   type IdempotencyScope,
   lockIdempotencyScope,
+  UUID,
 } from "./control-shared.ts";
 import { githubPolicyColumns, githubPolicyOfRow } from "./github-settings.ts";
 import { enqueueActionNotice } from "./musterrolle/action-notices.ts";
@@ -54,7 +55,6 @@ import {
 
 type Row = typeof pushRequests.$inferSelect;
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const GITHUB_TOOL = "mcp__github__";
 
 /** The catalog's owner/name for a repository id, null without a row. */

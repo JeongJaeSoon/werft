@@ -14,6 +14,7 @@ import type {
   EnvVariableStore,
   Principal,
 } from "@werft-ai/platform";
+import { receiptActorOf } from "@werft-ai/platform";
 import {
   and,
   asc,
@@ -25,7 +26,7 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
-import { receiptActorOf } from "../control-shared.ts";
+import { rowsOf } from "../control-unit-of-work.ts";
 import { dbNow } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
 import {
@@ -682,7 +683,8 @@ export async function purgeExpiredEnvStart(
     (await dbNow(db)).getTime() -
       (options.retentionMs ?? ENV_START_RETENTION_MS),
   ).toISOString();
-  const { rows } = (await db.execute(sql`
+  const rows = rowsOf<{ id: string }>(
+    await db.execute(sql`
     UPDATE sessions SET env_start = env_start_without_values(env_start)
     WHERE id IN (
       SELECT id FROM sessions
@@ -701,7 +703,8 @@ export async function purgeExpiredEnvStart(
       LIMIT ${options.limit}
       FOR UPDATE SKIP LOCKED
     )
-    RETURNING id`)) as { rows: { id: string }[] };
+    RETURNING id`),
+  );
   return rows.length;
 }
 

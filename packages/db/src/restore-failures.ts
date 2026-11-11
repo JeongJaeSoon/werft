@@ -1,11 +1,7 @@
 import type { SessionAttention } from "@werft-ai/contracts";
 import { launchRetryDelayMs } from "@werft-ai/platform";
 import { and, eq, isNull, lte, or } from "drizzle-orm";
-import {
-  hasRestorePoint,
-  LAUNCHABLE_ADMISSION_STATES,
-  restoreBaseRevision,
-} from "./control-shared.ts";
+import { LAUNCHABLE_ADMISSION_STATES } from "./control-shared.ts";
 import { DB_NOW, fromDbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import {
@@ -14,6 +10,10 @@ import {
   unassignedSessions,
   workerLaunches,
 } from "./schema.ts";
+import {
+  hasRestorePoint,
+  restoreBaseRevision,
+} from "./sessions/pause-policy.ts";
 import { recordEvent, recordStatus } from "./sessions/session-events.ts";
 
 type SessionRow = typeof sessions.$inferSelect;

@@ -1,6 +1,7 @@
 import { scopesForRole, type WorkspaceRole } from "@werft-ai/contracts";
 import type { IdentityReader } from "@werft-ai/platform";
 import { and, eq, isNull } from "drizzle-orm";
+import { UUID } from "../control-shared.ts";
 import {
   apiKeyRecordOf,
   type Database,
@@ -8,8 +9,6 @@ import {
   selectLiveApiKey,
 } from "../queries.ts";
 import { apiKeys, linkedAccounts, memberships, users } from "../schema.ts";
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function findLiveRole(
   db: Database,

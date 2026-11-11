@@ -8,8 +8,9 @@ import type {
   SecretKey,
   SecretSlot,
 } from "@werft-ai/platform";
+import { receiptActorOf } from "@werft-ai/platform";
 import { eq, sql } from "drizzle-orm";
-import { receiptActorOf } from "../control-shared.ts";
+import { UUID } from "../control-shared.ts";
 import { DB_NOW } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
 import {
@@ -27,10 +28,6 @@ import {
   writeSecretInTx,
 } from "../secrets/secret-values.ts";
 import { creatorOf } from "./mcp-egress.ts";
-
-// A session's owner without a workspace (an installation's own key, as in
-// the quickstart) is not a uuid, and has no settings row or token.
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const tokenSlot = (workspaceId: string): SecretSlot => ({
   workspaceId: workspaceId.toLowerCase(),
@@ -81,6 +78,8 @@ export function createPostgresGitHubPackagesStore(
   key: SecretKey | null,
 ): GitHubPackagesStore {
   async function settingsRow(executor: Database, workspaceId: string) {
+    // A session's owner without a workspace (an installation's own key, as in
+    // the quickstart) is not a uuid, and has no settings row or token.
     if (!UUID.test(workspaceId)) return undefined;
     const [row] = await executor
       .select()

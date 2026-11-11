@@ -9,6 +9,7 @@ import type {
   InterruptTurnResult,
   TurnInterrupts,
 } from "@werft-ai/platform";
+import { receiptActorOf } from "@werft-ai/platform";
 import { and, eq, isNull } from "drizzle-orm";
 import {
   type ControlResultEvent,
@@ -21,7 +22,6 @@ import {
   lockIdempotencyScope,
   OPEN_TURN_STATUSES,
   parseTurnSequence,
-  receiptActorOf,
 } from "../control-shared.ts";
 import { dbNow } from "../db-clock.ts";
 import { cancelParkedRequests } from "../decision/pending-requests.ts";

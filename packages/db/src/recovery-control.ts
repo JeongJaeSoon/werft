@@ -11,20 +11,18 @@ import type {
   ResumeSessionInput,
   ResumeSessionResult,
 } from "@werft-ai/platform";
+import { receiptActorOf } from "@werft-ai/platform";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
   controlClock,
   controlReplay,
   earliestUnknownTurn,
   findIdempotent,
-  hasRestorePoint,
   type IdempotencyScope,
   INPUT_RECEIPT_OPERATIONS,
   lockIdempotencyScope,
   lockSessionForControl,
   parseTurnSequence,
-  receiptActorOf,
-  restoreBaseRevision,
   transactionWithBindingRetry,
 } from "./control-shared.ts";
 import { dbNow } from "./db-clock.ts";
@@ -59,12 +57,11 @@ import {
 import { pinRefusesLive } from "./session-spec-pin.ts";
 import { contextCoverage, contextGap } from "./sessions/context-gap.ts";
 import { closeParkedGroup } from "./sessions/parked-group.ts";
-import { recordEvent, recordStatus } from "./sessions/session-events.ts";
-
-export {
+import {
   hasRestorePoint,
   restoreBaseRevision,
-} from "./control-shared.ts";
+} from "./sessions/pause-policy.ts";
+import { recordEvent, recordStatus } from "./sessions/session-events.ts";
 
 const RECOVERY_DECISION = "recovery_decision";
 // Control receipts a close supersedes: whichever of these is still open
@@ -135,7 +132,7 @@ export async function resumableFromStopped(
 }
 
 /**
- * api.md § 최소 운영 복구: confirm_completed needs a consistent checkpoint up
+ * confirm_completed needs a consistent checkpoint up
  * to the input's watermark. The pointer is only ever moved by finalize, so
  * "consistent" means the committed checkpoint the session's state is based
  * on — the pointer's, or the earlier one a fallback restored — was taken at
@@ -283,7 +280,7 @@ function settledResultJson(
 }
 
 /**
- * api.md § 최소 운영 복구. abandon and confirm_completed settle one
+ * abandon and confirm_completed settle one
  * outcome_unknown turn and leave the session `stopped`, where queued input
  * waits for an explicit resume and the decision receipt says whether one is
  * possible; close ends it. start_fresh and retry_restore put the session
@@ -810,7 +807,7 @@ async function close(tx: Database, session: SessionRow, now: Date) {
 }
 
 /**
- * api.md § 일시 중지와 저장 상태, stopped case: the session admits input
+ * A stopped session admits input
  * again from its committed checkpoint. Unknown turns and unconfirmed exits
  * are the operator's to settle first, and a session with no checkpoint has
  * nothing to restore. Cancelled input stays cancelled; what is still

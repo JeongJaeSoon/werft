@@ -40,8 +40,7 @@ const githubAppRows = eq(catalogRepositories.authKind, "github_app");
 // The import and every console write take it, so an id is decided by one
 // writer at a time. A transaction that also locks an agent, an App or the
 // workspace's settings takes this first.
-export const lockCatalogWrites = async (tx: Database) => lockWrites(tx);
-const lockWrites = async (tx: Database) => {
+export const lockCatalogWrites = async (tx: Database) => {
   await tx.execute(
     sql`SELECT pg_advisory_xact_lock(hashtext('catalog-repositories'))`,
   );
@@ -153,7 +152,7 @@ export function createPostgresCatalogRepositoryStore(
       // transaction that this one then belongs to; its locks must already
       // follow `lockCatalogWrites` first.
       const run = async (tx: Database) => {
-        await lockWrites(tx);
+        await lockCatalogWrites(tx);
         // A demotion or a managing-team change committed after the policy's
         // decision on the agent wins.
         const role = await lockedRole(tx, input.workspaceId, input.userId);
@@ -327,7 +326,7 @@ export function createPostgresCatalogRepositoryStore(
 
     setBranch(input) {
       return db.transaction(async (tx) => {
-        await lockWrites(tx);
+        await lockCatalogWrites(tx);
         if (!(await managerOf(tx, input.workspaceId, input.userId))) {
           return { outcome: "actor_inactive" as const };
         }

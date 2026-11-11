@@ -18,6 +18,7 @@ import type {
   PendingRequestDisplayReader,
   PendingRequestStore,
 } from "@werft-ai/platform";
+import { receiptActorOf } from "@werft-ai/platform";
 import {
   and,
   asc,
@@ -37,9 +38,8 @@ import {
   ENDED_ATTEMPT_STATES,
   earliestUnknownTurn,
   findIdempotent,
-  hasRestorePoint,
   lockIdempotencyScope,
-  receiptActorOf,
+  UUID,
 } from "../control-shared.ts";
 import { DB_NOW, dbNow } from "../db-clock.ts";
 import { toolSummaryContext } from "../push-requests.ts";
@@ -57,6 +57,7 @@ import {
   closeParkedGroup,
   continuationMessage,
 } from "../sessions/parked-group.ts";
+import { hasRestorePoint } from "../sessions/pause-policy.ts";
 import {
   keyReaches,
   lockRequester,
@@ -621,7 +622,6 @@ function answerMismatch(
   return questionAnswerMismatch(questions, answer.answers);
 }
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // A request closed while its session stood here was closed with it.
 const SESSION_ENDED_STATES: ReadonlySet<string> = new Set([
   "stopping",

@@ -5,19 +5,17 @@ import type {
   PauseReceiptResult,
 } from "@werft-ai/contracts";
 import type { PauseSessionInput, PauseSessionResult } from "@werft-ai/platform";
+import { receiptActorOf } from "@werft-ai/platform";
 import { and, count, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
   controlClock,
   controlReplay,
   findIdempotent,
-  hasRestorePoint,
   type IdempotencyScope,
   liveDrainer,
   lockIdempotencyScope,
   lockSessionForControl,
   OPEN_TURN_STATUSES,
-  receiptActorOf,
-  restoreBaseRevision,
   transactionWithBindingRetry,
 } from "../control-shared.ts";
 import { dbNow } from "../db-clock.ts";
@@ -33,13 +31,18 @@ import {
   workerLaunches,
 } from "../schema.ts";
 import { contextCoverage } from "./context-gap.ts";
-import { pauseCoverageBlocker, pausedReceiptResult } from "./pause-policy.ts";
+import {
+  hasRestorePoint,
+  pauseCoverageBlocker,
+  pausedReceiptResult,
+  restoreBaseRevision,
+} from "./pause-policy.ts";
 import { recordStatus } from "./session-events.ts";
 
 export const PAUSE = "pause";
 
 /**
- * api.md § 일시 중지와 저장 상태: the initial drain observation deadline.
+ * The initial drain observation deadline.
  * Past it a pause still short of its safe boundary shows why; nothing is
  * killed on account of it.
  */
@@ -153,7 +156,7 @@ export function openPauseReceipt(sessionId: string) {
 }
 
 /**
- * api.md § 일시 중지와 저장 상태. A bound session goes `pausing`: its worker
+ * A bound session goes `pausing`: its worker
  * learns of it through pendingControl, stops taking input, finishes the
  * turn in flight with its checkpoint and releases; the receipt succeeds when
  * the execution is observed gone (confirmExecutionGoneAtomic). A session with

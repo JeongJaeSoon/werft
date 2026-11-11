@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "../migrate.ts";
-import { MIGRATIONS_FOLDER } from "../migration-folder.ts";
+import { MIGRATIONS_FOLDER } from "../migration-journal.ts";
 
 let client: PGlite;
 let before: string;

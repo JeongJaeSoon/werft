@@ -1,6 +1,5 @@
 import type { SessionAttention } from "@werft-ai/contracts";
 import { and, eq, inArray, isNotNull, max } from "drizzle-orm";
-import { hasRestorePoint } from "../control-shared.ts";
 import type { Database } from "../queries.ts";
 import { openResumeReceipt } from "../resume-control.ts";
 import {
@@ -10,6 +9,7 @@ import {
   turns,
   unassignedSessions,
 } from "../schema.ts";
+import { hasRestorePoint } from "./pause-policy.ts";
 import { recordEvent, recordStatus } from "./session-events.ts";
 
 type SessionRow = typeof sessions.$inferSelect;
@@ -23,7 +23,7 @@ type SessionRow = typeof sessions.$inferSelect;
 // no checkpoint ever covers a turn whose outcome was unknown. A turn counts
 // only once it was delivered: one the scheduler failed for want of a launch
 // never reached an engine.
-export const RAN_TURN_STATUSES = ["completed", "failed", "interrupted"];
+const RAN_TURN_STATUSES = ["completed", "failed", "interrupted"];
 
 /**
  * The facts a restore rests on: the last turn that ran, and the turn the

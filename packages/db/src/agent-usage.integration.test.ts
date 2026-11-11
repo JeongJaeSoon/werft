@@ -1,15 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import {
-  copyFile,
-  mkdir,
-  mkdtemp,
-  readFile,
-  rm,
-  writeFile,
-} from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { rm } from "node:fs/promises";
 import {
   agentCardRequestSchema,
   scopesForRole,
@@ -32,11 +23,13 @@ import { Pool, type PoolClient } from "pg";
 import { createDatabaseAgentAuthority } from "./agent-authority.ts";
 import { createPostgresAgentStore } from "./agents.ts";
 import { migrate } from "./migrate.ts";
+import { MIGRATIONS_FOLDER } from "./migration-journal.ts";
 import { createPostgresAgentAdminStore } from "./musterrolle/agent-admins.ts";
 import { createPostgresCredentialBindingStore } from "./musterrolle/credential-bindings.ts";
 import { createDatabaseIdentityReader } from "./musterrolle/identity-reader.ts";
 import { createPostgresTeamStore } from "./musterrolle/member-teams.ts";
 import * as schema from "./schema.ts";
+import { migrationsThrough } from "./testing/migrations-through.ts";
 import { TEST_RUNTIMES, testSessionCatalog } from "./testing/spec-pins.ts";
 import { createPostgresAgentUsageStore } from "./usage/agent-usage.ts";
 
@@ -52,27 +45,6 @@ const card = agentCardRequestSchema.parse({
   model: "claude-sonnet-5",
   capabilities: { tools: ["Read"], mcp: null, forbidden: [] },
 });
-
-const MIGRATIONS = join(import.meta.dir, "../migrations");
-
-async function migrationsThrough(lastTag: string): Promise<string> {
-  const folder = await mkdtemp(join(tmpdir(), "agent-usage-migrations-"));
-  await mkdir(join(folder, "meta"));
-  const journal: { entries: Array<{ tag: string }> } = JSON.parse(
-    await readFile(join(MIGRATIONS, "meta/_journal.json"), "utf8"),
-  );
-  const last = journal.entries.findIndex((entry) => entry.tag === lastTag);
-  if (last === -1) throw new Error(`no migration ${lastTag}`);
-  const entries = journal.entries.slice(0, last + 1);
-  await writeFile(
-    join(folder, "meta/_journal.json"),
-    JSON.stringify({ ...journal, entries }),
-  );
-  for (const { tag } of entries) {
-    await copyFile(join(MIGRATIONS, `${tag}.sql`), join(folder, `${tag}.sql`));
-  }
-  return folder;
-}
 
 integration("0265 gives every agent a usage row", () => {
   test("agents from before get scope = workspace, revision 1, and no targets", async () => {
@@ -106,7 +78,7 @@ integration("0265 gives every agent a usage row", () => {
           [agent, ws, slug, team],
         );
       }
-      await migrate(db, { migrationsFolder: MIGRATIONS });
+      await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER });
       const rows = await query(
         "SELECT agent_id, scope, revision, limits_revision FROM agent_usage ORDER BY agent_id",
       );

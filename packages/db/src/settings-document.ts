@@ -11,6 +11,7 @@ import {
   type ExistingSettingsEntry,
   modelFamiliesSchema,
   planSettingsImport,
+  receiptActorOf,
   repositoryAuthKindOf,
   repositoryNameOf,
   type SecretKey,
@@ -22,9 +23,9 @@ import {
   type TeamActor,
 } from "@werft-ai/platform";
 import { and, asc, eq, isNull, ne, sql } from "drizzle-orm";
-import { lockPeople, receiptActorOf } from "./control-shared.ts";
+import { lockCatalogWrites } from "./catalog-repositories.ts";
+import { lockPeople } from "./control-shared.ts";
 import { rowsOf } from "./control-unit-of-work.ts";
-import { lockSettingsGeneration } from "./installation-settings.ts";
 import type { Database } from "./queries.ts";
 import {
   catalogRepositories,
@@ -375,10 +376,7 @@ export function createPostgresSettingsDocumentStore(
       return db.transaction(async (tx) => {
         // The repository writers' order: their advisory lock, then the
         // generation, then rows.
-        await tx.execute(
-          sql`SELECT pg_advisory_xact_lock(hashtext('catalog-repositories'))`,
-        );
-        await lockSettingsGeneration(tx);
+        await lockCatalogWrites(tx);
         const { actor } = options;
         if (actor !== null && !(await liveOwner(tx, actor))) {
           return { outcome: "actor_inactive" as const };
@@ -447,14 +445,6 @@ const WRITERS: Record<SettingsKind, readonly string[]> = {
   mcp: ["owner"],
   repository: ["owner", "admin"],
 };
-
-async function lockWriters(tx: Database): Promise<void> {
-  // The import's order: the repository writers' lock, the generation, rows.
-  await tx.execute(
-    sql`SELECT pg_advisory_xact_lock(hashtext('catalog-repositories'))`,
-  );
-  await lockSettingsGeneration(tx);
-}
 
 type HeldRow = {
   entry: unknown;
@@ -621,7 +611,8 @@ function consoleWrites(
     write: (tx: Database) => Promise<SettingsConsoleResult>,
   ): Promise<SettingsConsoleResult> =>
     db.transaction(async (tx) => {
-      await lockWriters(tx);
+      // The import's order: the repository writers' lock, the generation, rows.
+      await lockCatalogWrites(tx);
       if (!(await liveIn(tx, actor, WRITERS[kind]))) {
         return { outcome: "actor_inactive" as const };
       }

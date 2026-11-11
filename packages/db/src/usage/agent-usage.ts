@@ -4,11 +4,12 @@ import {
   type AgentUsageStore,
   decideUsage,
   type PutAgentUsageResult,
+  receiptActorOf,
   type UsageDecision,
   type UsageFacts,
 } from "@werft-ai/platform";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
-import { lockPeople, receiptActorOf } from "../control-shared.ts";
+import { lockPeople, UUID } from "../control-shared.ts";
 import { DB_NOW } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
 import {
@@ -21,8 +22,6 @@ import {
   memberTeams,
   receipts,
 } from "../schema.ts";
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // The edit takes rows in the order the notes' P1.6c gives (see also the list
 // in requester-locks.ts): user → membership → agent → agent_usage → admin rows
@@ -39,8 +38,8 @@ type Lockable<R> = PromiseLike<R> & {
 const MANAGERS: readonly string[] = ["owner", "admin"];
 
 /**
- * Whether `who` may use the agent, as of this read, or as of these locks
- * (94S-901). One function for both so the policy's answer and the store's
+ * Whether `who` may use the agent, as of this read, or as of these locks.
+ * One function for both so the policy's answer and the store's
  * re-decision cannot differ. With `lock`, rows are taken FOR SHARE in the
  * order of the notes' P1.6c, in one pass and never through another helper:
  * agent → agent_usage → admin rows → every team it reads (id order) →

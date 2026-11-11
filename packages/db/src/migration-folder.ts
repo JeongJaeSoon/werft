@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { generateDrizzleJson, generateMigration } from "drizzle-kit/api";
+import { readJournal } from "./migration-journal.ts";
 
 // Parallel branches each generate a migration on the main they started from.
 // Merging one without regenerating it on top of the other leaves main with a
@@ -8,25 +9,9 @@ import { generateDrizzleJson, generateMigration } from "drizzle-kit/api";
 // then either aborts on a prevId collision (with exit code 0) or re-emits the
 // other branch's DDL. None of that fails a migrate, so it is checked here.
 
-export const MIGRATIONS_FOLDER = join(import.meta.dir, "../migrations");
-
-export interface JournalEntry {
-  readonly idx: number;
-  readonly when: number;
-  readonly tag: string;
-}
-
 interface Snapshot {
   readonly id: string;
   readonly prevId: string;
-}
-
-export function readJournal(folder: string): JournalEntry[] {
-  return (
-    JSON.parse(readFileSync(join(folder, "meta/_journal.json"), "utf8")) as {
-      entries: JournalEntry[];
-    }
-  ).entries;
 }
 
 const snapshotFile = (tag: string) => `${tag.slice(0, 4)}_snapshot.json`;

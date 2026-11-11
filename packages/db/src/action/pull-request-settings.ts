@@ -9,9 +9,10 @@ import {
   pullRequestSettingsSchema,
 } from "@werft-ai/contracts";
 import type { PullRequestSettingsStore } from "@werft-ai/platform";
+import { receiptActorOf } from "@werft-ai/platform";
 import { and, eq, sql } from "drizzle-orm";
 import { lockAgentToChange } from "../agents.ts";
-import { receiptActorOf } from "../control-shared.ts";
+import { UUID } from "../control-shared.ts";
 import { lockedRole } from "../musterrolle/api-keys.ts";
 import type { Database } from "../queries.ts";
 import {
@@ -69,8 +70,6 @@ function agentReceiptView(settings: AgentPullRequestSettings | null) {
         template: templateRecord(settings.template),
       };
 }
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function createPostgresPullRequestSettingsStore(
   db: Database,

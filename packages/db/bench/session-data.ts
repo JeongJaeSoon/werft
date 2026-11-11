@@ -1,6 +1,6 @@
 /**
  * What the session data reads cost on PostgreSQL once an installation has a
- * long history (94S-1119): the session list and its activity, an event page
+ * long history: the session list and its activity, an event page
  * of a 20,000-event session, the session count, GitHub refusals, the
  * platform metrics, installation usage and one checkpoint collection pass
  * over the session ids. Seeds an empty database once, in the shape of
@@ -27,6 +27,7 @@ import {
 import { migrate } from "../src/migrate.ts";
 import * as schema from "../src/schema.ts";
 import { readSessionActivity } from "../src/sessions/session-activity.ts";
+import { timedMs } from "./lib.ts";
 
 const url = process.env.BENCH_DATABASE_URL;
 if (!url) throw new Error("BENCH_DATABASE_URL names the database to use");
@@ -245,19 +246,7 @@ const { rows: counts } = await pool.query(
 );
 console.log(`seed ${JSON.stringify(counts[0])}`);
 
-async function timed(fn: () => Promise<unknown>) {
-  await fn();
-  const samples: number[] = [];
-  for (let run = 0; run < RUNS; run += 1) {
-    const started = performance.now();
-    await fn();
-    samples.push(performance.now() - started);
-  }
-  samples.sort((a, b) => a - b);
-  const at = (q: number) =>
-    Number((samples[Math.ceil(q * samples.length) - 1] ?? 0).toFixed(1));
-  return { p50_ms: at(0.5), p95_ms: at(0.95), max_ms: at(1) };
-}
+const timed = (fn: () => Promise<unknown>) => timedMs(fn, RUNS);
 
 // Each statement the call sends, EXPLAINed as it ran: the full plan, then
 // one summary line per statement.

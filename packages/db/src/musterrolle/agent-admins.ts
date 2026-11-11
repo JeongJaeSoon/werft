@@ -6,9 +6,10 @@ import type {
   SetManagingTeamResult,
   TeamActor,
 } from "@werft-ai/platform";
+import { receiptActorOf } from "@werft-ai/platform";
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { agentOf, managingTeamName } from "../agents.ts";
-import { lockPeople, receiptActorOf } from "../control-shared.ts";
+import { lockPeople, UUID } from "../control-shared.ts";
 import { DB_NOW } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
 import {
@@ -21,8 +22,6 @@ import {
   users,
 } from "../schema.ts";
 import { administers, liveMember } from "./administers.ts";
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * `administers`, inside a write: the rows that make it true are share-locked
