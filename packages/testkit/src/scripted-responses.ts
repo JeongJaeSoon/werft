@@ -64,19 +64,27 @@ export function planOf(
     for (const text of textsOf(item).reverse()) {
       const spec = specIn(text);
       if (spec === null) continue;
-      const step = items
-        .slice(index + 1)
-        .filter((later) => later.type === "function_call_output").length;
+      const step = items.slice(index + 1).filter(isToolAnswer).length;
       return { spec, step };
     }
   }
   return null;
 }
 
-function toolNames(body: ResponsesRequest): string[] {
-  return (body.tools ?? []).flatMap((tool) => {
-    const { name, tools } = tool as { name?: unknown; tools?: unknown };
-    if (typeof name !== "string") return [];
+const isToolAnswer = (item: Item) =>
+  item.type === "function_call_output" || item.type === "tool_search_output";
+
+/** `name` for a function, `namespace/tool` for a tool inside a namespace. */
+function namesIn(entries: readonly unknown[]): string[] {
+  return entries.flatMap((entry) => {
+    const { name, tools, type } = entry as {
+      name?: unknown;
+      tools?: unknown;
+      type?: unknown;
+    };
+    if (typeof name !== "string") {
+      return typeof type === "string" ? [type] : [];
+    }
     if (!Array.isArray(tools)) return [name];
     return tools.flatMap((child) => {
       const childName = (child as { name?: unknown }).name;
@@ -85,17 +93,32 @@ function toolNames(body: ResponsesRequest): string[] {
   });
 }
 
+function toolNames(body: ResponsesRequest): string[] {
+  return namesIn(body.tools ?? []);
+}
+
+/** The namespaces the model can call into: offered up front or found by `tool_search`. */
+function namespacesOf(body: ResponsesRequest): Item[] {
+  const found = inputItems(body).flatMap((item) =>
+    item.type === "tool_search_output" && Array.isArray(item.tools)
+      ? (item.tools as Item[])
+      : [],
+  );
+  return [...((body.tools ?? []) as Item[]), ...found];
+}
+
 /**
  * `mcp__github__request_push` is the model's `request_push` in the
- * `mcp__github` namespace. The split is read off the namespaces the request
- * offered when it lists them, so a server id that ends in `_` is not cut at
- * the wrong `__`.
+ * `mcp__github` namespace, but only a namespace the model was shown (offered
+ * up front, or returned by `tool_search`) counts: a tool it was never shown
+ * stays a plain name, which the engine answers as unsupported, so a script
+ * cannot call what a real model could not.
  */
 function mcpCall(
   tool: string,
   body: ResponsesRequest,
 ): { name: string; namespace?: string } {
-  for (const entry of body.tools ?? []) {
+  for (const entry of namespacesOf(body)) {
     const { name, tools } = entry as { name?: unknown; tools?: unknown };
     if (typeof name !== "string" || !Array.isArray(tools)) continue;
     const rest = tool.startsWith(`${name}__`)
@@ -108,25 +131,21 @@ function mcpCall(
       return { namespace: name, name: rest };
     }
   }
-  // Codex may not list an MCP server's tools in the request (it defers them)
-  // yet still runs a call into the namespace, so an unlisted name splits at its
-  // first `__` after the prefix.
-  const split = /^(mcp__.+?)__(.+)$/.exec(tool);
-  return split === null
-    ? { name: tool }
-    : { namespace: split[1] as string, name: split[2] as string };
+  return { name: tool };
 }
 
 function outputTexts(items: readonly Item[]): string[] {
-  return items
-    .filter((item) => item.type === "function_call_output")
-    .map((item) => {
-      const text =
-        typeof item.output === "string"
-          ? item.output
-          : JSON.stringify(item.output ?? null);
-      return text.slice(0, 400);
-    });
+  return items.filter(isToolAnswer).map((item) => {
+    // What the search found, as `namespace/tool` names.
+    if (item.type === "tool_search_output") {
+      return namesIn(Array.isArray(item.tools) ? item.tools : []).join(",");
+    }
+    const text =
+      typeof item.output === "string"
+        ? item.output
+        : JSON.stringify(item.output ?? null);
+    return text.slice(0, 400);
+  });
 }
 
 export function specIdsIn(items: readonly Item[]): string[] {
@@ -164,7 +183,9 @@ export function replyFor(
           toolCalls: [
             {
               callId: `call_gate_${spec.id}_${step}`,
-              ...mcpCall(next.tool, body),
+              ...(next.tool === "tool_search"
+                ? { kind: "tool_search" as const, name: next.tool }
+                : mcpCall(next.tool, body)),
               arguments: JSON.stringify(next.input),
             },
           ],

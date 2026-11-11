@@ -125,7 +125,7 @@ describe("scripted Responses API", () => {
     });
   });
 
-  test("an MCP tool the request does not list is still called inside its namespace", async () => {
+  test("an MCP tool the model was never shown stays a plain name", async () => {
     const prompt = user(
       spec({
         id: "d",
@@ -135,9 +135,56 @@ describe("scripted Responses API", () => {
     );
     const reply = await replyFor({ input: [prompt], tools }, []);
     expect(reply.toolCalls?.[0]).toMatchObject({
+      name: "mcp__github__request_push",
+    });
+    expect(reply.toolCalls?.[0]?.namespace).toBeUndefined();
+  });
+
+  test("a tool_search step finds the namespace the next call is made in", async () => {
+    const recorded: ScriptedCall[] = [];
+    const prompt = user(
+      spec({
+        id: "q",
+        steps: [
+          { tool: "tool_search", input: { query: "request_push" } },
+          { tool: "mcp__github__request_push", input: {} },
+        ],
+        final: "done",
+      }),
+    );
+    const withSearch = [...tools, { type: "tool_search", execution: "client" }];
+    const first = await replyFor(
+      { input: [prompt], tools: withSearch },
+      recorded,
+    );
+    expect(first.toolCalls?.[0]).toMatchObject({
+      kind: "tool_search",
+      callId: "call_gate_q_0",
+    });
+    const found = {
+      type: "tool_search_output",
+      call_id: "call_gate_q_0",
+      execution: "client",
+      status: "completed",
+      tools: [
+        {
+          type: "namespace",
+          name: "mcp__github",
+          tools: [{ type: "function", name: "request_push" }],
+        },
+      ],
+    };
+    const second = await replyFor(
+      { input: [prompt, found], tools: withSearch },
+      recorded,
+    );
+    expect(second.toolCalls?.[0]).toMatchObject({
       namespace: "mcp__github",
       name: "request_push",
     });
+    expect(recorded.map((call) => call.step)).toEqual([0, 1]);
+    expect(recorded[0]?.tools).toEqual(["exec_command", "tool_search"]);
+    expect(recorded[1]?.outputs).toEqual(["mcp__github/request_push"]);
   });
 
   test("a request without tools never reads the spec", async () => {

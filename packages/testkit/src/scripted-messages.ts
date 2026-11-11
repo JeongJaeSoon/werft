@@ -45,6 +45,8 @@ export type GateRequest = {
   specId: string | null;
   step: number | null;
   system: unknown;
+  /** Names of the tools the request offered. */
+  tools: string[];
 };
 
 function blocksOf(message: Message): Block[] {
@@ -148,6 +150,10 @@ export function replyFor(
     specId: plan?.spec.id ?? null,
     step: plan?.step ?? null,
     system: request.body.system,
+    tools: (request.body.tools ?? []).flatMap((tool) => {
+      const { name } = tool as { name?: unknown };
+      return typeof name === "string" ? [name] : [];
+    }),
   });
   if (plan === null) return textReply(fallback);
   const { spec, step } = plan;

@@ -33,6 +33,11 @@ export function claudeEngine(env = process.env): EngineFixture {
         script.final,
         script.finalDelayMs,
       ),
+    async pushToolShown(id) {
+      return (await this.modelCalls(id)).some((call) =>
+        call.tools.includes(PUSH_TOOL),
+      );
+    },
     async modelCalls(id) {
       const response = await fetch(
         `${messagesUrl}/requests?spec=${encodeURIComponent(id)}`,

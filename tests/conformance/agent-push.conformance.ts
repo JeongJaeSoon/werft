@@ -53,6 +53,8 @@ async function agentPushed(name: string): Promise<{
   expect((await agent.approver.settleAllowing(session, "1")).status).toBe(
     "completed",
   );
+  // A call to a tool the model was never shown would prove nothing.
+  expect(await engine.pushToolShown(id)).toBe(true);
   return { agent, content: id, file, session };
 }
 

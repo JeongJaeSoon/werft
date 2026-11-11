@@ -28,7 +28,12 @@ export function codexEngine(env = process.env): EngineFixture {
             tool: "exec_command",
             input: { cmd },
           })),
-          ...(script.pushTool ? [{ tool: PUSH_TOOL, input: {} }] : []),
+          ...(script.pushTool
+            ? [
+                { tool: "tool_search", input: { query: "request_push" } },
+                { tool: PUSH_TOOL, input: {} },
+              ]
+            : []),
         ],
         final: script.final,
         ...(script.usage === undefined ? {} : { usage: script.usage }),
@@ -36,6 +41,18 @@ export function codexEngine(env = process.env): EngineFixture {
           ? {}
           : { finalDelayMs: script.finalDelayMs }),
       })}`,
+    // The engine defers MCP tools behind its `tool_search`: the model sees the
+    // push tool when a search answer names it.
+    async pushToolShown(id) {
+      const shown = "mcp__github/request_push";
+      return (await this.modelCalls(id)).some(
+        (call) =>
+          call.tools.includes(shown) ||
+          (call.outputs ?? []).some((names) =>
+            names.split(",").includes(shown),
+          ),
+      );
+    },
     async modelCalls(id) {
       const response = await fetch(
         `${responsesUrl}/calls?spec=${encodeURIComponent(id)}`,

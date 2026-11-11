@@ -50,6 +50,10 @@ export type ModelCall = {
   history: string[];
   /** The command step the call reached; `commands.length` is the final text. */
   step: number | null;
+  /** Tool names the call offered; a namespace's tools read `namespace/tool`. */
+  tools: string[];
+  /** The text of each tool answer the call carried, when the provider records it. */
+  outputs?: string[];
 };
 
 export interface EngineFixture {
@@ -64,6 +68,12 @@ export interface EngineFixture {
   readonly runtimeKind: RuntimeKind;
   /** Calls the engine's fake provider recorded for the script `id`. */
   modelCalls(id: string): Promise<ModelCall[]>;
+  /**
+   * Whether the model was shown the push tool in the script `id`: offered in
+   * the request, or returned by the engine's own tool discovery. A call the
+   * script makes to a tool the model never saw proves nothing about the engine.
+   */
+  pushToolShown(id: string): Promise<boolean>;
   /** The prompt that makes the engine's fake provider play `script`. */
   prompt(script: Script): string;
 }
