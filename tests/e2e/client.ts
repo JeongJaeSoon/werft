@@ -420,6 +420,14 @@ export class Api {
     return this.expect<SessionDetail>(200, "GET", `/v1/sessions/${id}`);
   }
 
+  usage(sessionId: string) {
+    return this.expect<{
+      budget_exceeded: boolean;
+      cost: { amount_usd: string | number; complete: boolean };
+      token_count: number;
+    }>(200, "GET", `/v1/sessions/${sessionId}/usage`);
+  }
+
   turn(sessionId: string, turnId: string) {
     return this.expect<Turn>(
       200,

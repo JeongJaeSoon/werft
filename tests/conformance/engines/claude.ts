@@ -1,5 +1,5 @@
 import { bash, scripted } from "../../e2e/client.ts";
-import type { EngineFixture, ModelCall } from "../engine.ts";
+import type { Capability, EngineFixture, ModelCall } from "../engine.ts";
 
 const MESSAGES_URL = "E2E_MESSAGES_URL";
 
@@ -11,6 +11,9 @@ export function claudeEngine(env = process.env): EngineFixture {
     runtimeKind: "claude_agent_sdk",
     connectionId: "fake-messages",
     repositoryId: "sample-app",
+    // The Claude engine enforces its budget inside the SDK, and the fake
+    // Messages API reports no scripted usage.
+    capabilities: new Set<Capability>(),
     // A write through `tee` asks; a read-only command and a redirect into the
     // workspace do not.
     approvalCommand: "echo conformance | tee approved.txt",
