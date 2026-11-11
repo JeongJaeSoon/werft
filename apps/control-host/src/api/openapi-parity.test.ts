@@ -55,8 +55,8 @@ import { registerAgentPullRequestRoutes } from "./routes/action/agent-pull-reque
 import { registerPullRequestRoutes } from "./routes/action/pull-requests.ts";
 import { registerPushRequestRoutes } from "./routes/action/push-requests.ts";
 import { registerAgentMcpRoutes } from "./routes/agents/agent-mcp.ts";
+import { registerAgentRoutes } from "./routes/agents/agents.ts";
 import { registerEngineSettingsRoutes } from "./routes/agents/engine-settings.ts";
-import { registerAgentRoutes } from "./routes/agents.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerAgentGitHubRoutes } from "./routes/github/agent-github.ts";
 import { registerGitHubAppRoutes } from "./routes/github/github-app.ts";
@@ -101,7 +101,7 @@ import { registerSessionOutputRoutes } from "./routes/sessions/outputs.ts";
 import { registerPauseRoutes } from "./routes/sessions/pause.ts";
 import { registerPendingRoutes } from "./routes/sessions/pending.ts";
 import { registerReceiptRoutes } from "./routes/sessions/receipts.ts";
-import { registerSessionRoutes } from "./routes/sessions.ts";
+import { registerSessionRoutes } from "./routes/sessions/sessions.ts";
 import { registerSlackAppRoutes } from "./routes/surface/slack-apps.ts";
 import { registerSlackBindingRoutes } from "./routes/surface/slack-bindings.ts";
 import { registerSlackChannelRoutes } from "./routes/surface/slack-channels.ts";

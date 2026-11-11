@@ -19,7 +19,7 @@ import { registerInterruptRoutes } from "./routes/sessions/interrupt.ts";
 import { registerPauseRoutes } from "./routes/sessions/pause.ts";
 import { registerPendingRoutes } from "./routes/sessions/pending.ts";
 import { registerReceiptRoutes } from "./routes/sessions/receipts.ts";
-import { registerSessionRoutes } from "./routes/sessions.ts";
+import { registerSessionRoutes } from "./routes/sessions/sessions.ts";
 import { requiredScope } from "./scope-policy.ts";
 
 const SESSION = "019a0000-0000-7000-8000-000000000001";

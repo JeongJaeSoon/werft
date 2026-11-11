@@ -3,17 +3,17 @@ import { randomUUID } from "node:crypto";
 import type { PGlite } from "@electric-sql/pglite";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
+import * as schema from "../schema.ts";
+import { fixtureTeamSql } from "../testing/fixture-team.ts";
+import {
+  RELEASE_SPEC_SQL_COLUMNS,
+  releaseSpecSqlValues,
+} from "../testing/spec-pins.ts";
 import {
   mcpDeniedBy,
   recordClaimRules,
   claimEngineSettingsOf as withAudit,
 } from "./claim-engine-settings.ts";
-import * as schema from "./schema.ts";
-import { fixtureTeamSql } from "./testing/fixture-team.ts";
-import {
-  RELEASE_SPEC_SQL_COLUMNS,
-  releaseSpecSqlValues,
-} from "./testing/spec-pins.ts";
 
 let client: PGlite;
 let db: PgliteDatabase<typeof schema>;

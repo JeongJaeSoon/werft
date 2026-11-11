@@ -50,7 +50,7 @@ import { registerEventRoutes } from "../apps/control-host/src/api/routes/session
 import { registerInterruptRoutes } from "../apps/control-host/src/api/routes/sessions/interrupt.ts";
 import { registerPendingRoutes } from "../apps/control-host/src/api/routes/sessions/pending.ts";
 import { registerReceiptRoutes } from "../apps/control-host/src/api/routes/sessions/receipts.ts";
-import { registerSessionRoutes } from "../apps/control-host/src/api/routes/sessions.ts";
+import { registerSessionRoutes } from "../apps/control-host/src/api/routes/sessions/sessions.ts";
 import { registerWorkerRoutes } from "../apps/control-host/src/api/routes/workers/worker.ts";
 import { PostgresSessionNotifier } from "../apps/control-host/src/api/session-notifier.ts";
 import { testCatalog } from "../apps/control-host/src/testing/catalog.ts";

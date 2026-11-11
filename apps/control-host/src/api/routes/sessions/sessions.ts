@@ -27,13 +27,13 @@ import {
   apiRoute,
   jsonWithSchema,
   parseJsonBody,
-} from "../app.ts";
+} from "../../app.ts";
 import {
   mapped,
   requireIdempotencyKey,
   requireParams,
   requireQuery,
-} from "./errors.ts";
+} from "../errors.ts";
 
 // The request span is active while a route runs; a turn it queues keeps that
 // span's traceparent as text so the worker can link back to the request.

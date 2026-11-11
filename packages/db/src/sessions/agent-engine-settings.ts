@@ -4,8 +4,8 @@ import {
 } from "@werft-ai/contracts";
 import type { AgentEngineSettingsView } from "@werft-ai/platform";
 import { eq } from "drizzle-orm";
-import type { Database } from "./queries.ts";
-import { agentEngineSettings } from "./schema.ts";
+import type { Database } from "../queries.ts";
+import { agentEngineSettings } from "../schema.ts";
 
 export type AgentEngineSettingsRow = AgentEngineSettingsView;
 

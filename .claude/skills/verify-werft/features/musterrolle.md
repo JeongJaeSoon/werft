@@ -248,7 +248,7 @@ Preconditions:
 - e: fake model 세션이 `queued`로 머물러도 시나리오에는 상관없다. 종료는 `queued`에서도 `202`다.
 - bootstrap은 cookie를 주지 않는다. 보존 기간을 바꾸기 전에 login한다.
 - 판정은 본문보다 먼저 묻는다. 그래서 owner의 `29` 요청(400)도 `audit_retention.manage | allow` 행을 남긴다.
-- 만료 정리는 시간을 당겨야 보이므로 E2E가 아니라 `packages/db/src/authz-decisions.integration.test.ts`로 본다.
+- 만료 정리는 시간을 당겨야 보이므로 E2E가 아니라 `packages/db/src/musterrolle/authz-decisions.integration.test.ts`로 본다.
 - 실제 Slack 앱·OAuth 동의는 사람만 한다. 자동 확인은 mock IdP로만 하고 실제 Slack 연결은 "사람 확인 필요"로 보고한다.
 
-서명 이벤트 수신과 slack role은 [procedures.md](procedures.md) P-SLACK-SETUP·P-SLACK-INBOUND다. HTTP `/v1/slack/events/{agent_id}`가 서명·5분 timestamp를 검사하고 inbox에 `(app_id,event_id)`로 중복 제거한다. slack role은 claim/lease로 처리하고, binding과 연결 계정이 맞으면 세션을 연다(procedures.md P-SLACK-MENTION-ONLY). 아니면 processed 또는 dropped로 끝낸다. c의 판정 함수를 직접 부른 증거가 세션 생성·Slack 답장 증거는 아니다. 소스: `apps/control-host/src/api/routes/slack-events.ts`, `apps/control-host/src/slack/main.ts`, `packages/db/src/slack-inbound-events.ts`, `packages/adapters/chat/slack/src/slack-inbox.ts`.
+서명 이벤트 수신과 slack role은 [procedures.md](procedures.md) P-SLACK-SETUP·P-SLACK-INBOUND다. HTTP `/v1/slack/events/{agent_id}`가 서명·5분 timestamp를 검사하고 inbox에 `(app_id,event_id)`로 중복 제거한다. slack role은 claim/lease로 처리하고, binding과 연결 계정이 맞으면 세션을 연다(procedures.md P-SLACK-MENTION-ONLY). 아니면 processed 또는 dropped로 끝낸다. c의 판정 함수를 직접 부른 증거가 세션 생성·Slack 답장 증거는 아니다. 소스: `apps/control-host/src/api/routes/surface/slack-events.ts`, `apps/control-host/src/slack/main.ts`, `packages/db/src/surface/slack-inbound-events.ts`, `packages/adapters/chat/slack/src/slack-inbox.ts`.

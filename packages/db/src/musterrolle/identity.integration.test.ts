@@ -9,8 +9,8 @@ import {
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
 import { Pool } from "pg";
-import { migrateDatabase, recordAppliedMigrations } from "./migrate.ts";
-import { expectedMigrations } from "./migration-head.ts";
+import { migrateDatabase, recordAppliedMigrations } from "../migrate.ts";
+import { expectedMigrations } from "../migration-head.ts";
 
 /**
  * The 0100 identity migration, run against a database that stands at 0008
@@ -20,7 +20,7 @@ import { expectedMigrations } from "./migration-head.ts";
  */
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
-const migrationsFolder = join(import.meta.dir, "../migrations");
+const migrationsFolder = join(import.meta.dir, "../../migrations");
 const PRE_IDENTITY = [
   "0000_gifted_morg.sql",
   "0001_giant_sphinx.sql",

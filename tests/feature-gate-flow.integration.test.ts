@@ -37,7 +37,7 @@ import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createApiApp } from "../apps/control-host/src/api/app.ts";
-import { registerSessionRoutes } from "../apps/control-host/src/api/routes/sessions.ts";
+import { registerSessionRoutes } from "../apps/control-host/src/api/routes/sessions/sessions.ts";
 import { registerWorkerRoutes } from "../apps/control-host/src/api/routes/workers/worker.ts";
 import { testCatalog } from "../apps/control-host/src/testing/catalog.ts";
 import {

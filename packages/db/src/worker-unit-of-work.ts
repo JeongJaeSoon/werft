@@ -102,10 +102,6 @@ import {
   sessionRuntimeOnce,
 } from "./checkpoints/checkpoint-runtime.ts";
 import {
-  claimEngineSettingsOf,
-  recordClaimRules,
-} from "./claim-engine-settings.ts";
-import {
   type ControlResultEvent,
   logControlResult,
 } from "./control-observability.ts";
@@ -133,12 +129,12 @@ import {
   publicStatus,
   recordLostInputWait,
 } from "./decision/pending-requests.ts";
+import { sessionGitHubMcpOf, sessionMcpOf } from "./github/mcp-egress.ts";
 import {
   catalogMismatchCause,
   quarantineLaunch,
   variablesRefusedCause,
 } from "./launch-quarantine.ts";
-import { sessionGitHubMcpOf, sessionMcpOf } from "./mcp-egress.ts";
 import { builtinToolsDenyOf } from "./musterrolle/agent-caller-limits.ts";
 import {
   envStartRefusal,
@@ -187,6 +183,10 @@ import {
 } from "./schema.ts";
 import { movedSessionPin } from "./session-spec-pin.ts";
 import { queueAchievementJudgment } from "./sessions/achievement-judgments.ts";
+import {
+  claimEngineSettingsOf,
+  recordClaimRules,
+} from "./sessions/claim-engine-settings.ts";
 import { finishClose } from "./sessions/close-control.ts";
 import {
   contextCoverage,

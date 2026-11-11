@@ -17,11 +17,11 @@ import {
   type SessionReader,
   type SessionUnitOfWork,
 } from "@werft-ai/platform";
-import { TEST_CONNECTION_ID, testCatalog } from "../../testing/catalog.ts";
-import { recordRouteErrors } from "../route-error-coverage.ts";
+import { TEST_CONNECTION_ID, testCatalog } from "../../../testing/catalog.ts";
+import { recordRouteErrors } from "../../route-error-coverage.ts";
 import { registerSessionRoutes } from "./sessions.ts";
 
-const createApiApp = recordRouteErrors("routes/sessions.test.ts");
+const createApiApp = recordRouteErrors("routes/sessions/sessions.test.ts");
 
 const RELEASE = `sha256:${"a".repeat(64)}`;
 const catalog = testCatalog({

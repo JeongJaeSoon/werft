@@ -1,6 +1,6 @@
 import { GITHUB_MCP_FIXED_TOOLS, githubMcpTools } from "@werft-ai/contracts";
 import { signGitHubMcpGrant } from "../action/github/github-mcp-server.ts";
-import type { GitHubMcpStore } from "../ports/github-mcp.ts";
+import type { GitHubMcpStore } from "../github/ports/github-mcp.ts";
 import {
   ALLOWED_MCP_METHODS,
   type McpEgressDecision,

@@ -31,11 +31,11 @@ import {
   TEST_CONNECTION_ID,
   TEST_RUNTIMES,
   testCatalog,
-} from "../../testing/catalog.ts";
-import { recordRouteErrors } from "../route-error-coverage.ts";
+} from "../../../testing/catalog.ts";
+import { recordRouteErrors } from "../../route-error-coverage.ts";
 import { registerAgentRoutes } from "./agents.ts";
 
-const createApiApp = recordRouteErrors("routes/agents.test.ts");
+const createApiApp = recordRouteErrors("routes/agents/agents.test.ts");
 
 const AGENT = "019a0000-0000-7000-8000-0000000000a1";
 const VERSION = "019a0000-0000-7000-8000-0000000000a2";

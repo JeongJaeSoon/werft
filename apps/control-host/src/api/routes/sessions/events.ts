@@ -342,6 +342,16 @@ export function registerEventRoutes(
         // wakes the stream): end it, and the reconnect is refused with 404.
         if (error instanceof ApiHttpError && error.status === 404) {
           closeWith("not_visible");
+        } else if (
+          error instanceof ApiHttpError &&
+          (error.status === 401 || error.status === 403) &&
+          !(await (inflight ?? verify()))
+        ) {
+          // A read re-checks the caller's grant, so a key revoked during the
+          // wait can refuse it before the watchdog's own check answers. The
+          // same check decides: the stream ends as a revocation, not as a
+          // failed read.
+          closeWith("credential_revoked");
         } else {
           // Headers are gone, so there is no error envelope to send; the
           // client reconnects with the last id it saw and the read is

@@ -6,10 +6,10 @@ import {
   createSessionService,
   type SessionControl,
 } from "@werft-ai/platform";
-import { recordRouteErrors } from "../route-error-coverage.ts";
-import { registerCloseRoutes } from "./sessions/close.ts";
+import { recordRouteErrors } from "../../route-error-coverage.ts";
+import { registerCloseRoutes } from "./close.ts";
 
-const createApiApp = recordRouteErrors("routes/close.test.ts");
+const createApiApp = recordRouteErrors("routes/sessions/close.test.ts");
 
 const sessionId = "019a0000-0000-7000-8000-000000000001";
 const path = `/v1/sessions/${sessionId}/close`;

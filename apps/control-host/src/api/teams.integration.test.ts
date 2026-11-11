@@ -45,7 +45,7 @@ import {
   LoginLockout,
 } from "./auth.ts";
 import { DatabaseApiKeyStore } from "./keys.ts";
-import { registerAgentRoutes } from "./routes/agents.ts";
+import { registerAgentRoutes } from "./routes/agents/agents.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerTeamRoutes } from "./routes/musterrolle/teams.ts";
 

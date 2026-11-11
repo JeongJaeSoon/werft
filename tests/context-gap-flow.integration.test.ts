@@ -41,7 +41,7 @@ import { Pool } from "pg";
 import { createApiApp } from "../apps/control-host/src/api/app.ts";
 import { registerEventRoutes } from "../apps/control-host/src/api/routes/sessions/events.ts";
 import { registerReceiptRoutes } from "../apps/control-host/src/api/routes/sessions/receipts.ts";
-import { registerSessionRoutes } from "../apps/control-host/src/api/routes/sessions.ts";
+import { registerSessionRoutes } from "../apps/control-host/src/api/routes/sessions/sessions.ts";
 import { registerWorkerRoutes } from "../apps/control-host/src/api/routes/workers/worker.ts";
 import { PostgresSessionNotifier } from "../apps/control-host/src/api/session-notifier.ts";
 import { testCatalog } from "../apps/control-host/src/testing/catalog.ts";

@@ -37,15 +37,15 @@ import {
 } from "@werft-ai/platform";
 import { releasePolicy } from "@werft-ai/platform/testing/github";
 import { type FakeGitHub, startFakeGitHub } from "@werft-ai/testkit";
-import { hashApiKey } from "../keys.ts";
-import { recordRouteErrors } from "../route-error-coverage.ts";
+import { hashApiKey } from "../../keys.ts";
+import { recordRouteErrors } from "../../route-error-coverage.ts";
 import {
   registerGitHubWorkRoutes,
   registerSessionAttributionRoutes,
   registerSessionOutcomeRoutes,
-} from "./github/github-work.ts";
+} from "./github-work.ts";
 
-const createApiApp = recordRouteErrors("routes/github-work.test.ts");
+const createApiApp = recordRouteErrors("routes/github/github-work.test.ts");
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
 const AGENT = "019a0000-0000-7000-8000-0000000000e1";

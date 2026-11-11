@@ -11,7 +11,6 @@ import type {
 import { eq, sql } from "drizzle-orm";
 import { receiptActorOf } from "../control-shared.ts";
 import { DB_NOW } from "../db-clock.ts";
-import { creatorOf } from "../mcp-egress.ts";
 import type { Database } from "../queries.ts";
 import {
   agentReleases,
@@ -27,6 +26,7 @@ import {
   secretAuditRefusal,
   writeSecretInTx,
 } from "../secrets/secret-values.ts";
+import { creatorOf } from "./mcp-egress.ts";
 
 // A session's owner without a workspace (an installation's own key, as in
 // the quickstart) is not a uuid, and has no settings row or token.

@@ -494,7 +494,7 @@ integration("usage API on PostgreSQL", () => {
     expect(body.usage.storage.used_bytes).toBeGreaterThan(0);
     expect(body.usage.storage.updated_at).not.toBeNull();
     // Outputs sit beside storage, never inside it: see
-    // packages/db/src/output-usage.integration.test.ts for the counting.
+    // packages/db/src/sessions/output-usage.integration.test.ts for the counting.
     expect(Object.keys(body.usage.outputs).sort()).toEqual([
       "complete",
       "updated_at",

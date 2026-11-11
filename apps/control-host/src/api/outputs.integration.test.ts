@@ -49,7 +49,7 @@ import {
 import { DatabaseApiKeyStore } from "./keys.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerSessionOutputRoutes } from "./routes/sessions/outputs.ts";
-import { registerSessionRoutes } from "./routes/sessions.ts";
+import { registerSessionRoutes } from "./routes/sessions/sessions.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 

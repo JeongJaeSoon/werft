@@ -21,12 +21,12 @@ import {
   type ResolvedWebSession,
   type SavedEngineSettings,
 } from "@werft-ai/platform";
-import { generateWebSessionToken, hashWebSessionToken } from "../auth.ts";
-import { hashApiKey } from "../keys.ts";
-import { recordRouteErrors } from "../route-error-coverage.ts";
-import { registerEngineSettingsRoutes } from "./agents/engine-settings.ts";
+import { generateWebSessionToken, hashWebSessionToken } from "../../auth.ts";
+import { hashApiKey } from "../../keys.ts";
+import { recordRouteErrors } from "../../route-error-coverage.ts";
+import { registerEngineSettingsRoutes } from "./engine-settings.ts";
 
-const createApiApp = recordRouteErrors("routes/engine-settings.test.ts");
+const createApiApp = recordRouteErrors("routes/agents/engine-settings.test.ts");
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000a1";
 const OTHER_WORKSPACE = "019a0000-0000-7000-8000-0000000000a2";
