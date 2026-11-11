@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Api, e2eEnv } from "../e2e/client.ts";
+import { docker } from "./docker.ts";
 import { scriptId } from "./engine.ts";
 import { engineFromEnv } from "./engines.ts";
 
@@ -22,20 +23,14 @@ const TIMEOUT = 600_000;
  * generation above the last, and the public API does not expose it.
  */
 async function workerGeneration(sessionId: string): Promise<number> {
-  const docker = Bun.spawn(
-    [
-      "docker",
-      "ps",
-      "-a",
-      "--filter",
-      `label=werft.session-id=${sessionId}`,
-      "--format",
-      '{{.Label "werft.generation"}}',
-    ],
-    { stdout: "pipe", stderr: "inherit" },
-  );
-  const text = await new Response(docker.stdout).text();
-  if ((await docker.exited) !== 0) throw new Error("docker ps failed");
+  const text = await docker([
+    "ps",
+    "-a",
+    "--filter",
+    `label=werft.session-id=${sessionId}`,
+    "--format",
+    '{{.Label "werft.generation"}}',
+  ]);
   const generations = text
     .split("\n")
     .filter((line) => line !== "")
