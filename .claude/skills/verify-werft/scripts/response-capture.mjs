@@ -8,7 +8,7 @@ export const BODY_LIMIT = 2000;
 // all bodies read together, and the number of requests listed.
 export const READ_LIMIT = 64 * 1024;
 export const READ_BUDGET = 256 * 1024;
-export const MAX_LISTED = 100;
+const MAX_LISTED = 100;
 // Network.enable parameters: the browser keeps no body over READ_LIMIT, so a
 // body larger than its reported size cannot reach this process whole, and
 // bounds what it buffers in all.
@@ -469,7 +469,7 @@ export function shortBody(text, limit = BODY_LIMIT) {
 
 // Query strings can carry OAuth codes and paths an invite token; the report
 // names the masked path only.
-export function safeUrl(raw) {
+function safeUrl(raw) {
   try {
     const u = new URL(raw);
     // Decode each run of %XX on its own, so one bad escape elsewhere cannot

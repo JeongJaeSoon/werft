@@ -92,7 +92,7 @@ jobs:
             source: docker.io/library/docker
             tag: "28-dind"
             digest: sha256:2a232a42256f70d78e3cc5d2b5d6b3276710a0de0596c145f627ecfae90282ac
-          # The kind cluster `k8s-smoke` starts (94S-525): the node image
+          # The kind cluster `k8s-smoke` starts: the node image
           # kind v0.33.0 defaults to, and the registry deploy/kind/up.sh
           # pushes the app images to.
           - name: kind-node

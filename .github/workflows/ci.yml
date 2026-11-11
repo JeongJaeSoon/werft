@@ -414,7 +414,7 @@ jobs:
             skips:
               # The Kubernetes backend's suites need a kind cluster
               # (K8S_BACKEND_TEST=1 and a KUBECONFIG); the job that brings one
-              # is 94S-525. (unnamed) is their beforeAll/afterAll.
+              # is `k8s-smoke`. (unnamed) is their beforeAll/afterAll.
               - file: packages/adapters/execution/kubernetes/src/backend.integration.test.ts
                 test: "(unnamed)"
               - file: packages/adapters/execution/kubernetes/src/backend.integration.test.ts

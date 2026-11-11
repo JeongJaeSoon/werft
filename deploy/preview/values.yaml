@@ -7,5 +7,5 @@ egressProxy:
   replicas: 1
 worker:
   # Requests equal limits on worker pods, so the chart's 4608 would reserve
-  # 4.5 GiB per session; a fake-model worker used 255 MB in the PoC (94S-958).
+  # 4.5 GiB per session; a fake-model worker used 255 MB in the PoC.
   memoryMb: 768

@@ -26,6 +26,31 @@ const awsExample = join(chart, "values-aws.example.yaml");
 
 type ImageDefault = { repository: string; digest: string };
 
+// The fields of rendered objects the checks read.
+type RoleRule = { apiGroups?: string[]; resources: string[]; verbs: string[] };
+type Port = { port?: number | string; protocol?: string };
+type Peer = {
+  podSelector?: { matchLabels?: Record<string, string> };
+  namespaceSelector?: unknown;
+};
+type PolicyRule = { ports?: Port[]; to?: Peer[] };
+type EnvVar = {
+  name: string;
+  value?: string;
+  valueFrom?: {
+    secretKeyRef?: { key: string };
+    fieldRef?: { fieldPath?: string };
+  };
+};
+// An entry a filter has already held to its secretKeyRef.
+type SecretEnvVar = { valueFrom: { secretKeyRef: { key: string } } };
+type Container = { env?: EnvVar[] };
+type IngressPath = {
+  path: string;
+  pathType: string;
+  backend?: { service?: { name: string; port?: { name?: string } } };
+};
+
 type Manifest = {
   kind: string;
   metadata: {
@@ -35,8 +60,7 @@ type Manifest = {
   };
   // biome-ignore lint/suspicious/noExplicitAny: rendered Kubernetes objects
   spec?: any;
-  // biome-ignore lint/suspicious/noExplicitAny: rendered Kubernetes objects
-  rules?: any[];
+  rules?: RoleRule[];
 };
 
 function helmTemplate(
@@ -209,19 +233,15 @@ function check(
     ) {
       fail(workerPolicy, "must deny all ingress and restrict egress");
     }
-    const targets = (spec.egress ?? []).map(
-      // biome-ignore lint/suspicious/noExplicitAny: rendered NetworkPolicy
-      (rule: any) => ({
-        component:
-          rule.to?.[0]?.podSelector?.matchLabels?.[
-            "app.kubernetes.io/component"
-          ] ?? rule.to?.[0]?.podSelector?.matchLabels?.["k8s-app"],
-        hasNamespace: rule.to?.[0]?.namespaceSelector !== undefined,
-        // biome-ignore lint/suspicious/noExplicitAny: rendered NetworkPolicy
-        ports: (rule.ports ?? []).map((p: any) => `${p.protocol}/${p.port}`),
-        peers: rule.to?.length ?? 0,
-      }),
-    );
+    const targets = (spec.egress ?? []).map((rule: PolicyRule) => ({
+      component:
+        rule.to?.[0]?.podSelector?.matchLabels?.[
+          "app.kubernetes.io/component"
+        ] ?? rule.to?.[0]?.podSelector?.matchLabels?.["k8s-app"],
+      hasNamespace: rule.to?.[0]?.namespaceSelector !== undefined,
+      ports: (rule.ports ?? []).map((p) => `${p.protocol}/${p.port}`),
+      peers: rule.to?.length ?? 0,
+    }));
     const expected = [
       {
         component: "egress-proxy",
@@ -230,8 +250,7 @@ function check(
         peers: 1,
       },
     ];
-    // biome-ignore lint/suspicious/noExplicitAny: rendered NetworkPolicy
-    const dns = (spec.egress ?? []).some((rule: any) =>
+    const dns = (spec.egress ?? []).some((rule: PolicyRule) =>
       // No port is every port.
       ((rule.ports ?? [{}]) as { port?: number }[]).some(
         (p) => p.port === undefined || p.port === 53,
@@ -251,9 +270,8 @@ function check(
       m.spec.podSelector?.matchLabels?.["app.kubernetes.io/component"] ===
         "api",
   );
-  const authorizerRule = apiPolicy?.spec.ingress?.find(
-    // biome-ignore lint/suspicious/noExplicitAny: rendered NetworkPolicy
-    (rule: any) => rule.ports?.some((p: any) => p.port === 3100),
+  const authorizerRule = apiPolicy?.spec.ingress?.find((rule: PolicyRule) =>
+    rule.ports?.some((p) => p.port === 3100),
   );
   if (
     authorizerRule?.from?.length !== 1 ||
@@ -265,10 +283,7 @@ function check(
   }
   for (const service of manifests.filter((m) => m.kind === "Service")) {
     if (
-      service.spec.ports.some(
-        // biome-ignore lint/suspicious/noExplicitAny: rendered Service
-        (p: any) => p.port === 3100,
-      ) &&
+      service.spec.ports.some((p: Port) => p.port === 3100) &&
       service.spec.type !== "ClusterIP"
     ) {
       fail(service, "the authorizer must stay ClusterIP");
@@ -338,8 +353,7 @@ function checkSecretKey(
     if (pod === undefined) continue;
     const component = m.metadata.labels?.["app.kubernetes.io/component"] ?? "";
     for (const c of [...(pod.initContainers ?? []), ...pod.containers]) {
-      // biome-ignore lint/suspicious/noExplicitAny: rendered Kubernetes objects
-      const entry = (c.env ?? []).find((v: any) => v.name === SECRET_KEY);
+      const entry = (c.env ?? []).find((v: EnvVar) => v.name === SECRET_KEY);
       if (entry === undefined) continue;
       const where = `${label}: ${m.kind}/${m.metadata.name}: container ${c.name}`;
       if (!SECRET_KEY_HOLDERS.includes(component) || c.name !== component) {
@@ -399,10 +413,8 @@ function checkSlack(
     }
     for (const c of [...(pod.initContainers ?? []), ...pod.containers]) {
       const secrets = (c.env ?? [])
-        // biome-ignore lint/suspicious/noExplicitAny: rendered Kubernetes objects
-        .filter((v: any) => v.valueFrom?.secretKeyRef !== undefined)
-        // biome-ignore lint/suspicious/noExplicitAny: rendered Kubernetes objects
-        .map((v: any) => v.valueFrom.secretKeyRef.key as string);
+        .filter((v: EnvVar) => v.valueFrom?.secretKeyRef !== undefined)
+        .map((v: SecretEnvVar) => v.valueFrom.secretKeyRef.key as string);
       const extra = secrets.filter((key) => !SLACK_SECRETS.includes(key));
       if (extra.length > 0 || (c.envFrom ?? []).length > 0) {
         errors.push(
@@ -413,14 +425,10 @@ function checkSlack(
   }
   for (const policy of ofSlack("NetworkPolicy")) {
     const spec = policy.spec;
-    const ports = (spec.egress ?? []).flatMap(
-      // biome-ignore lint/suspicious/noExplicitAny: rendered NetworkPolicy
-      (rule: any) => {
-        if (rule.ports === undefined) return ["any port"];
-        // biome-ignore lint/suspicious/noExplicitAny: rendered NetworkPolicy
-        return rule.ports.map((p: any) => `${p.protocol}/${p.port}`);
-      },
-    );
+    const ports = (spec.egress ?? []).flatMap((rule: PolicyRule) => {
+      if (rule.ports === undefined) return ["any port"];
+      return rule.ports.map((p) => `${p.protocol}/${p.port}`);
+    });
     if (
       JSON.stringify(spec.policyTypes) !== '["Egress"]' ||
       JSON.stringify(ports) !== JSON.stringify(SLACK_EGRESS)
@@ -463,10 +471,8 @@ function checkWorkerImages(
     const [deployment] = deployments as [Manifest];
     const env = new Map<string, string>(
       podSpecOf(deployment)
-        // biome-ignore lint/suspicious/noExplicitAny: rendered Kubernetes objects
-        .containers.flatMap((c: any) => c.env ?? [])
-        // biome-ignore lint/suspicious/noExplicitAny: rendered Kubernetes objects
-        .map((v: any) => [v.name, v.value]),
+        .containers.flatMap((c: Container) => c.env ?? [])
+        .map((v: EnvVar) => [v.name, v.value]),
     );
     const expected: [string, string | undefined][] = [
       ["WORKER_IMAGE_RUNTIME", want.runtime],
@@ -506,8 +512,7 @@ function checkPreview(
     if (pod === undefined) continue;
     const role = m.metadata.labels?.["app.kubernetes.io/component"] ?? "";
     for (const c of [...(pod.initContainers ?? []), ...pod.containers]) {
-      // biome-ignore lint/suspicious/noExplicitAny: rendered Kubernetes objects
-      const env: any[] = c.env ?? [];
+      const env: EnvVar[] = c.env ?? [];
       // Every entry: with a duplicate name the last one wins.
       for (const entry of env.filter((v) => v.name === PREVIEW_ENV)) {
         const where = `${label}: ${m.kind}/${m.metadata.name}: container ${c.name}`;
@@ -559,8 +564,7 @@ const ROUTE_OVERRIDE =
 
 function blocksInternal(
   annotations: Record<string, string>,
-  // biome-ignore lint/suspicious/noExplicitAny: rendered Kubernetes objects
-  path: any,
+  path: IngressPath,
 ): boolean {
   const service = path.backend?.service;
   if (
@@ -622,8 +626,7 @@ function checkIngress(
       }
     }
     for (const rule of ingress.spec.rules ?? []) {
-      // biome-ignore lint/suspicious/noExplicitAny: rendered Kubernetes objects
-      const paths: any[] = rule.http?.paths ?? [];
+      const paths: IngressPath[] = rule.http?.paths ?? [];
       let blocked = false;
       for (const path of paths) {
         if (blocksInternal(annotations, path)) {
@@ -688,10 +691,8 @@ function checkMetrics(
     }
     for (const c of podSpecOf(m).containers) {
       const secrets = (c.env ?? [])
-        // biome-ignore lint/suspicious/noExplicitAny: rendered Kubernetes objects
-        .filter((v: any) => v.valueFrom?.secretKeyRef !== undefined)
-        // biome-ignore lint/suspicious/noExplicitAny: rendered Kubernetes objects
-        .map((v: any) => v.valueFrom.secretKeyRef.key as string);
+        .filter((v: EnvVar) => v.valueFrom?.secretKeyRef !== undefined)
+        .map((v: SecretEnvVar) => v.valueFrom.secretKeyRef.key as string);
       if (JSON.stringify(secrets) !== '["DATABASE_URL"]') {
         errors.push(
           `${where}: container ${c.name} holds Secret keys ${JSON.stringify(secrets)}`,
@@ -707,11 +708,8 @@ function checkMetrics(
     }
   }
   for (const policy of ofMetrics("NetworkPolicy")) {
-    const ports = (policy.spec.ingress ?? []).flatMap(
-      // biome-ignore lint/suspicious/noExplicitAny: rendered NetworkPolicy
-      (rule: any) =>
-        // biome-ignore lint/suspicious/noExplicitAny: rendered NetworkPolicy
-        (rule.ports ?? [{}]).map((p: any) => `${p.protocol}/${p.port}`),
+    const ports = (policy.spec.ingress ?? []).flatMap((rule: PolicyRule) =>
+      (rule.ports ?? [{}]).map((p: Port) => `${p.protocol}/${p.port}`),
     );
     if (
       JSON.stringify(policy.spec.policyTypes) !== '["Ingress"]' ||
