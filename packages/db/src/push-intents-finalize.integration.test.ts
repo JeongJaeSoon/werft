@@ -15,11 +15,11 @@ import {
 import { eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { createPostgresCheckpointStore } from "./checkpoint-store.ts";
+import { createPostgresPushIntents } from "./action/push-intents.ts";
+import { createPostgresCheckpointStore } from "./checkpoints/checkpoint-store.ts";
+import { createPostgresWorkerPendingStore } from "./decision/pending-control.ts";
 import { createPostgresGitHubMcpStore } from "./mcp-egress.ts";
-import { createPostgresWorkerPendingStore } from "./pending-control.ts";
 import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
-import { createPostgresPushIntents } from "./push-intents.ts";
 import * as schema from "./schema.ts";
 import {
   pushIntents,

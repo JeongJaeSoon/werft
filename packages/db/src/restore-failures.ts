@@ -14,7 +14,7 @@ import {
   unassignedSessions,
   workerLaunches,
 } from "./schema.ts";
-import { recordEvent, recordStatus } from "./session-events.ts";
+import { recordEvent, recordStatus } from "./sessions/session-events.ts";
 
 type SessionRow = typeof sessions.$inferSelect;
 

@@ -12,7 +12,6 @@ import type {
   ResumeSessionResult,
 } from "@werft-ai/platform";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
-import { contextCoverage, contextGap } from "./context-gap.ts";
 import {
   controlClock,
   controlReplay,
@@ -29,12 +28,11 @@ import {
   transactionWithBindingRetry,
 } from "./control-shared.ts";
 import { dbNow } from "./db-clock.ts";
-import { closeParkedGroup } from "./parked-group.ts";
 import {
   awaitingInputAt,
   cancelParkedRequests,
   publicStatus,
-} from "./pending-requests.ts";
+} from "./decision/pending-requests.ts";
 import type { Database } from "./queries.ts";
 import {
   INCOMPATIBLE_CHECKPOINT_REASON,
@@ -58,8 +56,10 @@ import {
   unassignedSessions,
   workerLaunches,
 } from "./schema.ts";
-import { recordEvent, recordStatus } from "./session-events.ts";
 import { pinRefusesLive } from "./session-pin-cutover.ts";
+import { contextCoverage, contextGap } from "./sessions/context-gap.ts";
+import { closeParkedGroup } from "./sessions/parked-group.ts";
+import { recordEvent, recordStatus } from "./sessions/session-events.ts";
 
 export {
   hasRestorePoint,

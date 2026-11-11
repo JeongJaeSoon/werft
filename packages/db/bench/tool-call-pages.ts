@@ -12,7 +12,7 @@ import type { UsageSummaryFilter } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import * as schema from "../src/index.ts";
-import { toolCallDays, toolCallPage } from "../src/tool-call-pages.ts";
+import { toolCallDays, toolCallPage } from "../src/sessions/tool-call-pages.ts";
 
 const url = process.argv[2];
 if (!url) throw new Error("usage: tool-call-pages.ts <postgres-url>");

@@ -1,7 +1,6 @@
 import type { AgentAuthority } from "@werft-ai/platform";
 import { and, eq, isNull, sql } from "drizzle-orm";
-import { administers, insideAgent } from "./administers.ts";
-import { usageOf as usageDecisionOf } from "./agent-usage.ts";
+import { administers, insideAgent } from "./musterrolle/administers.ts";
 import type { Database } from "./queries.ts";
 import {
   agentReleases,
@@ -12,6 +11,7 @@ import {
   surfaceBindings,
   users,
 } from "./schema.ts";
+import { usageOf as usageDecisionOf } from "./usage/agent-usage.ts";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

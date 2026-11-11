@@ -10,8 +10,8 @@ import {
 import { and, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { createPostgresSessionShareStore } from "./musterrolle/session-shares.ts";
 import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
-import { lockSessionReach, type Requester } from "./requester-locks.ts";
 import * as schema from "./schema.ts";
 import {
   agentAdmins,
@@ -29,7 +29,10 @@ import {
   users,
   workspaces,
 } from "./schema.ts";
-import { createPostgresSessionShareStore } from "./session-shares.ts";
+import {
+  lockSessionReach,
+  type Requester,
+} from "./sessions/requester-locks.ts";
 import { fixtureTeam } from "./testing/fixture-team.ts";
 import { createPostgresAgentAccessSetting } from "./workspace-settings.ts";
 

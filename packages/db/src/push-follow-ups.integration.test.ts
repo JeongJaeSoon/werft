@@ -15,9 +15,9 @@ import {
 import { asc, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { createPostgresWorkerPendingStore } from "./pending-control.ts";
+import { holdPushFollowUp } from "./action/push-follow-ups.ts";
+import { createPostgresWorkerPendingStore } from "./decision/pending-control.ts";
 import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
-import { holdPushFollowUp } from "./push-follow-ups.ts";
 import * as schema from "./schema.ts";
 import {
   pullRequests,

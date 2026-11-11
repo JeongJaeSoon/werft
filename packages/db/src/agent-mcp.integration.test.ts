@@ -17,10 +17,10 @@ import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresAgentGitHubStore } from "./agent-github.ts";
-import { createPostgresAgentMcpStore } from "./agent-mcp.ts";
-import { createDatabaseIdentityReader } from "./identity-reader.ts";
+import { createPostgresAgentMcpStore } from "./agents/agent-mcp.ts";
+import { captureMcpStart } from "./agents/mcp-settings.ts";
 import { createPostgresMcpEgressStore } from "./mcp-egress.ts";
-import { captureMcpStart } from "./mcp-settings.ts";
+import { createDatabaseIdentityReader } from "./musterrolle/identity-reader.ts";
 import * as schema from "./schema.ts";
 import {
   agentMcpSettings,

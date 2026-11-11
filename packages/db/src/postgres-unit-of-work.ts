@@ -74,16 +74,8 @@ import {
   or,
   sql,
 } from "drizzle-orm";
-import { agentUsable } from "./administers.ts";
-import {
-  inputRefusal,
-  lockCallerLimit,
-  pinnedLimitOf,
-  recordCallerLimited,
-  sessionReach,
-  startReach,
-} from "./agent-caller-limits.ts";
-import { contextGapAttention } from "./context-gap.ts";
+import { captureMcpStart } from "./agents/mcp-settings.ts";
+import { earlierInSecond, releaseLabel } from "./agents/release-labels.ts";
 import {
   containsPattern,
   findIdempotent,
@@ -93,31 +85,6 @@ import {
   receiptActorOf,
 } from "./control-shared.ts";
 import {
-  lockUnboundRefs,
-  recordUnboundRefusal,
-} from "./credential-bindings.ts";
-import {
-  decodeCreatedAtCursor,
-  decodeEventCursor,
-  decodeTurnCursor,
-  encodeCreatedAtCursor,
-  encodeEventCursor,
-  encodeTurnCursor,
-  rethrowCursorCastError,
-} from "./cursors.ts";
-import { drainAttention } from "./drain.ts";
-import { captureEngineSettingsStart } from "./engine-settings-start.ts";
-import { enqueueWithin } from "./enqueue.ts";
-import {
-  captureEnvStart,
-  recordEnvRefusal,
-  recordEnvResolution,
-} from "./env-variables.ts";
-import { eventWithNeutralFields } from "./event-payload.ts";
-import { captureGitHubPolicyStart } from "./github-settings.ts";
-import { admitInput } from "./input-limits.ts";
-import { captureMcpStart } from "./mcp-settings.ts";
-import {
   AWAITABLE_STATUSES,
   actionableOfSession,
   actionableOfTurn,
@@ -125,17 +92,34 @@ import {
   publicStatus,
   READ_AT,
   readInputWaits,
-} from "./pending-requests.ts";
-import type { Database } from "./queries.ts";
-import { earlierInSecond, releaseLabel } from "./release-labels.ts";
+} from "./decision/pending-requests.ts";
+import { captureEngineSettingsStart } from "./engine-settings-start.ts";
+import { captureGitHubPolicyStart } from "./github-settings.ts";
+import { admitInput } from "./input-limits.ts";
+import { readArchivedWorkspaceLimit } from "./limits/workspace-limit.ts";
+import { agentUsable } from "./musterrolle/administers.ts";
 import {
-  keyReaches,
-  lockAgentUsage,
-  lockAgentUse,
-  lockRequester,
-  lockSessionReach,
-  type Requester,
-} from "./requester-locks.ts";
+  inputRefusal,
+  lockCallerLimit,
+  pinnedLimitOf,
+  recordCallerLimited,
+  sessionReach,
+  startReach,
+} from "./musterrolle/agent-caller-limits.ts";
+import {
+  lockUnboundRefs,
+  recordUnboundRefusal,
+} from "./musterrolle/credential-bindings.ts";
+import {
+  captureEnvStart,
+  recordEnvRefusal,
+  recordEnvResolution,
+} from "./musterrolle/env-variables.ts";
+import {
+  sessionRelationIs,
+  sessionVisibleTo,
+} from "./musterrolle/session-shares.ts";
+import type { Database } from "./queries.ts";
 import { startupFailedAttention } from "./restore-failures.ts";
 import {
   agentReleases,
@@ -153,7 +137,30 @@ import {
   turns,
   users,
 } from "./schema.ts";
-import { readSessionActivity } from "./session-activity.ts";
+import { pinRefusesLive } from "./session-pin-cutover.ts";
+import { newSessionPin } from "./session-spec-pin.ts";
+import { contextGapAttention } from "./sessions/context-gap.ts";
+import {
+  decodeCreatedAtCursor,
+  decodeEventCursor,
+  decodeTurnCursor,
+  encodeCreatedAtCursor,
+  encodeEventCursor,
+  encodeTurnCursor,
+  rethrowCursorCastError,
+} from "./sessions/cursors.ts";
+import { drainAttention } from "./sessions/drain.ts";
+import { enqueueWithin } from "./sessions/enqueue.ts";
+import { eventWithNeutralFields } from "./sessions/event-payload.ts";
+import {
+  keyReaches,
+  lockAgentUsage,
+  lockAgentUse,
+  lockRequester,
+  lockSessionReach,
+  type Requester,
+} from "./sessions/requester-locks.ts";
+import { readSessionActivity } from "./sessions/session-activity.ts";
 import {
   type ArchivedEventCache,
   type ArchivedEventSource,
@@ -162,12 +169,8 @@ import {
   archivedRows,
   createArchivedEventCache,
   sameChunks,
-} from "./session-event-archives.ts";
-import { recordStatus } from "./session-events.ts";
-import { pinRefusesLive } from "./session-pin-cutover.ts";
-import { sessionRelationIs, sessionVisibleTo } from "./session-shares.ts";
-import { newSessionPin } from "./session-spec-pin.ts";
-import { readArchivedWorkspaceLimit } from "./workspace-limit.ts";
+} from "./sessions/session-event-archives.ts";
+import { recordStatus } from "./sessions/session-events.ts";
 
 const isUuid = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);

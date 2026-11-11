@@ -23,8 +23,8 @@ import {
 import { eq, inArray, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { createPostgresPullRequests } from "./action/pull-requests.ts";
 import { createPostgresGitHubGateStore } from "./github-settings.ts";
-import { createPostgresPullRequests } from "./pull-requests.ts";
 import { createPostgresPushRequests } from "./push-requests.ts";
 import * as schema from "./schema.ts";
 import {
@@ -33,7 +33,7 @@ import {
   sessionOutcomes,
   sessions,
 } from "./schema.ts";
-import { createPostgresSessionOutcomes } from "./session-outcomes.ts";
+import { createPostgresSessionOutcomes } from "./sessions/session-outcomes.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 

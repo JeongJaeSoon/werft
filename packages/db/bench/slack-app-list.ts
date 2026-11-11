@@ -12,7 +12,7 @@ import { drizzle } from "drizzle-orm/pglite";
 import * as schema from "../src/index.ts";
 import { migrate } from "../src/migrate.ts";
 import type { Database } from "../src/queries.ts";
-import { createPostgresSlackAppStore } from "../src/slack-apps.ts";
+import { createPostgresSlackAppStore } from "../src/surface/slack-apps.ts";
 
 const appCount = Number(process.argv[2] ?? 50);
 const otherApps = Number(process.argv[3] ?? 5000);

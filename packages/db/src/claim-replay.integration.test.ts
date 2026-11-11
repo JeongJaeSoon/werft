@@ -17,9 +17,8 @@ import { asc, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresSessionControl } from "./control-unit-of-work.ts";
-import { reconcileExpiredLeases } from "./lease-reconcile.ts";
 import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
-import { createPostgresSchedulerStore } from "./scheduler-store.ts";
+import { createPostgresSchedulerStore } from "./scheduler/scheduler-store.ts";
 import * as schema from "./schema.ts";
 import {
   attempts,
@@ -28,6 +27,7 @@ import {
   unassignedSessions,
   workerCredentials,
 } from "./schema.ts";
+import { reconcileExpiredLeases } from "./sessions/lease-reconcile.ts";
 import {
   confirmExecutionGone,
   launchSession,

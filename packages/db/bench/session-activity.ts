@@ -13,7 +13,10 @@ import { Pool } from "pg";
 import { createPostgresSessionReader } from "../src/index.ts";
 import { migrate } from "../src/migrate.ts";
 import * as schema from "../src/schema.ts";
-import { activityQuery, readSessionActivity } from "../src/session-activity.ts";
+import {
+  activityQuery,
+  readSessionActivity,
+} from "../src/sessions/session-activity.ts";
 
 const url = process.argv[2];
 if (!url) throw new Error("usage: session-activity.ts <postgres-url> ...");

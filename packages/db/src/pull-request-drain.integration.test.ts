@@ -14,8 +14,8 @@ import {
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { createPostgresPullRequestDrain } from "./pull-request-drain.ts";
-import { createPostgresPullRequests } from "./pull-requests.ts";
+import { createPostgresPullRequestDrain } from "./action/pull-request-drain.ts";
+import { createPostgresPullRequests } from "./action/pull-requests.ts";
 import { createPostgresPushRequests } from "./push-requests.ts";
 import * as schema from "./schema.ts";
 import { pullRequests, pushRequests, sessions, slackOutbox } from "./schema.ts";
