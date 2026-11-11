@@ -1,8 +1,6 @@
-import * as schema from "@werft-ai/db";
 import { forgetLostCheckpoints, hasUncollectedCheckpoint } from "@werft-ai/db";
-import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
 import { createLogger } from "@werft-ai/observability";
-import { drizzle } from "drizzle-orm/node-postgres";
+import { withJobDatabase } from "../job-database.ts";
 import {
   checkpointStorageConfigFromEnv,
   forgetLostCheckpointObjects,
@@ -24,33 +22,29 @@ async function main(): Promise<void> {
   }
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) throw new Error("DATABASE_URL is required");
-  const pool = createEnforcedPool(
+  await withJobDatabase(
+    "forget-lost-checkpoints",
     databaseUrl,
     createLogger(),
-    "forget-lost-checkpoints",
-    JOB_POOL_TIMEOUTS,
-  );
-  try {
-    const db = drizzle(pool, { schema });
-    const lost = await forgetLostCheckpointObjects(config, {
-      hasUncollectedCheckpoint: () => hasUncollectedCheckpoint(db),
-      forget: () => forgetLostCheckpoints(db, new Date()),
-    });
-    const total = lost.held.length + lost.unchanged.length;
-    if (total === 0) {
+    async ({ db }) => {
+      const lost = await forgetLostCheckpointObjects(config, {
+        hasUncollectedCheckpoint: () => hasUncollectedCheckpoint(db),
+        forget: () => forgetLostCheckpoints(db, new Date()),
+      });
+      const total = lost.held.length + lost.unchanged.length;
+      if (total === 0) {
+        console.log(
+          "No checkpoint is missing from the bucket; nothing to forget",
+        );
+        return;
+      }
       console.log(
-        "No checkpoint is missing from the bucket; nothing to forget",
+        `Lost the checkpoints of ${total} session(s): ${lost.held.length} now wait in recovery_required (resume refuses; decide start_fresh or close), ${lost.unchanged.length} keep their state`,
       );
-      return;
-    }
-    console.log(
-      `Lost the checkpoints of ${total} session(s): ${lost.held.length} now wait in recovery_required (resume refuses; decide start_fresh or close), ${lost.unchanged.length} keep their state`,
-    );
-    for (const id of lost.held) console.log(`recovery_required ${id}`);
-    for (const id of lost.unchanged) console.log(`unchanged ${id}`);
-  } finally {
-    await pool.end();
-  }
+      for (const id of lost.held) console.log(`recovery_required ${id}`);
+      for (const id of lost.unchanged) console.log(`unchanged ${id}`);
+    },
+  );
 }
 
 if (import.meta.main) {

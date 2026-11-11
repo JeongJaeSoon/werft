@@ -5,7 +5,6 @@ import {
   type SessionScope,
   sessionScopeSchema,
 } from "@werft-ai/contracts";
-import * as schema from "@werft-ai/db";
 import {
   type ApiKeyKind,
   type ApiKeyRecord,
@@ -18,10 +17,9 @@ import {
   revokeApiKey,
   touchApiKey,
 } from "@werft-ai/db";
-import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
 import { createLogger } from "@werft-ai/observability";
 import { messageOf } from "@werft-ai/platform";
-import { drizzle } from "drizzle-orm/node-postgres";
+import { withJobDatabase } from "../job-database.ts";
 
 export interface ApiKeyStore {
   /** `touchDue`: the key's last use is older than the touch interval. */
@@ -235,14 +233,8 @@ async function main(): Promise<void> {
     throw new Error("DATABASE_URL is required");
   }
 
-  const pool = createEnforcedPool(
-    databaseUrl,
-    createLogger(),
-    "keys",
-    JOB_POOL_TIMEOUTS,
-  );
-  try {
-    const store = new DatabaseApiKeyStore(drizzle(pool));
+  await withJobDatabase("keys", databaseUrl, createLogger(), async ({ db }) => {
+    const store = new DatabaseApiKeyStore(db);
     if (command.command === "revoke") {
       const result = await store.revoke(command.keyId);
       if (result.outcome === "not_found") {
@@ -256,7 +248,6 @@ async function main(): Promise<void> {
       return;
     }
     if ("workspaceId" in command) {
-      const db = drizzle(pool, { schema });
       if (!(await findWorkspace(db, command.workspaceId))) {
         console.error(`Workspace ${command.workspaceId} not found`);
         process.exitCode = 1;
@@ -278,9 +269,7 @@ async function main(): Promise<void> {
     // which `revoke` takes, goes to stderr.
     console.error(`key_id ${issued.keyId}`);
     console.log(issued.plaintext);
-  } finally {
-    await pool.end();
-  }
+  });
 }
 
 if (import.meta.main) {

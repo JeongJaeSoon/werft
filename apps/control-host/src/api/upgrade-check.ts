@@ -1,6 +1,4 @@
-import * as schema from "@werft-ai/db";
 import { listUncollectedSessionPointers } from "@werft-ai/db";
-import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
 import { createLogger, type StructuredLogger } from "@werft-ai/observability";
 import {
   assessNothingReplaced,
@@ -10,7 +8,7 @@ import {
   type WorkerImagesEnvironment,
   workerImageRuntimesFromEnv,
 } from "@werft-ai/platform";
-import { drizzle } from "drizzle-orm/node-postgres";
+import { withJobDatabase } from "../job-database.ts";
 
 export type UpgradeCheckEnvironment = Readonly<
   Record<string, string | undefined>
@@ -221,8 +219,8 @@ function approvedSessions(text: string): string[] {
 
 function listSessions(logger: StructuredLogger) {
   return (databaseUrl: string) =>
-    withPool(databaseUrl, logger, (pool) =>
-      listUncollectedSessionPointers(drizzle(pool, { schema })),
+    withJobDatabase("upgrade-check", databaseUrl, logger, ({ db }) =>
+      listUncollectedSessionPointers(db),
     );
 }
 
@@ -234,7 +232,7 @@ function listSessions(logger: StructuredLogger) {
  */
 export function databaseUnused(logger: StructuredLogger) {
   return (databaseUrl: string) =>
-    withPool(databaseUrl, logger, async (pool) => {
+    withJobDatabase("upgrade-check", databaseUrl, logger, async ({ pool }) => {
       const { rows } = await pool.query<{
         journal: string | null;
         sessions: string | null;
@@ -258,24 +256,6 @@ export function databaseUnused(logger: StructuredLogger) {
       );
       return applied.rowCount === 0;
     });
-}
-
-async function withPool<T>(
-  databaseUrl: string,
-  logger: StructuredLogger,
-  read: (pool: ReturnType<typeof createEnforcedPool>) => Promise<T>,
-): Promise<T> {
-  const pool = createEnforcedPool(
-    databaseUrl,
-    logger,
-    "upgrade-check",
-    JOB_POOL_TIMEOUTS,
-  );
-  try {
-    return await read(pool);
-  } finally {
-    await pool.end();
-  }
 }
 
 if (import.meta.main) {

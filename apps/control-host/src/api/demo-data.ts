@@ -1,9 +1,7 @@
-import * as schema from "@werft-ai/db";
 import { createPostgresSettingsDocumentStore } from "@werft-ai/db";
-import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
 import { createLogger } from "@werft-ai/observability";
 import { type CatalogProviderConfig, messageOf } from "@werft-ai/platform";
-import { drizzle } from "drizzle-orm/node-postgres";
+import { withJobDatabase } from "../job-database.ts";
 import {
   DEMO_ACCOUNTS,
   DEMO_PASSWORD,
@@ -810,24 +808,20 @@ async function seedAs(
 async function storedConnections(): Promise<
   Record<string, CatalogProviderConfig>
 > {
-  const pool = createEnforcedPool(
+  return withJobDatabase(
+    "demo-data",
     demoDatabaseUrl(process.env),
     createLogger(),
-    "demo-data",
-    JOB_POOL_TIMEOUTS,
+    async ({ db }) => {
+      const rows =
+        await createPostgresSettingsDocumentStore(db).listRows("connection");
+      return Object.fromEntries(
+        rows
+          .filter((row) => row.disabledAt === null)
+          .map((row) => [row.id, row.entry as CatalogProviderConfig]),
+      );
+    },
   );
-  try {
-    const rows = await createPostgresSettingsDocumentStore(
-      drizzle(pool, { schema }),
-    ).listRows("connection");
-    return Object.fromEntries(
-      rows
-        .filter((row) => row.disabledAt === null)
-        .map((row) => [row.id, row.entry as CatalogProviderConfig]),
-    );
-  } finally {
-    await pool.end();
-  }
 }
 
 async function main(): Promise<void> {

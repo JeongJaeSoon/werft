@@ -33,6 +33,7 @@ import {
   requireIdempotencyKey,
   requireParams,
   requireQuery,
+  sessionControlRoute,
 } from "../errors.ts";
 
 // The request span is active while a route runs; a turn it queues keeps that
@@ -112,59 +113,29 @@ export function registerSessionRoutes(
     );
   });
 
-  apiRoute(router, "terminateSession", async (context) => {
-    const params = requireParams(context, sessionIdParamsSchema);
-    const key = requireIdempotencyKey(context);
-    const body = await parseJsonBody(context, terminateSessionRequestSchema);
-    const accepted = await mapped(() =>
-      service.terminateSession(context.get("caller"), params.id, {
-        idempotencyKey: key,
-        body,
-      }),
-    );
-    return jsonWithSchema(
-      context,
-      terminateSessionResponseSchema,
-      accepted,
-      202,
-    );
-  });
+  sessionControlRoute(
+    router,
+    "terminateSession",
+    terminateSessionRequestSchema,
+    terminateSessionResponseSchema,
+    (caller, id, input) => service.terminateSession(caller, id, input),
+  );
 
-  apiRoute(router, "resumeSession", async (context) => {
-    const params = requireParams(context, sessionIdParamsSchema);
-    const key = requireIdempotencyKey(context);
-    const body = await parseJsonBody(context, resumeSessionRequestSchema);
-    const accepted = await mapped(() =>
-      service.resumeSession(context.get("caller"), params.id, {
-        idempotencyKey: key,
-        body,
-      }),
-    );
-    return jsonWithSchema(
-      context,
-      controlAcceptedResponseSchema,
-      accepted,
-      202,
-    );
-  });
+  sessionControlRoute(
+    router,
+    "resumeSession",
+    resumeSessionRequestSchema,
+    controlAcceptedResponseSchema,
+    (caller, id, input) => service.resumeSession(caller, id, input),
+  );
 
-  apiRoute(router, "decideSessionRecovery", async (context) => {
-    const params = requireParams(context, sessionIdParamsSchema);
-    const key = requireIdempotencyKey(context);
-    const body = await parseJsonBody(context, recoveryDecisionRequestSchema);
-    const accepted = await mapped(() =>
-      service.decideRecovery(context.get("caller"), params.id, {
-        idempotencyKey: key,
-        body,
-      }),
-    );
-    return jsonWithSchema(
-      context,
-      controlAcceptedResponseSchema,
-      accepted,
-      202,
-    );
-  });
+  sessionControlRoute(
+    router,
+    "decideSessionRecovery",
+    recoveryDecisionRequestSchema,
+    controlAcceptedResponseSchema,
+    (caller, id, input) => service.decideRecovery(caller, id, input),
+  );
 
   apiRoute(router, "listSessionTurns", async (context) => {
     const params = requireParams(context, sessionIdParamsSchema);

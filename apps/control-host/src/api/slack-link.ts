@@ -3,6 +3,7 @@ import { messageOf } from "@werft-ai/platform";
 import type { Context } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { verifyWithJwks } from "hono/jwt";
+import { providerFetch } from "./provider-fetch.ts";
 import { sameString as sameToken } from "./same-string.ts";
 
 // Sign in with Slack (Slack's OpenID Connect), used only to prove which
@@ -125,22 +126,12 @@ export class SlackOidcRejectedError extends Error {}
 /** The IdP could not be reached or answered with a server error. */
 export class SlackOidcUnavailableError extends Error {}
 
-const SLACK_HTTP_TIMEOUT_MS = 10_000;
-
-async function slackFetch(url: string, init: RequestInit): Promise<Response> {
-  try {
-    const response = await fetch(url, {
-      ...init,
-      signal: AbortSignal.timeout(SLACK_HTTP_TIMEOUT_MS),
-    });
-    if (response.status >= 500) {
-      throw new SlackOidcUnavailableError(`Slack answered ${response.status}`);
-    }
-    return response;
-  } catch (error) {
-    if (error instanceof SlackOidcUnavailableError) throw error;
-    throw new SlackOidcUnavailableError(messageOf(error));
-  }
+function slackFetch(url: string, init: RequestInit): Promise<Response> {
+  return providerFetch(url, init, {
+    unreachable: (error) => new SlackOidcUnavailableError(messageOf(error)),
+    answered: (status) =>
+      new SlackOidcUnavailableError(`Slack answered ${status}`),
+  });
 }
 
 function claim(payload: Record<string, unknown>, name: string): string | null {
