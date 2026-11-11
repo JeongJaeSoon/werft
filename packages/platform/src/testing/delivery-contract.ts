@@ -52,7 +52,7 @@ function inputOf(
  * The delivery promises both `Notifiable` and `Approvable` make, for the row
  * kinds each is given: the channel's answer is classified into one of five
  * outcomes and a send never throws. Re-sending and keeping the row are the
- * sender's and the store's (`outbox.test.ts`), not a delivery's.
+ * sender's and the store's (`outbox.integration.test.ts`), not a delivery's.
  */
 export function describeDeliveryContract(
   name: string,
