@@ -144,6 +144,14 @@ compose 스택도 같은 원칙이다. `infra/compose.core.yml`·`infra/compose.
 
 `build` job의 buildkit layer cache(`type=gha`)는 읽기는 모든 이벤트에서, 쓰기는 `pull_request`를 뺀 이벤트(main·태그 push, schedule, dispatch)에서만 한다. PR의 코드가 쓰는 캐시는 그 PR만 읽어서 저장소 캐시 한도만 채우고, 쓰는 쪽을 main 쪽으로 좁히면 PR이 main이 읽는 캐시를 오염시킬 길이 없다. 대가로 PR의 이어 push는 앞선 push의 layer가 아니라 main의 캐시에서 읽는다.
 
+`ci.yml`에서 앱 이미지를 직접 빌드하는 `e2e`·`conformance`·`quickstart`·`k8s-smoke`도 같은 캐시를 **읽기만** 한다. `.github/actions/image-cache`가 세 가지를 맡는다.
+
+- Docker를 containerd image store로 다시 띄운다. 기본 docker driver는 이 store에서만 `type=gha` 캐시를 가져온다.
+- runner가 JavaScript action에만 주는 캐시 서비스 주소와 runtime token을 뒤 step에 넘긴다.
+- `APT_UPGRADE_KEY`를 images.yml과 같은 그날 날짜로 둔다. 키가 다르면 `apt-get upgrade` 아래 layer가 모두 miss다.
+
+compose 빌드는 `tests/e2e/compose.ci-cache.yml`, kind 빌드는 `deploy/kind/up.sh`의 `IMAGE_CACHE_ARCH`로 서비스별 `images-<app>-amd64` scope를 `cache_from`에 둔다. 어느 쪽도 `cache_to`를 두지 않는다(`tests/ci-images.test.ts`가 고정한다). 캐시를 읽지 못하면 예전처럼 처음부터 빌드한다. 그날 첫 main 빌드 전(UTC 00:00부터 03:17 schedule까지 main push가 없을 때)에는 apt layer가 miss다.
+
 **실측에서 미러는 준비 시간을 줄이지 못했다.** ghcr의 LocalStack pull은 약 24초로 Docker Hub(약 25초)와 같았다. pull 시간은 받는 곳이 아니라 약 1 GB layer를 푸는 데 든다. `Initialize containers`의 나머지는 서비스 health 대기(LocalStack 약 14초)다. 이 미러가 주는 것은 rate limit 제거와 digest 재현성이다.
 
 그래서 준비 시간은 기동 방식으로 줄인다. `integration` 도메인 job은 `services:`를 쓰지 않는다. runner는 `services:`를 첫 step보다 먼저, 서비스마다 차례로 pull·기동하고 health를 2·4·8초 backoff로 기다린다. 그래서 `services:`를 쓰면 `integration (api)`의 `Initialize containers`가 PostgreSQL pull·LocalStack pull·health 대기의 직렬 합이 된다(실측 46초). 대신 checkout 바로 뒤 step이 `.github/scripts/ci-services.sh start`로 필요한 서비스를 백그라운드에서 `docker run`한다. pull이 서로, 그리고 bun 설정·설치와 겹친다. 테스트 직전 `ci-services.sh wait`가 1초 간격으로 `pg_isready`·`/_localstack/health`를 컨테이너 안에서 확인한다(기동이 끝나지 않았으면 먼저 기다린다). docker 호출 하나는 10초로 끊으므로 daemon이 멈춰도 기한을 크게 넘기지 않는다. 180초 안에 준비되지 않거나, `docker run`이 실패하거나, 컨테이너가 멈추면 `::error::`와 함께 `docker run` 출력과 컨테이너 로그 끝 200줄을 남기고 테스트 전에 실패한다. 포트(5432·4566)·환경 변수·probe는 `services:`를 쓸 때와 같고, 컨테이너(`ci-postgres`·`ci-localstack`)는 `always()` step이 지운다. checkout 뒤에 두는 이유는 스크립트가 저장소에 있어서다. checkout은 1~2초라 잃는 겹침이 작다. `agent-sdk-compat`는 서비스 컨테이너를 쓰지 않는다.

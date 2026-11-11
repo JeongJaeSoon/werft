@@ -903,10 +903,13 @@ jobs:
       - if: success() && !cancelled() && needs.changes.outputs.product == 'true'
         run: bun install --frozen-lockfile
       - if: success() && !cancelled() && needs.changes.outputs.product == 'true'
+        uses: ./.github/actions/image-cache
+      - if: success() && !cancelled() && needs.changes.outputs.product == 'true'
         id: scenario
         name: Alpha path against the compose stack
         env:
           E2E_COMPOSE_OVERRIDE: tests/e2e/compose.ci-mirror.yml
+          E2E_COMPOSE_CACHE: tests/e2e/compose.ci-cache.yml
           E2E_OUT: ${{ runner.temp }}/e2e
         run: tests/e2e/run.sh
       # run.sh removes the images it built; what compose pulled stays.
@@ -980,10 +983,13 @@ jobs:
       - if: success() && !cancelled() && needs.changes.outputs.product == 'true'
         run: bun install --frozen-lockfile
       - if: success() && !cancelled() && needs.changes.outputs.product == 'true'
+        uses: ./.github/actions/image-cache
+      - if: success() && !cancelled() && needs.changes.outputs.product == 'true'
         id: scenario
         name: Conformance suite against the compose stack
         env:
           E2E_COMPOSE_OVERRIDE: tests/e2e/compose.ci-mirror.yml
+          E2E_COMPOSE_CACHE: tests/e2e/compose.ci-cache.yml
           E2E_OUT: ${{ runner.temp }}/conformance
         run: tests/e2e/run.sh --conformance ${{ matrix.engine }}
       - if: '!cancelled() && needs.changes.outputs.product == ''true'''
@@ -1043,17 +1049,19 @@ jobs:
       - if: success() && !cancelled() && needs.changes.outputs.quickstart == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - if: success() && !cancelled() && needs.changes.outputs.quickstart == 'true'
+        uses: ./.github/actions/image-cache
+      - if: success() && !cancelled() && needs.changes.outputs.quickstart == 'true'
         id: guide
         name: docs/quickstart.md
         env:
-          COMPOSE_FILE: compose.yaml:tests/e2e/compose.ci-mirror.yml
+          COMPOSE_FILE: compose.yaml:tests/e2e/compose.ci-mirror.yml:tests/e2e/compose.ci-cache.yml
           QUICKSTART_OUT: ${{ runner.temp }}/quickstart
         run: tests/e2e/quickstart.sh
       - if: success() && !cancelled() && needs.changes.outputs.quickstart == 'true'
         id: api-guide
         name: reference/api-guide.mdx
         env:
-          COMPOSE_FILE: compose.yaml:tests/e2e/compose.ci-mirror.yml
+          COMPOSE_FILE: compose.yaml:tests/e2e/compose.ci-mirror.yml:tests/e2e/compose.ci-cache.yml
           QUICKSTART_OUT: ${{ runner.temp }}/api-guide
         run: tests/e2e/quickstart.sh apps/docs/content/docs/reference/api-guide.mdx
       - if: '!cancelled() && needs.changes.outputs.quickstart == ''true'''
@@ -1177,9 +1185,11 @@ jobs:
           echo "${HELM_SHA256}  helm.tgz" | sha256sum -c -
           tar -xzf helm.tgz -C bin --strip-components=1 linux-amd64/helm
           echo "$RUNNER_TEMP/bin" >>"$GITHUB_PATH"
+      - uses: ./.github/actions/image-cache
       - name: deploy/kind/smoke.sh
         env:
           CLUSTER_NAME: k8s-smoke
+          IMAGE_CACHE_ARCH: amd64
           STATE_DIR: ${{ runner.temp }}/kind
           KIND_NODE_IMAGE: ghcr.io/jeongjaesoon/werft-ci/kind-node@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
           REGISTRY_IMAGE: ghcr.io/jeongjaesoon/werft-ci/registry@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373

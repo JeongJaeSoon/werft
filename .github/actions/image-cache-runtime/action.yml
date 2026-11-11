@@ -1,0 +1,10 @@
+name: Image build cache runtime
+description: >-
+  Hands the Actions cache service's address and this job's runtime token to
+  later steps, so that `docker build` and `docker compose build` can read a
+  `type=gha` cache the way docker/build-push-action does. Only a JavaScript
+  action is given them; a `run:` step is not.
+
+runs:
+  using: node24
+  main: index.js

@@ -44,6 +44,9 @@
 #   KIND_IMAGE_MIRROR                prefix the stand-ins' images are pulled
 #                                    from instead, by the same digest
 #   BUN_IMAGE, BUILDKIT_SYNTAX       build args of the app images
+# and reads main's image build cache (.github/actions/image-cache):
+#   IMAGE_CACHE_ARCH                 arch of the images.yml cache scopes
+#   APT_UPGRADE_KEY                  the day's key images.yml builds with
 set -euo pipefail
 
 CLUSTER_NAME="${CLUSTER_NAME:-werft-dev}"
@@ -163,10 +166,14 @@ publish() {
   if [ "$1" = control-host ] && grep -q '^FROM .* AS local$' "$root/apps/$1/Dockerfile"; then
     target=(--target local)
   fi
+  # IMAGE_CACHE_ARCH (CI, after .github/actions/image-cache): read the layer
+  # cache images.yml writes on main for this app and arch, never write it.
   docker build -q -f "$root/apps/$1/Dockerfile" -t "$ref" \
     ${target[@]+"${target[@]}"} \
     ${BUN_IMAGE:+--build-arg "BUN_IMAGE=$BUN_IMAGE"} \
     ${BUILDKIT_SYNTAX:+--build-arg "BUILDKIT_SYNTAX=$BUILDKIT_SYNTAX"} \
+    ${APT_UPGRADE_KEY:+--build-arg "APT_UPGRADE_KEY=$APT_UPGRADE_KEY"} \
+    ${IMAGE_CACHE_ARCH:+--cache-from "type=gha,scope=images-$1-${IMAGE_CACHE_ARCH}"} \
     "$root" >/dev/null || return
   if [ "$CLUSTER_PROVIDER" = orbstack ]; then
     local digest
