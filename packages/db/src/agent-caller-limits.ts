@@ -3,7 +3,9 @@ import {
   type AgentCallerLimitRule,
   type AgentCallerLimits,
   type AuthorizationSubject,
+  effectiveGitHubPolicy,
   effectiveToolsSchema,
+  GITHUB_MCP_SERVER,
   type McpStart,
   mcpStartSchema,
 } from "@werft-ai/contracts";
@@ -28,6 +30,8 @@ import { lockEditRight } from "./agent-usage.ts";
 import { createPostgresDecisionLog } from "./authz-decisions.ts";
 import { lockPeople, receiptActorOf } from "./control-shared.ts";
 import { DB_NOW } from "./db-clock.ts";
+import { agentGitHubSettingsOf } from "./github-settings.ts";
+import { sessionGitHubMcpOf, sessionMcpOf } from "./mcp-egress.ts";
 import { captureMcpStart } from "./mcp-settings.ts";
 import type { Database } from "./queries.ts";
 import {
@@ -298,73 +302,143 @@ async function releaseFacts(
   };
 }
 
-function releaseTools(release: ReleaseFacts): string[] {
+// The union of what the card and the release declare and what the MCP route
+// and the built-in GitHub server expose to the session: a tool or server any
+// of them reaches counts.
+async function reachOf(
+  tx: Database,
+  releaseId: string,
+  release: ReleaseFacts,
+  input: {
+    builtinTools: readonly string[];
+    mcpStart: McpStart | null;
+    githubPolicySource: string;
+    repositories: readonly string[];
+  },
+): Promise<SessionReach> {
+  const exposed = await sessionMcpOf(tx, {
+    agentReleaseId: releaseId,
+    mcpStart: input.mcpStart,
+  });
+  const github = await sessionGitHubMcpOf(tx, {
+    agentReleaseId: releaseId,
+    githubPolicySource: input.githubPolicySource,
+  });
+  const declared =
+    input.mcpStart === null ? release.server : input.mcpStart.server;
+  const servers = new Set<string>();
+  for (const server of [declared, exposed?.server ?? null]) {
+    if (server !== null) servers.add(server);
+  }
+  if (github !== null && github.tools.length > 0)
+    servers.add(GITHUB_MCP_SERVER);
   const effective = effectiveToolsSchema.safeParse(release.effectiveTools);
-  return effective.success
-    ? [...effective.data.tools, ...effective.data.mcp]
-    : [];
+  return {
+    tools: [
+      ...new Set([
+        ...input.builtinTools,
+        ...(effective.success ? effective.data.mcp : []),
+        ...(exposed?.tools ?? []),
+        ...(github?.tools ?? []),
+      ]),
+    ],
+    repositories: input.repositories,
+    mcp_servers: [...servers],
+    credentials:
+      input.mcpStart === null
+        ? release.credentialRefs
+        : input.mcpStart.credential_refs,
+  };
 }
 
-function reachOf(
-  release: ReleaseFacts,
-  tools: readonly string[],
-  mcpStart: McpStart | null,
-  repositories: readonly string[],
-): SessionReach {
-  const server = mcpStart === null ? release.server : mcpStart.server;
-  return {
-    tools,
-    repositories,
-    mcp_servers: server === null ? [] : [server],
-    credentials:
-      mcpStart === null ? release.credentialRefs : mcpStart.credential_refs,
-  };
+function releaseBuiltinTools(release: ReleaseFacts): string[] {
+  const effective = effectiveToolsSchema.safeParse(release.effectiveTools);
+  return effective.success ? effective.data.tools : [];
 }
 
 // A session started on a release always runs that release's tools.
 export async function startReach(
-  tx: Reader,
+  tx: Database,
   input: {
     releaseId: string;
     mcpStart: McpStart | null;
+    githubPolicySource: string;
     repositoryIds: readonly string[];
   },
 ): Promise<SessionReach | null> {
   const release = await releaseFacts(tx, input.releaseId);
   if (!release) return null;
-  return reachOf(
-    release,
-    releaseTools(release),
-    input.mcpStart,
-    input.repositoryIds,
-  );
+  return reachOf(tx, input.releaseId, release, {
+    builtinTools: releaseBuiltinTools(release),
+    mcpStart: input.mcpStart,
+    githubPolicySource: input.githubPolicySource,
+    repositories: input.repositoryIds,
+  });
+}
+
+// A session whose attached list is null may attach any repository its GitHub
+// policy lists, so those count as its reach.
+async function policyRepositories(
+  tx: Database,
+  releaseId: string,
+  agentId: string,
+  session: { githubPolicySource: unknown; githubPolicyStart: unknown },
+): Promise<string[]> {
+  const [pinned] = await tx
+    .select({ pin: sql<unknown>`${agentReleases.policyPins} -> 'github'` })
+    .from(agentReleases)
+    .where(eq(agentReleases.id, releaseId))
+    .limit(1);
+  const policy = effectiveGitHubPolicy({
+    source: session.githubPolicySource,
+    releasePin: pinned?.pin ?? null,
+    agentRow: await agentGitHubSettingsOf(tx, agentId),
+    start: session.githubPolicyStart,
+    attachedRepositoryIds: null,
+  });
+  const listed =
+    policy.settings === null || policy.settings === "invalid"
+      ? []
+      : policy.settings.repositories;
+  return [...listed, ...(policy.currentRepositories ?? [])];
 }
 
 export async function sessionReach(
-  tx: Reader,
+  tx: Database,
   session: {
     agentReleaseId: string | null;
     runtimeToolsSource: string;
     repositoryId: string | null;
     attachedRepositoryIds: readonly string[] | null;
     mcpStart: unknown;
+    githubPolicySource: string;
+    githubPolicyStart: unknown;
   },
   profileTools: readonly string[],
 ): Promise<SessionReach | null> {
   if (session.agentReleaseId === null) return null;
   const release = await releaseFacts(tx, session.agentReleaseId);
   if (!release) return null;
-  return reachOf(
-    release,
-    session.runtimeToolsSource === "release"
-      ? releaseTools(release)
-      : runningTools({ tools: [...profileTools] }, release.snapshot),
-    mcpStartSchema.safeParse(session.mcpStart).data ?? null,
-    [
+  const attached =
+    session.attachedRepositoryIds ??
+    (await policyRepositories(
+      tx,
+      session.agentReleaseId,
+      release.agentId,
+      session,
+    ));
+  return reachOf(tx, session.agentReleaseId, release, {
+    builtinTools:
+      session.runtimeToolsSource === "release"
+        ? releaseBuiltinTools(release)
+        : runningTools({ tools: [...profileTools] }, release.snapshot),
+    mcpStart: mcpStartSchema.safeParse(session.mcpStart).data ?? null,
+    githubPolicySource: session.githubPolicySource,
+    repositories: [
       ...(session.repositoryId === null ? [] : [session.repositoryId]),
-      ...(session.attachedRepositoryIds ?? []),
+      ...attached,
     ],
-  );
+  });
 }
 
 export function pinnedLimitOf(value: unknown): CallerLimit | null {
@@ -410,6 +484,7 @@ export function createPostgresCallerLimitGate(db: Database): CallerLimitGate {
       const reach = await startReach(db, {
         releaseId: input.releaseId,
         mcpStart: await captureMcpStart(db, input.releaseId),
+        githubPolicySource: input.githubPolicySource,
         repositoryIds: input.repositoryIds,
       });
       const dimension =

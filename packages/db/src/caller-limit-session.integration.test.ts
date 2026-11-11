@@ -2,6 +2,8 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import {
   type AgentCallerLimitRule,
+  GITHUB_MCP_FIXED_TOOLS,
+  githubMcpToolNames,
   type SessionScope,
   scopesForRole,
   type WorkspaceRole,
@@ -26,6 +28,7 @@ import { createPostgresTeamStore } from "./member-teams.ts";
 import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
 import {
+  agentGitHubSettings,
   agentMcpSettings,
   agentReleases,
   agents,
@@ -181,9 +184,13 @@ integration("caller limits on session create and input", () => {
       idempotencyKey?: string;
       repository?: { id: string; url: string; branch: string };
       callerLimited?: CallerLimitDimension;
+      githubPolicySource?: "release" | "agent";
     } = {},
   ) =>
     uow().acceptInputAtomic({
+      ...(extra.githubPolicySource
+        ? { githubPolicySource: extra.githubPolicySource }
+        : {}),
       principal: by,
       callerSubject: by.subject,
       idempotencyKey: extra.idempotencyKey ?? randomUUID(),
@@ -605,6 +612,110 @@ integration("caller limits on session create and input", () => {
         dimension: "mcp_server",
       });
       expect((await append(creator, id)).outcome).toBe("accepted");
+    });
+  });
+
+  describe("what a session really reaches", () => {
+    const features = {
+      workflows: false,
+      actions: false,
+      checks: false,
+      issues: false,
+      review: false,
+    };
+
+    test("a tool the agent's MCP settings add counts, on create and on a profile-sourced input", async () => {
+      const ws = await workspace();
+      const owner = await person(ws, "owner");
+      const member = await person(ws);
+      const { agentId, releaseId } = await agentRelease(ws);
+      await db.insert(agentMcpSettings).values({
+        agentId,
+        workspaceId: ws,
+        server: "jira",
+        allowedTools: ["mcp__jira__search"],
+        credentialRefs: [],
+      });
+      await setRules(owner, agentId, [
+        rule({ kind: "workspace" }, { tools_deny: ["mcp__jira__other"] }),
+      ]);
+      const id = await session(member, releaseId);
+
+      await setRules(owner, agentId, [
+        rule({ kind: "workspace" }, { tools_deny: ["mcp__jira__search"] }),
+      ]);
+      expect(await create(member, releaseId)).toEqual({
+        outcome: "caller_limited",
+        dimension: "tool",
+      });
+      await db
+        .update(sessions)
+        .set({ runtimeToolsSource: "profile" })
+        .where(eq(sessions.id, id));
+      expect(await append(member, id, { profileTools: [] })).toEqual({
+        outcome: "caller_limited",
+        dimension: "tool",
+      });
+    });
+
+    test("the built-in github server and its tools count", async () => {
+      const ws = await workspace();
+      const owner = await person(ws, "owner");
+      const member = await person(ws);
+      const { agentId, releaseId } = await agentRelease(ws);
+      const githubTool = githubMcpToolNames(GITHUB_MCP_FIXED_TOOLS)[0] ?? "";
+      await setRules(owner, agentId, [
+        rule({ kind: "workspace" }, { mcp_servers: [] }),
+      ]);
+      expect(
+        (await create(member, releaseId, { githubPolicySource: "agent" }))
+          .outcome,
+      ).toBe("caller_limited");
+      await setRules(owner, agentId, [
+        rule({ kind: "workspace" }, { tools_deny: [githubTool] }),
+      ]);
+      expect(
+        await create(member, releaseId, { githubPolicySource: "agent" }),
+      ).toEqual({ outcome: "caller_limited", dimension: "tool" });
+    });
+
+    test("a session with no attached list may attach any repository its policy lists", async () => {
+      const ws = await workspace();
+      const owner = await person(ws, "owner");
+      const creator = await person(ws, "owner");
+      const narrow = await person(ws);
+      const repoA = await repository();
+      const repoB = await repository();
+      const { agentId, releaseId } = await agentRelease(ws);
+      await db.insert(agentGitHubSettings).values({
+        agentId,
+        workspaceId: ws,
+        repositories: [repoA.id, repoB.id],
+        pushApproval: false,
+        features,
+        actionsAllow: [],
+      });
+      const made = await create(creator, releaseId, {
+        githubPolicySource: "agent",
+      });
+      if (made.outcome !== "accepted") throw new Error(made.outcome);
+      const id = made.response.session_id;
+      const narrowTeam = await team(owner, [narrow]);
+
+      await setRules(owner, agentId, [
+        rule({ kind: "team", id: narrowTeam }, { repositories: [repoA.id] }),
+      ]);
+      expect(await append(narrow, id)).toEqual({
+        outcome: "caller_limited",
+        dimension: "repository",
+      });
+      await setRules(owner, agentId, [
+        rule(
+          { kind: "team", id: narrowTeam },
+          { repositories: [repoA.id, repoB.id] },
+        ),
+      ]);
+      expect((await append(narrow, id)).outcome).toBe("accepted");
     });
   });
 

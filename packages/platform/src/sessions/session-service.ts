@@ -1113,6 +1113,7 @@ export function createSessionService(deps: {
               channelId: actor.subject.surface.channel_id ?? null,
               subject: actor.subject,
               requestId: actor.requestId,
+              githubPolicySource: policy.source,
               repositoryIds: [
                 ...(repositoryId === null ? [] : [repositoryId]),
                 ...(attached ?? []),

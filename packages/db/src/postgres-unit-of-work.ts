@@ -454,6 +454,7 @@ export function createPostgresSessionUnitOfWork(
           const reach = await startReach(tx, {
             releaseId: input.agentReleaseId,
             mcpStart,
+            githubPolicySource: input.githubPolicySource ?? "release",
             repositoryIds: [
               ...(typeof input.repository === "object"
                 ? [input.repository.id]
@@ -693,6 +694,8 @@ export function createPostgresSessionUnitOfWork(
             repositoryId: sessions.repositoryId,
             attachedRepositoryIds: sessions.attachedRepositoryIds,
             mcpStart: sessions.mcpStart,
+            githubPolicySource: sessions.githubPolicySource,
+            githubPolicyStart: sessions.githubPolicyStart,
             callerLimit: sessions.callerLimit,
           })
           .from(sessions)

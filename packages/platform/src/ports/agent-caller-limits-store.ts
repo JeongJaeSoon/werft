@@ -58,6 +58,7 @@ export interface CallerLimitGate {
     channelId: string | null;
     subject: AuthorizationSubject;
     requestId: string;
+    githubPolicySource: string;
     repositoryIds: readonly string[];
   }): Promise<CallerLimitDimension | null>;
 }
