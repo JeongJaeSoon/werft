@@ -1929,6 +1929,15 @@ export function createSessionService(deps: {
       // missing one.
       let hidden: Awaited<ReturnType<SessionReader["hiddenAgentRefs"]>> | null =
         null;
+      // Answers as a receipt that is not there does, permission refusal
+      // included (an agent key may hold sessions:read and still be refused).
+      const notThere = async (): Promise<never> => {
+        await requirePermitted(authorization, actor, "session.read", {
+          kind: "session",
+          id: null,
+        });
+        throw new SessionServiceError("NOT_FOUND", "Resource not found");
+      };
       if (receipt !== null) {
         const refs = agentRefsOf(receipt);
         const sessionId =
@@ -1945,15 +1954,13 @@ export function createSessionService(deps: {
             viewerOf(actor),
             { ...refs, sessionId },
           );
-          if (targetsHidden(receipt, hidden)) {
-            throw new SessionServiceError("NOT_FOUND", "Resource not found");
-          }
+          if (targetsHidden(receipt, hidden)) return notThere();
         }
       }
       const agentId = receipt === null ? null : settingsAgentOf(receipt);
       // A binding receipt is read as its agent's settings, so it hides with it.
       if (agentId !== null && hidden?.agentIds.has(agentId.toLowerCase())) {
-        throw new SessionServiceError("NOT_FOUND", "Resource not found");
+        return notThere();
       }
       await (agentId === null
         ? requirePermitted(authorization, actor, "session.read", {

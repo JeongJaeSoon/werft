@@ -22,7 +22,11 @@ export type AgentRefs = {
 
 const ON_AGENT = { target: "agent" } as const;
 // What the GitHub gate writes on a session: the agent and the release it ran.
-const GATE = { agents: ["agent_id"], releases: ["agent_release_id"] } as const;
+const GATE = {
+  // `opened_by_agent_id` is the agent that opened the pull request reviewed.
+  agents: ["agent_id", "opened_by_agent_id"],
+  releases: ["agent_release_id"],
+} as const;
 // What an egress exchange writes on a session.
 const EXCHANGE = { agents: ["agent_id"], releases: ["release_id"] } as const;
 
@@ -61,6 +65,12 @@ export const RECEIPT_AGENT_REFS: Partial<Record<ReceiptOperation, AgentRefs>> =
       target: "agent",
       agents: ["before.agents", "after.agents"],
     },
+    // A push the agent's own policy approved names the release that decided.
+    resolve_push: { releases: ["approved_by.agent_release_id"] },
+    push: { releases: ["approved_by.agent_release_id"] },
+    // An extension on one agent (the bundle's own receipts carry no agent).
+    attach_extension: { target: "agent" },
+    detach_extension: { target: "agent" },
     // The target is the binding; its agent is in the result.
     set_surface_binding: { agents: ["agent_id"] },
     request_surface_binding: { agents: ["agent_id"] },

@@ -64,7 +64,15 @@ const onSession: Receipt = {
   result: null,
 };
 
-function service(stored: Receipt, sessionVisible = true, hideFromO = false) {
+function serviceWithNothing() {
+  return service(onAgent, true, false, true);
+}
+function service(
+  stored: Receipt,
+  sessionVisible = true,
+  hideFromO = false,
+  absent = false,
+) {
   const authorization = createAuthorizationPolicy({
     identity: {
       reread: async (s) => ({ status: "ok", principal: s.principal }),
@@ -100,7 +108,7 @@ function service(stored: Receipt, sessionVisible = true, hideFromO = false) {
     catalog: unreachable,
     limits: unreachable,
     reader: {
-      getReceipt: async () => stored,
+      getReceipt: async () => (absent ? null : stored),
       hiddenAgentRefs: async (
         _owner: string,
         viewer: { userId: string | null },
@@ -178,4 +186,32 @@ test("a settings receipt of an agent the reader may not use is not found, not re
   const hidden = { W: "ok", L: "ok", T: "ok", O: "NOT_FOUND" };
   expect(await readers(onAgent, true, true)).toEqual(hidden);
   expect(await readers(onBinding, true, true)).toEqual(hidden);
+});
+
+test("a hidden receipt is refused exactly as a missing one is", async () => {
+  const outcome = async (stored: Receipt | null, hide: boolean) => {
+    const caller = callerFor(
+      {
+        kind: "user",
+        id: PEOPLE.O[1],
+        workspace_id: WORKSPACE,
+        role: "member",
+        scopes: [...scopesForRole("member")],
+      },
+      { kind: "web" },
+      "r",
+    );
+    const reader = service(stored ?? onAgent, true, hide);
+    try {
+      await (stored === null
+        ? missing(caller)
+        : reader.getReceipt(caller, onAgent.id));
+      return "ok";
+    } catch (error) {
+      return (error as { code: string }).code;
+    }
+  };
+  const missing = (caller: ReturnType<typeof callerFor>) =>
+    serviceWithNothing().getReceipt(caller, onAgent.id);
+  expect(await outcome(onAgent, true)).toBe(await outcome(null, false));
 });

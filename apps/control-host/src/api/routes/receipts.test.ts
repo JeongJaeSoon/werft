@@ -303,6 +303,47 @@ describe("GET /v1/receipts/{id}", () => {
       ).toEqual([HIDDEN]);
     });
 
+    test("an opening agent and a policy-approved push release are masked", async () => {
+      const review: Receipt = {
+        ...receipt,
+        operation: "review_pull_request",
+        status: "succeeded",
+        result: {
+          session_id: "0b3f1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2d",
+          agent_id: OPEN,
+          opened_by_agent_id: HIDDEN,
+        },
+      };
+      const reviewed = await (
+        await get(
+          app(async () => review, hiding([HIDDEN])),
+          review.id,
+        )
+      ).text();
+      expect(reviewed).not.toContain(HIDDEN);
+      expect(reviewed).toContain(OPEN);
+
+      const push: Receipt = {
+        ...receipt,
+        operation: "push",
+        status: "succeeded",
+        result: {
+          approved_by: {
+            kind: "policy",
+            agent_release_id: "rel-hidden",
+            policy_source: "agent",
+          },
+        },
+      };
+      const pushed = await (
+        await get(
+          app(async () => push, hiding([], ["rel-hidden"])),
+          push.id,
+        )
+      ).text();
+      expect(pushed).not.toContain("rel-hidden");
+    });
+
     test("a receipt that names no agent is not looked up", async () => {
       let asked = 0;
       const response = await get(
