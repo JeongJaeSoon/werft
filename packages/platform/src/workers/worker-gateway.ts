@@ -89,6 +89,7 @@ import {
   GitHubGateError,
   type GitHubGrant,
 } from "../github/ports/github-gate.ts";
+import type { GitHubMcpStore } from "../github/ports/github-mcp.ts";
 import type { GitHubPackagesStore } from "../github/ports/github-packages.ts";
 import type { McpEgressStore } from "../github/ports/mcp-egress.ts";
 import { budgetExceeded } from "../limits/installation-limits.ts";
@@ -98,7 +99,6 @@ import {
   priceJudgmentUsage,
   priceProviderUsage,
 } from "../limits/model-prices.ts";
-import type { GitHubMcpStore } from "../ports/github-mcp.ts";
 import type { RepositoryAttachmentStore } from "../ports/repository-attachments.ts";
 import type {
   ClaimInput as ClaimInputOf,

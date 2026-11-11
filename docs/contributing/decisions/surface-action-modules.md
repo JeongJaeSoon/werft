@@ -1,7 +1,7 @@
 # 결정(설계): surface·action 모듈, 어댑터, 시험 피라미드
 
 - 후속(2026-11-11): 실행 프로필은 통째로 지웠다(migration `0270_remove_profiles`, 기존 데이터는 이전하지 않고 지움). 이 문서의 프로필·상한·롤아웃 언급은 그때의 기록이다. 지금은 에이전트 release가 provider 연결과 카드 모델로 실행 spec(런타임·도구·권한 모드)을 고정하고, 묻기·막기 규칙은 워크스페이스와 에이전트의 실행 규칙(`workspace_engine_settings`, `agent_engine_settings`)이 정한다.
-- 상태: 설계. 이 문서가 머지된 뒤 이행 단계 U1~U9([10절](#10-이행-순서))를 단계마다 별도 카드와 PR로 진행한다. 이 PR은 코드를 옮기지 않고 시험을 지우지 않는다.
+- 상태: 완료(2026-11-12). 이행 단계 U1~U9와 W1을 마쳤고 단계별 PR은 [10절](#10-이행-순서)의 "이행 상태" 표에 적었다. 이 문서가 처음 머지될 때는 코드를 옮기지 않고 시험을 지우지 않았다.
 - 기준 커밋: `origin/main` `1ad2a092a`. `파일:줄`과 파일 수는 이 커밋에서 직접 읽고 센 값이다. 시험 수와 시간은 `d8b318c6f`의 CI 실행 `42781937238`의 job 로그에서 읽었다([9.1절](#91-지금-수치)).
 - 선행 문서: [에이전트 행동 도구 카탈로그](action-broker.md), [Musterrolle 모듈 경계](musterrolle-boundary.md), [패키지 구조화 설계](package-structure.md)(아래에서 **구조화 설계**). 포트의 도메인 디렉터리, 의존 규칙 A1~A5, 이행 단계 S0~S8은 구조화 설계가 정했고 여기서 다시 정하지 않는다. 이 문서가 그 설계와 다르게 정하는 것은 [11절](#11-구조화-설계와-달라지는-것)에 모았다.
 - 오너 원문(2026-11-10): "Slack, web, github, api, sse 등 잘 구조화, (oop 를 고려하는게 낫나? ) 해서 surface 를 별도로 나눠서 코드를 배치해줘", "코드에서 딱 봤을대도 action layer, surface layer (layer 라는 명칭이 맞나?) 로 딱 나눠져있고 거기에 어떤게 있는지도 잘 정리되어잇는게 좋을거 같아", "github, slack 등등 각 외부 시스템 연계되는건 ~able이나 ~ible 같은 인터페이스로써 github 에서 가능한것 slack 에서 가능한것 같은 느낌으로 정리", "테스트 피라미드 관점에서 unit test 등도 지울거 지우고 다시 구성", "oop, solid, 의존성 역전같은 기본 설계원칙에 벗어나지 않고 잘 구조화해서 만들어줘", "미리 추상화 해둘수 있다면 해두고 싶네 그래야 나중에 이상한 코드가 안늘어날거 아니야".
@@ -761,7 +761,24 @@ surface·action 범위 밖의 시험은 이 문서가 후보를 고르지 않는
 | **U7** | 검증 추가 | 계약 시험: 능력마다 시험 함수, 어댑터와 가짜에 적용(M3). `Notifiable`·`Approvable` 계약(`describeNotifiableContract`, `describeApprovableContract`)과 웹·Slack이 같은 view model을 쓰는지 보는 시험 포함 | U4, U5 | 새 단계 |
 | **U8** | 시험 변경 | D1(U7 뒤), D2, D3, D4, M1, M2. 각 D는 [9.4절](#94-지울-후보)의 조건이 채워진 것만 | U2, U5, **U7** | 새 단계 |
 | **W1** | 구조 변경 | `apps/control-host/src/wiring/`에서 역할별 조립 코드를 타입이 붙은 wiring 모듈로 정리한다. DI 컨테이너는 넣지 않는다([5.6절](#56-oop-상속-없이-구조적-인터페이스와-합성)). 동작은 그대로다 | U4~U8 | 새 단계. 오너 결정 d279 |
-| **U9** | ① 이동 ② 책임 분리 | ① `db/src/`와 `control-host/routes/`가 같은 이름을 따라간다. ② 5.3절의 파일 쪼개기(`slack-outbox.ts`, `push-request-service.ts`의 `decide`). ②는 파일마다 별도 PR이다. 상태: ①의 `db/src` 이동은 U9a PR-1로 끝났고(프로필 제거 계열 파일은 S8에서), `apps/control-host/src/api/routes/` 이동은 U9a PR-2로 끝났다(#1567 계열 파일은 S8에서). ②의 `slack-outbox.ts` 쪼개기는 U9b PR-1로 끝났다(넣기·그리기·카드 정리·전송 루프 네 파일). `push-request-service.ts`의 `decide`는 공유 helper 때문에 `decision/`로 옮기지 않고 `action/change-request/push-decision.ts`로 나눴다(U9b PR-2, 새 A2 쌍 회피) | U5, U6 | S7 |
+| **U9** | ① 이동 ② 책임 분리 | ① `db/src/`와 `control-host/routes/`가 같은 이름을 따라간다. ② 5.3절의 파일 쪼개기(`slack-outbox.ts`, `push-request-service.ts`의 `decide`). ②는 파일마다 별도 PR이다. 상태: ①의 `db/src` 이동은 U9a PR-1로, `apps/control-host/src/api/routes/` 이동은 U9a PR-2로 끝났고, #1567이 고쳐서 미뤘던 파일은 S8 PR-2가 옮겼다. ②의 `slack-outbox.ts` 쪼개기는 U9b PR-1로 끝났다(넣기·그리기·카드 정리·전송 루프 네 파일). `push-request-service.ts`의 `decide`는 공유 helper 때문에 `decision/`로 옮기지 않고 `action/change-request/push-decision.ts`로 나눴다(U9b PR-2, 새 A2 쌍 회피) | U5, U6 | S7 |
+
+**이행 상태**(2026-11-12, 모두 JeongJaeSoon/werft의 머지된 PR)
+
+| 단계 | 상태 | PR |
+|---|---|---|
+| U1 | 완료 | #1506 |
+| U2 | 완료 | #1514 |
+| U3 | 완료 | #1510(D0, `-able` 이름), #1517 |
+| U4 | 완료 | #1523 |
+| U5 | 완료 | #1522(fixture), #1532(seam), #1537(5a), #1548(5b), #1559(5c) |
+| U6 | 완료 | #1535(①), #1565(②) |
+| U7 | 완료 | #1568 |
+| U8 | 완료 | #1576, #1578, #1579 |
+| W1 | 완료 | #1582 |
+| U9 | 완료 | ① #1586(db), #1588(routes), 남은 파일은 S8 PR-2. ② #1589(`slack-outbox.ts`), #1591(`decide`) |
+| (동작 변경) | 완료 | #1567: 실행 프로필 제거. 이동 단계가 아니라 이 시리즈가 보류했던 파일의 원인이다 |
+| S8 | 완료 | #1593(재수출·옛 경로 인용), S8 PR-2(남은 이동, 기준선 정리, 이 표) |
 
 ### 10.1 Slack 이동의 순서와 재수출
 

@@ -194,7 +194,7 @@ ap_web GET "/v1/agents/$AID/admins"
 ap_web GET "/v1/agents/$AID/credential-bindings"
 ```
 
-기대: connections 200 `items`(연결마다 모델 목록). agent create 201 `agent`·`versions`. release 200 `release.id`. activate 200. 관리 목록에 에이전트가 있고 관리자 목록에 만든 owner와 추가 팀이 있다. credential-bindings는 200 빈 목록. 소스: `apps/control-host/src/api/routes/agents.ts`, `agent-identities.ts`, `credential-bindings.ts`, `teams.ts`와 contracts의 musterrolle 스키마.
+기대: connections 200 `items`(연결마다 모델 목록). agent create 201 `agent`·`versions`. release 200 `release.id`. activate 200. 관리 목록에 에이전트가 있고 관리자 목록에 만든 owner와 추가 팀이 있다. credential-bindings는 200 빈 목록. 소스: `apps/control-host/src/api/routes/agents/agents.ts`, `agent-identities.ts`, `credential-bindings.ts`, `teams.ts`와 contracts의 musterrolle 스키마.
 
 ## P-WEB-AGENTS — 목록·마법사·상세
 
@@ -367,7 +367,7 @@ ap_web POST "/v1/sessions/$SID/audit-read" '{"justification":"verify audit read"
 ap_web GET /v1/takeovers
 ```
 
-기대: rename 200 title 변경, share GET 200 `scope:"workspace"`, share 변경 200 `share`·`receipt_id`. private 뒤 member detail 404, shared 목록 items 빈 배열. people 뒤 shared 목록 SID 한 개와 counts total 1. team·workspace 변경 200. admin 목록 200 `items[].session_id`(내용 없는 메타데이터), audit-read 200 `session`·`turns`. 인수 대기는 현재 빈 items. source: `packages/contracts/src/musterrolle/session-shares.ts`, `takeovers.ts`, `apps/control-host/src/api/routes/session-shares.ts`.
+기대: rename 200 title 변경, share GET 200 `scope:"workspace"`, share 변경 200 `share`·`receipt_id`. private 뒤 member detail 404, shared 목록 items 빈 배열. people 뒤 shared 목록 SID 한 개와 counts total 1. team·workspace 변경 200. admin 목록 200 `items[].session_id`(내용 없는 메타데이터), audit-read 200 `session`·`turns`. 인수 대기는 현재 빈 items. source: `packages/contracts/src/musterrolle/session-shares.ts`, `takeovers.ts`, `apps/control-host/src/api/routes/musterrolle/session-shares.ts`.
 
 ## P-API-USAGE — 내 합계·설치 합계·한도
 
@@ -558,7 +558,7 @@ ap_web POST "/v1/workspaces/$WS/slack-guest" '{"slack_guest_enabled":false}'
 ap_as owner
 ```
 
-기대: workspace는 이름·ID·모델·감사 보존·Slack 게스트 Card. ID는 SecretField 복사, 모델은 mono Badge. 보존 29일은 400 `BAD_REQUEST` “Request body is invalid”, 30일은 200 `audit_retention_days:30`, 90일 복원도 200이다. 허용 범위 30–3650일. guest owner 200 뒤 me.settings 값 true, member 403 `details.reason_code:"role"`. 화면 switch도 true. 소스: `apps/web/src/routes/workspace-settings.tsx`, `apps/control-host/src/api/routes/workspaces.ts`. 다른 JSON 키로 보내 생긴 400을 보존 기간 경계 검증 성공으로 세지 않는다.
+기대: workspace는 이름·ID·모델·감사 보존·Slack 게스트 Card. ID는 SecretField 복사, 모델은 mono Badge. 보존 29일은 400 `BAD_REQUEST` “Request body is invalid”, 30일은 200 `audit_retention_days:30`, 90일 복원도 200이다. 허용 범위 30–3650일. guest owner 200 뒤 me.settings 값 true, member 403 `details.reason_code:"role"`. 화면 switch도 true. 소스: `apps/web/src/routes/workspace-settings.tsx`, `apps/control-host/src/api/routes/musterrolle/workspaces.ts`. 다른 JSON 키로 보내 생긴 400을 보존 기간 경계 검증 성공으로 세지 않는다.
 
 ## P-API-SESSION-CONTROL — 후속 메시지·pause·resume·close
 
@@ -772,7 +772,7 @@ ap_compose logs slack | grep -E 'Slack event claimed|Slack inbox pass'
 
 기대: challenge 200 `challenge:"verify-challenge"`; bad/stale 401 `UNAUTHORIZED`; 서명은 맞지만 JSON이 틀리면 400 `BAD_REQUEST`. event/duplicate/bot 모두 200 `ok:true`. EvVerify1은 한 행뿐이다. slack loop가 처리하면 status processed, attempts 1, claim_clear·lease_clear true. EvVerifyBot은 dropped, drop_reason bot_message, attempts 0. SQL이 received를 보여도 완료로 보고하지 않는다. 다음 pass 뒤 재조회한다. 로그 “Slack event claimed”와 “Slack inbox pass”의 claimed/processed를 실제 출력으로 확인한다.
 
-claim은 thread head를 DB advisory lock·SKIP LOCKED로 직렬화하고 lease가 살아 있는 thread 뒤 이벤트를 막는다. complete/fail은 claim_token과 DB now()로 fence하며 만료 claim은 재시도, 최대 5회 뒤 failed다. handler의 성공 경로만으로 lease 만료·경합·실패 복구를 검증했다고 보고하지 않는다. 전제는 handler를 지연/실패시키는 제어 가능한 실행 환경이다. 해당 경합 증거는 `packages/db/src/slack-inbound-claims.test.ts`의 실제 PostgreSQL 테스트로 따로 수집한다. slack role의 handler는 더 이상 no-op이 아니다. 채널 binding과 연결된 계정이 맞으면 멘션이 세션을 열고(P-SLACK-MENTION-ONLY), 세션이 기다리는 요청은 카드로 게시되며 그 카드의 버튼은 서명된 interaction으로 처리된다(P-SLACK-APPROVAL-CLICK). 이 절차는 서명·inbox·claim 상태만 본다.
+claim은 thread head를 DB advisory lock·SKIP LOCKED로 직렬화하고 lease가 살아 있는 thread 뒤 이벤트를 막는다. complete/fail은 claim_token과 DB now()로 fence하며 만료 claim은 재시도, 최대 5회 뒤 failed다. handler의 성공 경로만으로 lease 만료·경합·실패 복구를 검증했다고 보고하지 않는다. 전제는 handler를 지연/실패시키는 제어 가능한 실행 환경이다. 해당 경합 증거는 `packages/db/src/surface/slack-inbound-claims.test.ts`의 실제 PostgreSQL 테스트로 따로 수집한다. slack role의 handler는 더 이상 no-op이 아니다. 채널 binding과 연결된 계정이 맞으면 멘션이 세션을 열고(P-SLACK-MENTION-ONLY), 세션이 기다리는 요청은 카드로 게시되며 그 카드의 버튼은 서명된 interaction으로 처리된다(P-SLACK-APPROVAL-CLICK). 이 절차는 서명·inbox·claim 상태만 본다.
 
 ## P-SLACK-REVOKED — 앱 제거 뒤 연결 해제와 재설치
 

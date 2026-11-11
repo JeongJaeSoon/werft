@@ -12,12 +12,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, posix, relative, resolve, sep } from "node:path";
 import { GITHUB_MCP_TOOL_ARGUMENTS } from "@werft-ai/contracts";
 import * as ts from "typescript";
-import {
-  type Baseline,
-  baseline,
-  pathFixed,
-  profileSeriesFiles,
-} from "./architecture.baseline.ts";
+import { type Baseline, baseline, pathFixed } from "./architecture.baseline.ts";
 import { webUiAllowlist } from "./web-ui-allowlist.ts";
 
 const root = join(import.meta.dir, "..");
@@ -3564,10 +3559,6 @@ describe("architecture", () => {
         pathFixed,
       ),
     ).toEqual([]);
-  });
-
-  test("files the profile-removal series changed stay in place until it ends", () => {
-    expect(missingFiles(root, profileSeriesFiles)).toEqual([]);
   });
 
   test("the path-fixed checks catch a missing file and an unlisted exports subpath", async () => {

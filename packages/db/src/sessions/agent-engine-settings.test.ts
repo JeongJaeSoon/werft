@@ -4,9 +4,9 @@ import type { PGlite } from "@electric-sql/pglite";
 import type { ToolCatalogView } from "@werft-ai/contracts";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
+import * as schema from "../schema.ts";
+import { fixtureTeamSql } from "../testing/fixture-team.ts";
 import { agentEngineSettingsOf } from "./agent-engine-settings.ts";
-import * as schema from "./schema.ts";
-import { fixtureTeamSql } from "./testing/fixture-team.ts";
 
 /**
  * The table an agent's engine settings will live in. Nothing writes it yet, so

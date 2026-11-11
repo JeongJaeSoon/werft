@@ -32,8 +32,8 @@ import {
   createPostgresPendingRequests,
   readInputWaits,
 } from "./decision/pending-requests.ts";
+import { createPostgresGitHubMcpStore } from "./github/mcp-egress.ts";
 import { launchFailedCause, quarantineLaunch } from "./launch-quarantine.ts";
-import { createPostgresGitHubMcpStore } from "./mcp-egress.ts";
 import {
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,

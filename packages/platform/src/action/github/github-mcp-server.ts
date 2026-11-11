@@ -9,7 +9,7 @@ import { z } from "zod";
 import {
   type GitHubMcpStore,
   SavedRulesUnavailable,
-} from "../../ports/github-mcp.ts";
+} from "../../github/ports/github-mcp.ts";
 import { refusalOf } from "../refusal.ts";
 import {
   createToolDispatcher,

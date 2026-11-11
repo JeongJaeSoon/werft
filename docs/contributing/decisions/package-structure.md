@@ -1,7 +1,7 @@
 # 결정(설계): 패키지 구조화 — 포트·내장 도구·큰 디렉터리
 
 - 후속(2026-11-11): 실행 프로필은 통째로 지웠다(migration `0270_remove_profiles`, 기존 데이터는 이전하지 않고 지움). 이 문서의 프로필·상한·롤아웃 언급은 그때의 기록이다. 지금은 에이전트 release가 provider 연결과 카드 모델로 실행 spec(런타임·도구·권한 모드)을 고정하고, 묻기·막기 규칙은 워크스페이스와 에이전트의 실행 규칙(`workspace_engine_settings`, `agent_engine_settings`)이 정한다.
-- 상태: 설계. 이 문서가 머지된 뒤 이행 단계 S0~S8([6절](#6-이행-순서))을 단계마다 별도 카드와 PR로 진행한다. 이 PR은 코드를 옮기지 않는다.
+- 상태: 완료(2026-11-12). 이행 단계 S0~S8([6절](#6-이행-순서))을 마쳤고 단계마다 PR은 6절에 적었다. 이 문서가 처음 머지될 때는 코드를 옮기지 않았다.
 - 기준 커밋: `origin/main` `2d5e8fbbe`. 파일 수·줄 수는 이 커밋에서 직접 센 값이고(`*.ts`·`*.tsx`, 같은 디렉터리의 직속 파일만, 줄 수는 테스트를 뺀 소스), `파일:줄`도 이 커밋 기준이다.
 - 오너 원문(2026-11-10): "github 같은 내장 도구를 구성하는게 점점 많아질거 같은데 어떻게 생각해? packages/platform/src/ports 안에 엄청 많은 도구가 있는데 제대로 구조화 해두는게 좋을거 같은데 / 애초에 한 디렉토리에 파일이 많은것들도 잘 검토해서 패키지 구조화 리팩토링을 진행하는게 좋을듯"
 - 뒤를 잇는 문서: [surface·action 모듈, 어댑터, 시험 피라미드](surface-action-modules.md). 그 문서 11절이 이 문서의 다섯 곳(새 워크스페이스 패키지, `GitHubApi` 구현의 위치, S3의 Slack 이동, `change-request/`·`tools/`의 자리, `tools/`와 `action-broker/`를 합칠지)을 다르게 정한다. 그 다섯에서는 그 문서가 맞다. 능력 인터페이스 이름은 그 문서 6.5절이 `-able`로 정한다(`GitPusher`는 `Pushable`, `SlackNoticeSink`는 채널 중립 `Notifiable`). 아래 표의 이름은 이 문서를 쓴 때의 코드 이름이다.
@@ -217,17 +217,23 @@ adapters/*  ──┘ (포트 타입만)         db  →  platform(포트), cont
 | 단계 | 내용 | 먼저 있어야 하는 것 |
 |---|---|---|
 | **S0** | (impl lead) `GITHUB_MCP_TOOLS` 한 표, receipt operation 단일화 | — |
+| | 상태: 완료. 이 시리즈 앞의 impl lead 작업이다 | |
 | **S1** | 규칙·기준선: `tests/architecture.test.ts`에 A1~A4 추가, 현재 위반 목록 고정, `action-broker.md` 정정 링크. 코드 이동 없음 | 이 문서 머지 |
+| | 상태: 완료. JeongJaeSoon/werft#1506(U1과 같은 PR) | |
 | **S2** | `platform/src/github/` 만들기: ports 7, sessions 4, musterrolle 4, workers 3, agents 1을 `git mv`하고 `index.ts` 갱신 | S0, S1, `github-gate`·`github-mcp-server`를 건드리는 열린 PR 없음 |
-| | 상태: 19개 가운데 `forge`는 `action/ports/`로, `github-mcp-server`·`github-work-service`는 `action/github/`로 U6a에서 옮겨졌다. 나머지 14개는 `github/{ports,service,egress}/`로 옮겼다. `ports/github-mcp.ts`·`workers/github-mcp-egress.ts`는 프로필 제거 계열 목록에 있어 제자리에 두고, 계열이 끝나면 옮긴다 | |
+| | 상태: 19개 가운데 `forge`는 `action/ports/`로, `github-mcp-server`·`github-work-service`는 `action/github/`로 U6a에서 옮겨졌다. 나머지 14개는 `github/{ports,service,egress}/`로 옮겼다. 상태: 완료. PR은 JeongJaeSoon/werft#1535(U6a), #1573(잔여 14개), S8 PR-2(`ports/github-mcp.ts`를 `github/ports/`로). `workers/github-mcp-egress.ts`는 `workers/mcp-egress.ts`의 타입과 상수를 import하므로 `github/egress/`로 옮기면 A2 쌍이 하나 늘어서 `workers/`에 둔다 | |
 | **S3** | `platform/src/slack/`: ports 7 + `musterrolle/slack-*` | S1 |
+| | 상태: 완료. Slack은 새 패키지 `@werft-ai/chat-slack`으로 옮겨 이 단계를 대신했다(surface-action-modules.md U5). JeongJaeSoon/werft#1537, #1548, #1559 | |
 | **S4** | `change-request/`(push·PR 계열 ports 10 + sessions 10여 개), `session/`·`scheduler/`·`checkpoint/` | S2 |
-| | 상태: 기존 이름 유지, 리드 결정 2026-11-11. 위 `change-request/`·`session/`·`checkpoint/`는 옛 표기다. push·PR 계열 ports 8개는 `action/ports/`로, `agent-github-store`는 `github/ports/`로, session 계열 ports 8개는 `sessions/ports/`로, checkpoint 계열 ports는 `checkpoints/ports/`로, scheduler 계열 ports 2개는 `scheduler/ports/`로 옮겼다. A2는 `<도메인>/ports/` 직속과 `index.ts`만 입구로 세므로 `action/change-request/ports/`는 쓰지 않았다. `ports/worker-unit-of-work.ts`는 프로필 제거 계열 목록에 있어 제자리에 둔다 | |
+| | 상태: 기존 이름 유지, 리드 결정 2026-11-11. 위 `change-request/`·`session/`·`checkpoint/`는 옛 표기다. push·PR 계열 ports 8개는 `action/ports/`로, `agent-github-store`는 `github/ports/`로, session 계열 ports 8개는 `sessions/ports/`로, checkpoint 계열 ports는 `checkpoints/ports/`로, scheduler 계열 ports 2개는 `scheduler/ports/`로 옮겼다. A2는 `<도메인>/ports/` 직속과 `index.ts`만 입구로 세므로 `action/change-request/ports/`는 쓰지 않았다. 상태: 완료. PR은 JeongJaeSoon/werft#1580(PR-A), #1583(PR-B), #1584(PR-C). `ports/worker-unit-of-work.ts`는 `limits/model-prices.ts`의 타입을 import하므로 `sessions/ports/`로 옮기면 A2 쌍이 하나 늘어서 `ports/`에 둔다 | |
 | **S5** | (동작 변경 없는 구조 변경) `tools/` 레지스트리: `switch` → handler 표, `dispatch.ts` 공통화, A5 시험 | S0, S2 |
+| | 상태: 완료. JeongJaeSoon/werft#1565(U6b) | |
 | **S6** | `GitHubApi` 구현(`forge-github.ts`)과 Slack API 호출 코드의 위치를 `control-host/src/api/` 안에서 정리한다. 새 패키지는 만들지 않는다([4.3절](#43-어댑터)) | S2 |
+| | 상태: 완료. U4가 `forge-github.ts`·`git-push.ts`를 `@werft-ai/forge-github`로 옮겼다(JeongJaeSoon/werft#1523). Slack API 호출 코드는 S3의 `@werft-ai/chat-slack`이 맡았다 | |
 | **S7** | `db/src/<도메인>/`(platform 이동 뒤), `control-host/routes/<도메인>/` | S2~S4 |
-| | 상태: 도메인 이름은 platform을 따른다(`sessions/`·`checkpoints/` 복수). `db/src`의 파일 139개를 `action/`·`checkpoints/`·`decision/`·`extensions/`·`github/`·`limits/`·`musterrolle/`·`scheduler/`·`secrets/`·`sessions/`·`surface/`(Slack 저장소)·`usage/`·`agents/`로 옮겼다(U9a PR-1). `engine-settings-start.ts`·`mcp-egress.ts`와 프로필 제거 계열(#1567)이 고치는 파일은 제자리에 두고 S8에서 옮긴다. `apps/control-host/src/api/routes/`는 같은 이름으로 `action/ agents/ github/ musterrolle/ sessions/ surface/ usage/ workers/`에 파일 73개를 옮겼다(U9a PR-2). `auth`·`errors`와 #1567 계열(`agents`, `sessions`, `profiles`, `installation-settings.ts` 등 #1567이 고치는 파일)은 제자리에 두고 S8에서 옮긴다 | |
+| | 상태: 도메인 이름은 platform을 따른다(`sessions/`·`checkpoints/` 복수). `db/src`의 파일 139개를 `action/`·`checkpoints/`·`decision/`·`extensions/`·`github/`·`limits/`·`musterrolle/`·`scheduler/`·`secrets/`·`sessions/`·`surface/`(Slack 저장소)·`usage/`·`agents/`로 옮겼다(U9a PR-1). `apps/control-host/src/api/routes/`는 같은 이름으로 `action/ agents/ github/ musterrolle/ sessions/ surface/ usage/ workers/`에 파일 73개를 옮겼다(U9a PR-2). 상태: 완료. PR은 JeongJaeSoon/werft#1586(db), #1588(routes), S8 PR-2(#1567이 고쳐서 미뤘던 파일: db 9개를 `sessions/`·`github/`·`musterrolle/`로, routes 13개를 `sessions/`·`agents/`·`action/`·`github/`·`workers/`로). 도메인 대응이 없는 파일(`auth`·`errors`·`installation-settings.ts`, db의 `schema`·`*-unit-of-work`·`installation-settings`·`engine-settings-store` 등)은 루트에 둔다 | |
 | **S8** | 남은 기준선 정리와 index 순서 점검, 이 문서 상태를 "완료"로 | 전부 |
+| | 상태: 완료. JeongJaeSoon/werft#1593(재수출 둘 제거, 옛 경로 인용 정리), S8 PR-2(남은 이동, `profileSeriesFiles` 삭제, 이 표). 남은 A2 기준선 쌍은 `tests/architecture.baseline.ts`에 있고 사유는 S8 PR 본문의 표에 적었다 | |
 
 ### 6.1 프로필 제거 계열과의 충돌
 

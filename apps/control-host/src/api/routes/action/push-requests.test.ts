@@ -23,12 +23,12 @@ import {
   type ResolvedWebSession,
   type SessionCatalog,
 } from "@werft-ai/platform";
-import { generateWebSessionToken, hashWebSessionToken } from "../auth.ts";
-import { hashApiKey } from "../keys.ts";
-import { recordRouteErrors } from "../route-error-coverage.ts";
-import { registerPushRequestRoutes } from "./action/push-requests.ts";
+import { generateWebSessionToken, hashWebSessionToken } from "../../auth.ts";
+import { hashApiKey } from "../../keys.ts";
+import { recordRouteErrors } from "../../route-error-coverage.ts";
+import { registerPushRequestRoutes } from "./push-requests.ts";
 
-const createApiApp = recordRouteErrors("routes/push-requests.test.ts");
+const createApiApp = recordRouteErrors("routes/action/push-requests.test.ts");
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
 const PUSH = "22222222-2222-4222-8222-222222222222";

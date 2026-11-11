@@ -96,7 +96,6 @@ import {
   READ_AT,
   readInputWaits,
 } from "./decision/pending-requests.ts";
-import { captureEngineSettingsStart } from "./engine-settings-start.ts";
 import { captureGitHubPolicyStart } from "./github-settings.ts";
 import { admitInput } from "./input-limits.ts";
 import { readArchivedWorkspaceLimit } from "./limits/workspace-limit.ts";
@@ -152,6 +151,7 @@ import {
   rethrowCursorCastError,
 } from "./sessions/cursors.ts";
 import { drainAttention } from "./sessions/drain.ts";
+import { captureEngineSettingsStart } from "./sessions/engine-settings-start.ts";
 import { enqueueWithin } from "./sessions/enqueue.ts";
 import { eventWithNeutralFields } from "./sessions/event-payload.ts";
 import {

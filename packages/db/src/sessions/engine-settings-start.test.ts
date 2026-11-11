@@ -3,13 +3,13 @@ import { randomUUID } from "node:crypto";
 import type { PGlite } from "@electric-sql/pglite";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
-import { captureEngineSettingsStart } from "./engine-settings-start.ts";
-import * as schema from "./schema.ts";
-import { fixtureTeamSql } from "./testing/fixture-team.ts";
+import * as schema from "../schema.ts";
+import { fixtureTeamSql } from "../testing/fixture-team.ts";
 import {
   RELEASE_SPEC_SQL_COLUMNS,
   releaseSpecSqlValues,
-} from "./testing/spec-pins.ts";
+} from "../testing/spec-pins.ts";
+import { captureEngineSettingsStart } from "./engine-settings-start.ts";
 
 let client: PGlite;
 let db: PgliteDatabase<typeof schema>;

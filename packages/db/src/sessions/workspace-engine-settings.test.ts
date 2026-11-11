@@ -4,7 +4,7 @@ import type { PGlite } from "@electric-sql/pglite";
 import type { ToolCatalogView } from "@werft-ai/contracts";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
-import * as schema from "./schema.ts";
+import * as schema from "../schema.ts";
 import { workspaceEngineSettingsOf } from "./workspace-engine-settings.ts";
 
 /**

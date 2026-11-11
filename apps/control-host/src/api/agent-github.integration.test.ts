@@ -60,7 +60,7 @@ import {
 } from "./auth.ts";
 import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
 import { registerAgentPullRequestRoutes } from "./routes/action/agent-pull-request.ts";
-import { registerAgentRoutes } from "./routes/agents.ts";
+import { registerAgentRoutes } from "./routes/agents/agents.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerAgentGitHubRoutes } from "./routes/github/agent-github.ts";
 import { registerGitHubSettingsRoutes } from "./routes/github/github-settings.ts";

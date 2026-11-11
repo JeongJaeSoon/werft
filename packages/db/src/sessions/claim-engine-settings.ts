@@ -10,13 +10,13 @@ import {
   mergeEngineSettings,
 } from "@werft-ai/platform";
 import { eq } from "drizzle-orm";
-import type { Database } from "./queries.ts";
+import type { Database } from "../queries.ts";
 import {
   agentEngineSettings,
   agentReleases,
   receipts,
   workspaceEngineSettings,
-} from "./schema.ts";
+} from "../schema.ts";
 
 /** What one claim evaluated, for its receipt. Never the rule text. */
 export type ClaimRulesAudit = {

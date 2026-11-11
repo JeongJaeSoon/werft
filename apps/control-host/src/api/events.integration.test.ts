@@ -45,7 +45,7 @@ import {
 import { createApiApp } from "./app.ts";
 import { DatabaseApiKeyStore, issueApiKey } from "./keys.ts";
 import { registerEventRoutes } from "./routes/sessions/events.ts";
-import { registerSessionRoutes } from "./routes/sessions.ts";
+import { registerSessionRoutes } from "./routes/sessions/sessions.ts";
 import { PostgresSessionNotifier } from "./session-notifier.ts";
 
 const databaseUrl = process.env.QUEUE_DATABASE_URL;

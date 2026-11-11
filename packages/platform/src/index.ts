@@ -72,7 +72,7 @@ export * from "./ports/decision-log.ts";
 export * from "./scheduler/ports/execution-backend.ts";
 export * from "./github/ports/github-app-store.ts";
 export * from "./github/ports/github-gate.ts";
-export * from "./ports/github-mcp.ts";
+export * from "./github/ports/github-mcp.ts";
 export * from "./github/ports/github-packages.ts";
 export * from "./github/ports/github-settings.ts";
 export * from "./action/ports/pull-request-settings.ts";

@@ -1,7 +1,7 @@
 import type { EngineSettingsStart } from "@werft-ai/contracts";
 import { eq } from "drizzle-orm";
-import type { Database } from "./queries.ts";
-import { agentEngineSettings, agentReleases, agents } from "./schema.ts";
+import type { Database } from "../queries.ts";
+import { agentEngineSettings, agentReleases, agents } from "../schema.ts";
 
 /**
  * The agent's engine settings as a new session starts with them, or null when

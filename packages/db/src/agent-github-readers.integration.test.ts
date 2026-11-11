@@ -15,6 +15,7 @@ import {
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresAgentGitHubStore } from "./agent-github.ts";
+import { createPostgresGitHubMcpStore } from "./github/mcp-egress.ts";
 import {
   agentGitHubSettingsOf,
   captureGitHubPolicyStart,
@@ -23,7 +24,6 @@ import {
   ensureInstalledRepositoryCeiling,
   workspaceRepositoryCeiling,
 } from "./github-settings.ts";
-import { createPostgresGitHubMcpStore } from "./mcp-egress.ts";
 import { createPostgresPushRequests } from "./push-requests.ts";
 import * as schema from "./schema.ts";
 import {
