@@ -19,6 +19,8 @@ export type ScriptedCall = {
   at: string;
   /** Ids of every spec the input replays, oldest first. */
   history: string[];
+  /** `namespace/tool` names the input's `tool_search` answers returned. */
+  found: string[];
   /** The text of each tool output the input carries, oldest first. */
   outputs: string[];
   specId: string | null;
@@ -97,6 +99,21 @@ function toolNames(body: ResponsesRequest): string[] {
   return namesIn(body.tools ?? []);
 }
 
+const searchOffered = (body: ResponsesRequest) =>
+  (body.tools ?? []).some((tool) => {
+    const { type, execution } = tool as { type?: unknown; execution?: unknown };
+    return type === "tool_search" && execution === "client";
+  });
+
+/** Names a `tool_search` answer returned, apart from any other tool output. */
+function foundNames(items: readonly Item[]): string[] {
+  return items.flatMap((item) =>
+    item.type === "tool_search_output" && Array.isArray(item.tools)
+      ? namesIn(item.tools)
+      : [],
+  );
+}
+
 /** The namespaces the model can call into: offered up front or found by `tool_search`. */
 function namespacesOf(body: ResponsesRequest): Item[] {
   const found = inputItems(body).flatMap((item) =>
@@ -168,6 +185,7 @@ export function replyFor(
   recorded.push({
     at: new Date().toISOString(),
     history: specIdsIn(items),
+    found: foundNames(items),
     outputs: outputTexts(items),
     specId: plan?.spec.id ?? null,
     step: plan?.step ?? null,
@@ -183,7 +201,9 @@ export function replyFor(
           toolCalls: [
             {
               callId: `call_gate_${spec.id}_${step}`,
-              ...(next.tool === "tool_search"
+              // Only a request that offers the search can be answered by one;
+              // otherwise the call is a plain name the engine refuses.
+              ...(next.tool === "tool_search" && searchOffered(body)
                 ? { kind: "tool_search" as const, name: next.tool }
                 : mcpCall(next.tool, body)),
               arguments: JSON.stringify(next.input),

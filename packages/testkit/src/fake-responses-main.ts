@@ -92,11 +92,12 @@ Bun.serve({
       return Response.json(
         calls
           .filter((entry) => spec === null || entry.specId === spec)
-          .map(({ at, history, outputs, specId, step, tools }) => ({
+          .map(({ at, found, history, outputs, specId, step, tools }) => ({
             at,
             spec_id: specId,
             step,
             history,
+            found,
             outputs,
             tools,
           })),

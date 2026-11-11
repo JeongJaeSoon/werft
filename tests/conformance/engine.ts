@@ -52,8 +52,8 @@ export type ModelCall = {
   step: number | null;
   /** Tool names the call offered; a namespace's tools read `namespace/tool`. */
   tools: string[];
-  /** The text of each tool answer the call carried, when the provider records it. */
-  outputs?: string[];
+  /** Names the call's tool-search answers returned, when the provider records them. */
+  found?: string[];
 };
 
 export interface EngineFixture {

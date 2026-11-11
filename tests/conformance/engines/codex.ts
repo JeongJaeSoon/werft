@@ -47,10 +47,7 @@ export function codexEngine(env = process.env): EngineFixture {
       const shown = "mcp__github/request_push";
       return (await this.modelCalls(id)).some(
         (call) =>
-          call.tools.includes(shown) ||
-          (call.outputs ?? []).some((names) =>
-            names.split(",").includes(shown),
-          ),
+          call.tools.includes(shown) || (call.found ?? []).includes(shown),
       );
     },
     async modelCalls(id) {

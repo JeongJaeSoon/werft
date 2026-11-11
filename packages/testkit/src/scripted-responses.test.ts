@@ -185,6 +185,32 @@ describe("scripted Responses API", () => {
     expect(recorded.map((call) => call.step)).toEqual([0, 1]);
     expect(recorded[0]?.tools).toEqual(["exec_command", "tool_search"]);
     expect(recorded[1]?.outputs).toEqual(["mcp__github/request_push"]);
+    expect(recorded[1]?.found).toEqual(["mcp__github/request_push"]);
+  });
+
+  test("a tool_search step in a request that offers no search is a plain name", async () => {
+    const prompt = user(
+      spec({
+        id: "n",
+        steps: [{ tool: "tool_search", input: { query: "x" } }],
+        final: "done",
+      }),
+    );
+    const reply = await replyFor({ input: [prompt], tools }, []);
+    expect(reply.toolCalls?.[0]?.kind).toBeUndefined();
+    expect(reply.toolCalls?.[0]?.name).toBe("tool_search");
+  });
+
+  test("a plain tool output that happens to name a tool is not a search answer", async () => {
+    const recorded: ScriptedCall[] = [];
+    const prompt = user(spec({ id: "p", steps: [], final: "done" }));
+    const plain = {
+      type: "function_call_output",
+      call_id: "c",
+      output: "mcp__github/request_push",
+    };
+    await replyFor({ input: [prompt, plain], tools }, recorded);
+    expect(recorded[0]?.found).toEqual([]);
   });
 
   test("a request without tools never reads the spec", async () => {

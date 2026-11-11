@@ -150,9 +150,13 @@ export function replyFor(
     specId: plan?.spec.id ?? null,
     step: plan?.step ?? null,
     system: request.body.system,
+    // A deferred tool is not in front of the model until a search loads it.
     tools: (request.body.tools ?? []).flatMap((tool) => {
-      const { name } = tool as { name?: unknown };
-      return typeof name === "string" ? [name] : [];
+      const { name, defer_loading } = tool as {
+        defer_loading?: unknown;
+        name?: unknown;
+      };
+      return typeof name === "string" && defer_loading !== true ? [name] : [];
     }),
   });
   if (plan === null) return textReply(fallback);
