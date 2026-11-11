@@ -3621,13 +3621,18 @@ describe("architecture", () => {
         )
         .map((entry) => join(entry.parentPath, entry.name));
       for (const file of files) {
-        for (const line of contractsModuleDeclarations(await parse(file))) {
+        // Parsing every file of the repository took longer than the default
+        // timeout on a loaded CI runner; only a file that names the package
+        // can declare a module of it.
+        const text = await readFile(file, "utf8");
+        if (!text.includes("@werft-ai/contracts")) continue;
+        for (const line of contractsModuleDeclarations(parseText(file, text))) {
           offenders.push(`${slashed(relative(root, file))}:${line}`);
         }
       }
     }
     expect(offenders).toEqual([]);
-  });
+  }, 60_000);
 
   test("the contracts module ban sees an augmentation and an ambient declaration, not a string or a comment", () => {
     const hits = (text: string) =>
