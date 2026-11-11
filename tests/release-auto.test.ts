@@ -31,7 +31,12 @@ type Job = {
   env?: Record<string, string>;
   concurrency?: { group: string; "cancel-in-progress": boolean };
   permissions?: Record<string, string>;
-  steps: { name?: string; run?: string; with?: Record<string, string> }[];
+  steps: {
+    name?: string;
+    run?: string;
+    with?: Record<string, string>;
+    env?: Record<string, string>;
+  }[];
 };
 
 const workflow = Bun.YAML.parse(
@@ -62,6 +67,7 @@ const releaseJobs = [
   "chart-publish-release",
   "release-tag",
   "release-publish",
+  "pages-release",
 ];
 
 describe("the release jobs of a main run", () => {
@@ -118,6 +124,27 @@ describe("the release jobs of a main run", () => {
     for (const name of ["promote-release", "chart-publish-release"]) {
       expect(jobs[name]?.permissions?.contents).toBe("read");
     }
+  });
+
+  test("the published release dispatches the docs site at its tag, since its GITHUB_TOKEN tag starts no pages.yml run", () => {
+    const job = jobs["pages-release"];
+    expect(needsOf("pages-release")).toContain("release-publish");
+    expect(job?.permissions).toEqual({ actions: "write" });
+    const steps = job?.steps ?? [];
+    expect(steps.map((step) => step.run)).toEqual([
+      'gh workflow run pages.yml --ref "$TAG"',
+    ]);
+    expect(steps[0]?.env?.TAG).toBe(
+      "$" + "{{ needs.release-detect.outputs.tag }}",
+    );
+    // pages.yml deploys a dispatch only from a v* tag or main.
+    const pages = Bun.YAML.parse(
+      readFileSync(join(root, ".github/workflows/pages.yml"), "utf8"),
+    ) as { on: Record<string, unknown>; jobs: Record<string, { if?: string }> };
+    expect(Object.keys(pages.on)).toContain("workflow_dispatch");
+    expect(pages.jobs.deploy?.if).toContain(
+      "startsWith(github.ref, 'refs/tags/v')",
+    );
   });
 
   test("it waits for main's whole chain and for ci.yml before asking anyone", () => {
