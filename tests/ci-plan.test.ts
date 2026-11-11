@@ -110,6 +110,7 @@ function mergePullRequest(f: ReturnType<typeof fixture>, base = f.base) {
 
 const allDomains = [
   "db",
+  "sessions",
   "api",
   "surface",
   "storage",

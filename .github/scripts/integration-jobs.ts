@@ -72,10 +72,12 @@ export function readJobs(workflow: string): IntegrationJob[] {
 }
 
 /**
- * Each file goes to the job whose path prefix it starts with. Throws unless
- * that is exactly one job for every file, and unless every prefix and every
- * job still owns something — a stale entry means the matrix no longer says
- * what the jobs run.
+ * Each file goes to the job whose path prefix it starts with; when prefixes
+ * nest, the longest one owns it, so a domain split off another (`sessions`
+ * out of `db`'s `packages/db/`) names only what it takes. Throws unless that
+ * is exactly one job for every file — two jobs with equally long prefixes for
+ * it are a mistake — and unless every prefix and every job still owns
+ * something: a stale entry means the matrix no longer says what the jobs run.
  */
 export function assign(
   files: string[],
@@ -91,21 +93,23 @@ export function assign(
   const problems: string[] = [];
   const usedPaths = new Set<string>();
   for (const file of files) {
-    const owners = jobs.filter((job) =>
-      job.paths.some((path) => {
-        if (!file.startsWith(path)) return false;
-        usedPaths.add(`${job.domain}\0${path}`);
-        return true;
-      }),
+    const matches = jobs.flatMap((job) =>
+      job.paths
+        .filter((path) => file.startsWith(path))
+        .map((path) => ({ job, path })),
     );
+    const longest = Math.max(0, ...matches.map(({ path }) => path.length));
+    const owners = matches.filter(({ path }) => path.length === longest);
+    const domains = [...new Set(owners.map(({ job }) => job.domain))];
+    for (const { job, path } of owners) {
+      usedPaths.add(`${job.domain}\0${path}`);
+    }
     if (owners.length === 0) {
       problems.push(`${file} belongs to no integration job`);
-    } else if (owners.length > 1) {
-      problems.push(
-        `${file} belongs to ${owners.map((job) => job.domain).join(" and ")}`,
-      );
+    } else if (domains.length > 1) {
+      problems.push(`${file} belongs to ${domains.join(" and ")}`);
     } else {
-      byDomain.get(owners[0]!.domain)!.push(file);
+      byDomain.get(domains[0]!)!.push(file);
     }
   }
   for (const job of jobs) {

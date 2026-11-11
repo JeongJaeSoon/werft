@@ -282,7 +282,7 @@ function productNeeds() {
         k8s: "true",
         site: "true",
         product: "true",
-        domains: '["db","api","surface","storage","docker","egress","worker"]',
+        domains: '["db","sessions","api","surface","storage","docker","egress","worker"]',
       },
     },
     static: { result: "success" },

@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Every integration-domain of ci.yml, in matrix order; tests/ci-plan.test.ts
 # holds this list to the matrix.
-all_domains='["db","api","surface","storage","docker","egress","worker"]'
+all_domains='["db","sessions","api","surface","storage","docker","egress","worker"]'
 
 tests=true
 product=true

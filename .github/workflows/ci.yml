@@ -246,6 +246,21 @@ jobs:
             paths:
               - packages/db/
               - packages/testkit/src/postgres.
+          # The session queue on PostgreSQL: sessions and their turns, the
+          # scheduler's claims, worker leases and fencing, parked and pending
+          # requests. Split from `db`, whose suite alone outran every other
+          # job; the longer prefixes take these files from `packages/db/`.
+          - domain: sessions
+            postgres: true
+            localstack: false
+            docker: false
+            paths:
+              - packages/db/src/session
+              - packages/db/src/scheduler/
+              - packages/db/src/worker-unit-of-work.
+              - packages/db/src/parked-requests.
+              - packages/db/src/pending-
+              - packages/db/src/reconcile.
           # HTTP routes and the control-host flows they drive. Keep their
           # database and lifecycle checks apart from API consumer suites.
           - domain: api
