@@ -4,21 +4,20 @@ import type {
   PutGitHubPackagesAllowlistRequest,
   PutGitHubPackagesTokenRequest,
 } from "@werft-ai/contracts";
+import {
+  ACTOR_INACTIVE,
+  type AuthorizationPolicy,
+  type Caller,
+  MANAGEMENT_ROLES,
+  NOT_FOUND,
+  OUTRANKED,
+} from "../../musterrolle/index.ts";
+import { requirePermitted, SessionServiceError } from "../../sessions/index.ts";
 import type {
   GitHubPackagesStore,
   GitHubPackagesTokenVerifier,
   GitHubPackagesWriteRefusal,
 } from "../ports/github-packages.ts";
-import {
-  requirePermitted,
-  SessionServiceError,
-} from "../sessions/session-service.ts";
-import {
-  type AuthorizationPolicy,
-  type Caller,
-  MANAGEMENT_ROLES,
-} from "./policy.ts";
-import { ACTOR_INACTIVE, NOT_FOUND, OUTRANKED } from "./service-errors.ts";
 
 const MANAGERS = MANAGEMENT_ROLES["workspace.manage"] ?? [];
 

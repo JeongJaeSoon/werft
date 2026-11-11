@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { GITHUB_REVIEW_EVENT_VALUES } from "@werft-ai/contracts";
-import { GitHubCallError } from "../ports/github-gate.ts";
+import { GitHubCallError } from "../github/ports/github-gate.ts";
 import type { MakeForgeSubject } from "./forge-contract-subject.ts";
 
 /**

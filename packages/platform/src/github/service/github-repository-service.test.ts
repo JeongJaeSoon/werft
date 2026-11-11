@@ -5,10 +5,19 @@ import {
   type RepositoryCeiling,
   repositoryRefOf,
 } from "@werft-ai/contracts";
+import {
+  callerFor,
+  createAuthorizationPolicy,
+} from "../../musterrolle/policy.ts";
 import type {
   CatalogRepositoryRow,
   CatalogRepositoryStore,
-} from "../ports/catalog-repository-store.ts";
+} from "../../ports/catalog-repository-store.ts";
+import {
+  ceilingAppRepositories,
+  profileAllowsRepository,
+} from "../../sessions/catalog.ts";
+import { SessionServiceError } from "../../sessions/session-service.ts";
 import {
   GitHubAppCheckError,
   type GitHubAppDirectory,
@@ -18,13 +27,7 @@ import {
   type GitHubPinStore,
   type GitHubRepositoryPin,
 } from "../ports/github-app-store.ts";
-import {
-  ceilingAppRepositories,
-  profileAllowsRepository,
-} from "../sessions/catalog.ts";
-import { SessionServiceError } from "../sessions/session-service.ts";
 import { createGitHubRepositoryService } from "./github-repository-service.ts";
-import { callerFor, createAuthorizationPolicy } from "./policy.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000a1";
 const AGENT = "019a0000-0000-7000-8000-0000000000c1";

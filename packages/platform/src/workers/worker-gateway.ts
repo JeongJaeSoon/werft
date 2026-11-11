@@ -69,6 +69,19 @@ import {
 import { own } from "../checkpoints/checkpoint-support.ts";
 import { checkpointPendingReason } from "../checkpoints/durability.ts";
 import { BundleIntegrityError } from "../extensions/bundle-service.ts";
+import type { GitHubConnectionResolver } from "../github/index.ts";
+import {
+  allowedOwners,
+  createGitHubPackagesEgress,
+  isGitHubNpmTarball,
+} from "../github/index.ts";
+import {
+  type GitHubGate,
+  GitHubGateError,
+  type GitHubGrant,
+} from "../github/ports/github-gate.ts";
+import type { GitHubPackagesStore } from "../github/ports/github-packages.ts";
+import type { McpEgressStore } from "../github/ports/mcp-egress.ts";
 import { budgetExceeded } from "../limits/installation-limits.ts";
 import {
   type PricedBy,
@@ -82,14 +95,7 @@ import type {
   CheckpointVerifier,
 } from "../ports/checkpoint-verifier.ts";
 import type { CommitAttributionLedger } from "../ports/commit-attributions.ts";
-import {
-  type GitHubGate,
-  GitHubGateError,
-  type GitHubGrant,
-} from "../ports/github-gate.ts";
 import type { GitHubMcpStore } from "../ports/github-mcp.ts";
-import type { GitHubPackagesStore } from "../ports/github-packages.ts";
-import type { McpEgressStore } from "../ports/mcp-egress.ts";
 import type {
   ApprovalCheckpointCommit,
   WorkerPendingStore,
@@ -168,7 +174,6 @@ import {
   claimGitOf,
   coAuthorOfLink,
 } from "../sessions/git-attribution.ts";
-import type { GitHubConnectionResolver } from "../sessions/github-connection-resolver.ts";
 import {
   hashTitleToken,
   type SessionTitler,
@@ -176,8 +181,6 @@ import {
   titleProfile,
 } from "../sessions/session-titler.ts";
 import { createGitHubMcpEgress } from "./github-mcp-egress.ts";
-import { allowedOwners, isGitHubNpmTarball } from "./github-packages.ts";
-import { createGitHubPackagesEgress } from "./github-packages-egress.ts";
 import {
   appendNew,
   earlierProfileConfigs,

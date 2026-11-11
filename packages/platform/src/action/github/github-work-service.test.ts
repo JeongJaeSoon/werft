@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Principal } from "@werft-ai/contracts";
 import { testCaller } from "@werft-ai/testkit";
-import { createAuthorizationPolicy } from "../../musterrolle/policy.ts";
 import {
   GitHubCallError,
   type GitHubGate,
@@ -9,7 +8,8 @@ import {
   type GitHubGateReceipt,
   type GitHubGrant,
   type GitHubWork,
-} from "../../ports/github-gate.ts";
+} from "../../github/ports/github-gate.ts";
+import { createAuthorizationPolicy } from "../../musterrolle/policy.ts";
 import { SessionServiceError } from "../../sessions/session-service.ts";
 import { ForgeCredentialError } from "../ports/forge.ts";
 import type { GitHubApi } from "../ports/github-api.ts";

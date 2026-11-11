@@ -7,8 +7,8 @@ import type {
   GitHubUnavailable,
   ReceiptActor,
 } from "@werft-ai/contracts";
-import type { RepoRef } from "../action/ports/forge.ts";
-import type { SecretAudit } from "./secret-store.ts";
+import type { RepoRef } from "../../action/ports/forge.ts";
+import type { SecretAudit } from "../../ports/secret-store.ts";
 
 /** What GitHub says the App is, read with the App's own JWT. */
 export type GitHubAppProfile = {

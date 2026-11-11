@@ -20,11 +20,21 @@ import {
   type RepositoryCeiling,
   repositoryRefOf,
 } from "@werft-ai/contracts";
-import type { AgentStore } from "../ports/agent-store.ts";
+import {
+  ACTOR_INACTIVE,
+  type AuthorizationPolicy,
+  type Caller,
+  MANAGEMENT_ROLES,
+  NOT_FOUND,
+  OUTRANKED,
+  receiptActorOf,
+} from "../../musterrolle/index.ts";
+import type { AgentStore } from "../../ports/agent-store.ts";
 import type {
   CatalogRepositoryRow,
   CatalogRepositoryStore,
-} from "../ports/catalog-repository-store.ts";
+} from "../../ports/catalog-repository-store.ts";
+import { requirePermitted, SessionServiceError } from "../../sessions/index.ts";
 import {
   GitHubAppCheckError,
   type GitHubAppCredential,
@@ -35,17 +45,6 @@ import {
   type GitHubPinStore,
   githubUnavailableOf,
 } from "../ports/github-app-store.ts";
-import {
-  requirePermitted,
-  SessionServiceError,
-} from "../sessions/session-service.ts";
-import {
-  type AuthorizationPolicy,
-  type Caller,
-  MANAGEMENT_ROLES,
-  receiptActorOf,
-} from "./policy.ts";
-import { ACTOR_INACTIVE, NOT_FOUND, OUTRANKED } from "./service-errors.ts";
 
 type Unavailable = NonNullable<ListGitHubRepositoriesResponse["unavailable"]>;
 type InstallationPage = Pick<

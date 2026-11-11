@@ -9,17 +9,17 @@ import {
 } from "@werft-ai/contracts";
 import { testCaller } from "@werft-ai/testkit";
 import {
+  GitHubCallError,
+  type GitHubGate,
+  GitHubGateError,
+  type GitHubWork,
+} from "../../github/ports/github-gate.ts";
+import {
   type AuthorizationPolicy,
   callerFor,
   createAuthorizationPolicy,
   type SessionAccess,
 } from "../../musterrolle/policy.ts";
-import {
-  GitHubCallError,
-  type GitHubGate,
-  GitHubGateError,
-  type GitHubWork,
-} from "../../ports/github-gate.ts";
 import type {
   PullRequestReceipt,
   PullRequestSource,

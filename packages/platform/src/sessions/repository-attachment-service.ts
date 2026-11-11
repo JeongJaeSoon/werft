@@ -11,7 +11,7 @@ import {
 import type {
   GitHubGateStore,
   GitHubSessionContext,
-} from "../ports/github-gate.ts";
+} from "../github/ports/github-gate.ts";
 import type {
   RepositoryAttachmentRow,
   RepositoryAttachmentStore,

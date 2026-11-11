@@ -20,7 +20,17 @@ import {
   type StartGitHubAppManifestResponse,
   type StartGitHubInstallationResponse,
 } from "@werft-ai/contracts";
-import { repoRefOf } from "../action/ports/forge.ts";
+import { repoRefOf } from "../../action/ports/forge.ts";
+import {
+  ACTOR_INACTIVE,
+  type AuthorizationPolicy,
+  type Caller,
+  MANAGEMENT_ROLES,
+  NOT_FOUND,
+  OUTRANKED,
+} from "../../musterrolle/index.ts";
+import type { SecretAudit } from "../../ports/secret-store.ts";
+import { requirePermitted, SessionServiceError } from "../../sessions/index.ts";
 import {
   GitHubAppCheckError,
   type GitHubAppCredential,
@@ -35,17 +45,6 @@ import {
   githubUnavailableOf,
   type PutGitHubAppResult,
 } from "../ports/github-app-store.ts";
-import type { SecretAudit } from "../ports/secret-store.ts";
-import {
-  requirePermitted,
-  SessionServiceError,
-} from "../sessions/session-service.ts";
-import {
-  type AuthorizationPolicy,
-  type Caller,
-  MANAGEMENT_ROLES,
-} from "./policy.ts";
-import { ACTOR_INACTIVE, NOT_FOUND, OUTRANKED } from "./service-errors.ts";
 
 const MANAGERS = MANAGEMENT_ROLES["workspace.manage"] ?? [];
 

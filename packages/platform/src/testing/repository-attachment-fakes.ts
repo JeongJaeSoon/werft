@@ -1,5 +1,5 @@
 import { type AgentGitHub, RUNTIME_KIND_VALUES } from "@werft-ai/contracts";
-import type { GitHubSessionContext } from "../ports/github-gate.ts";
+import type { GitHubSessionContext } from "../github/ports/github-gate.ts";
 import type {
   RepositoryAttachmentRefusal,
   RepositoryAttachmentRow,
