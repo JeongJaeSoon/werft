@@ -5,6 +5,7 @@ import {
   mcpToolOfServer,
   parseToolNames,
   type ToolCatalogView,
+  unsupportedTools,
 } from "./tool-names.ts";
 
 const CATALOG: ToolCatalogView = {
@@ -21,6 +22,13 @@ const CATALOG: ToolCatalogView = {
 };
 
 describe("a deny against a tool catalog", () => {
+  test("reads an allow list as what it leaves out, through aliases, with mcp__ names left aside", () => {
+    expect(unsupportedTools(CATALOG, ["Read", "Task", "TodoWrite"])).toEqual([
+      "TodoWrite",
+    ]);
+    expect(unsupportedTools(CATALOG, ["mcp__github__get_file"])).toEqual([]);
+  });
+
   test("takes whole catalog names only, aliases turned into the current name", () => {
     expect(parseToolNames(CATALOG, ["WebSearch", "Task", "Agent"])).toEqual({
       names: ["Agent", "WebSearch"],
@@ -41,6 +49,12 @@ describe("a deny against a tool catalog", () => {
 });
 
 describe("mcp__ names beside a catalog deny", () => {
+  const MCP = ["mcp__docs__read", "mcp__a__b"];
+
+  test("the catalog reads leave them aside in a deny, an allow list and a carried deny", () => {
+    expect(unsupportedTools(CATALOG, ["Read", ...MCP])).toEqual([]);
+  });
+
   test("a list that cannot block them (accept_added_tools) still refuses them as mcp_tool", () => {
     expect(parseToolNames(CATALOG, ["Bash", "mcp__docs__read"])).toMatchObject({
       refusal: { reason_code: "mcp_tool", name: "mcp__docs__read" },

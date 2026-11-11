@@ -77,6 +77,22 @@ const inCatalogOrder = (
 const canonicalSet = (catalog: ToolCatalogView, names: readonly string[]) =>
   new Set(names.map((name) => canonicalTool(catalog, name)));
 
+/**
+ * The names in `tools` this catalog does not hold, aliases followed and
+ * `mcp__*` names left aside: what a version made with a deny no longer runs.
+ */
+export function unsupportedTools(
+  catalog: ToolCatalogView,
+  tools: readonly string[],
+): string[] {
+  const known = new Set(namesOf(catalog));
+  return tools.filter(
+    (tool) =>
+      !tool.startsWith(MCP_TOOL_PREFIX) &&
+      !known.has(canonicalTool(catalog, tool)),
+  );
+}
+
 export type ToolNameRefusal = {
   readonly reason_code:
     | "mcp_tool"
