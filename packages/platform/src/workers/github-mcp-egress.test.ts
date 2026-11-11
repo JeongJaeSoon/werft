@@ -5,7 +5,7 @@ import {
   githubMcpTools,
 } from "@werft-ai/contracts";
 import { verifyGitHubMcpGrant } from "../action/github/github-mcp-server.ts";
-import type { GitHubMcpSessionState } from "../ports/github-mcp.ts";
+import type { GitHubMcpSessionState } from "../github/ports/github-mcp.ts";
 import {
   createGitHubMcpEgress,
   GITHUB_MCP_UPSTREAM_PATH,

@@ -17,7 +17,7 @@ import { Pool } from "pg";
 import { createPostgresPushIntents } from "./action/push-intents.ts";
 import { createPostgresCheckpointStore } from "./checkpoints/checkpoint-store.ts";
 import { createPostgresWorkerPendingStore } from "./decision/pending-control.ts";
-import { createPostgresGitHubMcpStore } from "./mcp-egress.ts";
+import { createPostgresGitHubMcpStore } from "./github/mcp-egress.ts";
 import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
 import {

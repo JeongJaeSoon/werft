@@ -29,7 +29,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/auth/google/start",
     "POST /v1/auth/google/callback",
   ],
-  "routes/sessions.test.ts": [
+  "routes/sessions/sessions.test.ts": [
     "POST /v1/sessions",
     "GET /v1/sessions",
     "GET /v1/sessions/counts",
@@ -50,23 +50,23 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/admin/sessions/{id}/terminate",
     "POST /v1/admin/sessions/{id}/recovery-decisions",
   ],
-  "routes/receipts.test.ts": ["GET /v1/receipts/{id}"],
+  "routes/sessions/receipts.test.ts": ["GET /v1/receipts/{id}"],
   "routes/sessions/pending.test.ts": [
     "GET /v1/sessions/{id}/pending-requests",
     "POST /v1/sessions/{id}/answers",
   ],
-  "routes/push-requests.test.ts": [
+  "routes/action/push-requests.test.ts": [
     "POST /v1/sessions/{id}/push-requests",
     "GET /v1/sessions/{id}/push-requests",
     "GET /v1/sessions/{id}/push-requests/{push_request_id}",
     "POST /v1/sessions/{id}/push-requests/{push_request_id}/approve",
     "POST /v1/sessions/{id}/push-requests/{push_request_id}/reject",
   ],
-  "routes/pull-requests.test.ts": [
+  "routes/action/pull-requests.test.ts": [
     "POST /v1/sessions/{id}/push-requests/{push_request_id}/pull-request",
     "POST /v1/sessions/{id}/push-requests/{push_request_id}/pull-request/comments",
   ],
-  "routes/github-work.test.ts": [
+  "routes/github/github-work.test.ts": [
     "POST /v1/sessions/{id}/github/workflow-dispatches",
     "GET /v1/sessions/{id}/github/workflow-runs/{run_id}",
     "POST /v1/sessions/{id}/github/workflow-runs/{run_id}/rerun",
@@ -76,8 +76,8 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/sessions/{id}/github/pull-requests/{number}/reviews",
   ],
   "routes/sessions/interrupt.test.ts": ["POST /v1/sessions/{id}/interrupt"],
-  "routes/pause.test.ts": ["POST /v1/sessions/{id}/pause"],
-  "routes/close.test.ts": ["POST /v1/sessions/{id}/close"],
+  "routes/sessions/pause.test.ts": ["POST /v1/sessions/{id}/pause"],
+  "routes/sessions/close.test.ts": ["POST /v1/sessions/{id}/close"],
   "routes/usage/usage.test.ts": [
     "GET /v1/limits",
     "GET /v1/sessions/{id}/usage",
@@ -113,7 +113,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/installation/settings/mcp-servers/{id}/credential",
     "POST /v1/installation/settings/mcp-servers/{id}/disable",
   ],
-  "routes/events.test.ts": ["GET /v1/sessions/{id}/events"],
+  "routes/sessions/events.test.ts": ["GET /v1/sessions/{id}/events"],
   "routes/musterrolle/members.test.ts": [
     "GET /v1/members",
     "PATCH /v1/members/{user_id}",
@@ -178,7 +178,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "GET /v1/agents/{id}/mcp/settings",
     "PUT /v1/agents/{id}/mcp/settings",
   ],
-  "routes/engine-settings.test.ts": [
+  "routes/agents/engine-settings.test.ts": [
     "GET /v1/workspaces/{id}/engine-settings",
     "PUT /v1/workspaces/{id}/engine-settings",
     "GET /v1/agents/{id}/engine-settings",
@@ -249,7 +249,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/agents/{id}/credential-bindings",
     "DELETE /v1/agents/{id}/credential-bindings/{binding_id}",
   ],
-  "routes/agents.test.ts": [
+  "routes/agents/agents.test.ts": [
     "GET /v1/agents",
     "GET /v1/agents/counts",
     "GET /v1/usable-agents",

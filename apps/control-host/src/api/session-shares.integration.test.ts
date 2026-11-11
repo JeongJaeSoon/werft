@@ -75,7 +75,7 @@ import { registerInterruptRoutes } from "./routes/sessions/interrupt.ts";
 import { registerPauseRoutes } from "./routes/sessions/pause.ts";
 import { registerPendingRoutes } from "./routes/sessions/pending.ts";
 import { registerReceiptRoutes } from "./routes/sessions/receipts.ts";
-import { registerSessionRoutes } from "./routes/sessions.ts";
+import { registerSessionRoutes } from "./routes/sessions/sessions.ts";
 import { registerUsageRoutes } from "./routes/usage/usage.ts";
 import { PostgresSessionNotifier } from "./session-notifier.ts";
 

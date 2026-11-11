@@ -28,8 +28,8 @@ import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { captureMcpStart } from "../agents/mcp-settings.ts";
 import { lockPeople, receiptActorOf } from "../control-shared.ts";
 import { DB_NOW } from "../db-clock.ts";
+import { sessionGitHubMcpOf, sessionMcpOf } from "../github/mcp-egress.ts";
 import { agentGitHubSettingsOf } from "../github-settings.ts";
-import { sessionGitHubMcpOf, sessionMcpOf } from "../mcp-egress.ts";
 import type { Database } from "../queries.ts";
 import {
   agentCallerLimits,

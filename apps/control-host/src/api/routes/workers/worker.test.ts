@@ -32,11 +32,11 @@ import { acceptAllCheckpoints, createWorkerGateway } from "@werft-ai/platform";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { and, count, eq, isNotNull } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
-import { testCatalog } from "../../testing/catalog.ts";
-import { releaseIn, TEST_OWNER } from "../../testing/releases.ts";
-import { createApiApp } from "../app.ts";
-import { RequestTracing } from "../request-tracing.ts";
-import { registerWorkerRoutes } from "./workers/worker.ts";
+import { testCatalog } from "../../../testing/catalog.ts";
+import { releaseIn, TEST_OWNER } from "../../../testing/releases.ts";
+import { createApiApp } from "../../app.ts";
+import { RequestTracing } from "../../request-tracing.ts";
+import { registerWorkerRoutes } from "./worker.ts";
 
 // Every call in a test that expects success has to land inside one lease on
 // a loaded runner; only the expiry test waits it out.

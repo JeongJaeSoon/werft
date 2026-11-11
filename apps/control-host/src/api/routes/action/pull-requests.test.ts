@@ -26,11 +26,11 @@ import {
   type SessionCatalog,
 } from "@werft-ai/platform";
 import { releasePolicy } from "@werft-ai/platform/testing/github";
-import { hashApiKey } from "../keys.ts";
-import { recordRouteErrors } from "../route-error-coverage.ts";
-import { registerPullRequestRoutes } from "./action/pull-requests.ts";
+import { hashApiKey } from "../../keys.ts";
+import { recordRouteErrors } from "../../route-error-coverage.ts";
+import { registerPullRequestRoutes } from "./pull-requests.ts";
 
-const createApiApp = recordRouteErrors("routes/pull-requests.test.ts");
+const createApiApp = recordRouteErrors("routes/action/pull-requests.test.ts");
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
 const PUSH = "22222222-2222-4222-8222-222222222222";

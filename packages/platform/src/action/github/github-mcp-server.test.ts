@@ -16,13 +16,13 @@ import {
   type GitHubWork,
 } from "../../github/ports/github-gate.ts";
 import {
+  type GitHubMcpSessionState,
+  SavedRulesUnavailable,
+} from "../../github/ports/github-mcp.ts";
+import {
   type AuthorizationPolicy,
   createAuthorizationPolicy,
 } from "../../musterrolle/policy.ts";
-import {
-  type GitHubMcpSessionState,
-  SavedRulesUnavailable,
-} from "../../ports/github-mcp.ts";
 import { createRepositoryAttachmentService } from "../../sessions/repository-attachment-service.ts";
 import { SessionServiceError } from "../../sessions/session-service.ts";
 import {

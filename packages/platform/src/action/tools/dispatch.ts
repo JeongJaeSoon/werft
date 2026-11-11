@@ -13,7 +13,7 @@ import {
   type ReceiptActor,
 } from "@werft-ai/contracts";
 import { z } from "zod";
-import type { GitHubMcpStore } from "../../ports/github-mcp.ts";
+import type { GitHubMcpStore } from "../../github/ports/github-mcp.ts";
 import { SessionServiceError } from "../../sessions/index.ts";
 import type { PushActor } from "../change-request/push-decision.ts";
 import {

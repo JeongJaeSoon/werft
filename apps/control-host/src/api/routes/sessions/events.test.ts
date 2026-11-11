@@ -12,11 +12,11 @@ import {
   type SessionControl,
   type SessionReader,
 } from "@werft-ai/platform";
-import { recordRouteErrors } from "../route-error-coverage.ts";
-import type { SessionEventWakeup } from "../session-notifier.ts";
-import { registerEventRoutes } from "./sessions/events.ts";
+import { recordRouteErrors } from "../../route-error-coverage.ts";
+import type { SessionEventWakeup } from "../../session-notifier.ts";
+import { registerEventRoutes } from "./events.ts";
 
-const createApiApp = recordRouteErrors("routes/events.test.ts");
+const createApiApp = recordRouteErrors("routes/sessions/events.test.ts");
 
 // SSE never reaches a control transaction.
 const unusedControls: SessionControl = {

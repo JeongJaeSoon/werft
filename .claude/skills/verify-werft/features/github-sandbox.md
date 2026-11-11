@@ -222,7 +222,7 @@ ap_compose exec -T postgres psql -U postgres -d sessions -At -c "select result::
 - **api만 재시작하면 주소가 바뀐다.** `ap_compose restart api`는 ephemeral 포트를 새로 받아 `state.env`의 주소와 어긋난다. `lib.sh`를 source한 뒤 `ap_as` 다음 줄에 `API=http://127.0.0.1:$(ap_compose port api 3000 | cut -d: -f2)`로 바꿔야 `ap_*`가 닿는다(`VERIFY_API`가 아니라 `API`를 읽는다). `state.env`는 agent-guard가 막으므로 열지 않는다.
 
 - **운영자 단계가 남은 항목.** 2026-10-30 기준 App에는 Actions 권한이 없고 werft-sandbox `main`에는 `.github/workflows/`가 없다(설계 문서 9절의 운영자 단계 1·4). 그래서 목록 안 dispatch는 `409 app_permission_missing`(GitHub가 `actions: write` 발급을 거절)에서 멈추고, run 조회(`actions_read`)도 같은 이유로 거절된다. 성공·run 조회·rerun 성공은 운영자 단계 뒤에 같은 명령으로 확인한다. 워크플로만 없으면 GitHub가 dispatch를 404로 답한다.
-- **릴리스 없는 세션은 GitHub 설정이 없다.** 개인 key로 `repository_id: "sandbox"`만 주고 만든 세션은 기본 설정(Actions 꺼짐)이라 dispatch가 `403 feature_off`다(코드 기준: `packages/platform/src/sessions/github-gate.ts`의 `settings === null`, 이 run에서는 몰지 않았다). dispatch를 보려면 위처럼 `agent_release_id`로 만든다.
+- **릴리스 없는 세션은 GitHub 설정이 없다.** 개인 key로 `repository_id: "sandbox"`만 주고 만든 세션은 기본 설정(Actions 꺼짐)이라 dispatch가 `403 feature_off`다(코드 기준: `packages/platform/src/github/service/github-gate.ts`의 `settings === null`, 이 run에서는 몰지 않았다). dispatch를 보려면 위처럼 `agent_release_id`로 만든다.
 - **키 경로를 명령에 쓰지 않는다.** agent-guard가 키 파일 모양의 경로가 든 명령을 막는다. 다른 파일이면 `VERIFY_GITHUB_APP_KEY_FILE`을 따로 export하는 줄도 같은 이유로 막힐 수 있으니, 기본 경로에 둔다.
 - **머지는 사람의 리뷰가 있어야 한다.** werft-sandbox `main`의 ruleset이 승인 리뷰 1개를 요구해 `gh pr merge`가 거절된다. `--admin`으로 넘지 않는다. 그래서 머지 뒤 근거 상태(`merged`)와 Luna 규칙의 다시 판정은 이 절차로 보지 못한다(연결 저장 뒤 후속 검증).
 - **sandbox 저장소는 공유 상태다.** 다른 카드가 연 PR·브랜치가 있다. `gh pr list -R JeongJaeSoon/werft-sandbox`로 자기 `agent/<SID>`만 골라 닫는다. 머지는 하지 않는다(auto mode가 [Merge Without Review]로 막는다. 필요하면 사람에게 명령 한 줄로 넘긴다).

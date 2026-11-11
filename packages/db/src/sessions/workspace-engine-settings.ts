@@ -4,8 +4,8 @@ import {
   validateEngineSettings,
 } from "@werft-ai/contracts";
 import { eq } from "drizzle-orm";
-import type { Database } from "./queries.ts";
-import { workspaceEngineSettings } from "./schema.ts";
+import type { Database } from "../queries.ts";
+import { workspaceEngineSettings } from "../schema.ts";
 
 export type WorkspaceEngineSettingsView = StoredEngineSettings & {
   readonly revision: number;
