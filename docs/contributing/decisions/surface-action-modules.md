@@ -761,7 +761,7 @@ surface·action 범위 밖의 시험은 이 문서가 후보를 고르지 않는
 | **U7** | 검증 추가 | 계약 시험: 능력마다 시험 함수, 어댑터와 가짜에 적용(M3). `Notifiable`·`Approvable` 계약(`describeNotifiableContract`, `describeApprovableContract`)과 웹·Slack이 같은 view model을 쓰는지 보는 시험 포함 | U4, U5 | 새 단계 |
 | **U8** | 시험 변경 | D1(U7 뒤), D2, D3, D4, M1, M2. 각 D는 [9.4절](#94-지울-후보)의 조건이 채워진 것만 | U2, U5, **U7** | 새 단계 |
 | **W1** | 구조 변경 | `apps/control-host/src/wiring/`에서 역할별 조립 코드를 타입이 붙은 wiring 모듈로 정리한다. DI 컨테이너는 넣지 않는다([5.6절](#56-oop-상속-없이-구조적-인터페이스와-합성)). 동작은 그대로다 | U4~U8 | 새 단계. 오너 결정 d279 |
-| **U9** | ① 이동 ② 책임 분리 | ① `db/src/`와 `control-host/routes/`가 같은 이름을 따라간다. ② 5.3절의 파일 쪼개기(`slack-outbox.ts`, `push-request-service.ts`의 `decide`). ②는 파일마다 별도 PR이다. 상태: ①의 `db/src` 이동은 U9a PR-1로, `apps/control-host/src/api/routes/` 이동은 U9a PR-2로 끝났고, #1567이 고쳐서 미뤘던 파일은 S8 PR-2가 옮겼다. ②의 `slack-outbox.ts` 쪼개기는 U9b PR-1로 끝났다(넣기·그리기·카드 정리·전송 루프 네 파일). `push-request-service.ts`의 `decide`는 공유 helper 때문에 `decision/`로 옮기지 않고 `action/change-request/push-decision.ts`로 나눴다(U9b PR-2, 새 A2 쌍 회피) | U5, U6 | S7 |
+| **U9** | ① 이동 ② 책임 분리 | ① `db/src/`와 `control-host/routes/`가 같은 이름을 따라간다. ② 5.3절의 파일 쪼개기(`slack-outbox.ts`, `push-request-service.ts`의 `decide`). ②는 파일마다 별도 PR이다. 상태: ①의 `db/src` 이동은 U9a PR-1로, `apps/control-host/src/api/routes/` 이동은 U9a PR-2로 끝났고, #1567이 고쳐서 미뤘던 파일은 JeongJaeSoon/werft#1594가 옮겼다. ②의 `slack-outbox.ts` 쪼개기는 U9b PR-1로 끝났다(넣기·그리기·카드 정리·전송 루프 네 파일). `push-request-service.ts`의 `decide`는 공유 helper 때문에 `decision/`로 옮기지 않고 `action/change-request/push-decision.ts`로 나눴다(U9b PR-2, 새 A2 쌍 회피) | U5, U6 | S7 |
 
 **이행 상태**(2026-11-12, 모두 JeongJaeSoon/werft의 머지된 PR)
 
@@ -776,9 +776,9 @@ surface·action 범위 밖의 시험은 이 문서가 후보를 고르지 않는
 | U7 | 완료 | #1568 |
 | U8 | 완료 | #1576, #1578, #1579 |
 | W1 | 완료 | #1582 |
-| U9 | 완료 | ① #1586(db), #1588(routes), 남은 파일은 S8 PR-2. ② #1589(`slack-outbox.ts`), #1591(`decide`) |
+| U9 | 완료 | ① #1586(db), #1588(routes), 남은 파일은 #1594. ② #1589(`slack-outbox.ts`), #1591(`decide`) |
 | (동작 변경) | 완료 | #1567: 실행 프로필 제거. 이동 단계가 아니라 이 시리즈가 보류했던 파일의 원인이다 |
-| S8 | 완료 | #1593(재수출·옛 경로 인용), S8 PR-2(남은 이동, 기준선 정리, 이 표) |
+| S8 | 완료 | #1593(재수출·옛 경로 인용), #1594(남은 이동, `profileSeriesFiles` 삭제, 이 표) |
 
 ### 10.1 Slack 이동의 순서와 재수출
 
