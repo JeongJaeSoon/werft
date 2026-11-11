@@ -1,16 +1,46 @@
 import { describe, expect, test } from "bun:test";
+import { readdirSync, readFileSync } from "node:fs";
 
 import { descendantsOf, spawnAppServer } from "./process.ts";
 
 const ENV = { PATH: process.env.PATH ?? "/usr/bin:/bin" };
 
+/**
+ * Whether anything in the process group still runs. A killed process whose
+ * parent is gone is reparented to PID 1, and where that is this test runner
+ * (bun as a container's PID 1) nobody reaps it: it is dead, just still listed,
+ * so on Linux a zombie does not count.
+ */
 function alive(group: number): boolean {
   try {
     process.kill(-group, 0);
-    return true;
   } catch {
     return false;
   }
+  if (process.platform !== "linux") return true;
+  for (const entry of readdirSync("/proc")) {
+    if (!/^\d+$/.test(entry)) continue;
+    let stat: string;
+    try {
+      stat = readFileSync(`/proc/${entry}/stat`, "utf8");
+    } catch {
+      continue;
+    }
+    // "pid (comm) state ppid pgrp ..." where comm may hold spaces and parens.
+    const [state, , pgrp] = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+    if (Number(pgrp) === group && state !== "Z") return true;
+  }
+  return false;
+}
+
+// SIGKILL has no grace step; what is left is the kernel finishing the signal
+// and the group's orphans being reaped, which a loaded host can delay.
+async function groupGone(group: number, withinMs = 2_000): Promise<boolean> {
+  const deadline = Date.now() + withinMs;
+  while (alive(group) && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  return !alive(group);
 }
 
 describe("spawnAppServer", () => {
@@ -27,12 +57,7 @@ describe("spawnAppServer", () => {
       new Promise((resolve) => setTimeout(() => resolve("hung"), 5_000)),
     ]);
     expect(settled).toBe("closed");
-    const group = engine.pid as number;
-    const deadline = Date.now() + 2_000;
-    while (alive(group) && Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, 20));
-    }
-    expect(alive(group)).toBe(false);
+    expect(await groupGone(engine.pid as number)).toBe(true);
   }, 15_000);
 
   test("kill ends the engine and what it started", async () => {
@@ -44,7 +69,7 @@ describe("spawnAppServer", () => {
     });
     engine.kill();
     await engine.transport.closed;
-    expect(alive(engine.pid as number)).toBe(false);
+    expect(await groupGone(engine.pid as number)).toBe(true);
   }, 15_000);
 
   test("the engine gets only the environment it is given", async () => {
