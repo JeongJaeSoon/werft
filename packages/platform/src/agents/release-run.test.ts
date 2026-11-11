@@ -53,6 +53,8 @@ describe("releaseRunOf", () => {
   test("a Responses connection runs codex, and never auto", () => {
     const catalog = testCatalog({
       connections: { codex: { ...responses, auto_mode: "supported" } },
+      // As installed: no catalog for Codex.
+      tool_catalogs: { ...testToolCatalogs(), for: () => undefined },
     });
     const found = releaseRunOf(
       catalog,
@@ -64,6 +66,8 @@ describe("releaseRunOf", () => {
       version: "0.40.0",
     });
     expect(found.ok && found.run.permission_mode).toBe("default");
+    // Codex has no tool catalog: its fixed tool set is what it runs.
+    expect(found.ok && found.run.tools).toEqual(["exec_command"]);
   });
 
   test("refuses a connection the installation does not enable", () => {

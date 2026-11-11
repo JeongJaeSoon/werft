@@ -1,5 +1,6 @@
 import {
   type PermissionMode,
+  RUNTIME_FIXED_TOOLS,
   RUNTIME_KINDS_WITH_AUTO_MODE,
   RUNTIME_SUBAGENT_TOOL,
   type RuntimeKind,
@@ -26,7 +27,8 @@ export type ReleaseRunRefusal = {
 /**
  * What a release on `connectionId` runs apart from its card. The runtime is
  * the one the connection's kind runs on, at the version the image ships; its
- * tools are that runtime's whole built-in catalog and its subagent tool, which the workspace's and
+ * tools are that runtime's whole built-in catalog (or its fixed tool set, for a
+ * runtime with no catalog) and its subagent tool, which the workspace's and
  * the agent's rules then narrow. The engine runs `auto` where an operator
  * judged that its classifier works over the connection, and `default` (a
  * person answers what the rules leave open) everywhere else.
@@ -56,7 +58,10 @@ export function releaseRunOf(
       message: `Connection ${connectionId} is a ${connection.provider.kind} connection, whose runtime ${kind} this image does not ship`,
     };
   }
-  const tools = catalog.tool_catalogs?.for(kind, version);
+  const catalogTools = catalog.tool_catalogs
+    ?.for(kind, version)
+    ?.tools.map((tool) => tool.name);
+  const tools = catalogTools ?? RUNTIME_FIXED_TOOLS[kind];
   if (tools === undefined) {
     return {
       ok: false,
@@ -75,10 +80,7 @@ export function releaseRunOf(
       connection_id: connectionId,
       connection,
       runtime: { kind, version },
-      tools: withSubagentTool(
-        kind,
-        tools.tools.map((tool) => tool.name),
-      ),
+      tools: withSubagentTool(kind, [...tools]),
       permission_mode,
       project_settings: { claude_md: true },
     },

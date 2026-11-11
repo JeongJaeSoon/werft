@@ -173,32 +173,17 @@ export async function e2eStack({
     slug: string,
     repository: string | null,
   ): Promise<string> => {
-    const found = agents.items.find(
-      (agent) => agent.slug === slug,
-    )?.active_release_id;
-    if (found) return found;
-    const { team } = await web<{ team: { id: string } }>(
-      201,
-      "POST",
-      "/v1/teams",
-      { name: `e2e-${crypto.randomUUID().slice(0, 8)}` },
-    );
-    const made = await web<{
+    const existing = agents.items.find((agent) => agent.slug === slug);
+    if (existing?.active_release_id) return existing.active_release_id;
+    type Made = {
       agent: { id: string; activation_revision: number };
       versions: { id: string }[];
-    }>(201, "POST", "/v1/agents", {
-      slug,
-      name: `E2E runner (${connection.id}${repository === null ? ", no repository" : ""})`,
-      managing_team_id: team.id,
-      card: {
-        role: "e2e runner",
-        instructions: "Do what the scripted prompt says.",
-        language: "en",
-        model,
-        capabilities: { mcp: null, forbidden: [] },
-        rules: [],
-      },
-    });
+    };
+    // An agent an earlier suite made but could not release is released now,
+    // not made again (its slug is taken).
+    const made: Made = existing
+      ? await web<Made>(200, "GET", `/v1/agents/${existing.id}`)
+      : await makeAgent(slug, repository);
     const { release } = await web<{ release: { id: string } }>(
       200,
       "POST",
@@ -214,6 +199,30 @@ export async function e2eStack({
       expected_revision: made.agent.activation_revision,
     });
     return release.id;
+  };
+  const makeAgent = async (slug: string, repository: string | null) => {
+    const { team } = await web<{ team: { id: string } }>(
+      201,
+      "POST",
+      "/v1/teams",
+      { name: `e2e-${crypto.randomUUID().slice(0, 8)}` },
+    );
+    return web<{
+      agent: { id: string; activation_revision: number };
+      versions: { id: string }[];
+    }>(201, "POST", "/v1/agents", {
+      slug,
+      name: `E2E runner (${connection.id}${repository === null ? ", no repository" : ""})`,
+      managing_team_id: team.id,
+      card: {
+        role: "e2e runner",
+        instructions: "Do what the scripted prompt says.",
+        language: "en",
+        model,
+        capabilities: { mcp: null, forbidden: [] },
+        rules: [],
+      },
+    });
   };
   const releaseId = await releaseOf(baseSlug, repositoryId);
   const noRepositoryReleaseId = await releaseOf(`${baseSlug}-norepo`, null);

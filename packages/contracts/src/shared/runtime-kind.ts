@@ -41,3 +41,15 @@ export const RUNTIME_KINDS_WITH_AUTO_MODE: readonly RuntimeKind[] = [
 export const RUNTIME_SUBAGENT_TOOL: Partial<Record<RuntimeKind, string>> = {
   [claudeRuntime]: "Agent",
 };
+
+/**
+ * The tools of a runtime whose tool set is fixed and that has no built-in
+ * tool catalog (a catalog is what deny rules name tools from, and such a
+ * runtime takes none). A release on it carries exactly these. Codex's is its
+ * adapter's `CODEX_BUILTIN_TOOLS`, which a codec test holds equal.
+ */
+export const RUNTIME_FIXED_TOOLS: Partial<
+  Record<RuntimeKind, readonly string[]>
+> = {
+  [codexRuntime]: ["exec_command"],
+};
