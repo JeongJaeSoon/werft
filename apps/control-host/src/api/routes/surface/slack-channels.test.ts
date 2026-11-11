@@ -20,7 +20,7 @@ import {
   SessionServiceError,
 } from "@werft-ai/platform";
 import { createFakeSlackWebApi } from "@werft-ai/testkit/fake-slack-api";
-import { errorOf } from "../../../test-support/api-error.ts";
+import { errorOf } from "../../../testing/api-error.ts";
 import { recordRouteErrors } from "../../route-error-coverage.ts";
 import { registerSlackChannelRoutes } from "./slack-channels.ts";
 

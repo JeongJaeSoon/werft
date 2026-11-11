@@ -12,6 +12,7 @@
 // an execution backend.
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
+import { queueDatabaseUrl } from "./database-url.ts";
 import type { PassLoopRoleName } from "./pass-loop/loop.ts";
 
 const ROLES = ["api", "metrics", "scheduler", "reconciler", "slack"] as const;
@@ -140,9 +141,8 @@ async function supervise(role: PassLoopRoleName): Promise<number> {
     const { slackRoleStartup } = await import("./slack/main.ts");
     await slackRoleStartup(process.env);
   } else {
-    const { reconcilerDatabaseUrl } = await import("./reconciler/main.ts");
     const { reconcilerSettings } = await import("./reconciler/reconcile.ts");
-    reconcilerDatabaseUrl(process.env);
+    queueDatabaseUrl(process.env);
     reconcilerSettings(process.env);
   }
   const logger = createLogger({ level });

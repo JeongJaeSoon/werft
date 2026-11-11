@@ -85,12 +85,12 @@ import { drizzle as drizzlePostgres } from "drizzle-orm/node-postgres";
 import { drizzle } from "drizzle-orm/pglite";
 import { Pool } from "pg";
 import { eventNeutralizer } from "../api/neutral-fields.ts";
+import { TEST_RUNTIMES } from "../testing/catalog.ts";
 import {
   seedSettings,
   settingsCatalog,
   settingsDocument,
-} from "../test-support/settings.ts";
-import { TEST_RUNTIMES } from "../testing/catalog.ts";
+} from "../testing/settings.ts";
 import { slackCatalog, slackSessionHandler } from "./main.ts";
 
 const CONNECTIONS = `connections:

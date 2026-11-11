@@ -20,6 +20,7 @@ import {
 } from "@werft-ai/db";
 import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
 import { createLogger } from "@werft-ai/observability";
+import { messageOf } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 
 export interface ApiKeyStore {
@@ -167,9 +168,7 @@ function parseStrict(argv: string[]) {
       strict: true,
     });
   } catch (error) {
-    throw new Error(
-      `${error instanceof Error ? error.message : String(error)}\n${USAGE}`,
-    );
+    throw new Error(`${messageOf(error)}\n${USAGE}`);
   }
 }
 

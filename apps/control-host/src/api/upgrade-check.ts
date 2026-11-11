@@ -25,7 +25,7 @@ export type UpgradeCheckEnvironment = Readonly<
     WORKER_IMAGE_PREVIOUS?: string | undefined;
   };
 
-export const UPGRADE_CHECK_EXIT = {
+const UPGRADE_CHECK_EXIT = {
   proceed: 0,
   check_failed: 1,
   refused: 2,

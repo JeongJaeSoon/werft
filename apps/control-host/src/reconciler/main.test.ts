@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { reconcilerDatabaseUrl } from "./main.ts";
+import { queueDatabaseUrl as reconcilerDatabaseUrl } from "../database-url.ts";
 
 describe("reconcilerDatabaseUrl", () => {
   test("a blank DATABASE_URL does not hide QUEUE_DATABASE_URL", () => {

@@ -7,8 +7,7 @@ import {
   createSlackEventsFinalize,
   createSlackLinkAppService,
 } from "./chat-slack.ts";
-
-type Param<F extends (...args: never[]) => unknown> = Parameters<F>[0];
+import type { Param } from "./slack-shared.ts";
 
 export type SlackCliApi = ReturnType<typeof createSlackConfigApi>;
 

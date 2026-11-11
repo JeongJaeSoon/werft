@@ -6,8 +6,6 @@ import { join } from "node:path";
 import { REQUEST_BODY_MAX_BYTES } from "@werft-ai/contracts";
 import { parseTracingSettings } from "@werft-ai/observability";
 import { createOtelSpanSink } from "@werft-ai/observability/otel";
-import { LoggedDropCounter, valueMasker } from "./adapters.ts";
-import { startIngestListener } from "./start.ts";
 import {
   attemptOf,
   authenticatorOf,
@@ -15,7 +13,9 @@ import {
   CountingDrops,
   TURN_TRACE,
   turnsOf,
-} from "./test-support.ts";
+} from "../testing/ingest.ts";
+import { LoggedDropCounter, valueMasker } from "./adapters.ts";
+import { startIngestListener } from "./start.ts";
 
 const WS_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const WS_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";

@@ -39,6 +39,7 @@ export function latchOnConnectionLoss(
   onLost: (error: unknown) => void,
 ): ConnectionLatch {
   let lost: { error: unknown } | undefined;
+  // Object.fromEntries keeps no per-method types, so the result is cast back.
   const latched = Object.fromEntries(
     Object.entries(store).map(([name, method]) => [
       name,

@@ -4,6 +4,7 @@ import {
   type CatalogProviderConfig,
   catalogConnectionsSchema,
   describeConfigError,
+  messageOf,
   type SessionCatalogConfig,
   sessionCatalogConfigSchema,
 } from "@werft-ai/platform";
@@ -25,9 +26,7 @@ async function readYaml(path: string): Promise<unknown> {
     // defined twice would silently lose its first, reviewed definition.
     return parseYaml(await file.text(), { uniqueKeys: true });
   } catch (error) {
-    throw new Error(
-      `${path} is not valid YAML: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    throw new Error(`${path} is not valid YAML: ${messageOf(error)}`);
   }
 }
 

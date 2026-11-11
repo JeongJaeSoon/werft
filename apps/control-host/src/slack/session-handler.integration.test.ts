@@ -66,12 +66,12 @@ import { asc, eq, sql } from "drizzle-orm";
 import { drizzle as drizzlePostgres } from "drizzle-orm/node-postgres";
 import { drizzle } from "drizzle-orm/pglite";
 import { Pool } from "pg";
+import { TEST_RUNTIMES } from "../testing/catalog.ts";
 import {
   seedSettings,
   settingsCatalog,
   settingsDocument,
-} from "../test-support/settings.ts";
-import { TEST_RUNTIMES } from "../testing/catalog.ts";
+} from "../testing/settings.ts";
 import { slackCatalog, slackSessionHandler } from "./main.ts";
 
 const APP_ID = "A0NOTES";

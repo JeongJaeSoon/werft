@@ -19,7 +19,7 @@ import {
   type InviteService,
   type InviteStore,
 } from "@werft-ai/platform";
-import { errorOf } from "../../../test-support/api-error.ts";
+import { errorOf } from "../../../testing/api-error.ts";
 import { hashPassword, hashWebSessionToken, LoginLockout } from "../../auth.ts";
 import { recordRouteErrors } from "../../route-error-coverage.ts";
 import { registerInviteRoutes, registerPublicInviteRoutes } from "./invites.ts";

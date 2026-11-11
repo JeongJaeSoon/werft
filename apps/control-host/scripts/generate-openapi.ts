@@ -23,7 +23,7 @@ export const SCALAR_ASSET_OUTPUT_PATH = join(
 const SCALAR_ENTRY_PATH = fileURLToPath(
   import.meta.resolve("@scalar/api-reference"),
 );
-export const SCALAR_ASSET_SOURCE_PATH = join(
+const SCALAR_ASSET_SOURCE_PATH = join(
   dirname(SCALAR_ENTRY_PATH),
   "browser/standalone.js",
 );

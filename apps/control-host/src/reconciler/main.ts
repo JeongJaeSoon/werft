@@ -24,6 +24,7 @@ import {
   TERMINATE_DEADLINE_MS,
 } from "@werft-ai/platform";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
+import { queueDatabaseUrl } from "../database-url.ts";
 import {
   type ReconcilerLogger,
   type ReconcilerRun,
@@ -37,19 +38,10 @@ import {
 const TOOL_CALL_BATCH_SIZE = 5_000;
 const TOOL_CALL_BUDGET_MS = 10_000;
 
-export function reconcilerDatabaseUrl(environment: NodeJS.ProcessEnv): string {
-  const databaseUrl =
-    environment.DATABASE_URL || environment.QUEUE_DATABASE_URL;
-  if (!databaseUrl) {
-    throw new Error("DATABASE_URL or QUEUE_DATABASE_URL is required");
-  }
-  return databaseUrl;
-}
-
 export async function main(
   environment: NodeJS.ProcessEnv = process.env,
 ): Promise<void> {
-  const databaseUrl = reconcilerDatabaseUrl(environment);
+  const databaseUrl = queueDatabaseUrl(environment);
   const logger = createLogger({
     level: logLevelFromEnv(environment.LOG_LEVEL),
   });

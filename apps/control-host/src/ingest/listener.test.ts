@@ -1,8 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import { turnTraceId } from "@werft-ai/observability";
-import { valueMasker } from "./adapters.ts";
-import { ForwardQueue } from "./forward-queue.ts";
-import { createIngestHandler, type IngestLimits } from "./listener.ts";
 import {
   attemptOf,
   authenticatorOf,
@@ -13,7 +10,10 @@ import {
   SESSION,
   TURN_TRACE,
   turnsOf,
-} from "./test-support.ts";
+} from "../testing/ingest.ts";
+import { valueMasker } from "./adapters.ts";
+import { ForwardQueue } from "./forward-queue.ts";
+import { createIngestHandler, type IngestLimits } from "./listener.ts";
 
 const LIMITS: IngestLimits = {
   maxRequestBytes: 4 * 1024 * 1024,

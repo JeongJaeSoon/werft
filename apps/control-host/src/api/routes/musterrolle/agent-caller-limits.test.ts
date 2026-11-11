@@ -7,7 +7,7 @@ import {
   type AgentCallerLimitsService,
   SessionServiceError,
 } from "@werft-ai/platform";
-import { errorOf } from "../../../test-support/api-error.ts";
+import { errorOf } from "../../../testing/api-error.ts";
 import { recordRouteErrors } from "../../route-error-coverage.ts";
 import { registerAgentCallerLimitsRoutes } from "./agent-caller-limits.ts";
 

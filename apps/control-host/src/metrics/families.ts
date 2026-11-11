@@ -14,7 +14,7 @@ export const TURN_DURATION_BUCKETS = [
 // Label values read from data (tool and model names) are cut to the first
 // ones ever seen, so the series a collector holds stay bounded.
 export const TOOL_LABEL_LIMIT = 100;
-export const MODEL_LABEL_LIMIT = 50;
+const MODEL_LABEL_LIMIT = 50;
 export const OTHER = "other";
 
 export type SessionState =

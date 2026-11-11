@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { messageOf } from "@werft-ai/platform";
 import type { Context } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { verifyWithJwks } from "hono/jwt";
@@ -138,9 +139,7 @@ async function slackFetch(url: string, init: RequestInit): Promise<Response> {
     return response;
   } catch (error) {
     if (error instanceof SlackOidcUnavailableError) throw error;
-    throw new SlackOidcUnavailableError(
-      error instanceof Error ? error.message : String(error),
-    );
+    throw new SlackOidcUnavailableError(messageOf(error));
   }
 }
 
