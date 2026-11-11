@@ -864,7 +864,10 @@ function importedModules(source: ts.SourceFile): string[] {
     )
       found.push(node.expression.text);
     else if (ts.isCallExpression(node)) {
-      const [first] = node.arguments;
+      // import(("x")) loads the same module as import("x").
+      let first = node.arguments[0];
+      while (first && ts.isParenthesizedExpression(first))
+        first = first.expression;
       const callee = node.expression;
       if (
         first &&
@@ -3220,6 +3223,10 @@ describe("architecture", () => {
             'export * from "../beta/deep/inner.ts";',
           [platformFile("musterrolle/dynamic.ts")]:
             'export const m = import("../beta/index.ts");',
+          [platformFile("musterrolle/wrapped.ts")]: [
+            'export const m = import(("../beta/service.ts"));',
+            'export const n = require((("../gamma/index.ts")));',
+          ].join("\n"),
           [platformFile("musterrolle/root.ts")]: 'import "../index.ts";',
           [platformFile("musterrolle/named.ts")]: [
             'import { a } from "@werft-ai/platform";',
@@ -3257,6 +3264,8 @@ describe("architecture", () => {
       "musterrolle/reexport.ts -> beta/deep/inner.ts",
       "musterrolle/root.ts -> index.ts",
       "musterrolle/typed.ts -> beta/service.ts",
+      "musterrolle/wrapped.ts -> beta/service.ts",
+      "musterrolle/wrapped.ts -> gamma/index.ts",
     ]);
   });
 
