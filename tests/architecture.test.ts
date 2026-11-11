@@ -3622,10 +3622,10 @@ describe("architecture", () => {
         .map((entry) => join(entry.parentPath, entry.name));
       for (const file of files) {
         // Parsing every file of the repository took longer than the default
-        // timeout on a loaded CI runner; only a file that names the package
-        // can declare a module of it.
+        // timeout on a loaded CI runner. The package name can be written with
+        // escapes, the `declare` keyword cannot.
         const text = await readFile(file, "utf8");
-        if (!text.includes("@werft-ai/contracts")) continue;
+        if (!text.includes("declare")) continue;
         for (const line of contractsModuleDeclarations(parseText(file, text))) {
           offenders.push(`${slashed(relative(root, file))}:${line}`);
         }
@@ -3643,6 +3643,10 @@ describe("architecture", () => {
         'declare module "@werft-ai/contracts" { interface A {} }\nexport {};',
       ),
     ).toHaveLength(1);
+    // An escaped spelling names the same module, and still starts with `declare`.
+    const escaped = 'declare module "@werft-ai/contr\\u0061cts" { }';
+    expect(hits(escaped)).toHaveLength(1);
+    expect(escaped).toContain("declare");
     expect(hits('declare module "other" { }')).toEqual([]);
     expect(
       hits(
