@@ -61,7 +61,7 @@ PR 이벤트에서는 `save-cache: "true"`를 요청해도 Bun 의존성 캐시�
 | `check` | 없음 | 없음 | 계획·정적·unit 또는 문서 검사 결과의 허용 조합 확인 | ✅ |
 | `integration (db)` | `postgres:16` | `QUEUE_DATABASE_URL` | `bun test <db 파일>` | 집계로 |
 | `integration (api)` | `postgres:16`, `localstack/localstack:3` | `QUEUE_DATABASE_URL`, `STORAGE_LOCALSTACK_TEST=1` | `bun test <api 파일>` | 집계로 |
-| `integration (surface)` | `postgres:16`, `localstack/localstack:3` | `QUEUE_DATABASE_URL`, `STORAGE_LOCALSTACK_TEST=1` | `bun test <surface 파일>` | 집계로 |
+| `integration (surface)` | `postgres:16` | `QUEUE_DATABASE_URL` | `bun test <surface 파일>` | 집계로 |
 | `integration (storage)` | `localstack/localstack:3` | `STORAGE_LOCALSTACK_TEST=1` | `bun test <storage 파일>` | 집계로 |
 | `integration (docker)` | `postgres:16` (+ runner의 Docker daemon) | `QUEUE_DATABASE_URL`, `DOCKER_BACKEND_TEST=1` | `bun test <docker 파일>` | 집계로 |
 | `integration (egress)` | 없음 (runner의 Docker daemon, suite가 LocalStack을 컨테이너로 직접 띄움) | `DOCKER_BACKEND_TEST=1` | `bun test <egress 파일>` | 집계로 |
