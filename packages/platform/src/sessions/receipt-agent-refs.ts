@@ -9,7 +9,7 @@ import type { Receipt, ReceiptOperation } from "@werft-ai/contracts";
  * release id in it and this table has no row for that operation.
  */
 export type AgentRefs = {
-  /** `result` fields holding an agent id, or an array of them. */
+  /** `result` fields (a dotted path reaches into an object) holding an agent id, or an array of them. */
   agents?: readonly string[];
   /** `result` fields holding a release id, or an array of them. */
   releases?: readonly string[];
@@ -51,8 +51,16 @@ export const RECEIPT_AGENT_REFS: Partial<Record<ReceiptOperation, AgentRefs>> =
     set_agent_mcp: { ...ON_AGENT, agents: ["agent_id"] },
     set_agent_pull_request_settings: { ...ON_AGENT, agents: ["agent_id"] },
     // A key made for an agent, or revoked.
-    create_api_key: ON_AGENT,
-    revoke_api_key: ON_AGENT,
+    create_api_key: { agents: ["agent_id"] },
+    revoke_api_key: { agents: ["agent_id"] },
+    // Settings of one agent or of the workspace; the target says which.
+    set_agent_engine_settings: { target: "agent", agents: ["target_id"] },
+    set_env_variable: { target: "agent" },
+    delete_env_variable: { target: "agent" },
+    set_env_variable_grants: {
+      target: "agent",
+      agents: ["before.agents", "after.agents"],
+    },
     // The target is the binding; its agent is in the result.
     set_surface_binding: { agents: ["agent_id"] },
     request_surface_binding: { agents: ["agent_id"] },
@@ -77,6 +85,10 @@ export const RECEIPT_AGENT_REFS: Partial<Record<ReceiptOperation, AgentRefs>> =
     },
 
     // On a session.
+    attach_repository: {
+      agents: ["agent_id"],
+      releases: ["agent_release_id"],
+    },
     mint_github_token: GATE,
     dispatch_workflow: GATE,
     rerun_workflow: GATE,
@@ -107,7 +119,7 @@ export function agentRefsOf(receipt: Receipt): {
     [row.releases ?? [], found.releaseIds],
   ] as const) {
     for (const field of fields) {
-      const value = result[field];
+      const value = valueAt(result, field);
       for (const id of Array.isArray(value) ? value : [value]) {
         if (typeof id === "string") into.push(id);
       }
@@ -168,13 +180,36 @@ function maskResult(receipt: Receipt, hidden: Hidden): Receipt {
     const hides = (id: unknown) =>
       typeof id === "string" && ids.has(lower ? id.toLowerCase() : id);
     for (const field of fields) {
-      const value = result[field];
+      const value = valueAt(result, field);
       if (Array.isArray(value)) {
-        result[field] = value.filter((id) => !hides(id));
+        setAt(
+          result,
+          field,
+          value.filter((id) => !hides(id)),
+        );
       } else if (hides(value)) {
-        result[field] = null;
+        setAt(result, field, null);
       }
     }
   }
   return { ...receipt, result };
+}
+
+function valueAt(root: Record<string, unknown>, path: string): unknown {
+  let node: unknown = root;
+  for (const key of path.split(".")) {
+    if (typeof node !== "object" || node === null) return undefined;
+    node = (node as Record<string, unknown>)[key];
+  }
+  return node;
+}
+
+// Copies each object on the path, so the receipt the caller passed stays as it was.
+function setAt(root: Record<string, unknown>, path: string, value: unknown) {
+  const keys = path.split(".");
+  let node = root;
+  for (const key of keys.slice(0, -1)) {
+    node = node[key] = { ...(node[key] as Record<string, unknown>) };
+  }
+  node[keys[keys.length - 1] as string] = value;
 }

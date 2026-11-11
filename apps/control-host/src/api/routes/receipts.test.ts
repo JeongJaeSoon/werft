@@ -157,6 +157,7 @@ describe("GET /v1/receipts/{id}", () => {
   describe("agents the reader may not use (94S-902)", () => {
     const HIDDEN = "8d2c4f1a-6b3e-4a9d-b7c5-2e1f0a9b8c7d";
     const OPEN = "9e3d5a2b-7c4f-4bae-88d6-3f2a1b0c9d8e";
+    const WORKSPACE = "019a0000-0000-7000-8000-0000000000a1";
     const hiding = (agentIds: string[], releaseIds: string[] = []) =>
       (async () => ({
         agentIds: new Set(agentIds),
@@ -251,6 +252,55 @@ describe("GET /v1/receipts/{id}", () => {
         agent_release_id: null,
         repository_id: "sample-app",
       });
+    });
+
+    test("an api key receipt and an env grants receipt lose the hidden agent", async () => {
+      const key: Receipt = {
+        ...receipt,
+        operation: "create_api_key",
+        target_ref: {
+          resource: { kind: "api_key", id: "key-1" },
+          workspace_id: null,
+        },
+        status: "succeeded",
+        result: { agent_id: HIDDEN, scopes: ["sessions:write"] },
+      };
+      const keyText = await (
+        await get(
+          app(async () => key, hiding([HIDDEN])),
+          key.id,
+        )
+      ).text();
+      expect(keyText).not.toContain(HIDDEN);
+
+      const grants: Receipt = {
+        ...receipt,
+        operation: "set_env_variable_grants",
+        target_ref: {
+          resource: { kind: "workspace", id: WORKSPACE },
+          workspace_id: WORKSPACE,
+        },
+        status: "succeeded",
+        result: {
+          name: "TOKEN",
+          before: { grant_all: false, agents: [HIDDEN] },
+          after: { grant_all: false, agents: [HIDDEN, OPEN] },
+        },
+      };
+      const response = await get(
+        app(async () => grants, hiding([HIDDEN])),
+        grants.id,
+      );
+      const text = await response.text();
+      expect(text).not.toContain(HIDDEN);
+      expect(JSON.parse(text).result).toEqual({
+        name: "TOKEN",
+        before: { grant_all: false, agents: [] },
+        after: { grant_all: false, agents: [OPEN] },
+      });
+      expect(
+        (grants.result as { before: { agents: string[] } }).before.agents,
+      ).toEqual([HIDDEN]);
     });
 
     test("a receipt that names no agent is not looked up", async () => {

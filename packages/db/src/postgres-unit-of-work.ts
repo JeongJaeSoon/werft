@@ -1312,7 +1312,23 @@ export function createPostgresSessionReader(
                       db
                         .select({ id: agentReleases.id })
                         .from(agentReleases)
-                        .where(eq(agentReleases.agentId, query.agent_id)),
+                        .innerJoin(agents, eq(agents.id, agentReleases.agentId))
+                        .where(
+                          and(
+                            eq(agentReleases.agentId, query.agent_id),
+                            // An agent the viewer may not use filters like one
+                            // that is not there (94S-902).
+                            agentUsable(
+                              db,
+                              agents.workspaceId,
+                              {
+                                userId: viewer.userId,
+                                keyAgentId: viewer.keyAgentId ?? null,
+                              },
+                              agents.id,
+                            ),
+                          ),
+                        ),
                     )
                   : undefined,
                 cursor

@@ -64,7 +64,7 @@ const onSession: Receipt = {
   result: null,
 };
 
-function service(stored: Receipt, sessionVisible = true) {
+function service(stored: Receipt, sessionVisible = true, hideFromO = false) {
   const authorization = createAuthorizationPolicy({
     identity: {
       reread: async (s) => ({ status: "ok", principal: s.principal }),
@@ -101,15 +101,24 @@ function service(stored: Receipt, sessionVisible = true) {
     limits: unreachable,
     reader: {
       getReceipt: async () => stored,
-      hiddenAgentRefs: async () => ({
-        agentIds: new Set<string>(),
+      hiddenAgentRefs: async (
+        _owner: string,
+        viewer: { userId: string | null },
+      ) => ({
+        agentIds: new Set<string>(
+          hideFromO && viewer.userId === PEOPLE.O[1] ? [AGENT] : [],
+        ),
         releaseIds: new Set<string>(),
       }),
     } as never,
   });
 }
 
-async function readers(stored: Receipt, sessionVisible = true) {
+async function readers(
+  stored: Receipt,
+  sessionVisible = true,
+  hideFromO = false,
+) {
   const got: Record<string, string> = {};
   for (const [who, [role, id]] of Object.entries(PEOPLE)) {
     const caller = callerFor(
@@ -124,7 +133,10 @@ async function readers(stored: Receipt, sessionVisible = true) {
       "r",
     );
     try {
-      await service(stored, sessionVisible).getReceipt(caller, stored.id);
+      await service(stored, sessionVisible, hideFromO).getReceipt(
+        caller,
+        stored.id,
+      );
       got[who] = "ok";
     } catch (error) {
       got[who] = (error as { code: string }).code;
@@ -159,4 +171,11 @@ test("a refused start and a session's receipt keep their reads", async () => {
     T: "NOT_FOUND",
     O: "NOT_FOUND",
   });
+});
+
+test("a settings receipt of an agent the reader may not use is not found, not refused", async () => {
+  // Without this, the 403 from agent.settings_read tells O the agent exists.
+  const hidden = { W: "ok", L: "ok", T: "ok", O: "NOT_FOUND" };
+  expect(await readers(onAgent, true, true)).toEqual(hidden);
+  expect(await readers(onBinding, true, true)).toEqual(hidden);
 });

@@ -493,6 +493,26 @@ integration("agent_usable on PostgreSQL", () => {
       (await createPostgresSessionReader(db).getSession(w.ws, privateId))?.agent
         ?.id,
     ).toBe(w.agentId);
+
+    // Filtering by an agent the viewer may not use reads as filtering by one
+    // that is not there: no session, no cursor to tell them apart.
+    const filtered = async (caller: Caller, agentId: string) =>
+      createPostgresSessionReader(db).listSessions(
+        w.ws,
+        { limit: 100, agent_id: agentId },
+        viewer(caller),
+      );
+    expect(await filtered(w.outsider, w.agentId)).toEqual(
+      await filtered(w.outsider, randomUUID()),
+    );
+    expect(
+      (await filtered(w.insider, w.agentId)).items.map((item) => item.id),
+    ).toEqual([privateId]);
+    expect(
+      (await filtered(w.outsider, w.other.agentId)).items.map(
+        (item) => item.id,
+      ),
+    ).toEqual([publicId]);
   });
 
   test("hiddenAgentRefs names the agents, releases and session agent a viewer may not use", async () => {
