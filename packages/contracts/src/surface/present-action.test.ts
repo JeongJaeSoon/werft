@@ -103,6 +103,7 @@ describe("presentPendingRequest", () => {
       verb: "action.tool.runCommand",
       target: "npm test",
     });
+    expect(line("Bash", { command: "x".repeat(500) }).target).toHaveLength(120);
     expect(
       line("Bash", { command: "npm test", description: "Run the tests" }),
     ).toEqual({ verb: "action.tool.runCommand", target: "Run the tests" });

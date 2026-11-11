@@ -6,6 +6,8 @@ const IMPORT_ERRORS = [
   "TS2307", // cannot find module
   "TS2459", // declared locally, not exported
   "TS2460", // declared locally, not exported under that name
+  "TS1192", // module has no default export
+  "TS2613", // module has no default export, did you mean a namespace import
   "TS2614", // no exported member, did you mean the default
   "TS2724", // no exported member, did you mean another name
 ];
