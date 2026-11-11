@@ -6,7 +6,6 @@ import {
 import type { AuditRetentionStore, DecisionLog } from "@werft-ai/platform";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { lockActorAccount } from "../control-shared.ts";
-import { rowsOf } from "../control-unit-of-work.ts";
 import type { Database } from "../queries.ts";
 import {
   authzDecisions,
@@ -15,6 +14,7 @@ import {
   users,
   workspaces,
 } from "../schema.ts";
+import { rowsOf } from "../statement-rows.ts";
 
 export function createPostgresDecisionLog(db: Database): DecisionLog {
   return {

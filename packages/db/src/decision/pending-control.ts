@@ -55,7 +55,7 @@ import {
   openInterruptFor,
   turnInterruptPending,
 } from "../sessions/turn-interrupts.ts";
-import { awaitingInputAt, publicStatus } from "./pending-requests.ts";
+import { awaitingInputAt, publicStatus } from "./pending-status.ts";
 
 const CANCELLED_BEFORE_ANSWER = {
   park: "the turn was parked before the answer reached the request",

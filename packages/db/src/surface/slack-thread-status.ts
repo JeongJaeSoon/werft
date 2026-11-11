@@ -7,10 +7,10 @@ import type {
   SlackThreadStatusStore,
 } from "@werft-ai/platform";
 import { exists, type SQL, sql } from "drizzle-orm";
-import { rowsOf } from "../control-unit-of-work.ts";
-import { actionableOfSession } from "../decision/pending-requests.ts";
+import { actionableOfSession } from "../decision/pending-status.ts";
 import type { Database } from "../queries.ts";
 import { sessions } from "../schema.ts";
+import { rowsOf } from "../statement-rows.ts";
 import { channelLeft } from "./slack-channel-left.ts";
 import { ms, type Raw } from "./slack-shared.ts";
 

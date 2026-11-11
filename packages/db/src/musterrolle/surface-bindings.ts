@@ -15,7 +15,6 @@ import type {
 import { receiptActorOf } from "@werft-ai/platform";
 import { and, asc, desc, eq, isNull, ne, sql } from "drizzle-orm";
 import { findPgError, UUID } from "../control-shared.ts";
-import { rowsOf } from "../control-unit-of-work.ts";
 import { DB_NOW } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
 import {
@@ -25,6 +24,7 @@ import {
   slackChannelLifecycle,
   surfaceBindings,
 } from "../schema.ts";
+import { rowsOf } from "../statement-rows.ts";
 import { callerHoldsRight } from "./agent-identities.ts";
 import { lockedRole } from "./api-keys.ts";
 

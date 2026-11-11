@@ -162,7 +162,7 @@
 ### 3a. 실행에 적용
 
 - claim의 `runtime_config.tools`를 "세션에 릴리스가 있으면 릴리스의 `runtime_config_snapshot.tools`, 없으면 프로필 `tools`"로 바꾼다(`catalog.ts:733-747`, `worker-gateway.ts:903`). 릴리스 값은 이미 프로필 도구의 부분집합이다(`release-ids.ts:124-144`).
-- claim이 릴리스 값을 알려면 worker binding이 그것을 실어야 한다. 지금 `WorkerBinding`에는 릴리스 id도 도구도 없다(`packages/platform/src/ports/worker-unit-of-work.ts:33`, 구현 `packages/db/src/worker-unit-of-work.ts:1386`). MCP 경로의 릴리스 조회는 MCP 서버가 없는 릴리스에서 null이라 대신 쓸 수 없다(`packages/db/src/mcp-egress.ts:77-79`). binding에 "릴리스의 도구 목록 또는 릴리스 없음"을 따로 싣는다. 빈 목록(`[]`, 도구 없음)과 릴리스 없음을 구분한다.
+- claim이 릴리스 값을 알려면 worker binding이 그것을 실어야 한다. 지금 `WorkerBinding`에는 릴리스 id도 도구도 없다(`packages/platform/src/ports/worker-unit-of-work.ts:33`, 구현 `packages/db/src/worker-unit-of-work.ts:1385`). MCP 경로의 릴리스 조회는 MCP 서버가 없는 릴리스에서 null이라 대신 쓸 수 없다(`packages/db/src/mcp-egress.ts:77-79`). binding에 "릴리스의 도구 목록 또는 릴리스 없음"을 따로 싣는다. 빈 목록(`[]`, 도구 없음)과 릴리스 없음을 구분한다.
 - checkpoint 호환: 도구는 지문에 들어간다(`packages/adapters/runtimes/claude/src/profile-fingerprint.ts:66`, `catalog.ts:727-732` 주석). 두 방향을 모두 지킨다.
   - 앞으로: 배포 전 checkpoint는 프로필 도구 전부로 만든 지문이다. claim의 `restore_runtime_configs`(`worker-gateway.ts:943`)에 "프로필 도구 전부" 설정을 대체로 넣는다. fallback checkpoint와 GitHub 서버를 붙이기 전·후 변형(`worker-gateway.ts:949-957`)에도 같이 넣는다. 첫 claim만의 일이 아니라, 옛 지문의 checkpoint가 남아 있는 동안 계속 넣는다.
   - 롤백: 좁힌 도구로 만든 checkpoint는 옛 이미지가 재개하지 못한다. 옛 대체 설정 생성은 같은 프로필·모델이면 건너뛴다(`worker-gateway.ts:926-931`). 그래서 ① 두 설정을 모두 대체로 넣을 줄 아는 이미지를 먼저 배포하고 ② 그 이미지가 롤백 하한이 된 뒤에 좁힘을 켠다(설정 플래그 또는 다음 배포).

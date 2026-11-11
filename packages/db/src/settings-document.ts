@@ -25,7 +25,6 @@ import {
 import { and, asc, eq, isNull, ne, sql } from "drizzle-orm";
 import { lockCatalogWrites } from "./catalog-repositories.ts";
 import { lockPeople } from "./control-shared.ts";
-import { rowsOf } from "./control-unit-of-work.ts";
 import type { Database } from "./queries.ts";
 import {
   catalogRepositories,
@@ -36,6 +35,7 @@ import {
   workspaces,
 } from "./schema.ts";
 import { writeSecretInTx } from "./secrets/secret-values.ts";
+import { rowsOf } from "./statement-rows.ts";
 
 const PURPOSE = "settings_credential";
 

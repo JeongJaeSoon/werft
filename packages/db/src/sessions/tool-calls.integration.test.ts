@@ -14,9 +14,9 @@ import {
 import { sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Client, Pool } from "pg";
-import { rowsOf } from "../control-unit-of-work.ts";
 import * as schema from "../schema.ts";
 import { sessions } from "../schema.ts";
+import { rowsOf } from "../statement-rows.ts";
 import { projectToolCalls } from "./tool-calls.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;

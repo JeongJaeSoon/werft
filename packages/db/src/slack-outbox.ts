@@ -35,13 +35,12 @@ import {
 } from "drizzle-orm";
 import { releaseSuperseded } from "./agents.ts";
 import { UUID } from "./control-shared.ts";
-import { rowsOf } from "./control-unit-of-work.ts";
+import { createPostgresPendingRequests } from "./decision/pending-requests.ts";
 import {
   actionableNow,
   actionableOfTurn,
   actionableRequest,
-  createPostgresPendingRequests,
-} from "./decision/pending-requests.ts";
+} from "./decision/pending-status.ts";
 import {
   catalogName,
   createPostgresPushRequests,
@@ -64,6 +63,7 @@ import {
   turns,
   users,
 } from "./schema.ts";
+import { rowsOf } from "./statement-rows.ts";
 import { channelLeft } from "./surface/slack-channel-left.ts";
 import { ms, type Raw, released } from "./surface/slack-shared.ts";
 import {
@@ -366,7 +366,7 @@ const settledAs = (rendered: SQL) =>
   sql`CASE WHEN coalesce(${rendered}, 'open') IN ('open', 'reject_only') THEN NULL ELSE 'settled' END`;
 
 /** The `slack` role's redraws of posted cards (design slack-approval-ui §4). */
-export function createPostgresSlackCardSettleStore(
+function createPostgresSlackCardSettleStore(
   db: Database,
 ): SlackCardSettleStore {
   // Design §4 rule 6, as the thread status writer has it.

@@ -116,18 +116,16 @@ import {
 } from "./control-shared.ts";
 import {
   KILL_RECEIPT_OPERATIONS,
-  rowsOf,
   terminateReceiptResult,
 } from "./control-unit-of-work.ts";
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
 import {
   abandonUndeliveredAnswers,
-  awaitingInputAt,
   closeWorkerRequests,
   parkTurnRequests,
-  publicStatus,
   recordLostInputWait,
 } from "./decision/pending-requests.ts";
+import { awaitingInputAt, publicStatus } from "./decision/pending-status.ts";
 import { sessionGitHubMcpOf, sessionMcpOf } from "./github/mcp-egress.ts";
 import {
   catalogMismatchCause,
@@ -230,6 +228,7 @@ import {
   settleTurnInterrupts,
   turnInterruptPending,
 } from "./sessions/turn-interrupts.ts";
+import { rowsOf } from "./statement-rows.ts";
 
 type ImageRuntime = NonNullable<WorkerBinding["launchRuntime"]>;
 
@@ -1029,7 +1028,7 @@ type RunnableFields = Pick<
 >;
 
 /** The connection the session's spec names; null without a spec. */
-export function specConnectionId(session: {
+function specConnectionId(session: {
   runtimeSpec: Record<string, unknown> | null;
 }): string | null {
   const id = (session.runtimeSpec?.connection as { id?: unknown } | undefined)
@@ -1685,7 +1684,7 @@ function pinnedExtensionsOf(
  * binds only a session whose spec names a connection and model it runs, so
  * one that does not verify here is a broken row, never a guess.
  */
-export function sessionSpecOf(
+function sessionSpecOf(
   session: Pick<
     SessionRow,
     | "id"

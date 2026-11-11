@@ -16,9 +16,9 @@ import {
 import type { ClaimedOutcome, SessionOutcomeStore } from "@werft-ai/platform";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { insertPullRequestOutcome } from "../action/pull-requests.ts";
-import { rowsOf } from "../control-unit-of-work.ts";
 import type { Database } from "../queries.ts";
 import { outcomeRefreshQuotas, sessionOutcomes, sessions } from "../schema.ts";
+import { rowsOf } from "../statement-rows.ts";
 import { queueAchievementJudgment } from "./achievement-judgments.ts";
 
 // A unit's hourly budget is this share of its rate limit (§10).

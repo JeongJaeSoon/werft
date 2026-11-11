@@ -35,12 +35,11 @@ import {
 } from "./control-shared.ts";
 import { dbNow, fromDbNow } from "./db-clock.ts";
 import {
-  awaitingInputAt,
   cancelParkedRequests,
   closeWorkerRequests,
-  publicStatus,
   recordLostInputWait,
 } from "./decision/pending-requests.ts";
+import { awaitingInputAt, publicStatus } from "./decision/pending-status.ts";
 import type { Database } from "./queries.ts";
 import { decideRecoveryAtomic, resumeAtomic } from "./recovery-control.ts";
 import { openResumeReceipt } from "./resume-control.ts";
@@ -65,6 +64,7 @@ import {
   inputWaitBefore,
   recordStatus,
 } from "./sessions/session-events.ts";
+import { rowsOf } from "./statement-rows.ts";
 
 const TERMINATE = "terminate";
 export const REVOKE_EXECUTION = "revoke_execution";
@@ -145,18 +145,6 @@ function sessionIdFromTarget(target: unknown): string | undefined {
 }
 
 type SessionRow = typeof sessions.$inferSelect;
-
-export function rowsOf<T>(result: unknown): T[] {
-  if (Array.isArray(result)) return result as T[];
-  if (
-    result !== null &&
-    typeof result === "object" &&
-    Array.isArray((result as { rows?: unknown }).rows)
-  ) {
-    return (result as { rows: T[] }).rows;
-  }
-  throw new Error("Database statement returned no rows");
-}
 
 /**
  * What stopping a session's execution writes, apart from the session row:

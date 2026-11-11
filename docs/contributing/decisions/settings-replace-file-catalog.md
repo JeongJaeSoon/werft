@@ -35,7 +35,7 @@
 - 테스트·검증: `tests/e2e/run.sh:80-84`(`config/local-model/profiles.yaml`을 읽음), `:222-231`(보고용으로 profiles.yaml을 `sed -n`으로 읽음), `tests/e2e/remote-mcp.e2e.ts:19`, `tests/images.test.ts`, `tests/test-ops.test.ts:361-456`, control-host 통합·단위 테스트, verify 스킬(`SKILL.md:53`, `github-sandbox/overlay.yml:10-11`이 자기 `repositories.yaml`을 덮어 mount).
 - 문서: `docs/operator/api-server.md:35-60`, `:110`, `:137`, `:232-234`, `:737-746`, `:912`, `configuration.md:3`, `test-ops.md`, `kubernetes-deployment.md:90`, `backup-restore.md:134`, `docs/real-claude.md`, `docs/contributing/architecture.md:27`, `apps/docs`의 `integrations/github*.mdx:10`, `agents/run-profiles*.mdx:6`, 콘솔 문구 `apps/web/src/i18n/github.ts:65`, `:260`, `:456`.
 
-`catalogRevision`(`catalog.ts:1295-1314`)은 파일에서 온 프로필·저장소를 해시하고, `catalog_authority`(`docs/operator/api-server.md:57`, `apps/control-host/src/api/catalog-authority.ts`)는 운영자가 활성화한 revision과 같은 replica만 세션을 `catalog_mismatch`로 실패시키게 한다(`packages/db/src/worker-unit-of-work.ts:1083-1135`). 콘솔 상한은 이미 이 해시에서 빠져 있다.
+`catalogRevision`(`catalog.ts:1295-1314`)은 파일에서 온 프로필·저장소를 해시하고, `catalog_authority`(`docs/operator/api-server.md:57`, `apps/control-host/src/api/catalog-authority.ts`)는 운영자가 활성화한 revision과 같은 replica만 세션을 `catalog_mismatch`로 실패시키게 한다(`packages/db/src/worker-unit-of-work.ts:1082-1134`). 콘솔 상한은 이미 이 해시에서 빠져 있다.
 
 ## 1. 데이터 모델
 

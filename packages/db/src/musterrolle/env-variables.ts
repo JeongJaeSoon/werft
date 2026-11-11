@@ -26,7 +26,6 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
-import { rowsOf } from "../control-unit-of-work.ts";
 import { dbNow } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
 import {
@@ -37,6 +36,7 @@ import {
   receipts,
   sessions,
 } from "../schema.ts";
+import { rowsOf } from "../statement-rows.ts";
 
 const NEXT_VERSION = sql<number>`nextval('env_variable_versions_seq')`;
 
@@ -54,7 +54,7 @@ function scopeWhere(scope: EnvVariableScope): SQL {
  * serializes the writes of one scope, which is what a delete's affected counts
  * need to stay true.
  */
-export async function lockEnvVariableScope(
+async function lockEnvVariableScope(
   tx: Database,
   scope: EnvVariableScope,
 ): Promise<void> {

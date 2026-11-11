@@ -23,7 +23,7 @@ import {
   sessions,
 } from "../schema.ts";
 
-export function pullRequestSettingsOf(stored: unknown): PullRequestSettings {
+function pullRequestSettingsOf(stored: unknown): PullRequestSettings {
   const parsed = pullRequestSettingsSchema.safeParse(stored);
   return parsed.success ? parsed.data : DEFAULT_PULL_REQUEST_SETTINGS;
 }

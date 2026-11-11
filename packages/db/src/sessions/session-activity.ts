@@ -4,9 +4,9 @@ import {
   type SessionActivity,
 } from "@werft-ai/contracts";
 import { type SQL, sql } from "drizzle-orm";
-import { rowsOf } from "../control-unit-of-work.ts";
 import type { Database } from "../queries.ts";
 import { events, sessionEventArchives } from "../schema.ts";
+import { rowsOf } from "../statement-rows.ts";
 import { eventWithNeutralFields } from "./event-payload.ts";
 
 /*
