@@ -14,7 +14,6 @@ describe("builtinToolsDenyOf", () => {
   test("a session with no pinned limit denies nothing", () => {
     expect(builtinToolsDenyOf(null)).toEqual([]);
     expect(builtinToolsDenyOf(undefined)).toEqual([]);
-    expect(builtinToolsDenyOf({})).toEqual([]);
     expect(builtinToolsDenyOf(pinned([]))).toEqual([]);
   });
 
@@ -24,7 +23,19 @@ describe("builtinToolsDenyOf", () => {
     ).toEqual(["Bash", "WebFetch"]);
   });
 
-  test("an entry that is not a string is ignored rather than thrown on", () => {
-    expect(builtinToolsDenyOf(pinned(["Bash", 7, null]))).toEqual(["Bash"]);
+  test("a limit this image cannot read fails instead of lifting the denial", () => {
+    for (const unreadable of [
+      pinned(["Bash", 7]),
+      pinned("Bash"),
+      { ...pinned(["Bash"]), v: 2 },
+      {},
+      "Bash",
+    ]) {
+      expect(() => builtinToolsDenyOf(unreadable)).toThrow();
+    }
+    // Damage elsewhere in the row does not hide the tools it denies.
+    expect(
+      builtinToolsDenyOf({ ...pinned(["Bash"]), credentials_deny: null }),
+    ).toEqual(["Bash"]);
   });
 });

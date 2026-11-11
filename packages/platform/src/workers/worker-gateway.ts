@@ -1412,7 +1412,6 @@ export function createWorkerGateway(deps: {
     // before any release list. Within one list the current profile goes first.
     const ofLists = lists.flatMap((list) => {
       const config = current[list];
-      const before = current.unlimited[list];
       return [
         ...(config === null
           ? []
@@ -1422,16 +1421,21 @@ export function createWorkerGateway(deps: {
                 current.runs === list && mode === runsAs,
               ),
             )),
-        ...(before === null || !resuming
-          ? []
-          : currentModes.flatMap((mode) =>
-              offerings(inMode(before, mode), false),
-            )),
         ...alternates.flatMap((configs) => {
           const earlier = configs[list];
           return earlier === null ? [] : offerings(earlier, false);
         }),
       ];
+    });
+    // First, ahead of the cap: what the session ran before its limit removed
+    // a tool is the config its own checkpoints carry.
+    const beforeLimit = lists.flatMap((list) => {
+      const before = current.unlimited[list];
+      return before === null || !resuming
+        ? []
+        : currentModes.flatMap((mode) =>
+            offerings(inMode(before, mode), false),
+          );
     });
     const stored = kept.flatMap((config) => offerings(config, false));
     // Earlier profiles and kept rows exist only for a session that resumes.
@@ -1450,10 +1454,12 @@ export function createWorkerGateway(deps: {
           : [],
       ),
     ];
-    const offered = appendNew(appendNew(ofLists, stored), converted).slice(
-      0,
-      MAX_RESTORE_PROFILES,
-    );
+    const earlierMade = appendNew(appendNew(ofLists, stored), converted);
+    const offered = (
+      beforeLimit.length === 0
+        ? earlierMade
+        : appendNew(beforeLimit, earlierMade)
+    ).slice(0, MAX_RESTORE_PROFILES);
     return offered.length === 0 ? {} : { restore_runtime_configs: offered };
   }
 

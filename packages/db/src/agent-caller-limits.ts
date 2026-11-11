@@ -452,13 +452,22 @@ export function pinnedLimitOf(value: unknown): CallerLimit | null {
 
 /**
  * The built-in tools a session's pinned limit denies. `mcp__` names are left
- * to the MCP paths; a row with no readable limit denies nothing.
+ * to the MCP paths. Only a session with no limit at all (null, from before
+ * limits were pinned) denies nothing; a limit this image cannot read throws,
+ * so the claim fails rather than run the session without its limit.
  */
 export function builtinToolsDenyOf(value: unknown): string[] {
-  return (pinnedLimitOf(value)?.tools_deny ?? []).filter(
-    (tool): tool is string =>
-      typeof tool === "string" && !tool.startsWith("mcp__"),
-  );
+  if (value === null || value === undefined) return [];
+  const deny = (value as { v?: unknown; tools_deny?: unknown }).tools_deny;
+  if (
+    typeof value !== "object" ||
+    (value as { v?: unknown }).v !== 1 ||
+    !Array.isArray(deny) ||
+    !deny.every((tool) => typeof tool === "string")
+  ) {
+    throw new Error("sessions.caller_limit is not a readable v1 limit");
+  }
+  return deny.filter((tool: string) => !tool.startsWith("mcp__"));
 }
 
 export function inputRefusal(

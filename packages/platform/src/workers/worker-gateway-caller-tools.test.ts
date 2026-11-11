@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { bootstrapClaimResponseSchema } from "@werft-ai/contracts";
+import {
+  bootstrapClaimResponseSchema,
+  MAX_RESTORE_PROFILES,
+} from "@werft-ai/contracts";
 import { acceptAllCheckpoints } from "../ports/checkpoint-verifier.ts";
 import type {
   WorkerBinding,
@@ -40,7 +43,16 @@ function work(overrides: Partial<WorkerUnitOfWork>): WorkerUnitOfWork {
   }) as WorkerUnitOfWork;
 }
 
-async function claim(extra: Partial<WorkerBinding>, resuming = false) {
+/** `earlier` other profiles the session's checkpoints were made under. */
+async function claim(
+  extra: Partial<WorkerBinding>,
+  resuming = false,
+  earlier = 0,
+) {
+  const others = Array.from({ length: earlier }, (_, index) => ({
+    id: `q${index}`,
+    profile: { ...profile, model: `model-${index}` },
+  }));
   const binding = {
     sessionId: SESSION,
     attemptId: "att_1",
@@ -63,6 +75,11 @@ async function claim(extra: Partial<WorkerBinding>, resuming = false) {
             profileFingerprint: profileFingerprint(profile),
             model: "sonnet-5-1",
           },
+          ...others.map((other) => ({
+            profileId: other.id,
+            profileFingerprint: profileFingerprint(other.profile),
+            model: other.profile.model,
+          })),
         ]
       : [],
     costUsd: 0,
@@ -74,7 +91,10 @@ async function claim(extra: Partial<WorkerBinding>, resuming = false) {
       claimAtomic: async () => ({ outcome: "claimed", binding }),
     }),
     catalog: withSeededInstallation({
-      profiles: { p: profile },
+      profiles: {
+        p: profile,
+        ...Object.fromEntries(others.map((o) => [o.id, o.profile])),
+      },
       repositories: {},
     }),
     checkpoints: acceptAllCheckpoints,
@@ -134,6 +154,25 @@ describe("a pinned caller limit's built-in tools_deny reaches the claim", () => 
     }
     expect(before.runtime_config.tools).toEqual(["Read", "Bash", "Write"]);
     expect(before.restore_runtime_configs).toBeUndefined();
+  });
+
+  test("the list a checkpoint was made with keeps its slot when earlier profiles fill the cap", async () => {
+    const response = await claim(
+      {
+        runtimeToolsSource: "release",
+        releaseEffectiveTools: ["Read", "Bash"],
+        releaseTools: ["Read", "Bash"],
+        callerToolsDeny: ["Bash"],
+      },
+      true,
+      20,
+    );
+    const offered = response.restore_runtime_configs ?? [];
+    expect(offered).toHaveLength(MAX_RESTORE_PROFILES);
+    expect(offered.slice(0, 2).map((config) => config.tools)).toEqual([
+      ["Read", "Bash", "Write"],
+      ["Read", "Bash"],
+    ]);
   });
 
   test("a resuming session is still offered the list its checkpoints were made with", async () => {
