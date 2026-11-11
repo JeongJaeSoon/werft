@@ -2,13 +2,13 @@
 
 ## 무엇을 골랐나
 
-worker는 `@anthropic-ai/claude-agent-sdk@0.3.270`과 그 SDK에 번들된 Claude Code `2.1.270`을 로컬 process로 실행한다. Anthropic 전송은 직접 연결하거나, 운영자가 승인한 LiteLLM의 `/v1/messages` 경로를 거친다. 제품은 LiteLLM을 함께 배포하지 않는다. 호환 harness가 확인하는 LiteLLM은 `1.100.1`이고, 로컬 모델 확인용 compose(`infra/compose.local-model.yml`)의 LiteLLM 이미지는 이와 별도로 digest로 고정한다.
+worker는 `@anthropic-ai/claude-agent-sdk@0.3.319`와 그 SDK에 번들된 Claude Code `2.1.319`를 로컬 process로 실행한다. Anthropic 전송은 직접 연결하거나, 운영자가 승인한 LiteLLM의 `/v1/messages` 경로를 거친다. 제품은 LiteLLM을 함께 배포하지 않는다. 호환 harness가 확인하는 LiteLLM은 `1.100.1`이고, 로컬 모델 확인용 compose(`infra/compose.local-model.yml`)의 LiteLLM 이미지는 이와 별도로 digest로 고정한다.
 
 버전은 이렇게 고정한다.
 
 | 무엇 | 어디에 | 방식 |
 |---|---|---|
-| 제품이 쓰는 SDK | `packages/adapters/runtimes/claude/package.json` | 범위 없는 정확한 버전(`0.3.270`). 루트 `bun.lock`이 함께 고정한다 |
+| 제품이 쓰는 SDK | `packages/adapters/runtimes/claude/package.json` | 범위 없는 정확한 버전(`0.3.319`). 루트 `bun.lock`이 함께 고정한다 |
 | 번들 Claude Code | SDK 패키지 | SDK 버전을 따라간다. 따로 설치하지 않는다 |
 | 호환 harness가 쓰는 SDK | `scripts/agent-sdk-compat/package.json` | 제품과 같은 정확한 버전. harness 자신의 `bun.lock`이 고정한다 |
 | harness가 확인하는 LiteLLM | CI `agent-sdk-compat` job | `uv tool install 'litellm[proxy]==1.100.1'` |

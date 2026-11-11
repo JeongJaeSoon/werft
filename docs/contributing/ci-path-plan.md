@@ -18,6 +18,8 @@ main을 대상으로 다음 경로로만 이뤄진 PR이 문서 전용 후보이
 
 문서 전용이 아니어도, 바뀐 경로가 모두 웹 콘솔(`apps/web/`)이거나 문서 경로면 닿지 않는 job을 건너뛴다. 다른 곳이 가져다 쓰지 않고, 이 파일을 읽는 테스트도 서비스 없이 `check`에서 돌기 때문이다. 그 밖의 경로가 하나라도 있으면(공용 `packages/`, `apps/control-host/`, `apps/worker/`, `apps/egress-proxy/`, lockfile, workflow, `tests/`, `scripts/`, `deploy/` 등) 전체 검증이다. `apps/egress-proxy/`는 말단처럼 보이지만 LocalStack·Docker가 필요한 `tests/`가 직접 가져다 쓰므로 좁히지 않는다.
 
+전체 검증인 PR에서도 `k8s-smoke`는 kind 설치가 빌드·배포·실행하는 경로가 바뀔 때만 돈다. 그 경로는 계획 스크립트의 `is_k8s_path`가 정한다([ci.md](ci.md)). main push와 수동 실행에서는 늘 돈다.
+
 | 바뀐 영역 | integration 도메인 | `helm-chart` | `k8s-smoke` | `quickstart` | `workspace-quota` |
 | --- | --- | --- | --- | --- | --- |
 | `apps/web/` | `surface` | 생략 | 생략 | 가이드 경로가 바뀔 때만 | 생략 |
@@ -67,6 +69,4 @@ bun test tests/integration-jobs.test.ts
 
 경로 검사는 실제 Git fixture로 혼합 변경, 앞선 코드 뒤의 문서 커밋, 삭제·rename, 특수문자, 비어 있는 diff, main·수동, 실행 가이드, 사이트, 잘못된 SHA·fetch 실패를 확인한다. workflow 검사는 실제 required 셸을 success/failure/cancelled/skipped와 누락 출력으로 실행하며, 모든 소비자의 plan 배선도 확인한다.
 
-새 `changes` job 때문에 전체 코드 PR에는 가벼운 runner 하나와 큐 단계 하나가 추가된다. Git·Bash만 사용하는 계획은 `ubuntu-24.04-arm`에서 실행한다. 이 저장소 Images의 실제 arm64 job들이 사용하는 label이며, 기존 제품·정적 검사 runner의 아키텍처를 옮기지는 않는다. 문서 경로의 별도 `docs-checks`도 남으므로 모든 검사를 없애는 최적화는 아니다. `check (static)`의 캐시는 writer 하나만 유지하며 나머지는 restore만 한다.
-
-문서 경로를 운영할 때는 계획 출력, 생략 job, required 성공 로그, 가이드·사이트 예외, 그대로 도는 공급망 검사를 함께 관찰한다. PR base와 merge checkout의 첫 부모가 일치하는지도 확인한다.
+`changes` job은 모든 run에 가벼운 runner 하나와 큐 단계 하나를 더한다. Git·Bash만 사용하는 계획은 `ubuntu-24.04-arm`에서 실행한다. Images의 arm64 job이 쓰는 label이고, 제품·정적 검사 runner는 `ubuntu-24.04`다. `check (static)`의 캐시는 writer 하나만 유지하며 나머지는 restore만 한다.
