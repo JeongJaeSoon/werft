@@ -203,6 +203,32 @@ integration("a model moved at the next turn's claim", () => {
     TIMEOUT_MS,
   );
 
+  test(
+    "a session under a caller limit keeps both its limited and its unlimited config for a restore",
+    async () => {
+      const offer = offerOf(["sonnet-5-1", "haiku-5-0"], SERIES);
+      const id = await waiting(`limited-${crypto.randomUUID()}`, "sonnet-5-0");
+      await db
+        .update(sessions)
+        .set({ callerLimit: { v: 1, tools_deny: ["Bash"] } })
+        .where(eq(sessions.id, id));
+      const launch = await launchSession(db, { sessionId: id });
+
+      await claimOf(gatewayFor(offer), launch);
+
+      const kept = ((await rowOf(id)).legacyRuntimeConfigs ?? []) as Array<{
+        model: string;
+        tools: string[];
+      }>;
+      const old = kept.filter((config) => config.model === "sonnet-5-0");
+      // A checkpoint made while the limit held was digested over the list
+      // without Bash; one made before it, over the whole list.
+      expect(old.some((config) => !config.tools.includes("Bash"))).toBe(true);
+      expect(old.some((config) => config.tools.includes("Bash"))).toBe(true);
+    },
+    TIMEOUT_MS,
+  );
+
   /** Sets the move switch of the agent the session's release belongs to. */
   async function ofAgent(sessionId: string, autoModelMigration: boolean) {
     const row = await rowOf(sessionId);

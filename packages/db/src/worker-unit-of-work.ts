@@ -74,6 +74,7 @@ import {
   type WorkerFence,
   type WorkerUnitOfWork,
   withEarlierConfig,
+  withoutDeniedTools,
 } from "@werft-ai/platform";
 import {
   and,
@@ -1292,6 +1293,7 @@ async function earlierConfigs(tx: Database, sessionId: string) {
       platformPrompt: sessions.platformPrompt,
       repositoryMode: sessions.repositoryMode,
       legacy: sessions.legacyRuntimeConfigs,
+      callerLimit: sessions.callerLimit,
     })
     .from(sessions)
     .where(eq(sessions.id, sessionId))
@@ -1303,12 +1305,20 @@ async function earlierConfigs(tx: Database, sessionId: string) {
     LEGACY_CONFIG_TOKEN,
     held.repositoryMode === "repository",
   );
-  return withEarlierConfig(
-    held.legacy,
+  const withPrompt = (of: typeof config) =>
     held.platformPrompt === null
-      ? config
-      : { ...config, platform_prompt: held.platformPrompt },
+      ? of
+      : { ...of, platform_prompt: held.platformPrompt };
+  const kept = withEarlierConfig(held.legacy, withPrompt(config));
+  // A checkpoint made while a caller limit held was digested over the list
+  // the limit left, so that list is kept as well, and offered first.
+  const tools = withoutDeniedTools(
+    config.tools,
+    builtinToolsDenyOf(held.callerLimit),
   );
+  return tools === config.tools
+    ? kept
+    : withEarlierConfig(kept, withPrompt({ ...config, tools }));
 }
 
 function versionUnknownHere(
