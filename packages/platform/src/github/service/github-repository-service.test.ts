@@ -5,6 +5,7 @@ import {
   type RepositoryCeiling,
   repositoryRefOf,
 } from "@werft-ai/contracts";
+import { SessionServiceError } from "../../musterrolle/index.ts";
 import {
   callerFor,
   createAuthorizationPolicy,
@@ -13,7 +14,6 @@ import type {
   CatalogRepositoryRow,
   CatalogRepositoryStore,
 } from "../../ports/catalog-repository-store.ts";
-import { SessionServiceError } from "../../sessions/session-service.ts";
 import {
   GitHubAppCheckError,
   type GitHubAppDirectory,

@@ -4,6 +4,7 @@ import {
   type AgentRelease,
   storedAgentCardSchema,
 } from "@werft-ai/contracts";
+import { SessionServiceError } from "../musterrolle/index.ts";
 import { callerFor, createAuthorizationPolicy } from "../musterrolle/policy.ts";
 import type {
   AgentReader,
@@ -12,7 +13,6 @@ import type {
 } from "../ports/agent-store.ts";
 import type { ExtensionAttachment } from "../ports/extension-bundle-store.ts";
 import type { CatalogConnection } from "../sessions/catalog.ts";
-import { SessionServiceError } from "../sessions/session-service.ts";
 import {
   TEST_RUNTIMES,
   testCatalog,

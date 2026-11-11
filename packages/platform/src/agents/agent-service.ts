@@ -35,6 +35,7 @@ import {
   type SessionExtensionsDeps,
 } from "../extensions/session-extensions.ts";
 import type { GitHubSettingsStore } from "../github/ports/github-settings.ts";
+import { requirePermitted, SessionServiceError } from "../musterrolle/index.ts";
 import {
   type AuthorizationPolicy,
   type Caller,
@@ -68,11 +69,7 @@ import {
   type SessionCatalog,
   type SessionCatalogView,
 } from "../sessions/catalog.ts";
-import {
-  requirePermitted,
-  SessionServiceError,
-  viewerOf,
-} from "../sessions/session-service.ts";
+import { viewerOf } from "../sessions/index.ts";
 import type { AgentWelcomable } from "../surface/ports/agent-welcomable.ts";
 import type { ModelMoveStep } from "./model-move-runner.ts";
 import {

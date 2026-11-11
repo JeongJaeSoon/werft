@@ -14,6 +14,7 @@ import {
   GitHubGateError,
   type GitHubWork,
 } from "../../github/ports/github-gate.ts";
+import { SessionServiceError } from "../../musterrolle/index.ts";
 import {
   type AuthorizationPolicy,
   callerFor,
@@ -28,7 +29,6 @@ import {
   PULL_REQUEST_TAIL_END_MARKER,
   PULL_REQUEST_TAIL_MARKER,
 } from "../../sessions/git-attribution.ts";
-import { SessionServiceError } from "../../sessions/session-service.ts";
 import { fakeRepositoryReads } from "../../testing/repository-tree-fake.ts";
 import { ForgeCredentialError, type ForgePullRequest } from "../ports/forge.ts";
 import type { GitHubApi } from "../ports/github-api.ts";

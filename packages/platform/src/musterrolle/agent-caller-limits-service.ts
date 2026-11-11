@@ -4,13 +4,14 @@ import type {
   PutAgentCallerLimitsResponse,
 } from "@werft-ai/contracts";
 import type { AgentCallerLimitsStore } from "../ports/agent-caller-limits-store.ts";
-import { requirePermitted, SessionServiceError } from "../sessions/index.ts";
 import { personOf } from "./agent-admin-service.ts";
 import { ifMatchOf } from "./env-variable-service.ts";
 import type { Caller } from "./policy.ts";
 import { type AuthorizationPolicy, MANAGEMENT_ROLES } from "./policy.ts";
+import { requirePermitted } from "./require-permitted.ts";
 import {
   NOT_FOUND,
+  SessionServiceError,
   TEAM_NOT_ALLOWED,
   TEAM_NOT_FOUND,
 } from "./service-errors.ts";

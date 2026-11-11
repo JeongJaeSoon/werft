@@ -8,4 +8,15 @@ export {
   type Principal,
   receiptActorOf,
 } from "./policy.ts";
-export { ACTOR_INACTIVE, NOT_FOUND, OUTRANKED } from "./service-errors.ts";
+export {
+  agentPrivateError,
+  isAgentPrivate,
+  requireAllowed,
+  requirePermitted,
+} from "./require-permitted.ts";
+export {
+  ACTOR_INACTIVE,
+  NOT_FOUND,
+  OUTRANKED,
+  SessionServiceError,
+} from "./service-errors.ts";

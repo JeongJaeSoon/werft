@@ -13,16 +13,17 @@ import type {
   WorkspaceKeyStore,
 } from "../ports/api-key-store.ts";
 import {
-  requireAllowed,
-  requirePermitted,
-  SessionServiceError,
-} from "../sessions/session-service.ts";
-import {
   type AuthorizationPolicy,
   type Caller,
   MANAGEMENT_ROLES,
 } from "./policy.ts";
-import { ACTOR_INACTIVE, NOT_FOUND, OUTRANKED } from "./service-errors.ts";
+import { requireAllowed, requirePermitted } from "./require-permitted.ts";
+import {
+  ACTOR_INACTIVE,
+  NOT_FOUND,
+  OUTRANKED,
+  SessionServiceError,
+} from "./service-errors.ts";
 
 // Keys issued by a person (design 4.1): their own personal key, or the key
 // of an agent they administer. An API key is never a person, so the policy

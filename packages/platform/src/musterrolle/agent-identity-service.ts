@@ -15,15 +15,17 @@ import type {
   SlackEventKey,
 } from "../ports/agent-identity-store.ts";
 import {
-  requirePermitted,
-  SessionServiceError,
-} from "../sessions/session-service.ts";
-import {
   type AuthorizationPolicy,
   type Caller,
   MANAGEMENT_ROLES,
 } from "./policy.ts";
-import { ACTOR_INACTIVE, NOT_FOUND, OUTRANKED } from "./service-errors.ts";
+import { requirePermitted } from "./require-permitted.ts";
+import {
+  ACTOR_INACTIVE,
+  NOT_FOUND,
+  OUTRANKED,
+  SessionServiceError,
+} from "./service-errors.ts";
 
 // Linking an agent to its Slack app is part of installing that app for the
 // agent: design 4.1's "Slack 앱 설치·채널 설정" row, `binding.manage` on

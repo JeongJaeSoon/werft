@@ -1,4 +1,16 @@
-import { SessionServiceError } from "../sessions/session-service.ts";
+import type { ApiErrorCode } from "@werft-ai/contracts";
+
+// The service error every platform domain throws, not only sessions: the name is public surface of @werft-ai/platform.
+export class SessionServiceError extends Error {
+  constructor(
+    readonly code: ApiErrorCode,
+    message: string,
+    readonly retry?: { afterSeconds: number },
+    readonly details: unknown = null,
+  ) {
+    super(message);
+  }
+}
 
 export const NOT_FOUND = () =>
   new SessionServiceError("NOT_FOUND", "Resource not found");

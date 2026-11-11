@@ -28,9 +28,10 @@ import {
   MANAGEMENT_ROLES,
   NOT_FOUND,
   OUTRANKED,
+  requirePermitted,
+  SessionServiceError,
 } from "../../musterrolle/index.ts";
 import type { SecretAudit } from "../../ports/secret-store.ts";
-import { requirePermitted, SessionServiceError } from "../../sessions/index.ts";
 import {
   GitHubAppCheckError,
   type GitHubAppCredential,

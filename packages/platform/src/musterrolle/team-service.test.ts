@@ -10,7 +10,6 @@ import type {
 } from "../ports/agent-admin-store.ts";
 import type { DecisionLog } from "../ports/decision-log.ts";
 import type { Team, TeamStore } from "../ports/team-store.ts";
-import { SessionServiceError } from "../sessions/session-service.ts";
 import { createAgentAdminService } from "./agent-admin-service.ts";
 import {
   type AgentAuthority,
@@ -19,6 +18,7 @@ import {
   createAuthorizationPolicy,
   MANAGEMENT_ROLES,
 } from "./policy.ts";
+import { SessionServiceError } from "./service-errors.ts";
 import { createTeamService } from "./team-service.ts";
 
 // Design 4.7 and D23: only an owner or an admin changes a team. An agent's

@@ -19,8 +19,11 @@ import {
   type GitHubWork,
   type GitHubWorkContext,
 } from "../../github/ports/github-gate.ts";
+import {
+  requirePermitted,
+  SessionServiceError,
+} from "../../musterrolle/index.ts";
 import type { AuthorizationPolicy } from "../../musterrolle/policy.ts";
-import { requirePermitted, SessionServiceError } from "../../sessions/index.ts";
 import { cleanBody } from "../change-request/pull-request-text.ts";
 import {
   type PushActor,

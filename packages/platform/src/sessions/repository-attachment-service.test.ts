@@ -4,6 +4,7 @@ import {
   type ReceiptActor,
 } from "@werft-ai/contracts";
 import type { GitHubSessionContext } from "../github/ports/github-gate.ts";
+import { SessionServiceError } from "../musterrolle/index.ts";
 import { agentPolicy, releasePolicy } from "../testing/github-fakes.ts";
 import { refusal } from "../testing/refusal.ts";
 import {
@@ -14,7 +15,6 @@ import {
   memoryAttachmentStore,
 } from "../testing/repository-attachment-fakes.ts";
 import { createRepositoryAttachmentService } from "./repository-attachment-service.ts";
-import { SessionServiceError } from "./session-service.ts";
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
 const COMMIT = "c".repeat(40);

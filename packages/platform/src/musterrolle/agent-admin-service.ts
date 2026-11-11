@@ -11,16 +11,14 @@ import type {
   AgentAdmins,
 } from "../ports/agent-admin-store.ts";
 import {
-  requirePermitted,
-  SessionServiceError,
-} from "../sessions/session-service.ts";
-import {
   type AuthorizationPolicy,
   type Caller,
   MANAGEMENT_ROLES,
 } from "./policy.ts";
+import { requirePermitted } from "./require-permitted.ts";
 import {
   NOT_FOUND,
+  SessionServiceError,
   TEAM_HOLDING,
   TEAM_NOT_ALLOWED,
   TEAM_NOT_FOUND,

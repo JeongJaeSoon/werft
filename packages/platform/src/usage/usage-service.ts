@@ -25,6 +25,7 @@ import {
   STORAGE_ACCOUNTED_CONTENT,
   sessionBudgetOf,
 } from "../limits/installation-limits.ts";
+import { requirePermitted, SessionServiceError } from "../musterrolle/index.ts";
 import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
 import type {
   UsageAchievementCountsRecord,
@@ -35,11 +36,7 @@ import type {
   UsageSummaryRecord,
   UsageTotalsFilter,
 } from "../ports/usage-reader.ts";
-import {
-  requirePermitted,
-  SessionServiceError,
-  viewerOf,
-} from "../sessions/session-service.ts";
+import { viewerOf } from "../sessions/index.ts";
 
 /**
  * A limit as a decimal string without rounding it: the parser accepts more

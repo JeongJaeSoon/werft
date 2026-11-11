@@ -19,12 +19,12 @@ import {
   type GitHubMcpSessionState,
   SavedRulesUnavailable,
 } from "../../github/ports/github-mcp.ts";
+import { SessionServiceError } from "../../musterrolle/index.ts";
 import {
   type AuthorizationPolicy,
   createAuthorizationPolicy,
 } from "../../musterrolle/policy.ts";
 import { createRepositoryAttachmentService } from "../../sessions/repository-attachment-service.ts";
-import { SessionServiceError } from "../../sessions/session-service.ts";
 import {
   attachCatalog,
   attachmentContext,
