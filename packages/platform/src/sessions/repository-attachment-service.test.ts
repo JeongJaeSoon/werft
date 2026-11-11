@@ -35,14 +35,12 @@ function service(
     onSleep?: () => Promise<void> | void;
     readMs?: number;
     active?: string[];
-    activeProfile?: string;
   } = {},
 ) {
   const store = memoryAttachmentStore(options.attempts, options.attached);
   if (options.active !== undefined) {
     store.agent.active = {
       id: "release-2",
-      profileId: options.activeProfile ?? "p",
       github: attachGitHub(options.active),
     };
   }
@@ -552,26 +550,6 @@ describe("a repository only the agent's active release allows", () => {
     ).toEqual(["attached", "not_attached"]);
   });
 
-  test("the active release is judged on its own profile, not the session's", async () => {
-    const onNewProfile = { context: pinned, active: ["app", "lab"] };
-    expect(
-      (
-        await refusal(
-          service({ ...onNewProfile, activeProfile: "q" }).attach("lab"),
-        )
-      ).details,
-    ).toEqual({
-      reason_code: "allowed_in_newer_release",
-      receipt_id: "receipt-1",
-    });
-    expect(
-      (await refusal(service(onNewProfile).attach("lab"))).details,
-    ).toEqual({
-      reason_code: "repository_not_allowed",
-      receipt_id: "receipt-1",
-    });
-  });
-
   test("an allowed attach never reads the active release", async () => {
     const s = service({ active: ["app"] });
     expect((await s.attach("tools")).status).toBe("pending");
@@ -612,7 +590,7 @@ describe("attach", () => {
     }
   });
 
-  test("the cap is the release's list, the profile and the agent's switch, and every refusal leaves a receipt", async () => {
+  test("the cap is the release's list, the settings, the ceiling and the agent's switch, and every refusal leaves a receipt", async () => {
     for (const [repository, context] of [
       ["secret", {}],
       ["unknown", {}],

@@ -56,12 +56,11 @@ const UNTRACED_SESSIONS: SessionAccess = {
 };
 const ZWSP = "​";
 const CATALOG = {
-  profiles: {},
+  connections: {},
   repositories: {
     app: {
       url: "https://github.com/acme/app.git",
       branch: "develop",
-      profiles: ["default"],
       auth: { kind: "github_app", registered: true },
     },
   },

@@ -7,14 +7,15 @@ import {
   type EffectiveTools,
   GITHUB_MCP_SERVER,
   MCP_TOOL_PREFIX,
+  type PermissionMode,
   type PolicyPins,
+  type RuntimeKind,
   type ToolPolicy,
 } from "@werft-ai/contracts";
 import {
-  type CatalogProfile,
+  type CatalogConnectionView,
+  connectionModels,
   pinnedMcpTools,
-  profileFingerprint,
-  profileModels,
   type SessionCatalog,
 } from "../sessions/catalog.ts";
 
@@ -30,16 +31,9 @@ export function releaseModel(
 // JeongJaeSoon/kollegium @ d711706).
 
 // Bumped when the hashed shape changes, so an old id can never equal a new
-// one by accident. 2: `policy_pins` went from a placeholder `{}` to the
-// resolved tool policy. A stored `{}` release keeps hashing as 1, so its id
-// still verifies. 3: the release names a repository; one without keeps
-// hashing as 2, so releases from before the column keep their ids. 4: the
-// release pins GitHub settings; one without keeps hashing as before.
-export function releaseIdVersion(identity: ReleaseIdentity): number {
-  if (identity.policy_pins.github !== undefined) return 4;
-  if (identity.policy_pins.tools === undefined) return 1;
-  return identity.repository_id === null ? 2 : 3;
-}
+// one by accident. 5: the release names its connection and the runtime its
+// snapshot holds.
+export const RELEASE_ID_VERSION = 5;
 
 function sha256Hex(text: string): string {
   return createHash("sha256").update(text, "utf8").digest("hex");
@@ -53,9 +47,8 @@ export type ReleaseIdentity = Pick<
   AgentRelease,
   | "agent_id"
   | "card_sha256"
-  | "runtime_profile_id"
+  | "connection_id"
   | "repository_id"
-  | "profile_digest"
   | "runtime_config_snapshot"
   | "effective_tools"
   | "policy_pins"
@@ -64,14 +57,13 @@ export type ReleaseIdentity = Pick<
 export function deriveReleaseId(identity: ReleaseIdentity): string {
   return `sha256:${sha256Hex(
     canonicalJsonOfJson({
-      release_id_version: releaseIdVersion(identity),
+      release_id_version: RELEASE_ID_VERSION,
       agent_id: identity.agent_id,
       card_sha256: identity.card_sha256,
-      runtime_profile_id: identity.runtime_profile_id,
+      connection_id: identity.connection_id,
       ...(identity.repository_id === null
         ? {}
         : { repository_id: identity.repository_id }),
-      profile_digest: identity.profile_digest,
       runtime_config_snapshot: identity.runtime_config_snapshot,
       effective_tools: identity.effective_tools,
       policy_pins: identity.policy_pins,
@@ -94,13 +86,26 @@ export function assertReleaseIdentity(release: AgentRelease): void {
 export type ReleaseCompatibilityError = { field: string; message: string };
 
 /**
- * What a card runs as under a profile: the profile's tools in its order.
- * An error when the card's model falls outside the profile.
+ * What a release on a connection runs, apart from its card: the runtime the
+ * image ships for the connection's kind, its built-in tools, the engine's
+ * permission mode and whether the repository's CLAUDE.md is read.
+ */
+export type ReleaseRun = {
+  connection_id: string;
+  connection: CatalogConnectionView;
+  runtime: { kind: RuntimeKind; version: string };
+  tools: readonly string[];
+  permission_mode: PermissionMode;
+  project_settings: { claude_md: boolean };
+};
+
+/**
+ * What a card runs as on a connection: the runtime's tools in its order.
+ * An error when the card's model is not one the connection offers.
  */
 export function resolveReleaseContent(
   card: AgentCard,
-  profileId: string,
-  profile: CatalogProfile,
+  run: ReleaseRun,
   mcpServers: SessionCatalog["mcp_servers"] = {},
 ):
   | {
@@ -111,17 +116,17 @@ export function resolveReleaseContent(
       >;
     }
   | { ok: false; error: ReleaseCompatibilityError } {
-  if (!profileModels(profile).includes(card.model)) {
+  if (!connectionModels(run.connection).includes(card.model)) {
     return {
       ok: false,
       error: {
         field: "card.model",
-        // apps/web parses this wording; it means none of the profile's models.
-        message: `model ${card.model} is not the model of runtime profile ${profileId}`,
+        // apps/web parses this wording; it means none of the connection's models.
+        message: `model ${card.model} is not a model of connection ${run.connection_id}`,
       },
     };
   }
-  const tools = [...profile.tools];
+  const tools = [...run.tools];
   const policy = resolveToolPolicy(card, tools);
   if (!policy.ok) return policy;
   const policy_pins = policy.pins;
@@ -131,28 +136,23 @@ export function resolveReleaseContent(
   return {
     ok: true,
     content: {
-      runtime_profile_id: profileId,
-      profile_digest: profileFingerprint(profile),
+      connection_id: run.connection_id,
       // No credential here, not even the attempt's egress token: the worker
       // gets that at claim.
       runtime_config_snapshot: {
         model: card.model,
         tools,
-        permission_mode: profile.permission_mode,
+        permission_mode: run.permission_mode,
         provider: {
-          kind: profile.provider.kind,
-          endpoint: profile.provider.endpoint,
+          kind: run.connection.provider.kind,
+          endpoint: run.connection.provider.endpoint,
         },
+        runtime: { kind: run.runtime.kind, version: run.runtime.version },
         // Pinned with the release: a card edit never reaches a session that
-        // already opened it. A release made before the field has none, and
-        // the claim reads that as asking for nothing.
+        // already opened it.
         language: card.language,
-        ...(profile.project_settings?.claude_md === true
-          ? { project_settings: profile.project_settings }
-          : {}),
-        // Absent, not empty, so a release of a profile with none keeps its id.
-        ...(profile.mcp_deny !== undefined && profile.mcp_deny.length > 0
-          ? { mcp_deny: [...profile.mcp_deny].sort() }
+        ...(run.project_settings.claude_md
+          ? { project_settings: run.project_settings }
           : {}),
       },
       effective_tools,

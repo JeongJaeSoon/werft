@@ -1,45 +1,48 @@
 import { describe, expect, test } from "bun:test";
 import {
   type AgentCard,
-  type AgentGitHub,
   type AgentRelease,
   agentCardSchema,
   agentReleaseSchema,
   storedAgentCardSchema,
 } from "@werft-ai/contracts";
-import {
-  type CatalogProfile,
-  profileFingerprint,
-} from "../sessions/catalog.ts";
+import { testConnection } from "../testing/catalog-fakes.ts";
 import {
   assertReleaseIdentity,
   cardContentSha256,
   deriveReleaseId,
   type ReleaseIdentity,
   ReleaseIdentityError,
+  type ReleaseRun,
   resolveReleaseContent,
 } from "./release-ids.ts";
 
 const AGENT_ID = "019a0000-0000-7000-8000-0000000000a1";
+// Taken independently: sha256 of the canonical JSON of the v5 shape.
+const PINNED_V5 =
+  "sha256:38b426bd4dd9ca9bd1727baf8176727b4f05410cc3876072fe8fbe8297281905";
 const VERSION_ID = "019a0000-0000-7000-8000-0000000000a2";
 const USER_A = "019a0000-0000-7000-8000-0000000000b1";
 const USER_B = "019a0000-0000-7000-8000-0000000000b2";
 
-const profile: CatalogProfile = {
-  runtime_kind: "claude_agent_sdk",
-  runtime_version: "0.3.270",
-  model: "claude-sonnet-5",
+const run: ReleaseRun = {
+  connection_id: "conn-1",
+  connection: testConnection({
+    provider: {
+      kind: "litellm",
+      endpoint: "https://litellm.invalid",
+      auth: {
+        kind: "api_key",
+        value: "catalog-provider-key",
+        ref: { value_env: "PROVIDER_KEY" },
+      },
+    },
+    models: ["claude-sonnet-5", "claude-opus-5"],
+  }),
+  runtime: { kind: "claude_agent_sdk", version: "0.3.270" },
   tools: ["Read", "Grep", "Edit", "Bash"],
   permission_mode: "default",
-  provider: {
-    kind: "litellm",
-    endpoint: "https://litellm.invalid",
-    auth: {
-      kind: "api_key",
-      value: "catalog-provider-key",
-      ref: { value_env: "PROVIDER_KEY" },
-    },
-  },
+  project_settings: { claude_md: false },
 };
 
 const card: AgentCard = agentCardSchema.parse({
@@ -53,9 +56,9 @@ const card: AgentCard = agentCardSchema.parse({
 
 function identityOf(
   value: AgentCard = card,
-  against: CatalogProfile = profile,
+  against: ReleaseRun = run,
 ): ReleaseIdentity {
-  const resolved = resolveReleaseContent(value, "coding", against);
+  const resolved = resolveReleaseContent(value, against);
   if (!resolved.ok) throw new Error(resolved.error.message);
   return {
     agent_id: AGENT_ID,
@@ -95,117 +98,29 @@ describe("deriveReleaseId", () => {
     expect(cardContentSha256(cardReordered)).toBe(cardContentSha256(card));
   });
 
-  test("a release stored before tool policies still hashes to its v1 id", () => {
-    expect(
-      deriveReleaseId({
-        agent_id: AGENT_ID,
-        card_sha256: "a".repeat(64),
-        runtime_profile_id: "coding",
-        repository_id: null,
-        profile_digest: `sha256:${"c".repeat(64)}`,
-        runtime_config_snapshot: { model: "claude-sonnet-5", tools: ["Read"] },
-        effective_tools: { tools: ["Read"], mcp: [] },
-        policy_pins: {},
-      }),
-    ).toBe(
-      "sha256:d5076011600b9dde731f137c927e17e39a8dee6a1c6a3e4d42867d6d6b68f594",
-    );
-  });
-
   test("keeps stored ids valid: changing the hashed shape needs a version bump", () => {
     expect(
       deriveReleaseId({
         agent_id: AGENT_ID,
         card_sha256: "a".repeat(64),
-        runtime_profile_id: "coding",
+        connection_id: "conn-1",
         repository_id: null,
-        profile_digest: `sha256:${"c".repeat(64)}`,
-        runtime_config_snapshot: { model: "claude-sonnet-5", tools: ["Read"] },
+        runtime_config_snapshot: {
+          model: "claude-sonnet-5",
+          tools: ["Read"],
+          runtime: { kind: "claude_agent_sdk", version: "0.3.270" },
+        },
         effective_tools: { tools: ["Read"], mcp: [] },
-        policy_pins: {
-          tools: {
-            default: { builtin: "allow", mcp: "ask" },
-            per_tool: { Read: "allow" },
-          },
-        },
+        policy_pins: {},
       }),
-    ).toBe(
-      "sha256:eddfa8338a8973b96ed536dcc05d4cbecad64de2967e0d4d16023e5d3d57e89b",
-    );
+    ).toBe(PINNED_V5);
   });
 
-  const PINNED_V3 = {
-    agent_id: AGENT_ID,
-    card_sha256: "a".repeat(64),
-    runtime_profile_id: "coding",
-    repository_id: "sample-app",
-    profile_digest: `sha256:${"c".repeat(64)}`,
-    runtime_config_snapshot: { model: "claude-sonnet-5", tools: ["Read"] },
-    effective_tools: { tools: ["Read"], mcp: [] },
-    policy_pins: {
-      tools: {
-        default: { builtin: "allow" as const, mcp: "ask" as const },
-        per_tool: { Read: "allow" as const },
-      },
-    },
-  };
-  const GITHUB: AgentGitHub = {
-    repositories: ["sample-app"],
-    push_approval: true,
-    features: {
-      workflows: false,
-      actions: true,
-      checks: false,
-      issues: false,
-      review: false,
-    },
-    actions_allow: [{ workflow: "deploy.yml" }],
-  };
-
-  test("a release naming a repository, without GitHub settings, keeps its v3 id", () => {
-    // What the code before GitHub settings derived for it.
-    const id =
-      "sha256:25d0e9ee6fd278a7fd4d07e47603997a1222497453bcd492df8c3e07bc8295bf";
-    expect(deriveReleaseId(PINNED_V3)).toBe(id);
-    // An absent key and an undefined one hash alike (canonicalJsonOfJson).
+  test("a repository is hashed only when the release names one", () => {
+    const identity = identityOf();
     expect(
-      deriveReleaseId({
-        ...PINNED_V3,
-        policy_pins: { ...PINNED_V3.policy_pins, github: undefined },
-      }),
-    ).toBe(id);
-  });
-
-  test("GitHub settings hash as version 4, and only they move the id", () => {
-    const pinned = {
-      ...PINNED_V3,
-      policy_pins: { ...PINNED_V3.policy_pins, github: GITHUB },
-    };
-    const id = deriveReleaseId(pinned);
-    expect(id).toBe(
-      "sha256:c4f2188c16f6f04509a3f3cf4ef480b05536aba763c552eed7a5537e0fba4ae8",
-    );
-    expect(id).not.toBe(deriveReleaseId(PINNED_V3));
-    expect(
-      deriveReleaseId({
-        ...pinned,
-        policy_pins: {
-          ...pinned.policy_pins,
-          github: { ...GITHUB, push_approval: false },
-        },
-      }),
-    ).not.toBe(id);
-    // Settings back as they were give the same release back.
-    expect(
-      deriveReleaseId({
-        ...pinned,
-        policy_pins: { ...pinned.policy_pins, github: { ...GITHUB } },
-      }),
-    ).toBe(id);
-    expect(
-      agentReleaseSchema.shape.policy_pins.safeParse(pinned.policy_pins)
-        .success,
-    ).toBe(true);
+      deriveReleaseId({ ...identity, repository_id: "sample-app" }),
+    ).not.toBe(deriveReleaseId(identity));
   });
 
   test("treats array order as data", () => {
@@ -227,9 +142,15 @@ describe("deriveReleaseId", () => {
     const variants: ReleaseIdentity[] = [
       { ...base, agent_id: "019a0000-0000-7000-8000-0000000000ff" },
       { ...base, card_sha256: "b".repeat(64) },
-      { ...base, runtime_profile_id: "other" },
+      { ...base, connection_id: "conn-2" },
       { ...base, repository_id: "sample-app" },
-      { ...base, profile_digest: "sha256:other" },
+      {
+        ...base,
+        runtime_config_snapshot: {
+          ...base.runtime_config_snapshot,
+          runtime: { kind: "claude_agent_sdk", version: "0.3.271" },
+        },
+      },
       {
         ...base,
         runtime_config_snapshot: { ...base.runtime_config_snapshot, x: 1 },
@@ -280,7 +201,7 @@ describe("deriveReleaseId", () => {
     // As written before 94S-761: the stored card, tone included, is hashed.
     const storedCard = { ...card, tone: "공손하게" };
     const storedSha = cardContentSha256(storedCard as AgentCard);
-    const resolved = resolveReleaseContent(card, "coding", profile);
+    const resolved = resolveReleaseContent(card, run);
     if (!resolved.ok) throw new Error(resolved.error.message);
     const release = releaseOf({
       agent_id: AGENT_ID,
@@ -292,52 +213,15 @@ describe("deriveReleaseId", () => {
     const read = storedAgentCardSchema.parse(storedCard);
     expect(Object.hasOwn(read, "tone")).toBe(false);
     expect(cardContentSha256(read)).not.toBe(storedSha);
-    expect(resolveReleaseContent(read, "coding", profile)).toEqual(resolved);
+    expect(resolveReleaseContent(read, run)).toEqual(resolved);
     expect(() => assertReleaseIdentity(release)).not.toThrow();
   });
 });
 
-describe("resolveReleaseContent and mcp_deny", () => {
-  test("a profile with no mcp__ deny keeps its digest, snapshot and release id", () => {
-    const identity = identityOf();
-    expect(Object.keys(identity.runtime_config_snapshot)).not.toContain(
-      "mcp_deny",
-    );
-    expect(
-      Object.keys(
-        identityOf(card, { ...profile, mcp_deny: [] }).runtime_config_snapshot,
-      ),
-    ).not.toContain("mcp_deny");
-    // The digest is pinned from the code before mcp_deny existed. The release
-    // id moved once, when the snapshot began to record the card's `language`.
-    expect(identity.profile_digest).toBe(
-      "sha256:92cc3e8a92fdbfe720590f535b087346da8ab6b9d76f509c1cbb3980288a2517",
-    );
-    expect(deriveReleaseId(identity)).toBe(
-      "sha256:da28cf8930e0aafb030800262e956538288756e0a9a2b0e5448b7d5e0b1a863a",
-    );
-  });
-
-  test("names are carried sorted, and make a different digest and release id", () => {
-    const blocked: CatalogProfile = {
-      ...profile,
-      mcp_deny: ["mcp__docs__read", "mcp__a__b"],
-    };
-    const identity = identityOf(card, blocked);
-    expect(identity.runtime_config_snapshot.mcp_deny).toEqual([
-      "mcp__a__b",
-      "mcp__docs__read",
-    ]);
-    expect(identity.profile_digest).not.toBe(identityOf().profile_digest);
-    expect(deriveReleaseId(identity)).not.toBe(deriveReleaseId(identityOf()));
-    expect(() => releaseOf(identity)).not.toThrow();
-  });
-});
-
 describe("resolveReleaseContent", () => {
-  test("pins the profile digest and a snapshot without the credential", () => {
+  test("names the connection and pins a snapshot without the credential", () => {
     const identity = identityOf();
-    expect(identity.profile_digest).toBe(profileFingerprint(profile));
+    expect(identity.connection_id).toBe("conn-1");
     const text = JSON.stringify(identity);
     expect(text).not.toContain("catalog-provider-key");
     expect(identity.runtime_config_snapshot).toEqual({
@@ -345,6 +229,7 @@ describe("resolveReleaseContent", () => {
       tools: ["Read", "Grep", "Edit", "Bash"],
       permission_mode: "default",
       provider: { kind: "litellm", endpoint: "https://litellm.invalid" },
+      runtime: { kind: "claude_agent_sdk", version: "0.3.270" },
       language: "ko",
     });
     expect(() => releaseOf(identity)).not.toThrow();
@@ -361,32 +246,57 @@ describe("resolveReleaseContent", () => {
     );
   });
 
-  test("a changed profile is a different digest and so a different release", () => {
-    const edited = { ...profile, permission_mode: "acceptEdits" as const };
-    expect(identityOf(card, edited).profile_digest).not.toBe(
-      identityOf().profile_digest,
-    );
-    expect(deriveReleaseId(identityOf(card, edited))).not.toBe(
-      deriveReleaseId(identityOf()),
-    );
-    const rotated: CatalogProfile = {
-      ...profile,
-      provider: {
-        kind: "litellm",
-        endpoint: "https://litellm.invalid",
-        auth: {
-          kind: "api_key",
-          value: "rotated-provider-key",
-          ref: { value_env: "PROVIDER_KEY" },
+  test("a changed run is a different release; a rotated credential is not", () => {
+    for (const edited of [
+      { ...run, permission_mode: "auto" as const },
+      { ...run, runtime: { ...run.runtime, version: "0.3.271" } },
+      { ...run, project_settings: { claude_md: true } },
+      {
+        ...run,
+        connection: {
+          ...run.connection,
+          provider: {
+            ...run.connection.provider,
+            endpoint: "https://other.invalid",
+          },
         },
       },
+    ]) {
+      expect(deriveReleaseId(identityOf(card, edited))).not.toBe(
+        deriveReleaseId(identityOf()),
+      );
+    }
+    const rotated: ReleaseRun = {
+      ...run,
+      connection: testConnection({
+        provider: {
+          kind: "litellm",
+          endpoint: "https://litellm.invalid",
+          auth: {
+            kind: "api_key",
+            value: "rotated-provider-key",
+            ref: { value_env: "PROVIDER_KEY" },
+          },
+        },
+        models: ["claude-sonnet-5", "claude-opus-5"],
+      }),
     };
     expect(deriveReleaseId(identityOf(card, rotated))).toBe(
       deriveReleaseId(identityOf()),
     );
   });
 
-  test("runs every tool the profile allows, whatever a card stored earlier lists or forbids", () => {
+  test("a repository's CLAUDE.md setting is pinned only when the run reads it", () => {
+    expect(
+      identityOf(card, { ...run, project_settings: { claude_md: true } })
+        .runtime_config_snapshot.project_settings,
+    ).toEqual({ claude_md: true });
+    expect(Object.keys(identityOf().runtime_config_snapshot)).not.toContain(
+      "project_settings",
+    );
+  });
+
+  test("runs every tool the runtime offers, whatever a card stored earlier lists or forbids", () => {
     const withTools = (capabilities: Record<string, unknown>) =>
       identityOf(storedAgentCardSchema.parse({ ...card, capabilities }));
     for (const capabilities of [
@@ -414,8 +324,7 @@ describe("resolveReleaseContent", () => {
         ...card,
         capabilities: { mcp: null, forbidden: [] },
       }),
-      "coding",
-      profile,
+      run,
     );
     const edited = resolveReleaseContent(
       storedAgentCardSchema.parse({
@@ -430,8 +339,7 @@ describe("resolveReleaseContent", () => {
           },
         },
       }),
-      "coding",
-      profile,
+      run,
     );
     expect(edited).toEqual(plain);
   });
@@ -473,8 +381,7 @@ describe("resolveReleaseContent", () => {
           ...card,
           capabilities: { ...card.capabilities, tool_policy: { per_tool } },
         }),
-        "coding",
-        profile,
+        run,
       );
     const refused = withPerTool({ mcp__github__request_push: "allow" });
     expect(!refused.ok && refused.error.field).toBe(
@@ -489,27 +396,26 @@ describe("resolveReleaseContent", () => {
     expect(withPerTool({ mcp__github_enterprise__x: "allow" }).ok).toBe(true);
   });
 
-  test("refuses a card on a model the profile does not run", () => {
+  test("refuses a card on a model the connection does not offer", () => {
     const resolved = resolveReleaseContent(
-      { ...card, model: "claude-opus-5" },
-      "coding",
-      profile,
+      { ...card, model: "claude-haiku-5" },
+      run,
     );
     expect(!resolved.ok && resolved.error.field).toBe("card.model");
+    expect(!resolved.ok && resolved.error.message).toBe(
+      "model claude-haiku-5 is not a model of connection conn-1",
+    );
   });
 
-  test("takes a card on any model the profile offers and runs the card's", () => {
-    const listed = { ...profile, models: ["claude-opus-5"] };
+  test("takes a card on any model the connection offers and runs the card's", () => {
     const resolved = resolveReleaseContent(
       { ...card, model: "claude-opus-5" },
-      "coding",
-      listed,
+      run,
     );
     if (!resolved.ok) throw new Error(resolved.error.message);
     expect(resolved.content.runtime_config_snapshot.model).toBe(
       "claude-opus-5",
     );
-    expect(resolved.content.profile_digest).toBe(profileFingerprint(profile));
   });
 });
 
@@ -538,7 +444,7 @@ describe("a card naming a remote MCP server", () => {
     },
   });
   const resolve = (value: AgentCard) =>
-    resolveReleaseContent(value, "coding", profile, servers);
+    resolveReleaseContent(value, run, servers);
 
   test("pins the server's allowed tools, and only those", () => {
     const resolved = resolve(mcpCard);
@@ -550,8 +456,8 @@ describe("a card naming a remote MCP server", () => {
   });
 
   test("a card without one resolves as it did before the catalog had any", () => {
-    expect(resolveReleaseContent(card, "coding", profile, servers)).toEqual(
-      resolveReleaseContent(card, "coding", profile),
+    expect(resolveReleaseContent(card, run, servers)).toEqual(
+      resolveReleaseContent(card, run),
     );
   });
 

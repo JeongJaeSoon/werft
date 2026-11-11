@@ -11,7 +11,6 @@ import {
   createPostgresCatalogRepositoryStore,
   createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
-  createPostgresInstallationProfileStore,
   createPostgresInstallationSettingsStore,
   createPostgresLinkedAccountStore,
   createPostgresSecretStore,
@@ -25,7 +24,6 @@ import {
   createPostgresSlackInboundEventStore,
   createPostgresSlackOutboxStore,
   createPostgresSurfaceBindingStore,
-  createPostgresWorkspaceProfileStore,
   type Database,
   getSlackAppSettings,
   newSessionGitHubReaders,
@@ -44,10 +42,11 @@ import {
 import {
   agentEnvNames,
   createAuthorizationPolicy,
-  createProfileRegistry,
+  createCatalogRegistry,
   createSessionService,
   installationLimitsFromEnv,
-  profileCatalog,
+  registryCatalog,
+  releaseModel,
   releaseNotRunnableReason,
   releaseStartable,
   repositoryView,
@@ -61,7 +60,6 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import type { Pool } from "pg";
 import {
   loadSecretKey,
-  profileViewSources,
   refuseFileCatalog,
   runtimeVersionsFromEnv,
 } from "../api/catalog-config.ts";
@@ -125,18 +123,16 @@ export function slackRoleStartup(environment: Environment): {
   return { secretKey: loadSecretKey(environment) };
 }
 
-export function slackProfileCatalog(db: Database, environment: Environment) {
+export function slackCatalog(db: Database, environment: Environment) {
   const runtimeVersions = runtimeVersionsFromEnv(environment);
-  return profileCatalog(
+  return registryCatalog(
     {
       repositories: {},
       ...(runtimeVersions === undefined
         ? {}
         : { runtime_versions: runtimeVersions }),
     },
-    createProfileRegistry({
-      workspaces: createPostgresWorkspaceProfileStore(db),
-      installations: createPostgresInstallationProfileStore(db),
+    createCatalogRegistry({
       repositories: createPostgresCatalogRepositoryStore(db),
       settings: {
         read: async () =>
@@ -145,7 +141,6 @@ export function slackProfileCatalog(db: Database, environment: Environment) {
             () => SLACK_ROLE_CREDENTIAL,
           ),
       },
-      sources: profileViewSources(environment),
     }),
     // The api's catalog, so a release the console's repositories allow runs
     // here too.
@@ -177,14 +172,11 @@ export function slackSessionHandler(deps: {
   notices?: SlackNoticeSink;
   slackApiUrl?: string;
   inbox?: Pick<SlackInboundEventStore, "renew">;
-  /**
-   * The pass's catalog, already read. No timer reads it again: the pass
-   * child outlives the pass, and lookups of an unread id read it themselves.
-   */
-  profiles?: ReturnType<typeof slackProfileCatalog>;
+  /** The pass's catalog, already read. No timer reads it again. */
+  catalog?: ReturnType<typeof slackCatalog>;
 }): SlackInboundHandler {
   const { db, environment, logger } = deps;
-  const catalog = deps.profiles ?? slackProfileCatalog(db, environment);
+  const catalog = deps.catalog ?? slackCatalog(db, environment);
   const credentials = createPostgresCredentialBindingStore(db);
   const authorization = createAuthorizationPolicy({
     identity: createDatabaseIdentityReader(db),
@@ -205,7 +197,7 @@ export function slackSessionHandler(deps: {
     }),
     reader: createPostgresSessionReader(db, {
       logger,
-      neutralize: eventNeutralizer(catalog, logger),
+      neutralize: eventNeutralizer(logger),
     }),
     catalog,
     releases: {
@@ -254,7 +246,7 @@ export function slackSessionHandler(deps: {
         release !== null &&
         !releaseStartable(
           catalog,
-          release,
+          { ...release, model: releaseModel(release) },
           await agentGitHubSettingsOf(db, release.agent_id),
           await workspaceRepositoryCeiling(db, workspaceId),
         )
@@ -297,10 +289,10 @@ export async function main(
     const started = Date.now();
     const deadline = started + settings.passBudgetMs;
     const { secretKey } = slackRoleStartup(environment);
-    const profiles = slackProfileCatalog(db, environment);
-    await profiles.workspace_profiles.refresh();
+    const catalog = slackCatalog(db, environment);
+    await catalog.refresh();
     const outbox = createPostgresSlackOutboxStore(db, {
-      neutralize: eventNeutralizer(profiles, logger),
+      neutralize: eventNeutralizer(logger),
     });
     const drain = await drainSlackInbox({
       inbox: createPostgresSlackInboundEventStore(db),
@@ -312,7 +304,7 @@ export async function main(
         secretKey,
         leaseMs: settings.leaseMs,
         notices: wireSlackOutboxNotices(outbox),
-        profiles,
+        catalog,
       }),
       logger,
       batchSize: settings.batchSize,

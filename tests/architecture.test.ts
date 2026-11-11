@@ -232,12 +232,11 @@ function kindMentionAllowed(hit: string): boolean {
     /\/(test-support|fixtures)\//.test(path) ||
     // Testing helpers, one directory at a time so a new one is a decision.
     path.startsWith("apps/worker/src/testing/") ||
+    // The spec a test release pins (agent release spec helpers).
+    path.startsWith("packages/db/src/testing/") ||
+    path.startsWith("packages/platform/src/testing/") ||
     // Example payloads in the user documentation.
-    /^apps\/docs\/content\/.*\.mdx$/.test(path) ||
-    // A workspace profile whose base profile is gone keeps no kind of its
-    // own; reported to the program lead, not fixed under 94S-661.
-    (path === "packages/platform/src/sessions/workspace-profiles.ts" &&
-      text.join(":") === '          runtime_kind: "claude_agent_sdk" as const,')
+    /^apps\/docs\/content\/.*\.mdx$/.test(path)
   );
 }
 
@@ -275,6 +274,9 @@ function engineShapeReadAllowed(hit: string): boolean {
     /\.test\.tsx?$/.test(path) ||
     /\/(test-support|fixtures)\//.test(path) ||
     path.startsWith("apps/worker/src/testing/") ||
+    // The spec a test release pins (agent release spec helpers).
+    path.startsWith("packages/db/src/testing/") ||
+    path.startsWith("packages/platform/src/testing/") ||
     // The fake model and the egress proxy read Messages API bodies, not events.
     path === "packages/testkit/src/scripted-messages.ts" ||
     (path === "apps/egress-proxy/src/usage.ts" &&
@@ -2297,12 +2299,6 @@ describe("architecture", () => {
           "packages/adapters/runtimes/c/src/ok.ts",
           `import "${claudeSdk}";\nexport const k = "claude_agent_sdk";\n`,
         ],
-        // The allowed line passes; a second use in the same file does not.
-        [
-          "packages/platform/src/sessions/workspace-profiles.ts",
-          '          runtime_kind: "claude_agent_sdk" as const,\n' +
-            'export const fallback = "claude_agent_sdk";\n',
-        ],
         [
           "packages/contracts/src/shared/runtime-kind.ts",
           '  "claude_agent_sdk",\nif (kind === "claude_agent_sdk") {}\n',
@@ -2336,7 +2332,6 @@ describe("architecture", () => {
       ).toEqual([
         "packages/b/src/pick.ts:1",
         "packages/contracts/src/shared/runtime-kind.ts:2",
-        "packages/platform/src/sessions/workspace-profiles.ts:2",
       ]);
     } finally {
       await rm(fixture, { recursive: true, force: true });

@@ -1,3 +1,4 @@
+import type { ModelFamilies } from "../sessions/catalog.ts";
 import type {
   SettingsEntries,
   SettingsImportAdd,
@@ -59,14 +60,12 @@ export interface SettingsDocumentStore {
   >;
 
   /**
-   * What runs on `profileIds` right now, and whether a workspace's judge
-   * setting names `connectionId`: the active agents whose active release
-   * runs one of them, and the sessions not yet `failed` or `stopped` whose
-   * profile, or whose current attempt's profile, is one of them. Counts
+   * What runs on `connectionId` right now, and whether a workspace's judge
+   * setting names it: the active agents whose active release runs on it,
+   * and the sessions not yet `failed` or `stopped` whose spec does. Counts
    * only; read when a person asks what disabling a connection would stop.
    */
   connectionUse(input: {
-    profileIds: readonly string[];
     connectionId: string;
   }): Promise<{ agents: number; sessions: number; judgeNamed: boolean }>;
 
@@ -107,12 +106,26 @@ export interface SettingsDocumentStore {
   /**
    * Records the operator's judgement of whether the connection's models run
    * the auto-mode classifier. Changes that column only, never the stored
-   * definition (the profile fingerprint hashes it). A disabled connection is
-   * refused. Running sessions keep the claim they hold; the next claim reads it.
+   * definition. A disabled connection is refused. A release made after it
+   * reads it; sessions keep the spec they hold.
    */
   setConnectionAutoMode(
     id: string,
     autoMode: "supported" | "unsupported" | "unknown",
+    actor: TeamActor,
+  ): Promise<SettingsConsoleResult>;
+  /**
+   * The models an agent may name on the connection and their series. Beside
+   * the definition, never in it: the list changes over a connection's life
+   * where what it points at does not. A disabled connection is refused.
+   * `model_families` left out keeps the stored series; `null` clears them.
+   */
+  setConnectionModels(
+    id: string,
+    models: {
+      models: readonly string[];
+      model_families?: ModelFamilies | null;
+    },
     actor: TeamActor,
   ): Promise<SettingsConsoleResult>;
   /** For a repository: removed. Never undone; the id stays taken. */
@@ -148,6 +161,9 @@ export type SettingsRow = {
   disabledAt: Date | null;
   /** A connection's judged auto mode; absent on the other kinds. */
   autoMode?: "supported" | "unsupported" | "unknown";
+  /** A connection's models and their series; absent on the other kinds. */
+  models?: readonly string[];
+  modelFamilies?: ModelFamilies | null;
 };
 
 export type SettingsConsoleResult =

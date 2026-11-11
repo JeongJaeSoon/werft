@@ -1,5 +1,5 @@
 import { describe, expect } from "bun:test";
-import { Api, e2eEnv } from "../e2e/client.ts";
+import { Api, e2eStack } from "../e2e/client.ts";
 import { docker, serviceContainer } from "./docker.ts";
 import { scenario, scriptId } from "./engine.ts";
 import { engineFromEnv } from "./engines.ts";
@@ -12,7 +12,9 @@ import { engineFromEnv } from "./engines.ts";
  * tokens costs more than that on any metered model.
  */
 const engine = engineFromEnv();
-const api = new Api(e2eEnv({ needsMessages: false }));
+const api = new Api(
+  await e2eStack({ needsMessages: false, connectionId: engine.connectionId }),
+);
 const TIMEOUT = 600_000;
 
 /**
@@ -61,7 +63,6 @@ describe(`cost limit on ${engine.runtimeKind}`, () => {
           usage: { input_tokens: 100_000, output_tokens: 1_000 },
         }),
         undefined,
-        engine.profileId,
         engine.repositoryId,
       );
       expect(created.status).toBe(201);

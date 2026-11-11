@@ -8,8 +8,6 @@ import { receiptIdSchema } from "../shared/index.ts";
  * (`unknown_tool`, `too_many_rules`, `settings_too_large`, ...).
  */
 export const ENGINE_SETTINGS_REFUSAL_VALUES = [
-  // Saving is closed installation-wide; rules already saved still apply.
-  "engine_settings_writes_closed",
   // The installed tool catalogs read the same rule as different tools.
   "engine_settings_catalog_ambiguous",
   // No tool catalog is installed, so nothing can check the rules.
@@ -45,8 +43,6 @@ export const workspaceEngineSettingsResponseSchema = z
     settings: storedEngineSettingsSchema,
     /** The row's revision; null while the workspace has saved nothing. */
     settings_revision: revisionSchema.nullable(),
-    /** Whether a save is accepted now. Reading is always open. */
-    writes_open: z.boolean(),
   })
   .strict();
 export type WorkspaceEngineSettingsResponse = z.infer<
@@ -64,18 +60,7 @@ export const agentEngineSettingsResponseSchema = z
         settings_revision: revisionSchema.nullable(),
       })
       .strict(),
-    /**
-     * Restrictions the agent inherited from its profile, written by the
-     * operator and never by this API: counts only, not the rules.
-     */
-    inherited: z
-      .object({
-        entries: z.number().int().nonnegative(),
-        rules: z.number().int().nonnegative(),
-      })
-      .strict(),
     reach: engineSettingsAllowReachSchema,
-    writes_open: z.boolean(),
   })
   .strict();
 export type AgentEngineSettingsResponse = z.infer<

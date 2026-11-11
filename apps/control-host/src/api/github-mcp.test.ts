@@ -11,6 +11,11 @@ import {
 } from "@werft-ai/db";
 import { fixtureTeam } from "@werft-ai/db/testing/fixture-team";
 import { launchSession } from "@werft-ai/db/testing/launches";
+import {
+  releaseSpecColumns,
+  TEST_CONNECTION_ID,
+  TEST_MODEL,
+} from "@werft-ai/db/testing/spec-pins";
 import { createLogger } from "@werft-ai/observability";
 import {
   acceptAllCheckpoints,
@@ -20,11 +25,11 @@ import {
   githubMcpBinding,
   type PushActor,
   type SessionCatalog,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { eq } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
+import { testCatalog } from "../testing/catalog.ts";
 import {
   createEgressAuthorizer,
   EGRESS_AUTHORIZER_PATH,
@@ -38,30 +43,20 @@ const GRANT_KEY = githubMcpGrantKeyOf({
   token: AUTHORIZER_BEARER,
 });
 
-const catalog: SessionCatalog = withSeededInstallation({
-  profiles: {
-    coding: {
-      runtime_kind: "claude_agent_sdk",
-      runtime_version: "0.3.270",
-      model: "claude-sonnet-5",
-      tools: ["Read"],
-      permission_mode: "default",
-      provider: {
-        kind: "anthropic",
-        endpoint: "https://api.anthropic.invalid",
-        auth: {
-          kind: "api_key",
-          value: "catalog-provider-key",
-          ref: { value_env: "PROVIDER_KEY" },
-        },
-      },
+const catalog: SessionCatalog = testCatalog({
+  provider: {
+    kind: "anthropic",
+    endpoint: "https://api.anthropic.invalid",
+    auth: {
+      kind: "api_key",
+      value: "catalog-provider-key",
+      ref: { value_env: "PROVIDER_KEY" },
     },
   },
   repositories: {
     app: {
       url: "https://git.invalid/agent/app.git",
       branch: "main",
-      profiles: ["coding"],
       auth: { kind: "github_app", registered: true } as const,
     },
   },
@@ -214,8 +209,8 @@ async function seeded(
     agentId,
     versionId,
     cardSha256: "0".repeat(64),
-    runtimeProfileId: "coding",
-    profileDigest: "digest",
+    connectionId: TEST_CONNECTION_ID,
+    ...releaseSpecColumns({ tools: ["Read"] }),
     runtimeConfigSnapshot: { tools: ["Read"] },
     effectiveTools: { tools: ["Read"], mcp: [] },
     policyPins: {
@@ -250,7 +245,7 @@ async function seeded(
     },
     idempotencyKey: randomUUID(),
     payloadHash: "hash",
-    profileId: "coding",
+    model: TEST_MODEL,
     repository: {
       id: "app",
       url: "https://git.invalid/agent/app.git",

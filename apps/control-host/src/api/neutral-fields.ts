@@ -1,11 +1,6 @@
 import { type Database, fillNeutralFields } from "@werft-ai/db";
 import type { StructuredLogger } from "@werft-ai/observability";
-import {
-  type CatalogProfileView,
-  createNeutralizer,
-  type NeutralizeEvent,
-  type ProfileLookup,
-} from "@werft-ai/platform";
+import { createNeutralizer, type NeutralizeEvent } from "@werft-ai/platform";
 import { installedEventCodecs } from "@werft-ai/runtime-codecs";
 
 // As the tool call projection (reconciler/main.ts): a batch this size stays
@@ -17,23 +12,20 @@ const FILL_RETRY_MS = 30_000;
 
 /**
  * The installed codecs' neutralizer. A session whose runtime cannot be told
- * keeps its events as stored, with a warning once per profile; an event
+ * keeps its events as stored, with a warning once per runtime kind; an event
  * whose codec output the contract refuses is kept too, with a warning.
  */
 export function eventNeutralizer(
-  catalog: ProfileLookup<CatalogProfileView>,
   logger: Pick<StructuredLogger, "warn">,
 ): NeutralizeEvent {
   const warned = new Set<string | null>();
-  return createNeutralizer(installedEventCodecs, catalog, {
-    unknown: (profileId) => {
-      if (warned.has(profileId)) return;
-      warned.add(profileId);
+  return createNeutralizer(installedEventCodecs, {
+    unknown: (runtimeKind) => {
+      if (warned.has(runtimeKind)) return;
+      warned.add(runtimeKind);
       logger.warn(
         "No event codec for the session's runtime; events keep their stored fields",
-        {
-          profile_id: profileId,
-        },
+        { runtime_kind: runtimeKind },
       );
     },
     refused: (kind, event, reason) => {
@@ -54,8 +46,8 @@ export function eventNeutralizer(
  * as the process runs: history first, then whatever an older replica stores
  * meanwhile. Nothing waits on it; a replica that finds the fill held by
  * another tries again later. Each pass starts once `beforePass` resolves (the
- * workspace profiles read afresh): the cursor passes a row whose runtime it
- * could not tell, so the profiles have to be current first.
+ * catalog read afresh): the cursor passes a row whose runtime it could not
+ * tell, so the catalog has to be current first.
  */
 export function startNeutralFill(
   db: Database,

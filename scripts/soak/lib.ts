@@ -20,6 +20,8 @@ import { run } from "../../tests/d2-gate/harness.ts";
 export type SoakEnv = {
   apiImage: string;
   apiKey: string;
+  /** The owner's second key, which answers requests (`self_approval`). */
+  approveKey: string;
   apiUrl: string;
   chaosUrl: string;
   composeFiles: string[];
@@ -49,6 +51,7 @@ export function soakEnv(vars = process.env): SoakEnv {
   return {
     apiImage: need("API_IMAGE"),
     apiKey: need("SOAK_API_KEY"),
+    approveKey: need("SOAK_APPROVE_KEY"),
     apiUrl: need("SOAK_API_URL"),
     chaosUrl: need("SOAK_CHAOS_URL"),
     composeFiles: need("SOAK_COMPOSE_FILES").split(" ").filter(Boolean),

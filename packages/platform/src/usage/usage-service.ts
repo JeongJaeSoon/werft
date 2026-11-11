@@ -280,12 +280,10 @@ export function createUsageService(deps: {
           ? null
           : await reader.usageSummaryGroups(filter, period, query.group_by);
       const summary = grouped ?? (await reader.usageSummary(filter, period));
-      // An agent's name, or a profile's id, is on every session of it the
-      // caller reads; another person is named only to the installation
-      // reader.
+      // An agent's name is on every session of it the caller reads; another
+      // person is named only to the installation reader.
       const named = (id: string | null) =>
         query.group_by === "agent" ||
-        query.group_by === "profile" ||
         filter.kind === "installation" ||
         (filter.kind === "user" && id === filter.userId);
       return {

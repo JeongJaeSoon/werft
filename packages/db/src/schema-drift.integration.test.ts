@@ -50,7 +50,7 @@ const MIGRATIONS_ONLY = [
   // insert-only; a release takes its first approval and its first spec.
   "function agent_releases_approve_once() trigger language plpgsql volatility=v parallel=u body md5 db737d5f3eaabc9ffd18e671ab6bd4da",
   "function agents_reject_mutation() trigger language plpgsql volatility=v parallel=u body md5 f434237a3126c21bab918af2558fbc88",
-  // 0255: the gate the migration that deletes the profile tables calls.
+  // 0255: a restore names only checkpoints it verified.
   "function assert_checkpoint_restore_verified(retained text[]) void language plpgsql volatility=v parallel=u body md5 64da19d35e4bc31cabef612fb0cf91cf",
   "function authz_decisions_refuse_update() trigger language plpgsql volatility=v parallel=u body md5 f3f5febb7e684f1ec6da6675a5dc196c",
   // 0225: every installation settings write raises the one generation.
@@ -78,8 +78,8 @@ const MIGRATIONS_ONLY = [
   // 0127, capped by 0129: a session's provider tokens are counted as usage
   // rows are inserted; usage_breakdown_rollup also keeps session_model_usage.
   "function sessions_count_provider_tokens() trigger language plpgsql volatility=v parallel=u body md5 d379ea7e669588977ef342b8f7d882d5",
-  // 0259: a live session needs a spec pin once the cutover flag is on.
-  "function sessions_pin_required() trigger language plpgsql volatility=v parallel=u body md5 dabbdd14148a7ec61247fb6977ac869f",
+  // 0259, 0270: a live session of a release needs a spec pin on its model.
+  "function sessions_pin_required() trigger language plpgsql volatility=v parallel=u body md5 8c7a7d0511d31a3e8cb3167922d9b680",
   "function slack_thread_status_of_row() trigger language plpgsql volatility=v parallel=u body md5 82b785c73c74e41ac9d4ca426506e7d3",
   "function slack_thread_status_of_session() trigger language plpgsql volatility=v parallel=u body md5 2dfe6ae6f5da387e822bf624ebaeb999",
   "function slack_thread_status_touch(session uuid) void language sql volatility=v parallel=u body md5 c4d8bde1fd53798d7cd4a18e5187512f",
@@ -118,7 +118,6 @@ const MIGRATIONS_ONLY = [
   "trigger CREATE TRIGGER checkpoint_outputs_count_truncate AFTER TRUNCATE ON public.checkpoint_outputs FOR EACH STATEMENT EXECUTE FUNCTION checkpoint_output_objects_clear() enabled=O",
   "trigger CREATE TRIGGER checkpoints_count_release AFTER UPDATE ON public.checkpoints REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION checkpoint_output_objects_release() enabled=O",
   "trigger CREATE TRIGGER credential_bindings_exclusive_target BEFORE INSERT OR UPDATE ON public.credential_bindings FOR EACH ROW EXECUTE FUNCTION credential_bindings_exclusive_target() enabled=O",
-  "trigger CREATE TRIGGER installation_profiles_settings_generation AFTER INSERT OR DELETE OR UPDATE ON public.installation_profiles FOR EACH ROW EXECUTE FUNCTION bump_settings_generation() enabled=O",
   "trigger CREATE TRIGGER mcp_servers_settings_generation AFTER INSERT OR DELETE OR UPDATE ON public.mcp_servers FOR EACH ROW EXECUTE FUNCTION bump_settings_generation() enabled=O",
   "trigger CREATE TRIGGER provider_connections_settings_generation AFTER INSERT OR DELETE OR UPDATE ON public.provider_connections FOR EACH ROW EXECUTE FUNCTION bump_settings_generation() enabled=O",
   "trigger CREATE TRIGGER provider_usage_count_delete AFTER DELETE ON public.provider_usage REFERENCING OLD TABLE AS removed_rows FOR EACH STATEMENT EXECUTE FUNCTION provider_usage_totals_recount() enabled=O",

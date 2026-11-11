@@ -12,7 +12,6 @@ import {
   type WorkerGateway,
   WorkerGatewayError,
   type WorkerPrincipal,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import {
   createTempDatabase,
@@ -39,6 +38,11 @@ import {
   unassignedSessions,
 } from "./schema.ts";
 import { confirmExecutionGone, launchSession } from "./testing/launches.ts";
+import {
+  fixtureRelease,
+  TEST_MODEL,
+  testSessionCatalog,
+} from "./testing/spec-pins.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -62,30 +66,21 @@ integration("installation limits on PostgreSQL", () => {
   const gatewayWith = (sessionTokenLimit: number | null) =>
     createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
-      catalog: withSeededInstallation({
-        profiles: {
-          "claude-coding-v1": {
-            runtime_kind: "claude_agent_sdk",
-            runtime_version: "0.3.270",
-            model: "claude-sonnet-5",
-            tools: ["Read"],
-            permission_mode: "default",
-            provider: {
-              kind: "litellm",
-              endpoint: "https://litellm.invalid",
-              auth: {
-                kind: "api_key",
-                value: "catalog-provider-key",
-                ref: { value_env: "PROVIDER_KEY" },
-              },
-            },
+      catalog: testSessionCatalog({
+        provider: {
+          kind: "litellm",
+          endpoint: "https://litellm.invalid",
+          auth: {
+            kind: "api_key",
+            value: "catalog-provider-key",
+            ref: { value_env: "PROVIDER_KEY" },
           },
         },
+        models: ["claude-sonnet-5"],
         repositories: {
           "sample-app": {
             url: "https://example.invalid/app.git",
             branch: "main",
-            profiles: ["claude-coding-v1"],
             auth: { kind: "github_app", registered: true },
           },
         },
@@ -124,7 +119,7 @@ integration("installation limits on PostgreSQL", () => {
       connectForLock: () => pool.connect(),
     });
 
-  function create(
+  async function create(
     ownerId: string,
     message: string,
     limits: InputLimits = roomy,
@@ -135,7 +130,8 @@ integration("installation limits on PostgreSQL", () => {
       principal: { ownerId },
       idempotencyKey,
       payloadHash: `hash-${message}`,
-      profileId: "claude-coding-v1",
+      agentReleaseId: await fixtureRelease(db),
+      model: TEST_MODEL,
       repository: {
         id: "sample-app",
         url: "https://example.invalid/app.git",
@@ -162,7 +158,7 @@ integration("installation limits on PostgreSQL", () => {
   }
 
   async function queuedSession(partition = `p-${crypto.randomUUID()}`) {
-    const ownerId = `owner-${crypto.randomUUID()}`;
+    const ownerId = crypto.randomUUID();
     const result = await create(ownerId, "first input");
     if (result.outcome !== "accepted") throw new Error(result.outcome);
     await db
@@ -340,7 +336,7 @@ integration("installation limits on PostgreSQL", () => {
 
   describe("installation storage", () => {
     test("charges the UTF-8 bytes of each accepted message and refuses the one past the limit", async () => {
-      const ownerId = `owner-${crypto.randomUUID()}`;
+      const ownerId = crypto.randomUUID();
       const message = "안녕하세요";
       const size = Buffer.byteLength(message, "utf8");
       const before = await storedBytes();
@@ -371,7 +367,7 @@ integration("installation limits on PostgreSQL", () => {
     });
 
     test("a replay is answered even when storage is full", async () => {
-      const ownerId = `owner-${crypto.randomUUID()}`;
+      const ownerId = crypto.randomUUID();
       const key = crypto.randomUUID();
       const first = await create(ownerId, "kept", roomy, key);
       expect(first.outcome).toBe("accepted");
@@ -382,7 +378,7 @@ integration("installation limits on PostgreSQL", () => {
     });
 
     test("concurrent acceptances racing for the last bytes admit exactly what fits", async () => {
-      const ownerId = `owner-${crypto.randomUUID()}`;
+      const ownerId = crypto.randomUUID();
       const message = "x".repeat(10);
       const before = await storedBytes();
       const limits = { ...roomy, storageLimitBytes: before + 3 * 10 };

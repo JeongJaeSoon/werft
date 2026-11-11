@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   type AgentCard,
   AGENT_CARD_LANGUAGE_VALUES as CONTRACT_LANGUAGES,
-  type ProfileSummary,
+  type ConnectionOption,
 } from "@werft-ai/contracts";
 import {
   AGENT_CARD_LANGUAGE_VALUES,
@@ -11,20 +11,14 @@ import {
   draftFromCard,
   EMPTY_DRAFT,
   modelOptions,
-  previewProfiles,
 } from "./agent-card-form.tsx";
 
-const profile = (id: string, model: string): ProfileSummary => ({
+const connection = (id: string, models: string[]): ConnectionOption => ({
   id,
-  source: "operator",
-  model,
-  models: [model],
-  tools: [],
-  permission_mode: "default",
-  runtime_kind: "claude_agent_sdk",
-  runtime_version: "1",
-  billing: "none",
-  repository_mode: "required",
+  kind: "anthropic",
+  billing: "metered",
+  models,
+  model_successors: {},
 });
 
 const CARD: AgentCard = {
@@ -63,31 +57,27 @@ describe("카드 폼 변환", () => {
     expect<unknown>(cardFromDraft(draftFromCard(base), base)).toEqual(base);
   });
 
-  test("모델 선택지는 카탈로그의 모델을 한 번씩, 그 모델을 쓰는 profile과 함께 둔다", () => {
-    const profiles = [
-      profile("coding-fast", "claude-haiku-5"),
-      profile("coding-local", "claude-sonnet-5"),
-      profile("coding-review", "claude-sonnet-5"),
-    ];
-    expect(modelOptions(profiles, "")).toEqual([
-      { model: "claude-haiku-5", profileIds: ["coding-fast"] },
-      {
-        model: "claude-sonnet-5",
-        profileIds: ["coding-local", "coding-review"],
-      },
+  test("모델 선택지는 연결이 제공하는 모델을 하나씩 둔다", () => {
+    const main = connection("anthropic-main", [
+      "claude-haiku-5",
+      "claude-sonnet-5",
     ]);
-    expect(modelOptions(profiles, "claude-sonnet-5")).toHaveLength(2);
+    expect(modelOptions(main, "")).toEqual([
+      { model: "claude-haiku-5", offered: true },
+      { model: "claude-sonnet-5", offered: true },
+    ]);
+    expect(modelOptions(main, "claude-sonnet-5")).toHaveLength(2);
   });
 
-  test("카탈로그에 없는 지금 모델은 profile 없는 선택지로 남는다", () => {
+  test("연결이 제공하지 않는 지금 모델은 제공되지 않는 선택지로 남는다", () => {
     expect(
-      modelOptions([profile("coding-local", "claude-sonnet-5")], "gpt-x"),
+      modelOptions(connection("anthropic-main", ["claude-sonnet-5"]), "gpt-x"),
     ).toEqual([
-      { model: "claude-sonnet-5", profileIds: ["coding-local"] },
-      { model: "gpt-x", profileIds: [] },
+      { model: "claude-sonnet-5", offered: true },
+      { model: "gpt-x", offered: false },
     ]);
-    expect(modelOptions([], "gpt-x")).toEqual([
-      { model: "gpt-x", profileIds: [] },
+    expect(modelOptions(undefined, "gpt-x")).toEqual([
+      { model: "gpt-x", offered: false },
     ]);
   });
 
@@ -200,48 +190,5 @@ describe("카드 폼 변환", () => {
       });
     }
     expect(draftFromCard({ ...CARD, language: "ko" }).language).toBe("ko");
-  });
-});
-
-describe("미리보기 프로필", () => {
-  const withTools = (
-    id: string,
-    tools: string[],
-    over: Partial<ProfileSummary> = {},
-  ): ProfileSummary => ({
-    ...profile(id, "claude-sonnet-5"),
-    repository_mode: "optional",
-    tools,
-    ...over,
-  });
-  const wide = withTools("wide", ["Read", "Edit", "Bash"]);
-  const narrow = withTools("narrow", ["Read", "Edit"]);
-  const required = withTools("required", ["Read", "Bash"], {
-    repository_mode: "required",
-  });
-  const otherModel = withTools("haiku", ["Read"], {
-    model: "claude-haiku-5",
-    models: ["claude-haiku-5"],
-  });
-  const secondModel = withTools("both", ["Read"], {
-    model: "claude-haiku-5",
-    models: ["claude-haiku-5", "claude-sonnet-5"],
-  });
-  const profiles = [wide, required, otherModel, narrow, secondModel];
-  const releasable = (p: ProfileSummary) => p.repository_mode !== "required";
-
-  test("미리보기 후보는 카드 모델을 돌리는 프로필이고, 마법사는 릴리스할 수 있는 것을 먼저 둔다", () => {
-    expect(
-      previewProfiles(profiles, "claude-sonnet-5").map((p) => p.id),
-    ).toEqual(["wide", "required", "narrow", "both"]);
-    expect(
-      previewProfiles(profiles, "claude-sonnet-5", releasable).map((p) => p.id),
-    ).toEqual(["wide", "narrow", "both"]);
-    // None it can release: the flow sends that card to the releases tab.
-    expect(
-      previewProfiles([required], "claude-sonnet-5", releasable).map(
-        (p) => p.id,
-      ),
-    ).toEqual(["required"]);
   });
 });

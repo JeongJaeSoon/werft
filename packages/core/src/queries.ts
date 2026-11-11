@@ -16,12 +16,12 @@ import type {
   ListAdministeredAgentsResponse,
   ListAgentsResponse,
   ListApiKeysResponse,
+  ListConnectionOptionsResponse,
   ListInvitesResponse,
   ListLinkedAccountsResponse,
   ListMembersResponse,
   ListMyTeamsResponse,
   ListPendingRequestsResponse,
-  ListProfilesResponse,
   ListPushRequestsResponse,
   ListSessionsResponse,
   ListTeamsResponse,
@@ -161,8 +161,8 @@ export function queryKeysOf(client: ApiClient) {
     // every agent change refreshes them too.
     agentPages: (q: string | undefined) =>
       [s, "agents", { pages: q ?? null }] as const,
-    agentsOnProfile: (profileId: string) =>
-      [s, "agents", { profile: profileId }] as const,
+    agentsOnConnection: (connectionId: string) =>
+      [s, "agents", { connection: connectionId }] as const,
     agentCounts: [s, "agents", { counts: true }] as const,
     agentSummaries: (ids: readonly string[]) =>
       [s, "agents", { ids: [...ids].sort() }] as const,
@@ -177,7 +177,7 @@ export function queryKeysOf(client: ApiClient) {
       [s, "teams", { pages: q ?? null }] as const,
     linkedAccounts: [s, "linked-accounts"] as const,
     apiKeys: [s, "api-keys"] as const,
-    profiles: [s, "profiles"] as const,
+    connections: [s, "connections"] as const,
     team: (id: string) => [s, "teams", id] as const,
     sessions: [s, "sessions"] as const,
     // An object segment, so it never reads as a session id.
@@ -251,12 +251,14 @@ export function loginMethodsQuery(client: ApiClient) {
   });
 }
 
-/** Ceilings change rarely, so the list seldom moves under a page. */
-export function profilesQuery(client: ApiClient) {
+/** Connections change rarely, so the list seldom moves under a page. */
+export function connectionsQuery(client: ApiClient) {
   return queryOptions({
-    queryKey: queryKeysOf(client).profiles,
+    queryKey: queryKeysOf(client).connections,
     queryFn: () =>
-      unwrap(client.GET("/v1/profiles")) as Promise<ListProfilesResponse>,
+      unwrap(
+        client.GET("/v1/connections"),
+      ) as Promise<ListConnectionOptionsResponse>,
     retry: false,
     staleTime: 5 * 60_000,
   });
@@ -455,17 +457,20 @@ export function agentPagesQuery(client: ApiClient, q?: string) {
   });
 }
 
-/** The agents whose active release runs on a profile, a page at a time. */
-export function agentsOnProfileQuery(client: ApiClient, profileId: string) {
+/** The agents whose active release runs on a connection, a page at a time. */
+export function agentsOnConnectionQuery(
+  client: ApiClient,
+  connectionId: string,
+) {
   return infiniteQueryOptions({
-    queryKey: queryKeysOf(client).agentsOnProfile(profileId),
+    queryKey: queryKeysOf(client).agentsOnConnection(connectionId),
     queryFn: ({ pageParam }) =>
       unwrap(
         client.GET("/v1/agents", {
           params: {
             query: {
               include: "summary",
-              runtime_profile_id: profileId,
+              connection_id: connectionId,
               ...(pageParam ? { cursor: pageParam } : {}),
             },
           },

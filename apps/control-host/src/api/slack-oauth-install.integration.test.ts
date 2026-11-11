@@ -40,6 +40,10 @@ import {
 } from "@werft-ai/db";
 import { fixtureTeam } from "@werft-ai/db/testing/fixture-team";
 import {
+  releaseSpecColumns,
+  TEST_CONNECTION_ID,
+} from "@werft-ai/db/testing/spec-pins";
+import {
   callerFor,
   createAuthorizationPolicy,
   MANAGEMENT_ROLES,
@@ -195,8 +199,8 @@ integration(
         agentId,
         versionId,
         cardSha256: "0".repeat(64),
-        runtimeProfileId: "coding",
-        profileDigest: "digest",
+        connectionId: TEST_CONNECTION_ID,
+        ...releaseSpecColumns(),
         runtimeConfigSnapshot: {},
         effectiveTools: [],
       });

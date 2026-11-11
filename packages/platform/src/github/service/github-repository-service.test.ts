@@ -13,10 +13,6 @@ import type {
   CatalogRepositoryRow,
   CatalogRepositoryStore,
 } from "../../ports/catalog-repository-store.ts";
-import {
-  ceilingAppRepositories,
-  profileAllowsRepository,
-} from "../../sessions/catalog.ts";
 import { SessionServiceError } from "../../sessions/session-service.ts";
 import {
   GitHubAppCheckError,
@@ -148,7 +144,6 @@ const ROW = {
   name: "widget",
   url: "https://github.com/acme/widget.git",
   branch: "main",
-  profiles: null,
   source: "selection",
   version: 1,
   created_at: "",
@@ -195,7 +190,6 @@ function serviceWith(
           name: input.name,
           url: input.url,
           branch: input.branch,
-          profiles: null,
           source: "selection",
           version: 1,
           created_at: "",
@@ -485,7 +479,7 @@ describe("the workspace's page of App installations", () => {
     expect((await agentPage()).unavailable).toBe("no_author_app");
   });
 
-  test("the picker follows the workspace ceiling, not a release profile", async () => {
+  test("the picker follows the workspace ceiling, not a release", async () => {
     const { agentPage, pick } = serviceWith({
       async installationRepositoriesPage() {
         return { repositories: [], totalCount: 0 };
@@ -557,7 +551,7 @@ describe("the agent's repositories read as owner/repo", () => {
     ]);
   });
 
-  test("a row with an App of its own is a choice only where the ceiling names it", async () => {
+  test("a row with an App of its own is a choice under `installed`, and under a list only where named", async () => {
     const OWN = {
       ...ROW,
       id: "ghe",
@@ -570,12 +564,7 @@ describe("the agent's repositories read as owner/repo", () => {
       ((await agentPage()).all_repositories ?? []).map(
         (entry) => entry.repository,
       );
-    // `installed` opens the console App's rows, not this one.
-    expect(await names()).toEqual(["acme/widget"]);
-    ceilingHeld = {
-      repository_ids: ["ghe"],
-      github_app_repositories: "installed",
-    };
+    // `installed` opens every row a GitHub App reaches, this one too.
     expect(await names()).toEqual(["acme/ghe", "acme/widget"]);
     // Under a list the console App's rows need naming too.
     ceilingHeld = {
@@ -739,46 +728,6 @@ const reasonOf = async (promise: Promise<unknown>) => {
     return (error.details as { reason_code?: string } | undefined)?.reason_code;
   }
 };
-
-describe("an installed ceiling", () => {
-  const ceiling = (apps: "listed" | "installed") => ({
-    profiles: {},
-    installation: new Map([
-      [
-        "c",
-        {
-          id: "c",
-          origin: "console" as const,
-          state: "usable" as const,
-          repository_ids: ["named"],
-          github_app_repositories: apps,
-        },
-      ],
-    ]),
-    repositories: {
-      named: { url: "https://github.com/acme/named.git", branch: "main" },
-      app: {
-        url: "https://github.com/acme/app.git",
-        branch: "main",
-        github_app: true as const,
-      },
-      pat: { url: "https://github.com/acme/pat.git", branch: "main" },
-    },
-  });
-
-  test("runs every console-App repository beside its list, and nothing else", () => {
-    const installed = ceiling("installed");
-    expect(profileAllowsRepository(installed, "c", "named")).toBe(true);
-    expect(profileAllowsRepository(installed, "c", "app")).toBe(true);
-    expect(profileAllowsRepository(installed, "c", "pat")).toBe(false);
-    expect(profileAllowsRepository(installed, "c", "missing")).toBe(false);
-    const listed = ceiling("listed");
-    expect(profileAllowsRepository(listed, "c", "named")).toBe(true);
-    expect(profileAllowsRepository(listed, "c", "app")).toBe(false);
-    expect(ceilingAppRepositories(listed, "c")).toBe("listed");
-    expect(ceilingAppRepositories(listed, "nope")).toBeNull();
-  });
-});
 
 describe("picking a GitHub App repository for an agent", () => {
   test("a public repository the installation does not cover reads by id but is refused", async () => {

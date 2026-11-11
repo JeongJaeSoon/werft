@@ -36,12 +36,11 @@ const PUSH = "22222222-2222-4222-8222-222222222222";
 const HEAD = `agent/${SESSION}`;
 const COMMIT = "a".repeat(40);
 const CATALOG = {
-  profiles: {},
+  connections: {},
   repositories: {
     app: {
       url: "https://github.com/acme/app.git",
       branch: "develop",
-      profiles: ["default"],
       auth: { kind: "github_app", registered: true },
     },
   },

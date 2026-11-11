@@ -14,13 +14,13 @@ import {
 import { migrate } from "@werft-ai/db/migrate";
 import { commitCheckpoint } from "@werft-ai/db/testing/checkpoints";
 import { launchSession } from "@werft-ai/db/testing/launches";
+import { TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
 import {
   type CheckpointService,
   createWorkerGateway,
   manifestRefFor,
   sessionObjectPrefix,
   type WorkerPrincipal,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import { finalizeCheckpoint } from "@werft-ai/platform/testing/checkpoints";
 import {
@@ -53,6 +53,8 @@ import {
 import { and, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { testCatalog } from "../testing/catalog.ts";
+import { releaseIn, TEST_OWNER } from "../testing/releases.ts";
 import {
   assertCheckpointBucketProtection,
   type CheckpointStorageConfig,
@@ -150,30 +152,20 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
     service = checkpoints.protocol as CheckpointService;
     gateway = createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
-      catalog: withSeededInstallation({
-        profiles: {
-          "claude-coding-v1": {
-            runtime_kind: "claude_agent_sdk",
-            runtime_version: "0.3.270",
-            model: "claude-sonnet-5",
-            tools: ["Read"],
-            permission_mode: "default",
-            provider: {
-              kind: "litellm",
-              endpoint: "https://litellm.invalid",
-              auth: {
-                kind: "api_key",
-                value: "catalog-provider-key",
-                ref: { value_env: "PROVIDER_KEY" },
-              },
-            },
+      catalog: testCatalog({
+        provider: {
+          kind: "litellm",
+          endpoint: "https://litellm.invalid",
+          auth: {
+            kind: "api_key",
+            value: "catalog-provider-key",
+            ref: { value_env: "PROVIDER_KEY" },
           },
         },
         repositories: {
           "sample-app": {
             url: "https://example.invalid/app.git",
             branch: "main",
-            profiles: ["claude-coding-v1"],
             auth: { kind: "github_app", registered: true } as const,
           },
         },
@@ -215,10 +207,11 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
       db,
     ).acceptInputAtomic({
       limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
-      principal: { ownerId: "owner-a" },
+      principal: { ownerId: TEST_OWNER },
       idempotencyKey: crypto.randomUUID(),
       payloadHash: "hash",
-      profileId: "claude-coding-v1",
+      agentReleaseId: await releaseIn(db),
+      model: TEST_MODEL,
       repository: {
         id: "sample-app",
         url: "https://example.invalid/app.git",
@@ -804,7 +797,7 @@ integration("API checkpoint composition on LocalStack and PostgreSQL", () => {
 
     // Not silent: the session detail and the event stream both carry it.
     const detail = await createPostgresSessionReader(db).getSession(
-      "owner-a",
+      TEST_OWNER,
       sessionId,
     );
     expect(detail?.checkpoint_revision).toBe(1);

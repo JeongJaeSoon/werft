@@ -54,16 +54,13 @@ The remaining options, such as retries, timeouts and error types, are in [Client
 
 ## Check the connection
 
-Read the key's owner and scopes, and the profiles registered on the server.
+Read the key's owner and scopes.
 
 ```ts title="check.ts"
 import { werft } from "./werft.ts";
 
 const me = await werft.auth.me();
 console.log(me.principal.kind, me.scopes);
-
-const { items } = await werft.profiles.list();
-for (const profile of items) console.log(profile.id, profile.repository_mode);
 ```
 
 ```bash
@@ -78,9 +75,6 @@ api_key [
   'sessions:control',
   'sessions:recover'
 ]
-claude-coding-auto required
-claude-coding-local required
-general none
 ```
 
 Node 22.18 or later and Bun run `.ts` files directly. On an older Node, run `npx tsx check.ts`. A wrong key raises `APIError` (401), and a server that cannot be reached raises `ConnectionError`.

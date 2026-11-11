@@ -34,6 +34,12 @@ import {
   type Requester,
 } from "./sessions/requester-locks.ts";
 import { fixtureTeam } from "./testing/fixture-team.ts";
+import {
+  releaseSpecColumns,
+  sessionPinColumns,
+  TEST_CONNECTION_ID,
+  TEST_MODEL,
+} from "./testing/spec-pins.ts";
 import { createPostgresAgentAccessSetting } from "./workspace-settings.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -145,8 +151,8 @@ integration("agent access settings on PostgreSQL", () => {
       agentId,
       versionId,
       cardSha256: "0".repeat(64),
-      runtimeProfileId: "coding",
-      profileDigest: "digest",
+      connectionId: TEST_CONNECTION_ID,
+      ...releaseSpecColumns(),
       runtimeConfigSnapshot: {},
       effectiveTools: [],
     });
@@ -165,6 +171,7 @@ integration("agent access settings on PostgreSQL", () => {
       workspaceId,
       repoUrl: "https://example.invalid/repo.git",
       branch: "main",
+      ...sessionPinColumns(),
       agentReleaseId: releaseId,
       createdByUserId: idOf(creator),
     });
@@ -515,7 +522,7 @@ integration("agent access settings on PostgreSQL", () => {
         principal: caller,
         idempotencyKey: randomUUID(),
         payloadHash: randomUUID(),
-        profileId: "coding",
+        model: TEST_MODEL,
         repository: "none",
         agentReleaseId: releaseId,
         message: "hello",

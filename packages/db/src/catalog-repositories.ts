@@ -25,7 +25,6 @@ function rowOf(row: Row): CatalogRepositoryRow {
     name: row.name,
     url: row.url,
     branch: row.branch,
-    profiles: row.profiles ?? null,
     source:
       row.source === "seed" || row.source === "selection"
         ? row.source
@@ -40,8 +39,7 @@ const githubAppRows = eq(catalogRepositories.authKind, "github_app");
 
 // The import and every console write take it, so an id is decided by one
 // writer at a time. A transaction that also locks an agent, an App or the
-// workspace's settings takes this first: profile backfills hold it before
-// they update agents.
+// workspace's settings takes this first.
 export const lockCatalogWrites = async (tx: Database) => lockWrites(tx);
 const lockWrites = async (tx: Database) => {
   await tx.execute(

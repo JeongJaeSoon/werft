@@ -352,8 +352,6 @@ export const MANAGEMENT_ROLES: Partial<
   "session.admin_list": ["owner", "admin"],
   "usage.installation_read": ["owner"],
   "usage.agent_read": ["owner", "admin"],
-  "profile.installation.manage": ["owner"],
-  "profile.define": ["owner", "admin"],
   "installation.settings.manage": ["owner"],
   "achievement_rule.manage": ["owner", "admin"],
   "achievement.review": ["owner", "admin"],

@@ -1,8 +1,9 @@
 import { MCP_TOOL_PREFIX } from "../kollegium/agents.ts";
-import { isMcpToolName, type ToolCatalogView } from "./profile-tools.ts";
+import { RUNTIME_SUBAGENT_TOOL } from "../shared/runtime-kind.ts";
+import { isMcpToolName, type ToolCatalogView } from "./tool-names.ts";
 
 /**
- * The deny rules a profile or an organization may write, in the engine's own
+ * The deny rules a workspace or an agent may write, in the engine's own
  * rule spelling. v1 takes the narrow set the engine documents and the
  * platform can explain to a person:
  *
@@ -143,7 +144,12 @@ export function parsePermissionRule(
   if (CONTROL.test(rule)) {
     return refuse("rule_syntax", rule, `${rule} holds a control character`);
   }
-  const known = new Set(catalog.tools.map((tool) => tool.name));
+  // A release adds its runtime's subagent tool to the catalog's tools, so a
+  // rule on it has the effect the rule means: it turns subagents off.
+  const known = new Set([
+    ...catalog.tools.map((tool) => tool.name),
+    ...Object.values(RUNTIME_SUBAGENT_TOOL),
+  ]);
 
   if (rule.startsWith(MCP_TOOL_PREFIX)) {
     if (!isMcpToolName(rule)) {

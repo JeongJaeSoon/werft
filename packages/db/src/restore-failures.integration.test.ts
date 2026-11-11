@@ -5,7 +5,6 @@ import {
   type SessionCatalog,
   type WorkerGateway,
   type WorkerPrincipal,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import {
   createTempDatabase,
@@ -30,12 +29,16 @@ import * as schema from "./schema.ts";
 import {
   attempts,
   events,
-  sessionPinCutover,
   sessions,
   turns,
   unassignedSessions,
 } from "./schema.ts";
 import { confirmExecutionGone } from "./testing/launches.ts";
+import {
+  fixtureRelease,
+  TEST_MODEL,
+  testSessionCatalog,
+} from "./testing/spec-pins.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -48,30 +51,21 @@ const SPEC = {
   resources: { cpus: 1, memoryBytes: 512 * 1024 * 1024, pidsLimit: 256 },
 };
 
-const catalog: SessionCatalog = withSeededInstallation({
-  profiles: {
-    "claude-coding-v1": {
-      runtime_kind: "claude_agent_sdk",
-      runtime_version: "0.3.270",
-      model: "claude-sonnet-5",
-      tools: ["Read", "Edit", "Bash"],
-      permission_mode: "default",
-      provider: {
-        kind: "litellm",
-        endpoint: "https://litellm.invalid",
-        auth: {
-          kind: "api_key",
-          value: "catalog-provider-key",
-          ref: { value_env: "PROVIDER_KEY" },
-        },
-      },
+const catalog: SessionCatalog = testSessionCatalog({
+  provider: {
+    kind: "litellm",
+    endpoint: "https://litellm.invalid",
+    auth: {
+      kind: "api_key",
+      value: "catalog-provider-key",
+      ref: { value_env: "PROVIDER_KEY" },
     },
   },
+  models: ["claude-sonnet-5"],
   repositories: {
     "sample-app": {
       url: "https://example.invalid/app.git",
       branch: "main",
-      profiles: ["claude-coding-v1"],
       auth: { kind: "github_app", registered: true },
     },
   },
@@ -137,12 +131,13 @@ integration("startup failures before ready on PostgreSQL", () => {
 
   async function newSession(name: string): Promise<Session> {
     const partition = `${name}-${crypto.randomUUID()}`;
-    const ownerId = `owner-${crypto.randomUUID()}`;
+    const ownerId = crypto.randomUUID();
     const accepted = await inputs().acceptInputAtomic({
       principal: { ownerId },
       idempotencyKey: crypto.randomUUID(),
       payloadHash: crypto.randomUUID(),
-      profileId: "claude-coding-v1",
+      agentReleaseId: await fixtureRelease(db),
+      model: TEST_MODEL,
       repository: {
         id: "sample-app",
         url: "https://example.invalid/app.git",
@@ -676,15 +671,29 @@ integration("startup failures before ready on PostgreSQL", () => {
     const statusBefore = (await statusEvents()).length;
 
     // The held session may carry the status of an ended one, which the gate
-    // does not count. This one has no release to pin from, so with the pin
-    // authoritative retrying is refused in words, not by the trigger.
+    // does not count. This one has lost its pin, so retrying is refused in
+    // words, not by the trigger.
+    const pin = await db
+      .select({
+        specSource: sessions.specSource,
+        specSourceDigest: sessions.specSourceDigest,
+        runtimeSpec: sessions.runtimeSpec,
+        specDigest: sessions.specDigest,
+      })
+      .from(sessions)
+      .where(eq(sessions.id, session.sessionId))
+      .then((rows) => rows[0]);
+    if (!pin) throw new Error("session missing");
     await db
       .update(sessions)
-      .set({ status: "failed" })
+      .set({
+        status: "failed",
+        specSource: null,
+        specSourceDigest: null,
+        runtimeSpec: null,
+        specDigest: null,
+      })
       .where(eq(sessions.id, session.sessionId));
-    await db
-      .update(sessionPinCutover)
-      .set({ authoritative: true, flippedAt: new Date() });
     try {
       expect(await decide(session, "retry_restore", "no pin")).toEqual({
         outcome: "pin_required",
@@ -696,11 +705,8 @@ integration("startup failures before ready on PostgreSQL", () => {
       });
     } finally {
       await db
-        .update(sessionPinCutover)
-        .set({ authoritative: false, flippedAt: null });
-      await db
         .update(sessions)
-        .set({ status: held.status })
+        .set({ status: held.status, ...pin })
         .where(eq(sessions.id, session.sessionId));
     }
 

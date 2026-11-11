@@ -1,14 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import type { SpecSource } from "@werft-ai/contracts";
 import { releaseSpecRecord, verifyReleaseSpec } from "@werft-ai/platform";
 import { sessionPinFromRelease } from "./session-spec-pin.ts";
 
-const source = {
-  derivation_version: 1,
-  origin: "agent",
-  release_id: "rel-1",
-  release_id_version: 5,
-  profile_id: "p",
-  profile_digest: "digest",
+const source: SpecSource = {
+  derivation_version: 2,
   runtime: { kind: "claude_agent_sdk", version: "0.3.270" },
   connection: {
     id: "conn-1",
@@ -20,10 +16,10 @@ const source = {
   permission_mode: "default",
   tools: ["Read"],
   repository_mode: "none",
-} as const;
+};
 
-const stored = (override?: Partial<typeof source>) => {
-  const record = releaseSpecRecord({ ...source, ...override } as never);
+const stored = (override: Partial<SpecSource> = {}) => {
+  const record = releaseSpecRecord({ ...source, ...override });
   return {
     spec_source: record.spec_source,
     runtime_spec: record.runtime_spec,
@@ -36,22 +32,22 @@ describe("sessionPinFromRelease", () => {
   test("keeps the release's pair when the model is the same or unknown", () => {
     const release = stored();
     for (const model of [null, "sonnet-5-0"]) {
-      const pin = sessionPinFromRelease("rel-1", release, model);
+      const pin = sessionPinFromRelease(release, model);
       expect(pin?.specDigest).toBe(release.spec_digest);
       expect(pin?.specSourceDigest).toBe(release.spec_source_digest);
     }
   });
 
-  test("swaps only the model, still names the release, and verifies as the release does", () => {
+  test("swaps only the model, keeps the connection, and verifies as the release does", () => {
     const release = stored();
-    const pin = sessionPinFromRelease("rel-1", release, "sonnet-5-1");
+    const pin = sessionPinFromRelease(release, "sonnet-5-1");
     expect(pin).not.toBeNull();
     expect(pin?.specSource.model).toBe("sonnet-5-1");
     expect(pin?.runtimeSpec.model).toBe("sonnet-5-1");
-    expect(pin?.specSource.release_id).toBe("rel-1");
+    expect(pin?.specSource.connection).toEqual(source.connection);
     expect(pin?.specDigest).not.toBe(release.spec_digest);
     expect(
-      verifyReleaseSpec("rel-1", {
+      verifyReleaseSpec({
         spec_source: pin?.specSource,
         runtime_spec: pin?.runtimeSpec,
         spec_source_digest: pin?.specSourceDigest,
@@ -69,9 +65,14 @@ describe("sessionPinFromRelease", () => {
       spec_source_digest: null,
       spec_digest: null,
     };
-    expect(sessionPinFromRelease("rel-1", empty, "sonnet-5-1")).toBeNull();
+    expect(sessionPinFromRelease(empty, "sonnet-5-1")).toBeNull();
     const tampered = { ...stored(), spec_digest: "0".repeat(64) };
-    expect(sessionPinFromRelease("rel-1", tampered, "sonnet-5-1")).toBeNull();
-    expect(sessionPinFromRelease("rel-2", stored(), "sonnet-5-1")).toBeNull();
+    expect(sessionPinFromRelease(tampered, "sonnet-5-1")).toBeNull();
+    // A source from before the connection-only derivation does not parse.
+    const old = {
+      ...stored(),
+      spec_source: { ...stored().spec_source, derivation_version: 1 },
+    };
+    expect(sessionPinFromRelease(old, "sonnet-5-1")).toBeNull();
   });
 });

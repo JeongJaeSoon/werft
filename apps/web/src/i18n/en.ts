@@ -18,7 +18,6 @@ import { membersEn } from "./members.ts";
 import { modelsEn } from "./models.ts";
 import { outputsEn } from "./outputs.ts";
 import { preferencesEn } from "./preferences.ts";
-import { profilesEn } from "./profiles.ts";
 import { sessionListEn } from "./session-list.ts";
 import { settingsEn } from "./settings.ts";
 import { shellEn } from "./shell.ts";
@@ -87,16 +86,16 @@ export const slackEn = {
     "The Request URL was sent to Slack again. The status changes once Slack checks it.",
   "slack.repositoryRequired.title": "Sessions can't start from Slack",
   "slack.repositoryRequired.body":
-    "Slack sessions can't start from the active release (profile {profile}). The profile needs a repository and the release has none chosen, the release's repository left the catalog or is not allowed by the profile or workspace ceiling, or the agent's GitHub settings can't be read. Slack mentions and DMs are refused and only a notice is left in the thread. You can still connect. Check the GitHub settings, and in Settings choose a profile that can use a repository and save, and a new release is made.",
+    "Slack sessions can't start from the active release ({release}). The release's repository left the catalog or is not allowed by the workspace ceiling, or the agent's GitHub settings can't be read. Slack mentions and DMs are refused and only a notice is left in the thread. You can still connect. Check the GitHub settings and save again in Settings, and a new release is made.",
   "slack.issuerChanged.title": "Made by another Slack user",
   "slack.issuerChanged.body":
     "Slack user {previous} made this app, but the App Configuration Token now belongs to {user}. That token may not be able to install or change the app. If installing fails, register {previous}'s token again or add {user} as a collaborator on the app. If the app was already deleted in Slack, delete it under Danger zone and install again.",
-  "slack.profileUnavailable.title": "Sessions can't start from Slack",
-  "slack.profileUnavailable.body":
-    "The active release's profile ({profile}) is no longer in the catalog, changed after the release, or was blocked by the operator. Slack mentions and DMs are refused and only a notice is left in the thread. In Settings, choose a profile you can use and save, and a new release is made.",
+  "slack.releaseUnavailable.title": "Sessions can't start from Slack",
+  "slack.releaseUnavailable.body":
+    "The active release's model connection ({release}) was disabled, or its model left the connection's model list. Slack mentions and DMs are refused and only a notice is left in the thread. In Settings, choose a connection and model you can use and save, and a new release is made.",
   "slack.noActiveRelease.title": "No active release",
   "slack.noActiveRelease.body":
-    "Until a release is on, Slack mentions and DMs are refused and only a notice is left in the thread. In Settings, choose a profile and save, and the first release is made.",
+    "Until a release is on, Slack mentions and DMs are refused and only a notice is left in the thread. In Settings, choose a connection and model and save, and the first release is made.",
   "slack.state.error": "Error",
   "slack.createInstall": "Create and install Slack app",
   "slack.configToken.unset":
@@ -230,7 +229,6 @@ export const en: Record<MessageKey, string> = {
   ...teamsEn,
   ...agentsEn,
   ...modelsEn,
-  ...profilesEn,
   ...settingsEn,
   ...sessionsEn,
   ...sessionListEn,

@@ -1,36 +1,19 @@
 import { describe, expect, test } from "bun:test";
-import {
-  bootstrapClaimResponseSchema,
-  MAX_RESTORE_PROFILES,
-} from "@werft-ai/contracts";
+import { bootstrapClaimResponseSchema } from "@werft-ai/contracts";
 import { acceptAllCheckpoints } from "../checkpoints/ports/checkpoint-verifier.ts";
 import type {
   WorkerBinding,
   WorkerUnitOfWork,
 } from "../ports/worker-unit-of-work.ts";
+import { withoutDeniedTools } from "../sessions/catalog.ts";
 import {
-  type CatalogProfile,
-  profileFingerprint,
-  withoutDeniedTools,
-} from "../sessions/catalog.ts";
-import { withSeededInstallation } from "../sessions/profile-registry.ts";
+  testBinding,
+  testCatalog,
+  testSpecSource,
+} from "../testing/catalog-fakes.ts";
 import { createWorkerGateway } from "./worker-gateway.ts";
 
-const SESSION = "0b3f1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2d";
-
-const profile: CatalogProfile = {
-  runtime_kind: "claude_agent_sdk",
-  runtime_version: "0.3.270",
-  model: "sonnet-5-1",
-  tools: ["Read", "Bash", "Write"],
-  permission_mode: "bypassPermissions",
-  repository: "none",
-  provider: {
-    kind: "anthropic",
-    endpoint: "https://api.anthropic.invalid",
-    auth: { kind: "api_key", value: "provider-key", ref: { value_env: "K" } },
-  },
-};
+const TOOLS = ["Read", "Bash", "Write"];
 
 function work(overrides: Partial<WorkerUnitOfWork>): WorkerUnitOfWork {
   return new Proxy(overrides, {
@@ -43,60 +26,16 @@ function work(overrides: Partial<WorkerUnitOfWork>): WorkerUnitOfWork {
   }) as WorkerUnitOfWork;
 }
 
-/** `earlier` other profiles the session's checkpoints were made under. */
-async function claim(
-  extra: Partial<WorkerBinding>,
-  resuming = false,
-  earlier = 0,
-) {
-  const others = Array.from({ length: earlier }, (_, index) => ({
-    id: `q${index}`,
-    profile: { ...profile, model: `model-${index}` },
-  }));
-  const binding = {
-    sessionId: SESSION,
-    attemptId: "att_1",
-    leaseEpoch: 1,
-    executionGeneration: 1,
-    authRevision: 0,
-    leaseExpiresAt: new Date("2026-09-22T00:00:30Z"),
-    leaseRemainingMs: 29_950,
-    profileId: "p",
-    profileFingerprint: profileFingerprint(profile),
-    model: "sonnet-5-1",
-    unmetered: false,
-    ownerScope: "owner-a",
-    repository: null,
-    restore: null,
-    restoreProfiles: resuming
-      ? [
-          {
-            profileId: "p",
-            profileFingerprint: profileFingerprint(profile),
-            model: "sonnet-5-1",
-          },
-          ...others.map((other) => ({
-            profileId: other.id,
-            profileFingerprint: profileFingerprint(other.profile),
-            model: other.profile.model,
-          })),
-        ]
-      : [],
-    costUsd: 0,
-    providerTokens: 0,
+async function claim(extra: Partial<WorkerBinding> = {}) {
+  const binding = testBinding({
+    spec: testSpecSource({ tools: TOOLS }),
     ...extra,
-  } as WorkerBinding;
+  });
   const gateway = createWorkerGateway({
     work: work({
       claimAtomic: async () => ({ outcome: "claimed", binding }),
     }),
-    catalog: withSeededInstallation({
-      profiles: {
-        p: profile,
-        ...Object.fromEntries(others.map((o) => [o.id, o.profile])),
-      },
-      repositories: {},
-    }),
+    catalog: testCatalog(),
     checkpoints: acceptAllCheckpoints,
     options: {
       sessionCostLimitUsd: 1_000,
@@ -128,59 +67,25 @@ describe("a pinned caller limit's built-in tools_deny reaches the claim", () => 
   });
 
   test("a denied tool the list never held changes nothing, and offers no restore candidate", async () => {
-    const response = await claim({ callerToolsDeny: ["WebSearch"] }, true);
-    expect(response.runtime_config.tools).toEqual(["Read", "Bash", "Write"]);
+    const response = await claim({ callerToolsDeny: ["WebSearch"] });
+    expect(response.runtime_config.tools).toEqual(TOOLS);
     expect(response.restore_runtime_configs).toBeUndefined();
   });
 
-  test("a release session loses the denied tool from its own list", async () => {
-    const response = await claim({
-      runtimeToolsSource: "release",
-      releaseEffectiveTools: ["Read", "Bash"],
-      releaseTools: ["Read", "Bash"],
-      callerToolsDeny: ["Bash"],
-    });
-    expect(response.runtime_config.tools).toEqual(["Read"]);
-  });
-
   test("an old session with no or an empty limit claims what it always did", async () => {
-    const before = await claim({}, true);
-    for (const callerToolsDeny of [undefined, []]) {
-      const after = await claim(
-        callerToolsDeny === undefined ? {} : { callerToolsDeny },
-        true,
-      );
-      expect(after).toEqual(before);
-    }
-    expect(before.runtime_config.tools).toEqual(["Read", "Bash", "Write"]);
+    const before = await claim();
+    const after = await claim({ callerToolsDeny: [] });
+    expect(after).toEqual(before);
+    expect(before.runtime_config.tools).toEqual(TOOLS);
     expect(before.restore_runtime_configs).toBeUndefined();
   });
 
-  test("the list a checkpoint was made with keeps its slot when earlier profiles fill the cap", async () => {
-    const response = await claim(
-      {
-        runtimeToolsSource: "release",
-        releaseEffectiveTools: ["Read", "Bash"],
-        releaseTools: ["Read", "Bash"],
-        callerToolsDeny: ["Bash"],
-      },
-      true,
-      20,
-    );
-    const offered = response.restore_runtime_configs ?? [];
-    expect(offered).toHaveLength(MAX_RESTORE_PROFILES);
-    expect(offered.slice(0, 2).map((config) => config.tools)).toEqual([
-      ["Read", "Bash", "Write"],
-      ["Read", "Bash"],
-    ]);
-  });
-
-  test("a resuming session is still offered the list its checkpoints were made with", async () => {
-    const response = await claim({ callerToolsDeny: ["Bash"] }, true);
+  test("the session is still offered the list its checkpoints were made with", async () => {
+    const response = await claim({ callerToolsDeny: ["Bash"] });
     expect(response.runtime_config.tools).toEqual(["Read", "Write"]);
     expect(
       response.restore_runtime_configs?.map((config) => config.tools),
-    ).toEqual([["Read", "Bash", "Write"]]);
+    ).toEqual([TOOLS]);
   });
 });
 
@@ -230,6 +135,6 @@ describe("MCP decisions do not move with the limit", () => {
     expect(limited.runtime_config.mcp_servers?.map((s) => s.name)).toEqual([
       "github",
     ]);
-    expect(strip(limited)).toEqual(strip(open));
+    expect(strip(limited).runtime_config).toEqual(strip(open).runtime_config);
   });
 });

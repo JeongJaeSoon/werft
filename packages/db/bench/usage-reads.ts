@@ -14,6 +14,10 @@ import { Pool } from "pg";
 import * as schema from "../src/index.ts";
 import { createPostgresUsageReader } from "../src/index.ts";
 import { migrate } from "../src/migrate.ts";
+import {
+  RELEASE_SPEC_SQL_COLUMNS,
+  releaseSpecSqlValues,
+} from "../src/testing/spec-pins.ts";
 
 const url = process.env.BENCH_DATABASE_URL;
 if (!url) throw new Error("BENCH_DATABASE_URL names the database to use");
@@ -62,8 +66,8 @@ if (existing.rows[0]?.n === 0) {
       FROM generate_series(1, ${AGENTS}) a`);
     await client.query(`
       INSERT INTO agent_releases (id, agent_id, version_id, card_sha256,
-        runtime_profile_id, profile_digest, runtime_config_snapshot, effective_tools)
-      SELECT 'rel-' || id, id, gen_random_uuid(), 'x', 'claude-coding-v1', 'x', '{}', '[]'
+        runtime_config_snapshot, effective_tools, ${RELEASE_SPEC_SQL_COLUMNS})
+      SELECT 'rel-' || id, id, gen_random_uuid(), 'x', '{}', '[]', ${releaseSpecSqlValues()}
       FROM agents`);
     // Every 20th session is ME's; a fifth have no agent; a tenth are other
     // owners'. created_at spreads evenly over `days` back from now.

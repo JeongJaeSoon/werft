@@ -49,25 +49,21 @@ function defaults(...layers: Array<Service | undefined>) {
 }
 
 describe("real-model settings", () => {
-  test("its profiles call api.anthropic.com with the key from the API's environment", async () => {
+  test("its connection calls api.anthropic.com with the key from the API's environment", async () => {
     const catalog = await fixtureCatalog("real-model", {
       [KEY_VARIABLE]: PROBE,
     });
-    expect(Object.keys(catalog.profiles)).toEqual(["claude-coding-real"]);
-    expect(catalog.repositories["sample-app"]?.profiles).toEqual([
-      "claude-coding-real",
-    ]);
-    expect(catalog.profiles["claude-coding-real"]?.permission_mode).toBe(
-      "auto",
-    );
-    const profile = catalog.profiles["claude-coding-real"];
-    if (profile === undefined) throw new Error("no profile");
-    expect(providerUpstreamOf(profile)).toEqual({
+    expect(Object.keys(catalog.connections)).toEqual(["anthropic"]);
+    expect(Object.keys(catalog.repositories)).toEqual(["sample-app"]);
+    const connection = catalog.connections.anthropic;
+    if (connection === undefined) throw new Error("no connection");
+    expect(connection.models).toContain("claude-sonnet-5");
+    expect(providerUpstreamOf(connection.provider)).toEqual({
       url: "https://api.anthropic.com",
       headers: [["x-api-key", PROBE]],
     });
     // What a worker is handed: the route and its egress token, no key.
-    const worker = runtimeProviderOf(profile, "egress-token");
+    const worker = runtimeProviderOf(connection.provider, "egress-token");
     expect(worker.auth).toEqual({
       kind: "egress_token",
       token: "egress-token",
@@ -75,7 +71,7 @@ describe("real-model settings", () => {
     expect(JSON.stringify(worker)).not.toContain(PROBE);
   });
 
-  test("without the key the profile does not resolve", async () => {
+  test("without the key the connection does not resolve", async () => {
     for (const env of [{}, { [KEY_VARIABLE]: "" }]) {
       await expect(fixtureCatalog("real-model", env)).rejects.toThrow(
         `value_env: ${KEY_VARIABLE} is not set`,
@@ -108,7 +104,7 @@ describe("real-model compose layers", () => {
     );
   });
 
-  test("the proxy allows the profile's endpoint and the limits cap one run", async () => {
+  test("the proxy allows the connection's endpoint and the limits cap one run", async () => {
     const base = layeredServices<Service>(LOCAL_LAYERS);
     const overlay = (await compose(OVERLAY)).services;
     const endpoint = new URL("https://api.anthropic.com");
@@ -346,7 +342,7 @@ echo " 0 fail"
     expect(argv).not.toContain(OVERLAY);
     expect(argv).toContain(`-f ${FAKE_MODEL}`);
     expect(argv).toContain(
-      "bun test ./tests/e2e/remote-mcp.e2e.ts ./tests/e2e/operator-profiles.e2e.ts ./tests/e2e/alpha-path.e2e.ts ./tests/e2e/pause-coverage.e2e.ts ./tests/e2e/workspace-loss.e2e.ts --timeout 900000",
+      "bun test ./tests/e2e/remote-mcp.e2e.ts ./tests/e2e/alpha-path.e2e.ts ./tests/e2e/pause-coverage.e2e.ts ./tests/e2e/workspace-loss.e2e.ts --timeout 900000",
     );
     const record = await Bun.file(join(result.out, "record.txt")).text();
     expect(record).toContain("command: tests/e2e/run.sh\n");

@@ -24,7 +24,7 @@ describe("the installed tool catalogs", () => {
     }
   });
 
-  test("finds a profile's catalog by either spelling of its runtime version", () => {
+  test("finds a runtime's catalog by either spelling of its runtime version", () => {
     for (const catalog of installedToolCatalogs) {
       for (const version of [catalog.sdkVersion, catalog.engineVersion]) {
         expect(

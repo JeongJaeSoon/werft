@@ -5,13 +5,13 @@ import type {
   CallerLimitDimension,
   CallerLimitGate,
 } from "../ports/agent-caller-limits-store.ts";
+import { testCatalog } from "../testing/catalog-fakes.ts";
 import type {
   AcceptSessionInput,
   AcceptSessionResult,
   AppendMessageInput,
   AppendMessageResult,
 } from "./ports/session-unit-of-work.ts";
-import { withSeededInstallation } from "./profile-registry.ts";
 import {
   createSessionService,
   type SessionServiceError,
@@ -43,7 +43,7 @@ function setup(options: {
         };
       },
     },
-    catalog: withSeededInstallation({ profiles: {}, repositories: {} }),
+    catalog: testCatalog({ repositories: {} }),
     controls: {} as never,
     reader: { getSession: async () => null } as never,
     limits: {
@@ -64,8 +64,9 @@ function setup(options: {
           id: releaseId,
           agent_id: AGENT,
           approved_at: "2026-01-01T00:00:00.000Z",
-          runtime_profile_id: "coding-v1",
+          connection_id: "test-connection",
           repository_id: null,
+          effective_tools: { tools: [], mcp: [] },
           runtime_config_snapshot: {},
           policy_pins: {},
         };

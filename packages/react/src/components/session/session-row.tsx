@@ -142,7 +142,7 @@ export function SessionRow({
         <span className="min-w-0 truncate">
           <span className="sr-only">{messages.runtime}: </span>
           {runtime
-            ? `${runtime.profile_id} · ${runtime.kind} ${runtime.version}`
+            ? `${runtime.connection_id} · ${runtime.kind} ${runtime.version}`
             : messages.none}
           {session.queued_turn_count > 0
             ? ` · ${messages.queuedTurns(session.queued_turn_count)}`

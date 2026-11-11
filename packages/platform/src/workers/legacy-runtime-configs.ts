@@ -1,18 +1,9 @@
 import {
   canonicalJsonOfJson,
-  MAX_RESTORE_PROFILES,
+  MAX_RESTORE_CONFIGS,
   type RuntimeConfig,
   runtimeConfigSchema,
 } from "@werft-ai/contracts";
-import type { WorkerBinding } from "../ports/worker-unit-of-work.ts";
-import {
-  acceptedRuntimeVersions,
-  type CatalogProfile,
-  catalogProfile,
-  modelMovePins,
-  type SessionCatalog,
-  sessionProfile,
-} from "../sessions/catalog.ts";
 
 /**
  * Stands in for the egress token in a stored config. The digest leaves the
@@ -22,78 +13,19 @@ import {
 export const LEGACY_CONFIG_TOKEN = "legacy-config-carries-no-credential";
 
 /**
- * The profiles a session's checkpoints were made under other than the one it
- * runs now, newest first, as `restoreRuntimesOf` offers them: only a profile
- * the catalog still holds as it was is rebuilt, so a checkpoint made under
- * another one is refused as incompatible. `build` is the claim's own way of
- * turning a profile into its run configs.
+ * What a session keeps in `sessions.legacy_runtime_configs`: the configs it
+ * ran before its model moved, newest first, so a checkpoint made under one
+ * of them still restores. Stored without the credentials, MCP servers and
+ * variables a claim sets itself, none of which a digest reads.
  */
-export function earlierProfileConfigs<T>(
-  binding: Pick<
-    WorkerBinding,
-    "profileId" | "profileFingerprint" | "model" | "restoreProfiles"
-  >,
-  catalog: SessionCatalog,
-  build: (profile: CatalogProfile) => T,
-): T[] {
-  return binding.restoreProfiles.flatMap((made) => {
-    if (
-      made.profileId === binding.profileId &&
-      made.profileFingerprint === binding.profileFingerprint &&
-      (made.model === null || made.model === binding.model)
-    ) {
-      return [];
-    }
-    const listed = catalogProfile(catalog, made.profileId);
-    const moved = listed
-      ? (modelMovePins(listed, acceptedRuntimeVersions(catalog)).find(
-          (pin) =>
-            pin.fromFingerprint === made.profileFingerprint &&
-            // A version 1 pin names its model, so its column may be empty.
-            (made.model === pin.from ||
-              (made.model === null &&
-                pin.fromFingerprint !== pin.toFingerprint)) &&
-            pin.to === binding.model,
-        )?.asFrom ?? null)
-      : null;
-    const profile = listed
-      ? (sessionProfile(
-          listed,
-          { fingerprint: made.profileFingerprint, model: made.model },
-          acceptedRuntimeVersions(catalog),
-        ) ?? moved)
-      : null;
-    return profile ? [build(profile)] : [];
-  });
-}
-
-/**
- * What a session keeps in `sessions.legacy_runtime_configs`: the config of
- * each earlier profile for each tool list the claim would run, profile lists
- * before release lists as the claim orders them, so the cap drops the oldest.
- * Taken while the profiles still exist; the profile removal fills the column
- * from this before it deletes them. Stored without the credentials, MCP
- * servers and variables a claim sets itself, none of which a digest reads.
- */
-export function reconstructLegacyRuntimeConfigs(
-  binding: Pick<
-    WorkerBinding,
-    "profileId" | "profileFingerprint" | "model" | "restoreProfiles"
-  >,
-  catalog: SessionCatalog,
-  configsOf: (profile: CatalogProfile) => {
-    profile: RuntimeConfig;
-    release: RuntimeConfig | null;
-  },
+export function withEarlierConfig(
+  stored: unknown,
+  earlier: RuntimeConfig,
 ): RuntimeConfig[] {
-  const earlier = earlierProfileConfigs(binding, catalog, configsOf);
-  const configs = (["profile", "release"] as const).flatMap((list) =>
-    earlier.flatMap((found) => {
-      const config = found[list];
-      return config === null ? [] : [storableLegacyConfig(config)];
-    }),
-  );
-  return dedupe(configs).slice(0, MAX_RESTORE_PROFILES);
+  return dedupe([
+    storableLegacyConfig(earlier),
+    ...legacyConfigsFromRow(stored),
+  ]).slice(0, MAX_RESTORE_CONFIGS);
 }
 
 export function storableLegacyConfig(config: RuntimeConfig): RuntimeConfig {
@@ -123,7 +55,7 @@ export function legacyConfigsFromRow(value: unknown): RuntimeConfig[] {
       const parsed = runtimeConfigSchema.safeParse(entry);
       return parsed.success ? [parsed.data] : [];
     })
-    .slice(0, MAX_RESTORE_PROFILES);
+    .slice(0, MAX_RESTORE_CONFIGS);
 }
 
 /** A stored config as a claim offers it: this claim's own provider token. */

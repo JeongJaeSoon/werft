@@ -7,6 +7,7 @@ import {
   listSettingsConnectionsResponseSchema,
   listSettingsMcpServersResponseSchema,
   setConnectionAutoModeRequestSchema,
+  setConnectionModelsRequestSchema,
   setSettingsCredentialRequestSchema,
   setSettingsMcpServerRequestSchema,
   settingsChangeResponseSchema,
@@ -158,6 +159,15 @@ export function registerSettingsConsoleRoutes(
     );
     const changed = await mapped(() =>
       settings.setConnectionAutoMode(context.get("caller"), id, body.auto_mode),
+    );
+    return jsonWithSchema(context, settingsChangeResponseSchema, changed);
+  });
+
+  apiRoute(router, "setSettingsConnectionModels", async (context) => {
+    const { id } = requireParams(context, settingsIdParamsSchema);
+    const body = await parseJsonBody(context, setConnectionModelsRequestSchema);
+    const changed = await mapped(() =>
+      settings.setConnectionModels(context.get("caller"), id, body),
     );
     return jsonWithSchema(context, settingsChangeResponseSchema, changed);
   });

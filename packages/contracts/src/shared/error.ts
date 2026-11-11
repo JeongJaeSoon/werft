@@ -36,8 +36,8 @@ export const API_ERROR_CODE_VALUES = [
   "TURN_NOT_STARTED",
   "BACKEND_UNAVAILABLE",
   "LAUNCH_FAILED",
-  // The catalog no longer allows the session's (profile, repository) pair,
-  // so no worker may run it until an operator restores the pair.
+  // The session's connection, model or repository is no longer in the
+  // catalog, so no worker may run it until an operator restores it.
   "CATALOG_MISMATCH",
   // The person who asked for the session was offboarded; it takes no input
   // until an owner takes it over.
@@ -89,8 +89,6 @@ export const API_ERROR_CODE_VALUES = [
   "ACCOUNT_DISABLED",
   // A key asked for more than its issuer holds now (design 4.1).
   "SCOPE_NOT_GRANTABLE",
-  // A session named a release made for another runtime profile.
-  "RELEASE_PROFILE_MISMATCH",
   // A release names a credential its agent has no live binding for: at
   // activation, and again when a session starts (design 4.4, D11).
   "CREDENTIAL_UNBOUND",
@@ -103,12 +101,10 @@ export const API_ERROR_CODE_VALUES = [
   // An external login whose verified address already has an account: it is
   // never joined by email, the owner links it after signing in (design 3.1).
   "LOGIN_LINK_REQUIRED",
-  // A release was made against a runtime profile whose settings have changed
-  // since; it has to be released again before it can run.
-  "PROFILE_DIGEST_MISMATCH",
-  // The operator blocked the installation profile named, or the one a
-  // workspace profile narrows; nothing new runs on it until it is unblocked.
-  "PROFILE_BLOCKED",
+  // A release whose spec no longer runs here: it has none, or its connection
+  // was disabled or its model taken off the connection's list. It has to be
+  // released again before it can run.
+  "RELEASE_SPEC_UNAVAILABLE",
   "ALREADY_EXISTS",
   "NOT_READY",
   "CURSOR_EXPIRED",
@@ -148,8 +144,8 @@ export const API_ERROR_CODE_VALUES = [
   // A resume of a session parked on its requests while one of them is
   // neither answered nor expired.
   "PENDING_REQUESTS_OPEN",
-  // A session asked to wait on its requests longer than its profile allows.
-  "PERMISSION_WAIT_ABOVE_PROFILE",
+  // A session asked to wait on its requests longer than the installation allows.
+  "PERMISSION_WAIT_ABOVE_LIMIT",
   // Archiving a team that is still an agent's managing team;
   // `details.agent_ids` names those agents.
   "TEAM_MANAGES_AGENTS",

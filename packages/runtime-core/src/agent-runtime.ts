@@ -150,14 +150,14 @@ export type RuntimeBundle = {
   instructions: readonly InstructionPart[];
   /**
    * The repository's own instructions file as committed (the first of
-   * `files` it has), let in by the profile; `text` is null when the
-   * repository has none. Null when the profile keeps it out.
+   * `files` it has), let in by the run config; `text` is null when the
+   * repository has none. Null when the run config keeps it out.
    */
   repoInstructions: { files: readonly string[]; text: string | null } | null;
   mcpServers: readonly PlatformMcpServer[];
   /**
    * Extension bundles the worker published read-only at `path`, identified by
-   * their content digest. Absent when the session has none, so a profile
+   * their content digest. Absent when the session has none, so a config
    * without extensions describes exactly what it did before the field.
    */
   extensions?: readonly RuntimeExtensionBundle[];

@@ -67,7 +67,7 @@ scrape마다 DB를 읽어 값을 집계한다. scrape 간격을 짧게 잡을수
 ### 비용과 토큰
 
 - 비용은 `provider_usage.cost_usd`의 합이다. 이 값은 호출을 기록할 때 플랫폼 가격표가 계산했다. 지표는 단가를 다시 계산하지 않고, 단가 설정도 따로 두지 않는다.
-- `priced_by`는 그 호출의 가격 근거다. `table`(가격표에 있는 모델), `fallback`(가격표에 없는 모델이라 가장 비싼 단가로 계산), `unmetered`(profile이 `billing: none`이라 비용 0). 자체 호스팅 모델처럼 비용이 0인 호출은 `priced_by="unmetered"`의 토큰 수로 사용량을 본다.
+- `priced_by`는 그 호출의 가격 근거다. `table`(가격표에 있는 모델), `fallback`(가격표에 없는 모델이라 가장 비싼 단가로 계산), `unmetered`(연결이 `billing: none`이라 비용 0). 자체 호스팅 모델처럼 비용이 0인 호출은 `priced_by="unmetered"`의 토큰 수로 사용량을 본다.
 - **기간 기준은 호출을 기록한 시각(`provider_usage.recorded_at`)이다.** 기간 비용은 `increase(werft_provider_cost_usd_total[1h])`처럼 counter 증가량으로 본다.
 - `GET /v1/usage/summary`와 다른 점이 셋 있다. 기간 안에 만들고 기간 안에 과금한 세션만 있으면 둘은 같다.
   - summary는 기간 안에 **만든** 세션(`sessions.created_at`)을 골라 그 세션의 비용 전체를 더한다. 기간 전에 만든 세션이 기간 안에 쓴 비용은 지표에만 있다.

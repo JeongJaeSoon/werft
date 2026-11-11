@@ -7,12 +7,12 @@ A set of small CLIs that call `@werft-ai/sdk` ([TypeScript SDK](/sdk)) for real,
 
 | Sample | What it shows | Key |
 | --- | --- | --- |
-| [sdk-discovery](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-discovery) | Creating a client and rejection at creation, key scopes, the profile catalog, version constants | Any key (`sessions:read`) |
+| [sdk-discovery](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-discovery) | Creating a client and rejection at creation, key scopes, version constants | Any key (`sessions:read`) |
 | [sdk-inventory](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-inventory) | Search, filters and pages of the session list; detail, usage and sharing scope | Personal key (`read`, `write`, `control`) |
 | [sdk-events](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-events) | The event stream, resuming from a saved cursor, turn list pages | Agent key (`read`, `write`, `control`) |
 | [sdk-reliability](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-reliability) | Idempotency-Key replay, retrying a lost response, error classes | Personal key (`read`, `write`, `control`) |
 | [sdk-questions](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-questions) | Answering questions, denying and allowing permissions, handling an open request once, a different answer to the same request | Personal key (`read`, `write`, `approve`, `control`) |
-| [sdk-control](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-control) | interrupt, pause and resume, changing the profile, a recovery decision after terminate | Personal key (`read`, `write`, `control`, `recover`) |
+| [sdk-control](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-control) | interrupt, pause and resume, a recovery decision after terminate | Personal key (`read`, `write`, `control`, `recover`) |
 | [sdk-close](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-close) | A close blocked by an open question and `CLOSE_BLOCKED`, cancelling queued input | Personal key (`read`, `write`, `approve`, `control`) |
 | [sdk-push](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-push) | Requesting, rejecting and approving a push, the push result, opening a PR and commenting | Agent key + approver's personal key (`approve`) |
 | [sdk-approver](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-approver) | Run a session with an agent key, have a separate approver answer a permission request, then close | Agent key + approver's personal key (`approve`) |
@@ -24,7 +24,7 @@ Run `bun install --frozen-lockfile` at the repository root. The samples use the 
 1. Start your own stack with `scripts/local.sh up --fake-model` ([Run a development server](/run-server/dev-server)). No real model key is needed. The `GATE-SPEC` in a message is a script the FAKE model replays, so do not use it with a real model.
 2. Sign in to the web console as an owner.
 3. Issue a personal key in the console under Settings > API keys, with the scopes of that sample. An owner can grant all five scopes.
-4. For the samples that need an agent key (`sdk-events`, `sdk-push`, `sdk-approver`), create an agent in the console, create and enable a release with the `claude-coding-local` profile and the `sample-app` repository, then issue that agent's key with `sessions:read`, `sessions:write` and `sessions:control`. An agent key cannot be given `sessions:approve`, so a separate personal key does the approving.
+4. For the samples that need an agent key (`sdk-events`, `sdk-push`, `sdk-approver`), create an agent in the console, create and enable a release on the `fake-messages` connection with the `sample-app` repository, then issue that agent's key with `sessions:read`, `sessions:write` and `sessions:control`. An agent key cannot be given `sessions:approve`, so a separate personal key does the approving.
 
 Each sample's README lists its environment variables. Only two are used by all of them. Never paste a key into source, a README or output.
 
@@ -49,16 +49,16 @@ The unit tests run with `bun test examples`. They start the sample CLIs as they 
 | --- | --- |
 | `new Werft(options)`: `baseUrl`, `apiKey`, `maxRetries`, `timeoutMs`, `defaultHeaders`, `fetch`, rejection at creation | discovery, reliability |
 | `withOptions` | discovery, reliability, push, approver |
-| `root.get`, `auth.me`, `profiles.list`, `limits.get` | discovery |
+| `root.get`, `auth.me`, `limits.get` | discovery |
 | `SDK_VERSION`, `API_SPEC_VERSION`, `SUPPORTED_SSE_SCHEMA_VERSIONS` | discovery |
-| `sessions.create` | Every session sample (`agent_release_id`: events, push, approver / `title`: inventory / a profile with no repository: questions) |
+| `sessions.create` | Every session sample (`agent_release_id`: events, push, approver / `title`: inventory / a session with no repository: questions) |
 | `sessions.get`, `sessions.list` (`q`, `relation`, `status`, `limit`, `nextPage`, `for await`) | inventory (list), every session sample (detail) |
 | `sessions.usage`, `sessions.share` | inventory |
 | `sessions.messages.send` | events, reliability, questions, control, close, approver |
 | `sessions.turns.get`, `sessions.turns.list` | events, reliability, control, close |
 | `sessions.events.stream` (`lastEventId`, `close()`, `signal`) | events, approver (`events` of `waitForTurn`) |
 | `sessions.requests.list`, `sessions.requests.answer` | questions, close |
-| `sessions.interrupt`, `pause`, `resume`, `terminate`, `changeProfile`, `recoveryDecisions.create` | control |
+| `sessions.interrupt`, `pause`, `resume`, `terminate`, `recoveryDecisions.create` | control |
 | `sessions.close` | Every session sample |
 | `sessions.pushRequests.create`, `list`, `get`, `approve`, `reject`, `openPullRequest`, `commentPullRequest` | push |
 | `receipts.get` | questions, control, close, push (through `waitForReceipt`) |

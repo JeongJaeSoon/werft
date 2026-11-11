@@ -63,7 +63,7 @@ describe("설정 사이드바의 에이전트 연결 그룹", () => {
   ])("%s에서는 %s 항목만 현재 페이지다", async (path, current, other) => {
     renderAt(path, {
       ...owner,
-      "GET /v1/profiles": () => json(200, { items: [] }),
+      "GET /v1/connections": () => json(200, { items: [] }),
     });
     const items = await group();
     expect(

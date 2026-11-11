@@ -328,8 +328,7 @@ export function createPostgresAgentGitHubStore(db: Database): AgentGitHubStore {
         return await db.transaction(async (tx) => {
           // Lock order, which every other writer of these also follows:
           // catalog writes, the App lock, then the agent, its settings and the
-          // workspace's settings. Profile backfills take the catalog lock
-          // before updating agents, and App changes take theirs before the
+          // workspace's settings. App changes take theirs before the
           // workspace's settings.
           const pick = input.target.kind === "github" ? input.target : null;
           if (pick !== null) {

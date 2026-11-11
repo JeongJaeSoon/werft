@@ -132,7 +132,7 @@ export const sessionUsageResponseSchema = z
     cost: z
       .object({
         amount_usd: costUsdSchema,
-        // `unmetered`: the session's profile declared it is not billed per
+        // `unmetered`: the session's connection declared it is not billed per
         // token, so its calls cost nothing and the cost limit never stops it.
         kind: z.enum(["estimated", "unmetered"]),
         source: z.literal("provider_usage"),
@@ -194,11 +194,7 @@ function checkPeriod(
   );
 }
 
-export const USAGE_SUMMARY_GROUP_BY_VALUES = [
-  "agent",
-  "user",
-  "profile",
-] as const;
+export const USAGE_SUMMARY_GROUP_BY_VALUES = ["agent", "user"] as const;
 
 /** The summary's scopes: the period scopes and one agent's sessions. */
 export const USAGE_SUMMARY_TOTALS_SCOPE_VALUES = [
@@ -470,14 +466,13 @@ export const usageSummaryResponseSchema = z
       })
       .strict(),
     /**
-     * Only with `group_by`: the same sessions, each under its agent, the
-     * user holding it or its current profile, largest cost first. The
+     * Only with `group_by`: the same sessions, each under its agent, or the
+     * user holding it, largest cost first. The
      * groups' `session_count`, `cost_usd` and `run_seconds` add up to the
      * totals above, and `cost_complete` above is false when any group's is.
-     * `id` is null for the sessions without an agent, a user (a key's own)
-     * or a profile. `name` is the agent's name, the user's display name
-     * (never an email) or the profile id; null where the caller may not see
-     * that user.
+     * `id` is null for the sessions without an agent or a user (a key's
+     * own). `name` is the agent's name or the user's display name (never an
+     * email); null where the caller may not see that user.
      */
     groups: z
       .array(

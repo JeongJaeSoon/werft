@@ -11,7 +11,6 @@ import {
 } from "@werft-ai/ui";
 import { type ReactNode, useId } from "react";
 import { LoadFailure } from "../../../components/load-failure.tsx";
-import { useProfileDisplay } from "../../../components/profile-options.tsx";
 import { useI18n } from "../../../i18n/i18n.tsx";
 import { SETTINGS_CARD } from "../../workspace-settings.tsx";
 import { TileMark } from "../../workspace-slack.tsx";
@@ -41,7 +40,6 @@ export function SlackHeader({
   readonly connected: boolean;
 }) {
   const { t } = useI18n();
-  const profile = useProfileDisplay();
   const titleId = useId();
   const { app, identities, identity, record } = slack;
   const bindings = useSlackBindings(agentId);
@@ -144,8 +142,7 @@ export function SlackHeader({
           <AlertTitle>{t(SLACK_WARNING_KEY[warning.code].title)}</AlertTitle>
           <AlertDescription>
             {t(SLACK_WARNING_KEY[warning.code].body, {
-              profile:
-                "profile_id" in warning ? profile.show(warning.profile_id) : "",
+              release: "release_id" in warning ? warning.release_id : "",
               previous:
                 "previous_user_id" in warning ? warning.previous_user_id : "",
               user: "user_id" in warning ? warning.user_id : "",

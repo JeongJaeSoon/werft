@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { Api, e2eEnv } from "../e2e/client.ts";
+import { Api, e2eStack } from "../e2e/client.ts";
 import { docker } from "./docker.ts";
 import { scriptId } from "./engine.ts";
 import { engineFromEnv } from "./engines.ts";
@@ -14,7 +14,9 @@ import { engineFromEnv } from "./engines.ts";
  * checkpoint while it waits for an approval.
  */
 const engine = engineFromEnv();
-const api = new Api(e2eEnv({ needsMessages: false }));
+const api = new Api(
+  await e2eStack({ needsMessages: false, connectionId: engine.connectionId }),
+);
 const TIMEOUT = 600_000;
 
 /**
@@ -48,7 +50,6 @@ describe(`resume on ${engine.runtimeKind}`, () => {
       const created = await api.createSession(
         engine.prompt({ id: before, commands: [], final: "before" }),
         undefined,
-        engine.profileId,
         engine.repositoryId,
       );
       expect(created.status).toBe(201);

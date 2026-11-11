@@ -23,7 +23,7 @@ const waiting = (id: string) => ({
   runtime: {
     kind: "claude_agent_sdk",
     version: "1.0.0",
-    profile_id: "default",
+    connection_id: "default",
     model: "model-default",
     permission_mode: "default",
   },
@@ -59,7 +59,6 @@ describe("app shell", () => {
       ["에이전트", "/agents"],
     ],
     [
-      ["프로필", "/profiles"],
       ["사용량·한도", "/operations"],
       ["성과", "/achievements"],
       ["구성원", "/members"],
@@ -75,7 +74,6 @@ describe("app shell", () => {
       [
         MANAGER_NAV[0],
         [
-          ["프로필", "/profiles"],
           ["사용량·한도", "/operations"],
           ["성과", "/achievements"],
         ],
@@ -112,16 +110,16 @@ describe("app shell", () => {
     });
     const group = within(nav).getByRole("group", { name: "워크스페이스" });
     expect(heading.getAttribute("aria-expanded")).toBe("true");
-    expect(within(group).getAllByRole("link")).toHaveLength(5);
+    expect(within(group).getAllByRole("link")).toHaveLength(4);
     // Plain line icons: no coloured tile behind them.
     expect(nav.querySelectorAll("[data-slot=icon-tile]")).toHaveLength(0);
-    expect(nav.querySelectorAll("a > svg")).toHaveLength(8);
+    expect(nav.querySelectorAll("a > svg")).toHaveLength(7);
     const user = await setupUser();
     await user.click(heading);
     expect(heading.getAttribute("aria-expanded")).toBe("false");
     expect(within(group).queryAllByRole("link")).toHaveLength(0);
     await user.click(heading);
-    expect(within(group).getAllByRole("link")).toHaveLength(5);
+    expect(within(group).getAllByRole("link")).toHaveLength(4);
   });
 
   test("a member keeps their own settings in the account menu", async () => {
@@ -165,7 +163,7 @@ describe("app shell", () => {
       "GET /v1/auth/me": () => json(200, memberMe()),
     });
     const nav = await screen.findByRole("navigation", { name: "주요 메뉴" });
-    await within(nav).findByRole("link", { name: "프로필" });
+    await within(nav).findByRole("link", { name: "에이전트" });
     expect(within(nav).queryByRole("link", { name: "구성원" })).toBeNull();
     const [header] = screen.getAllByRole("banner");
     await waitFor(() => expect(header?.textContent).toBe("메뉴 열기구성원"));
@@ -205,7 +203,6 @@ describe("app shell", () => {
     ["/operations", "사용량·한도"],
     ["/operations/limits", "사용량·한도"],
     ["/achievements", "성과"],
-    ["/profiles", "프로필"],
   ] as const) {
     test(`${path} is named ${title} in the top bar and the page head`, async () => {
       renderAt(path, signedIn);
@@ -813,8 +810,8 @@ describe("focus after a page change", () => {
   test("back from an open account menu leaves focus in the menu", async () => {
     const { history } = renderAt("/agents", signedIn);
     await screen.findByRole("heading", { level: 1, name: "에이전트" });
-    await history.push("/profiles");
-    await screen.findByRole("heading", { level: 1, name: "프로필" });
+    await history.push("/achievements");
+    await screen.findByRole("heading", { level: 1, name: "성과" });
     const region = screen.getByRole("region", { name: "사용자 메뉴" });
     const user = await setupUser();
     within(region).getByRole("button", { name: /Owner/ }).focus();

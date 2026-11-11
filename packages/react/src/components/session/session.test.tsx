@@ -313,7 +313,7 @@ const SESSION: SessionSummary = {
   admission_state: "active",
   status: "running",
   runtime: {
-    profile_id: "claude-default",
+    connection_id: "anthropic-main",
     kind: "claude_agent_sdk",
     version: "1.2.3",
     model: "model-claude-default",
@@ -355,7 +355,7 @@ describe("SessionRow", () => {
       "work: status:running",
       "session: admission:active",
       "queued:2",
-      "runtime: claude-default · claude_agent_sdk 1.2.3",
+      "runtime: anthropic-main · claude_agent_sdk 1.2.3",
     ]) {
       expect(text).toContain(part);
     }

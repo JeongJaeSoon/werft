@@ -20,7 +20,6 @@ import {
   additionalRepositoryAllowed,
   repositoryInCeiling,
   type SessionCatalog,
-  usesWorkspaceCeiling,
 } from "../../sessions/index.ts";
 import {
   type GitHubConnections,
@@ -213,10 +212,7 @@ export function createGitHubGate(deps: {
       const { policy } = context;
       const settings = policy.settings;
       // Before any credential path: these limits hold on every host.
-      if (
-        !platformRead &&
-        usesWorkspaceCeiling(catalog, context.profileId, policy.source)
-      ) {
+      if (!platformRead) {
         if (settings === "invalid") {
           return await refuse("github_settings_unsupported");
         }

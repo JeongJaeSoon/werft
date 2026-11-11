@@ -1,11 +1,13 @@
 import {
   type CatalogMcpServerConfig,
-  type CatalogProfileConfig,
+  type CatalogProviderConfig,
   type CatalogRepositoryConfig,
   catalogMcpServerSchema,
   catalogProviderSchema,
   catalogRepositorySchema,
   type InstallationSettingsStore,
+  type ModelFamilies,
+  modelFamiliesSchema,
   type SecretKey,
   type SecretOwnerRef,
   type StoredOwnerKind,
@@ -31,7 +33,6 @@ function repositoryConfigOf(row: RepositoryRow): unknown {
   return {
     url: row.url,
     branch: row.branch,
-    ...(row.profiles === null ? {} : { profiles: row.profiles }),
     ...(row.auth === null ? {} : { auth: row.auth }),
   };
 }
@@ -144,9 +145,11 @@ export function createPostgresInstallationSettingsStore(
           const refs: string[] = [];
           const connections: Array<{
             id: string;
-            provider: CatalogProfileConfig["provider"];
-            replaces?: CatalogProfileConfig["provider"];
+            provider: CatalogProviderConfig;
+            replaces?: CatalogProviderConfig;
             auto_mode: "supported" | "unsupported" | "unknown";
+            models: string[];
+            model_families?: ModelFamilies;
           }> = [];
           for (const row of await tx
             .select()
@@ -174,10 +177,23 @@ export function createPostgresInstallationSettingsStore(
                     ...row.definition,
                     auth: row.replacesAuth,
                   });
+            // A list a later image wrote in another shape offers nothing.
+            const models = Array.isArray(row.models)
+              ? row.models.filter(
+                  (model): model is string =>
+                    typeof model === "string" && model !== "",
+                )
+              : [];
+            const families =
+              row.modelFamilies === null
+                ? undefined
+                : modelFamiliesSchema.safeParse(row.modelFamilies);
             connections.push({
               id: row.id,
               provider: parsed.data,
               auto_mode: row.autoMode,
+              models,
+              ...(families?.success ? { model_families: families.data } : {}),
               ...(former?.success ? { replaces: former.data } : {}),
             });
           }

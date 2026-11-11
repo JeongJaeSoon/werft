@@ -225,7 +225,7 @@ describe("팀 화면", () => {
     ] as const) {
       const shown = renderAt("/", { "GET /v1/auth/me": () => json(200, who) });
       const nav = await screen.findByRole("navigation", { name: "주요 메뉴" });
-      await within(nav).findByRole("link", { name: "프로필" });
+      await within(nav).findByRole("link", { name: "에이전트" });
       expect(within(nav).queryByRole("link", { name: "구성원" }) !== null).toBe(
         shows,
       );

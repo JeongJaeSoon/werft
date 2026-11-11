@@ -18,6 +18,10 @@ import {
   workspaces,
 } from "@werft-ai/db";
 import { fixtureTeam } from "@werft-ai/db/testing/fixture-team";
+import {
+  releaseSpecColumns,
+  TEST_CONNECTION_ID,
+} from "@werft-ai/db/testing/spec-pins";
 import { callerFor, MANAGEMENT_ROLES, SecretKey } from "@werft-ai/platform";
 import { startFakeSlackApi } from "@werft-ai/testkit/fake-slack-api";
 import {
@@ -142,8 +146,8 @@ integration("slack-app create on PostgreSQL against a fake Slack", () => {
       agentId,
       versionId,
       cardSha256: "0".repeat(64),
-      runtimeProfileId: "coding",
-      profileDigest: "digest",
+      connectionId: TEST_CONNECTION_ID,
+      ...releaseSpecColumns(),
       runtimeConfigSnapshot: {},
       effectiveTools: [],
     });

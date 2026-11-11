@@ -2,8 +2,6 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { focusManager } from "@tanstack/react-query";
 import type {
   ListPendingRequestsResponse,
-  ListProfilesResponse,
-  ProfileSummary,
   SessionDetail,
   SessionSummary,
   SessionUsageResponse,
@@ -155,7 +153,7 @@ function summary(id: string, overrides: Partial<SessionSummary> = {}) {
     runtime: {
       kind: "claude_agent_sdk",
       version: "1.0.0",
-      profile_id: "default",
+      connection_id: "default",
       model: "model-default",
       permission_mode: "default",
     },
@@ -226,34 +224,8 @@ const pending: ListPendingRequestsResponse = {
   ],
 };
 
-function profile(id: string, overrides: Partial<ProfileSummary> = {}) {
-  return {
-    id,
-    source: "operator",
-    model: `model-${id}`,
-    models: [overrides.model ?? `model-${id}`],
-    tools: ["Read"],
-    permission_mode: "default",
-    runtime_kind: "claude_agent_sdk",
-    runtime_version: "1.0.0",
-    billing: "metered",
-    repository_mode: "required",
-    ...overrides,
-  } satisfies ProfileSummary;
-}
-
-const profiles: ListProfilesResponse = {
-  items: [
-    profile("default"),
-    profile("fast"),
-    profile("other-runtime", { runtime_version: "2.0.0" }),
-    profile("free", { billing: "none" }),
-  ],
-};
-
 const detailRoutes = {
   "GET /v1/auth/me": () => json(200, me()),
-  "GET /v1/profiles": () => json(200, profiles),
   [`GET /v1/sessions/${SESSION_ID}`]: () => json(200, detail),
   [`GET /v1/sessions/${SESSION_ID}/usage`]: () => json(200, usage),
   [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () => json(200, pending),
@@ -1856,11 +1828,11 @@ describe("session detail", () => {
   });
 });
 
-describe("session profile", () => {
-  // The user's call (2026-10-24): a session picks its model only; the
-  // profile belongs to the agent, so the screen offers no change mid-session.
-  test("offers no profile change and shows the model the session runs instead", async () => {
-    const { api } = renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
+describe("session runtime", () => {
+  // A session runs what its agent's release names; the screen shows the
+  // model and offers no change mid-session.
+  test("shows the model the session runs on the info tab", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
     const header = (
       await screen.findByRole("button", { name: "일시 정지" })
     ).closest("header") as HTMLElement;
@@ -1870,11 +1842,6 @@ describe("session profile", () => {
     expect(
       screen.getByRole("tabpanel", { name: "정보" }).textContent,
     ).toContain("model-default");
-    expect(screen.queryByRole("button", { name: "프로필 바꾸기" })).toBeNull();
-    expect(
-      screen.queryByRole("combobox", { name: "다음 작업부터 쓸 프로필" }),
-    ).toBeNull();
-    expect(api.calls.some((call) => call.path === "/v1/profiles")).toBe(false);
   });
 
   test("allows a permission request from the keyboard; the answered request leaves", async () => {
@@ -2436,28 +2403,6 @@ describe("session profile", () => {
         }) as HTMLTextAreaElement
       ).value,
     ).toBe("");
-  });
-
-  test("a message to a session whose profile the operator blocked says so", async () => {
-    const user = await setupUser();
-    renderAt(`/sessions/${SESSION_ID}`, {
-      ...detailRoutes,
-      [`POST /v1/sessions/${SESSION_ID}/messages`]: () =>
-        json(409, {
-          error: {
-            code: "PROFILE_BLOCKED",
-            message: "Profile claude-coding-v1 is blocked by the operator",
-            details: { reason_code: "blocked", profile_id: "claude-coding-v1" },
-          },
-        }),
-    });
-    await user.click(await screen.findByRole("textbox", { name: "다음 지시" }));
-    await user.keyboard("next step{Control>}{Enter}{/Control}");
-    expect(
-      await screen.findByText(
-        "운영자가 이 세션의 프로필을 차단해 지시를 받지 않습니다. 차단이 풀리면 다시 보낼 수 있습니다.",
-      ),
-    ).toBeTruthy();
   });
 
   /** Sends by mouse and holds the receipt; focus has left the send button. */

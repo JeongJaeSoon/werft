@@ -57,7 +57,6 @@ import { membersEn, membersJa, membersKo } from "./members.ts";
 import { modelsEn, modelsJa, modelsKo } from "./models.ts";
 import { outputsEn, outputsJa, outputsKo } from "./outputs.ts";
 import { preferencesEn, preferencesJa, preferencesKo } from "./preferences.ts";
-import { profilesEn, profilesJa, profilesKo } from "./profiles.ts";
 import { sessionListEn, sessionListJa, sessionListKo } from "./session-list.ts";
 import { settingsEn, settingsJa, settingsKo } from "./settings.ts";
 import { shellEn, shellJa, shellKo } from "./shell.ts";
@@ -97,9 +96,6 @@ describe("i18n", () => {
       );
       expect(catalogs[locale]["workspace.danger"]).toBe(
         catalogs[locale]["slack.danger"],
-      );
-      expect(catalogs[locale]["profiles.title"]).toBe(
-        catalogs[locale]["nav.profiles"],
       );
     }
   });
@@ -144,9 +140,7 @@ describe("i18n", () => {
     for (const locale of LOCALES) {
       const catalog = catalogs[locale];
       expect(catalog["shell.group.agentConnections"]).toBe(group[locale]);
-      expect(catalog["profiles.ceiling.connectionHint"]).toContain(
-        guidance[locale],
-      );
+      expect(catalog["agentCard.connectionNone"]).toContain(guidance[locale]);
     }
   });
 
@@ -191,7 +185,7 @@ describe("i18n", () => {
       ...["repositories", "model", "tools", "settings", "secrets"].map(
         (area) => `agent.releases.area.${area}`,
       ),
-      "agent.releases.absent.profileRepositories",
+      "agent.releases.absent.workspaceRepositories",
       "agent.releases.changed",
       "agent.releases.secretsHidden",
       "session.release.title",
@@ -238,7 +232,6 @@ describe("i18n", () => {
         teamsKo,
         agentsKo,
         modelsKo,
-        profilesKo,
         sessionsKo,
         sessionListKo,
         flowKo,
@@ -269,7 +262,6 @@ describe("i18n", () => {
         teamsJa,
         agentsJa,
         modelsJa,
-        profilesJa,
         sessionsJa,
         sessionListJa,
         flowJa,
@@ -300,7 +292,6 @@ describe("i18n", () => {
         teamsEn,
         agentsEn,
         modelsEn,
-        profilesEn,
         sessionsEn,
         sessionListEn,
         flowEn,
@@ -412,35 +403,18 @@ describe("i18n", () => {
   });
 });
 
-describe("profile naming", () => {
-  // The screen is named "프로필"; the two old kinds must not leak into copy.
-  const OLD_NAMES =
-    /설치 프로필|워크스페이스 프로필|installation profile|workspace profile|インストールのプロファイル|ワークスペースのプロファイル/i;
-  test.each([
-    ["ko", [profilesKo, modelsKo, errorsKo, settingsKo]],
-    ["en", [profilesEn, modelsEn, errorsEn, settingsEn]],
-    ["ja", [profilesJa, modelsJa, errorsJa, settingsJa]],
-  ] as const)("%s copy never names a profile kind", (_locale, tables) => {
-    const hits = tables.flatMap((table) =>
-      Object.entries(table).filter(([, text]) => OLD_NAMES.test(String(text))),
-    );
-    expect(hits.map(([key]) => key)).toEqual([]);
-  });
-
-  // A profile has no scope on screen; only the connections page (settings)
-  // still speaks of the whole installation.
-  const OLD_SCOPE =
-    /모든 워크스페이스|가장 넓은 범위|이 워크스페이스에서 만든|every workspace|widest|made in this workspace|すべてのワークスペース|最も広い|このワークスペースで作った/i;
-  test.each([
-    ["ko", profilesKo],
-    ["en", profilesEn],
-    ["ja", profilesJa],
-  ] as const)("%s profile copy states no scope", (_locale, table) => {
-    const hits = Object.entries(table).filter(([, text]) =>
-      OLD_SCOPE.test(String(text)),
-    );
-    expect(hits.map(([key]) => key)).toEqual([]);
-  });
+describe("no profile in copy", () => {
+  // Run rules come from the workspace and the agent; no screen names a profile.
+  const PROFILE = /프로필|profile|プロファイル/i;
+  test.each(LOCALES.map((locale) => [locale] as const))(
+    "%s copy never names a profile",
+    (locale) => {
+      const hits = Object.entries(catalogs[locale]).filter(([, text]) =>
+        PROFILE.test(String(text)),
+      );
+      expect(hits.map(([key]) => key)).toEqual([]);
+    },
+  );
 
   // Merging is set per workspace, not on the agent; the hint must say where
   // and must not claim there is no merge at all.

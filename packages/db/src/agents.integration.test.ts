@@ -11,17 +11,16 @@ import {
 import {
   type AgentService,
   type Caller,
-  type CatalogProfile,
   callerFor,
   cardContentSha256,
   createAgentService,
   createAuthorizationPolicy,
   deriveReleaseId,
   InvalidCursorError,
+  releaseRunOf,
   resolveReleaseContent,
   type SessionCatalog,
   SessionServiceError,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import {
   createTempDatabase,
@@ -62,39 +61,38 @@ import {
   workspaces,
 } from "./schema.ts";
 import { fixtureTeamSql } from "./testing/fixture-team.ts";
+import {
+  releaseSpecColumns,
+  sessionPinColumns,
+  TEST_CONNECTION_ID,
+  TEST_RUNTIMES,
+  testSessionCatalog,
+  testToolCatalogs,
+} from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 const PAGE = { limit: 50 };
 
-const PROFILE: CatalogProfile = {
-  runtime_kind: "claude_agent_sdk",
-  runtime_version: "0.3.270",
-  model: "claude-sonnet-5",
-  tools: ["Read", "Grep", "Edit", "Bash"],
-  permission_mode: "default",
-  // Releases here name no repository; one that must is refused at release.
-  repository: "optional",
-  provider: {
-    kind: "litellm",
-    endpoint: "https://litellm.invalid",
-    auth: {
-      kind: "api_key",
-      value: "catalog-provider-key",
-      ref: { value_env: "PROVIDER_KEY" },
+// The runtime installs these four tools; a card is narrowed to them.
+const CATALOG: SessionCatalog = {
+  ...testSessionCatalog({
+    repositories: {
+      app: {
+        url: "https://example.invalid/app.git",
+        branch: "main",
+        auth: { kind: "github_app", registered: true },
+      },
     },
-  },
-};
-const CATALOG: SessionCatalog = withSeededInstallation({
-  profiles: { coding: PROFILE },
-  repositories: {
-    app: {
-      url: "https://example.invalid/app.git",
-      branch: "main",
-      profiles: ["coding"],
-      auth: { kind: "github_app", registered: true },
-    },
-  },
-});
+  }),
+  tool_catalogs: testToolCatalogs(["Read", "Grep", "Edit", "Bash"]),
+} as SessionCatalog;
+
+// The run a release on the test connection gets, as the service resolves it.
+const TEST_RUN = (() => {
+  const found = releaseRunOf(CATALOG, TEST_RUNTIMES, TEST_CONNECTION_ID);
+  if (!found.ok) throw new Error(found.message);
+  return found.run;
+})();
 
 function cardWith(instructions: string, tools: string[] | null = ["Read"]) {
   return agentCardRequestSchema.parse({
@@ -149,6 +147,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       store: createPostgresAgentStore(db),
       catalog,
       credentials: createPostgresCredentialBindingStore(db),
+      runtimes: TEST_RUNTIMES,
     });
   }
 
@@ -591,7 +590,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     const release = await agentsService.createRelease(
       owner,
       released.agent.id,
-      { version_id: v1.id, runtime_profile_id: "coding" },
+      { version_id: v1.id, connection_id: TEST_CONNECTION_ID },
     );
     await agentsService.activateAgent(owner, released.agent.id, {
       release_id: release.release.id,
@@ -619,7 +618,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
           mcp_servers: [],
           credential_refs: ["github", "slack"],
         },
-        runtime_profile_id: null,
+        connection_id: null,
         release_label: null,
         release_model: null,
         bound_credential_refs: ["github"],
@@ -636,7 +635,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
           mcp_servers: [],
           credential_refs: [],
         },
-        runtime_profile_id: "coding",
+        connection_id: TEST_CONNECTION_ID,
         release_label: release.release.label,
         release_model: release.release.runtime_config_snapshot.model as string,
         bound_credential_refs: [],
@@ -646,13 +645,14 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
         slack_action: null,
       },
     ]);
-    // By the active release's profile: the draft has none, so only v1's agent.
-    const onProfile = async (runtime_profile_id: string) =>
+    // By the active release's connection: the draft has none, so only v1's
+    // agent.
+    const onConnection = async (connection_id: string) =>
       (
-        await agentsService.listAgents(owner, { ...PAGE, runtime_profile_id })
+        await agentsService.listAgents(owner, { ...PAGE, connection_id })
       ).items.map((agent) => agent.id);
-    expect(await onProfile("coding")).toEqual([released.agent.id]);
-    expect(await onProfile("analysis")).toEqual([]);
+    expect(await onConnection(TEST_CONNECTION_ID)).toEqual([released.agent.id]);
+    expect(await onConnection("analysis")).toEqual([]);
     // Without asking, the page is the agents as before.
     const plain = await agentsService.listAgents(owner, PAGE);
     expect(plain.items.map((agent) => Object.hasOwn(agent, "summary"))).toEqual(
@@ -834,7 +834,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       const { release } = await agentsService.createRelease(
         owner,
         created.agent.id,
-        { version_id: v1.id, runtime_profile_id: "coding" },
+        { version_id: v1.id, connection_id: TEST_CONNECTION_ID },
       );
       await agentsService.activateAgent(owner, created.agent.id, {
         release_id: release.id,
@@ -861,6 +861,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
         workspaceId,
         repoUrl: "https://example.invalid/app.git",
         branch: "main",
+        ...sessionPinColumns(),
         agentReleaseId: releaseId,
         status: options.status,
         createdByUserId: options.creator,
@@ -1126,7 +1127,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       created.agent.id,
       {
         version_id: second.id,
-        runtime_profile_id: "coding",
+        connection_id: TEST_CONNECTION_ID,
       },
     );
     expect(released.created).toBe(true);
@@ -1134,7 +1135,10 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       agent_id: created.agent.id,
       version_id: second.id,
       card_sha256: second.content_sha256,
-      effective_tools: { tools: ["Read", "Grep", "Edit", "Bash"], mcp: [] },
+      effective_tools: {
+        tools: ["Read", "Grep", "Edit", "Bash", "Agent"],
+        mcp: [],
+      },
       created_by: owner.actor?.userId,
       approved_by: null,
       approved_at: null,
@@ -1145,7 +1149,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     const rereleased = await agentsService.createRelease(
       owner,
       created.agent.id,
-      { version_id: second.id, runtime_profile_id: "coding" },
+      { version_id: second.id, connection_id: TEST_CONNECTION_ID },
     );
     expect(rereleased).toEqual({ release: released.release, created: false });
 
@@ -1193,7 +1197,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
 
     const noted = await agentsService.createRelease(owner, created.agent.id, {
       version_id: first.id,
-      runtime_profile_id: "coding",
+      connection_id: TEST_CONNECTION_ID,
       note: "첫 배포 🚀",
     });
     expect(noted.created).toBe(true);
@@ -1201,7 +1205,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     // Another note on the same content is the same release, note unchanged.
     const again = await agentsService.createRelease(owner, created.agent.id, {
       version_id: first.id,
-      runtime_profile_id: "coding",
+      connection_id: TEST_CONNECTION_ID,
       note: "다른 메모",
     });
     expect(again).toEqual({ release: noted.release, created: false });
@@ -1223,12 +1227,12 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     if (!second) throw new Error("no version 2");
     const bare = await agentsService.createRelease(owner, created.agent.id, {
       version_id: second.id,
-      runtime_profile_id: "coding",
+      connection_id: TEST_CONNECTION_ID,
     });
     expect(bare.release.note).toBeNull();
     const late = await agentsService.createRelease(owner, created.agent.id, {
       version_id: second.id,
-      runtime_profile_id: "coding",
+      connection_id: TEST_CONNECTION_ID,
       note: "late",
     });
     expect(late).toEqual({ release: bare.release, created: false });
@@ -1249,11 +1253,13 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     const insertNote = (note: string) =>
       db.execute(sql`
         INSERT INTO agent_releases (id, agent_id, version_id, card_sha256,
-          runtime_profile_id, profile_digest, runtime_config_snapshot,
-          effective_tools, policy_pins, note)
+          connection_id, spec_source, spec_source_digest, runtime_spec,
+          spec_digest, runtime_config_snapshot, effective_tools, policy_pins,
+          note)
         SELECT ${`rel-${randomUUID()}`}, agent_id, version_id, card_sha256,
-          runtime_profile_id, profile_digest, runtime_config_snapshot,
-          effective_tools, policy_pins, ${note}
+          connection_id, spec_source, spec_source_digest, runtime_spec,
+          spec_digest, runtime_config_snapshot, effective_tools, policy_pins,
+          ${note}
         FROM agent_releases WHERE id = ${bare.release.id}`);
     await insertNote("🚀".repeat(200));
     for (const note of ["", "a".repeat(201)]) {
@@ -1279,7 +1285,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     const { release } = await agentsService.createRelease(
       author,
       created.agent.id,
-      { version_id: version.id, runtime_profile_id: "coding" },
+      { version_id: version.id, connection_id: TEST_CONNECTION_ID },
     );
 
     let events = await db
@@ -1365,7 +1371,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     if (!v2) throw new Error("no version 2");
     const first = await agentsService.createRelease(owner, created.agent.id, {
       version_id: v1.id,
-      runtime_profile_id: "coding",
+      connection_id: TEST_CONNECTION_ID,
     });
     expect(first.release.label).toMatch(
       /^\d{4}-\d{2}-\d{2}_\d{2}:\d{2}:\d{2}$/,
@@ -1377,7 +1383,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     const { release: second } = await agentsService.createRelease(
       owner,
       created.agent.id,
-      { version_id: v2.id, runtime_profile_id: "coding" },
+      { version_id: v2.id, connection_id: TEST_CONNECTION_ID },
     );
 
     // Live, then replaced, then live again: the last activation counts.
@@ -1412,11 +1418,13 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       const id = `rel-${randomUUID()}`;
       await db.execute(sql`
         INSERT INTO agent_releases (id, agent_id, version_id, card_sha256,
-          runtime_profile_id, profile_digest, runtime_config_snapshot,
-          effective_tools, policy_pins, created_at)
+          connection_id, spec_source, spec_source_digest, runtime_spec,
+          spec_digest, runtime_config_snapshot, effective_tools, policy_pins,
+          created_at)
         SELECT ${id}, agent_id, version_id, card_sha256,
-          runtime_profile_id, profile_digest, runtime_config_snapshot,
-          effective_tools, policy_pins, ${createdAt}::timestamptz
+          connection_id, spec_source, spec_source_digest, runtime_spec,
+          spec_digest, runtime_config_snapshot, effective_tools, policy_pins,
+          ${createdAt}::timestamptz
         FROM agent_releases WHERE id = ${second.id}`);
       return id;
     };
@@ -1448,7 +1456,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     // A re-release answers with the release as it reads now.
     const again = await agentsService.createRelease(owner, created.agent.id, {
       version_id: v1.id,
-      runtime_profile_id: "coding",
+      connection_id: TEST_CONNECTION_ID,
     });
     const read = byId.get(first.release.id);
     if (!read) throw new Error("first release not read");
@@ -1482,7 +1490,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       versionIds.map((versionId) =>
         agentsService.createRelease(owner, created.agent.id, {
           version_id: versionId,
-          runtime_profile_id: "coding",
+          connection_id: TEST_CONNECTION_ID,
         }),
       ),
     );
@@ -1511,7 +1519,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       const { release } = await agentsService.createRelease(
         owner,
         created.agent.id,
-        { version_id: version.id, runtime_profile_id: "coding" },
+        { version_id: version.id, connection_id: TEST_CONNECTION_ID },
       );
       releaseIds.push(release.id);
     }
@@ -1558,7 +1566,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     });
   });
 
-  test("a release refuses to resolve once its profile has changed", async () => {
+  test("a release refuses to resolve once its connection or its model is gone", async () => {
     const workspaceId = await workspace();
     const owner = await person(workspaceId, "owner");
     const created = await newAgent(service(), owner);
@@ -1566,32 +1574,29 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     if (!version) throw new Error("no version");
     const { release } = await service().createRelease(owner, created.agent.id, {
       version_id: version.id,
-      runtime_profile_id: "coding",
+      connection_id: TEST_CONNECTION_ID,
     });
 
-    const edited = service({
-      ...CATALOG,
-      profiles: { coding: { ...PROFILE, tools: ["Read", "Grep"] } },
-    });
-    expect(await codeOf(edited.resolveRelease(workspaceId, release.id))).toBe(
-      "PROFILE_DIGEST_MISMATCH",
+    for (const catalog of [
+      { ...CATALOG, connections: {} },
+      testSessionCatalog({ models: ["claude-other"], repositories: {} }),
+    ]) {
+      const edited = service(catalog);
+      expect(await codeOf(edited.resolveRelease(workspaceId, release.id))).toBe(
+        "RELEASE_SPEC_UNAVAILABLE",
+      );
+      expect(
+        await codeOf(
+          edited.activateAgent(owner, created.agent.id, {
+            release_id: release.id,
+            expected_revision: -1,
+          }),
+        ),
+      ).toBe("RELEASE_SPEC_UNAVAILABLE");
+    }
+    expect((await service().resolveRelease(workspaceId, release.id)).id).toBe(
+      release.id,
     );
-    expect(
-      await codeOf(
-        edited.activateAgent(owner, created.agent.id, {
-          release_id: release.id,
-          expected_revision: -1,
-        }),
-      ),
-    ).toBe("PROFILE_DIGEST_MISMATCH");
-    const rereleased = await edited.createRelease(owner, created.agent.id, {
-      version_id: version.id,
-      runtime_profile_id: "coding",
-    });
-    expect(rereleased.release.id).not.toBe(release.id);
-    expect(
-      (await edited.resolveRelease(workspaceId, rereleased.release.id)).id,
-    ).toBe(rereleased.release.id);
   });
 
   test("an agent id in upper case releases and activates the same release", async () => {
@@ -1603,11 +1608,11 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     const upper = created.agent.id.toUpperCase();
     const { release } = await service().createRelease(owner, upper, {
       version_id: version.id,
-      runtime_profile_id: "coding",
+      connection_id: TEST_CONNECTION_ID,
     });
     const lower = await service().createRelease(owner, created.agent.id, {
       version_id: version.id,
-      runtime_profile_id: "coding",
+      connection_id: TEST_CONNECTION_ID,
     });
     expect(lower).toEqual({ release, created: false });
     const activated = await service().activateAgent(owner, upper, {
@@ -1617,7 +1622,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     expect(activated.active_release_id).toBe(release.id);
   });
 
-  test("a card asking for more than the profile allows is released on the profile's tools; an unknown profile is not", async () => {
+  test("a card asking for more than the runtime installs is released on the runtime's tools; an unknown connection is not", async () => {
     const workspaceId = await workspace();
     const owner = await person(workspaceId, "owner");
     const created = await newAgent(
@@ -1629,14 +1634,14 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     if (!version) throw new Error("no version");
     const made = await service().createRelease(owner, created.agent.id, {
       version_id: version.id,
-      runtime_profile_id: "coding",
+      connection_id: TEST_CONNECTION_ID,
     });
     expect(made.release.effective_tools.tools).not.toContain("WebFetch");
     expect(
       await codeOf(
         service().createRelease(owner, created.agent.id, {
           version_id: version.id,
-          runtime_profile_id: "missing",
+          connection_id: "missing",
         }),
       ),
     ).toBe("UNSUPPORTED_CAPABILITY");
@@ -1644,7 +1649,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       await codeOf(
         service().createRelease(owner, created.agent.id, {
           version_id: version.id,
-          runtime_profile_id: "missing",
+          connection_id: "missing",
         }),
       ),
     ).toBe("UNSUPPORTED_CAPABILITY");
@@ -1662,14 +1667,14 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       await codeOf(
         agentsService.createRelease(owner, a.agent.id, {
           version_id: versionOfB.id,
-          runtime_profile_id: "coding",
+          connection_id: TEST_CONNECTION_ID,
         }),
       ),
     ).toBe("NOT_FOUND");
     const { release: releaseOfB } = await agentsService.createRelease(
       owner,
       b.agent.id,
-      { version_id: versionOfB.id, runtime_profile_id: "coding" },
+      { version_id: versionOfB.id, connection_id: TEST_CONNECTION_ID },
     );
     expect(
       await codeOf(
@@ -1695,8 +1700,8 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
           agentId: a.agent.id,
           versionId: versionOfB.id,
           cardSha256: versionOfB.content_sha256,
-          runtimeProfileId: "coding",
-          profileDigest: "sha256:x",
+          connectionId: TEST_CONNECTION_ID,
+          ...releaseSpecColumns(),
           runtimeConfigSnapshot: {},
           effectiveTools: { tools: [], mcp: [] },
         }),
@@ -1720,7 +1725,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     const { release } = await agentsService.createRelease(
       owner,
       created.agent.id,
-      { version_id: version.id, runtime_profile_id: "coding" },
+      { version_id: version.id, connection_id: TEST_CONNECTION_ID },
     );
     expect(
       await refusal(
@@ -1755,7 +1760,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     const { release: r1 } = await agentsService.createRelease(
       owner,
       created.agent.id,
-      { version_id: v1.id, runtime_profile_id: "coding" },
+      { version_id: v1.id, connection_id: TEST_CONNECTION_ID },
     );
     await agentsService.activateAgent(owner, created.agent.id, {
       release_id: r1.id,
@@ -1769,6 +1774,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       workspaceId,
       repoUrl: "https://example.invalid/app.git",
       branch: "main",
+      ...sessionPinColumns(),
       agentReleaseId: r1.id,
     });
     expect(
@@ -1778,6 +1784,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
           ownerId: workspaceId,
           repoUrl: "https://example.invalid/app.git",
           branch: "main",
+          ...sessionPinColumns(),
           agentReleaseId: "sha256:nowhere",
         }),
       ),
@@ -1792,7 +1799,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     const { release: r2 } = await agentsService.createRelease(
       owner,
       created.agent.id,
-      { version_id: v2.id, runtime_profile_id: "coding" },
+      { version_id: v2.id, connection_id: TEST_CONNECTION_ID },
     );
     await agentsService.activateAgent(owner, created.agent.id, {
       release_id: r2.id,
@@ -1826,7 +1833,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     const { release: r1 } = await agentsService.createRelease(
       owner,
       created.agent.id,
-      { version_id: v1.id, runtime_profile_id: "coding" },
+      { version_id: v1.id, connection_id: TEST_CONNECTION_ID },
     );
     expect(r1.policy_pins).toEqual({
       tools: {
@@ -1836,6 +1843,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
           Grep: "allow",
           Edit: "allow",
           Bash: "allow",
+          Agent: "allow",
           mcp__docs__search: "ask",
         },
       },
@@ -1851,6 +1859,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       workspaceId,
       repoUrl: "https://example.invalid/app.git",
       branch: "main",
+      ...sessionPinColumns(),
       agentReleaseId: r1.id,
     });
 
@@ -1862,7 +1871,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     const { release: r2 } = await agentsService.createRelease(
       owner,
       created.agent.id,
-      { version_id: v2.id, runtime_profile_id: "coding" },
+      { version_id: v2.id, connection_id: TEST_CONNECTION_ID },
     );
     expect(r2.id).not.toBe(r1.id);
     expect(r2.policy_pins.tools?.per_tool.mcp__docs__search).toBe("deny");
@@ -1890,7 +1899,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     const created = await newAgent(agentsService, owner, cardWith("legacy"));
     const v1 = created.versions[0];
     if (!v1) throw new Error("no version");
-    const resolved = resolveReleaseContent(v1.card, "coding", PROFILE);
+    const resolved = resolveReleaseContent(v1.card, TEST_RUN);
     if (!resolved.ok) throw new Error(resolved.error.message);
     // What 94S-154 wrote: the same content with the `{}` placeholder.
     const identity = {
@@ -1906,8 +1915,8 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       agentId: identity.agent_id,
       versionId: v1.id,
       cardSha256: identity.card_sha256,
-      runtimeProfileId: identity.runtime_profile_id,
-      profileDigest: identity.profile_digest,
+      connectionId: TEST_CONNECTION_ID,
+      ...releaseSpecColumns(),
       runtimeConfigSnapshot: identity.runtime_config_snapshot,
       effectiveTools: identity.effective_tools,
       policyPins: {},
@@ -1927,7 +1936,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     const { release } = await agentsService.createRelease(
       owner,
       created.agent.id,
-      { version_id: v1.id, runtime_profile_id: "coding" },
+      { version_id: v1.id, connection_id: TEST_CONNECTION_ID },
     );
     expect(release.id).not.toBe(legacyId);
     expect(release.policy_pins.tools?.per_tool).toEqual({
@@ -1935,6 +1944,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       Grep: "allow",
       Edit: "allow",
       Bash: "allow",
+      Agent: "allow",
     });
   });
 
@@ -1957,11 +1967,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     });
 
     // And the release made from it then, stored as a row.
-    const resolved = resolveReleaseContent(
-      storedCard as AgentCard,
-      "coding",
-      PROFILE,
-    );
+    const resolved = resolveReleaseContent(storedCard as AgentCard, TEST_RUN);
     if (!resolved.ok) throw new Error(resolved.error.message);
     const identity = {
       ...resolved.content,
@@ -1975,8 +1981,8 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       agentId: identity.agent_id,
       versionId,
       cardSha256: identity.card_sha256,
-      runtimeProfileId: identity.runtime_profile_id,
-      profileDigest: identity.profile_digest,
+      connectionId: TEST_CONNECTION_ID,
+      ...releaseSpecColumns(),
       runtimeConfigSnapshot: identity.runtime_config_snapshot,
       effectiveTools: identity.effective_tools,
       policyPins: identity.policy_pins,
@@ -1994,7 +2000,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     // Releasing the version again derives the stored id from the stored hash.
     const again = await agentsService.createRelease(owner, created.agent.id, {
       version_id: versionId,
-      runtime_profile_id: "coding",
+      connection_id: TEST_CONNECTION_ID,
     });
     expect(again).toMatchObject({ created: false, release: { id: legacyId } });
     await agentsService.activateAgent(owner, created.agent.id, {
@@ -2034,8 +2040,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
 
     const resolved = resolveReleaseContent(
       storedCard as unknown as AgentCard,
-      "coding",
-      PROFILE,
+      TEST_RUN,
     );
     if (!resolved.ok) throw new Error(resolved.error.message);
     const identity = {
@@ -2050,8 +2055,8 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       agentId: identity.agent_id,
       versionId,
       cardSha256: identity.card_sha256,
-      runtimeProfileId: identity.runtime_profile_id,
-      profileDigest: identity.profile_digest,
+      connectionId: TEST_CONNECTION_ID,
+      ...releaseSpecColumns(),
       runtimeConfigSnapshot: identity.runtime_config_snapshot,
       effectiveTools: identity.effective_tools,
       policyPins: identity.policy_pins,
@@ -2066,7 +2071,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     await expect(agentsService.listAgents(owner, PAGE)).resolves.toBeDefined();
     const again = await agentsService.createRelease(owner, created.agent.id, {
       version_id: versionId,
-      runtime_profile_id: "coding",
+      connection_id: TEST_CONNECTION_ID,
     });
     expect(again).toMatchObject({ created: false, release: { id: storedId } });
   });

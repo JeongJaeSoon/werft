@@ -93,7 +93,7 @@ async function activeAgent({
       method: "PATCH",
       body: JSON.stringify({
         card: server.versions[0]?.card,
-        runtime_profile_id: "claude-coding-local",
+        connection_id: "anthropic-main",
       }),
     }),
   );

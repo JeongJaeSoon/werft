@@ -5,6 +5,7 @@ import type {
   CreateAgentRequest,
   ListAgentsQuery,
   ListAgentsResponse,
+  ListConnectionOptionsResponse,
   UpdateAgentRequest,
 } from "@werft-ai/contracts";
 import {
@@ -17,13 +18,11 @@ import {
   type AgentRelease,
   type AgentVersion,
   type BehaviorValues,
-  canonicalJson,
   envNameProblem,
   GITHUB_CEILING_NONE,
   type GitHubRefusal,
   githubFeaturesOverCeiling,
   type ListUsableAgentsResponse,
-  type ModelSource,
   type SaveAgentResponse,
   type SaveRelease,
   TEAM_LIST_LIMIT,
@@ -61,26 +60,15 @@ import type {
 } from "../ports/agent-store.ts";
 import type { WorkspaceKeyStore } from "../ports/api-key-store.ts";
 import type { CredentialBindingStore } from "../ports/credential-binding-store.ts";
-import type { ProfileRolloutStore } from "../ports/profile-rollout-store.ts";
 import {
-  acceptedRuntimeVersions,
-  allowedPair,
-  allowedRun,
-  type CatalogProfile,
-  catalogProfile,
+  connectionModels,
+  connectionOf,
+  modelMoves,
   modelSuccessor,
-  profileModels,
-  profilePinned,
-  refreshWorkspaceProfilesFor,
-  repositoryModeOf,
-  runningTools,
   type SessionCatalog,
   type SessionCatalogView,
-  workspaceProfileRefusal,
 } from "../sessions/catalog.ts";
-import { sameExecutionForm } from "../sessions/profile-execution-form.ts";
 import {
-  profileBlockedError,
   requirePermitted,
   SessionServiceError,
   viewerOf,
@@ -91,22 +79,21 @@ import {
   assertReleaseIdentity,
   cardContentSha256,
   deriveReleaseId,
+  type ReleaseRun,
   releaseModel,
   resolveReleaseContent,
 } from "./release-ids.ts";
-import { sameToolSet } from "./tool-unlock.ts";
+import { type InstalledRuntimes, releaseRunOf } from "./release-run.ts";
+import { buildSpecSource, releaseSpecRecord } from "./release-spec.ts";
 
 /**
- * The release a session pins, refused when the catalog no longer runs its
- * profile as it was released. Reads no credential value.
+ * The release a session pins, refused when its connection no longer runs its
+ * model here. Reads no credential value.
  */
 export async function resolveAgentRelease(
   deps: {
     store: Pick<AgentStore, "findRelease" | "autoModelMigration">;
-    catalog: Pick<
-      SessionCatalogView,
-      "profiles" | "workspace_profiles" | "runtime_versions"
-    >;
+    catalog: Pick<SessionCatalogView, "connections">;
   },
   workspaceId: string,
   releaseId: string,
@@ -114,46 +101,28 @@ export async function resolveAgentRelease(
   const release = await deps.store.findRelease(workspaceId, releaseId);
   if (!release) throw NOT_FOUND();
   assertReleaseIdentity(release);
-  const profileId = release.runtime_profile_id;
-  await refreshWorkspaceProfilesFor(deps.catalog, [profileId]);
-  const refusal = workspaceProfileRefusal(
-    deps.catalog,
-    workspaceId,
-    profileId,
-    { retiredAllowed: true },
-  );
-  const blocked = profileBlockedError(profileId, refusal);
-  if (blocked) throw blocked;
-  const model = releaseModel(release);
-  const profile =
-    refusal === null ? catalogProfile(deps.catalog, profileId) : undefined;
-  if (!profile) {
+  const connectionId = release.connection_id;
+  const connection = connectionOf(deps.catalog, connectionId);
+  if (!connection) {
     throw new SessionServiceError(
-      "PROFILE_DIGEST_MISMATCH",
-      `Runtime profile ${profileId} of this release${model === undefined ? "" : ` (model ${model})`} is not in this host's catalog; release the version again under a profile the catalog has`,
+      "RELEASE_SPEC_UNAVAILABLE",
+      `Connection ${connectionId} of this release is disabled or not in this host's settings; release the version again on an enabled connection`,
+      undefined,
+      { reason_code: "connection_missing", connection_id: connectionId },
     );
   }
+  const model = releaseModel(release);
   if (
     model !== undefined &&
-    !profileModels(profile).includes(model) &&
-    (modelSuccessor(profile, model) === null ||
+    !connectionModels(connection).includes(model) &&
+    (modelSuccessor(connection, model) === null ||
       !(await deps.store.autoModelMigration(workspaceId, release.agent_id)))
   ) {
     throw new SessionServiceError(
-      "PROFILE_DIGEST_MISMATCH",
-      `Model ${model} of this release was taken off the allowed list of runtime profile ${profileId}; release the version again on a model the profile offers`,
-    );
-  }
-  if (
-    !profilePinned(
-      profile,
-      release.profile_digest,
-      acceptedRuntimeVersions(deps.catalog),
-    )
-  ) {
-    throw new SessionServiceError(
-      "PROFILE_DIGEST_MISMATCH",
-      `Runtime profile ${release.runtime_profile_id} changed since this release; release the version again`,
+      "RELEASE_SPEC_UNAVAILABLE",
+      `Model ${model} of this release was taken off the model list of connection ${connectionId}; release the version again on a model the connection offers`,
+      undefined,
+      { reason_code: "model_removed", connection_id: connectionId },
     );
   }
   return release;
@@ -175,24 +144,6 @@ export async function releaseNotRunnableReason(
     return "agent_inactive";
   }
   return release.approved_at === null ? "release_unapproved" : null;
-}
-
-/** Exported for its test: whether two snapshots run the same runtime. */
-export function sameRuntime(a: unknown, b: unknown): boolean {
-  const form = (snapshot: unknown) => {
-    // `language` is the card's, pinned beside the runtime: a release made
-    // before the field has none, and that is not a different runtime.
-    const {
-      tools,
-      language: _language,
-      ...rest
-    } = (snapshot ?? {}) as {
-      tools?: readonly string[];
-      language?: unknown;
-    };
-    return canonicalJson({ ...rest, tools: [...(tools ?? [])].sort() });
-  };
-  return form(a) === form(b);
 }
 
 /** The variable names a card declares (`capabilities.env`), none for a card without. */
@@ -246,8 +197,8 @@ export function createAgentService(deps: {
   githubSettings?: Pick<GitHubSettingsStore, "get">;
   /** Axis A, as the policy reads it; absent: `use`. */
   outsideAgents?: OutsideAgentAccessSetting;
-  /** Where a profile's newest version is read; absent: no agent is pinned. */
-  profileLineage?: Pick<ProfileRolloutStore, "inspect">;
+  /** The runtime version a new release of each kind runs. */
+  runtimes: InstalledRuntimes;
   extensions?: SessionExtensionsDeps;
 }) {
   const { authorization, store, catalog, credentials } = deps;
@@ -255,15 +206,14 @@ export function createAgentService(deps: {
   async function extensionRefusal(
     workspaceId: string,
     agentId: string,
-    profile: Pick<CatalogProfile, "permission_mode" | "runtime_kind" | "tools">,
-    releaseSnapshot: unknown | null = null,
+    run: Pick<ReleaseRun, "runtime" | "tools">,
   ): Promise<ExtensionRefusal | null> {
     if (!deps.extensions) return null;
     const checked = await checkAgentExtensions(deps.extensions, {
       workspaceId,
       agentId,
-      runtimeKind: profile.runtime_kind,
-      tools: runningTools(profile, releaseSnapshot),
+      runtimeKind: run.runtime.kind,
+      tools: [...run.tools],
     });
     return checked.ok ? null : checked.refusal;
   }
@@ -292,28 +242,25 @@ export function createAgentService(deps: {
 
   /**
    * A release's GitHub settings as asked (design github-agent.md §4): App
-   * repositories its profile allows, the release's own among them, no
+   * repositories of the catalog, the release's own among them, no
    * allow-list without Actions, nothing over the workspace's ceiling. The
    * gate cuts the release down again at every token issue.
    */
   async function checkGitHub(
     ownerId: string,
-    profileId: string,
-    profile: CatalogProfile,
     repositoryId: string | null,
     github: AgentGitHub,
   ): Promise<void> {
-    // A release without a repository on an `optional` profile attaches
-    // them (session-repository-attachment.md decision 4); `none` never does.
-    if (repositoryModeOf(profile) === "none") {
-      throw githubInvalid("github", "repository_none");
-    }
     for (const [index, id] of github.repositories.entries()) {
       const field = `github.repositories.${index}`;
-      const pair = allowedPair(catalog, profileId, id);
-      if (pair === null) throw githubInvalid(field, "repository_not_allowed");
+      const repository = Object.hasOwn(catalog.repositories, id)
+        ? catalog.repositories[id]
+        : undefined;
+      if (repository === undefined) {
+        throw githubInvalid(field, "repository_not_allowed");
+      }
       // A PAT cannot be narrowed to a permission set.
-      if (pair.repository.auth?.kind !== "github_app") {
+      if (repository.auth?.kind !== "github_app") {
         throw githubInvalid(field, "app_required");
       }
     }
@@ -334,54 +281,50 @@ export function createAgentService(deps: {
   // A release is refused here for what its sessions would be refused for,
   // so Slack, which names no repository, gets one that can start.
   function releaseRepositoryRefusal(
-    profileId: string,
-    profile: CatalogProfile,
     repositoryId: string | null,
   ): string | null {
-    if (allowedRun(catalog, profileId, repositoryId) !== null) return null;
-    const mode = repositoryModeOf(profile);
-    if (mode === "required" && repositoryId === null) {
-      return `Profile ${profileId} needs a repository: send repository_id`;
+    if (
+      repositoryId === null ||
+      Object.hasOwn(catalog.repositories, repositoryId)
+    ) {
+      return null;
     }
-    if (mode === "none" && repositoryId !== null) {
-      return `Profile ${profileId} runs without a repository: omit repository_id`;
-    }
-    return `Repository ${repositoryId} is not in the catalog or does not allow profile ${profileId}`;
+    return `Repository ${repositoryId} is not in the catalog`;
   }
 
-  async function usableProfile(
-    workspaceId: string,
-    profileId: string,
-    options: { retiredAllowed?: boolean } = {},
-  ): Promise<CatalogProfile> {
-    await refreshWorkspaceProfilesFor(catalog, [profileId], { strict: true });
-    const workspaceRefusal = workspaceProfileRefusal(
-      catalog,
-      workspaceId,
-      profileId,
-      options,
-    );
-    if (workspaceRefusal !== null) {
-      throw (
-        profileBlockedError(profileId, workspaceRefusal) ??
-        new SessionServiceError(
-          "UNSUPPORTED_CAPABILITY",
-          workspaceRefusal.message,
-          undefined,
-          { reason_code: workspaceRefusal.state },
-        )
-      );
-    }
-    const profile = catalogProfile(catalog, profileId);
-    if (!profile) {
+  /** What a release on the connection runs; refused when it cannot run here. */
+  function usableRun(connectionId: string): ReleaseRun {
+    const found = releaseRunOf(catalog, deps.runtimes, connectionId);
+    if (!found.ok) {
       throw new SessionServiceError(
         "UNSUPPORTED_CAPABILITY",
-        `Unknown runtime_profile_id ${profileId}`,
+        found.message,
         undefined,
-        { reason_code: "profile_unknown" },
+        { reason_code: found.reason_code },
       );
     }
-    return profile;
+    return found.run;
+  }
+
+  /** The spec a release of `identity` on `run`'s connection pins. */
+  function specOf(
+    id: string,
+    identity: Pick<AgentRelease, "connection_id" | "runtime_config_snapshot">,
+    run: ReleaseRun,
+  ) {
+    const built = buildSpecSource({
+      release: { id, ...identity },
+      connection: run.connection,
+    });
+    if (!built.ok) {
+      throw new SessionServiceError(
+        "UNSUPPORTED_CAPABILITY",
+        `The release's spec cannot be made: ${built.message}`,
+        undefined,
+        { reason_code: "spec_invalid" },
+      );
+    }
+    return releaseSpecRecord(built.source);
   }
 
   function personOf(caller: Caller): string {
@@ -461,8 +404,8 @@ export function createAgentService(deps: {
         own.slug.includes(needle)) &&
       (query.ids === undefined ||
         query.ids.some((id) => id.toLowerCase() === own.id.toLowerCase())) &&
-      (query.runtime_profile_id === undefined ||
-        detail.active_release?.runtime_profile_id === query.runtime_profile_id);
+      (query.connection_id === undefined ||
+        detail.active_release?.connection_id === query.connection_id);
     return { items: kept ? [own] : [], next_cursor: null };
   }
 
@@ -474,11 +417,6 @@ export function createAgentService(deps: {
       typeof reason === "string" ? reason : error.code.toLowerCase()
     ).slice(0, 128);
   }
-
-  type MigrationStep =
-    | { status: "applied"; releaseId: string }
-    | { status: "already" | "stale" }
-    | { status: "failed"; reason: string };
 
   type ReleaseOutcome =
     | { status: "applied"; releaseId: string }
@@ -498,19 +436,16 @@ export function createAgentService(deps: {
     input: {
       agentId: string;
       version: AgentVersion;
-      profileId: string;
+      connectionId: string;
       /** The active release the save was read from. */
       active: AgentRelease | null;
       expectedActivationRevision: number;
       intent: Exclude<ActivationIntent, { kind: "direct" }>;
       reason: ReleaseReason;
       requireRoles?: readonly WorkspaceRole[];
-      equivalentTo?: AgentRelease;
-      /** Stays on a retired profile the agent already runs. */
-      retiredAllowed?: boolean;
     },
   ): Promise<ReleaseOutcome> {
-    const { version, profileId, active } = input;
+    const { version, connectionId, active } = input;
     const failed = (reason: string): ReleaseOutcome => ({
       status: "failed",
       reason,
@@ -524,47 +459,30 @@ export function createAgentService(deps: {
     ) {
       return failed("variable_name_reserved");
     }
-    let profile: CatalogProfile;
+    let run: ReleaseRun;
     try {
-      profile = await usableProfile(caller.ownerId, profileId, {
-        ...(input.retiredAllowed === true ? { retiredAllowed: true } : {}),
-      });
+      run = usableRun(connectionId);
     } catch (error) {
       const reason = refusalCode(error);
       if (reason === null) throw error;
       return failed(reason);
     }
-    if (
-      (await extensionRefusal(caller.ownerId, input.agentId, profile)) !== null
-    ) {
+    if ((await extensionRefusal(caller.ownerId, input.agentId, run)) !== null) {
       return failed("release_refused");
     }
     // An agent with a settings row has the row decide, and its release has
-    // no GitHub pin or repository. One without keeps the active release's,
-    // which only a `none` profile has no use for (design 3.5).
+    // no GitHub pin or repository. One without keeps the active release's
+    // (design 3.5).
     const hasRow = await store.hasGitHubSettings(input.agentId);
-    const carry = !hasRow && repositoryModeOf(profile) !== "none";
+    const carry = !hasRow;
     const repositoryId = carry ? (active?.repository_id ?? null) : null;
     const github = carry ? active?.policy_pins.github : undefined;
-    if (
-      allowedRun(
-        catalog,
-        profileId,
-        repositoryId,
-        hasRow ? "agent" : "release",
-      ) === null
-    ) {
+    if (releaseRepositoryRefusal(repositoryId) !== null) {
       return failed("release_refused");
     }
     if (github !== undefined) {
       try {
-        await checkGitHub(
-          caller.ownerId,
-          profileId,
-          profile,
-          repositoryId,
-          github,
-        );
+        await checkGitHub(caller.ownerId, repositoryId, github);
       } catch (error) {
         const reason = refusalCode(error);
         if (reason === null) throw error;
@@ -573,25 +491,15 @@ export function createAgentService(deps: {
     }
     const resolved = resolveReleaseContent(
       version.card,
-      profileId,
-      profile,
+      run,
       catalog.mcp_servers,
     );
     if (!resolved.ok) {
       return failed(
         resolved.error.field === "card.model"
-          ? "model_not_in_profile"
+          ? "model_not_in_connection"
           : "release_refused",
       );
-    }
-    if (
-      input.equivalentTo !== undefined &&
-      !sameRuntime(
-        input.equivalentTo.runtime_config_snapshot,
-        resolved.content.runtime_config_snapshot,
-      )
-    ) {
-      return failed("not_equivalent");
     }
     const identity = {
       agent_id: version.agent_id,
@@ -603,6 +511,7 @@ export function createAgentService(deps: {
         ...(github === undefined ? {} : { github }),
       },
     };
+    const releaseId = deriveReleaseId(identity);
     const inserted = await store.insertRelease({
       principal: caller,
       workspaceId: caller.ownerId,
@@ -615,11 +524,12 @@ export function createAgentService(deps: {
       refuseGitHubWhenSettings: carry,
       reason: input.reason,
       release: {
-        id: deriveReleaseId(identity),
+        id: releaseId,
         version_id: version.id,
         created_by: userId,
         note: null,
         ...identity,
+        spec: specOf(releaseId, identity, run),
       },
     });
     switch (inserted.outcome) {
@@ -634,7 +544,7 @@ export function createAgentService(deps: {
       default:
         assertReleaseIdentity(inserted.release);
     }
-    const releaseId = inserted.release.id;
+    // The id it was inserted under, the one derived above.
     const missing = await credentials.unboundRefs(caller.ownerId, releaseId);
     if (missing.length > 0) return failed("credential_unbound");
     const activated = await store.activate({
@@ -670,17 +580,8 @@ export function createAgentService(deps: {
     }
   }
 
-  function behaviorValues(
-    profileId: string,
-    model: string,
-    modelSource: ModelSource,
-  ): BehaviorValues {
-    return {
-      runtime_profile_id: profileId,
-      model,
-      model_source: modelSource,
-      title_model: catalogProfile(catalog, profileId)?.title_model ?? null,
-    };
+  function behaviorValues(connectionId: string, model: string): BehaviorValues {
+    return { connection_id: connectionId, model };
   }
 
   function withBehavior(record: AgentRecord): AgentDetail {
@@ -696,18 +597,13 @@ export function createAgentService(deps: {
         applied:
           active && activeCard
             ? behaviorValues(
-                active.runtime_profile_id,
+                active.connection_id,
                 releaseModel(active) ?? activeCard.model,
-                record.model_source,
               )
             : null,
         draft:
           draft && draftCard
-            ? behaviorValues(
-                draft.runtime_profile_id,
-                draftCard.model,
-                draft.model_source,
-              )
+            ? behaviorValues(draft.connection_id, draftCard.model)
             : null,
       },
     };
@@ -731,8 +627,7 @@ export function createAgentService(deps: {
       description?: string | null;
       auto_model_migration?: boolean;
       card?: AgentCard;
-      runtime_profile_id?: string;
-      model_source?: ModelSource;
+      connection_id?: string;
     },
   ): Promise<SaveAgentResponse> {
     if (fields.card !== undefined) assertDeclaredEnvNames(fields.card);
@@ -771,9 +666,7 @@ export function createAgentService(deps: {
       return outcome === "actor_inactive" ? ACTOR_INACTIVE() : OUTRANKED();
     };
     const asked =
-      fields.card !== undefined ||
-      fields.runtime_profile_id !== undefined ||
-      fields.model_source !== undefined;
+      fields.card !== undefined || fields.connection_id !== undefined;
     for (let attempt = 1; ; attempt++) {
       const record = await store.get(caller.ownerId, agentId);
       if (!record) throw NOT_FOUND();
@@ -788,14 +681,14 @@ export function createAgentService(deps: {
         cardOf(draft?.version_id) ??
         newest;
       // The card that would be released, sent or not: a save that names only
-      // a profile re-releases the stored one.
+      // a connection re-releases the stored one.
       if (asked && base !== undefined) assertDeclaredEnvNames(base);
-      const profileId =
-        fields.runtime_profile_id ??
-        active?.runtime_profile_id ??
-        draft?.runtime_profile_id ??
+      const connectionId =
+        fields.connection_id ??
+        active?.connection_id ??
+        draft?.connection_id ??
         null;
-      if (!asked || profileId === null || base === undefined) {
+      if (!asked || connectionId === null || base === undefined) {
         const result = await store.update({
           principal: caller,
           workspaceId: caller.ownerId,
@@ -820,29 +713,9 @@ export function createAgentService(deps: {
         if (result.outcome === "stale") continue;
         throw refused(result.outcome);
       }
-      await refreshWorkspaceProfilesFor(catalog, [profileId], { strict: true });
-      const profile = catalogProfile(catalog, profileId);
-      const runningModel = releaseModel(active);
-      // A save that names no source keeps the current one while it keeps the
-      // running model, and is a person's own choice of model otherwise. An
-      // agent with nothing running follows its profile (design 2.6).
-      const modelSource: ModelSource =
-        fields.model_source ??
-        (active
-          ? base.model === runningModel
-            ? record.model_source
-            : "fixed"
-          : (draft?.model_source ?? "profile"));
-      // The card's model is the model it runs, so a followed profile's
-      // default is written into the card before it is hashed.
-      const card =
-        modelSource === "profile" && profile
-          ? { ...base, model: profile.model }
-          : base;
+      const card = base;
       const explicit =
-        fields.card !== undefined &&
-        fields.runtime_profile_id !== undefined &&
-        fields.model_source !== undefined;
+        fields.card !== undefined && fields.connection_id !== undefined;
       const result = await store.update({
         principal: caller,
         workspaceId: caller.ownerId,
@@ -850,8 +723,7 @@ export function createAgentService(deps: {
         ...identity,
         card: { card, contentSha256: cardContentSha256(card) },
         behavior: {
-          runtimeProfileId: profileId,
-          modelSource,
+          connectionId,
           ...(explicit
             ? {}
             : {
@@ -890,18 +762,17 @@ export function createAgentService(deps: {
         outcome = await releaseAgent(caller, userId, {
           agentId,
           version,
-          profileId,
+          connectionId,
           active: running,
           expectedActivationRevision: expectedRevision,
           intent: {
             kind: "save",
             behaviorRevision: saved.behaviorRevision,
             draftVersionId: saved.versionId,
-            modelSource,
           },
           reason:
-            active && profileId !== active.runtime_profile_id
-              ? "profile_changed"
+            active && connectionId !== active.connection_id
+              ? "connection_changed"
               : "card_saved",
         });
         if (outcome.status !== "retry") break;
@@ -957,232 +828,12 @@ export function createAgentService(deps: {
     }
   }
 
-  async function followLatestProfile(
-    caller: Caller,
-    userId: string,
-    agentId: string,
-  ): Promise<SaveAgentResponse> {
-    const record = await store.get(caller.ownerId, agentId);
-    if (!record) throw NOT_FOUND();
-    const active = record.active_release;
-    const seen =
-      active === null || deps.profileLineage === undefined
-        ? null
-        : await deps.profileLineage.inspect({
-            agentId,
-            targetProfileId: active.runtime_profile_id,
-            activeProfileId: active.runtime_profile_id,
-          });
-    if (active === null || seen === null || seen.latest === null) {
-      throw new SessionServiceError(
-        "BAD_REQUEST",
-        "The agent runs no profile that has a newer version",
-        undefined,
-        { reason_code: "no_profile_lineage" },
-      );
-    }
-    const answer = (
-      fresh: AgentRecord,
-      release: SaveRelease,
-    ): SaveAgentResponse => ({ ...withBehavior(fresh), release });
-    const version_id = null;
-    let release: SaveRelease;
-    if (seen.latest.id !== active.runtime_profile_id) {
-      // Not a save: the agent's draft is neither read nor replaced.
-      const outcome = await rolloutRelease({
-        workspaceId: caller.ownerId,
-        agentId,
-        actorUserId: userId,
-        targetProfileId: seen.latest.id,
-        raise: {
-          principal: caller,
-          // What the lineage check above was judged on.
-          seen: {
-            activationRevision: record.agent.activation_revision,
-            behaviorRevision: record.behavior_revision,
-          },
-        },
-      });
-      release =
-        outcome.status === "applied"
-          ? {
-              status: "applied",
-              reason: null,
-              release_id: outcome.releaseId,
-              version_id,
-            }
-          : outcome.status === "failed"
-            ? {
-                status: "failed",
-                reason: outcome.reason,
-                release_id: null,
-                version_id,
-              }
-            : {
-                status: outcome.status === "retry" ? "failed" : "superseded",
-                reason: outcome.status === "retry" ? "revision_conflict" : null,
-                release_id: null,
-                version_id,
-              };
-    } else {
-      const followed = await store.followProfile({
-        principal: caller,
-        workspaceId: caller.ownerId,
-        agentId,
-        expectedActivationRevision: record.agent.activation_revision,
-        managerRoles: AGENT_MANAGERS,
-      });
-      if (followed.outcome === "not_found") throw NOT_FOUND();
-      if (followed.outcome === "actor_inactive") throw ACTOR_INACTIVE();
-      if (followed.outcome === "outranked") throw OUTRANKED();
-      release = {
-        status: followed.outcome === "superseded" ? "superseded" : "unchanged",
-        reason: null,
-        release_id: null,
-        version_id,
-      };
-    }
-    const fresh = await store.get(caller.ownerId, agentId);
-    if (!fresh) throw NOT_FOUND();
-    return answer(fresh, release);
-  }
-
   const resolveRelease = (workspaceId: string, releaseId: string) =>
     resolveAgentRelease({ store, catalog }, workspaceId, releaseId);
 
-  // Going back to a release whose profile runs differently from the newest
-  // version of its lineage ends the agent's following (design 2.4).
-  async function runsBehindLineage(
-    agentId: string,
-    release: AgentRelease,
-  ): Promise<boolean> {
-    if (deps.profileLineage === undefined) return false;
-    const seen = await deps.profileLineage.inspect({
-      agentId,
-      targetProfileId: release.runtime_profile_id,
-      activeProfileId: release.runtime_profile_id,
-    });
-    return (
-      seen.latest !== null &&
-      seen.active !== null &&
-      !sameExecutionForm(seen.active, seen.latest)
-    );
-  }
-
-  // The person a rollout acts for must still be an owner or admin; a team
-  // right left over from a demotion is not enough (design 2.3).
+  // The person a model migration acts for must still be an owner or admin; a
+  // team right left over from a demotion is not enough.
   const ROLLOUT_ROLES: readonly WorkspaceRole[] = ["owner", "admin"];
-
-  /**
-   * One agent's step of a profile rollout (design 2.3): the agent's release
-   * moved to the newest version of the profile, on its own card, or on a
-   * card whose model is the profile's new default when the agent follows
-   * that. Judged again under the agent's lock; a refusal, including a
-   * person who lost their role, is an outcome for the item.
-   */
-  async function rolloutRelease(input: {
-    workspaceId: string;
-    agentId: string;
-    actorUserId: string | null;
-    targetProfileId: string;
-    /** A person's own request: their principal and agent-manager rights, not a rollout's. */
-    raise?: {
-      principal: Principal;
-      /** The revisions the caller decided on; a rollback since then must not be overwritten. */
-      seen: { activationRevision: number; behaviorRevision: number };
-    };
-  }): Promise<ReleaseOutcome> {
-    const { workspaceId, agentId, actorUserId, targetProfileId, raise } = input;
-    if (actorUserId === null)
-      return { status: "failed", reason: "actor_inactive" };
-    const principal: Principal = raise?.principal ?? {
-      ownerId: workspaceId,
-      actor: {
-        principal: { kind: "user", id: actorUserId },
-        userId: actorUserId,
-        workspaceId,
-        apiKeyId: null,
-      },
-    };
-    const roles = raise ? {} : { requireRoles: ROLLOUT_ROLES };
-    try {
-      const record = await store.get(workspaceId, agentId);
-      const active = record?.active_release ?? null;
-      if (!record || !active) return { status: "superseded" };
-      if (
-        raise &&
-        (record.agent.activation_revision !== raise.seen.activationRevision ||
-          record.behavior_revision !== raise.seen.behaviorRevision)
-      ) {
-        return { status: "retry" };
-      }
-      const activeVersion = record.versions.find(
-        (version) => version.id === active.version_id,
-      );
-      if (!activeVersion)
-        return { status: "failed", reason: "release_refused" };
-      let profile: CatalogProfile;
-      try {
-        profile = await usableProfile(workspaceId, targetProfileId);
-      } catch (error) {
-        if (refusalCode(error) === null) throw error;
-        return { status: "failed", reason: "profile_unusable" };
-      }
-      let version = activeVersion;
-      if (
-        record.model_source === "profile" &&
-        activeVersion.card.model !== profile.model
-      ) {
-        const card = { ...activeVersion.card, model: profile.model };
-        const contentSha256 = cardContentSha256(card);
-        const saved = await store.update({
-          principal,
-          workspaceId,
-          agentId,
-          card: { card, contentSha256 },
-          updatedBy: actorUserId,
-          managerRoles: AGENT_MANAGERS,
-          ...roles,
-        });
-        if (saved.outcome === "stale") return { status: "retry" };
-        if (saved.outcome === "not_found") return { status: "superseded" };
-        if (saved.outcome !== "updated") {
-          return { status: "failed", reason: "actor_inactive" };
-        }
-        const written = saved.detail.versions.find(
-          (candidate) => candidate.content_sha256 === contentSha256,
-        );
-        if (!written) throw new Error("a model-only card version is stored");
-        version = written;
-      }
-      return await releaseAgent(principal, actorUserId, {
-        agentId,
-        version,
-        profileId: targetProfileId,
-        active,
-        expectedActivationRevision:
-          raise?.seen.activationRevision ?? record.agent.activation_revision,
-        intent: {
-          kind: raise ? "raise" : "rollout",
-          behaviorRevision:
-            raise?.seen.behaviorRevision ?? record.behavior_revision,
-          targetProfileId,
-        },
-        reason: "profile_rollout",
-        ...roles,
-      });
-    } catch (error) {
-      if (error instanceof SessionServiceError) {
-        if (error.code === "FORBIDDEN") {
-          return { status: "failed", reason: "actor_inactive" };
-        }
-        if (error.code === "NOT_FOUND") return { status: "superseded" };
-      }
-      throw error;
-    }
-  }
-
-  const MIGRATION_ROLES: readonly WorkspaceRole[] = ["owner"];
 
   const migrationPrincipal = (
     workspaceId: string,
@@ -1196,246 +847,6 @@ export function createAgentService(deps: {
       apiKeyId: null,
     },
   });
-
-  async function migrateAgent(input: {
-    workspaceId: string;
-    agentId: string;
-    actorUserId: string;
-    targetProfileId: string;
-    migrationId: string;
-    expected: {
-      activeReleaseId: string;
-      activationRevision: number;
-      behaviorRevision: number;
-      tracking: "follow" | "pinned";
-      modelSource: ModelSource;
-    };
-    tracking: "follow" | "pinned";
-  }): Promise<MigrationStep> {
-    const { workspaceId, agentId, actorUserId, expected } = input;
-    const principal = migrationPrincipal(workspaceId, actorUserId);
-    try {
-      const record = await store.get(workspaceId, agentId);
-      const active = record?.active_release ?? null;
-      if (!record || !active) return { status: "stale" };
-      if (active.runtime_profile_id === input.targetProfileId) {
-        return { status: "already" };
-      }
-      if (
-        active.id !== expected.activeReleaseId ||
-        record.agent.activation_revision !== expected.activationRevision
-      ) {
-        return { status: "stale" };
-      }
-      const version = record.versions.find(
-        (candidate) => candidate.id === active.version_id,
-      );
-      if (!version) return { status: "failed", reason: "release_refused" };
-      const outcome = await releaseAgent(principal, actorUserId, {
-        agentId,
-        version,
-        profileId: input.targetProfileId,
-        active,
-        expectedActivationRevision: expected.activationRevision,
-        intent: {
-          kind: "migrate",
-          migrationId: input.migrationId,
-          expected,
-          tracking: input.tracking,
-        },
-        reason: "profile_migration",
-        requireRoles: MIGRATION_ROLES,
-        equivalentTo: active,
-      });
-      if (outcome.status === "applied") {
-        return { status: "applied", releaseId: outcome.releaseId };
-      }
-      if (outcome.status === "failed") {
-        return { status: "failed", reason: outcome.reason };
-      }
-      return { status: "stale" };
-    } catch (error) {
-      if (error instanceof SessionServiceError) {
-        if (error.code === "FORBIDDEN") {
-          return { status: "failed", reason: "actor_inactive" };
-        }
-        if (error.code === "NOT_FOUND") return { status: "stale" };
-      }
-      throw error;
-    }
-  }
-
-  type UnlockStep =
-    | { status: "applied"; releaseId: string }
-    | { status: "same" | "superseded" }
-    | { status: "failed"; reason: string };
-
-  /**
-   * The one-time tool unlock (design 2.3): the agent's own card on its own
-   * profile, released without the card's tool fields. Done when the active
-   * release already runs what that calculation gives. `pinned` agents are
-   * included, and tracking, model source and the old release stay as they are.
-   */
-  async function unlockTools(input: {
-    workspaceId: string;
-    agentId: string;
-    actorUserId: string;
-    rolloutId: string | null;
-    expected: {
-      activeReleaseId: string;
-      activationRevision: number;
-      behaviorRevision: number;
-    };
-  }): Promise<UnlockStep> {
-    const { workspaceId, agentId, actorUserId, expected } = input;
-    const principal = migrationPrincipal(workspaceId, actorUserId);
-    try {
-      const record = await store.get(workspaceId, agentId);
-      const active = record?.active_release ?? null;
-      if (!record || !active) return { status: "superseded" };
-      if (
-        active.id !== expected.activeReleaseId ||
-        record.agent.activation_revision !== expected.activationRevision ||
-        record.behavior_revision !== expected.behaviorRevision
-      ) {
-        return { status: "superseded" };
-      }
-      const version = record.versions.find(
-        (candidate) => candidate.id === active.version_id,
-      );
-      if (!version) return { status: "failed", reason: "release_refused" };
-      let profile: CatalogProfile;
-      try {
-        profile = await usableProfile(workspaceId, active.runtime_profile_id, {
-          retiredAllowed: true,
-        });
-      } catch (error) {
-        if (refusalCode(error) === null) throw error;
-        return { status: "failed", reason: "profile_unusable" };
-      }
-      const resolved = resolveReleaseContent(
-        version.card,
-        active.runtime_profile_id,
-        profile,
-        catalog.mcp_servers,
-      );
-      if (!resolved.ok) return { status: "failed", reason: "release_refused" };
-      const before = active.effective_tools.tools;
-      const after = resolved.content.effective_tools.tools;
-      if (sameToolSet(before, after)) return { status: "same" };
-      const outcome = await releaseAgent(principal, actorUserId, {
-        agentId,
-        version,
-        profileId: active.runtime_profile_id,
-        active,
-        expectedActivationRevision: expected.activationRevision,
-        intent: {
-          kind: "tool_unlock",
-          rolloutId: input.rolloutId,
-          expected,
-          tools: { before: [...before], after: [...after] },
-        },
-        reason: "tool_unlock",
-        requireRoles: MIGRATION_ROLES,
-        retiredAllowed: true,
-      });
-      if (outcome.status === "applied") {
-        return { status: "applied", releaseId: outcome.releaseId };
-      }
-      if (outcome.status === "failed") {
-        return { status: "failed", reason: outcome.reason };
-      }
-      return { status: "superseded" };
-    } catch (error) {
-      if (error instanceof SessionServiceError) {
-        if (error.code === "FORBIDDEN") {
-          return { status: "failed", reason: "actor_inactive" };
-        }
-        if (error.code === "NOT_FOUND") return { status: "superseded" };
-      }
-      throw error;
-    }
-  }
-
-  async function revertMigration(input: {
-    workspaceId: string;
-    agentId: string;
-    actorUserId: string;
-    migrationId: string;
-    previousReleaseId: string;
-    expected: {
-      activeReleaseId: string;
-      activationRevision: number;
-      behaviorRevision: number;
-      tracking: "follow" | "pinned";
-      modelSource: ModelSource;
-    };
-    tracking: "follow" | "pinned";
-  }): Promise<MigrationStep> {
-    const { workspaceId, agentId, actorUserId, expected } = input;
-    const principal = migrationPrincipal(workspaceId, actorUserId);
-    try {
-      const missing = await credentials.unboundRefs(
-        workspaceId,
-        input.previousReleaseId,
-      );
-      if (missing.length > 0) {
-        return { status: "failed", reason: "credential_unbound" };
-      }
-      const previous = await store.findRelease(
-        workspaceId,
-        input.previousReleaseId,
-      );
-      const previousProfile = previous
-        ? catalogProfile(catalog, previous.runtime_profile_id)
-        : undefined;
-      if (
-        previousProfile &&
-        (await extensionRefusal(
-          workspaceId,
-          agentId,
-          previousProfile,
-          previous?.runtime_config_snapshot ?? null,
-        )) !== null
-      ) {
-        return { status: "failed", reason: "release_refused" };
-      }
-      const result = await store.activate({
-        principal,
-        workspaceId,
-        agentId,
-        releaseId: input.previousReleaseId,
-        expectedRevision: expected.activationRevision,
-        approvedBy: actorUserId,
-        managerRoles: AGENT_MANAGERS,
-        requireRoles: MIGRATION_ROLES,
-        intent: {
-          kind: "migrate",
-          migrationId: input.migrationId,
-          revert: true,
-          expected,
-          tracking: input.tracking,
-        },
-        reason: "profile_migration",
-      });
-      switch (result.outcome) {
-        case "activated":
-          return { status: "applied", releaseId: input.previousReleaseId };
-        case "unchanged":
-          return { status: "already" };
-        case "actor_inactive":
-        case "outranked":
-          return { status: "failed", reason: "actor_inactive" };
-        default:
-          return { status: "stale" };
-      }
-    } catch (error) {
-      if (error instanceof SessionServiceError && error.code === "NOT_FOUND") {
-        return { status: "stale" };
-      }
-      throw error;
-    }
-  }
 
   async function migrateModel(input: {
     workspaceId: string;
@@ -1454,16 +865,9 @@ export function createAgentService(deps: {
       if (!record || !active) return { status: "skipped" };
       const from = releaseModel(active);
       if (from === undefined) return { status: "skipped" };
-      let profile: CatalogProfile;
-      try {
-        profile = await usableProfile(workspaceId, active.runtime_profile_id, {
-          retiredAllowed: true,
-        });
-      } catch (error) {
-        if (refusalCode(error) === null) throw error;
-        return { status: "skipped" };
-      }
-      const to = modelSuccessor(profile, from);
+      const connection = connectionOf(catalog, active.connection_id);
+      if (connection === undefined) return { status: "skipped" };
+      const to = modelSuccessor(connection, from);
       if (to === null) return { status: "skipped" };
       const found = {
         from,
@@ -1507,7 +911,7 @@ export function createAgentService(deps: {
       const outcome = await releaseAgent(principal, actorUserId, {
         agentId,
         version,
-        profileId: active.runtime_profile_id,
+        connectionId: active.connection_id,
         active,
         expectedActivationRevision: record.agent.activation_revision,
         intent: {
@@ -1522,7 +926,6 @@ export function createAgentService(deps: {
         },
         reason: "model_migration",
         requireRoles: ROLLOUT_ROLES,
-        retiredAllowed: true,
       });
       if (outcome.status === "applied") return { status: "applied", from, to };
       if (outcome.status === "failed") return failed(outcome.reason);
@@ -1544,11 +947,7 @@ export function createAgentService(deps: {
       workspaceId: string,
       release: Pick<AgentRelease, "agent_id" | "approved_at">,
     ) => releaseNotRunnableReason(store, workspaceId, release),
-    rolloutRelease,
     migrateModel,
-    migrateAgent,
-    unlockTools,
-    revertMigration,
     envNames: (workspaceId: string, releaseId: string) =>
       agentEnvNames(store, workspaceId, releaseId),
 
@@ -1579,11 +978,32 @@ export function createAgentService(deps: {
       };
     },
 
+    /** The enabled connections a release may name, with their models. */
+    async listConnections(
+      caller: Caller,
+    ): Promise<ListConnectionOptionsResponse> {
+      await agentReader(caller);
+      return {
+        items: Object.entries(catalog.connections)
+          .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+          .map(([id, connection]) => ({
+            id,
+            kind: connection.provider.kind,
+            billing:
+              connection.provider.billing === "none" ? "none" : "metered",
+            models: connectionModels(connection),
+            model_successors: Object.fromEntries(
+              modelMoves(connection).map(({ from, to }) => [from, to]),
+            ),
+          })),
+      };
+    },
+
     /**
      * The agents the caller could start a session with now (94S-902): the
      * scope check of a start, then the store's usage predicate, then the
-     * checks a start makes on the release itself (its profile still in the
-     * catalog and unchanged, every credential bound). A start refused for
+     * checks a start makes on the release itself (its connection still in
+     * the catalog and its spec verified, every credential bound). A start refused for
      * any of them is not listed.
      */
     async listUsableAgents(caller: Caller): Promise<ListUsableAgentsResponse> {
@@ -1654,21 +1074,7 @@ export function createAgentService(deps: {
       // Any member may; the store makes them the agent's admin (D3).
       const userId = await onWorkspace(caller, "agent.create");
       assertDeclaredEnvNames(request.card);
-      let card = request.card;
-      if (
-        request.runtime_profile_id !== undefined &&
-        (request.model_source ?? "profile") === "profile"
-      ) {
-        await refreshWorkspaceProfilesFor(
-          catalog,
-          [request.runtime_profile_id],
-          {
-            strict: true,
-          },
-        );
-        const profile = catalogProfile(catalog, request.runtime_profile_id);
-        if (profile) card = { ...card, model: profile.model };
-      }
+      const card = request.card;
       const result = await store.create({
         principal: caller,
         workspaceId: caller.ownerId,
@@ -1700,7 +1106,7 @@ export function createAgentService(deps: {
         case "actor_inactive":
           throw ACTOR_INACTIVE();
         default:
-          if (request.runtime_profile_id === undefined) {
+          if (request.connection_id === undefined) {
             return {
               ...withBehavior(result.detail),
               release: {
@@ -1713,10 +1119,7 @@ export function createAgentService(deps: {
           }
           return saveAgent(caller, userId, result.detail.agent.id, {
             card,
-            runtime_profile_id: request.runtime_profile_id,
-            ...(request.model_source === undefined
-              ? {}
-              : { model_source: request.model_source }),
+            connection_id: request.connection_id,
           });
       }
     },
@@ -1727,9 +1130,6 @@ export function createAgentService(deps: {
       request: UpdateAgentRequest,
     ): Promise<SaveAgentResponse> {
       const userId = await manageAgent(caller, agentId);
-      if (request.follow_latest_profile === true) {
-        return followLatestProfile(caller, userId, agentId);
-      }
       return saveAgent(caller, userId, agentId, {
         ...(request.name === undefined ? {} : { name: request.name }),
         ...(request.description === undefined
@@ -1739,12 +1139,9 @@ export function createAgentService(deps: {
           ? {}
           : { auto_model_migration: request.auto_model_migration }),
         ...(request.card === undefined ? {} : { card: request.card }),
-        ...(request.runtime_profile_id === undefined
+        ...(request.connection_id === undefined
           ? {}
-          : { runtime_profile_id: request.runtime_profile_id }),
-        ...(request.model_source === undefined
-          ? {}
-          : { model_source: request.model_source }),
+          : { connection_id: request.connection_id }),
       });
     },
 
@@ -1768,14 +1165,9 @@ export function createAgentService(deps: {
       ) {
         throw githubSettingsOwned();
       }
-      const profileId = request.runtime_profile_id;
-      const profile = await usableProfile(caller.ownerId, profileId);
+      const run = usableRun(request.connection_id);
       const repositoryId = request.repository_id ?? null;
-      const refused = releaseRepositoryRefusal(
-        profileId,
-        profile,
-        repositoryId,
-      );
+      const refused = releaseRepositoryRefusal(repositoryId);
       if (refused !== null) {
         throw new SessionServiceError(
           "UNSUPPORTED_CAPABILITY",
@@ -1784,8 +1176,7 @@ export function createAgentService(deps: {
       }
       const resolved = resolveReleaseContent(
         version.card,
-        profileId,
-        profile,
+        run,
         catalog.mcp_servers,
       );
       if (!resolved.ok) {
@@ -1795,26 +1186,18 @@ export function createAgentService(deps: {
         );
       }
       // A release made from a card edit keeps the GitHub settings of the
-      // active one, so the edit cannot drop them. One on a `none` profile has
-      // nothing for them to act on, and an agent with its own settings row
-      // has no release pins to keep: the row decides. Kept settings are
-      // checked as sent ones are: the edit may move the release to another
-      // repository.
+      // active one, so the edit cannot drop them. An agent with its own
+      // settings row has no release pins to keep: the row decides. Kept
+      // settings are checked as sent ones are: the edit may move the release
+      // to another repository.
       const github =
         request.github ??
-        (repositoryModeOf(profile) === "none" ||
-        (await store.hasGitHubSettings(agentId))
+        ((await store.hasGitHubSettings(agentId))
           ? undefined
           : (await store.get(caller.ownerId, agentId))?.active_release
               ?.policy_pins.github);
       if (github !== undefined) {
-        await checkGitHub(
-          caller.ownerId,
-          profileId,
-          profile,
-          repositoryId,
-          github,
-        );
+        await checkGitHub(caller.ownerId, repositoryId, github);
       }
       const identity = {
         // As stored: PostgreSQL returns a uuid in lower case.
@@ -1839,6 +1222,7 @@ export function createAgentService(deps: {
           created_by: userId,
           note: request.note ?? null,
           ...identity,
+          spec: specOf(deriveReleaseId(identity), identity, run),
         },
       });
       switch (result.outcome) {
@@ -1889,17 +1273,14 @@ export function createAgentService(deps: {
           details,
         );
       }
-      const releaseProfile = catalogProfile(
-        catalog,
-        release.runtime_profile_id,
-      );
-      const extensions = releaseProfile
-        ? await extensionRefusal(
-            caller.ownerId,
-            release.agent_id,
-            releaseProfile,
-            release.runtime_config_snapshot,
-          )
+      const snapshotRuntime = release.runtime_config_snapshot.runtime as
+        | ReleaseRun["runtime"]
+        | undefined;
+      const extensions = snapshotRuntime
+        ? await extensionRefusal(caller.ownerId, release.agent_id, {
+            runtime: snapshotRuntime,
+            tools: release.effective_tools.tools,
+          })
         : null;
       if (extensions !== null) {
         throw new SessionServiceError(
@@ -1918,14 +1299,8 @@ export function createAgentService(deps: {
         approvedBy: userId,
         managerRoles: AGENT_MANAGERS,
         // A person's own activation, a rollback included: it takes a new
-        // behavior revision, and the model source follows design 2.4.
-        intent: {
-          kind: "direct",
-          releaseRunsProfileDefault:
-            releaseModel(release) ===
-            catalogProfile(catalog, release.runtime_profile_id)?.model,
-          pinsProfile: await runsBehindLineage(agentId, release),
-        },
+        // behavior revision.
+        intent: { kind: "direct" },
         reason: "direct",
       });
       switch (result.outcome) {

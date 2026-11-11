@@ -26,29 +26,36 @@ import {
   unassignedSessions,
 } from "@werft-ai/db";
 import { migrate } from "@werft-ai/db/migrate";
+import {
+  sessionPinColumns,
+  TEST_MODEL,
+  TEST_RUNTIME_VERSION,
+} from "@werft-ai/db/testing/spec-pins";
 import { createLogger } from "@werft-ai/observability";
 import {
-  type CatalogProfile,
+  type AuthorizationPolicy,
   createAuthorizationPolicy,
   createSessionService,
   type SessionCatalog,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import { asc, count, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { testCatalog } from "../testing/catalog.ts";
+import {
+  allowingPolicy,
+  allowRepositories,
+  sessionReleases,
+  startingInWorkspace,
+  workspaceRelease,
+} from "../testing/releases.ts";
 import { createApiApp, isStorageUnavailable } from "./app.ts";
 import { createApiPool, createProbePool } from "./pool.ts";
 import { createReadinessProbe } from "./readiness.ts";
 import { registerReceiptRoutes } from "./routes/sessions/receipts.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
 
-const coding: CatalogProfile = {
-  runtime_kind: "claude_agent_sdk",
-  runtime_version: "0.3.270",
-  model: "claude-sonnet-5",
-  tools: ["Read", "Edit", "Bash"],
-  permission_mode: "default",
+const catalog: SessionCatalog = testCatalog({
   provider: {
     kind: "litellm",
     endpoint: "https://litellm.invalid",
@@ -58,18 +65,10 @@ const coding: CatalogProfile = {
       ref: { value_env: "PROVIDER_KEY" },
     },
   },
-};
-const catalog: SessionCatalog = withSeededInstallation({
-  profiles: {
-    "claude-coding-v1": coding,
-    "claude-coding-optional": { ...coding, repository: "optional" },
-    general: { ...coding, tools: ["Read", "Write"], repository: "none" },
-  },
   repositories: {
     "sample-app": {
       url: "https://example.invalid/app.git",
       branch: "main",
-      profiles: ["claude-coding-v1", "claude-coding-optional"],
       auth: { kind: "github_app", registered: true } as const,
     },
   },
@@ -84,10 +83,26 @@ integration("sessions API on PostgreSQL", () => {
   let db: NodePgDatabase<typeof schema>;
   let app: ReturnType<typeof createApiApp>;
   let tight: ReturnType<typeof createApiApp>;
-  const owner = `owner-${crypto.randomUUID()}`;
-  const stranger = `owner-${crypto.randomUUID()}`;
+  // Owners are workspaces: a session runs a release of its own workspace.
+  const owner = crypto.randomUUID();
+  const stranger = crypto.randomUUID();
+  const releases = new Map<string, Promise<string>>();
+  /** The owner's workspace, its release, and a ceiling naming sample-app. */
+  function releaseOf(ownerId: string): Promise<string> {
+    let made = releases.get(ownerId);
+    if (made === undefined) {
+      made = (async () => {
+        const { releaseId } = await workspaceRelease(db, {
+          workspaceId: ownerId,
+        });
+        await allowRepositories(db, ownerId, ["sample-app"]);
+        return releaseId;
+      })();
+      releases.set(ownerId, made);
+    }
+    return made;
+  }
   const body = {
-    profile_id: "claude-coding-v1",
     repository_id: "sample-app",
     message: "Inspect the failing unit test and propose a fix.",
   };
@@ -108,15 +123,22 @@ integration("sessions API on PostgreSQL", () => {
       storageLimitBytes: number;
       sessionCostLimitUsd: number;
       sessionTokenLimit: number | null;
-    }) =>
-      createSessionService({
-        limits,
-        authorization: createAuthorizationPolicy(),
-        inputs: createPostgresSessionUnitOfWork(db),
-        controls: createPostgresSessionControl(db),
-        reader: createPostgresSessionReader(db),
-        catalog,
-      });
+    }) => {
+      const build = (authorization: AuthorizationPolicy) =>
+        createSessionService({
+          limits,
+          authorization,
+          inputs: createPostgresSessionUnitOfWork(db),
+          controls: createPostgresSessionControl(db),
+          reader: createPostgresSessionReader(db),
+          catalog,
+          releases: sessionReleases(db, catalog),
+        });
+      return startingInWorkspace(
+        build(createAuthorizationPolicy()),
+        build(allowingPolicy),
+      );
+    };
     const service = serviceWith({
       queuedInputLimitPerSession: 1_000,
       storageLimitBytes: 1e15,
@@ -209,7 +231,17 @@ integration("sessions API on PostgreSQL", () => {
     return rows.map((row) => row.sequence);
   }
 
-  function create(key: string, payload: unknown = body, ownerId = owner) {
+  /** A body without a release names the owner's. */
+  async function withRelease(payload: unknown, ownerId: string) {
+    return payload !== null &&
+      typeof payload === "object" &&
+      !Array.isArray(payload) &&
+      !Object.hasOwn(payload, "agent_release_id")
+      ? { ...payload, agent_release_id: await releaseOf(ownerId) }
+      : payload;
+  }
+
+  async function create(key: string, payload: unknown = body, ownerId = owner) {
     return app.request("/v1/sessions", {
       method: "POST",
       headers: {
@@ -217,7 +249,7 @@ integration("sessions API on PostgreSQL", () => {
         "X-Owner-Id": ownerId,
         "Idempotency-Key": key,
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(await withRelease(payload, ownerId)),
     });
   }
 
@@ -567,8 +599,7 @@ integration("sessions API on PostgreSQL", () => {
       status: "queued",
       runtime: {
         kind: "claude_agent_sdk",
-        version: "0.3.270",
-        profile_id: "claude-coding-v1",
+        version: TEST_RUNTIME_VERSION,
         model: "claude-sonnet-5",
         permission_mode: "default",
       },
@@ -695,8 +726,8 @@ integration("sessions API on PostgreSQL", () => {
 
   test("legacy rows without a catalog key expose repository_id null and never the repo URL", async () => {
     // An M0 row: the client sent the URL directly, so it may embed
-    // credentials. It has no profile/repository catalog keys.
-    const legacyOwner = `owner-${crypto.randomUUID()}`;
+    // credentials. It has no repository catalog key.
+    const legacyOwner = crypto.randomUUID();
     const legacyId = crypto.randomUUID();
     const secret = "legacy-basic-auth-password";
     const repoUrl = `https://deploy:${secret}@legacy.invalid/team/app.git`;
@@ -705,7 +736,6 @@ integration("sessions API on PostgreSQL", () => {
       ownerId: legacyOwner,
       repoUrl,
       branch: "main",
-      profileId: null,
       repositoryId: null,
     });
     try {
@@ -743,16 +773,23 @@ integration("sessions API on PostgreSQL", () => {
     }
   }, 60_000);
 
-  test("a profile key the catalog no longer has surfaces runtime null, not a guess", async () => {
-    const retiredOwner = `owner-${crypto.randomUUID()}`;
+  test("a session pinned to a connection the catalog no longer has is held, its pin kept", async () => {
+    const retiredOwner = crypto.randomUUID();
     const retiredId = crypto.randomUUID();
     await db.insert(sessions).values({
       id: retiredId,
       ownerId: retiredOwner,
       repoUrl: "https://example.invalid/app.git",
       branch: "main",
-      profileId: "retired-profile",
       repositoryId: "sample-app",
+      ...sessionPinColumns(TEST_MODEL, {
+        connection: {
+          id: "retired-connection",
+          kind: "anthropic",
+          endpoint: "https://api.anthropic.invalid",
+          billing: "per_token",
+        },
+      }),
     });
     try {
       const detail = getSessionResponseSchema.parse(
@@ -764,7 +801,6 @@ integration("sessions API on PostgreSQL", () => {
       );
       expect(detail).toMatchObject({
         repository_id: "sample-app",
-        runtime: null,
         attention: { code: "CATALOG_MISMATCH" },
       });
       const page = listSessionsResponseSchema.parse(
@@ -774,14 +810,14 @@ integration("sessions API on PostgreSQL", () => {
           })
         ).json(),
       );
-      expect(page.items.map((item) => item.runtime)).toEqual([null]);
+      expect(page.items.map((item) => item.id)).toEqual([retiredId]);
     } finally {
       await db.delete(sessions).where(eq(sessions.id, retiredId));
     }
   }, 60_000);
 
   test("lists 150 sessions through stable cursors without duplicates or gaps", async () => {
-    const listOwner = `owner-${crypto.randomUUID()}`;
+    const listOwner = crypto.randomUUID();
     const ids = new Set<string>();
     for (let index = 0; index < 150; index += 1) {
       const response = await create(`list-${index}`, body, listOwner);
@@ -1174,7 +1210,7 @@ integration("sessions API on PostgreSQL", () => {
         "X-Owner-Id": owner,
         "Idempotency-Key": "limit-storage-1",
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify(await withRelease(body, owner)),
     });
     expect(response.status).toBe(413);
     expect(response.headers.get("Retry-After")).toBeNull();
@@ -1300,32 +1336,9 @@ integration("sessions API on PostgreSQL", () => {
     expect((await detail()).detail.attention).toBeNull();
   }, 60_000);
 
-  test("repository_id follows the profile's repository mode: required needs it, none refuses it, optional takes either", async () => {
+  test("repository_id is optional: omitted, the session has none; given, it works on it", async () => {
     const message = "Summarize the meeting notes.";
-    const refusal = async (payload: unknown) => {
-      const response = await create(crypto.randomUUID(), payload);
-      expect(response.status).toBe(422);
-      return ((await response.json()) as { error: unknown }).error;
-    };
-    expect(
-      await refusal({ profile_id: "claude-coding-v1", message }),
-    ).toMatchObject({
-      code: "UNSUPPORTED_CAPABILITY",
-      message:
-        "Profile claude-coding-v1 needs a repository: send repository_id",
-    });
-    expect(
-      await refusal({
-        profile_id: "general",
-        repository_id: "sample-app",
-        message,
-      }),
-    ).toMatchObject({
-      code: "UNSUPPORTED_CAPABILITY",
-      message: "Profile general runs without a repository: omit repository_id",
-    });
     const nulled = await create(crypto.randomUUID(), {
-      profile_id: "general",
       repository_id: null,
       message,
     });
@@ -1343,33 +1356,21 @@ integration("sessions API on PostgreSQL", () => {
         .where(eq(sessions.id, sessionId));
       return row;
     };
-    const without = {
-      repositoryMode: "none" as const,
-      repositoryId: null,
-      repoUrl: null,
-      branch: null,
-    };
     const created = async (payload: unknown) => {
       const response = await create(crypto.randomUUID(), payload);
       expect(response.status).toBe(201);
       return createSessionResponseSchema.parse(await response.json())
         .session_id;
     };
-    const general = await created({ profile_id: "general", message });
-    expect(await rowOf(general)).toEqual(without);
+    const bare = await created({ message });
+    expect(await rowOf(bare)).toEqual({
+      repositoryMode: "none",
+      repositoryId: null,
+      repoUrl: null,
+      branch: null,
+    });
     expect(
-      await rowOf(
-        await created({ profile_id: "claude-coding-optional", message }),
-      ),
-    ).toEqual(without);
-    expect(
-      await rowOf(
-        await created({
-          profile_id: "claude-coding-optional",
-          repository_id: "sample-app",
-          message,
-        }),
-      ),
+      await rowOf(await created({ repository_id: "sample-app", message })),
     ).toEqual({
       repositoryMode: "repository",
       repositoryId: "sample-app",
@@ -1377,7 +1378,7 @@ integration("sessions API on PostgreSQL", () => {
       branch: "main",
     });
 
-    const read = await app.request(`/v1/sessions/${general}`, {
+    const read = await app.request(`/v1/sessions/${bare}`, {
       headers: { "X-Owner-Id": owner },
     });
     const text = await read.text();
@@ -1387,34 +1388,39 @@ integration("sessions API on PostgreSQL", () => {
     expect(text).not.toContain("repository_mode");
   }, 60_000);
 
-  test("a create without a repository replays, even after the catalog stops allowing it", async () => {
-    const message = "Summarize the meeting notes.";
-    const narrowed = createApiApp({
+  /** The API once the catalog has lost the release's connection. */
+  function withoutConnection() {
+    const lost = { connections: {}, repositories: catalog.repositories };
+    const build = (authorization: AuthorizationPolicy) =>
+      createSessionService({
+        limits: {
+          queuedInputLimitPerSession: 1_000,
+          storageLimitBytes: 1e15,
+          sessionCostLimitUsd: 1_000,
+          sessionTokenLimit: null,
+        },
+        authorization,
+        inputs: createPostgresSessionUnitOfWork(db),
+        controls: createPostgresSessionControl(db),
+        reader: createPostgresSessionReader(db),
+        catalog: lost,
+        releases: sessionReleases(db, lost),
+      });
+    return createApiApp({
       authMode: "none",
       registerRoutes: (router) =>
         registerSessionRoutes(
           router,
-          createSessionService({
-            limits: {
-              queuedInputLimitPerSession: 1_000,
-              storageLimitBytes: 1e15,
-              sessionCostLimitUsd: 1_000,
-              sessionTokenLimit: null,
-            },
-            authorization: createAuthorizationPolicy(),
-            inputs: createPostgresSessionUnitOfWork(db),
-            controls: createPostgresSessionControl(db),
-            reader: createPostgresSessionReader(db),
-            catalog: withSeededInstallation({
-              profiles: {
-                "claude-coding-v1": coding,
-                "claude-coding-optional": coding,
-              },
-              repositories: catalog.repositories,
-            }),
-          }),
+          startingInWorkspace(
+            build(createAuthorizationPolicy()),
+            build(allowingPolicy),
+          ),
         ),
     });
+  }
+
+  test("a create replays on its key; once the catalog loses the release's connection, a new one is refused", async () => {
+    const narrowed = withoutConnection();
     const receiptCount = async () =>
       (
         await db
@@ -1422,114 +1428,66 @@ integration("sessions API on PostgreSQL", () => {
           .from(receipts)
           .where(eq(receipts.ownerId, owner))
       )[0]?.n;
+    const key = crypto.randomUUID();
+    const payload = (await withRelease(
+      { message: "Summarize the meeting notes." },
+      owner,
+    )) as Record<string, unknown>;
+    const first = await create(key, payload);
+    expect(first.status).toBe(201);
+    const created = createSessionResponseSchema.parse(await first.json());
+    const receiptsBefore = await receiptCount();
 
-    for (const profileId of ["general", "claude-coding-optional"]) {
-      const key = crypto.randomUUID();
-      const payload = { profile_id: profileId, message };
-      const first = await create(key, payload);
-      expect(first.status).toBe(201);
-      const created = createSessionResponseSchema.parse(await first.json());
-      const receiptsBefore = await receiptCount();
+    const replay = await create(key, payload);
+    expect(replay.status).toBe(201);
+    expect(await replay.json()).toEqual(created);
 
-      const replay = await create(key, payload);
-      expect(replay.status).toBe(201);
-      expect(await replay.json()).toEqual(created);
+    // A new key is refused there: the connection runs nothing any more.
+    const fresh = await narrowed.request("/v1/sessions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Owner-Id": owner,
+        "Idempotency-Key": crypto.randomUUID(),
+      },
+      body: JSON.stringify(payload),
+    });
+    expect(fresh.status).toBe(409);
+    expect((await fresh.json()).error.code).toBe("RELEASE_SPEC_UNAVAILABLE");
 
-      const later = await narrowed.request("/v1/sessions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Owner-Id": owner,
-          "Idempotency-Key": key,
-        },
-        body: JSON.stringify(payload),
-      });
-      expect(later.status).toBe(201);
-      expect(await later.json()).toEqual(created);
+    const conflict = await create(key, {
+      ...payload,
+      repository_id: "sample-app",
+    });
+    expect(conflict.status).toBe(409);
+    expect((await conflict.json()).error.code).toBe("IDEMPOTENCY_CONFLICT");
 
-      const conflict = await create(key, {
-        ...payload,
-        repository_id: "sample-app",
-      });
-      expect(conflict.status).toBe(409);
-      expect((await conflict.json()).error.code).toBe("IDEMPOTENCY_CONFLICT");
-
-      expect(await rowsFor(created.session_id)).toEqual({
-        sessions: 1,
-        turns: 1,
-        queue: 1,
-        unassigned: 1,
-      });
-      expect(await receiptCount()).toBe(receiptsBefore);
-    }
+    expect(await rowsFor(created.session_id)).toEqual({
+      sessions: 1,
+      turns: 1,
+      queue: 1,
+      unassigned: 1,
+    });
+    expect(await receiptCount()).toBe(receiptsBefore);
   }, 60_000);
 
-  test("a session without a repository is judged by its profile alone: CATALOG_MISMATCH and profile changes", async () => {
+  test("a session without a repository is held with CATALOG_MISMATCH once its connection leaves the catalog", async () => {
     const response = await create(crypto.randomUUID(), {
-      profile_id: "general",
       message: "Draft the weekly report.",
     });
     expect(response.status).toBe(201);
     const { session_id: sessionId } = createSessionResponseSchema.parse(
       await response.json(),
     );
-    const detail = async () => {
-      const read = await app.request(`/v1/sessions/${sessionId}`, {
+    const detail = async (api: ReturnType<typeof createApiApp>) => {
+      const read = await api.request(`/v1/sessions/${sessionId}`, {
         headers: { "X-Owner-Id": owner },
       });
       expect(read.status).toBe(200);
       return getSessionResponseSchema.parse(await read.json());
     };
-    const changeTo = (profileId: string, expectedRevision: number) =>
-      app.request(`/v1/sessions/${sessionId}/profile`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Owner-Id": owner,
-          "Idempotency-Key": crypto.randomUUID(),
-        },
-        body: JSON.stringify({
-          profile_id: profileId,
-          expected_revision: expectedRevision,
-        }),
-      });
-
-    expect((await detail()).attention).toBeNull();
-    const refused = await changeTo(
-      "claude-coding-v1",
-      (await detail()).revision,
-    );
-    expect(refused.status).toBe(422);
-    expect(await refused.json()).toMatchObject({
-      error: {
-        code: "UNSUPPORTED_CAPABILITY",
-        message:
-          "Profile claude-coding-v1 is not in this host's catalog or needs a repository, which the session has none of",
-      },
-    });
-    const moved = await changeTo(
-      "claude-coding-optional",
-      (await detail()).revision,
-    );
-    expect(moved.status).toBe(200);
-    const [row] = await db
-      .select({
-        profileId: sessions.profileId,
-        repositoryMode: sessions.repositoryMode,
-      })
-      .from(sessions)
-      .where(eq(sessions.id, sessionId));
-    expect(row).toEqual({
-      profileId: "claude-coding-optional",
-      repositoryMode: "none",
-    });
-    expect((await detail()).attention).toBeNull();
-
-    await db
-      .update(sessions)
-      .set({ profileFingerprint: "0".repeat(64) })
-      .where(eq(sessions.id, sessionId));
-    expect((await detail()).attention).toMatchObject({
+    expect((await detail(app)).attention).toBeNull();
+    expect((await detail(withoutConnection())).attention).toMatchObject({
       code: "CATALOG_MISMATCH",
     });
   }, 60_000);

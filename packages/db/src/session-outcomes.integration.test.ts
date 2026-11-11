@@ -83,7 +83,7 @@ integration("postgres session outcomes and the outcome refresher", () => {
   let pool: Pool;
   let db: NodePgDatabase<typeof schema>;
   let store: SessionOutcomeStore;
-  const catalog: SessionCatalog = { profiles: {}, repositories: {} };
+  const catalog: SessionCatalog = { connections: {}, repositories: {} };
 
   beforeAll(async () => {
     database = await createTempDatabase({ prefix: "session_outcomes_it" });

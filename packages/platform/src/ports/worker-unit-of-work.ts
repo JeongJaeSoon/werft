@@ -9,9 +9,9 @@ import type {
   PauseBlockedReason,
   PermissionGrant,
   PlatformPrompt,
-  RuntimeSpec,
   SanitizedToolDecision,
   SessionExtension,
+  SpecSource,
   WorkerEvent,
   WorkspaceRepository,
 } from "@werft-ai/contracts";
@@ -46,11 +46,12 @@ export type WorkerBinding = {
   // The lease left on the database clock at an instant read after the claim
   // arrived; what the worker tracks, on its own monotonic clock.
   leaseRemainingMs: number;
-  profileId: string | null;
-  // With `model`, pins what the session runs (catalog.ts sessionProfile).
-  profileFingerprint: string | null;
-  model: string | null;
-  // The session's profile declared `billing: none` when it was accepted.
+  // The session's spec, verified against its digests: what the claim runs.
+  spec: SpecSource;
+  specDigest: string;
+  // The session's model; the spec's.
+  model: string;
+  // The session's connection declared `billing: none` when it was accepted.
   unmetered: boolean;
   // The session's owner partition, straight from the row; the claim hands
   // it to the worker as the checkpoint principal.
@@ -59,42 +60,19 @@ export type WorkerBinding = {
   // Null for a session accepted without a repository.
   repository: WorkspaceRepository | null;
   restore: CheckpointRef | null;
-  // The profiles the session's checkpoints up to `restore` were committed
-  // under, where the rows record one; more than the session's own once its
-  // profile was changed. Empty without a restore.
-  restoreProfiles: ReadonlyArray<{
-    profileId: string;
-    profileFingerprint: string;
-    model: string | null;
-  }>;
   // `sessions.legacy_runtime_configs` as stored: the run configs the earlier
-  // checkpoints were made under, kept for when no profile can rebuild them.
-  // Unvalidated; the claim reads what still parses. Absent or null before
-  // they were reconstructed. Empty without a restore.
+  // checkpoints were made under, before the session's model moved.
+  // Unvalidated; the claim reads what still parses. Absent or null when it
+  // ran one config only.
   legacyRuntimeConfigs?: unknown;
   // What the session had spent when bound, read under the claim's row lock.
   costUsd: number;
   providerTokens: number;
   mcp?: SessionMcp | null;
   githubMcp?: SessionGitHubMcp | null;
-  // The built-in tools the session's release resolved from its card
-  // (runtime_config_snapshot.tools); `[]` is a release that allows none.
-  // Null, or absent, for a session without a release.
-  releaseTools?: readonly string[] | null;
-  // `sessions.runtime_tools_source`: `release` runs `releaseEffectiveTools`
-  // as stored, `profile` (also absent) the lists above. Fixed at create.
-  runtimeToolsSource?: "profile" | "release";
-  // The release's `effective_tools.tools`, read only for a `release` session;
-  // `[]` when the stored value cannot be read, which allows no tool.
-  releaseEffectiveTools?: readonly string[] | null;
   // The built-in (non-`mcp__`) tools the session's pinned caller limit denies
   // (`sessions.caller_limit.tools_deny`). Absent or empty: nothing is removed.
   callerToolsDeny?: readonly string[];
-  // The release's runtime spec, only when it is stored and verifies against
-  // its source and digests (`verifyReleaseSpec`). Null, or absent, for a
-  // session without a release, a release not yet backfilled, or a stored pair
-  // that does not hold; the claim then reads the profile as before.
-  releaseSpec?: RuntimeSpec | null;
   // The answer language the release pins (`runtime_config_snapshot.language`),
   // only ko, en or ja. Null, or absent, for `follow-user`, a release made
   // before the field, and a session without a release.
@@ -117,86 +95,47 @@ export type WorkerBinding = {
   env?: Readonly<Record<string, string>>;
 };
 
-// A profile and repository this host may run together, with the URL and
-// branch the repository is registered under now. A session binds only when
-// its row matches one exactly: a host that does not know the profile cannot
-// pick the runtime, a pair the repository no longer allows must not carry
-// the profile's trust to it, a repository id re-pointed at
-// another URL must not carry the old grant to the new one, and a profile id
-// whose settings changed must not run a session created under the old ones
-// its fingerprint here must equal the one the session was
-// accepted with, and its model the session's unless null (a version 1
-// fingerprint names its model itself).
-export type RepositoryPair = {
-  policy?: never;
-  profileId: string;
-  profileFingerprint: string;
-  model: string | null;
-  repositoryId: string;
-  url: string;
-  branch: string;
-};
-
-export type RunnablePair =
-  | RepositoryPair
-  // A profile this host may run without a repository: it matches only a row
-  // of repository_mode none, never one whose repository_id is null because
-  // it predates the catalog.
-  | {
-      policy?: never;
-      profileId: string;
-      profileFingerprint: string;
-      model: string | null;
-      repositoryId: null;
-    }
-  | PolicyPair;
-
 /**
- * A profile on any catalog repository, or none, for a session the workspace's
- * ceiling judges (`usesWorkspaceCeiling`): one under the agent's settings, or
- * on a `workspaceScoped` profile for any session. The claim cannot read that
- * ceiling, so what holds these to it is the gate, at every grant.
+ * What this host can run: the connections it holds with the models each
+ * offers, the repositories it holds as they are registered now, and the
+ * runtime versions its images ship (null: any). A session binds only when
+ * its spec's connection runs its model here, its runtime ships, and its
+ * repository row matches one exactly, so a repository id re-pointed at
+ * another URL does not carry the old grant to the new one.
  */
-export type PolicyPair = {
-  policy: true;
-  profileId: string;
-  profileFingerprint: string;
-  model: string | null;
-  workspaceScoped: boolean;
-  repositoryId?: never;
-  /** The same list on every pair of a catalog read. */
-  repositories: readonly Pick<
-    RepositoryPair,
-    "repositoryId" | "url" | "branch"
-  >[];
+export type ClaimCatalog = {
+  connections: ReadonlyArray<{ id: string; models: readonly string[] }>;
+  repositories: ReadonlyArray<{
+    repositoryId: string;
+    url: string;
+    branch: string;
+  }>;
+  runtimeVersions: readonly string[] | null;
 };
 
+/** A session on `from` over the connection moves to `to` at its claim. */
 export type ModelMove = {
-  profileId: string;
-  /** Only a session pinned to this moves; a version 1 pin names its model. */
-  fromFingerprint: string;
-  toFingerprint: string;
+  connectionId: string;
   from: string;
   to: string;
 };
 
 export type ClaimInput = {
-  runnable: RunnablePair[];
+  runnable: ClaimCatalog;
   modelMoves?: readonly ModelMove[];
   // The installation settings generation that catalog was read at; null
   // before its first read. A replica behind the database's gives up on
-  // nothing but a blocked ceiling: the row a pair needs may be one it has
-  // not read.
+  // nothing: the row a session needs may be one it has not read.
   settingsGeneration: number | null;
   // Repositories the settings hold that this replica could not resolve
   // (a credential it cannot read): another may, so a session on one is not
   // given up on here.
   unsettledRepositoryIds: ReadonlySet<string>;
-  // The profile ids whose runnability here is every replica's: this host's
-  // runnable profiles and the workspace versions over them. A pinned launch
-  // of any other id is not given up on: another replica may have made it
-  // since, or hold the connection or setting it needs, and runs it.
-  settledProfileIds: ReadonlySet<string>;
+  // Connection ids the installation's settings hold that this host could
+  // not resolve (a credential it cannot read): another replica may, so a
+  // session on one is not given up on here. A connection the settings do
+  // not hold at all is gone for every replica.
+  unsettledConnectionIds: ReadonlySet<string>;
   // A session that has spent this much is not bound: it would only be told
   // to release again at its first nextInput.
   costLimitUsd: number;
@@ -250,14 +189,13 @@ export type EgressIssue = {
   objectStoreHash: Uint8Array;
   mcpHash?: Uint8Array;
   packagesHash?: Uint8Array;
-  // `repository` is null for a session that may reach no repository (a
-  // `none` profile): no repository token is issued, and `repositoryHash`
-  // goes unused.
+  // `repository` is null for a session that may reach no repository: no
+  // repository token is issued, and `repositoryHash` goes unused.
   bindingsOf(session: {
     id: string;
-    profileId: string | null;
-    profileFingerprint: string | null;
-    model: string | null;
+    connectionId: string;
+    specDigest: string;
+    model: string;
     repositoryMode: "repository" | "none";
     repositoryId: string | null;
     githubPolicySource: string;
@@ -283,8 +221,9 @@ export type EgressAuthorization =
       sessionId: string;
       attemptId: string;
       binding: string;
-      profileId: string | null;
-      // The model the attempt claimed with; null where `binding` names it.
+      // The connection the attempt claimed with.
+      connectionId: string | null;
+      // The model the attempt claimed with.
       model: string | null;
       repository: { id: string | null; url: string; branch: string } | null;
       githubPolicySource: string;
@@ -329,17 +268,16 @@ export type ClaimResult =
   | { outcome: "claimed" | "replayed"; binding: WorkerBinding }
   // Unknown, expired, or presented for a different execution identity.
   | { outcome: "invalid_credential" }
-  // The bound session's profile, as the session was accepted with it, is not
-  // in this host's catalog, so the replay is refused before it rotates
-  // anything.
-  | { outcome: "profile_unavailable" }
+  // The bound session's connection is not in this host's catalog, so the
+  // replay is refused before it rotates anything.
+  | { outcome: "connection_unavailable" }
   // The session's last ran turn has no trusted checkpoint covering it
   // Nothing was bound: the session went to recovery_required in
   // the same transaction and the launch was asked to go.
   | { outcome: "context_gap" }
-  // The launch was reserved for a session whose (profile, repository, url,
-  // branch) this host's catalog no longer allows, or whose profile id this
-  // catalog defines with other settings. The launch was given up on
+  // The launch was reserved for a session whose connection, model, runtime
+  // or (repository, url, branch) this host's catalog no longer holds. The
+  // launch was given up on
   // in the same transaction: the session is `failed` with CATALOG_MISMATCH
   // and the launch is asked to go.
   | { outcome: "catalog_mismatch" }
@@ -367,8 +305,8 @@ export type ClaimResult =
 // name any other one: the numbers are guessable, so without this a holder of
 // a token that is about to be revoked could pre-address the next revision.
 export type ResolvedCredential =
-  // `profileId` is the session's, which names its runtime.
-  | ({ kind: "session"; profileId?: string | null } & WorkerFence)
+  // `runtimeKind` is the session's spec's, which names its event codec.
+  | ({ kind: "session"; runtimeKind?: string | null } & WorkerFence)
   // A launch nonce: valid only for bootstrapClaim.
   | { kind: "bootstrap" }
   | null;
@@ -397,7 +335,7 @@ export type NextInputResult =
       leaseExpiresAt: Date;
       /**
        * Nothing new is coming, so stop polling: the attempt is draining, or
-       * the session's profile changed after it claimed.
+       * the session's model moved after it claimed.
        */
       draining?: true;
       /**
@@ -670,7 +608,7 @@ export interface WorkerUnitOfWork {
     purpose: EgressPurpose;
   }): Promise<EgressAuthorization>;
   // Says on the session's stream why the proxy is cutting this attempt's
-  // provider access: its model was taken off the profile's list. Written once
+  // provider access: its model was taken off the connection's list. Written once
   // per attempt however many exchanges are refused; `recorded` is true only
   // for the call that wrote it, which is the one that may tell people.
   recordModelCutAtomic(input: {

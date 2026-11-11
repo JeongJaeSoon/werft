@@ -3,10 +3,10 @@ title: "作成"
 description: エージェントを定義し、リリースを作成して有効化し、セッションに紐付ける
 ---
 
-エージェントはワークスペース内の名前付きの定義である。名前と説明は人が見る値で、実行に使われる定義はカード (モデル、ツール) である。カードを修正するたびに新しいバージョンが積み重なる。バージョン 1 つをプロファイルと紐付けたものがリリースであり、エージェントが指しているリリースが有効なリリースである。セッションを作成するときにリリースを指定すると、そのセッションはそのエージェントのものになる。
+エージェントはワークスペース内の名前付きの定義である。名前と説明は人が見る値で、実行に使われる定義はカード (モデル、ツール) である。カードを修正するたびに新しいバージョンが積み重なる。バージョン 1 つを provider 接続 1 つと紐付けたものがリリースであり、エージェントが指しているリリースが有効なリリースである。セッションは常にリリースから作成し、そのセッションはそのエージェントのものになる。
 
 <Callout type="warn">
-セッションは `profile_id` のプロファイルで動き、リリースから作ったセッションはそのリリースに固定されたツールだけを使う。名前と説明はモデルに渡されず、エージェントの仕事の進め方はリポジトリの `AGENTS.md` か `CLAUDE.md` で伝える。詳しくは [指示文と説明](/agents/instructions-and-roles) と [権限](/agents/permissions) を参照。
+セッションはリリースが固定した実行設定 (接続、モデル、ランタイム、組み込みツール) で動く。何を確認し何をブロックするかは、ワークスペースとエージェントの実行ルールが決める。名前と説明はモデルに渡されず、エージェントの仕事の進め方はリポジトリの `AGENTS.md` か `CLAUDE.md` で伝える。詳しくは [指示文と説明](/agents/instructions-and-roles) と [権限](/agents/permissions) を参照。
 </Callout>
 
 ## Web コンソールで
@@ -16,8 +16,8 @@ description: エージェントを定義し、リリースを作成して有効�
 1. 初回のみ、`/bootstrap` で最初の owner とワークスペースを作成する。最初の owner のトークンの受け取り方は設置方式によって異なる。単一サーバー設置でトークンを自分で設定していない場合は、`scripts/test-ops.sh bootstrap-token` が一度だけ表示する。詳しくは[最初の owner と key](/run-server/self-hosting/users-and-keys)を参照する。
 2. ログイン後、左のサイドバーの「エージェント」を開き、右上の「新規エージェント」を押す。「新規エージェント」画面が 5 つのステップ(名前 → 役割 → リリース → 有効化 → チャンネル接続)で開く。
 3. 「名前」ステップで名前を入力する。識別子 (slug) は名前から自動で入力され、変更もできる。必要なら「説明（任意）」に人が読む紹介を書く。「次へ」を押す。
-4. 「役割」ステップでモデルを選び、「使用できるツール」でプロファイルのツールをチェックで選んで ([指示文と説明](/agents/instructions-and-roles#web-コンソールでツールを選ぶ))、回答言語を決め、「下書きを保存して次へ」を押す。エージェントが下書きとして保存され、バージョン 1 が作成される。動作の指示は、リポジトリの `AGENTS.md` か `CLAUDE.md` に書く。
-5. 「リリース」ステップでプロファイルを選び、「リリースを作成」を押す。カードのモデルがプロファイルで実行できるモデルのひとつでなければリリースは作成できない。
+4. 「役割」ステップでモデルを選び、回答言語を決め、「下書きを保存して次へ」を押す。エージェントが下書きとして保存され、バージョン 1 が作成される。動作の指示は、リポジトリの `AGENTS.md` か `CLAUDE.md` に書く。
+5. 「リリース」ステップで provider 接続を選び、「リリースを作成」を押す。カードのモデルがその接続のモデル一覧になければリリースは作成できない。接続とモデル一覧は、オーナーが設定 → モデル接続で管理する ([モデル接続](/run-server/self-hosting/model-connections))。
 6. 「有効化」ステップで「エージェントを有効化」を押す。以降、新しいセッションはこのリリースで開始する。「あとで設定」を押すと、エージェントは下書きのまま詳細画面に移る。
 
 owner・admin・member のいずれも、エージェントを作成できる。作成した人がそのエージェントの管理者になる。
@@ -80,11 +80,11 @@ echo "$agent" | jq '{slug: .agent.slug, version: .versions[0].version_no, active
 
 ### リリースの作成
 
-リリースはバージョン 1 つとプロファイル 1 つを紐付ける。カードの `model` がプロファイルで実行できるモデル (`model` と `models`) にない場合や、カードのツールがプロファイルにない場合は 422 になる。リリースで作成したセッションは、`model` を省略するとカードのモデルで動く。
+リリースはバージョン 1 つと provider 接続 1 つ (`connection_id`) を紐付ける。カードの `model` がその接続のモデル一覧にない場合は 422 になる。リリースはその時点の実行設定を固定する。接続の種類に合うランタイム (イメージが載せるバージョン)、そのランタイムの組み込みツールすべて、そして接続で自動モードの分類器が動くなら `auto`、そうでなければ `default` の権限モードである。何を確認し何をブロックするかは、ワークスペースとエージェントの実行ルールが決める ([権限](/agents/permissions))。リリースで作成したセッションは、`model` を省略するとカードのモデルで動く。
 
 ```bash
 release=$(curl -sS "$API/v1/agents/$AID/releases" "${WEB[@]}" \
-  -d "$(jq -nc --arg v "$VID" '{version_id: $v, runtime_profile_id: "claude-coding-local"}')")
+  -d "$(jq -nc --arg v "$VID" '{version_id: $v, connection_id: "fake-messages"}')")
 REL=$(echo "$release" | jq -r .release.id)
 echo "$release" | jq '{id: .release.id, created, tools: .release.effective_tools.tools}'
 ```
@@ -95,17 +95,18 @@ echo "$release" | jq '{id: .release.id, created, tools: .release.effective_tools
   "created": true,
   "tools": [
     "Read",
-    "Glob",
-    "Grep"
+    "Write",
+    "Edit",
+    "…"
   ]
 }
 ```
 
-リリース id はカードとプロファイルの内容のハッシュである。同じ内容で再度作成すると、同じリリースが `created: false` で返る。
+リリース id はカード、接続、固定した実行設定のハッシュである。同じ内容で再度作成すると、同じリリースが `created: false` で返る。
 
 リクエストに `note`(前後の空白を除いて 1–200 文字)を入れると、リリースにメモとして残る。メモは id に含まれないため、同じ内容で再度作成しても最初のメモのままである。空、または 200 文字を超えると 400 になる。
 
-人がリリースを呼ぶ名前は `label` である。作成した時刻をソウル時間で秒まで書いた `2026-10-30_14:30:28` の形で、同じエージェントで同じ秒にリリースが複数できると、2 つ目から `-2`、`-3` が付く。コンソールのリリース履歴、エージェントの見出しタグ、セッション一覧はこの名前を使う。識別子は引き続きリリース id である。カードの `version_no` はカードを変えたときだけ上がるため、同じカードを別のプロファイルでリリースしてもバージョンは同じである。
+人がリリースを呼ぶ名前は `label` である。作成した時刻をソウル時間で秒まで書いた `2026-10-30_14:30:28` の形で、同じエージェントで同じ秒にリリースが複数できると、2 つ目から `-2`、`-3` が付く。コンソールのリリース履歴、エージェントの見出しタグ、セッション一覧はこの名前を使う。識別子は引き続きリリース id である。カードの `version_no` はカードを変えたときだけ上がるため、同じカードを別の接続でリリースしてもバージョンは同じである。
 
 コンソールのリリース履歴は、リリースごとに同じエージェントで直前に作ったリリースと比べて変わったもの(許可リポジトリ、モデル、ツール・MCP、プロンプト、設定値)を、作成者と時刻とともに示す。認証情報は値を出さず「変更あり」とだけ示す。セッション画面はそのセッションが使うリリースを示し、エージェントの有効なリリースでなければその旨を示す。セッションは開始時のリリースを使い続けるため、変わった設定は新しいセッションから使われる。セッション応答の `agent.release_is_active` がこの比較結果である。
 
@@ -140,7 +141,7 @@ curl -sS "$API/v1/agents/counts" "${WEB[@]}" | jq -c
 {"counts":{"all":1,"administered":1,"active":1,"draft":0}}
 ```
 
-一覧は古いエージェントから `limit` 件ずつ(既定 50、最大 100)返る。レスポンスの `next_cursor` を `cursor` として送ると次のページになり、最後のページでは `null` である。`cursor` なしで呼ぶと最初のページだけが返る。`q`(最大 200 文字)を渡すと名前か識別子にその文字列を含むエージェントだけが大文字小文字を区別せずに返り、`ids` にエージェント ID をカンマでつないで(最大 100 件)渡すとそのエージェントだけが返る。`runtime_profile_id` を渡すと、有効な release がそのプロファイルで動くエージェントだけが返り、有効な release のないエージェントは除かれる。いずれも同じ `cursor` で次のページを読む。`GET /v1/agents/counts` は、一覧を最後まで読んだときの件数(`all`)、そのうち自分が直接またはチームで管理している件数(`administered`)、有効な release で動いている件数(`active`)、アーカイブされていないがまだ有効な release のない下書きの件数(`draft`)を返す。どちらも一覧と同じ権限が必要で、API キーは拒否される。
+一覧は古いエージェントから `limit` 件ずつ(既定 50、最大 100)返る。レスポンスの `next_cursor` を `cursor` として送ると次のページになり、最後のページでは `null` である。`cursor` なしで呼ぶと最初のページだけが返る。`q`(最大 200 文字)を渡すと名前か識別子にその文字列を含むエージェントだけが大文字小文字を区別せずに返り、`ids` にエージェント ID をカンマでつないで(最大 100 件)渡すとそのエージェントだけが返る。`connection_id` を渡すと、有効な release がその接続で動くエージェントだけが返り、有効な release のないエージェントは除かれる。いずれも同じ `cursor` で次のページを読む。`GET /v1/agents/counts` は、一覧を最後まで読んだときの件数(`all`)、そのうち自分が直接またはチームで管理している件数(`administered`)、有効な release で動いている件数(`active`)、アーカイブされていないがまだ有効な release のない下書きの件数(`draft`)を返す。どちらも一覧と同じ権限が必要で、API キーは拒否される。
 
 ## コンソールの担当チーム
 
@@ -154,7 +155,7 @@ curl -sS "$API/v1/agents/counts" "${WEB[@]}" | jq -c
 
 ## セッションに紐付ける
 
-セッションを作成するときに `agent_release_id` を指定する。`profile_id` はそのリリースのプロファイルでなければならない (そうでなければ 409 `RELEASE_PROFILE_MISMATCH`)。キーはそのエージェントのエージェントキーを使う。エージェントキーは Web コンソールか Web ログインの cookie で `POST /v1/api-keys` に `kind: "agent"` と `agent_id` を渡して発行する([API キー](/api-keys))。この発行には SDK のメソッドがない。秘密値は変数にだけ入れる。
+セッションを作成するときに `agent_release_id` を指定する。セッションはそのリリースの接続とモデルで動く。接続が無効になったかモデルが接続の一覧から外れた場合は 409 `RELEASE_SPEC_UNAVAILABLE` になり、別の接続かモデルでリリースを作り直す必要がある。キーはそのエージェントのエージェントキーを使う。エージェントキーは Web コンソールか Web ログインの cookie で `POST /v1/api-keys` に `kind: "agent"` と `agent_id` を渡して発行する([API キー](/api-keys))。この発行には SDK のメソッドがない。秘密値は変数にだけ入れる。
 
 `repository_id` は任意である。省くと、GitHub 設定があるエージェントはリポジトリなしで始まり、必要なリポジトリだけを付ける([リポジトリなしのセッション](/sessions/without-repository))。設定がない古いエージェントはリリースのリポジトリで始まる。下の例は `sample-app` を直接指定して、そのリポジトリで始める。
 
@@ -167,7 +168,6 @@ import { Werft } from "@werft-ai/sdk";
 // WERFT_API_KEY holds the agent key; WERFT_AGENT_RELEASE_ID the release above.
 const agent = new Werft();
 const started = await agent.sessions.create({
-  profile_id: "claude-coding-local",
   repository_id: "sample-app",
   agent_release_id: process.env.WERFT_AGENT_RELEASE_ID ?? "",
   message: 'GATE-SPEC {"id":"agent","steps":[],"final":"hello from research-bot"}',
@@ -189,7 +189,7 @@ curl -sS "$API/v1/sessions" \
   -H 'Content-Type: application/json' \
   -H "Idempotency-Key: $(uuidgen)" \
   -d "$(jq -nc --arg r "$REL" --arg m 'GATE-SPEC {"id":"agent","steps":[],"final":"hello from research-bot"}' \
-    '{profile_id: "claude-coding-local", repository_id: "sample-app", agent_release_id: $r, message: $m}')" \
+    '{repository_id: "sample-app", agent_release_id: $r, message: $m}')" \
   | jq '{status, turn_id}'
 ```
 
@@ -210,5 +210,5 @@ curl -sS "$API/v1/sessions" \
 ## 次のステップ
 
 - [指示文と説明](/agents/instructions-and-roles): 名前・説明とリポジトリの `AGENTS.md`・`CLAUDE.md`、カードのフィールドとバージョン
-- [プロファイルを選ぶ](/agents/run-profiles): プロファイルとモデル
+- [モデル接続](/run-server/self-hosting/model-connections): 接続とそのモデル一覧
 - [権限](/agents/permissions): ツール権限とエージェント管理者

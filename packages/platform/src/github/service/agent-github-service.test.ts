@@ -14,15 +14,11 @@ import {
   createAuthorizationPolicy,
 } from "../../musterrolle/policy.ts";
 import type { SessionCatalog } from "../../sessions/catalog.ts";
-import { withSeededInstallation } from "../../sessions/profile-registry.ts";
 import type { AgentGitHubStore } from "../ports/agent-github-store.ts";
 import { createAgentGitHubService } from "./agent-github-service.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000a1";
 const AGENT = "019a0000-0000-7000-8000-0000000000c1";
-const PROFILE = "claude-coding-v1";
-const OPTIONAL = "claude-optional-v1";
-const NONE = "claude-none-v1";
 
 const app = (extra: object = {}) => ({
   kind: "github_app" as const,
@@ -38,50 +34,26 @@ const enterprise = {
   ref: { value_env: "PEM" },
 };
 
-const profile = {
-  runtime_kind: "claude_agent_sdk",
-  runtime_version: "0.3.270",
-  model: "claude-sonnet-5",
-  tools: ["Read"],
-  permission_mode: "default",
-  provider: {
-    kind: "litellm",
-    endpoint: "https://litellm.invalid",
-    auth: {
-      kind: "api_key",
-      value: "provider-key",
-      ref: { value_env: "PROVIDER_KEY" },
-    },
-  },
-};
-
-const catalog = withSeededInstallation({
-  profiles: {
-    [PROFILE]: profile,
-    [OPTIONAL]: { ...profile, repository: "optional" },
-    [NONE]: { ...profile, repository: "none" },
-  },
+const catalog: SessionCatalog = {
+  connections: {},
   repositories: {
     "sample-app": {
       url: "https://github.com/acme/sample-app",
       branch: "main",
-      profiles: [PROFILE, OPTIONAL],
       auth: app(),
     },
     "elsewhere-app": {
       url: "https://github.com/acme/elsewhere",
       branch: "main",
-      profiles: ["another-profile"],
       auth: app(),
     },
     "ghe-app": {
       url: "https://ghe.example.com/acme/app",
       branch: "main",
-      profiles: [PROFILE],
       auth: enterprise,
     },
   },
-} as SessionCatalog);
+};
 
 const ALL_ON: GitHubCeiling = {
   workflows: true,
@@ -122,7 +94,6 @@ function serviceWith(input: {
     ? null
     : {
         id: "sha256:release",
-        runtime_profile_id: PROFILE,
         repository_id: "sample-app",
         policy_pins: input.github === undefined ? {} : { github: input.github },
       };
@@ -457,7 +428,7 @@ describe("the agent GitHub tab's options", () => {
       );
     };
 
-    test("`installed` reaches the console App's repositories; a listed id reaches its own", async () => {
+    test("`installed` reaches every repository on a GitHub App, its own or the console's; a listed id reaches its own", async () => {
       expect(
         await reasons({
           repositoryCeiling: {
@@ -467,7 +438,7 @@ describe("the agent GitHub tab's options", () => {
         }),
       ).toEqual({
         "elsewhere-app": null,
-        "ghe-app": "repository_not_allowed",
+        "ghe-app": null,
         "sample-app": null,
       });
       expect(
@@ -935,7 +906,7 @@ describe("repositories read as owner/repo", () => {
       expect(toggles).toHaveLength(0);
     });
 
-    test("the ceiling judges what is turned on: ids, installed App rows, own-App rows", async () => {
+    test("the ceiling judges what is turned on: ids, and under `installed` every App row", async () => {
       const turnOn = (
         enabling: { id: string; authKind: string; via: "catalog" | "github" },
         ceiling: RepositoryCeiling,
@@ -974,13 +945,13 @@ describe("repositories read as owner/repo", () => {
           listed,
         ),
       ).toBe("BAD_REQUEST:repository_not_allowed");
-      // An own-App row is not "installed" under the console App's ceiling.
+      // An own-App row is a GitHub App's too: an `installed` ceiling opens it.
       expect(
         await turnOn(
           { id: "own", authKind: "github_app_explicit", via: "catalog" },
           installed,
         ),
-      ).toBe("BAD_REQUEST:repository_not_allowed");
+      ).toBe("saved");
       expect(
         await turnOn(
           { id: "sample-app", authKind: "basic", via: "catalog" },

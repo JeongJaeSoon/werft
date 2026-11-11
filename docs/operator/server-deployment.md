@@ -96,7 +96,7 @@ legal hold된 version을 lifecycle이나 수동 정리 대상으로 삼지 않�
 4. [카탈로그](test-ops.md#카탈로그)에 적을 GitHub 저장소를 준비한다.
 5. [첫 owner 절차](test-ops.md#첫-owner)대로 웹 콘솔 `/bootstrap`에서 env 파일의 `BOOTSTRAP_TOKEN`(없으면 `scripts/test-ops.sh bootstrap-token`의 출력)으로 첫 owner와 workspace를 만들고 `/login`으로 로그인한다. 같은 토큰을 다시 보내면 `409 BOOTSTRAP_DONE`인지 확인한다. 토큰과 비밀번호는 evidence에 남기지 않고 응답 코드만 적는다. `bootstrap-token`을 한 번 더 실행하면 토큰 없이 exit 1이어야 하고, `docker logs werft-test-ops-api-1 2>&1 | grep -c '^BOOTSTRAP_TOKEN='`는 `0`이어야 한다.
 6. [API key 발급 절차](test-ops.md#api-key-발급과-폐기)로 첫 사용자의 owner와 key를 만든다. 평문 key는 한 번만 직접 전달하고 evidence에는 key id만 남긴다.
-7. [quickstart의 curl 준비](../quickstart.md#2-curl-준비)를 API key와 서버 endpoint에 맞춘다. 로컬 스택 기동·초기화 명령과 `GATE-SPEC` 대본은 실행하지 않고, `body`의 `profile_id`는 배포 catalog의 `claude-coding`을 쓴다.
+7. [quickstart의 curl 준비](../quickstart.md#2-curl-준비)를 API key와 서버 endpoint에 맞춘다. 로컬 스택 기동·초기화 명령과 `GATE-SPEC` 대본은 실행하지 않고, `body`의 `agent_release_id`는 배포한 설치에서 실제 연결로 만든 release id를 쓴다.
 8. [실제 Claude 직접 대화](../real-claude.md#b-실제-claude와-직접-대화하기)의 첫 요청처럼 파일 작성·README 수정·commit을 명시한 자연어 작업으로 세션 하나를 만든다. 들어오는 permission 요청을 허용하고 세션이 `idle`이 될 때까지 기다린 뒤 turn 1이 `completed`인지와 SSE에 남은 `git commit` 실행 결과를 확인한다. worker는 push하지 않으므로 commit은 4단계의 sample repository에 올라가지 않고 worker의 작업 트리와 checkpoint에만 있다([실제 Claude 직접 대화](../real-claude.md#b-실제-claude와-직접-대화하기)의 커밋 작성자 설명). 아래 명령은 turn 1에서 `git commit`을 실행한 `tool_use`의 짝인 `tool_result`만 뽑는다. `is_error`가 `false`이고 `content`가 `[<branch> <hash>] <message>`로 시작하면 commit이 만들어진 것이다. 결과가 비어 있으면 Claude가 commit하지 않은 것이므로 실패로 판정한다. `curl: (28)`은 [quickstart ②](../quickstart.md#-이벤트-관찰)와 같이 정상이다.
 
    ```sh

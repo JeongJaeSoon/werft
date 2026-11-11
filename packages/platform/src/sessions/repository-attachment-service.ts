@@ -106,8 +106,8 @@ export function createRepositoryAttachmentService(deps: {
 
   /**
    * What the agent's active release allows besides the session's own, when
-   * it is not the release the session runs: a new session, on that
-   * release's profile, could attach these. Never widens what this session
+   * it is not the release the session runs: a new session of that release
+   * could attach these. Never widens what this session
    * may attach.
    */
   async function newerReleaseAllowed(
@@ -127,7 +127,6 @@ export function createRepositoryAttachmentService(deps: {
     if (active === null || active.id === context.release.id) return [];
     return additionalRepositoriesOf(catalog, {
       ...additionalContextOf(context),
-      profileId: active.profileId,
       attached: null,
       github: active.github,
       githubEnabled: true,

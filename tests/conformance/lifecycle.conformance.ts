@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { Api, e2eEnv } from "../e2e/client.ts";
+import { Api, e2eStack } from "../e2e/client.ts";
 import { modelCallSeen, scriptId } from "./engine.ts";
 import { engineFromEnv } from "./engines.ts";
 
@@ -9,7 +9,9 @@ import { engineFromEnv } from "./engines.ts";
  * kinds, session and turn statuses and receipts, never from the model's text.
  */
 const engine = engineFromEnv();
-const api = new Api(e2eEnv({ needsMessages: false }));
+const api = new Api(
+  await e2eStack({ needsMessages: false, connectionId: engine.connectionId }),
+);
 const TIMEOUT = 600_000;
 
 /** An event id is `ev_` and the stored row's id in base 36. */
@@ -29,7 +31,6 @@ describe(`session lifecycle on ${engine.runtimeKind}`, () => {
       const created = await api.createSession(
         engine.prompt({ id: first, commands: [], final: "one" }),
         undefined,
-        engine.profileId,
         engine.repositoryId,
       );
       expect(created.status).toBe(201);

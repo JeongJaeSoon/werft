@@ -54,16 +54,13 @@ export const werft = new Werft({
 
 ## 연결 확인
 
-key의 주인과 scope, 서버에 등록된 프로필을 읽는다.
+key의 주인과 scope를 읽는다.
 
 ```ts title="check.ts"
 import { werft } from "./werft.ts";
 
 const me = await werft.auth.me();
 console.log(me.principal.kind, me.scopes);
-
-const { items } = await werft.profiles.list();
-for (const profile of items) console.log(profile.id, profile.repository_mode);
 ```
 
 ```bash
@@ -78,9 +75,6 @@ api_key [
   'sessions:control',
   'sessions:recover'
 ]
-claude-coding-auto required
-claude-coding-local required
-general none
 ```
 
 Node 22.18 이상과 Bun은 `.ts` 파일을 바로 돌린다. 그보다 낮은 Node에서는 `npx tsx check.ts`로 돌린다. key가 틀리면 `APIError`(401)가, 서버에 닿지 않으면 `ConnectionError`가 난다.

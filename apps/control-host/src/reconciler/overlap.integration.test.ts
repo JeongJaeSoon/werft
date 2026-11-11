@@ -16,6 +16,7 @@ import {
   workers,
 } from "@werft-ai/db";
 import { launchSession } from "@werft-ai/db/testing/launches";
+import { TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
 import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import {
   createAuthorizationPolicy,
@@ -24,7 +25,6 @@ import {
   type SessionCatalog,
   type WorkerGateway,
   type WorkerPrincipal,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import { testCaller } from "@werft-ai/testkit/callers";
 import {
@@ -35,34 +35,26 @@ import {
 import { eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { testCatalog } from "../testing/catalog.ts";
+import { releaseIn } from "../testing/releases.ts";
 import { reconcileOnce } from "./main.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
-const catalog: SessionCatalog = withSeededInstallation({
-  profiles: {
-    "claude-coding-v1": {
-      runtime_kind: "claude_agent_sdk",
-      runtime_version: "0.3.270",
-      model: "claude-sonnet-5",
-      tools: ["Read", "Edit", "Bash"],
-      permission_mode: "default",
-      provider: {
-        kind: "litellm",
-        endpoint: "https://litellm.invalid",
-        auth: {
-          kind: "api_key",
-          value: "catalog-provider-key",
-          ref: { value_env: "PROVIDER_KEY" },
-        },
-      },
+const catalog: SessionCatalog = testCatalog({
+  provider: {
+    kind: "litellm",
+    endpoint: "https://litellm.invalid",
+    auth: {
+      kind: "api_key",
+      value: "catalog-provider-key",
+      ref: { value_env: "PROVIDER_KEY" },
     },
   },
   repositories: {
     "sample-app": {
       url: "https://example.invalid/app.git",
       branch: "main",
-      profiles: ["claude-coding-v1"],
       auth: { kind: "github_app", registered: true } as const,
     },
   },
@@ -118,7 +110,7 @@ integration("reconciler passes that overlap", () => {
   /** A session whose first turn is running on a claimed attempt. */
   async function runningSession() {
     const partition = `overlap-${crypto.randomUUID()}`;
-    const owner = testCaller(`owner-${crypto.randomUUID()}`);
+    const owner = testCaller(crypto.randomUUID());
     const accepted = await createPostgresSessionUnitOfWork(
       db,
     ).acceptInputAtomic({
@@ -126,7 +118,8 @@ integration("reconciler passes that overlap", () => {
       principal: owner,
       idempotencyKey: crypto.randomUUID(),
       payloadHash: crypto.randomUUID(),
-      profileId: "claude-coding-v1",
+      agentReleaseId: await releaseIn(db, owner.ownerId),
+      model: TEST_MODEL,
       repository: {
         id: "sample-app",
         url: "https://example.invalid/app.git",

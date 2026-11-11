@@ -5,7 +5,6 @@ import type {
 } from "@werft-ai/contracts";
 import type { StructuredLogger } from "@werft-ai/observability";
 import type {
-  ChangeProfileInput,
   CloseSessionInput,
   PauseSessionInput,
   RecoveryDecisionInput,
@@ -42,7 +41,6 @@ import {
   publicStatus,
   recordLostInputWait,
 } from "./decision/pending-requests.ts";
-import { changeProfileAtomic } from "./profile-control.ts";
 import type { Database } from "./queries.ts";
 import { decideRecoveryAtomic, resumeAtomic } from "./recovery-control.ts";
 import { openResumeReceipt } from "./resume-control.ts";
@@ -688,9 +686,6 @@ export function createPostgresSessionControl(
 
     resumeAtomic(input: ResumeSessionInput) {
       return resumeAtomic(db, input);
-    },
-    changeProfileAtomic(input: ChangeProfileInput) {
-      return changeProfileAtomic(db, input);
     },
     renameAtomic(input: RenameSessionInput) {
       return renameAtomic(db, input);

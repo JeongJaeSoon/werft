@@ -763,7 +763,7 @@ function Overview({ session }: { readonly session: SessionDetailData }) {
         [
           t("sessions.column.runtime"),
           runtime
-            ? `${runtime.profile_id} · ${runtime.kind} ${runtime.version}`
+            ? `${runtime.connection_id} · ${runtime.kind} ${runtime.version}`
             : t("sessions.none"),
         ],
         [

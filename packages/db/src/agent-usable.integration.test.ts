@@ -35,6 +35,11 @@ import {
   workspaces,
 } from "./schema.ts";
 import { fixtureTeam } from "./testing/fixture-team.ts";
+import {
+  releaseSpecColumns,
+  TEST_CONNECTION_ID,
+  TEST_MODEL,
+} from "./testing/spec-pins.ts";
 import { createPostgresAgentUsageStore, usageOf } from "./usage/agent-usage.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -126,8 +131,8 @@ integration("agent_usable on PostgreSQL", () => {
       agentId,
       versionId,
       cardSha256: "a".repeat(64),
-      runtimeProfileId: "coding",
-      profileDigest: "digest",
+      connectionId: TEST_CONNECTION_ID,
+      ...releaseSpecColumns(),
       runtimeConfigSnapshot: {},
       effectiveTools: [],
     });
@@ -481,7 +486,7 @@ integration("agent_usable on PostgreSQL", () => {
         principal: by,
         idempotencyKey: randomUUID(),
         payloadHash: "create",
-        profileId: "coding",
+        model: TEST_MODEL,
         repository: "none",
         agentReleaseId: releaseId,
         message: "start",
@@ -607,7 +612,7 @@ integration("agent_usable on PostgreSQL", () => {
       principal: w.insider,
       idempotencyKey: randomUUID(),
       payloadHash: "create",
-      profileId: "coding",
+      model: TEST_MODEL,
       repository: "none",
       agentReleaseId: w.releaseId,
       message: "start",

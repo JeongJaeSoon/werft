@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type { ToolCatalogView } from "../api/profile-tools.ts";
+import type { ToolCatalogView } from "../api/tool-names.ts";
 import { validateEngineSettingsAcrossCatalogs } from "./engine-settings-catalogs.ts";
 
 const catalog = (

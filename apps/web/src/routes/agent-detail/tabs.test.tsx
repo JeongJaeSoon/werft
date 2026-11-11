@@ -65,7 +65,7 @@ const listed = (
       mcp_servers: [],
       credential_refs: [],
     },
-    runtime_profile_id: null,
+    connection_id: null,
     release_label: null,
     release_model: null,
     bound_credential_refs: [],
@@ -297,7 +297,7 @@ describe("에이전트 상세 탭", () => {
     expect(document.activeElement?.contains(saved)).toBe(true);
   });
 
-  test("카드 편집에는 도구 체크 목록이 없고 프로필이 막은 도구를 읽기 전용으로 보인다", async () => {
+  test("카드 편집에는 도구 체크 목록이 없고, 저장은 도구 칸 없이 카드를 보낸다", async () => {
     const { api } = renderAt(`${DETAIL}?tab=card`, {
       ...meOk,
       ...agentServer().routes,
@@ -306,13 +306,7 @@ describe("에이전트 상세 탭", () => {
     await user.click(
       await screen.findByRole("button", { name: "상세 설정 편집" }),
     );
-    const blocked = await screen.findByRole("group", {
-      name: "프로필이 막은 도구",
-    });
-    expect(within(blocked).getByText("Bash")).toBeDefined();
-    expect(within(blocked).getByText("WebFetch")).toBeDefined();
-    expect(within(blocked).queryByRole("checkbox")).toBeNull();
-    expect(within(blocked).queryByRole("button")).toBeNull();
+    await screen.findByLabelText("모델 연결");
     expect(screen.queryByRole("switch")).toBeNull();
     expect(screen.queryByRole("checkbox", { name: /^Read/ })).toBeNull();
 
@@ -1130,7 +1124,7 @@ async function released(
   await server.routes[`PATCH /v1/agents/${AGENT_ID}`](
     new Request("https://console.test/", {
       method: "PATCH",
-      body: JSON.stringify({ card, runtime_profile_id: "claude-coding-local" }),
+      body: JSON.stringify({ card, connection_id: "anthropic-main" }),
     }),
   );
 }

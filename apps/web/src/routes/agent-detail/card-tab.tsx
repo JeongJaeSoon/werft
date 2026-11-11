@@ -24,7 +24,7 @@ export function CardTab({
   readonly toRelease: ReactNode;
 }) {
   const { t } = useI18n();
-  const [profileId, setProfileId] = useState<string>();
+  const [connectionId, setConnectionId] = useState<string>();
   const [editing, setEditing] = useState(false);
   const editButton = useRef<HTMLButtonElement>(null);
   // Closing the editor hands the keyboard back to the button that opened it.
@@ -42,8 +42,8 @@ export function CardTab({
       {editing && manages ? (
         <CardEditor
           detail={detail}
-          profileId={profileId}
-          onProfileChange={setProfileId}
+          connectionId={connectionId}
+          onConnectionChange={setConnectionId}
           result={<PlacedOutcome placed={placed} at="card" />}
           onOutcome={onOutcome}
           onClose={(cancelled) => {

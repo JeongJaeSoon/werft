@@ -314,7 +314,6 @@ export const sessionLinkSchema = z
     thread_id: opaqueIdSchema.nullable(),
     agent_id: agentIdSchema,
     release_id: agentReleaseIdSchema.nullable(),
-    profile_id: z.string().min(1).max(128).nullable(),
     role: sessionLinkRoleSchema,
     visibility: sessionLinkVisibilitySchema,
     muted: z.boolean(),
@@ -349,18 +348,16 @@ export const sessionLinkSchema = z
       }
     }
     // `ScopedSessionBinding` — what every inbound message resolves to — needs
-    // both pins. A live link missing either one would be admitted here and
-    // then fail every bind, so it is not a state worth storing. Only a revoked
-    // link may have lost them.
+    // the release pin. A live link missing it would be admitted here and then
+    // fail every bind, so it is not a state worth storing. Only a revoked link
+    // may have lost it.
     if (link.revoked_at !== null) return;
-    for (const field of ["release_id", "profile_id"] as const) {
-      if (link[field] === null) {
-        ctx.addIssue({
-          code: "custom",
-          path: [field],
-          message: `a live session link needs ${field}`,
-        });
-      }
+    if (link.release_id === null) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["release_id"],
+        message: "a live session link needs release_id",
+      });
     }
   });
 

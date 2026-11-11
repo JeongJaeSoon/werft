@@ -36,7 +36,7 @@ export type TurnEventMessageKey =
   | "session.event.kind.result"
   | "session.event.kind.error"
   | "session.event.error.modelNotAllowed"
-  | "session.event.error.modelProfileRemoved"
+  | "session.event.error.modelConnectionRemoved"
   | "session.event.modelMigrated"
   | "session.event.init"
   | "session.event.vcsChanged"
@@ -349,8 +349,8 @@ function present(
           label: message("session.event.kind.error"),
           summary: [
             message(
-              data.cause === "profile_removed"
-                ? "session.event.error.modelProfileRemoved"
+              data.cause === "connection_removed"
+                ? "session.event.error.modelConnectionRemoved"
                 : "session.event.error.modelNotAllowed",
               { model: clip(data.model) },
             ),

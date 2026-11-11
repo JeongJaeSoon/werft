@@ -3,22 +3,22 @@ import { z } from "zod";
 import { providerKindSchema } from "./provider-kind.ts";
 import { runtimeKindSchema } from "./runtime-kind.ts";
 
-// What a release runs as, with no runtime profile in the way. A release holds
-// two documents: `spec_source`, the raw inputs it was made from, and
-// `runtime_spec`, what those inputs mean now. The spec is a pure function of
-// its source (`deriveRuntimeSpec`), so a stored pair can be checked from the
-// source alone, long after the profile it came from is gone. Neither holds a
+// What a release runs as. A release holds two documents: `spec_source`, the
+// raw inputs it was made from (its connection, the card's model and the
+// runtime the image ships), and `runtime_spec`, what those inputs mean now.
+// The spec is a pure function of its source (`deriveRuntimeSpec`), so a
+// stored pair can be checked from the source alone. Neither holds a
 // credential: the connection is named by id and endpoint, and the worker
 // gets its token at claim.
 //
 // The mode and repository enums below repeat api/session.ts and
-// api/profiles.ts, which this module cannot import without a cycle
+// api/repository-ceiling.ts, which this module cannot import without a cycle
 // (api/session.ts imports the agents contract that will import this).
 // runtime-spec.test.ts holds them to the originals. The runtime kind comes
 // from the import-free shared/runtime-kind.ts, which api/session.ts re-exports.
 
 export const RUNTIME_SPEC_VERSION = 1;
-export const SPEC_DERIVATION_VERSION = 1;
+export const SPEC_DERIVATION_VERSION = 2;
 
 export const EXECUTION_MODE_VALUES = ["auto", "bypass"] as const;
 export const executionModeSchema = z.enum(EXECUTION_MODE_VALUES);
@@ -34,7 +34,7 @@ const legacyPermissionModeSchema = z.enum([
 ]);
 const repositoryModeSchema = z.enum(["required", "optional", "none"]);
 // No length caps: the catalog sets none on a model, a tool or an endpoint, and
-// a cap here would make a release made from a valid profile underivable.
+// a cap here would make a release on a valid connection underivable.
 const nonEmpty = z.string().min(1);
 
 // The catalog's own rule for a provider endpoint (catalog.ts webUrl): the URL
@@ -79,18 +79,12 @@ const projectSettingsSchema = z.object({ claude_md: z.boolean() }).strict();
 
 /**
  * The inputs, as they were when the release was made. `permission_mode` is
- * the profile's own value, kept so the mapping to an execution mode stays
- * auditable. `profile_id` and `profile_digest` are the originals the release
- * id was hashed over.
+ * the engine's own value, kept so the mapping to an execution mode stays
+ * auditable. The release id is hashed over this document.
  */
 export const specSourceSchema = z
   .object({
     derivation_version: z.literal(SPEC_DERIVATION_VERSION),
-    origin: z.enum(["profile", "agent"]),
-    release_id: nonEmpty,
-    release_id_version: z.number().int().min(1).max(5),
-    profile_id: nonEmpty.nullable(),
-    profile_digest: nonEmpty.nullable(),
     runtime: runtimeSchema,
     connection: connectionSchema,
     model: nonEmpty,

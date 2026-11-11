@@ -34,7 +34,6 @@ import {
   createWorkerGateway,
   type SessionCatalog,
   type WorkerGateway,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import {
   FakeAgentRuntime,
@@ -54,6 +53,14 @@ import { registerReceiptRoutes } from "../apps/control-host/src/api/routes/sessi
 import { registerSessionRoutes } from "../apps/control-host/src/api/routes/sessions.ts";
 import { registerWorkerRoutes } from "../apps/control-host/src/api/routes/workers/worker.ts";
 import { PostgresSessionNotifier } from "../apps/control-host/src/api/session-notifier.ts";
+import { testCatalog } from "../apps/control-host/src/testing/catalog.ts";
+import {
+  allowingPolicy,
+  allowRepositories,
+  releaseIn,
+  sessionReleases,
+  startingInWorkspace,
+} from "../apps/control-host/src/testing/releases.ts";
 import type { WorkerCheckpointPort } from "../apps/worker/src/checkpoint.ts";
 import { HttpWorkerGatewayClient } from "../apps/worker/src/gateway-client.ts";
 import { drainOnSignals } from "../apps/worker/src/main.ts";
@@ -75,32 +82,20 @@ import { until } from "./until.ts";
 const databaseUrl = process.env.QUEUE_DATABASE_URL;
 const integration = databaseUrl ? describe : describe.skip;
 
-const PROFILE_ID = "claude-coding-v1";
-
-const catalog: SessionCatalog = withSeededInstallation({
-  profiles: {
-    [PROFILE_ID]: {
-      runtime_kind: "claude_agent_sdk",
-      runtime_version: "0.3.270",
-      model: "claude-sonnet-5",
-      tools: [],
-      permission_mode: "default",
-      provider: {
-        kind: "litellm",
-        endpoint: "https://litellm.invalid",
-        auth: {
-          kind: "api_key",
-          value: "catalog-provider-key",
-          ref: { value_env: "PROVIDER_KEY" },
-        },
-      },
+const catalog: SessionCatalog = testCatalog({
+  provider: {
+    kind: "litellm",
+    endpoint: "https://litellm.invalid",
+    auth: {
+      kind: "api_key",
+      value: "catalog-provider-key",
+      ref: { value_env: "PROVIDER_KEY" },
     },
   },
   repositories: {
     "sample-app": {
       url: "https://example.invalid/app.git",
       branch: "main",
-      profiles: ["claude-coding-v1"],
     },
   },
 });
@@ -150,28 +145,48 @@ integration(
     let notifier: PostgresSessionNotifier;
     let gateway: WorkerGateway;
     let server: ReturnType<typeof Bun.serve>;
-    const owner = `owner-${crypto.randomUUID()}`;
+    const owner = crypto.randomUUID();
+    let releaseId = "";
 
     beforeAll(async () => {
       database = await createTempDatabase({ prefix: "park_resume_e2e" });
       pool = new Pool({ connectionString: database.url, max: 16 });
       db = drizzle(pool, { schema });
+      releaseId = await releaseIn(db, owner);
+      await allowRepositories(db, owner, ["sample-app"]);
       const logger = createLogger({ sinks: [] });
       notifier = new PostgresSessionNotifier(database.url, logger);
       await notifier.start();
-      const sessions = createSessionService({
-        authorization: createAuthorizationPolicy(),
-        inputs: createPostgresSessionUnitOfWork(db),
-        controls: createPostgresSessionControl(db),
-        reader: createPostgresSessionReader(db),
-        catalog,
-        limits: {
-          queuedInputLimitPerSession: 1_000,
-          storageLimitBytes: 1e15,
-          sessionCostLimitUsd: 1_000,
-          sessionTokenLimit: null,
-        },
-      });
+      const sessions = startingInWorkspace(
+        createSessionService({
+          authorization: createAuthorizationPolicy(),
+          inputs: createPostgresSessionUnitOfWork(db),
+          controls: createPostgresSessionControl(db),
+          reader: createPostgresSessionReader(db),
+          catalog,
+          limits: {
+            queuedInputLimitPerSession: 1_000,
+            storageLimitBytes: 1e15,
+            sessionCostLimitUsd: 1_000,
+            sessionTokenLimit: null,
+          },
+          releases: sessionReleases(db, catalog),
+        }),
+        createSessionService({
+          authorization: allowingPolicy,
+          inputs: createPostgresSessionUnitOfWork(db),
+          controls: createPostgresSessionControl(db),
+          reader: createPostgresSessionReader(db),
+          catalog,
+          limits: {
+            queuedInputLimitPerSession: 1_000,
+            storageLimitBytes: 1e15,
+            sessionCostLimitUsd: 1_000,
+            sessionTokenLimit: null,
+          },
+          releases: sessionReleases(db, catalog),
+        }),
+      );
       gateway = createWorkerGateway({
         work: createPostgresWorkerUnitOfWork(db),
         catalog,
@@ -239,7 +254,12 @@ integration(
       return call(path, {
         method: "POST",
         headers: { "Idempotency-Key": crypto.randomUUID() },
-        body: JSON.stringify(body),
+        // A session runs a release of the owner's workspace.
+        body: JSON.stringify(
+          path === "/v1/sessions"
+            ? { agent_release_id: releaseId, ...(body as object) }
+            : body,
+        ),
       });
     }
 
@@ -314,7 +334,6 @@ integration(
     // SIGTERM through the worker's own signal wiring.
     async function parkedOn(ask: Ask) {
       const created = await post("/v1/sessions", {
-        profile_id: PROFILE_ID,
         repository_id: "sample-app",
         message: "deploy it",
       });

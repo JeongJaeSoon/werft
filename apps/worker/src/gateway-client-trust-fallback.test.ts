@@ -23,8 +23,8 @@ const claimAnswer = {
   session_credential: "session-token",
   lease_expires_at: new Date().toISOString(),
   lease_remaining_ms: 30_000,
-  runtime: { kind: "claude_agent_sdk", version: "0.3.270", profile_id: "p" },
-  profile_fingerprint: `sha256:${"0".repeat(64)}`,
+  runtime: { kind: "claude_agent_sdk", version: "0.3.270", connection_id: "c" },
+  spec_digest: `sha256:${"0".repeat(64)}`,
   runtime_config: {
     model: "claude-sonnet-4-5",
     tools: [],

@@ -4,13 +4,11 @@ import { agentCardRequestSchema, scopesForRole } from "@werft-ai/contracts";
 import {
   type AgentService,
   type Caller,
-  type CatalogProfile,
   callerFor,
   createAgentService,
   createAuthorizationPolicy,
   createModelMoveRunner,
   type SessionCatalog,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import {
   createTempDatabase,
@@ -23,60 +21,62 @@ import { Pool } from "pg";
 import { createPostgresAgentStore } from "./agents.ts";
 import { createPostgresCredentialBindingStore } from "./musterrolle/credential-bindings.ts";
 import { createDatabaseIdentityReader } from "./musterrolle/identity-reader.ts";
-import { createPostgresProfileRolloutStore } from "./profile-rollouts.ts";
 import * as schema from "./schema.ts";
 import {
   agentActivationEvents,
   agentReleases,
   agents,
   agentVersions,
-  installationProfiles,
   memberships,
   memberTeams,
   receipts,
   users,
   workspaces,
 } from "./schema.ts";
+import {
+  TEST_CONNECTION_ID,
+  TEST_RUNTIMES,
+  testSessionCatalog,
+} from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
-const BASE: CatalogProfile = {
-  runtime_kind: "claude_agent_sdk",
-  runtime_version: "0.3.270",
-  model: "claude-opus-5-1",
-  models: ["claude-opus-5-1", "claude-opus-5-0"],
-  model_families: {
-    "claude-opus-5-0": { family: "opus", rank: 0 },
-    "claude-opus-5-1": { family: "opus", rank: 1 },
-  },
-  title_model: "claude-haiku-5",
-  tools: ["Read"],
-  permission_mode: "default",
-  repository: "optional",
-  provider: {
-    kind: "litellm",
-    endpoint: "https://litellm.invalid",
-    auth: {
-      kind: "api_key",
-      value: "catalog-provider-key",
-      ref: { value_env: "PROVIDER_KEY" },
-    },
+const PROVIDER = {
+  kind: "litellm" as const,
+  endpoint: "https://litellm.invalid",
+  auth: {
+    kind: "api_key" as const,
+    value: "catalog-provider-key",
+    ref: { value_env: "PROVIDER_KEY" },
   },
 };
-const CUT: CatalogProfile = { ...BASE, models: ["claude-opus-5-1"] };
-const CUT_NO_FAMILY: CatalogProfile = {
-  ...CUT,
+const FAMILIES = {
+  "claude-opus-5-0": { family: "opus", rank: 0 },
+  "claude-opus-5-1": { family: "opus", rank: 1 },
+};
+type Offer = {
+  models: string[];
+  model_families: typeof FAMILIES | Record<string, never>;
+};
+const BASE: Offer = {
+  models: ["claude-opus-5-1", "claude-opus-5-0"],
+  model_families: FAMILIES,
+};
+const CUT: Offer = { models: ["claude-opus-5-1"], model_families: FAMILIES };
+const CUT_NO_FAMILY: Offer = {
+  models: ["claude-opus-5-1"],
   model_families: {},
 };
 
-const catalogOf = (profile: CatalogProfile): SessionCatalog =>
-  withSeededInstallation({
-    profiles: { op_ops_v1: profile },
+const catalogOf = (offer: Offer): SessionCatalog =>
+  testSessionCatalog({
+    provider: PROVIDER,
+    models: offer.models,
+    model_families: offer.model_families,
     repositories: {
       app: {
         url: "https://example.invalid/app.git",
         branch: "main",
-        profiles: ["op_ops_v1"],
         auth: { kind: "github_app", registered: true },
       },
     },
@@ -91,14 +91,6 @@ function card(model: string) {
     capabilities: { tools: ["Read"], mcp: null, forbidden: [] },
   });
 }
-
-const definitionOf = (profile: CatalogProfile) => {
-  const { provider, ...rest } = profile;
-  return { ...rest, provider: { kind: provider.kind } } as Record<
-    string,
-    unknown
-  >;
-};
 
 integration("an agent moves to the next model of its series", () => {
   let database: TempDatabase;
@@ -118,15 +110,15 @@ integration("an agent moves to the next model of its series", () => {
 
   const store = () => createPostgresAgentStore(db);
 
-  function service(profile: CatalogProfile): AgentService {
+  function service(offer: Offer): AgentService {
     return createAgentService({
       authorization: createAuthorizationPolicy({
         identity: createDatabaseIdentityReader(db),
       }),
       store: store(),
-      catalog: catalogOf(profile),
+      catalog: catalogOf(offer),
       credentials: createPostgresCredentialBindingStore(db),
-      profileLineage: createPostgresProfileRolloutStore(db),
+      runtimes: TEST_RUNTIMES,
     });
   }
 
@@ -142,20 +134,6 @@ integration("an agent moves to the next model of its series", () => {
       displayName: "owner",
     });
     await db.insert(memberships).values({ workspaceId, userId, role: "owner" });
-    await db
-      .insert(installationProfiles)
-      .values({
-        id: "op_ops_v1",
-        name: "ops",
-        version: 1,
-        origin: "console",
-        definition: definitionOf(BASE),
-        permissionMode: "default",
-        fingerprint: "fp-1",
-        repositoryIds: [],
-        createdBy: userId,
-      })
-      .onConflictDoNothing();
     return callerFor(
       {
         kind: "user",
@@ -181,8 +159,7 @@ integration("an agent moves to the next model of its series", () => {
       name: "재무 분석가",
       managing_team_id: teamId,
       card: card(model),
-      runtime_profile_id: "op_ops_v1",
-      model_source: "fixed",
+      connection_id: TEST_CONNECTION_ID,
     });
     return made.agent.id;
   }
@@ -205,7 +182,7 @@ integration("an agent moves to the next model of its series", () => {
         .where(eq(agentVersions.agentId, agentId))
     ).map((v) => (v.card as { model: string }).model);
 
-  test("a fixed agent gets a model-only card, one release and a receipt that says it was automatic", async () => {
+  test("an agent gets a model-only card, one release and a receipt that says it was automatic", async () => {
     const caller = await owner();
     const agentId = await agentOn(caller);
     const before = await agentRow(agentId);
@@ -230,7 +207,6 @@ integration("an agent moves to the next model of its series", () => {
       (before?.activationRevision as number) + 1,
     );
     expect(after?.behaviorRevision).toBe(before?.behaviorRevision as number);
-    expect(after?.modelSource).toBe("fixed");
     expect(after?.draftVersionId).toBeNull();
 
     const [receipt] = await db

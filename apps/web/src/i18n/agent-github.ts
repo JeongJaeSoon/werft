@@ -57,7 +57,7 @@ export const agentGitHubKo = {
   "agentGitHub.stale":
     "다른 곳에서 GitHub 설정이 바뀌어 이 변경은 저장할 수 없습니다. 버리고 새로 읽으세요.",
   "agentGitHub.legacy":
-    "이 에이전트에는 저장한 GitHub 설정이 아직 없습니다. 지금은 활성 릴리스의 설정(없으면 프로필이 허용하는 저장소 전체)으로 동작하고, 저장하면 이후 세션부터 아래 설정을 씁니다.",
+    "이 에이전트에는 저장한 GitHub 설정이 아직 없습니다. 지금은 활성 릴리스의 설정(없으면 워크스페이스가 허용하는 저장소 전체)으로 동작하고, 저장하면 이후 세션부터 아래 설정을 씁니다.",
   "agentGitHub.repositoriesHint":
     "이 에이전트가 쓸 GitHub 저장소를 켭니다. 켜고 끄는 즉시 저장됩니다. 켠 저장소는 새로 시작하는 세션부터 쓰고, 끈 저장소는 진행 중인 세션에서도 바로 쓸 수 없습니다. 토큰은 켠 저장소 하나로만 좁혀 발급합니다.",
   "agentGitHub.repositoriesNone":
@@ -271,7 +271,7 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.stale":
     "The GitHub settings changed elsewhere, so these changes cannot be saved. Discard them and reload.",
   "agentGitHub.legacy":
-    "This agent has no saved GitHub settings yet. It runs on the active release's settings (every repository its profile allows, if none). Saving makes later sessions use the settings below.",
+    "This agent has no saved GitHub settings yet. It runs on the active release's settings (every repository the workspace allows, if none). Saving makes later sessions use the settings below.",
   "agentGitHub.repositoriesHint":
     "Turn on the GitHub repositories this agent may use. A switch saves as soon as you flip it. A repository you turn on is used from the next session that starts; one you turn off is refused in running sessions too. Each token is narrowed to a single enabled repository.",
   "agentGitHub.repositoriesNone":
@@ -490,7 +490,7 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.stale":
     "別の場所で GitHub の設定が変わったため、この変更は保存できません。破棄して読み込み直してください。",
   "agentGitHub.legacy":
-    "このエージェントにはまだ保存された GitHub の設定がありません。有効なリリースの設定(なければプロファイルが許可するすべてのリポジトリ)で動きます。保存すると、以降のセッションは以下の設定を使います。",
+    "このエージェントにはまだ保存された GitHub の設定がありません。有効なリリースの設定(なければワークスペースが許可するすべてのリポジトリ)で動きます。保存すると、以降のセッションは以下の設定を使います。",
   "agentGitHub.repositoriesHint":
     "このエージェントが使う GitHub リポジトリをオンにします。スイッチは切り替えるとすぐ保存されます。オンにしたリポジトリは次に始まるセッションから使われ、オフにしたリポジトリは実行中のセッションでもすぐ使えなくなります。トークンはオンのリポジトリ 1 つに絞って発行します。",
   "agentGitHub.repositoriesNone":

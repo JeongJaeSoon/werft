@@ -2,7 +2,6 @@ import { useQuery } from "@tanstack/react-query";
 import { unwrap } from "@werft-ai/client";
 import type {
   CreateSettingsConnectionRequest,
-  ProfileSummary,
   SettingsConnection,
 } from "@werft-ai/contracts";
 import { useWerft } from "@werft-ai/react";
@@ -28,6 +27,7 @@ import {
   RowAction,
   Skeleton,
   Text,
+  Textarea,
 } from "@werft-ai/ui";
 import { Plus } from "lucide-react";
 import { useState } from "react";
@@ -48,8 +48,7 @@ import {
   useSettingsWrite,
 } from "./settings-entries.tsx";
 
-// id and source, kind and endpoint, credential, profiles over it, state,
-// actions; a phone keeps the id (with the state) and the actions.
+// id and source, kind and endpoint, credential, models, state, actions; a phone keeps the id (with the state) and the actions.
 const COLUMNS = [
   "minmax(0,1.1fr) minmax(0,1.6fr) minmax(0,1fr) 112px 128px 196px",
   SETTINGS_NARROW_COLUMNS,
@@ -60,23 +59,15 @@ const COLUMNS = [
  * the operator file's and the database's in one table, each marked by
  * where it comes from. Only the owner reads them.
  */
-export function ModelConnections({
-  profiles,
-}: {
-  /** The installation ceilings, to count those over each connection. */
-  readonly profiles: readonly ProfileSummary[];
-}) {
+export function ModelConnections() {
   const { t } = useI18n();
   const { client } = useWerft();
   const connections = useQuery(settingsConnectionsQuery(client));
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [adding, setAdding] = useState(false);
   const [judging, setJudging] = useState<SettingsConnection | null>(null);
+  const [listing, setListing] = useState<SettingsConnection | null>(null);
   const rows = useRowActions("connection", setOutcome);
-
-  const over = (id: string) =>
-    profiles.filter((profile) => profile.installation?.connection_id === id)
-      .length;
 
   return (
     <Page
@@ -127,7 +118,7 @@ export function ModelConnections({
                 {t("settings.column.credential")}
               </GridTableColumnHeader>
               <GridTableColumnHeader hideNarrow>
-                {t("settings.connections.ceilings")}
+                {t("settings.connections.models")}
               </GridTableColumnHeader>
               <GridTableColumnHeader hideNarrow>
                 {t("settings.column.state")}
@@ -140,13 +131,16 @@ export function ModelConnections({
               <ConnectionRow
                 key={item.id}
                 item={item}
-                over={over(item.id)}
                 busy={rows.busy}
                 onValue={() => rows.openValue(item.id)}
                 onConvert={() => rows.openConvert(item.id)}
                 onAutoMode={() => {
                   setOutcome(null);
                   setJudging(item);
+                }}
+                onModels={() => {
+                  setOutcome(null);
+                  setListing(item);
                 }}
                 onDisable={() => rows.openDisable(item.id)}
                 onEnable={() => rows.openEnable(item.id)}
@@ -168,6 +162,11 @@ export function ModelConnections({
         onClose={() => setJudging(null)}
         onOutcome={setOutcome}
       />
+      <ModelsDialog
+        item={listing}
+        onClose={() => setListing(null)}
+        onOutcome={setOutcome}
+      />
       {rows.dialogs}
     </Page>
   );
@@ -175,20 +174,20 @@ export function ModelConnections({
 
 function ConnectionRow({
   item,
-  over,
   busy,
   onValue,
   onConvert,
   onAutoMode,
+  onModels,
   onDisable,
   onEnable,
 }: {
   readonly item: SettingsConnection;
-  readonly over: number;
   readonly busy: boolean;
   readonly onValue: () => void;
   readonly onConvert: () => void;
   readonly onAutoMode: () => void;
+  readonly onModels: () => void;
   readonly onDisable: () => void;
   readonly onEnable: () => void;
 }) {
@@ -223,8 +222,10 @@ function ConnectionRow({
         </Text>
       </GridTableCell>
       <GridTableCell hideNarrow>
-        <Text as="span" variant="meta">
-          {t("settings.connections.usedBy", { count: over })}
+        <Text as="span" variant="meta" className="wrap-anywhere">
+          {item.models.length === 0
+            ? t("settings.connections.noModels")
+            : item.models.join(", ")}
         </Text>
       </GridTableCell>
       <GridTableCell hideNarrow>
@@ -259,6 +260,15 @@ function ConnectionRow({
               onClick={onAutoMode}
             >
               {t("settings.autoMode.set")}
+            </RowAction>
+          ) : null}
+          {item.state !== "disabled" ? (
+            <RowAction
+              disabled={busy}
+              aria-label={t("settings.models.setFor", { id: item.id })}
+              onClick={onModels}
+            >
+              {t("settings.models.set")}
             </RowAction>
           ) : null}
           {actions.disable ? (
@@ -371,6 +381,95 @@ function AutoModeDialog({
             </NativeSelectOption>
           ))}
         </NativeSelect>
+      </Field>
+    </FormDialog>
+  );
+}
+
+/** One model per line or comma, trimmed, repeats dropped, in order. */
+export function modelsOf(text: string): string[] {
+  return [
+    ...new Set(
+      text
+        .split(/[\n,]/)
+        .map((model) => model.trim())
+        .filter((model) => model !== ""),
+    ),
+  ];
+}
+
+/**
+ * The models an agent's card may name on a connection, one per line. A
+ * session on a model taken off the list stops at its next model call.
+ */
+function ModelsDialog({
+  item,
+  onClose,
+  onOutcome,
+}: {
+  readonly item: SettingsConnection | null;
+  readonly onClose: () => void;
+  readonly onOutcome: (outcome: Outcome) => void;
+}) {
+  const { t } = useI18n();
+  const [error, setError] = useState<string | null>(null);
+  const save = useSettingsWrite(
+    "connection",
+    (client, variables: { readonly id: string; readonly models: string[] }) =>
+      unwrap(
+        client.POST("/v1/installation/settings/connections/{id}/models", {
+          params: { path: { id: variables.id } },
+          body: { models: variables.models },
+        }),
+      ),
+    {
+      onDone: (_answer, variables) => {
+        onClose();
+        onOutcome({
+          kind: "notice",
+          text: t("settings.done.models", {
+            id: variables.id,
+            count: variables.models.length,
+          }),
+        });
+      },
+      onRefused: setError,
+    },
+  );
+
+  return (
+    <FormDialog
+      open={item !== null}
+      onOpenChange={(next) => {
+        if (next) return;
+        setError(null);
+        onClose();
+      }}
+      pending={save.isPending}
+      title={t("settings.models.title")}
+      description={t("settings.models.description")}
+      error={error}
+      submitLabel={t("settings.models.save")}
+      pendingLabel={t("settings.models.saving")}
+      onSubmit={(form) => {
+        if (item === null) return;
+        setError(null);
+        save.mutate({
+          id: item.id,
+          models: modelsOf(String(form.get("models") ?? "")),
+        });
+      }}
+    >
+      <Field>
+        <FieldLabel>{t("settings.models.label")}</FieldLabel>
+        {/* Keyed so each connection opens on its own stored list. */}
+        <Textarea
+          key={item?.id ?? ""}
+          name="models"
+          rows={5}
+          defaultValue={(item?.models ?? []).join("\n")}
+        />
+        <FieldDescription>{t("settings.models.hint")}</FieldDescription>
       </Field>
     </FormDialog>
   );

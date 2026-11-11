@@ -22,20 +22,15 @@ const route = ({ path, url, headers }: Seen) => {
       },
       user: null,
     });
-  if (path === "/v1/profiles")
+  if (path === "/v1/connections")
     return json({
       items: [
         {
-          id: "general",
-          source: "operator",
-          model: "claude-sonnet-5",
-          models: ["claude-sonnet-5"],
-          tools: ["Read"],
-          permission_mode: "default",
-          runtime_kind: "claude_agent_sdk",
-          runtime_version: "0.3.270",
+          id: "fake-messages",
+          kind: "anthropic",
           billing: "metered",
-          repository_mode: "none",
+          models: ["claude-sonnet-5"],
+          model_successors: {},
         },
       ],
     });
@@ -55,7 +50,7 @@ test("reads the key, the catalog and the limits a key may not see", async () => 
     "refused a default Authorization header: headers cannot set Authorization",
     "refused a negative retry count",
     "principal: api_key, scopes sessions:read",
-    "profile general: claude-sonnet-5 on claude_agent_sdk 0.3.270, repository none",
+    "connection fake-messages: anthropic, metered, models claude-sonnet-5",
     "limits: 403 FORBIDDEN (owner sign-in only)",
   ])
     expect(stdout).toContain(line);

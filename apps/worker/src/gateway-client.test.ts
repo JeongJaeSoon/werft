@@ -77,9 +77,9 @@ describe("HttpWorkerGatewayClient", () => {
         runtime: {
           kind: "claude_agent_sdk",
           version: "0.3.270",
-          profile_id: "p",
+          connection_id: "c",
         },
-        profile_fingerprint: `sha256:${"0".repeat(64)}`,
+        spec_digest: `sha256:${"0".repeat(64)}`,
         runtime_config: {
           model: "claude-sonnet-4-5",
           tools: [],

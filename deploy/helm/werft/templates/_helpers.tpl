@@ -157,7 +157,7 @@ images than the scheduler launches.
 {{- end -}}
 
 {{/*
-The worker images' runtime combinations. The api and slack judge profile
+The worker images' runtime combinations. The api and slack judge release spec
 pins against them and the scheduler picks each session's image by them, so
 all three render this one definition and cannot disagree.
 */}}

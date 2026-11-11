@@ -1,50 +1,20 @@
 import { describe, expect, test } from "bun:test";
 import type { AgentGitHub } from "@werft-ai/contracts";
+import { testCatalog, testRepository } from "../testing/catalog-fakes.ts";
 import {
   type AdditionalRepositoryContext,
   additionalRepositoriesOf,
   additionalRepositoryAllowed,
 } from "./additional-repositories.ts";
-import {
-  environmentCredentials,
-  resolveSessionCatalog,
-  sessionCatalogConfigSchema,
-} from "./catalog.ts";
-import { withSeededInstallation } from "./profile-registry.ts";
 
-const profile = {
-  runtime_kind: "claude_agent_sdk",
-  runtime_version: "1",
-  model: "claude-sonnet-5",
-  tools: ["Read"],
-  permission_mode: "default",
-  provider: {
-    kind: "anthropic",
-    endpoint: "https://api.anthropic.invalid",
-    auth: { kind: "api_key", value_env: "ANTHROPIC_KEY_MAIN" },
+const catalog = testCatalog({
+  repositories: {
+    app: testRepository("app"),
+    docs: testRepository("docs"),
+    tools: testRepository("tools"),
+    origin: testRepository("origin"),
   },
-};
-const repo = (name: string, profiles = ["p"]) => ({
-  url: `https://github.com/acme/${name}.git`,
-  branch: "main",
-  profiles,
-  auth: { kind: "github_app" },
 });
-const catalog = withSeededInstallation(
-  resolveSessionCatalog(
-    sessionCatalogConfigSchema.parse({
-      profiles: { p: profile, q: profile },
-      repositories: {
-        app: repo("app"),
-        docs: repo("docs"),
-        tools: repo("tools"),
-        "other-profile": repo("other-profile", ["q"]),
-        origin: repo("origin"),
-      },
-    }),
-    environmentCredentials({ ANTHROPIC_KEY_MAIN: "resolved-key" }),
-  ),
-);
 
 const github = (repositories: string[]): AgentGitHub => ({
   repositories,
@@ -63,34 +33,45 @@ const context = (
   overrides: Partial<AdditionalRepositoryContext> = {},
 ): AdditionalRepositoryContext => ({
   repositoryId: "app",
-  profileId: "p",
   attached: null,
   policySource: "release",
-  github: github(["app", "docs", "tools", "other-profile", "origin"]),
-  repositoryCeiling: null,
+  github: github(["app", "docs", "tools", "origin"]),
+  repositoryCeiling: {
+    repository_ids: ["app", "docs", "tools", "origin"],
+    github_app_repositories: "listed",
+  },
   githubEnabled: true,
   ...overrides,
 });
 
 describe("additionalRepositoryAllowed", () => {
-  test("a repository the release lists and the profile allows", () => {
+  test("a repository the release lists and the settings hold", () => {
     expect(additionalRepositoryAllowed(catalog, context(), "docs")).toEqual(
       expect.objectContaining({ url: "https://github.com/acme/docs.git" }),
     );
   });
 
-  test("refuses what the release, profile, switch or name rules leave out", () => {
+  test("refuses what the release, ceiling, switch or name rules leave out", () => {
     const cases: Array<[Partial<AdditionalRepositoryContext>, string]> = [
       // The session's own repository is not an additional one.
       [{}, "app"],
       [{ github: github(["app"]) }, "docs"],
-      [{}, "other-profile"],
       [{}, "origin"],
       [{}, "missing"],
       [{ githubEnabled: false }, "docs"],
       [{ github: null }, "docs"],
       [{ github: "invalid" }, "docs"],
-      [{ profileId: null }, "docs"],
+      // The workspace ceiling judges every session: none, or one without it.
+      [{ repositoryCeiling: null }, "docs"],
+      [
+        {
+          repositoryCeiling: {
+            repository_ids: ["app"],
+            github_app_repositories: "listed",
+          },
+        },
+        "docs",
+      ],
     ];
     for (const [overrides, id] of cases) {
       expect(

@@ -41,6 +41,7 @@ import {
   workspaces,
 } from "./schema.ts";
 import { fixtureTeam } from "./testing/fixture-team.ts";
+import { releaseSpecColumns, TEST_CONNECTION_ID } from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 const MANAGERS = MANAGEMENT_ROLES["workspace.manage"] ?? [];
@@ -736,8 +737,8 @@ integration("the GitHub App on PostgreSQL", () => {
       agentId,
       versionId,
       cardSha256: "sha",
-      runtimeProfileId: "coding",
-      profileDigest: "digest",
+      connectionId: TEST_CONNECTION_ID,
+      ...releaseSpecColumns(),
       runtimeConfigSnapshot: {},
       effectiveTools: [],
       policyPins: { github: { repositories: [repo("two")] } },
@@ -752,8 +753,8 @@ integration("the GitHub App on PostgreSQL", () => {
       })
       .where(eq(agents.id, agentId));
     await pool.query(
-      `INSERT INTO sessions (id, owner_id, repository_id, status, profile_id, repo_url, branch)
-       VALUES ($1, $2, $3, 'running', 'coding', 'https://example.invalid/r.git', 'main')`,
+      `INSERT INTO sessions (id, owner_id, repository_id, status, repo_url, branch)
+       VALUES ($1, $2, $3, 'running', 'https://example.invalid/r.git', 'main')`,
       [randomUUID(), ws, repo("one")],
     );
     expect(await store.usage(ws, b.id)).toEqual({

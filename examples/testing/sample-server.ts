@@ -96,6 +96,7 @@ export async function runSample(
         PATH: process.env.PATH ?? "",
         WERFT_BASE_URL: server.url.href,
         WERFT_API_KEY: "sample-agent-key",
+        WERFT_AGENT_RELEASE_ID: "sha256:sample-release",
         ...env,
       },
       stdout: "pipe",

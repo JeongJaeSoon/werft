@@ -56,7 +56,7 @@ import {
   unassignedSessions,
   workerLaunches,
 } from "./schema.ts";
-import { pinRefusesLive } from "./session-pin-cutover.ts";
+import { pinRefusesLive } from "./session-spec-pin.ts";
 import { contextCoverage, contextGap } from "./sessions/context-gap.ts";
 import { closeParkedGroup } from "./sessions/parked-group.ts";
 import { recordEvent, recordStatus } from "./sessions/session-events.ts";
@@ -526,7 +526,7 @@ async function startFresh(
   if (session.workspaceReclaimId !== null) {
     return { outcome: "workspace_reclaiming" };
   }
-  if (await pinRefusesLive(tx, session)) return { outcome: "pin_required" };
+  if (pinRefusesLive(session)) return { outcome: "pin_required" };
   const { lastRanTurn } = await contextCoverage(tx, session);
   const reset: ContextReset = {
     turnSequence: lastRanTurn ?? session.contextResetTurnSequence,
@@ -612,7 +612,7 @@ async function retryRestore(
   if (session.workspaceReclaimId !== null) {
     return { outcome: "workspace_reclaiming" };
   }
-  if (await pinRefusesLive(tx, session)) return { outcome: "pin_required" };
+  if (pinRefusesLive(session)) return { outcome: "pin_required" };
   const queued = await queuedTurnCount(tx, session.id);
   await tx
     .update(sessions)
@@ -903,7 +903,7 @@ export function resumeAtomic(
     if (session.workspaceReclaimId !== null) {
       return { outcome: "workspace_reclaiming" };
     }
-    if (await pinRefusesLive(tx, session)) return { outcome: "pin_required" };
+    if (pinRefusesLive(session)) return { outcome: "pin_required" };
 
     // As from a pause: a parked turn the stop left waiting goes on once
     // nothing it asked is still open.

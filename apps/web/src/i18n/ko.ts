@@ -17,7 +17,6 @@ import { membersKo } from "./members.ts";
 import { modelsKo } from "./models.ts";
 import { outputsKo } from "./outputs.ts";
 import { preferencesKo } from "./preferences.ts";
-import { profilesKo } from "./profiles.ts";
 import { sessionListKo } from "./session-list.ts";
 import { settingsKo } from "./settings.ts";
 import { shellKo } from "./shell.ts";
@@ -94,16 +93,16 @@ export const slackKo = {
     "Request URL을 Slack에 다시 보냈습니다. Slack이 확인하면 상태가 바뀝니다.",
   "slack.repositoryRequired.title": "Slack에서는 세션을 시작할 수 없습니다",
   "slack.repositoryRequired.body":
-    "활성 릴리스(프로필 {profile})로는 Slack 세션이 시작되지 못합니다. 프로필이 저장소를 요구하는데 릴리스에 고른 저장소가 없거나, 릴리스의 저장소가 카탈로그에서 빠졌거나 프로필·워크스페이스 상한이 허용하지 않거나, 에이전트의 GitHub 설정을 읽을 수 없기 때문입니다. Slack 멘션과 DM은 거절되고 스레드에 안내만 남습니다. 연결은 할 수 있습니다. GitHub 설정을 확인하고, 상세 설정에서 저장소를 쓸 수 있는 프로필로 저장하면 새 릴리스가 만들어집니다.",
+    "활성 릴리스({release})로는 Slack 세션이 시작되지 못합니다. 릴리스의 저장소가 카탈로그에서 빠졌거나 워크스페이스 상한이 허용하지 않거나, 에이전트의 GitHub 설정을 읽을 수 없기 때문입니다. Slack 멘션과 DM은 거절되고 스레드에 안내만 남습니다. 연결은 할 수 있습니다. GitHub 설정을 확인하고 상세 설정에서 다시 저장하면 새 릴리스가 만들어집니다.",
   "slack.issuerChanged.title": "다른 Slack 사용자가 만든 앱입니다",
   "slack.issuerChanged.body":
     "앱을 만든 Slack 사용자({previous})와 지금 App Configuration Token의 사용자({user})가 다릅니다. 이 토큰으로는 앱을 설치하거나 고치지 못할 수 있습니다. 설치가 실패하면 {previous}의 토큰을 다시 등록하거나 {user}를 앱 공동 작업자로 추가하세요. 앱을 Slack에서 이미 지웠다면 위험 구역에서 앱을 삭제하고 다시 설치하세요.",
-  "slack.profileUnavailable.title": "Slack에서는 세션을 시작할 수 없습니다",
-  "slack.profileUnavailable.body":
-    "활성 릴리스의 프로필({profile})이 지금 카탈로그에 없거나, 릴리스 뒤에 바뀌었거나, 운영자가 차단했습니다. Slack 멘션과 DM은 거절되고 스레드에 안내만 남습니다. 상세 설정에서 쓸 수 있는 프로필을 골라 저장하면 새 릴리스가 만들어집니다.",
+  "slack.releaseUnavailable.title": "Slack에서는 세션을 시작할 수 없습니다",
+  "slack.releaseUnavailable.body":
+    "활성 릴리스({release})의 모델 연결이 꺼졌거나, 그 모델이 연결의 모델 목록에서 빠졌습니다. Slack 멘션과 DM은 거절되고 스레드에 안내만 남습니다. 상세 설정에서 쓸 수 있는 연결과 모델을 골라 저장하면 새 릴리스가 만들어집니다.",
   "slack.noActiveRelease.title": "활성 릴리스가 없습니다",
   "slack.noActiveRelease.body":
-    "릴리스가 켜지기 전에는 Slack 멘션과 DM이 거절되고 스레드에 안내만 남습니다. 상세 설정에서 프로필을 골라 저장하면 첫 릴리스가 만들어집니다.",
+    "릴리스가 켜지기 전에는 Slack 멘션과 DM이 거절되고 스레드에 안내만 남습니다. 상세 설정에서 연결과 모델을 골라 저장하면 첫 릴리스가 만들어집니다.",
   "slack.state.error": "오류",
   "slack.createInstall": "Slack 앱 만들고 설치",
   "slack.configToken.unset":
@@ -235,7 +234,6 @@ export const ko = {
   ...teamsKo,
   ...agentsKo,
   ...modelsKo,
-  ...profilesKo,
   ...settingsKo,
   ...sessionsKo,
   ...sessionListKo,

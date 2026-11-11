@@ -33,12 +33,11 @@ const ACTOR: ReceiptActor = {
   agent_id: null,
 };
 const CATALOG: SessionCatalog = {
-  profiles: {},
+  connections: {},
   repositories: {
     "sample-app": {
       url: "https://example.invalid/app.git",
       branch: "main",
-      profiles: ["claude-coding-v1"],
       auth: { kind: "github_app", registered: true },
     },
   },

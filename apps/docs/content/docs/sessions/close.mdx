@@ -92,7 +92,7 @@ terminate는 실행을 바로 내린다. 도구가 이미 바깥에 한 일은 �
 
 ```ts
 const runaway = await werft.sessions.create({
-  profile_id: "claude-coding-local",
+  agent_release_id: process.env.WERFT_AGENT_RELEASE_ID ?? "",
   repository_id: "sample-app",
   message:
     'GATE-SPEC {"id":"runaway","steps":[],"final":"never","finalDelayMs":300000}',
@@ -127,7 +127,7 @@ created=$(curl -sS "$API/v1/sessions" \
   -H 'Content-Type: application/json' \
   -H "Idempotency-Key: $(uuidgen)" \
   -d "$(jq -nc --arg m 'GATE-SPEC {"id":"runaway","steps":[],"final":"never","finalDelayMs":300000}' \
-    '{profile_id: "claude-coding-local", repository_id: "sample-app", message: $m}')")
+    '{agent_release_id: env.WERFT_AGENT_RELEASE_ID, repository_id: "sample-app", message: $m}')")
 TID=$(echo "$created" | jq -r .session_id)
 until [ "$(curl -sS "$API/v1/sessions/$TID/turns/1" -H "Authorization: Bearer $KEY" | jq -r .status)" = running ]; do
   sleep 1

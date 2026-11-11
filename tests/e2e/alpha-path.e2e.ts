@@ -3,7 +3,7 @@ import {
   Api,
   bash,
   type ErrorBody,
-  e2eEnv,
+  e2eStack,
   poll,
   scripted,
   type Turn,
@@ -15,7 +15,7 @@ import {
  * compose fake Messages API playing each prompt's script. docs/quickstart.md
  * walks the same steps by hand with curl.
  */
-const api = new Api(e2eEnv());
+const api = new Api(await e2eStack());
 const TIMEOUT = 600_000;
 
 /**

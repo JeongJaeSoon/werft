@@ -39,7 +39,6 @@ import type {
   RestorePlanRequest,
   RestorePlanResponse,
   RuntimeConfig,
-  SessionRuntime,
   TraceContentMode,
   WorkerCapabilities,
   WorkerEvent,
@@ -51,10 +50,10 @@ import {
   DEFAULT_WORKSPACE_ENFORCE,
   ENGINE_COAUTHOR_EMAILS,
   GITHUB_MCP_SERVER,
-  githubPolicySourceOf,
   githubRefusalStatus,
   IMAGE_GIT_AUTHOR,
-  MAX_RESTORE_PROFILES,
+  MAX_RESTORE_CONFIGS,
+  type RuntimeKind,
   sanitizeToolDecision,
 } from "@werft-ai/contracts";
 import type { RuntimeFingerprint } from "@werft-ai/runtime-core";
@@ -102,14 +101,13 @@ import {
 import type { GitHubMcpStore } from "../ports/github-mcp.ts";
 import type { RepositoryAttachmentStore } from "../ports/repository-attachments.ts";
 import type {
+  ClaimInput as ClaimInputOf,
   EgressBindings,
   EgressIssue,
   EgressPurpose,
   FenceRejection,
   FinalizeResult,
-  ModelMove,
   ResolvedCredential,
-  RunnablePair,
   WorkerBinding,
   WorkerFence,
   WorkerUnitOfWork,
@@ -121,45 +119,24 @@ import {
   JUDGMENT_TOKEN_PREFIX,
 } from "../sessions/achievements/judgment-token.ts";
 import {
-  acceptedRuntimeVersions,
-  allowedPair,
-  type CatalogProfile,
-  type CatalogRepository,
-  CLAIM_RUNS_RELEASE_TOOLS,
   type ClaimedMcpServer,
-  catalogProfile,
-  claimToolLists,
+  connectionModels,
+  connectionOf,
   type EgressUpstream,
-  effectiveExecutionMode,
   GITHUB_MCP_ENDPOINT,
   githubMcpBinding,
-  isConvertibleMode,
   mcpBinding,
-  modelMovePins,
-  type ProfilePin,
-  profileAllowsRepository,
-  profileFingerprint,
-  profileGone,
-  profileModels,
-  profilePins,
+  modelMoves,
   providerPathAllowed,
   providerUpstreamOf,
-  refreshWorkspaceProfilesFor,
   repositoryBinding,
-  repositoryModeOf,
   repositoryUpstreamOf,
-  runtimeConfigOf,
   runtimeConfigWithMcp,
   type SessionCatalog,
   type SessionGitHubMcp,
   type SessionMcp,
-  sessionProfile,
-  type ToolList,
   trustedGitHubTools,
-  usesWorkspaceCeiling,
-  type WorkspaceProfiles,
   withoutDeniedTools,
-  workspaceCatalogProfiles,
 } from "../sessions/catalog.ts";
 import {
   type NeutralizeEvent,
@@ -179,12 +156,11 @@ import {
   hashTitleToken,
   type SessionTitler,
   TITLE_TOKEN_PREFIX,
-  titleProfile,
+  titleRun,
 } from "../sessions/session-titler.ts";
 import { createGitHubMcpEgress } from "./github-mcp-egress.ts";
 import {
   appendNew,
-  earlierProfileConfigs,
   legacyConfigsFromRow,
   servedLegacyConfig,
 } from "./legacy-runtime-configs.ts";
@@ -195,8 +171,7 @@ import {
   type PackageRegistry,
   PUBLIC_PACKAGE_REGISTRIES,
 } from "./package-registries.ts";
-
-const WORKSPACE_PROFILE_MAX_AGE_MS = 1000;
+import { runtimeConfigOfSpec } from "./runtime-config-of-spec.ts";
 
 // The repository binding of a session without a repository of its own:
 // its repository route reaches only attached ones, each through the gate.
@@ -265,30 +240,6 @@ export type CheckpointProtocol = {
   }): Promise<RestorePlanResult>;
 };
 
-// What every config of a session's claim carries from its release and its
-// row, whichever profile and tool list it is for.
-type ReleaseRun = Pick<
-  WorkerBinding,
-  | "releaseTools"
-  | "platformPrompt"
-  | "runtimeToolsSource"
-  | "releaseEffectiveTools"
-  | "callerToolsDeny"
->;
-
-type ToolConfigs = {
-  profile: RuntimeConfig;
-  release: RuntimeConfig | null;
-  // The same lists before the caller limit removed tools, only where it
-  // removed one: a checkpoint made earlier carries their fingerprints.
-  unlimited: { profile: RuntimeConfig | null; release: RuntimeConfig | null };
-  runs: ToolList;
-  // The mode the profile stores. The configs above carry the mode the claim
-  // runs, which is `auto` for a convertible stored mode on a connection whose
-  // classifier works; a scheme 1 checkpoint hashed whichever one ran then.
-  storedMode: RuntimeConfig["permission_mode"];
-};
-
 /**
  * What the gateway needs to say about tracing, owned here so the gateway
  * depends on no tracing package. A workspace's content mode can only lower the
@@ -324,8 +275,6 @@ export type WorkerGatewayOptions = {
   pollIntervalMs?: number;
   now?: () => Date;
   sleep?: (ms: number) => Promise<void>;
-  /** Overrides CLAIM_RUNS_RELEASE_TOOLS (catalog.ts claimToolLists). */
-  runReleaseTools?: boolean;
 };
 
 export const DEFAULT_LEASE_TTL_MS = 30_000;
@@ -718,61 +667,25 @@ export function createWorkerGateway(deps: {
   options: WorkerGatewayOptions;
 }) {
   const { work, catalog, checkpoints, pending, neutralize } = deps;
-  const runReleaseTools =
-    deps.options.runReleaseTools ?? CLAIM_RUNS_RELEASE_TOOLS;
 
-  // The session's configs under one profile, one per tool list
-  // (claimToolLists), and the list the engine runs. Each carries the
-  // platform prompt, which a checkpoint's fingerprint holds whichever config
-  // made it.
-  function toolConfigsOf(
-    profile: CatalogProfile,
-    release: ReleaseRun,
+  // The session's config as its spec says, with the platform prompt its row
+  // holds, which a checkpoint's fingerprint holds whichever config made it.
+  function specConfigOf(
+    binding: Pick<
+      WorkerBinding,
+      "spec" | "platformPrompt" | "repository" | "callerToolsDeny"
+    >,
     providerToken: string,
-    hasRepository: boolean,
-    mode: RuntimeConfig["permission_mode"] = profile.permission_mode,
-  ): ToolConfigs {
-    const lists = claimToolLists(
-      profile,
-      release.releaseTools ?? null,
-      runReleaseTools,
-      release.runtimeToolsSource === "release"
-        ? (release.releaseEffectiveTools ?? [])
-        : null,
+  ): RuntimeConfig {
+    const config = runtimeConfigOfSpec(
+      binding.spec,
+      providerToken,
+      binding.repository !== null,
     );
-    const prompt = release.platformPrompt;
-    const configOf = (tools: readonly string[]): RuntimeConfig => {
-      const config = runtimeConfigOf(
-        profile,
-        providerToken,
-        hasRepository,
-        tools,
-      );
-      return {
-        ...config,
-        permission_mode: mode,
-        ...(prompt ? { platform_prompt: prompt } : {}),
-      };
-    };
-    const denied = release.callerToolsDeny;
-    const limited = (tools: readonly string[] | null) =>
-      tools === null ? null : withoutDeniedTools(tools, denied);
-    const profileTools = limited(lists.profile) ?? lists.profile;
-    const releaseTools = limited(lists.release);
-    return {
-      profile: configOf(profileTools),
-      release: releaseTools === null ? null : configOf(releaseTools),
-      unlimited: {
-        profile:
-          profileTools === lists.profile ? null : configOf(lists.profile),
-        release:
-          lists.release === null || releaseTools === lists.release
-            ? null
-            : configOf(lists.release),
-      },
-      runs: lists.runs,
-      storedMode: profile.permission_mode,
-    };
+    const tools = withoutDeniedTools(config.tools, binding.callerToolsDeny);
+    const limited = tools === config.tools ? config : { ...config, tools };
+    const prompt = binding.platformPrompt;
+    return prompt ? { ...limited, platform_prompt: prompt } : limited;
   }
 
   // Only a primary repository on a console App: the App it is pinned to
@@ -1041,186 +954,68 @@ export function createWorkerGateway(deps: {
   const pollIntervalMs =
     deps.options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
 
-  // Only sessions this host can actually run are claimable. Letting a
-  // session whose profile left the catalog start anyway would hand it a
-  // guessed runtime, and the worker would run the wrong agent or crash-loop
-  // through a queue slot. It waits for a host that knows the profile — as
-  // the session was created with it — and that still lets it run
-  // against the session's repository, or without one.
-  function operatorRunnable(): RunnablePair[] {
-    const pairsOf = (
-      profileId: string,
-      repositoryId: string,
-      repository: CatalogRepository,
-    ) => {
-      const profile = own(catalog.profiles, profileId);
-      // A row from before the pin binds to the first pair that
-      // matches it: the current fingerprint and the default model.
-      return profile
-        ? profilePins(profile, acceptedRuntimeVersions(catalog)).map((pin) => ({
-            profileId,
-            profileFingerprint: pin.fingerprint,
-            model: pin.model,
-            repositoryId,
-            url: repository.url,
-            branch: repository.branch,
-          }))
-        : [];
-    };
-    const ceilings = [...(catalog.installation?.values() ?? [])];
-    return [
-      ...Object.entries(catalog.repositories).flatMap(
-        ([repositoryId, repository]) =>
-          ceilings
-            .filter(({ id }) =>
-              profileAllowsRepository(catalog, id, repositoryId),
-            )
-            .flatMap(({ id }) => pairsOf(id, repositoryId, repository)),
-      ),
-      ...Object.entries(catalog.profiles).flatMap(([profileId, profile]) =>
-        repositoryModeOf(profile) === "required"
-          ? []
-          : profilePins(profile, acceptedRuntimeVersions(catalog)).map(
-              (pin) => ({
-                profileId,
-                profileFingerprint: pin.fingerprint,
-                model: pin.model,
-                repositoryId: null,
-              }),
-            ),
-      ),
-    ];
-  }
-
+  // Only sessions this host can actually run are claimable: a session whose
+  // connection left the catalog, whose model is no longer offered, or whose
+  // repository moved waits for a host that runs it as it was created.
   let runnableOf: {
-    records: WorkspaceProfiles["records"] | undefined;
-    profiles: SessionCatalog["profiles"];
+    connections: SessionCatalog["connections"];
     repositories: SessionCatalog["repositories"];
-    pairs: RunnablePair[];
-    moves: ModelMove[];
     settingsGeneration: number | null;
-    unavailableRepositories: ReadonlySet<string>;
-    settled: ReadonlySet<string>;
+    input: Pick<
+      ClaimInputOf,
+      | "runnable"
+      | "modelMoves"
+      | "settingsGeneration"
+      | "unsettledRepositoryIds"
+      | "unsettledConnectionIds"
+    >;
   } | null = null;
-  function claimCatalog(): NonNullable<typeof runnableOf> {
-    const records = catalog.workspace_profiles?.records;
-    const profiles = catalog.profiles;
-    const repositories = catalog.repositories;
+  function claimCatalog(): NonNullable<typeof runnableOf>["input"] {
+    const { connections, repositories } = catalog;
     const settingsGeneration = catalog.settings_generation ?? null;
     if (
       runnableOf === null ||
-      runnableOf.records !== records ||
-      runnableOf.profiles !== profiles ||
+      runnableOf.connections !== connections ||
       runnableOf.repositories !== repositories ||
       runnableOf.settingsGeneration !== settingsGeneration
     ) {
-      const workspace = workspaceCatalogProfiles(catalog);
       runnableOf = {
-        records,
-        profiles,
+        connections,
         repositories,
-        pairs: buildRunnablePairs(workspace),
-        moves: [
-          ...Object.entries(profiles).map(([id, profile]) => ({ id, profile })),
-          ...workspace,
-        ].flatMap(({ id, profile }) =>
-          modelMovePins(profile, acceptedRuntimeVersions(catalog)).map(
-            ({ from, to, fromFingerprint, toFingerprint }) => ({
-              profileId: id,
-              fromFingerprint,
-              toFingerprint,
+        settingsGeneration,
+        input: {
+          runnable: {
+            connections: Object.entries(connections).map(
+              ([id, connection]) => ({
+                id,
+                models: connectionModels(connection),
+              }),
+            ),
+            repositories: Object.entries(repositories).map(
+              ([repositoryId, repository]) => ({
+                repositoryId,
+                url: repository.url,
+                branch: repository.branch,
+              }),
+            ),
+            runtimeVersions: catalog.runtime_versions?.accepted ?? null,
+          },
+          modelMoves: Object.entries(connections).flatMap(([id, connection]) =>
+            modelMoves(connection).map(({ from, to }) => ({
+              connectionId: id,
               from,
               to,
-            }),
+            })),
           ),
-        ),
-        settingsGeneration,
-        unavailableRepositories:
-          catalog.unavailable_repositories ?? new Set<string>(),
-        settled: new Set([
-          ...Object.keys(profiles),
-          // Blocked is the same on every replica: its sessions are failed,
-          // not left for one that runs it.
-          ...[...(catalog.installation?.values() ?? [])]
-            .filter(({ state }) => state === "blocked")
-            .map(({ id }) => id),
-          // A version whose base runs here fails or runs alike everywhere;
-          // one whose base does not may be another replica's to run.
-          ...[...(records?.values() ?? [])]
-            .filter(
-              (record) =>
-                Object.hasOwn(profiles, record.base_profile_id) ||
-                catalog.installation?.get(record.base_profile_id)?.state ===
-                  "blocked",
-            )
-            .map((record) => record.id),
-        ]),
+          settingsGeneration,
+          unsettledRepositoryIds:
+            catalog.unavailable_repositories ?? new Set<string>(),
+          unsettledConnectionIds:
+            catalog.unavailable_connections ?? new Set<string>(),
+        },
       };
     }
-    return runnableOf;
-  }
-  function policyPairs(id: string, profile: CatalogProfile): RunnablePair[] {
-    const repositories = Object.entries(catalog.repositories).map(
-      ([repositoryId, repository]) => ({
-        repositoryId,
-        url: repository.url,
-        branch: repository.branch,
-      }),
-    );
-    return profilePins(profile, acceptedRuntimeVersions(catalog)).map(
-      (pin) => ({
-        policy: true,
-        profileId: id,
-        profileFingerprint: pin.fingerprint,
-        model: pin.model,
-        workspaceScoped: usesWorkspaceCeiling(catalog, id, "release"),
-        repositories,
-      }),
-    );
-  }
-  function buildRunnablePairs(
-    workspace: ReturnType<typeof workspaceCatalogProfiles<CatalogProfile>>,
-  ): RunnablePair[] {
-    return [
-      ...operatorRunnable(),
-      ...Object.entries(catalog.profiles).flatMap(([id, profile]) =>
-        policyPairs(id, profile),
-      ),
-      ...workspace.flatMap(({ id, profile }) => policyPairs(id, profile)),
-      ...workspace.flatMap(({ id, profile }) => [
-        ...Object.entries(catalog.repositories).flatMap(
-          ([repositoryId, repository]) =>
-            profileAllowsRepository(catalog, id, repositoryId)
-              ? profilePins(profile, acceptedRuntimeVersions(catalog)).map(
-                  (pin) => ({
-                    profileId: id,
-                    profileFingerprint: pin.fingerprint,
-                    model: pin.model,
-                    repositoryId,
-                    url: repository.url,
-                    branch: repository.branch,
-                  }),
-                )
-              : [],
-        ),
-        ...(repositoryModeOf(profile) === "required"
-          ? []
-          : profilePins(profile, acceptedRuntimeVersions(catalog)).map(
-              (pin) => ({
-                profileId: id,
-                profileFingerprint: pin.fingerprint,
-                model: pin.model,
-                repositoryId: null,
-              }),
-            )),
-      ]),
-    ];
-  }
-
-  async function refreshForClaim(): Promise<void> {
-    await catalog.workspace_profiles
-      ?.refresh(WORKSPACE_PROFILE_MAX_AGE_MS)
-      .catch(() => undefined);
+    return runnableOf.input;
   }
 
   // The catalog server the release names, then the built-in `github` when
@@ -1272,194 +1067,52 @@ export function createWorkerGateway(deps: {
     return runtimeConfigWithMcp(config, mcp, mcpToken);
   }
 
-  // Resolved at claim time, on purpose: the catalog is where an operator
-  // rotates a provider credential, and the next claim (a new generation, or
-  // a replay) is when the egress route should use it. Everything else under
-  // a profile id stays put — a session's checkpoint fingerprint and
-  // transcript were made with that model and those tools — and the claim
-  // enforces it: only a profile that still hashes to the session's stored
-  // fingerprint is runnable, so what is read here is what the
-  // session was created with. What the session was created against — its
-  // repository — comes from the row (WorkerBinding.repository).
-  function resolveProfile(
-    profileId: string | null,
-    pin: ProfilePin,
-    providerToken: string,
-    hasRepository: boolean,
-    release: ReleaseRun,
-  ): {
-    runtime: SessionRuntime;
-    profile_fingerprint: string;
-    runtime_config: RuntimeConfig;
-    tool_configs: ToolConfigs;
-  } {
-    const listed = profileId ? catalogProfile(catalog, profileId) : undefined;
-    const profile = listed
-      ? sessionProfile(listed, pin, acceptedRuntimeVersions(catalog))
-      : null;
-    if (!profile || !profileId) {
-      throw new WorkerGatewayError(
-        503,
-        "BACKEND_UNAVAILABLE",
-        "The session's runtime profile is not in this host's catalog",
-        true,
-      );
-    }
-    const tool_configs = toolConfigsOf(
-      profile,
-      release,
-      providerToken,
-      hasRepository,
-      effectiveExecutionMode(
-        profile.permission_mode,
-        catalog.connection_auto_mode?.(profileId) ?? "unknown",
-      ),
-    );
-    const runtime_config =
-      tool_configs.runs === "release" && tool_configs.release !== null
-        ? tool_configs.release
-        : tool_configs.profile;
-    return {
-      runtime: {
-        kind: profile.runtime_kind,
-        version: profile.runtime_version,
-        profile_id: profileId,
-      },
-      profile_fingerprint: profileFingerprint(profile),
-      runtime_config,
-      tool_configs,
-    };
-  }
-
   // The configs the session's checkpoints were made under other than the
-  // one it runs now: the worker accepts a restored checkpoint, the pointer's
-  // or a fallback's, made under any of them, and runs the engine on
-  // runtime_config. A profile this catalog no longer holds as it was is left
-  // out, so a checkpoint made under it is refused as incompatible.
+  // one it runs now (before its model moved): the worker accepts a restored
+  // checkpoint made under any of them, and runs the engine on
+  // runtime_config.
   function restoreRuntimesOf(
     binding: Pick<
       WorkerBinding,
-      | "profileId"
-      | "profileFingerprint"
-      | "model"
-      | "restoreProfiles"
-      | "repository"
       | "legacyRuntimeConfigs"
-      | keyof ReleaseRun
+      | "spec"
+      | "platformPrompt"
+      | "repository"
+      | "callerToolsDeny"
     >,
-    current: ToolConfigs,
+    current: RuntimeConfig,
     providerToken: string,
     mcp: readonly ClaimedMcpServer[],
     mcpToken: string,
   ): { restore_runtime_configs?: RuntimeConfig[] } {
-    const alternates = earlierProfileConfigs(binding, catalog, (profile) =>
-      // Earlier profiles stand for checkpoints already made: no limit applies.
-      toolConfigsOf(
-        profile,
-        { ...binding, callerToolsDeny: [] },
-        providerToken,
-        binding.repository !== null,
-      ),
-    );
-    // Configs the session's earlier checkpoints were made under, kept on its
-    // row for when no profile can rebuild them. After the rebuilt ones, so
-    // the cap drops them first.
     const kept = legacyConfigsFromRow(binding.legacyRuntimeConfigs).map(
       (config) => servedLegacyConfig(config, providerToken),
     );
     // Checkpoints made before the built-in `github` server was attached
     // name only the catalog server; they resume into a run that has both.
-    // Every profile list before any release list (claimToolLists), each
-    // newest first as the profiles come, so the cap drops the oldest. Run
-    // on the release's tools, the profile's own list takes a config the
-    // cap would otherwise give the oldest earlier profile.
     const legacy = mcp.filter((server) => server.name !== GITHUB_MCP_SERVER);
     const attached = legacy.length !== mcp.length;
-    const lists = ["profile", "release"] as const;
     const offerings = (config: RuntimeConfig, running: boolean) => [
       ...(running ? [] : [withMcp(config, mcp, mcpToken)]),
       ...(attached ? [withMcp(config, legacy, mcpToken)] : []),
     ];
-    const inMode = (
-      config: RuntimeConfig,
-      mode: RuntimeConfig["permission_mode"],
-    ): RuntimeConfig => ({ ...config, permission_mode: mode });
-    // A scheme 1 digest hashes the mode, so a checkpoint made under a
-    // converted mode carries `auto` whatever the profile stores, and the
-    // connection's judgement may have changed since. The order is what the
-    // cap keeps: the current profile in every mode it could have run, then
-    // earlier profiles as they store their mode, then the rows' configs, and
-    // last the `auto` variants of those.
-    const runsAs = current.profile.permission_mode;
-    // `restoreProfiles` is empty unless the session has a checkpoint to resume
-    // (withRestoreProfiles), and a candidate that no checkpoint can match is
-    // only weight on the claim.
-    const resuming = binding.restoreProfiles.length > 0;
-    const currentModes = [
-      ...new Set([
-        runsAs,
-        ...(resuming
-          ? [
-              current.storedMode,
-              ...(isConvertibleMode(current.storedMode)
-                ? (["auto"] as const)
-                : []),
-            ]
-          : []),
-      ]),
-    ];
-    // List by list, as the cap has always kept them: every profile list
-    // before any release list. Within one list the current profile goes first.
-    const ofLists = lists.flatMap((list) => {
-      const config = current[list];
-      return [
-        ...(config === null
-          ? []
-          : currentModes.flatMap((mode) =>
-              offerings(
-                inMode(config, mode),
-                current.runs === list && mode === runsAs,
-              ),
-            )),
-        ...alternates.flatMap((configs) => {
-          const earlier = configs[list];
-          return earlier === null ? [] : offerings(earlier, false);
-        }),
-      ];
-    });
     // First, ahead of the cap: what the session ran before its limit removed
     // a tool is the config its own checkpoints carry.
-    const beforeLimit = lists.flatMap((list) => {
-      const before = current.unlimited[list];
-      return before === null || !resuming
+    const unlimited = specConfigOf(
+      { ...binding, callerToolsDeny: [] },
+      providerToken,
+    );
+    const beforeLimit =
+      unlimited.tools.length === current.tools.length
         ? []
-        : currentModes.flatMap((mode) =>
-            offerings(inMode(before, mode), false),
-          );
-    });
-    const stored = kept.flatMap((config) => offerings(config, false));
-    // Earlier profiles and kept rows exist only for a session that resumes.
-    const converted = [
-      ...lists.flatMap((list) =>
-        alternates.flatMap((configs) => {
-          const config = configs[list];
-          return config === null || !isConvertibleMode(configs.storedMode)
-            ? []
-            : offerings(inMode(config, "auto"), false);
-        }),
+        : offerings(unlimited, false);
+    const offered = appendNew(
+      beforeLimit,
+      appendNew(
+        offerings(current, true),
+        kept.flatMap((config) => offerings(config, false)),
       ),
-      ...kept.flatMap((config) =>
-        isConvertibleMode(config.permission_mode)
-          ? offerings(inMode(config, "auto"), false)
-          : [],
-      ),
-    ];
-    const earlierMade = appendNew(appendNew(ofLists, stored), converted);
-    const offered = (
-      beforeLimit.length === 0
-        ? earlierMade
-        : appendNew(beforeLimit, earlierMade)
-    ).slice(0, MAX_RESTORE_PROFILES);
+    ).slice(0, MAX_RESTORE_CONFIGS);
     return offered.length === 0 ? {} : { restore_runtime_configs: offered };
   }
 
@@ -1470,18 +1123,8 @@ export function createWorkerGateway(deps: {
     session: Parameters<EgressIssue["bindingsOf"]>[0],
     mcpServers: typeof catalog.mcp_servers,
   ): EgressBindings {
-    const listed = session.profileId
-      ? catalogProfile(catalog, session.profileId)
-      : undefined;
-    const profile = listed
-      ? sessionProfile(
-          listed,
-          { fingerprint: session.profileFingerprint, model: session.model },
-          acceptedRuntimeVersions(catalog),
-        )
-      : null;
-    if (!profile) {
-      throw new Error("A claimed session has no runnable profile");
+    if (connectionOf(catalog, session.connectionId) === undefined) {
+      throw new Error("A claimed session has no runnable connection");
     }
     // Thrown inside the claim's transaction, so nothing is bound and the
     // worker asks again, of a replica that has read or resolved the server.
@@ -1494,10 +1137,9 @@ export function createWorkerGateway(deps: {
         true,
       );
     }
-    // A session pinned under version 1 keeps that pin in its token: an API
-    // replica from before version 2, still up during a rollout, accepts only
-    // that.
-    const provider = session.profileFingerprint ?? profileFingerprint(profile);
+    // The provider token is held to the session's spec: a session whose spec
+    // was rewritten (its model moved) gets a token for the new one.
+    const provider = session.specDigest;
     const object_store = sessionObjectPrefix(session.id);
     // One token serves both servers; it is held to the catalog server's
     // binding when there is one, as the remote route checks.
@@ -1507,19 +1149,11 @@ export function createWorkerGateway(deps: {
       packages: PACKAGES_BINDING,
     };
     if (session.repositoryMode === "none") {
-      // An `optional` session without a repository still reaches the ones
-      // it attached; the gate decides each fetch.
-      const reachesNone =
-        repositoryModeOf(profile) === "none" &&
-        (session.profileId === null ||
-          !usesWorkspaceCeiling(
-            catalog,
-            session.profileId,
-            githubPolicySourceOf(session.githubPolicySource),
-          ));
+      // A session without a repository still reaches the ones it attached;
+      // the gate decides each fetch.
       return {
         provider,
-        repository: reachesNone ? null : ATTACHED_ONLY_BINDING,
+        repository: ATTACHED_ONLY_BINDING,
         object_store,
         ...mcpBinding,
       };
@@ -1628,7 +1262,7 @@ export function createWorkerGateway(deps: {
     return repositoryUpstreamOf(entry, issued.gitCredential);
   }
 
-  // A title request's token, held to the session's budget and profile as
+  // A title request's token, held to the session's budget and connection as
   // the engine's calls are; null for any other token. No fence: the attempt
   // it is charged to may have ended since its first turn. The prefix only
   // spares the engine's calls a lookup that claims; the row decides.
@@ -1643,9 +1277,6 @@ export function createWorkerGateway(deps: {
       tokenHash: hashTitleToken(token),
     });
     if (result.outcome !== "ok") return null;
-    if (result.profileId !== null) {
-      await refreshWorkspaceProfilesFor(catalog, [result.profileId]);
-    }
     if (
       budgetExceeded(result, {
         costUsd: deps.options.sessionCostLimitUsd,
@@ -1658,13 +1289,13 @@ export function createWorkerGateway(deps: {
         "The session has reached its cost or token limit",
       );
     }
-    const profile = titleProfile(catalog, result);
-    if (profile === null) moved("session's profile");
-    requireProviderPath(profile.provider.kind, path);
+    const run = titleRun(catalog, result);
+    if (run === null) moved("session's connection");
+    requireProviderPath(run.connection.provider.kind, path);
     return {
       session_id: result.sessionId,
       attempt_id: result.attemptId,
-      upstream: providerUpstreamOf(profile),
+      upstream: providerUpstreamOf(run.connection.provider),
     };
   }
 
@@ -1810,17 +1441,12 @@ export function createWorkerGateway(deps: {
       const objectStoreToken = generateEgressToken("object_store");
       const mcpToken = generateEgressToken("mcp");
       const packagesToken = generateEgressToken("packages");
-      await refreshForClaim();
       const claimable = claimCatalog();
       // One read for the check, the token's binding and the response, so a
       // refresh between them cannot drop a server the claim already bound.
       const mcpServers = catalog.mcp_servers;
       const result = await work.claimAtomic({
-        runnable: claimable.pairs,
-        modelMoves: claimable.moves,
-        settingsGeneration: claimable.settingsGeneration,
-        unsettledRepositoryIds: claimable.unavailableRepositories,
-        settledProfileIds: claimable.settled,
+        ...claimable,
         costLimitUsd: deps.options.sessionCostLimitUsd,
         tokenLimit,
         nonceHash: hashWorkerToken(request.credential.nonce),
@@ -1872,11 +1498,11 @@ export function createWorkerGateway(deps: {
             "No session is waiting in this partition",
             true,
           );
-        case "profile_unavailable":
+        case "connection_unavailable":
           throw new WorkerGatewayError(
             503,
             "BACKEND_UNAVAILABLE",
-            "The session's profile, or its pairing with the session's repository, is not in this host's catalog",
+            "The session's connection, model or repository is not in this host's catalog",
             true,
           );
         // Not retryable: the session is no longer waiting for a worker, and
@@ -1893,7 +1519,7 @@ export function createWorkerGateway(deps: {
           throw new WorkerGatewayError(
             409,
             "CATALOG_MISMATCH",
-            "The session this launch was reserved for runs as a profile and repository pair this host's catalog no longer allows; the session was failed",
+            "The session this launch was reserved for runs on a connection, model or repository this host's catalog no longer holds; the session was failed",
           );
         // Retryable, and nothing was consumed: the session waits for a worker
         // that announces `user_env`. It never runs without its variables.
@@ -1946,33 +1572,27 @@ export function createWorkerGateway(deps: {
             mcpServers,
             request.capabilities?.platform_tool_trust === true,
           );
-          const { tool_configs: toolConfigs, ...resolvedProfile } =
-            resolveProfile(
-              binding.profileId,
-              { fingerprint: binding.profileFingerprint, model: binding.model },
-              providerToken,
-              binding.repository !== null,
-              binding,
-            );
+          const current = specConfigOf(binding, providerToken);
           // A launch on the previous image runs that image's engine, which
-          // the worker checks the claim against; the catalog names the
-          // current one.
-          const profile =
-            binding.launchRuntime === undefined
-              ? resolvedProfile
-              : {
-                  ...resolvedProfile,
-                  runtime: {
-                    ...resolvedProfile.runtime,
-                    version: binding.launchRuntime.sdkVersion,
-                  },
-                };
+          // the worker checks the claim against; the spec names the version
+          // the release was made on.
+          const run = {
+            runtime: {
+              kind: binding.spec.runtime.kind,
+              version:
+                binding.launchRuntime?.sdkVersion ??
+                binding.spec.runtime.version,
+              connection_id: binding.spec.connection.id,
+            },
+            spec_digest: binding.specDigest,
+            runtime_config: current,
+          };
           const extensions = claimedExtensionsOf(binding);
           const resolved = {
-            ...profile,
+            ...run,
             runtime_config: {
               ...withExtensions(
-                withMcp(profile.runtime_config, mcp, mcpToken),
+                withMcp(run.runtime_config, mcp, mcpToken),
                 extensions,
               ),
               // Only for a worker that announced `user_env` (the claim
@@ -1989,7 +1609,7 @@ export function createWorkerGateway(deps: {
                 : {
                     disallowed_tools: [
                       ...new Set([
-                        ...(profile.runtime_config.disallowed_tools ?? []),
+                        ...(run.runtime_config.disallowed_tools ?? []),
                         ...(binding.engineSettings?.disallowedTools ?? []),
                       ]),
                     ].sort(),
@@ -2043,13 +1663,7 @@ export function createWorkerGateway(deps: {
             lease_remaining_ms: binding.leaseRemainingMs,
             ...resolved,
             ...withRestoreExtensions(
-              restoreRuntimesOf(
-                binding,
-                toolConfigs,
-                providerToken,
-                mcp,
-                mcpToken,
-              ),
+              restoreRuntimesOf(binding, current, providerToken, mcp, mcpToken),
               extensions,
             ),
             packages: {
@@ -2330,9 +1944,6 @@ export function createWorkerGateway(deps: {
         attempt_id: result.attemptId,
         upstream,
       });
-      // The attempt may have been claimed on a replica that read the
-      // version before this one did.
-      await refreshWorkspaceProfilesFor(catalog, [result.profileId]);
       if (request.purpose === "provider") {
         // What a session has spent is metered here, a tool's direct calls
         // with the engine's token included; a session past its
@@ -2350,33 +1961,25 @@ export function createWorkerGateway(deps: {
             "The session has reached its cost or token limit",
           );
         }
-        const listed = result.profileId
-          ? catalogProfile(catalog, result.profileId)
-          : undefined;
+        const connection =
+          result.connectionId === null
+            ? undefined
+            : connectionOf(catalog, result.connectionId);
         // A model taken off the list cuts the attempt still running it here,
         // at the proxy's next regrant.
         if (
-          !listed ||
-          !sessionProfile(
-            listed,
-            { fingerprint: result.binding, model: result.model },
-            acceptedRuntimeVersions(catalog),
-          )
+          connection === undefined ||
+          result.model === null ||
+          !connectionModels(connection).includes(result.model)
         ) {
-          // Told to the session: a model left off the list, or a profile
-          // (its connection) gone, so the model it ran is no longer
-          // reachable. The profile merely changing stays the catalog's own
-          // cut, with nothing to name.
-          // A stored profile that no longer runs (its base changed) is not
-          // gone: that stays the general cut.
-          const cause: ModelCutCause | null = !listed
-            ? result.profileId && profileGone(catalog, result.profileId)
-              ? "profile_removed"
-              : null
-            : result.model !== null &&
-                !profileModels(listed).includes(result.model)
-              ? "model_removed"
-              : null;
+          // Told to the session: a model left off the list, or its
+          // connection gone, so the model it ran is no longer reachable.
+          const cause: ModelCutCause | null =
+            connection === undefined
+              ? "connection_removed"
+              : result.model !== null
+                ? "model_removed"
+                : null;
           if (cause !== null && result.model !== null) {
             // The cut happens either way; a failed note must not turn it
             // into a 500 the proxy would read as an outage.
@@ -2394,10 +1997,10 @@ export function createWorkerGateway(deps: {
                 }),
               );
           }
-          moved("session's profile");
+          moved("session's connection");
         }
-        requireProviderPath(listed.provider.kind, request.path);
-        return grant(providerUpstreamOf(listed));
+        requireProviderPath(connection.provider.kind, request.path);
+        return grant(providerUpstreamOf(connection.provider));
       }
       const other = request.repository_id;
       // A session started without a repository reaches only the ones it
@@ -2416,18 +2019,14 @@ export function createWorkerGateway(deps: {
           await additionalRepositoryUpstream(result.sessionId, other),
         );
       }
-      const source = githubPolicySourceOf(result.githubPolicySource);
-      const pair =
-        id !== null && result.profileId !== null
-          ? allowedPair(catalog, result.profileId, id, source)
-          : null;
+      const listedRepository =
+        id === null ? undefined : own(catalog.repositories, id);
       if (
         id === null ||
-        result.profileId === null ||
-        pair === null ||
-        pair.repository.url !== url ||
-        pair.repository.branch !== branch ||
-        repositoryBinding(id, pair.repository) !== result.binding
+        listedRepository === undefined ||
+        listedRepository.url !== url ||
+        listedRepository.branch !== branch ||
+        repositoryBinding(id, listedRepository) !== result.binding
       ) {
         moved("session's repository");
       }
@@ -2450,7 +2049,9 @@ export function createWorkerGateway(deps: {
       if (issued === null) {
         forgeUnavailable();
       }
-      return grant(repositoryUpstreamOf(pair.repository, issued.gitCredential));
+      return grant(
+        repositoryUpstreamOf(listedRepository, issued.gitCredential),
+      );
     },
 
     // The judgment route's question: a judgment token stands for one
@@ -2675,8 +2276,10 @@ export function createWorkerGateway(deps: {
       request: AppendEventsRequest,
     ): Promise<AppendEventsResponse> {
       const fence = requireScope(principal, request);
-      const profileId =
-        principal.kind === "session" ? (principal.profileId ?? null) : null;
+      const runtimeKind =
+        principal.kind === "session"
+          ? ((principal.runtimeKind ?? null) as RuntimeKind | null)
+          : null;
       const reported = request.tool_decisions ?? [];
       const toolAudits = reported.flatMap((report) =>
         report === null ? [] : [sanitizeToolDecision(report)],
@@ -2691,7 +2294,7 @@ export function createWorkerGateway(deps: {
           ? {}
           : {
               neutral: (event: WorkerEvent) =>
-                neutralFieldsOf(neutralize, profileId, event),
+                neutralFieldsOf(neutralize, runtimeKind, event),
             }),
       });
       if (result.outcome === "turn_not_found") {

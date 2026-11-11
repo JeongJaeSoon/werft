@@ -16,8 +16,8 @@ import type { PermissionMode } from "./config.ts";
 import { ClaudeSdkRuntime } from "./runtime.ts";
 
 // Measures what the engine does with a settings `permissions.deny` rule when
-// permission mode is bypassPermissions, because the profile-removal design
-// moves workspace deny rules into engine settings and relies on them holding
+// permission mode is bypassPermissions, because the workspace and agent
+// deny rules into engine settings and relies on them holding
 // under the `bypass` execution mode. The rules reach the engine here through
 // the repository's own project settings, a source the engine merges like any
 // other; the flag-settings path the design uses is a higher-precedence source

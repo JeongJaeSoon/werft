@@ -6,15 +6,15 @@ import {
   BILLING_NONE_ENDPOINT_MESSAGE,
   billingFitsEndpoint,
   type CatalogMcpServerConfig,
-  type CatalogProfileConfig,
+  type CatalogProviderConfig,
   type CatalogRepositoryConfig,
   CONNECTION_ENDPOINT_DEFAULTS,
   catalogConnectionsSchema,
   describeConfigError,
   isRegisteredGitHubApp,
-  type SessionCatalogConfig,
+  type ModelFamilies,
+  modelFamiliesSchema,
   type StoredOwnerKind,
-  safeParseCatalogConfig,
   sessionCatalogConfigSchema,
 } from "./catalog.ts";
 
@@ -30,11 +30,19 @@ export const SETTINGS_DOCUMENT_VERSION = 1;
 
 export type SettingsKind = StoredOwnerKind;
 
-type Provider = CatalogProfileConfig["provider"];
+type Provider = CatalogProviderConfig;
+
+/** A connection's models and their series, kept beside its definition. */
+export type ConnectionModels = {
+  models: string[];
+  model_families?: ModelFamilies | undefined;
+};
 
 /** The entries as rows hold them: `stored` is `<kind>:<id>`. */
 export type SettingsEntries = {
   connections: Record<string, Provider>;
+  /** By connection id; a connection absent here offers no model. */
+  connection_models?: Record<string, ConnectionModels>;
   repositories: Record<string, CatalogRepositoryConfig>;
   mcp_servers: Record<string, CatalogMcpServerConfig>;
 };
@@ -137,6 +145,56 @@ function endpointOrDefault(id: string, entry: unknown): unknown {
   return { ...rest, endpoint };
 }
 
+const connectionModelsSchema = z
+  .object({
+    models: z.array(z.string().min(1).max(128)).max(64).optional(),
+    model_families: modelFamiliesSchema.optional(),
+  })
+  .strict();
+
+/**
+ * Each connection entry without its `models` and `model_families`, which a
+ * row keeps beside its definition, and those two apart.
+ */
+function splitModels(entries: Record<string, unknown>): {
+  definitions: Record<string, unknown>;
+  models: Record<string, ConnectionModels>;
+} {
+  const definitions: Record<string, unknown> = {};
+  const models: Record<string, ConnectionModels> = {};
+  for (const [id, entry] of Object.entries(entries)) {
+    if (!isObject(entry)) {
+      definitions[id] = entry;
+      continue;
+    }
+    const { models: list, model_families: families, ...definition } = entry;
+    definitions[id] = definition;
+    if (list === undefined && families === undefined) continue;
+    const parsed = connectionModelsSchema.safeParse({
+      ...(list === undefined ? {} : { models: list }),
+      ...(families === undefined ? {} : { model_families: families }),
+    });
+    if (!parsed.success) {
+      throw new SettingsDocumentError(
+        `The settings document is invalid: connections.${id}.${describeConfigError(parsed.error)}`,
+      );
+    }
+    const unique = [...new Set(parsed.data.models ?? [])];
+    if (unique.length !== (parsed.data.models ?? []).length) {
+      throw new SettingsDocumentError(
+        `The settings document is invalid: connections.${id}.models: must not repeat a model`,
+      );
+    }
+    models[id] = {
+      models: unique,
+      ...(parsed.data.model_families === undefined
+        ? {}
+        : { model_families: parsed.data.model_families }),
+    };
+  }
+  return { definitions, models };
+}
+
 function resolvedConnections(
   entries: Record<string, unknown>,
 ): Record<string, unknown> {
@@ -150,6 +208,11 @@ function resolvedConnections(
 
 /** A document under the file catalog's rules, entries as rows hold them. */
 export function parseSettingsDocument(input: unknown): SettingsEntries {
+  if (isObject(input) && Object.hasOwn(input, "profiles")) {
+    throw new SettingsDocumentError(
+      "The settings document is invalid: `profiles` is no longer part of a settings document, because run profiles were removed; delete it and list each connection's models under connections.<id>.models",
+    );
+  }
   const shape = documentShape.safeParse(input);
   if (!shape.success) {
     throw new SettingsDocumentError(
@@ -157,9 +220,10 @@ export function parseSettingsDocument(input: unknown): SettingsEntries {
     );
   }
   const document = shape.data;
+  const split = splitModels(document.connections);
   const connections = catalogConnectionsSchema.safeParse(
     resolvedConnections(
-      ownedAll("connection", "connections", document.connections),
+      ownedAll("connection", "connections", split.definitions),
     ),
   );
   if (!connections.success) {
@@ -168,7 +232,6 @@ export function parseSettingsDocument(input: unknown): SettingsEntries {
     );
   }
   const catalog = sessionCatalogConfigSchema.safeParse({
-    profiles: {},
     repositories: ownedAll("repository", "repositories", document.repositories),
     mcp_servers: ownedAll("mcp", "mcp_servers", document.mcp_servers),
   });
@@ -179,40 +242,10 @@ export function parseSettingsDocument(input: unknown): SettingsEntries {
   }
   return {
     connections: connections.data,
+    connection_models: split.models,
     repositories: catalog.data.repositories,
     mcp_servers: catalog.data.mcp_servers ?? {},
   };
-}
-
-export type SeedDocument = {
-  entries: SettingsEntries;
-  profiles: SessionCatalogConfig["profiles"] | null;
-};
-
-/**
- * `tolerateNoRepositories`: the caller left out old repository entries, so
- * the ceilings may find none left. They then run on no repository until one
- * is registered.
- */
-export function parseSeedDocument(
-  input: unknown,
-  tolerateNoRepositories = false,
-): SeedDocument {
-  if (!isObject(input) || !Object.hasOwn(input, "profiles")) {
-    return { entries: parseSettingsDocument(input), profiles: null };
-  }
-  const { profiles, ...document } = input;
-  const entries = parseSettingsDocument(document);
-  const seed = safeParseCatalogConfig(
-    { profiles, repositories: entries.repositories },
-    tolerateNoRepositories,
-  );
-  if (!seed.success) {
-    throw new SettingsDocumentError(
-      `The settings document is invalid: ${describeConfigError(seed.error)}`,
-    );
-  }
-  return { entries, profiles: seed.data.profiles };
 }
 
 function exported(
@@ -259,9 +292,21 @@ export function settingsDocumentOf(
           ];
         }),
     );
+  const connections = section(entries.connections);
+  for (const [id, models] of Object.entries(entries.connection_models ?? {})) {
+    const entry = connections[id];
+    if (!isObject(entry)) continue;
+    connections[id] = {
+      ...entry,
+      models: [...models.models],
+      ...(models.model_families === undefined
+        ? {}
+        : { model_families: models.model_families }),
+    };
+  }
   return {
     version: SETTINGS_DOCUMENT_VERSION,
-    connections: section(entries.connections),
+    connections,
     repositories: section(entries.repositories),
     mcp_servers: section(entries.mcp_servers),
   };
@@ -354,7 +399,12 @@ export type ExistingSettings = {
 };
 
 export type SettingsImportAdd =
-  | { kind: "connection"; id: string; entry: Provider }
+  | {
+      kind: "connection";
+      id: string;
+      entry: Provider;
+      models?: ConnectionModels | undefined;
+    }
   | { kind: "repository"; id: string; entry: CatalogRepositoryConfig }
   | { kind: "mcp"; id: string; entry: CatalogMcpServerConfig };
 
@@ -380,12 +430,6 @@ export type SettingsImportPlan = {
    * is a conflict.
    */
   kept?: string[];
-};
-
-const withoutSeed = (entry: unknown) => {
-  if (!isObject(entry)) return entry;
-  const { profiles: _seed, ...kept } = entry;
-  return kept;
 };
 
 const sameEntry = (a: unknown, b: unknown) =>
@@ -422,10 +466,7 @@ export function planSettingsImport(
       const source = credentialSourceOf(entry);
       const row = rows.get(id);
       if (row !== undefined) {
-        const same =
-          kind === "repository"
-            ? sameEntry(withoutSeed(row.entry), withoutSeed(entry))
-            : sameEntry(row.entry, entry);
+        const same = sameEntry(row.entry, entry);
         if (!same) {
           if (row.replaces !== undefined && sameEntry(row.replaces, entry)) {
             kept.push(ref);
@@ -447,9 +488,9 @@ export function planSettingsImport(
         if (source === "stored" && !row.has_value) plan.needs_value.push(ref);
         continue;
       }
-      // A profile ceiling still reaches the row that moved off this definition;
-      // a second connection holding it would make that match depend on which
-      // rows are usable at the moment.
+      // The row that moved off this definition still answers for it; a second
+      // connection holding it would make a re-import depend on which rows
+      // are usable at the moment.
       if (
         kind === "connection" &&
         [...rows.values()].some(
@@ -471,7 +512,14 @@ export function planSettingsImport(
         }
         plan.needs_value.push(ref);
       }
-      plan.add.push({ kind, id, entry } as SettingsImportAdd);
+      const models =
+        kind === "connection" ? incoming.connection_models?.[id] : undefined;
+      plan.add.push({
+        kind,
+        id,
+        entry,
+        ...(models === undefined ? {} : { models }),
+      } as SettingsImportAdd);
     }
   };
   visit("connection", incoming.connections, existing.connections);

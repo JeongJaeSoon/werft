@@ -8,6 +8,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pgTable, text } from "drizzle-orm/pg-core";
 import {
   type JournalEntry,
   MIGRATIONS_FOLDER,
@@ -81,30 +82,17 @@ describe("migration folder", () => {
 
   test("schema.ts ahead of the newest snapshot is caught", async () => {
     const folder = copyOfMigrations();
-    // Back to before the newest migration that changed the schema: one that
-    // only replaces SQL, a trigger function say, leaves the snapshot as is.
-    const shapeOf = (entry: JournalEntry) => {
-      const snapshot = JSON.parse(
-        readFileSync(snapshotPath(folder, entry), "utf8"),
-      ) as Record<string, unknown>;
-      delete snapshot.id;
-      delete snapshot.prevId;
-      return snapshot;
+    // A table the newest snapshot does not hold. Only added, never paired
+    // with a drop: a drop beside an add makes the diff ask whether it is a
+    // rename, which a test cannot answer.
+    const ahead = {
+      ...schema,
+      migrationFolderProbe: pgTable("migration_folder_probe", {
+        id: text().primaryKey(),
+      }),
     };
-    for (let changed = false; !changed; ) {
-      const [previous, newest] = lastEntries(folder, 2) as [
-        JournalEntry,
-        JournalEntry,
-      ];
-      changed = !Bun.deepEquals(shapeOf(newest), shapeOf(previous));
-      rmSync(join(folder, `${newest.tag}.sql`));
-      rmSync(snapshotPath(folder, newest));
-      editJson<Journal>(join(folder, "meta/_journal.json"), (journal) => {
-        journal.entries.pop();
-      });
-    }
 
-    const problems = await migrationFolderProblems(folder, schema);
+    const problems = await migrationFolderProblems(folder, ahead);
     expect(problems).toHaveLength(1);
     expect(problems[0]).toContain("schema.ts differs from the newest snapshot");
   });

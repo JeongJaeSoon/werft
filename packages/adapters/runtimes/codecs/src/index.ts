@@ -31,11 +31,11 @@ export const installedEventCodecs: readonly EventCodec[] = [
   codexEventCodec,
 ];
 
-// Codex has no entry on purpose. A catalog is what a profile's deny rules name
-// tools from, and the Codex adapter refuses a start that carries deny rules
-// (the engine has none to enforce them with), so an entry would offer the
-// console a control that fails at the session's first input. The engine's one
-// tool is checked where the profile is parsed (`catalogProfileConfigSchema`).
+// Codex has no entry on purpose. A catalog is what the workspace's and the
+// agent's deny rules name tools from, and the Codex adapter refuses a start
+// that carries deny rules (the engine has none to enforce them with), so an
+// entry would offer the console a control that fails at the session's first
+// input. The engine's one tool is fixed by its adapter (`CODEX_BUILTIN_TOOLS`).
 export const installedToolCatalogs: readonly BuiltinToolCatalog[] = [
   ...CLAUDE_TOOL_CATALOGS,
 ];

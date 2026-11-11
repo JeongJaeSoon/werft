@@ -32,6 +32,7 @@ import {
   memberships,
   users,
 } from "@werft-ai/db";
+import { sessionPinValues } from "@werft-ai/db/testing/spec-pins";
 import { createGitHubAppDirectory } from "@werft-ai/forge-github";
 import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import {
@@ -42,11 +43,15 @@ import {
   createAuthorizationPolicy,
   createGitHubSettingsService,
   type SessionCatalog,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import {
+  TEST_CONNECTION_ID,
+  TEST_RUNTIMES,
+  testCatalog,
+} from "../testing/catalog.ts";
 import { createApiApp } from "./app.ts";
 import {
   createBootstrapGate,
@@ -66,47 +71,20 @@ const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 const BOOTSTRAP_TOKEN = "bootstrap-token-for-the-agent-github-tab";
 const PASSWORD = "correct horse battery staple";
 
-const catalog: SessionCatalog = withSeededInstallation({
-  profiles: {
-    "claude-coding-v1": {
-      runtime_kind: "claude_agent_sdk",
-      runtime_version: "0.3.270",
-      model: "claude-sonnet-5",
-      tools: ["Read", "Edit", "Bash"],
-      permission_mode: "default",
-      provider: {
-        kind: "litellm",
-        endpoint: "https://litellm.invalid",
-        auth: {
-          kind: "api_key",
-          value: "catalog-provider-key",
-          ref: { value_env: "PROVIDER_KEY" },
-        },
-      },
-    },
-    "claude-optional-v1": {
-      runtime_kind: "claude_agent_sdk",
-      runtime_version: "0.3.270",
-      model: "claude-sonnet-5",
-      tools: ["Read", "Edit", "Bash"],
-      permission_mode: "default",
-      repository: "optional",
-      provider: {
-        kind: "litellm",
-        endpoint: "https://litellm.invalid",
-        auth: {
-          kind: "api_key",
-          value: "catalog-provider-key",
-          ref: { value_env: "PROVIDER_KEY" },
-        },
-      },
+const catalog: SessionCatalog = testCatalog({
+  provider: {
+    kind: "litellm",
+    endpoint: "https://litellm.invalid",
+    auth: {
+      kind: "api_key",
+      value: "catalog-provider-key",
+      ref: { value_env: "PROVIDER_KEY" },
     },
   },
   repositories: {
     "sample-app": {
       url: "https://github.com/acme/sample-app",
       branch: "main",
-      profiles: ["claude-coding-v1", "claude-optional-v1"],
       auth: { kind: "github_app", registered: true },
     },
   },
@@ -170,6 +148,7 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
       catalog,
       credentials,
       githubSettings,
+      runtimes: TEST_RUNTIMES,
     });
     const keys = createApiKeyService({
       authorization,
@@ -299,7 +278,7 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
       `/v1/agents/${agentId}/releases`,
       asCookie(cookies.admin),
       {
-        runtime_profile_id: "claude-coding-v1",
+        connection_id: TEST_CONNECTION_ID,
         repository_id: "sample-app",
         ...body,
       },
@@ -327,12 +306,25 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
   /** A session of `releaseId`; `privateTo` keeps it to its creator. */
   async function session(releaseId: string, createdBy: string, priv = false) {
     const sessionId = crypto.randomUUID();
+    const pin = sessionPinValues();
     await pool.query(
       `INSERT INTO sessions (id, owner_id, repo_url, branch, repository_id,
-         workspace_id, agent_release_id, created_by_user_id)
+         workspace_id, agent_release_id, created_by_user_id, model,
+         runtime_spec, spec_source, spec_source_digest, spec_digest)
        VALUES ($1, $2, 'https://github.com/acme/sample-app', 'main',
-         'sample-app', $3, $4, $5)`,
-      [sessionId, workspaceId, workspaceId, releaseId, createdBy],
+         'sample-app', $3, $4, $5, $6, $7, $8, $9, $10)`,
+      [
+        sessionId,
+        workspaceId,
+        workspaceId,
+        releaseId,
+        createdBy,
+        pin.model,
+        pin.runtime_spec,
+        pin.spec_source,
+        pin.spec_source_digest,
+        pin.spec_digest,
+      ],
     );
     if (priv) {
       await pool.query(
@@ -698,7 +690,7 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
       asCookie(cookies.admin),
       {
         version_id: versionId,
-        runtime_profile_id: "claude-coding-v1",
+        connection_id: TEST_CONNECTION_ID,
         repository_id: "sample-app",
         github: GITHUB,
       },
@@ -845,7 +837,7 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
       asCookie(cookies.admin),
       {
         version_id: otherDetail.versions[0]?.id,
-        runtime_profile_id: "claude-coding-v1",
+        connection_id: TEST_CONNECTION_ID,
         repository_id: "sample-app",
       },
     );
@@ -859,7 +851,7 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
 
   // agent-wizard-rework.md item 1: the new-agent flow releases without a
   // repository, and such an agent sets GitHub up from the tab first.
-  test("a release without a repository on an optional profile saves its first settings", async () => {
+  test("a release without a repository saves its first settings", async () => {
     const created = await send("POST", "/v1/agents", asCookie(cookies.admin), {
       slug: "no-repo",
       name: "no-repo",
@@ -879,7 +871,7 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
         asCookie(cookies.admin),
         {
           version_id: made.versions[0]?.id,
-          runtime_profile_id: "claude-optional-v1",
+          connection_id: TEST_CONNECTION_ID,
           ...body,
         },
       );
@@ -999,7 +991,7 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
       asCookie(cookies.admin),
       {
         version_id: made.versions[0]?.id,
-        runtime_profile_id: "claude-optional-v1",
+        connection_id: TEST_CONNECTION_ID,
       },
     );
     expect(released.status).toBe(200);

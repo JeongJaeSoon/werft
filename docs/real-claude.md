@@ -11,11 +11,11 @@
 
 ## 기본 스택이 쓰는 것
 
-- migrate가 `tests/fixtures/settings/real-model.json`을 가져온다. profile은 `claude-coding-real` 하나이고, `claude-sonnet-5`로 `https://api.anthropic.com`을 부른다. 이 문서에는 fake를 가리키는 profile이 없다. fake 문서(`fake-model.json`)는 `--fake-model` overlay를 얹을 때만 가져온다.
+- migrate가 `tests/fixtures/settings/real-model.json`을 가져온다. 연결은 `https://api.anthropic.com`을 부르는 `anthropic` 하나이고, 그 모델 목록에 `claude-sonnet-5`가 있다. 이 문서에는 fake를 가리키는 연결이 없다. fake 문서(`fake-model.json`)는 `--fake-model` overlay를 얹을 때만 가져온다.
 - key의 기본 경로는 콘솔이다. B는 key 없이 뜨고, 설정 > 에이전트 연결 > 모델 연결 > 연결 추가에서 넣은 key가 DB에 봉인돼 저장된다. 환경 변수는 대안이다. 셸의 `ANTHROPIC_API_KEY`(없으면 저장소 `.env`의 그 줄)가 있으면 **API 컨테이너에만** 이름으로 전달되고(`infra/compose.local.yml`), 설정 문서의 `value_env`가 그 값을 읽는다. 추적되는 compose 파일과 명령 인자 어디에도 값이 없다. worker는 attempt 범위의 egress token만 받고, egress proxy가 `api.anthropic.com:443`(기본 `EGRESS_CREDENTIAL_ALLOWLIST`)으로 나가는 요청에 key를 붙인다.
 - 상한: `infra/compose.real-model.yml`이 기본으로 `SESSION_COST_LIMIT_USD=1`(세션당 1달러), `MAX_TURN_SECONDS=600`(turn당 600초)을 건다. A와 B가 같은 값을 쓴다. 올리려면 같은 이름의 변수를 셸에 export한다. B(`local.sh up`)는 저장소 `.env`에 적은 값도 읽는다. `local.sh`를 거치지 않고 `docker compose up`으로 띄우면 이 overlay가 없으므로 core 기본값(세션당 25달러, turn당 3600초)이다.
 
-`ANTHROPIC_API_KEY`가 셸과 `.env` 어디에도 없거나 비어 있을 때 `run.sh --real-model`(A)은 Docker를 건드리기 전에 exit 2로 끝난다. `local.sh up`(B)은 뜨되, 모델 연결 없이 뜬다고 알리고 화면 경로를 한 줄로 알려 준다. 어느 쪽도 fake로 대신 뜨지 않는다. 연결이 없는 동안 `claude-coding-real`은 `connection_missing`(연결 없음)이고, 이 profile로 세션을 만들면 화면 경로를 알려 주는 오류로 거절된다. 연결을 넣으면 쓸 수 있게 된다. `.env`의 key 줄 따옴표가 깨졌으면 B도 exit 2로 끝난다. fake로 돌리려면 `--fake-model`을 명시한다.
+`ANTHROPIC_API_KEY`가 셸과 `.env` 어디에도 없거나 비어 있을 때 `run.sh --real-model`(A)은 Docker를 건드리기 전에 exit 2로 끝난다. `local.sh up`(B)은 뜨되, 모델 연결 없이 뜬다고 알리고 화면 경로를 한 줄로 알려 준다. 어느 쪽도 fake로 대신 뜨지 않는다. 연결에 key가 없는 동안 그 연결의 release로 세션을 만들면 화면 경로를 알려 주는 오류로 거절된다. 연결을 넣으면 쓸 수 있게 된다. `.env`의 key 줄 따옴표가 깨졌으면 B도 exit 2로 끝난다. fake로 돌리려면 `--fake-model`을 명시한다.
 
 ## key 입력과 폐기
 
@@ -71,7 +71,7 @@ docker image rm "werft-control-host:$P" "werft-worker:$P" "werft-egress-proxy:$P
 
 ## B. 실제 Claude와 직접 대화하기
 
-스택을 띄워 두고 대본 없이 자유 문장을 보낸다. quickstart의 `--fake-model` 스택과 같은 project(`werft`)와 포트를 쓰므로 둘을 동시에 띄울 수 없다. fake 스택이 떠 있을 때 `up`을 실행해도 DB는 그대로이고 설정 문서의 연결만 더해진다. 상한은 표가 비어 있을 때만 문서에서 만들어지므로 `claude-coding-real`은 생기지 않는다([api-server.md](operator/api-server.md#운영자-카탈로그-agent-profile--repository)). 처음부터 하려면 `up` 대신 `scripts/local.sh reset`을 쓴다(기존 세션과 데이터가 지워진다).
+스택을 띄워 두고 대본 없이 자유 문장을 보낸다. quickstart의 `--fake-model` 스택과 같은 project(`werft`)와 포트를 쓰므로 둘을 동시에 띄울 수 없다. fake 스택이 떠 있을 때 `up`을 실행해도 DB는 그대로이고 설정 문서의 연결만 더해진다. 에이전트는 그 연결로 다시 release해야 실제 Claude로 돈다. 처음부터 하려면 `up` 대신 `scripts/local.sh reset`을 쓴다(기존 세션과 데이터가 지워진다).
 
 **1. 스택 띄우기와 key 넣기.** key 없이 띄운다. 화면 경로를 알리는 한 줄이 나온다.
 
@@ -84,10 +84,10 @@ echo "${KEY:0:12}…"
 
 `up`은 quickstart 1장과 같이 `/readyz`가 ready가 될 때까지 기다린 뒤 끝난다. 그다음 [key 입력과 폐기](#key-입력과-폐기)의 화면 경로로 key를 넣는다. 환경 변수로 주려면 그 절의 `read -rs` 세 줄 뒤에 `export ANTHROPIC_API_KEY`를 하고 `scripts/local.sh up`을 실행한다.
 
-**2. 헬퍼 설정.** [quickstart 2장](quickstart.md#2-curl-준비)의 블록을 같은 터미널에 그대로 붙여 넣은 다음, 세션을 만드는 `body`만 real profile로 바꾼다.
+**2. 헬퍼 설정.** [quickstart 2장](quickstart.md#2-curl-준비)의 블록을 같은 터미널에 그대로 붙여 넣은 다음, 세션을 만드는 `body`는 그대로 두고, `anthropic` 연결로 만든 release id를 `WERFT_AGENT_RELEASE_ID`에 넣는다.
 
 ```sh
-body() { jq -nc --arg m "$1" '{profile_id:"claude-coding-real", repository_id:"sample-app", message:$m}'; }
+export WERFT_AGENT_RELEASE_ID='<anthropic 연결로 만든 release id>'
 ```
 
 **3. 대화 시작.** 샘플 저장소에는 제목 한 줄짜리 `README.md`뿐이라 요약을 시키면 "내용이 없다"는 답이 온다. 파일을 만드는 요청으로 시작한다.
@@ -98,7 +98,7 @@ echo "$created" | jq .
 SID=$(echo "$created" | jq -r .session_id)
 ```
 
-`claude-coding-real`은 `permission_mode: auto`라, 사람에게 물었을 도구 호출(Bash 등)마다 모델 분류기가 허용·거부를 정한다. 그래서 보통은 권한 요청 없이 끝나고, 거부된 호출이 있었는지는 이벤트 스트림의 `tool_result`에서 본다. 분류기를 쓸 수 없으면 그 호출은 거부된다(fail closed). 모델이 `AskUserQuestion`으로 물으면 요청이 오고 세션이 `needs_input`이 된다. quickstart ③·④와 같은 방법으로 답한다. 이 profile이 `default`이던 2026-09-29 실측에서는 `Write`(hello.py), `Edit`(README.md), `Bash`(`git add … && git commit …`) 권한 요청 세 개가 이 순서로 한 번에 하나씩 왔다. 모델이 생성하는 도구 요청에 따라 개수와 순서가 달라질 수 있고 여러 권한 요청이 동시에 대기할 수도 있다. 권한 요청 자체는 30분 뒤에 만료되지만 이 overlay는 turn을 600초로 제한하므로, turn이 시작된 뒤 10분 안에 모두 답해야 한다.
+`anthropic` 연결로 만든 release는 `auto` 모드라, 사람에게 물었을 도구 호출(Bash 등)마다 모델 분류기가 허용·거부를 정한다. 그래서 보통은 권한 요청 없이 끝나고, 거부된 호출이 있었는지는 이벤트 스트림의 `tool_result`에서 본다. 분류기를 쓸 수 없으면 그 호출은 거부된다(fail closed). 모델이 `AskUserQuestion`으로 물으면 요청이 오고 세션이 `needs_input`이 된다. quickstart ③·④와 같은 방법으로 답한다. `default` 모드로 돌던 2026-09-29 실측에서는 `Write`(hello.py), `Edit`(README.md), `Bash`(`git add … && git commit …`) 권한 요청 세 개가 이 순서로 한 번에 하나씩 왔다. 모델이 생성하는 도구 요청에 따라 개수와 순서가 달라질 수 있고 여러 권한 요청이 동시에 대기할 수도 있다. 권한 요청 자체는 30분 뒤에 만료되지만 이 overlay는 turn을 600초로 제한하므로, turn이 시작된 뒤 10분 안에 모두 답해야 한다.
 
 아래 `allow_until_done`은 turn이 끝날(`completed`·`failed`·`interrupted`·`cancelled`·`outcome_unknown`) 때까지 3초마다 보고, 세션이 `needs_input`이면 첫 권한 요청을 출력한 뒤 허용한다. 동시에 여러 요청이 대기하면 한 회차에 첫 요청 하나를 답하고, 남은 요청으로 세션이 `needs_input`인 동안 다음 회차를 계속한다. turn 제한과 같은 10분(200번)이 지나면 멈춘다. 허용하기 전에 보려면 이 루프 대신 quickstart ③·④의 명령을 한 번씩 되풀이한다.
 
@@ -159,29 +159,9 @@ scripts/local.sh down
 
 ## 자율 모드 세션
 
-승인 없이 끝까지 도는 세션은 자율 모드 profile로 만든다. 켜는 조건과 남는 경계는 [api-server.md](operator/api-server.md#자율-모드-bypasspermissionsauto)의 '자율 모드' 절에 있다. 분류기가 판정하는 `auto`는 기본 profile `claude-coding-real` 그대로이고 설치 설정도 필요 없다. 판정 없이 도는 `bypassPermissions`는 없으므로, 먼저 `tests/fixtures/settings/real-model.json`의 `profiles` 아래에 하나를 더한다. `claude-coding-real`과 `permission_mode`·id만 다르다(아래는 항목 내용이고, 문서에는 JSON으로 적는다). 이 키는 표가 비어 있을 때만 시드로 읽으므로 새 스택(볼륨 없음)에서 한다. 이미 띄운 스택이면 같은 설정의 상한을 owner가 `POST /v1/installation-profiles`로 저장한다([api-server.md](operator/api-server.md#운영자-카탈로그-agent-profile--repository)).
-
-```yaml
-  claude-coding-real-unattended:
-    runtime_kind: claude_agent_sdk
-    runtime_version: "0.3.270"
-    model: claude-sonnet-5
-    tools: [Read, Edit, Write, Glob, Grep, Bash, AskUserQuestion]
-    permission_mode: bypassPermissions
-    provider:
-      kind: anthropic
-      endpoint: https://api.anthropic.com
-      auth:
-        kind: api_key
-        value_env: ANTHROPIC_API_KEY
-    project_settings:
-      claude_md: true
-```
-
-같은 문서의 저장소 `sample-app`도 `"profiles": ["claude-coding-real", "claude-coding-real-unattended"]`로 바꾼다(이 배열도 시드할 때만 읽는다). 그다음 B의 1단계를 `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS=true scripts/local.sh up`으로 실행하고(이 변수가 없으면 API는 뜨지만 이 profile을 빼고 돈다), 2단계 헬퍼를 붙여 넣은 뒤 이어서 실행한다.
+승인 없이 끝까지 도는 세션은 자율 모드로 돈다. 켜는 조건과 남는 경계는 [api-server.md](operator/api-server.md#자율-모드-bypasspermissionsauto)의 '자율 모드' 절에 있다. 판정하지 않은 Anthropic 연결로 만든 release는 분류기가 판정하는 `auto`로 돌고 설치 설정도 필요 없다. 판정 없이 도는 `bypassPermissions`는 새 release가 고르지 않는다. 2단계 헬퍼를 붙여 넣은 뒤 이어서 실행한다.
 
 ```sh
-body() { jq -nc --arg m "$1" '{profile_id:"claude-coding-real-unattended", repository_id:"sample-app", message:$m}'; }
 created=$(post /v1/sessions "$(body 'hello.py에 "안녕하세요"를 출력하는 파이썬 스크립트를 만들고, python3 hello.py로 실행해 출력을 확인한 뒤 git add와 git commit까지 해 주세요. 끝나면 커밋 hash를 알려 주세요.')")
 SID=$(echo "$created" | jq -r .session_id)
 wait_for "/v1/sessions/$SID/turns/1" .status completed
@@ -189,9 +169,7 @@ get "/v1/sessions/$SID" | jq -c '{status, runtime, pending_request_count}'
 get "/v1/sessions/$SID/usage" | jq -r .cost.amount_usd
 ```
 
-`allow_until_done` 없이 `wait_for`만으로 turn이 끝난다. 세션 상세의 `runtime.permission_mode`가 `bypassPermissions`이고 `pending_request_count`가 0이다. 2026-10-13 실측에서는 `Write`(hello.py), `Bash`(`python3 hello.py`), `Bash`(`git add … && git commit …`)가 한 번도 멈추지 않고 실행돼 커밋이 만들어졌고, 비용은 약 0.06달러였다. 같은 문장을 `permission_mode: default` profile로 보내도 작업 공간 안 `Write`와 로컬 `git add`·`git commit`은 사전 허용이라 묻지 않는다. 작업 공간 밖 쓰기나 `git push` 같은 사전 허용 밖 호출에서만 권한 요청이 오고 세션이 `needs_input`이 된다.
-
-`permission_mode: auto` profile(지금의 `claude-coding-real`)도 같은 문장으로 승인 없이 끝났다. 다만 Bash 호출마다 분류기 요청(입력 약 4만3천 토큰)이 하나씩 더 나가서 비용은 약 0.15달러였다. 분류기 판정이 바뀔 수 있으므로 거부된 호출이 있었는지는 이벤트 스트림의 `tool_result`에서 본다.
+세션 상세의 `runtime.permission_mode`가 `auto`이고 `pending_request_count`가 0이다. 2026-10 실측에서 `auto`는 Bash 호출마다 분류기 요청(입력 약 4만3천 토큰)이 하나씩 더 나가서 비용은 약 0.15달러였다. 분류기 판정이 바뀔 수 있으므로 거부된 호출이 있었는지는 이벤트 스트림의 `tool_result`에서 본다. 무엇을 묻고 막을지는 워크스페이스와 에이전트의 실행 규칙으로 더 좁힌다.
 
 ## 비용
 

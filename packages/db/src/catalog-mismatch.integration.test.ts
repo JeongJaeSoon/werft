@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import {
+  type ClaimCatalog,
   type ClaimResult,
   type EnsureExecutionResult,
   type ExecutionBackend,
@@ -9,7 +10,6 @@ import {
   hashWorkerToken,
   type LaunchIntent,
   type ManagedExecution,
-  type RunnablePair,
   runScheduler,
   type TerminateExecutionResult,
 } from "@werft-ai/platform";
@@ -27,7 +27,6 @@ import * as schema from "./schema.ts";
 import {
   events,
   executions,
-  installationProfiles,
   providerConnections,
   receipts,
   sessions,
@@ -37,26 +36,28 @@ import {
   workerLaunches,
 } from "./schema.ts";
 import { insertUnreservedLaunch } from "./testing/launches.ts";
+import {
+  fixtureRelease,
+  TEST_CONNECTION_ID,
+  TEST_MODEL,
+  testClaimCatalog,
+} from "./testing/spec-pins.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
 const LIMITS = { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 };
-const PROFILE_ID = "claude-coding-v1";
 const REGISTERED = "https://example.invalid/app.git";
 const MOVED_TO = "https://moved.invalid/app.git";
 const RESOURCES = { cpus: 1, memoryBytes: 512 * 1024 * 1024, pidsLimit: 64 };
 // Ahead of every write here: a host behind its settings fails nothing.
 const CAUGHT_UP = Number.MAX_SAFE_INTEGER;
 
-const pairAt = (url: string): RunnablePair => ({
-  profileId: PROFILE_ID,
-  profileFingerprint: `sha256:${"a".repeat(64)}`,
-  model: null,
-  repositoryId: "sample-app",
-  url,
-  branch: "main",
-});
+/** This host's catalog with `sample-app` registered at each of `urls`. */
+const catalogAt = (...urls: string[]): ClaimCatalog =>
+  testClaimCatalog(
+    urls.map((url) => ({ repositoryId: "sample-app", url, branch: "main" })),
+  );
 
 /**
  * A daemon whose containers claim once started (`startWorkers`, between
@@ -70,7 +71,7 @@ class ClaimingBackend implements ExecutionBackend {
     sessionId: string;
     outcome: ClaimResult["outcome"];
   }> = [];
-  runnable: RunnablePair[] = [pairAt(REGISTERED)];
+  runnable: ClaimCatalog = catalogAt(REGISTERED);
   private readonly starting: Array<{ intent: LaunchIntent; nonce: string }> =
     [];
 
@@ -103,7 +104,7 @@ class ClaimingBackend implements ExecutionBackend {
       const result = await createPostgresWorkerUnitOfWork(this.db).claimAtomic({
         settingsGeneration: CAUGHT_UP,
         unsettledRepositoryIds: new Set(),
-        settledProfileIds: new Set([PROFILE_ID]),
+        unsettledConnectionIds: new Set(),
         runnable: this.runnable,
         costLimitUsd: 1_000,
         tokenLimit: null,
@@ -189,12 +190,13 @@ integration("claim against a catalog that dropped the pair", () => {
     });
 
   async function queuedSession(url = REGISTERED) {
-    const ownerId = `owner-${randomUUID()}`;
+    const ownerId = randomUUID();
     const result = await inputs().acceptInputAtomic({
       principal: { ownerId },
       idempotencyKey: randomUUID(),
       payloadHash: randomUUID(),
-      profileId: PROFILE_ID,
+      agentReleaseId: await fixtureRelease(db),
+      model: TEST_MODEL,
       repository: { id: "sample-app", url, branch: "main" },
       message: "first input",
       limits: LIMITS,
@@ -235,36 +237,6 @@ integration("claim against a catalog that dropped the pair", () => {
       .where(eq(sessions.id, sessionId));
     return row;
   }
-
-  test("a blocked profile refuses a new message but replays one accepted before", async () => {
-    const session = await queuedSession();
-    const message = (key: string, profileBlocked?: true) =>
-      inputs().appendInputAtomic({
-        principal: { ownerId: session.ownerId },
-        sessionId: session.session_id,
-        idempotencyKey: key,
-        payloadHash: `hash-${key}`,
-        message: "again",
-        limits: LIMITS,
-        ...(profileBlocked ? { profileBlocked } : {}),
-      });
-    const before = await message("before");
-    if (before.outcome !== "accepted") throw new Error(before.outcome);
-
-    expect(await message("before", true)).toEqual({
-      outcome: "replayed",
-      response: before.response,
-    });
-    expect(await message("after", true)).toEqual({
-      outcome: "profile_blocked",
-    });
-    const sequences = await db
-      .select({ sequence: turns.sequence })
-      .from(turns)
-      .where(eq(turns.sessionId, session.session_id))
-      .orderBy(asc(turns.sequence));
-    expect(sequences).toEqual([{ sequence: 1 }, { sequence: 2 }]);
-  });
 
   test("slot 1: a session the catalog dropped is failed at its first claim and the next session launches in the following pass", async () => {
     const backend = new ClaimingBackend(db);
@@ -356,11 +328,11 @@ integration("claim against a catalog that dropped the pair", () => {
     expect((await sessionRow(dropped.session_id))?.status).toBe("failed");
 
     // Nothing reruns on its own, even with the catalog back.
-    backend.runnable = [pairAt(REGISTERED), pairAt(MOVED_TO)];
+    backend.runnable = catalogAt(REGISTERED, MOVED_TO);
     expect((await pass(backend, 1)).launched).toEqual([]);
     await backend.startWorkers();
 
-    backend.runnable = [pairAt(REGISTERED)];
+    backend.runnable = catalogAt(REGISTERED);
     expect((await append(dropped)).outcome).toBe("accepted");
     await pass(backend, 1);
     await backend.startWorkers();
@@ -369,7 +341,7 @@ integration("claim against a catalog that dropped the pair", () => {
     await backend.startWorkers();
     expect(backend.running.size).toBe(0);
 
-    backend.runnable = [pairAt(REGISTERED), pairAt(MOVED_TO)];
+    backend.runnable = catalogAt(REGISTERED, MOVED_TO);
     expect((await append(dropped)).outcome).toBe("accepted");
     expect((await sessionRow(dropped.session_id))?.status).toBe("queued");
     await pass(backend, 1);
@@ -411,8 +383,8 @@ integration("claim against a catalog that dropped the pair", () => {
     const result = await createPostgresWorkerUnitOfWork(db).claimAtomic({
       settingsGeneration: CAUGHT_UP,
       unsettledRepositoryIds: new Set(),
-      settledProfileIds: new Set([PROFILE_ID]),
-      runnable: [pairAt(REGISTERED)],
+      unsettledConnectionIds: new Set(),
+      runnable: catalogAt(REGISTERED),
       costLimitUsd: 1_000,
       tokenLimit: null,
       nonceHash: hashWorkerToken(nonce),
@@ -489,8 +461,8 @@ integration("claim against a catalog that dropped the pair", () => {
     const result = await createPostgresWorkerUnitOfWork(db).claimAtomic({
       settingsGeneration: CAUGHT_UP,
       unsettledRepositoryIds: new Set(),
-      settledProfileIds: new Set([PROFILE_ID]),
-      runnable: [pairAt(REGISTERED)],
+      unsettledConnectionIds: new Set(),
+      runnable: catalogAt(REGISTERED),
       costLimitUsd: 1_000,
       tokenLimit: null,
       nonceHash: hashWorkerToken(nonce),
@@ -562,18 +534,22 @@ integration("claim against a catalog that dropped the pair", () => {
     function claim(
       launch: { ref: ExecutionRef; nonce: string },
       costLimitUsd = 1_000,
-      settledProfileIds: ReadonlySet<string> = new Set([PROFILE_ID]),
+      unsettledConnectionIds: ReadonlySet<string> = new Set(),
       settings: {
         generation?: number | null;
         unsettledRepositoryIds?: ReadonlySet<string>;
+        runtimeVersions?: readonly string[];
       } = {},
     ) {
       return createPostgresWorkerUnitOfWork(db).claimAtomic({
         settingsGeneration:
           settings.generation === undefined ? CAUGHT_UP : settings.generation,
         unsettledRepositoryIds: settings.unsettledRepositoryIds ?? new Set(),
-        settledProfileIds,
-        runnable: [pairAt(REGISTERED)],
+        unsettledConnectionIds,
+        runnable: {
+          ...catalogAt(REGISTERED),
+          runtimeVersions: settings.runtimeVersions ?? null,
+        },
         costLimitUsd,
         tokenLimit: null,
         nonceHash: hashWorkerToken(launch.nonce),
@@ -637,34 +613,28 @@ integration("claim against a catalog that dropped the pair", () => {
       await untouched(session.session_id, launch.ref);
     });
 
-    test("a workspace profile version this host has not read yet", async () => {
-      const session = await queuedSession();
+    // A session of a newer image during a rolling upgrade: the replica that
+    // ships its runtime version runs it, and this one must not fail it.
+    test("a runtime version this image does not ship", async () => {
+      const session = await queuedSession(REGISTERED);
       const launch = await reserved(session.session_id);
-      await db
-        .update(sessions)
-        .set({ profileId: "ws_acme_strict_v1" })
-        .where(eq(sessions.id, session.session_id));
-      expect((await claim(launch)).outcome).toBe("no_session");
-      await untouched(session.session_id, launch.ref);
       expect(
-        (await claim(launch, 1_000, new Set(["ws_acme_strict_v1"]))).outcome,
-      ).toBe("catalog_mismatch");
+        (await claim(launch, 1_000, new Set(), { runtimeVersions: ["0.0.1"] }))
+          .outcome,
+      ).toBe("no_session");
+      await untouched(session.session_id, launch.ref);
     });
 
-    // A console ceiling may need a connection or setting only another
-    // replica holds; that replica runs the session.
-    test("an installation ceiling this host does not run", async () => {
-      const session = await queuedSession();
+    // A connection another replica may hold the credential of; that replica
+    // runs the session.
+    test("a connection this host could not resolve", async () => {
+      const session = await queuedSession(MOVED_TO);
       const launch = await reserved(session.session_id);
-      await db
-        .update(sessions)
-        .set({ profileId: "op_wide_v1" })
-        .where(eq(sessions.id, session.session_id));
-      expect((await claim(launch)).outcome).toBe("no_session");
-      await untouched(session.session_id, launch.ref);
       expect(
-        (await claim(launch, 1_000, new Set(["op_wide_v1"]))).outcome,
-      ).toBe("catalog_mismatch");
+        (await claim(launch, 1_000, new Set([TEST_CONNECTION_ID]))).outcome,
+      ).toBe("no_session");
+      await untouched(session.session_id, launch.ref);
+      expect((await claim(launch)).outcome).toBe("catalog_mismatch");
     });
 
     async function settingsGenerationNow() {
@@ -700,59 +670,6 @@ integration("claim against a catalog that dropped the pair", () => {
       ).toBe("catalog_mismatch");
     });
 
-    test("a ceiling write while a give-up behind the settings waits on it", async () => {
-      const session = await queuedSession(MOVED_TO);
-      const launch = await reserved(session.session_id);
-      await db.insert(installationProfiles).values({
-        id: PROFILE_ID,
-        name: null,
-        version: 1,
-        origin: "catalog",
-        definition: { permission_mode: "default" },
-        permissionMode: "default",
-        fingerprint: "fp",
-        repositoryIds: null,
-      });
-      const behind = (await settingsGenerationNow()) - 1;
-      const writer = await pool.connect();
-      try {
-        await writer.query("BEGIN");
-        await writer.query(
-          "SELECT 1 FROM installation_profiles WHERE id = $1 FOR UPDATE",
-          [PROFILE_ID],
-        );
-        const claiming = claim(launch, 1_000, undefined, {
-          generation: behind,
-        });
-        for (let waited = 0; ; waited += 1) {
-          const { rows } = await pool.query(
-            "SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND pid <> $1",
-            [
-              (await writer.query("SELECT pg_backend_pid() AS pid")).rows[0]
-                .pid,
-            ],
-          );
-          if (rows.length > 0) break;
-          if (waited > 200) throw new Error("the claim never waited");
-          await Bun.sleep(10);
-        }
-        // Raises the generation through its trigger while holding the row.
-        await writer.query(
-          "UPDATE installation_profiles SET fingerprint = 'fp2' WHERE id = $1",
-          [PROFILE_ID],
-        );
-        await writer.query("COMMIT");
-        expect((await claiming).outcome).toBe("no_session");
-      } finally {
-        await writer.query("ROLLBACK").catch(() => undefined);
-        writer.release();
-        await db
-          .delete(installationProfiles)
-          .where(eq(installationProfiles.id, PROFILE_ID));
-      }
-      await untouched(session.session_id, launch.ref);
-    });
-
     test("a host that read no settings", async () => {
       const session = await queuedSession(MOVED_TO);
       const launch = await reserved(session.session_id);
@@ -762,24 +679,14 @@ integration("claim against a catalog that dropped the pair", () => {
       await untouched(session.session_id, launch.ref);
     });
 
-    test("a settings write in flight that goes on to the give-up's ceiling", async () => {
+    test("a settings write in flight is not waited for", async () => {
       const session = await queuedSession(MOVED_TO);
       const launch = await reserved(session.session_id);
-      await db.insert(installationProfiles).values({
-        id: PROFILE_ID,
-        name: null,
-        version: 1,
-        origin: "catalog",
-        definition: { permission_mode: "default" },
-        permissionMode: "default",
-        fingerprint: "fp",
-        repositoryIds: null,
-      });
       const current = await settingsGenerationNow();
       const writer = await pool.connect();
       try {
         await writer.query("BEGIN");
-        // As seeding several ceilings: one written, the generation held.
+        // As a settings import: one row written, the generation held.
         await writer.query(
           "INSERT INTO provider_connections (id, definition, credential_source, origin) VALUES ('in_flight', '{}', 'external', 'import')",
         );
@@ -790,10 +697,6 @@ integration("claim against a catalog that dropped the pair", () => {
           claiming.then(() => true),
           Bun.sleep(1_000).then(() => false),
         ]);
-        await writer.query(
-          "UPDATE installation_profiles SET fingerprint = 'fp2' WHERE id = $1",
-          [PROFILE_ID],
-        );
         await writer.query("COMMIT");
         expect(settled).toBe(true);
         expect((await claiming).outcome).toBe("no_session");
@@ -803,9 +706,6 @@ integration("claim against a catalog that dropped the pair", () => {
         await db
           .delete(providerConnections)
           .where(eq(providerConnections.id, "in_flight"));
-        await db
-          .delete(installationProfiles)
-          .where(eq(installationProfiles.id, PROFILE_ID));
       }
       await untouched(session.session_id, launch.ref);
     });

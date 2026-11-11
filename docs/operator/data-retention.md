@@ -13,7 +13,7 @@
 ## 세션 실행 데이터 (PostgreSQL)
 
 - **세션** — `sessions` 표(`schema.ts:951`)
-  - 담는 것: 만든 사람 `created_by_user_id`와 만든 key `created_by_api_key_id`(`schema.ts:1066-1067`), 상태(`status`, `admission_state`), 프로필, 저장소, 추정 비용 `cost_usd`(`schema.ts:1084`), 토큰 합 `provider_tokens`(`schema.ts:1092`), 작업 공간 회수 시각 `workspace_reclaimed_at`(`schema.ts:1051`).
+  - 담는 것: 만든 사람 `created_by_user_id`와 만든 key `created_by_api_key_id`(`schema.ts:1066-1067`), 상태(`status`, `admission_state`), 실행 spec(연결·모델·런타임), 저장소, 추정 비용 `cost_usd`(`schema.ts:1084`), 토큰 합 `provider_tokens`(`schema.ts:1092`), 작업 공간 회수 시각 `workspace_reclaimed_at`(`schema.ts:1051`).
   - 만드는 시점: `POST /v1/sessions`가 첫 입력을 받을 때(`packages/db/src/postgres-unit-of-work.ts:282`).
   - 보존 기간: 무기한.
   - 삭제 조건: 없음. close는 `admission_state`를 `closed`로 바꿀 뿐 행을 지우지 않는다(`packages/db/src/close-control.ts:54-110`).
@@ -179,14 +179,14 @@ bucket은 `S3_BUCKET`(기본 `claude-sessions`, `infra/compose.core.yml:290`, `d
 
 ## 세션 하나 따라가기
 
-세션 하나를 만들고 끝낼 때까지, 무엇이 어디에 남는지 순서대로 읽는다. API는 `sessions:read`·`sessions:write`·`sessions:control` scope를 가진 개인 key 또는 에이전트 key로 부른다. 아래 1의 본문은 개인 key의 것이고, 에이전트 key는 그 에이전트의 `agent_release_id`를 넣고, `profile_id`는 빼면 release의 프로필을 쓰고, `repository_id`는 빼면 GitHub 설정 행이 있는 에이전트는 저장소 없이 시작하고 행이 없는 에이전트는 release의 저장소를 쓴다([api-server.md](api-server.md)). `$API`는 API 주소, `$KEY`는 key다. DB는 읽기만 한다. 로컬 compose 스택이면 `docker compose exec -T postgres psql -U postgres -d sessions`로 붙는다.
+세션 하나를 만들고 끝낼 때까지, 무엇이 어디에 남는지 순서대로 읽는다. API는 `sessions:read`·`sessions:write`·`sessions:control` scope를 가진 개인 key 또는 에이전트 key로 부른다. 아래 1의 본문은 개인 key의 것이고, 에이전트 key는 그 에이전트의 `agent_release_id`를 넣고, `repository_id`는 빼면 GitHub 설정 행이 있는 에이전트는 저장소 없이 시작하고 행이 없는 에이전트는 release의 저장소를 쓴다([api-server.md](api-server.md)). `$API`는 API 주소, `$KEY`는 key다. DB는 읽기만 한다. 로컬 compose 스택이면 `docker compose exec -T postgres psql -U postgres -d sessions`로 붙는다.
 
 1. **세션을 만든다.** `POST /v1/sessions`에 `Idempotency-Key`를 붙여 보낸다. 응답의 `session_id`, `turn_id`, `receipt_id`를 적어 둔다.
 
    ```sh
    curl -sS -X POST "$API/v1/sessions" -H "Authorization: Bearer $KEY" \
      -H "Idempotency-Key: $(uuidgen)" -H 'content-type: application/json' \
-     -d '{"profile_id":"<profile>","repository_id":"<repository>","message":"<prompt>"}'
+     -d '{"agent_release_id":"<release>","repository_id":"<repository>","message":"<prompt>"}'
    ```
 
 2. **turn이 끝날 때까지 읽는다.** `GET /v1/sessions/{id}/turns/{turn_id}`의 `status`가 끝 상태(`completed`·`failed`·`interrupted`·`cancelled`·`outcome_unknown`, `packages/contracts/src/api/session.ts:52-58`)가 될 때까지 몇 초 간격으로 읽는다. 끝난 turn의 `result`가 `turns.result_json`이다.

@@ -253,6 +253,7 @@ if ! kubectl -n "$NAMESPACE" get secret werft >/dev/null 2>&1; then
     --from-literal=DATABASE_URL=postgresql://postgres:dev@postgres:5432/sessions \
     --from-file=EGRESS_AUTHORIZER_TOKEN=<(openssl rand -hex 32 | tr -d '\n') \
     --from-file=PLATFORM_SECRET_KEY=<(openssl rand -hex 32 | tr -d '\n') \
+    --from-file=BOOTSTRAP_TOKEN=<(openssl rand -hex 32 | tr -d '\n') \
     --from-literal=AWS_ACCESS_KEY_ID=test \
     --from-literal=AWS_SECRET_ACCESS_KEY=test \
     --from-file=ANTHROPIC_API_KEY=<(provider_key) >/dev/null
@@ -261,6 +262,14 @@ elif [ "$(kubectl -n "$NAMESPACE" get secret werft -o 'go-template={{if .data.PL
   printf '{"data":{"PLATFORM_SECRET_KEY":"%s"}}' "$(openssl rand -hex 32 | tr -d '\n' | base64 | tr -d '\n')" >"$key_patch"
   kubectl -n "$NAMESPACE" patch secret werft --patch-file "$key_patch" >/dev/null
   rm -f "${key_patch:?}"
+fi
+# The first owner's token: the checks release their agent as that owner
+# (release-key.sh). A Secret from before it gets one.
+if [ "$(kubectl -n "$NAMESPACE" get secret werft -o 'go-template={{if .data.BOOTSTRAP_TOKEN}}set{{end}}')" != set ]; then
+  token_patch="$(mktemp)"
+  printf '{"data":{"BOOTSTRAP_TOKEN":"%s"}}' "$(openssl rand -hex 32 | tr -d '\n' | base64 | tr -d '\n')" >"$token_patch"
+  kubectl -n "$NAMESPACE" patch secret werft --patch-file "$token_patch" >/dev/null
+  rm -f "${token_patch:?}"
 fi
 unset ANTHROPIC_API_KEY
 

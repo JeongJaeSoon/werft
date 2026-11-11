@@ -13,8 +13,8 @@ export function codexEngine(env = process.env): EngineFixture {
   if (!responsesUrl) throw new Error(`${RESPONSES_URL} is unset`);
   return {
     runtimeKind: "codex_app_server",
+    connectionId: "fake-responses",
     cardModel: "gpt-5.5",
-    profileId: "codex-coding-local",
     repositoryId: "sample-app",
     // The gateway and egress proxy enforce the session's cost limit on the
     // provider calls the fake Responses API reports usage for.

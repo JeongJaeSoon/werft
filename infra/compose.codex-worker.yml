@@ -9,7 +9,7 @@
 #   COMPOSE_FILE=infra/compose.yml:infra/compose.local.yml:infra/compose.codex-worker.yml
 #
 # It names no path, so it merges under either project directory. The settings
-# are tests/fixtures/settings/fake-model-codex.json (one Codex profile, no
+# are tests/fixtures/settings/fake-model-codex.json (one Responses connection, no
 # repository); a prompt containing "run-command" makes the fake model call
 # exec_command once. A deployment that calls the real Responses API lists
 # api.openai.com:443 on the credential allowlist instead

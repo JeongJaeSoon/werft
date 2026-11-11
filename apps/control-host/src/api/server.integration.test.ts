@@ -11,11 +11,8 @@ import {
   createPostgresWorkerUnitOfWork,
 } from "@werft-ai/db";
 import { launchSession } from "@werft-ai/db/testing/launches";
-import {
-  acceptAllCheckpoints,
-  createWorkerGateway,
-  withSeededInstallation,
-} from "@werft-ai/platform";
+import { TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
+import { acceptAllCheckpoints, createWorkerGateway } from "@werft-ai/platform";
 import {
   createTempDatabase,
   type TempDatabase,
@@ -25,6 +22,8 @@ import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { seedSettings, settingsDocument } from "../test-support/settings.ts";
+import { testCatalog } from "../testing/catalog.ts";
+import { allowRepositories, releaseIn } from "../testing/releases.ts";
 import { SHUTDOWN_DRAIN_MS } from "./shutdown.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -139,24 +138,11 @@ async function waitForServer(
 // The provider key the catalog below references by environment variable.
 // The server must start with it and never write it anywhere.
 const PROVIDER_KEY = `provider-${crypto.randomUUID()}`;
-const PROFILES = `profiles:
-  coding:
-    runtime_kind: claude_agent_sdk
-    runtime_version: "0.3.270"
-    model: claude-sonnet-5
-    tools: [Read]
-    permission_mode: default
-    provider:
-      kind: anthropic
-      endpoint: https://api.anthropic.invalid
-      auth:
-        kind: api_key
-        value_env: INTEGRATION_PROVIDER_KEY
-`;
 const CONNECTIONS = `connections:
-  main:
+  test-connection:
     kind: anthropic
     endpoint: https://api.anthropic.invalid
+    models: [claude-sonnet-5]
     auth:
       kind: api_key
       value_env: INTEGRATION_PROVIDER_KEY
@@ -165,17 +151,30 @@ const REPOSITORIES = `repositories:
   app:
     url: https://github.com/team/app.git
     branch: main
-    profiles: [coding]
     auth:
       kind: github_app
 `;
+
+/** A personal key of `userId` in workspace `ownerId`, as the CLI issues it. */
+const keyUserId = crypto.randomUUID();
 
 async function issueKey(
   ownerId: string,
   scopes: string,
 ): Promise<{ plaintext: string; keyId: string }> {
   const keyProcess = Bun.spawn(
-    ["bun", "run", "src/api/keys.ts", "create", ownerId, "--scopes", scopes],
+    [
+      "bun",
+      "run",
+      "src/api/keys.ts",
+      "create",
+      "--workspace",
+      ownerId,
+      "--personal",
+      keyUserId,
+      "--scopes",
+      scopes,
+    ],
     {
       cwd: `${import.meta.dir}/../..`,
       env: { ...process.env, DATABASE_URL: databaseUrl },
@@ -315,7 +314,9 @@ integration("API server on PostgreSQL", () => {
   let db: NodePgDatabase<typeof schema>;
   let pool: Pool;
   let root: string;
-  const ownerId = `integration-owner-${crypto.randomUUID()}`;
+  // The workspace the keys belong to; a session runs one of its releases.
+  const ownerId = crypto.randomUUID();
+  let releaseId = "";
 
   beforeAll(async () => {
     root = await mkdtemp(join(tmpdir(), "server-integration-"));
@@ -323,10 +324,19 @@ integration("API server on PostgreSQL", () => {
     databaseUrl = database.url;
     pool = new Pool({ connectionString: databaseUrl, max: 2 });
     db = drizzle(pool, { schema });
-    await seedSettings(
-      db,
-      settingsDocument(PROFILES, CONNECTIONS, REPOSITORIES),
-    );
+    await seedSettings(db, settingsDocument(CONNECTIONS, REPOSITORIES));
+    releaseId = await releaseIn(db, ownerId);
+    // "missing" is inside the ceiling but not in the catalog.
+    await allowRepositories(db, ownerId, ["app", "missing"]);
+    await db.insert(schema.users).values({
+      id: keyUserId,
+      email: `${keyUserId}@example.invalid`,
+      passwordHash: "argon2id$placeholder",
+      displayName: "key holder",
+    });
+    await db
+      .insert(schema.memberships)
+      .values({ workspaceId: ownerId, userId: keyUserId, role: "owner" });
   }, 60_000);
 
   afterAll(async () => {
@@ -437,17 +447,23 @@ integration("API server on PostgreSQL", () => {
             ...(body === undefined ? {} : { body: JSON.stringify(body) }),
           });
 
-        // The catalog is what the database says: an id it does not register
-        // is 422, and a registered pair is accepted.
-        for (const body of [
-          { profile_id: "missing", repository_id: "app", message: "hi" },
-          { profile_id: "coding", repository_id: "missing", message: "hi" },
-        ]) {
-          const unknown = await call(plaintext, "POST", "/sessions", body);
-          expect(unknown.status, JSON.stringify(body)).toBe(422);
-        }
+        // The catalog is what the database says: a repository it does not
+        // register is 422, a release of no agent here 404, and a release
+        // on a registered repository is accepted.
+        const unknown = await call(plaintext, "POST", "/sessions", {
+          agent_release_id: releaseId,
+          repository_id: "missing",
+          message: "hi",
+        });
+        expect(unknown.status).toBe(422);
+        const stranger = await call(plaintext, "POST", "/sessions", {
+          agent_release_id: `sha256:${"0".repeat(64)}`,
+          repository_id: "app",
+          message: "hi",
+        });
+        expect(stranger.status).toBe(404);
         const created = await call(plaintext, "POST", "/sessions", {
-          profile_id: "coding",
+          agent_release_id: releaseId,
           repository_id: "app",
           message: "hi",
         });
@@ -479,7 +495,7 @@ integration("API server on PostgreSQL", () => {
           });
         }
         const writeWithoutScope = await call(readOnly, "POST", "/sessions", {
-          profile_id: "coding",
+          agent_release_id: releaseId,
           repository_id: "app",
           message: "hi",
         });
@@ -699,30 +715,20 @@ integration("API server on PostgreSQL", () => {
       const repositoryId = `long-poll-${crypto.randomUUID()}`;
       const gateway = createWorkerGateway({
         work: createPostgresWorkerUnitOfWork(db),
-        catalog: withSeededInstallation({
-          profiles: {
-            coding: {
-              runtime_kind: "claude_agent_sdk",
-              runtime_version: "0.3.270",
-              model: "claude-sonnet-5",
-              tools: ["Read"],
-              permission_mode: "default",
-              provider: {
-                kind: "anthropic",
-                endpoint: "https://api.anthropic.invalid",
-                auth: {
-                  kind: "api_key",
-                  value: PROVIDER_KEY,
-                  ref: { value_env: "INTEGRATION_PROVIDER_KEY" },
-                },
-              },
+        catalog: testCatalog({
+          provider: {
+            kind: "anthropic",
+            endpoint: "https://api.anthropic.invalid",
+            auth: {
+              kind: "api_key",
+              value: PROVIDER_KEY,
+              ref: { value_env: "INTEGRATION_PROVIDER_KEY" },
             },
           },
           repositories: {
             [repositoryId]: {
               url: "https://github.com/team/app.git",
               branch: "main",
-              profiles: ["coding"],
               auth: { kind: "github_app", registered: true } as const,
             },
           },
@@ -741,7 +747,8 @@ integration("API server on PostgreSQL", () => {
         principal: { ownerId },
         idempotencyKey: crypto.randomUUID(),
         payloadHash: "hash",
-        profileId: "coding",
+        agentReleaseId: releaseId,
+        model: TEST_MODEL,
         repository: {
           id: repositoryId,
           url: "https://github.com/team/app.git",

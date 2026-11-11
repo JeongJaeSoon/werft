@@ -385,7 +385,7 @@ describe("usage service", () => {
     expect(spent.budget_exceeded).toBe(true);
   });
 
-  test("a session accepted on a billing none profile reads unmetered", async () => {
+  test("a session accepted on a billing none connection reads unmetered", async () => {
     for (const [unmetered, kind, costLimit] of [
       [true, "unmetered", null],
       [false, "estimated", "0.0000005"],
@@ -653,16 +653,16 @@ describe("usage service", () => {
     expect(open.cost_complete).toBe(false);
   });
 
-  test("groups name another person only to the installation reader, and agents and profiles to anyone", async () => {
+  test("groups name another person only to the installation reader, and agents to anyone", async () => {
     const grouped = (
       scope: "installation" | "me",
-      group_by: "agent" | "user" | "profile",
+      group_by: "agent" | "user",
     ) =>
       usageSummaryQuerySchema.parse({ scope, since: "2026-10-01", group_by });
     const names = async (
       caller: Caller,
       scope: "installation" | "me",
-      by: "agent" | "user" | "profile",
+      by: "agent" | "user",
     ) => {
       const summary = usageSummaryResponseSchema.parse(
         await service().getUsageSummary(caller, grouped(scope, by)),
@@ -677,7 +677,7 @@ describe("usage service", () => {
     expect(await names(user("member"), "me", "user")).toEqual(["나", null]);
     expect(await names(serviceKey(), "me", "user")).toEqual([null, null]);
     expect(await names(user("member"), "me", "agent")).toEqual(["나", "남"]);
-    expect(await names(serviceKey(), "me", "profile")).toEqual(["나", "남"]);
+    expect(await names(serviceKey(), "me", "agent")).toEqual(["나", "남"]);
     const [mine, theirs] =
       (await service().getUsageSummary(user("owner"), grouped("me", "user")))
         .groups ?? [];

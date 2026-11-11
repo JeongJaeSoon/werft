@@ -19,7 +19,6 @@ import {
   type GitHubGrant,
   priceProviderUsage,
   type WorkerGateway,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import { ClaudeSdkRuntime, runtimeEnvironment } from "@werft-ai/runtime-claude";
 import {
@@ -48,6 +47,10 @@ import {
   EGRESS_AUTHORIZER_PATH,
 } from "../apps/control-host/src/api/egress-authorizer.ts";
 import {
+  releaseOnConnection,
+  TEST_OWNER,
+} from "../apps/control-host/src/testing/releases.ts";
+import {
   type CredentialProxyServer,
   startCredentialProxy,
 } from "../apps/egress-proxy/src/credential.ts";
@@ -68,8 +71,8 @@ import { GitWorkspace } from "../apps/worker/src/workspace.ts";
  */
 
 const AUTHORIZER_BEARER = `authorizer-${crypto.randomUUID()}`;
-const PROFILE_ID = "claude-coding-v1";
-const RESPONSES_PROFILE_ID = "codex-coding-v1";
+const CLAUDE_CONNECTION = "claude";
+const RESPONSES_CONNECTION = "openai";
 const REPOSITORY_HOST = "git.test";
 const silentProxy = createProxyLogger("error", () => {});
 
@@ -118,7 +121,9 @@ type Topology = {
 
 const RESPONSES_UPSTREAM_VALUE = `catalog-openai-${crypto.randomUUID()}`;
 
-async function topology(profileId = PROFILE_ID): Promise<Topology> {
+async function topology(
+  connectionId: string = CLAUDE_CONNECTION,
+): Promise<Topology> {
   if (client === undefined) throw new Error("no database");
   const db = drizzle(client, { schema });
   const providerValue = `catalog-provider-${crypto.randomUUID()}`;
@@ -140,14 +145,9 @@ async function topology(profileId = PROFILE_ID): Promise<Topology> {
 
   const gateway = createWorkerGateway({
     work: createPostgresWorkerUnitOfWork(db),
-    catalog: withSeededInstallation({
-      profiles: {
-        [PROFILE_ID]: {
-          runtime_kind: "claude_agent_sdk",
-          runtime_version: "0.3.270",
-          model: "claude-sonnet-4-5",
-          tools: [],
-          permission_mode: "default",
+    catalog: {
+      connections: {
+        [CLAUDE_CONNECTION]: {
           provider: {
             kind: "anthropic",
             endpoint: messages.url,
@@ -157,13 +157,10 @@ async function topology(profileId = PROFILE_ID): Promise<Topology> {
               ref: { value_env: "PROVIDER_KEY" },
             },
           },
+          models: ["claude-sonnet-4-5"],
+          auto_mode: "unknown",
         },
-        [RESPONSES_PROFILE_ID]: {
-          runtime_kind: "claude_agent_sdk",
-          runtime_version: "0.3.270",
-          model: "gpt-5.5",
-          tools: [],
-          permission_mode: "default",
+        [RESPONSES_CONNECTION]: {
           provider: {
             kind: "openai_responses",
             endpoint: responses.url,
@@ -173,17 +170,18 @@ async function topology(profileId = PROFILE_ID): Promise<Topology> {
               ref: { value_env: "OPENAI_KEY" },
             },
           },
+          models: ["gpt-5.5"],
+          auto_mode: "unknown",
         },
       },
       repositories: {
         app: {
           url: repositoryUrl,
           branch: "main",
-          profiles: [PROFILE_ID, RESPONSES_PROFILE_ID],
           auth: { kind: "github_app", registered: true },
         },
       },
-    }),
+    },
     github: {
       grant: async () =>
         ({
@@ -227,12 +225,33 @@ async function topology(profileId = PROFILE_ID): Promise<Topology> {
       isIP(host) !== 0 ? [host] : host === REPOSITORY_HOST ? ["127.0.0.1"] : [],
   });
 
+  // A release on the connection, its spec naming that connection's endpoint.
+  const responsesSession = connectionId === RESPONSES_CONNECTION;
+  const model = responsesSession ? "gpt-5.5" : "claude-sonnet-4-5";
+  const releaseId = await releaseOnConnection(db, {
+    model,
+    connection: responsesSession
+      ? {
+          id: RESPONSES_CONNECTION,
+          kind: "openai_responses",
+          endpoint: responses.url,
+          billing: "per_token",
+        }
+      : {
+          id: CLAUDE_CONNECTION,
+          kind: "anthropic",
+          endpoint: messages.url,
+          billing: "per_token",
+        },
+    spec: { tools: [] },
+  });
   const accepted = await createPostgresSessionUnitOfWork(db).acceptInputAtomic({
     limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
-    principal: { ownerId: "owner-a" },
+    principal: { ownerId: TEST_OWNER },
     idempotencyKey: crypto.randomUUID(),
     payloadHash: "hash",
-    profileId,
+    agentReleaseId: releaseId,
+    model,
     repository: { id: "app", url: repositoryUrl, branch: "main" },
     message: "hello",
   });
@@ -598,7 +617,7 @@ describe("credential routes end to end", () => {
       });
 
     test("an openai_responses session reaches the upstream with the catalog key only at the proxy, and the call is metered", async () => {
-      const { claim, credentialUrl } = await topology(RESPONSES_PROFILE_ID);
+      const { claim, credentialUrl } = await topology(RESPONSES_CONNECTION);
       if (responses === undefined) throw new Error("no Responses server");
       expect(claim.runtime_config.provider.kind).toBe("openai_responses");
       expect(JSON.stringify(claim)).not.toContain(RESPONSES_UPSTREAM_VALUE);
@@ -640,7 +659,7 @@ describe("credential routes end to end", () => {
     }, 60_000);
 
     test("a direct call on the engine's token stops once the session has spent its limit", async () => {
-      const { claim, credentialUrl } = await topology(RESPONSES_PROFILE_ID);
+      const { claim, credentialUrl } = await topology(RESPONSES_CONNECTION);
       if (client === undefined || responses === undefined) {
         throw new Error("no topology");
       }
@@ -668,7 +687,7 @@ describe("credential routes end to end", () => {
     }, 60_000);
 
     test("an openai_responses session is refused the Messages route", async () => {
-      const { claim, credentialUrl } = await topology(RESPONSES_PROFILE_ID);
+      const { claim, credentialUrl } = await topology(RESPONSES_CONNECTION);
       const refused = await direct(
         credentialUrl,
         claim,
@@ -681,7 +700,7 @@ describe("credential routes end to end", () => {
     }, 60_000);
 
     test("a token the gateway never issued is refused", async () => {
-      const { credentialUrl } = await topology(RESPONSES_PROFILE_ID);
+      const { credentialUrl } = await topology(RESPONSES_CONNECTION);
       const unknown = await fetch(`${credentialUrl}/provider/v1/responses`, {
         method: "POST",
         headers: { authorization: "Bearer not-issued" },

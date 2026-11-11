@@ -69,7 +69,6 @@ export function settingsConnectionsQuery(client: ApiClient, enabled = true) {
 
 /** What disabling a connection leaves without a model, counted by the server. */
 export type ConnectionImpact = {
-  readonly profiles: number;
   readonly agents: number;
   readonly sessions: number;
   readonly judge: boolean;
@@ -87,7 +86,6 @@ function impactOf(body: unknown): ConnectionImpact {
   if (
     impact === null ||
     typeof impact !== "object" ||
-    !isCount(impact.profile_count) ||
     !isCount(impact.agent_count) ||
     !isCount(impact.session_count) ||
     typeof impact.judge_used !== "boolean"
@@ -95,7 +93,6 @@ function impactOf(body: unknown): ConnectionImpact {
     throw new Error("unexpected connection impact");
   }
   return {
-    profiles: impact.profile_count,
     agents: impact.agent_count,
     sessions: impact.session_count,
     judge: impact.judge_used,
@@ -171,7 +168,7 @@ export function settingsRefusal(
 
 /**
  * One settings write, then every screen that reads the settings again:
- * the lists, the model settings' profiles and a new ceiling's options.
+ * the lists and the connections agents pick from.
  */
 export function useSettingsWrite<V>(
   kind: SettingsKind,
@@ -194,10 +191,7 @@ export function useSettingsWrite<V>(
           queryKey: scopedKey(client, "installation-settings"),
         }),
         queryClient.invalidateQueries({
-          queryKey: scopedKey(client, "installation-profile-options"),
-        }),
-        queryClient.invalidateQueries({
-          queryKey: queryKeysOf(client).profiles,
+          queryKey: queryKeysOf(client).connections,
         }),
       ]);
     },
@@ -494,11 +488,11 @@ function ConnectionImpactNotice({ id }: { readonly id: string }) {
       </Alert>
     );
   }
-  const { profiles, agents, sessions, judge } = impact.data;
-  if (profiles === 0 && agents === 0 && sessions === 0 && !judge) return null;
+  const { agents, sessions, judge } = impact.data;
+  if (agents === 0 && sessions === 0 && !judge) return null;
   // The judge setting only names the connection; the judge does not call a
   // model through it today, so it is said apart from the calls that would stop.
-  const calls = profiles > 0 || agents > 0 || sessions > 0;
+  const calls = agents > 0 || sessions > 0;
   return (
     <Alert variant="amber" role="alert">
       <AlertDescription>
@@ -506,13 +500,6 @@ function ConnectionImpactNotice({ id }: { readonly id: string }) {
           <>
             <p>{t("settings.connections.impact.warning")}</p>
             <ul className="mt-1 list-disc pl-5">
-              {profiles > 0 ? (
-                <li>
-                  {t("settings.connections.impact.profiles", {
-                    count: profiles,
-                  })}
-                </li>
-              ) : null}
               {agents > 0 ? (
                 <li>
                   {t("settings.connections.impact.agents", { count: agents })}

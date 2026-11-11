@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type ApiError, unwrap } from "@werft-ai/client";
 import type {
   AgentDetail,
@@ -9,7 +9,6 @@ import { useWerft } from "@werft-ai/react";
 import {
   Alert,
   AlertActions,
-  Badge,
   Button,
   Card,
   Code,
@@ -18,17 +17,12 @@ import {
   Text,
 } from "@werft-ai/ui";
 import { useId, useState } from "react";
-import {
-  agentListsFilter,
-  profilesQuery,
-  queryKeysOf,
-} from "../../api/queries.ts";
+import { agentListsFilter, queryKeysOf } from "../../api/queries.ts";
 import { useRole } from "../../auth/guard.tsx";
 import {
   cardFromDraft,
   draftFromCard,
 } from "../../components/agent-card-form.tsx";
-import { profileDisplay } from "../../components/profile-options.tsx";
 import { useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
 import { draftVersion, shownVersion } from "./versions.tsx";
@@ -38,21 +32,19 @@ type Translate = ReturnType<typeof useI18n>["t"];
 /** Why a save was kept but not applied, in words; a code this page lacks shows as sent. */
 export function saveFailureText(t: Translate, reason: string | null): string {
   switch (reason) {
-    case "model_not_in_profile":
-      return t("agent.save.reason.model_not_in_profile");
-    case "tool_not_in_profile":
-      return t("agent.save.reason.tool_not_in_profile");
+    case "model_not_in_connection":
+      return t("agent.save.reason.model_not_in_connection");
     case "credential_unbound":
       return t("agent.save.reason.credential_unbound");
     case "release_refused":
       return t("agent.save.reason.release_refused");
-    case "profile_unknown":
-      return t("agent.save.reason.profile_unknown");
+    case "connection_unknown":
+      return t("agent.save.reason.connection_unknown");
+    case "runtime_unsupported":
+    case "tools_unknown":
+      return t("agent.save.reason.runtime_unsupported");
     case "retries_exhausted":
       return t("agent.save.reason.retries_exhausted");
-    case "blocked":
-    case "base_blocked":
-      return t("agent.save.reason.blocked");
     case "revision_conflict":
       return t("agent.save.reason.revision_conflict");
     default:
@@ -80,46 +72,22 @@ export function EffectiveBehavior({
   const [outcome, setOutcome] = useState<string | null>(null);
   const { applied, draft } = detail.effective_behavior;
   const waiting = detail.draft;
-  const none = t("agent.panel.none");
-
-  const profiles = useQuery(profilesQuery(client));
-  // Discarding saves what runs again. A followed profile whose default has
-  // moved on no longer gives the running model, so that save would change
-  // it: the running model is kept as a chosen one.
-  const runningModel = detail.active_release
-    ? shownVersion(detail)?.card.model
-    : undefined;
-  const followsRunning =
-    detail.model_source === "profile" &&
-    profiles.data?.items.find(
-      (p) => p.id === detail.active_release?.runtime_profile_id,
-    )?.model === runningModel;
-
-  // Whether the profile still gives the running model is unknown until its
-  // list has loaded; discarding before then could drop the follow.
-  const knowsDefault = detail.model_source !== "profile" || profiles.isSuccess;
 
   const resave = useMutation<SaveAgentResponse, ApiError, "retry" | "discard">({
     mutationFn: (mode) => {
       const source =
         mode === "retry" ? draftVersion(detail) : shownVersion(detail);
-      const profile =
+      const connection =
         mode === "retry"
-          ? waiting?.runtime_profile_id
-          : detail.active_release?.runtime_profile_id;
-      if (!source || !profile) throw new Error("nothing to save again");
+          ? waiting?.connection_id
+          : detail.active_release?.connection_id;
+      if (!source || !connection) throw new Error("nothing to save again");
       return unwrap(
         client.PATCH("/v1/agents/{id}", {
           params: { path: { id: detail.agent.id } },
           body: {
             card: cardFromDraft(draftFromCard(source.card), source.card),
-            runtime_profile_id: profile,
-            model_source:
-              mode === "retry"
-                ? (waiting?.model_source ?? detail.model_source)
-                : followsRunning
-                  ? "profile"
-                  : "fixed",
+            connection_id: connection,
           },
         }),
       ) as Promise<SaveAgentResponse>;
@@ -141,41 +109,21 @@ export function EffectiveBehavior({
       );
       await queryClient.invalidateQueries(agentListsFilter(client));
     },
-    onError: (error) =>
-      setOutcome(
-        agentRefusal(t, error, role, (id) =>
-          profileDisplay(t, profiles.data?.items, id),
-        ),
-      ),
+    onError: (error) => setOutcome(agentRefusal(t, error, role)),
   });
 
   const values = (v: BehaviorValues) => [
     {
-      label: t("agent.effective.profile"),
-      // The id is the tooltip, and the text until the list names it: a slow
-      // or refused list never hides the value.
+      label: t("agent.effective.connection"),
       value: (
-        <span className="[overflow-wrap:anywhere]" title={v.runtime_profile_id}>
-          {profileDisplay(t, profiles.data?.items, v.runtime_profile_id)}
-        </span>
+        <Code size="inherit" className="[overflow-wrap:anywhere]">
+          {v.connection_id}
+        </Code>
       ),
     },
     {
       label: t("agentCard.model"),
-      value: (
-        <span className="inline-flex flex-wrap items-center gap-2">
-          <Code size="inherit">{v.model}</Code>
-          <Badge variant="gray" className="font-normal">
-            {v.model_source === "profile"
-              ? t("agent.effective.followsProfile")
-              : t("agent.effective.chosen")}
-          </Badge>
-        </span>
-      ),
-    },
-    {
-      label: t("agent.effective.titleModel"),
-      value: v.title_model ? <Code size="inherit">{v.title_model}</Code> : none,
+      value: <Code size="inherit">{v.model}</Code>,
     },
   ];
 
@@ -224,7 +172,7 @@ export function EffectiveBehavior({
                 <Button
                   type="button"
                   variant="ghost"
-                  disabled={resave.isPending || !knowsDefault}
+                  disabled={resave.isPending}
                   onClick={() => resave.mutate("discard")}
                 >
                   {t("agent.draft.discard")}

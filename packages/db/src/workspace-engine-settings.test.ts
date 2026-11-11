@@ -5,10 +5,7 @@ import type { ToolCatalogView } from "@werft-ai/contracts";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import * as schema from "./schema.ts";
-import {
-  engineSettingsWritesOpen,
-  workspaceEngineSettingsOf,
-} from "./workspace-engine-settings.ts";
+import { workspaceEngineSettingsOf } from "./workspace-engine-settings.ts";
 
 /**
  * The workspace's engine settings table and the write gate. Nothing writes
@@ -133,28 +130,5 @@ describe("workspace_engine_settings", () => {
     await expect(
       workspaceEngineSettingsOf(db, workspaceId, catalog),
     ).rejects.toThrow(/does not parse: rule_no_effect/);
-  });
-});
-
-describe("engine_settings_gate", () => {
-  test("a migrated database has the one row, closed", async () => {
-    const rows = await client.query<{ id: number; writes_open: boolean }>(
-      "SELECT id, writes_open FROM engine_settings_gate",
-    );
-    expect(rows.rows).toEqual([{ id: 1, writes_open: false }]);
-    expect(await engineSettingsWritesOpen(db)).toBe(false);
-  });
-
-  test("opening it is what the reader sees, and a second row cannot exist", async () => {
-    await client.query("UPDATE engine_settings_gate SET writes_open = true");
-    expect(await engineSettingsWritesOpen(db)).toBe(true);
-    await expect(
-      client.query("INSERT INTO engine_settings_gate (id) VALUES (2)"),
-    ).rejects.toThrow(/engine_settings_gate_single/);
-  });
-
-  test("a database without the row reads as closed", async () => {
-    await client.query("DELETE FROM engine_settings_gate");
-    expect(await engineSettingsWritesOpen(db)).toBe(false);
   });
 });

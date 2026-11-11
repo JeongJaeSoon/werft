@@ -256,7 +256,7 @@ function workspaceRoots(cwd: string): string[] {
 
 /**
  * The rules for a session, whatever its tool surface. They are written for
- * every tool and widen nothing: a tool the profile or an organization denies
+ * every tool and widen nothing: a tool the release's tool list or the rules deny
  * is out of the model's list, and a deny beats an allow in every layer.
  */
 export function workspaceRules(cwd: string): WorkspaceRules {

@@ -1909,7 +1909,7 @@ async function main(): Promise<number> {
   out.json("meta", meta);
   console.error(`soak ${config.name}: output ${dir}`);
 
-  const api = new Api(env.apiUrl, env.apiKey);
+  const api = new Api(env.apiUrl, env.apiKey, undefined, env.approveKey);
   const model = new Model(env.messagesUrl);
   const db = database(env.databaseUrl);
   const soak = new Soak(config, env, out, api, model, db);

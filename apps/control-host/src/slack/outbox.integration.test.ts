@@ -68,7 +68,6 @@ import {
 import { createLogger, type LogRecord } from "@werft-ai/observability";
 import {
   type Caller,
-  type CatalogProfileView,
   callerFor,
   createAgentService,
   createAuthorizationPolicy,
@@ -91,27 +90,14 @@ import {
   settingsCatalog,
   settingsDocument,
 } from "../test-support/settings.ts";
-import { slackSessionHandler } from "./main.ts";
+import { TEST_RUNTIMES } from "../testing/catalog.ts";
+import { slackCatalog, slackSessionHandler } from "./main.ts";
 
-const PROFILES = `profiles:
-  general:
-    runtime_kind: claude_agent_sdk
-    runtime_version: "0.3.270"
-    model: claude-sonnet-5
-    tools: [Read]
-    permission_mode: default
-    repository: none
-    provider:
-      kind: anthropic
-      endpoint: https://api.anthropic.invalid
-      auth:
-        kind: api_key
-        value_env: PROVIDER_KEY
-`;
 const CONNECTIONS = `connections:
   main:
     kind: anthropic
     endpoint: https://api.anthropic.invalid
+    models: [claude-sonnet-5]
     auth:
       kind: api_key
       value_env: PROVIDER_KEY
@@ -155,6 +141,13 @@ const key = SecretKey.fromHex(randomBytes(32).toString("hex"), "TEST_KEY");
 
 let db: Database;
 
+/** The catalog a pass reads before its first event (main). */
+async function refreshedSlackCatalog() {
+  const catalog = slackCatalog(db, ENVIRONMENT);
+  await catalog.refresh();
+  return catalog;
+}
+
 afterAll(() => {
   slack.stop();
 });
@@ -178,7 +171,7 @@ function useDatabase(engine: string) {
         await database.drop();
       };
     }
-    await seedSettings(db, settingsDocument(PROFILES, CONNECTIONS));
+    await seedSettings(db, settingsDocument(CONNECTIONS));
     slack.statuses.length = 0;
     slack.messages.length = 0;
     slack.failures.clear();
@@ -229,6 +222,7 @@ async function agentInSlack() {
     store: createPostgresAgentStore(db),
     catalog: await settingsCatalog(db),
     credentials: createPostgresCredentialBindingStore(db),
+    runtimes: TEST_RUNTIMES,
   });
   const managingTeamId = randomUUID();
   await db
@@ -248,7 +242,7 @@ async function agentInSlack() {
   const agentId = created.agent.id;
   const { release } = await agentsService.createRelease(owner, agentId, {
     version_id: created.versions[0]?.id ?? "",
-    runtime_profile_id: "general",
+    connection_id: "main",
   });
   await agentsService.activateAgent(owner, agentId, {
     release_id: release.id,
@@ -350,6 +344,7 @@ async function mention(fixture: Fixture, ts: string, user = PERSON) {
   await drainSlackInbox({
     inbox: createPostgresSlackInboundEventStore(db),
     handler: slackSessionHandler({
+      catalog: await refreshedSlackCatalog(),
       db,
       pool: {
         connect: () => {
@@ -497,6 +492,7 @@ type PlanNode = {
   "Relation Name"?: string;
   Alias?: string;
   "Index Cond"?: string;
+  "Recheck Cond"?: string;
   Plans?: PlanNode[];
 };
 
@@ -510,7 +506,8 @@ const reads = (node: PlanNode, relation: string): boolean =>
 // index: probed once per live link, never per session or whole.
 function turnsReadPerLink(plan: PlanNode, linkedOuter = false): boolean {
   if (plan["Relation Name"] === "turns" && plan.Alias === "turns") {
-    const cond = plan["Index Cond"] ?? "";
+    // A bitmap scan by the same ids keeps its condition as the recheck.
+    const cond = plan["Index Cond"] ?? plan["Recheck Cond"] ?? "";
     return (
       /\bid = ANY \(/.test(cond) ||
       (linkedOuter && /\bsession_id = /.test(cond))
@@ -651,20 +648,7 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     await endTurn(sessionId, 1, "completed", [
       [{ message: { content: [{ type: "text", text: "From before." }] } }],
     ]);
-    const [session] = await db
-      .select({ profileId: sessions.profileId })
-      .from(sessions)
-      .where(eq(sessions.id, sessionId));
-    const neutralize = eventNeutralizer(
-      {
-        profiles: {
-          [session?.profileId ?? ""]: {
-            runtime_kind: "claude_agent_sdk",
-          } as CatalogProfileView,
-        },
-      },
-      logger,
-    );
+    const neutralize = eventNeutralizer(logger);
     expect(
       await outboxPass({
         outbox: createPostgresSlackOutboxStore(db, { neutralize }),

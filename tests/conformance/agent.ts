@@ -68,7 +68,7 @@ export async function pushAgent(
     `/v1/agents/${agent.body.agent.id}/releases`,
     {
       version_id: agent.body.versions[0]?.id,
-      runtime_profile_id: engine.profileId,
+      connection_id: engine.connectionId,
       repository_id: engine.repositoryId,
       github: {
         repositories: [engine.repositoryId],

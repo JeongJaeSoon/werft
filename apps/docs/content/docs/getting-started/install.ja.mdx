@@ -54,16 +54,13 @@ export const werft = new Werft({
 
 ## 接続を確認する
 
-キーの持ち主と scope、サーバーに登録されたプロファイルを読む。
+キーの持ち主と scope を読む。
 
 ```ts title="check.ts"
 import { werft } from "./werft.ts";
 
 const me = await werft.auth.me();
 console.log(me.principal.kind, me.scopes);
-
-const { items } = await werft.profiles.list();
-for (const profile of items) console.log(profile.id, profile.repository_mode);
 ```
 
 ```bash
@@ -78,9 +75,6 @@ api_key [
   'sessions:control',
   'sessions:recover'
 ]
-claude-coding-auto required
-claude-coding-local required
-general none
 ```
 
 Node 22.18 以上と Bun は `.ts` ファイルをそのまま実行する。それより古い Node では `npx tsx check.ts` で実行する。キーが間違っていれば `APIError`(401)が、サーバーに届かなければ `ConnectionError` が起きる。

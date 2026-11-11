@@ -7,13 +7,13 @@ import type {
 import { SESSION_SCOPE_VALUES } from "@werft-ai/contracts";
 import type { UsageDecision } from "../musterrolle/agent-usage-decision.ts";
 import { type AuthorizationPolicy, callerFor } from "../musterrolle/policy.ts";
+import { testCatalog } from "../testing/catalog-fakes.ts";
 import type {
   AcceptSessionInput,
   AcceptSessionResult,
   AppendMessageInput,
   AppendMessageResult,
 } from "./ports/session-unit-of-work.ts";
-import { withSeededInstallation } from "./profile-registry.ts";
 import {
   createSessionService,
   SessionServiceError,
@@ -79,7 +79,7 @@ function setup(options: {
   };
   const service = createSessionService({
     authorization,
-    catalog: withSeededInstallation({ profiles: {}, repositories: {} }),
+    catalog: testCatalog({ repositories: {} }),
     controls: {} as never,
     reader: { getSession: async () => null } as never,
     limits: {
@@ -99,15 +99,16 @@ function setup(options: {
             id: releaseId,
             agent_id: AGENT,
             approved_at: "2026-01-01T00:00:00.000Z",
-            runtime_profile_id: "coding-v1",
+            connection_id: "test-connection",
             repository_id: null,
+            effective_tools: { tools: [], mcp: [] },
             runtime_config_snapshot: {},
             policy_pins: {},
           };
         }
         // Reached only for someone who may see the agent.
         throw new SessionServiceError(
-          "PROFILE_DIGEST_MISMATCH",
+          "RELEASE_SPEC_UNAVAILABLE",
           "the release's integrity is broken",
         );
       },
@@ -269,7 +270,9 @@ describe("an agent that turned private after the release was read", () => {
     const error = await failure(
       open.service.createSession(actor, start("rel-1") as never),
     );
-    expect((error as SessionServiceError).code).toBe("PROFILE_DIGEST_MISMATCH");
+    expect((error as SessionServiceError).code).toBe(
+      "RELEASE_SPEC_UNAVAILABLE",
+    );
     expect(open.resolved()).toBe(1);
   });
 

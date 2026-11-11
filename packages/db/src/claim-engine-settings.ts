@@ -1,11 +1,9 @@
 import { createHash } from "node:crypto";
 import {
-  adminDenySchema,
   type ReceiptActor,
   storedEngineSettingsSchema,
 } from "@werft-ai/contracts";
 import {
-  applicableAdminDeny,
   type ClaimEngineSettings,
   effectiveEngineSettings,
   type MergedEngineSettings,
@@ -210,7 +208,6 @@ async function evaluate(
   }
 
   let agentRow = null;
-  let adminDeny: ReturnType<typeof applicableAdminDeny> = [];
   if (session.agentReleaseId !== null) {
     const [release] = await tx
       .select({ agentId: agentReleases.agentId })
@@ -230,11 +227,8 @@ async function evaluate(
         permissions: row.permissions,
         auto_mode: row.autoMode,
       });
-      const inherited = adminDenySchema.safeParse(row.adminDeny);
       if (!parsed.success) return closed("agent_rules");
-      if (!inherited.success) return closed("admin_deny");
       agentRow = { ...parsed.data, revision: row.revision };
-      adminDeny = applicableAdminDeny(inherited.data, session.agentReleaseId);
     }
   }
 
@@ -244,7 +238,6 @@ async function evaluate(
       start: session.engineSettingsStart,
       row: agentRow,
     }),
-    adminDeny,
   });
   if (merged.kind === "closed") audit.untouched = false;
   if (merged.kind === "rules") {

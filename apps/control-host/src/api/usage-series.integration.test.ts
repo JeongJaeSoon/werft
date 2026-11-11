@@ -20,6 +20,7 @@ import {
   users,
   workspaces,
 } from "@werft-ai/db";
+import { TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
 import {
   type Caller,
   callerFor,
@@ -36,6 +37,7 @@ import {
 import { and, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { releaseIn } from "../testing/releases.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -129,7 +131,11 @@ integration("usage series on PostgreSQL", () => {
         principal: user(who, who === "owner" ? "owner" : "member"),
         idempotencyKey: crypto.randomUUID(),
         payloadHash: crypto.randomUUID(),
-        profileId: "claude-coding-v1",
+        agentReleaseId: await releaseIn(
+          db,
+          user(who, who === "owner" ? "owner" : "member").ownerId,
+        ),
+        model: TEST_MODEL,
         repository: "none",
         message: "count me",
       },

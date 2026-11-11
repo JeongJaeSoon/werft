@@ -14,7 +14,6 @@ import {
   createWorkerGateway,
   type WorkerGateway,
   type WorkerPrincipal,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import {
   createTempDatabase,
@@ -40,13 +39,16 @@ import {
 } from "./schema.ts";
 import { reconcileExpiredLeases } from "./sessions/lease-reconcile.ts";
 import { confirmExecutionGone, launchSession } from "./testing/launches.ts";
+import {
+  makeFixtureRelease,
+  TEST_MODEL,
+  testSessionCatalog,
+} from "./testing/spec-pins.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
 const RECOVERY_MODES = ["default", ...UNATTENDED_PERMISSION_MODES] as const;
-const profileFor = (mode: (typeof RECOVERY_MODES)[number]) =>
-  mode === "default" ? "claude-coding-v1" : `claude-${mode}`;
 
 // A legacy pod taking an unowned session: the claimant the orphan
 // reconciler hands the session back to.
@@ -305,33 +307,20 @@ integration("expired lease reconciliation on PostgreSQL", () => {
     db = drizzle(pool, { schema });
     gateway = createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
-      catalog: withSeededInstallation({
-        profiles: Object.fromEntries(
-          RECOVERY_MODES.map((mode) => [
-            profileFor(mode),
-            {
-              runtime_kind: "claude_agent_sdk",
-              runtime_version: "0.3.270",
-              model: "claude-sonnet-5",
-              tools: ["Read", "Edit", "Bash"],
-              permission_mode: mode,
-              provider: {
-                kind: "litellm",
-                endpoint: "https://litellm.invalid",
-                auth: {
-                  kind: "api_key",
-                  value: "catalog-provider-key",
-                  ref: { value_env: "PROVIDER_KEY" },
-                },
-              },
-            },
-          ]),
-        ),
+      catalog: testSessionCatalog({
+        provider: {
+          kind: "litellm",
+          endpoint: "https://litellm.invalid",
+          auth: {
+            kind: "api_key",
+            value: "catalog-provider-key",
+            ref: { value_env: "PROVIDER_KEY" },
+          },
+        },
         repositories: {
           "sample-app": {
             url: "https://example.invalid/app.git",
             branch: "main",
-            profiles: RECOVERY_MODES.map(profileFor),
             auth: { kind: "github_app", registered: true },
           },
         },
@@ -358,17 +347,20 @@ integration("expired lease reconciliation on PostgreSQL", () => {
 
   async function bound(
     name: string,
-    profileId: string = profileFor("default"),
+    mode: (typeof RECOVERY_MODES)[number] = "default",
   ) {
     const partition = `${name}-${crypto.randomUUID()}`;
     const accepted = await createPostgresSessionUnitOfWork(
       db,
     ).acceptInputAtomic({
       limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
-      principal: { ownerId: `owner-${crypto.randomUUID()}` },
+      principal: { ownerId: crypto.randomUUID() },
       idempotencyKey: crypto.randomUUID(),
       payloadHash: crypto.randomUUID(),
-      profileId,
+      agentReleaseId: await makeFixtureRelease(db, {
+        spec: { permission_mode: mode },
+      }),
+      model: TEST_MODEL,
       repository: {
         id: "sample-app",
         url: "https://example.invalid/app.git",
@@ -502,7 +494,7 @@ integration("expired lease reconciliation on PostgreSQL", () => {
   // turn goes to an operator exactly as an attended one's does.
   for (const mode of RECOVERY_MODES) {
     test(`lease expired after delivery (${mode}): the turn ends outcome_unknown and the session waits for recovery`, async () => {
-      const b = await bound("after", profileFor(mode));
+      const b = await bound("after", mode);
       expect(b.claimed.runtime_config.permission_mode).toBe(mode);
       const next = await gateway.nextInput(b.principal, b.scope);
       expect(next.input?.turn_id).toBe("1");

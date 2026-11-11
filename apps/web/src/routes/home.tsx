@@ -72,7 +72,6 @@ import {
   invitesQuery,
   linkedAccountsQuery,
   myTeamsQuery,
-  profilesQuery,
 } from "../api/queries.ts";
 import { useHasPermission, useMe, useRole } from "../auth/guard.tsx";
 import { AdministeredAgents } from "../components/agent-admins.tsx";
@@ -111,7 +110,6 @@ interface Step {
     | "/members"
     | "/agents"
     | "/sessions"
-    | "/profiles"
     | "/settings/workspace/model-connections";
   /** Every step says how it gets done, so every row has the same two lines. */
   readonly hint: MessageKey;
@@ -130,7 +128,6 @@ const STEP_ACTION = {
   "/members": "home.checklist.toMembers",
   "/agents": "home.checklist.toAgents",
   "/sessions": "home.checklist.toSessions",
-  "/profiles": "home.setup.toProfiles",
   "/settings/workspace/model-connections": "home.setup.toConnections",
 } as const satisfies Record<NonNullable<Step["to"]>, MessageKey>;
 
@@ -255,11 +252,12 @@ export function HomeScreen() {
     ...settingsConnectionsQuery(client, installs),
     select: (page) => page.items.some((item) => item.state === "active"),
   });
-  const ceilings = useQuery({
-    ...profilesQuery(client),
+  const models = useQuery({
+    ...settingsConnectionsQuery(client, installs),
     select: (page) =>
-      page.items.some((item) => item.installation?.state === "usable"),
-    enabled: installs,
+      page.items.some(
+        (item) => item.state === "active" && item.models.length > 0,
+      ),
   });
   const installSteps: readonly Step[] = installs
     ? [
@@ -270,10 +268,10 @@ export function HomeScreen() {
           hint: "home.setup.connectionHint",
         },
         {
-          key: "home.setup.ceiling",
-          state: stateOf(ceilings),
-          to: "/profiles",
-          hint: "home.setup.ceilingHint",
+          key: "home.setup.models",
+          state: stateOf(models),
+          to: "/settings/workspace/model-connections",
+          hint: "home.setup.modelsHint",
         },
       ]
     : [];
@@ -324,7 +322,7 @@ export function HomeScreen() {
     [members, invites, agentCounts, sessions].every(
       (query) => !query.isPending,
     ) &&
-    (!installs || (!connections.isPending && !ceilings.isPending)) &&
+    (!installs || !connections.isPending) &&
     steps.some((step) => step.state !== "done");
 
   // The oldest request and each session's wait are read from the same

@@ -90,7 +90,7 @@ function fencedBy(lines: string[], message: string, sessionId: string) {
 describe.skipIf(env === null)("periodic reconciler sweep", () => {
   beforeAll(async () => {
     if (!env) return;
-    api = new PublicApi(env.apiUrl, env.apiKey);
+    api = new PublicApi(env.apiUrl, env.apiKey, env.releaseId, env.approveKey);
     db = database(env.databaseUrl);
     chaos = new Chaos(env.chaosUrl);
     messages = new Messages(env.messagesUrl);

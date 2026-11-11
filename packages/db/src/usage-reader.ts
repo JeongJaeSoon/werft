@@ -226,16 +226,12 @@ function breakdownByModel(inPeriod: SQL, pairs: SQL, preMetered: SQL) {
     ORDER BY grouped.cost_usd DESC, key NULLS LAST`;
 }
 
-// The summary's figures per agent, holding user or current profile, with
+// The summary's figures per agent or holding user, with
 // the totals summed over the groups by window in the same statement. Run
 // time is floored on the running total as the series does, so the groups
 // add up to the totals' one floor. The one-row `one` keeps the totals when
 // no session falls in the period.
-function summaryGroups(
-  inPeriod: SQL,
-  until: SQL,
-  by: "agent" | "user" | "profile",
-) {
+function summaryGroups(inPeriod: SQL, until: SQL, by: "agent" | "user") {
   const grouping = {
     agent: {
       key: sql`${agentReleases.agentId}`,
@@ -248,13 +244,6 @@ function summaryGroups(
       from: sql`${sessions}`,
       name: sql`${users.displayName}`,
       named: sql`LEFT JOIN ${users} ON ${users.id}::text = grouped.key`,
-    },
-    // The catalog gives a profile no display name, so its id is its name.
-    profile: {
-      key: sql`${sessions.profileId}`,
-      from: sql`${sessions}`,
-      name: sql`grouped.key`,
-      named: sql``,
     },
   }[by];
   return sql`

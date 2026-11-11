@@ -3,7 +3,7 @@ title: "receipt"
 description: Read the record of how a command ended
 ---
 
-Commands such as messages, controls (interrupt, pause, resume, close, terminate, recovery decisions, profile changes), push requests and decisions, and account and key management leave a receipt. A receipt holds who did it (`actor`), what they did (`operation`, `target_ref`), and how it ended (`status`, `result`, `error`). For an asynchronous command, the response's `receipt_status` is `accepted`, and you read the receipt again to see whether it finished. The scope is `sessions:read`.
+Commands such as messages, controls (interrupt, pause, resume, close, terminate, recovery decisions), push requests and decisions, and account and key management leave a receipt. A receipt holds who did it (`actor`), what they did (`operation`, `target_ref`), and how it ended (`status`, `result`, `error`). For an asynchronous command, the response's `receipt_status` is `accepted`, and you read the receipt again to see whether it finished. The scope is `sessions:read`.
 
 | `status` | Meaning |
 | --- | --- |

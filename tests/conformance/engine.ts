@@ -60,10 +60,10 @@ export interface EngineFixture {
   /** A command the engine asks permission for before it runs. */
   readonly approvalCommand: string;
   readonly capabilities: ReadonlySet<Capability>;
+  /** The connection the suite's agent is released on. */
+  readonly connectionId: string;
   /** The model an agent card names for this engine. */
   readonly cardModel: string;
-  /** Profile the sessions run on. */
-  readonly profileId: string;
   readonly repositoryId: string;
   readonly runtimeKind: RuntimeKind;
   /** Calls the engine's fake provider recorded for the script `id`. */

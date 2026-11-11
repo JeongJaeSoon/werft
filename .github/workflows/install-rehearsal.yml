@@ -153,6 +153,10 @@ jobs:
             echo "ANTHROPIC_API_KEY=rehearsal-not-a-key"
             echo "PLATFORM_SETTINGS_DOCUMENT=$(dirname "$TEST_OPS_ENV_FILE")/settings.json"
           } >>"$TEST_OPS_ENV_FILE"
+          # The settings the published release reads: this job runs the
+          # release's own commit, so they keep that release's schema (its
+          # `profiles` block) until a release without profiles is published,
+          # not the schema of the branch that runs the workflow.
           cat >"$(dirname "$TEST_OPS_ENV_FILE")/settings.json" <<'JSON'
           {
             "version": 1,

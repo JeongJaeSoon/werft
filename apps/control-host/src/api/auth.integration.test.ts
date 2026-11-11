@@ -22,12 +22,17 @@ import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import {
   createAuthorizationPolicy,
   createSessionService,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { testCatalog } from "../testing/catalog.ts";
+import {
+  allowRepositories,
+  releaseIn,
+  sessionReleases,
+} from "../testing/releases.ts";
 import { createApiApp } from "./app.ts";
 import {
   createBootstrapGate,
@@ -76,6 +81,15 @@ integration("auth API on PostgreSQL", () => {
       lockout: new LoginLockout({ now: () => now }),
       logger,
     };
+    const catalog = testCatalog({
+      repositories: {
+        "sample-app": {
+          url: "https://example.invalid/app.git",
+          branch: "main",
+          auth: { kind: "github_app", registered: true } as const,
+        },
+      },
+    });
     const sessions = createSessionService({
       limits: {
         queuedInputLimitPerSession: 1_000,
@@ -83,36 +97,17 @@ integration("auth API on PostgreSQL", () => {
         sessionCostLimitUsd: 1_000,
         sessionTokenLimit: null,
       },
-      authorization: createAuthorizationPolicy(),
+      authorization: createAuthorizationPolicy({
+        identity: schema.createDatabaseIdentityReader(db),
+        agents: schema.createDatabaseAgentAuthority(db),
+        credentials: schema.createPostgresCredentialBindingStore(db),
+        sessions: schema.createPostgresSessionShareStore(db),
+      }),
       inputs: createPostgresSessionUnitOfWork(db),
       controls: createPostgresSessionControl(db),
       reader: createPostgresSessionReader(db),
-      catalog: withSeededInstallation({
-        profiles: {
-          "claude-coding-v1": {
-            runtime_kind: "claude_agent_sdk",
-            runtime_version: "0.3.270",
-            model: "claude-sonnet-5",
-            tools: ["Read", "Edit", "Bash"],
-            permission_mode: "default",
-            provider: {
-              kind: "litellm",
-              endpoint: "https://litellm.invalid",
-              auth: {
-                kind: "api_key",
-                ref: { value_env: "PROVIDER_KEY" },
-              },
-            },
-          },
-        },
-        repositories: {
-          "sample-app": {
-            url: "https://example.invalid/app.git",
-            branch: "main",
-            profiles: ["claude-coding-v1"],
-          },
-        },
-      }),
+      catalog,
+      releases: sessionReleases(db, catalog),
     });
     app = createApiApp({
       authMode: "api-key",
@@ -167,8 +162,9 @@ integration("auth API on PostgreSQL", () => {
     );
   const cookieOf = (response: Response) =>
     (response.headers.get("Set-Cookie") ?? "").split(";")[0] ?? "";
+  // The release is made once the workspace exists (first session below).
   const sessionBody = {
-    profile_id: "claude-coding-v1",
+    agent_release_id: "",
     repository_id: "sample-app",
     message: "Inspect the failing unit test and propose a fix.",
   };
@@ -250,7 +246,9 @@ integration("auth API on PostgreSQL", () => {
     );
   });
 
-  test("cookie-only POST /v1/sessions is 403 without the CSRF header, 201 with it; bearer is 201 as before", async () => {
+  test("cookie-only POST /v1/sessions is 403 without the CSRF header, 201 with it; a key from before workspaces names no release", async () => {
+    sessionBody.agent_release_id = await releaseIn(db, workspaceId);
+    await allowRepositories(db, workspaceId, ["sample-app"]);
     const refused = await json("/v1/sessions", sessionBody, {
       Cookie: cookie,
       "Idempotency-Key": crypto.randomUUID(),
@@ -275,17 +273,15 @@ integration("auth API on PostgreSQL", () => {
       Authorization: `Bearer ${apiKey}`,
       "Idempotency-Key": crypto.randomUUID(),
     });
-    expect(bearer.status).toBe(201);
-    const foreign = createSessionResponseSchema.parse(await bearer.json());
+    expect(bearer.status).toBe(404);
 
-    // The API key's session list is its own partition; the cookie's list
-    // cannot see it and vice versa.
-    const mine = await app.request("/v1/sessions", {
-      headers: { Cookie: cookie },
+    // The API key's session list is its own partition: the cookie's session
+    // is not in it.
+    const theirs = await app.request("/v1/sessions", {
+      headers: { Authorization: `Bearer ${apiKey}` },
     });
-    const ids = (await mine.json()).items.map((s: { id: string }) => s.id);
-    expect(ids).toContain(created.session_id);
-    expect(ids).not.toContain(foreign.session_id);
+    const ids = (await theirs.json()).items.map((s: { id: string }) => s.id);
+    expect(ids).not.toContain(created.session_id);
   });
 
   test("bearer wins over a cookie and a wrong bearer is not rescued", async () => {

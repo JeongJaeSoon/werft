@@ -24,8 +24,11 @@ const BASE = `http://127.0.0.1:${process.env.PORT ?? 3000}`;
 const MOCK_SLACK = "http://mock-slack:4020";
 const CREDS = process.env.DEMO_CREDS_FILE ?? "/tmp/demo-rich-creds.json";
 const MODEL = "claude-sonnet-5";
-const CODING = "claude-coding-local";
-const GENERAL = "general";
+// The fake-model stack's connection every release here runs on.
+const CONNECTION = "fake-messages";
+// A session that names no agent runs this one's release: every session runs
+// an agent release.
+const DEFAULT_AGENT = "deploy-helper";
 const SETTLE_MS = 420_000;
 
 const results: string[] = [];
@@ -413,15 +416,14 @@ type Card = {
 type AgentSpec = {
   slug: string;
   name: string;
-  profile: string;
+  /** Its releases name the sample repository. */
+  repository?: true;
   versions: Card[];
   // Indexes into versions that get a release, in order; the last one in
   // active is activated.
   release: number[];
   // A release note per version index, kept when the release already exists.
   notes?: Record<number, string>;
-  // Per version index; overrides `profile` (workspace profile versions).
-  releaseProfile?: Record<number, string>;
   active: number | null;
   status?: "paused" | "archived";
   admins?: { user?: string; team?: string }[];
@@ -440,7 +442,7 @@ const AGENTS: AgentSpec[] = [
   {
     slug: "deploy-helper",
     name: "배포 도우미",
-    profile: CODING,
+    repository: true,
     versions: [
       {
         role: "배포 전 점검 목록을 확인한다",
@@ -489,7 +491,6 @@ const AGENTS: AgentSpec[] = [
   {
     slug: "readonly-reviewer",
     name: "읽기 전용 리뷰어",
-    profile: "ws:readonly-review:2",
     versions: [
       {
         role: "문서와 코드를 읽고 검토 의견만 낸다",
@@ -510,7 +511,6 @@ const AGENTS: AgentSpec[] = [
       },
     ],
     release: [0, 1],
-    releaseProfile: { 0: "ws:readonly-review:1", 1: "ws:readonly-review:2" },
     notes: {
       0: "좁힌 판 v1(Read·Glob·Grep)로 시작",
       1: "질문 도구가 든 v2 판으로 옮겼다 — v1 판은 은퇴",
@@ -521,7 +521,6 @@ const AGENTS: AgentSpec[] = [
   {
     slug: "translator-en",
     name: "Translator (EN)",
-    profile: GENERAL,
     versions: [
       {
         role: "Translates Korean docs into natural English",
@@ -537,7 +536,6 @@ const AGENTS: AgentSpec[] = [
   {
     slug: "legacy-summarizer",
     name: "구 문서 요약기 (보관됨)",
-    profile: GENERAL,
     versions: [
       {
         role: "오래된 위키 문서를 요약한다",
@@ -551,7 +549,7 @@ const AGENTS: AgentSpec[] = [
   {
     slug: "nightly-check",
     name: "야간 배치 점검 (일시 중지)",
-    profile: CODING,
+    repository: true,
     versions: [
       {
         role: "야간 배치 결과를 점검한다",
@@ -565,7 +563,6 @@ const AGENTS: AgentSpec[] = [
   {
     slug: "draft-no-release",
     name: "초안 에이전트 (배포 안 함)",
-    profile: GENERAL,
     versions: [
       {
         role: "아직 다듬는 중인 에이전트",
@@ -578,7 +575,6 @@ const AGENTS: AgentSpec[] = [
   {
     slug: "long-name-triage",
     name: "고객 문의 자동 분류 및 우선순위 지정 · 담당자 추천 에이전트 (실험 버전, 내부 전용)",
-    profile: GENERAL,
     versions: [
       {
         role: "문의를 분류하고 우선순위와 담당자를 추천한다",
@@ -639,13 +635,8 @@ async function ensureAgents(owner: Web) {
           (
             await owner.ok<any>(200, "POST", `/v1/agents/${id}/releases`, {
               version_id: version.id,
-              runtime_profile_id: profileId(
-                spec.releaseProfile?.[index] ?? spec.profile,
-              ),
-              // A profile whose repository mode is `required` takes one per release.
-              ...(needsRepository(spec.releaseProfile?.[index] ?? spec.profile)
-                ? { repository_id: "sample-app" }
-                : {}),
+              connection_id: CONNECTION,
+              ...(spec.repository ? { repository_id: "sample-app" } : {}),
               ...(spec.notes?.[index] ? { note: spec.notes[index] } : {}),
             })
           ).release.id;
@@ -696,111 +687,6 @@ async function ensureAgents(owner: Web) {
         { user_id: ids["user:admin"] },
       ),
     );
-  }
-}
-
-// ------------------------------------------------------ workspace profiles
-
-// Narrowed versions of the operator profiles. A spec profile written
-// `ws:<name>:<version>` resolves to that version's id.
-type WorkspaceProfileSpec = {
-  name: string;
-  base: string;
-  tools: string[];
-  retire?: boolean;
-};
-const WORKSPACE_PROFILES: WorkspaceProfileSpec[][] = [
-  [
-    {
-      name: "readonly-review",
-      base: GENERAL,
-      tools: ["Read", "Glob", "Grep"],
-      retire: true,
-    },
-    {
-      name: "readonly-review",
-      base: GENERAL,
-      tools: ["Read", "Glob", "Grep", "AskUserQuestion"],
-    },
-  ],
-  [
-    {
-      name: "coding-no-bash",
-      base: CODING,
-      tools: ["Read", "Edit", "Write", "Glob", "Grep", "AskUserQuestion"],
-    },
-  ],
-  [
-    {
-      name: "docs-draft",
-      base: GENERAL,
-      tools: ["Read", "Write"],
-      retire: true,
-    },
-  ],
-];
-const wsProfile: Record<string, string> = {};
-
-const needsRepository = (name: string) =>
-  name === CODING || name.startsWith("ws:coding-");
-
-function profileId(name: string): string {
-  if (!name.startsWith("ws:")) return name;
-  const id = wsProfile[name];
-  if (!id) throw new Error(`workspace profile ${name} not made`);
-  return id;
-}
-
-async function readWorkspaceProfiles(client: Web) {
-  const catalog = await client.ok<any>(200, "GET", "/v1/profiles");
-  for (const item of catalog.items ?? []) {
-    if (item.workspace)
-      wsProfile[`ws:${item.workspace.name}:${item.workspace.version}`] =
-        item.id;
-  }
-  return catalog.items ?? [];
-}
-
-async function ensureWorkspaceProfiles(owner: Web) {
-  await readWorkspaceProfiles(owner);
-  for (const versions of WORKSPACE_PROFILES) {
-    for (const [at, spec] of versions.entries()) {
-      const key = `ws:${spec.name}:${at + 1}`;
-      await step(`workspace profile ${key}`, async () => {
-        if (wsProfile[key]) return;
-        const made = await owner.ok<any>(
-          201,
-          "POST",
-          "/v1/workspace-profiles",
-          {
-            name: spec.name,
-            base_profile_id: spec.base,
-            model: MODEL,
-            models: [MODEL],
-            tools: spec.tools,
-            permission_mode: "default",
-          },
-        );
-        wsProfile[key] = made.profile.id;
-        note(`created workspace profile ${made.profile.id}`);
-      });
-    }
-  }
-}
-
-// After the agents, so a release still sits on a retired version.
-async function retireWorkspaceProfiles(owner: Web) {
-  const items = await readWorkspaceProfiles(owner);
-  for (const versions of WORKSPACE_PROFILES) {
-    for (const [at, spec] of versions.entries()) {
-      if (!spec.retire) continue;
-      const id = wsProfile[`ws:${spec.name}:${at + 1}`];
-      const row = items.find((item: any) => item.id === id);
-      if (!id || row?.workspace?.state === "retired") continue;
-      await step(`retire ${id}`, () =>
-        owner.ok(200, "POST", `/v1/workspace-profiles/${id}/retire`),
-      );
-    }
   }
 }
 
@@ -1003,71 +889,6 @@ async function disablePeople(owner: Web) {
       note(`disabled ${person.key}`);
     });
   }
-}
-
-// --------------------------------------------------- installation ceilings
-
-// The new-profile form and the profile list read these: one ceiling that
-// runs on the GitHub App's repositories, one an operator has blocked.
-const GITHUB_CEILING = "github-coding";
-const BLOCKED_CEILING = "legacy-batch";
-const ceilingId = (name: string) => `op_${name}_v1`;
-
-async function ensureInstallationCeilings(owner: Web) {
-  const items = await step("read profiles", () => readWorkspaceProfiles(owner));
-  const base = items?.find((item: any) => item.id === CODING);
-  if (!base?.installation) {
-    note(
-      `FAIL installation ceilings: ${CODING} has no installation ceiling to copy`,
-    );
-    return;
-  }
-  const specs = [
-    {
-      name: GITHUB_CEILING,
-      tools: base.tools,
-      repository_mode: "optional",
-      repository_ids: ["sample-app"],
-      github_app_repositories: "installed",
-    },
-    {
-      name: BLOCKED_CEILING,
-      tools: ["Read", "Glob", "Grep"],
-      repository_mode: "none",
-      repository_ids: [],
-      github_app_repositories: "listed",
-    },
-  ];
-  for (const spec of specs) {
-    await step(`installation ceiling ${spec.name}`, async () => {
-      if (items!.some((item: any) => item.id === ceilingId(spec.name))) return;
-      await owner.ok(201, "POST", "/v1/installation-profiles", {
-        ...spec,
-        ...(base.installation.title_model
-          ? { title_model: base.installation.title_model }
-          : {}),
-        // A ceiling without a repository has no CLAUDE.md to read.
-        ...(base.installation.project_settings &&
-        spec.repository_mode !== "none"
-          ? { project_settings: base.installation.project_settings }
-          : {}),
-        connection_id: base.installation.connection_id,
-        runtime_kind: base.runtime_kind,
-        runtime_version: base.runtime_version,
-        model: base.model,
-        models: base.models,
-        permission_mode: base.permission_mode,
-      });
-      note(`created installation ceiling ${ceilingId(spec.name)}`);
-    });
-  }
-  await step(`block ${ceilingId(BLOCKED_CEILING)}`, () =>
-    owner.ok(
-      200,
-      "POST",
-      `/v1/installation-profiles/${ceilingId(BLOCKED_CEILING)}/block`,
-    ),
-  );
 }
 
 // ---------------------------------------------------------------- github
@@ -1294,7 +1115,7 @@ async function ensureGitHub(owner: Web, workspaceId: string) {
     };
     let detail = await owner.ok<any>(200, "GET", `/v1/agents/${id}`);
     const versionId = detail.versions[0].id;
-    // The pick needs an active release whose ceiling runs on the App's repositories.
+    // The pick needs an active release.
     if (!detail.agent.active_release_id) {
       const first = await owner.ok<any>(
         200,
@@ -1302,7 +1123,7 @@ async function ensureGitHub(owner: Web, workspaceId: string) {
         `/v1/agents/${id}/releases`,
         {
           version_id: versionId,
-          runtime_profile_id: ceilingId(GITHUB_CEILING),
+          connection_id: CONNECTION,
           note: "저장소 없이 먼저 배포",
         },
       );
@@ -1326,7 +1147,7 @@ async function ensureGitHub(owner: Web, workspaceId: string) {
         `/v1/agents/${id}/releases`,
         {
           version_id: versionId,
-          runtime_profile_id: ceilingId(GITHUB_CEILING),
+          connection_id: CONNECTION,
           repository_id: picked[0],
           note: "GitHub 저장소 2개에서 pull request까지",
           github: {
@@ -1504,7 +1325,6 @@ type SessionSpec = {
   creator: string;
   title: string;
   agent?: string;
-  profile?: string;
   repository?: boolean;
   turns: string[];
   outcome: Outcome;
@@ -1619,7 +1439,6 @@ const SESSIONS: SessionSpec[] = [
     creator: "alex",
     title: "Investigate flaky checkout test on CI",
     repository: true,
-    profile: CODING,
     turns: [
       `The checkout e2e test fails about once in ten runs. Find out why.\n\n${scripted("english", [read("README.md"), { tool: "Grep", input: { pattern: "retry", output_mode: "files_with_matches" } }], "The test races the payment mock's warm-up. Waiting for the readiness probe fixes it.")}`,
     ],
@@ -1651,7 +1470,6 @@ const SESSIONS: SessionSpec[] = [
   {
     creator: "junho",
     title: "Q4 OKR 초안 review — 한/영 혼합 📈",
-    profile: GENERAL,
     turns: [
       `Q4 OKR 초안을 review 해 주세요. KR wording도 봐 주세요.\n\n${scripted("mixed", [], "Objective는 좋습니다. KR 2는 측정 기준(metric)이 빠져 있어요.")}`,
     ],
@@ -1660,7 +1478,6 @@ const SESSIONS: SessionSpec[] = [
   {
     creator: "owner",
     title: "주간 회의록 정리 — 여러 번 이어서 묻기 (긴 대화)",
-    profile: GENERAL,
     turns: [
       `이번 주 회의록을 정리해 주세요.\n\n${scripted("long-1", [], "월요일·수요일·금요일 회의의 결정 사항을 정리했습니다.")}`,
       `결정 사항만 다시 한 줄씩 뽑아 주세요.\n\n${scripted("long-2", [], "1) 출시일 11/3 확정 2) 결제 재시도 UI 추가 3) 온콜 순번 변경")}`,
@@ -1712,7 +1529,6 @@ const SESSIONS: SessionSpec[] = [
     creator: "member",
     title: "실패하는 빌드 스크립트 실행",
     repository: true,
-    profile: CODING,
     // Unterminated on purpose: the fake model cannot read its script.
     turns: ['빌드를 돌려 주세요.\n\nGATE-SPEC {"id":"broken","steps":['],
     outcome: "failed",
@@ -1720,7 +1536,6 @@ const SESSIONS: SessionSpec[] = [
   {
     creator: "member",
     title: "취소한 대량 메일 초안 작성",
-    profile: GENERAL,
     turns: [
       `고객 2,000명에게 보낼 메일 초안을 써 주세요.\n\n${scripted(
         "cancel",
@@ -1746,7 +1561,6 @@ const SESSIONS: SessionSpec[] = [
   {
     creator: "owner",
     title: "API key로 만든 야간 export 세션",
-    profile: GENERAL,
     viaKey: true,
     turns: [
       `어제 자 사용량을 CSV로 정리해 주세요.\n\n${scripted("via-key", [], "CSV 정리를 마쳤습니다.")}`,
@@ -1756,7 +1570,6 @@ const SESSIONS: SessionSpec[] = [
   {
     creator: "member",
     title: "비공개 세션 — 인사 평가 메모 정리",
-    profile: GENERAL,
     turns: [
       `평가 메모를 항목별로 정리해 주세요.\n\n${scripted("private", [], "항목별로 정리했습니다.")}`,
     ],
@@ -1766,7 +1579,6 @@ const SESSIONS: SessionSpec[] = [
   {
     creator: "alex",
     title: "Alex가 서연에게만 공유한 세션",
-    profile: GENERAL,
     turns: [
       `검토 부탁드립니다.\n\n${scripted("people", [], "검토 의견을 정리했습니다.")}`,
     ],
@@ -1792,7 +1604,6 @@ const SESSIONS: SessionSpec[] = [
   {
     creator: "admin",
     title: "Bash 없이 설정 파일 고치기 (coding-no-bash 판)",
-    profile: "ws:coding-no-bash:1",
     repository: true,
     turns: [
       `설정 파일의 오타를 찾아 주세요.\n\n${scripted("no-bash", [read("README.md"), { tool: "Grep", input: { pattern: "TODO", output_mode: "count" } }], "오타 2곳을 찾았습니다. Bash 없이 읽기 도구로만 확인했습니다.")}`,
@@ -1803,7 +1614,6 @@ const SESSIONS: SessionSpec[] = [
   {
     creator: "member",
     title: "(자동 제목) 배포 체크리스트",
-    profile: GENERAL,
     turns: [
       `다음 주 배포 전에 확인할 체크리스트를 만들어 주세요. 마이그레이션, 환경 변수, 롤백 순서를 포함해 주세요.\n\n${scripted("auto-title", [], "체크리스트 12개 항목을 정리했습니다.")}`,
     ],
@@ -1813,7 +1623,6 @@ const SESSIONS: SessionSpec[] = [
   {
     creator: "fox",
     title: "(자동 제목) fake 모델 그대로",
-    profile: GENERAL,
     turns: [
       `Please summarize the onboarding doc in three bullets.\n\n${scripted("auto-title-raw", [], "Here are the three bullets.")}`,
     ],
@@ -1865,7 +1674,6 @@ const SESSIONS: SessionSpec[] = [
   {
     creator: "junho",
     title: "디자인 토큰 이름 정하기 (질문 대기)",
-    profile: GENERAL,
     turns: [
       questionTurn("토큰 이름은 어떤 규칙으로 할까요?", [
         "역할 기반 (surface/raised)",
@@ -1914,7 +1722,6 @@ const SESSIONS: SessionSpec[] = [
   {
     creator: "owner",
     title: "릴리스 노트 문체 고르기 (질문 대기)",
-    profile: GENERAL,
     turns: [
       questionTurn("이번 릴리스 노트는 어떤 문체로 쓸까요?", [
         "짧은 요약",
@@ -2126,19 +1933,16 @@ async function createSession(client: Web, spec: SessionSpec) {
   const agent = spec.agent
     ? AGENTS.find((a) => a.slug === spec.agent)
     : undefined;
-  const profile = profileId(
-    spec.profile ??
-      agent?.profile ??
-      (spec.agent === "support-triage" ? GENERAL : CODING),
-  );
+  const release =
+    (spec.agent ? releaseOf[spec.agent] : undefined) ??
+    releaseOf[DEFAULT_AGENT];
+  if (!release)
+    throw new Error(`no release for ${spec.agent ?? DEFAULT_AGENT}`);
   const created = await author.ok<any>(201, "POST", "/v1/sessions", {
-    profile_id: profile,
+    agent_release_id: release,
     ...(spec.autoTitle ? {} : { title: spec.title }),
-    ...(spec.repository || profile === CODING
+    ...(spec.repository || agent?.repository
       ? { repository_id: "sample-app" }
-      : {}),
-    ...(spec.agent && releaseOf[spec.agent]
-      ? { agent_release_id: releaseOf[spec.agent] }
       : {}),
     ...(spec.parkNow ? { permission_wait: { park_after_seconds: 0 } } : {}),
     message: spec.turns[0],
@@ -2385,8 +2189,8 @@ async function polish() {
 // ------------------------------------------------------------------ main
 
 async function main() {
-  const profiles = await (await fetch(`${BASE}/readyz`)).json();
-  if ((profiles as any).status !== "ready") throw new Error("api not ready");
+  const ready = await (await fetch(`${BASE}/readyz`)).json();
+  if ((ready as any).status !== "ready") throw new Error("api not ready");
   const github = startFakeGitHub();
   if (process.argv.includes("--keep-running")) {
     await keepAlive();
@@ -2408,9 +2212,9 @@ async function main() {
     throw new Error("this api does not run the fake-model connections");
   const me = await owner.ok<any>(200, "GET", "/v1/auth/me");
   const workspaceId = me.workspace.id;
-  const catalog = await owner.ok<any>(200, "GET", "/v1/profiles");
+  const offered = await owner.ok<any>(200, "GET", "/v1/connections");
   note(
-    `permission_wait per profile: ${JSON.stringify((catalog.items ?? []).map((p: any) => [p.id, p.permission_wait]))}`,
+    `connections: ${JSON.stringify((offered.items ?? []).map((c: any) => [c.id, c.models]))}`,
   );
 
   await ensurePeople(owner);
@@ -2430,11 +2234,8 @@ async function main() {
       slack_guest_enabled: true,
     }),
   );
-  await ensureWorkspaceProfiles(owner);
-  await ensureInstallationCeilings(owner);
   await ensureAgents(owner);
   await ensureGitHub(owner, workspaceId);
-  await retireWorkspaceProfiles(owner);
   await ensureSlack(owner, workspaceId);
   await ensureLinks();
   await ensureKeys();

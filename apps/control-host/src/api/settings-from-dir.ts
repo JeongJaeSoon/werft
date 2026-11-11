@@ -1,11 +1,10 @@
 import { readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
-  type Connections,
+  type CatalogProviderConfig,
   catalogConnectionsSchema,
   describeConfigError,
   type SessionCatalogConfig,
-  safeParseCatalogConfig,
   sessionCatalogConfigSchema,
 } from "@werft-ai/platform";
 import { parse as parseYaml } from "yaml";
@@ -22,7 +21,7 @@ async function readYaml(path: string): Promise<unknown> {
     throw new Error(`${path} is missing`);
   }
   try {
-    // Not Bun.YAML: it keeps the last of two equal keys, so a profile
+    // Not Bun.YAML: it keeps the last of two equal keys, so an entry
     // defined twice would silently lose its first, reviewed definition.
     return parseYaml(await file.text(), { uniqueKeys: true });
   } catch (error) {
@@ -84,6 +83,16 @@ export function withoutLegacyRepositories(
       notes.push(
         `repository ${id} is not imported: it names no GitHub App (auth.kind github_app); add it again in the console`,
       );
+    } else if (
+      entry !== null &&
+      typeof entry === "object" &&
+      !Array.isArray(entry) &&
+      Object.hasOwn(entry, "profiles")
+    ) {
+      // A repository named the profiles it allowed; profiles are gone, so
+      // the list says nothing any more.
+      const { profiles: _profiles, ...rest } = entry as Record<string, unknown>;
+      kept[id] = rest;
     } else {
       kept[id] = entry;
     }
@@ -99,7 +108,6 @@ export async function readCatalogConfig(
   const repositoriesPath = resolve(dir, REPOSITORIES_FILE);
   const mcpServersPath = resolve(dir, MCP_SERVERS_FILE);
   const parsed = sessionCatalogConfigSchema.safeParse({
-    profiles: {},
     repositories: withoutLegacyRepositories(
       section(
         await readYaml(repositoriesPath),
@@ -127,29 +135,9 @@ export async function readCatalogConfig(
   return parsed.data;
 }
 
-export async function readSeedProfiles(
+export async function readConnections(
   dir: string,
-  config: SessionCatalogConfig,
-  tolerateNoRepositories = false,
-): Promise<SessionCatalogConfig["profiles"]> {
-  const path = resolve(dir, PROFILES_FILE);
-  if (!(await Bun.file(path).exists())) return {};
-  const parsed = safeParseCatalogConfig(
-    {
-      ...config,
-      profiles: section(await readYaml(path), "profiles", path),
-    },
-    tolerateNoRepositories,
-  );
-  if (!parsed.success) {
-    throw new Error(
-      `Catalog config in ${dir} is invalid: ${describeConfigError(parsed.error)}`,
-    );
-  }
-  return parsed.data.profiles;
-}
-
-export async function readConnections(dir: string): Promise<Connections> {
+): Promise<Record<string, CatalogProviderConfig>> {
   const path = resolve(dir, CONNECTIONS_FILE);
   const parsed = catalogConnectionsSchema.safeParse(
     section(await readYaml(path), "connections", path),

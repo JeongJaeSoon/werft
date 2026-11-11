@@ -13,8 +13,18 @@ import type { MessagesFaults, RequestSummary } from "./messages.ts";
  * a recorded sample, not a dead run.
  */
 
-const PROFILE_ID = "d2-gate";
 const REPOSITORY_ID = "gate-app";
+
+/** The gate agent's release (scripts/d2-gate/release.ts); every session runs it. */
+function gateReleaseId(): string {
+  const id = process.env.D2_GATE_RELEASE_ID;
+  if (!id) {
+    throw new Error(
+      "D2_GATE_RELEASE_ID is unset: source the gate stack's vars.sh",
+    );
+  }
+  return id;
+}
 const TERMINAL_TURN = new Set([
   "completed",
   "failed",
@@ -38,16 +48,23 @@ export class Api {
     private readonly base: string,
     private readonly key: string,
     private readonly timeoutMs = 30_000,
+    // Answers go under another key: the one that started the session is
+    // refused (`self_approval`).
+    private readonly approveKey: string = key,
   ) {}
 
   async call(method: string, path: string, body?: unknown): Promise<Timed> {
     const sentAt = Date.now();
     const started = performance.now();
+    const key =
+      method === "POST" && path.endsWith("/answers")
+        ? this.approveKey
+        : this.key;
     try {
       const response = await fetch(`${this.base}${path}`, {
         method,
         headers: {
-          authorization: `Bearer ${this.key}`,
+          authorization: `Bearer ${key}`,
           ...(body === undefined ? {} : { "content-type": "application/json" }),
           ...(method === "GET"
             ? {}
@@ -75,7 +92,7 @@ export class Api {
 
   createSession(message: string): Promise<Timed> {
     return this.call("POST", "/v1/sessions", {
-      profile_id: PROFILE_ID,
+      agent_release_id: gateReleaseId(),
       repository_id: REPOSITORY_ID,
       message,
     });

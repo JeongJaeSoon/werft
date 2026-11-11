@@ -20,7 +20,6 @@ const columns = {
   openedByTs: t.openedByTs,
   agentId: t.agentId,
   releaseId: t.releaseId,
-  profileId: t.profileId,
   sessionId: t.sessionId,
   createdBy: t.createdBy,
   revokedAt: t.revokedAt,
@@ -60,7 +59,6 @@ export function createPostgresSessionLinkStore(db: Database): SessionLinkStore {
             openedByTs: input.openedByTs,
             agentId: input.agentId,
             releaseId: input.releaseId,
-            profileId: input.profileId,
             createdBy: input.createdBy,
           })
           .onConflictDoNothing({ target: [t.installationId, t.surfaceRef] })

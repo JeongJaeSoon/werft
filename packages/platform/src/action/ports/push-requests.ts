@@ -292,7 +292,6 @@ export interface PushRequestStore {
     sessionId: string,
   ): Promise<{
     repositoryId: string | null;
-    profileId: string | null;
     /** The session's checkpoint pointer; absent or null when unknown. */
     checkpointRevision?: number | null;
     /** The session row's attached list; null leaves the release's whole. */

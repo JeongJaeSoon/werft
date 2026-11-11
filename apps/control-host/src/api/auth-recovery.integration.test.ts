@@ -118,7 +118,7 @@ integration("account recovery on PostgreSQL", () => {
               inputs: createPostgresSessionUnitOfWork(db),
               controls: createPostgresSessionControl(db),
               reader: createPostgresSessionReader(db),
-              catalog: { profiles: {}, repositories: {} },
+              catalog: { connections: {}, repositories: {} },
             }),
           );
         },

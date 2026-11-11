@@ -6,13 +6,15 @@ export {
   additionalRepositoryAllowed,
 } from "./additional-repositories.ts";
 export {
+  type CatalogConnectionView,
+  connectionOf,
   GITHUB_API_BASE,
   type RuntimeVersions,
   repositoryBinding,
   repositoryInCeiling,
   repositoryUpstreamOf,
+  runtimeKindOfProvider,
   type SessionCatalog,
-  usesWorkspaceCeiling,
 } from "./catalog.ts";
 export {
   closeOpenBlocks,
@@ -33,3 +35,4 @@ export {
   selfApproval,
   viewerOf,
 } from "./session-service.ts";
+export type { ToolCatalogs } from "./tool-names.ts";

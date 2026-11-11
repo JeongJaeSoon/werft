@@ -17,6 +17,7 @@ import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
 import type { Database } from "./queries.ts";
 import * as schema from "./schema.ts";
 import { memberships, receipts, users, workspaces } from "./schema.ts";
+import { fixtureRelease, TEST_MODEL } from "./testing/spec-pins.ts";
 
 const BOT = "fake-bot-credential-for-tests";
 const ENTRY = {
@@ -166,14 +167,17 @@ describe("the GitHub Packages store", () => {
 
   test("an owner that is not a workspace has no token and allows nothing", async () => {
     expect(await store.allowlist("quickstart")).toEqual([]);
+    // A session's owner is a uuid; this one names no workspace.
+    const owner = randomUUID();
     const accepted = await createPostgresSessionUnitOfWork(
       db,
     ).acceptInputAtomic({
       limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
-      principal: { ownerId: "quickstart" },
+      principal: { ownerId: owner },
       idempotencyKey: randomUUID(),
       payloadHash: "hash",
-      profileId: "claude-coding-v1",
+      agentReleaseId: await fixtureRelease(db),
+      model: TEST_MODEL,
       repository: {
         id: "app",
         url: "https://git.invalid/app.git",
@@ -184,7 +188,7 @@ describe("the GitHub Packages store", () => {
     if (accepted.outcome !== "accepted") throw new Error(accepted.outcome);
     expect(
       await store.sessionState(accepted.response.session_id),
-    ).toMatchObject({ workspaceId: "quickstart", token: null, allowlist: [] });
+    ).toMatchObject({ workspaceId: owner, token: null, allowlist: [] });
   });
 
   test("a row that does not parse allows nothing", async () => {
@@ -215,7 +219,8 @@ describe("the GitHub Packages store", () => {
       principal: { ownerId: workspaceId },
       idempotencyKey: randomUUID(),
       payloadHash: "hash",
-      profileId: "claude-coding-v1",
+      agentReleaseId: await fixtureRelease(db),
+      model: TEST_MODEL,
       repository: {
         id: "app",
         url: "https://git.invalid/app.git",

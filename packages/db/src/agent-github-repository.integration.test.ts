@@ -13,6 +13,10 @@ import { createPostgresAgentGitHubStore } from "./agent-github.ts";
 import { workspaceRepositoryCeiling } from "./github-settings.ts";
 import * as schema from "./schema.ts";
 import { fixtureTeamSql } from "./testing/fixture-team.ts";
+import {
+  RELEASE_SPEC_SQL_COLUMNS,
+  releaseSpecSqlValues,
+} from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -102,16 +106,15 @@ integration("turning one repository on or off on PostgreSQL", () => {
       );
       await pool.query(
         `INSERT INTO agent_releases (id, agent_id, version_id, card_sha256,
-           runtime_profile_id, repository_id, profile_digest,
-           runtime_config_snapshot, effective_tools, policy_pins)
-         VALUES ($1, $2, $3, $4, 'claude-coding-v1', $5, $6, '{}', '{}', $7)`,
+           repository_id, runtime_config_snapshot, effective_tools, policy_pins,
+           ${RELEASE_SPEC_SQL_COLUMNS})
+         VALUES ($1, $2, $3, $4, $5, '{}', '{}', $6, ${releaseSpecSqlValues()})`,
         [
           releaseId,
           agentId,
           versionId,
           "a".repeat(64),
           sample,
-          `sha256:${"c".repeat(64)}`,
           JSON.stringify({
             github: options.github ?? { ...PIN, repositories: [sample] },
           }),

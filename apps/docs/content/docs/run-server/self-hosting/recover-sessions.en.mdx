@@ -54,7 +54,7 @@ When a worker assigned a restoration exits before reporting ready, the scheduler
 - `failures`: consecutive failure count.
 - `retry_at`: next retry time; null after stopping.
 
-`INCOMPATIBLE_CHECKPOINT` is deterministic: retrying the same worker runtime/profile cannot succeed. It stops as `recovery_required` immediately after the first launch. Attention and the `checkpoint_restore_failed` event use `reason` `incompatible_checkpoint`, `failures` 1, and null `retry_at`. Restore a compatible runtime/profile and choose `retry_restore` for the same checkpoint, choose `start_fresh` if prior context can be discarded, or `close` to end the session.
+`INCOMPATIBLE_CHECKPOINT` is deterministic: retrying the same worker runtime and settings cannot succeed. It stops as `recovery_required` immediately after the first launch. Attention and the `checkpoint_restore_failed` event use `reason` `incompatible_checkpoint`, `failures` 1, and null `retry_at`. Restore a compatible runtime and settings and choose `retry_restore` for the same checkpoint, choose `start_fresh` if prior context can be discarded, or `close` to end the session.
 
 Every failure adds a system `checkpoint_restore_failed` event. Inspect `worker.checkpoint.restore_refused` and `worker.failed` logs. A storage response checksum mismatch (corruption in transit) is also classified as `CHECKPOINT_UNAVAILABLE`.
 - Temporary storage or egress-proxy `/object-store` outages do not count as failures. Transient errors include connection/DNS failures, request/body timeouts, truncated bodies, and HTTP 408/429/5xx. Restoration logs `worker.checkpoint.restore_unavailable`; transcript store checks for a new generation without a checkpoint log `worker.checkpoint.store_unavailable`. Both retry within the same worker, doubling from 1 second up to 30-second intervals until `WORKER_STARTUP_TIMEOUT_SEC` (default 3600 seconds). When storage returns, that worker continues without a new generation.
@@ -130,7 +130,7 @@ Check decision receipt status with session revision, admission, and resumable. A
 <a id="자주-막히는-곳" />
 ## Troubleshooting
 
-An incompatible checkpoint cannot succeed with the same runtime/profile while its cause remains. start_fresh discards prior context. confirm_completed requires a committed checkpoint covering the turn and evidence_ref.
+An incompatible checkpoint cannot succeed with the same runtime and settings while its cause remains. start_fresh discards prior context. confirm_completed requires a committed checkpoint covering the turn and evidence_ref.
 
 <a id="되돌리기" />
 ## Roll back

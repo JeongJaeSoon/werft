@@ -13,10 +13,7 @@ import {
   callerFor,
   createAuthorizationPolicy,
 } from "../../musterrolle/policy.ts";
-import type {
-  InstallationProfileEntry,
-  SessionCatalog,
-} from "../../sessions/catalog.ts";
+import type { SessionCatalog } from "../../sessions/catalog.ts";
 import { SessionServiceError } from "../../sessions/session-service.ts";
 import type {
   CreatePushRequestInput,
@@ -30,12 +27,11 @@ import { createPushRequestService } from "./push-request-service.ts";
 const SESSION = "11111111-1111-4111-8111-111111111111";
 const PUSH = "22222222-2222-4222-8222-222222222222";
 const CATALOG = {
-  profiles: {},
+  connections: {},
   repositories: {
     "sample-app": {
       url: "https://git.example/acme/sample-app.git",
       branch: "main",
-      profiles: ["default"],
       auth: { kind: "github_app", registered: true },
     },
   },
@@ -440,7 +436,7 @@ describe("push request decisions", () => {
 
 describe("a push to another repository", () => {
   const MULTI = {
-    profiles: { default: {} as SessionCatalog["profiles"][string] },
+    connections: {},
     repositories: {
       ...CATALOG.repositories,
       docs: {
@@ -454,17 +450,6 @@ describe("a push to another repository", () => {
         auth: { kind: "github_app", registered: true },
       },
     },
-    installation: new Map<string, InstallationProfileEntry>([
-      [
-        "default",
-        {
-          id: "default",
-          origin: "catalog",
-          state: "usable",
-          repository_ids: ["sample-app", "docs", "tools"],
-        },
-      ],
-    ]),
   } satisfies SessionCatalog;
 
   function pushing(
@@ -496,7 +481,6 @@ describe("a push to another repository", () => {
         replayCreate: async () => null,
         findSession: async () => ({
           repositoryId: own,
-          profileId: "default",
           attached,
           github,
           policySource: policyApproval?.source ?? "release",

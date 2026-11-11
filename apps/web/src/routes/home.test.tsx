@@ -1,10 +1,6 @@
 import { describe, expect, jest, test } from "bun:test";
 import type { ApiClient } from "@werft-ai/client";
-import type {
-  MemberView,
-  ProfileSummary,
-  SettingsConnection,
-} from "@werft-ai/contracts";
+import type { MemberView, SettingsConnection } from "@werft-ai/contracts";
 import { waitingSessionsQuery, withQueryScope } from "@werft-ai/core";
 import { useMinute } from "@werft-ai/react/components";
 import { formatElapsed } from "@werft-ai/ui";
@@ -20,7 +16,6 @@ import {
   USER_ID,
   WORKSPACE_ID,
 } from "../test-support/fake-api.ts";
-import { imported } from "../test-support/profiles.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 import { statusPageQuery } from "./home.tsx";
 
@@ -44,27 +39,25 @@ const CONNECTION: SettingsConnection = {
   auth_kind: "api_key",
   auto_mode: "unknown",
   credential: { source: "stored", last4: "abcd" },
+  models: ["claude-sonnet-5"],
+  model_families: null,
   created_at: "2026-10-01T00:00:00.000Z",
   disabled_at: null,
 };
 
-const settingsReads = (
-  connections: readonly SettingsConnection[],
-  profiles: readonly ProfileSummary[],
-) => ({
+const settingsReads = (connections: readonly SettingsConnection[]) => ({
   "GET /v1/installation/settings/connections": () =>
     json(200, {
       items: connections,
       credential_hosts: null,
       endpoint_defaults: {},
     }),
-  "GET /v1/profiles": () => json(200, { items: profiles }),
 });
 
-// An installation with a connection and a ceiling, unless a test says not.
+// An installation with a connection that lists a model, unless a test says not.
 const renderAt: typeof harness.renderAt = (path, routes) =>
   harness.renderAt(path, {
-    ...settingsReads([CONNECTION], [imported("coding-claude")]),
+    ...settingsReads([CONNECTION]),
     ...routes,
   });
 
@@ -89,7 +82,7 @@ const oneSession = {
   runtime: {
     kind: "claude_agent_sdk",
     version: "1.0.0",
-    profile_id: "default",
+    connection_id: "default",
     model: "model-default",
     permission_mode: "default",
   },
@@ -163,7 +156,7 @@ describe("bootstrap checklist", () => {
     expect(links.map((link) => link?.slice(0, 2) ?? null)).toEqual([
       null,
       ["모델 연결", "/settings/workspace/model-connections"],
-      ["프로필", "/profiles"],
+      ["모델 연결", "/settings/workspace/model-connections"],
       ["구성원 목록", "/members"],
       ["에이전트 목록", "/agents"],
       ["세션 목록", "/sessions"],
@@ -365,9 +358,9 @@ describe("bootstrap checklist", () => {
     );
   });
 
-  test("빈 설치의 소유자에게는 모델 연결과 설치 프로필 단계가 아직이고, 다음 할 일은 연결이다", async () => {
+  test("빈 설치의 소유자에게는 모델 연결과 모델 단계가 아직이고, 다음 할 일은 연결이다", async () => {
     const { api } = renderAt("/", {
-      ...settingsReads([], []),
+      ...settingsReads([]),
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () =>
         json(200, memberPage({ items: [owner], next_cursor: null })),
@@ -387,7 +380,9 @@ describe("bootstrap checklist", () => {
       ]),
     );
     expect(checklistSteps()[1]?.textContent).toContain("모델 연결 추가하기");
-    expect(checklistSteps()[2]?.textContent).toContain("프로필 만들기");
+    expect(checklistSteps()[2]?.textContent).toContain(
+      "모델 연결에 모델 정하기",
+    );
     const links = stepLinks();
     expect(
       links.map((link) => (link?.[2] ?? "").includes("bg-primary")),
@@ -399,13 +394,10 @@ describe("bootstrap checklist", () => {
 
   test("사용 중지되거나 값이 없는 연결만 있으면 연결 단계는 아직이다", async () => {
     renderAt("/", {
-      ...settingsReads(
-        [
-          { ...CONNECTION, state: "disabled" },
-          { ...CONNECTION, id: "empty", state: "needs_value" },
-        ],
-        [],
-      ),
+      ...settingsReads([
+        { ...CONNECTION, state: "disabled" },
+        { ...CONNECTION, id: "empty", state: "needs_value" },
+      ]),
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () =>
         json(200, memberPage({ items: [owner], next_cursor: null })),
@@ -691,7 +683,7 @@ describe("홈 요약", () => {
                 mcp_servers: [],
                 credential_refs: [],
               },
-              runtime_profile_id: null,
+              connection_id: null,
               release_label: null,
               release_model: null,
               bound_credential_refs: [],
@@ -1582,7 +1574,7 @@ describe("홈 요약", () => {
         mcp_servers: [],
         credential_refs: refs,
       },
-      runtime_profile_id: null,
+      connection_id: null,
       release_label: null,
       release_model: null,
       bound_credential_refs: bound,

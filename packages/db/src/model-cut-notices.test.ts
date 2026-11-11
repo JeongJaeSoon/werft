@@ -24,6 +24,11 @@ import {
   users,
   workspaces,
 } from "./schema.ts";
+import {
+  releaseSpecColumns,
+  sessionPinColumns,
+  TEST_CONNECTION_ID,
+} from "./testing/spec-pins.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 let client: PGlite;
@@ -81,8 +86,8 @@ async function world(options: { installation?: "verified" | "pending" } = {}) {
     agentId,
     versionId: crypto.randomUUID(),
     cardSha256: "0".repeat(64),
-    runtimeProfileId: "coding",
-    profileDigest: "digest",
+    connectionId: TEST_CONNECTION_ID,
+    ...releaseSpecColumns(),
     runtimeConfigSnapshot: {},
     effectiveTools: { tools: [], mcp: [] },
   });
@@ -166,6 +171,7 @@ async function world(options: { installation?: "verified" | "pending" } = {}) {
       repositoryId: "app",
       checkpointRevision: 1,
       workspaceId,
+      ...sessionPinColumns(),
       agentReleaseId: releaseId,
       createdByUserId: creator?.userId ?? null,
     });
@@ -379,7 +385,7 @@ describe("enqueueModelCutNotices", () => {
     expect(await w.outbox()).toEqual([]);
   });
 
-  test("a profile that is gone says so in the event and the DM, still naming the model", async () => {
+  test("a connection that is gone says so in the event and the DM, still naming the model", async () => {
     const w = await world();
     const creator = await w.person("creator", { locale: "en" });
     await w.startSession(creator);
@@ -397,7 +403,7 @@ describe("enqueueModelCutNotices", () => {
       sessionId: w.sessionId,
       attemptId: "att-1",
       model: "claude-opus-5-5",
-      cause: "profile_removed",
+      cause: "connection_removed",
     });
     const [event] = await db
       .select({ payload: events.payload })
@@ -406,7 +412,7 @@ describe("enqueueModelCutNotices", () => {
     expect(event?.payload).toMatchObject({
       code: "MODEL_NOT_ALLOWED",
       model: "claude-opus-5-5",
-      cause: "profile_removed",
+      cause: "connection_removed",
     });
     const [dm] = await w.outbox();
     expect(dm?.body).toMatchObject({

@@ -26,13 +26,10 @@ function pinOf(record: ReleaseSpecRecord): SessionSpecPin {
 
 /**
  * The release's verified spec with the session's model in place of the
- * release's. The release stays as it is; `release_id` still names it, so the
- * pair verifies against the release id like the release's own. Null when the
- * release has no spec that verifies: such a session is left unpinned for the
- * reconciliation to count, never guessed.
+ * release's. The release stays as it is. Null when the stored spec does not
+ * verify: such a session is not given a guessed one.
  */
 export function sessionPinFromRelease(
-  releaseId: string,
   stored: {
     spec_source: unknown;
     runtime_spec: unknown;
@@ -41,7 +38,7 @@ export function sessionPinFromRelease(
   },
   model: string | null,
 ): SessionSpecPin | null {
-  const verdict = verifyReleaseSpec(releaseId, stored);
+  const verdict = verifyReleaseSpec(stored);
   if (!verdict.ok) return null;
   const { spec_source: source } = verdict.record;
   if (model === null || model === source.model) return pinOf(verdict.record);
@@ -64,14 +61,12 @@ export async function newSessionPin(
       SELECT spec_source, runtime_spec, spec_source_digest, spec_digest
       FROM agent_releases WHERE id = ${releaseId}`),
   );
-  return row === undefined
-    ? null
-    : sessionPinFromRelease(releaseId, row, model);
+  return row === undefined ? null : sessionPinFromRelease(row, model);
 }
 
 /**
  * The pin a session holds after its model moves. A session with no pin, or one
- * that no longer verifies, stays as it is: the reconciliation repairs it.
+ * that no longer verifies, stays as it is.
  */
 export async function movedSessionPin(
   tx: Database,
@@ -92,5 +87,23 @@ export async function movedSessionPin(
   );
   if (row === undefined || row.release_id === null) return null;
   if (row.spec_source === null) return null;
-  return sessionPinFromRelease(row.release_id, row, model);
+  return sessionPinFromRelease(row, model);
+}
+
+/**
+ * True when the session, brought back to a live status, would break the rule
+ * `sessions_pin_required` enforces: a release, a pin, and a pin on the
+ * session's own model. A caller that reactivates a stopped session asks
+ * first, so it can refuse in its own words instead of failing on the trigger.
+ */
+export function pinRefusesLive(session: {
+  agentReleaseId: string | null;
+  runtimeSpec: Record<string, unknown> | null;
+  model: string | null;
+}): boolean {
+  return (
+    session.agentReleaseId === null ||
+    session.runtimeSpec === null ||
+    (session.runtimeSpec.model ?? null) !== session.model
+  );
 }

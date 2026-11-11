@@ -8,9 +8,8 @@ import { z } from "zod";
 
 import { acceptAllCheckpoints } from "../checkpoints/ports/checkpoint-verifier.ts";
 import type { WorkerUnitOfWork } from "../ports/worker-unit-of-work.ts";
-import type { CatalogProfile } from "../sessions/catalog.ts";
 import type { WorkerPendingStore } from "../sessions/ports/pending-requests.ts";
-import { withSeededInstallation } from "../sessions/profile-registry.ts";
+import { testBinding, testCatalog } from "../testing/catalog-fakes.ts";
 import { createWorkerGateway } from "./worker-gateway.ts";
 
 const SESSION = "0b3f1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2d";
@@ -31,24 +30,7 @@ const principal = {
   executionGeneration: 1,
   authRevision: 0,
 } as const;
-
-const profile: CatalogProfile = {
-  runtime_kind: "claude_agent_sdk",
-  runtime_version: "0.3.270",
-  model: "claude-sonnet-5",
-  tools: ["Read"],
-  permission_mode: "default",
-  repository: "optional",
-  provider: {
-    kind: "anthropic",
-    endpoint: "https://api.anthropic.invalid",
-    auth: { kind: "api_key", value: "anthropic-key", ref: { value_env: "K" } },
-  },
-};
-const catalog = withSeededInstallation({
-  profiles: { p: profile },
-  repositories: {},
-});
+const catalog = testCatalog();
 
 const OFFER = [{ tool_name: "Read" }];
 
@@ -103,12 +85,9 @@ function wired() {
       ],
     }),
   } as unknown as WorkerPendingStore;
-  const binding = {
+  const binding = testBinding({
     sessionId: SESSION,
     attemptId: "att_1",
-    profileId: "p",
-    model: profile.model,
-    githubPolicySource: "release",
     costUsd: 0,
     providerTokens: 0,
     repository: null,
@@ -117,11 +96,9 @@ function wired() {
     authRevision: 0,
     leaseExpiresAt: new Date("2026-09-22T00:00:30Z"),
     leaseRemainingMs: 29_950,
-    profileFingerprint: null,
     unmetered: false,
     ownerScope: "owner-a",
     restore: null,
-    restoreProfiles: [],
     grants: [
       {
         request_id: "req_parked",
@@ -132,7 +109,7 @@ function wired() {
       },
       { request_id: "req_plain", turn_id: "1", tool: "Read", input_hash: HASH },
     ],
-  };
+  });
   const work = new Proxy(
     { claimAtomic: async () => ({ outcome: "claimed", binding }) },
     {

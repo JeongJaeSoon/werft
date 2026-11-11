@@ -52,7 +52,9 @@ function fakeQuestions(options: {
   const route = (request: Seen) => {
     const { method, path, body } = request;
     if (method === "POST" && path === "/v1/sessions") {
-      expect(body).toMatchObject({ profile_id: "general" });
+      expect(body).toMatchObject({
+        agent_release_id: "sha256:sample-release",
+      });
       expect(body).not.toHaveProperty("repository_id");
       return json({ session_id: SESSION, turn_id: "1", status: "queued" }, 201);
     }

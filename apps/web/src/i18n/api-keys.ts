@@ -68,8 +68,7 @@ export const apiKeysKo = {
     "세션과 그 턴·이벤트·영수증·사용량·공유 설정, 답을 기다리는 요청을 읽습니다.",
   "apiKeys.scopeHint.write": "새 세션을 시작하고 세션에 메시지를 보냅니다.",
   "apiKeys.scopeHint.approve": "세션이 기다리는 권한 요청과 질문에 답합니다.",
-  "apiKeys.scopeHint.control":
-    "세션을 멈추고, 다시 잇고, 중단하고, 끝내고, 프로필을 바꿉니다.",
+  "apiKeys.scopeHint.control": "세션을 멈추고, 다시 잇고, 중단하고, 끝냅니다.",
   "apiKeys.scopeHint.recover":
     "복구가 필요한 세션을 어떻게 이을지 정합니다: 턴 버리기·완료 확정·닫기·새로 시작·복원 재시도.",
   "apiKeys.expires": "만료일(필수 아님)",
@@ -181,8 +180,7 @@ export const apiKeysEn: Record<keyof typeof apiKeysKo, string> = {
   "apiKeys.scopeHint.write": "Start sessions and send messages to them.",
   "apiKeys.scopeHint.approve":
     "Answer the permission requests and questions a session is waiting on.",
-  "apiKeys.scopeHint.control":
-    "Pause, resume, interrupt or end sessions, and change their profile.",
+  "apiKeys.scopeHint.control": "Pause, resume, interrupt or end sessions.",
   "apiKeys.scopeHint.recover":
     "Decide how a session that needs recovery goes on: abandon a turn, confirm it completed, close, start fresh or retry the restore.",
   "apiKeys.expires": "Expires on (not required)",
@@ -293,7 +291,7 @@ export const apiKeysJa: Record<keyof typeof apiKeysKo, string> = {
   "apiKeys.scopeHint.approve":
     "セッションが待っている権限リクエストと質問に回答します。",
   "apiKeys.scopeHint.control":
-    "セッションの一時停止・再開・中断・終了と、プロファイルの変更を行います。",
+    "セッションの一時停止・再開・中断・終了を行います。",
   "apiKeys.scopeHint.recover":
     "復旧が必要なセッションの続け方を決めます。ターンの破棄、完了の確認、クローズ、新規開始、復元の再試行ができます。",
   "apiKeys.expires": "有効期限（任意）",

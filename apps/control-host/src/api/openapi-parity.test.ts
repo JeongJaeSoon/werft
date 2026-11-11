@@ -26,7 +26,6 @@ import type {
   GitHubSettingsService,
   GitHubWorkService,
   IdentityStore,
-  InstallationProfileService,
   InterruptService,
   InviteService,
   InviteStore,
@@ -46,7 +45,6 @@ import type {
   SurfaceBindingService,
   TeamService,
   UsageService,
-  WorkspaceProfileService,
 } from "@werft-ai/platform";
 import { createApiApp } from "./app.ts";
 import type { BootstrapGate } from "./auth.ts";
@@ -92,7 +90,6 @@ import {
   registerWorkspaceRoutes,
   type WorkspaceRouteDeps,
 } from "./routes/musterrolle/workspaces.ts";
-import { registerProfileRoutes } from "./routes/profiles.ts";
 import {
   registerAchievementRoutes,
   registerSessionAchievementRoutes,
@@ -188,11 +185,6 @@ function apiApp() {
       registerCloseRoutes(router, {} as SessionService);
       registerUsageRoutes(router, {} as UsageService);
       registerSessionOutputRoutes(router, {} as SessionOutputService);
-      registerProfileRoutes(
-        router,
-        {} as WorkspaceProfileService,
-        {} as InstallationProfileService,
-      );
       registerInstallationSettingsRoutes(router, {} as SettingsDocumentService);
       registerSettingsConsoleRoutes(router, {} as SettingsConsoleService);
       registerWorkspaceRoutes(router, {} as WorkspaceRouteDeps);

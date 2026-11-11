@@ -39,7 +39,7 @@ const approver = werft.withOptions({
 });
 ```
 
-エージェントのキーは、`profile_id` と `repository_id` の代わりに自分のエージェントの `agent_release_id` でセッションを作る。エージェントのキーには `sessions:read`、`sessions:write`、`sessions:control` が、承認者のキーには `sessions:read`、`sessions:approve` が必要で、セッションの共有範囲に承認者が入っていなければならない。設定と実際の出力は[サンプルの README](https://github.com/JeongJaeSoon/werft/blob/main/examples/sdk-approver/README.md) にある。
+エージェントのキーは、自分のエージェントの `agent_release_id` でセッションを作る。エージェントのキーには `sessions:read`、`sessions:write`、`sessions:control` が、承認者のキーには `sessions:read`、`sessions:approve` が必要で、セッションの共有範囲に承認者が入っていなければならない。設定と実際の出力は[サンプルの README](https://github.com/JeongJaeSoon/werft/blob/main/examples/sdk-approver/README.md) にある。
 
 ## エラー
 
@@ -91,10 +91,10 @@ try {
 | `sessions.turns.get` · `list` | ターンの読み取り | [送信](/messages/send) |
 | `sessions.events.stream` | イベントストリーム | [ストリーミングの受信](/messages/streaming) |
 | `sessions.requests.list` · `answer` | 権限リクエストと質問 | [承認待ちと再開](/sessions/waiting-and-resume) |
-| `sessions.interrupt` · `pause` · `resume` · `terminate` · `close` · `changeProfile` | 制御 | [状態とライフサイクル](/sessions/lifecycle)、[クローズ](/sessions/close) |
+| `sessions.interrupt` · `pause` · `resume` · `terminate` · `close` | 制御 | [状態とライフサイクル](/sessions/lifecycle)、[クローズ](/sessions/close) |
 | `sessions.recoveryDecisions.create` | 復旧の決定 | [状態とライフサイクル](/sessions/lifecycle) |
 | `sessions.pushRequests.create` · `list` · `get` · `approve` · `reject` · `openPullRequest` · `commentPullRequest` | push の承認と PR | [リクエスト](/approvals/request) |
-| `receipts.get`、`auth.me`、`limits.get`、`profiles.list`、`root.get` | receipt、自分の情報、上限、プロファイル、状態 | [receipt](/approvals/receipt) |
+| `receipts.get`、`auth.me`、`limits.get`、`root.get` | receipt、自分の情報、上限、状態 | [receipt](/approvals/receipt) |
 
 `sessions.list` と `turns.list` は、`await` すると最初のページを、`for await` するとすべての項目を返す。フィールド名は HTTP API と同じ snake_case である。エージェント・メンバー・キーの管理のように Web ログインでしか呼べない API はラップしない。`limits.get` はログインした workspace owner だけが読めるので、API キーで呼ぶと 403 になる。
 

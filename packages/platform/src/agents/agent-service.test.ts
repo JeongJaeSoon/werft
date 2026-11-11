@@ -11,14 +11,14 @@ import type {
   AgentStore,
 } from "../ports/agent-store.ts";
 import type { ExtensionAttachment } from "../ports/extension-bundle-store.ts";
-import {
-  type CatalogProfile,
-  profileFingerprint,
-  profilePins,
-  type SessionCatalog,
-} from "../sessions/catalog.ts";
-import { withSeededInstallation } from "../sessions/profile-registry.ts";
+import type { CatalogConnection } from "../sessions/catalog.ts";
 import { SessionServiceError } from "../sessions/session-service.ts";
+import {
+  TEST_RUNTIMES,
+  testCatalog,
+  testConnection,
+  testToolCatalogs,
+} from "../testing/catalog-fakes.ts";
 import { createAgentService } from "./agent-service.ts";
 import { deriveReleaseId } from "./release-ids.ts";
 
@@ -30,12 +30,7 @@ const VERSION = "019a0000-0000-7000-8000-0000000000a2";
 const KEY = "019a0000-0000-7000-8000-0000000000e1";
 const AT = "2026-10-11T00:00:00.000Z";
 
-const PROFILE: CatalogProfile = {
-  runtime_kind: "claude_agent_sdk",
-  runtime_version: "0.3.270",
-  model: "claude-sonnet-5",
-  tools: ["Read", "Grep"],
-  permission_mode: "default",
+const CONNECTION: CatalogConnection = testConnection({
   provider: {
     kind: "litellm",
     endpoint: "https://litellm.invalid",
@@ -45,29 +40,29 @@ const PROFILE: CatalogProfile = {
       ref: { value_env: "PROVIDER_KEY" },
     },
   },
-};
+  models: ["claude-sonnet-5", "claude-opus-5-5"],
+});
 
-const catalogOf = (profile: CatalogProfile): SessionCatalog =>
-  withSeededInstallation({
-    profiles: {
-      coding: profile,
-      scratch: { ...profile, repository: "none" },
-      either: { ...profile, repository: "optional" },
-    },
+/** The catalog over `connection`, whose runtime offers `tools`. */
+const catalogOf = (
+  connection: CatalogConnection = CONNECTION,
+  tools: string[] = ["Read", "Grep"],
+) =>
+  testCatalog({
+    connections: { "conn-1": connection },
     repositories: {
       "sample-app": {
         url: "https://github.com/acme/sample-app",
         branch: "main",
-        profiles: ["coding", "either"],
         auth: { kind: "github_app", registered: true },
       },
       "other-app": {
         url: "https://github.com/acme/other-app",
         branch: "main",
-        profiles: ["either"],
         auth: { kind: "github_app", registered: true },
       },
     },
+    tool_catalogs: testToolCatalogs(tools),
   });
 
 function cardWith(tools: string[]) {
@@ -81,7 +76,6 @@ function cardWith(tools: string[]) {
 
 const detail: AgentRecord = {
   behavior_revision: 0,
-  model_source: "fixed",
   draft: null,
   agent: {
     id: AGENT,
@@ -145,7 +139,6 @@ function memoryStore(
     modelMigrationCandidates: async () => [],
     activationActor: async () => null,
     notifyModelMigrationFailed: async () => 0,
-    followProfile: async () => ({ outcome: "updated" as const }),
     insertRelease: async ({ release, refuseGitHubWhenSettings }) => {
       if (
         refuseGitHubWhenSettings === true &&
@@ -184,16 +177,17 @@ function memoryStore(
 
 function serviceOver(
   store: AgentStore,
-  profile: CatalogProfile = PROFILE,
+  connection: CatalogConnection = CONNECTION,
   unbound: Record<string, string[]> = {},
 ) {
   return createAgentService({
     authorization: createAuthorizationPolicy(),
     store,
-    catalog: catalogOf(profile),
+    catalog: catalogOf(connection),
     credentials: {
       unboundRefs: async (_workspaceId, releaseId) => unbound[releaseId] ?? [],
     },
+    runtimes: TEST_RUNTIMES,
   });
 }
 
@@ -223,7 +217,7 @@ async function codeOf(promise: Promise<unknown>): Promise<string> {
 
 const release = {
   version_id: VERSION,
-  runtime_profile_id: "coding",
+  connection_id: "conn-1",
   repository_id: "sample-app",
 };
 const PAGE = { limit: 50 };
@@ -289,7 +283,7 @@ describe("agent service", () => {
         mcp_servers: [],
         credential_refs: [],
       },
-      runtime_profile_id: null,
+      connection_id: null,
       release_label: null,
       release_model: null,
       bound_credential_refs: [],
@@ -321,7 +315,7 @@ describe("agent service", () => {
     const first = await service.createRelease(owner, AGENT, release);
     expect(first.created).toBe(true);
     expect(first.release.effective_tools).toEqual({
-      tools: ["Read", "Grep"],
+      tools: ["Read", "Grep", "Agent"],
       mcp: [],
     });
     // The path accepts an upper-case uuid; the hash is over the stored id.
@@ -333,55 +327,70 @@ describe("agent service", () => {
     expect(again).toEqual({ release: first.release, created: false });
   });
 
-  test("a release names the repository its sessions work on, as the profile's repository mode allows", async () => {
+  test("a release names the repository its sessions work on, one the catalog holds, or none", async () => {
     const service = serviceOver(memoryStore().store);
-    const refused = async (body: Record<string, unknown>) => {
-      const error = await service
-        .createRelease(owner, AGENT, { ...release, ...body })
-        .then(
-          () => null,
-          (thrown: unknown) => thrown,
-        );
-      expect(error).toBeInstanceOf(SessionServiceError);
-      return [(error as SessionServiceError).code, (error as Error).message];
-    };
-    expect(await refused({ repository_id: undefined })).toEqual([
+    const error = await service
+      .createRelease(owner, AGENT, { ...release, repository_id: "missing" })
+      .then(
+        () => null,
+        (thrown: unknown) => thrown,
+      );
+    expect(error).toBeInstanceOf(SessionServiceError);
+    expect([
+      (error as SessionServiceError).code,
+      (error as Error).message,
+    ]).toEqual([
       "UNSUPPORTED_CAPABILITY",
-      "repository_id: Profile coding needs a repository: send repository_id",
-    ]);
-    expect(
-      await refused({
-        runtime_profile_id: "scratch",
-        repository_id: "sample-app",
-      }),
-    ).toEqual([
-      "UNSUPPORTED_CAPABILITY",
-      "repository_id: Profile scratch runs without a repository: omit repository_id",
-    ]);
-    expect(await refused({ repository_id: "other-app" })).toEqual([
-      "UNSUPPORTED_CAPABILITY",
-      "repository_id: Repository other-app is not in the catalog or does not allow profile coding",
-    ]);
-    expect(await refused({ repository_id: "missing" })).toEqual([
-      "UNSUPPORTED_CAPABILITY",
-      "repository_id: Repository missing is not in the catalog or does not allow profile coding",
+      "repository_id: Repository missing is not in the catalog",
     ]);
 
     const made = await service.createRelease(owner, AGENT, release);
     expect(made.release.repository_id).toBe("sample-app");
+    expect(made.release.connection_id).toBe("conn-1");
     const none = await service.createRelease(owner, AGENT, {
       version_id: VERSION,
-      runtime_profile_id: "either",
+      connection_id: "conn-1",
     });
     expect(none.release.repository_id).toBeNull();
     // The repository is part of what the id names.
     const elsewhere = await service.createRelease(owner, AGENT, {
-      version_id: VERSION,
-      runtime_profile_id: "either",
+      ...release,
       repository_id: "other-app",
     });
     expect(elsewhere.release.id).not.toBe(none.release.id);
     expect(elsewhere.release.repository_id).toBe("other-app");
+  });
+
+  test("a release pins the spec its sessions run, made from its connection and snapshot", async () => {
+    const memory = memoryStore();
+    const { release: made } = await serviceOver(memory.store).createRelease(
+      owner,
+      AGENT,
+      release,
+    );
+    expect(made.runtime_config_snapshot.runtime).toEqual({
+      kind: "claude_agent_sdk",
+      version: "0.3.270",
+    });
+    const stored = memory.releases.get(made.id) as unknown as {
+      spec: { spec_source: Record<string, unknown> };
+    };
+    expect(stored.spec.spec_source).toMatchObject({
+      derivation_version: 2,
+      connection: { id: "conn-1", kind: "litellm" },
+      model: "claude-sonnet-5",
+      permission_mode: "default",
+      tools: ["Read", "Grep", "Agent"],
+    });
+    expect(stored.spec.spec_source).not.toHaveProperty("release_id");
+  });
+
+  test("a connection whose classifier works runs its releases in auto", async () => {
+    const { release: made } = await serviceOver(memoryStore().store, {
+      ...CONNECTION,
+      auto_mode: "supported",
+    }).createRelease(owner, AGENT, release);
+    expect(made.runtime_config_snapshot.permission_mode).toBe("auto");
   });
 
   test("a new release keeps the active release's GitHub settings; only they and the id differ", async () => {
@@ -416,100 +425,52 @@ describe("agent service", () => {
     expect(restKept).toEqual(restPlain);
     expect(pinsKept.tools).toEqual(pinsPlain.tools);
 
-    // An optional release with no repository attaches them; a none one has
-    // nothing for them to act on.
+    // A release with no repository keeps them for the ones it attaches.
     const repositoryless = await service.createRelease(owner, AGENT, {
       version_id: VERSION,
-      runtime_profile_id: "either",
+      connection_id: "conn-1",
     });
     expect(repositoryless.release.policy_pins.github).toEqual(github);
-    const none = await service.createRelease(owner, AGENT, {
-      version_id: VERSION,
-      runtime_profile_id: "scratch",
-    });
-    expect(none.release.policy_pins.github).toBeUndefined();
   });
 
-  test("an unknown profile is UNSUPPORTED_CAPABILITY; a tool the profile lacks is not read from the card", async () => {
+  test("an unknown connection is UNSUPPORTED_CAPABILITY; a tool the runtime lacks is not read from the card", async () => {
     expect(
-      await codeOf(
-        serviceOver(memoryStore().store).createRelease(owner, AGENT, {
-          ...release,
-          runtime_profile_id: "missing",
-        }),
-      ),
-    ).toBe("UNSUPPORTED_CAPABILITY");
-    expect(
-      await codeOf(
-        serviceOver(memoryStore(["Read", "WebFetch"]).store).createRelease(
-          owner,
-          AGENT,
-          release,
-        ),
-      ),
-    ).toBe("resolved");
-  });
-
-  test("a blocked ceiling refuses a new release and the activation of one made before by name", async () => {
-    const memory = memoryStore();
-    const { release: made } = await serviceOver(memory.store).createRelease(
-      owner,
-      AGENT,
-      release,
-    );
-    const open = catalogOf(PROFILE);
-    const coding = open.installation?.get("coding");
-    if (!open.installation || !coding) throw new Error("no seeded ceiling");
-    const blocked = createAgentService({
-      authorization: createAuthorizationPolicy(),
-      store: memory.store,
-      catalog: {
-        ...open,
-        installation: new Map([
-          ...open.installation,
-          ["coding", { ...coding, state: "blocked" }],
-        ]),
-      },
-      credentials: { unboundRefs: async () => [] },
-    });
-    const byName = {
-      code: "PROFILE_BLOCKED",
-      details: { reason_code: "blocked", profile_id: "coding" },
-    };
-    expect(
-      await blocked
-        .activateAgent(owner, AGENT, {
-          release_id: made.id,
-          expected_revision: -1,
-        })
+      await serviceOver(memoryStore().store)
+        .createRelease(owner, AGENT, { ...release, connection_id: "missing" })
         .catch((error: unknown) => error),
-    ).toMatchObject(byName);
+    ).toMatchObject({
+      code: "UNSUPPORTED_CAPABILITY",
+      details: { reason_code: "connection_unknown" },
+    });
+    const { release: made } = await serviceOver(
+      memoryStore(["Read", "WebFetch"]).store,
+    ).createRelease(owner, AGENT, release);
+    expect(made.effective_tools.tools).toEqual(["Read", "Grep", "Agent"]);
+  });
+
+  test("a card on a model the connection does not offer makes no release", async () => {
     expect(
-      await blocked
+      await serviceOver(memoryStore().store, {
+        ...CONNECTION,
+        models: ["claude-opus-5-5"],
+      })
         .createRelease(owner, AGENT, release)
         .catch((error: unknown) => error),
-    ).toMatchObject(byName);
+    ).toMatchObject({
+      code: "UNSUPPORTED_CAPABILITY",
+      message: expect.stringContaining(
+        "model claude-sonnet-5 is not a model of connection conn-1",
+      ),
+    });
   });
 
-  test("activation refuses a release whose profile changed, or of another agent, without reaching the store", async () => {
+  test("activation refuses a release of another agent, or on a connection gone, without reaching the store", async () => {
     const memory = memoryStore();
     const { release: made } = await serviceOver(memory.store).createRelease(
       owner,
       AGENT,
       release,
     );
-    const edited = serviceOver(memory.store, {
-      ...PROFILE,
-      permission_mode: "acceptEdits",
-    });
-    expect(
-      await codeOf(
-        edited.activateAgent(owner, AGENT, {
-          release_id: made.id,
-          expected_revision: -1,
-        }),
-      ),
-    ).toBe("PROFILE_DIGEST_MISMATCH");
     const service = serviceOver(memory.store);
     expect(
       await codeOf(
@@ -519,59 +480,30 @@ describe("agent service", () => {
         }),
       ),
     ).toBe("NOT_FOUND");
+    const gone = createAgentService({
+      authorization: createAuthorizationPolicy(),
+      store: memory.store,
+      catalog: { ...catalogOf(), connections: {} },
+      credentials: { unboundRefs: async () => [] },
+      runtimes: TEST_RUNTIMES,
+    });
+    expect(
+      await gone
+        .activateAgent(owner, AGENT, {
+          release_id: made.id,
+          expected_revision: -1,
+        })
+        .catch((error: unknown) => error),
+    ).toMatchObject({
+      code: "RELEASE_SPEC_UNAVAILABLE",
+      details: { reason_code: "connection_missing", connection_id: "conn-1" },
+    });
     expect(memory.activations()).toBe(0);
   });
 
-  test("a release's digest leaves the models out, and one from before version 2 still activates", async () => {
+  test("a release whose card model left the connection's list no longer activates", async () => {
     const memory = memoryStore();
-    const { release: made } = await serviceOver(memory.store).createRelease(
-      owner,
-      AGENT,
-      release,
-    );
-    expect(made.profile_digest).toBe(profileFingerprint(PROFILE));
-    const listed = serviceOver(memory.store, {
-      ...PROFILE,
-      models: ["claude-opus-5-5"],
-    });
-    await listed.activateAgent(owner, AGENT, {
-      release_id: made.id,
-      expected_revision: -1,
-    });
-    expect(memory.activations()).toBe(1);
-    const v1 = profilePins(PROFILE, [])[1]?.fingerprint;
-    if (!v1) throw new Error("no version 1 pin");
-    const legacy: AgentRelease = {
-      ...made,
-      profile_digest: v1,
-      id: deriveReleaseId({ ...made, profile_digest: v1 }),
-    };
-    memory.releases.set(legacy.id, legacy);
-    await listed.activateAgent(owner, AGENT, {
-      release_id: legacy.id,
-      expected_revision: -1,
-    });
-    expect(memory.activations()).toBe(2);
-    expect(
-      await codeOf(
-        serviceOver(memory.store, {
-          ...PROFILE,
-          permission_mode: "acceptEdits",
-        }).activateAgent(owner, AGENT, {
-          release_id: legacy.id,
-          expected_revision: -1,
-        }),
-      ),
-    ).toBe("PROFILE_DIGEST_MISMATCH");
-  });
-
-  test("a release whose card model left the profile's list no longer activates", async () => {
-    const memory = memoryStore();
-    const offers = serviceOver(memory.store, {
-      ...PROFILE,
-      model: "claude-opus-5-5",
-      models: ["claude-sonnet-5"],
-    });
+    const offers = serviceOver(memory.store);
     const { release: made } = await offers.createRelease(owner, AGENT, release);
     expect(made.runtime_config_snapshot.model).toBe("claude-sonnet-5");
     await offers.activateAgent(owner, AGENT, {
@@ -579,46 +511,46 @@ describe("agent service", () => {
       expected_revision: -1,
     });
     expect(memory.activations()).toBe(1);
-    const dropped = { ...PROFILE, model: "claude-opus-5-5" };
-    expect(profileFingerprint(dropped)).toBe(made.profile_digest);
-    const refused = await serviceOver(memory.store, dropped)
+    const refused = await serviceOver(memory.store, {
+      ...CONNECTION,
+      models: ["claude-opus-5-5"],
+    })
       .activateAgent(owner, AGENT, {
         release_id: made.id,
-        expected_revision: -1,
+        expected_revision: 0,
       })
       .catch((error: unknown) => error);
-    // The refusal names the model that left, not only that the profile moved.
+    // The refusal names the model that left.
     expect(refused).toMatchObject({
-      code: "PROFILE_DIGEST_MISMATCH",
+      code: "RELEASE_SPEC_UNAVAILABLE",
       message: expect.stringContaining("claude-sonnet-5"),
+      details: { reason_code: "model_removed" },
     });
     expect(memory.activations()).toBe(1);
   });
 
   test("a release whose model left still activates when a newer one of its series is listed", async () => {
     const memory = memoryStore();
-    const offers = serviceOver(memory.store, {
-      ...PROFILE,
-      model: "claude-opus-5-5",
-      models: ["claude-sonnet-5"],
-    });
-    const { release: made } = await offers.createRelease(owner, AGENT, release);
-    const families = {
-      "claude-sonnet-5": { family: "sonnet", rank: 5 },
-      "claude-opus-5-5": { family: "sonnet", rank: 6 },
-    };
+    const { release: made } = await serviceOver(memory.store).createRelease(
+      owner,
+      AGENT,
+      release,
+    );
     const moved = await serviceOver(memory.store, {
-      ...PROFILE,
-      model: "claude-opus-5-5",
-      model_families: families,
+      ...CONNECTION,
+      models: ["claude-opus-5-5"],
+      model_families: {
+        "claude-sonnet-5": { family: "sonnet", rank: 5 },
+        "claude-opus-5-5": { family: "sonnet", rank: 6 },
+      },
     }).activateAgent(owner, AGENT, {
       release_id: made.id,
       expected_revision: -1,
     });
     expect(moved.active_release_id).toBe(made.id);
     const other = await serviceOver(memory.store, {
-      ...PROFILE,
-      model: "claude-opus-5-5",
+      ...CONNECTION,
+      models: ["claude-opus-5-5"],
       model_families: {
         "claude-sonnet-5": { family: "sonnet", rank: 5 },
         "claude-opus-5-5": { family: "opus", rank: 6 },
@@ -629,7 +561,7 @@ describe("agent service", () => {
         expected_revision: moved.activation_revision,
       })
       .catch((error: unknown) => error);
-    expect(other).toMatchObject({ code: "PROFILE_DIGEST_MISMATCH" });
+    expect(other).toMatchObject({ code: "RELEASE_SPEC_UNAVAILABLE" });
   });
 
   test("activation names the credentials not bound to the agent, without reaching the store", async () => {
@@ -639,7 +571,7 @@ describe("agent service", () => {
       AGENT,
       release,
     );
-    const refused = await serviceOver(memory.store, PROFILE, {
+    const refused = await serviceOver(memory.store, CONNECTION, {
       [made.id]: ["mcp-notion", "slack_bot_token"],
     })
       .activateAgent(owner, AGENT, {
@@ -688,8 +620,9 @@ describe("agent service", () => {
     const service = createAgentService({
       authorization: createAuthorizationPolicy(),
       store: memory.store,
-      catalog: catalogOf(PROFILE),
+      catalog: catalogOf(),
       credentials: { unboundRefs: async () => [] },
+      runtimes: TEST_RUNTIMES,
       welcome: {
         activated: async (...args) => {
           welcomed.push(args);
@@ -718,29 +651,23 @@ describe("agent service", () => {
 
 describe("a release's GitHub settings", () => {
   const app = { kind: "github_app" as const, registered: true as const };
-  const catalog = withSeededInstallation({
-    profiles: {
-      coding: PROFILE,
-      scratch: { ...PROFILE, repository: "none" as const },
-      either: { ...PROFILE, repository: "optional" as const },
-    },
+  const catalog = testCatalog({
+    connections: { "conn-1": CONNECTION },
+    tool_catalogs: testToolCatalogs(["Read", "Grep"]),
     repositories: {
       "sample-app": {
         url: "https://github.com/acme/sample-app",
         branch: "main",
-        profiles: ["coding", "either"],
         auth: app,
       },
       "docs-app": {
         url: "https://github.com/acme/docs-app",
         branch: "main",
-        profiles: ["coding", "either"],
         auth: app,
       },
       "review-only": {
         url: "https://github.com/acme/review-only",
         branch: "main",
-        profiles: ["either"],
         auth: app,
       },
     },
@@ -766,6 +693,7 @@ describe("a release's GitHub settings", () => {
       store,
       catalog,
       credentials: { unboundRefs: async () => [] },
+      runtimes: TEST_RUNTIMES,
       githubSettings: { get: async () => ({ ceiling, revision: 1 }) },
     });
   }
@@ -827,11 +755,11 @@ describe("a release's GitHub settings", () => {
 
     test("the refusal comes before the other checks", async () => {
       const held = memoryStore(["Read"], true);
-      // Unknown repository and a profile that does not exist would also fail.
+      // Unknown repository and a connection that does not exist would also fail.
       expect(
         await attempt(held.store, {
           github: { ...github, repositories: ["nowhere"] },
-          runtime_profile_id: "nope",
+          connection_id: "nope",
         }),
       ).toEqual(owned);
     });
@@ -872,14 +800,13 @@ describe("a release's GitHub settings", () => {
     });
   });
 
-  test("an optional release with no repository keeps settings for the repositories it attaches", async () => {
+  test("a release with no repository keeps settings for the repositories it attaches", async () => {
     const attaches: AgentGitHub = {
       ...github,
       repositories: ["sample-app", "docs-app"],
     };
     const made = await service().createRelease(owner, AGENT, {
       ...release,
-      runtime_profile_id: "either",
       repository_id: undefined,
       github: attaches,
     });
@@ -887,21 +814,8 @@ describe("a release's GitHub settings", () => {
     expect(made.release.policy_pins.github).toEqual(attaches);
   });
 
-  test("a release on a none profile is repository_none", async () => {
-    expect(
-      await refusal({
-        runtime_profile_id: "scratch",
-        repository_id: undefined,
-        github,
-      }),
-    ).toEqual({
-      code: "BAD_REQUEST",
-      details: { field: "github", reason_code: "repository_none" },
-    });
-  });
-
-  test("a repository the profile does not allow is repository_not_allowed", async () => {
-    for (const id of ["missing", "review-only"]) {
+  test("a repository the catalog does not hold is repository_not_allowed", async () => {
+    for (const id of ["missing"]) {
       expect(
         await refusal({
           github: { ...github, repositories: ["sample-app", id] },
@@ -954,7 +868,7 @@ describe("a release's GitHub settings", () => {
     });
   });
 
-  test("a release without github inherits the active release's; a move to a repository_mode none profile drops it", async () => {
+  test("a release without github inherits the active release's, for a repository or none", async () => {
     const { store } = memoryStore();
     const first = (
       await service(store).createRelease(owner, AGENT, { ...release, github })
@@ -965,14 +879,14 @@ describe("a release's GitHub settings", () => {
     });
     const inherited = (await over.createRelease(owner, AGENT, release)).release;
     expect(inherited.policy_pins.github).toEqual(github);
-    const moved = (
+    const repositoryless = (
       await over.createRelease(owner, AGENT, {
         version_id: VERSION,
-        runtime_profile_id: "scratch",
+        connection_id: "conn-1",
       })
     ).release;
-    expect(moved.repository_id).toBeNull();
-    expect(moved.policy_pins.github).toBeUndefined();
+    expect(repositoryless.repository_id).toBeNull();
+    expect(repositoryless.policy_pins.github).toEqual(github);
   });
 
   test("inherited settings are checked as sent ones: a move to a repository outside them is release_repository_outside", async () => {
@@ -1028,41 +942,46 @@ describe("activation and the agent's extension bundles", () => {
     },
     offersSkills: () => true,
   };
-  const WITH_SKILL: CatalogProfile = {
-    ...PROFILE,
-    tools: [...PROFILE.tools, "Skill"],
-  };
-  const overWith = (store: AgentStore, profile: CatalogProfile) =>
+  const WITH_SKILL = ["Read", "Grep", "Skill"];
+  const overWith = (
+    store: AgentStore,
+    tools: string[],
+    connection: CatalogConnection = CONNECTION,
+  ) =>
     createAgentService({
       authorization: createAuthorizationPolicy(),
       store,
-      catalog: catalogOf(profile),
+      catalog: catalogOf(connection, tools),
       credentials: { unboundRefs: async () => [] },
+      runtimes: TEST_RUNTIMES,
       extensions,
     });
 
-  test("a release on an unattended profile is activated while the agent offers a scripted bundle: the bundle's review, not the mode, lets it run", async () => {
+  test("a release in auto is activated while the agent offers a scripted bundle: the bundle's review, not the mode, lets it run", async () => {
     const memory = memoryStore();
-    const auto: CatalogProfile = { ...WITH_SKILL, permission_mode: "auto" };
-    const { release: made } = await serviceOver(
-      memory.store,
-      auto,
-    ).createRelease(owner, AGENT, release);
-    await overWith(memory.store, auto).activateAgent(owner, AGENT, {
+    const auto = { ...CONNECTION, auto_mode: "supported" as const };
+    const service = overWith(memory.store, WITH_SKILL, auto);
+    const { release: made } = await service.createRelease(
+      owner,
+      AGENT,
+      release,
+    );
+    expect(made.runtime_config_snapshot.permission_mode).toBe("auto");
+    await service.activateAgent(owner, AGENT, {
       release_id: made.id,
       expected_revision: -1,
     });
     expect(memory.activations()).toBe(1);
   });
 
-  test("a release on a profile whose tools lack Skill is refused, and nothing is activated", async () => {
+  test("a release whose tools lack Skill is refused, and nothing is activated", async () => {
     const memory = memoryStore();
     const { release: made } = await serviceOver(memory.store).createRelease(
       owner,
       AGENT,
       release,
     );
-    const error = await overWith(memory.store, PROFILE)
+    const error = await overWith(memory.store, WITH_SKILL)
       .activateAgent(owner, AGENT, {
         release_id: made.id,
         expected_revision: -1,
@@ -1078,18 +997,15 @@ describe("activation and the agent's extension bundles", () => {
     expect(memory.activations()).toBe(0);
   });
 
-  test("a release whose tool snapshot lacks Skill is refused though the profile lists it", async () => {
+  test("a release is judged on the tools it pinned, not the runtime's now", async () => {
     const memory = memoryStore();
-    const { release: made } = await serviceOver(
+    const { release: made } = await overWith(
       memory.store,
       WITH_SKILL,
     ).createRelease(owner, AGENT, release);
     const narrowed: AgentRelease = {
       ...made,
-      runtime_config_snapshot: {
-        ...made.runtime_config_snapshot,
-        tools: ["Read"],
-      },
+      effective_tools: { ...made.effective_tools, tools: ["Read"] },
     };
     const narrowedId = deriveReleaseId(narrowed);
     memory.releases.set(narrowedId, { ...narrowed, id: narrowedId });
@@ -1109,54 +1025,19 @@ describe("activation and the agent's extension bundles", () => {
     expect(memory.activations()).toBe(0);
   });
 
-  test("the same release on a default-mode profile activates", async () => {
+  test("the same release in default mode activates", async () => {
     const memory = memoryStore();
-    const { release: made } = await serviceOver(
-      memory.store,
-      WITH_SKILL,
-    ).createRelease(owner, AGENT, release);
-    await overWith(memory.store, WITH_SKILL).activateAgent(owner, AGENT, {
+    const service = overWith(memory.store, WITH_SKILL);
+    const { release: made } = await service.createRelease(
+      owner,
+      AGENT,
+      release,
+    );
+    await service.activateAgent(owner, AGENT, {
       release_id: made.id,
       expected_revision: -1,
     });
     expect(memory.activations()).toBe(1);
-  });
-
-  test("returning to an earlier release is refused on the same ground as an activation", async () => {
-    const memory = memoryStore();
-    const { release: made } = await serviceOver(
-      memory.store,
-      WITH_SKILL,
-    ).createRelease(owner, AGENT, release);
-    const revert = (service: ReturnType<typeof overWith>) =>
-      service.revertMigration({
-        workspaceId: WORKSPACE,
-        agentId: AGENT,
-        actorUserId: OWNER,
-        migrationId: "m-1",
-        previousReleaseId: made.id,
-        expected: {
-          activeReleaseId: "other",
-          activationRevision: -1,
-          behaviorRevision: 0,
-          tracking: "follow",
-          modelSource: "profile",
-        },
-        tracking: "follow",
-      });
-    // The profile it would return to lacks Skill, which the bundles need.
-    expect(await revert(overWith(memory.store, PROFILE))).toEqual({
-      status: "failed",
-      reason: "release_refused",
-    });
-    expect(memory.activations()).toBe(0);
-    const bare = createAgentService({
-      authorization: createAuthorizationPolicy(),
-      store: memory.store,
-      catalog: catalogOf(PROFILE),
-      credentials: { unboundRefs: async () => [] },
-    });
-    expect((await revert(bare)).status).not.toBe("failed");
   });
 });
 
@@ -1229,7 +1110,7 @@ describe("a card's declared variable names", () => {
       },
     };
     const error = await serviceOver(store)
-      .updateAgent(owner, AGENT, { runtime_profile_id: "coding" })
+      .updateAgent(owner, AGENT, { connection_id: "conn-1" })
       .catch((caught: unknown) => caught);
     expect(error).toMatchObject({ code: "VARIABLE_NAME_RESERVED" });
     expect(writes).toBe(0);

@@ -28,12 +28,18 @@ import {
   createSessionService,
   type SessionCatalog,
   type SessionOutputSource,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import type { StoredOutput } from "@werft-ai/runtime-core";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
+import { sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { testCatalog } from "../testing/catalog.ts";
+import {
+  allowRepositories,
+  releaseIn,
+  sessionReleases,
+} from "../testing/releases.ts";
 import { createApiApp } from "./app.ts";
 import {
   createBootstrapGate,
@@ -50,30 +56,20 @@ const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 const BOOTSTRAP_TOKEN = "outputs-bootstrap-token-0123456789";
 const PASSWORD = "outputs-password-0123456789";
 
-const catalog: SessionCatalog = withSeededInstallation({
-  profiles: {
-    "claude-coding-v1": {
-      runtime_kind: "claude_agent_sdk",
-      runtime_version: "0.3.270",
-      model: "claude-sonnet-5",
-      tools: ["Read"],
-      permission_mode: "default",
-      provider: {
-        kind: "litellm",
-        endpoint: "https://litellm.invalid",
-        auth: {
-          kind: "api_key",
-          value: "catalog-provider-key",
-          ref: { value_env: "PROVIDER_KEY" },
-        },
-      },
+const catalog: SessionCatalog = testCatalog({
+  provider: {
+    kind: "litellm",
+    endpoint: "https://litellm.invalid",
+    auth: {
+      kind: "api_key",
+      value: "catalog-provider-key",
+      ref: { value_env: "PROVIDER_KEY" },
     },
   },
   repositories: {
     "sample-app": {
       url: "https://example.invalid/app.git",
       branch: "main",
-      profiles: ["claude-coding-v1"],
       auth: { kind: "github_app", registered: true } as const,
     },
   },
@@ -91,6 +87,7 @@ integration("session outputs over HTTP on PostgreSQL", () => {
   let app: ReturnType<typeof createApiApp>;
   const committed = new Set<string>();
   let workspaceId = "";
+  let releaseId = "";
   const ids: Record<string, string> = {};
   const cookies: Record<string, string> = {};
 
@@ -135,6 +132,8 @@ integration("session outputs over HTTP on PostgreSQL", () => {
     const authorization = createAuthorizationPolicy({
       identity: createDatabaseIdentityReader(db),
       agents: createDatabaseAgentAuthority(db),
+      credentials: schema.createPostgresCredentialBindingStore(db),
+      outsideAgents: schema.createPostgresAgentAccessSetting(db),
       sessions: createPostgresSessionShareStore(db),
       decisions: createPostgresDecisionLog(db),
     });
@@ -150,6 +149,7 @@ integration("session outputs over HTTP on PostgreSQL", () => {
       controls: createPostgresSessionControl(db),
       reader: createPostgresSessionReader(db),
       catalog,
+      releases: sessionReleases(db, catalog),
     });
     app = createApiApp({
       authMode: "api-key",
@@ -228,7 +228,7 @@ integration("session outputs over HTTP on PostgreSQL", () => {
       "/v1/sessions",
       { ...as(who), "Idempotency-Key": crypto.randomUUID() },
       {
-        profile_id: "claude-coding-v1",
+        agent_release_id: releaseId,
         repository_id: "sample-app",
         message: "Write the report to out/report.md.",
       },
@@ -288,6 +288,12 @@ integration("session outputs over HTTP on PostgreSQL", () => {
     cookies.owner = await login("owner@example.com");
     await addMember("creator");
     await addMember("outsider");
+    releaseId = await releaseIn(db, workspaceId);
+    await allowRepositories(db, workspaceId, ["sample-app"]);
+    // Every session runs an agent; its share alone decides who sees it.
+    await db.execute(
+      sql`UPDATE workspaces SET settings = settings || '{"agent_outsider_session_visibility":"workspace"}'::jsonb WHERE id = ${workspaceId}`,
+    );
     sessionId = await createSession("creator");
     bare = await createSession("creator");
     committed.add(sessionId);

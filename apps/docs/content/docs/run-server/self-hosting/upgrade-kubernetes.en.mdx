@@ -148,7 +148,7 @@ The old chart's catalog ConfigMap no longer exists in the new chart. Helm delete
 
 1. Add PLATFORM_SECRET_KEY to the Secret first; preserve the same value if already present.
 2. Remove catalog from values, then helm upgrade. Remove PLATFORM_CONFIG_DIR from api.extraEnv if present.
-3. With an installed-version checkout and host Bun/kubectl, run `bun run settings:k8s export` to inspect additions. Existing installation_profiles rows prevent reimporting file ceilings. See procedure/rollback floors in [api-server.md](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#설정-문서-가져오기내보내기).
+3. With an installed-version checkout and host Bun/kubectl, run `bun run settings:k8s export` to inspect additions. See procedure/rollback floors in [api-server.md](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#설정-문서-가져오기내보내기).
 
 <a id="확인" />
 ## Verify

@@ -16,15 +16,18 @@ import {
   postSessionMessageResponseSchema,
   type Receipt,
   type ReceiptSessionTarget,
+  type RuntimeKind,
   readStoredEvent,
   receiptSchema,
   SESSION_STATUS_VALUES,
   type SessionExtension,
   type SessionStatus,
   type SlackMessageRef,
+  type SpecSource,
   SSE_SCHEMA_VERSION,
   type SseEvent,
   type SurfaceKind,
+  specSourceSchema,
   sseEventSchema,
   type TurnDetail,
   type TurnSummary,
@@ -137,8 +140,7 @@ import {
   turns,
   users,
 } from "./schema.ts";
-import { pinRefusesLive } from "./session-pin-cutover.ts";
-import { newSessionPin } from "./session-spec-pin.ts";
+import { newSessionPin, pinRefusesLive } from "./session-spec-pin.ts";
 import { contextGapAttention } from "./sessions/context-gap.ts";
 import {
   decodeCreatedAtCursor,
@@ -546,14 +548,13 @@ export function createPostgresSessionUnitOfWork(
                 branch: input.repository.branch,
               };
         const githubPolicyStart =
-          input.captureGitHubPolicyStart === true &&
-          input.agentReleaseId !== undefined
+          input.captureGitHubPolicyStart === true
             ? await captureGitHubPolicyStart(tx, input.agentReleaseId)
             : null;
-        const engineSettingsStart =
-          input.agentReleaseId === undefined
-            ? null
-            : await captureEngineSettingsStart(tx, input.agentReleaseId);
+        const engineSettingsStart = await captureEngineSettingsStart(
+          tx,
+          input.agentReleaseId,
+        );
         await tx.insert(sessions).values({
           id: sessionId,
           ownerId: scope.principal,
@@ -561,10 +562,6 @@ export function createPostgresSessionUnitOfWork(
           attachedRepositoryIds: input.attachedRepositoryIds ?? null,
           extensions: input.extensions ?? null,
           githubPolicySource: input.githubPolicySource ?? "release",
-          // A session on a release runs that release's tools; one without
-          // keeps the profile's.
-          runtimeToolsSource:
-            input.agentReleaseId === undefined ? "profile" : "release",
           githubPolicyStart,
           mcpStart,
           engineSettingsStart,
@@ -573,18 +570,14 @@ export function createPostgresSessionUnitOfWork(
           title: input.title ?? null,
           titleSource: input.titleSource ?? "derived",
           channel: input.channel ?? null,
-          profileId: input.profileId,
-          profileFingerprint: input.profileFingerprint ?? null,
           model: input.model ?? null,
           unmetered: input.unmetered ?? false,
-          agentReleaseId: input.agentReleaseId ?? null,
-          ...(input.agentReleaseId === undefined
-            ? {}
-            : ((await newSessionPin(
-                tx,
-                input.agentReleaseId,
-                input.model ?? null,
-              )) ?? {})),
+          agentReleaseId: input.agentReleaseId,
+          ...((await newSessionPin(
+            tx,
+            input.agentReleaseId,
+            input.model ?? null,
+          )) ?? {}),
           platformPrompt: input.platformPrompt ?? null,
           permissionWaitOverride: input.permissionWait ?? null,
           workspaceId: actor?.workspaceId ?? null,
@@ -693,7 +686,6 @@ export function createPostgresSessionUnitOfWork(
             agentReleaseId: sessions.agentReleaseId,
             runtimeSpec: sessions.runtimeSpec,
             model: sessions.model,
-            runtimeToolsSource: sessions.runtimeToolsSource,
             repositoryId: sessions.repositoryId,
             attachedRepositoryIds: sessions.attachedRepositoryIds,
             mcpStart: sessions.mcpStart,
@@ -747,19 +739,12 @@ export function createPostgresSessionUnitOfWork(
         if (input.agentPrivate || (usage !== null && !usage.allowed)) {
           return { outcome: "agent_private" };
         }
-        // After the reach and the usage, so the block's words (the profile's
-        // name) are said only to someone who sees the session and its agent.
-        if (input.profileBlocked) return { outcome: "profile_blocked" };
         if (
           senderLimit !== null &&
           limitedAgentId !== null &&
           session.agentReleaseId !== null
         ) {
-          const reach = await sessionReach(
-            tx,
-            session,
-            input.profileTools ?? [],
-          );
+          const reach = await sessionReach(tx, session);
           const dimension =
             reach === null
               ? null
@@ -823,10 +808,7 @@ export function createPostgresSessionUnitOfWork(
         }
         // This input revives a failed session, which an authoritative spec
         // pin refuses unless the session has one on its own model.
-        if (
-          session.status === "failed" &&
-          (await pinRefusesLive(tx, session))
-        ) {
+        if (session.status === "failed" && pinRefusesLive(session)) {
           return { outcome: "pin_required" };
         }
         const refused = await admitInput(tx, {
@@ -1061,6 +1043,12 @@ type EventPageRow = {
   fetched: string;
 };
 
+/** A stored spec source as the read model shows it; null when it does not parse. */
+function specOf(stored: unknown): SpecSource | null {
+  const parsed = specSourceSchema.safeParse(stored);
+  return parsed.success ? parsed.data : null;
+}
+
 export function createPostgresSessionReader(
   db: Database,
   options: {
@@ -1116,7 +1104,7 @@ export function createPostgresSessionReader(
     const [row] = await db
       .select({
         id: sessions.id,
-        profileId: sessions.profileId,
+        runtimeKind: sql<RuntimeKind | null>`${sessions.runtimeSpec} -> 'runtime' ->> 'kind'`,
         retiredCheckpointRevision: sessions.contextResetCheckpointRevision,
       })
       .from(sessions)
@@ -1349,8 +1337,7 @@ export function createPostgresSessionReader(
         admission_state: row.admissionState,
         status: publicStatus(row.status, awaitingInput),
         input_wait: summaryWait(inputWaits.get(row.id) ?? null),
-        profile_id: row.profileId,
-        profile_fingerprint: row.profileFingerprint,
+        spec: specOf(row.specSource),
         model: row.model,
         repository_id: row.repositoryId,
         repository: sessionRepositoryOf(row),
@@ -1711,7 +1698,7 @@ export function createPostgresSessionReader(
             branch: row.branch,
             repository_mode: row.repositoryMode,
             github_policy_source: row.githubPolicySource,
-            profile_fingerprint: row.profileFingerprint,
+            spec: specOf(row.specSource),
             durability: projectDurability({
               checkpointCommittedAt: row.checkpointCommittedAt,
               checkpointFallbackRevision: row.checkpointFallbackRevision,
@@ -1807,7 +1794,6 @@ export function createPostgresSessionReader(
           execution_generation: attempt.executionGeneration,
           started_at: attempt.startedAt.toISOString(),
           ended_at: attempt.endedAt?.toISOString() ?? null,
-          profile_id: attempt.profileId,
         })),
       };
     },
@@ -1946,7 +1932,7 @@ export function createPostgresSessionReader(
         const stored = readStoredEvent(row.type, row.payload);
         const payload =
           stored.readable && row.bare && options.neutralize
-            ? options.neutralize(owned.profileId, stored.payload)
+            ? options.neutralize(owned.runtimeKind, stored.payload)
             : stored.payload;
         if (payload !== stored.payload) {
           filledBytes +=

@@ -77,11 +77,18 @@ describe("session contracts", () => {
   test("accepts the api.md create example and rejects the legacy shape", () => {
     expect(
       createSessionRequestSchema.safeParse({
-        profile_id: "claude-coding-v1",
+        agent_release_id: `sha256:${"a".repeat(64)}`,
         repository_id: "sample-app",
         message: "Inspect the failing unit test and propose a fix.",
       }).success,
     ).toBe(true);
+    // A session always runs an agent release.
+    expect(
+      createSessionRequestSchema.safeParse({
+        repository_id: "sample-app",
+        message: "Inspect the failing unit test and propose a fix.",
+      }).success,
+    ).toBe(false);
     expect(
       createSessionRequestSchema.safeParse({
         repo_url: "https://github.com/acme/example.git",
@@ -243,7 +250,7 @@ describe("session contracts", () => {
     const runtime = {
       kind: "claude_agent_sdk",
       version: "0.3.270",
-      profile_id: "claude-coding-v1",
+      connection_id: "fake-messages",
       model: "claude-sonnet-5",
       permission_mode: "bypassPermissions",
     } as const;
@@ -251,7 +258,7 @@ describe("session contracts", () => {
       runtime,
     );
     for (const partial of [
-      { ...runtime, profile_id: null },
+      { ...runtime, connection_id: null },
       { ...runtime, version: null },
       { ...runtime, model: null },
       { ...runtime, permission_mode: "yolo" },
@@ -275,7 +282,7 @@ describe("session contracts", () => {
       runtime: {
         kind: "claude_agent_sdk",
         version: "0.3.270",
-        profile_id: "claude-coding-v1",
+        connection_id: "fake-messages",
         model: "claude-sonnet-5",
         permission_mode: "default",
       },
@@ -498,7 +505,7 @@ describe("answers, pending requests and control", () => {
       runtime: {
         kind: "claude_agent_sdk",
         version: "0.3.270",
-        profile_id: "claude-coding-v1",
+        connection_id: "fake-messages",
         model: "claude-sonnet-5",
         permission_mode: "default",
       },
@@ -855,10 +862,10 @@ describe("worker protocol", () => {
       runtime: {
         kind: "claude_agent_sdk",
         version: "0.3.270",
-        profile_id: "claude-coding-v1",
+        connection_id: "fake-messages",
         permission_mode: "default",
       },
-      profile_fingerprint: `sha256:${"b".repeat(64)}`,
+      spec_digest: `sha256:${"b".repeat(64)}`,
       runtime_config: {
         model: "claude-sonnet-5",
         tools: ["Read", "Edit"],
@@ -924,31 +931,31 @@ describe("worker protocol", () => {
         remaining_budget_usd: -0.01,
       }).success,
     ).toBe(false);
-    // A claim without the workspace or the resolved profile is not a claim a
+    // A claim without the workspace or the resolved config is not a claim a
     // worker can act on.
     const { workspace: _w, ...withoutWorkspace } = claim;
     expect(
       bootstrapClaimResponseSchema.safeParse(withoutWorkspace).success,
     ).toBe(false);
-    const { runtime_config: _p, ...withoutProfile } = claim;
-    expect(bootstrapClaimResponseSchema.safeParse(withoutProfile).success).toBe(
+    const { runtime_config: _p, ...withoutConfig } = claim;
+    expect(bootstrapClaimResponseSchema.safeParse(withoutConfig).success).toBe(
       false,
     );
-    // The fingerprint names the exact profile the claim resolved.
+    // The digest names the exact spec the claim resolved.
     // The lease a worker tracks is the remaining time, not the deadline
     // a claim without it could only be judged by a wall clock.
     const { lease_remaining_ms: _r, ...withoutRemaining } = claim;
     expect(
       bootstrapClaimResponseSchema.safeParse(withoutRemaining).success,
     ).toBe(false);
-    const { profile_fingerprint: _f, ...withoutFingerprint } = claim;
+    const { spec_digest: _f, ...withoutFingerprint } = claim;
     expect(
       bootstrapClaimResponseSchema.safeParse(withoutFingerprint).success,
     ).toBe(false);
     expect(
       bootstrapClaimResponseSchema.safeParse({
         ...claim,
-        profile_fingerprint: "b".repeat(64),
+        spec_digest: "b".repeat(64),
       }).success,
     ).toBe(false);
     // A claim from a gateway that predates the field lets nothing in; a
@@ -1044,10 +1051,10 @@ describe("worker protocol", () => {
       runtime: {
         kind: "claude_agent_sdk",
         version: "0.3.270",
-        profile_id: "claude-coding-v1",
+        connection_id: "fake-messages",
         permission_mode: "default",
       },
-      profile_fingerprint: `sha256:${"b".repeat(64)}`,
+      spec_digest: `sha256:${"b".repeat(64)}`,
       runtime_config: {
         model: "claude-sonnet-5",
         tools: ["Read"],
@@ -1099,7 +1106,7 @@ describe("worker protocol", () => {
       lease_expires_at: AT,
       lease_remaining_ms: 120_000,
       runtime: claim.runtime,
-      profile_fingerprint: `sha256:${"b".repeat(64)}`,
+      spec_digest: `sha256:${"b".repeat(64)}`,
       model: "claude-sonnet-5",
       permission_mode: "acceptEdits",
       provider_kind: "litellm",

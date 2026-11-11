@@ -100,7 +100,7 @@ const NAMES = [
 ];
 
 describe("one rule for allowing, blocking and running an mcp__ name", () => {
-  test("a name the agent's settings accept is a name a profile deny can block, and the reverse", async () => {
+  test("a name the agent's settings accept is a name a release's mcp_deny can block, and the reverse", async () => {
     for (const name of NAMES) {
       expect({ name, allowed: await allowed(name) }).toEqual({
         name,

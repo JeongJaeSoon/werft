@@ -209,10 +209,6 @@ services:
       # ignored .env when the shell has none), so its value is in no tracked
       # file and no argument. The proxy puts it on each worker call.
       ANTHROPIC_API_KEY:
-      # A profile with permission_mode bypassPermissions stops the API unless
-      # this is true (docs/operator/api-server.md); off by default. auto
-      # needs no opt-in.
-      PLATFORM_ALLOW_UNATTENDED_PERMISSIONS: ${PLATFORM_ALLOW_UNATTENDED_PERMISSIONS:-false}
     depends_on:
       localstack:
         condition: service_healthy
@@ -224,7 +220,6 @@ services:
   slack:
     environment:
       PLATFORM_SECRET_KEY: *local-secret-key
-      PLATFORM_ALLOW_UNATTENDED_PERMISSIONS: ${PLATFORM_ALLOW_UNATTENDED_PERMISSIONS:-false}
 
   maintenance:
     environment:

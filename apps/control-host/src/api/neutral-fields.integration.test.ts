@@ -8,8 +8,11 @@ import {
   sessions,
   turns,
 } from "@werft-ai/db";
+import {
+  fixtureRelease,
+  sessionPinColumns,
+} from "@werft-ai/db/testing/spec-pins";
 import { createLogger } from "@werft-ai/observability";
-import type { CatalogProfileView } from "@werft-ai/platform";
 import {
   createTempDatabase,
   type TempDatabase,
@@ -68,7 +71,8 @@ integration("events stored before the neutral fields, once filled", () => {
       ownerId: OWNER,
       repoUrl: "https://example.invalid/app.git",
       branch: "main",
-      profileId: "coding",
+      agentReleaseId: await fixtureRelease(db),
+      ...sessionPinColumns(),
     });
     const [turn] = await db
       .insert(turns)
@@ -99,14 +103,7 @@ integration("events stored before the neutral fields, once filled", () => {
       SET filled_through = 0, history_through = (SELECT max(id) FROM events)
       WHERE id = 1`);
 
-    const neutralize = eventNeutralizer(
-      {
-        profiles: {
-          coding: { runtime_kind: "claude_agent_sdk" } as CatalogProfileView,
-        },
-      },
-      createLogger({ level: "error" }),
-    );
+    const neutralize = eventNeutralizer(createLogger({ level: "error" }));
     const fill = await fillNeutralFields(db, {
       neutralize,
       batchSize: 100,

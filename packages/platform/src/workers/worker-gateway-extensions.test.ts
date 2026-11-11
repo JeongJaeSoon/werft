@@ -10,13 +10,8 @@ import type {
   WorkerBinding,
   WorkerUnitOfWork,
 } from "../ports/worker-unit-of-work.ts";
-import {
-  type CatalogProfile,
-  catalogProfile,
-  profileFingerprint,
-} from "../sessions/catalog.ts";
 import type { WorkerPendingStore } from "../sessions/ports/pending-requests.ts";
-import { withSeededInstallation } from "../sessions/profile-registry.ts";
+import { testBinding, testCatalog } from "../testing/catalog-fakes.ts";
 import {
   createWorkerGateway,
   type WorkerGatewayError,
@@ -31,24 +26,7 @@ const DOCS = {
   scope: "workspace",
 } as const;
 
-const base: CatalogProfile = {
-  runtime_kind: "claude_agent_sdk",
-  runtime_version: "0.3.270",
-  model: "claude-sonnet-5",
-  tools: ["Read"],
-  permission_mode: "default",
-  repository: "optional",
-  provider: {
-    kind: "anthropic",
-    endpoint: "https://api.anthropic.invalid",
-    auth: { kind: "api_key", value: "anthropic-key", ref: { value_env: "K" } },
-  },
-};
-const earlier: CatalogProfile = { ...base, tools: ["Read", "Grep"] };
-const catalog = withSeededInstallation({
-  profiles: { p: base, q: earlier },
-  repositories: {},
-});
+const catalog = testCatalog();
 
 const principal = {
   kind: "session",
@@ -60,27 +38,11 @@ const principal = {
 } as const;
 
 function bindingWith(extensions?: WorkerBinding["extensions"]): WorkerBinding {
-  return {
+  return testBinding({
     sessionId: SESSION,
-    attemptId: "att_1",
-    profileId: "p",
-    model: base.model,
-    costUsd: 0,
-    providerTokens: 0,
-    repository: null,
-    leaseEpoch: 1,
-    executionGeneration: 1,
-    authRevision: 0,
-    leaseExpiresAt: new Date("2026-09-22T00:00:30Z"),
-    leaseRemainingMs: 29_950,
-    profileFingerprint: null,
-    unmetered: false,
     ownerScope: OWNER,
-    restore: null,
-    restoreProfiles: [],
-    grants: [],
     ...(extensions === undefined ? {} : { extensions }),
-  } as WorkerBinding;
+  });
 }
 
 function gatewayOver(
@@ -156,19 +118,14 @@ describe("the claim carries the bundles the session row pinned", () => {
     );
   });
 
-  test("the configs an earlier profile's checkpoints are accepted under carry the same bundles", async () => {
+  test("the configs earlier checkpoints are accepted under carry the same bundles", async () => {
+    const current = await claim(bindingWith());
     const withHistory = {
       ...bindingWith([
         { bundle_id: "019a0000-0000-7000-8000-0000000e0001", ...LINT },
       ]),
-      restoreProfiles: [
-        {
-          profileId: "q",
-          profileFingerprint: profileFingerprint(
-            catalogProfile(catalog, "q") as CatalogProfile,
-          ),
-          model: earlier.model,
-        },
+      legacyRuntimeConfigs: [
+        { ...current.runtime_config, model: "claude-sonnet-4" },
       ],
     };
     const response = await claim(withHistory);
@@ -188,15 +145,15 @@ describe("the claim carries the bundles the session row pinned", () => {
     );
   });
 
-  test("the profile fingerprint does not move with the bundles", async () => {
+  test("the spec digest does not move with the bundles", async () => {
     const without = await claim(bindingWith());
     const withOne = await claim(
       bindingWith([
         { bundle_id: "019a0000-0000-7000-8000-0000000e0001", ...LINT },
       ]),
     );
-    expect(withOne.profile_fingerprint).toBe(without.profile_fingerprint);
-    expect(withOne.profile_fingerprint).toBe(profileFingerprint(base));
+    expect(withOne.spec_digest).toBe(without.spec_digest);
+    expect(withOne.spec_digest).toBe(bindingWith().specDigest);
   });
 });
 

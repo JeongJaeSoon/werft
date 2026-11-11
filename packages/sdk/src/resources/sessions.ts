@@ -12,7 +12,6 @@ import {
 import type {
   AnswerAccepted,
   AnswerBody,
-  ChangeProfileParams,
   CommentPullRequestParams,
   CreateSessionParams,
   InterruptParams,
@@ -82,11 +81,6 @@ export interface Sessions {
   close(
     id: SessionId,
     params: CloseParams,
-    options?: MutationOptions,
-  ): Promise<ReceiptAccepted>;
-  changeProfile(
-    id: SessionId,
-    params: ChangeProfileParams,
     options?: MutationOptions,
   ): Promise<ReceiptAccepted>;
   recoveryDecisions: {
@@ -326,19 +320,6 @@ export function sessions(context: Context): Sessions {
         options,
       ),
     close: (id, params, options) => closeSession(context, id, params, options),
-    changeProfile: (id, params, options) =>
-      call(
-        policy,
-        "keyed",
-        ({ signal, headers, idempotencyKey }) =>
-          api.POST("/v1/sessions/{id}/profile", {
-            params: { path: { id }, header: header(idempotencyKey) },
-            body: params,
-            signal,
-            headers,
-          }),
-        options,
-      ),
     recoveryDecisions: {
       create: (id, params, options) =>
         call(

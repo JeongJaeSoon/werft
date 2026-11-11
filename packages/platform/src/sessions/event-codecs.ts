@@ -5,28 +5,21 @@ import {
 } from "@werft-ai/contracts";
 import type { EventCodec } from "@werft-ai/runtime-core";
 
-import {
-  type CatalogProfileView,
-  catalogProfile,
-  type ProfileLookup,
-} from "./catalog.ts";
-
 /**
  * One stored or incoming event with the engine-neutral fields added by the
- * codec of its session's runtime, which the session's profile names. An
- * event whose runtime cannot be told (no profile, a profile the catalog no
- * longer holds, a kind with no codec installed) comes back as it was.
+ * codec of its session's runtime, which the session's spec names. An event
+ * whose runtime cannot be told (no spec, a kind with no codec installed)
+ * comes back as it was.
  */
 export type NeutralizeEvent = (
-  profileId: string | null,
+  runtimeKind: RuntimeKind | null,
   event: SessionEventPayload,
 ) => SessionEventPayload;
 
 export function createNeutralizer(
   codecs: readonly EventCodec[],
-  catalog: ProfileLookup<CatalogProfileView>,
   warn: {
-    unknown?: (profileId: string | null) => void;
+    unknown?: (runtimeKind: RuntimeKind | null) => void;
     // The codec's output broke the contract; the event is kept as it was.
     refused?: (kind: RuntimeKind, event: string, reason: string) => void;
   } = {},
@@ -34,14 +27,10 @@ export function createNeutralizer(
   const byKind = new Map<RuntimeKind, EventCodec>(
     codecs.map((codec) => [codec.kind, codec]),
   );
-  return (profileId, event) => {
-    const kind =
-      profileId === null
-        ? undefined
-        : catalogProfile(catalog, profileId)?.runtime_kind;
-    const codec = kind === undefined ? undefined : byKind.get(kind);
-    if (kind === undefined || codec === undefined) {
-      warn.unknown?.(profileId);
+  return (kind, event) => {
+    const codec = kind === null ? undefined : byKind.get(kind);
+    if (kind === null || codec === undefined) {
+      warn.unknown?.(kind);
       return event;
     }
     const out = codec.withNeutralFields(event);
@@ -61,7 +50,7 @@ export function createNeutralizer(
  */
 export function neutralFieldsOf(
   neutralize: NeutralizeEvent,
-  profileId: string | null,
+  runtimeKind: RuntimeKind | null,
   event: { event: string; data: unknown },
 ): Record<string, unknown> | null {
   const data = event.data;
@@ -69,7 +58,7 @@ export function neutralFieldsOf(
     return null;
   }
   const stored = data as Record<string, unknown>;
-  const out = neutralize(profileId, event as SessionEventPayload).data as
+  const out = neutralize(runtimeKind, event as SessionEventPayload).data as
     | Record<string, unknown>
     | undefined;
   const added = Object.entries(out ?? {}).filter(([key]) => !(key in stored));

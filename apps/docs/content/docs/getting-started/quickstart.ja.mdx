@@ -5,9 +5,10 @@ description: SDK でセッションを作り、ターンの終わりを待って
 
 [SDK のインストール](/getting-started/install)で作った `werft` クライアントでセッションを 1 つ作り、最初のターンが終わるところまで見る。例は[開発用サーバー](/run-server/dev-server)を `--fake-model` で立ち上げた場合である。`GATE-SPEC {…}` メッセージは fake モデルが読む台本なので、実際の Claude が動くサーバーでは普通の文を送る。
 
-## プロファイルを選ぶ
+## エージェントのリリースを用意する
 
-セッションは、サーバーの運用者が登録したプロファイル(profile)のどれかで動く。[接続を確認する](/getting-started/install#接続を確認する)で見た一覧である。開発用サーバーには、リポジトリを使う `claude-coding-local`(権限リクエストに人が答える)と `claude-coding-auto`(分類器が判定する)、リポジトリなしで動く `general` がある。ここでは `claude-coding-local` を使う。
+セッションは常にエージェントのリリースで動く。リリースは provider 接続 1 つとカードのモデルを紐付けたもので、セッションはそのリリースが固定したランタイム・ツール・権限モードで動く。まだリリースがなければ、[作成](/agents/create) のとおりにエージェントを作り、開発用サーバーの `fake-messages` 接続でリリースを作る。そのリリース id を `WERFT_AGENT_RELEASE_ID` に入れる。
+
 
 ## セッションを作る
 
@@ -16,7 +17,7 @@ import { waitForTurn } from "@werft-ai/sdk";
 import { werft } from "./werft.ts";
 
 const created = await werft.sessions.create({
-  profile_id: "claude-coding-local",
+  agent_release_id: process.env.WERFT_AGENT_RELEASE_ID ?? "",
   repository_id: "sample-app",
   message: 'GATE-SPEC {"id":"hello","steps":[],"final":"hello from Werft"}',
 });

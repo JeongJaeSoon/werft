@@ -3,9 +3,6 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  type InstallationProfileRecord,
-  type InstallationProfileStore,
-  parseSeedDocument,
   parseSettingsDocument,
   type SettingsDocumentStore,
   type SettingsEntries,
@@ -136,20 +133,6 @@ function fakeStore(
   return { store, asked };
 }
 
-function fakeProfiles(rows: InstallationProfileRecord[] = []) {
-  const seeded: Array<Parameters<InstallationProfileStore["seedCatalog"]>[0]> =
-    [];
-  const store: Pick<InstallationProfileStore, "listAll" | "seedCatalog"> = {
-    listAll: async () => rows,
-    seedCatalog: async (seed) => {
-      seeded.push(seed);
-      const entries = await seed.entries();
-      return { seeded: entries.map((entry) => entry.id), migrated: [] };
-    },
-  };
-  return { store, seeded };
-}
-
 function captured() {
   const out: string[] = [];
   const err: string[] = [];
@@ -210,7 +193,7 @@ describe("settings CLI arguments", () => {
 
 describe("settings CLI", () => {
   test("--from-dir turns the old files into the document, the fake-messages connection included, and says what it leaves out", async () => {
-    const { document, profiles, notes } = await documentFromDir(oldCatalog);
+    const { document, notes } = await documentFromDir(oldCatalog);
     const entries = parseSettingsDocument(document);
     expect(Object.keys(entries.connections)).toEqual(["fake-messages"]);
     expect(entries.connections["fake-messages"]).toMatchObject({
@@ -224,18 +207,18 @@ describe("settings CLI", () => {
     expect(Object.keys(entries.mcp_servers)).toEqual(["fake"]);
     expect(notes).toEqual([
       "platform.yaml is not imported: set the master key in PLATFORM_SECRET_KEY",
+      "profiles.yaml is not imported: profiles are removed; list each connection's models in the console or under connections.<id>.models",
     ]);
     expect(document).not.toHaveProperty("profiles");
-    expect(Object.keys(profiles)).toEqual(["coding"]);
+    expect(entries.repositories["sample-app"]).not.toHaveProperty("profiles");
   });
 
-  test("import --from-dir hands the operator's import every entry, external references allowed, and seeds its ceilings", async () => {
+  test("import --from-dir hands the operator's import every entry, external references allowed", async () => {
     const { store, asked } = fakeStore({
       ...PLAN,
       outcome: "applied",
       receipt_ids: [],
     });
-    const { store: profiles, seeded } = fakeProfiles();
     const { output, out, err } = captured();
     const ok = await runSettingsCommand(
       {
@@ -243,7 +226,7 @@ describe("settings CLI", () => {
         source: { dir: oldCatalog, ifPresent: false },
         dryRun: false,
       },
-      { settings: store, profiles },
+      { settings: store },
       output,
     );
     expect(ok).toBe(true);
@@ -258,12 +241,8 @@ describe("settings CLI", () => {
       actor: null,
     });
     expect(err.some((line) => line.includes("platform.yaml"))).toBe(true);
-    expect(seeded[0]?.repositoryIdsOf("coding")).toEqual(["sample-app"]);
-    expect(JSON.parse(out.join("\n")).profiles).toEqual({
-      seed: ["coding"],
-      fill: [],
-      unfilled: [],
-    });
+    expect(err.some((line) => line.includes("profiles.yaml"))).toBe(true);
+    expect(JSON.parse(out.join("\n"))).not.toHaveProperty("profiles");
   });
 
   test("a kept repository is named on stderr, and a document import keeps none", async () => {
@@ -273,7 +252,6 @@ describe("settings CLI", () => {
       outcome: "applied",
       receipt_ids: [],
     });
-    const { store: profiles } = fakeProfiles();
     const { output, err } = captured();
     await runSettingsCommand(
       {
@@ -281,7 +259,7 @@ describe("settings CLI", () => {
         source: { dir: oldCatalog, ifPresent: false },
         dryRun: true,
       },
-      { settings: store, profiles },
+      { settings: store },
       output,
     );
     expect(err).toContain(
@@ -327,12 +305,11 @@ describe("settings CLI", () => {
 
     const planned = { ...PLAN, outcome: "applied" as const, receipt_ids: [] };
     const { store, asked } = fakeStore(planned);
-    const { store: profiles } = fakeProfiles();
     const fromDir = captured();
     expect(
       await runSettingsCommand(
         { command: "import", source: { dir, ifPresent: false }, dryRun: false },
-        { settings: store, profiles },
+        { settings: store },
         fromDir.output,
       ),
     ).toBe(true);
@@ -365,7 +342,7 @@ describe("settings CLI", () => {
     expect(
       await runSettingsCommand(
         { command: "import", source: { document: file }, dryRun: false },
-        { settings: store, profiles },
+        { settings: store },
         fromDocument.output,
       ),
     ).toBe(true);
@@ -389,7 +366,6 @@ describe("settings CLI", () => {
       );
     }
     const planned = { ...PLAN, outcome: "applied" as const, receipt_ids: [] };
-    const { store: profiles } = fakeProfiles();
     const command = {
       command: "import" as const,
       source: { dir, ifPresent: false },
@@ -405,7 +381,7 @@ describe("settings CLI", () => {
     expect(
       await runSettingsCommand(
         command,
-        { settings: held.store, profiles },
+        { settings: held.store },
         refused.output,
       ),
     ).toBe(false);
@@ -418,7 +394,7 @@ describe("settings CLI", () => {
     expect(
       await runSettingsCommand(
         command,
-        { settings: free.store, profiles },
+        { settings: free.store },
         captured().output,
       ),
     ).toBe(true);
@@ -431,59 +407,10 @@ describe("settings CLI", () => {
     expect(
       await runSettingsCommand(
         { ...command, dryRun: true },
-        { settings: dry.store, profiles },
+        { settings: dry.store },
         captured().output,
       ),
     ).toBe(false);
-  });
-
-  test("when every repository is an old one, the profiles still import and run on none", async () => {
-    const dir = join(root, "all-legacy");
-    await mkdir(dir, { recursive: true });
-    for (const [name, text] of Object.entries(OLD_CATALOG)) {
-      await writeFile(
-        join(dir, name),
-        name === "repositories.yaml"
-          ? "repositories:\n  old:\n    url: https://git.example.invalid/team/old.git\n    branch: main\n"
-          : text,
-      );
-    }
-    const { profiles, notes } = await documentFromDir(dir);
-    expect(Object.keys(profiles)).toEqual(["coding"]);
-    expect(notes.some((note) => note.startsWith("repository old "))).toBe(true);
-
-    const file = join(root, "all-legacy.json");
-    await writeFile(
-      file,
-      JSON.stringify({
-        version: 1,
-        repositories: {
-          old: { url: "https://git.example.invalid/a.git", branch: "main" },
-        },
-        profiles: { coding: profiles.coding },
-      }),
-    );
-    const { store } = fakeStore({
-      ...PLAN,
-      outcome: "applied",
-      receipt_ids: [],
-    });
-    const { store: profileStore } = fakeProfiles();
-    const seeded = captured();
-    expect(
-      await runSettingsCommand(
-        { command: "import", source: { document: file }, dryRun: false },
-        { settings: store, profiles: profileStore },
-        seeded.output,
-      ),
-    ).toBe(true);
-    // A table seeded on an empty database names its unplaced ceilings too.
-    expect(seeded.err.join("\n")).toContain(
-      "no repository names these ceilings, so they run on none: coding",
-    );
-    expect(JSON.parse(seeded.out.join("\n")).profiles.unfilled).toEqual([
-      "coding",
-    ]);
   });
 
   test("the verify GitHub sandbox document is one migrate accepts", async () => {
@@ -491,50 +418,11 @@ describe("settings CLI", () => {
       import.meta.dir,
       "../../../../.claude/skills/verify-werft/github-sandbox/settings.json",
     );
-    const seed = parseSeedDocument(await Bun.file(path).json());
-    expect(Object.keys(seed.entries.repositories).sort()).toEqual([
+    const entries = parseSettingsDocument(await Bun.file(path).json());
+    expect(Object.keys(entries.repositories).sort()).toEqual([
       "sample-app",
       "sandbox",
     ]);
-  });
-
-  test("a runtime this image lacks stops a seed, not an upgrade whose table is filled", async () => {
-    const dir = join(root, "other-runtime");
-    await mkdir(dir, { recursive: true });
-    for (const [name, text] of Object.entries(OLD_CATALOG)) {
-      await writeFile(join(dir, name), text);
-    }
-    const profilesFile = await Bun.file(join(dir, "profiles.yaml")).text();
-    await writeFile(
-      join(dir, "profiles.yaml"),
-      profilesFile
-        .replace("claude_agent_sdk", "pi_coding_agent")
-        .replace("permission_mode: default", "permission_mode: auto"),
-    );
-    const command = {
-      command: "import" as const,
-      source: { dir, ifPresent: false },
-      dryRun: true,
-    };
-    const applied = fakeStore({ ...PLAN, outcome: "dry_run", receipt_ids: [] });
-    const { store: empty } = fakeProfiles();
-    await expect(
-      runSettingsCommand(
-        command,
-        { settings: applied.store, profiles: empty },
-        captured().output,
-      ),
-    ).rejects.toThrow("Catalog profile(s) refused");
-    const { store: filled } = fakeProfiles([
-      { id: "older", repository_ids: ["sample-app"] },
-    ] as never);
-    expect(
-      await runSettingsCommand(
-        command,
-        { settings: applied.store, profiles: filled },
-        captured().output,
-      ),
-    ).toBe(true);
   });
 
   test("--if-present skips a missing or empty directory, and only that", async () => {
@@ -543,7 +431,6 @@ describe("settings CLI", () => {
       outcome: "applied",
       receipt_ids: [],
     });
-    const { store: profiles, seeded } = fakeProfiles();
     const empty = join(root, "empty");
     await mkdir(empty, { recursive: true });
     for (const dir of [empty, join(root, "absent")]) {
@@ -555,14 +442,13 @@ describe("settings CLI", () => {
             source: { dir, ifPresent: true },
             dryRun: false,
           },
-          { settings: store, profiles },
+          { settings: store },
           output,
         ),
       ).toBe(true);
       expect(err).toEqual([`nothing to import from ${dir}`]);
     }
     expect(asked).toEqual([]);
-    expect(seeded).toEqual([]);
 
     const partial = join(root, "partial");
     await mkdir(partial, { recursive: true });
@@ -577,82 +463,14 @@ describe("settings CLI", () => {
           source: { dir: partial, ifPresent: true },
           dryRun: false,
         },
-        { settings: store, profiles },
+        { settings: store },
         captured().output,
       ),
     ).rejects.toThrow("connections.yaml is missing");
     expect(asked).toEqual([]);
   });
 
-  test("a dry run reports the ceilings without seeding them", async () => {
-    const { store } = fakeStore({
-      ...PLAN,
-      outcome: "dry_run",
-      receipt_ids: [],
-    });
-    const older = {
-      id: "older",
-      repository_ids: null,
-    } as InstallationProfileRecord;
-    const coding = { id: "coding", repository_ids: null };
-    // Names no repository on purpose: the seed would write the ones it leaves out.
-    const quiet = {
-      id: "quiet",
-      repository_ids: null,
-      repository_scope: null,
-    } as InstallationProfileRecord;
-    for (const [rows, report] of [
-      [[], { seed: ["coding"], fill: [], unfilled: [] }],
-      [
-        [older, coding as InstallationProfileRecord],
-        { seed: [], fill: ["older", "coding"], unfilled: ["older"] },
-      ],
-      [[older, quiet], { seed: [], fill: ["older"], unfilled: ["older"] }],
-    ] as const) {
-      const { store: profiles, seeded } = fakeProfiles([...rows]);
-      const { output, out } = captured();
-      await runSettingsCommand(
-        {
-          command: "import",
-          source: { dir: oldCatalog, ifPresent: false },
-          dryRun: true,
-        },
-        { settings: store, profiles },
-        output,
-      );
-      expect(JSON.parse(out.join("\n")).profiles).toEqual(report);
-      expect(seeded).toEqual([]);
-    }
-  });
-
-  test("a document's profiles key is the CLI's seed; without one no ceiling is touched", async () => {
-    const { store } = fakeStore({
-      ...PLAN,
-      outcome: "applied",
-      receipt_ids: [],
-    });
-    const { store: profiles, seeded } = fakeProfiles();
-    const path = join(root, "no-seed.json");
-    await writeFile(
-      path,
-      JSON.stringify({
-        version: 1,
-        connections: {},
-        repositories: {},
-        mcp_servers: {},
-      }),
-    );
-    const { output, out } = captured();
-    await runSettingsCommand(
-      { command: "import", source: { document: path }, dryRun: false },
-      { settings: store, profiles },
-      output,
-    );
-    expect(seeded).toEqual([]);
-    expect(JSON.parse(out.join("\n"))).not.toHaveProperty("profiles");
-  });
-
-  test("a refused import exits non-zero, names the conflicts and seeds nothing", async () => {
+  test("a refused import exits non-zero, and names the conflicts", async () => {
     const path = join(root, "settings.json");
     await writeFile(
       path,
@@ -675,15 +493,13 @@ describe("settings CLI", () => {
       outcome: "refused",
       receipt_ids: [],
     });
-    const { store: profiles, seeded } = fakeProfiles();
     const { output, err, out } = captured();
     const ok = await runSettingsCommand(
       { command: "import", source: { document: path }, dryRun: true },
-      { settings: store, profiles },
+      { settings: store },
       output,
     );
     expect(ok).toBe(false);
-    expect(seeded).toEqual([]);
     expect(asked[0]?.[1].dryRun).toBe(true);
     expect(JSON.parse(out.join("\n")).conflicts).toEqual(["repository:open"]);
     expect(err.join("\n")).toContain("repository:open");
@@ -699,7 +515,7 @@ describe("settings CLI", () => {
     expect(
       await runSettingsCommand(
         { command: "export" },
-        { settings: store, profiles: fakeProfiles().store },
+        { settings: store },
         output,
       ),
     ).toBe(true);

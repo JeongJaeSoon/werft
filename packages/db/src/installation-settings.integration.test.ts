@@ -12,21 +12,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type AgentCard, agentCardSchema } from "@werft-ai/contracts";
 import {
-  type CatalogProfile,
-  type CatalogProfileConfig,
+  type CatalogProviderConfig,
   type CatalogRepository,
   type CredentialRef,
   cardContentSha256,
-  catalogRows,
-  createProfileRegistry,
   deriveReleaseId,
   mcpBinding,
   parseSettingsDocument,
-  profileCatalog,
-  profileFingerprint,
+  releaseRunOf,
   repositoryBinding,
   resolveReleaseContent,
-  resolveSessionCatalog,
   SecretKey,
   type SessionCatalogConfig,
   sessionCatalogConfigSchema,
@@ -75,35 +70,22 @@ const lookup = (ref: CredentialRef) =>
       ? VALUES[ref.secret_id]
       : undefined;
 
-const MAIN: CatalogProfileConfig["provider"] = {
+const MAIN: CatalogProviderConfig = {
   kind: "litellm",
   endpoint: "http://10.0.0.5:4000",
   billing: "none",
   auth: { kind: "bearer", value_env: "PROVIDER_KEY" },
 };
 const FILE: SessionCatalogConfig = sessionCatalogConfigSchema.parse({
-  profiles: {
-    coding: {
-      runtime_kind: "claude_agent_sdk",
-      runtime_version: "0.3.270",
-      model: "claude-sonnet-5",
-      tools: ["Read", "Edit"],
-      permission_mode: "default",
-      provider: MAIN,
-      repository: "optional",
-    },
-  },
   repositories: {
     app: {
       url: "https://github.com/acme/app.git",
       branch: "main",
-      profiles: ["coding"],
       auth: { kind: "github_app" },
     },
     ghes: {
       url: "https://ghes.example.invalid/team/ghes.git",
       branch: "main",
-      profiles: ["coding"],
       auth: {
         kind: "github_app",
         app_id: 7,
@@ -123,6 +105,7 @@ const FILE: SessionCatalogConfig = sessionCatalogConfigSchema.parse({
   },
 });
 const CONNECTIONS = { main: MAIN };
+const MODELS = { main: { models: ["claude-sonnet-5"] } };
 
 const CARD: AgentCard = agentCardSchema.parse({
   role: "docs",
@@ -136,68 +119,50 @@ const CARD: AgentCard = agentCardSchema.parse({
   },
 });
 
-async function catalogOver(
-  db: NodePgDatabase<typeof schema>,
-  file: {
-    connections: Record<string, typeof MAIN>;
-    config: SessionCatalogConfig;
-  },
-) {
-  const resolvedFile = resolveSessionCatalog(
-    { ...file.config, profiles: {} },
+// What a process reads from the stored rows: the settings with their
+// credentials resolved, and the console's repositories beside them.
+async function catalogOver(db: NodePgDatabase<typeof schema>) {
+  const store = createPostgresInstallationSettingsStore(db, KEY);
+  const settings = settingsSnapshot(
+    await store.read({ openStored: true }),
     lookup,
   );
-  const store = createPostgresInstallationSettingsStore(db, KEY);
-  const registry = createProfileRegistry<CatalogProfile>({
-    workspaces: { listAll: async () => [] },
-    installations: {
-      listAll: async () => catalogRows(FILE.profiles, FILE.repositories),
-    },
-    repositories: createPostgresCatalogRepositoryStore(db),
-    settings: {
-      read: async () =>
-        settingsSnapshot(await store.read({ openStored: true }), lookup),
-    },
-    sources: {
-      connections: file.connections,
-      allowUnattended: false,
-      runtimeSupported: () => true,
-      materialize: (id, definition, settings) => {
-        const profile = resolveSessionCatalog(
-          { profiles: { [id]: definition }, repositories: {} },
-          (ref) => settings?.(ref) ?? lookup(ref),
-        ).profiles[id];
-        if (!profile) throw new Error(`no ${id}`);
-        return profile;
-      },
-    },
-  });
-  await registry.refresh();
-  return profileCatalog(resolvedFile, registry, (rows, settings) =>
-    withConsoleRepositories(rows, {
-      ...resolvedFile.repositories,
-      ...settings?.repositories,
-    }),
-  );
+  const rows = await createPostgresCatalogRepositoryStore(db).readCatalog();
+  return {
+    connections: settings.connections,
+    repositories: withConsoleRepositories(rows, settings.repositories),
+    mcp_servers: settings.mcp_servers,
+    left_out: settings.left_out,
+  };
 }
 
 function pins(catalog: Awaited<ReturnType<typeof catalogOver>>) {
-  const profile = catalog.profiles.coding;
-  if (!profile) {
-    throw new Error(
-      `coding does not run: ${catalog.installation.get("coding")?.state}`,
-    );
-  }
+  const run = releaseRunOf(
+    {
+      connections: catalog.connections,
+      tool_catalogs: {
+        all: [],
+        for: () => ({
+          id: "test@1",
+          runtimeKind: "claude_agent_sdk",
+          sdkVersion: "0.3.270",
+          engineVersion: "0.3.270",
+          tools: ["Read", "Edit"].map((name) => ({
+            name,
+            boundary: "local" as const,
+          })),
+        }),
+      },
+    },
+    { claude_agent_sdk: "0.3.270" },
+    "main",
+  );
+  if (!run.ok) throw new Error(run.message);
   const repositories = catalog.repositories as Record<
     string,
     CatalogRepository
   >;
-  const content = resolveReleaseContent(
-    CARD,
-    "coding",
-    profile,
-    catalog.mcp_servers,
-  );
+  const content = resolveReleaseContent(CARD, run.run, catalog.mcp_servers);
   if (!content.ok) throw new Error(content.error.message);
   const docs = catalog.mcp_servers?.docs;
   if (!docs) throw new Error("no docs server");
@@ -208,8 +173,6 @@ function pins(catalog: Awaited<ReturnType<typeof catalogOver>>) {
     ...content.content,
   });
   return {
-    fingerprint: profileFingerprint(profile),
-    state: catalog.installation.get("coding")?.state,
     bindings: Object.fromEntries(
       Object.keys(FILE.repositories).map((id) => {
         const repository = repositories[id];
@@ -227,6 +190,7 @@ async function importFile(db: NodePgDatabase<typeof schema>) {
     parseSettingsDocument(
       settingsDocumentOf({
         connections: CONNECTIONS,
+        connection_models: MODELS,
         repositories: FILE.repositories,
         mcp_servers: FILE.mcp_servers ?? {},
       }),
@@ -259,17 +223,15 @@ integration("installation settings", () => {
     await db.delete(catalogRepositories);
   }
 
-  test("rows imported from a document run its ceiling and pin its repositories", async () => {
+  test("rows imported from a document make a release on its connection and pin its repositories", async () => {
     await clear();
     await importFile(db);
-    const imported = pins(
-      await catalogOver(db, {
-        connections: {},
-        config: { profiles: {}, repositories: {} },
-      }),
-    );
-    expect(imported.state).toBe("usable");
+    const catalog = await catalogOver(db);
+    expect(catalog.left_out).toEqual([]);
+    expect(catalog.connections.main?.models).toEqual(["claude-sonnet-5"]);
+    const imported = pins(catalog);
     expect(Object.values(imported.bindings)).not.toContain(null);
+    expect(imported.mcp).toBeDefined();
   }, 30_000);
 
   test("an empty installation reads empty settings", async () => {
@@ -332,11 +294,9 @@ integration("installation settings", () => {
     );
     const snapshot = settingsSnapshot(opened, () => undefined);
     expect(Object.keys(snapshot.connections)).toEqual(["console_main"]);
-    // Whether the classifier works over a connection is read beside, never
-    // inside, its definition: the profile fingerprint hashes the provider.
-    expect(snapshot.connection_auto_modes).toEqual({
-      console_main: "supported",
-    });
+    // Whether the classifier works over a connection is read beside its
+    // definition, onto the connection.
+    expect(snapshot.connections.console_main?.auto_mode).toBe("supported");
 
     expect((await store.read()).stored.size).toBe(0);
     const keyless = await createPostgresInstallationSettingsStore(
@@ -361,10 +321,13 @@ integration("installation settings", () => {
     );
     expect(rotated.generation).toBe(opened.generation);
     const rotatedSnapshot = settingsSnapshot(rotated, () => undefined);
-    expect(rotatedSnapshot.connections).toEqual(snapshot.connections);
-    expect(rotatedSnapshot.lookup({ stored: "connection:console_main" })).toBe(
-      "a-rotated-stored-key",
+    expect(Object.keys(rotatedSnapshot.connections)).toEqual(
+      Object.keys(snapshot.connections),
     );
+    const auth = rotatedSnapshot.connections.console_main?.provider.auth as
+      | { value?: string }
+      | undefined;
+    expect(auth?.value).toBe("a-rotated-stored-key");
 
     // A value sealed under another key leaves out its own row only.
     await db.insert(providerConnections).values({
@@ -487,14 +450,8 @@ integration(
         const store = createPostgresCatalogRepositoryStore(db);
         await migrate(db, { migrationsFolder: MIGRATIONS });
         const rows = await store.readCatalog();
-        expect(
-          rows?.map(({ id, profiles, url }) => ({ id, profiles, url })),
-        ).toEqual([
-          {
-            id: "app",
-            profiles: ["coding"],
-            url: "https://github.com/team/app.git",
-          },
+        expect(rows?.map(({ id, url }) => ({ id, url }))).toEqual([
+          { id: "app", url: "https://github.com/team/app.git" },
         ]);
         expect(
           (

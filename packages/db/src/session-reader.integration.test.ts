@@ -27,10 +27,11 @@ import {
   users,
 } from "./schema.ts";
 import { encodeArchiveChunk } from "./sessions/session-event-archives.ts";
+import { fixtureRelease, TEST_MODEL } from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
-const OWNER = "owner-reader";
+const OWNER = "00000000-0000-4000-8000-0000000000aa";
 
 integration("session reader on PostgreSQL", () => {
   let database: TempDatabase;
@@ -185,7 +186,8 @@ integration("session reader on PostgreSQL", () => {
       },
       idempotencyKey: "first",
       payloadHash: "first",
-      profileId: "claude-coding-v1",
+      agentReleaseId: await fixtureRelease(db),
+      model: TEST_MODEL,
       repository: "none",
       channel: "slack",
       message: "first",

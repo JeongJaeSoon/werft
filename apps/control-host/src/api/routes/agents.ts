@@ -9,6 +9,7 @@ import {
   createAgentRequestSchema,
   listAgentsQuerySchema,
   listAgentsResponseSchema,
+  listConnectionOptionsResponseSchema,
   listUsableAgentsResponseSchema,
   saveAgentResponseSchema,
   updateAgentRequestSchema,
@@ -42,6 +43,17 @@ export function registerAgentRoutes(
       service.listAgents(context.get("caller"), query),
     );
     return jsonWithSchema(context, listAgentsResponseSchema, page);
+  });
+
+  apiRoute(router, "listConnectionOptions", async (context) => {
+    const options = await mapped(() =>
+      service.listConnections(context.get("caller")),
+    );
+    return jsonWithSchema(
+      context,
+      listConnectionOptionsResponseSchema,
+      options,
+    );
   });
 
   apiRoute(router, "listUsableAgents", async (context) => {

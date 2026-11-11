@@ -167,7 +167,7 @@ export function createAgentMcpService(deps: {
         check: (current, releaseServer, releaseMcpDeny) => {
           if (settings.server === null) return;
           // Only what this save adds is judged: a tool the row already holds
-          // can still be narrowed away, whatever the profile blocks since.
+          // can still be narrowed away, whatever the rules block since.
           // This runs before the server checks, which return early.
           const already =
             current !== null && current.server === settings.server

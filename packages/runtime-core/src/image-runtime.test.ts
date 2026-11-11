@@ -78,7 +78,7 @@ describe("parseImageRuntime", () => {
     }
   });
 
-  test("a profile may name either the SDK or the CLI version", () => {
+  test("a release may name either the SDK or the CLI version", () => {
     expect(
       imageRuntimeVersions({ ...stamped, profileDigestScheme: 1 }),
     ).toEqual(["0.3.270", "2.1.270"]);

@@ -30,6 +30,8 @@ describe("workerImageRuntimesFromEnv", () => {
     expect(
       workerImageRuntimesFromEnv({
         WORKER_IMAGE_RUNTIME: JSON.stringify(current),
+        // An image built before the catalog dropped profiles still
+        // carries the field; it is read past.
         WORKER_IMAGE_PREVIOUS_RUNTIME: JSON.stringify({
           ...previous,
           profiles: {},

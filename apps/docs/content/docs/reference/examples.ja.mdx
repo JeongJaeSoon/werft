@@ -7,12 +7,12 @@ description: ユースケースごとに SDK を実際に呼ぶ小さな CLI サ
 
 | サンプル | 何を示すか | key |
 | --- | --- | --- |
-| [sdk-discovery](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-discovery) | client の作成と作成時の拒否、key の scope、profile カタログ、バージョン定数 | 任意の key(`sessions:read`) |
+| [sdk-discovery](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-discovery) | client の作成と作成時の拒否、key の scope、バージョン定数 | 任意の key(`sessions:read`) |
 | [sdk-inventory](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-inventory) | セッション一覧の検索・フィルタ・ページ、詳細・使用量・共有範囲 | 個人 key(`read`・`write`・`control`) |
 | [sdk-events](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-events) | イベントストリーム、保存した cursor からの再開、turn 一覧のページ | エージェント key(`read`・`write`・`control`) |
 | [sdk-reliability](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-reliability) | Idempotency-Key の再生、失われた応答の再試行、エラークラス | 個人 key(`read`・`write`・`control`) |
 | [sdk-questions](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-questions) | 質問への回答、権限の拒否・許可、開いたリクエストを一度だけ処理、同じリクエストへの別の回答 | 個人 key(`read`・`write`・`approve`・`control`) |
-| [sdk-control](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-control) | interrupt、pause・resume、profile の変更、terminate 後の復旧判断 | 個人 key(`read`・`write`・`control`・`recover`) |
+| [sdk-control](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-control) | interrupt、pause・resume、terminate 後の復旧判断 | 個人 key(`read`・`write`・`control`・`recover`) |
 | [sdk-close](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-close) | 開いた質問で止まる close と `CLOSE_BLOCKED`、待機中の入力のキャンセル | 個人 key(`read`・`write`・`approve`・`control`) |
 | [sdk-push](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-push) | push の要求・拒否・承認、push の結果、PR の作成とコメント | エージェント key + 承認者の個人 key(`approve`) |
 | [sdk-approver](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-approver) | エージェント key でセッションを動かし、別の承認者が権限リクエストに答えてから close | エージェント key + 承認者の個人 key(`approve`) |
@@ -24,7 +24,7 @@ description: ユースケースごとに SDK を実際に呼ぶ小さな CLI サ
 1. 自分のスタックを `scripts/local.sh up --fake-model` で起動します([開発用サーバーの実行](/run-server/dev-server))。実際のモデル key は要りません。メッセージ中の `GATE-SPEC` は FAKE モデルが再生する台本なので、実際のモデルでは使いません。
 2. Web コンソールに owner でログインします。
 3. 個人 key は、コンソールの設定 > API キー で、そのサンプルの scope を付けて発行します。owner は 5 つの scope をすべて付けられます。
-4. エージェント key が必要なサンプル(`sdk-events`、`sdk-push`、`sdk-approver`)は、コンソールでエージェントを作り、`claude-coding-local` プロファイルと `sample-app` リポジトリでリリースを作って有効にしてから、そのエージェントの key を `sessions:read`、`sessions:write`、`sessions:control` で発行します。エージェント key には `sessions:approve` を付けられないので、承認は別の個人 key が行います。
+4. エージェント key が必要なサンプル(`sdk-events`、`sdk-push`、`sdk-approver`)は、コンソールでエージェントを作り、`fake-messages` 接続と `sample-app` リポジトリでリリースを作って有効にしてから、そのエージェントの key を `sessions:read`、`sessions:write`、`sessions:control` で発行します。エージェント key には `sessions:approve` を付けられないので、承認は別の個人 key が行います。
 
 環境変数はサンプルごとの README にあります。すべてのサンプルが使うのは次の 2 つです。key をソース・README・出力に貼り付けないでください。
 
@@ -49,16 +49,16 @@ bun examples/sdk-discovery/src/discover.ts
 | --- | --- |
 | `new Werft(options)`: `baseUrl`・`apiKey`・`maxRetries`・`timeoutMs`・`defaultHeaders`・`fetch`、作成時の拒否 | discovery、reliability |
 | `withOptions` | discovery、reliability、push、approver |
-| `root.get`、`auth.me`、`profiles.list`、`limits.get` | discovery |
+| `root.get`、`auth.me`、`limits.get` | discovery |
 | `SDK_VERSION`、`API_SPEC_VERSION`、`SUPPORTED_SSE_SCHEMA_VERSIONS` | discovery |
-| `sessions.create` | すべてのセッションサンプル(`agent_release_id`: events、push、approver / `title`: inventory / リポジトリのない profile: questions) |
+| `sessions.create` | すべてのセッションサンプル(`agent_release_id`: events、push、approver / `title`: inventory / リポジトリのないセッション: questions) |
 | `sessions.get`、`sessions.list`(`q`・`relation`・`status`・`limit`、`nextPage`、`for await`) | inventory(一覧)、すべてのセッションサンプル(詳細) |
 | `sessions.usage`、`sessions.share` | inventory |
 | `sessions.messages.send` | events、reliability、questions、control、close、approver |
 | `sessions.turns.get`、`sessions.turns.list` | events、reliability、control、close |
 | `sessions.events.stream`(`lastEventId`、`close()`、`signal`) | events、approver(`waitForTurn` の `events`) |
 | `sessions.requests.list`、`sessions.requests.answer` | questions、close |
-| `sessions.interrupt`、`pause`、`resume`、`terminate`、`changeProfile`、`recoveryDecisions.create` | control |
+| `sessions.interrupt`、`pause`、`resume`、`terminate`、`recoveryDecisions.create` | control |
 | `sessions.close` | すべてのセッションサンプル |
 | `sessions.pushRequests.create`・`list`・`get`・`approve`・`reject`・`openPullRequest`・`commentPullRequest` | push |
 | `receipts.get` | questions・control・close・push(`waitForReceipt` 経由) |

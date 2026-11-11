@@ -115,6 +115,13 @@ export const connectionAutoModeSchema = z.enum([
   "unknown",
 ]);
 
+export const connectionModelFamiliesSchema = z.record(
+  z.string().min(1).max(128),
+  z
+    .object({ family: z.string().min(1).max(128), rank: z.number().int() })
+    .strict(),
+);
+
 export const settingsConnectionSchema = z
   .object({
     id: z.string().min(1),
@@ -125,6 +132,13 @@ export const settingsConnectionSchema = z
     billing: z.enum(["per_token", "none"]),
     auth_kind: z.enum(["api_key", "bearer"]),
     auto_mode: connectionAutoModeSchema,
+    /** The models an agent may name on this connection, in order. */
+    models: z.array(z.string().min(1)),
+    /**
+     * Which models are versions of one series, newest highest: a session on
+     * a model taken off `models` moves to the next listed one of its series.
+     */
+    model_families: connectionModelFamiliesSchema.nullable(),
     credential: settingsCredentialViewSchema,
     ...entryTimes,
   })
@@ -196,6 +210,14 @@ export const setConnectionAutoModeRequestSchema = z
   .object({ auto_mode: connectionAutoModeSchema })
   .strict();
 
+/** PUT /v1/settings/connections/{id}/models: the whole list, replaced. */
+export const setConnectionModelsRequestSchema = z
+  .object({
+    models: z.array(z.string().trim().min(1).max(128)).max(64),
+    model_families: connectionModelFamiliesSchema.nullable().optional(),
+  })
+  .strict();
+
 export const setSettingsMcpServerRequestSchema = z
   .object({ workspaces: z.array(z.string().min(1)).min(1) })
   .strict();
@@ -207,16 +229,14 @@ export const settingsChangeResponseSchema = z
 /**
  * What disabling one connection would leave without a model, counted by the
  * server when a person opens the confirmation. Counts only: no name or id of
- * another workspace's profile or agent is ever in it.
+ * another workspace's agent is ever in it.
  */
 export const settingsConnectionImpactResponseSchema = z
   .object({
     id: z.string().min(1),
-    /** Current profile versions with no other enabled connection that fits. */
-    profile_count: z.number().int().nonnegative(),
-    /** Active agents whose active release runs one of those profiles. */
+    /** Active agents whose active release runs on this connection. */
     agent_count: z.number().int().nonnegative(),
-    /** Sessions not yet failed or stopped that run one of them. */
+    /** Sessions not yet failed or stopped that run on it. */
     session_count: z.number().int().nonnegative(),
     /** A workspace's achievement judge setting names this connection. */
     judge_used: z.boolean(),
@@ -248,4 +268,7 @@ export type CreateSettingsMcpServerRequest = z.infer<
 >;
 export type SettingsChangeResponse = z.infer<
   typeof settingsChangeResponseSchema
+>;
+export type SetConnectionModelsRequest = z.infer<
+  typeof setConnectionModelsRequestSchema
 >;

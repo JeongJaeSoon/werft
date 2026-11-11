@@ -372,12 +372,6 @@ export const AUTHORIZATION_ACTION_VALUES = [
   // One agent's summed usage: its workspace's managers and its admins
   // (94S-1016), recorded under its own name rather than agent.manage.
   "usage.agent_read",
-  // Making and retiring installation ceilings: the operator, who is the
-  // workspace owner (docs/contributing/decisions/profile-db.md §2).
-  "profile.installation.manage",
-  // Defining a profile version: the owner and the admin. The admin's versions
-  // may only narrow a source version; no writer checks this action yet.
-  "profile.define",
   // The installation's connections, repositories and remote MCP servers,
   // and the settings document that exports and imports them: the owner
   // (docs/contributing/decisions/settings-replace-file-catalog.md §3).
@@ -441,8 +435,6 @@ const ACTION_RESOURCE_KINDS: Record<
   "session.admin_list": new Set(["workspace"]),
   "usage.installation_read": new Set(["workspace"]),
   "usage.agent_read": new Set(["agent"]),
-  "profile.installation.manage": new Set(["workspace"]),
-  "profile.define": new Set(["workspace"]),
   "installation.settings.manage": new Set(["workspace"]),
   "achievement_rule.manage": new Set(["workspace"]),
   "achievement.review": new Set(["agent"]),

@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { scopesForRole } from "@werft-ai/contracts";
 import {
   checkAgentExtensions,
-  checkPinnedExtensions,
   resolveSessionExtensions,
   type SessionExtensionsDeps,
 } from "../extensions/session-extensions.ts";
@@ -11,16 +10,12 @@ import type {
   ExtensionAttachment,
   ExtensionBundle,
 } from "../ports/extension-bundle-store.ts";
-import {
-  type ConnectionAutoMode,
-  profileFingerprint,
-  type SessionCatalog,
-} from "./catalog.ts";
+import { testCatalog, testSpecSource } from "../testing/catalog-fakes.ts";
+import type { SessionCatalogView } from "./catalog.ts";
 import type {
   AcceptSessionInput,
   SessionDetailRecord,
 } from "./ports/session-unit-of-work.ts";
-import { withSeededInstallation } from "./profile-registry.ts";
 import {
   createSessionService,
   SessionServiceError,
@@ -30,36 +25,11 @@ const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
 const MEMBER = "019a0000-0000-7000-8000-0000000000a1";
 const AGENT = "019a0000-0000-7000-8000-00000000b0a1";
 
-const base: SessionCatalog["profiles"][string] = {
-  runtime_kind: "claude_agent_sdk",
-  runtime_version: "0.3.270",
-  model: "claude-sonnet-5",
-  models: [],
-  tools: ["Read", "Skill"],
-  permission_mode: "default",
-  provider: {
-    kind: "litellm",
-    endpoint: "https://litellm.invalid",
-    auth: {
-      kind: "api_key",
-      value: "test",
-      ref: { value_env: "PROVIDER_KEY" },
-    },
-  },
-};
-const unattended = { ...base, permission_mode: "auto" as const };
-const noSkill = { ...base, tools: ["Read"] };
-const catalog: SessionCatalog = withSeededInstallation({
-  profiles: {
-    "coding-v1": base,
-    "unattended-v1": unattended,
-    "no-skill-v1": noSkill,
-  },
+const catalog = testCatalog({
   repositories: {
     app: {
       url: "https://example.invalid/app.git",
       branch: "main",
-      profiles: ["coding-v1", "unattended-v1", "no-skill-v1"],
       auth: { kind: "github_app", registered: true },
     },
   },
@@ -127,9 +97,8 @@ function setup(options: {
   extensions?: SessionExtensionsDeps;
   accept?: "accepted" | "replayed";
   session?: SessionDetailRecord;
-  changeProfile?: (input: { profile: unknown }) => unknown;
   releaseTools?: string[];
-  catalog?: SessionCatalog;
+  catalog?: SessionCatalogView;
 }) {
   const accepted: AcceptSessionInput[] = [];
   const policy = createAuthorizationPolicy({
@@ -140,17 +109,25 @@ function setup(options: {
     catalog: options.catalog ?? catalog,
     releases: {
       agentGitHubSettings: async () => null,
-      repositoryCeiling: async () => null,
+      repositoryCeiling: async () => ({
+        repository_ids: ["app"],
+        github_app_repositories: "listed",
+      }),
       notRunnableReason: async () => null,
       async resolveRelease(_workspaceId, releaseId) {
         return {
           id: releaseId,
           agent_id: AGENT,
           approved_at: "2026-01-01T00:00:00.000Z",
-          runtime_profile_id: "coding-v1",
+          connection_id: "conn-1",
           repository_id: null,
           runtime_config_snapshot: {
-            tools: options.releaseTools ?? base.tools,
+            model: "claude-sonnet-5",
+            runtime: { kind: "claude_agent_sdk", version: "0.3.270" },
+          },
+          effective_tools: {
+            tools: options.releaseTools ?? ["Read", "Skill"],
+            mcp: [],
           },
           policy_pins: {},
         };
@@ -187,8 +164,6 @@ function setup(options: {
       closeAtomic: unreached,
       decideRecoveryAtomic: unreached,
       resumeAtomic: unreached,
-      changeProfileAtomic:
-        (options.changeProfile as typeof unreached | undefined) ?? unreached,
       renameAtomic: unreached,
     },
     reader: {
@@ -223,7 +198,7 @@ function setup(options: {
 }
 
 const body = {
-  profile_id: "coding-v1",
+  agent_release_id: "rel-1",
   repository_id: "app",
   message: "hi",
 } as const;
@@ -238,66 +213,29 @@ async function refusalOf(promise: Promise<unknown>) {
   throw new Error("expected a refusal");
 }
 
-describe("a profile that does not list Skill", () => {
+describe("a release whose tools do not list Skill", () => {
   test("refuses a session that resolves a bundle, saying what to edit", async () => {
     const { service, caller } = setup({
       extensions: extensionDeps([attach(lint, "required")]),
+      releaseTools: ["Read"],
     });
     const error = await refusalOf(
-      service.createSession(caller, {
-        idempotencyKey: "k",
-        body: { ...body, profile_id: "no-skill-v1" },
-      }),
+      service.createSession(caller, { idempotencyKey: "k", body }),
     );
     expect(error.code).toBe("UNSUPPORTED_CAPABILITY");
     expect(error.details).toMatchObject({
       reason_code: "skill_tool_not_allowed",
       bundle: "lint",
     });
-    expect(error.message).toContain('Add "Skill" to the profile');
-  });
-
-  test("a release whose tool snapshot lacks Skill is refused though the profile lists it, as the claim would run the snapshot", async () => {
-    const { service, caller } = setup({
-      extensions: extensionDeps([attach(lint, "required")]),
-      releaseTools: ["Read"],
-    });
-    const error = await refusalOf(
-      service.createSession(caller, {
-        idempotencyKey: "k",
-        body: { ...body, agent_release_id: "rel-1" },
-      }),
-    );
-    expect(error.details).toMatchObject({
-      reason_code: "skill_tool_not_allowed",
-      bundle: "lint",
-    });
-  });
-
-  test("a snapshot this image cannot read allows no tool, so it is refused too", async () => {
-    const { service, caller } = setup({
-      extensions: extensionDeps([attach(lint, "required")]),
-      releaseTools: "garbled" as never,
-    });
-    const error = await refusalOf(
-      service.createSession(caller, {
-        idempotencyKey: "k",
-        body: { ...body, agent_release_id: "rel-1" },
-      }),
-    );
-    expect(error.details).toMatchObject({
-      reason_code: "skill_tool_not_allowed",
-    });
+    expect(error.message).toContain("this release's tools do not list it");
   });
 
   test("still runs a session with no bundles", async () => {
     const { service, caller, accepted } = setup({
       extensions: extensionDeps([]),
+      releaseTools: ["Read"],
     });
-    await service.createSession(caller, {
-      idempotencyKey: "k",
-      body: { ...body, profile_id: "no-skill-v1" },
-    });
+    await service.createSession(caller, { idempotencyKey: "k", body });
     expect(accepted[0]?.extensions).toEqual([]);
   });
 });
@@ -316,7 +254,7 @@ describe("POST /v1/sessions resolves extensions once", () => {
     });
     const response = await service.createSession(caller, {
       idempotencyKey: "k",
-      body: { ...body, agent_release_id: "rel-1" },
+      body,
     });
     expect(accepted[0]?.extensions).toEqual([
       {
@@ -339,26 +277,6 @@ describe("POST /v1/sessions resolves extensions once", () => {
     });
     expect(accepted[0]?.extensions).toEqual([]);
     expect(response.extensions).toBeUndefined();
-  });
-
-  test("the profile fingerprint does not depend on the bundles", async () => {
-    const none = setup({ extensions: extensionDeps([]) });
-    await none.service.createSession(none.caller, {
-      idempotencyKey: "k",
-      body,
-    });
-    const some = setup({
-      extensions: extensionDeps([attach(lint, "required", "workspace")]),
-    });
-    await some.service.createSession(some.caller, {
-      idempotencyKey: "k",
-      body,
-    });
-    expect(none.accepted[0]?.profileFingerprint).toBeDefined();
-    expect(some.accepted[0]?.profileFingerprint).toBe(
-      none.accepted[0]?.profileFingerprint,
-    );
-    expect(some.accepted[0]?.profileFingerprint).toBe(profileFingerprint(base));
   });
 
   test("the request turns an optional bundle on", async () => {
@@ -413,15 +331,10 @@ describe("POST /v1/sessions resolves extensions once", () => {
     expect(error.details).toMatchObject({ reason_code: "bundle_not_found" });
   });
 
-  test("a scripted skill runs on an unattended profile as on default: its review lets it, not the mode", async () => {
-    const deps = extensionDeps([attach(tools, "required")]);
-    const auto = setup({ extensions: deps });
-    await auto.service.createSession(auto.caller, {
-      idempotencyKey: "k",
-      body: { ...body, profile_id: "unattended-v1" },
+  test("an approved scripted skill runs: its review lets it", async () => {
+    const ok = setup({
+      extensions: extensionDeps([attach(tools, "required")]),
     });
-    expect(auto.accepted[0]?.extensions?.[0]?.name).toBe("tools");
-    const ok = setup({ extensions: deps });
     await ok.service.createSession(ok.caller, { idempotencyKey: "k", body });
     expect(ok.accepted[0]?.extensions?.[0]?.name).toBe("tools");
   });
@@ -440,10 +353,11 @@ describe("POST /v1/sessions resolves extensions once", () => {
     const { service, caller, accepted } = setup({
       extensions: extensionDeps([attach(lint, "required")]),
       accept: "replayed",
+      releaseTools: ["Read"],
     });
     const response = await service.createSession(caller, {
       idempotencyKey: "k",
-      body: { ...body, profile_id: "no-skill-v1" },
+      body,
     });
     expect(accepted[0]?.extensionsRefused).toBe(true);
     expect(response.status).toBe("queued");
@@ -498,7 +412,7 @@ describe("what is offered", () => {
     const error = await refusalOf(
       service.createSession(caller, {
         idempotencyKey: "k",
-        body: { ...body, agent_release_id: "rel-1" },
+        body,
       }),
     );
     expect(error.details).toMatchObject({ reason_code: "required_removed" });
@@ -513,13 +427,13 @@ describe("activation judges every bundle a session could turn on", () => {
     tools: ["Read", "Skill"],
   } as const;
 
-  test("an optional scripted bundle no longer blocks activation: the profile's mode is not asked", async () => {
+  test("an optional scripted bundle does not block activation: the release's mode is not asked", async () => {
     const deps = extensionDeps([attach(tools, "optional")]);
     const result = await checkAgentExtensions(deps, input);
     expect(result.ok).toBe(true);
   });
 
-  test("a profile whose tools lack Skill blocks activation for a bundle with skills, and one without bundles is untouched", async () => {
+  test("a release whose tools lack Skill blocks activation for a bundle with skills, and one without bundles is untouched", async () => {
     const withoutSkill = { ...input, tools: ["Read"] };
     const blocked = await checkAgentExtensions(
       extensionDeps([attach(lint, "optional")]),
@@ -547,45 +461,9 @@ describe("activation judges every bundle a session could turn on", () => {
   });
 });
 
-describe("a session that moves to another profile keeps only bundles it may run", () => {
-  const moving = {
-    workspaceId: WORKSPACE,
-    runtimeKind: "claude_agent_sdk",
-    tools: ["Read", "Skill"],
-  } as const;
-
-  test("a pinned scripted bundle whose approval was withdrawn is refused, one that is still approved is not", async () => {
-    const withdrawn = bundle(6, "withdrawn", {
-      scripts: true,
-      review: "rejected",
-    });
-    const result = await checkPinnedExtensions(
-      extensionDeps([attach(withdrawn, "optional")]),
-      { ...moving, extensions: [{ bundle_id: withdrawn.id }] },
-    );
-    expect(result.ok === false && result.refusal.code).toBe(
-      "bundle_not_approved",
-    );
-    const approved = await checkPinnedExtensions(
-      extensionDeps([attach(tools, "optional")]),
-      { ...moving, extensions: [{ bundle_id: tools.id }] },
-    );
-    expect(approved.ok).toBe(true);
-  });
-
-  test("a pinned bundle without scripts is not judged by its review, as before", async () => {
-    const quiet = bundle(7, "quiet", { review: "rejected" });
-    const result = await checkPinnedExtensions(
-      extensionDeps([attach(quiet, "optional")]),
-      { ...moving, extensions: [{ bundle_id: quiet.id }] },
-    );
-    expect(result.ok).toBe(true);
-  });
-});
-
-describe("a profile change judges the bundles the session is pinned to", () => {
-  const SESSION = "019a0000-0000-7000-8000-00000000d0a1";
-  const pinnedTo = (bundles: ExtensionBundle[]) =>
+describe("the session view shows what the engine runs", () => {
+  const SESSION = "019a0000-0000-7000-8000-00000000d0a2";
+  const detailOn = (spec: ReturnType<typeof testSpecSource> | null) =>
     ({
       id: SESSION,
       revision: 1,
@@ -596,110 +474,28 @@ describe("a profile change judges the bundles the session is pinned to", () => {
       branch: "main",
       repository_mode: "repository",
       github_policy_source: "release",
-      profile_id: "coding-v1",
       model: "claude-sonnet-5",
-      profile_fingerprint: null,
-      extensions: bundles.map((b) => ({
-        bundle_id: b.id,
-        name: b.name,
-        digest: b.digest,
-        scope: "agent",
-      })),
+      spec,
+      extensions: [],
     }) as unknown as SessionDetailRecord;
 
-  async function change(bundles: ExtensionBundle[], profile: string) {
-    let sent: { profile: unknown } | null = null;
-    const { service, caller } = setup({
-      extensions: extensionDeps([]),
-      session: pinnedTo(bundles),
-      changeProfile: (input) => {
-        sent = input;
-        throw new Error("captured");
-      },
-    });
-    await service
-      .changeSessionProfile(caller, SESSION, {
-        idempotencyKey: "k",
-        body: { profile_id: profile, expected_revision: 1 },
-      })
-      .catch((error: unknown) => {
-        if (!(error instanceof Error) || error.message !== "captured") {
-          throw error;
-        }
+  test("the spec's runtime, connection, model and mode, whatever the connection says now", async () => {
+    for (const mode of ["default", "auto"] as const) {
+      const { service, caller } = setup({
+        session: detailOn(testSpecSource({ permission_mode: mode })),
       });
-    if (sent === null) throw new Error("changeProfileAtomic was not reached");
-    return (sent as { profile: { id: string } | null }).profile;
-  }
-
-  test("a scripted bundle accepted on default moves to an unattended profile: its review lets it run", async () => {
-    expect((await change([tools], "unattended-v1"))?.id).toBe("unattended-v1");
-  });
-
-  test("the refusal carries the same details as creation and activation", async () => {
-    const { service, caller } = setup({
-      extensions: extensionDeps([]),
-      session: pinnedTo([lint]),
-      changeProfile: (input) =>
-        input.profile === null ? { outcome: "unsupported" } : { outcome: "ok" },
-    });
-    const error = await refusalOf(
-      service.changeSessionProfile(caller, SESSION, {
-        idempotencyKey: "k",
-        body: { profile_id: "no-skill-v1", expected_revision: 1 },
-      }),
-    );
-    expect(error.code).toBe("UNSUPPORTED_CAPABILITY");
-    expect(error.details).toEqual({
-      reason_code: "skill_tool_not_allowed",
-      bundle: "lint",
-    });
-  });
-
-  test("a session pinned to bundles does not move to a profile without Skill", async () => {
-    expect(await change([lint], "no-skill-v1")).toBeNull();
-    expect((await change([], "no-skill-v1"))?.id).toBe("no-skill-v1");
-  });
-
-  test("the same session may change to a profile that still allows its bundles", async () => {
-    expect((await change([lint], "unattended-v1"))?.id).toBe("unattended-v1");
-    expect((await change([], "unattended-v1"))?.id).toBe("unattended-v1");
-  });
-});
-
-describe("the session view shows the mode the engine runs", () => {
-  const SESSION = "019a0000-0000-7000-8000-00000000d0a2";
-  const detail = {
-    id: SESSION,
-    revision: 1,
-    admission_state: "active",
-    status: "idle",
-    repository_id: "app",
-    repo_url: "https://example.invalid/app.git",
-    branch: "main",
-    repository_mode: "repository",
-    github_policy_source: "release",
-    profile_id: "coding-v1",
-    model: "claude-sonnet-5",
-    profile_fingerprint: null,
-    extensions: [],
-  } as unknown as SessionDetailRecord;
-  const modeOn = async (autoMode: ConnectionAutoMode | undefined) => {
-    const { service, caller } = setup({
-      session: detail,
-      catalog: {
-        ...catalog,
-        ...(autoMode === undefined
-          ? {}
-          : { connection_auto_mode: () => autoMode }),
-      },
-    });
-    return (await service.getSession(caller, SESSION)).runtime?.permission_mode;
-  };
-
-  test("a stored default is shown as auto on a connection that supports it, and as itself everywhere else", async () => {
-    expect(await modeOn("supported")).toBe("auto");
-    for (const autoMode of ["unsupported", "unknown", undefined] as const) {
-      expect(await modeOn(autoMode)).toBe("default");
+      expect((await service.getSession(caller, SESSION)).runtime).toEqual({
+        kind: "claude_agent_sdk",
+        version: "0.3.270",
+        connection_id: "conn-1",
+        model: "claude-sonnet-5",
+        permission_mode: mode,
+      });
     }
+  });
+
+  test("a session without a spec shows none", async () => {
+    const { service, caller } = setup({ session: detailOn(null) });
+    expect((await service.getSession(caller, SESSION)).runtime).toBeNull();
   });
 });

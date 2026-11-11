@@ -55,7 +55,7 @@ function service(options: {
       list: async () => options.requests,
       get: async () => options.requests[0] ?? null,
     } as unknown as PushRequestStore,
-    catalog: { profiles: {}, repositories: {} },
+    catalog: { connections: {}, repositories: {} },
     intents: { list: async () => [] } as never,
     source: options.source,
   });

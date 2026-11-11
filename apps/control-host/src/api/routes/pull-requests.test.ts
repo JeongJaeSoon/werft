@@ -42,12 +42,11 @@ const KEYS: Record<string, readonly SessionScope[]> = {
   csp_agent: ["sessions:read", "sessions:write"],
 };
 const CATALOG = {
-  profiles: {},
+  connections: {},
   repositories: {
     app: {
       url: "https://github.com/acme/app.git",
       branch: "main",
-      profiles: ["default"],
       auth: { kind: "github_app", registered: true } as const,
     },
   },
@@ -185,7 +184,6 @@ function app(
         ownerId: "owner-a",
         sessionId,
         repositoryId: "app",
-        profileId: null,
         attachedRepositoryIds: null,
         repository: { url: "https://github.com/acme/app.git", branch: "main" },
         startedBy: null,
@@ -193,7 +191,10 @@ function app(
         release: options.release ?? null,
         policy: options.policy ?? releasePolicy(null),
         ceiling: GITHUB_CEILING_NONE,
-        repositoryCeiling: null,
+        repositoryCeiling: {
+          repository_ids: ["app"],
+          github_app_repositories: "listed",
+        },
         ceilingRevision: 0,
       }),
       findDispatch: async () => null,

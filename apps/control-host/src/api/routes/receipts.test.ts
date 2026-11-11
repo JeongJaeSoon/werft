@@ -44,7 +44,7 @@ function app(
       sessionTokenLimit: null,
     },
     authorization: createAuthorizationPolicy(),
-    catalog: { profiles: {}, repositories: {} },
+    catalog: { connections: {}, repositories: {} },
     inputs: {
       acceptInputAtomic: async () => {
         throw new Error("not reached");
@@ -67,9 +67,6 @@ function app(
         throw new Error("not reached");
       },
       resumeAtomic: async () => {
-        throw new Error("not reached");
-      },
-      changeProfileAtomic: async () => {
         throw new Error("not reached");
       },
       renameAtomic: async () => {

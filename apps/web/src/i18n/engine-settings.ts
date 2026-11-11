@@ -26,8 +26,6 @@ export const engineSettingsKo = {
   "engine.saving": "저장하는 중",
   "engine.saved": "저장했습니다. 이후 시작하는 세션부터 적용됩니다.",
   "engine.unchanged": "바뀐 내용이 없습니다.",
-  "engine.writesClosed":
-    "지금은 저장이 닫혀 있습니다. 이미 저장된 규칙은 계속 적용됩니다. 운영자가 열면 저장할 수 있습니다.",
   "engine.conflict":
     "다른 곳에서 먼저 저장했습니다. 최신 규칙을 불러온 뒤 다시 고쳐 주세요.",
   "engine.reload": "최신 규칙 불러오기",
@@ -50,8 +48,6 @@ export const engineSettingsKo = {
   "engine.workspaceRules.hint":
     "워크스페이스 설정에서 바꿉니다. 이 에이전트에도 적용됩니다.",
   "engine.workspaceRules.empty": "워크스페이스 규칙이 없습니다.",
-  "engine.inherited":
-    "프로필에서 물려받은 막는 규칙: 항목 {entries}개에 규칙 {rules}개. 운영자가 관리하며 여기서 바꿀 수 없습니다.",
   "engine.reach.inactive":
     "워크스페이스는 {lists}을(를) 허용하지만 이 에이전트의 같은 목록이 비어 있어, 워크스페이스의 허용이 이 에이전트에 닿지 않습니다.",
   "engine.reach.withoutEffect":
@@ -86,8 +82,6 @@ export const engineSettingsEn: Record<keyof typeof engineSettingsKo, string> = {
   "engine.saving": "Saving",
   "engine.saved": "Saved. Sessions that start from now on use it.",
   "engine.unchanged": "Nothing has changed.",
-  "engine.writesClosed":
-    "Saving is closed for now. The rules already saved keep applying. You can save once the operator opens it.",
   "engine.conflict":
     "Someone saved first. Load the latest rules and edit them again.",
   "engine.reload": "Load latest rules",
@@ -110,8 +104,6 @@ export const engineSettingsEn: Record<keyof typeof engineSettingsKo, string> = {
   "engine.workspaceRules.hint":
     "Change them in the workspace settings. They apply to this agent too.",
   "engine.workspaceRules.empty": "The workspace has no rules.",
-  "engine.inherited":
-    "Restrictions inherited from the profile: {entries} entries holding {rules} rules. The operator manages them; they cannot be changed here.",
   "engine.reach.inactive":
     "The workspace allows {lists}, but this agent's list of the same kind is empty, so the workspace's allow does not reach this agent.",
   "engine.reach.withoutEffect":
@@ -146,8 +138,6 @@ export const engineSettingsJa: Record<keyof typeof engineSettingsKo, string> = {
   "engine.saving": "保存中",
   "engine.saved": "保存しました。以降に始まるセッションから適用されます。",
   "engine.unchanged": "変更はありません。",
-  "engine.writesClosed":
-    "現在は保存が閉じられています。保存済みのルールは引き続き適用されます。運営者が開くと保存できます。",
   "engine.conflict":
     "先に別の場所で保存されました。最新のルールを読み込んでから、もう一度編集してください。",
   "engine.reload": "最新のルールを読み込む",
@@ -171,8 +161,6 @@ export const engineSettingsJa: Record<keyof typeof engineSettingsKo, string> = {
   "engine.workspaceRules.hint":
     "ワークスペース設定で変更します。このエージェントにも適用されます。",
   "engine.workspaceRules.empty": "ワークスペースのルールはありません。",
-  "engine.inherited":
-    "プロファイルから引き継いだ制限: {entries}項目、ルール{rules}個。運営者が管理しており、ここでは変更できません。",
   "engine.reach.inactive":
     "ワークスペースは{lists}を許可していますが、このエージェントの同じ一覧が空のため、ワークスペースの許可はこのエージェントに届きません。",
   "engine.reach.withoutEffect":

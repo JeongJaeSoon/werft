@@ -1,10 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
 import {
-  acceptedRuntimeVersions,
-  type CatalogProfile,
-  catalogProfile,
+  type CatalogConnection,
+  connectionOf,
   type SessionCatalog,
-  sessionProfile,
 } from "./catalog.ts";
 import type { SessionTitleStore } from "./ports/session-title-store.ts";
 import { deriveSessionTitle } from "./session-title.ts";
@@ -25,7 +23,7 @@ const TITLE_SYSTEM =
 
 /**
  * Names a session after its first turn, through the egress proxy's provider
- * route like any of the session's model calls: the proxy puts the profile's
+ * route like any of the session's model calls: the proxy puts the connection's
  * credential on it and reports what it used, so the cost lands on the
  * session. Whatever goes wrong, the title cut from the first message stays.
  */
@@ -90,11 +88,11 @@ export function createSessionTitler(deps: {
       if (issued.outcome === "skipped") return "skipped";
       let title: string | null = null;
       try {
-        const profile = titleProfile(deps.catalog, issued);
-        if (profile === null) throw new Error("the session's profile moved");
+        const run = titleRun(deps.catalog, issued);
+        if (run === null) throw new Error("the session's connection is gone");
         title = await call(
           token,
-          profile.title_model ?? profile.model,
+          run.model,
           promptOf(issued.message, issued.result),
         );
       } catch (error) {
@@ -121,24 +119,20 @@ export function hashTitleToken(token: string): Uint8Array {
   return createHash("sha256").update(token, "utf8").digest();
 }
 
-/** The profile the session runs, as long as the catalog still offers it. */
-export function titleProfile(
-  catalog: SessionCatalog,
-  session: {
-    profileId: string | null;
-    profileFingerprint: string | null;
-    model: string | null;
-  },
-): CatalogProfile | null {
-  const listed = session.profileId
-    ? catalogProfile(catalog, session.profileId)
-    : undefined;
-  if (!listed) return null;
-  return sessionProfile(
-    listed,
-    { fingerprint: session.profileFingerprint, model: session.model },
-    acceptedRuntimeVersions(catalog),
-  );
+/**
+ * The connection and model a session's title call runs on: the session's
+ * own, over a Messages connection the catalog still holds. Null otherwise.
+ */
+export function titleRun(
+  catalog: Pick<SessionCatalog, "connections">,
+  session: { connectionId: string | null; model: string | null },
+): { connection: CatalogConnection; model: string } | null {
+  if (session.connectionId === null || session.model === null) return null;
+  const connection = connectionOf(catalog, session.connectionId);
+  if (!connection || connection.provider.kind === "openai_responses") {
+    return null;
+  }
+  return { connection, model: session.model };
 }
 
 function excerpt(text: string): string {

@@ -65,19 +65,14 @@ async function run(): Promise<void> {
   if (missing.length > 0)
     throw new Error(`the key lacks ${missing.join(", ")}`);
 
-  const profiles = await client.profiles.list({ signal });
-  for (const profile of profiles.items) {
-    const repositories = profile.repository_ids?.length
-      ? ` [${profile.repository_ids.join(", ")}]`
-      : "";
-    const wait = profile.permission_wait
-      ? `, parks after ${profile.permission_wait.park_after_seconds}s`
-      : "";
+  const connections = await client.connections.list({ signal });
+  for (const connection of connections.items) {
     console.log(
-      `profile ${profile.id}: ${profile.model} on ${profile.runtime_kind} ${profile.runtime_version}, repository ${profile.repository_mode}${repositories}, ${profile.tools.length} tools, permission ${profile.permission_mode}${wait}`,
+      `connection ${connection.id}: ${connection.kind}, ${connection.billing}, models ${connection.models.join(", ") || "(none)"}`,
     );
   }
-  if (profiles.items.length === 0) throw new Error("the catalog is empty");
+  if (connections.items.length === 0)
+    throw new Error("no provider connection is enabled");
 
   // Installation limits are for a signed-in workspace owner; a key gets 403.
   try {

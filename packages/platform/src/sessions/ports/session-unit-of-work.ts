@@ -16,6 +16,7 @@ import type {
   SessionExtension,
   SessionSummary,
   SlackMessageRef,
+  SpecSource,
   SseEvent,
   SurfaceKind,
   TurnDetail,
@@ -45,7 +46,6 @@ export type AcceptSessionInput = {
   principal: Principal;
   idempotencyKey: string;
   payloadHash: string;
-  profileId: string;
   // The surface the creating request came from, kept as the session's
   // channel; left out, the session records none.
   channel?: SurfaceKind;
@@ -57,9 +57,9 @@ export type AcceptSessionInput = {
   title?: string | null;
   // `user` when the request gave one; left out, it is `derived`.
   titleSource?: SessionTitleSource;
-  // null when the catalog no longer lists the profile/repository: a replay
-  // of an earlier acceptance must still succeed, a new request must not.
-  // "none" when the profile is allowed to run without one.
+  // null when the catalog no longer lists the repository: a replay of an
+  // earlier acceptance must still succeed, a new request must not. "none"
+  // for a session started without one.
   repository: { id: string; url: string; branch: string } | "none" | null;
   // Already checked against the release; left out, the column stays null.
   attachedRepositoryIds?: string[];
@@ -74,17 +74,13 @@ export type AcceptSessionInput = {
    * session's start snapshot.
    */
   captureGitHubPolicyStart?: true;
-  // The profile's fingerprint under the catalog that allowed the pair, which
-  // every claim of the session is then held to. Left out, the row
-  // is pinned by its first claim, as one from before the column is.
-  profileFingerprint?: string;
-  // The model the session runs, set with profileFingerprint.
+  // The model the session runs; the store pins the release's spec on it.
+  // Left out, the session does not run (a replay only).
   model?: string;
-  // The profile declared `billing: none`; fixed on the session for good.
+  // The connection declared `billing: none`; fixed on the session for good.
   unmetered?: boolean;
-  // The agent release the session belongs to, already checked against
-  // profileId.
-  agentReleaseId?: string;
+  // The agent release the session belongs to and runs the spec of.
+  agentReleaseId: string;
   // Stored on the row as it is; absent, the session is revision 0.
   platformPrompt?: PlatformPrompt;
   // The policy found a name the release uses unbound: only a replay of an
@@ -111,7 +107,7 @@ export type AcceptSessionInput = {
   // left out, by the whole workspace.
   shareScope?: "private";
   // The session's own waits, kept as given: a request takes the lower of
-  // them and its profile's when it is raised.
+  // them and the installation's when it is raised.
   permissionWait?: PermissionWaitRequest;
   message: string;
   limits: InputLimits;
@@ -145,18 +141,14 @@ export type AppendMessageInput = {
   // The request span's W3C traceparent, stored with the turn as opaque text;
   // platform never parses it (decision record observability-otel…, 3.1).
   traceContext?: string;
-  // The operator blocked the session's profile: only a replay of an earlier
-  // acceptance goes through.
-  profileBlocked?: true;
   // As `AcceptSessionInput.agentPrivate`: only a replay goes through.
   agentPrivate?: true;
-  profileTools?: readonly string[];
   callerSubject?: AuthorizationSubject;
 };
 
 export type AppendMessageResult =
   | { outcome: "accepted" | "replayed"; response: PostSessionMessageResponse }
-  | { outcome: "conflict" | "not_found" | "profile_blocked" }
+  | { outcome: "conflict" | "not_found" }
   /** A session the requester sees, of an agent they may not use. */
   | { outcome: "agent_private" }
   | { outcome: "caller_limited"; dimension: CallerLimitDimension }
@@ -174,14 +166,13 @@ export type AppendMessageResult =
   | { outcome: "pin_required" }
   | InputLimitRefusal;
 
-// Storage rows carry profile_id; the service resolves runtime from the catalog.
+// Storage rows carry the session's spec source; the service turns it into
+// the runtime view. Null for a session with no spec pin.
 export type SessionRecord = Omit<SessionSummary, "runtime"> & {
-  profile_id: string | null;
-  // With `model`, what the session is pinned to; never exposed.
-  profile_fingerprint: string | null;
+  spec: SpecSource | null;
 };
 export type SessionDetailRecord = Omit<SessionDetail, "runtime"> & {
-  profile_id: string | null;
+  spec: SpecSource | null;
   // What the session has spent; the service turns it into `attention`
   // against the current limit, so a changed limit applies at once.
   cost_usd: number;
@@ -193,10 +184,9 @@ export type SessionDetailRecord = Omit<SessionDetail, "runtime"> & {
   branch: string | null;
   // The row's own value: `none` for a session accepted without a
   // repository, `repository` for every other, a row from before the catalog
-  // included. Not the profile's repository_mode, and never exposed.
+  // included. Never exposed.
   repository_mode: "repository" | "none";
   github_policy_source: string;
-  profile_fingerprint: string | null;
   auto_model_migration: boolean;
 };
 

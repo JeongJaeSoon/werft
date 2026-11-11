@@ -150,7 +150,6 @@ integration("action_notice rows on PostgreSQL", () => {
         openedByTs: "1730000000.000100",
         agentId,
         releaseId: "rel-1",
-        profileId: "profile-1",
         createdBy: userId,
       });
     } finally {

@@ -28,20 +28,18 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join, normalize } from "node:path";
 import {
-  effectiveToolsSchema,
-  MAX_RESTORE_PROFILES,
+  MAX_RESTORE_CONFIGS,
   type PlatformPrompt,
   type RuntimeConfig,
+  type SpecSource,
+  specSourceSchema,
 } from "@werft-ai/contracts";
 import {
-  acceptedRuntimeVersions,
-  allowedRun,
-  type CatalogProfile,
-  claimToolLists,
-  runtimeConfigOf,
+  connectionModels,
+  connectionOf,
+  legacyConfigsFromRow,
+  runtimeConfigOfSpec,
   type SessionCatalog,
-  sessionProfile,
-  type ToolList,
 } from "@werft-ai/platform";
 import type {
   CheckpointCodec,
@@ -171,104 +169,54 @@ export function planRuntime(
   return { ...build, profileSha256: profile.profileSha256 };
 }
 
+/** Stands in for the egress token: the digest leaves the credential out. */
+const STAND_IN_TOKEN = "verify-restore-stand-in";
+
 /**
  * The claim fields a worker hashes into a checkpoint's profile digest, as
- * the API would hand them to this session now: its owner and its profile
- * from the catalog (worker-gateway.ts `resolveProfile`). A session the
- * catalog no longer lets run — the pair gone, the repository re-pointed, the
- * profile edited since the session was created — is refused, as a claim
- * would refuse it (worker-unit-of-work.ts `runnablePairOf`, 258).
- * The tools are the ones the claim runs (catalog.ts claimToolLists).
- * The token is a stand-in; the digest leaves the credential out.
+ * the API would hand them to this session now: its owner and the spec the
+ * session pinned from its release (worker-gateway.ts `specConfigOf`). A
+ * session the catalog no longer lets run — its connection gone or no longer
+ * offering its model, its repository re-pointed — is refused, as a claim
+ * would refuse it. The token is a stand-in; the digest leaves it out.
  */
 export function sessionClaim(
   session: ClaimedSession,
   catalog: SessionCatalog,
 ): SessionClaim {
-  const profile = runnableProfile(session, catalog);
-  const lists = claimToolLists(
-    profile,
-    session.releaseTools,
-    undefined,
-    session.effectiveTools,
-  );
+  const spec = runnableSpec(session, catalog);
   return claimOf(
     session,
-    profile,
-    (lists.runs === "release" ? lists.release : null) ?? lists.profile,
+    runtimeConfigOfSpec(
+      spec,
+      STAND_IN_TOKEN,
+      session.repositoryMode === "repository",
+    ),
   );
 }
 
 /**
- * The claims a target image is asked for besides sessionClaim, keyed for
- * alternateDigests, in the order and under the cap the gateway's
- * `restoreRuntimesOf` offers restore configs: the session's own profile
- * with the tool list it does not run (keyed by ownToolsKey), and every
- * earlier profile (earlierProfileClaims). Refused as sessionClaim refuses.
+ * The claims a target image is asked for besides sessionClaim, keyed by
+ * legacyConfigKey, in the order and under the cap the gateway's
+ * `restoreRuntimesOf` offers restore configs: the configs the session ran
+ * before its model moved, newest first. With the built-in `github` server
+ * the gateway spends one more config on each (and one on the config it
+ * runs); a claim is offered only when all of its configs fit, so the count
+ * errs towards a FAIL rather than a PASS the claim would not back. Refused
+ * as sessionClaim refuses.
  */
 export function restoreClaims(
-  session: ClaimedSession & {
-    readonly id: string;
-    // Whether the release pins GitHub settings (mcp-egress.ts sessionGitHubMcpOf).
-    readonly githubAttached: boolean;
-  },
-  earlier: readonly EarlierProfile[],
+  session: ClaimedSession & { readonly id: string },
   catalog: SessionCatalog,
 ): [key: string, claim: SessionClaim][] {
-  return listClaims(session, [
-    {
-      profile: runnableProfile(session, catalog),
-      key: (list) => ownToolsKey(session.id, list),
-      own: true,
-    },
-    ...earlierProfilesOf(session.id, earlier, catalog),
-  ]);
-}
-
-type EarlierProfile = {
-  readonly profileId: string;
-  readonly profileFingerprint: string;
-  readonly model: string | null;
-};
-
-type ListedProfile = {
-  profile: CatalogProfile;
-  key: (list: ToolList) => string;
-  own: boolean;
-};
-
-// Every profile list before any release list, as the gateway orders them.
-// With the built-in `github` server the gateway spends two restore configs
-// on a list (with and without it) and one on the list it runs (without);
-// a claim is offered only when all of its configs fit, so the count errs
-// towards a FAIL rather than a PASS the claim would not back.
-function listClaims(
-  session: ClaimOwner & {
-    readonly githubAttached: boolean;
-    readonly releaseTools: readonly string[] | null;
-    readonly effectiveTools?: readonly string[] | null;
-  },
-  profiles: readonly ListedProfile[],
-): [key: string, claim: SessionClaim][] {
-  const perList = session.githubAttached ? 2 : 1;
-  let used = 0;
+  runnableSpec(session, catalog);
+  const perConfig = session.githubAttached ? 2 : 1;
+  let used = session.githubAttached ? 1 : 0;
   const claims: [string, SessionClaim][] = [];
-  for (const list of ["profile", "release"] as const) {
-    for (const { profile, key, own } of profiles) {
-      const lists = claimToolLists(
-        profile,
-        session.releaseTools,
-        undefined,
-        session.effectiveTools,
-      );
-      const tools = lists[list];
-      if (tools === null) continue;
-      const running = own && lists.runs === list;
-      used += running ? perList - 1 : perList;
-      if (used > MAX_RESTORE_PROFILES) return claims;
-      if (running) continue;
-      claims.push([key(list), claimOf(session, profile, tools)]);
-    }
+  for (const [index, config] of session.legacyConfigs.entries()) {
+    used += perConfig;
+    if (used > MAX_RESTORE_CONFIGS) break;
+    claims.push([legacyConfigKey(session.id, index), claimOf(session, config)]);
   }
   return claims;
 }
@@ -276,18 +224,18 @@ function listClaims(
 export type ClaimedSession = ClaimOwner & {
   readonly branch: string | null;
   readonly model: string | null;
-  readonly profileFingerprint: string | null;
-  readonly profileId: string | null;
-  // The release's runtime_config_snapshot.tools; null without a release.
-  readonly releaseTools: readonly string[] | null;
-  // The release's effective_tools.tools for a session whose tools source is
-  // `release`; absent or null for the others, which run the lists above.
-  readonly effectiveTools?: readonly string[] | null;
+  // The spec the session pinned (sessions.spec_source); null when the row
+  // holds none or one that no longer parses.
+  readonly spec: SpecSource | null;
+  // sessions.legacy_runtime_configs as a claim reads them.
+  readonly legacyConfigs: readonly RuntimeConfig[];
+  // Whether the release pins GitHub settings (mcp-egress.ts sessionGitHubMcpOf).
+  readonly githubAttached: boolean;
   readonly repoUrl: string | null;
   readonly repositoryId: string | null;
 };
 
-/** What every claim of a session carries whichever profile it is made for. */
+/** What every claim of a session carries whichever config it is made for. */
 type ClaimOwner = {
   readonly ownerId: string;
   readonly repositoryMode: "repository" | "none";
@@ -296,22 +244,16 @@ type ClaimOwner = {
   readonly platformPrompt: unknown;
 };
 
-/** A `sessions` row with its release and the release's card, as read for a plan. */
+/** A `sessions` row with its release's GitHub pin, as read for a plan. */
 export type SessionRow = {
   platform_prompt: unknown;
   branch: string | null;
   id: string;
   model: string | null;
   owner_id: string;
-  profile_fingerprint: string | null;
-  profile_id: string | null;
+  spec_source: unknown;
+  legacy_runtime_configs: unknown;
   release_github: boolean | null;
-  release_id: string | null;
-  release_tools: unknown;
-  // sessions.runtime_tools_source and the release's whole effective_tools
-  // value, which the claim judges as one (unreadable allows no tool).
-  tools_source?: unknown;
-  release_effective_tools?: unknown;
   repo_url: string | null;
   repository_id: string | null;
   repository_mode: "repository" | "none";
@@ -319,28 +261,14 @@ export type SessionRow = {
 
 export function claimedSessionOf(
   row: SessionRow,
-): ClaimedSession & { readonly id: string; readonly githubAttached: boolean } {
+): ClaimedSession & { readonly id: string } {
   return {
     id: row.id,
     branch: row.branch,
     model: row.model,
     ownerId: row.owner_id,
-    profileFingerprint: row.profile_fingerprint,
-    profileId: row.profile_id,
-    // As the claim's binding reads them (worker-unit-of-work.ts releaseToolsOf).
-    releaseTools:
-      row.release_id === null
-        ? null
-        : Array.isArray(row.release_tools) &&
-            row.release_tools.every((tool) => typeof tool === "string")
-          ? (row.release_tools as string[])
-          : [],
-    // As the binding reads them: unreadable allows no tool.
-    effectiveTools:
-      row.release_id === null || row.tools_source !== "release"
-        ? null
-        : (effectiveToolsSchema.safeParse(row.release_effective_tools).data
-            ?.tools ?? []),
+    spec: specSourceSchema.safeParse(row.spec_source).data ?? null,
+    legacyConfigs: legacyConfigsFromRow(row.legacy_runtime_configs),
     // Counted as attached whenever pinned, unreadable or not: one config too
     // many only makes the count stricter.
     githubAttached: row.release_github === true,
@@ -351,38 +279,42 @@ export function claimedSessionOf(
   };
 }
 
-function runnableProfile(
+function runnableSpec(
   session: ClaimedSession,
   catalog: SessionCatalog,
-): CatalogProfile {
-  const without = session.repositoryMode === "none";
-  const run =
-    session.profileId === null || (!without && session.repositoryId === null)
-      ? null
-      : allowedRun(catalog, session.profileId, session.repositoryId);
-  if (
-    run === null ||
-    (run.repository !== null &&
-      (run.repository.url !== session.repoUrl ||
-        run.repository.branch !== session.branch))
-  ) {
+): SpecSource {
+  const { spec } = session;
+  if (spec === null) {
+    throw new Error("the session holds no spec pin a claim could run");
+  }
+  const connection = connectionOf(catalog, spec.connection.id);
+  if (connection === undefined) {
     throw new Error(
-      without
-        ? `profile ${session.profileId ?? "(none)"} may not run without a repository in the catalog`
-        : `profile ${session.profileId ?? "(none)"} and repository ${session.repositoryId ?? "(none)"} at the session's URL and branch are not an allowed pair in the catalog`,
+      `connection ${spec.connection.id} of the session's spec is not in the catalog`,
     );
   }
-  const profile = sessionProfile(
-    run.profile,
-    { fingerprint: session.profileFingerprint, model: session.model },
-    acceptedRuntimeVersions(catalog),
-  );
-  if (profile === null) {
+  if (!connectionModels(connection).includes(spec.model)) {
     throw new Error(
-      `profile ${session.profileId} has other settings in the catalog than the session was created with`,
+      `connection ${spec.connection.id} no longer offers model ${spec.model}`,
     );
   }
-  return profile;
+  if (session.repositoryMode === "repository") {
+    const repository =
+      session.repositoryId !== null &&
+      Object.hasOwn(catalog.repositories, session.repositoryId)
+        ? catalog.repositories[session.repositoryId]
+        : undefined;
+    if (
+      repository === undefined ||
+      repository.url !== session.repoUrl ||
+      repository.branch !== session.branch
+    ) {
+      throw new Error(
+        `repository ${session.repositoryId ?? "(none)"} at the session's URL and branch is not in the catalog`,
+      );
+    }
+  }
+  return spec;
 }
 
 /**
@@ -400,22 +332,16 @@ export type SessionClaim = {
 // protocol has them on runtime_config and each restore config, and only
 // when there are some: a claim without them keeps the digest it had before
 // the field.
-function claimOf(
-  session: ClaimOwner,
-  profile: CatalogProfile,
-  tools: readonly string[],
-): SessionClaim {
+function claimOf(session: ClaimOwner, config: RuntimeConfig): SessionClaim {
   const hasRepository = session.repositoryMode === "repository";
-  const runtimeConfig = runtimeConfigOf(
-    profile,
-    "verify-restore-stand-in",
-    hasRepository,
-    tools,
-  );
   return {
     principal: { owner_scope: session.ownerId },
     runtime_config: {
-      ...runtimeConfig,
+      ...config,
+      provider: {
+        ...config.provider,
+        auth: { kind: "egress_token", token: STAND_IN_TOKEN },
+      },
       ...(session.platformPrompt === null
         ? {}
         : { platform_prompt: session.platformPrompt as PlatformPrompt }),
@@ -425,74 +351,15 @@ function claimOf(
 }
 
 /**
- * The image claim key for a profile a session ran before its profile was
- * changed; the image hashes every key it is given the same way.
+ * The image claim key for a config the session ran before its model moved,
+ * by its place in `sessions.legacy_runtime_configs` (newest first).
  */
-export function earlierProfileKey(sessionId: string, profileId: string) {
-  return `${sessionId}#${profileId}`;
+export function legacyConfigKey(sessionId: string, index: number) {
+  return `${sessionId}#legacy-${index}`;
 }
 
 /**
- * The image claim key for a tool list of the session's own profile; an
- * earlier profile's release list is keyed `${earlierProfileKey}@release`.
- */
-export function ownToolsKey(sessionId: string, list: ToolList) {
-  return `${sessionId}@${list}`;
-}
-
-/**
- * The claims for the profiles a session's restorable checkpoints were made
- * under other than the one it runs now (`earlier`, newest first), keyed by
- * earlierProfileKey for the profile's tools and `@release` after it for the
- * release's, and chosen as the gateway's claim chooses them: the catalog
- * must still hold the profile with the same fingerprint, the repository
- * need not allow it any longer, every profile list comes before any release
- * list, and no more than MAX_RESTORE_PROFILES are offered.
- */
-export function earlierProfileClaims(
-  session: ClaimOwner & {
-    readonly id: string;
-    readonly releaseTools: readonly string[] | null;
-  },
-  earlier: readonly EarlierProfile[],
-  catalog: SessionCatalog,
-): [key: string, claim: SessionClaim][] {
-  return listClaims(
-    { ...session, githubAttached: false },
-    earlierProfilesOf(session.id, earlier, catalog),
-  );
-}
-
-function earlierProfilesOf(
-  sessionId: string,
-  earlier: readonly EarlierProfile[],
-  catalog: SessionCatalog,
-): ListedProfile[] {
-  return earlier.flatMap(({ profileId, profileFingerprint: made, model }) => {
-    const listed = Object.hasOwn(catalog.profiles, profileId)
-      ? catalog.profiles[profileId]
-      : undefined;
-    const profile = listed
-      ? sessionProfile(
-          listed,
-          { fingerprint: made, model },
-          acceptedRuntimeVersions(catalog),
-        )
-      : null;
-    if (!profile) return [];
-    const key = earlierProfileKey(sessionId, profileId);
-    return [
-      {
-        profile,
-        key: (list: ToolList) => (list === "profile" ? key : `${key}@release`),
-        own: false,
-      },
-    ];
-  });
-}
-
-/**
- * The digests the target image computes for the given profile keys (current
+ * The digests the target image computes for the given claim keys (current
  * and frozen-legacy each), the ones a worker of it would send as
  * alternate_profile_sha256s; the caller drops the current runtime's. A
  * profile it could not hash is left out, as the gateway leaves out one the

@@ -6,16 +6,18 @@ import {
   createPostgresWorkerUnitOfWork,
 } from "@werft-ai/db";
 import { launchSession } from "@werft-ai/db/testing/launches";
+import { TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
 import { createLogger } from "@werft-ai/observability";
 import {
   acceptAllCheckpoints,
   createWorkerGateway,
   type GitHubPackageFetchRecord,
   type GitHubPackagesStore,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
+import { testCatalog } from "../testing/catalog.ts";
+import { releaseIn, TEST_OWNER } from "../testing/releases.ts";
 import {
   createEgressAuthorizer,
   EGRESS_AUTHORIZER_PATH,
@@ -44,8 +46,8 @@ beforeEach(async () => {
   const store = {
     allowlist: async () => [ENTRY],
     sessionState: async () => ({
-      ownerId: "owner-a",
-      workspaceId: "owner-a",
+      ownerId: TEST_OWNER,
+      workspaceId: TEST_OWNER,
       agentId: null,
       releaseId: null,
       actor: null,
@@ -58,30 +60,20 @@ beforeEach(async () => {
   } as unknown as GitHubPackagesStore;
   gateway = createWorkerGateway({
     work: createPostgresWorkerUnitOfWork(db),
-    catalog: withSeededInstallation({
-      profiles: {
-        "claude-coding-v1": {
-          runtime_kind: "claude_agent_sdk",
-          runtime_version: "0.3.270",
-          model: "claude-sonnet-5",
-          tools: ["Read"],
-          permission_mode: "default",
-          provider: {
-            kind: "anthropic",
-            endpoint: "https://api.anthropic.invalid",
-            auth: {
-              kind: "api_key",
-              value: "catalog-provider-key",
-              ref: { value_env: "PROVIDER_KEY" },
-            },
-          },
+    catalog: testCatalog({
+      provider: {
+        kind: "anthropic",
+        endpoint: "https://api.anthropic.invalid",
+        auth: {
+          kind: "api_key",
+          value: "catalog-provider-key",
+          ref: { value_env: "PROVIDER_KEY" },
         },
       },
       repositories: {
         "sample-app": {
           url: "https://git.invalid/agent/app.git",
           branch: "main",
-          profiles: ["claude-coding-v1"],
           auth: { kind: "github_app", registered: true } as const,
         },
       },
@@ -108,10 +100,11 @@ afterEach(async () => {
 async function claimed() {
   const accepted = await createPostgresSessionUnitOfWork(db).acceptInputAtomic({
     limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
-    principal: { ownerId: "owner-a" },
+    principal: { ownerId: TEST_OWNER },
     idempotencyKey: crypto.randomUUID(),
     payloadHash: "hash",
-    profileId: "claude-coding-v1",
+    agentReleaseId: await releaseIn(db),
+    model: TEST_MODEL,
     repository: {
       id: "sample-app",
       url: "https://git.invalid/agent/app.git",

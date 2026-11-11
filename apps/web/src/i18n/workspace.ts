@@ -10,7 +10,7 @@ export const workspaceKo = {
   "workspace.idCopied": "워크스페이스 ID를 복사했습니다.",
   "workspace.models": "모델 허용 목록",
   "workspace.modelsHint":
-    "세션에서 고를 수 있는 모델의 상한입니다. 에이전트 제한과 프로필이 여기서 더 좁힙니다.",
+    "에이전트 카드가 고를 수 있는 모델입니다. 설치 owner가 모델 연결마다 정합니다.",
   "workspace.modelsFoot": "설정의 모델 연결에서 관리합니다",
   "workspace.modelsEmpty": "이 설치에 등록된 모델이 없습니다.",
   "workspace.retention": "감사 기록 보존 기간",
@@ -177,7 +177,7 @@ export const workspaceEn: Record<keyof typeof workspaceKo, string> = {
   "workspace.idCopied": "Copied the workspace ID.",
   "workspace.models": "Allowed models",
   "workspace.modelsHint":
-    "Models available to sessions. Agent restrictions and profiles can further limit this list.",
+    "Models an agent's card can pick. The installation owner sets them per model connection.",
   "workspace.modelsFoot": "Managed under Model connections in Settings",
   "workspace.modelsEmpty": "This installation has no models registered.",
   "workspace.retention": "Audit log retention",
@@ -344,7 +344,7 @@ export const workspaceJa: Record<keyof typeof workspaceKo, string> = {
   "workspace.idCopied": "ワークスペース ID をコピーしました。",
   "workspace.models": "許可モデル一覧",
   "workspace.modelsHint":
-    "セッションで選べるモデルの上限です。エージェントの制限とプロファイルがここからさらに絞り込みます。",
+    "エージェントのカードが選べるモデルです。インストールの owner がモデル接続ごとに決めます。",
   "workspace.modelsFoot": "設定のモデル接続で管理します",
   "workspace.modelsEmpty": "このインストールに登録されたモデルはありません。",
   "workspace.retention": "監査ログの保存期間",

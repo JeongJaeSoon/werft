@@ -3,8 +3,7 @@ import {
   Api,
   bash,
   type ErrorBody,
-  e2eEnv,
-  NO_REPOSITORY_PROFILE_ID,
+  e2eStack,
   poll,
   type SessionDetail,
   type Step,
@@ -19,7 +18,7 @@ import {
  * one step here that is not public HTTP: it stands in for a lost disk or a
  * reclaimed volume, which no API call causes.
  */
-const api = new Api(e2eEnv());
+const api = new Api(await e2eStack());
 const TIMEOUT = 600_000;
 const WORKSPACE = "/workspace";
 /**
@@ -174,7 +173,7 @@ async function expectRestored(
 }
 
 function createWithoutRepository(message: string) {
-  return api.createSession(message, undefined, NO_REPOSITORY_PROFILE_ID, null);
+  return api.createSession(message, undefined, null);
 }
 
 describe("sessions without a repository", () => {

@@ -37,6 +37,7 @@ import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { TEST_RUNTIMES } from "../testing/catalog.ts";
 import { createApiApp } from "./app.ts";
 import {
   createBootstrapGate,
@@ -53,7 +54,7 @@ const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 const BOOTSTRAP_TOKEN = "integration-bootstrap-token-0123456789";
 const PASSWORD = "an adequately long password";
 
-const catalog: SessionCatalog = { profiles: {}, repositories: {} };
+const catalog: SessionCatalog = { connections: {}, repositories: {} };
 
 const card = {
   role: "리뷰어",
@@ -106,6 +107,7 @@ integration("teams as agent admins over HTTP on PostgreSQL", () => {
             store: createPostgresAgentStore(db),
             catalog,
             credentials: createPostgresCredentialBindingStore(db),
+            runtimes: TEST_RUNTIMES,
           }),
         );
         registerTeamRoutes(

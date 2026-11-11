@@ -9,8 +9,10 @@ import {
 import * as schema from "@werft-ai/db";
 import {
   apiKeys,
+  createDatabaseIdentityReader,
   createPostgresSessionControl,
   createPostgresSessionReader,
+  createPostgresSessionShareStore,
   createPostgresSessionUnitOfWork,
   encodeEventCursor,
   eventPageQuery,
@@ -25,13 +27,21 @@ import {
 import { migrate } from "@werft-ai/db/migrate";
 import { createLogger, MemoryLogSink } from "@werft-ai/observability";
 import {
+  type AuthorizationPolicy,
   createAuthorizationPolicy,
   createSessionService,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { testCatalog } from "../testing/catalog.ts";
+import {
+  allowingPolicy,
+  allowRepositories,
+  releaseIn,
+  sessionReleases,
+  startingInWorkspace,
+} from "../testing/releases.ts";
 import { createApiApp } from "./app.ts";
 import { DatabaseApiKeyStore, issueApiKey } from "./keys.ts";
 import { registerEventRoutes } from "./routes/sessions/events.ts";
@@ -100,9 +110,11 @@ integration("GET /v1/sessions/{id}/events on PostgreSQL", () => {
   let app: ReturnType<typeof createApiApp>;
   let apiKeyApp: ReturnType<typeof createApiApp>;
   const sink = new MemoryLogSink();
-  const owner = `owner-${crypto.randomUUID()}`;
-  const stranger = `owner-${crypto.randomUUID()}`;
+  // Owners are workspaces: a session runs a release of its own workspace.
+  const owner = crypto.randomUUID();
+  const stranger = crypto.randomUUID();
   const KEEPALIVE_MS = 300;
+  const releaseOf = new Map<string, string>();
 
   beforeAll(async () => {
     pool = new Pool({ connectionString: databaseUrl, max: 8 });
@@ -115,46 +127,47 @@ integration("GET /v1/sessions/{id}/events on PostgreSQL", () => {
         migrationsFolder: `${import.meta.dir}/../../../../packages/db/migrations`,
       });
     }
-    const service = createSessionService({
-      limits: {
-        queuedInputLimitPerSession: 1_000,
-        storageLimitBytes: 1e15,
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
+    const catalog = testCatalog({
+      repositories: {
+        "sample-app": {
+          url: "https://example.invalid/app.git",
+          branch: "main",
+          auth: { kind: "github_app", registered: true } as const,
+        },
       },
-      authorization: createAuthorizationPolicy(),
-      inputs: createPostgresSessionUnitOfWork(db),
-      controls: createPostgresSessionControl(db),
-      reader: createPostgresSessionReader(db, {
-        logger: createLogger({ sinks: [sink] }),
-      }),
-      catalog: withSeededInstallation({
-        profiles: {
-          "claude-coding-v1": {
-            runtime_kind: "claude_agent_sdk",
-            runtime_version: "0.3.270",
-            model: "claude-sonnet-5",
-            tools: ["Read", "Edit", "Bash"],
-            permission_mode: "default",
-            provider: {
-              kind: "litellm",
-              endpoint: "https://litellm.invalid",
-              auth: {
-                kind: "api_key",
-                ref: { value_env: "PROVIDER_KEY" },
-              },
-            },
-          },
-        },
-        repositories: {
-          "sample-app": {
-            url: "https://example.invalid/app.git",
-            branch: "main",
-            profiles: ["claude-coding-v1"],
-          },
-        },
-      }),
     });
+    const build = (authorization: AuthorizationPolicy) =>
+      createSessionService({
+        limits: {
+          queuedInputLimitPerSession: 1_000,
+          storageLimitBytes: 1e15,
+          sessionCostLimitUsd: 1_000,
+          sessionTokenLimit: null,
+        },
+        authorization,
+        inputs: createPostgresSessionUnitOfWork(db),
+        controls: createPostgresSessionControl(db),
+        reader: createPostgresSessionReader(db, {
+          logger: createLogger({ sinks: [sink] }),
+        }),
+        catalog,
+        releases: sessionReleases(db, catalog),
+      });
+    const service = startingInWorkspace(
+      build(createAuthorizationPolicy()),
+      build(allowingPolicy),
+    );
+    // A member's key is judged by the member's role.
+    const keyService = build(
+      createAuthorizationPolicy({
+        identity: createDatabaseIdentityReader(db),
+        sessions: createPostgresSessionShareStore(db),
+      }),
+    );
+    for (const ownerId of [owner, stranger]) {
+      releaseOf.set(ownerId, await releaseIn(db, ownerId));
+      await allowRepositories(db, ownerId, ["sample-app"]);
+    }
     notifier = new PostgresSessionNotifier(
       databaseUrl ?? "",
       createLogger({ sinks: [sink] }),
@@ -179,8 +192,8 @@ integration("GET /v1/sessions/{id}/events on PostgreSQL", () => {
       logger,
       keyStore: new DatabaseApiKeyStore(db),
       registerRoutes: (router) => {
-        registerSessionRoutes(router, service);
-        registerEventRoutes(router, service, {
+        registerSessionRoutes(router, keyService);
+        registerEventRoutes(router, keyService, {
           wakeup: notifier,
           keepaliveMs: KEEPALIVE_MS,
           logger,
@@ -223,7 +236,7 @@ integration("GET /v1/sessions/{id}/events on PostgreSQL", () => {
         "Idempotency-Key": crypto.randomUUID(),
       },
       body: JSON.stringify({
-        profile_id: "claude-coding-v1",
+        agent_release_id: releaseOf.get(ownerId),
         repository_id: "sample-app",
         message: "Inspect the failing unit test and propose a fix.",
       }),
@@ -495,8 +508,20 @@ integration("GET /v1/sessions/{id}/events on PostgreSQL", () => {
   test("a revoked API key ends the stream within one keepalive", async () => {
     const sessionId = await createdSession();
     const store = new DatabaseApiKeyStore(db);
+    // A member's own key: a key is a workspace's, like the session.
+    const userId = crypto.randomUUID();
+    await db.insert(schema.users).values({
+      id: userId,
+      email: `${userId}@example.invalid`,
+      passwordHash: "argon2id$placeholder",
+      displayName: "member",
+    });
+    await db
+      .insert(schema.memberships)
+      .values({ workspaceId: owner, userId, role: "owner" });
     const { keyId, plaintext } = await issueApiKey(store, {
-      ownerId: owner,
+      workspaceId: owner,
+      personalFor: userId,
       scopes: [...SESSION_SCOPE_VALUES],
     });
     const response = await stream(

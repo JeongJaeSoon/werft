@@ -36,7 +36,6 @@ const RECEIPT = "33333333-3333-4333-8333-333333333333";
 const COMMIT = "a".repeat(40);
 // A session whose release has no GitHub settings: its own repository only.
 const NO_GITHUB = {
-  profileId: null,
   attached: null,
   policySource: "release" as const,
   github: null,
@@ -127,19 +126,17 @@ const PINNED: PushRequest = {
 };
 
 const CATALOG = {
-  profiles: {},
+  connections: {},
   repositories: {
     "sample-app": {
       url: "https://git.example/acme/sample-app.git",
       branch: "main",
-      profiles: ["default"],
       auth: { kind: "github_app", registered: true } as const,
     },
     docs: {
       url: "https://git.example/acme/docs.git",
       branch: "main",
       auth: { kind: "github_app", registered: true } as const,
-      profiles: ["default"],
     },
   },
 } satisfies SessionCatalog;
@@ -341,7 +338,6 @@ describe("push request routes", () => {
       });
     const session = {
       repositoryId: "sample-app",
-      profileId: "default",
       attached: null,
       policySource: "release" as const,
       github,

@@ -16,13 +16,11 @@ const approver = process.env.WERFT_APPROVER_API_KEY
   ? client.withOptions({ apiKey: process.env.WERFT_APPROVER_API_KEY })
   : client;
 const signal = AbortSignal.timeout(5 * 60_000);
-const agent_release_id = process.env.WERFT_AGENT_RELEASE_ID;
-const target = agent_release_id
-  ? { agent_release_id }
-  : {
-      profile_id: process.env.WERFT_PROFILE_ID ?? "claude-coding-local",
-      repository_id: process.env.WERFT_REPOSITORY_ID ?? "sample-app",
-    };
+const agent_release_id = process.env.WERFT_AGENT_RELEASE_ID ?? "";
+if (!agent_release_id) {
+  throw new Error("set WERFT_AGENT_RELEASE_ID to the agent release to run");
+}
+const target = { agent_release_id };
 
 const FILE = "sdk-sample.txt";
 const COMMANDS = [

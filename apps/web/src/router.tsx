@@ -60,13 +60,6 @@ import {
   operationsToolsSearch,
 } from "./routes/operations-search.ts";
 import { PreferencesScreen } from "./routes/preferences.tsx";
-import { ProfileDetailScreen } from "./routes/profile-detail.tsx";
-import {
-  ProfileNewScreen,
-  type ProfileNewSearch,
-  profileNewSearch,
-} from "./routes/profile-new.tsx";
-import { ProfilesScreen } from "./routes/profiles.tsx";
 import {
   SessionDetailScreen,
   SessionsScreen,
@@ -383,27 +376,6 @@ const oldUsage = createRoute({
   },
 });
 
-const profiles = createRoute({
-  getParentRoute: () => authed,
-  path: "/profiles",
-  component: ProfilesScreen,
-});
-
-// A path of its own beats /profiles/$profileId.
-const newProfile = createRoute({
-  getParentRoute: () => authed,
-  path: "/profiles/new",
-  validateSearch: (search: Record<string, unknown>): ProfileNewSearch =>
-    profileNewSearch(search),
-  component: ProfileNewScreen,
-});
-
-const profile = createRoute({
-  getParentRoute: () => authed,
-  path: "/profiles/$profileId",
-  component: ProfileDetailScreen,
-});
-
 const loadOperations = () => import("./routes/operations.tsx");
 
 const operations = createRoute({
@@ -501,9 +473,6 @@ const routeTree = root.addChildren([
     connections,
     mcpServers,
     oldUsage,
-    profiles,
-    newProfile,
-    profile,
     operations.addChildren([
       operationsOverview,
       operationsUsage,

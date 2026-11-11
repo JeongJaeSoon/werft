@@ -35,6 +35,11 @@ import {
   workspaces,
 } from "./schema.ts";
 import { fixtureTeam } from "./testing/fixture-team.ts";
+import {
+  releaseSpecColumns,
+  sessionPinColumns,
+  TEST_CONNECTION_ID,
+} from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -46,7 +51,7 @@ const SEARCH = "mcp__docs__search";
 const DOCS_WORKSPACES: string[] = [];
 
 const CATALOG = {
-  profiles: {},
+  connections: {},
   repositories: {},
   mcp_servers: {
     docs: {
@@ -168,8 +173,8 @@ integration("the agent MCP settings writer on PostgreSQL", () => {
       agentId,
       versionId,
       cardSha256: "0".repeat(64),
-      runtimeProfileId: "coding",
-      profileDigest: "digest",
+      connectionId: TEST_CONNECTION_ID,
+      ...releaseSpecColumns(),
       // A release is immutable once written, so a test names its snapshot here.
       runtimeConfigSnapshot: options.snapshot ?? {},
       effectiveTools: { tools: [], mcp: [READ] },
@@ -493,6 +498,7 @@ integration("the agent MCP settings writer on PostgreSQL", () => {
       workspaceId,
       repoUrl: "https://example.invalid/app.git",
       branch: "main",
+      ...sessionPinColumns(),
       agentReleaseId: releaseId,
       mcpStart: start,
     });

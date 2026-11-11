@@ -1,5 +1,5 @@
 import { deriveSessionTitle, type SessionTitleStore } from "@werft-ai/platform";
-import { and, eq, gt, isNull } from "drizzle-orm";
+import { and, eq, gt, isNull, sql } from "drizzle-orm";
 import {
   lockSessionForControl,
   transactionWithBindingRetry,
@@ -21,8 +21,9 @@ export function createPostgresSessionTitleStore(
             title: sessions.title,
             titleSource: sessions.titleSource,
             authRevision: sessions.authRevision,
-            profileId: sessions.profileId,
-            profileFingerprint: sessions.profileFingerprint,
+            connectionId: sql<
+              string | null
+            >`${sessions.runtimeSpec} -> 'connection' ->> 'id'`,
             model: sessions.model,
             message: turns.message,
             status: turns.status,
@@ -64,8 +65,7 @@ export function createPostgresSessionTitleStore(
           outcome: "issued",
           message: row.message,
           result: resultTextOf(row.resultJson),
-          profileId: row.profileId,
-          profileFingerprint: row.profileFingerprint,
+          connectionId: row.connectionId,
           model: row.model,
         };
       });
@@ -97,8 +97,9 @@ export function createPostgresSessionTitleStore(
           .select({
             authRevision: sessions.authRevision,
             executionRevokedAt: sessions.executionRevokedAt,
-            profileId: sessions.profileId,
-            profileFingerprint: sessions.profileFingerprint,
+            connectionId: sql<
+              string | null
+            >`${sessions.runtimeSpec} -> 'connection' ->> 'id'`,
             model: sessions.model,
             costUsd: sessions.costUsd,
             providerTokens: sessions.providerTokens,
@@ -117,8 +118,7 @@ export function createPostgresSessionTitleStore(
           outcome: "ok",
           sessionId: claimed.sessionId,
           attemptId: claimed.attemptId,
-          profileId: session.profileId,
-          profileFingerprint: session.profileFingerprint,
+          connectionId: session.connectionId,
           model: session.model,
           costUsd: session.costUsd,
           providerTokens: session.providerTokens,

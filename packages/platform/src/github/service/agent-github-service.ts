@@ -612,7 +612,11 @@ export function createAgentGitHubService(deps: {
           }
           if (
             !ceiling.repository_ids.includes(repository.id) &&
-            !(installed && repository.authKind === "github_app")
+            !(
+              installed &&
+              (repository.authKind === "github_app" ||
+                repository.authKind === "github_app_explicit")
+            )
           ) {
             throw refuse("repository", "repository_not_allowed");
           }

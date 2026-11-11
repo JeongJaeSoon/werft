@@ -22,6 +22,7 @@ import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
 import { createPostgresSchedulerStore } from "./scheduler/scheduler-store.ts";
 import * as schema from "./schema.ts";
 import { receipts, sessions, workerLaunches } from "./schema.ts";
+import { fixtureRelease, TEST_MODEL } from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -110,12 +111,13 @@ integration("scheduler launch failures on PostgreSQL", () => {
   const inputs = () => createPostgresSessionUnitOfWork(db);
 
   async function queuedSession() {
-    const ownerId = `owner-${crypto.randomUUID()}`;
+    const ownerId = crypto.randomUUID();
     const result = await inputs().acceptInputAtomic({
       principal: { ownerId },
       idempotencyKey: crypto.randomUUID(),
       payloadHash: crypto.randomUUID(),
-      profileId: "claude-coding-v1",
+      agentReleaseId: await fixtureRelease(db),
+      model: TEST_MODEL,
       repository: {
         id: "sample-app",
         url: "https://example.invalid/app.git",

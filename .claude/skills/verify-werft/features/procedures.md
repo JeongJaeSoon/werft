@@ -166,12 +166,12 @@ ap_as owner
 
 ## P-API-AGENTS — 카드·release·활성화·관리자
 
-전제: owner cookie. 모델·프로필은 fake-model 카탈로그 기준이다.
+전제: owner cookie. 모델과 연결은 fake-model 설정 문서 기준이다(연결 `fake-messages`).
 
 ```sh
 # Actor: owner.
 ap_as owner
-ap_web GET /v1/profiles
+ap_web GET /v1/connections
 CARD='{"role":"verify helper","instructions":"Answer briefly.","language":"ko","model":"claude-sonnet-5","capabilities":{"tools":["Read"],"mcp":null,"forbidden":[]},"rules":[]}'
 # Every new agent names a managing team (400 without one).
 TEAM=$(ap_web POST /v1/teams '{"name":"verify"}' | head -1 | jq -r .team.id)
@@ -181,7 +181,7 @@ AID=$(printf '%s\n' "$AGENT" | head -1 | jq -r .agent.id)
 printf 'AID=%s\n' "$AID"
 VID=$(printf '%s\n' "$AGENT" | head -1 | jq -r '.versions[0].id')
 printf 'VID=%s\n' "$VID"
-RELEASE=$(ap_web POST "/v1/agents/$AID/releases" "$(jq -nc --arg v "$VID" '{version_id:$v,runtime_profile_id:"claude-coding-local",repository_id:"sample-app"}')")
+RELEASE=$(ap_web POST "/v1/agents/$AID/releases" "$(jq -nc --arg v "$VID" '{version_id:$v,connection_id:"fake-messages",repository_id:"sample-app"}')")
 printf '%s\n' "$RELEASE"
 REL=$(printf '%s\n' "$RELEASE" | head -1 | jq -r .release.id)
 printf 'REL=%s\n' "$REL"
@@ -194,7 +194,7 @@ ap_web GET "/v1/agents/$AID/admins"
 ap_web GET "/v1/agents/$AID/credential-bindings"
 ```
 
-기대: profiles 200 `items`. agent create 201 `agent`·`versions`. release 200 `release.id`. activate 200. 관리 목록에 에이전트가 있고 관리자 목록에 만든 owner와 추가 팀이 있다. credential-bindings는 200 빈 목록. 소스: `apps/control-host/src/api/routes/agents.ts`, `agent-identities.ts`, `credential-bindings.ts`, `teams.ts`와 contracts의 musterrolle 스키마.
+기대: connections 200 `items`(연결마다 모델 목록). agent create 201 `agent`·`versions`. release 200 `release.id`. activate 200. 관리 목록에 에이전트가 있고 관리자 목록에 만든 owner와 추가 팀이 있다. credential-bindings는 200 빈 목록. 소스: `apps/control-host/src/api/routes/agents.ts`, `agent-identities.ts`, `credential-bindings.ts`, `teams.ts`와 contracts의 musterrolle 스키마.
 
 ## P-WEB-AGENTS — 목록·마법사·상세
 
@@ -272,7 +272,7 @@ OPKEY=$(ap_key verify --scopes sessions:read 2>"$VERIFY_RUN/operator-id.txt")
 SAVED_KEY=$KEY
 KEY=$OPKEY
 ap_get /v1
-ap_post /v1/sessions '{"profile_id":"claude-coding-local","repository_id":"sample-app","message":"scope probe"}'
+ap_post /v1/sessions "$(jq -nc --arg r "$REL" '{agent_release_id:$r,repository_id:"sample-app",message:"scope probe"}')"
 OKID=$(sed -n 's/.*key_id \([^ ]*\).*/\1/p' "$VERIFY_RUN/operator-id.txt" | head -1)
 printf 'OKID=%s\n' "$OKID"
 ap_revoke "$OKID"
@@ -291,7 +291,7 @@ unset OPKEY SAVED_KEY
 ```sh
 # Actor: owner.
 ap_as owner
-CREATED=$(ap_post /v1/sessions "$(jq -nc --arg r "$REL" '{profile_id:"claude-coding-local",repository_id:"sample-app",agent_release_id:$r,model:"claude-sonnet-5",title:"Verify list target",message:"GATE-SPEC {\"id\":\"verify-list\",\"steps\":[],\"final\":\"hello from verify\"}"}')")
+CREATED=$(ap_post /v1/sessions "$(jq -nc --arg r "$REL" '{repository_id:"sample-app",agent_release_id:$r,model:"claude-sonnet-5",title:"Verify list target",message:"GATE-SPEC {\"id\":\"verify-list\",\"steps\":[],\"final\":\"hello from verify\"}"}')")
 printf '%s\n' "$CREATED"
 SID=$(printf '%s\n' "$CREATED" | head -1 | jq -r .session_id)
 printf 'SID=%s\n' "$SID"
@@ -309,17 +309,17 @@ ap_get "/v1/sessions/$SID"
 
 기대: create 201 `status:"queued"`, `turn_id:"1"`. turn 200 `status:"completed"`, `result.subtype:"success"`. turns `items`. receipt 200. detail `model:"claude-sonnet-5"`, `runtime.model`도 동일, `agent.id==AID`, `agent.release_version_no:1`, `created_by.display_name:"Verify Owner"`, `channel:"api"`, `repository.id:"sample-app"`, `repository.full_name:"agent/sample-app"`, `repository.branch:"main"`이다.
 
-`model`을 빼면 release 카드 모델, release도 빼면 profile 기본 모델이다. 선택은 POST body의 `model`, 가능한 값은 `/v1/profiles`와 `tests/fixtures/settings/fake-model.json`의 `profiles`로 확인한다. 프로필 변경 뒤에는 새 profile 기본 모델이 된다. `repository.branch`는 clone 기준이며 push 작업 브랜치는 `agent/$SID`다. 상세 정보 탭의 브랜치는 현재 “아직 볼 수 없습니다”이다. 소스: `packages/contracts/src/api/session.ts`, `packages/platform/src/sessions/session-service.ts`, `packages/react/src/blocks/session-detail.tsx`.
+`model`을 빼면 release 카드 모델이다. 선택은 POST body의 `model`, 가능한 값은 release 연결의 모델 목록(`/v1/connections`, `tests/fixtures/settings/fake-model.json`의 `connections.fake-messages.models`)이다. `agent_release_id`는 언제나 필요하다. `repository.branch`는 clone 기준이며 push 작업 브랜치는 `agent/$SID`다. 상세 정보 탭의 브랜치는 현재 “아직 볼 수 없습니다”이다. 소스: `packages/contracts/src/api/session.ts`, `packages/platform/src/sessions/session-service.ts`, `packages/react/src/blocks/session-detail.tsx`.
 
 다음은 허용하지 않은 모델을 거절하는 경로다.
 
 ```sh
 # Actor: owner.
 ap_as owner
-ap_post /v1/sessions '{"profile_id":"claude-coding-local","repository_id":"sample-app","model":"verify-unlisted-model","message":"model probe"}'
+ap_post /v1/sessions "$(jq -nc --arg r "$REL" '{agent_release_id:$r,repository_id:"sample-app",model:"verify-unlisted-model",message:"model probe"}')"
 ```
 
-기대: 422 `UNSUPPORTED_CAPABILITY`. fake-model 기본 카탈로그는 profile마다 claude-sonnet-5 하나만 제공한다. 서로 다른 허용 모델 사이의 선택까지 검증하려면 같은 fake provider를 쓰며 models 허용 목록에 두 모델을 둔 별도 설정 문서가 필요하다. 실제 provider로 바꾸지 않는다. source: `tests/fixtures/settings/fake-model.json`, `packages/platform/src/sessions/session-service.ts`, `apps/control-host/src/api/routes/errors.ts`.
+기대: 422 `UNSUPPORTED_CAPABILITY`. fake-model 설정 문서의 `fake-messages` 연결은 모델 목록에 claude-sonnet-5 하나만 둔다. 서로 다른 허용 모델 사이의 선택까지 검증하려면 같은 fake provider를 쓰며 models 허용 목록에 두 모델을 둔 별도 설정 문서가 필요하다. 실제 provider로 바꾸지 않는다. source: `tests/fixtures/settings/fake-model.json`, `packages/platform/src/sessions/session-service.ts`, `apps/control-host/src/api/routes/errors.ts`.
 
 ## P-API-SESSIONS-LIST — 필터·개수·응답 필드
 
@@ -417,12 +417,12 @@ node "$B" "$RUN" eval 'document.querySelector("main").innerText'
 
 ## P-API-PENDING — 권한 요청·응답·SSE
 
-전제: owner key. SID를 덮어쓰지 않고 QSID를 쓴다.
+전제: owner key, REL. SID를 덮어쓰지 않고 QSID를 쓴다. 권한 요청은 release가 `default` 모드일 때 온다(fake 연결이 `auto_mode: unsupported`).
 
 ```sh
 # Actor: owner.
 ap_as owner
-Q=$(ap_post /v1/sessions '{"profile_id":"claude-coding-local","repository_id":"sample-app","message":"GATE-SPEC {\"id\":\"verify-permission\",\"steps\":[{\"tool\":\"Bash\",\"input\":{\"command\":\"echo alpha | tee hello.txt\",\"description\":\"write hello.txt\"}}],\"final\":\"wrote hello.txt\"}"}')
+Q=$(ap_post /v1/sessions "$(jq -nc --arg r "$REL" --arg m 'GATE-SPEC {"id":"verify-permission","steps":[{"tool":"Bash","input":{"command":"echo alpha | tee hello.txt","description":"write hello.txt"}}],"final":"wrote hello.txt"}' '{agent_release_id:$r,repository_id:"sample-app",message:$m}')")
 printf '%s\n' "$Q"
 QSID=$(printf '%s\n' "$Q" | head -1 | jq -r .session_id)
 printf 'QSID=%s\n' "$QSID"
@@ -562,7 +562,7 @@ ap_as owner
 
 ## P-API-SESSION-CONTROL — 후속 메시지·pause·resume·close
 
-전제: SID 완료, release 없는 QSID가 idle이며 닫히지 않았음, owner key. 각 변경 직전 revision을 읽는다.
+전제: SID 완료, QSID가 idle이며 닫히지 않았음, owner key. 각 변경 직전 revision을 읽는다.
 
 ```sh
 # Actor: owner.
@@ -573,21 +573,16 @@ for i in $(seq 1 90); do
   sleep 2
 done
 ap_post "/v1/sessions/$SID/interrupt" '{"target_turn_id":"2"}'
-REV=$(ap_get "/v1/sessions/$SID" | head -1 | jq -r .revision)
-ap_post "/v1/sessions/$SID/profile" "$(jq -nc --argjson r "$REV" '{expected_revision:$r,profile_id:"claude-coding-local"}')"
 for i in $(seq 1 90); do
   [ "$(ap_get "/v1/sessions/$QSID" | head -1 | jq -r .status)" = idle ] && break
   sleep 2
 done
 ap_get "/v1/sessions/$QSID"
-REV=$(ap_get "/v1/sessions/$QSID" | head -1 | jq -r .revision)
-ap_post "/v1/sessions/$QSID/profile" "$(jq -nc --argjson r "$REV" '{expected_revision:$r,profile_id:"claude-coding-local"}')"
-ap_get "/v1/sessions/$QSID"
 REV=$(ap_get "/v1/sessions/$SID" | head -1 | jq -r .revision)
 ap_post "/v1/sessions/$SID/pause" "$(jq -nc --argjson r "$REV" '{expected_revision:$r,reason:"verify"}')"
 ```
 
-기대: message 202 turn_id 2, turn completed. 이미 완료된 turn의 interrupt는 202(no-op receipt), release에 묶인 SID의 profile 변경은 409 `RELEASE_PROFILE_MISMATCH`다. release 없는 QSID의 idle 상태에서 같은 profile 변경은 200이다. pause 202. 아래 poll의 마지막 출력에서 paused를 확인한다.
+기대: message 202 turn_id 2, turn completed. 이미 완료된 turn의 interrupt는 202(no-op receipt), QSID는 idle이 된다(세션의 profile 변경 경로는 없어졌다). pause 202. 아래 poll의 마지막 출력에서 paused를 확인한다.
 
 ```sh
 # Actor: owner.
@@ -914,7 +909,7 @@ node "$B" "$RUN" eval 'document.querySelector("main").innerText'
 | running | API 응답 시간 회귀 원인 찾기 | 보임 | 안 보임 |
 | idle | 결제 모듈 릴리스 노트 초안 | 보임 | 보임 |
 
-제목 없는 행은 `demo-data.ts`의 `DEMO_SESSIONS` 마지막 항목으로 의도적으로 seed된다. Demo Member가 공백 메시지로 만든 web 세션이며 에이전트·저장소 없이 `general` 프로필을 사용한다. `demo-accounts.ts`의 계정 생성용 인증 세션과 구분한다. 두 코드 리뷰 세션은 Demo Owner의 private 세션이므로 member 목록에서 빠진다. 실행·대기 상태는 이후 진행이나 사용자 조작으로 바뀔 수 있어 상태별 숫자는 고정하지 않는다.
+제목 없는 행은 `demo-data.ts`의 `DEMO_SESSIONS` 마지막 항목으로 의도적으로 seed된다. Demo Member가 공백 메시지로 만든 web 세션이며 저장소 없이 데모 에이전트 release로 돈다. `demo-accounts.ts`의 계정 생성용 인증 세션과 구분한다. 두 코드 리뷰 세션은 Demo Owner의 private 세션이므로 member 목록에서 빠진다. 실행·대기 상태는 이후 진행이나 사용자 조작으로 바뀔 수 있어 상태별 숫자는 고정하지 않는다.
 
 결과물 조회는 위의 `ap_as demo-owner` 상태에서 수행한다. 목록 200 객체의 `session_id`는 RS, `checkpoint_revision:0`, `items`는 `path:"out/release-notes.md"`·`bytes:146`·`sha256`(해시 문자열, 값은 고정하지 않음)·`omitted:null`인 항목 한 개다(`packages/contracts/src/api/output.ts`). 다운로드 200이며 본문에 `# 결제 모듈 릴리스 노트`, “카드 결제 실패 시 재시도 안내를 보여 준다.”, “영수증 메일에 주문 번호를 넣는다.”가 나온다. 브라우저 로그인은 `/`로 이동한다. `/`의 innerText에는 “답이 필요한 요청”과 대기 요청이, `/sessions`에는 상태 필터와 owner에게 보이는 위 세션 제목들이 나온다. source: `scripts/local.sh`, `apps/control-host/src/api/demo-accounts.ts`, `demo-data.ts`. seed 재실행은 기존 행을 덮어쓰지 않는다. `LOCAL_DEMO_DATA=0`은 이 데이터 검증의 전제를 충족하지 않는다.
 

@@ -11,7 +11,8 @@
     "./pool": "./src/pool.ts",
     "./testing/checkpoints": "./src/testing/checkpoints.ts",
     "./testing/fixture-team": "./src/testing/fixture-team.ts",
-    "./testing/launches": "./src/testing/launches.ts"
+    "./testing/launches": "./src/testing/launches.ts",
+    "./testing/spec-pins": "./src/testing/spec-pins.ts"
   },
   "scripts": {
     "bench:session-reads": "bun run bench/session-reads.ts",

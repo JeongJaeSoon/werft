@@ -48,7 +48,6 @@ import {
   BOT_SCOPES,
   bootstrapRequestSchema,
   bootstrapResponseSchema,
-  changeSessionProfileRequestSchema,
   closeSessionRequestSchema,
   commentPullRequestRequestSchema,
   commentPullRequestResponseSchema,
@@ -70,7 +69,6 @@ import {
   createApiKeyResponseSchema,
   createCredentialBindingRequestSchema,
   createCredentialBindingResponseSchema,
-  createInstallationProfileRequestSchema,
   createInviteRequestSchema,
   createInviteResponseSchema,
   createPushRequestRequestSchema,
@@ -81,7 +79,6 @@ import {
   createSlackAppRequestSchema,
   createSlackAppResponseSchema,
   createTeamRequestSchema,
-  createWorkspaceProfileRequestSchema,
   credentialBindingParamsSchema,
   deleteEnvVariableResponseSchema,
   deleteGitHubAppResponseSchema,
@@ -118,8 +115,6 @@ import {
   importSettingsQuerySchema,
   importSettingsResponseSchema,
   installationLimitsResponseSchema,
-  installationProfileIdParamsSchema,
-  installationProfileOptionsResponseSchema,
   interruptSessionRequestSchema,
   inviteIdParamsSchema,
   issuePasswordResetRequestSchema,
@@ -140,6 +135,7 @@ import {
   listAgentsResponseSchema,
   listApiKeysQuerySchema,
   listApiKeysResponseSchema,
+  listConnectionOptionsResponseSchema,
   listCredentialBindingsResponseSchema,
   listGitHubAppsResponseSchema,
   listGitHubRepositoriesResponseSchema,
@@ -150,7 +146,6 @@ import {
   listMyTeamsQuerySchema,
   listMyTeamsResponseSchema,
   listPendingRequestsResponseSchema,
-  listProfilesResponseSchema,
   listPushRequestsResponseSchema,
   listSessionAchievementsResponseSchema,
   listSessionGitHubRefusalsResponseSchema,
@@ -245,8 +240,6 @@ import {
   resolveSlackBindingRequestSchema,
   resolveSlackBindingResponseSchema,
   resumeSessionRequestSchema,
-  retryProfileRolloutRequestSchema,
-  retryProfileRolloutResponseSchema,
   reviewAchievementRequestSchema,
   reviewAchievementResponseSchema,
   revokeAgentIdentityResponseSchema,
@@ -272,6 +265,7 @@ import {
   setAgentManagingTeamRequestSchema,
   setAgentManagingTeamResponseSchema,
   setConnectionAutoModeRequestSchema,
+  setConnectionModelsRequestSchema,
   setSessionShareRequestSchema,
   setSessionShareResponseSchema,
   setSettingsCredentialRequestSchema,
@@ -341,8 +335,6 @@ import {
   workflowRunParamsSchema,
   workspaceEngineSettingsResponseSchema,
   workspaceParamsSchema,
-  workspaceProfileChangeResponseSchema,
-  workspaceProfileIdParamsSchema,
   workspaceVariableParamsSchema,
 } from "@werft-ai/contracts";
 import { z } from "zod";
@@ -392,7 +384,6 @@ const requestComponents = {
   TerminateSessionRequest: terminateSessionRequestSchema,
   CloseSessionRequest: closeSessionRequestSchema,
   ResumeSessionRequest: resumeSessionRequestSchema,
-  ChangeSessionProfileRequest: changeSessionProfileRequestSchema,
   RecoveryDecisionRequest: recoveryDecisionRequestSchema,
   CreatePushRequestRequest: createPushRequestRequestSchema,
   ResolvePushRequestRequest: resolvePushRequestRequestSchema,
@@ -457,9 +448,6 @@ const requestComponents = {
   ActivateAgentRequest: activateAgentRequestSchema,
   CreateApiKeyRequest: createApiKeyRequestSchema,
   CreateTeamRequest: createTeamRequestSchema,
-  CreateWorkspaceProfileRequest: createWorkspaceProfileRequestSchema,
-  CreateInstallationProfileRequest: createInstallationProfileRequestSchema,
-  RetryProfileRolloutRequest: retryProfileRolloutRequestSchema,
   SetSessionShareRequest: setSessionShareRequestSchema,
   AuditReadRequest: auditReadRequestSchema,
   AdminTerminateSessionRequest: adminTerminateSessionRequestSchema,
@@ -605,9 +593,6 @@ const responseComponents = {
   ListSessionOutputsResponse: listSessionOutputsResponseSchema,
   ListAgentsResponse: listAgentsResponseSchema,
   CountAgentsResponse: countAgentsResponseSchema,
-  ListProfilesResponse: listProfilesResponseSchema,
-  WorkspaceProfileChangeResponse: workspaceProfileChangeResponseSchema,
-  RetryProfileRolloutResponse: retryProfileRolloutResponseSchema,
   ListAchievementCategoriesResponse: listAchievementCategoriesResponseSchema,
   AchievementCategoryChangeResponse: achievementCategoryChangeResponseSchema,
   ListAchievementTypesResponse: listAchievementTypesResponseSchema,
@@ -616,7 +601,6 @@ const responseComponents = {
   AchievementRuleChangeResponse: achievementRuleChangeResponseSchema,
   AchievementJudgeResponse: achievementJudgeResponseSchema,
   AchievementJudgeChangeResponse: achievementJudgeChangeResponseSchema,
-  InstallationProfileOptionsResponse: installationProfileOptionsResponseSchema,
   SettingsDocument: settingsDocumentSchema,
   ExportSettingsResponse: exportSettingsResponseSchema,
   ImportSettingsQuery: importSettingsQuerySchema,
@@ -626,6 +610,7 @@ const responseComponents = {
   CreateSettingsConnectionRequest: createSettingsConnectionRequestSchema,
   CreateSettingsMcpServerRequest: createSettingsMcpServerRequestSchema,
   SetConnectionAutoModeRequest: setConnectionAutoModeRequestSchema,
+  SetConnectionModelsRequest: setConnectionModelsRequestSchema,
   SetSettingsCredentialRequest: setSettingsCredentialRequestSchema,
   SetSettingsMcpServerRequest: setSettingsMcpServerRequestSchema,
   SettingsChangeResponse: settingsChangeResponseSchema,
@@ -652,6 +637,7 @@ const responseComponents = {
   AgentAdminChangeResponse: agentAdminChangeResponseSchema,
   SetAgentManagingTeamResponse: setAgentManagingTeamResponseSchema,
   ListAdministeredAgentsResponse: listAdministeredAgentsResponseSchema,
+  ListConnectionOptionsResponse: listConnectionOptionsResponseSchema,
   ListUsableAgentsResponse: listUsableAgentsResponseSchema,
   ListMyTeamsResponse: listMyTeamsResponseSchema,
   CreateCredentialBindingRequest: createCredentialBindingRequestSchema,
@@ -744,7 +730,7 @@ export const OPENAPI_TAGS = [
   {
     name: "Agents",
     description:
-      "Write agent cards, release a version against a runtime profile, activate a release and bind the credential names it runs with. Owners, admins, and each agent's own admins.",
+      "Write agent cards, release a version on a provider connection, activate a release and bind the credential names it runs with. Owners, admins, and each agent's own admins.",
   },
   {
     name: "Variables",
@@ -1058,29 +1044,6 @@ const EXAMPLE_AGENT_ADMINS = {
 const TEAM_PAGES =
   "By `name`, then `id`, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. A team renamed while the pages are read can show twice or not at all; every other team shows once.";
 
-const WORKSPACE_PROFILE_EXAMPLE = {
-  id: "ws_acme_strict-review_v2",
-  source: "workspace",
-  model: "claude-sonnet-5",
-  models: ["claude-sonnet-5"],
-  tools: ["Read", "Glob", "Grep"],
-  permission_mode: "default",
-  runtime_kind: "claude_agent_sdk",
-  runtime_version: "0.3.319",
-  billing: "metered",
-  repository_mode: "required",
-  workspace: {
-    name: "strict-review",
-    version: 2,
-    base_profile_id: "claude-coding-real",
-    state: "usable",
-    created_by: "019a0000-0000-7000-8000-0000000000b1",
-    created_at: "2026-10-27T01:00:00.000Z",
-    retired_by: null,
-    retired_at: null,
-  },
-} as const;
-
 const ACHIEVEMENT_CATEGORY_EXAMPLE = {
   id: "5b1e2c3d-4f5a-4b6c-8d7e-9f0a1b2c3d4e",
   name: "Delivery",
@@ -1162,9 +1125,9 @@ const SETTINGS_CONVERT =
 const SETTINGS_DISABLE =
   "Never undone and nothing is deleted: the id stays taken and the stored value stays sealed. Ceilings over it stop running anything. Disabling one already disabled is 409 `disabled`.";
 const SETTINGS_DISABLE_CONNECTION =
-  "Nothing is deleted: the id stays taken and the stored value stays sealed. Ceilings over it stop running anything until it is enabled again. Disabling one already disabled is 409 `disabled`.";
+  "Nothing is deleted: the id stays taken and the stored value stays sealed. Releases on it stop running anything until it is enabled again. Disabling one already disabled is 409 `disabled`.";
 const SETTINGS_ENABLE_CONNECTION =
-  "Brings a disabled connection back: ceilings over it match it again once the settings are read again (a reference to the deployment that does not resolve leaves it `unresolved`). It is refused with 409 `not_disabled` when the row is in use, 409 `definition_active` when another connection in use is, or was, exactly what this one is (disable that one first), and 409 `needs_value` when its stored value is gone (disabling keeps it, so this is rare). The destination never changes. Writes an `enable_connection` receipt.";
+  "Brings a disabled connection back: releases on it run again once the settings are read again (a reference to the deployment that does not resolve leaves it `unresolved`). It is refused with 409 `not_disabled` when the row is in use, 409 `definition_active` when another connection in use is, or was, exactly what this one is (disable that one first), and 409 `needs_value` when its stored value is gone (disabling keeps it, so this is rare). The destination never changes. Writes an `enable_connection` receipt.";
 const SETTINGS_CHANGE_EXAMPLE = (id: string) => ({
   id,
   receipt_id: "019a0000-0000-7000-8000-0000000000f3",
@@ -1178,6 +1141,8 @@ const SETTINGS_CONNECTION_EXAMPLE = {
   billing: "per_token",
   auth_kind: "api_key",
   auto_mode: "unknown",
+  models: ["claude-sonnet-5", "claude-haiku-5"],
+  model_families: null,
   credential: { source: "stored", last4: "x9Qa" },
   created_at: "2026-11-04T03:00:00.000Z",
   disabled_at: null,
@@ -1193,35 +1158,6 @@ const SETTINGS_MCP_EXAMPLE = {
   created_at: "2026-11-04T03:00:00.000Z",
   disabled_at: null,
 };
-const INSTALLATION_PROFILE_EXAMPLE = {
-  id: "op_coding_v2",
-  source: "operator",
-  model: "claude-sonnet-5",
-  models: ["claude-sonnet-5", "claude-haiku-5"],
-  tools: ["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
-  permission_mode: "acceptEdits",
-  runtime_kind: "claude_agent_sdk",
-  runtime_version: "0.3.319",
-  billing: "metered",
-  repository_mode: "required",
-  repository_ids: ["sample-app"],
-  installation: {
-    name: "coding",
-    version: 2,
-    origin: "console",
-    state: "usable",
-    connection_id: "anthropic-main",
-    title_model: "claude-haiku-5",
-    project_settings: { claude_md: true },
-    previous_id: "op_coding_v1",
-    created_by: "019a0000-0000-7000-8000-0000000000b1",
-    created_at: "2026-10-28T01:00:00.000Z",
-    retired_by: null,
-    retired_at: null,
-    blocked_by: null,
-    blocked_at: null,
-  },
-} as const;
 
 const EXAMPLE_AGENT = {
   id: EXAMPLE_AGENT_ID,
@@ -1262,9 +1198,9 @@ const EXAMPLE_SESSION_SUMMARY = {
   runtime: {
     kind: "claude_agent_sdk",
     version: "0.2.1",
-    profile_id: "claude-coding-real",
+    connection_id: "anthropic-main",
     model: "claude-sonnet-5",
-    permission_mode: "default",
+    permission_mode: "auto",
   },
   model: "claude-sonnet-5",
   repository_id: "sample-app",
@@ -2925,8 +2861,6 @@ export const API_ROUTE_DECLARATIONS = [
           "session.admin_list",
           "usage.installation_read",
           "usage.agent_read",
-          "profile.installation.manage",
-          "profile.define",
           "installation.settings.manage",
         ],
       },
@@ -2961,11 +2895,12 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Sessions",
     summary: "Durably accept a session and its first input",
     description:
-      "Creates a session for a catalog profile and repository and queues `message` as turn `1`. Whether `repository_id` is sent follows the profile's `repository_mode` (`GET /v1/profiles`): where the catalog judges the pair, `none` refuses it, `optional` takes either, and `required` needs it. A session on the agent's own GitHub settings (the agent has a settings row) or on a workspace-scoped profile is judged by the workspace ceiling and the agent's list instead, and may start without one whatever the mode. A repository named here is checked against the agent's GitHub settings list where those apply and against the workspace ceiling where the profile uses it, else 403 GITHUB_REFUSED. A session created without one starts in an empty workspace, has no default push target (`POST /v1/sessions/{id}/push-requests` must name an attached repository, else it answers 409 PUSH_SOURCE_MISSING) and its detail's `repository_id` is null. The 201 means the input is stored, not that it ran: follow the turn with `GET /v1/sessions/{id}/turns/{turn_id}` or the event stream. `model` picks one of the models the profile offers (its `model` or `models` in the catalog); omitted, the model of the release's card runs when `agent_release_id` is sent, else the profile's default. The session's detail reports it as `model`. The model stays until the session's profile is changed (`POST /v1/sessions/{id}/profile`), which runs the new profile's default. A session waits in `queued` while no execution slot is free; it is never refused for that. `agent_release_id` pins the session to that release of an agent, so a key bound to the agent may create it (it reads the agent's `active_release_id` from `GET /v1/agents`);`profile_id` may then be omitted for the release's runtime profile, and sent it must be that profile (409 RELEASE_PROFILE_MISMATCH). Omitted, an agent with GitHub settings starts without a repository and attaches what it needs, and an agent with none uses the release's `repository_id`. A release whose profile is no longer in the catalog, or changed since, answers 409 PROFILE_DIGEST_MISMATCH. A profile the operator blocked, or a workspace profile over a blocked one, answers 409 PROFILE_BLOCKED, with a release or without. A private agent (`GET /v1/agents/{id}/usage`) is used only by the members of its teams, the workspace's owners and admins, its admins and the members of its managing team; for anyone else its release answers 404, the very answer of a release that does not exist, before the integrity, profile and state refusals below and whatever else the caller lacks (a key without the scope, or bound to another agent, or a Slack channel past its ceiling, included). An agent that is paused or archived answers 409 AGENT_NOT_RUNNABLE with `details.reason_code` `agent_inactive`, and a release no activation ever approved answers it with `release_unapproved`; an older release that was approved still starts while the agent is active, and a retry of a session made earlier gets its first answer. Every credential the release names must still be bound to its agent; otherwise 409 CREDENTIAL_UNBOUND, whose `details` carry the guidance to show the requester and the agent's admins to ask (`SessionCredentialUnboundDetails`), never the missing names. The caller limits of the agent (`GET /v1/agents/{id}/caller-limits`) that reach the caller are merged (the workspace's, those of the teams the caller is in, and the Slack channel's) and fixed on the session as `caller_limit`; the first turn runs under the creator's limit, so a start is checked on all four dimensions the way an input is: a repository outside the merged `repositories`, a credential the merged `credentials_deny` names, an MCP server outside `mcp_servers`, or a tool the release loads that `tools_deny` names answers 403 `FORBIDDEN` with `details` `{reason_code: caller_limited, dimension: repository | credential | mcp_server | tool}` and no session. The write merges the limits again under lock, and its result wins over a rule changed since. The receipt settles with turn `1`: `succeeded` when it completes, `failed` when it fails or is interrupted or cancelled, `unknown` when its outcome is unknown.",
+      "Creates a session of an agent release (`agent_release_id`, required) and queues `message` as turn `1`. A private agent (`GET /v1/agents/{id}/usage`) is used only by the members of its teams, the workspace's owners and admins, its admins and the members of its managing team; for anyone else its release answers 404, the very answer of a release that does not exist, before the integrity and state refusals below and whatever else the caller lacks (a key without the scope, or bound to another agent, or a Slack channel past its ceiling, included). The session runs the release's spec: its connection, runtime and the card's model. `repository_id` is optional; a repository named here is checked against the agent's GitHub settings list where those apply and against the workspace ceiling, else 403 GITHUB_REFUSED. A session created without one starts in an empty workspace, has no default push target (`POST /v1/sessions/{id}/push-requests` must name an attached repository, else it answers 409 PUSH_SOURCE_MISSING) and its detail's `repository_id` is null. The 201 means the input is stored, not that it ran: follow the turn with `GET /v1/sessions/{id}/turns/{turn_id}` or the event stream. `model` picks one of the models the release's connection offers; omitted, the model of the release's card runs. The session's detail reports it as `model`. A session waits in `queued` while no execution slot is free; it is never refused for that. A key bound to the agent may create it (it reads the agent's `active_release_id` from `GET /v1/agents`). Omitted, an agent with GitHub settings starts without a repository and attaches what it needs, and an agent with none uses the release's `repository_id`. A release whose connection is disabled or gone, or whose model left the connection's list, answers 409 RELEASE_SPEC_UNAVAILABLE. An agent that is paused or archived answers 409 AGENT_NOT_RUNNABLE with `details.reason_code` `agent_inactive`, and a release no activation ever approved answers it with `release_unapproved`; an older release that was approved still starts while the agent is active, and a retry of a session made earlier gets its first answer. Every credential the release names must still be bound to its agent; otherwise 409 CREDENTIAL_UNBOUND, whose `details` carry the guidance to show the requester and the agent's admins to ask (`SessionCredentialUnboundDetails`), never the missing names. The caller limits of the agent (`GET /v1/agents/{id}/caller-limits`) that reach the caller are merged (the workspace's, those of the teams the caller is in, and the Slack channel's) and fixed on the session as `caller_limit`; the first turn runs under the creator's limit, so a start is checked on all four dimensions the way an input is: a repository outside the merged `repositories`, a credential the merged `credentials_deny` names, an MCP server outside `mcp_servers`, or a tool the release loads that `tools_deny` names answers 403 `FORBIDDEN` with `details` `{reason_code: caller_limited, dimension: repository | credential | mcp_server | tool}` and no session. The write merges the limits again under lock, and its result wins over a rule changed since. The receipt settles with turn `1`: `succeeded` when it completes, `failed` when it fails or is interrupted or cancelled, `unknown` when its outcome is unknown.",
     scope: "write",
     body: "CreateSessionRequest",
     requestExample: {
-      profile_id: "claude-coding-real",
+      agent_release_id:
+        "sha256:3b1f5c0e9d2a4b7c8e6f1a0d9c8b7a6f5e4d3c2b1a09f8e7d6c5b4a39281706f",
       repository_id: "sample-app",
       message: "Add a health check endpoint and a test for it.",
     },
@@ -2984,13 +2919,11 @@ export const API_ROUTE_DECLARATIONS = [
     },
     errors: [400, 401, 403, 404, 409, 413, 422, 429, 503],
     errorCodes: {
-      400: ["BAD_REQUEST", "PERMISSION_WAIT_ABOVE_PROFILE"],
+      400: ["BAD_REQUEST", "PERMISSION_WAIT_ABOVE_LIMIT"],
       403: ["FORBIDDEN", "GITHUB_REFUSED"],
       409: [
         "IDEMPOTENCY_CONFLICT",
-        "RELEASE_PROFILE_MISMATCH",
-        "PROFILE_DIGEST_MISMATCH",
-        "PROFILE_BLOCKED",
+        "RELEASE_SPEC_UNAVAILABLE",
         "AGENT_NOT_RUNNABLE",
         "CREDENTIAL_UNBOUND",
       ],
@@ -2998,13 +2931,13 @@ export const API_ROUTE_DECLARATIONS = [
     },
     errorNotes: {
       BAD_REQUEST:
-        "A body its schema refuses, `profile_id` missing without `agent_release_id` included, names each field at fault in `details.issues` (`RequestBodyInvalidDetails`).",
-      PERMISSION_WAIT_ABOVE_PROFILE:
-        "A `permission_wait` value is longer than the profile's (`GET /v1/profiles`).",
+        "A body its schema refuses, `agent_release_id` missing included, names each field at fault in `details.issues` (`RequestBodyInvalidDetails`).",
+      PERMISSION_WAIT_ABOVE_LIMIT:
+        "A `permission_wait` value is longer than the installation's.",
       GITHUB_REFUSED:
-        "`repository_not_allowed`: the agent's GitHub settings cannot be read, they do not list `repository_id`, the workspace ceiling does not allow the session's repository (one named, or the release's when the agent has no settings), or one of `attached_repository_ids` is the session's own repository, not listed there, or not allowed for the profile, or the list was sent for a session without an agent release, or for a profile whose `repository_mode` is `none` when the agent has no GitHub settings. No receipt is written: `details.receipt_id` is null.",
+        "`repository_not_allowed`: the agent's GitHub settings cannot be read, they do not list `repository_id`, the workspace ceiling does not allow the session's repository (one named, or the release's when the agent has no settings), or one of `attached_repository_ids` is the session's own repository, not listed there, or outside the workspace ceiling, or the list was sent for an agent with no GitHub settings. No receipt is written: `details.receipt_id` is null.",
       UNSUPPORTED_CAPABILITY:
-        "`profile_id` or `repository_id` is not in the catalog, the catalog does not allow the pair, the profile does not offer `model`, where the catalog judges the pair, `repository_id` is missing for a profile whose `repository_mode` is `required` (`Profile <id> needs a repository: send repository_id`), or sent for one whose `repository_mode` is `none` (`Profile <id> runs without a repository: omit repository_id`).",
+        "The release's connection is disabled, its runtime is no longer shipped, its connection does not offer `model`, or `repository_id` is not in the catalog.",
       RATE_LIMITED:
         "Reserved here: the per-session input queue limit applies to later messages, not to the first, so this operation does not currently return it.",
     },
@@ -3332,7 +3265,6 @@ export const API_ROUTE_DECLARATIONS = [
         "SESSION_CLOSED",
         "CHECKPOINT_UNAVAILABLE",
         "TAKEOVER_REQUIRED",
-        "PROFILE_BLOCKED",
       ],
       413: ["PAYLOAD_TOO_LARGE", "STORAGE_LIMIT_EXCEEDED"],
     },
@@ -3341,8 +3273,6 @@ export const API_ROUTE_DECLARATIONS = [
         "A failed session that has no runtime spec pinned on its own model, which it needs to run again once specs are authoritative; nothing is queued.",
       RATE_LIMITED:
         "The session already holds the installation's maximum of queued inputs; `Retry-After` is 5.",
-      PROFILE_BLOCKED:
-        "The operator blocked the session's profile, or the installation profile its workspace profile narrows; nothing is queued. The session's `attention` says the same, and it takes messages again once the operator unblocks it.",
       CHECKPOINT_UNAVAILABLE:
         "A pending checkpoint problem holds new work, so a new turn could not be checkpointed; `message` names it.",
     },
@@ -3409,7 +3339,6 @@ export const API_ROUTE_DECLARATIONS = [
             execution_generation: 1,
             started_at: "2026-10-11T08:00:05Z",
             ended_at: "2026-10-11T08:03:12Z",
-            profile_id: "claude-coding-real",
           },
         ],
       },
@@ -3552,7 +3481,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Push requests",
     summary: "Ask for the session's latest checkpoint to be pushed",
     description:
-      "Pins the session's latest committed checkpoint: its `checkpoint_revision`, the `git_commit` its verified manifest names, the repository and the target branch. The commit cannot be chosen. `checkpoint_revision` (default: the latest committed one) may name the revision you looked at; it is refused as `checkpoint_moved` once a newer one has been saved. Work the session did after that revision may not be in it. `repository_id` (default: the session's own) may name another catalog repository the session's release lists in `github.repositories` and its profile allows; the session's workspace has it as a git remote of that name. `branch` (default: none) makes the target `agent/<session-id>-<branch>` instead of `agent/<session-id>`, so one session can push to several branches, each its own pull request. The request starts `requested` and nothing is pushed until a holder of `sessions:approve` approves it (`POST .../push-requests/{push_request_id}/approve`); the push itself is the platform's, never the worker's.\n\nA session has at most one open request (`requested`, `approved` or `pushing`) per repository and branch; there is no limit on how many it makes. Every attempt, refused ones included, leaves a `request_push` receipt naming the repository and branch; a refusal's `error.details.receipt_id` names it. A replayed Idempotency-Key answers the request it created.",
+      "Pins the session's latest committed checkpoint: its `checkpoint_revision`, the `git_commit` its verified manifest names, the repository and the target branch. The commit cannot be chosen. `checkpoint_revision` (default: the latest committed one) may name the revision you looked at; it is refused as `checkpoint_moved` once a newer one has been saved. Work the session did after that revision may not be in it. `repository_id` (default: the session's own) may name another catalog repository the session's release lists in `github.repositories` and the workspace ceiling allows; the session's workspace has it as a git remote of that name. `branch` (default: none) makes the target `agent/<session-id>-<branch>` instead of `agent/<session-id>`, so one session can push to several branches, each its own pull request. The request starts `requested` and nothing is pushed until a holder of `sessions:approve` approves it (`POST .../push-requests/{push_request_id}/approve`); the push itself is the platform's, never the worker's.\n\nA session has at most one open request (`requested`, `approved` or `pushing`) per repository and branch; there is no limit on how many it makes. Every attempt, refused ones included, leaves a `request_push` receipt naming the repository and branch; a refusal's `error.details.receipt_id` names it. A replayed Idempotency-Key answers the request it created.",
     scope: "write",
     body: "CreatePushRequestRequest",
     requestExample: { repository_id: "docs", branch: "fix-typo" },
@@ -3575,7 +3504,7 @@ export const API_ROUTE_DECLARATIONS = [
     },
     errorNotes: {
       FORBIDDEN:
-        "Also when the deployment does not authenticate callers (`AUTH_MODE=none`): push requests need a verified credential; and with `details.refusal: repository_not_allowed` when `repository_id` names a repository the session's release does not list, its profile does not allow, or its agent has GitHub off.",
+        "Also when the deployment does not authenticate callers (`AUTH_MODE=none`): push requests need a verified credential; and with `details.refusal: repository_not_allowed` when `repository_id` names a repository the session's release does not list, the workspace ceiling does not allow, or its agent has GitHub off.",
       PUSH_REQUEST_OPEN:
         "Here: the session already has an open request to this repository and branch; requests to other branches or repositories are not held back.",
       CHECKPOINT_UNAVAILABLE:
@@ -4335,48 +4264,7 @@ export const API_ROUTE_DECLARATIONS = [
         "The session runs on a legacy pod binding with no kill path.",
     },
   },
-  {
-    method: "post",
-    path: "/v1/sessions/{id}/profile",
-    operationId: "changeSessionProfile",
-    tag: "Session control",
-    summary: "Run the session's next turns on another profile",
-    description:
-      "Moves an `active`, `paused` or `stopped` session onto `profile_id`, a profile this host's catalog allows with the session's repository, or, for a session created without one, a profile whose `repository_mode` is `optional` or `none`. It takes effect at the next turn that starts: a turn running now finishes on the profile it started with, and its worker then leaves so the next one claims the new profile and restores the session's checkpoint, conversation included. The session then runs the new profile's default `model`, whatever `model` it was created with. Earlier turns keep their record and cost; each turn's `attempts[].profile_id` says what it ran on.\n\nThe new profile must run the same runtime kind and version, since the next worker restores checkpoints that runtime took, and must be billed the same way (`billing: none` or not), since the session's cost limit stays as it is. A session created from an agent release runs the release's profile and answers `409 RELEASE_PROFILE_MISMATCH`. The change settles in the request: the receipt is `succeeded` with result `{previous_profile_id, profile_id}`, and a `status` event on the stream carries both. Naming the profile the session already runs changes nothing and still answers `succeeded`.",
-    scope: "control",
-    body: "ChangeSessionProfileRequest",
-    requestExample: { expected_revision: 8, profile_id: "claude-coding-fast" },
-    success: {
-      status: 200,
-      schema: "ReceiptAcceptedResponse",
-      description: "The session runs `profile_id` from its next turn on.",
-      example: { receipt_id: EXAMPLE_RECEIPT_ID, receipt_status: "succeeded" },
-    },
-    errors: [...CONFLICTS, 413, 422, 503],
-    errorCodes: {
-      409: [
-        "IDEMPOTENCY_CONFLICT",
-        "REVISION_CONFLICT",
-        "SESSION_PAUSED",
-        "SESSION_RESUMING",
-        "SESSION_STOPPED",
-        "SESSION_CLOSING",
-        "SESSION_CLOSED",
-        "RECOVERY_REQUIRED",
-        "RELEASE_PROFILE_MISMATCH",
-      ],
-    },
-    errorNotes: {
-      REVISION_CONFLICT:
-        "Also when the session's profile changed between the read and the change.",
-      SESSION_PAUSED: "The session is pausing.",
-      SESSION_STOPPED: "The session is stopping.",
-      RELEASE_PROFILE_MISMATCH:
-        "The session belongs to an agent release, which sets its profile.",
-      UNSUPPORTED_CAPABILITY:
-        "The profile is not in the catalog, not allowed with the session's repository, runs another runtime, or is billed differently.",
-    },
-  },
+
   {
     method: "post",
     path: "/v1/sessions/{id}/resume",
@@ -4804,7 +4692,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "The workspace's agents",
     description:
-      "Lists the workspace's agents oldest `created_at` first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. Every member of the workspace lists it, except that a private agent the caller may not use is left out, as if it did not exist (the same rule as `GET /v1/usable-agents` and a session start; owners, admins, the agent's admins and its managing team's members keep it), each agent's row being its information (name, slug, description, managing team id and name, status, active release id). `include=summary` adds to each item a `summary` of what a card shows (the version people talk to, its runtime profile, live credential bindings, admins, and how many of the agent's sessions the caller can see are `needs_input` and `running`, as `GET /v1/sessions` shows them), read for the whole page at once, only on the agents whose settings the caller reads (`GET /v1/agents/{id}`); the other items come without it. Without `include` the items are as before. `q` keeps the agents whose name or slug contains it, ignoring case, `ids` the agents named (at most 100; an id of no agent in the workspace is left out); each narrows the same order, so the cursor works as before. An agent key that holds `sessions:write` gets its own agent alone, on one page, so it can find the `active_release_id` to send as `agent_release_id` to `POST /v1/sessions`; it is refused `include=summary`, `q` and `ids` keep its agent only when it matches them, and every other API key is refused.",
+      "Lists the workspace's agents oldest `created_at` first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. Every member of the workspace lists it, except that a private agent the caller may not use is left out, as if it did not exist (the same rule as `GET /v1/usable-agents` and a session start; owners, admins, the agent's admins and its managing team's members keep it), each agent's row being its information (name, slug, description, managing team id and name, status, active release id). `include=summary` adds to each item a `summary` of what a card shows (the version people talk to, its connection, live credential bindings, admins, and how many of the agent's sessions the caller can see are `needs_input` and `running`, as `GET /v1/sessions` shows them), read for the whole page at once, only on the agents whose settings the caller reads (`GET /v1/agents/{id}`); the other items come without it. Without `include` the items are as before. `q` keeps the agents whose name or slug contains it, ignoring case, `ids` the agents named (at most 100; an id of no agent in the workspace is left out); each narrows the same order, so the cursor works as before. An agent key that holds `sessions:write` gets its own agent alone, on one page, so it can find the `active_release_id` to send as `agent_release_id` to `POST /v1/sessions`; it is refused `include=summary`, `q` and `ids` keep its agent only when it matches them, and every other API key is refused.",
     // A key needs sessions:write here, the right to start a session on the
     // agent it finds; a person's role holds it.
     scope: "write",
@@ -4853,7 +4741,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Create an agent and its first card version",
     description:
-      "Without `runtime_profile_id` nothing is released or activated. With it the save makes the first release on that profile and activates it, as `PATCH /v1/agents/{id}` does; `model_source` defaults to `profile`, which runs the profile's default model. The agent and its card are kept when the release is refused: `release.status` is then `failed` with the reason, and the agent's `draft` holds the request until a new save. The creator administers the agent. `managing_team_id` is required (400 BAD_REQUEST with a `details.issues` entry at `managing_team_id` when absent): an owner or admin names any live team (404 when there is none by that id), anyone else only a team they are in (403 FORBIDDEN, `details.reason_code` `team_not_allowed`). A slug already used in the workspace answers 409 ALREADY_EXISTS. API keys are refused.",
+      "Without `connection_id` nothing is released or activated. With it the save makes the first release on that connection and activates it, as `PATCH /v1/agents/{id}` does; the card's `model` must be one the connection offers (`GET /v1/connections`). The agent and its card are kept when the release is refused: `release.status` is then `failed` with the reason, and the agent's `draft` holds the request until a new save. The creator administers the agent. `managing_team_id` is required (400 BAD_REQUEST with a `details.issues` entry at `managing_team_id` when absent): an owner or admin names any live team (404 when there is none by that id), anyone else only a team they are in (403 FORBIDDEN, `details.reason_code` `team_not_allowed`). A slug already used in the workspace answers 409 ALREADY_EXISTS. API keys are refused.",
     auth: "session",
     body: "CreateAgentRequest",
     success: { status: 201, schema: "SaveAgentResponse" },
@@ -4878,9 +4766,9 @@ export const API_ROUTE_DECLARATIONS = [
     path: "/v1/agents/{id}",
     operationId: "updateAgent",
     tag: "Agents",
-    summary: "Rename or describe an agent, or save its card and profile",
+    summary: "Rename or describe an agent, or save its card and connection",
     description:
-      "`name` and `description` change the agent itself: no version is made, and `description: null` clears it. Neither reaches a run. A `card` becomes a new version; existing versions never change, and a card equal to one the agent already has reuses it. A card, `runtime_profile_id` or `model_source` changes what the agent does: unless it equals what the agent runs (`release.status: unchanged`, nothing released), the save makes a release of it and activates it (`applied`). `runtime_profile_id` alone saves the card the agent runs now on that profile; without a card or profile the agent's current ones are used. `model_source: profile` runs the profile's default model and writes it into the card; `fixed` keeps the card's model; absent, the current source is kept while the card's model is the one running. A refused release (`failed`, with its `reason`) keeps the card version and leaves the request as the agent's `draft`; a save a newer one replaced answers `superseded` and changes nothing.",
+      "`name` and `description` change the agent itself: no version is made, and `description: null` clears it. Neither reaches a run. A `card` becomes a new version; existing versions never change, and a card equal to one the agent already has reuses it. A card or `connection_id` changes what the agent does: unless it equals what the agent runs (`release.status: unchanged`, nothing released), the save makes a release of it and activates it (`applied`). `connection_id` alone saves the card the agent runs now on that connection; without a card or connection the agent's current ones are used. A refused release (`failed`, with its `reason`) keeps the card version and leaves the request as the agent's `draft`; a save a newer one replaced answers `superseded` and changes nothing.",
     auth: "session",
     body: "UpdateAgentRequest",
     success: { status: 200, schema: "SaveAgentResponse" },
@@ -4893,14 +4781,14 @@ export const API_ROUTE_DECLARATIONS = [
     path: "/v1/agents/{id}/releases",
     operationId: "createAgentRelease",
     tag: "Agents",
-    summary: "Release a version against a runtime profile",
+    summary: "Release a version on a provider connection",
     description:
-      "The release id is a hash of the card, the profile's digest and the resolved runtime settings; releasing the same content again returns the stored release with `created: false`. The optional `note` (trimmed, 1 to 200 characters) is stored with the release but is not part of its id, so a re-release keeps the note it was first made with. A card tool outside the profile, a different model or an unknown profile answers 422. `repository_id` names the catalog repository the release pins (`GET /v1/profiles`, `repository_ids`): required when the profile's `repository_mode` is `required` (422 `repository_id: Profile <id> needs a repository: send repository_id`), refused when it is `none`, and 422 when the catalog has no such repository or it does not allow the profile. Slack sessions and API sessions that send no `repository_id` start on it only while the agent has no GitHub settings; an agent with settings starts them without a repository. A profile the operator blocked, or one over a blocked base, answers 409 PROFILE_BLOCKED. A request carrying `github` for an agent that already has GitHub settings answers 409 ALREADY_EXISTS with `reason_code: github_settings_exist`: those are saved with `PUT /v1/agents/{id}/github/settings`. Releasing approves and activates nothing.",
+      "The release id is a hash of the card, the connection and the resolved runtime settings; releasing the same content again returns the stored release with `created: false`. The optional `note` (trimmed, 1 to 200 characters) is stored with the release but is not part of its id, so a re-release keeps the note it was first made with. A model the connection does not offer, or a connection that is not enabled, answers 422. `repository_id` names the catalog repository the release pins, optional: 422 when the catalog has no such repository. Slack sessions and API sessions that send no `repository_id` start on it only while the agent has no GitHub settings; an agent with settings starts them without a repository. A request carrying `github` for an agent that already has GitHub settings answers 409 ALREADY_EXISTS with `reason_code: github_settings_exist`: those are saved with `PUT /v1/agents/{id}/github/settings`. Releasing approves and activates nothing.",
     auth: "session",
     body: "CreateAgentReleaseRequest",
     success: { status: 200, schema: "CreateAgentReleaseResponse" },
     errors: [400, 401, 403, 404, 409, 413, 422, 503],
-    errorCodes: { 409: ["PROFILE_BLOCKED", "ALREADY_EXISTS"] },
+    errorCodes: { 409: ["ALREADY_EXISTS"] },
     idempotent: false,
   },
   {
@@ -4910,7 +4798,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Point the agent at a release (compare-and-swap)",
     description:
-      "`expected_revision` is the agent's current `activation_revision` (-1 before the first activation); a stale one answers 409 REVISION_CONFLICT. Sending the same activation again is a no-op with a null `receipt_id`. A release whose runtime profile changed since answers 409 PROFILE_DIGEST_MISMATCH and has to be released again; one whose profile the operator blocked answers 409 PROFILE_BLOCKED. A release whose card names a credential not bound to the agent answers 409 CREDENTIAL_UNBOUND with the missing names in `details.missing` (`ActivationCredentialUnboundDetails`). Sessions already pinned keep their release.",
+      "`expected_revision` is the agent's current `activation_revision` (-1 before the first activation); a stale one answers 409 REVISION_CONFLICT. Sending the same activation again is a no-op with a null `receipt_id`. A release whose connection is disabled or whose model left the connection's list answers 409 RELEASE_SPEC_UNAVAILABLE and has to be released again. A release whose card names a credential not bound to the agent answers 409 CREDENTIAL_UNBOUND with the missing names in `details.missing` (`ActivationCredentialUnboundDetails`). Sessions already pinned keep their release.",
     auth: "session",
     body: "ActivateAgentRequest",
     success: { status: 200, schema: "ActivateAgentResponse" },
@@ -4918,8 +4806,7 @@ export const API_ROUTE_DECLARATIONS = [
     errorCodes: {
       409: [
         "REVISION_CONFLICT",
-        "PROFILE_DIGEST_MISMATCH",
-        "PROFILE_BLOCKED",
+        "RELEASE_SPEC_UNAVAILABLE",
         "CREDENTIAL_UNBOUND",
       ],
     },
@@ -5598,7 +5485,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Save the agent's MCP settings",
     description:
-      "Replaces the agent's whole settings row in one transaction and makes no release: a new session reads it at once, a change that narrows reaches running sessions too, and a change that widens only sessions that start after it. `expected_revision` is `settings_revision` as read (null when there was no row); another value answers 409 `REVISION_CONFLICT`. `updated_by` is always the caller, so the first person's save of an agent also fixes the rollback floor at the snapshot-reading image. A server the save adds must be in the catalog (400 `server_unknown`; `server_builtin` for the built-in one); every `allowed_tools` name must be `mcp__<server>__<tool>` of the chosen server (`tool_outside_server`; the name has no spaces or control characters and is at most 128 characters), a tool the save adds that the active release's profile blocks is refused (`mcp_tool_denied`; a tool the row already holds can still be narrowed away), with no server there are none (`server_required`), and the server's credential name must be in `credential_refs` (`server_credential_missing`). A repeated tool or credential name is refused (`duplicate`). Binding the credentials is not required to save. Writes a `set_agent_mcp` receipt with `result.change = \"settings\"` and the names before and after; `receipt_id` is null when a person's row already held them. Agent managers with a web session only; API keys are refused.",
+      "Replaces the agent's whole settings row in one transaction and makes no release: a new session reads it at once, a change that narrows reaches running sessions too, and a change that widens only sessions that start after it. `expected_revision` is `settings_revision` as read (null when there was no row); another value answers 409 `REVISION_CONFLICT`. `updated_by` is always the caller, so the first person's save of an agent also fixes the rollback floor at the snapshot-reading image. A server the save adds must be in the catalog (400 `server_unknown`; `server_builtin` for the built-in one); every `allowed_tools` name must be `mcp__<server>__<tool>` of the chosen server (`tool_outside_server`; the name has no spaces or control characters and is at most 128 characters), a tool the save adds that the workspace's or the agent's rules block is refused (`mcp_tool_denied`; a tool the row already holds can still be narrowed away), with no server there are none (`server_required`), and the server's credential name must be in `credential_refs` (`server_credential_missing`). A repeated tool or credential name is refused (`duplicate`). Binding the credentials is not required to save. Writes a `set_agent_mcp` receipt with `result.change = \"settings\"` and the names before and after; `receipt_id` is null when a person's row already held them. Agent managers with a web session only; API keys are refused.",
     auth: "session",
     body: "PutAgentMcpSettingsRequest",
     requestExample: {
@@ -5626,7 +5513,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Workspace settings",
     summary: "The workspace's saved engine rules",
     description:
-      "The rules every agent of the workspace runs under: `settings.permissions` (`allow`, `ask`, `deny`: tool rules in the engine's spelling) and `settings.auto_mode` (`allow`, `soft_deny`, `hard_deny`, `environment`: sentences the auto-mode classifier reads). A list that is absent holds nothing. `settings_revision` is null while nothing is saved. `writes_open` says whether a save is accepted now; reading is always open. Any member of the workspace reads it, with a console session or with that member's personal API key; an agent's key and the operator key read nothing here.",
+      "The rules every agent of the workspace runs under: `settings.permissions` (`allow`, `ask`, `deny`: tool rules in the engine's spelling) and `settings.auto_mode` (`allow`, `soft_deny`, `hard_deny`, `environment`: sentences the auto-mode classifier reads). A list that is absent holds nothing. `settings_revision` is null while nothing is saved. Any member of the workspace reads it, with a console session or with that member's personal API key; an agent's key and the operator key read nothing here.",
     scope: "read",
     success: {
       status: 200,
@@ -5638,7 +5525,6 @@ export const API_ROUTE_DECLARATIONS = [
           auto_mode: {},
         },
         settings_revision: 2,
-        writes_open: true,
       },
     },
     errors: [401, 403, 404, 503],
@@ -5650,7 +5536,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Workspace settings",
     summary: "Save the workspace's engine rules",
     description:
-      "Replaces the whole rule set in one transaction. `expected_revision` is `settings_revision` as read (null when nothing was saved); another value answers 409 `REVISION_CONFLICT`. The rules are checked against every installed tool catalog before anything is locked: a rule the engine would drop without a word is 400 with the parser's `reason_code` (`unknown_tool`, `too_many_rules`, `settings_too_large`, `mcp_rule_verdict`, ...), and `engine_settings_catalog_ambiguous` when two catalogs would store a rule differently. While the installation's gate is shut the answer is 403 `engine_settings_writes_closed`; rules already saved keep applying. Restrictions (`deny`, `ask`, `soft_deny`, `hard_deny`) add to every agent's own; grants (`allow`, `environment`) reach an agent only where the agent's own list holds the same entry. Writes a `set_workspace_engine_settings` receipt with the rule counts and sizes before and after, never a rule's text; `receipt_id` is null when the workspace already held these rules. Workspace owners and admins with a web session only; API keys are refused.",
+      "Replaces the whole rule set in one transaction. `expected_revision` is `settings_revision` as read (null when nothing was saved); another value answers 409 `REVISION_CONFLICT`. The rules are checked against every installed tool catalog before anything is locked: a rule the engine would drop without a word is 400 with the parser's `reason_code` (`unknown_tool`, `too_many_rules`, `settings_too_large`, `mcp_rule_verdict`, ...), and `engine_settings_catalog_ambiguous` when two catalogs would store a rule differently. Restrictions (`deny`, `ask`, `soft_deny`, `hard_deny`) add to every agent's own; grants (`allow`, `environment`) reach an agent only where the agent's own list holds the same entry. Writes a `set_workspace_engine_settings` receipt with the rule counts and sizes before and after, never a rule's text; `receipt_id` is null when the workspace already held these rules. Workspace owners and admins with a web session only; API keys are refused.",
     auth: "session",
     body: "PutEngineSettingsRequest",
     requestExample: {
@@ -5677,7 +5563,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "The agent's saved engine rules next to the workspace's",
     description:
-      "`settings` are the agent's own rules and `settings_revision` guards them (null while none are saved). `workspace` repeats the workspace's rules, which also apply, read only here. `inherited` counts the restrictions the agent took over from its profile (`entries`, `rules`); the rules themselves are an operator's and are not shown. `reach` says what the allow lists do together: `agent_allow_without_effect` names the agent's `allow`/`environment` entries the workspace does not share, which do nothing because a grant needs both sides, and `workspace_allow_inactive` is true when the workspace allows something the agent's own list leaves empty. `writes_open` says whether a save is accepted now. Whoever manages the agent reads it, and so do the live members of its managing team, with a console session or with their personal API key; an agent's own key does not.",
+      "`settings` are the agent's own rules and `settings_revision` guards them (null while none are saved). `workspace` repeats the workspace's rules, which also apply, read only here. `reach` says what the allow lists do together: `agent_allow_without_effect` names the agent's `allow`/`environment` entries the workspace does not share, which do nothing because a grant needs both sides, and `workspace_allow_inactive` is true when the workspace allows something the agent's own list leaves empty. Whoever manages the agent reads it, and so do the live members of its managing team, with a console session or with their personal API key; an agent's own key does not.",
     scope: "read",
     success: {
       status: 200,
@@ -5690,7 +5576,6 @@ export const API_ROUTE_DECLARATIONS = [
           settings: { permissions: { deny: ["Bash(rm:*)"] }, auto_mode: {} },
           settings_revision: 2,
         },
-        inherited: { entries: 0, rules: 0 },
         reach: {
           agent_allow_without_effect: {
             permissions: [],
@@ -5699,7 +5584,6 @@ export const API_ROUTE_DECLARATIONS = [
           },
           workspace_allow_inactive: false,
         },
-        writes_open: true,
       },
     },
     errors: [401, 403, 404, 503],
@@ -5711,7 +5595,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Save the agent's engine rules",
     description:
-      "Replaces the agent's own rule set in one transaction and makes no release: a session that starts afterwards reads it, and a session already running keeps the rules it started with unless a later save only narrows them. `expected_revision` and the checks are those of the workspace's save (409 `REVISION_CONFLICT`; 400 with the parser's `reason_code` or `engine_settings_catalog_ambiguous`; 403 `engine_settings_writes_closed` while the gate is shut). The restrictions the agent inherited from its profile are not part of this request and are left as they are. Writes a `set_agent_engine_settings` receipt with the rule counts and sizes before and after, never a rule's text; `receipt_id` is null when the agent already held these rules. Agent managers with a web session only; API keys are refused.",
+      "Replaces the agent's own rule set in one transaction and makes no release: a session that starts afterwards reads it, and a session already running keeps the rules it started with unless a later save only narrows them. `expected_revision` and the checks are those of the workspace's save (409 `REVISION_CONFLICT`; 400 with the parser's `reason_code` or `engine_settings_catalog_ambiguous`). Writes a `set_agent_engine_settings` receipt with the rule counts and sizes before and after, never a rule's text; `receipt_id` is null when the agent already held these rules. Agent managers with a web session only; API keys are refused.",
     auth: "session",
     body: "PutEngineSettingsRequest",
     requestExample: {
@@ -5832,7 +5716,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "The agent's Slack app, if the platform made one",
     description:
-      "The agent's live Slack app (`creating`, `created` or `deleting`), or null when it has none. Secrets appear only as whether each is stored; `secrets.slack_bot_token.configured` says whether Slack handed over a bot token; an install refused after the code exchange keeps it, so the agent's `slack_bot` identity is what says the app is installed. The install link comes from `POST /v1/agents/{id}/slack/install/start`. `warnings` says why every Slack mention and DM would be refused with a notice in the thread: `no_active_release` before an activation, `profile_unavailable` (with the `profile_id`) while the catalog no longer has the active release's profile, defines it otherwise than it was released, or an owner blocked it, and `repository_required` (with the `profile_id`) while a session cannot start: the agent has no settings row and its release names no repository its profile needs, or names one the profile or the workspace's repository ceiling does not allow, or the agent's GitHub settings cannot be read. Connecting is not blocked. `config_token_issuer_changed` (with the app's maker as `previous_user_id` and the token's issuer as `user_id`) says the App Configuration Token now belongs to another Slack user than the one who made this app, who may not be able to manage it or install it. `config_token` is the workspace's App Configuration Token state (`unset`, `active`, `needs_reentry`), readable here by the agent's admins too: only `active` can create the app, and only an owner or admin can set it. Owners, admins, the agent's admins and the live members of its managing team; API keys are refused.",
+      "The agent's live Slack app (`creating`, `created` or `deleting`), or null when it has none. Secrets appear only as whether each is stored; `secrets.slack_bot_token.configured` says whether Slack handed over a bot token; an install refused after the code exchange keeps it, so the agent's `slack_bot` identity is what says the app is installed. The install link comes from `POST /v1/agents/{id}/slack/install/start`. `warnings` says why every Slack mention and DM would be refused with a notice in the thread: `no_active_release` before an activation, `release_unavailable` (with the `release_id`) while the active release's connection is disabled or gone, or its model left the connection's list, and `repository_required` (with the `release_id`) while a session cannot start: the release names a repository the catalog or the workspace's repository ceiling does not allow, or the agent's GitHub settings cannot be read. Connecting is not blocked. `config_token_issuer_changed` (with the app's maker as `previous_user_id` and the token's issuer as `user_id`) says the App Configuration Token now belongs to another Slack user than the one who made this app, who may not be able to manage it or install it. `config_token` is the workspace's App Configuration Token state (`unset`, `active`, `needs_reentry`), readable here by the agent's admins too: only `active` can create the app, and only an owner or admin can set it. Owners, admins, the agent's admins and the live members of its managing team; API keys are refused.",
     auth: "session",
     success: {
       status: 200,
@@ -5899,7 +5783,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Create the agent's Slack app",
     description:
-      "Creates one Slack app for the agent with the workspace's App Configuration Token (`apps.manifest.create`): the agent's name, its bot, the agent view and the bot scopes, with no event subscriptions yet. The app is recorded as `creating` before Slack is asked; its signing and client secrets are stored by the server under the app and never returned. Asking again for an agent that has its app returns the same app with `created: false`. If Slack's answer was lost the app stays `creating` and the next request answers 409 SLACK_APP_CREATING; once `uncertain`, check api.slack.com/apps, delete any app made then, and retry with `replace_uncertain: true`. `warnings` says when the config token now belongs to another Slack user than the one who made the workspace's previous app (`config_token_issuer_changed`), and, as on GET, when the active release cannot start a session (`profile_unavailable`, `repository_required`); none stops the request. The agent needs an active release. Installing it into Slack starts at `POST /v1/agents/{id}/slack/install/start`. Owners, admins and the agent's admins from a signed-in console; API keys are refused.",
+      "Creates one Slack app for the agent with the workspace's App Configuration Token (`apps.manifest.create`): the agent's name, its bot, the agent view and the bot scopes, with no event subscriptions yet. The app is recorded as `creating` before Slack is asked; its signing and client secrets are stored by the server under the app and never returned. Asking again for an agent that has its app returns the same app with `created: false`. If Slack's answer was lost the app stays `creating` and the next request answers 409 SLACK_APP_CREATING; once `uncertain`, check api.slack.com/apps, delete any app made then, and retry with `replace_uncertain: true`. `warnings` says when the config token now belongs to another Slack user than the one who made the workspace's previous app (`config_token_issuer_changed`), and, as on GET, when the active release cannot start a session (`release_unavailable`, `repository_required`); none stops the request. The agent needs an active release. Installing it into Slack starts at `POST /v1/agents/{id}/slack/install/start`. Owners, admins and the agent's admins from a signed-in console; API keys are refused.",
     auth: "session",
     body: "CreateSlackAppRequest",
     requestExample: { replace_uncertain: false },
@@ -6608,7 +6492,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "The agents the caller could start a session with now",
     description:
-      "Every agent `POST /v1/sessions` would accept a start on for this caller at this request, oldest first, at most 200: the agent is `active` with an `active_release_id`, the caller may use it (open to the workspace; or a private agent whose teams the caller is in, or that the caller administers or manages, or a workspace owner or admin), the release's runtime profile is still in the catalog and unchanged, and every credential the release names is bound. Where the workspace limits agents to those inside them (axis A is not `use`), only agents the caller is inside are listed. A key bound to an agent lists that agent alone when it could start there, and a service key bound to none lists the agents open to the workspace. A private agent the caller may not use is not in the list, and nothing in the answer tells that it exists. An agent whose active release needs a credential that the caller's caller limits (`GET /v1/agents/{id}/caller-limits`: the workspace's rule, or that of a team the caller is in) deny in `credentials_deny` is not listed either, since every start would be refused; a limit on repositories never removes an agent, for a session without a repository still starts. Needs `sessions:write`. `active_release_id` is what to send as `agent_release_id`.",
+      "Every agent `POST /v1/sessions` would accept a start on for this caller at this request, oldest first, at most 200: the agent is `active` with an `active_release_id`, the caller may use it (open to the workspace; or a private agent whose teams the caller is in, or that the caller administers or manages, or a workspace owner or admin), the release's connection is still in the catalog and its spec verified, and every credential the release names is bound. Where the workspace limits agents to those inside them (axis A is not `use`), only agents the caller is inside are listed. A key bound to an agent lists that agent alone when it could start there, and a service key bound to none lists the agents open to the workspace. A private agent the caller may not use is not in the list, and nothing in the answer tells that it exists. An agent whose active release needs a credential that the caller's caller limits (`GET /v1/agents/{id}/caller-limits`: the workspace's rule, or that of a team the caller is in) deny in `credentials_deny` is not listed either, since every start would be refused; a limit on repositories never removes an agent, for a session without a repository still starts. Needs `sessions:write`. `active_release_id` is what to send as `agent_release_id`.",
     scope: "write",
     success: {
       status: 200,
@@ -6631,98 +6515,32 @@ export const API_ROUTE_DECLARATIONS = [
   },
   {
     method: "get",
-    path: "/v1/profiles",
-    operationId: "listProfiles",
+    path: "/v1/connections",
+    operationId: "listConnectionOptions",
     tag: "Agents",
-    summary: "The runtime profiles this workspace can run",
+    summary: "The provider connections an agent release may run on",
     description:
-      "Lists the profiles a session's `profile_id` or a release's `runtime_profile_id` may name, by `id`: the profiles (`source: operator`, each with an `installation` object): the installation-wide ones and the caller's workspace's own, each with the models it offers, its tools and permission mode. The older workspace versions (ids starting `ws_`) are not listed; what runs on them keeps its release. A profile saved from now on carries no `repository_mode`; an older one still does. Every profile is listed with its state (`installation.state`); only `usable` takes a new release or session. A profile's provider endpoint and credential are not included.",
+      "Lists the enabled provider connections of the installation by `id`, with `kind`, `billing` and the `models` an agent's card may name on each, and `model_successors`: each model the connection dropped that has a later model of its series listed, which a session on the dropped one moves to. A release names one of them as `connection_id` and runs the card's model on it. Never an endpoint or credential. Any member of the workspace reads it.",
     scope: "read",
     success: {
       status: 200,
-      schema: "ListProfilesResponse",
-      description:
-        "The operator's profiles ordered by `id`, then the workspace's.",
+      schema: "ListConnectionOptionsResponse",
+      description: "The enabled connections ordered by `id`.",
       example: {
         items: [
           {
-            id: "claude-coding-real",
-            source: "operator",
-            model: "claude-sonnet-5",
-            models: ["claude-sonnet-5", "claude-haiku-5"],
-            tools: ["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
-            permission_mode: "acceptEdits",
-            runtime_kind: "claude_agent_sdk",
-            runtime_version: "0.3.319",
+            id: "anthropic-main",
+            kind: "anthropic",
             billing: "metered",
-            repository_mode: "required",
+            models: ["claude-sonnet-5", "claude-haiku-5"],
+            model_successors: {},
           },
-          INSTALLATION_PROFILE_EXAMPLE,
-          WORKSPACE_PROFILE_EXAMPLE,
         ],
       },
     },
-    errors: [401, 503],
+    errors: [401, 403, 503],
   },
-  {
-    method: "post",
-    path: "/v1/workspace-profiles",
-    operationId: "createWorkspaceProfile",
-    tag: "Agents",
-    summary: "Save a new version of a workspace profile",
-    description:
-      "Owners and admins (`workspace.manage`), signed in. Narrows the operator profile `base_profile_id`: `models` and `tools` are subsets of the base's, and `permission_mode` the base's or one that leaves more to a person. Anything wider is 400 with `details.field`. Each save makes the next version of `name` with a new id (`ws_<workspace slug>_<name>_v<n>`); earlier versions, and what already runs on them, stay as they were. Two saves of one name at once: the second is 409 REVISION_CONFLICT, and saving again makes the version after. Instead of `tools`, `deny` names the catalog tools to block on top of the base's: the base's tools less `deny` are saved, and a deny that leaves out a tool the base blocks is 400 `base_denies`; the other `deny` and `accept_added_tools` refusals are those of `POST /v1/installation-profiles`, weighed against the latest version of `name`. A version keeps every `mcp__` block of the one before; `unblock_mcp_tools` lifts a held one (refusals as for `POST /v1/installation-profiles`) and needs `previous_id`, the version the form read: another latest version is 409 REVISION_CONFLICT (`details.reason_code: stale_previous`, `details.latest_id`). Writes a `create_workspace_profile` receipt.",
-    auth: "session",
-    body: "CreateWorkspaceProfileRequest",
-    requestExample: {
-      name: "strict-review",
-      base_profile_id: "claude-coding-real",
-      model: "claude-sonnet-5",
-      models: ["claude-sonnet-5"],
-      tools: ["Read", "Glob", "Grep"],
-      permission_mode: "default",
-    },
-    success: {
-      status: 201,
-      schema: "WorkspaceProfileChangeResponse",
-      description: "The version saved, and its receipt.",
-      example: {
-        profile: WORKSPACE_PROFILE_EXAMPLE,
-        receipt_id: "019a0000-0000-7000-8000-0000000000e1",
-      },
-    },
-    errors: [400, 401, 403, 409, 413, 503],
-    errorCodes: { 409: ["REVISION_CONFLICT"] },
-    idempotent: false,
-  },
-  {
-    method: "post",
-    path: "/v1/workspace-profiles/{profile_id}/retire",
-    operationId: "retireWorkspaceProfile",
-    tag: "Agents",
-    summary: "Retire a version of a workspace profile",
-    description:
-      "Owners and admins (`workspace.manage`), signed in. A retired version takes no new release and no new session of a new release; releases and sessions already on it keep running. Retiring one already retired changes nothing and answers a null `receipt_id`; otherwise writes a `retire_workspace_profile` receipt. Another workspace's version is 404.",
-    auth: "session",
-    success: {
-      status: 200,
-      schema: "WorkspaceProfileChangeResponse",
-      description: "The version as retired.",
-      example: {
-        profile: {
-          ...WORKSPACE_PROFILE_EXAMPLE,
-          workspace: {
-            ...WORKSPACE_PROFILE_EXAMPLE.workspace,
-            state: "retired",
-            retired_at: "2026-10-28T01:00:00.000Z",
-          },
-        },
-        receipt_id: "019a0000-0000-7000-8000-0000000000e2",
-      },
-    },
-    errors: [401, 403, 404, 503],
-    idempotent: false,
-  },
+
   {
     method: "get",
     path: "/v1/achievement-categories",
@@ -7057,190 +6875,7 @@ export const API_ROUTE_DECLARATIONS = [
     errors: [400, 401, 403, 404, 413, 503],
     idempotent: false,
   },
-  {
-    method: "get",
-    path: "/v1/installation-profiles/options",
-    operationId: "getInstallationProfileOptions",
-    tag: "Agents",
-    summary: "What a new installation ceiling may name",
-    description:
-      "The operator (`profile.installation.manage`, the workspace owner), signed in. The installation's connections by id, `kind` and `billing` (never an endpoint or a credential reference), the installed runtimes with the permission modes each accepts, the catalog repositories, the built-in tool catalogs a `deny` names (one entry per runtime version spelling, SDK and engine build), and whether `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS` lets a ceiling run `bypassPermissions` here.",
-    auth: "session",
-    success: {
-      status: 200,
-      schema: "InstallationProfileOptionsResponse",
-      description: "What a new ceiling may name on this installation.",
-      example: {
-        connections: [
-          { id: "anthropic-main", kind: "anthropic", billing: "metered" },
-        ],
-        runtimes: [
-          {
-            runtime_kind: "claude_agent_sdk",
-            permission_modes: [
-              "default",
-              "acceptEdits",
-              "dontAsk",
-              "plan",
-              "bypassPermissions",
-              "auto",
-            ],
-          },
-        ],
-        repositories: [{ id: "sample-app" }],
-        tool_catalogs: [
-          {
-            id: "claude_agent_sdk@0.3.319+claude-code@2.1.319",
-            runtime_kind: "claude_agent_sdk",
-            runtime_version: "0.3.319",
-            tools: [
-              { name: "Read", boundary: "local" },
-              { name: "Bash", boundary: "local" },
-              { name: "WebFetch", boundary: "egress" },
-              { name: "WebSearch", boundary: "provider" },
-            ],
-          },
-        ],
-        unattended_allowed: false,
-      },
-    },
-    errors: [401, 403, 503],
-  },
-  {
-    method: "post",
-    path: "/v1/installation-profiles",
-    operationId: "createInstallationProfile",
-    tag: "Agents",
-    summary: "Save a new version of a profile",
-    description:
-      "The one way to define a profile (`profile.define`: the workspace owner or an admin), signed in; an API key is 403 whatever its scopes. The owner sends `connection_id`, `runtime_kind` and `runtime_version` (400 `missing_field` without them) and saves an installation-wide profile `op_<name>_v<n>`, whose provider the server copies in from the connection. An admin saves a profile of their own workspace that narrows a version they may see: `derived_from` names it for a first version, a later one names `previous_id` and keeps its source. The server copies the runtime, connection, billing and title model from the source, so an admin sending `connection_id`, `runtime_kind`, `runtime_version`, `title_model` or `project_settings` is 400 `source_field`, and a model, tool or mode wider than the source's is 400 `widens_base`; a source that is unknown, another workspace's or not usable is 400 `unknown_base`, `retired` or another state. A workspace profile's `name` is its display name; the server keeps it under a key it makes (`wl_<uuid>`) and `installation.name` answers the display name. A new profile whose name the workspace already sees is 409 `name_taken`. A new version of an existing profile sends its latest id as `previous_id`; anything else is 409 REVISION_CONFLICT (`details.reason_code: stale_previous`, `details.latest_id`), as is the second of two saves at once. A version that runs the same as the latest (the same models, tools, mode, provider and settings, whatever the `deny` spelling) writes nothing and answers with that latest version and a null `receipt_id` (the status stays 201: tell it from a new version by `receipt_id`); a retired or blocked latest takes a new version instead. A first owner version may name the profile it replaces in `previous_id` (400 `unknown_previous` when there is none). 400 `details.reason_code`: `unknown_connection`, `runtime_not_installed`, `unattended_not_allowed` (`bypassPermissions` while `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS` is not `true`), `model_not_in_models` or `invalid_profile`, each with `details.field`. 409 `details.reason_code: id_taken` when the id is already an imported profile's. A profile names no repository: the request has no repository fields, and the repositories a session reaches come from the agent's GitHub settings. Its built-in tools are named one way: `tools`, kept as given, or `deny`, the tools of the runtime version's catalog (`tool_catalogs` in `GET /v1/installation-profiles/options`) to block, the rest saved as `tools`; `deny: []` blocks none. `deny` may also name `mcp__<server>__<tool>` tools of the MCP servers the installation lists, matched exactly; they are kept beside the catalog's, listed as `mcp_deny` (the response `deny` stays the catalog's), and a next version keeps those of the one before. A version derived from a profile that blocks such names must name every one of them in `deny` (400 `base_mcp_deny_dropped`). 400 on `deny` (`details.field: deny`): `no_tool_catalog` (no catalog lists `runtime_version`), `unknown_tool`, `tool_pattern` (`Bash(rm:*)`: whole built-in tool names only), `mcp_tool_name` (not `mcp__<server>__<tool>`, at most 128 characters, no spaces or control characters), `github_server` (the built-in server's tools follow the agent's GitHub settings) or `unknown_mcp_server` (new name of a server the installation does not list); `accept_added_tools` takes catalog tools only (`mcp_tool`). A next version lifts a held `mcp__` block only by naming it in `unblock_mcp_tools` (400 `details.field: unblock_mcp_tools`: `mcp_unblock_unknown` when the previous version does not hold it, `mcp_unblock_conflict` when `deny` names it too, `mcp_unblock_no_previous` for a first version, `base_mcp_deny_dropped` when the base blocks it). With `previous_id`, a catalog tool that version never weighed (an allow list weighed only what it allowed) runs only when named in `accept_added_tools`, else 400 `added_tool_not_accepted`. Writes a `create_installation_profile` receipt naming the `deny` and `tool_catalog_id` saved.",
-    auth: "session",
-    body: "CreateInstallationProfileRequest",
-    requestExample: {
-      name: "coding",
-      connection_id: "anthropic-main",
-      runtime_kind: "claude_agent_sdk",
-      runtime_version: "0.3.319",
-      model: "claude-sonnet-5",
-      models: ["claude-sonnet-5", "claude-haiku-5"],
-      title_model: "claude-haiku-5",
-      tools: ["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
-      permission_mode: "acceptEdits",
-      project_settings: { claude_md: true },
-      previous_id: "op_coding_v1",
-    },
-    success: {
-      status: 201,
-      schema: "WorkspaceProfileChangeResponse",
-      description: "The ceiling saved, and its receipt.",
-      example: {
-        profile: INSTALLATION_PROFILE_EXAMPLE,
-        receipt_id: "019a0000-0000-7000-8000-0000000000e3",
-      },
-    },
-    errors: [400, 401, 403, 409, 413, 503],
-    errorCodes: { 409: ["REVISION_CONFLICT"] },
-    idempotent: false,
-  },
-  {
-    method: "post",
-    path: "/v1/installation-profiles/{profile_id}/retire",
-    operationId: "retireInstallationProfile",
-    tag: "Agents",
-    summary: "Retire an installation ceiling",
-    description:
-      "The operator (`profile.installation.manage`, the workspace owner), signed in. Any ceiling, imported or saved in the console. A retired ceiling takes no new release, no session without a release and no new workspace profile over it, and a workspace profile over it reads `base_retired`; releases already made on either, and their sessions, keep running. Retiring one already retired changes nothing and answers a null `receipt_id`; otherwise writes a `retire_installation_profile` receipt.",
-    auth: "session",
-    success: {
-      status: 200,
-      schema: "WorkspaceProfileChangeResponse",
-      description: "The ceiling as retired.",
-      example: {
-        profile: {
-          ...INSTALLATION_PROFILE_EXAMPLE,
-          installation: {
-            ...INSTALLATION_PROFILE_EXAMPLE.installation,
-            state: "retired",
-            retired_by: "019a0000-0000-7000-8000-0000000000b1",
-            retired_at: "2026-10-28T02:00:00.000Z",
-          },
-        },
-        receipt_id: "019a0000-0000-7000-8000-0000000000e4",
-      },
-    },
-    errors: [401, 403, 404, 503],
-    idempotent: false,
-  },
-  {
-    method: "post",
-    path: "/v1/installation-profiles/{profile_id}/block",
-    operationId: "blockInstallationProfile",
-    tag: "Agents",
-    summary: "Block an installation ceiling",
-    description:
-      "The operator (`profile.installation.manage`, the workspace owner), signed in. Stops everything on one ceiling, imported or saved in the console, within a second on every replica: it reads `blocked` and the workspace profiles over it `base_blocked`; new releases, sessions (with a release or without) and workspace profiles on either are refused; a session waiting for its next turn fails at its next claim (`catalog_mismatch`, its input kept); a running turn loses its provider and repository access at the egress proxy's next regrant. Unblocking lets it run again but revives no failed session. Blocking one already blocked changes nothing and answers a null `receipt_id`; otherwise writes a `block_installation_profile` receipt.",
-    auth: "session",
-    success: {
-      status: 200,
-      schema: "WorkspaceProfileChangeResponse",
-      description: "The ceiling as blocked.",
-      example: {
-        profile: {
-          ...INSTALLATION_PROFILE_EXAMPLE,
-          installation: {
-            ...INSTALLATION_PROFILE_EXAMPLE.installation,
-            state: "blocked",
-            blocked_by: "019a0000-0000-7000-8000-0000000000b1",
-            blocked_at: "2026-10-28T03:00:00.000Z",
-          },
-        },
-        receipt_id: "019a0000-0000-7000-8000-0000000000e5",
-      },
-    },
-    errors: [401, 403, 404, 503],
-    idempotent: false,
-  },
-  {
-    method: "post",
-    path: "/v1/installation-profiles/{profile_id}/unblock",
-    operationId: "unblockInstallationProfile",
-    tag: "Agents",
-    summary: "Unblock an installation ceiling",
-    description:
-      "The operator (`profile.installation.manage`, the workspace owner), signed in. The ceiling returns to the state it would have without the block (`usable`, or `retired` when it was retired); sessions failed while it was blocked stay failed. Unblocking one not blocked changes nothing and answers a null `receipt_id`; otherwise writes an `unblock_installation_profile` receipt.",
-    auth: "session",
-    success: {
-      status: 200,
-      schema: "WorkspaceProfileChangeResponse",
-      description: "The ceiling as unblocked.",
-      example: {
-        profile: INSTALLATION_PROFILE_EXAMPLE,
-        receipt_id: "019a0000-0000-7000-8000-0000000000e6",
-      },
-    },
-    errors: [401, 403, 404, 503],
-    idempotent: false,
-  },
-  {
-    method: "post",
-    path: "/v1/installation-profiles/{profile_id}/rollout/retry",
-    operationId: "retryProfileRollout",
-    tag: "Agents",
-    summary: "Retry one agent of a profile rollout",
-    description:
-      "The operator (`profile.installation.manage`, the workspace owner), signed in. A new version of a profile moves the agents that follow it onto the version; one the move failed for stays on its release, with the reason in `installation.rollout.failed_agents` of `GET /v1/profiles` and in `profile_rollout` of the agent. A failed agent is never tried again by itself; this call is the one way to do it. The agent is judged afresh: its current release, whether it still follows, and the profile's newest version. `retried: false` when none of its steps for this version was failed (retried already, say).",
-    auth: "session",
-    body: "RetryProfileRolloutRequest",
-    requestExample: { agent_id: "019a0000-0000-7000-8000-0000000000a1" },
-    success: {
-      status: 200,
-      schema: "RetryProfileRolloutResponse",
-      description: "Whether a failed step was put back to wait.",
-      example: { retried: true },
-    },
-    errors: [400, 401, 403, 503],
-    idempotent: false,
-  },
+
   {
     method: "get",
     path: "/v1/installation/settings/export",
@@ -7345,7 +6980,7 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "getSettingsConnectionImpact",
     tag: "Agents",
     summary: "What disabling a connection would leave without a model",
-    description: `${SETTINGS_OWNER} Counts, read when the confirmation opens: the current profile versions with no other enabled connection that fits once this one is gone (the whole installation, any workspace's derived version included), the active agents whose active release runs one of them, the sessions not yet failed or stopped that run one of them, and whether a workspace's achievement judge setting names the connection. Counts only, no names. Changes nothing; disabling is never blocked by it. \`404\` for an id the console does not hold.`,
+    description: `${SETTINGS_OWNER} Counts, read when the confirmation opens: the active agents whose active release runs on this connection, the sessions not yet failed or stopped that run on it, and whether a workspace's achievement judge setting names the connection. Counts only, no names. Changes nothing; disabling is never blocked by it. \`404\` for an id the console does not hold.`,
     auth: "session",
     success: {
       status: 200,
@@ -7353,7 +6988,6 @@ export const API_ROUTE_DECLARATIONS = [
       description: "The counts for the connection.",
       example: {
         id: "anthropic-console",
-        profile_count: 2,
         agent_count: 3,
         session_count: 1,
         judge_used: false,
@@ -7422,6 +7056,30 @@ export const API_ROUTE_DECLARATIONS = [
     errorCodes: { 409: ["REVISION_CONFLICT"] },
     idempotent: false,
   },
+  {
+    method: "post",
+    path: "/v1/installation/settings/connections/{id}/models",
+    operationId: "setSettingsConnectionModels",
+    tag: "Agents",
+    summary: "Set the models agents may name on a connection",
+    description: `${SETTINGS_OWNER} Replaces the connection's \`models\` (at most 64, none repeated) and, when sent, its \`model_families\` (which models are versions of one series, newest highest; \`null\` clears them). Changes those fields only: the connection's definition stays. A release made afterwards checks its card's model against the new list; a session whose model was taken off the list stops at its next model call, or moves to the next listed model of its series when its agent migrates models automatically. A disabled connection is 409 \`disabled\`. Writes a \`set_connection_models\` receipt.`,
+    auth: "session",
+    body: "SetConnectionModelsRequest",
+    requestExample: {
+      models: ["claude-sonnet-5", "claude-haiku-5"],
+      model_families: null,
+    },
+    success: {
+      status: 200,
+      schema: "SettingsChangeResponse",
+      description: "The entry's id and the change's receipt.",
+      example: SETTINGS_CHANGE_EXAMPLE("anthropic-main"),
+    },
+    errors: [400, 401, 403, 404, 409, 503],
+    errorCodes: { 409: ["REVISION_CONFLICT"] },
+    idempotent: false,
+  },
+
   {
     method: "post",
     path: "/v1/installation/settings/connections/{id}/disable",
@@ -7613,7 +7271,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Limits & receipts",
     summary: "Cost, tokens and run time of the sessions created in a period",
     description:
-      "Adds up the sessions created in `[since, until)`: how many, their estimated provider cost, their tokens, and how long their turns ran. `since` and `until` take a date (`2026-10-01`, that day's 00:00 UTC) or a timestamp with an offset, which is moved to UTC; without `until` the period ends when the figures are read, so `since` must then be in the past.\n\n- `scope=me`: the sessions the caller started. A personal API key counts as the person who created it; a key nobody created counts the sessions it started itself. Sessions shared with the caller are not added. A key bound to an agent gets 403, as it does from `GET /v1/sessions`.\n- `scope=installation`: every session of every owner. Only the workspace owner, signed in, reads it: any other member and every API key get 403.\n- `scope=agent` with `agent_id`: the sessions started from any release of that agent, whoever started them. The workspace's owner and admins and the agent's admins read it; anyone else, and every API key, gets 403, and an agent of another workspace, or none, is 404 for everyone. `agent_id` is required with it and refused with any other scope, and `group_by` is refused with it.\n\n`cost_usd` is the sum of `cost.amount_usd` from `GET /v1/sessions/{id}/usage` over the same sessions: an estimate, not a bill. `cost_complete: false` means one of them has a turn still open or one that ended without reporting its cost, so the true total is unknown. `run_seconds` is wall-clock turn time, waiting for an answer included; an open turn counts up to `refreshed_at`. Sessions from before tokens were metered count 0 tokens.\n\n`group_by=agent`, `group_by=user` or `group_by=profile` adds `groups`: the same sessions, each once, under its agent, the user holding it or the session's current profile (`sessions.profile_id`; a session that changed profile counts whole under the one it has now), largest cost first, read in the same statement as the totals. The groups' `session_count`, `cost_usd` and `run_seconds` add up to the totals (`run_seconds` is the floor of the running total minus the floor of the one before it, so two groups of 1.5 seconds read 1 and 2), and `cost_complete` is false when any group's is. `id` is the agent id, user id or profile id; it is null for sessions without an agent or a profile, or started by a key no person created. `name` is the agent's name, the user's display name (never an email) or, as profiles have no display name, the profile id; under `scope=me` a user other than the caller is null. Without `group_by` there is no `groups`. It changes nothing.",
+      "Adds up the sessions created in `[since, until)`: how many, their estimated provider cost, their tokens, and how long their turns ran. `since` and `until` take a date (`2026-10-01`, that day's 00:00 UTC) or a timestamp with an offset, which is moved to UTC; without `until` the period ends when the figures are read, so `since` must then be in the past.\n\n- `scope=me`: the sessions the caller started. A personal API key counts as the person who created it; a key nobody created counts the sessions it started itself. Sessions shared with the caller are not added. A key bound to an agent gets 403, as it does from `GET /v1/sessions`.\n- `scope=installation`: every session of every owner. Only the workspace owner, signed in, reads it: any other member and every API key get 403.\n- `scope=agent` with `agent_id`: the sessions started from any release of that agent, whoever started them. The workspace's owner and admins and the agent's admins read it; anyone else, and every API key, gets 403, and an agent of another workspace, or none, is 404 for everyone. `agent_id` is required with it and refused with any other scope, and `group_by` is refused with it.\n\n`cost_usd` is the sum of `cost.amount_usd` from `GET /v1/sessions/{id}/usage` over the same sessions: an estimate, not a bill. `cost_complete: false` means one of them has a turn still open or one that ended without reporting its cost, so the true total is unknown. `run_seconds` is wall-clock turn time, waiting for an answer included; an open turn counts up to `refreshed_at`. Sessions from before tokens were metered count 0 tokens.\n\n`group_by=agent` or `group_by=user` adds `groups`: the same sessions, each once, under its agent or the user holding it, largest cost first, read in the same statement as the totals. The groups' `session_count`, `cost_usd` and `run_seconds` add up to the totals (`run_seconds` is the floor of the running total minus the floor of the one before it, so two groups of 1.5 seconds read 1 and 2), and `cost_complete` is false when any group's is. `id` is the agent id or user id; it is null for sessions without an agent, or started by a key no person created. `name` is the agent's name or the user's display name (never an email); under `scope=me` a user other than the caller is null. Without `group_by` there is no `groups`. It changes nothing.",
     scope: "read",
     query: "UsageSummaryQuery",
     success: {
@@ -7967,7 +7625,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Limits & receipts",
     summary: "Current outcome of an accepted command",
     description:
-      "Reads the current outcome of a command by the `receipt_id` its response returned: `accepted` while it is in progress, then `succeeded`, `failed` (with `error`) or `unknown` (nobody can say; `error` explains). Poll until it leaves `accepted`. `result` depends on `operation`:\n\n- `create_session`, `append_message`: the acceptance response exactly as first returned, never rewritten. The turn's outcome is read from `GET /v1/sessions/{session_id}/turns/{turn_id}` using `target_ref`.\n- `interrupt`: `{turn_id, terminal, no_op}` once settled.\n- `pause`, `resume`: `{resulting_admission_state, checkpoint_revision, queued_turn_count}`.\n- `close`: `{resulting_admission_state, checkpoint_revision, cancelled_turn_count}`; `checkpoint_revision` is null only for a session that never ran a turn.\n- `terminate`: `{execution_gone, checkpoint_revision, unconfirmed_turn_id, external_effects_reverted}`.\n- `recovery_decision`: `{resulting_admission_state, checkpoint_revision, resumable}`.\n- `answer`: null; only `status` and `error` change.\n- `request_push`, `resolve_push`, `push`: `{push_request_id, action, verdict, refusal, repository_id, checkpoint_revision, git_commit, target_branch}`; `verdict` is `allow` or `refuse`, a refused attempt is `failed` with the reason in `refusal` and `error`, and fields the attempt never read are null. `actor` names who made it. Receipts written before the rename say `decide_push`, `decision`, `already_decided` and `PUSH_REQUEST_DECIDED` instead.\n- `open_pull_request`, `update_pull_request`, `comment_pull_request`: `{push_request_id, verdict, refusal, repository_id, number, url, head, base, created}`, and for a comment also `{comment_id, comment_url, marker}`, and for an open or update whose body came from structured fields also `template` (`{commit, path?, blob_sha?, skipped?}`: the default branch's commit read, the template used or the reason one was passed over; never its text); `created` is false when the call answered an open pull request, edited the marked comment, or (always, for `update_pull_request`) changed the title or body of the pull request with the built-in `github` MCP server's `update_pull_request`.\n- `close_pull_request`, `reopen_pull_request`: the same fields plus `{state, changed}`, written when the session's agent closes or reopens the pull request of its push request with the built-in `github` MCP server's tools of those names; `state` is the pull request's state after the call and `changed` is false when it was already in that state. A merged pull request is refused with `pull_request_merged` (`PULL_REQUEST_MERGED`).\n- `merge_pull_request`: the same fields as `close_pull_request` plus `{merged, changed, head_sha, merge_commit_sha, method}`, written when the session's agent squash-merges the pull request of its push request with the built-in `github` MCP server's `merge_pull_request`; `method` is `squash`, or null when the pull request was already merged on the pushed commit (`changed` false). A refusal is `failed` with `reason_code` `merge_off` (the workspace has not allowed merging; `GITHUB_REFUSED`) before GitHub is called, or `merge_blocked` (`PULL_REQUEST_MERGE_BLOCKED`), `head_moved` or `pull_request_closed` (`PULL_REQUEST_CLOSED`). A receipt refused with `merge_off` names no connection, App or role.\n- `attach_repository`: `{session_id, attempt_id, agent_id, agent_release_id, repository_id, branch, commit, failure, reason_code}`, written when the session's agent attaches a repository with the built-in `github` MCP server's `attach_repository`. It is `accepted` until the worker reports the fetch, then `succeeded` with `commit` or `failed` with `failure` (`fetch_timeout`, `fetch_too_large`, `fetch_failed`). A refused call is `failed` at once with `reason_code` `repository_not_allowed` (not on the release's list, not allowed for the profile, or the agent's GitHub off; `error.code` `GITHUB_REFUSED`), `allowed_in_newer_release` (off the session's release but allowed by the agent's active release: the session keeps the release it started with, and a new session can attach it; `GITHUB_REFUSED`) or `attempt_ended` (`STALE_EPOCH`). `agent_release_id` is the release whose list allowed it.\n- `set_slack_secret`, `delete_slack_secret`: `{purpose, last4}`; the value itself is never in a receipt.\n- `set_github_app`, `delete_github_app`: `{app_id}`; the private key is never in a receipt.\n\nAny credential of the same owner can read a receipt, except that a receipt about a session needs that session to be visible to the caller, and one that changed an agent's settings (`target_ref.resource` an agent or one of its Slack bindings, other than a refused `create_session`) is read only by those who read the agent's settings: its workspace's owners and admins, its admins, the live members of its managing team, and their personal keys; anyone else gets 403. A receipt that names an agent or a release of one (`agent_id`, `agent_ids`, `release_id`, `agent_release_id`, or the agent as `target_ref` or `actor.agent_id`) is shown only with those ids to a reader who may use that agent (`GET /v1/usable-agents`); for anyone else a private agent's ids are left out (a list loses them, a single field is `null`) and a receipt whose target is that agent or one of its releases answers 404, as a receipt that does not exist does. It changes nothing.",
+      "Reads the current outcome of a command by the `receipt_id` its response returned: `accepted` while it is in progress, then `succeeded`, `failed` (with `error`) or `unknown` (nobody can say; `error` explains). Poll until it leaves `accepted`. `result` depends on `operation`:\n\n- `create_session`, `append_message`: the acceptance response exactly as first returned, never rewritten. The turn's outcome is read from `GET /v1/sessions/{session_id}/turns/{turn_id}` using `target_ref`.\n- `interrupt`: `{turn_id, terminal, no_op}` once settled.\n- `pause`, `resume`: `{resulting_admission_state, checkpoint_revision, queued_turn_count}`.\n- `close`: `{resulting_admission_state, checkpoint_revision, cancelled_turn_count}`; `checkpoint_revision` is null only for a session that never ran a turn.\n- `terminate`: `{execution_gone, checkpoint_revision, unconfirmed_turn_id, external_effects_reverted}`.\n- `recovery_decision`: `{resulting_admission_state, checkpoint_revision, resumable}`.\n- `answer`: null; only `status` and `error` change.\n- `request_push`, `resolve_push`, `push`: `{push_request_id, action, verdict, refusal, repository_id, checkpoint_revision, git_commit, target_branch}`; `verdict` is `allow` or `refuse`, a refused attempt is `failed` with the reason in `refusal` and `error`, and fields the attempt never read are null. `actor` names who made it. Receipts written before the rename say `decide_push`, `decision`, `already_decided` and `PUSH_REQUEST_DECIDED` instead.\n- `open_pull_request`, `update_pull_request`, `comment_pull_request`: `{push_request_id, verdict, refusal, repository_id, number, url, head, base, created}`, and for a comment also `{comment_id, comment_url, marker}`, and for an open or update whose body came from structured fields also `template` (`{commit, path?, blob_sha?, skipped?}`: the default branch's commit read, the template used or the reason one was passed over; never its text); `created` is false when the call answered an open pull request, edited the marked comment, or (always, for `update_pull_request`) changed the title or body of the pull request with the built-in `github` MCP server's `update_pull_request`.\n- `close_pull_request`, `reopen_pull_request`: the same fields plus `{state, changed}`, written when the session's agent closes or reopens the pull request of its push request with the built-in `github` MCP server's tools of those names; `state` is the pull request's state after the call and `changed` is false when it was already in that state. A merged pull request is refused with `pull_request_merged` (`PULL_REQUEST_MERGED`).\n- `merge_pull_request`: the same fields as `close_pull_request` plus `{merged, changed, head_sha, merge_commit_sha, method}`, written when the session's agent squash-merges the pull request of its push request with the built-in `github` MCP server's `merge_pull_request`; `method` is `squash`, or null when the pull request was already merged on the pushed commit (`changed` false). A refusal is `failed` with `reason_code` `merge_off` (the workspace has not allowed merging; `GITHUB_REFUSED`) before GitHub is called, or `merge_blocked` (`PULL_REQUEST_MERGE_BLOCKED`), `head_moved` or `pull_request_closed` (`PULL_REQUEST_CLOSED`). A receipt refused with `merge_off` names no connection, App or role.\n- `attach_repository`: `{session_id, attempt_id, agent_id, agent_release_id, repository_id, branch, commit, failure, reason_code}`, written when the session's agent attaches a repository with the built-in `github` MCP server's `attach_repository`. It is `accepted` until the worker reports the fetch, then `succeeded` with `commit` or `failed` with `failure` (`fetch_timeout`, `fetch_too_large`, `fetch_failed`). A refused call is `failed` at once with `reason_code` `repository_not_allowed` (not on the release's list, outside the workspace ceiling, or the agent's GitHub off; `error.code` `GITHUB_REFUSED`), `allowed_in_newer_release` (off the session's release but allowed by the agent's active release: the session keeps the release it started with, and a new session can attach it; `GITHUB_REFUSED`) or `attempt_ended` (`STALE_EPOCH`). `agent_release_id` is the release whose list allowed it.\n- `set_slack_secret`, `delete_slack_secret`: `{purpose, last4}`; the value itself is never in a receipt.\n- `set_github_app`, `delete_github_app`: `{app_id}`; the private key is never in a receipt.\n\nAny credential of the same owner can read a receipt, except that a receipt about a session needs that session to be visible to the caller, and one that changed an agent's settings (`target_ref.resource` an agent or one of its Slack bindings, other than a refused `create_session`) is read only by those who read the agent's settings: its workspace's owners and admins, its admins, the live members of its managing team, and their personal keys; anyone else gets 403. A receipt that names an agent or a release of one (`agent_id`, `agent_ids`, `release_id`, `agent_release_id`, or the agent as `target_ref` or `actor.agent_id`) is shown only with those ids to a reader who may use that agent (`GET /v1/usable-agents`); for anyone else a private agent's ids are left out (a list loses them, a single field is `null`) and a receipt whose target is that agent or one of its releases answers 404, as a receipt that does not exist does. It changes nothing.",
     scope: "read",
     success: {
       status: 200,
@@ -8172,7 +7830,6 @@ const PATH_PARAMETER_DESCRIPTIONS: Readonly<Record<string, string>> = {
   "github-repositories/{repositoryId}":
     "The repository's id in the workspace's repository catalog.",
   "identities/{identity_id}": "The agent identity's id.",
-  "installation-profiles/{profile_id}": "The installation profile's id.",
   "interactions/{agent_id}":
     "The agent whose Slack app sends the interactions.",
   "invites/{id}": "The invite's id.",
@@ -8194,7 +7851,6 @@ const PATH_PARAMETER_DESCRIPTIONS: Readonly<Record<string, string>> = {
   "users/{user_id}": "The user's id.",
   "variables/{name}": "The variable's name.",
   "workflow-runs/{run_id}": "The GitHub Actions workflow run's id.",
-  "workspace-profiles/{profile_id}": "The workspace profile's id.",
   "workspaces/{id}": "The workspace's id.",
   "{kind}/{subject_id}": "The member's user id or the team's id, by `kind`.",
 };
@@ -8230,7 +7886,7 @@ const QUERY_PARAMETER_DESCRIPTIONS: Readonly<Record<string, string>> = {
   "GET /v1/usage/outcomes agent_id":
     "With `scope=agent`, the agent whose sessions to count; refused with any other scope.",
   "GET /v1/usage/summary group_by":
-    "Adds `groups`: the same sessions under their agent, the user holding them or their current profile.",
+    "Adds `groups`: the same sessions under their agent or the user holding them.",
   "GET /v1/usage/outcomes group_by":
     "`agent` adds `groups`, the same figures per agent.",
   "GET /v1/agents/{id}/slack-channels ids":
@@ -8284,8 +7940,6 @@ function paramsSchemaFor(path: string): z.ZodObject {
   if (path.startsWith("/v1/teams/{team_id}/members/"))
     return teamMemberParamsSchema;
   if (path.startsWith("/v1/teams/{team_id}")) return teamIdParamsSchema;
-  if (path.startsWith("/v1/workspace-profiles/{profile_id}"))
-    return workspaceProfileIdParamsSchema;
   if (path.startsWith("/v1/installation/settings/")) {
     return settingsIdParamsSchema;
   }
@@ -8296,8 +7950,6 @@ function paramsSchemaFor(path: string): z.ZodObject {
     return achievementTypeParamsSchema;
   if (path.startsWith("/v1/achievement-rules/{family_id}"))
     return achievementRuleFamilyParamsSchema;
-  if (path.startsWith("/v1/installation-profiles/{profile_id}"))
-    return installationProfileIdParamsSchema;
   if (path.startsWith("/v1/workspaces/{id}/members/{userId}"))
     return memberParamsSchema;
   if (path.includes("{app_id}/secrets/{purpose}"))

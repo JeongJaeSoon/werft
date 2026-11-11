@@ -3,7 +3,7 @@ title: "시작"
 description: 세션 생성 요청의 필드, 응답, Idempotency-Key, 목록·공유 범위·제목, 오류
 ---
 
-세션은 프로필 하나로 도는 대화다. 프로필이 저장소를 쓰면 저장소도 하나 고른다. 세션을 만들면 첫 메시지가 turn 1로 접수되고, scheduler가 그 세션의 worker 컨테이너를 띄운다. scope는 `sessions:write`다. SDK 예제는 [SDK 설치](/getting-started/install#클라이언트-만들기)에서 만든 `werft` 클라이언트를, HTTP API 예제는 서버 주소 `API`와 key `KEY` 셸 변수를 쓴다.
+세션은 에이전트 release 하나로 도는 대화다. release가 고정한 연결·모델·런타임·도구로 돌고, 저장소는 고르거나 빼고 시작한다. 세션을 만들면 첫 메시지가 turn 1로 접수되고, scheduler가 그 세션의 worker 컨테이너를 띄운다. scope는 `sessions:write`다. SDK 예제는 [SDK 설치](/getting-started/install#클라이언트-만들기)에서 만든 `werft` 클라이언트를, HTTP API 예제는 서버 주소 `API`와 key `KEY` 셸 변수와, 미리 만든 release id `WERFT_AGENT_RELEASE_ID` 환경 변수를 쓴다([만들기](/agents/create)).
 
 웹 콘솔에서는 에이전트 상세의 "이 에이전트로 새 세션"을 누르고 첫 메시지를 보낸다. 세션은 활성 release로 시작하고(GitHub 설정이 있는 에이전트는 저장소 없이, 설정이 없는 옛 에이전트는 release의 저장소로), 같은 `POST /v1/sessions`를 로그인한 사용자 권한으로 부른다. 화면에서 미리 알 수 있는 상태(활성 release 없음, 일시정지, 권한 없음 등)에서는 버튼이 꺼지고 그 이유가 보인다. 자격 연결 누락처럼 보낸 뒤에야 아는 거절은 대화상자에 이유가 나온다.
 
@@ -18,7 +18,7 @@ description: 세션 생성 요청의 필드, 응답, Idempotency-Key, 목록·�
 
 ```ts
 const created = await werft.sessions.create({
-  profile_id: "claude-coding-local",
+  agent_release_id: process.env.WERFT_AGENT_RELEASE_ID ?? "",
   repository_id: "sample-app",
   message: 'GATE-SPEC {"id":"start","steps":[],"final":"started"}',
 });
@@ -45,7 +45,7 @@ created=$(curl -sS "$API/v1/sessions" \
   -H 'Content-Type: application/json' \
   -H "Idempotency-Key: $(uuidgen)" \
   -d "$(jq -nc --arg m 'GATE-SPEC {"id":"start","steps":[],"final":"started"}' \
-    '{profile_id: "claude-coding-local", repository_id: "sample-app", message: $m}')")
+    '{agent_release_id: env.WERFT_AGENT_RELEASE_ID, repository_id: "sample-app", message: $m}')")
 echo "$created" | jq .
 SID=$(echo "$created" | jq -r .session_id)
 ```
@@ -67,12 +67,11 @@ SID=$(echo "$created" | jq -r .session_id)
 
 | 필드 | 필수 | 내용 |
 | --- | --- | --- |
-| `profile_id` | `agent_release_id`가 없으면 예 | 프로필 id([프로필 고르기](/agents/run-profiles)) |
-| `repository_id` | 프로필에 따라 | 카탈로그의 저장소 id. 보내면 worker가 이 저장소를 clone한다. 프로필의 `repository_mode`가 `none`이면 보내지 않고, `required`인 프로필은 꼭 보낸다. 단 GitHub 설정이 있는 에이전트의 세션과 워크스페이스 상한이 정하는 프로필은 `required`여도 빼고 저장소 없이 시작할 수 있다. 에이전트 release로 만든 세션에서 빼면, GitHub 설정이 있는 에이전트는 저장소 없이 시작하고 필요한 저장소만 붙이며, 설정이 없는 옛 에이전트는 release의 저장소로 시작한다([저장소 없는 세션](/sessions/without-repository)) |
+| `repository_id` | | 카탈로그의 저장소 id. 보내면 worker가 이 저장소를 clone한다. 워크스페이스 상한과 에이전트의 GitHub 설정 안이어야 한다. 빼면 GitHub 설정이 있는 에이전트는 저장소 없이 시작하고 필요한 저장소만 붙이며, 설정이 없는 옛 에이전트는 release의 저장소로 시작한다([저장소 없는 세션](/sessions/without-repository)) |
 | `message` | 예 | 첫 turn의 입력. UTF-8 32,768바이트까지 |
-| `model` | | 프로필이 허용한 모델 중 하나. 빼면 기본 모델 |
+| `model` | | release의 연결이 제공하는 모델 중 하나. 빼면 release 카드의 모델 |
 | `title` | | 세션 이름. 빼면 첫 `message`에서 만든다([제목](#제목)) |
-| `agent_release_id` | | 이 세션을 에이전트 release에 묶는다([세션에 묶기](/agents/create#세션에-묶기)). 이때 `profile_id`는 빼면 release의 값이다. `repository_id`를 빼면 GitHub 설정이 있는 에이전트는 저장소 없이 시작하고, 설정이 없는 옛 에이전트는 release의 저장소로 시작한다 |
+| `agent_release_id` | 예 | 세션이 돌 에이전트 release([세션에 묶기](/agents/create#세션에-묶기)). 연결이 꺼졌거나 모델이 연결 목록에서 빠졌으면 409 `RELEASE_SPEC_UNAVAILABLE` |
 
 응답은 201이다. 접수만 된 것이고 결과는 turn 조회로 본다([상태와 수명](/sessions/lifecycle)).
 
@@ -87,7 +86,7 @@ SDK는 호출마다 key를 하나 만들고, 그 호출의 재시도에 같은 k
 
 ```ts
 const params = {
-  profile_id: "claude-coding-local",
+  agent_release_id: process.env.WERFT_AGENT_RELEASE_ID ?? "",
   repository_id: "sample-app",
   message: 'GATE-SPEC {"id":"retry","steps":[],"final":"once"}',
 };
@@ -107,7 +106,7 @@ same session
 ```bash
 IDEM=$(uuidgen)
 BODY=$(jq -nc --arg m 'GATE-SPEC {"id":"retry","steps":[],"final":"once"}' \
-  '{profile_id: "claude-coding-local", repository_id: "sample-app", message: $m}')
+  '{agent_release_id: env.WERFT_AGENT_RELEASE_ID, repository_id: "sample-app", message: $m}')
 first=$(curl -sS "$API/v1/sessions" -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
   -H "Idempotency-Key: $IDEM" -d "$BODY")
 second=$(curl -sS "$API/v1/sessions" -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
@@ -256,7 +255,7 @@ import { isApiError } from "@werft-ai/sdk";
 
 try {
   await werft.sessions.create({
-    profile_id: "claude-coding-local",
+    agent_release_id: process.env.WERFT_AGENT_RELEASE_ID ?? "",
     repository_id: "sample-app",
     model: "claude-opus-9",
     message: "hello",
@@ -269,7 +268,7 @@ try {
 ```
 
 ```text
-422 UNSUPPORTED_CAPABILITY false Model claude-opus-9 is not on the allowed list of profile claude-coding-local; name a model the profile offers
+422 UNSUPPORTED_CAPABILITY false Model claude-opus-9 is not on the model list of connection fake-messages; name a model the connection offers
 ```
 
 </Tab>
@@ -278,7 +277,7 @@ try {
 오류 본문은 모든 API가 같은 모양이다. `retryable`이 `true`일 때만 같은 key로 다시 보낼 만하다.
 
 ```text
-{"error":{"code":"UNSUPPORTED_CAPABILITY","message":"Model claude-opus-9 is not on the allowed list of profile claude-coding-local; name a model the profile offers","retryable":false,"request_id":"…","details":null}}
+{"error":{"code":"UNSUPPORTED_CAPABILITY","message":"Model claude-opus-9 is not on the model list of connection fake-messages; name a model the connection offers","retryable":false,"request_id":"…","details":null}}
 ```
 
 레퍼런스: [`POST /v1/sessions`](/reference/http-api/sessions/createSession)
@@ -292,10 +291,9 @@ try {
 | 401 | key가 없거나 틀렸거나 폐기됐다 |
 | 403 | key에 `sessions:write`가 없다. 또는 에이전트 바깥의 사람(개인 key면 만든 사람)이고 워크스페이스의 `agent_outsider_access`가 `use`가 아니다(`details.reason_code`가 `role`) |
 | 409 `IDEMPOTENCY_CONFLICT` | 같은 key에 다른 본문 |
-| 409 `PROFILE_BLOCKED` | owner가 [운영자 프로필을 차단](/agents/run-profiles#운영자-프로필-차단하기)했다. 워크스페이스 프로필이면 그 바탕 프로필이 막혔다(`details.reason_code`가 `base_blocked`). 다시 보내도 같다 |
 | 413 | 메시지가 32,768바이트를 넘는다. 저장소 상한이면 `STORAGE_LIMIT_EXCEEDED` |
 | 403 `GITHUB_REFUSED` | 명시한 `repository_id`가 에이전트의 GitHub 설정 목록이나 워크스페이스 상한 밖이다(`details.reason_code`가 `repository_not_allowed`) |
-| 422 `UNSUPPORTED_CAPABILITY` | 프로필이나 저장소가 없거나, 그 짝이 허용되지 않았거나, 모델을 프로필이 허용하지 않는다 |
+| 422 `UNSUPPORTED_CAPABILITY` | 저장소가 카탈로그에 없거나, 모델을 release의 연결이 제공하지 않거나, release의 런타임을 지금 worker 이미지가 싣지 않는다 |
 | 429 `RATE_LIMITED` | 잠시 뒤 다시 보낸다 |
 
 실행 slot이 모자라면 거절하지 않는다. 세션이 `queued`로 기다린다.

@@ -205,7 +205,7 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
       runtime: options.runtime ?? {
         kind: "claude_agent_sdk",
         version: "0.3.319",
-        profile_id: "fake-profile",
+        connection_id: "fake-connection",
       },
       runtimeConfig: options.runtimeConfig ?? {
         model: "fake-model",
@@ -369,7 +369,7 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
       lease_expires_at: this.leaseExpiresAt(),
       lease_remaining_ms: this.options.leaseTtlMs,
       runtime: this.options.runtime,
-      profile_fingerprint: `sha256:${"0".repeat(64)}`,
+      spec_digest: `sha256:${"0".repeat(64)}`,
       runtime_config: this.options.runtimeConfig,
       workspace: this.options.workspace ?? {
         repository: {

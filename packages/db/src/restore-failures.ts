@@ -28,7 +28,7 @@ type SessionRow = typeof sessions.$inferSelect;
  */
 export const RESTORE_FAILURE_LIMIT = 3;
 
-/** A deterministic runtime/profile mismatch cannot succeed on another launch. */
+/** A deterministic runtime mismatch cannot succeed on another launch. */
 export const INCOMPATIBLE_CHECKPOINT_REASON = "incompatible_checkpoint";
 
 const INCOMPATIBLE_CHECKPOINT_PREFIX =

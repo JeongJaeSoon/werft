@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { repositoryModeSchema } from "../api/profiles.ts";
+import { repositoryModeSchema } from "../api/repository-ceiling.ts";
 import { PERMISSION_MODE_VALUES, RUNTIME_KIND_VALUES } from "../api/session.ts";
 import {
   deriveRuntimeSpec,
@@ -10,12 +10,7 @@ import {
 } from "./runtime-spec.ts";
 
 const source: SpecSource = {
-  derivation_version: 1,
-  origin: "profile",
-  release_id: "sha256:abc",
-  release_id_version: 4,
-  profile_id: "default",
-  profile_digest: "sha256:def",
+  derivation_version: 2,
   runtime: { kind: "claude_agent_sdk", version: "0.3.319" },
   connection: {
     id: "conn-1",
@@ -31,7 +26,7 @@ const source: SpecSource = {
 
 describe("runtime spec contract", () => {
   // The module repeats these enums to avoid an import cycle; a value added to
-  // the original and not here would make a valid profile underivable.
+  // the original and not here would make a valid release underivable.
   test("the repeated enums match the originals", () => {
     const shape = specSourceSchema.shape;
     expect(shape.permission_mode.options).toEqual([...PERMISSION_MODE_VALUES]);
@@ -106,7 +101,7 @@ describe("runtime spec contract", () => {
     }
   });
 
-  // The catalog sets no cap on these, so a release made from a valid profile
+  // The catalog sets no cap on these, so a release made on a valid connection
   // has to be derivable.
   test("what the catalog allows without a cap is accepted", () => {
     const large = {
@@ -190,8 +185,8 @@ describe("runtime spec contract", () => {
       "a credential-shaped connection",
       { ...source, connection: { ...source.connection, auth: {} } },
     ],
-    ["a release id version of 6", { ...source, release_id_version: 6 }],
-    ["an unsupported derivation version", { ...source, derivation_version: 2 }],
+    ["a release id", { ...source, release_id: "sha256:abc" }],
+    ["an unsupported derivation version", { ...source, derivation_version: 1 }],
     ["an empty model", { ...source, model: "" }],
   ])("a source with %s is refused", (_name, value) => {
     expect(specSourceSchema.safeParse(value).success).toBe(false);

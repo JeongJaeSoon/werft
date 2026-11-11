@@ -47,7 +47,7 @@ export const githubAppUsageSchema = z
     /**
      * Agents with GitHub on whose active release names one of them (for a
      * reviewer connection, those that turn review on). A release without
-     * GitHub settings reaches every repository its profile allows and is
+     * GitHub settings reaches every repository the workspace ceiling allows and is
      * not counted, so this is a lower bound.
      */
     agent_count: z.number().int().nonnegative(),

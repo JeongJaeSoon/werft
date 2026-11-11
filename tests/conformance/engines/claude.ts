@@ -14,8 +14,8 @@ export function claudeEngine(env = process.env): EngineFixture {
   if (!messagesUrl) throw new Error(`${MESSAGES_URL} is unset`);
   return {
     runtimeKind: "claude_agent_sdk",
+    connectionId: "fake-messages",
     cardModel: "claude-sonnet-5",
-    profileId: "claude-coding-local",
     repositoryId: "sample-app",
     // The Claude engine enforces its budget inside the SDK, and the fake
     // Messages API reports no scripted usage.

@@ -4,7 +4,6 @@ import {
   hashWorkerToken,
   type WorkerGateway,
   type WorkerPrincipal,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import {
   createTempDatabase,
@@ -20,6 +19,11 @@ import { sessions, unassignedSessions } from "./schema.ts";
 import { revokeExecutionAtomic } from "./sessions/execution-revocation.ts";
 import { createPostgresTelemetryIngestStore } from "./telemetry-ingest-store.ts";
 import { launchSession } from "./testing/launches.ts";
+import {
+  fixtureRelease,
+  TEST_MODEL,
+  testSessionCatalog,
+} from "./testing/spec-pins.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -37,30 +41,20 @@ integration("telemetry ingest store on PostgreSQL", () => {
     db = drizzle(pool, { schema });
     gateway = createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
-      catalog: withSeededInstallation({
-        profiles: {
-          "claude-coding-v1": {
-            runtime_kind: "claude_agent_sdk",
-            runtime_version: "0.3.270",
-            model: "claude-sonnet-5",
-            tools: ["Read"],
-            permission_mode: "default",
-            provider: {
-              kind: "litellm",
-              endpoint: "https://litellm.invalid",
-              auth: {
-                kind: "api_key",
-                value: "catalog-provider-key",
-                ref: { value_env: "PROVIDER_KEY" },
-              },
-            },
+      catalog: testSessionCatalog({
+        provider: {
+          kind: "litellm",
+          endpoint: "https://litellm.invalid",
+          auth: {
+            kind: "api_key",
+            value: "catalog-provider-key",
+            ref: { value_env: "PROVIDER_KEY" },
           },
         },
         repositories: {
           "sample-app": {
             url: "https://example.invalid/app.git",
             branch: "main",
-            profiles: ["claude-coding-v1"],
             auth: { kind: "github_app", registered: true },
           },
         },
@@ -89,10 +83,11 @@ integration("telemetry ingest store on PostgreSQL", () => {
       db,
     ).acceptInputAtomic({
       limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
-      principal: { ownerId: `owner-${crypto.randomUUID()}` },
+      principal: { ownerId: crypto.randomUUID() },
       idempotencyKey: crypto.randomUUID(),
       payloadHash: crypto.randomUUID(),
-      profileId: "claude-coding-v1",
+      agentReleaseId: await fixtureRelease(db),
+      model: TEST_MODEL,
       repository: {
         id: "sample-app",
         url: "https://example.invalid/app.git",

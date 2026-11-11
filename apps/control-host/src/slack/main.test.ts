@@ -2,60 +2,13 @@ import { describe, expect, test } from "bun:test";
 import { randomBytes } from "node:crypto";
 import type { Database } from "@werft-ai/db";
 import { createLogger } from "@werft-ai/observability";
-import {
-  catalogRows,
-  installationProfileSnapshot,
-  parseSeedDocument,
-  SecretKey,
-  usesConsoleApp,
-} from "@werft-ai/platform";
-import {
-  ALLOW_UNATTENDED_SETTING,
-  profileSources,
-  profileViewSources,
-} from "../api/catalog-config.ts";
-import { settingsDocument } from "../test-support/settings.ts";
+import { SecretKey, usesConsoleApp } from "@werft-ai/platform";
 import {
   slackRepositoryViews,
   slackRoleSettings,
   slackRoleStartup,
   slackSessionHandler,
 } from "./main.ts";
-
-const profiles = (mode: string) => `profiles:
-  coding:
-    runtime_kind: claude_agent_sdk
-    runtime_version: "0.3.270"
-    model: claude-sonnet-5
-    tools: [Read]
-    permission_mode: ${mode}
-    provider:
-      kind: anthropic
-      endpoint: https://api.anthropic.invalid
-      auth:
-        kind: api_key
-        value_env: PROVIDER_KEY
-`;
-const REPOSITORIES = `repositories:
-  sample-app:
-    url: http://fake-git:3000/agent/sample-app.git
-    branch: main
-    profiles: [coding]
-    auth:
-      kind: github_app
-      app_id: 1
-      installation_id: 1
-      api_base: http://fake-git:3000
-      value_env: GITHUB_APP_KEY
-`;
-const CONNECTIONS = `connections:
-  main:
-    kind: anthropic
-    endpoint: https://api.anthropic.invalid
-    auth:
-      kind: api_key
-      value_env: PROVIDER_KEY
-`;
 
 const KEY = randomBytes(32).toString("hex");
 const base = {
@@ -88,43 +41,6 @@ describe("slack role startup", () => {
     expect(
       slackRoleStartup({ ...base, PLATFORM_CONFIG_DIR: "" }),
     ).toBeDefined();
-  });
-
-  test("an unattended profile is left out for the api's reason, until allowed", () => {
-    const seed = parseSeedDocument(
-      settingsDocument(
-        profiles("bypassPermissions"),
-        REPOSITORIES,
-        CONNECTIONS,
-      ),
-    );
-    const { connections } = seed.entries;
-    const rows = catalogRows(seed.profiles ?? {}, seed.entries.repositories);
-    const stateOf = (environment: Record<string, string>) => {
-      const view = profileViewSources(environment);
-      const api = profileSources(environment);
-      const states = [
-        { ...view, connections },
-        {
-          ...api,
-          connections,
-          materialize: (
-            id: string,
-            definition: Parameters<typeof api.materialize>[1],
-          ) => api.materialize(id, definition, () => "value-from-settings"),
-        },
-      ].map(
-        (sources) =>
-          installationProfileSnapshot(sources, rows).installation.get("coding")
-            ?.state,
-      );
-      expect(states[0]).toBe(states[1]);
-      return states[0];
-    };
-    expect(stateOf(base)).toBe("unattended_off");
-    expect(stateOf({ ...base, [ALLOW_UNATTENDED_SETTING]: "true" })).toBe(
-      "usable",
-    );
   });
 
   test("a bad master key or setting stops it before any pass", () => {
@@ -202,7 +118,6 @@ describe("slackRepositoryViews", () => {
           name: "web",
           url: "https://github.com/acme/web.git",
           branch: "main",
-          profiles: null,
           source: "console",
           version: 1,
           created_at: "2026-11-01T00:00:00.000Z",

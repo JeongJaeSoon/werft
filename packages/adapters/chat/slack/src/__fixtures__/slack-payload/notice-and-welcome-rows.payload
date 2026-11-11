@@ -15,8 +15,8 @@
       "noRequestRight": "You don't have permission to make requests to this agent in this channel",
       "outOfShare": "This session isn't shared with you, so you can't make requests in it. Ask the person who started the session to share it",
       "pendingApproval": "This channel is waiting for an admin's approval",
-      "profileUnavailable": "The agent couldn't start because its release's profile is missing from the catalog, has changed, or was blocked by an operator. An agent admin needs to create and activate a new release with an available profile in the web console",
-      "repositoryRequired": "The agent couldn't start because its release has no repository it can use (none was chosen, it was removed from the catalog, or the profile or workspace ceiling does not allow it) or its GitHub settings can't be read. An agent admin needs to check the GitHub settings in the web console and, if a repository is needed, choose one, then create and activate a new release"
+      "releaseUnavailable": "The agent couldn't start because its release's connection was disabled or its model left the connection's list. An agent admin needs to create and activate a new release on an available connection and model in the web console",
+      "repositoryRequired": "The agent couldn't start because its release has no repository it can use (none was chosen, it was removed from the catalog, or the workspace ceiling does not allow it) or its GitHub settings can't be read. An agent admin needs to check the GitHub settings in the web console and, if a repository is needed, choose one, then create and activate a new release"
     },
     "ja": {
       "callerLimitedCredential": "このエージェントを使う人に設定された制限のため、このエージェントの認証情報設定は使えません",
@@ -33,8 +33,8 @@
       "noRequestRight": "このチャンネルでこのエージェントにリクエストする権限がありません",
       "outOfShare": "このセッションは共有範囲外のため、リクエストできません。セッションを開始した人に共有を依頼してください",
       "pendingApproval": "このチャンネルは管理者の承認を待っています",
-      "profileUnavailable": "このエージェントのリリースが使うプロファイルが、カタログにないか、変更されたか、運用担当者によってブロックされたため、開始できませんでした。エージェントの管理者がWebコンソールで使えるプロファイルの新しいリリースを作成して有効化する必要があります",
-      "repositoryRequired": "このエージェントのリリースで使えるリポジトリがないか(リポジトリが選ばれていない、カタログから外れている、またはプロファイルやワークスペースの上限が許可していません)、エージェントのGitHub設定を読み取れないため、開始できませんでした。エージェントの管理者がWebコンソールでGitHub設定を確認し、リポジトリが必要なら選んで、新しいリリースを作成して有効化する必要があります"
+      "releaseUnavailable": "このエージェントのリリースが使う接続が無効になったか、そのモデルが接続の一覧から外れたため、開始できませんでした。エージェントの管理者がWebコンソールで使える接続とモデルの新しいリリースを作成して有効化する必要があります",
+      "repositoryRequired": "このエージェントのリリースで使えるリポジトリがないか(リポジトリが選ばれていない、カタログから外れている、またはワークスペースの上限が許可していません)、エージェントのGitHub設定を読み取れないため、開始できませんでした。エージェントの管理者がWebコンソールでGitHub設定を確認し、リポジトリが必要なら選んで、新しいリリースを作成して有効化する必要があります"
     },
     "ko": {
       "callerLimitedCredential": "이 에이전트를 쓰는 사람에게 걸린 제한 때문에 이 에이전트의 자격 설정을 쓸 수 없어요",
@@ -51,8 +51,8 @@
       "noRequestRight": "이 채널에서 이 에이전트에게 요청할 권한이 없어요",
       "outOfShare": "이 세션은 공유 범위 밖이라 요청할 수 없어요. 세션을 시작한 사람에게 공유를 요청하세요",
       "pendingApproval": "이 채널은 관리자 승인을 기다리고 있어요",
-      "profileUnavailable": "이 에이전트의 릴리스가 쓰는 프로필이 지금 카탈로그에 없거나, 바뀌었거나, 운영자가 차단해 시작하지 못했어요. 에이전트 관리자가 웹 콘솔에서 쓸 수 있는 프로필로 새 릴리스를 만들고 활성화해야 해요",
-      "repositoryRequired": "이 에이전트의 릴리스에 쓸 수 있는 저장소가 없거나(저장소를 고르지 않았거나, 카탈로그에서 빠졌거나, 프로필·워크스페이스 상한이 허용하지 않아요) 에이전트의 GitHub 설정을 읽을 수 없어 시작하지 못했어요. 에이전트 관리자가 웹 콘솔에서 GitHub 설정을 확인하고, 저장소가 필요하면 골라 새 릴리스를 만들고 활성화해야 해요"
+      "releaseUnavailable": "이 에이전트의 릴리스가 쓰는 연결이 꺼졌거나 그 모델이 연결 목록에서 빠져 시작하지 못했어요. 에이전트 관리자가 웹 콘솔에서 쓸 수 있는 연결과 모델로 새 릴리스를 만들고 활성화해야 해요",
+      "repositoryRequired": "이 에이전트의 릴리스에 쓸 수 있는 저장소가 없거나(저장소를 고르지 않았거나, 카탈로그에서 빠졌거나, 워크스페이스 상한이 허용하지 않아요) 에이전트의 GitHub 설정을 읽을 수 없어 시작하지 못했어요. 에이전트 관리자가 웹 콘솔에서 GitHub 설정을 확인하고, 저장소가 필요하면 골라 새 릴리스를 만들고 활성화해야 해요"
     }
   },
   "notices": [

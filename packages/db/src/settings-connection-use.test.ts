@@ -6,11 +6,16 @@ import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import * as schema from "./schema.ts";
 import { createPostgresSettingsDocumentStore } from "./settings-document.ts";
 import { fixtureTeamSql } from "./testing/fixture-team.ts";
+import {
+  RELEASE_SPEC_SQL_COLUMNS,
+  releaseSpecSqlValues,
+  sessionPinValues,
+} from "./testing/spec-pins.ts";
 
 /**
- * What runs on the profiles of a connection, read in SQL when a person opens
- * the disable confirmation: active agents, live sessions (their own profile or
- * the one their open attempt claimed) and the workspace judge setting.
+ * What runs on a connection, read in SQL when a person opens the disable
+ * confirmation: active agents whose active release names it, live sessions
+ * whose spec names it, and the workspace judge setting.
  */
 
 let client: PGlite;
@@ -39,14 +44,44 @@ afterEach(async () => {
 
 const store = () => createPostgresSettingsDocumentStore(db);
 
-/**
- * An agent whose active release runs `profile`; `past` adds an earlier release
- * on another profile that is no longer the active one.
- */
-async function agent(profile: string, status = "active", past?: string) {
-  const agentId = randomUUID();
+const on = (id: string) => ({
+  connection: {
+    id,
+    kind: "anthropic" as const,
+    endpoint: "https://api.anthropic.invalid",
+    billing: "per_token" as const,
+  },
+});
+
+async function release(
+  agentId: string,
+  versionNo: number,
+  connectionId: string,
+): Promise<string> {
   const versionId = randomUUID();
   const releaseId = `sha256:${randomUUID()}`;
+  await client.query(
+    `INSERT INTO agent_versions (id, agent_id, version_no, card, content_sha256)
+     VALUES ($1, $2, $3, '{}', $4)`,
+    [versionId, agentId, versionNo, String(versionNo).repeat(64)],
+  );
+  await client.query(
+    `INSERT INTO agent_releases (id, agent_id, version_id, card_sha256,
+       repository_id, runtime_config_snapshot, effective_tools, policy_pins,
+       ${RELEASE_SPEC_SQL_COLUMNS})
+     VALUES ($1, $2, $3, $4, 'sample-app', '{}', '{}', '{}',
+       ${releaseSpecSqlValues(on(connectionId))})`,
+    [releaseId, agentId, versionId, "a".repeat(64)],
+  );
+  return releaseId;
+}
+
+/**
+ * An agent whose active release runs on `connectionId`; `past` adds an
+ * earlier release on another connection that is no longer the active one.
+ */
+async function agent(connectionId: string, status = "active", past?: string) {
+  const agentId = randomUUID();
   await client.query(
     "INSERT INTO agents (id, workspace_id, slug, name, status, managing_team_id) VALUES ($1, $2, $3, 'a', $4, $5)",
     [
@@ -57,180 +92,102 @@ async function agent(profile: string, status = "active", past?: string) {
       await fixtureTeamSql(client, workspaceId),
     ],
   );
-  await client.query(
-    `INSERT INTO agent_versions (id, agent_id, version_no, card, content_sha256)
-     VALUES ($1, $2, 1, '{}', $3)`,
-    [versionId, agentId, "a".repeat(64)],
-  );
-  await client.query(
-    `INSERT INTO agent_releases (id, agent_id, version_id, card_sha256,
-       runtime_profile_id, repository_id, profile_digest,
-       runtime_config_snapshot, effective_tools, policy_pins)
-     VALUES ($1, $2, $3, $4, $5, 'sample-app', $6, '{}', '{}', '{}')`,
-    [
-      releaseId,
-      agentId,
-      versionId,
-      "a".repeat(64),
-      profile,
-      `sha256:${"c".repeat(64)}`,
-    ],
-  );
+  const releaseId = await release(agentId, 1, connectionId);
   await client.query(
     "UPDATE agents SET active_release_id = $2, activation_revision = 0 WHERE id = $1",
     [agentId, releaseId],
   );
-  if (past) {
-    const pastVersionId = randomUUID();
-    await client.query(
-      `INSERT INTO agent_versions (id, agent_id, version_no, card, content_sha256)
-       VALUES ($1, $2, 2, '{}', $3)`,
-      [pastVersionId, agentId, "b".repeat(64)],
-    );
-    await client.query(
-      `INSERT INTO agent_releases (id, agent_id, version_id, card_sha256,
-         runtime_profile_id, repository_id, profile_digest,
-         runtime_config_snapshot, effective_tools, policy_pins)
-       VALUES ($1, $2, $3, $4, $5, 'sample-app', $6, '{}', '{}', '{}')`,
-      [
-        `sha256:${randomUUID()}`,
-        agentId,
-        pastVersionId,
-        "b".repeat(64),
-        past,
-        `sha256:${"c".repeat(64)}`,
-      ],
-    );
-  }
+  if (past) await release(agentId, 2, past);
 }
 
-/** A session on `profile`, optionally holding an attempt that claimed another. */
-async function session(
-  profile: string,
-  status: string,
-  attempt?: { profile: string; ended?: boolean },
-) {
-  const sessionId = randomUUID();
+/** A session whose spec runs on `connectionId`, or one with no spec. */
+async function session(connectionId: string | null, status: string) {
+  const pin =
+    connectionId === null
+      ? null
+      : sessionPinValues(undefined, on(connectionId));
   await client.query(
     `INSERT INTO sessions (id, owner_id, repo_url, branch, repository_id,
-       workspace_id, created_by_user_id, profile_id, status)
+       workspace_id, created_by_user_id, status, model, spec_source,
+       spec_source_digest, runtime_spec, spec_digest)
      VALUES ($1, $2, 'https://github.com/acme/app.git', 'main', 'sample-app',
-       $3, $4, $5, $6)`,
-    [sessionId, workspaceId, workspaceId, userId, profile, status],
+       $3, $4, $5, $6, $7, $8, $9, $10)`,
+    [
+      randomUUID(),
+      workspaceId,
+      workspaceId,
+      userId,
+      status,
+      pin?.model ?? null,
+      pin?.spec_source ?? null,
+      pin?.spec_source_digest ?? null,
+      pin?.runtime_spec ?? null,
+      pin?.spec_digest ?? null,
+    ],
   );
-  if (attempt) {
-    await client.query(
-      `INSERT INTO attempts (id, session_id, execution_id, lease_epoch,
-         execution_generation, auth_revision, state, lease_expires_at,
-         profile_id, ended_at)
-       VALUES ($1, $2, 'exec', 1, 1, 1, 'running', now(), $3, $4)`,
-      [
-        randomUUID(),
-        sessionId,
-        attempt.profile,
-        attempt.ended ? new Date() : null,
-      ],
-    );
-  }
 }
 
 describe("connectionUse", () => {
-  test("only active agents on an active release of those profiles are counted", async () => {
-    await agent("use-a_v1");
-    await agent("use-a_v1");
-    await agent("use-a_v1", "paused");
-    await agent("use-a_v1", "archived");
-    await agent("use-b_v1");
+  test("only active agents on an active release of that connection are counted", async () => {
+    await agent("use-a");
+    await agent("use-a");
+    await agent("use-a", "paused");
+    await agent("use-a", "archived");
+    await agent("use-b");
     expect(
-      (
-        await store().connectionUse({
-          profileIds: ["use-a_v1"],
-          connectionId: "console",
-        })
-      ).agents,
+      (await store().connectionUse({ connectionId: "use-a" })).agents,
     ).toBe(2);
     expect(
-      (
-        await store().connectionUse({
-          profileIds: ["use-none"],
-          connectionId: "console",
-        })
-      ).agents,
+      (await store().connectionUse({ connectionId: "use-none" })).agents,
     ).toBe(0);
   });
 
   test("a release the agent no longer runs does not count", async () => {
-    // Active on a profile the connection does not touch, with an older release
-    // on one it does: the agent is not left without a model.
-    await agent("use-b_v1", "active", "use-a_v1");
+    // Active on a connection that is not the one asked about, with an older
+    // release on it: the agent is not left without a model.
+    await agent("use-b", "active", "use-a");
     expect(
-      (
-        await store().connectionUse({
-          profileIds: ["use-a_v1"],
-          connectionId: "console",
-        })
-      ).agents,
+      (await store().connectionUse({ connectionId: "use-a" })).agents,
     ).toBe(0);
     expect(
-      (
-        await store().connectionUse({
-          profileIds: ["use-b_v1"],
-          connectionId: "console",
-        })
-      ).agents,
+      (await store().connectionUse({ connectionId: "use-b" })).agents,
     ).toBe(1);
   });
 
-  test("sessions not yet failed or stopped count, by their profile or their open attempt's", async () => {
-    await session("sess-a_v1", "running");
-    await session("sess-a_v1", "queued");
-    await session("sess-a_v1", "idle");
-    await session("sess-a_v1", "needs_input");
-    await session("sess-a_v1", "stopped");
-    await session("sess-a_v1", "failed");
-    await session("sess-b_v1", "running");
-    // Moved onto another profile, the open attempt still runs the old one.
-    await session("sess-b_v1", "running", { profile: "sess-a_v1" });
-    // An attempt that ended holds nothing.
-    await session("sess-b_v1", "running", {
-      profile: "sess-a_v1",
-      ended: true,
-    });
-    // The session and its attempt both name the profile: still one session.
-    await session("sess-a_v1", "running", { profile: "sess-a_v1" });
-    const use = await store().connectionUse({
-      profileIds: ["sess-a_v1"],
-      connectionId: "console",
-    });
-    expect(use.sessions).toBe(6);
+  test("sessions not yet failed or stopped count by the connection their spec names", async () => {
+    for (const status of [
+      "running",
+      "queued",
+      "idle",
+      "needs_input",
+      "stopped",
+      "failed",
+    ]) {
+      await session("sess-a", status);
+    }
+    await session("sess-b", "running");
+    // A session without a spec runs on no connection.
+    await session(null, "idle");
+    expect(
+      (await store().connectionUse({ connectionId: "sess-a" })).sessions,
+    ).toBe(4);
   });
 
   test("a workspace judge setting naming the connection is reported, another id is not", async () => {
     expect(
-      await store().connectionUse({
-        profileIds: [],
-        connectionId: "judge-connection",
-      }),
+      await store().connectionUse({ connectionId: "judge-connection" }),
     ).toEqual({ agents: 0, sessions: 0, judgeNamed: false });
     await client.query(
       "UPDATE workspaces SET settings = jsonb_set(coalesce(settings, '{}'::jsonb), '{achievement_judge}', $2::jsonb) WHERE id = $1",
       [workspaceId, JSON.stringify({ connection_id: "judge-connection" })],
     );
     expect(
-      (
-        await store().connectionUse({
-          profileIds: [],
-          connectionId: "judge-connection",
-        })
-      ).judgeNamed,
+      (await store().connectionUse({ connectionId: "judge-connection" }))
+        .judgeNamed,
     ).toBe(true);
     expect(
-      (
-        await store().connectionUse({
-          profileIds: [],
-          connectionId: "other-connection",
-        })
-      ).judgeNamed,
+      (await store().connectionUse({ connectionId: "other-connection" }))
+        .judgeNamed,
     ).toBe(false);
   });
 });

@@ -36,6 +36,11 @@ import {
   workspaces,
 } from "./schema.ts";
 import { fixtureTeam } from "./testing/fixture-team.ts";
+import {
+  releaseSpecColumns,
+  sessionPinColumns,
+  TEST_CONNECTION_ID,
+} from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -165,8 +170,8 @@ integration("session list relations, search and counts on PostgreSQL", () => {
         agentId,
         versionId,
         cardSha256: "card",
-        runtimeProfileId: "coding",
-        profileDigest: "digest",
+        connectionId: TEST_CONNECTION_ID,
+        ...releaseSpecColumns(),
         runtimeConfigSnapshot: {},
         effectiveTools: [],
         createdAt: new Date(createdAt),
@@ -177,8 +182,8 @@ integration("session list relations, search and counts on PostgreSQL", () => {
           agentId,
           versionId,
           cardSha256: "card",
-          runtimeProfileId: "review",
-          profileDigest: "digest",
+          connectionId: TEST_CONNECTION_ID,
+          ...releaseSpecColumns(),
           runtimeConfigSnapshot: {},
           effectiveTools: [],
           createdAt: new Date("2026-10-30T05:30:28.700Z"),
@@ -234,6 +239,7 @@ integration("session list relations, search and counts on PostgreSQL", () => {
         branch: "main",
         title: row.title ?? name,
         status: row.status ?? "idle",
+        ...sessionPinColumns(),
         agentReleaseId: row.release ?? null,
         channel: row.channel ?? null,
         createdByUserId: row.by === "service" ? null : people[row.by].id,

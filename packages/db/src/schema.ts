@@ -24,7 +24,6 @@ import {
   type GitHubPackagesAllowEntry,
   MEMORY_WRITE_POLICY_VALUES,
   OPEN_PUSH_REQUEST_STATES,
-  PERMISSION_MODE_VALUES,
   type PlatformPrompt,
   PULL_REQUEST_STAGE_VALUES,
   PUSH_APPROVAL_BASIS_VALUES,
@@ -34,8 +33,6 @@ import {
   PUSH_REQUEST_ORIGIN_VALUES,
   PUSH_REQUEST_STATE_VALUES,
   RECEIPT_STATUS_VALUES,
-  REPOSITORY_SCOPE_VALUES,
-  RUNTIME_TOOLS_SOURCE_VALUES,
   SESSION_OUTCOME_CHECK_ERROR_VALUES,
   SESSION_OUTCOME_TYPE_VALUES,
   SESSION_STATUS_VALUES,
@@ -686,8 +683,8 @@ export const githubWorkspaceSettings = pgTable("github_workspace_settings", {
     .primaryKey()
     .references(() => workspaces.id),
   ceiling: jsonb().$type<GitHubCeiling>().notNull(),
-  // The repositories agent sessions and `repository_scope = workspace`
-  // profiles may reach. Null allows none. `revision` covers it.
+  // The repositories agent sessions may reach. Null allows none. `revision`
+  // covers it.
   repositoryCeiling: jsonb("repository_ceiling").$type<unknown>(),
   // How pull request bodies are laid out. Null reads as the defaults. Its
   // own revision keeps a save here from conflicting with one of the ceiling.
@@ -1187,21 +1184,10 @@ export const sessions = pgTable(
     executionGeneration: integer("execution_generation").notNull().default(0),
     authRevision: integer("auth_revision").notNull().default(0),
     executionId: text("execution_id"),
-    profileId: text("profile_id"),
-    // The profile's fingerprint (catalog.ts profileFingerprint) when the
-    // session was accepted: settings and credential reference, never the
-    // value. A claim binds only on a host whose profile under this id still
-    // hashes to it. Null on rows from before it, pinned by their
-    // next claim.
-    profileFingerprint: text("profile_fingerprint"),
-    // The model the session runs, one the profile offers. What a version 2
-    // fingerprint pins it to alongside; a version 1 fingerprint names the
-    // model itself, and the API backfills this from it at start. Null where
-    // neither says.
+    // The model the session runs: its spec's (`sessions_pin_required`).
     model: text(),
-    // The profile declared `billing: none` when the session was accepted.
-    // Fixed on the row, not read from each API's catalog: during a rollout
-    // a replica that does not know the profile must not price its calls.
+    // The connection declared `billing: none` when the session was accepted.
+    // Fixed on the row, not read from each API's catalog.
     unmetered: boolean().notNull().default(false),
     repositoryId: text("repository_id"),
     // The repositories besides its own the session was started with or
@@ -1367,7 +1353,7 @@ export const sessions = pgTable(
     // admission_state leaves pausing and paused, on every write path.
     pauseReason: text("pause_reason"),
     // The session's own park and expiry waits, as given at create. Resolved
-    // against the profile and the installation cap whenever a request is
+    // against the installation's values and cap whenever a request is
     // registered; null means none given.
     permissionWaitOverride: jsonb("permission_wait_override"),
     // Whose GitHub policy the session runs on, fixed at create: `release`
@@ -1375,13 +1361,6 @@ export const sessions = pgTable(
     githubPolicySource: text("github_policy_source")
       .notNull()
       .default("release"),
-    // Where the claim's built-in tool list comes from, fixed at create:
-    // `release` the pinned release's effective_tools, `profile` the
-    // profile's (narrowed by the release snapshot). Rows from before the
-    // column read `profile`, so their claims and checkpoint digests hold.
-    runtimeToolsSource: text("runtime_tools_source")
-      .notNull()
-      .default("profile"),
     // The first turn's usage basis and requester (turns.usage_basis, 94S-901),
     // kept on the session for what later limits read; never changed.
     usageBasis: text("usage_basis"),
@@ -1411,11 +1390,10 @@ export const sessions = pgTable(
     envStart: jsonb("env_start").$type<unknown>(),
     extensions: jsonb("extensions").$type<unknown>(),
     // The run configs (`RuntimeConfig[]`, newest first, at most
-    // MAX_RESTORE_PROFILES) the session's checkpoints were made under, taken
-    // before the profile tables go. A claim offers them as
-    // restore_runtime_configs, so an older checkpoint still hashes to a
-    // digest a worker can match once no profile can rebuild them. Null until
-    // reconstructed; the permission mode inside is the original one.
+    // MAX_RESTORE_CONFIGS) the session's checkpoints were made under before
+    // its model moved. A claim offers them as restore_runtime_configs, so an
+    // older checkpoint still hashes to a digest a worker can match. Null
+    // while the session ran one config only.
     legacyRuntimeConfigs: jsonb("legacy_runtime_configs").$type<unknown>(),
   },
   (table) => [
@@ -1427,10 +1405,6 @@ export const sessions = pgTable(
     check(
       "sessions_github_policy_source_check",
       sql`${table.githubPolicySource} IN (${sql.raw(sqlList(GITHUB_POLICY_SOURCE_VALUES))})`,
-    ),
-    check(
-      "sessions_runtime_tools_source_check",
-      sql`${table.runtimeToolsSource} IN (${sql.raw(sqlList(RUNTIME_TOOLS_SOURCE_VALUES))})`,
     ),
     check(
       "sessions_pause_reason_check",
@@ -1998,25 +1972,6 @@ export const queueMessages = pgTable(
     // and looks at claimed rows too, which the partial index above cannot
     // serve.
     index("queue_messages_head_idx").on(table.sessionId, table.kind, table.id),
-  ],
-);
-
-// The one row that says whether a session's spec pin is what a claim reads.
-// It only ever goes from false to true (flipPinCutover), and only while the
-// pin gate reads zero under the cutover lock.
-export const sessionPinCutover = pgTable(
-  "session_pin_cutover",
-  {
-    id: integer().primaryKey().default(1),
-    authoritative: boolean().notNull().default(false),
-    flippedAt: timestamp("flipped_at", { withTimezone: true }),
-  },
-  (table) => [
-    check("session_pin_cutover_single", sql`${table.id} = 1`),
-    check(
-      "session_pin_cutover_flipped",
-      sql`${table.authoritative} = (${table.flippedAt} IS NOT NULL)`,
-    ),
   ],
 );
 
@@ -2736,22 +2691,17 @@ export const checkpoints = pgTable(
     // Set once a collection pass after collected_at deleted every object it
     // found; output usage counts the revision's outputs until then.
     objectsPurgedAt: timestamp("objects_purged_at", { withTimezone: true }),
-    // The profile of the attempt that committed it: its runtime fingerprint
-    // was computed from that profile, so a restore after a profile change
-    // is checked against it. Null on rows from before the column.
-    profileId: text("profile_id"),
-    profileFingerprint: text("profile_fingerprint"),
-    // The attempt's model; null where the fingerprint names it (version 1).
+    // The attempt's model.
     model: text(),
     // The verified manifest's RuntimeFingerprint, so a launch can pick an
-    // image without reading the object store. Not profile_fingerprint above:
-    // that is the catalog profile's, this is the engine's own digest. All
-    // four null on rows from before the columns, read as the current image.
+    // image without reading the object store: the engine's own digest of the
+    // run config. All four null on rows from before the columns, read as the
+    // current image.
     runtimeEngine: text("runtime_engine"),
     runtimeSdkVersion: text("runtime_sdk_version"),
     runtimeCliVersion: text("runtime_cli_version"),
     runtimeProfileSha256: text("runtime_profile_sha256"),
-    // The profile digest scheme of the image the committing attempt was
+    // The runtime config digest scheme of the image the committing attempt was
     // launched on; null when its launch assumed none, read as scheme 1.
     runtimeProfileScheme: integer("runtime_profile_scheme"),
     // Whether checkpoint_outputs holds what this revision's manifest names
@@ -2775,7 +2725,7 @@ export const checkpoints = pgTable(
 );
 
 // What `verify-restore` found when it asked, for one checkpoint, whether the
-// image set that stays after the profile removal can restore it. A row binds
+// image set that stays after an image change can restore it. A row binds
 // to the manifest it read (`manifest_sha256`), the candidate digests it
 // matched against, and the worker image it asked, so a re-pinned manifest or
 // another image set is a checkpoint nobody has verified.
@@ -2936,13 +2886,8 @@ export const attempts = pgTable(
       .defaultNow(),
     endedAt: timestamp("ended_at", { withTimezone: true }),
     endReason: text("end_reason"),
-    // The session's profile when this attempt claimed it. The attempt runs
-    // it to the end, so a profile change on the session takes effect at the
-    // next claim; null on rows from before the column.
-    profileId: text("profile_id"),
-    profileFingerprint: text("profile_fingerprint"),
-    // The session's model when this attempt claimed it; null where the
-    // fingerprint names it (version 1).
+    // The session's model when this attempt claimed it. The attempt runs it
+    // to the end, so a model move takes effect at the next claim.
     model: text(),
   },
   (table) => [
@@ -3011,7 +2956,7 @@ export const providerUsage = pgTable(
       mode: "number",
     }).notNull(),
     // `fallback`: the model was not in the price table and every part was
-    // charged at the highest known rate. `unmetered`: the session's profile
+    // charged at the highest known rate. `unmetered`: the session's connection
     // declared `billing: none`, so the call cost nothing.
     pricedBy: text("priced_by")
       .$type<"table" | "fallback" | "unmetered">()
@@ -3260,7 +3205,7 @@ export const workerCredentials = pgTable(
       .notNull()
       .references(() => attempts.id),
     purpose: text("purpose").notNull().default("gateway"),
-    // What an egress token was issued against: the profile fingerprint, the
+    // What an egress token was issued against: the session's spec digest, the
     // repository binding or the session's object prefix at claim time. A catalog entry that moved since
     // (a restart with an edited config) no longer matches, and the proxy is
     // refused rather than sent somewhere the attempt never agreed to.
@@ -3422,21 +3367,14 @@ export const agents = pgTable(
     autoModelMigration: boolean("auto_model_migration").notNull().default(true),
     /** Its leads administer the agent. An agent is never without one. */
     managingTeamId: uuid("managing_team_id").notNull(),
-    // Nothing writes the five columns below yet; they hold their defaults.
-    /** `follow` takes a profile's newer versions by rollout; `pinned` stays. */
-    profileTracking: text("profile_tracking").notNull().default("follow"),
     /** Counts the intents to change behavior; a stale result is told apart by it. */
     behaviorRevision: integer("behavior_revision").notNull().default(0),
-    /** `profile` runs the profile's default model; `fixed` the card's own. */
-    modelSource: text("model_source").notNull().default("fixed"),
     /**
-     * A saved change not yet active: the card version, the target profile
-     * and the model source, filled and cleared together. `draft_failure`
-     * says why it did not apply.
+     * A saved change not yet active: the card version and the connection,
+     * filled and cleared together. `draft_failure` says why it did not apply.
      */
     draftVersionId: uuid("draft_version_id"),
-    draftProfileId: text("draft_profile_id"),
-    draftModelSource: text("draft_model_source"),
+    draftConnectionId: text("draft_connection_id"),
     draftFailure: text("draft_failure"),
     createdBy: uuid("created_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -3454,20 +3392,12 @@ export const agents = pgTable(
       foreignColumns: [agentVersions.agentId, agentVersions.id],
     }),
     check(
-      "agents_profile_tracking_check",
-      sql`${table.profileTracking} IN ('follow', 'pinned')`,
-    ),
-    check(
-      "agents_model_source_check",
-      sql`${table.modelSource} IN ('fixed', 'profile')`,
-    ),
-    check(
       "agents_behavior_revision_check",
       sql`${table.behaviorRevision} >= 0`,
     ),
     check(
       "agents_draft_check",
-      sql`(${table.draftVersionId} IS NULL) = (${table.draftProfileId} IS NULL) AND (${table.draftVersionId} IS NULL) = (${table.draftModelSource} IS NULL) AND (${table.draftModelSource} IS NULL OR ${table.draftModelSource} IN ('fixed', 'profile')) AND (${table.draftFailure} IS NULL OR ${table.draftVersionId} IS NOT NULL)`,
+      sql`(${table.draftVersionId} IS NULL) = (${table.draftConnectionId} IS NULL) AND (${table.draftFailure} IS NULL OR ${table.draftVersionId} IS NOT NULL)`,
     ),
     foreignKey({
       name: "agents_managing_team_fk",
@@ -3677,15 +3607,6 @@ export const agentEngineSettings = pgTable(
       .$type<Record<string, string[]>>()
       .notNull()
       .default({}),
-    // What the agent inherits from what its profile and the installation
-    // blocked: `[{exempt_release_ids, permissions_deny, mcp_deny}]`. Only an
-    // operator writes it, never the web API, and an entry applies to a session
-    // whose release is not in its `exempt_release_ids`, so a release the agent
-    // already had keeps what it was pinned with.
-    adminDeny: jsonb("admin_deny")
-      .$type<Array<Record<string, string[]>>>()
-      .notNull()
-      .default([]),
     revision: integer().notNull().default(1),
     /** No foreign key: the row outlives the account. */
     updatedBy: uuid("updated_by"),
@@ -3699,10 +3620,6 @@ export const agentEngineSettings = pgTable(
       columns: [table.workspaceId, table.agentId],
       foreignColumns: [agents.workspaceId, agents.id],
     }),
-    check(
-      "agent_engine_settings_admin_deny_check",
-      sql`jsonb_typeof(${table.adminDeny}) = 'array'`,
-    ),
     check(
       "agent_engine_settings_permissions_check",
       stringListsCheck(table.permissions, ["allow", "ask", "deny"], 256),
@@ -3762,25 +3679,6 @@ export const workspaceEngineSettings = pgTable(
       sql`${table.revision} >= 1`,
     ),
   ],
-);
-
-// The one row that says whether engine settings may be written. Closed, the
-// write API and the migration refuse, so a rule is never saved while some
-// replica or worker would not carry it to the engine. Closing it stops
-// writes only: rules already saved stay enforced. A writer holds the row
-// FOR SHARE for its transaction, so closing waits for the writes in flight.
-export const engineSettingsGate = pgTable(
-  "engine_settings_gate",
-  {
-    id: integer().primaryKey().default(1),
-    writesOpen: boolean("writes_open").notNull().default(false),
-    changedAt: timestamp("changed_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    /** No foreign key: the row outlives the account. */
-    changedBy: uuid("changed_by"),
-  },
-  (table) => [check("engine_settings_gate_single", sql`${table.id} = 1`)],
 );
 
 // How an agent's pull request bodies differ from the workspace's. Apart from
@@ -4418,9 +4316,9 @@ export const agentReleases = pgTable(
       .references((): AnyPgColumn => agents.id),
     versionId: uuid("version_id").notNull(),
     cardSha256: text("card_sha256").notNull(),
-    runtimeProfileId: text("runtime_profile_id").notNull(),
+    // The provider connection the release's model is called through.
+    connectionId: text("connection_id").notNull(),
     repositoryId: text("repository_id"),
-    profileDigest: text("profile_digest").notNull(),
     runtimeConfigSnapshot: jsonb("runtime_config_snapshot").notNull(),
     effectiveTools: jsonb("effective_tools").notNull(),
     policyPins: jsonb("policy_pins").notNull().default({}),
@@ -4433,15 +4331,15 @@ export const agentReleases = pgTable(
     // Outside the id's hash: a re-release of the same content keeps the
     // first note, null included.
     note: text(),
-    // What a claim runs on without reading a profile, derived from the
-    // columns above. Outside the id's hash: an old release keeps its id and
-    // its original columns, and `spec_source` keeps what the spec was made
-    // from so both digests recompute after the profile tables are gone. The
-    // four are all null or all set.
-    runtimeSpec: jsonb("runtime_spec").$type<Record<string, unknown>>(),
-    specSource: jsonb("spec_source").$type<Record<string, unknown>>(),
-    specSourceDigest: text("spec_source_digest"),
-    specDigest: text("spec_digest"),
+    // What a session of the release runs, derived from the columns above
+    // and the connection (agents/release-spec.ts): `spec_source` keeps the
+    // inputs, `runtime_spec` what they mean, each with its digest.
+    runtimeSpec: jsonb("runtime_spec")
+      .$type<Record<string, unknown>>()
+      .notNull(),
+    specSource: jsonb("spec_source").$type<Record<string, unknown>>().notNull(),
+    specSourceDigest: text("spec_source_digest").notNull(),
+    specDigest: text("spec_digest").notNull(),
   },
   (table) => [
     foreignKey({
@@ -4449,10 +4347,6 @@ export const agentReleases = pgTable(
       columns: [table.agentId, table.versionId],
       foreignColumns: [agentVersions.agentId, agentVersions.id],
     }),
-    check(
-      "agent_releases_spec_check",
-      sql`(${table.runtimeSpec} IS NULL) = (${table.specSource} IS NULL) AND (${table.runtimeSpec} IS NULL) = (${table.specSourceDigest} IS NULL) AND (${table.runtimeSpec} IS NULL) = (${table.specDigest} IS NULL)`,
-    ),
     unique("agent_releases_agent_id_key").on(table.agentId, table.id),
     check(
       "agent_releases_approval_check",
@@ -4487,7 +4381,6 @@ export const sessionLinks = pgTable(
     openedByTs: text("opened_by_ts").notNull(),
     agentId: uuid("agent_id").notNull(),
     releaseId: text("release_id").notNull(),
-    profileId: text("profile_id").notNull(),
     role: text().$type<"primary" | "mirror">().notNull().default("primary"),
     visibility: text().$type<"full" | "summary">().notNull().default("full"),
     muted: boolean().notNull().default(false),
@@ -5000,70 +4893,6 @@ export const agentActivationEvents = pgTable(
   ],
 );
 
-// A version of a workspace profile (94S-1001): an operator profile narrowed
-// in the console. A row never changes but for its retirement; a change is
-// the next version, under a new id.
-export const workspaceProfiles = pgTable(
-  "workspace_profiles",
-  {
-    id: text().primaryKey(),
-    workspaceId: uuid("workspace_id")
-      .notNull()
-      .references(() => workspaces.id),
-    name: text().notNull(),
-    version: integer().notNull(),
-    baseProfileId: text("base_profile_id").notNull(),
-    baseFingerprint: text("base_fingerprint").notNull(),
-    baseRuntimeVersion: text("base_runtime_version").notNull(),
-    baseBilling: text("base_billing").notNull(),
-    baseRepositoryMode: text("base_repository_mode").notNull(),
-    model: text().notNull(),
-    models: jsonb().$type<string[]>().notNull(),
-    tools: jsonb().$type<string[]>().notNull(),
-    // Like the ceiling's: outside the base fingerprint and the digests.
-    deny: jsonb().$type<string[]>(),
-    toolCatalogId: text("tool_catalog_id"),
-    permissionMode: text("permission_mode").notNull(),
-    createdBy: uuid("created_by")
-      .notNull()
-      .references(() => users.id),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    retiredAt: timestamp("retired_at", { withTimezone: true }),
-    retiredBy: uuid("retired_by").references(() => users.id),
-  },
-  (table) => [
-    unique("workspace_profiles_version_key").on(
-      table.workspaceId,
-      table.name,
-      table.version,
-    ),
-    check("workspace_profiles_id_check", sql`${table.id} LIKE 'ws\\_%'`),
-    check("workspace_profiles_version_check", sql`${table.version} >= 1`),
-    check(
-      "workspace_profiles_permission_mode_check",
-      sql`${table.permissionMode} IN (${sql.raw(sqlList(PERMISSION_MODE_VALUES))})`,
-    ),
-    check(
-      "workspace_profiles_base_billing_check",
-      sql`${table.baseBilling} IN ('metered', 'none')`,
-    ),
-    check(
-      "workspace_profiles_base_repository_mode_check",
-      sql`${table.baseRepositoryMode} IN ('required', 'optional', 'none')`,
-    ),
-    check(
-      "workspace_profiles_retired_check",
-      sql`(${table.retiredAt} IS NULL) = (${table.retiredBy} IS NULL)`,
-    ),
-    check(
-      "workspace_profiles_deny_check",
-      sql`${table.deny} IS NULL OR (jsonb_typeof(${table.deny}) = 'array' AND ${table.toolCatalogId} IS NOT NULL)`,
-    ),
-  ],
-);
-
 // docs/contributing/decisions/achievement-rules.md §3: what a workspace counts
 // as an achievement. Categories group rules; a type is what a rule counts.
 export const achievementCategories = pgTable(
@@ -5423,203 +5252,6 @@ export const sessionAchievements = pgTable(
   ],
 );
 
-// The installation's ceilings (docs/contributing/decisions/profile-db.md §1).
-// A row never changes but `retired_at`/`retired_by`; `definition` is the
-// profile entry as `catalogProfileConfigSchema` parses it, credential
-// references only.
-export const installationProfiles = pgTable(
-  "installation_profiles",
-  {
-    id: text().primaryKey(),
-    name: text(),
-    version: integer().notNull(),
-    origin: text().notNull(),
-    definition: jsonb().$type<Record<string, unknown>>().notNull(),
-    permissionMode: text("permission_mode").notNull(),
-    fingerprint: text().notNull(),
-    repositoryIds: jsonb("repository_ids").$type<string[]>(),
-    // Beside repository_ids and, like it, outside the fingerprint.
-    // Null on a row that says nothing about repositories (the workspace's
-    // ceiling judges them); the default stays for images from before.
-    githubAppRepositories: text("github_app_repositories").default("listed"),
-    // Stored, so every image reads a row alike: `profile` judges repositories
-    // by the columns above, `workspace` by the workspace's repository ceiling.
-    // Null: the row names no repository at all.
-    repositoryScope: text("repository_scope").default("profile"),
-    /** The version this one narrows; a block on it stops this one too. */
-    derivedFrom: text("derived_from"),
-    /** Set on a version a workspace's admin made; null is installation-wide. */
-    workspaceId: uuid("workspace_id").references(() => workspaces.id),
-    /** What the author named it; `name` is then the server's lineage key. */
-    displayName: text("display_name"),
-    /** The workspace profile id this version was copied from. */
-    migratedFrom: text("migrated_from"),
-    // The built-in tools blocked, as named in the tool catalog
-    // `tool_catalog_id`. Outside `definition` and the fingerprint: an
-    // image from before reads the definition strictly, and the digests
-    // follow `tools`. Null on a row made from an allow list.
-    deny: jsonb().$type<string[]>(),
-    toolCatalogId: text("tool_catalog_id"),
-    previousId: text("previous_id"),
-    createdBy: uuid("created_by").references(() => users.id),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    retiredAt: timestamp("retired_at", { withTimezone: true }),
-    retiredBy: uuid("retired_by").references(() => users.id),
-    blockedAt: timestamp("blocked_at", { withTimezone: true }),
-    blockedBy: uuid("blocked_by").references(() => users.id),
-  },
-  (table) => [
-    uniqueIndex("installation_profiles_console_version_key")
-      .on(table.name, table.version)
-      .where(sql`${table.origin} = 'console'`),
-    check("installation_profiles_id_check", sql`${table.id} NOT LIKE 'ws\\_%'`),
-    check(
-      "installation_profiles_origin_check",
-      sql`${table.origin} IN ('catalog', 'console')`,
-    ),
-    check(
-      "installation_profiles_repository_scope_check",
-      sql`${table.repositoryScope} IN (${sql.raw(sqlList(REPOSITORY_SCOPE_VALUES))})`,
-    ),
-    check(
-      "installation_profiles_name_check",
-      sql`(${table.origin} = 'catalog') = (${table.name} IS NULL)`,
-    ),
-    check("installation_profiles_version_check", sql`${table.version} >= 1`),
-    check(
-      "installation_profiles_permission_mode_check",
-      sql`${table.permissionMode} IN (${sql.raw(sqlList(PERMISSION_MODE_VALUES))})`,
-    ),
-    check(
-      "installation_profiles_definition_mode_check",
-      sql`${table.permissionMode} = ${table.definition}->>'permission_mode'`,
-    ),
-    check(
-      "installation_profiles_retired_check",
-      sql`(${table.retiredAt} IS NULL) = (${table.retiredBy} IS NULL)`,
-    ),
-    check(
-      "installation_profiles_blocked_check",
-      sql`(${table.blockedAt} IS NULL) = (${table.blockedBy} IS NULL)`,
-    ),
-    check(
-      "installation_profiles_repository_ids_check",
-      sql`${table.repositoryIds} IS NOT NULL OR ${table.origin} = 'catalog' OR ${table.repositoryScope} IS NULL`,
-    ),
-    check(
-      "installation_profiles_github_app_repositories_check",
-      sql`${table.githubAppRepositories} IN ('listed', 'installed')`,
-    ),
-    check(
-      "installation_profiles_deny_check",
-      sql`${table.deny} IS NULL OR (jsonb_typeof(${table.deny}) = 'array' AND ${table.toolCatalogId} IS NOT NULL)`,
-    ),
-    foreignKey({
-      name: "installation_profiles_derived_from_fk",
-      columns: [table.derivedFrom],
-      foreignColumns: [table.id],
-    }),
-    uniqueIndex("installation_profiles_migrated_from_key")
-      .on(table.migratedFrom)
-      .where(sql`${table.migratedFrom} IS NOT NULL`),
-    // One lineage of a workspace's profiles: a name and its versions.
-    uniqueIndex("installation_profiles_workspace_lineage_key")
-      .on(table.workspaceId, table.displayName, table.version)
-      .where(sql`${table.workspaceId} IS NOT NULL`),
-  ],
-);
-
-export const PROFILE_ROLLOUT_KIND_VALUES = [
-  "profile_update",
-  "tool_unlock",
-] as const;
-export const PROFILE_ROLLOUT_ITEM_STATUS_VALUES = [
-  "pending",
-  "applied",
-  "superseded",
-  "failed",
-] as const;
-
-// A profile version's change to the agents that follow it, written with the
-// version (an outbox). Nothing writes either table yet.
-export const profileRollouts = pgTable(
-  "profile_rollouts",
-  {
-    id: uuid().primaryKey(),
-    kind: text().notNull(),
-    targetProfileId: text("target_profile_id")
-      .notNull()
-      .references(() => installationProfiles.id),
-    createdBy: uuid("created_by").references(() => users.id),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-  },
-  (table) => [
-    unique("profile_rollouts_target_kind_key").on(
-      table.targetProfileId,
-      table.kind,
-    ),
-    check(
-      "profile_rollouts_kind_check",
-      sql`${table.kind} IN (${sql.raw(sqlList(PROFILE_ROLLOUT_KIND_VALUES))})`,
-    ),
-  ],
-);
-
-// One agent's turn in a rollout; `generation` is the agent's
-// activation_revision when the item was put in.
-export const profileRolloutItems = pgTable(
-  "profile_rollout_items",
-  {
-    rolloutId: uuid("rollout_id")
-      .notNull()
-      .references(() => profileRollouts.id),
-    agentId: uuid("agent_id")
-      .notNull()
-      .references(() => agents.id),
-    generation: integer().notNull(),
-    status: text().notNull().default("pending"),
-    reasonCode: text("reason_code"),
-    attempts: integer().notNull().default(0),
-    /** A lease: another replica takes the item once it passes. */
-    lockedUntil: timestamp("locked_until", { withTimezone: true }),
-    /** Who holds the lease; a result is written only by its holder. */
-    lockedBy: text("locked_by"),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-  },
-  (table) => [
-    primaryKey({
-      name: "profile_rollout_items_pkey",
-      columns: [table.rolloutId, table.agentId, table.generation],
-    }),
-    index("profile_rollout_items_pending_idx")
-      .on(table.lockedUntil)
-      .where(sql`${table.status} = 'pending'`),
-    index("profile_rollout_items_agent_idx").on(table.agentId),
-    check(
-      "profile_rollout_items_generation_check",
-      sql`${table.generation} >= -1`,
-    ),
-    check("profile_rollout_items_attempts_check", sql`${table.attempts} >= 0`),
-    check(
-      "profile_rollout_items_status_check",
-      sql`${table.status} IN (${sql.raw(sqlList(PROFILE_ROLLOUT_ITEM_STATUS_VALUES))})`,
-    ),
-    check(
-      "profile_rollout_items_failed_check",
-      sql`${table.status} <> 'failed' OR ${table.reasonCode} IS NOT NULL`,
-    ),
-  ],
-);
-
 /** `stored` is a value in `secret_values`; `external` names env or Secrets Manager. */
 export type SettingsCredentialSource = "stored" | "external";
 export type SettingsOrigin = "import" | "console";
@@ -5649,9 +5281,6 @@ export const catalogRepositories = pgTable(
     name: text().notNull(),
     url: text().notNull(),
     branch: text().notNull(),
-    // A seeded row's yaml `profiles`, kept so its binding hash stays the
-    // one sessions claimed under before the move.
-    profiles: jsonb().$type<string[]>(),
     authKind: text("auth_kind")
       .$type<CatalogRepositoryAuthKind>()
       .notNull()
@@ -5729,15 +5358,14 @@ export const providerConnections = pgTable(
     /**
      * The `auth` this row had while its credential came from the
      * deployment (an env or Secrets Manager reference, never a value),
-     * set once when the console moves it to a stored value. Ceilings made
-     * over the old definition keep matching this row.
+     * set once when the console moves it to a stored value. A re-import of
+     * the old definition keeps matching this row.
      */
     replacesAuth: jsonb("replaces_auth").$type<Record<string, unknown>>(),
     /**
      * The models an agent may name on this connection, and their families
-     * for a retired model's successor. Beside `definition`, never in it: the
-     * profile fingerprint hashes the whole provider object, and this list
-     * changes over a connection's life where the definition does not.
+     * for a retired model's successor. Beside `definition`, never in it: this
+     * list changes over a connection's life where the definition does not.
      */
     models: jsonb().$type<string[]>().notNull().default([]),
     modelFamilies: jsonb("model_families").$type<Record<string, unknown>>(),
@@ -5831,20 +5459,6 @@ export const settingsGeneration = pgTable(
     generation: bigint({ mode: "number" }).notNull().default(0),
   },
   (table) => [check("settings_generation_single_check", sql`${table.id} = 1`)],
-);
-
-// One row once the one-time profile fill has run for real. The sweep holds
-// back while neither this row nor any rollout exists, so an install that
-// deploys the writer before the fill is not rolled out over the fill's head.
-export const profileFill = pgTable(
-  "profile_fill",
-  {
-    id: integer().primaryKey().default(1),
-    completedAt: timestamp("completed_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-  },
-  (table) => [check("profile_fill_single_check", sql`${table.id} = 1`)],
 );
 
 // The commit attribution each claim of a session asked for (author, the

@@ -14,6 +14,11 @@ import {
   workspaces,
 } from "@werft-ai/db";
 import { fixtureTeam } from "@werft-ai/db/testing/fixture-team";
+import {
+  releaseSpecColumns,
+  sessionPinColumns,
+  TEST_CONNECTION_ID,
+} from "@werft-ai/db/testing/spec-pins";
 import { createTempDatabase } from "@werft-ai/testkit";
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
@@ -140,8 +145,8 @@ async function releaseOf(
     agentId,
     versionId,
     cardSha256: "0".repeat(64),
-    runtimeProfileId: "coding",
-    profileDigest: "digest",
+    connectionId: TEST_CONNECTION_ID,
+    ...releaseSpecColumns(),
     runtimeConfigSnapshot: {},
     effectiveTools: { tools: [], mcp: [] },
     policyPins: {
@@ -452,6 +457,7 @@ integration("the MCP settings migration CLI on PostgreSQL", () => {
         repoUrl: "https://example.invalid/app.git",
         branch: "main",
         agentReleaseId: busy.releaseId,
+        ...sessionPinColumns(),
         mcpStart: {
           server: "docs",
           allowed_tools: [READ],

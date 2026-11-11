@@ -1,8 +1,4 @@
-import type {
-  AdminDenyEntry,
-  EngineSettings,
-  StoredEngineSettings,
-} from "@werft-ai/contracts";
+import type { EngineSettings, StoredEngineSettings } from "@werft-ai/contracts";
 
 import type { EffectiveEngineSettings } from "./engine-settings.ts";
 
@@ -42,21 +38,6 @@ const isMcp = (rule: string) => rule.startsWith(MCP_PREFIX);
 /** A rule naming a whole tool has no parenthesised argument pattern. */
 const isWholeTool = (rule: string) => BARE_TOOL.test(rule) && !isMcp(rule);
 
-/**
- * The admin entries that bind a session of `releaseId`. A session without a
- * release is not bound (restrict-only data must never invent a release); a
- * release the caller could not resolve is the caller's `closed`.
- */
-export function applicableAdminDeny(
-  entries: readonly AdminDenyEntry[],
-  releaseId: string | null,
-): AdminDenyEntry[] {
-  if (releaseId === null) return [];
-  return entries.filter(
-    (entry) => !entry.exempt_release_ids.includes(releaseId),
-  );
-}
-
 const nonEmpty = <T extends Record<string, string[]>>(lists: T) => {
   const out: Record<string, string[]> = {};
   for (const [key, value] of Object.entries(lists)) {
@@ -66,7 +47,7 @@ const nonEmpty = <T extends Record<string, string[]>>(lists: T) => {
 };
 
 /**
- * Workspace, agent and inherited rules for one claim.
+ * Workspace and agent rules for one claim.
  *
  * Restrictions (ask, deny, the classifier's soft and hard deny) are the union
  * of every source. A grant (allow, environment) is the intersection of the
@@ -76,7 +57,6 @@ const nonEmpty = <T extends Record<string, string[]>>(lists: T) => {
 export function mergeEngineSettings(input: {
   workspace: StoredEngineSettings | null;
   agent: EffectiveEngineSettings;
-  adminDeny: readonly AdminDenyEntry[];
 }): MergedEngineSettings {
   if (input.agent.kind === "closed") {
     return { kind: "closed", reason: `agent_${input.agent.reason}` };
@@ -87,15 +67,8 @@ export function mergeEngineSettings(input: {
   const agentPerm = input.agent.permissions;
   const agentAuto = input.agent.autoMode;
 
-  const denyAll = [
-    ...(wsPerm.deny ?? []),
-    ...agentPerm.deny,
-    ...input.adminDeny.flatMap((entry) => entry.permissions_deny),
-  ];
-  const mcpDeny = sorted([
-    ...denyAll.filter(isMcp),
-    ...input.adminDeny.flatMap((entry) => entry.mcp_deny),
-  ]);
+  const denyAll = [...(wsPerm.deny ?? []), ...agentPerm.deny];
+  const mcpDeny = sorted(denyAll.filter(isMcp));
   const disallowedTools = sorted(denyAll.filter(isWholeTool));
   const patternDeny = sorted(
     denyAll.filter((rule) => !isMcp(rule) && !isWholeTool(rule)),

@@ -29,6 +29,11 @@ import {
 import { toolCallDays, toolCallPage } from "./sessions/tool-call-pages.ts";
 import { projectToolCalls } from "./sessions/tool-calls.ts";
 import { fixtureTeam } from "./testing/fixture-team.ts";
+import {
+  releaseSpecColumns,
+  sessionPinColumns,
+  TEST_CONNECTION_ID,
+} from "./testing/spec-pins.ts";
 
 const OWNER = "owner-a";
 const ME = "00000000-0000-4000-8000-000000000001";
@@ -76,8 +81,8 @@ beforeAll(async () => {
     agentId: AGENT,
     versionId,
     cardSha256: "0".repeat(64),
-    runtimeProfileId: "coding",
-    profileDigest: "digest",
+    connectionId: TEST_CONNECTION_ID,
+    ...releaseSpecColumns(),
     runtimeConfigSnapshot: {},
     effectiveTools: [],
   });
@@ -114,7 +119,9 @@ async function session(
     repoUrl: "https://example.invalid/app.git",
     branch: "main",
     createdByUserId: options.createdBy ?? ME,
-    ...(options.agent ? { agentReleaseId: RELEASE } : {}),
+    ...(options.agent
+      ? { agentReleaseId: RELEASE, ...sessionPinColumns() }
+      : {}),
   });
   if (options.share) await share(id, options.share, ownerId);
   return id;

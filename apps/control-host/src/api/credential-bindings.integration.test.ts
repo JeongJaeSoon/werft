@@ -40,12 +40,16 @@ import {
   createCredentialBindingService,
   createSessionService,
   type SessionCatalog,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import {
+  TEST_CONNECTION_ID,
+  TEST_RUNTIMES,
+  testCatalog,
+} from "../testing/catalog.ts";
 import { createApiApp } from "./app.ts";
 import {
   createBootstrapGate,
@@ -65,30 +69,20 @@ const BOOTSTRAP_TOKEN = "integration-bootstrap-token-0123456789";
 const PASSWORD = "an adequately long password";
 const REF = "notion_token";
 
-const catalog: SessionCatalog = withSeededInstallation({
-  profiles: {
-    "claude-coding-v1": {
-      runtime_kind: "claude_agent_sdk",
-      runtime_version: "0.3.270",
-      model: "claude-sonnet-5",
-      tools: ["Read", "Edit", "Bash"],
-      permission_mode: "default",
-      provider: {
-        kind: "litellm",
-        endpoint: "https://litellm.invalid",
-        auth: {
-          kind: "api_key",
-          value: "catalog-provider-key",
-          ref: { value_env: "PROVIDER_KEY" },
-        },
-      },
+const catalog: SessionCatalog = testCatalog({
+  provider: {
+    kind: "litellm",
+    endpoint: "https://litellm.invalid",
+    auth: {
+      kind: "api_key",
+      value: "catalog-provider-key",
+      ref: { value_env: "PROVIDER_KEY" },
     },
   },
   repositories: {
     "sample-app": {
       url: "https://example.invalid/app.git",
       branch: "main",
-      profiles: ["claude-coding-v1"],
       auth: { kind: "github_app", registered: true } as const,
     },
   },
@@ -141,6 +135,7 @@ integration("credential bindings over HTTP on PostgreSQL", () => {
       store: createPostgresAgentStore(db),
       catalog,
       credentials,
+      runtimes: TEST_RUNTIMES,
     });
     const sessionsWith = (
       releases: NonNullable<
@@ -288,7 +283,6 @@ integration("credential bindings over HTTP on PostgreSQL", () => {
       "/v1/sessions",
       { ...headers, "Idempotency-Key": key },
       {
-        profile_id: "claude-coding-v1",
         repository_id: "sample-app",
         message: "Summarise the minutes.",
         agent_release_id: release,
@@ -354,7 +348,7 @@ integration("credential bindings over HTTP on PostgreSQL", () => {
       asCookie(cookies.admin),
       {
         version_id: detail.versions[0]?.id,
-        runtime_profile_id: "claude-coding-v1",
+        connection_id: TEST_CONNECTION_ID,
         repository_id: "sample-app",
       },
     );
@@ -581,7 +575,7 @@ integration("credential bindings over HTTP on PostgreSQL", () => {
       asCookie(cookies.admin),
       {
         version_id: versions.versions.at(-1)?.id,
-        runtime_profile_id: "claude-coding-v1",
+        connection_id: TEST_CONNECTION_ID,
         repository_id: "sample-app",
       },
     );
@@ -632,7 +626,6 @@ integration("credential bindings over HTTP on PostgreSQL", () => {
         "Idempotency-Key": crypto.randomUUID(),
       },
       body: JSON.stringify({
-        profile_id: "claude-coding-v1",
         repository_id: "sample-app",
         message: "Summarise the minutes.",
         agent_release_id: releaseId,

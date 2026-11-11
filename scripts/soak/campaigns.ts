@@ -122,7 +122,12 @@ async function follow(
   };
   if (service === "api") {
     ctx.env.apiUrl = `http://127.0.0.1:${await hostPort(3000)}`;
-    ctx.api = new Api(ctx.env.apiUrl, ctx.env.apiKey);
+    ctx.api = new Api(
+      ctx.env.apiUrl,
+      ctx.env.apiKey,
+      undefined,
+      ctx.env.approveKey,
+    );
   } else if (service === "postgres") {
     const url = new URL(ctx.env.databaseUrl);
     url.port = await hostPort(5432);
@@ -1967,6 +1972,8 @@ const controlHostRoles: Campaign = {
         D2_GATE_COMMAND: `scripts/soak/campaign.sh ${ctx.id}`,
         D2_GATE_API_URL: ctx.env.apiUrl,
         D2_GATE_API_KEY: ctx.env.apiKey,
+        D2_GATE_APPROVE_KEY: ctx.env.approveKey,
+        D2_GATE_RELEASE_ID: process.env.D2_GATE_RELEASE_ID ?? "",
         D2_GATE_DATABASE_URL: ctx.env.databaseUrl,
         D2_GATE_S3_URL: ctx.env.s3Url,
         D2_GATE_CHAOS_URL: ctx.env.chaosUrl,
@@ -2110,7 +2117,7 @@ async function main(): Promise<number> {
   const model = new Model(env.messagesUrl);
   await model.setFaults(NO_FAULTS);
   const ctx: Ctx = {
-    api: new Api(env.apiUrl, env.apiKey),
+    api: new Api(env.apiUrl, env.apiKey, undefined, env.approveKey),
     chaos: new Chaos(env.chaosUrl),
     counter: 0,
     db,

@@ -5,7 +5,8 @@
 #
 # Builds the control-host, worker and egress-proxy images from this
 # checkout, starts the compose product stack under a project of its own with the gate overlay
-# (scripts/d2-gate/compose.yml), creates an API key,
+# (scripts/d2-gate/compose.yml), releases the gate's agent and issues its key
+# (scripts/d2-gate/release.ts),
 # then runs tests/d2-gate/gate.e2e.test.ts, tests/d2-gate/reconciler-sweep.e2e.test.ts
 # and tests/d2-gate/control-host-roles.e2e.test.ts against it and prints each
 # test's result (.github/scripts/d2-gate-verdict.ts). The report (JSON and
@@ -44,6 +45,8 @@ export EXECUTION_INSTALLATION_ID="d2g${run_id}"
 export API_IMAGE="werft-control-host:${project}"
 export WORKER_IMAGE="werft-worker:${project}"
 export EGRESS_PROXY_IMAGE="werft-egress-proxy:${project}"
+# The first owner's token: the gate's agent is released as that owner.
+export BOOTSTRAP_TOKEN="$(openssl rand -hex 24)"
 compose_files=(-f infra/compose.yml -f scripts/d2-gate/compose.yml)
 overrides="${D2_GATE_COMPOSE_OVERRIDE:-}"
 for file in ${overrides//:/ }; do
@@ -87,8 +90,13 @@ dc up -d --wait api >>"$out/up.log" 2>&1
 port() { dc port "$1" "$2" | sed 's/.*://'; }
 
 echo "== fixture" >&2
-api_key="$(dc exec -T api bun run apps/control-host/src/api/keys.ts create gate-owner \
-  --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover | tail -n 1)"
+# Every session runs an agent release: the first owner releases the gate's
+# agent on the gate-messages connection and holds the key the gate uses.
+release_vars="$(D2_GATE_API_URL="http://127.0.0.1:$(port api 3000)" bun scripts/d2-gate/release.ts)"
+api_key="$(printf '%s\n' "$release_vars" | sed -n 's/^D2_GATE_API_KEY=//p')"
+approve_key="$(printf '%s\n' "$release_vars" | sed -n 's/^D2_GATE_APPROVE_KEY=//p')"
+release_id="$(printf '%s\n' "$release_vars" | sed -n 's/^D2_GATE_RELEASE_ID=//p')"
+[ -n "$api_key" ] && [ -n "$approve_key" ] && [ -n "$release_id" ] || { echo "the gate's agent was not released" >&2; exit 1; }
 
 # The reconciler runs as the product runs it, on its own loop.
 dc up -d --wait scheduler reconciler >>"$out/up.log" 2>&1
@@ -100,6 +108,8 @@ export D2_GATE_PROJECT="$project"
 export D2_GATE_COMMAND="scripts/d2-gate/run.sh"
 export D2_GATE_API_URL="http://127.0.0.1:$(port api 3000)"
 export D2_GATE_API_KEY="$api_key"
+export D2_GATE_APPROVE_KEY="$approve_key"
+export D2_GATE_RELEASE_ID="$release_id"
 export D2_GATE_DATABASE_URL="postgres://postgres:dev@127.0.0.1:$(port postgres 5432)/sessions"
 export D2_GATE_S3_URL="http://127.0.0.1:$(port localstack 4566)"
 export D2_GATE_CHAOS_URL="http://127.0.0.1:$(port gate-chaos 8099)"

@@ -18,7 +18,6 @@ import { membersJa } from "./members.ts";
 import { modelsJa } from "./models.ts";
 import { outputsJa } from "./outputs.ts";
 import { preferencesJa } from "./preferences.ts";
-import { profilesJa } from "./profiles.ts";
 import { sessionListJa } from "./session-list.ts";
 import { settingsJa } from "./settings.ts";
 import { shellJa } from "./shell.ts";
@@ -86,16 +85,16 @@ export const slackJa = {
     "Request URL を Slack にもう一度送りました。Slack が確認すると状態が変わります。",
   "slack.repositoryRequired.title": "Slack からはセッションを開始できません",
   "slack.repositoryRequired.body":
-    "有効なリリース（プロファイル {profile}）では Slack のセッションを開始できません。プロファイルがリポジトリを必要とするのにリリースで選ばれていない、リリースのリポジトリがカタログから外れているかプロファイルやワークスペースの上限が許可していない、またはエージェントの GitHub 設定を読み取れないためです。Slack のメンションと DM は拒否され、スレッドに案内だけが残ります。接続はできます。GitHub 設定を確認し、「詳細設定」でリポジトリを使えるプロファイルを選んで保存すると、新しいリリースが作成されます。",
+    "有効なリリース（{release}）では Slack のセッションを開始できません。リリースのリポジトリがカタログから外れているかワークスペースの上限が許可していない、またはエージェントの GitHub 設定を読み取れないためです。Slack のメンションと DM は拒否され、スレッドに案内だけが残ります。接続はできます。GitHub 設定を確認し、「詳細設定」で保存し直すと、新しいリリースが作成されます。",
   "slack.issuerChanged.title": "別の Slack ユーザーが作成したアプリです",
   "slack.issuerChanged.body":
     "アプリを作成した Slack ユーザー（{previous}）と、現在の App Configuration Token のユーザー（{user}）が異なります。このトークンではアプリのインストールや変更ができない場合があります。インストールに失敗したら、{previous} のトークンを登録し直すか、{user} をアプリのコラボレーターに追加してください。Slack でアプリを削除済みの場合は、危険な操作でアプリを削除して、もう一度インストールしてください。",
-  "slack.profileUnavailable.title": "Slack からはセッションを開始できません",
-  "slack.profileUnavailable.body":
-    "有効なリリースのプロファイル（{profile}）がカタログにないか、リリース後に変更されたか、運用担当者がブロックしました。Slack のメンションと DM は拒否され、スレッドに案内だけが残ります。「詳細設定」で使えるプロファイルを選んで保存すると、新しいリリースが作成されます。",
+  "slack.releaseUnavailable.title": "Slack からはセッションを開始できません",
+  "slack.releaseUnavailable.body":
+    "有効なリリース（{release}）のモデル接続が無効になったか、そのモデルが接続のモデル一覧から外れました。Slack のメンションと DM は拒否され、スレッドに案内だけが残ります。「詳細設定」で使える接続とモデルを選んで保存すると、新しいリリースが作成されます。",
   "slack.noActiveRelease.title": "有効なリリースがありません",
   "slack.noActiveRelease.body":
-    "リリースが有効になるまで、Slack のメンションと DM は拒否され、スレッドに案内だけが残ります。「詳細設定」でプロファイルを選んで保存すると、最初のリリースが作成されます。",
+    "リリースが有効になるまで、Slack のメンションと DM は拒否され、スレッドに案内だけが残ります。「詳細設定」で接続とモデルを選んで保存すると、最初のリリースが作成されます。",
   "slack.state.error": "エラー",
   "slack.createInstall": "Slack アプリを作成してインストール",
   "slack.configToken.unset":
@@ -232,7 +231,6 @@ export const ja: Record<MessageKey, string> = {
   ...teamsJa,
   ...agentsJa,
   ...modelsJa,
-  ...profilesJa,
   ...settingsJa,
   ...sessionsJa,
   ...sessionListJa,

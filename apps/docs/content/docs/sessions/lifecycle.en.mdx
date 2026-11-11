@@ -181,8 +181,7 @@ When the session is waiting for a person, `attention` carries a `code` and a rea
 | `BUDGET_EXCEEDED` | The session cost or token limit was exceeded |
 | `TRANSCRIPT_LIMIT` | The transcript is near or over its limit. Time to move to a new session |
 | `STARTUP_FAILED`, `RESTORE_FAILED` | The worker cannot start or restore a checkpoint |
-| `CATALOG_MISMATCH` | An operator changed the profile or repository settings after the session was created |
-| `PROFILE_BLOCKED` | An owner blocked the session's profile (`reason_code: blocked`) or its base (`base_blocked`); `profile_id` names it. Until it is unblocked, new messages are refused with 409 `PROFILE_BLOCKED` |
+| `CATALOG_MISMATCH` | After the session was created, its connection was disabled, its model left the connection's list, or the repository settings changed |
 | `CONTEXT_GAP` | A recovery decision dropped part of the earlier conversation |
 
 ## Usage
@@ -233,7 +232,7 @@ It counts the sessions created in the period, and `cost_usd` is the sum of their
 
 `usage.outputs` in `GET /v1/limits` is the bytes session outputs (files under `out/`) take up in the object store (`used_bytes`). An output a later checkpoint carries over from an earlier one counts once, a file too large to upload does not count, and the figure drops when checkpoint cleanup deletes an object. `updated_at` is when the figure last changed, null if it never has. It is separate from `usage.storage` (input messages) and is not part of `storage_limit_bytes` enforcement. While a checkpoint made before outputs were recorded is still kept, its outputs are left out and `complete` is `false`.
 
-To split it by agent or by user, add `group_by=agent` or `group_by=user`. The response then carries `groups[{id, name, session_count, run_seconds, cost_usd, cost_complete}]`, and the groups' `session_count`, `cost_usd` and `run_seconds` add up to the totals above. Sessions without an agent, and sessions started by a key no person created, are the group whose `id` is null. `name` is the agent's name or the user's display name, never an email; under `scope=me` a user other than the caller has a null `name`. To split it by profile, use `group_by=profile`. Sessions are grouped by their current profile (`sessions.profile_id`), so a session that changed profile counts whole under the one it has now. Profiles have no display name, so both `id` and `name` are the profile id, and sessions without a profile are the group whose `id` is null.
+To split it by agent or by user, add `group_by=agent` or `group_by=user`. The response then carries `groups[{id, name, session_count, run_seconds, cost_usd, cost_complete}]`, and the groups' `session_count`, `cost_usd` and `run_seconds` add up to the totals above. Sessions without an agent, and sessions started by a key no person created, are the group whose `id` is null. `name` is the agent's name or the user's display name, never an email; under `scope=me` a user other than the caller has a null `name`.
 
 `GET /v1/limits?scope=me` is readable by any signed-in member. It gives the four per-session limits alone (`queued_input_limit_per_session`, `max_turn_seconds`, `session_cost_limit_usd`, `session_token_limit`) with no `usage`. API keys get 403.
 

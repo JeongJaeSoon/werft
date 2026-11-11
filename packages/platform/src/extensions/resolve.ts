@@ -6,12 +6,7 @@ const SKILL_TOOL = "Skill";
 export type ExtensionMode = (typeof EXTENSION_MODES)[number];
 
 /** Outermost first: a later scope can only narrow what an earlier one set. */
-export const EXTENSION_SCOPES = [
-  "profile",
-  "workspace",
-  "agent",
-  "session",
-] as const;
+export const EXTENSION_SCOPES = ["workspace", "agent", "session"] as const;
 export type ExtensionScope = (typeof EXTENSION_SCOPES)[number];
 
 export type ExtensionRef = {
@@ -47,10 +42,7 @@ export type ExtensionRefusalCode =
   | "bundle_not_approved"
   | "skill_name_collision"
   | "feature_unsupported"
-  | "skill_tool_not_allowed"
-  // No longer refused: a scripts bundle runs on its review, not the profile's
-  // mode. The public contract names the code until the profile API is removed.
-  | "scripts_need_default_mode";
+  | "skill_tool_not_allowed";
 
 export type ExtensionRefusal = {
   code: ExtensionRefusalCode;
@@ -88,7 +80,7 @@ const refuse = (
  *   engine sees skills as `<name>:<skill>`, so a name is the unit.
  *
  * `includeOptional` is the activation-time question: would every bundle a
- * session could turn on be allowed on this profile?
+ * session could turn on be allowed on this release?
  */
 export function resolveExtensions(input: {
   scopes: Partial<Record<Exclude<ExtensionScope, "session">, ScopeEntry[]>>;
@@ -219,14 +211,14 @@ export function resolveExtensions(input: {
       return refuse(
         "feature_unsupported",
         state.ref.name,
-        `"${state.ref.name}" carries skills, which this profile's runtime does not offer`,
+        `"${state.ref.name}" carries skills, which this release's runtime does not offer`,
       );
     }
     if (skills.length > 0 && !input.tools.includes(SKILL_TOOL)) {
       return refuse(
         "skill_tool_not_allowed",
         state.ref.name,
-        `"${state.ref.name}" carries skills, which the model uses only through the "${SKILL_TOOL}" tool, and this runtime profile's tools do not list it. Add "${SKILL_TOOL}" to the profile's \`tools\` list.`,
+        `"${state.ref.name}" carries skills, which the model uses only through the "${SKILL_TOOL}" tool, and this release's tools do not list it.`,
       );
     }
     for (const skill of skills) {

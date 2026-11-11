@@ -63,7 +63,7 @@ docker run --rm -i --network none --entrypoint bun <worker-image> \
 
 **エンジンを切り替えるには。** 一つのデプロイが二つのエンジンのイメージを同時に選ぶ方法はありません。新規セッションは常に現在のイメージで起動し、直前イメージは checkpoint の再開にだけ使われます。そのため、インストール時にエンジンを決めるのが最も単純です。稼働中のデプロイの `WORKER_IMAGE` を別のエンジンのイメージに置き換えるには、アップグレード検査（`upgrade-check`）の規則にそのまま従います。新しい設定の `WORKER_IMAGE_PREVIOUS` はいま配備されているイメージでなければならず、検査が再開できないと出力するセッション（checkpoint のエンジンが違うものだけでなく、SDK・CLI のバージョンや digest 方式が合わないもの、ランタイムが記録されていないものも含む）は、出力された一覧そのものを `upgrade.approvedSessions` で承認します。checkpoint はエンジン間で移せないため、切り替え後は直前イメージ（旧エンジン）で再開していたセッションが終わってから直前イメージを空にできます。
 
-`WORKER_IMAGE_RUNTIME` も `WORKER_IMAGE_PREVIOUS_RUNTIME` もなければ runtime の組み合わせを読まず、下記 pin 維持も適用しません。`WORKER_IMAGE_PREVIOUS_RUNTIME` だけがある、または値を読めなければ起動しません。設定すると、profile の `runtime_version` を次のイメージのバージョンに上げても、直前のイメージのバージョンで作った open セッションの profile pin は維持されます。現在のイメージに含まれない `runtime_version` の profile は新規セッションを受け付けません。ただし、組み込みツール対応一覧が現在のイメージの一覧と同じ前のバージョンは搭載しているものとして扱うので、その profile はアップグレード後も新規セッションを開始します。一覧が異なる SDK 更新リリースでは、上限ごとに `runtime_version` を上げた新バージョンも作ります（コンソールまたは `POST /v1/installation-profiles`）。
+両方なければ runtime の組み合わせを読まず、下記 pin 維持も適用しません。`WORKER_IMAGE_PREVIOUS_RUNTIME` だけがある、または値を読めなければ起動しません。設定すると、直前のイメージのバージョンで作ったリリースとそのセッションも動き続けます。リリースは作成時にイメージが載せていたランタイムのバージョンを固定するので、現在・直前のどちらのイメージも載せていないバージョンのリリースは新規セッションを受け付けません。そのエージェントはリリースし直します。
 
 GitHub Packages bot token（[決定](https://github.com/JeongJaeSoon/werft/blob/main/docs/contributing/decisions/github-packages-bot-token.md)）を別の host に送る必要がある場合だけ、次を設定します。GitHub Enterprise Server や試験用の偽 registry が該当します。値は http(s) URL で、userinfo・query・fragment があると API は起動しません。registry host は proxy の `EGRESS_CREDENTIAL_ALLOWLIST`（プライベートアドレスなら `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`）にも必要です。
 

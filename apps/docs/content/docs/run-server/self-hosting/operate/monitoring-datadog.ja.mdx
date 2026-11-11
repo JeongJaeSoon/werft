@@ -85,7 +85,7 @@ Agentは、Docker socketとcontainer log directoryをread-onlyでmountし、host
 - checkpoint pending age: `checkpoint_pending_reason IS NOT NULL`のsessionの`updated_at`のうち最も古い値を使います。checkpointと無関係な同じsessionの更新がこの時刻を動かすことがあるので、正確なSLIではなく下限のproxyです。
 - `outcome_unknown`: 直近5分に作られた`turns.outcome_unknown = true`のrow数です。
 - stale lease: `exited`・`lost`でないattemptのうち、`lease_expires_at < clock_timestamp()`である数です。
-- providerのコスト: 直近1時間の`cost_usd`の合計と、`priced_by = 'fallback'`のrow数です。`werft.provider.unmetered_tokens_1h`は、同じ1時間の`priced_by = 'unmetered'`のrowのトークン合計(input・output・cache write・cache read)です。`billing: none` profileはコストが0のまま残るので、有料のupstreamを誤って宣言したときに表に出るのはこのトークン数だけです。monitorは定義しません。正常値がインストールのローカルモデルの使用量に依存するためです。
+- providerのコスト: 直近1時間の`cost_usd`の合計と、`priced_by = 'fallback'`のrow数です。`werft.provider.unmetered_tokens_1h`は、同じ1時間の`priced_by = 'unmetered'`のrowのトークン合計(input・output・cache write・cache read)です。`billing: none` の接続はコストが0のまま残るので、有料のupstreamを誤って宣言したときに表に出るのはこのトークン数だけです。monitorは定義しません。正常値がインストールのローカルモデルの使用量に依存するためです。
 
 どのqueryも`session_id`を返しません。[`log-metrics.json`](https://github.com/JeongJaeSoon/werft/blob/main/infra/datadog/definitions/log-metrics.json)のgroup-byも、`service`・`env`とcardinalityの低い状態だけを使います。`session_id`は、incidentで元のログやDBを絞り込むときだけ使います。
 

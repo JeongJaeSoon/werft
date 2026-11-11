@@ -251,7 +251,6 @@ const SESSION_REFUSALS = [
   "SESSION_STOPPED",
   "SESSION_CLOSED",
   "RECOVERY_REQUIRED",
-  "PROFILE_BLOCKED",
 ] as const;
 
 function useRefusal(refusal: SessionActionProps["refusal"]) {

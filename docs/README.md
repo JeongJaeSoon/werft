@@ -61,7 +61,7 @@ API로 세션을 만들고 쓰는 사람.
 | [결정: GitHub Packages bot token](contributing/decisions/github-packages-bot-token.md) | 조직 bot classic PAT를 proxy가 붙이는 방식: 저장·scope 확인, 경로 기반 허용 목록, 실패하면 닫히는 감사, npm·Bundler 설정 |
 | [결정: GitHub Packages와 App token](contributing/decisions/github-packages-app-token.md) | App installation token으로 사설 npm·gem을 읽을 수 없다는 실측과 근거, 대신 고른 bot PAT 주입 방식과 나머지 대안 |
 | [결정: GitHub App manifest](contributing/decisions/github-app-manifest.md) | 콘솔에서 작성용 App을 manifest로 만드는 흐름, 일회용 state, 키·client secret을 한 트랜잭션에 저장, 교체 확인, 로그 마스킹 |
-| [결정: 실행 프로필 DB 단일 관리](contributing/decisions/profile-db.md) | 설치 상한·워크스페이스 프로필을 DB에서 관리하는 계약, YAML 이전, 3단계 롤백, PD-2~PD-5 계획 |
+| [결정: 실행 프로필 DB 단일 관리(폐기)](contributing/decisions/profile-db.md) | 실행 프로필을 DB에서 관리하던 계약의 기록. 프로필은 migration 0270에서 지웠다 |
 | [결정: GitHub App 저장소를 DB 카탈로그로](contributing/decisions/repository-catalog-db.md) | App 저장소의 정본을 `catalog_repositories`로 옮기는 결정과 한 번만 읽는 yaml 시드(일부는 파일 카탈로그를 설정으로 옮긴 결정이 대체) |
 | [결정(설계): 한 세션에서 여러 저장소와 PR](contributing/decisions/session-multi-repository.md) | 개수 제한 없이 한 세션이 여러 저장소에 push하고 PR을 여는 설계, 원격 여러 개·push 대상·게이트의 저장소 인자 |
 | [결정: 세션에 저장소를 붙여 쓰기](contributing/decisions/session-repository-attachment.md) | 세션을 저장소에 묶지 않고 0개 이상으로 시작해 도중에 붙이는 방식, 기본 저장소, 상한과 사용 범위 |

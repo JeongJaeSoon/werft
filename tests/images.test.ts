@@ -654,7 +654,6 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     const documents: Record<string, string> = {
       "tests/fixtures/settings/real-model.json": "sample-app",
       "tests/fixtures/settings/fake-model.json": "sample-app",
-      "tests/fixtures/settings/fake-model-unattended.json": "sample-app",
       "tests/fixtures/settings/local-model.json": "sample-app",
       ".claude/skills/verify-werft/github-sandbox/settings.json": "sample-app",
       "scripts/d2-gate/settings.json": "gate-app",
@@ -2879,7 +2878,6 @@ describe("compose layers", () => {
         "ANTHROPIC_API_KEY",
         "PLATFORM_SECRET_KEY",
         "SETTINGS_DOCUMENT",
-        "PLATFORM_ALLOW_UNATTENDED_PERMISSIONS",
         "EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST",
       ],
     ],

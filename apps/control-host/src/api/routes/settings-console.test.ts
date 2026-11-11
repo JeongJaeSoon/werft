@@ -156,6 +156,15 @@ const WRITES: ReadonlyArray<{
     args: ["console", "supported"],
   },
   {
+    method: "POST",
+    path: `${BASE}/connections/console/models`,
+    service: "setConnectionModels",
+    body: { models: ["claude-sonnet-5"] },
+    invalid: { models: [""] },
+    status: 200,
+    args: ["console", { models: ["claude-sonnet-5"] }],
+  },
+  {
     method: "PATCH",
     path: `${BASE}/mcp-servers/console`,
     service: "setMcpWorkspaces",
@@ -181,6 +190,8 @@ describe("GET /v1/installation/settings/{kind}", () => {
               billing: "none",
               auth_kind: "api_key",
               auto_mode: "unknown",
+              models: ["claude-sonnet-5"],
+              model_families: null,
               credential: { source: "external", value_env: "FAKE_KEY" },
               created_at: "2026-11-04T03:00:00.000Z",
               disabled_at: null,
@@ -217,7 +228,6 @@ describe("GET /v1/installation/settings/connections/{id}/impact", () => {
   const path = `${BASE}/connections/console/impact`;
   const IMPACT = {
     id: "console",
-    profile_count: 2,
     agent_count: 3,
     session_count: 1,
     judge_used: false,

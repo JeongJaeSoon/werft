@@ -381,26 +381,22 @@ export function createGitHubRepositoryService(deps: {
   /**
    * The catalog rows the workspace ceiling allows for an agent, together
    * with the installation page's repositories: one entry per repository,
-   * the page's answer for its name and visibility winning. `rows` are the
-   * console App's; `choosable` adds the rows with an App of their own. A PAT
+   * the page's answer for its name and visibility winning. `choosable` are
+   * the console App's rows and those with an App of their own. A PAT
    * repository the ceiling names cannot be chosen for an agent
    * (`app_required`), so it is no choice here. As in `ceilingHolds`, an
-   * `installed` ceiling opens the console App's rows and a row with an App of
-   * its own is open only when the ceiling names it.
+   * `installed` ceiling opens every row a GitHub App reaches, the console
+   * App's or one of its own; a `listed` one opens only the rows it names.
    */
   const choicesOf = (
     page: readonly GitHubInstallationRepository[],
-    rows: readonly CatalogRepositoryRow[],
     choosable: readonly CatalogRepositoryRow[],
     ceiling: RepositoryCeiling | null,
   ): AgentGitHubRepositoryChoice[] => {
-    const consoleApp = new Set(rows.map((row) => row.id));
     const opened =
       ceiling === null || ceiling.github_app_repositories === "installed";
     const allowed = choosable.filter(
-      (row) =>
-        (opened && consoleApp.has(row.id)) ||
-        ceiling?.repository_ids.includes(row.id) === true,
+      (row) => opened || ceiling?.repository_ids.includes(row.id) === true,
     );
     const choices: AgentGitHubRepositoryChoice[] = [];
     // The same GitHub id is one repository. A name settles it only where an
@@ -565,8 +561,7 @@ export function createGitHubRepositoryService(deps: {
 
   /**
    * An agent's repositories may be picked among the App's when the
-   * workspace's ceiling says `installed` (design 3.2); the profile of its
-   * release no longer decides.
+   * workspace's ceiling says `installed` (design 3.2).
    */
   async function installedCeiling(workspaceId: string, agentId: string) {
     const detail = await deps.agents.get(workspaceId, agentId);
@@ -785,7 +780,7 @@ export function createGitHubRepositoryService(deps: {
         return {
           ...empty,
           repositories: [],
-          all_repositories: choicesOf([], rows, choosable, ceiling),
+          all_repositories: choicesOf([], choosable, ceiling),
           unavailable: blocked,
         };
       }
@@ -799,12 +794,7 @@ export function createGitHubRepositoryService(deps: {
         repositories: page.repositories.map((repository) =>
           agentRepositoryOf(repository, rows),
         ),
-        all_repositories: choicesOf(
-          page.repositories,
-          rows,
-          choosable,
-          ceiling,
-        ),
+        all_repositories: choicesOf(page.repositories, choosable, ceiling),
       };
     },
 

@@ -10,6 +10,7 @@ import {
   createAgentReleaseResponseSchema,
   type ListAgentsQuery,
   listAgentsResponseSchema,
+  listConnectionOptionsResponseSchema,
   listUsableAgentsResponseSchema,
   requestBodyInvalidDetailsSchema,
   saveAgentResponseSchema,
@@ -20,15 +21,17 @@ import {
   type AgentStore,
   type AuthorizationPolicy,
   type Caller,
-  type CatalogProfile,
   callerFor,
   createAgentService,
   createAuthorizationPolicy,
   deriveReleaseId,
   InvalidCursorError,
-  profileFingerprint,
-  withSeededInstallation,
 } from "@werft-ai/platform";
+import {
+  TEST_CONNECTION_ID,
+  TEST_RUNTIMES,
+  testCatalog,
+} from "../../testing/catalog.ts";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerAgentRoutes } from "./agents.ts";
 
@@ -39,23 +42,6 @@ const VERSION = "019a0000-0000-7000-8000-0000000000a2";
 const OWNER_USER = "019a0000-0000-7000-8000-0000000000b1";
 const RECEIPT = "4d6d1a3e-1f1c-4c3a-9f3e-2b1c1d1e1f10";
 const AT = "2026-10-11T00:00:00.000Z";
-
-const PROFILE: CatalogProfile = {
-  runtime_kind: "claude_agent_sdk",
-  runtime_version: "0.3.270",
-  model: "claude-sonnet-5",
-  tools: ["Read", "Grep"],
-  permission_mode: "default",
-  provider: {
-    kind: "litellm",
-    endpoint: "https://litellm.invalid",
-    auth: {
-      kind: "api_key",
-      value: "catalog-provider-key",
-      ref: { value_env: "PROVIDER_KEY" },
-    },
-  },
-};
 
 const card = {
   role: "재무 분석가",
@@ -68,7 +54,6 @@ const card = {
 
 const detail: AgentRecord = {
   behavior_revision: 0,
-  model_source: "fixed",
   draft: null,
   agent: {
     id: AGENT,
@@ -101,13 +86,12 @@ const detail: AgentRecord = {
   active_release: null,
 };
 
-function storedRelease(profile: CatalogProfile = PROFILE): AgentRelease {
+function storedRelease(): AgentRelease {
   const identity = {
     agent_id: AGENT,
     card_sha256: "a".repeat(64),
-    runtime_profile_id: "coding",
+    connection_id: TEST_CONNECTION_ID,
     repository_id: null,
-    profile_digest: profileFingerprint(profile),
     runtime_config_snapshot: { model: "claude-sonnet-5" },
     effective_tools: { tools: ["Read"], mcp: [] },
     policy_pins: {
@@ -171,8 +155,7 @@ function store(overrides: Partial<AgentStore> = {}): AgentStore {
     modelMigrationCandidates: async () => [],
     activationActor: async () => null,
     notifyModelMigrationFailed: async () => 0,
-    followProfile: async () => ({ outcome: "updated" as const }),
-    insertRelease: async ({ release }) => ({
+    insertRelease: async ({ release: { spec: _spec, ...release } }) => ({
       outcome: "created",
       release: {
         ...release,
@@ -224,35 +207,35 @@ function app(
     authorization?: AuthorizationPolicy;
     person?: boolean;
     unbound?: string[];
+    /** The release's connection is gone from the catalog. */
     blocked?: boolean;
   } = {},
 ) {
-  const catalog = withSeededInstallation({
-    profiles: { coding: PROFILE },
+  const catalog = testCatalog({
+    ...(options.blocked ? { connections: {} } : {}),
+    provider: {
+      kind: "litellm",
+      endpoint: "https://litellm.invalid",
+      auth: {
+        kind: "api_key",
+        value: "catalog-provider-key",
+        ref: { value_env: "PROVIDER_KEY" },
+      },
+    },
     repositories: {
       "sample-app": {
         url: "https://github.com/acme/sample-app",
         branch: "main",
-        profiles: ["coding"],
         auth: { kind: "github_app", registered: true } as const,
       },
     },
   });
-  const coding = catalog.installation?.get("coding");
   const service = createAgentService({
     authorization: options.authorization ?? allowing,
     store: agentStore,
-    catalog:
-      options.blocked && catalog.installation && coding
-        ? {
-            ...catalog,
-            installation: new Map([
-              ...catalog.installation,
-              ["coding", { ...coding, state: "blocked" }],
-            ]),
-          }
-        : catalog,
+    catalog,
     credentials: { unboundRefs: async () => options.unbound ?? [] },
+    runtimes: TEST_RUNTIMES,
   });
   const routed: Routed =
     options.person === false
@@ -261,6 +244,8 @@ function app(
           listAgents: (caller, query) =>
             service.listAgents(asPerson(caller), query),
           countAgents: (caller) => service.countAgents(asPerson(caller)),
+          listConnections: (caller) =>
+            service.listConnections(asPerson(caller)),
           listUsableAgents: (caller) =>
             service.listUsableAgents(asPerson(caller)),
           getAgent: (caller, id) => service.getAgent(asPerson(caller), id),
@@ -349,12 +334,13 @@ describe("GET /v1/agents", () => {
       (await send(api, "GET", `/v1/agents?ids=${AGENT},${other}`)).status,
     ).toBe(200);
     expect(
-      (await send(api, "GET", "/v1/agents?runtime_profile_id=coding")).status,
+      (await send(api, "GET", `/v1/agents?connection_id=${TEST_CONNECTION_ID}`))
+        .status,
     ).toBe(200);
     expect(asked).toEqual([
       { limit: 50, q: "notes" },
       { limit: 50, ids: [AGENT, other] },
-      { limit: 50, runtime_profile_id: "coding" },
+      { limit: 50, connection_id: TEST_CONNECTION_ID },
     ]);
     const tooMany = Array.from({ length: 101 }, () => AGENT).join(",");
     for (const query of [
@@ -364,8 +350,8 @@ describe("GET /v1/agents", () => {
       "ids=not-an-id",
       `ids=${AGENT},`,
       `ids=${tooMany}`,
-      "runtime_profile_id=",
-      `runtime_profile_id=${"p".repeat(129)}`,
+      "connection_id=",
+      `connection_id=${"p".repeat(129)}`,
     ]) {
       const response = await send(api, "GET", `/v1/agents?${query}`);
       expect(response.status, query.slice(0, 40)).toBe(400);
@@ -427,9 +413,10 @@ describe("GET /v1/agents", () => {
           list: () =>
             Promise.reject(new Error("a key never lists the workspace")),
         }),
-        catalog: { profiles: {}, repositories: {} },
+        catalog: testCatalog(),
         credentials: { unboundRefs: async () => [] },
         keys: stored(kind),
+        runtimes: TEST_RUNTIMES,
       });
     const key = callerFor(
       {
@@ -455,8 +442,8 @@ describe("GET /v1/agents", () => {
       [{ limit: 50, q: "no such agent" }, 0],
       [{ limit: 50, ids: [AGENT.toUpperCase()] }, 1],
       [{ limit: 50, ids: ["1b4e28ba-2fa1-11d2-883f-0016d3cca427"] }, 0],
-      // No active release, so on no profile.
-      [{ limit: 50, runtime_profile_id: "coding" }, 0],
+      // No active release, so on no connection.
+      [{ limit: 50, connection_id: TEST_CONNECTION_ID }, 0],
     ];
     for (const [query, kept] of filters) {
       const page = await service("agent").listAgents(key, query);
@@ -801,6 +788,33 @@ describe("POST /v1/agents", () => {
   });
 });
 
+describe("GET /v1/connections", () => {
+  test("lists the enabled connections with their models and no credential", async () => {
+    const response = await send(app(), "GET", "/v1/connections");
+    expect(response.status).toBe(200);
+    const body = listConnectionOptionsResponseSchema.parse(
+      await response.json(),
+    );
+    expect(body.items).toEqual([
+      {
+        id: TEST_CONNECTION_ID,
+        kind: "litellm",
+        billing: "metered",
+        models: ["claude-sonnet-5"],
+        model_successors: {},
+      },
+    ]);
+    expect(JSON.stringify(body)).not.toContain("catalog-provider-key");
+  });
+
+  test("requires authentication and refuses an API key", async () => {
+    expect(
+      (await send(app(), "GET", "/v1/connections", undefined, {})).status,
+    ).toBe(401);
+    expect((await send(keyOnly(), "GET", "/v1/connections")).status).toBe(403);
+  });
+});
+
 describe("GET /v1/agents/{id}", () => {
   test("returns versions, releases and the active release", async () => {
     const response = await send(app(), "GET", `/v1/agents/${AGENT}`);
@@ -838,7 +852,7 @@ describe("PATCH /v1/agents/{id}", () => {
     const api = app(store({ update: async () => ({ outcome: "stale" }) }));
     const response = await send(api, "PATCH", `/v1/agents/${AGENT}`, {
       card,
-      runtime_profile_id: "coding",
+      connection_id: TEST_CONNECTION_ID,
     });
     expect(response.status).toBe(409);
     expect(await codeOf(response)).toBe("REVISION_CONFLICT");
@@ -859,15 +873,15 @@ describe("PATCH /v1/agents/{id}", () => {
       ),
       "PATCH",
       `/v1/agents/${AGENT}`,
-      { card, runtime_profile_id: "coding" },
+      { card, connection_id: "missing" },
     );
     expect(released.status).toBe(200);
     const body = saveAgentResponseSchema.parse(await released.json());
-    // This catalog's profile needs a repository the agent never had: the
-    // card is kept and the refusal is the answer, not an error status.
+    // The installation has no such connection: the card is kept and the
+    // refusal is the answer, not an error status.
     expect(body.release).toEqual({
       status: "failed",
-      reason: "release_refused",
+      reason: "connection_unknown",
       release_id: null,
       version_id: body.versions.at(-1)?.id as string,
     });
@@ -931,7 +945,7 @@ describe("POST /v1/agents/{id}/releases", () => {
   const path = `/v1/agents/${AGENT}/releases`;
   const body = {
     version_id: VERSION,
-    runtime_profile_id: "coding",
+    connection_id: TEST_CONNECTION_ID,
     repository_id: "sample-app",
   };
 
@@ -967,36 +981,33 @@ describe("POST /v1/agents/{id}/releases", () => {
     }
   });
 
-  test("a release without a repository for a profile that needs one is 422 and says why", async () => {
+  test("a release without a repository is made on none", async () => {
     const { repository_id: _, ...bare } = body;
     const response = await send(app(), "POST", path, bare);
-    expect(response.status).toBe(422);
-    expect(await response.json()).toMatchObject({
-      error: {
-        code: "UNSUPPORTED_CAPABILITY",
-        message:
-          "repository_id: Profile coding needs a repository: send repository_id",
-      },
-    });
+    expect(response.status).toBe(200);
+    const released = createAgentReleaseResponseSchema.parse(
+      await response.json(),
+    );
+    expect(released.release.repository_id).toBeNull();
+    expect(released.release.connection_id).toBe(TEST_CONNECTION_ID);
   });
 
-  test("a profile the operator blocked is 409 PROFILE_BLOCKED naming it", async () => {
+  test("a release for an agent whose GitHub settings have a row of their own is 409", async () => {
     const response = await send(
-      app(store(), { blocked: true }),
+      app(
+        store({
+          insertRelease: async () => ({ outcome: "github_settings_exist" }),
+        }),
+      ),
       "POST",
       path,
       body,
     );
     expect(response.status).toBe(409);
-    expect(await response.json()).toMatchObject({
-      error: {
-        code: "PROFILE_BLOCKED",
-        details: { reason_code: "blocked", profile_id: "coding" },
-      },
-    });
+    expect(await codeOf(response)).toBe("ALREADY_EXISTS");
   });
 
-  test("a stored card that still holds built-in tool fields releases; an unknown profile is 422", async () => {
+  test("a stored card that still holds built-in tool fields releases; an unknown connection is 422", async () => {
     const legacy = {
       ...detail.versions[0],
       card: {
@@ -1019,7 +1030,7 @@ describe("POST /v1/agents/{id}/releases", () => {
       (
         await send(app(), "POST", path, {
           ...body,
-          runtime_profile_id: "missing",
+          connection_id: "missing",
         })
       ).status,
     ).toBe(422);
@@ -1076,18 +1087,6 @@ describe("POST /v1/agents/{id}/activate", () => {
     );
     expect(response.status).toBe(409);
     expect(await codeOf(response)).toBe("REVISION_CONFLICT");
-  });
-
-  test("a release made against a since-changed profile is 409 PROFILE_DIGEST_MISMATCH", async () => {
-    const stale = storedRelease({ ...PROFILE, tools: ["Read"] });
-    const response = await send(
-      app(store({ findRelease: async () => stale })),
-      "POST",
-      path,
-      { ...body, release_id: stale.id },
-    );
-    expect(response.status).toBe(409);
-    expect(await codeOf(response)).toBe("PROFILE_DIGEST_MISMATCH");
   });
 
   test("a release naming an unbound credential is 409 CREDENTIAL_UNBOUND with the names", async () => {

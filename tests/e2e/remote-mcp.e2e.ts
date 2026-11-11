@@ -5,7 +5,6 @@ import {
   type ErrorBody,
   e2eEnv,
   firstOwnerCookie,
-  PROFILE_ID,
   poll,
   REPOSITORY_ID,
   type SseEvent,
@@ -97,7 +96,6 @@ async function startSession(steps: Step[], id: string) {
   const response = await api.request<
     { session_id: string; turn_id: string } & ErrorBody
   >("POST", "/v1/sessions", {
-    profile_id: PROFILE_ID,
     repository_id: REPOSITORY_ID,
     message: scripted(id, steps, `${id} done`),
     agent_release_id: releaseId,
@@ -119,8 +117,8 @@ afterAll(async () => {
 
 /**
  * Settles a turn, allowing each permission request as it comes; `before`
- * runs ahead of the answer to the n-th one (0-based). The local profile is
- * `permission_mode: default`, so a pinned tool still asks.
+ * runs ahead of the answer to the n-th one (0-based). The fake-messages connection
+ * runs `permission_mode: default` (no auto mode), so a pinned tool still asks.
  */
 async function settle(
   sessionId: string,
@@ -203,13 +201,27 @@ beforeAll(async () => {
     release: { id: string; effective_tools: unknown };
   }>("POST", `/v1/agents/${agentId}/releases`, {
     version_id: created.body.versions[0]?.id,
-    runtime_profile_id: PROFILE_ID,
+    connection_id: "fake-messages",
     repository_id: REPOSITORY_ID,
   });
   expect(released.status).toBe(200);
   releaseId = released.body.release.id;
   expect(released.body.release.effective_tools).toEqual({
-    tools: ["Read", "Edit", "Write", "Glob", "Grep", "Bash", "AskUserQuestion"],
+    // The runtime's whole built-in catalog and its subagent tool.
+    tools: [
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep",
+      "NotebookEdit",
+      "Bash",
+      "AskUserQuestion",
+      "WebFetch",
+      "WebSearch",
+      "Skill",
+      "Agent",
+    ],
     mcp: ["mcp__fake__whoami"],
   });
   const activate = () =>

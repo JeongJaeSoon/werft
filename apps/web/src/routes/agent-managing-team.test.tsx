@@ -426,7 +426,6 @@ describe("목록의 담당 팀", () => {
     ).closest("[data-slot=card]") as HTMLElement;
     expect(card.textContent).toContain("재무");
     expect(card.textContent).toContain("설정은 담당 팀과 관리자만 봅니다.");
-    expect(card.textContent).not.toContain("프로필");
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(
       api.calls.some((c) => /^\/v1\/agents\/(?!counts$)[^/]+/.test(c.path)),

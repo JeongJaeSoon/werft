@@ -131,7 +131,6 @@ export type GitHubSessionContext = {
   ownerId: string;
   sessionId: string;
   repositoryId: string | null;
-  profileId: string | null;
   /** Null: none given at creation, so the release's list applies whole. */
   attachedRepositoryIds: string[] | null;
   /** The URL and branch the session pinned at creation. */

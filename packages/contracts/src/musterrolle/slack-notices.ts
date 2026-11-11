@@ -19,9 +19,9 @@ const SLACK_NOTICE_MESSAGES_KO = {
     "연결 설정이 바뀌어 시작하지 못했어요. 에이전트 관리자에게 문의하세요",
   failed: "지금은 요청을 처리하지 못했어요. 잠시 뒤 다시 시도해 주세요",
   repositoryRequired:
-    "이 에이전트의 릴리스에 쓸 수 있는 저장소가 없거나(저장소를 고르지 않았거나, 카탈로그에서 빠졌거나, 프로필·워크스페이스 상한이 허용하지 않아요) 에이전트의 GitHub 설정을 읽을 수 없어 시작하지 못했어요. 에이전트 관리자가 웹 콘솔에서 GitHub 설정을 확인하고, 저장소가 필요하면 골라 새 릴리스를 만들고 활성화해야 해요",
-  profileUnavailable:
-    "이 에이전트의 릴리스가 쓰는 프로필이 지금 카탈로그에 없거나, 바뀌었거나, 운영자가 차단해 시작하지 못했어요. 에이전트 관리자가 웹 콘솔에서 쓸 수 있는 프로필로 새 릴리스를 만들고 활성화해야 해요",
+    "이 에이전트의 릴리스에 쓸 수 있는 저장소가 없거나(저장소를 고르지 않았거나, 카탈로그에서 빠졌거나, 워크스페이스 상한이 허용하지 않아요) 에이전트의 GitHub 설정을 읽을 수 없어 시작하지 못했어요. 에이전트 관리자가 웹 콘솔에서 GitHub 설정을 확인하고, 저장소가 필요하면 골라 새 릴리스를 만들고 활성화해야 해요",
+  releaseUnavailable:
+    "이 에이전트의 릴리스가 쓰는 연결이 꺼졌거나 그 모델이 연결 목록에서 빠져 시작하지 못했어요. 에이전트 관리자가 웹 콘솔에서 쓸 수 있는 연결과 모델로 새 릴리스를 만들고 활성화해야 해요",
   noActiveRelease:
     "이 에이전트는 아직 활성화된 릴리스가 없어요. 에이전트 관리자가 웹 콘솔에서 릴리스를 활성화해야 해요",
   pendingApproval: "이 채널은 관리자 승인을 기다리고 있어요",
@@ -57,9 +57,9 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
     failed:
       "現在リクエストを処理できませんでした。しばらくしてからもう一度お試しください",
     repositoryRequired:
-      "このエージェントのリリースで使えるリポジトリがないか(リポジトリが選ばれていない、カタログから外れている、またはプロファイルやワークスペースの上限が許可していません)、エージェントのGitHub設定を読み取れないため、開始できませんでした。エージェントの管理者がWebコンソールでGitHub設定を確認し、リポジトリが必要なら選んで、新しいリリースを作成して有効化する必要があります",
-    profileUnavailable:
-      "このエージェントのリリースが使うプロファイルが、カタログにないか、変更されたか、運用担当者によってブロックされたため、開始できませんでした。エージェントの管理者がWebコンソールで使えるプロファイルの新しいリリースを作成して有効化する必要があります",
+      "このエージェントのリリースで使えるリポジトリがないか(リポジトリが選ばれていない、カタログから外れている、またはワークスペースの上限が許可していません)、エージェントのGitHub設定を読み取れないため、開始できませんでした。エージェントの管理者がWebコンソールでGitHub設定を確認し、リポジトリが必要なら選んで、新しいリリースを作成して有効化する必要があります",
+    releaseUnavailable:
+      "このエージェントのリリースが使う接続が無効になったか、そのモデルが接続の一覧から外れたため、開始できませんでした。エージェントの管理者がWebコンソールで使える接続とモデルの新しいリリースを作成して有効化する必要があります",
     noActiveRelease:
       "このエージェントにはまだ有効なリリースがありません。エージェントの管理者がWebコンソールでリリースを有効化する必要があります",
     pendingApproval: "このチャンネルは管理者の承認を待っています",
@@ -85,9 +85,9 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
       "The connection settings changed, so the agent couldn't start. Contact the agent's admin",
     failed: "We couldn't process the request right now. Try again shortly",
     repositoryRequired:
-      "The agent couldn't start because its release has no repository it can use (none was chosen, it was removed from the catalog, or the profile or workspace ceiling does not allow it) or its GitHub settings can't be read. An agent admin needs to check the GitHub settings in the web console and, if a repository is needed, choose one, then create and activate a new release",
-    profileUnavailable:
-      "The agent couldn't start because its release's profile is missing from the catalog, has changed, or was blocked by an operator. An agent admin needs to create and activate a new release with an available profile in the web console",
+      "The agent couldn't start because its release has no repository it can use (none was chosen, it was removed from the catalog, or the workspace ceiling does not allow it) or its GitHub settings can't be read. An agent admin needs to check the GitHub settings in the web console and, if a repository is needed, choose one, then create and activate a new release",
+    releaseUnavailable:
+      "The agent couldn't start because its release's connection was disabled or its model left the connection's list. An agent admin needs to create and activate a new release on an available connection and model in the web console",
     noActiveRelease:
       "This agent has no active release yet. An agent admin needs to activate a release in the web console",
     pendingApproval: "This channel is waiting for an admin's approval",

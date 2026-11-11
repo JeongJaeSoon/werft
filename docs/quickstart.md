@@ -55,8 +55,11 @@ cd werft
 
 ```bash
 scripts/local.sh up --fake-model
-KEY=$(scripts/local.sh key quickstart \
+KEY=$(scripts/local.sh demo-key \
   --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover)
+export WERFT_AGENT_RELEASE_ID=$(scripts/local.sh demo-release release-notes)
+# 답은 세션을 연 key가 아닌 다른 key로 한다(자기 승인 금지).
+APPROVER_KEY=$(scripts/local.sh demo-key --scopes sessions:read,sessions:approve)
 echo "${KEY:0:12}…"
 scripts/local.sh status
 ```
@@ -68,7 +71,7 @@ scripts/local.sh status
 - `reconciler`(pass가 끝날 때마다 10초 쉬고 다음 pass를 돈다. lease가 만료된 세션과 orphan 세션을 다시 queue에 넣거나 복구 대상으로 표시하고, 기한을 넘긴 interrupt·terminate receipt를 `unknown`으로 마감한다. 사용량 API가 읽는 도구 호출 표도 이 pass가 채운다)
 - `worker`는 상주하지 않는다. 이미지 빌드와 `claude --version` 확인만 하고 끝난다. 실제 워커는 scheduler가 세션마다 띄운다
 
-`key`는 API 컨테이너 안에서 key CLI(`apps/control-host/src/api/keys.ts`)를 돌린다. key는 stdout에 **한 번만** 출력되고, 폐기할 때 쓰는 key id는 stderr의 `key_id …` 줄에 나온다. 위 `echo`는 발급됐는지만 앞 12자로 확인한다. `quickstart`는 key의 owner id다. 웹 콘솔 사용자와 세션을 공유하려면 그 사용자의 workspace id를 쓴다. `--scopes`는 필수이며 위 목록이 전부다. 복구 결정(`sessions:recover`)을 빼면 ⑨의 recovery 호출이 403이다.
+`key`는 API 컨테이너 안에서 key CLI(`apps/control-host/src/api/keys.ts`)를 돌린다. key는 stdout에 **한 번만** 출력되고, 폐기할 때 쓰는 key id는 stderr의 `key_id …` 줄에 나온다. 위 `echo`는 발급됐는지만 앞 12자로 확인한다. `demo-key`는 데모 owner(`demo-owner@example.test`)의 개인 key를 workspace `demo`에 발급한다(`key --workspace <workspace id> --personal <user id>`와 같다). 세션은 언제나 에이전트 release로 만들므로, `demo-release release-notes`가 데모 에이전트 `release-notes`의 활성 release id를 읽어 `WERFT_AGENT_RELEASE_ID`에 넣는다. 둘 다 `up --fake-model`이 만든 데모 데이터를 읽기만 한다. `--scopes`는 필수이며 위 목록이 전부다. 복구 결정(`sessions:recover`)을 빼면 ⑨의 recovery 호출이 403이다.
 
 `status`는 컨테이너 목록과 `/readyz` 응답을 보여 준다. api·scheduler·reconciler가 running이면 다음 장으로 넘어간다.
 
@@ -89,7 +92,7 @@ scripts/local.sh status
 - Helm 설치는 미리보기 설치만 예외다. 게시 이미지에는 두 CLI가 없으므로, 미리보기는 `deploy/kind/up.sh`가 `local` target으로 빌드한 control-host 이미지로 설치한 것이어야 한다. chart의 `preview.enabled: true`(기본 false)가 api Pod에 자기 namespace를 담은 `PREVIEW_NAMESPACE`를 넣고, `DATABASE_URL`의 host가 그 namespace의 `postgres` Service(`postgres`·`postgres.<ns>`·`postgres.<ns>.svc`·`postgres.<ns>.svc.cluster.local`)이고 그 host가 실제로 `postgres.<ns>.svc.cluster.local`과 같은 주소로 풀릴 때만 두 CLI가 돈다(Service가 없으면 짧은 이름이 Pod의 search domain을 따라 다른 host로 풀릴 수 있어서다). 하나라도 아니면 위와 같이 exit 2다. `api.extraEnv`로 `PREVIEW_NAMESPACE`를 넣으면 chart 렌더가 실패한다. 미리보기 설치에서는 `kubectl -n <ns> exec deploy/werft-api -- env DEMO_ACCOUNTS=local bun run apps/control-host/src/api/demo-accounts.ts`, 이어서 같은 방식으로 `demo-data.ts`를 부른다(`demo-data.ts`는 fake model catalog가 필요하다).
 - 사용자는 있는데 살아 있는 owner가 없는 설치도 거부한다. 그 상태의 bootstrap은 복구여서 모든 세션을 끝낸다.
 
-`--fake-model`로 띄운 스택에서는 계정 다음에 화면을 채울 데모 데이터를 공개 API로 더한다(`apps/control-host/src/api/demo-data.ts`). 데모 owner가 에이전트 셋(`release-notes`·`code-review`는 저장소 `sample-app`, `support-triage`는 저장소 없음)을 만들어 활성화하고, owner와 member가 세션 일곱 개를 연다. owner의 세션은 쉬는 중(성과물 `out/release-notes.md` 하나), 작업 중, 권한 요청 대기, 종료가 하나씩이고, member의 세션은 질문 대기, 쉬는 중, 제목 없는 쉬는 중이다. owner의 작업 중·권한 요청 세션은 owner에게만 공유돼 있어 member 목록에는 다섯 개, owner 목록에는 일곱 개가 보인다. 모델은 fake가 대본대로 답하므로 세션 상세의 첫 메시지에 `GATE-SPEC` 대본이 그대로 보이고, 사용량은 fake 호출이 남긴 아주 작은 값이다. 시드는 세션을 하나씩 열고 원하는 상태가 될 때까지 기다리므로 몇 분 걸린다. 상태는 시드 직후의 모습이다. 작업 중 세션은 fake가 단계마다 답을 늦게 돌려줘서 약 1시간(worker의 turn 상한) 작업 중으로 남고, 질문·권한 요청은 답하지 않으면 30분 뒤 만료된다. 그 뒤 화면을 다시 채우려면 `scripts/local.sh reset --fake-model`로 새로 띄운다(데이터를 모두 지운다). 에이전트는 slug로, 세션은 제목으로(제목 없는 세션은 첫 메시지로) 찾아 이미 있으면 건너뛴다. 그래서 다시 돌려도 중복이 없고 기존 데이터를 지우거나 바꾸지 않는다. 시드는 끝날 때 자기가 연 로그인 세션을 로그아웃해서, 다시 돌려도 브라우저의 데모 로그인이 밀려나지 않는다. 앞선 시드가 세션을 만든 뒤 마무리 전에 실패했으면(owner만 공유, 성과물, 종료 중 하나가 빠짐) 다시 돌릴 때 `incomplete`를 출력하고 실패한다. 쉬는 중·답변 대기·작업 중은 시드 뒤에 저절로 바뀌므로 보지 않는다. 그 세션은 고치지 않으므로 `reset`으로 다시 띄운다. 연동 계정(Slack·GitHub)과 PR은 실제 provider가 필요해 만들지 않는다. 사용하는 프로필(`claude-coding-local`·`general`)이 fake Messages API(`http://fake-messages:4010`)를 부르지 않으면 CLI가 exit 2로 거부하고 `local.sh`는 `local.sh: demo data not added`를 출력한 뒤 `up`을 마친다. 옵션 없는 `up`(실제 Claude)이 이 경우다. `LOCAL_DEMO_DATA=0`이면 계정만 만든다.
+`--fake-model`로 띄운 스택에서는 계정 다음에 화면을 채울 데모 데이터를 공개 API로 더한다(`apps/control-host/src/api/demo-data.ts`). 데모 owner가 에이전트 셋(`release-notes`·`code-review`는 저장소 `sample-app`, `support-triage`는 저장소 없음)을 만들어 활성화하고, owner와 member가 세션 일곱 개를 연다. owner의 세션은 쉬는 중(성과물 `out/release-notes.md` 하나), 작업 중, 권한 요청 대기, 종료가 하나씩이고, member의 세션은 질문 대기, 쉬는 중, 제목 없는 쉬는 중이다. owner의 작업 중·권한 요청 세션은 owner에게만 공유돼 있어 member 목록에는 다섯 개, owner 목록에는 일곱 개가 보인다. 모델은 fake가 대본대로 답하므로 세션 상세의 첫 메시지에 `GATE-SPEC` 대본이 그대로 보이고, 사용량은 fake 호출이 남긴 아주 작은 값이다. 시드는 세션을 하나씩 열고 원하는 상태가 될 때까지 기다리므로 몇 분 걸린다. 상태는 시드 직후의 모습이다. 작업 중 세션은 fake가 단계마다 답을 늦게 돌려줘서 약 1시간(worker의 turn 상한) 작업 중으로 남고, 질문·권한 요청은 답하지 않으면 30분 뒤 만료된다. 그 뒤 화면을 다시 채우려면 `scripts/local.sh reset --fake-model`로 새로 띄운다(데이터를 모두 지운다). 에이전트는 slug로, 세션은 제목으로(제목 없는 세션은 첫 메시지로) 찾아 이미 있으면 건너뛴다. 그래서 다시 돌려도 중복이 없고 기존 데이터를 지우거나 바꾸지 않는다. 시드는 끝날 때 자기가 연 로그인 세션을 로그아웃해서, 다시 돌려도 브라우저의 데모 로그인이 밀려나지 않는다. 앞선 시드가 세션을 만든 뒤 마무리 전에 실패했으면(owner만 공유, 성과물, 종료 중 하나가 빠짐) 다시 돌릴 때 `incomplete`를 출력하고 실패한다. 쉬는 중·답변 대기·작업 중은 시드 뒤에 저절로 바뀌므로 보지 않는다. 그 세션은 고치지 않으므로 `reset`으로 다시 띄운다. 연동 계정(Slack·GitHub)과 PR은 실제 provider가 필요해 만들지 않는다. 사용하는 연결(`fake-messages`)이 fake Messages API(`http://fake-messages:4010`)를 부르지 않으면 CLI가 exit 2로 거부하고 `local.sh`는 `local.sh: demo data not added`를 출력한 뒤 `up`을 마친다. 옵션 없는 `up`(실제 Claude)이 이 경우다. `LOCAL_DEMO_DATA=0`이면 계정만 만든다.
 
 로컬 스택은 머신마다 하나로 쓴다. project 이름 `werft`, 0장의 포트, worker label `werft.installation=local`이 기본값이다. `local.sh`는 이 값을 스스로 정하지 않고 `COMPOSE_PROJECT_NAME`·`COMPOSE_FILE`·`EXECUTION_INSTALLATION_ID`를 compose가 해석한 그대로의 스택(`docker compose config`)을 따른다. `up`은 그 스택이 여는 포트를 점검하고 `docker compose port api 3000`이 알려 주는 주소의 `/readyz`를 기다린다. `down`은 떠 있는 스택의 egress proxy가 가진 installation id(컨테이너가 하나도 없으면 compose가 해석한 `EXECUTION_INSTALLATION_ID`)의 label이 붙은 worker 자원을 지운다. `up`과 `reset`은 환경 변수 `COMPOSE_FILE`의 파일들(없으면 `compose.yaml`) 위에 overlay를 얹는다. 옵션이 없으면 `infra/compose.real-model.yml`(세션 비용 상한), `--fake-model`이면 `infra/compose.fake-model.yml`이다. 이 문서의 명령(`API=http://127.0.0.1:3000`, 3장의 `installation=local` label)은 기본값 기준이다. compose의 포트는 `infra/`에 고정돼 있어서, project만 바꾼 두 번째 스택은 `up`의 포트 점검에서 멈춘다. 다른 스택 옆에서 돌려야 하면 자기 project와 임시 포트로 뜨는 `tests/e2e/run.sh`를 쓴다(4장).
 
@@ -101,17 +104,21 @@ fake-git(`http://127.0.0.1:3001`)은 로컬 GitHub App 모의 서버다. 샘플 
 
 ## 2. curl 준비
 
-아래 블록을 **같은 터미널**에 한 번 붙여 넣는다. 3장의 명령이 모두 이 함수와 `KEY`를 쓴다. 셸을 새로 열었으면 1장의 `KEY=…` 줄부터 다시 한다.
+아래 블록을 **같은 터미널**에 한 번 붙여 넣는다. 3장의 명령이 모두 이 함수와 `KEY`를 쓴다. 셸을 새로 열었으면 1장의 `KEY=…`·`export WERFT_AGENT_RELEASE_ID=…` 줄부터 다시 한다.
 
 ```bash
 API=http://127.0.0.1:3000
 AUTH=(-H "Authorization: Bearer $KEY" -H 'Content-Type: application/json')
+APPROVE=(-H "Authorization: Bearer $APPROVER_KEY" -H 'Content-Type: application/json')
 
 # 세션 생성·메시지 본문. message는 스크립트된 프롬프트다(아래 절).
-body() { jq -nc --arg m "$1" '{profile_id:"claude-coding-local", repository_id:"sample-app", message:$m}'; }
+body() { jq -nc --arg m "$1" '{agent_release_id:env.WERFT_AGENT_RELEASE_ID, repository_id:"sample-app", message:$m}'; }
 say() { jq -nc --arg m "$1" '{message:$m}'; }
 post() { curl -sS "$API$1" "${AUTH[@]}" -H "Idempotency-Key: $(uuidgen)" -d "$2"; }
 get() { curl -sS "$API$1" "${AUTH[@]}"; }
+# 승인 요청의 답과 그 receipt는 APPROVER_KEY로 보내고 읽는다.
+answer_as() { curl -sS "$API$1" "${APPROVE[@]}" -H "Idempotency-Key: $(uuidgen)" -d "$2"; }
+get_as() { curl -sS "$API$1" "${APPROVE[@]}"; }
 # 응답 JSON에서 jq 식 $2의 값이 $3이 될 때까지 GET $1을 되풀이한다.
 wait_for() {
   for _ in $(seq 1 180); do
@@ -165,7 +172,7 @@ SSE 스트림이다(`id`·`event`·`data` 한 묶음씩, 15초마다 comment kee
 
 ### ③ 대기 중인 요청
 
-예시 profile은 `permission_mode: default`다. Claude Code는 읽기 전용 명령(`cat`, `ls` 등)은 묻지 않고 실행하므로, 권한 흐름은 파일을 바꾸는 명령으로 보여 준다.
+예시 release의 권한 모드는 `fake-messages` 연결의 자동 모드 판정을 따른다. 판정이 `unsupported`이면 `default`로 돈다. Claude Code는 읽기 전용 명령(`cat`, `ls` 등)은 묻지 않고 실행하므로, 권한 흐름은 파일을 바꾸는 명령으로 보여 준다.
 
 ```bash
 get "/v1/sessions/$SID/pending-requests" | jq .
@@ -181,14 +188,14 @@ REQ=$(get "/v1/sessions/$SID/pending-requests" | jq -r '.items[0].request_id')
 ### ④ 응답
 
 ```bash
-answer=$(post "/v1/sessions/$SID/answers" "$(jq -nc --arg r "$REQ" '{request_id:$r, kind:"permission", action:"allow"}')")
+answer=$(answer_as "/v1/sessions/$SID/answers" "$(jq -nc --arg r "$REQ" '{request_id:$r, kind:"permission", action:"allow"}')")
 echo "$answer" | jq .
 wait_for "/v1/sessions/$SID/turns/1" .status completed
 get "/v1/sessions/$SID/turns/1" | jq -e '.status == "completed"'
-get "/v1/receipts/$(echo "$answer" | jq -r .receipt_id)" | jq '{operation, status}'
+get_as "/v1/receipts/$(echo "$answer" | jq -r .receipt_id)" | jq '{operation, status}'
 ```
 
-거절은 `{"action":"deny","reason":"…"}`(reason 필수)이다. `AskUserQuestion`에서 오는 `kind: "question"` 요청은 `answers: [{question_id, selected_option_ids}]`로 답한다.
+답은 세션을 연 key(`KEY`)가 아닌 다른 key(`APPROVER_KEY`)로 보낸다. workspace key는 자기가 연 세션의 요청에 답하지 못한다(403 `self_approval`). 거절은 `{"action":"deny","reason":"…"}`(reason 필수)이다. `AskUserQuestion`에서 오는 `kind: "question"` 요청은 `answers: [{question_id, selected_option_ids}]`로 답한다.
 
 ### ⑤ 후속 메시지
 
@@ -424,4 +431,4 @@ GATE-SPEC {"id":"<이름>","steps":[{"tool":"<도구>","input":{…},"delayMs":<
 - `steps`의 도구 호출을 하나씩 순서대로 보내고, 도구 결과를 다 받으면 `final` 텍스트로 turn을 끝낸다. 몇 번째 단계인지는 대본 뒤에 쌓인 도구 결과 수로 정하므로 서버는 상태를 갖지 않는다.
 - `delayMs`·`finalDelayMs`는 그 응답을 늦춘다. 긴 turn(interrupt·terminate 시연)을 만들 때 쓴다.
 - 대본이 없는 메시지에는 `Hello from the local fake Messages API.`로 답한다.
-- 도구는 profile의 `tools`(예시: Read, Edit, Write, Glob, Grep, Bash, AskUserQuestion) 안에 있어야 한다. 밖의 도구는 권한 요청 없이 거절된다.
+- 도구는 release의 `effective_tools`(런타임의 내장 도구 전부) 안에 있고, 워크스페이스·에이전트 실행 규칙의 막기 목록 밖이어야 한다. 막힌 도구는 권한 요청 없이 거절된다.

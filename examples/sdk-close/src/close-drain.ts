@@ -18,8 +18,10 @@ import {
 
 const client = new Werft();
 const signal = AbortSignal.timeout(5 * 60_000);
-const profile_id = process.env.WERFT_PROFILE_ID ?? "claude-coding-local";
-const repository_id = process.env.WERFT_REPOSITORY_ID ?? "sample-app";
+const agent_release_id = process.env.WERFT_AGENT_RELEASE_ID ?? "";
+if (!agent_release_id) {
+  throw new Error("set WERFT_AGENT_RELEASE_ID to the agent release to run");
+}
 const QUESTION = "Ship the release notes now?";
 
 const ask = {
@@ -62,7 +64,7 @@ async function until(
 async function run(): Promise<void> {
   // Turn 1 asks a question and waits on it; turn 2 queues behind it.
   const created = await client.sessions.create(
-    { profile_id, repository_id, message: `GATE-SPEC ${JSON.stringify(ask)}` },
+    { agent_release_id, message: `GATE-SPEC ${JSON.stringify(ask)}` },
     { signal },
   );
   sessionId = created.session_id;

@@ -1,12 +1,12 @@
 # 세션
 
-호출자는 profile과 저장소를 골라 세션을 만들고 메시지를 보낸다. scheduler가 세션마다 worker 컨테이너를 띄워 진짜 Claude Code를 돌리고, 호출자는 turn 상태·이벤트 스트림·권한 요청으로 진행을 보고 답한다. fake model에서는 프롬프트의 GATE-SPEC 대본대로 답한다.
+호출자는 에이전트 release와 저장소를 골라 세션을 만들고 메시지를 보낸다. scheduler가 세션마다 worker 컨테이너를 띄워 진짜 Claude Code를 돌리고, 호출자는 turn 상태·이벤트 스트림·권한 요청으로 진행을 보고 답한다. fake model에서는 프롬프트의 GATE-SPEC 대본대로 답한다.
 
 ## Sub-features
 
 - `list` `GET /v1/sessions`: `relation=all|started|shared|administered`, `q`(제목 부분 일치·ID prefix), `status`, pagination. `GET /v1/sessions/counts`는 같은 relation·q의 `counts`(queued·running·needs_input·idle·failed·stopped)와 `total`을 반환한다. channel·created_by는 query가 아니라 응답 필드다.
 - `identity` 목록·상세의 `agent`(id·name·release_version_no), `created_by`(user_id·display_name), `channel`, `repository`(id·full_name·branch). legacy 또는 해당 정보 없는 세션은 null이다. repository.branch는 clone 기준이고 push 작업 브랜치는 `agent/<session-id>`다.
-- `model` 생성 body의 선택 model은 profile 허용 목록 안에서 고른다. 생략하면 release 카드 모델, release도 없으면 profile 기본값. 목록·상세의 model과 runtime.model로 확인한다. profile 변경은 새 profile 기본 모델을 쓴다. 웹 생성 버튼은 아직 사용할 수 없고 상세·목록은 runtime.model을 표시한다.
+- `model` 생성 body의 선택 model은 release 연결의 모델 목록 안에서 고른다. 생략하면 release 카드 모델. 목록·상세의 model과 runtime.model로 확인한다. 웹 생성 버튼은 아직 사용할 수 없고 상세·목록은 runtime.model을 표시한다.
 - `session-create` `POST /v1/sessions` → 201 `queued`, turn 1.
 - `title` 생성 body의 선택 `title`, 없으면 첫 메시지에서 만든 제목이 목록·상세의 `title`에 있다. `PATCH /v1/sessions/{id}` `{title}`(Idempotency-Key 없음, `sessions:write`와 `sessions:read`)로 바꾸면 200 상세가 오고 SSE에 `title`을 실은 `status` 이벤트가 생긴다. curl: `ap_curl key -X PATCH "$API/v1/sessions/$SID" -H 'Content-Type: application/json' -d '{"title":"renamed"}'`.
 - `turn-complete` turn이 `completed`가 된다.
@@ -30,7 +30,8 @@ Preconditions:
 ```sh
 . .claude/skills/verify-werft/scripts/lib.sh <run id>
 KEY=$(ap_key verify --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover 2>/dev/null)
-body() { jq -nc --arg m "$1" '{profile_id:"claude-coding-local", repository_id:"sample-app", message:$m}'; }
+REL=<활성 release id>   # procedures.md P-API-AGENTS의 REL
+body() { jq -nc --arg m "$1" --arg r "$REL" '{agent_release_id:$r, repository_id:"sample-app", message:$m}'; }
 ```
 
 - **생성.** `created=$(ap_post /v1/sessions "$(body 'GATE-SPEC {"id":"v1","steps":[],"final":"hello from verify"}')"); SID=$(echo "$created" | head -1 | jq -r .session_id)` → `201`, `status: "queued"`, `turn_id: "1"`.
@@ -63,7 +64,7 @@ ap_web GET /v1/sessions | head -1 | jq -c '[.items[] | {id, status}]'   # member
 - 응답 마지막 줄이 상태 코드다. jq에 넘길 때는 `| head -1`.
 - worker 컨테이너는 끝나면 scheduler가 지운다. 로그가 필요하면 `docs/quickstart.md`의 "로그 보기" 루프에서 label을 `werft.installation=$EXECUTION_INSTALLATION_ID`로 바꿔 건다.
 - `finalDelayMs`로 느린 turn을 만들 수 있다(interrupt·terminate 시험용).
-- 본문에 `agent_release_id`를 넣으면 세션이 그 에이전트 release에 묶인다(`profile_id`가 release와 다르면 `409 RELEASE_PROFILE_MISMATCH`). 에이전트 key는 자기 에이전트 release로만 만들고 읽는다(나머지는 `403` `agent_ceiling`, [musterrolle.md](./musterrolle.md) d). 운영자 key·개인 key는 release 없이 만든다.
+- 본문의 `agent_release_id`는 언제나 필요하고 세션은 그 에이전트 release에 묶인다(빠지면 `400`). 에이전트 key는 자기 에이전트 release로만 만들고 읽는다(나머지는 `403` `agent_ceiling`, [musterrolle.md](./musterrolle.md) d).
 - 세션 POST는 인증 방식과 상관없이 `Idempotency-Key`가 없으면 `400`, 같은 key에 다른 본문이면 `409 IDEMPOTENCY_CONFLICT`다.
 
 현재 화면·필터·모델 검증은 [procedures.md](procedures.md)의 P-API-SESSIONS-LIST·P-WEB-SESSIONS를 따른다. 소스: `packages/contracts/src/api/session.ts`, `apps/web/src/routes/sessions.tsx`, `packages/react/src/blocks/session-detail.tsx`.

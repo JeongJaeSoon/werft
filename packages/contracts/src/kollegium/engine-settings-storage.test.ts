@@ -1,13 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
-import type { ToolCatalogView } from "../api/profile-tools.ts";
+import type { ToolCatalogView } from "../api/tool-names.ts";
 import {
-  ADMIN_DENY_RULES_MAX,
   ENGINE_AUTO_MODE_RULE_MAX_LENGTH,
   ENGINE_SETTINGS_LIMITS,
   engineSettingsStartSchema,
   storedEngineSettingsSchema,
-  validateAdminDeny,
   validateEngineSettings,
 } from "./engine-settings-storage.ts";
 
@@ -102,11 +100,10 @@ describe("validateEngineSettings", () => {
 
   test("the largest a claim can merge fits what a worker accepts", () => {
     const { workspace, agent } = ENGINE_SETTINGS_LIMITS;
-    const admin = ADMIN_DENY_RULES_MAX;
-    // The workspace's, the inherited deny, and the agent's twice (start and now).
-    expect(workspace.permissionRules + admin + 2 * agent.permissionRules).toBe(
-      128,
-    );
+    // The workspace's and the agent's twice (start and now).
+    expect(
+      workspace.permissionRules + 2 * agent.permissionRules,
+    ).toBeLessThanOrEqual(128);
     expect(
       workspace.autoModeRules + 2 * agent.autoModeRules,
     ).toBeLessThanOrEqual(64);
@@ -307,128 +304,6 @@ describe("engineSettingsStartSchema", () => {
           revision,
         }).success,
       ).toBe(false);
-    }
-  });
-});
-
-describe("validateAdminDeny", () => {
-  const entry = (over: Record<string, unknown> = {}) => ({
-    exempt_release_ids: ["r1", "r2"],
-    permissions_deny: ["WebSearch", "Bash(rm:*)"],
-    mcp_deny: ["mcp__docs__write"],
-    ...over,
-  });
-  const refused = (input: unknown) => {
-    const result = validateAdminDeny(catalog, input);
-    return "refusal" in result ? result.refusal.reason_code : "accepted";
-  };
-
-  test("accepts entries and stores their rules under current names", () => {
-    const result = validateAdminDeny(catalog, [
-      entry({ permissions_deny: ["Task", "Agent"] }),
-    ]);
-    expect(result).toEqual({
-      entries: [
-        {
-          exempt_release_ids: ["r1", "r2"],
-          permissions_deny: ["Agent"],
-          mcp_deny: ["mcp__docs__write"],
-        },
-      ],
-    });
-  });
-
-  test("an empty list is no inherited restriction", () => {
-    expect(validateAdminDeny(catalog, [])).toEqual({ entries: [] });
-  });
-
-  test("keeps the two routes apart: mcp__ rules only in mcp_deny", () => {
-    expect(refused([entry({ permissions_deny: ["mcp__docs__write"] })])).toBe(
-      "settings_shape",
-    );
-    expect(refused([entry({ mcp_deny: ["WebSearch"] })])).toBe(
-      "settings_shape",
-    );
-  });
-
-  test("refuses rules the engine would drop, like a saved rule", () => {
-    expect(refused([entry({ permissions_deny: ["Skill(web)"] })])).toBe(
-      "rule_no_effect",
-    );
-  });
-
-  test("the rule budget counts the union of all entries, not each entry", () => {
-    const rules = (from: number, count: number) =>
-      Array.from({ length: count }, (_, index) => `Bash(c${from + index})`);
-    // The same 20 rules in two entries are 20, not 40.
-    expect(
-      refused([
-        entry({ permissions_deny: rules(0, 20), mcp_deny: [] }),
-        entry({ permissions_deny: rules(0, 20), mcp_deny: [] }),
-      ]),
-    ).toBe("accepted");
-    expect(
-      refused([
-        entry({ permissions_deny: rules(0, 20), mcp_deny: [] }),
-        entry({ permissions_deny: rules(20, 20), mcp_deny: [] }),
-      ]),
-    ).toBe("too_many_rules");
-    expect(ADMIN_DENY_RULES_MAX).toBe(32);
-  });
-
-  test("the rule budget counts both routes together", () => {
-    const rules = (count: number) =>
-      Array.from({ length: count }, (_, index) => `Bash(c${index})`);
-    const mcp = (count: number) =>
-      Array.from({ length: count }, (_, index) => `mcp__docs__t${index}`);
-    expect(
-      refused([entry({ permissions_deny: rules(16), mcp_deny: mcp(16) })]),
-    ).toBe("accepted");
-    expect(
-      refused([entry({ permissions_deny: rules(20), mcp_deny: mcp(20) })]),
-    ).toBe("too_many_rules");
-  });
-
-  test("the rule text has a byte limit of its own", () => {
-    // 32 rules within the count limit, each 253 characters: over 8 KB of JSON,
-    // against the 4 KB the inherited rules may take.
-    const long = Array.from(
-      { length: 32 },
-      (_, index) =>
-        `Bash(${index.toString().padStart(2, "0")}${"a".repeat(244)})`,
-    );
-    expect(refused([entry({ permissions_deny: long, mcp_deny: [] })])).toBe(
-      "settings_too_large",
-    );
-    expect(
-      refused([entry({ permissions_deny: long.slice(0, 10), mcp_deny: [] })]),
-    ).toBe("accepted");
-  });
-
-  test("the release lists have their own budget apart from the rules", () => {
-    const ids = Array.from(
-      { length: 3000 },
-      (_, index) => `${"a".repeat(70)}${index}`,
-    );
-    expect(refused([entry({ exempt_release_ids: ids })])).toBe("accepted");
-    const more = Array.from(
-      { length: 3600 },
-      (_, index) => `${"a".repeat(70)}${index}`,
-    );
-    expect(refused([entry({ exempt_release_ids: more })])).toBe(
-      "settings_too_large",
-    );
-  });
-
-  test("refuses a shape that is not a list of entries", () => {
-    for (const input of [
-      null,
-      {},
-      [{}],
-      [entry({ extra: 1 })],
-      [entry({ mcp_deny: "x" })],
-    ]) {
-      expect(refused(input)).toBe("settings_shape");
     }
   });
 });

@@ -109,53 +109,6 @@ export async function resolveSessionExtensions(
   });
 }
 
-export async function checkPinnedExtensions(
-  deps: SessionExtensionsDeps,
-  input: {
-    workspaceId: string;
-    extensions: readonly { bundle_id: string }[] | null;
-    runtimeKind: RuntimeKind;
-    tools: readonly string[];
-  },
-): Promise<ExtensionResolution> {
-  const workspace: ScopeEntry[] = [];
-  for (const pinned of input.extensions ?? []) {
-    const bundle = await deps.store.find(input.workspaceId, pinned.bundle_id);
-    if (!bundle) {
-      return {
-        ok: false,
-        refusal: {
-          code: "bundle_not_found",
-          name: pinned.bundle_id,
-          message: `Bundle ${pinned.bundle_id} the session runs with is no longer registered`,
-        },
-      };
-    }
-    // A scripts bundle runs code, and what let it run on any profile was its
-    // review, not the profile's mode: a bundle whose approval was withdrawn
-    // since the session pinned it does not follow the session to a new profile.
-    if (
-      bundle.review !== "approved" &&
-      bundle.manifest.skills.some((skill) => skill.has_scripts)
-    ) {
-      return {
-        ok: false,
-        refusal: {
-          code: "bundle_not_approved",
-          name: bundle.name,
-          message: `"${bundle.name}" carries skills with scripts, and its registered version is not approved`,
-        },
-      };
-    }
-    workspace.push({ mode: "required", ref: refOf(bundle) });
-  }
-  return resolveExtensions({
-    scopes: { workspace },
-    runtimeOffersSkills: deps.offersSkills(input.runtimeKind),
-    tools: input.tools,
-  });
-}
-
 export async function checkAgentExtensions(
   deps: SessionExtensionsDeps,
   input: {

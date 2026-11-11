@@ -3,18 +3,12 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
-import { MAX_RESTORE_PROFILES } from "@werft-ai/contracts";
+import { MAX_RESTORE_CONFIGS, type RuntimeConfig } from "@werft-ai/contracts";
+import { testSpecSource } from "@werft-ai/db/testing/spec-pins";
 import {
-  type CatalogProfile,
   type CheckpointPointer,
-  catalogRows,
   createCheckpointService,
-  type InstallationProfileRecord,
   manifestRefFor,
-  parseSeedDocument,
-  profileFingerprint,
-  profileWithModel,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import {
   CLAUDE_RUNTIME_FINGERPRINT,
@@ -38,7 +32,7 @@ import {
   createGitBundleChain,
   type GitBundleFixture,
 } from "@werft-ai/testkit/git-bundle";
-import { databaseCatalog } from "../apps/control-host/src/api/catalog-config.ts";
+import { testCatalog } from "../apps/control-host/src/testing/catalog.ts";
 import {
   imageClaimFingerprint,
   imageRuntimeOf,
@@ -55,10 +49,8 @@ import {
   captureCheckpointObjects,
   claimedSessionOf,
   describeMismatches,
-  earlierProfileClaims,
-  earlierProfileKey,
+  legacyConfigKey,
   manifestBindingProblem,
-  ownToolsKey,
   parseImageRuntime,
   pinnedObjectsOf,
   planArchiveRepin,
@@ -943,253 +935,147 @@ describe("archived session events through backup → restore", () => {
 });
 
 describe("plans against a target worker image (verify-restore.sh --image)", () => {
-  const PROFILE_ID = "claude-coding-real";
   const REPOSITORY_ID = "sample-app";
-  const seedDocument = async () => {
-    const seed = parseSeedDocument(
-      JSON.parse(
-        await readFile(
-          join(import.meta.dir, "fixtures/settings/real-model.json"),
-          "utf8",
-        ),
-      ),
-    );
-    if (seed.profiles === null) throw new Error("the fixture seeds no profile");
-    return {
-      profiles: seed.profiles,
-      repositories: seed.entries.repositories,
-      connections: seed.entries.connections,
-    };
+  const REPOSITORY = {
+    url: "https://github.com/acme/sample-app.git",
+    branch: "main",
+    auth: { kind: "github_app" as const, registered: true as const },
   };
-  const seededRows = async () => {
-    const { profiles, repositories } = await seedDocument();
-    return catalogRows(profiles, repositories);
-  };
-  // What verify-restore builds: those rows, credentials standing in.
-  const catalogOver = async (
-    rows: InstallationProfileRecord[],
-    env: Record<string, string> = {},
-  ) => {
-    const { connections, repositories } = await seedDocument();
-    return databaseCatalog({
-      installations: { listAll: async () => rows },
-      workspaces: { listAll: async () => [] },
-      repositories: { readCatalog: async () => null },
-      settings: {
-        read: async () => ({
-          generation: 0,
-          connections: Object.entries(connections).map(([id, provider]) => ({
-            id,
-            provider,
-          })),
-          repositories: Object.entries(repositories).map(
-            ([id, repository]) => ({
-              id,
-              repository,
-            }),
-          ),
-          mcpServers: [],
-          stored: new Map(),
-          invalid: [],
-        }),
-      },
-      credential: () => "verify-restore-reads-no-credential",
-      env,
-    });
-  };
-  const catalog = async () => catalogOver(await seededRows());
-  const sessionOf = async (overrides: {
-    platformPrompt?: unknown;
-    branch?: string;
-    model?: string | null;
-    profileFingerprint?: string | null;
-    profileId?: string | null;
-    releaseTools?: readonly string[] | null;
-    effectiveTools?: readonly string[] | null;
-    repositoryId?: string | null;
-  }) => {
-    const resolved = await catalog();
-    const repository = resolved.repositories[REPOSITORY_ID];
-    if (repository === undefined) throw new Error("no sample repository");
-    const profile = resolved.profiles[PROFILE_ID] as CatalogProfile;
-    return {
-      branch: repository.branch,
-      model: profile.model,
-      ownerId: "owner-a",
-      profileFingerprint: profileFingerprint(profile),
-      profileId: PROFILE_ID,
-      repoUrl: repository.url,
-      repositoryId: REPOSITORY_ID,
-      repositoryMode: "repository" as const,
-      releaseTools: null,
-      platformPrompt: null,
-      ...overrides,
-    };
-  };
-  const changedDigestOf = (digest: string) =>
-    sha256Hex(new TextEncoder().encode(`v2:${digest}`));
+  const catalog = async () =>
+    testCatalog({ repositories: { [REPOSITORY_ID]: REPOSITORY } });
+  const spec = testSpecSource();
+  const sessionOf = async (
+    overrides: Partial<Parameters<typeof sessionClaim>[0]> = {},
+  ) => ({
+    branch: REPOSITORY.branch,
+    model: spec.model,
+    ownerId: "owner-a",
+    spec,
+    legacyConfigs: [] as RuntimeConfig[],
+    githubAttached: false,
+    repoUrl: REPOSITORY.url,
+    repositoryId: REPOSITORY_ID,
+    repositoryMode: "repository" as const,
+    platformPrompt: null,
+    ...overrides,
+  });
   // What an image's worker would stamp: the output of image-runtime.ts.
   const imageOf = (
     claims: Record<string, unknown>,
     fingerprint?: Parameters<typeof imageRuntimeOf>[1],
   ) => parseImageRuntime(JSON.stringify(imageRuntimeOf(claims, fingerprint)));
 
-  test("a ceiling the database holds and the settings document never had gives its session a claim", async () => {
-    const rows = await seededRows();
-    const imported = rows.find((row) => row.id === PROFILE_ID);
-    if (imported === undefined) throw new Error("no seeded row");
-    const consoleId = "op_restore_v1";
-    const resolved = await catalogOver([
-      ...rows,
-      {
-        ...imported,
-        id: consoleId,
-        name: "restore",
-        origin: "console",
-        repository_ids: [REPOSITORY_ID],
+  test("the claim is the session's owner and its pinned spec; a session the catalog no longer runs is refused", async () => {
+    const resolved = await catalog();
+    const claim = sessionClaim(await sessionOf({}), resolved);
+    expect(claim.principal).toEqual({ owner_scope: "owner-a" });
+    expect(claim.runtime_config).toMatchObject({
+      model: spec.model,
+      tools: spec.tools,
+      permission_mode: spec.permission_mode,
+      provider: {
+        kind: spec.connection.kind,
+        endpoint: spec.connection.endpoint,
       },
-    ]);
-    const profile = resolved.profiles[consoleId] as CatalogProfile;
-    expect(profile).toBeDefined();
+    });
+    expect(claim).not.toHaveProperty("workspace");
+    for (const [overrides, message] of [
+      [{ spec: null }, "holds no spec pin"],
+      [
+        { spec: { ...spec, connection: { ...spec.connection, id: "gone" } } },
+        "connection gone of the session's spec is not in the catalog",
+      ],
+      [
+        { spec: { ...spec, model: "claude-retired" } },
+        "no longer offers model claude-retired",
+      ],
+      [{ repoUrl: "https://moved.invalid/app.git" }, "is not in the catalog"],
+    ] as const) {
+      const session = await sessionOf(
+        overrides as Partial<Parameters<typeof sessionClaim>[0]>,
+      );
+      expect(() => sessionClaim(session, resolved)).toThrow(message);
+    }
+  });
+
+  test("a session without a repository is asked with its workspace, as the worker's claim carries it", async () => {
     const claim = sessionClaim(
       await sessionOf({
-        profileId: consoleId,
-        profileFingerprint: profileFingerprint(profile),
+        repositoryMode: "none",
+        repositoryId: null,
+        repoUrl: null,
+        branch: null,
       }),
-      resolved,
+      await catalog(),
     );
-    expect(claim).toBeDefined();
+    expect(claim.workspace).toEqual({ repository: null });
   });
 
-  test("a session pinned before its profile's runtime moved gets a claim while the previous worker image is configured", async () => {
-    const pinned = await sessionOf({});
-    const { profiles, repositories } = await seedDocument();
-    const seeded = profiles[PROFILE_ID];
-    if (seeded === undefined) throw new Error("no seeded profile");
-    const moved = catalogRows(
-      { ...profiles, [PROFILE_ID]: { ...seeded, runtime_version: "9.9.9" } },
-      repositories,
-    );
-    const image = (sdkVersion: string) =>
-      JSON.stringify({ cliVersion: "2.0.0", engine: "claude", sdkVersion });
-    const before = (await catalog()).profiles[PROFILE_ID] as CatalogProfile;
+  test("a session row's platform prompt rides on every claim of it; a row without one has none", async () => {
+    const prompt = { revision: 1, text: "Be brief." };
+    const row = {
+      id: "s",
+      owner_id: "owner-a",
+      model: spec.model,
+      spec_source: spec,
+      legacy_runtime_configs: null,
+      release_github: false,
+      repo_url: REPOSITORY.url,
+      repository_id: REPOSITORY_ID,
+      repository_mode: "repository" as const,
+      branch: REPOSITORY.branch,
+      platform_prompt: prompt,
+    };
+    const resolved = await catalog();
+    expect(
+      sessionClaim(claimedSessionOf(row), resolved).runtime_config,
+    ).toMatchObject({ platform_prompt: prompt });
     expect(
       sessionClaim(
-        pinned,
-        await catalogOver(moved, {
-          WORKER_IMAGE_RUNTIME: image("9.9.9"),
-          WORKER_IMAGE_PREVIOUS_RUNTIME: image(before.runtime_version),
-        }),
-      ),
-    ).toBeDefined();
-    await expect(
-      catalogOver(moved).then((resolved) => sessionClaim(pinned, resolved)),
-    ).rejects.toThrow("other settings in the catalog");
-  });
-
-  test("an image whose profile digest computation changed makes the plan incompatible; the sealing image stays ready", async () => {
-    const claim = sessionClaim(await sessionOf({}), await catalog());
-    const sealedDigest = imageClaimFingerprint(claim).profileSha256;
-    const objects = createMemoryCheckpointObjectStore({ versioned: true });
-    const seeded = await seed(objects, [], undefined, sealedDigest);
-    const { sessionId } = seeded.row;
-    const pointer = pointerOf({
-      ...seeded.row,
-      manifestVersion: seeded.row.manifestVersion as string,
-    });
-
-    const same = imageOf({ [sessionId]: claim });
-    expect(
-      (
-        await restorePlan(
-          objects,
-          pointer,
-          seeded,
-          planRuntime(seeded.manifest.runtime, same, sessionId),
-        )
-      ).status,
-    ).toBe("ready");
-
-    // Same engine build, same claim; only how the digest is computed moved.
-    const changed = imageOf({ [sessionId]: claim }, (input) => {
-      const current = imageClaimFingerprint(input);
-      return {
-        ...current,
-        profileSha256: changedDigestOf(current.profileSha256),
-      };
-    });
-    const changedDigest = changedDigestOf(sealedDigest);
-    const result = await restorePlan(
-      objects,
-      pointer,
-      seeded,
-      planRuntime(seeded.manifest.runtime, changed, sessionId),
-    );
-    expect(result.status).toBe("incompatible");
-    if (result.status !== "incompatible") return;
-    expect(describeMismatches(result.mismatches)).toBe(
-      `profileSha256 ${sealedDigest} → ${changedDigest}`,
+        claimedSessionOf({ ...row, platform_prompt: null }),
+        resolved,
+      ).runtime_config,
+    ).not.toHaveProperty("platform_prompt");
+    // A row whose spec no longer parses holds no pin a claim could run.
+    expect(claimedSessionOf({ ...row, spec_source: { nope: 1 } }).spec).toBe(
+      null,
     );
   });
 
-  test("a session whose profile was changed is planned with the digest of the profile its checkpoint was made under", async () => {
+  test("the configs a session ran before its model moved are offered as the gateway offers them, under its cap", async () => {
     const resolved = await catalog();
-    const earlierProfile = resolved.profiles[PROFILE_ID] as CatalogProfile;
-    const repository = resolved.repositories[REPOSITORY_ID];
-    if (repository === undefined) throw new Error("no sample repository");
-    const switchedProfile = { ...earlierProfile, model: "claude-haiku-4-5" };
-    const switchedCatalog = withSeededInstallation({
-      profiles: { ...resolved.profiles, "switch-haiku": switchedProfile },
-      repositories: {
-        ...resolved.repositories,
-        [REPOSITORY_ID]: {
-          ...repository,
-          profiles: [...repository.profiles, "switch-haiku"],
-        },
-      },
-    });
-    const earlierClaim = sessionClaim(await sessionOf({}), switchedCatalog);
-    const objects = createMemoryCheckpointObjectStore({ versioned: true });
-    const seeded = await seed(
-      objects,
-      [],
-      undefined,
-      imageClaimFingerprint(earlierClaim).profileSha256,
+    const base = sessionClaim(await sessionOf({}), resolved).runtime_config;
+    const earlier = (model: string): RuntimeConfig => ({ ...base, model });
+    const legacyConfigs = Array.from(
+      { length: MAX_RESTORE_CONFIGS + 2 },
+      (_, i) => earlier(`claude-earlier-${i}`),
     );
-    const { sessionId } = seeded.row;
-    const pointer = pointerOf({
-      ...seeded.row,
-      manifestVersion: seeded.row.manifestVersion as string,
-    });
-    const key = earlierProfileKey(sessionId, PROFILE_ID);
-    const image = imageOf({
-      [sessionId]: sessionClaim(
-        await sessionOf({
-          profileId: "switch-haiku",
-          profileFingerprint: profileFingerprint(switchedProfile),
-          model: switchedProfile.model,
-        }),
-        switchedCatalog,
+    const claims = restoreClaims(
+      { ...(await sessionOf({ legacyConfigs })), id: "s" },
+      resolved,
+    );
+    expect(claims.map(([key]) => key)).toEqual(
+      Array.from({ length: MAX_RESTORE_CONFIGS }, (_, i) =>
+        legacyConfigKey("s", i),
       ),
-      [key]: earlierClaim,
-    });
-    const runtime = planRuntime(seeded.manifest.runtime, image, sessionId);
-
-    expect((await restorePlan(objects, pointer, seeded, runtime)).status).toBe(
-      "incompatible",
     );
-    expect(
-      (
-        await restorePlan(
-          objects,
-          pointer,
-          seeded,
-          runtime,
-          alternateDigests(image, [key]),
-        )
-      ).status,
-    ).toBe("ready");
-    expect(alternateDigests(image, [`${sessionId}#gone`])).toEqual([]);
+    expect(claims[0]?.[1].runtime_config.model).toBe("claude-earlier-0");
+    // The built-in github server costs one config more on each, and one on
+    // the config the session runs.
+    const attached = restoreClaims(
+      {
+        ...(await sessionOf({ legacyConfigs, githubAttached: true })),
+        id: "s",
+      },
+      resolved,
+    );
+    expect(attached).toHaveLength(Math.floor((MAX_RESTORE_CONFIGS - 1) / 2));
+    // The digests the image computes for them are the alternates it offers,
+    // one or more for each.
+    const image = imageOf(Object.fromEntries(claims));
+    for (const [key] of claims) {
+      expect(alternateDigests(image, [key]).length).toBeGreaterThan(0);
+    }
   });
 
   test("a checkpoint no plan is asked for matches when its digest is one the image offers", () => {
@@ -1247,458 +1133,6 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
     ]);
   });
 
-  test("a session row's release tools reach its claims; a row without a release has none", () => {
-    const row = {
-      platform_prompt: null,
-      branch: "main",
-      id: "s1",
-      model: null,
-      owner_id: "owner-a",
-      profile_fingerprint: null,
-      profile_id: PROFILE_ID,
-      release_github: null,
-      release_id: "r1",
-      release_tools: ["Read"],
-      repo_url: null,
-      repository_id: REPOSITORY_ID,
-      repository_mode: "repository" as const,
-    };
-    expect(claimedSessionOf(row)).toMatchObject({
-      releaseTools: ["Read"],
-      githubAttached: false,
-    });
-    expect(
-      claimedSessionOf({ ...row, release_id: null, release_tools: null }),
-    ).toMatchObject({ releaseTools: null });
-  });
-
-  test("a session row's platform prompt rides on every claim of it; a revision 0 row plans with the digest it had before the column", async () => {
-    const prompt = {
-      prompt_revision: 1,
-      agent_identity: { name: "code-review", description: null },
-      origin_surface: "slack_channel",
-      language: "ko",
-      repository: "acme/app",
-    };
-    expect(
-      claimedSessionOf({
-        platform_prompt: prompt,
-        branch: "main",
-        id: "s1",
-        model: null,
-        owner_id: "owner-a",
-        profile_fingerprint: null,
-        profile_id: PROFILE_ID,
-        release_github: null,
-        release_id: "r1",
-        release_tools: ["Read"],
-        repo_url: null,
-        repository_id: REPOSITORY_ID,
-        repository_mode: "repository",
-      }).platformPrompt,
-    ).toEqual(prompt);
-
-    const resolved = await catalog();
-    const base = {
-      ...(await sessionOf({ releaseTools: ["Read"] })),
-      id: "s1",
-      githubAttached: false,
-    };
-    const prompted = { ...base, platformPrompt: prompt };
-    const claims = [
-      ["s1", sessionClaim(prompted, resolved)] as const,
-      ...restoreClaims(prompted, [], resolved),
-    ];
-    expect(claims.length).toBeGreaterThan(1);
-    for (const [, claim] of claims) {
-      expect(claim.runtime_config.platform_prompt).toEqual(prompt);
-    }
-    const plain = [
-      ["s1", sessionClaim(base, resolved)] as const,
-      ...restoreClaims(base, [], resolved),
-    ];
-    expect(
-      claims.map(([key, claim]) => {
-        const { platform_prompt: _, ...rest } = claim.runtime_config;
-        return [key, { ...claim, runtime_config: rest }];
-      }),
-    ).toEqual(plain);
-
-    // The row's value no longer reaches the image digest (a new launch
-    // carries no paragraph), so a checkpoint sealed either way is ready for
-    // the image asked with either.
-    for (const [sealedWith, other] of [
-      [base, prompted],
-      [prompted, base],
-    ] as const) {
-      const objects = createMemoryCheckpointObjectStore({ versioned: true });
-      const sealed = sessionClaim(sealedWith, resolved);
-      const seeded = await seed(
-        objects,
-        [],
-        undefined,
-        imageClaimFingerprint(sealed).profileSha256,
-      );
-      const { sessionId } = seeded.row;
-      const pointer = pointerOf({
-        ...seeded.row,
-        manifestVersion: seeded.row.manifestVersion as string,
-      });
-      for (const [claim, status] of [
-        [sealed, "ready"],
-        [sessionClaim(other, resolved), "ready"],
-      ] as const) {
-        const runtime = planRuntime(
-          seeded.manifest.runtime,
-          imageOf({ [sessionId]: claim }),
-          sessionId,
-        );
-        expect(
-          (await restorePlan(objects, pointer, seeded, runtime)).status,
-        ).toBe(status);
-      }
-    }
-  });
-
-  test("a session runs its release tools and is offered the profile's: a checkpoint made with either is ready", async () => {
-    const resolved = await catalog();
-    const profile = resolved.profiles[PROFILE_ID] as CatalogProfile;
-    const releaseTools = ["Read", "Grep"];
-    const session = {
-      ...(await sessionOf({ releaseTools })),
-      githubAttached: false,
-    };
-    const runClaim = sessionClaim(session, resolved);
-    expect(runClaim.runtime_config.tools).toEqual(releaseTools);
-    expect(
-      sessionClaim({ ...session, releaseTools: null }, resolved).runtime_config
-        .tools,
-    ).toEqual(profile.tools);
-    // What a checkpoint from before claims ran the release's tools, or from
-    // an image rolled back to one whose claims do not, was sealed under.
-    const widened = {
-      ...runClaim,
-      runtime_config: { ...runClaim.runtime_config, tools: profile.tools },
-    };
-    for (const [sealedClaim, alternatesNeeded] of [
-      [widened, true],
-      [runClaim, false],
-    ] as const) {
-      const objects = createMemoryCheckpointObjectStore({ versioned: true });
-      const seeded = await seed(
-        objects,
-        [],
-        undefined,
-        imageClaimFingerprint(sealedClaim).profileSha256,
-      );
-      const { sessionId } = seeded.row;
-      const pointer = pointerOf({
-        ...seeded.row,
-        manifestVersion: seeded.row.manifestVersion as string,
-      });
-      const other = restoreClaims({ ...session, id: sessionId }, [], resolved);
-      expect(
-        other.map(([key, claim]) => [key, claim.runtime_config.tools]),
-      ).toEqual([[ownToolsKey(sessionId, "profile"), profile.tools]]);
-      const image = imageOf({
-        [sessionId]: runClaim,
-        ...Object.fromEntries(other),
-      });
-      const runtime = planRuntime(seeded.manifest.runtime, image, sessionId);
-      expect(
-        (await restorePlan(objects, pointer, seeded, runtime)).status,
-      ).toBe(alternatesNeeded ? "incompatible" : "ready");
-      expect(
-        (
-          await restorePlan(
-            objects,
-            pointer,
-            seeded,
-            runtime,
-            alternateDigests(
-              image,
-              other.map(([key]) => key),
-            ),
-          )
-        ).status,
-      ).toBe("ready");
-    }
-
-    // No other list: no release, or one that keeps every profile tool. A
-    // release that allows none runs a list of its own.
-    const withId = { ...session, id: "s1" };
-    expect(
-      restoreClaims({ ...withId, releaseTools: null }, [], resolved),
-    ).toEqual([]);
-    expect(
-      restoreClaims({ ...withId, releaseTools: profile.tools }, [], resolved),
-    ).toEqual([]);
-    expect(
-      sessionClaim({ ...withId, releaseTools: [] }, resolved).runtime_config
-        .tools,
-    ).toEqual([]);
-    expect(
-      restoreClaims({ ...withId, releaseTools: [] }, [], resolved).map(
-        ([, claim]) => claim.runtime_config.tools,
-      ),
-    ).toEqual([profile.tools]);
-
-    // Earlier profiles: every profile list before any release list, so the
-    // cap never drops one a checkpoint from before release lists needs.
-    const earlierIds = Array.from({ length: 9 }, (_, n) => `e${n}`);
-    const withEarlier = withSeededInstallation({
-      ...resolved,
-      profiles: {
-        ...resolved.profiles,
-        ...Object.fromEntries(
-          earlierIds.map((id) => [id, { ...profile, model: `model-${id}` }]),
-        ),
-      },
-    });
-    const earlier = earlierIds.map((id) => {
-      const made = withEarlier.profiles[id] as CatalogProfile;
-      return {
-        profileId: id,
-        profileFingerprint: profileFingerprint(made),
-        model: made.model,
-      };
-    });
-    const offered = restoreClaims(
-      { ...withId, releaseTools: ["Grep", "Read", "NotInProfile"] },
-      earlier,
-      withEarlier,
-    );
-    expect(offered.map(([key]) => key)).toEqual([
-      ownToolsKey("s1", "profile"),
-      ...earlierIds.map((id) => earlierProfileKey("s1", id)),
-      ...earlierIds
-        .slice(0, MAX_RESTORE_PROFILES - earlierIds.length - 1)
-        .map((id) => `${earlierProfileKey("s1", id)}@release`),
-    ]);
-    expect(offered.map(([, claim]) => claim.runtime_config.tools)).toEqual([
-      profile.tools,
-      ...earlierIds.map(() => profile.tools),
-      ...Array.from({ length: 6 }, () => ["Read", "Grep"]),
-    ]);
-    // With the built-in `github` server each list costs the claim two
-    // configs, and the one it runs one: only the claims all of whose
-    // configs the gateway offers are asked for.
-    expect(
-      restoreClaims(
-        {
-          ...withId,
-          githubAttached: true,
-          releaseTools: ["Grep", "Read"],
-        },
-        earlier,
-        withEarlier,
-      ).map(([key]) => key),
-    ).toEqual([
-      ownToolsKey("s1", "profile"),
-      ...earlierIds.slice(0, 7).map((id) => earlierProfileKey("s1", id)),
-    ]);
-    expect(
-      earlierProfileClaims(
-        { ...withId, releaseTools: null },
-        earlier,
-        withEarlier,
-      ).map(([key]) => key),
-    ).toEqual(earlierIds.map((id) => earlierProfileKey("s1", id)));
-  });
-
-  test("a session on the release tools source runs its effective tools; a row from before the column is read as it was", async () => {
-    const resolved = await catalog();
-    const profile = resolved.profiles[PROFILE_ID] as CatalogProfile;
-    const effectiveTools = ["Read", "Glob"];
-    const session = {
-      ...(await sessionOf({ releaseTools: ["Read", "Grep"], effectiveTools })),
-      githubAttached: false,
-      id: "s1",
-    };
-    expect(sessionClaim(session, resolved).runtime_config.tools).toEqual(
-      effectiveTools,
-    );
-    expect(
-      restoreClaims(session, [], resolved).map(
-        ([key, claim]) => [key, claim.runtime_config.tools] as const,
-      ),
-    ).toEqual([[ownToolsKey("s1", "profile"), profile.tools]]);
-    const row = {
-      platform_prompt: null,
-      branch: null,
-      id: "s1",
-      model: null,
-      owner_id: "owner-a",
-      profile_fingerprint: null,
-      profile_id: null,
-      release_github: false,
-      release_id: "rel-1",
-      release_tools: ["Read", "Grep"],
-      release_effective_tools: { tools: effectiveTools, mcp: [] },
-      repo_url: null,
-      repository_id: null,
-      repository_mode: "repository" as const,
-    };
-    expect(claimedSessionOf(row).effectiveTools).toBeNull();
-    expect(
-      claimedSessionOf({ ...row, tools_source: "profile" }).effectiveTools,
-    ).toBeNull();
-    expect(
-      claimedSessionOf({ ...row, tools_source: "release" }).effectiveTools,
-    ).toEqual(effectiveTools);
-    expect(
-      claimedSessionOf({
-        ...row,
-        tools_source: "release",
-        release_effective_tools: "garbled",
-      }).effectiveTools,
-    ).toEqual([]);
-    // The claim reads the whole value, so a half-readable one allows nothing.
-    expect(
-      claimedSessionOf({
-        ...row,
-        tools_source: "release",
-        release_effective_tools: { tools: ["Read"], mcp: "unreadable" },
-      }).effectiveTools,
-    ).toEqual([]);
-
-    // A checkpoint sealed under the effective list resumes with no alternate;
-    // one sealed under the profile's list resumes through the profile config.
-    const runClaim = sessionClaim(session, resolved);
-    const [[ownKey, profileClaim]] = restoreClaims(session, [], resolved);
-    for (const [sealedClaim, alternatesNeeded] of [
-      [runClaim, false],
-      [profileClaim, true],
-    ] as const) {
-      const objects = createMemoryCheckpointObjectStore({ versioned: true });
-      const seeded = await seed(
-        objects,
-        [],
-        undefined,
-        imageClaimFingerprint(sealedClaim).profileSha256,
-      );
-      const { sessionId } = seeded.row;
-      const pointer = pointerOf({
-        ...seeded.row,
-        manifestVersion: seeded.row.manifestVersion as string,
-      });
-      const image = imageOf({
-        [sessionId]: runClaim,
-        [ownKey]: profileClaim,
-      });
-      const runtime = planRuntime(seeded.manifest.runtime, image, sessionId);
-      expect(
-        (await restorePlan(objects, pointer, seeded, runtime)).status,
-      ).toBe(alternatesNeeded ? "incompatible" : "ready");
-      expect(
-        (
-          await restorePlan(
-            objects,
-            pointer,
-            seeded,
-            runtime,
-            alternateDigests(image, [ownKey]),
-          )
-        ).status,
-      ).toBe("ready");
-    }
-  });
-
-  test("earlier profiles are offered as the gateway's claim offers them", async () => {
-    const resolved = await catalog();
-    const base = resolved.profiles[PROFILE_ID] as CatalogProfile;
-    const repository = resolved.repositories[REPOSITORY_ID];
-    if (repository === undefined) throw new Error("no sample repository");
-    const extra = Array.from({ length: 18 }, (_, n) => `p${n}`);
-    const switched = withSeededInstallation({
-      profiles: {
-        ...resolved.profiles,
-        ...Object.fromEntries(
-          extra.map((id) => [id, { ...base, model: `model-${id}` }]),
-        ),
-      },
-      // The repository no longer allows the first profile it ran.
-      repositories: {
-        ...resolved.repositories,
-        [REPOSITORY_ID]: { ...repository, profiles: ["p0"] },
-      },
-    });
-    const made = (id: string) => ({
-      profileId: id,
-      profileFingerprint: profileFingerprint(
-        switched.profiles[id] as CatalogProfile,
-      ),
-      model: (switched.profiles[id] as CatalogProfile).model,
-    });
-    const session = {
-      id: "s1",
-      ownerId: "owner-1",
-      releaseTools: null,
-      repositoryMode: "repository" as const,
-    };
-
-    const unpaired = earlierProfileClaims(
-      session,
-      [made(PROFILE_ID)],
-      switched,
-    );
-    expect(unpaired.map(([key]) => key)).toEqual([
-      earlierProfileKey("s1", PROFILE_ID),
-    ]);
-    expect(unpaired[0]?.[1].principal.owner_scope).toBe("owner-1");
-
-    expect(
-      earlierProfileClaims(
-        session,
-        [
-          {
-            profileId: PROFILE_ID,
-            profileFingerprint: "sha256:other",
-            model: null,
-          },
-          { profileId: "gone", profileFingerprint: "sha256:x", model: null },
-        ],
-        switched,
-      ),
-    ).toEqual([]);
-
-    // A checkpoint made on another of the profile's models is offered with
-    // that model.
-    const offering = {
-      ...switched,
-      profiles: {
-        ...switched.profiles,
-        [PROFILE_ID]: { ...base, models: ["model-long"] },
-      },
-    };
-    const onLong = profileWithModel(
-      offering.profiles[PROFILE_ID] as CatalogProfile,
-      "model-long",
-    );
-    if (!onLong) throw new Error("the profile offers model-long");
-    const longClaims = earlierProfileClaims(
-      session,
-      [
-        {
-          profileId: PROFILE_ID,
-          profileFingerprint: profileFingerprint(onLong),
-          model: "model-long",
-        },
-      ],
-      offering,
-    );
-    expect(longClaims.map(([, claim]) => claim.runtime_config.model)).toEqual([
-      "model-long",
-    ]);
-
-    const many = earlierProfileClaims(session, extra.map(made), switched);
-    expect(many.map(([key]) => key)).toEqual(
-      extra
-        .slice(0, MAX_RESTORE_PROFILES)
-        .map((id) => earlierProfileKey("s1", id)),
-    );
-  });
-
   test("an image of another CLI build makes the plan incompatible", async () => {
     const claim = sessionClaim(await sessionOf({}), await catalog());
     const objects = createMemoryCheckpointObjectStore({ versioned: true });
@@ -1730,94 +1164,6 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
     expect(describeMismatches(result.mismatches)).toBe(
       `cliVersion ${CLAUDE_RUNTIME_FINGERPRINT.cliVersion} → 9.9.9`,
     );
-  });
-
-  test("the claim is the session's owner and its catalog profile; a pair the catalog no longer allows is refused", async () => {
-    const resolved = await catalog();
-    const claim = sessionClaim(await sessionOf({}), resolved);
-    expect(claim.principal).toEqual({ owner_scope: "owner-a" });
-    expect(claim.runtime_config.model).toBe(
-      (resolved.profiles[PROFILE_ID] as CatalogProfile).model,
-    );
-    // Rows without a fingerprint are pinned to the catalog at claim time.
-    expect(
-      sessionClaim(await sessionOf({ profileFingerprint: null }), resolved),
-    ).toEqual(claim);
-    for (const overrides of [
-      { profileId: "gone" },
-      { repositoryId: "gone" },
-      { repositoryId: null },
-      { branch: "re-pointed" },
-    ]) {
-      const session = await sessionOf(overrides);
-      expect(() => sessionClaim(session, resolved)).toThrow(
-        "are not an allowed pair in the catalog",
-      );
-    }
-    const edited = await sessionOf({ profileFingerprint: "sha256:edited" });
-    expect(() => sessionClaim(edited, resolved)).toThrow(
-      `profile ${PROFILE_ID} has other settings in the catalog than the session was created with`,
-    );
-    expect(claim).not.toHaveProperty("workspace");
-  });
-
-  test("a session without a repository is asked with its workspace, as the worker's claim carries it", async () => {
-    const resolved = await catalog();
-    const base = resolved.profiles[PROFILE_ID] as CatalogProfile;
-    const general: CatalogProfile = {
-      ...base,
-      repository: "optional",
-      project_settings: { claude_md: true },
-    };
-    const withGeneral = withSeededInstallation({
-      ...resolved,
-      profiles: { ...resolved.profiles, general },
-    });
-    const session = {
-      branch: null,
-      model: general.model,
-      ownerId: "owner-a",
-      profileFingerprint: profileFingerprint(general),
-      profileId: "general",
-      repoUrl: null,
-      releaseTools: null,
-      repositoryId: null,
-      repositoryMode: "none" as const,
-    };
-    const claim = sessionClaim(session, withGeneral);
-    expect(claim.workspace).toEqual({ repository: null });
-    expect(claim.runtime_config).not.toHaveProperty("project_settings");
-    const { workspace: _workspace, ...asRepository } = claim;
-    expect(imageClaimFingerprint(claim).profileSha256).not.toBe(
-      imageClaimFingerprint(asRepository).profileSha256,
-    );
-    const [earlier] = earlierProfileClaims(
-      {
-        id: "s1",
-        ownerId: "owner-a",
-        releaseTools: null,
-        repositoryMode: "none",
-      },
-      [
-        {
-          profileId: "general",
-          profileFingerprint: profileFingerprint(general),
-          model: general.model,
-        },
-      ],
-      withGeneral,
-    );
-    expect(earlier?.[1]).toEqual(claim);
-    expect(() =>
-      sessionClaim(
-        {
-          ...session,
-          profileId: PROFILE_ID,
-          profileFingerprint: profileFingerprint(base),
-        },
-        withGeneral,
-      ),
-    ).toThrow(`profile ${PROFILE_ID} may not run without a repository`);
   });
 
   test("a session the image computed no digest for is not asked; no image asks with the sealed runtime", () => {

@@ -28,7 +28,7 @@ import {
   unassignedSessions,
   workerLaunches,
 } from "./schema.ts";
-import { pinRefusesLive } from "./session-pin-cutover.ts";
+import { pinRefusesLive } from "./session-spec-pin.ts";
 import { closeParkedGroup } from "./sessions/parked-group.ts";
 import { openPauseReceipt } from "./sessions/pause-control.ts";
 import { pausedResumeRefusal } from "./sessions/pause-policy.ts";
@@ -270,7 +270,7 @@ async function resumePaused(
   if (refusal !== null) return refusal;
   // A paused session can carry the status of an ended one; the resume that
   // completes later makes it live, which an authoritative pin refuses.
-  if (await pinRefusesLive(tx, session)) return { outcome: "pin_required" };
+  if (pinRefusesLive(session)) return { outcome: "pin_required" };
   // A parked turn is carried on by this resume, once nothing it asked is
   // still open: an answer or an expiry stands for each.
   const parked = await closeParkedGroup(tx, session, {

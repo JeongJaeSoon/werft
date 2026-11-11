@@ -5,9 +5,10 @@ description: SDK로 세션을 만들고, turn이 끝나길 기다려 모델의 �
 
 [SDK 설치](/getting-started/install)에서 만든 `werft` 클라이언트로 세션 하나를 만들고 첫 turn이 끝나는 것까지 본다. 예제는 [개발용 서버](/run-server/dev-server)를 `--fake-model`로 띄운 경우다. `GATE-SPEC {…}` 메시지는 fake 모델이 읽는 대본이라, 실제 Claude가 도는 서버에서는 평범한 문장을 보낸다.
 
-## 프로필 고르기
+## 에이전트 release 준비하기
 
-세션은 서버 운영자가 등록한 프로필(profile) 중 하나로 돈다. [연결 확인](/getting-started/install#연결-확인)에서 본 목록이다. 개발용 서버에는 저장소를 쓰는 `claude-coding-local`(권한 요청에 사람이 답한다)과 `claude-coding-auto`(분류기가 판정한다), 저장소 없이 도는 `general`이 있다. 여기서는 `claude-coding-local`을 쓴다.
+세션은 언제나 에이전트 release로 돈다. release는 provider 연결 하나와 카드의 모델을 묶은 것이고, 세션은 그 release가 고정한 런타임·도구·권한 모드로 돈다. 아직 release가 없으면 [만들기](/agents/create)대로 에이전트를 만들고 개발용 서버의 `fake-messages` 연결로 release를 만든다. 그 release id를 `WERFT_AGENT_RELEASE_ID`에 넣는다.
+
 
 ## 세션 만들기
 
@@ -16,7 +17,7 @@ import { waitForTurn } from "@werft-ai/sdk";
 import { werft } from "./werft.ts";
 
 const created = await werft.sessions.create({
-  profile_id: "claude-coding-local",
+  agent_release_id: process.env.WERFT_AGENT_RELEASE_ID ?? "",
   repository_id: "sample-app",
   message: 'GATE-SPEC {"id":"hello","steps":[],"final":"hello from Werft"}',
 });

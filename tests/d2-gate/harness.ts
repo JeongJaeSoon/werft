@@ -34,6 +34,8 @@ export const BUCKET = "claude-sessions";
 export type GateEnv = {
   apiImage: string;
   apiKey: string;
+  /** The owner's second key, which answers requests (`self_approval`). */
+  approveKey: string;
   apiUrl: string;
   chaosUrl: string;
   command: string;
@@ -43,6 +45,8 @@ export type GateEnv = {
   network: string;
   out: string;
   project: string;
+  /** The gate agent's release every session runs (`D2_GATE_RELEASE_ID`). */
+  releaseId: string;
   s3Url: string;
   workerImage: string;
 };
@@ -67,12 +71,14 @@ export function gateEnv(): GateEnv | null {
   return {
     apiImage: need("API_IMAGE"),
     apiKey: need("D2_GATE_API_KEY"),
+    approveKey: need("D2_GATE_APPROVE_KEY"),
     apiUrl: need("D2_GATE_API_URL"),
     chaosUrl: need("D2_GATE_CHAOS_URL"),
     command: need("D2_GATE_COMMAND"),
     databaseUrl: need("D2_GATE_DATABASE_URL"),
     installation: need("EXECUTION_INSTALLATION_ID"),
     messagesUrl: need("D2_GATE_MESSAGES_URL"),
+    releaseId: need("D2_GATE_RELEASE_ID"),
     network: need("D2_GATE_NETWORK"),
     out: need("D2_GATE_OUT"),
     project: need("D2_GATE_PROJECT"),
@@ -196,13 +202,21 @@ export class PublicApi {
   constructor(
     private readonly base: string,
     private readonly key: string,
+    private readonly releaseId: string,
+    // Answers go under another key: the one that started the session is
+    // refused (`self_approval`).
+    private readonly approveKey: string = key,
   ) {}
 
   async call(method: string, path: string, body?: unknown): Promise<ApiResult> {
+    const key =
+      method === "POST" && path.endsWith("/answers")
+        ? this.approveKey
+        : this.key;
     const response = await fetch(`${this.base}${path}`, {
       method,
       headers: {
-        authorization: `Bearer ${this.key}`,
+        authorization: `Bearer ${key}`,
         ...(body === undefined ? {} : { "content-type": "application/json" }),
         ...(method === "GET" ? {} : { "idempotency-key": crypto.randomUUID() }),
       },
@@ -218,7 +232,7 @@ export class PublicApi {
 
   async createSession(message: string): Promise<CreateSessionResponse> {
     const created = await this.call("POST", "/v1/sessions", {
-      profile_id: "d2-gate",
+      agent_release_id: this.releaseId,
       repository_id: "gate-app",
       message,
     });
@@ -257,8 +271,7 @@ export class PublicApi {
 
   /**
    * Waits the turn out, allowing every permission it asks for the way a
-   * user would: the gate's profile runs Write without asking, but whatever
-   * does ask must not be what decides the outcome.
+   * user would: whatever asks must not be what decides the outcome.
    */
   async settle(
     sessionId: string,

@@ -5,22 +5,21 @@ import { useWerft } from "@werft-ai/react";
 import { Alert, AlertDescription, AlertTitle, Button } from "@werft-ai/ui";
 import {
   agentListsFilter,
-  profilesQuery,
+  connectionsQuery,
   queryKeysOf,
 } from "../../api/queries.ts";
 import { useRole } from "../../auth/guard.tsx";
 import {
-  profileDisplay,
   runsModel,
   successorOf,
-} from "../../components/profile-options.tsx";
+} from "../../components/connection-options.tsx";
 import { useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
 
 /**
  * Says so when the model the active release runs is no longer on its
- * profile's allowed list: which model, and what to do. Nothing while the
- * profile list loads or does not name the profile.
+ * connection's model list: which model, and what to do. Nothing while the
+ * connection list loads or does not name the connection.
  */
 export function ModelRemovedAlert({
   agent,
@@ -48,24 +47,21 @@ export function ModelRemovedAlert({
       await queryClient.invalidateQueries(agentListsFilter(client));
     },
   });
-  const profiles = useQuery(profilesQuery(client));
+  const connections = useQuery(connectionsQuery(client));
   const model = release?.runtime_config_snapshot.model;
-  const profile = profiles.data?.items.find(
-    (listed) => listed.id === release?.runtime_profile_id,
+  const connection = connections.data?.items.find(
+    (listed) => listed.id === release?.connection_id,
   );
   if (
     release === null ||
     typeof model !== "string" ||
-    profile === undefined ||
-    runsModel(profile, model)
+    connection === undefined ||
+    runsModel(connection, model)
   ) {
     return null;
   }
-  const successor = successorOf(profile, model);
-  const params = {
-    model,
-    profile: profileDisplay(t, profiles.data?.items, profile.id),
-  };
+  const successor = successorOf(connection, model);
+  const params = { model, connection: connection.id };
   const switchButton = (next: boolean) => (
     <Button
       size="sm"

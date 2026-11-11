@@ -571,19 +571,19 @@ describe("Slack app service", () => {
     ]);
   });
 
-  test("an agent whose profile needs a repository is warned about, and still connects", async () => {
+  test("an agent whose release needs a repository is warned about, and still connects", async () => {
     const asked: string[] = [];
     const { service } = await setup({
       activeReleaseWarning: async (workspaceId, agentId) => {
         asked.push(`${workspaceId}/${agentId}`);
         return agentId === AGENT
-          ? { code: "repository_required", profile_id: "claude-coding-local" }
+          ? { code: "repository_required", release_id: "rel-1" }
           : null;
       },
     });
     const warning = {
       code: "repository_required",
-      profile_id: "claude-coding-local",
+      release_id: "rel-1",
     } as const;
     expect((await service.getAgentApp(user("owner"), AGENT)).warnings).toEqual([
       warning,
@@ -600,7 +600,7 @@ describe("Slack app service", () => {
     expect(new Set(asked)).toEqual(new Set([`${WORKSPACE}/${AGENT}`]));
   });
 
-  test("without a repository-only profile there is no warning", async () => {
+  test("without a release that needs a repository there is no warning", async () => {
     const { service } = await setup({
       activeReleaseWarning: async () => null,
     });

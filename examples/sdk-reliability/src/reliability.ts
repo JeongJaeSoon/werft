@@ -17,8 +17,10 @@ const client = new Werft({
   defaultHeaders: { "x-werft-sample": "sdk-reliability" },
 });
 const signal = AbortSignal.timeout(5 * 60_000);
-const profile_id = process.env.WERFT_PROFILE_ID ?? "claude-coding-local";
-const repository_id = process.env.WERFT_REPOSITORY_ID ?? "sample-app";
+const agent_release_id = process.env.WERFT_AGENT_RELEASE_ID ?? "";
+if (!agent_release_id) {
+  throw new Error("set WERFT_AGENT_RELEASE_ID to the agent release to run");
+}
 
 const script = (id: string, final: string) =>
   `GATE-SPEC ${JSON.stringify({ id, steps: [], final })}`;
@@ -44,7 +46,7 @@ async function run(): Promise<void> {
   // 1. One Idempotency-Key, one session: a repeat replays the first answer.
   const key = crypto.randomUUID();
   const keyed: MutationOptions = { idempotencyKey: key, signal };
-  const body = { profile_id, repository_id, message: script("rel1", "once") };
+  const body = { agent_release_id, message: script("rel1", "once") };
   const created = await client.sessions.create(body, keyed);
   const again = await client.sessions.create(body, keyed);
   console.log(

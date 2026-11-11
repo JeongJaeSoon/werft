@@ -123,8 +123,8 @@ export type SlackSessionHandlerDeps = {
   agentDetails: Pick<AgentStore, "get">;
   /**
    * Slack names no repository, so a session starts as `releaseStartable`
-   * says; true when it cannot (no usable repository for a profile that needs
-   * one, a repository outside the profile or workspace ceiling, or GitHub
+   * says; true when it cannot (no usable repository, a repository outside the
+   * workspace ceiling, or GitHub
    * settings that cannot be read).
    */
   releaseRepositoryUnusable(
@@ -328,7 +328,7 @@ export function createSlackSessionHandler(
       return;
     }
 
-    let release: { id: string; runtime_profile_id: string } | null = null;
+    let release: { id: string } | null = null;
     let resource: SlackInput["resource"];
     if (found === null) {
       const detail = await deps.agentDetails.get(
@@ -447,7 +447,6 @@ export function createSlackSessionHandler(
           openedByTs: event.ts,
           agentId: agent.agentId,
           releaseId: release.id,
-          profileId: release.runtime_profile_id,
           createdBy: decision.actorUserId,
         })
       ).link;
@@ -489,11 +488,8 @@ export function createSlackSessionHandler(
         ))
       ) {
         await notice("repository_required", { message: "repositoryRequired" });
-      } else if (
-        error.code === "PROFILE_DIGEST_MISMATCH" ||
-        error.code === "PROFILE_BLOCKED"
-      ) {
-        await notice("profile_unavailable", { message: "profileUnavailable" });
+      } else if (error.code === "RELEASE_SPEC_UNAVAILABLE") {
+        await notice("release_unavailable", { message: "releaseUnavailable" });
       } else if (reasonCodeOf(error.details) === "caller_limited") {
         await notice("caller_limited", {
           message: CALLER_LIMITED_NOTICE[callerLimitDimensionOf(error.details)],
@@ -530,7 +526,6 @@ export function createSlackSessionHandler(
     const created = await deps.sessions.createSession(caller, {
       idempotencyKey: link.id,
       body: {
-        profile_id: link.profileId,
         agent_release_id: link.releaseId,
         message,
       },

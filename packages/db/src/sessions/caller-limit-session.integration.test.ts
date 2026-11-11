@@ -42,6 +42,11 @@ import {
   workspaces,
 } from "../schema.ts";
 import { fixtureTeam } from "../testing/fixture-team.ts";
+import {
+  releaseSpecColumns,
+  TEST_CONNECTION_ID,
+  TEST_MODEL,
+} from "../testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -133,7 +138,6 @@ integration("caller limits on session create and input", () => {
       credentialRefs?: string[];
       tools?: string[];
       mcp?: string[];
-      snapshotTools?: string[];
     } = {},
   ) {
     const agentId = randomUUID();
@@ -161,9 +165,9 @@ integration("caller limits on session create and input", () => {
       agentId,
       versionId,
       cardSha256: "a".repeat(64),
-      runtimeProfileId: "coding",
-      profileDigest: "digest",
-      runtimeConfigSnapshot: { tools: options.snapshotTools ?? [] },
+      connectionId: TEST_CONNECTION_ID,
+      ...releaseSpecColumns(),
+      runtimeConfigSnapshot: {},
       effectiveTools: { tools: options.tools ?? [], mcp: options.mcp ?? [] },
     });
     await db
@@ -195,7 +199,7 @@ integration("caller limits on session create and input", () => {
       callerSubject: by.subject,
       idempotencyKey: extra.idempotencyKey ?? randomUUID(),
       payloadHash: "create",
-      profileId: "coding",
+      model: TEST_MODEL,
       repository: extra.repository ?? "none",
       agentReleaseId: releaseId,
       message: "start",
@@ -220,7 +224,7 @@ integration("caller limits on session create and input", () => {
   const append = (
     by: Caller,
     sessionId: string,
-    extra: { profileTools?: string[]; idempotencyKey?: string } = {},
+    extra: { idempotencyKey?: string } = {},
   ) =>
     uow().appendInputAtomic({
       principal: by,
@@ -230,7 +234,6 @@ integration("caller limits on session create and input", () => {
       payloadHash: "append",
       message: "more",
       limits: LIMITS,
-      ...(extra.profileTools ? { profileTools: extra.profileTools } : {}),
     });
 
   async function team(by: Caller, people: Caller[]) {
@@ -479,18 +482,12 @@ integration("caller limits on session create and input", () => {
   });
 
   describe("input", () => {
-    test("a session from before the switch takes a sender with no limit", async () => {
+    test("a session takes a sender with no limit", async () => {
       const ws = await workspace();
       const member = await person(ws);
       const { releaseId } = await agentRelease(ws, { tools: ["Bash"] });
       const id = await session(member, releaseId);
-      await db
-        .update(sessions)
-        .set({ runtimeToolsSource: "profile" })
-        .where(eq(sessions.id, id));
-      expect(
-        (await append(member, id, { profileTools: ["Bash"] })).outcome,
-      ).toBe("accepted");
+      expect((await append(member, id)).outcome).toBe("accepted");
       const turn = await turnRow(id, 2);
       expect(turn?.callerLimitDigest).toBeNull();
     });
@@ -521,44 +518,18 @@ integration("caller limits on session create and input", () => {
       expect(await refusals(ws)).toHaveLength(1);
     });
 
-    test("the base tool list of a profile-sourced session is the profile's, narrowed by the release snapshot", async () => {
-      const ws = await workspace();
-      const owner = await person(ws, "owner");
-      const member = await person(ws);
-      const { agentId, releaseId } = await agentRelease(ws, {
-        snapshotTools: ["Read"],
-      });
-      const id = await session(member, releaseId);
-      await db
-        .update(sessions)
-        .set({ runtimeToolsSource: "profile" })
-        .where(eq(sessions.id, id));
-      await setRules(owner, agentId, [
-        rule({ kind: "workspace" }, { tools_deny: ["Bash"] }),
-      ]);
-      expect(
-        (await append(member, id, { profileTools: ["Bash", "Read"] })).outcome,
-      ).toBe("accepted");
-      await setRules(owner, agentId, [
-        rule({ kind: "workspace" }, { tools_deny: ["Read"] }),
-      ]);
-      expect(
-        await append(member, id, { profileTools: ["Bash", "Read"] }),
-      ).toEqual({ outcome: "caller_limited", dimension: "tool" });
-    });
-
     test("a tool the creator's own limit already took away is not asked of them again", async () => {
       const ws = await workspace();
       const owner = await person(ws, "owner");
       const member = await person(ws);
-      const { agentId, releaseId } = await agentRelease(ws);
+      const { agentId, releaseId } = await agentRelease(ws, {
+        tools: ["Bash"],
+      });
       const id = await session(member, releaseId);
-      // A profile-sourced session keeps its tools open to the profile; the
-      // pinned limit already took Bash away from it.
+      // The pinned limit already took Bash away from the session.
       await db
         .update(sessions)
         .set({
-          runtimeToolsSource: "profile",
           callerLimit: {
             v: 1,
             tools_deny: ["Bash"],
@@ -572,13 +543,9 @@ integration("caller limits on session create and input", () => {
       await setRules(owner, agentId, [
         rule({ kind: "workspace" }, { tools_deny: ["Bash"] }),
       ]);
-      expect(
-        (await append(member, id, { profileTools: ["Bash"] })).outcome,
-      ).toBe("accepted");
+      expect((await append(member, id)).outcome).toBe("accepted");
       const channelSender = await person(ws, "owner");
-      expect(
-        (await append(channelSender, id, { profileTools: ["Bash"] })).outcome,
-      ).toBe("accepted");
+      expect((await append(channelSender, id)).outcome).toBe("accepted");
     });
 
     test("a narrower sender cannot move a session made wider; the session's repository and MCP server count", async () => {
@@ -624,7 +591,7 @@ integration("caller limits on session create and input", () => {
       review: false,
     };
 
-    test("a tool the agent's MCP settings add counts, on create and on a profile-sourced input", async () => {
+    test("a tool the agent's MCP settings add counts, on create and on input", async () => {
       const ws = await workspace();
       const owner = await person(ws, "owner");
       const member = await person(ws);
@@ -648,11 +615,7 @@ integration("caller limits on session create and input", () => {
         outcome: "caller_limited",
         dimension: "tool",
       });
-      await db
-        .update(sessions)
-        .set({ runtimeToolsSource: "profile" })
-        .where(eq(sessions.id, id));
-      expect(await append(member, id, { profileTools: [] })).toEqual({
+      expect(await append(member, id)).toEqual({
         outcome: "caller_limited",
         dimension: "tool",
       });

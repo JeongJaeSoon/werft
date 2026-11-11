@@ -3,6 +3,7 @@ import {
   DEFAULT_USER_LOCALE,
   type PushRequestOrigin,
   pendingQuestionSchema,
+  type RuntimeKind,
   rememberRuleSchema,
   type SessionEventPayload,
   type UserLocale,
@@ -952,7 +953,7 @@ export function createPostgresSlackOutboxStore(
                 type: events.type,
                 payload: events.payload,
                 neutral: events.neutral,
-                profileId: sessions.profileId,
+                runtimeKind: sql<RuntimeKind | null>`${sessions.runtimeSpec} -> 'runtime' ->> 'kind'`,
               })
               .from(events)
               .innerJoin(sessions, eq(sessions.id, events.sessionId))
@@ -981,12 +982,12 @@ export function createPostgresSlackOutboxStore(
           state: status === "completed" ? "completed" : "failed",
           events: said
             .filter((event) => event.turnId === turnRowId)
-            .map(({ type, payload, neutral, profileId }) => ({
+            .map(({ type, payload, neutral, runtimeKind }) => ({
               type,
               payload:
                 neutral !== null || options.neutralize === undefined
                   ? withStoredNeutralFields(payload, neutral)
-                  : options.neutralize(profileId, {
+                  : options.neutralize(runtimeKind, {
                       event: type,
                       data: payload,
                     } as SessionEventPayload).data,

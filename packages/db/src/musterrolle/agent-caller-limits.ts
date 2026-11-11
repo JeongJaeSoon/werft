@@ -21,7 +21,6 @@ import {
   mergeCallerLimit,
   narrowReach,
   type PutAgentCallerLimitsResult,
-  runningTools,
   type SessionReach,
   withLiveRepositories,
 } from "@werft-ai/platform";
@@ -405,14 +404,12 @@ export async function sessionReach(
   tx: Database,
   session: {
     agentReleaseId: string | null;
-    runtimeToolsSource: string;
     repositoryId: string | null;
     attachedRepositoryIds: readonly string[] | null;
     mcpStart: unknown;
     githubPolicySource: string;
     githubPolicyStart: unknown;
   },
-  profileTools: readonly string[],
 ): Promise<SessionReach | null> {
   if (session.agentReleaseId === null) return null;
   const release = await releaseFacts(tx, session.agentReleaseId);
@@ -426,10 +423,7 @@ export async function sessionReach(
       session,
     ));
   return reachOf(tx, session.agentReleaseId, release, {
-    builtinTools:
-      session.runtimeToolsSource === "release"
-        ? releaseBuiltinTools(release)
-        : runningTools({ tools: [...profileTools] }, release.snapshot),
+    builtinTools: releaseBuiltinTools(release),
     mcpStart: mcpStartSchema.safeParse(session.mcpStart).data ?? null,
     githubPolicySource: session.githubPolicySource,
     repositories: [

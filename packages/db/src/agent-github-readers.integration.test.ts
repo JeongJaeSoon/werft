@@ -6,13 +6,12 @@ import {
   GITHUB_POLICY_CLOSED,
   type ReceiptActor,
 } from "@werft-ai/contracts";
-import type { PushRequestStore, RunnablePair } from "@werft-ai/platform";
+import type { PushRequestStore } from "@werft-ai/platform";
 import {
   createTempDatabase,
   type TempDatabase,
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
-import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresAgentGitHubStore } from "./agent-github.ts";
@@ -27,8 +26,12 @@ import {
 import { createPostgresGitHubMcpStore } from "./mcp-egress.ts";
 import { createPostgresPushRequests } from "./push-requests.ts";
 import * as schema from "./schema.ts";
-import { sessions } from "./schema.ts";
-import { runnableCondition, runnablePairOf } from "./worker-unit-of-work.ts";
+import {
+  RELEASE_SPEC_SQL_COLUMNS,
+  releaseSpecSqlValues,
+  SESSION_PIN_SQL_COLUMNS,
+  sessionPinSqlValues,
+} from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -114,15 +117,14 @@ integration("the readers of an agent's GitHub settings", () => {
     );
     await pool.query(
       `INSERT INTO agent_releases (id, agent_id, version_id, card_sha256,
-         runtime_profile_id, repository_id, profile_digest,
-         runtime_config_snapshot, effective_tools, policy_pins)
-       VALUES ($1, $2, $3, $4, 'claude-coding-v1', 'sample-app', $5, '{}', '{}', $6)`,
+         repository_id, runtime_config_snapshot, effective_tools, policy_pins,
+         ${RELEASE_SPEC_SQL_COLUMNS})
+       VALUES ($1, $2, $3, $4, 'sample-app', '{}', '{}', $5, ${releaseSpecSqlValues()})`,
       [
         releaseId,
         agentId,
         versionId,
         "a".repeat(64),
-        `sha256:${"c".repeat(64)}`,
         JSON.stringify({ github: PIN_OFF, ...options.pins }),
       ],
     );
@@ -133,9 +135,10 @@ integration("the readers of an agent's GitHub settings", () => {
     await pool.query(
       `INSERT INTO sessions (id, owner_id, repo_url, branch, repository_id,
          workspace_id, agent_release_id, created_by_user_id,
-         github_policy_source, checkpoint_revision, github_policy_start)
+         github_policy_source, checkpoint_revision, github_policy_start,
+         ${SESSION_PIN_SQL_COLUMNS})
        VALUES ($1, $2, 'https://github.com/acme/app.git', 'main', 'sample-app',
-         $3, $4, $5, $6, 1, $7)`,
+         $3, $4, $5, $6, 1, $7, ${sessionPinSqlValues()})`,
       [
         sessionId,
         workspaceId,
@@ -1334,161 +1337,6 @@ integration("the readers of an agent's GitHub settings", () => {
         ensureInstalledRepositoryCeiling(db, workspaceId),
       ]);
       expect(results.filter(({ changed }) => changed)).toHaveLength(1);
-    });
-  });
-
-  describe("a claim's SQL and the check after it", () => {
-    const F1 = `sha256:${"1".repeat(64)}`;
-    const F2 = `sha256:${"2".repeat(64)}`;
-    const APP = {
-      repositoryId: "sample-app",
-      url: "https://example.invalid/app.git",
-      branch: "main",
-    };
-    const policy = (
-      overrides: Partial<Extract<RunnablePair, { policy: true }>> = {},
-    ): RunnablePair => ({
-      policy: true,
-      profileId: "p",
-      profileFingerprint: F1,
-      model: null,
-      workspaceScoped: false,
-      repositories: [APP],
-      ...overrides,
-    });
-    const LISTS: Array<{
-      name: string;
-      pairs: RunnablePair[];
-      release: boolean;
-    }> = [
-      { name: "any model", pairs: [policy()], release: false },
-      {
-        name: "one model",
-        pairs: [policy({ model: "m1" })],
-        release: false,
-      },
-      {
-        name: "a workspace profile",
-        pairs: [policy({ workspaceScoped: true })],
-        release: true,
-      },
-      {
-        name: "no repositories",
-        pairs: [policy({ repositories: [] })],
-        release: false,
-      },
-      {
-        name: "beside the ordinary pairs",
-        pairs: [
-          policy(),
-          {
-            profileId: "p",
-            profileFingerprint: F2,
-            model: "m2",
-            ...APP,
-          },
-          {
-            profileId: "q",
-            profileFingerprint: F1,
-            model: null,
-            repositoryId: null,
-          },
-        ],
-        release: true,
-      },
-      {
-        name: "two profiles, one scoped",
-        pairs: [policy(), policy({ profileId: "q", workspaceScoped: true })],
-        release: true,
-      },
-    ];
-    const owner = `owner-${randomUUID()}`;
-
-    beforeAll(async () => {
-      const locations = [
-        { repositoryMode: "none" as const },
-        { repositoryMode: "repository" as const, ...APP, repoUrl: APP.url },
-        {
-          repositoryMode: "repository" as const,
-          ...APP,
-          repoUrl: "https://moved.invalid/app.git",
-        },
-        {
-          repositoryMode: "repository" as const,
-          ...APP,
-          repositoryId: "other",
-          repoUrl: APP.url,
-        },
-      ];
-      const rows = [];
-      for (const githubPolicySource of ["release", "agent"]) {
-        for (const location of locations) {
-          for (const profileFingerprint of [null, F1, F2]) {
-            for (const model of [null, "m1", "m2"]) {
-              for (const profileId of ["p", "q"]) {
-                const { repositoryMode } = location;
-                rows.push({
-                  id: randomUUID(),
-                  ownerId: owner,
-                  githubPolicySource,
-                  profileFingerprint,
-                  model,
-                  profileId,
-                  repositoryMode,
-                  repositoryId:
-                    "repositoryId" in location ? location.repositoryId : null,
-                  repoUrl: "repoUrl" in location ? location.repoUrl : null,
-                  branch: "branch" in location ? location.branch : null,
-                });
-              }
-            }
-          }
-        }
-      }
-      await db.insert(sessions).values(rows);
-    });
-
-    test.each(LISTS)("$name", async ({ pairs, release }) => {
-      const all = await db
-        .select()
-        .from(sessions)
-        .where(eq(sessions.ownerId, owner));
-      const bySql = await db
-        .select({ id: sessions.id })
-        .from(sessions)
-        .where(and(eq(sessions.ownerId, owner), runnableCondition(pairs)));
-      const byCheck = all.filter(
-        (session) => runnablePairOf(session, pairs) !== undefined,
-      );
-      expect(bySql.map(({ id }) => id).sort()).toEqual(
-        byCheck.map(({ id }) => id).sort(),
-      );
-      expect(byCheck.length).toBeGreaterThan(0);
-      expect(
-        byCheck.some((session) => session.githubPolicySource === "agent"),
-      ).toBe(true);
-      expect(
-        byCheck.some((session) => session.githubPolicySource === "release"),
-      ).toBe(release);
-    });
-
-    test("an `agent` session is not claimed on a repository the list does not hold", async () => {
-      const off = await db
-        .select()
-        .from(sessions)
-        .where(
-          and(
-            eq(sessions.ownerId, owner),
-            eq(sessions.githubPolicySource, "agent"),
-            eq(sessions.repositoryId, "other"),
-            eq(sessions.profileId, "p"),
-            eq(sessions.profileFingerprint, F1),
-          ),
-        );
-      expect(off.length).toBeGreaterThan(0);
-      for (const session of off) {
-        expect(runnablePairOf(session, [policy()])).toBeUndefined();
-      }
     });
   });
 });

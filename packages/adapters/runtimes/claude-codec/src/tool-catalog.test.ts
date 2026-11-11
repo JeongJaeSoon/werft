@@ -24,7 +24,7 @@ describe("the pinned engine build", () => {
     expect(pinnedClaudeToolCatalog()).toBe(pinned[0]);
   });
 
-  test("is found under either version a profile may name", () => {
+  test("is found under either version a release may name", () => {
     const pinned = pinnedClaudeToolCatalog();
     for (const version of [CLAUDE_AGENT_SDK_VERSION, CLAUDE_CODE_VERSION]) {
       expect(

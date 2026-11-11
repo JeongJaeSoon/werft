@@ -4,7 +4,11 @@
     "gate-messages": {
       "kind": "anthropic",
       "endpoint": "http://gate-messages:4010",
-      "auth": { "kind": "api_key", "value_env": "GATE_PROVIDER_KEY" }
+      "auth": {
+        "kind": "api_key",
+        "value_env": "GATE_PROVIDER_KEY"
+      },
+      "models": ["claude-sonnet-5"]
     }
   },
   "repositories": {
@@ -17,23 +21,8 @@
         "installation_id": 1,
         "api_base": "http://fake-git:3000",
         "secret_id": "werft/local/fake-github-app"
-      },
-      "profiles": ["d2-gate"]
-    }
-  },
-  "mcp_servers": {},
-  "profiles": {
-    "d2-gate": {
-      "runtime_kind": "claude_agent_sdk",
-      "runtime_version": "0.3.319",
-      "model": "claude-sonnet-5",
-      "tools": ["Read", "Write", "Edit", "Agent"],
-      "permission_mode": "acceptEdits",
-      "provider": {
-        "kind": "anthropic",
-        "endpoint": "http://gate-messages:4010",
-        "auth": { "kind": "api_key", "value_env": "GATE_PROVIDER_KEY" }
       }
     }
-  }
+  },
+  "mcp_servers": {}
 }

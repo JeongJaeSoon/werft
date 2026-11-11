@@ -9,7 +9,7 @@ const AGENT = "019a0000-0000-7000-8000-0000000000c1";
 const USER = "019a0000-0000-7000-8000-0000000000d1";
 
 const catalog = {
-  profiles: {},
+  connections: {},
   repositories: {},
   mcp_servers: {
     docs: { credential_ref: "docs-key", workspaces: ["acme"] },
@@ -205,7 +205,7 @@ describe("the agent MCP service", () => {
       request({ server, allowed_tools: allowed }),
     );
 
-  test("a tool the active release's profile blocks cannot be added, one it leaves open can", async () => {
+  test("a tool the active release's mcp_deny blocks cannot be added, one it leaves open can", async () => {
     const lockedDeny = ["mcp__docs__write"];
     expect(await refusal(save({ lockedDeny }, ["mcp__docs__write"]))).toBe(
       "BAD_REQUEST:mcp_tool_denied",

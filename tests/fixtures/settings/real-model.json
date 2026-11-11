@@ -4,7 +4,11 @@
     "anthropic": {
       "kind": "anthropic",
       "endpoint": "https://api.anthropic.com",
-      "auth": { "kind": "api_key", "value_env": "ANTHROPIC_API_KEY" }
+      "auth": {
+        "kind": "api_key",
+        "value_env": "ANTHROPIC_API_KEY"
+      },
+      "models": ["claude-sonnet-5"]
     }
   },
   "repositories": {
@@ -17,32 +21,8 @@
         "installation_id": 1,
         "api_base": "http://fake-git:3000",
         "secret_id": "werft/local/fake-github-app"
-      },
-      "profiles": ["claude-coding-real"]
+      }
     }
   },
-  "mcp_servers": {},
-  "profiles": {
-    "claude-coding-real": {
-      "runtime_kind": "claude_agent_sdk",
-      "runtime_version": "0.3.319",
-      "model": "claude-sonnet-5",
-      "tools": [
-        "Read",
-        "Edit",
-        "Write",
-        "Glob",
-        "Grep",
-        "Bash",
-        "AskUserQuestion"
-      ],
-      "permission_mode": "auto",
-      "provider": {
-        "kind": "anthropic",
-        "endpoint": "https://api.anthropic.com",
-        "auth": { "kind": "api_key", "value_env": "ANTHROPIC_API_KEY" }
-      },
-      "project_settings": { "claude_md": true }
-    }
-  }
+  "mcp_servers": {}
 }

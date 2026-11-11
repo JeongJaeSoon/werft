@@ -35,6 +35,11 @@ import {
   workspaces,
 } from "./schema.ts";
 import { fixtureTeam } from "./testing/fixture-team.ts";
+import {
+  releaseSpecColumns,
+  TEST_CONNECTION_ID,
+  TEST_MODEL,
+} from "./testing/spec-pins.ts";
 import { createPostgresAgentUsageStore } from "./usage/agent-usage.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -147,8 +152,8 @@ integration("private agents on PostgreSQL", () => {
       agentId,
       versionId,
       cardSha256: "a".repeat(64),
-      runtimeProfileId: "coding",
-      profileDigest: "digest",
+      connectionId: TEST_CONNECTION_ID,
+      ...releaseSpecColumns(),
       runtimeConfigSnapshot: {},
       effectiveTools: [],
     });
@@ -170,7 +175,7 @@ integration("private agents on PostgreSQL", () => {
       principal: by,
       idempotencyKey: extra.idempotencyKey ?? randomUUID(),
       payloadHash: "create",
-      profileId: "coding",
+      model: TEST_MODEL,
       repository: "none",
       agentReleaseId: releaseId,
       message: extra.message ?? "start",
@@ -406,23 +411,6 @@ integration("private agents on PostgreSQL", () => {
       expect(stored.some((r) => r.operation === "credential_unbound")).toBe(
         false,
       );
-    });
-
-    test("a blocked profile is named only to someone who may use the agent", async () => {
-      const w = await world();
-      const sessionId = await session(w.insider, w.releaseId);
-      const blocked = (by: Caller) =>
-        uow().appendInputAtomic({
-          principal: by,
-          sessionId,
-          idempotencyKey: randomUUID(),
-          payloadHash: "append",
-          message: "more",
-          limits: LIMITS,
-          profileBlocked: true,
-        });
-      expect(await blocked(w.outsider)).toEqual({ outcome: "agent_private" });
-      expect(await blocked(w.insider)).toEqual({ outcome: "profile_blocked" });
     });
 
     test("a session the requester cannot see stays not found, whatever its agent", async () => {

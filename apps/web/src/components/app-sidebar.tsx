@@ -20,7 +20,6 @@ import {
   type LucideIcon,
   Monitor,
   Moon,
-  SlidersHorizontal,
   Sun,
   Trophy,
   Users,
@@ -50,7 +49,6 @@ type NavPath =
   | "/"
   | "/sessions"
   | "/agents"
-  | "/profiles"
   | "/operations"
   | "/achievements"
   | "/members"
@@ -159,7 +157,6 @@ export function useNavGroups(): readonly NavGroup[] {
   // member's own settings open from the account menu; the screens and the
   // server keep the rights.
   const workspace: NavItem[] = [
-    { to: "/profiles", label: "nav.profiles", icon: SlidersHorizontal },
     { to: "/operations", label: "nav.operations", icon: Gauge },
     { to: "/achievements", label: "nav.achievements", icon: Trophy },
   ];

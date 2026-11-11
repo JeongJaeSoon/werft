@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { RuntimeDescriptor } from "@werft-ai/runtime-core";
 
-import { ProfileFeatureGate } from "./feature-gate.ts";
+import { RuntimeFeatureGate } from "./feature-gate.ts";
 
 const full: RuntimeDescriptor = {
   contractVersion: "runtime-contract/v1",
@@ -47,8 +47,8 @@ const mcpServer = {
   access: { kind: "egress_token", token: "t" },
 } as const;
 
-describe("ProfileFeatureGate", () => {
-  const gate = new ProfileFeatureGate([full, partial]);
+describe("RuntimeFeatureGate", () => {
+  const gate = new RuntimeFeatureGate([full, partial]);
 
   test("passes settings the runtime supports", () => {
     expect(
@@ -83,21 +83,5 @@ describe("ProfileFeatureGate", () => {
     ).toBe(
       "Runtime codex_app_server is not installed (installed: claude_agent_sdk, pi_coding_agent)",
     );
-  });
-
-  test("names every refused profile at once and passes a catalog it can run", () => {
-    expect(() =>
-      gate.assertProfiles({
-        ok: { runtime_kind: "claude_agent_sdk", permission_mode: "auto" },
-        "pi-auto": { runtime_kind: "pi_coding_agent", permission_mode: "auto" },
-        codex: { runtime_kind: "codex_app_server", permission_mode: "plan" },
-      }),
-    ).toThrow(
-      "Catalog profile(s) refused: pi-auto: Runtime pi_coding_agent does not support classifier_review; codex: Runtime codex_app_server is not installed (installed: claude_agent_sdk, pi_coding_agent)",
-    );
-    gate.assertProfiles({
-      ok: { runtime_kind: "claude_agent_sdk", permission_mode: "auto" },
-      "pi-plan": { runtime_kind: "pi_coding_agent", permission_mode: "plan" },
-    });
   });
 });

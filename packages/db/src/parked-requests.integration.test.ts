@@ -14,7 +14,6 @@ import {
   type WorkerGateway,
   WorkerGatewayError,
   type WorkerPrincipal,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import { testCaller } from "@werft-ai/testkit/callers";
 import {
@@ -65,6 +64,11 @@ import { expireParkedGroups } from "./sessions/parked-group.ts";
 import { pauseBlocker } from "./sessions/pause-control.ts";
 import { announceLapsedInputWaits } from "./sessions/session-events.ts";
 import { launchSession } from "./testing/launches.ts";
+import {
+  fixtureRelease,
+  TEST_MODEL,
+  testSessionCatalog,
+} from "./testing/spec-pins.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -73,30 +77,21 @@ const bootstrap: WorkerPrincipal = { kind: "bootstrap" };
 const HASH_A = "a".repeat(64);
 const HASH_B = "b".repeat(64);
 
-const catalog: SessionCatalog = withSeededInstallation({
-  profiles: {
-    "claude-coding-v1": {
-      runtime_kind: "claude_agent_sdk",
-      runtime_version: "0.3.270",
-      model: "claude-sonnet-5",
-      tools: ["Read", "Edit", "Bash"],
-      permission_mode: "default",
-      provider: {
-        kind: "litellm",
-        endpoint: "https://litellm.invalid",
-        auth: {
-          kind: "api_key",
-          value: "catalog-provider-key",
-          ref: { value_env: "PROVIDER_KEY" },
-        },
-      },
+const catalog: SessionCatalog = testSessionCatalog({
+  provider: {
+    kind: "litellm",
+    endpoint: "https://litellm.invalid",
+    auth: {
+      kind: "api_key",
+      value: "catalog-provider-key",
+      ref: { value_env: "PROVIDER_KEY" },
     },
   },
+  models: ["claude-sonnet-5"],
   repositories: {
     "sample-app": {
       url: "https://example.invalid/app.git",
       branch: "main",
-      profiles: ["claude-coding-v1"],
       auth: { kind: "github_app", registered: true },
     },
   },
@@ -170,7 +165,7 @@ integration("parked pending requests on PostgreSQL", () => {
 
   async function runningSession() {
     const partition = `parked-${crypto.randomUUID()}`;
-    const owner = testCaller(`owner-${crypto.randomUUID()}`);
+    const owner = testCaller(crypto.randomUUID());
     const accepted = await createPostgresSessionUnitOfWork(
       db,
     ).acceptInputAtomic({
@@ -178,7 +173,8 @@ integration("parked pending requests on PostgreSQL", () => {
       principal: owner,
       idempotencyKey: crypto.randomUUID(),
       payloadHash: crypto.randomUUID(),
-      profileId: "claude-coding-v1",
+      agentReleaseId: await fixtureRelease(db),
+      model: TEST_MODEL,
       repository: {
         id: "sample-app",
         url: "https://example.invalid/app.git",
@@ -1505,10 +1501,11 @@ integration("parked pending requests on PostgreSQL", () => {
       db,
     ).acceptInputAtomic({
       limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
-      principal: testCaller(`owner-${crypto.randomUUID()}`),
+      principal: testCaller(crypto.randomUUID()),
       idempotencyKey: crypto.randomUUID(),
       payloadHash: crypto.randomUUID(),
-      profileId: "claude-coding-v1",
+      agentReleaseId: await fixtureRelease(db),
+      model: TEST_MODEL,
       repository: "none",
       permissionWait: { park_after_seconds: 0 },
       message: "first input",

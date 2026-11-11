@@ -65,7 +65,7 @@ describe("workerRuntimeRegistry", () => {
     ).launcherFor({
       kind: "claude_agent_sdk",
       version: claude.descriptor.runtimeVersion,
-      profile_id: "default",
+      connection_id: "fake-connection",
     });
 
     expect(typeof launcher.start).toBe("function");
@@ -76,7 +76,7 @@ describe("workerRuntimeRegistry", () => {
       workerRuntimeRegistry(config, new EngineProcesses()).launcherFor({
         kind: "codex_app_server",
         version: "1.0.0",
-        profile_id: "default",
+        connection_id: "fake-connection",
       }),
     ).toThrow("not codex_app_server");
   });
@@ -88,19 +88,19 @@ describe("workerRuntimeRegistry", () => {
       workerRuntimeRegistry(config, new EngineProcesses()).launcherFor({
         kind: "claude_agent_sdk",
         version: "0.0.1",
-        profile_id: "default",
+        connection_id: "fake-connection",
       }),
     ).toThrow("this worker ships Agent SDK");
   });
 
-  test("a profile that wants CLAUDE.md gets no engine when the workspace cannot vouch for one", () => {
+  test("a run config that wants CLAUDE.md gets no engine when the workspace cannot vouch for one", () => {
     const launcher = workerRuntimeRegistry(
       config,
       new EngineProcesses(),
     ).launcherFor({
       kind: "claude_agent_sdk",
       version: claude.descriptor.runtimeVersion,
-      profile_id: "default",
+      connection_id: "fake-connection",
     });
 
     expect(() =>

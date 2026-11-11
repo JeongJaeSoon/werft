@@ -13,6 +13,10 @@ import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "./migrate.ts";
 import { MIGRATIONS_FOLDER, readJournal } from "./migration-folder.ts";
+import {
+  BEFORE_PROFILE_REMOVAL,
+  migrationsThrough,
+} from "./testing/migrations-through.ts";
 
 /**
  * The counters migration session_data_rollups keeps by trigger, against the
@@ -331,7 +335,10 @@ describe("session data rollups", () => {
     await checkpoint(client, sessionId, 2, { k1: 10 });
     await purge(client, sessionId, 1);
 
-    await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER });
+    // Up to the profile removal, which empties the session tables.
+    const after = migrationsThrough(BEFORE_PROFILE_REMOVAL);
+    folders.push(after);
+    await migrate(db, { migrationsFolder: after });
     await expectToolCallsCounted(client);
     await expectUsageCounted(client);
     await expectOutputsCounted(client);

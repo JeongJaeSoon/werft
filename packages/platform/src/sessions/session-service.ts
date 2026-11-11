@@ -8,7 +8,6 @@ import type {
   AuthorizationAction,
   AuthorizationDecision,
   AuthorizationResource,
-  ChangeSessionProfileRequest,
   CloseSessionRequest,
   ControlAcceptedResponse,
   CountSessionsQuery,
@@ -31,6 +30,7 @@ import type {
   SessionExtension,
   SessionRuntimeView,
   SlackMessageRef,
+  SpecSource,
   TerminateSessionRequest,
   TerminateSessionResponse,
   TurnDetail,
@@ -38,7 +38,6 @@ import type {
 } from "@werft-ai/contracts";
 import {
   CREDENTIAL_UNBOUND_GUIDANCE,
-  githubPolicySourceOf,
   newSessionGitHubPolicy,
   normalizeSessionTitle,
   startRepositoryOf,
@@ -46,7 +45,6 @@ import {
 import { releaseModel } from "../agents/release-ids.ts";
 import type { ExtensionRefusal } from "../extensions/resolve.ts";
 import {
-  checkPinnedExtensions,
   resolveSessionExtensions,
   type SessionExtensionsDeps,
 } from "../extensions/session-extensions.ts";
@@ -66,27 +64,12 @@ import type {
 import type { CredentialBindingStore } from "../ports/credential-binding-store.ts";
 import { additionalRepositoryAllowed } from "./additional-repositories.ts";
 import {
-  acceptedRuntimeVersions,
-  allowedRun,
-  catalogProfile,
-  effectiveExecutionMode,
-  isUnmetered,
+  connectionModels,
+  connectionOf,
   modelSuccessor,
-  movesAtNextTurn,
-  type ProfilePin,
-  profileFingerprint,
-  profileGone,
-  profileModels,
-  profileWithModel,
-  refreshWorkspaceProfilesFor,
   repositoryInCeiling,
-  repositoryModeOf,
-  runningTools,
-  runsOnCurrentImage,
+  runtimeVersionAccepted,
   type SessionCatalogView,
-  sessionProfile,
-  usesWorkspaceCeiling,
-  workspaceProfileRefusal,
 } from "./catalog.ts";
 import type { SessionControl } from "./ports/session-control.ts";
 import type { SessionViewer } from "./ports/session-share-store.ts";
@@ -142,38 +125,6 @@ export function selfApproval(error: unknown): boolean {
   );
 }
 
-type OperatorBlock = {
-  reason: string;
-  reason_code: "blocked" | "base_blocked";
-  profile_id: string;
-};
-
-function operatorBlock(
-  profileId: string,
-  refusal: { state: string; message: string } | null,
-): OperatorBlock | null {
-  const state = refusal?.state;
-  return refusal && (state === "blocked" || state === "base_blocked")
-    ? { reason: refusal.message, reason_code: state, profile_id: profileId }
-    : null;
-}
-
-/** An operator block as its own error, or null for any other refusal. */
-export function profileBlockedError(
-  profileId: string,
-  refusal: { state: string; message: string } | null,
-): SessionServiceError | null {
-  const block = operatorBlock(profileId, refusal);
-  return block ? blockedError(block) : null;
-}
-
-function blockedError(block: OperatorBlock): SessionServiceError {
-  return new SessionServiceError("PROFILE_BLOCKED", block.reason, undefined, {
-    reason_code: block.reason_code,
-    profile_id: block.profile_id,
-  });
-}
-
 export function idempotencyConflict(): never {
   throw new SessionServiceError(
     "IDEMPOTENCY_CONFLICT",
@@ -194,13 +145,6 @@ function canonicalize(value: unknown): unknown {
     );
   }
   return value;
-}
-
-function pinOf(record: {
-  profile_fingerprint: string | null;
-  model: string | null;
-}): ProfilePin {
-  return { fingerprint: record.profile_fingerprint, model: record.model };
 }
 
 // api.md: pausing/paused, resuming and closed each have their own code;
@@ -449,9 +393,10 @@ export function createSessionService(deps: {
         AgentRelease,
         | "id"
         | "agent_id"
-        | "runtime_profile_id"
+        | "connection_id"
         | "repository_id"
         | "runtime_config_snapshot"
+        | "effective_tools"
         | "policy_pins"
         | "approved_at"
       >
@@ -504,130 +449,68 @@ export function createSessionService(deps: {
   };
   const now = deps.now ?? (() => new Date());
 
-  function runOf(
-    record: Pick<
-      SessionDetailRecord,
-      "repository_mode" | "repository_id" | "github_policy_source"
-    >,
-    profileId: string,
-  ) {
-    const source = githubPolicySourceOf(record.github_policy_source);
-    if (record.repository_mode === "none") {
-      return allowedRun(catalog, profileId, null, source);
-    }
-    const predatesCatalog = record.repository_id === null;
-    return predatesCatalog
-      ? null
-      : allowedRun(catalog, profileId, record.repository_id, source);
-  }
-
-  async function profileRefusalOf(
-    actor: Caller,
-    profileId: string,
-    retiredAllowed: boolean,
-  ) {
-    await refreshWorkspaceProfilesFor(catalog, [profileId], {
-      strict: !retiredAllowed,
-    });
-    return workspaceProfileRefusal(catalog, actor.ownerId, profileId, {
-      retiredAllowed,
-    });
-  }
-
-  function repositoryRefusal(
-    profileId: string,
-    repositoryId: string | null,
-  ): string {
-    const profile = catalogProfile(catalog, profileId);
-    const mode = profile ? repositoryModeOf(profile) : undefined;
-    if (mode === "required" && repositoryId === null) {
-      return `Profile ${profileId} needs a repository: send repository_id`;
-    }
-    if (mode === "none" && repositoryId !== null) {
-      return `Profile ${profileId} runs without a repository: omit repository_id`;
-    }
-    return "Unknown profile_id or repository_id, or a pair the catalog does not allow";
-  }
-
-  // A session already made keeps a retired profile, so only a block stops it.
-  function sessionBlock(workspaceId: string, profileId: string | null) {
-    return profileId === null
-      ? null
-      : operatorBlock(
-          profileId,
-          workspaceProfileRefusal(catalog, workspaceId, profileId, {
-            retiredAllowed: true,
-          }),
-        );
-  }
-
+  /**
+   * Whether a worker of this host would take the session: its connection
+   * runs its model (or the next of its series, when the agent moves), its
+   * runtime ships with the images, and its repository is still the one it
+   * was created on.
+   */
   function catalogAllows(record: SessionDetailRecord): boolean {
-    const run = record.profile_id ? runOf(record, record.profile_id) : null;
+    const spec = record.spec;
+    if (spec === null) return false;
+    const connection = connectionOf(catalog, spec.connection.id);
+    if (connection === undefined) return false;
+    if (!runtimeVersionAccepted(catalog, spec.runtime.version)) return false;
+    if (
+      !connectionModels(connection).includes(spec.model) &&
+      !(
+        record.auto_model_migration &&
+        modelSuccessor(connection, spec.model) !== null
+      )
+    ) {
+      return false;
+    }
+    if (record.repository_mode === "none" || record.repository_id === null) {
+      return true;
+    }
+    const repository = Object.hasOwn(catalog.repositories, record.repository_id)
+      ? catalog.repositories[record.repository_id]
+      : undefined;
     return (
-      run !== null &&
-      (run.repository === null ||
-        (run.repository.url === record.repo_url &&
-          run.repository.branch === record.branch)) &&
-      (sessionProfile(
-        run.profile,
-        pinOf(record),
-        acceptedRuntimeVersions(catalog),
-      ) !== null ||
-        (record.auto_model_migration &&
-          movesAtNextTurn(
-            run.profile,
-            pinOf(record),
-            acceptedRuntimeVersions(catalog),
-          )))
+      repository !== undefined &&
+      repository.url === record.repo_url &&
+      repository.branch === record.branch
     );
   }
 
   // Says which model left when that is what moved, so the reader can act on
   // it; any other mismatch keeps the general sentence.
   function mismatchReason(record: SessionDetailRecord): string {
-    const listed = record.profile_id
-      ? catalogProfile(catalog, record.profile_id)
-      : undefined;
-    if (
-      listed &&
-      record.model !== null &&
-      !profileModels(listed).includes(record.model)
-    ) {
-      return `Model ${record.model} was taken off the allowed list of profile ${record.profile_id}; messages will not run until an operator adds it back, or you start a new session on another model`;
+    const spec = record.spec;
+    if (spec === null) {
+      return "This session has no spec to run; start a new session on the agent's current release";
     }
-    if (
-      !listed &&
-      record.profile_id &&
-      record.model !== null &&
-      profileGone(catalog, record.profile_id)
-    ) {
-      return `Profile ${record.profile_id}, which served model ${record.model}, is no longer in this host's catalog; messages will not run until an operator restores it, or you start a new session on another profile`;
+    const connection = connectionOf(catalog, spec.connection.id);
+    if (connection === undefined) {
+      return `Connection ${spec.connection.id}, which served model ${spec.model}, is disabled or no longer in this host's settings; messages will not run until an operator restores it, or you start a new session on another release`;
     }
-    return "The catalog does not allow this session's profile and repository pair, or defines the profile with other settings than the session was created with; messages will not run until an operator restores it";
+    if (!connectionModels(connection).includes(spec.model)) {
+      return `Model ${spec.model} was taken off the model list of connection ${spec.connection.id}; messages will not run until an operator adds it back, or you start a new session on another model`;
+    }
+    if (!runtimeVersionAccepted(catalog, spec.runtime.version)) {
+      return `The session runs ${spec.runtime.kind} ${spec.runtime.version}, which the worker images no longer ship; start a new session on the agent's current release`;
+    }
+    return "The session's repository is no longer in this host's catalog as the session was created on it; messages will not run until an operator restores it";
   }
 
-  function runtimeFor(record: {
-    profile_id: string | null;
-    profile_fingerprint: string | null;
-    model: string | null;
-  }): SessionRuntimeView | null {
-    const profileId = record.profile_id;
-    const listed = profileId ? catalogProfile(catalog, profileId) : undefined;
-    const profile = listed
-      ? sessionProfile(listed, pinOf(record), acceptedRuntimeVersions(catalog))
-      : null;
-    if (!profile || !profileId) return null;
+  function runtimeFor(spec: SpecSource | null): SessionRuntimeView | null {
+    if (spec === null) return null;
     return {
-      kind: profile.runtime_kind,
-      version: profile.runtime_version,
-      profile_id: profileId,
-      model: profile.model,
-      // The mode the engine runs, which a stored default, acceptEdits, dontAsk
-      // or plan becomes on a connection whose classifier works.
-      permission_mode: effectiveExecutionMode(
-        profile.permission_mode,
-        catalog.connection_auto_mode?.(profileId) ?? "unknown",
-      ),
+      kind: spec.runtime.kind,
+      version: spec.runtime.version,
+      connection_id: spec.connection.id,
+      model: spec.model,
+      permission_mode: spec.permission_mode,
     };
   }
 
@@ -707,8 +590,8 @@ export function createSessionService(deps: {
 
   // The release a start pins, in this order (94S-901): the release, its
   // agent, whether the requester may see a private agent, and only then
-  // what would tell them it exists (a release that fails its integrity or
-  // profile check, a paused agent). A requester outside a private agent gets
+  // what would tell them it exists (a release that fails its integrity
+  // check, a paused agent). A requester outside a private agent gets
   // `hidden`, which the start answers as it answers a release that is not
   // there.
   async function pinnedRelease(
@@ -717,13 +600,10 @@ export function createSessionService(deps: {
   ): Promise<
     | {
         hidden: false;
-        release: Awaited<ReturnType<typeof resolveRelease>> | null;
+        release: Awaited<ReturnType<typeof resolveRelease>>;
       }
     | { hidden: true; agentId: string; releaseId: string }
   > {
-    if (body.agent_release_id === undefined) {
-      return { hidden: false, release: null };
-    }
     if (!deps.releases) {
       throw new SessionServiceError(
         "UNSUPPORTED_CAPABILITY",
@@ -750,7 +630,6 @@ export function createSessionService(deps: {
   }
 
   async function resolveRelease(actor: Caller, body: CreateSessionRequest) {
-    if (body.agent_release_id === undefined) return null;
     if (!deps.releases) {
       throw new SessionServiceError(
         "UNSUPPORTED_CAPABILITY",
@@ -761,20 +640,7 @@ export function createSessionService(deps: {
     if ((actor.subject.principal?.workspace_id ?? null) === null) {
       throw new SessionServiceError("NOT_FOUND", "Resource not found");
     }
-    const release = await deps.releases.resolveRelease(
-      actor.ownerId,
-      body.agent_release_id,
-    );
-    if (
-      body.profile_id !== undefined &&
-      release.runtime_profile_id !== body.profile_id
-    ) {
-      throw new SessionServiceError(
-        "RELEASE_PROFILE_MISMATCH",
-        `Release ${release.id} runs on profile ${release.runtime_profile_id}, not ${body.profile_id}`,
-      );
-    }
-    return release;
+    return deps.releases.resolveRelease(actor.ownerId, body.agent_release_id);
   }
 
   function notRunnable(
@@ -807,20 +673,17 @@ export function createSessionService(deps: {
     if (!record) {
       throw new SessionServiceError("NOT_FOUND", "Resource not found");
     }
-    await refreshWorkspaceProfilesFor(catalog, [record.profile_id]);
     const {
-      profile_id,
+      spec,
       cost_usd,
       provider_tokens,
       repo_url,
       branch,
       repository_mode,
       github_policy_source,
-      profile_fingerprint,
       ...detail
     } = record;
     const spend = { costUsd: cost_usd, providerTokens: provider_tokens };
-    const block = sessionBlock(actor.ownerId, profile_id);
     const attached = attachedRepositoriesOf(
       detail.attached_repository_ids,
       catalog.repositories,
@@ -830,7 +693,6 @@ export function createSessionService(deps: {
       ...(attached === undefined ? {} : { attached_repositories: attached }),
       attention:
         detail.attention ??
-        (block ? { code: "PROFILE_BLOCKED", ...block } : null) ??
         // The claim matches the same values (runnablePairOf), so this says
         // exactly when no worker of this host would take the session.
         (catalogAllows(record)
@@ -847,11 +709,7 @@ export function createSessionService(deps: {
               reason: `The session has reached its ${reachedLimits(spend)}; queued messages will not run and a pending resume will not launch`,
             }
           : null),
-      runtime: runtimeFor({
-        profile_id,
-        profile_fingerprint,
-        model: detail.model,
-      }),
+      runtime: runtimeFor(spec),
     };
   }
 
@@ -875,8 +733,7 @@ export function createSessionService(deps: {
       principal: actor,
       idempotencyKey: input.idempotencyKey,
       payloadHash: payloadHash(input.body),
-      // The write refuses before it reads either.
-      profileId: input.body.profile_id ?? "",
+      // The write refuses before it reads it.
       repository: null,
       agentReleaseId: target.releaseId,
       agentPrivate: true,
@@ -907,13 +764,9 @@ export function createSessionService(deps: {
       // Judged here but refused by the acceptance, after it finds no earlier
       // acceptance of this key: a retry of a session made before the agent
       // was paused still gets its original answer.
-      const notRunnableReason =
-        release && deps.releases
-          ? await deps.releases.notRunnableReason(actor.ownerId, release)
-          : null;
-      // The contract refuses a body with neither.
-      const profileId = (input.body.profile_id ??
-        release?.runtime_profile_id) as string;
+      const notRunnableReason = deps.releases
+        ? await deps.releases.notRunnableReason(actor.ownerId, release)
+        : null;
       // An unbound name refuses a new session but not the replay of one
       // accepted before the unbind, which only the acceptance can tell.
       const credentialsUnbound = await requirePermitted(
@@ -923,44 +776,37 @@ export function createSessionService(deps: {
         {
           kind: "session",
           id: null,
-          ...(release
-            ? { agent_id: release.agent_id, release_id: release.id }
-            : {}),
+          agent_id: release.agent_id,
+          release_id: release.id,
         },
       ).then(
         () => false,
         (error: unknown) => {
           if (
-            release &&
             error instanceof SessionServiceError &&
             error.code === "CREDENTIAL_UNBOUND"
           ) {
             return true;
           }
           // The agent turned private since the release was read above.
-          if (release && isAgentPrivate(error)) return "private" as const;
+          if (isAgentPrivate(error)) return "private" as const;
           throw error;
         },
       );
-      if (credentialsUnbound === "private" && release) {
+      if (credentialsUnbound === "private") {
         return hiddenStart(actor, input, {
           agentId: release.agent_id,
           releaseId: release.id,
         });
       }
-      // A pair the catalog does not allow is as unknown as a missing id: the
-      // repository did not grant this profile its trust.
       const policy = newSessionGitHubPolicy(
-        release === null
-          ? null
-          : ((await deps.releases?.agentGitHubSettings(release.agent_id)) ??
-              null),
-        release?.policy_pins.github,
+        (await deps.releases?.agentGitHubSettings(release.agent_id)) ?? null,
+        release.policy_pins.github,
       );
       const repositoryId = startRepositoryOf(
         input.body.repository_id,
         policy,
-        release?.repository_id,
+        release.repository_id,
       );
       // The gate would refuse its every token; refused here instead of at
       // the first clone.
@@ -980,44 +826,19 @@ export function createSessionService(deps: {
           "The agent's GitHub settings do not include this repository",
         );
       }
-      const workspaceCeiling = usesWorkspaceCeiling(
-        catalog,
-        profileId,
-        policy.source,
-      );
-      const repositoryCeiling = workspaceCeiling
-        ? ((await deps.releases?.repositoryCeiling(actor.ownerId)) ?? null)
-        : null;
+      const repositoryCeiling =
+        (await deps.releases?.repositoryCeiling(actor.ownerId)) ?? null;
       if (
-        workspaceCeiling &&
         repositoryId !== null &&
         !repositoryInCeiling(catalog, repositoryCeiling, repositoryId)
       ) {
         throw notAllowed("The workspace does not allow this repository");
       }
       const sent = input.body.attached_repository_ids;
-      const profile = catalogProfile(catalog, profileId);
-      const attaches =
-        release !== null &&
-        profile !== undefined &&
-        (policy.source === "agent" || repositoryModeOf(profile) !== "none");
-      // Omitted, a session that could attach starts with none attached and
-      // attaches what it needs (session-repository-attachment.md decision 2).
-      // A null list, kept by rows from before, reaches the release's whole list.
-      const attached = sent ?? (attaches ? [] : undefined);
+      // Omitted, a session starts with none attached and attaches what it
+      // needs (session-repository-attachment.md decision 2).
+      const attached = sent ?? [];
       if (sent !== undefined) {
-        if (release === null) {
-          throw notAllowed(
-            "Only a session of an agent release attaches repositories",
-          );
-        }
-        // Nothing on the session row tells `none` from `optional` without a
-        // repository, so an empty list on `none` is refused here.
-        if (!attaches) {
-          throw notAllowed(
-            `Profile ${profileId} runs without repositories and attaches none`,
-          );
-        }
         // The switch is read at every use, not here, as for the session's
         // own repository above.
         const refused = sent.find(
@@ -1026,7 +847,6 @@ export function createSessionService(deps: {
               catalog,
               {
                 repositoryId,
-                profileId,
                 attached: null,
                 policySource: policy.source,
                 github: policy.settings,
@@ -1038,53 +858,57 @@ export function createSessionService(deps: {
         );
         if (refused !== undefined) {
           throw notAllowed(
-            `Repository ${refused} is the session's own, or not one the agent's GitHub settings and the profile allow`,
+            `Repository ${refused} is the session's own, or not one the agent's GitHub settings and the workspace allow`,
           );
         }
       }
-      const workspaceRefusal = await profileRefusalOf(
-        actor,
-        profileId,
-        release !== null,
-      );
-      const allowed =
-        workspaceRefusal === null
-          ? allowedRun(catalog, profileId, repositoryId, policy.source)
-          : null;
-      // A model the profile does not offer is refused like a pair the
-      // catalog does not allow; a replay of an earlier acceptance still
+      // A model the connection does not offer, or a repository the catalog
+      // no longer holds, is refused; a replay of an earlier acceptance still
       // succeeds.
+      const connection = connectionOf(catalog, release.connection_id);
+      const repository =
+        repositoryId === null
+          ? null
+          : Object.hasOwn(catalog.repositories, repositoryId)
+            ? catalog.repositories[repositoryId]
+            : undefined;
       const wantedModel = input.body.model ?? releaseModel(release);
+      const offered =
+        connection !== undefined &&
+        wantedModel !== undefined &&
+        connectionModels(connection).includes(wantedModel);
       const successor =
-        allowed && input.body.model === undefined && wantedModel !== undefined
-          ? modelSuccessor(allowed.profile, wantedModel)
+        connection !== undefined &&
+        input.body.model === undefined &&
+        wantedModel !== undefined &&
+        !offered
+          ? modelSuccessor(connection, wantedModel)
           : null;
-      const runs = allowed
-        ? profileWithModel(allowed.profile, successor ?? wantedModel)
-        : null;
+      const model = offered ? wantedModel : (successor ?? undefined);
+      const runtime = release.runtime_config_snapshot.runtime as
+        | { kind: SpecSource["runtime"]["kind"]; version: string }
+        | undefined;
       const staleRuntime =
-        allowed !== null && !runsOnCurrentImage(catalog, allowed.profile);
-      const pair =
-        allowed && runs && !staleRuntime ? { ...allowed, profile: runs } : null;
+        runtime === undefined ||
+        !runtimeVersionAccepted(catalog, runtime.version);
+      const runnable =
+        connection !== undefined &&
+        model !== undefined &&
+        repository !== undefined &&
+        !staleRuntime;
       // What the card declares; the accept resolves them in its transaction.
       const envNames =
-        release === null
-          ? []
-          : ((await deps.releases?.envNames?.(actor.ownerId, release.id)) ??
-            []);
+        (await deps.releases?.envNames?.(actor.ownerId, release.id)) ?? [];
       const selection = input.body.extensions;
       let extensions: SessionExtension[] | undefined;
       let extensionRefusal: SessionServiceError | null = null;
-      if (deps.extensions && profile) {
+      if (deps.extensions && runtime !== undefined) {
         const resolved = await resolveSessionExtensions(deps.extensions, {
           workspaceId: actor.ownerId,
-          agentId: release?.agent_id ?? null,
+          agentId: release.agent_id,
           ...(selection === undefined ? {} : { selection }),
-          runtimeKind: profile.runtime_kind,
-          tools: runningTools(
-            profile,
-            release?.runtime_config_snapshot ?? null,
-          ),
+          runtimeKind: runtime.kind,
+          tools: release.effective_tools.tools,
         });
         if (resolved.ok) {
           extensions = resolved.extensions.map((e) => ({
@@ -1130,35 +954,34 @@ export function createSessionService(deps: {
         ...(extensionRefusal === null
           ? {}
           : { extensionsRefused: true as const }),
-        profileId,
         channel: actor.subject.surface.kind,
         title:
           input.body.title === undefined
             ? deriveSessionTitle(input.body.message)
             : normalizeSessionTitle(input.body.title),
         titleSource: input.body.title === undefined ? "derived" : "user",
-        repository:
-          pair === null
-            ? null
-            : pair.repository === null || repositoryId === null
-              ? "none"
-              : {
-                  id: repositoryId,
-                  url: pair.repository.url,
-                  branch: pair.repository.branch,
-                },
-        ...(attached === undefined ? {} : { attachedRepositoryIds: attached }),
-        ...(pair
+        repository: !runnable
+          ? null
+          : repository === null || repositoryId === null
+            ? "none"
+            : {
+                id: repositoryId,
+                url: repository.url,
+                branch: repository.branch,
+              },
+        attachedRepositoryIds: attached,
+        ...(runnable
           ? {
-              profileFingerprint: profileFingerprint(pair.profile),
+              // A session asked for no model runs the release's own; one
+              // whose model left the list starts on the next of its series.
               model:
                 successor === null || wantedModel === undefined
-                  ? pair.profile.model
+                  ? model
                   : wantedModel,
-              unmetered: isUnmetered(pair.profile),
+              unmetered: connection.provider.billing === "none",
             }
           : {}),
-        ...(release ? { agentReleaseId: release.id } : {}),
+        agentReleaseId: release.id,
         githubPolicySource: policy.source,
         ...(policy.source === "agent"
           ? { captureGitHubPolicyStart: true as const }
@@ -1193,23 +1016,14 @@ export function createSessionService(deps: {
         case "caller_limited":
           throw callerLimitedError(result.dimension);
         case "not_runnable":
-          if (!release) {
-            throw new Error("Only a pinned release can be not runnable");
-          }
           throw notRunnable(result.reason, release);
         case "credential_unbound":
-          if (!release) {
-            throw new Error("Only a pinned release names credentials");
-          }
           throw await credentialUnbound(
             actor.ownerId,
             release.agent_id,
             result.receiptId,
           );
         case "variables_refused":
-          if (!release) {
-            throw new Error("Only a pinned release declares variables");
-          }
           throw await variableUnresolved(
             actor.ownerId,
             release.agent_id,
@@ -1221,15 +1035,15 @@ export function createSessionService(deps: {
         case "unsupported":
           throw (
             extensionRefusal ??
-            profileBlockedError(profileId, workspaceRefusal) ??
             new SessionServiceError(
               "UNSUPPORTED_CAPABILITY",
-              allowed && staleRuntime
-                ? `Profile ${profileId} runs ${allowed.profile.runtime_kind} ${allowed.profile.runtime_version}, which the current worker image does not ship; the operator updates the profile's runtime_version`
-                : allowed && !runs
-                  ? `Model ${wantedModel} is not on the allowed list of profile ${profileId}; ${input.body.model === undefined ? "release the agent again on a model the profile offers" : "name a model the profile offers"}`
-                  : (workspaceRefusal?.message ??
-                    repositoryRefusal(profileId, repositoryId)),
+              connection === undefined
+                ? `Connection ${release.connection_id} of this release is disabled or not in this host's settings`
+                : staleRuntime
+                  ? `The release runs ${runtime?.kind ?? "an unknown runtime"} ${runtime?.version ?? ""}, which the current worker images do not ship; release the agent again`
+                  : model === undefined
+                    ? `Model ${wantedModel} is not on the model list of connection ${release.connection_id}; ${input.body.model === undefined ? "release the agent again on a model the connection offers" : "name a model the connection offers"}`
+                    : `Repository ${repositoryId} is not in this host's catalog`,
             )
           );
         case "actor_inactive":
@@ -1275,12 +1089,6 @@ export function createSessionService(deps: {
           throw error;
         },
       );
-      // Otherwise the turn is queued and fails at the model proxy, which
-      // says nothing of the block.
-      const profileId =
-        (await reader.getSession(actor.ownerId, sessionId))?.profile_id ?? null;
-      await refreshWorkspaceProfilesFor(catalog, [profileId]);
-      const block = sessionBlock(actor.ownerId, profileId);
       const result = await inputs.appendInputAtomic({
         principal: actor,
         sessionId,
@@ -1289,11 +1097,6 @@ export function createSessionService(deps: {
         message: input.body.message,
         limits: inputLimits,
         callerSubject: actor.subject,
-        ...(profileId === null
-          ? {}
-          : {
-              profileTools: catalogProfile(catalog, profileId)?.tools ?? [],
-            }),
         channel: actor.subject.surface.kind,
         ...(input.slackMessage === undefined
           ? {}
@@ -1301,7 +1104,6 @@ export function createSessionService(deps: {
         ...(input.traceContext === undefined
           ? {}
           : { traceContext: input.traceContext }),
-        ...(block ? { profileBlocked: true as const } : {}),
         ...(agentPrivate ? { agentPrivate: true as const } : {}),
       });
       switch (result.outcome) {
@@ -1311,9 +1113,6 @@ export function createSessionService(deps: {
           throw agentPrivate ?? agentPrivateError();
         case "caller_limited":
           throw callerLimitedError(result.dimension);
-        case "profile_blocked":
-          if (!block) throw new Error("Only a blocked profile refuses input");
-          throw blockedError(block);
         case "not_found":
           throw new SessionServiceError("NOT_FOUND", "Resource not found");
         case "rejected": {
@@ -1501,130 +1300,6 @@ export function createSessionService(deps: {
           throw new SessionServiceError(
             "UNSUPPORTED_CAPABILITY",
             "This session runs on a legacy pod binding that cannot be closed",
-          );
-        default:
-          return result.response;
-      }
-    },
-
-    async changeSessionProfile(
-      actor: Caller,
-      sessionId: string,
-      input: { idempotencyKey: string; body: ChangeSessionProfileRequest },
-    ): Promise<ControlAcceptedResponse> {
-      await requirePermitted(authorization, actor, "session.control", {
-        kind: "session",
-        id: sessionId,
-      });
-      const record = await reader.getSession(actor.ownerId, sessionId);
-      if (!record) {
-        throw new SessionServiceError("NOT_FOUND", "Resource not found");
-      }
-      const wanted = input.body.profile_id;
-      await refreshWorkspaceProfilesFor(catalog, [wanted, record.profile_id]);
-      const workspaceRefusal = await profileRefusalOf(actor, wanted, false);
-      const pair = workspaceRefusal === null ? runOf(record, wanted) : null;
-      // The session row keeps no runtime of its own: only its profile, as the
-      // catalog still defines it, says which runtime took its checkpoints.
-      const found = record.profile_id
-        ? catalogProfile(catalog, record.profile_id)
-        : undefined;
-      const current = found
-        ? (sessionProfile(
-            found,
-            pinOf(record),
-            acceptedRuntimeVersions(catalog),
-          ) ?? undefined)
-        : undefined;
-      // The next attempt restores checkpoints the current runtime took, so
-      // the runtime has to stay; the model, tools and provider may change.
-      const profileRefusal = workspaceRefusal
-        ? workspaceRefusal.message
-        : pair === null ||
-            (pair.repository !== null &&
-              (pair.repository.url !== record.repo_url ||
-                pair.repository.branch !== record.branch))
-          ? record.repository_mode === "none"
-            ? `Profile ${wanted} is not in this host's catalog or needs a repository, which the session has none of`
-            : `Profile ${wanted} is not in this host's catalog or not allowed with the session's repository`
-          : current === undefined
-            ? `The session's profile ${record.profile_id} is no longer in this host's catalog as the session runs it, so the runtime its checkpoints were taken on cannot be checked`
-            : current.runtime_kind !== pair.profile.runtime_kind ||
-                current.runtime_version !== pair.profile.runtime_version
-              ? `Profile ${wanted} runs ${pair.profile.runtime_kind} ${pair.profile.runtime_version}; the session's checkpoints were taken on ${current.runtime_kind} ${current.runtime_version}`
-              : null;
-      let pinnedRefusal: ExtensionRefusal | null = null;
-      if (
-        profileRefusal === null &&
-        pair !== null &&
-        deps.extensions &&
-        record.extensions !== null &&
-        record.extensions !== undefined &&
-        record.extensions.length > 0
-      ) {
-        const checked = await checkPinnedExtensions(deps.extensions, {
-          workspaceId: actor.ownerId,
-          extensions: record.extensions,
-          runtimeKind: pair.profile.runtime_kind,
-          tools: pair.profile.tools,
-        });
-        if (!checked.ok) pinnedRefusal = checked.refusal;
-      }
-      const refusal = profileRefusal ?? pinnedRefusal?.message ?? null;
-      const result = await controls.changeProfileAtomic({
-        principal: actor,
-        sessionId,
-        idempotencyKey: input.idempotencyKey,
-        payloadHash: payloadHash(input.body),
-        expectedRevision: input.body.expected_revision,
-        profile:
-          refusal === null && pair !== null
-            ? {
-                id: wanted,
-                // Rewriting a version 1 pin for the same profile and model
-                // would move a running attempt off a profile it still runs.
-                fingerprint:
-                  wanted === record.profile_id &&
-                  record.profile_fingerprint !== null &&
-                  current?.model === pair.profile.model
-                    ? record.profile_fingerprint
-                    : profileFingerprint(pair.profile),
-                model: pair.profile.model,
-                unmetered: isUnmetered(pair.profile),
-              }
-            : null,
-        judgedFrom: record.profile_id,
-        now: now(),
-      });
-      switch (result.outcome) {
-        case "conflict":
-          return idempotencyConflict();
-        case "not_found":
-          throw new SessionServiceError("NOT_FOUND", "Resource not found");
-        case "revision_conflict":
-          return revisionConflict(result.currentRevision);
-        case "rejected": {
-          const rejection = ADMISSION_REJECTIONS[result.admissionState];
-          throw new SessionServiceError(rejection.code, rejection.message);
-        }
-        case "release_bound":
-          throw new SessionServiceError(
-            "RELEASE_PROFILE_MISMATCH",
-            "The session runs an agent release, which sets its profile",
-          );
-        case "billing_mismatch":
-          throw new SessionServiceError(
-            "UNSUPPORTED_CAPABILITY",
-            `Profile ${wanted} is billed differently from the session's (billing: none on one side only), so the session's cost limit would change`,
-          );
-        case "unsupported":
-          throw new SessionServiceError(
-            "UNSUPPORTED_CAPABILITY",
-            refusal ?? `Profile ${wanted} cannot run this session`,
-            undefined,
-            profileRefusal === null && pinnedRefusal !== null
-              ? { reason_code: pinnedRefusal.code, bundle: pinnedRefusal.name }
-              : undefined,
           );
         default:
           return result.response;
@@ -1842,30 +1517,20 @@ export function createSessionService(deps: {
         query,
         viewerOf(actor),
       );
-      await refreshWorkspaceProfilesFor(
-        catalog,
-        page.items.map((item) => item.profile_id),
-      );
       return {
-        items: page.items.map(
-          ({ profile_id, profile_fingerprint, ...item }) => {
-            const attached = attachedRepositoriesOf(
-              item.attached_repository_ids,
-              catalog.repositories,
-            );
-            return {
-              ...item,
-              ...(attached === undefined
-                ? {}
-                : { attached_repositories: attached }),
-              runtime: runtimeFor({
-                profile_id,
-                profile_fingerprint,
-                model: item.model,
-              }),
-            };
-          },
-        ),
+        items: page.items.map(({ spec, ...item }) => {
+          const attached = attachedRepositoriesOf(
+            item.attached_repository_ids,
+            catalog.repositories,
+          );
+          return {
+            ...item,
+            ...(attached === undefined
+              ? {}
+              : { attached_repositories: attached }),
+            runtime: runtimeFor(spec),
+          };
+        }),
         next_cursor: page.next_cursor,
       };
     },

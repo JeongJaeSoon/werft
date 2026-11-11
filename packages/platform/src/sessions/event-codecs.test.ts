@@ -7,7 +7,6 @@ import {
   workerEventSchema,
 } from "@werft-ai/contracts";
 import type { EventCodec } from "@werft-ai/runtime-core";
-import type { CatalogProfileView } from "./catalog.ts";
 import { createNeutralizer, neutralFieldsOf } from "./event-codecs.ts";
 
 // A second engine with an event shape of its own, in the fields the contract
@@ -52,13 +51,6 @@ const secondEngine: EventCodec = {
   },
 };
 
-const catalog = {
-  profiles: {
-    second: { runtime_kind: "codex_app_server" } as CatalogProfileView,
-    other: { runtime_kind: "pi_coding_agent" } as CatalogProfileView,
-  },
-};
-
 const stream: SessionEventPayload[] = [
   {
     event: "assistant",
@@ -92,22 +84,22 @@ const stream: SessionEventPayload[] = [
 ] as SessionEventPayload[];
 
 describe("createNeutralizer", () => {
-  test("picks the codec the session profile's runtime kind names", () => {
+  test("picks the codec the session spec's runtime kind names", () => {
     const unknown: Array<string | null> = [];
-    const neutralize = createNeutralizer([secondEngine], catalog, {
+    const neutralize = createNeutralizer([secondEngine], {
       unknown: (id) => unknown.push(id),
     });
     const [said] = stream;
     expect(
-      neutralize("second", said as SessionEventPayload).data,
+      neutralize("codex_app_server", said as SessionEventPayload).data,
     ).toMatchObject({ text: "Looking." });
-    // No profile, a profile gone from the catalog, a kind with no codec.
-    for (const id of [null, "gone", "other"]) {
-      expect(neutralize(id, said as SessionEventPayload)).toBe(
+    // No spec, or a kind with no codec.
+    for (const kind of [null, "pi_coding_agent"] as const) {
+      expect(neutralize(kind, said as SessionEventPayload)).toBe(
         said as SessionEventPayload,
       );
     }
-    expect(unknown).toEqual([null, "gone", "other"]);
+    expect(unknown).toEqual([null, "pi_coding_agent"]);
   });
 
   test("fields the contract refuses are not added, with a warning", () => {
@@ -121,15 +113,15 @@ describe("createNeutralizer", () => {
     };
     const [said] = stream as [SessionEventPayload];
     const refused: string[] = [];
-    const neutralize = createNeutralizer([broken], catalog, {
+    const neutralize = createNeutralizer([broken], {
       refused: (kind, event) => refused.push(`${kind} ${event}`),
     });
-    expect(neutralize("second", said)).toBe(said);
+    expect(neutralize("codex_app_server", said)).toBe(said);
     expect(refused).toEqual(["codex_app_server assistant"]);
   });
 
   test("a second engine's stream reads through the neutral fields alone", () => {
-    const neutralize = createNeutralizer([secondEngine], catalog);
+    const neutralize = createNeutralizer([secondEngine]);
     // As /append-events takes it, stores it (neutral fields beside the data)
     // and the event stream reads it back.
     const events = stream.map((sent, index) => {
@@ -142,7 +134,7 @@ describe("createNeutralizer", () => {
         source_sequence: index + 1,
         occurred_at: "2026-10-27T00:00:00.000Z",
       });
-      const neutral = neutralFieldsOf(neutralize, "second", event);
+      const neutral = neutralFieldsOf(neutralize, "codex_app_server", event);
       return sessionEventPayloadSchema.parse({
         event: event.event,
         data: withStoredNeutralFields(event.data, neutral),

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { Api, e2eEnv, poll } from "../e2e/client.ts";
+import { Api, e2eStack, poll } from "../e2e/client.ts";
 import { scriptId } from "./engine.ts";
 import { engineFromEnv } from "./engines.ts";
 import { forgeBranch, forgeFile } from "./forge.ts";
@@ -12,7 +12,9 @@ import { forgeBranch, forgeFile } from "./forge.ts";
  * the commit its turn leaves in the workspace and the checkpoint that holds it.
  */
 const engine = engineFromEnv();
-const api = new Api(e2eEnv({ needsMessages: false }));
+const api = new Api(
+  await e2eStack({ needsMessages: false, connectionId: engine.connectionId }),
+);
 const TIMEOUT = 600_000;
 const WATCH_LOOKS = 10;
 const WATCH_INTERVAL_MS = 500;
@@ -39,7 +41,6 @@ async function sessionWithCommit(name: string): Promise<Committed> {
   const created = await api.createSession(
     engine.prompt({ id, commands: [commit], final: "committed" }),
     undefined,
-    engine.profileId,
     engine.repositoryId,
   );
   expect(created.status).toBe(201);

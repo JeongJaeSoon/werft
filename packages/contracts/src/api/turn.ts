@@ -41,10 +41,6 @@ export const attemptSummarySchema = z.object({
   execution_generation: epochSchema,
   started_at: timestampSchema.nullable(),
   ended_at: timestampSchema.nullable(),
-  profile_id: z.string().min(1).nullable().meta({
-    description:
-      "The profile the attempt ran: the session's when the attempt claimed it. A profile change reaches the next attempt, so this is what a turn ran on. Null for an attempt from before it was recorded.",
-  }),
 });
 export const turnSummarySchema = z.object({
   turn_id: turnIdSchema,

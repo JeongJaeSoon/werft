@@ -2,7 +2,6 @@ import { REQUEST_BODY_MAX_BYTES } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
   agentGitHubSettingsOf,
-  backfillSessionModels,
   createDatabaseAgentAuthority,
   createDatabaseIdentityReader,
   createPostgresAchievementJudgments,
@@ -32,7 +31,6 @@ import {
   createPostgresGitHubPackagesStore,
   createPostgresGitHubPinStore,
   createPostgresGitHubSettingsStore,
-  createPostgresInstallationProfileStore,
   createPostgresInstallationSettingsStore,
   createPostgresInviteStore,
   createPostgresJudgmentEgress,
@@ -40,7 +38,6 @@ import {
   createPostgresMcpEgressStore,
   createPostgresMemberStore,
   createPostgresPendingRequests,
-  createPostgresProfileRolloutStore,
   createPostgresPullRequestDrain,
   createPostgresPullRequestSettingsStore,
   createPostgresPullRequests,
@@ -70,7 +67,6 @@ import {
   createPostgresWorkerPendingStore,
   createPostgresWorkerUnitOfWork,
   createPostgresWorkspaceKeyStore,
-  createPostgresWorkspaceProfileStore,
   hasUncollectedCheckpoint,
   newSessionGitHubReaders,
   slackAppKind,
@@ -85,6 +81,7 @@ import {
   type Tracer,
 } from "@werft-ai/observability";
 import {
+  CATALOG_REFRESH_MS,
   createAchievementJudge,
   createAchievementRuleService,
   createAgentAdminService,
@@ -97,6 +94,7 @@ import {
   createAgentUsageService,
   createApiKeyService,
   createAuthorizationPolicy,
+  createCatalogRegistry,
   createCredentialBindingService,
   createDecisionsClient,
   createEngineSettingsService,
@@ -110,7 +108,6 @@ import {
   createGitHubRepositoryService,
   createGitHubSettingsService,
   createGitHubWorkService,
-  createInstallationProfileService,
   createInterruptService,
   createInviteService,
   createLinkedAccountService,
@@ -118,8 +115,6 @@ import {
   createModelMoveRunner,
   createOutcomeRefresher,
   createPendingRequestService,
-  createProfileRegistry,
-  createProfileRolloutRunner,
   createPullRequestDrain,
   createPullRequestService,
   createPushExecutor,
@@ -139,18 +134,15 @@ import {
   createTeamService,
   createUsageService,
   createWorkerGateway,
-  createWorkspaceProfileService,
-  fingerprintModel,
   GITHUB_API_BASE,
   InstallationConfigError,
   installationLimitsFromEnv,
   NO_JUDGE_CONNECTIONS,
-  profileCatalog,
+  registryCatalog,
+  releaseModel,
   releaseStartable,
   resolveAgentRelease,
   SessionServiceError,
-  unrunnableProfiles,
-  WORKSPACE_PROFILE_REFRESH_MS,
   withConsoleRepositories,
 } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -185,14 +177,11 @@ import {
   WorkGate,
 } from "./auth.ts";
 import {
-  installedRuntimes,
+  installedRuntimeVersions,
   loadSecretKey,
-  profileSources,
   refuseFileCatalog,
   runtimeVersionsFromEnv,
   secretsManagerReader,
-  unattendedAllowed,
-  unattendedProfiles,
 } from "./catalog-config.ts";
 import {
   archivedEventSource,
@@ -262,7 +251,6 @@ import { registerMemberRoutes } from "./routes/musterrolle/members.ts";
 import { registerSessionShareRoutes } from "./routes/musterrolle/session-shares.ts";
 import { registerTeamRoutes } from "./routes/musterrolle/teams.ts";
 import { registerWorkspaceRoutes } from "./routes/musterrolle/workspaces.ts";
-import { registerProfileRoutes } from "./routes/profiles.ts";
 import {
   registerAchievementRoutes,
   registerSessionAchievementRoutes,
@@ -294,7 +282,6 @@ import {
   slackIssuerFrom,
 } from "./slack-config.ts";
 import { signInWithSlackOff } from "./slack-link.ts";
-import { startSpecReconciliation } from "./spec-reconciliation.ts";
 import { installedToolCatalogView } from "./tool-catalogs.ts";
 import {
   startTelemetryIngest,
@@ -377,8 +364,6 @@ if (checkpointStorage !== "disabled") {
 
 const pool = createApiPool(databaseUrl, logger);
 const db = drizzle(pool, { schema });
-const workspaceProfileStore = createPostgresWorkspaceProfileStore(db);
-const installationProfileStore = createPostgresInstallationProfileStore(db);
 const catalogRepositoryStore = createPostgresCatalogRepositoryStore(db);
 const installationSettings = settingsSource({
   store: createPostgresInstallationSettingsStore(db, secretKey),
@@ -388,9 +373,7 @@ const installationSettings = settingsSource({
 const reportLeftOut = leftOutReporter((message, fields) =>
   logger.warn(message, fields),
 );
-const workspaceProfileVersions = createProfileRegistry({
-  workspaces: workspaceProfileStore,
-  installations: installationProfileStore,
+const catalogRegistry = createCatalogRegistry({
   repositories: catalogRepositoryStore,
   settings: {
     async read() {
@@ -399,10 +382,9 @@ const workspaceProfileVersions = createProfileRegistry({
       return snapshot;
     },
   },
-  sources: profileSources(process.env),
 });
 const runtimeVersions = runtimeVersionsFromEnv(process.env);
-const catalog = profileCatalog(
+const catalog = registryCatalog(
   {
     repositories: {},
     ...(runtimeVersions === undefined
@@ -410,93 +392,40 @@ const catalog = profileCatalog(
       : { runtime_versions: runtimeVersions }),
     tool_catalogs: installedToolCatalogView,
   },
-  workspaceProfileVersions,
+  catalogRegistry,
   (rows, settings) => withConsoleRepositories(rows, settings?.repositories),
 );
 const logCatalog = (message: string): void => {
   logger.info(message, {
-    profiles: Object.keys(catalog.profiles).length,
+    connections: Object.keys(catalog.connections).length,
     repositories: Object.keys(catalog.repositories).length,
   });
-  const skipped = unrunnableProfiles(catalog);
-  if (skipped.length > 0) {
-    logger.warn("Profiles left out of this replica's catalog", {
-      profiles: skipped,
-    });
-  }
 };
-const refreshWorkspaceProfiles = (): void => {
-  workspaceProfileVersions
-    .refresh(WORKSPACE_PROFILE_REFRESH_MS)
-    .catch((error: unknown) => {
-      logger.warn("Workspace profiles could not be read; retrying", {
-        error_name: error instanceof Error ? error.name : typeof error,
-      });
+const refreshCatalog = (): void => {
+  catalogRegistry.refresh(CATALOG_REFRESH_MS).catch((error: unknown) => {
+    logger.warn("Installation settings could not be read; retrying", {
+      error_name: error instanceof Error ? error.name : typeof error,
     });
+  });
 };
-// The registry runs only what the database holds. Until the first read a
-// profile id it does not know reads the database itself, so a request
-// waits on that read rather than this one.
-const PROFILE_READ_RETRY_MS = 30_000;
-const readProfiles = (): void => {
-  workspaceProfileVersions.refresh().then(
+const CATALOG_READ_RETRY_MS = 30_000;
+const readCatalog = (): void => {
+  catalogRegistry.refresh().then(
     () => {
       logCatalog("Session catalog loaded");
-      const unattended = unattendedProfiles(catalog);
-      if (unattended.length > 0) {
-        logger.warn("Profiles run tools without asking for approval", {
-          profiles: unattended,
-        });
-      }
-      setInterval(
-        refreshWorkspaceProfiles,
-        WORKSPACE_PROFILE_REFRESH_MS,
-      ).unref();
-      // After the first catalog load, so a release is never judged against
-      // an empty catalog; the run repeats until nothing is left unresolved.
-      startSpecReconciliation(
-        {
-          db,
-          catalog,
-          settings: () => ({
-            connections: workspaceProfileVersions.connections,
-            connection_aliases:
-              workspaceProfileVersions.settings?.connection_aliases ?? {},
-          }),
-        },
-        logger,
-      );
+      setInterval(refreshCatalog, CATALOG_REFRESH_MS).unref();
     },
     (error: unknown) => {
-      logger.warn("Profiles could not be read; retrying", {
+      logger.warn("Installation settings could not be read; retrying", {
         error_name: error instanceof Error ? error.name : typeof error,
       });
-      setTimeout(readProfiles, PROFILE_READ_RETRY_MS).unref();
+      setTimeout(readCatalog, CATALOG_READ_RETRY_MS).unref();
     },
   );
 };
-readProfiles();
-// Not awaited: the API starts without its database, and a version 1
-// fingerprint names its model, so nothing waits on the column being filled.
-const MODEL_BACKFILL_RETRY_MS = 30_000;
-const backfillModels = (): void => {
-  backfillSessionModels(db, ({ profileId, fingerprint }) =>
-    fingerprintModel(catalog, profileId, fingerprint),
-  ).then(
-    (sessions) => logger.info("Session models backfilled", { sessions }),
-    (error: unknown) => {
-      logger.warn("Session models could not be backfilled; retrying", {
-        error_name: error instanceof Error ? error.name : typeof error,
-      });
-      setTimeout(backfillModels, MODEL_BACKFILL_RETRY_MS).unref();
-    },
-  );
-};
-backfillModels();
-const neutralize = eventNeutralizer(catalog, logger);
-startNeutralFill(db, neutralize, logger, () =>
-  workspaceProfileVersions.refresh(),
-);
+readCatalog();
+const neutralize = eventNeutralizer(logger);
+startNeutralFill(db, neutralize, logger, () => catalogRegistry.refresh());
 if (checkpointStorage !== "disabled") {
   await assertCheckpointObjectsPresent(checkpointStorage, {
     hasUncollectedCheckpoint: () => hasUncollectedCheckpoint(db),
@@ -542,7 +471,6 @@ const {
   logger,
 });
 const githubSettingsStore = createPostgresGitHubSettingsStore(db);
-const profileRollouts = createPostgresProfileRolloutStore(db);
 const extensionDeps = extensionDepsFor(db);
 const agents = createAgentService({
   authorization,
@@ -553,7 +481,7 @@ const agents = createAgentService({
   ...(slackWelcome === null ? {} : { welcome: slackWelcome }),
   keys: createPostgresWorkspaceKeyStore(db),
   outsideAgents: agentAccess,
-  profileLineage: profileRollouts,
+  runtimes: installedRuntimeVersions,
   extensions: extensionDeps,
 });
 const archivedEvents = archivedEventSource(checkpointStorage);
@@ -657,25 +585,21 @@ const slackActiveReleaseWarning: SlackServicesStageDeps["activeReleaseWarning"] 
     } catch (error) {
       if (
         error instanceof SessionServiceError &&
-        (error.code === "PROFILE_DIGEST_MISMATCH" ||
-          error.code === "PROFILE_BLOCKED")
+        error.code === "RELEASE_SPEC_UNAVAILABLE"
       ) {
-        return {
-          code: "profile_unavailable",
-          profile_id: release.runtime_profile_id,
-        };
+        return { code: "release_unavailable", release_id: release.id };
       }
       throw error;
     }
     // Missing and dropped from the catalog take the same fix: a new release.
     return releaseStartable(
       catalog,
-      release,
+      { ...release, model: releaseModel(release) },
       await agentGitHubSettingsOf(db, agentId),
       await workspaceRepositoryCeiling(db, workspaceId),
     )
       ? null
-      : { code: "repository_required", profile_id: release.runtime_profile_id };
+      : { code: "repository_required", release_id: release.id };
   };
 const {
   secrets: slackSecrets,
@@ -736,31 +660,15 @@ const teams = createTeamService({
   authorization,
   store: createPostgresTeamStore(db),
 });
-const workspaceProfiles = createWorkspaceProfileService({
-  authorization,
-  store: workspaceProfileStore,
-  catalog,
-  rollouts: profileRollouts,
-});
 const achievementRules = createAchievementRuleService({
   authorization,
   store: createPostgresAchievementRuleStore(db),
-});
-const installationProfiles = createInstallationProfileService({
-  authorization,
-  store: installationProfileStore,
-  rollouts: profileRollouts,
-  catalog,
-  connections: () => workspaceProfileVersions.connections,
-  allowUnattended: unattendedAllowed(process.env),
-  runtimes: installedRuntimes,
 });
 const settingsDocumentStore = createPostgresSettingsDocumentStore(
   db,
   secretKey,
 );
-const rereadSettings = () =>
-  workspaceProfileVersions.refresh().catch(() => undefined);
+const rereadSettings = () => catalogRegistry.refresh().catch(() => undefined);
 const settingsDocument = createSettingsDocumentService({
   authorization,
   store: settingsDocumentStore,
@@ -769,19 +677,10 @@ const settingsDocument = createSettingsDocumentService({
 const settingsConsole = createSettingsConsoleService({
   authorization,
   store: settingsDocumentStore,
-  leftOut: () => workspaceProfileVersions.settings?.left_out ?? [],
+  leftOut: () => catalogRegistry.settings?.left_out ?? [],
   secretStoreOn: secretKey !== null,
   credentialHosts: credentialHostsFromEnv(process.env),
   reread: rereadSettings,
-  profiles: {
-    refresh: () => workspaceProfileVersions.refresh(),
-    catalog,
-    settings: () => ({
-      connections: workspaceProfileVersions.connections,
-      connection_aliases:
-        workspaceProfileVersions.settings?.connection_aliases ?? {},
-    }),
-  },
 });
 const agentAdmins = createAgentAdminService({
   authorization,
@@ -813,7 +712,7 @@ const refreshRegisteredGitHub = (): Promise<void> =>
     });
   });
 void refreshRegisteredGitHub();
-setInterval(refreshRegisteredGitHub, WORKSPACE_PROFILE_REFRESH_MS).unref();
+setInterval(refreshRegisteredGitHub, CATALOG_REFRESH_MS).unref();
 const githubAppDirectory = wireGitHubAppDirectory({ logger });
 const githubRepositories = createGitHubRepositoryService({
   authorization,
@@ -824,7 +723,7 @@ const githubRepositories = createGitHubRepositoryService({
   agents: agentStore,
   repositoryCeiling: (workspaceId) =>
     workspaceRepositoryCeiling(db, workspaceId),
-  changed: () => workspaceProfileVersions.refresh(),
+  changed: () => catalogRegistry.refresh(),
 });
 const githubInstallations = createPostgresGitHubInstallationStore(db);
 const githubApps = createGitHubAppService({
@@ -1018,16 +917,6 @@ const pushIntentRunner = createPushIntentRunner({
   store: pushIntentStore,
   createFromIntent: (job) => pushRequests.createFromIntent(job),
   logger,
-}).start();
-// Moves agents that follow a profile onto its newest version (design 2.3).
-// Every replica runs it; an item's lease and the activation's compare-and-swap
-// make a second one harmless.
-const profileRolloutRunner = createProfileRolloutRunner({
-  rollouts: profileRollouts,
-  agentStore,
-  agents,
-  logger,
-  sweep: true,
 }).start();
 const modelMoveRunner = createModelMoveRunner({
   store: agentStore,
@@ -1320,7 +1209,6 @@ const app = createApiApp({
     registerCloseRoutes(router, sessions);
     registerReceiptRoutes(router, sessions);
     registerUsageRoutes(router, usage);
-    registerProfileRoutes(router, workspaceProfiles, installationProfiles);
     registerInstallationSettingsRoutes(router, settingsDocument);
     registerSettingsConsoleRoutes(router, settingsConsole);
     registerAchievementRoutes(router, achievementRules);
@@ -1451,10 +1339,6 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
       [
         { name: "push-executor", close: () => pushExecutor.stop() },
         { name: "push-intent-runner", close: () => pushIntentRunner.stop() },
-        {
-          name: "profile-rollout-runner",
-          close: () => profileRolloutRunner.stop(),
-        },
         { name: "model-move-runner", close: () => modelMoveRunner.stop() },
         { name: "pull-request-drain", close: () => pullRequestDrain.stop() },
         { name: "outcome-refresher", close: () => outcomeRefresher.stop() },

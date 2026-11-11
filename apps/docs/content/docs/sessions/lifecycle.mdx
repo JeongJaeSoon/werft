@@ -181,8 +181,7 @@ curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq '{status, 
 | `BUDGET_EXCEEDED` | 세션 비용이나 token 상한을 넘었다 |
 | `TRANSCRIPT_LIMIT` | 대화 기록이 상한에 다가갔거나 넘었다. 새 세션으로 옮길 때다 |
 | `STARTUP_FAILED`, `RESTORE_FAILED` | worker가 시작하거나 checkpoint를 복원하지 못한다 |
-| `CATALOG_MISMATCH` | 세션을 만든 뒤 운영자가 프로필이나 저장소 설정을 바꿨다 |
-| `PROFILE_BLOCKED` | owner가 세션의 프로필(`reason_code: blocked`)이나 그 바탕 프로필(`base_blocked`)을 차단했다. `profile_id`가 그 프로필이다. 풀릴 때까지 새 메시지는 409 `PROFILE_BLOCKED`로 거절된다 |
+| `CATALOG_MISMATCH` | 세션을 만든 뒤 세션의 연결이 꺼졌거나, 모델이 연결 목록에서 빠졌거나, 저장소 설정이 바뀌었다 |
 | `CONTEXT_GAP` | 복구 결정으로 이전 대화의 일부가 빠졌다 |
 
 ## 사용량
@@ -233,7 +232,7 @@ curl -sS "$API/v1/usage/summary?scope=me&since=2026-10-01" -H "Authorization: Be
 
 `GET /v1/limits`의 `usage.outputs`는 세션 성과물(`out/` 아래 파일)이 object store에 차지하는 바이트다(`used_bytes`). 뒤 checkpoint가 앞 checkpoint의 성과물을 그대로 이어받으면 한 번만 세고, 너무 커서 올리지 않은 파일은 세지 않으며, checkpoint 정리가 객체를 지우면 그만큼 줄어든다. `updated_at`은 값이 마지막으로 바뀐 시각이고 바뀐 적 없으면 null이다. 이 값은 `usage.storage`(입력 메시지)와 따로이고 `storage_limit_bytes` 집행에 들어가지 않는다. 성과물을 기록하기 전에 만든 checkpoint가 남아 있으면 그 성과물은 빠지고 `complete`가 `false`다.
 
-에이전트별·사용자별로 나눠 보려면 `group_by=agent` 또는 `group_by=user`를 더한다. 응답에 `groups[{id, name, session_count, run_seconds, cost_usd, cost_complete}]`가 붙고, 그룹들의 `session_count`·`cost_usd`·`run_seconds`를 더하면 위 합계와 같다. 에이전트가 없는 세션, 사람이 만들지 않은 key가 시작한 세션은 `id`가 null인 그룹이다. `name`은 에이전트 이름이나 사용자 표시 이름이고 이메일은 싣지 않는다. `scope=me`에서 호출자가 아닌 사용자의 `name`은 null이다. 프로필별로 보려면 `group_by=profile`을 쓴다. 세션의 현재 프로필(`sessions.profile_id`)로 묶으므로 중간에 프로필을 바꾼 세션은 비용 전체가 지금 프로필에 잡힌다. 프로필에는 표시 이름이 없어 `id`와 `name` 모두 프로필 id이고, 프로필 없는 세션은 `id`가 null인 그룹이다.
+에이전트별·사용자별로 나눠 보려면 `group_by=agent` 또는 `group_by=user`를 더한다. 응답에 `groups[{id, name, session_count, run_seconds, cost_usd, cost_complete}]`가 붙고, 그룹들의 `session_count`·`cost_usd`·`run_seconds`를 더하면 위 합계와 같다. 에이전트가 없는 세션, 사람이 만들지 않은 key가 시작한 세션은 `id`가 null인 그룹이다. `name`은 에이전트 이름이나 사용자 표시 이름이고 이메일은 싣지 않는다. `scope=me`에서 호출자가 아닌 사용자의 `name`은 null이다.
 
 `GET /v1/limits?scope=me`는 로그인한 구성원 누구나 읽는다. 세션 단위 한도 네 개(`queued_input_limit_per_session`, `max_turn_seconds`, `session_cost_limit_usd`, `session_token_limit`)만 주고 `usage`는 없다. API key는 403이다.
 

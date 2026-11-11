@@ -1337,14 +1337,14 @@ describe("Slack management", () => {
     ).toEqual([`${PATH}/slack/app`, `${PATH}/slack/install/start`]);
   });
 
-  test("warns, with the profile, that Slack cannot start a session of a repository-only agent, and still offers to connect", async () => {
+  test("warns, with the release, that Slack cannot start a session of a repository-only agent, and still offers to connect", async () => {
     renderAt(DETAIL, {
       ...routes(),
       [`GET ${PATH}/slack/app`]: () =>
         json(
           200,
           appResponse(null, [
-            { code: "repository_required", profile_id: "claude-coding-local" },
+            { code: "repository_required", release_id: "sha256:rel-1" },
           ]),
         ),
     });
@@ -1352,7 +1352,7 @@ describe("Slack management", () => {
       await screen.findByText("Slack에서는 세션을 시작할 수 없습니다"),
     ).toBeDefined();
     expect(document.body.textContent).toContain(
-      "활성 릴리스(프로필 claude-coding-local)로는 Slack 세션이 시작되지 못합니다. 프로필이 저장소를 요구하는데",
+      "활성 릴리스(sha256:rel-1)로는 Slack 세션이 시작되지 못합니다. 릴리스의 저장소가 카탈로그에서 빠졌거나",
     );
     expect(
       screen.getByRole("button", { name: "Slack 앱 만들고 설치" }),
@@ -1717,14 +1717,14 @@ describe("Slack management", () => {
     expect(within(channels).queryByRole("group")).toBeNull();
   });
 
-  test("says when the active release's profile left the catalog", async () => {
+  test("says when the active release's connection cannot run it", async () => {
     renderAt(DETAIL, {
       ...routes(),
       [`GET ${PATH}/slack/app`]: () =>
         json(
           200,
           appResponse(null, [
-            { code: "profile_unavailable", profile_id: "general" },
+            { code: "release_unavailable", release_id: "sha256:rel-1" },
           ]),
         ),
     });
@@ -1732,7 +1732,7 @@ describe("Slack management", () => {
       await screen.findByText("Slack에서는 세션을 시작할 수 없습니다"),
     ).toBeDefined();
     expect(document.body.textContent).toContain(
-      "활성 릴리스의 프로필(general)이 지금 카탈로그에 없거나, 릴리스 뒤에 바뀌었거나, 운영자가 차단했습니다.",
+      "활성 릴리스(sha256:rel-1)의 모델 연결이 꺼졌거나, 그 모델이 연결의 모델 목록에서 빠졌습니다.",
     );
   });
 
@@ -1745,7 +1745,7 @@ describe("Slack management", () => {
     expect(await screen.findByText("활성 릴리스가 없습니다")).toBeDefined();
   });
 
-  test("shows no repository warning when the profile needs none", async () => {
+  test("shows no repository warning when the release has no warning", async () => {
     renderAt(DETAIL, routes(APP, true));
     await screen.findByRole("table", { name: "앱 목록" });
     expect(document.body.textContent).not.toContain(

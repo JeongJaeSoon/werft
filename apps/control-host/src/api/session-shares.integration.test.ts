@@ -17,6 +17,8 @@ import {
   authzDecisions,
   createDatabaseAgentAuthority,
   createDatabaseIdentityReader,
+  createPostgresAgentAccessSetting,
+  createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
   createPostgresInviteStore,
   createPostgresMemberStore,
@@ -47,12 +49,17 @@ import {
   createSessionShareService,
   createUsageService,
   type SessionCatalog,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { testCatalog } from "../testing/catalog.ts";
+import {
+  allowRepositories,
+  releaseIn,
+  sessionReleases,
+} from "../testing/releases.ts";
 import { createApiApp } from "./app.ts";
 import {
   createBootstrapGate,
@@ -79,30 +86,20 @@ const PASSWORD = "an adequately long password";
 // Long enough that only the share change's NOTIFY can end a stream in time.
 const KEEPALIVE_MS = 30_000;
 
-const catalog: SessionCatalog = withSeededInstallation({
-  profiles: {
-    "claude-coding-v1": {
-      runtime_kind: "claude_agent_sdk",
-      runtime_version: "0.3.270",
-      model: "claude-sonnet-5",
-      tools: ["Read"],
-      permission_mode: "default",
-      provider: {
-        kind: "litellm",
-        endpoint: "https://litellm.invalid",
-        auth: {
-          kind: "api_key",
-          value: "catalog-provider-key",
-          ref: { value_env: "PROVIDER_KEY" },
-        },
-      },
+const catalog: SessionCatalog = testCatalog({
+  provider: {
+    kind: "litellm",
+    endpoint: "https://litellm.invalid",
+    auth: {
+      kind: "api_key",
+      value: "catalog-provider-key",
+      ref: { value_env: "PROVIDER_KEY" },
     },
   },
   repositories: {
     "sample-app": {
       url: "https://example.invalid/app.git",
       branch: "main",
-      profiles: ["claude-coding-v1"],
       auth: { kind: "github_app", registered: true } as const,
     },
   },
@@ -133,6 +130,8 @@ integration("session share scopes over HTTP on PostgreSQL", () => {
     const authorization = createAuthorizationPolicy({
       identity: createDatabaseIdentityReader(db),
       agents: createDatabaseAgentAuthority(db),
+      credentials: createPostgresCredentialBindingStore(db),
+      outsideAgents: createPostgresAgentAccessSetting(db),
       sessions: createPostgresSessionShareStore(db),
       decisions: createPostgresDecisionLog(db),
     });
@@ -148,6 +147,7 @@ integration("session share scopes over HTTP on PostgreSQL", () => {
       controls: createPostgresSessionControl(db),
       reader: createPostgresSessionReader(db),
       catalog,
+      releases: sessionReleases(db, catalog),
     });
     notifier = new PostgresSessionNotifier(database.url, logger);
     await notifier.start();
@@ -249,6 +249,8 @@ integration("session share scopes over HTTP on PostgreSQL", () => {
   const cookies = {} as Record<Who, string>;
   const ids = {} as Record<Who, string>;
   let workspaceId = "";
+  // The release every session here runs.
+  let releaseId = "";
   let teamId = "";
   let sessionId = "";
   let receiptId = "";
@@ -467,6 +469,13 @@ integration("session share scopes over HTTP on PostgreSQL", () => {
     workspaceId = booted.workspace.id;
     ids.owner = booted.user_id;
     cookies.owner = await login("owner@example.com");
+    releaseId = await releaseIn(db, workspaceId);
+    await allowRepositories(db, workspaceId, ["sample-app"]);
+    // Every session runs an agent now; with outsiders seeing agent sessions,
+    // its share alone decides who sees it, as for a person's own session.
+    await db.execute(
+      sql`UPDATE workspaces SET settings = settings || '{"agent_outsider_session_visibility":"workspace"}'::jsonb WHERE id = ${workspaceId}`,
+    );
     await addMember("admin", "admin");
     await addMember("creator", "member");
     await addMember("teammate", "member");
@@ -487,7 +496,7 @@ integration("session share scopes over HTTP on PostgreSQL", () => {
       "/v1/sessions",
       { ...asCookie(cookies.creator), "Idempotency-Key": crypto.randomUUID() },
       {
-        profile_id: "claude-coding-v1",
+        agent_release_id: releaseId,
         repository_id: "sample-app",
         message: "Summarise the minutes.",
       },
@@ -511,7 +520,6 @@ integration("session share scopes over HTTP on PostgreSQL", () => {
       asCookie(cookies.outsider),
     );
     expect(await detail.json()).toMatchObject({
-      agent: null,
       created_by: { user_id: ids.creator, display_name: "creator" },
       channel: "web",
     });
@@ -525,8 +533,15 @@ integration("session share scopes over HTTP on PostgreSQL", () => {
     expect(await counted("teammate")).toBe(1);
   });
 
-  test("agent_id leaves out a session created without an agent, and must be an agent id", async () => {
+  test("agent_id keeps the sessions of that agent, and must be an agent id", async () => {
     expect(await listed("creator")).toContain(sessionId);
+    const [release] = await db
+      .select({ agentId: schema.agentReleases.agentId })
+      .from(schema.agentReleases)
+      .where(eq(schema.agentReleases.id, releaseId));
+    expect(
+      await listed("creator", `?agent_id=${release?.agentId ?? ""}`),
+    ).toContain(sessionId);
     expect(await listed("creator", `?agent_id=${crypto.randomUUID()}`)).toEqual(
       [],
     );
@@ -1045,7 +1060,7 @@ integration("session share scopes over HTTP on PostgreSQL", () => {
       "/v1/sessions",
       { ...asCookie(cookies.creator), "Idempotency-Key": crypto.randomUUID() },
       {
-        profile_id: "claude-coding-v1",
+        agent_release_id: releaseId,
         repository_id: "sample-app",
         message: "Draft the follow-up.",
       },

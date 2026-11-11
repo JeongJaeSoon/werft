@@ -23,8 +23,6 @@ PostgreSQL 16을 사용한다. 연결 포화·느린 문장·잠금 조사는 [D
 | reconciler | 4 | pass가 문장을 하나씩 낸다 |
 | slack | 4 | inbox와 outbox를 차례로 비운다 |
 | checkpoint GC, session archive, upgrade check, migrate, 운영자 CLI(`keys`·`grants` 등) | 10 | 한 번 실행하고 종료한다. 기본값(`DEFAULT_POOL_MAX`)을 쓴다 |
-| 운영자 CLI `profile-backfill` | 2 | 한 번 실행하고 종료한다. 코드가 기본값 대신 2로 정한다 |
-| 운영자 CLI `profile-migration` | 4 | 한 번 실행하고 종료한다. 코드가 기본값 대신 4로 정한다 |
 
 Helm 기본값(api 2개, slack 1개, scheduler·reconciler 1개, metrics 꺼짐)으로 늘 열려 있을 수 있는 연결은 api 24 + scheduler 4 + reconciler 4 + slack 4 = 36개다. `metrics.enabled`를 켜면 10개가 더 붙는다. checkpoint GC(기본 일요일 04:00)와 session archive(기본 일요일 05:00)는 CronJob이고 `concurrencyPolicy: Forbid`라 각각 하나씩만 돈다. upgrade check와 migrate는 Helm hook이라 하나가 끝나야 다음이 시작하므로 동시에 하나뿐이다. 이 셋이 겹치면 최대 30개가 더 붙는다. 기본 일정에서는 GC가 한 시간 넘게 돌거나 일정을 바꿔야 GC와 session archive가 겹친다. compose는 api 12 + scheduler 4 + reconciler 4 + slack 4 = 24개다. PostgreSQL 기본 `max_connections`는 100이고 그중 3개는 superuser 몫이다. api나 slack replica를 늘리면 replica 하나에 12개(slack은 4개)씩 더해서 `max_connections`와 견준다. 관리형 DB는 인스턴스 크기에 따라 `max_connections`가 100보다 작을 수 있으니 그 값을 확인한다.
 

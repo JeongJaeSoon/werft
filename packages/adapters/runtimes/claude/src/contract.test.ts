@@ -30,7 +30,7 @@ describe("assertCompatible", () => {
   const session = (version: string) => ({
     kind: "claude_agent_sdk" as const,
     version,
-    profile_id: "op_default_v1",
+    connection_id: "anthropic",
   });
   const check = (version: string) =>
     claudeRuntimeModule.assertCompatible(session(version));
@@ -40,7 +40,7 @@ describe("assertCompatible", () => {
     expect(() => check(CLAUDE_CODE_VERSION)).not.toThrow();
   });
 
-  // An install that upgraded the SDK still holds profile rows at the version
+  // An install that upgraded the SDK still holds releases pinned at the version
   // before; its tool catalog is the same, so its sessions must still start.
   test("takes an older build whose tool catalog is the same as this one's", () => {
     expect(() => check("0.3.270")).not.toThrow();

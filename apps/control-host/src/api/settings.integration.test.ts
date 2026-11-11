@@ -1,22 +1,12 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import * as schema from "@werft-ai/db";
+import { createPostgresSettingsDocumentStore } from "@werft-ai/db";
 import {
-  createPostgresCatalogRepositoryStore,
-  createPostgresInstallationSettingsStore,
-  createPostgresSettingsDocumentStore,
-} from "@werft-ai/db";
-import {
-  type CatalogProfile,
-  type Connections,
-  type CredentialRef,
-  catalogRows,
-  createProfileRegistry,
-  parseSeedDocument,
-  profileFingerprint,
-  resolveSessionCatalog,
-  settingsSnapshot,
-} from "@werft-ai/platform";
+  releaseSpecColumns,
+  sessionPinValues,
+} from "@werft-ai/db/testing/spec-pins";
+import { parseSettingsDocument } from "@werft-ai/platform";
 import {
   createTempDatabase,
   type TempDatabase,
@@ -24,16 +14,15 @@ import {
 } from "@werft-ai/testkit/postgres";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { settingsCatalog } from "../test-support/settings.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
-const FAKE_MODEL = parseSeedDocument(
+const FAKE_MODEL = parseSettingsDocument(
   await Bun.file(
     `${import.meta.dir}/../../../../tests/fixtures/settings/fake-model.json`,
   ).json(),
 );
-// Any reference resolves: what matters is which connection a ceiling finds.
-const lookup = (_ref: CredentialRef) => "a-fake-provider-key";
 
 integration("the fake-model stack's settings through a document", () => {
   let database: TempDatabase;
@@ -50,49 +39,11 @@ integration("the fake-model stack's settings through a document", () => {
     await database.drop();
   });
 
-  async function ceilings(connections: Connections) {
-    const settings = createPostgresInstallationSettingsStore(db, null);
-    const registry = createProfileRegistry<CatalogProfile>({
-      workspaces: { listAll: async () => [] },
-      installations: {
-        listAll: async () =>
-          catalogRows(
-            FAKE_MODEL.profiles ?? {},
-            FAKE_MODEL.entries.repositories,
-          ),
-      },
-      repositories: createPostgresCatalogRepositoryStore(db),
-      settings: {
-        read: async () => settingsSnapshot(await settings.read(), lookup),
-      },
-      sources: {
-        connections,
-        allowUnattended: false,
-        runtimeSupported: () => true,
-        materialize: (id, definition, settingsLookup) => {
-          const profile = resolveSessionCatalog(
-            { profiles: { [id]: definition }, repositories: {} },
-            (ref) => settingsLookup?.(ref) ?? lookup(ref),
-          ).profiles[id];
-          if (!profile) throw new Error(`no ${id}`);
-          return profile;
-        },
-      },
-    });
-    await registry.refresh();
-    const entry = registry.installation.get("claude-coding-local");
-    const profile = registry.profiles["claude-coding-local"];
-    return {
-      state: entry?.state,
-      fingerprint: profile ? profileFingerprint(profile) : null,
-    };
-  }
-
-  test("the imported fake-messages connection runs the fake ceiling", async () => {
-    expect(await ceilings({})).toMatchObject({ state: "connection_missing" });
+  test("the imported fake-messages connection offers its models to the catalog", async () => {
+    expect((await settingsCatalog(db)).connections).toEqual({});
 
     const result = await createPostgresSettingsDocumentStore(db).importEntries(
-      FAKE_MODEL.entries,
+      FAKE_MODEL,
       {
         dryRun: false,
         allowExternal: true,
@@ -101,9 +52,13 @@ integration("the fake-model stack's settings through a document", () => {
     );
     expect(result.outcome).toBe("applied");
 
-    const imported = await ceilings({});
-    expect(imported.state).toBe("usable");
-    expect(imported.fingerprint).toStartWith("sha256:");
+    const catalog = await settingsCatalog(db);
+    expect(catalog.connections["fake-messages"]?.models).toContain(
+      "claude-sonnet-5",
+    );
+    expect(catalog.connections["fake-messages"]?.provider.endpoint).toBe(
+      FAKE_MODEL.connections["fake-messages"]?.endpoint,
+    );
   }, 30_000);
 });
 
@@ -145,18 +100,24 @@ integration("sessions on a repository only the old file knew", () => {
        VALUES ($1, $2, 1, '{}', $3)`,
       [versionId, agentId, "a".repeat(64)],
     );
+    const spec = releaseSpecColumns();
     await pool.query(
       `INSERT INTO agent_releases (id, agent_id, version_id, card_sha256,
-         runtime_profile_id, repository_id, profile_digest,
-         runtime_config_snapshot, effective_tools, policy_pins)
-       VALUES ($1, $2, $3, $4, 'claude-coding-v1', 'in-pin', $5, '{}', '{}', $6)`,
+         connection_id, repository_id, runtime_config_snapshot,
+         effective_tools, policy_pins, runtime_spec, spec_source,
+         spec_source_digest, spec_digest)
+       VALUES ($1, $2, $3, $4, 'test-connection', 'in-pin', '{}', '{}', $5,
+         $6, $7, $8, $9)`,
       [
         releaseId,
         agentId,
         versionId,
         "a".repeat(64),
-        `sha256:${"c".repeat(64)}`,
         JSON.stringify({ github: { repositories: ["old-policy", "live"] } }),
+        JSON.stringify(spec.runtimeSpec),
+        JSON.stringify(spec.specSource),
+        spec.specSourceDigest,
+        spec.specDigest,
       ],
     );
     await pool.query(
@@ -179,12 +140,14 @@ integration("sessions on a repository only the old file knew", () => {
     ) => {
       const id = randomUUID();
       ids.set(name, id);
+      const pin = sessionPinValues();
       await pool.query(
         `INSERT INTO sessions (id, owner_id, repo_url, branch, repository_id,
            attached_repository_ids, status, workspace_id, agent_release_id,
-           created_by_user_id, github_policy_source, checkpoint_revision)
+           created_by_user_id, github_policy_source, checkpoint_revision,
+           model, runtime_spec, spec_source, spec_source_digest, spec_digest)
          VALUES ($1, $2, 'https://github.com/acme/app.git', 'main', $3, $4, $5,
-           $8, $6, $7, 'release', 1)`,
+           $8, $6, $7, 'release', 1, $9, $10, $11, $12, $13)`,
         [
           id,
           workspaceId,
@@ -194,6 +157,11 @@ integration("sessions on a repository only the old file knew", () => {
           columns.release ? releaseId : null,
           userId,
           workspaceId,
+          pin.model,
+          pin.runtime_spec,
+          pin.spec_source,
+          pin.spec_source_digest,
+          pin.spec_digest,
         ],
       );
     };

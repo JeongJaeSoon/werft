@@ -115,9 +115,10 @@ When worker images change, Compose upgrade checks calculate restoration plans fo
 On a worker image change, upgrade retains the old image in the state directory's `previous-worker` file. For each session, the scheduler matches checkpoint engine/SDK/CLI/profile digest scheme against current/previous images, preferring current if both match ([configuration](/run-server/self-hosting/reference/configuration)). The affected list therefore includes sessions restorable by neither image. If either image check fails closed, retain the new-image list unchanged. For rebuilt images with the same combination, the scheduler selects current: do not remove sessions unverified on current merely because previous can restore them. If either is too old to report its combination (a build without combination reporting), previous is not used and the gate retains the new-image list. The support window is one release: another upgrade can affect sessions left on the older image.
 
 <a id="runtime-프로필의-공통-준비" />
-### Shared runtime profile preparation
+<a id="runtime-버전의-공통-준비" />
+### Shared runtime version preparation
 
-SDK upgrades also update `runtime_version` in example settings (`tests/fixtures/settings/`). Installation ceilings are saved as new versions when the built-in tool catalog changes. Profiles whose runtime_version is absent from the current image cannot accept new sessions. The exception is a version whose built-in tool catalog lists the same tools, boundaries and aliases as the new build's: the image then counts as shipping it. A profile row left at the previous version keeps starting new sessions after the upgrade, and the operator sees and does nothing. When the catalogs differ (a tool was added or changed), a new session is refused with `UNSUPPORTED_CAPABILITY` and a message naming the profile and version, and the operator saves a new version of that profile. Checkpoints are not judged by this: they resume only on an image with the same engine, SDK and CLI combination as the build that wrote them. Include the new engine combination's built-in tool catalog in that release too. A version lacking a catalog cannot have a `deny` ceiling. Newly added tools remain blocked in each new ceiling version until accepted with `accept_added_tools` ([api-server.md](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#운영자-카탈로그-agent-profile--repository)). See [Kubernetes rollback](/run-server/self-hosting/upgrade-kubernetes#되돌리기) for its procedure and cautions.
+An SDK upgrade release changes the runtime version the image ships, and reviews the connection model lists in the example settings (`tests/fixtures/settings/`) with it. A release pins the runtime version its image shipped when it was made, and its sessions run that version. A new session on a release whose version neither the current nor the previous image ships is refused with `UNSUPPORTED_CAPABILITY`; release that agent again. Checkpoints resume only on images with the same engine/SDK/CLI combination they were made with, regardless of this check. The same release includes the built-in tool catalog of the new engine combination. For Kubernetes (helm) rollback steps and cautions, see [Kubernetes upgrade § Rollback](/run-server/self-hosting/upgrade-kubernetes#되돌리기).
 
 <a id="workercontrol-host-롤백과-incremental-checkpoint" />
 ### Worker/control-host rollback and incremental checkpoints
@@ -130,32 +131,10 @@ Workers included in `v0.1.0` upload incremental bundles containing only new obje
 - **Before rollback:** roll forward if affected sessions exist. No operator env/setting/CLI forces a new full bundle. Workers produce full bundles only when chains are absent/broken or reach length 32 (`MAX_WORKSPACE_BUNDLE_CHAIN`) or bundle limits. If rollback is unavoidable, affected sessions cannot restore during it; roll-forward restores them unchanged.
 
 <a id="control-host-롤백-하한-release-도구로-실행" />
-### Control-host rollback floor: release tools
+<a id="프로필-제거의-롤백-하한" />
+### Rollback floor of the profile removal
 
-Control-host in `v0.1.0` runs release-created sessions with release-pinned tools (`agent_releases.runtime_config_snapshot.tools`, within profile tools), rather than every profile tool. Claims deliver tools at worker startup; workers retain them until exit. Agents selecting `tools` or declaring `forbidden` therefore narrow even existing sessions on the next claim. Pre-deployment workers retain profile tools until `WORKER_IDLE_TIMEOUT_SEC` (default 1800 seconds) after their last turn without input, or until pause/restart. Sessions without releases or whose releases retain all profile tools are unchanged. A session created on a release after this deployment records `sessions.runtime_tools_source = 'release'`, and its claim carries the release's `effective_tools.tools` as stored, with no intersection with profile tools. Earlier sessions read as `profile`, so their tools and checkpoint fingerprints are unchanged. Worker images/protocol are unchanged.
-
-- **Official release rollback floor: `v0.1.0`.** Tool lists enter checkpoint profile digests. This release includes both profile and release tool lists as restoration candidates. Earlier pre-release builds cannot restore release-tool checkpoints and stop as `recovery_required` (`incompatible_checkpoint`). Roll forward and `retry_restore` the same checkpoint. Pre-release main installations should first deploy a release verified to support these candidates as a rollback target.
-- **Count narrowing releases** before deployment using this read-only query. It also counts agents retaining every profile tool, so it is an upper bound.
-
-```sql
-WITH narrowed AS (
-  SELECT r.id FROM agent_releases r JOIN agent_versions v ON v.id = r.version_id
-  WHERE v.card->'capabilities'->'tools' <> 'null'::jsonb
-     OR jsonb_array_length(coalesce(v.card->'capabilities'->'forbidden', '[]')) > 0
-)
-SELECT
-  (SELECT count(*) FROM narrowed) AS releases,
-  (SELECT count(*) FROM sessions s JOIN narrowed n ON n.id = s.agent_release_id
-    WHERE s.admission_state NOT IN ('closing', 'closed')) AS open_sessions,
-  (SELECT count(*) FROM agent_releases
-    WHERE CASE WHEN jsonb_typeof(runtime_config_snapshot->'tools') = 'array'
-      THEN EXISTS (SELECT 1 FROM jsonb_array_elements(runtime_config_snapshot->'tools') t
-                    WHERE jsonb_typeof(t) <> 'string')
-      ELSE true END) AS unreadable;
-```
-
-`unreadable` means snapshots missing `tools` or containing something other than a string array. Their sessions run without built-in tools (fail closed). Normal release creation always stores a string-array `tools`.
-- **Restoration candidate cap:** claims allow 16 candidates (worker contract), with all profile lists before release lists. Narrowed-release sessions with many previous profiles (16 without GitHub configuration, 8 or more with it) face two effects. ① After switching to release tools, the current profile's profile list consumes another slot, displacing the oldest previous profile candidate. Checkpoints matching only that candidate stop as `incompatible_checkpoint`; retrying the same candidate rules cannot help. Choose `start_fresh` (discard context) or `close`. ② Rolling back to pre-release builds lacking release-tool candidate support fills the cap with profile lists, excluding release-tool candidates; release-tool checkpoints created after the switch cannot restore. Roll forward, then `retry_restore` to recover these.
+The release that removes run profiles runs migration `0270_remove_profiles`, which drops the profile tables and columns and deletes the releases made on profiles, their sessions, and the records under those sessions (turns, events, checkpoint rows and so on; 45 tables). Slack outbox rows that name no session (welcome notices and the like) are kept. Of the usage tables only `provider_usage`, which hangs off sessions, is emptied; `agent_usage` stays. A development or verify database that applied an earlier draft of this change (`0269_remove_profiles`) must be created again. Agents and their card versions, teams, keys and the installation settings stay. From then on every session runs the spec its release pinned (connection, model, runtime, tools), and an agent runs again once it is released on a connection. Give each connection the model list (`models`) agents may pick from. **You cannot roll back to a build older than this release.** To go back, restore the database from the backup taken before the upgrade.
 
 <a id="worker-protocol-필드를-걷어내는-순서" />
 ### Removing worker protocol fields

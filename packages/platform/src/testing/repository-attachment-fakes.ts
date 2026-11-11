@@ -1,4 +1,4 @@
-import { type AgentGitHub, RUNTIME_KIND_VALUES } from "@werft-ai/contracts";
+import type { AgentGitHub } from "@werft-ai/contracts";
 import type { GitHubSessionContext } from "../github/ports/github-gate.ts";
 import type {
   RepositoryAttachmentRefusal,
@@ -8,44 +8,31 @@ import type {
 import {
   environmentCredentials,
   resolveSessionCatalog,
+  type SessionCatalog,
   sessionCatalogConfigSchema,
 } from "../sessions/catalog.ts";
-import { withSeededInstallation } from "../sessions/profile-registry.ts";
 import { releasePolicy } from "./github-fakes.ts";
 
-const profile = {
-  runtime_kind: RUNTIME_KIND_VALUES[0],
-  runtime_version: "1",
-  model: "claude-sonnet-5",
-  tools: ["Read"],
-  permission_mode: "default",
-  provider: {
-    kind: "anthropic",
-    endpoint: "https://api.anthropic.invalid",
-    auth: { kind: "api_key", value_env: "ANTHROPIC_KEY_MAIN" },
-  },
-};
 const repo = (name: string, branch = "main") => ({
   url: `https://github.com/acme/${name}.git`,
   branch,
-  profiles: ["p"],
   auth: { kind: "github_app" },
 });
 
 /**
  * `app` is the session's own; `docs` and `tools` are on the release's list,
- * `secret` is not. `lab` is allowed for profile `q` alone.
+ * `secret` and `lab` are not.
  */
-function catalogOf(repositories: Record<string, ReturnType<typeof repo>>) {
-  return withSeededInstallation(
-    resolveSessionCatalog(
-      sessionCatalogConfigSchema.parse({
-        profiles: { p: profile, q: profile },
-        repositories,
-      }),
-      environmentCredentials({ ANTHROPIC_KEY_MAIN: "resolved-key" }),
+function catalogOf(
+  repositories: Record<string, ReturnType<typeof repo>>,
+): SessionCatalog {
+  return {
+    connections: {},
+    ...resolveSessionCatalog(
+      sessionCatalogConfigSchema.parse({ repositories }),
+      environmentCredentials({}),
     ),
-  );
+  };
 }
 
 export const attachCatalog = catalogOf({
@@ -53,7 +40,7 @@ export const attachCatalog = catalogOf({
   docs: repo("docs", "trunk"),
   tools: repo("tools"),
   secret: repo("secret"),
-  lab: { ...repo("lab"), profiles: ["q"] },
+  lab: repo("lab"),
 });
 
 /** `app` and `count` more, named `r0000`, `r0001`, ... */
@@ -93,7 +80,6 @@ export function attachmentContext(
     ownerId: "owner-a",
     sessionId: "11111111-1111-4111-8111-111111111111",
     repositoryId: "app",
-    profileId: "p",
     attachedRepositoryIds: [],
     repository: { url: "https://github.com/acme/app.git", branch: "main" },
     startedBy: null,
@@ -108,7 +94,11 @@ export function attachmentContext(
       review: false,
       merge: false,
     },
-    repositoryCeiling: null,
+    // The workspace ceiling takes every console-App repository.
+    repositoryCeiling: {
+      repository_ids: [],
+      github_app_repositories: "installed",
+    },
     ceilingRevision: 0,
     ...overrides,
   };

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { eventToolResult } from "@werft-ai/contracts";
-import { Api, e2eEnv, poll, type SseEvent } from "../e2e/client.ts";
+import { Api, e2eStack, poll, type SseEvent } from "../e2e/client.ts";
 import { scriptId } from "./engine.ts";
 import { engineFromEnv } from "./engines.ts";
 
@@ -12,7 +12,9 @@ import { engineFromEnv } from "./engines.ts";
  * never from the command's output or the model's text.
  */
 const engine = engineFromEnv();
-const api = new Api(e2eEnv({ needsMessages: false }));
+const api = new Api(
+  await e2eStack({ needsMessages: false, connectionId: engine.connectionId }),
+);
 const TIMEOUT = 600_000;
 
 /** A session whose first turn runs the engine's approval-requiring command. */
@@ -24,7 +26,6 @@ async function askForApproval(name: string) {
       final: "after the command",
     }),
     undefined,
-    engine.profileId,
     engine.repositoryId,
   );
   expect(created.status).toBe(201);
