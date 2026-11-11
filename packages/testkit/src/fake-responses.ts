@@ -20,6 +20,8 @@ export type FakeToolCall = {
   /** The id the model's caller answers with. */
   callId: string;
   name: string;
+  /** Set for an MCP tool, which Codex offers and calls inside `mcp__<server>`. */
+  namespace?: string;
   /** The arguments as a JSON string, as the API sends them. */
   arguments: string;
 };
@@ -254,6 +256,7 @@ function outputOf(reply: FakeResponse): OutputItem[] {
       type: "function_call",
       id: `fc_${crypto.randomUUID()}`,
       call_id: call.callId,
+      ...(call.namespace === undefined ? {} : { namespace: call.namespace }),
       name: call.name,
       arguments: call.arguments,
       status: "completed",

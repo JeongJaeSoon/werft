@@ -69,6 +69,39 @@ describe("scripted Responses API", () => {
     ]);
   });
 
+  test("an MCP tool is called inside its namespace, and the record shows what was offered and answered", async () => {
+    const recorded: ScriptedCall[] = [];
+    const prompt = user(
+      spec({
+        id: "m",
+        steps: [{ tool: "mcp__github__request_push", input: {} }],
+        final: "done",
+      }),
+    );
+    const offered = [
+      ...tools,
+      {
+        type: "namespace",
+        name: "mcp__github",
+        tools: [{ type: "function", name: "request_push" }],
+      },
+    ];
+    const first = await replyFor({ input: [prompt], tools: offered }, recorded);
+    expect(first.toolCalls?.[0]).toMatchObject({
+      namespace: "mcp__github",
+      name: "request_push",
+    });
+    await replyFor(
+      { input: [prompt, output("call_gate_m_0")], tools: offered },
+      recorded,
+    );
+    expect(recorded[0]?.tools).toEqual([
+      "exec_command",
+      "mcp__github/request_push",
+    ]);
+    expect(recorded[1]?.outputs).toEqual(["ok"]);
+  });
+
   test("a request without tools never reads the spec", async () => {
     const recorded: ScriptedCall[] = [];
     const reply = await replyFor(

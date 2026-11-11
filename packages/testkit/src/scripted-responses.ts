@@ -19,8 +19,12 @@ export type ScriptedCall = {
   at: string;
   /** Ids of every spec the input replays, oldest first. */
   history: string[];
+  /** The text of each tool output the input carries, oldest first. */
+  outputs: string[];
   specId: string | null;
   step: number | null;
+  /** Tool names the request offered; a namespace's tools read `namespace/tool`. */
+  tools: string[];
 };
 
 function textsOf(item: Item): string[] {
@@ -69,6 +73,38 @@ export function planOf(
   return null;
 }
 
+function toolNames(body: ResponsesRequest): string[] {
+  return (body.tools ?? []).flatMap((tool) => {
+    const { name, tools } = tool as { name?: unknown; tools?: unknown };
+    if (typeof name !== "string") return [];
+    if (!Array.isArray(tools)) return [name];
+    return tools.flatMap((child) => {
+      const childName = (child as { name?: unknown }).name;
+      return typeof childName === "string" ? [`${name}/${childName}`] : [];
+    });
+  });
+}
+
+/** `mcp__github__request_push` is the model's `request_push` in the `mcp__github` namespace. */
+function mcpCall(tool: string): { name: string; namespace?: string } {
+  const match = /^(mcp__.+?)__(.+)$/.exec(tool);
+  return match === null
+    ? { name: tool }
+    : { namespace: match[1] as string, name: match[2] as string };
+}
+
+function outputTexts(items: readonly Item[]): string[] {
+  return items
+    .filter((item) => item.type === "function_call_output")
+    .map((item) => {
+      const text =
+        typeof item.output === "string"
+          ? item.output
+          : JSON.stringify(item.output ?? null);
+      return text.slice(0, 400);
+    });
+}
+
 export function specIdsIn(items: readonly Item[]): string[] {
   return items.flatMap((item) =>
     textsOf(item).flatMap((text) => {
@@ -89,8 +125,10 @@ export function replyFor(
   recorded.push({
     at: new Date().toISOString(),
     history: specIdsIn(items),
+    outputs: outputTexts(items),
     specId: plan?.spec.id ?? null,
     step: plan?.step ?? null,
+    tools: toolNames(body),
   });
   if (plan === null) return { text: fallback };
   const { spec, step } = plan;
@@ -102,7 +140,7 @@ export function replyFor(
           toolCalls: [
             {
               callId: `call_gate_${spec.id}_${step}`,
-              name: next.tool,
+              ...mcpCall(next.tool),
               arguments: JSON.stringify(next.input),
             },
           ],
