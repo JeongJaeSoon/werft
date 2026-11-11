@@ -3,6 +3,10 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import type { Folder, Node, Root } from "fumadocs-core/page-tree";
 import {
+  SECTION_DEPLOY,
+  SECTION_USE,
+} from "../apps/docs/src/lib/sidebar-sections";
+import {
   buildSidebarTree,
   sidebarLabels,
 } from "../apps/docs/src/lib/sidebar-tree";
@@ -101,8 +105,16 @@ const tree: Root = {
 
 const out = buildSidebarTree(tree, sidebarLabels.en);
 const names = (n: Node[]) => n.map((c) => ("name" in c ? c.name : ""));
-const tab = (name: string) =>
-  out.children.find((c): c is Folder => c.type === "folder" && c.name === name);
+const separatorAt = (id: string) =>
+  out.children.findIndex((c) => c.type === "separator" && c.$id === id);
+// Everything between the two separators, then everything after the second
+// up to the trailing contributing page.
+const useNodes = out.children.slice(
+  separatorAt(SECTION_USE) + 1,
+  separatorAt(SECTION_DEPLOY),
+);
+const deployNodes = out.children.slice(separatorAt(SECTION_DEPLOY) + 1, -1);
+const all = (nodes: Node[]) => nodes.flatMap(urls);
 
 function urls(node: Node): string[] {
   if (node.type === "page") return node.external ? [] : [node.url];
@@ -114,50 +126,64 @@ function urls(node: Node): string[] {
 }
 
 describe("buildSidebarTree", () => {
-  test("makes two root folders, use and deploy", () => {
-    expect(names(out.children)).toEqual(["Use", "Deploy", "/en/contributing"]);
-    for (const c of out.children.slice(0, 2)) {
-      expect((c as Folder).root).toBe(true);
-    }
+  test("one sidebar: a use section, a deploy section, then contributing", () => {
+    expect(out.children[0]).toEqual({
+      type: "separator",
+      $id: SECTION_USE,
+      name: "Guides",
+    });
+    expect(out.children[separatorAt(SECTION_DEPLOY)]).toEqual({
+      type: "separator",
+      $id: SECTION_DEPLOY,
+      name: "Self-hosting",
+    });
+    expect(separatorAt(SECTION_DEPLOY)).toBeGreaterThan(1);
+    expect(out.children.at(-1)).toMatchObject({
+      type: "page",
+      url: "/en/contributing",
+    });
+    // No root folder: a root folder would bring the tab dropdown back.
+    const roots: Node[] = [];
+    const walk = (n: Node) => {
+      if (n.type !== "folder") return;
+      if (n.root) roots.push(n);
+      for (const c of n.children) walk(c);
+    };
+    for (const c of out.children) walk(c);
+    expect(roots).toEqual([]);
   });
 
-  test("every folder it makes has its own id, so only one tab is active", () => {
+  test("every folder it makes has its own id", () => {
     const ids: unknown[] = [];
-    const walk = (n: Node, made: boolean) => {
+    const walk = (n: Node) => {
       if (n.type !== "folder") return;
-      if (made) ids.push(n.$id);
-      for (const c of n.children) walk(c, made);
+      ids.push(n.$id);
+      for (const c of n.children) walk(c);
     };
-    for (const t of out.children) walk(t, true);
+    for (const c of out.children) walk(c);
     // the input folders carry no id here; the ones it made must all have one
     const own = ids.filter((id) => typeof id === "string");
     expect(own.length).toBeGreaterThanOrEqual(2);
     expect(new Set(own).size).toBe(own.length);
-    expect((out.children[0] as Folder).$id).not.toBe(
-      (out.children[1] as Folder).$id,
-    );
   });
 
   test("use groups start, features, UI and reference", () => {
-    // The first direct page child is what the tab links to.
-    expect(tab("Use")?.children[0]).toMatchObject({ type: "page", url: "/en" });
-    expect(names(tab("Use")?.children.slice(1) ?? [])).toEqual([
+    expect(useNodes[0]).toMatchObject({ type: "page", url: "/en" });
+    expect(names(useNodes.slice(1))).toEqual([
       "Get started",
       "Features",
       "UI",
       "Reference",
     ]);
-    const start = tab("Use")?.children[1] as Folder;
-    expect(urls(start)).toContain("/en/run-server/dev-server");
+    expect(urls(useNodes[1] as Folder)).toContain("/en/run-server/dev-server");
   });
 
   test("deploy has the index page and five sections that fold", () => {
-    const deploy = tab("Deploy");
-    expect(deploy?.children[0]).toMatchObject({
+    expect(deployNodes[0]).toMatchObject({
       type: "page",
       url: "/en/run-server/self-hosting",
     });
-    const groups = (deploy?.children ?? []).filter((c) => c.type === "folder");
+    const groups = deployNodes.filter((c) => c.type === "folder");
     expect(names(groups)).toEqual([
       "Trial",
       "Prep",
@@ -169,19 +195,18 @@ describe("buildSidebarTree", () => {
   });
 
   test("deploy links to observability inside Operations, as a plain page", () => {
-    const deploy = tab("Deploy") as Folder;
-    const operations = deploy.children.find(
+    const operations = deployNodes.find(
       (c): c is Folder => c.type === "folder" && c.name === "Operations",
     );
     const link = operations?.children.at(-1);
     expect(link).toMatchObject({
       type: "page",
-      name: "Observability (Use)",
+      name: "Observability (Guides)",
       url: "/en/observability",
     });
     // An external link would skip the site's base path.
     expect((link as { external?: boolean }).external).toBeUndefined();
-    expect(urls(tab("Use") as Folder)).toContain("/en/observability");
+    expect(all(useNodes)).toContain("/en/observability");
   });
 
   test("a tree of unlisted pages is returned unchanged", () => {
@@ -189,10 +214,10 @@ describe("buildSidebarTree", () => {
     expect(buildSidebarTree(fallback, sidebarLabels.en)).toBe(fallback);
   });
 
-  test("each page sits in exactly one tab and contributing in none", () => {
-    const use = urls(tab("Use") as Folder);
-    const deploy = urls(tab("Deploy") as Folder);
-    // The only shared URL is the deploy tab's link to observability.
+  test("each page sits in exactly one section and contributing in none", () => {
+    const use = all(useNodes);
+    const deploy = all(deployNodes);
+    // The only shared URL is the deploy section's link to observability.
     expect(use.filter((u) => deploy.includes(u))).toEqual([
       "/en/observability",
     ]);
