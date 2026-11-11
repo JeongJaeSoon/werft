@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@werft-ai/runtime-claude-codec": "workspace:*",
+    "@werft-ai/runtime-codec-kit": "workspace:*",
     "@werft-ai/runtime-codex-codec": "workspace:*",
     "@werft-ai/runtime-core": "workspace:*"
   }

@@ -170,6 +170,7 @@
         "@modelcontextprotocol/sdk": "1.32.1",
         "@werft-ai/contracts": "workspace:*",
         "@werft-ai/runtime-claude-codec": "workspace:*",
+        "@werft-ai/runtime-codec-kit": "workspace:*",
         "@werft-ai/runtime-core": "workspace:*",
         "zod": "4.6.7",
       },
@@ -200,6 +201,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@werft-ai/runtime-claude-codec": "workspace:*",
+        "@werft-ai/runtime-codec-kit": "workspace:*",
         "@werft-ai/runtime-codex-codec": "workspace:*",
         "@werft-ai/runtime-core": "workspace:*",
       },

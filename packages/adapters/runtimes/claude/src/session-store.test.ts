@@ -12,7 +12,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { digestParts } from "@werft-ai/runtime-claude-codec";
+import { digestParts } from "@werft-ai/runtime-codec-kit";
 import {
   type CheckpointTranscripts,
   MAX_TRANSCRIPT_PART_BYTES,

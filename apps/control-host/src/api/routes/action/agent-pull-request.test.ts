@@ -76,7 +76,7 @@ const keyStore = {
 };
 
 // The Postgres store (the agent lock, the receipt, the session join) is its
-// own integration test (packages/db/src/pull-request-settings.integration.test.ts).
+// own integration test (packages/db/src/action/pull-request-settings.integration.test.ts).
 function appWith() {
   let held: { settings: AgentPullRequestSettings; revision: number } | null =
     null;

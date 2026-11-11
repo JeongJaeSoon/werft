@@ -96,7 +96,7 @@ credential 경계: provider key와 저장소·object store credential은 worker�
 
 관리 action(`member.manage` 등)은 `packages/platform/src/musterrolle/policy.ts`가 역할로 판정하고, API key는 scope와 관계없이 거절한다. 판정을 통과한 쓰기는 저장소 transaction 안에서 actor가 아직 live owner인지 다시 확인한다. 이때 actor의 `users` 행을 membership보다 먼저 share 잠금한다. 잠금 순서는 login-email advisory → invite → user → membership → web session이다.
 
-세션 생성·입력·승인 답변도 정책 판정 뒤에 저장 transaction이 따로 열리므로, 저장이 요청 주체(user·membership, Slack 연결, key 행)와 입력·답변이면 공유 행·공유 팀·팀 멤버, 답변이면 응답 근거(역할·만든 사람·에이전트 관리자·관리자 팀·담당 팀 `lead`)를 share 잠금하고 다시 본다. 그 사이 권한이 빠졌으면 요청 주체는 `FORBIDDEN`, 공유 밖은 `NOT_FOUND`, 응답자가 아니면 `FORBIDDEN`(`reason_code: role`)이다. 같은 `Idempotency-Key`의 재시도는 재판정 전에 저장된 결과를 받는다. 이 쓰기와 그 근거를 거두는 쓰기가 함께 따르는 잠금 순서는 `packages/db/src/requester-locks.ts` 주석에 있다.
+세션 생성·입력·승인 답변도 정책 판정 뒤에 저장 transaction이 따로 열리므로, 저장이 요청 주체(user·membership, Slack 연결, key 행)와 입력·답변이면 공유 행·공유 팀·팀 멤버, 답변이면 응답 근거(역할·만든 사람·에이전트 관리자·관리자 팀·담당 팀 `lead`)를 share 잠금하고 다시 본다. 그 사이 권한이 빠졌으면 요청 주체는 `FORBIDDEN`, 공유 밖은 `NOT_FOUND`, 응답자가 아니면 `FORBIDDEN`(`reason_code: role`)이다. 같은 `Idempotency-Key`의 재시도는 재판정 전에 저장된 결과를 받는다. 이 쓰기와 그 근거를 거두는 쓰기가 함께 따르는 잠금 순서는 `packages/db/src/sessions/requester-locks.ts` 주석에 있다.
 
 계정 정지(`users.disabled_at`)와 membership 비활성(`memberships.disabled_at`)은 다른 것이다. 앞의 것은 모든 workspace에서, 뒤의 것은 그 workspace에서만 사람을 막는다. workspace의 API key는 두 종류다. 에이전트 key(`api_keys.kind = 'agent'`, `agent_id` 필수)는 사람과 무관하고 비활성의 영향을 받지 않는다. workspace 전체에 닿는 key는 없다(CHECK 제약). workspace 밖의 운영자 CLI key는 `kind = 'operator'`다. 개인 key(`kind = 'personal'`)는 `created_by_user_id`를 갖고, 만든 사람이 비활성이면 요청마다 거절되며, 비활성화하는 transaction이 함께 폐기한다. 그래서 재활성해도 되살아나지 않는다. 사용자가 key를 발급하는 경로를 새로 만들면 그 key에도 `created_by_user_id`를 두고 같은 폐기 대상에 넣는다.
 

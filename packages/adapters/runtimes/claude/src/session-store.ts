@@ -10,7 +10,7 @@ import {
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { canonicalJsonOfJson } from "@werft-ai/contracts";
-import { digestParts } from "@werft-ai/runtime-claude-codec";
+import { digestParts } from "@werft-ai/runtime-codec-kit";
 import {
   type CheckpointObjectStore,
   type CheckpointTranscripts,
