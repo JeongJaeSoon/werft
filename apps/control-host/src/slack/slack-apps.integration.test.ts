@@ -7,6 +7,25 @@ import {
 } from "@werft-ai/chat-slack";
 import { createFakeSlackConfigApi } from "@werft-ai/chat-slack/testing/slack";
 import { scopesForRole, type WorkspaceRole } from "@werft-ai/contracts";
+import * as schema from "@werft-ai/db";
+import {
+  agentAdmins,
+  agentIdentities,
+  agentReleases,
+  agents,
+  agentVersions,
+  createPostgresSlackAppStore,
+  createPostgresSlackConfigTokenStore,
+  memberships,
+  secretValues,
+  slackAppKind,
+  slackApps,
+  slackConfigTokens,
+  slackInstallations,
+  users,
+  workspaces,
+} from "@werft-ai/db";
+import { fixtureTeam } from "@werft-ai/db/testing/fixture-team";
 import {
   type AgentAuthority,
   callerFor,
@@ -25,24 +44,6 @@ import {
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import * as schema from "./schema.ts";
-import {
-  agentAdmins,
-  agentIdentities,
-  agentReleases,
-  agents,
-  agentVersions,
-  memberships,
-  secretValues,
-  slackApps,
-  slackConfigTokens,
-  slackInstallations,
-  users,
-  workspaces,
-} from "./schema.ts";
-import { createPostgresSlackAppStore, slackAppKind } from "./slack-apps.ts";
-import { createPostgresSlackConfigTokenStore } from "./slack-config-tokens.ts";
-import { fixtureTeam } from "./testing/fixture-team.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 const MANAGERS = MANAGEMENT_ROLES["workspace.manage"] ?? [];

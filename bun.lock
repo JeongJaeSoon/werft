@@ -279,7 +279,6 @@
       "devDependencies": {
         "@electric-sql/pglite": "0.3.10",
         "@types/pg": "8.15.5",
-        "@werft-ai/chat-slack": "workspace:*",
         "@werft-ai/testkit": "workspace:*",
         "drizzle-kit": "0.31.4",
       },
