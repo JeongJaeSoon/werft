@@ -38,6 +38,12 @@ const families = {
   "claude-sonnet-5": { family: "sonnet", rank: 5 },
   "claude-sonnet-5-5": { family: "sonnet", rank: 6 },
 };
+const otherFamilies = {
+  "claude-opus-5": { family: "opus", rank: 5 },
+  "claude-opus-5-5": { family: "opus", rank: 6 },
+};
+const deep = { ...litellm, endpoint: "https://deep.example.test" };
+const loop = { ...litellm, endpoint: "https://loop.example.test" };
 
 /**
  * An installation from before 0254 holds connections without a model list
@@ -173,6 +179,8 @@ integration("0270 gives each connection the models of its profiles", () => {
       endpoint: "https://other.example.test",
     });
     await connection("openai", openai);
+    await connection("deep", deep);
+    await connection("loop", loop);
 
     await profile("coding", {
       provider: anthropic,
@@ -207,11 +215,48 @@ integration("0270 gives each connection the models of its profiles", () => {
       model: "claude-ok",
       models: "not-a-list",
     });
+    await profile(
+      "old-base",
+      { provider: anthropic, model: "claude-old-base" },
+      { retired: true },
+    );
     await profile("former-key", {
       provider: { ...anthropic, auth: rotatedAuth },
       model: "claude-opus-5-5",
+      model_families: families,
     });
-    await profile("proxy", { provider: litellm, model: "proxy-model" });
+    await profile("former-key-2", {
+      provider: { ...anthropic, auth: rotatedAuth },
+      model: "claude-opus-5",
+      model_families: families,
+    });
+    await profile("proxy", {
+      provider: litellm,
+      model: "proxy-model",
+      model_families: families,
+    });
+    await profile("proxy-2", {
+      provider: litellm,
+      model: "proxy-model",
+      model_families: otherFamilies,
+    });
+    // A lineage longer than any fixed depth still ends, and runs.
+    for (let i = 0; i < 70; i++) {
+      await profile(
+        `deep-${i}`,
+        { provider: deep, model: `deep-${i}` },
+        i === 0 ? {} : { derivedFrom: `deep-${i - 1}` },
+      );
+    }
+    await profile("loop-a", { provider: loop, model: "loop-a" });
+    await profile(
+      "loop-b",
+      { provider: loop, model: "loop-b" },
+      { derivedFrom: "loop-a" },
+    );
+    await pool.query(
+      "UPDATE installation_profiles SET derived_from = 'loop-b' WHERE id = 'loop-a'",
+    );
     await profile("codex", { provider: openai, model: "gpt-5" });
     await pool.query(
       `INSERT INTO workspace_profiles (id, workspace_id, name, version, base_profile_id,
@@ -219,6 +264,15 @@ integration("0270 gives each connection the models of its profiles", () => {
          model, models, tools, permission_mode, created_by)
        VALUES ('ws_team', $1, 'team', 1, 'review', 'fp', '1', 'metered', 'required',
          'claude-ws', '["claude-ws", "claude-haiku-5-5"]', '[]', 'default', $2)`,
+      [workspaceId, userId],
+    );
+    // Live, on a base that retired: the base decides the connection only.
+    await pool.query(
+      `INSERT INTO workspace_profiles (id, workspace_id, name, version, base_profile_id,
+         base_fingerprint, base_runtime_version, base_billing, base_repository_mode,
+         model, models, tools, permission_mode, created_by)
+       VALUES ('ws_live', $1, 'live', 1, 'old-base', 'fp', '1', 'metered', 'required',
+         'claude-ws-live', '[]', '[]', 'default', $2)`,
       [workspaceId, userId],
     );
 
@@ -251,16 +305,31 @@ integration("0270 gives each connection the models of its profiles", () => {
       "claude-legacy",
       "claude-ok",
       "claude-ws",
+      "claude-ws-live",
     ]);
+    // "review" and others carry no series, so none is guessed.
+    expect(row?.model_families).toBeNull();
+  });
+
+  test("model_families is copied when every counted profile carries the same one", async () => {
+    const row = await modelsOf("rotated");
+    expect(row?.models).toEqual(["claude-opus-5-5", "claude-opus-5"]);
     expect(row?.model_families).toEqual(families);
+  });
+
+  test("profiles that disagree on model_families leave it unset", async () => {
+    expect((await modelsOf("litellm"))?.model_families).toBeNull();
+  });
+
+  test("a long lineage runs; a circular one does not", async () => {
+    expect((await modelsOf("deep"))?.models).toEqual(
+      Array.from({ length: 70 }, (_, i) => `deep-${i}`),
+    );
+    expect((await modelsOf("loop"))?.models).toEqual([]);
   });
 
   test("of two connections with one provider, only the first by id gets its profiles", async () => {
     expect((await modelsOf("anthropic-copy"))?.models).toEqual([]);
-  });
-
-  test("a profile on a connection's former key counts for that connection", async () => {
-    expect((await modelsOf("rotated"))?.models).toEqual(["claude-opus-5-5"]);
   });
 
   test("a former key another connection holds as its own goes to that one", async () => {

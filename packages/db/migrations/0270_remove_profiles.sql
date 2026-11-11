@@ -16,37 +16,44 @@
 -- first whose former key (replaces_auth) is, while no live connection holds
 -- that provider as its own. A profile counts unless it is blocked, derives
 -- from a blocked, missing or circular lineage, or is retired with no agent's
--- active release on it; a workspace profile counts through its base. Models
--- keep the order they were offered in: installation profiles before
--- workspace ones, oldest first, each profile's default before its others.
--- model_families is copied only when every profile that has one agrees.
+-- active release on it; a workspace profile counts by the same retired rule
+-- through its base, retired or not. Models keep the order they were offered
+-- in: installation profiles before workspace ones, oldest first, each
+-- profile's default before its others.
+-- model_families is copied only when every installation profile counted
+-- carries the same one.
 WITH RECURSIVE
   "in_use" AS (
     SELECT "r"."runtime_profile_id" AS "id"
     FROM "agents" "a"
     JOIN "agent_releases" "r" ON "r"."agent_id" = "a"."id" AND "r"."id" = "a"."active_release_id"
   ),
-  "chain" ("id", "cur", "depth") AS (
-    SELECT "id", "derived_from", 1 FROM "installation_profiles" WHERE "derived_from" IS NOT NULL
+  "chain" ("id", "cur", "path") AS (
+    SELECT "id", "derived_from", ARRAY["id"] FROM "installation_profiles" WHERE "derived_from" IS NOT NULL
     UNION ALL
-    SELECT "c"."id", "p"."derived_from", "c"."depth" + 1
+    SELECT "c"."id", "p"."derived_from", "c"."path" || "p"."id"
     FROM "chain" "c" JOIN "installation_profiles" "p" ON "p"."id" = "c"."cur"
-    WHERE "p"."blocked_at" IS NULL AND "p"."derived_from" IS NOT NULL AND "c"."depth" < 64
+    WHERE "p"."blocked_at" IS NULL AND "p"."derived_from" IS NOT NULL AND NOT "p"."id" = ANY("c"."path")
   ),
   "broken" AS (
     SELECT "c"."id" FROM "chain" "c" LEFT JOIN "installation_profiles" "p" ON "p"."id" = "c"."cur"
-    WHERE "p"."id" IS NULL OR "p"."blocked_at" IS NOT NULL OR "c"."depth" >= 64
+    WHERE "p"."id" IS NULL OR "p"."blocked_at" IS NOT NULL OR "c"."cur" = ANY("c"."path")
   ),
-  "usable" AS (
+  -- Runnable decides the connection, also for the workspace profiles on it;
+  -- "usable" decides whether its own models count.
+  "runnable" AS (
     SELECT "p".* FROM "installation_profiles" "p"
     WHERE "p"."blocked_at" IS NULL
       AND "p"."id" NOT IN (SELECT "id" FROM "broken")
-      AND ("p"."retired_at" IS NULL OR "p"."id" IN (SELECT "id" FROM "in_use"))
       AND jsonb_typeof("p"."definition"->'provider') = 'object'
+  ),
+  "usable" AS (
+    SELECT * FROM "runnable"
+    WHERE "retired_at" IS NULL OR "id" IN (SELECT "id" FROM "in_use")
   ),
   "matched" AS (
     SELECT DISTINCT ON ("u"."id") "u"."id" AS "profile_id", "c"."id" AS "connection_id"
-    FROM "usable" "u"
+    FROM "runnable" "u"
     JOIN "provider_connections" "c" ON "c"."disabled_at" IS NULL AND (
       "c"."definition" = "u"."definition"->'provider'
       OR (
@@ -96,9 +103,9 @@ WITH RECURSIVE
   "families" AS (
     SELECT "m"."connection_id", (array_agg(DISTINCT "u"."definition"->'model_families'))[1] AS "families"
     FROM "matched" "m" JOIN "usable" "u" ON "u"."id" = "m"."profile_id"
-    WHERE jsonb_typeof("u"."definition"->'model_families') = 'object'
     GROUP BY "m"."connection_id"
-    HAVING count(DISTINCT "u"."definition"->'model_families') = 1
+    HAVING count(*) FILTER (WHERE jsonb_typeof("u"."definition"->'model_families') IS DISTINCT FROM 'object') = 0
+      AND count(DISTINCT "u"."definition"->'model_families') = 1
   )
 UPDATE "provider_connections" "c"
 SET "models" = "l"."models", "model_families" = COALESCE("c"."model_families", "f"."families")
