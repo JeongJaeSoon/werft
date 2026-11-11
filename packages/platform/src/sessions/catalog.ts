@@ -731,18 +731,6 @@ export function withoutDeniedTools<T extends readonly string[]>(
 }
 
 /**
- * A release's tool list as the worker binding reads it from the release's
- * `runtime_config_snapshot`: a snapshot this image cannot read allows no tool
- * rather than guessing (db worker-unit-of-work `releaseRunOf`).
- */
-export function releaseSnapshotTools(snapshot: unknown): string[] {
-  const tools = (snapshot as { tools?: unknown } | null | undefined)?.tools;
-  return Array.isArray(tools) && tools.every((tool) => typeof tool === "string")
-    ? tools
-    : [];
-}
-
-/**
  * Whether the engine's auto mode classifier works over a connection, as an
  * admin judged it. A connection nobody judged is `unknown`.
  */

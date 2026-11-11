@@ -208,6 +208,11 @@ function resolvedConnections(
 
 /** A document under the file catalog's rules, entries as rows hold them. */
 export function parseSettingsDocument(input: unknown): SettingsEntries {
+  if (isObject(input) && Object.hasOwn(input, "profiles")) {
+    throw new SettingsDocumentError(
+      "The settings document is invalid: `profiles` is no longer part of a settings document, because run profiles were removed; delete it and list each connection's models under connections.<id>.models",
+    );
+  }
   const shape = documentShape.safeParse(input);
   if (!shape.success) {
     throw new SettingsDocumentError(

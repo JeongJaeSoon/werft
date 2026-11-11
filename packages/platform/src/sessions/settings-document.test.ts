@@ -82,6 +82,12 @@ describe("parseSettingsDocument", () => {
     }
   });
 
+  test("a profiles block from before their removal says what to do", () => {
+    expect(() => parseSettingsDocument({ ...DOCUMENT, profiles: {} })).toThrow(
+      /`profiles` is no longer part of a settings document.*connections\.<id>\.models/,
+    );
+  });
+
   test("holds the file catalog's rules", () => {
     for (const bad of [
       { ...DOCUMENT, version: 2 },

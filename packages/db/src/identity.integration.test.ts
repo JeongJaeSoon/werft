@@ -98,8 +98,6 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     "env_start",
     // 0262
     "engine_settings_start",
-    // 0264; arrives as 'profile'
-    "runtime_tools_source",
     // 0267
     "usage_basis",
     "usage_team_id",
@@ -143,8 +141,6 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     "restore_failure_count",
     "restore_retry_at",
     "restore_failure_reason",
-    //
-    "profile_fingerprint",
     // arrives as 'default'
     "partition",
     // arrives as 0
