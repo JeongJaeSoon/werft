@@ -37,6 +37,11 @@ async function events(response: Response) {
     });
 }
 
+type Body = { output: [{ content: [{ text: string }] }] } & Record<
+  string,
+  unknown
+>;
+
 describe("fake Responses API", () => {
   test("records the request and answers a non-streaming call as a response object", async () => {
     server = startFakeResponsesServer(textResponse("hello"));
@@ -45,7 +50,7 @@ describe("fake Responses API", () => {
       { model: "gpt-5.5", input: "hi" },
       { authorization: "Bearer egress-token" },
     );
-    const body = (await response.json()) as Record<string, any>;
+    const body = (await response.json()) as Body;
 
     expect(response.status).toBe(200);
     expect(body.object).toBe("response");
@@ -85,7 +90,7 @@ describe("fake Responses API", () => {
     });
     const body = (await (
       await post(server.url, { model: "gpt-5.5" })
-    ).json()) as Record<string, any>;
+    ).json()) as Body;
     expect(body.usage).toMatchObject({
       input_tokens: 1000,
       input_tokens_details: { cached_tokens: 600 },
@@ -172,7 +177,7 @@ describe("fake Responses API", () => {
     for (let call = 0; call < 3; call++) {
       const body = (await (
         await post(server.url, { model: "gpt-5.5" })
-      ).json()) as Record<string, any>;
+      ).json()) as Body;
       texts.push(body.output[0].content[0].text);
     }
     expect(texts).toEqual(["one", "two", "two"]);
@@ -184,10 +189,10 @@ describe("fake Responses API", () => {
     );
     const first = (await (
       await post(server.url, { model: "gpt-5.5", input: "a" })
-    ).json()) as Record<string, any>;
+    ).json()) as Body;
     const second = (await (
       await post(server.url, { model: "gpt-5.5", input: "b" })
-    ).json()) as Record<string, any>;
+    ).json()) as Body;
     expect(first.output[0].content[0].text).toBe("0:a");
     expect(second.output[0].content[0].text).toBe("1:b");
   });
@@ -255,10 +260,7 @@ describe("fake Responses API", () => {
     server = startFakeResponsesServer((request) =>
       textResponse(JSON.stringify(request.body)),
     );
-    const body = (await (await post(server.url, "oops")).json()) as Record<
-      string,
-      any
-    >;
+    const body = (await (await post(server.url, "oops")).json()) as Body;
     expect(body.output[0].content[0].text).toBe("{}");
     expect(server.requests[0]?.body).toBe("oops");
   });

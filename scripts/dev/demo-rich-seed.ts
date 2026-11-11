@@ -49,13 +49,54 @@ async function step<T>(name: string, run: () => Promise<T>): Promise<T | null> {
 
 type Reply<T> = { status: number; body: T; headers: Headers };
 
+// The parts of each API response this script reads.
+type ErrorBody = {
+  error?: { code?: string; message?: string; retryable?: boolean };
+};
+type NewInvite = { invite_token: string };
+type Team = { id: string; name: string };
+type AgentRow = { id: string; slug: string; active_release_id: string | null };
+type NewAgent = { agent: { id: string } };
+type NewRelease = { release: { id: string } };
+type AgentDetail = {
+  agent: { active_release_id: string | null; activation_revision: number };
+  versions: { id: string; version_no: number }[];
+  releases: { id: string; version_id: string }[];
+  active_release: { policy_pins: { github?: unknown } } | null;
+};
+// Loose on purpose: a key just made is kept under whichever name the create
+// response carried it, down to a bare id.
+type ApiKeyRow = {
+  id?: string | undefined;
+  name?: string | null;
+  revoked_at?: string | null;
+};
+type NewApiKey = {
+  secret: string;
+  api_key?: ApiKeyRow;
+  key?: ApiKeyRow;
+  id?: string;
+};
+type SessionRow = {
+  id: string;
+  title: string | null;
+  status: string;
+  revision: number;
+};
+type NewSession = { session_id: string };
+type PendingRequests = { items: { request_id: string; kind: string }[] };
+type Limits = {
+  limits: { session_cost_limit_usd: string; storage_limit_bytes?: number };
+  usage?: unknown;
+};
+
 class Web {
   cookie = "";
   extra = "";
   bearer = "";
   constructor(readonly who: string) {}
 
-  async req<T = any>(
+  async req<T = unknown>(
     method: string,
     path: string,
     body?: unknown,
@@ -77,7 +118,8 @@ class Web {
       const text = await response.text();
       const parsed = (text === "" ? null : JSON.parse(text)) as T;
       const retryable =
-        response.status === 503 && (parsed as any)?.error?.retryable === true;
+        response.status === 503 &&
+        (parsed as ErrorBody | null)?.error?.retryable === true;
       if (!retryable || attempt >= 5) {
         return {
           status: response.status,
@@ -89,7 +131,7 @@ class Web {
     }
   }
 
-  async ok<T = any>(
+  async ok<T = unknown>(
     want: number | number[],
     method: string,
     path: string,
@@ -100,7 +142,7 @@ class Web {
     if (!wanted.includes(reply.status)) {
       // Bodies here never carry secrets: key and invite responses are read
       // by their callers, not through this message.
-      const error = (reply.body as any)?.error;
+      const error = (reply.body as ErrorBody | null)?.error;
       throw new Error(
         `${this.who} ${method} ${path} -> ${reply.status} ${error?.code ?? ""} ${error?.message ?? ""}`.trim(),
       );
@@ -124,7 +166,7 @@ class Web {
     this.cookie = "";
   }
 
-  async all<T = any>(path: string): Promise<T[]> {
+  async all<T = unknown>(path: string): Promise<T[]> {
     const rows: T[] = [];
     let cursor: string | null = null;
     do {
@@ -262,7 +304,7 @@ const ids: Record<string, string> = {};
 const web: Record<string, Web> = {};
 
 async function ensurePeople(owner: Web) {
-  const members = await owner.all<any>("/v1/members");
+  const members = await owner.all("/v1/members");
   for (const person of PEOPLE) {
     if (person.key === "owner" || person.key === "member") {
       creds[person.key] = {
@@ -283,11 +325,11 @@ async function ensurePeople(owner: Web) {
         return;
       }
       const password = randomBytes(12).toString("base64url");
-      const invite = await owner.ok<any>(201, "POST", "/v1/invites", {
+      const invite = await owner.ok<NewInvite>(201, "POST", "/v1/invites", {
         email: person.email,
         role: person.role,
       });
-      const accepted = await new Web(person.key).ok<any>(
+      const accepted = await new Web(person.key).ok<{ role: string }>(
         200,
         "POST",
         "/v1/invites/accept",
@@ -328,10 +370,14 @@ async function loginAll() {
 }
 
 async function ensureInvites(owner: Web) {
-  const invites = await owner.ok<any>(200, "GET", "/v1/invites");
+  const invites = await owner.ok<{ items: { email: string }[] }>(
+    200,
+    "GET",
+    "/v1/invites",
+  );
   for (const invite of PENDING_INVITES) {
     await step(`invite ${invite.email}`, async () => {
-      if (!invites.items.some((row: any) => row.email === invite.email)) {
+      if (!invites.items.some((row) => row.email === invite.email)) {
         await owner.ok(201, "POST", "/v1/invites", {
           email: invite.email,
           role: invite.role,
@@ -379,13 +425,15 @@ const TEAMS: { name: string; members: string[] }[] = [
 const MANAGING_TEAM = "플랫폼팀";
 
 async function ensureTeams(owner: Web) {
-  const teams = await owner.all<any>("/v1/teams");
+  const teams = await owner.all<Team>("/v1/teams");
   for (const team of TEAMS) {
     await step(`team ${team.name}`, async () => {
       let row = teams.find((t) => t.name === team.name);
       if (!row) {
         row = (
-          await owner.ok<any>(201, "POST", "/v1/teams", { name: team.name })
+          await owner.ok<{ team: Team }>(201, "POST", "/v1/teams", {
+            name: team.name,
+          })
         ).team;
         note(`created team ${team.name}`);
       }
@@ -592,7 +640,7 @@ const releaseOf: Record<string, string> = {};
 const agentId: Record<string, string> = {};
 
 async function ensureAgents(owner: Web) {
-  const existing = await owner.all<any>("/v1/agents");
+  const existing = await owner.all<AgentRow>("/v1/agents");
   for (const row of existing) {
     agentId[row.slug] = row.id;
     if (row.active_release_id) releaseOf[row.slug] = row.active_release_id;
@@ -604,7 +652,7 @@ async function ensureAgents(owner: Web) {
         // Managed by its first admin team, else the platform team.
         const team =
           spec.admins?.find((admin) => admin.team)?.team ?? MANAGING_TEAM;
-        const made = await owner.ok<any>(201, "POST", "/v1/agents", {
+        const made = await owner.ok<NewAgent>(201, "POST", "/v1/agents", {
           slug: spec.slug,
           name: spec.name,
           managing_team_id: ids[`team:${team}`],
@@ -614,46 +662,57 @@ async function ensureAgents(owner: Web) {
         agentId[spec.slug] = id;
         note(`created agent ${spec.slug}`);
       }
-      let detail = await owner.ok<any>(200, "GET", `/v1/agents/${id}`);
+      let detail = await owner.ok<AgentDetail>(200, "GET", `/v1/agents/${id}`);
       for (let at = detail.versions.length; at < spec.versions.length; at++) {
         await owner.ok(200, "PATCH", `/v1/agents/${id}`, {
           card: card(spec.versions[at]!),
         });
       }
-      detail = await owner.ok<any>(200, "GET", `/v1/agents/${id}`);
+      detail = await owner.ok<AgentDetail>(200, "GET", `/v1/agents/${id}`);
       const versions = [...detail.versions].sort(
-        (a: any, b: any) => a.version_no - b.version_no,
+        (a, b) => a.version_no - b.version_no,
       );
       const releaseFor: Record<number, string> = {};
       for (const index of spec.release) {
-        const version = versions[index];
-        const found = detail.releases.find(
-          (r: any) => r.version_id === version.id,
-        );
+        const version = versions[index]!;
+        const found = detail.releases.find((r) => r.version_id === version.id);
         releaseFor[index] =
           found?.id ??
           (
-            await owner.ok<any>(200, "POST", `/v1/agents/${id}/releases`, {
-              version_id: version.id,
-              connection_id: CONNECTION,
-              ...(spec.repository ? { repository_id: "sample-app" } : {}),
-              ...(spec.notes?.[index] ? { note: spec.notes[index] } : {}),
-            })
+            await owner.ok<NewRelease>(
+              200,
+              "POST",
+              `/v1/agents/${id}/releases`,
+              {
+                version_id: version.id,
+                connection_id: CONNECTION,
+                ...(spec.repository ? { repository_id: "sample-app" } : {}),
+                ...(spec.notes?.[index] ? { note: spec.notes[index] } : {}),
+              },
+            )
           ).release.id;
       }
       if (spec.active !== null) {
         const want = releaseFor[spec.active]!;
-        detail = await owner.ok<any>(200, "GET", `/v1/agents/${id}`);
+        detail = await owner.ok<AgentDetail>(200, "GET", `/v1/agents/${id}`);
         if (detail.agent.active_release_id !== want) {
           // Walk through each release so the history shows every activation.
           for (const index of spec.release) {
-            const current = await owner.ok<any>(200, "GET", `/v1/agents/${id}`);
+            const current = await owner.ok<AgentDetail>(
+              200,
+              "GET",
+              `/v1/agents/${id}`,
+            );
             await owner.ok(200, "POST", `/v1/agents/${id}/activate`, {
               release_id: releaseFor[index],
               expected_revision: current.agent.activation_revision,
             });
           }
-          const current = await owner.ok<any>(200, "GET", `/v1/agents/${id}`);
+          const current = await owner.ok<AgentDetail>(
+            200,
+            "GET",
+            `/v1/agents/${id}`,
+          );
           if (current.agent.active_release_id !== want) {
             await owner.ok(200, "POST", `/v1/agents/${id}/activate`, {
               release_id: want,
@@ -706,12 +765,12 @@ async function mockJson(path: string, init?: RequestInit) {
   const response = await fetch(`${MOCK_SLACK}${path}`, init);
   if (!response.ok)
     throw new Error(`mock ${path.split("?")[0]} -> ${response.status}`);
-  return response.json() as Promise<any>;
+  return response.json() as Promise<Record<string, unknown>>;
 }
 
 async function ensureSlack(owner: Web, workspaceId: string) {
   await step("slack config token", async () => {
-    const current = await owner.ok<any>(
+    const current = await owner.ok<{ configured: boolean }>(
       200,
       "GET",
       `/v1/workspaces/${workspaceId}/slack/config-token`,
@@ -732,7 +791,10 @@ async function ensureSlack(owner: Web, workspaceId: string) {
     const id = agentId[slug];
     if (!id) continue;
     await step(`slack app ${slug}`, async () => {
-      const app = await owner.req<any>("GET", `/v1/agents/${id}/slack/app`);
+      const app = await owner.req<{ slack_app?: unknown }>(
+        "GET",
+        `/v1/agents/${id}/slack/app`,
+      );
       if (app.status !== 200 || !app.body?.slack_app) {
         await owner.ok(200, "POST", `/v1/agents/${id}/slack/app`, {});
         note(`created slack app ${slug}`);
@@ -742,14 +804,13 @@ async function ensureSlack(owner: Web, workspaceId: string) {
   const support = agentId["support-triage"];
   if (!support) return;
   await step("slack install support-triage", async () => {
-    const identities = await owner.ok<any>(
+    const identities = await owner.ok<{ items: { status: string }[] }>(
       200,
       "GET",
       `/v1/agents/${support}/identities`,
     );
-    if ((identities.items ?? []).some((row: any) => row.status === "active"))
-      return;
-    const start = await owner.ok<any>(
+    if ((identities.items ?? []).some((row) => row.status === "active")) return;
+    const start = await owner.ok<{ authorize_url: string }>(
       200,
       "POST",
       `/v1/agents/${support}/slack/install/start`,
@@ -764,7 +825,7 @@ async function ensureSlack(owner: Web, workspaceId: string) {
     });
     note("installed slack app support-triage");
   });
-  const bindings: any[] = [
+  const bindings = [
     {
       channel_id: "C0SUPPORT",
       channel_kind: "public_channel",
@@ -813,7 +874,7 @@ async function ensureLinks() {
         await client.login(c!.email, c!.password);
         web[person.key] = client;
       }
-      const start = await client.req<any>(
+      const start = await client.req<ErrorBody & { authorize_url: string }>(
         "POST",
         "/v1/linked-accounts/slack/start",
       );
@@ -851,14 +912,10 @@ async function ensureLinks() {
     }
     if (person.link === "unlinked" && web[person.key]) {
       await step(`unlink ${person.key}`, async () => {
-        const list = await web[person.key]!.ok<any>(
-          200,
-          "GET",
-          "/v1/linked-accounts",
-        );
-        for (const row of list.items.filter(
-          (r: any) => r.status === "active",
-        )) {
+        const list = await web[person.key]!.ok<{
+          items: { id: string; status: string }[];
+        }>(200, "GET", "/v1/linked-accounts");
+        for (const row of list.items.filter((r) => r.status === "active")) {
           await web[person.key]!.ok(
             200,
             "DELETE",
@@ -905,7 +962,7 @@ const GH_PERMISSIONS = {
   checks: "write",
   issues: "write",
   workflows: "write",
-};
+} as const;
 const GH_APP = {
   id: 4_200_001,
   slug: "example-agent-app",
@@ -1029,7 +1086,7 @@ async function ensureGitHubApp(workspaceId: string) {
       slug: GH_APP.slug,
       name: GH_APP.name,
       htmlUrl: GH_APP.html_url,
-      permissions: GH_PERMISSIONS as any,
+      permissions: GH_PERMISSIONS,
       clientId: GH_APP.client_id,
       apiBase: FAKE_GITHUB,
     },
@@ -1058,11 +1115,10 @@ const GITHUB_AGENT = "github-helper";
 async function ensureGitHub(owner: Web, workspaceId: string) {
   await step("github app", () => ensureGitHubApp(workspaceId));
   await step("github ceiling", async () => {
-    const settings = await owner.ok<any>(
-      200,
-      "GET",
-      `/v1/workspaces/${workspaceId}/github-settings`,
-    );
+    const settings = await owner.ok<{
+      ceiling: Record<string, boolean>;
+      revision: number;
+    }>(200, "GET", `/v1/workspaces/${workspaceId}/github-settings`);
     const ceiling = {
       workflows: true,
       actions: true,
@@ -1095,29 +1151,33 @@ async function ensureGitHub(owner: Web, workspaceId: string) {
     };
     if (!id) {
       id = (
-        await owner.ok<any>(201, "POST", "/v1/agents", {
+        await owner.ok<NewAgent>(201, "POST", "/v1/agents", {
           slug: GITHUB_AGENT,
           name: "GitHub 작업 도우미",
           managing_team_id: ids[`team:${MANAGING_TEAM}`],
           card: card(spec),
         })
       ).agent.id;
-      agentId[GITHUB_AGENT] = id!;
+      agentId[GITHUB_AGENT] = id;
       note(`created agent ${GITHUB_AGENT}`);
     }
     const activate = async (releaseId: string) => {
-      const current = await owner.ok<any>(200, "GET", `/v1/agents/${id}`);
+      const current = await owner.ok<AgentDetail>(
+        200,
+        "GET",
+        `/v1/agents/${id}`,
+      );
       if (current.agent.active_release_id === releaseId) return;
       await owner.ok(200, "POST", `/v1/agents/${id}/activate`, {
         release_id: releaseId,
         expected_revision: current.agent.activation_revision,
       });
     };
-    let detail = await owner.ok<any>(200, "GET", `/v1/agents/${id}`);
-    const versionId = detail.versions[0].id;
+    let detail = await owner.ok<AgentDetail>(200, "GET", `/v1/agents/${id}`);
+    const versionId = detail.versions[0]!.id;
     // The pick needs an active release.
     if (!detail.agent.active_release_id) {
-      const first = await owner.ok<any>(
+      const first = await owner.ok<NewRelease>(
         200,
         "POST",
         `/v1/agents/${id}/releases`,
@@ -1131,7 +1191,7 @@ async function ensureGitHub(owner: Web, workspaceId: string) {
     }
     const picked: string[] = [];
     for (const repo of GH_PICKED) {
-      const made = await owner.ok<any>(
+      const made = await owner.ok<{ catalog_id: string }>(
         200,
         "POST",
         `/v1/agents/${id}/github/repositories`,
@@ -1139,9 +1199,9 @@ async function ensureGitHub(owner: Web, workspaceId: string) {
       );
       picked.push(made.catalog_id);
     }
-    detail = await owner.ok<any>(200, "GET", `/v1/agents/${id}`);
+    detail = await owner.ok<AgentDetail>(200, "GET", `/v1/agents/${id}`);
     if (!detail.active_release?.policy_pins?.github) {
-      const release = await owner.ok<any>(
+      const release = await owner.ok<NewRelease>(
         200,
         "POST",
         `/v1/agents/${id}/releases`,
@@ -1264,7 +1324,7 @@ async function ensureKeys() {
     const client = web[spec.who];
     if (!client) continue;
     await step(`key ${spec.name}`, async () => {
-      const list = await client.all<any>("/v1/api-keys");
+      const list = await client.all<ApiKeyRow>("/v1/api-keys");
       let row = list.find((k) => k.name === spec.name);
       if (!row) {
         const expires =
@@ -1273,7 +1333,7 @@ async function ensureKeys() {
             : spec.state === "expired"
               ? new Date(Date.now() + 86_400_000)
               : null;
-        const made = await client.ok<any>(201, "POST", "/v1/api-keys", {
+        const made = await client.ok<NewApiKey>(201, "POST", "/v1/api-keys", {
           kind: spec.kind,
           name: spec.name,
           scopes: spec.scopes,
@@ -1287,7 +1347,7 @@ async function ensureKeys() {
       }
       const keyId =
         row.id ??
-        (await client.all<any>("/v1/api-keys")).find(
+        (await client.all<ApiKeyRow>("/v1/api-keys")).find(
           (k) => k.name === spec.name,
         )?.id;
       if (spec.state === "expired")
@@ -1750,7 +1810,7 @@ const SESSIONS: SessionSpec[] = [
 ];
 
 async function visible(client: Web) {
-  return client.all<any>("/v1/sessions");
+  return client.all<SessionRow>("/v1/sessions");
 }
 
 async function until<T>(
@@ -1770,9 +1830,9 @@ async function until<T>(
 // Each tool call raises its own permission request, so approve until idle.
 async function approveUntilIdle(client: Web, id: string, title: string) {
   await until(`${title} idle`, async () => {
-    const row = await client.ok<any>(200, "GET", `/v1/sessions/${id}`);
+    const row = await client.ok<SessionRow>(200, "GET", `/v1/sessions/${id}`);
     if (row.status === "idle") return row;
-    const pending = await client.ok<any>(
+    const pending = await client.ok<PendingRequests>(
       200,
       "GET",
       `/v1/sessions/${id}/pending-requests`,
@@ -1789,10 +1849,15 @@ async function approveUntilIdle(client: Web, id: string, title: string) {
 }
 
 async function drive(client: Web, id: string, spec: SessionSpec) {
-  const detail = () => client.ok<any>(200, "GET", `/v1/sessions/${id}`);
+  const detail = () => client.ok<SessionRow>(200, "GET", `/v1/sessions/${id}`);
   const pending = async () =>
-    (await client.ok<any>(200, "GET", `/v1/sessions/${id}/pending-requests`))
-      .items as any[];
+    (
+      await client.ok<PendingRequests>(
+        200,
+        "GET",
+        `/v1/sessions/${id}/pending-requests`,
+      )
+    ).items;
   const idle = () =>
     until(`${spec.title} idle`, async () => {
       const row = await detail();
@@ -1861,9 +1926,9 @@ async function drive(client: Web, id: string, spec: SessionSpec) {
 
 // A run cut short (a timeout, a lost worker) leaves a session short of its
 // outcome; a rerun takes the last step instead of skipping it.
-async function finish(client: Web, existing: any, spec: SessionSpec) {
+async function finish(client: Web, existing: SessionRow, spec: SessionSpec) {
   const id = existing.id;
-  const row = await client.ok<any>(200, "GET", `/v1/sessions/${id}`);
+  const row = await client.ok<SessionRow>(200, "GET", `/v1/sessions/${id}`);
   if (spec.outcome === "approve-then-idle") {
     if (row.status !== "needs_input" && row.status !== "running") return;
     await approveUntilIdle(client, id, spec.title);
@@ -1874,10 +1939,14 @@ async function finish(client: Web, existing: any, spec: SessionSpec) {
     spec.outcome as string
   ];
   if (!path || row.status !== "idle") return;
-  const reply = await client.req<any>("POST", `/v1/sessions/${id}/${path}`, {
-    expected_revision: row.revision,
-    reason: "데모",
-  });
+  const reply = await client.req<ErrorBody | null>(
+    "POST",
+    `/v1/sessions/${id}/${path}`,
+    {
+      expected_revision: row.revision,
+      reason: "데모",
+    },
+  );
   // A paused session still reads idle.
   if (reply.status === 409 && reply.body?.error?.code === "SESSION_PAUSED")
     return;
@@ -1889,7 +1958,7 @@ async function finish(client: Web, existing: any, spec: SessionSpec) {
 }
 
 async function ensureSessions() {
-  const seen: Record<string, any[]> = {};
+  const seen: Record<string, SessionRow[]> = {};
   for (const spec of SESSIONS) {
     const client = web[spec.creator];
     if (!client) {
@@ -1938,7 +2007,7 @@ async function createSession(client: Web, spec: SessionSpec) {
     releaseOf[DEFAULT_AGENT];
   if (!release)
     throw new Error(`no release for ${spec.agent ?? DEFAULT_AGENT}`);
-  const created = await author.ok<any>(201, "POST", "/v1/sessions", {
+  const created = await author.ok<NewSession>(201, "POST", "/v1/sessions", {
     agent_release_id: release,
     ...(spec.autoTitle ? {} : { title: spec.title }),
     ...(spec.repository || agent?.repository
@@ -1987,7 +2056,7 @@ async function createSession(client: Web, spec: SessionSpec) {
 
 // --------------------------------------------------------- database-only
 
-async function usageHistory(limits: any) {
+async function usageHistory(limits: Limits | null) {
   for (const spec of SESSIONS) {
     const id = ids[`session:${spec.title}`];
     if (!id || !spec.history) continue;
@@ -2094,9 +2163,9 @@ async function keepAlive() {
         const person = PEOPLE.find((p) => p.email === row.email);
         if (person) ids[`user:${person.key}`] = row.id;
       }
-      for (const team of await owner.all<any>("/v1/teams"))
+      for (const team of await owner.all<Team>("/v1/teams"))
         ids[`team:${team.name}`] = team.id;
-      for (const agent of await owner.all<any>("/v1/agents")) {
+      for (const agent of await owner.all<AgentRow>("/v1/agents")) {
         agentId[agent.slug] = agent.id;
         if (agent.active_release_id)
           releaseOf[agent.slug] = agent.active_release_id;
@@ -2190,7 +2259,8 @@ async function polish() {
 
 async function main() {
   const ready = await (await fetch(`${BASE}/readyz`)).json();
-  if ((ready as any).status !== "ready") throw new Error("api not ready");
+  if ((ready as { status?: unknown }).status !== "ready")
+    throw new Error("api not ready");
   const github = startFakeGitHub();
   if (process.argv.includes("--keep-running")) {
     await keepAlive();
@@ -2198,23 +2268,30 @@ async function main() {
   }
   const owner = new Web("owner");
   await owner.login("demo-owner@example.test", DEMO_PASSWORD);
-  const connections = await owner.ok<any>(
+  const connections = await owner.ok<{ items: { endpoint: string }[] }>(
     200,
     "GET",
     "/v1/installation/settings/connections",
   );
   if (
     connections.items.length === 0 ||
-    connections.items.some(
-      (item: any) => item.endpoint !== FAKE_MESSAGES_ENDPOINT,
-    )
+    connections.items.some((item) => item.endpoint !== FAKE_MESSAGES_ENDPOINT)
   )
     throw new Error("this api does not run the fake-model connections");
-  const me = await owner.ok<any>(200, "GET", "/v1/auth/me");
+  // workspace is null only for a legacy API key; this is a cookie session.
+  const me = await owner.ok<{ workspace: { id: string } }>(
+    200,
+    "GET",
+    "/v1/auth/me",
+  );
   const workspaceId = me.workspace.id;
-  const offered = await owner.ok<any>(200, "GET", "/v1/connections");
+  const offered = await owner.ok<{ items: { id: string; models: string[] }[] }>(
+    200,
+    "GET",
+    "/v1/connections",
+  );
   note(
-    `connections: ${JSON.stringify((offered.items ?? []).map((c: any) => [c.id, c.models]))}`,
+    `connections: ${JSON.stringify((offered.items ?? []).map((c) => [c.id, c.models]))}`,
   );
 
   await ensurePeople(owner);
@@ -2243,7 +2320,7 @@ async function main() {
   await disablePeople(owner);
   await agentStatuses();
   const limits = await step("limits", () =>
-    owner.ok<any>(200, "GET", "/v1/limits"),
+    owner.ok<Limits>(200, "GET", "/v1/limits"),
   );
   note(
     `limits: ${JSON.stringify(limits?.limits ?? null)} usage: ${JSON.stringify(limits?.usage ?? null)}`,

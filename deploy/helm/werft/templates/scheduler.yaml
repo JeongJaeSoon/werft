@@ -139,7 +139,7 @@ spec:
       {{- end }}
 ---
 # Exactly what the kubernetes execution backend uses on worker Pods, their
-# nonce Secrets and workspace PVCs, in this namespace only (94S-523).
+# nonce Secrets and workspace PVCs, in this namespace only.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -151,7 +151,7 @@ rules:
     resources: [pods]
     verbs: [get, list, create, delete]
   # A failed worker's log tail, read before the Pod goes. It would reach
-  # every Pod's log; the backend reads only worker-labelled ones (94S-965).
+  # every Pod's log; the backend reads only worker-labelled ones.
   - apiGroups: [""]
     resources: [pods/log]
     verbs: [get]

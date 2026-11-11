@@ -141,7 +141,7 @@ readyz() {
     --resolve "${host}:${HTTPS_PORT}:127.0.0.1" "https://${host}:${HTTPS_PORT}/readyz" || true
 }
 
-# The printed URLs are the entry point's (443, 94S-961); this is the same
+# The printed URLs are the entry point's (443); this is the same
 # host on Traefik's own port, which needs no DNS.
 local_hint() {
   echo "on this Mac: curl -k --resolve ${1}:${HTTPS_PORT}:127.0.0.1 https://${1}:${HTTPS_PORT}/"

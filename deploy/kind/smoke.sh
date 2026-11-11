@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The kind smoke (94S-525, CI job `k8s-smoke`): installs the chart with
+# The kind smoke (CI job `k8s-smoke`): installs the chart with
 # up.sh and checks, through the public API and kubectl, that the kubernetes
 # execution backend and the worker NetworkPolicy hold on a real cluster.
 #

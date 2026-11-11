@@ -5,7 +5,7 @@
  *
  * Dockerfile `ADD --checksum` has no retry, so one bad response from an
  * external host (snapshot.debian.org has answered with a body of another hash
- * for a pinned deb, 94S-1396) fails the whole build. A wrong body is retried
+ * for a pinned deb) fails the whole build. A wrong body is retried
  * like a failed request, and only bytes that hash to the pin are written: the
  * pin is never relaxed, and the last attempt's failure is the exit status.
  * An optional independent URL takes over after the first failure. GitHub
