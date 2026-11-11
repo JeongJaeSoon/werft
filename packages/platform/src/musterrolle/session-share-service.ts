@@ -8,7 +8,7 @@ import {
 import type {
   SessionShare,
   SessionShareStore,
-} from "../ports/session-share-store.ts";
+} from "../sessions/ports/session-share-store.ts";
 import {
   requirePermitted,
   SessionServiceError,

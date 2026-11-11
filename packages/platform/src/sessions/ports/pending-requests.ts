@@ -11,8 +11,11 @@ import type {
   SurfaceKind,
 } from "@werft-ai/contracts";
 import type { RuntimeFingerprint } from "@werft-ai/runtime-core";
-import type { Principal } from "../musterrolle/policy.ts";
-import type { FenceRejection, WorkerFence } from "./worker-unit-of-work.ts";
+import type { Principal } from "../../musterrolle/index.ts";
+import type {
+  FenceRejection,
+  WorkerFence,
+} from "../../ports/worker-unit-of-work.ts";
 
 export type AnswerRequestInput = {
   principal: Principal;

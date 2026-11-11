@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { acceptAllCheckpoints } from "../checkpoints/ports/checkpoint-verifier.ts";
+import type { WorkerUnitOfWork } from "../ports/worker-unit-of-work.ts";
+import type { CatalogProfile, SessionCatalog } from "../sessions/catalog.ts";
 import type {
   SessionTitleStore,
   TitleEgressAuthorization,
-} from "../ports/session-title-store.ts";
-import type { WorkerUnitOfWork } from "../ports/worker-unit-of-work.ts";
-import type { CatalogProfile, SessionCatalog } from "../sessions/catalog.ts";
+} from "../sessions/ports/session-title-store.ts";
 import {
   hashTitleToken,
   type SessionTitler,

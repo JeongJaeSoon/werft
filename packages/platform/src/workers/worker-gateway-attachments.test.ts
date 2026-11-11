@@ -13,9 +13,9 @@ import type {
   GitHubSessionContext,
 } from "../github/ports/github-gate.ts";
 import { createGitHubGate } from "../github/service/github-gate.ts";
-import type { WorkerPendingStore } from "../ports/pending-requests.ts";
 import type { WorkerUnitOfWork } from "../ports/worker-unit-of-work.ts";
 import type { CatalogProfile, CatalogRepository } from "../sessions/catalog.ts";
+import type { WorkerPendingStore } from "../sessions/ports/pending-requests.ts";
 import { withSeededInstallation } from "../sessions/profile-registry.ts";
 import { createRepositoryAttachmentService } from "../sessions/repository-attachment-service.ts";
 import { releasePolicy } from "../testing/github-fakes.ts";

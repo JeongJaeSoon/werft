@@ -1,4 +1,4 @@
-import type { SessionViewer } from "./session-share-store.ts";
+import type { SessionViewer } from "../sessions/ports/session-share-store.ts";
 
 /** Installation-wide figures, summed across every owner. */
 export type InstallationUsage = {

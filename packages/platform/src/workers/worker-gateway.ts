@@ -100,12 +100,7 @@ import {
   priceProviderUsage,
 } from "../limits/model-prices.ts";
 import type { GitHubMcpStore } from "../ports/github-mcp.ts";
-import type {
-  ApprovalCheckpointCommit,
-  WorkerPendingStore,
-} from "../ports/pending-requests.ts";
 import type { RepositoryAttachmentStore } from "../ports/repository-attachments.ts";
-import type { SessionTitleStore } from "../ports/session-title-store.ts";
 import type {
   EgressBindings,
   EgressIssue,
@@ -175,6 +170,11 @@ import {
   claimGitOf,
   coAuthorOfLink,
 } from "../sessions/git-attribution.ts";
+import type {
+  ApprovalCheckpointCommit,
+  WorkerPendingStore,
+} from "../sessions/ports/pending-requests.ts";
+import type { SessionTitleStore } from "../sessions/ports/session-title-store.ts";
 import {
   hashTitleToken,
   type SessionTitler,

@@ -23,7 +23,7 @@ import type {
   SessionOrigin,
   SessionShareStore,
   SessionViewer,
-} from "../ports/session-share-store.ts";
+} from "../sessions/ports/session-share-store.ts";
 import type { UsageDecision } from "./agent-usage-decision.ts";
 
 export type RecordedActor = {
