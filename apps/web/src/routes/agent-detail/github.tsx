@@ -3,6 +3,7 @@ import { Link as RouterLink } from "@tanstack/react-router";
 import { type ApiError, type components, unwrap } from "@werft-ai/client";
 import type { AgentDetail } from "@werft-ai/contracts";
 import { useWerft } from "@werft-ai/react";
+import { shortSessionId } from "@werft-ai/react/components";
 import {
   Alert,
   AlertActions,
@@ -269,7 +270,7 @@ function ReceiptRow({
             <Link asChild>
               <RouterLink to="/sessions/$id" params={{ id: result.session_id }}>
                 {t("agentGitHub.activity.session")}{" "}
-                <Code>{result.session_id.slice(0, 8)}</Code>
+                <Code>{shortSessionId(result.session_id)}</Code>
               </RouterLink>
             </Link>
           </>

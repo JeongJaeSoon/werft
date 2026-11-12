@@ -28,14 +28,14 @@ import {
   MANAGEMENT_ROLES,
   NOT_FOUND,
   OUTRANKED,
+  requirePermitted,
+  SessionServiceError,
 } from "../../musterrolle/index.ts";
 import type { AgentStore } from "../../ports/agent-store.ts";
 import {
   GITHUB_API_BASE,
   repositoryInCeiling,
-  requirePermitted,
   type SessionCatalog,
-  SessionServiceError,
   viewerOf,
 } from "../../sessions/index.ts";
 import type { AgentGitHubStore } from "../ports/agent-github-store.ts";

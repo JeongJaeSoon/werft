@@ -14,7 +14,7 @@ import {
   SessionServiceError,
   type SessionShareService,
 } from "@werft-ai/platform";
-import { errorOf } from "../../../test-support/api-error.ts";
+import { errorOf } from "../../../testing/api-error.ts";
 import { recordRouteErrors } from "../../route-error-coverage.ts";
 import { registerSessionShareRoutes } from "./session-shares.ts";
 

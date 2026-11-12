@@ -23,6 +23,7 @@ import { Pool } from "pg";
 import * as schema from "../src/index.ts";
 import { projectToolCalls, toolCallTotals } from "../src/index.ts";
 import { migrate } from "../src/migrate.ts";
+import { stats, timed } from "./lib.ts";
 
 const url = process.argv[2];
 if (!url) throw new Error("usage: tool-calls.ts <postgres-url> ...");
@@ -107,12 +108,6 @@ const counts = await pool.query(`
          (SELECT string_agg(indexname, ', ') FROM pg_indexes WHERE tablename = 'events') AS events_indexes`);
 console.log(JSON.stringify(counts.rows[0]));
 
-const stats = (samples: number[]) => {
-  const sorted = [...samples].sort((a, b) => a - b);
-  const at = (q: number) =>
-    Number((sorted[Math.ceil(q * sorted.length) - 1] ?? 0).toFixed(1));
-  return { n: sorted.length, p50: at(0.5), p95: at(0.95), max: at(1) };
-};
 const seconds = (ms: number) => Number((ms / 1000).toFixed(1));
 
 // --- backfill; BENCH_SKIP_BACKFILL=1 keeps what an earlier run projected.
@@ -159,16 +154,6 @@ const DAY = 86_400_000;
 const today = Math.floor(Date.now() / DAY) * DAY;
 const installation: UsageSummaryFilter = { kind: "installation" };
 const me: UsageSummaryFilter = { kind: "user", ownerId: OWNER, userId: ME };
-async function timed(fn: () => Promise<unknown>, runs = 20) {
-  await fn();
-  const samples: number[] = [];
-  for (let run = 0; run < runs; run += 1) {
-    const started = performance.now();
-    await fn();
-    samples.push(performance.now() - started);
-  }
-  return stats(samples);
-}
 // Open periods, as the console asks: today comes whole from its day row.
 const read =
   (filter: UsageSummaryFilter, since: number, until?: number) => () =>

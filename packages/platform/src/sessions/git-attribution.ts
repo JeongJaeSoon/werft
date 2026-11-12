@@ -8,8 +8,12 @@ import type {
   SessionAttributionRecord,
   SessionAttributionStore,
 } from "../action/ports/session-attribution.ts";
-import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
-import { requirePermitted, SessionServiceError } from "./session-service.ts";
+import {
+  type AuthorizationPolicy,
+  type Caller,
+  requirePermitted,
+  SessionServiceError,
+} from "../musterrolle/index.ts";
 
 /** The session's page in the console; null when the console has no origin. */
 export function sessionUrlOf(

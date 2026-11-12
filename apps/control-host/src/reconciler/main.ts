@@ -8,9 +8,11 @@ import {
   expireParkedGroups,
   expireToolCallAudits,
   projectToolCalls,
+  purgeExpiredEnvStart,
   reconcileExpiredLeases,
   reconcileOrphanedSessions,
   reconcileOverdueInterrupts,
+  reconcileProviderExchanges,
 } from "@werft-ai/db";
 import {
   createEnforcedPool,
@@ -24,6 +26,8 @@ import {
   TERMINATE_DEADLINE_MS,
 } from "@werft-ai/platform";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
+import { queueDatabaseUrl } from "../database-url.ts";
+import { runProviderExchangeReconciler } from "./provider-exchanges.ts";
 import {
   type ReconcilerLogger,
   type ReconcilerRun,
@@ -37,19 +41,10 @@ import {
 const TOOL_CALL_BATCH_SIZE = 5_000;
 const TOOL_CALL_BUDGET_MS = 10_000;
 
-export function reconcilerDatabaseUrl(environment: NodeJS.ProcessEnv): string {
-  const databaseUrl =
-    environment.DATABASE_URL || environment.QUEUE_DATABASE_URL;
-  if (!databaseUrl) {
-    throw new Error("DATABASE_URL or QUEUE_DATABASE_URL is required");
-  }
-  return databaseUrl;
-}
-
 export async function main(
   environment: NodeJS.ProcessEnv = process.env,
 ): Promise<void> {
-  const databaseUrl = reconcilerDatabaseUrl(environment);
+  const databaseUrl = queueDatabaseUrl(environment);
   const logger = createLogger({
     level: logLevelFromEnv(environment.LOG_LEVEL),
   });
@@ -61,7 +56,20 @@ export async function main(
     { max: SEQUENTIAL_ROLE_POOL_MAX },
   );
   try {
-    await reconcileOnce(drizzle(pool, { schema }), environment, logger);
+    const db = drizzle(pool, { schema });
+    await reconcileOnce(db, environment, logger);
+    await runProviderExchangeReconciler({
+      environment: {
+        ...(environment.RECONCILER_BATCH_SIZE === undefined
+          ? {}
+          : { RECONCILER_BATCH_SIZE: environment.RECONCILER_BATCH_SIZE }),
+        ...(environment.RECONCILER_DRY_RUN === undefined
+          ? {}
+          : { RECONCILER_DRY_RUN: environment.RECONCILER_DRY_RUN }),
+      },
+      logger,
+      reconcile: (options) => reconcileProviderExchanges(db, options),
+    });
   } finally {
     await pool.end();
   }
@@ -111,6 +119,7 @@ export function reconcileOnce(
     expireToolAudits: (options) => expireToolCallAudits(db, options),
     deleteExpiredWebSessions: (options) =>
       deleteExpiredWebSessions(db, options),
+    purgeExpiredEnvStart: (options) => purgeExpiredEnvStart(db, options),
     projectToolCalls: () =>
       projectToolCalls(db, {
         batchSize: TOOL_CALL_BATCH_SIZE,

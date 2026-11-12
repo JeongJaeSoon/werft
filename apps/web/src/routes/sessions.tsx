@@ -70,7 +70,7 @@ export const SESSION_FILTERS = [
 export type SessionFilter = (typeof SESSION_FILTERS)[number];
 
 /** The relation filter's choices past "all", in the design's order. */
-export const SESSION_RELATIONS = [
+const SESSION_RELATIONS = [
   "started",
   "shared",
   "administered",

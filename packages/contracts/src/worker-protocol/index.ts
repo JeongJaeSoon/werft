@@ -69,7 +69,7 @@ export const objectVersionSchema = z
 export const checkpointRefSchema = z.object({
   revision: revisionSchema,
   manifest_ref: z.string().min(1),
-  manifest_sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  manifest_sha256: sha256HexSchema,
   // The version `putImmutable` answered for the manifest. The server verifies
   // that version, records it on the pointer and restores from it; a server
   // that requires versions refuses a checkpoint without one.
@@ -248,8 +248,7 @@ export const projectSettingsSchema = z
 // key does not ride here: the egress proxy injects it, and what the
 // worker holds is a token that is worthless off the worker network and dies
 // with the attempt. That token is still a secret for as long as it lives, so
-// nothing here may reach an event, a manifest or a log — see
-// `loggableBootstrapClaim`.
+// nothing here may reach an event, a manifest or a log.
 // The remote MCP server the session's agent release names. Like the
 // provider, `endpoint` is the upstream the proxy calls, named for the
 // checkpoint fingerprint, and `binding` is what the token was issued
@@ -339,7 +338,7 @@ export const platformPromptSchema = z
 export const runtimeExtensionSchema = z
   .object({
     name: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
-    digest: z.string().regex(/^[0-9a-f]{64}$/),
+    digest: sha256HexSchema,
     scope: z.enum(["workspace", "agent", "session"]),
   })
   .strict();
@@ -667,8 +666,8 @@ export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
     .max(MAX_RESTORE_CONFIGS)
     .optional(),
   // SESSION_COST_LIMIT_USD less what the session had spent at the claim: the
-  // most this attempt's engine may spend before it ends the turn in flight
-  // . A second line only; the gate stays the stored sum against the
+  // most this attempt's engine may spend before it ends the turn in flight.
+  // A second line only; the gate stays the stored sum against the
   // limit, checked before every turn. Null when the session's connection
   // declared `billing: none`: no dollar limit applies to it.
   remaining_budget_usd: z.number().nonnegative().nullable(),
@@ -717,35 +716,6 @@ export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   // worker drops it.
   repository_access: egressTokenAuthSchema.optional(),
 });
-
-// The claim as a log line may carry it: an allowlist of identifiers, never
-// the whole response minus the secrets. The session token, the egress tokens
-// and the repository URL (which may embed a credential) are what a leak would
-// consist of.
-export function loggableBootstrapClaim(response: BootstrapClaimResponse) {
-  return {
-    session_id: response.session_id,
-    attempt_id: response.attempt_id,
-    lease_epoch: response.lease_epoch,
-    execution_generation: response.execution_generation,
-    auth_revision: response.auth_revision,
-    lease_expires_at: response.lease_expires_at,
-    lease_remaining_ms: response.lease_remaining_ms,
-    runtime: response.runtime,
-    spec_digest: response.spec_digest,
-    model: response.runtime_config.model,
-    permission_mode: response.runtime_config.permission_mode,
-    provider_kind: response.runtime_config.provider.kind,
-    claude_md: response.runtime_config.project_settings?.claude_md === true,
-    repository_id: response.workspace.repository?.id ?? null,
-    branch: response.workspace.repository?.branch ?? null,
-    owner_scope: response.principal.owner_scope,
-    restore_revision: response.restore?.revision ?? null,
-    restore_models:
-      response.restore_runtime_configs?.map((config) => config.model) ?? [],
-    remaining_budget_usd: response.remaining_budget_usd,
-  };
-}
 
 export const nextInputRequestSchema = workerScopeSchema
   .extend({ wait_ms: z.number().int().nonnegative().optional() })
@@ -1184,7 +1154,7 @@ export const runtimeFingerprintSchema = z
     engine: z.string().min(1),
     sdk_version: z.string().min(1),
     cli_version: z.string().min(1),
-    profile_sha256: z.string().regex(/^[0-9a-f]{64}$/),
+    profile_sha256: sha256HexSchema,
   })
   .strict();
 export const restorePlanRequestSchema = workerScopeSchema
@@ -1195,7 +1165,7 @@ export const restorePlanRequestSchema = workerScopeSchema
     // runtime's. Sent only when there are some, so an older gateway's strict
     // parse never sees the field.
     alternate_profile_sha256s: z
-      .array(z.string().regex(/^[0-9a-f]{64}$/))
+      .array(sha256HexSchema)
       .min(1)
       .max(MAX_RESTORE_ALTERNATES)
       .optional(),
@@ -1208,7 +1178,7 @@ export const restorePlanRequestSchema = workerScopeSchema
 const restoreObjectSchema = z.object({
   key: z.string().min(1),
   bytes: z.number().int().nonnegative(),
-  sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  sha256: sha256HexSchema,
   version: objectVersionSchema.optional(),
 });
 export const restoreArtifactSchema = z.discriminatedUnion("kind", [
@@ -1247,7 +1217,7 @@ export const restorePlanSchema = z.object({
   // What the restored revision's manifest must hash to. It equals the
   // claim's restore digest unless `fallback` says an earlier revision is
   // restored, and then only this names it.
-  manifest_sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  manifest_sha256: sha256HexSchema,
   manifest_version: objectVersionSchema.optional(),
   engine: z.string().min(1),
   resume: z.string().min(1),
@@ -1394,12 +1364,9 @@ export type AdditionalWorkspaceRepository = z.infer<
   typeof additionalWorkspaceRepositorySchema
 >;
 export type ClaimPrincipal = z.infer<typeof claimPrincipalSchema>;
-export type RuntimeProvider = z.infer<typeof runtimeProviderSchema>;
 export type RuntimeConfig = z.infer<typeof runtimeConfigSchema>;
 export type EngineSettings = z.infer<typeof engineSettingsSchema>;
-export type RuntimeExtension = z.infer<typeof runtimeExtensionSchema>;
 export type PlatformPrompt = z.infer<typeof platformPromptSchema>;
-export type PlatformPromptSurface = PlatformPrompt["origin_surface"];
 export type NextInputRequest = z.infer<typeof nextInputRequestSchema>;
 export type NextInputResponse = z.infer<typeof nextInputResponseSchema>;
 export type CheckpointBlockReason = z.infer<typeof checkpointBlockReasonSchema>;
@@ -1415,7 +1382,6 @@ export type ProtectedCommitsRequest = z.infer<
 export type ProtectedCommitsResponse = z.infer<
   typeof protectedCommitsResponseSchema
 >;
-export type RuntimeFingerprintWire = z.infer<typeof runtimeFingerprintSchema>;
 export type RestorePlanRequest = z.infer<typeof restorePlanRequestSchema>;
 export type RestorePlanWire = z.infer<typeof restorePlanSchema>;
 export type RestorePlanResponse = z.infer<typeof restorePlanResponseSchema>;

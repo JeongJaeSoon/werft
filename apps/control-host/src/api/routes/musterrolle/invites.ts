@@ -37,21 +37,11 @@ import {
   WorkGate,
 } from "../../auth.ts";
 import { workspaceView } from "../auth.ts";
-import { mapped, requireParams } from "../errors.ts";
+import { mapped, rateLimited, requireParams } from "../errors.ts";
 
 // 32 random bytes, base64url, like every other one-time token here.
 export function generateInviteToken(): string {
   return `apv_${randomBytes(32).toString("base64url")}`;
-}
-
-function rateLimited(retryAfterMs: number, what: string): ApiHttpError {
-  return new ApiHttpError(
-    429,
-    "RATE_LIMITED",
-    `${what}, try again later`,
-    true,
-    Math.ceil(retryAfterMs / 1000),
-  );
 }
 
 export function registerInviteRoutes(

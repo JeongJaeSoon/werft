@@ -12,7 +12,8 @@ import {
 } from "@werft-ai/db";
 import { launchSession } from "@werft-ai/db/testing/launches";
 import { TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
-import { acceptAllCheckpoints, createWorkerGateway } from "@werft-ai/platform";
+import { createWorkerGateway } from "@werft-ai/platform";
+import { acceptAllCheckpoints } from "@werft-ai/platform/testing/checkpoints";
 import {
   createTempDatabase,
   type TempDatabase,
@@ -21,9 +22,9 @@ import {
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { seedSettings, settingsDocument } from "../test-support/settings.ts";
 import { testCatalog } from "../testing/catalog.ts";
 import { allowRepositories, releaseIn } from "../testing/releases.ts";
+import { seedSettings, settingsDocument } from "../testing/settings.ts";
 import { SHUTDOWN_DRAIN_MS } from "./shutdown.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;

@@ -1,5 +1,5 @@
 import type { WorkspaceRole } from "@werft-ai/contracts";
-import type { Principal } from "../musterrolle/policy.ts";
+import type { Principal } from "../musterrolle/index.ts";
 
 /** A credential name an agent may use; the value lives outside Werft. */
 export type CredentialBinding = {

@@ -18,7 +18,6 @@ import {
 } from "@werft-ai/db/testing/spec-pins";
 import { createLogger } from "@werft-ai/observability";
 import {
-  acceptAllCheckpoints,
   createGitHubMcpServer,
   createWorkerGateway,
   GITHUB_MCP_UPSTREAM_PATH,
@@ -26,6 +25,7 @@ import {
   type PushActor,
   type SessionCatalog,
 } from "@werft-ai/platform";
+import { acceptAllCheckpoints } from "@werft-ai/platform/testing/checkpoints";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { eq } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";

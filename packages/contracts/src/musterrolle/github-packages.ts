@@ -19,9 +19,6 @@ export const githubPackagesRegistrySchema = z.enum(
   GITHUB_PACKAGES_REGISTRY_VALUES,
 );
 
-/** The one scope a registered token may carry. */
-export const GITHUB_PACKAGES_TOKEN_SCOPE = "read:packages";
-
 // GitHub's rule for a user or organization login.
 export const githubOwnerSchema = z
   .string()
@@ -121,9 +118,6 @@ export type GitHubPackagesRegistry = z.infer<
 >;
 export type GitHubPackagesAllowEntry = z.infer<
   typeof githubPackagesAllowEntrySchema
->;
-export type GitHubPackagesTokenSummary = z.infer<
-  typeof githubPackagesTokenSummarySchema
 >;
 export type GitHubPackagesSettingsResponse = z.infer<
   typeof githubPackagesSettingsResponseSchema

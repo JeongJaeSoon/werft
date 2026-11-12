@@ -15,7 +15,6 @@ import type {
   ListConnectionOptionsResponse,
   SaveAgentResponse,
 } from "@werft-ai/contracts";
-import { AGENT_DESCRIPTION_MAX_LENGTH } from "@werft-ai/contracts/agent-card";
 import { agentCardStep, agentIdentityStep } from "@werft-ai/core/forms";
 import {
   formAlerts,
@@ -53,18 +52,19 @@ import {
   queryKeysOf,
   scopedKey,
 } from "../api/queries.ts";
+import { AGENT_DESCRIPTION_MAX_LENGTH } from "../auth/limits.ts";
 import { FunnelResetNotice, useFunnel } from "../funnel/tanstack-funnel.tsx";
 import { type MessageKey, useI18n } from "../i18n/i18n.tsx";
 import { saveFailureText } from "../routes/agent-detail/effective-behavior.tsx";
 import {
   AGENT_FORM,
   AgentCardFields,
-  type ApiCard,
   CARD_ERROR_FIELDS,
   type CardDraft,
   type CardErrors,
   cardDraftOf,
   EMPTY_DRAFT,
+  toApiCard,
 } from "./agent-card-form.tsx";
 import { Notice } from "./auth-page.tsx";
 import { LoadFailure } from "./load-failure.tsx";
@@ -127,7 +127,7 @@ const KEEP_INPUT_DELAY_MS = 300;
  * The slug a name suggests: what is left of it in lowercase kebab-case. A
  * name with no Latin letters or digits suggests nothing.
  */
-export function slugFromName(name: string): string {
+function slugFromName(name: string): string {
   return name
     .normalize("NFKD")
     .toLowerCase()
@@ -361,7 +361,7 @@ export function NewAgentFlow({
             body: {
               ...(context.name !== saved.name ? { name: context.name } : {}),
               ...(description !== saved.description ? { description } : {}),
-              card: sent as unknown as ApiCard,
+              card: toApiCard(sent),
               ...release,
             },
           })
@@ -372,7 +372,7 @@ export function NewAgentFlow({
               ...(description === "" ? {} : { description }),
               // The job guard lets no unsaved flow here without a team.
               managing_team_id: context.managing_team_id ?? "",
-              card: sent as unknown as ApiCard,
+              card: toApiCard(sent),
               ...release,
             },
           }),

@@ -4,6 +4,7 @@ import {
   scopesForRole,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
+import { SessionServiceError } from "../musterrolle/index.ts";
 import {
   type Caller,
   callerFor,
@@ -14,7 +15,6 @@ import type {
   SettingsDocumentStore,
   SettingsRow,
 } from "../ports/settings-document-store.ts";
-import { SessionServiceError } from "./session-service.ts";
 import { createSettingsConsoleService } from "./settings-console-service.ts";
 import type { SettingsKind } from "./settings-document.ts";
 

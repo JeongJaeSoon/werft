@@ -3,7 +3,6 @@ import {
   acceptInviteRequestSchema,
   agentCardSchema,
   agentDescriptionSchema,
-  createAgentReleaseRequestSchema,
   createAgentRequestSchema,
   createInviteRequestSchema,
 } from "@werft-ai/contracts";
@@ -27,20 +26,10 @@ export const agentIdentityStep = z.object({
   description: trimmed(agentDescriptionSchema),
 });
 
-/** The release step of making an agent: the version comes from the saved draft. */
-export const agentReleaseStep = z.object({
-  connection_id: trimmed(createAgentReleaseRequestSchema.shape.connection_id),
-  /** Empty for none: a release may go without a repository. */
-  repository_id: z.string().trim(),
-});
-
 export {
-  canonicalTool,
   credentialRefSchema,
-  GITHUB_APP_PERMISSION_GUIDANCE,
   githubAppWarnings,
   isMcpToolName,
-  MCP_TOOL_PREFIX,
   mcpToolOfServer,
 } from "@werft-ai/contracts";
 

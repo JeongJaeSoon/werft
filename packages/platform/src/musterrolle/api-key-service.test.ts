@@ -10,7 +10,6 @@ import type {
   WorkspaceKey,
   WorkspaceKeyStore,
 } from "../ports/api-key-store.ts";
-import { SessionServiceError } from "../sessions/session-service.ts";
 import { createApiKeyService } from "./api-key-service.ts";
 import {
   type AgentAuthority,
@@ -18,6 +17,7 @@ import {
   callerFor,
   createAuthorizationPolicy,
 } from "./policy.ts";
+import { SessionServiceError } from "./service-errors.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
 const OWNER = "019a0000-0000-7000-8000-0000000000a1";

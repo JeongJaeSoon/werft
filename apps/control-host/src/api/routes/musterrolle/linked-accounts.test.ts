@@ -23,7 +23,7 @@ import {
   type MockSlackOidc,
   startMockSlackOidc,
 } from "@werft-ai/testkit/mock-slack-oidc";
-import { errorOf } from "../../../test-support/api-error.ts";
+import { errorOf } from "../../../testing/api-error.ts";
 import { GITHUB_LINK_COOKIE_NAME } from "../../github-link.ts";
 import { recordRouteErrors } from "../../route-error-coverage.ts";
 import {

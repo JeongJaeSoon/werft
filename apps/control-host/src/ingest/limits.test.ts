@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { batch, CountingDrops } from "../testing/ingest.ts";
 import { ForwardQueue } from "./forward-queue.ts";
 import { TraceByteBudget } from "./limits.ts";
 import { decodeTraceRequest } from "./otlp-json.ts";
-import { batch, CountingDrops } from "./test-support.ts";
 
 describe("decoder bounds on repeated parts", () => {
   test("a huge scope name is cut, not carried on every span", () => {

@@ -84,7 +84,8 @@ function fakeControl(options: { lastTurn: string }) {
         const doomed = turnOf("ctl6");
         if (doomed) doomed.status = "outcome_unknown";
         admission = "recovery_required";
-        status = "failed";
+        // The server reports a kill that was asked for as stopped, not failed.
+        status = "stopped";
         const id = `receipt-${receipts.size + 1}`;
         receipts.set(id, {
           id,
@@ -146,7 +147,7 @@ test("interrupts, pauses and recovers one session", async () => {
     "message while paused: 409 SESSION_PAUSED",
     "resume: turn 4 completed",
     "terminate: receipt accepted, external effects reverted false",
-    "session: failed/recovery_required, turn 5 outcome_unknown",
+    "session: stopped/recovery_required, turn 5 outcome_unknown",
     "recovery: abandon, turn 5 cancelled, resumable true",
     "after recovery: turn 6 completed",
     "close: receipt succeeded",

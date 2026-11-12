@@ -6,9 +6,10 @@ import type {
   SetManagingTeamResult,
   TeamActor,
 } from "@werft-ai/platform";
+import { receiptActorOf } from "@werft-ai/platform";
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { agentOf, managingTeamName } from "../agents.ts";
-import { lockPeople, receiptActorOf } from "../control-shared.ts";
+import { lockPeople, UUID } from "../control-shared.ts";
 import { DB_NOW } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
 import {
@@ -21,8 +22,6 @@ import {
   users,
 } from "../schema.ts";
 import { administers, liveMember } from "./administers.ts";
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * `administers`, inside a write: the rows that make it true are share-locked
@@ -46,7 +45,7 @@ export async function lockedAdministers(
  * `lockedAdministers`, saying on what: `teamId` null for an admin row of
  * their own, else the lent team or the managing team they hold it through.
  */
-export async function lockedAdminBasis(
+async function lockedAdminBasis(
   tx: Database,
   workspaceId: string,
   agentId: string,
@@ -119,7 +118,7 @@ export async function lockedAdminBasis(
  * rows share-locked: an archive, a removal or a role change waits for this
  * write or is seen by it. Team before member row, as team writers lock them.
  */
-export async function lockedTeamRow(
+async function lockedTeamRow(
   tx: Database,
   workspaceId: string,
   teamId: string,

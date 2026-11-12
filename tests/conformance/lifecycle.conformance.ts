@@ -147,7 +147,9 @@ describe(`session lifecycle on ${engine.runtimeKind}`, () => {
         "needs a recovery decision",
         (s) => s.admission_state === "recovery_required",
       );
-      expect(ended.status).toBe("failed");
+      // The stop was asked for: stopped, not failed, while the unknown turn
+      // still holds the session for a recovery decision.
+      expect(ended.status).toBe("stopped");
       expect((await api.turn(sessionId, doomed.turn_id)).status).toBe(
         "outcome_unknown",
       );

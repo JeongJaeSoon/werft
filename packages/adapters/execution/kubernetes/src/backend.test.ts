@@ -15,9 +15,13 @@ import {
   WorkspaceClaimError,
 } from "./backend.ts";
 import { KubernetesApiError } from "./client.ts";
-import { FakeKubernetes } from "./fake-client.ts";
 import { podNameFor, workspaceClaimNameFor } from "./specs.ts";
-import { TEST_PROXY_ADDRESS, testConfig, testResolver } from "./testing.ts";
+import { FakeKubernetes } from "./testing/fake-client.ts";
+import {
+  TEST_PROXY_ADDRESS,
+  testConfig,
+  testResolver,
+} from "./testing/index.ts";
 
 const NS = "agents";
 const INSTALLATION = "test";

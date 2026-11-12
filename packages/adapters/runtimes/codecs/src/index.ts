@@ -41,11 +41,6 @@ export const installedToolCatalogs: readonly BuiltinToolCatalog[] = [
 ];
 
 export {
-  type BuiltinTool,
-  type BuiltinToolCatalog,
-  canonicalToolName,
   equivalentToolCatalogVersions,
-  legacyToolNames,
-  type ToolBoundary,
   toolCatalogFor,
 } from "@werft-ai/runtime-claude-codec";

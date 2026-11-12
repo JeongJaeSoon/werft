@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { SessionEvent } from "@werft-ai/contracts";
 import {
+  CLAUDE_AGENT_SDK_VERSION,
+  CLAUDE_CODE_VERSION,
   CLAUDE_DESCRIPTOR,
   CLAUDE_RUNTIME_FINGERPRINT,
   CLAUDE_TOOL_CATALOGS,
@@ -35,12 +37,7 @@ import {
   type ToolDecisionObserver,
 } from "@werft-ai/runtime-core";
 
-import {
-  CLAUDE_AGENT_SDK_VERSION,
-  CLAUDE_CODE_VERSION,
-  type ClaudeRuntimeConfig,
-  type RuntimeProfile,
-} from "./config.ts";
+import type { ClaudeRuntimeConfig, RuntimeProfile } from "./config.ts";
 import type {
   AgentFrame,
   DriverRun,

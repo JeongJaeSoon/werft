@@ -3,7 +3,7 @@ import type { Locale } from "../i18n/i18n.tsx";
 /**
  * A line for each built-in engine tool in the tool activity table. The engine
  * names its tools but describes only MCP ones, which the API carries; these
- * fill in the rest (94S-936). The whole fallback is this file, so dropping it
+ * fill in the rest. The whole fallback is this file, so dropping it
  * leaves built-in tools without a line and nothing else.
  */
 const NOTES: Readonly<Record<Locale, Readonly<Record<string, string>>>> = {

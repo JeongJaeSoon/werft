@@ -21,9 +21,6 @@ export const SLACK_INTERACTION_ACTIONS = {
 } as const;
 export const SLACK_QUESTION_VIEW_CALLBACK = "question.answer";
 
-export type SlackInteractionAction =
-  (typeof SLACK_INTERACTION_ACTIONS)[keyof typeof SLACK_INTERACTION_ACTIONS];
-
 const slackId = z
   .string()
   .min(1)

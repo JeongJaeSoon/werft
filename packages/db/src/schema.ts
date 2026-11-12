@@ -61,6 +61,7 @@ import {
   type UserLocale,
 } from "@werft-ai/contracts";
 import type {
+  ProviderUsage,
   SecretOwnerRef,
   SlackOutboxBody,
   SlackOutboxKind,
@@ -1502,7 +1503,6 @@ export const sessionTitleRequests = pgTable(
 // it, and admitInput checks STORAGE_LIMIT_BYTES under this row's lock, so no
 // concurrent writer can race past the limit. One row per scope: today only
 // "installation".
-// TODO(94S-187): Add per-workspace rows for memory revisions.
 export const storageUsage = pgTable(
   "storage_usage",
   {
@@ -2973,6 +2973,37 @@ export const providerUsage = pgTable(
     ),
     check("provider_usage_cost_usd_nonneg", sql`${table.costUsd} >= 0`),
   ],
+);
+
+// A provider call the egress proxy opened before calling upstream and that
+// no usage report has settled yet (provider-usage-ledger.md). A report for
+// the exchange deletes the row in its own transaction. Observation only: no
+// limit reads it yet.
+//
+// No foreign keys: an insert would take KEY SHARE on the session and attempt
+// rows, which the fence and the model cut lock in different orders, so an
+// open could join a deadlock. The open reads the pair instead; nothing
+// deletes sessions or attempts.
+export const providerExchanges = pgTable(
+  "provider_exchanges",
+  {
+    exchangeId: text("exchange_id").primaryKey(),
+    sessionId: uuid("session_id").notNull(),
+    attemptId: text("attempt_id").notNull(),
+    // What the request alone says the call may use: an estimate, not a
+    // ceiling (cache-write premiums and tool fees are not in it).
+    reserve: jsonb().$type<ProviderUsage>().notNull(),
+    // The first insert's time; a renewal or a repeated open keeps it.
+    openedAt: timestamp("opened_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    leaseExpiresAt: timestamp("lease_expires_at", {
+      withTimezone: true,
+    }).notNull(),
+    // When the reconciler logged the lease as expired; a renewal clears it.
+    noticedAt: timestamp("noticed_at", { withTimezone: true }),
+  },
+  (table) => [index("provider_exchanges_lease_idx").on(table.leaseExpiresAt)],
 );
 
 // provider_usage summed per session and model by the provider_usage insert

@@ -129,12 +129,7 @@ export type VolumeLabelKeys = {
   workspaceQuota: string;
 };
 
-export {
-  ENV,
-  egressCredentialUrlOf,
-  NO_PROXY_VALUE,
-  noProxyValueFor,
-} from "@werft-ai/contracts/execution";
+export { ENV, NO_PROXY_VALUE } from "@werft-ai/contracts/execution";
 
 /**
  * Bumped whenever the isolation a worker container is created with changes.

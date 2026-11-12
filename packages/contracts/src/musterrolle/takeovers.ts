@@ -10,7 +10,7 @@ import {
 import { justificationSchema } from "./session-shares.ts";
 
 /**
- * A session whose requester was offboarded (design D16). It takes no input
+ * A session whose requester was offboarded. It takes no input
  * until an owner takes it over and becomes its requester.
  */
 export const takeoverSchema = z
@@ -37,11 +37,7 @@ export const takeOverSessionRequestSchema = z
 
 export const takeOverSessionResponseSchema = receiptAcceptedResponseSchema;
 
-export type Takeover = z.infer<typeof takeoverSchema>;
 export type ListTakeoversResponse = z.infer<typeof listTakeoversResponseSchema>;
-export type TakeOverSessionRequest = z.infer<
-  typeof takeOverSessionRequestSchema
->;
 export type TakeOverSessionResponse = z.infer<
   typeof takeOverSessionResponseSchema
 >;

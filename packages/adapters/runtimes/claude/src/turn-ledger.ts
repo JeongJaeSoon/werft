@@ -1,3 +1,4 @@
+import { CLAUDE_AGENT_SDK_VERSION } from "@werft-ai/runtime-claude-codec";
 import type {
   AdmissionHold,
   CheckpointLeaseGrant,
@@ -5,7 +6,6 @@ import type {
   CheckpointPreparation,
   ParkReadiness,
 } from "@werft-ai/runtime-core";
-import { CLAUDE_AGENT_SDK_VERSION } from "./config.ts";
 import type { NativeSdkMessage } from "./driver.ts";
 
 /**

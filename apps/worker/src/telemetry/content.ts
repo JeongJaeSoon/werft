@@ -12,7 +12,7 @@ export interface ContentPolicy {
 const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: false });
 
-export function truncateUtf8(
+function truncateUtf8(
   text: string,
   maxBytes: number,
 ): { text: string; originalBytes: number; truncated: boolean } {
@@ -48,7 +48,7 @@ function maskLeaves(value: unknown, masker: ContentMasker): unknown {
  * Text for an attribute, masked on the raw strings: JSON escaping a quote or a
  * backslash would otherwise hide a secret from its pattern.
  */
-export function maskedText(value: unknown, masker: ContentMasker): string {
+function maskedText(value: unknown, masker: ContentMasker): string {
   if (typeof value === "string") return masker.mask(value);
   try {
     return JSON.stringify(maskLeaves(value, masker)) ?? "";

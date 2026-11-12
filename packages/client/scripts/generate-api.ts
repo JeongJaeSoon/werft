@@ -3,7 +3,7 @@ import { pathToFileURL } from "node:url";
 import openapiTS, { astToString } from "openapi-typescript";
 
 const root = join(import.meta.dir, "..", "..", "..");
-export const OPENAPI_DOCUMENT = join(root, "docs", "openapi.json");
+const OPENAPI_DOCUMENT = join(root, "docs", "openapi.json");
 export const GENERATED_SCHEMA = join(
   import.meta.dir,
   "..",

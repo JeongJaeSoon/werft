@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { ENV_SESSION_VALUES_MAX_BYTES } from "@werft-ai/contracts";
-import { ENV_START_RETENTION_MS, envStartRefusal } from "./env-variables.ts";
+import {
+  ENV_START_RETENTION_MS,
+  envStartRefusal,
+  plainEnvOf,
+  UNREADABLE_ENV_START,
+} from "./env-variables.ts";
 
 const NOW = new Date("2026-11-09T00:00:00.000Z");
 const CAPTURED = "2026-11-08T00:00:00.000Z";
@@ -101,6 +106,11 @@ describe("the claim's judgement of a session's variable snapshot", () => {
       expect(envStartRefusal(stored, NOW)).toBe("unresolved");
     },
   );
+
+  test("what the purge leaves of an unreadable snapshot is refused too", () => {
+    expect(envStartRefusal(UNREADABLE_ENV_START, NOW)).toBe("unresolved");
+    expect(plainEnvOf(UNREADABLE_ENV_START)).toBeUndefined();
+  });
 
   test("a secret entry holds no value and passes; one that holds a value is refused", () => {
     const secret = {

@@ -7,20 +7,15 @@ import type {
   SlackThreadStatusStore,
 } from "@werft-ai/platform";
 import { exists, type SQL, sql } from "drizzle-orm";
-import { actionableOfSession } from "../decision/pending-requests.ts";
+import { actionableOfSession } from "../decision/pending-status.ts";
 import type { Database } from "../queries.ts";
 import { sessions } from "../schema.ts";
+import { rowsOf } from "../statement-rows.ts";
 import { channelLeft } from "./slack-channel-left.ts";
-
-type Raw = Record<string, unknown>;
-
-const rowsOf = async (db: Database, query: SQL) =>
-  ((await db.execute(query)) as unknown as { rows: Raw[] }).rows;
+import { ms, type Raw } from "./slack-shared.ts";
 
 const dateOf = (value: unknown) =>
   value === null || value === undefined ? null : new Date(value as string);
-
-const ms = (value: number) => sql`make_interval(secs => ${value / 1000})`;
 
 // A link the status may still go to: its session attached, the link and its
 // installation live, the thread not muted, and the bot still in its channel.
@@ -145,23 +140,21 @@ export function createPostgresSlackThreadStatusStore(
 
   return {
     async expireInflight({ graceMs, windowMs }) {
-      const rows = await rowsOf(
-        db,
-        sql`
+      const rows = await rowsOf<Raw>(
+        await db.execute(sql`
           UPDATE slack_thread_status SET
             ${recordUncertain(sql`inflight_at`, windowMs)},
             ${RELEASED}
           WHERE inflight_at IS NOT NULL
             AND lease_expires_at + ${ms(graceMs)} <= now()
-          RETURNING session_link_id`,
+          RETURNING session_link_id`),
       );
       return rows.length;
     },
 
     async claim({ limit, leaseMs, graceMs }) {
-      const rows = await rowsOf(
-        db,
-        sql`
+      const rows = await rowsOf<Raw>(
+        await db.execute(sql`
           UPDATE slack_thread_status st SET
             claim_token = gen_random_uuid(),
             lease_expires_at = now() + ${ms(leaseMs)}
@@ -183,7 +176,7 @@ export function createPostgresSlackThreadStatusStore(
             AND l.id = st.session_link_id
           RETURNING ${TARGET}, st.claim_token, st.dirty_rev, st.uncertain_rev,
             st.uncertain_latest_at IS NOT NULL AS uncertain, pick.inherited,
-            st.sent_status, st.sent_at`,
+            st.sent_status, st.sent_at`),
       );
       return rows.map(
         (row): SlackThreadStatusClaim => ({
@@ -204,9 +197,8 @@ export function createPostgresSlackThreadStatusStore(
     },
 
     async beginSend(fence, minLeaseLeftMs) {
-      const [row] = await rowsOf(
-        db,
-        sql`
+      const [row] = await rowsOf<Raw>(
+        await db.execute(sql`
           UPDATE slack_thread_status SET inflight_at = now()
           WHERE ${fenced(fence)}
             AND NOT EXISTS (
@@ -215,16 +207,15 @@ export function createPostgresSlackThreadStatusStore(
                 AND ${channelLeft(sql`ll.installation_id`, sql`ll.channel_id`)}
             )
             AND lease_expires_at > now() + ${ms(minLeaseLeftMs)}
-          RETURNING inflight_at`,
+          RETURNING inflight_at`),
       );
       return row === undefined ? null : dateOf(row.inflight_at);
     },
 
     async finish(fence, sent) {
       // inflight_at is this send's own start, to the microsecond.
-      const rows = await rowsOf(
-        db,
-        sql`
+      const rows = await rowsOf<Raw>(
+        await db.execute(sql`
           UPDATE slack_thread_status SET
             sent_rev = greatest(sent_rev, ${sent.dirtyRev}),
             sent_status = ${sent.status},
@@ -239,20 +230,19 @@ export function createPostgresSlackThreadStatusStore(
               THEN NULL ELSE next_at END,
             ${RELEASED}
           WHERE ${fenced(fence)} AND inflight_at IS NOT NULL
-          RETURNING session_link_id`,
+          RETURNING session_link_id`),
       );
       return rows.length > 0;
     },
 
     async skip(fence, dirtyRev) {
-      const rows = await rowsOf(
-        db,
-        sql`
+      const rows = await rowsOf<Raw>(
+        await db.execute(sql`
           UPDATE slack_thread_status SET
             sent_rev = greatest(sent_rev, ${dirtyRev}),
             ${RELEASED}
           WHERE ${fenced(fence)}
-          RETURNING session_link_id`,
+          RETURNING session_link_id`),
       );
       return rows.length > 0;
     },
@@ -273,28 +263,26 @@ export function createPostgresSlackThreadStatusStore(
     },
 
     async defer(fence, retryInMs) {
-      const rows = await rowsOf(
-        db,
-        sql`
+      const rows = await rowsOf<Raw>(
+        await db.execute(sql`
           UPDATE slack_thread_status SET
             next_at = greatest(next_at, now() + ${ms(retryInMs)}),
             ${RELEASED}
           WHERE ${fenced(fence)}
-          RETURNING session_link_id`,
+          RETURNING session_link_id`),
       );
       return rows.length > 0;
     },
 
     async disable(fence, reason) {
-      const rows = await rowsOf(
-        db,
-        sql`
+      const rows = await rowsOf<Raw>(
+        await db.execute(sql`
           UPDATE slack_thread_status SET
             disabled_reason = ${reason},
             disabled_at = now(),
             ${RELEASED}
           WHERE ${fenced(fence)}
-          RETURNING session_link_id`,
+          RETURNING session_link_id`),
       );
       return rows.length > 0;
     },
@@ -311,9 +299,8 @@ export function createPostgresSlackThreadStatusStore(
           AND st.disabled_reason IS NOT NULL
           AND (st.disabled_at + ${ms(disabledForMs)} <= now()
             OR i.verified_at > st.disabled_at)`);
-      const rows = await rowsOf(
-        db,
-        sql`
+      const rows = await rowsOf<Raw>(
+        await db.execute(sql`
           SELECT ${TARGET}, st.sent_status, st.sent_at
           FROM session_links l
           ${TARGET_JOIN}
@@ -323,7 +310,7 @@ export function createPostgresSlackThreadStatusStore(
               st.sent_status IS DISTINCT FROM 'closed'
               AND st.disabled_reason IS NULL))
           ORDER BY st.reconciled_at NULLS FIRST, l.id
-          LIMIT ${limit}`,
+          LIMIT ${limit}`),
       );
       const facts = await factsOf(rows.map((row) => row.session_id as string));
       return rows.flatMap((row): SlackThreadStatusReconcile[] => {

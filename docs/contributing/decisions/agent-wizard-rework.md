@@ -157,12 +157,12 @@
 
 - **A. 실행 적용부터, 그다음 체크 목록(추천).** 먼저 claim이 릴리스의 계산된 도구(`runtime_config_snapshot.tools`)를 쓰게 고친다. 그다음 화면을 프로필 도구의 체크 목록 하나로 바꾼다.
 - B. 화면만 바꾼다. 고른 값이 실행에 들어가지 않는 상태에서 고르는 UI만 좋아진다. 오너 질문("이게 아니지? 개선할거지?")의 답이 될 수 없다. 택하지 않는다.
-- C. 2단계에서 프로필 합집합이 아니라 '미리보기 프로필' 하나를 기준으로 도구를 고르게 한다. 프로필은 카드에 저장하지 않고 편집 문맥으로만 쓴다. 같은 카드로 다른 프로필에 릴리스하는 지금의 모델(`release-ids.ts:100-104`)은 그대로다. 3b가 이 방식을 쓴다(Codex 반론 11).
+- C. 2단계에서 프로필 합집합이 아니라 '미리보기 프로필' 하나를 기준으로 도구를 고르게 한다. 프로필은 카드에 저장하지 않고 편집 문맥으로만 쓴다. 같은 카드로 다른 프로필에 릴리스하는 지금의 모델(`release-ids.ts:100-104`)은 그대로다. 3b가 이 방식을 쓴다.
 
 ### 3a. 실행에 적용
 
 - claim의 `runtime_config.tools`를 "세션에 릴리스가 있으면 릴리스의 `runtime_config_snapshot.tools`, 없으면 프로필 `tools`"로 바꾼다(`catalog.ts:733-747`, `worker-gateway.ts:903`). 릴리스 값은 이미 프로필 도구의 부분집합이다(`release-ids.ts:124-144`).
-- claim이 릴리스 값을 알려면 worker binding이 그것을 실어야 한다. 지금 `WorkerBinding`에는 릴리스 id도 도구도 없다(`packages/platform/src/ports/worker-unit-of-work.ts:33`, 구현 `packages/db/src/worker-unit-of-work.ts:1386`). MCP 경로의 릴리스 조회는 MCP 서버가 없는 릴리스에서 null이라 대신 쓸 수 없다(`packages/db/src/mcp-egress.ts:77-79`). binding에 "릴리스의 도구 목록 또는 릴리스 없음"을 따로 싣는다. 빈 목록(`[]`, 도구 없음)과 릴리스 없음을 구분한다.
+- claim이 릴리스 값을 알려면 worker binding이 그것을 실어야 한다. 지금 `WorkerBinding`에는 릴리스 id도 도구도 없다(`packages/platform/src/ports/worker-unit-of-work.ts:33`, 구현 `packages/db/src/worker-unit-of-work.ts:1385`). MCP 경로의 릴리스 조회는 MCP 서버가 없는 릴리스에서 null이라 대신 쓸 수 없다(`packages/db/src/mcp-egress.ts:77-79`). binding에 "릴리스의 도구 목록 또는 릴리스 없음"을 따로 싣는다. 빈 목록(`[]`, 도구 없음)과 릴리스 없음을 구분한다.
 - checkpoint 호환: 도구는 지문에 들어간다(`packages/adapters/runtimes/claude/src/profile-fingerprint.ts:66`, `catalog.ts:727-732` 주석). 두 방향을 모두 지킨다.
   - 앞으로: 배포 전 checkpoint는 프로필 도구 전부로 만든 지문이다. claim의 `restore_runtime_configs`(`worker-gateway.ts:943`)에 "프로필 도구 전부" 설정을 대체로 넣는다. fallback checkpoint와 GitHub 서버를 붙이기 전·후 변형(`worker-gateway.ts:949-957`)에도 같이 넣는다. 첫 claim만의 일이 아니라, 옛 지문의 checkpoint가 남아 있는 동안 계속 넣는다.
   - 롤백: 좁힌 도구로 만든 checkpoint는 옛 이미지가 재개하지 못한다. 옛 대체 설정 생성은 같은 프로필·모델이면 건너뛴다(`worker-gateway.ts:926-931`). 그래서 ① 두 설정을 모두 대체로 넣을 줄 아는 이미지를 먼저 배포하고 ② 그 이미지가 롤백 하한이 된 뒤에 좁힘을 켠다(설정 플래그 또는 다음 배포).
@@ -282,39 +282,3 @@
 - 카드의 '답변 언어'(`language`)와 `rules`도 실행에 들어가지 않는다. 화면은 이 값이 답변에 쓰이는 것처럼 보인다.
 - 저장소 없는 `optional` 릴리스는 GitHub 설정을 처음 만들 수 없다(`agent-github-service.ts:146-156`, `github.tsx:564`). 릴리스 생성 쪽(`agent-service.ts:143-149`)은 허용한다. U1이 고친다(#990 순서 3과 겹침).
 - `member`인 에이전트 관리자는 어느 팀이든 관리자 팀으로 추가해 그 팀 구성원 모두에게 관리 권한을 줄 수 있다(`agent-admin-service.ts:80`, `agent-admins.ts:209`). 지금도 있는 동작이다. agent-rbac.md의 R1이 새 추가를 `lead`인 팀으로 제한한다.
-
-## Codex 반론
-
-2026-11-02 Codex(로컬 CLI, read-only)에게 이 문서의 첫 판을 반론하게 했다. 15건을 받았다. 받은 근거를 코드에서 다시 확인했고 모두 반영했다.
-
-| # | 반론 | 처리 |
-|---|---|---|
-| 1 | 담당 팀 지정만 제한하면 기존 관리자 팀 추가 경로로 우회한다. 강등해도 관리자 팀 권한은 남는다 | 반영. 새 관리자 팀 추가에도 같은 제한, 겹치는 권한을 화면에 표시([권한](#권한)) |
-| 2 | 에이전트 지시문에 worker 호환 단계가 없다. claim `runtime_config`는 strict이고 이전 이미지 launch가 있다 | 반영. worker 먼저(U4b), 서버가 싣는 것은 하한 뒤(U4c) |
-| 3 | 도구 좁힘에 롤백 호환이 없다 | 반영. 두 지문을 다 넣는 이미지(U2a)를 하한으로 만든 뒤 켠다(U2b). fallback·GitHub 변형까지 |
-| 4 | 쓰기 재확인은 `administers()`가 아니라 `lockedAdministers()`다 | 반영. 두 함수 모두 고치고 지정 쓰기도 잠금 재확인 |
-| 5 | `repository_none`은 GET 응답 값이다. 더 큰 문제는 `legacyDefaults`가 없어 처음 편집을 못 하는 것 | 반영. 인용 뜻을 고치고 빈 편집 바탕을 정함, 전체 흐름 검증 |
-| 6 | 옛 이미지는 `agent_instructions`가 있는 카드도 거절한다 | 반영. 읽기 계약 이미지가 롤백 하한, 저장된 카드는 고치지 않음 |
-| 7 | "열을 지우면 된다"는 파괴적 되돌리기다 | 반영. 롤백 때 열은 남기고, 열 삭제는 오너 확인 항목으로 |
-| 8 | 복구 검증 도구가 카탈로그 프로필로만 claim을 다시 만든다 | 반영. U2a·U4b 경로에 `checkpoint-pins` 추가 |
-| 9 | `WorkerBinding`에 릴리스 정보가 없다. MCP 경로 조회는 대신 못 쓴다 | 반영. binding에 릴리스 도구를 싣고 `[]`와 릴리스 없음을 구분 |
-| 10 | 체크를 끈 도구의 `per_tool` 항목이 남으면 릴리스가 실패한다 | 반영. 끈 내장 도구의 항목을 지움 |
-| 11 | 프로필 합집합은 어느 프로필로도 릴리스할 수 없는 조합을 허용한다 | 반영. 미리보기 프로필 하나 기준으로 바꿈(후보 C를 고쳐 채택) |
-| 12 | U4a·U5a가 같은 파일을 쓰는데 같이 시작한다고 했다. U4b에 core forms가 빠졌다 | 반영. U5a는 U4a 뒤, core forms를 U4c에 |
-| 13 | '나중에 추가되는 도구 포함'은 사실이 아니다. `null`은 릴리스 때 고정된다 | 반영. 문구와 설명을 고침 |
-| 14 | `GET /v1/my-teams`가 이미 있다 | 반영. 새 쿼리 대신 이 API에 역할을 더함 |
-| 15 | grep 결과가 시험 파일을 빼지 않았다. 모델 검사 위치, 도구 64개 상한의 범위, 탭 목록이 틀렸다 | 반영. 인용을 고침 |
-
-기각한 반론은 없다.
-
-PR head `0471cab9d`에서 Codex가 고친 판을 다시 리뷰했다. 1차 반론 중 13건은 해결됐고, 8·15번이 일부만 해결됐다. 새로 받은 것을 포함해 5건을 모두 반영했다.
-
-| # | 반론 | 처리 |
-|---|---|---|
-| R2-1 | 두 필드가 없는 새 카드는 에이전트 목록 요약을 깨뜨린다(`agent-summaries.ts`, 요약 계약) | 반영. U4a에 요약 쿼리·계약을 넣음 |
-| R2-2 | U4a만 착지하면 폼 타입 검사가 깨진다 | 반영. 읽는 쪽 대체값을 U4a로 옮김 |
-| R2-3 | 복구 검증 CLI가 릴리스 지시문을 넘기지 않는다(1차 8번의 나머지) | 반영. `checkpoint-pins-cli.ts`를 U4b에 넣음 |
-| R2-4 | 도구 좁힘은 "다음 세션"이 아니라 진행 중 세션을 포함한 다음 claim부터다 | 반영. 3a와 오너 확인 항목의 문구를 고침 |
-| R2-5 | `capabilities.forbidden` grep 결과 설명이 여전히 틀렸다(1차 15번의 나머지) | 반영. 화면 읽기와 릴리스 계산을 나눠 다시 적음 |
-
-3차(head `cd62c327c`, 위 다섯 고침만): R2-3·R2-4·R2-5는 해결, R2-1·R2-2에 읽는 쪽 하나(`agent-cards.tsx`의 `factsOf`)가 빠졌다는 반론 1건. 반영해 U4a 경로와 같은 경로 목록에 넣었다.

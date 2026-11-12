@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { SessionServiceError } from "../sessions/session-service.ts";
-import { ACTOR_INACTIVE, NOT_FOUND, OUTRANKED } from "./service-errors.ts";
+import {
+  ACTOR_INACTIVE,
+  NOT_FOUND,
+  OUTRANKED,
+  SessionServiceError,
+} from "./service-errors.ts";
 
 const digest = (error: SessionServiceError) =>
   createHash("sha256")

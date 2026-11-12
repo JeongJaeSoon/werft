@@ -14,6 +14,7 @@ import type {
   EnvVariableStore,
   Principal,
 } from "@werft-ai/platform";
+import { receiptActorOf } from "@werft-ai/platform";
 import {
   and,
   asc,
@@ -25,7 +26,6 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
-import { receiptActorOf } from "../control-shared.ts";
 import { dbNow } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
 import {
@@ -36,6 +36,7 @@ import {
   receipts,
   sessions,
 } from "../schema.ts";
+import { rowsOf } from "../statement-rows.ts";
 
 const NEXT_VERSION = sql<number>`nextval('env_variable_versions_seq')`;
 
@@ -53,7 +54,7 @@ function scopeWhere(scope: EnvVariableScope): SQL {
  * serializes the writes of one scope, which is what a delete's affected counts
  * need to stay true.
  */
-export async function lockEnvVariableScope(
+async function lockEnvVariableScope(
   tx: Database,
   scope: EnvVariableScope,
 ): Promise<void> {
@@ -668,41 +669,61 @@ export async function captureEnvStart(
 }
 
 /**
+ * What the purge leaves of a snapshot it cannot read, for which
+ * env_start_without_values gives NULL. NULL on an open session would read as
+ * "took no variable" and let the next claim run without them. This holds no
+ * value, `storedEntries` still cannot read it, so the claim keeps refusing,
+ * and the purge does not pick it again.
+ */
+export const UNREADABLE_ENV_START = { entries: [], unreadable: true } as const;
+
+/**
  * Drops the copied values of sessions that kept them past retention, so a
  * paused or stopped session does not hold a variable that was deleted long
  * ago. Names and versions stay; the next claim refuses the snapshot. Returns
- * how many sessions it changed. Nothing schedules it yet: the claim already
- * refuses an expired snapshot, this only shortens how long the value is stored.
+ * how many sessions it changed; a dry run counts them, rows another
+ * transaction holds included. The reconciler runs it every pass. The claim
+ * already refuses an expired snapshot, so this only shortens how long the
+ * value is stored.
  */
 export async function purgeExpiredEnvStart(
   db: Database,
-  options: { limit: number; retentionMs?: number },
+  options: { limit: number; dryRun: boolean; retentionMs?: number },
 ): Promise<number> {
   const cutoff = new Date(
     (await dbNow(db)).getTime() -
       (options.retentionMs ?? ENV_START_RETENTION_MS),
   ).toISOString();
-  const { rows } = (await db.execute(sql`
-    UPDATE sessions SET env_start = env_start_without_values(env_start)
-    WHERE id IN (
-      SELECT id FROM sessions
-      WHERE admission_state <> 'closed'
-        AND env_start IS NOT NULL
-        -- CASE keeps the cast from running on text that is not a timestamp. A
-        -- stamp that does not parse counts as expired: the claim refuses such
-        -- a snapshot anyway, so its values have no use left.
-        AND CASE
-          WHEN pg_input_is_valid(env_start ->> 'captured_at', 'timestamptz')
-          THEN (env_start ->> 'captured_at')::timestamptz < ${cutoff}::timestamptz
-          ELSE true
-        END
-        AND env_start IS DISTINCT FROM env_start_without_values(env_start)
-      ORDER BY id
-      LIMIT ${options.limit}
-      FOR UPDATE SKIP LOCKED
+  // The last two conditions repeat the predicate of
+  // sessions_env_start_values_idx (migration 0271), so the pass reads only
+  // sessions that still hold a value. Change one and the other follows.
+  const expired = sql`
+    SELECT id FROM sessions
+    WHERE admission_state <> 'closed'
+      -- CASE keeps the cast from running on text that is not a timestamp. A
+      -- stamp that does not parse counts as expired: the claim refuses such
+      -- a snapshot anyway, so its values have no use left.
+      AND CASE
+        WHEN pg_input_is_valid(env_start ->> 'captured_at', 'timestamptz')
+        THEN (env_start ->> 'captured_at')::timestamptz < ${cutoff}::timestamptz
+        ELSE true
+      END
+      AND env_start IS NOT NULL
+      AND env_start IS DISTINCT FROM env_start_without_values(env_start)
+    ORDER BY id
+    LIMIT ${options.limit}`;
+  const result = await db.execute(
+    options.dryRun
+      ? expired
+      : sql`
+    UPDATE sessions SET env_start = COALESCE(
+      env_start_without_values(env_start),
+      ${JSON.stringify(UNREADABLE_ENV_START)}::jsonb
     )
-    RETURNING id`)) as { rows: { id: string }[] };
-  return rows.length;
+    WHERE id IN (${expired} FOR UPDATE SKIP LOCKED)
+    RETURNING id`,
+  );
+  return rowsOf<{ id: string }>(result).length;
 }
 
 /**

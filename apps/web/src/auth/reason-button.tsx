@@ -1,25 +1,5 @@
-import type { SessionScope } from "@werft-ai/contracts";
 import { DisabledReason } from "@werft-ai/ui";
 import type { ButtonHTMLAttributes } from "react";
-import { useI18n } from "../i18n/i18n.tsx";
-import { useCan } from "./guard.tsx";
-
-export interface GuardedButtonProps
-  extends ButtonHTMLAttributes<HTMLButtonElement> {
-  readonly scope: SessionScope;
-}
-
-/** A button that stays visible but inert, saying why, without the scope. */
-export function GuardedButton({ scope, ...rest }: GuardedButtonProps) {
-  const allowed = useCan(scope);
-  const { t } = useI18n();
-  return (
-    <ReasonButton
-      {...rest}
-      reason={allowed ? undefined : t("guard.missingScope", { scope })}
-    />
-  );
-}
 
 export interface ReasonButtonProps
   extends ButtonHTMLAttributes<HTMLButtonElement> {

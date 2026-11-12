@@ -11,7 +11,7 @@ import {
 } from "../shared/index.ts";
 import { sessionScopeSchema } from "./authorization.ts";
 
-// API keys issued from the web or the API (design 4.2). A personal key acts
+// API keys issued from the web or the API. A personal key acts
 // as the person who made it; an agent key belongs to one agent and reaches
 // that agent's sessions only. No key reaches a whole workspace.
 
@@ -127,7 +127,6 @@ export const revokeApiKeyResponseSchema = z
   })
   .strict();
 
-export type ApiKeyKind = z.infer<typeof apiKeyKindSchema>;
 export type ApiKeyView = z.infer<typeof apiKeyViewSchema>;
 export type CreateApiKeyRequest = z.infer<typeof createApiKeyRequestSchema>;
 export type CreateApiKeyResponse = z.infer<typeof createApiKeyResponseSchema>;

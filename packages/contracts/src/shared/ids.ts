@@ -38,7 +38,7 @@ export const grantIdSchema = z.uuid();
 export const agentIdSchema = z.uuid();
 export const agentVersionIdSchema = z.uuid();
 // Derived: sha256 over the canonical release tuple, not a generated uuid
-// (03 §4.1 `deriveReleaseId`).
+// (`deriveReleaseId`).
 export const agentReleaseIdSchema = opaqueIdSchema;
 export const surfaceBindingIdSchema = z.uuid();
 export const sessionLinkIdSchema = z.uuid();
@@ -77,10 +77,4 @@ export function pageSchema<T extends z.ZodType>(item: T) {
   });
 }
 
-export type SessionIdParams = z.infer<typeof sessionIdParamsSchema>;
-export type TurnIdParams = z.infer<typeof turnIdParamsSchema>;
-export type ReceiptIdParams = z.infer<typeof receiptIdParamsSchema>;
-export type IdempotencyKeyHeaders = z.infer<typeof idempotencyKeyHeadersSchema>;
-export type LastEventIdHeaders = z.infer<typeof lastEventIdHeadersSchema>;
-export type OpaqueCursor = z.infer<typeof opaqueCursorSchema>;
 export type PaginationQuery = z.infer<typeof paginationQuerySchema>;

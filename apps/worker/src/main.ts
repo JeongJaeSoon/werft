@@ -1,12 +1,11 @@
 import { lstat, mkdir } from "node:fs/promises";
 import { WORKER_EXIT_LEASE_LOST } from "@werft-ai/contracts";
-import { DEFAULT_WORKSPACE_QUOTA_MB } from "@werft-ai/contracts/execution";
 
 import { createWorkerHost } from "./composition.ts";
 import { type WorkerEnvironment, workerConfigFromEnv } from "./config.ts";
-import { consoleLogger } from "./console-logger.ts";
+import { createConsoleLogger } from "./console-logger.ts";
+import { denySameUserInspection } from "./process-hardening.ts";
 import type { WorkerHost, WorkerRunSummary } from "./worker-host.ts";
-import type { WorkspaceLimitEvidence } from "./workspace-limit-mode.ts";
 import { WorkspaceObserver } from "./workspace-observer.ts";
 
 const DRAIN_SIGNALS = ["SIGTERM", "SIGINT"] as const;
@@ -21,26 +20,15 @@ export async function main(
 ): Promise<WorkerRunSummary> {
   const config = workerConfigFromEnv(environment);
   await verifyWorkspace(config.runtime.cwd);
-  const requestedBytes = Number(environment.WORKER_WORKSPACE_QUOTA_BYTES);
+  const logger = createConsoleLogger({ level: environment.LOG_LEVEL });
   const observer = new WorkspaceObserver(
-    {
-      root: environment.WORKER_WORKSPACE_MOUNT_DIR ?? config.runtime.cwd,
-      evidence: workspaceEvidenceFromEnv(environment),
-    },
-    consoleLogger,
+    { root: config.workspace.mountDir, evidence: config.workspace.evidence },
+    logger,
   );
   observer.start();
   const host = createWorkerHost(config, {
-    workspaceQuota: {
-      observer,
-      limits: {
-        bytes:
-          Number.isSafeInteger(requestedBytes) && requestedBytes > 0
-            ? requestedBytes
-            : DEFAULT_WORKSPACE_QUOTA_MB * 1024 * 1024,
-        inodes: 1_000_000,
-      },
-    },
+    logger,
+    workspaceQuota: { observer, limits: config.workspace.quota },
   });
   const release = drainOnSignals(host);
   try {
@@ -49,30 +37,6 @@ export async function main(
     release();
     observer.stop();
   }
-}
-
-export function workspaceEvidenceFromEnv(
-  environment: NodeJS.ProcessEnv,
-): WorkspaceLimitEvidence {
-  const requestedBytes = Number(environment.WORKER_WORKSPACE_QUOTA_BYTES);
-  const pvcCapacityBytes = Number(
-    environment.WORKER_WORKSPACE_PVC_CAPACITY_BYTES,
-  );
-  const quotaMode = environment.WORKER_WORKSPACE_QUOTA_MODE;
-  return {
-    ...(Number.isSafeInteger(pvcCapacityBytes) && pvcCapacityBytes > 0
-      ? { pvcCapacityBytes }
-      : {}),
-    ...(Number.isSafeInteger(requestedBytes) && requestedBytes > 0
-      ? { requestedBytes }
-      : {}),
-    ...(quotaMode === "enforced" || quotaMode === "off"
-      ? { localQuota: quotaMode }
-      : {}),
-    ...(environment.WORKER_WORKSPACE_ENFORCED_BY_STORAGE === "true"
-      ? { enforcedByStorage: true }
-      : {}),
-  };
 }
 
 /** Hands each drain signal to the host until the returned function is called. */
@@ -118,6 +82,9 @@ export function exitCodeFor(summary: WorkerRunSummary): number {
 }
 
 if (import.meta.main) {
+  // First: before the launch environment is read and long before anything
+  // that could read this process back is started.
+  denySameUserInspection();
   // Exits rather than waiting for the event loop to drain: a request the
   // shutdown stopped waiting for inside the stop grace would otherwise keep
   // the process alive for its full timeout, into the launcher's SIGKILL.

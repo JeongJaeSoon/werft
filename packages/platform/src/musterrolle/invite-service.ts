@@ -13,12 +13,10 @@ import type {
   InviteStore,
   MemberRecord,
 } from "../ports/identity-store.ts";
-import {
-  requirePermitted,
-  SessionServiceError,
-} from "../sessions/session-service.ts";
 import { assignableRoles, memberActions } from "./member-rules.ts";
 import type { AuthorizationPolicy, Caller } from "./policy.ts";
+import { requirePermitted } from "./require-permitted.ts";
+import { SessionServiceError } from "./service-errors.ts";
 
 export const INVITE_TTL_MS = INVITE_TTL_DAYS * 24 * 60 * 60 * 1000;
 
@@ -57,7 +55,7 @@ const OWNER_PROTECTED = () =>
   );
 
 /**
- * Invites and roles (94S-153). Every entry point asks the policy for
+ * Invites and roles. Every entry point asks the policy for
  * `member.manage` first, so which roles may manage members is the policy's
  * table, not this file's. That an admin cannot touch the owner role is the
  * store's to say: it reads both roles inside the change's transaction.

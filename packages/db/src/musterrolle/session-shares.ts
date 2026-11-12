@@ -6,6 +6,7 @@ import type {
   SetSessionShareInput,
   SetSessionShareResult,
 } from "@werft-ai/platform";
+import { receiptActorOf } from "@werft-ai/platform";
 import {
   and,
   asc,
@@ -16,7 +17,7 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
-import { lockPeople, receiptActorOf } from "../control-shared.ts";
+import { lockPeople, UUID } from "../control-shared.ts";
 import type { Database } from "../queries.ts";
 import {
   agentReleases,
@@ -31,11 +32,9 @@ import {
 import { outsidersSeeAgentSessions } from "../workspace-settings.ts";
 import { administers, insideAgent } from "./administers.ts";
 
-// Session share scopes (94S-584, design 4.6). Lock order: the people
+// Session share scopes (design 4.6). Lock order: the people
 // involved (users, then memberships), the session, the named teams, then the
 // share row; the whole order is in requester-locks.ts.
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const uuidOrNull = (value: string | null) =>
   value !== null && UUID.test(value) ? value.toLowerCase() : null;

@@ -3,6 +3,7 @@ import type { SessionSummary } from "@werft-ai/contracts";
 
 import { buildRunTree, type RunTreeFrame } from "../../run-tree.ts";
 import { arrangeBoard, mapSessionOf, runNodesOf } from "./board-data.ts";
+import { laneOf } from "./lane-board.tsx";
 import { AGENT_MAP_MESSAGES } from "./messages.ts";
 import type { MapSession } from "./types.ts";
 
@@ -174,6 +175,37 @@ describe("mapSessionOf", () => {
         request: { kind: "permission", prompt: null },
       }),
     ).toBe("Bash · npm test");
+  });
+
+  test("a session that waits on a recovery decision says so and stays in the attention lane", () => {
+    const working = activity({
+      last: { kind: "tool", name: "Bash", target: "bun test" },
+    });
+    // A terminate that cut a running turn leaves it stopped, not failed.
+    for (const status of ["stopped", "failed"] as const) {
+      const waiting = mapSessionOf(
+        summary({
+          status,
+          admission_state: "recovery_required",
+          activity: working,
+        }),
+        NOW,
+        KO,
+      );
+      expect(waiting.note).toBe("복구 결정을 기다리는 중");
+      expect(laneOf(waiting)).toBe("attention");
+    }
+    const ended = mapSessionOf(
+      summary({
+        status: "stopped",
+        admission_state: "stopped",
+        activity: working,
+      }),
+      NOW,
+      KO,
+    );
+    expect(ended.note).toBe("Bash · bun test");
+    expect(laneOf(ended)).toBe("done");
   });
 
   test("a call that is only running is not a request", () => {

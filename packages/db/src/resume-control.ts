@@ -16,7 +16,7 @@ import {
   type IdempotencyScope,
 } from "./control-shared.ts";
 import { dbNow } from "./db-clock.ts";
-import { awaitingInputAt, publicStatus } from "./decision/pending-requests.ts";
+import { awaitingInputAt, publicStatus } from "./decision/pending-status.ts";
 import type { Database } from "./queries.ts";
 import {
   attempts,
@@ -242,7 +242,7 @@ type ResumeContext = {
 };
 
 /**
- * api.md § 일시 중지와 저장 상태, the pause family. From `paused` the
+ * The pause family. From `paused` the
  * session goes `resuming` and a new worker is launched to restore the
  * pause's checkpoint; the receipt succeeds only once that worker reports
  * ready. From `pausing`, before the stop intent, the resume cancels the

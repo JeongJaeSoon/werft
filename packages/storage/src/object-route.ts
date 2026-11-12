@@ -147,7 +147,7 @@ const OPERATION_IDS: Record<Operation, string> = {
  * SigV4's URI encoding: RFC 3986 unreserved characters stay, everything
  * else is percent-encoded — `encodeURIComponent` less the five it spares.
  */
-export function awsUriEncode(value: string): string {
+function awsUriEncode(value: string): string {
   return encodeURIComponent(value).replace(
     /[!'()*]/g,
     (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,

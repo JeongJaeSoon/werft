@@ -89,7 +89,7 @@ packages/observability/src/
 
 `packages/observability/package.json`의 `exports`는 지금 `"./src/index.ts"` 하나다. T1가 이것을 맵으로 바꿔 `"."`(위 index)와 `"./otel"`(= `src/tracing/otel-tracer.ts`) 두 입구를 낸다. `./otel`이 `createOtelTracer(config: OtelTracerConfig): Tracer & { shutdown(): Promise<void> }`를 내보내고, 조립 지점(control-host 기동, worker 기동)만 이 입구를 import한다. `OtelTracerConfig`는 6절 키를 파싱한 값(엔드포인트, 프로토콜, 헤더, 테넌트 해석 함수, sampler)이고, exporter를 바꿔 끼울 수 있도록 `exporter?: SpanExporterLike`(SDK의 `SpanExporter`와 구조가 같은 최소 인터페이스)를 받는다. worker는 이 자리에 ingest로 보내는 exporter를 넣는다.
 
-- **쓰는 쪽이 여럿이라 소유자는 가장 낮은 공용 패키지다.** tracer를 직접 부르는 곳은 control-host(요청 미들웨어), worker, Claude adapter다. `packages/db`는 이미 `observability`에 의존하고(`packages/db/package.json`), 어댑터에도 허용된다(열린 PR JeongJaeSoon/werft#1498의 규칙 R2: 어댑터는 `platform`, `contracts`, `observability`, `storage`에 의존할 수 있다). `observability`는 workspace 의존이 없는 말단이다. 그래서 인터페이스를 `platform`에 두지 않고 `observability`에 둔다.
+- **쓰는 쪽이 여럿이라 소유자는 가장 낮은 공용 패키지다.** tracer를 직접 부르는 곳은 control-host(요청 미들웨어), worker, Claude adapter다. `packages/db`는 이미 `observability`에 의존하고(`packages/db/package.json`), 어댑터에도 허용된다([surface·action 모듈](surface-action-modules.md#8-의존-방향-규칙)의 규칙 R2: 어댑터는 `platform`, `contracts`, `observability`, `storage`에 의존할 수 있다). `observability`는 workspace 의존이 없는 말단이다. 그래서 인터페이스를 `platform`에 두지 않고 `observability`에 둔다.
 - **platform은 `Tracer`를 import하지 않는다.** `tests/architecture.test.ts`의 "platform depends on contracts, runtime-core and zod only"(`:1057`)는 그대로 둔다. turn을 큐에 넣을 때 필요한 것은 tracer가 아니라 저장할 문자열이므로, control-host가 요청 span의 `traceparent` 문자열을 turn 큐 입력(`enqueueWithin`, `packages/db/src/enqueue.ts`)에 데이터로 넘기고 platform은 이를 통과시키기만 한다. 이 규칙을 바꾸는 PR은 이 설계에 없다.
 - **SDK는 어댑터 뒤에 가둔다(의존성 역전).** `@opentelemetry/*`를 import하는 파일은 `otel-tracer.ts` 하나다. 서비스 코드는 `Tracer`만 안다. 조립 지점이 `OTEL_TRACES_EXPORTER`에 따라 `createOtelTracer(...)` 또는 `noopTracer`를 넘긴다.
 - **새 의존성은 필요한 만큼만.** `@opentelemetry/api@1.9.0`은 이미 전이 의존이다. 어댑터는 공식 SDK(`sdk-trace-base`와 `exporter-trace-otlp-proto`)를 쓰고, OTLP protobuf 직렬화를 직접 쓰지 않는다. 직접 쓰는 안은 기각한다. 프로토콜 기본값이 `http/protobuf`이고 재시도·배치·압축을 다시 만드는 비용이 의존성 하나보다 크다.
@@ -414,7 +414,7 @@ claude adapter  packages/adapters/runtimes/claude: canUseTool·PreToolUse 자리
   ```
 
   worker는 **트레이스 설정과 상관없이 항상** 실제 구현을 넣는다. 감사 보고는 내구 기록이므로 telemetry가 꺼진 기본 설치에서도 켜져 있어야 한다. 아무것도 하지 않는 구현은 adapter를 worker 밖에서 쓰는 곳(시험, 도구)에만 들어간다. `RuntimeHooks`에 메서드를 더하지 않는 이유는, 판정을 알리는 일과 사람에게 묻는 일(`onPermission`)이 다른 능력이어서다(ISP).
-- **platform 안의 위치.** 새 파일이 없다. 기존 `worker-gateway`와 `WorkerUnitOfWork`의 입력만 늘어나므로, 열린 구조화 설계([패키지 구조화](package-structure.md), 열린 PR JeongJaeSoon/werft#1498)가 `workers/`나 `decision-log`를 어디로 옮기든 따라간다. 이 문서는 새 도메인 폴더를 만들지 않는다.
+- **platform 안의 위치.** 새 파일이 없다. 기존 `worker-gateway`와 `WorkerUnitOfWork`의 입력만 늘어나므로, 구조화 설계([패키지 구조화](package-structure.md))가 `workers/`나 `decision-log`를 어디로 옮기든 따라간다. 이 문서는 새 도메인 폴더를 만들지 않는다.
 - **하지 않는 것:** 구현 없는 어댑터, 던지기만 하는 빈 구현, 쓰는 곳이 없는 읽기 인터페이스(`ToolCallAuditReader`). 읽는 API는 아직 없다(`authz_decisions`도 SQL로 읽는다).
 
 ### 7.7 쓰는 시점, 실패, 보존
@@ -582,8 +582,3 @@ T5, T3 ··> X1   (관련. 착수 전에 범위를 나눈다)
 | `Tracer` 인터페이스를 platform에 둔다 | 쓰는 곳이 db 아래 레이어와 worker까지 걸쳐 있다(3.1절) |
 | 도구 호출 감사에 입력 원문·요약을 남긴다 | 7.5절 |
 | 감사 보존 기간을 별도 설정으로 둔다 | 같은 "감사" 설정이 둘이 된다(7.7절) |
-
-## 10. 검증한 것
-
-- 인용한 `파일:줄`은 머지 직전 `origin/main`에서 `git show origin/main:<path> | sed -n '<줄>p'`로 다시 읽었다(PR 본문에 출력을 적는다).
-- 이 문서가 다루는 숫자·이름은 티켓 본문(방향 결정 티켓과 T1~T5, T3, T9, X1)과 코드에서 읽었고, 코드에 없는 것은 "정한다"로 적었다.

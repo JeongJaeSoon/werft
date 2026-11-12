@@ -12,8 +12,9 @@ const { render, screen, waitFor, within } = await setupDom();
 // After the DOM exists: the router and Testing Library look for it on load.
 const { createMemoryHistory } = await import("@tanstack/react-router");
 const { App } = await import("./app.tsx");
-const { GuardedButton } = await import("./auth/reason-button.tsx");
-const { I18nProvider } = await import("./i18n/i18n.tsx");
+const { useCan } = await import("./auth/guard.tsx");
+const { ReasonButton } = await import("./auth/reason-button.tsx");
+const { I18nProvider, useI18n } = await import("./i18n/i18n.tsx");
 const { createServices } = await import("./services.tsx");
 const { WerftProvider } = await import("@werft-ai/react");
 
@@ -379,6 +380,25 @@ describe("bootstrap", () => {
 });
 
 describe("권한 없는 버튼", () => {
+  // What a screen does with a scope: the reason is set while it is missing.
+  function RecoverButton({ onClick }: { onClick: () => void }) {
+    const allowed = useCan("sessions:recover");
+    const { t } = useI18n();
+    return (
+      <ReasonButton
+        type="submit"
+        onClick={onClick}
+        reason={
+          allowed
+            ? undefined
+            : t("guard.missingScope", { scope: "sessions:recover" })
+        }
+      >
+        복구
+      </ReasonButton>
+    );
+  }
+
   async function renderButton(scopes: Parameters<typeof me>[0]) {
     const services = createServices({ baseUrl: "https://console.test" });
     const { queryClient } = services;
@@ -400,13 +420,7 @@ describe("권한 없는 버튼", () => {
               }}
             >
               <input aria-label="이름" />
-              <GuardedButton
-                scope="sessions:recover"
-                type="submit"
-                onClick={() => pressed.push("click")}
-              >
-                복구
-              </GuardedButton>
+              <RecoverButton onClick={() => pressed.push("click")} />
             </form>
           </WerftProvider>
         </QueryClientProvider>

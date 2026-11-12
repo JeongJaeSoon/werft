@@ -6,7 +6,7 @@ import type {
   SlackAppState,
   WorkspaceRole,
 } from "@werft-ai/contracts";
-import type { Principal } from "../musterrolle/policy.ts";
+import type { Principal } from "../musterrolle/index.ts";
 import type { SecretSummary } from "./secret-store.ts";
 
 /** What Slack answers to `apps.manifest.create`; the secrets are stored, never shown. */

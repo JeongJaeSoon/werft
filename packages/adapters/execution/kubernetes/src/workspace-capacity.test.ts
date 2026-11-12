@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { KubernetesApiError } from "./client.ts";
-import { FakeKubernetes } from "./fake-client.ts";
 import { workerEnvironmentFor } from "./specs.ts";
-import { testConfig } from "./testing.ts";
+import { FakeKubernetes } from "./testing/fake-client.ts";
+import { testConfig } from "./testing/index.ts";
 import { storageBytes, workspaceCapacity } from "./workspace-capacity.ts";
 
 test("PVC capacity is read from status, never inferred from its request", async () => {

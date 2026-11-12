@@ -14,7 +14,7 @@ const RANK: Record<GitHubAppPermissionLevel, number> = {
 };
 
 /** contracts githubPermissionsMissing; apps/web imports only its types. */
-export function githubPermissionsMissing(
+function githubPermissionsMissing(
   granted: GitHubAppPermissions,
   asked: GitHubAppPermissions,
 ): string[] {
@@ -44,7 +44,7 @@ export type OfferedFeature = (typeof OFFERED_FEATURES)[number];
 export type Feature = "base" | OfferedFeature;
 
 /** What each feature's token asks its role's App for (contracts githubPermissionsFor). */
-export const FEATURE_NEED: Record<Feature, GitHubAppPermissions> = {
+const FEATURE_NEED: Record<Feature, GitHubAppPermissions> = {
   base: { contents: "write", pull_requests: "write", metadata: "read" },
   actions: { actions: "write" },
   workflows: { workflows: "write" },
@@ -52,11 +52,11 @@ export const FEATURE_NEED: Record<Feature, GitHubAppPermissions> = {
   merge: { contents: "write", pull_requests: "read" },
 };
 
-export const roleOf = (feature: Feature): GitHubAppRole =>
+const roleOf = (feature: Feature): GitHubAppRole =>
   feature === "review" ? "reviewer" : "author";
 
 /** The features on under the ceiling, writing a PR always among them. */
-export function featuresOn(ceiling: GitHubCeiling): Feature[] {
+function featuresOn(ceiling: GitHubCeiling): Feature[] {
   return ["base", ...OFFERED_FEATURES.filter((feature) => ceiling[feature])];
 }
 

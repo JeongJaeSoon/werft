@@ -19,17 +19,6 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-// Every key a codec adds to an event's data.
-export const NEUTRAL_FIELD_KEYS = [
-  "text",
-  "thinking",
-  "tool_call",
-  "tool_result",
-  "engine_event",
-  "turn",
-  "runtime",
-] as const;
-
 /**
  * The data with the neutral fields stored beside it (`events.neutral`) that
  * it lacks: a key the data holds itself is kept as it is.

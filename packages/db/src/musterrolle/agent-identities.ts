@@ -9,8 +9,9 @@ import type {
   SlackEventAgent,
   SlackEventKey,
 } from "@werft-ai/platform";
+import { receiptActorOf } from "@werft-ai/platform";
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
-import { receiptActorOf } from "../control-shared.ts";
+import { UUID } from "../control-shared.ts";
 import { DB_NOW } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
 import {
@@ -29,8 +30,6 @@ import {
 // Lock order: the actor's membership, the agent, the install, the identity
 // rows, the agent's surface bindings, then the credential name, as the api
 // key, surface binding and credential binding stores take theirs.
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const columns = {
   id: agentIdentities.id,
@@ -188,7 +187,7 @@ async function link(
     }
     const id = randomUUID();
     // The bot token's name is this identity's alone: no agent may be bound
-    // to it, nor another identity (94S-581).
+    // to it, nor another identity.
     const bound = await bindCredentialRef(tx, {
       id: randomUUID(),
       workspaceId,

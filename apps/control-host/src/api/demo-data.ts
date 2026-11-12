@@ -1,9 +1,7 @@
-import * as schema from "@werft-ai/db";
 import { createPostgresSettingsDocumentStore } from "@werft-ai/db";
-import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
 import { createLogger } from "@werft-ai/observability";
-import type { CatalogProviderConfig } from "@werft-ai/platform";
-import { drizzle } from "drizzle-orm/node-postgres";
+import { type CatalogProviderConfig, messageOf } from "@werft-ai/platform";
+import { withJobDatabase } from "../job-database.ts";
 import {
   DEMO_ACCOUNTS,
   DEMO_PASSWORD,
@@ -61,7 +59,7 @@ type DemoAgent = {
   repositoryId?: string;
 };
 
-export const DEMO_AGENTS: readonly DemoAgent[] = [
+const DEMO_AGENTS: readonly DemoAgent[] = [
   {
     slug: "release-notes",
     name: "릴리스 노트 작성",
@@ -350,7 +348,7 @@ export class DemoClient {
         }
         last = `answered ${response.status}`;
       } catch (error) {
-        last = error instanceof Error ? error.message : String(error);
+        last = messageOf(error);
       }
     }
     throw new Error(`signing out failed: ${last}`);
@@ -690,7 +688,7 @@ export type DemoDataOutcome = {
  * session title (an untitled one by its first message), and leaves every
  * existing row alone. The demo accounts must exist already.
  */
-export async function seedDemoData(base: string): Promise<DemoDataOutcome[]> {
+async function seedDemoData(base: string): Promise<DemoDataOutcome[]> {
   const clients = {} as Record<Role, DemoClient>;
   for (const account of DEMO_ACCOUNTS) {
     clients[account.role] = new DemoClient(base);
@@ -810,24 +808,20 @@ async function seedAs(
 async function storedConnections(): Promise<
   Record<string, CatalogProviderConfig>
 > {
-  const pool = createEnforcedPool(
+  return withJobDatabase(
+    "demo-data",
     demoDatabaseUrl(process.env),
     createLogger(),
-    "demo-data",
-    JOB_POOL_TIMEOUTS,
+    async ({ db }) => {
+      const rows =
+        await createPostgresSettingsDocumentStore(db).listRows("connection");
+      return Object.fromEntries(
+        rows
+          .filter((row) => row.disabledAt === null)
+          .map((row) => [row.id, row.entry as CatalogProviderConfig]),
+      );
+    },
   );
-  try {
-    const rows = await createPostgresSettingsDocumentStore(
-      drizzle(pool, { schema }),
-    ).listRows("connection");
-    return Object.fromEntries(
-      rows
-        .filter((row) => row.disabledAt === null)
-        .map((row) => [row.id, row.entry as CatalogProviderConfig]),
-    );
-  } finally {
-    await pool.end();
-  }
 }
 
 async function main(): Promise<void> {
@@ -839,7 +833,7 @@ async function main(): Promise<void> {
     try {
       refusal = demoDataRefusal(process.env, await storedConnections());
     } catch (error) {
-      refusal = `cannot read the connections: ${error instanceof Error ? error.message : String(error)}`;
+      refusal = `cannot read the connections: ${messageOf(error)}`;
     }
   }
   if (refusal) {

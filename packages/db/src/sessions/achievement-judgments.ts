@@ -21,6 +21,7 @@ import {
   type JudgmentEgressStore,
   MANAGEMENT_ROLES,
   type OutcomeEvidence,
+  receiptActorOf,
 } from "@werft-ai/platform";
 import {
   and,
@@ -36,8 +37,7 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
-import { findPgError, lockPeople, receiptActorOf } from "../control-shared.ts";
-import { rowsOf } from "../control-unit-of-work.ts";
+import { findPgError, lockPeople } from "../control-shared.ts";
 import { lockedAdministers } from "../musterrolle/agent-admins.ts";
 import type { Database } from "../queries.ts";
 import {
@@ -54,6 +54,7 @@ import {
   workspaces,
 } from "../schema.ts";
 import { resultTextOf } from "../session-titles.ts";
+import { rowsOf } from "../statement-rows.ts";
 import { managing } from "./achievement-rules.ts";
 import { lockSessionReach } from "./requester-locks.ts";
 

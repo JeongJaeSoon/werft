@@ -24,7 +24,7 @@ import { lockAgentAccessSettings } from "../workspace-settings.ts";
 // A session create, input or answer is decided by the policy before its
 // write opens, so the write judges the requester and their reach again over
 // share-locked rows: a revocation that commits since either waits for the
-// write or is seen by it (94S-834). Every such write, and every write that
+// write or is seen by it. Every such write, and every write that
 // revokes what they rely on, takes rows in this one order:
 //
 //   user → membership → linked account → api key → session → workspace →
@@ -155,7 +155,7 @@ export async function keyReaches(
 
 /**
  * Whether the requester may use `releaseId`'s agent, judged again over the
- * rows the policy's usage decision rests on (94S-901): agent, agent_usage,
+ * rows the policy's usage decision rests on: agent, agent_usage,
  * every team it reads in id order, relation rows, member rows, in one pass
  * (`usageOf`). Take it before any helper that locks teams (lockAgentUse,
  * lockSessionReach): a team's archive holds agent_usage and then the team,

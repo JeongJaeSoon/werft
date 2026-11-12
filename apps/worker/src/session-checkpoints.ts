@@ -77,9 +77,9 @@ import {
   stageCheckpointBundle,
   stagedInstructions,
 } from "./checkpoint-restore.ts";
+import type { WorkerLogger } from "./console-logger.ts";
 import { messageOf as describe } from "./message-of.ts";
 import { isObjectStoreOutage } from "./object-store.ts";
-import type { WorkerLogger } from "./worker-host.ts";
 import {
   committedInstructionsOf,
   storableRepositoryUrl,
@@ -775,6 +775,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
   ): Promise<CheckpointRef | null> {
     const bound = this.#bound;
     if (bound === undefined) return null;
+    const log = this.#captureLogger(context);
     let stage = "request";
     let revision: number | null = null;
     let manifestRef: string | null = null;
@@ -788,7 +789,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       if (preparation.status === "rejected") {
         outcome = "refused";
         reasonCode = preparation.reason;
-        await this.#report(preparation, context.scope);
+        await this.#report(preparation, context.scope, log);
         if (preparation.reason !== "mirror_error") {
           await this.#reportLostMirror(bound, context, undefined);
         }
@@ -817,7 +818,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         if (answer.status === "blocked") {
           outcome = "blocked";
           reasonCode = answer.reason;
-          this.#options.logger.warn("worker.checkpoint.blocked", {
+          log.warn("worker.checkpoint.blocked", {
             reason: answer.reason,
             detail: answer.detail,
           });
@@ -844,7 +845,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         const failedAt = error instanceof PublishFailure ? error.stage : stage;
         outcome = error instanceof PublishFailure ? "refused" : "failed";
         reasonCode = failedAt;
-        this.#options.logger.warn("worker.checkpoint.failed", {
+        log.warn("worker.checkpoint.failed", {
           stage: failedAt,
           category: error instanceof PublishFailure ? "refused" : "error",
           reason: describe(error),
@@ -860,6 +861,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         await this.#report(
           { status: "rejected", reason: limit.reason, detail: limit.message },
           context.scope,
+          log,
         );
       }
       const mirrorLost = await this.#reportLostMirror(bound, context, lost);
@@ -870,11 +872,12 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         await this.#report(
           { status: "rejected", reason: "publish_failed", detail: failed },
           context.scope,
+          log,
         );
       }
       return null;
     } finally {
-      this.#options.logger.info("worker.checkpoint.result", {
+      log.info("worker.checkpoint.result", {
         message: "Checkpoint capture finished",
         operation: "checkpoint_capture",
         outcome,
@@ -897,6 +900,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     preparation: ReadyCheckpoint,
     context: CheckpointCaptureContext,
   ): Promise<TranscriptSizeProblem["reason"] | undefined> {
+    const log = this.#captureLogger(context);
     let sizes: Array<{ bytes: number; key: string }> | null;
     try {
       sizes = await bound.store.transcriptSizes(preparation.checkpoint.resume);
@@ -911,6 +915,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     if (problem === undefined) {
       const bytes = transcriptBytes(sizes);
       if (bytes >= transcriptWarnBytes(limits)) {
+        // The session's transcript, whichever capture reads it: no point.
         this.#options.logger.warn("worker.checkpoint.transcript_near_limit", {
           transcript_bytes: bytes,
           limit_bytes: limits.totalBytes,
@@ -918,13 +923,14 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       }
       return undefined;
     }
-    this.#options.logger.warn("worker.checkpoint.transcript_limit", {
+    log.warn("worker.checkpoint.transcript_limit", {
       reason: problem.reason,
       detail: problem.detail,
     });
     await this.#report(
       { status: "rejected", reason: problem.reason, detail: problem.detail },
       context.scope,
+      log,
     );
     await this.#reportLostMirror(bound, context, undefined);
     return problem.reason;
@@ -980,8 +986,21 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     await this.#report(
       { status: "rejected", reason: "mirror_error", detail: lost },
       context.scope,
+      this.#captureLogger(context),
     );
     return true;
+  }
+
+  /** The service's logger, every record also naming the capture's point. */
+  #captureLogger(context: CheckpointCaptureContext): WorkerLogger {
+    const logger = this.#options.logger;
+    const point = context.point ?? "turn_end";
+    const at = (fields?: Record<string, unknown>) => ({ point, ...fields });
+    return {
+      info: (event, fields) => logger.info(event, at(fields)),
+      warn: (event, fields) => logger.warn(event, at(fields)),
+      error: (event, fields) => logger.error(event, at(fields)),
+    };
   }
 
   /**
@@ -996,6 +1015,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
   async #report(
     preparation: RejectedCheckpoint,
     scope: WorkerScope,
+    log: WorkerLogger = this.#options.logger,
   ): Promise<void> {
     try {
       await this.#options.gateway.requestCheckpoint({
@@ -1019,7 +1039,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
           `The transcript is past its limits and the gateway did not record it: ${describe(error)}`,
         );
       }
-      this.#options.logger.warn("worker.checkpoint.report_failed", {
+      log.warn("worker.checkpoint.report_failed", {
         reason: describe(error),
       });
     }
@@ -1121,13 +1141,13 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       scope: context.scope,
       spool,
       ...(bound.judgedTip === undefined ? {} : { judged: [bound.judgedTip] }),
-      logger: this.#options.logger,
+      logger: this.#captureLogger(context),
     });
     if ("head" in repaired && repaired.head !== undefined) {
       bound.judgedTip = repaired.head;
     }
     if (repaired.status !== "clean") {
-      this.#options.logger.info("worker.attribution_repair", {
+      this.#captureLogger(context).info("worker.attribution_repair", {
         status: repaired.status,
         ...("reason" in repaired ? { reason: repaired.reason } : {}),
       });
@@ -1431,7 +1451,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       untracked: manifest.workspace.untracked,
       outputs: storedOutputs(outputs),
     };
-    this.#options.logger.info("worker.checkpoint.published", {
+    this.#captureLogger(context).info("worker.checkpoint.published", {
       revision: request.revision,
       manifest_ref: manifestRef,
       git_commit: capture.gitCommit,

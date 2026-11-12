@@ -7,9 +7,9 @@ import type {
   AgentCallerLimitsStore,
   PutAgentCallerLimitsResult,
 } from "../ports/agent-caller-limits-store.ts";
-import { SessionServiceError } from "../sessions/index.ts";
 import { createAgentCallerLimitsService } from "./agent-caller-limits-service.ts";
 import { callerFor } from "./policy.ts";
+import { SessionServiceError } from "./service-errors.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
 const USER = "019a0000-0000-7000-8000-0000000000c1";

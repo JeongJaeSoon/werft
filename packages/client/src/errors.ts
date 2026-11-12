@@ -85,7 +85,7 @@ export function errorFromResponse(response: Response, body: unknown): ApiError {
   );
 }
 
-export function networkError(cause: unknown): ApiError {
+function networkError(cause: unknown): ApiError {
   return new ApiError(
     0,
     "NETWORK_ERROR",

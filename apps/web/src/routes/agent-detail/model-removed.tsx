@@ -9,12 +9,12 @@ import {
   queryKeysOf,
 } from "../../api/queries.ts";
 import { useRole } from "../../auth/guard.tsx";
+import { agentRefusal } from "../../components/agent-refusal.ts";
 import {
   runsModel,
   successorOf,
 } from "../../components/connection-options.tsx";
 import { useI18n } from "../../i18n/i18n.tsx";
-import { agentRefusal } from "../agents.tsx";
 
 /**
  * Says so when the model the active release runs is no longer on its

@@ -17,7 +17,11 @@ services=$(ap_compose ps --format '{{.Service}} {{.State}} {{.Health}}') || { ec
 echo "$services" | sort
 # /readyz covers the database, schema and config only; sessions also need
 # these running (and healthy where they have a healthcheck).
-for service in api scheduler reconciler postgres localstack fake-git egress-proxy fake-messages secrets; do
+# A Codex run's sessions call the fake Responses API; the overlay that builds
+# the Codex worker is what defines it for the run.
+defined=$(ap_compose config --services) || { echo "doctor: docker compose config failed" >&2; exit 1; }
+codex=$(echo "$defined" | grep -x fake-responses || true)
+for service in api scheduler reconciler postgres localstack fake-git egress-proxy fake-messages secrets $codex; do
   line=$(echo "$services" | awk -v s="$service" '$1 == s')
   case "$line" in
     *" running unhealthy" | *" running starting") echo "doctor: $service is not healthy yet: $line" >&2; exit 1 ;;

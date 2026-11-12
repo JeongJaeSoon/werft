@@ -18,7 +18,7 @@ import {
   publishedImages,
 } from "./chart-package.ts";
 
-export const MANIFEST_SCHEMA = 1;
+const MANIFEST_SCHEMA = 1;
 export const MANIFEST_ASSET = "release-manifest.json";
 
 const APPS = [

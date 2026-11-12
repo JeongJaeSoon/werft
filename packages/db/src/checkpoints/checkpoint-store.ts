@@ -21,7 +21,7 @@ import {
   or,
   sql,
 } from "drizzle-orm";
-import { ENDED_ATTEMPT_STATES, hasRestorePoint } from "../control-shared.ts";
+import { ENDED_ATTEMPT_STATES } from "../control-shared.ts";
 import { DB_NOW } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
 import { RESTORE_FAILURES_CLEARED } from "../restore-failures.ts";
@@ -37,6 +37,7 @@ import {
   unassignedSessions,
 } from "../schema.ts";
 import { openDrainReceipt } from "../sessions/drain.ts";
+import { hasRestorePoint } from "../sessions/pause-policy.ts";
 import { recordEvent, recordStatus } from "../sessions/session-events.ts";
 import { readCheckpointPointer } from "../worker-unit-of-work.ts";
 

@@ -6,8 +6,9 @@
  *
  * Not priced: the Pro, cyber, Rosalind, Law and search models (a model
  * missing here falls to the fallback rate, which is the highest the platform
- * knows), the data-residency uplift (the connection's default endpoint is
- * not a regional one), and the fast tier. `gpt-5.6-sol` is listed at its
+ * knows) and the data-residency uplift (the connection's default endpoint is
+ * not a regional one). The fast tier has no card: it is the multiplier
+ * below, on the table's rates and on the fallback. `gpt-5.6-sol` is listed at its
  * promotional rate until 2026-11-30; the page does not say which of its
  * figures that is, so the table keeps what the page shows and the entry needs
  * a second look then.
@@ -61,11 +62,6 @@ const CARDS: Readonly<Record<string, Card>> = {
   "gpt-5-mini": card(rates(0.25, 0.025, 2)),
   "gpt-5-nano": card(rates(0.05, 0.005, 0.4)),
 };
-
-/** Every short-context rate, for the fallback's "highest of all" rule. */
-export const OPENAI_SHORT_RATES: readonly OpenAiRates[] = Object.values(
-  CARDS,
-).map((entry) => entry.short);
 
 /** Short and long rates both: the fallback must not undercut a long card. */
 export const OPENAI_ALL_RATES: readonly OpenAiRates[] = Object.values(

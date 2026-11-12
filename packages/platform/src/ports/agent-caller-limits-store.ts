@@ -4,13 +4,13 @@ import type {
   AuthorizationSubject,
   WorkspaceRole,
 } from "@werft-ai/contracts";
-import type { CallerLimitDimension } from "../musterrolle/caller-limit.ts";
+import type { CallerLimitDimension } from "../musterrolle/index.ts";
 import type { TeamActor } from "./team-store.ts";
 
 export type { CallerLimitDimension };
 
 /**
- * A stored rule as the enforcement layer reads it (94S-918): every target
+ * A stored rule as the enforcement layer reads it: every target
  * kind the table holds, a person's included, though the v1 API takes none.
  * `repositories` and `mcp_servers` list all the caller may use (`null` no
  * limit, `[]` none); a repository id the catalog no longer holds is not an

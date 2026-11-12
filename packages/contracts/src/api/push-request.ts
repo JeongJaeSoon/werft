@@ -90,7 +90,6 @@ export const PUSH_INTENT_STATUS_VALUES = [
   "cancelled",
 ] as const;
 export const pushIntentStatusSchema = z.enum(PUSH_INTENT_STATUS_VALUES);
-export type PushIntentStatus = z.infer<typeof pushIntentStatusSchema>;
 
 /** Codes an intent ends with; the runner and finalize are the only writers. */
 export const PUSH_INTENT_REFUSAL_VALUES = [
@@ -202,7 +201,6 @@ export const pushRequestParamsSchema = sessionIdParamsSchema.extend({
 
 /** What approved a push: a person's decision, or the policy on its own. */
 export const PUSH_APPROVAL_BASIS_VALUES = ["human", "policy"] as const;
-export type PushApprovalBasis = (typeof PUSH_APPROVAL_BASIS_VALUES)[number];
 
 /**
  * Who decided a push: a person or key, or the policy of a release that

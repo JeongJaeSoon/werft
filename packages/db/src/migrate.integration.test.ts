@@ -17,8 +17,8 @@ import {
 } from "@werft-ai/testkit/postgres";
 import { Pool } from "pg";
 import { migrateDatabase, NO_TRANSACTION_MARKER } from "./migrate.ts";
-import { MIGRATIONS_FOLDER } from "./migration-folder.ts";
 import { expectedMigrations } from "./migration-head.ts";
+import { MIGRATIONS_FOLDER } from "./migration-journal.ts";
 
 const integrationTest = testDatabaseUrl() ? test : test.skip;
 const totalMigrations = expectedMigrations().length;

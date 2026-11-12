@@ -15,6 +15,7 @@ import {
   requestIdSchema,
   revisionSchema,
   sessionIdSchema,
+  sha256HexSchema,
   timestampSchema,
   turnIdSchema,
   userIdSchema,
@@ -108,15 +109,6 @@ export const PERMISSION_MODE_VALUES = [
   "bypassPermissions",
   "auto",
 ] as const;
-// Modes in which no tool call waits for a person (`auto` lets a model
-// classifier decide instead).
-export const UNATTENDED_PERMISSION_MODES = [
-  "bypassPermissions",
-  "auto",
-] as const;
-// The unattended modes nothing judges a call in. The API starts a catalog
-// naming one only when the installation opts in (docs/operator/api-server.md).
-export const OPT_IN_PERMISSION_MODES = ["bypassPermissions"] as const;
 
 export const sessionStatusSchema = z.enum(SESSION_STATUS_VALUES);
 export const admissionStateSchema = z.enum(ADMISSION_STATE_VALUES);
@@ -212,7 +204,9 @@ export const sessionAttentionSchema = z.discriminatedUnion("code", [
   // restore finished. While retry_at is set the next launch waits
   // for it; null means the limit was reached and the session is held in
   // recovery_required. A deterministic runtime mismatch stops after
-  // the first launch with reason incompatible_checkpoint. After the
+  // the first launch with reason incompatible_checkpoint, and an engine
+  // that lacks a feature the settings need after the first launch with
+  // the worker's reason. After the
   // cause is fixed, retry_restore tries the same checkpoint again; start_fresh
   // continues without it, close ends the session. A restore that succeeds
   // clears it.
@@ -224,8 +218,10 @@ export const sessionAttentionSchema = z.discriminatedUnion("code", [
   }),
   // The same for a session with no checkpoint to restore
   // workers kept ending before they were ready for input, while preparing
-  // the workspace or starting the engine. At the limit start_fresh launches
-  // again once the cause is fixed; close ends the session.
+  // the workspace or starting the engine. An engine that lacks a feature
+  // the settings need stops it after the first launch. At the limit
+  // start_fresh launches again once the cause is fixed; close ends the
+  // session.
   z.object({
     code: z.literal("STARTUP_FAILED"),
     reason: z.string().min(1),
@@ -490,7 +486,7 @@ export const sessionExtensionSchema = z
       description:
         "The bundle's plugin slug. Its skills reach the session as `<name>:<skill>`.",
     }),
-    digest: z.string().regex(/^[0-9a-f]{64}$/),
+    digest: sha256HexSchema,
     scope: z.enum(SESSION_EXTENSION_SCOPE_VALUES).meta({
       description:
         "The scope that put the bundle on the session: `workspace` or `agent` required it, or the session's own request turned an `optional` one on.",
@@ -765,7 +761,6 @@ export type ExecutionBackend = z.infer<typeof executionBackendSchema>;
 export type PermissionMode = z.infer<typeof permissionModeSchema>;
 export type SessionRuntime = z.infer<typeof sessionRuntimeSchema>;
 export type SessionRuntimeView = z.infer<typeof sessionRuntimeViewSchema>;
-export type ExecutionObservation = z.infer<typeof executionObservationSchema>;
 export type SessionAttention = z.infer<typeof sessionAttentionSchema>;
 export type PauseBlockedReason = z.infer<typeof pauseBlockedReasonSchema>;
 export type CloseBlockedReason = z.infer<typeof closeBlockedReasonSchema>;
@@ -776,8 +771,6 @@ export type SessionAttachedRepository = z.infer<
 >;
 export type SessionActivity = z.infer<typeof sessionActivitySchema>;
 export type SessionSummary = z.infer<typeof sessionSummarySchema>;
-export type PauseReason = z.infer<typeof pauseReasonSchema>;
-export type InputWaitState = z.infer<typeof inputWaitStateSchema>;
 export type InputWait = z.infer<typeof inputWaitSchema>;
 export type PermissionWaitRequest = z.infer<typeof permissionWaitRequestSchema>;
 export type SessionDetail = z.infer<typeof sessionDetailSchema>;

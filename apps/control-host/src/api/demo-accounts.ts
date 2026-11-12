@@ -1,7 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { lookup as dnsLookup } from "node:dns/promises";
 import { scopesForRole, type WorkspaceRole } from "@werft-ai/contracts";
-import * as schema from "@werft-ai/db";
 import {
   bootstrapOwner,
   countUsers,
@@ -10,11 +9,10 @@ import {
   memberships,
   users,
 } from "@werft-ai/db";
-import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
 import { createLogger } from "@werft-ai/observability";
-import { callerFor, INVITE_TTL_MS } from "@werft-ai/platform";
+import { callerFor, INVITE_TTL_MS, messageOf } from "@werft-ai/platform";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/node-postgres";
+import { withJobDatabase } from "../job-database.ts";
 import {
   generateWebSessionToken,
   hashPassword,
@@ -156,13 +154,13 @@ export async function previewDatabaseRefusal(
   try {
     want = await addresses(service);
   } catch (error) {
-    return `cannot resolve ${service}: ${error instanceof Error ? error.message : String(error)}`;
+    return `cannot resolve ${service}: ${messageOf(error)}`;
   }
   let got: string;
   try {
     got = await addresses(host);
   } catch (error) {
-    return `cannot resolve ${host}: ${error instanceof Error ? error.message : String(error)}`;
+    return `cannot resolve ${host}: ${messageOf(error)}`;
   }
   if (got !== want) {
     return `DATABASE_URL host ${host} does not resolve to ${service}`;
@@ -320,21 +318,16 @@ async function main(): Promise<void> {
     process.exitCode = 2;
     return;
   }
-  const pool = createEnforcedPool(
+  await withJobDatabase(
+    "demo-accounts",
     demoDatabaseUrl(process.env),
     createLogger(),
-    "demo-accounts",
-    JOB_POOL_TIMEOUTS,
+    async ({ db }) => {
+      for (const { email, outcome } of await seedDemoAccounts(db)) {
+        console.log(`${outcome} ${email}`);
+      }
+    },
   );
-  try {
-    for (const { email, outcome } of await seedDemoAccounts(
-      drizzle(pool, { schema }),
-    )) {
-      console.log(`${outcome} ${email}`);
-    }
-  } finally {
-    await pool.end();
-  }
 }
 
 if (import.meta.main) {

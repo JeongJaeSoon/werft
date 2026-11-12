@@ -489,6 +489,15 @@ describe("secretsOf", () => {
   });
 });
 
+/** What the proxy sends the exchange ledger (provider-usage-ledger.md). */
+type LedgerRequest = {
+  op: "open" | "renew";
+  exchange_id: string;
+  session_id?: string;
+  attempt_id?: string;
+  reserve?: Record<string, unknown>;
+};
+
 type UsageReport = {
   exchange_id: string;
   session_id: string;
@@ -557,13 +566,17 @@ describe("startCredentialProxy", () => {
   function authorizer(
     answer: (body: { token: string; purpose: string }) => Response,
     usageAnswer: () => Response = () => Response.json({}),
+    ledgerAnswer: () => Response | Promise<Response> = () =>
+      Response.json({ state: "open" }, { status: 201 }),
   ): {
     url: string;
     asked: Array<{ token: string; purpose: string; path?: string }>;
     reported: UsageReport[];
+    ledgered: LedgerRequest[];
   } {
     const asked: Array<{ token: string; purpose: string; path?: string }> = [];
     const reported: UsageReport[] = [];
+    const ledgered: LedgerRequest[] = [];
     const server = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
@@ -577,6 +590,10 @@ describe("startCredentialProxy", () => {
           reported.push((await request.json()) as UsageReport);
           return usageAnswer();
         }
+        if (new URL(request.url).pathname === "/exchanges") {
+          ledgered.push((await request.json()) as LedgerRequest);
+          return ledgerAnswer();
+        }
         const body = (await request.json()) as {
           token: string;
           purpose: string;
@@ -586,7 +603,12 @@ describe("startCredentialProxy", () => {
       },
     });
     servers.push(server);
-    return { url: `http://127.0.0.1:${server.port}`, asked, reported };
+    return {
+      url: `http://127.0.0.1:${server.port}`,
+      asked,
+      reported,
+      ledgered,
+    };
   }
 
   function granting(url: string, headers: Array<[string, string]>) {
@@ -880,6 +902,70 @@ describe("startCredentialProxy", () => {
       expect(carried.status).toBe(200);
     });
 
+    test("a part or tool six levels down is read, one seven levels down is refused unread", async () => {
+      const up = upstream(() => Response.json({ id: "resp_1" }));
+      const auth = authorizer(bearerKey(up));
+      const server = proxy(auth.url, up.port);
+      // `leaf` at `depth` below the top-level array, which is depth 0: the
+      // array's item is depth 1 and each hop goes one deeper, through the
+      // `key` property or, with no key, through one more array.
+      const nested = (
+        key: string | null,
+        leaf: unknown,
+        depth: number,
+      ): unknown[] => {
+        let value = leaf;
+        for (let hop = 1; hop < depth; hop += 1) {
+          value = key === null ? [value] : { [key]: value };
+        }
+        return [value];
+      };
+      const text = { type: "input_text", text: "hi" };
+      const remote = { type: "input_file", file_id: "file_1" };
+      const local = { type: "function", name: "f" };
+      const outside = { type: "web_search" };
+      const REMOTE = "a file or image the request only names";
+      const TOOL = "a tool the upstream runs on a host";
+      const INPUT_TOOL = "a tool or generated image the upstream keeps";
+      // "ok", or the reason the proxy gave for refusing.
+      const answer = async (request: Record<string, unknown>) => {
+        const response = await responses(server.port, {
+          body: JSON.stringify({ model: "gpt-5.5", ...request }),
+        });
+        return response.status === 200
+          ? "ok"
+          : `${response.status} ${await response.text()}`;
+      };
+
+      // Each walk the checks make: a harmless value at depth six passes, a
+      // harmful one there is read and refused, a harmless one at seven is
+      // refused unread, for the same reason.
+      const walks: [string, string | null, unknown, unknown, string][] = [
+        ["input", "content", text, remote, REMOTE],
+        ["input", "output", text, remote, REMOTE],
+        ["input", null, text, remote, REMOTE],
+        ["tools", "tools", local, outside, TOOL],
+        ["tools", null, local, outside, TOOL],
+        ["input", "tools", local, outside, INPUT_TOOL],
+      ];
+      for (const [field, key, harmless, harmful, reason] of walks) {
+        const at = `${field} through ${key ?? "arrays"}`;
+        expect([
+          at,
+          await answer({ [field]: nested(key, harmless, 6) }),
+        ]).toEqual([at, "ok"]);
+        expect(await answer({ [field]: nested(key, harmful, 6) })).toStartWith(
+          `400 ${reason}`,
+        );
+        expect(await answer({ [field]: nested(key, harmless, 7) })).toStartWith(
+          `400 ${reason}`,
+        );
+      }
+
+      // Only the ones read at depth six and found harmless went upstream.
+      expect(up.seen).toHaveLength(walks.length);
+    });
+
     test("a stored prompt template and a tool that makes the upstream fetch are refused, a local tool is not", async () => {
       const up = upstream(() => Response.json({ id: "resp_1" }));
       const auth = authorizer(bearerKey(up));
@@ -1035,6 +1121,104 @@ describe("startCredentialProxy", () => {
       });
       expect(up.seen).toEqual([]);
     });
+
+    test("opens the call in the exchange ledger before the upstream answers, under the id its report carries", async () => {
+      // The upstream answers only once the open has reached the ledger.
+      let ledgered: LedgerRequest[] = [];
+      const up = upstream(async () => {
+        await until(() => ledgered.length === 1);
+        return Response.json({
+          id: "resp_1",
+          model: "gpt-5.5",
+          usage: { input_tokens: 10, output_tokens: 2 },
+        });
+      });
+      const auth = authorizer(bearerKey(up));
+      ledgered = auth.ledgered;
+      const server = proxy(auth.url, up.port);
+      const body = '{"model":"gpt-5.5","stream":false}';
+      expect((await responses(server.port, { body })).status).toBe(200);
+      await until(() => auth.reported.length === 1);
+      expect(auth.ledgered).toEqual([
+        {
+          op: "open",
+          exchange_id: auth.reported[0]?.exchange_id ?? "",
+          session_id: "sess-1",
+          attempt_id: "att-1",
+          reserve: expect.objectContaining({
+            model: "gpt-5.5",
+            input_tokens: body.length,
+            output_tokens: 32_768,
+            estimated: true,
+          }),
+        },
+      ]);
+      // The ledger has a route of its own: the authorizer was asked once.
+      expect(auth.asked).toHaveLength(1);
+    });
+
+    test("a ledger that refuses, fails or never answers changes nothing for the call", async () => {
+      for (const ledgerAnswer of [
+        () => Response.json({ code: "NOT_FOUND" }, { status: 404 }),
+        () => new Response("down", { status: 503 }),
+        () => new Promise<Response>(() => {}),
+      ]) {
+        const up = upstream(() =>
+          Response.json({
+            id: "resp_1",
+            model: "gpt-5.5",
+            usage: { input_tokens: 10, output_tokens: 2 },
+          }),
+        );
+        const auth = authorizer(bearerKey(up), undefined, ledgerAnswer);
+        const server = proxy(auth.url, up.port);
+        const started = performance.now();
+        const answered = await responses(server.port);
+        expect(answered.status).toBe(200);
+        expect(await answered.json()).toMatchObject({ id: "resp_1" });
+        // Not held for the ledger's 5-second timeout.
+        expect(performance.now() - started).toBeLessThan(2_000);
+        await until(() => auth.reported.length === 1);
+        expect(auth.reported[0]?.usage).toMatchObject({ output_tokens: 2 });
+        expect(auth.ledgered).toHaveLength(1);
+      }
+    }, 20_000);
+
+    test("an open call is renewed in the ledger beside each regrant, and not once it has ended", async () => {
+      const up = upstream(
+        () =>
+          new Response(
+            new ReadableStream({
+              async start(controller) {
+                controller.enqueue(new TextEncoder().encode('{"id":"resp_1",'));
+                await Bun.sleep(250);
+                controller.enqueue(
+                  new TextEncoder().encode(
+                    '"model":"gpt-5.5","usage":{"input_tokens":1,"output_tokens":1}}',
+                  ),
+                );
+                controller.close();
+              },
+            }),
+            { headers: { "content-type": "application/json" } },
+          ),
+      );
+      const auth = authorizer(bearerKey(up));
+      const server = proxy(auth.url, up.port, { regrantIntervalMs: 20 });
+      await (await responses(server.port)).text();
+      await until(() => auth.reported.length === 1);
+      const [open, ...rest] = auth.ledgered;
+      expect(open?.op).toBe("open");
+      expect(rest.length).toBeGreaterThan(0);
+      expect(rest).toEqual(
+        rest.map(() => ({ op: "renew", exchange_id: open?.exchange_id ?? "" })),
+      );
+      // The regrant before each renewal is the authorizer's.
+      expect(auth.asked.length).toBeGreaterThan(rest.length);
+      const after = auth.ledgered.length;
+      await Bun.sleep(150);
+      expect(auth.ledgered).toHaveLength(after);
+    }, 20_000);
 
     test("meters a JSON answer, cached input split out, under the grant's ids", async () => {
       const up = upstream(() =>
@@ -1245,6 +1429,40 @@ describe("startCredentialProxy", () => {
         model: "m",
         input_tokens: 9,
       });
+    });
+
+    test("a Messages call is opened in the ledger and count_tokens is not", async () => {
+      const up = upstream((request) =>
+        new URL(request.url).pathname.endsWith("/count_tokens")
+          ? Response.json({ input_tokens: 12 })
+          : Response.json({ id: "msg_1" }),
+      );
+      const auth = authorizer(provider(up));
+      const server = proxy(auth.url, up.port);
+      await (
+        await messages(server.port, {
+          path: "/provider/v1/messages/count_tokens",
+        })
+      ).text();
+      await Bun.sleep(100);
+      expect(auth.ledgered).toEqual([]);
+      const body = '{"model":"claude-sonnet-4-5","max_tokens":64}';
+      await (await messages(server.port, { body })).text();
+      await until(() => auth.reported.length === 1);
+      expect(auth.ledgered).toEqual([
+        {
+          op: "open",
+          exchange_id: auth.reported[0]?.exchange_id ?? "",
+          session_id: auth.reported[0]?.session_id ?? "",
+          attempt_id: auth.reported[0]?.attempt_id ?? "",
+          reserve: expect.objectContaining({
+            model: "claude-sonnet-4-5",
+            input_tokens: body.length,
+            output_tokens: 64,
+            estimated: true,
+          }),
+        },
+      ]);
     });
 
     test("count_tokens and an error answer report nothing; a success without usage is charged from its request", async () => {
@@ -2331,13 +2549,13 @@ describe("startCredentialProxy", () => {
         body: '{"model":"m"}',
         signal: worker.signal,
       });
+      // A call that fails before the upstream sees it ends the wait too, so
+      // the failure surfaces where the call is awaited, not as a timeout.
       let settled = false;
-      answered.then(
-        () => {
-          settled = true;
-        },
-        () => {},
-      );
+      const settle = () => {
+        settled = true;
+      };
+      answered.then(settle, settle);
       // Past the cap, a refusal comes back without reaching the upstream.
       while (h.up.seen.length === seen && !settled) await Bun.sleep(5);
       let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
@@ -2366,6 +2584,26 @@ describe("startCredentialProxy", () => {
       await call.streaming();
       call.hangUp();
       await h.hungUp();
+    }
+
+    /**
+     * Fails naming the wait that has not ended, well inside the test's
+     * timeout: each takes milliseconds, and one that stalls would otherwise
+     * show only as the whole test timing out.
+     */
+    async function within<T>(wait: string, done: Promise<T>): Promise<T> {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const stalled = new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`${wait} did not end within 1500ms`)),
+          1_500,
+        );
+      });
+      try {
+        return await Promise.race([done, stalled]);
+      } finally {
+        clearTimeout(timer);
+      }
     }
 
     function capped(h: ReturnType<typeof holding>, cap: number) {
@@ -2469,18 +2707,23 @@ describe("startCredentialProxy", () => {
         { head: "held", cut: false, hangUp: true },
         { head: "held", cut: true, hangUp: true },
       ] as const;
-      for (const round of [...rounds, ...rounds]) {
+      // No pause between rounds: the proxy gives the slot back as the
+      // exchange ends, before the upstream can see the hang-up, so `hungUp`
+      // already follows the release. A leak still runs the cap of 2 out
+      // within the twelve rounds.
+      for (const [index, round] of [...rounds, ...rounds].entries()) {
+        const at = (wait: string) =>
+          `round ${index + 1} ${JSON.stringify(round)}: ${wait}`;
         if (round.head === "held") h.hold();
-        const call = await opened(h, server.port);
-        if (round.head === "sent") await call.streaming();
+        const call = await within(at("open"), opened(h, server.port));
+        if (round.head === "sent") await within(at("stream"), call.streaming());
         if (round.hangUp) call.hangUp();
         if (round.cut) h.end();
-        if (!round.hangUp) await call.drain();
-        await h.hungUp();
-        await Bun.sleep(60);
+        if (!round.hangUp) await within(at("drain"), call.drain());
+        await within(at("upstream hang-up"), h.hungUp());
         h.renew();
       }
-      await admitted(h, server.port);
+      await within("the last call", admitted(h, server.port));
     });
   });
 

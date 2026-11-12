@@ -12,7 +12,13 @@ import type {
   SettingsEntryState,
   SettingsMcpServer,
 } from "@werft-ai/contracts";
-import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
+import {
+  type AuthorizationPolicy,
+  type Caller,
+  requirePermitted,
+  SECRET_STORE_OFF,
+  SessionServiceError,
+} from "../musterrolle/index.ts";
 import type {
   SettingsConsoleResult,
   SettingsDocumentStore,
@@ -28,7 +34,6 @@ import {
   type ModelFamilies,
   modelFamiliesSchema,
 } from "./catalog.ts";
-import { requirePermitted, SessionServiceError } from "./session-service.ts";
 import {
   type SettingsKind as DocumentSettingsKind,
   parseSettingsDocument,
@@ -51,14 +56,6 @@ const OUTRANKED = () =>
     "The caller no longer holds the role this setting needs",
     undefined,
     { reason_code: "role" },
-  );
-
-const STORE_OFF = () =>
-  new SessionServiceError(
-    "BACKEND_UNAVAILABLE",
-    "The secret store is off: the API was started without PLATFORM_SECRET_KEY",
-    undefined,
-    { reason_code: "secret_store_off" },
   );
 
 function credentialOf(
@@ -254,7 +251,7 @@ export function createSettingsConsoleService(deps: {
   ): Promise<SettingsChangeResponse> {
     const actor = await writer(caller, kind);
     const entry = add();
-    if (value !== null && !deps.secretStoreOn) throw STORE_OFF();
+    if (value !== null && !deps.secretStoreOn) throw SECRET_STORE_OFF();
     return settled(await store.create(entry, value, actor), entry.id);
   }
 
@@ -405,7 +402,7 @@ export function createSettingsConsoleService(deps: {
     ) {
       if (!deps.secretStoreOn) {
         return writer(caller, kind).then(() => {
-          throw STORE_OFF();
+          throw SECRET_STORE_OFF();
         });
       }
       return onRow(caller, kind, id, (actor) =>
@@ -416,7 +413,7 @@ export function createSettingsConsoleService(deps: {
     convertConnection(caller: Caller, id: string, value: string) {
       if (!deps.secretStoreOn) {
         return writer(caller, "connection").then(() => {
-          throw STORE_OFF();
+          throw SECRET_STORE_OFF();
         });
       }
       return onRow(caller, "connection", id, (actor) =>

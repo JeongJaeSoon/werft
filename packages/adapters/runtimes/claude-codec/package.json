@@ -10,8 +10,10 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@werft-ai/contracts": "workspace:*",
     "@werft-ai/runtime-codec-kit": "workspace:*",
     "@werft-ai/runtime-core": "workspace:*"
+  },
+  "devDependencies": {
+    "@werft-ai/contracts": "workspace:*"
   }
 }

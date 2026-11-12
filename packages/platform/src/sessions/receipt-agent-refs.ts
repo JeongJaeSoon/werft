@@ -1,7 +1,7 @@
 import type { Receipt, ReceiptOperation } from "@werft-ai/contracts";
 
 /**
- * Where a receipt names an agent or one of its releases (94S-902), so a
+ * Where a receipt names an agent or one of its releases, so a
  * reader who may not use that agent (a private agent outside their teams) is
  * not told its id. One row per operation that carries one; an operation with
  * no row declares it carries none, and `tests/receipt-agent-refs.test.ts`

@@ -197,7 +197,9 @@ describe("alpha path over public HTTP", () => {
         "needs a recovery decision",
         (s) => s.admission_state === "recovery_required",
       );
-      expect(stopped.status).toBe("failed");
+      // The stop was asked for: stopped, not failed, while the unknown turn
+      // still holds the session for a recovery decision.
+      expect(stopped.status).toBe("stopped");
       expect((await api.turn(sessionId, doomed.turn_id)).status).toBe(
         "outcome_unknown",
       );
@@ -337,6 +339,89 @@ describe("default commit identity", () => {
       expect(JSON.stringify(result?.data.data)).toContain(
         `${identity}|${identity}`,
       );
+    },
+    TIMEOUT,
+  );
+});
+
+describe("worker supervisor boundary", () => {
+  test(
+    "a Bash tool cannot read the worker process's environ, descriptors, maps or memory, though it reads PID 1's environ",
+    async () => {
+      // The worker process (the supervisor) holds the session credential and
+      // the tokens the engine is never given, and the engine's commands run
+      // as its uid. The supervisor made itself non-dumpable at start, so the
+      // kernel refuses these reads. PID 1 is the control: it is an ordinary
+      // process of the same uid, and the same probe reads it, so a refusal
+      // is the flag's doing and not a probe that could read nothing.
+      const probe = [
+        'sup=""',
+        "for d in /proc/[0-9]*; do",
+        '  [ "$(cat "$d/comm" 2>/dev/null)" = bun ] || continue',
+        // Brackets keep the pattern from matching this command's own cmdline.
+        '  tr "\\0" " " < "$d/cmdline" 2>/dev/null | grep -q "apps/worker/src/main[.]ts" && sup=$(basename "$d") && break',
+        "done",
+        'denied() { if "$@" >/dev/null 2>&1; then echo readable; else echo denied; fi; }',
+        'owner=$(stat -c %u "/proc/$sup/environ" 2>/dev/null)',
+        'sup_environ=$(denied cat "/proc/$sup/environ")',
+        'sup_fd=$(denied ls "/proc/$sup/fd")',
+        'sup_maps=$(denied cat "/proc/$sup/maps")',
+        'sup_mem=$(denied dd "if=/proc/$sup/mem" bs=1 count=0)',
+        'init_vars=$(tr "\\0" "\\n" < /proc/1/environ 2>/dev/null | grep -c "^WORKER_EXECUTION_ID=")',
+        'capeff=$(sed -n "s/^CapEff:[[:space:]]*//p" /proc/self/status)',
+        'echo "boundary uid=$(id -u) capeff=$capeff sup=$sup owner=$owner environ=$sup_environ fd=$sup_fd maps=$sup_maps mem=$sup_mem init_vars=$init_vars"',
+      ].join("\n");
+      const created = await api.createSession(
+        scripted("b1", [bash(probe)], "probed"),
+      );
+      const sessionId = created.body.session_id;
+      const turn = await poll("the boundary turn", 180_000, async () => {
+        for (const request of await api.pending(sessionId)) {
+          await api.allow(sessionId, request.request_id);
+        }
+        const current = await api.turn(sessionId, "1");
+        return ["queued", "running", "needs_input"].includes(current.status)
+          ? null
+          : current;
+      });
+      expect(turn.status).toBe("completed");
+      const result = (
+        await api.events(
+          sessionId,
+          (event) =>
+            event.event === "tool_result" && event.data.turn_id === "1",
+        )
+      ).at(-1);
+      const printed = JSON.stringify(result?.data.data);
+      const report =
+        /boundary uid=(\d+) capeff=([0-9a-f]+) sup=(\d*) owner=(\d*) environ=(\w+) fd=(\w+) maps=(\w+) mem=(\w+) init_vars=(\d+)/.exec(
+          printed,
+        );
+      if (report === null) throw new Error(`no boundary output in ${printed}`);
+      // The ticket's acceptance evidence, kept in the CI log.
+      console.log(report[0]);
+      const [, uid, capeff, sup, owner, environ, fd, maps, mem, initVars] =
+        report;
+      // Who asked: the worker's uid with no capability, as any command the
+      // engine runs is.
+      expect({ uid, capeff }).toEqual({
+        uid: "1000",
+        capeff: "0000000000000000",
+      });
+      // It found the supervisor, and it is not PID 1.
+      expect(Number(sup)).toBeGreaterThan(1);
+      // The control: the same probe reads a process the flag is not set on.
+      expect(initVars).toBe("1");
+      // A non-dumpable process belongs to root under /proc, and the reads
+      // are refused. Memory is listed last: a host's ptrace policy can
+      // refuse that one on its own, so it is not the evidence the others are.
+      expect({ owner, environ, fd, maps, mem }).toEqual({
+        owner: "0",
+        environ: "denied",
+        fd: "denied",
+        maps: "denied",
+        mem: "denied",
+      });
     },
     TIMEOUT,
   );
@@ -566,6 +651,95 @@ describe("concurrency regressions", () => {
       // finding and not a blind spot.
       expect(Number(engine)).toBeGreaterThanOrEqual(1);
       expect(Number(readable)).toBeGreaterThan(Number(engine));
+    },
+    TIMEOUT,
+  );
+
+  test(
+    "a Bash tool that reads the launch nonce out of PID 1's environ replays the claim and is refused, and the session goes on",
+    async () => {
+      // The whole attack: the init process holds the worker's launch
+      // environment and runs as the worker's uid, so the nonce is there to
+      // read. The worker activated its attempt before it started the engine,
+      // which is what leaves the nonce opening nothing: not a second
+      // credential, and not the image refusal a claim under another runtime
+      // would record.
+      const replay = [
+        "const claim = async (extra) => {",
+        '  const r = await fetch(process.env.U.replace(/\\/$/, "") + "/internal/worker/bootstrap-claim", {',
+        '    method: "POST",',
+        '    headers: { authorization: "Bearer " + process.env.N, "content-type": "application/json" },',
+        '    body: JSON.stringify({ execution_id: process.env.X, execution_generation: Number(process.env.G), credential: { kind: "launch_nonce", nonce: process.env.N }, ...extra }),',
+        "  });",
+        "  return r.status;",
+        "};",
+        "const plain = await claim({});",
+        'const forged = await claim({ image_runtime: { engine: "claude-agent-sdk", sdk_version: "0.0.0-forged", cli_version: "0.0.0-forged", profile_digest_scheme: 1 } });',
+        // A session route under the same bearer: the gateway answers 403 to a
+        // launch nonce it knows and 401 to a value it does not.
+        "const scoped = async (bearer) => {",
+        '  const r = await fetch(process.env.U.replace(/\\/$/, "") + "/internal/worker/heartbeat", {',
+        '    method: "POST",',
+        '    headers: { authorization: "Bearer " + bearer, "content-type": "application/json" },',
+        '    body: JSON.stringify({ session_id: "00000000-0000-4000-8000-000000000000", turn_id: null, attempt_id: "none", lease_epoch: 1, execution_generation: 1, auth_revision: 1, attempt_state: "starting" }),',
+        "  });",
+        "  return r.status;",
+        "};",
+        "const known = await scoped(process.env.N);",
+        'const unknown = await scoped("wln_not_a_launch_nonce");',
+        'console.log("plain_status=" + plain + " forged_status=" + forged + " known_nonce_status=" + known + " unknown_bearer_status=" + unknown);',
+      ].join(" ");
+      const probe = [
+        'e=$(tr "\\0" "\\n" < /proc/1/environ)',
+        'val() { printf "%s\\n" "$e" | sed -n "s/^$1=//p" | head -n 1; }',
+        'export N="$(val WORKER_BOOTSTRAP_NONCE)" X="$(val WORKER_EXECUTION_ID)"',
+        'export G="$(val WORKER_EXECUTION_GENERATION)" U="$(val WORKER_GATEWAY_URL)"',
+        '[ -n "$N" ] && nonce_read=1 || nonce_read=0',
+        `out=$(bun -e '${replay}' 2>&1)`,
+        'echo "replay uid=$(id -u) nonce_read=$nonce_read $out"',
+      ].join("\n");
+      const created = await api.createSession(
+        scripted("n1", [bash(probe)], "replayed"),
+      );
+      const sessionId = created.body.session_id;
+      const turn = await poll("the replay turn", 180_000, async () => {
+        for (const request of await api.pending(sessionId)) {
+          await api.allow(sessionId, request.request_id);
+        }
+        const current = await api.turn(sessionId, "1");
+        return ["queued", "running", "needs_input"].includes(current.status)
+          ? null
+          : current;
+      });
+      expect(turn.status).toBe("completed");
+      const result = (
+        await api.events(
+          sessionId,
+          (event) =>
+            event.event === "tool_result" && event.data.turn_id === "1",
+        )
+      ).at(-1);
+      const printed = JSON.stringify(result?.data.data);
+      const report =
+        /replay uid=(\d+) nonce_read=(\d) plain_status=(\d+) forged_status=(\d+) known_nonce_status=(\d+) unknown_bearer_status=(\d+)/.exec(
+          printed,
+        );
+      if (report === null) throw new Error(`no replay output in ${printed}`);
+      // The ticket's acceptance evidence, kept in the CI log.
+      console.log(report[0]);
+      const [, uid, nonceRead, plain, forged, known, unknown] = report;
+      // The nonce was there to read, and it is this launch's: the gateway
+      // tells it from a value it has never issued. So the claims below were
+      // refused for what the attempt had become, not for an unknown bearer.
+      expect({ uid, nonceRead }).toEqual({ uid: "1000", nonceRead: "1" });
+      expect({ known, unknown }).toEqual({ known: "403", unknown: "401" });
+      expect({ plain, forged }).toEqual({ plain: "401", forged: "401" });
+      // The worker kept its credential and its execution: the same session
+      // takes another turn.
+      const next = await api.send(sessionId, scripted("n2", [], "still here"));
+      expect((await api.settledTurn(sessionId, next.turn_id)).status).toBe(
+        "completed",
+      );
     },
     TIMEOUT,
   );

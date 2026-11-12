@@ -10,7 +10,7 @@ import {
   testClient,
   testConfig,
   testResolver,
-} from "./testing.ts";
+} from "./testing/index.ts";
 
 describeExecutionBackendContract("KubernetesBackend", {
   create: async () => {

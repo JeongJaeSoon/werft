@@ -41,7 +41,6 @@ matches() {
          -name '*.fixture.ts' -o \
          -path packages/db/src/pglite-release.ts -o \
          -path '*/src/testing.ts' -o \
-         -path packages/adapters/execution/kubernetes/src/fake-client.ts -o \
          -path apps/control-host/src/api/route-error-coverage.ts -o \
          -path apps/control-host/src/api/demo-accounts.ts -o \
          -path apps/control-host/src/api/demo-data.ts \

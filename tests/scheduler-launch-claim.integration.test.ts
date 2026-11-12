@@ -18,10 +18,10 @@ import {
 import { removeWorkerNetworks } from "@werft-ai/execution-local-docker/testing";
 import { createLogger } from "@werft-ai/observability";
 import {
-  acceptAllCheckpoints,
   createWorkerGateway,
   launchNonceFingerprint,
 } from "@werft-ai/platform";
+import { acceptAllCheckpoints } from "@werft-ai/platform/testing/checkpoints";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import {
   type FakeAnthropicServer,

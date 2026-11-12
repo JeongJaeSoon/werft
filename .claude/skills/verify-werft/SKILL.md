@@ -35,14 +35,14 @@ PR마다 등급 하나를 정한다. 검증 sticky comment(`<!-- test-results --
 
 전체 스택 없이 화면만 채운다. 웹 콘솔의 데모 모드를 쓴다. 아래 명령은 모두 이 저장소에서 실제로 돌려 확인했다.
 
-0. 설치: worktree에서 `bun install --frozen-lockfile`(bun 1.3.14). `bun run build`가 남긴 `apps/*/dist`·`packages/ui/dist`는 `biome check`가 오탐하므로 지우고 돌린다.
+0. 설치: worktree에서 `bun install --frozen-lockfile`(bun 1.3.14). 빌드가 남긴 `dist` 디렉터리(`apps/web/dist`, `packages/ui/dist` 등)와 `apps/web/dist-demo`는 `biome.json`의 `files.includes`가 검사에서 빼므로 `biome check` 전에 지우지 않아도 된다.
 1. **web dev 서버의 데모 모드**: `cd apps/web && bun --bun vite --mode demo --port <port> --host 127.0.0.1`. GET은 `src/demo/fixtures.json`에서 답하고 쓰기는 `DEMO_READ_ONLY`로 거절하며, 기록 없는 GET은 `NOT_FOUND` 화면이 된다. 들어 있는 자리표시자는 `/v1/auth/me`뿐이라 홈은 요청함이 `NOT_FOUND`로 그려진다. 바뀐 화면을 채우려면 `src/demo/fixtures.json`을 scratch에 복사해 그 화면이 부르는 GET을 `responses`에 더하고 `DEMO_FIXTURES=<json 경로>`로 주고 띄운다(구조는 `{ recorded_at, responses: { "<경로>": { status, json } } }`, 같은 경로의 기록이 있으면 query가 달라도 그 응답으로 답한다. 복사본의 `/v1/auth/me`를 바꿔 지금 읽히는지 확인했다). 라우트는 해시에 있다. 캡처: `W=390 node .claude/skills/verify-werft/scripts/page-shot.mjs http://127.0.0.1:<port> '/#/members' <out.png> [full]`. `W`·`H`·`THEME=dark`·`LOCALE=ja|en`·`SETTLE=<ms>`(기본 1500)를 환경에서 받고, `scrollWidth/innerWidth`와 페이지 오류를 출력한다(수집한 페이지 오류는 종료 코드에 반영하지 않으니 출력을 읽는다). 두 값이 같으면 가로로 넘치지 않는다. 데이터가 늦게 오는 페이지는 `SETTLE`을 늘려 원하는 상태가 그려진 뒤 찍는다. 설치한 Chrome과 저장소의 `playwright-core`를 쓴다.
 2. 캡처 규칙은 [features/web-console.md](features/web-console.md)와 같다. 390px·1280px을 light·dark로, 위 상태마다 찍고 `scrollWidth/innerWidth`를 적는다. 화면을 바꾼 PR은 [화면 구성 원칙](../../../packages/ui/README.md#화면-구성-원칙)으로 점검한다.
 3. sticky에 돌린 명령과 출력, 어떤 상태를 채웠는지, 캡처를 적는다. 목은 응답 모양을 그대로 믿으므로 실제 API 연동·권한·서버 경로, 그리고 fixture가 `contracts`와 맞는지는 확인하지 못한 것으로 적는다. 요청·응답 모양을 바꾸는 PR이면 T1이 아니라 T3다.
 
 ## 원칙
 
-- **자기 스택만.** `up.sh`가 새 compose project(`verify-ap-<run id>`)와 installation id를 만들고, 모든 단계가 그 project에만 compose를 건다. 기본 project `agent-platform`이나 다른 사람의 스택은 몰지도 내리지도 않는다.
+- **자기 스택만.** `up.sh`가 새 compose project(`verify-ap-<run id>`)와 installation id를 만들고, 모든 단계가 그 project에만 compose를 건다. 기본 project `werft`이나 다른 사람의 스택은 몰지도 내리지도 않는다.
 - **실제 모델 없이.** 항상 `--fake-model`이다. 세션은 프롬프트에 적은 GATE-SPEC 대본대로 돈다(`docs/quickstart.md` § 스크립트된 프롬프트). 실제 Claude(`local.sh up` 옵션 없음)는 유료라 이 스킬은 쓰지 않는다.
 - **비밀값을 출력하지 않는다.** API key는 변수에만 담고 길이만 보인다. bootstrap token은 이 run이 만든 일회용 테스트 값이고 `state.env`(700 디렉터리)에만 있다.
 - **자격 값을 명령에 쓰지 않는다.** 명령 텍스트에 비밀번호 JSON 리터럴이 있으면 agent-guard PreToolUse hook이 "secret-like value detected in shell command"로 그 호출을 거부한다. bootstrap·login·초대 수락·웹 key 발급은 `web-user.mjs`가 run 디렉터리의 값으로 보내고, 화면 로그인·수락은 `browser.mjs`가 같은 값을 칸에 넣는다.
@@ -72,9 +72,10 @@ Claude Code의 Bash 호출은 매번 새 셸이다. 그래서 `up.sh`가 run 디
 ```
 
 - 선택형 overlay는 인자로 더한다: `up.sh infra/compose.mock-slack.yml`. mock Slack 하나가 Sign in with Slack IdP와 Slack Web API의 가짜(config token 발급 `/fake/config-tokens`, 앱 생성, 설치 동의 `/fake/oauth/authorize`)를 맡고, api의 `CONSOLE_ORIGIN`을 `http://127.0.0.1:3000`으로 두고 mock 시험 전용 `SLACK_OIDC_ISSUER`·`SLACK_API_URL`을 그쪽으로 돌린다. 계정 연결은 워크스페이스의 link 앱으로 한다. `COMPOSE_FILE`에 이어 붙으므로 이후 `lib.sh`·`down.sh`도 같은 스택을 본다.
-- Slack 비밀값(config token, 앱의 secret·bot token)은 master key가 있어야 저장된다. Slack 시나리오([musterrolle.md](features/musterrolle.md) c·g, [web-settings.md](features/web-settings.md) 4)는 run마다 `openssl rand -hex 32`로 만든 버리는 값을 `PLATFORM_SECRET_KEY`로 export하고 같은 Bash 호출에서 `up.sh`를 부른다(그 문서의 한 줄). 사람의 Keychain 항목은 읽지 않는다. 그 밖의 시나리오는 `scripts/local.sh`가 프로젝트별 key를 만들어 `~/.local/state/agent-platform/<project>.secret-key`에 두고 쓴다. key 없는 api는 기동을 거부한다.
+- Slack 비밀값(config token, 앱의 secret·bot token)은 master key가 있어야 저장된다. Slack 시나리오([musterrolle.md](features/musterrolle.md) c·g, [web-settings.md](features/web-settings.md) 4)는 run마다 `openssl rand -hex 32`로 만든 버리는 값을 `PLATFORM_SECRET_KEY`로 export하고 같은 Bash 호출에서 `up.sh`를 부른다(그 문서의 한 줄). 사람의 Keychain 항목은 읽지 않는다. 그 밖의 시나리오는 `scripts/local.sh`가 프로젝트별 key를 만들어 `~/.local/state/werft/<project>.secret-key`에 두고 쓴다. key 없는 api는 기동을 거부한다.
 - 빈 설치 검증: `SETTINGS_DOCUMENT= up.sh`로 띄우면 migrate가 설정 문서를 넣지 않는다. 연결·저장소·MCP 서버·상한이 하나도 없는 설치를 콘솔에서 채우는 절차를 몰 때 쓴다.
 - 실제 GitHub run은 `up.sh .claude/skills/verify-werft/github-sandbox/overlay.yml`이다. overlay는 migrate가 넣는 설정 문서를 sandbox 저장소(`auth: { kind: github_app }`)를 더한 `github-sandbox/settings.json`으로 바꾸고 egress proxy가 `github.com:443`에 자격을 붙이게 한다. App 키는 compose를 지나지 않는다. 스택이 뜬 뒤 `web-user.mjs github-app`이 키 파일을 읽어 API로 등록한다. App 등록은 master key가 있어야 저장되므로 Slack처럼 버리는 `PLATFORM_SECRET_KEY`를 같은 Bash 호출에서 넘긴다. 순서와 기대값은 [github-sandbox.md](features/github-sandbox.md). overlay 인자는 repo 기준 상대 경로라 repo 밖 overlay는 `../../…`로 넘긴다.
+- Codex 엔진 run은 `SETTINGS_DOCUMENT=/settings/fake-model-codex.json up.sh infra/compose.codex-worker.yml`이다. overlay가 worker 이미지를 Codex 엔진으로 빌드하고 가짜 Responses API(`fake-responses`)를 띄운다. 설정 문서에는 연결 `fake-responses`(`openai_responses`, 모델 `gpt-5.5`) 하나만 있고 저장소는 없다. `SETTINGS_DOCUMENT`를 빼면 `--fake-model`이 Claude용 설정(연결 `fake-messages`)을 넣어, worker는 Codex인데 연결이 없는 스택이 된다(release가 `422 connection_unknown`). worker 이미지 하나는 엔진 하나라 Claude 세션과 Codex 세션은 다른 run에서 본다. 세션은 [sessions.md](features/sessions.md)의 Codex 절로 몬다.
 - Orca 프로그램 안에서 돌면 무거운 작업 잠금으로 감싼다: `orch heavy <program> -- .claude/skills/verify-werft/scripts/up.sh`. 내릴 때도 같다.
 - 하는 일: run 디렉터리와 `ports.yml`(postgres·localstack·fake-git·api 포트를 `127.0.0.1::<port>` ephemeral로, secrets는 비공개, api에 이 run의 `BOOTSTRAP_TOKEN`)을 만들고 `COMPOSE_PROJECT_NAME=verify-ap-… EXECUTION_INSTALLATION_ID=… COMPOSE_FILE=compose.yaml:ports.yml LOCAL_DEMO_ACCOUNTS=0 scripts/local.sh up --fake-model`을 돌린다(데모 계정 없이: 기능 절차가 bootstrap부터 한다). 끝나면 `docker compose port api 3000`으로 API 주소를 `state.env`에 적고 run 디렉터리를 stdout에, `run id: …`를 stderr에 출력한다. run id는 시작할 때도 stderr에 한 번 나온다. **이 run id를 기록한다.** 이후 모든 단계와 내릴 때 이것을 넘긴다. 빌드가 중간에 실패해도 시작할 때 나온 run id로 `down.sh`를 돌린다.
 - worker 슬롯은 기본 3개, `VERIFY_DEMO_ACCOUNTS=1`이면 7개다. `up.sh`가 `state.env`에 `EXECUTION_SLOT_LIMIT`을 적어 scheduler가 그 수만큼만 worker를 띄운다. 데모 데이터는 worker를 쥔 채 끝나는 세션 6개(idle 2, 승인 뒤 idle 1, 권한 요청 1, 질문 1, 실행 중 1)에 terminate할 세션 하나를 더 몬다. 그보다 슬롯이 적으면 시드가 queued 세션을 기다리다 `timed out waiting for <session> to go idle`로 실패한다. 다른 값이 필요하면 `VERIFY_SLOT_LIMIT=5 up.sh`처럼 준다. 이 값이 언제나 우선한다(10000 미만의 양의 정수만). worker마다 `ap-net-*` 네트워크가 하나씩 생기므로 스택 하나가 쓰는 네트워크는 compose 기본 네트워크를 더해 최대 슬롯 + 1개다. 슬롯은 worker 컨테이너가 사라졌다고 scheduler가 확인할 때까지 풀리지 않는다(`slot_released_at`). 입력이 없는 worker도 `WORKER_IDLE_TIMEOUT_SEC`(1800초) 동안 슬롯을 쥔다. 그래서 세션이 슬롯보다 많으면 나머지는 queued로 기다리고, 앞 세션을 pause하거나 terminate하면 다음 pass에서 뜬다.
@@ -92,7 +93,7 @@ Claude Code의 Bash 호출은 매번 새 셸이다. 그래서 `up.sh`가 run 디
 .claude/skills/verify-werft/scripts/doctor.sh <run id>
 ```
 
-run, project, 이미지를 빌드한 소스(`up.sh` 때의 HEAD + 커밋하지 않은 변경 digest, `scripts/tree-id.sh`)와 지금 checkout, API 주소, 서비스별 상태, `/readyz`를 보여 준다. ready가 아니거나 `up.sh` 뒤 HEAD나 커밋하지 않은 변경(`.claude/` 밖)이 바뀌었으면 exit 1(바뀐 코드는 `down.sh` 뒤 `up.sh`로 다시 빌드한다). 이상해 보이면 먼저 이것을 돌린다. `api`·`scheduler`·`reconciler`·`postgres`·`localstack`·`fake-git`·`egress-proxy`·`fake-messages`·`secrets`가 모두 `running`(healthcheck가 있으면 `healthy`)이 아니면 exit 1이다. `/readyz`는 database·schema·config만 보므로 scheduler가 죽어도 ready다. `up.sh` 직후에는 scheduler가 몇 초 `starting`일 수 있으니 잠시 뒤 다시 돌린다(`migrate`·`worker`는 한 번 돌고 끝나 목록에 없다).
+run, project, 이미지를 빌드한 소스(`up.sh` 때의 HEAD + 커밋하지 않은 변경 digest, `scripts/tree-id.sh`)와 지금 checkout, API 주소, 서비스별 상태, `/readyz`를 보여 준다. ready가 아니거나 `up.sh` 뒤 HEAD나 커밋하지 않은 변경(`.claude/` 밖)이 바뀌었으면 exit 1(바뀐 코드는 `down.sh` 뒤 `up.sh`로 다시 빌드한다). 이상해 보이면 먼저 이것을 돌린다. `api`·`scheduler`·`reconciler`·`postgres`·`localstack`·`fake-git`·`egress-proxy`·`fake-messages`·`secrets`가 모두 `running`(healthcheck가 있으면 `healthy`)이 아니면 exit 1이다. Codex 엔진 run처럼 이 run의 compose가 `fake-responses`를 정의하면 그것도 같은 조건으로 본다. `/readyz`는 database·schema·config만 보므로 scheduler가 죽어도 ready다. `up.sh` 직후에는 scheduler가 몇 초 `starting`일 수 있으니 잠시 뒤 다시 돌린다(`migrate`·`worker`는 한 번 돌고 끝나 목록에 없다).
 
 ## Drive
 
@@ -101,7 +102,7 @@ run, project, 이미지를 빌드한 소스(`up.sh` 때의 HEAD + 커밋하지 �
 | 함수 | 용도 |
 |---|---|
 | `ap_web METHOD PATH [JSON]` | 브라우저처럼 부른다: `x-requested-with: werft-web` 헤더, `$VERIFY_RUN/cookie`의 세션 cookie를 보내고 응답의 `__Host-werft_session`을 저장한다. cookie 파일은 하나라 여러 사람을 몰 때는 사람마다 복사해 둔다([musterrolle.md](features/musterrolle.md) Preconditions). POST에는 새 `Idempotency-Key`를 붙인다(세션 POST에 필요하고 나머지 route는 보지 않는다) |
-| `ap_key <owner> --scopes a,b` | key CLI로 key를 발급한다. stdout에 key, stderr에 `key_id …` |
+| `ap_key <owner> --scopes a,b` | key CLI로 운영자 key를 발급한다. stdout에 key, stderr에 `key_id …`. 운영자 key는 워크스페이스에 속하지 않아 세션을 만들지 못한다(`sessions:write`가 있어도 `POST /v1/sessions` → `404`, 그 scope가 없으면 먼저 `403`). 세션은 구성원의 개인 key(`web-user.mjs … key`)로 만든다 |
 | `ap_revoke <key_id>` | key 폐기 |
 | `ap_get PATH` / `ap_post PATH JSON` | `$KEY`로 Bearer 호출. `ap_post`는 `Idempotency-Key`를 새로 붙인다 |
 | `ap_curl key\|cookie <curl 인자…>` | 위 셋의 바탕. `$KEY`(Bearer) 또는 cookie와 CSRF 헤더를 `-H @<(…)`로 넘기는 `curl -sS`. 스트림(`-N`)이나 key로 보내는 `PATCH`처럼 위 셋이 못 하는 호출에 쓴다. cookie 쪽은 `$AP_COOKIE_EXTRA`(따로 한 줄로 대입)를 세션 cookie 뒤에 붙인다 |
@@ -174,7 +175,7 @@ run, project, 이미지를 빌드한 소스(`up.sh` 때의 HEAD + 커밋하지 �
 - 절차는 zsh(Claude Code Bash 도구) 또는 bash 4 이상에서 실행한다. macOS `/bin/bash` 3.2는 중첩 command substitution의 GATE-SPEC JSON 인용을 깨뜨려 `unterminated GATE-SPEC`·`api_error`를 만들 수 있다.
 
 - host bun이 `package.json`의 `packageManager`(bun 1.3.14)와 다르면 main에서도 실패하는 로컬 테스트가 있다. 이 스킬은 bun을 host에서 쓰지 않는다(key CLI도 api 컨테이너 안에서 돈다). 테스트 판정은 CI가 기준이다.
-- `local.sh status`·`key`·`down`은 env의 `COMPOSE_PROJECT_NAME`·`COMPOSE_FILE`을 따른다. `lib.sh`를 source하지 않은 셸에서 부르면 기본 project `agent-platform`을 건드린다.
+- `local.sh status`·`key`·`down`은 env의 `COMPOSE_PROJECT_NAME`·`COMPOSE_FILE`을 따른다. `lib.sh`를 source하지 않은 셸에서 부르면 기본 project `werft`을 건드린다.
 - `__Host-` cookie는 `Secure`라 curl이 http에서 저장하지 않는다. `ap_web`이 `Set-Cookie`에서 직접 꺼내 보낸다.
 - key·cookie·OAuth `state`/`code`·config 값은 명령줄 인자에 두지 않는다. `ps`로 같은 머신의 누구나 본다. curl은 `ap_curl`·`ap_get`·`ap_post`·`ap_web`으로만 부르고(헤더와 본문이 `<(…)`로 간다), 컨테이너 안 스크립트에는 stdin으로 넘긴다. `VAR=값 ap_web …`처럼 앞에 붙인 대입은 curl의 환경으로 export되니 쓰지 않는다. `<(…)`를 배열에 담아 두면 curl이 돌기 전에 닫힌다(exit 26).
 - 로그인은 실패가 쌓이면 잠긴다(429 `RATE_LIMITED`, `Retry-After`). 틀린 비밀번호 시험은 한두 번만.

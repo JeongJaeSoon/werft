@@ -12,10 +12,7 @@ import { testCaller } from "@werft-ai/testkit/callers";
 import { createPendingRequestService } from "../decision/pending-service.ts";
 import type { DecisionLog } from "../ports/decision-log.ts";
 import { createInterruptService } from "../sessions/interrupt-service.ts";
-import {
-  createSessionService,
-  SessionServiceError,
-} from "../sessions/session-service.ts";
+import { createSessionService } from "../sessions/session-service.ts";
 import { createUsageService } from "../usage/usage-service.ts";
 import {
   ACTION_SCOPES,
@@ -30,6 +27,7 @@ import {
   RECORDED_ALLOW_ACTIONS,
   receiptActorOf,
 } from "./policy.ts";
+import { SessionServiceError } from "./service-errors.ts";
 
 // Any store call means the refusal came too late.
 const unreachable = new Proxy(

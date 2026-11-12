@@ -39,7 +39,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
-export const IMAGES = [
+const IMAGES = [
   "control-host",
   "worker",
   "worker-codex",
@@ -430,7 +430,7 @@ export function isPermissive(expression: string): boolean {
   }
 }
 
-export function reviewFor(name: string, license: string): string | undefined {
+function reviewFor(name: string, license: string): string | undefined {
   const review =
     REVIEWED[name] ??
     Object.entries(REVIEWED).find(
@@ -517,7 +517,7 @@ export function licenseOf(manifest: {
 }
 
 /** Reads what the installed copy under node_modules says, if one is there. */
-export function readInstalled(
+function readInstalled(
   root: string,
   pkg: LockPackage,
 ): PackageInfo | undefined {
@@ -803,7 +803,7 @@ export function parseRows(markdown: string): Map<string, Row> {
   return rows;
 }
 
-export async function collectRows(
+async function collectRows(
   root: string,
   fallback: (pkg: LockPackage) => Promise<PackageInfo>,
 ): Promise<Row[]> {
@@ -843,7 +843,7 @@ const OUTPUT = "THIRD_PARTY_NOTICES.md";
  * included, with the directory of each copy. Workspace links are this
  * repository's own code and skipped.
  */
-export function installedPackages(nodeModules: string): Map<string, string[]> {
+function installedPackages(nodeModules: string): Map<string, string[]> {
   const found = new Map<string, string[]>();
   const walk = (dir: string) => {
     if (!existsSync(dir)) return;

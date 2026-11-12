@@ -1,14 +1,18 @@
 import type { SessionStatus, SessionSummary } from "@werft-ai/contracts";
 
-import { type RunTree, type RunTreeNode, runRows } from "../../run-tree.ts";
+import {
+  type RunTree,
+  type RunTreeNode,
+  runRows,
+  SPAWNING_TOOLS,
+} from "../../run-tree.ts";
+import { shortSessionId } from "../session/session-overview.tsx";
 import { laneOf } from "./lane-board.tsx";
 import type { AgentMapMessages } from "./messages.ts";
 import type { Lane, MapRunNode, MapSession, MapToolCall } from "./types.ts";
 
 /** Chips a run row shows before "+n". */
 export const ROW_TOOLS = 3;
-
-const SPAWNING = new Set(["Task", "Agent"]);
 
 /** A card from the list's summary, as the board draws it before placement. */
 export function mapSessionOf(
@@ -52,9 +56,10 @@ export function mapSessionOf(
             ),
           }
         : undefined;
+  const needsRecovery = summary.admission_state === "recovery_required";
   return {
     id: summary.id,
-    title: summary.title ?? summary.id.slice(0, 8),
+    title: summary.title ?? shortSessionId(summary.id),
     agent: summary.agent?.name ?? messages.noAgent,
     status: summary.status,
     model: summary.model ?? "",
@@ -63,17 +68,20 @@ export function mapSessionOf(
     // A card that waits says what it waits on, as the strip does.
     note:
       pending?.tool ??
-      (last === null
-        ? summary.status === "queued"
-          ? messages.queuedNote
-          : messages.noActivity
-        : last.kind === "text"
-          ? last.text
-          : joinTool(last.name, last.target)),
+      (needsRecovery
+        ? messages.recoveryNote
+        : last === null
+          ? summary.status === "queued"
+            ? messages.queuedNote
+            : messages.noActivity
+          : last.kind === "text"
+            ? last.text
+            : joinTool(last.name, last.target)),
     toolCount: activity?.tool_count ?? 0,
     errorCount: activity?.error_count ?? 0,
     subagentCount: activity?.subagent_count ?? 0,
     ...(pending ? { pending } : {}),
+    ...(needsRecovery ? { needsRecovery } : {}),
   };
 }
 
@@ -114,7 +122,7 @@ function newestChips(
   let used = 0;
   for (let i = run.tools.length - 1; i >= 0; i -= 1) {
     const call = run.tools[i] as RunTreeNode["tools"][number];
-    const kind = SPAWNING.has(call.name)
+    const kind = SPAWNING_TOOLS.has(call.name)
       ? (spawned.get(call.id) ?? call.target)
       : null;
     const previous = tools[tools.length - 1];

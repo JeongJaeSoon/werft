@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { acceptAllCheckpoints } from "../checkpoints/ports/checkpoint-verifier.ts";
 import type { WorkerUnitOfWork } from "../ports/worker-unit-of-work.ts";
 import type { SessionCatalog } from "../sessions/catalog.ts";
 import type {
@@ -11,6 +10,7 @@ import {
   type SessionTitler,
 } from "../sessions/session-titler.ts";
 import { testCatalog, testConnection } from "../testing/catalog-fakes.ts";
+import { acceptAllCheckpoints } from "../testing/checkpoints.ts";
 import { createWorkerGateway } from "./worker-gateway.ts";
 
 const sessionId = "0b3f1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2d";

@@ -8,9 +8,9 @@
  * violation missing from the list fails the test. Nothing is ever added.
  * A move PR that only changes a path rewrites the key; it does not add one.
  *
- * Keys are paths under packages/platform/src with "/" separators. A pair is
- * "<importing file> -> <imported file>". A count is the number of occurrences
- * in the file.
+ * Keys are paths under packages/platform/src with "/" separators unless the
+ * entry says otherwise. A pair is "<importing file> -> <imported file>". A
+ * count is the number of occurrences in the file.
  */
 export type Baseline = {
   /** A2: (file, target) pairs where a domain imports another domain's internals. */
@@ -25,67 +25,35 @@ export type Baseline = {
   slackFiles: readonly string[];
   /** R8: exported names containing "slack" per platform file. */
   slackExports: Readonly<Record<string, number>>;
+  /**
+   * Test files whose relative import leaves their package, as
+   * "<test file> -> <specifier>" with the file written from the repository root.
+   */
+  testRelativeImports: readonly string[];
+  /**
+   * Imports of a package the importing workspace's package.json does not
+   * declare where the file needs it, as "<file> -> <specifier>" with the file
+   * written from the repository root.
+   */
+  undeclaredImports: readonly string[];
 };
 
 export const baseline: Baseline = {
   crossDomainImports: [
-    "action/change-request/pull-request-service.ts -> musterrolle/policy.ts",
     "action/change-request/push-decision.ts -> decision/push-approvability.ts",
-    "action/change-request/push-decision.ts -> musterrolle/policy.ts",
-    "action/github/github-work-service.ts -> musterrolle/policy.ts",
-    "action/tools/session-bound.ts -> musterrolle/policy.ts",
-    "agents/agent-mcp-service.ts -> musterrolle/policy.ts",
-    "agents/agent-mcp-service.ts -> musterrolle/service-errors.ts",
     "agents/agent-mcp-service.ts -> sessions/catalog.ts",
-    "agents/agent-mcp-service.ts -> sessions/session-service.ts",
-    "agents/agent-pull-request-service.ts -> musterrolle/policy.ts",
-    "agents/agent-pull-request-service.ts -> musterrolle/service-errors.ts",
-    "agents/agent-pull-request-service.ts -> sessions/session-service.ts",
     "agents/agent-service.ts -> extensions/resolve.ts",
     "agents/agent-service.ts -> extensions/session-extensions.ts",
-    "agents/agent-service.ts -> musterrolle/policy.ts",
-    "agents/agent-service.ts -> musterrolle/service-errors.ts",
     "agents/agent-service.ts -> sessions/catalog.ts",
-    "agents/agent-service.ts -> sessions/session-service.ts",
-    "agents/engine-settings-service.ts -> musterrolle/policy.ts",
-    "agents/engine-settings-service.ts -> musterrolle/service-errors.ts",
-    "agents/engine-settings-service.ts -> sessions/session-service.ts",
     "agents/mcp-release-values.ts -> sessions/catalog.ts",
     "agents/model-move-runner.ts -> sessions/catalog.ts",
     "agents/release-ids.ts -> sessions/catalog.ts",
     "agents/release-spec.ts -> sessions/catalog.ts",
-    "decision/pending-service.ts -> musterrolle/policy.ts",
-    "extensions/bundle-service.ts -> musterrolle/policy.ts",
-    "musterrolle/agent-admin-service.ts -> sessions/session-service.ts",
-    "musterrolle/agent-identity-service.ts -> sessions/session-service.ts",
-    "musterrolle/api-key-service.ts -> sessions/session-service.ts",
-    "musterrolle/credential-binding-service.ts -> sessions/session-service.ts",
-    "musterrolle/env-variable-service.ts -> sessions/session-service.ts",
-    "musterrolle/invite-service.ts -> sessions/session-service.ts",
-    "musterrolle/linked-account-service.ts -> sessions/session-service.ts",
-    "musterrolle/member-service.ts -> sessions/session-service.ts",
-    "musterrolle/service-errors.ts -> sessions/session-service.ts",
-    "musterrolle/session-share-service.ts -> sessions/session-service.ts",
-    "musterrolle/surface-binding-service.ts -> sessions/session-service.ts",
-    "musterrolle/team-service.ts -> sessions/session-service.ts",
-    "sessions/achievements/achievement-rules.ts -> musterrolle/policy.ts",
-    "sessions/achievements/achievement-rules.ts -> musterrolle/service-errors.ts",
-    "sessions/achievements/session-achievement-service.ts -> musterrolle/policy.ts",
-    "sessions/achievements/session-achievement-service.ts -> musterrolle/service-errors.ts",
-    "sessions/git-attribution.ts -> musterrolle/policy.ts",
-    "sessions/interrupt-service.ts -> musterrolle/policy.ts",
-    "sessions/output-service.ts -> musterrolle/policy.ts",
-    "sessions/session-outcome-service.ts -> musterrolle/policy.ts",
     "sessions/session-service.ts -> agents/release-ids.ts",
     "sessions/session-service.ts -> extensions/resolve.ts",
     "sessions/session-service.ts -> extensions/session-extensions.ts",
     "sessions/session-service.ts -> limits/installation-limits.ts",
-    "sessions/session-service.ts -> musterrolle/policy.ts",
-    "sessions/settings-console-service.ts -> musterrolle/policy.ts",
-    "sessions/settings-document-service.ts -> musterrolle/policy.ts",
     "usage/usage-service.ts -> limits/installation-limits.ts",
-    "usage/usage-service.ts -> musterrolle/policy.ts",
-    "usage/usage-service.ts -> sessions/session-service.ts",
     "workers/github-mcp-egress.ts -> action/github/github-mcp-server.ts",
     "workers/mcp-egress.ts -> sessions/catalog.ts",
     "workers/mcp-egress.ts -> sessions/mcp-tool-decision.ts",
@@ -128,6 +96,31 @@ export const baseline: Baseline = {
     "ports/slack-outbox-store.ts": 25,
     "ports/workspace-settings.ts": 1,
   },
+  testRelativeImports: [
+    // The package entries that export these two (`@werft-ai/react/agent-map`,
+    // `@werft-ai/react/components`) load Radix, which decides at import time
+    // whether a DOM exists. This test registers none, so going through them
+    // leaves every later DOM test in the same process without its portals.
+    "apps/web/src/i18n/i18n.test.ts -> ../../../../packages/react/src/components/agent-map/messages.ts",
+    "apps/web/src/i18n/i18n.test.ts -> ../../../../packages/react/src/components/operations/messages.ts",
+    "apps/worker/src/workspace-storage-declaration.integration.test.ts -> ../../../packages/adapters/execution/kubernetes/src/specs.ts",
+    "apps/worker/src/workspace-storage-declaration.integration.test.ts -> ../../control-host/src/scheduler/config.ts",
+    "packages/sdk/src/client.test.ts -> ../../../docs/openapi.json",
+  ],
+  undeclaredImports: [
+    // apps/worker/Dockerfile copies this file over src/index.ts together with
+    // variants/codex_app_server.package.json over package.json, and that
+    // manifest declares the engine. The checked-in manifest is the Claude
+    // image's and names one engine.
+    "packages/adapters/runtimes/registry/variants/codex_app_server.ts -> @werft-ai/runtime-codex",
+    // Migration tooling under src that only packages/db/scripts and tests
+    // load. drizzle-kit is a devDependency; as a dependency every image that
+    // installs db would carry it.
+    "packages/db/src/migration-folder.ts -> drizzle-kit/api",
+    "packages/db/src/schema-drift.ts -> drizzle-kit/api",
+    // The `bun test` preload, a test-only file whose path is fixed (below).
+    "packages/db/src/pglite-release.ts -> @electric-sql/pglite",
+  ],
 };
 
 /**
@@ -151,6 +144,7 @@ export const pathFixed: readonly string[] = [
   "packages/db/src/testing/spec-pins.ts",
   "packages/platform/src/testing/agent-welcomable-contract.ts",
   "packages/platform/src/testing/approvable-contract.ts",
+  "packages/platform/src/testing/catalog-fakes.ts",
   "packages/platform/src/testing/channel-joinable-contract.ts",
   "packages/platform/src/testing/channel-kind-readable-contract.ts",
   "packages/platform/src/testing/checkpoints.ts",

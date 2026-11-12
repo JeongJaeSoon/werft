@@ -9,6 +9,8 @@
  * name again.
  */
 
+import { messageOf } from "./message-of.ts";
+
 export type AddressClass =
   | "link_local"
   | "loopback"
@@ -125,7 +127,7 @@ export async function decideEgress(
     return {
       allowed: false,
       failure: "unresolved",
-      reason: `host does not resolve: ${error instanceof Error ? error.message : String(error)}`,
+      reason: `host does not resolve: ${messageOf(error)}`,
     };
   }
   if (addresses.length === 0) {

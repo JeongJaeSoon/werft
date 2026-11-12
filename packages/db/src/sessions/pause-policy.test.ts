@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { hasRestorePoint, restoreBaseRevision } from "../control-shared.ts";
 import {
+  hasRestorePoint,
   pauseCoverageBlocker,
   pausedReceiptResult,
   pausedResumeRefusal,
+  restoreBaseRevision,
 } from "./pause-policy.ts";
 
 const checkpoint = {

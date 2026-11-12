@@ -283,7 +283,7 @@ wait_for "/v1/sessions/$SID/turns/6" .status completed
 get "/v1/sessions/$SID/turns/6" | jq -e '.status == "completed"'
 ```
 
-- terminate는 대기 중인 입력을 취소하고 열린 권한 요청을 닫는다. 실행 중이던 turn은 `outcome_unknown`이 되고 세션은 `status: failed`, `admission_state: recovery_required`다. 도구가 이미 바깥에 한 일은 되돌리지 않는다(`external_effects_reverted: false`).
+- terminate는 대기 중인 입력을 취소하고 열린 권한 요청을 닫는다. 실행 중이던 turn은 `outcome_unknown`이 되고 세션은 `status: stopped`, `admission_state: recovery_required`다. 멈추라는 요청 없이 실행이 사라져(worker 종료, lease 만료) turn이 `outcome_unknown`이 된 세션은 `status: failed`다. 도구가 이미 바깥에 한 일은 되돌리지 않는다(`external_effects_reverted: false`).
 - 복구 결정은 `abandon`(turn을 `cancelled`로), `confirm_completed`(checkpoint가 그 turn까지 덮을 때, `evidence_ref` 필수), `close`(세션을 끝냄, 되돌릴 수 없음), `start_fresh`(이전 engine 문맥을 모두 버리고 현재 pointer까지의 checkpoint를 retire하여 아무것도 복원하지 않는 새 Claude Code 세션에서 대기 중인 입력을 실행함), `retry_restore`(checkpoint 복원 실패의 원인을 고친 뒤 실패 횟수를 초기화하고 pointer를 유지해 다음 claim에서 같은 checkpoint를 다시 복원함) 중 하나다. 전체 절차는 [api-guide 7절](https://jeongjaesoon.github.io/werft/ko/reference/api-guide/#7-outcome_unknownrecovery_required-복구-결정)을 본다. receipt `result.resumable`이 `true`면 resume할 수 있다.
 - idle 상태에서 terminate하면 복구 결정 없이 바로 `stopped`이고, 그대로 resume할 수 있다.
 
@@ -360,20 +360,13 @@ scripts/local.sh down
 
 `down`은 스택과 **모든 데이터**(세션, checkpoint, API key)를 지운다. scheduler가 만든 worker 컨테이너·네트워크·workspace volume은 compose 소유가 아니므로 `werft.installation=<installation id>` label(기본 `local`, 1장)로 찾아 함께 지운다. 처음부터 다시 하려면 `scripts/local.sh reset --fake-model`(= `down` 뒤 `up --fake-model`)을 쓴다. 새 스택에서는 1장의 `KEY=…`부터 다시 한다.
 
-데이터를 보존하며 내릴 때는 `scripts/local.sh down --keep-volumes`를 쓴다. compose 서비스와 scheduler가 만든 worker 컨테이너·네트워크를 지우고, compose volume과 workspace volume(`werft-ws-*`)은 남긴다. `docker compose down`만 하면 compose label이 없는 worker 컨테이너와 그 네트워크가 남아 Docker 주소 풀을 계속 차지할 수 있다. 다시 `scripts/local.sh up --fake-model`로 올리면 S3 객체·버전·법적 hold·버킷 설정과 암호화 seed도 `local-s3-data` named volume에서 읽는다. seed를 잃거나 바꾸면 기존 객체를 복호화할 수 없으므로 volume 전체를 함께 보존한다. 외장 디스크 bind mount나 별도 라이선스는 필요 없다. 이전 LocalStack에서 이미 객체를 잃은 설치에만 아래 복구 결정이 필요하다.
+데이터를 보존하며 내릴 때는 `scripts/local.sh down --keep-volumes`를 쓴다. compose 서비스와 scheduler가 만든 worker 컨테이너·네트워크를 지우고, compose volume과 workspace volume(`werft-ws-*`)은 남긴다. `docker compose down`만 하면 compose label이 없는 worker 컨테이너와 그 네트워크가 남아 Docker 주소 풀을 계속 차지할 수 있다. 다시 `scripts/local.sh up --fake-model`로 올리면 S3 객체·버전·법적 hold·버킷 설정과 암호화 seed도 `local-s3-data` named volume에서 읽는다. seed를 잃거나 바꾸면 기존 객체를 복호화할 수 없으므로 volume 전체를 함께 보존한다. 외장 디스크 bind mount나 별도 라이선스는 필요 없다. bucket의 객체를 잃은 설치에만 아래 복구 결정이 필요하다.
 
 ### 재부팅이나 Docker 재시작 뒤
 
-새 SeaweedFS 설치는 호스트나 Docker 재시작 뒤에도 `scripts/local.sh up --fake-model`만 실행하면 된다. 빈 volume으로 처음 시작할 때도 versioning·Object Lock·기본 AES256 암호화를 자동 설정한다.
+호스트나 Docker 재시작 뒤에도 `scripts/local.sh up --fake-model`만 실행하면 된다. 빈 volume으로 처음 시작할 때도 versioning·Object Lock·기본 AES256 암호화를 자동 설정한다.
 
-**기존 LocalStack 설치에서 전환할 때:** 기존 S3 객체와 VersionId를 자동 이관하지 않는다.
-
-1. **pull 전에 옛 checkout에서**, writer를 멈추고 [백업 절차](operator/backup-restore.md)로 checkpoint를 보존한다. 이미 객체가 유실됐다면 백업으로 되살릴 수 없다.
-2. 코드를 pull한다.
-3. 보존할 백업이 있으면 `scripts/restore.sh`로 **이전에 사용하지 않은 새 compose project**에 복원하고 `scripts/verify-restore.sh`로 확인한다. restore는 기존 프로젝트나 기존 볼륨 위에 덮어쓰지 않는다.
-4. 복구 가능한 백업이 없고 이전 checkpoint를 명시적으로 포기하기로 했다면, 기존 PostgreSQL 볼륨의 계정·워크스페이스·API key를 남기고 아래 명령으로 유실 참조만 해제한다. 새 설치에는 필요 없다.
-
-새 저장소가 비어 있고 PostgreSQL에 기존 checkpoint가 남아 있으면 API는 이 복구 결정을 할 때까지 기동을 거부한다.
+bucket이 비어 있는데 PostgreSQL에 기존 checkpoint가 남아 있으면 API는 복구 결정을 할 때까지 기동을 거부한다. 보존한 백업이 있으면 [백업 절차](operator/backup-restore.md)대로 이전에 사용하지 않은 새 compose project에 복원한다. 복구할 백업이 없어 그 checkpoint를 포기하기로 했다면, 계정·워크스페이스·API key는 남기고 아래 명령으로 유실 참조만 해제한다.
 
 ```bash
 scripts/local.sh forget-lost-checkpoints   # 잃은 checkpoint를 포기하고 그 세션을 출력한다
@@ -388,15 +381,6 @@ scripts/local.sh up --fake-model           # 실제 Claude 스택이면 옵션 �
 잃은 checkpoint가 없으면 `No checkpoint is missing from the bucket`만 출력하고 끝난다. 세션까지 모두 지우고 새로 하려면 여전히 `scripts/local.sh reset --fake-model`이다.
 
 `up --fake-model`의 데모 데이터 시드는 기존 데모 세션의 outputs 조회가 409 `CHECKPOINT_UNAVAILABLE`이면 `awaiting-recovery session <id>: CHECKPOINT_UNAVAILABLE; existing demo left unchanged`를 출력하고 그 세션을 그대로 둔 채 나머지 시드를 계속한다. 뒤의 `exists session <제목>`은 기존 세션이 있다는 뜻이며 산출물이 복구됐다는 뜻이 아니다. 잃은 산출물을 다시 만들거나 복구 결정을 대신하지 않는다. 다른 조회 오류는 시드를 중단한다.
-
-### Git 서버 이름이 `gitea`에서 `fake-git`으로 바뀐 스택
-
-Git 서버의 compose 서비스 이름이 `fake-git`으로, 저장소 URL이 `http://fake-git:3000/agent/<repo>.git`으로 바뀌었다. 새로 띄우는 스택은 할 일이 없다. 이 변경 전에 띄워 계속 쓰는 스택은 코드를 pull할 때 아래 순서로 옮긴다.
-
-1. `COMPOSE_FILE`로 포트 override를 얹었다면, 코드를 갱신할 때 그 파일의 키 `gitea:`를 `fake-git:`으로 같이 바꾼다. 코드와 키가 어긋나면 `service "gitea" has neither an image nor a build context specified`처럼 렌더링부터 실패한다. 두 키를 함께 적어도 같다. 코드를 자동으로 갱신하는 스택이면 그 갱신을 먼저 멈춘다.
-2. `scripts/local.sh down --keep-volumes` 뒤 `scripts/local.sh up --fake-model`(실제 Claude 스택이면 옵션 없이)을 실행한다. `up`은 옛 서비스의 컨테이너를 지우지 않으므로, 내리지 않고 `up`만 하면 옛 `gitea-1`이 같은 포트를 쥔 채 남아 `port is already allocated`로 멈춘다. volume은 그대로라 계정과 세션은 남는다.
-3. 옛 URL로 만든 세션은 이어지지 않는다. 조회는 되고 세션 상세의 `attention.code`는 `CATALOG_MISMATCH`다. 새 메시지는 받지만 그 turn은 `failed`(`terminal_reason: catalog_mismatch`)로 끝나고 세션도 `failed`가 된다. 다른 세션에는 영향이 없다. 이어 갈 일은 새 세션을 연다.
-4. kind 클러스터를 재사용했다면 `kubectl apply`는 옛 리소스를 지우지 않는다. `kubectl -n <namespace> delete deployment/gitea service/gitea`로 지운다. preview namespace는 TTL로 함께 사라진다.
 
 ## 8. 막혔을 때
 
@@ -417,7 +401,6 @@ Git 서버의 compose 서비스 이름이 `fake-git`으로, 저장소 URL이 `ht
 | 409 `REVISION_CONFLICT` | 그 사이 세션이 바뀌었다. `$(revision)`으로 다시 읽어 보낸다 |
 | pause가 오래 `pausing`이고 `attention.code`가 `PAUSE_BLOCKED`다 | worker가 60초 안에 drain하지 못했다. 진행 중인 turn을 interrupt하거나 기다린다 |
 | pull한 코드가 반영되지 않은 것 같다 | `scripts/local.sh up --fake-model`(실제 Claude 스택이면 옵션 없이)을 다시 실행한다. 이미지를 이 checkout에서 다시 빌드한다 |
-| pull 뒤 `up`이 `has neither an image nor a build context specified`나 `port is already allocated`로 끝난다 | Git 서버의 서비스 이름이 바뀌었다. [7장의 전환 순서](#git-서버-이름이-gitea에서-fake-git으로-바뀐-스택)를 따른다 |
 | 빌드 중 디스크가 부족하다 | `docker system df`로 확인하고, 필요 없는 이미지와 빌드 캐시를 지운다(예: `docker builder prune`) |
 
 ## 스크립트된 프롬프트

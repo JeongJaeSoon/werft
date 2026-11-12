@@ -2,9 +2,11 @@ import { z } from "zod";
 import { surfaceKindSchema } from "../kollegium/surfaces.ts";
 import { INT4_MAX, sha256HexSchema } from "../shared/ids.ts";
 
-// The tool-call audit record (observability design, section 7). One row per
-// judgment on one tool call. Every string in it is an id or a member of a
-// closed list; there is no field for input text, a result or a reason.
+// The tool-call audit record
+// (docs/contributing/decisions/observability-otel-and-tool-call-audit.md §7).
+// One row per judgment on one tool call. Every string in it is an id or a
+// member of a closed list; there is no field for input text, a result or a
+// reason.
 
 export const TOOL_AUDIT_DECISION_VALUES = [
   "allow",

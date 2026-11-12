@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { Api, e2eStack, poll } from "../e2e/client.ts";
 import { scriptId } from "./engine.ts";
 import { engineFromEnv } from "./engines.ts";
-import { forgeBranch, forgeFile } from "./forge.ts";
+import { forgeBranch, forgeFile, forgePushRequests } from "./forge.ts";
 
 /**
  * A commit the session made goes to the agent branch on the forge only after
@@ -83,10 +83,12 @@ describe(`push approval on ${engine.runtimeKind}`, () => {
       const { content, file, sessionId } =
         await sessionWithCommit("push-approve");
       expect(await forgeBranch(engine, sessionId)).toBeNull();
+      const pushesBefore = await forgePushRequests(engine);
       const request = await requestPush(sessionId);
 
       // Asking pushes nothing: the branch waits for a decision.
       expect(await forgeBranch(engine, sessionId)).toBeNull();
+      expect(await forgePushRequests(engine)).toBe(pushesBefore);
 
       const approved = await api.request<PushRequest>(
         "POST",
@@ -105,6 +107,8 @@ describe(`push approval on ${engine.runtimeKind}`, () => {
       );
       expect(state).toBe("pushed");
       expect(await forgeBranch(engine, sessionId)).toBe(request.git_commit);
+      // The count the reject scenario relies on does move when a push is made.
+      expect(await forgePushRequests(engine)).toBeGreaterThan(pushesBefore);
 
       // A turn whose command failed would still leave a checkpoint to push.
       expect(await forgeFile(engine, request.git_commit, file)).toBe(content);
@@ -117,6 +121,7 @@ describe(`push approval on ${engine.runtimeKind}`, () => {
     async () => {
       const { sessionId } = await sessionWithCommit("push-reject");
       const request = await requestPush(sessionId);
+      const pushesBefore = await forgePushRequests(engine);
 
       const rejected = await api.request<PushRequest>(
         "POST",
@@ -134,6 +139,10 @@ describe(`push approval on ${engine.runtimeKind}`, () => {
         expect(await forgeBranch(engine, sessionId)).toBeNull();
         await Bun.sleep(WATCH_INTERVAL_MS);
       }
+      // Not one push request reached the forge, refused ones included: an
+      // empty branch alone would also be what a push the forge turned away
+      // leaves.
+      expect(await forgePushRequests(engine)).toBe(pushesBefore);
     },
     TIMEOUT,
   );

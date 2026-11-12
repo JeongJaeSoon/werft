@@ -167,8 +167,6 @@ export const slackKo = {
   "slack.useColumn": "사용",
   "slack.basic": "기본",
   "slack.advanced": "고급",
-  "slack.connection": "연결",
-  "slack.status": "상태",
   "slack.homeChannel": "홈 채널",
   "slack.homeUnset": "선택 안 됨",
   "slack.channelId": "채널 ID: {id}",
@@ -188,7 +186,6 @@ export const slackKo = {
   "slack.inUseOf": "{channel}에서 사용",
   "slack.mentionOnly": "멘션했을 때만 반응",
   "slack.search": "채널 찾기",
-  "slack.invite": "참여 대기",
   "slack.privateInvite": "/invite 필요",
   "slack.pendingApproval": "승인 대기",
   "slack.pendingApprovalHint":

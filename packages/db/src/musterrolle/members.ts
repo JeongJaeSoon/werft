@@ -7,7 +7,11 @@ import type {
   TakeOverResult,
   TakeoverRecord,
 } from "@werft-ai/platform";
-import { managesMembers, memberVerdict } from "@werft-ai/platform";
+import {
+  managesMembers,
+  memberVerdict,
+  receiptActorOf,
+} from "@werft-ai/platform";
 import {
   and,
   asc,
@@ -19,7 +23,7 @@ import {
   or,
   sql,
 } from "drizzle-orm";
-import { actorStillMember, receiptActorOf } from "../control-shared.ts";
+import { actorStillMember } from "../control-shared.ts";
 import { DB_NOW } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
 import {

@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-// biome-ignore lint/style/noRestrictedImports: reads the generated JSON Schema of the request.
 import { z } from "zod";
 
 import { canonicalJson } from "../shared/index.ts";

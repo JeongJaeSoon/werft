@@ -22,6 +22,7 @@ import {
   slackConversationKey,
   slackWelcomeText,
 } from "@werft-ai/chat-slack";
+import { createMemorySlackNoticeSink } from "@werft-ai/chat-slack/testing/slack";
 import {
   agentCardRequestSchema,
   SESSION_SCOPE_VALUES,
@@ -66,12 +67,12 @@ import { asc, eq } from "drizzle-orm";
 import { drizzle as drizzlePostgres } from "drizzle-orm/node-postgres";
 import { drizzle } from "drizzle-orm/pglite";
 import { Pool } from "pg";
+import { TEST_RUNTIMES } from "../testing/catalog.ts";
 import {
   seedSettings,
   settingsCatalog,
   settingsDocument,
-} from "../test-support/settings.ts";
-import { TEST_RUNTIMES } from "../testing/catalog.ts";
+} from "../testing/settings.ts";
 import { slackCatalog, slackSessionHandler } from "./main.ts";
 
 // The API side (activation, binding writes, install Finalize) and the
@@ -404,6 +405,7 @@ async function invited(
       logger,
       secretKey: key,
       leaseMs: 30_000,
+      notices: createMemorySlackNoticeSink().sink,
       slackApiUrl: slack.url,
     }),
     logger,

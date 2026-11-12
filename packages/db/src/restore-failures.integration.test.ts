@@ -322,6 +322,8 @@ integration("startup failures before ready on PostgreSQL", () => {
     "Checkpoint restore refused (CHECKPOINT_UNAVAILABLE): manifests/x/0 arrived damaged: it fails the store's own checksum";
   const INCOMPATIBLE =
     "Checkpoint restore refused (INCOMPATIBLE_CHECKPOINT): sdkVersion 1 where this worker runs 2";
+  const UNSUPPORTED =
+    "Runtime claude_agent_sdk 0.3.319 cannot run this session's settings: it does not support mcp, classifier_review";
 
   /** A worker claims with the restore, fails it, releases, and is seen gone. */
   async function failRestore(session: Session, release = true) {
@@ -526,6 +528,51 @@ integration("startup failures before ready on PostgreSQL", () => {
     expect(retried.admissionState).toBe("active");
     expect(retried.restoreFailureCount).toBe(0);
     expect(retried.restoreFailureReason).toBeNull();
+    expect(await launchable(session)).toBe(true);
+  });
+
+  test("holds a restore whose engine lacks a feature after its first failed launch, keeping the worker's reason", async () => {
+    const session = await checkpointedSession("unsupported-restore");
+    const start = (await sessionRow(session.sessionId)).executionGeneration;
+    const { worker } = await claimReserved(session);
+    await gateway.release(worker.principal, {
+      ...worker.scope,
+      reason: UNSUPPORTED,
+    });
+    await confirmExecutionGone(db, worker.executionId);
+
+    const held = await sessionRow(session.sessionId);
+    expect(held.admissionState).toBe("recovery_required");
+    expect(held.status).toBe("failed");
+    expect(held.restoreFailureCount).toBe(1);
+    expect(held.restoreFailureReason).toBe(UNSUPPORTED);
+    expect(held.restoreRetryAt).toBeNull();
+    expect(held.executionGeneration).toBe(start + 1);
+    expect(await launchable(session)).toBe(false);
+    expect(await queuedTurns(session.sessionId)).toBe(1);
+    expect(
+      (await reader().getSession(session.ownerId, session.sessionId))
+        ?.attention,
+    ).toEqual({
+      code: "RESTORE_FAILED",
+      reason: UNSUPPORTED,
+      failures: 1,
+      retry_at: null,
+    });
+    expect(
+      await systemEvents(session.sessionId, "checkpoint_restore_failed"),
+    ).toEqual([
+      expect.objectContaining({
+        failures: 1,
+        reason: UNSUPPORTED,
+        retry_at: null,
+      }),
+    ]);
+
+    // Once the image or the settings are fixed, the same checkpoint again.
+    expect(await decide(session, "retry_restore")).toMatchObject({
+      outcome: "accepted",
+    });
     expect(await launchable(session)).toBe(true);
   });
 
@@ -923,6 +970,64 @@ integration("startup failures before ready on PostgreSQL", () => {
     expect(decided.outcome).toBe("accepted");
     expect((await sessionRow(session.sessionId)).restoreFailureCount).toBe(0);
     expect(await launchable(session)).toBe(true);
+  });
+
+  test("a startup whose engine lacks a feature is held as STARTUP_FAILED on the first failure, with no backoff", async () => {
+    const session = await newSession("unsupported-startup");
+    const start = (await sessionRow(session.sessionId)).executionGeneration;
+    const { worker, claimed } = await claimReserved(session);
+    expect(claimed.restore).toBeNull();
+    await gateway.release(worker.principal, {
+      ...worker.scope,
+      reason: UNSUPPORTED,
+    });
+    await confirmExecutionGone(db, worker.executionId);
+
+    const held = await sessionRow(session.sessionId);
+    expect(held.admissionState).toBe("recovery_required");
+    expect(held.status).toBe("failed");
+    expect(held.restoreFailureCount).toBe(1);
+    expect(held.restoreRetryAt).toBeNull();
+    expect(held.executionGeneration).toBe(start + 1);
+    expect(await launchable(session)).toBe(false);
+    expect(
+      await db
+        .select()
+        .from(unassignedSessions)
+        .where(eq(unassignedSessions.sessionId, session.sessionId)),
+    ).toHaveLength(0);
+    expect(await queuedTurns(session.sessionId)).toBe(1);
+    expect(
+      (await reader().getSession(session.ownerId, session.sessionId))
+        ?.attention,
+    ).toEqual({
+      code: "STARTUP_FAILED",
+      reason: UNSUPPORTED,
+      failures: 1,
+      retry_at: null,
+    });
+    expect(await systemEvents(session.sessionId, "startup_failed")).toEqual([
+      expect.objectContaining({
+        failures: 1,
+        limit: RESTORE_FAILURE_LIMIT,
+        reason: UNSUPPORTED,
+        retry_at: null,
+      }),
+    ]);
+    const [status] = await db
+      .select({ payload: events.payload })
+      .from(events)
+      .where(
+        and(eq(events.sessionId, session.sessionId), eq(events.type, "status")),
+      )
+      .orderBy(desc(events.id))
+      .limit(1);
+    expect(status?.payload).toMatchObject({
+      phase: "failed",
+      admission_state: "recovery_required",
+      reason: "startup_failed",
+    });
+    expect(await decide(session, "retry_restore")).toEqual(NOT_RESTORE_FAILED);
   });
 
   test("a worker that asked for input once is not a failed startup, whatever it did before — an older worker sends no ready", async () => {

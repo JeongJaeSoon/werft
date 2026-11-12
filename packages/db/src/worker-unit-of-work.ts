@@ -107,28 +107,25 @@ import {
 } from "./control-observability.ts";
 import {
   ENDED_ATTEMPT_STATES,
-  hasRestorePoint,
+  earliestUnknownTurn,
   INPUT_RECEIPT_OPERATIONS,
   LAUNCHABLE_ADMISSION_STATES,
   OPEN_TURN_STATUSES,
   parseTurnSequence,
-  restoreBaseRevision,
   withinBudget,
 } from "./control-shared.ts";
 import {
-  earliestUnknownTurn,
   KILL_RECEIPT_OPERATIONS,
   terminateReceiptResult,
 } from "./control-unit-of-work.ts";
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
 import {
   abandonUndeliveredAnswers,
-  awaitingInputAt,
   closeWorkerRequests,
   parkTurnRequests,
-  publicStatus,
   recordLostInputWait,
 } from "./decision/pending-requests.ts";
+import { awaitingInputAt, publicStatus } from "./decision/pending-status.ts";
 import { sessionGitHubMcpOf, sessionMcpOf } from "./github/mcp-egress.ts";
 import {
   catalogMismatchCause,
@@ -142,12 +139,17 @@ import {
   recordEnvRefusal,
 } from "./musterrolle/env-variables.ts";
 import { writeModelCut } from "./musterrolle/model-cut-notices.ts";
+import {
+  lockProviderExchange,
+  settleProviderExchange,
+} from "./provider-exchanges.ts";
 import type { Database } from "./queries.ts";
 import {
   boundedReason,
   RESTORE_FAILURES_CLEARED,
   recordStartupFailure,
   restoreRetryDue,
+  unsupportedFeaturesEndReason,
 } from "./restore-failures.ts";
 import {
   completeResume,
@@ -216,6 +218,10 @@ import {
   pauseReceiptResult,
 } from "./sessions/pause-control.ts";
 import {
+  hasRestorePoint,
+  restoreBaseRevision,
+} from "./sessions/pause-policy.ts";
+import {
   notBefore,
   recordEvent,
   recordInputWaitStage,
@@ -227,6 +233,7 @@ import {
   settleTurnInterrupts,
   turnInterruptPending,
 } from "./sessions/turn-interrupts.ts";
+import { rowsOf } from "./statement-rows.ts";
 
 type ImageRuntime = NonNullable<WorkerBinding["launchRuntime"]>;
 
@@ -1026,7 +1033,7 @@ type RunnableFields = Pick<
 >;
 
 /** The connection the session's spec names; null without a spec. */
-export function specConnectionId(session: {
+function specConnectionId(session: {
   runtimeSpec: Record<string, unknown> | null;
 }): string | null {
   const id = (session.runtimeSpec?.connection as { id?: unknown } | undefined)
@@ -1243,13 +1250,15 @@ export async function moveSessionsToSuccessors(
     for (const { id } of rows) {
       // A share lock on the agent row orders this move against the switch's
       // update: a switch committed after the filter above is seen here.
-      const { rows: held } = (await tx.execute(sql`
+      const held = rowsOf<{ on: boolean }>(
+        await tx.execute(sql`
         SELECT a.auto_model_migration AS "on"
         FROM ${sessions} AS s
         JOIN ${agentReleases} AS r ON r.id = s.agent_release_id
         JOIN ${agents} AS a ON a.id = r.agent_id
         WHERE s.id = ${id}
-        FOR SHARE OF a`)) as unknown as { rows: { on: boolean }[] };
+        FOR SHARE OF a`),
+      );
       if (held.some((row) => row.on === false)) continue;
       moved += 1;
       // The spec pin follows the model in the same statement, so a replica
@@ -1680,7 +1689,7 @@ function pinnedExtensionsOf(
  * binds only a session whose spec names a connection and model it runs, so
  * one that does not verify here is a broken row, never a guess.
  */
-export function sessionSpecOf(
+function sessionSpecOf(
   session: Pick<
     SessionRow,
     | "id"
@@ -1988,6 +1997,33 @@ export function createPostgresWorkerUnitOfWork(
         ) {
           return { outcome: "invalid_credential" };
         }
+        // The attempt this launch already claimed, locked to the end of the
+        // transaction so the worker's first accepted call and this replay
+        // cannot both go through. It is the row the launch names, never the
+        // session's current one. Session first, then attempt, the order
+        // acquireFence locks them in: the other way round the two deadlock.
+        const [bound] =
+          launch.claimedAttemptId === null
+            ? []
+            : await tx
+                .select({ session: sessions, attempt: attempts })
+                .from(sessions)
+                .innerJoin(attempts, eq(attempts.sessionId, sessions.id))
+                .where(eq(attempts.id, launch.claimedAttemptId))
+                .limit(1)
+                .for("update");
+        // "allocated" is what the claim itself wrote: any later state
+        // means the worker already used its token, so this is not a lost
+        // response but a second holder trying to rotate it away. Judged
+        // before the image check below, which writes: whoever reads the
+        // nonce out of the container's environ after the engine started
+        // must not be able to end the execution and have its image refused.
+        if (
+          launch.claimedAttemptId !== null &&
+          (!bound || bound.attempt.state !== "allocated")
+        ) {
+          return { outcome: "invalid_credential" };
+        }
         // Before anything is bound, so the session is left as it was: a
         // worker that is not what its launch assumed proves the image's
         // configured runtime wrong, not the session.
@@ -2005,20 +2041,7 @@ export function createPostgresWorkerUnitOfWork(
         // and a fresh session token; it never selects a second session.
         // Earlier tokens for the attempt are revoked so that, if the nonce
         // leaked to a second worker, only the latest claimant can write.
-        if (launch.claimedAttemptId !== null) {
-          const [bound] = await tx
-            .select({ session: sessions, attempt: attempts })
-            .from(attempts)
-            .innerJoin(sessions, eq(sessions.id, attempts.sessionId))
-            .where(eq(attempts.id, launch.claimedAttemptId))
-            .limit(1)
-            .for("update");
-          // "allocated" is what the claim itself wrote: any later state
-          // means the worker already used its token, so this is not a lost
-          // response but a second holder trying to rotate it away.
-          if (!bound || bound.attempt.state !== "allocated") {
-            return { outcome: "invalid_credential" };
-          }
+        if (bound) {
           // Terminate, close, a pause with nothing to drain and the lease
           // sweep fence this attempt by moving the session on, but leave it
           // `allocated` until the execution is seen gone. A replay
@@ -2501,6 +2524,9 @@ export function createPostgresWorkerUnitOfWork(
       input: ProviderUsageInput,
     ): Promise<ProviderUsageResult> {
       return db.transaction(async (tx) => {
+        // First, before any row lock: the exchange's ledger row is opened
+        // under the same lock, so an open never lands after this report.
+        await lockProviderExchange(tx, input.exchangeId);
         // Session and attempt locked in the order every fenced write takes
         // them. No fence beyond the pair: an attempt that has lost its
         // session since the call still made it.
@@ -2578,9 +2604,16 @@ export function createPostgresWorkerUnitOfWork(
             .where(eq(providerUsage.exchangeId, input.exchangeId));
           if (stored === undefined) return { outcome: "conflict" };
           const { costUsd, pricedBy, ...was } = stored;
-          return payloadHash(was) === payloadHash(call)
-            ? { outcome: "replayed", costUsd, pricedBy }
-            : { outcome: "conflict" };
+          if (payloadHash(was) !== payloadHash(call)) {
+            return { outcome: "conflict" };
+          }
+          const ledger = await settleProviderExchange(tx, input);
+          return {
+            outcome: "replayed",
+            costUsd,
+            pricedBy,
+            ...(ledger.foreignRow ? { ledgerForeignRow: true as const } : {}),
+          };
         }
         await tx
           .update(sessions)
@@ -2588,10 +2621,12 @@ export function createPostgresWorkerUnitOfWork(
             costUsd: sql`LEAST(${sessions.costUsd} + ${inserted.costUsd}::numeric, ${MAX_SESSION_COST_USD})`,
           })
           .where(eq(sessions.id, input.sessionId));
+        const ledger = await settleProviderExchange(tx, input);
         return {
           outcome: "recorded",
           costUsd: inserted.costUsd,
           pricedBy: inserted.pricedBy,
+          ...(ledger.foreignRow ? { ledgerForeignRow: true as const } : {}),
         };
       });
     },
@@ -3072,7 +3107,7 @@ export function createPostgresWorkerUnitOfWork(
         const probe = await probeFinalize(tx, fence, input, true);
         if (probe.state !== "open") return probe.result;
         const { turn, terminalHash } = probe;
-        // api.md: `interrupted` is only ever recorded together with the
+        // `interrupted` is only ever recorded together with the
         // checkpoint that makes it consistent; without one the worker has to
         // say outcome_unknown. A replay above is still answered as stored.
         if (input.terminal.status === "interrupted" && !input.checkpoint) {
@@ -3855,12 +3890,15 @@ export function createPostgresWorkerUnitOfWork(
             );
         }
 
-        // A session that asked for this kill (terminate) lands in
-        // `stopped`, unless a turn was left unresolved, in which case the
-        // recovery decision takes precedence just as for any other exit. A
-        // session an operator already closed stays closed: the
-        // unknown turn is recorded above, but nothing reopens the session.
+        // A session that asked for this kill (terminate, execution
+        // revocation) lands in `stopped`. A turn the kill left unresolved
+        // still holds it for a recovery decision, as after any other exit,
+        // but its status says stopped: the operator asked for the stop, the
+        // session did not fail. A session an operator already closed stays
+        // closed: the unknown turn is recorded above, but nothing reopens
+        // the session.
         const stopping = session.admissionState === "stopping";
+        const unresolvedStatus = stopping ? "stopped" : "failed";
         const closed = session.admissionState === "closed";
         // A pause completes only here, on the observed absence, and only onto
         // a checkpoint that covers every turn that ran. One that cannot has
@@ -3891,12 +3929,21 @@ export function createPostgresWorkerUnitOfWork(
         // reported ready did not prove the checkpoint restores, nor that it
         // cannot: the session stays resuming and is signalled again until
         // RESUME_LAUNCH_LIMIT claimed launches have died that way, then an
-        // operator decides. A launch that never claimed spends nothing.
+        // operator decides. A launch that never claimed spends nothing. An
+        // engine that lacks a feature the settings need fails it at once:
+        // every launch would refuse the same way.
+        const resumeClaimed =
+          session.admissionState === "resuming"
+            ? (launch?.claimedAttemptId ?? null)
+            : null;
+        const resumeUnsupported =
+          resumeClaimed === null
+            ? null
+            : await unsupportedFeaturesEndReason(tx, resumeClaimed);
         const resumeFailed =
-          session.admissionState === "resuming" &&
-          launch?.claimedAttemptId !== null &&
-          launch?.claimedAttemptId !== undefined &&
-          (await resumeLaunchesSpent(tx, session.id)) >= RESUME_LAUNCH_LIMIT;
+          resumeClaimed !== null &&
+          (resumeUnsupported !== null ||
+            (await resumeLaunchesSpent(tx, session.id)) >= RESUME_LAUNCH_LIMIT);
         // A session left taking work would hand its next input to a worker
         // that cannot restore the turns it ran. Judged here, where
         // the loss becomes certain, so it shows before anyone sends another
@@ -3937,7 +3984,7 @@ export function createPostgresWorkerUnitOfWork(
               ? {}
               : unresolved.length > 0
                 ? {
-                    status: "failed" as const,
+                    status: unresolvedStatus,
                     admissionState: "recovery_required" as const,
                   }
                 : stopping
@@ -3988,7 +4035,9 @@ export function createPostgresWorkerUnitOfWork(
             sessionId: session.id,
             error: {
               code: "RECOVERY_REQUIRED",
-              message: `${RESUME_LAUNCH_LIMIT} executions restoring the checkpoint ended before any reported ready`,
+              message:
+                resumeUnsupported ??
+                `${RESUME_LAUNCH_LIMIT} executions restoring the checkpoint ended before any reported ready`,
             },
             now,
           });
@@ -4045,7 +4094,10 @@ export function createPostgresWorkerUnitOfWork(
             sessionId: session.id,
             phase:
               settledInto === "recovery_required"
-                ? "failed"
+                ? // A failed pause has no unresolved turn and is not stopping.
+                  unresolved.length > 0
+                  ? unresolvedStatus
+                  : "failed"
                 : settledInto === "stopped" || settledInto === "closed"
                   ? "stopped"
                   : // A park settles paused with its requests still open.

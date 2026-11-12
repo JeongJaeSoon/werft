@@ -25,7 +25,12 @@ import {
   STORAGE_ACCOUNTED_CONTENT,
   sessionBudgetOf,
 } from "../limits/installation-limits.ts";
-import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
+import {
+  type AuthorizationPolicy,
+  type Caller,
+  requirePermitted,
+  SessionServiceError,
+} from "../musterrolle/index.ts";
 import type {
   UsageAchievementCountsRecord,
   UsageBreakdownFiguresRecord,
@@ -35,11 +40,7 @@ import type {
   UsageSummaryRecord,
   UsageTotalsFilter,
 } from "../ports/usage-reader.ts";
-import {
-  requirePermitted,
-  SessionServiceError,
-  viewerOf,
-} from "../sessions/session-service.ts";
+import { viewerOf } from "../sessions/index.ts";
 
 /**
  * A limit as a decimal string without rounding it: the parser accepts more
@@ -205,7 +206,7 @@ export function createUsageService(deps: {
       };
     },
 
-    // Summed over every owner, so the installation owner's alone (94S-762).
+    // Summed over every owner, so the installation owner's alone.
     async getInstallationLimits(
       actor: Caller,
     ): Promise<InstallationLimitsResponse> {

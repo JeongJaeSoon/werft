@@ -23,8 +23,10 @@ import {
   NOT_FOUND,
   OUTRANKED,
   receiptActorOf,
+  requirePermitted,
+  SECRET_STORE_OFF,
+  SessionServiceError,
 } from "../../musterrolle/index.ts";
-import { requirePermitted, SessionServiceError } from "../../sessions/index.ts";
 import {
   type GitHubAppCredential,
   type GitHubAppDirectory,
@@ -453,12 +455,7 @@ export function createGitHubSettingsService(deps: {
         "The OAuth client secret",
       );
       if (!deps.secretsOn) {
-        throw new SessionServiceError(
-          "BACKEND_UNAVAILABLE",
-          "The secret store is off: the API was started without PLATFORM_SECRET_KEY",
-          undefined,
-          { reason_code: "secret_store_off" },
-        );
+        throw SECRET_STORE_OFF();
       }
       // Refused before the secret is read; the store checks again under its lock.
       if (!(await deps.oauth.status(workspaceId)).authorApp) {
@@ -504,12 +501,7 @@ export function createGitHubSettingsService(deps: {
         "The App people link their accounts with",
       );
       if (deps.apps === null) {
-        throw new SessionServiceError(
-          "BACKEND_UNAVAILABLE",
-          "The secret store is off: the API was started without PLATFORM_SECRET_KEY",
-          undefined,
-          { reason_code: "secret_store_off" },
-        );
+        throw SECRET_STORE_OFF();
       }
       const body = await readBody();
       const receiptId = newId();

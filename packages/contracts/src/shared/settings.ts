@@ -1,6 +1,6 @@
 /**
- * Numeric settings read from the environment, one rule for every process
- * . Unset takes the caller's default, or is refused as required
+ * Numeric settings read from the environment, one rule for every process.
+ * Unset takes the caller's default, or is refused as required
  * when there is none. Set, it must parse — blank included, since a blank is
  * a value someone meant to fill in — and a wrong value is refused, never
  * quietly replaced by the default. The message names the setting and the

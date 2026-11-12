@@ -9,6 +9,7 @@ import {
 } from "@werft-ai/db";
 import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
 import { createLogger } from "@werft-ai/observability";
+import { messageOf } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { SlackConfigError, slackApiUrlFrom } from "./slack-config.ts";
 
@@ -215,7 +216,7 @@ export type SlackInstallOutcome =
     }
   | { outcome: "revoked"; installationId: string };
 
-export async function installSlackApp(
+async function installSlackApp(
   db: Database,
   workspaceId: string,
   identity: SlackBotIdentity,
@@ -372,7 +373,7 @@ export async function runSlackInstall(
     }
     return fail(
       SLACK_INSTALL_EXIT.unexpected,
-      `unexpected error: ${error instanceof Error ? error.message : String(error)}`,
+      `unexpected error: ${messageOf(error)}`,
     );
   }
 }

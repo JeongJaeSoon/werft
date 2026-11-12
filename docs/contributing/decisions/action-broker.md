@@ -277,8 +277,8 @@ MCP에서 `not_pushed`는 flag on(actions 흐름)에서만 나오지 않는다(�
 - 입력은 `push_request_id` 하나다. 대상은 `update_pull_request`와 같다. 그 push 요청이 연 PR이고, 없으면 같은 저장소·브랜치에서 이 세션이 연 PR이다. push 요청은 owner와 세션으로 찾으므로 다른 세션이나 다른 에이전트의 PR은 `not_found`다. 다른 에이전트의 키로 이 세션을 부르면 `session.submit`에서 `FORBIDDEN`이다. 열기가 채택한 PR(이 세션의 `agent/<session-id>…` 브랜치에 이미 열려 있던 것)도 대상이다. 그 브랜치에는 플랫폼만 push한다.
 - 정책은 `update_pull_request`와 같다. `pushed` 요청에서 `session.submit`이면 되고 사람 승인은 없다. 카탈로그 binding이 바뀐 저장소는 `catalog_changed`, release 목록 밖이나 꺼진 GitHub는 게이트의 `github_refused`(`reason_code`)다. 부류가 들어오면(L3) `pull_request.write` 칸을 따른다. auto mode 규칙은 "이 세션이 연 PR의 닫기·다시 열기"를 허용 줄로 옮겼다.
 - 순서: GitHub에서 그 번호의 PR을 읽고(`404`면 `no_pull_request`, 그 밖의 실패는 `forge_failed`), head가 기록과 다르면 `no_pull_request`, 머지됐으면 `pull_request_merged`(`PULL_REQUEST_MERGED`, 409)다. 이미 바라는 상태면 PATCH 없이 `changed: false`로 답한다. 아니면 `PATCH /pulls/{n}`의 `state`로 바꾼다. 응답과 receipt의 `state`는 GitHub가 PATCH에 답한 상태이고, `changed`는 읽은 상태와 다른지다. 같은 브랜치에 다른 PR이 열려 있거나 브랜치가 없어 GitHub가 다시 열기를 거절하면 `forge_failed`다. 따로 코드를 두지 않았다. 422 원인을 확정할 수 없기 때문이다.
-- 결과: 성공과 거절 모두 `close_pull_request`·`reopen_pull_request` receipt를 남긴다. 결과는 PR receipt 칸에 `state`·`changed`를 더한 것이다. Slack 승인 카드 요약 줄은 `update_pull_request`와 같이 "PR 닫기"·"PR 다시 열기"와 head를 쓴다. `github_pull_request` 결과(outcome)의 상태는 직접 쓰지 않는다. 상태를 바꾼 호출은 receipt와 같은 트랜잭션에서 그 outcome의 `state_checked_at`·`closed_at`을 비워, outcome refresher가 다음 pass에서 GitHub를 다시 읽게 한다. 상태 전이와 성과 재판정은 refresher가 한다. `closed_at`도 비우는 까닭은 refresher가 30일 넘게 닫혀 있던 PR을 다시 읽지 않기 때문이다. 비우지 않으면 오래 닫혀 있던 PR을 다시 열어도 outcome이 `closed`로 남는다. 같은 UPDATE에서 refresher의 lease도 푼다. 바꾸기 전에 시작한 읽기가 끝나며 옛 상태와 확인 시각을 다시 쓰지 못하게 하려는 것이다(Codex 코드 리뷰 1·2차 지적).
-- `agent/*` 브랜치 삭제는 넣지 않는다(LATER). 지우면 다시 열기가 안 되고, GitHub Administration soft_deny 줄이 브랜치 삭제를 막는다. 에이전트 브랜치 정리 정책이 생기면 다시 본다. Codex 반론도 같은 결론이었다.
+- 결과: 성공과 거절 모두 `close_pull_request`·`reopen_pull_request` receipt를 남긴다. 결과는 PR receipt 칸에 `state`·`changed`를 더한 것이다. Slack 승인 카드 요약 줄은 `update_pull_request`와 같이 "PR 닫기"·"PR 다시 열기"와 head를 쓴다. `github_pull_request` 결과(outcome)의 상태는 직접 쓰지 않는다. 상태를 바꾼 호출은 receipt와 같은 트랜잭션에서 그 outcome의 `state_checked_at`·`closed_at`을 비워, outcome refresher가 다음 pass에서 GitHub를 다시 읽게 한다. 상태 전이와 성과 재판정은 refresher가 한다. `closed_at`도 비우는 까닭은 refresher가 30일 넘게 닫혀 있던 PR을 다시 읽지 않기 때문이다. 비우지 않으면 오래 닫혀 있던 PR을 다시 열어도 outcome이 `closed`로 남는다. 같은 UPDATE에서 refresher의 lease도 푼다. 바꾸기 전에 시작한 읽기가 끝나며 옛 상태와 확인 시각을 다시 쓰지 못하게 하려는 것이다.
+- `agent/*` 브랜치 삭제는 넣지 않는다(LATER). 지우면 다시 열기가 안 되고, GitHub Administration soft_deny 줄이 브랜치 삭제를 막는다. 에이전트 브랜치 정리 정책이 생기면 다시 본다.
 - `gh pr close`·`gh pr reopen`은 T8(L14)이 같은 서비스로 잇는다.
 
 `list_repositories`는 "어떤 저장소에 접근할 수 있나"의 유일한 답 경로다. 범위는 세션 주 저장소와 release `github.repositories` ∩ 프로필 허용이고, GitHub App 설치가 볼 수 있는 나머지는 이름도 개수도 주지 않는다. `push` 칸은 정책 값이 아니라 지금 push하면 나는 판정이다(스위치 꺼짐, release 밖, 아직 붙지 않은 저장소는 `deny`).
@@ -514,7 +514,3 @@ L0 머지 전에는 L1~L16 가운데 L13a만 시작한다. L13a는 프록시의 
 - **턴 중간 메시지 도구 `send_message`(L11).** 다시 볼 조건: 턴이 끝나기 전에 모델이 사람에게 따로 알려야 하는 사례가 나올 때. 계약(입력, dedupe key, 코드)은 카탈로그 5.1절 끝에 있다.
 - **미연결 요청자의 이름을 넣는 워크스페이스 설정.** 다시 볼 조건: 비공개 저장소만 쓰는 워크스페이스가 PR에 요청자 이름을 남겨 달라고 할 때.
 - **receipt 이름 불일치.** contracts의 receipt 목록은 `decide_push`, db는 `resolve_push`를 쓴다. 다시 볼 조건: receipt를 이름으로 읽는 화면이나 query를 만들 때.
-
-## Codex 반론
-
-카탈로그 자체는 Codex 리뷰를 r8(도구 카탈로그)과 path r5(실행 경로·`gh` 입구·호출자 매핑)까지 받아 둘 다 마지막 회차 Act-on 0이다. 이 문서(줄인 결정 문서)에 대한 Codex 리뷰는 PR 본문에 적는다.

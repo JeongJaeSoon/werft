@@ -16,7 +16,6 @@ import {
   type QueryScope,
   queryKeysOf,
   queryScopeOf,
-  scopedKey,
   withQueryScope,
 } from "@werft-ai/core";
 
@@ -414,8 +413,6 @@ export const SCOPE = queryScopeOf(me()) as QueryScope;
 const scopedClient = withQueryScope({} as ApiClient, SCOPE);
 /** The fixture user's cache keys. */
 export const keys = queryKeysOf(scopedClient);
-export const keyOf = <const K extends readonly unknown[]>(...key: K) =>
-  scopedKey(scopedClient, ...key);
 
 /** What the server says when it refuses every action on a row for one reason. */
 export function refusedActions(reason: MemberRefusal): MemberActions {

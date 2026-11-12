@@ -43,7 +43,7 @@ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import {
   removeBootstrapTokenFile,
   writeBootstrapTokenFile,
-} from "./bootstrap-token-file";
+} from "./bootstrap-token-file.ts";
 import { type ApiKeyStore, hashApiKey } from "./keys.ts";
 
 // Principal resolution for /v1 (03 §3.2). A bearer key is evaluated alone —

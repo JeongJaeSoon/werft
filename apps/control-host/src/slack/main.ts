@@ -66,6 +66,7 @@ import {
 import { extensionDepsFor } from "../api/extension-deps.ts";
 import { eventNeutralizer } from "../api/neutral-fields.ts";
 import { consoleOriginFrom, slackApiUrlFrom } from "../api/slack-config.ts";
+import { queueDatabaseUrl } from "../database-url.ts";
 import { PASS_LOOP_ROLES, passLoopConfigFromEnv } from "../pass-loop/loop.ts";
 import {
   drainSlackInbox,
@@ -81,15 +82,6 @@ import {
 } from "../wiring/slack-worker.ts";
 
 type Environment = Readonly<Record<string, string | undefined>>;
-
-function slackDatabaseUrl(environment: Environment): string {
-  const databaseUrl =
-    environment.DATABASE_URL || environment.QUEUE_DATABASE_URL;
-  if (!databaseUrl) {
-    throw new Error("DATABASE_URL or QUEUE_DATABASE_URL is required");
-  }
-  return databaseUrl;
-}
 
 export function slackRoleSettings(environment: Environment): {
   batchSize: number;
@@ -118,7 +110,7 @@ export function slackRoleStartup(environment: Environment): {
   secretKey: SecretKey;
 } {
   slackRoleSettings(environment);
-  slackDatabaseUrl(environment);
+  queueDatabaseUrl(environment);
   refuseFileCatalog(environment);
   return { secretKey: loadSecretKey(environment) };
 }
@@ -169,7 +161,7 @@ export function slackSessionHandler(deps: {
   logger: StructuredLogger;
   secretKey: SecretKey;
   leaseMs: number;
-  notices?: SlackNoticeSink;
+  notices: SlackNoticeSink;
   slackApiUrl?: string;
   inbox?: Pick<SlackInboundEventStore, "renew">;
   /** The pass's catalog, already read. No timer reads it again. */
@@ -276,7 +268,7 @@ export async function main(
     level: logLevelFromEnv(environment.LOG_LEVEL),
   });
   const pool = createEnforcedPool(
-    slackDatabaseUrl(environment),
+    queueDatabaseUrl(environment),
     logger,
     "slack",
     JOB_POOL_TIMEOUTS,

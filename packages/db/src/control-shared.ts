@@ -24,6 +24,11 @@ import {
   workerLaunches,
 } from "./schema.ts";
 
+export const UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export const isUuid = (value: string) => UUID.test(value);
+
 const LIKE_SPECIAL = /[\\%_]/g;
 
 /** A (I)LIKE pattern matching `text` anywhere, its wildcards taken literally. */
@@ -154,8 +159,6 @@ export async function actorStillMember(
     .for("share", { of: memberships });
   return live.length > 0;
 }
-
-export { receiptActorOf } from "@werft-ai/platform";
 
 export type ControlStageMeasure = <T>(
   stage: string,
@@ -371,11 +374,6 @@ export async function lockSessionForControl(
 export function controlClock(callerNow: Date, startedAt: number): Date {
   return new Date(callerNow.getTime() + Math.max(0, Date.now() - startedAt));
 }
-
-export {
-  hasRestorePoint,
-  restoreBaseRevision,
-} from "./sessions/pause-policy.ts";
 
 /**
  * Reports accepted receipts matching `overdue` as unknown, at most `limit`

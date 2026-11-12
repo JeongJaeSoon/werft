@@ -11,8 +11,10 @@ import {
   MANAGEMENT_ROLES,
   NOT_FOUND,
   OUTRANKED,
+  requirePermitted,
+  SECRET_STORE_OFF,
+  SessionServiceError,
 } from "../../musterrolle/index.ts";
-import { requirePermitted, SessionServiceError } from "../../sessions/index.ts";
 import type {
   GitHubPackagesStore,
   GitHubPackagesTokenVerifier,
@@ -93,12 +95,7 @@ export function createGitHubPackagesService(deps: {
 
   function requireSecrets() {
     if (!deps.secretsOn) {
-      throw new SessionServiceError(
-        "BACKEND_UNAVAILABLE",
-        "The secret store is off: the API was started without PLATFORM_SECRET_KEY",
-        undefined,
-        { reason_code: "secret_store_off" },
-      );
+      throw SECRET_STORE_OFF();
     }
   }
 

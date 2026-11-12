@@ -76,7 +76,6 @@ export const listPendingRequestsResponseSchema = z.object({
   }),
 });
 
-export type PendingQuestionOption = z.infer<typeof pendingQuestionOptionSchema>;
 export type PendingQuestion = z.infer<typeof pendingQuestionSchema>;
 export type PendingRequest = z.infer<typeof pendingRequestSchema>;
 export type ListPendingRequestsResponse = z.infer<

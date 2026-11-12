@@ -7,19 +7,6 @@ import {
 } from "../kollegium/agents.ts";
 import { receiptIdSchema } from "../shared/index.ts";
 
-/** Why a save of an agent's MCP settings is refused (`reason_code`). */
-export const AGENT_MCP_REFUSAL_VALUES = [
-  "server_unknown",
-  // The built-in server's tools follow the agent's GitHub settings.
-  "server_builtin",
-  "server_required",
-  "tool_outside_server",
-  "server_credential_missing",
-  // The workspace's or the agent's rules block the tool being added.
-  "mcp_tool_denied",
-  "duplicate",
-] as const;
-
 /**
  * What an agent's MCP tab holds. `allowed_tools` are full
  * `mcp__<server>__<tool>` names, and empty when `server` is null; the

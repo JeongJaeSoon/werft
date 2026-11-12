@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { attemptOf, batch } from "../testing/ingest.ts";
 import { valueMasker } from "./adapters.ts";
 import { decodeTraceRequest } from "./otlp-json.ts";
 import { sanitizeSpan } from "./sanitize.ts";
-import { attemptOf, batch } from "./test-support.ts";
 
 const FORGED = "99999999-9999-4999-8999-999999999999";
 

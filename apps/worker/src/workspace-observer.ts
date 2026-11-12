@@ -1,4 +1,4 @@
-import type { WorkerLogger } from "./worker-host.ts";
+import type { WorkerLogger } from "./console-logger.ts";
 import {
   type WorkspaceLimitEvidence,
   type WorkspaceLimitMode,

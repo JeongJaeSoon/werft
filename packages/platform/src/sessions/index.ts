@@ -1,5 +1,5 @@
 // The entrance other platform domains import (A2 in package-structure.md):
-// only the names action/, decision/, github/ and scheduler/ use, not a barrel over the directory.
+// only the names other domains use, not a barrel over the directory.
 export {
   additionalContextOf,
   additionalRepositoriesOf,
@@ -29,9 +29,6 @@ export type { RepositoryAttachmentService } from "./repository-attachment-servic
 export {
   idempotencyConflict,
   payloadHash,
-  requireAllowed,
-  requirePermitted,
-  SessionServiceError,
   selfApproval,
   viewerOf,
 } from "./session-service.ts";

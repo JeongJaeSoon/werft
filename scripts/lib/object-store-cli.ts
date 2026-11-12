@@ -44,9 +44,9 @@ import {
 } from "@werft-ai/storage";
 import { backupPath } from "./checkpoint-pins.ts";
 
-export const EXIT_TARGET_REFUSED = 4;
+const EXIT_TARGET_REFUSED = 4;
 
-export class TargetRefusedError extends Error {}
+class TargetRefusedError extends Error {}
 
 export function s3SettingsFromEnv(): StorageS3Settings {
   const endpoint = process.env.AWS_ENDPOINT_URL?.trim();
@@ -79,7 +79,7 @@ function required(name: string): string {
  * apart. A drill into another store under the same name is refused too;
  * it takes a bucket of another name.
  */
-export async function checkRestoreTarget(input: {
+async function checkRestoreTarget(input: {
   readonly bucket: string;
   readonly client: S3ClientLike;
   readonly create?: { readonly region: string };

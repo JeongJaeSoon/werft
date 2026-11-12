@@ -78,7 +78,7 @@ export interface RunTreeBuilder {
 
 export const ROOT_RUN_ID = "root";
 
-const SPAWNING_TOOLS = new Set(["Task", "Agent"]);
+export const SPAWNING_TOOLS = new Set(["Task", "Agent"]);
 const TARGET_KEYS = [
   "command",
   "file_path",

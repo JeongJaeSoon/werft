@@ -14,12 +14,12 @@ import {
 import { launchSession } from "@werft-ai/db/testing/launches";
 import { createLogger } from "@werft-ai/observability";
 import {
-  acceptAllCheckpoints,
   createWorkerGateway,
   type GitHubGrant,
   priceProviderUsage,
   type WorkerGateway,
 } from "@werft-ai/platform";
+import { acceptAllCheckpoints } from "@werft-ai/platform/testing/checkpoints";
 import { ClaudeSdkRuntime, runtimeEnvironment } from "@werft-ai/runtime-claude";
 import {
   type FakeAnthropicServer,

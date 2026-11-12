@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
-# Control-host image (94S-117): one executable, three roles —
-# `apps/control-host/src/main.ts api|scheduler|reconciler` — none of them
-# with the Agent SDK or the Claude Code executable.
+# Control-host image: one executable, five roles —
+# `apps/control-host/src/main.ts api|metrics|scheduler|reconciler|slack` — none
+# of them with the Agent SDK or the Claude Code executable.
 # Only the scheduler role is given the Docker socket, and it runs as root
 # for that (compose `user:`); the image default stays uid 1000. Built from
 # the repository root (`docker build -f apps/control-host/Dockerfile .`).
@@ -82,8 +82,9 @@ EXPOSE 3000
 # base image's entrypoint stays in the chain so `docker run <image> <file>`
 # still means `bun <file>`.
 ENTRYPOINT ["/usr/bin/tini", "-s", "--", "/usr/local/bin/docker-entrypoint.sh"]
-# Other roles: `bun run apps/control-host/src/main.ts <scheduler|reconciler>`
-# runs that role's pass loop (compose's services); add `--once` for one pass.
+# Other roles: `bun run apps/control-host/src/main.ts metrics` serves the
+# metrics endpoint; `<scheduler|reconciler|slack>` runs that role's pass loop
+# (compose's services); add `--once` for one pass.
 CMD ["bun", "run", "apps/control-host/src/main.ts", "api"]
 
 # The local stack's image (scripts/local.sh, the e2e and kind stacks): the

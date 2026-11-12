@@ -9,23 +9,19 @@ import {
   type WorkspaceEngineSettingsResponse,
 } from "@werft-ai/contracts";
 import {
+  ACTOR_INACTIVE,
   type AuthorizationPolicy,
   type Caller,
   MANAGEMENT_ROLES,
-} from "../musterrolle/policy.ts";
-import {
-  ACTOR_INACTIVE,
   NOT_FOUND,
   OUTRANKED,
-} from "../musterrolle/service-errors.ts";
+  requirePermitted,
+  SessionServiceError,
+} from "../musterrolle/index.ts";
 import type {
   EngineSettingsStore,
   PutEngineSettingsResult,
 } from "../ports/engine-settings-store.ts";
-import {
-  requirePermitted,
-  SessionServiceError,
-} from "../sessions/session-service.ts";
 
 const GRANT_LISTS = [
   ["permissions", "allow"],

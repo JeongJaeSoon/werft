@@ -44,6 +44,7 @@ import {
   type ToolDecisionObserver,
   type TurnEnded,
   unmetFeatures,
+  unsupportedFeaturesReason,
   type WorkerCheckpointState,
   type WorkerGatewayClient,
   WorkerGatewayRequestError,
@@ -53,10 +54,11 @@ import { noteTurnCoAuthor } from "./attribution-repair.ts";
 import { WORKER_CAPABILITIES } from "./capabilities.ts";
 import type { RuntimeResumePlan, WorkerCheckpointPort } from "./checkpoint.ts";
 import { LEASE_SAFETY_MARGIN_MS, type WorkerTimeouts } from "./config.ts";
-import { consoleLogger } from "./console-logger.ts";
+import { createConsoleLogger, type WorkerLogger } from "./console-logger.ts";
 import type { EngineExitWatch } from "./engine-processes.ts";
 import { EventPublisher } from "./event-publisher.ts";
 import { Heartbeat } from "./heartbeat.ts";
+import { messageOf as describe } from "./message-of.ts";
 import {
   type ApprovalCheckpointer,
   PendingRequestRegistry,
@@ -131,11 +133,7 @@ export interface RuntimeRegistry {
   launcherFor(runtime: SessionRuntime): RuntimeLauncher;
 }
 
-export type WorkerLogger = {
-  info(event: string, fields?: Record<string, unknown>): void;
-  warn(event: string, fields?: Record<string, unknown>): void;
-  error(event: string, fields?: Record<string, unknown>): void;
-};
+export type { WorkerLogger };
 
 /** A worker never cancels a turn; cancellation is the control plane's call. */
 export type WorkerTerminalStatus = Exclude<TerminalTurnStatus, "cancelled">;
@@ -180,8 +178,9 @@ export type WorkerHostOptions = {
   /** Absent when the checkpoint port is a fake that needs no token. */
   objectStoreAccess?: ObjectStoreAccess;
   /**
-   * Secrets this process holds besides the ones the claim brings, kept out
-   * of events by value (`SecretScrubber`): the object store key, say.
+   * More values for the `SecretScrubber` to keep out of events and logs, on
+   * top of the nonce and what the claim brings. The composition root passes
+   * none; for tests.
    */
   secrets?: readonly string[];
   /** Overrides APPROVAL_CHECKPOINT_MS; for tests. */
@@ -312,6 +311,9 @@ function parkReadinessOf(run: AgentRun): ParkReadiness {
 const TELEMETRY_SHUTDOWN_MS = 1_500;
 const CLAIM_RETRY_MS = 1_000;
 const GATEWAY_RETRY_MS = 500;
+
+/** What is left of a lease, counted from when the request it answered went out. */
+type ClaimedLease = { remainingMs: number; sentAt: number };
 const CHECKPOINT_PROCESS_GRACE_MS = 1_000;
 const CHECKPOINT_PROCESS_POLL_MS = 20;
 /** How long an interrupted engine gets to produce its terminal frame. */
@@ -440,7 +442,7 @@ export class WorkerHost {
       ...(options.secrets ?? []),
     ]);
     this.logger = scrubbingLogger(
-      options.logger ?? consoleLogger,
+      options.logger ?? createConsoleLogger(),
       () => this.scrubber,
     );
     this.abandoned = new Promise<void>((resolve) => {
@@ -471,43 +473,31 @@ export class WorkerHost {
   }
 
   async runLoop(): Promise<WorkerRunSummary> {
-    const claimed = await this.claim();
-    if (claimed === null) {
-      return {
-        outcome: "unclaimed",
-        reason:
-          this.stopping?.reason ?? "No session was waiting for this worker",
-        turns: [],
-      };
-    }
-    const { claim } = claimed;
-    this.claimValue = claim;
-    this.workspaceEnforce =
-      claim.workspace_enforce ?? DEFAULT_WORKSPACE_ENFORCE;
-    this.options.gateway.useCredential(claim.session_credential);
-    this.options.objectStoreAccess?.useToken(claim.object_store.access.token);
-    this.scopeValue = {
-      session_id: claim.session_id,
-      turn_id: null,
-      attempt_id: claim.attempt_id,
-      lease_epoch: claim.lease_epoch,
-      execution_generation: claim.execution_generation,
-      auth_revision: claim.auth_revision,
+    const owned = await this.claimAndActivate();
+    if ("outcome" in owned) return owned;
+    const { claim, lease } = owned;
+    // Asked before each step from here to the engine's start. A stop that
+    // came meanwhile leaves a session this worker holds and has started
+    // nothing more for: the shutdown below gives it back. And until the
+    // heartbeat loop starts, nothing renews the activation's lease or
+    // notices it running out, so a step that outlasted it ends the worker
+    // here instead of starting the next one on a session it may have lost.
+    const leaseEndsAt = lease.sentAt + lease.remainingMs;
+    const goingOn = (): boolean => {
+      if (this.stopping !== undefined) return false;
+      if (performance.now() < leaseEndsAt) return true;
+      this.lose("The lease ran out before the worker's startup began");
+      return false;
     };
-    this.grants = [...(claim.grants ?? [])];
-    this.checkpointRevision = claim.restore?.revision ?? null;
-    this.logger.info("worker.claimed", {
-      session_id: claim.session_id,
-      attempt_id: claim.attempt_id,
-      restore_revision: claim.restore?.revision ?? null,
-    });
-    // Attribution, not a boundary: commits without it still go through.
-    await this.options.gitTrailers?.(claim).catch((error: unknown) =>
-      this.logger.warn("worker.git_trailers.not_written", {
-        reason: describe(error),
-      }),
-    );
-    await this.writeEngineRoutes(claim);
+    if (goingOn()) {
+      // Attribution, not a boundary: commits without it still go through.
+      await this.options.gitTrailers?.(claim).catch((error: unknown) =>
+        this.logger.warn("worker.git_trailers.not_written", {
+          reason: describe(error),
+        }),
+      );
+    }
+    if (goingOn()) await this.writeEngineRoutes(claim, goingOn);
 
     // Everything this process holds that the engine's tools could print.
     this.scrubber = new SecretScrubber([
@@ -605,7 +595,7 @@ export class WorkerHost {
       scope: () => this.scope,
       attemptState: () => this.attemptState,
       intervalMs: this.options.timeouts.heartbeatIntervalMs,
-      lease: { remainingMs: claim.lease_remaining_ms, sentAt: claimed.sentAt },
+      lease,
       safetyMarginMs:
         this.options.timeouts.leaseSafetyMarginMs ?? LEASE_SAFETY_MARGIN_MS,
       onLost: (reason, error) => this.lose(reason, error),
@@ -624,7 +614,9 @@ export class WorkerHost {
       );
       let ready = false;
       try {
-        const plan = await this.startUp(claim);
+        // Not entered once stopped or past the lease: preparing the
+        // workspace starts git.
+        const plan = goingOn() ? await this.startUp(claim) : undefined;
         if (plan !== undefined && this.stopping === undefined) {
           await this.publishExtensions(claim);
         }
@@ -744,6 +736,7 @@ export class WorkerHost {
    */
   private async writeEngineRoutes(
     claim: BootstrapClaimResponse,
+    goingOn: () => boolean = () => true,
   ): Promise<void> {
     // Not a boundary: the gate judges every repository the route is asked
     // for.
@@ -756,6 +749,8 @@ export class WorkerHost {
           });
           return false;
         })) ?? false;
+    // Startup asks between the two files, as it does between its steps.
+    if (!goingOn()) return;
     // Nor this: the proxy is. Without it an install fails. A Go module named
     // private with no route to it would go to github.com directly.
     await this.options
@@ -937,9 +932,7 @@ export class WorkerHost {
       runtimeRequirementsOf(claim.runtime_config),
     );
     if (unmet.length > 0) {
-      throw new Error(
-        `Runtime ${claim.runtime.kind} ${claim.runtime.version} cannot run this session's settings: it does not support ${unmet.join(", ")}`,
-      );
+      throw new Error(unsupportedFeaturesReason(claim.runtime, unmet));
     }
     if (claim.restore === null) return true;
     const restored =
@@ -1075,6 +1068,208 @@ export class WorkerHost {
     });
     this.stopping = undefined;
     this.stop({ kind: "paused", reason: "Paused; the execution is released" });
+  }
+
+  /**
+   * The claim, activated: the gateway has accepted one fenced call made with
+   * the claim's credential, which moves the attempt out of `allocated`. From
+   * then on the launch nonce opens nothing. The nonce stays readable in this
+   * container's environ (PID 1 holds it too) by whatever the engine runs, so
+   * nothing is written to disk and no child process starts before this
+   * returns a claim.
+   *
+   * A refusal means a duplicate of the claim request landed late and rotated
+   * the credential away: while the attempt is unstarted, claiming once more
+   * returns the one that works. A second refusal ends the worker.
+   */
+  private async claimAndActivate(): Promise<
+    { claim: BootstrapClaimResponse; lease: ClaimedLease } | WorkerRunSummary
+  > {
+    for (let reclaimed = false; ; reclaimed = true) {
+      let claimed: Awaited<ReturnType<WorkerHost["claim"]>>;
+      try {
+        claimed = await this.claim();
+      } catch (error) {
+        // The first claim fails the way it always has. One made to recover
+        // the credential is refused when the session moved on meanwhile.
+        if (!reclaimed || !(error instanceof WorkerGatewayRequestError)) {
+          throw error;
+        }
+        return this.unactivated("lease_lost", describe(error));
+      }
+      if (claimed === null) {
+        // Claiming again was given up on a stop: the first claim's session
+        // is left to its lease, as any claim this worker cannot use is.
+        if (reclaimed) {
+          return this.unactivated(
+            "drained",
+            this.stopping?.reason ?? "Stopped while claiming again",
+          );
+        }
+        return {
+          outcome: "unclaimed",
+          reason:
+            this.stopping?.reason ?? "No session was waiting for this worker",
+          turns: [],
+        };
+      }
+      const { claim } = claimed;
+      this.claimValue = claim;
+      this.workspaceEnforce =
+        claim.workspace_enforce ?? DEFAULT_WORKSPACE_ENFORCE;
+      this.options.gateway.useCredential(claim.session_credential);
+      this.options.objectStoreAccess?.useToken(claim.object_store.access.token);
+      this.scopeValue = {
+        session_id: claim.session_id,
+        turn_id: null,
+        attempt_id: claim.attempt_id,
+        lease_epoch: claim.lease_epoch,
+        execution_generation: claim.execution_generation,
+        auth_revision: claim.auth_revision,
+      };
+      this.grants = [...(claim.grants ?? [])];
+      this.checkpointRevision = claim.restore?.revision ?? null;
+      this.logger.info("worker.claimed", {
+        session_id: claim.session_id,
+        attempt_id: claim.attempt_id,
+        restore_revision: claim.restore?.revision ?? null,
+      });
+      const activation = await this.activate(claimed);
+      if (activation.kind === "accepted") {
+        return { claim, lease: activation.lease };
+      }
+      if (
+        activation.kind === "refused" &&
+        !reclaimed &&
+        this.stopping === undefined
+      ) {
+        this.logger.warn("worker.activation.reclaiming", {
+          reason: activation.reason,
+        });
+        continue;
+      }
+      return this.unactivated(
+        activation.kind === "abandoned"
+          ? "drained"
+          : activation.kind === "failed"
+            ? "failed"
+            : "lease_lost",
+        activation.reason,
+      );
+    }
+  }
+
+  /**
+   * One `starting` heartbeat under the claim's fence, answered. Unlike the
+   * heartbeat loop's beats, which survive a refusal or a silence, this one
+   * says which it was: startup goes on only after the gateway said yes.
+   * An answer that never came is asked for again with the same credential,
+   * never by claiming again: the beat that went unanswered may have landed,
+   * and then the claim would be refused.
+   *
+   * A control the answer reports waiting is left to the heartbeat loop's
+   * first beat, as it was before this call existed: read here it would be
+   * acted on in the middle of startup.
+   */
+  private async activate(claimed: {
+    claim: BootstrapClaimResponse;
+    sentAt: number;
+  }): Promise<
+    | { kind: "accepted"; lease: ClaimedLease }
+    | { kind: "refused" | "lost" | "abandoned" | "failed"; reason: string }
+  > {
+    const leaseEndsAt = claimed.sentAt + claimed.claim.lease_remaining_ms;
+    const leaseOver = {
+      kind: "lost",
+      reason:
+        "The claim's lease ran out before the gateway accepted this worker's first call",
+    } as const;
+    for (;;) {
+      const sentAt = performance.now();
+      if (sentAt >= leaseEndsAt) return leaseOver;
+      try {
+        // Waited for no longer than the lease the claim gave: an answer that
+        // comes after it is for a session that may already be someone
+        // else's, and must not start anything.
+        const answered = this.untilStopGraceSpent(
+          this.options.gateway.heartbeat({
+            ...this.scope,
+            attempt_state: "starting",
+          }),
+        );
+        let leaseTimer: ReturnType<typeof setTimeout> | undefined;
+        const expired = new Promise<typeof leaseOver>((resolve) => {
+          leaseTimer = setTimeout(
+            () => resolve(leaseOver),
+            leaseEndsAt - sentAt,
+          );
+        });
+        let answer: Awaited<typeof answered> | typeof leaseOver;
+        try {
+          answer = await Promise.race([answered, expired]);
+        } finally {
+          clearTimeout(leaseTimer);
+        }
+        if (answer !== undefined && "kind" in answer) {
+          // Whatever the beat still answers is nobody's to act on.
+          answered.catch(() => {});
+          return leaseOver;
+        }
+        if (answer === undefined) {
+          return {
+            kind: "abandoned",
+            reason:
+              this.stopping?.reason ??
+              "Stopped before the gateway accepted this worker's first call",
+          };
+        }
+        // Read the clock, not the race: on a stalled event loop the answer
+        // is handled before the timer that was due earlier.
+        if (performance.now() >= leaseEndsAt) return leaseOver;
+        // The lease an answer grants runs from when its request went out.
+        if (sentAt + answer.lease_remaining_ms <= performance.now()) {
+          return {
+            kind: "lost",
+            reason:
+              "The gateway's answer to this worker's first call came after the lease it granted had run out",
+          };
+        }
+        return {
+          kind: "accepted",
+          lease: { remainingMs: answer.lease_remaining_ms, sentAt },
+        };
+      } catch (error) {
+        if (!(error instanceof WorkerGatewayRequestError)) throw error;
+        if (isOwnershipLost(error)) {
+          return {
+            kind:
+              error.code === "UNAUTHORIZED" || error.code === "STALE_EPOCH"
+                ? "refused"
+                : "lost",
+            reason: describe(error),
+          };
+        }
+        if (!isRetryable(error)) {
+          return { kind: "failed", reason: describe(error) };
+        }
+        if (this.stopping !== undefined) {
+          return { kind: "abandoned", reason: this.stopping.reason };
+        }
+        this.logger.warn("worker.activation.retry", {
+          reason: describe(error),
+        });
+        await this.sleep(GATEWAY_RETRY_MS);
+      }
+    }
+  }
+
+  /** How a worker that never got past activation ends: nothing was started. */
+  private unactivated(
+    outcome: "drained" | "failed" | "lease_lost",
+    reason: string,
+  ): WorkerRunSummary {
+    this.logger.error("worker.activation.not_accepted", { outcome, reason });
+    return { outcome, reason, turns: [] };
   }
 
   /** The claim, with the monotonic instant the request that won it went out. */
@@ -1821,7 +2016,7 @@ export class WorkerHost {
         checkpoint = captured.ref;
       }
       if (this.ownerLost) return;
-      // api.md: a turn is `interrupted` only when the engine's terminal comes
+      // A turn is `interrupted` only when the engine's terminal comes
       // with a checkpoint consistent with it; without one nobody can say what
       // the transcript holds, and the turn goes to recovery instead.
       const unconfirmed: Settlement = {
@@ -2827,6 +3022,7 @@ export class WorkerHost {
             scope,
             recheck: () => run.prepareCheckpoint("approval_wait"),
             workerState: { pendingApprovals: waiting },
+            point: "approval_wait",
           }),
           late,
         ]);
@@ -3441,10 +3637,6 @@ function unknownOutcome(
   },
 ): Settlement {
   return { ...ended, reason, status: "outcome_unknown", synthetic: true };
-}
-
-function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function releaseReason(error: unknown): string {

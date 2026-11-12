@@ -28,13 +28,7 @@ import {
   pushRequestStateSchema,
   sourceRefSchema,
 } from "../api/push-request.ts";
-import { githubPolicyReceiptFieldsSchema } from "../api/receipt.ts";
-import {
-  type AgentGitHub,
-  MCP_TOOL_PREFIX,
-  type PushAttached,
-  pushDecisionOf,
-} from "../kollegium/agents.ts";
+import { type AgentGitHub, MCP_TOOL_PREFIX } from "../kollegium/agents.ts";
 import {
   ACTION_REFUSAL_CODES,
   type ActionRefusalCode,
@@ -245,26 +239,8 @@ export type RepositoryAttachFailure = z.infer<
 >;
 
 /**
- * `result` of an `attach_repository` receipt: who asked from which attempt,
- * under which release, and what the worker fetched. `reason_code` is the
- * gate's refusal, as on the GitHub gate's own receipts.
- */
-export const attachRepositoryReceiptResultSchema = z.object({
-  session_id: z.string(),
-  attempt_id: z.string(),
-  agent_id: z.string().nullable(),
-  agent_release_id: z.string().nullable(),
-  repository_id: z.string(),
-  branch: z.string().nullable(),
-  commit: z.string().nullable(),
-  failure: repositoryAttachFailureSchema.nullable(),
-  reason_code: z.string().nullable(),
-  ...githubPolicyReceiptFieldsSchema.shape,
-});
-
-/**
- * What kind of action a tool is, the unit a policy value is set on (design
- * 8.1). `push` is judged by `pushDecisionOf`. There is no `administration`: no tool does that.
+ * What kind of action a tool is, the unit a policy value is set on. `push`
+ * is judged by `pushDecisionOf`. There is no `administration`: no tool does that.
  */
 export const ACTION_CLASS_VALUES = [
   "push",
@@ -302,33 +278,6 @@ export const PUSH_CLASS_VALUES = [
   "push.attached",
 ] as const;
 export type PushClass = (typeof PUSH_CLASS_VALUES)[number];
-
-export type ActionPolicy = {
-  push: PushAttached;
-  "pull_request.write": "allow";
-  "pull_request.merge": "workspace_ceiling";
-  review: "allow" | "deny";
-  workflow: "allow" | "deny";
-  "repository.read": "allow";
-};
-
-/**
- * The policy per class, computed from the effective settings; nothing is
- * stored per class. A push is `pushDecisionOf`.
- */
-export function actionPolicyOf(
-  github: AgentGitHub,
-  pushAttached: PushAttached,
-): ActionPolicy {
-  return {
-    push: pushDecisionOf({ settings: github, pushAttached }),
-    "pull_request.write": "allow",
-    "pull_request.merge": "workspace_ceiling",
-    review: github.features.review ? "allow" : "deny",
-    workflow: github.features.actions ? "allow" : "deny",
-    "repository.read": "allow",
-  };
-}
 
 /**
  * The tools a release exposes, by the release's features alone. The server's

@@ -6,9 +6,9 @@ import type {
   CredentialBindingStore,
   Principal,
 } from "@werft-ai/platform";
+import { receiptActorOf } from "@werft-ai/platform";
 import { and, asc, eq, inArray, isNull, type SQL, sql } from "drizzle-orm";
-import { receiptActorOf } from "../control-shared.ts";
-import { rowsOf } from "../control-unit-of-work.ts";
+import { UUID } from "../control-shared.ts";
 import { DB_NOW } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
 import {
@@ -20,12 +20,11 @@ import {
   receipts,
   users,
 } from "../schema.ts";
+import { rowsOf } from "../statement-rows.ts";
 import { holdsRight, lockedRole } from "./api-keys.ts";
 
-// Bindings made from the web or the API (94S-581). Lock order follows the
+// Bindings made from the web or the API. Lock order follows the
 // key store: the actor's membership, the agent, then the credential name.
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Written out with aliases: inside a select list drizzle renders a column
 // without its table, which is ambiguous once the subquery joins.

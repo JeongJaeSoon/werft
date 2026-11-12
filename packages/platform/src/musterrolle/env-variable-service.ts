@@ -15,12 +15,9 @@ import type {
   EnvVariableScope,
   EnvVariableStore,
 } from "../ports/env-variable-store.ts";
-import {
-  requirePermitted,
-  SessionServiceError,
-} from "../sessions/session-service.ts";
 import type { AuthorizationPolicy, Caller } from "./policy.ts";
-import { NOT_FOUND } from "./service-errors.ts";
+import { requirePermitted } from "./require-permitted.ts";
+import { NOT_FOUND, SessionServiceError } from "./service-errors.ts";
 
 // User variables (E-41, design section 7). Owners and admins manage the
 // workspace's own; an agent's admins, owners and admins manage that agent's.

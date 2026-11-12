@@ -4,8 +4,8 @@ import {
   verifyReleaseSpec,
 } from "@werft-ai/platform";
 import { sql } from "drizzle-orm";
-import { rowsOf } from "./control-unit-of-work.ts";
 import type { Database } from "./queries.ts";
+import { rowsOf } from "./statement-rows.ts";
 
 /** The four `sessions` spec columns, written together (`sessions_spec_check`). */
 export type SessionSpecPin = {

@@ -56,7 +56,7 @@ export const toolNameSchema = z.string().min(1).max(128);
 
 /**
  * The name of a credential held outside Werft — a secret store entry, a
- * remote MCP server connection — never its value (design 4.4).
+ * remote MCP server connection — never its value.
  */
 export const CREDENTIAL_REF_PATTERN = "^[a-z0-9][a-z0-9._:/-]{0,127}$";
 export const credentialRefSchema = z
@@ -70,7 +70,7 @@ export const CREDENTIAL_BINDING_TARGET_VALUES = [
   "agent_identity",
 ] as const;
 
-/** What happens when the agent calls a tool. Kiel evaluates it per call (D9). */
+/** What happens when the agent calls a tool. Kiel evaluates it per call. */
 export const TOOL_POLICY_VALUES = ["allow", "ask", "deny"] as const;
 export const toolPolicySchema = z.enum(TOOL_POLICY_VALUES);
 
@@ -81,7 +81,7 @@ export const toolPolicyDefaultsSchema = z
   .object({ builtin: toolPolicySchema, mcp: toolPolicySchema })
   .strict();
 
-/** Same defaults as Managed Agents (D12). */
+/** Same defaults as Managed Agents. */
 export const DEFAULT_TOOL_POLICY = {
   builtin: "allow",
   mcp: "ask",
@@ -95,7 +95,6 @@ const mcpToolNameSchema = toolNameSchema.refine(
 /**
  * A card's say over the MCP tools it calls. Built-in tools are the runtime's
  * and have no entry here.
- * TODO(94S-1373): removed with `mcp` when the MCP server moves to agent settings.
  */
 export const cardToolPolicySchema = z
   .object({ per_tool: z.record(mcpToolNameSchema, toolPolicySchema) })
@@ -140,7 +139,7 @@ export const agentCapabilitiesSchema = z
      * Null for none, so a card written before it keeps its content hash.
      */
     mcp: z.array(cardMcpServerSchema).min(1).max(1).nullable(),
-    /** MCP tools the release must not allow. TODO(94S-1373): goes with `mcp`. */
+    /** MCP tools the release must not allow. */
     forbidden: z.array(mcpToolNameSchema).default([]),
     /**
      * Optional, with no default, so a card written before it existed keeps
@@ -150,7 +149,7 @@ export const agentCapabilitiesSchema = z
     /**
      * The credentials the agent runs with, by name. Optional for the same
      * reason as `tool_policy`. Each must be bound to the agent before a
-     * release of this version activates or starts a session (D11).
+     * release of this version activates or starts a session.
      */
     credential_refs: z
       .array(credentialRefSchema)
@@ -169,7 +168,7 @@ export const agentCapabilitiesSchema = z
   .strict();
 
 /**
- * A card as read: model and capability range (03 §4.1). `name` and
+ * A card as read: model and capability range. `name` and
  * `description` live on the agent row, not here, so editing them does not
  * mint a new immutable version.
  *
@@ -279,8 +278,8 @@ export const storedAgentCapabilitiesSchema = z.preprocess(
 );
 
 /**
- * A card as stored. Cards written before `tone` was dropped (94S-761) still
- * hold it, and cards from before the built-in tool fields were dropped (94S-1371)
+ * A card as stored. Cards written before `tone` was dropped still
+ * hold it, and cards from before the built-in tool fields were dropped
  * hold those; they are accepted and left out of what is read. The version's
  * `content_sha256` and its releases' `card_sha256` keep hashing the stored
  * card, so nothing re-hashes what this returns.
@@ -1282,8 +1281,6 @@ export const listConnectionOptionsResponseSchema = z
   .strict();
 
 export type AgentStatus = z.infer<typeof agentStatusSchema>;
-export type AgentRule = z.infer<typeof agentRuleSchema>;
-export type AgentCapabilities = z.infer<typeof agentCapabilitiesSchema>;
 export type AgentCard = z.infer<typeof agentCardSchema>;
 export type AgentCardRequest = z.infer<typeof agentCardRequestSchema>;
 export type Agent = z.infer<typeof agentSchema>;
@@ -1294,13 +1291,8 @@ export type EffectiveTools = z.infer<typeof effectiveToolsSchema>;
 export type AgentRelease = z.infer<typeof agentReleaseSchema>;
 export type CreateAgentRequest = z.infer<typeof createAgentRequestSchema>;
 export type UpdateAgentRequest = z.infer<typeof updateAgentRequestSchema>;
-export type DraftAgentRequest = z.infer<typeof draftAgentRequestSchema>;
-export type DraftAgentResponse = z.infer<typeof draftAgentResponseSchema>;
 export type AgentDetail = z.infer<typeof agentDetailSchema>;
-export type AgentDraft = z.infer<typeof agentDraftSchema>;
 export type BehaviorValues = z.infer<typeof behaviorValuesSchema>;
-export type EffectiveBehavior = z.infer<typeof effectiveBehaviorSchema>;
-export type ReleaseStatus = z.infer<typeof releaseStatusSchema>;
 export type SaveRelease = z.infer<typeof saveReleaseSchema>;
 export type SaveAgentResponse = z.infer<typeof saveAgentResponseSchema>;
 export type ListAgentsQuery = z.infer<typeof listAgentsQuerySchema>;
@@ -1310,7 +1302,6 @@ export type PolicyPins = z.infer<typeof policyPinsSchema>;
 export type AgentGitHub = z.infer<typeof agentGitHubSchema>;
 export type AgentGitHubSettings = z.infer<typeof agentGitHubSettingsSchema>;
 export type ToolPolicy = z.infer<typeof toolPolicySchema>;
-export type CardToolPolicy = z.infer<typeof cardToolPolicySchema>;
 export type CreateAgentReleaseRequest = z.infer<
   typeof createAgentReleaseRequestSchema
 >;

@@ -11,7 +11,6 @@ import {
 import {
   ACTION_CLASS_VALUES,
   type ActionClass,
-  actionPolicyOf,
   GITHUB_MCP_FIXED_TOOLS,
   GITHUB_MCP_REFUSAL_OVERRIDES,
   GITHUB_MCP_TOOL_ARGUMENTS,
@@ -165,34 +164,6 @@ describe("the action class every tool carries", () => {
       "push.primary",
       "push.attached",
     ]);
-  });
-
-  test("the policy per class is computed from the settings and the attached value", () => {
-    expect(actionPolicyOf(settings({}), "ask")).toEqual({
-      push: "ask",
-      "pull_request.write": "allow",
-      "pull_request.merge": "workspace_ceiling",
-      review: "deny",
-      workflow: "deny",
-      "repository.read": "allow",
-    });
-    expect(
-      actionPolicyOf(
-        { ...settings({ review: true, actions: true }), push_approval: false },
-        "deny",
-      ),
-    ).toMatchObject({
-      push: "deny",
-      review: "allow",
-      workflow: "allow",
-    });
-  });
-
-  test("a push is the stricter of push_approval and push_attached", () => {
-    const open = { ...settings({}), push_approval: false };
-    expect(actionPolicyOf(open, "allow").push).toBe("allow");
-    expect(actionPolicyOf(open, "ask").push).toBe("ask");
-    expect(actionPolicyOf(open, "deny").push).toBe("deny");
   });
 });
 

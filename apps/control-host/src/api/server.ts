@@ -67,6 +67,7 @@ import {
   createPostgresWorkerPendingStore,
   createPostgresWorkerUnitOfWork,
   createPostgresWorkspaceKeyStore,
+  createProviderExchangeLedger,
   hasUncollectedCheckpoint,
   newSessionGitHubReaders,
   slackAppKind,
@@ -137,6 +138,7 @@ import {
   GITHUB_API_BASE,
   InstallationConfigError,
   installationLimitsFromEnv,
+  messageOf,
   NO_JUDGE_CONNECTIONS,
   registryCatalog,
   releaseModel,
@@ -453,10 +455,8 @@ const authorization = createAuthorizationPolicy({
 });
 const agentStore = createPostgresAgentStore(db);
 const surfaceBindingStore = createPostgresSurfaceBindingStore(db);
-const slackSecretStore =
-  secretKey === null ? null : () => createPostgresSecretStore(db, secretKey);
-const slackAppStore =
-  secretKey === null ? null : createPostgresSlackAppStore(db, secretKey);
+const slackSecretStore = () => createPostgresSecretStore(db, secretKey);
+const slackAppStore = createPostgresSlackAppStore(db, secretKey);
 const {
   api: slackBotApi,
   join: slackJoin,
@@ -467,7 +467,7 @@ const {
   secrets: slackSecretStore,
   bindings: surfaceBindingStore,
   agents: agentStore,
-  outbox: () => createPostgresSlackOutboxStore(db),
+  outbox: createPostgresSlackOutboxStore(db),
   logger,
 });
 const githubSettingsStore = createPostgresGitHubSettingsStore(db);
@@ -478,7 +478,7 @@ const agents = createAgentService({
   catalog,
   credentials: credentialBindings,
   githubSettings: githubSettingsStore,
-  ...(slackWelcome === null ? {} : { welcome: slackWelcome }),
+  welcome: slackWelcome,
   keys: createPostgresWorkspaceKeyStore(db),
   outsideAgents: agentAccess,
   runtimes: installedRuntimeVersions,
@@ -538,15 +538,15 @@ const { tokenRevoked: slackTokenRevoked, channelKinds: slackChannelKinds } =
     installs: slackInstallStore,
     onTokenRevokedError: (error) =>
       logger.warn("Slack token_revoked could not revoke the install", {
-        error: error instanceof Error ? error.message : String(error),
+        error: messageOf(error),
       }),
   });
 const slackBindings = createSurfaceBindingService({
   authorization,
   store: surfaceBindingStore,
   channels: slackChannelKinds,
-  ...(slackJoin === null ? {} : { join: slackJoin }),
-  ...(slackWelcome === null ? {} : { welcome: slackWelcome }),
+  join: slackJoin,
+  welcome: slackWelcome,
 });
 const linkedAccounts = createLinkedAccountService({
   authorization,
@@ -556,10 +556,7 @@ const slackIssuer = slackIssuerFrom(process.env);
 for (const warning of slackEnvWarnings(process.env)) logger.warn(warning, {});
 const { api: slackConfigApi, tokens: slackConfigTokens } = wireSlackConfig({
   apiUrl: slackApiUrlFrom(process.env),
-  tokenStore:
-    secretKey === null
-      ? null
-      : createPostgresSlackConfigTokenStore(db, secretKey),
+  tokenStore: createPostgresSlackConfigTokenStore(db, secretKey),
 });
 const consoleOrigin = consoleOriginFrom(process.env);
 if (consoleOrigin === null) {
@@ -568,7 +565,7 @@ if (consoleOrigin === null) {
     {},
   );
 }
-const slackLinkOff = signInWithSlackOff(consoleOrigin, secretKey !== null);
+const slackLinkOff = signInWithSlackOff(consoleOrigin, true);
 if (slackLinkOff !== null) logger.warn(slackLinkOff, {});
 const slackEventsPublicUrl = slackEventsPublicUrlFrom(process.env);
 const slackActiveReleaseWarning: SlackServicesStageDeps["activeReleaseWarning"] =
@@ -622,7 +619,7 @@ const {
   identities: slackIdentityStore,
   installs: slackInstallStore,
   bindings: surfaceBindingStore,
-  installStates: secretKey === null ? null : slackInstallStore,
+  installStates: slackInstallStore,
   consoleOrigin,
   eventsPublicUrl: slackEventsPublicUrl,
   appKind: (workspaceId, slackAppId) =>
@@ -678,7 +675,7 @@ const settingsConsole = createSettingsConsoleService({
   authorization,
   store: settingsDocumentStore,
   leftOut: () => catalogRegistry.settings?.left_out ?? [],
-  secretStoreOn: secretKey !== null,
+  secretStoreOn: true,
   credentialHosts: credentialHostsFromEnv(process.env),
   reread: rereadSettings,
 });
@@ -696,8 +693,7 @@ const agentCallerLimits = createAgentCallerLimitsService({
 });
 const inviteStore = createPostgresInviteStore(db);
 const invites = createInviteService({ authorization, store: inviteStore });
-const githubAppStore =
-  secretKey === null ? null : createPostgresGitHubAppStore(db, secretKey);
+const githubAppStore = createPostgresGitHubAppStore(db, secretKey);
 const registeredGitHub = wireGitHubRegistry({
   appStore: githubAppStore,
   logger,
@@ -718,7 +714,7 @@ const githubRepositories = createGitHubRepositoryService({
   authorization,
   store: catalogRepositoryStore,
   apps: githubAppStore,
-  pins: githubAppStore === null ? null : githubPins,
+  pins: githubPins,
   directory: githubAppDirectory,
   agents: agentStore,
   repositoryCeiling: (workspaceId) =>
@@ -788,7 +784,7 @@ const githubSettings = createGitHubSettingsService({
   pullRequestSettings,
   oauth: githubOAuth,
   callbackUrl: githubCallback,
-  secretsOn: secretKey !== null,
+  secretsOn: true,
   apps: githubAppStore,
   directory: githubAppDirectory,
   installations: githubInstallations,
@@ -801,7 +797,7 @@ const githubPackages = createGitHubPackagesService({
   verifier: createGitHubPackagesTokenVerifier({
     apiBase: githubPackagesConfig.apiBase,
   }),
-  secretsOn: secretKey !== null,
+  secretsOn: true,
 });
 const sessionAttribution = createPostgresSessionAttributionStore(db);
 const commitAttributions = createPostgresCommitAttributionLedger(db);
@@ -814,9 +810,7 @@ const agentGitHub = createAgentGitHubService({
   connections: githubConnections,
   resolver: githubResolver,
   selection: githubRepositories.selection,
-  ...(githubAppStore === null
-    ? {}
-    : { pinned: { apps: githubAppStore, pins: githubPins } }),
+  pinned: { apps: githubAppStore, pins: githubPins },
 });
 const agentMcp = createAgentMcpService({
   authorization,
@@ -1087,6 +1081,7 @@ const authorizerListener =
         fetch: createEgressAuthorizer({
           gateway: workers,
           logger,
+          exchanges: createProviderExchangeLedger(db),
           ...(githubMcpGrantKey === null
             ? {}
             : {

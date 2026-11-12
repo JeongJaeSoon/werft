@@ -159,14 +159,6 @@ export type LocalDockerBackendEnvironment = {
   [key: string]: string | undefined;
 };
 
-export {
-  DEFAULT_INSTALLATION_ID,
-  DEFAULT_WORKER_USER,
-  DEFAULT_WORKSPACE_GC_MIN_AGE_SEC,
-  DEFAULT_WORKSPACE_QUOTA_MB,
-  MIN_WORKSPACE_QUOTA_MB,
-} from "@werft-ai/contracts/execution";
-
 const INSTALLATION_ID = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$/;
 export const DEFAULT_VOLUME_LABEL_NAMESPACE = "werft";
 export const DEFAULT_VOLUME_NAME_PREFIX = "werft-ws-";

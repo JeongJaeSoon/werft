@@ -1,7 +1,7 @@
 import { cpSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { MIGRATIONS_FOLDER } from "../migration-folder.ts";
+import { MIGRATIONS_FOLDER } from "../migration-journal.ts";
 
 /**
  * The last migration before the one that dropped the profiles and the rows

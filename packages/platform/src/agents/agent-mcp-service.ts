@@ -7,21 +7,17 @@ import {
   type PutAgentMcpSettingsResponse,
 } from "@werft-ai/contracts";
 import {
+  ACTOR_INACTIVE,
   type AuthorizationPolicy,
   type Caller,
   MANAGEMENT_ROLES,
-} from "../musterrolle/policy.ts";
-import {
-  ACTOR_INACTIVE,
   NOT_FOUND,
   OUTRANKED,
-} from "../musterrolle/service-errors.ts";
-import type { AgentMcpStore } from "../ports/agent-mcp-store.ts";
-import type { SessionCatalog } from "../sessions/catalog.ts";
-import {
   requirePermitted,
   SessionServiceError,
-} from "../sessions/session-service.ts";
+} from "../musterrolle/index.ts";
+import type { AgentMcpStore } from "../ports/agent-mcp-store.ts";
+import type { SessionCatalog } from "../sessions/catalog.ts";
 import { mcpValuesOfCard } from "./mcp-release-values.ts";
 
 const refused = (field: string, reason: string) =>

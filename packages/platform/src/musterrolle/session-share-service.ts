@@ -9,12 +9,9 @@ import type {
   SessionShare,
   SessionShareStore,
 } from "../sessions/ports/session-share-store.ts";
-import {
-  requirePermitted,
-  SessionServiceError,
-} from "../sessions/session-service.ts";
 import type { AuthorizationPolicy, Caller } from "./policy.ts";
-import { NOT_FOUND } from "./service-errors.ts";
+import { requirePermitted } from "./require-permitted.ts";
+import { NOT_FOUND, SessionServiceError } from "./service-errors.ts";
 
 // Session share scopes (design 4.6). Reading a share is reading the session;
 // changing it is `session.share`, which the policy gives a person's session

@@ -86,8 +86,6 @@ ap_compose exec -T postgres psql -U postgres -d sessions -c "select a.slug, a.ac
 
 409 직후에는 revision과 version이 A가 활성화한 그대로여야 한다. B에서 "최신 상태 불러오기"를 누르면 보던·지금 활성 release와 카드 차이가 보이고, 그 뒤 활성화는 성공한다(revision +1).
 
-- 2026-10-23 run `20261023-155226-40022`(main `6971cdf0`)와 run `20261023-160737-96495`(main `e7490124`, JeongJaeSoon/agent-platform#568 포함)에서 위 마법사 명령으로 member가 `member-helper`를 만들어 켰고, 상세 카드 탭 저장(version 2) → 배포 탭 release·활성화 뒤 DB가 `active_version 2`, `created_by member@example.test`였다. 같은 run에서 `invite` → `browser.mjs accept` → `web-user.mjs login`(200), 초대 대화상자(목록 "대기 중인 초대"에 `invitee@example.test`), 역할 변경·비활성(DB `admin | t`)·재활성·LAST_OWNER, 로그인된 브라우저·쓴 링크·잘못된 링크 화면, member의 `/members` 안내를 확인했다. 두 탭 충돌(`activate-conflict`)은 이 run에서 몰지 않았다.
-
 끝나면 `node $B <run id> stop`(`down.sh`도 부른다). Orca 탭을 열었으면 `orca tab close --page <id>`, profile은 `orca tab profile delete --profile <id>`로 지운다.
 
 ## Gotchas

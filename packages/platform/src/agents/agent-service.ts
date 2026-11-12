@@ -36,21 +36,21 @@ import {
 } from "../extensions/session-extensions.ts";
 import type { GitHubSettingsStore } from "../github/ports/github-settings.ts";
 import {
+  ACTOR_INACTIVE,
   type AuthorizationPolicy,
   type Caller,
   MANAGEMENT_ROLES,
+  NOT_FOUND,
+  OUTRANKED,
   type OutsideAgentAccessSetting,
   outsideAgentsUse,
   type Principal,
-} from "../musterrolle/policy.ts";
-import {
-  ACTOR_INACTIVE,
-  NOT_FOUND,
-  OUTRANKED,
+  requirePermitted,
+  SessionServiceError,
   TEAM_HOLDING,
   TEAM_NOT_ALLOWED,
   TEAM_NOT_FOUND,
-} from "../musterrolle/service-errors.ts";
+} from "../musterrolle/index.ts";
 import type {
   ActivationIntent,
   AgentReader,
@@ -68,11 +68,7 @@ import {
   type SessionCatalog,
   type SessionCatalogView,
 } from "../sessions/catalog.ts";
-import {
-  requirePermitted,
-  SessionServiceError,
-  viewerOf,
-} from "../sessions/session-service.ts";
+import { viewerOf } from "../sessions/index.ts";
 import type { AgentWelcomable } from "../surface/ports/agent-welcomable.ts";
 import type { ModelMoveStep } from "./model-move-runner.ts";
 import {
@@ -1000,7 +996,7 @@ export function createAgentService(deps: {
     },
 
     /**
-     * The agents the caller could start a session with now (94S-902): the
+     * The agents the caller could start a session with now: the
      * scope check of a start, then the store's usage predicate, then the
      * checks a start makes on the release itself (its connection still in
      * the catalog and its spec verified, every credential bound). A start refused for

@@ -1,5 +1,4 @@
 export const workspaceKo = {
-  "workspace.title": "워크스페이스 설정",
   "workspace.description": "워크스페이스 전체에 적용되는 설정입니다.",
   "workspace.readOnlyMark": "읽기 전용",
   "workspace.name": "워크스페이스 이름",
@@ -69,7 +68,6 @@ export const workspaceKo = {
   "integrations.tabs": "연동 종류",
   "integrations.tab.slack": "Slack",
   "integrations.tab.github": "GitHub",
-  "workspace.subnav": "워크스페이스 설정 메뉴",
   "workspace.basics": "기본 정보",
   "workspace.slackDescription":
     "에이전트를 Slack에서 쓸 수 있게 이 콘솔이 Slack 앱을 만들 때 쓰는 연결입니다. 에이전트마다 앱 설치와 채널은 에이전트의 Slack 탭에서 정합니다.",
@@ -165,7 +163,6 @@ export const workspaceKo = {
 };
 
 export const workspaceEn: Record<keyof typeof workspaceKo, string> = {
-  "workspace.title": "Workspace settings",
   "workspace.description": "Settings that apply to the whole workspace.",
   "workspace.readOnlyMark": "Read-only",
   "workspace.name": "Workspace name",
@@ -237,7 +234,6 @@ export const workspaceEn: Record<keyof typeof workspaceKo, string> = {
   "integrations.tabs": "Integration types",
   "integrations.tab.slack": "Slack",
   "integrations.tab.github": "GitHub",
-  "workspace.subnav": "Workspace settings menu",
   "workspace.basics": "Basics",
   "workspace.slackDescription":
     "The Slack connection this console uses to make Slack apps, so agents can be used from Slack. Each agent's app install and channels are set in its own Slack tab.",
@@ -333,7 +329,6 @@ export const workspaceEn: Record<keyof typeof workspaceKo, string> = {
 };
 
 export const workspaceJa: Record<keyof typeof workspaceKo, string> = {
-  "workspace.title": "ワークスペース設定",
   "workspace.description": "ワークスペース全体に適用される設定です。",
   "workspace.readOnlyMark": "読み取り専用",
   "workspace.name": "ワークスペース名",
@@ -405,7 +400,6 @@ export const workspaceJa: Record<keyof typeof workspaceKo, string> = {
   "integrations.tabs": "連携の種類",
   "integrations.tab.slack": "Slack",
   "integrations.tab.github": "GitHub",
-  "workspace.subnav": "ワークスペース設定メニュー",
   "workspace.basics": "基本情報",
   "workspace.slackDescription":
     "エージェントを Slack で使えるように、このコンソールが Slack アプリを作るときに使う連携です。エージェントごとのアプリのインストールとチャンネルは、エージェントの Slack タブで設定します。",

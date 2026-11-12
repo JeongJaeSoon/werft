@@ -41,7 +41,7 @@ export const RECEIPT_OPERATION_VALUES = [
   // The operator's execution revocation; written on the session
   // owner's receipt list so the owner sees why the session stopped.
   "revoke_execution",
-  // Account recovery (94S-264): a one-time link issued and the password set
+  // Account recovery: a one-time link issued and the password set
   // from it, and an owner added or restored by BOOTSTRAP_TOKEN when no live
   // owner remained.
   "issue_password_reset",
@@ -52,12 +52,12 @@ export const RECEIPT_OPERATION_VALUES = [
   // A person linking or unlinking their own Slack account.
   "link_account",
   "unlink_account",
-  // Invites and roles (94S-153).
+  // Invites and roles.
   "invite_member",
   "accept_invite",
   "revoke_invite",
   "change_member_role",
-  // Turning a membership or a whole account off and back on (94S-464).
+  // Turning a membership or a whole account off and back on.
   "disable_member",
   "enable_member",
   "disable_user",
@@ -66,10 +66,10 @@ export const RECEIPT_OPERATION_VALUES = [
   "update_agent",
   "create_agent_release",
   "activate_agent",
-  // Issuing and revoking an API key from the web or the API (94S-574).
+  // Issuing and revoking an API key from the web or the API.
   "create_api_key",
   "revoke_api_key",
-  // Teams and who administers an agent (94S-582). Adding a member writes its
+  // Teams and who administers an agent. Adding a member writes its
   // receipt on that member, so it is also their notice of the change.
   "create_team",
   "rename_team",
@@ -78,25 +78,25 @@ export const RECEIPT_OPERATION_VALUES = [
   "remove_team_member",
   "set_team_member_role",
   "set_agent_managing_team",
-  // Who may use an agent: its scope and teams (94S-900).
+  // Who may use an agent: its scope and teams.
   "set_agent_usage",
-  // What a caller may do through an agent, per caller target (94S-917).
+  // What a caller may do through an agent, per caller target.
   "set_agent_caller_limits",
   // The workspace's two agent access settings (agent-rbac (c)).
   "set_agent_access_settings",
   "add_agent_admin",
   "remove_agent_admin",
-  // Binding a credential name to an agent and taking it off (94S-581).
+  // Binding a credential name to an agent and taking it off.
   "bind_credential",
   "unbind_credential",
   // Pinning an agent to its Slack app and bot, and taking that back (M8).
   "link_agent_identity",
   "revoke_agent_identity",
-  // Setting how an agent answers in one Slack channel or its DMs (94S-177).
+  // Setting how an agent answers in one Slack channel or its DMs.
   "set_surface_binding",
   "request_surface_binding",
   "resolve_surface_binding",
-  // Changing who sees a session (94S-584).
+  // Changing who sees a session.
   "share_session",
   // A push request, a human's decision on one (or a refused attempt at
   // either), and the platform's push of an approved one.
@@ -202,7 +202,7 @@ export const RECEIPT_OPERATION_VALUES = [
   // counts. Never a rule's text.
   "set_workspace_engine_settings",
   "set_agent_engine_settings",
-  // Skill-only extension bundles (94S-865). Names, digests and review states
+  // Skill-only extension bundles. Names, digests and review states
   // only; a bundle's files are never written to a receipt.
   "register_extension",
   "approve_extension",
@@ -329,10 +329,8 @@ export type ReceiptStatus = z.infer<typeof receiptStatusSchema>;
 export type ReceiptOperation = z.infer<typeof receiptOperationSchema>;
 export type ReceiptSessionTarget = z.infer<typeof receiptSessionTargetSchema>;
 export type ReceiptResourceTarget = z.infer<typeof receiptResourceTargetSchema>;
-export type ReceiptUserTarget = z.infer<typeof receiptUserTargetSchema>;
 export type ReceiptTarget = z.infer<typeof receiptTargetSchema>;
 export type Receipt = z.infer<typeof receiptSchema>;
-export type GetReceiptResponse = z.infer<typeof getReceiptResponseSchema>;
 export type ReceiptAcceptedResponse = z.infer<
   typeof receiptAcceptedResponseSchema
 >;

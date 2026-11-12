@@ -101,7 +101,7 @@ export async function sessionRelease(
   };
 }
 
-export function outcomeTitle(title: string | null): string | null {
+function outcomeTitle(title: string | null): string | null {
   return title === null
     ? null
     : title.slice(0, PULL_REQUEST_OUTCOME_TITLE_MAX_LENGTH);

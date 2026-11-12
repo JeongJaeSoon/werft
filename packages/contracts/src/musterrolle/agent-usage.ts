@@ -11,7 +11,7 @@ import {
 } from "../shared/index.ts";
 import { TEAM_LIST_LIMIT, teamIdSchema, teamNameSchema } from "./teams.ts";
 
-// Who may use an agent (94S-900). `workspace` is every member of the
+// Who may use an agent. `workspace` is every member of the
 // workspace; `private` is the members of the listed teams. Owners, admins and
 // the agent's admins edit it (`agent.usage.manage`); this contract carries the
 // data and the edit, and decides nothing about a session.
@@ -79,7 +79,7 @@ export const putAgentUsageResponseSchema = z
   .strict();
 
 /**
- * One agent the caller could start a session with right now (94S-902). Only
+ * One agent the caller could start a session with right now. Only
  * what a new-session screen picks from; the managing team's name is public to
  * whoever may use the agent, and no admin or creator is named.
  */

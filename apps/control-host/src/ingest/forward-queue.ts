@@ -14,7 +14,7 @@ export interface ForwardQueueOptions {
 
 const MAX_ABANDONED_SENDS = 4;
 
-export const DEFAULT_FORWARD_QUEUE: ForwardQueueOptions = {
+const DEFAULT_FORWARD_QUEUE: ForwardQueueOptions = {
   maxQueuedSpans: 20_000,
   maxSpansPerSend: 512,
   sendTimeoutMs: 15_000,

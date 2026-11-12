@@ -7,13 +7,13 @@ import {
   type AuthorizationPolicy,
   type Caller,
   deciderKeyOf,
-} from "../musterrolle/policy.ts";
-import {
-  idempotencyConflict,
-  payloadHash,
   requireAllowed,
   requirePermitted,
   SessionServiceError,
+} from "../musterrolle/index.ts";
+import {
+  idempotencyConflict,
+  payloadHash,
   selfApproval,
 } from "../sessions/index.ts";
 import type {

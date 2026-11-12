@@ -1,10 +1,13 @@
-import type { SpecSource } from "@werft-ai/contracts";
+import type { runtimeConfigSchema, SpecSource } from "@werft-ai/contracts";
+import type { z } from "zod";
 import type { InstalledRuntimes } from "../agents/release-run.ts";
 import { releaseSpecRecord } from "../agents/release-spec.ts";
 import type { WorkerBinding } from "../ports/worker-unit-of-work.ts";
 import type {
   CatalogConnection,
+  CatalogProvider,
   CatalogRepository,
+  CredentialRef,
   SessionCatalog,
 } from "../sessions/catalog.ts";
 import type { ToolCatalogs } from "../sessions/tool-names.ts";
@@ -29,6 +32,29 @@ export function testConnection(
     auto_mode: "unknown",
     ...overrides,
   };
+}
+
+/**
+ * The provider as the worker protocol carries it: where the proxy
+ * will send the engine's requests, and the attempt's token for that route.
+ * The credential stays here; `providerUpstreamOf` is what the proxy gets.
+ */
+export function runtimeProviderOf(
+  provider: Pick<CatalogProvider, "kind" | "endpoint">,
+  token: string,
+): z.infer<typeof runtimeConfigSchema.shape.provider> {
+  return {
+    kind: provider.kind,
+    endpoint: provider.endpoint,
+    auth: { kind: "egress_token", token },
+  };
+}
+
+/** Environment-only lookup: a secret reference resolves to nothing here. */
+export function environmentCredentials(
+  env: Record<string, string | undefined>,
+): (ref: CredentialRef) => string | undefined {
+  return (ref) => ("value_env" in ref ? env[ref.value_env] : undefined);
 }
 
 /** A console App repository, as the settings resolve one. */

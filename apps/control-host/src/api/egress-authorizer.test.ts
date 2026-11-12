@@ -5,16 +5,17 @@ import {
   createPostgresJudgmentEgress,
   createPostgresSessionUnitOfWork,
   createPostgresWorkerUnitOfWork,
+  createProviderExchangeLedger,
 } from "@werft-ai/db";
 import { launchSession } from "@werft-ai/db/testing/launches";
 import { TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
-import { createLogger } from "@werft-ai/observability";
+import { createLogger, type LogRecord } from "@werft-ai/observability";
 import {
-  acceptAllCheckpoints,
   createWorkerGateway,
   hashJudgmentToken,
   WorkerGatewayError,
 } from "@werft-ai/platform";
+import { acceptAllCheckpoints } from "@werft-ai/platform/testing/checkpoints";
 import { createObjectRouteSigner } from "@werft-ai/storage";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { eq } from "drizzle-orm";
@@ -25,6 +26,7 @@ import { createApiApp } from "./app.ts";
 import {
   createEgressAuthorizer,
   EGRESS_AUTHORIZER_PATH,
+  EGRESS_EXCHANGES_PATH,
   EGRESS_USAGE_PATH,
   egressAuthorizerConfigFromEnv,
 } from "./egress-authorizer.ts";
@@ -414,6 +416,215 @@ describe("usage reports", () => {
     expect(retry.status).toBe(200);
     // Priced today it would be the fallback; the answer is what was charged.
     expect(await retry.json()).toEqual({ cost_usd: 0.025, priced_by: "table" });
+  });
+});
+
+describe("the provider exchange ledger route", () => {
+  const reserve = {
+    model: "claude-opus-5",
+    input_tokens: 900,
+    output_tokens: 4_096,
+    cache_creation_input_tokens: 0,
+    cache_creation_1h_input_tokens: 0,
+    cache_read_input_tokens: 0,
+    estimated: true,
+  };
+  const used = { ...reserve, output_tokens: 40, estimated: false };
+  let records: LogRecord[];
+  let withLedger: (request: Request) => Promise<Response>;
+
+  beforeEach(() => {
+    records = [];
+    withLedger = createEgressAuthorizer({
+      gateway,
+      logger: createLogger({
+        sinks: [{ write: (record) => void records.push(record) }],
+      }),
+      exchanges: createProviderExchangeLedger(db),
+      token: AUTHORIZER_TOKEN,
+    });
+  });
+
+  function send(body: unknown, options: { bearer?: string | null } = {}) {
+    const bearer =
+      options.bearer === undefined ? AUTHORIZER_TOKEN : options.bearer;
+    return withLedger(
+      new Request(`http://authorizer.invalid${EGRESS_EXCHANGES_PATH}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(bearer === null ? {} : { authorization: `Bearer ${bearer}` }),
+        },
+        body: JSON.stringify(body),
+      }),
+    );
+  }
+
+  async function ledgerRows() {
+    return db.select().from(schema.providerExchanges);
+  }
+
+  test("an API without the ledger answers the route 404, as an older one does", async () => {
+    const response = await ask(
+      { op: "renew", exchange_id: crypto.randomUUID() },
+      { path: EGRESS_EXCHANGES_PATH },
+    );
+    expect(response.status).toBe(404);
+  });
+
+  test("the proxy's bearer is required and a malformed body is refused", async () => {
+    const renew = { op: "renew", exchange_id: crypto.randomUUID() };
+    expect((await send(renew, { bearer: null })).status).toBe(401);
+    expect((await send(renew, { bearer: "x".repeat(40) })).status).toBe(401);
+    expect((await send({ op: "close", exchange_id: "x" })).status).toBe(400);
+    expect(
+      (await send({ ...renew, session_id: crypto.randomUUID() })).status,
+    ).toBe(400);
+  });
+
+  test("an open makes a row once; repeating it extends it; renewing answers what is there", async () => {
+    const claim = await claimed();
+    const open = {
+      op: "open",
+      exchange_id: crypto.randomUUID(),
+      session_id: claim.session_id,
+      attempt_id: claim.attempt_id,
+      reserve,
+    };
+    const created = await send(open);
+    expect(created.status).toBe(201);
+    expect(await created.json()).toEqual({ state: "open" });
+    const again = await send(open);
+    expect(again.status).toBe(200);
+    expect(await again.json()).toEqual({ state: "open" });
+    const [row] = await ledgerRows();
+    expect(row).toMatchObject({
+      exchangeId: open.exchange_id,
+      sessionId: claim.session_id,
+      attemptId: claim.attempt_id,
+      reserve: {
+        model: "claude-opus-5",
+        inputTokens: 900,
+        outputTokens: 4_096,
+        speed: "unknown",
+        inferenceGeo: "unknown",
+        estimated: true,
+      },
+    });
+
+    const renewed = await send({ op: "renew", exchange_id: open.exchange_id });
+    expect(await renewed.json()).toEqual({ state: "open" });
+    const gone = await send({ op: "renew", exchange_id: crypto.randomUUID() });
+    expect(gone.status).toBe(200);
+    expect(await gone.json()).toEqual({ state: "gone" });
+  });
+
+  test("an open for no such attempt is 404 and one under another owner's id is 409", async () => {
+    const claim = await claimed();
+    const exchangeId = crypto.randomUUID();
+    const missing = await send({
+      op: "open",
+      exchange_id: exchangeId,
+      session_id: claim.session_id,
+      attempt_id: "att-missing",
+      reserve,
+    });
+    expect(missing.status).toBe(404);
+    await send({
+      op: "open",
+      exchange_id: exchangeId,
+      session_id: claim.session_id,
+      attempt_id: claim.attempt_id,
+      reserve,
+    });
+    const other = await claimed();
+    const conflict = await send({
+      op: "open",
+      exchange_id: exchangeId,
+      session_id: other.session_id,
+      attempt_id: other.attempt_id,
+      reserve,
+    });
+    expect(conflict.status).toBe(409);
+    expect(await ledgerRows()).toHaveLength(1);
+  });
+
+  test("a usage report deletes the row; a late open then answers settled and makes none", async () => {
+    const claim = await claimed();
+    const open = {
+      op: "open",
+      exchange_id: crypto.randomUUID(),
+      session_id: claim.session_id,
+      attempt_id: claim.attempt_id,
+      reserve,
+    };
+    await send(open);
+    const reported = await withLedger(
+      new Request(`http://authorizer.invalid${EGRESS_USAGE_PATH}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${AUTHORIZER_TOKEN}`,
+        },
+        body: JSON.stringify({
+          exchange_id: open.exchange_id,
+          session_id: claim.session_id,
+          attempt_id: claim.attempt_id,
+          usage: used,
+        }),
+      }),
+    );
+    expect(reported.status).toBe(200);
+    expect(await ledgerRows()).toEqual([]);
+    const late = await send(open);
+    expect(late.status).toBe(200);
+    expect(await late.json()).toEqual({ state: "settled" });
+    expect(await ledgerRows()).toEqual([]);
+  });
+
+  test("a report from another owner leaves the row and logs a warning", async () => {
+    const opener = await claimed();
+    const reporter = await claimed();
+    const exchangeId = crypto.randomUUID();
+    await send({
+      op: "open",
+      exchange_id: exchangeId,
+      session_id: opener.session_id,
+      attempt_id: opener.attempt_id,
+      reserve,
+    });
+    const reported = await withLedger(
+      new Request(`http://authorizer.invalid${EGRESS_USAGE_PATH}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${AUTHORIZER_TOKEN}`,
+        },
+        body: JSON.stringify({
+          exchange_id: exchangeId,
+          session_id: reporter.session_id,
+          attempt_id: reporter.attempt_id,
+          usage: used,
+        }),
+      }),
+    );
+    expect(reported.status).toBe(200);
+    expect(await ledgerRows()).toHaveLength(1);
+    expect(
+      records.filter(
+        (record) =>
+          record.message === "Provider exchange ledger row names another owner",
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        level: "warn",
+        fields: {
+          exchange_id: exchangeId,
+          session_id: reporter.session_id,
+          attempt_id: reporter.attempt_id,
+        },
+      }),
+    ]);
   });
 });
 

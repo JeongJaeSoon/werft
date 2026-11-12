@@ -6,7 +6,6 @@ import type {
   SurfaceBindingStore,
 } from "@werft-ai/platform";
 import {
-  createLoggingSlackNoticeSink,
   createOutboxSlackNoticeSink,
   createRowDelivery,
   createSlackBotApi,
@@ -18,16 +17,14 @@ import {
   type SlackNoticeSink,
   slackBotToken,
 } from "./chat-slack.ts";
-
-type Param<F extends (...args: never[]) => unknown> = Parameters<F>[0];
+import { type Param, slackConnectUrl } from "./slack-shared.ts";
 
 export interface SlackInboundDeps {
   apiUrl: string;
   secrets: Parameters<typeof slackBotToken>[0];
   consoleOrigin: string | null;
   leaseMs: number;
-  /** Defaults to a sink that logs. */
-  notices: SlackNoticeSink | undefined;
+  notices: SlackNoticeSink;
   inbox: Param<typeof createSlackSessionHandler>["inbox"];
   authorization: Param<typeof createSlackSessionHandler>["authorization"];
   identities: AgentIdentityStore;
@@ -66,12 +63,9 @@ export function wireSlackInbound(deps: SlackInboundDeps): SlackInboundHandler {
     releaseRepositoryUnusable: deps.releaseRepositoryUnusable,
     slack: slackApi,
     botToken,
-    notices: deps.notices ?? createLoggingSlackNoticeSink(deps.logger),
+    notices: deps.notices,
     logger: deps.logger,
-    connectUrl:
-      deps.consoleOrigin === null
-        ? ""
-        : new URL("/settings/linked-accounts", deps.consoleOrigin).toString(),
+    connectUrl: slackConnectUrl(deps.consoleOrigin),
   });
   const memberJoined = createSlackMemberJoinedHandler({
     agents: deps.identities,

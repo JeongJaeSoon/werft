@@ -4,8 +4,8 @@ import {
   type SessionEvent,
   sessionEventSchema,
 } from "@werft-ai/contracts";
+import { CLAUDE_AGENT_SDK_VERSION } from "@werft-ai/runtime-claude-codec";
 
-import { CLAUDE_AGENT_SDK_VERSION } from "./config.ts";
 import type {
   AgentFrame,
   EngineRule,

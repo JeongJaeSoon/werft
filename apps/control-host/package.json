@@ -1,6 +1,6 @@
 {
   "name": "@werft-ai/control-host",
-  "description": "Kiel session runtime: control host (api, scheduler and reconciler roles) serving the public /v1 API and the worker gateway",
+  "description": "Kiel session runtime: control host (api, metrics, scheduler, reconciler and slack roles) serving the public /v1 API and the worker gateway",
   "version": "0.0.0",
   "private": true,
   "license": "PolyForm-Small-Business-1.0.0",
@@ -16,8 +16,7 @@
     "slack-install": "bun run src/api/slack-install.ts",
     "slack-app": "bun run src/api/slack-app.ts",
     "openapi:generate": "bun run scripts/generate-openapi.ts",
-    "migrate-workspace": "bun run src/scheduler/migrate-workspace.ts",
-    "mcp-settings-migration": "bun run src/api/mcp-settings-migration.ts"
+    "migrate-workspace": "bun run src/scheduler/migrate-workspace.ts"
   },
   "dependencies": {
     "@werft-ai/chat-slack": "workspace:*",
@@ -39,7 +38,9 @@
     "zod": "4.6.7"
   },
   "devDependencies": {
+    "@aws-sdk/client-s3": "^3.888.0",
     "@scalar/api-reference": "1.72.1",
+    "@werft-ai/runtime-core": "workspace:*",
     "@werft-ai/testkit": "workspace:*",
     "@electric-sql/pglite": "0.3.10",
     "@types/pg": "8.15.5"

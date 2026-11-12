@@ -1,9 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   type Principal,
-  parseToolNames,
   scopesForRole,
-  type ToolCatalogView,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
 import { callerFor, createAuthorizationPolicy } from "../musterrolle/policy.ts";
@@ -14,10 +12,6 @@ import { createAgentMcpService } from "./agent-mcp-service.ts";
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000a1";
 const USER = "019a0000-0000-7000-8000-0000000000c1";
 const AGENT = "019a0000-0000-7000-8000-0000000000d1";
-const CATALOG: ToolCatalogView = {
-  id: "engine@2",
-  tools: [{ name: "Read", boundary: "local" }],
-};
 
 const caller = () => {
   const role: WorkspaceRole = "owner";
@@ -73,10 +67,15 @@ const allowed = async (name: string, lockedDeny: string[] = []) => {
   }
 };
 
-const blockable = (name: string) =>
-  !(
-    "refusal" in parseToolNames(CATALOG, [name], { servers: new Set(["docs"]) })
-  );
+// The names of NAMES that are a whole tool of the listed server `docs`: the
+// only ones a deny has anything to block for.
+const BLOCKABLE = new Set([
+  "mcp__docs__read",
+  "mcp__docs__read:all",
+  "mcp__docs__a__b",
+  "mcp__docs__Bash(rm:*)",
+]);
+const blockable = (name: string) => BLOCKABLE.has(name);
 
 const runs = (name: string, deny: string[]) =>
   effectiveMcp({
@@ -100,16 +99,15 @@ const NAMES = [
 ];
 
 describe("one rule for allowing, blocking and running an mcp__ name", () => {
-  test("a name the agent's settings accept is a name a release's mcp_deny can block, and the reverse", async () => {
+  test("the agent's settings accept exactly the names that are a whole tool of the listed server", async () => {
     for (const name of NAMES) {
       expect({ name, allowed: await allowed(name) }).toEqual({
         name,
         allowed: blockable(name) && name.startsWith("mcp__docs__"),
       });
     }
-    // The pins the issue named: a `:` in the tool part is blockable and allowable.
+    // The pin the issue named: a `:` in the tool part is allowable.
     expect(await allowed("mcp__docs__read:all")).toBe(true);
-    expect(blockable("mcp__docs__read:all")).toBe(true);
   });
 
   test("an accepted name is exact for the run: its deny removes it, any other deny leaves it", () => {

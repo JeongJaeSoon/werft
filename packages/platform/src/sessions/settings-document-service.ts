@@ -2,10 +2,14 @@ import type {
   ExportSettingsResponse,
   ImportSettingsResponse,
 } from "@werft-ai/contracts";
-import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
+import {
+  type AuthorizationPolicy,
+  type Caller,
+  requirePermitted,
+  SessionServiceError,
+} from "../musterrolle/index.ts";
 import type { SettingsDocumentStore } from "../ports/settings-document-store.ts";
 import type { TeamActor } from "../ports/team-store.ts";
-import { requirePermitted, SessionServiceError } from "./session-service.ts";
 import {
   parseSettingsDocument,
   SettingsDocumentError,

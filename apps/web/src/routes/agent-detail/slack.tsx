@@ -32,9 +32,7 @@ import { SlackHeader } from "./slack/status.tsx";
 import { useCurrentSection } from "./use-current-section.ts";
 import { usePageFits } from "./use-page-fits.ts";
 
-export { SlackConnect, SlackSkeleton } from "./slack/connect.tsx";
-export { slackKey } from "./slack/queries.ts";
-export { slackFailure } from "./slack/shared.ts";
+export { SlackConnect } from "./slack/connect.tsx";
 
 /**
  * An agent's Slack tab, built like Integrations > Slack: the Slack card,

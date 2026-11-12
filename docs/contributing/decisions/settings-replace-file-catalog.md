@@ -35,7 +35,7 @@
 - 테스트·검증: `tests/e2e/run.sh:80-84`(`config/local-model/profiles.yaml`을 읽음), `:222-231`(보고용으로 profiles.yaml을 `sed -n`으로 읽음), `tests/e2e/remote-mcp.e2e.ts:19`, `tests/images.test.ts`, `tests/test-ops.test.ts:361-456`, control-host 통합·단위 테스트, verify 스킬(`SKILL.md:53`, `github-sandbox/overlay.yml:10-11`이 자기 `repositories.yaml`을 덮어 mount).
 - 문서: `docs/operator/api-server.md:35-60`, `:110`, `:137`, `:232-234`, `:737-746`, `:912`, `configuration.md:3`, `test-ops.md`, `kubernetes-deployment.md:90`, `backup-restore.md:134`, `docs/real-claude.md`, `docs/contributing/architecture.md:27`, `apps/docs`의 `integrations/github*.mdx:10`, `agents/run-profiles*.mdx:6`, 콘솔 문구 `apps/web/src/i18n/github.ts:65`, `:260`, `:456`.
 
-`catalogRevision`(`catalog.ts:1295-1314`)은 파일에서 온 프로필·저장소를 해시하고, `catalog_authority`(`docs/operator/api-server.md:57`, `apps/control-host/src/api/catalog-authority.ts`)는 운영자가 활성화한 revision과 같은 replica만 세션을 `catalog_mismatch`로 실패시키게 한다(`packages/db/src/worker-unit-of-work.ts:1083-1135`). 콘솔 상한은 이미 이 해시에서 빠져 있다.
+`catalogRevision`(`catalog.ts:1295-1314`)은 파일에서 온 프로필·저장소를 해시하고, `catalog_authority`(`docs/operator/api-server.md:57`, `apps/control-host/src/api/catalog-authority.ts`)는 운영자가 활성화한 revision과 같은 replica만 세션을 `catalog_mismatch`로 실패시키게 한다(`packages/db/src/worker-unit-of-work.ts:1082-1134`). 콘솔 상한은 이미 이 해시에서 빠져 있다.
 
 ## 1. 데이터 모델
 
@@ -85,7 +85,7 @@
 | `url` text | 바꾸지 않는다 |
 | `credential_ref` text | 에이전트 카드의 `credential_refs`와 맞춰 보는 이름(`packages/platform/src/agents/release-ids.ts:175-200`). 바꾸지 않는다 |
 | `credential_source` | `stored`(`secret_values`, owner_ref `mcp:<id>`) 또는 `external`(`secret_id`) |
-| `workspaces` jsonb | 지금의 `workspaces`(slug) 그대로. 허용 검사가 slug로 맞춰 보고(`mcp-egress.ts`), slug는 바뀌지 않으며, 가져오기가 워크스페이스보다 먼저 돌 수 있어서 id로 바꾸지 않는다(S1에서 Codex와 정함). 이 칸만 제자리에서 고칠 수 있다 |
+| `workspaces` jsonb | 지금의 `workspaces`(slug) 그대로. 허용 검사가 slug로 맞춰 보고(`mcp-egress.ts`), slug는 바뀌지 않으며, 가져오기가 워크스페이스보다 먼저 돌 수 있어서 id로 바꾸지 않는다. 이 칸만 제자리에서 고칠 수 있다 |
 | `disabled_at/by`, `created_at/by`, `origin` | 연결과 같다 |
 
 release id에는 MCP 서버가 들지 않는다(`deriveReleaseId`, `release-ids.ts:63-77`). release 생성은 카드가 이름으로 가리킨 서버가 있는지와 `credential_ref`만 검사하고(`release-ids.ts:175-200`), claim이 그때의 카탈로그에서 서버를 찾아 `mcpBinding`을 만든다(`packages/platform/src/workers/worker-gateway.ts:723-730`). 그래서 행을 제자리에서 고치면 진행 중 세션의 다음 claim이 다른 서버를 받는다. 이것을 막으려고:
@@ -93,7 +93,7 @@ release id에는 MCP 서버가 들지 않는다(`deriveReleaseId`, `release-ids.
 - `url`·`credential_ref`·자격 출처는 바꾸지 않는다. 바꾸려면 새 id로 만들고 카드를 새 release로 옮긴다.
 - `workspaces`는 `mcpBinding`에 들지 않는다(`release_id`·`server_id`·`url`·`credential_ref`만 해시한다, `catalog.ts:610-622`). 그래서 이 칸만 제자리에서 고친다.
 - 가져온 행이 YAML과 같은 객체로 풀려 binding이 같은지 S1이 테스트로 보인다.
-- release에 MCP 서버 버전을 명시적으로 고정할지는 LATER로 둔다(Codex 의견, 아래 합의·이견).
+- release에 MCP 서버 버전을 명시적으로 고정할지는 LATER로 둔다.
 
 ### 지우는 것
 
@@ -145,7 +145,7 @@ release id에는 MCP 서버가 들지 않는다(`deriveReleaseId`, `release-ids.
 
 ### 되돌리기
 
-- 마이그레이션은 테이블을 더할 뿐이다. 앞 이미지로 되돌리면 앞 이미지는 옛 ConfigMap·파일을 다시 읽어야 한다. helm 롤백은 옛 ConfigMap을 되살리므로 그대로 뜬다. 다만 콘솔에서 새로 만든 연결·저장소·MCP 서버와 그 위의 상한은 앞 이미지에 없으므로 `connection_missing`·`catalog_mismatch`가 된다. profile-db.md 5절처럼 오너가 파괴적 변경을 허용한 범위(2026-10-28)로 본다.
+- 마이그레이션은 테이블을 더할 뿐이다. 앞 이미지로 되돌리면 앞 이미지는 옛 ConfigMap·파일을 다시 읽어야 한다. helm 롤백은 옛 ConfigMap을 되살리므로 그대로 뜬다. 다만 콘솔에서 새로 만든 연결·저장소·MCP 서버와 그 위의 상한은 앞 이미지에 없으므로 `connection_missing`·`catalog_mismatch`가 된다. profile-db.md 롤백 절처럼 오너가 파괴적 변경을 허용한 범위(2026-10-28)로 본다.
 - 앞으로 돌아오면 테이블에 행이 있으므로 가져오기는 아무것도 하지 않는다.
 
 ## 6. 설정 내보내기/가져오기
@@ -178,16 +178,15 @@ release id에는 MCP 서버가 들지 않는다(`deriveReleaseId`, `release-ids.
 
 ## 8. PR 나눔 (같은 릴리스, 쌓아서 한 번에 land)
 
-#992가 먼저 들어가야 한다(저장소 테이블을 넓힌다). #992의 결정 문서는 "비밀값을 쓰는 저장소는 운영자 파일에 둔다"와 "콘솔에서 추가·제거한다"고 적으므로, 이 문서가 그 두 문장을 대체한다고 #992 문서 머리에 한 줄 남긴다(S0에서).
+다른 절이 가리키는 S0~S4의 범위다.
 
-| PR | 범위 | 크기 감 |
-|---|---|---|
-| 결정 문서 | 이 문서(#993) | 문서 |
-| S0 | 1.1절: 상한 열 `github_app_repositories`와 `source: selection` migration, 관리·에이전트 화면의 설치 저장소 페이지 API, 고르기 API와 해석 행, `allowedPair`의 `installed`, 콘솔 등록·제거 제거, 저장소 화면·에이전트 GitHub 탭·상한 폼, 문구, OpenAPI·SDK·core 응답 표 | 큼 |
-| S1 | DB: `provider_connections`, `mcp_servers`, `catalog_repositories` 확장, store, 레지스트리가 세 테이블을 읽음, 지연 replica 규칙, 지문·binding·release id 동일성 테스트. S4까지 레지스트리는 파일과 DB를 합쳐 읽고 같은 id는 파일이 이긴다(파일만 있는 스택은 그대로 돈다). DB 행의 자격 증명이 이 replica에서 풀리지 않으면 그 행만 빠지고, 그 저장소의 세션은 이 replica가 실패시키지 않는다 | 큼 |
-| S2 | 가져오기/내보내기: 설정 문서 스키마, CLI `settings import/export`, API export/import, receipt | 중 |
-| S3 | API·콘솔: 연결 화면, MCP 서버 화면, 저장소 화면에 PAT·공개 저장소, 빈 설치 안내, OpenAPI·SDK·core 응답 표 | 큼 |
-| S4 | 파일 제거: 로더·`connections-from-yaml`·`catalog_authority`·`catalogRevision`·`platform.yaml`, `PLATFORM_CONFIG_DIR` 거부, helm(ConfigMap 삭제, migrate job 가져오기), compose·kind·image-smoke·d2-gate·test-ops, E2E·verify fixture를 설정 문서로, 문서(ko·en·ja)·콘솔 문구 | 큼 |
+| PR | 범위 |
+|---|---|
+| S0 | 1.1절: 상한 열 `github_app_repositories`와 `source: selection` migration, 관리·에이전트 화면의 설치 저장소 페이지 API, 고르기 API와 해석 행, `allowedPair`의 `installed`, 콘솔 등록·제거 제거, 저장소 화면·에이전트 GitHub 탭·상한 폼, 문구, OpenAPI·SDK·core 응답 표 |
+| S1 | DB: `provider_connections`, `mcp_servers`, `catalog_repositories` 확장, store, 레지스트리가 세 테이블을 읽음, 지연 replica 규칙, 지문·binding·release id 동일성 테스트. S4까지 레지스트리는 파일과 DB를 합쳐 읽고 같은 id는 파일이 이긴다(파일만 있는 스택은 그대로 돈다). DB 행의 자격 증명이 이 replica에서 풀리지 않으면 그 행만 빠지고, 그 저장소의 세션은 이 replica가 실패시키지 않는다 |
+| S2 | 가져오기/내보내기: 설정 문서 스키마, CLI `settings import/export`, API export/import, receipt |
+| S3 | API·콘솔: 연결 화면, MCP 서버 화면, 저장소 화면에 PAT·공개 저장소, 빈 설치 안내, OpenAPI·SDK·core 응답 표 |
+| S4 | 파일 제거: 로더·`connections-from-yaml`·`catalog_authority`·`catalogRevision`·`platform.yaml`, `PLATFORM_CONFIG_DIR` 거부, helm(ConfigMap 삭제, migrate job 가져오기), compose·kind·image-smoke·d2-gate·test-ops, E2E·verify fixture를 설정 문서로, 문서(ko·en·ja)·콘솔 문구 |
 
 ## 대안
 
@@ -202,18 +201,12 @@ release id에는 MCP 서버가 들지 않는다(`deriveReleaseId`, `release-ids.
 
 ## Codex 독립 의견 (1회, 2026-11-02)
 
+의견이 같았던 항목과 받아들여 고친 항목은 본문에 있다. 남은 차이는 둘이다.
+
 | 주제 | Codex | 이 문서 | 결과 |
 |---|---|---|---|
-| 자격 증명 | 기본은 콘솔 입력 값, 외부 비밀은 운영자가 미리 승인한 credential id만, 승인은 credential·용도·목적지를 묶는다 | 저장 값 기본, 외부 참조는 운영자 CLI만 | 합의. 목적지 불변으로 묶음을 표현한다 |
-| egress 허용 목록 | host 단위이고 일반 목록과 합쳐지므로 부족 | 처음엔 두 번째 벽으로 적었다 | Codex 지적을 확인하고(`main.ts:44-45`) 보조 벽으로 고쳤다 |
-| MCP와 release | release id에 MCP가 없고 claim이 지금 설정으로 binding을 만든다 | 처음엔 release id가 지켜진다고 적었다 | Codex 지적을 확인하고(`release-ids.ts:63-77`, `worker-gateway.ts:723-730`) 고쳤다. release에 MCP 버전 고정은 LATER |
-| 수정 모델 | 불변 버전, 회전·차단은 별도 동작 | 같음 | 합의 |
-| `catalog_authority` | 역할을 DB generation·불변 버전·transaction 안 차단 확인으로 바꾼 뒤 삭제. 배포 재현용 digest는 남긴다 | 삭제, generation 규칙 추가, test-ops는 내보내기 digest | 합의 |
 | 첫 기동·fixture | bootstrap 뒤 같은 설정 API를 부르는 초기화 코드 | 비밀 값 없는 설정 문서를 CLI로 가져오기 | 이견(작음). 둘 다 같은 검증·receipt 경로를 지나면 된다. 문서 쪽이 DR·복제와 한 형식이라 유지한다 |
-| 권한 | owner cookie만, `settings:write` key는 열지 않음 | 같음 | 합의 |
-| 출시 | PR은 5개로 나누고 설치별 정본 전환은 한 번만, 파일 fallback·이중 쓰기 없음 | PR 4개를 쌓아 한 릴리스 | 합의(나누는 수만 다르다. Codex의 ①신뢰 경계 계약은 S0 이 문서다) |
 | `secret_values` 범위 | workspace FK라 설치 소유 범위를 따로 설계해야 한다 | 기본 워크스페이스 아래, 접두로 막음 | 부분 합의. 워크스페이스가 둘이 되는 날 다시 본다 |
-| #992 계약 | 비밀값 저장소를 파일에 둔다는 문장부터 고쳐야 한다 | 8절에 대체 문장을 남긴다 | 합의 |
 
 ## 오너 결정 (2026-11-02, 추천안 그대로)
 
@@ -223,11 +216,3 @@ release id에는 MCP 서버가 들지 않는다(`deriveReleaseId`, `release-ids.
 4. **API에도 egress 자격 증명 허용 목록을 주어 저장 때 막을지**: 경고만.
 5. **GitOps 강제(콘솔 쓰기 끄기 env)**: LATER.
 6. **GitHub App 저장소**: 등록하지 않는다. 설치 저장소 API(페이지)가 정본이고 DB에는 에이전트별 선택만 남는다(1.1절).
-
-## DD에 넣을 문장(초안)
-
-- 설치 설정(LLM 연결, 저장소, 원격 MCP 서버, 실행 상한)은 DB에 두고 웹 콘솔에서 관리한다. 설정 파일을 읽지 않는다.
-- GitHub App 저장소는 App 설치가 닿는 목록을 그대로 보여 주고, 에이전트마다 쓸 저장소를 고른다. 따로 등록하지 않는다.
-- 자격 증명은 콘솔에서 입력해 암호화 저장하거나, 운영자가 배포의 비밀 저장소 참조로 등록한다. 콘솔은 참조를 새로 만들지 못한다.
-- egress 허용 목록, master key, 위험 기능 스위치, 설치 한도는 배포 설정(env)이다.
-- 설정은 비밀 값 없는 문서로 내보내고 가져올 수 있다. 환경 복제와 리뷰는 이 문서로 한다.

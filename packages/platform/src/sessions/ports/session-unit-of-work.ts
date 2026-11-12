@@ -87,8 +87,8 @@ export type AcceptSessionInput = {
   // earlier acceptance goes through. Without it, the names are rechecked
   // under lock against a concurrent unbind.
   credentialsUnbound?: true;
-  // The policy found the agent private and the requester outside it
-  // (94S-901): only a replay of an earlier acceptance goes through. Without
+  // The policy found the agent private and the requester outside it:
+  // only a replay of an earlier acceptance goes through. Without
   // it the write still judges the requester over locked rows. Carries the
   // visibility result and nothing else.
   agentPrivate?: true;
@@ -241,7 +241,7 @@ export interface SessionReader {
   // null when the receipt does not exist or belongs to another owner.
   getReceipt(ownerId: string, receiptId: string): Promise<Receipt | null>;
   /**
-   * Which of these agents and releases `viewer` may not use (94S-902): the ids
+   * Which of these agents and releases `viewer` may not use: the ids
    * given that name such an agent or a release of one, and, when `sessionId`
    * is given, that session's own agent and release when it is one. An id of
    * no agent is not hidden; there is nothing to hide.

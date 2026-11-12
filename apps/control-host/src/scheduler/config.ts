@@ -21,6 +21,7 @@ import {
   type SchedulerOptions,
   workerImageRuntimesFromEnv,
 } from "@werft-ai/platform";
+import { queueDatabaseUrl } from "../database-url.ts";
 
 type ImageRuntime = NonNullable<SchedulerOptions["imageRuntime"]>;
 
@@ -65,11 +66,7 @@ export type SchedulerConfig = {
 export function schedulerConfigFromEnv(
   environment: SchedulerEnvironment,
 ): SchedulerConfig {
-  const databaseUrl =
-    environment.DATABASE_URL || environment.QUEUE_DATABASE_URL;
-  if (!databaseUrl) {
-    throw new Error("DATABASE_URL or QUEUE_DATABASE_URL is required");
-  }
+  const databaseUrl = queueDatabaseUrl(environment);
   const image = environment.WORKER_IMAGE;
   if (!image) throw new Error("WORKER_IMAGE is required");
   const runtimes = workerImageRuntimesFromEnv(environment);

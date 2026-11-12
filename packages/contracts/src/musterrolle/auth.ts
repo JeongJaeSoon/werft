@@ -29,7 +29,7 @@ import {
  * cookie that shadows the real one (fixation or a lasting 401).
  */
 export const WEB_SESSION_COOKIE_NAME = "__Host-werft_session";
-/** Cookie-path mutations must also carry this header (03 §3.2 CSRF). */
+/** Cookie-path mutations must also carry this header (CSRF). */
 export const CSRF_HEADER_NAME = "x-requested-with";
 export const CSRF_HEADER_VALUE = "werft-web";
 
@@ -245,7 +245,7 @@ export const acceptInviteResponseSchema = z
   .strict();
 
 /**
- * Account recovery without email (94S-264): an owner issues a one-time link
+ * Account recovery without email: an owner issues a one-time link
  * and hands it over; redeeming it sets the password and ends the user's
  * sessions. The token travels in the body, never the URL, so no access log
  * or proxy on the way records it.
@@ -277,28 +277,7 @@ export const passwordResetResponseSchema = z
   .object({ user_id: userIdSchema, receipt_id: receiptIdSchema })
   .strict();
 
-export type BootstrapRequest = z.infer<typeof bootstrapRequestSchema>;
-export type BootstrapResponse = z.infer<typeof bootstrapResponseSchema>;
-export type LoginRequest = z.infer<typeof loginRequestSchema>;
-export type LoginResponse = z.infer<typeof loginResponseSchema>;
 export type AuthMeResponse = z.infer<typeof authMeResponseSchema>;
 export type UserLocale = z.infer<typeof userLocaleSchema>;
-export type UpdateAuthMeRequest = z.infer<typeof updateAuthMeRequestSchema>;
 export type LoginMethod = z.infer<typeof loginMethodSchema>;
 export type LoginMethodsResponse = z.infer<typeof loginMethodsResponseSchema>;
-export type StartGoogleLoginResponse = z.infer<
-  typeof startGoogleLoginResponseSchema
->;
-export type GoogleLoginCallbackRequest = z.infer<
-  typeof googleLoginCallbackRequestSchema
->;
-export type AcceptInviteRequest = z.infer<typeof acceptInviteRequestSchema>;
-export type AcceptInviteResponse = z.infer<typeof acceptInviteResponseSchema>;
-export type IssuePasswordResetRequest = z.infer<
-  typeof issuePasswordResetRequestSchema
->;
-export type IssuePasswordResetResponse = z.infer<
-  typeof issuePasswordResetResponseSchema
->;
-export type PasswordResetRequest = z.infer<typeof passwordResetRequestSchema>;
-export type PasswordResetResponse = z.infer<typeof passwordResetResponseSchema>;

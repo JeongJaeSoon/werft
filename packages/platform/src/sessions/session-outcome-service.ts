@@ -3,9 +3,13 @@ import {
   type ListSessionOutcomesResponse,
   SESSION_GITHUB_REFUSALS_LIMIT,
 } from "@werft-ai/contracts";
-import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
+import {
+  type AuthorizationPolicy,
+  type Caller,
+  requirePermitted,
+  SessionServiceError,
+} from "../musterrolle/index.ts";
 import type { SessionOutcomeStore } from "./ports/session-outcomes.ts";
-import { requirePermitted, SessionServiceError } from "./session-service.ts";
 
 /** What the session made, and why GitHub work of it was refused; reads only. */
 export function createSessionOutcomeService(deps: {

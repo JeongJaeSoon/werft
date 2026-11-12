@@ -13,7 +13,7 @@ import {
   rangeAttribution,
   type WorkerGatewayClient,
 } from "@werft-ai/runtime-core";
-import type { WorkerLogger } from "./worker-host.ts";
+import type { WorkerLogger } from "./console-logger.ts";
 
 const run = promisify(execFile);
 

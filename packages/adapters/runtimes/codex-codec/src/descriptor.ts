@@ -11,7 +11,9 @@ import { CODEX_CLI_VERSION } from "./versions.ts";
  *
  * - `approvalCheckpoint: false`: the app-server has no point before a tool
  *   call where a host can hold admission, and a request cannot be resumed
- *   after a restart, so a turn cannot be parked at an approval.
+ *   after a restart, so a turn cannot be parked at an approval. The adapter's
+ *   real-binary test pins what a resume does with a pending approval: it is
+ *   not asked again, and the call reads as aborted.
  * - `acceptEdits` and `dontAsk` are `emulated`: the adapter runs the engine
  *   with `untrusted` approval (every command it does not know to be safe,
  *   and every file change, is asked) and answers those requests itself.

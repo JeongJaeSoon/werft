@@ -57,6 +57,8 @@ export interface AgentMapMessages {
   ) => string;
   /** A queued session's card before it has done anything. */
   readonly queuedNote: string;
+  /** A card whose session waits on a recovery decision. */
+  readonly recoveryNote: string;
   readonly noActivity: string;
   readonly noAgent: string;
   /** Leads a pending question on the approval strip. */
@@ -165,6 +167,7 @@ export const AGENT_MAP_MESSAGES: Readonly<Record<Locale, AgentMapMessages>> = {
         ...(added > 0 ? [`새 세션 ${added}개`] : []),
       ].join(", "),
     queuedNote: "작업자 배정을 기다리는 중",
+    recoveryNote: "복구 결정을 기다리는 중",
     noActivity: "아직 활동 없음",
     noAgent: "에이전트 없음",
     question: "질문",
@@ -243,6 +246,7 @@ export const AGENT_MAP_MESSAGES: Readonly<Record<Locale, AgentMapMessages>> = {
         ...(added > 0 ? [`新しいセッション ${added}件`] : []),
       ].join("、"),
     queuedNote: "ワーカーの割り当てを待っています",
+    recoveryNote: "復旧の判断を待っています",
     noActivity: "まだ活動なし",
     noAgent: "エージェントなし",
     question: "質問",
@@ -323,6 +327,7 @@ export const AGENT_MAP_MESSAGES: Readonly<Record<Locale, AgentMapMessages>> = {
         ...(added > 0 ? [`${added} new sessions`] : []),
       ].join(", "),
     queuedNote: "Waiting for a worker",
+    recoveryNote: "Waiting for a recovery decision",
     noActivity: "No activity yet",
     noAgent: "No agent",
     question: "Question",

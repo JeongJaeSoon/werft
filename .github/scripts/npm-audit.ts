@@ -54,7 +54,7 @@ export type Exception = {
   expires: string;
 };
 
-export const BLOCKING = new Set(["high", "critical"]);
+const BLOCKING = new Set(["high", "critical"]);
 
 /**
  * Directories, from the repository root, of every bun.lock. The compat
@@ -82,8 +82,7 @@ export function lockedVersions(lockText: string): Map<string, Set<string>> {
 /** `>= 2.0.0, < 2.3.1` (GitHub's spelling) as a semver range. */
 const semverRange = (range: string) => range.replaceAll(",", " ");
 
-export const ghsaOf = (url: string) =>
-  url.match(/\/(GHSA-[\w-]+)$/)?.[1] ?? url;
+const ghsaOf = (url: string) => url.match(/\/(GHSA-[\w-]+)$/)?.[1] ?? url;
 
 /**
  * One finding per locked version an advisory at `BLOCKING` severity applies

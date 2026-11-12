@@ -1,6 +1,5 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { readMigrationFiles } from "drizzle-orm/migrator";
+import { MIGRATIONS_FOLDER, readJournal } from "./migration-journal.ts";
 
 export interface MigrationEntry {
   /** Drizzle stores this folder timestamp as created_at in its journal table. */
@@ -13,15 +12,15 @@ export interface MigrationHead extends MigrationEntry {
   readonly tag: string;
 }
 
-const migrationsFolder = join(import.meta.dir, "../migrations");
-
 // Every packaged migration in order, read through Drizzle's own loader so the
 // hashes match what its migrator (and adoptLegacyM0Schema) wrote.
 export function expectedMigrations(): MigrationEntry[] {
-  return readMigrationFiles({ migrationsFolder }).map((migration) => ({
-    when: migration.folderMillis,
-    hash: migration.hash,
-  }));
+  return readMigrationFiles({ migrationsFolder: MIGRATIONS_FOLDER }).map(
+    (migration) => ({
+      when: migration.folderMillis,
+      hash: migration.hash,
+    }),
+  );
 }
 
 // The newest packaged migration: the schema version this build expects.
@@ -30,10 +29,9 @@ export function expectedMigrationHead(): MigrationHead {
   if (!last) {
     throw new Error("Migration journal is empty");
   }
-  const journal = JSON.parse(
-    readFileSync(join(migrationsFolder, "meta/_journal.json"), "utf8"),
-  ) as { entries: { tag: string; when: number }[] };
-  const tag = journal.entries.find((entry) => entry.when === last.when)?.tag;
+  const tag = readJournal(MIGRATIONS_FOLDER).find(
+    (entry) => entry.when === last.when,
+  )?.tag;
   if (!tag) {
     throw new Error(`No journal entry for migration ${last.when}`);
   }

@@ -15,6 +15,7 @@ import {
   secretOwnerRef,
 } from "@werft-ai/platform";
 import { and, desc, eq, inArray, isNotNull, ne, sql } from "drizzle-orm";
+import { UUID } from "../control-shared.ts";
 import { DB_NOW } from "../db-clock.ts";
 import { holdsRight, lockedRole } from "../musterrolle/api-keys.ts";
 import type { Database } from "../queries.ts";
@@ -36,7 +37,6 @@ import {
 
 type Row = typeof slackApps.$inferSelect;
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const LIVE_STATES = ["creating", "created", "deleting"] as const;
 
 const secretSlot = (

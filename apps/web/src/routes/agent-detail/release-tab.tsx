@@ -16,10 +16,10 @@ import {
 import { useState } from "react";
 import { agentQuery, queryKeysOf } from "../../api/queries.ts";
 import { useRole } from "../../auth/guard.tsx";
+import { agentRefusal } from "../../components/agent-refusal.ts";
 import type { Outcome } from "../../components/outcome.tsx";
 import { RevisionDiff } from "../../components/revision-diff.tsx";
 import { useI18n } from "../../i18n/i18n.tsx";
-import { agentRefusal } from "../agents.tsx";
 import { CredentialUnbound, unboundRefs } from "./credentials.tsx";
 import { mcpSettingsQuery } from "./mcp-settings.ts";
 import { type Placed, PlacedOutcome, TakesFocus } from "./placement.tsx";

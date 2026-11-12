@@ -34,7 +34,6 @@ import {
   MANAGEMENT_ROLES,
   passwordResetIssueDenial,
 } from "@werft-ai/platform";
-import type { Context } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { z } from "zod";
 import {
@@ -69,7 +68,7 @@ import {
   GoogleLoginInvalidError,
   GoogleUnavailableError,
 } from "../google-login.ts";
-import { requireParams } from "./errors.ts";
+import { rateLimited, requireParams } from "./errors.ts";
 
 export interface AuthRouteDeps {
   identity: IdentityStore;
@@ -99,20 +98,6 @@ const bootstrapTokenOnlySchema = z.looseObject({
 
 function invalidBootstrapToken(): ApiHttpError {
   return new ApiHttpError(401, "UNAUTHORIZED", "Bootstrap token is invalid");
-}
-
-function rateLimited(
-  context: Context,
-  retryAfterMs: number,
-  what: string,
-): ApiHttpError {
-  context.header("Retry-After", String(Math.ceil(retryAfterMs / 1000)));
-  return new ApiHttpError(
-    429,
-    "RATE_LIMITED",
-    `${what}, try again later`,
-    true,
-  );
 }
 
 async function storageMapped<T>(work: () => Promise<T>): Promise<T> {
@@ -154,7 +139,6 @@ export function workspaceView(row: IdentityWorkspace): Workspace {
  * matched, for the store to confirm it has not changed since.
  */
 async function reauthenticate(
-  context: Context,
   deps: {
     lockout: LoginLockout;
     passwordWork: WorkGate;
@@ -166,11 +150,11 @@ async function reauthenticate(
 ): Promise<string> {
   const lockedFor = deps.lockout.retryAfterMs(who.email);
   if (lockedFor > 0) {
-    throw rateLimited(context, lockedFor, "Too many failed password checks");
+    throw rateLimited(lockedFor, "Too many failed password checks");
   }
   const slot = deps.passwordWork.tryAcquire();
   if (!slot) {
-    throw rateLimited(context, 1000, "Too many password checks in progress");
+    throw rateLimited(1000, "Too many password checks in progress");
   }
   const releaseSlot = await slot;
   let hash: string;
@@ -178,7 +162,6 @@ async function reauthenticate(
     const reservation = deps.lockout.reserve(who.email);
     if (reservation.retryAfterMs > 0) {
       throw rateLimited(
-        context,
         reservation.retryAfterMs,
         "Too many failed password checks",
       );
@@ -307,7 +290,7 @@ export function registerPublicAuthRoutes(
     const body = await parseJsonBody(context, passwordResetRequestSchema);
     const slot = passwordWork.tryAcquire();
     if (!slot) {
-      throw rateLimited(context, 1000, "Too many password changes in progress");
+      throw rateLimited(1000, "Too many password changes in progress");
     }
     const releaseSlot = await slot;
     let reset: Awaited<ReturnType<IdentityStore["consumePasswordReset"]>>;
@@ -351,13 +334,13 @@ export function registerPublicAuthRoutes(
     const email = normalizeEmail(body.email);
     const lockedFor = lockout.retryAfterMs(email);
     if (lockedFor > 0) {
-      throw rateLimited(context, lockedFor, "Too many failed logins");
+      throw rateLimited(lockedFor, "Too many failed logins");
     }
     // Shed before any lookup or hash: the per-email lockout alone does not
     // bound work when every attempt names a new address.
     const slot = passwordWork.tryAcquire();
     if (!slot) {
-      throw rateLimited(context, 1000, "Too many logins in progress");
+      throw rateLimited(1000, "Too many logins in progress");
     }
     const releaseSlot = await slot;
     let user: NonNullable<
@@ -374,11 +357,7 @@ export function registerPublicAuthRoutes(
       // still running. Success clears it below.
       const reservation = lockout.reserve(email);
       if (reservation.retryAfterMs > 0) {
-        throw rateLimited(
-          context,
-          reservation.retryAfterMs,
-          "Too many failed logins",
-        );
+        throw rateLimited(reservation.retryAfterMs, "Too many failed logins");
       }
       let found: Awaited<ReturnType<IdentityStore["findUserForLogin"]>>;
       let verified: boolean;
@@ -670,7 +649,6 @@ export function registerAuthRoutes(router: ApiRouter, deps: AuthRouteDeps) {
     }
     const body = await parseJsonBody(context, issuePasswordResetRequestSchema);
     const issuerPasswordHash = await reauthenticate(
-      context,
       { lockout, passwordWork, identity: deps.identity, logger: deps.logger },
       { userId: principal.id, email: session.email },
       body.current_password,

@@ -22,7 +22,7 @@ Kubernetes 설치는 `scripts/test-ops.sh`를 쓰지 않는다. 같은 일을 �
 
 ## object store
 
-2026-09-25 사용자 결정으로 AWS 계정은 아직 쓰지 않는다. 그래서 기본값은 LocalStack이다. 배포할 때 `TEST_OPS_OBJECT_STORE`로 고른다.
+기본값은 LocalStack이라 AWS 계정이 없어도 된다. 배포할 때 `TEST_OPS_OBJECT_STORE`로 고른다.
 
 | 값 | 저장소 | compose layer |
 |---|---|---|
@@ -418,6 +418,8 @@ scripts/test-ops.sh upgrade release-new.json
 - `settings_digest`가 바뀌면 migrate를 다시 돌려 설정 문서의 새 항목을 더한다. API는 DB를 주기적으로 다시 읽으므로 설정 때문에 다시 만들지 않는다. 설정 문서가 생기기 전 release의 `current.json`(`catalog_revision`)에서 올릴 때도 migrate가 돈다.
 - 끝나면 `current.json`을 새 manifest로 바꾸고 `history.log`에 한 줄 남긴다.
 - 게이트를 통과한 순간(writer를 멈추기 전) 새 manifest를 `pending.json`에 적는다. 새 release가 뜨기 전에 실패하면(예: scheduler quota probe 실패) 설치가 멈춘 채로 남을 수 있고, 그때 `pending.json`이 남아 원인을 고친 뒤 같은 manifest로 `upgrade`를 다시 부를 때까지 `status` 말고 다른 명령은 모두 거부한다.
+
+**`v0.1.3`으로 올릴 때는 `openai_responses` 연결(Codex 엔진)을 쓰기 전에 egress proxy를 새 이미지로 올린다.** 옛 proxy는 `/v1/responses`를 `404`로 거절한다. control-host만 새 버전인 동안 만든 `openai_responses` 연결의 세션은 모델을 부르지 못하고 실패한다. manifest 하나로 모든 이미지를 함께 올리면 이 구간은 컨테이너를 다시 만드는 동안뿐이다. 이미지를 나눠 올리면 proxy를 먼저 올리거나, proxy를 올릴 때까지 `openai_responses` 연결을 만들지 않는다. Claude 연결(`/v1/messages`)은 어느 순서에서도 그대로 동작한다. `v0.1.3` proxy는 이 호출에 `v0.1.2` API가 모르는 필드를 보내지 않는다.
 
 되돌리기는 이전 manifest로 `upgrade`하는 것이다. worker 이미지가 다시 바뀌므로 같은 규칙이 적용된다. 업그레이드 전에는 백업을 한 번 찍는다.
 

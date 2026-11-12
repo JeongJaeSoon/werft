@@ -17,6 +17,7 @@ import {
   activityQuery,
   readSessionActivity,
 } from "../src/sessions/session-activity.ts";
+import { timedMs } from "./lib.ts";
 
 const url = process.argv[2];
 if (!url) throw new Error("usage: session-activity.ts <postgres-url> ...");
@@ -102,19 +103,7 @@ console.log(
 
 const reader = createPostgresSessionReader(db);
 
-async function timed(fn: () => Promise<unknown>) {
-  await fn();
-  const samples: number[] = [];
-  for (let run = 0; run < RUNS; run += 1) {
-    const started = performance.now();
-    await fn();
-    samples.push(performance.now() - started);
-  }
-  samples.sort((a, b) => a - b);
-  const at = (q: number) =>
-    Number((samples[Math.ceil(q * samples.length) - 1] ?? 0).toFixed(1));
-  return { p50_ms: at(0.5), p95_ms: at(0.95), max_ms: at(1) };
-}
+const timed = (fn: () => Promise<unknown>) => timedMs(fn, RUNS);
 
 const table: Record<string, unknown> = {};
 for (const limit of PAGES) {

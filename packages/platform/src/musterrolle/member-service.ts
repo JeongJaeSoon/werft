@@ -9,12 +9,10 @@ import type {
   AccessScope,
   MemberStore,
 } from "../ports/member-store.ts";
-import {
-  requirePermitted,
-  SessionServiceError,
-} from "../sessions/session-service.ts";
 import { memberView } from "./invite-service.ts";
 import type { AuthorizationPolicy, Caller } from "./policy.ts";
+import { requirePermitted } from "./require-permitted.ts";
+import { SessionServiceError } from "./service-errors.ts";
 
 /** `receiptId` and `effects` are null when the state was already as asked. */
 export type AccessChange = {

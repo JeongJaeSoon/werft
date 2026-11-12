@@ -91,6 +91,11 @@ export interface MapSession {
         readonly waitedMinutes: number;
       }
     | undefined;
+  /**
+   * A turn's outcome is unknown and a person owes a recovery decision. The
+   * status does not say it: a terminate that cut a running turn is `stopped`.
+   */
+  readonly needsRecovery?: boolean | undefined;
   /** The lane the card keeps until the reader tidies the board. */
   readonly pinnedLane?: Lane | undefined;
   readonly fresh?: boolean | undefined;

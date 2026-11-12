@@ -16,10 +16,15 @@ import {
   type UpdateAchievementCategoryRequest,
   type UpdateAchievementTypeRequest,
 } from "@werft-ai/contracts";
-import type { AuthorizationPolicy, Caller } from "../../musterrolle/policy.ts";
-import { NOT_FOUND, OUTRANKED } from "../../musterrolle/service-errors.ts";
+import {
+  type AuthorizationPolicy,
+  type Caller,
+  NOT_FOUND,
+  OUTRANKED,
+  requirePermitted,
+  SessionServiceError,
+} from "../../musterrolle/index.ts";
 import type { TeamActor } from "../../ports/team-store.ts";
-import { requirePermitted, SessionServiceError } from "../session-service.ts";
 import type { AchievementRuleStore } from "./achievement-store.ts";
 
 const conflict = (reasonCode: string, message: string, extra = {}) =>

@@ -3,7 +3,7 @@ import {
   BundleArchiveError,
   packBundleTar,
   unpackBundleTar,
-} from "./bundle-archive.ts";
+} from "@werft-ai/runtime-core";
 import {
   type BundleInputFile,
   validateExtensionBundle,

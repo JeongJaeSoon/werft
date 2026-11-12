@@ -16,14 +16,14 @@ import {
 import {
   type AuthorizationPolicy,
   type Caller,
+  deciderKeyOf,
   receiptActorOf,
+  requirePermitted,
+  SessionServiceError,
 } from "../../musterrolle/index.ts";
-import { deciderKeyOf } from "../../musterrolle/policy.ts";
 import {
   idempotencyConflict,
   payloadHash,
-  requirePermitted,
-  SessionServiceError,
   selfApproval,
 } from "../../sessions/index.ts";
 import {

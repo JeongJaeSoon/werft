@@ -18,7 +18,7 @@ import {
   testClient,
   testConfig,
   testResolver,
-} from "./testing.ts";
+} from "./testing/index.ts";
 
 const suite = TEST_ENABLED ? describe : describe.skip;
 const TIMEOUT = 120_000;

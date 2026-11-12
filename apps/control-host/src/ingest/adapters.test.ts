@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { turnTraceId } from "@werft-ai/observability";
 import { hashWorkerToken } from "@werft-ai/platform";
+import { attemptOf, SESSION } from "../testing/ingest.ts";
 import {
   postgresAttemptAuthenticator,
   postgresTurnTraceDirectory,
 } from "./adapters.ts";
-import { attemptOf, SESSION } from "./test-support.ts";
 
 const record = {
   sessionId: SESSION,

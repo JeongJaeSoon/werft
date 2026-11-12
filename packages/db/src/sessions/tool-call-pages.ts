@@ -4,9 +4,9 @@ import type {
   UsageToolCallsFilter,
 } from "@werft-ai/platform";
 import { type SQL, sql } from "drizzle-orm";
-import { rowsOf } from "../control-unit-of-work.ts";
 import { sessionVisibleTo } from "../musterrolle/session-shares.ts";
 import type { Database } from "../queries.ts";
+import { rowsOf } from "../statement-rows.ts";
 import {
   decodeToolCallCursor,
   encodeToolCallCursor,

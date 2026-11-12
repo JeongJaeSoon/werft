@@ -144,7 +144,7 @@ export type SlackSessionHandlerDeps = {
 /**
  * The `slack` role's handler: a mention, a DM or a reply in a
  * linked thread becomes a turn of the thread's one session. A refusal
- * leaves a notice for 94S-792 and no session.
+ * leaves a notice and no session.
  */
 export function createSlackSessionHandler(
   deps: SlackSessionHandlerDeps,
@@ -155,7 +155,8 @@ export function createSlackSessionHandler(
     const parsed = slackMessageSchema.safeParse(
       (claim.payload as { event?: unknown }).event,
     );
-    // Not a channel message: 94S-794 acts on a bot's own channel join.
+    // Not a channel message: the member-joined handler acts on a bot's own
+    // channel join.
     if (!parsed.success) return;
     const event = parsed.data;
     const ids = { id: claim.id, event_id: claim.eventId };

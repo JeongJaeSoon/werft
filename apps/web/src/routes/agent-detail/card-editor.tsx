@@ -6,7 +6,6 @@ import type {
   AgentVersion,
   SaveAgentResponse,
 } from "@werft-ai/contracts";
-import { AGENT_DESCRIPTION_MAX_LENGTH } from "@werft-ai/contracts/agent-card";
 import { useWerft } from "@werft-ai/react";
 import {
   Alert,
@@ -34,6 +33,7 @@ import {
   queryKeysOf,
 } from "../../api/queries.ts";
 import { useRole } from "../../auth/guard.tsx";
+import { AGENT_DESCRIPTION_MAX_LENGTH } from "../../auth/limits.ts";
 import {
   AGENT_FORM,
   AgentCardFields,
@@ -41,10 +41,10 @@ import {
   cardFromDraft,
   draftFromCard,
 } from "../../components/agent-card-form.tsx";
+import { agentRefusal } from "../../components/agent-refusal.ts";
 import type { Outcome } from "../../components/outcome.tsx";
 import { SECTION_BODY } from "../../components/section-body.ts";
 import { useI18n } from "../../i18n/i18n.tsx";
-import { agentRefusal } from "../agents.tsx";
 import { saveFailureText } from "./effective-behavior.tsx";
 import { releasedConnection } from "./releases.tsx";
 import { draftVersion, latestVersion, shownVersion } from "./versions.tsx";

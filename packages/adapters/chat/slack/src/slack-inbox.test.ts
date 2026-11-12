@@ -1,12 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import {
   drainSlackInbox,
-  noopSlackInboundHandler,
   type SlackInboxLogger,
   slackConversationKey,
   slackInboundBackoffMs,
 } from "./slack-inbox.ts";
 import { createMemorySlackInboundEventStore } from "./testing/slack-fakes.ts";
+
+const noopSlackInboundHandler = async () => {};
 
 function recorder() {
   const lines: string[] = [];

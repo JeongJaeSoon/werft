@@ -330,8 +330,8 @@ export function createEnforcedPool(
   );
 }
 
-// No transaction waits on anything but its own statements (94S-1120's
-// audit), so one left idle this long belongs to a holder that has stopped:
+// No transaction waits on anything but its own statements (as audited), so
+// one left idle this long belongs to a holder that has stopped:
 // the server ends that session and its row locks go with it.
 export const IDLE_IN_TRANSACTION_MS = 30_000;
 

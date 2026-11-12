@@ -42,9 +42,10 @@ import { refusalText, useMe, useRole } from "../auth/guard.tsx";
 import { FormError } from "../components/auth-page.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { focusBack, RowMenu, RowMenuItem } from "../components/row-menu.tsx";
-import { type MessageKey, useI18n } from "../i18n/i18n.tsx";
+import { useI18n } from "../i18n/i18n.tsx";
 import {
   installationUnusable,
+  installedUnavailableKey,
   retryUnlessUnusable,
 } from "./installed-repositories.tsx";
 import type { OnOutcome } from "./workspace-settings.tsx";
@@ -58,14 +59,6 @@ const NARROW_COLUMNS = "minmax(0,1fr) 48px 32px";
 const NARROW_ONLY = "[@container(width>=480px)]:hidden";
 
 type CatalogRow = ListGitHubRepositoriesResponse["catalog"][number];
-
-const UNAVAILABLE: Record<string, MessageKey> = {
-  no_author_app: "github.repo.pickNoApp",
-  no_installation: "github.repo.pickNoInstallation",
-  github_unavailable: "error.GITHUB_UNAVAILABLE",
-  github_app_auth_failed: "error.GITHUB_UNAVAILABLE",
-  installation_suspended: "error.INSTALLATION_SUSPENDED",
-};
 
 /** One page of one installation, and the whole catalog beside it. */
 export function useRepositoryPage(
@@ -196,6 +189,7 @@ export function RepositorySheet({
       ? undefined
       : data?.catalog.find((row) => row.id === catalogId);
   const outside = data ? outsideInstallations(data.catalog) : [];
+  const unavailable = data ? installedUnavailableKey(data.unavailable) : null;
   const from = data ? (data.page - 1) * data.per_page + 1 : 0;
   const to = data ? from + data.repositories.length - 1 : 0;
   const current = data?.installations.find(
@@ -286,13 +280,8 @@ export function RepositorySheet({
                 </NativeSelect>
               </Field>
             ) : null}
-            {data.unavailable !== null ? (
-              <Text variant="sub">
-                {t(
-                  UNAVAILABLE[data.unavailable] ??
-                    "github.repo.pickNoInstallation",
-                )}
-              </Text>
+            {unavailable !== null ? (
+              <Text variant="sub">{t(unavailable)}</Text>
             ) : data.repositories.length === 0 ? (
               <Text variant="sub">{t("github.repo.pickEmpty")}</Text>
             ) : (

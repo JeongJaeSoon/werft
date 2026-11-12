@@ -43,6 +43,7 @@ import {
   SessionStatusLabel,
   StatusLabel,
   sessionRepositoriesOf,
+  shortSessionId,
   useDetailRailToggle,
 } from "../components/index.ts";
 import { useFollowEnd } from "../components/session/follow-end.ts";
@@ -336,7 +337,7 @@ export function SessionDetail({
         controls={controls?.(detail)}
       />
       {/* No repository list here on purpose: the header and the info tab
-          already show it, and a third copy is the repeat 94S-1469 removed.
+          already show it.
           To show it, add a DetailRailSection holding <RepositoryList />. */}
     </DetailRail>
   );
@@ -363,7 +364,7 @@ export function SessionDetail({
             {detail.title ? (
               <span className="[overflow-wrap:anywhere]">{detail.title}</span>
             ) : (
-              <span className="font-mono">{id.slice(0, 8)}</span>
+              <span className="font-mono">{shortSessionId(id)}</span>
             )}
             <SessionStatusLabel
               status={detail.status}
@@ -538,7 +539,9 @@ function SessionMeta({
   return (
     <span className={className}>
       <span className="inline-flex items-center gap-2">
-        <span className="font-mono text-caption">{session.id.slice(0, 8)}</span>
+        <span className="font-mono text-caption">
+          {shortSessionId(session.id)}
+        </span>
         <Button
           type="button"
           variant="ghost"

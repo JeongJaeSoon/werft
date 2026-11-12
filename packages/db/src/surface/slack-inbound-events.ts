@@ -7,6 +7,7 @@ import type {
 import { and, eq, gt, sql } from "drizzle-orm";
 import type { Database } from "../queries.ts";
 import { slackInboundEvents, slackInstallations } from "../schema.ts";
+import { released } from "./slack-shared.ts";
 
 const t = slackInboundEvents;
 
@@ -18,8 +19,6 @@ const leaseHeld = (fence: SlackInboundFence) =>
     eq(t.claimToken, fence.claimToken),
     gt(t.leaseExpiresAt, sql`now()`),
   );
-
-const released = { claimToken: null, leaseExpiresAt: null } as const;
 
 const installationStatusOf = sql<SlackInboundClaim["installationStatus"]>`(
   SELECT i.status FROM ${slackInstallations} i

@@ -9,7 +9,7 @@ import {
   userIdSchema,
 } from "../shared/index.ts";
 
-// "This Slack app and bot is this agent" (design 1, A.2). An identity row
+// "This Slack app and bot is this agent". An identity row
 // pins one agent to one Slack install; v1 has the Slack bot only. Rows are
 // revoked, never deleted or reopened: linking again makes a new row.
 
@@ -77,7 +77,7 @@ export const agentIdentitySchema = z
   })
   .strict();
 
-/** Pins the agent to its Slack app's install in one team (design A.2). */
+/** Pins the agent to its Slack app's install in one team. */
 export const linkAgentIdentityRequestSchema = z
   .object({
     provider: agentIdentityProviderSchema,

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { SESSION_SCOPE_VALUES } from "@werft-ai/contracts";
+import type { SessionServiceError } from "../musterrolle/index.ts";
 import { callerFor } from "../musterrolle/policy.ts";
 import type {
   CallerLimitDimension,
@@ -12,10 +13,7 @@ import type {
   AppendMessageInput,
   AppendMessageResult,
 } from "./ports/session-unit-of-work.ts";
-import {
-  createSessionService,
-  type SessionServiceError,
-} from "./session-service.ts";
+import { createSessionService } from "./session-service.ts";
 
 const AGENT = "019a0000-0000-7000-8000-00000000b0a1";
 const SESSION = "019a0000-0000-7000-8000-00000000e0a1";

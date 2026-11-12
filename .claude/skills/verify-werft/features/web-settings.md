@@ -21,7 +21,7 @@
 
 ## Driving it with lib.sh
 
-Preconditions: `up.sh infra/compose.mock-slack.yml`로 띄웠다(Orca에서는 `orch heavy <program> -- …`). 4(Slack)를 몰 run이면 같은 호출에서 버리는 master key도 넘긴다(4의 첫 줄). 1(Google)은 api를 다른 Bash 호출에서 다시 만들어 그 key를 잃으므로, 1과 4는 서로 다른 run에서 한다(1은 key 없는 run, 4는 key로 띄운 run). owner bootstrap 뒤 `ap_web POST /v1/auth/login`(bootstrap은 cookie를 주지 않는다), member 초대·수락. `orch hold browser --note "<what>"`.
+Preconditions: `up.sh infra/compose.mock-slack.yml`로 띄웠다(Orca에서는 `orch heavy <program> -- …`). 4(Slack)를 몰 run이면 같은 호출에서 버리는 master key도 넘긴다(4의 첫 줄). 1(Google)은 api를 다른 Bash 호출에서 다시 만들어 그 key를 잃으므로, 1과 4는 서로 다른 run에서 한다(1은 버리는 key를 넘기지 않은 run, 4는 넘겨서 띄운 run). owner bootstrap 뒤 `ap_web POST /v1/auth/login`(bootstrap은 cookie를 주지 않는다), member 초대·수락. `orch hold browser --note "<what>"`.
 
 1. **Google 선택지.** 기본 스택은 Google이 꺼져 있다(`login-methods` → `["password"]`). 켜려면 host에서 mock IdP를 띄우고(PID를 적는다) api만 Google env로 다시 만든다. 이때 `COMPOSE_FILE`에 `infra/compose.fake-model.yml`을 꼭 더하고(빠지면 api가 `ANTHROPIC_API_KEY`를 찾다 죽는다), api 포트를 run의 포트로 고정한다(빠지면 새 임의 포트로 떠 `$API`가 어긋난다).
 
@@ -54,11 +54,6 @@ Preconditions: `up.sh infra/compose.mock-slack.yml`로 띄웠다(Orca에서는 `
    mock 발급자(`http://mock-slack:4020`)는 compose 안에서만 닿고, link 앱의 리디렉션 주소는 overlay의 `CONSOLE_ORIGIN`인 `127.0.0.1:3000`에서 계산한다. "연결"을 누르면 시작 요청이 link 앱을 만들고 화면이 동의 URL로 떠나 `chrome-error://`가 된다(시작 요청과 이동까지는 확인된다). 동의 URL에는 OAuth `state`가, 돌아오는 주소에는 `code`가 들어 있어 `orca goto`·`orca eval`·`bun -e`의 인자로 넘기면 `ps`에 보인다. 그래서 동의부터는 이 run의 headless Chrome으로 한다: `browser.mjs <run> login member` → `open /settings/linked-accounts` → `slack-consent`. `slack-consent`는 페이지 안에서 시작 요청을 보내고(브라우저 cookie 그대로), api 컨테이너의 bun에 stdin으로 동의 URL을 넘겨 mock 동의를 받은 뒤, 돌아온 주소를 `$API` 호스트:포트로 바꿔 그 탭에서 연다. 출력은 도착한 경로뿐이다. 다른 team으로 동의하려면 `slack-consent T0OTHER`. 콜백 화면이 목록으로 돌아와 Slack 행이 "연결됨"과 `Slack 사용자 U0MOCK (워크스페이스 T0MOCK)`, "연결 해제" → "Slack 계정 연결을 해제했습니다.", DB `revoked | unlinked | 2`.
 5. **감사 보존.** owner로 `/settings/workspace`, 값 `29` → 저장 → alert "감사 기록은 30일보다 짧게 보존할 수 없습니다. 30일 이상(최대 3650일)으로 정하세요."와 api 로그 `POST … audit-retention 400`. member가 같은 API를 부르면 `403` `Only an owner can change audit retention`, member 메뉴에는 "워크스페이스 설정"이 없다.
 6. **Slack 게스트.** owner 탭으로 `/settings/workspace/integrations/slack`의 switch(처음 `checked=false`, "꺼짐")를 누른다 → status "이제 Slack 게스트도 에이전트를 쓸 수 있습니다.", switch `checked=true` "켜짐". `ap_web GET /v1/auth/me | head -1 | jq .workspace.settings.slack_guest_enabled` → `true`. member cookie로 `ap_web POST "/v1/workspaces/$WS/slack-guest" '{"slack_guest_enabled":false}'` → `403` `Only an owner or admin can change the Slack guest setting`(`reason_code: role`). member로 로그인한 브라우저에서 `/settings/workspace/integrations/slack`을 주소로 열면 `[role=switch]`가 없고 읽기 전용 글만 있다. member는 API로 초대·수락해도 된다: `node $U <run id> invite owner member member` → `node $U <run id> accept member`(token과 비밀번호는 run 디렉터리에만 있다. `ap_web POST /v1/invites`는 응답에 token을 그대로 출력하므로 쓰지 않는다).
-
-- 2026-10-11 run `20261011-232746-64155`에서 1–5를 이 순서대로 확인했다. 스크린샷 `evidence/m10-*.png`, API 출력 `evidence/m10-*.txt`.
-- 2026-10-12 run `20261012-015938-81242`에서 6을 확인했다. 스크린샷 `evidence/slack-guest-*.png`, API 출력 `evidence/slack-guest-*.txt`.
-- 2026-10-23 run `20261023-160737-96495`(main `e7490124`, JeongJaeSoon/agent-platform#568 포함)에서 `browser.mjs`로 2, 3, 5(owner 29 → 30일 alert), 6(switch → "이제 Slack 게스트도 …", `me` `true`, member 403 `role`, member 화면 switch 0개)과 member 사이드바·`/teams` "내가 속한 팀"·key 폼을 확인했다. 1(Google)과 4(Slack 연결)는 mock IdP·`infra/compose.mock-slack.yml` 없이 띄운 run이라 몰지 않았고, `/settings/linked-accounts` 목록 화면(Slack "연결 안 됨", "연결" 버튼)만 봤다.
-- 2026-10-24 run `20261024-042222-58797`(main `eb8a8ac4`, mock overlay와 버리는 master key)에서 musterrolle c의 1–3 뒤 4를 `orca tab`(격리 profile)로 확인했다: "연결" → link 앱 동의 URL로 이동 → 다시 시작·mock 동의·콜백 → "연결됨"과 `Slack 사용자 U0MOCK (워크스페이스 T0MOCK)` → "연결 해제" → "Slack 계정 연결을 해제했습니다.", DB `revoked | unlinked | 2`. 스크린샷 `evidence/web4-linked.png`·`web4-unlinked.png`. key 없이 띄운 run `20261024-041040-6175`에서는 "연결"이 "Slack 계정 연결을 아직 쓸 수 없습니다 — …"에서 멈췄다(`evidence/pre-web4-not-configured.png`).
 
 ## Gotchas
 

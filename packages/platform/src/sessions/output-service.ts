@@ -4,8 +4,8 @@ import type {
   SessionOutputBodyResult,
   SessionOutputsResult,
 } from "../checkpoints/index.ts";
-import type { Caller } from "../musterrolle/policy.ts";
-import { type SessionService, SessionServiceError } from "./session-service.ts";
+import { type Caller, SessionServiceError } from "../musterrolle/index.ts";
+import type { SessionService } from "./session-service.ts";
 
 export interface SessionOutputSource {
   readOutputs(sessionId: string): Promise<SessionOutputsResult>;

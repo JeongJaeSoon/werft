@@ -4,7 +4,6 @@ import type {
   PutAgentUsageResponse,
 } from "@werft-ai/contracts";
 import type { AgentUsageStore } from "../ports/agent-usage-store.ts";
-import { requirePermitted, SessionServiceError } from "../sessions/index.ts";
 import { personOf } from "./agent-admin-service.ts";
 import { ifMatchOf } from "./env-variable-service.ts";
 import {
@@ -12,25 +11,20 @@ import {
   type Caller,
   MANAGEMENT_ROLES,
 } from "./policy.ts";
+import { requirePermitted } from "./require-permitted.ts";
 import {
+  NO_LONGER_MANAGER,
   NOT_FOUND,
+  SessionServiceError,
   TEAM_NOT_ALLOWED,
   TEAM_NOT_FOUND,
 } from "./service-errors.ts";
 
-// Who may use an agent (94S-900): its scope and teams, edited by owners,
+// Who may use an agent: its scope and teams, edited by owners,
 // admins and the agent's admins (`agent.usage.manage`), who are also the only
 // ones to read it: a plain member of the managing team reads settings but not
 // who else may use the agent. The setting decides nothing here; a session
-// create or input reads it elsewhere (94S-901).
-
-const NO_LONGER_MANAGER = () =>
-  new SessionServiceError(
-    "FORBIDDEN",
-    "The caller no longer holds agent.usage.manage",
-    undefined,
-    { reason_code: "role" },
-  );
+// create or input reads it elsewhere.
 
 export function createAgentUsageService(deps: {
   authorization: AuthorizationPolicy;

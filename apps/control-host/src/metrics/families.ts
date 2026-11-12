@@ -14,7 +14,7 @@ export const TURN_DURATION_BUCKETS = [
 // Label values read from data (tool and model names) are cut to the first
 // ones ever seen, so the series a collector holds stay bounded.
 export const TOOL_LABEL_LIMIT = 100;
-export const MODEL_LABEL_LIMIT = 50;
+const MODEL_LABEL_LIMIT = 50;
 export const OTHER = "other";
 
 export type SessionState =
@@ -42,13 +42,15 @@ export function sessionState(
     row.status,
     row.awaitingApproval || row.awaitingAnswer,
   );
+  // Before the status test: a kill that cut a running turn leaves the session
+  // `stopped` and still waiting on a recovery decision.
+  if (row.admission === "recovery_required") {
+    return { state: "recovery_required", status };
+  }
   if (ENDED_ADMISSIONS.has(row.admission) || row.status === "stopped") {
     return { state: "ended", status };
   }
   if (PAUSED_ADMISSIONS.has(row.admission)) return { state: "paused", status };
-  if (row.admission === "recovery_required") {
-    return { state: "recovery_required", status };
-  }
   if (status === "needs_input") {
     return {
       state: row.awaitingApproval ? "awaiting_approval" : "awaiting_answer",

@@ -81,7 +81,7 @@ function uncontinued(sessionId: string) {
  * each with its rows. A drain-parked turn can stay open while a later one
  * parks too, and an answer to either closes its own.
  */
-export async function openParkedGroups(
+async function openParkedGroups(
   tx: Database,
   sessionId: string,
 ): Promise<{ turnRowId: number; rows: GroupRow[] }[]> {
@@ -123,7 +123,7 @@ function waitingIn(rows: GroupRow[], at: Date): number {
  * expired, which is a denial, in one write with the `input_wait` record
  * that says so. Nobody is left to settle them otherwise.
  */
-export async function expireLapsedParked(
+async function expireLapsedParked(
   tx: Database,
   input: { sessionId: string; turnRowId?: number; at: Date },
 ): Promise<string[]> {

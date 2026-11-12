@@ -6,7 +6,7 @@
  * from a rollout written to another directory.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { cp, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { RuntimeEvent } from "@werft-ai/runtime-core";
@@ -332,4 +332,116 @@ describe.skipIf(!available)("the pinned codex app-server", () => {
       turn: { isError: false },
     });
   }, 60_000);
+
+  // Why the descriptor says `approvalCheckpoint: false`. A build that asks
+  // again after a resume makes this fail, which is when to look again.
+  test("an approval pending when the process ended is not asked again after a resume, and its call reads as aborted", async () => {
+    const CALL = "call_pending_1";
+    const egressToken = "egress-pending-approval";
+    const seen: Seen[] = [];
+    const server = fakeResponses(seen, (call) =>
+      call === 1
+        ? [
+            {
+              type: "function_call",
+              call_id: CALL,
+              name: "exec_command",
+              arguments: JSON.stringify({
+                cmd: "echo pending | tee asked.txt",
+              }),
+            },
+          ]
+        : [assistantMessage("carried on")],
+    );
+    const port = server.port as number;
+    const atApproval = join(root, "pending-first");
+    const restored = join(root, "pending-second");
+    const work = join(root, "work-pending");
+    await Bun.write(join(work, ".keep"), "");
+    const asks = (events: readonly RuntimeEvent[]) =>
+      events.filter((event) => event.type === "approval.requested");
+    const until = async (what: string, met: () => boolean) => {
+      for (let waited = 0; !met(); waited += 100) {
+        if (waited >= 30_000) throw new Error(`timed out waiting for ${what}`);
+        await Bun.sleep(100);
+      }
+    };
+    try {
+      // A turn that stops at an approval nobody answers.
+      const run = new CodexAgentRuntime({ stateDir: atApproval } as never, {
+        ...process.env,
+      }).start(startOf({ port, work, egressToken }));
+      const before: RuntimeEvent[] = [];
+      let threadId = "";
+      try {
+        await run.ready();
+        void (async () => {
+          for await (const event of run.events()) before.push(event);
+        })();
+        run.send({ uuid: "in-1", message: "run the command" });
+        await until("the approval", () => asks(before).length === 1);
+        expect(asks(before)[0]).toMatchObject({
+          request: { toolCallId: CALL },
+        });
+        const init = before.find(
+          (e) => e.type === "public" && e.event.event === "system",
+        );
+        threadId = String(
+          (init as { event: { data: { session_id?: string } } }).event.data
+            .session_id,
+        );
+        expect(threadId).not.toBe("");
+        // The engine's state as an approval checkpoint would take it.
+        await cp(atApproval, restored, { recursive: true });
+      } finally {
+        run.abort();
+      }
+
+      const calls = seen.length;
+      const resumed = new CodexAgentRuntime({ stateDir: restored } as never, {
+        ...process.env,
+      }).start(
+        startOf({
+          port,
+          work,
+          egressToken,
+          mode: "resume",
+          resume: threadId,
+        }),
+      );
+      const after: RuntimeEvent[] = [];
+      try {
+        await resumed.ready();
+        void (async () => {
+          for await (const event of resumed.events()) after.push(event);
+        })();
+        // Left alone, the resumed thread neither asks again nor calls the model.
+        await Bun.sleep(3_000);
+        expect(asks(after)).toEqual([]);
+        expect(seen.length).toBe(calls);
+
+        // The next input tells the model the call was aborted; it never ran.
+        resumed.send({ uuid: "in-2", message: "carry on" });
+        await until("the next model call", () => seen.length > calls);
+        const input = (
+          JSON.parse(seen[calls]?.body ?? "{}") as {
+            input?: { call_id?: string; output?: unknown; type?: string }[];
+          }
+        ).input?.filter((item) => item.call_id === CALL);
+        expect(input).toMatchObject([
+          { type: "function_call" },
+          { type: "function_call_output", output: "aborted" },
+        ]);
+        await until("the turn to end", () =>
+          after.some((event) => event.type === "turn.ended"),
+        );
+        expect(asks(after)).toEqual([]);
+        expect(await Bun.file(join(work, "asked.txt")).exists()).toBe(false);
+      } finally {
+        resumed.abort();
+      }
+    } finally {
+      await server.stop(true);
+    }
+  }, 120_000);
 });

@@ -3,17 +3,6 @@ import { z } from "zod";
 import { storedEngineSettingsSchema } from "../kollegium/engine-settings-storage.ts";
 import { receiptIdSchema } from "../shared/index.ts";
 
-/**
- * `reason_code`s a save of engine settings adds to the rule parser's own
- * (`unknown_tool`, `too_many_rules`, `settings_too_large`, ...).
- */
-export const ENGINE_SETTINGS_REFUSAL_VALUES = [
-  // The installed tool catalogs read the same rule as different tools.
-  "engine_settings_catalog_ambiguous",
-  // No tool catalog is installed, so nothing can check the rules.
-  "engine_settings_catalog_unavailable",
-] as const;
-
 const revisionSchema = z.number().int().positive();
 
 /** What an agent's rules leave without effect, so the console can say so. */

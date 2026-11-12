@@ -16,7 +16,4 @@ export const apiRootResponseSchema = z
   })
   .strict();
 
-export type HealthResponse = z.infer<typeof healthResponseSchema>;
 export type ReadinessCheck = z.infer<typeof readinessCheckSchema>;
-export type ReadyResponse = z.infer<typeof readyResponseSchema>;
-export type ApiRootResponse = z.infer<typeof apiRootResponseSchema>;

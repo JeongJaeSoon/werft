@@ -45,7 +45,7 @@ Kubernetes 설치에 실행 모드 `kubernetes_pull`을 opt-in으로 하나 더 
 - scheduler Role은 worker namespace 하나에 걸리고 `pods`·`secrets`·`persistentvolumeclaims`의 get·list·create·delete와 `pods/log` get을 갖는다(`deploy/helm/werft/templates/scheduler.yaml`). SA token을 마운트하는 Pod는 scheduler뿐이다.
 - chart에는 worker namespace를 따로 정하는 값이 없다. `EXECUTION_K8S_NAMESPACE`의 기본값은 scheduler 자신의 namespace이고, chart의 Role과 RoleBinding도 release namespace에 생긴다(`scheduler.yaml:174`). 그 namespace에는 앱 Secret(`DATABASE_URL`, `PLATFORM_SECRET_KEY`, provider 키 등, `templates/api.yaml`, `external-secret.yaml`)이 있다. 그래서 지금 scheduler SA는 그 Secret을 모두 읽을 수 있고, Pod를 만들 수 있으므로 그 Secret을 마운트한 Pod도 만들 수 있다.
 - worker는 env의 nonce를 내고 `POST /worker/bootstrap-claim`으로 binding(세션, attempt, lease epoch, 토큰)을 받는다. 그 뒤 heartbeat와 `/next-input` long poll을 돈다. lease를 잃으면 진행 중인 turn을 버리고 exit 75로 끝난다(`apps/worker/src/worker-host.ts`).
-- 종료와 슬롯: terminate·lease 만료는 lease epoch를 올리고 `executions.desired_state=terminated`를 적는다. 이때 `pod_id`·`execution_id`를 남겨 "제거가 확인될 때까지 새 claim이 시작되지 않게" 한다(`packages/db/src/lease-reconcile.ts:150-180`). 슬롯 반환, binding 제거, 기동 실패 집계는 scheduler가 Pod가 사라진 것을 확인하는 경로에서만 일어난다(`packages/db/src/worker-unit-of-work.ts:3030-3290`).
+- 종료와 슬롯: terminate·lease 만료는 lease epoch를 올리고 `executions.desired_state=terminated`를 적는다. 이때 `pod_id`·`execution_id`를 남겨 "제거가 확인될 때까지 새 claim이 시작되지 않게" 한다(`packages/db/src/lease-reconcile.ts:150-180`). 슬롯 반환, binding 제거, 기동 실패 집계는 scheduler가 Pod가 사라진 것을 확인하는 경로에서만 일어난다(`packages/db/src/worker-unit-of-work.ts:3029-3289`).
 - lease가 만료되면 그 attempt의 worker 자격 증명이 폐기된다(`packages/db/src/lease-reconcile.ts:130-138`). worker의 egress는 NetworkPolicy로 egress proxy에만 열려 있다(`deploy/helm/werft/templates/networkpolicies.yaml`).
 - reconcile이 Pod를 inspect해서 기동 실패(backoff 뒤 5회면 quarantine), 낡은 isolation stamp, nonce 만료, launch spec 불일치를 교체하고, 실패한 Pod의 로그 tail을 읽는다.
 - 이미지와 리소스(`WORKER_IMAGE`, `WORKER_CPUS`, `WORKER_MEMORY_MB`, `WORKER_PIDS_LIMIT`)는 설치 전역이다. launch 예약 때 이미지 digest를 고정한다.
@@ -55,7 +55,7 @@ pull로 옮길 때 이미 준비된 자리도 있다.
 | 이미 있는 것 | 위치 |
 | --- | --- |
 | claim 요청의 credential에 `workload_identity` 종류가 있다. 지금 gateway는 403으로 거절한다 | `packages/contracts/src/worker-protocol/index.ts:66-71`, `packages/platform/src/workers/worker-gateway.ts:981-987` |
-| launch의 `session_id`가 null이면 claim이 partition의 맨 앞 대기 세션을 `SKIP LOCKED`로 고른다 | `packages/db/src/worker-unit-of-work.ts:1611-1638` |
+| launch의 `session_id`가 null이면 claim이 partition의 맨 앞 대기 세션을 `SKIP LOCKED`로 고른다 | `packages/db/src/worker-unit-of-work.ts:1610-1637` |
 | worker는 기다리는 세션이 없으면 `NOT_FOUND`로 스스로 나간다("KEDA-style launchers must see it leave") | `apps/worker/src/worker-host.ts:796-800` |
 | 세션의 `partition`은 "이 세션을 돌릴 worker pool"이고 생성 뒤 바뀌지 않는다 | `packages/db/src/schema.ts:1118-1122` |
 | launch에 drain 요청 시각(`drain_requested_at`)이 있다 | `packages/db/src/schema.ts:2263` |
@@ -232,7 +232,7 @@ fence는 generation만이 아니라 lease epoch, auth revision, attempt 상태�
 
 플랫폼은 Pod를 지울 수도, 사라졌는지 볼 수도 없다. 그래서 "끝났다"를 다르게 정의한다.
 
-**펜싱된 worker가 할 수 있는 것.** lease 만료는 lease epoch를 올리고 그 attempt의 worker 자격 증명을 폐기한다(`packages/db/src/lease-reconcile.ts:130-138`). terminate는 epoch만 올린다(`packages/db/src/control-unit-of-work.ts:554-574`). 어느 쪽이든 proxy의 자격 증명 확인이 token의 유효기간이 아니라 fence(세션이 아직 그 attempt를 가리키고 lease가 남았는지)를 보므로(`packages/db/src/worker-unit-of-work.ts:1846-1853`) 펜싱 뒤의 새 교환은 거절된다. 이미 열린 교환은 30초마다 다시 확인하고, 확인할 수 없으면 최대 90초까지 이어진다(`apps/egress-proxy/src/credential.ts:60-71`). worker의 egress는 NetworkPolicy로 proxy에만 열려 있고, provider 키와 저장소 자격 증명은 proxy의 credential route가 쓴다. 그래서 펜싱된 worker는 플랫폼에 쓸 수 없고(fence), 그 뒤로는 모델을 부르거나 push하는 것처럼 자격 증명이 드는 부작용을 새로 낼 수 없다. proxy allowlist에 있는 자격 증명 없는 목적지(패키지 레지스트리 등)에는 Pod가 살아 있는 동안 계속 닿을 수 있다. 이것은 이미 시작된 외부 부작용을 되돌리지 않는다. 지금 push 모드도 Pod 삭제가 끝나기 전까지는 같다.
+**펜싱된 worker가 할 수 있는 것.** lease 만료는 lease epoch를 올리고 그 attempt의 worker 자격 증명을 폐기한다(`packages/db/src/lease-reconcile.ts:130-138`). terminate는 epoch만 올린다(`packages/db/src/control-unit-of-work.ts:542-562`). 어느 쪽이든 proxy의 자격 증명 확인이 token의 유효기간이 아니라 fence(세션이 아직 그 attempt를 가리키고 lease가 남았는지)를 보므로(`packages/db/src/worker-unit-of-work.ts:1845-1852`) 펜싱 뒤의 새 교환은 거절된다. 이미 열린 교환은 30초마다 다시 확인하고, 확인할 수 없으면 최대 90초까지 이어진다(`apps/egress-proxy/src/credential.ts:60-71`). worker의 egress는 NetworkPolicy로 proxy에만 열려 있고, provider 키와 저장소 자격 증명은 proxy의 credential route가 쓴다. 그래서 펜싱된 worker는 플랫폼에 쓸 수 없고(fence), 그 뒤로는 모델을 부르거나 push하는 것처럼 자격 증명이 드는 부작용을 새로 낼 수 없다. proxy allowlist에 있는 자격 증명 없는 목적지(패키지 레지스트리 등)에는 Pod가 살아 있는 동안 계속 닿을 수 있다. 이것은 이미 시작된 외부 부작용을 되돌리지 않는다. 지금 push 모드도 Pod 삭제가 끝나기 전까지는 같다.
 
 이 보장은 NetworkPolicy가 실제로 강제될 때만 성립한다. 지금 chart의 정책은 모두 `networkPolicy.enabled`에 달려 있고(`networkpolicies.yaml:1`), 정책을 강제하지 않는 CNI에서는 정책이 있어도 효과가 없다. 그래서 pull 모드에서는 `networkPolicy.enabled: false`면 chart render가 실패하고, "worker Pod에서 proxy를 거치지 않은 외부 접속이 막힌다"를 설치 검증 항목으로 둔다. admission이 label과 proxy env를 검사하는 것만으로는 직접 접속을 막지 못한다.
 
@@ -401,20 +401,11 @@ OrbStack 내장 K8s에서 verify 스택의 chart를 `execution.mode: pull`로 �
 
 ## 다른 의견: Codex 검토 (2026-10-31)
 
-Codex(read-only)에 1안을 추천하던 첫 초안과 코드를 주고 독립 검토를 받았다. 11건이 모두 Act-on이었고 1안 설계에 반영했다. 반영한 주요 지적은 다음과 같다.
-
-- 슬롯은 Pod 부재 확인에서만 반환되므로 "행 정리만 한다"로는 슬롯이 돌아오지 않는다 → "종료 계약" 절.
-- heartbeat에는 종료 의도가 없고, lease를 잃은 worker는 drain 없이 turn을 버린다 → `drain_requested`와 강제 종료를 나눴다.
-- PVC를 잃는 비용이 재clone뿐이라는 것은 과장이다 → checkpoint 없는 작업과 구출 경로를 잃는다고 적었다.
-- 같은 UID 재claim의 범위, admission을 선택이 아니라 필수로, Running-but-unclaimed, 두 상한, claim 때 launch를 만드는 불변식, 이전 이미지 class의 수명, 전환 순서, worker 설정 변경 → 각 절.
-
-2차 검토는 11건 중 10건을 해결로 보고 새 Act-on 3건을 냈다. api가 공개라 claim route를 네트워크로 막을 수 없다는 것, terminate는 자격 증명을 폐기하지 않고 fence로 거절한다는 것, 종료 계약이 NetworkPolicy 강제를 전제로 한다는 것이다. 모두 반영했다.
-
-처음 판이 반영하지 않은 것은 결론이었다. Codex의 판단은 다음과 같다.
+1안을 추천하던 첫 초안에 대한 독립 검토는 결론이 달랐다. 그 판단은 다음과 같다.
 
 > 현재 문서대로 구현을 권고하지 않는다. `accurate`와 claim-time launch 자체는 성립하지만, 기존 코드의 핵심인 "실행 종료를 확인한 뒤 자원을 반환한다"는 계약을 바꾸는 설계가 빠졌다. 우선 push를 유지하겠다. 플랫폼의 Kubernetes 권한 제거가 필수라면, 클러스터 안의 별도 launcher가 플랫폼에서 예약된 실행을 pull하고 기존 Pod 생성·종료 관측 로직을 수행하는 방식을 먼저 택하겠다. KEDA 방식은 제한된 이미지/class와 논리적 종료 보장을 받아들이는 opt-in 실험으로 한정하는 편이 낫다.
 
-처음 판은 KEDA 방식을 먼저 확장·검증하자고 했다. 근거는 펜싱 뒤에는 proxy가 그 worker의 자격 증명 사용을 거절하므로 Pod 종료를 못 봐도 막을 부작용은 막힌다는 것, launcher는 Kubernetes 제어 코드를 우리에게 남긴다는 것이었다. 지금 판은 0안(직접 생성, 권한 축소)을 같은 축에 올려 0안을 고른다. Codex의 "우선 push를 유지하겠다"와 같은 결론이고, 그 push를 어떻게 줄일지가 0안이다. 1안은 Codex가 말한 대로 "제한된 이미지/class와 논리적 종료 보장을 받아들이는 opt-in"의 설계로 남긴다. 0안을 넣은 판에 대한 Codex 검토는 이 문서의 PR에 남긴다.
+처음 판은 KEDA 방식을 먼저 확장·검증하자고 했다. 근거는 펜싱 뒤에는 proxy가 그 worker의 자격 증명 사용을 거절하므로 Pod 종료를 못 봐도 막을 부작용은 막힌다는 것, launcher는 Kubernetes 제어 코드를 우리에게 남긴다는 것이었다. 지금 판은 0안(직접 생성, 권한 축소)을 같은 축에 올려 0안을 고른다. Codex의 "우선 push를 유지하겠다"와 같은 결론이고, 그 push를 어떻게 줄일지가 0안이다. 1안은 Codex가 말한 대로 "제한된 이미지/class와 논리적 종료 보장을 받아들이는 opt-in"의 설계로 남긴다.
 
 ## 열린 결정
 

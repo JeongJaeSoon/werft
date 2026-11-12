@@ -5,8 +5,8 @@ import { join } from "node:path";
 import {
   installationLimitsFromEnv,
   providerUpstreamOf,
-  runtimeProviderOf,
 } from "@werft-ai/platform";
+import { runtimeProviderOf } from "@werft-ai/platform/testing/catalog";
 import { egressProxyConfigFromEnv } from "../../apps/egress-proxy/src/config.ts";
 import {
   FAKE_MODEL,

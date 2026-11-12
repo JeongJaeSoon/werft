@@ -1,6 +1,6 @@
 import type { AgentUsageScope } from "@werft-ai/contracts";
 
-// Who may start or feed a session of an agent (94S-901). Both the policy's
+// Who may start or feed a session of an agent. Both the policy's
 // read and the store's re-decision under lock gather these facts and ask
 // decideUsage, so the two cannot drift.
 

@@ -2,15 +2,15 @@ import type {
   ControlAcceptedResponse,
   InterruptSessionRequest,
 } from "@werft-ai/contracts";
-import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
-import { TERMINATE_DEADLINE_MS } from "../scheduler/index.ts";
-import type { TurnInterrupts } from "./ports/turn-interrupts.ts";
 import {
-  idempotencyConflict,
-  payloadHash,
+  type AuthorizationPolicy,
+  type Caller,
   requirePermitted,
   SessionServiceError,
-} from "./session-service.ts";
+} from "../musterrolle/index.ts";
+import { TERMINATE_DEADLINE_MS } from "../scheduler/index.ts";
+import type { TurnInterrupts } from "./ports/turn-interrupts.ts";
+import { idempotencyConflict, payloadHash } from "./session-service.ts";
 
 /**
  * How long an accepted interrupt may stay unsettled before the reconciler

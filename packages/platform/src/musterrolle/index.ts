@@ -4,8 +4,27 @@ export type { CallerLimitDimension } from "./caller-limit.ts";
 export {
   type AuthorizationPolicy,
   type Caller,
+  deciderKeyOf,
   MANAGEMENT_ROLES,
+  type OutsideAgentAccess,
+  type OutsideAgentAccessSetting,
+  outsideAgentsUse,
   type Principal,
   receiptActorOf,
 } from "./policy.ts";
-export { ACTOR_INACTIVE, NOT_FOUND, OUTRANKED } from "./service-errors.ts";
+export {
+  agentPrivateError,
+  isAgentPrivate,
+  requireAllowed,
+  requirePermitted,
+} from "./require-permitted.ts";
+export {
+  ACTOR_INACTIVE,
+  NOT_FOUND,
+  OUTRANKED,
+  SECRET_STORE_OFF,
+  SessionServiceError,
+  TEAM_HOLDING,
+  TEAM_NOT_ALLOWED,
+  TEAM_NOT_FOUND,
+} from "./service-errors.ts";

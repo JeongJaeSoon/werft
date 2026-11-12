@@ -4,8 +4,7 @@ import { pinnedMcpTools } from "../sessions/catalog.ts";
 /**
  * What a release says about MCP, as an agent's settings would hold it: the
  * card's server and credential names, and the `allow` pins for that server.
- * Counts cover what a settings row cannot carry, so a copy shows what it
- * leaves behind.
+ * Counts cover what a settings row cannot carry.
  */
 export type McpReleaseValues = {
   server: string | null;

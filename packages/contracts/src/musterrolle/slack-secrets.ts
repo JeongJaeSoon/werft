@@ -55,7 +55,6 @@ export const deleteSlackSecretResponseSchema = z
   .strict();
 
 export type SecretPurpose = z.infer<typeof secretPurposeSchema>;
-export type PutSlackSecretRequest = z.infer<typeof putSlackSecretRequestSchema>;
 export type SlackSecretSummary = z.infer<typeof slackSecretSummarySchema>;
 export type PutSlackSecretResponse = z.infer<
   typeof putSlackSecretResponseSchema

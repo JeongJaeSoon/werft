@@ -2,7 +2,7 @@ import type { SlackNotice } from "@werft-ai/contracts";
 
 /**
  * A refusal the person who typed should see, alone, once per thread
- * (design 3.3). 94S-792 delivers it as an ephemeral message.
+ * (design 3.3). The outbox delivers it as an ephemeral message.
  */
 export type SlackNoticeRecord = {
   workspaceId: string;

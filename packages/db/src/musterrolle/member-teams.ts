@@ -7,6 +7,7 @@ import type {
   TeamPage,
   TeamStore,
 } from "@werft-ai/platform";
+import { receiptActorOf } from "@werft-ai/platform";
 import {
   and,
   asc,
@@ -23,7 +24,7 @@ import {
   containsPattern,
   findPgError,
   lockPeople,
-  receiptActorOf,
+  UUID,
 } from "../control-shared.ts";
 import { DB_NOW } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
@@ -45,11 +46,9 @@ import {
   type TeamCursor,
 } from "../sessions/cursors.ts";
 
-// Teams (94S-582, design 4.7). Lock order, everywhere here: the people
+// Teams (design 4.7). Lock order, everywhere here: the people
 // involved (users, then memberships, in user_id order), the team, then team
 // member rows — the order the rest of the identity writes take.
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Team lists page by (name, id), so a team renamed mid-walk can show again
 // or not at all; the rest show exactly once.
@@ -162,7 +161,7 @@ async function lockLiveTeam(tx: Database, workspaceId: string, teamId: string) {
 }
 
 // An archive races agents being given the team; past this many restarts it
-// answers conflict and the caller asks again (94S-900).
+// answers conflict and the caller asks again.
 const ARCHIVE_ATTEMPTS = 3;
 
 type Listing = { usage: string[]; limits: string[] };

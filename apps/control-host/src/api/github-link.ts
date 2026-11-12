@@ -3,6 +3,7 @@ import { GITHUB_LOGIN_PATTERN } from "@werft-ai/contracts";
 import type { GitHubOAuthClient } from "@werft-ai/platform";
 import type { Context } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
+import { providerFetch } from "./provider-fetch.ts";
 import { sameString as sameToken } from "./same-string.ts";
 
 // Linking a person's GitHub account through the author App's user
@@ -112,24 +113,15 @@ export class GitHubOAuthRejectedError extends Error {}
 /** GitHub could not be reached or answered with a server error. */
 export class GitHubOAuthUnavailableError extends Error {}
 
-const GITHUB_HTTP_TIMEOUT_MS = 10_000;
-
-async function githubFetch(url: string, init: RequestInit): Promise<Response> {
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      ...init,
-      signal: AbortSignal.timeout(GITHUB_HTTP_TIMEOUT_MS),
-    });
-  } catch (error) {
-    throw new GitHubOAuthUnavailableError(
-      error instanceof Error ? error.name : "fetch failed",
-    );
-  }
-  if (response.status >= 500) {
-    throw new GitHubOAuthUnavailableError(`GitHub answered ${response.status}`);
-  }
-  return response;
+function githubFetch(url: string, init: RequestInit): Promise<Response> {
+  return providerFetch(url, init, {
+    unreachable: (error) =>
+      new GitHubOAuthUnavailableError(
+        error instanceof Error ? error.name : "fetch failed",
+      ),
+    answered: (status) =>
+      new GitHubOAuthUnavailableError(`GitHub answered ${status}`),
+  });
 }
 
 /**

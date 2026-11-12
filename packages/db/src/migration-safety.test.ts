@@ -9,7 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getTableName, isTable } from "drizzle-orm";
-import { MIGRATIONS_FOLDER } from "./migration-folder.ts";
+import { MIGRATIONS_FOLDER } from "./migration-journal.ts";
 import { GROWING_TABLES, migrationSafetyProblems } from "./migration-safety.ts";
 import * as schema from "./schema.ts";
 

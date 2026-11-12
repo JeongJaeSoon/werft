@@ -313,6 +313,13 @@ integration(
       await read(`/v1/sessions/${created.session_id}/turns`),
     );
     expect(turns.items.map((turn) => turn.status)).toEqual(["queued"]);
+
+    // The same engine would refuse again: held at once, with no backoff and
+    // no second launch.
+    expect(detail.admission_state).toBe("recovery_required");
+    expect(detail.attention).toMatchObject({ retry_at: null });
+    expect((await pass()).launched).toHaveLength(0);
+    expect(backend.runs).toHaveLength(1);
   },
   60_000,
 );

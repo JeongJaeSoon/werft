@@ -18,6 +18,7 @@ import { and, asc, eq, sql } from "drizzle-orm";
 import { insertPullRequestOutcome } from "../action/pull-requests.ts";
 import type { Database } from "../queries.ts";
 import { outcomeRefreshQuotas, sessionOutcomes, sessions } from "../schema.ts";
+import { rowsOf } from "../statement-rows.ts";
 import { queueAchievementJudgment } from "./achievement-judgments.ts";
 
 // A unit's hourly budget is this share of its rate limit (§10).
@@ -127,7 +128,18 @@ export function createPostgresSessionOutcomes(
   return {
     async fillMissing(limit) {
       // pull_requests rows a push request opened with no outcome yet.
-      const { rows } = (await db.execute(sql`
+      const rows = rowsOf<{
+        owner_id: string;
+        session_id: string;
+        url: string;
+        repository_id: string;
+        number: number;
+        head: string;
+        base: string;
+        receipt_id: string;
+        created_at: Date | string | null;
+      }>(
+        await db.execute(sql`
         SELECT pr.owner_id, pr.session_id, pr.url, pr.repository_id, pr.number,
                pr.head, pr.base, pr.receipt_id, pr.created_at
         FROM pull_requests pr
@@ -140,19 +152,8 @@ export function createPostgresSessionOutcomes(
             WHERE o.session_id = pr.session_id
               AND o.type = 'github_pull_request' AND o.url = pr.url)
         ORDER BY pr.created_at
-        LIMIT ${limit}`)) as unknown as {
-        rows: {
-          owner_id: string;
-          session_id: string;
-          url: string;
-          repository_id: string;
-          number: number;
-          head: string;
-          base: string;
-          receipt_id: string;
-          created_at: Date | string | null;
-        }[];
-      };
+        LIMIT ${limit}`),
+      );
       for (const row of rows) {
         await db.transaction((tx) =>
           insertPullRequestOutcome(tx, {
@@ -391,7 +392,14 @@ export function createPostgresSessionOutcomes(
           sql`, `,
         );
       const operations = listed(GITHUB_GATE_RECEIPT_OPERATION_VALUES);
-      const { rows } = (await db.execute(sql`
+      const rows = rowsOf<{
+        id: string;
+        operation: SessionGitHubRefusal["operation"];
+        purpose: string | null;
+        reason_code: string;
+        created_at: Date | string;
+      }>(
+        await db.execute(sql`
         SELECT id, operation, result ->> 'purpose' AS purpose,
                result ->> 'reason_code' AS reason_code, created_at
         FROM receipts
@@ -402,15 +410,8 @@ export function createPostgresSessionOutcomes(
           AND result ->> 'reason_code' IN (${listed(GITHUB_REFUSAL_VALUES)})
           AND result ->> 'purpose' IN (${listed(GITHUB_PURPOSE_VALUES)})
         ORDER BY created_at DESC, id DESC
-        LIMIT ${limit}`)) as unknown as {
-        rows: {
-          id: string;
-          operation: SessionGitHubRefusal["operation"];
-          purpose: string | null;
-          reason_code: string;
-          created_at: Date | string;
-        }[];
-      };
+        LIMIT ${limit}`),
+      );
       return rows.flatMap((row): SessionGitHubRefusal[] =>
         (GITHUB_REFUSAL_VALUES as readonly string[]).includes(
           row.reason_code,

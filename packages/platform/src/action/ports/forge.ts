@@ -2,13 +2,8 @@
 // the credential the egress proxy logs in with, and the host's own API.
 // Repositories authenticate through a GitHub App installation.
 
-export type ForgeKind = "github";
-
 /** A repository on its forge: the `<owner>/<name>` of the catalog URL. */
 export type RepoRef = { owner: string; name: string };
-
-/** What a credential may do: `read` clones, `write` pushes. */
-export type ForgeAccess = "read" | "write";
 
 /** A Basic login for git over HTTP, scoped to one repository and access. */
 export type GitCredential = {

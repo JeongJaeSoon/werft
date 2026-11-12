@@ -102,6 +102,10 @@ describe("reconciler run", () => {
         expect(options).toEqual({ dryRun: false, limit: 12 });
         return 6;
       },
+      purgeExpiredEnvStart: async (options) => {
+        expect(options).toEqual({ dryRun: false, limit: 12 });
+        return 4;
+      },
       projectToolCalls: async () => ({
         eventsRead: 40,
         batches: 2,
@@ -122,6 +126,7 @@ describe("reconciler run", () => {
     expect(result.decisionsExpired).toBe(5);
     expect(result.toolAuditsExpired).toBe(7);
     expect(result.webSessionsDeleted).toBe(6);
+    expect(result.envStartsPurged).toBe(4);
     expect(sink.records).toEqual([
       expect.objectContaining({
         level: "info",
@@ -197,6 +202,11 @@ describe("reconciler run", () => {
       }),
       expect.objectContaining({
         level: "info",
+        message: "Expired session variable values purged",
+        fields: { dry_run: false, purged_count: 4 },
+      }),
+      expect.objectContaining({
+        level: "info",
         message: "Tool calls projected",
         fields: {
           dry_run: false,
@@ -266,6 +276,10 @@ describe("reconciler run", () => {
         seen.push(dryRun);
         return 0;
       },
+      purgeExpiredEnvStart: async ({ dryRun }) => {
+        seen.push(dryRun);
+        return 2;
+      },
       projectToolCalls: async () => {
         throw new Error("a dry run projects nothing");
       },
@@ -282,8 +296,16 @@ describe("reconciler run", () => {
       true,
       true,
       true,
+      true,
     ]);
     expect(run.toolCalls).toBeNull();
+    expect(run.envStartsPurged).toBe(2);
+    expect(sink.records).toContainEqual(
+      expect.objectContaining({
+        message: "Expired session variable values purged",
+        fields: { dry_run: true, purged_count: 2 },
+      }),
+    );
     expect(sink.records).toContainEqual(
       expect.objectContaining({
         message: "Tool calls projected",
@@ -323,6 +345,7 @@ describe("reconciler run", () => {
         expireDecisions: async () => 0,
         expireToolAudits: async () => 0,
         deleteExpiredWebSessions: async () => 0,
+        purgeExpiredEnvStart: async () => 0,
         projectToolCalls: async () => ({
           eventsRead: 10,
           batches: 1,
@@ -357,6 +380,7 @@ describe("reconciler run", () => {
     const expireDecisions = async () => 0;
     const expireToolAudits = async () => 0;
     const deleteExpiredWebSessions = async () => 0;
+    const purgeExpiredEnvStart = async () => 0;
     const projectToolCalls = async () => ({
       eventsRead: 0,
       batches: 0,
@@ -387,6 +411,7 @@ describe("reconciler run", () => {
           expireDecisions,
           expireToolAudits,
           deleteExpiredWebSessions,
+          purgeExpiredEnvStart,
           projectToolCalls,
         }),
       ).rejects.toThrow("HEARTBEAT_TTL_SEC is read by the API only");
@@ -406,6 +431,7 @@ describe("reconciler run", () => {
         expireDecisions,
         expireToolAudits,
         deleteExpiredWebSessions,
+        purgeExpiredEnvStart,
         projectToolCalls,
       }),
     ).rejects.toThrow("RECONCILER_BATCH_SIZE");
@@ -423,6 +449,7 @@ describe("reconciler run", () => {
         expireDecisions,
         expireToolAudits,
         deleteExpiredWebSessions,
+        purgeExpiredEnvStart,
         projectToolCalls,
       }),
     ).rejects.toThrow("RECONCILER_DRY_RUN");

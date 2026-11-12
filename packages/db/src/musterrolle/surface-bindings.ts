@@ -12,9 +12,9 @@ import type {
   SurfaceBindingRecord,
   SurfaceBindingStore,
 } from "@werft-ai/platform";
+import { receiptActorOf } from "@werft-ai/platform";
 import { and, asc, desc, eq, isNull, ne, sql } from "drizzle-orm";
-import { findPgError, receiptActorOf } from "../control-shared.ts";
-import { rowsOf } from "../control-unit-of-work.ts";
+import { findPgError, UUID } from "../control-shared.ts";
 import { DB_NOW } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
 import {
@@ -24,13 +24,12 @@ import {
   slackChannelLifecycle,
   surfaceBindings,
 } from "../schema.ts";
+import { rowsOf } from "../statement-rows.ts";
 import { callerHoldsRight } from "./agent-identities.ts";
 import { lockedRole } from "./api-keys.ts";
 
 // Lock order: the actor's membership, the agent, its identity, then the
 // binding rows, as the identity store takes the install before its rows.
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const LIVE_UNIQUE_INDEXES = new Set([
   "surface_bindings_channel_live_uniq",

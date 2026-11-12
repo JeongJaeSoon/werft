@@ -19,6 +19,7 @@ import {
 } from "@werft-ai/contracts";
 import { testCaller } from "@werft-ai/testkit/callers";
 import type { InstallationLimits } from "../limits/installation-limits.ts";
+import { SessionServiceError } from "../musterrolle/index.ts";
 import {
   type Caller,
   callerFor,
@@ -29,7 +30,6 @@ import type {
   UsageToolCallsFilter,
   UsageTotalsFilter,
 } from "../ports/usage-reader.ts";
-import { SessionServiceError } from "../sessions/session-service.ts";
 import {
   createUsageService,
   decimalUsd,

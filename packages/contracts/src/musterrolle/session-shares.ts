@@ -20,7 +20,7 @@ import {
 import { apiKeyIdSchema } from "./api-keys.ts";
 import { teamIdSchema } from "./teams.ts";
 
-// Who sees a session (design 4.6): its creator alone, the people or teams it
+// Who sees a session: its creator alone, the people or teams it
 // names, or the whole workspace. Slack DMs start private; channel, web and
 // API sessions start workspace-wide.
 export const SESSION_SHARE_SCOPE_VALUES = [
@@ -89,7 +89,7 @@ export const setSessionShareResponseSchema = z
 export const justificationSchema = z.string().trim().min(1).max(1000);
 
 /**
- * An owner or admin reading a session outside its share (design 4.6). The
+ * An owner or admin reading a session outside its share. The
  * reason is kept with the decision; the read changes nothing.
  */
 export const auditReadRequestSchema = z
@@ -148,12 +148,8 @@ export type SetSessionShareRequest = z.infer<
 export type SetSessionShareResponse = z.infer<
   typeof setSessionShareResponseSchema
 >;
-export type AuditReadRequest = z.infer<typeof auditReadRequestSchema>;
 export type AuditReadResponse = z.infer<typeof auditReadResponseSchema>;
 export type AdminSession = z.infer<typeof adminSessionSchema>;
 export type ListAdminSessionsResponse = z.infer<
   typeof listAdminSessionsResponseSchema
->;
-export type AdminTerminateSessionRequest = z.infer<
-  typeof adminTerminateSessionRequestSchema
 >;

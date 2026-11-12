@@ -5,11 +5,10 @@ import {
   nextInputResponseSchema,
   type TraceContentMode,
 } from "@werft-ai/contracts";
-
-import { acceptAllCheckpoints } from "../checkpoints/ports/checkpoint-verifier.ts";
 import type { WorkerUnitOfWork } from "../ports/worker-unit-of-work.ts";
 import type { WorkerPendingStore } from "../sessions/ports/pending-requests.ts";
 import { testBinding, testCatalog } from "../testing/catalog-fakes.ts";
+import { acceptAllCheckpoints } from "../testing/checkpoints.ts";
 import {
   type ClaimTelemetrySource,
   createWorkerGateway,

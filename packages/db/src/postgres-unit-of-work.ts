@@ -57,6 +57,7 @@ import {
   callerLimitRefusal,
   InvalidCursorError,
   projectDurability,
+  receiptActorOf,
   sessionRepositoryOf,
   storedPendingReasonHoldsWork,
   transcriptLimitAttention,
@@ -83,10 +84,11 @@ import {
   containsPattern,
   findIdempotent,
   type IdempotencyScope,
+  isUuid,
   lockIdempotencyScope,
   parseTurnSequence,
-  receiptActorOf,
 } from "./control-shared.ts";
+import { readInputWaits } from "./decision/pending-requests.ts";
 import {
   AWAITABLE_STATUSES,
   actionableOfSession,
@@ -94,8 +96,7 @@ import {
   IN_FLIGHT_STATUSES,
   publicStatus,
   READ_AT,
-  readInputWaits,
-} from "./decision/pending-requests.ts";
+} from "./decision/pending-status.ts";
 import { captureGitHubPolicyStart } from "./github-settings.ts";
 import { admitInput } from "./input-limits.ts";
 import { readArchivedWorkspaceLimit } from "./limits/workspace-limit.ts";
@@ -174,9 +175,6 @@ import {
 } from "./sessions/session-event-archives.ts";
 import { recordStatus } from "./sessions/session-events.ts";
 
-const isUuid = (value: string) =>
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
-
 export const CREATE_SESSION = "create_session";
 const APPEND_MESSAGE = "append_message";
 export const SESSIONS_RESOURCE = "sessions";
@@ -211,7 +209,7 @@ async function recordAcceptance(
 }
 
 // What a turn, and the session's first one, keep of who asked and why they
-// could (94S-901). A key with no person is the requester itself.
+// could. A key with no person is the requester itself.
 function usageRecord(usage: UsageDecision | null, requester: Requester) {
   const kind =
     requester.userId !== null
@@ -363,7 +361,7 @@ export function createPostgresSessionUnitOfWork(
         // Who asks is judged first, so every refusal below (a paused agent,
         // an unbound credential, a profile the catalog lost) is said only to
         // someone who may still use the agent: it names the agent's admins
-        // or its state (94S-901).
+        // or its state.
         const requester = await lockRequester(
           tx,
           input.principal,
@@ -1458,7 +1456,7 @@ export function createPostgresSessionReader(
                           and(
                             eq(agentReleases.agentId, query.agent_id),
                             // An agent the viewer may not use filters like one
-                            // that is not there (94S-902).
+                            // that is not there.
                             agentUsable(
                               db,
                               agents.workspaceId,

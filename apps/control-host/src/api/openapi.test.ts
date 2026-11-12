@@ -126,22 +126,35 @@ describe("OpenAPI document", () => {
   test("keeps OpenAPIHono route metadata in a Bun production bundle", async () => {
     const outdir = await mkdtemp(join(tmpdir(), "openapi-bundle-"));
     try {
-      const result = await Bun.build({
-        entrypoints: [join(import.meta.dir, "app.ts")],
-        outdir,
-        target: "bun",
-        format: "esm",
-        minify: true,
-        splitting: true,
-        naming: "[name]-[hash].[ext]",
-      });
-      expect(result.success).toBe(true);
-      const entry = result.outputs.find(
-        (output) => output.kind === "entry-point",
+      // A child `bun build`, as the image smoke runs it, not an in-process
+      // Bun.build. Under `bun test <relative path>` from the repo root (Bun
+      // 1.3.14), an in-process build could not resolve the existing
+      // scheduler/ and sessions/ files of @werft-ai/platform, unless an
+      // earlier test file in the process had imported that package; with an
+      // absolute path or another cwd it passed. One runtime resolve into
+      // such a directory fixed the build for that directory alone, which
+      // points at a stale directory listing the test run shares with the
+      // bundler and only the runtime loader rereads.
+      const build = Bun.spawnSync(
+        [
+          process.execPath,
+          "build",
+          join(import.meta.dir, "app.ts"),
+          `--outdir=${outdir}`,
+          "--target=bun",
+          "--format=esm",
+          "--minify",
+          "--splitting",
+          "--entry-naming=[name].[ext]",
+          "--chunk-naming=[name]-[hash].[ext]",
+        ],
+        { stdout: "pipe", stderr: "pipe" },
       );
-      expect(entry).toBeDefined();
+      expect(build.stderr.toString()).not.toContain("error:");
+      expect(build.exitCode).toBe(0);
+      const entry = join(outdir, "app.js");
       const bundled = (await import(
-        `${pathToFileURL(entry?.path ?? "").href}?${crypto.randomUUID()}`
+        `${pathToFileURL(entry).href}?${crypto.randomUUID()}`
       )) as typeof import("./app.ts");
       const app = bundled.createApiApp({
         authMode: "none",

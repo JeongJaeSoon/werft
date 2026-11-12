@@ -1,11 +1,12 @@
 import { JsonTraceSerializer } from "@opentelemetry/otlp-transformer";
-import type { ReadableSpan } from "@opentelemetry/sdk-trace";
+import type { ReadableSpan, SpanExporter } from "@opentelemetry/sdk-trace";
 
-import type { SpanExporterLike } from "./otel-tracer.ts";
+/** Same shape as the SDK's exporter, so a worker can plug in an ingest exporter. */
+export type SpanExporterLike = SpanExporter;
 
-export const DEFAULT_QUEUE_MAX_SPANS = 2048;
-export const DEFAULT_QUEUE_MAX_BYTES = 16 * 1024 * 1024;
-export const SERIALIZE_CHUNK_BYTES = 64 * 1024;
+const DEFAULT_QUEUE_MAX_SPANS = 2048;
+const DEFAULT_QUEUE_MAX_BYTES = 16 * 1024 * 1024;
+const SERIALIZE_CHUNK_BYTES = 64 * 1024;
 
 export interface BoundedExporterOptions {
   readonly send: (body: Uint8Array) => Promise<void>;

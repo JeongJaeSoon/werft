@@ -194,11 +194,9 @@ export const postSessionAnswerResponseSchema =
     }),
   });
 
-export type PermissionAnswer = z.infer<typeof permissionAnswerSchema>;
 export type PendingRememberRule = z.infer<typeof rememberRuleSchema>;
 export type ApprovalRecord = z.infer<typeof approvalRecordSchema>;
 export type QuestionAnswer = z.infer<typeof questionAnswerSchema>;
-export type QuestionsAnswer = z.infer<typeof questionsAnswerSchema>;
 export type PostSessionAnswerRequest = z.infer<
   typeof postSessionAnswerRequestSchema
 >;

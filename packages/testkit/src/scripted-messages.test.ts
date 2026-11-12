@@ -92,6 +92,45 @@ describe("scripted Messages API", () => {
     expect(recorded.map((entry) => entry.step)).toEqual([0, 2]);
   });
 
+  test("records the tools in front of the model: offered undeferred, or referenced by a search result", async () => {
+    const recorded: GateRequest[] = [];
+    const prompt = {
+      role: "user",
+      content: SPEC_MARKER + JSON.stringify(spec),
+    };
+    const tools = [
+      { name: "Bash" },
+      { name: "ToolSearch" },
+      { name: "mcp__github__request_push", defer_loading: true },
+      { name: "mcp__github__open_pull_request", defer_loading: true },
+    ];
+    await replyFor(request([prompt], tools), recorded);
+    const searched = {
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: "a",
+          content: [
+            { type: "tool_reference", tool_name: "mcp__github__request_push" },
+            { type: "text", text: "mcp__github__open_pull_request" },
+          ],
+        },
+        // A reference outside a tool result loads nothing.
+        { type: "tool_reference", tool_name: "mcp__github__open_pull_request" },
+      ],
+    };
+    await replyFor(request([prompt, {}, searched], tools), recorded);
+    expect(recorded.map((entry) => entry.tools)).toEqual([
+      ["Bash", "ToolSearch"],
+      ["Bash", "ToolSearch"],
+    ]);
+    expect(recorded.map((entry) => entry.found)).toEqual([
+      [],
+      ["mcp__github__request_push"],
+    ]);
+  });
+
   test("answers the fallback without a spec, or without tools", async () => {
     const recorded: GateRequest[] = [];
     const plain = await replyFor(

@@ -5,8 +5,8 @@ import {
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
+import { createCheckpointObjectStore } from "@werft-ai/storage";
 import type { Pool } from "pg";
-import { createCheckpointObjectStore } from "../../packages/storage/src/checkpoint-objects.ts";
 import {
   BUCKET,
   Chaos,

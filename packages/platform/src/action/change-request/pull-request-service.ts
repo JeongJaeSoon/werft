@@ -26,14 +26,16 @@ import {
   type GitHubGrant,
   GitHubUnavailableError,
 } from "../../github/ports/github-gate.ts";
-import type { AuthorizationPolicy } from "../../musterrolle/policy.ts";
+import {
+  type AuthorizationPolicy,
+  requirePermitted,
+  SessionServiceError,
+} from "../../musterrolle/index.ts";
 import {
   pullRequestTail,
   pushRequestMarkerOf,
   repositoryBinding,
-  requirePermitted,
   type SessionCatalog,
-  SessionServiceError,
   sessionUrlOf,
   surfaceOfChannel,
   type TailRequester,
@@ -160,7 +162,7 @@ export function commentMarker(sessionId: string, marker: string): string {
 }
 
 /**
- * Pull requests (94S-630): a pull request from a pushed request's
+ * Pull requests: a pull request from a pushed request's
  * `agent/<session-id>` into the catalog branch, and a comment on it. Whoever
  * may decide a push may; so may whoever may submit to the session, once the
  * request is pushed. The token comes from the GitHub gate. Every attempt

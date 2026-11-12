@@ -18,7 +18,6 @@ import {
   RUNTIME_KIND_OF_PROVIDER,
   type RuntimeConfig,
   type RuntimeKind,
-  type runtimeConfigSchema,
   startRepositoryOf,
 } from "@werft-ai/contracts";
 import { z } from "zod";
@@ -391,33 +390,6 @@ export const sessionCatalogConfigSchema = z
 
 export type SessionCatalogConfig = z.infer<typeof sessionCatalogConfigSchema>;
 
-/**
- * `sessionCatalogConfigSchema.safeParse`, except that with
- * `tolerateNoRepositories` a catalog left without any repository (every
- * entry was an old one the import skipped) is not refused for that alone.
- * Every other rule still applies.
- */
-export function safeParseCatalogConfig(
-  input: { repositories: Record<string, unknown> } & Record<string, unknown>,
-  tolerateNoRepositories: boolean,
-) {
-  if (!tolerateNoRepositories || Object.keys(input.repositories).length > 0) {
-    return sessionCatalogConfigSchema.safeParse(input);
-  }
-  const placeholder = "placeholder";
-  const parsed = sessionCatalogConfigSchema.safeParse({
-    ...input,
-    repositories: {
-      [placeholder]: {
-        url: "https://github.com/placeholder/placeholder",
-        branch: "main",
-        auth: { kind: "github_app" },
-      },
-    },
-  });
-  if (parsed.success) delete parsed.data.repositories[placeholder];
-  return parsed;
-}
 export type CatalogProviderConfig = z.infer<typeof catalogProviderSchema>;
 export type CatalogRepositoryConfig = z.infer<typeof catalogRepositorySchema>;
 export type RepositoryCredential =
@@ -698,22 +670,6 @@ export function runtimeConfigWithMcp(
 }
 
 /**
- * The provider as the worker protocol carries it: where the proxy
- * will send the engine's requests, and the attempt's token for that route.
- * The credential stays here; `providerUpstreamOf` is what the proxy gets.
- */
-export function runtimeProviderOf(
-  provider: Pick<CatalogProvider, "kind" | "endpoint">,
-  token: string,
-): z.infer<typeof runtimeConfigSchema.shape.provider> {
-  return {
-    kind: provider.kind,
-    endpoint: provider.endpoint,
-    auth: { kind: "egress_token", token },
-  };
-}
-
-/**
  * A built-in tool list without the tools a session's caller limit denies.
  * `mcp__` names pass through untouched: MCP decisions are not made here.
  * The list itself comes back when nothing is removed.
@@ -920,13 +876,6 @@ export type RuntimeVersions = {
   readonly accepted: readonly string[];
   readonly current: readonly string[];
 };
-
-/** Without configured images: none is listed, and every version runs. */
-export function acceptedRuntimeVersions(catalog: {
-  runtime_versions?: RuntimeVersions | undefined;
-}): readonly string[] {
-  return catalog.runtime_versions?.accepted ?? [];
-}
 
 /** Whether a release's runtime version runs on the configured images. */
 export function runtimeVersionAccepted(
@@ -1236,13 +1185,6 @@ function privateKeyPem(
     );
   }
   return pem;
-}
-
-/** Environment-only lookup: a secret reference resolves to nothing here. */
-export function environmentCredentials(
-  env: Record<string, string | undefined>,
-): (ref: CredentialRef) => string | undefined {
-  return (ref) => ("value_env" in ref ? env[ref.value_env] : undefined);
 }
 
 /** A zod failure as one line naming each path, for a startup error. */
