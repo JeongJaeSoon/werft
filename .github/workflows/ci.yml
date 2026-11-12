@@ -404,6 +404,7 @@ jobs:
               - tests/preview-reap.
               - tests/verify-werft-response-capture.
               - tests/release-auto.
+              - tests/schema-subset.
               - tests/sdk-release.
               - tests/supply-chain.
               - tests/test-files.
@@ -411,6 +412,7 @@ jobs:
               - tests/ui-release.
               - tests/unit-part.
               - tests/verify-stack.
+              - tests/worker-protocol-compat.
             skips:
               # The Kubernetes backend's suites need a kind cluster
               # (K8S_BACKEND_TEST=1 and a KUBECONFIG); the job that brings one

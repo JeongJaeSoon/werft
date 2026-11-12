@@ -1,34 +1,6 @@
 import {
-  appendEventsRequestSchema,
-  appendEventsResponseSchema,
-  bootstrapClaimRequestSchema,
-  bootstrapClaimResponseSchema,
-  checkpointRequestResponseSchema,
-  checkpointRequestSchema,
-  finalizeRequestSchema,
-  finalizeResponseSchema,
-  heartbeatRequestSchema,
-  heartbeatResponseSchema,
-  invalidateApprovalCheckpointRequestSchema,
-  invalidateApprovalCheckpointResponseSchema,
-  nextInputRequestSchema,
-  nextInputResponseSchema,
-  parkDeclinedRequestSchema,
-  parkDeclinedResponseSchema,
-  pendingControlRequestSchema,
-  pendingControlResponseSchema,
-  protectedCommitsRequestSchema,
-  protectedCommitsResponseSchema,
-  registerPendingRequestSchema,
-  registerPendingResponseSchema,
-  releaseRequestSchema,
-  releaseResponseSchema,
-  requestParkRequestSchema,
-  requestParkResponseSchema,
-  restorePlanRequestSchema,
-  restorePlanResponseSchema,
-  workerReadyRequestSchema,
-  workerReadyResponseSchema,
+  WORKER_PROTOCOL_ROUTES,
+  type WorkerProtocolRoute,
 } from "@werft-ai/contracts";
 import {
   type WorkerGateway,
@@ -45,6 +17,7 @@ import {
 import { RequestTracing } from "../../request-tracing.ts";
 
 const WORKER_ROUTE_PREFIX = "/worker";
+type Routes = typeof WORKER_PROTOCOL_ROUTES;
 
 function bearerToken(value: string | undefined): string | null {
   const match = value ? /^Bearer ([^\s]+)$/.exec(value) : null;
@@ -77,20 +50,22 @@ export function registerWorkerRoutes(
   gateway: WorkerGateway,
   tracing = new RequestTracing(),
 ) {
-  function call<Req extends z.ZodType, Res extends z.ZodType>(
-    path: string,
-    request: Req,
-    response: Res,
+  function call<P extends WorkerProtocolRoute>(
+    path: P,
     handle: (
       principal: WorkerPrincipal,
-      body: z.infer<Req>,
+      body: z.infer<Routes[P]["request"]>,
       token: string | null,
-    ) => Promise<z.input<Res>>,
+    ) => Promise<z.input<Routes[P]["response"]>>,
   ) {
+    const { request, response } = WORKER_PROTOCOL_ROUTES[path];
     router.post(`${WORKER_ROUTE_PREFIX}${path}`, async (context) => {
       const token = bearerToken(context.req.header("Authorization"));
       const principal = await mapped(() => gateway.authenticate(token));
-      const body = await parseJsonBody(context, request);
+      // TypeScript widens the generic lookup to the union of every route.
+      const body = (await parseJsonBody(context, request)) as z.infer<
+        Routes[P]["request"]
+      >;
       // Only a call the token's own session acts for may join that turn's
       // trace; the gateway rejects a body naming another session below.
       // Not every request carries a scope (bootstrap-claim has none).
@@ -108,109 +83,52 @@ export function registerWorkerRoutes(
     });
   }
 
-  call(
-    "/bootstrap-claim",
-    bootstrapClaimRequestSchema,
-    bootstrapClaimResponseSchema,
-    (principal, body, token) => {
-      if (
-        principal.kind === "bootstrap" &&
-        body.credential.kind === "launch_nonce" &&
-        body.credential.nonce !== token
-      ) {
-        throw new WorkerGatewayError(
-          401,
-          "UNAUTHORIZED",
-          "The bearer launch nonce is not the one the claim carries",
-        );
-      }
-      return gateway.bootstrapClaim(principal, body);
-    },
+  call("/bootstrap-claim", (principal, body, token) => {
+    if (
+      principal.kind === "bootstrap" &&
+      body.credential.kind === "launch_nonce" &&
+      body.credential.nonce !== token
+    ) {
+      throw new WorkerGatewayError(
+        401,
+        "UNAUTHORIZED",
+        "The bearer launch nonce is not the one the claim carries",
+      );
+    }
+    return gateway.bootstrapClaim(principal, body);
+  });
+  call("/next-input", (principal, body) => gateway.nextInput(principal, body));
+  call("/heartbeat", (principal, body) => gateway.heartbeat(principal, body));
+  call("/append-events", (principal, body) =>
+    gateway.appendEvents(principal, body),
   );
-  call(
-    "/next-input",
-    nextInputRequestSchema,
-    nextInputResponseSchema,
-    (principal, body) => gateway.nextInput(principal, body),
+  call("/checkpoint-request", (principal, body) =>
+    gateway.requestCheckpoint(principal, body),
   );
-  call(
-    "/heartbeat",
-    heartbeatRequestSchema,
-    heartbeatResponseSchema,
-    (principal, body) => gateway.heartbeat(principal, body),
+  call("/protected-commits", (principal, body) =>
+    gateway.protectedCommits(principal, body),
   );
-  call(
-    "/append-events",
-    appendEventsRequestSchema,
-    appendEventsResponseSchema,
-    (principal, body) => gateway.appendEvents(principal, body),
+  call("/restore-plan", (principal, body) =>
+    gateway.restorePlan(principal, body),
   );
-  call(
-    "/checkpoint-request",
-    checkpointRequestSchema,
-    checkpointRequestResponseSchema,
-    (principal, body) => gateway.requestCheckpoint(principal, body),
+  call("/ready", (principal, body) => gateway.ready(principal, body));
+  call("/register-pending", (principal, body) =>
+    gateway.registerPending(principal, body),
   );
-  call(
-    "/protected-commits",
-    protectedCommitsRequestSchema,
-    protectedCommitsResponseSchema,
-    (principal, body) => gateway.protectedCommits(principal, body),
+  call("/pending-control", (principal, body) =>
+    gateway.pendingControl(principal, body),
   );
-  call(
-    "/restore-plan",
-    restorePlanRequestSchema,
-    restorePlanResponseSchema,
-    (principal, body) => gateway.restorePlan(principal, body),
+  call("/park-declined", (principal, body) =>
+    gateway.parkDeclined(principal, body),
   );
-  call(
-    "/ready",
-    workerReadyRequestSchema,
-    workerReadyResponseSchema,
-    (principal, body) => gateway.ready(principal, body),
+  call("/request-park", (principal, body) =>
+    gateway.requestPark(principal, body),
   );
-  call(
-    "/register-pending",
-    registerPendingRequestSchema,
-    registerPendingResponseSchema,
-    (principal, body) => gateway.registerPending(principal, body),
+  call("/invalidate-approval-checkpoint", (principal, body) =>
+    gateway.invalidateApprovalCheckpoint(principal, body),
   );
-  call(
-    "/pending-control",
-    pendingControlRequestSchema,
-    pendingControlResponseSchema,
-    (principal, body) => gateway.pendingControl(principal, body),
-  );
-  call(
-    "/park-declined",
-    parkDeclinedRequestSchema,
-    parkDeclinedResponseSchema,
-    (principal, body) => gateway.parkDeclined(principal, body),
-  );
-  call(
-    "/request-park",
-    requestParkRequestSchema,
-    requestParkResponseSchema,
-    (principal, body) => gateway.requestPark(principal, body),
-  );
-  call(
-    "/invalidate-approval-checkpoint",
-    invalidateApprovalCheckpointRequestSchema,
-    invalidateApprovalCheckpointResponseSchema,
-    (principal, body) => gateway.invalidateApprovalCheckpoint(principal, body),
-  );
-  call(
-    "/finalize",
-    finalizeRequestSchema,
-    finalizeResponseSchema,
-    (principal, body) => gateway.finalize(principal, body),
-  );
-  call(
-    "/release",
-    releaseRequestSchema,
-    releaseResponseSchema,
-    (principal, body) => gateway.release(principal, body),
-  );
+  call("/finalize", (principal, body) => gateway.finalize(principal, body));
+  call("/release", (principal, body) => gateway.release(principal, body));
 
   router.get(
     `${WORKER_ROUTE_PREFIX}/attempts/:attempt_id/extensions/:digest`,

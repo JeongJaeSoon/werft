@@ -12,6 +12,7 @@ import {
   releaseResponseSchema,
   restorePlanResponseSchema,
   type SessionExtension,
+  WORKER_PROTOCOL_ROUTES,
 } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
@@ -176,6 +177,17 @@ describe("/internal/worker", () => {
       headers: { authorization: "Bearer csp_whatever" },
     });
     expect(v1.status).toBe(401);
+  });
+
+  test("serves every route of the worker protocol table", async () => {
+    // The compatibility baseline is keyed by this table; a route listed but
+    // not registered would answer 404 to a worker that still calls it.
+    for (const path of Object.keys(WORKER_PROTOCOL_ROUTES)) {
+      expect(await errorOf(await post(path.slice(1), null, {}))).toEqual({
+        status: 401,
+        code: "UNAUTHORIZED",
+      });
+    }
   });
 
   test("a token the database cannot be asked about yet is a retryable 503, never 401", async () => {
