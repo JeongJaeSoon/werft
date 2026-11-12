@@ -21,10 +21,13 @@ import { createPostgresSchedulerStore } from "./scheduler/scheduler-store.ts";
 import * as schema from "./schema.ts";
 import {
   attempts,
+  executions,
   receipts,
   sessions,
   unassignedSessions,
   workerCredentials,
+  workerImageRefusals,
+  workerLaunches,
 } from "./schema.ts";
 import { reconcileExpiredLeases } from "./sessions/lease-reconcile.ts";
 import {
@@ -285,8 +288,37 @@ integration("claim replay against the session's current binding", () => {
   // Holds the launch row both paths lock first, lets `first` and then
   // `second` queue on it, and releases: the first waiter holds the tuple lock
   // the second queues on, so the interleaving is fixed rather than sampled.
-  async function inOrderBehindLaunchLock<A, B>(
+  function inOrderBehindLaunchLock<A, B>(
     executionId: string,
+    first: () => Promise<A>,
+    second: () => Promise<B>,
+  ) {
+    return inOrderBehindRowLock(
+      "SELECT 1 FROM worker_launches WHERE execution_id = $1 FOR UPDATE",
+      executionId,
+      first,
+      second,
+    );
+  }
+
+  // The same, behind the session row: the first row a replayed claim and a
+  // fenced worker call both lock.
+  function inOrderBehindSessionLock<A, B>(
+    sessionId: string,
+    first: () => Promise<A>,
+    second: () => Promise<B>,
+  ) {
+    return inOrderBehindRowLock(
+      "SELECT 1 FROM sessions WHERE id = $1 FOR UPDATE",
+      sessionId,
+      first,
+      second,
+    );
+  }
+
+  async function inOrderBehindRowLock<A, B>(
+    lockRow: string,
+    id: string,
     first: () => Promise<A>,
     second: () => Promise<B>,
   ) {
@@ -295,10 +327,7 @@ integration("claim replay against the session's current binding", () => {
     let committed = false;
     try {
       await holder.query("BEGIN");
-      await holder.query(
-        "SELECT 1 FROM worker_launches WHERE execution_id = $1 FOR UPDATE",
-        [executionId],
-      );
+      await holder.query(lockRow, [id]);
       const { rows } = await holder.query<{ pid: number }>(
         "SELECT pg_backend_pid() AS pid",
       );
@@ -684,6 +713,221 @@ integration("claim replay against the session's current binding", () => {
         status: 401,
         code: "UNAUTHORIZED",
       });
+    },
+    TIMEOUT_MS,
+  );
+
+  // The worker's activation: one accepted `starting` beat, sent before it
+  // starts the engine or anything else that could read the nonce out of the
+  // container's environ.
+  function activate(claimed: Claimed) {
+    return gateway.heartbeat(principalOf(claimed), {
+      ...scopeOf(claimed),
+      attempt_state: "starting",
+    });
+  }
+
+  const IMAGE_RUNTIME = {
+    engine: "claude-agent-sdk",
+    sdkVersion: "0.3.260",
+    cliVersion: "2.1.260",
+    profileDigestScheme: 2,
+  };
+
+  function claimAs(l: TestLaunch, runtime: typeof IMAGE_RUNTIME) {
+    return gateway.bootstrapClaim(bootstrap, {
+      execution_id: l.executionId,
+      execution_generation: l.generation,
+      credential: { kind: "launch_nonce", nonce: l.nonce },
+      image_runtime: {
+        engine: runtime.engine,
+        sdk_version: runtime.sdkVersion,
+        cli_version: runtime.cliVersion,
+        profile_digest_scheme: runtime.profileDigestScheme,
+      },
+    });
+  }
+
+  // Everything a claim can write outside the attempt's own rows: the launch,
+  // its execution, and the installation-wide refusal of its image.
+  async function launchFootprint(l: TestLaunch) {
+    const [launchRow] = await db
+      .select()
+      .from(workerLaunches)
+      .where(eq(workerLaunches.executionId, l.executionId));
+    const [execution] = await db
+      .select()
+      .from(executions)
+      .where(eq(executions.id, l.executionId));
+    const refusals = await db
+      .select()
+      .from(workerImageRefusals)
+      .where(eq(workerImageRefusals.executionId, l.executionId));
+    return { launchRow, execution, refusals };
+  }
+
+  async function resolves(credential: string) {
+    return (
+      (await createPostgresWorkerUnitOfWork(db).resolveCredential(
+        hashWorkerToken(credential),
+      )) !== null
+    );
+  }
+
+  test(
+    "once the worker's activation beat is accepted, the launch nonce opens nothing and writes nothing",
+    async () => {
+      const { session, launch: l, claimed } = await bound("activated");
+      await activate(claimed);
+      const before = await replayFootprint(
+        session.session_id,
+        claimed.attempt_id,
+      );
+      const launchBefore = await launchFootprint(l);
+      expect(before.attemptState).toBe("starting");
+      expect(launchBefore.refusals).toEqual([]);
+
+      expect(await failure(claim(l))).toEqual({
+        status: 401,
+        code: "UNAUTHORIZED",
+      });
+
+      expect(
+        await replayFootprint(session.session_id, claimed.attempt_id),
+      ).toEqual(before);
+      expect(await launchFootprint(l)).toEqual(launchBefore);
+      expect(await sessionRow(session.session_id)).toMatchObject({
+        admissionState: "active",
+        leaseEpoch: claimed.lease_epoch,
+      });
+      // The worker still owns the session with the token it was given.
+      expect(await resolves(claimed.session_credential)).toBe(true);
+      await activate(claimed);
+    },
+    TIMEOUT_MS,
+  );
+
+  test(
+    "after activation a replay that names another image runtime is refused before the image is judged: nothing is terminated and no image is refused",
+    async () => {
+      const partition = `forged-${crypto.randomUUID()}`;
+      const session = await queuedSession(partition);
+      const l = await launchSession(db, {
+        sessionId: session.session_id,
+        image: `sha256:${partition}`,
+        imageRuntime: IMAGE_RUNTIME,
+      });
+      const claimed = await claimAs(l, IMAGE_RUNTIME);
+      await activate(claimed);
+      const before = await replayFootprint(
+        session.session_id,
+        claimed.attempt_id,
+      );
+      const launchBefore = await launchFootprint(l);
+      expect(before.attemptState).toBe("starting");
+      expect(launchBefore.execution?.desiredState).not.toBe("terminated");
+      expect(launchBefore.launchRow?.nonceHash).not.toBeNull();
+
+      expect(
+        await failure(claimAs(l, { ...IMAGE_RUNTIME, sdkVersion: "9.9.9" })),
+      ).toEqual({ status: 401, code: "UNAUTHORIZED" });
+
+      expect(await launchFootprint(l)).toEqual(launchBefore);
+      expect(
+        await replayFootprint(session.session_id, claimed.attempt_id),
+      ).toEqual(before);
+      expect(await resolves(claimed.session_credential)).toBe(true);
+      await activate(claimed);
+    },
+    TIMEOUT_MS,
+  );
+
+  test(
+    "before activation the same forged replay is still judged as a mismatched image: the order of the two checks is what closes it",
+    async () => {
+      const partition = `unactivated-${crypto.randomUUID()}`;
+      const session = await queuedSession(partition);
+      const l = await launchSession(db, {
+        sessionId: session.session_id,
+        image: `sha256:${partition}`,
+        imageRuntime: IMAGE_RUNTIME,
+      });
+      await claimAs(l, IMAGE_RUNTIME);
+
+      expect(
+        await failure(claimAs(l, { ...IMAGE_RUNTIME, sdkVersion: "9.9.9" })),
+      ).toEqual({ status: 409, code: "LAUNCH_FAILED" });
+      const after = await launchFootprint(l);
+      expect(after.refusals).toHaveLength(1);
+      expect(after.execution?.desiredState).toBe("terminated");
+    },
+    TIMEOUT_MS,
+  );
+
+  test(
+    "activation queued ahead of a duplicate claim: the claim finds the attempt started and rotates nothing",
+    async () => {
+      const { session, launch: l, claimed } = await bound("activate-first");
+      const before = await replayFootprint(
+        session.session_id,
+        claimed.attempt_id,
+      );
+
+      const [activation, duplicate] = await inOrderBehindSessionLock(
+        session.session_id,
+        () => activate(claimed),
+        () => failure(claim(l)),
+      );
+
+      expect(activation.status).toBe("fulfilled");
+      expect(duplicate).toEqual({
+        status: "fulfilled",
+        value: { status: 401, code: "UNAUTHORIZED" },
+      });
+      const after = await replayFootprint(
+        session.session_id,
+        claimed.attempt_id,
+      );
+      expect(after.attemptState).toBe("starting");
+      expect(after.tokens).toEqual(before.tokens);
+      expect(after.sessionAuthRevision).toBe(before.sessionAuthRevision);
+      expect(await resolves(claimed.session_credential)).toBe(true);
+    },
+    TIMEOUT_MS,
+  );
+
+  test(
+    "a duplicate claim queued ahead of activation: activation is fenced out, and the worker that claims again activates",
+    async () => {
+      const { session, launch: l, claimed } = await bound("claim-first");
+
+      const [duplicate, activation] = await inOrderBehindSessionLock(
+        session.session_id,
+        () => claim(l),
+        () => failure(activate(claimed)),
+      );
+
+      // The duplicate rotated the token away, so the beat sent under the
+      // first one wrote nothing: the attempt is still the claim's to replay.
+      expect(duplicate.status).toBe("fulfilled");
+      expect(activation).toEqual({
+        status: "fulfilled",
+        value: { status: 409, code: "STALE_EPOCH" },
+      });
+      expect(await resolves(claimed.session_credential)).toBe(false);
+      expect(
+        (await replayFootprint(session.session_id, claimed.attempt_id))
+          .attemptState,
+      ).toBe("allocated");
+
+      const again = await claim(l);
+      expect(again.attempt_id).toBe(claimed.attempt_id);
+      await activate(again);
+      expect(await failure(claim(l))).toEqual({
+        status: 401,
+        code: "UNAUTHORIZED",
+      });
+      expect(await resolves(again.session_credential)).toBe(true);
     },
     TIMEOUT_MS,
   );
