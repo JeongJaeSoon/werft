@@ -30,7 +30,6 @@ export * from "./github/mcp-egress.ts";
 export * from "./github-settings.ts";
 export * from "./installation-settings.ts";
 export * from "./migration-head.ts";
-export * from "./migration-lock.ts";
 export * from "./musterrolle/agent-admins.ts";
 export * from "./musterrolle/agent-caller-limits.ts";
 export * from "./musterrolle/agent-identities.ts";
