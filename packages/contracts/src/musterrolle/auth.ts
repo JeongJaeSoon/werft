@@ -6,7 +6,6 @@ import {
   userIdSchema,
   workspaceIdSchema,
 } from "../shared/index.ts";
-import { loginProviderTestResultSchema } from "./login-providers.ts";
 import {
   authorizationActionSchema,
   principalSchema,
@@ -15,6 +14,7 @@ import {
   sessionScopeSchema,
   workspaceRoleSchema,
 } from "./authorization.ts";
+import { loginProviderTestResultSchema } from "./login-providers.ts";
 import {
   displayNameSchema,
   emailSchema,

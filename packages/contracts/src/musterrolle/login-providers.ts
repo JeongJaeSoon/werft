@@ -152,10 +152,7 @@ export const updateLoginProviderRequestSchema = z
 
 export const setLoginProviderSecretRequestSchema = z
   .object({
-    value: z
-      .string()
-      .min(SECRET_VALUE_MIN_LENGTH)
-      .max(SECRET_VALUE_MAX_LENGTH),
+    value: z.string().min(SECRET_VALUE_MIN_LENGTH).max(SECRET_VALUE_MAX_LENGTH),
   })
   .strict();
 
@@ -172,7 +169,9 @@ export const disableLoginProviderResponseSchema = z
  * the rules a real sign-in runs. `signs_in`: it is already connected.
  * `link_required`: its address has an account here that is not connected.
  * `joins`: a new member is made. `invite_only`: it comes in with an invite
- * alone. `domain_not_allowed`: outside the allowed domains.
+ * alone. `domain_not_allowed`: outside the allowed domains. `refused`: its
+ * address has an account here and the provider does not prove the address
+ * is this account's.
  */
 export const LOGIN_PROVIDER_TEST_ENTRY_VALUES = [
   "signs_in",
@@ -180,6 +179,7 @@ export const LOGIN_PROVIDER_TEST_ENTRY_VALUES = [
   "joins",
   "invite_only",
   "domain_not_allowed",
+  "refused",
 ] as const;
 export const loginProviderTestEntrySchema = z.enum(
   LOGIN_PROVIDER_TEST_ENTRY_VALUES,
