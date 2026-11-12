@@ -2457,6 +2457,32 @@ describe("architecture", () => {
     expect(imported.filter((name) => isForbidden(name, forbidden))).toEqual([]);
   });
 
+  // The OIDC module verifies what a provider says and knows nothing of
+  // storage, routes or the web framework, so the same code serves every
+  // provider and every caller. A list of what it may import, not of what it
+  // may not: a new dependency has to be added here on purpose.
+  test("the OIDC module imports only itself, same-string, contracts and Node built-ins", async () => {
+    const api = join(root, "apps/control-host/src/api");
+    const files = await productSourcesIn(join(api, "oidc"));
+    expect(files.length).toBeGreaterThan(0);
+    const offenders: string[] = [];
+    for (const file of files)
+      for (const specifier of importedModules(await parse(file))) {
+        const target = specifier.startsWith(".")
+          ? slashed(relative(api, resolveImport(file, specifier)))
+          : specifier;
+        if (
+          target.startsWith("oidc/") ||
+          target === "same-string.ts" ||
+          target === "@werft-ai/contracts" ||
+          target.startsWith("node:")
+        )
+          continue;
+        offenders.push(`${slashed(relative(api, file))} -> ${specifier}`);
+      }
+    expect(offenders).toEqual([]);
+  });
+
   test("platform depends on contracts, runtime-core and zod only", async () => {
     const directory = join(root, platform);
     const allowed = new Set([
