@@ -55,7 +55,11 @@ launch() {
 
 probe() {
   case "$1" in
-  postgres) bounded exec ci-postgres pg_isready -q -U postgres -d sessions ;;
+  # Over TCP, not the socket: the image's entrypoint first runs a temporary
+  # server on the socket alone to initialize the database, then restarts it.
+  # A socket probe can answer that one, and the first test then meets "the
+  # database system is starting up" (main runs 43172293397, 43201768981).
+  postgres) bounded exec ci-postgres pg_isready -q -h 127.0.0.1 -U postgres -d sessions ;;
   localstack) bounded exec ci-localstack curl -fsS http://localhost:4566/_localstack/health ;;
   esac
 }
