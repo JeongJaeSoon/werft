@@ -489,6 +489,15 @@ describe("secretsOf", () => {
   });
 });
 
+/** What the proxy sends the exchange ledger (provider-usage-ledger.md). */
+type LedgerRequest = {
+  op: "open" | "renew";
+  exchange_id: string;
+  session_id?: string;
+  attempt_id?: string;
+  reserve?: Record<string, unknown>;
+};
+
 type UsageReport = {
   exchange_id: string;
   session_id: string;
@@ -557,13 +566,17 @@ describe("startCredentialProxy", () => {
   function authorizer(
     answer: (body: { token: string; purpose: string }) => Response,
     usageAnswer: () => Response = () => Response.json({}),
+    ledgerAnswer: () => Response | Promise<Response> = () =>
+      Response.json({ state: "open" }, { status: 201 }),
   ): {
     url: string;
     asked: Array<{ token: string; purpose: string; path?: string }>;
     reported: UsageReport[];
+    ledgered: LedgerRequest[];
   } {
     const asked: Array<{ token: string; purpose: string; path?: string }> = [];
     const reported: UsageReport[] = [];
+    const ledgered: LedgerRequest[] = [];
     const server = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
@@ -577,6 +590,10 @@ describe("startCredentialProxy", () => {
           reported.push((await request.json()) as UsageReport);
           return usageAnswer();
         }
+        if (new URL(request.url).pathname === "/exchanges") {
+          ledgered.push((await request.json()) as LedgerRequest);
+          return ledgerAnswer();
+        }
         const body = (await request.json()) as {
           token: string;
           purpose: string;
@@ -586,7 +603,12 @@ describe("startCredentialProxy", () => {
       },
     });
     servers.push(server);
-    return { url: `http://127.0.0.1:${server.port}`, asked, reported };
+    return {
+      url: `http://127.0.0.1:${server.port}`,
+      asked,
+      reported,
+      ledgered,
+    };
   }
 
   function granting(url: string, headers: Array<[string, string]>) {
@@ -1100,6 +1122,104 @@ describe("startCredentialProxy", () => {
       expect(up.seen).toEqual([]);
     });
 
+    test("opens the call in the exchange ledger before the upstream answers, under the id its report carries", async () => {
+      // The upstream answers only once the open has reached the ledger.
+      let ledgered: LedgerRequest[] = [];
+      const up = upstream(async () => {
+        await until(() => ledgered.length === 1);
+        return Response.json({
+          id: "resp_1",
+          model: "gpt-5.5",
+          usage: { input_tokens: 10, output_tokens: 2 },
+        });
+      });
+      const auth = authorizer(bearerKey(up));
+      ledgered = auth.ledgered;
+      const server = proxy(auth.url, up.port);
+      const body = '{"model":"gpt-5.5","stream":false}';
+      expect((await responses(server.port, { body })).status).toBe(200);
+      await until(() => auth.reported.length === 1);
+      expect(auth.ledgered).toEqual([
+        {
+          op: "open",
+          exchange_id: auth.reported[0]?.exchange_id ?? "",
+          session_id: "sess-1",
+          attempt_id: "att-1",
+          reserve: expect.objectContaining({
+            model: "gpt-5.5",
+            input_tokens: body.length,
+            output_tokens: 32_768,
+            estimated: true,
+          }),
+        },
+      ]);
+      // The ledger has a route of its own: the authorizer was asked once.
+      expect(auth.asked).toHaveLength(1);
+    });
+
+    test("a ledger that refuses, fails or never answers changes nothing for the call", async () => {
+      for (const ledgerAnswer of [
+        () => Response.json({ code: "NOT_FOUND" }, { status: 404 }),
+        () => new Response("down", { status: 503 }),
+        () => new Promise<Response>(() => {}),
+      ]) {
+        const up = upstream(() =>
+          Response.json({
+            id: "resp_1",
+            model: "gpt-5.5",
+            usage: { input_tokens: 10, output_tokens: 2 },
+          }),
+        );
+        const auth = authorizer(bearerKey(up), undefined, ledgerAnswer);
+        const server = proxy(auth.url, up.port);
+        const started = performance.now();
+        const answered = await responses(server.port);
+        expect(answered.status).toBe(200);
+        expect(await answered.json()).toMatchObject({ id: "resp_1" });
+        // Not held for the ledger's 5-second timeout.
+        expect(performance.now() - started).toBeLessThan(2_000);
+        await until(() => auth.reported.length === 1);
+        expect(auth.reported[0]?.usage).toMatchObject({ output_tokens: 2 });
+        expect(auth.ledgered).toHaveLength(1);
+      }
+    }, 20_000);
+
+    test("an open call is renewed in the ledger beside each regrant, and not once it has ended", async () => {
+      const up = upstream(
+        () =>
+          new Response(
+            new ReadableStream({
+              async start(controller) {
+                controller.enqueue(new TextEncoder().encode('{"id":"resp_1",'));
+                await Bun.sleep(250);
+                controller.enqueue(
+                  new TextEncoder().encode(
+                    '"model":"gpt-5.5","usage":{"input_tokens":1,"output_tokens":1}}',
+                  ),
+                );
+                controller.close();
+              },
+            }),
+            { headers: { "content-type": "application/json" } },
+          ),
+      );
+      const auth = authorizer(bearerKey(up));
+      const server = proxy(auth.url, up.port, { regrantIntervalMs: 20 });
+      await (await responses(server.port)).text();
+      await until(() => auth.reported.length === 1);
+      const [open, ...rest] = auth.ledgered;
+      expect(open?.op).toBe("open");
+      expect(rest.length).toBeGreaterThan(0);
+      expect(rest).toEqual(
+        rest.map(() => ({ op: "renew", exchange_id: open?.exchange_id ?? "" })),
+      );
+      // The regrant before each renewal is the authorizer's.
+      expect(auth.asked.length).toBeGreaterThan(rest.length);
+      const after = auth.ledgered.length;
+      await Bun.sleep(150);
+      expect(auth.ledgered).toHaveLength(after);
+    }, 20_000);
+
     test("meters a JSON answer, cached input split out, under the grant's ids", async () => {
       const up = upstream(() =>
         Response.json({
@@ -1309,6 +1429,40 @@ describe("startCredentialProxy", () => {
         model: "m",
         input_tokens: 9,
       });
+    });
+
+    test("a Messages call is opened in the ledger and count_tokens is not", async () => {
+      const up = upstream((request) =>
+        new URL(request.url).pathname.endsWith("/count_tokens")
+          ? Response.json({ input_tokens: 12 })
+          : Response.json({ id: "msg_1" }),
+      );
+      const auth = authorizer(provider(up));
+      const server = proxy(auth.url, up.port);
+      await (
+        await messages(server.port, {
+          path: "/provider/v1/messages/count_tokens",
+        })
+      ).text();
+      await Bun.sleep(100);
+      expect(auth.ledgered).toEqual([]);
+      const body = '{"model":"claude-sonnet-4-5","max_tokens":64}';
+      await (await messages(server.port, { body })).text();
+      await until(() => auth.reported.length === 1);
+      expect(auth.ledgered).toEqual([
+        {
+          op: "open",
+          exchange_id: auth.reported[0]?.exchange_id ?? "",
+          session_id: auth.reported[0]?.session_id ?? "",
+          attempt_id: auth.reported[0]?.attempt_id ?? "",
+          reserve: expect.objectContaining({
+            model: "claude-sonnet-4-5",
+            input_tokens: body.length,
+            output_tokens: 64,
+            estimated: true,
+          }),
+        },
+      ]);
     });
 
     test("count_tokens and an error answer report nothing; a success without usage is charged from its request", async () => {

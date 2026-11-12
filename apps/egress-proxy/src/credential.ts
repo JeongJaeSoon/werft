@@ -17,7 +17,12 @@ import {
   type UpstreamBody,
   upstreamExchange,
 } from "./upstream-http.ts";
-import { type MessagesUsage, type UsageMeter, usageMeter } from "./usage.ts";
+import {
+  type MessagesUsage,
+  requestEstimate,
+  type UsageMeter,
+  usageMeter,
+} from "./usage.ts";
 
 /**
  * The proxy's credential routes: the one place a worker's request
@@ -49,6 +54,8 @@ import { type MessagesUsage, type UsageMeter, usageMeter } from "./usage.ts";
 
 export const DEFAULT_CREDENTIAL_PORT = 3129;
 const DEFAULT_AUTHORIZE_TIMEOUT_MS = 10_000;
+/** One open or renewal in the exchange ledger; nothing waits on it. */
+const LEDGER_TIMEOUT_MS = 5_000;
 /**
  * Waits between tries of one usage report. The report carries the exchange's
  * id, so a try whose answer was lost and the one after it charge once; a
@@ -1110,6 +1117,7 @@ export function startCredentialProxy(
     options.maxExchangesPerClient ?? DEFAULT_MAX_EXCHANGES_PER_CLIENT;
   const authorizeUrl = new URL("/authorize", options.authorizer.url);
   const usageUrl = new URL("/usage", options.authorizer.url);
+  const exchangesUrl = new URL("/exchanges", options.authorizer.url);
   const usageBackoffMs =
     options.usageReportBackoffMs ?? DEFAULT_USAGE_REPORT_BACKOFF_MS;
   const maxBodyBytes =
@@ -1268,6 +1276,27 @@ export function startCredentialProxy(
       }
       await Bun.sleep(backoff);
     }
+  }
+
+  // The exchange ledger only observes (provider-usage-ledger.md): nothing
+  // waits for it, and no answer or failure reaches the call. An older API
+  // answers 404, which is dropped like any other.
+  function toLedger(body: Readonly<Record<string, unknown>>): void {
+    void (async () => {
+      try {
+        const response = await fetch(exchangesUrl, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${options.authorizer.token}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify(body),
+          redirect: "error",
+          signal: AbortSignal.timeout(LEDGER_TIMEOUT_MS),
+        });
+        await response.body?.cancel();
+      } catch {}
+    })();
   }
 
   async function authorizerDestination(host: string): Promise<EgressDecision> {
@@ -1572,6 +1601,11 @@ export function startCredentialProxy(
     // The route's body as read since admission; null for the object store,
     // whose body streams upstream.
     whole: Promise<UpstreamBody> | null,
+    // The exchange's id: the ledger's open and renewals and the usage
+    // report all name the call by it.
+    exchangeId: string,
+    // Called once with the whole body just before the upstream is called.
+    beforeUpstream?: (body: Uint8Array | null) => void,
   ): Promise<Response> {
     const who = {
       purpose: route.purpose,
@@ -1646,6 +1680,7 @@ export function startCredentialProxy(
             ? objectBody(request, grant)
             : await whole;
       if (body instanceof Uint8Array) sent = body;
+      beforeUpstream?.(sent);
       const headers = upstreamRequestHeaders(request.headers, grant);
       if (route.lfs !== undefined) {
         headers.set("accept", LFS_MEDIA_TYPE);
@@ -1836,7 +1871,6 @@ export function startCredentialProxy(
       requestModel: route.purpose === "judgment",
       responses: route.purpose === "provider" && route.path === RESPONSES_PATH,
     });
-    const exchangeId = crypto.randomUUID();
     return new Response(
       metered(guarded, meter, signal, () => {
         const usage = meter.result(sent);
@@ -2040,6 +2074,9 @@ export function startCredentialProxy(
         exchangeDeadline(exchangeTimeoutMs),
       ]);
       let regrant: ReturnType<typeof setTimeout> | undefined;
+      const exchangeId = crypto.randomUUID();
+      // Set once the ledger open is sent: renewals follow it, never lead.
+      let opened = false;
       let ended = false;
       let answered = false;
       // Once answered, an ended exchange frees its slot whatever becomes of
@@ -2085,7 +2122,12 @@ export function startCredentialProxy(
               : question,
           );
           if (ended) return;
-          if (again.kind === "granted") grantedAt = performance.now();
+          if (again.kind === "granted") {
+            grantedAt = performance.now();
+            // Beside the regrant, not in its way: its answer and the next
+            // timer do not wait on the ledger.
+            if (opened) toLedger({ op: "renew", exchange_id: exchangeId });
+          }
           const refused = again.kind === "refused" && again.status !== 503;
           const stale = performance.now() - grantedAt >= regrantGraceMs;
           if (refused || stale) {
@@ -2193,6 +2235,14 @@ export function startCredentialProxy(
         // idle clock, which a silent non-streaming call would trip.
         server.timeout(request, 0);
         watchGrant(authorized.grant);
+        // A session's billed provider call (the engine's or its title) is
+        // opened in the ledger; count_tokens and a judgment are not.
+        const { sessionId, attemptId } = authorized.grant;
+        const ledgered =
+          route.purpose === "provider" &&
+          (route.path === "/v1/messages" || route.path === RESPONSES_PATH) &&
+          sessionId !== null &&
+          attemptId !== null;
         const response = await exchange(
           request,
           route,
@@ -2200,6 +2250,19 @@ export function startCredentialProxy(
           client,
           ends,
           whole,
+          exchangeId,
+          ledgered
+            ? (sent) => {
+                toLedger({
+                  op: "open",
+                  exchange_id: exchangeId,
+                  session_id: sessionId,
+                  attempt_id: attemptId,
+                  reserve: requestEstimate(sent, route.path === RESPONSES_PATH),
+                });
+                opened = true;
+              }
+            : undefined,
         );
         const relayed = new Response(tracked(response.body, release), {
           status: response.status,
