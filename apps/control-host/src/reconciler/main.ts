@@ -12,6 +12,7 @@ import {
   reconcileExpiredLeases,
   reconcileOrphanedSessions,
   reconcileOverdueInterrupts,
+  reconcileProviderExchanges,
 } from "@werft-ai/db";
 import {
   createEnforcedPool,
@@ -26,6 +27,7 @@ import {
 } from "@werft-ai/platform";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { queueDatabaseUrl } from "../database-url.ts";
+import { runProviderExchangeReconciler } from "./provider-exchanges.ts";
 import {
   type ReconcilerLogger,
   type ReconcilerRun,
@@ -54,7 +56,20 @@ export async function main(
     { max: SEQUENTIAL_ROLE_POOL_MAX },
   );
   try {
-    await reconcileOnce(drizzle(pool, { schema }), environment, logger);
+    const db = drizzle(pool, { schema });
+    await reconcileOnce(db, environment, logger);
+    await runProviderExchangeReconciler({
+      environment: {
+        ...(environment.RECONCILER_BATCH_SIZE === undefined
+          ? {}
+          : { RECONCILER_BATCH_SIZE: environment.RECONCILER_BATCH_SIZE }),
+        ...(environment.RECONCILER_DRY_RUN === undefined
+          ? {}
+          : { RECONCILER_DRY_RUN: environment.RECONCILER_DRY_RUN }),
+      },
+      logger,
+      reconcile: (options) => reconcileProviderExchanges(db, options),
+    });
   } finally {
     await pool.end();
   }

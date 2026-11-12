@@ -258,6 +258,9 @@ export type ProviderUsageResult =
       outcome: "recorded" | "replayed";
       costUsd: number;
       pricedBy: PricedBy;
+      // The provider exchange ledger holds a row under this exchange id that
+      // names another session or attempt; it was left in place.
+      ledgerForeignRow?: true;
     }
   // No such attempt of that session.
   | { outcome: "unknown_attempt" }
