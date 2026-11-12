@@ -291,11 +291,11 @@ export const sessionsKo = {
   "session.event.phase.interrupting": "멈추는 중",
   "session.event.phase.engine_stopped": "엔진이 멈춤",
   "session.event.approvalCheckpointFailed.capture_failed":
-    "이 승인 대기의 체크포인트를 찍지 못했습니다. 답하기 전에 실행이 끊기면 이 요청은 이어 갈 수 없습니다.",
+    "이 승인 대기의 체크포인트를 찍지 못했습니다. 뒤에 찍힌 체크포인트가 이 요청을 덮지 않으면, 답하기 전에 실행이 끊길 때 이 요청은 이어 갈 수 없습니다.",
   "session.event.approvalCheckpointFailed.capture_timed_out":
-    "이 승인 대기의 체크포인트를 정해진 시간 안에 찍지 못했습니다. 답하기 전에 실행이 끊기면 이 요청은 이어 갈 수 없습니다.",
+    "이 승인 대기의 체크포인트를 정해진 시간 안에 찍지 못했습니다. 뒤에 찍힌 체크포인트가 이 요청을 덮지 않으면, 답하기 전에 실행이 끊길 때 이 요청은 이어 갈 수 없습니다.",
   "session.event.approvalCheckpointFailed.verification_failed":
-    "이 승인 대기의 체크포인트를 검증하지 못해 남기지 않았습니다. 답하기 전에 실행이 끊기면 이 요청은 이어 갈 수 없습니다.",
+    "이 승인 대기의 체크포인트를 검증하지 못해 남기지 않았습니다. 뒤에 찍힌 체크포인트가 이 요청을 덮지 않으면, 답하기 전에 실행이 끊길 때 이 요청은 이어 갈 수 없습니다.",
   "session.event.init": "세션 시작",
   "session.event.vcsChanged": "작업 트리 변경",
   "session.event.thinkingTokens": "생각 중 ({count})",
@@ -601,11 +601,11 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.event.phase.interrupting": "Stopping",
   "session.event.phase.engine_stopped": "Engine stopped",
   "session.event.approvalCheckpointFailed.capture_failed":
-    "The checkpoint for this approval wait could not be taken. If the run is cut off before an answer, this request cannot be resumed.",
+    "The checkpoint for this approval wait could not be taken. Unless a later checkpoint covers this request, it cannot be resumed if the run is cut off before an answer.",
   "session.event.approvalCheckpointFailed.capture_timed_out":
-    "The checkpoint for this approval wait was not taken in time. If the run is cut off before an answer, this request cannot be resumed.",
+    "The checkpoint for this approval wait was not taken in time. Unless a later checkpoint covers this request, it cannot be resumed if the run is cut off before an answer.",
   "session.event.approvalCheckpointFailed.verification_failed":
-    "The checkpoint for this approval wait could not be verified, so it was not kept. If the run is cut off before an answer, this request cannot be resumed.",
+    "The checkpoint for this approval wait could not be verified, so it was not kept. Unless a later checkpoint covers this request, it cannot be resumed if the run is cut off before an answer.",
   "session.event.init": "Session started",
   "session.event.vcsChanged": "Working tree changed",
   "session.event.thinkingTokens": "Thinking ({count})",
@@ -885,11 +885,11 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
   "session.event.phase.interrupting": "停止中",
   "session.event.phase.engine_stopped": "エンジン停止",
   "session.event.approvalCheckpointFailed.capture_failed":
-    "この承認待ちのチェックポイントを取れませんでした。回答前に実行が中断されると、このリクエストは再開できません。",
+    "この承認待ちのチェックポイントを取れませんでした。後のチェックポイントがこのリクエストを含まない限り、回答前に実行が中断されると再開できません。",
   "session.event.approvalCheckpointFailed.capture_timed_out":
-    "この承認待ちのチェックポイントを決められた時間内に取れませんでした。回答前に実行が中断されると、このリクエストは再開できません。",
+    "この承認待ちのチェックポイントを決められた時間内に取れませんでした。後のチェックポイントがこのリクエストを含まない限り、回答前に実行が中断されると再開できません。",
   "session.event.approvalCheckpointFailed.verification_failed":
-    "この承認待ちのチェックポイントを検証できなかったため、残しませんでした。回答前に実行が中断されると、このリクエストは再開できません。",
+    "この承認待ちのチェックポイントを検証できなかったため、残しませんでした。後のチェックポイントがこのリクエストを含まない限り、回答前に実行が中断されると再開できません。",
   "session.event.init": "セッション開始",
   "session.event.vcsChanged": "作業ツリーの変更",
   "session.event.thinkingTokens": "思考中（{count}）",
