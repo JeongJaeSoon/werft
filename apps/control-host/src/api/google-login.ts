@@ -1,14 +1,21 @@
-import { createHash, randomBytes } from "node:crypto";
+import { GOOGLE_LOGIN_FLOW_TTL_MINUTES } from "@werft-ai/contracts";
 import {
-  GOOGLE_LOGIN_FLOW_TTL_MINUTES,
-  normalizeEmail,
-} from "@werft-ai/contracts";
-import { Jwt } from "hono/utils/jwt";
-import type { HonoJsonWebKey } from "hono/utils/jwt/jws";
-import { providerFetch } from "./provider-fetch.ts";
+  authorizationParams,
+  discover,
+  finishFlow,
+  GOOGLE_ISSUER,
+  type NetworkPolicy,
+  type OidcClient,
+  OidcDiscoveryError,
+  type OidcEndpoints,
+  OidcRejectedError,
+  OidcUnavailableError,
+  startFlow,
+  tokenIssuers,
+} from "./oidc/index.ts";
 import { sameString } from "./same-string.ts";
 
-export const GOOGLE_ISSUER = "https://accounts.google.com";
+export { GOOGLE_ISSUER };
 const FLOW_TTL_MS = GOOGLE_LOGIN_FLOW_TTL_MINUTES * 60 * 1000;
 
 export type GoogleLoginConfig = {
@@ -122,33 +129,11 @@ export type GoogleIdentity = {
   name: string | null;
 };
 
-type Discovery = {
-  issuer: string;
-  authorization_endpoint: string;
-  token_endpoint: string;
-  jwks_uri: string;
-};
-
 export type GoogleFlow = {
   authorizationUrl: string;
   /** Goes into the flow cookie; never logged. */
   cookieValue: string;
 };
-
-function randomToken(): string {
-  return randomBytes(32).toString("base64url");
-}
-
-function googleFetch(url: string, init?: RequestInit): Promise<Response> {
-  return providerFetch(url, init, {
-    unreachable: (error) =>
-      new GoogleUnavailableError(
-        `Google sign-in provider unreachable: ${error instanceof Error ? error.name : "error"}`,
-      ),
-    answered: (status) =>
-      new GoogleUnavailableError(`Google sign-in provider answered ${status}`),
-  });
-}
 
 export interface GoogleLogin {
   readonly config: GoogleLoginConfig;
@@ -161,171 +146,123 @@ export interface GoogleLogin {
   }): Promise<GoogleIdentity>;
 }
 
+async function asGoogleError<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    if (error instanceof OidcRejectedError) {
+      throw new GoogleLoginInvalidError(error.message);
+    }
+    if (error instanceof OidcUnavailableError) {
+      throw new GoogleUnavailableError(
+        `Google sign-in provider unavailable: ${error.message}`,
+      );
+    }
+    if (error instanceof OidcDiscoveryError) {
+      throw new GoogleUnavailableError(
+        `OIDC discovery document is invalid: ${error.problem}`,
+      );
+    }
+    throw error;
+  }
+}
+
 export function createGoogleLogin(
   config: GoogleLoginConfig,
   now: () => number = Date.now,
 ): GoogleLogin {
-  let discovery: Promise<Discovery> | undefined;
-  const discover = () => {
-    discovery ??= (async () => {
-      const response = await googleFetch(
-        `${config.issuer.replace(/\/$/, "")}/.well-known/openid-configuration`,
-      );
-      if (!response.ok) {
-        throw new GoogleUnavailableError(
-          `OIDC discovery answered ${response.status}`,
-        );
-      }
-      const body = (await response.json()) as Partial<Discovery>;
-      if (
-        body.issuer !== config.issuer ||
-        typeof body.authorization_endpoint !== "string" ||
-        typeof body.token_endpoint !== "string" ||
-        typeof body.jwks_uri !== "string"
-      ) {
-        throw new GoogleUnavailableError("OIDC discovery document is invalid");
-      }
-      return body as Discovery;
-    })();
+  // The operator named this issuer in the process environment, and a local
+  // stack names a plain-http stand-in there. Providers stored as settings
+  // get the stricter loopback-only rule instead.
+  const policy: NetworkPolicy = {
+    plainHttp: config.issuer.startsWith("http://") ? "any" : "refuse",
+  };
+  // Google takes the client secret in the form body, as this always sent it.
+  const client: OidcClient = {
+    clientId: config.clientId,
+    clientSecret: config.clientSecret,
+    tokenAuthMethod: "client_secret_post",
+    redirectUri: config.redirectUri,
+  };
+  let discovery: Promise<OidcEndpoints> | undefined;
+  // Kept for the life of the process; a failed read is tried again.
+  const loadEndpoints = () => {
+    discovery ??= discover(config.issuer, policy);
     discovery.catch(() => {
       discovery = undefined;
     });
     return discovery;
   };
-  // Google's id_token names its issuer with or without the scheme.
-  const issuers =
-    config.issuer === GOOGLE_ISSUER
-      ? [GOOGLE_ISSUER, "accounts.google.com"]
-      : [config.issuer];
 
   return {
     config,
-    async start() {
-      const endpoints = await discover();
-      const state = randomToken();
-      const nonce = randomToken();
-      const verifier = randomToken();
-      const url = new URL(endpoints.authorization_endpoint);
-      url.search = new URLSearchParams({
-        response_type: "code",
-        client_id: config.clientId,
-        redirect_uri: config.redirectUri,
-        scope: "openid email profile",
-        state,
-        nonce,
-        code_challenge: createHash("sha256")
-          .update(verifier)
-          .digest("base64url"),
-        code_challenge_method: "S256",
-        // Lets Google preselect the account; the domain is still enforced
-        // on the id_token, never trusted from here.
-        ...(config.allowedDomains.length === 1
-          ? { hd: config.allowedDomains[0] as string }
-          : {}),
-      }).toString();
-      return {
-        authorizationUrl: url.toString(),
-        cookieValue: [state, nonce, verifier, String(now())].join("."),
-      };
-    },
-
-    async finish({ cookieValue, code, state }) {
-      const [expectedState, nonce, verifier, startedAt] = (
-        cookieValue ?? ""
-      ).split(".");
-      if (
-        !expectedState ||
-        !nonce ||
-        !verifier ||
-        !startedAt ||
-        !sameString(state, expectedState)
-      ) {
-        throw new GoogleLoginInvalidError("Sign-in flow state does not match");
-      }
-      if (now() - Number(startedAt) > FLOW_TTL_MS) {
-        throw new GoogleLoginInvalidError("Sign-in flow expired");
-      }
-      const endpoints = await discover();
-      const tokenResponse = await googleFetch(endpoints.token_endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          grant_type: "authorization_code",
-          code,
-          redirect_uri: config.redirectUri,
-          client_id: config.clientId,
-          client_secret: config.clientSecret,
-          code_verifier: verifier,
-        }),
-      });
-      if (!tokenResponse.ok) {
-        throw new GoogleLoginInvalidError(
-          `Token endpoint refused the code (${tokenResponse.status})`,
-        );
-      }
-      const { id_token: idToken } = (await tokenResponse.json()) as {
-        id_token?: unknown;
-      };
-      if (typeof idToken !== "string") {
-        throw new GoogleLoginInvalidError("Token response has no id_token");
-      }
-      const jwksResponse = await googleFetch(endpoints.jwks_uri);
-      if (!jwksResponse.ok) {
-        throw new GoogleUnavailableError(
-          `JWKS answered ${jwksResponse.status}`,
-        );
-      }
-      const { keys } = (await jwksResponse.json()) as {
-        keys?: HonoJsonWebKey[];
-      };
-      let claims: Record<string, unknown>;
-      try {
-        claims = await Jwt.verifyWithJwks(idToken, {
-          keys: Array.isArray(keys) ? keys : [],
-          allowedAlgorithms: ["RS256"],
-          verification: { aud: config.clientId },
+    start: () =>
+      asGoogleError(async () => {
+        const flow = startFlow({
+          endpoints: await loadEndpoints(),
+          client,
+          extraParams: authorizationParams(
+            GOOGLE_ISSUER,
+            config.allowedDomains,
+          ),
         });
-      } catch (error) {
-        throw new GoogleLoginInvalidError(
-          `id_token rejected: ${error instanceof Error ? error.name : "error"}`,
-        );
-      }
-      // hono checks exp only when present, and iss only against one value.
-      if (
-        typeof claims.exp !== "number" ||
-        typeof claims.iss !== "string" ||
-        !issuers.includes(claims.iss)
-      ) {
-        throw new GoogleLoginInvalidError("id_token iss or exp is invalid");
-      }
-      if (
-        typeof claims.nonce !== "string" ||
-        !sameString(claims.nonce, nonce)
-      ) {
-        throw new GoogleLoginInvalidError("id_token nonce does not match");
-      }
-      if (claims.azp !== undefined && claims.azp !== config.clientId) {
-        throw new GoogleLoginInvalidError("id_token azp is another client");
-      }
-      if (
-        typeof claims.sub !== "string" ||
-        claims.sub.length === 0 ||
-        typeof claims.email !== "string" ||
-        claims.email_verified !== true
-      ) {
-        throw new GoogleLoginInvalidError(
-          "id_token has no subject or verified email",
-        );
-      }
-      return {
-        issuer: config.issuer,
-        subject: claims.sub,
-        email: normalizeEmail(claims.email),
-        hostedDomain:
-          typeof claims.hd === "string" ? claims.hd.toLowerCase() : null,
-        name: typeof claims.name === "string" ? claims.name : null,
-      };
-    },
+        return {
+          authorizationUrl: flow.authorizationUrl,
+          cookieValue: [
+            flow.state,
+            flow.nonce,
+            flow.verifier,
+            String(now()),
+          ].join("."),
+        };
+      }),
+
+    finish: ({ cookieValue, code, state }) =>
+      asGoogleError(async () => {
+        const [expectedState, nonce, verifier, startedAt] = (
+          cookieValue ?? ""
+        ).split(".");
+        if (
+          !expectedState ||
+          !nonce ||
+          !verifier ||
+          !startedAt ||
+          !sameString(state, expectedState)
+        ) {
+          throw new GoogleLoginInvalidError(
+            "Sign-in flow state does not match",
+          );
+        }
+        if (now() - Number(startedAt) > FLOW_TTL_MS) {
+          throw new GoogleLoginInvalidError("Sign-in flow expired");
+        }
+        const identity = await finishFlow({
+          // This callback does not carry the authorization response's `iss`.
+          endpoints: {
+            ...(await loadEndpoints()),
+            issParameterRequired: false,
+          },
+          client,
+          issuers: tokenIssuers(config.issuer),
+          code,
+          nonce,
+          verifier,
+          requireVerifiedEmail: true,
+          policy,
+          now: now(),
+        });
+        return {
+          issuer: identity.issuer,
+          subject: identity.subject,
+          // requireVerifiedEmail leaves no sign-in without an address.
+          email: identity.email as string,
+          hostedDomain:
+            typeof identity.claims.hd === "string"
+              ? identity.claims.hd.toLowerCase()
+              : null,
+          name: identity.name,
+        };
+      }),
   };
 }
 

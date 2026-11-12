@@ -94,7 +94,10 @@ export async function startMockOidcServer(options: {
           authorization_endpoint: `${publicUrl}/authorize`,
           token_endpoint: `${issuer}/token`,
           jwks_uri: `${issuer}/jwks`,
+          response_types_supported: ["code"],
           id_token_signing_alg_values_supported: ["RS256"],
+          token_endpoint_auth_methods_supported: ["client_secret_post"],
+          code_challenge_methods_supported: ["S256"],
         });
       }
       if (url.pathname === "/jwks") {
