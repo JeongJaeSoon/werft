@@ -310,6 +310,26 @@ describe("parseGrant", () => {
     }
   });
 
+  test("reads a grant's request limits, and refuses limits it cannot read", () => {
+    expect(
+      parseGrant({
+        ...good,
+        request_limits: { path: "/v1/messages", model: "m", max_tokens: 64 },
+      })?.requestLimits,
+    ).toEqual({ path: "/v1/messages", model: "m", maxTokens: 64 });
+    for (const request_limits of [
+      null,
+      {},
+      { path: "/v1/other", model: "m", max_tokens: 64 },
+      { path: "/v1/messages", model: "", max_tokens: 64 },
+      { path: "/v1/messages", model: "m", max_tokens: 0 },
+      { path: "/v1/messages", model: "m", max_tokens: 1.5 },
+      { path: "/v1/messages", model: "m", max_tokens: "64" },
+    ]) {
+      expect(parseGrant({ ...good, request_limits }) === null).toBe(true);
+    }
+  });
+
   test("a judgment grant names its judgment and no session; one naming both is refused", () => {
     const judgment = { judgment_id: "j", upstream: good.upstream };
     expect(parseGrant(judgment)).toMatchObject({
@@ -689,6 +709,49 @@ describe("startCredentialProxy", () => {
     expect(seen?.headers["anthropic-version"]).toBe("2023-06-01");
     expect(seen?.body).toBe('{"model":"m"}');
     expect(JSON.stringify(seen)).not.toContain(WORKER_TOKEN);
+  });
+
+  test("a grant with request limits passes only its path, model and output cap", async () => {
+    const up = upstream(() => Response.json({ id: "msg_1" }));
+    const withPort = authorizer((body) =>
+      body.token === WORKER_TOKEN
+        ? Response.json({
+            session_id: "sess-1",
+            attempt_id: "att-1",
+            upstream: {
+              url: `http://upstream.test:${up.port}/base`,
+              headers: [["x-api-key", PROVIDER_KEY]],
+            },
+            request_limits: {
+              path: "/v1/messages",
+              model: "m-title",
+              max_tokens: 64,
+            },
+          })
+        : new Response("unknown", { status: 401 }),
+    );
+    const server = proxy(withPort.url, up.port);
+    const status = async (path: string, body: string) =>
+      (await messages(server.port, { path, body })).status;
+    const title = '{"model":"m-title","max_tokens":64,"messages":[]}';
+    expect(await status("/provider/v1/messages", title)).toBe(200);
+    for (const [path, body] of [
+      ["/provider/v1/messages", '{"model":"m-other","max_tokens":64}'],
+      ["/provider/v1/messages", '{"model":"m-title","max_tokens":65}'],
+      ["/provider/v1/messages", '{"model":"m-title"}'],
+      ["/provider/v1/messages", '{"model":"m-title","max_tokens":"64"}'],
+      ["/provider/v1/messages", "[]"],
+      ["/provider/v1/messages", "not json"],
+      ["/provider/v1/messages?beta=true", title],
+      ["/provider/v1/messages/count_tokens", title],
+    ] as const) {
+      expect({ path, body, status: await status(path, body) }).toEqual({
+        path,
+        body,
+        status: 403,
+      });
+    }
+    expect(up.seen).toHaveLength(1);
   });
 
   test("streams a response body as it arrives", async () => {
