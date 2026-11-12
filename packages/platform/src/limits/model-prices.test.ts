@@ -5,6 +5,7 @@ import {
   priceJudgmentUsage,
   priceProviderUsage,
 } from "./model-prices.ts";
+import { OPENAI_CARDS, openAiCardsSchema } from "./model-prices-openai.ts";
 
 const nothing = {
   inputTokens: 0,
@@ -274,9 +275,8 @@ describe("priceJudgmentUsage", () => {
   });
 });
 
-// Figures from https://developers.openai.com/api/docs/pricing (standard tier),
-// checked 2026-11-10; the same URL and date sit beside the table in
-// model-prices-openai.ts.
+// Figures from https://developers.openai.com/api/docs/pricing, checked
+// 2026-11-12; the same URL and date sit in the table in model-prices-openai.ts.
 describe("priceProviderUsage for an OpenAI model", () => {
   const openAi = { ...nothing, speed: "standard", inferenceGeo: "unknown" };
 
@@ -364,15 +364,182 @@ describe("priceProviderUsage for an OpenAI model", () => {
     );
   });
 
-  test("a tier the table does not know is priced like the fast one, not as standard", () => {
-    const call = { ...openAi, model: "gpt-6.1-sol", outputTokens: 100_000 };
+  test("gpt-5.5 fast is 2.5x its standard rates, as the Fast tab lists them", () => {
+    // Fast tab: $12.50 in, $1.25 cached, $75 out.
+    expect(
+      priceProviderUsage({
+        ...openAi,
+        model: "gpt-5.5",
+        speed: "fast",
+        inputTokens: 100_000,
+        cacheReadInputTokens: 100_000,
+        outputTokens: 100_000,
+      }).costUsd,
+    ).toBeCloseTo(1.25 + 0.125 + 7.5, 9);
+  });
+
+  test("the Ultrafast tier is 6x the standard rates, long context and cache writes included", () => {
+    // Ultrafast tab, gpt-6-astra: $60 in, $6 cached, $300 out; long $120 in,
+    // $450 out; a 30-minute write $75. gpt-6.1-sol long: $24 in, $90 out.
+    const astra = { ...openAi, model: "gpt-6-astra", speed: "ultrafast" };
+    const short = priceProviderUsage({
+      ...astra,
+      inputTokens: 100_000,
+      cacheReadInputTokens: 100_000,
+      outputTokens: 100_000,
+    });
+    expect(short.pricedBy).toBe("table");
+    expect(short.costUsd).toBeCloseTo(6 + 0.6 + 30, 9);
+    expect(
+      priceProviderUsage({
+        ...astra,
+        inputTokens: 1_000_000,
+        outputTokens: 1_000_000,
+      }).costUsd,
+    ).toBeCloseTo(120 + 450, 9);
+    expect(
+      priceProviderUsage({ ...astra, cacheCreationInputTokens: 100_000 })
+        .costUsd,
+    ).toBeCloseTo(7.5, 9);
+    expect(
+      priceProviderUsage({
+        ...openAi,
+        model: "gpt-6.1-sol",
+        speed: "ultrafast",
+        inputTokens: 1_000_000,
+        outputTokens: 1_000_000,
+      }).costUsd,
+    ).toBeCloseTo(24 + 90, 9);
+  });
+
+  // Was 2x, the fast rate (#1515). A tier the page adds later, or one the
+  // answer names in a way the proxy does not map, may be dearer than fast:
+  // the owner chose to price it at the highest known multiple (94S-1545).
+  test("a tier the model's card does not list is priced at the highest known multiple, not the fast one", () => {
+    const call = { ...openAi, model: "gpt-5.5", outputTokens: 100_000 };
     const standard = priceProviderUsage(call).costUsd;
+    for (const speed of ["ultrafast", "unknown", "turbo", "constructor"]) {
+      expect(priceProviderUsage({ ...call, speed }).costUsd).toBeCloseTo(
+        standard * 6,
+        9,
+      );
+    }
+    // A model on neither speed tab pays the same for a `fast` answer.
+    const nano = { ...openAi, model: "gpt-5-nano", outputTokens: 1_000_000 };
+    expect(priceProviderUsage({ ...nano, speed: "fast" }).costUsd).toBeCloseTo(
+      priceProviderUsage(nano).costUsd * 6,
+      9,
+    );
+  });
+
+  test("a Pro model is priced from its own card, a cache read at the input rate", () => {
+    // gpt-5.5-pro: $30 in, no cached rate, $180 out; long $60 in, $270 out.
     expect(
-      priceProviderUsage({ ...call, speed: "ultrafast" }).costUsd,
-    ).toBeCloseTo(standard * 2, 9);
+      priceProviderUsage({
+        ...openAi,
+        model: "gpt-5.5-pro",
+        inputTokens: 100_000,
+        cacheReadInputTokens: 100_000,
+        outputTokens: 100_000,
+      }),
+    ).toEqual({ costUsd: 3 + 3 + 18, pricedBy: "table" });
     expect(
-      priceProviderUsage({ ...call, speed: "unknown" }).costUsd,
-    ).toBeCloseTo(standard * 2, 9);
+      priceProviderUsage({
+        ...openAi,
+        model: "gpt-5.5-pro-2026-04-23",
+        inputTokens: 300_000,
+        outputTokens: 100_000,
+      }),
+    ).toEqual({ costUsd: 18 + 27, pricedBy: "table" });
+  });
+
+  test("a Pro model past its card is charged the highest Pro rates, other models are not", () => {
+    // gpt-5.2-pro has no long card; the highest Pro rate is $60 in, $270 out.
+    // The fallback prices an unknown geo high too, so this call names one.
+    const long = {
+      ...openAi,
+      inferenceGeo: "global",
+      inputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+    };
+    expect(priceProviderUsage({ ...long, model: "gpt-5.2-pro" })).toEqual({
+      costUsd: 60 + 270,
+      pricedBy: "fallback",
+    });
+    // The fallback for every other model keeps the non-Pro highest: $20 in
+    // (gpt-6-astra long), $75 out.
+    expect(priceProviderUsage({ ...long, model: "gpt-9" })).toEqual({
+      costUsd: 20 + 75,
+      pricedBy: "fallback",
+    });
+  });
+
+  test("a longer prompt never costs less for a model past its card, at any speed", () => {
+    // gpt-5.2-pro and gpt-5-nano have no long card and are on no speed tab.
+    for (const model of ["gpt-5.2-pro", "gpt-5-nano", "gpt-5.4-mini"]) {
+      for (const speed of ["standard", "fast", "ultrafast", "turbo"]) {
+        const call = {
+          ...openAi,
+          model,
+          speed,
+          inferenceGeo: "global",
+          outputTokens: 100_000,
+        };
+        const atCard = priceProviderUsage({ ...call, inputTokens: 272_000 });
+        const past = priceProviderUsage({ ...call, inputTokens: 272_001 });
+        expect([model, speed, past.pricedBy]).toEqual([
+          model,
+          speed,
+          "fallback",
+        ]);
+        expect([model, speed, past.costUsd >= atCard.costUsd]).toEqual([
+          model,
+          speed,
+          true,
+        ]);
+      }
+    }
+  });
+
+  test("every card names its source page and the day it was checked", () => {
+    for (const [model, entry] of Object.entries(OPENAI_CARDS)) {
+      expect([model, entry.source, entry.checked]).toEqual([
+        model,
+        "https://developers.openai.com/api/docs/pricing",
+        expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+      ]);
+    }
+  });
+
+  test("the card schema refuses a card that would undercharge or lose its source", () => {
+    const rates = {
+      inputUsdPerMtok: 2,
+      outputUsdPerMtok: 10,
+      cacheReadUsdPerMtok: 0.2,
+    };
+    const good = {
+      source: "https://developers.openai.com/api/docs/pricing",
+      checked: "2026-11-12",
+      short: rates,
+      speeds: { fast: 2 },
+    };
+    expect(openAiCardsSchema.safeParse({ m: good }).success).toBe(true);
+    for (const bad of [
+      { ...good, short: { ...rates, inputUsdPerMtok: -1 } },
+      { ...good, short: { ...rates, outputUsdPerMtok: Number.NaN } },
+      { ...good, long: { ...rates, outputUsdPerMtok: 9 } },
+      { ...good, speeds: { fast: 0.5 } },
+      { ...good, speeds: { standard: 2 } },
+      { ...good, checked: "2026-13-01" },
+      { ...good, checked: undefined },
+      { ...good, source: "http://developers.openai.com/api/docs/pricing" },
+      { ...good, short: { ...rates, cacheWriteUsdPerMtok: 1 } },
+    ]) {
+      expect([bad, openAiCardsSchema.safeParse({ m: bad }).success]).toEqual([
+        bad,
+        false,
+      ]);
+    }
   });
 
   test("a web search adds its call fee to the tokens", () => {
@@ -413,12 +580,18 @@ describe("priceProviderUsage for an OpenAI model", () => {
     expect(priced.costUsd).toBeGreaterThanOrEqual(50);
   });
 
-  test("a model no table names is charged the fast multiplier away from the standard speed", () => {
+  // Was 2x for every speed (#1515, #1630): fast is now gpt-5.5's 2.5x, and a
+  // tier past fast the highest multiple the table knows (94S-1545).
+  test("a model no table names is charged the dearest multiple of its tier away from the standard speed", () => {
     const call = { ...openAi, model: "gpt-9", outputTokens: 1_000_000 };
     const standard = priceProviderUsage(call).costUsd;
-    for (const speed of ["fast", "ultrafast", "unknown"]) {
+    for (const [speed, multiple] of [
+      ["fast", 2.5],
+      ["ultrafast", 6],
+      ["unknown", 6],
+    ] as const) {
       expect(priceProviderUsage({ ...call, speed })).toEqual({
-        costUsd: standard * 2,
+        costUsd: standard * multiple,
         pricedBy: "fallback",
       });
     }
@@ -441,8 +614,9 @@ describe("priceProviderUsage for an OpenAI model", () => {
     const call = { ...openAi, model: "gpt-5.4-mini", inputTokens: 300_000 };
     const standard = priceProviderUsage(call);
     expect(standard.pricedBy).toBe("fallback");
+    // Was 2x (#1630); fast is now the dearest fast multiple, 2.5x (94S-1545).
     expect(priceProviderUsage({ ...call, speed: "fast" })).toEqual({
-      costUsd: standard.costUsd * 2,
+      costUsd: standard.costUsd * 2.5,
       pricedBy: "fallback",
     });
     const twelveHours = priceProviderUsage({
@@ -470,8 +644,13 @@ describe("priceProviderUsage for an OpenAI model", () => {
       { outputTokens: 100_000 },
       { inputTokens: 272_001, outputTokens: 100_000 },
     ];
-    for (const model of ["gpt-6-astra", "gpt-6.1-sol", "gpt-5.6-sol"]) {
-      for (const speed of ["standard", "fast", "ultrafast"]) {
+    for (const model of [
+      "gpt-6-astra",
+      "gpt-6.1-sol",
+      "gpt-5.6-sol",
+      "gpt-5.5",
+    ]) {
+      for (const speed of ["standard", "fast", "ultrafast", "turbo"]) {
         for (const inferenceGeo of ["unknown", "global"]) {
           for (const part of usages) {
             const usage = { ...nothing, ...part, speed, inferenceGeo };
