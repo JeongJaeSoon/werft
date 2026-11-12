@@ -98,7 +98,8 @@ const MIGRATIONS_ONLY = [
   "function tool_hist_sum(integer[]) integer[] language internal volatility=i parallel=u body md5 3eb6d2f5e7ee95ed566dd6cdda54dac3",
   "function tool_ms_bucket(ms bigint) integer language sql volatility=i parallel=s body md5 6a2f107430551d1a26c5afd7b02f7985",
   // 0271: the sessions the variable purge reads. Its predicate calls
-  // env_start_without_values, which exists only where the migrations ran.
+  // env_start_without_values, which exists only where the migrations ran; a
+  // migration that changes that function's line above rebuilds this index.
   "index CREATE INDEX sessions_env_start_values_idx ON public.sessions USING btree (id) WHERE ((env_start IS NOT NULL) AND (env_start IS DISTINCT FROM env_start_without_values(env_start)))",
   "relation sessions_env_start_values_idx kind=i",
   "trigger CREATE CONSTRAINT TRIGGER pending_requests_slack_thread_status_insert AFTER INSERT ON public.pending_requests DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION slack_thread_status_of_row() enabled=O",

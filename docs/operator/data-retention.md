@@ -21,9 +21,9 @@
 - **세션이 복사한 변수 값** — `sessions.env_start` 열(`schema.ts`의 `envStart`)
   - 담는 것: 세션을 수락할 때 해석한 워크스페이스·에이전트 변수의 이름, scope, 종류, 버전과 복사한 시각 `captured_at`. 일반(plain) 변수는 값까지 복사한다. 비밀(secret) 변수는 값을 복사하지 않고 claim 때 읽는다.
   - 만드는 시점: 변수를 선언한 release로 세션을 수락할 때(`packages/db/src/musterrolle/env-variables.ts`의 `captureEnvStart`, 쓰는 곳 `postgres-unit-of-work.ts`의 `acceptInputAtomic`). 변수를 선언하지 않은 세션은 이 열이 비어 있다.
-  - 보존 기간: 값은 세션이 닫힐 때까지 남고, 닫히지 않은 세션에서는 `captured_at`부터 30일이다(`env-variables.ts`의 `ENV_START_RETENTION_MS`). 이름·scope·종류·버전은 무기한이다.
-  - 삭제 조건: 세션이 닫히면 trigger `sessions_clear_env_values_trg`가 값을 지운다(`packages/db/migrations/0249_env_variables.sql`). 닫히지 않은 세션은 reconciler pass마다(`RECONCILER_INTERVAL_SEC`, 기본 10초) 30일이 지난 것의 값을 `RECONCILER_BATCH_SIZE`(기본 100)개씩 지운다(`env-variables.ts`의 `purgeExpiredEnvStart`, 호출 `reconcile.ts`의 `runReconciler`). `captured_at`을 시각으로 읽을 수 없는 행도 지난 것으로 본다. `RECONCILER_DRY_RUN=true`면 세기만 한다. 지운 수는 reconciler 로그 `Expired session variable values purged`의 `purged_count`다.
-  - 30일이 지난 세션은 값이 지워지기 전에도 다음 claim이 `unresolved`로 거절된다(`env-variables.ts`의 `envStartRefusal`). 그 세션은 새로 시작해야 한다. 값을 지워도 이 거절은 같다.
+  - 보존 기간: 값은 세션이 닫힐 때까지 남고, 닫히지 않은 세션에서는 `captured_at`부터 30일이 지나면 삭제 대상이 된다(`env-variables.ts`의 `ENV_START_RETENTION_MS`). 실제 삭제는 그 뒤의 reconciler pass가 하므로, 밀린 행이 많거나 그 세션 행을 다른 트랜잭션이 잡고 있거나 pass가 실패하면 그만큼 늦어진다. 이름·scope·종류·버전은 무기한이다.
+  - 삭제 조건: 세션이 닫히면 trigger `sessions_clear_env_values_trg`가 값을 지운다(`packages/db/migrations/0249_env_variables.sql`). 닫히지 않은 세션은 reconciler pass마다(`RECONCILER_INTERVAL_SEC`, 기본 10초) 30일이 지난 것의 값을 `RECONCILER_BATCH_SIZE`(기본 100)개씩 지운다(`env-variables.ts`의 `purgeExpiredEnvStart`, 호출 `reconcile.ts`의 `runReconciler`). `captured_at`을 시각으로 읽을 수 없는 행도 지난 것으로 본다. 모양을 읽을 수 없는 snapshot은 내용을 모두 지우고 "읽을 수 없음" 표지(`env-variables.ts`의 `UNREADABLE_ENV_START`)만 남긴다. `RECONCILER_DRY_RUN=true`면 세기만 한다. 지운 수는 reconciler 로그 `Expired session variable values purged`의 `purged_count`다.
+  - 30일이 지난 세션은 값이 지워지기 전에도 다음 claim이 `unresolved`로 거절된다(`env-variables.ts`의 `envStartRefusal`). 그 세션은 새로 시작해야 한다. 값을 지워도 이 거절은 같다. 읽을 수 없는 snapshot도 지우기 전과 뒤에 똑같이 거절된다.
   - 바꾸기: 30일은 코드 상수라 바꿀 수 없다. 지우는 속도는 Helm `reconciler.intervalSec`·`batchSize`(`deploy/helm/werft/values.yaml`).
 - **turn과 입력 원문** — `turns` 표(`schema.ts`의 `turns`)
   - 담는 것: 사용자가 보낸 메시지 원문 `message`(`schema.ts`의 `message`), 보낸 사람 `actor_id`(`schema.ts`의 `actorId`), 끝난 turn의 결과·사용량 `result_json`(`schema.ts`의 `resultJson`, 쓰는 곳 `packages/db/src/worker-unit-of-work.ts`의 `finalizeAtomic`).

@@ -669,12 +669,22 @@ export async function captureEnvStart(
 }
 
 /**
+ * What the purge leaves of a snapshot it cannot read, for which
+ * env_start_without_values gives NULL. NULL on an open session would read as
+ * "took no variable" and let the next claim run without them. This holds no
+ * value, `storedEntries` still cannot read it, so the claim keeps refusing,
+ * and the purge does not pick it again.
+ */
+export const UNREADABLE_ENV_START = { entries: [], unreadable: true } as const;
+
+/**
  * Drops the copied values of sessions that kept them past retention, so a
  * paused or stopped session does not hold a variable that was deleted long
  * ago. Names and versions stay; the next claim refuses the snapshot. Returns
- * how many sessions it changed; a dry run counts them. The reconciler runs it
- * every pass. The claim already refuses an expired snapshot, so this only
- * shortens how long the value is stored.
+ * how many sessions it changed; a dry run counts them, rows another
+ * transaction holds included. The reconciler runs it every pass. The claim
+ * already refuses an expired snapshot, so this only shortens how long the
+ * value is stored.
  */
 export async function purgeExpiredEnvStart(
   db: Database,
@@ -706,7 +716,10 @@ export async function purgeExpiredEnvStart(
     options.dryRun
       ? expired
       : sql`
-    UPDATE sessions SET env_start = env_start_without_values(env_start)
+    UPDATE sessions SET env_start = COALESCE(
+      env_start_without_values(env_start),
+      ${JSON.stringify(UNREADABLE_ENV_START)}::jsonb
+    )
     WHERE id IN (${expired} FOR UPDATE SKIP LOCKED)
     RETURNING id`,
   );
