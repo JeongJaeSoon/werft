@@ -35,6 +35,7 @@ import {
   createPostgresInviteStore,
   createPostgresJudgmentEgress,
   createPostgresLinkedAccountStore,
+  createPostgresLoginMethodStore,
   createPostgresLoginProviderAdminStore,
   createPostgresLoginProviderStore,
   createPostgresMcpEgressStore,
@@ -1141,6 +1142,7 @@ const providerAdmin = createProviderAdmin({
 const auth = {
   identity,
   providers: providerLogin,
+  loginMethods: createPostgresLoginMethodStore(db),
   lockout,
   passwordWork,
   bootstrap: await bootstrapGateFromEnv(

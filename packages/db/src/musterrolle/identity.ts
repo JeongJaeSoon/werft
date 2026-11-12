@@ -9,6 +9,8 @@ import {
   type ExternalSignInResult,
   type IdentityUser,
   type IdentityWorkspace,
+  type InviteSignUpInput,
+  type InviteSignUpResult,
   type IssuePasswordResetInput,
   type IssuePasswordResetResult,
   type LiveMembership,
@@ -869,6 +871,162 @@ export async function signInWithExternalIdentity(
       expiresAt,
     };
   });
+}
+
+class InviteExpiredWhileWaiting extends Error {}
+
+/**
+ * A sign-up through a provider by invite token (design 6.5). The invite is
+ * what admits: the one the flow was started with, read again under its row
+ * lock. The provider's word decides who is signing up, never which address
+ * or which account; the first-entry rules of a sign-in are not consulted,
+ * so a flow that began from an invite cannot end as an ordinary sign-in.
+ *
+ * Locks run as in signInWithExternalIdentity: subject, provider row, the
+ * invite's address, invite, then the new rows.
+ */
+export async function signUpWithInvite(
+  db: Database,
+  input: InviteSignUpInput,
+): Promise<InviteSignUpResult> {
+  return db
+    .transaction(async (tx): Promise<InviteSignUpResult> => {
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtext(${`login:oidc:${input.issuer}:${input.subject}`}))`,
+      );
+      const [provider] = await tx
+        .select({ id: loginProviders.id })
+        .from(loginProviders)
+        .where(
+          and(
+            eq(loginProviders.id, input.provider.id),
+            eq(loginProviders.enabled, true),
+            eq(loginProviders.issuer, input.issuer),
+            eq(loginProviders.configRevision, input.provider.configRevision),
+          ),
+        )
+        .for("share");
+      if (!provider) return { outcome: "provider_off" };
+      // An invite's address never changes, so reading it unlocked is enough
+      // to name the lock every path that creates an account takes.
+      const [named] = await tx
+        .select({ email: invites.email })
+        .from(invites)
+        .where(eq(invites.id, input.inviteId));
+      if (!named) return { outcome: "invite_gone" };
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtext(${`login-email:${named.email}`}))`,
+      );
+      const [invite] = await tx
+        .select({
+          id: invites.id,
+          email: invites.email,
+          workspaceId: invites.workspaceId,
+          role: invites.role,
+        })
+        .from(invites)
+        .where(
+          and(
+            eq(invites.id, input.inviteId),
+            isNull(invites.acceptedAt),
+            isNull(invites.revokedAt),
+            gt(invites.expiresAt, DB_NOW),
+          ),
+        )
+        .for("update");
+      // Ahead of the link below: a dead invite signs nobody in, linked or not.
+      if (!invite) return { outcome: "invite_gone" };
+      const [linked] = await tx
+        .select({ id: loginMethods.id })
+        .from(loginMethods)
+        .where(
+          and(
+            eq(loginMethods.kind, "oidc"),
+            eq(loginMethods.issuer, input.issuer),
+            eq(loginMethods.subject, input.subject),
+          ),
+        );
+      if (linked) return { outcome: "already_linked" };
+      const role = invite.role as MembershipRole;
+      const created = await tx
+        .insert(users)
+        .values({
+          id: input.newUserId,
+          email: invite.email,
+          passwordHash: null,
+          displayName: (
+            input.name ?? invite.email.slice(0, invite.email.indexOf("@"))
+          ).slice(0, 64),
+        })
+        .onConflictDoNothing({ target: users.email })
+        .returning({ id: users.id });
+      // The address has an account, enabled or not. Whoever holds the token
+      // knows the address already, so saying so tells them nothing new.
+      if (created.length === 0) return { outcome: "link_required" };
+      await tx.insert(memberships).values({
+        workspaceId: invite.workspaceId,
+        userId: input.newUserId,
+        role,
+      });
+      await tx.insert(loginMethods).values({
+        id: input.newLoginMethodId,
+        userId: input.newUserId,
+        kind: "oidc",
+        issuer: input.issuer,
+        subject: input.subject,
+        emailAtLink: input.vouchedEmail,
+        lastLoginAt: DB_NOW,
+      });
+      // The invite was live when locked; the waits since can outlast it.
+      const spent = await tx
+        .update(invites)
+        .set({ acceptedAt: DB_NOW })
+        .where(and(eq(invites.id, invite.id), gt(invites.expiresAt, DB_NOW)))
+        .returning({ id: invites.id });
+      if (spent.length === 0) throw new InviteExpiredWhileWaiting();
+      // The same receipt a password accept writes.
+      await tx.insert(receipts).values({
+        id: input.receiptId,
+        ownerId: invite.workspaceId,
+        actor: {
+          principal: { kind: "user", id: input.newUserId },
+          actor_user_id: input.newUserId,
+          agent_id: null,
+        },
+        operation: "accept_invite",
+        targetRef: {
+          resource: { kind: "invite", id: invite.id },
+          workspace_id: invite.workspaceId,
+        },
+        status: "succeeded",
+        result: {
+          user_id: input.newUserId,
+          role,
+          new_account: true,
+          login_method: "oidc",
+          issuer: input.issuer,
+        },
+      });
+      const { expiresAt } = await insertWebSession(tx, {
+        ...input.session,
+        userId: input.newUserId,
+        loginMethodId: input.newLoginMethodId,
+      });
+      return {
+        outcome: "signed_in",
+        userId: input.newUserId,
+        workspaceId: invite.workspaceId,
+        role,
+        expiresAt,
+      };
+    })
+    .catch((error: unknown) => {
+      // Thrown, not returned: the account made above goes with the rollback.
+      if (error instanceof InviteExpiredWhileWaiting) {
+        return { outcome: "invite_gone" };
+      }
+      throw error;
+    });
 }
 
 /**

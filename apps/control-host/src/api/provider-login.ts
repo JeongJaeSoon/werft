@@ -178,7 +178,7 @@ export function createProviderLogin(deps: ProviderLoginDeps) {
   /** The authorization request of a flow, and the cookie that binds it. */
   const begin = (
     found: { provider: LoginProvider; clientSecret: string | null },
-    bound: Pick<LoginFlow, "purpose" | "test">,
+    bound: Pick<LoginFlow, "purpose" | "test" | "invite" | "link">,
   ): Started => {
     const { client, endpoints, policy } = connectionOf(found);
     // The browser is sent here, so the same rule as the server's requests.
@@ -242,17 +242,137 @@ export function createProviderLogin(deps: ProviderLoginDeps) {
     return flow;
   };
 
+  /** A provider that is on, to start a flow that ends in a way to sign in. */
+  const enabledProvider = async (providerId: string) => {
+    const found = await deps.providers.findForSignIn(providerId);
+    if (!found?.provider.enabled) {
+      throw new ProviderLoginError("not_found", "provider_off");
+    }
+    return found;
+  };
+
+  /**
+   * What the provider answers to a flow that ends in a way to sign in:
+   * who it is, and how the provider's rules take them. The same checks
+   * whatever the flow is for, the allowed domains included: a link or an
+   * invite's sign-up the provider's rules would then refuse at every
+   * sign-in is not made. Throws ProviderLoginError.
+   */
+  const answerOf = async (
+    input: CallbackInput,
+    flow: LoginFlow,
+  ): Promise<{
+    provider: LoginProvider;
+    identity: OidcIdentity;
+    admission: Admission;
+  }> => {
+    const found = await enabledProvider(flow.providerId);
+    const { provider } = found;
+    if (provider.configRevision !== flow.configRevision) {
+      throw new ProviderLoginError("rejected", "config_changed");
+    }
+    const { client, endpoints, policy } = connectionOf(found);
+    const identity = await asLoginError(() =>
+      finishFlow({
+        endpoints,
+        client,
+        issuers: tokenIssuers(provider.issuer),
+        code: input.code,
+        ...(input.responseIssuer === undefined
+          ? {}
+          : { responseIssuer: input.responseIssuer }),
+        nonce: flow.nonce,
+        verifier: flow.verifier,
+        requireVerifiedEmail: provider.requireVerifiedEmail,
+        policy,
+        now,
+        ...(deps.request ? { request: deps.request } : {}),
+      }),
+    );
+    const admission = admit(provider, identity);
+    if (admission === null) {
+      throw new ProviderLoginError("forbidden", "domain_not_allowed");
+    }
+    return { provider, identity, admission };
+  };
+
   return {
     /** The sign-in buttons: the providers that are on. */
     buttons: () => deps.providers.listEnabled(),
 
     /** Throws ProviderLoginError. */
     async start(providerId: string): Promise<Started> {
-      const found = await deps.providers.findForSignIn(providerId);
-      if (!found?.provider.enabled) {
-        throw new ProviderLoginError("not_found", "provider_off");
+      return begin(await enabledProvider(providerId), { purpose: "login" });
+    },
+
+    /**
+     * A sign-up by invite: the flow is bound to that one invite, which the
+     * caller found live by its token. Throws ProviderLoginError.
+     */
+    async startInvite(input: {
+      providerId: string;
+      inviteId: string;
+    }): Promise<Started> {
+      return begin(await enabledProvider(input.providerId), {
+        purpose: "invite",
+        invite: { inviteId: input.inviteId },
+      });
+    },
+
+    /**
+     * A signed-in person linking one more way to sign in: the flow is bound
+     * to them and to the session they start it from, which the caller found
+     * recent enough. Throws ProviderLoginError.
+     */
+    async startLink(input: {
+      providerId: string;
+      userId: string;
+      sessionId: string;
+    }): Promise<Started> {
+      return begin(await enabledProvider(input.providerId), {
+        purpose: "link",
+        link: { userId: input.userId, sessionId: input.sessionId },
+      });
+    },
+
+    /**
+     * The callback of an `invite` flow, up to who is signing up and which
+     * invite the flow was started with. The caller still redeems the
+     * invite, under its lock. Throws ProviderLoginError.
+     */
+    async finishInvite(input: CallbackInput) {
+      const flow = flowOf(input, "invite");
+      if (flow.invite === undefined) {
+        throw new ProviderLoginError("rejected", "flow_invite");
       }
-      return begin(found, { purpose: "login" });
+      return {
+        ...(await answerOf(input, flow)),
+        inviteId: flow.invite.inviteId,
+      };
+    },
+
+    /**
+     * The callback of a `link` flow, up to which external account is to be
+     * linked. Only the session the link was started from ends it, and that
+     * is settled before the provider is asked anything. Throws
+     * ProviderLoginError.
+     */
+    async finishLink(
+      input: CallbackInput & {
+        /** The live session of this request, when there is one. */
+        session: { userId: string; sessionId: string } | null;
+      },
+    ) {
+      const flow = flowOf(input, "link");
+      if (
+        flow.link === undefined ||
+        input.session === null ||
+        input.session.userId !== flow.link.userId ||
+        input.session.sessionId !== flow.link.sessionId
+      ) {
+        throw new ProviderLoginError("rejected", "link_session");
+      }
+      return answerOf(input, flow);
     },
 
     /**
@@ -406,38 +526,7 @@ export function createProviderLogin(deps: ProviderLoginDeps) {
       identity: OidcIdentity;
       admission: Admission;
     }> {
-      const flow = flowOf(input, "login");
-      const found = await deps.providers.findForSignIn(flow.providerId);
-      if (!found?.provider.enabled) {
-        throw new ProviderLoginError("not_found", "provider_off");
-      }
-      const { provider } = found;
-      if (provider.configRevision !== flow.configRevision) {
-        throw new ProviderLoginError("rejected", "config_changed");
-      }
-      const { client, endpoints, policy } = connectionOf(found);
-      const identity = await asLoginError(() =>
-        finishFlow({
-          endpoints,
-          client,
-          issuers: tokenIssuers(provider.issuer),
-          code: input.code,
-          ...(input.responseIssuer === undefined
-            ? {}
-            : { responseIssuer: input.responseIssuer }),
-          nonce: flow.nonce,
-          verifier: flow.verifier,
-          requireVerifiedEmail: provider.requireVerifiedEmail,
-          policy,
-          now,
-          ...(deps.request ? { request: deps.request } : {}),
-        }),
-      );
-      const admission = admit(provider, identity);
-      if (admission === null) {
-        throw new ProviderLoginError("forbidden", "domain_not_allowed");
-      }
-      return { provider, identity, admission };
+      return answerOf(input, flowOf(input, "login"));
     },
   };
 }
