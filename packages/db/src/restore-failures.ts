@@ -1,5 +1,6 @@
 import type { SessionAttention } from "@werft-ai/contracts";
 import { launchRetryDelayMs } from "@werft-ai/platform";
+import { isUnsupportedFeaturesReason } from "@werft-ai/runtime-core";
 import { and, eq, isNull, lte, or } from "drizzle-orm";
 import { LAUNCHABLE_ADMISSION_STATES } from "./control-shared.ts";
 import { DB_NOW, fromDbNow } from "./db-clock.ts";
@@ -28,7 +29,11 @@ type SessionRow = typeof sessions.$inferSelect;
  */
 export const RESTORE_FAILURE_LIMIT = 3;
 
-/** A deterministic runtime mismatch cannot succeed on another launch. */
+/**
+ * A deterministic runtime mismatch cannot succeed on another launch; nor can
+ * an engine that lacks a feature the settings need
+ * (`isUnsupportedFeaturesReason`), which keeps the worker's reason.
+ */
 export const INCOMPATIBLE_CHECKPOINT_REASON = "incompatible_checkpoint";
 
 const INCOMPATIBLE_CHECKPOINT_PREFIX =
@@ -98,7 +103,10 @@ export async function recordStartupFailure(
     ? INCOMPATIBLE_CHECKPOINT_REASON
     : boundedReason(endReason);
   const failures = session.restoreFailureCount + 1;
-  const stopped = incompatible || failures >= RESTORE_FAILURE_LIMIT;
+  const stopped =
+    incompatible ||
+    isUnsupportedFeaturesReason(endReason) ||
+    failures >= RESTORE_FAILURE_LIMIT;
   const [updated] = await tx
     .update(sessions)
     .set({

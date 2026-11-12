@@ -204,7 +204,9 @@ export const sessionAttentionSchema = z.discriminatedUnion("code", [
   // restore finished. While retry_at is set the next launch waits
   // for it; null means the limit was reached and the session is held in
   // recovery_required. A deterministic runtime mismatch stops after
-  // the first launch with reason incompatible_checkpoint. After the
+  // the first launch with reason incompatible_checkpoint, and an engine
+  // that lacks a feature the settings need after the first launch with
+  // the worker's reason. After the
   // cause is fixed, retry_restore tries the same checkpoint again; start_fresh
   // continues without it, close ends the session. A restore that succeeds
   // clears it.
@@ -216,8 +218,10 @@ export const sessionAttentionSchema = z.discriminatedUnion("code", [
   }),
   // The same for a session with no checkpoint to restore
   // workers kept ending before they were ready for input, while preparing
-  // the workspace or starting the engine. At the limit start_fresh launches
-  // again once the cause is fixed; close ends the session.
+  // the workspace or starting the engine. An engine that lacks a feature
+  // the settings need stops it after the first launch. At the limit
+  // start_fresh launches again once the cause is fixed; close ends the
+  // session.
   z.object({
     code: z.literal("STARTUP_FAILED"),
     reason: z.string().min(1),
