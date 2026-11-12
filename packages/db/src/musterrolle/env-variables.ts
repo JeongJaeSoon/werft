@@ -672,40 +672,45 @@ export async function captureEnvStart(
  * Drops the copied values of sessions that kept them past retention, so a
  * paused or stopped session does not hold a variable that was deleted long
  * ago. Names and versions stay; the next claim refuses the snapshot. Returns
- * how many sessions it changed. Nothing schedules it yet: the claim already
- * refuses an expired snapshot, this only shortens how long the value is stored.
+ * how many sessions it changed; a dry run counts them. The reconciler runs it
+ * every pass. The claim already refuses an expired snapshot, so this only
+ * shortens how long the value is stored.
  */
 export async function purgeExpiredEnvStart(
   db: Database,
-  options: { limit: number; retentionMs?: number },
+  options: { limit: number; dryRun: boolean; retentionMs?: number },
 ): Promise<number> {
   const cutoff = new Date(
     (await dbNow(db)).getTime() -
       (options.retentionMs ?? ENV_START_RETENTION_MS),
   ).toISOString();
-  const rows = rowsOf<{ id: string }>(
-    await db.execute(sql`
+  // The last two conditions repeat the predicate of
+  // sessions_env_start_values_idx (migration 0271), so the pass reads only
+  // sessions that still hold a value. Change one and the other follows.
+  const expired = sql`
+    SELECT id FROM sessions
+    WHERE admission_state <> 'closed'
+      -- CASE keeps the cast from running on text that is not a timestamp. A
+      -- stamp that does not parse counts as expired: the claim refuses such
+      -- a snapshot anyway, so its values have no use left.
+      AND CASE
+        WHEN pg_input_is_valid(env_start ->> 'captured_at', 'timestamptz')
+        THEN (env_start ->> 'captured_at')::timestamptz < ${cutoff}::timestamptz
+        ELSE true
+      END
+      AND env_start IS NOT NULL
+      AND env_start IS DISTINCT FROM env_start_without_values(env_start)
+    ORDER BY id
+    LIMIT ${options.limit}`;
+  const result = await db.execute(
+    options.dryRun
+      ? expired
+      : sql`
     UPDATE sessions SET env_start = env_start_without_values(env_start)
-    WHERE id IN (
-      SELECT id FROM sessions
-      WHERE admission_state <> 'closed'
-        AND env_start IS NOT NULL
-        -- CASE keeps the cast from running on text that is not a timestamp. A
-        -- stamp that does not parse counts as expired: the claim refuses such
-        -- a snapshot anyway, so its values have no use left.
-        AND CASE
-          WHEN pg_input_is_valid(env_start ->> 'captured_at', 'timestamptz')
-          THEN (env_start ->> 'captured_at')::timestamptz < ${cutoff}::timestamptz
-          ELSE true
-        END
-        AND env_start IS DISTINCT FROM env_start_without_values(env_start)
-      ORDER BY id
-      LIMIT ${options.limit}
-      FOR UPDATE SKIP LOCKED
-    )
-    RETURNING id`),
+    WHERE id IN (${expired} FOR UPDATE SKIP LOCKED)
+    RETURNING id`,
   );
-  return rows.length;
+  return rowsOf<{ id: string }>(result).length;
 }
 
 /**

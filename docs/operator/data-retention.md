@@ -7,7 +7,7 @@
 ## 먼저 알아 둘 것
 
 - **세션은 지우지 않고, 이벤트는 보관한 뒤에만 DB에서 뺀다.** `schema.ts`의 `toolCalls` 주석이 "Nothing deletes sessions; event rows leave only once archived"라고 적는다. 세션을 지우는 API도 없다. 세션 route에는 GET·POST·PATCH만 있다(`packages/core/src/schemas/responses.ts`의 `responseSchemas`). 그래서 세션에 딸린 행(turn, 이벤트, 도구 호출, 대기 요청, 사용량, receipt)은 세션을 닫아도 남는다. 오래 쉰 세션의 이벤트만 [세션 이벤트 보관](#세션-이벤트-보관)이 checkpoint bucket으로 옮긴다. 옮겨도 API 응답은 같다.
-- **기간이 지나면 지우는 것은 넷이다.** 권한 판정 기록(`authz_decisions`, 기본 90일), 로그인 세션(`web_sessions`, 만료 30일 뒤), Slack 설치 state(10분), 멈춘 세션의 worker 작업 공간(24시간)이다. checkpoint object는 기간이 아니라 pointer 기준으로 GC가 지운다.
+- **기간이 지나면 지우는 것은 다섯이다.** 권한 판정 기록(`authz_decisions`, 기본 90일), 로그인 세션(`web_sessions`, 만료 30일 뒤), 닫히지 않은 세션이 복사한 변수 값(`sessions.env_start`, 30일), Slack 설치 state(10분), 멈춘 세션의 worker 작업 공간(24시간)이다. checkpoint object는 기간이 아니라 pointer 기준으로 GC가 지운다.
 - **트레이스는 기본으로 내보내지 않는다.** 운영자가 `OTEL_TRACES_EXPORTER=otlp`와 수집기 주소를 설정해야 내보낸다([트레이스와의 경계](#트레이스와-플랫폼-정본의-경계)).
 
 ## 세션 실행 데이터 (PostgreSQL)
@@ -18,6 +18,13 @@
   - 보존 기간: 무기한.
   - 삭제 조건: 없음. close는 `admission_state`를 `closed`로 바꿀 뿐 행을 지우지 않는다(`packages/db/src/sessions/close-control.ts`의 `closeAtomic`, worker가 drain을 마친 뒤에 닫히는 세션은 `packages/db/src/worker-unit-of-work.ts`의 `confirmExecutionGoneAtomic`).
   - 바꾸기: 없음. 이 절의 다른 표(turn, 이벤트, 도구 호출, 대기 요청, 실행 이력, checkpoint 행, receipt, GitHub 작업, Slack 입출력)도 같다. 보존 기간을 정하는 설정이 없다.
+- **세션이 복사한 변수 값** — `sessions.env_start` 열(`schema.ts`의 `envStart`)
+  - 담는 것: 세션을 수락할 때 해석한 워크스페이스·에이전트 변수의 이름, scope, 종류, 버전과 복사한 시각 `captured_at`. 일반(plain) 변수는 값까지 복사한다. 비밀(secret) 변수는 값을 복사하지 않고 claim 때 읽는다.
+  - 만드는 시점: 변수를 선언한 release로 세션을 수락할 때(`packages/db/src/musterrolle/env-variables.ts`의 `captureEnvStart`, 쓰는 곳 `postgres-unit-of-work.ts`의 `acceptInputAtomic`). 변수를 선언하지 않은 세션은 이 열이 비어 있다.
+  - 보존 기간: 값은 세션이 닫힐 때까지 남고, 닫히지 않은 세션에서는 `captured_at`부터 30일이다(`env-variables.ts`의 `ENV_START_RETENTION_MS`). 이름·scope·종류·버전은 무기한이다.
+  - 삭제 조건: 세션이 닫히면 trigger `sessions_clear_env_values_trg`가 값을 지운다(`packages/db/migrations/0249_env_variables.sql`). 닫히지 않은 세션은 reconciler pass마다(`RECONCILER_INTERVAL_SEC`, 기본 10초) 30일이 지난 것의 값을 `RECONCILER_BATCH_SIZE`(기본 100)개씩 지운다(`env-variables.ts`의 `purgeExpiredEnvStart`, 호출 `reconcile.ts`의 `runReconciler`). `captured_at`을 시각으로 읽을 수 없는 행도 지난 것으로 본다. `RECONCILER_DRY_RUN=true`면 세기만 한다. 지운 수는 reconciler 로그 `Expired session variable values purged`의 `purged_count`다.
+  - 30일이 지난 세션은 값이 지워지기 전에도 다음 claim이 `unresolved`로 거절된다(`env-variables.ts`의 `envStartRefusal`). 그 세션은 새로 시작해야 한다. 값을 지워도 이 거절은 같다.
+  - 바꾸기: 30일은 코드 상수라 바꿀 수 없다. 지우는 속도는 Helm `reconciler.intervalSec`·`batchSize`(`deploy/helm/werft/values.yaml`).
 - **turn과 입력 원문** — `turns` 표(`schema.ts`의 `turns`)
   - 담는 것: 사용자가 보낸 메시지 원문 `message`(`schema.ts`의 `message`), 보낸 사람 `actor_id`(`schema.ts`의 `actorId`), 끝난 turn의 결과·사용량 `result_json`(`schema.ts`의 `resultJson`, 쓰는 곳 `packages/db/src/worker-unit-of-work.ts`의 `finalizeAtomic`).
   - 만드는 시점: 입력을 받을 때(`postgres-unit-of-work.ts`의 `insertQueuedTurn`).

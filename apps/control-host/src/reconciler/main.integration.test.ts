@@ -36,6 +36,8 @@ integration("reconciler process on PostgreSQL", () => {
   // any 30-second default, still inside its own deadline.
   const liveSessionId = crypto.randomUUID();
   const livePodId = `reconciler-live-${crypto.randomUUID()}`;
+  // Open, on no worker, and holding a variable value copied 31 days ago.
+  const staleEnvSessionId = crypto.randomUUID();
 
   beforeAll(async () => {
     database = await createTempDatabase({ prefix: "reconciler_it" });
@@ -66,6 +68,27 @@ integration("reconciler process on PostgreSQL", () => {
       podId: livePodId,
       lastSeen: new Date(Date.now() - 60_000),
       leaseExpiresAt: new Date(Date.now() + 60_000),
+    });
+    await db.insert(sessions).values({
+      id: staleEnvSessionId,
+      ownerId: "reconciler-owner",
+      repoUrl: "https://example.invalid/repo.git",
+      branch: `session/${staleEnvSessionId}`,
+      envStart: {
+        entries: [
+          {
+            name: "STALE_ONE",
+            scope: "agent",
+            kind: "plain",
+            version: 1,
+            value: "stale-value",
+          },
+        ],
+        skipped: [],
+        captured_at: new Date(
+          Date.now() - 31 * 24 * 60 * 60 * 1000,
+        ).toISOString(),
+      },
     });
     const [turn] = await db
       .insert(turns)
@@ -169,5 +192,15 @@ integration("reconciler process on PostgreSQL", () => {
       .from(sessions)
       .where(eq(sessions.id, liveSessionId));
     expect(live).toMatchObject({ podId: livePodId, status: "running" });
+    // The same pass drops the value an open session kept past retention and
+    // leaves the name.
+    expect(stdout).toContain("Expired session variable values purged");
+    expect(stdout).toContain('"purged_count":1');
+    const [stale] = await db
+      .select({ snapshot: sessions.envStart })
+      .from(sessions)
+      .where(eq(sessions.id, staleEnvSessionId));
+    expect(stale?.snapshot).toMatchObject({ entries: [{ name: "STALE_ONE" }] });
+    expect(JSON.stringify(stale?.snapshot)).not.toContain("stale-value");
   });
 });

@@ -36,7 +36,10 @@ export * from "./musterrolle/agent-identities.ts";
 export * from "./musterrolle/api-keys.ts";
 export * from "./musterrolle/authz-decisions.ts";
 export * from "./musterrolle/credential-bindings.ts";
-export { createPostgresEnvVariableStore } from "./musterrolle/env-variables.ts";
+export {
+  createPostgresEnvVariableStore,
+  purgeExpiredEnvStart,
+} from "./musterrolle/env-variables.ts";
 export * from "./musterrolle/identity.ts";
 export * from "./musterrolle/identity-reader.ts";
 export * from "./musterrolle/invites.ts";

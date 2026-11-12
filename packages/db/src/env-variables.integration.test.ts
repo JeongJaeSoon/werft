@@ -1171,7 +1171,9 @@ integration("user variables on PostgreSQL", () => {
 
       // Other tests of this database leave expired sessions too, so the count
       // is not asserted, only what happened to these two.
-      expect(await purgeExpiredEnvStart(db, { limit: 100 })).toBeGreaterThan(0);
+      expect(
+        await purgeExpiredEnvStart(db, { limit: 100, dryRun: false }),
+      ).toBeGreaterThan(0);
       expect(await envStartOf(expired)).toMatchObject({
         entries: [{ name: "PURGE_ME" }],
       });
@@ -1182,7 +1184,38 @@ integration("user variables on PostgreSQL", () => {
         entries: [{ name: "PURGE_ME", value: "private" }],
       });
       // Nothing left to do on a second pass.
-      expect(await purgeExpiredEnvStart(db, { limit: 10 })).toBe(0);
+      expect(await purgeExpiredEnvStart(db, { limit: 10, dryRun: false })).toBe(
+        0,
+      );
+    });
+
+    test("a dry run counts what the purge would drop and writes nothing", async () => {
+      const workspaceId = await workspace();
+      const { agentId, releaseId } = await agentOn(workspaceId);
+      await saved(workspaceId, agentId, "PURGE_DRY", "private-dry");
+      const expired = await accepted(workspaceId, releaseId, ["PURGE_DRY"]);
+      await db
+        .update(sessions)
+        .set({
+          envStart: sql`jsonb_set(${sessions.envStart}, '{captured_at}', to_jsonb(${new Date(Date.now() - ENV_START_RETENTION_MS - 60_000).toISOString()}::text))`,
+        })
+        .where(eq(sessions.id, expired));
+      const before = await envStartOf(expired);
+
+      // Other tests of this database leave expired sessions too, so the count
+      // has no exact value. A large limit keeps this session inside it.
+      const counted = await purgeExpiredEnvStart(db, {
+        limit: 100_000,
+        dryRun: true,
+      });
+      expect(counted).toBeGreaterThan(0);
+      expect(await envStartOf(expired)).toEqual(before);
+      expect(
+        await purgeExpiredEnvStart(db, { limit: 100_000, dryRun: false }),
+      ).toBe(counted);
+      expect(JSON.stringify(await envStartOf(expired))).not.toContain(
+        "private-dry",
+      );
     });
 
     test("a stamp that is not a date neither stops the purge nor keeps its value", async () => {
@@ -1205,7 +1238,7 @@ integration("user variables on PostgreSQL", () => {
         new Date(Date.now() - ENV_START_RETENTION_MS - 60_000).toISOString(),
       );
 
-      await purgeExpiredEnvStart(db, { limit: 100 });
+      await purgeExpiredEnvStart(db, { limit: 100, dryRun: false });
       expect(JSON.stringify(await envStartOf(bad))).not.toContain(
         "private-bad",
       );
