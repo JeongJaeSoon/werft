@@ -223,6 +223,11 @@ export function AgentCardFields({
           ))}
         </NativeSelect>
         <FieldDescription>{t("agentCard.language.hint")}</FieldDescription>
+        {connection?.kind === "openai_responses" ? (
+          <FieldDescription>
+            {t("agentCard.language.codexUnapplied")}
+          </FieldDescription>
+        ) : null}
       </Field>
     </>
   );

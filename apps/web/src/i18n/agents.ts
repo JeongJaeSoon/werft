@@ -82,6 +82,8 @@ export const agentsKo = {
   "agentCard.language.followUser": "사용자 언어 따라가기",
   "agentCard.language.hint":
     "사용자 언어 따라가기는 사용자가 쓴 언어로 답합니다. 언어를 고르면 사용자가 다른 언어로 써도 그 언어로만 답합니다. 새 릴리스부터 적용되고 이미 시작한 세션은 그대로입니다.",
+  "agentCard.language.codexUnapplied":
+    "고른 연결은 Codex 엔진으로 실행됩니다. Codex 엔진은 답변 언어 설정을 아직 적용하지 않습니다.",
   "agentCard.model": "모델",
   "agentCard.modelHint": "고른 연결이 제공하는 모델 중에서 고릅니다",
   "agent.created":
@@ -505,6 +507,8 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agentCard.language.followUser": "Follow the user's language",
   "agentCard.language.hint":
     "Follow the user's language answers in whatever language the person writes. A chosen language is always used, even when the person writes in another one. It applies from the next release; sessions already started keep theirs.",
+  "agentCard.language.codexUnapplied":
+    "The chosen connection runs on the Codex engine. The Codex engine does not apply the reply language setting yet.",
   "agentCard.model": "Model",
   "agentCard.modelHint": "Choose among the models the chosen connection offers",
   "agent.created":
@@ -922,6 +926,8 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agentCard.language.followUser": "ユーザーの言語に合わせる",
   "agentCard.language.hint":
     "「ユーザーの言語に合わせる」は相手が書いた言語で答えます。言語を選ぶと、相手が別の言語で書いてもその言語だけで答えます。次のリリースから適用され、開始済みのセッションは変わりません。",
+  "agentCard.language.codexUnapplied":
+    "選んだ接続は Codex エンジンで実行されます。Codex エンジンは回答言語の設定をまだ適用しません。",
   "agentCard.model": "モデル",
   "agentCard.modelHint": "選んだ接続が提供するモデルから選びます",
   "agent.created":

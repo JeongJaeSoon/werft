@@ -3,6 +3,7 @@ import { setupUser } from "@werft-ai/ui/test-support/dom";
 import {
   AGENT_ID,
   agentServer,
+  CONNECTIONS,
   seedRelease as releaseFixture,
 } from "../../test-support/fake-agents.ts";
 import {
@@ -251,6 +252,38 @@ describe("에이전트 상세 탭", () => {
     expect(
       (screen.getByLabelText("답변 언어") as HTMLSelectElement).value,
     ).toBe("ko");
+  });
+
+  test("Codex 엔진으로 도는 연결을 고르면 답변 언어가 적용되지 않는다고 알리고, 다른 연결에서는 알리지 않는다", async () => {
+    const NOTICE =
+      "고른 연결은 Codex 엔진으로 실행됩니다. Codex 엔진은 답변 언어 설정을 아직 적용하지 않습니다.";
+    renderAt(`${DETAIL}?tab=card`, {
+      ...meOk,
+      ...agentServer().routes,
+      "GET /v1/connections": () =>
+        json(200, {
+          items: [
+            ...CONNECTIONS,
+            {
+              id: "openai",
+              kind: "openai_responses",
+              billing: "metered",
+              models: ["gpt-5.5"],
+              model_successors: {},
+            },
+          ],
+        }),
+    });
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "상세 설정 편집" }),
+    );
+    const connection = await screen.findByLabelText("모델 연결");
+    expect(screen.queryByText(NOTICE) === null).toBe(true);
+    await user.selectOptions(connection, "openai");
+    expect(screen.queryByText(NOTICE) === null).toBe(false);
+    await user.selectOptions(connection, "anthropic-main");
+    expect(screen.queryByText(NOTICE) === null).toBe(true);
   });
 
   test("다른 탭에 다녀와도 저장하지 않은 카드 입력은 남는다", async () => {
