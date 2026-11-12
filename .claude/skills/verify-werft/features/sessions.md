@@ -25,24 +25,27 @@
 
 Preconditions:
 
-- `KEY`가 `sessions:read,sessions:write`(권한 응답에는 `sessions:approve`, 제어에는 `sessions:control`, 복구에는 `sessions:recover`)를 가진다. [api-keys.md](./api-keys.md)로 발급한다.
+- `KEY`가 워크스페이스 구성원의 개인 key이고 `sessions:read,sessions:write`(제어에는 `sessions:control`, 복구에는 `sessions:recover`)를 가진다. 세션은 워크스페이스의 에이전트 release로 돌기 때문에, 워크스페이스에 속하지 않는 운영자 key(`ap_key`, [api-keys.md](./api-keys.md))로는 만들 수 없다(`POST /v1/sessions` → `404 NOT_FOUND`).
+- owner가 [web-login.md](./web-login.md)로 login했다.
 
 ```sh
 . .claude/skills/verify-werft/scripts/lib.sh <run id>
-KEY=$(ap_key verify --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover 2>/dev/null)
+U=.claude/skills/verify-werft/scripts/web-user.mjs
+node $U <run id> key owner personal sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover   # 201, secret은 keys/owner에만
+ap_as owner                                   # acting as owner (cookie, key of N chars)
 REL=<활성 release id>   # procedures.md P-API-AGENTS의 REL
 body() { jq -nc --arg m "$1" --arg r "$REL" '{agent_release_id:$r, repository_id:"sample-app", message:$m}'; }
 ```
 
 - **생성.** `created=$(ap_post /v1/sessions "$(body 'GATE-SPEC {"id":"v1","steps":[],"final":"hello from verify"}')"); SID=$(echo "$created" | head -1 | jq -r .session_id)` → `201`, `status: "queued"`, `turn_id: "1"`.
 - **완료.** `for i in $(seq 1 90); do [ "$(ap_get "/v1/sessions/$SID/turns/1" | head -1 | jq -r .status)" = completed ] && break; sleep 2; done; ap_get "/v1/sessions/$SID/turns/1"` → `200`, `status: "completed"`, `result.subtype: "success"`. 첫 turn은 worker 기동·clone 때문에 수 초–수십 초.
-- **권한 요청.** 대본 `GATE-SPEC {"id":"q1","steps":[{"tool":"Bash","input":{"command":"echo alpha | tee hello.txt","description":"write hello.txt"}}],"final":"wrote hello.txt"}`로 만들면 세션이 `needs_input`이 되고 `ap_get "/v1/sessions/$SID/pending-requests"`에 `kind: "permission"`이 하나 있다. `REQ=$(ap_get "/v1/sessions/$SID/pending-requests" | head -1 | jq -r '.items[0].request_id')`로 id를 받고 `ap_post "/v1/sessions/$SID/answers" "$(jq -nc --arg r "$REQ" '{request_id:$r, kind:"permission", action:"allow"}')"` 뒤 turn 1이 `completed`.
+- **권한 요청.** 대본 `GATE-SPEC {"id":"q1","steps":[{"tool":"Bash","input":{"command":"echo alpha | tee hello.txt","description":"write hello.txt"}}],"final":"wrote hello.txt"}`로 만들면 세션이 `needs_input`이 되고 `ap_get "/v1/sessions/$SID/pending-requests"`에 `kind: "permission"`이 하나 있다. `REQ=$(ap_get "/v1/sessions/$SID/pending-requests" | head -1 | jq -r '.items[0].request_id')`로 id를 받는다. 세션을 시작한 key는 그 세션의 요청을 승인하지 못한다(`ap_post` → `403 FORBIDDEN` "The key that started this session cannot approve its requests; another key or a person approves them"). 사람으로 답한다: `ap_web POST "/v1/sessions/$SID/answers" "$(jq -nc --arg r "$REQ" '{request_id:$r, kind:"permission", action:"allow"}')"` → `202` `receipt_status: "accepted"`, 뒤 turn 1이 `completed`.
 - **이벤트.** `ap_curl key -N --max-time 5 "$API/v1/sessions/$SID/events" > "$EVIDENCE/events.txt" || true` → `event: result` 블록이 있다. timeout 메시지(28)는 정상.
 - **제어.** pause·resume·terminate·recovery는 `docs/quickstart.md` 3장 ⑥–⑨의 명령을 `get`/`post` 대신 `ap_get`/`ap_post`로 바꿔 그대로 쓴다(응답 마지막 줄의 상태 코드를 jq에 넘기지 않도록 `| head -1`).
 - **닫기.** 닫힌 세션은 다시 열리지 않고 제어도 `409 SESSION_CLOSED`라, 위 제어(⑨는 terminate 뒤 `abandon`·resume으로 같은 세션을 다시 쓴다)에 쓴 세션과 따로 한다. 위 생성 명령으로 새 세션을 만들고 turn 1이 `completed`가 된 뒤 그 `SID`로 `REV=$(ap_get "/v1/sessions/$SID" | head -1 | jq -r .revision)` → `ap_post "/v1/sessions/$SID/close" "$(jq -nc --argjson r "$REV" '{expected_revision:$r, reason:"verify close"}')"` → `202` `receipt_status: "accepted"`. 바로 읽으면 `admission_state: "closing"`(이때 메시지는 `409 SESSION_CLOSING`)이고, worker가 내려가면 몇 초 안에 `admission_state: "closed"`, `status: "stopped"`가 된다(`status`는 `closed`가 되지 않는다. `for i in $(seq 1 45); do [ "$(ap_get "/v1/sessions/$SID" | head -1 | jq -r .admission_state)" = closed ] && break; sleep 2; done`). 그 뒤 `ap_post "/v1/sessions/$SID/messages" '{"message":"again"}'` → `409 SESSION_CLOSED`.
 - **증거.** `| tee "$EVIDENCE/sessions.txt"`.
 
-웹 사용자의 세션. 웹 `/sessions`는 로그인한 사람이 볼 수 있는 세션을 보여 준다. 운영자 key(`ap_key`)로 만든 세션은 웹 사용자의 것이 아니다. 웹 사용자가 만든 세션이 필요하면 그 사람의 개인 key로 만든다. 웹 `/settings/api-keys`의 "개인 key 발급"이 보내는 것과 같은 `POST /v1/api-keys`를 `web-user.mjs key`가 그 사람의 cookie로 보내고, secret은 run 디렉터리의 `keys/<who>`(0600)에만 둔다.
+다른 구성원의 세션. 웹 `/sessions`는 로그인한 사람이 볼 수 있는 세션을 보여 준다. 특정 구성원이 만든 세션이 필요하면 그 사람의 개인 key로 만든다. 웹 `/settings/api-keys`의 "개인 key 발급"이 보내는 것과 같은 `POST /v1/api-keys`를 `web-user.mjs key`가 그 사람의 cookie로 보내고, secret은 run 디렉터리의 `keys/<who>`(0600)에만 둔다.
 
 ```sh
 . .claude/skills/verify-werft/scripts/lib.sh <run id>
@@ -56,6 +59,15 @@ ap_web GET /v1/sessions | head -1 | jq -c '[.items[] | {id, status}]'   # member
 
 - 화면은 member로 로그인한 브라우저에서 `node .claude/skills/verify-werft/scripts/browser.mjs <run id> login member` 뒤 `open /sessions`. 제목 "세션" 아래 "답변 대기" 영역(없으면 "답을 기다리는 세션이 없습니다."), 그 아래 세션·상태·모델·저장소·최근 열의 행에 제목과 모델·저장소가 보인다. 완료된 행 상태는 "쉬는 중"이다. 권한 요청 대본으로 만든 세션이면 "답변 대기"에 "답을 기다리는 세션 1개", "권한 요청: Bash"와 "요청 내용 보기"·"허용"·"거부"가 있고, 표의 작업 상태는 "답변 대기"다. `click 허용` 뒤 turn 1이 `completed`, 영역은 다시 비고 행은 "쉬는 중"이 된다. 사이드바 세션 항목의 답변 대기 배지은 없을 때 `aria-label` "답변 대기 없음"이다.
 - 개인 key의 scope는 그 사람의 지금 scope 안에서만 된다(member는 `recover` 없음, 넘으면 `403 SCOPE_NOT_GRANTABLE`).
+
+## Codex 엔진 세션
+
+Codex 엔진 run([SKILL.md](../SKILL.md) Launch의 Codex 줄)에서 몬다. 설정 문서가 달라 연결·모델·저장소가 다르고, 대본도 GATE-SPEC이 아니다.
+
+- **에이전트와 release.** [procedures.md](procedures.md) P-API-AGENTS와 같되 카드의 `model`은 `gpt-5.5`, release는 `{version_id, connection_id:"fake-responses"}`로 `repository_id` 없이 만든다(이 설정에는 저장소가 없어 `repository_id:"sample-app"`은 `422` "Repository sample-app is not in the catalog"). release의 `runtime_config_snapshot.runtime.kind`가 `codex_app_server`다.
+- **생성.** 본문은 `{agent_release_id, message}`다. `ap_post /v1/sessions "$(jq -nc --arg r "$REL" '{agent_release_id:$r, message:"hello from verify"}')"` → `201`, turn 1이 `completed`, `result.subtype: "success"`.
+- **권한 요청.** 메시지에 `run-command`가 들어 있으면 가짜 모델이 `exec_command`를 한 번 부른다. 세션이 `needs_input`이 되고 pending request가 `kind: "permission"`, `input.command`가 `/bin/sh -lc 'echo hello-from-codex'`다. 위 "권한 요청"처럼 `ap_web`으로 답하면 `202`, turn 1이 `completed`.
+- **사용량.** `ap_compose exec -T postgres psql -U postgres -d sessions -At -c "select model, speed, input_tokens, output_tokens, cost_usd, priced_by from provider_usage"` → 모델 호출마다 `gpt-5.5|standard|1200|80|0.008400|table` 한 줄.
 
 ## Gotchas
 

@@ -30,6 +30,7 @@ echo "key issued: len ${#KEY} key_id: $KID"
 
 - **발급.** 위 블록 → `key issued: len N`과 UUID `key_id`(key 값은 출력하지 않는다).
 - **누구인가.** `ap_get /v1` → `200` `{"status":"ok","owner_id":"verify"}`.
+- **세션은 못 만든다.** 운영자 key는 워크스페이스에 속하지 않는다. `sessions:write`가 있어도 `ap_post /v1/sessions '{"agent_release_id":"<REL>","message":"hi"}'` → `404 NOT_FOUND`. 세션은 구성원의 개인 key로 만든다([sessions.md](./sessions.md)).
 - **scope 밖.** read·write key로 `ap_post "/v1/sessions/<SID>/pause" '{"expected_revision":1,"reason":"verify"}'` → `403` `This credential does not hold sessions:control`. `<SID>`는 [sessions.md](./sessions.md)에서 만든 세션이다(scope 검사가 먼저라 아무 UUID여도 403).
 - **폐기.** `ap_revoke "$KID"` → `revoked <key_id> owner=… revoked_at=…`.
 - **폐기 후.** `ap_get /v1` → `401` `UNAUTHORIZED`.
