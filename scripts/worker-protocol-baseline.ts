@@ -69,6 +69,10 @@ async function main() {
   const { values } = parseArgs({
     options: { ref: { type: "string" }, check: { type: "boolean" } },
   });
+  if (values.check && values.ref === undefined) {
+    // This checkout's baseline names HEAD, which a committed file never is.
+    throw new Error("--check compares against a release: pass --ref vX.Y.Z");
+  }
   const repo = join(import.meta.dir, "..");
   let protocol: Protocol;
   if (values.ref === undefined) {
@@ -96,11 +100,11 @@ async function main() {
     const committed = JSON.parse(readFileSync(BASELINE_FILE, "utf8"));
     if (!sameProtocol(committed, protocol)) {
       console.error(
-        `${BASELINE_FILE} is not the worker protocol of ${values.ref ?? "this checkout"}. Refresh it in a pull request:\n  bun scripts/worker-protocol-baseline.ts${values.ref ? ` --ref ${values.ref}` : ""}`,
+        `${BASELINE_FILE} is not the worker protocol of ${values.ref}. Refresh it in a pull request:\n  bun scripts/worker-protocol-baseline.ts --ref ${values.ref}`,
       );
       process.exit(1);
     }
-    console.log(`baseline matches ${values.ref ?? "this checkout"}`);
+    console.log(`baseline matches ${values.ref}`);
     return;
   }
   writeFileSync(BASELINE_FILE, serialize(protocol));
