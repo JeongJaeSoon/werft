@@ -141,6 +141,20 @@ describe("litellm-price-drift", () => {
     ]);
   });
 
+  test("a known tier is still reported when LiteLLM drops its rate", () => {
+    const data = agreeing();
+    delete entryOf(data, "gpt-5-mini").output_cost_per_token_priority;
+    expect(where(data)).toEqual([["gpt-5-mini", "fast", false]]);
+  });
+
+  test("a rate for a length the card has no rates for is reported as one werft may undercharge", () => {
+    const data = agreeing();
+    // gpt-5.4-nano has no long card; werft charges its fallback past 272K.
+    entryOf(data, "gpt-5.4-nano").input_cost_per_token_above_272k_tokens =
+      100 / 1e6;
+    expect(where(data)).toEqual([["gpt-5.4-nano", "standard", true]]);
+  });
+
   test("a rate field this check does not know is reported", () => {
     const data = agreeing();
     entryOf(data, "gpt-5.5").input_cost_per_token_above_128k_tokens = 1 / 1e6;

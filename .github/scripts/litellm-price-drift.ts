@@ -132,15 +132,23 @@ export function compare(litellm: Record<string, Entry>): Drift[] {
     tier: string,
     detail: string,
     undercharges: boolean,
+    // Only a rate both sides give can be shown to be one werft charges more.
+    hideable = !undercharges,
   ) => {
-    if (undercharges || !Object.hasOwn(KNOWN, `${model} ${tier}`)) {
+    if (!hideable || !Object.hasOwn(KNOWN, `${model} ${tier}`)) {
       drift.push({ model, tier, detail, undercharges });
     }
   };
   for (const [model, card] of Object.entries(OPENAI_CARDS)) {
     const entry = litellm[model];
     if (entry === undefined) {
-      report(model, "standard", "LiteLLM has no entry for this model", false);
+      report(
+        model,
+        "standard",
+        "LiteLLM has no entry for this model",
+        false,
+        false,
+      );
       continue;
     }
     // Every rate LiteLLM gives, against what werft charges for it.
@@ -176,8 +184,16 @@ export function compare(litellm: Record<string, Entry>): Drift[] {
             : suffix;
       const rates = long === undefined ? card.short : card.long;
       // A length the card has no rates for is priced by the fallback, which
-      // is at least the highest card of its kind.
-      if (rates === undefined) continue;
+      // this check does not compute: a person compares the two.
+      if (rates === undefined) {
+        report(
+          model,
+          tier,
+          `\`${key}\`: LiteLLM ${perMtok(theirs)}; werft has no rate for this length and charges its fallback`,
+          true,
+        );
+        continue;
+      }
       const rate = PARTS[part];
       if (rate === undefined) continue;
       const write =
@@ -232,7 +248,7 @@ export function compare(litellm: Record<string, Entry>): Drift[] {
           }
           const key = `${part}${length}${suffixOf(tier)}`;
           if (!Object.hasOwn(entry, key)) {
-            report(model, tier, `LiteLLM has no \`${key}\``, false);
+            report(model, tier, `LiteLLM has no \`${key}\``, false, false);
           }
         }
       }
