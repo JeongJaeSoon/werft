@@ -155,7 +155,7 @@ describe("useAgentMapBoard", () => {
     });
     const WAITING = "11111111-1111-4111-8111-111111111111";
     const ENDED = "22222222-2222-4222-8222-222222222222";
-    const ended = {
+    let read = {
       items: [stopped(WAITING, "recovery_required"), stopped(ENDED, "stopped")],
       next_cursor: null,
     } as never;
@@ -165,10 +165,24 @@ describe("useAgentMapBoard", () => {
         {children}
       </WerftProvider>
     );
-    const hook = renderHook(() => useAgentMapBoard(ended, T0), { wrapper });
-    const board = hook.result.current.board;
-    expect(board?.sessions.map((card) => card.id)).toEqual([WAITING]);
-    expect(board?.doneCount).toBe(1);
+    const hook = renderHook(() => useAgentMapBoard(read, T0), { wrapper });
+    const board = () => hook.result.current.board;
+    expect(board()?.sessions.map((card) => card.id)).toEqual([WAITING]);
+    expect(board()?.doneCount).toBe(1);
+
+    // The decision is made: the status stays stopped, only the admission
+    // moves. The card holds its lane until the reader tidies, then leaves.
+    read = {
+      items: [stopped(WAITING, "stopped"), stopped(ENDED, "stopped")],
+      next_cursor: null,
+    } as never;
+    hook.rerender();
+    expect(board()?.sessions).toMatchObject([
+      { id: WAITING, pinnedLane: "attention" },
+    ]);
+    act(() => hook.result.current.tidy());
+    expect(board()?.sessions).toEqual([]);
+    expect(board()?.doneCount).toBe(2);
   });
 });
 
