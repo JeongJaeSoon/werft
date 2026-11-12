@@ -64,6 +64,9 @@ describe("session state", () => {
     [row("running", "pausing"), "paused", "running"],
     [row("idle", "resuming"), "idle", "idle"],
     [row("idle", "recovery_required"), "recovery_required", "idle"],
+    [row("failed", "recovery_required"), "recovery_required", "failed"],
+    // A terminate that cut a running turn: stopped, yet waiting on a decision.
+    [row("stopped", "recovery_required"), "recovery_required", "stopped"],
     [row("stopped", "active"), "ended", "stopped"],
     [row("idle", "closed"), "ended", "idle"],
     [row("running", "stopping", { approval: true }), "ended", "needs_input"],

@@ -33,7 +33,7 @@ wait on turn 4: TURN_BLOCKED (paused)
 message while paused: 409 SESSION_PAUSED
 resume: turn 4 completed
 terminate: receipt accepted, external effects reverted false
-session: failed/recovery_required, turn 5 outcome_unknown
+session: stopped/recovery_required, turn 5 outcome_unknown
 recovery: abandon, turn 5 cancelled, resumable true
 after recovery: turn 6 completed
 close: receipt succeeded

@@ -411,6 +411,50 @@ const OVERVIEW_MESSAGES = {
 };
 
 describe("SessionOverviewRow", () => {
+  test("복구 결정을 기다리는 세션은 상태 뒤에 그 사실을 적고, 다른 세션과 문구 없는 화면은 적지 않는다", () => {
+    const rowText = (
+      session: typeof SESSION,
+      messages: typeof OVERVIEW_MESSAGES & { recoveryRequired?: string },
+    ) => {
+      const { getByRole, unmount } = render(
+        <SessionOverviewRow
+          session={session}
+          renderLink={(link) => <a href="/sessions/abc" {...link} />}
+          messages={messages}
+        />,
+      );
+      const text = getByRole("row").textContent;
+      unmount();
+      return text;
+    };
+    const named = { ...OVERVIEW_MESSAGES, recoveryRequired: "복구 필요" };
+    // A terminate that cut a running turn: stopped, yet a decision is owed.
+    expect(
+      rowText(
+        { ...SESSION, status: "stopped", admission_state: "recovery_required" },
+        named,
+      ),
+    ).toContain("work: status:stopped · 복구 필요");
+    expect(
+      rowText(
+        { ...SESSION, status: "failed", admission_state: "recovery_required" },
+        named,
+      ),
+    ).toContain("work: status:failed · 복구 필요");
+    expect(
+      rowText(
+        { ...SESSION, status: "stopped", admission_state: "stopped" },
+        named,
+      ),
+    ).not.toContain("복구 필요");
+    expect(
+      rowText(
+        { ...SESSION, status: "stopped", admission_state: "recovery_required" },
+        OVERVIEW_MESSAGES,
+      ),
+    ).not.toContain(" · ");
+  });
+
   test("제목이 있으면 행을 여는 링크가 제목으로 읽히고 그 아래 짧은 ID 8자리를 둔다", () => {
     const { getByRole, getByText } = render(
       <SessionOverviewRow

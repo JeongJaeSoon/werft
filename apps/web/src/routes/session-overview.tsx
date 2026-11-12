@@ -51,6 +51,7 @@ export function useSessionOverviewRowMessages(): SessionOverviewRowMessages {
     unknown: t("sessionList.unknown"),
     recent: t("sessionList.column.recent"),
     open: (name) => t("sessionList.open", { name }),
+    recoveryRequired: t("sessions.admission.recovery_required"),
   };
 }
 
