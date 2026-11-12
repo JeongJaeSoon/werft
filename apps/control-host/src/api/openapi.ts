@@ -71,6 +71,7 @@ import {
   createCredentialBindingResponseSchema,
   createInviteRequestSchema,
   createInviteResponseSchema,
+  createLoginProviderRequestSchema,
   createPushRequestRequestSchema,
   createSessionRequestSchema,
   createSessionResponseSchema,
@@ -85,6 +86,9 @@ import {
   deleteSlackAppResponseSchema,
   deleteSlackSecretResponseSchema,
   deleteTeamResponseSchema,
+  disableLoginProviderResponseSchema,
+  discoverLoginProviderRequestSchema,
+  discoverLoginProviderResponseSchema,
   dispatchWorkflowRequestSchema,
   dispatchWorkflowResponseSchema,
   envVariableListSchema,
@@ -140,6 +144,7 @@ import {
   listGitHubRepositoriesResponseSchema,
   listInvitesResponseSchema,
   listLinkedAccountsResponseSchema,
+  listLoginProvidersResponseSchema,
   listMembersQuerySchema,
   listMembersResponseSchema,
   listMyTeamsQuerySchema,
@@ -164,6 +169,7 @@ import {
   listWorkspaceSlackAppsResponseSchema,
   loginMethodsResponseSchema,
   loginProviderParamsSchema,
+  loginProviderResponseSchema,
   loginRequestSchema,
   loginResponseSchema,
   lookupSlackChannelsQuerySchema,
@@ -268,6 +274,7 @@ import {
   setAgentManagingTeamResponseSchema,
   setConnectionAutoModeRequestSchema,
   setConnectionModelsRequestSchema,
+  setLoginProviderSecretRequestSchema,
   setSessionShareRequestSchema,
   setSessionShareResponseSchema,
   setSettingsCredentialRequestSchema,
@@ -315,6 +322,7 @@ import {
   updateAchievementTypeRequestSchema,
   updateAgentRequestSchema,
   updateAuthMeRequestSchema,
+  updateLoginProviderRequestSchema,
   updateMemberRequestSchema,
   updateSessionRequestSchema,
   updateTeamRequestSchema,
@@ -419,6 +427,10 @@ const requestComponents = {
   UpdateSessionRequest: updateSessionRequestSchema,
   SetAccessRequest: setAccessRequestSchema,
   ProviderLoginCallbackRequest: providerLoginCallbackRequestSchema,
+  DiscoverLoginProviderRequest: discoverLoginProviderRequestSchema,
+  CreateLoginProviderRequest: createLoginProviderRequestSchema,
+  UpdateLoginProviderRequest: updateLoginProviderRequestSchema,
+  SetLoginProviderSecretRequest: setLoginProviderSecretRequestSchema,
   AuditRetentionRequest: auditRetentionRequestSchema,
   SlackGuestRequest: slackGuestRequestSchema,
   AgentAccessRequest: agentAccessRequestSchema,
@@ -538,6 +550,10 @@ const responseComponents = {
   LoginMethodsResponse: loginMethodsResponseSchema,
   StartProviderLoginResponse: startProviderLoginResponseSchema,
   ProviderLoginCallbackResponse: providerLoginCallbackResponseSchema,
+  ListLoginProvidersResponse: listLoginProvidersResponseSchema,
+  LoginProviderResponse: loginProviderResponseSchema,
+  DiscoverLoginProviderResponse: discoverLoginProviderResponseSchema,
+  DisableLoginProviderResponse: disableLoginProviderResponseSchema,
   IssuePasswordResetRequest: issuePasswordResetRequestSchema,
   IssuePasswordResetResponse: issuePasswordResetResponseSchema,
   AuditRetentionResponse: auditRetentionResponseSchema,
@@ -1117,6 +1133,37 @@ const SETTINGS_DOCUMENT_EXAMPLE = {
 
 const SETTINGS_OWNER =
   "The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes.";
+const LOGIN_PROVIDER_OWNER = SETTINGS_OWNER;
+const LOGIN_PROVIDER_EXAMPLE = {
+  id: "5b0c7e2a-9d41-4f6b-8a3e-7c1d2e3f4a5b",
+  display_name: "Keycloak",
+  issuer: "https://idp.example.com/realms/acme",
+  redirect_uri:
+    "https://console.example.com/auth/callback/5b0c7e2a-9d41-4f6b-8a3e-7c1d2e3f4a5b",
+  authorization_endpoint:
+    "https://idp.example.com/realms/acme/protocol/openid-connect/auth",
+  token_endpoint:
+    "https://idp.example.com/realms/acme/protocol/openid-connect/token",
+  jwks_uri: "https://idp.example.com/realms/acme/protocol/openid-connect/certs",
+  userinfo_endpoint:
+    "https://idp.example.com/realms/acme/protocol/openid-connect/userinfo",
+  endpoint_hosts: ["idp.example.com"],
+  signing_algs: ["RS256"],
+  pkce_advertised: true,
+  discovery_checked_at: "2026-10-18T09:00:00Z",
+  client_id: "werft-console",
+  token_auth_method: "client_secret_basic",
+  client_secret: { last4: "9f3a", updated_at: "2026-10-18T09:05:00Z" },
+  pending_client_secret: null,
+  allowed_domains: ["example.com"],
+  jit_role: null,
+  require_verified_email: true,
+  state: "enabled",
+  tested_at: "2026-10-18T09:10:00Z",
+  revision: 4,
+  created_at: "2026-10-18T09:00:00Z",
+  updated_at: "2026-10-18T09:12:00Z",
+} as const;
 const SETTINGS_LIST =
   "The database's rows, disabled ones included, by id. A credential is shown as `stored` with its `last4`, or as the name of the env or Secrets Manager reference; never a value. `state`: `needs_value` (stored, no value yet), `unresolved` (the credential did not resolve on the replica that answered), `disabled`, else `active`. Changes nothing.";
 const SETTINGS_CREATE =
@@ -2782,6 +2829,257 @@ export const API_ROUTE_DECLARATIONS = [
     errorNotes: {
       BAD_REQUEST:
         "Also when `app_id` is not a UUID or `purpose` is not one of the three, `slack_config_token` included.",
+    },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/login-providers",
+    operationId: "listLoginProviders",
+    tag: "Auth",
+    summary: "List the sign-in providers and where each stands",
+    description: `${LOGIN_PROVIDER_OWNER} Every provider, on or off, with the redirect URI to register at it, the endpoints discovery named, and \`state\`: \`draft\` (no client ID or secret yet), \`needs_test\`, \`ready\`, \`enabled\`, or \`enabled_secret_pending\` (on, with a new secret waiting for a test sign-in). A client secret is never returned, only its last four characters.`,
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "ListLoginProvidersResponse",
+      description:
+        "`console_origin_configured: false` means no provider can be made until `CONSOLE_ORIGIN` is set; `redirect_uri` is null then.",
+      example: {
+        providers: [LOGIN_PROVIDER_EXAMPLE],
+        console_origin_configured: true,
+      },
+    },
+    errors: [401, 403, 503],
+  },
+  {
+    method: "post",
+    path: "/v1/login-providers/discover",
+    operationId: "discoverLoginProvider",
+    tag: "Auth",
+    summary: "Check an issuer's discovery document without saving anything",
+    description: `${LOGIN_PROVIDER_OWNER} Reads \`<issuer>/.well-known/openid-configuration\` now and says whether this server can sign people in with it. A document that cannot be used answers 200 with \`outcome: "failed"\` and the problem; the provider's response body is never returned.`,
+    auth: "session",
+    body: "DiscoverLoginProviderRequest",
+    requestExample: { issuer: "https://idp.example.com/realms/acme" },
+    success: {
+      status: 200,
+      schema: "DiscoverLoginProviderResponse",
+      description:
+        "`ok` with the hosts this server would send requests to, or `failed` with the problem.",
+      example: {
+        outcome: "ok",
+        endpoint_hosts: ["idp.example.com"],
+        signing_algs: ["RS256"],
+        token_auth_methods: ["client_secret_basic", "client_secret_post"],
+        pkce_advertised: true,
+      },
+    },
+    errors: [400, 401, 403, 503],
+    errorNotes: {
+      BACKEND_UNAVAILABLE: "Also when `CONSOLE_ORIGIN` is not set.",
+    },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/login-providers",
+    operationId: "createLoginProvider",
+    tag: "Auth",
+    summary: "Make a sign-in provider from its issuer; it starts off",
+    description: `${LOGIN_PROVIDER_OWNER} Checks the issuer's discovery document and, when it can be used, keeps the endpoints it names. The provider is made off, with no client ID and no secret: register the returned \`redirect_uri\` at the provider first.`,
+    auth: "session",
+    body: "CreateLoginProviderRequest",
+    requestExample: {
+      display_name: "Keycloak",
+      issuer: "https://idp.example.com/realms/acme",
+    },
+    success: {
+      status: 201,
+      schema: "LoginProviderResponse",
+      description: "The new provider, in state `draft`.",
+      example: {
+        provider: {
+          ...LOGIN_PROVIDER_EXAMPLE,
+          client_id: null,
+          client_secret: null,
+          state: "draft",
+          tested_at: null,
+          revision: 1,
+        },
+      },
+    },
+    errors: [400, 401, 403, 409, 503],
+    errorCodes: { 409: ["ALREADY_EXISTS"] },
+    errorNotes: {
+      BAD_REQUEST:
+        "Also when the discovery document cannot be used; `details.problem` names why.",
+      ALREADY_EXISTS: "A provider with this issuer exists already.",
+      BACKEND_UNAVAILABLE: "Also when `CONSOLE_ORIGIN` is not set.",
+    },
+    idempotent: false,
+  },
+  {
+    method: "patch",
+    path: "/v1/login-providers/{id}",
+    operationId: "updateLoginProvider",
+    tag: "Auth",
+    summary: "Change a sign-in provider's settings",
+    description: `${LOGIN_PROVIDER_OWNER} Name only the fields to change, with \`If-Match: <revision>\`. Anything but \`display_name\` makes the settings a new revision, so a provider that is off has to pass a test sign-in again before it can be turned on. On a provider that is on, \`client_id\` and \`token_auth_method\` cannot change: turn it off first.`,
+    auth: "session",
+    body: "UpdateLoginProviderRequest",
+    requestExample: { client_id: "werft-console" },
+    ifMatch: "revision",
+    success: {
+      status: 200,
+      schema: "LoginProviderResponse",
+      description: "The provider after the change.",
+      example: { provider: LOGIN_PROVIDER_EXAMPLE },
+    },
+    errors: [400, 401, 403, 404, 409, 412, 428, 503],
+    errorCodes: {
+      409: ["REVISION_CONFLICT"],
+      412: ["VERSION_MISMATCH"],
+      428: ["PRECONDITION_REQUIRED"],
+    },
+    errorNotes: {
+      REVISION_CONFLICT:
+        "The provider is on and the change names its client ID or client authentication (`details.reason_code: provider_enabled`).",
+      VERSION_MISMATCH:
+        "The provider changed since `revision` was read; `details.current_version` is the one to send.",
+    },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/login-providers/{id}/refresh-discovery",
+    operationId: "refreshLoginProviderDiscovery",
+    tag: "Auth",
+    summary: "Read the provider's discovery document again",
+    description: `${LOGIN_PROVIDER_OWNER} Replaces the kept endpoints with what the issuer names now. Only on a provider that is off; the settings become a new revision.`,
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "LoginProviderResponse",
+      description: "The provider with the endpoints discovery names now.",
+      example: { provider: { ...LOGIN_PROVIDER_EXAMPLE, state: "needs_test" } },
+    },
+    errors: [400, 401, 403, 404, 409, 503],
+    errorCodes: { 409: ["REVISION_CONFLICT"] },
+    errorNotes: {
+      BAD_REQUEST:
+        "The discovery document cannot be used; `details.problem` names why.",
+      REVISION_CONFLICT:
+        "The provider is on (`details.reason_code: provider_enabled`).",
+      BACKEND_UNAVAILABLE: "Also when `CONSOLE_ORIGIN` is not set.",
+    },
+    idempotent: false,
+  },
+  {
+    method: "put",
+    path: "/v1/login-providers/{id}/client-secret",
+    operationId: "setLoginProviderSecret",
+    tag: "Auth",
+    summary: "Set the provider's client secret",
+    description: `${LOGIN_PROVIDER_OWNER} Write-only. On a provider that is off the value becomes its secret and the settings a new revision. On a provider that is on the value waits as a replacement: sign-ins keep the secret they have until a test sign-in passes with the new one.`,
+    auth: "session",
+    body: "SetLoginProviderSecretRequest",
+    requestExample: { value: "example-client-secret" },
+    success: {
+      status: 200,
+      schema: "LoginProviderResponse",
+      description:
+        "The provider; the secret shows as its last four characters only.",
+      example: { provider: { ...LOGIN_PROVIDER_EXAMPLE, state: "needs_test" } },
+    },
+    errors: [400, 401, 403, 404, 503],
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/login-providers/{id}/test/start",
+    operationId: "startLoginProviderTest",
+    tag: "Auth",
+    summary: "Begin a test sign-in with the provider as it is set now",
+    description: `${LOGIN_PROVIDER_OWNER} Works on a provider that is off. Sets the flow cookie and answers the provider's URL to open; the browser comes back to the redirect URI and POST /v1/auth/oidc/callback answers \`outcome: "tested"\`. A test makes no account and no session. A pass is written down only if the settings and the secret are still the ones the test started with.`,
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "StartProviderLoginResponse",
+      description:
+        "The test has started; the response sets the flow cookie. Send the browser to `authorization_url`.",
+      example: {
+        authorization_url:
+          "https://idp.example.com/oauth2/authorize?response_type=code&client_id=werft-console&state=example",
+      },
+    },
+    errors: [400, 401, 403, 404, 409, 503],
+    errorCodes: { 409: ["REVISION_CONFLICT"] },
+    errorNotes: {
+      BAD_REQUEST:
+        "The provider's authorization endpoint is plain http outside a local stack.",
+      REVISION_CONFLICT:
+        "The provider has no client ID or no client secret yet (`details.reason_code: not_tested`).",
+      BACKEND_UNAVAILABLE: "Also when `CONSOLE_ORIGIN` is not set.",
+    },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/login-providers/{id}/enable",
+    operationId: "enableLoginProvider",
+    tag: "Auth",
+    summary: "Turn a sign-in provider on",
+    description: `${LOGIN_PROVIDER_OWNER} Only when a test sign-in passed with the settings as they are now. The provider then shows on the login page.`,
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "LoginProviderResponse",
+      description: "The provider, on.",
+      example: { provider: LOGIN_PROVIDER_EXAMPLE },
+    },
+    errors: [401, 403, 404, 409, 503],
+    errorCodes: { 409: ["REVISION_CONFLICT"] },
+    errorNotes: {
+      REVISION_CONFLICT:
+        "No test sign-in passed with the settings as they are now, or the client ID or secret is missing (`details.reason_code: not_tested`).",
+    },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/login-providers/{id}/disable",
+    operationId: "disableLoginProvider",
+    tag: "Auth",
+    summary: "Turn a sign-in provider off and end its sessions",
+    description: `${LOGIN_PROVIDER_OWNER} In one transaction the provider goes off and every live session made through it ends, the caller's own included when they signed in with it. A replacement secret that was waiting is dropped.`,
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "DisableLoginProviderResponse",
+      description: "The provider, off, and how many sessions ended.",
+      example: {
+        provider: { ...LOGIN_PROVIDER_EXAMPLE, state: "ready" },
+        sessions_revoked: 3,
+      },
+    },
+    errors: [401, 403, 404, 503],
+    idempotent: false,
+  },
+  {
+    method: "delete",
+    path: "/v1/login-providers/{id}",
+    operationId: "deleteLoginProvider",
+    tag: "Auth",
+    summary: "Delete a sign-in provider that is off",
+    description: `${LOGIN_PROVIDER_OWNER} Its client secret goes with it. The login methods people made through it stay, so they sign in as the same users if a provider with the same issuer is made again.`,
+    auth: "session",
+    success: { status: 204, description: "The provider is deleted." },
+    errors: [401, 403, 404, 409, 503],
+    errorCodes: { 409: ["REVISION_CONFLICT"] },
+    errorNotes: {
+      REVISION_CONFLICT:
+        "The provider is on (`details.reason_code: provider_enabled`).",
     },
     idempotent: false,
   },
@@ -7992,7 +8290,10 @@ function paramsSchemaFor(path: string): z.ZodObject {
   if (path === "/v1/usage/tools/{name}/calls") {
     return usageToolCallsParamsSchema;
   }
-  if (path === "/v1/auth/providers/{id}/start") {
+  if (
+    path === "/v1/auth/providers/{id}/start" ||
+    path.startsWith("/v1/login-providers/{id}")
+  ) {
     return loginProviderParamsSchema;
   }
   throw new Error(`No params schema registered for ${path}`);

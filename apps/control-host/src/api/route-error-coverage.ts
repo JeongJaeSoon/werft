@@ -29,6 +29,18 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/auth/providers/{id}/start",
     "POST /v1/auth/oidc/callback",
   ],
+  "routes/login-providers.test.ts": [
+    "GET /v1/login-providers",
+    "POST /v1/login-providers/discover",
+    "POST /v1/login-providers",
+    "PATCH /v1/login-providers/{id}",
+    "POST /v1/login-providers/{id}/refresh-discovery",
+    "PUT /v1/login-providers/{id}/client-secret",
+    "POST /v1/login-providers/{id}/test/start",
+    "POST /v1/login-providers/{id}/enable",
+    "POST /v1/login-providers/{id}/disable",
+    "DELETE /v1/login-providers/{id}",
+  ],
   "routes/sessions/sessions.test.ts": [
     "POST /v1/sessions",
     "GET /v1/sessions",

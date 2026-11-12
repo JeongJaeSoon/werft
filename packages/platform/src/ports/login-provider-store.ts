@@ -116,7 +116,8 @@ export interface LoginProviderAdminStore {
     audit: LoginProviderAudit;
   }): Promise<
     | { outcome: "updated"; provider: LoginProviderRecord }
-    | { outcome: "not_found" | "locked" }
+    | { outcome: "not_found" }
+    | { outcome: "locked" }
     | { outcome: "stale"; revision: number }
   >;
   /** Replaces the pinned endpoints; only while the provider is off. */
@@ -126,7 +127,9 @@ export interface LoginProviderAdminStore {
     audit: LoginProviderAudit;
   }): Promise<
     | { outcome: "updated"; provider: LoginProviderRecord }
-    | { outcome: "not_found" | "locked" | "issuer_changed" }
+    | { outcome: "not_found" }
+    | { outcome: "locked" }
+    | { outcome: "issuer_changed" }
   >;
   /**
    * Off: the value becomes the provider's secret. On: it waits as the
@@ -138,7 +141,8 @@ export interface LoginProviderAdminStore {
     audit: LoginProviderAudit;
   }): Promise<
     | { outcome: "stored"; provider: LoginProviderRecord }
-    | { outcome: "not_found" | "no_workspace" }
+    | { outcome: "not_found" }
+    | { outcome: "no_workspace" }
   >;
   /** The provider with the secret a test sign-in runs with now. */
   findForTest(id: string): Promise<{
@@ -167,7 +171,8 @@ export interface LoginProviderAdminStore {
     audit: LoginProviderAudit;
   }): Promise<
     | { outcome: "enabled"; provider: LoginProviderRecord }
-    | { outcome: "not_found" | "not_ready" }
+    | { outcome: "not_found" }
+    | { outcome: "not_ready" }
   >;
   /** Turns it off and ends the sessions made through it. */
   disable(input: { id: string; audit: LoginProviderAudit }): Promise<

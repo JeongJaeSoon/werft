@@ -15,7 +15,10 @@ import type {
   ExternalSignInResult,
   IdentityStore,
   LoginProvider,
+  LoginProviderAdminStore,
+  LoginProviderSecretSlot,
   LoginProviderStore,
+  ResolvedWebSession,
 } from "@werft-ai/platform";
 import {
   type MockOidcClaims,
@@ -427,7 +430,21 @@ describe("provider sign-in: finish", () => {
         await refusal(
           login.finish({
             ...started,
-            cookieValue: sealer.seal({ ...opened, purpose }),
+            cookieValue: sealer.seal({
+              ...opened,
+              purpose,
+              // A test flow opens only with who runs it.
+              ...(purpose === "test"
+                ? {
+                    test: {
+                      userId: OWNER.userId,
+                      sessionId: OWNER.sessionId,
+                      secretSlot: "current" as const,
+                      secretVersion: 1,
+                    },
+                  }
+                : {}),
+            }),
           }),
         ),
       ).toEqual({ kind: "rejected", reason: "flow_purpose" });
@@ -497,6 +514,362 @@ describe("provider sign-in: finish", () => {
   });
 });
 
+const OWNER = {
+  userId: "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+  sessionId: "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01",
+  workspaceId: "00000000-0000-4000-8000-000000000002",
+};
+const RECEIPT_ID = "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c";
+
+type RecordedTest = Parameters<LoginProviderAdminStore["recordTest"]>[0];
+
+/**
+ * The owner's side over one row and one stored secret, both of which a
+ * test can change between the start and the callback.
+ */
+function adminOf(overrides: Partial<LoginProvider> = {}) {
+  const stored = {
+    row: providerFor({ enabled: false, ...overrides }),
+    slot: "current" as LoginProviderSecretSlot,
+    clientSecret: CLIENT_SECRET as string | null,
+    secretVersion: 1 as number | null,
+    known: "none" as "linked" | "account_exists" | "none",
+    outcome: "recorded" as "recorded" | "stale" | "not_found",
+  };
+  const recorded: RecordedTest[] = [];
+  const admin: Pick<
+    LoginProviderAdminStore,
+    "findForTest" | "recordTest" | "previewEntry"
+  > = {
+    findForTest: async (id) =>
+      id === stored.row.id
+        ? {
+            provider: { ...stored.row },
+            slot: stored.slot,
+            clientSecret: stored.clientSecret,
+            secretVersion: stored.secretVersion,
+          }
+        : null,
+    recordTest: async (input) => {
+      recorded.push(input);
+      return { outcome: stored.outcome };
+    },
+    previewEntry: async () => stored.known,
+  };
+  return { admin, stored, recorded };
+}
+
+describe("provider test sign-in", () => {
+  function testFor(overrides: Partial<LoginProvider> = {}) {
+    const { admin, stored, recorded } = adminOf(overrides);
+    const login = createProviderLogin({
+      providers: storeOf([stored.row], CLIENT_SECRET),
+      admin,
+      consoleOrigin: CONSOLE_ORIGIN,
+      flowKey: FLOW_KEY,
+    });
+    const start = () =>
+      login.startTest({
+        providerId: PROVIDER_ID,
+        userId: OWNER.userId,
+        sessionId: OWNER.sessionId,
+      });
+    /** A whole test; `between` runs after the provider answered. */
+    const run = async (
+      claims: MockOidcClaims,
+      between: () => void = () => {},
+      owner: typeof OWNER | null = OWNER,
+    ) => {
+      const started = await start();
+      const back = await idp.authorize(started.authorizationUrl, claims);
+      between();
+      return login.finishTest({
+        cookieValue: started.cookieValue,
+        providerId: PROVIDER_ID,
+        code: back.code,
+        state: back.state,
+        responseIssuer: undefined,
+        owner,
+        receiptId: RECEIPT_ID,
+      });
+    };
+    return { login, stored, recorded, start, run };
+  }
+
+  test("runs on a provider that is off, where a sign-in does not start", async () => {
+    const { login, start } = testFor();
+    expect(await refusal(login.start(PROVIDER_ID))).toEqual({
+      kind: "not_found",
+      reason: "provider_off",
+    });
+    const { authorizationUrl } = await start();
+    expect(new URL(authorizationUrl).searchParams.get("redirect_uri")).toBe(
+      `${CONSOLE_ORIGIN}/auth/callback/${PROVIDER_ID}`,
+    );
+  });
+
+  test("the flow cookie names the owner, their session and the secret the test tries", async () => {
+    const { stored, start } = testFor({ configRevision: 7 });
+    stored.slot = "next";
+    stored.secretVersion = 3;
+    const { cookieValue } = await start();
+    expect(
+      createFlowSealer(FLOW_KEY, LOGIN_FLOW_COOKIE_NAME).open(cookieValue),
+    ).toMatchObject({
+      purpose: "test",
+      providerId: PROVIDER_ID,
+      configRevision: 7,
+      test: {
+        userId: OWNER.userId,
+        sessionId: OWNER.sessionId,
+        secretSlot: "next",
+        secretVersion: 3,
+      },
+    });
+  });
+
+  test("a pass says who the provider vouched for and is written down for the owner, with the secret it ran with", async () => {
+    const { recorded, run } = testFor({ configRevision: 4 });
+    expect(await run(alice)).toEqual({
+      providerId: PROVIDER_ID,
+      test: {
+        passed: true,
+        recorded: true,
+        subject: "1001",
+        email: "alice@example.com",
+        email_verified: true,
+        address_owned: true,
+        entry: "invite_only",
+      },
+    });
+    expect(recorded).toEqual([
+      {
+        id: PROVIDER_ID,
+        configRevision: 4,
+        slot: "current",
+        clientSecret: CLIENT_SECRET,
+        audit: {
+          userId: OWNER.userId,
+          workspaceId: OWNER.workspaceId,
+          receiptId: RECEIPT_ID,
+        },
+      },
+    ]);
+  });
+
+  test("does not start for a provider that is not there, one with no client secret, or with no owner's side wired", async () => {
+    const { login, stored } = testFor();
+    expect(
+      await refusal(login.startTest({ ...OWNER, providerId: OTHER_ID })),
+    ).toEqual({ kind: "not_found", reason: "provider_missing" });
+    stored.clientSecret = null;
+    stored.secretVersion = null;
+    expect(
+      await refusal(login.startTest({ ...OWNER, providerId: PROVIDER_ID })),
+    ).toEqual({ kind: "unavailable", reason: "client_not_configured" });
+
+    const { login: unwired } = loginFor({ enabled: false });
+    expect(
+      await refusal(unwired.startTest({ ...OWNER, providerId: PROVIDER_ID })),
+    ).toEqual({ kind: "not_found", reason: "provider_missing" });
+  });
+
+  const strangers: Array<[string, typeof OWNER | null]> = [
+    ["nobody signed in, or someone who is not an owner", null],
+    ["another owner", { ...OWNER, userId: OTHER_ID }],
+    ["the same owner in another session", { ...OWNER, sessionId: OTHER_ID }],
+  ];
+  for (const [who, owner] of strangers) {
+    test(`a test brought back by ${who} is refused and nothing is written down`, async () => {
+      const { recorded, run } = testFor();
+      expect(await refusal(run(alice, undefined, owner))).toEqual({
+        kind: "rejected",
+        reason: "test_session",
+      });
+      expect(recorded).toEqual([]);
+    });
+  }
+
+  test("a sign-in's cookie does not finish as a test, nor a test's as a sign-in", async () => {
+    const { admin, stored } = adminOf({ enabled: true });
+    const login = createProviderLogin({
+      providers: storeOf([stored.row], CLIENT_SECRET),
+      admin,
+      consoleOrigin: CONSOLE_ORIGIN,
+      flowKey: FLOW_KEY,
+    });
+    const signIn = await flow(login, alice);
+    expect(
+      await refusal(
+        login.finishTest({ ...signIn, owner: OWNER, receiptId: RECEIPT_ID }),
+      ),
+    ).toEqual({ kind: "rejected", reason: "flow_purpose" });
+
+    const started = await login.startTest({
+      ...OWNER,
+      providerId: PROVIDER_ID,
+    });
+    const back = await idp.authorize(started.authorizationUrl, alice);
+    expect(
+      await refusal(
+        login.finish({
+          cookieValue: started.cookieValue,
+          providerId: PROVIDER_ID,
+          code: back.code,
+          state: back.state,
+          responseIssuer: undefined,
+        }),
+      ),
+    ).toEqual({ kind: "rejected", reason: "flow_purpose" });
+  });
+
+  const answers: Array<[string, MockOidcClaims, string]> = [
+    [
+      "another audience",
+      { ...alice, aud: "someone-else" },
+      "audience_mismatch",
+    ],
+    [
+      "another issuer",
+      { ...alice, iss: "https://evil.example" },
+      "issuer_mismatch",
+    ],
+    ["another nonce", { ...alice, nonce: "replayed" }, "nonce_mismatch"],
+    [
+      "an unverified email",
+      { ...alice, email_verified: false },
+      "email_unverified",
+    ],
+  ];
+  for (const [what, claims, reason] of answers) {
+    test(`an answer with ${what} fails the test with its reason and is not written down`, async () => {
+      const { recorded, run } = testFor();
+      expect(await run(claims)).toEqual({
+        providerId: PROVIDER_ID,
+        test: { passed: false, reason },
+      });
+      expect(recorded).toEqual([]);
+    });
+  }
+
+  test("a client secret the provider does not take fails the test and is not written down", async () => {
+    const { stored, recorded, run } = testFor();
+    stored.clientSecret = "not-the-provider's-secret";
+    expect(await run(alice)).toEqual({
+      providerId: PROVIDER_ID,
+      test: { passed: false, reason: "code_refused" },
+    });
+    expect(recorded).toEqual([]);
+  });
+
+  const changes: Array<
+    [string, (stored: ReturnType<typeof adminOf>["stored"]) => void]
+  > = [
+    [
+      "the settings",
+      (stored) => {
+        stored.row.configRevision += 1;
+      },
+    ],
+    [
+      "the secret",
+      (stored) => {
+        stored.secretVersion = 2;
+      },
+    ],
+    [
+      "which secret is tried",
+      (stored) => {
+        stored.slot = "next";
+      },
+    ],
+    [
+      "the secret to none",
+      (stored) => {
+        stored.clientSecret = null;
+        stored.secretVersion = null;
+      },
+    ],
+  ];
+  for (const [what, change] of changes) {
+    test(`a test that comes back after someone changed ${what} is not a pass and is not written down`, async () => {
+      const { stored, recorded, run } = testFor();
+      expect(await run(alice, () => change(stored))).toEqual({
+        providerId: PROVIDER_ID,
+        test: { passed: false, reason: "config_changed" },
+      });
+      expect(recorded).toEqual([]);
+    });
+  }
+
+  test("a pass the store finds stale is told as passed and not recorded", async () => {
+    const { stored, run } = testFor();
+    stored.outcome = "stale";
+    expect((await run(alice)).test).toMatchObject({
+      passed: true,
+      recorded: false,
+    });
+  });
+
+  test("a provider that is gone when the test comes back is not found", async () => {
+    const { stored, run } = testFor();
+    expect(
+      await refusal(
+        run(alice, () => {
+          stored.row = providerFor({ id: OTHER_ID });
+        }),
+      ),
+    ).toEqual({ kind: "not_found", reason: "provider_missing" });
+  });
+
+  test("says what a sign-in by the tested account would meet, without making anything", async () => {
+    const silent = { ...alice, email_verified: null };
+    const cases: Array<{
+      provider?: Partial<LoginProvider>;
+      known: "linked" | "account_exists" | "none";
+      claims: MockOidcClaims;
+      entry: string;
+    }> = [
+      { known: "linked", claims: alice, entry: "signs_in" },
+      { known: "account_exists", claims: alice, entry: "link_required" },
+      {
+        provider: { requireVerifiedEmail: false },
+        known: "account_exists",
+        claims: silent,
+        entry: "refused",
+      },
+      {
+        provider: { jitRole: "member" },
+        known: "none",
+        claims: alice,
+        entry: "joins",
+      },
+      { known: "none", claims: alice, entry: "invite_only" },
+      {
+        // Joining by itself takes an address the provider vouches for.
+        provider: { requireVerifiedEmail: false, jitRole: "member" },
+        known: "none",
+        claims: silent,
+        entry: "invite_only",
+      },
+      {
+        provider: { allowedDomains: ["elsewhere.example"], jitRole: "member" },
+        known: "none",
+        claims: alice,
+        entry: "domain_not_allowed",
+      },
+    ];
+    for (const { provider, known, claims, entry } of cases) {
+      const { stored, recorded, run } = testFor(provider);
+      stored.known = known;
+      const { test: result } = await run(claims);
+      expect(result, entry).toMatchObject({ passed: true, entry });
+      // The connection passed whoever the account is.
+      expect(recorded, entry).toHaveLength(1);
+    }
+  });
+});
+
 describe("provider sign-in routes", () => {
   const signedIn: ExternalSignInResult = {
     outcome: "signed_in",
@@ -515,6 +888,8 @@ describe("provider sign-in routes", () => {
       store?: LoginProviderStore;
       result?: ExternalSignInResult;
       providerWork?: WorkGate;
+      /** Whom the console session cookie of a request resolves to. */
+      session?: ResolvedWebSession | null;
     } = {},
   ) {
     const calls: ExternalSignInInput[] = [];
@@ -523,6 +898,7 @@ describe("provider sign-in routes", () => {
         calls.push(input);
         return options.result ?? signedIn;
       },
+      resolveWebSession: async () => options.session ?? null,
     } as unknown as IdentityStore;
     const rows = options.rows ?? [providerFor(options.provider)];
     const providers =
@@ -653,7 +1029,7 @@ describe("provider sign-in routes", () => {
     const body = providerLoginCallbackResponseSchema.parse(
       await response.json(),
     );
-    expect(body.outcome).toBe("signed_in");
+    if (body.outcome !== "signed_in") throw new Error("not a sign-in");
     expect(body.role).toBe("member");
     expect(
       response.headers
@@ -941,5 +1317,139 @@ describe("provider sign-in routes", () => {
     const started = await post(startPath());
     expect(started.status).toBe(503);
     expect((await started.json()).error.retryable).toBe(true);
+  });
+
+  describe("the callback of an owner's test", () => {
+    const ownerSession: ResolvedWebSession = {
+      sessionId: OWNER.sessionId,
+      userId: OWNER.userId,
+      email: "owner@example.com",
+      displayName: "Owner",
+      locale: null,
+      workspaceId: OWNER.workspaceId,
+      role: "owner",
+      expiresAt: new Date(Date.now() + 60_000),
+    };
+
+    function testHarness(session: ResolvedWebSession | null) {
+      const { admin, stored, recorded } = adminOf();
+      const login = createProviderLogin({
+        providers: storeOf([stored.row], CLIENT_SECRET),
+        admin,
+        consoleOrigin: CONSOLE_ORIGIN,
+        flowKey: FLOW_KEY,
+      });
+      const h = harness({ providers: login, session });
+      /** A test started by OWNER, brought back with this request's cookies. */
+      const bring = async (claims: MockOidcClaims) => {
+        const started = await login.startTest({
+          ...OWNER,
+          providerId: PROVIDER_ID,
+        });
+        const back = await idp.authorize(started.authorizationUrl, claims);
+        return h.post("/v1/auth/oidc/callback", {
+          body: { provider_id: PROVIDER_ID, ...back },
+          cookie: `${LOGIN_FLOW_COOKIE_NAME}=${started.cookieValue}; ${WEB_SESSION_COOKIE_NAME}=console-session`,
+        });
+      };
+      return { ...h, bring, stored, recorded };
+    }
+
+    const setsSession = (response: Response) =>
+      response.headers
+        .getSetCookie()
+        .some((cookie) => cookie.startsWith(`${WEB_SESSION_COOKIE_NAME}=`));
+
+    test("answers what the provider said, records the pass, and makes no account and no session", async () => {
+      const h = testHarness(ownerSession);
+      const response = await h.bring(alice);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("Cache-Control")).toBe("no-store");
+      expect(clearsFlowCookie(response)).toBe(true);
+      expect(setsSession(response)).toBe(false);
+      expect(
+        providerLoginCallbackResponseSchema.parse(await response.json()),
+      ).toEqual({
+        outcome: "tested",
+        provider_id: PROVIDER_ID,
+        test: {
+          passed: true,
+          recorded: true,
+          subject: "1001",
+          email: "alice@example.com",
+          email_verified: true,
+          address_owned: true,
+          entry: "invite_only",
+        },
+      });
+      // The sign-in that makes users and sessions was never asked.
+      expect(h.calls).toEqual([]);
+      expect(h.recorded).toHaveLength(1);
+      expect(h.recorded[0]?.audit).toMatchObject({
+        userId: OWNER.userId,
+        workspaceId: OWNER.workspaceId,
+      });
+      expect(h.recorded[0]?.audit.receiptId).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+      );
+
+      const logged = h.sink.records.filter(
+        (record) => record.message === "Provider test sign-in",
+      );
+      expect(logged).toHaveLength(1);
+      expect(logged[0]?.fields).toMatchObject({
+        provider_id: PROVIDER_ID,
+        passed: true,
+        recorded: true,
+      });
+      // Who the owner tested with is theirs to see, not the log's.
+      expect(JSON.stringify(h.sink.records)).not.toContain("alice@example.com");
+    });
+
+    test("a failed test answers 200 with the reason, and records nothing", async () => {
+      const h = testHarness(ownerSession);
+      const response = await h.bring({ ...alice, aud: "someone-else" });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({
+        outcome: "tested",
+        provider_id: PROVIDER_ID,
+        test: { passed: false, reason: "audience_mismatch" },
+      });
+      expect(h.recorded).toEqual([]);
+      expect(h.calls).toEqual([]);
+      expect(setsSession(response)).toBe(false);
+    });
+
+    const others: Array<[string, ResolvedWebSession | null]> = [
+      ["no console session", null],
+      ["an admin's session", { ...ownerSession, role: "admin" }],
+      ["a member's session", { ...ownerSession, role: "member" }],
+      ["another owner's session", { ...ownerSession, userId: OTHER_ID }],
+      ["the owner's other session", { ...ownerSession, sessionId: OTHER_ID }],
+    ];
+    for (const [what, session] of others) {
+      test(`with ${what} it is 401: nothing recorded, nobody signed in`, async () => {
+        const h = testHarness(session);
+        const response = await h.bring(alice);
+        expect(response.status).toBe(401);
+        expect(await errorOf(response)).toMatchObject({
+          code: "UNAUTHORIZED",
+          message: "Sign-in was not accepted",
+        });
+        expect(clearsFlowCookie(response)).toBe(true);
+        expect(setsSession(response)).toBe(false);
+        expect(h.recorded).toEqual([]);
+        expect(h.calls).toEqual([]);
+      });
+    }
+
+    test("a test's cookie never signs anyone in, even where the provider is on", async () => {
+      const h = testHarness(null);
+      h.stored.row.enabled = true;
+      const response = await h.bring(alice);
+      expect(response.status).toBe(401);
+      expect(setsSession(response)).toBe(false);
+      expect(h.calls).toEqual([]);
+    });
   });
 });

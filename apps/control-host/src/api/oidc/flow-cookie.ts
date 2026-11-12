@@ -24,9 +24,29 @@ export type LoginFlow = {
   verifier: string;
   /** Milliseconds since the epoch, on this server's clock. */
   startedAt: number;
+  /** A `test` flow: the owner who started it, their session, and the stored secret it tries. */
+  test?: {
+    userId: string;
+    sessionId: string;
+    secretSlot: "current" | "next";
+    secretVersion: number;
+  };
 };
 
 const PURPOSES: readonly string[] = ["login", "invite", "link", "test"];
+
+function testOf(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) return false;
+  const test = value as Record<string, unknown>;
+  return (
+    typeof test.userId === "string" &&
+    test.userId !== "" &&
+    typeof test.sessionId === "string" &&
+    test.sessionId !== "" &&
+    (test.secretSlot === "current" || test.secretSlot === "next") &&
+    Number.isInteger(test.secretVersion)
+  );
+}
 
 function flowOf(value: unknown): LoginFlow | null {
   if (typeof value !== "object" || value === null) return null;
@@ -41,7 +61,10 @@ function flowOf(value: unknown): LoginFlow | null {
     !text("nonce") ||
     !text("verifier") ||
     !Number.isInteger(flow.configRevision) ||
-    !Number.isFinite(flow.startedAt)
+    !Number.isFinite(flow.startedAt) ||
+    // A test flow names who runs it; no other flow carries that.
+    (flow.purpose === "test") !== (flow.test !== undefined) ||
+    (flow.test !== undefined && !testOf(flow.test))
   ) {
     return null;
   }
