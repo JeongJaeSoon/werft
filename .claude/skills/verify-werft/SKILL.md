@@ -35,7 +35,7 @@ PR마다 등급 하나를 정한다. 검증 sticky comment(`<!-- test-results --
 
 전체 스택 없이 화면만 채운다. 웹 콘솔의 데모 모드를 쓴다. 아래 명령은 모두 이 저장소에서 실제로 돌려 확인했다.
 
-0. 설치: worktree에서 `bun install --frozen-lockfile`(bun 1.3.14). `bun run build`가 남긴 `apps/*/dist`·`packages/ui/dist`는 `biome check`가 오탐하므로 지우고 돌린다.
+0. 설치: worktree에서 `bun install --frozen-lockfile`(bun 1.3.14). 빌드가 남긴 `dist` 디렉터리(`apps/web/dist`, `packages/ui/dist` 등)와 `apps/web/dist-demo`는 `biome.json`의 `files.includes`가 검사에서 빼므로 `biome check` 전에 지우지 않아도 된다.
 1. **web dev 서버의 데모 모드**: `cd apps/web && bun --bun vite --mode demo --port <port> --host 127.0.0.1`. GET은 `src/demo/fixtures.json`에서 답하고 쓰기는 `DEMO_READ_ONLY`로 거절하며, 기록 없는 GET은 `NOT_FOUND` 화면이 된다. 들어 있는 자리표시자는 `/v1/auth/me`뿐이라 홈은 요청함이 `NOT_FOUND`로 그려진다. 바뀐 화면을 채우려면 `src/demo/fixtures.json`을 scratch에 복사해 그 화면이 부르는 GET을 `responses`에 더하고 `DEMO_FIXTURES=<json 경로>`로 주고 띄운다(구조는 `{ recorded_at, responses: { "<경로>": { status, json } } }`, 같은 경로의 기록이 있으면 query가 달라도 그 응답으로 답한다. 복사본의 `/v1/auth/me`를 바꿔 지금 읽히는지 확인했다). 라우트는 해시에 있다. 캡처: `W=390 node .claude/skills/verify-werft/scripts/page-shot.mjs http://127.0.0.1:<port> '/#/members' <out.png> [full]`. `W`·`H`·`THEME=dark`·`LOCALE=ja|en`·`SETTLE=<ms>`(기본 1500)를 환경에서 받고, `scrollWidth/innerWidth`와 페이지 오류를 출력한다(수집한 페이지 오류는 종료 코드에 반영하지 않으니 출력을 읽는다). 두 값이 같으면 가로로 넘치지 않는다. 데이터가 늦게 오는 페이지는 `SETTLE`을 늘려 원하는 상태가 그려진 뒤 찍는다. 설치한 Chrome과 저장소의 `playwright-core`를 쓴다.
 2. 캡처 규칙은 [features/web-console.md](features/web-console.md)와 같다. 390px·1280px을 light·dark로, 위 상태마다 찍고 `scrollWidth/innerWidth`를 적는다. 화면을 바꾼 PR은 [화면 구성 원칙](../../../packages/ui/README.md#화면-구성-원칙)으로 점검한다.
 3. sticky에 돌린 명령과 출력, 어떤 상태를 채웠는지, 캡처를 적는다. 목은 응답 모양을 그대로 믿으므로 실제 API 연동·권한·서버 경로, 그리고 fixture가 `contracts`와 맞는지는 확인하지 못한 것으로 적는다. 요청·응답 모양을 바꾸는 PR이면 T1이 아니라 T3다.

@@ -1,8 +1,8 @@
 # 결정(조사·설계): worker 브라우저·computer-use 도구
 
-- 상태: 조사와 설계. 이 PR은 도구를 구현하지 않고 worker 이미지도 바꾸지 않는다. 구현은 [9절](#9-구현-단위)의 단위마다 별도 카드와 PR로 한다.
+- 상태: 조사와 설계. 이 PR은 도구를 구현하지 않고 worker 이미지도 바꾸지 않는다. 구현은 [8절](#8-구현-단위)의 단위마다 별도 카드와 PR로 한다.
 - 받는 쪽: Kiel 도구·MCP 리드. 같은 성격의 빌드 도구 조사와 겹치는 부분은 [6절](#6-빌드-도구-조사와-겹치는-부분)에 모았다.
-- 병합된 결정과의 정합: 이 문서를 쓴 뒤 [stdio MCP relay](stdio-mcp-relay.md), [surface·action 모듈](surface-action-modules.md), [패키지 구조](package-structure.md), MCP 도구의 deny 우선 판정이 머지됐다. 4.3절(능력 인터페이스)과 3.5·3.6절(판정, 턴 끝)은 그 결정에 맞춰 고쳤다. MCP 자격 설계(`mcp-credentials.md`)는 아직 머지되지 않았다. 머지되면 링크로 바꾼다. 충돌 여부는 [8절](#8-codex-반론)에 적었다.
+- 병합된 결정과의 정합: 이 문서를 쓴 뒤 [stdio MCP relay](stdio-mcp-relay.md), [surface·action 모듈](surface-action-modules.md), [패키지 구조](package-structure.md), MCP 도구의 deny 우선 판정이 머지됐다. 4.3절(능력 인터페이스)과 3.5·3.6절(판정, 턴 끝)은 그 결정에 맞춰 고쳤다. 서버 이름 `browser`를 예약한 점과 egress용 token이 없는 브라우저가 원격 배열 밖에 있는 점은 [MCP 자격 설계](mcp-credentials.md)와 충돌하지 않는다. 그 설계의 `mcp__서버__*` deny 규칙이 들어오면 브라우저 gate도 같은 해석을 쓰는 회귀 시험을 둔다.
 - 기준 커밋: `origin/main` `3edfe7f`. 요청서가 든 `e9ae2a683`의 바로 다음 커밋이고, 브라우저·데스크톱 도구는 두 커밋 모두 0건이다. `파일:줄`은 `3edfe7f` 기준이다.
 - 측정일: 2026-11-10. 바깥 사실(라이선스, 버전, 기동 시간)은 같은 날 공식 저장소·문서에서 확인했다. 직접 확인하지 못한 값에는 "(2차)"를 붙였다.
 - 오너 의견(2026-11-10)을 반영했다.
@@ -161,7 +161,7 @@ Firecracker에는 디스플레이 장치가 없다. 데스크톱(d)을 띄우려
 **결정.** 브라우저 도구는 MCP 도구와 다른 판정 길을 만들지 않는다. 엔진이 보는 이름은 `mcp__browser__<도구>`이고, 보이는 집합은 main의 `visibleMcpTools(server, allow, ...denies)`(`packages/platform/src/sessions/mcp-tool-decision.ts`)가 낸다. 입력은 stdio relay와 같다.
 
 - `allow` = release가 고정한 브라우저 도구 ∩ 세션의 `tools` 상한 ∩ **호출자 상한**(호출자 상한을 집행하는 티켓이 `runtime_config.tools`에서 `tools_deny`를 빼는 자리). `denies` = release deny, 스냅샷 `mcp_deny`, 저장된 엔진 규칙의 `mcp__browser__…`. 일치는 정확 일치다.
-- **호출 시점에도 같은 판정을 한다.** sidecar는 egress `/mcp/<name>` 길 밖에 있어서 egress의 `decide`가 보지 못한다. stdio relay가 정한 판정 전용 worker 경로(`McpToolGate`의 `visible`·`permits`, 캐시 없음, 닫힌 채 실패)를 그대로 쓴다. 브라우저 쪽에서 새로 만드는 판정 코드는 없다. 그러므로 브라우저 단위는 그 경로가 머지된 뒤에만 켠다([9절](#9-구현-단위)).
+- **호출 시점에도 같은 판정을 한다.** sidecar는 egress `/mcp/<name>` 길 밖에 있어서 egress의 `decide`가 보지 못한다. stdio relay가 정한 판정 전용 worker 경로(`McpToolGate`의 `visible`·`permits`, 캐시 없음, 닫힌 채 실패)를 그대로 쓴다. 브라우저 쪽에서 새로 만드는 판정 코드는 없다. 그러므로 브라우저 단위는 그 경로가 머지된 뒤에만 켠다([8절](#8-구현-단위)).
 - **서버 전체를 막는 길.** MCP 자격 설계가 더하는 `mcp__서버__*` 규칙이 머지되면 `mcp__browser__*` 한 줄로 브라우저 전체를 막는다. 그 전에는 도구 이름 하나씩이다.
 - **이름 공간.** `browser`는 번들 stdio 서버·catalog 원격 서버와 같은 하나의 이름 공간에 든다. catalog에 `browser`라는 서버가 있으면 release 활성화와 세션 생성이 거부한다. 이름 검사는 stdio relay의 이름 단위가 소유하므로 브라우저는 그 검사에 `browser`를 예약어로 더하기만 한다.
 - **claim 모양.** 브라우저는 `runtime_config.mcp_servers`에 넣지 않는다. 그 배열은 egress token을 쓰는 원격 서버용이고 상한이 있다(MCP 자격 설계는 9로 올리자고 한다). 브라우저는 egress용 token이 없다(sidecar 앞단의 bearer는 별개다). `capabilities.browser`와 `effectiveTools.browser`로 따로 싣는다([4.3절](#43-능력-인터페이스)).
@@ -474,42 +474,7 @@ t=3355ms after nav: procs=13 rss_mb=989 pss_mb=437
 - Docker Sandboxes: https://www.docker.com/blog/introducing-cloud-sandboxes-start-on-your-laptop-finish-in-the-cloud/
 - Perplexity SPACE(2차): https://www.marktechpost.com/2026/10/16/perplexity-open-sources-space-firecracker-microvm-sandbox-ai-agents/
 
-## 8. Codex 반론
-
-### 1라운드 (문서 `1db3b90ee`): Act-on 6
-
-| 지적 | 처리 |
-|---|---|
-| 인증 없는 sidecar 포트를 엔진 Bash가 직접 부르면 relay의 deny와 호출자 상한을 건너뛴다 | 3.1절에 worker 전용 bearer와 sidecar 쪽 도구 거름을 요구로 적고, 직접 호출 거절 시험을 U6의 선행으로 둔다. U2c가 앞단을 만든다 |
-| 엔진의 승인 경로는 `bypassPermissions`·`auto`에서 불리지 않아 "승인 대상"이 보장되지 않는다 | 첫 release는 `browser_evaluate`·`browser_file_upload`도 deny로 둔다. 모든 모드에서 강제되는 승인 장벽을 정한 뒤 U10이 연다 |
-| 승인 대기 호출은 lease의 실행 중 검사에서 빠져 workspace 복사가 캡처와 겹칠 수 있다 | worker의 파일 전송 경로가 stdio relay의 `quiesce` 대기와 같은 장벽을 거친다(3.2절, 3.6절). U5b |
-| 파일 전송이 크기 제한에서 끝나 경로 탈출·symlink·복사 중 변경을 막지 못한다 | 공유 디렉터리를 없애고 인증된 엔드포인트로 바이트를 읽고 쓰는 전송 계약을 3.2절에 적었다 |
-| `LaunchIntent`와 scheduler에 browser 정보가 없어 backend 입력이 비었다 | 세션 행에 고정하고 `LaunchIntent.browser`와 launch fingerprint에 넣는 단위 U2b를 U3 앞에 둔다 |
-| U1의 "claim 전에 거절"에 wire 계약과 요구 기능 도출이 빠졌다 | U1에 `runtime_config.browser`와 강제 도출을 넣었다. 기능 상수는 U6 전까지 끈다 |
-
-Consider와 Noted도 반영했다. U5를 U5(조립)와 U5b(파일 전송)로 쪼갰고 stdio relay의 worker gate 구현(그쪽 U3)을 선행으로 적었다. codex 어댑터는 지금 MCP 서버가 있으면 시작을 거절하므로 "같은 relay를 쓴다"를 고치고 U6b를 선행에 뒀다. gVisor는 Pod 단위임을 요약·구성도·4.1절에서 통일했다. `:3128`과 `:3129`가 모두 같은 Pod에서 열려 있다는 점을 3.1절에 적었다.
-
-기각된 지적: 어댑터가 platform·db에 닿는다(판정은 컨트롤 플레인, worker가 gate를 조립), sidecar가 `background_writer`에 걸린다(별도 컨테이너이고 workspace 마운트가 없다). 서버 이름을 예약한 점과 token 없는 브라우저가 원격 배열 밖에 있는 점은 아직 머지되지 않은 MCP 자격 설계와 충돌하지 않는다. 그 설계의 `mcp__서버__*` deny 규칙이 들어오면 브라우저 gate도 같은 해석을 쓰는 회귀 시험을 둔다.
-
-### 2라운드 (수정분 `1db3b90ee..955f001d3`): Act-on 5
-
-| 지적 | 처리 |
-|---|---|
-| bearer 앞단 뒤의 원본 MCP 포트가 같은 network namespace에서 엔진 Bash에 열려 있다 | 원본 Playwright MCP는 포트를 열지 않고 앞단의 자식 프로세스 stdio로만 연결한다. 열린 포트를 훑는 시험을 U6의 선행으로 둔다(3.1절, U2c) |
-| backend가 만든 bearer를 claim으로 전하는 fence된 계약이 없다 | `browser.bearer`를 egress token과 분리하고 발급·등록·재시도 동일 값 계약을 4.3절과 U2b에 적었다 |
-| `lstat` 뒤 open과 고정 하위 폴더 교체로 symlink 경쟁이 남는다 | 신뢰 핸들 기준 `O_NOFOLLOW` open과 열린 핸들의 `fstat`, 같은 핸들 기준 임시 파일·rename으로 바꿨다. 상위 폴더 교체 시험을 더했다(3.2절) |
-| stdio relay의 `quiesce`는 서버 프로세스용이라 browser 전송을 막지 못하고 stdio 서버 없는 세션에서는 잡히지 않는다 | U5b의 첫 일을 그 장벽을 프로세스가 아닌 소비자도 등록하는 worker 공통 입장 장벽으로 일반화하는 것으로 정했다 |
-| U6b를 선행이라 하면서 U6 뒤에 뒀다 | U6b를 U6 앞으로 옮기고 U6의 선행에 넣었다. U6b 없이는 claude만 켜진다 |
-
-Consider도 반영했다. U2를 이미지(U2)와 앞단 서버(U2c)로 나눴고, U6의 선행에 U5b를 넣었고, `browser_run_code_unsafe`는 U10에서도 열지 않는다고 3.2절에 통일했다. "token이 없다"는 "egress용 token이 없다"로 좁혔다.
-
-### 3라운드 (수정분 `955f001d3..05a78c58a`): Act-on 1
-
-구현 단위 표에서 U6 행과 U7 행이 한 줄로 붙어 U7이 렌더링에서 사라졌다. 줄을 나눴다. Consider 둘도 반영했다. 구성도와 2.1절의 (b) 설명을 `relay → bearer 앞단 → stdio MCP`로 맞췄고, 변하는 파일은 최초 `fstat` 크기를 믿지 않고 누적 바이트로 상한을 건다고 3.2절에 적었다.
-
-### 4라운드: 이 수정분의 delta와 최종 판정은 PR의 sticky 댓글에 머리 sha와 함께 적는다
-
-## 9. 구현 단위
+## 8. 구현 단위
 
 순서대로 한 PR씩이다. 티켓 번호는 저장소의 마크다운에 적지 못하므로(`tests/docs-links.test.ts`) 이름으로 부른다. 이름과 번호의 대응은 이 문서를 들인 PR 본문에 있다. "stdio relay Un"은 [stdio-mcp-relay.md](stdio-mcp-relay.md#10-구현-단위)의 단위다. 이미지가 바뀌는 단위(U2)는 만들기 전에 리드가 상위 담당에게 먼저 보고한다.
 
