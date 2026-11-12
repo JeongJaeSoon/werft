@@ -367,6 +367,17 @@ describe("litellm-price-drift for the Claude table", () => {
     expect(whereClaude(data)).toEqual([["claude-opus-5", "web search", true]]);
   });
 
+  test("a search fee one entry leaves out is not reported; one every entry leaves out is", () => {
+    const data = claudeAgreeing();
+    delete claudeEntryOf(data, "claude-haiku-4-5")
+      .search_context_cost_per_query;
+    expect(whereClaude(data)).toEqual([]);
+    for (const entry of Object.values(data)) {
+      entry.search_context_cost_per_query = {};
+    }
+    expect(whereClaude(data)).toEqual([["claude-*", "web search", false]]);
+  });
+
   test("a Claude API model werft has no card for is reported; other providers' and unpaired ids are not", () => {
     const data = claudeAgreeing();
     data["claude-fable-9"] = {

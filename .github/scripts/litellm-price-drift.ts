@@ -325,6 +325,8 @@ export const CLAUDE_UNPAIRED: Readonly<Record<string, string>> = {
 /** The same comparison for werft's Claude table. */
 export function compareClaude(litellm: Record<string, Entry>): Drift[] {
   const drift: Drift[] = [];
+  const ourSearch = WEB_SEARCH_MICRO_USD / 1e6;
+  let searchSeen = false;
   for (const [model, card] of Object.entries(CLAUDE_CARDS)) {
     const report = (
       tier: string,
@@ -443,10 +445,11 @@ export function compareClaude(litellm: Record<string, Entry>): Drift[] {
         report(name, `LiteLLM ${theirs}x, werft ${ours}x`, theirs > ours);
       }
     }
-    const ourSearch = WEB_SEARCH_MICRO_USD / 1e6;
-    for (const [size, theirs] of Object.entries(
+    const searchFees = Object.entries(
       extras.search_context_cost_per_query ?? {},
-    )) {
+    );
+    if (searchFees.length > 0) searchSeen = true;
+    for (const [size, theirs] of searchFees) {
       if (!same(theirs, ourSearch)) {
         report(
           "web search",
@@ -455,6 +458,17 @@ export function compareClaude(litellm: Record<string, Entry>): Drift[] {
         );
       }
     }
+  }
+  // Some entries (claude-haiku-4-5) never carry the fee, so only its absence
+  // from every entry, a field LiteLLM dropped or renamed, is reported.
+  if (!searchSeen) {
+    drift.push({
+      model: "claude-*",
+      tier: "web search",
+      detail:
+        "LiteLLM gives no `search_context_cost_per_query` for any Claude model werft prices",
+      undercharges: false,
+    });
   }
   // Claude models LiteLLM prices that werft does not: werft charges them
   // its fallback, which this check does not compute.
