@@ -76,6 +76,6 @@ API로 세션을 만들고 쓰는 사람.
 | [결정(제안): worker Pod를 누가 만드나](contributing/decisions/k8s-pull-execution.md) | 플랫폼 직접 생성 + 권한 축소(추천)와 KEDA ScaledJob pull의 비교, 두 안의 설계, PoC 실측, Codex 의견 |
 | [결정(설계): 새 에이전트 마법사 재작업](contributing/decisions/agent-wizard-rework.md) | 마법사의 저장소 지정 제거, 역할·지시 사항을 이름·설명으로(에이전트 지시문 칸은 이후 없앴다), 도구 선택과 실행 적용, 담당 팀과 팀 역할 권한, 구현 단위와 순서 |
 | [결정(설계): 에이전트 담당 팀과 액션 RBAC](contributing/decisions/agent-rbac.md) | 에이전트·세션 action별 지금 권한 실측, 담당 팀 안팎 주체별 RBAC 표, 워크스페이스 설정 두 축(바깥쪽의 에이전트 접근, 세션 열람 상한), 담당 팀 필수와 기존 에이전트 이행, 앞선 결정과의 차이, 구현 단위 R1~R5 |
-| [결정(설계): 범용 OIDC 로그인 공급자](contributing/decisions/oidc-login-providers.md) | 공급자를 설정 행으로 두는 OIDC 모듈 구조, 검증 순서와 거절 경우, endpoint 고정과 주소 검사, 봉인한 흐름 cookie, `login_providers`·`login_methods`·세션의 로그인 수단 칸, 증명된 주소와 초대 token 가입·계정 연결 규칙, 관리자 화면과 테스트 로그인, 공급자 끄기와 세션 끊기, 비밀번호 끄기·비상 관리자·CLI 복구, 공급자별 차이, `GOOGLE_OIDC_*` 제거, 단계별 PR (제안, Codex 리뷰 승인 전) |
+| [결정(설계): 범용 OIDC 로그인 공급자](contributing/decisions/oidc-login-providers.md) | 공급자를 설정 행으로 두는 OIDC 모듈 구조, 검증 순서와 거절 경우, endpoint 고정과 주소 검사, 봉인한 흐름 cookie, `login_providers`·`login_methods`·세션의 로그인 수단 칸, 증명된 주소와 초대 token 가입·계정 연결 규칙, 관리자 화면과 테스트 로그인, 공급자 끄기와 세션 끊기, 비밀번호 끄기·비상 관리자·CLI 복구, 공급자별 차이, `GOOGLE_OIDC_*` 제거, 단계별 PR (Codex 설계 리뷰 승인, 구현 중) |
 | [결정(설계): 에이전트 지도 뷰 선택](contributing/decisions/agent-map-views.md) | 그래프를 두고 줌 캔버스를 두 번째 뷰로 고르게 하는 설계, 전환 UI와 공유 상태, 주소·설정으로 뷰 고정, 접근성, 단계 A1~D와 세션 사이 관계 데이터 의존, 열린 질문 (승인됨, 구현 미착수) |
 | [실제 Claude로 확인하기](real-claude.md) | 실제 Claude로 스택 확인 |
