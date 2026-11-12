@@ -215,12 +215,15 @@ export async function projectToolCalls(
   );
   let batchSize = startSize;
   let timedOut = 0;
+  // Once a batch held a row inside the margin, later batches of the pass are
+  // still applied but leave the cursor where it is: it must not pass that row.
+  let held = false;
   // At least one batch lands per pass, or a pass spent on timeouts alone
   // would end without moving.
   while (!caughtUp && (batches === 0 || now() - started < options.budgetMs)) {
     let batch: Awaited<ReturnType<typeof projectBatch>>;
     try {
-      batch = await projectBatch(db, read, batchSize, margin);
+      batch = await projectBatch(db, read, batchSize, margin, held);
     } catch (error) {
       // A batch past the statement timeout rolled back whole. Under heavy
       // writes one batch can take ten times its usual time, so a fixed size
@@ -239,6 +242,7 @@ export async function projectToolCalls(
     eventsRead += batch.n;
     batches += 1;
     appliedThrough = batch.cursor;
+    held ||= batch.held;
     heldByFillSeconds = batch.heldByFillSeconds;
     // Held by the fill, the pass ends: the fill may pass rows this pass has
     // read unfilled, and the next batch would carry the cursor over them.
@@ -269,6 +273,7 @@ function projectBatch(
   read: number | null,
   batchSize: number,
   margin: number,
+  heldBefore: boolean,
 ) {
   return db.transaction(async (tx) => {
     const [progress] = rowsOf<{ applied_through: string }>(
@@ -300,17 +305,24 @@ function projectBatch(
     // Re-reading from the cursor each pass covers what the margin held
     // back; within a pass, batches move on from the last one read.
     const from = read === null ? cursor : Math.max(read, cursor);
+    // Only up to the first row still inside the margin: a lower id can have
+    // begun its transaction later than a higher one, so a higher row past
+    // the margin says nothing of the ids between them.
     const [bounds] = rowsOf<{
       n: string;
       hi: string | null;
       safe: string | null;
+      held: boolean | null;
     }>(
       await tx.execute(sql`
           SELECT count(*) AS n, max(id) AS hi,
-            max(id) FILTER (WHERE created_at < now() - make_interval(secs => ${margin})) AS safe
-          FROM (SELECT id, created_at FROM events WHERE id > ${from}${
-            ceiling === null ? sql`` : sql` AND id <= ${ceiling}`
-          } ORDER BY id LIMIT ${batchSize}) AS b`),
+            max(id) FILTER (WHERE NOT held) AS safe, bool_or(held) AS held
+          FROM (
+            SELECT id, bool_or(NOT (created_at < now() - make_interval(secs => ${margin}))) OVER (ORDER BY id) AS held
+            FROM (SELECT id, created_at FROM events WHERE id > ${from}${
+              ceiling === null ? sql`` : sql` AND id <= ${ceiling}`
+            } ORDER BY id LIMIT ${batchSize}) AS w
+          ) AS b`),
     );
     const n = Number(bounds?.n ?? 0);
     if (n === 0 || bounds?.hi == null) {
@@ -319,6 +331,7 @@ function projectBatch(
         from,
         hi: from,
         cursor,
+        held: false,
         heldByFillSeconds:
           fill && ceiling !== null ? Number(fill.idle_seconds) : null,
       };
@@ -331,7 +344,7 @@ function projectBatch(
     const filled = fill
       ? Number(fill.filled_through)
       : Number.POSITIVE_INFINITY;
-    const next = Math.max(cursor, Math.min(safe, filled));
+    const next = heldBefore ? cursor : Math.max(cursor, Math.min(safe, filled));
     const heldByFillSeconds =
       fill && (ceiling !== null || safe > filled)
         ? Number(fill.idle_seconds)
@@ -341,7 +354,14 @@ function projectBatch(
         sql`UPDATE tool_call_progress SET applied_through = ${next}, updated_at = now() WHERE id = 1`,
       );
     }
-    return { n, from, hi, cursor: next, heldByFillSeconds };
+    return {
+      n,
+      from,
+      hi,
+      cursor: next,
+      held: bounds.held === true,
+      heldByFillSeconds,
+    };
   });
 }
 
