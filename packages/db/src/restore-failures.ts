@@ -5,8 +5,10 @@ import { and, eq, isNull, lte, or } from "drizzle-orm";
 import { LAUNCHABLE_ADMISSION_STATES } from "./control-shared.ts";
 import { DB_NOW, fromDbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
+import { openResumeReceipt } from "./resume-control.ts";
 import {
   attempts,
+  receipts,
   sessions,
   unassignedSessions,
   workerLaunches,
@@ -263,12 +265,29 @@ export async function holdIncompatibleBeforeLaunch(
       turnRowId: null,
       now: input.now,
     });
+    // A resume from `paused` waits on its receipt, and no worker will ever
+    // report on this one: it ends here, as it does when a worker refuses the
+    // checkpoint.
+    const resumeFailed =
+      session.admissionState === "resuming"
+        ? {
+            code: "CHECKPOINT_UNAVAILABLE" as const,
+            message: `the resume could not restore its checkpoint: ${boundedReason(input.detail)}`,
+          }
+        : null;
+    if (resumeFailed !== null) {
+      await tx
+        .update(receipts)
+        .set({ status: "failed", error: resumeFailed, updatedAt: input.now })
+        .where(openResumeReceipt(input.sessionId));
+    }
     await recordStatus(tx, {
       sessionId: input.sessionId,
       phase: "failed",
       extra: {
         admission_state: "recovery_required",
         reason: INCOMPATIBLE_CHECKPOINT_REASON,
+        ...(resumeFailed === null ? {} : { resume_failed: resumeFailed }),
       },
       turnRowId: null,
       now: input.now,

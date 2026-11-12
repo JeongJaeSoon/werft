@@ -632,6 +632,19 @@ integration("startup failures before ready on PostgreSQL", () => {
         reason: INCOMPATIBLE_CHECKPOINT_REASON,
       }),
     ]);
+    // Not a resume from `paused`: the status frame names no failed resume.
+    const statuses = await db
+      .select({ payload: events.payload })
+      .from(events)
+      .where(
+        and(eq(events.sessionId, session.sessionId), eq(events.type, "status")),
+      )
+      .orderBy(asc(events.id));
+    expect(statuses.at(-1)?.payload).toMatchObject({
+      admission_state: "recovery_required",
+      reason: INCOMPATIBLE_CHECKPOINT_REASON,
+    });
+    expect(statuses.at(-1)?.payload).not.toHaveProperty("resume_failed");
     // Held already: a second pass records nothing more.
     expect(await hold(0)).toBe("stale");
     expect((await sessionRow(session.sessionId)).restoreFailureCount).toBe(1);
