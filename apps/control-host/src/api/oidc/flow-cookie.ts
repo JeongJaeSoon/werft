@@ -24,11 +24,16 @@ export type LoginFlow = {
   verifier: string;
   /** Milliseconds since the epoch, on this server's clock. */
   startedAt: number;
-  /** A `test` flow: the owner who started it, their session, and the stored secret it tries. */
+  /**
+   * A `test` flow: the owner who started it, their session, and the stored
+   * secret it tries (the row and its version: a slot emptied and filled
+   * again counts from 1 on another row).
+   */
   test?: {
     userId: string;
     sessionId: string;
     secretSlot: "current" | "next";
+    secretId: string;
     secretVersion: number;
   };
 };
@@ -44,6 +49,8 @@ function testOf(value: unknown): boolean {
     typeof test.sessionId === "string" &&
     test.sessionId !== "" &&
     (test.secretSlot === "current" || test.secretSlot === "next") &&
+    typeof test.secretId === "string" &&
+    test.secretId !== "" &&
     Number.isInteger(test.secretVersion)
   );
 }

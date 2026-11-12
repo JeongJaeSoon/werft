@@ -546,6 +546,16 @@ integration("sign-in provider settings on PostgreSQL", () => {
     // Sign-ins never saw it.
     expect((await signIn(alice)).status).toBe(200);
 
+    // A test goes to the provider with the replacement about to be
+    // withdrawn.
+    const early = await send("POST", path("/test/start"), { cookie: owner });
+    const earlyCookie = cookieOf(early, LOGIN_FLOW_COOKIE_NAME);
+    const earlyBack = await idp.authorize(
+      startProviderLoginResponseSchema.parse(await early.json())
+        .authorization_url,
+      alice,
+    );
+
     // Naming the secret in use withdraws the one that waited.
     await providerOf(
       await send("PUT", path("/client-secret"), {
@@ -566,6 +576,24 @@ integration("sign-in provider settings on PostgreSQL", () => {
       }),
     );
     expect(provider.state).toBe("enabled_secret_pending");
+
+    // The test that left with the withdrawn one comes back to another
+    // value in the same place, counted from 1 again. It is not that test:
+    // nothing is asked of the provider with it and nothing is replaced.
+    const late = await send("POST", "/v1/auth/oidc/callback", {
+      cookie: `${earlyCookie}; ${owner}`,
+      body: { provider_id: provider.id, ...earlyBack },
+    });
+    expect((await late.json()).test).toEqual({
+      passed: false,
+      reason: "config_changed",
+    });
+    expect(
+      listLoginProvidersResponseSchema.parse(
+        await (await send("GET", BASE, { cookie: owner })).json(),
+      ).providers[0]?.state,
+    ).toBe("enabled_secret_pending");
+
     const passed = await runTest();
     expect((await passed.json()).test).toMatchObject({
       passed: true,

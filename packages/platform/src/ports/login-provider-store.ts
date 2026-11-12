@@ -144,11 +144,16 @@ export interface LoginProviderAdminStore {
     | { outcome: "not_found" }
     | { outcome: "no_workspace" }
   >;
-  /** The provider with the secret a test sign-in runs with now. */
+  /**
+   * The provider with the secret a test sign-in runs with now. `secretId`
+   * with `secretVersion` says which stored value it is: a slot that was
+   * emptied and filled again starts at version 1 under another id.
+   */
   findForTest(id: string): Promise<{
     provider: LoginProvider;
     slot: LoginProviderSecretSlot;
     clientSecret: string | null;
+    secretId: string | null;
     secretVersion: number | null;
   } | null>;
   /**

@@ -278,7 +278,7 @@ export function createProviderLogin(deps: ProviderLoginDeps) {
       if (!found) {
         throw new ProviderLoginError("not_found", "provider_missing");
       }
-      if (found.secretVersion === null) {
+      if (found.secretId === null || found.secretVersion === null) {
         throw new ProviderLoginError("unavailable", "client_not_configured");
       }
       return begin(found, {
@@ -287,6 +287,7 @@ export function createProviderLogin(deps: ProviderLoginDeps) {
           userId: input.userId,
           sessionId: input.sessionId,
           secretSlot: found.slot,
+          secretId: found.secretId,
           secretVersion: found.secretVersion,
         },
       });
@@ -331,6 +332,7 @@ export function createProviderLogin(deps: ProviderLoginDeps) {
       if (
         provider.configRevision !== flow.configRevision ||
         found.slot !== flow.test.secretSlot ||
+        found.secretId !== flow.test.secretId ||
         found.secretVersion !== flow.test.secretVersion ||
         found.clientSecret === null
       ) {

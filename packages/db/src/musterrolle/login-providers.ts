@@ -27,6 +27,7 @@ import {
 import {
   deleteSecretInTx,
   describeSecret,
+  openSecretStamped,
   openSecretsOf,
   readSecretInTx,
   writeSecretInTx,
@@ -559,23 +560,26 @@ export function createPostgresLoginProviderAdminStore(
           provider,
           slot: "current",
           clientSecret: null,
+          secretId: null,
           secretVersion: null,
         };
       }
       const pending = row.enabled
-        ? await describeSecret(db, slotOf(workspaceId, row.id, "next"))
+        ? await openSecretStamped(db, key, slotOf(workspaceId, row.id, "next"))
         : null;
-      const slot: LoginProviderSecretSlot = pending ? "next" : "current";
-      const named = slotOf(workspaceId, row.id, slot);
-      const summary = pending ?? (await describeSecret(db, named));
-      const opened = await openSecretsOf(db, key, workspaceId, named.purpose, [
-        secretOwnerRef(named.owner),
-      ]);
+      const stored =
+        pending ??
+        (await openSecretStamped(
+          db,
+          key,
+          slotOf(workspaceId, row.id, "current"),
+        ));
       return {
         provider,
-        slot,
-        clientSecret: opened.get(secretOwnerRef(named.owner)) ?? null,
-        secretVersion: summary?.secretVersion ?? null,
+        slot: pending ? "next" : "current",
+        clientSecret: stored?.value ?? null,
+        secretId: stored?.id ?? null,
+        secretVersion: stored?.secretVersion ?? null,
       };
     },
 

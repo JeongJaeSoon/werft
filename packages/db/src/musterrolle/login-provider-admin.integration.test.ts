@@ -431,6 +431,16 @@ integration("login provider admin store", () => {
       ).outcome,
     ).toBe("stale");
     expect(await signInSecret(provider.id)).toBe(FIRST_SECRET);
+
+    // The place that was emptied counts from 1 again when it is filled,
+    // so the version alone would pass for the one a test started with;
+    // the row tells them apart.
+    await set(SECOND_SECRET);
+    const refilled = await admin.findForTest(provider.id);
+    expect(refilled?.slot).toBe("next");
+    expect(refilled?.secretVersion).toBe(started?.secretVersion);
+    expect(refilled?.secretId).toBeString();
+    expect(refilled?.secretId).not.toBe(started?.secretId);
   });
 
   test("a test that ran while the settings changed is not written down", async () => {
