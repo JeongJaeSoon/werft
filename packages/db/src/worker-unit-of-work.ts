@@ -1992,6 +1992,33 @@ export function createPostgresWorkerUnitOfWork(
         ) {
           return { outcome: "invalid_credential" };
         }
+        // The attempt this launch already claimed, locked to the end of the
+        // transaction so the worker's first accepted call and this replay
+        // cannot both go through. It is the row the launch names, never the
+        // session's current one. Session first, then attempt, the order
+        // acquireFence locks them in: the other way round the two deadlock.
+        const [bound] =
+          launch.claimedAttemptId === null
+            ? []
+            : await tx
+                .select({ session: sessions, attempt: attempts })
+                .from(sessions)
+                .innerJoin(attempts, eq(attempts.sessionId, sessions.id))
+                .where(eq(attempts.id, launch.claimedAttemptId))
+                .limit(1)
+                .for("update");
+        // "allocated" is what the claim itself wrote: any later state
+        // means the worker already used its token, so this is not a lost
+        // response but a second holder trying to rotate it away. Judged
+        // before the image check below, which writes: whoever reads the
+        // nonce out of the container's environ after the engine started
+        // must not be able to end the execution and have its image refused.
+        if (
+          launch.claimedAttemptId !== null &&
+          (!bound || bound.attempt.state !== "allocated")
+        ) {
+          return { outcome: "invalid_credential" };
+        }
         // Before anything is bound, so the session is left as it was: a
         // worker that is not what its launch assumed proves the image's
         // configured runtime wrong, not the session.
@@ -2009,20 +2036,7 @@ export function createPostgresWorkerUnitOfWork(
         // and a fresh session token; it never selects a second session.
         // Earlier tokens for the attempt are revoked so that, if the nonce
         // leaked to a second worker, only the latest claimant can write.
-        if (launch.claimedAttemptId !== null) {
-          const [bound] = await tx
-            .select({ session: sessions, attempt: attempts })
-            .from(attempts)
-            .innerJoin(sessions, eq(sessions.id, attempts.sessionId))
-            .where(eq(attempts.id, launch.claimedAttemptId))
-            .limit(1)
-            .for("update");
-          // "allocated" is what the claim itself wrote: any later state
-          // means the worker already used its token, so this is not a lost
-          // response but a second holder trying to rotate it away.
-          if (!bound || bound.attempt.state !== "allocated") {
-            return { outcome: "invalid_credential" };
-          }
+        if (bound) {
           // Terminate, close, a pause with nothing to drain and the lease
           // sweep fence this attempt by moving the session on, but leave it
           // `allocated` until the execution is seen gone. A replay

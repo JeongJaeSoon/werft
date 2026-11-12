@@ -12,8 +12,13 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ## 미출시
 
+### 보안
+
+- **worker 안에서 실행된 명령이 launch nonce로 세션을 가로채거나, worker 이미지의 새 launch를 전부 막을 수 있었다**(JeongJaeSoon/werft#1626). `v0.1.0`부터 `v0.1.3`까지가 영향을 받는다. nonce(`WORKER_BOOTSTRAP_NONCE`)는 worker 컨테이너의 프로세스 환경에 있고, engine이 실행한 명령이 같은 사용자로 돌아 그 값을 읽을 수 있다. 그 값으로 claim을 다시 보내면 worker가 첫 호출을 하기 전(기본 5초 안)에는 세션의 credential이 그 명령에게 넘어갔다. claim에 다른 `image_runtime`을 적으면 시점과 무관하게 execution이 끝나고 worker 이미지가 거절 목록에 올라, 그 이미지로는 어떤 세션도 뜨지 않았다. 둘 다 nonce가 만료되기 전(발급 뒤 10분)에만 가능했다. 이제 worker는 claim 직후 heartbeat 하나를 보내 API가 받아들인 뒤에만 engine을 띄우고, API는 그 뒤에 온 claim을 `401`로 거절하며 아무것도 바꾸지 않는다. 이 경로로 거절 목록에 오른 이미지는 scheduler 로그의 `Worker image refused`로 알 수 있다. 이미지와 설정한 runtime이 실제로 맞는데 그 로그가 있으면 DB의 `worker_image_refusals`에서 그 이미지의 행을 지운다(`claimed` 열이 claim에 적힌 값이다). 이 표를 비우는 명령은 없다.
+
 ### 운영자가 할 일
 
+- **API와 worker 이미지를 모두 올린다**(JeongJaeSoon/werft#1626). 위 보안 수정은 둘 다 올려야 완전하다. 순서는 상관없다. API만 올리면 이전 worker가 첫 heartbeat 전에 engine을 띄울 수 있고, worker만 올리면 이전 API가 다른 `image_runtime`을 적은 claim을 계속 받는다.
 - **실행 프로필을 없앴다. migration `0270_remove_profiles`가 프로필 데이터를 지운다.** 설치·워크스페이스 프로필 표, 세션·release·repository의 프로필 열과 설정 문서의 `profiles`가 지워지며 되살릴 수 없다. 세션과 그 아래 기록은 45개 표에서 비워지고(`provider_usage` 포함, `agent_usage`·`tool_call_audits`·에이전트는 남음), 세션이 없는 `slack_outbox` 행은 남긴다. 이 변경의 이전 초안(`0269_remove_profiles`)을 적용해 본 개발·verify DB는 새로 만든다. 올리기 전에 DB를 백업하고, 되돌리려면 그 백업으로 복원한다([업그레이드](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/upgrade-compose)).
   - release는 provider 연결 하나와 카드 모델을 고른다. 런타임 spec은 release에 고정된다: 연결 종류의 런타임을 이미지의 버전으로, 내장 도구 전부, 연결의 분류기가 되면 `auto`, 안 되면 `default` 모드. 이 버전 이전의 release로 만든 세션은 spec을 만들 수 없으면 `RELEASE_SPEC_UNAVAILABLE`로 거절된다. 그 에이전트는 다시 release한다.
   - 연결은 모델 목록(`models`, 선택 `model_families`)을 가진다. 목록에 없는 모델로는 release를 만들 수 없다. `0270`은 프로필을 지우기 전에, 목록이 빈 연결마다 그 연결에서 돌던 프로필(차단되지 않은 것, 퇴역했으면 활성 release가 쓰던 것만)의 모델을 채운다. 올린 뒤 설정 → 모델 연결에서 목록을 확인하고, 비어 있는 연결에는 에이전트가 쓸 모델을 넣는다. 설정 문서(`settings import`)의 `profiles` 키는 더 읽지 않으므로 지운다.
