@@ -601,8 +601,10 @@ e2e의 Keycloak은 API 컨테이너와 네트워크 이름공간을 함께 쓰�
 | 0 설계 | 머지 | JeongJaeSoon/werft#1660 |
 | 1 OIDC 코어 | 머지 | JeongJaeSoon/werft#1662 |
 | 2a 세션의 로그인 수단 | 머지 | JeongJaeSoon/werft#1664 |
-| 2b 공급자 저장, 환경 변수 제거 | PR | JeongJaeSoon/werft#1666 |
-| 3~6 | 시작 전 | — |
+| 2b 공급자 저장, 환경 변수 제거 | 머지 | JeongJaeSoon/werft#1666 |
+| 3a 관리 API와 테스트 로그인 | PR | — |
+| 3b 관리 화면 | 시작 전 | — |
+| 4~6 | 시작 전 | — |
 
 1단계는 3.1절의 표에서 `provider-http.ts`, `discovery.ts`, `jwks.ts`, `id-token.ts`, `flow.ts`(시작과 끝), `issuer-rules.ts`, `errors.ts`를 넣고 환경 변수로 설정한 Google 로그인을 그 위로 옮긴다. 흐름 cookie의 봉인, 응답 `iss`를 라우트에서 넘기는 일, `admission.ts`는 공급자 행이 생기는 2단계에 넣는다. 1단계의 네트워크 정책에는 `http` issuer를 그대로 받는 값이 하나 더 있다. 환경 변수 Google 로그인의 mock IdP만 쓰고, 2단계에서 환경 변수와 함께 없앤다. 12절은 1단계에서 mock IdP에 키 회전을 더한다고 적지만, 1단계의 회전 시험은 모듈 안의 가짜 공급자(요청 함수 자리)로 하고, HTTP mock IdP의 회전은 6단계의 공급자 모양과 함께 넣는다.
 
@@ -620,6 +622,21 @@ e2e의 Keycloak은 API 컨테이너와 네트워크 이름공간을 함께 쓰�
 - 공급자 id가 UUID가 아닌 시작 요청은 path 파라미터가 틀린 다른 경로와 같게 `404`이고, 저장소를 읽지 않는다. `400`은 body가 있는 콜백만 낸다.
 - 초대 수락 화면과 구성원 화면의 안내문, `LOGIN_LINK_REQUIRED`의 SDK 안내문에 남은 "Google"은 그 흐름을 다시 쓰는 4단계에서 고친다.
 - 운영자 문서(`docs/operator/api-server.md`)는 환경 변수 설명이 틀린 내용이 되므로 그 절만 지금 동작으로 고쳤다. 공급자 등록 절차는 관리 화면이 생기는 단계에서 적는다.
+
+3단계도 PR 둘로 나눈다. 3a는 7.2절의 관리 API와 테스트 로그인, 3b는 그 API를 쓰는 화면(설정 > 워크스페이스 > 로그인)과 콜백 화면의 테스트 결과 표시다. 3a만 들어간 `main`에서 owner는 API로 공급자를 등록할 수 있다. 콘솔의 콜백 화면은 3b 전까지 테스트의 응답(`outcome: "tested"`)을 로그인 완료처럼 다뤄 홈으로 보낸다. 세션은 바뀌지 않고 결과는 API 응답과 공급자의 `state`로 읽는다.
+
+3a에서 정한 것은 다음과 같다.
+
+- 오류 코드는 새로 만들지 않는다. 공급자의 상태가 받지 않는 변경은 `409 REVISION_CONFLICT`이고 `details.reason_code`가 까닭을 말한다. `provider_enabled`(켜져 있어 연결 설정·discovery·삭제를 받지 않음)와 `not_tested`(지금 설정으로 통과한 테스트가 없거나 client ID·secret이 없음) 둘이다. `If-Match`가 없으면 `428`, 읽은 뒤 바뀌었으면 `412 VERSION_MISMATCH`(`details.current_version`), issuer가 이미 있으면 `409 ALREADY_EXISTS`, discovery 문서를 쓸 수 없으면 `400`(`details.problem`)이다.
+- `POST /v1/login-providers/discover`는 쓸 수 없는 문서도 `200`에 `outcome: "failed"`와 `problem`으로 답한다. 화면이 입력 칸 옆에 까닭을 보여 주는 조회이기 때문이다. 만들기와 다시 읽기는 같은 경우를 `400`으로 거절한다. 공급자의 응답 본문은 어디에도 돌려주지 않는다.
+- 행의 `revision`은 변경마다 오르고 `If-Match`가 가리킨다. `config_revision`은 이름을 뺀 변경(연결 설정과 정책)마다 오르고 테스트 통과가 가리킨다. 그래서 켜진 공급자의 정책을 바꾼 뒤 껐다가 다시 켜려면 테스트를 다시 통과해야 한다. 값이 같은 변경은 아무것도 올리지 않고 receipt도 남기지 않는다.
+- 테스트 통과의 기록은 버전이 아니라 값을 본다. 기록하는 트랜잭션이 행을 잠그고, 테스트가 시작할 때의 `config_revision`과 테스트가 쓴 secret의 값이 지금 저장된 것과 같을 때만 적는다. 다르면 응답은 `passed: true, recorded: false`이고 켤 수 없다. 콜백이 공급자에 요청을 보내기 전에 이미 달라져 있으면 요청을 보내지 않고 `passed: false, reason: "config_changed"`다.
+- 테스트는 그 흐름을 시작한 owner의 그 세션으로만 끝난다. 흐름 cookie가 사용자와 세션, 그리고 어느 secret(지금 것인지 교체 후보인지와 그 버전)을 시험하는지를 담는다. 콜백 요청의 세션이 그 세션이 아니거나 owner가 아니면 로그인 거절과 같은 `401`이고, 공급자에 요청을 보내지 않는다. `test` 목적의 cookie는 로그인으로 끝나지 않고, 그 반대도 아니다.
+- 테스트의 응답은 공급자가 보증한 `sub`·이메일·`email_verified`와, 그 계정이 실제로 로그인하면 6.1절의 어느 길로 가는지(`entry`)를 말한다. 아무것도 만들지 않고 읽기만 한다. 허용 도메인 밖의 계정으로 통과해도 연결 설정은 통과한 것이므로 기록한다. 이 값들은 owner의 응답에만 있고 로그에는 통과 여부와 까닭만 남는다.
+- 실패한 테스트는 `200`에 `passed: false`와 까닭(`audience_mismatch`, `code_refused` 등 `oidc/`의 거절 이름)을 준다. 로그인의 콜백은 같은 경우에 까닭 없는 `401`을 준다. 설정하는 owner에게는 까닭이 필요하고, 로그인하려는 사람에게는 알려 주지 않는다.
+- 켜진 공급자의 교체 후보 secret은 `config_revision`을 올리지 않는다. 테스트는 후보가 있으면 후보로 돌고, 통과하면 같은 트랜잭션에서 후보가 secret이 된다. 공급자를 끄면 후보는 지운다.
+- 이미 켜진 것을 켜기, 이미 꺼진 것을 끄기는 성공이고 receipt를 남기지 않는다.
+- receipt의 `result`에는 공급자 id와 바뀐 칸의 이름, secret은 끝 네 글자까지만 적는다. 값은 적지 않는다.
 
 ## 17. 리뷰 기록
 

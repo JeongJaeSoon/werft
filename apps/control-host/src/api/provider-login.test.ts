@@ -1029,6 +1029,7 @@ describe("provider sign-in routes", () => {
     const body = providerLoginCallbackResponseSchema.parse(
       await response.json(),
     );
+    expect(body.outcome).toBe("signed_in");
     if (body.outcome !== "signed_in") throw new Error("not a sign-in");
     expect(body.role).toBe("member");
     expect(

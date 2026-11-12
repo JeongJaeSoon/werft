@@ -154,9 +154,7 @@ export function createProviderAdmin(deps: {
    * Reads the issuer's discovery document now. A document this client
    * cannot work with, or none to read, comes back as its problem.
    */
-  async function discovered(
-    issuer: string,
-  ): Promise<
+  async function discovered(issuer: string): Promise<
     | { endpoints: LoginProviderEndpoints }
     | {
         problem: Extract<

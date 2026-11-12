@@ -51,9 +51,11 @@ integration("login provider admin store", () => {
     await db
       .insert(workspaces)
       .values({ id: workspaceId, slug: "acme", name: "Acme" });
-    await db
-      .insert(users)
-      .values({ id: ownerId, email: "owner@example.com", displayName: "Owner" });
+    await db.insert(users).values({
+      id: ownerId,
+      email: "owner@example.com",
+      displayName: "Owner",
+    });
     admin = createPostgresLoginProviderAdminStore(db, KEY);
   }, 60_000);
 
@@ -62,7 +64,11 @@ integration("login provider admin store", () => {
     await database?.drop();
   });
 
-  const audit = () => ({ userId: ownerId, workspaceId, receiptId: randomUUID() });
+  const audit = () => ({
+    userId: ownerId,
+    workspaceId,
+    receiptId: randomUUID(),
+  });
 
   const endpointsOf = (
     issuer: string,
@@ -312,9 +318,9 @@ integration("login provider admin store", () => {
         (listed) => listed.id,
       ),
     ).toContain(provider.id);
-    expect((await admin.enable({ id: randomUUID(), audit: audit() })).outcome).toBe(
-      "not_found",
-    );
+    expect(
+      (await admin.enable({ id: randomUUID(), audit: audit() })).outcome,
+    ).toBe("not_found");
   });
 
   test("a new secret after the test means another test before turning on", async () => {
@@ -594,7 +600,10 @@ integration("login provider admin store", () => {
         await db
           .select({ id: webSessions.id })
           .from(webSessions)
-          .innerJoin(loginMethods, eq(loginMethods.id, webSessions.loginMethodId))
+          .innerJoin(
+            loginMethods,
+            eq(loginMethods.id, webSessions.loginMethodId),
+          )
           .where(
             and(eq(loginMethods.issuer, issuer), isNull(webSessions.revokedAt)),
           )
@@ -615,9 +624,9 @@ integration("login provider admin store", () => {
         (receipt) => receipt.operation === "disable_login_provider",
       ).length,
     ).toBe(1);
-    expect((await admin.disable({ id: randomUUID(), audit: audit() })).outcome).toBe(
-      "not_found",
-    );
+    expect(
+      (await admin.disable({ id: randomUUID(), audit: audit() })).outcome,
+    ).toBe("not_found");
   });
 
   test("discovery is read again only while off, for the same issuer, and makes the settings a new revision", async () => {
@@ -666,9 +675,9 @@ integration("login provider admin store", () => {
 
   test("only a provider that is off is deleted; its secrets go and the login methods stay", async () => {
     const provider = await turnedOn();
-    expect((await admin.delete({ id: provider.id, audit: audit() })).outcome).toBe(
-      "enabled",
-    );
+    expect(
+      (await admin.delete({ id: provider.id, audit: audit() })).outcome,
+    ).toBe("enabled");
     const methodId = randomUUID();
     await db.insert(loginMethods).values({
       id: methodId,
@@ -699,9 +708,9 @@ integration("login provider admin store", () => {
         .from(loginMethods)
         .where(eq(loginMethods.id, methodId)),
     ).toEqual([{ id: methodId }]);
-    expect((await admin.delete({ id: provider.id, audit: audit() })).outcome).toBe(
-      "not_found",
-    );
+    expect(
+      (await admin.delete({ id: provider.id, audit: audit() })).outcome,
+    ).toBe("not_found");
   });
 
   test("every change leaves a receipt naming the owner, and none holds a secret", async () => {
@@ -766,7 +775,9 @@ integration("login provider admin store", () => {
 
     const preview = (subject: string, email: string | null) =>
       admin.previewEntry({ issuer: provider.issuer, subject, email });
-    expect(await preview("linked-subject", "someone@example.com")).toBe("linked");
+    expect(await preview("linked-subject", "someone@example.com")).toBe(
+      "linked",
+    );
     // The same subject at another issuer is another account.
     expect(
       await admin.previewEntry({
