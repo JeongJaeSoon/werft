@@ -543,7 +543,7 @@ curl -s -X POST http://127.0.0.1:3000/v1/auth/password-reset -H 'Content-Type: a
 
 등록 순서: `CONSOLE_ORIGIN`을 설정한다 → 공급자를 만든다 → 응답의 `redirect_uri`를 공급자(IdP)의 client에 등록한다 → client ID와 secret을 넣는다 → 테스트 로그인을 통과한다 → 켠다. 테스트 로그인은 `test/start`가 준 `authorization_url`을 같은 브라우저에서 열어 공급자에 로그인하면 끝난다. 계정도 세션도 만들지 않고, 공급자가 보증한 계정과 그 계정이 실제로 로그인하면 어떻게 되는지(`entry`)를 답한다. 테스트 도중 설정이나 secret이 바뀌면 통과로 기록하지 않는다.
 
-켜진 공급자는 이름과 정책(허용 도메인, JIT 역할, 검증된 이메일 요구)만 바로 바꿀 수 있다. client ID, token 인증 방식, endpoint를 바꾸려면 먼저 끈다. secret은 켠 채로 바꿀 수 있다. 새 값은 교체 후보로 들어가고, 테스트 로그인이 그 값으로 통과하면 그때 바뀐다. 그 전까지 로그인은 원래 secret을 쓴다.
+켜진 공급자는 이름과 정책(허용 도메인, JIT 역할, 검증된 이메일 요구)만 바로 바꿀 수 있다. client ID, token 인증 방식, endpoint를 바꾸려면 먼저 끈다. secret은 켠 채로 바꿀 수 있다. 새 값은 교체 후보로 들어가고, 테스트 로그인이 그 값으로 통과하면 그때 바뀐다. 그 전까지 로그인은 원래 secret을 쓴다. 잘못 넣은 후보는 다른 값을 넣어 바꾸거나, 지금 쓰는 secret을 다시 넣어 거둔다.
 
 로그인 화면은 공개 `GET /v1/auth/login-methods`(`{"password":"on","providers":[{"id":"…","display_name":"Google"}]}`, 켜진 공급자가 없으면 `providers`가 빈 목록)로 고를 수 있는 수단을 받는다. 흐름: 웹이 `POST /v1/auth/providers/{id}/start`(`X-Requested-With` 필요)로 `authorization_url`을 받아 연다. 응답은 `__Host-werft_login_flow` cookie(10분)를 세운다. 이 cookie는 state·nonce·PKCE verifier·공급자 id·그때의 설정 revision을 `PLATFORM_SECRET_KEY`에서 낸 키로 봉인한 값이라 브라우저가 읽거나 바꿀 수 없다. 공급자가 리디렉션 URI로 `code`·`state`(공급자에 따라 `iss`도)를 돌려주면 웹이 공급자 id와 함께 `POST /v1/auth/oidc/callback`에 보낸다. API는 cookie를 지우고, 열어서 state·10분·공급자 id·설정 revision이 맞는지 본 뒤 code를 교환하고 id_token의 서명(JWKS)·iss·aud·exp·nonce·`email_verified`를 확인한다. 그다음 허용 도메인을 보고(`403`) 첫 진입 규칙을 위에서부터 적용한다.
 

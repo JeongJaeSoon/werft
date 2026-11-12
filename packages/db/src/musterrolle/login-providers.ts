@@ -486,30 +486,36 @@ export function createPostgresLoginProviderAdminStore(
         const workspaceId = await secretOwnerWorkspace(tx);
         if (workspaceId === null) return { outcome: "no_workspace" as const };
         const slot: LoginProviderSecretSlot = row.enabled ? "next" : "current";
+        const inUse = await readSecretInTx(
+          tx,
+          key,
+          slotOf(workspaceId, row.id, "current"),
+        );
+        const waiting = row.enabled
+          ? await readSecretInTx(tx, key, slotOf(workspaceId, row.id, "next"))
+          : null;
         // The value this provider already has, or already waits to try, is
         // no change: a pass that vouches for it stands.
-        const held =
-          (row.enabled
-            ? await readSecretInTx(tx, key, slotOf(workspaceId, row.id, "next"))
-            : null) ??
-          (await readSecretInTx(
-            tx,
-            key,
-            slotOf(workspaceId, row.id, "current"),
-          ));
-        if (held === input.value) {
+        if (input.value === (waiting ?? inUse)) {
           return {
             outcome: "stored" as const,
             provider: await recordOf(tx, row),
           };
         }
-        await writeSecretInTx(
-          tx,
-          key,
-          slotOf(workspaceId, row.id, slot),
-          input.value,
-          input.audit.userId,
-        );
+        // The secret in use passed its test already, so naming it again
+        // while another waits withdraws the one that waits.
+        const withdrawn = row.enabled && input.value === inUse;
+        if (withdrawn) {
+          await deleteSecretInTx(tx, slotOf(workspaceId, row.id, "next"));
+        } else {
+          await writeSecretInTx(
+            tx,
+            key,
+            slotOf(workspaceId, row.id, slot),
+            input.value,
+            input.audit.userId,
+          );
+        }
         const [updated] = await tx
           .update(loginProviders)
           .set({
@@ -529,7 +535,9 @@ export function createPostgresLoginProviderAdminStore(
           input.audit,
           "set_login_provider_secret",
           row.id,
-          { slot, last4: input.value.slice(-4) },
+          withdrawn
+            ? { slot, withdrawn: true }
+            : { slot, last4: input.value.slice(-4) },
         );
         return {
           outcome: "stored" as const,

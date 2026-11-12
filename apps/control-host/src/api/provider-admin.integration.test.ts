@@ -57,6 +57,9 @@ const PASSWORD = "correct horse battery staple";
 const CLIENT_ID = "werft-console";
 const CLIENT_SECRET = "the-secret-the-provider-takes";
 const WRONG_SECRET = "a-secret-the-provider-refuses";
+const ROTATED_SECRET = "the-providers-next-secret-0002";
+// What the stand-in provider takes; a test changes the secret in place.
+const idpClient = { clientId: CLIENT_ID, clientSecret: CLIENT_SECRET };
 const KEY = SecretKey.fromHex("cd".repeat(32), "test");
 // On loopback, so the stand-in provider's plain http is allowed.
 const CONSOLE_ORIGIN = "http://localhost:5173";
@@ -174,10 +177,7 @@ integration("sign-in provider settings on PostgreSQL", () => {
     database = await createTempDatabase({ prefix: "provider_admin" });
     pool = new Pool({ connectionString: database.url, max: 8 });
     db = drizzle(pool, { schema });
-    idp = await startMockOidcServer({
-      clientId: CLIENT_ID,
-      clientSecret: CLIENT_SECRET,
-    });
+    idp = await startMockOidcServer(idpClient);
     const identity = new DatabaseIdentityStore(db);
     const store = createPostgresLoginProviderAdminStore(db, KEY);
     const providers = createProviderLogin({
@@ -546,11 +546,23 @@ integration("sign-in provider settings on PostgreSQL", () => {
     // Sign-ins never saw it.
     expect((await signIn(alice)).status).toBe(200);
 
-    // A replacement the provider takes passes and becomes the secret.
+    // Naming the secret in use withdraws the one that waited.
     await providerOf(
       await send("PUT", path("/client-secret"), {
         cookie: owner,
         body: { value: CLIENT_SECRET },
+      }),
+    );
+    expect(provider.state).toBe("enabled");
+    expect(provider.pending_client_secret).toBeNull();
+
+    // The provider issues a new secret: it waits, passes and becomes the
+    // secret.
+    idpClient.clientSecret = ROTATED_SECRET;
+    await providerOf(
+      await send("PUT", path("/client-secret"), {
+        cookie: owner,
+        body: { value: ROTATED_SECRET },
       }),
     );
     expect(provider.state).toBe("enabled_secret_pending");
@@ -567,7 +579,7 @@ integration("sign-in provider settings on PostgreSQL", () => {
       state: "enabled",
       pending_client_secret: null,
     });
-    expect(after?.client_secret?.last4).toBe(CLIENT_SECRET.slice(-4));
+    expect(after?.client_secret?.last4).toBe(ROTATED_SECRET.slice(-4));
     expect((await signIn(alice)).status).toBe(200);
     if (after) provider = after;
   });
@@ -641,6 +653,8 @@ integration("sign-in provider settings on PostgreSQL", () => {
       "enable_login_provider",
       // Name and joining role, while on.
       "update_login_provider",
+      // One that waited, its withdrawal, one that passed.
+      "set_login_provider_secret",
       "set_login_provider_secret",
       "set_login_provider_secret",
       "test_login_provider",
@@ -658,5 +672,6 @@ integration("sign-in provider settings on PostgreSQL", () => {
     const written = JSON.stringify(rows);
     expect(written).not.toContain(CLIENT_SECRET);
     expect(written).not.toContain(WRONG_SECRET);
+    expect(written).not.toContain(ROTATED_SECRET);
   });
 });

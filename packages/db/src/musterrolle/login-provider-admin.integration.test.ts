@@ -399,6 +399,38 @@ integration("login provider admin store", () => {
     if (repeated.outcome !== "stored") throw new Error(repeated.outcome);
     expect(repeated.provider).toEqual(waiting.provider);
     expect(await secretReceipts()).toBe(2);
+
+    // Naming the secret in use while another waits withdraws the one that
+    // waits: the provider stays on with the secret that passed.
+    const started = await admin.findForTest(provider.id);
+    expect(started?.slot).toBe("next");
+    const withdrawn = await set(FIRST_SECRET);
+    if (withdrawn.outcome !== "stored") throw new Error(withdrawn.outcome);
+    expect(withdrawn.provider).toMatchObject({
+      enabled: true,
+      pendingClientSecret: null,
+      configRevision: waiting.provider.configRevision,
+      revision: waiting.provider.revision + 1,
+    });
+    expect(withdrawn.provider.clientSecret?.last4).toBe("1111");
+    expect(await signInSecret(provider.id)).toBe(FIRST_SECRET);
+    expect((await receiptsOf(provider.id)).at(-1)).toMatchObject({
+      operation: "set_login_provider_secret",
+      result: { provider_id: provider.id, slot: "next", withdrawn: true },
+    });
+    // A test that was under way with the withdrawn secret is not a pass.
+    expect(
+      (
+        await admin.recordTest({
+          id: provider.id,
+          configRevision: started?.provider.configRevision ?? -1,
+          slot: "next",
+          clientSecret: SECOND_SECRET,
+          audit: audit(),
+        })
+      ).outcome,
+    ).toBe("stale");
+    expect(await signInSecret(provider.id)).toBe(FIRST_SECRET);
   });
 
   test("a test that ran while the settings changed is not written down", async () => {

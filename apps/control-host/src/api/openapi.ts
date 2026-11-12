@@ -2981,7 +2981,7 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "setLoginProviderSecret",
     tag: "Auth",
     summary: "Set the provider's client secret",
-    description: `${LOGIN_PROVIDER_OWNER} Write-only. On a provider that is off the value becomes its secret and the settings a new revision. On a provider that is on the value waits as a replacement: sign-ins keep the secret they have until a test sign-in passes with the new one. The value the provider already has, or already waits to try, changes nothing: no revision, no receipt, and a test that passed stands.`,
+    description: `${LOGIN_PROVIDER_OWNER} Write-only. On a provider that is off the value becomes its secret and the settings a new revision. On a provider that is on the value waits as a replacement: sign-ins keep the secret they have until a test sign-in passes with the new one. The value a provider that is off already has, or the one that already waits (on with none waiting: the one in use), changes nothing: no revision, no receipt, and a test that passed stands. The value in use, sent while another waits, withdraws the one that waits.`,
     auth: "session",
     body: "SetLoginProviderSecretRequest",
     requestExample: { value: "example-client-secret" },
