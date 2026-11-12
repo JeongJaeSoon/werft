@@ -41,12 +41,13 @@ Bun.serve({
     return Response.json(
       recorded
         .filter((entry) => spec === null || entry.specId === spec)
-        .map(({ at, messages, specId, step, tools }) => ({
+        .map(({ at, found, messages, specId, step, tools }) => ({
           at,
           spec_id: specId,
           step,
           history: specIdsIn(messages),
           tools,
+          found,
         })),
     );
   },

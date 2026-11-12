@@ -3,7 +3,7 @@ import { type Api, e2eEnv, poll } from "../e2e/client.ts";
 import { type PushAgent, pushAgent } from "./agent.ts";
 import { scriptId } from "./engine.ts";
 import { engineFromEnv } from "./engines.ts";
-import { forgeBranch, forgeFile } from "./forge.ts";
+import { forgeBranch, forgeFile, forgePushRequests } from "./forge.ts";
 
 /**
  * The agent asks to push through its own `request_push` tool, the path that
@@ -112,6 +112,7 @@ describe(`agent push tool on ${engine.runtimeKind}`, () => {
     async () => {
       const { agent, session } = await agentPushed("agent-push-reject");
       const request = await requestOf(agent.starter, session);
+      const pushesBefore = await forgePushRequests(engine);
 
       const rejected = await agent.approver.request<PushRequest>(
         "POST",
@@ -125,6 +126,8 @@ describe(`agent push tool on ${engine.runtimeKind}`, () => {
         expect(await forgeBranch(engine, session)).toBeNull();
         await Bun.sleep(WATCH_INTERVAL_MS);
       }
+      // No push request reached the forge at all, a refused one included.
+      expect(await forgePushRequests(engine)).toBe(pushesBefore);
     },
     TIMEOUT,
   );

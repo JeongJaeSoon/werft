@@ -47,6 +47,11 @@ export type GateRequest = {
   system: unknown;
   /** Names of the tools the request offered. */
   tools: string[];
+  /**
+   * Names a tool search loaded: the `tool_reference` blocks the conversation's
+   * tool results carry. A deferred tool is in front of the model only so.
+   */
+  found: string[];
 };
 
 function blocksOf(message: Message): Block[] {
@@ -54,6 +59,27 @@ function blocksOf(message: Message): Block[] {
     return [{ type: "text", text: message.content }];
   }
   return Array.isArray(message.content) ? (message.content as Block[]) : [];
+}
+
+/** Tool names the conversation's tool results reference, in order, once each. */
+function toolReferencesIn(messages: readonly Message[]): string[] {
+  const names = new Set<string>();
+  for (const message of messages) {
+    if (message?.role !== "user") continue;
+    for (const block of blocksOf(message)) {
+      const { content } = block as { content?: unknown };
+      if (block.type !== "tool_result" || !Array.isArray(content)) continue;
+      for (const part of content as { tool_name?: unknown; type?: unknown }[]) {
+        if (
+          part?.type === "tool_reference" &&
+          typeof part.tool_name === "string"
+        ) {
+          names.add(part.tool_name);
+        }
+      }
+    }
+  }
+  return [...names];
 }
 
 /** The latest spec in the conversation and how many tool results follow it. */
@@ -158,6 +184,7 @@ export function replyFor(
       };
       return typeof name === "string" && defer_loading !== true ? [name] : [];
     }),
+    found: toolReferencesIn(messages),
   });
   if (plan === null) return textReply(fallback);
   const { spec, step } = plan;

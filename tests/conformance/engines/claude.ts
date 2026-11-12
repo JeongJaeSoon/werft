@@ -33,9 +33,13 @@ export function claudeEngine(env = process.env): EngineFixture {
         script.final,
         script.finalDelayMs,
       ),
+    // The SDK defers MCP tools behind its tool search once there are many:
+    // the model then sees the push tool when a search result references it.
     async pushToolShown(id) {
-      return (await this.modelCalls(id)).some((call) =>
-        call.tools.includes(PUSH_TOOL),
+      return (await this.modelCalls(id)).some(
+        (call) =>
+          call.tools.includes(PUSH_TOOL) ||
+          (call.found ?? []).includes(PUSH_TOOL),
       );
     },
     async modelCalls(id) {
