@@ -19378,7 +19378,7 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. Also for a parked request while the session's workspace is being reclaimed: the answer is not kept, and the same request goes through once the reclaim settles; `Retry-After` is 10. */
             503: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -22180,7 +22180,7 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. Also for a parked turn while the session's workspace is being reclaimed: nothing is recorded, and the same request goes through once the reclaim settles; `Retry-After` is 10. */
             503: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -22947,7 +22947,7 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. Also while the stopped session's workspace is being reclaimed; `Retry-After` is 10. */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. Also while the stopped or paused session's workspace is being reclaimed; `Retry-After` is 10. */
             503: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];

@@ -169,13 +169,17 @@ volume의 quota label이 지금 설정과 다르면(예전에 암묵 생성된 l
 
 resume은 committed checkpoint가 있어야만 받아들여지고, 워커는 claim에 restore pointer가 있으면 checkpoint에서 workspace를 복원한다(복원은 root를 비운 뒤 채운다). 그래서 TTL이 지난 stopped 세션의 volume은 캐시일 뿐이다. 반대로 **checkpoint가 없는 stopped 세션은 resume할 수 없고, 그 volume에만 남은 작업은 TTL이 지나면 사라진다.** 그 작업을 살려야 하면 TTL 안에 volume에서 직접 꺼내야 한다.
 
+**`paused` 세션의 workspace도 만료된다.** pause한 뒤 `EXECUTION_WORKSPACE_PAUSED_TTL_SEC`(기본 86400, 하루)이 지나면 회수 후보가 된다. 승인 대기로 park된 세션(`pause_reason: awaiting_input`)도 같다. 기준 시각은 `sessions.paused_at`이다. 세션이 `paused`에 들어가는 쓰기가 이 값을 찍고, `paused`를 떠나면 지워진다. 다른 쓰기, 회수 claim, 완료 기록은 이 값을 건드리지 않는다. 이 값이 생기기 전(migration `0273_paused_at` 전)부터 `paused`였던 세션은 올린 뒤 회수 pass가 그 세션을 처음 본 시각부터 센다. `0`은 다음 pass에서 바로 회수한다는 뜻이다. 회수하는 것은 resume이 받아들일 checkpoint가 있는 세션뿐이다. checkpoint pointer가 없거나, `checkpoint_pending_reason`이 막거나, start_fresh가 은퇴시킨 checkpoint이거나, legacy pod binding이면 남긴다. slot을 쥔 launch가 있으면 후보가 아닌 것은 `stopped`와 같다.
+
+회수된 `paused` 세션을 resume하면(사람의 resume이든, parked 요청에 대한 답의 자동 resume이든) 새 workspace에 그 checkpoint를 복원한다. 복원은 원래 이전 트리를 지운 뒤 채우므로, 정상이라면 잃는 것은 없다. 다만 **복원이 실패하면 volume으로 구제할 길이 없다.** checkpoint 확인(manifest 누락·손상, 이미지 조합 불일치 등)에서 복원이 실패하면 지금까지는 volume이 남아, 그 뒤의 start_fresh가 저장소 없는 세션의 파일을 그대로 썼다. 회수된 세션에서 start_fresh는 빈 작업 디렉터리로 시작한다. 작업 디렉터리는 캐시이고 checkpoint(S3)와 DB가 원본이라는 원칙에 따른 것이다. paused volume을 더 오래 두려면 `EXECUTION_WORKSPACE_PAUSED_TTL_SEC`를 늘린다.
+
 회수와 resume은 DB에서 직렬화된다. volume 목록에서 후보가 나오면 pass는 세션 row를 resume과 같은 순서(launch → session)로 잠그고 조건을 다시 확인한 뒤, **claim**(`sessions.workspace_reclaim_id`·`workspace_reclaim_workspace_id`)을 기록하고 commit한다. 그 다음에 volume을 지우고, 같은 claim id로 결과를 기록한다.
 
 * 지워졌거나 이미 없으면 claim을 지우고 `workspace_reclaimed_at`을 찍는다.
 * 마운트돼 있거나(409) 다른 설치 것이면 claim만 푼다.
 * 삭제 호출이 던지면(timeout 포함) claim을 그대로 둔다. volume이 지워졌는지 알 수 없기 때문이다. 다음 pass는 volume 목록과 별개로 끝나지 않은 claim부터 다시 처리한다. 지워진 volume은 목록에 다시 나오지 않기 때문이다.
 
-claim이 남아 있는 동안 resume은 **503 `BACKEND_UNAVAILABLE`(`retryable: true`)**로 거절된다. 이때 receipt도 idempotency 기록도 남기지 않으므로, 같은 요청을 다시 보내면 회수가 끝난 뒤 정상 처리된다. 반대로 resume이 먼저 commit되면 세션이 `active`가 되고 `updated_at`이 바뀌므로 claim이 거절되고, volume은 다음 launch가 그대로 쓴다. 재개에 성공하면 `workspace_reclaimed_at`은 지워진다. 순서별 동작은 통합 시험이 실제 PostgreSQL 위에서 고정한다.
+claim이 남아 있는 동안 resume은 **503 `BACKEND_UNAVAILABLE`(`retryable: true`)**로 거절된다. 이때 receipt도 idempotency 기록도 남기지 않으므로, 같은 요청을 다시 보내면 회수가 끝난 뒤 정상 처리된다. `paused` 세션에서는 resume을 시작할 수 있는 다른 요청도 같은 503으로 거절된다. parked 요청에 대한 답(답은 저장되지 않는다)과 이미 끝난 turn의 interrupt다. 기한이 지난 parked 요청의 만료 처리도 회수가 끝날 때까지 미뤄지고, 그 뒤의 pass가 만료를 적고 그룹을 이어 간다. 반대로 resume이 먼저 commit되면 세션이 `active`가 되고 `updated_at`이 바뀌므로 claim이 거절되고, volume은 다음 launch가 그대로 쓴다. 재개에 성공하면 `workspace_reclaimed_at`은 지워진다. 순서별 동작은 통합 시험이 실제 PostgreSQL 위에서 고정한다.
 
 ## 공통 object store 보호
 

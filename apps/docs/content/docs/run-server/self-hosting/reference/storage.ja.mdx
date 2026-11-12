@@ -176,13 +176,17 @@ volume の quota label が現在の設定と異なる場合（過去に暗黙作
 
 resume は commit 済み checkpoint がある場合だけ受理し、worker は claim に restore pointer があれば checkpoint から workspace を復元します（root を空にしてから埋め直します）。そのため TTL を過ぎた stopped セッションの volume は cache にすぎません。逆に**checkpoint がない stopped セッションは resume できず、その volume だけに残る作業は TTL 後に消えます。** 必要な作業は TTL 内に volume から直接取り出してください。
 
+**`paused` セッションの workspace も期限切れになります。** pause 後に `EXECUTION_WORKSPACE_PAUSED_TTL_SEC`（既定 86400、一日）を過ぎると回収候補になります。承認待ちで park されたセッション（`pause_reason: awaiting_input`）も同じです。基準時刻は `sessions.paused_at` です。セッションが `paused` に入る書き込みが記録し、`paused` を離れると消去します。ほかの書き込み、回収 claim、完了記録は変更しません。この値ができる前（migration `0273_paused_at` より前）から `paused` だったセッションは、アップグレード後に回収 pass がそのセッションを初めて見た時刻から数えます。`0` は次の pass ですぐ回収する意味です。回収するのは、resume が受理する checkpoint があるセッションだけです。checkpoint pointer がない、`checkpoint_pending_reason` が妨げる、start_fresh が退役させた checkpoint である、legacy pod binding である場合は残します。slot を保持する launch があれば候補でないのは `stopped` と同じです。
+
+回収された `paused` セッションを resume すると（人の resume でも、parked 要求への回答による自動 resume でも）、新しい workspace に checkpoint を復元します。復元はもともと古いツリーを消してから埋めるため、通常は何も失いません。ただし**復元が失敗したときに volume で救う道はなくなります。** これまでは checkpoint の確認（manifest の欠落・破損、イメージ組み合わせの不一致など）で復元が失敗すると volume が残り、その後の start_fresh がリポジトリなしセッションのファイルをそのまま使いました。回収されたセッションでは start_fresh は空の作業ディレクトリから始まります。作業ディレクトリは cache であり、checkpoint（S3）と DB が原本だという原則に従っています。paused volume を長く残すには `EXECUTION_WORKSPACE_PAUSED_TTL_SEC` を増やします。
+
 回収と resume は DB で直列化します。volume 一覧で候補が見つかると、pass はセッション row を resume と同じ順序（launch → session）で lock し、条件を再確認してから **claim**（`sessions.workspace_reclaim_id`・`workspace_reclaim_workspace_id`）を記録して commit します。その後 volume を削除し、同じ claim id で結果を記録します。
 
 * 削除済みまたは既に存在しなければ claim を消し、`workspace_reclaimed_at` を記録します。
 * mount 中（409）または別の設置環境のものなら claim だけを解除します。
 * 削除呼び出しが throw した場合（timeout を含む）は claim を残します。volume が削除されたか不明なためです。次の pass は volume 一覧とは別に、未完了 claim から先に再処理します。削除済み volume は一覧に再び現れないためです。
 
-claim が残る間、resume は **503 `BACKEND_UNAVAILABLE`（`retryable: true`）** で拒否します。このとき receipt も idempotency 記録も残さないため、同じ要求を再送すれば回収後に正常処理されます。逆に resume が先に commit すると、セッションが `active` になって `updated_at` が変わるため claim は拒否され、次の launch が volume をそのまま使います。再開成功時に `workspace_reclaimed_at` は消去します。順序別の動作は統合テストが実際の PostgreSQL 上で固定しています。
+claim が残る間、resume は **503 `BACKEND_UNAVAILABLE`（`retryable: true`）** で拒否します。このとき receipt も idempotency 記録も残さないため、同じ要求を再送すれば回収後に正常処理されます。`paused` セッションでは、resume を始めうるほかの要求も同じ 503 で拒否します。parked 要求への回答（回答は保存しません）と、既に終わった turn の interrupt です。期限を過ぎた parked 要求の期限切れ処理も回収が終わるまで待ち、その後の pass が期限切れを記録してグループを続けます。逆に resume が先に commit すると、セッションが `active` になって `updated_at` が変わるため claim は拒否され、次の launch が volume をそのまま使います。再開成功時に `workspace_reclaimed_at` は消去します。順序別の動作は統合テストが実際の PostgreSQL 上で固定しています。
 
 <a id="공통-object-store-보호" />
 ## 共通の object store 保護

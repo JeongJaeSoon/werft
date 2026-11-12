@@ -1851,10 +1851,11 @@ describe("PostgresSchedulerStore", () => {
     const noClock = await expiredPaused({ pausedAt: null });
     const ids = [old, recent, noPointer, noClock];
 
-    // The pause's own clock is read, not `updated_at`.
+    // The pause's own clock is read, not `updated_at`. A session with no
+    // clock goes on to the claim, which stamps one.
     expect(
       new Set(await store.filterRetainedSessions(ids, PAUSED_TTLS)),
-    ).toEqual(new Set([recent, noPointer, noClock]));
+    ).toEqual(new Set([recent, noPointer]));
     // Without a paused TTL, no paused session is a candidate.
     expect(new Set(await store.filterRetainedSessions(ids, DAY))).toEqual(
       new Set(ids),
@@ -1874,9 +1875,17 @@ describe("PostgresSchedulerStore", () => {
     expect(await claim(await expiredPaused({ pausedAt: new Date() }))).toEqual({
       kind: "retained",
     });
-    expect(await claim(await expiredPaused({ pausedAt: null }))).toEqual({
-      kind: "retained",
-    });
+    // Paused before paused_at existed: the first claim starts its TTL and
+    // keeps the volume, and the next one inside that TTL keeps it too.
+    const unstamped = await expiredPaused({ pausedAt: null });
+    const before = Date.now();
+    expect(await claim(unstamped)).toEqual({ kind: "retained" });
+    const [stamped] = await db
+      .select({ pausedAt: sessions.pausedAt })
+      .from(sessions)
+      .where(eq(sessions.id, unstamped));
+    expect(stamped?.pausedAt?.getTime()).toBeGreaterThanOrEqual(before - 5_000);
+    expect(await claim(unstamped)).toEqual({ kind: "retained" });
     expect(
       await claim(await expiredPaused({ checkpointRevision: null })),
     ).toEqual({ kind: "retained" });

@@ -923,8 +923,8 @@ export function createPostgresSchedulerStore(
                     sql`${sessions.admissionState} = 'paused'`,
                     options.pausedTtlMs === undefined
                       ? sql`true`
-                      : or(
-                          isNull(sessions.pausedAt),
+                      : // No clock yet goes on to the claim, which stamps it.
+                        or(
                           isNull(sessions.checkpointRevision),
                           sql`${sessions.pausedAt} > ${fromDbNow(-options.pausedTtlMs)}`,
                         ),
@@ -1033,11 +1033,19 @@ export function createPostgresSchedulerStore(
             return { kind: "retained" };
           }
         } else if (session.admissionState === "paused") {
+          if (pausedTtlMs === undefined) return { kind: "retained" };
+          // Paused before paused_at existed: its TTL starts now, kept until
+          // then. A migration backfill would hold every row lock at once.
+          if (session.pausedAt === null) {
+            await tx
+              .update(sessions)
+              .set({ pausedAt: now })
+              .where(eq(sessions.id, sessionId));
+            return { kind: "retained" };
+          }
           // Its resume restores this checkpoint over whatever the volume
           // holds; a session its resume would refuse keeps the volume.
           if (
-            pausedTtlMs === undefined ||
-            session.pausedAt === null ||
             session.pausedAt.getTime() > now.getTime() - pausedTtlMs ||
             !hasRestorePoint(session) ||
             session.podId !== null
