@@ -6,7 +6,7 @@
 
 ## 무엇을 골랐나
 
-1. **지원 창은 N=1이다.** 새 control-host는 현재 worker 이미지와 직전 릴리스의 worker 이미지 하나(`images.workerPrevious`, `WORKER_IMAGE_PREVIOUS`)와 함께 돈다. 허용 목록이 들어오면 N은 그 설정값을 따른다. 매트릭스는 N을 한 곳(워크플로의 `SUPPORT_WINDOW`)에서 읽는다.
+1. **지원 창은 N=1이고, 이 설계는 N=1에 묶여 있다.** 새 control-host는 현재 worker 이미지와 직전 릴리스의 worker 이미지 하나(`images.workerPrevious`, `WORKER_IMAGE_PREVIOUS`)와 함께 돈다. 매트릭스는 N을 한 곳(워크플로의 `SUPPORT_WINDOW`)에서 읽고, 1이 아니면 실패한다. 허용 목록으로 N을 늘리는 변경은 고정본을 창 안 릴리스마다 하나씩 두고, DB 삭제 조건(5절)을 "더 새 릴리스 N+1개"로 바꾸는 것까지 함께 한다.
 2. **지원 창의 하한은 프로필 제거 커밋 `ef3627954`(#1567)이다.** 이 커밋을 포함하지 않는 릴리스(`v0.1.3`까지)의 worker는 지원 창 밖이다. 지금 게시된 릴리스는 모두 하한 앞이라, 매트릭스는 첫 대상 릴리스가 나올 때까지 이유를 출력하고 건너뛴다.
 3. **규칙은 하나다: 받는 쪽이 먼저 넓히고(expand), 보내는 쪽은 그 받는 쪽이 지원 창의 가장 옛 이미지가 된 뒤에 좁힌다(contract).** 요청(worker → control-host), 응답(control-host → worker), JSON 밖의 약속(상태 코드, 인증, 크기 한도), DB 열·테이블에 같은 규칙을 쓴다(2절).
 4. **싼 검사는 schema 비교, 비싼 검사는 실제 이미지다.** PR마다 도는 계약 시험은 직전 지원 릴리스의 worker protocol을 JSON Schema로 저장소에 고정하고 지금 schema와 두 방향으로 비교한다(3절). 이 비교가 볼 수 없는 것(refine, transform, JSON 밖의 약속)은 목록으로 고정해 바뀌면 실패시키고, 실제 이미지 매트릭스가 덮는다. 릴리스 태그에서는 승격될 control-host 이미지와 직전 N개 릴리스의 실제 worker 이미지로 turn 완료와 checkpoint 재개를 확인하고, 실패하면 승격을 막는다(4절).
@@ -87,7 +87,7 @@
 
 | 볼 수 없는 것 | 계약 시험이 하는 것 | 덮는 곳 |
 |---|---|---|
-| `refine`·`superRefine`·`transform`·`preprocess`·`catch`의 조건 | 위치·종류·(가능하면) 본문 해시를 고정해, 바뀌면 실패시킨다. `superRefine`은 본문을 읽을 수 없어 위치만 본다 | 바꾼 PR이 그 조건의 옛·새 값을 실행으로 비교하는 시험을 더하고 3.4의 인정 목록에 적는다. 매트릭스 |
+| `refine`·`superRefine`·`transform`·`preprocess`·`catch`의 조건 | 위치·종류·(가능하면) 본문 해시를 고정해, 생기거나 없어지거나 `refine` 본문이 바뀌면 실패시킨다. `superRefine`·`transform`·`catch`의 본문 변경과, `refine` 본문이 부르는 상수·함수의 변경은 잡지 못한다 | 바꾼 PR이 그 조건의 옛·새 값을 실행으로 비교하는 시험을 더하고 3.4의 인정 목록에 적는다. 매트릭스 |
 | 옛 worker가 타입 밖의 칸을 싣는 경우 | 열린 객체가 strict로 바뀌면 실패시킨다 | 매트릭스 |
 | JSON 밖의 약속(상태 코드의 뜻, 인증 전환, 크기 한도, long-poll, 확장 번들 `GET`, egress proxy 경로) | 없음 | 매트릭스(실제 이미지로 turn과 재개를 돈다). 규칙은 2절 |
 | checkpoint manifest | 없음 | 매트릭스 3단계: 옛 worker가 쓴 manifest를 새 control-host가 복원 계획으로 검사하고 옛 worker가 복원한다 |
@@ -123,7 +123,9 @@ PR 1에 프로필 제거와 같은 변경(bootstrap-claim 응답의 필수 칸 �
    - 성공 기준은 "turn 완료"다. 400 부재가 아니다. 실패하면 compose·worker 로그를 artifact로 남긴다.
 3. 같은 step의 `trap`이 compose project와 이 run의 installation id 라벨이 붙은 컨테이너·네트워크·volume을 지운다.
 
-scheduler가 checkpoint의 runtime 조합으로 현재·직전 이미지 중 하나를 고르는 것은 이 job이 보지 않는다(3단계는 두 칸이 같은 이미지다). 그 선택은 scheduler 단위 시험과 `k8s-upgrade` workflow가 본다.
+scheduler가 checkpoint의 runtime 조합으로 현재·직전 이미지 중 하나를 고르는 것은 이 job이 보지 않는다(3단계는 두 칸이 같은 이미지다). 그 선택은 scheduler 단위 시험(`packages/platform/src/scheduler/worker-images.test.ts`)이 본다.
+
+이 job은 보통의 turn과 checkpoint 재개 경로만 실제로 돈다. 오류 응답의 재시도, 본문 크기 경계, long-poll 대기 시간의 끝, 확장 번들 `GET`(런타임 확장이 있는 에이전트)은 실행하지 않는다. 이것들은 2절의 규칙과 리뷰로만 지킨다. 남은 위험으로 적어 둔다.
 
 ### 4.2 시간
 
@@ -131,7 +133,14 @@ scheduler가 checkpoint의 runtime 조합으로 현재·직전 이미지 중 하
 
 ### 4.3 릴리스를 막는 지점
 
-`images.yml`의 태그 흐름에서 호환 job은 `index`(staging digest의 다중 아키텍처 index) 뒤에 돌고, **승격될 그 staging control-host digest**를 받아 시험한다. `promote`가 호환 job에 `needs`를 건다. 실패하면 승격·chart·GitHub Release가 모두 멈춘다. 지원 창 안 릴리스가 없어 건너뛴 경우는 성공으로 끝나되 이유를 summary에 남긴다. 3.5의 고정본 대조도 이 job의 첫 step이다. PR·dispatch·schedule 실행은 이 checkout으로 control-host를 빌드한다.
+`images.yml`에는 릴리스로 가는 길이 둘 있고, 둘 다 **승격될 그 control-host digest**로 호환 job을 돌린 뒤에야 승격한다.
+
+| 길 | 시작 | 호환 job의 입력 | 호환 job을 기다리는 job |
+|---|---|---|---|
+| 자동 릴리스 | main에 CHANGELOG 릴리스 절이 병합된 push(`release-detect`가 태그 이름을 낸다). 태그는 승격 뒤 맨 끝에 만든다 | `index-main`이 만든 main의 staging digest(`promote-release`가 그대로 릴리스 태그로 승격하는 것) | `release-approve`(승인 환경 앞, `promote-release`의 선행) |
+| 수동 태그 push | `refs/tags/v*` push | `index`가 만든 staging digest | `promote` |
+
+실패하면 승격·chart·태그·GitHub Release가 모두 멈춘다. 지원 창 안 릴리스가 없어 건너뛴 경우는 성공으로 끝나되 이유를 summary에 남긴다. 3.5의 고정본 대조도 이 job의 첫 step이다. "직전 릴리스"는 두 길 모두 지금 만드는 태그를 뺀 게시 릴리스 중 최신이다. PR·dispatch·schedule 실행은 이 checkout으로 control-host를 빌드한다.
 
 PR 경로 필터: `packages/contracts/src/worker-protocol/**`, `apps/worker/**`, `apps/control-host/src/api/routes/workers/**`, `packages/platform/src/workers/**`, `packages/db/migrations/**`, workflow와 compat 스크립트 자신. 필수 체크가 아니다.
 
@@ -166,3 +175,4 @@ CI 시간은 4.2의 실측 뒤 다시 본다. 지원 창 약속(현재+직전)�
 ## 8. 리뷰 기록
 
 - Codex 설계 리뷰 1회차(2026-11-13): REJECT, 11건. 반영: 요청 비파싱과 열린 객체(1), 손실 구성 목록(2), capability 협상과 인정 목록(3), pause·generation·이력으로 재개 확인(4), 현재·직전 선택은 범위 밖으로 명시(5), compat overlay와 시간 추정 표시(6), staging digest 시험(7), migration 조건 두 릴리스(8), JSON 밖의 약속(9), manifest 근거 수정(10), 요청 제거 순서(11 앞부분). 받지 않음: 11 뒷부분(3.5).
+- Codex 설계 리뷰 2회차: REJECT. 1·3·4·5·6·8·10·11 해결, 2·7·9 부분. 새 지적 2건. 반영: 자동 릴리스 길(`release-approve`)에도 gate를 건다(4.3), 설계를 N=1에 묶고 N을 늘릴 때 함께 바꿀 것을 적는다(무엇을 골랐나 1), 잡지 못하는 손실 구성을 구체적으로 적는다(3.3), 매트릭스가 실행하지 않는 경로를 남은 위험으로 적는다(4.1), 현재·직전 선택의 근거를 scheduler 단위 시험으로 고친다. 3.5 반론(결정 A)은 Codex가 동의했다.
