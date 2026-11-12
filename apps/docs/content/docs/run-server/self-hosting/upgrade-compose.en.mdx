@@ -85,6 +85,7 @@ Compare target changelog actions with your deployed version. Meet every applicab
 | Change | Complete first | Rollback boundary |
 | --- | --- | --- |
 | Provider usage `inference_geo` | Replace API including migration, verify ready, then replace egress proxy | Old API rejects new proxy reports with 400, losing cost metering |
+| `openai_responses` connections and `/v1/responses` | Replace the egress proxy first. If you replaced the API first as in step 2, do not create an `openai_responses` connection until the proxy is replaced | The old proxy rejects `/v1/responses` with 404, so a session on that connection cannot call its model and fails. The new proxy sends no new field on `/v1/messages` calls, so it works with the old API unchanged |
 | `billing: none` | Update all API replicas and all schedulers' WORKER_IMAGE before creating none sessions | No rollback to old API/workers while unmetered sessions remain |
 | Local branches in checkpoints (`workspace.sources`, `refs/checkpoint/source/*`) | All APIs, verifiers, GC and session-archive CronJobs → workers | Old APIs and verifiers reject the field and the refs. Out of order, only pushes are blocked while the new workers' checkpoints are rejected; no data is lost |
 | Transcript limits/reasons | Migration → all APIs → workers; align API finalize and worker capture/restore limits in the same release | No rollback to builds unaware of transcript reasons |
