@@ -25,7 +25,7 @@ export const PROVIDER_EXCHANGE_KEEP_DAYS = 7;
  * one-key form, a key space PostgreSQL keeps apart from this one, so this
  * lock never waits on or for any of them.
  */
-const LOCK_SPACE = 1_380_271_442;
+export const LOCK_SPACE = 1_380_271_442;
 
 /**
  * Serializes the open and the report of one exchange, whatever owner either
@@ -194,9 +194,9 @@ export async function reconcileProviderExchanges(
   const noticeWhere = sql`${expired} AND ${providerExchanges.noticedAt} IS NULL AND NOT ${reportedBySameOwner}`;
 
   if (input.dryRun) {
-    const settled = rowsOf<{ exchange_id: string }>(
+    const settledIds = rowsOf<{ exchange_id: string }>(
       await db.execute(candidates(settledWhere)),
-    ).length;
+    ).map((row) => row.exchange_id);
     const noticed = await db
       .select({
         exchangeId: providerExchanges.exchangeId,
@@ -209,11 +209,20 @@ export async function reconcileProviderExchanges(
       .orderBy(providerExchanges.leaseExpiresAt)
       .limit(input.limit);
     // A row the settled step takes is not counted again here, as the
-    // writes would not find it.
+    // writes would not find it; a settled row beyond its limit still is.
     const deleted = rowsOf<{ exchange_id: string }>(
-      await db.execute(candidates(sql`${old} AND NOT ${reportedBySameOwner}`)),
+      await db.execute(
+        candidates(
+          settledIds.length === 0
+            ? old
+            : sql`${old} AND ${providerExchanges.exchangeId} NOT IN (${sql.join(
+                settledIds.map((id) => sql`${id}`),
+                sql`, `,
+              )})`,
+        ),
+      ),
     ).length;
-    return { settled, noticed, deleted };
+    return { settled: settledIds.length, noticed, deleted };
   }
 
   const settled = await db

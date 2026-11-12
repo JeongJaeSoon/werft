@@ -10,6 +10,7 @@ import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool, type PoolClient } from "pg";
 import {
   createProviderExchangeLedger,
+  LOCK_SPACE,
   lockProviderExchange,
 } from "./provider-exchanges.ts";
 import type { Database } from "./queries.ts";
@@ -111,15 +112,30 @@ integration("the provider exchange ledger under concurrent writers", () => {
     };
   }
 
-  /** How many advisory lock requests the server holds back right now. */
-  async function waitingOnAdvisoryLocks(): Promise<number> {
-    const result = await pool.query<{ waiting: string }>(
-      "SELECT count(*) AS waiting FROM pg_locks WHERE locktype = 'advisory' AND NOT granted",
-    );
-    return Number(result.rows[0]?.waiting ?? 0);
+  /**
+   * How many requests for this exchange's lock in this database the server
+   * holds back, polled until it reaches `expected` or a few seconds pass.
+   */
+  async function waitingOnLock(
+    exchangeId: string,
+    expected: number,
+  ): Promise<number> {
+    const deadline = Date.now() + 5_000;
+    for (;;) {
+      const result = await pool.query<{ waiting: string }>(
+        `SELECT count(*) AS waiting FROM pg_locks
+         WHERE locktype = 'advisory' AND NOT granted
+           AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
+           AND classid = $1::int4::oid AND objid = hashtext($2)::oid AND objsubid = 2`,
+        [LOCK_SPACE, exchangeId],
+      );
+      const waiting = Number(result.rows[0]?.waiting ?? 0);
+      if (waiting === expected || Date.now() > deadline) return waiting;
+      await Bun.sleep(25);
+    }
   }
 
-  test("a usage report waits on the exchange's lock, and an open behind it then sees it settled", async () => {
+  test("a usage report waits on the exchange's lock, and an open behind it leaves no row in either order", async () => {
     const who = await owner();
     const exchangeId = crypto.randomUUID();
     const holder = await held();
@@ -137,14 +153,14 @@ integration("the provider exchange ledger under concurrent writers", () => {
         priceFor: () => ({ costUsd: 0.0084, pricedBy: "table" }),
       });
       expect(await waits(reporting)).toBe("waited");
-      expect(await waitingOnAdvisoryLocks()).toBe(1);
+      expect(await waitingOnLock(exchangeId, 1)).toBe(1);
       opening = createProviderExchangeLedger(db as unknown as Database).open({
         exchangeId,
         ...who,
         reserve: RESERVE,
       });
       expect(await waits(opening)).toBe("waited");
-      expect(await waitingOnAdvisoryLocks()).toBe(2);
+      expect(await waitingOnLock(exchangeId, 2)).toBe(2);
     } finally {
       await holder.end();
     }
