@@ -571,4 +571,79 @@ describe("concurrency regressions", () => {
     },
     TIMEOUT,
   );
+
+  test(
+    "a Bash tool that reads the launch nonce out of PID 1's environ replays the claim and is refused, and the session goes on",
+    async () => {
+      // The whole attack: the init process holds the worker's launch
+      // environment and runs as the worker's uid, so the nonce is there to
+      // read. The worker activated its attempt before it started the engine,
+      // which is what leaves the nonce opening nothing: not a second
+      // credential, and not the image refusal a claim under another runtime
+      // would record.
+      const replay = [
+        "const claim = async (extra) => {",
+        '  const r = await fetch(process.env.U.replace(/\\/$/, "") + "/internal/worker/bootstrap-claim", {',
+        '    method: "POST",',
+        '    headers: { authorization: "Bearer " + process.env.N, "content-type": "application/json" },',
+        '    body: JSON.stringify({ execution_id: process.env.X, execution_generation: Number(process.env.G), credential: { kind: "launch_nonce", nonce: process.env.N }, ...extra }),',
+        "  });",
+        "  return r.status;",
+        "};",
+        "const plain = await claim({});",
+        'const forged = await claim({ image_runtime: { engine: "claude-agent-sdk", sdk_version: "0.0.0-forged", cli_version: "0.0.0-forged", profile_digest_scheme: 1 } });',
+        'console.log("plain_status=" + plain + " forged_status=" + forged);',
+      ].join(" ");
+      const probe = [
+        'e=$(tr "\\0" "\\n" < /proc/1/environ)',
+        'val() { printf "%s\\n" "$e" | sed -n "s/^$1=//p" | head -n 1; }',
+        'export N="$(val WORKER_BOOTSTRAP_NONCE)" X="$(val WORKER_EXECUTION_ID)"',
+        'export G="$(val WORKER_EXECUTION_GENERATION)" U="$(val WORKER_GATEWAY_URL)"',
+        '[ -n "$N" ] && nonce_read=1 || nonce_read=0',
+        `out=$(bun -e '${replay}' 2>&1)`,
+        'echo "replay uid=$(id -u) nonce_read=$nonce_read $out"',
+      ].join("\n");
+      const created = await api.createSession(
+        scripted("n1", [bash(probe)], "replayed"),
+      );
+      const sessionId = created.body.session_id;
+      const turn = await poll("the replay turn", 180_000, async () => {
+        for (const request of await api.pending(sessionId)) {
+          await api.allow(sessionId, request.request_id);
+        }
+        const current = await api.turn(sessionId, "1");
+        return ["queued", "running", "needs_input"].includes(current.status)
+          ? null
+          : current;
+      });
+      expect(turn.status).toBe("completed");
+      const result = (
+        await api.events(
+          sessionId,
+          (event) =>
+            event.event === "tool_result" && event.data.turn_id === "1",
+        )
+      ).at(-1);
+      const printed = JSON.stringify(result?.data.data);
+      const report =
+        /replay uid=(\d+) nonce_read=(\d) plain_status=(\d+) forged_status=(\d+)/.exec(
+          printed,
+        );
+      if (report === null) throw new Error(`no replay output in ${printed}`);
+      // The ticket's acceptance evidence, kept in the CI log.
+      console.log(report[0]);
+      const [, uid, nonceRead, plain, forged] = report;
+      // The nonce was there to read: the refusals are the gateway's, not a
+      // probe that had nothing to send.
+      expect({ uid, nonceRead }).toEqual({ uid: "1000", nonceRead: "1" });
+      expect({ plain, forged }).toEqual({ plain: "401", forged: "401" });
+      // The worker kept its credential and its execution: the same session
+      // takes another turn.
+      const next = await api.send(sessionId, scripted("n2", [], "still here"));
+      expect((await api.settledTurn(sessionId, next.turn_id)).status).toBe(
+        "completed",
+      );
+    },
+    TIMEOUT,
+  );
 });
