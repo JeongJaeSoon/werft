@@ -152,7 +152,7 @@ bucket은 `S3_BUCKET`(기본 `claude-sessions`, `infra/compose.core.yml`, `deplo
   - 보존 기간: 무기한. 삭제 조건: 없음.
 - **아직 정산되지 않은 호출** — `provider_exchanges`(`schema.ts`의 `providerExchanges`, 설계는 [provider-usage-ledger.md](../contributing/decisions/provider-usage-ledger.md))
   - 담는 것: egress proxy가 upstream을 부르기 직전에 연 provider 호출 하나의 id, 세션·attempt, 요청에서 계산한 사용량 추정(`reserve`), 연 시각, lease 만료 시각. 프롬프트나 응답 내용은 없다. 관찰용이고 비용과 상한 판정에 쓰지 않는다.
-  - 만드는 시점: proxy가 authorizer listener의 `POST /exchanges`로 연다. 지금의 egress proxy는 아직 이 경로를 부르지 않으므로 표는 비어 있다. 그 호출의 사용량 보고가 기록되는 트랜잭션에서 지운다(`packages/db/src/provider-exchanges.ts`, `recordProviderUsageAtomic`).
+  - 만드는 시점: proxy가 authorizer listener의 `POST /exchanges`로 연다(`apps/egress-proxy/src/credential.ts`). 열기는 세션의 과금 provider 호출(Messages, OpenAI Responses)만 하고 `count_tokens`와 판정 호출은 하지 않는다. 그 호출의 사용량 보고가 기록되는 트랜잭션에서 지운다(`packages/db/src/provider-exchanges.ts`, `recordProviderUsageAtomic`).
   - 보존 기간: 보고가 오면 바로 지운다. lease가 지난 줄은 reconciler가 본다. 같은 주인의 보고가 이미 `provider_usage`에 있으면 지우고, 없으면 `Provider exchange reservation expired unsettled` 경고를 한 번 남긴다. lease가 지난 지 7일이 넘은 줄은 지운다(`reconcileProviderExchanges`). 경고만으로 비용이 빠졌다고 판단하지 않는다. upstream에 닿지 못한 호출이나 아직 흐르는 호출도 들어온다.
 - **세션별 합계** — `sessions.cost_usd`·`provider_tokens`, 세션×모델 합계 `session_model_usage`(`schema.ts`의 `sessionModelUsage`)
   - 만드는 시점: `provider_usage` insert trigger가 더한다(`packages/db/migrations/0127_session_provider_tokens.sql`, `0169_usage_breakdown_rollup.sql`).
