@@ -208,6 +208,16 @@ export const RECEIPT_OPERATION_VALUES = [
   "approve_extension",
   "attach_extension",
   "detach_extension",
+  // Sign-in providers, by the owner. Field names and counts only: never a
+  // client secret, and of a stored one the last four characters.
+  "create_login_provider",
+  "update_login_provider",
+  "refresh_login_provider_discovery",
+  "set_login_provider_secret",
+  "test_login_provider",
+  "enable_login_provider",
+  "disable_login_provider",
+  "delete_login_provider",
 ] as const;
 
 export const receiptStatusSchema = z.enum(RECEIPT_STATUS_VALUES);
