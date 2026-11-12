@@ -49,7 +49,6 @@ const UNDOCUMENTED_OPERATIONS = new Set<ApiOperationId>([
   "enableMember",
   "enableUser",
   "getAgent",
-  "googleLoginCallback",
   "issuePasswordReset",
   "linkAgentIdentity",
   "listAdministeredAgents",
@@ -73,7 +72,6 @@ const UNDOCUMENTED_OPERATIONS = new Set<ApiOperationId>([
   "setAuditRetention",
   "setSlackGuest",
   "slackLinkCallback",
-  "startGoogleLogin",
   "startSlackLink",
   "takeOverSession",
   "unlinkAccount",
@@ -290,8 +288,8 @@ describe("OpenAPI document", () => {
 
   const SETS_SESSION_COOKIE = new Set([
     "/v1/auth/login",
-    "/v1/auth/google/start",
-    "/v1/auth/google/callback",
+    "/v1/auth/providers/{id}/start",
+    "/v1/auth/oidc/callback",
     "/v1/invites/accept",
   ]);
   test("every cookie-authenticated mutation documents the CSRF header and 403", () => {
@@ -341,13 +339,13 @@ describe("OpenAPI document", () => {
         "/v1/admin/sessions/{id}/terminate",
         "/v1/openapi.json",
         "/v1/auth/bootstrap",
-        "/v1/auth/google/callback",
-        "/v1/auth/google/start",
         "/v1/auth/login",
         "/v1/auth/login-methods",
         "/v1/auth/logout",
         "/v1/auth/me",
+        "/v1/auth/oidc/callback",
         "/v1/auth/password-reset",
+        "/v1/auth/providers/{id}/start",
         "/v1/connections",
         "/v1/installation/settings/connections",
         "/v1/installation/settings/connections/{id}/auto-mode",

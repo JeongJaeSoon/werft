@@ -38,6 +38,7 @@ import {
   bootstrapTokenUses,
   invites,
   loginMethods,
+  loginProviders,
   memberships,
   passwordResets,
   receipts,
@@ -654,7 +655,11 @@ async function insertWebSession(
  * only an address with no account may be admitted by a live invite or by
  * JIT. Concurrent first logins of one external account are serialised by
  * the advisory lock, so the second one finds the link the first made.
- * Locks run invite, then user, then session.
+ *
+ * Locks run subject, then provider row, then email, invite, user, login
+ * method, session. The provider row is held FOR SHARE to the end, so
+ * turning the provider off waits for this session and then ends it
+ * (disableLoginProvider), or comes first and this makes none.
  */
 export async function signInWithExternalIdentity(
   db: Database,
@@ -664,6 +669,21 @@ export async function signInWithExternalIdentity(
     await tx.execute(
       sql`SELECT pg_advisory_xact_lock(hashtext(${`login:${input.kind}:${input.issuer}:${input.subject}`}))`,
     );
+    const [provider] = await tx
+      .select({ id: loginProviders.id })
+      .from(loginProviders)
+      .where(
+        and(
+          eq(loginProviders.id, input.provider.id),
+          eq(loginProviders.enabled, true),
+          eq(loginProviders.issuer, input.issuer),
+          eq(loginProviders.configRevision, input.provider.configRevision),
+        ),
+      )
+      .for("share");
+    if (!provider) {
+      return { outcome: "provider_off" };
+    }
     const [linked] = await tx
       .select({ id: loginMethods.id, userId: loginMethods.userId })
       .from(loginMethods)
@@ -684,10 +704,16 @@ export async function signInWithExternalIdentity(
       if (!membership) {
         return { outcome: "rejected" };
       }
-      await tx
+      // The link was read before the user lock; it may have been removed
+      // while this waited.
+      const [stillLinked] = await tx
         .update(loginMethods)
         .set({ lastLoginAt: DB_NOW })
-        .where(eq(loginMethods.id, linked.id));
+        .where(eq(loginMethods.id, linked.id))
+        .returning({ id: loginMethods.id });
+      if (!stillLinked) {
+        return { outcome: "rejected" };
+      }
       const { expiresAt } = await insertWebSession(tx, {
         ...input.session,
         userId: linked.userId,
@@ -701,17 +727,23 @@ export async function signInWithExternalIdentity(
         expiresAt,
       };
     }
+    // Past this point everything is decided by the address.
+    const email = input.email;
+    if (email === null) {
+      return { outcome: "rejected" };
+    }
     // Two subjects may claim one address; the second must see the first's
     // account. Always taken after the subject lock.
     await tx.execute(
-      sql`SELECT pg_advisory_xact_lock(hashtext(${`login-email:${input.email}`}))`,
+      sql`SELECT pg_advisory_xact_lock(hashtext(${`login-email:${email}`}))`,
     );
     const [existing] = await tx
       .select({ disabledAt: users.disabledAt })
       .from(users)
-      .where(eq(users.email, input.email));
+      .where(eq(users.email, email));
     if (existing) {
-      // Only someone Google says owns the address now may learn it has one.
+      // Only someone the provider says owns the address now may learn it
+      // has one.
       return existing.disabledAt === null && input.ownsEmail
         ? { outcome: "link_required" }
         : { outcome: "rejected" };
@@ -727,7 +759,7 @@ export async function signInWithExternalIdentity(
           .from(invites)
           .where(
             and(
-              eq(invites.email, input.email),
+              eq(invites.email, email),
               isNull(invites.acceptedAt),
               isNull(invites.revokedAt),
               gt(invites.expiresAt, DB_NOW),
@@ -756,25 +788,27 @@ export async function signInWithExternalIdentity(
       };
     } else {
       // One workspace per installation (03 §3.1): JIT joins the oldest.
-      const [workspace] = input.jitRole
+      // An address the provider does not vouch for joins nothing by itself.
+      const jitRole = input.ownsEmail ? input.jitRole : null;
+      const [workspace] = jitRole
         ? await tx
             .select({ id: workspaces.id })
             .from(workspaces)
             .orderBy(asc(workspaces.createdAt), asc(workspaces.id))
             .limit(1)
         : [];
-      if (!workspace || !input.jitRole) {
+      if (!workspace || !jitRole) {
         return { outcome: "rejected" };
       }
       admission = {
         via: "jit",
         workspaceId: workspace.id,
-        role: input.jitRole,
+        role: jitRole,
       };
     }
     await tx.insert(users).values({
       id: input.newUserId,
-      email: input.email,
+      email,
       passwordHash: null,
       displayName: input.displayName,
     });
@@ -789,7 +823,7 @@ export async function signInWithExternalIdentity(
       kind: input.kind,
       issuer: input.issuer,
       subject: input.subject,
-      emailAtLink: input.email,
+      emailAtLink: email,
       lastLoginAt: DB_NOW,
     });
     if (admission.via === "invite" && invite) {
@@ -817,6 +851,7 @@ export async function signInWithExternalIdentity(
           role: admission.role,
           new_account: true,
           login_method: input.kind,
+          issuer: input.issuer,
         },
       });
     }

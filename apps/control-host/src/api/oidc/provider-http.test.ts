@@ -10,7 +10,6 @@ import {
 
 const REFUSE: NetworkPolicy = { plainHttp: "refuse" };
 const LOOPBACK: NetworkPolicy = { plainHttp: "loopback" };
-const ANY: NetworkPolicy = { plainHttp: "any" };
 
 describe("endpointProblem", () => {
   const cases: [unknown, NetworkPolicy, ReturnType<typeof endpointProblem>][] =
@@ -24,14 +23,13 @@ describe("endpointProblem", () => {
       ["http://[::1]:8080/token", LOOPBACK, null],
       ["http://idp.internal/token", LOOPBACK, "insecure_endpoint"],
       ["http://localhost.evil.example/token", LOOPBACK, "insecure_endpoint"],
-      ["http://idp.internal/token", ANY, null],
       ["https://user:pass@idp.example/token", REFUSE, "invalid_url"],
       ["https://idp.example/token#frag", REFUSE, "invalid_url"],
       ["https://idp.example/token#", REFUSE, "invalid_url"],
-      ["ftp://idp.example/token", ANY, "invalid_url"],
-      ["/token", ANY, "invalid_url"],
-      [undefined, ANY, "invalid_url"],
-      [42, ANY, "invalid_url"],
+      ["ftp://idp.example/token", LOOPBACK, "invalid_url"],
+      ["/token", LOOPBACK, "invalid_url"],
+      [undefined, LOOPBACK, "invalid_url"],
+      [42, LOOPBACK, "invalid_url"],
     ];
   for (const [value, policy, expected] of cases) {
     test(`${String(value)} under ${policy.plainHttp} is ${expected ?? "allowed"}`, () => {

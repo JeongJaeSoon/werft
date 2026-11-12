@@ -10,7 +10,7 @@ import { createHash, randomBytes } from "node:crypto";
 export type MockOidcClaims = {
   sub: string;
   email: string;
-  email_verified?: boolean;
+  email_verified?: boolean | null;
   hd?: string;
   name?: string;
   // Anything else lands in the id_token as given and overrides the

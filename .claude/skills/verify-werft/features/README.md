@@ -34,7 +34,7 @@
 - [웹 로그인](./web-login.md): 첫 owner bootstrap, 로그인 수단 목록(Google 꺼짐 404), 로그인, `me`(`permissions`·`workspace.settings`), 로그아웃, CSRF·잘못된 비밀번호 거절.
 - [웹 콘솔](./web-console.md): 브라우저로 `/bootstrap` → `/login` → `/`(사이드바 shell) → 사용자 메뉴의 로그아웃, 언어(ko·ja·en), SPA fallback과 `/v1` JSON 404, `browser.mjs`로 1280·390 폭·light·dark·오류·로딩 스크린샷.
 - [웹 초대·구성원·에이전트](./web-members-agents.md): `/members`의 초대 대화상자 → `/invite/{token}` 두 단계 수락 → 역할 변경(확인)·비활성, `/agents/new` 다섯 단계 마법사(member도), 상세 카드 탭 저장 → 릴리스 탭 release·활성화와 두 탭 409.
-- [웹 로그인 선택·팀·연동 계정·API key·워크스페이스 설정](./web-settings.md): 비밀번호/Google 선택, 팀과 에이전트 관리자 지정, Slack 연결·해제, API key 화면의 개인 key·에이전트 key 탭과 만들기 화면, 조직 관리 key 자리(준비 중), 감사 보존 29일 거절, Slack 게스트 사용 토글(member는 읽기 전용).
+- [웹 로그인 선택·팀·연동 계정·API key·워크스페이스 설정](./web-settings.md): 비밀번호/로그인 공급자 선택, 팀과 에이전트 관리자 지정, Slack 연결·해제, API key 화면의 개인 key·에이전트 key 탭과 만들기 화면, 조직 관리 key 자리(준비 중), 감사 보존 29일 거절, Slack 게스트 사용 토글(member는 읽기 전용).
 - [API key](./api-keys.md): key CLI로 운영자 key·workspace key 발급, scope 검사, 폐기 후 401. 웹의 권한별 key는 musterrolle d.
 - [세션](./sessions.md): fake model 대본으로 세션 생성·turn 완료·권한 요청·pause/resume (전체 경로는 `docs/quickstart.md` 3장), 웹 사용자가 개인 key로 만든 세션이 웹 `/sessions`에 보이기.
 - [운영 조회](./ops-endpoints.md): `/readyz`, `/docs`(API reference), `/v1/limits`(owner), `/v1/usage/summary`, 세션 usage.

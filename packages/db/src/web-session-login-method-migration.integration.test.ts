@@ -9,7 +9,6 @@ import {
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { migrate } from "./migrate.ts";
-import { MIGRATIONS_FOLDER } from "./migration-journal.ts";
 import { migrationsThrough } from "./testing/migrations-through.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -19,6 +18,8 @@ integration("0274 on a database that already has users and sessions", () => {
   let database: TempDatabase;
   let pool: Pool;
   let before: string;
+  // 0275 renames the kind these rows are written with, so this stops at 0274.
+  let through: string;
   const userId = randomUUID();
   const sessionId = randomUUID();
   const extraMethodId = randomUUID();
@@ -38,6 +39,7 @@ integration("0274 on a database that already has users and sessions", () => {
     before = migrationsThrough("0274_web_session_login_method", {
       exclusive: true,
     });
+    through = migrationsThrough("0274_web_session_login_method");
     await migrate(drizzle(pool), { migrationsFolder: before });
     await pool.query(
       "INSERT INTO users (id, email, display_name) VALUES ($1, 'ext@example.test', 'ext')",
@@ -53,7 +55,9 @@ integration("0274 on a database that already has users and sessions", () => {
   afterAll(async () => {
     await pool?.end();
     await database?.drop();
-    if (before) rmSync(before, { recursive: true, force: true });
+    for (const folder of [before, through]) {
+      if (folder) rmSync(folder, { recursive: true, force: true });
+    }
   });
 
   const columnExists = async () =>
@@ -67,7 +71,7 @@ integration("0274 on a database that already has users and sessions", () => {
     await external(extraMethodId, "subject-2");
     let message = "";
     try {
-      await migrate(drizzle(pool), { migrationsFolder: MIGRATIONS_FOLDER });
+      await migrate(drizzle(pool), { migrationsFolder: through });
     } catch (error) {
       message = String(
         (error as { cause?: unknown }).cause ?? (error as Error).message,
@@ -82,7 +86,7 @@ integration("0274 on a database that already has users and sessions", () => {
     await pool.query("DELETE FROM login_methods WHERE id = $1", [
       extraMethodId,
     ]);
-    await migrate(drizzle(pool), { migrationsFolder: MIGRATIONS_FOLDER });
+    await migrate(drizzle(pool), { migrationsFolder: through });
     expect(await columnExists()).toBe(true);
     const { rows } = await pool.query(
       "SELECT login_method_id FROM web_sessions WHERE id = $1",

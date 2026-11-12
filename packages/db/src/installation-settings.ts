@@ -121,7 +121,10 @@ async function ownsStoredValue(
   return rows.length > 0;
 }
 
-async function secretOwnerWorkspace(tx: Database): Promise<string | null> {
+/** Installation-owned secrets are kept under the oldest workspace. */
+export async function secretOwnerWorkspace(
+  tx: Database,
+): Promise<string | null> {
   const [workspace] = await tx
     .select({ id: workspaces.id })
     .from(workspaces)

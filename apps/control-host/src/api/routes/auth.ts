@@ -4,13 +4,12 @@ import {
   authMeResponseSchema,
   bootstrapRequestSchema,
   bootstrapResponseSchema,
-  GOOGLE_LOGIN_COOKIE_NAME,
-  GOOGLE_LOGIN_FLOW_TTL_MINUTES,
-  googleLoginCallbackRequestSchema,
   issuePasswordResetRequestSchema,
   issuePasswordResetResponseSchema,
-  type LoginMethod,
+  LOGIN_FLOW_COOKIE_NAME,
+  LOGIN_FLOW_TTL_MINUTES,
   loginMethodsResponseSchema,
+  loginProviderParamsSchema,
   loginRequestSchema,
   loginResponseSchema,
   memberParamsSchema,
@@ -18,8 +17,10 @@ import {
   PASSWORD_RESET_TTL_MINUTES,
   passwordResetRequestSchema,
   passwordResetResponseSchema,
+  providerLoginCallbackRequestSchema,
+  providerLoginCallbackResponseSchema,
   scopesForRole,
-  startGoogleLoginResponseSchema,
+  startProviderLoginResponseSchema,
   updateAuthMeRequestSchema,
   type Workspace,
   type WorkspaceRole,
@@ -62,12 +63,7 @@ import {
   WorkGate,
   webSessionCookie,
 } from "../auth.ts";
-import {
-  domainAdmission,
-  type GoogleLogin,
-  GoogleLoginInvalidError,
-  GoogleUnavailableError,
-} from "../google-login.ts";
+import { type ProviderLogin, ProviderLoginError } from "../provider-login.ts";
 import { rateLimited, requireParams } from "./errors.ts";
 
 export interface AuthRouteDeps {
@@ -77,8 +73,10 @@ export interface AuthRouteDeps {
   lockout?: LoginLockout;
   passwordWork?: WorkGate;
   logger?: StructuredLogger;
-  /** Absent: Google sign-in is not configured and its routes answer 404. */
-  google?: GoogleLogin;
+  /** Absent: no provider sign-in; the list is empty and its routes 404. */
+  providers?: ProviderLogin;
+  /** How many callbacks may be calling a provider at once. */
+  providerWork?: WorkGate;
 }
 
 const INVALID_CREDENTIALS = "Invalid email or password";
@@ -202,11 +200,20 @@ export function registerPublicAuthRoutes(
   const lockout = deps.lockout ?? new LoginLockout();
   const passwordWork = deps.passwordWork ?? new WorkGate();
 
-  apiRoute(router, "listLoginMethods", ingestThenStopClock, (context) => {
-    const methods: LoginMethod[] = deps.google
-      ? ["password", "google"]
-      : ["password"];
-    return jsonWithSchema(context, loginMethodsResponseSchema, { methods });
+  const providerWork = deps.providerWork ?? new WorkGate();
+
+  apiRoute(router, "listLoginMethods", ingestThenStopClock, async (context) => {
+    const providers = deps.providers;
+    const buttons = providers
+      ? await storageMapped(() => providers.buttons())
+      : [];
+    return jsonWithSchema(context, loginMethodsResponseSchema, {
+      password: "on",
+      providers: buttons.map((button) => ({
+        id: button.id,
+        display_name: button.displayName,
+      })),
+    });
   });
 
   apiRoute(router, "bootstrap", ingestThenStopClock, async (context) => {
@@ -423,105 +430,125 @@ export function registerPublicAuthRoutes(
     });
   });
 
-  const requireGoogle = (): GoogleLogin => {
-    if (!deps.google) {
-      throw new ApiHttpError(
-        404,
-        "NOT_FOUND",
-        "Google sign-in is not configured",
-      );
-    }
-    return deps.google;
-  };
-  const providerMapped = async <T>(work: () => Promise<T>): Promise<T> => {
+  const providerOff = () =>
+    new ApiHttpError(404, "NOT_FOUND", "No such sign-in provider");
+  /**
+   * The reason goes to the log only. Every 401 reads the same, so a caller
+   * cannot tell which check failed.
+   */
+  const providerMapped = async <T>(
+    providerId: string,
+    work: () => Promise<T>,
+  ): Promise<T> => {
     try {
-      return await work();
+      return await storageMapped(work);
     } catch (error) {
-      if (error instanceof GoogleUnavailableError) {
-        deps.logger?.warn("Google sign-in provider unavailable", {
-          reason: error.message,
-        });
+      if (!(error instanceof ProviderLoginError)) throw error;
+      deps.logger?.warn("Provider sign-in refused", {
+        provider_id: providerId,
+        kind: error.kind,
+        reason: error.reason,
+      });
+      if (error.kind === "not_found") throw providerOff();
+      if (error.kind === "forbidden") {
+        throw new ApiHttpError(
+          403,
+          "FORBIDDEN",
+          "This account's domain is not allowed here",
+        );
+      }
+      if (error.kind === "unavailable") {
         throw new ApiHttpError(
           503,
           "BACKEND_UNAVAILABLE",
-          "Google sign-in is unavailable, try again later",
+          "Sign-in with this provider is unavailable, try again later",
           true,
         );
       }
-      throw error;
+      throw new ApiHttpError(401, "UNAUTHORIZED", PROVIDER_REJECTED);
     }
   };
-
-  apiRoute(router, "startGoogleLogin", ingestThenStopClock, async (context) => {
-    const violation = browserRequestViolation(context);
-    if (violation) {
-      throw new ApiHttpError(403, "FORBIDDEN", `Refused: ${violation}`);
-    }
-    const google = requireGoogle();
-    const flow = await providerMapped(() => google.start());
-    setCookie(context, GOOGLE_LOGIN_COOKIE_NAME, flow.cookieValue, {
-      httpOnly: true,
-      secure: true,
-      sameSite: "Lax",
-      path: "/",
-      maxAge: GOOGLE_LOGIN_FLOW_TTL_MINUTES * 60,
-    });
-    context.header("Cache-Control", "no-store");
-    return jsonWithSchema(context, startGoogleLoginResponseSchema, {
-      authorization_url: flow.authorizationUrl,
-    });
-  });
+  const flowCookie = {
+    httpOnly: true,
+    secure: true,
+    sameSite: "Lax",
+    path: "/",
+  } as const;
 
   apiRoute(
     router,
-    "googleLoginCallback",
+    "startProviderLogin",
     ingestThenStopClock,
     async (context) => {
       const violation = browserRequestViolation(context);
       if (violation) {
         throw new ApiHttpError(403, "FORBIDDEN", `Refused: ${violation}`);
       }
-      const google = requireGoogle();
+      const { id } = requireParams(context, loginProviderParamsSchema);
+      const providers = deps.providers;
+      if (!providers) throw providerOff();
+      const flow = await providerMapped(id, () => providers.start(id));
+      setCookie(context, LOGIN_FLOW_COOKIE_NAME, flow.cookieValue, {
+        ...flowCookie,
+        maxAge: LOGIN_FLOW_TTL_MINUTES * 60,
+      });
+      context.header("Cache-Control", "no-store");
+      return jsonWithSchema(context, startProviderLoginResponseSchema, {
+        authorization_url: flow.authorizationUrl,
+      });
+    },
+  );
+
+  apiRoute(
+    router,
+    "providerLoginCallback",
+    // One try per flow, whatever it ends in: the provider takes a code
+    // once. Ahead of the body, so a refusal of the body clears it too.
+    (context, next) => {
+      deleteCookie(context, LOGIN_FLOW_COOKIE_NAME, flowCookie);
+      return ingestThenStopClock(context, next);
+    },
+    async (context) => {
+      const violation = browserRequestViolation(context);
+      if (violation) {
+        throw new ApiHttpError(403, "FORBIDDEN", `Refused: ${violation}`);
+      }
       const body = await parseJsonBody(
         context,
-        googleLoginCallbackRequestSchema,
+        providerLoginCallbackRequestSchema,
       );
-      const cookieValue = getCookie(context, GOOGLE_LOGIN_COOKIE_NAME);
-      deleteCookie(context, GOOGLE_LOGIN_COOKIE_NAME, {
-        httpOnly: true,
-        secure: true,
-        sameSite: "Lax",
-        path: "/",
-      });
-      let identity: Awaited<ReturnType<GoogleLogin["finish"]>>;
+      const cookieValue = getCookie(context, LOGIN_FLOW_COOKIE_NAME);
+      const providers = deps.providers;
+      if (!providers) throw providerOff();
+      // The requests to the provider are made for anyone who asks.
+      const slot = providerWork.tryAcquire();
+      if (!slot) {
+        throw rateLimited(1000, "Too many sign-ins in progress");
+      }
+      const releaseSlot = await slot;
+      let finished: Awaited<ReturnType<ProviderLogin["finish"]>>;
       try {
-        identity = await providerMapped(() =>
-          google.finish({ cookieValue, code: body.code, state: body.state }),
+        finished = await providerMapped(body.provider_id, () =>
+          providers.finish({
+            cookieValue,
+            providerId: body.provider_id,
+            code: body.code,
+            state: body.state,
+            responseIssuer: body.iss,
+          }),
         );
-      } catch (error) {
-        if (error instanceof GoogleLoginInvalidError) {
-          deps.logger?.warn("Google sign-in refused", {
-            reason: error.message,
-          });
-          throw new ApiHttpError(401, "UNAUTHORIZED", GOOGLE_REJECTED);
-        }
-        throw error;
+      } finally {
+        releaseSlot();
       }
-      const admission = domainAdmission(google.config, identity);
-      if (!admission) {
-        deps.logger?.warn("Google sign-in refused: domain not allowed", {
-          hosted_domain: identity.hostedDomain,
-        });
-        throw new ApiHttpError(
-          403,
-          "FORBIDDEN",
-          "This Google account's domain is not allowed here",
-        );
-      }
+      const { provider, identity, admission } = finished;
       const token = generateWebSessionToken();
       const result = await storageMapped(() =>
         deps.identity.signInWithExternalIdentity({
-          kind: "google",
+          kind: "oidc",
+          provider: {
+            id: provider.id,
+            configRevision: provider.configRevision,
+          },
           issuer: identity.issuer,
           subject: identity.subject,
           email: identity.email,
@@ -540,25 +567,41 @@ export function registerPublicAuthRoutes(
           },
         }),
       );
+      if (result.outcome === "provider_off") {
+        deps.logger?.warn("Provider sign-in refused", {
+          provider_id: provider.id,
+          kind: "not_found",
+          reason: "provider_off_at_sign_in",
+        });
+        throw providerOff();
+      }
       if (result.outcome === "link_required") {
-        deps.logger?.info("Google sign-in needs linking to an account");
+        deps.logger?.info("Provider sign-in needs linking to an account", {
+          provider_id: provider.id,
+        });
         throw new ApiHttpError(
           409,
           "LOGIN_LINK_REQUIRED",
-          "Sign in with your existing account, then connect Google in settings",
+          "Sign in with your existing account, then connect this provider in settings",
         );
       }
       if (result.outcome === "rejected") {
-        deps.logger?.warn("Google sign-in refused: no rule admits it");
-        throw new ApiHttpError(401, "UNAUTHORIZED", GOOGLE_REJECTED);
+        deps.logger?.warn("Provider sign-in refused", {
+          provider_id: provider.id,
+          kind: "rejected",
+          reason: "no_rule_admits",
+        });
+        throw new ApiHttpError(401, "UNAUTHORIZED", PROVIDER_REJECTED);
       }
-      deps.logger?.info("Google sign-in", {
+      deps.logger?.info("Provider sign-in", {
+        provider_id: provider.id,
         user_id: result.userId,
         workspace_id: result.workspaceId,
         via: result.via,
       });
       setWebSessionCookie(context, token, result.expiresAt);
-      return jsonWithSchema(context, loginResponseSchema, {
+      return jsonWithSchema(context, providerLoginCallbackResponseSchema, {
+        outcome: "signed_in",
         user_id: result.userId,
         workspace_id: result.workspaceId,
         role: result.role,
@@ -569,12 +612,20 @@ export function registerPublicAuthRoutes(
   );
 }
 
-const GOOGLE_REJECTED = "Google sign-in was not accepted";
+const PROVIDER_REJECTED = "Sign-in was not accepted";
 
-function displayNameFor(identity: { name: string | null; email: string }) {
+function displayNameFor(identity: {
+  name: string | null;
+  email: string | null;
+  subject: string;
+}) {
   const name = identity.name?.trim().slice(0, 64);
   if (name) return name;
-  return identity.email.slice(0, identity.email.indexOf("@")).slice(0, 64);
+  const { email } = identity;
+  return (email ? email.slice(0, email.indexOf("@")) : identity.subject).slice(
+    0,
+    64,
+  );
 }
 
 /** Mounted inside the auth middleware. */

@@ -58,8 +58,20 @@ function originOf(name: string, value: string): string {
   return url.origin;
 }
 
+/**
+ * CONSOLE_ORIGIN and nothing else. Sign-in providers build their redirect
+ * URIs on this: an origin guessed from another setting would be registered
+ * at the provider and then change under it.
+ */
+export function configuredConsoleOrigin(env: Env): string | null {
+  return env.CONSOLE_ORIGIN
+    ? originOf("CONSOLE_ORIGIN", env.CONSOLE_ORIGIN)
+    : null;
+}
+
 export function consoleOriginFrom(env: Env): string | null {
-  if (env.CONSOLE_ORIGIN) return originOf("CONSOLE_ORIGIN", env.CONSOLE_ORIGIN);
+  const configured = configuredConsoleOrigin(env);
+  if (configured !== null) return configured;
   if (env.SLACK_OIDC_REDIRECT_URI) {
     return originOf("SLACK_OIDC_REDIRECT_URI", env.SLACK_OIDC_REDIRECT_URI);
   }

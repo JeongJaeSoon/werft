@@ -1,4 +1,9 @@
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import {
+  createCipheriv,
+  createDecipheriv,
+  hkdfSync,
+  randomBytes,
+} from "node:crypto";
 import type { SecretOwnerRef } from "../ports/secret-store.ts";
 
 const ALGORITHM = "aes-256-gcm";
@@ -126,6 +131,15 @@ export function openSecret(
   } catch {
     throw new SecretDecryptError();
   }
+}
+
+/**
+ * A 32-byte key for one use other than stored secrets (HKDF-SHA256, `use`
+ * as the info), so what that use seals cannot be opened as a stored secret
+ * or by another use, and the master key itself seals only stored secrets.
+ */
+export function derivedSecretKey(key: SecretKey, use: string): Buffer {
+  return Buffer.from(hkdfSync("sha256", key.bytes(), Buffer.alloc(0), use, 32));
 }
 
 /** What a reader may see of a value: its last four characters. */

@@ -139,7 +139,7 @@ export function LoginScreen() {
           {login.isPending ? t("login.submitting") : t("login.submit")}
         </Button>
       </form>
-      <GoogleChoice redirect={redirect} />
+      <ProviderChoices redirect={redirect} />
       <Text variant="sub">
         {t("login.bootstrapPrompt")}{" "}
         <TextLink asChild underline="always">
@@ -151,21 +151,28 @@ export function LoginScreen() {
 }
 
 /**
- * The other way in, offered only where the server says Google sign-in is
- * configured. A failed lookup leaves the password form, which always works.
+ * The other ways in: one button per login provider the server says is turned
+ * on. A failed lookup leaves the password form.
  */
-function GoogleChoice({ redirect }: { readonly redirect: string | undefined }) {
+function ProviderChoices({
+  redirect,
+}: {
+  readonly redirect: string | undefined;
+}) {
   const { t } = useI18n();
   const { client } = useWerft();
   const { leave } = useAppServices();
   const methods = useQuery(loginMethodsQuery(client));
 
-  const start = useMutation<{ authorization_url: string }, ApiError>({
+  const start = useMutation<{ authorization_url: string }, ApiError, string>({
     meta: { public: true },
-    mutationFn: () =>
+    mutationFn: (id) =>
       unwrap(
-        client.POST("/v1/auth/google/start", {
-          params: { header: { "X-Requested-With": CSRF_HEADER_VALUE } },
+        client.POST("/v1/auth/providers/{id}/start", {
+          params: {
+            path: { id },
+            header: { "X-Requested-With": CSRF_HEADER_VALUE },
+          },
         }),
       ),
     onSuccess: ({ authorization_url }) => {
@@ -179,7 +186,8 @@ function GoogleChoice({ redirect }: { readonly redirect: string | undefined }) {
     },
   });
 
-  if (!methods.data?.methods.includes("google")) return null;
+  const providers = methods.data?.providers ?? [];
+  if (providers.length === 0) return null;
   return (
     <section
       className="flex flex-col gap-3"
@@ -191,18 +199,21 @@ function GoogleChoice({ redirect }: { readonly redirect: string | undefined }) {
       {start.error ? (
         <FormError>{t(errorKey(start.error.code))}</FormError>
       ) : null}
-      <Button
-        type="button"
-        variant="outline"
-        // Not held after success: back from Google (bfcache) must be able
-        // to start again.
-        disabled={start.isPending}
-        onClick={() => start.mutate()}
-      >
-        {start.isPending
-          ? t("login.google.starting")
-          : t("login.google.submit")}
-      </Button>
+      {providers.map((provider) => (
+        <Button
+          key={provider.id}
+          type="button"
+          variant="outline"
+          // Not held after success: back from the provider's page (bfcache)
+          // must be able to start again.
+          disabled={start.isPending}
+          onClick={() => start.mutate(provider.id)}
+        >
+          {start.isPending && start.variables === provider.id
+            ? t("login.provider.starting")
+            : t("login.provider.submit", { name: provider.display_name })}
+        </Button>
+      ))}
     </section>
   );
 }

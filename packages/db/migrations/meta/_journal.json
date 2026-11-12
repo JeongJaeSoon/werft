@@ -1289,6 +1289,20 @@
       "when": 1794509781176,
       "tag": "0274_web_session_login_method",
       "breakpoints": true
+    },
+    {
+      "idx": 275,
+      "version": "7",
+      "when": 1794511534874,
+      "tag": "0275_login_providers",
+      "breakpoints": true
+    },
+    {
+      "idx": 276,
+      "version": "7",
+      "when": 1794511547433,
+      "tag": "0276_web_sessions_login_method_idx",
+      "breakpoints": true
     }
   ]
 }

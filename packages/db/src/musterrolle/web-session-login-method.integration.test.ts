@@ -16,6 +16,7 @@ import {
   webSessions,
   workspaces,
 } from "../schema.ts";
+import { seedLoginProvider } from "../testing/login-provider.ts";
 import {
   createWebSession,
   resolveWebSession,
@@ -31,6 +32,7 @@ integration("web sessions and the login method that made them", () => {
   let pool: Pool;
   let db: NodePgDatabase<typeof schema>;
   const workspaceId = randomUUID();
+  let provider: Awaited<ReturnType<typeof seedLoginProvider>>;
 
   beforeAll(async () => {
     database = await createTempDatabase({ prefix: "session_login_method" });
@@ -39,6 +41,7 @@ integration("web sessions and the login method that made them", () => {
     await db
       .insert(workspaces)
       .values({ id: workspaceId, slug: "acme", name: "Acme" });
+    provider = await seedLoginProvider(db, { issuer: ISSUER });
   }, 60_000);
 
   afterAll(async () => {
@@ -99,7 +102,8 @@ integration("web sessions and the login method that made them", () => {
     const tokenHash = newToken();
     const sessionId = randomUUID();
     return signInWithExternalIdentity(db, {
-      kind: "google",
+      kind: "oidc",
+      provider: { id: provider.id, configRevision: provider.configRevision },
       issuer: ISSUER,
       subject,
       email,
@@ -131,7 +135,7 @@ integration("web sessions and the login method that made them", () => {
     db.insert(loginMethods).values({
       id: randomUUID(),
       userId,
-      kind: "google",
+      kind: "oidc",
       issuer: ISSUER,
       subject,
     });

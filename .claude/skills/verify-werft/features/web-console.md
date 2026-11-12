@@ -14,7 +14,7 @@ API가 `WEB_DIST_DIR`(control-host 이미지는 `/app/apps/web/dist`)의 웹 콘
 - `logout` 사이드바 아래 사용자 버튼(글자 `<첫 글자><이름>`, `aria-label` "<이름> · <역할>")이 메뉴(연동 계정·언어·테마·내 key·로그아웃)를 연다. "로그아웃"하면 `/login?notice=logged_out`, 다시 `/`를 열면 로그인 화면.
 - `session-ended` 로그인한 채 다른 곳에서 세션이 끝나면(다른 탭 로그아웃), 다음 `me` 재조회가 401을 받아 `/login?redirect=…`로 간다.
 - `locale` 한국어·日本語·English. 로그인 전 화면(`/login`·`/bootstrap`·초대)은 오른쪽 아래 `<footer>`의 native select, 로그인 뒤에는 사용자 메뉴의 "언어"와 `/settings/preferences`("언어·테마")에서 고른다. 첫 방문 언어는 브라우저 언어를 따른다. 로그인한 셸은 고른 언어를 `PATCH /v1/auth/me`로 저장하고(`GET /v1/auth/me`의 `user.locale`), 다음에 열 때는 저장된 언어가 브라우저 값을 이긴다. Slack 안내 문구가 이 값을 따른다(docs `integrations/slack`의 "알림 언어").
-- `google-callback` `/auth/google/callback`도 SPA 경로다. 로그인 화면의 Google 버튼은 `login-methods`에 `google`이 있을 때만 보인다([web-settings.md](./web-settings.md) `login-choice`).
+- `provider-callback` `/auth/callback/<공급자 id>`도 SPA 경로다. 로그인 화면의 공급자 버튼은 `login-methods`의 `providers`에 있는 것만 보인다([web-settings.md](./web-settings.md) `login-choice`).
 - `states` 화면마다 로딩("로그인 상태를 확인하는 중입니다" 등)·오류("서버에 연결하지 못했습니다 — 네트워크 연결을 확인하세요.")·빈 상태가 있고, 390px 폭과 다크 모드(`prefers-color-scheme: dark`)에서도 가로로 넘치지 않는다.
 
 ## How to get to it (user POV)

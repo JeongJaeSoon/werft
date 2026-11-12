@@ -12,6 +12,7 @@
     "./testing/checkpoints": "./src/testing/checkpoints.ts",
     "./testing/fixture-team": "./src/testing/fixture-team.ts",
     "./testing/launches": "./src/testing/launches.ts",
+    "./testing/login-provider": "./src/testing/login-provider.ts",
     "./testing/spec-pins": "./src/testing/spec-pins.ts"
   },
   "scripts": {

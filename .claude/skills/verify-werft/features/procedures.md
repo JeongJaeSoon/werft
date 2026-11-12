@@ -56,23 +56,23 @@ node "$U" "$RUN" login owner
 ap_as owner
 ap_web GET /v1/auth/me
 ap_web GET /v1/auth/login-methods
-ap_web POST /v1/auth/google/start '{}'
+ap_web POST /v1/auth/providers/00000000-0000-4000-8000-000000000000/start '{}'
 ```
 
-기대: 처음 `/login?redirect=%2F`, “로그인이 필요합니다”. 잘못된 bootstrap 401, 첫 bootstrap 201, 두 번째 409 `BOOTSTRAP_DONE`. 잘못된 로그인 401, CSRF 없는 로그인 403. 이미 owner가 있는 화면 bootstrap은 “이미 소유자가 있습니다” 오류와 로그인 링크. 화면 로그인은 `/`. API 로그인 200, me 200과 `principal`·`user`·`workspace`·`permissions`·`scopes`. login-methods는 `methods:["password"]`, Google start는 404. 기본 run에서는 Google 성공 콜백을 검증하지 않는다. 전제는 별도 mock Google issuer와 client/redirect 설정이다([web-settings.md](web-settings.md) 1).
+기대: 처음 `/login?redirect=%2F`, “로그인이 필요합니다”. 잘못된 bootstrap 401, 첫 bootstrap 201, 두 번째 409 `BOOTSTRAP_DONE`. 잘못된 로그인 401, CSRF 없는 로그인 403. 이미 owner가 있는 화면 bootstrap은 “이미 소유자가 있습니다” 오류와 로그인 링크. 화면 로그인은 `/`. API 로그인 200, me 200과 `principal`·`user`·`workspace`·`permissions`·`scopes`. login-methods는 `{"password":"on","providers":[]}`, 없는 공급자의 start는 404. 기본 run에서는 공급자 로그인의 성공 콜백을 검증하지 않는다. 공급자 버튼은 [web-settings.md](web-settings.md) 1로 띄운다.
 
 ```sh
 # Actor: owner.
 ap_as owner
 WS=$(ap_web GET /v1/auth/me | head -1 | jq -r .workspace.id)
 printf 'WS=%s\n' "$WS"   # ids.sh에 적는다(P-SETUP)
-node "$B" "$RUN" open /auth/google/callback
+node "$B" "$RUN" open /auth/callback/00000000-0000-4000-8000-000000000000
 node "$B" "$RUN" eval 'document.querySelector("main").innerText'
 node "$B" "$RUN" open /login
 node "$B" "$RUN" eval 'document.querySelector("main").innerText'
 ```
 
-기대: code/state 없는 Google callback은 “Google 로그인 / Google 로그인을 마치지 못했습니다 — 다시 시도하세요. / 로그인 화면으로”. 로그인 상태의 login은 “이미 owner@example.test 계정으로 로그인되어 있습니다”와 “워크스페이스로 가기”. 비밀번호·cookie·초대 링크는 eval로 읽지 않는다.
+기대: code/state 없는 공급자 callback은 “SSO 로그인 / 로그인을 마치지 못했습니다 — 다시 시도하세요. / 로그인 화면으로”. 로그인 상태의 login은 “이미 owner@example.test 계정으로 로그인되어 있습니다”와 “워크스페이스로 가기”. 비밀번호·cookie·초대 링크는 eval로 읽지 않는다.
 
 ## P-API-MEMBERS — 초대·수락·목록
 
