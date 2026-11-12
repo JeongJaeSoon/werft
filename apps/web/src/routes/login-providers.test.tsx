@@ -294,7 +294,7 @@ describe("로그인 공급자 상세", () => {
       },
       [`PUT ${API}/${ID}/client-secret`]: () =>
         refuse
-          ? apiError(503, "BACKEND_UNAVAILABLE")
+          ? apiError(503, "BACKEND_UNAVAILABLE", "no")
           : json(200, { provider: filled() }),
     });
     const kept = (value: string) =>
@@ -317,11 +317,16 @@ describe("로그인 공급자 상세", () => {
     hold = true;
     await user.click(screen.getByRole("button", { name: "저장" }));
     await screen.findByText("저장했습니다.");
-    expect(
-      screen
-        .getByRole("button", { name: "값 바꾸기" })
-        .getAttribute("aria-disabled"),
-    ).toBe("true");
+    // Busy, but not `disabled`: a browser will not focus a disabled button,
+    // and the dialog that just closed hands the keyboard back to this one.
+    const opener = screen.getByRole<HTMLButtonElement>("button", {
+      name: "값 바꾸기",
+    });
+    expect([opener.getAttribute("aria-disabled"), opener.disabled]).toEqual([
+      "true",
+      false,
+    ]);
+    expect(document.activeElement === opener).toBe(true);
     expect(kept("typed-once")).toBe(false);
     hold = false;
     release();
