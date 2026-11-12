@@ -98,29 +98,49 @@ describe("compatibilityProblems", () => {
     ]);
   });
 
-  test("describes and reports a transform JSON Schema cannot carry", () => {
+  describe("a node JSON Schema cannot carry", () => {
     const head = { release: null, commit: "" };
-    const tree = (id: z.ZodType) => ({
+    const tree = (value: z.ZodType) => ({
       WORKER_PROTOCOL_ROUTES: {
         "/ready": {
-          request: z.object({}).strict(),
-          response: z.object({ id }).strict(),
+          request: z.object({ value }).strict(),
+          response: z.object({ value }).strict(),
         },
       },
       apiErrorResponseSchema: contracts.apiErrorResponseSchema,
     });
     const before = describeProtocol(tree(z.string()) as never, z, head);
-    const after = describeProtocol(
-      tree(z.string().transform((value) => value)) as never,
-      z,
-      head,
-      "output",
-    );
-    expect(compatibilityProblems(before, after)).toEqual([
-      "/ready response $.id: the sender may send any value; the receiver does not accept every value",
-      "/ready response: code-only check $.id pipe is new or changed; JSON Schema cannot show what it accepts",
-      "/ready response: code-only check $.id|out transform is new or changed; JSON Schema cannot show what it accepts",
-    ]);
+    const after = (value: z.ZodType) =>
+      compatibilityProblems(
+        before,
+        describeProtocol(tree(value) as never, z, head, "output"),
+      ).filter((line) => line.startsWith("/ready response"));
+    const unrepresented = (type: string) =>
+      `/ready response: code-only check $/properties/value no JSON Schema (${type}) is new or changed; JSON Schema cannot show what it accepts`;
+
+    test("a transform's output", () => {
+      expect(after(z.string().transform((value) => value))).toEqual([
+        "/ready response $.value: the sender may send any value; the receiver does not accept every value",
+        "/ready response: code-only check $.value pipe is new or changed; JSON Schema cannot show what it accepts",
+        "/ready response: code-only check $.value|out transform is new or changed; JSON Schema cannot show what it accepts",
+        unrepresented("transform"),
+      ]);
+    });
+
+    test("a type with no JSON form, even where zod's stand-in compares equal", () => {
+      // The new request schema's stand-in {} takes the old worker's string.
+      const request = compatibilityProblems(
+        before,
+        describeProtocol(tree(z.date()) as never, z, head, "output"),
+      ).filter((line) => line.startsWith("/ready request"));
+      expect(request).toEqual([
+        "/ready request: code-only check $/properties/value no JSON Schema (date) is new or changed; JSON Schema cannot show what it accepts",
+      ]);
+      expect(after(z.literal(1n))).toEqual([
+        "/ready response $.value: the receiver refuses 1",
+        unrepresented("literal"),
+      ]);
+    });
   });
 
   test("finds a code-only check that changed", () => {

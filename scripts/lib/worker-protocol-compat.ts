@@ -10,13 +10,20 @@ import { type JsonSchema, subsetProblems } from "./schema-subset.ts";
 type Io = "input" | "output";
 // The zod namespace and contracts module of whichever tree is described: a
 // baseline made from a release tag reads that tag's own zod and schemas.
+type Schema = { _zod: { def: Record<string, unknown> } };
 type Zod = {
   toJSONSchema: (
     schema: never,
-    options: { io: Io; unrepresentable: "any" },
+    options: {
+      io: Io;
+      unrepresentable?: "any";
+      override?: (context: {
+        zodSchema: Schema;
+        path: (string | number)[];
+      }) => void;
+    },
   ) => unknown;
 };
-type Schema = { _zod: { def: Record<string, unknown> } };
 export type ContractsModule = {
   WORKER_PROTOCOL_ROUTES: Record<string, { request: Schema; response: Schema }>;
   apiErrorResponseSchema: Schema;
@@ -30,15 +37,43 @@ export type Protocol = {
   error: Message;
 };
 
-// A node JSON Schema cannot carry (a transform's output, a custom type) is
-// written as {}: as a sender it may send anything, which the comparison
-// refuses unless the receiver takes anything too, and opaqueParts names it.
 function message(z: Zod, schema: Schema, io: Io): Message {
-  const { $schema: _, ...json } = z.toJSONSchema(schema as never, {
-    io,
-    unrepresentable: "any",
-  }) as Record<string, unknown>;
-  return { schema: json, opaque: opaqueParts(schema) };
+  const opaque = opaqueParts(schema);
+  let described: unknown;
+  try {
+    described = z.toJSONSchema(schema as never, { io });
+  } catch {
+    // Some node has no JSON Schema (a transform's output, a date, a bigint
+    // literal). zod writes a stand-in that may compare equal across a real
+    // change ({} for both a date and a string turned into one), so each such
+    // node is also named in opaque: the deepest one, as zod visits children
+    // before their parent.
+    const unrepresented: string[] = [];
+    described = z.toJSONSchema(schema as never, {
+      io,
+      unrepresentable: "any",
+      override: ({ zodSchema, path }) => {
+        const at = ["$", ...path].join("/");
+        if (
+          unrepresented.some(
+            (part) => part.startsWith(`${at} `) || part.startsWith(`${at}/`),
+          )
+        ) {
+          return;
+        }
+        try {
+          z.toJSONSchema(zodSchema as never, { io });
+        } catch {
+          unrepresented.push(
+            `${at} no JSON Schema (${String(zodSchema._zod.def.type)})`,
+          );
+        }
+      },
+    });
+    opaque.push(...unrepresented.sort());
+  }
+  const { $schema: _, ...json } = described as Record<string, unknown>;
+  return { schema: json, opaque };
 }
 
 /**
