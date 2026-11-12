@@ -502,7 +502,12 @@ export function registerPublicAuthRoutes(
   apiRoute(
     router,
     "providerLoginCallback",
-    ingestThenStopClock,
+    // One try per flow, whatever it ends in: the provider takes a code
+    // once. Ahead of the body, so a refusal of the body clears it too.
+    (context, next) => {
+      deleteCookie(context, LOGIN_FLOW_COOKIE_NAME, flowCookie);
+      return ingestThenStopClock(context, next);
+    },
     async (context) => {
       const violation = browserRequestViolation(context);
       if (violation) {
@@ -512,10 +517,7 @@ export function registerPublicAuthRoutes(
         context,
         providerLoginCallbackRequestSchema,
       );
-      // One try per flow, whatever it ends in: the provider takes a code
-      // once.
       const cookieValue = getCookie(context, LOGIN_FLOW_COOKIE_NAME);
-      deleteCookie(context, LOGIN_FLOW_COOKIE_NAME, flowCookie);
       const providers = deps.providers;
       if (!providers) throw providerOff();
       // The requests to the provider are made for anyone who asks.

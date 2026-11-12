@@ -832,6 +832,36 @@ describe("provider sign-in routes", () => {
     }
   });
 
+  test("a callback refused before the flow is opened clears the flow cookie all the same", async () => {
+    const { app, post, begin } = harness();
+    const { flowCookie, body } = await begin({
+      sub: "s-1",
+      email: "ada@example.com",
+    });
+    const { state: _state, ...stateless } = body;
+    const malformed = await post("/v1/auth/oidc/callback", {
+      body: stateless,
+      cookie: flowCookie,
+    });
+    expect(malformed.status).toBe(400);
+    expect(clearsFlowCookie(malformed)).toBe(true);
+
+    const oversized = await post("/v1/auth/oidc/callback", {
+      body: { ...body, code: "x".repeat(65 * 1024) },
+      cookie: flowCookie,
+    });
+    expect(oversized.status).toBe(413);
+    expect(clearsFlowCookie(oversized)).toBe(true);
+
+    const forged = await app.request("/v1/auth/oidc/callback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: flowCookie },
+      body: JSON.stringify(body),
+    });
+    expect(forged.status).toBe(403);
+    expect(clearsFlowCookie(forged)).toBe(true);
+  });
+
   test("a provider id that is not a UUID is not found, without a read", async () => {
     let reads = 0;
     const { post, startPath } = harness({
