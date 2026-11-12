@@ -631,6 +631,7 @@ export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   lease_expires_at: timestampSchema,
   lease_remaining_ms: leaseRemainingMsSchema,
   runtime: sessionRuntimeSchema,
+  spec_digest: specDigestSchema,
   runtime_config: runtimeConfigSchema,
   workspace: workspaceDescriptorSchema,
   // The object store route's capability: the worker holds no
@@ -799,7 +800,6 @@ export const heartbeatRequestSchema = workerScopeSchema
     attempt_state: attemptStateSchema,
     // Optional so a worker that does not mirror yet heartbeats unchanged.
     transcript: transcriptReportSchema.optional(),
-    pod_name: z.string(),
   })
   .strict();
 export const heartbeatResponseSchema = z.object({
