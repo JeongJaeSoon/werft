@@ -885,37 +885,63 @@ describe("startCredentialProxy", () => {
       const auth = authorizer(bearerKey(up));
       const server = proxy(auth.url, up.port);
       // `leaf` at `depth` below the top-level array, which is depth 0: the
-      // array's item is depth 1 and each `key` hop goes one deeper.
-      const nested = (key: string, leaf: unknown, depth: number): unknown[] => {
+      // array's item is depth 1 and each hop goes one deeper, through the
+      // `key` property or, with no key, through one more array.
+      const nested = (
+        key: string | null,
+        leaf: unknown,
+        depth: number,
+      ): unknown[] => {
         let value = leaf;
-        for (let hop = 1; hop < depth; hop += 1) value = { [key]: value };
+        for (let hop = 1; hop < depth; hop += 1) {
+          value = key === null ? [value] : { [key]: value };
+        }
         return [value];
       };
       const text = { type: "input_text", text: "hi" };
       const remote = { type: "input_file", file_id: "file_1" };
       const local = { type: "function", name: "f" };
       const outside = { type: "web_search" };
-      const status = async (request: Record<string, unknown>) =>
-        (
-          await responses(server.port, {
-            body: JSON.stringify({ model: "gpt-5.5", ...request }),
-          })
-        ).status;
+      const REMOTE = "a file or image the request only names";
+      const TOOL = "a tool the upstream runs on a host";
+      const INPUT_TOOL = "a tool or generated image the upstream keeps";
+      // "ok", or the reason the proxy gave for refusing.
+      const answer = async (request: Record<string, unknown>) => {
+        const response = await responses(server.port, {
+          body: JSON.stringify({ model: "gpt-5.5", ...request }),
+        });
+        return response.status === 200
+          ? "ok"
+          : `${response.status} ${await response.text()}`;
+      };
 
-      // Message parts are walked through `content`.
-      expect(await status({ input: nested("content", text, 6) })).toBe(200);
-      expect(await status({ input: nested("content", remote, 6) })).toBe(400);
-      expect(await status({ input: nested("content", text, 7) })).toBe(400);
-      // Tool declarations are walked through `tools`, in `tools` and in `input`.
-      expect(await status({ tools: nested("tools", local, 6) })).toBe(200);
-      expect(await status({ tools: nested("tools", outside, 6) })).toBe(400);
-      expect(await status({ tools: nested("tools", local, 7) })).toBe(400);
-      expect(await status({ input: nested("tools", local, 6) })).toBe(200);
-      expect(await status({ input: nested("tools", outside, 6) })).toBe(400);
-      expect(await status({ input: nested("tools", local, 7) })).toBe(400);
+      // Each walk the checks make: a harmless value at depth six passes, a
+      // harmful one there is read and refused, a harmless one at seven is
+      // refused unread, for the same reason.
+      const walks: [string, string | null, unknown, unknown, string][] = [
+        ["input", "content", text, remote, REMOTE],
+        ["input", "output", text, remote, REMOTE],
+        ["input", null, text, remote, REMOTE],
+        ["tools", "tools", local, outside, TOOL],
+        ["tools", null, local, outside, TOOL],
+        ["input", "tools", local, outside, INPUT_TOOL],
+      ];
+      for (const [field, key, harmless, harmful, reason] of walks) {
+        const at = `${field} through ${key ?? "arrays"}`;
+        expect([
+          at,
+          await answer({ [field]: nested(key, harmless, 6) }),
+        ]).toEqual([at, "ok"]);
+        expect(await answer({ [field]: nested(key, harmful, 6) })).toStartWith(
+          `400 ${reason}`,
+        );
+        expect(await answer({ [field]: nested(key, harmless, 7) })).toStartWith(
+          `400 ${reason}`,
+        );
+      }
 
-      // Only the three read at depth six and found harmless went upstream.
-      expect(up.seen).toHaveLength(3);
+      // Only the ones read at depth six and found harmless went upstream.
+      expect(up.seen).toHaveLength(walks.length);
     });
 
     test("a stored prompt template and a tool that makes the upstream fetch are refused, a local tool is not", async () => {
