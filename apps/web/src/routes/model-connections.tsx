@@ -475,6 +475,16 @@ function ModelsDialog({
   );
 }
 
+type ConnectionKind = SettingsConnection["kind"];
+
+// The kinds in the order the form lists them. The record stops compiling when
+// the contract gains a kind this form does not offer.
+const CONNECTION_KINDS = Object.keys({
+  anthropic: true,
+  litellm: true,
+  openai_responses: true,
+} satisfies Record<ConnectionKind, true>) as ConnectionKind[];
+
 /** `host:port` of an endpoint, the port spelled out as the proxy lists it. */
 function endpointHost(endpoint: string): string | null {
   try {
@@ -503,7 +513,7 @@ function AddConnection({
   readonly onOutcome: (outcome: Outcome) => void;
 }) {
   const { t } = useI18n();
-  const [kind, setKind] = useState<"anthropic" | "litellm">("anthropic");
+  const [kind, setKind] = useState<ConnectionKind>("anthropic");
   // What the person typed; null until they touch the field, so the kind's
   // default shows through and a kind change can swap it.
   const [edited, setEdited] = useState<string | null>(null);
@@ -597,12 +607,23 @@ function AddConnection({
             // A cleared field hands the new kind's default back.
             if (edited === "") setEdited(null);
             setEndpointMissing(false);
-            setKind(event.target.value === "litellm" ? "litellm" : "anthropic");
+            const next = CONNECTION_KINDS.find(
+              (known) => known === event.target.value,
+            );
+            if (next !== undefined) setKind(next);
           }}
         >
-          <NativeSelectOption value="anthropic">anthropic</NativeSelectOption>
-          <NativeSelectOption value="litellm">litellm</NativeSelectOption>
+          {CONNECTION_KINDS.map((known) => (
+            <NativeSelectOption key={known} value={known}>
+              {known}
+            </NativeSelectOption>
+          ))}
         </NativeSelect>
+        {kind === "openai_responses" ? (
+          <FieldDescription>
+            {t("settings.connections.kindHint.openai_responses")}
+          </FieldDescription>
+        ) : null}
       </Field>
       <Field>
         <FieldLabel>{t("settings.connections.endpoint")}</FieldLabel>

@@ -32,6 +32,8 @@ owner 로그인, 사용할 모델의 key 또는 사설 모델 endpoint, 세션�
 
 키를 넣기 전에 이 연결의 release로 세션을 시작하면 `모델 연결에 쓸 수 있는 키가 없다`는 취지의 오류가 나고, 오류가 1번 화면 경로를 알려 준다. 키를 바꿀 때도 같은 화면의 **값 바꾸기**를 쓴다.
 
+OpenAI 모델을 Codex 엔진으로 쓰려면 같은 화면에서 종류를 `openai_responses`로 고른다. 주소 기본값은 `https://api.openai.com`이고 인증은 API key만 된다. 이 연결의 세션은 Codex worker 이미지로 돈다. 이미지와 proxy 허용 목록(`api.openai.com:443`)은 [설정 레퍼런스](/run-server/self-hosting/reference/configuration)를 따른다.
+
 ### 2. 환경 변수 대안
 
 키를 DB가 아니라 서버의 env 파일에 두고 싶다면 `/etc/werft/test-ops.env`의 `ANTHROPIC_API_KEY`를 채우고, [단일 서버 2단계의 설정 문서](/run-server/self-hosting/single-server#2-비밀과-설정-문서)에 연결을 환경 변수 이름으로 적는다. 문서에는 값이 아니라 이름만 적으므로 비밀이 없다. `connections`를 아래처럼 채우고 `models`에 에이전트가 고를 모델을 적은 뒤 [단일 서버 3단계](/run-server/self-hosting/single-server#3-release-입력-생성)에서 settings digest와 release 입력을 다시 생성한다. 이미 설치했다면 [Compose 업그레이드](/run-server/self-hosting/upgrade-compose)로 적용한다. 설정 문서에 `profiles` 항목이 있으면 가져오기가 거절한다.
