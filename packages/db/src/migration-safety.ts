@@ -401,13 +401,18 @@ function nameAt(tokens: Token[], at: number): Name | undefined {
   return name === undefined ? undefined : { name, schema: parts.at(-2), next };
 }
 
-// Whether the table a name reaches is one this migration made. An
+// A table's key: a pair, since a quoted name may itself hold a dot.
+const tableKey = (schema: string, name: string) =>
+  JSON.stringify([schema, name]);
+
+// The key of the table this migration made that a name reaches, if any. An
 // unqualified name reaches a temporary table first, then public.
-function madeHere(created: Set<string>, table: Name): boolean {
-  return table.schema === undefined
-    ? created.has(`pg_temp.${table.name}`) ||
-        created.has(`public.${table.name}`)
-    : created.has(`${table.schema}.${table.name}`);
+function madeHere(created: Set<string>, table: Name): string | undefined {
+  const reached =
+    table.schema === undefined
+      ? [tableKey("pg_temp", table.name), tableKey("public", table.name)]
+      : [tableKey(table.schema, table.name)];
+  return reached.find((key) => created.has(key));
 }
 
 type Removal = { target: string; how: string } | { refused: string };
@@ -470,7 +475,10 @@ function removals(
       // IF NOT EXISTS may name a table the database already has.
       if (table && !inBody && (temporary || unless === at + 1)) {
         created.add(
-          `${table.schema ?? (temporary ? "pg_temp" : "public")}.${table.name}`,
+          tableKey(
+            table.schema ?? (temporary ? "pg_temp" : "public"),
+            table.name,
+          ),
         );
       }
     } else if (isWord(first, "drop") && isWord(second, "schema")) {
@@ -485,8 +493,12 @@ function removals(
         table;
         table = nameAt(statement, at)
       ) {
-        if (!madeHere(created, table)) {
+        // Once dropped, the same name reaches whatever it hid.
+        const made = madeHere(created, table);
+        if (made === undefined) {
           out.push({ target: table.name, how: "DROP TABLE" });
+        } else {
+          created.delete(made);
         }
         if (!isPunct(statement[table.next], ",")) {
           break;
@@ -498,7 +510,7 @@ function removals(
         statement,
         past(statement, past(statement, 2, "if", "exists"), "only"),
       );
-      if (!table || madeHere(created, table)) {
+      if (!table || madeHere(created, table) !== undefined) {
         continue;
       }
       const rest = statement.slice(table.next);

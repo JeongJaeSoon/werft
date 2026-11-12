@@ -313,12 +313,19 @@ describe("contract migrations", () => {
         `CREATE TEMP TABLE agents (id int);`,
         `DROP TABLE public.agents;`,
         `DO $$ BEGIN IF false THEN CREATE TABLE turns (id int); END IF; ALTER TABLE turns DROP COLUMN step; END $$;`,
+        `CREATE TEMP TABLE events (id int);`,
+        `DROP TABLE events;`,
+        `DROP TABLE events;`,
+        `CREATE TABLE "a.b".c (id int);`,
+        `DROP TABLE a."b.c";`,
       ),
     ).toEqual([
       unmarked("DROP COLUMN", "sessions.title"),
       unmarked("DROP COLUMN", "sessions.note"),
       unmarked("DROP TABLE", "agents"),
       unmarked("DROP COLUMN", "turns.step"),
+      unmarked("DROP TABLE", "events"),
+      unmarked("DROP TABLE", "b.c"),
     ]);
   });
 
