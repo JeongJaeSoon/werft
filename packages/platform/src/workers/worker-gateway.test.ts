@@ -2297,6 +2297,26 @@ describe("WorkerGateway", () => {
     });
   });
 
+  test("a heartbeat answer no longer carries auth_revision", async () => {
+    const { instance } = gateway({
+      heartbeatAtomic: async (input) => ({
+        outcome: "ok",
+        leaseExpiresAt: new Date(input.now.getTime() + 30_000),
+        leaseRemainingMs: 30_000,
+        authRevision: 7,
+      }),
+    });
+    const beat = await instance.heartbeat(principal, {
+      ...scope,
+      attempt_state: "running",
+    });
+    expect(Object.keys(beat).sort()).toEqual([
+      "control_pending",
+      "lease_expires_at",
+      "lease_remaining_ms",
+    ]);
+  });
+
   test("a checkpoint store that throws is a retryable 503, a verdict stays a 409", async () => {
     const outage = new Error("S3 answered 503 SlowDown");
     const throwing = createWorkerGateway({

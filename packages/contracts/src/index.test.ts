@@ -711,6 +711,31 @@ describe("worker protocol", () => {
     expect(heartbeatResponseSchema.parse(fromNewServer)).toEqual(fromNewServer);
   });
 
+  test("an append-events request is taken with or without batch_key", () => {
+    const request = {
+      ...scope,
+      events: [
+        {
+          source_sequence: 1,
+          occurred_at: AT,
+          event: "status",
+          data: { phase: "running" },
+        },
+      ],
+    };
+    const parsed = appendEventsRequestSchema.safeParse(request);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data).not.toHaveProperty("batch_key");
+    expect(
+      appendEventsRequestSchema.parse({ ...request, batch_key: "a1:1-1" })
+        .batch_key,
+    ).toBe("a1:1-1");
+    expect(
+      appendEventsRequestSchema.safeParse({ ...request, batch_key: "" })
+        .success,
+    ).toBe(false);
+  });
+
   test("a settlement says why a request was cancelled and what the run made of an answer", () => {
     const poll = (settled: unknown[]) =>
       pendingControlRequestSchema.safeParse({

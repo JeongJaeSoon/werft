@@ -157,8 +157,8 @@ Existing worker containers keep running old images after API upgrades. Even idle
 
 | Field | Phase 1: receiver stops requiring it | Phase 2: sender removes it after phase 1 rollout |
 |---|---|---|
-| Heartbeat response `auth_revision` | Worker accepts responses without it | API stops sending it, after confirming no pre-phase-1 workers remain |
-| Append-events request `batch_key` | API accepts requests without it (not yet implemented) | Worker stops sending it, after confirming no pre-phase-1 APIs remain |
+| Heartbeat response `auth_revision` | Worker accepts responses without it. Every release's worker image since `v0.1.0` has this | The API stops sending it from the release after `v0.1.3`. Every published worker image is past phase 1, so there is nothing to check |
+| Append-events request `batch_key` | The API accepts requests without it from the release after `v0.1.3` | Worker stops sending it (not yet done). Before that, compare the deployed control-host image's tag or digest with the phase-1 release notes |
 
 Premature phase 2 makes old peers reject requests/responses as contract violations. Workers treat invalid heartbeat responses as nonretryable, assume lease loss at the first heartbeat, and stop.
 

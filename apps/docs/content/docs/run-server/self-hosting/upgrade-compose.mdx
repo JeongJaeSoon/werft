@@ -141,8 +141,8 @@ API를 업그레이드해도 이미 떠 있는 worker 컨테이너는 옛 이미
 
 | 필드 | 1단계: 받는 쪽이 요구하지 않음 | 2단계: 보내는 쪽이 뺌(1단계 교체가 끝난 뒤) |
 |---|---|---|
-| heartbeat 응답 `auth_revision` | worker가 없는 응답도 받는다 | API가 보내지 않는다. 그 전에 1단계 이전 이미지의 worker가 하나도 남지 않았는지 본다 |
-| append-events 요청 `batch_key` | API가 없는 요청도 받는다(아직 안 함) | worker가 보내지 않는다. 그 전에 1단계 이전 API가 하나도 남지 않았는지 본다 |
+| heartbeat 응답 `auth_revision` | worker가 없는 응답도 받는다. `v0.1.0`부터 모든 릴리스의 worker 이미지에 들어 있다 | `v0.1.3` 다음 릴리스부터 API가 보내지 않는다. 게시된 worker 이미지는 모두 1단계 이후라 확인할 것이 없다 |
+| append-events 요청 `batch_key` | `v0.1.3` 다음 릴리스부터 API가 없는 요청도 받는다 | worker가 보내지 않는다(아직 안 함). 그 전에 배포된 control-host 이미지의 태그나 digest가 1단계 릴리스 이후인지 그 릴리스 노트와 대조한다 |
 
 2단계를 너무 일찍 배포하면 옛 쪽이 상대의 요청이나 응답을 계약 위반으로 거절한다. worker는 계약에 맞지 않는 heartbeat 응답을 재시도할 수 없는 실패로 보므로, 첫 heartbeat에서 lease를 잃었다고 판단하고 멈춘다.
 

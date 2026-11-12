@@ -742,7 +742,9 @@ integration("execution Grant revocation on PostgreSQL", () => {
       await releaseFirst();
       // The renewal that got the lock first commits; the revocation after it
       // still discards the epoch it renewed.
-      expect((await beating).auth_revision).toBe(first.claimed.auth_revision);
+      // A renewed lease, not a refusal; the answer no longer echoes
+      // auth_revision (94S-1038).
+      expect((await beating).lease_remaining_ms).toBeGreaterThan(0);
       expect((await revokingFirst).outcome).toBe("revoked");
       expect(await failure(heartbeat(first.claimed))).toEqual({
         status: 409,
