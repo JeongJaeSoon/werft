@@ -41,7 +41,7 @@ services:
       # connections screen and sealed in the database. Set it only for a
       # connection that names it with `value_env: ANTHROPIC_API_KEY`; unset,
       # that connection stays out of the catalog and a session on a release
-      # pinned to it is refused with the screen path.
+      # pinned to it is refused.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       PLATFORM_SECRET_KEY: ${PLATFORM_SECRET_KEY:?PLATFORM_SECRET_KEY must be set for test-ops}
       # A minted bootstrap token waits here, owner-only, instead of the

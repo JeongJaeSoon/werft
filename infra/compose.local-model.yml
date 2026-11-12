@@ -14,7 +14,7 @@
 # Host header that is not loopback, *.localhost, *.local or *.internal.
 # The keys are passed through by name: both to the API, LiteLLM's master key
 # also to LiteLLM. The API starts only once both routes answer, so a session
-# made the moment `up` returns reaches the model on either profile.
+# made the moment `up` returns reaches the model on either connection.
 services:
   migrate:
     environment:

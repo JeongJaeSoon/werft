@@ -47,7 +47,7 @@ x-egress-ports:
   proxy-authorizer-url: &proxy-authorizer-url ${EGRESS_AUTHORIZER_URL:-http://api:3100}
 
 # The worker images' runtime combinations (apps/docs/content/docs/run-server/self-hosting/operate/configuration.mdx).
-# api and slack judge profile pins by them and the scheduler picks each
+# api and slack judge release-pinned runtime versions by them and the scheduler picks each
 # session's image by them, so all three take these anchors. Empty is unset.
 x-worker-runtimes:
   current: &worker-image-runtime ${WORKER_IMAGE_RUNTIME:-}
