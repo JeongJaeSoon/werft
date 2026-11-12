@@ -592,7 +592,19 @@ describe("concurrency regressions", () => {
         "};",
         "const plain = await claim({});",
         'const forged = await claim({ image_runtime: { engine: "claude-agent-sdk", sdk_version: "0.0.0-forged", cli_version: "0.0.0-forged", profile_digest_scheme: 1 } });',
-        'console.log("plain_status=" + plain + " forged_status=" + forged);',
+        // A session route under the same bearer: the gateway answers 403 to a
+        // launch nonce it knows and 401 to a value it does not.
+        "const scoped = async (bearer) => {",
+        '  const r = await fetch(process.env.U.replace(/\\/$/, "") + "/internal/worker/heartbeat", {',
+        '    method: "POST",',
+        '    headers: { authorization: "Bearer " + bearer, "content-type": "application/json" },',
+        '    body: JSON.stringify({ session_id: "00000000-0000-4000-8000-000000000000", turn_id: null, attempt_id: "none", lease_epoch: 1, execution_generation: 1, auth_revision: 1, attempt_state: "starting" }),',
+        "  });",
+        "  return r.status;",
+        "};",
+        "const known = await scoped(process.env.N);",
+        'const unknown = await scoped("wln_not_a_launch_nonce");',
+        'console.log("plain_status=" + plain + " forged_status=" + forged + " known_nonce_status=" + known + " unknown_bearer_status=" + unknown);',
       ].join(" ");
       const probe = [
         'e=$(tr "\\0" "\\n" < /proc/1/environ)',
@@ -626,16 +638,18 @@ describe("concurrency regressions", () => {
       ).at(-1);
       const printed = JSON.stringify(result?.data.data);
       const report =
-        /replay uid=(\d+) nonce_read=(\d) plain_status=(\d+) forged_status=(\d+)/.exec(
+        /replay uid=(\d+) nonce_read=(\d) plain_status=(\d+) forged_status=(\d+) known_nonce_status=(\d+) unknown_bearer_status=(\d+)/.exec(
           printed,
         );
       if (report === null) throw new Error(`no replay output in ${printed}`);
       // The ticket's acceptance evidence, kept in the CI log.
       console.log(report[0]);
-      const [, uid, nonceRead, plain, forged] = report;
-      // The nonce was there to read: the refusals are the gateway's, not a
-      // probe that had nothing to send.
+      const [, uid, nonceRead, plain, forged, known, unknown] = report;
+      // The nonce was there to read, and it is this launch's: the gateway
+      // tells it from a value it has never issued. So the claims below were
+      // refused for what the attempt had become, not for an unknown bearer.
       expect({ uid, nonceRead }).toEqual({ uid: "1000", nonceRead: "1" });
+      expect({ known, unknown }).toEqual({ known: "403", unknown: "401" });
       expect({ plain, forged }).toEqual({ plain: "401", forged: "401" });
       // The worker kept its credential and its execution: the same session
       // takes another turn.

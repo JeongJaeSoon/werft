@@ -720,8 +720,8 @@ integration("claim replay against the session's current binding", () => {
   // The worker's activation: one accepted `starting` beat, sent before it
   // starts the engine or anything else that could read the nonce out of the
   // container's environ.
-  function activate(claimed: Claimed) {
-    return gateway.heartbeat(principalOf(claimed), {
+  function activate(claimed: Claimed, via: WorkerGateway = gateway) {
+    return via.heartbeat(principalOf(claimed), {
       ...scopeOf(claimed),
       attempt_state: "starting",
     });
@@ -864,10 +864,21 @@ integration("claim replay against the session's current binding", () => {
     TIMEOUT_MS,
   );
 
+  // A claim under a lease that outlasts the queueing below: the suite's 2 s
+  // lease would run out on a slow runner while the two calls wait their turn
+  // behind the held row, and the test would be judging the lease instead.
+  async function boundUnhurried(name: string) {
+    const unhurried = gatewayWithLease(60_000);
+    const session = await queuedSession(`${name}-${crypto.randomUUID()}`);
+    const l = await launchSession(db, { sessionId: session.session_id });
+    return { session, l, claimed: await claim(l, unhurried), unhurried };
+  }
+
   test(
     "activation queued ahead of a duplicate claim: the claim finds the attempt started and rotates nothing",
     async () => {
-      const { session, launch: l, claimed } = await bound("activate-first");
+      const { session, l, claimed, unhurried } =
+        await boundUnhurried("activate-first");
       const before = await replayFootprint(
         session.session_id,
         claimed.attempt_id,
@@ -875,8 +886,8 @@ integration("claim replay against the session's current binding", () => {
 
       const [activation, duplicate] = await inOrderBehindSessionLock(
         session.session_id,
-        () => activate(claimed),
-        () => failure(claim(l)),
+        () => activate(claimed, unhurried),
+        () => failure(claim(l, unhurried)),
       );
 
       expect(activation.status).toBe("fulfilled");
@@ -899,12 +910,13 @@ integration("claim replay against the session's current binding", () => {
   test(
     "a duplicate claim queued ahead of activation: activation is fenced out, and the worker that claims again activates",
     async () => {
-      const { session, launch: l, claimed } = await bound("claim-first");
+      const { session, l, claimed, unhurried } =
+        await boundUnhurried("claim-first");
 
       const [duplicate, activation] = await inOrderBehindSessionLock(
         session.session_id,
-        () => claim(l),
-        () => failure(activate(claimed)),
+        () => claim(l, unhurried),
+        () => failure(activate(claimed, unhurried)),
       );
 
       // The duplicate rotated the token away, so the beat sent under the
@@ -920,9 +932,9 @@ integration("claim replay against the session's current binding", () => {
           .attemptState,
       ).toBe("allocated");
 
-      const again = await claim(l);
+      const again = await claim(l, unhurried);
       expect(again.attempt_id).toBe(claimed.attempt_id);
-      await activate(again);
+      await activate(again, unhurried);
       expect(await failure(claim(l))).toEqual({
         status: 401,
         code: "UNAUTHORIZED",

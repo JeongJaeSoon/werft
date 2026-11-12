@@ -475,13 +475,18 @@ export class WorkerHost {
     const owned = await this.claimAndActivate();
     if ("outcome" in owned) return owned;
     const { claim, lease } = owned;
-    // Attribution, not a boundary: commits without it still go through.
-    await this.options.gitTrailers?.(claim).catch((error: unknown) =>
-      this.logger.warn("worker.git_trailers.not_written", {
-        reason: describe(error),
-      }),
-    );
-    await this.writeEngineRoutes(claim);
+    // A stop that came while the claim or its activation was in flight
+    // leaves a session this worker holds and has started nothing for. It is
+    // given back by the shutdown below, with no file written for it.
+    if (this.stopping === undefined) {
+      // Attribution, not a boundary: commits without it still go through.
+      await this.options.gitTrailers?.(claim).catch((error: unknown) =>
+        this.logger.warn("worker.git_trailers.not_written", {
+          reason: describe(error),
+        }),
+      );
+      await this.writeEngineRoutes(claim);
+    }
 
     // Everything this process holds that the engine's tools could print.
     this.scrubber = new SecretScrubber([
@@ -598,7 +603,9 @@ export class WorkerHost {
       );
       let ready = false;
       try {
-        const plan = await this.startUp(claim);
+        // Not entered once stopped: preparing the workspace starts git.
+        const plan =
+          this.stopping === undefined ? await this.startUp(claim) : undefined;
         if (plan !== undefined && this.stopping === undefined) {
           await this.publishExtensions(claim);
         }
@@ -1079,6 +1086,14 @@ export class WorkerHost {
         return this.unactivated("lease_lost", describe(error));
       }
       if (claimed === null) {
+        // Claiming again was given up on a stop: the first claim's session
+        // is left to its lease, as any claim this worker cannot use is.
+        if (reclaimed) {
+          return this.unactivated(
+            "drained",
+            this.stopping?.reason ?? "Stopped while claiming again",
+          );
+        }
         return {
           outcome: "unclaimed",
           reason:
@@ -1139,6 +1154,10 @@ export class WorkerHost {
    * An answer that never came is asked for again with the same credential,
    * never by claiming again: the beat that went unanswered may have landed,
    * and then the claim would be refused.
+   *
+   * A control the answer reports waiting is left to the heartbeat loop's
+   * first beat, as it was before this call existed: read here it would be
+   * acted on in the middle of startup.
    */
   private async activate(claimed: {
     claim: BootstrapClaimResponse;
@@ -1148,28 +1167,56 @@ export class WorkerHost {
     | { kind: "refused" | "lost" | "abandoned" | "failed"; reason: string }
   > {
     const leaseEndsAt = claimed.sentAt + claimed.claim.lease_remaining_ms;
+    const leaseOver = {
+      kind: "lost",
+      reason:
+        "The claim's lease ran out before the gateway accepted this worker's first call",
+    } as const;
     for (;;) {
       const sentAt = performance.now();
-      if (sentAt >= leaseEndsAt) {
-        return {
-          kind: "lost",
-          reason:
-            "The claim's lease ran out before the gateway accepted this worker's first call",
-        };
-      }
+      if (sentAt >= leaseEndsAt) return leaseOver;
       try {
-        const answer = await this.untilStopGraceSpent(
+        // Waited for no longer than the lease the claim gave: an answer that
+        // comes after it is for a session that may already be someone
+        // else's, and must not start anything.
+        const answered = this.untilStopGraceSpent(
           this.options.gateway.heartbeat({
             ...this.scope,
             attempt_state: "starting",
           }),
         );
+        let leaseTimer: ReturnType<typeof setTimeout> | undefined;
+        const expired = new Promise<typeof leaseOver>((resolve) => {
+          leaseTimer = setTimeout(
+            () => resolve(leaseOver),
+            leaseEndsAt - sentAt,
+          );
+        });
+        let answer: Awaited<typeof answered> | typeof leaseOver;
+        try {
+          answer = await Promise.race([answered, expired]);
+        } finally {
+          clearTimeout(leaseTimer);
+        }
+        if (answer !== undefined && "kind" in answer) {
+          // Whatever the beat still answers is nobody's to act on.
+          answered.catch(() => {});
+          return leaseOver;
+        }
         if (answer === undefined) {
           return {
             kind: "abandoned",
             reason:
               this.stopping?.reason ??
               "Stopped before the gateway accepted this worker's first call",
+          };
+        }
+        // The lease an answer grants runs from when its request went out.
+        if (sentAt + answer.lease_remaining_ms <= performance.now()) {
+          return {
+            kind: "lost",
+            reason:
+              "The gateway's answer to this worker's first call came after the lease it granted had run out",
           };
         }
         return {

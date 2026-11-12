@@ -61,11 +61,14 @@ function refusal(
  */
 function harness(
   overrides: {
-    gateway?: FakeWorkerGatewayOptions;
+    gateway?: FakeWorkerGatewayOptions | FakeWorkerGateway;
     timeouts?: Partial<WorkerTimeouts>;
   } = {},
 ) {
-  const gateway = new FakeWorkerGateway(overrides.gateway);
+  const gateway =
+    overrides.gateway instanceof FakeWorkerGateway
+      ? overrides.gateway
+      : new FakeWorkerGateway(overrides.gateway);
   const trail: string[] = [];
   const step = (name: string) => {
     trail.push(`${name} after ${gateway.calls.at(-1)}`);
@@ -282,7 +285,89 @@ describe("WorkerHost activation", () => {
     expect(trail).toEqual([]);
   });
 
-  test("a stop while the activation is unanswered ends the worker with nothing started, and a late answer starts nothing", async () => {
+  test("an activation answered after the claim's lease ran out starts nothing", async () => {
+    const { gateway, host, trail } = harness({ gateway: { leaseTtlMs: 40 } });
+    let release = () => {};
+    gateway.activationHold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    const running = host.runLoop();
+    await waitFor(() => gateway.calls.includes("heartbeat"), "the activation");
+    await Bun.sleep(120);
+    release();
+    const summary = await running;
+    // Long enough for a startup revived by the late answer to show.
+    await Bun.sleep(50);
+
+    expect(summary.outcome).toBe("lease_lost");
+    expect(summary.reason).toContain("lease ran out");
+    expect(trail).toEqual([]);
+    expect(gateway.calls).toEqual([
+      "bootstrapClaim",
+      "useCredential",
+      "heartbeat",
+    ]);
+  });
+
+  test("an answer that grants a lease already over starts nothing", async () => {
+    class ShortGrant extends FakeWorkerGateway {
+      override async heartbeat(
+        request: Parameters<FakeWorkerGateway["heartbeat"]>[0],
+      ) {
+        const answer = await super.heartbeat(request);
+        await Bun.sleep(30);
+        return { ...answer, lease_remaining_ms: 5 };
+      }
+    }
+    const { host, trail } = harness({ gateway: new ShortGrant() });
+
+    const summary = await host.runLoop();
+
+    expect(summary.outcome).toBe("lease_lost");
+    expect(summary.reason).toContain("after the lease it granted");
+    expect(trail).toEqual([]);
+  });
+
+  test("claiming again replaces what the first claim installed: the accepted activation carries the second claim's fence and credential", async () => {
+    const credentials: string[] = [];
+    class Rotating extends FakeWorkerGateway {
+      private claims = 0;
+      override async bootstrapClaim(
+        request: Parameters<FakeWorkerGateway["bootstrapClaim"]>[0],
+      ) {
+        const claim = await super.bootstrapClaim(request);
+        this.claims += 1;
+        return {
+          ...claim,
+          auth_revision: claim.auth_revision + this.claims,
+          session_credential: `${claim.session_credential}-${this.claims}`,
+        };
+      }
+      override useCredential(credential: string): void {
+        credentials.push(credential);
+        super.useCredential(credential);
+      }
+    }
+    const gateway = new Rotating();
+    gateway.activationFailures.push(refusal(409, "STALE_EPOCH"));
+    const { host } = harness({ gateway });
+
+    const summary = await host.runLoop();
+
+    expect(summary.outcome).toBe("idle");
+    expect(credentials).toHaveLength(2);
+    expect(credentials[1]).toBe(`${credentials[0]?.slice(0, -2)}-2`);
+    const [refused, ...later] = gateway.heartbeats;
+    // The refused beat went out under the first claim's fence; every beat
+    // after it, the accepted activation included, under the second's.
+    expect(later.length).toBeGreaterThan(0);
+    expect(new Set(later.map((beat) => beat.auth_revision))).toEqual(
+      new Set([(refused?.auth_revision ?? 0) + 1]),
+    );
+  });
+
+  test("a stop with the activation still unanswered when the stop grace is spent ends the worker, and the late answer starts nothing", async () => {
     const { gateway, host, trail } = harness({
       timeouts: { requestTimeoutMs: 40 },
     });
@@ -309,5 +394,26 @@ describe("WorkerHost activation", () => {
       "useCredential",
       "heartbeat",
     ]);
+  });
+
+  test("a stop whose activation is answered within the grace gives the session back with nothing written and nothing started", async () => {
+    const { gateway, host, trail } = harness();
+    let release = () => {};
+    gateway.activationHold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    const running = host.runLoop();
+    await waitFor(() => gateway.calls.includes("heartbeat"), "the activation");
+    host.drain("received SIGTERM");
+    release();
+    const summary = await running;
+
+    expect(summary.outcome).toBe("drained");
+    expect(trail).toEqual([]);
+    // The session was activated, so it is released rather than left to its
+    // lease.
+    expect(gateway.releases).toHaveLength(1);
+    expect(gateway.calls).not.toContain("nextInput");
   });
 });
