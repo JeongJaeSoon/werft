@@ -129,32 +129,27 @@ integration("tool call projection on PostgreSQL", () => {
     "a higher id past the margin does not carry the cursor over a lower one inside it (batches of %d)",
     async (batchSize) => {
       const id = await session();
-      const insert = (client: Pick<Client, "query">, toolUseId: string) =>
+      // `created_at` is the inserting transaction's start, so a transaction
+      // begun long ago stamps its late, higher id past the margin. Stamped
+      // here directly so the test does not race the clock.
+      const insert = (
+        client: Pick<Client, "query">,
+        toolUseId: string,
+        age: "1 hour" | "0 seconds",
+      ) =>
         client.query(
-          "INSERT INTO events (session_id, type, payload) VALUES ($1, 'tool_use', $2)",
-          [id, toolUse(toolUseId)],
+          "INSERT INTO events (session_id, type, payload, created_at) VALUES ($1, 'tool_use', $2, now() - $3::interval)",
+          [id, toolUse(toolUseId), age],
         );
-      // `old` begins first and takes its id last: its row is stamped with the
-      // transaction's start, past the margin, above two rows inside it.
-      const old = new Client({ connectionString: database.url });
       const open = new Client({ connectionString: database.url });
-      await old.connect();
       await open.connect();
       try {
-        await old.query("BEGIN");
-        await old.query("SELECT now()");
-        await new Promise((resolve) => setTimeout(resolve, 1_200));
-        await insert(pool, "tu-low");
+        await insert(pool, "tu-low", "0 seconds");
         await open.query("BEGIN");
-        await insert(open, "tu-open");
-        await insert(old, "tu-high");
-        await old.query("COMMIT");
+        await insert(open, "tu-open", "0 seconds");
+        await insert(pool, "tu-high", "1 hour");
         const project = () =>
-          projectToolCalls(db, {
-            batchSize,
-            budgetMs: 10_000,
-            marginSeconds: 1,
-          });
+          projectToolCalls(db, { batchSize, budgetMs: 10_000 });
         const during = await project();
         expect(await calls()).toEqual(["tu-high", "tu-low"]);
         expect(during.appliedThrough).toBe(0);
@@ -162,9 +157,8 @@ integration("tool call projection on PostgreSQL", () => {
         await project();
         expect(await calls()).toEqual(["tu-high", "tu-low", "tu-open"]);
       } finally {
-        // Ending a client rolls back what it left open, which would otherwise
-        // hold the next test's TRUNCATE.
-        await old.end();
+        // Ending the client rolls back what it left open, which would
+        // otherwise hold the next test's TRUNCATE.
         await open.end();
       }
     },
