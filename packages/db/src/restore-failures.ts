@@ -76,6 +76,25 @@ function startupFailure(
 }
 
 /**
+ * The attempt's release reason, bounded, when it is a refusal that every
+ * later launch would repeat: an engine without a feature the settings need.
+ */
+export async function unsupportedFeaturesEndReason(
+  tx: Database,
+  attemptId: string,
+): Promise<string | null> {
+  const [attempt] = await tx
+    .select({ endReason: attempts.endReason })
+    .from(attempts)
+    .where(eq(attempts.id, attemptId))
+    .limit(1);
+  const reason = attempt?.endReason ?? null;
+  return reason !== null && isUnsupportedFeaturesReason(reason)
+    ? boundedReason(reason)
+    : null;
+}
+
+/**
  * Counts the `attemptId` that ended before it was ready for input, in the
  * caller's gone transaction and after the session row there has cleared its
  * binding. Below the limit the session stays active and is signalled again

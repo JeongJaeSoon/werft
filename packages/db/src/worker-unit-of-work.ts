@@ -149,6 +149,7 @@ import {
   RESTORE_FAILURES_CLEARED,
   recordStartupFailure,
   restoreRetryDue,
+  unsupportedFeaturesEndReason,
 } from "./restore-failures.ts";
 import {
   completeResume,
@@ -3928,12 +3929,21 @@ export function createPostgresWorkerUnitOfWork(
         // reported ready did not prove the checkpoint restores, nor that it
         // cannot: the session stays resuming and is signalled again until
         // RESUME_LAUNCH_LIMIT claimed launches have died that way, then an
-        // operator decides. A launch that never claimed spends nothing.
+        // operator decides. A launch that never claimed spends nothing. An
+        // engine that lacks a feature the settings need fails it at once:
+        // every launch would refuse the same way.
+        const resumeClaimed =
+          session.admissionState === "resuming"
+            ? (launch?.claimedAttemptId ?? null)
+            : null;
+        const resumeUnsupported =
+          resumeClaimed === null
+            ? null
+            : await unsupportedFeaturesEndReason(tx, resumeClaimed);
         const resumeFailed =
-          session.admissionState === "resuming" &&
-          launch?.claimedAttemptId !== null &&
-          launch?.claimedAttemptId !== undefined &&
-          (await resumeLaunchesSpent(tx, session.id)) >= RESUME_LAUNCH_LIMIT;
+          resumeClaimed !== null &&
+          (resumeUnsupported !== null ||
+            (await resumeLaunchesSpent(tx, session.id)) >= RESUME_LAUNCH_LIMIT);
         // A session left taking work would hand its next input to a worker
         // that cannot restore the turns it ran. Judged here, where
         // the loss becomes certain, so it shows before anyone sends another
@@ -4025,7 +4035,9 @@ export function createPostgresWorkerUnitOfWork(
             sessionId: session.id,
             error: {
               code: "RECOVERY_REQUIRED",
-              message: `${RESUME_LAUNCH_LIMIT} executions restoring the checkpoint ended before any reported ready`,
+              message:
+                resumeUnsupported ??
+                `${RESUME_LAUNCH_LIMIT} executions restoring the checkpoint ended before any reported ready`,
             },
             now,
           });
