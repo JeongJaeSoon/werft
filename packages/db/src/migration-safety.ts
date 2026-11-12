@@ -255,6 +255,267 @@ const RELEASES_AFTER_LAST_USE = 2;
 const CONTRACT_MARKER =
   /^--\s*contract:\s*(\S+)\s+last used by\s+(v\d+\.\d+\.\d+)\s*$/gm;
 
+type Token = {
+  kind: "word" | "quoted" | "string" | "body" | "punct";
+  text: string;
+};
+
+// Words lowercased, quoted identifiers as written, comments dropped, and a
+// dollar-quoted body kept whole so the DDL inside it is read on its own.
+function tokenize(sql: string): Token[] {
+  const out: Token[] = [];
+  let at = 0;
+  while (at < sql.length) {
+    const char = sql[at] ?? "";
+    if (/\s/.test(char)) {
+      at++;
+      continue;
+    }
+    if (sql.startsWith("--", at)) {
+      const end = sql.indexOf("\n", at);
+      at = end === -1 ? sql.length : end + 1;
+      continue;
+    }
+    if (sql.startsWith("/*", at)) {
+      // PostgreSQL block comments nest.
+      let depth = 0;
+      do {
+        if (sql.startsWith("/*", at)) {
+          depth++;
+          at += 2;
+        } else if (sql.startsWith("*/", at)) {
+          depth--;
+          at += 2;
+        } else {
+          at++;
+        }
+      } while (depth > 0 && at < sql.length);
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      // E'...' takes backslash escapes; its E was read as a word just before.
+      const previous = out.at(-1);
+      const escapes =
+        char === "'" &&
+        previous?.kind === "word" &&
+        previous.text === "e" &&
+        /[eE]/.test(sql[at - 1] ?? "");
+      if (escapes) {
+        out.pop();
+      }
+      let text = "";
+      at++;
+      while (at < sql.length) {
+        const next = sql[at] ?? "";
+        if (escapes && next === "\\") {
+          text += sql[at + 1] ?? "";
+          at += 2;
+        } else if (next === char && sql[at + 1] === char) {
+          text += char;
+          at += 2;
+        } else if (next === char) {
+          at++;
+          break;
+        } else {
+          text += next;
+          at++;
+        }
+      }
+      out.push({ kind: char === '"' ? "quoted" : "string", text });
+      continue;
+    }
+    const dollar = /^\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/.exec(
+      sql.slice(at, at + 64),
+    );
+    if (dollar) {
+      const tag = dollar[0];
+      const end = sql.indexOf(tag, at + tag.length);
+      out.push({
+        kind: "body",
+        text: sql.slice(at + tag.length, end === -1 ? sql.length : end),
+      });
+      at = end === -1 ? sql.length : end + tag.length;
+      continue;
+    }
+    const word = /^[A-Za-z_][A-Za-z0-9_$]*/.exec(sql.slice(at, at + 128));
+    if (word) {
+      out.push({ kind: "word", text: word[0].toLowerCase() });
+      at += word[0].length;
+      continue;
+    }
+    out.push({ kind: "punct", text: char });
+    at++;
+  }
+  return out;
+}
+
+// Splits at a separator outside parentheses.
+function splitAt(tokens: Token[], separator: string): Token[][] {
+  const parts: Token[][] = [[]];
+  let depth = 0;
+  for (const token of tokens) {
+    if (token.kind === "punct") {
+      if (token.text === "(") {
+        depth++;
+      } else if (token.text === ")") {
+        depth--;
+      } else if (token.text === separator && depth === 0) {
+        parts.push([]);
+        continue;
+      }
+    }
+    parts.at(-1)?.push(token);
+  }
+  return parts.filter((part) => part.length > 0);
+}
+
+const isWord = (token: Token | undefined, ...words: string[]) =>
+  token?.kind === "word" && words.includes(token.text);
+const isIdentifier = (token: Token | undefined) =>
+  token?.kind === "word" || token?.kind === "quoted";
+const isPunct = (token: Token | undefined, text: string) =>
+  token?.kind === "punct" && token.text === text;
+
+// The index past `words` when they all follow `at`, else `at`.
+function past(tokens: Token[], at: number, ...words: string[]): number {
+  return words.every((word, offset) => isWord(tokens[at + offset], word))
+    ? at + words.length
+    : at;
+}
+
+// A name, schema-qualified or not: its last part and the index after it.
+function nameAt(
+  tokens: Token[],
+  at: number,
+): { name: string; next: number } | undefined {
+  let next = at;
+  let name: string | undefined;
+  while (isIdentifier(tokens[next])) {
+    name = tokens[next]?.text;
+    next++;
+    if (!isPunct(tokens[next], ".")) {
+      break;
+    }
+    next++;
+  }
+  return name === undefined ? undefined : { name, next };
+}
+
+type Removal = { target: string; how: string } | { refused: string };
+
+// Tables and columns the statements drop, rename or move away. What this
+// cannot follow (a whole schema, SQL assembled in a string) is refused.
+function removals(
+  tokens: Token[],
+  created: Set<string>,
+  inBody: boolean,
+): Removal[] {
+  const out: Removal[] = [];
+  for (const whole of splitAt(tokens, ";")) {
+    for (const token of whole) {
+      if (token.kind === "body") {
+        out.push(...removals(tokenize(token.text), created, true));
+      } else if (
+        inBody &&
+        token.kind === "string" &&
+        /\b(drop|rename|set\s+schema)\b/i.test(token.text)
+      ) {
+        out.push({
+          refused: `SQL built in a string may drop or rename (${JSON.stringify(token.text.slice(0, 60))}); write it as a plain statement`,
+        });
+      }
+    }
+    // In a procedural body a statement may follow BEGIN, THEN, LOOP and such.
+    const statement = inBody
+      ? whole.slice(
+          Math.max(
+            0,
+            whole.findIndex((token) =>
+              isWord(token, "create", "drop", "alter"),
+            ),
+          ),
+        )
+      : whole;
+    const [first, second] = statement;
+    if (isWord(first, "create")) {
+      let at = isWord(statement[1], "global", "local") ? 2 : 1;
+      const temporary = isWord(statement[at], "temp", "temporary");
+      if (temporary || isWord(statement[at], "unlogged")) {
+        at++;
+      }
+      if (!isWord(statement[at], "table")) {
+        continue;
+      }
+      const unless = past(statement, at + 1, "if", "not", "exists");
+      const table = nameAt(statement, unless);
+      // IF NOT EXISTS may name a table the database already has.
+      if (table && (temporary || unless === at + 1)) {
+        created.add(table.name);
+      }
+    } else if (isWord(first, "drop") && isWord(second, "schema")) {
+      out.push({
+        refused:
+          "DROP SCHEMA drops every table in it; drop each table on its own",
+      });
+    } else if (isWord(first, "drop") && isWord(second, "table")) {
+      let at = past(statement, 2, "if", "exists");
+      for (
+        let table = nameAt(statement, at);
+        table;
+        table = nameAt(statement, at)
+      ) {
+        if (!created.has(table.name)) {
+          out.push({ target: table.name, how: "DROP TABLE" });
+        }
+        if (!isPunct(statement[table.next], ",")) {
+          break;
+        }
+        at = table.next + 1;
+      }
+    } else if (isWord(first, "alter") && isWord(second, "table")) {
+      const table = nameAt(
+        statement,
+        past(statement, past(statement, 2, "if", "exists"), "only"),
+      );
+      if (!table || created.has(table.name)) {
+        continue;
+      }
+      const rest = statement.slice(table.next);
+      if (isPunct(rest[0], "*")) {
+        rest.shift();
+      }
+      for (const action of splitAt(rest, ",")) {
+        const [verb, object] = action;
+        // DROP DEFAULT, NOT NULL and the like belong to ALTER COLUMN, and
+        // keep the data like DROP CONSTRAINT and RENAME CONSTRAINT do.
+        if (isWord(verb, "drop") && !isWord(object, "constraint")) {
+          const column =
+            action[past(action, past(action, 1, "column"), "if", "exists")];
+          if (isIdentifier(column)) {
+            out.push({
+              target: `${table.name}.${column?.text}`,
+              how: "DROP COLUMN",
+            });
+          }
+        } else if (isWord(verb, "rename") && isWord(object, "to")) {
+          out.push({ target: table.name, how: "RENAME TO" });
+        } else if (isWord(verb, "rename") && !isWord(object, "constraint")) {
+          const column = action[past(action, 1, "column")];
+          if (isIdentifier(column)) {
+            out.push({
+              target: `${table.name}.${column?.text}`,
+              how: "RENAME COLUMN",
+            });
+          }
+        } else if (isWord(verb, "set") && isWord(object, "schema")) {
+          out.push({ target: table.name, how: "SET SCHEMA" });
+        }
+      }
+    }
+  }
+  return out;
+}
+
 /** Release headings of CHANGELOG.md, newest first. */
 export function changelogReleases(
   changelog = join(import.meta.dir, "../../../CHANGELOG.md"),
@@ -292,62 +553,12 @@ export function contractProblems(
         release,
       ]),
     );
-    const created = new Set<string>();
-    const removed: { target: string; how: string }[] = [];
-    for (const statement of statementsOf(raw)) {
-      const createTable = statement.match(
-        new RegExp(`^CREATE TABLE (?:IF NOT EXISTS )?${qualified}`, "i"),
-      );
-      if (createTable?.[1]) {
-        created.add(createTable[1]);
+    for (const removal of removals(tokenize(raw), new Set(), false)) {
+      if ("refused" in removal) {
+        problems.push(`${file}: ${removal.refused}`);
         continue;
       }
-      const dropTable = statement.match(/^DROP TABLE (?:IF EXISTS )?(.*)$/i);
-      if (dropTable?.[1]) {
-        for (const table of dropTable[1].split(",")) {
-          const bare = table.match(new RegExp(`^\\s*${qualified}`))?.[1];
-          if (bare && !created.has(bare)) {
-            removed.push({ target: bare, how: "DROP TABLE" });
-          }
-        }
-        continue;
-      }
-      const alter = statement.match(
-        new RegExp(
-          `^ALTER TABLE (?:ONLY )?(?:IF EXISTS )?${qualified} (.*)$`,
-          "i",
-        ),
-      );
-      const [, table, action] = alter ?? [];
-      if (!table || action === undefined || created.has(table)) {
-        continue;
-      }
-      for (const drop of action.matchAll(
-        new RegExp(`\\bDROP (?:COLUMN )?(?:IF EXISTS )?${name}`, "gi"),
-      )) {
-        const column = drop[1] ?? "";
-        // DROP CONSTRAINT, DEFAULT, NOT NULL, IDENTITY, EXPRESSION keep the
-        // data; a quoted name is a column whatever it spells.
-        const keyword =
-          !drop[0].endsWith('"') &&
-          /^(constraint|default|not|identity|expression)$/i.test(column);
-        if (!keyword) {
-          removed.push({ target: `${table}.${column}`, how: "DROP COLUMN" });
-        }
-      }
-      const renameColumn = action.match(
-        new RegExp(`\\bRENAME (?:COLUMN )?${name} TO `, "i"),
-      );
-      if (renameColumn?.[1] && !/^(to|constraint)$/i.test(renameColumn[1])) {
-        removed.push({
-          target: `${table}.${renameColumn[1]}`,
-          how: "RENAME COLUMN",
-        });
-      } else if (/\bRENAME TO\b/i.test(action)) {
-        removed.push({ target: table, how: "RENAME TO" });
-      }
-    }
-    for (const { target, how } of removed) {
+      const { target, how } = removal;
       const release = lastUse.get(target);
       if (release === undefined) {
         problems.push(

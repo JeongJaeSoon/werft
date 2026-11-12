@@ -270,7 +270,76 @@ describe("contract migrations", () => {
     ).toEqual([]);
   });
 
+  test("comments, quoting, schemas and option order do not hide a drop", () => {
+    expect(
+      contractsOf(
+        `/* cleanup */ ALTER TABLE sessions DROP COLUMN title;`,
+        `ALTER TABLE sessions DROP /* cleanup */ COLUMN note;`,
+        `ALTER TABLE "other"."sessions" DROP COLUMN kind;`,
+        `DROP TABLE "session-data" CASCADE;`,
+        `ALTER TABLE IF EXISTS ONLY sessions DROP COLUMN mode;`,
+        `ALTER TABLE ONLY sessions * DROP COLUMN step;`,
+        `ALTER TABLE sessions SET SCHEMA archive;`,
+      ),
+    ).toEqual([
+      unmarked("DROP COLUMN", "sessions.title"),
+      unmarked("DROP COLUMN", "sessions.note"),
+      unmarked("DROP COLUMN", "sessions.kind"),
+      unmarked("DROP TABLE", "session-data"),
+      unmarked("DROP COLUMN", "sessions.mode"),
+      unmarked("DROP COLUMN", "sessions.step"),
+      unmarked("SET SCHEMA", "sessions"),
+    ]);
+  });
+
+  test("DDL inside a dollar-quoted body is read, and SQL built in a string refused", () => {
+    expect(
+      contractsOf(
+        `DO $$ BEGIN ALTER TABLE sessions DROP COLUMN title; END $$;`,
+        `DO $body$ BEGIN EXECUTE 'ALTER TABLE sessions DROP COLUMN ' || 'note'; END $body$;`,
+      ),
+    ).toEqual([
+      unmarked("DROP COLUMN", "sessions.title"),
+      `under_test.sql: SQL built in a string may drop or rename ("ALTER TABLE sessions DROP COLUMN "); write it as a plain statement`,
+    ]);
+  });
+
+  test("a schema drop is refused outright", () => {
+    expect(contractsOf(`DROP SCHEMA public CASCADE;`)).toEqual([
+      "under_test.sql: DROP SCHEMA drops every table in it; drop each table on its own",
+    ]);
+  });
+
+  test("CREATE TABLE IF NOT EXISTS does not make an existing table new", () => {
+    expect(
+      contractsOf(
+        `CREATE TABLE IF NOT EXISTS sessions (id int);`,
+        `ALTER TABLE sessions DROP COLUMN title;`,
+      ),
+    ).toEqual([unmarked("DROP COLUMN", "sessions.title")]);
+  });
+
+  test("a temporary table the migration makes may be dropped", () => {
+    expect(
+      contractsOf(
+        `CREATE TEMP TABLE scratch AS SELECT 1;`,
+        `DROP TABLE scratch;`,
+        `CREATE UNLOGGED TABLE staging (id int);`,
+        `DROP TABLE IF EXISTS staging;`,
+      ),
+    ).toEqual([]);
+  });
+
   test("a quoted column named like a keyword is still a column", () => {
+    expect(
+      contractsOf(
+        `ALTER TABLE sessions RENAME COLUMN "constraint" TO label;`,
+        `ALTER TABLE sessions RENAME "to" TO target;`,
+      ),
+    ).toEqual([
+      unmarked("RENAME COLUMN", "sessions.constraint"),
+      unmarked("RENAME COLUMN", "sessions.to"),
+    ]);
     expect(
       contractsOf(`ALTER TABLE "sessions" DROP COLUMN "default";`),
     ).toEqual([unmarked("DROP COLUMN", "sessions.default")]);
