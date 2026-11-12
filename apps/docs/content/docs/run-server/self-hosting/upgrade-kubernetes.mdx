@@ -30,9 +30,10 @@ outcome: "지원 창과 worker pin을 보존하며 chart를 교체한다"
 ```bash
 VERSION=<new-version>
 DEPLOYED="$(helm -n werft history werft -o json | jq '[.[] | select(.status == "deployed")] | last.revision')"
-TARGET_RUNTIME="$(helm show values oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
-  | awk '/^  worker:/ {found = 1; next} found && /^  [^ ]/ {exit} found && /^    runtime: / {sub(/^    runtime: /, ""); print; exit}')"
-helm -n werft get values werft --all --revision "$DEPLOYED" -o json \
+TARGET_VALUES="$(helm show values oci://ghcr.io/jeongjaesoon/werft --version "$VERSION")" \
+  && TARGET_RUNTIME="$(printf '%s\n' "$TARGET_VALUES" \
+    | awk '/^  worker:/ {found = 1; next} found && /^  [^ ]/ {exit} found && /^    runtime: / {sub(/^    runtime: /, ""); print; exit}')" \
+  && helm -n werft get values werft --all --revision "$DEPLOYED" -o json \
   | jq -e --argjson target "$TARGET_RUNTIME" '.images
       | .worker.runtime |= (($target | if type == "object" then map_values(null) else error("target runtime is not a JSON object") end) + .)
       | {images: {worker, workerPrevious, egressProxy}}' \
@@ -45,7 +46,7 @@ helm -n werft get values werft --all --revision "$DEPLOYED" -o json \
 
 중간 upgrade는 새 chart의 control-host를 적용하고 worker·egress proxy는 현재 것을 유지한다. migration과 **모든** API 교체 및 ready를 확인한 뒤 다음 단계로 진행한다. 이미 떠 있는 worker는 이미지 변경만으로 교체되지 않으며 다음 launch부터 새 이미지를 사용한다.
 
-`TARGET_RUNTIME`은 대상 chart가 담은 `images.worker.runtime`이고, `jq`는 그 키를 모두 `null`로 깔고 그 위에 배포된 runtime을 얹는다. Helm이 values의 map을 키마다 합치기 때문이다. 대상 chart는 자기 worker 이미지의 runtime을 담고 있다. 배포된 runtime에 없는 키는 대상 chart의 값이 그대로 남아 지금 worker 이미지에 붙는다. `null`은 chart가 담은 키를 지운다. chart가 담지 않은 키를 `null`로 적으면 그 `null`이 값으로 남아 render가 실패하므로, 키 목록을 손으로 적지 않고 대상 chart에서 읽는다. 명령은 `&&`로 이어져 있다. 대상 chart를 읽지 못하거나, worker 항목의 runtime 줄이 한 줄 JSON object가 아니거나, 배포된 값을 읽지 못하면 `jq`가 실패하고 upgrade는 실행되지 않는다. runtime 없이 설치한 곳에서는 chart의 키가 모두 지워져 지금처럼 runtime 없이 남고, 게시 chart로 설치한 곳에서는 배포된 runtime만 남는다. 이 `null`을 빼면 runtime 없이 설치한 곳에서는 지금 worker 이미지가 대상 chart의 runtime으로 설정되고, upgrade 검사는 통과하지만 scheduler가 그 이미지를 거절해 새 세션이 뜨지 않는다([자주 막히는 곳](/run-server/self-hosting/upgrade-kubernetes#자주-막히는-곳)).
+`TARGET_RUNTIME`은 대상 chart가 담은 `images.worker.runtime`이고, `jq`는 그 키를 모두 `null`로 깔고 그 위에 배포된 runtime을 얹는다. Helm이 values의 map을 키마다 합치기 때문이다. 대상 chart는 자기 worker 이미지의 runtime을 담고 있다. 배포된 runtime에 없는 키는 대상 chart의 값이 그대로 남아 지금 worker 이미지에 붙는다. `null`은 chart가 담은 키를 지운다. chart가 담지 않은 키를 `null`로 적으면 그 `null`이 값으로 남아 render가 실패하므로, 키 목록을 손으로 적지 않고 대상 chart에서 읽는다. 명령은 `&&`로 이어져 있다. `helm show values`가 실패하거나, worker 항목의 runtime 줄이 한 줄 JSON object가 아니거나, 배포된 값을 읽지 못하면 그 뒤 명령은 실행되지 않는다. runtime 없이 설치한 곳에서는 chart의 키가 모두 지워져 지금처럼 runtime 없이 남고, 게시 chart로 설치한 곳에서는 배포된 runtime만 남는다. 이 `null`을 빼면 runtime 없이 설치한 곳에서는 지금 worker 이미지가 대상 chart의 runtime으로 설정되고, upgrade 검사는 통과하지만 scheduler가 그 이미지를 거절해 새 세션이 뜨지 않는다([자주 막히는 곳](/run-server/self-hosting/upgrade-kubernetes#자주-막히는-곳)).
 
 ### 2. 최종 worker와 proxy 교체
 
