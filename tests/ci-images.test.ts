@@ -99,11 +99,12 @@ describe("images.yml", () => {
   const imagesText = read(".github/workflows/images.yml");
   const images = Bun.YAML.parse(imagesText) as {
     env: Record<string, string>;
-    jobs: Record<string, { steps: Step[] }>;
+    // A job that calls a reusable workflow has no steps of its own.
+    jobs: Record<string, { steps?: Step[] }>;
   };
   const steps = (action: string) =>
     Object.values(images.jobs)
-      .flatMap((job) => job.steps)
+      .flatMap((job) => job.steps ?? [])
       .filter((step) => step.uses?.startsWith(`${action}@`));
   /** `${{ <body> }}`, spelled so the linter does not read a template slot. */
   const expression = (body: string) => `\${{ ${body} }}`;

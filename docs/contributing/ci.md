@@ -134,7 +134,16 @@ D2 gate는 정상 경로와 장애 뒤 복원(A–E), reconciler sweep(R1–R2),
 - **언제 도는가:** 매일 03:17 KST(`schedule`, main), 수동 실행(`gh workflow run 'D2 gate' --ref <branch>`), 그리고 gate 자신(`scripts/d2-gate/`, `tests/d2-gate/`, `.github/scripts/d2-gate-verdict.ts`, 이 workflow)을 바꾼 pull request. 이미지 Dockerfile·lockfile·Compose·CI mirror overlay·Bun setup 변경도 실행한다. 일반 `ci.yml` 편집은 필수 정책 시험과 worker JUnit 검증으로 skip 계약을 확인하므로 gate 전체를 추가로 실행하지 않는다.
 - **무엇을 하는가:** runner의 Docker daemon에서 `scripts/d2-gate/run.sh`를 돈다. `D2_GATE_COMPOSE_OVERRIDE`로 `tests/e2e/compose.ci-mirror.yml`과 `scripts/d2-gate/compose.ci-mirror.yml`을 얹어 서드파티 이미지를 모두 미러에서 받는다. 끝나면 `.github/scripts/d2-gate-verdict.ts`가 테스트마다 이름과 결과(PASS·FAIL·SKIP·MISSING)를 로그와 run summary에 찍고, A–E의 기준표(`report.md`)도 summary에 붙인다. A는 복원 중 S3 5xx를 해제한 뒤 같은 worker가 진행하는지, D는 사라진 execution의 `outcome_unknown`을 운영 결정으로만 정리하는지도 포함한다. 검사 대상은 ci.yml이 d2-gate 테스트로 선언한 skip 목록이다. 그중 하나라도 PASS가 아니면 gate가 실패한다. bun의 종료 코드만으로는 skip됐거나 아예 돌지 않은 테스트가 실패로 잡히지 않기 때문이다. build·compose·worker·suite 로그는 `d2-gate-record` artifact에 있다. run의 API key가 든 `vars.sh`는 올리지 않는다.
 - **실패하면:** schedule이나 수동 실행에서 gate job이 `success`로 끝나지 않으면 별도 job `report-failure`가 label `ci-d2-gate-failure`로 이슈를 연다. 같은 job의 마지막 step이 아니라 별도 job인 이유는 job timeout이 남은 step을 모두 취소하기 때문이다. 멈춘 gate는 다른 job에서만 보인다. 이미 열린 이슈가 있으면 거기에 코멘트를 붙인다(`agent-sdk-compat`와 같은 upsert). pull request에서는 빨간 check가 곧 신호이므로 이슈를 열지 않는다.
-- **required가 아니다.** 대부분의 PR에서 돌지 않으므로 required로 걸면 그 PR들이 `Expected — Waiting for status`로 멈춘다. 이 workflow에만 `paths` 필터를 쓰는 것도 required가 아니어서 가능하다. pending이 머지를 막지 않는다. required로 올리는 것은 branch protection 변경이라 사용자 승인 사항이다.
+- **required가 아니다.** 대부분의 PR에서 돌지 않으므로 required로 걸면 그 PR들이 `Expected — Waiting for status`로 멈춘다. 이 workflow가 `paths` 필터를 쓰는 것도 required가 아니어서 가능하다. pending이 머지를 막지 않는다. required로 올리는 것은 branch protection 변경이라 사용자 승인 사항이다.
+
+## Worker 호환 (릴리스 gate)
+
+`.github/workflows/worker-compat.yml`은 새 control-host를 지원 창 안의 직전 릴리스 worker·egress proxy 이미지와 두 엔진으로 돌린다. 설계와 근거는 [worker 호환 결정](decisions/worker-compat.md#4-실제-이미지-매트릭스릴리스-gate) 4절이다.
+
+- **무엇을 하는가:** `plan`이 `.github/scripts/worker-compat-plan.sh`로 옛 이미지 묶음을 고른다. 프로필 제거(`FLOOR_COMMIT`) 전에 빌드한 릴리스는 지원 창 밖이라 빼고, 남은 것이 없으면 이유를 run summary에 남기고 통과한다. `compat`은 묶음 × 엔진마다 `tests/compat/run.sh`로 옛 릴리스를 그 checkout·이미지로 띄워 turn을 끝내고, 이 checkout의 migrate만 올린 뒤 turn을 하나 더 끝내고, control-host의 모든 역할을 새 이미지로 바꾼 뒤 새 세션의 turn과 checkpoint에서 재개한 세션의 turn을 끝낸다. 판정은 turn 완료다. compose·worker 로그는 `worker-compat-<묶음>-<엔진>` artifact에 있다. 시작하다 끝난 worker는 scheduler가 지우므로, 그 원인은 `compose.log`의 scheduler 줄 `Execution resource failed; log tail kept`에서 읽는다. 서드파티 이미지는 두 checkout 각자의 `tests/e2e/compose.ci-mirror.yml`로 미러에서 받는다.
+- **언제 도는가:** `images.yml`의 두 릴리스 길이 승격 전에 부른다(태그 push는 `promote` 앞, 자동 릴리스는 `release-approve` 앞). 실패하면 그 릴리스는 승격되지 않는다. 그 밖에 매일 13:41 KST(`schedule`, main), 수동 실행, 그리고 worker protocol·worker·worker 경로·migration·이 job 자신을 바꾼 pull request에서 돈다. 릴리스가 아닌 실행은 control-host를 이 checkout에서 빌드한다. 수동 실행의 `old`에 릴리스 태그나 `main-<12>`를 주면 그 이미지로 돌린다.
+- **고정본:** 릴리스 실행의 `plan`은 `tests/fixtures/worker-protocol-baseline.json`이 직전 릴리스의 worker protocol인지도 보고, 아니면 고칠 명령(`bun scripts/worker-protocol-baseline.ts --ref vX.Y.Z`)을 출력하고 실패한다. 릴리스가 아닌 실행에서는 경고만 남긴다.
+- **required가 아니다.** 릴리스 길의 선행 job이라 실패가 곧 승격을 막는다. pull request에서는 경로가 맞을 때만 돌므로 required로 걸지 않는다.
 
 ## 서드파티 이미지 미러
 

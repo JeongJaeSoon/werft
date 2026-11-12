@@ -487,8 +487,20 @@ jobs:
           path: staged/*.json
           if-no-files-found: error
 
-  promote:
+  # The staged control-host against the workers of the release before this
+  # one (worker-compat.yml); nothing is promoted until it passes.
+  worker-compat:
     needs: index
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/worker-compat.yml
+    with:
+      release_tag: ${{ github.ref_name }}
+
+  promote:
+    needs: [index, worker-compat]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     # One promotion at a time across the whole repository: two v* tags on the
     # same commit share the sha-<12> tag, and the check-then-write below is
@@ -834,8 +846,20 @@ jobs:
       ARTIFACT_SUFFIX: -release
     steps: *sources-steps
 
+  # main's staged control-host, the digest promote-release turns into the
+  # release, against the workers of the release before it.
+  worker-compat-release:
+    needs: [release-detect, index-main]
+    if: needs.release-detect.outputs.tag != ''
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/worker-compat.yml
+    with:
+      release_tag: ${{ needs.release-detect.outputs.tag }}
+
   release-approve:
-    needs: [release-detect, release-gate, sources-release]
+    needs: [release-detect, release-gate, sources-release, worker-compat-release]
     if: needs.release-detect.outputs.tag != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 5

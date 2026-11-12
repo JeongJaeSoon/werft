@@ -150,7 +150,14 @@ describe("the release jobs of a main run", () => {
   test("it waits for main's whole chain and for ci.yml before asking anyone", () => {
     expect(needsOf("release-gate")).toContain("chart-publish-main");
     expect(needsOf("release-approve")).toEqual(
-      expect.arrayContaining(["release-gate", "sources-release"]),
+      expect.arrayContaining([
+        "release-gate",
+        "sources-release",
+        "worker-compat-release",
+      ]),
+    );
+    expect(needsOf("worker-compat-release")).toEqual(
+      expect.arrayContaining(["release-detect", "index-main"]),
     );
     expect(jobs["release-gate"]?.steps.map((step) => step.run)).toEqual([
       undefined,

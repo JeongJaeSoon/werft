@@ -122,11 +122,11 @@ PR 1에 프로필 제거와 같은 변경(bootstrap-claim 응답의 필수 칸 �
 2. `compat`(릴리스 × 엔진 `worker`·`worker-codex`): compose project 하나, DB·object store volume·installation id·비밀값을 끝까지 유지하며 세 단계를 돈다. 앱 이미지는 compat overlay가 digest로 지정하고 `build`를 지운다. 가짜 모델과 fake-git 같은 보조 서비스는 이 checkout의 것을 쓴다.
    - **1단계(옛 릴리스).** 옛 릴리스의 commit을 `old/`에 꺼내 그 compose 파일과 릴리스 digest(control-host·worker·egress-proxy)로 띄운다. 세션 A의 turn 1이 끝나고 checkpoint가 확정될 때까지 기다린다.
    - **2단계(rolling update 동안: 새 schema 위의 옛 control-host).** 새 control-host 이미지의 migrate만 돌려 DB를 새 schema로 올린다. 옛 control-host·worker가 그대로 도는 채로 세션 A의 turn 2가 끝나는지 본다. DB 규칙(5절)을 실제로 확인하는 단계다. 끝나면 세션 A를 pause하고 그 worker 컨테이너가 사라질 때까지 기다린다.
-   - **3단계(업그레이드 중간 단계: control-host만 새것).** control-host의 모든 역할(api, scheduler 등)을 새 이미지로 바꾼다. egress proxy와 worker는 옛 릴리스 그대로이고 `WORKER_IMAGE`·`WORKER_IMAGE_PREVIOUS`도 옛 worker다. (a) 새 세션 B의 turn 1 완료(새 control-host × 옛 worker·proxy). (b) 세션 A를 resume해 turn 3 완료: worker generation이 늘었고, 띄운 worker 이미지가 옛 digest이며, 가짜 모델이 받은 대화 이력에 turn 1·2가 있다(checkpoint에서 복원했다는 증거, conformance `resume` 시험과 같은 확인).
+   - **3단계(업그레이드 중간 단계: control-host만 새것).** control-host의 모든 역할(api, scheduler 등)을 새 이미지로 바꾼다. egress proxy와 worker는 옛 릴리스 그대로이고 `WORKER_IMAGE`도 옛 worker다. `WORKER_IMAGE_PREVIOUS`는 두지 않는다(값을 두려면 `WORKER_IMAGE_PREVIOUS_RUNTIME`도 함께 있어야 하고, 현재 이미지가 이미 옛 worker다). (a) 새 세션 B의 turn 1 완료(새 control-host × 옛 worker·proxy). (b) 세션 A를 resume해 turn 3 완료: worker generation이 늘었고, 띄운 worker 이미지가 옛 digest이며, 가짜 모델이 받은 대화 이력에 turn 1·2가 있다(checkpoint에서 복원했다는 증거, conformance `resume` 시험과 같은 확인).
    - 성공 기준은 "turn 완료"다. 400 부재가 아니다. 실패하면 compose·worker 로그를 artifact로 남긴다.
-3. 같은 step의 `trap`이 compose project와 이 run의 installation id 라벨이 붙은 컨테이너·네트워크·volume을 지운다.
+3. 같은 step의 `trap`이 compose project와 이 run의 installation id 라벨이 붙은 컨테이너·네트워크·volume, 이 run이 빌드한 이미지를 지운다. 스택의 API key가 든 옛 run.sh의 `vars.sh`는 읽은 즉시 지워 artifact에 올리지 않는다.
 
-scheduler가 checkpoint의 runtime 조합으로 현재·직전 이미지 중 하나를 고르는 것은 이 job이 보지 않는다(3단계는 두 칸이 같은 이미지다). 그 선택은 scheduler 단위 시험(`packages/platform/src/scheduler/worker-images.test.ts`)이 본다.
+scheduler가 checkpoint의 runtime 조합으로 현재·직전 이미지 중 하나를 고르는 것은 이 job이 보지 않는다(3단계는 직전 칸을 비운다). 그 선택은 scheduler 단위 시험(`packages/platform/src/scheduler/worker-images.test.ts`)이 본다.
 
 이 job은 보통의 turn과 checkpoint 재개 경로만 실제로 돈다. 오류 응답의 재시도, 본문 크기 경계, long-poll 대기 시간의 끝, 확장 번들 `GET`(런타임 확장이 있는 에이전트)은 실행하지 않는다. 이것들은 2절의 규칙과 리뷰로만 지킨다. 남은 위험으로 적어 둔다.
 
