@@ -43590,7 +43590,7 @@
           "Auth"
         ],
         "summary": "Change a sign-in provider's settings",
-        "description": "The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Name only the fields to change, with `If-Match: <revision>`. Anything but `display_name` makes the settings a new revision, so a provider that is off has to pass a test sign-in again before it can be turned on. On a provider that is on, `client_id` and `token_auth_method` cannot change: turn it off first.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Name only the fields to change, with `If-Match: <revision>`. Anything but `display_name` makes the settings a new revision, so a provider that is off has to pass a test sign-in again before it can be turned on. On a provider that is on, `client_id` and `token_auth_method` cannot change: turn it off first. For Google (`https://accounts.google.com`), where anyone can make an account, two rules are refused with 400 and `details.problem`: `require_verified_email: false` (`verified_email_required`) and a `jit_role` with no `allowed_domains` (`jit_requires_domains`).\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []

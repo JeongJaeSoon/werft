@@ -259,6 +259,49 @@ integration("login provider admin store", () => {
     ).toBe("not_found");
   });
 
+  test("a change the caller's rule refuses is not written; the rule is asked about the rules as they would stand", async () => {
+    const made = await make();
+    const seen: unknown[] = [];
+    const changes = {
+      displayName: "Renamed",
+      allowedDomains: ["example.com"],
+      requireVerifiedEmail: false,
+    };
+    const refused = await admin.update({
+      id: made.id,
+      ifMatch: made.revision,
+      changes,
+      refuse: (next) => {
+        seen.push(next);
+        return "not_here";
+      },
+      audit: audit(),
+    });
+    expect(refused).toEqual({ outcome: "refused", problem: "not_here" });
+    expect(seen).toEqual([
+      {
+        issuer: made.issuer,
+        allowedDomains: ["example.com"],
+        jitRole: null,
+        requireVerifiedEmail: false,
+      },
+    ]);
+    expect(await current(made.id)).toEqual(made);
+    expect(
+      (await receiptsOf(made.id)).map((receipt) => receipt.operation),
+    ).toEqual(["create_login_provider"]);
+
+    // With no objection the same change goes through.
+    const allowed = await admin.update({
+      id: made.id,
+      ifMatch: made.revision,
+      changes,
+      refuse: () => null,
+      audit: audit(),
+    });
+    expect(allowed.outcome).toBe("updated");
+  });
+
   test("a new name is not a new revision of the settings; a client id, a domain list or a policy is", async () => {
     const made = await make();
     const renamed = await admin.update({

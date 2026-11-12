@@ -24,6 +24,7 @@ export { type IdTokenClaims, verifyIdToken } from "./id-token.ts";
 export {
   authorizationParams,
   GOOGLE_ISSUER,
+  policyProblem,
   tokenIssuers,
 } from "./issuer-rules.ts";
 export { fetchJwks, type Jwk, selectKey } from "./jwks.ts";

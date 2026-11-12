@@ -108,16 +108,26 @@ export interface LoginProviderAdminStore {
   /**
    * `locked`: the provider is on and the change names its client id or
    * client authentication. `stale`: it changed since `ifMatch` was read.
+   * `refused`: `refuse` named a problem with who may come in as the rules
+   * would stand after the change; it is asked while the row is held, so no
+   * other change slips between the question and the write.
    */
   update(input: {
     id: string;
     ifMatch: number;
     changes: LoginProviderChanges;
+    refuse?: (
+      next: Pick<
+        LoginProvider,
+        "issuer" | "allowedDomains" | "jitRole" | "requireVerifiedEmail"
+      >,
+    ) => string | null;
     audit: LoginProviderAudit;
   }): Promise<
     | { outcome: "updated"; provider: LoginProviderRecord }
     | { outcome: "not_found" }
     | { outcome: "locked" }
+    | { outcome: "refused"; problem: string }
     | { outcome: "stale"; revision: number }
   >;
   /** Replaces the pinned endpoints; only while the provider is off. */

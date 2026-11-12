@@ -2925,7 +2925,7 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "updateLoginProvider",
     tag: "Auth",
     summary: "Change a sign-in provider's settings",
-    description: `${LOGIN_PROVIDER_OWNER} Name only the fields to change, with \`If-Match: <revision>\`. Anything but \`display_name\` makes the settings a new revision, so a provider that is off has to pass a test sign-in again before it can be turned on. On a provider that is on, \`client_id\` and \`token_auth_method\` cannot change: turn it off first.`,
+    description: `${LOGIN_PROVIDER_OWNER} Name only the fields to change, with \`If-Match: <revision>\`. Anything but \`display_name\` makes the settings a new revision, so a provider that is off has to pass a test sign-in again before it can be turned on. On a provider that is on, \`client_id\` and \`token_auth_method\` cannot change: turn it off first. For Google (\`https://accounts.google.com\`), where anyone can make an account, two rules are refused with 400 and \`details.problem\`: \`require_verified_email: false\` (\`verified_email_required\`) and a \`jit_role\` with no \`allowed_domains\` (\`jit_requires_domains\`).`,
     auth: "session",
     body: "UpdateLoginProviderRequest",
     requestExample: { client_id: "werft-console" },

@@ -402,6 +402,19 @@ export function createPostgresLoginProviderAdminStore(
         ) {
           config.requireVerifiedEmail = changes.requireVerifiedEmail;
         }
+        // Asked under the row lock, about the rules as they would stand:
+        // two changes that are each allowed must not add up to one that
+        // is not.
+        const problem = input.refuse?.({
+          issuer: row.issuer,
+          allowedDomains: config.allowedDomains ?? row.allowedDomains,
+          jitRole: (config.jitRole !== undefined
+            ? config.jitRole
+            : row.jitRole) as LoginProvider["jitRole"],
+          requireVerifiedEmail:
+            config.requireVerifiedEmail ?? row.requireVerifiedEmail,
+        });
+        if (problem) return { outcome: "refused" as const, problem };
         const fields = [...Object.keys(set), ...Object.keys(config)];
         if (fields.length === 0) {
           return {

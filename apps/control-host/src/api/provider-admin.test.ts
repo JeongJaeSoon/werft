@@ -409,6 +409,45 @@ describe("sign-in provider settings service", () => {
     ).toEqual(["jitRole"]);
   });
 
+  test("update has the store refuse the rules Google's accounts cannot be given, as they would stand", async () => {
+    const { admin, asked } = service();
+    await admin.update(caller("owner"), ID, "5", {
+      require_verified_email: false,
+    });
+    const { refuse } = asked[0]?.input as Parameters<
+      LoginProviderAdminStore["update"]
+    >[0];
+    const google = {
+      issuer: "https://accounts.google.com",
+      allowedDomains: [] as string[],
+      jitRole: null,
+      requireVerifiedEmail: true,
+    };
+    expect(refuse?.(google)).toBeNull();
+    expect(refuse?.({ ...google, requireVerifiedEmail: false })).toBe(
+      "verified_email_required",
+    );
+    expect(refuse?.({ ...google, jitRole: "member" })).toBe(
+      "jit_requires_domains",
+    );
+    expect(
+      refuse?.({
+        ...google,
+        jitRole: "member",
+        allowedDomains: ["example.com"],
+      }),
+    ).toBeNull();
+    // Any other provider says for itself whether an address is verified.
+    expect(
+      refuse?.({
+        issuer: "https://idp.example.test",
+        allowedDomains: [],
+        jitRole: "member",
+        requireVerifiedEmail: false,
+      }),
+    ).toBeNull();
+  });
+
   test("update needs If-Match, and says which refusal it met", async () => {
     const missing = service();
     expect(
@@ -442,6 +481,11 @@ describe("sign-in provider settings service", () => {
         { outcome: "stale", revision: 6 },
         "VERSION_MISMATCH",
         { current_version: 6 },
+      ],
+      [
+        { outcome: "refused", problem: "verified_email_required" },
+        "BAD_REQUEST",
+        { problem: "verified_email_required" },
       ],
     ];
     for (const [answer, code, details] of cases) {

@@ -25,6 +25,7 @@ import {
   OidcDiscoveryError,
   OidcUnavailableError,
   type ProviderRequest,
+  policyProblem,
 } from "./oidc/index.ts";
 import {
   networkPolicyFor,
@@ -276,10 +277,19 @@ export function createProviderAdmin(deps: {
         id,
         ifMatch: ifMatchOf(ifMatch),
         changes,
+        refuse: (next) => policyProblem(next.issuer, next),
         audit,
       });
       if (updated.outcome === "not_found") throw NOT_FOUND();
       if (updated.outcome === "locked") throw ENABLED();
+      if (updated.outcome === "refused") {
+        throw new SessionServiceError(
+          "BAD_REQUEST",
+          "This provider cannot be used with these rules for who may come in",
+          undefined,
+          { problem: updated.problem },
+        );
+      }
       if (updated.outcome === "stale") {
         throw new SessionServiceError(
           "VERSION_MISMATCH",
