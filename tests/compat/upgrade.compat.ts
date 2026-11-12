@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
-import { Api, e2eStack } from "../e2e/client.ts";
 import { docker } from "../conformance/docker.ts";
 import { scriptId } from "../conformance/engine.ts";
 import { engineFromEnv } from "../conformance/engines.ts";
+import { Api, e2eStack } from "../e2e/client.ts";
 
 /**
  * One stage of the upgrade tests/compat/run.sh walks a stack through
@@ -59,7 +59,11 @@ async function workers(
     .filter((line) => line.trim() !== "")
     .map((line) => {
       const [id = "", generation = "", state = ""] = line.trim().split(" ");
-      return { id, generation: Number(generation), running: state === "running" };
+      return {
+        id,
+        generation: Number(generation),
+        running: state === "running",
+      };
     })
     .sort((a, b) => b.generation - a.generation);
 }
@@ -109,9 +113,7 @@ describe(`upgrade stage ${stage} on ${engine.runtimeKind}`, () => {
         );
         expect(created.status).toBe(201);
         const sessionA = created.body.session_id;
-        expect((await api.settledTurn(sessionA, "1")).status).toBe(
-          "completed",
-        );
+        expect((await api.settledTurn(sessionA, "1")).status).toBe("completed");
         await api.sessionUntil(
           sessionA,
           "has checkpointed turn 1",
@@ -148,7 +150,9 @@ describe(`upgrade stage ${stage} on ${engine.runtimeKind}`, () => {
         const deadline = Date.now() + 120_000;
         while ((await workers(state.sessionA)).some((w) => w.running)) {
           if (Date.now() > deadline) {
-            throw new Error("session A's worker is still running after the pause");
+            throw new Error(
+              "session A's worker is still running after the pause",
+            );
           }
           await Bun.sleep(1_000);
         }
@@ -174,9 +178,7 @@ describe(`upgrade stage ${stage} on ${engine.runtimeKind}`, () => {
         );
         expect(created.status).toBe(201);
         const sessionB = created.body.session_id;
-        expect((await api.settledTurn(sessionB, "1")).status).toBe(
-          "completed",
-        );
+        expect((await api.settledTurn(sessionB, "1")).status).toBe("completed");
         const [worker] = await workers(sessionB);
         expect(worker).toBeDefined();
         expect(await imageOf(worker?.id ?? "")).toBe(await oldWorkerImageId());
