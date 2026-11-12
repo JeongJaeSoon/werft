@@ -17,6 +17,8 @@ outcome: "checkpoint、runtime、schema のサポート範囲を理解します"
 
 scheduler は checkpoint に記録された runtime の組み合わせに合うイメージを、現在・直前の順に選びます。digest が異なる再ビルドでも runtime の組み合わせは同じ場合があります。どちらのイメージも合わなければ recovery_required になります。直前のイメージで動く worker が残っていれば、検査後も以前の組み合わせの checkpoint を作成できます。
 
+プロファイル削除リリースは例外です。そのリリースは control-host と worker を一つの upgrade で一緒に更新し、プロファイル削除前にビルドした worker はサポート範囲に入りません。その worker は新しい control-host の応答を読めません（[プロファイル削除リリースのアップグレード順序](/run-server/self-hosting/upgrade-compose#프로필-제거-릴리스의-업그레이드-순서)）。次のリリースから、現在・直前のイメージのサポート範囲に戻ります。
+
 <a id="rolling-update가-중요한-이유" />
 ## rolling update が重要な理由
 

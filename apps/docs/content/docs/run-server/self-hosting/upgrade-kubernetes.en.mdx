@@ -21,7 +21,7 @@ You need installation values, jq/helm/kubectl, the current deployed revision and
 
 Check activation order and rollback floors in the [shared gates](/run-server/self-hosting/upgrade-compose#실행-전-게이트). Use the Helm hooks and direct checks below instead of Compose-only commands.
 
-Confirm [context, namespace, and fullname](/run-server/self-hosting/kubernetes#준비물). Test new control-host with the previous worker: complete turn 1 → remove worker Pod → complete turn 2 from checkpoint, with no API worker-request 400s. Look at turn 1 first: when the previous worker cannot read the new API's response, the API answers no 400, the worker exits right after it starts, and the session stops with `STARTUP_FAILED`. `deploy/kind/up.sh` overrides `images.worker` through `--set`; use direct `helm upgrade`, not EXTRA_VALUES, to test previous workers.
+Confirm [context, namespace, and fullname](/run-server/self-hosting/kubernetes#준비물). Test new control-host with the previous worker: complete turn 1 → remove worker Pod → complete turn 2 from checkpoint, with no API worker-request 400s. Look at turn 1 first: when the previous worker cannot read the new API's response, the API answers no 400, the worker exits right after it starts, and the session stops with `STARTUP_FAILED`. The profile removal release does not support this combination, so when you upgrade to it, check that turn 1 completes with the new control-host and the new worker ([Upgrade order of the profile removal release](/run-server/self-hosting/upgrade-compose#프로필-제거-릴리스의-업그레이드-순서)). `deploy/kind/up.sh` overrides `images.worker` through `--set`; use direct `helm upgrade`, not EXTRA_VALUES, to test previous workers.
 
 <a id="단계" />
 ## Steps
@@ -30,6 +30,8 @@ Confirm [context, namespace, and fullname](/run-server/self-hosting/kubernetes#�
 ### 1. Target chart and control plane first
 
 Set VERSION to the exact chart version. Pass installation-specific values without `--reuse-values`. For protocol/manifest/usage changes, do not replace control-host and worker in one upgrade.
+
+Skip this step when you upgrade to the profile removal release. Old workers cannot read that release's control-host answers, so no new session starts between step 1 and step 2. Replace the control-host and the worker together in one upgrade with step 2 ([Upgrade order of the profile removal release](/run-server/self-hosting/upgrade-compose#프로필-제거-릴리스의-업그레이드-순서)).
 
 ```bash
 VERSION=<new-version>
@@ -55,7 +57,7 @@ This intermediate upgrade applies the new chart's control-host while retaining c
 <a id="2-최종-worker와-proxy-교체" />
 ### 2. Final worker and proxy replacement
 
-Published charts include `images.worker.runtime` and leave `images.workerPrevious` empty, because previous images vary per installation. A worker-digest change is `refused` unless target images.workerPrevious equals the currently deployed worker; approval cannot bypass this ([checks](/run-server/self-hosting/upgrade-kubernetes#3-검사-결과와-예외)). Save the current image in a file and pass it too.
+Published charts include `images.worker.runtime` and leave `images.workerPrevious` empty, because previous images vary per installation. A worker-digest change is `refused` unless target images.workerPrevious equals the currently deployed worker; approval cannot bypass this ([checks](/run-server/self-hosting/upgrade-kubernetes#3-검사-결과와-예외)). Save the current image in a file and pass it too. Pass this file unchanged also when you upgrade to the profile removal release. The image in it (a worker built before the profile removal) is outside the support window, but no session launches on it ([Upgrade order of the profile removal release](/run-server/self-hosting/upgrade-compose#프로필-제거-릴리스의-업그레이드-순서)).
 
 ```bash
 VERSION=<new version>
