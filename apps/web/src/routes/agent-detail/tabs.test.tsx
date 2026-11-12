@@ -256,7 +256,7 @@ describe("에이전트 상세 탭", () => {
 
   test("Codex 엔진으로 도는 연결을 고르면 답변 언어가 적용되지 않는다고 알리고, 다른 연결에서는 알리지 않는다", async () => {
     const NOTICE =
-      "고른 연결은 Codex 엔진으로 실행됩니다. Codex 엔진에는 답변 언어가 아직 적용되지 않아, 이 연결의 에이전트는 여기서 고른 언어를 따르지 않습니다.";
+      "고른 연결은 Codex 엔진으로 실행됩니다. Codex 엔진은 답변 언어 설정을 아직 적용하지 않습니다.";
     renderAt(`${DETAIL}?tab=card`, {
       ...meOk,
       ...agentServer().routes,
