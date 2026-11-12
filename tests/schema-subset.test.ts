@@ -158,6 +158,37 @@ describe("subsetProblems on responses", () => {
     ]);
   });
 
+  test("each part of the sender may find its own branch of the receiver", () => {
+    expect(
+      response(z.string().nullable(), z.union([z.string().min(0), z.null()])),
+    ).toEqual([]);
+    expect(
+      response(
+        z.enum(["a", "b"]),
+        z.union([z.literal("a"), z.literal("b"), z.number()]),
+      ),
+    ).toEqual([]);
+    expect(
+      response(z.enum(["a", "c"]), z.union([z.literal("a"), z.number()])),
+    ).toEqual([
+      "$<1>: no branch of the receiver's union accepts the sender; the closest one refuses:",
+      '  $<1>: the receiver refuses "c"',
+    ]);
+  });
+
+  test("positions past the sender's longest array are not compared", () => {
+    expect(
+      response(z.array(z.string()).length(1), z.tuple([z.string()])),
+    ).toEqual([]);
+    expect(response(z.array(z.string()).max(2), z.tuple([z.string()]))).toEqual(
+      [
+        "$: the receiver's minItems is 1; the sender's is 0",
+        "$: the receiver's maxItems is 1; the sender's is 2",
+        "$[]: the receiver accepts no value here",
+      ],
+    );
+  });
+
   test("a $ref is never compared", () => {
     expect(subsetProblems({ $ref: "#" }, { type: "string" })).toEqual([
       "$: a $ref or $defs; this check does not follow references",
@@ -211,6 +242,17 @@ describe("subsetProblems on requests", () => {
     expect(request(open, open.strict())).toEqual([
       "$: the sender's object is open; the receiver refuses keys it does not declare",
     ]);
+  });
+
+  test("an open object's undeclared keys may carry anything", () => {
+    const open = z.object({});
+    expect(request(open, z.object({ x: z.string().optional() }))).toEqual([
+      "$.x: the sender may send any value; the receiver does not accept every value",
+    ]);
+    expect(request(open, z.record(z.string(), z.string()))).toEqual([
+      "$.*: the sender may send any value; the receiver does not accept every value",
+    ]);
+    expect(request(open, z.object({ x: z.unknown().optional() }))).toEqual([]);
   });
 
   test("an unknown value is fine only for a reader that takes anything", () => {

@@ -10,7 +10,12 @@ import { type JsonSchema, subsetProblems } from "./schema-subset.ts";
 type Io = "input" | "output";
 // The zod namespace and contracts module of whichever tree is described: a
 // baseline made from a release tag reads that tag's own zod and schemas.
-type Zod = { toJSONSchema: (schema: never, options: { io: Io }) => unknown };
+type Zod = {
+  toJSONSchema: (
+    schema: never,
+    options: { io: Io; unrepresentable: "any" },
+  ) => unknown;
+};
 type Schema = { _zod: { def: Record<string, unknown> } };
 export type ContractsModule = {
   WORKER_PROTOCOL_ROUTES: Record<string, { request: Schema; response: Schema }>;
@@ -25,9 +30,13 @@ export type Protocol = {
   error: Message;
 };
 
+// A node JSON Schema cannot carry (a transform's output, a custom type) is
+// written as {}: as a sender it may send anything, which the comparison
+// refuses unless the receiver takes anything too, and opaqueParts names it.
 function message(z: Zod, schema: Schema, io: Io): Message {
   const { $schema: _, ...json } = z.toJSONSchema(schema as never, {
     io,
+    unrepresentable: "any",
   }) as Record<string, unknown>;
   return { schema: json, opaque: opaqueParts(schema) };
 }

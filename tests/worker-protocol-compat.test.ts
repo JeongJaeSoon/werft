@@ -51,9 +51,11 @@ describe("worker protocol against the baseline release", () => {
     }
   });
 
-  test("the control-host serves every route of the table, and only those", () => {
-    expect(Object.keys(baseline.routes).sort()).toEqual(
-      Object.keys(contracts.WORKER_PROTOCOL_ROUTES).sort(),
+  // The routes the control-host registers are the table's (worker.test.ts);
+  // a new route the baseline worker never calls is no difference.
+  test("every route of the baseline is still in the route table", () => {
+    expect(Object.keys(contracts.WORKER_PROTOCOL_ROUTES)).toEqual(
+      expect.arrayContaining(Object.keys(baseline.routes)),
     );
   });
 });
@@ -93,6 +95,31 @@ describe("compatibilityProblems", () => {
     delete fewer.routes["/heartbeat"];
     expect(compatibilityProblems(baseline, fewer)).toEqual([
       "/heartbeat: the route is gone",
+    ]);
+  });
+
+  test("describes and reports a transform JSON Schema cannot carry", () => {
+    const head = { release: null, commit: "" };
+    const tree = (id: z.ZodType) => ({
+      WORKER_PROTOCOL_ROUTES: {
+        "/ready": {
+          request: z.object({}).strict(),
+          response: z.object({ id }).strict(),
+        },
+      },
+      apiErrorResponseSchema: contracts.apiErrorResponseSchema,
+    });
+    const before = describeProtocol(tree(z.string()) as never, z, head);
+    const after = describeProtocol(
+      tree(z.string().transform((value) => value)) as never,
+      z,
+      head,
+      "output",
+    );
+    expect(compatibilityProblems(before, after)).toEqual([
+      "/ready response $.id: the sender may send any value; the receiver does not accept every value",
+      "/ready response: code-only check $.id pipe is new or changed; JSON Schema cannot show what it accepts",
+      "/ready response: code-only check $.id|out transform is new or changed; JSON Schema cannot show what it accepts",
     ]);
   });
 

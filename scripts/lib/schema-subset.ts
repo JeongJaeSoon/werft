@@ -85,7 +85,14 @@ function check(
     out.push(`${path}: the receiver accepts no value here`);
     return;
   }
-  const senderBranches = isNode(sender) ? branches(sender) : undefined;
+  // Each part of the sender needs only some branch of a receiver union: a
+  // type list or a set of literals splits like a union does.
+  const senderBranches = isNode(sender)
+    ? (branches(sender) ??
+      (isNode(receiver) && branches(receiver)
+        ? (typeParts(sender) ?? literalParts(sender))
+        : undefined))
+    : undefined;
   if (senderBranches) {
     senderBranches.forEach((branch, index) => {
       check(branch, receiver, `${path}<${index}>`, out);
@@ -185,6 +192,23 @@ function branches(schema: Node): JsonSchema[] | undefined {
   return union.map((branch) =>
     isNode(branch) ? { ...beside, ...branch } : branch,
   );
+}
+
+function typeParts(schema: Node): JsonSchema[] | undefined {
+  const type = schema.type;
+  if (!Array.isArray(type) || type.length < 2) {
+    return undefined;
+  }
+  return type.map((one) => ({ ...schema, type: one }));
+}
+
+function literalParts(schema: Node): JsonSchema[] | undefined {
+  const values = literals(schema);
+  if (values === undefined || values.length < 2) {
+    return undefined;
+  }
+  const { enum: _enum, const: _const, ...beside } = schema;
+  return values.map((value) => ({ ...beside, const: value }));
 }
 
 function literals(schema: Node): unknown[] | undefined {
@@ -367,8 +391,13 @@ function arrays(
     (receiver.prefixItems as JsonSchema[] | undefined) ?? [];
   const senderRest = (sender.items as JsonSchema | undefined) ?? true;
   const receiverRest = (receiver.items as JsonSchema | undefined) ?? true;
+  // Positions past the sender's longest array never carry a value.
+  const longest = Math.min(
+    (sender.maxItems as number | undefined) ?? Number.POSITIVE_INFINITY,
+    senderRest === false ? senderPrefix.length : Number.POSITIVE_INFINITY,
+  );
   const positions = Math.max(senderPrefix.length, receiverPrefix.length);
-  for (let index = 0; index < positions; index++) {
+  for (let index = 0; index < Math.min(positions, longest); index++) {
     check(
       senderPrefix[index] ?? senderRest,
       receiverPrefix[index] ?? receiverRest,
@@ -376,7 +405,9 @@ function arrays(
       out,
     );
   }
-  check(senderRest, receiverRest, `${path}[]`, out);
+  if (longest > positions) {
+    check(senderRest, receiverRest, `${path}[]`, out);
+  }
 }
 
 function objects(
@@ -422,19 +453,16 @@ function objects(
       );
     }
   }
-  const senderExtra = sender.additionalProperties as JsonSchema | undefined;
-  if (senderExtra === undefined) {
-    // Open but undeclared: what rides along is unknown.
-    if (receiverExtra === false) {
-      out.push(
-        `${path}: the sender's object is open; the receiver refuses keys it does not declare`,
-      );
-    }
-  } else if (senderExtra !== false) {
+  // Open but undeclared: any key may ride along with any value.
+  const senderExtra =
+    (sender.additionalProperties as JsonSchema | undefined) ?? true;
+  if (senderExtra !== false) {
     // A record or a loose object: keys of the sender's own choosing.
     if (receiverExtra === false) {
       out.push(
-        `${path}: the sender may send keys of its own; the receiver refuses unknown keys`,
+        sender.additionalProperties === undefined
+          ? `${path}: the sender's object is open; the receiver refuses keys it does not declare`
+          : `${path}: the sender may send keys of its own; the receiver refuses unknown keys`,
       );
     } else if (receiverExtra !== undefined) {
       check(senderExtra, receiverExtra, `${path}.*`, out);
