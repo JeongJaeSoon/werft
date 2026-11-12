@@ -182,3 +182,4 @@ CI 시간은 4.2의 실측 뒤 다시 본다. 지원 창 약속(현재+직전)�
 - Codex 설계 리뷰 3회차: **APPROVE.** 2회차 지적이 모두 해결됐고 새 BLOCKER·MAJOR가 없다. 자동 릴리스 gate를 `index-main`·`release-detect` 뒤, `release-approve` 앞에 두어도 순환이 없고, `index-main`의 digest가 `promote-release`가 승격하는 digest임을 확인했다.
 - Codex 구현 리뷰 1회차(1단계 PR): REJECT, 5건. 모두 반영(3.2): 열린 보내는 쪽 객체의 선언 안 된 키(1), JSON Schema로 쓸 수 없는 노드가 고정본 생성을 멈추던 것(2), 받는 쪽 union에 보내는 쪽의 타입·literal을 나눠 맞춤(3), 배열의 닿지 않는 위치(4), 고정본 경로는 표에 포함되면 충분(5).
 - Codex 구현 리뷰 2회차: REJECT. 1회차 5건은 해결. 새 지적 1건: `unrepresentable: "any"`가 손실 구성 목록에 없는 타입(`date` 등)까지 `{}`로 바꿔 요청 `string → date`를 통과시켰다. 반영: 엄격 변환이 실패할 때만 대체 표현을 쓰고, 엄격 변환이 실패하는 가장 깊은 노드를 목록에 남긴다(3.2).
+- Codex 구현 리뷰 3회차: **APPROVE.** `string → date`가 이제 실패하고, 지금 트리는 고정본과 차이가 없으며, 다시 만든 고정본은 내용이 같다.
