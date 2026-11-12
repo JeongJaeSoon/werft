@@ -126,22 +126,33 @@ describe("OpenAPI document", () => {
   test("keeps OpenAPIHono route metadata in a Bun production bundle", async () => {
     const outdir = await mkdtemp(join(tmpdir(), "openapi-bundle-"));
     try {
-      const result = await Bun.build({
-        entrypoints: [join(import.meta.dir, "app.ts")],
-        outdir,
-        target: "bun",
-        format: "esm",
-        minify: true,
-        splitting: true,
-        naming: "[name]-[hash].[ext]",
-      });
-      expect(result.success).toBe(true);
-      const entry = result.outputs.find(
-        (output) => output.kind === "entry-point",
+      // A child `bun build`, as the image smoke runs it, not an in-process
+      // Bun.build: `bun test <relative path>` walks the tree from the cwd to
+      // find test files and leaves directory listings in the process-wide
+      // resolver cache that miss source files. The runtime loader rereads a
+      // directory on a miss but the bundler does not, so an in-process build
+      // failed with "Could not resolve" unless an earlier test file in the
+      // same process had imported @werft-ai/platform.
+      const build = Bun.spawnSync(
+        [
+          process.execPath,
+          "build",
+          join(import.meta.dir, "app.ts"),
+          `--outdir=${outdir}`,
+          "--target=bun",
+          "--format=esm",
+          "--minify",
+          "--splitting",
+          "--entry-naming=[name].[ext]",
+          "--chunk-naming=[name]-[hash].[ext]",
+        ],
+        { stdout: "pipe", stderr: "pipe" },
       );
-      expect(entry).toBeDefined();
+      expect(build.stderr.toString()).not.toContain("error:");
+      expect(build.exitCode).toBe(0);
+      const entry = join(outdir, "app.js");
       const bundled = (await import(
-        `${pathToFileURL(entry?.path ?? "").href}?${crypto.randomUUID()}`
+        `${pathToFileURL(entry).href}?${crypto.randomUUID()}`
       )) as typeof import("./app.ts");
       const app = bundled.createApiApp({
         authMode: "none",
