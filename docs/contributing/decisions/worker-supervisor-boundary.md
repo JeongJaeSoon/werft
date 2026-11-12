@@ -151,13 +151,14 @@ non-dumpable이 지키는 것은 supervisor만 가진 값이다. supervisor가 �
 | `session_credential` | supervisor 메모리 | 없다 |
 | object store token | supervisor 메모리 | 없다 |
 | MCP 서버의 upstream token | supervisor 메모리(relay) | 없다 |
-| 저장소 route token | supervisor가 띄운 git의 env(`GIT_CONFIG_VALUE_*`). 옛 설정에서는 `WORKER_GIT_PASSWORD` | 그 git이 도는 동안 읽을 수 있다 |
+| 저장소 route token | supervisor가 띄운 git의 env(`GIT_CONFIG_VALUE_*`) | 그 git이 도는 동안 읽을 수 있다 |
+| 저장소 비밀번호(route가 없는 옛 설정) | supervisor가 띄운 git의 env(`WORKER_GIT_PASSWORD`) | 그 git이 도는 동안 읽을 수 있다. egress token이 아니라 저장소의 실제 자격 증명이다 |
 | provider egress token | Claude는 file descriptor 또는 `ANTHROPIC_AUTH_TOKEN`, Codex는 env | 읽을 수 있다. 엔진이 provider를 부르는 데 쓰는 값이다 |
 | Codex MCP relay secret | Codex의 env | 읽을 수 있다. upstream token과 다른 값이고 worker 안의 relay에만 통한다 |
 | packages token | HOME의 패키지 매니저 설정 파일 | 읽을 수 있다 |
 | 사용자가 준 환경 변수 | 엔진의 env | 읽을 수 있다. 엔진에 주려고 넣은 값이다 |
 
-아래쪽 다섯 값은 모두 attempt 범위의 egress token이거나 엔진에 주기로 한 값이다. 그 범위가 곧 엔진의 권한이다. 이 설계는 그 범위를 바꾸지 않는다.
+저장소 비밀번호를 뺀 아래쪽 값들은 attempt 범위의 egress token이거나 엔진에 주기로 한 값이다. 그 범위가 곧 엔진의 권한이다. 저장소 비밀번호는 claim이 저장소 route를 주지 않는 옛 설정에서만 넘어가며, attempt보다 오래 사는 값이다. 이 설계는 이 표의 어느 값도 범위를 바꾸지 않는다.
 
 ### supervisor가 읽는, 같은 UID가 쓸 수 있는 것
 
@@ -171,7 +172,7 @@ non-dumpable이 지키는 것은 supervisor만 가진 값이다. supervisor가 �
 
 이것들은 supervisor가 읽는 입력이지 supervisor 안에서 코드가 실행되는 길은 아니다. 확인한 것은 다음과 같다. supervisor의 코드(`/app`)는 읽기 전용 rootfs에 있다. worker 소스에는 지연 `import()`가 없다. Bun 1.3.14는 `SIGUSR1`로 디버거를 열지 않고 종료한다. supervisor가 workspace에서 git을 돌릴 때 hook·fsmonitor·filter를 끈다. 마지막 것은 설정된 이름을 세어 끄는 방식이라, 저장소가 동시에 바뀌는 경우까지 보장하지는 않는다.
 
-supervisor가 읽은 내용을 대신 내보내는 경로(rollout 올리기, checkpoint)는 non-dumpable로 막히지 않는다. 그 경로가 내보낼 수 있는 것은 같은 UID가 이미 읽을 수 있는 파일뿐이다.
+supervisor가 읽은 내용을 대신 내보내는 경로(rollout 올리기, checkpoint)는 non-dumpable로 막히지 않는다. 같은 UID는 supervisor가 여는 경로를 symlink로 바꿀 수 있다. Codex rollout은 경로를 따라 `stat`한 뒤 따로 연다. 이 경로로 무엇이 나갈 수 있는지는 이 설계에서 검증하지 않았다.
 
 무결성까지 필요해지면 아래 대안 C로 간다.
 
@@ -200,7 +201,7 @@ supervisor가 읽은 내용을 대신 내보내는 경로(rollout 올리기, che
 
 | PR | 내용 | 시험 |
 |---|---|---|
-| 1 | claim의 판정 순서(위 3)와 fenced activation(위 2) | PostgreSQL 통합 시험: activation 뒤의 일반 재생과 가짜 `image_runtime` 재생이 모두 401이고 launch·execution·credential·attempt·session 행이 그대로다. worker 단위 시험: activation 전에 파일 쓰기와 자식 실행이 없다, 응답 손실·401·lease 만료·stop의 경우별 동작. e2e: 엔진이 실행한 명령이 tini의 environ에서 nonce를 읽어 claim을 보내면 401이고 turn은 끝까지 간다 |
+| 1 | claim의 판정 순서(위 3)와 fenced activation(위 2) | PostgreSQL 통합 시험: activation 뒤의 일반 재생과 가짜 `image_runtime` 재생이 모두 401이고 launch·execution·credential·attempt·session 행과 `worker_image_refusals`가 그대로다. activation과 중복 claim이 같은 row를 두고 겨루는 두 순서(activation이 먼저, claim이 먼저)를 lock으로 강제해 각각 확인한다. worker 단위 시험: activation 전에 파일 쓰기와 자식 실행이 없다, 응답 손실·401·lease 만료·stop의 경우별 동작. e2e: 엔진이 실행한 명령이 tini의 environ에서 nonce를 읽어 claim을 보내면 401이고 turn은 끝까지 간다 |
 | 2 | supervisor non-dumpable(위 1) | e2e: 실제 scheduler가 LocalDockerBackend로 실제 Docker daemon에 띄운 worker 컨테이너에서, 엔진이 실행한 명령이 supervisor의 `environ`·`fd`·`mem`을 읽지 못한다. 같은 명령이 tini의 `environ`은 읽는다(읽을 수 있는 대조군). 명령의 UID와 capability를 함께 찍는다 |
 
 두 PR은 서로 의존하지 않는다. 두 엔진의 conformance 스위트는 바뀌지 않고 통과해야 한다.
