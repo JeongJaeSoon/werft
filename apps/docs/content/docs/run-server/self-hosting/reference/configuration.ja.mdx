@@ -145,7 +145,7 @@ worker は次も env から読みますが、scheduler が渡さないため運�
 | `RECONCILER_MAX_CONSECUTIVE_FAILURES` | 3 | この回数連続で pass が失敗すると loop が exit 1 となり、`restart: unless-stopped` が再起動します。それ未満なら次の pass がすぐ再試行になります |
 | `RECONCILER_HEALTH_STALE_SEC` | 90 | 最後に完了した pass が失敗、進行中 pass が期限超過、この時間内に成功 pass がない場合に healthcheck が unhealthy となります。成功直後に止まった pass も制限時間で即 unhealthy になります。`RECONCILER_INTERVAL_SEC + RECONCILER_PASS_TIMEOUT_SEC` より大きくないと起動しません |
 | `RECONCILER_STATUS_FILE` | `/tmp/reconciler-status.json` | loop が pass ごとに更新する状態（`lastSuccessAt`・`lastDegradedAt`・`lastFailureAt`・`lastFailureReason`・`consecutiveFailures`・`lastPassDurationMs`、進行中 pass の `passDeadlineAt`）。healthcheck が読みます |
-| `RECONCILER_BATCH_SIZE` | 100 | pass の各段階（orphan・lease・interrupt 回収、期限超過 interrupt・terminate receipt の `unknown` 確定、入力待ち通知）で一度に処理する row 数上限。残りは次の pass が処理します。scheduler の terminate 期限 sweep は読まず、毎 pass 固定上限 100 件ずつ処理します |
+| `RECONCILER_BATCH_SIZE` | 100 | pass の各段階（orphan・lease・interrupt 回収、期限超過 interrupt・terminate receipt の `unknown` 確定、入力待ち通知、provider 呼び出し台帳の精算確認・期限切れ警告・整理）で一度に処理する row 数上限。残りは次の pass が処理します。scheduler の terminate 期限 sweep は読まず、毎 pass 固定上限 100 件ずつ処理します |
 
 | scheduler 設定 | 既定値 | 制約 |
 | --- | --- | --- |

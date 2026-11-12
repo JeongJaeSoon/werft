@@ -50,6 +50,13 @@ export * from "./musterrolle/session-shares.ts";
 export * from "./musterrolle/surface-bindings.ts";
 export * from "./neutral-fields.ts";
 export * from "./postgres-unit-of-work.ts";
+export {
+  createProviderExchangeLedger,
+  type ExpiredProviderExchange,
+  PROVIDER_EXCHANGE_KEEP_DAYS,
+  PROVIDER_EXCHANGE_LEASE_MS,
+  reconcileProviderExchanges,
+} from "./provider-exchanges.ts";
 export * from "./push-requests.ts";
 export * from "./queries.ts";
 export * from "./repository-attachments.ts";

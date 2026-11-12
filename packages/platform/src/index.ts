@@ -107,6 +107,7 @@ export * from "./ports/slack-outbox-store.ts";
 export * from "./ports/surface-binding-store.ts";
 export * from "./ports/team-store.ts";
 export * from "./sessions/ports/turn-interrupts.ts";
+export * from "./ports/provider-exchange-ledger.ts";
 export * from "./ports/usage-reader.ts";
 export * from "./ports/worker-unit-of-work.ts";
 export * from "./checkpoints/ports/workspace-bundle-verifier.ts";

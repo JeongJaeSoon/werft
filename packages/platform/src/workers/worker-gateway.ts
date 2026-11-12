@@ -2136,7 +2136,11 @@ export function createWorkerGateway(deps: {
       sessionId: string;
       attemptId: string;
       usage: ProviderUsage;
-    }): Promise<{ costUsd: number; pricedBy: PricedBy }> {
+    }): Promise<{
+      costUsd: number;
+      pricedBy: PricedBy;
+      ledgerForeignRow?: true;
+    }> {
       // Decided by the session row, never by the model the answer names
       // (the upstream's to pick) or by this API's catalog (another replica's
       // may differ mid-rollout).
@@ -2161,7 +2165,11 @@ export function createWorkerGateway(deps: {
           "That exchange was reported with other usage",
         );
       }
-      return { costUsd: result.costUsd, pricedBy: result.pricedBy };
+      return {
+        costUsd: result.costUsd,
+        pricedBy: result.pricedBy,
+        ...(result.ledgerForeignRow ? { ledgerForeignRow: true } : {}),
+      };
     },
 
     async nextInput(
