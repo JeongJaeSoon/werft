@@ -5,6 +5,7 @@ import {
   priceJudgmentUsage,
   priceProviderUsage,
 } from "./model-prices.ts";
+import { CLAUDE_CARDS, claudeCardsSchema } from "./model-prices-claude.ts";
 import { OPENAI_CARDS, openAiCardsSchema } from "./model-prices-openai.ts";
 
 const nothing = {
@@ -57,9 +58,14 @@ describe("priceProviderUsage", () => {
   });
 
   test("an unknown model pays the highest known rate for each part", () => {
+    // Fast rates are known rates: claude-fable-5-2 fast's $80 out is the highest.
     const highest = Math.max(
-      ...Object.values(MODEL_PRICES).map((price) => price.outputUsdPerMtok),
+      ...[
+        ...Object.values(MODEL_PRICES),
+        ...Object.values(FAST_MODEL_PRICES),
+      ].map((price) => price.outputUsdPerMtok),
     );
+    expect(highest).toBe(80);
     expect(
       priceProviderUsage({
         ...nothing,
@@ -96,22 +102,38 @@ describe("priceProviderUsage", () => {
     ).toBe(20);
   });
 
-  test("a fast answer from a model without fast rates, or an unknown speed, pays the highest rate of either table", () => {
-    const highest = Math.max(
-      ...[
-        ...Object.values(MODEL_PRICES),
-        ...Object.values(FAST_MODEL_PRICES),
-      ].map((price) => price.outputUsdPerMtok),
-    );
-    for (const usage of [
-      { model: "claude-sonnet-5", speed: "fast" },
-      { model: "claude-opus-5", speed: "turbo" },
-      { model: "claude-opus-5", speed: "unknown" },
-    ]) {
-      expect(
+  test("a fast answer from a model without fast mode, or an unknown speed, pays its own rates at the highest multiple either table has", () => {
+    // 6x is OpenAI's ultrafast, above Claude's 2x fast.
+    for (const [usage, costUsd] of [
+      [{ model: "claude-sonnet-5", speed: "fast" }, 10 * 6],
+      [{ model: "claude-opus-5", speed: "turbo" }, 25 * 6],
+      [{ model: "claude-opus-5", speed: "unknown" }, 25 * 6],
+      [{ model: "claude-fable-5-2", speed: "turbo" }, 40 * 6],
+    ] as const) {
+      expect([
+        usage,
         priceProviderUsage({ ...nothing, ...usage, outputTokens: 1_000_000 }),
-      ).toEqual({ costUsd: highest, pricedBy: "fallback" });
+      ]).toEqual([usage, { costUsd, pricedBy: "table" }]);
     }
+    // A long prompt keeps its long rates at that multiple.
+    expect(
+      priceProviderUsage({
+        ...nothing,
+        model: "claude-haiku-5-5",
+        speed: "turbo",
+        inputTokens: 200_000,
+      }),
+      // 200K at $0.50 long input, times 6.
+    ).toEqual({ costUsd: 0.6, pricedBy: "table" });
+    // Past a pre-4.6 model's window the fallback keeps that multiple too.
+    const past = priceProviderUsage({
+      ...nothing,
+      model: "claude-sonnet-4-5",
+      speed: "turbo",
+      inputTokens: 1_000_000,
+    });
+    expect(past.pricedBy).toBe("fallback");
+    expect(past.costUsd).toBeCloseTo(20 * 6, 9);
   });
 
   test("each web search adds $0.01; web fetch and code execution add nothing", () => {
@@ -173,17 +195,27 @@ describe("priceProviderUsage", () => {
     ).toBe(0.0275);
   });
 
-  test("a geo the table does not know pays the highest rate and the highest multiplier", () => {
+  test("a geo the table does not know pays the model's own rates at the highest geo multiplier", () => {
     for (const inferenceGeo of ["unknown", "eu", "US", "constructor"]) {
-      expect(
+      expect([
+        inferenceGeo,
         priceProviderUsage({
           ...nothing,
           model: "claude-sonnet-5",
           outputTokens: 1_000_000,
           inferenceGeo,
         }),
-      ).toEqual({ costUsd: highest.output * 1.1, pricedBy: "fallback" });
+      ]).toEqual([inferenceGeo, { costUsd: 11, pricedBy: "table" }]);
     }
+    // A model no table knows still pays the highest rate at that multiplier.
+    expect(
+      priceProviderUsage({
+        ...nothing,
+        model: "claude-unknown",
+        outputTokens: 1_000_000,
+        inferenceGeo: "eu",
+      }),
+    ).toEqual({ costUsd: highest.output * 1.1, pricedBy: "fallback" });
   });
 
   test("a model from before 4.6 pays standard rates whatever the geo says", () => {
@@ -217,7 +249,7 @@ describe("priceProviderUsage", () => {
     expect(at("claude-opus-4-6", 900_000).pricedBy).toBe("table");
   });
 
-  test("claude-sonnet-5-5 pays the Sonnet 5 rates", () => {
+  test("claude-sonnet-5-5 pays $2/$10 and a $0.10 cache read, half Sonnet 5's", () => {
     expect(
       priceProviderUsage({
         ...nothing,
@@ -226,7 +258,27 @@ describe("priceProviderUsage", () => {
         outputTokens: 1_000_000,
         cacheReadInputTokens: 1_000_000,
       }),
-    ).toEqual({ costUsd: 12.2, pricedBy: "table" });
+    ).toEqual({ costUsd: 12.1, pricedBy: "table" });
+  });
+
+  test("claude-fable-5-2 and claude-mythos-5-2 pay $8/$40 with a $0.20 cache read, and twice that fast", () => {
+    for (const model of ["claude-fable-5-2", "claude-mythos-5-2"]) {
+      const call = {
+        ...nothing,
+        model,
+        inputTokens: 1_000_000,
+        outputTokens: 1_000_000,
+        cacheReadInputTokens: 1_000_000,
+      };
+      expect([model, priceProviderUsage(call)]).toEqual([
+        model,
+        { costUsd: 48.2, pricedBy: "table" },
+      ]);
+      expect([model, priceProviderUsage({ ...call, speed: "fast" })]).toEqual([
+        model,
+        { costUsd: 96.4, pricedBy: "table" },
+      ]);
+    }
   });
 
   test("claude-haiku-5-5 pays $0.10/$0.50 up to a 100K prompt, cache included, and $0.50/$2.50 past it", () => {
@@ -467,9 +519,9 @@ describe("priceProviderUsage for an OpenAI model", () => {
       pricedBy: "fallback",
     });
     // The fallback for every other model keeps the non-Pro highest: $20 in
-    // (gpt-6-astra long), $75 out.
+    // (gpt-6-astra long), $80 out (claude-fable-5-2 fast).
     expect(priceProviderUsage({ ...long, model: "gpt-9" })).toEqual({
-      costUsd: 20 + 75,
+      costUsd: 20 + 80,
       pricedBy: "fallback",
     });
   });
@@ -536,6 +588,65 @@ describe("priceProviderUsage for an OpenAI model", () => {
       { ...good, short: { ...rates, cacheWriteUsdPerMtok: 1 } },
     ]) {
       expect([bad, openAiCardsSchema.safeParse({ m: bad }).success]).toEqual([
+        bad,
+        false,
+      ]);
+    }
+  });
+
+  test("every Claude card names its source page and the day it was checked", () => {
+    for (const [model, entry] of Object.entries(CLAUDE_CARDS)) {
+      expect([model, entry.source, entry.checked]).toEqual([
+        model,
+        "https://platform.claude.com/docs/en/about-claude/pricing",
+        expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+      ]);
+    }
+  });
+
+  test("the Claude card schema refuses a card that would undercharge or lose its source", () => {
+    const rates = {
+      inputUsdPerMtok: 2,
+      outputUsdPerMtok: 10,
+      cacheReadUsdPerMtok: 0.2,
+    };
+    const good = {
+      source: "https://platform.claude.com/docs/en/about-claude/pricing",
+      checked: "2026-11-13",
+      standard: rates,
+      fast: 2,
+      geo: true,
+    };
+    const long = {
+      aboveTokens: 100_000,
+      rates: { ...rates, outputUsdPerMtok: 20 },
+    };
+    const { fast: _, ...slow } = good;
+    expect(claudeCardsSchema.safeParse({ m: good }).success).toBe(true);
+    expect(claudeCardsSchema.safeParse({ m: { ...slow, long } }).success).toBe(
+      true,
+    );
+    for (const bad of [
+      { ...good, standard: { ...rates, inputUsdPerMtok: -1 } },
+      { ...good, standard: { ...rates, cacheReadUsdPerMtok: 0 } },
+      { ...good, standard: { ...rates, outputUsdPerMtok: Number.NaN } },
+      { ...slow, long: { ...long, rates: { ...rates, outputUsdPerMtok: 9 } } },
+      { ...slow, long: { ...long, aboveTokens: 0 } },
+      // A fast call would be charged its standard-length rates past the threshold.
+      { ...good, long },
+      { ...good, fast: 0.5 },
+      // Fast mode is premium pricing: 1x would charge a fast call standard rates.
+      { ...good, fast: 1 },
+      { ...good, geo: undefined },
+      { ...good, checked: "2026-13-01" },
+      { ...good, checked: undefined },
+      {
+        ...good,
+        source: "http://platform.claude.com/docs/en/about-claude/pricing",
+      },
+      { ...good, standard: { ...rates, cacheWriteUsdPerMtok: 1 } },
+    ]) {
+      expect([bad, claudeCardsSchema.safeParse({ m: bad }).success]).toEqual([
         bad,
         false,
       ]);
@@ -673,8 +784,8 @@ describe("priceProviderUsage for an OpenAI model", () => {
     }
   });
 
-  test("a model the Claude table names keeps Claude's highest rates when its speed is not one the table has", () => {
-    // $75 out is the highest of both Claude tables; no OpenAI multiplier.
+  test("a model the Claude table names keeps its own rates and Claude's cache writes when its speed is not one the table has", () => {
+    // $25 out at the highest multiple either table has (6x).
     expect(
       priceProviderUsage({
         ...nothing,
@@ -683,7 +794,7 @@ describe("priceProviderUsage for an OpenAI model", () => {
         outputTokens: 1_000_000,
         cacheCreationInputTokens: 0,
       }),
-    ).toEqual({ costUsd: 75, pricedBy: "fallback" });
+    ).toEqual({ costUsd: 150, pricedBy: "table" });
     const hourLong = priceProviderUsage({
       ...nothing,
       model: "claude-opus-5",

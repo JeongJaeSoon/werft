@@ -201,11 +201,16 @@ bun test ./.github/scripts/package-retention.test.ts
 
 삭제 활성화는 dry-run의 지울·남길·예외 목록에 대한 리드 승인 뒤 별도 PR로만 진행한다. 그 PR에서는 draft 릴리스까지 빠짐없이 열거되는 권한인지 확인하고, 후보가 존재하는 실데이터에서 OCI 하위 참조 보호와 삭제 직전 태그·manifest 재검증을 입증해야 한다. 쓰기 권한을 추가한다면 리뷰된 main 코드에만 제한해야 한다. 현재 단계는 공간을 회수하지 않는다.
 
-## OpenAI 단가표와 LiteLLM 대조
+## OpenAI·Claude 단가표와 LiteLLM 대조
 
-`litellm-price-drift.yml`은 매주 월요일 09:17 KST(월요일 00:17 UTC), 수동 dispatch, 그리고 단가표(`packages/platform/src/limits/model-prices-openai.ts`)나 대조 스크립트를 고치는 PR에서 돈다. [BerriAI/litellm](https://github.com/BerriAI/litellm)의 `model_prices_and_context_window.json`을 한 commit에서 읽고(dispatch의 `sha` 입력, 없으면 그 파일의 최신 commit), 그 SHA를 보고에 적는다. 단가표의 항목마다 표준·긴 문맥·speed 단계(`fast` = LiteLLM의 `*_priority`, `ultrafast` = `*_ultrafast`)·cache write 단가를 대조하고, 단가표 항목에 없는 LiteLLM의 speed 단계도 알린다. 단가표가 일부러 다르게 둔 값은 스크립트의 `KNOWN`에 이유와 함께 둔다.
+`litellm-price-drift.yml`은 매주 월요일 09:17 KST(월요일 00:17 UTC), 수동 dispatch, 그리고 단가표(`packages/platform/src/limits/model-prices-openai.ts`, `model-prices-claude.ts`)나 대조 스크립트를 고치는 PR에서 돈다. [BerriAI/litellm](https://github.com/BerriAI/litellm)의 `model_prices_and_context_window.json`을 한 commit에서 읽고(dispatch의 `sha` 입력, 없으면 그 파일의 최신 commit), 그 SHA를 보고에 적는다.
 
-어긋나면 PR에서는 이 check가 실패하고(필수 check가 아니다), 예약·수동 실행에서는 `litellm-price-drift` label의 issue를 열거나 그 issue에 덧붙인다. LiteLLM 데이터를 읽을 수 없을 때도 같은 issue로 알린다. 단가표와 과금은 자동으로 바뀌지 않는다. 사람이 [공식 단가](https://developers.openai.com/api/docs/pricing)를 확인하고 단가표를 고친다. LiteLLM은 커뮤니티가 관리하는 데이터라 틀리거나 늦을 수 있다.
+- **OpenAI 단가표.** 항목마다 표준·긴 문맥·speed 단계(`fast` = LiteLLM의 `*_priority`, `ultrafast` = `*_ultrafast`)·cache write 단가를 대조하고, 단가표 항목에 없는 LiteLLM의 speed 단계도 알린다.
+- **Claude 단가표.** 항목마다 입력·출력·cache 읽기, cache write 5분(`cache_creation_input_token_cost`)·1시간(`*_above_1hr`), 긴 prompt 단가(`*_above_<N>k_tokens`, 문턱도 대조), `provider_specific_entry`의 `fast`·`us` 배수, 검색 요금(`search_context_cost_per_query`)을 대조한다. batch 단가(`*_batches`)는 werft가 쓰지 않아 보지 않는다. LiteLLM이 Claude API(`litellm_provider: anthropic`)로 값을 매기는데 단가표에 없는 `claude-*` 모델도 알린다. 그 모델은 werft가 fallback 단가로 센다.
+
+단가표가 일부러 다르게 둔 값은 스크립트의 `KNOWN`에 이유와 함께 둔다. 한쪽에만 있는 Claude id(Claude API에서 퇴역한 모델, Claude API id가 아닌 LiteLLM의 이름)는 `CLAUDE_UNPAIRED`에 이유와 함께 둔다.
+
+어긋나면 PR에서는 이 check가 실패하고(필수 check가 아니다), 예약·수동 실행에서는 `litellm-price-drift` label의 issue를 열거나 그 issue에 덧붙인다. LiteLLM 데이터를 읽을 수 없을 때도 같은 issue로 알린다. 단가표와 과금은 자동으로 바뀌지 않는다. 사람이 공식 단가([OpenAI](https://developers.openai.com/api/docs/pricing), [Claude](https://platform.claude.com/docs/en/about-claude/pricing))를 확인하고 단가표를 고친다. LiteLLM은 커뮤니티가 관리하는 데이터라 틀리거나 늦을 수 있다.
 
 LiteLLM은 `enterprise/` 밖이 MIT다(Copyright (c) 2023 Berri AI). 데이터는 실행할 때 받아 읽기만 하고 저장소와 이미지에 넣지 않는다. 그래도 `THIRD_PARTY_NOTICES.md`의 "이미지 밖에서 읽는 외부 데이터" 절(생성기 `scripts/third-party-notices.ts`의 `EXTERNAL_DATA`)이 출처·라이선스·쓰임을 적고, 스크립트 머리말과 보고서가 출처·commit·라이선스를 적는다.
 

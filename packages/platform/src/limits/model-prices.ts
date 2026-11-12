@@ -1,22 +1,31 @@
 /**
  * What the platform charges a session for one Messages call: the
  * provider's list price per million tokens, by the model the answer names.
- * The platform owns this table and updates it with its releases, when a
- * model is added or a price changes; checked against Anthropic's pricing
- * on 2026-11-02.
+ * The platform owns the tables and updates them with its releases, when a
+ * model is added or a price changes.
  *
- * Fast mode has its own rates, and each web search adds its
- * per-search fee. US-only inference costs 1.1x on every token rate.
- * An estimate, not a bill: code execution container time is not priced.
+ * A Claude model is priced from `model-prices-claude.ts`: fast mode has its
+ * own rates, and each web search adds its per-search fee. US-only inference
+ * costs 1.1x on every token rate. An estimate, not a bill: code execution
+ * container time is not priced.
  *
  * An OpenAI model, which an `openai_responses` session calls, is priced from
  * `model-prices-openai.ts`.
  */
 
 import {
+  CLAUDE_CACHE_WRITE_1H as CACHE_WRITE_1H,
+  CLAUDE_CACHE_WRITE_5M as CACHE_WRITE_5M,
+  CLAUDE_CARDS,
+  type ClaudeCard,
+  CLAUDE_GEO_PERCENT as GEO_PERCENT,
+  WEB_SEARCH_MICRO_USD,
+} from "./model-prices-claude.ts";
+import {
   OPENAI_ALL_RATES,
   OPENAI_CACHE_WRITE_12H,
   OPENAI_CACHE_WRITE_30M,
+  TOP_SPEED_MULTIPLIER as OPENAI_TOP_SPEED_MULTIPLIER,
   openAiFallbackFloor,
   openAiFallbackSpeedMultiplier,
   openAiRatesFor,
@@ -29,11 +38,6 @@ type ModelPrice = {
   cacheReadUsdPerMtok: number;
 };
 
-// Cache writes cost a multiple of the input rate: 1.25x held five minutes,
-// 2x held an hour.
-const CACHE_WRITE_5M = 1.25;
-const CACHE_WRITE_1H = 2;
-
 function price(input: number, output: number, cacheRead: number): ModelPrice {
   return {
     inputUsdPerMtok: input,
@@ -42,101 +46,59 @@ function price(input: number, output: number, cacheRead: number): ModelPrice {
   };
 }
 
-const FABLE_5_1 = price(10, 50, 0.25);
-const FABLE_5 = price(10, 50, 1);
-const OPUS_5_5 = price(4, 20, 0.2);
-const OPUS_5 = price(5, 25, 0.5);
-const OPUS_4 = price(15, 75, 1.5);
-const SONNET_5 = price(2, 10, 0.2);
-const SONNET_4 = price(3, 15, 0.3);
-const HAIKU_4_5 = price(1, 5, 0.1);
-const HAIKU_5_5 = price(0.1, 0.5, 0.01);
+const CARDS = Object.entries(CLAUDE_CARDS);
 
 /** Exact model ids as an answer names them, aliases and dated ids both. */
-export const MODEL_PRICES: Readonly<Record<string, ModelPrice>> = {
-  "claude-fable-5-1": FABLE_5_1,
-  "claude-mythos-5-1": FABLE_5_1,
-  "claude-fable-5": FABLE_5,
-  "claude-mythos-5": FABLE_5,
-  "claude-opus-5-5": OPUS_5_5,
-  "claude-opus-5": OPUS_5,
-  "claude-opus-4-8": OPUS_5,
-  "claude-opus-4-7": OPUS_5,
-  "claude-opus-4-6": OPUS_5,
-  "claude-opus-4-5": OPUS_5,
-  "claude-opus-4-5-20251101": OPUS_5,
-  "claude-opus-4-0": OPUS_4,
-  "claude-opus-4-20250514": OPUS_4,
-  "claude-sonnet-5-5": SONNET_5,
-  "claude-sonnet-5": SONNET_5,
-  "claude-sonnet-4-6": SONNET_4,
-  "claude-sonnet-4-5": SONNET_4,
-  "claude-sonnet-4-5-20250929": SONNET_4,
-  "claude-sonnet-4-0": SONNET_4,
-  "claude-sonnet-4-20250514": SONNET_4,
-  "claude-haiku-5-5": HAIKU_5_5,
-  "claude-haiku-4-5": HAIKU_4_5,
-  "claude-haiku-4-5-20251001": HAIKU_4_5,
-};
+export const MODEL_PRICES: Readonly<Record<string, ModelPrice>> =
+  Object.fromEntries(CARDS.map(([model, card]) => [model, card.standard]));
 
 /**
- * Models with a second rate card for a long prompt: past `aboveTokens` of
- * input, cache included, every part of the call pays `price`.
+ * A model from before Claude 4.6 (a card without `geo`) has a 200K window,
+ * and its card's rates stop there: an answer that used more came from a
+ * provider charging a long-context rate the table does not know.
  */
-const LONG_PROMPT_PRICES: Readonly<
-  Record<string, { aboveTokens: number; price: ModelPrice }>
-> = {
-  "claude-haiku-5-5": { aboveTokens: 100_000, price: price(0.5, 2.5, 0.05) },
-};
-
-/**
- * Models from before Claude 4.6. They cannot run with `inference_geo` and
- * always pay the standard rates. Their window is 200K tokens and the table's
- * rates stop there: an answer that used more came from a provider charging
- * a long-context rate the table does not know.
- */
-const BEFORE_4_6: ReadonlySet<string> = new Set([
-  "claude-opus-4-5",
-  "claude-opus-4-5-20251101",
-  "claude-opus-4-0",
-  "claude-opus-4-20250514",
-  "claude-sonnet-4-5",
-  "claude-sonnet-4-5-20250929",
-  "claude-sonnet-4-0",
-  "claude-sonnet-4-20250514",
-  "claude-haiku-4-5",
-  "claude-haiku-4-5-20251001",
-]);
 const BEFORE_4_6_CONTEXT_TOKENS = 200_000;
 
+/** `speed: "fast"` rates, a multiple of the standard ones for the models offering it. */
+export const FAST_MODEL_PRICES: Readonly<Record<string, ModelPrice>> =
+  Object.fromEntries(
+    CARDS.flatMap(([model, { standard, fast }]) =>
+      fast === undefined
+        ? []
+        : [
+            [
+              model,
+              price(
+                standard.inputUsdPerMtok * fast,
+                standard.outputUsdPerMtok * fast,
+                standard.cacheReadUsdPerMtok * fast,
+              ),
+            ],
+          ],
+    ),
+  );
+
 /**
- * What `inference_geo` multiplies every token rate by, cache ones included,
- * in percent: a whole micro-dollar figure stays whole, where times 1.1 it
- * would pick up float noise that the ledger's ceil turns into a micro-dollar.
+ * What a speed multiplies a Claude model's rates by. A tier its card does not
+ * list, `fast` without fast mode or a name the page does not use, is charged
+ * the highest multiple either table has, as the OpenAI table charges one: a
+ * budget errs on counting too much, never too little.
  */
-const GEO_PERCENT: Readonly<Record<string, number>> = {
-  global: 100,
-  us: 110,
-};
+export const CLAUDE_UNLISTED_SPEED_MULTIPLIER = Math.max(
+  OPENAI_TOP_SPEED_MULTIPLIER,
+  ...CARDS.flatMap(([, card]) => (card.fast === undefined ? [] : [card.fast])),
+);
 
-/** `speed: "fast"` rates, twice the standard ones for the models offering it. */
-export const FAST_MODEL_PRICES: Readonly<Record<string, ModelPrice>> = {
-  "claude-opus-5-5": price(8, 40, 0.4),
-  "claude-opus-5": price(10, 50, 1),
-  "claude-opus-4-8": price(10, 50, 1),
-};
-
-/**
- * $10 per 1,000 searches, in millionths of a dollar like a token count
- * times its per-million rate. Web fetch has no fee beyond its tokens.
- */
-const WEB_SEARCH_MICRO_USD = 10_000;
+function claudeSpeedMultiplier(card: ClaudeCard, speed: string): number {
+  if (speed === "standard") return 1;
+  return speed === "fast" && card.fast !== undefined
+    ? card.fast
+    : CLAUDE_UNLISTED_SPEED_MULTIPLIER;
+}
 
 /**
- * A model the table does not know, at a speed or in a geo it does not know,
- * is charged every part at the highest rate either table has, and an unknown
- * geo at the highest multiplier too: a budget errs on counting too much,
- * never too little.
+ * A model no table knows is charged every part at the highest rate either
+ * table has, and an unknown geo at the highest multiplier too.
  */
 const FALLBACK_PRICE: ModelPrice = (() => {
   const prices = [
@@ -158,7 +120,7 @@ const FALLBACK_GEO_PERCENT = Math.max(...Object.values(GEO_PERCENT));
  * Either may be an OpenAI call, so away from the standard speed every rate
  * is multiplied by the dearest multiple the OpenAI table has for that tier,
  * and its cache writes cost what the dearer of the two providers charges. A
- * model the Claude table names stays on Claude's own highest rates above.
+ * model the Claude table names keeps its own multiples and cache writes.
  */
 const NON_CLAUDE_SHORT_WRITE = Math.max(CACHE_WRITE_5M, OPENAI_CACHE_WRITE_30M);
 const NON_CLAUDE_LONG_WRITE = Math.max(CACHE_WRITE_1H, OPENAI_CACHE_WRITE_12H);
@@ -223,35 +185,28 @@ export function priceProviderUsage(usage: ProviderUsage): {
       pricedBy: "table",
     };
   }
-  const table: Readonly<Record<string, ModelPrice>> =
-    usage.speed === "standard"
-      ? MODEL_PRICES
-      : usage.speed === "fast"
-        ? FAST_MODEL_PRICES
-        : {};
-  const older = BEFORE_4_6.has(usage.model);
+  const card = Object.hasOwn(CLAUDE_CARDS, usage.model)
+    ? CLAUDE_CARDS[usage.model]
+    : undefined;
+  const nonClaude = card === undefined;
+  // A model before Claude 4.6 cannot run with `inference_geo` and always
+  // pays the global rates; an unknown geo pays the highest multiplier.
+  const older = card?.geo === false;
   const geo = older
     ? 100
-    : Object.hasOwn(GEO_PERCENT, usage.inferenceGeo)
-      ? GEO_PERCENT[usage.inferenceGeo]
-      : undefined;
+    : ((Object.hasOwn(GEO_PERCENT, usage.inferenceGeo)
+        ? GEO_PERCENT[usage.inferenceGeo]
+        : undefined) ?? FALLBACK_GEO_PERCENT);
   const promptTokens =
     usage.inputTokens +
     usage.cacheCreationInputTokens +
     usage.cacheReadInputTokens;
-  const longContext = older && promptTokens > BEFORE_4_6_CONTEXT_TOKENS;
-  const longPrompt =
-    usage.speed === "standard" && Object.hasOwn(LONG_PROMPT_PRICES, usage.model)
-      ? LONG_PROMPT_PRICES[usage.model]
-      : undefined;
   const known =
-    geo !== undefined && !longContext && Object.hasOwn(table, usage.model)
-      ? longPrompt !== undefined && promptTokens > longPrompt.aboveTokens
-        ? longPrompt.price
-        : table[usage.model]
-      : undefined;
-  const nonClaude =
-    known === undefined && !Object.hasOwn(MODEL_PRICES, usage.model);
+    card === undefined || (older && promptTokens > BEFORE_4_6_CONTEXT_TOKENS)
+      ? undefined
+      : card.long !== undefined && promptTokens > card.long.aboveTokens
+        ? card.long.rates
+        : card.standard;
   const floor = nonClaude ? openAiFallbackFloor(usage.model) : undefined;
   const rates =
     known ??
@@ -265,9 +220,11 @@ export function priceProviderUsage(usage: ProviderUsage): {
             floor.cacheReadUsdPerMtok,
           ),
         ));
-  const speedMultiplier = nonClaude
-    ? openAiFallbackSpeedMultiplier(usage.model, usage.speed)
-    : 1;
+  // Past its window a Claude model keeps its own multiple on the fallback.
+  const speedMultiplier =
+    card === undefined
+      ? openAiFallbackSpeedMultiplier(usage.model, usage.speed)
+      : claudeSpeedMultiplier(card, usage.speed);
   const oneHour = Math.min(
     usage.cacheCreation1hInputTokens,
     usage.cacheCreationInputTokens,
@@ -284,7 +241,7 @@ export function priceProviderUsage(usage: ProviderUsage): {
     usage.outputTokens * rates.outputUsdPerMtok;
   return {
     costUsd:
-      ((perMtok * speedMultiplier * (geo ?? FALLBACK_GEO_PERCENT)) / 100 +
+      ((perMtok * speedMultiplier * geo) / 100 +
         usage.webSearchRequests * WEB_SEARCH_MICRO_USD) /
       1_000_000,
     pricedBy: known === undefined ? "fallback" : "table",

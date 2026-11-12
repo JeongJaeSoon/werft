@@ -377,12 +377,14 @@ describe("usage reports", () => {
   test("a report from a proxy that does not send the speed or the geo is priced high", async () => {
     const { status, body, row } = await report({});
     expect(status).toBe(200);
-    expect(body.priced_by).toBe("fallback");
+    // claude-opus-5's $25 out at the highest speed (6x) and geo (1.1x)
+    // multiples either table has.
+    expect(body).toEqual({ cost_usd: 0.165, priced_by: "table" });
     expect(row).toMatchObject({
       speed: "unknown",
       inferenceGeo: "unknown",
       webSearchRequests: 0,
-      pricedBy: "fallback",
+      pricedBy: "table",
     });
   });
 

@@ -171,7 +171,7 @@ export const OPENAI_CACHE_WRITE_12H = 2.5;
  * card does not list is charged, whatever its name. A tier the page adds
  * later must not be priced below the dearest one the table knows.
  */
-const TOP_SPEED_MULTIPLIER = Math.max(
+export const TOP_SPEED_MULTIPLIER = Math.max(
   ...Object.values(OPENAI_CARDS).flatMap((entry) =>
     Object.values(entry.speeds),
   ),

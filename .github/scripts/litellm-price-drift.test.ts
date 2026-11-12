@@ -1,6 +1,15 @@
 import { describe, expect, test } from "bun:test";
+import {
+  CLAUDE_CARDS,
+  type ClaudeRates,
+} from "../../packages/platform/src/limits/model-prices-claude.ts";
 import { OPENAI_CARDS } from "../../packages/platform/src/limits/model-prices-openai.ts";
-import { compare, parseLiteLlm, render } from "./litellm-price-drift.ts";
+import {
+  compare,
+  compareClaude,
+  parseLiteLlm,
+  render,
+} from "./litellm-price-drift.ts";
 
 // LiteLLM-shaped data built from werft's own table, so it agrees by
 // construction; each test then changes one thing. No LiteLLM data is copied.
@@ -205,5 +214,198 @@ describe("litellm-price-drift", () => {
     );
     expect(text).toContain("| `gpt-5.5` | fast | x | **yes** |");
     expect(text).toContain("MIT, Copyright (c) 2023 Berri AI");
+  });
+});
+
+type Raw = Record<string, Record<string, unknown>>;
+
+// The same for werft's Claude table: agrees by construction, no LiteLLM data.
+function claudeAgreeing(): Raw {
+  const data: Raw = {};
+  for (const [model, card] of Object.entries(CLAUDE_CARDS)) {
+    const entry: Record<string, unknown> = { litellm_provider: "anthropic" };
+    const lengths: [string, ClaudeRates][] = [["", card.standard]];
+    if (card.long !== undefined) {
+      lengths.push([
+        `_above_${card.long.aboveTokens / 1000}k_tokens`,
+        card.long.rates,
+      ]);
+    }
+    for (const [length, rates] of lengths) {
+      const at = (rate: number) => rate / 1e6;
+      entry[`input_cost_per_token${length}`] = at(rates.inputUsdPerMtok);
+      entry[`output_cost_per_token${length}`] = at(rates.outputUsdPerMtok);
+      entry[`cache_read_input_token_cost${length}`] = at(
+        rates.cacheReadUsdPerMtok,
+      );
+      entry[`cache_creation_input_token_cost${length}`] = at(
+        rates.inputUsdPerMtok * 1.25,
+      );
+      entry[`cache_creation_input_token_cost_above_1hr${length}`] = at(
+        rates.inputUsdPerMtok * 2,
+      );
+      entry[`input_cost_per_token${length}_batches`] = at(
+        rates.inputUsdPerMtok / 2,
+      );
+    }
+    const multiples: Record<string, number> = {};
+    if (card.fast !== undefined) multiples.fast = card.fast;
+    if (card.geo) multiples.us = 1.1;
+    if (Object.keys(multiples).length > 0) {
+      entry.provider_specific_entry = multiples;
+    }
+    entry.search_context_cost_per_query = {
+      search_context_size_low: 0.01,
+      search_context_size_high: 0.01,
+    };
+    data[model] = entry;
+  }
+  return data;
+}
+
+function claudeEntryOf(data: Raw, model: string): Record<string, unknown> {
+  const entry = data[model];
+  if (entry === undefined) throw new Error(`no ${model}`);
+  return entry;
+}
+
+function multiplesOf(data: Raw, model: string): Record<string, number> {
+  const entry = claudeEntryOf(data, model);
+  entry.provider_specific_entry ??= {};
+  return entry.provider_specific_entry as Record<string, number>;
+}
+
+const whereClaude = (data: Raw) =>
+  compareClaude(parseLiteLlm(data)).map(({ model, tier, undercharges }) => [
+    model,
+    tier,
+    undercharges,
+  ]);
+
+describe("litellm-price-drift for the Claude table", () => {
+  test("data that agrees with the table reports no drift", () => {
+    expect(compareClaude(parseLiteLlm(claudeAgreeing()))).toEqual([]);
+  });
+
+  test("a rate or an hour-long cache write that differs is reported with its direction", () => {
+    const data = claudeAgreeing();
+    claudeEntryOf(data, "claude-sonnet-5").cache_read_input_token_cost =
+      0.1 / 1e6;
+    claudeEntryOf(
+      data,
+      "claude-opus-5",
+    ).cache_creation_input_token_cost_above_1hr = 12 / 1e6;
+    expect(compareClaude(parseLiteLlm(data))).toEqual([
+      {
+        model: "claude-opus-5",
+        tier: "standard",
+        detail:
+          "`cache_creation_input_token_cost_above_1hr`: LiteLLM $12, werft $10",
+        undercharges: true,
+      },
+      {
+        model: "claude-sonnet-5",
+        tier: "standard",
+        detail: "`cache_read_input_token_cost`: LiteLLM $0.1, werft $0.2",
+        undercharges: false,
+      },
+    ]);
+  });
+
+  test("long-prompt rates are compared at werft's threshold; another length or a batch rate is not", () => {
+    const data = claudeAgreeing();
+    const haiku = claudeEntryOf(data, "claude-haiku-5-5");
+    haiku.output_cost_per_token_above_100k_tokens = 3 / 1e6;
+    haiku.input_cost_per_token_above_200k_tokens = 1 / 1e6;
+    haiku.input_cost_per_token_batches = 99 / 1e6;
+    claudeEntryOf(
+      data,
+      "claude-opus-4-8",
+    ).input_cost_per_token_above_200k_tokens = 10 / 1e6;
+    expect(whereClaude(data)).toEqual([
+      ["claude-opus-4-8", "standard", true],
+      ["claude-haiku-5-5", "standard", true],
+      ["claude-haiku-5-5", "standard", true],
+    ]);
+  });
+
+  test("a model or a rate LiteLLM does not give is reported, unless the id is unpaired for a reason", () => {
+    const data = claudeAgreeing();
+    delete data["claude-opus-5"];
+    delete data["claude-opus-4-0"];
+    delete claudeEntryOf(data, "claude-haiku-5-5")
+      .cache_creation_input_token_cost_above_1hr_above_100k_tokens;
+    expect(whereClaude(data)).toEqual([
+      ["claude-opus-5", "standard", false],
+      ["claude-haiku-5-5", "standard", false],
+    ]);
+  });
+
+  test("fast and US-only multiples are compared, and one this check does not know is reported", () => {
+    const data = claudeAgreeing();
+    multiplesOf(data, "claude-opus-5-5").fast = 2.5;
+    // werft offers claude-opus-4-7 and -4-6 no fast multiple and charges
+    // their fast calls 6x: above LiteLLM's 2x, below its 8x.
+    multiplesOf(data, "claude-opus-4-7").fast = 2;
+    multiplesOf(data, "claude-opus-4-6").fast = 8;
+    delete multiplesOf(data, "claude-sonnet-5").us;
+    // werft prices claude-sonnet-4-5, from before Claude 4.6, at global rates.
+    multiplesOf(data, "claude-sonnet-4-5").us = 1.1;
+    multiplesOf(data, "claude-haiku-5-5").eu = 1.2;
+    expect(whereClaude(data)).toEqual([
+      ["claude-opus-5-5", "fast", true],
+      ["claude-opus-4-7", "fast", false],
+      ["claude-opus-4-6", "fast", true],
+      ["claude-sonnet-5", "us", false],
+      ["claude-sonnet-4-5", "us", true],
+      ["claude-haiku-5-5", "eu", true],
+    ]);
+  });
+
+  test("a web search fee that differs is reported", () => {
+    const data = claudeAgreeing();
+    claudeEntryOf(data, "claude-opus-5").search_context_cost_per_query = {
+      search_context_size_low: 0.02,
+    };
+    expect(whereClaude(data)).toEqual([["claude-opus-5", "web search", true]]);
+  });
+
+  test("a search fee one entry leaves out is not reported; one every entry leaves out is", () => {
+    const data = claudeAgreeing();
+    delete claudeEntryOf(data, "claude-haiku-4-5")
+      .search_context_cost_per_query;
+    expect(whereClaude(data)).toEqual([]);
+    for (const entry of Object.values(data)) {
+      entry.search_context_cost_per_query = {};
+    }
+    expect(whereClaude(data)).toEqual([["claude-*", "web search", false]]);
+  });
+
+  test("a Claude API model werft has no card for is reported; other providers' and unpaired ids are not", () => {
+    const data = claudeAgreeing();
+    data["claude-fable-9"] = {
+      litellm_provider: "anthropic",
+      input_cost_per_token: 1 / 1e6,
+    };
+    data["claude-opus-4-6-20260205"] = { litellm_provider: "anthropic" };
+    data["claude-fable-latest"] = {};
+    data["claude-fable-9-v1:0"] = { litellm_provider: "bedrock" };
+    expect(whereClaude(data)).toEqual([["claude-fable-9", "standard", true]]);
+  });
+
+  test("a Claude entry's multiples and search fee must be numbers; another provider's entry is not read", () => {
+    const data = claudeAgreeing();
+    data["claude-fable-9-v1:0"] = {
+      litellm_provider: "bedrock",
+      provider_specific_entry: { fast: "x" },
+    };
+    expect(() => parseLiteLlm(data)).not.toThrow();
+    multiplesOf(data, "claude-opus-5").fast = Number.NaN;
+    expect(() => parseLiteLlm(data)).toThrow(/claude-opus-5/);
+    multiplesOf(data, "claude-opus-5").fast = 2;
+    claudeEntryOf(data, "claude-sonnet-5").search_context_cost_per_query = {
+      search_context_size_low: -1,
+    };
+    expect(() => parseLiteLlm(data)).toThrow(/claude-sonnet-5/);
   });
 });
