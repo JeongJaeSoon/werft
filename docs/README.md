@@ -57,6 +57,7 @@ API로 세션을 만들고 쓰는 사람.
 | [결정(설계): 패키지 구조화](contributing/decisions/package-structure.md) | 포트·내장 도구·큰 디렉터리의 구조화, 목표 트리, 의존 방향과 강제, 이행 순서 |
 | [결정(설계): 번들 stdio MCP 서버를 worker relay 뒤에 둔다](contributing/decisions/stdio-mcp-relay.md) | 승인된 번들의 stdio MCP 서버를 worker가 턴 단위로 띄우고 `type: "sdk"` relay 뒤에 두는 방법, 도구 해석·이름 충돌·거절 능력·`ready()` 의미·이벤트, 구현 단위와 선행 티켓 |
 | [결정(조사·설계): worker 브라우저·computer-use 도구](contributing/decisions/worker-browser-tools.md) | 브라우저 sidecar 추천, 같은 deny 우선 판정과 호출자 상한, egress·ECH·이미지 크기 실측, 턴 끝 상호작용, 구현 단위 표 |
+| [결정(설계): 세션 사용량을 호출 시작 때부터 적는 장부](contributing/decisions/provider-usage-ledger.md) | 세션 상한이 끝난 호출만 보는 이유, 호출을 시작할 때 예약을 적는 장부와 그 상태, 혼합 버전에서 깨지지 않게 하는 방법, 집행을 뒤 단계로 미룬 이유 |
 | [결정(설계): worker supervisor와 엔진·git 자식 프로세스 사이의 경계](contributing/decisions/worker-supervisor-boundary.md) | 같은 UID의 `/proc` 읽기로 새는 값, supervisor non-dumpable과 fenced activation을 고른 이유, 막는 것과 못 막는 것, `hidepid`·UID 분리·컨테이너 분리와의 비교 |
 | [결정(설계안): 에이전트의 PR 본문 읽기](contributing/decisions/pull-request-read.md) | 에이전트가 PR 본문을 읽는 도구(`get_pull_request`), 덮어쓰기 막기(`expected_body_sha256`), 기존 PR 꼬리 교체의 실제 GitHub 확인 절차. 오너 결정 전 |
 | [결정: 워크스페이스 성과 규칙과 판정](contributing/decisions/achievement-rules.md) | 근거 사실과 성과 두 층, 구분·성과 type·규칙(1:1:1), 바로 인정과 Luna(OpenAI Decisions API) 판정, 판정 비용 원장, 성과당 비용 |
