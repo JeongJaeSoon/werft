@@ -262,6 +262,26 @@ describe("id_token verification", () => {
       const { use: _use, alg: _alg, ...bare } = rsa.jwk;
       expect(selectKey([bare], header)).toBe(bare);
 
+      // The length is counted in bits, not bytes: 2041 bits fill 256 bytes.
+      const modulus = (topByte: number) =>
+        Buffer.from([topByte, ...new Array<number>(255).fill(0xff)]).toString(
+          "base64url",
+        );
+      const sized = (topByte: number) => ({ ...rsa.jwk, n: modulus(topByte) });
+      expect(selectKey([sized(0x01)], header)).toBeNull();
+      expect(selectKey([sized(0x7f)], header)).toBeNull();
+      const full = sized(0x80);
+      expect(selectKey([full], header)).toBe(full);
+      // Leading zero bytes add no length.
+      const padded = {
+        ...rsa.jwk,
+        n: Buffer.concat([
+          Buffer.from([0]),
+          Buffer.from(modulus(0x01), "base64url"),
+        ]).toString("base64url"),
+      };
+      expect(selectKey([padded], header)).toBeNull();
+
       const short = await makeSigner("RS256", 1024);
       expect(
         selectKey([short.jwk], { alg: "RS256", kid: short.kid }),

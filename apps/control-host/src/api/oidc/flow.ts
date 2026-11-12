@@ -103,8 +103,11 @@ export async function finishFlow(input: {
   /** Refuse a sign-in the provider does not mark as a verified address. */
   requireVerifiedEmail: boolean;
   policy: NetworkPolicy;
-  /** Milliseconds. */
-  now: number;
+  /**
+   * The clock, in milliseconds. Read after the provider has answered, so a
+   * token that expired while this server waited is expired.
+   */
+  now: () => number;
   request?: ProviderRequest;
 }): Promise<OidcIdentity> {
   const { endpoints, client, policy } = input;
@@ -168,8 +171,16 @@ export async function finishFlow(input: {
     issuers: input.issuers,
     clientId: client.clientId,
     nonce: input.nonce,
-    now: input.now,
+    now: input.now(),
   });
+  // The signed token's "not verified" stands: UserInfo below fills in what
+  // the token leaves out and never overrules what it says.
+  if (claims.email_verified === false) {
+    throw new OidcRejectedError(
+      "email_unverified",
+      "Provider says the email is not verified",
+    );
+  }
 
   let email = claims.email;
   let emailVerified = claims.email_verified;

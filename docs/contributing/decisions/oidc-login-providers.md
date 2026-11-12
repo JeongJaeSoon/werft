@@ -602,7 +602,7 @@ e2e의 Keycloak은 API 컨테이너와 네트워크 이름공간을 함께 쓰�
 | 1 OIDC 코어 | PR | JeongJaeSoon/werft#1662 |
 | 2~6 | 시작 전 | — |
 
-1단계는 3.1절의 표에서 `provider-http.ts`, `discovery.ts`, `jwks.ts`, `id-token.ts`, `flow.ts`(시작과 끝), `issuer-rules.ts`, `errors.ts`를 넣고 환경 변수로 설정한 Google 로그인을 그 위로 옮긴다. 흐름 cookie의 봉인, 응답 `iss`를 라우트에서 넘기는 일, `admission.ts`는 공급자 행이 생기는 2단계에 넣는다. 1단계의 네트워크 정책에는 `http` issuer를 그대로 받는 값이 하나 더 있다. 환경 변수 Google 로그인의 mock IdP만 쓰고, 2단계에서 환경 변수와 함께 없앤다.
+1단계는 3.1절의 표에서 `provider-http.ts`, `discovery.ts`, `jwks.ts`, `id-token.ts`, `flow.ts`(시작과 끝), `issuer-rules.ts`, `errors.ts`를 넣고 환경 변수로 설정한 Google 로그인을 그 위로 옮긴다. 흐름 cookie의 봉인, 응답 `iss`를 라우트에서 넘기는 일, `admission.ts`는 공급자 행이 생기는 2단계에 넣는다. 1단계의 네트워크 정책에는 `http` issuer를 그대로 받는 값이 하나 더 있다. 환경 변수 Google 로그인의 mock IdP만 쓰고, 2단계에서 환경 변수와 함께 없앤다. 12절은 1단계에서 mock IdP에 키 회전을 더한다고 적지만, 1단계의 회전 시험은 모듈 안의 가짜 공급자(요청 함수 자리)로 하고, HTTP mock IdP의 회전은 6단계의 공급자 모양과 함께 넣는다.
 
 ## 17. 리뷰 기록
 

@@ -70,7 +70,7 @@ function finish(
     verifier: started.flow.verifier,
     requireVerifiedEmail: true,
     policy: POLICY,
-    now: NOW,
+    now: () => NOW,
     request: started.provider.request,
     ...overrides,
   });
@@ -216,6 +216,27 @@ describe("OIDC flow finish", () => {
     forged.provider.signer = stranger;
     forged.provider.tokenHeader = { kid: forged.provider.keys[0]?.kid };
     expect(await reasonOf(finish(forged))).toBe("bad_signature");
+  });
+
+  test("the clock is read after the provider answered: a token that expired during the wait is refused", async () => {
+    const started = await begin();
+    started.provider.claims.exp = NOW / 1000 + 1;
+    let clock = NOW;
+    const original = started.provider.request;
+    const run = finish(started, {
+      now: () => clock,
+      request: async (url, init, policy) => {
+        const response = await original(url, init, policy);
+        // The key fetch is the last thing before the claims are read.
+        if (url.endsWith("/jwks")) clock = NOW + 1200;
+        return response;
+      },
+    });
+    expect(await reasonOf(run)).toBe("expired");
+    // The same token read in time is good.
+    const inTime = await begin();
+    inTime.provider.claims.exp = NOW / 1000 + 1;
+    expect(await reasonOf(finish(inTime))).toBe("ok");
   });
 
   test("keys are read on every sign-in, so a rotated key works at once and a removed one stops at once", async () => {
@@ -371,6 +392,39 @@ describe("OIDC flow finish", () => {
       const userinfo = started.provider.calls[2];
       expect(userinfo?.url).toBe(`${ISSUER}/userinfo`);
       expect(userinfo?.headers.Authorization).toBe("Bearer access-token-value");
+    });
+
+    test("the id_token's own 'not verified' is not overruled by UserInfo, and UserInfo is not asked", async () => {
+      for (const required of [true, false]) {
+        const started = await thin();
+        started.provider.claims.email_verified = false;
+        started.provider.userinfo = {
+          sub: "subject-1",
+          email: "alice@example.com",
+          email_verified: true,
+        };
+        expect(
+          await reasonOf(finish(started, { requireVerifiedEmail: required })),
+        ).toBe("email_unverified");
+        expect(started.provider.calls.map((call) => call.url)).toEqual([
+          `${ISSUER}/token`,
+          `${ISSUER}/jwks`,
+        ]);
+      }
+    });
+
+    test("UserInfo's 'not verified' is a refusal whatever the setting", async () => {
+      for (const required of [true, false]) {
+        const started = await thin();
+        started.provider.userinfo = {
+          sub: "subject-1",
+          email: "alice@example.com",
+          email_verified: false,
+        };
+        expect(
+          await reasonOf(finish(started, { requireVerifiedEmail: required })),
+        ).toBe("email_unverified");
+      }
     });
 
     test("an answer about another subject is refused", async () => {

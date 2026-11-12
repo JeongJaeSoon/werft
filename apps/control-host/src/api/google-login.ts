@@ -249,7 +249,7 @@ export function createGoogleLogin(
           verifier,
           requireVerifiedEmail: true,
           policy,
-          now: now(),
+          now,
         });
         return {
           issuer: identity.issuer,

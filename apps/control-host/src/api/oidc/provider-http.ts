@@ -127,18 +127,24 @@ export function classifyAddress(address: string): AddressClass | null {
     bytes[3] === 0x9b &&
     bytes.slice(4, 12).every((byte) => byte === 0);
   if (mapped || nat64) return classifyIpv4(bytes.slice(12));
-  if (zeroUntil(12)) return "reserved";
-  const [first = 0, second = 0] = bytes;
+  const [first = 0, second = 0, third = 0, fourth = 0] = bytes;
   if (first === 0xfe && (second & 0xc0) === 0x80) return "link_local";
-  if (first === 0xfe && (second & 0xc0) === 0xc0) return "reserved";
   if (first === 0xff) return "multicast";
   if ((first & 0xfe) === 0xfc) return "private";
-  if (
-    first === 0x20 &&
-    second === 0x01 &&
-    bytes[2] === 0x0d &&
-    bytes[3] === 0xb8
-  ) {
+  // Only 2000::/3 is global unicast. The rest of the space is unassigned or
+  // set aside (discard-only 100::/64, site-local fec0::/10, ...).
+  if ((first & 0xe0) !== 0x20) return "reserved";
+  if (first === 0x20 && second === 0x01) {
+    // 2001::/23 is protocol assignments (Teredo, benchmarking, ORCHID) and
+    // 2001:db8::/32 is documentation.
+    if ((third & 0xfe) === 0 || (third === 0x0d && fourth === 0xb8)) {
+      return "reserved";
+    }
+  }
+  // 6to4 carries an IPv4 address that would go unjudged.
+  if (first === 0x20 && second === 0x02) return "reserved";
+  // 3fff::/20 is documentation.
+  if (first === 0x3f && second === 0xff && (third & 0xf0) === 0) {
     return "reserved";
   }
   return "public";
@@ -191,11 +197,12 @@ async function readCapped(response: Response): Promise<string> {
 }
 
 export function createProviderRequest(
-  deps: { lookup?: Lookup; fetch?: typeof fetch } = {},
+  deps: { lookup?: Lookup; fetch?: typeof fetch; timeoutMs?: number } = {},
 ): ProviderRequest {
   const lookup: Lookup =
     deps.lookup ?? ((host) => dnsLookup(host, { all: true }));
   const send = deps.fetch ?? fetch;
+  const timeoutMs = deps.timeoutMs ?? TIMEOUT_MS;
 
   return async (url, init, policy) => {
     if (endpointProblem(url, policy) !== null) {
@@ -206,9 +213,18 @@ export function createProviderRequest(
     }
     const original = new URL(url);
     const host = original.hostname.replace(/^\[|\]$/g, "");
+    // One deadline for the whole request, name resolution included.
+    const deadline = AbortSignal.timeout(timeoutMs);
+    const timedOut = new Promise<never>((_, reject) => {
+      deadline.addEventListener("abort", () => reject(deadline.reason), {
+        once: true,
+      });
+    });
+    timedOut.catch(() => {});
     let answers: readonly ResolvedAddress[];
     try {
-      answers = await lookup(host);
+      // A lookup cannot be cancelled; one that answers late is not used.
+      answers = await Promise.race([lookup(host), timedOut]);
     } catch (error) {
       throw new OidcUnavailableError(
         "unreachable",
@@ -241,7 +257,6 @@ export function createProviderRequest(
     // second time between the check and the connection. TLS still verifies
     // the certificate for the original name.
     const pinned = isIP(host) === 0;
-    const deadline = AbortSignal.timeout(TIMEOUT_MS);
     let response: Response | undefined;
     let text = "";
     let failure: unknown;

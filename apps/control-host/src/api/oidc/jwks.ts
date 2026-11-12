@@ -42,7 +42,10 @@ function rsaBits(modulus: unknown): number {
   if (typeof modulus !== "string") return 0;
   const bytes = Buffer.from(modulus, "base64url");
   const leading = bytes.findIndex((byte) => byte !== 0);
-  return leading === -1 ? 0 : (bytes.length - leading) * 8;
+  if (leading === -1) return 0;
+  // Counted to the top set bit: a modulus of 2041 bits fills 256 bytes too.
+  const zeroBitsInTopByte = Math.clz32(bytes[leading] as number) - 24;
+  return (bytes.length - leading) * 8 - zeroBitsInTopByte;
 }
 
 function fits(key: Jwk, alg: SigningAlg): boolean {

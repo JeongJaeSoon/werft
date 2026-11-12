@@ -46,8 +46,9 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 - **늦게 commit된 도구 호출이 사용량 통계에서 빠지지 않는다**(JeongJaeSoon/werft#1653). 오래 열린 transaction이 늦게 넣은 이벤트가 있으면, tool-call projection의 커서가 그보다 낮은 id의 아직 commit되지 않은 이벤트를 넘어갈 수 있었다. 이제 커서는 margin(60초) 안에 든 첫 이벤트 앞에서 멈춘다. 정상 순서의 이벤트는 전과 같은 때 반영된다. 할 일은 없다.
 - **Google 로그인이 공급자의 응답을 더 엄격하게 검증한다**(JeongJaeSoon/werft#1662). Google(`https://accounts.google.com`)로 로그인하는 설치는 할 일이 없다. `GOOGLE_OIDC_ISSUER`를 다른 OIDC 공급자로 돌려 쓴 설치는 아래 경우에 로그인이 거절되니 올리기 전에 확인한다.
   - id_token에 `iat`가 없거나, 60초 넘게 미래이거나, 11분보다 오래됐다. `aud`가 client ID 하나가 아니다(다른 audience가 함께 있는 경우 포함). `nbf`가 60초 넘게 미래다. `sub`가 255자를 넘는다.
-  - discovery 문서의 endpoint가 `https`가 아니다(issuer 자신이 `http`인 설치는 예외). `response_types_supported`에 `code`가 없다. 서명 알고리즘에 RS256·ES256이 없다. PKCE 방식을 알리면서 S256이 없다.
-  - 공급자 이름이 link-local(`169.254.0.0/16`, `fe80::/10`)·multicast·reserved·unspecified 주소로 풀린다. `https` issuer가 loopback 주소로 풀린다. 사설 주소(`10.0.0.0/8` 등)의 공급자는 전처럼 쓸 수 있다.
+  - discovery 문서의 endpoint가 `https`가 아니다(issuer 자신이 `http`인 설치는 예외). `response_types_supported`에 `code`가 없다. 서명 알고리즘에 RS256·ES256이 없다. token endpoint의 client 인증 방식을 알리면서 `client_secret_basic`·`client_secret_post`가 없다. PKCE 방식을 알리면서 S256이 없다.
+  - 서명 키가 RSA 2048비트보다 짧다.
+  - 공급자 이름이 link-local(`169.254.0.0/16`, `fe80::/10`)·multicast·reserved·unspecified 주소로 풀린다. IPv6는 전역 유니캐스트(`2000::/3`) 가운데 문서용·6to4·Teredo 같은 특수 범위를 뺀 주소와 `fc00::/7`만 받는다. `https` issuer가 loopback 주소로 풀린다. 사설 주소(`10.0.0.0/8` 등)의 공급자는 전처럼 쓸 수 있다.
   - 공급자가 redirect로 답하면 따라가지 않는다. 응답 본문은 1 MiB까지 읽는다.
   - 전보다 받는 경우: ES256으로 서명한 id_token(공급자가 discovery에서 알릴 때). id_token에 `email`이 없으면 UserInfo에서 읽는다(`sub`가 같고 `email_verified`가 `true`일 때).
 - **parked 요청이 수천 개인 승인 대기 그룹이 닫힌다**(JeongJaeSoon/werft#1650). 전에는 약 3,000개를 넘으면 이어 갈 turn의 메시지가 32 KiB를 넘어 그룹을 닫는 transaction이 되돌려졌고, 답은 저장된 채 turn이 이어지지 않았다. 이제 메시지에는 들어가는 만큼의 답이 그대로 실리고, 나머지는 마지막 줄 `… N more answers cut`으로 센다. 그보다 작은 그룹의 메시지는 바뀌지 않는다. 할 일은 없다.

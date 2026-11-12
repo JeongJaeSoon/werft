@@ -64,6 +64,19 @@ describe("classifyAddress", () => {
     ["fd00::1", "private"],
     ["2001:db8::1", "reserved"],
     ["2606:4700:4700::1111", "public"],
+    ["2a00:1450:4001::1", "public"],
+    // Outside global unicast, or set aside inside it.
+    ["100::1", "reserved"],
+    ["4000::1", "reserved"],
+    ["fec0::1", "reserved"],
+    ["64:ff9b:1::a9fe:a9fe", "reserved"],
+    ["2001::1", "reserved"],
+    ["2001:2::1", "reserved"],
+    ["2001:1ff:ffff::1", "reserved"],
+    ["2001:200::1", "public"],
+    ["2002:a9fe:a9fe::1", "reserved"],
+    ["3fff::1", "reserved"],
+    ["3fff:1000::1", "public"],
     // IPv4 inside IPv6 is judged as the IPv4 address.
     ["::ffff:169.254.169.254", "link_local"],
     ["::ffff:a9fe:a9fe", "link_local"],
@@ -164,6 +177,13 @@ describe("provider request", () => {
     ],
     ["a multicast address", [{ address: "224.0.0.1", family: 4 }]],
     ["a reserved address", [{ address: "240.0.0.1", family: 4 }]],
+    ["a discard-only IPv6 address", [{ address: "100::1", family: 6 }]],
+    ["a benchmarking IPv6 address", [{ address: "2001:2::1", family: 6 }]],
+    ["an unassigned IPv6 address", [{ address: "4000::1", family: 6 }]],
+    [
+      "a 6to4 address carrying link-local",
+      [{ address: "2002:a9fe:a9fe::1", family: 6 }],
+    ],
     ["the unspecified address", [{ address: "0.0.0.0", family: 4 }]],
     [
       "loopback outside a local installation",
@@ -265,6 +285,73 @@ describe("provider request", () => {
     expect(
       await refusal(huge.request("https://idp.example/x", {}, REFUSE)),
     ).toBe("unreachable");
+  });
+
+  describe("one deadline for the whole request", () => {
+    const answers = [{ address: "203.0.114.7", family: 4 }];
+    const pause = (ms: number) =>
+      new Promise((resolve) => setTimeout(resolve, ms));
+
+    test("a name lookup that never answers is given up on", async () => {
+      const sent: string[] = [];
+      const request = createProviderRequest({
+        timeoutMs: 20,
+        lookup: () => new Promise(() => {}),
+        fetch: (async (input: URL | string) => {
+          sent.push(String(input));
+          return new Response("ok");
+        }) as unknown as typeof fetch,
+      });
+      expect(await refusal(request("https://idp.example/x", {}, REFUSE))).toBe(
+        "unreachable",
+      );
+      expect(sent).toHaveLength(0);
+    });
+
+    test("a name lookup that answers after the deadline sends nothing", async () => {
+      const sent: string[] = [];
+      const request = createProviderRequest({
+        timeoutMs: 20,
+        lookup: async () => {
+          await pause(60);
+          return answers;
+        },
+        fetch: (async (input: URL | string) => {
+          sent.push(String(input));
+          return new Response("ok");
+        }) as unknown as typeof fetch,
+      });
+      expect(await refusal(request("https://idp.example/x", {}, REFUSE))).toBe(
+        "unreachable",
+      );
+      await pause(80);
+      expect(sent).toHaveLength(0);
+    });
+
+    test("the time the lookup took is not given back to the connection", async () => {
+      let waited = 0;
+      const request = createProviderRequest({
+        timeoutMs: 60,
+        lookup: async () => {
+          await pause(40);
+          return answers;
+        },
+        fetch: ((_input: URL | string, init?: RequestInit) => {
+          const started = Date.now();
+          return new Promise<Response>((_, reject) => {
+            init?.signal?.addEventListener("abort", () => {
+              waited = Date.now() - started;
+              reject(new Error("aborted"));
+            });
+          });
+        }) as unknown as typeof fetch,
+      });
+      expect(await refusal(request("https://idp.example/x", {}, REFUSE))).toBe(
+        "unreachable",
+      );
+      // 60 ms in all, 40 of them spent resolving the name.
+      expect(waited).toBeLessThan(50);
+    });
   });
 
   describe("against a real listener", () => {
