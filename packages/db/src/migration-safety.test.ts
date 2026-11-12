@@ -304,6 +304,36 @@ describe("contract migrations", () => {
     ]);
   });
 
+  test("only the very table the migration made is exempt", () => {
+    expect(
+      contractsOf(
+        `CREATE TABLE archive.sessions (id int);`,
+        `ALTER TABLE public.sessions DROP COLUMN title;`,
+        `ALTER TABLE sessions DROP COLUMN note;`,
+        `CREATE TEMP TABLE agents (id int);`,
+        `DROP TABLE public.agents;`,
+        `DO $$ BEGIN IF false THEN CREATE TABLE turns (id int); END IF; ALTER TABLE turns DROP COLUMN step; END $$;`,
+      ),
+    ).toEqual([
+      unmarked("DROP COLUMN", "sessions.title"),
+      unmarked("DROP COLUMN", "sessions.note"),
+      unmarked("DROP TABLE", "agents"),
+      unmarked("DROP COLUMN", "turns.step"),
+    ]);
+  });
+
+  test("a body written as a quoted string is read too", () => {
+    expect(
+      contractsOf(
+        `DO 'BEGIN ALTER TABLE sessions DROP COLUMN title; END';`,
+        `CREATE FUNCTION f() RETURNS void LANGUAGE plpgsql AS 'BEGIN ALTER TABLE sessions RENAME TO s; END';`,
+      ),
+    ).toEqual([
+      unmarked("DROP COLUMN", "sessions.title"),
+      unmarked("RENAME TO", "sessions"),
+    ]);
+  });
+
   test("a schema drop is refused outright", () => {
     expect(contractsOf(`DROP SCHEMA public CASCADE;`)).toEqual([
       "under_test.sql: DROP SCHEMA drops every table in it; drop each table on its own",

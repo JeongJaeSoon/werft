@@ -383,28 +383,39 @@ function past(tokens: Token[], at: number, ...words: string[]): number {
     : at;
 }
 
-// A name, schema-qualified or not: its last part and the index after it.
-function nameAt(
-  tokens: Token[],
-  at: number,
-): { name: string; next: number } | undefined {
+type Name = { name: string; schema: string | undefined; next: number };
+
+// A name, schema-qualified or not, and the index after it.
+function nameAt(tokens: Token[], at: number): Name | undefined {
   let next = at;
-  let name: string | undefined;
+  const parts: string[] = [];
   while (isIdentifier(tokens[next])) {
-    name = tokens[next]?.text;
+    parts.push(tokens[next]?.text ?? "");
     next++;
     if (!isPunct(tokens[next], ".")) {
       break;
     }
     next++;
   }
-  return name === undefined ? undefined : { name, next };
+  const name = parts.at(-1);
+  return name === undefined ? undefined : { name, schema: parts.at(-2), next };
+}
+
+// Whether the table a name reaches is one this migration made. An
+// unqualified name reaches a temporary table first, then public.
+function madeHere(created: Set<string>, table: Name): boolean {
+  return table.schema === undefined
+    ? created.has(`pg_temp.${table.name}`) ||
+        created.has(`public.${table.name}`)
+    : created.has(`${table.schema}.${table.name}`);
 }
 
 type Removal = { target: string; how: string } | { refused: string };
 
 // Tables and columns the statements drop, rename or move away. What this
-// cannot follow (a whole schema, SQL assembled in a string) is refused.
+// cannot follow (a whole schema, SQL assembled in a string) is refused. A
+// procedural body (DO, a function) is read like the file, but what it
+// creates may never run, so it exempts nothing.
 function removals(
   tokens: Token[],
   created: Set<string>,
@@ -412,8 +423,16 @@ function removals(
 ): Removal[] {
   const out: Removal[] = [];
   for (const whole of splitAt(tokens, ";")) {
+    // DO and CREATE FUNCTION may also carry their body as a quoted string.
+    const procedural =
+      isWord(whole[0], "do") ||
+      (isWord(whole[0], "create") &&
+        whole.some((token) => isWord(token, "function", "procedure")));
     for (const token of whole) {
-      if (token.kind === "body") {
+      if (
+        token.kind === "body" ||
+        (procedural && !inBody && token.kind === "string")
+      ) {
         out.push(...removals(tokenize(token.text), created, true));
       } else if (
         inBody &&
@@ -449,8 +468,10 @@ function removals(
       const unless = past(statement, at + 1, "if", "not", "exists");
       const table = nameAt(statement, unless);
       // IF NOT EXISTS may name a table the database already has.
-      if (table && (temporary || unless === at + 1)) {
-        created.add(table.name);
+      if (table && !inBody && (temporary || unless === at + 1)) {
+        created.add(
+          `${table.schema ?? (temporary ? "pg_temp" : "public")}.${table.name}`,
+        );
       }
     } else if (isWord(first, "drop") && isWord(second, "schema")) {
       out.push({
@@ -464,7 +485,7 @@ function removals(
         table;
         table = nameAt(statement, at)
       ) {
-        if (!created.has(table.name)) {
+        if (!madeHere(created, table)) {
           out.push({ target: table.name, how: "DROP TABLE" });
         }
         if (!isPunct(statement[table.next], ",")) {
@@ -477,7 +498,7 @@ function removals(
         statement,
         past(statement, past(statement, 2, "if", "exists"), "only"),
       );
-      if (!table || created.has(table.name)) {
+      if (!table || madeHere(created, table)) {
         continue;
       }
       const rest = statement.slice(table.next);
