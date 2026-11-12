@@ -35,21 +35,21 @@ outcome: "サポート範囲と worker pin を保持して chart を更新しま
 VERSION=<new-version>
 DEPLOYED="$(helm -n werft history werft -o json | jq '[.[] | select(.status == "deployed")] | last.revision')"
 TARGET_RUNTIME="$(helm show values oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
-  | awk '/^  worker:/ {found = 1} found && /^    runtime:/ {sub(/^    runtime: /, ""); print; done = 1; exit} END {if (!done) print "{}"}')"
+  | awk '/^  worker:/ {found = 1; next} found && /^  [^ ]/ {exit} found && /^    runtime: / {sub(/^    runtime: /, ""); print; exit}')"
 helm -n werft get values werft --all --revision "$DEPLOYED" -o json \
-  | jq --argjson target "$TARGET_RUNTIME" '.images
-      | .worker.runtime |= (($target | map_values(null)) + .)
+  | jq -e --argjson target "$TARGET_RUNTIME" '.images
+      | .worker.runtime |= (($target | if type == "object" then map_values(null) else error("target runtime is not a JSON object") end) + .)
       | {images: {worker, workerPrevious, egressProxy}}' \
-  > control-phase.json
-helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
-  --namespace werft -f values-<installation>.yaml -f control-phase.json \
-  --set-json 'upgrade.approvedSessions=[]' --timeout 10m
-kubectl -n werft rollout status deploy/werft-api --timeout=600s
+  > control-phase.json \
+  && helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
+    --namespace werft -f values-<installation>.yaml -f control-phase.json \
+    --set-json 'upgrade.approvedSessions=[]' --timeout 10m \
+  && kubectl -n werft rollout status deploy/werft-api --timeout=600s
 ```
 
 中間 upgrade は新 chart の control-host を適用し、worker・egress proxy は現在のものを維持します。migration、**すべての** API の更新、ready を確認してから次に進みます。起動済み worker はイメージ変更だけでは交代せず、次の launch から新イメージを使います。
 
-`TARGET_RUNTIME` は対象 chart が含む `images.worker.runtime` で、`jq` はそのキーをすべて `null` で敷き、その上にデプロイ済み runtime を重ねます。Helm が values の map をキーごとに合成するためです。対象 chart は自分の worker イメージの runtime を含みます。デプロイ済み runtime にないキーは対象 chart の値がそのまま残り、現在の worker イメージに付きます。`null` は chart が含むキーを消します。chart が含まないキーを `null` と書くと、その `null` が値として残り render が失敗するため、キーの一覧は手で書かず対象 chart から読みます。runtime なしで設置した環境では chart のキーがすべて消えて今と同じく runtime なしのままになり、公開 chart で設置した環境ではデプロイ済み runtime だけが残ります。この `null` を省くと、runtime なしで設置した環境では現在の worker イメージが対象 chart の runtime で設定されます。upgrade 検査は通過しますが、scheduler がそのイメージを拒否し、新しいセッションは起動しません（[よくある問題](/run-server/self-hosting/upgrade-kubernetes#자주-막히는-곳)）。
+`TARGET_RUNTIME` は対象 chart が含む `images.worker.runtime` で、`jq` はそのキーをすべて `null` で敷き、その上にデプロイ済み runtime を重ねます。Helm が values の map をキーごとに合成するためです。対象 chart は自分の worker イメージの runtime を含みます。デプロイ済み runtime にないキーは対象 chart の値がそのまま残り、現在の worker イメージに付きます。`null` は chart が含むキーを消します。chart が含まないキーを `null` と書くと、その `null` が値として残り render が失敗するため、キーの一覧は手で書かず対象 chart から読みます。コマンドは `&&` でつながっています。対象 chart を読めない、worker 項目の runtime 行が一行の JSON object でない、またはデプロイ済みの値を読めない場合は `jq` が失敗し、upgrade は実行されません。runtime なしで設置した環境では chart のキーがすべて消えて今と同じく runtime なしのままになり、公開 chart で設置した環境ではデプロイ済み runtime だけが残ります。この `null` を省くと、runtime なしで設置した環境では現在の worker イメージが対象 chart の runtime で設定されます。upgrade 検査は通過しますが、scheduler がそのイメージを拒否し、新しいセッションは起動しません（[よくある問題](/run-server/self-hosting/upgrade-kubernetes#자주-막히는-곳)）。
 
 <a id="2-최종-worker와-proxy-교체" />
 ### 2. 最終的な worker と proxy の更新

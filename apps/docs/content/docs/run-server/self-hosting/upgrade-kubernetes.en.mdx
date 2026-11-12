@@ -35,21 +35,21 @@ Set VERSION to the exact chart version. Pass installation-specific values withou
 VERSION=<new-version>
 DEPLOYED="$(helm -n werft history werft -o json | jq '[.[] | select(.status == "deployed")] | last.revision')"
 TARGET_RUNTIME="$(helm show values oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
-  | awk '/^  worker:/ {found = 1} found && /^    runtime:/ {sub(/^    runtime: /, ""); print; done = 1; exit} END {if (!done) print "{}"}')"
+  | awk '/^  worker:/ {found = 1; next} found && /^  [^ ]/ {exit} found && /^    runtime: / {sub(/^    runtime: /, ""); print; exit}')"
 helm -n werft get values werft --all --revision "$DEPLOYED" -o json \
-  | jq --argjson target "$TARGET_RUNTIME" '.images
-      | .worker.runtime |= (($target | map_values(null)) + .)
+  | jq -e --argjson target "$TARGET_RUNTIME" '.images
+      | .worker.runtime |= (($target | if type == "object" then map_values(null) else error("target runtime is not a JSON object") end) + .)
       | {images: {worker, workerPrevious, egressProxy}}' \
-  > control-phase.json
-helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
-  --namespace werft -f values-<installation>.yaml -f control-phase.json \
-  --set-json 'upgrade.approvedSessions=[]' --timeout 10m
-kubectl -n werft rollout status deploy/werft-api --timeout=600s
+  > control-phase.json \
+  && helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
+    --namespace werft -f values-<installation>.yaml -f control-phase.json \
+    --set-json 'upgrade.approvedSessions=[]' --timeout 10m \
+  && kubectl -n werft rollout status deploy/werft-api --timeout=600s
 ```
 
 This intermediate upgrade applies the new chart's control-host while retaining current worker/egress proxy. Verify migration, replacement of **all** APIs, and readiness before proceeding. Image changes do not replace already-running workers; new images apply at the next launch.
 
-`TARGET_RUNTIME` is the `images.worker.runtime` the target chart carries, and `jq` lays every key of it down as `null` and puts the deployed runtime on top, because Helm merges the maps in values key by key. The target chart carries the runtime of its own worker image. A key the deployed runtime does not have keeps the target chart's value, which then sits on the worker image you run now. `null` removes a key the chart carries. A `null` for a key the chart does not carry stays as a value and the render fails, so the keys are read from the target chart, not written by hand. An installation made without a runtime loses all of the chart's keys and stays without one, as it is now; an installation made from a published chart keeps exactly its deployed runtime. Without these `null`s, an installation made without a runtime gets the current worker image configured with the target chart's runtime: the upgrade check passes, but the scheduler refuses that image and no new session launches ([Troubleshooting](/run-server/self-hosting/upgrade-kubernetes#자주-막히는-곳)).
+`TARGET_RUNTIME` is the `images.worker.runtime` the target chart carries, and `jq` lays every key of it down as `null` and puts the deployed runtime on top, because Helm merges the maps in values key by key. The target chart carries the runtime of its own worker image. A key the deployed runtime does not have keeps the target chart's value, which then sits on the worker image you run now. `null` removes a key the chart carries. A `null` for a key the chart does not carry stays as a value and the render fails, so the keys are read from the target chart, not written by hand. The commands are joined with `&&`: when the target chart cannot be read, when the runtime line of its worker entry is not a single-line JSON object, or when the deployed values cannot be read, `jq` fails and the upgrade does not run. An installation made without a runtime loses all of the chart's keys and stays without one, as it is now; an installation made from a published chart keeps exactly its deployed runtime. Without these `null`s, an installation made without a runtime gets the current worker image configured with the target chart's runtime: the upgrade check passes, but the scheduler refuses that image and no new session launches ([Troubleshooting](/run-server/self-hosting/upgrade-kubernetes#자주-막히는-곳)).
 
 <a id="2-최종-worker와-proxy-교체" />
 ### 2. Final worker and proxy replacement
