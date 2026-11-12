@@ -319,7 +319,7 @@ describe("push request routes", () => {
     expect(target.seen.created).toHaveLength(1);
   });
 
-  test("POST to another repository needs the release to list it and the profile to allow it", async () => {
+  test("POST to another repository needs the release to list it and the workspace ceiling to allow it", async () => {
     const github = {
       repositories: ["sample-app", "docs"],
       features: {
@@ -371,7 +371,7 @@ describe("push request routes", () => {
     });
     expect(unlisted.seen.created).toEqual([]);
 
-    // Listed, but the catalog does not let the session's profile run it.
+    // Listed, but the workspace has no repository ceiling, which allows none.
     const listed = app({ store: { findSession: async () => session } });
     expect((await toDocs(listed, "other-2")).status).toBe(403);
     expect(listed.seen.created).toEqual([]);

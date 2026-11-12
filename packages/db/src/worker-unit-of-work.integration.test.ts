@@ -3114,8 +3114,8 @@ integration("worker gateway on PostgreSQL", () => {
       .update(unassignedSessions)
       .set({ partition })
       .where(eq(unassignedSessions.sessionId, session.session_id));
-    // A pre-catalog row has no repository id, so no catalog pair can vouch
-    // for it: it waits instead of running under a profile's trust
+    // A pre-catalog row has no repository id, so no catalog repository can
+    // vouch for it: it waits instead of running with repository access
     // that nothing granted it.
     await db
       .update(sessions)
