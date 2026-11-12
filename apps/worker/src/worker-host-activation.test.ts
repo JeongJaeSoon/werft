@@ -62,6 +62,10 @@ function refusal(
 function harness(
   overrides: {
     gateway?: FakeWorkerGatewayOptions | FakeWorkerGateway;
+    /** Runs inside the first step after the activation, after it is recorded. */
+    duringGitTrailers?: () => Promise<void>;
+    /** Runs inside the route step, after it is recorded. */
+    duringRepositoryRoutes?: () => Promise<void>;
     timeouts?: Partial<WorkerTimeouts>;
   } = {},
 ) {
@@ -86,11 +90,15 @@ function harness(
     checkpoints: unwiredCheckpoints,
     execution: { bootstrapNonce: "wln_test", generation: 1, id: "exec-1" },
     gateway,
-    gitTrailers: async () => step("gitTrailers"),
+    gitTrailers: async () => {
+      step("gitTrailers");
+      await overrides.duringGitTrailers?.();
+    },
     logger: silent,
     packageManagers: async () => step("packageManagers"),
     repositoryRoutes: async () => {
       step("repositoryRoutes");
+      await overrides.duringRepositoryRoutes?.();
       return false;
     },
     runtimes,
@@ -327,6 +335,89 @@ describe("WorkerHost activation", () => {
     expect(summary.outcome).toBe("lease_lost");
     expect(summary.reason).toContain("after the lease it granted");
     expect(trail).toEqual([]);
+  });
+
+  test("an answer handled after the claim's lease, on a stalled event loop, starts nothing even though it grants a fresh lease", async () => {
+    class Stalled extends FakeWorkerGateway {
+      override async heartbeat(
+        request: Parameters<FakeWorkerGateway["heartbeat"]>[0],
+      ) {
+        const answer = await super.heartbeat(request);
+        // Blocks the loop past the claim's lease: the timer that was due is
+        // still queued when this answer is handled.
+        const until = performance.now() + 80;
+        while (performance.now() < until);
+        return { ...answer, lease_remaining_ms: 1_000 };
+      }
+    }
+    const { host, trail } = harness({
+      gateway: new Stalled({ leaseTtlMs: 40 }),
+    });
+
+    const summary = await host.runLoop();
+
+    expect(summary.outcome).toBe("lease_lost");
+    expect(summary.reason).toContain("lease ran out");
+    expect(trail).toEqual([]);
+  });
+
+  test("a step that outlasts the activation's lease is the last one: no further configuration, workspace or engine", async () => {
+    class BriefGrant extends FakeWorkerGateway {
+      override async heartbeat(
+        request: Parameters<FakeWorkerGateway["heartbeat"]>[0],
+      ) {
+        return { ...(await super.heartbeat(request)), lease_remaining_ms: 40 };
+      }
+    }
+    const { gateway, host, trail } = harness({
+      gateway: new BriefGrant(),
+      duringGitTrailers: () => Bun.sleep(80),
+    });
+
+    const summary = await host.runLoop();
+
+    expect(summary.outcome).toBe("lease_lost");
+    expect(trail).toEqual(["gitTrailers after heartbeat"]);
+    expect(gateway.releases).toEqual([]);
+    expect(gateway.calls).not.toContain("nextInput");
+  });
+
+  test("a stop during a step is seen before the next one: no further configuration, workspace or engine, and the session is given back", async () => {
+    const stopping: { drain?: () => void } = {};
+    const { gateway, host, trail } = harness({
+      duringGitTrailers: async () => {
+        stopping.drain?.();
+        await Bun.sleep(5);
+      },
+    });
+    stopping.drain = () => host.drain("received SIGTERM");
+
+    const summary = await host.runLoop();
+
+    expect(summary.outcome).toBe("drained");
+    expect(trail).toEqual(["gitTrailers after heartbeat"]);
+    expect(gateway.releases).toHaveLength(1);
+    expect(gateway.calls).not.toContain("nextInput");
+  });
+
+  test("a stop while the routes are written is seen before the package configuration", async () => {
+    const stopping: { drain?: () => void } = {};
+    const { gateway, host, trail } = harness({
+      duringRepositoryRoutes: async () => {
+        stopping.drain?.();
+        await Bun.sleep(5);
+      },
+    });
+    stopping.drain = () => host.drain("received SIGTERM");
+
+    const summary = await host.runLoop();
+
+    expect(summary.outcome).toBe("drained");
+    expect(trail.map((entry) => entry.split(" ")[0])).toEqual([
+      "gitTrailers",
+      "repositoryRoutes",
+    ]);
+    expect(gateway.releases).toHaveLength(1);
   });
 
   test("claiming again replaces what the first claim installed: the accepted activation carries the second claim's fence and credential", async () => {

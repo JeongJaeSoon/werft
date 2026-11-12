@@ -475,18 +475,28 @@ export class WorkerHost {
     const owned = await this.claimAndActivate();
     if ("outcome" in owned) return owned;
     const { claim, lease } = owned;
-    // A stop that came while the claim or its activation was in flight
-    // leaves a session this worker holds and has started nothing for. It is
-    // given back by the shutdown below, with no file written for it.
-    if (this.stopping === undefined) {
+    // Asked before each step from here to the engine's start. A stop that
+    // came meanwhile leaves a session this worker holds and has started
+    // nothing more for: the shutdown below gives it back. And until the
+    // heartbeat loop starts, nothing renews the activation's lease or
+    // notices it running out, so a step that outlasted it ends the worker
+    // here instead of starting the next one on a session it may have lost.
+    const leaseEndsAt = lease.sentAt + lease.remainingMs;
+    const goingOn = (): boolean => {
+      if (this.stopping !== undefined) return false;
+      if (performance.now() < leaseEndsAt) return true;
+      this.lose("The lease ran out before the worker's startup began");
+      return false;
+    };
+    if (goingOn()) {
       // Attribution, not a boundary: commits without it still go through.
       await this.options.gitTrailers?.(claim).catch((error: unknown) =>
         this.logger.warn("worker.git_trailers.not_written", {
           reason: describe(error),
         }),
       );
-      await this.writeEngineRoutes(claim);
     }
+    if (goingOn()) await this.writeEngineRoutes(claim, goingOn);
 
     // Everything this process holds that the engine's tools could print.
     this.scrubber = new SecretScrubber([
@@ -603,9 +613,9 @@ export class WorkerHost {
       );
       let ready = false;
       try {
-        // Not entered once stopped: preparing the workspace starts git.
-        const plan =
-          this.stopping === undefined ? await this.startUp(claim) : undefined;
+        // Not entered once stopped or past the lease: preparing the
+        // workspace starts git.
+        const plan = goingOn() ? await this.startUp(claim) : undefined;
         if (plan !== undefined && this.stopping === undefined) {
           await this.publishExtensions(claim);
         }
@@ -725,6 +735,7 @@ export class WorkerHost {
    */
   private async writeEngineRoutes(
     claim: BootstrapClaimResponse,
+    goingOn: () => boolean = () => true,
   ): Promise<void> {
     // Not a boundary: the gate judges every repository the route is asked
     // for.
@@ -737,6 +748,8 @@ export class WorkerHost {
           });
           return false;
         })) ?? false;
+    // Startup asks between the two files, as it does between its steps.
+    if (!goingOn()) return;
     // Nor this: the proxy is. Without it an install fails. A Go module named
     // private with no route to it would go to github.com directly.
     await this.options
@@ -1211,6 +1224,9 @@ export class WorkerHost {
               "Stopped before the gateway accepted this worker's first call",
           };
         }
+        // Read the clock, not the race: on a stalled event loop the answer
+        // is handled before the timer that was due earlier.
+        if (performance.now() >= leaseEndsAt) return leaseOver;
         // The lease an answer grants runs from when its request went out.
         if (sentAt + answer.lease_remaining_ms <= performance.now()) {
           return {
