@@ -301,6 +301,7 @@ describe("provider request", () => {
         fetch: ((_input: URL | string, init?: RequestInit) => {
           signals.push(init?.signal);
           return new Promise<Response>((_, reject) => {
+            if (init?.signal?.aborted) reject(new Error("aborted"));
             init?.signal?.addEventListener("abort", () =>
               reject(new Error("aborted")),
             );
@@ -331,7 +332,22 @@ describe("provider request", () => {
       expect(signals).toEqual([deadline.signal]);
       deadline.abort();
       expect(await run).toBe("unreachable");
-      // One address, one attempt: nothing is retried past the deadline.
+    });
+
+    test("the next address is not tried once the deadline has passed", async () => {
+      const { deadline, resolved, signals, request } = controlled();
+      const run = refusal(request("https://idp.example/x", {}, REFUSE));
+      resolved.resolve([
+        { address: "203.0.114.7", family: 4 },
+        { address: "203.0.114.8", family: 4 },
+      ]);
+      await turn();
+      expect(signals).toHaveLength(1);
+      // The first connection fails because time ran out, not because the
+      // address is down.
+      deadline.abort();
+      expect(await run).toBe("unreachable");
+      await turn();
       expect(signals).toHaveLength(1);
     });
 
@@ -340,7 +356,7 @@ describe("provider request", () => {
       const asked: number[] = [];
       AbortSignal.timeout = (ms: number) => {
         asked.push(ms);
-        return original.call(AbortSignal, ms);
+        return new AbortController().signal;
       };
       try {
         const request = createProviderRequest({

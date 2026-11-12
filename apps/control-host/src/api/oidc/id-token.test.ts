@@ -103,6 +103,39 @@ describe("id_token verification", () => {
     ).toBe("ok");
   });
 
+  test("the clock is read once the signature holds: a token that expired while it was checked is refused", async () => {
+    const token = await rsa.sign(claimsWith({ exp: NOW_SECONDS + 1 }));
+    let clock = NOW;
+    const subtle = crypto.subtle;
+    const original = subtle.verify;
+    subtle.verify = async function (
+      this: SubtleCrypto,
+      ...args: Parameters<SubtleCrypto["verify"]>
+    ) {
+      const held = await original.apply(this, args);
+      clock = NOW + 1200;
+      return held;
+    };
+    try {
+      expect(
+        await reasonOf(
+          verifyIdToken(token, {
+            keys: [rsa.jwk],
+            algs: ["RS256"],
+            issuers: [ISSUER],
+            clientId: CLIENT_ID,
+            nonce: NONCE,
+            now: () => clock,
+          }),
+        ),
+      ).toBe("expired");
+    } finally {
+      subtle.verify = original;
+    }
+    // Read in time, the same token is good.
+    expect(await reasonOf(verify(token))).toBe("ok");
+  });
+
   const claimRefusals: [string, Record<string, unknown>, OidcRejection][] = [
     ["another issuer", { iss: "https://evil.example" }, "issuer_mismatch"],
     ["no issuer", { iss: null }, "issuer_mismatch"],
