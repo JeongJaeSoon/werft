@@ -755,6 +755,39 @@ integration("login provider admin store", () => {
     expect(text).not.toContain(SECOND_SECRET);
   });
 
+  test("an update's receipt names what changed as the API names it, and not the values", async () => {
+    const provider = await configured();
+    const updated = await admin.update({
+      id: provider.id,
+      ifMatch: provider.revision,
+      changes: {
+        displayName: "Renamed",
+        // The value it has: not a change.
+        clientId: "client-1",
+        allowedDomains: ["receipt.example"],
+        jitRole: "member",
+        requireVerifiedEmail: false,
+      },
+      audit: audit(),
+    });
+    if (updated.outcome !== "updated") throw new Error(updated.outcome);
+    const last = (await receiptsOf(provider.id)).at(-1);
+    expect(last).toMatchObject({
+      operation: "update_login_provider",
+      result: {
+        provider_id: provider.id,
+        fields: [
+          "allowed_domains",
+          "display_name",
+          "jit_role",
+          "require_verified_email",
+        ],
+        config_revision: updated.provider.configRevision,
+      },
+    });
+    expect(JSON.stringify(last?.result)).not.toContain("receipt.example");
+  });
+
   test("a preview of who would come in makes nothing", async () => {
     const provider = await turnedOn();
     const methodId = randomUUID();

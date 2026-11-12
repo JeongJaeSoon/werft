@@ -423,7 +423,12 @@ export function createPostgresLoginProviderAdminStore(
           .returning();
         if (!updated) throw new Error("login provider update returned no row");
         await writeReceipt(tx, input.audit, "update_login_provider", row.id, {
-          fields: fields.sort(),
+          // Named as the API names them.
+          fields: fields
+            .map((field) =>
+              field.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`),
+            )
+            .sort(),
           config_revision: updated.configRevision,
         });
         return {
