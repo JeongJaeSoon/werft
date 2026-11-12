@@ -3031,7 +3031,7 @@ export class WorkerHost {
         this.logger.warn("worker.approval_checkpoint.failed", {
           reason: describe(error),
         });
-        return null;
+        return { failed: "capture_failed" };
       } finally {
         clearTimeout(timer);
       }
@@ -3043,7 +3043,9 @@ export class WorkerHost {
           reason: ref === null ? "capture_refused" : "deadline",
           elapsed_ms: elapsedMs,
         });
-        return null;
+        return {
+          failed: ref === null ? "capture_failed" : "capture_timed_out",
+        };
       }
       this.logger.info("worker.approval_checkpoint.captured", {
         revision: ref.revision,

@@ -1,4 +1,7 @@
-import type { StatusEventPhase } from "../api/event.ts";
+import type {
+  ApprovalCheckpointFailure,
+  StatusEventPhase,
+} from "../api/event.ts";
 import {
   eventEngineEvent,
   eventText,
@@ -38,6 +41,7 @@ export type TurnEventMessageKey =
   | "session.event.error.modelNotAllowed"
   | "session.event.error.modelConnectionRemoved"
   | "session.event.modelMigrated"
+  | `session.event.approvalCheckpointFailed.${ApprovalCheckpointFailure}`
   | "session.event.init"
   | "session.event.vcsChanged"
   | "session.event.thinkingTokens"
@@ -285,6 +289,19 @@ function system(data: Record<string, unknown>): TurnEventPresentation {
             from: clip(data.from),
             to: clip(data.to),
           }),
+        ],
+      };
+    }
+    if (
+      data.subtype === "approval_checkpoint_failed" &&
+      (data.reason === "capture_failed" ||
+        data.reason === "capture_timed_out" ||
+        data.reason === "verification_failed")
+    ) {
+      return {
+        label,
+        summary: [
+          message(`session.event.approvalCheckpointFailed.${data.reason}`),
         ],
       };
     }

@@ -4,7 +4,10 @@ import {
   postSessionAnswerRequestSchema,
   rememberRuleSchema,
 } from "../api/answer.ts";
-import { sessionEventVariants } from "../api/event.ts";
+import {
+  approvalCheckpointFailureSchema,
+  sessionEventVariants,
+} from "../api/event.ts";
 import { pendingQuestionSchema } from "../api/pending.ts";
 import {
   PERMISSION_RULE_MAX_LENGTH,
@@ -892,8 +895,21 @@ export const registerPendingRequestSchema = workerScopeSchema
       .extend({ answers_through: z.number().int().nonnegative() })
       .strict()
       .optional(),
+    // Why the request goes without the approval-wait checkpoint the worker
+    // tried to take for it. A new row records it as an
+    // `approval_checkpoint_failed` event; a replay records nothing. Absent
+    // when none was tried. Servers deploy first, as for `checkpoint`.
+    checkpoint_failure: approvalCheckpointFailureSchema.optional(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (body) =>
+      body.checkpoint === undefined || body.checkpoint_failure === undefined,
+    {
+      message: "checkpoint and checkpoint_failure are exclusive",
+      path: ["checkpoint_failure"],
+    },
+  );
 // `expires_in_ms` is what is left, measured on the server's clock: a replay
 // never restarts the lifetime, and the worker needs no clock agreement to
 // know how long answers are still accepted.

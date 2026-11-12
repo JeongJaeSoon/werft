@@ -1,4 +1,5 @@
 import {
+  approvalCheckpointFailedEventDataSchema,
   auditIdOf,
   INVALID_TOOL_NAME,
   mcpServerOf,
@@ -337,6 +338,24 @@ export function createPostgresWorkerPendingStore(
               now: at,
             });
           }
+        }
+        if (input.checkpointFailure !== undefined) {
+          // Written once, with the row: a replay returns above. Unlike the
+          // session's pending reason, the next committed checkpoint leaves
+          // it in the stream.
+          await recordEvent(tx, {
+            sessionId: fence.sessionId,
+            type: "system",
+            payload: approvalCheckpointFailedEventDataSchema.parse({
+              type: "system",
+              subtype: "approval_checkpoint_failed",
+              request_id: input.requestId,
+              reason: input.checkpointFailure,
+            }),
+            turnRowId: turn.id,
+            attemptId: fence.attemptId,
+            now: at,
+          });
         }
         return {
           outcome: "registered",

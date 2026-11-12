@@ -149,6 +149,9 @@ export type RegisterPendingInput = {
   // The approval-wait checkpoint taken while the engine waits on this
   // request, already verified like a finalize's.
   checkpoint?: ApprovalCheckpointCommit;
+  // Why it waits without one the worker tried to take: a new row records
+  // the `approval_checkpoint_failed` event with it.
+  checkpointFailure?: RegisterPendingRequest["checkpoint_failure"];
 };
 
 export type ApprovalCheckpointCommit = {

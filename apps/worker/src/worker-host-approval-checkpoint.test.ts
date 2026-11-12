@@ -195,9 +195,55 @@ describe("WorkerHost approval-wait checkpoints", () => {
     const { end } = await waiting(run, gateway, worker);
 
     expect(gateway.registrations[0]?.checkpoint).toBeUndefined();
+    expect(gateway.registrations[0]?.checkpoint_failure).toBe(
+      "capture_timed_out",
+    );
     expect(run.heldApprovalLeases).toBe(0);
     expect(run.admissionGuard).toBeUndefined();
     expect(log).toContain("worker.approval_checkpoint.skipped");
+    await end();
+  });
+
+  test("registers saying so when the capture takes no checkpoint", async () => {
+    const run = checkpointingRun();
+    const { gateway, worker } = host(run, async () => null);
+    const { end } = await waiting(run, gateway, worker);
+
+    expect(gateway.registrations[0]?.checkpoint).toBeUndefined();
+    expect(gateway.registrations[0]?.checkpoint_failure).toBe("capture_failed");
+    expect(run.heldApprovalLeases).toBe(0);
+    await end();
+  });
+
+  test("registers saying so when the capture throws", async () => {
+    const run = checkpointingRun();
+    const { gateway, worker } = host(run, async () => {
+      throw new Error(
+        "The transcript mirror failed and the gateway did not record it",
+      );
+    });
+    const { end } = await waiting(run, gateway, worker);
+
+    expect(gateway.registrations[0]?.checkpoint).toBeUndefined();
+    expect(gateway.registrations[0]?.checkpoint_failure).toBe("capture_failed");
+    expect(run.heldApprovalLeases).toBe(0);
+    await end();
+  });
+
+  test("registers with nothing to say when no capture is tried", async () => {
+    const run = checkpointingRun();
+    // The run is not at a point it can be captured: no lease is granted.
+    run.approvalWait = undefined;
+    let captures = 0;
+    const { gateway, worker } = host(run, async () => {
+      captures += 1;
+      return REF;
+    });
+    const { end } = await waiting(run, gateway, worker);
+
+    expect(captures).toBe(0);
+    expect(gateway.registrations[0]).not.toHaveProperty("checkpoint");
+    expect(gateway.registrations[0]).not.toHaveProperty("checkpoint_failure");
     await end();
   });
 
@@ -218,6 +264,9 @@ describe("WorkerHost approval-wait checkpoints", () => {
       { ...REF, answers_through: 0 },
       undefined,
     ]);
+    expect(
+      gateway.registrations.map((entry) => entry.checkpoint_failure),
+    ).toEqual([undefined, "verification_failed"]);
     await until(() => run.heldApprovalLeases === 0, "the lease release");
     // Nothing committed it, so nothing guards the next tool.
     expect(run.admissionGuard).toBeUndefined();
