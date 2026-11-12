@@ -21,7 +21,7 @@
 
 ## Driving it with lib.sh
 
-Preconditions: `up.sh infra/compose.mock-slack.yml`로 띄웠다(Orca에서는 `orch heavy <program> -- …`). 4(Slack)를 몰 run이면 같은 호출에서 버리는 master key도 넘긴다(4의 첫 줄). 1(Google)은 api를 다른 Bash 호출에서 다시 만들어 그 key를 잃으므로, 1과 4는 서로 다른 run에서 한다(1은 key 없는 run, 4는 key로 띄운 run). owner bootstrap 뒤 `ap_web POST /v1/auth/login`(bootstrap은 cookie를 주지 않는다), member 초대·수락. `orch hold browser --note "<what>"`.
+Preconditions: `up.sh infra/compose.mock-slack.yml`로 띄웠다(Orca에서는 `orch heavy <program> -- …`). 4(Slack)를 몰 run이면 같은 호출에서 버리는 master key도 넘긴다(4의 첫 줄). 1(Google)은 api를 다른 Bash 호출에서 다시 만들어 그 key를 잃으므로, 1과 4는 서로 다른 run에서 한다(1은 버리는 key를 넘기지 않은 run, 4는 넘겨서 띄운 run). owner bootstrap 뒤 `ap_web POST /v1/auth/login`(bootstrap은 cookie를 주지 않는다), member 초대·수락. `orch hold browser --note "<what>"`.
 
 1. **Google 선택지.** 기본 스택은 Google이 꺼져 있다(`login-methods` → `["password"]`). 켜려면 host에서 mock IdP를 띄우고(PID를 적는다) api만 Google env로 다시 만든다. 이때 `COMPOSE_FILE`에 `infra/compose.fake-model.yml`을 꼭 더하고(빠지면 api가 `ANTHROPIC_API_KEY`를 찾다 죽는다), api 포트를 run의 포트로 고정한다(빠지면 새 임의 포트로 떠 `$API`가 어긋난다).
 
