@@ -74,7 +74,7 @@ jobs:
           persist-credentials: false
       - id: plan
         env:
-          OLD: ${{ inputs.old }}
+          OLD: ${{ inputs.old || 'main-4ee0360df7d4' }}
           RELEASE_TAG: ${{ inputs.release_tag }}
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
