@@ -459,6 +459,7 @@ function fitted(lines: string[], budget: number): string[] {
   if (bytes(joined) <= budget) return lines;
   const mark = " [cut to fit]";
   const share = Math.floor((budget - (lines.length - 1)) / lines.length);
+  if (share <= bytes(mark)) return dropped(lines, budget);
   return lines.map((line) => {
     if (bytes(line) <= share) return line;
     let cut = "";
@@ -470,6 +471,22 @@ function fitted(lines: string[], budget: number): string[] {
     }
     return cut + mark;
   });
+}
+
+// So many lines that an equal share leaves no room even for the mark: whole
+// lines are kept in order while they fit and the rest are counted on one
+// closing line. The closing line is sized for the most it could count.
+function dropped(lines: string[], budget: number): string[] {
+  const closing = (count: number) => `… ${count} more answers cut`;
+  let left = budget - bytes(closing(lines.length));
+  const kept: string[] = [];
+  for (const line of lines) {
+    const size = bytes(line) + 1;
+    if (size > left) continue;
+    kept.push(line);
+    left -= size;
+  }
+  return [...kept, closing(lines.length - kept.length)];
 }
 
 /**
