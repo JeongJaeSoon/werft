@@ -78,13 +78,18 @@ if [ -n "$old" ]; then
   exit 0
 fi
 
-newest="$(gh release list --exclude-drafts --exclude-pre-releases --limit 50 \
-  --json tagName,publishedAt --jq 'sort_by(.publishedAt) | reverse | .[].tagName' |
-  grep -vxF "${release_tag:-//none//}" | head -n "$SUPPORT_WINDOW" || true)"
+# A failed lookup must fail the gate, not read as an empty window.
+releases="$(gh release list --exclude-drafts --exclude-pre-releases --limit 50 \
+  --json tagName,publishedAt --jq 'sort_by(.publishedAt) | reverse | .[].tagName')"
+newest="$(grep -vxF "${release_tag:-//none//}" <<<"$releases" | head -n "$SUPPORT_WINDOW" || true)"
 [ -n "$newest" ] || skip "no published release${release_tag:+ other than ${release_tag}}."
 set_json="$(from_release "$newest")"
 commit="$(jq -r '.commit' <<<"$set_json")"
-if ! git merge-base --is-ancestor "$FLOOR_COMMIT" "$commit"; then
-  skip "the newest release ${newest} (${commit}) was built before ${FLOOR_COMMIT}, the oldest commit the support window serves; its workers are outside the window."
-fi
+status=0
+git merge-base --is-ancestor "$FLOOR_COMMIT" "$commit" || status=$?
+case "$status" in
+  0) ;;
+  1) skip "the newest release ${newest} (${commit}) was built before ${FLOOR_COMMIT}, the oldest commit the support window serves; its workers are outside the window." ;;
+  *) echo "::error::cannot tell whether ${newest} (${commit}) contains ${FLOOR_COMMIT}"; exit 1 ;;
+esac
 emit "[${set_json}]" "$newest"

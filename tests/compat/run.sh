@@ -127,7 +127,9 @@ cleanup() {
       docker logs --timestamps "$id" >"$out/workers/${id}.log" 2>&1 || true
     done
     docker compose -p "$project" "${files[@]}" "${overlays[@]}" --profile apps \
-      down -v --remove-orphans >/dev/null 2>&1 || true
+      down -v --remove-orphans --rmi local >/dev/null 2>&1 || true
+    # Named, so --rmi local keeps it: this checkout's control-host build.
+    [ -n "$new_control_host" ] || docker image rm -f "werft-control-host:${project}-new" >/dev/null 2>&1 || true
     ids="$(docker ps -aq --filter "label=werft.installation=${EXECUTION_INSTALLATION_ID}")"
     [ -z "$ids" ] || docker rm -f $ids >/dev/null 2>&1 || true
     ids="$(docker network ls -q --filter "label=werft.installation=${EXECUTION_INSTALLATION_ID}")"
