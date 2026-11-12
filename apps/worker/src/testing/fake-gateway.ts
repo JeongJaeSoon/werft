@@ -130,8 +130,20 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
   /** How each registered request ended, as the worker reported it. */
   readonly settled: PendingSettlement[] = [];
   credential: string | undefined;
-  /** Set to make the next heartbeat answer with this code. */
+  /**
+   * Set to make every heartbeat after a claim's first one answer with this
+   * code: the lease or the token lost under a worker that had started. The
+   * first one is the worker's activation, answered by `activationFailures`.
+   */
   heartbeatFailure: ApiErrorCode | undefined;
+  /**
+   * Thrown by the first heartbeat after a claim, one each, in order: the
+   * activation refused or left unanswered. Accepted once this is empty.
+   */
+  readonly activationFailures: WorkerGatewayRequestError[] = [];
+  /** Awaited before an activation is answered either way. */
+  activationHold: Promise<void> | undefined;
+  private activated = false;
   /** Reported back by every heartbeat; raising it fences the worker out. */
   authRevision = 0;
   /**
@@ -358,6 +370,7 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
     request: BootstrapClaimRequest,
   ): Promise<BootstrapClaimResponse> {
     this.calls.push("bootstrapClaim");
+    this.activated = false;
     return {
       session_id: this.options.sessionId,
       turn_id: null,
@@ -448,7 +461,12 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
         for (const wake of this.waiting.splice(0)) wake();
       }
     }
-    if (this.heartbeatFailure !== undefined) {
+    if (!this.activated) {
+      await this.activationHold;
+      const refusal = this.activationFailures.shift();
+      if (refusal !== undefined) throw refusal;
+      this.activated = true;
+    } else if (this.heartbeatFailure !== undefined) {
       throw new WorkerGatewayRequestError(
         this.heartbeatFailure === "UNAUTHORIZED" ? 401 : 409,
         this.heartbeatFailure,

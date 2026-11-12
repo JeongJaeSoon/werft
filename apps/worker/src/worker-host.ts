@@ -310,6 +310,9 @@ function parkReadinessOf(run: AgentRun): ParkReadiness {
 const TELEMETRY_SHUTDOWN_MS = 1_500;
 const CLAIM_RETRY_MS = 1_000;
 const GATEWAY_RETRY_MS = 500;
+
+/** What is left of a lease, counted from when the request it answered went out. */
+type ClaimedLease = { remainingMs: number; sentAt: number };
 const CHECKPOINT_PROCESS_GRACE_MS = 1_000;
 const CHECKPOINT_PROCESS_POLL_MS = 20;
 /** How long an interrupted engine gets to produce its terminal frame. */
@@ -469,36 +472,9 @@ export class WorkerHost {
   }
 
   async runLoop(): Promise<WorkerRunSummary> {
-    const claimed = await this.claim();
-    if (claimed === null) {
-      return {
-        outcome: "unclaimed",
-        reason:
-          this.stopping?.reason ?? "No session was waiting for this worker",
-        turns: [],
-      };
-    }
-    const { claim } = claimed;
-    this.claimValue = claim;
-    this.workspaceEnforce =
-      claim.workspace_enforce ?? DEFAULT_WORKSPACE_ENFORCE;
-    this.options.gateway.useCredential(claim.session_credential);
-    this.options.objectStoreAccess?.useToken(claim.object_store.access.token);
-    this.scopeValue = {
-      session_id: claim.session_id,
-      turn_id: null,
-      attempt_id: claim.attempt_id,
-      lease_epoch: claim.lease_epoch,
-      execution_generation: claim.execution_generation,
-      auth_revision: claim.auth_revision,
-    };
-    this.grants = [...(claim.grants ?? [])];
-    this.checkpointRevision = claim.restore?.revision ?? null;
-    this.logger.info("worker.claimed", {
-      session_id: claim.session_id,
-      attempt_id: claim.attempt_id,
-      restore_revision: claim.restore?.revision ?? null,
-    });
+    const owned = await this.claimAndActivate();
+    if ("outcome" in owned) return owned;
+    const { claim, lease } = owned;
     // Attribution, not a boundary: commits without it still go through.
     await this.options.gitTrailers?.(claim).catch((error: unknown) =>
       this.logger.warn("worker.git_trailers.not_written", {
@@ -603,7 +579,7 @@ export class WorkerHost {
       scope: () => this.scope,
       attemptState: () => this.attemptState,
       intervalMs: this.options.timeouts.heartbeatIntervalMs,
-      lease: { remainingMs: claim.lease_remaining_ms, sentAt: claimed.sentAt },
+      lease,
       safetyMarginMs:
         this.options.timeouts.leaseSafetyMarginMs ?? LEASE_SAFETY_MARGIN_MS,
       onLost: (reason, error) => this.lose(reason, error),
@@ -1073,6 +1049,165 @@ export class WorkerHost {
     });
     this.stopping = undefined;
     this.stop({ kind: "paused", reason: "Paused; the execution is released" });
+  }
+
+  /**
+   * The claim, activated: the gateway has accepted one fenced call made with
+   * the claim's credential, which moves the attempt out of `allocated`. From
+   * then on the launch nonce opens nothing. The nonce stays readable in this
+   * container's environ (PID 1 holds it too) by whatever the engine runs, so
+   * nothing is written to disk and no child process starts before this
+   * returns a claim.
+   *
+   * A refusal means a duplicate of the claim request landed late and rotated
+   * the credential away: while the attempt is unstarted, claiming once more
+   * returns the one that works. A second refusal ends the worker.
+   */
+  private async claimAndActivate(): Promise<
+    { claim: BootstrapClaimResponse; lease: ClaimedLease } | WorkerRunSummary
+  > {
+    for (let reclaimed = false; ; reclaimed = true) {
+      let claimed: Awaited<ReturnType<WorkerHost["claim"]>>;
+      try {
+        claimed = await this.claim();
+      } catch (error) {
+        // The first claim fails the way it always has. One made to recover
+        // the credential is refused when the session moved on meanwhile.
+        if (!reclaimed || !(error instanceof WorkerGatewayRequestError)) {
+          throw error;
+        }
+        return this.unactivated("lease_lost", describe(error));
+      }
+      if (claimed === null) {
+        return {
+          outcome: "unclaimed",
+          reason:
+            this.stopping?.reason ?? "No session was waiting for this worker",
+          turns: [],
+        };
+      }
+      const { claim } = claimed;
+      this.claimValue = claim;
+      this.workspaceEnforce =
+        claim.workspace_enforce ?? DEFAULT_WORKSPACE_ENFORCE;
+      this.options.gateway.useCredential(claim.session_credential);
+      this.options.objectStoreAccess?.useToken(claim.object_store.access.token);
+      this.scopeValue = {
+        session_id: claim.session_id,
+        turn_id: null,
+        attempt_id: claim.attempt_id,
+        lease_epoch: claim.lease_epoch,
+        execution_generation: claim.execution_generation,
+        auth_revision: claim.auth_revision,
+      };
+      this.grants = [...(claim.grants ?? [])];
+      this.checkpointRevision = claim.restore?.revision ?? null;
+      this.logger.info("worker.claimed", {
+        session_id: claim.session_id,
+        attempt_id: claim.attempt_id,
+        restore_revision: claim.restore?.revision ?? null,
+      });
+      const activation = await this.activate(claimed);
+      if (activation.kind === "accepted") {
+        return { claim, lease: activation.lease };
+      }
+      if (
+        activation.kind === "refused" &&
+        !reclaimed &&
+        this.stopping === undefined
+      ) {
+        this.logger.warn("worker.activation.reclaiming", {
+          reason: activation.reason,
+        });
+        continue;
+      }
+      return this.unactivated(
+        activation.kind === "abandoned"
+          ? "drained"
+          : activation.kind === "failed"
+            ? "failed"
+            : "lease_lost",
+        activation.reason,
+      );
+    }
+  }
+
+  /**
+   * One `starting` heartbeat under the claim's fence, answered. Unlike the
+   * heartbeat loop's beats, which survive a refusal or a silence, this one
+   * says which it was: startup goes on only after the gateway said yes.
+   * An answer that never came is asked for again with the same credential,
+   * never by claiming again: the beat that went unanswered may have landed,
+   * and then the claim would be refused.
+   */
+  private async activate(claimed: {
+    claim: BootstrapClaimResponse;
+    sentAt: number;
+  }): Promise<
+    | { kind: "accepted"; lease: ClaimedLease }
+    | { kind: "refused" | "lost" | "abandoned" | "failed"; reason: string }
+  > {
+    const leaseEndsAt = claimed.sentAt + claimed.claim.lease_remaining_ms;
+    for (;;) {
+      const sentAt = performance.now();
+      if (sentAt >= leaseEndsAt) {
+        return {
+          kind: "lost",
+          reason:
+            "The claim's lease ran out before the gateway accepted this worker's first call",
+        };
+      }
+      try {
+        const answer = await this.untilStopGraceSpent(
+          this.options.gateway.heartbeat({
+            ...this.scope,
+            attempt_state: "starting",
+          }),
+        );
+        if (answer === undefined) {
+          return {
+            kind: "abandoned",
+            reason:
+              this.stopping?.reason ??
+              "Stopped before the gateway accepted this worker's first call",
+          };
+        }
+        return {
+          kind: "accepted",
+          lease: { remainingMs: answer.lease_remaining_ms, sentAt },
+        };
+      } catch (error) {
+        if (!(error instanceof WorkerGatewayRequestError)) throw error;
+        if (isOwnershipLost(error)) {
+          return {
+            kind:
+              error.code === "UNAUTHORIZED" || error.code === "STALE_EPOCH"
+                ? "refused"
+                : "lost",
+            reason: describe(error),
+          };
+        }
+        if (!isRetryable(error)) {
+          return { kind: "failed", reason: describe(error) };
+        }
+        if (this.stopping !== undefined) {
+          return { kind: "abandoned", reason: this.stopping.reason };
+        }
+        this.logger.warn("worker.activation.retry", {
+          reason: describe(error),
+        });
+        await this.sleep(GATEWAY_RETRY_MS);
+      }
+    }
+  }
+
+  /** How a worker that never got past activation ends: nothing was started. */
+  private unactivated(
+    outcome: "drained" | "failed" | "lease_lost",
+    reason: string,
+  ): WorkerRunSummary {
+    this.logger.error("worker.activation.not_accepted", { outcome, reason });
+    return { outcome, reason, turns: [] };
   }
 
   /** The claim, with the monotonic instant the request that won it went out. */
