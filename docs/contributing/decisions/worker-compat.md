@@ -1,6 +1,6 @@
 # 결정(설계): 새 control-host와 지원 창 안 옛 worker의 호환 계약
 
-- 상태: **제안.** 오너 방향(2026-11-13): "1090　을 그냥 이번에 진행해도 좋을거 같은데 어때?"
+- 상태: **승인(Codex 설계 리뷰 3회차).** 오너 방향(2026-11-13): "1090　을 그냥 이번에 진행해도 좋을거 같은데 어때?"
 - 기준 커밋: `origin/main` `4fd9d19e7`. `파일:줄`은 모두 이 커밋 기준이다.
 - 앞선 결정: 프로필 제거 릴리스만 control-host와 worker를 한 upgrade로 함께 올린다([프로필 제거 릴리스의 업그레이드 순서](../../../apps/docs/content/docs/run-server/self-hosting/upgrade-compose.mdx)).
 
@@ -55,7 +55,7 @@
 
 ### 3.1 무엇을 고정하나
 
-`packages/contracts/src/worker-protocol/compat/baseline.json` 하나에 직전 지원 릴리스의 worker protocol을 담는다.
+`tests/fixtures/worker-protocol-baseline.json` 하나에 직전 지원 릴리스의 worker protocol을 담는다.
 
 - 경로마다 `request`와 `response`, 모든 경로에 공통인 `error`(`apiErrorResponseSchema`). 값은 `z.toJSONSchema(schema, { io: "input" })`다. 옛 worker가 응답을 읽을 때 받아들이는 모양은 그 schema의 입력 쪽이다. 옛 worker가 보내는 요청은 파싱을 거치지 않으므로 요청 schema의 입력은 실제 전송값의 근사다(3.3).
 - 경로·방향마다 JSON Schema가 담지 못하는 구성의 목록(`opaque`): `refine`·`superRefine`, `transform`·`preprocess`(pipe), `catch`, `custom`, `lazy`의 위치와 종류, 함수 본문을 알 수 있으면(`refine`) 그 본문의 sha256.
@@ -76,7 +76,7 @@
 | 경로 | 고정본의 경로 | 현재 경로 표 | 경로 제거 |
 | 손실 구성 | 고정본의 `opaque` | 현재의 `opaque` | refine 등의 추가·제거·본문 변경 |
 
-비교기(`schema-subset.ts`)는 zod가 내보내는 키워드만 안다: `type`, `properties`, `required`, `additionalProperties`, `propertyNames`, `enum`, `const`, `anyOf`, `oneOf`, `items`, `prefixItems`, `minItems`·`maxItems`, `minLength`·`maxLength`, `minimum`·`maximum`·`exclusiveMinimum`·`exclusiveMaximum`, `pattern`, `format`.
+비교기(`scripts/lib/schema-subset.ts`, 시험 `tests/schema-subset.test.ts`, 계약 시험 `tests/worker-protocol-compat.test.ts`)는 zod가 내보내는 키워드만 안다: `type`, `properties`, `required`, `additionalProperties`, `propertyNames`, `enum`, `const`, `anyOf`, `oneOf`, `items`, `prefixItems`, `minItems`·`maxItems`, `minLength`·`maxLength`, `minimum`·`maximum`·`exclusiveMinimum`·`exclusiveMaximum`, `pattern`, `format`.
 
 - 받는 쪽에 모르는 키워드가 있으면 양쪽 값이 같을 때만 통과한다. `$ref`·`$defs`는 비교하지 않고 실패로 둔다(재귀 schema는 지금 없다).
 - `pattern`과 `format`은 글자가 같아야 통과한다(정규식의 포함 관계는 판정하지 않는다).
@@ -95,7 +95,7 @@
 
 ### 3.4 인정된 차이
 
-`compat/accepted.ts`의 목록에 든 차이만 통과한다. 항목은 `{ problem, why, proof }`다. `problem`은 시험이 낸 문구 그대로, `proof`는 그 차이가 옛 worker를 깨지 않음을 보이는 시험 파일이다(예: capability가 없는 worker에게는 그 칸을 보내지 않는다는 gateway 시험). 시험은 목록의 항목이 아직 실제 차이와 맞는지, `proof` 파일이 있는지도 확인한다. 고정본을 갱신하면 낡은 항목이 실패로 드러나 지워진다.
+`scripts/lib/worker-protocol-accepted.ts`의 목록에 든 차이만 통과한다. 항목은 `{ problem, why, proof }`다. `problem`은 시험이 낸 문구 그대로, `proof`는 그 차이가 옛 worker를 깨지 않음을 보이는 시험 파일이다(예: capability가 없는 worker에게는 그 칸을 보내지 않는다는 gateway 시험). 시험은 목록의 항목이 아직 실제 차이와 맞는지, `proof` 파일이 있는지도 확인한다. 고정본을 갱신하면 낡은 항목이 실패로 드러나 지워진다.
 
 ### 3.5 고정본을 바꾸는 때(결정 A, 오케스트레이터 2026-11-13)
 
@@ -176,3 +176,4 @@ CI 시간은 4.2의 실측 뒤 다시 본다. 지원 창 약속(현재+직전)�
 
 - Codex 설계 리뷰 1회차(2026-11-13): REJECT, 11건. 반영: 요청 비파싱과 열린 객체(1), 손실 구성 목록(2), capability 협상과 인정 목록(3), pause·generation·이력으로 재개 확인(4), 현재·직전 선택은 범위 밖으로 명시(5), compat overlay와 시간 추정 표시(6), staging digest 시험(7), migration 조건 두 릴리스(8), JSON 밖의 약속(9), manifest 근거 수정(10), 요청 제거 순서(11 앞부분). 받지 않음: 11 뒷부분(3.5).
 - Codex 설계 리뷰 2회차: REJECT. 1·3·4·5·6·8·10·11 해결, 2·7·9 부분. 새 지적 2건. 반영: 자동 릴리스 길(`release-approve`)에도 gate를 건다(4.3), 설계를 N=1에 묶고 N을 늘릴 때 함께 바꿀 것을 적는다(무엇을 골랐나 1), 잡지 못하는 손실 구성을 구체적으로 적는다(3.3), 매트릭스가 실행하지 않는 경로를 남은 위험으로 적는다(4.1), 현재·직전 선택의 근거를 scheduler 단위 시험으로 고친다. 3.5 반론(결정 A)은 Codex가 동의했다.
+- Codex 설계 리뷰 3회차: **APPROVE.** 2회차 지적이 모두 해결됐고 새 BLOCKER·MAJOR가 없다. 자동 릴리스 gate를 `index-main`·`release-detect` 뒤, `release-approve` 앞에 두어도 순환이 없고, `index-main`의 digest가 `promote-release`가 승격하는 digest임을 확인했다.

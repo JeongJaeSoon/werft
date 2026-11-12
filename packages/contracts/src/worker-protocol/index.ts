@@ -1481,3 +1481,71 @@ export function budgetEndedTerminal(
 export type FinalizeResponse = z.infer<typeof finalizeResponseSchema>;
 export type ReleaseRequest = z.infer<typeof releaseRequestSchema>;
 export type ReleaseResponse = z.infer<typeof releaseResponseSchema>;
+
+// Every POST under /internal/worker. The control-host registers exactly
+// these, and the compatibility baseline (./compat) is keyed by them: a worker
+// still in the support window calls the routes and reads the responses of
+// its own release (docs/contributing/decisions/worker-compat.md).
+export const WORKER_PROTOCOL_ROUTES = {
+  "/bootstrap-claim": {
+    request: bootstrapClaimRequestSchema,
+    response: bootstrapClaimResponseSchema,
+  },
+  "/next-input": {
+    request: nextInputRequestSchema,
+    response: nextInputResponseSchema,
+  },
+  "/heartbeat": {
+    request: heartbeatRequestSchema,
+    response: heartbeatResponseSchema,
+  },
+  "/append-events": {
+    request: appendEventsRequestSchema,
+    response: appendEventsResponseSchema,
+  },
+  "/checkpoint-request": {
+    request: checkpointRequestSchema,
+    response: checkpointRequestResponseSchema,
+  },
+  "/protected-commits": {
+    request: protectedCommitsRequestSchema,
+    response: protectedCommitsResponseSchema,
+  },
+  "/restore-plan": {
+    request: restorePlanRequestSchema,
+    response: restorePlanResponseSchema,
+  },
+  "/ready": {
+    request: workerReadyRequestSchema,
+    response: workerReadyResponseSchema,
+  },
+  "/register-pending": {
+    request: registerPendingRequestSchema,
+    response: registerPendingResponseSchema,
+  },
+  "/pending-control": {
+    request: pendingControlRequestSchema,
+    response: pendingControlResponseSchema,
+  },
+  "/park-declined": {
+    request: parkDeclinedRequestSchema,
+    response: parkDeclinedResponseSchema,
+  },
+  "/request-park": {
+    request: requestParkRequestSchema,
+    response: requestParkResponseSchema,
+  },
+  "/invalidate-approval-checkpoint": {
+    request: invalidateApprovalCheckpointRequestSchema,
+    response: invalidateApprovalCheckpointResponseSchema,
+  },
+  "/finalize": {
+    request: finalizeRequestSchema,
+    response: finalizeResponseSchema,
+  },
+  "/release": {
+    request: releaseRequestSchema,
+    response: releaseResponseSchema,
+  },
+} as const;
+export type WorkerProtocolRoute = keyof typeof WORKER_PROTOCOL_ROUTES;
