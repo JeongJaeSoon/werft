@@ -127,12 +127,14 @@ describe("OpenAPI document", () => {
     const outdir = await mkdtemp(join(tmpdir(), "openapi-bundle-"));
     try {
       // A child `bun build`, as the image smoke runs it, not an in-process
-      // Bun.build: `bun test <relative path>` walks the tree from the cwd to
-      // find test files and leaves directory listings in the process-wide
-      // resolver cache that miss source files. The runtime loader rereads a
-      // directory on a miss but the bundler does not, so an in-process build
-      // failed with "Could not resolve" unless an earlier test file in the
-      // same process had imported @werft-ai/platform.
+      // Bun.build. Under `bun test <relative path>` from the repo root (Bun
+      // 1.3.14), an in-process build could not resolve the existing
+      // scheduler/ and sessions/ files of @werft-ai/platform, unless an
+      // earlier test file in the process had imported that package; with an
+      // absolute path or another cwd it passed. One runtime resolve into
+      // such a directory fixed the build for that directory alone, which
+      // points at a stale directory listing the test run shares with the
+      // bundler and only the runtime loader rereads.
       const build = Bun.spawnSync(
         [
           process.execPath,
