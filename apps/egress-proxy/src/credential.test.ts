@@ -880,6 +880,44 @@ describe("startCredentialProxy", () => {
       expect(carried.status).toBe(200);
     });
 
+    test("a part or tool six levels down is read, one seven levels down is refused unread", async () => {
+      const up = upstream(() => Response.json({ id: "resp_1" }));
+      const auth = authorizer(bearerKey(up));
+      const server = proxy(auth.url, up.port);
+      // `leaf` at `depth` below the top-level array, which is depth 0: the
+      // array's item is depth 1 and each `key` hop goes one deeper.
+      const nested = (key: string, leaf: unknown, depth: number): unknown[] => {
+        let value = leaf;
+        for (let hop = 1; hop < depth; hop += 1) value = { [key]: value };
+        return [value];
+      };
+      const text = { type: "input_text", text: "hi" };
+      const remote = { type: "input_file", file_id: "file_1" };
+      const local = { type: "function", name: "f" };
+      const outside = { type: "web_search" };
+      const status = async (request: Record<string, unknown>) =>
+        (
+          await responses(server.port, {
+            body: JSON.stringify({ model: "gpt-5.5", ...request }),
+          })
+        ).status;
+
+      // Message parts are walked through `content`.
+      expect(await status({ input: nested("content", text, 6) })).toBe(200);
+      expect(await status({ input: nested("content", remote, 6) })).toBe(400);
+      expect(await status({ input: nested("content", text, 7) })).toBe(400);
+      // Tool declarations are walked through `tools`, in `tools` and in `input`.
+      expect(await status({ tools: nested("tools", local, 6) })).toBe(200);
+      expect(await status({ tools: nested("tools", outside, 6) })).toBe(400);
+      expect(await status({ tools: nested("tools", local, 7) })).toBe(400);
+      expect(await status({ input: nested("tools", local, 6) })).toBe(200);
+      expect(await status({ input: nested("tools", outside, 6) })).toBe(400);
+      expect(await status({ input: nested("tools", local, 7) })).toBe(400);
+
+      // Only the three read at depth six and found harmless went upstream.
+      expect(up.seen).toHaveLength(3);
+    });
+
     test("a stored prompt template and a tool that makes the upstream fetch are refused, a local tool is not", async () => {
       const up = upstream(() => Response.json({ id: "resp_1" }));
       const auth = authorizer(bearerKey(up));
