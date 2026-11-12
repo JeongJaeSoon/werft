@@ -20,6 +20,8 @@ import { writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { z } from "zod";
 import {
+  OPENAI_CACHE_WRITE_12H,
+  OPENAI_CACHE_WRITE_30M,
   OPENAI_CARDS,
   type OpenAiRates,
   openAiSpeedMultiplier,
@@ -116,9 +118,6 @@ export type Drift = {
   undercharges: boolean;
 };
 
-const CACHE_WRITE_30M = 1.25;
-const CACHE_WRITE_12H = 2.5;
-
 function same(a: number, b: number): boolean {
   return Math.abs(a - b) <= 1e-9 * Math.max(Math.abs(a), Math.abs(b), 1e-12);
 }
@@ -211,8 +210,8 @@ export function compare(litellm: Record<string, Entry>): Drift[] {
       const write =
         part === "cache_creation_input_token_cost"
           ? twelveHours === undefined
-            ? CACHE_WRITE_30M
-            : CACHE_WRITE_12H
+            ? OPENAI_CACHE_WRITE_30M
+            : OPENAI_CACHE_WRITE_12H
           : 1;
       const ours =
         (cardRates[rate] * write * openAiSpeedMultiplier(model, tier)) / 1e6;
