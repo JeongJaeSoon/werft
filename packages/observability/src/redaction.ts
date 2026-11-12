@@ -30,9 +30,60 @@ export function sanitizeText(value: string): string {
   return secretValue.test(text) || sensitiveText.test(text) ? REDACTED : text;
 }
 
+const secretValues = new RegExp(secretValue.source, "gi");
+const lineBreak = /(\r\n|\r|\n)/;
+
+/**
+ * A multi-line value (a stack, a failed worker's log tail) loses only what
+ * the rules point at, so the lines before it that say why a process failed
+ * survive. A secret-shaped value has an end: the lines it spans go. A key such as
+ * `password:` or `input:` does not say where its value ends, so every line
+ * from it on goes. Hidden lines in a row become one `[REDACTED]`.
+ */
+function sanitizeLines(value: string): string {
+  const text = value.replace(urlLogin, `$1${REDACTED}@`);
+  const named = sensitiveText.exec(text);
+  if (named === null && !secretValue.test(text)) return text;
+
+  const cut =
+    named === null
+      ? text.length
+      : Math.max(
+          text.lastIndexOf("\n", named.index - 1),
+          text.lastIndexOf("\r", named.index - 1),
+        ) + 1;
+  // In order and apart, so one pass over the lines reads them.
+  const ranges: [number, number][] = [];
+  for (const match of text.matchAll(secretValues)) {
+    if (match.index >= cut) break;
+    ranges.push([match.index, match.index + match[0].length]);
+  }
+  ranges.push([cut, Number.POSITIVE_INFINITY]);
+
+  // Alternates line, break, line, …
+  const parts = text.split(lineBreak);
+  let out = "";
+  let at = 0;
+  let next = 0;
+  let hiding = false;
+  for (let i = 0; i < parts.length; i += 2) {
+    const line = parts[i] ?? "";
+    const end = at + line.length;
+    while ((ranges[next]?.[1] ?? Number.POSITIVE_INFINITY) <= at) next++;
+    const range = ranges[next];
+    const hide = range !== undefined && range[0] < end && range[1] > at;
+    if (!(hide && hiding)) {
+      out += (i === 0 ? "" : parts[i - 1]) + (hide ? REDACTED : line);
+    }
+    hiding = hide;
+    at = end + (parts[i + 1]?.length ?? 0);
+  }
+  return out;
+}
+
 function sanitizeValue(value: unknown, includeMessageBodies: boolean): unknown {
   if (typeof value === "string") {
-    return sanitizeText(value);
+    return sanitizeLines(value);
   }
 
   if (Array.isArray(value)) {
