@@ -709,7 +709,63 @@ export type EgressGrant = {
   target: string | null;
   /** The upstream was a `/mcp/<name>` path on the authorizer's listener. */
   builtin: boolean;
+  /** The one request the grant covers (a session title call), when it says. */
+  requestLimits?: RequestLimits;
 };
+
+type RequestLimits = { path: string; model: string; maxTokens: number };
+
+function requestLimitsOf(value: unknown): RequestLimits | null {
+  if (typeof value !== "object" || value === null) return null;
+  const { path, model, max_tokens } = value as Record<string, unknown>;
+  if (
+    typeof path !== "string" ||
+    !PROVIDER_PATHS.has(path) ||
+    typeof model !== "string" ||
+    model === "" ||
+    typeof max_tokens !== "number" ||
+    !Number.isSafeInteger(max_tokens) ||
+    max_tokens < 1
+  ) {
+    return null;
+  }
+  return { path, model, maxTokens: max_tokens };
+}
+
+/**
+ * Why a request is outside its grant's limits; null when it is inside. The
+ * body is read as the upstream would: one JSON object, its `model` and its
+ * `max_tokens`.
+ */
+function outsideLimits(
+  limits: RequestLimits,
+  route: { path: string; search: string },
+  body: Uint8Array | null,
+): string | null {
+  if (route.path !== limits.path || route.search !== "") {
+    return "this grant covers one provider path";
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(new TextDecoder().decode(body ?? undefined));
+  } catch {
+    return "this grant needs a JSON body";
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return "this grant needs a JSON body";
+  }
+  const { model, max_tokens } = parsed as Record<string, unknown>;
+  if (model !== limits.model) return "this grant covers one model";
+  if (
+    typeof max_tokens !== "number" ||
+    !Number.isSafeInteger(max_tokens) ||
+    max_tokens < 1 ||
+    max_tokens > limits.maxTokens
+  ) {
+    return `this grant allows max_tokens up to ${limits.maxTokens}`;
+  }
+  return null;
+}
 
 const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 const HEADER_VALUE = /^[\t\x20-\x7e\x80-\xff]*$/;
@@ -729,10 +785,12 @@ export function parseGrant(
   authorizer?: URL,
 ): EgressGrant | null {
   if (typeof body !== "object" || body === null) return null;
-  const { session_id, attempt_id, judgment_id, upstream } = body as Record<
-    string,
-    unknown
-  >;
+  const { session_id, attempt_id, judgment_id, upstream, request_limits } =
+    body as Record<string, unknown>;
+  const requestLimits =
+    request_limits === undefined ? undefined : requestLimitsOf(request_limits);
+  // A limit it cannot read is a grant it cannot keep to.
+  if (requestLimits === null) return null;
   const session =
     typeof session_id === "string" &&
     typeof attempt_id === "string" &&
@@ -789,6 +847,7 @@ export function parseGrant(
     headers: pairs,
     target: target ?? null,
     builtin,
+    ...(requestLimits === undefined ? {} : { requestLimits }),
   };
 }
 
@@ -2217,6 +2276,23 @@ export function startCredentialProxy(
             purpose: route.purpose,
           });
           return reply(503, "egress token refused", route.purpose);
+        }
+        const limits = authorized.grant.requestLimits;
+        if (limits !== undefined) {
+          const read = whole === null ? null : await whole;
+          const outside = outsideLimits(
+            limits,
+            route,
+            read instanceof Uint8Array ? read : null,
+          );
+          if (outside !== null) {
+            release();
+            logger.warn("Provider call refused: outside its grant's limits", {
+              session_id: authorized.grant.sessionId,
+              path: route.path,
+            });
+            return reply(403, outside, route.purpose);
+          }
         }
         // A session whose spend went unreported has a stored cost below its
         // real one, so the budget gate can no longer be trusted for it.
