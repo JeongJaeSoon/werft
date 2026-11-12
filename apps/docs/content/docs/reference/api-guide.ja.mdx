@@ -157,6 +157,8 @@ wait_for "/v1/receipts/$(echo "$question_answer" | jq -r .receipt_id)" .status s
 
 **期待するレスポンス.** 一覧の `items` には `kind: "permission"` か `kind: "question"` と有効期限があります。回答レスポンスの `approval` には、誰が答えたか(`answered_by`: プリンシパルとその背後の人)、画面(`surface`: `web`、`api`、`slack`)、回答を許した `session.approve` 判断の `decision_id` があります。同じ値は承認の行(`pending_requests`)にも残り、同じ Idempotency-Key で再送すると同じ `approval` が返ります。拒否(`action: "deny"`)の `reason` は任意で、空なら worker は理由なしの拒否としてモデルに伝えます。回答は `receipt_status: "accepted"` で受け付けられ、worker がそれを消費すると receipt は `succeeded`、turn は `completed` になります。worker は次のポーリングで回答の消費を報告するので、turn が先に `completed` になることがあります。receipt を 1 回だけ読まず、`succeeded` を待ってください。
 
+worker はリクエストを待つ間にその地点のチェックポイントを取り、回答前に worker が止まってもそのリクエストを再開できるようにします。このチェックポイントを取ろうとして残せなかったときは、SSE に `system` イベント(`subtype: "approval_checkpoint_failed"`、`request_id`、`reason`)がそのリクエストごとに 1 回届きます。`reason` は `capture_failed`(取れなかった)、`capture_timed_out`(決められた時間内に取れなかった)、`verification_failed`(取ったチェックポイントをコントロールプレーンが検証できなかった)のいずれかです。同じ turn で後に取った承認待ちのチェックポイントがそのリクエストを含まない限り、答える前に worker が止まると turn は `outcome_unknown` になります(7 節の復旧判断)。このイベントは登録時の記録なので、次のチェックポイントが `durability.checkpoint_pending_reason` を消しても残ります。
+
 **よくあるエラー.** 409 `REQUEST_EXPIRED` は、リクエストの期限が切れたか、worker がすでに諦めたことを示すので、新しいセッションか turn でもう一度求めます。404 `NOT_FOUND` は、そのセッションかリクエストが現在のプリンシパルから見えないか、すでに閉じています。承認 scope がないと 403 `FORBIDDEN` です。
 
 ## 4. メッセージを送って turn の状態を読む

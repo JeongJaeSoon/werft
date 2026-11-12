@@ -65,7 +65,28 @@ export const PLATFORM_SYSTEM_SUBTYPE_VALUES = [
   "recovery_decision",
   "transcript_limit_reached",
   "workspace_limit_mode",
+  "approval_checkpoint_failed",
 ] as const;
+// Why an approval request waits without the checkpoint the worker tried to
+// take for it, so a crash during the wait cannot resume it: the capture
+// failed, ran past the wait's time limit, or the control plane could not
+// verify what it captured.
+export const APPROVAL_CHECKPOINT_FAILURE_VALUES = [
+  "capture_failed",
+  "capture_timed_out",
+  "verification_failed",
+] as const;
+export const approvalCheckpointFailureSchema = z.enum(
+  APPROVAL_CHECKPOINT_FAILURE_VALUES,
+);
+export const approvalCheckpointFailedEventDataSchema = z
+  .object({
+    type: z.literal("system"),
+    subtype: z.literal("approval_checkpoint_failed"),
+    request_id: requestIdSchema,
+    reason: approvalCheckpointFailureSchema,
+  })
+  .strict();
 // `parked` when a park commits, `expired` when a parked group's last
 // requests expire, `lost` when the worker that held them went away first.
 // It reports a stage of the wait; each request's own outcome is still the
@@ -305,6 +326,9 @@ export type EngineEventCategory = EngineEvent["category"];
 export type TurnEnd = z.infer<typeof turnEndSchema>;
 export type StatusEventPhase = z.infer<typeof statusEventPhaseSchema>;
 export type InputWaitEventData = z.infer<typeof inputWaitEventDataSchema>;
+export type ApprovalCheckpointFailure = z.infer<
+  typeof approvalCheckpointFailureSchema
+>;
 export type SessionEventPayload = z.infer<typeof sessionEventPayloadSchema>;
 export type SessionEvent = z.infer<typeof sessionEventSchema>;
 export type SseEvent = z.infer<typeof sseEventSchema>;

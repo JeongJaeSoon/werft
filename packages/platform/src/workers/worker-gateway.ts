@@ -2378,6 +2378,9 @@ export function createWorkerGateway(deps: {
           : { announce: request.announce }),
         ttlMs: pendingTtlMs,
         ...(checkpoint === undefined ? {} : { checkpoint }),
+        ...(request.checkpoint_failure === undefined
+          ? {}
+          : { checkpointFailure: request.checkpoint_failure }),
       });
       if (result.outcome === "turn_not_found") {
         throw new WorkerGatewayError(

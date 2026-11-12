@@ -290,6 +290,12 @@ export const sessionsKo = {
     "{from}이(가) 허용 목록에서 빠져 같은 시리즈의 {to}(으)로 옮겼습니다. 다음 턴부터 {to}(으)로 실행됩니다.",
   "session.event.phase.interrupting": "멈추는 중",
   "session.event.phase.engine_stopped": "엔진이 멈춤",
+  "session.event.approvalCheckpointFailed.capture_failed":
+    "이 승인 대기의 체크포인트를 찍지 못했습니다. 뒤에 찍힌 체크포인트가 이 요청을 덮지 않으면, 답하기 전에 실행이 끊길 때 이 요청은 이어 갈 수 없습니다.",
+  "session.event.approvalCheckpointFailed.capture_timed_out":
+    "이 승인 대기의 체크포인트를 정해진 시간 안에 찍지 못했습니다. 뒤에 찍힌 체크포인트가 이 요청을 덮지 않으면, 답하기 전에 실행이 끊길 때 이 요청은 이어 갈 수 없습니다.",
+  "session.event.approvalCheckpointFailed.verification_failed":
+    "이 승인 대기의 체크포인트를 검증하지 못해 남기지 않았습니다. 뒤에 찍힌 체크포인트가 이 요청을 덮지 않으면, 답하기 전에 실행이 끊길 때 이 요청은 이어 갈 수 없습니다.",
   "session.event.init": "세션 시작",
   "session.event.vcsChanged": "작업 트리 변경",
   "session.event.thinkingTokens": "생각 중 ({count})",
@@ -594,6 +600,12 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
     "{from} left the allowed list, so the session moved to {to}, the next model of the same series. It runs on {to} from this turn on.",
   "session.event.phase.interrupting": "Stopping",
   "session.event.phase.engine_stopped": "Engine stopped",
+  "session.event.approvalCheckpointFailed.capture_failed":
+    "The checkpoint for this approval wait could not be taken. Unless a later checkpoint covers this request, it cannot be resumed if the run is cut off before an answer.",
+  "session.event.approvalCheckpointFailed.capture_timed_out":
+    "The checkpoint for this approval wait was not taken in time. Unless a later checkpoint covers this request, it cannot be resumed if the run is cut off before an answer.",
+  "session.event.approvalCheckpointFailed.verification_failed":
+    "The checkpoint for this approval wait could not be verified, so it was not kept. Unless a later checkpoint covers this request, it cannot be resumed if the run is cut off before an answer.",
   "session.event.init": "Session started",
   "session.event.vcsChanged": "Working tree changed",
   "session.event.thinkingTokens": "Thinking ({count})",
@@ -872,6 +884,12 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
     "{from} が許可リストから外れたため、同じシリーズの {to} に切り替えました。このターンから {to} で実行されます。",
   "session.event.phase.interrupting": "停止中",
   "session.event.phase.engine_stopped": "エンジン停止",
+  "session.event.approvalCheckpointFailed.capture_failed":
+    "この承認待ちのチェックポイントを取れませんでした。後のチェックポイントがこのリクエストを含まない限り、回答前に実行が中断されると再開できません。",
+  "session.event.approvalCheckpointFailed.capture_timed_out":
+    "この承認待ちのチェックポイントを決められた時間内に取れませんでした。後のチェックポイントがこのリクエストを含まない限り、回答前に実行が中断されると再開できません。",
+  "session.event.approvalCheckpointFailed.verification_failed":
+    "この承認待ちのチェックポイントを検証できなかったため、残しませんでした。後のチェックポイントがこのリクエストを含まない限り、回答前に実行が中断されると再開できません。",
   "session.event.init": "セッション開始",
   "session.event.vcsChanged": "作業ツリーの変更",
   "session.event.thinkingTokens": "思考中（{count}）",

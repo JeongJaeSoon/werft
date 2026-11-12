@@ -159,6 +159,8 @@ wait_for "/v1/receipts/$(echo "$question_answer" | jq -r .receipt_id)" .status s
 
 **기대 응답.** 목록의 `items`에는 `kind: "permission"` 또는 `kind: "question"`과 만료 시각이 있다. 답변 응답의 `approval`에는 답한 사람(`answered_by`: principal과 그 뒤의 사람), 표면(`surface`: `web`·`api`·`slack`), 답변을 허용한 `session.approve` 판정의 `decision_id`가 있다. 같은 값이 승인 행(`pending_requests`)에 남고, 같은 Idempotency-Key로 다시 보내면 같은 `approval`이 돌아온다. 거부(`action: "deny"`)의 `reason`은 선택이다. 비우면 worker가 모델에 사유 없는 거부를 전한다. 답변은 `receipt_status: "accepted"`로 접수되고, worker가 답을 소비하면 receipt가 `succeeded`, turn이 `completed`가 된다. worker는 답 소비를 다음 poll에 보고하므로 turn이 먼저 `completed`가 될 수 있다. receipt는 한 번 조회하지 말고 `succeeded`까지 기다린다.
 
+worker는 요청을 기다리는 동안 그 지점의 checkpoint를 찍어, 답하기 전에 worker가 멈춰도 그 요청을 이어 갈 수 있게 한다. 이 checkpoint를 찍으려 했으나 남기지 못하면 SSE에 `system` 이벤트(`subtype: "approval_checkpoint_failed"`, `request_id`, `reason`)가 그 요청마다 한 번 온다. `reason`은 `capture_failed`(찍지 못함), `capture_timed_out`(정해진 시간 안에 찍지 못함), `verification_failed`(찍은 checkpoint를 control plane이 검증하지 못함) 중 하나다. 같은 turn에서 뒤에 찍힌 승인 대기 checkpoint가 그 요청을 덮지 않으면, 그 요청에 답하기 전에 worker가 멈출 때 turn은 `outcome_unknown`이 된다(7절의 복구 결정). 이 이벤트는 등록 때의 기록이라, 다음 checkpoint가 `durability.checkpoint_pending_reason`을 지워도 남는다.
+
 **흔한 오류.** 409 `REQUEST_EXPIRED`면 만료되거나 worker가 이미 포기한 요청이므로 새 세션/turn에서 다시 요청한다. 404 `NOT_FOUND`면 현재 principal이 보지 못하는 세션·요청이거나 이미 닫혔다. 승인 scope가 없으면 403 `FORBIDDEN`이다.
 
 ## 4. 메시지 보내기와 turn 상태 보기

@@ -101,10 +101,21 @@ export type ApprovalCapture = {
   settle(maybeCommitted: boolean): void;
 };
 
-/** Takes a checkpoint of the run as it waits on `waiting`; null when none can be. */
+/** A capture was tried and left the request without a checkpoint. */
+export type ApprovalCaptureFailed = {
+  failed: Exclude<
+    NonNullable<RegisterPendingRequest["checkpoint_failure"]>,
+    "verification_failed"
+  >;
+};
+
+/**
+ * Takes a checkpoint of the run as it waits on `waiting`; null when none is
+ * tried, and why not when one was tried and failed.
+ */
 export type ApprovalCheckpointer = (
   waiting: ParkedApproval[],
-) => Promise<ApprovalCapture | null>;
+) => Promise<ApprovalCapture | ApprovalCaptureFailed | null>;
 
 const CANCELLED: Settled = { outcome: "cancelled" };
 const PARK_CANCELLED: Settled = { outcome: "cancelled", reason: "park" };
@@ -506,21 +517,31 @@ export class PendingRequestRegistry {
   private async register(
     requestId: string,
     request: ApprovalRequested,
-    capturing?: Promise<ApprovalCapture | null>,
+    capturing?: Promise<ApprovalCapture | ApprovalCaptureFailed | null>,
   ): Promise<void> {
     let capture: ApprovalCapture | null = null;
+    let failure: RegisterPendingRequest["checkpoint_failure"];
     // A call that carried the checkpoint and did not come back refused may
     // have committed it, whatever this worker heard.
     let carried = false;
     try {
-      capture = (await capturing?.catch(() => null)) ?? null;
-      await this.registerWith(requestId, request, () => capture, {
+      const captured = (await capturing?.catch(() => null)) ?? null;
+      if (captured !== null && "failed" in captured) failure = captured.failed;
+      else capture = captured;
+      const checkpoint = () =>
+        capture === null
+          ? failure === undefined
+            ? {}
+            : { checkpoint_failure: failure }
+          : { checkpoint: capture.ref };
+      await this.registerWith(requestId, request, checkpoint, {
         mayHaveLanded: () => {
           if (capture !== null) carried = true;
         },
         refused: () => {
           capture?.settle(carried);
           capture = null;
+          failure = "verification_failed";
         },
         closed: () => capture?.settle(carried),
       });
@@ -532,7 +553,11 @@ export class PendingRequestRegistry {
   private async registerWith(
     requestId: string,
     request: ApprovalRequested,
-    checkpoint: () => ApprovalCapture | null,
+    /** What the next call carries about the approval-wait checkpoint. */
+    checkpoint: () => Pick<
+      RegisterPendingRequest,
+      "checkpoint" | "checkpoint_failure"
+    >,
     on: {
       mayHaveLanded(): void;
       /** The gateway refused the checkpoint; the request goes on without it. */
@@ -609,7 +634,7 @@ export class PendingRequestRegistry {
     while (!this.stopped && (sent || this.pending.has(requestId))) {
       if (sent && !this.pending.has(requestId)) on.closed();
       sent = true;
-      const capture = checkpoint();
+      const carried = checkpoint();
       try {
         const response = await this.options.gateway.registerPending({
           ...this.options.scope(),
@@ -621,7 +646,7 @@ export class PendingRequestRegistry {
           // reads `announce`: the API ships before the worker image that
           // sends it (the request schema is strict).
           announce: { tool_use_id: toolUseId, tool },
-          ...(capture === null ? {} : { checkpoint: capture.ref }),
+          ...carried,
         });
         on.mayHaveLanded();
         const entry = this.pending.get(requestId);
@@ -652,10 +677,10 @@ export class PendingRequestRegistry {
           return;
         }
         // The checkpoint did not verify, and nothing was written: the
-        // request is registered without one, and a crash leaves its turn
-        // as it always did.
+        // request is registered without one, saying so, and a crash leaves
+        // its turn as it always did.
         if (
-          capture !== null &&
+          carried.checkpoint !== undefined &&
           error instanceof WorkerGatewayRequestError &&
           error.code === "CHECKPOINT_UNAVAILABLE"
         ) {

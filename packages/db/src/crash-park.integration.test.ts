@@ -19,7 +19,7 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
-import { eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { readPointerRuntime } from "./checkpoints/checkpoint-runtime.ts";
@@ -34,6 +34,7 @@ import {
   achievementJudgments,
   approvalCheckpoints,
   checkpoints,
+  events,
   pendingRequests,
   permissionGrants,
   sessions,
@@ -221,6 +222,7 @@ integration("crash park on an approval-wait checkpoint", () => {
     options: {
       inputHash?: string;
       checkpoint?: RegisterPendingRequest["checkpoint"];
+      checkpointFailure?: RegisterPendingRequest["checkpoint_failure"];
       requestId?: string;
     } = {},
   ) {
@@ -234,8 +236,24 @@ integration("crash park on an approval-wait checkpoint", () => {
       ...(options.checkpoint === undefined
         ? {}
         : { checkpoint: options.checkpoint }),
+      ...(options.checkpointFailure === undefined
+        ? {}
+        : { checkpoint_failure: options.checkpointFailure }),
     });
     return requestId;
+  }
+
+  async function checkpointFailedEvents(sessionId: string) {
+    return db
+      .select({ payload: events.payload, turnId: events.turnId })
+      .from(events)
+      .where(
+        and(
+          eq(events.sessionId, sessionId),
+          eq(events.type, "system"),
+          sql`${events.payload}->>'subtype' = 'approval_checkpoint_failed'`,
+        ),
+      );
   }
 
   function answer(
@@ -304,6 +322,41 @@ integration("crash park on an approval-wait checkpoint", () => {
       checkpointRevision: null,
     });
   }
+
+  test("a wait registered without its checkpoint is announced once, and stays after a later one commits", async () => {
+    const { sessionId, worker } = await runningSession();
+    const failed = await register(worker, {
+      checkpointFailure: "capture_failed",
+    });
+    // A retry whose first response was lost replays the row and adds nothing.
+    await register(worker, {
+      requestId: failed,
+      checkpointFailure: "capture_failed",
+    });
+    const turn = await turnRow(worker);
+    const expected = [
+      {
+        payload: {
+          type: "system",
+          subtype: "approval_checkpoint_failed",
+          request_id: failed,
+          reason: "capture_failed",
+        },
+        turnId: turn.id,
+      },
+    ];
+    expect(await checkpointFailedEvents(sessionId)).toEqual(expected);
+
+    // The next wait's checkpoint covers both, and the park commits it.
+    const checkpoint = checkpointOf(worker);
+    await register(worker, { checkpoint });
+    await executionGone(worker);
+    expect(await sessionRow(sessionId)).toMatchObject({
+      checkpointRevision: 0,
+      checkpointPendingReason: null,
+    });
+    expect(await checkpointFailedEvents(sessionId)).toEqual(expected);
+  });
 
   test("the killed worker's wait parks on its checkpoint, which becomes the pointer", async () => {
     const { owner, sessionId, worker } = await runningSession();

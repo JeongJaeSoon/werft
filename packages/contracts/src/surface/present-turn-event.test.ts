@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  APPROVAL_CHECKPOINT_FAILURE_VALUES,
   SESSION_EVENT_NAMES,
   type SessionEventName,
   STATUS_EVENT_PHASE_VALUES,
@@ -363,5 +364,36 @@ describe("presentTurnEvent", () => {
         data: { type: "system", subtype: "model_migrated", from: "claude-old" },
       }),
     ).toMatchObject({ summary: [{ text: "model_migrated" }] });
+  });
+
+  test("an approval wait left without its checkpoint says why", () => {
+    for (const reason of APPROVAL_CHECKPOINT_FAILURE_VALUES) {
+      expect(
+        presentTurnEvent({
+          event: "system",
+          data: {
+            type: "system",
+            subtype: "approval_checkpoint_failed",
+            request_id: "req_1",
+            reason,
+          },
+        }),
+      ).toEqual({
+        label: { key: "session.event.kind.system" },
+        summary: [{ key: `session.event.approvalCheckpointFailed.${reason}` }],
+      });
+    }
+    // A reason this build does not know falls back to the subtype.
+    expect(
+      presentTurnEvent({
+        event: "system",
+        data: {
+          type: "system",
+          subtype: "approval_checkpoint_failed",
+          request_id: "req_1",
+          reason: "something_new",
+        },
+      }),
+    ).toMatchObject({ summary: [{ text: "approval_checkpoint_failed" }] });
   });
 });
