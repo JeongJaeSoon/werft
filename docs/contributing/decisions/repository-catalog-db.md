@@ -9,7 +9,7 @@
 ## 무엇을 골랐나
 
 - `auth: { kind: github_app }`만 적은 저장소(콘솔에 등록한 App을 쓰는 저장소)는 DB 테이블 `catalog_repositories`가 정본이다.
-- `repositories.yaml`은 이 테이블이 비어 있을 때 한 번 시드로만 읽는다. 그 뒤 yaml을 고쳐도 DB를 덮어쓰지 않는다. `profiles.yaml`과 같은 방식이다(profile-db.md §3).
+- `repositories.yaml`은 이 테이블이 비어 있을 때 한 번 시드로만 읽는다. 그 뒤 yaml을 고쳐도 DB를 덮어쓰지 않는다. `profiles.yaml`과 같은 방식이다(profile-db.md 시드 절).
 - 비밀값 참조가 있는 저장소(basic, bearer, `app_id`·`installation_id`를 적은 App, 공개 저장소)는 지금처럼 운영자 파일에 둔다. 콘솔에는 '설정 파일'로 읽기 전용으로 보인다.
 - 소유자와 관리자가 콘솔에서 추가, 기본 브랜치 변경, 제거를 한다. 추가할 수 있는 저장소는 등록한 작성용 App의 설치에 들어 있는 저장소뿐이다. URL은 받지 않는다.
 
@@ -17,7 +17,7 @@
 
 - `readCatalogConfig`(`apps/control-host/src/api/catalog-config.ts`)가 기동 때 yaml을 읽는다. `resolveSessionCatalog`가 `{ kind: github_app }`를 `{ kind: "github_app", registered: true }`로 바꾼다.
 - API는 `catalog.repositories`를 기동 때 고정한 객체로 들고 있다(`profileCatalog`, `packages/platform/src/sessions/profile-registry.ts`). 세션 생성과 claim, 저장소 프록시, GitHub 게이트, 릴리스 검사, 프로필 상한 검사는 모두 요청마다 이 객체를 읽는다.
-- 카탈로그는 설치 하나에 하나다. 워크스페이스별로 나뉘지 않는다(profile-db.md:105).
+- 카탈로그는 설치 하나에 하나다. 워크스페이스별로 나뉘지 않는다(profile-db.md 운영자 절).
 - GitHub 토큰 연결(`connectionsOf`, `forge-github.ts`)은 기동 때 저장소별 지도를 만든다.
 
 ## 1. 데이터 모델

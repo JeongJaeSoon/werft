@@ -518,7 +518,7 @@ export const agentGitHubSchema = z.object({
 - **기존 에이전트 → GitHub 켜짐.** `github_enabled DEFAULT true`다.
 - **실측(이 문서를 쓸 때, `cee8359b`).** 실제 contracts·release-ids 코드를 부르는 bun 테스트로 세 가지를 확인했다. `policyPinsSchema.safeParse({ tools, github })`는 실패한다. (카드 쪽 `agentCardSchema`도 모르는 칸이면 실패하므로, 설정을 카드에 두지 않는 이 설계에서는 카드 스키마를 건드리지 않는다.) 그리고 `deriveReleaseId`는 `policy_pins`에 키가 없을 때와 `github: undefined`일 때 같은 id(`sha256:6d06f0eb…`)를 낸다. `canonicalJsonOfJson`이 undefined 키를 버리기 때문이다. 반면 `canonicalJson`은 undefined에서 throw하므로, 해시에 들어가는 값은 지금처럼 `canonicalJsonOfJson`으로만 계산한다.
 - **0단계로 되돌리기.** `policy_pins.github`가 든 릴리스가 생긴 뒤(GA-2 이후) 0단계 이미지로 되돌리면 그 에이전트의 릴리스를 읽지 못한다. GA-1 이전으로는 되돌리지 않는다.
-- **알려진 한계.** 리뷰용 행을 만든 뒤(GA-5 이후) 0단계 이미지로 되돌리면 그 이미지의 `credentials()`가 행을 고르는 순서는 정해져 있지 않다. GA-1 이전으로는 되돌리지 않는다. 실행 프로필 전환(`profile-db.md` 5절)과 같은 규칙이다.
+- **알려진 한계.** 리뷰용 행을 만든 뒤(GA-5 이후) 0단계 이미지로 되돌리면 그 이미지의 `credentials()`가 행을 고르는 순서는 정해져 있지 않다. GA-1 이전으로는 되돌리지 않는다. 실행 프로필 전환(`profile-db.md` 롤백 절)과 같은 규칙이다.
 - **같은 역할에 App 여럿(2026-11-02 개정).** 확장 마이그레이션 하나가 유일 제약을 `(workspace_id, app_id)`로 바꾸고, `catalog_repository_github_apps`를 만들고, `user_link_connection_id`를 기존 작성용 행으로 채운다. 기존 저장소의 고정은 마이그레이션이 쓰지 않는다. 역할마다 연결이 하나인 동안에는 첫 발급이 그 연결을 고정하므로(닿으면 1개, 아니면 0개) 지금과 같은 App이 발급한다. 앞 이미지는 역할의 첫 행을 쓰므로, 역할마다 연결이 하나인 동안 앞 이미지와 새 이미지는 같은 App을 고른다. 그래서 두 번째 연결을 더하는 API(`POST …/github-apps`)는 새 이미지가 모든 replica에 올라간 뒤에 쓴다. 섞인 배포 동안 앞 이미지의 콘솔에서 구성원 계정 연결에 쓰는 작성용 App을 지우면 `user_link_connection_id`의 RESTRICT에 걸려 `500`이다. 새 이미지는 그 칸을 먼저 비우고 지우거나(마지막 작성용 연결), `409` `in_use_for_user_link`로 답한다(다른 작성용 연결이 있을 때). 운영자는 배포 중 앞 이미지 콘솔의 이 `500`을 예상한다. 한 역할에 연결이 둘 이상 생긴 뒤에는 앞 이미지로 되돌리지 않는다. 앞 이미지가 고르는 행이 정해져 있지 않기 때문이다(위 알려진 한계와 같은 규칙).
 
 ## 6. API

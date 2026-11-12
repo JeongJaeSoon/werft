@@ -2,30 +2,30 @@
 
 플랫폼이 남기는 데이터를 종류별로 모았다. 항목마다 저장 위치, 만드는 시점, 보존 기간, 삭제 조건, 근거 코드를 적는다. 뒤쪽에는 세션 하나를 생성부터 종료까지 따라가는 확인 절차를 둔다. 보존 기간은 플랫폼 기본값을 따르고, 설치처가 바꿀 수 있는 것은 설치처가 바꾼다. 이 문서는 코드와 설정의 플랫폼 기본값을 적고, 설치처가 바꾸는 방법(환경 변수, Helm 값, API)이 있으면 항목마다 "바꾸기"로 함께 적는다. 바꿀 방법이 없으면 그렇다고 적는다. 기본값이 없는 항목은 「정해지지 않음」으로 적고 [결정할 항목](#결정할-항목)에 모았다.
 
-`파일:줄`의 경로는 지금 트리의 위치이고, 줄 번호는 `origin/main` `fc1e7f26` 기준이다. `schema.ts`는 `packages/db/src/schema.ts`를 줄인 이름이다.
+근거 코드는 지금 트리의 경로와 그 파일 안의 이름(함수·상수·표·열 속성)으로 적는다. 줄 번호는 적지 않는다. `schema.ts`는 `packages/db/src/schema.ts`를 줄인 이름이고, 표와 열은 그 파일의 Drizzle 이름이다.
 
 ## 먼저 알아 둘 것
 
-- **세션은 지우지 않고, 이벤트는 보관한 뒤에만 DB에서 뺀다.** `schema.ts`의 `toolCalls` 주석이 "Nothing deletes sessions; event rows leave only once archived"라고 적는다. 세션을 지우는 API도 없다. 세션 route에는 GET·POST·PATCH만 있다(`packages/core/src/schemas/responses.ts:161-214`). 그래서 세션에 딸린 행(turn, 이벤트, 도구 호출, 대기 요청, 사용량, receipt)은 세션을 닫아도 남는다. 오래 쉰 세션의 이벤트만 [세션 이벤트 보관](#세션-이벤트-보관)이 checkpoint bucket으로 옮긴다. 옮겨도 API 응답은 같다.
+- **세션은 지우지 않고, 이벤트는 보관한 뒤에만 DB에서 뺀다.** `schema.ts`의 `toolCalls` 주석이 "Nothing deletes sessions; event rows leave only once archived"라고 적는다. 세션을 지우는 API도 없다. 세션 route에는 GET·POST·PATCH만 있다(`packages/core/src/schemas/responses.ts`의 `responseSchemas`). 그래서 세션에 딸린 행(turn, 이벤트, 도구 호출, 대기 요청, 사용량, receipt)은 세션을 닫아도 남는다. 오래 쉰 세션의 이벤트만 [세션 이벤트 보관](#세션-이벤트-보관)이 checkpoint bucket으로 옮긴다. 옮겨도 API 응답은 같다.
 - **기간이 지나면 지우는 것은 넷이다.** 권한 판정 기록(`authz_decisions`, 기본 90일), 로그인 세션(`web_sessions`, 만료 30일 뒤), Slack 설치 state(10분), 멈춘 세션의 worker 작업 공간(24시간)이다. checkpoint object는 기간이 아니라 pointer 기준으로 GC가 지운다.
 - **트레이스는 기본으로 내보내지 않는다.** 운영자가 `OTEL_TRACES_EXPORTER=otlp`와 수집기 주소를 설정해야 내보낸다([트레이스와의 경계](#트레이스와-플랫폼-정본의-경계)).
 
 ## 세션 실행 데이터 (PostgreSQL)
 
-- **세션** — `sessions` 표(`schema.ts:951`)
-  - 담는 것: 만든 사람 `created_by_user_id`와 만든 key `created_by_api_key_id`(`schema.ts:1066-1067`), 상태(`status`, `admission_state`), 실행 spec(연결·모델·런타임), 저장소, 추정 비용 `cost_usd`(`schema.ts:1084`), 토큰 합 `provider_tokens`(`schema.ts:1092`), 작업 공간 회수 시각 `workspace_reclaimed_at`(`schema.ts:1051`).
-  - 만드는 시점: `POST /v1/sessions`가 첫 입력을 받을 때(`packages/db/src/postgres-unit-of-work.ts:282`).
+- **세션** — `sessions` 표(`schema.ts`의 `sessions`)
+  - 담는 것: 만든 사람 `created_by_user_id`와 만든 key `created_by_api_key_id`(`schema.ts`의 `createdByUserId`·`createdByApiKeyId`), 상태(`status`, `admission_state`), 실행 spec(연결·모델·런타임), 저장소, 추정 비용 `cost_usd`(`schema.ts`의 `costUsd`), 토큰 합 `provider_tokens`(`schema.ts`의 `providerTokens`), 작업 공간 회수 시각 `workspace_reclaimed_at`(`schema.ts`의 `workspaceReclaimedAt`).
+  - 만드는 시점: `POST /v1/sessions`가 첫 입력을 받을 때(`packages/db/src/postgres-unit-of-work.ts`의 `acceptInputAtomic`).
   - 보존 기간: 무기한.
-  - 삭제 조건: 없음. close는 `admission_state`를 `closed`로 바꿀 뿐 행을 지우지 않는다(`packages/db/src/sessions/close-control.ts:54-110`).
+  - 삭제 조건: 없음. close는 `admission_state`를 `closed`로 바꿀 뿐 행을 지우지 않는다(`packages/db/src/sessions/close-control.ts`의 `closeAtomic`, worker가 drain을 마친 뒤에 닫히는 세션은 `packages/db/src/worker-unit-of-work.ts`의 `confirmExecutionGoneAtomic`).
   - 바꾸기: 없음. 이 절의 다른 표(turn, 이벤트, 도구 호출, 대기 요청, 실행 이력, checkpoint 행, receipt, GitHub 작업, Slack 입출력)도 같다. 보존 기간을 정하는 설정이 없다.
-- **turn과 입력 원문** — `turns` 표(`schema.ts:1241`)
-  - 담는 것: 사용자가 보낸 메시지 원문 `message`(`schema.ts:1249`), 보낸 사람 `actor_id`(`schema.ts:1262`), 끝난 turn의 결과·사용량 `result_json`(`schema.ts:1253`, 쓰는 곳 `packages/db/src/worker-unit-of-work.ts:2511-2521`).
-  - 만드는 시점: 입력을 받을 때(`postgres-unit-of-work.ts:177`).
-  - 보존 기간: 무기한. 입력 원문의 바이트는 설치 상한 `STORAGE_LIMIT_BYTES`에 계속 센다. 상한은 지우지 않고 새 입력을 413으로 거절할 뿐이다. 설치처는 `STORAGE_LIMIT_BYTES`(Helm `config.limits.STORAGE_LIMIT_BYTES`, 기본 1 GiB, `values.yaml:126`)로 상한을 바꾼다([configuration.md](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/configuration/)).
+- **turn과 입력 원문** — `turns` 표(`schema.ts`의 `turns`)
+  - 담는 것: 사용자가 보낸 메시지 원문 `message`(`schema.ts`의 `message`), 보낸 사람 `actor_id`(`schema.ts`의 `actorId`), 끝난 turn의 결과·사용량 `result_json`(`schema.ts`의 `resultJson`, 쓰는 곳 `packages/db/src/worker-unit-of-work.ts`의 `finalizeAtomic`).
+  - 만드는 시점: 입력을 받을 때(`postgres-unit-of-work.ts`의 `insertQueuedTurn`).
+  - 보존 기간: 무기한. 입력 원문의 바이트는 설치 상한 `STORAGE_LIMIT_BYTES`에 계속 센다. 상한은 지우지 않고 새 입력을 413으로 거절할 뿐이다. 설치처는 `STORAGE_LIMIT_BYTES`(Helm `config.limits.STORAGE_LIMIT_BYTES`, 기본 1 GiB, `deploy/helm/werft/values.yaml`)로 상한을 바꾼다([configuration.md](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/configuration/)).
   - 삭제 조건: 없음. close·terminate는 대기 중인 turn을 `cancelled`로 바꿀 뿐이다.
-- **세션 이벤트** — `events` 표(`schema.ts:1303`)
-  - 담는 것: `system`·`assistant`·`tool_use`·`tool_result`·`question`·`result`·`status`·`error` 이벤트. `payload`(`schema.ts:1310`)에 assistant 텍스트, 도구 입력, 도구 결과 본문이 그대로 들어간다. 이 표가 기능의 정본이다([세션 데이터가 흐르는 길](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/session-data-flow/)).
-  - 만드는 시점: worker가 `/append-events`로 보낼 때(`worker-unit-of-work.ts:2364`). 제어 단계의 상태 이벤트는 `packages/db/src/sessions/session-events.ts`의 `recordEvent`.
+- **세션 이벤트** — `events` 표(`schema.ts`의 `events`)
+  - 담는 것: `system`·`assistant`·`tool_use`·`tool_result`·`question`·`result`·`status`·`error` 이벤트. `payload`(`schema.ts`의 `payload`)에 assistant 텍스트, 도구 입력, 도구 결과 본문이 그대로 들어간다. 이 표가 기능의 정본이다([세션 데이터가 흐르는 길](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/session-data-flow/)).
+  - 만드는 시점: worker가 `/append-events`로 보낼 때(`worker-unit-of-work.ts`의 `commitEventsAtomic`). 제어 단계의 상태 이벤트는 `packages/db/src/sessions/session-events.ts`의 `recordEvent`.
   - 보존 기간: 무기한. 내용은 지우지 않는다. 오래 쉰 세션의 행은 [세션 이벤트 보관](#세션-이벤트-보관)이 bucket의 object로 옮기고, API는 그 object에서 같은 응답을 읽는다. 그래서 SSE의 410 `CURSOR_EXPIRED`는 지금 생기지 않는다([API 유즈케이스 가이드](https://jeongjaesoon.github.io/werft/ko/reference/api-guide/)).
   - 삭제 조건: 보관 job이 object를 쓰고, hold를 걸고, 다시 읽어 확인한 뒤에만 그 행을 DB에서 뺀다.
   - 바꾸기: `SESSION_ARCHIVE_AFTER_DAYS`(Helm `sessionArchive.afterDays`)로 옮기기 시작하는 기간을 정한다. 0이면 옮기지 않는다.
@@ -43,73 +43,73 @@
 - **되돌리기** — `bun run apps/control-host/src/api/session-archive.ts restore <session id>`가 그 세션의 이벤트를 같은 id로 `events`에 되돌리고 `session_event_archives` 행을 지운다. object는 hold가 걸린 채 bucket에 남는다. 되돌린 세션이 여전히 대상이면 다음 pass가 다시 보관한다. DB에 계속 두려면 그 전에 `SESSION_ARCHIVE_AFTER_DAYS`를 늘리거나 0으로 끈다.
 - **일정** — compose는 `maintenance` 서비스가 checkpoint GC 뒤에 주 1회 돈다(`MAINTENANCE_INTERVAL_SEC`, 기본 604800초, Unix epoch부터 센 주기의 배수 시각이라 기본값이면 매주 목요일 00:00 UTC). 바로 한 번 돌리려면 `docker compose exec maintenance bun run apps/control-host/src/api/session-archive.ts`. Kubernetes는 CronJob(`sessionArchive.schedule`, 기본 `0 5 * * 0`)이 api ServiceAccount로 돈다.
 - **백업** — 보관한 object는 그 이벤트의 유일한 사본이다. bucket은 DB와 함께 정본이고, 백업과 복원은 `session_event_archives`의 VersionId도 고정한다([backup-restore.md](backup-restore.md)).
-- **도구 호출 기록** — `tool_calls`(`schema.ts:1342`), 일별 합계 `tool_call_days`, 도구 설명 `tool_descriptions`
+- **도구 호출 기록** — `tool_calls`(`schema.ts`의 `toolCalls`), 일별 합계 `tool_call_days`, 도구 설명 `tool_descriptions`
   - 담는 것: 도구 이름, 시각, 결과(`ok`·`failed`·`unknown`), 걸린 시간, 이벤트 id. 입력·출력 본문은 없다. 본문은 이벤트에 있다.
-  - 만드는 시점: reconciler가 pass마다 이벤트에서 투영한다(`packages/db/src/sessions/tool-calls.ts:72`, 호출 `apps/control-host/src/reconciler/reconcile.ts:185`).
+  - 만드는 시점: reconciler가 pass마다 이벤트에서 투영한다(`packages/db/src/sessions/tool-calls.ts`의 `projectToolCalls`, 호출 `apps/control-host/src/reconciler/reconcile.ts`의 `runReconciler`).
   - 보존 기간: 무기한. 삭제 조건: 없음.
   - `/metrics`의 도구 호출 수는 trigger가 채우는 `tool_call_outcomes`(이름·결과별 수)에서 읽는다. 토큰·비용 합은 같은 방식의 `provider_usage_totals`에서 읽는다. psql로 원본 행을 지우면 trigger가 그 이름·모델의 합을 다시 센다.
-- **승인·질문 요청** — `pending_requests`(`schema.ts:1634`)와 `approval_checkpoints`, `permission_grants`, `turn_continuations`
-  - 담는 것: 요청 본문 `payload`(`schema.ts:1645`), 답 `answer`(`schema.ts:1654`), 답한 주체 `answered_by`와 답을 허용한 판정 id `answer_decision_id`(`schema.ts:1660-1666`), 닫힌 방식(`settled_outcome`·`settled_reason`).
+- **승인·질문 요청** — `pending_requests`(`schema.ts`의 `pendingRequests`)와 `approval_checkpoints`, `permission_grants`, `turn_continuations`
+  - 담는 것: 요청 본문 `payload`(`schema.ts`의 `payload`), 답 `answer`(`schema.ts`의 `answer`), 답한 주체 `answered_by`와 답을 허용한 판정 id `answer_decision_id`(`schema.ts`의 `answeredBy`·`answerDecisionId`), 닫힌 방식(`settled_outcome`·`settled_reason`).
   - 판정 행(`authz_decisions`)은 감사 보존 기간이 지나면 지워지지만 `answered_by`는 이 행에 남는다. 그래서 기간이 지난 뒤에도 누가 답했는지는 남고, 그 판정의 세부만 사라진다.
-  - 만드는 시점: worker가 요청을 등록할 때(`packages/db/src/decision/pending-control.ts:248`).
-  - 보존 기간: 무기한. close는 열린 요청에 `resolved_at`만 적는다(`close-control.ts:75-83`).
-  - 삭제 조건: `pending_requests`는 없음. `permission_grants`·`turn_continuations`는 대기 중인 turn을 취소할 때 지운다(`packages/db/src/control-unit-of-work.ts:201-205`).
-- **실행 이력** — `attempts`(`schema.ts:2036`), `executions`, `worker_launches`, `worker_credentials`
-  - 만드는 시점: worker가 세션을 claim할 때(`worker-unit-of-work.ts:1732`)와 scheduler가 worker를 띄울 때.
+  - 만드는 시점: worker가 요청을 등록할 때(`packages/db/src/decision/pending-control.ts`의 `registerAtomic`).
+  - 보존 기간: 무기한. close는 열린 요청에 `resolved_at`만 적는다(`close-control.ts`의 `finishClose`).
+  - 삭제 조건: `pending_requests`는 없음. `permission_grants`·`turn_continuations`는 대기 중인 turn을 취소할 때 지운다(`packages/db/src/control-unit-of-work.ts`의 `stopExecution`).
+- **실행 이력** — `attempts`(`schema.ts`의 `attempts`), `executions`, `worker_launches`, `worker_credentials`
+  - 만드는 시점: worker가 세션을 claim할 때(`worker-unit-of-work.ts`의 `claimAtomic`)와 scheduler가 worker를 띄울 때.
   - 보존 기간: 무기한. 삭제 조건: 없음.
 - **작업 큐** — `queue_messages`, `unassigned_sessions`, `workers`
-  - 처리하면 지우는 작업 행이다(예: `packages/db/src/queries.ts:408`, `close-control.ts:86`). 보존 데이터가 아니다.
-- **checkpoint 행** — `checkpoints`(`schema.ts:1934`), `checkpoint_outputs`(`schema.ts:1983`)
+  - 처리하면 지우는 작업 행이다(예: `packages/db/src/queries.ts`의 `reconcileOrphanedSessions`, `close-control.ts`의 `finishClose`). 보존 데이터가 아니다.
+- **checkpoint 행** — `checkpoints`(`schema.ts`의 `checkpoints`), `checkpoint_outputs`(`schema.ts`의 `checkpointOutputs`)
   - 담는 것: manifest의 object key와 version, 부모 revision, transcript 바이트 수, 성과물 파일의 key와 크기.
-  - 만드는 시점: turn 끝에 checkpoint pointer를 올릴 때(`worker-unit-of-work.ts:485`, `508`).
-  - 보존 기간: 무기한. GC가 object를 지우면 행에 `collected_at`(`schema.ts:1960`)과 `objects_purged_at`(`schema.ts:1963`)만 적고 행은 남긴다(`packages/db/src/checkpoints/checkpoint-store.ts:251-292`).
+  - 만드는 시점: turn 끝에 checkpoint pointer를 올릴 때(`worker-unit-of-work.ts`의 `advanceCheckpointPointer`).
+  - 보존 기간: 무기한. GC가 object를 지우면 행에 `collected_at`(`schema.ts`의 `collectedAt`)과 `objects_purged_at`(`schema.ts`의 `objectsPurgedAt`)만 적고 행은 남긴다(`packages/db/src/checkpoints/checkpoint-store.ts`의 `markCollected`·`markPurged`).
   - 닫힌 지 하루가 지났고 열린 push 요청이 없는 세션은 GC pass가 정리를 마치면 `sessions.checkpoint_collection_settled_at`을 적고, 다음 pass부터 읽지 않는다. 하루는 worker 자격 증명의 12시간보다 길어서, 그 뒤에 object를 쓸 attempt가 없다.
   - 설치 사용량의 성과물 바이트는 trigger가 key마다 채우는 `checkpoint_output_objects`와 합계 `checkpoint_output_totals`에서 읽는다.
-- **receipt와 멱등 키** — `receipts`(`schema.ts:1538`), `idempotency_keys`(`schema.ts:1612`)
+- **receipt와 멱등 키** — `receipts`(`schema.ts`의 `receipts`), `idempotency_keys`(`schema.ts`의 `idempotencyKeys`)
   - 담는 것: 명령(입력, 제어, 공유 변경, GitHub 게이트 등)마다 결과 한 행. 응답의 `X-Request-Id`가 `request_id`로 남는다.
   - 보존 기간: 무기한. 삭제 조건: 없음.
-- **GitHub 작업** — `push_requests`(`schema.ts:1814`), `pull_requests`(`schema.ts:1283`), `github_workflow_dispatches`(`schema.ts:578`)
-  - 만드는 시점: push 요청 생성(`packages/db/src/push-requests.ts:279`), PR 열기(`packages/db/src/action/pull-requests.ts:208`), workflow dispatch(`packages/db/src/github-settings.ts:175`).
+- **GitHub 작업** — `push_requests`(`schema.ts`의 `pushRequests`), `pull_requests`(`schema.ts`의 `pullRequests`), `github_workflow_dispatches`(`schema.ts`의 `githubWorkflowDispatches`)
+  - 만드는 시점: push 요청 생성(`packages/db/src/push-requests.ts`의 `createPostgresPushRequests`), PR 열기(`packages/db/src/action/pull-requests.ts`의 `savePullRequestIn`), workflow dispatch(`packages/db/src/github-settings.ts`의 `recordDispatch`).
   - 보존 기간: 무기한. 삭제 조건: 없음.
-- **Slack 입출력** — `slack_inbound_events`(`schema.ts:708`), `slack_outbox`(`schema.ts:3037`), `session_links`
-  - 담는 것: 받은 Slack 이벤트(본문 `payload`, `schema.ts:726`), 보낼 메시지, Slack 대화와 세션의 연결.
-  - 보존 기간: 무기한. 받은 이벤트를 버릴 때는 행을 남기고 `payload`와 `conversation_key`만 비운다(`packages/db/src/surface/slack-inbound-events.ts:179-189`). outbox는 상태만 바꾼다.
+- **Slack 입출력** — `slack_inbound_events`(`schema.ts`의 `slackInboundEvents`), `slack_outbox`(`schema.ts`의 `slackOutbox`), `session_links`
+  - 담는 것: 받은 Slack 이벤트(본문 `payload`, `schema.ts`의 `slackInboundEvents`), 보낼 메시지, Slack 대화와 세션의 연결.
+  - 보존 기간: 무기한. 받은 이벤트를 버릴 때는 행을 남기고 `payload`와 `conversation_key`만 비운다(`packages/db/src/surface/slack-inbound-events.ts`의 `drop`). outbox는 상태만 바꾼다.
 
 ## 오브젝트 스토리지 (checkpoint bucket)
 
-bucket은 `S3_BUCKET`(기본 `claude-sessions`, `infra/compose.core.yml:290`, `deploy/helm/werft/values.yaml:138`)이다. 세션 하나의 object는 모두 `sessions/<session id>/` 아래에 있다(`packages/platform/src/checkpoints/checkpoint-service.ts:98-99`). 보호 방식(`CHECKPOINT_OBJECT_PROTECTION`, 기본 `locked`)과 bucket 조건은 [api-server.md](api-server.md)에 있다.
+bucket은 `S3_BUCKET`(기본 `claude-sessions`, `infra/compose.core.yml`, `deploy/helm/werft/values.yaml`의 `config.checkpoints.bucket`)이다. 세션 하나의 object는 모두 `sessions/<session id>/` 아래에 있다(`packages/platform/src/checkpoints/checkpoint-service.ts`의 `sessionObjectPrefix`). 보호 방식(`CHECKPOINT_OBJECT_PROTECTION`, 기본 `locked`)과 bucket 조건은 [api-server.md](api-server.md)에 있다.
 
 - **transcript** — `sessions/<id>/transcripts/generation-<10자리>/…/part-<n>.jsonl`
   - 담는 것: 엔진(Claude Code)이 쓴 대화 기록 JSONL 원문. 프롬프트, 답변, 도구 입출력이 모두 들어간다.
-  - 만드는 시점: turn 도중 엔진이 transcript에 쓸 때마다(`packages/adapters/runtimes/claude/src/session-store.ts:216`, key `:259`, 디렉터리 이름 `packages/runtime-core/src/checkpoint-manifest.ts:482-486`).
-  - 상한: part 하나 16 MiB, 합계 512 MiB(`checkpoint-manifest.ts:164-165`). 넘으면 세션이 새 turn을 받지 않는다([capacity.md](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/capacity/)).
+  - 만드는 시점: turn 도중 엔진이 transcript에 쓸 때마다(`packages/adapters/runtimes/claude/src/session-store.ts`의 `append`, key는 `#write`, 디렉터리 이름 `packages/runtime-core/src/checkpoint-manifest.ts`의 `TRANSCRIPT_MIRROR_DIRECTORY`·`transcriptGenerationDirectory`).
+  - 상한: part 하나 16 MiB, 합계 512 MiB(`checkpoint-manifest.ts`의 `MAX_TRANSCRIPT_PART_BYTES`·`MAX_TRANSCRIPT_BYTES`). 넘으면 세션이 새 turn을 받지 않는다([capacity.md](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/capacity/)).
   - 보존 기간·삭제 조건: 아래 checkpoint GC를 따른다. 지금 실행 세대(generation)보다 오래된 세대만 지운다.
   - 바꾸기: 상한은 코드 상수라 바꿀 수 없다.
 - **checkpoint** — `sessions/<id>/checkpoints/<10자리 revision>/<attempt>/<publish>/` 아래의 `manifest.json`, `workspace-<sha256>.bundle`, `untracked/<sha256>`, `outputs/<sha256>`
-  - 담는 것: 작업 공간 git bundle, 추적하지 않는 파일, `out/` 성과물 파일, 그리고 이것들과 transcript를 묶는 manifest(`checkpoint-service.ts:336-346`, 쓰는 곳 `apps/worker/src/session-checkpoints.ts:1101`, `1137`, `1189`, `1314`).
-  - 만드는 시점: turn 끝에 worker가 올린다. 모든 쓰기는 create-only다(`packages/storage/src/checkpoint-objects.ts:109-140`).
-  - 보존 기간: pointer와 그 부모 `DEFAULT_MAX_RESTORE_FALLBACKS = 3`개(`checkpoint-service.ts:312`), 열린 push 요청이 고정한 revision은 남는다(`packages/platform/src/checkpoints/checkpoint-collector.ts:102-145`).
-  - 삭제 조건: checkpoint GC만 지운다(`checkpoint-collector.ts:174-259`, 삭제 `checkpoint-objects.ts:350-371`). Kubernetes 설치는 CronJob이 매주 일요일 04:00에 돈다(`values.yaml`의 `checkpointGc.schedule: "0 4 * * 0"`). compose 설치는 `maintenance` 서비스가 주 1회 돈다. GC는 `locked`에서만 돈다. bucket에 lifecycle 만료 규칙을 두지 않는 이유와 백업과의 관계는 [backup-restore.md](backup-restore.md)에 있다.
-  - 바꾸기: Helm `checkpointGc.enabled`·`schedule`·`dryRun`(`values.yaml:258-261`)으로 일정과 실행 여부를 바꾼다. compose에서는 `CHECKPOINT_GC_DRY_RUN`으로 세기만 할 수 있다. 남기는 부모 수(3)는 코드 상수라 바꿀 수 없다.
+  - 담는 것: 작업 공간 git bundle, 추적하지 않는 파일, `out/` 성과물 파일, 그리고 이것들과 transcript를 묶는 manifest(`checkpoint-service.ts`의 `manifestRefFor`, 쓰는 곳 `apps/worker/src/session-checkpoints.ts`의 `#publish`).
+  - 만드는 시점: turn 끝에 worker가 올린다. 모든 쓰기는 create-only다(`packages/storage/src/checkpoint-objects.ts`의 `createCheckpointObjectStore`).
+  - 보존 기간: pointer와 그 부모 `DEFAULT_MAX_RESTORE_FALLBACKS = 3`개(`checkpoint-service.ts`), 열린 push 요청이 고정한 revision은 남는다(`packages/platform/src/checkpoints/checkpoint-collector.ts`의 `restorable`).
+  - 삭제 조건: checkpoint GC만 지운다(`checkpoint-collector.ts`의 `collectSession`, 삭제 `checkpoint-objects.ts`의 `purge`). Kubernetes 설치는 CronJob이 매주 일요일 04:00에 돈다(`values.yaml`의 `checkpointGc.schedule: "0 4 * * 0"`). compose 설치는 `maintenance` 서비스가 주 1회 돈다. GC는 `locked`에서만 돈다. bucket에 lifecycle 만료 규칙을 두지 않는 이유와 백업과의 관계는 [backup-restore.md](backup-restore.md)에 있다.
+  - 바꾸기: Helm `checkpointGc.enabled`·`schedule`·`dryRun`(`deploy/helm/werft/values.yaml`)으로 일정과 실행 여부를 바꾼다. compose에서는 `CHECKPOINT_GC_DRY_RUN`으로 세기만 할 수 있다. 남기는 부모 수(3)는 코드 상수라 바꿀 수 없다.
 - **보관한 세션 이벤트** — `session-archive/<session id>/events-<첫 id>-<끝 id>-<nonce>.jsonl.gz`
   - 담는 것: 그 범위의 `events` 행 원문. assistant 텍스트, 도구 입력, 도구 결과 본문이 그대로 들어간다.
   - 만드는 시점: [세션 이벤트 보관](#세션-이벤트-보관) job이 옮길 때. create-only로 쓰고 legal hold를 건다.
   - 보존 기간: 무기한. checkpoint GC는 `sessions/` 아래만 보므로 이 object를 지우지 않는다. lifecycle 만료 규칙도 두지 않는다. 이 prefix에는 storage class 이동만 허용한다.
   - 바꾸기: 없음.
-- **로컬 S3의 디스크** — compose의 SeaweedFS는 `local-s3-data` volume에 남는다(`infra/compose.local.yml:30`, `204`). test-ops의 LocalStack은 메모리에만 두므로 컨테이너와 함께 사라진다(`infra/compose.localstack.yml:10-12`).
+- **로컬 S3의 디스크** — compose의 SeaweedFS는 `local-s3-data` volume에 남는다(`infra/compose.local.yml`). test-ops의 LocalStack은 메모리에만 두므로 컨테이너와 함께 사라진다(`infra/compose.localstack.yml`의 `localstack` 서비스).
 
 ## worker 작업 공간
 
-- **작업 공간 volume** — Docker는 `werft-ws-<installation>-<session>-…` volume(`packages/adapters/execution/local-docker/src/backend.ts:277`), Kubernetes는 worker마다 PVC
+- **작업 공간 volume** — Docker는 `werft-ws-<installation>-<session>-…` volume(`packages/adapters/execution/local-docker/src/config.ts`의 `DEFAULT_VOLUME_NAME_PREFIX`), Kubernetes는 worker마다 PVC
   - 담는 것: 저장소 checkout과 엔진이 쓰는 파일 전부.
-  - 보존 기간: 세션이 멈춘 뒤 24시간(`DEFAULT_STOPPED_WORKSPACE_TTL_MS`, `packages/platform/src/scheduler/options.ts:25`, 설정 `EXECUTION_WORKSPACE_STOPPED_TTL_SEC`, `apps/control-host/src/scheduler/config.ts:110-113`). 다시 돌아오지 않을 세션의 volume은 TTL 전에도 지운다.
-  - 삭제 조건: scheduler의 작업 공간 회수(`packages/platform/src/scheduler/workspaces.ts:23`). 만든 지 `EXECUTION_WORKSPACE_GC_MIN_AGE_SEC`(기본 3600초)가 지나지 않은 volume은 건드리지 않는다. 지운 뒤에도 세션은 마지막 checkpoint에서 다시 연다. 자세한 규칙은 [실행 기반과 worker 격리](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/execution/).
-  - 바꾸기: `EXECUTION_WORKSPACE_STOPPED_TTL_SEC`(compose `infra/compose.core.yml:400`, Helm은 `scheduler.extraEnv`)와 `EXECUTION_WORKSPACE_GC_MIN_AGE_SEC`(Helm `worker.workspace.gcMinAgeSec`, `values.yaml:285`).
+  - 보존 기간: 세션이 멈춘 뒤 24시간(`DEFAULT_STOPPED_WORKSPACE_TTL_MS`, `packages/platform/src/scheduler/options.ts`, 설정 `EXECUTION_WORKSPACE_STOPPED_TTL_SEC`, `apps/control-host/src/scheduler/config.ts`의 `schedulerConfigFromEnv`). 다시 돌아오지 않을 세션의 volume은 TTL 전에도 지운다.
+  - 삭제 조건: scheduler의 작업 공간 회수(`packages/platform/src/scheduler/workspaces.ts`의 `collectWorkspaces`). 만든 지 `EXECUTION_WORKSPACE_GC_MIN_AGE_SEC`(기본 3600초)가 지나지 않은 volume은 건드리지 않는다. 지운 뒤에도 세션은 마지막 checkpoint에서 다시 연다. 자세한 규칙은 [실행 기반과 worker 격리](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/execution/).
+  - 바꾸기: `EXECUTION_WORKSPACE_STOPPED_TTL_SEC`(compose `infra/compose.core.yml`, Helm은 `scheduler.extraEnv`)와 `EXECUTION_WORKSPACE_GC_MIN_AGE_SEC`(Helm `worker.workspace.gcMinAgeSec`, `deploy/helm/werft/values.yaml`).
 
 ## 로그
 
 - **API·worker·scheduler·reconciler·egress proxy의 stdout 로그**
-  - 형식: JSON 한 줄(`packages/observability/src/index.ts:131-177`). worker는 자체 logger(`apps/worker/src/console-logger.ts`)를 쓴다.
+  - 형식: JSON 한 줄(`packages/observability/src/index.ts`의 `StdoutLogSink`·`StructuredLogger`). worker는 자체 logger(`apps/worker/src/console-logger.ts`)를 쓴다.
   - 만드는 시점: 프로세스가 동작할 때마다. `LOG_LEVEL` 기본 `info`.
   - 보존 기간: `infra/compose.core.yml`에 정의된 compose 서비스는 json-file driver로 컨테이너마다 50 MB 파일 5개까지 남기고 오래된 것부터 지운다(`infra/compose.core.yml`의 `x-logging`). `docker inspect -f '{{json .HostConfig.LogConfig}}' <컨테이너>`로 확인한다. scheduler가 띄운 worker 컨테이너와 Kubernetes는 플랫폼이 정하지 않는다. Docker daemon 기본값, 노드의 로그 회전, Datadog의 index 보존이 적용된다([Datadog 감시 기준](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/monitoring-datadog/)).
   - 삭제 조건: 위 회전 말고는 플랫폼이 정하지 않는다.
@@ -117,37 +117,37 @@ bucket은 `S3_BUCKET`(기본 `claude-sessions`, `infra/compose.core.yml:290`, `d
 
 ## 계정·권한·감사 (PostgreSQL)
 
-- **권한 판정 기록** — `authz_decisions`(`schema.ts:1574`)
-  - 만드는 시점: 판정할 때(`packages/db/src/musterrolle/authz-decisions.ts:16`). 무엇이 남는지는 [api-server.md](api-server.md#판정-감사와-보존-기간).
-  - 보존 기간: 워크스페이스의 `settings.audit_retention_days`, 기본 90일, 30~3650일(`packages/contracts/src/musterrolle/workspaces.ts:33-36`).
-  - 삭제 조건: reconciler pass마다(`RECONCILER_INTERVAL_SEC`, 기본 10초) 기간이 지난 행을 오래된 것부터 `RECONCILER_BATCH_SIZE`(기본 100)개씩 지운다(`authz-decisions.ts:82-106`, 호출 `reconcile.ts:180`). `RECONCILER_DRY_RUN=true`면 세기만 한다.
-  - 바꾸기: 워크스페이스 owner가 `POST /v1/workspaces/{id}/audit-retention`으로 30~3650일 안에서 바꾼다([api-server.md](api-server.md#판정-감사와-보존-기간)). 지우는 속도는 Helm `reconciler.intervalSec`·`batchSize`(`values.yaml:202`, `206`).
-- **로그인 세션** — `web_sessions`(`schema.ts:323`)
-  - 보존 기간: 14일(`WEB_SESSION_TTL_MS`, `apps/control-host/src/api/auth.ts:50`), 사용자마다 최대 10개(`auth.ts:55`). 만료된 행은 만료 30일 뒤까지 남는다.
+- **권한 판정 기록** — `authz_decisions`(`schema.ts`의 `authzDecisions`)
+  - 만드는 시점: 판정할 때(`packages/db/src/musterrolle/authz-decisions.ts`의 `createPostgresDecisionLog`). 무엇이 남는지는 [api-server.md](api-server.md#판정-감사와-보존-기간).
+  - 보존 기간: 워크스페이스의 `settings.audit_retention_days`, 기본 90일, 30~3650일(`packages/contracts/src/musterrolle/workspaces.ts`의 `AUDIT_RETENTION_DEFAULT_DAYS`·`AUDIT_RETENTION_MIN_DAYS`·`AUDIT_RETENTION_MAX_DAYS`).
+  - 삭제 조건: reconciler pass마다(`RECONCILER_INTERVAL_SEC`, 기본 10초) 기간이 지난 행을 오래된 것부터 `RECONCILER_BATCH_SIZE`(기본 100)개씩 지운다(`authz-decisions.ts`의 `expireAuthzDecisions`, 호출 `reconcile.ts`의 `runReconciler`). `RECONCILER_DRY_RUN=true`면 세기만 한다.
+  - 바꾸기: 워크스페이스 owner가 `POST /v1/workspaces/{id}/audit-retention`으로 30~3650일 안에서 바꾼다([api-server.md](api-server.md#판정-감사와-보존-기간)). 지우는 속도는 Helm `reconciler.intervalSec`·`batchSize`(`deploy/helm/werft/values.yaml`).
+- **로그인 세션** — `web_sessions`(`schema.ts`의 `webSessions`)
+  - 보존 기간: 14일(`WEB_SESSION_TTL_MS`, `apps/control-host/src/api/auth.ts`), 사용자마다 최대 10개(`auth.ts`의 `WEB_SESSIONS_PER_USER`). 만료된 행은 만료 30일 뒤까지 남는다.
   - 삭제 조건: 그 사용자가 다시 로그인할 때 만료·폐기된 행과, 최근 10개를 넘는 행을 지운다(`packages/db/src/musterrolle/identity.ts`). 다시 로그인하지 않는 사용자의 행은 reconciler pass가 만료 30일 뒤에 `RECONCILER_BATCH_SIZE`개씩 지운다(`deleteExpiredWebSessions`, `EXPIRED_WEB_SESSION_KEEP_DAYS`). `RECONCILER_DRY_RUN=true`면 세기만 한다.
   - 바꾸기: 없음(코드 상수). 아래 Slack 설치 state도 같다.
 - **Slack 설치 state** — `slack_install_states`
-  - 보존 기간: 600초(`packages/contracts/src/musterrolle/slack-install.ts:41`). 새 설치 링크를 만들 때 만료된 행을, 쓰면 그 행을 지운다(`packages/db/src/surface/slack-install-states.ts:21-41`).
-- **비밀값** — `secret_values`(`schema.ts:442`), 마스터 키로 암호화
-  - 삭제 조건: 사람이 config token·GitHub App 등을 지울 때만(`packages/db/src/secrets/secret-values.ts:185`, `305`).
-- **API key** — `api_keys`(`schema.ts:2365`)
-  - 삭제 조건: 없음. 폐기는 `revoked_at`만 적는다(`packages/db/src/musterrolle/api-keys.ts:342`).
-- **사용자·구성원·초대·연동 계정·binding** — `users`(`schema.ts:183`), `memberships`, `invites`, `password_resets`, `login_methods`, `linked_accounts`, `credential_bindings`, `surface_bindings`, 에이전트 버전·릴리스
-  - 보존 기간: 무기한. 초대와 비밀번호 재설정은 만료 칸이 있지만 지우지 않는다. 연동 계정과 binding은 회수만 한다(`schema.ts:782`, `2773`, `3108`). 에이전트 버전·릴리스는 trigger가 수정·삭제를 막는다.
+  - 보존 기간: 600초(`packages/contracts/src/musterrolle/slack-install.ts`의 `SLACK_INSTALL_STATE_TTL_SECONDS`). 새 설치 링크를 만들 때 만료된 행을, 쓰면 그 행을 지운다(`packages/db/src/surface/slack-install-states.ts`의 `issueState`·`consumeState`).
+- **비밀값** — `secret_values`(`schema.ts`의 `secretValues`), 마스터 키로 암호화
+  - 삭제 조건: 사람이 config token·GitHub App 등을 지울 때만(`packages/db/src/secrets/secret-values.ts`의 `deleteSecretInTx`, `createPostgresSecretStore`의 `delete`).
+- **API key** — `api_keys`(`schema.ts`의 `apiKeys`)
+  - 삭제 조건: 없음. 폐기는 `revoked_at`만 적는다(`packages/db/src/musterrolle/api-keys.ts`의 `createPostgresWorkspaceKeyStore`의 `revoke`).
+- **사용자·구성원·초대·연동 계정·binding** — `users`(`schema.ts`의 `users`), `memberships`, `invites`, `password_resets`, `login_methods`, `linked_accounts`, `credential_bindings`, `surface_bindings`, 에이전트 버전·릴리스
+  - 보존 기간: 무기한. 초대와 비밀번호 재설정은 만료 칸이 있지만 지우지 않는다. 연동 계정과 binding은 회수만 한다(`schema.ts`의 `linkedAccounts`·`surfaceBindings`·`credentialBindings` 주석). 에이전트 버전·릴리스는 trigger가 수정·삭제를 막는다.
 
 ## 토큰·비용·성과물
 
 이 절은 GA-4b 설계([github-agent.md 10절](../contributing/decisions/github-agent.md#10-세션-성과물))가 정한 데이터를 그대로 따른다.
 
-- **호출마다의 사용량** — `provider_usage`(`schema.ts:2081`)
+- **호출마다의 사용량** — `provider_usage`(`schema.ts`의 `providerUsage`)
   - 담는 것: Messages 호출 하나의 모델, 토큰 다섯 종류, 도구 요청 수, 추정 비용. 비용·사용량의 정본이다.
-  - 만드는 시점: egress proxy가 응답에서 사용량을 읽어 보내면 API가 쓴다(`apps/egress-proxy/src/usage.ts`, `worker-unit-of-work.ts:1917`).
+  - 만드는 시점: egress proxy가 응답에서 사용량을 읽어 보내면 API가 쓴다(`apps/egress-proxy/src/usage.ts`, `worker-unit-of-work.ts`의 `recordProviderUsageAtomic`).
   - 보존 기간: 무기한. 삭제 조건: 없음.
-- **세션별 합계** — `sessions.cost_usd`·`provider_tokens`, 세션×모델 합계 `session_model_usage`(`schema.ts:2158`)
+- **세션별 합계** — `sessions.cost_usd`·`provider_tokens`, 세션×모델 합계 `session_model_usage`(`schema.ts`의 `sessionModelUsage`)
   - 만드는 시점: `provider_usage` insert trigger가 더한다(`packages/db/migrations/0127_session_provider_tokens.sql`, `0169_usage_breakdown_rollup.sql`).
   - 보존 기간: 무기한.
 - **세션 성과물** — `session_outcomes`, `outcome_refresh_quotas`
-  - 이 표는 위 기준 커밋 뒤에 들어왔다(`packages/db/migrations/0200_session_outcomes.sql`, 리뷰는 `0209_session_outcome_reviews.sql`). 그래서 이 항목에는 줄 번호를 적지 않는다.
+  - 표를 만든 migration은 `packages/db/migrations/0200_session_outcomes.sql`이고, 리뷰는 `0209_session_outcome_reviews.sql`이 더했다.
   - 담는 것: 세션이 남긴 GitHub PR(`github_pull_request`)과 리뷰(`github_review`) 한 건마다 URL, 저장소, release·에이전트, 상태와 그 시각(`state_changed_at`, `merged_at`, `closed_at`). PR 상태는 `open`·`merged`·`closed`이고, 다시 읽은 시각(`state_checked_at`)과 읽기 실패(`check_error`)도 남는다. `metadata`에는 PR이면 제목(최대 200자), head·base 브랜치, merge commit SHA, 변경 규모가, 리뷰면 리뷰한 PR 번호, 리뷰 종류, commit, 그 PR을 연 세션이 들어간다. 리뷰 본문은 남기지 않는다. `outcome_refresh_quotas`는 PR 상태를 다시 읽는 GitHub 호출의 rate limit 창이다.
   - 만드는 시점: PR을 열거나 리뷰를 남기는 트랜잭션에서(`packages/db/src/action/pull-requests.ts`, `packages/db/src/github-settings.ts`의 `insert(sessionOutcomes)`). push 요청이 연 PR 중 성과물 행이 없는 것은 refresher가 `pull_requests` 행에서 나중에 채운다(`packages/db/src/sessions/session-outcomes.ts`의 `fillMissing`). 열린 PR과 닫힌 지 30일이 안 된 PR은 주기적으로 상태를 다시 읽어 행을 고친다. 머지된 PR과 리뷰는 다시 읽지 않는다.
   - 보존 기간: **정해지지 않음.** 설계에도 없다. 지우는 경로도 없다.
@@ -157,15 +157,15 @@ bucket은 `S3_BUCKET`(기본 `claude-sessions`, `infra/compose.core.yml:290`, `d
 프롬프트·답변·도구 입출력은 세 곳에 남는다. 어디서 무엇을 가리는지가 다르다.
 
 - **입력 메시지 원문** — `turns.message`
-  - 마스킹: 없음. 받은 그대로 저장한다. 크기만 검사한다(32 KiB, `MESSAGE_MAX_BYTES`, `packages/contracts/src/api/session.ts:555`).
+  - 마스킹: 없음. 받은 그대로 저장한다. 크기만 검사한다(32 KiB, `MESSAGE_MAX_BYTES`, `packages/contracts/src/api/session.ts`).
 - **이벤트** — `events.payload`의 assistant 텍스트, `tool_use` 입력, `tool_result` 본문, `question`과 `pending_requests.payload`
-  - 마스킹: 두 겹이다. Claude adapter의 `sanitizeNativeMessage`가 민감한 키의 값, `Bearer …`·`sk-ant…` 같은 비밀 모양, `password=…` 같은 이름 붙은 값을 `[REDACTED]`로 바꾼다(`packages/adapters/runtimes/claude/src/mapper.ts:52-56`). worker의 `scrubbingGateway`가 이 attempt가 받은 비밀값 자체를 `<redacted>`로 바꾼다(`apps/worker/src/secret-scrubber.ts:107-123`). 엔진이 base64처럼 다시 인코딩한 값은 잡지 못한다(`secret-scrubber.ts:36-40`). 규칙의 차이는 [세션 데이터가 흐르는 길](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/session-data-flow/#비밀값을-어디서-가리나).
+  - 마스킹: 두 겹이다. Claude adapter의 `sanitizeNativeMessage`가 민감한 키의 값, `Bearer …`·`sk-ant…` 같은 비밀 모양, `password=…` 같은 이름 붙은 값을 `[REDACTED]`로 바꾼다(`packages/adapters/runtimes/claude/src/mapper.ts`). worker의 `scrubbingGateway`가 이 attempt가 받은 비밀값 자체를 `<redacted>`로 바꾼다(`apps/worker/src/secret-scrubber.ts`). 엔진이 base64처럼 다시 인코딩한 값은 잡지 못한다(`secret-scrubber.ts`의 `SecretScrubber` 주석). 규칙의 차이는 [세션 데이터가 흐르는 길](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/session-data-flow/#비밀값을-어디서-가리나).
   - 열람: 그 세션을 볼 수 있는 주체만 읽는다([세션 데이터가 흐르는 길](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/session-data-flow/)).
 - **transcript object** — `sessions/<id>/transcripts/…`
-  - 마스킹: 없음. 엔진이 쓴 JSONL을 그대로 올린다(`session-store.ts:255-262`). 세션을 다시 열 때 엔진에 그대로 돌려줘야 하는 원본이라서다. 그래서 이벤트에서 가려진 값도 transcript에는 남을 수 있다.
+  - 마스킹: 없음. 엔진이 쓴 JSONL을 그대로 올린다(`session-store.ts`의 `#write`). 세션을 다시 열 때 엔진에 그대로 돌려줘야 하는 원본이라서다. 그래서 이벤트에서 가려진 값도 transcript에는 남을 수 있다.
   - 접근: worker는 자기 세션 prefix에만 쓰고 읽는다. object store 자격 증명은 API와 maintenance 컨테이너에만 있다([api-server.md](api-server.md)).
 - **로그** — 내용을 싣지 않는다
-  - `sanitizeFields`가 `message`·`body`·`content`·`prompt`·`input`·`output`·`transcript` 같은 이름의 필드를 빼고, 민감한 키의 값과 비밀 모양의 문자열을 `[REDACTED]`로 바꾼다(`packages/observability/src/redaction.ts:12-31`, `54-66`).
+  - `sanitizeFields`가 `message`·`body`·`content`·`prompt`·`input`·`output`·`transcript` 같은 이름의 필드를 빼고, 민감한 키의 값과 비밀 모양의 문자열을 `[REDACTED]`로 바꾼다(`packages/observability/src/redaction.ts`의 `sensitiveKey`·`messageBodyKey`).
   - worker는 예외다. 본문 필드를 빼지 않고 비밀값만 가린다(`apps/worker/src/console-logger.ts`의 `createConsoleLogger`). worker는 본문을 로그에 싣지 않는다는 전제이고, 빼는 규칙이 `input_id` 같은 필드까지 지우기 때문이다.
 
 ## 트레이스와 플랫폼 정본의 경계
@@ -189,7 +189,7 @@ bucket은 `S3_BUCKET`(기본 `claude-sessions`, `infra/compose.core.yml:290`, `d
      -d '{"agent_release_id":"<release>","repository_id":"<repository>","message":"<prompt>"}'
    ```
 
-2. **turn이 끝날 때까지 읽는다.** `GET /v1/sessions/{id}/turns/{turn_id}`의 `status`가 끝 상태(`completed`·`failed`·`interrupted`·`cancelled`·`outcome_unknown`, `packages/contracts/src/api/session.ts:52-58`)가 될 때까지 몇 초 간격으로 읽는다. 끝난 turn의 `result`가 `turns.result_json`이다.
+2. **turn이 끝날 때까지 읽는다.** `GET /v1/sessions/{id}/turns/{turn_id}`의 `status`가 끝 상태(`completed`·`failed`·`interrupted`·`cancelled`·`outcome_unknown`, `packages/contracts/src/api/session.ts`의 `TERMINAL_TURN_STATUS_VALUES`)가 될 때까지 몇 초 간격으로 읽는다. 끝난 turn의 `result`가 `turns.result_json`이다.
 3. **세션 상태를 읽는다.** `GET /v1/sessions/{id}`의 `status`, `admission_state`, `revision`을 본다.
 4. **이벤트를 읽는다.** `GET /v1/sessions/{id}/events`는 SSE다. 처음부터 받아 `event: result`가 나오면 끊는다. `Last-Event-ID`로 이어 받는 법은 [api-guide.md § 5](https://jeongjaesoon.github.io/werft/ko/reference/api-guide/#5-sse로-진행-보기와-last-event-id-재연결).
 
