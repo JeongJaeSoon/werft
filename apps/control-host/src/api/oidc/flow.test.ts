@@ -394,6 +394,29 @@ describe("OIDC flow finish", () => {
       expect(userinfo?.headers.Authorization).toBe("Bearer access-token-value");
     });
 
+    test("a token that expires while UserInfo is awaited is refused", async () => {
+      const started = await thin();
+      started.provider.claims.exp = NOW / 1000 + 1;
+      started.provider.userinfo = {
+        sub: "subject-1",
+        email: "alice@example.com",
+        email_verified: true,
+      };
+      let clock = NOW;
+      const original = started.provider.request;
+      const run = finish(started, {
+        now: () => clock,
+        request: async (url, init, policy) => {
+          const response = await original(url, init, policy);
+          if (url.endsWith("/userinfo")) clock = NOW + 1200;
+          return response;
+        },
+      });
+      expect(await reasonOf(run)).toBe("expired");
+      // UserInfo was reached: the token was live until then.
+      expect(started.provider.calls).toHaveLength(3);
+    });
+
     test("the id_token's own 'not verified' is not overruled by UserInfo, and UserInfo is not asked", async () => {
       for (const required of [true, false]) {
         const started = await thin();

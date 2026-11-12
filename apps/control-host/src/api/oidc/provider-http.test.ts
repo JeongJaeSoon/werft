@@ -289,68 +289,73 @@ describe("provider request", () => {
 
   describe("one deadline for the whole request", () => {
     const answers = [{ address: "203.0.114.7", family: 4 }];
-    const pause = (ms: number) =>
-      new Promise((resolve) => setTimeout(resolve, ms));
-
-    test("a name lookup that never answers is given up on", async () => {
-      const sent: string[] = [];
+    // No timers: the test owns the deadline and the moment the name
+    // resolves, so the order of events is the same on any machine.
+    function controlled() {
+      const deadline = new AbortController();
+      const resolved = Promise.withResolvers<typeof answers>();
+      const signals: (AbortSignal | null | undefined)[] = [];
       const request = createProviderRequest({
-        timeoutMs: 20,
-        lookup: () => new Promise(() => {}),
-        fetch: (async (input: URL | string) => {
-          sent.push(String(input));
-          return new Response("ok");
-        }) as unknown as typeof fetch,
-      });
-      expect(await refusal(request("https://idp.example/x", {}, REFUSE))).toBe(
-        "unreachable",
-      );
-      expect(sent).toHaveLength(0);
-    });
-
-    test("a name lookup that answers after the deadline sends nothing", async () => {
-      const sent: string[] = [];
-      const request = createProviderRequest({
-        timeoutMs: 20,
-        lookup: async () => {
-          await pause(60);
-          return answers;
-        },
-        fetch: (async (input: URL | string) => {
-          sent.push(String(input));
-          return new Response("ok");
-        }) as unknown as typeof fetch,
-      });
-      expect(await refusal(request("https://idp.example/x", {}, REFUSE))).toBe(
-        "unreachable",
-      );
-      await pause(80);
-      expect(sent).toHaveLength(0);
-    });
-
-    test("the time the lookup took is not given back to the connection", async () => {
-      let waited = 0;
-      const request = createProviderRequest({
-        timeoutMs: 60,
-        lookup: async () => {
-          await pause(40);
-          return answers;
-        },
+        deadline: () => deadline.signal,
+        lookup: () => resolved.promise,
         fetch: ((_input: URL | string, init?: RequestInit) => {
-          const started = Date.now();
+          signals.push(init?.signal);
           return new Promise<Response>((_, reject) => {
-            init?.signal?.addEventListener("abort", () => {
-              waited = Date.now() - started;
-              reject(new Error("aborted"));
-            });
+            init?.signal?.addEventListener("abort", () =>
+              reject(new Error("aborted")),
+            );
           });
         }) as unknown as typeof fetch,
       });
-      expect(await refusal(request("https://idp.example/x", {}, REFUSE))).toBe(
-        "unreachable",
-      );
-      // 60 ms in all, 40 of them spent resolving the name.
-      expect(waited).toBeLessThan(50);
+      return { deadline, resolved, signals, request };
+    }
+    const turn = () => new Promise((resolve) => setImmediate(resolve));
+
+    test("a name lookup still unanswered at the deadline is given up on, and its late answer sends nothing", async () => {
+      const { deadline, resolved, signals, request } = controlled();
+      const run = refusal(request("https://idp.example/x", {}, REFUSE));
+      await turn();
+      deadline.abort();
+      expect(await run).toBe("unreachable");
+      resolved.resolve(answers);
+      await turn();
+      expect(signals).toHaveLength(0);
+    });
+
+    test("the connection runs under the deadline that started before the name was resolved", async () => {
+      const { deadline, resolved, signals, request } = controlled();
+      const run = refusal(request("https://idp.example/x", {}, REFUSE));
+      resolved.resolve(answers);
+      await turn();
+      // The request is on the wire, holding the same signal.
+      expect(signals).toEqual([deadline.signal]);
+      deadline.abort();
+      expect(await run).toBe("unreachable");
+      // One address, one attempt: nothing is retried past the deadline.
+      expect(signals).toHaveLength(1);
+    });
+
+    test("the default deadline is ten seconds from the start of the request", async () => {
+      const original = AbortSignal.timeout;
+      const asked: number[] = [];
+      AbortSignal.timeout = (ms: number) => {
+        asked.push(ms);
+        return original.call(AbortSignal, ms);
+      };
+      try {
+        const request = createProviderRequest({
+          lookup: async () => {
+            // Started before the name is resolved.
+            expect(asked).toEqual([10_000]);
+            return answers;
+          },
+          fetch: (async () => new Response("ok")) as unknown as typeof fetch,
+        });
+        await request("https://idp.example/x", {}, REFUSE);
+        expect(asked).toEqual([10_000]);
+      } finally {
+        AbortSignal.timeout = original;
+      }
     });
   });
 

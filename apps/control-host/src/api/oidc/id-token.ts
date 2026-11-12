@@ -84,8 +84,8 @@ export async function verifyIdToken(
     issuers: readonly string[];
     clientId: string;
     nonce: string;
-    /** Milliseconds. */
-    now: number;
+    /** The clock, in milliseconds; read once the signature holds. */
+    now: () => number;
   },
 ): Promise<IdTokenClaims> {
   const parts = token.split(".");
@@ -156,7 +156,7 @@ export async function verifyIdToken(
       "id_token azp is another client",
     );
   }
-  const nowSeconds = expected.now / 1000;
+  const nowSeconds = expected.now() / 1000;
   const finite = (value: unknown): value is number =>
     typeof value === "number" && Number.isFinite(value);
   // No allowance on exp: a token past its own deadline is past it.

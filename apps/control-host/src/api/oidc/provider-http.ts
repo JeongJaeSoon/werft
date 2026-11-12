@@ -197,12 +197,18 @@ async function readCapped(response: Response): Promise<string> {
 }
 
 export function createProviderRequest(
-  deps: { lookup?: Lookup; fetch?: typeof fetch; timeoutMs?: number } = {},
+  deps: {
+    lookup?: Lookup;
+    fetch?: typeof fetch;
+    /** The signal that ends one request; a test passes its own. */
+    deadline?: () => AbortSignal;
+  } = {},
 ): ProviderRequest {
   const lookup: Lookup =
     deps.lookup ?? ((host) => dnsLookup(host, { all: true }));
   const send = deps.fetch ?? fetch;
-  const timeoutMs = deps.timeoutMs ?? TIMEOUT_MS;
+  const startDeadline =
+    deps.deadline ?? (() => AbortSignal.timeout(TIMEOUT_MS));
 
   return async (url, init, policy) => {
     if (endpointProblem(url, policy) !== null) {
@@ -214,7 +220,7 @@ export function createProviderRequest(
     const original = new URL(url);
     const host = original.hostname.replace(/^\[|\]$/g, "");
     // One deadline for the whole request, name resolution included.
-    const deadline = AbortSignal.timeout(timeoutMs);
+    const deadline = startDeadline();
     const timedOut = new Promise<never>((_, reject) => {
       deadline.addEventListener("abort", () => reject(deadline.reason), {
         once: true,

@@ -51,7 +51,7 @@ function verify(
     issuers: overrides.issuers ?? [ISSUER],
     clientId: CLIENT_ID,
     nonce: NONCE,
-    now: NOW,
+    now: () => NOW,
   });
 }
 

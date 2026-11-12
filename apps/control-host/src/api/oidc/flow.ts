@@ -171,7 +171,7 @@ export async function finishFlow(input: {
     issuers: input.issuers,
     clientId: client.clientId,
     nonce: input.nonce,
-    now: input.now(),
+    now: input.now,
   });
   // The signed token's "not verified" stands: UserInfo below fills in what
   // the token leaves out and never overrules what it says.
@@ -201,6 +201,13 @@ export async function finishFlow(input: {
       },
       policy,
     );
+    // The wait for UserInfo counts: the sign-in ends on a live token.
+    if ((claims.exp as number) <= input.now() / 1000) {
+      throw new OidcRejectedError(
+        "expired",
+        "id_token expired before the sign-in finished",
+      );
+    }
     const userinfo = isSuccess(userinfoResponse.status)
       ? parseObject(userinfoResponse.text)
       : null;
