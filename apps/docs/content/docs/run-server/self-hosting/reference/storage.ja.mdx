@@ -186,7 +186,7 @@ resume は commit 済み checkpoint がある場合だけ受理し、worker は 
 * mount 中（409）または別の設置環境のものなら claim だけを解除します。
 * 削除呼び出しが throw した場合（timeout を含む）は claim を残します。volume が削除されたか不明なためです。次の pass は volume 一覧とは別に、未完了 claim から先に再処理します。削除済み volume は一覧に再び現れないためです。
 
-claim が残る間、resume は **503 `BACKEND_UNAVAILABLE`（`retryable: true`）** で拒否します。このとき receipt も idempotency 記録も残さないため、同じ要求を再送すれば回収後に正常処理されます。`paused` セッションでは、resume を始めうるほかの要求も同じ 503 で拒否します。parked 要求への回答（回答は保存しません）と、既に終わった turn の interrupt です。期限を過ぎた parked 要求の期限切れ処理も回収が終わるまで待ち、その後の pass が期限切れを記録してグループを続けます。逆に resume が先に commit すると、セッションが `active` になって `updated_at` が変わるため claim は拒否され、次の launch が volume をそのまま使います。再開成功時に `workspace_reclaimed_at` は消去します。順序別の動作は統合テストが実際の PostgreSQL 上で固定しています。
+claim が残る間、resume は **503 `BACKEND_UNAVAILABLE`（`retryable: true`）** で拒否します。このとき receipt も idempotency 記録も残さないため、同じ要求を再送すれば回収後に正常処理されます。`paused` セッションでは、resume を始めうるほかの要求も同じ 503 で拒否します。parked 要求への回答（回答は保存しません）と、既に終わった turn の interrupt です。期限を過ぎた parked 要求の期限切れ処理も回収が終わるまで待ち、その後の pass が期限切れを記録してグループを続けます。逆に resume が先に commit すると、セッションが `stopped` や `paused` を離れるため（`stopped` からは `active`、`paused` からは `resuming`）claim は拒否され、次の launch が volume をそのまま使います。再開成功時に `workspace_reclaimed_at` は消去します。順序別の動作は統合テストが実際の PostgreSQL 上で固定しています。
 
 <a id="공통-object-store-보호" />
 ## 共通の object store 保護
