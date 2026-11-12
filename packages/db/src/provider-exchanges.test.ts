@@ -225,6 +225,21 @@ describe("a usage report and the ledger", () => {
     expect(await rows()).toEqual([]);
   });
 
+  test("a late open naming the report's session in upper case is the same owner", async () => {
+    const who = await owner();
+    const exchangeId = crypto.randomUUID();
+    await report(who, exchangeId);
+    expect(
+      await createProviderExchangeLedger(db).open({
+        exchangeId,
+        sessionId: who.sessionId.toUpperCase(),
+        attemptId: who.attemptId,
+        reserve: RESERVE,
+      }),
+    ).toEqual({ outcome: "settled" });
+    expect(await rows()).toEqual([]);
+  });
+
   test("a late open naming another owner than the report is refused", async () => {
     const a = await owner();
     const b = await owner();
@@ -374,6 +389,34 @@ describe("the reconciler's pass over the ledger", () => {
       dryRun: false,
     });
     expect(result.noticed).toHaveLength(2);
+  });
+
+  test("a dry run counts a settled row past the keep period once, as the writes do", async () => {
+    const who = await owner();
+    const day = 24 * 60 * 60 * 1_000;
+    const exchangeId = await expiredRow(
+      who,
+      (PROVIDER_EXCHANGE_KEEP_DAYS + 1) * day,
+    );
+    await db.insert(providerUsage).values({
+      exchangeId,
+      ...who,
+      model: USED.model,
+      inputTokens: USED.inputTokens,
+      outputTokens: USED.outputTokens,
+      cacheCreationInputTokens: 0,
+      cacheCreation1hInputTokens: 0,
+      cacheReadInputTokens: 0,
+      estimated: false,
+      costUsd: 0.0084,
+      pricedBy: "table",
+    });
+    expect(
+      await reconcileProviderExchanges(db, { limit: 10, dryRun: true }),
+    ).toEqual({ settled: 1, noticed: [], deleted: 0 });
+    expect(
+      await reconcileProviderExchanges(db, { limit: 10, dryRun: false }),
+    ).toEqual({ settled: 1, noticed: [], deleted: 0 });
   });
 
   test("a dry run reports what it would do and writes nothing", async () => {

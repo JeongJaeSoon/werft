@@ -89,16 +89,17 @@ export function createProviderExchangeLedger(
           )
           .limit(1);
         if (!pair) return { outcome: "unknown_attempt" };
+        // The owner compared in SQL: a session id is a uuid, which the
+        // database reads in either case.
         const [reported] = await tx
           .select({
-            sessionId: providerUsage.sessionId,
-            attemptId: providerUsage.attemptId,
+            sameOwner: sql<boolean>`${providerUsage.sessionId} = ${input.sessionId}::uuid AND ${providerUsage.attemptId} = ${input.attemptId}`,
           })
           .from(providerUsage)
           .where(eq(providerUsage.exchangeId, input.exchangeId))
           .limit(1);
         if (reported) {
-          return sameOwner(reported, input)
+          return reported.sameOwner
             ? { outcome: "settled" }
             : { outcome: "conflict" };
         }
@@ -147,13 +148,6 @@ export function createProviderExchangeLedger(
       return renewed ? "open" : "gone";
     },
   };
-}
-
-function sameOwner(
-  row: { sessionId: string; attemptId: string },
-  input: { sessionId: string; attemptId: string },
-): boolean {
-  return row.sessionId === input.sessionId && row.attemptId === input.attemptId;
 }
 
 export type ExpiredProviderExchange = {
@@ -214,8 +208,10 @@ export async function reconcileProviderExchanges(
       .where(noticeWhere)
       .orderBy(providerExchanges.leaseExpiresAt)
       .limit(input.limit);
+    // A row the settled step takes is not counted again here, as the
+    // writes would not find it.
     const deleted = rowsOf<{ exchange_id: string }>(
-      await db.execute(candidates(old)),
+      await db.execute(candidates(sql`${old} AND NOT ${reportedBySameOwner}`)),
     ).length;
     return { settled, noticed, deleted };
   }

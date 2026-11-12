@@ -15,6 +15,7 @@ import {
 import type { Database } from "./queries.ts";
 import * as schema from "./schema.ts";
 import { attempts, providerExchanges, sessions } from "./schema.ts";
+import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -109,6 +110,56 @@ integration("the provider exchange ledger under concurrent writers", () => {
       },
     };
   }
+
+  /** How many advisory lock requests the server holds back right now. */
+  async function waitingOnAdvisoryLocks(): Promise<number> {
+    const result = await pool.query<{ waiting: string }>(
+      "SELECT count(*) AS waiting FROM pg_locks WHERE locktype = 'advisory' AND NOT granted",
+    );
+    return Number(result.rows[0]?.waiting ?? 0);
+  }
+
+  test("a usage report waits on the exchange's lock, and an open behind it then sees it settled", async () => {
+    const who = await owner();
+    const exchangeId = crypto.randomUUID();
+    const holder = await held();
+    let reporting: Promise<unknown> | undefined;
+    let opening: Promise<unknown> | undefined;
+    try {
+      await lockProviderExchange(holder.asDb, exchangeId);
+      // The real report, through recordProviderUsageAtomic.
+      reporting = createPostgresWorkerUnitOfWork(
+        db as unknown as Database,
+      ).recordProviderUsageAtomic({
+        exchangeId,
+        ...who,
+        usage: { ...RESERVE, outputTokens: 80, estimated: false },
+        priceFor: () => ({ costUsd: 0.0084, pricedBy: "table" }),
+      });
+      expect(await waits(reporting)).toBe("waited");
+      expect(await waitingOnAdvisoryLocks()).toBe(1);
+      opening = createProviderExchangeLedger(db as unknown as Database).open({
+        exchangeId,
+        ...who,
+        reserve: RESERVE,
+      });
+      expect(await waits(opening)).toBe("waited");
+      expect(await waitingOnAdvisoryLocks()).toBe(2);
+    } finally {
+      await holder.end();
+    }
+    expect(await reporting).toMatchObject({ outcome: "recorded" });
+    // Whichever of the two went first, the exchange ends with no row.
+    expect(await opening).toMatchObject({
+      outcome: expect.stringMatching(/^(settled|created)$/),
+    });
+    // A report first leaves the open nothing to insert; an open first has
+    // its row deleted by the report.
+    const left = (await db.select().from(providerExchanges)).filter(
+      (row) => row.exchangeId === exchangeId,
+    );
+    expect(left).toEqual([]);
+  }, 20_000);
 
   test("an open waits while a report holds the exchange, then sees it settled", async () => {
     const who = await owner();
