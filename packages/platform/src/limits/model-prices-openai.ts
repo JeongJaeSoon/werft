@@ -15,28 +15,56 @@
  * Cached input is priced by the call's `cache_read_input_tokens`. A prompt
  * past 272K input tokens, cached ones included, pays the second rate card on
  * every part of the call.
+ *
+ * The cards are checked against `cardsSchema` when the module loads, so a
+ * typo that would undercharge (a negative rate, a long card cheaper than the
+ * short one, a tier below 1x) fails the process instead of the bill.
  */
 
-export type OpenAiRates = {
-  inputUsdPerMtok: number;
-  outputUsdPerMtok: number;
-  cacheReadUsdPerMtok: number;
-};
+import { z } from "zod";
 
-/**
- * A speed tier's tab on the page, as a multiple of the model's standard
- * rates. The page lists each tier's rates per model; every model it lists
- * pays one multiple on every part, long context and cache writes included.
- */
-type Speeds = Readonly<Record<string, number>>;
+const usdPerMtok = z.number().finite().nonnegative();
 
-type Card = {
-  /** The day the card was checked against the pricing page. */
-  checked: string;
-  short: OpenAiRates;
-  long?: OpenAiRates;
-  speeds: Speeds;
-};
+const ratesSchema = z.strictObject({
+  inputUsdPerMtok: usdPerMtok,
+  outputUsdPerMtok: usdPerMtok,
+  cacheReadUsdPerMtok: usdPerMtok,
+});
+
+export type OpenAiRates = z.infer<typeof ratesSchema>;
+
+const cardSchema = z
+  .strictObject({
+    /** The page the rates were read from. */
+    source: z.url({ protocol: /^https$/ }),
+    /** The day the card was checked against that page. */
+    checked: z.iso.date(),
+    short: ratesSchema,
+    long: ratesSchema.optional(),
+    /**
+     * A speed tier's tab on the page, as a multiple of the model's standard
+     * rates. Every model a tab lists pays one multiple on every part, long
+     * context and cache writes included.
+     */
+    speeds: z.record(
+      z.string().refine((name) => name !== "standard"),
+      z.number().finite().min(1),
+    ),
+  })
+  .refine(
+    ({ short, long }) =>
+      long === undefined ||
+      (long.inputUsdPerMtok >= short.inputUsdPerMtok &&
+        long.outputUsdPerMtok >= short.outputUsdPerMtok &&
+        long.cacheReadUsdPerMtok >= short.cacheReadUsdPerMtok),
+    { message: "a long-context rate is below its short one" },
+  );
+
+export const openAiCardsSchema = z.record(z.string().min(1), cardSchema);
+const cardsSchema = openAiCardsSchema;
+
+type Card = z.infer<typeof cardSchema>;
+type Speeds = Card["speeds"];
 
 /** Input at which the long-context rates start: ">272K input tokens". */
 export const OPENAI_LONG_CONTEXT_TOKENS = 272_000;
@@ -49,6 +77,7 @@ function rates(input: number, cached: number, output: number): OpenAiRates {
   };
 }
 
+const SOURCE = "https://developers.openai.com/api/docs/pricing";
 const CHECKED = "2026-11-12";
 
 // The Fast tab doubles most models. `gpt-5-mini` is listed at 1.8x and kept
@@ -64,13 +93,12 @@ function card(
   long: OpenAiRates | undefined,
   speeds: Speeds,
 ): Card {
-  return long === undefined
-    ? { checked: CHECKED, short, speeds }
-    : { checked: CHECKED, short, long, speeds };
+  const entry = { source: SOURCE, checked: CHECKED, short, speeds };
+  return long === undefined ? entry : { ...entry, long };
 }
 
 /** Ids as the page writes them; a dated snapshot is looked up by its base. */
-const CARDS: Readonly<Record<string, Card>> = {
+const CARDS: Readonly<Record<string, Card>> = cardsSchema.parse({
   "gpt-6.1-sol": card(rates(2, 0.1, 10), rates(4, 0.2, 15), ULTRAFAST),
   "gpt-6.1-terra": card(rates(1, 0.05, 5), rates(2, 0.1, 7.5), FAST),
   "gpt-6-luna": card(rates(0.1, 0.01, 0.5), rates(0.2, 0.02, 0.75), FAST),
@@ -89,7 +117,7 @@ const CARDS: Readonly<Record<string, Card>> = {
   "gpt-5": card(rates(1.25, 0.125, 10), undefined, FAST),
   "gpt-5-mini": card(rates(0.25, 0.025, 2), undefined, FAST),
   "gpt-5-nano": card(rates(0.05, 0.005, 0.4), undefined, STANDARD_ONLY),
-};
+});
 
 /**
  * The Pro models give no cached-input rate, so a cache read pays the input
@@ -97,13 +125,13 @@ const CARDS: Readonly<Record<string, Card>> = {
  * names is charged the highest non-Pro rate, and only a Pro model past its
  * card is charged the highest Pro one.
  */
-const PRO_CARDS: Readonly<Record<string, Card>> = {
+const PRO_CARDS: Readonly<Record<string, Card>> = cardsSchema.parse({
   "gpt-5.5-pro": card(rates(30, 30, 180), rates(60, 60, 270), STANDARD_ONLY),
   "gpt-5.4-pro": card(rates(30, 30, 180), rates(60, 60, 270), STANDARD_ONLY),
   "gpt-5.2-pro": card(rates(21, 21, 168), undefined, STANDARD_ONLY),
   "gpt-5-pro": card(rates(15, 15, 120), undefined, STANDARD_ONLY),
   "o3-pro": card(rates(20, 20, 80), undefined, STANDARD_ONLY),
-};
+});
 
 /** Every card, for checks that walk the table. */
 export const OPENAI_CARDS: Readonly<Record<string, Card>> = {

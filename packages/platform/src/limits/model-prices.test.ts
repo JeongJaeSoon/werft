@@ -5,7 +5,7 @@ import {
   priceJudgmentUsage,
   priceProviderUsage,
 } from "./model-prices.ts";
-import { OPENAI_CARDS } from "./model-prices-openai.ts";
+import { OPENAI_CARDS, openAiCardsSchema } from "./model-prices-openai.ts";
 
 const nothing = {
   inputTokens: 0,
@@ -501,11 +501,43 @@ describe("priceProviderUsage for an OpenAI model", () => {
     }
   });
 
-  test("every card names the day it was checked", () => {
+  test("every card names its source page and the day it was checked", () => {
     for (const [model, entry] of Object.entries(OPENAI_CARDS)) {
-      expect([model, entry.checked]).toEqual([
+      expect([model, entry.source, entry.checked]).toEqual([
         model,
+        "https://developers.openai.com/api/docs/pricing",
         expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+      ]);
+    }
+  });
+
+  test("the card schema refuses a card that would undercharge or lose its source", () => {
+    const rates = {
+      inputUsdPerMtok: 2,
+      outputUsdPerMtok: 10,
+      cacheReadUsdPerMtok: 0.2,
+    };
+    const good = {
+      source: "https://developers.openai.com/api/docs/pricing",
+      checked: "2026-11-12",
+      short: rates,
+      speeds: { fast: 2 },
+    };
+    expect(openAiCardsSchema.safeParse({ m: good }).success).toBe(true);
+    for (const bad of [
+      { ...good, short: { ...rates, inputUsdPerMtok: -1 } },
+      { ...good, short: { ...rates, outputUsdPerMtok: Number.NaN } },
+      { ...good, long: { ...rates, outputUsdPerMtok: 9 } },
+      { ...good, speeds: { fast: 0.5 } },
+      { ...good, speeds: { standard: 2 } },
+      { ...good, checked: "2026-13-01" },
+      { ...good, checked: undefined },
+      { ...good, source: "http://developers.openai.com/api/docs/pricing" },
+      { ...good, short: { ...rates, cacheWriteUsdPerMtok: 1 } },
+    ]) {
+      expect([bad, openAiCardsSchema.safeParse({ m: bad }).success]).toEqual([
+        bad,
+        false,
       ]);
     }
   });
