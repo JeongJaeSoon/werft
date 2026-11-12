@@ -379,6 +379,16 @@ SOFTWARE.
 
 이미지 안 `/usr/share/common-licenses/Apache-2.0`에 있다(Debian base-files). https://www.apache.org/licenses/LICENSE-2.0 과 같은 글이다.
 
+## 이미지 밖에서 읽는 외부 데이터
+
+배포 이미지에 들어가지 않고 저장소에도 옮겨 오지 않지만, 저장소의 도구가 실행할 때 받아 읽는 외부 데이터다.
+
+### LiteLLM 단가 데이터 (`model_prices_and_context_window.json`)
+
+- **출처.** BerriAI/litellm 저장소의 `model_prices_and_context_window.json`(https://github.com/BerriAI/litellm).
+- **라이선스.** MIT, Copyright (c) 2023 Berri AI. LiteLLM은 `enterprise/` 디렉터리 밖이 MIT이고, 이 파일도 그 밖에 있다. 허락 조건 전문은 https://github.com/BerriAI/litellm/blob/main/LICENSE 에 있다.
+- **쓰임.** CI의 `litellm-price-drift.yml`이 매주(그리고 단가표를 고치는 PR에서) 정한 commit의 이 파일을 받아 werft의 OpenAI 단가표와 대조하기만 한다. 그 commit SHA를 보고서와 issue에 적는다. 파일의 내용은 werft의 이미지·패키지·저장소에 넣거나 옮기지 않고, 과금에 쓰지 않는다.
+
 ## NOTICE 전문
 
 없음.

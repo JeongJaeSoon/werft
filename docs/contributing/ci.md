@@ -207,7 +207,7 @@ bun test ./.github/scripts/package-retention.test.ts
 
 어긋나면 PR에서는 이 check가 실패하고(필수 check가 아니다), 예약·수동 실행에서는 `litellm-price-drift` label의 issue를 열거나 그 issue에 덧붙인다. LiteLLM 데이터를 읽을 수 없을 때도 같은 issue로 알린다. 단가표와 과금은 자동으로 바뀌지 않는다. 사람이 [공식 단가](https://developers.openai.com/api/docs/pricing)를 확인하고 단가표를 고친다. LiteLLM은 커뮤니티가 관리하는 데이터라 틀리거나 늦을 수 있다.
 
-LiteLLM은 `enterprise/` 밖이 MIT다(Copyright (c) 2023 Berri AI). 데이터는 실행할 때 받아 읽기만 하고 저장소와 이미지에 넣지 않으므로 `THIRD_PARTY_NOTICES.md`에는 넣지 않는다. 스크립트 머리말과 보고서가 출처·commit·라이선스를 적는다. LiteLLM의 데이터나 코드를 저장소에 옮겨 오게 되면 그때 MIT 고지를 더한다.
+LiteLLM은 `enterprise/` 밖이 MIT다(Copyright (c) 2023 Berri AI). 데이터는 실행할 때 받아 읽기만 하고 저장소와 이미지에 넣지 않는다. 그래도 `THIRD_PARTY_NOTICES.md`의 "이미지 밖에서 읽는 외부 데이터" 절(생성기 `scripts/third-party-notices.ts`의 `EXTERNAL_DATA`)이 출처·라이선스·쓰임을 적고, 스크립트 머리말과 보고서가 출처·commit·라이선스를 적는다.
 
 ```sh
 gh workflow run litellm-price-drift.yml --repo JeongJaeSoon/werft
