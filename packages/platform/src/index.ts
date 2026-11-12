@@ -7,7 +7,6 @@ export * from "./github/service/agent-github-service.ts";
 export * from "./agents/agent-mcp-service.ts";
 export * from "./agents/engine-settings-service.ts";
 export * from "./agents/mcp-release-values.ts";
-export * from "./agents/mcp-settings-migration.ts";
 export * from "./agents/agent-pull-request-service.ts";
 export * from "./agents/agent-service.ts";
 export * from "./agents/model-move-runner.ts";

@@ -16,8 +16,7 @@
     "slack-install": "bun run src/api/slack-install.ts",
     "slack-app": "bun run src/api/slack-app.ts",
     "openapi:generate": "bun run scripts/generate-openapi.ts",
-    "migrate-workspace": "bun run src/scheduler/migrate-workspace.ts",
-    "mcp-settings-migration": "bun run src/api/mcp-settings-migration.ts"
+    "migrate-workspace": "bun run src/scheduler/migrate-workspace.ts"
   },
   "dependencies": {
     "@werft-ai/chat-slack": "workspace:*",
