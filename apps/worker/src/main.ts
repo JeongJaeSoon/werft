@@ -4,6 +4,7 @@ import { WORKER_EXIT_LEASE_LOST } from "@werft-ai/contracts";
 import { createWorkerHost } from "./composition.ts";
 import { type WorkerEnvironment, workerConfigFromEnv } from "./config.ts";
 import { createConsoleLogger } from "./console-logger.ts";
+import { denySameUserInspection } from "./process-hardening.ts";
 import type { WorkerHost, WorkerRunSummary } from "./worker-host.ts";
 import { WorkspaceObserver } from "./workspace-observer.ts";
 
@@ -81,6 +82,9 @@ export function exitCodeFor(summary: WorkerRunSummary): number {
 }
 
 if (import.meta.main) {
+  // First: before the launch environment is read and long before anything
+  // that could read this process back is started.
+  denySameUserInspection();
   // Exits rather than waiting for the event loop to drain: a request the
   // shutdown stopped waiting for inside the stop grace would otherwise keep
   // the process alive for its full timeout, into the launcher's SIGKILL.

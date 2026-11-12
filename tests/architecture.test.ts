@@ -2635,12 +2635,25 @@ describe("architecture", () => {
       "@werft-ai/runtime-registry",
       storage,
       "@werft-ai/system",
+      // The runtime's own FFI, for one libc call; the test below holds it
+      // to the file that makes it.
+      "bun:ffi",
     ]);
     const directory = join(root, worker);
     const declared = [...declaredDependencies(await manifest(directory))];
     const imported = [...(await packageImports(directory))];
     expect(declared.filter((name) => !allowed.has(name))).toEqual([]);
     expect(imported.filter((name) => !allowed.has(name))).toEqual([]);
+  });
+
+  test("the worker calls native code from one file: the prctl that closes the process to the engine", async () => {
+    const files = await filesImporting(
+      await sourceFiles(join(root, worker, "src")),
+      "bun:ffi",
+    );
+    expect(
+      files.map((file) => relative(join(root, worker, "src"), file)),
+    ).toEqual(["process-hardening.ts"]);
   });
 
   test("the worker runs a session through the runtime contract, never the Claude driver's types", async () => {
