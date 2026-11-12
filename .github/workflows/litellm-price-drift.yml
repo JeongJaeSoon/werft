@@ -1,0 +1,94 @@
+name: LiteLLM price drift
+
+# Compares werft's OpenAI price table with LiteLLM's price data and reports
+# differences. It never changes the table or billing: a person checks the
+# official pricing page and edits the table. Not a required check.
+on:
+  schedule:
+    # Mondays 09:17 JST.
+    - cron: '17 0 * * 1'
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: 'LiteLLM commit to read (40 hex). Empty reads the latest commit of the price file.'
+        type: string
+        required: false
+  pull_request:
+    paths:
+      - packages/platform/src/limits/model-prices-openai.ts
+      - .github/scripts/litellm-price-drift.ts
+      - .github/scripts/litellm-price-drift.test.ts
+      - .github/workflows/litellm-price-drift.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: litellm-price-drift-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  compare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      exit: ${{ steps.compare.outputs.exit }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/bun-setup
+      - run: bun install --frozen-lockfile
+      - run: bun test ./.github/scripts/litellm-price-drift.test.ts
+      - name: Compare with LiteLLM
+        id: compare
+        env:
+          SHA: ${{ inputs.sha }}
+        run: |
+          set +e
+          bun .github/scripts/litellm-price-drift.ts ${SHA:+--sha "$SHA"} --out report.md
+          code=$?
+          set -e
+          echo "exit=$code" >>"$GITHUB_OUTPUT"
+          if [ -f report.md ]; then cat report.md >>"$GITHUB_STEP_SUMMARY"; fi
+          exit "$code"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always() && hashFiles('report.md') != ''
+        with:
+          name: litellm-price-drift
+          path: report.md
+
+  # One open issue for the signal: repeats append to it. Not on a pull
+  # request, where the red check already says it.
+  report:
+    needs: compare
+    if: always() && needs.compare.result != 'success' && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    # The job writes issues; nothing else in this workflow may.
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        continue-on-error: true
+        with:
+          name: litellm-price-drift
+      - name: Open or update the price drift issue
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          EXIT: ${{ needs.compare.outputs.exit }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          {
+            echo "<!-- litellm-price-drift -->"
+            if [ "$EXIT" = "1" ] && [ -f report.md ]; then
+              cat report.md
+            else
+              echo "The price drift check could not finish (exit \`${EXIT:-none}\`). The [run](${RUN_URL}) log says why: LiteLLM's data could not be fetched or is not in the shape the check reads."
+            fi
+            echo
+            echo "[Run ${GITHUB_RUN_ID}](${RUN_URL}) on \`${GITHUB_SHA}\`. Close this issue once the table is checked; the next difference opens a new one."
+          } >body.md
+          .github/scripts/upsert-ci-issue.sh litellm-price-drift \
+            "OpenAI price table differs from LiteLLM" body.md
