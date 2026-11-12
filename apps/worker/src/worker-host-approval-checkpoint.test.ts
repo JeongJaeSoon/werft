@@ -244,6 +244,10 @@ describe("WorkerHost approval-wait checkpoints", () => {
 
   test("tells the capture it runs at an approval wait, and the turn's end capture that it does not", async () => {
     const run = checkpointingRun();
+    run.capabilities = {
+      ...run.capabilities,
+      effective: { ...run.capabilities.effective, checkpoint: true },
+    };
     const points: Array<string | undefined> = [];
     const { gateway, worker } = host(run, async (_preparation, context) => {
       points.push(context.point);
@@ -252,7 +256,6 @@ describe("WorkerHost approval-wait checkpoints", () => {
     const { end } = await waiting(run, gateway, worker);
     await end();
 
-    expect(points[0]).toBe("approval_wait");
-    expect(points.slice(1).every((point) => point === undefined)).toBe(true);
+    expect(points).toEqual(["approval_wait", undefined]);
   });
 });

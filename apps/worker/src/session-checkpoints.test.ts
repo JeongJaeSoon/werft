@@ -925,6 +925,36 @@ describe("SessionCheckpoints", () => {
       ["approval_wait", "refused"],
       ["turn_end", "succeeded"],
     ]);
+    // What the capture logs on its way says where it ran, too.
+    expect(
+      h.infos.find(({ event }) => event === "worker.checkpoint.published")
+        ?.fields?.point,
+    ).toBe("turn_end");
+  });
+
+  test("a capture's report that does not land names its point", async () => {
+    const h = harness();
+    const { claim } = await opened(h);
+    h.gateway.requestCheckpoint = async () => {
+      throw new Error("connection reset");
+    };
+
+    expect(
+      await h.port.capture(
+        { status: "rejected", reason: "tool_in_flight", detail: "busy" },
+        {
+          scope: scopeOf(claim),
+          recheck: async () => ready,
+          point: "approval_wait",
+        },
+      ),
+    ).toBeNull();
+
+    expect(
+      h.warnings.find(
+        ({ event }) => event === "worker.checkpoint.report_failed",
+      )?.fields,
+    ).toMatchObject({ point: "approval_wait", reason: "connection reset" });
   });
 });
 
