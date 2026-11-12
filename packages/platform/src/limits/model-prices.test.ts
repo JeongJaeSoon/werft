@@ -577,12 +577,15 @@ describe("priceProviderUsage for an OpenAI model", () => {
     );
     for (const bad of [
       { ...good, standard: { ...rates, inputUsdPerMtok: -1 } },
+      { ...good, standard: { ...rates, cacheReadUsdPerMtok: 0 } },
       { ...good, standard: { ...rates, outputUsdPerMtok: Number.NaN } },
       { ...slow, long: { ...long, rates: { ...rates, outputUsdPerMtok: 9 } } },
       { ...slow, long: { ...long, aboveTokens: 0 } },
       // A fast call would be charged its standard-length rates past the threshold.
       { ...good, long },
       { ...good, fast: 0.5 },
+      // Fast mode is premium pricing: 1x would charge a fast call standard rates.
+      { ...good, fast: 1 },
       { ...good, geo: undefined },
       { ...good, checked: "2026-13-01" },
       { ...good, checked: undefined },

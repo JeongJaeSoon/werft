@@ -13,7 +13,8 @@
 
 import { z } from "zod";
 
-const usdPerMtok = z.number().finite().nonnegative();
+// The page prices no Claude token part at zero.
+const usdPerMtok = z.number().finite().positive();
 
 const ratesSchema = z.strictObject({
   inputUsdPerMtok: usdPerMtok,
@@ -37,8 +38,12 @@ const cardSchema = z
         rates: ratesSchema,
       })
       .optional(),
-    /** `speed: "fast"` as a multiple of the standard rates, on every part. */
-    fast: z.number().finite().min(1).optional(),
+    /**
+     * `speed: "fast"` as a multiple of the standard rates, on every part.
+     * Fast mode is premium pricing; the weekly LiteLLM check compares the
+     * multiple itself.
+     */
+    fast: z.number().finite().gt(1).optional(),
     /**
      * Claude 4.6 and later: `inference_geo` multiplies every rate, and the
      * rates hold across the whole window. A model before them always pays

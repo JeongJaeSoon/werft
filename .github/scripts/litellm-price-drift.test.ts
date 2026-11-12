@@ -289,7 +289,7 @@ describe("litellm-price-drift for the Claude table", () => {
 
   test("a rate or an hour-long cache write that differs is reported with its direction", () => {
     const data = claudeAgreeing();
-    claudeEntryOf(data, "claude-sonnet-5-5").cache_read_input_token_cost =
+    claudeEntryOf(data, "claude-sonnet-5").cache_read_input_token_cost =
       0.1 / 1e6;
     claudeEntryOf(
       data,
@@ -304,7 +304,7 @@ describe("litellm-price-drift for the Claude table", () => {
         undercharges: true,
       },
       {
-        model: "claude-sonnet-5-5",
+        model: "claude-sonnet-5",
         tier: "standard",
         detail: "`cache_read_input_token_cost`: LiteLLM $0.1, werft $0.2",
         undercharges: false,
