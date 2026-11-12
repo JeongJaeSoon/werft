@@ -67,12 +67,19 @@ const entrySchema = z
 
 type Entry = z.infer<typeof entrySchema>;
 
+const DATED_SNAPSHOT = /-\d{4}-\d{2}-\d{2}$/;
+
+/** werft prices a dated snapshot (`gpt-5.5-2026-04-23`) as its base model. */
+function baseOf(name: string): string {
+  return name.replace(DATED_SNAPSHOT, "");
+}
+
 /** Only the entries werft prices are validated; the rest are not read. */
 export function parseLiteLlm(raw: unknown): Record<string, Entry> {
   const all = z.record(z.string(), z.unknown()).parse(raw);
   const entries: Record<string, Entry> = {};
-  for (const model of Object.keys(OPENAI_CARDS)) {
-    if (!Object.hasOwn(all, model)) continue;
+  for (const model of Object.keys(all)) {
+    if (!Object.hasOwn(OPENAI_CARDS, baseOf(model))) continue;
     const parsed = entrySchema.safeParse(all[model]);
     if (!parsed.success) {
       throw new Error(
@@ -127,19 +134,19 @@ function suffixOf(tier: string): string {
 
 export function compare(litellm: Record<string, Entry>): Drift[] {
   const drift: Drift[] = [];
-  const report = (
-    model: string,
-    tier: string,
-    detail: string,
-    undercharges: boolean,
-    // Only a rate both sides give can be shown to be one werft charges more.
-    hideable = !undercharges,
-  ) => {
-    if (!hideable || !Object.hasOwn(KNOWN, `${model} ${tier}`)) {
-      drift.push({ model, tier, detail, undercharges });
-    }
-  };
   for (const [model, card] of Object.entries(OPENAI_CARDS)) {
+    const report = (
+      shown: string,
+      tier: string,
+      detail: string,
+      undercharges: boolean,
+      // Only a rate both sides give can be shown to be one werft charges more.
+      hideable = !undercharges,
+    ) => {
+      if (!hideable || !Object.hasOwn(KNOWN, `${model} ${tier}`)) {
+        drift.push({ model: shown, tier, detail, undercharges });
+      }
+    };
     const entry = litellm[model];
     if (entry === undefined) {
       report(
@@ -149,10 +156,15 @@ export function compare(litellm: Record<string, Entry>): Drift[] {
         false,
         false,
       );
-      continue;
     }
-    // Every rate LiteLLM gives, against what werft charges for it.
-    for (const [key, theirs] of Object.entries(entry)) {
+    // Every rate LiteLLM gives for the model or a dated snapshot of it,
+    // which werft prices as the model, against what werft charges for it.
+    const rates = Object.entries(litellm)
+      .filter(([name]) => baseOf(name) === model)
+      .flatMap(([name, each]) =>
+        Object.entries(each).map(([key, value]) => [name, key, value] as const),
+      );
+    for (const [shown, key, theirs] of rates) {
       // parseLiteLlm has made every such field a number.
       if (
         typeof theirs !== "number" ||
@@ -168,7 +180,7 @@ export function compare(litellm: Record<string, Entry>): Drift[] {
           part !== "cache_creation_input_token_cost")
       ) {
         report(
-          model,
+          shown,
           "standard",
           `\`${key}\` is a rate this check does not know`,
           true,
@@ -182,12 +194,12 @@ export function compare(litellm: Record<string, Entry>): Drift[] {
           : suffix === LITELLM_FAST
             ? "fast"
             : suffix;
-      const rates = long === undefined ? card.short : card.long;
+      const cardRates = long === undefined ? card.short : card.long;
       // A length the card has no rates for is priced by the fallback, which
       // this check does not compute: a person compares the two.
-      if (rates === undefined) {
+      if (cardRates === undefined) {
         report(
-          model,
+          shown,
           tier,
           `\`${key}\`: LiteLLM ${perMtok(theirs)}; werft has no rate for this length and charges its fallback`,
           true,
@@ -203,14 +215,14 @@ export function compare(litellm: Record<string, Entry>): Drift[] {
             : CACHE_WRITE_12H
           : 1;
       const ours =
-        (rates[rate] * write * openAiSpeedMultiplier(model, tier)) / 1e6;
+        (cardRates[rate] * write * openAiSpeedMultiplier(model, tier)) / 1e6;
       if (!same(theirs, ours)) {
         const unlisted =
           Object.hasOwn(card.speeds, tier) || tier === "standard"
             ? ""
             : " (the card does not list this tier; werft charges its highest multiple)";
         report(
-          model,
+          shown,
           tier,
           `\`${key}\`: LiteLLM ${perMtok(theirs)}, werft ${perMtok(ours)}${unlisted}`,
           theirs > ours,
@@ -218,6 +230,7 @@ export function compare(litellm: Record<string, Entry>): Drift[] {
       }
     }
     // Rates werft charges that LiteLLM does not give.
+    if (entry === undefined) continue;
     for (const tier of ["standard", ...Object.keys(card.speeds)]) {
       for (const part of [
         "input_cost_per_token",

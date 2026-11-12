@@ -141,6 +141,22 @@ describe("litellm-price-drift", () => {
     ]);
   });
 
+  test("a dated snapshot is compared with its base card, a rate it leaves out is not", () => {
+    const data = agreeing();
+    // werft prices `gpt-5.5-2026-04-23` as `gpt-5.5`.
+    data["gpt-5.5-2026-04-23"] = { input_cost_per_token: 100 / 1e6 };
+    data["gpt-5.4-2026-03-05"] = { input_cost_per_token: 2.5 / 1e6 };
+    data["gpt-9-2026-01-01"] = { input_cost_per_token: 100 / 1e6 };
+    expect(compare(parseLiteLlm(data))).toEqual([
+      {
+        model: "gpt-5.5-2026-04-23",
+        tier: "standard",
+        detail: "`input_cost_per_token`: LiteLLM $100, werft $5",
+        undercharges: true,
+      },
+    ]);
+  });
+
   test("a known tier is still reported when LiteLLM drops its rate", () => {
     const data = agreeing();
     delete entryOf(data, "gpt-5-mini").output_cost_per_token_priority;
