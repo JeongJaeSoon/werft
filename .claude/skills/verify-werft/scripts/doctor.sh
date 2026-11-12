@@ -19,7 +19,8 @@ echo "$services" | sort
 # these running (and healthy where they have a healthcheck).
 # A Codex run's sessions call the fake Responses API; the overlay that builds
 # the Codex worker is what defines it for the run.
-codex=$(ap_compose config --services 2>/dev/null | grep -x fake-responses || true)
+defined=$(ap_compose config --services) || { echo "doctor: docker compose config failed" >&2; exit 1; }
+codex=$(echo "$defined" | grep -x fake-responses || true)
 for service in api scheduler reconciler postgres localstack fake-git egress-proxy fake-messages secrets $codex; do
   line=$(echo "$services" | awk -v s="$service" '$1 == s')
   case "$line" in

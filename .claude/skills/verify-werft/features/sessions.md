@@ -62,9 +62,9 @@ ap_web GET /v1/sessions | head -1 | jq -c '[.items[] | {id, status}]'   # member
 
 ## Codex 엔진 세션
 
-Codex 엔진 run([SKILL.md](../SKILL.md) Launch의 Codex 줄)에서 몬다. 설정 문서가 달라 연결·모델·저장소가 다르고, 대본도 GATE-SPEC이 아니다.
+Codex 엔진 run([SKILL.md](../SKILL.md) Launch의 Codex 줄)에서 몬다. 설정 문서가 달라 연결·모델·저장소가 다르다. 아래 예는 GATE-SPEC 대본 대신 가짜 모델의 키워드 동작을 쓴다.
 
-- **에이전트와 release.** [procedures.md](procedures.md) P-API-AGENTS와 같되 카드의 `model`은 `gpt-5.5`, release는 `{version_id, connection_id:"fake-responses"}`로 `repository_id` 없이 만든다(이 설정에는 저장소가 없어 `repository_id:"sample-app"`은 `422` "Repository sample-app is not in the catalog"). release의 `runtime_config_snapshot.runtime.kind`가 `codex_app_server`다.
+- **에이전트와 release.** [procedures.md](procedures.md) P-API-AGENTS와 같되 카드의 `model`은 `gpt-5.5`, release는 `{version_id, connection_id:"fake-responses"}`로 `repository_id` 없이 만든다(이 설정에는 저장소가 없어 `repository_id:"sample-app"`은 `422` "repository_id: Repository sample-app is not in the catalog"). release의 `runtime_config_snapshot.runtime.kind`가 `codex_app_server`다.
 - **생성.** 본문은 `{agent_release_id, message}`다. `ap_post /v1/sessions "$(jq -nc --arg r "$REL" '{agent_release_id:$r, message:"hello from verify"}')"` → `201`, turn 1이 `completed`, `result.subtype: "success"`.
 - **권한 요청.** 메시지에 `run-command`가 들어 있으면 가짜 모델이 `exec_command`를 한 번 부른다. 세션이 `needs_input`이 되고 pending request가 `kind: "permission"`, `input.command`가 `/bin/sh -lc 'echo hello-from-codex'`다. 위 "권한 요청"처럼 `ap_web`으로 답하면 `202`, turn 1이 `completed`.
 - **사용량.** `ap_compose exec -T postgres psql -U postgres -d sessions -At -c "select model, speed, input_tokens, output_tokens, cost_usd, priced_by from provider_usage"` → 모델 호출마다 `gpt-5.5|standard|1200|80|0.008400|table` 한 줄.

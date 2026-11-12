@@ -102,7 +102,7 @@ run, project, 이미지를 빌드한 소스(`up.sh` 때의 HEAD + 커밋하지 �
 | 함수 | 용도 |
 |---|---|
 | `ap_web METHOD PATH [JSON]` | 브라우저처럼 부른다: `x-requested-with: werft-web` 헤더, `$VERIFY_RUN/cookie`의 세션 cookie를 보내고 응답의 `__Host-werft_session`을 저장한다. cookie 파일은 하나라 여러 사람을 몰 때는 사람마다 복사해 둔다([musterrolle.md](features/musterrolle.md) Preconditions). POST에는 새 `Idempotency-Key`를 붙인다(세션 POST에 필요하고 나머지 route는 보지 않는다) |
-| `ap_key <owner> --scopes a,b` | key CLI로 운영자 key를 발급한다. stdout에 key, stderr에 `key_id …`. 운영자 key는 워크스페이스에 속하지 않아 세션을 만들지 못한다(`POST /v1/sessions` → `404`). 세션은 구성원의 개인 key(`web-user.mjs … key`)로 만든다 |
+| `ap_key <owner> --scopes a,b` | key CLI로 운영자 key를 발급한다. stdout에 key, stderr에 `key_id …`. 운영자 key는 워크스페이스에 속하지 않아 세션을 만들지 못한다(`sessions:write`가 있어도 `POST /v1/sessions` → `404`, 그 scope가 없으면 먼저 `403`). 세션은 구성원의 개인 key(`web-user.mjs … key`)로 만든다 |
 | `ap_revoke <key_id>` | key 폐기 |
 | `ap_get PATH` / `ap_post PATH JSON` | `$KEY`로 Bearer 호출. `ap_post`는 `Idempotency-Key`를 새로 붙인다 |
 | `ap_curl key\|cookie <curl 인자…>` | 위 셋의 바탕. `$KEY`(Bearer) 또는 cookie와 CSRF 헤더를 `-H @<(…)`로 넘기는 `curl -sS`. 스트림(`-N`)이나 key로 보내는 `PATCH`처럼 위 셋이 못 하는 호출에 쓴다. cookie 쪽은 `$AP_COOKIE_EXTRA`(따로 한 줄로 대입)를 세션 cookie 뒤에 붙인다 |
