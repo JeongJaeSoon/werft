@@ -160,6 +160,8 @@ export function ProviderCallbackScreen() {
 
   const finish = useMutation<Finished, ApiError>({
     meta: { public: true },
+    // A test's answer names an account; it goes when this screen does.
+    gcTime: 0,
     mutationFn: () =>
       unwrap(
         client.POST("/v1/auth/oidc/callback", {

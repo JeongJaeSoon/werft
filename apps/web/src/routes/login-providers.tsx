@@ -48,7 +48,7 @@ import {
   Link as TextLink,
 } from "@werft-ai/ui";
 import { Plus } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { scopedKey } from "../api/queries.ts";
 import { refusalText, useHasPermission, useRole } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
@@ -169,6 +169,7 @@ export function LoginProvidersScreen() {
   const owns = useHasPermission(PERMISSION);
   const list = useQuery(loginProvidersQuery(client, owns));
   const [adding, setAdding] = useState(false);
+  const [opener, setOpener] = useState<HTMLElement | null>(null);
 
   if (!owns)
     return (
@@ -186,7 +187,10 @@ export function LoginProvidersScreen() {
           <Button
             type="button"
             variant="outline"
-            onClick={() => setAdding(true)}
+            onClick={(event) => {
+              setOpener(event.currentTarget);
+              setAdding(true);
+            }}
           >
             <Plus aria-hidden="true" />
             {t("loginProviders.add")}
@@ -262,7 +266,7 @@ export function LoginProvidersScreen() {
           </GridTable>
         )}
       </div>
-      <AddProvider open={adding} onOpenChange={setAdding} />
+      <AddProvider open={adding} onOpenChange={setAdding} opener={opener} />
     </Page>
   );
 }
@@ -270,9 +274,11 @@ export function LoginProvidersScreen() {
 function AddProvider({
   open,
   onOpenChange,
+  opener,
 }: {
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
+  readonly opener: HTMLElement | null;
 }) {
   const { t } = useI18n();
   const navigate = useNavigate();
@@ -297,6 +303,7 @@ function AddProvider({
         setError(null);
         onOpenChange(next);
       }}
+      opener={opener}
       pending={create.isPending}
       title={t("loginProviders.add")}
       description={t("loginProviders.addDescription")}
@@ -342,10 +349,19 @@ function Action({
   readonly label: string;
   readonly reason?: string | undefined;
   readonly busy: boolean;
-  readonly onClick: () => void;
+  readonly onClick: (button: HTMLElement) => void;
 }) {
   const button = (
-    <RowAction disabled={busy || reason !== undefined} onClick={onClick}>
+    // Busy is `aria-disabled`, which keeps the button focusable: a dialog that
+    // closes on a saved change gives the keyboard back to it while the
+    // re-read is still out.
+    <RowAction
+      disabled={reason !== undefined}
+      aria-disabled={busy || undefined}
+      onClick={(event) => {
+        if (!busy) onClick(event.currentTarget);
+      }}
+    >
       {label}
     </RowAction>
   );
@@ -432,9 +448,11 @@ function ProviderSettings({
   const id = { params: { path: { id: provider.id } } };
   const refused = (text: string) => setOutcome({ kind: "error", text });
   const notice = (text: string) => setOutcome({ kind: "notice", text });
-  const open = (next: Editing) => {
+  const [opener, setOpener] = useState<HTMLElement | null>(null);
+  const open = (next: Editing, button?: HTMLElement) => {
     setOutcome(null);
     setDialogError(null);
+    if (button) setOpener(button);
     setEditing(next);
   };
   const saved = () => {
@@ -462,14 +480,20 @@ function ProviderSettings({
       ),
     { onDone: saved, onRefused: setDialogError },
   );
+  // The secret on its way from the dialog to the request. Not the mutation's
+  // variables: the cache keeps those for as long as this screen is mounted.
+  const secretValue = useRef("");
   const setSecret = useProviderWrite(
-    (api, value: string) =>
-      unwrap(
+    (api, _: undefined) => {
+      const value = secretValue.current;
+      secretValue.current = "";
+      return unwrap(
         api.PUT("/v1/login-providers/{id}/client-secret", {
           ...id,
           body: { value },
         }),
-      ),
+      );
+    },
     {
       onDone: (answer) => {
         setEditing(null);
@@ -553,7 +577,7 @@ function ProviderSettings({
                 <Action
                   label={t("loginProviders.rename")}
                   busy={busy}
-                  onClick={() => open("name")}
+                  onClick={(button) => open("name", button)}
                 />
               }
             />
@@ -653,7 +677,7 @@ function ProviderSettings({
                   label={t("loginProviders.clientEdit")}
                   reason={locked}
                   busy={busy}
-                  onClick={() => open("client")}
+                  onClick={(button) => open("client", button)}
                 />
               }
             />
@@ -687,7 +711,7 @@ function ProviderSettings({
                       : "loginProviders.secretSet",
                   )}
                   busy={busy}
-                  onClick={() => open("secret")}
+                  onClick={(button) => open("secret", button)}
                 />
               }
             />
@@ -780,6 +804,7 @@ function ProviderSettings({
       <FormDialog
         open={editing === "name"}
         onOpenChange={(next) => open(next ? "name" : null)}
+        opener={opener}
         pending={change.isPending}
         title={t("loginProviders.rename")}
         description={t("loginProviders.nameHint")}
@@ -807,6 +832,7 @@ function ProviderSettings({
       <FormDialog
         open={editing === "client"}
         onOpenChange={(next) => open(next ? "client" : null)}
+        opener={opener}
         pending={change.isPending}
         title={t("loginProviders.clientEditTitle")}
         description={t("loginProviders.clientEditDescription")}
@@ -852,6 +878,7 @@ function ProviderSettings({
       <FormDialog
         open={editing === "secret"}
         onOpenChange={(next) => open(next ? "secret" : null)}
+        opener={opener}
         pending={setSecret.isPending}
         title={t("loginProviders.secretTitle")}
         description={t(
@@ -864,7 +891,8 @@ function ProviderSettings({
         pendingLabel={t("settings.saving")}
         onSubmit={(form) => {
           setDialogError(null);
-          setSecret.mutate(String(form.get("value")));
+          secretValue.current = String(form.get("value"));
+          setSecret.mutate(undefined);
         }}
       >
         <SecretInput label={t("loginProviders.secret")} />

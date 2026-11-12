@@ -274,6 +274,135 @@ describe("로그인 공급자 상세", () => {
     expect(document.body.textContent).not.toContain("typed-once");
   });
 
+  test("once the client secret is on its way the page keeps it nowhere, the re-read still out or a refusal shown", async () => {
+    // The write settles when the list has been read again; that read is
+    // held, so the first check is made while the write is still pending.
+    let hold = false;
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let refuse = false;
+    const { services } = renderAt(PAGE, {
+      ...routes([filled()]),
+      [`GET ${API}`]: async () => {
+        if (hold) await gate;
+        return json(200, {
+          providers: [filled()],
+          console_origin_configured: true,
+        });
+      },
+      [`PUT ${API}/${ID}/client-secret`]: () =>
+        refuse
+          ? apiError(503, "BACKEND_UNAVAILABLE")
+          : json(200, { provider: filled() }),
+    });
+    const kept = (value: string) =>
+      JSON.stringify(
+        services.queryClient
+          .getMutationCache()
+          .getAll()
+          .map((mutation) => [mutation.state.variables, mutation.state.data]),
+      ).includes(value) ||
+      [...document.querySelectorAll("input")].some(
+        (input) => input.value === value,
+      );
+    const user = await setupUser();
+    await screen.findByText("저장됨 ••••wxyz");
+    await user.click(screen.getByRole("button", { name: "값 바꾸기" }));
+    await user.type(
+      named(await screen.findByRole("dialog"), "value"),
+      "typed-once",
+    );
+    hold = true;
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    await screen.findByText("저장했습니다.");
+    expect(
+      screen
+        .getByRole("button", { name: "값 바꾸기" })
+        .getAttribute("aria-disabled"),
+    ).toBe("true");
+    expect(kept("typed-once")).toBe(false);
+    hold = false;
+    release();
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("button", { name: "값 바꾸기" })
+          .getAttribute("aria-disabled"),
+      ).toBe(null),
+    );
+    expect(kept("typed-once")).toBe(false);
+
+    // A refused value stays in the dialog's field, to be corrected, and
+    // nowhere else; closing the dialog drops it.
+    refuse = true;
+    await user.click(screen.getByRole("button", { name: "값 바꾸기" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.type(named(dialog, "value"), "typed-twice");
+    await user.click(within(dialog).getByRole("button", { name: "저장" }));
+    await within(dialog).findByRole("alert");
+    expect(
+      JSON.stringify(
+        services.queryClient
+          .getMutationCache()
+          .getAll()
+          .map((mutation) => mutation.state),
+      ),
+    ).not.toContain("typed-twice");
+    await user.click(within(dialog).getByRole("button", { name: "취소" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog") === null).toBe(true),
+    );
+    expect(kept("typed-twice")).toBe(false);
+  });
+
+  test("a dialog gives the keyboard back to the button that opened it, cancelled or saved", async () => {
+    renderAt(PAGE, {
+      ...routes([filled()]),
+      [`PATCH ${API}/${ID}`]: () => json(200, { provider: filled() }),
+      [`PUT ${API}/${ID}/client-secret`]: () =>
+        json(200, { provider: filled() }),
+    });
+    const user = await setupUser();
+    const closed = () =>
+      waitFor(() => expect(screen.queryByRole("dialog") === null).toBe(true));
+
+    const rename = await screen.findByRole("button", { name: "이름 바꾸기" });
+    await user.click(rename);
+    await user.click(
+      within(await screen.findByRole("dialog")).getByRole("button", {
+        name: "취소",
+      }),
+    );
+    await closed();
+    expect(document.activeElement === rename).toBe(true);
+
+    await user.click(rename);
+    await user.click(
+      within(await screen.findByRole("dialog")).getByRole("button", {
+        name: "저장",
+      }),
+    );
+    await closed();
+    expect(document.activeElement === rename).toBe(true);
+
+    const secret = screen.getByRole("button", { name: "값 바꾸기" });
+    await user.click(secret);
+    const dialog = await screen.findByRole("dialog");
+    await user.type(named(dialog, "value"), "typed-once");
+    await user.click(within(dialog).getByRole("button", { name: "저장" }));
+    await closed();
+    expect(document.activeElement === secret).toBe(true);
+
+    const row = screen.getByText("Client ID").closest("li") as HTMLElement;
+    const client = within(row).getByRole("button", { name: "바꾸기" });
+    await user.click(client);
+    await user.keyboard("{Escape}");
+    await closed();
+    expect(document.activeElement === client).toBe(true);
+  });
+
   test("a test sign-in leaves for the address the server gives", async () => {
     const { left, api } = renderAt(PAGE, {
       ...routes([filled()]),
@@ -433,6 +562,39 @@ describe("테스트 로그인이 돌아온 화면", () => {
         .getAttribute("href"),
     ).toBe(PAGE);
     expect(history.location.pathname).toBe(`/auth/callback/${ID}`);
+  });
+
+  test("the result goes with the screen, and what the owner had read before the test stays", async () => {
+    const { services } = renderAt(CALLBACK, {
+      ...callback({
+        passed: true,
+        recorded: true,
+        subject: "sub-1001",
+        email: "alice@example.com",
+        email_verified: true,
+        address_owned: true,
+        entry: "invite_only",
+      }),
+      [`GET ${API}`]: () =>
+        json(200, { providers: [filled()], console_origin_configured: true }),
+    });
+    services.queryClient.setQueryData(["read-before-the-test"], "kept");
+    const answers = () =>
+      JSON.stringify(
+        services.queryClient
+          .getMutationCache()
+          .getAll()
+          .map((mutation) => mutation.state.data ?? null),
+      );
+    const user = await setupUser();
+    const back = await screen.findByRole("link", { name: "공급자 설정으로" });
+    expect(answers()).toContain("alice@example.com");
+    expect(
+      services.queryClient.getQueryData<string>(["read-before-the-test"]),
+    ).toBe("kept");
+    await user.click(back);
+    await screen.findByRole("heading", { level: 1, name: "Acme SSO" });
+    await waitFor(() => expect(answers()).not.toContain("alice@example.com"));
   });
 
   test("a pass that was not written down says to test again", async () => {
