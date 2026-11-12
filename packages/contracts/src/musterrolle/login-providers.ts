@@ -169,9 +169,10 @@ export const disableLoginProviderResponseSchema = z
  * the rules a real sign-in runs. `signs_in`: it is already connected.
  * `link_required`: its address has an account here that is not connected.
  * `joins`: a new member is made. `invite_only`: it comes in with an invite
- * alone. `domain_not_allowed`: outside the allowed domains. `refused`: its
- * address has an account here and the provider does not prove the address
- * is this account's.
+ * alone. `domain_not_allowed`: outside the allowed domains. `refused`: the
+ * user it is connected to, or the account its address has here, is turned
+ * off or in no workspace; or its address has an account here and the
+ * provider does not prove the address is this account's.
  */
 export const LOGIN_PROVIDER_TEST_ENTRY_VALUES = [
   "signs_in",

@@ -31,6 +31,7 @@ import {
   readSecretInTx,
   writeSecretInTx,
 } from "../secrets/secret-values.ts";
+import { findLiveMembership } from "./identity.ts";
 
 export const LOGIN_CLIENT_SECRET_PURPOSE = "login_client_secret";
 /** A replacement for a provider that is on, until a test sign-in passes. */
@@ -485,6 +486,23 @@ export function createPostgresLoginProviderAdminStore(
         const workspaceId = await secretOwnerWorkspace(tx);
         if (workspaceId === null) return { outcome: "no_workspace" as const };
         const slot: LoginProviderSecretSlot = row.enabled ? "next" : "current";
+        // The value this provider already has, or already waits to try, is
+        // no change: a pass that vouches for it stands.
+        const held =
+          (row.enabled
+            ? await readSecretInTx(tx, key, slotOf(workspaceId, row.id, "next"))
+            : null) ??
+          (await readSecretInTx(
+            tx,
+            key,
+            slotOf(workspaceId, row.id, "current"),
+          ));
+        if (held === input.value) {
+          return {
+            outcome: "stored" as const,
+            provider: await recordOf(tx, row),
+          };
+        }
         await writeSecretInTx(
           tx,
           key,
@@ -689,8 +707,10 @@ export function createPostgresLoginProviderAdminStore(
     },
 
     async previewEntry(input) {
+      // The same questions, in the same order, as the sign-in itself
+      // (signInWithExternalIdentity).
       const [linked] = await db
-        .select({ id: loginMethods.id })
+        .select({ userId: loginMethods.userId })
         .from(loginMethods)
         .where(
           and(
@@ -699,13 +719,22 @@ export function createPostgresLoginProviderAdminStore(
             eq(loginMethods.subject, input.subject),
           ),
         );
-      if (linked) return "linked";
+      if (linked) {
+        const [user] = await db
+          .select({ id: users.id })
+          .from(users)
+          .where(and(eq(users.id, linked.userId), isNull(users.disabledAt)));
+        return user && (await findLiveMembership(db, user.id))
+          ? "linked"
+          : "refused";
+      }
       if (input.email === null) return "none";
       const [account] = await db
-        .select({ id: users.id })
+        .select({ disabledAt: users.disabledAt })
         .from(users)
         .where(eq(users.email, input.email));
-      return account ? "account_exists" : "none";
+      if (!account) return "none";
+      return account.disabledAt === null ? "account_exists" : "refused";
     },
   };
 }

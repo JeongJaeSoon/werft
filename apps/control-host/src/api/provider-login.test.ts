@@ -16,6 +16,7 @@ import type {
   IdentityStore,
   LoginProvider,
   LoginProviderAdminStore,
+  LoginProviderEntryPreview,
   LoginProviderSecretSlot,
   LoginProviderStore,
   ResolvedWebSession,
@@ -533,7 +534,7 @@ function adminOf(overrides: Partial<LoginProvider> = {}) {
     slot: "current" as LoginProviderSecretSlot,
     clientSecret: CLIENT_SECRET as string | null,
     secretVersion: 1 as number | null,
-    known: "none" as "linked" | "account_exists" | "none",
+    known: "none" as LoginProviderEntryPreview,
     outcome: "recorded" as "recorded" | "stale" | "not_found",
   };
   const recorded: RecordedTest[] = [];
@@ -826,11 +827,20 @@ describe("provider test sign-in", () => {
     const silent = { ...alice, email_verified: null };
     const cases: Array<{
       provider?: Partial<LoginProvider>;
-      known: "linked" | "account_exists" | "none";
+      known: LoginProviderEntryPreview;
       claims: MockOidcClaims;
       entry: string;
     }> = [
       { known: "linked", claims: alice, entry: "signs_in" },
+      // A user or an account that is turned off, or in no workspace.
+      { known: "refused", claims: alice, entry: "refused" },
+      {
+        // The domain rule is asked first, as at a sign-in.
+        provider: { allowedDomains: ["elsewhere.example"] },
+        known: "refused",
+        claims: alice,
+        entry: "domain_not_allowed",
+      },
       { known: "account_exists", claims: alice, entry: "link_required" },
       {
         provider: { requireVerifiedEmail: false },

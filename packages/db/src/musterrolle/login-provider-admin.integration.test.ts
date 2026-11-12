@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import {
   type LoginProviderAdminStore,
   type LoginProviderEndpoints,
+  type LoginProviderRecord,
   SecretKey,
 } from "@werft-ai/platform";
 import {
@@ -17,6 +18,7 @@ import * as schema from "../schema.ts";
 import {
   loginMethods,
   loginProviders,
+  memberships,
   receipts,
   secretValues,
   users,
@@ -143,6 +145,33 @@ integration("login provider admin store", () => {
     if (enabled.outcome !== "enabled") throw new Error(enabled.outcome);
     return enabled.provider;
   };
+
+  /** The sign-in itself, by an account whose address the provider vouches for. */
+  const signIn = (
+    target: Pick<LoginProviderRecord, "id" | "configRevision" | "issuer">,
+    subject: string,
+    email = `${subject}@example.com`,
+  ) =>
+    signInWithExternalIdentity(db, {
+      kind: "oidc",
+      provider: { id: target.id, configRevision: target.configRevision },
+      issuer: target.issuer,
+      subject,
+      email,
+      displayName: subject,
+      jitRole: "member",
+      ownsEmail: true,
+      newUserId: randomUUID(),
+      newLoginMethodId: randomUUID(),
+      receiptId: randomUUID(),
+      session: {
+        id: randomUUID(),
+        tokenHash: createHash("sha256").update(randomUUID()).digest(),
+        ttlMs: 60_000,
+        userAgent: null,
+        maxLive: 5,
+      },
+    });
 
   const receiptsOf = async (providerId: string) =>
     (
@@ -337,6 +366,37 @@ integration("login provider admin store", () => {
     expect(
       (await admin.enable({ id: provider.id, audit: audit() })).outcome,
     ).toBe("not_ready");
+  });
+
+  test("the secret a provider already has, or already waits to try, is no change: the pass stands and no receipt is left", async () => {
+    const provider = await configured();
+    expect((await passTest(provider.id)).outcome).toBe("recorded");
+    const ready = await current(provider.id);
+    const set = (value: string) =>
+      admin.setClientSecret({ id: provider.id, value, audit: audit() });
+    const secretReceipts = async () =>
+      (await receiptsOf(provider.id)).filter(
+        (receipt) => receipt.operation === "set_login_provider_secret",
+      ).length;
+
+    const again = await set(FIRST_SECRET);
+    if (again.outcome !== "stored") throw new Error(again.outcome);
+    expect(again.provider).toEqual(ready);
+    expect(await secretReceipts()).toBe(1);
+    const enabled = await admin.enable({ id: provider.id, audit: audit() });
+    if (enabled.outcome !== "enabled") throw new Error(enabled.outcome);
+
+    // On: the secret in use is not a replacement of itself.
+    const inUse = await set(FIRST_SECRET);
+    if (inUse.outcome !== "stored") throw new Error(inUse.outcome);
+    expect(inUse.provider).toEqual(enabled.provider);
+    const waiting = await set(SECOND_SECRET);
+    if (waiting.outcome !== "stored") throw new Error(waiting.outcome);
+    expect(waiting.provider.pendingClientSecret?.last4).toBe("2222");
+    const repeated = await set(SECOND_SECRET);
+    if (repeated.outcome !== "stored") throw new Error(repeated.outcome);
+    expect(repeated.provider).toEqual(waiting.provider);
+    expect(await secretReceipts()).toBe(2);
   });
 
   test("a test that ran while the settings changed is not written down", async () => {
@@ -552,33 +612,12 @@ integration("login provider admin store", () => {
   test("turning a provider off ends its sessions, drops a waiting secret and says how many sessions ended", async () => {
     const provider = await turnedOn();
     const other = await turnedOn();
-    const session = (target: typeof provider, subject: string) =>
-      signInWithExternalIdentity(db, {
-        kind: "oidc",
-        provider: { id: target.id, configRevision: target.configRevision },
-        issuer: target.issuer,
-        subject,
-        email: `${subject}@example.com`,
-        displayName: subject,
-        jitRole: "member",
-        ownsEmail: true,
-        newUserId: randomUUID(),
-        newLoginMethodId: randomUUID(),
-        receiptId: randomUUID(),
-        session: {
-          id: randomUUID(),
-          tokenHash: createHash("sha256").update(randomUUID()).digest(),
-          ttlMs: 60_000,
-          userAgent: null,
-          maxLive: 5,
-        },
-      });
     for (const [target, subject] of [
       [provider, "off-1"],
       [provider, "off-2"],
       [other, "stays-1"],
     ] as const) {
-      expect((await session(target, subject)).outcome).toBe("signed_in");
+      expect((await signIn(target, subject)).outcome).toBe("signed_in");
     }
     const waiting = await admin.setClientSecret({
       id: provider.id,
@@ -788,42 +827,89 @@ integration("login provider admin store", () => {
     expect(JSON.stringify(last?.result)).not.toContain("receipt.example");
   });
 
-  test("a preview of who would come in makes nothing", async () => {
+  test("a preview of who would come in says what the sign-in itself would, and makes nothing", async () => {
     const provider = await turnedOn();
-    const methodId = randomUUID();
-    const linkedUser = randomUUID();
-    await db.insert(users).values({
-      id: linkedUser,
-      email: "linked@example.com",
-      displayName: "Linked",
+    const person = async (
+      name: string,
+      has: { off?: boolean; membership?: "live" | "off"; subject?: string },
+    ) => {
+      const id = randomUUID();
+      await db.insert(users).values({
+        id,
+        email: `${name}@example.com`,
+        displayName: name,
+        disabledAt: has.off ? new Date() : null,
+      });
+      if (has.membership) {
+        await db.insert(memberships).values({
+          workspaceId,
+          userId: id,
+          role: "member",
+          disabledAt: has.membership === "off" ? new Date() : null,
+        });
+      }
+      if (has.subject) {
+        await db.insert(loginMethods).values({
+          id: randomUUID(),
+          userId: id,
+          kind: "oidc",
+          issuer: provider.issuer,
+          subject: has.subject,
+        });
+      }
+    };
+    await person("pv-linked", { membership: "live", subject: "pv-linked" });
+    await person("pv-off", {
+      off: true,
+      membership: "live",
+      subject: "pv-off",
     });
-    await db.insert(loginMethods).values({
-      id: methodId,
-      userId: linkedUser,
-      kind: "oidc",
-      issuer: provider.issuer,
-      subject: "linked-subject",
+    await person("pv-homeless", { subject: "pv-homeless" });
+    await person("pv-left", { membership: "off", subject: "pv-left" });
+    await person("pv-account", { membership: "live" });
+    await person("pv-off-account", { off: true, membership: "live" });
+    const count = async () => ({
+      users: (await db.select({ id: users.id }).from(users)).length,
+      methods: (await db.select({ id: loginMethods.id }).from(loginMethods))
+        .length,
+      sessions: (await db.select({ id: webSessions.id }).from(webSessions))
+        .length,
     });
-    const before = (await db.select({ id: users.id }).from(users)).length;
+    const before = await count();
 
     const preview = (subject: string, email: string | null) =>
       admin.previewEntry({ issuer: provider.issuer, subject, email });
-    expect(await preview("linked-subject", "someone@example.com")).toBe(
-      "linked",
-    );
+    // Each with what the sign-in itself answers for the same account.
+    const cases = [
+      ["pv-linked", "someone@example.com", "linked", "signed_in"],
+      ["pv-off", "pv-off@example.com", "refused", "rejected"],
+      ["pv-homeless", "pv-homeless@example.com", "refused", "rejected"],
+      ["pv-left", "pv-left@example.com", "refused", "rejected"],
+      ["pv-new", "pv-account@example.com", "account_exists", "link_required"],
+      ["pv-new", "pv-off-account@example.com", "refused", "rejected"],
+    ] as const;
+    for (const [subject, email, expected] of cases) {
+      expect(await preview(subject, email), `${subject} ${email}`).toBe(
+        expected,
+      );
+    }
     // The same subject at another issuer is another account.
     expect(
       await admin.previewEntry({
         issuer: "https://elsewhere.example.test",
-        subject: "linked-subject",
+        subject: "pv-linked",
         email: null,
       }),
     ).toBe("none");
-    expect(await preview("new-subject", "linked@example.com")).toBe(
-      "account_exists",
-    );
-    expect(await preview("new-subject", "nobody@example.com")).toBe("none");
-    expect(await preview("new-subject", null)).toBe("none");
-    expect((await db.select({ id: users.id }).from(users)).length).toBe(before);
+    expect(await preview("pv-new", "pv-nobody@example.com")).toBe("none");
+    expect(await preview("pv-new", null)).toBe("none");
+    expect(await count()).toEqual(before);
+
+    for (const [subject, email, , outcome] of cases) {
+      expect(
+        (await signIn(provider, subject, email)).outcome,
+        `${subject} ${email}`,
+      ).toBe(outcome);
+    }
   });
 });

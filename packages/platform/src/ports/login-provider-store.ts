@@ -190,15 +190,22 @@ export interface LoginProviderAdminStore {
   }): Promise<{ outcome: "deleted" | "not_found" | "enabled" }>;
   /**
    * What a sign-in by this external account would meet, without making
-   * anything: it is connected to a user, or its address has an account, or
-   * neither.
+   * anything: it is connected to a user who may sign in, or its address has
+   * an account that may be connected, or the user or account it leads to is
+   * turned off or in no workspace (`refused`), or none of these.
    */
   previewEntry(input: {
     issuer: string;
     subject: string;
     email: string | null;
-  }): Promise<"linked" | "account_exists" | "none">;
+  }): Promise<LoginProviderEntryPreview>;
 }
+
+export type LoginProviderEntryPreview =
+  | "linked"
+  | "account_exists"
+  | "refused"
+  | "none";
 
 export interface LoginProviderStore {
   /** The providers that are turned on, oldest first. */

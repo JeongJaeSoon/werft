@@ -9,6 +9,7 @@ import {
 import type {
   LoginProvider,
   LoginProviderAdminStore,
+  LoginProviderEntryPreview,
   LoginProviderStore,
 } from "@werft-ai/platform";
 import { type Admission, admit, ownsAddress } from "./oidc/admission.ts";
@@ -63,10 +64,11 @@ export class ProviderLoginError extends Error {
  */
 function entryOf(
   admission: Admission | null,
-  known: "linked" | "account_exists" | "none",
+  known: LoginProviderEntryPreview,
   email: string | null,
 ): LoginProviderTestEntry {
   if (admission === null) return "domain_not_allowed";
+  if (known === "refused") return "refused";
   if (known === "linked") return "signs_in";
   if (known === "account_exists") {
     return admission.ownsEmail ? "link_required" : "refused";
