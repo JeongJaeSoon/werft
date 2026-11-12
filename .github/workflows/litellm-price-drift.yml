@@ -1,8 +1,8 @@
 name: LiteLLM price drift
 
-# Compares werft's OpenAI price table with LiteLLM's price data and reports
-# differences. It never changes the table or billing: a person checks the
-# official pricing page and edits the table. Not a required check.
+# Compares werft's OpenAI and Claude price tables with LiteLLM's price data
+# and reports differences. It never changes a table or billing: a person
+# checks the official pricing page and edits the table. Not a required check.
 on:
   schedule:
     # Mondays 09:17 JST.
@@ -16,6 +16,7 @@ on:
   pull_request:
     paths:
       - packages/platform/src/limits/model-prices-openai.ts
+      - packages/platform/src/limits/model-prices-claude.ts
       - .github/scripts/litellm-price-drift.ts
       - .github/scripts/litellm-price-drift.test.ts
       - .github/workflows/litellm-price-drift.yml
@@ -91,4 +92,4 @@ jobs:
             echo "[Run ${GITHUB_RUN_ID}](${RUN_URL}) on \`${GITHUB_SHA}\`. Close this issue once the table is checked; the next difference opens a new one."
           } >body.md
           .github/scripts/upsert-ci-issue.sh litellm-price-drift \
-            "OpenAI price table differs from LiteLLM" body.md
+            "A price table differs from LiteLLM" body.md

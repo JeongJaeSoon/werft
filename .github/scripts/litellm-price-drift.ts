@@ -1,8 +1,8 @@
 /**
- * Compares werft's OpenAI price table (packages/platform/src/limits/
- * model-prices-openai.ts) with LiteLLM's price data and reports where they
- * differ. It only reports: the table is changed by a person who checks the
- * official page, never from this data.
+ * Compares werft's OpenAI and Claude price tables (packages/platform/src/
+ * limits/model-prices-openai.ts and model-prices-claude.ts) with LiteLLM's
+ * price data and reports where they differ. It only reports: a table is
+ * changed by a person who checks the official page, never from this data.
  *
  * Data source: `model_prices_and_context_window.json` in
  * https://github.com/BerriAI/litellm, read at one commit whose SHA the report
@@ -19,6 +19,14 @@
 import { writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { z } from "zod";
+import {
+  CLAUDE_CACHE_WRITE_1H,
+  CLAUDE_CACHE_WRITE_5M,
+  CLAUDE_CARDS,
+  CLAUDE_GEO_PERCENT,
+  type ClaudeRates,
+  WEB_SEARCH_MICRO_USD,
+} from "../../packages/platform/src/limits/model-prices-claude.ts";
 import {
   OPENAI_CACHE_WRITE_12H,
   OPENAI_CACHE_WRITE_30M,
@@ -76,18 +84,39 @@ function baseOf(name: string): string {
   return name.replace(DATED_SNAPSHOT, "");
 }
 
+const anthropic = z.looseObject({ litellm_provider: z.literal("anthropic") });
+
+/** What a Claude entry adds: its multiples and its web search fee. */
+const claudeExtrasSchema = z.looseObject({
+  provider_specific_entry: z
+    .record(z.string(), z.number().finite().positive())
+    .optional(),
+  search_context_cost_per_query: z.record(z.string(), perToken).optional(),
+});
+
+/** A Claude model werft prices, or one LiteLLM prices on the Claude API. */
+function isClaude(model: string, value: unknown): boolean {
+  return (
+    Object.hasOwn(CLAUDE_CARDS, model) ||
+    (model.startsWith("claude-") && anthropic.safeParse(value).success)
+  );
+}
+
 /** Only the entries werft prices are validated; the rest are not read. */
 export function parseLiteLlm(raw: unknown): Record<string, Entry> {
   const all = z.record(z.string(), z.unknown()).parse(raw);
   const entries: Record<string, Entry> = {};
   for (const model of Object.keys(all)) {
-    if (!Object.hasOwn(OPENAI_CARDS, baseOf(model))) continue;
-    const parsed = entrySchema.safeParse(all[model]);
-    if (!parsed.success) {
-      throw new Error(
-        `LiteLLM entry ${model} is not in the expected shape: ${z.prettifyError(parsed.error)}`,
+    const claude = isClaude(model, all[model]);
+    if (!claude && !Object.hasOwn(OPENAI_CARDS, baseOf(model))) continue;
+    const shape = (error: z.ZodError) =>
+      new Error(
+        `LiteLLM entry ${model} is not in the expected shape: ${z.prettifyError(error)}`,
       );
-    }
+    const parsed = entrySchema.safeParse(all[model]);
+    if (!parsed.success) throw shape(parsed.error);
+    const extras = claude ? claudeExtrasSchema.safeParse(all[model]) : null;
+    if (extras?.success === false) throw shape(extras.error);
     entries[model] = parsed.data;
   }
   return entries;
@@ -269,17 +298,195 @@ export function compare(litellm: Record<string, Entry>): Drift[] {
   return drift;
 }
 
+/** A Claude rate field: its part, then an hour-long write, a long prompt, a batch. */
+const CLAUDE_RATE_KEY =
+  /^(input_cost_per_token|output_cost_per_token|cache_read_input_token_cost|cache_creation_input_token_cost)(_above_1hr)?(?:_above_(\d+)k_tokens)?(_batches)?$/;
+
+const RETIRED =
+  "retired on the Claude API on 2026-06-15 (model deprecations page, checked 2026-11-13); LiteLLM keeps it only under cloud-provider names";
+const NOT_AN_API_ID =
+  "not a Claude API id: ids carry no date from Claude 4.6 on (model ids page, checked 2026-11-13)";
+
+/**
+ * Claude ids one side names and the other does not, for a reason a person
+ * checked. The row is not reported; a rate both sides give still is.
+ */
+export const CLAUDE_UNPAIRED: Readonly<Record<string, string>> = {
+  "claude-opus-4-0": RETIRED,
+  "claude-opus-4-20250514": RETIRED,
+  "claude-sonnet-4-0": RETIRED,
+  "claude-sonnet-4-20250514": RETIRED,
+  "claude-opus-4-6-20260205": NOT_AN_API_ID,
+  "claude-opus-4-7-20260416": NOT_AN_API_ID,
+  "claude-mythos-preview":
+    "deprecated 2026-06-09 and not on the pricing page (checked 2026-11-13); werft charges its fallback",
+};
+
+/** The same comparison for werft's Claude table. */
+export function compareClaude(litellm: Record<string, Entry>): Drift[] {
+  const drift: Drift[] = [];
+  for (const [model, card] of Object.entries(CLAUDE_CARDS)) {
+    const report = (
+      tier: string,
+      detail: string,
+      undercharges: boolean,
+      hideable = !undercharges,
+    ) => {
+      if (!hideable || !Object.hasOwn(KNOWN, `${model} ${tier}`)) {
+        drift.push({ model, tier, detail, undercharges });
+      }
+    };
+    const entry = litellm[model];
+    if (entry === undefined) {
+      if (!Object.hasOwn(CLAUDE_UNPAIRED, model)) {
+        report("standard", "LiteLLM has no entry for this model", false, false);
+      }
+      continue;
+    }
+    const long =
+      card.long === undefined
+        ? undefined
+        : `_above_${card.long.aboveTokens / 1000}k_tokens`;
+    for (const [key, theirs] of Object.entries(entry)) {
+      if (
+        typeof theirs !== "number" ||
+        !PART_NAMES.some((part) => key.startsWith(part))
+      ) {
+        continue;
+      }
+      const [, part, hour, aboveK, batches] = CLAUDE_RATE_KEY.exec(key) ?? [];
+      if (
+        part === undefined ||
+        (hour !== undefined && part !== "cache_creation_input_token_cost")
+      ) {
+        report(
+          "standard",
+          `\`${key}\` is a rate this check does not know`,
+          true,
+        );
+        continue;
+      }
+      // werft prices no batch call.
+      if (batches !== undefined) continue;
+      let rates: ClaudeRates = card.standard;
+      if (aboveK !== undefined) {
+        if (card.long === undefined || `_above_${aboveK}k_tokens` !== long) {
+          report(
+            "standard",
+            `\`${key}\`: LiteLLM ${perMtok(theirs)}; werft has no rate past ${aboveK}K tokens${card.long === undefined ? "" : ` (its long rates start past ${card.long.aboveTokens / 1000}K)`}`,
+            true,
+          );
+          continue;
+        }
+        rates = card.long.rates;
+      }
+      const rate = PARTS[part];
+      if (rate === undefined) continue;
+      const write =
+        part === "cache_creation_input_token_cost"
+          ? hour === undefined
+            ? CLAUDE_CACHE_WRITE_5M
+            : CLAUDE_CACHE_WRITE_1H
+          : 1;
+      const ours = (rates[rate] * write) / 1e6;
+      if (!same(theirs, ours)) {
+        report(
+          "standard",
+          `\`${key}\`: LiteLLM ${perMtok(theirs)}, werft ${perMtok(ours)}`,
+          theirs > ours,
+        );
+      }
+    }
+    // Rates werft charges that LiteLLM does not give.
+    for (const length of long === undefined ? [""] : ["", long]) {
+      for (const key of [
+        ...PART_NAMES.map((part) => `${part}${length}`),
+        `cache_creation_input_token_cost_above_1hr${length}`,
+      ]) {
+        if (!Object.hasOwn(entry, key)) {
+          report("standard", `LiteLLM has no \`${key}\``, false, false);
+        }
+      }
+    }
+    // The multiples: fast mode and US-only inference.
+    const extras = claudeExtrasSchema.parse(entry);
+    const multiples = extras.provider_specific_entry ?? {};
+    const ourMultiples: Record<string, number | undefined> = {
+      fast: card.fast,
+      us: card.geo ? (CLAUDE_GEO_PERCENT.us ?? 0) / 100 : undefined,
+    };
+    for (const name of new Set([
+      ...Object.keys(ourMultiples),
+      ...Object.keys(multiples),
+    ])) {
+      const theirs = multiples[name];
+      const ours = ourMultiples[name];
+      if (!Object.hasOwn(ourMultiples, name)) {
+        report(
+          name,
+          `\`provider_specific_entry.${name}\` is a multiple this check does not know`,
+          true,
+        );
+      } else if (theirs === undefined && ours !== undefined) {
+        report(name, `LiteLLM gives no ${name} multiple`, false, false);
+      } else if (theirs !== undefined && ours === undefined) {
+        report(
+          name,
+          `LiteLLM ${theirs}x; werft has no ${name} rates for this model and charges ${name === "us" ? "the global rates" : "its fallback"}`,
+          true,
+        );
+      } else if (
+        theirs !== undefined &&
+        ours !== undefined &&
+        !same(theirs, ours)
+      ) {
+        report(name, `LiteLLM ${theirs}x, werft ${ours}x`, theirs > ours);
+      }
+    }
+    const ourSearch = WEB_SEARCH_MICRO_USD / 1e6;
+    for (const [size, theirs] of Object.entries(
+      extras.search_context_cost_per_query ?? {},
+    )) {
+      if (!same(theirs, ourSearch)) {
+        report(
+          "web search",
+          `\`search_context_cost_per_query.${size}\`: LiteLLM $${theirs}, werft $${ourSearch} per search`,
+          theirs > ourSearch,
+        );
+      }
+    }
+  }
+  // Claude models LiteLLM prices that werft does not: werft charges them
+  // its fallback, which this check does not compute.
+  for (const [model, entry] of Object.entries(litellm)) {
+    if (
+      model.startsWith("claude-") &&
+      anthropic.safeParse(entry).success &&
+      !Object.hasOwn(CLAUDE_CARDS, model) &&
+      !Object.hasOwn(CLAUDE_UNPAIRED, model)
+    ) {
+      drift.push({
+        model,
+        tier: "standard",
+        detail: "werft has no card for this model and charges its fallback",
+        undercharges: true,
+      });
+    }
+  }
+  return drift;
+}
+
 export function render(commit: string, drift: Drift[]): string {
   const source = `https://github.com/${REPO}/blob/${commit}/${PATH}`;
   const lines = [
-    `werft's OpenAI price table compared with LiteLLM's [\`${PATH}\`](${source}) at \`${commit}\`.`,
+    `werft's OpenAI and Claude price tables compared with LiteLLM's [\`${PATH}\`](${source}) at \`${commit}\`.`,
     "",
   ];
   if (drift.length === 0) {
     lines.push("No differences outside the known ones.");
   } else {
     lines.push(
-      "Check each row against https://developers.openai.com/api/docs/pricing before changing the table; LiteLLM can be wrong or late. A row marked **werft lower** may undercharge. A difference werft keeps on purpose, where werft charges more, goes in `KNOWN` in `.github/scripts/litellm-price-drift.ts`.",
+      "Check each row against the official page before changing a table: https://developers.openai.com/api/docs/pricing for a `gpt-` or `o` model, https://platform.claude.com/docs/en/about-claude/pricing for a `claude-` one. LiteLLM can be wrong or late. A row marked **werft lower** may undercharge. A difference werft keeps on purpose, where werft charges more, goes in `KNOWN` in `.github/scripts/litellm-price-drift.ts`; a Claude id only one side names, with the reason, in `CLAUDE_UNPAIRED`.",
       "",
       "| Model | Tier | Difference | werft lower |",
       "|---|---|---|---|",
@@ -333,7 +540,8 @@ if (import.meta.main) {
         `https://raw.githubusercontent.com/${REPO}/${commit}/${PATH}`,
       ),
     );
-    const drift = compare(parseLiteLlm(raw));
+    const entries = parseLiteLlm(raw);
+    const drift = [...compare(entries), ...compareClaude(entries)];
     const text = render(commit, drift);
     if (values.out !== undefined) writeFileSync(values.out, text);
     process.stdout.write(text);
