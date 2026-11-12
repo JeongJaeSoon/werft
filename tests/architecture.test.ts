@@ -2635,12 +2635,36 @@ describe("architecture", () => {
       "@werft-ai/runtime-registry",
       storage,
       "@werft-ai/system",
+      // The runtime's own FFI, for one libc call; the test below holds it
+      // to the file that makes it.
+      "bun:ffi",
     ]);
     const directory = join(root, worker);
     const declared = [...declaredDependencies(await manifest(directory))];
     const imported = [...(await packageImports(directory))];
     expect(declared.filter((name) => !allowed.has(name))).toEqual([]);
     expect(imported.filter((name) => !allowed.has(name))).toEqual([]);
+  });
+
+  test("the worker calls native code from one file: the prctl that closes the process to the engine", async () => {
+    // Read off the syntax tree, so a require or a wrapped dynamic import
+    // counts as the static import does.
+    const loadsFfi = (source: ts.SourceFile) =>
+      importedModules(source).includes("bun:ffi");
+    for (const form of [
+      'import { dlopen } from "bun:ffi";',
+      'export { dlopen } from "bun:ffi";',
+      'const ffi = require("bun:ffi");',
+      'const ffi = await import(("bun:ffi"));',
+    ]) {
+      expect(loadsFfi(parseText("form.ts", form))).toBe(true);
+    }
+    const src = join(root, worker, "src");
+    const files: string[] = [];
+    for (const file of await sourceFiles(src)) {
+      if (loadsFfi(await parse(file))) files.push(relative(src, file));
+    }
+    expect(files).toEqual(["process-hardening.ts"]);
   });
 
   test("the worker runs a session through the runtime contract, never the Claude driver's types", async () => {

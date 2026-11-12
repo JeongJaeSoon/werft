@@ -33,10 +33,12 @@ export function claimSecrets(
 
 /**
  * Removes the values of the secrets this worker holds from what it sends
- * out. The engine's tools run with the engine's environment and
- * can read this process's too, so a Bash call that prints them hands them to
- * the model, and from there to a tool result or a reply. The event stream is
- * what other people read; it gets the text with each known value replaced.
+ * out. The engine's tools run with the engine's environment, and the launch
+ * environment is theirs to read from PID 1, so a Bash call that prints a
+ * value hands it to the model, and from there to a tool result or a reply.
+ * This process itself is closed to them (process-hardening.ts), but what it
+ * hands the engine and git is not. The event stream is what other people
+ * read; it gets the text with each known value replaced.
  *
  * By value, not by pattern: the adapter's mapper already catches key-shaped
  * strings, and these tokens are shaped like nothing in particular.
