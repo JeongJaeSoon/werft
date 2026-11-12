@@ -1057,6 +1057,34 @@ integration(
       );
     });
 
+    test("a resume whose checkpoint no configured worker image restores fails as a resume before anything launches", async () => {
+      const { session } = await pausedSession("no-image");
+      const resume = await accepted("resume", session);
+      const detail =
+        "the checkpoint was sealed on claude sdk 0.3.319; the configured worker images run codex sdk 0.167.0";
+      expect(
+        await scheduler().holdIncompatibleBeforeLaunch({
+          sessionId: session.sessionId,
+          checkpointRevision: 0,
+          detail,
+          now: new Date(),
+        }),
+      ).toBe("held");
+
+      expect((await sessionRow(session.sessionId)).admissionState).toBe(
+        "recovery_required",
+      );
+      expect(await receiptRow(resume.receipt_id)).toMatchObject({
+        status: "failed",
+        error: {
+          code: "CHECKPOINT_UNAVAILABLE",
+          message: `the resume could not restore its checkpoint: ${detail}`,
+        },
+      });
+      expect((await turnRows(session.sessionId)).at(-1)?.status).toBe("queued");
+      expect((await admissionEvents(session)).at(-1)).toBe("recovery_required");
+    });
+
     test("a resume past the session's cost limit is held resuming, unlaunched, until the limit rises or a terminate closes it", async () => {
       const { session } = await pausedSession("budget");
       await db
