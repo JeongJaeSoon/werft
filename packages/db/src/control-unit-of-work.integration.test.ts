@@ -882,6 +882,9 @@ integration("session terminate on PostgreSQL", () => {
     await confirmExecutionGone(db, l.executionId);
     const after = await sessionRow(session.session_id);
     expect(after.admissionState).toBe("recovery_required");
+    // It failed before anyone asked it to stop: the terminate does not turn
+    // that failure into a stop.
+    expect(after.status).toBe("failed");
     expect(after.executionId).toBeNull();
     // The turn it is recovering from was unknown before this terminate; the
     // receipt still names it rather than claiming nothing is unconfirmed.
@@ -973,6 +976,10 @@ integration("session terminate on PostgreSQL", () => {
       { phase: "stopped", admission_state: "recovery_required" },
     ]);
     expect(frames.at(-1)).toMatchObject(await readsAs(session));
+    // Seeing the same exit again settles nothing and says nothing.
+    await confirmExecutionGone(db, l.executionId);
+    expect(await statusFrames(session)).toHaveLength(frames.length);
+    expect((await sessionRow(session.session_id)).status).toBe("stopped");
   });
 
   test("a terminate with nothing to kill reports stopped at once, with its succeeded receipt", async () => {

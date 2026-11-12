@@ -85,7 +85,7 @@ curl -sS "$API/v1/receipts/$RID" -H "Authorization: Bearer $KEY" | jq '{operatio
 
 ## terminate
 
-terminate は実行を即座に停止する。ツールがすでに外部に対して行ったことは元に戻さない。待機中のセッションを terminate するとすぐ `stopped` になり、そのまま resume できる。実行中だったターンがあれば、そのターンは `outcome_unknown` になり、セッションは復旧判断を待つ。このときセッションの `status` は `failed` ではなく `stopped` で、`admission_state` は `recovery_required` である。停止の要求なしに実行が消えたセッション（worker の終了、lease の期限切れ）は `failed` になる。
+terminate は実行を即座に停止する。ツールがすでに外部に対して行ったことは元に戻さない。待機中のセッションを terminate するとすぐ `stopped` になり、そのまま resume できる。実行中だったターンがあれば、そのターンは `outcome_unknown` になり、セッションは復旧判断を待つ。このときセッションの `status` は `failed` ではなく `stopped` で、`admission_state` は `recovery_required` である。停止の要求なしに実行が消えて（worker の終了、lease の期限切れ）ターンが `outcome_unknown` になったセッションは `failed` になる。
 
 <Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
 <Tab>

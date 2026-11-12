@@ -85,7 +85,7 @@ While closing, the session is `closing`. An open permission request or question 
 
 ## terminate
 
-Terminate takes the execution down immediately. It does not undo what a tool has already done outside. Terminating an idle session makes it `stopped` immediately, and you can resume it as is. If a turn was running, that turn becomes `outcome_unknown` and the session waits for a recovery decision. The session's `status` is then `stopped`, not `failed`, and its `admission_state` is `recovery_required`. A session whose execution went away with no request to stop it (the worker died, the lease expired) is `failed`.
+Terminate takes the execution down immediately. It does not undo what a tool has already done outside. Terminating an idle session makes it `stopped` immediately, and you can resume it as is. If a turn was running, that turn becomes `outcome_unknown` and the session waits for a recovery decision. The session's `status` is then `stopped`, not `failed`, and its `admission_state` is `recovery_required`. A session whose turn became `outcome_unknown` because its execution went away with no request to stop it (the worker died, the lease expired) is `failed`.
 
 <Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
 <Tab>

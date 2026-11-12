@@ -14,7 +14,11 @@ const LANES = ["attention", "running", "queued", "idle"] as const;
 /** Where a session sits: its pinned lane until the reader tidies up. */
 export function laneOf(session: MapSession): Lane {
   if (session.pinnedLane) return session.pinnedLane;
-  if (session.status === "needs_input" || session.status === "failed")
+  if (
+    session.status === "needs_input" ||
+    session.status === "failed" ||
+    session.needsRecovery
+  )
     return "attention";
   if (session.status === "running") return "running";
   if (session.status === "queued") return "queued";

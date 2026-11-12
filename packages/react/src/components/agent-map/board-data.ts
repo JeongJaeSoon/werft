@@ -56,6 +56,7 @@ export function mapSessionOf(
             ),
           }
         : undefined;
+  const needsRecovery = summary.admission_state === "recovery_required";
   return {
     id: summary.id,
     title: summary.title ?? shortSessionId(summary.id),
@@ -67,17 +68,20 @@ export function mapSessionOf(
     // A card that waits says what it waits on, as the strip does.
     note:
       pending?.tool ??
-      (last === null
-        ? summary.status === "queued"
-          ? messages.queuedNote
-          : messages.noActivity
-        : last.kind === "text"
-          ? last.text
-          : joinTool(last.name, last.target)),
+      (needsRecovery
+        ? messages.recoveryNote
+        : last === null
+          ? summary.status === "queued"
+            ? messages.queuedNote
+            : messages.noActivity
+          : last.kind === "text"
+            ? last.text
+            : joinTool(last.name, last.target)),
     toolCount: activity?.tool_count ?? 0,
     errorCount: activity?.error_count ?? 0,
     subagentCount: activity?.subagent_count ?? 0,
     ...(pending ? { pending } : {}),
+    ...(needsRecovery ? { needsRecovery } : {}),
   };
 }
 

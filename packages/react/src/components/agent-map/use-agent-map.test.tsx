@@ -143,6 +143,33 @@ describe("useAgentMapBoard", () => {
     hook.rerender();
     expect(card()?.agent).toBe("No agent");
   });
+
+  test("a stopped session that waits on a recovery decision keeps its card; one that just ended does not", () => {
+    const [template] = (list as { items: Record<string, unknown>[] }).items;
+    const stopped = (id: string, admission_state: string) => ({
+      ...template,
+      id,
+      status: "stopped",
+      admission_state,
+      activity: null,
+    });
+    const WAITING = "11111111-1111-4111-8111-111111111111";
+    const ENDED = "22222222-2222-4222-8222-222222222222";
+    const ended = {
+      items: [stopped(WAITING, "recovery_required"), stopped(ENDED, "stopped")],
+      next_cursor: null,
+    } as never;
+    const client = createApiClient({ baseUrl: "https://console.test" });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <WerftProvider client={client} locale="ko" renderLink={() => null}>
+        {children}
+      </WerftProvider>
+    );
+    const hook = renderHook(() => useAgentMapBoard(ended, T0), { wrapper });
+    const board = hook.result.current.board;
+    expect(board?.sessions.map((card) => card.id)).toEqual([WAITING]);
+    expect(board?.doneCount).toBe(1);
+  });
 });
 
 describe("useSessionRunTree", () => {

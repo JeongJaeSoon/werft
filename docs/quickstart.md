@@ -283,7 +283,7 @@ wait_for "/v1/sessions/$SID/turns/6" .status completed
 get "/v1/sessions/$SID/turns/6" | jq -e '.status == "completed"'
 ```
 
-- terminate는 대기 중인 입력을 취소하고 열린 권한 요청을 닫는다. 실행 중이던 turn은 `outcome_unknown`이 되고 세션은 `status: stopped`, `admission_state: recovery_required`다. 멈추라는 요청 없이 실행이 사라진 세션(worker 종료, lease 만료)은 `status: failed`다. 도구가 이미 바깥에 한 일은 되돌리지 않는다(`external_effects_reverted: false`).
+- terminate는 대기 중인 입력을 취소하고 열린 권한 요청을 닫는다. 실행 중이던 turn은 `outcome_unknown`이 되고 세션은 `status: stopped`, `admission_state: recovery_required`다. 멈추라는 요청 없이 실행이 사라져(worker 종료, lease 만료) turn이 `outcome_unknown`이 된 세션은 `status: failed`다. 도구가 이미 바깥에 한 일은 되돌리지 않는다(`external_effects_reverted: false`).
 - 복구 결정은 `abandon`(turn을 `cancelled`로), `confirm_completed`(checkpoint가 그 turn까지 덮을 때, `evidence_ref` 필수), `close`(세션을 끝냄, 되돌릴 수 없음), `start_fresh`(이전 engine 문맥을 모두 버리고 현재 pointer까지의 checkpoint를 retire하여 아무것도 복원하지 않는 새 Claude Code 세션에서 대기 중인 입력을 실행함), `retry_restore`(checkpoint 복원 실패의 원인을 고친 뒤 실패 횟수를 초기화하고 pointer를 유지해 다음 claim에서 같은 checkpoint를 다시 복원함) 중 하나다. 전체 절차는 [api-guide 7절](https://jeongjaesoon.github.io/werft/ko/reference/api-guide/#7-outcome_unknownrecovery_required-복구-결정)을 본다. receipt `result.resumable`이 `true`면 resume할 수 있다.
 - idle 상태에서 terminate하면 복구 결정 없이 바로 `stopped`이고, 그대로 resume할 수 있다.
 
