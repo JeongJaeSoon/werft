@@ -85,6 +85,7 @@ incremental checkpoint と release ツール復元候補の下限を両方含む
 | 変更 | 先に完了する作業 | 戻せない境界 |
 | --- | --- | --- |
 | provider usage の `inference_geo` | migration を含め API を先に更新し、ready 確認後に egress proxy を更新 | 以前の API は新 proxy 報告を 400 で拒否し、費用計測が欠落します |
+| `openai_responses` 接続と `/v1/responses` | egress proxy を先に更新します。上記 2 の順序で API を先に更新した場合は、proxy を更新するまで `openai_responses` 接続を作成しません | 以前の proxy は `/v1/responses` を 404 で拒否するため、その接続のセッションはモデルを呼び出せず失敗します。`v0.1.3` の proxy は `/v1/messages` 呼び出しに `v0.1.2` の API が知らないフィールドを送らないため、`v0.1.2` の API とそのまま動作します |
 | `billing: none` | 全 API replica と全 scheduler の WORKER_IMAGE を更新してから新 none セッションを作成 | unmetered セッションが残る間、以前の API・worker への rollback 禁止 |
 | チェックポイントのローカルブランチ（`workspace.sources`、`refs/checkpoint/source/*`） | API・検証器・GC・セッション保管 CronJob をすべて → worker | 以前の API・検証器はこのフィールドと ref を拒否する。順序が逆だと、新 worker のチェックポイントが拒否される間 push だけが止まり、データは失われない |
 | transcript 上限/reason | migration → API 全部 → worker。API finalize と worker capture/restore 上限を同じ release に揃える | transcript reason を知らないビルドへの rollback 禁止 |

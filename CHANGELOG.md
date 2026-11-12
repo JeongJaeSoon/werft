@@ -41,7 +41,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
-- **egress proxy를 control-host보다 먼저 올린다**(JeongJaeSoon/werft#1515). `openai_responses` 연결의 `/v1/responses`는 새 프록시에만 있고, 옛 프록시는 이 경로를 `404`로 거절한다.
+- **egress proxy를 control-host보다 먼저 올린다**(JeongJaeSoon/werft#1515). `openai_responses` 연결의 `/v1/responses`는 새 프록시에만 있고, 옛 프록시는 이 경로를 `404`로 거절한다. 업그레이드 문서의 순서대로 API를 먼저 올렸다면, 프록시를 올릴 때까지 `openai_responses` 연결을 만들지 않는다. Claude 연결은 어느 순서에서도 그대로 동작한다.
 - **API를 worker보다 먼저 올린다**(JeongJaeSoon/werft#1539). 새 worker는 도구 호출 판단(`tool_decisions`)을 함께 보내고, 옛 API는 이 칸이 든 요청을 거절한다. 옛 worker는 새 API와 그대로 동작한다.
 - **api env에 `OTEL_TRACES_EXPORTER=otlp`가 있으면 이 버전부터 트레이스를 내보낸다**(JeongJaeSoon/werft#1534, JeongJaeSoon/werft#1546, JeongJaeSoon/werft#1558).
   - `TRACE_CONTENT_MODE` 기본값이 `full`이라 프롬프트·답변·도구 입출력이 수집기로 간다. 내용을 내보내지 않으려면 `metadata`로 둔다.
