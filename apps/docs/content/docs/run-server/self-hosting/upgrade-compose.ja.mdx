@@ -36,6 +36,8 @@ protocol または[実行前ゲート](#실행-전-게이트)のフィールド�
 
 次に egress proxy と worker を対象 digest に変えた最終 release で upgrade します。これにより API より先に proxy・worker が新フィールドを送ることを防ぎます。test-ops 環境は中間・最終 release 入力をそれぞれ `scripts/test-ops.sh upgrade` で適用します。
 
+プロファイル削除リリースへ更新するときは、この順序に従いません。中間 release なしで最終 release へ直接更新します。以前の worker が新しい control-host の応答を読めないためです（[プロファイル削除リリースのアップグレード順序](#프로필-제거-릴리스의-업그레이드-순서)）。
+
 <a id="3-upgrade와-영향-세션" />
 ### 3. upgrade と影響セッション
 
@@ -96,7 +98,7 @@ incremental checkpoint と release ツール復元候補の下限を両方含む
 | bot が非公開チャンネルから出たら `left`（非アクティブ）にする（migration 0252） | migration を含む API をすべて更新 → slack ロールと、outbox・カード・スレッド状態を動かすロールまで同じイメージで更新 | `status` の CHECK と `slack_inbound_events` の drop 理由の CHECK が `left`・`channel_left` を受け付けるようになる。`left` を知らない古いイメージは、そのチャンネルの入力は受け付けないが、outbox はそのチャンネルへ送ってしまう。最初の `left` 行ができた後は、このイメージより前に戻さない。戻す場合は先に書き込みと送信を止め、`left` 行を `pending_approval` に変える必要があるが、そうすると「非アクティブ」という意味は失われる |
 | 拡張バンドルの attach とセッション解決（migration 0251） | migration を含む API をすべて更新 | 0251 の後にイメージを戻しても安全です。古いイメージは `extension_attachments` テーブルも `sessions.extensions` 列も読まないため、セッションに固定されたバンドル一覧は無視されます。スキーマを 0251 より下げるには、`extension_attachments` テーブルを削除し、`sessions.extensions` 列を外します。セッションに固定済みのバンドル一覧は元に戻りません |
 
-新 control-host・直前 worker の組み合わせはデプロイ前に試験環境で確認します。セッションの turn 1 完了 → worker 削除 → checkpoint から turn 2 完了を確認し、API の worker 要求に 400 BAD_REQUEST がない必要があります。空環境の ready 200 で代替しません。
+新 control-host・直前 worker の組み合わせはデプロイ前に試験環境で確認します。セッションの turn 1 完了 → worker 削除 → checkpoint から turn 2 完了を確認し、API の worker 要求に 400 BAD_REQUEST がない必要があります。空環境の ready 200 で代替しません。まず turn 1 の完了を見ます。直前の worker が新しい control-host の応答を読めない場合、API は 200 を返し、worker は起動直後に終了するため、400 がないことだけではこの失敗を捕まえられません。プロファイル削除リリースはこの組み合わせをサポートしません。そのリリースへ更新するときは、新しい control-host と新しい worker で turn 1 の完了を確認します（[プロファイル削除リリースのアップグレード順序](#프로필-제거-릴리스의-업그레이드-순서)）。
 
 <a id="v010-이후-변경을-처음-적용할-때" />
 ### v0.1.0 以降の変更を初めて適用する場合
@@ -113,7 +115,7 @@ incremental checkpoint と release ツール復元候補の下限を両方含む
 
 単一サーバー（compose）の upgrade 検査で worker イメージが変わると、新イメージの engine・SDK・CLI・profile digest で各現在 checkpoint の restore plan を計算します。四値がすべて同じで互換のセッションは承認なしで継続し、`INCOMPATIBLE_CHECKPOINT` のものだけ利用者に知らせ、正確な一覧を承認してもらいます。検査を完走できない、または他の検証失敗が混在する場合は、未回収 checkpoint のある全セッションを影響一覧にする fail-closed 動作で、ログに残します。writer 停止後も同じ検査を繰り返します。非互換セッションに `start_fresh` を選ぶと以前の checkpoint の context を破棄します。Kubernetes（helm）の pre-upgrade hook はイメージを実行せず、ポインターの組み合わせで同じ判定をします（[Kubernetes アップグレードの 3. 検査結果と例外 — アップグレード前検査](/run-server/self-hosting/upgrade-kubernetes#3-검사-결과와-예외)）。
 
-worker イメージが変わると、upgrade は変更前イメージを直前イメージとして残します（upgrade スクリプトの状態ディレクトリの `previous-worker`）。scheduler はセッションごとに checkpoint ポインターの組み合わせ（engine・SDK・CLI・profile digest scheme）に合うイメージを現在・直前から選び、両方合えば現在を使います（[設定レファレンスの scheduler・worker コンテナ・egress 設定](/run-server/self-hosting/reference/configuration)）。そのためゲートは、新イメージで復元できず直前イメージでも復元できないセッションだけを影響一覧に入れます。新・直前いずれかの検査が fail-closed なら、新イメージ基準の一覧をそのまま使います。同じ組み合わせで再ビルドしたイメージなら scheduler は新イメージで起動するため、新イメージで復元可能と確認できないセッションは、直前で復元できても一覧から外しません。どちらかが自分の組み合わせを出力できない以前のイメージなら（組み合わせを出力する機能がないビルド）、直前イメージを使わず、ゲートも新イメージ基準の一覧を維持します。サポート範囲は一リリースです。もう一度更新すると、それより前のイメージに残るセッションは再び影響一覧に入ります。
+worker イメージが変わると、upgrade は変更前イメージを直前イメージとして残します（upgrade スクリプトの状態ディレクトリの `previous-worker`）。scheduler はセッションごとに checkpoint ポインターの組み合わせ（engine・SDK・CLI・profile digest scheme）に合うイメージを現在・直前から選び、両方合えば現在を使います（[設定レファレンスの scheduler・worker コンテナ・egress 設定](/run-server/self-hosting/reference/configuration)）。そのためゲートは、新イメージで復元できず直前イメージでも復元できないセッションだけを影響一覧に入れます。新・直前いずれかの検査が fail-closed なら、新イメージ基準の一覧をそのまま使います。同じ組み合わせで再ビルドしたイメージなら scheduler は新イメージで起動するため、新イメージで復元可能と確認できないセッションは、直前で復元できても一覧から外しません。どちらかが自分の組み合わせを出力できない以前のイメージなら（組み合わせを出力する機能がないビルド）、直前イメージを使わず、ゲートも新イメージ基準の一覧を維持します。サポート範囲は一リリースです。もう一度更新すると、それより前のイメージに残るセッションは再び影響一覧に入ります。プロファイル削除リリースでは、直前のイメージで起動するセッションはありません（[プロファイル削除リリースのアップグレード順序](#프로필-제거-릴리스의-업그레이드-순서)）。
 
 <a id="runtime-프로필의-공통-준비" />
 <a id="runtime-버전의-공통-준비" />
@@ -136,6 +138,17 @@ SDK を上げるリリースでは、イメージが載せるランタイムの�
 ### プロファイル削除の rollback 下限
 
 実行プロファイルを削除したリリースでは、migration `0270_remove_profiles` がプロファイルの表と列を削除し、プロファイルで作ったリリースとそのセッション、セッションに付く記録（turn・イベント・checkpoint 行など、45 表）を削除します。セッションを持たない `slack_outbox` の行（ウェルカム通知など）は残ります。使用量の表では、セッションに付く `provider_usage` だけが空になり、`agent_usage` は残ります。この変更の以前の草案（`0269_remove_profiles`）を適用した開発・verify 用の DB は作り直してください。エージェントとカードのバージョン、チーム、キー、設置の設定は残ります。以後すべてのセッションはリリースが固定した spec（接続・モデル・ランタイム・ツール）で動き、エージェントは接続を選んでリリースし直すと動きます。接続には、エージェントが選ぶモデル一覧（`models`）を入れます。**このリリースより前のビルドへは rollback できません。** 戻すには、アップグレード前のバックアップから DB を復元します。
+
+<a id="프로필-제거-릴리스의-업그레이드-순서" />
+### プロファイル削除リリースのアップグレード順序
+
+プロファイル削除リリースへは、control-host と worker のイメージを一つの upgrade で一緒に更新します。このリリースの control-host は `bootstrap-claim` の応答から `runtime.profile_id` と `profile_fingerprint` を外しました。プロファイル削除前にビルドした worker（`v0.1.3` を含む）は、この二つのフィールドを必須として読みます。そのため、その worker は応答を受け取るとすぐに `POST /bootstrap-claim answered a body this worker cannot read` を残して exit 1 で終了します。セッションは三回 launch された後、`recovery_required`（`STARTUP_FAILED`、`execution_gone`）で停止します。API はこの要求に 200 を返すため、API ログで worker 要求の 400 を探してもこの失敗は分かりません。セッションの turn 1 が完了するかで分かります。
+
+- このリリースでは、上の [2. API → proxy → worker の順序](#2-api--proxy--worker-순서)の中間 release と、[Kubernetes アップグレードの手順 1](/run-server/self-hosting/upgrade-kubernetes#1-대상-chart와-제어-영역-우선-교체)を行いません。新しい control-host と以前の worker が一緒に動く間は、新しいセッションが一つも起動しないためです。Compose は最終 release へ直接 `upgrade` し、Kubernetes は手順 2 のコマンドで直接更新します。
+- プロファイル削除前にビルドした worker イメージは、このリリースのサポート範囲に入りません。そのようなイメージを `images.workerPrevious` にわざわざ入れません。ただし Kubernetes の[アップグレード前検査](/run-server/self-hosting/upgrade-kubernetes#3-검사-결과와-예외)は、worker イメージが変わる upgrade では `images.workerPrevious` が現在デプロイ済みのイメージであることを要求し、承認でも続行できません。そのため、この upgrade には手順 2 のスクリプトが作った `worker-previous.json`（現在デプロイ済みの worker イメージ）をそのまま渡します。Compose の `upgrade` が残す `previous-worker` ファイルも同じです。そのイメージで起動するセッションはありません。`0270` がセッションを空にし、新しいセッションは常に現在のイメージで起動し、その後の checkpoint は現在のイメージが残すためです。次に worker イメージを変える upgrade で、直前のイメージはこのリリースのイメージに変わります。
+- 更新後、新しいセッション一つが turn 1 を完了するかを確認します。
+
+次のリリースからは、現在・直前のイメージのサポート範囲に戻ります。このリリースの worker が次のリリースの直前のイメージです。worker が読む応答フィールドを外すときは、下の順序を守ります。まず worker がそのフィールドなしでも応答を受け付けるように変えます。その worker がサポート範囲で最も古いイメージになるリリースで、control-host がフィールドを外します。プロファイル削除リリースはこの順序を守りませんでした。
 
 <a id="worker-protocol-필드를-걷어내는-순서" />
 ### worker protocol フィールドを削除する順序

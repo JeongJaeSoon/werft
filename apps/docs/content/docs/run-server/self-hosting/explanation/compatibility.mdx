@@ -15,6 +15,8 @@ outcome: "checkpoint와 runtime과 schema 지원 창을 이해한다"
 
 scheduler는 checkpoint에 기록한 runtime 조합에 맞는 이미지를 현재·직전 순서로 고른다. digest가 다른 재빌드도 runtime 조합은 같을 수 있다. 두 이미지 어느 쪽도 맞지 않으면 recovery_required가 된다. 직전 이미지로 돌아가는 worker가 남아 있으면 검사 이후에도 옛 조합의 checkpoint를 만들 수 있다.
 
+프로필 제거 릴리스는 예외다. 그 릴리스는 control-host와 worker를 한 upgrade로 함께 올리고, 프로필 제거 전에 빌드한 worker는 지원 창에 들지 않는다. 그 worker는 새 control-host의 응답을 읽지 못한다([프로필 제거 릴리스의 업그레이드 순서](/run-server/self-hosting/upgrade-compose#프로필-제거-릴리스의-업그레이드-순서)). 다음 릴리스부터 현재·직전 이미지의 지원 창으로 돌아간다.
+
 ## rolling update가 중요한 이유
 
 새 필드를 모르는 strict API는 worker 보고를 거절한다. 그래서 migration과 제어 영역이 worker보다 앞서야 한다. billing:none, session prompt, transcript reason, outputs 같은 의미는 활성화 뒤 데이터를 남기므로 설정을 끄는 것과 옛 바이너리로 되돌리는 것이 같지 않다.
