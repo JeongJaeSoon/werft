@@ -10,13 +10,20 @@ import {
  * Token), one Slack app of it (that app's signing secret, client secret
  * and bot token) or its GitHub App (the private key); or an installation
  * settings row (a connection's, repository's or MCP server's stored
- * credential), kept under the default workspace for the table's foreign key
- * but never the workspace's to read or remove.
+ * credential) or a login provider (its client secret), kept under the
+ * default workspace for the table's foreign key but never the workspace's
+ * to read or remove.
  */
 export type SecretOwner =
   | { kind: "workspace" }
   | { kind: "slack_app" | "github_app"; id: string }
-  | { kind: StoredOwnerKind; id: string };
+  | { kind: InstallationOwnerKind; id: string };
+
+const INSTALLATION_OWNER_KINDS = [
+  ...STORED_OWNER_KINDS,
+  "login_provider",
+] as const;
+type InstallationOwnerKind = StoredOwnerKind | "login_provider";
 
 export type SecretSlot = {
   workspaceId: string;
@@ -29,12 +36,13 @@ export type SecretOwnerRef =
   | "workspace"
   | `slack_app:${string}`
   | `github_app:${string}`
-  | `${StoredOwnerKind}:${string}`;
+  | `${InstallationOwnerKind}:${string}`;
 
+/** An owner that is the installation's: no workspace route may name it. */
 export function isSettingsSecretOwner(
   owner: SecretOwner,
-): owner is { kind: StoredOwnerKind; id: string } {
-  return (STORED_OWNER_KINDS as readonly string[]).includes(owner.kind);
+): owner is { kind: InstallationOwnerKind; id: string } {
+  return (INSTALLATION_OWNER_KINDS as readonly string[]).includes(owner.kind);
 }
 
 export function secretOwnerRef(owner: SecretOwner): SecretOwnerRef {

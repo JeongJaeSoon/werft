@@ -27,11 +27,6 @@ import {
   OrgKeysScreen,
 } from "./routes/api-keys.tsx";
 import { BootstrapScreen } from "./routes/bootstrap.tsx";
-import {
-  GoogleCallbackScreen,
-  type GoogleCallbackSearch,
-  googleCallbackSearch,
-} from "./routes/google-callback.tsx";
 import { HomeScreen } from "./routes/home.tsx";
 import { InviteScreen } from "./routes/invite.tsx";
 import { AuthedError, AuthedLayout, RootLayout } from "./routes/layout.tsx";
@@ -60,6 +55,11 @@ import {
   operationsToolsSearch,
 } from "./routes/operations-search.ts";
 import { PreferencesScreen } from "./routes/preferences.tsx";
+import {
+  ProviderCallbackScreen,
+  type ProviderCallbackSearch,
+  providerCallbackSearch,
+} from "./routes/provider-callback.tsx";
 import {
   SessionDetailScreen,
   SessionsScreen,
@@ -117,13 +117,14 @@ const bootstrap = createRoute({
   component: BootstrapScreen,
 });
 
-// Public: Google sends the browser back here (GOOGLE_OIDC_REDIRECT_URI).
-const googleCallback = createRoute({
+// Public: a login provider sends the browser back here, to the redirect URI
+// registered with it.
+const providerCallback = createRoute({
   getParentRoute: () => root,
-  path: "/auth/google/callback",
-  validateSearch: (search: Record<string, unknown>): GoogleCallbackSearch =>
-    googleCallbackSearch(search),
-  component: GoogleCallbackScreen,
+  path: "/auth/callback/$providerId",
+  validateSearch: (search: Record<string, unknown>): ProviderCallbackSearch =>
+    providerCallbackSearch(search),
+  component: ProviderCallbackScreen,
 });
 
 // Public: whoever opens an invite link may not have an account yet.
@@ -441,7 +442,7 @@ const agent = createRoute({
 const routeTree = root.addChildren([
   login,
   bootstrap,
-  googleCallback,
+  providerCallback,
   invite,
   authed.addChildren([
     home,

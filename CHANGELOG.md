@@ -55,6 +55,20 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - 옛 버전 API 프로세스가 함께 도는 동안(replica가 여럿인 배포의 교체 중)에 옛 프로세스가 만든 세션도 값이 없어 같은 판정을 받는다. 교체 중에 로그인한 Google 사용자는 교체가 끝난 뒤 한 번 더 로그인할 수 있다.
   - 이 migration은 `login_methods (user_id, issuer)` 유일 인덱스(비밀번호 수단 제외)도 만든다. 한 사용자에게 같은 issuer의 외부 수단이 둘 있으면 `login_methods has a user with two external login methods of one issuer`로 멈추고 아무것도 바꾸지 않는다. 메시지에 적힌 조회로 행을 찾아 하나를 지운 뒤 다시 돌린다. 외부 수단은 지금까지 첫 가입 때만 만들어졌으므로, DB를 직접 고치지 않은 설치에서는 일어나지 않는다.
   - 옛 버전으로 되돌릴 수 있다. 옛 코드는 새 칸을 읽지 않는다. 칸과 인덱스까지 지우려면 `ALTER TABLE web_sessions DROP COLUMN login_method_id`와 `DROP INDEX login_methods_user_issuer_uniq`를 돌린다.
+- **Google 로그인은 웹 관리 화면에서 공급자로 다시 등록한다. `GOOGLE_OIDC_*` 환경 변수는 더는 읽지 않는다**(JeongJaeSoon/werft#1666). 로그인 공급자가 환경 변수가 아니라 DB의 설정 행(`login_providers`)이 됐다. 옛 설정을 자동으로 옮기지 않는다. 올리면 환경 변수로 켜 둔 Google 로그인은 꺼지고 로그인 화면에는 비밀번호만 남는다. Google로만 로그인하던 사용자는 owner가 공급자를 다시 등록할 때까지 새로 로그인할 수 없다. 이미 로그인해 있는 세션은 만료될 때까지 쓸 수 있다. 사용자와 Google 계정의 연결(`login_methods`)은 남으므로, 같은 issuer(`https://accounts.google.com`)로 다시 등록하면 같은 계정으로 들어온다. 비밀번호 로그인은 그대로다.
+  - **공급자를 등록하는 관리 화면은 이 변경에 없고 뒤따르는 변경에 들어온다.** 이 변경만 들어간 `main`에는 공급자를 만드는 화면도 API도 없다. Google 로그인을 쓰는 설치는 관리 화면이 들어간 릴리스로 올린다. 그 전의 `main`을 올리면 비밀번호 로그인만 쓸 수 있다.
+  - 순서: 옛 버전의 API 프로세스를 모두 내린 뒤에 올리고, 그다음 공급자를 등록한다. migration `0275_login_providers`가 `login_methods.kind`의 `google`을 `oidc`로 바꾸므로, migration 뒤에도 도는 옛 프로세스의 Google 로그인은 실패한다(연결된 사용자는 `409 LOGIN_LINK_REQUIRED`, 처음 들어오는 사용자는 `500`).
+  - 공급자에 등록하는 리디렉션 URI가 `<CONSOLE_ORIGIN>/auth/callback/<공급자 id>`로 바뀐다. API에 `CONSOLE_ORIGIN`이 있어야 하고, 없으면 공급자 로그인의 시작이 `503`이다. Google Cloud Console의 승인된 리디렉션 URI는 공급자를 등록해 id를 받은 뒤에 바꾼다. 공급자의 주소는 `https`여야 한다. `CONSOLE_ORIGIN`이 `localhost`·`127.0.0.1`인 로컬 스택만 loopback의 `http` 공급자를 쓸 수 있다(전에는 `GOOGLE_OIDC_ISSUER`에 어떤 `http` 주소든 줄 수 있었다).
+  - `GOOGLE_OIDC_CLIENT_ID`·`GOOGLE_OIDC_CLIENT_SECRET`·`GOOGLE_OIDC_REDIRECT_URI`·`GOOGLE_OIDC_ISSUER`·`GOOGLE_OIDC_ALLOWED_DOMAINS`·`GOOGLE_OIDC_JIT`는 지운다. 남아 있어도 읽지 않고 기동은 된다. `infra/compose.core.yml`도 넘기지 않는다.
+  - API가 바뀐다. `POST /v1/auth/google/start`·`POST /v1/auth/google/callback`이 없어지고 `POST /v1/auth/providers/{id}/start`·`POST /v1/auth/oidc/callback`이 생긴다. `GET /v1/auth/login-methods`의 응답이 `{"methods":["password","google"]}`에서 `{"password":"on","providers":[{"id","display_name"}]}`로 바뀐다. 웹 콜백 경로는 `/auth/google/callback`에서 `/auth/callback/<공급자 id>`가 된다. 올리는 순간 진행 중이던 Google 로그인은 처음부터 다시 한다.
+  - migration `0276_web_sessions_login_method_idx`는 `web_sessions`에 부분 인덱스를 `CONCURRENTLY`로 만든다. 쓰기를 막지 않는다.
+  - 옛 버전으로 되돌리려면 옛 코드의 Google 로그인이 다시 `kind = 'google'`을 찾도록 아래를 돌린다. 새 버전에서 Google이 아닌 공급자로 만든 로그인 수단이 있으면 먼저 지운다. `login_providers` 테이블과 `web_sessions_login_method_live_idx` 인덱스는 옛 코드가 읽지 않으므로 남겨도 된다.
+
+    ```sql
+    ALTER TABLE login_methods DROP CONSTRAINT login_methods_kind_check;
+    UPDATE login_methods SET kind = 'google' WHERE kind = 'oidc';
+    ALTER TABLE login_methods ADD CONSTRAINT login_methods_kind_check CHECK (kind IN ('password', 'google'));
+    ```
 - **parked 요청이 수천 개인 승인 대기 그룹이 닫힌다**(JeongJaeSoon/werft#1650). 전에는 약 3,000개를 넘으면 이어 갈 turn의 메시지가 32 KiB를 넘어 그룹을 닫는 transaction이 되돌려졌고, 답은 저장된 채 turn이 이어지지 않았다. 이제 메시지에는 들어가는 만큼의 답이 그대로 실리고, 나머지는 마지막 줄 `… N more answers cut`으로 센다. 그보다 작은 그룹의 메시지는 바뀌지 않는다. 할 일은 없다.
 
 ## v0.1.3

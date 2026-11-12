@@ -121,7 +121,7 @@ export interface paths {
         };
         /**
          * How a person can sign in on this installation
-         * @description `password` always; `google` when Google sign-in is configured. The login page offers these.
+         * @description Whether password sign-in is on, and the sign-in providers that are turned on (id and button label only). The login page offers these.
          *
          *     **Auth:** public; no credential.
          */
@@ -156,7 +156,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/auth/google/start": {
+    "/v1/auth/providers/{id}/start": {
         parameters: {
             query?: never;
             header?: never;
@@ -166,19 +166,19 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Begin Google sign-in; answers the Google URL to open
-         * @description Sets a short-lived cookie that binds the flow (state, nonce, PKCE verifier) to this browser. 404 when Google sign-in is not configured.
+         * Begin sign-in with a provider; answers the provider's URL to open
+         * @description Sets a short-lived sealed cookie that binds the flow (state, nonce, PKCE verifier, the provider and its settings) to this browser. 404 when there is no such provider or it is turned off.
          *
          *     **Auth:** public; no credential. **Idempotency-Key:** ignored.
          */
-        post: operations["startGoogleLogin"];
+        post: operations["startProviderLogin"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/v1/auth/google/callback": {
+    "/v1/auth/oidc/callback": {
         parameters: {
             query?: never;
             header?: never;
@@ -188,12 +188,12 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Finish Google sign-in; sets the session cookie
-         * @description Posts the `code` and `state` Google returned to the redirect URI. The first matching rule decides: an already linked Google account signs in as its user; an address that already has an account answers 409 LOGIN_LINK_REQUIRED and is never joined by email; otherwise a live invite for the address, or JIT for an allowed domain, creates the account. Anything else answers 401 without saying whether an account exists. A Google account outside the allowed domains answers 403.
+         * Finish sign-in with a provider; sets the session cookie
+         * @description Posts what the provider returned to the redirect URI: `code`, `state`, `iss` when it sent one, and the `provider_id` from the redirect path. The flow cookie must open, match `state` and `provider_id`, be no older than ten minutes, and the provider must still be on with the settings the flow started under. The first matching rule then decides: an account already linked to the provider's (issuer, subject) signs in as its user; an address the provider vouches for that already has an account answers 409 LOGIN_LINK_REQUIRED and is never joined by email; otherwise a live invite for that address, or the provider's JIT setting, creates the account. Anything else answers 401 without saying why or whether an account exists. An account outside the provider's allowed domains answers 403. Calls to providers share a concurrency limit, past which this answers 429.
          *
          *     **Auth:** public; no credential. **Idempotency-Key:** ignored.
          */
-        post: operations["googleLoginCallback"];
+        post: operations["providerLoginCallback"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4827,9 +4827,12 @@ export interface components {
             /** @description At most 1024 bytes of UTF-8 */
             reason?: string;
         };
-        GoogleLoginCallbackRequest: {
+        ProviderLoginCallbackRequest: {
+            /** Format: uuid */
+            provider_id: string;
             code: string;
             state: string;
+            iss?: string;
         };
         AuditRetentionRequest: {
             audit_retention_days: number;
@@ -7393,11 +7396,30 @@ export interface components {
             expires_at: string;
         };
         LoginMethodsResponse: {
-            methods: ("password" | "google")[];
+            /** @constant */
+            password: "on";
+            providers: {
+                /** Format: uuid */
+                id: string;
+                display_name: string;
+            }[];
         };
-        StartGoogleLoginResponse: {
+        StartProviderLoginResponse: {
             /** Format: uri */
             authorization_url: string;
+        };
+        ProviderLoginCallbackResponse: {
+            /** @constant */
+            outcome: "signed_in";
+            /** Format: uuid */
+            user_id: string;
+            /** Format: uuid */
+            workspace_id: string;
+            /** @enum {string} */
+            role: "owner" | "admin" | "member";
+            scopes: ("sessions:read" | "sessions:write" | "sessions:approve" | "sessions:control" | "sessions:recover")[];
+            /** Format: date-time */
+            expires_at: string;
         };
         IssuePasswordResetRequest: {
             current_password: string;
@@ -10424,6 +10446,22 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
         };
     };
     login: {
@@ -10583,26 +10621,33 @@ export interface operations {
             };
         };
     };
-    startGoogleLogin: {
+    startProviderLogin: {
         parameters: {
             query?: never;
             header: {
                 /** @description Always required: the literal `werft-web`. */
                 "X-Requested-With": "werft-web";
             };
-            path?: never;
+            path: {
+                id: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description The flow has started; the response sets the flow cookie. Send the browser to `authorization_url`. */
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["StartGoogleLoginResponse"];
+                    /**
+                     * @example {
+                     *       "authorization_url": "https://idp.example.com/oauth2/authorize?response_type=code&client_id=werft&redirect_uri=https%3A%2F%2Fconsole.example.ts.net%2Fauth%2Fcallback%2F5b0c7e2a-9d41-4f6b-8a3e-7c1d2e3f4a5b&scope=openid+email+profile&state=k3F0&nonce=p9Qz&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["StartProviderLoginResponse"];
                 };
             };
             /** @description - `FORBIDDEN`: The request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); every caller must send the header. */
@@ -10620,7 +10665,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. No provider has this id, or it is turned off. */
             404: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -10651,7 +10696,7 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. `CONSOLE_ORIGIN` is not set, the provider has no client ID or client secret, or its authorization endpoint is plain http outside a local stack. */
             503: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -10669,7 +10714,7 @@ export interface operations {
             };
         };
     };
-    googleLoginCallback: {
+    providerLoginCallback: {
         parameters: {
             query?: never;
             header: {
@@ -10681,18 +10726,42 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["GoogleLoginCallbackRequest"];
+                /**
+                 * @example {
+                 *       "provider_id": "5b0c7e2a-9d41-4f6b-8a3e-7c1d2e3f4a5b",
+                 *       "code": "4/0AeaYSHB",
+                 *       "state": "k3F0",
+                 *       "iss": "https://idp.example.com"
+                 *     }
+                 */
+                "application/json": components["schemas"]["ProviderLoginCallbackRequest"];
             };
         };
         responses: {
-            /** @description Success */
+            /** @description Signed in; the response sets the session cookie and clears the flow cookie. `scopes` are the ones the workspace role holds. */
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["LoginResponse"];
+                    /**
+                     * @example {
+                     *       "outcome": "signed_in",
+                     *       "user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *       "workspace_id": "9d2c4e61-8a3b-4f70-b1e5-6c0a7d3f2b98",
+                     *       "role": "owner",
+                     *       "scopes": [
+                     *         "sessions:read",
+                     *         "sessions:write",
+                     *         "sessions:approve",
+                     *         "sessions:control",
+                     *         "sessions:recover"
+                     *       ],
+                     *       "expires_at": "2026-10-25T09:00:00Z"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ProviderLoginCallbackResponse"];
                 };
             };
             /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
@@ -10710,7 +10779,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `UNAUTHORIZED`: The submitted credentials were rejected. */
+            /** @description - `UNAUTHORIZED`: The submitted credentials were rejected. The flow cookie is missing, does not open, is older than ten minutes or was started for another provider or other settings; or the provider's answer does not prove who is signing in; or no rule admits the account. The response does not say which. */
             401: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -10725,7 +10794,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: The request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); every caller must send the header. */
+            /** @description - `FORBIDDEN`: The request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); every caller must send the header. The request is not from the console's origin, or the account is outside the provider's allowed domains. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -10740,7 +10809,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. The provider is gone or was turned off after the flow started. */
             404: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -10796,6 +10865,22 @@ export interface operations {
                         error?: {
                             /** @enum {string} */
                             code?: "PAYLOAD_TOO_LARGE";
+                        };
+                    };
+                };
+            };
+            /** @description - `RATE_LIMITED`: Too many requests; wait for `Retry-After` and retry. Too many sign-ins are calling providers at once (`Retry-After: 1`). */
+            429: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "RATE_LIMITED";
                         };
                     };
                 };

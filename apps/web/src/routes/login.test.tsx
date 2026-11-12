@@ -6,10 +6,24 @@ import { appHarness } from "../test-support/render-app.tsx";
 
 const { renderAt, screen, waitFor } = await appHarness();
 
-const methods = (...list: string[]) => ({
-  "GET /v1/auth/login-methods": () => json(200, { methods: list }),
+const GOOGLE = {
+  id: "5b0c7e2a-9d41-4f6b-8a3e-7c1d2e3f4a5b",
+  display_name: "Google",
+};
+const KEYCLOAK = {
+  id: "0d6a3f1c-2b7e-4c58-9a1d-6e5f4a3b2c1d",
+  display_name: "Keycloak",
+};
+const loginMethods = (...providers: (typeof GOOGLE)[]) => ({
+  password: "on",
+  providers,
+});
+const methods = (...providers: (typeof GOOGLE)[]) => ({
+  "GET /v1/auth/login-methods": () => json(200, loginMethods(...providers)),
 });
 const AUTHORIZE = "https://accounts.google.test/o/oauth2/v2/auth?state=s1";
+const START = `/v1/auth/providers/${GOOGLE.id}/start`;
+const CALLBACK_PAGE = `/auth/callback/${GOOGLE.id}`;
 const signedIn = {
   user_id: me().user?.id,
   workspace_id: me().workspace?.id,
@@ -20,20 +34,31 @@ const signedIn = {
 
 describe("로그인 수단 선택", () => {
   test("픽스처는 서버가 보낼 수 있는 모양이다", () => {
-    for (const list of [["password"], ["password", "google"]])
-      expect(
-        loginMethodsResponseSchema.safeParse({ methods: list }).success,
-      ).toBe(true);
+    for (const body of [loginMethods(), loginMethods(GOOGLE, KEYCLOAK)])
+      expect(loginMethodsResponseSchema.safeParse(body).success).toBe(true);
   });
 
-  test("Google이 없으면 비밀번호만 보인다", async () => {
-    renderAt("/login", methods("password"));
+  test("켜진 공급자가 없으면 비밀번호만 보인다", async () => {
+    renderAt("/login", methods());
     expect(await screen.findByLabelText("비밀번호")).toBeDefined();
     await waitFor(() =>
       expect(
-        screen.queryByRole("button", { name: "Google로 로그인" }),
+        screen.queryByRole("region", { name: "다른 로그인 방법" }),
       ).toBeNull(),
     );
+    expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual([
+      "로그인",
+    ]);
+  });
+
+  test("켜진 공급자마다 그 이름의 버튼을 받은 순서대로 보인다", async () => {
+    renderAt("/login", methods(GOOGLE, KEYCLOAK));
+    const choices = await screen.findByRole("region", {
+      name: "다른 로그인 방법",
+    });
+    expect(
+      [...choices.querySelectorAll("button")].map((b) => b.textContent),
+    ).toEqual(["Google 계정으로 로그인", "Keycloak 계정으로 로그인"]);
   });
 
   test("목록을 못 읽어도 비밀번호 로그인은 남는다", async () => {
@@ -43,42 +68,43 @@ describe("로그인 수단 선택", () => {
     });
     expect(await screen.findByRole("button", { name: "로그인" })).toBeDefined();
     expect(
-      screen.queryByRole("button", { name: "Google로 로그인" }),
+      screen.queryByRole("region", { name: "다른 로그인 방법" }),
     ).toBeNull();
   });
 
-  test("Google을 고르면 시작 요청 뒤 Google로 가고, 돌아올 곳을 기억한다", async () => {
+  test("공급자를 고르면 그 공급자의 시작 요청 뒤 공급자 화면으로 가고, 돌아올 곳을 기억한다", async () => {
     sessionStorage.clear();
     const { api, left } = renderAt("/login?redirect=%2Fmembers", {
-      ...methods("password", "google"),
-      "POST /v1/auth/google/start": () =>
-        json(200, { authorization_url: AUTHORIZE }),
+      ...methods(GOOGLE, KEYCLOAK),
+      [`POST ${START}`]: () => json(200, { authorization_url: AUTHORIZE }),
     });
     expect(await screen.findByLabelText("비밀번호")).toBeDefined();
     const user = await setupUser();
     await user.click(
-      await screen.findByRole("button", { name: "Google로 로그인" }),
+      await screen.findByRole("button", { name: "Google 계정으로 로그인" }),
     );
     await waitFor(() => expect(left).toEqual([AUTHORIZE]));
-    // Coming back from Google's page (back button) can start again.
+    // Coming back from the provider's page (back button) can start again.
     expect(
       screen
-        .getByRole("button", { name: "Google로 로그인" })
+        .getByRole("button", { name: "Google 계정으로 로그인" })
         .hasAttribute("disabled"),
     ).toBe(false);
-    const start = api.calls.find((c) => c.path === "/v1/auth/google/start");
-    expect(start?.headers.get("x-requested-with")).toBe("werft-web");
+    const starts = api.calls.filter((c) => c.path.endsWith("/start"));
+    expect(starts.map((c) => c.path)).toEqual([START]);
+    expect(starts[0]?.headers.get("x-requested-with")).toBe("werft-web");
     expect(sessionStorage.getItem("ap.postLoginPath")).toBe("/members");
   });
 });
 
-describe("Google 콜백", () => {
-  test("code·state를 한 번 보내고 기억한 곳으로 간다", async () => {
+describe("공급자 콜백", () => {
+  test("경로의 공급자와 code·state·iss를 한 번 보내고 기억한 곳으로 간다", async () => {
     sessionStorage.setItem("ap.postLoginPath", "/members");
     const { api, history } = renderAt(
-      "/auth/google/callback?code=c1&state=s1",
+      `${CALLBACK_PAGE}?code=c1&state=s1&iss=${encodeURIComponent("https://accounts.google.test")}`,
       {
-        "POST /v1/auth/google/callback": () => json(200, signedIn),
+        "POST /v1/auth/oidc/callback": () =>
+          json(200, { outcome: "signed_in", ...signedIn }),
         "GET /v1/auth/me": () => json(200, me()),
         "GET /v1/members": () =>
           json(200, memberPage({ items: [], next_cursor: null })),
@@ -86,17 +112,36 @@ describe("Google 콜백", () => {
       },
     );
     await waitFor(() => expect(history.location.pathname).toBe("/members"));
-    const posts = api.calls.filter(
-      (c) => c.path === "/v1/auth/google/callback",
-    );
-    expect(posts.map((c) => c.body)).toEqual([{ code: "c1", state: "s1" }]);
+    const posts = api.calls.filter((c) => c.path === "/v1/auth/oidc/callback");
+    expect(posts.map((c) => c.body)).toEqual([
+      {
+        provider_id: GOOGLE.id,
+        code: "c1",
+        state: "s1",
+        iss: "https://accounts.google.test",
+      },
+    ]);
+    expect(posts[0]?.headers.get("x-requested-with")).toBe("werft-web");
     expect(sessionStorage.getItem("ap.postLoginPath")).toBeNull();
+  });
+
+  test("공급자가 iss를 주지 않으면 iss 없이 보낸다", async () => {
+    const { api, history } = renderAt(`${CALLBACK_PAGE}?code=c1&state=s1`, {
+      "POST /v1/auth/oidc/callback": () =>
+        json(200, { outcome: "signed_in", ...signedIn }),
+      "GET /v1/auth/me": () => json(200, me()),
+    });
+    await waitFor(() => expect(history.location.pathname).toBe("/"));
+    expect(
+      api.calls.find((c) => c.path === "/v1/auth/oidc/callback")?.body,
+    ).toEqual({ provider_id: GOOGLE.id, code: "c1", state: "s1" });
   });
 
   test("기억한 곳이 다른 origin이면 홈으로 간다", async () => {
     sessionStorage.setItem("ap.postLoginPath", "//evil.example");
-    const { history } = renderAt("/auth/google/callback?code=c1&state=s1", {
-      "POST /v1/auth/google/callback": () => json(200, signedIn),
+    const { history } = renderAt(`${CALLBACK_PAGE}?code=c1&state=s1`, {
+      "POST /v1/auth/oidc/callback": () =>
+        json(200, { outcome: "signed_in", ...signedIn }),
       "GET /v1/auth/me": () => json(200, me()),
     });
     await waitFor(() => expect(history.location.pathname).toBe("/"));
@@ -105,16 +150,16 @@ describe("Google 콜백", () => {
   test("거절은 이유별 문구와 로그인 링크다", async () => {
     const cases: [Response, string][] = [
       [
-        apiError(401, "UNAUTHORIZED", "Google sign-in was not accepted"),
-        "Google 계정으로 로그인하지 못했습니다 — 초대받은 이메일 주소의 계정인지 확인하고 다시 시도하세요.",
+        apiError(401, "UNAUTHORIZED", "Sign-in was not accepted"),
+        "이 계정으로 로그인하지 못했습니다 — 초대받은 이메일 주소의 계정인지 확인하고 다시 시도하세요.",
       ],
       [
-        apiError(
-          403,
-          "FORBIDDEN",
-          "This Google account's domain is not allowed here",
-        ),
-        "이 Google 계정으로는 로그인할 수 없습니다 — 워크스페이스가 허용한 도메인의 계정을 쓰세요.",
+        apiError(403, "FORBIDDEN", "This account's domain is not allowed here"),
+        "이 계정으로는 로그인할 수 없습니다 — 워크스페이스가 허용한 도메인의 계정을 쓰세요.",
+      ],
+      [
+        apiError(404, "NOT_FOUND", "Login provider not found"),
+        "이 로그인 방법은 지금 쓸 수 없습니다 — 로그인 화면에서 다른 방법을 고르세요.",
       ],
       [
         apiError(
@@ -126,8 +171,8 @@ describe("Google 콜백", () => {
       ],
     ];
     for (const [response, text] of cases) {
-      const { container } = renderAt("/auth/google/callback?code=c&state=s", {
-        "POST /v1/auth/google/callback": () => response.clone(),
+      const { container } = renderAt(`${CALLBACK_PAGE}?code=c&state=s`, {
+        "POST /v1/auth/oidc/callback": () => response.clone(),
       });
       await waitFor(() =>
         expect(container.querySelector("[role=alert]")?.textContent).toBe(text),
@@ -140,9 +185,9 @@ describe("Google 콜백", () => {
   });
 
   test("code 없이 돌아오면(동의 취소) 보내지 않고 다시 하라고 한다", async () => {
-    const { api } = renderAt("/auth/google/callback?error=access_denied", {});
+    const { api } = renderAt(`${CALLBACK_PAGE}?error=access_denied`, {});
     expect((await screen.findByRole("alert")).textContent).toBe(
-      "Google 로그인을 마치지 못했습니다 — 다시 시도하세요.",
+      "로그인을 마치지 못했습니다 — 다시 시도하세요.",
     );
     expect(api.calls).toEqual([]);
   });
@@ -151,7 +196,7 @@ describe("Google 콜백", () => {
 describe("로그인 화면 안내", () => {
   test("로그인에 실패하면 '소유자를 만들었습니다' 알림을 거둔다", async () => {
     renderAt("/login?notice=created", {
-      ...methods("password"),
+      ...methods(),
       "POST /v1/auth/login": () =>
         apiError(401, "UNAUTHORIZED", "Invalid credentials"),
     });
@@ -166,7 +211,7 @@ describe("로그인 화면 안내", () => {
 
   test("이미 로그인했으면 폼 없이 홈으로 바꿔 간다", async () => {
     const { history } = renderAt("/login", {
-      ...methods("password"),
+      ...methods(),
       "GET /v1/auth/me": () => json(200, me()),
     });
     await waitFor(() => expect(history.location.pathname).toBe("/"));
@@ -214,7 +259,7 @@ describe("로그인 화면 안내", () => {
 
   test("세션 확인이 401 말고 다른 오류로 실패해도 폼을 보인다", async () => {
     renderAt("/login", {
-      ...methods("password"),
+      ...methods(),
       "GET /v1/auth/me": () =>
         apiError(503, "BACKEND_UNAVAILABLE", "storage down"),
     });
@@ -241,7 +286,7 @@ describe("로그인 화면 안내", () => {
   test("세션을 확인하는 동안에는 폼을 그리지 않는다", async () => {
     let answer: (response: Response) => void = () => {};
     renderAt("/login", {
-      ...methods("password"),
+      ...methods(),
       "GET /v1/auth/me": () =>
         new Promise<Response>((resolve) => {
           answer = resolve;
@@ -257,7 +302,7 @@ describe("로그인 화면 안내", () => {
 
   test("로그인하지 않았으면 폼을 그대로 보인다", async () => {
     renderAt("/login", {
-      ...methods("password"),
+      ...methods(),
       "GET /v1/auth/me": () =>
         apiError(401, "UNAUTHORIZED", "Authentication is required"),
     });

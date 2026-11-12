@@ -508,48 +508,37 @@ curl -s -X POST http://127.0.0.1:3000/v1/auth/password-reset -H 'Content-Type: a
   -d '{"token":"<apr_…>","password":"<12+ chars>"}'
 ```
 
-### Google 로그인
+### 로그인 공급자(OIDC)
 
-로그인 수단은 `login_methods` 테이블에 사용자별로 둔다. 비밀번호는 `kind=password` 행 하나이고(bootstrap과 migration 0138이 만든다), Google 계정은 `kind=google` 행의 (issuer, subject)로 찾는다. 이메일로는 찾지 않는다. Google로만 들어온 사용자는 `users.password_hash`가 NULL이고, 비밀번호 로그인은 틀린 비밀번호와 같은 `401`, owner의 재설정 링크 발급은 `404`다.
+로그인 수단은 `login_methods` 테이블에 사용자별로 둔다. 비밀번호는 `kind=password` 행 하나이고(bootstrap과 migration 0138이 만든다), 공급자 계정은 `kind=oidc` 행의 (issuer, subject)로 찾는다. 이메일로는 찾지 않는다. 공급자로만 들어온 사용자는 `users.password_hash`가 NULL이고, 비밀번호 로그인은 틀린 비밀번호와 같은 `401`, owner의 재설정 링크 발급은 `404`다.
 
-설정은 env 하나로 전역에 둔다. 셋 다 비어 있으면 Google 로그인은 꺼지고 두 route가 `404`다. 일부만 있거나 값이 틀리면 API가 기동하지 않고 `/readyz`도 `503`이다.
+공급자(Google, Okta, Keycloak 같은 OIDC IdP)는 `login_providers` 테이블의 행이고, issuer마다 하나다. 로그인 설정을 받는 환경 변수는 없다. 행은 다음을 담는다.
 
-| env | 뜻 |
+| 칸 | 뜻 |
 |---|---|
-| `GOOGLE_OIDC_CLIENT_ID`·`GOOGLE_OIDC_CLIENT_SECRET` | Google Cloud의 OAuth client(웹 애플리케이션) |
-| `GOOGLE_OIDC_REDIRECT_URI` | Google에 등록한 승인된 리디렉션 URI. 웹의 콜백 화면 주소다 |
-| `GOOGLE_OIDC_ISSUER` | 기본 `https://accounts.google.com`. 시험용 IdP를 가리킬 때만 바꾼다 |
-| `GOOGLE_OIDC_ALLOWED_DOMAINS` | 쉼표 목록. 있으면 id_token의 `hd`와 이메일 도메인이 목록에 있는 Google Workspace 계정만 받는다(`403`). 개인 Gmail은 `hd`가 없어 막힌다 |
-| `GOOGLE_OIDC_JIT` | `off`(기본) 또는 `member`. `member`는 허용 도메인 계정을 초대 없이 member로 만든다. 허용 도메인 없이 켜면 기동하지 않는다 |
+| issuer와 endpoint | 공급자의 issuer, 그리고 discovery에서 확인해 둔 authorization·token·JWKS·UserInfo 주소. 로그인은 저장된 주소만 쓰고 discovery를 다시 읽지 않는다 |
+| client ID, token 인증 방식 | 공급자에 등록한 client. client secret은 `secret_values`에 `PLATFORM_SECRET_KEY`로 암호화해 둔다 |
+| 허용 도메인 | 있으면 그 도메인의 계정만 받는다(`403`). Google은 id_token의 `hd`와 이메일 도메인이 둘 다 목록에 있어야 하고, 개인 Gmail은 `hd`가 없어 막힌다 |
+| JIT 역할 | 없음(기본) 또는 `member`. `member`는 증명된 주소의 계정을 초대 없이 member로 만든다. Google은 허용 도메인이 있을 때만이다 |
+| 켜짐 | 꺼진 공급자는 로그인 화면에 나오지 않고 두 route가 `404`다. 끄는 순간 그 공급자로 만든 web session도 같은 트랜잭션에서 끊긴다 |
 
-로그인 화면은 공개 `GET /v1/auth/login-methods`(`{"methods":["password","google"]}`, Google을 설정하지 않으면 `password`만)로 고를 수 있는 수단을 받는다. 흐름: 웹이 `POST /v1/auth/google/start`(`X-Requested-With` 필요)로 `authorization_url`을 받아 연다. 응답은 state·nonce·PKCE verifier를 담은 `__Host-werft_google_login` cookie(10분)를 세운다. Google이 리디렉션 URI로 `code`·`state`를 돌려주면 웹이 그대로 `POST /v1/auth/google/callback`에 보낸다. API가 code를 교환하고 id_token의 서명(JWKS)·iss·aud·exp·nonce·`email_verified`를 확인한 뒤 첫 진입 규칙을 위에서부터 적용한다.
+공급자에 등록하는 리디렉션 URI는 `<CONSOLE_ORIGIN>/auth/callback/<공급자 id>`다. `CONSOLE_ORIGIN`이 없으면 시작 요청이 `503`이다. 공급자의 주소는 `https`여야 한다. `CONSOLE_ORIGIN`이 `localhost`·`127.0.0.1`인 로컬 스택에서만 loopback의 `http` 공급자를 쓸 수 있다. 공급자를 만들고 고치는 관리 화면과 API는 아직 없다.
+
+로그인 화면은 공개 `GET /v1/auth/login-methods`(`{"password":"on","providers":[{"id":"…","display_name":"Google"}]}`, 켜진 공급자가 없으면 `providers`가 빈 목록)로 고를 수 있는 수단을 받는다. 흐름: 웹이 `POST /v1/auth/providers/{id}/start`(`X-Requested-With` 필요)로 `authorization_url`을 받아 연다. 응답은 `__Host-werft_login_flow` cookie(10분)를 세운다. 이 cookie는 state·nonce·PKCE verifier·공급자 id·그때의 설정 revision을 `PLATFORM_SECRET_KEY`에서 낸 키로 봉인한 값이라 브라우저가 읽거나 바꿀 수 없다. 공급자가 리디렉션 URI로 `code`·`state`(공급자에 따라 `iss`도)를 돌려주면 웹이 공급자 id와 함께 `POST /v1/auth/oidc/callback`에 보낸다. API는 cookie를 지우고, 열어서 state·10분·공급자 id·설정 revision이 맞는지 본 뒤 code를 교환하고 id_token의 서명(JWKS)·iss·aud·exp·nonce·`email_verified`를 확인한다. 그다음 허용 도메인을 보고(`403`) 첫 진입 규칙을 위에서부터 적용한다.
+
+아래에서 "증명된 주소"는 공급자가 지금 그 이메일의 주인임을 보증하는 경우다. Google은 `email_verified`이면서 이메일 도메인이 계정의 Workspace 도메인(`hd`)과 같거나 `gmail.com`일 때이고, 그 밖의 공급자는 `email_verified`가 `true`일 때다.
 
 1. 이미 연결된 (issuer, subject) → 그 사용자로 로그인. 계정이나 멤버십이 비활성이면 거절.
-2. 그 이메일의 계정이 이미 있으면 → `409 LOGIN_LINK_REQUIRED`("기존 계정으로 로그인한 뒤 설정에서 Google을 연결"). 초대나 JIT가 있어도 이메일로 합치지 않는다. 이 응답은 Google이 지금 그 이메일의 주인임을 보증하는 계정(이메일 도메인이 `hd`와 같거나 `gmail.com`)만 받고, 그 밖의 계정과 비활성 계정은 5번과 같은 `401`을 받아 계정이 있는지 알 수 없다.
-3. 그 이메일 앞으로 살아 있는 초대 → 비밀번호 없는 계정을 만들고 초대를 수락한다(초대의 workspace·role). 단, Google이 지금도 그 주소의 주인을 보증하는 계정만이다: 이메일 도메인이 계정의 Workspace 도메인(`hd`)과 같거나 `gmail.com`인 경우. 그 밖의 주소는 가입할 때 한 번 확인된 것이라 주소 주인이 바뀌었을 수 있어, 초대를 받지 못하고 5번으로 간다. 만료는 초대 행을 잠근 뒤 DB 시각으로 다시 본다.
-4. JIT가 켜져 있으면 → 설치의 workspace에 member로 만든다.
-5. 그 밖에는 `401 UNAUTHORIZED` "Google sign-in was not accepted". 토큰 검증 실패와 같은 응답이라 계정이 있는지 드러나지 않는다.
+2. 그 이메일의 계정이 이미 있으면 → `409 LOGIN_LINK_REQUIRED`("기존 계정으로 로그인한 뒤 설정에서 이 공급자를 연결"). 초대나 JIT가 있어도 이메일로 합치지 않는다. 다른 공급자가 같은 이메일을 내도 마찬가지다. 이 응답은 증명된 주소만 받고, 그 밖의 계정과 비활성 계정은 5번과 같은 `401`을 받아 계정이 있는지 알 수 없다.
+3. 그 이메일 앞으로 살아 있는 초대 → 비밀번호 없는 계정을 만들고 초대를 수락한다(초대의 workspace·role). 증명된 주소만이다. 그 밖의 주소는 가입할 때 한 번 확인된 것이라 주소 주인이 바뀌었을 수 있어, 초대를 받지 못하고 5번으로 간다. 만료는 초대 행을 잠근 뒤 DB 시각으로 다시 본다.
+4. 공급자의 JIT 역할이 `member`이고 증명된 주소이면 → 설치의 workspace에 member로 만든다.
+5. 그 밖에는 `401 UNAUTHORIZED` "Sign-in was not accepted". cookie나 토큰 검증 실패와 같은 응답이라 계정이 있는지, 어느 검사에 걸렸는지 드러나지 않는다. 이유는 서버 로그에만 남는다.
 
-성공하면 비밀번호 login과 같은 `__Host-werft_session` cookie와 login 응답을 준다. 설계의 규칙 순서(초대·JIT가 같은 이메일 안내보다 앞)와 달리 2번을 먼저 보는 것은, 같은 이메일의 계정이 있으면 새 계정을 만들 수 없어 초대·JIT가 결국 이메일로 합치는 것이 되기 때문이다. 로그인한 사용자가 설정에서 Google을 연결하는 API와 콜백 화면은 아직 없다(웹 로그인 화면 작업에서 만든다).
+성공하면 비밀번호 login과 같은 `__Host-werft_session` cookie와 login 응답을 준다. 세션에는 그 세션을 만든 로그인 수단이 기록된다. 설계의 규칙 순서(초대·JIT가 같은 이메일 안내보다 앞)와 달리 2번을 먼저 보는 것은, 같은 이메일의 계정이 있으면 새 계정을 만들 수 없어 초대·JIT가 결국 이메일로 합치는 것이 되기 때문이다. 로그인한 사용자가 설정에서 공급자를 연결하는 API와 화면은 아직 없다.
 
-실제 Google 연결 확인 절차(사람이 한다):
+`__Host-` cookie는 `Secure`라 curl은 HTTPS나 `localhost`·`127.0.0.1`에서만 jar에 남긴다. 다른 호스트의 `http://` 주소로는 흐름이 이어지지 않는다.
 
-1. Google Cloud Console → API 및 서비스 → OAuth 동의 화면을 만들고(내부 또는 외부, 범위 `openid`·`email`·`profile`), 사용자 인증 정보 → OAuth 클라이언트 ID(웹 애플리케이션)를 만든다. 승인된 리디렉션 URI에 `GOOGLE_OIDC_REDIRECT_URI`로 쓸 주소(예: `https://<host>/auth/google/callback`)를 넣는다.
-2. client id·secret을 위 env로 API에 준다(compose는 `infra/compose.core.yml`이 같은 이름으로 넘긴다). 값은 로그나 티켓에 붙이지 않는다.
-3. 기동 뒤 `curl -s <api>/readyz`가 `200`인지 본다.
-4. 콜백 화면이 생기기 전에는 아래로 확인한다. 받은 `authorization_url`을 브라우저로 열고 Google 계정으로 동의하면, 브라우저가 리디렉션 URI로 이동한다(화면이 없어도 주소창에 `code`·`state`가 남는다). 그 둘을 10분 안에 같은 cookie jar로 보낸다. 주소창의 `code`는 percent-encoding되어 있으므로(`4%2F0A…`) URL decode한 값(`4/0A…`)을 보낸다. 그대로 보내면 Google이 code를 거절해 `401`이 된다.
-
-```bash
-curl -s -c jar -b jar -X POST https://<host>/v1/auth/google/start -H 'X-Requested-With: werft-web'
-# 브라우저로 authorization_url을 열고 동의한 뒤, 이동한 주소의 code(URL decode)·state를 옮긴다
-curl -s -c jar -b jar -X POST https://<host>/v1/auth/google/callback -H 'X-Requested-With: werft-web' \
-  -H 'Content-Type: application/json' -d '{"code":"<code>","state":"<state>"}'
-curl -s -b jar https://<host>/v1/auth/me
-```
-
-   기대값: 허용 도메인 목록이 있고 그 밖의 계정이면 규칙보다 먼저 `403`. 그 밖에는 Google이 주소를 보증하는 계정(이메일 도메인이 `hd`와 같거나 `gmail.com`)일 때 초대한 이메일이면 `200`과 그 초대의 role, owner 이메일이면 `409 LOGIN_LINK_REQUIRED`이고, 보증되지 않는 주소는 둘 다 `401`이다. `__Host-` cookie는 `Secure`라 curl은 HTTPS나 `localhost`·`127.0.0.1`에서만 jar에 남긴다. 다른 호스트의 `http://` 주소로는 흐름이 이어지지 않는다.
-
-시험용 IdP는 저장소 checkout(`packages/testkit`)이나 `local` target 이미지에서만 돈다. 게시 이미지에는 testkit이 없다. `bun packages/testkit/src/mock-oidc-main.ts`(`MOCK_OIDC_PORT`·`MOCK_OIDC_CLIENT_ID`·`MOCK_OIDC_CLIENT_SECRET`·`MOCK_OIDC_ISSUER`·`MOCK_OIDC_PUBLIC_URL`)가 Google 대신 discovery·JWKS·authorize·token을 낸다. authorize는 바로 동의하고, 로그인할 계정은 authorization URL에 붙인 `login_hint`(id_token claim JSON의 base64url)로 고른다. 통합 테스트(`google-login.integration.test.ts`)가 같은 IdP로 다섯 규칙을 고정한다. 테스트 이름의 규칙 번호(2 초대, 3 JIT, 4 같은 이메일)는 위 목록의 순서와 다르다. 위 목록이 실제 적용 순서다.
+시험용 IdP는 저장소 checkout(`packages/testkit`)이나 `local` target 이미지에서만 돈다. 게시 이미지에는 testkit이 없다. `bun packages/testkit/src/mock-oidc-main.ts`(`MOCK_OIDC_PORT`·`MOCK_OIDC_CLIENT_ID`·`MOCK_OIDC_CLIENT_SECRET`·`MOCK_OIDC_ISSUER`·`MOCK_OIDC_PUBLIC_URL`)가 공급자 대신 discovery·JWKS·authorize·token을 낸다. authorize는 바로 동의하고, 로그인할 계정은 authorization URL에 붙인 `login_hint`(id_token claim JSON의 base64url)로 고른다. 통합 테스트(`provider-login.integration.test.ts`)가 같은 IdP로 다섯 규칙을 고정한다. 테스트 이름의 규칙 번호(2 초대, 3 JIT, 4 같은 이메일)는 위 목록의 순서와 다르다. 위 목록이 실제 적용 순서다.
 
 ### workspace key, 개인 key, 오프보딩
 
@@ -563,7 +552,7 @@ curl -s -b jar https://<host>/v1/auth/me
 
 멤버를 내보내는 것은 owner나 admin의 cookie 세션으로 `POST /v1/members/{user_id}/disable`이다(`member.manage` 판정, member와 API key는 `403 FORBIDDEN`). 본문은 `{}` 또는 `{"reason": "…"}`(UTF-8 1KiB까지, 넘으면 `413`)이다. owner는 owner만 비활성으로 만들거나 되살린다. admin이 owner를 대상으로 하면 `403 OWNER_PROTECTED`이고 아무것도 바뀌지 않는다. 자기 자신과 마지막 live owner는 비활성으로 만들 수 없다(`409 LAST_OWNER`). 여러 규칙에 걸리면 앞의 것이 답한다: `member.manage`가 없으면 `403 FORBIDDEN`, 자기 자신이면 `409 LAST_OWNER`, 대상이 없으면 `404`, admin이 owner를 대상으로 하면 `403 OWNER_PROTECTED`, 마지막 live owner면 `409 LAST_OWNER`. 그래서 admin이 마지막 live owner를 비활성하면 `403 OWNER_PROTECTED`다. live owner인 호출자가 있는 한 마지막 live owner는 그 호출자 자신뿐이다. 한 transaction 안에서 membership을 비활성화하고, 그 사용자의 web session 전부와 그 workspace에서 만든 개인 key를 폐기하고, 그 workspace에 연결된 Slack 계정을 `revoked`로 바꾼다(열린 SSE는 keepalive 주기 안에 끊긴다). 에이전트 key는 건드리지 않는다. 그 사람이 요청한 닫히지 않은 세션에는 인수 대기 표시를 한다. 인수 대기 세션은 돌고 있던 turn까지만 마치고 다음 turn을 배정받지 않는다. 새 launch·claim도 받지 않고, 새 메시지는 `409 TAKEOVER_REQUIRED`로 거절된다. owner가 `GET /v1/takeovers`로 목록을 보고 `POST /v1/sessions/{id}/takeover`로 인수하면, 그 owner가 세션의 요청자가 되고 `takeover` receipt가 남는다. 세션이 인수하는 owner에게 보이지 않는 공유 범위면 `{"justification"}`이 필요하다(아래 세션 공유 범위 절).
 
-`POST /v1/members/{user_id}/enable`은 membership을 되살린다. 폐기한 web session과 개인 key, 회수한 Slack 연결은 되살리지 않는다(Slack은 다시 연결한다). 사용자는 다시 로그인하고 key도 새로 받는다. 아직 아무도 인수하지 않은 세션은 인수 대기 표시를 지워 그 사람에게 돌려준다. Google로만 만든(비밀번호 없는) 계정도 이렇게 되살리면 연결된 Google 로그인으로 다시 들어온다. 이런 계정은 다시 초대하지 말고 enable한다. 초대 수락은 새 계정이거나 비밀번호로 확인한 계정만 받기 때문이다.
+`POST /v1/members/{user_id}/enable`은 membership을 되살린다. 폐기한 web session과 개인 key, 회수한 Slack 연결은 되살리지 않는다(Slack은 다시 연결한다). 사용자는 다시 로그인하고 key도 새로 받는다. 아직 아무도 인수하지 않은 세션은 인수 대기 표시를 지워 그 사람에게 돌려준다. 공급자 로그인으로만 만든(비밀번호 없는) 계정도 이렇게 되살리면 연결된 공급자 로그인으로 다시 들어온다. 이런 계정은 다시 초대하지 말고 enable한다. 초대 수락은 새 계정이거나 비밀번호로 확인한 계정만 받기 때문이다.
 
 계정 정지는 `POST /v1/users/{user_id}/disable`·`/enable`이다. 대상의 live membership이 모두 호출한 사람이 owner나 admin인 workspace 안에 있을 때만 허용하고, 그 밖의 workspace에도 속한 계정은 `403 FORBIDDEN`이다. 대상이 owner인 workspace(그 membership이 비활성이어도) 중 하나에서라도 호출한 사람이 그 workspace의 live owner가 아니면 `403 OWNER_PROTECTED`이고, 이 판정이 앞의 `403 FORBIDDEN`보다 먼저다. 자기 자신을 정지하면 `409 LAST_OWNER`다. 정지된 계정은 어느 workspace로도 로그인하지 못하고, 정지할 때 멤버 비활성과 같은 폐기(web session, 모든 workspace의 개인 key와 Slack 연결, 인수 대기 표시)가 일어난다. 정지 해제도 cookie와 key를 되살리지 않는다.
 

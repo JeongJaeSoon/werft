@@ -232,13 +232,16 @@ describe("주소 이름 형식", () => {
 });
 
 describe("화면별 오류 문구", () => {
-  test("Google 로그인이 설정되지 않은 설치에서 콜백은 그렇다고 말한다", async () => {
-    renderAt("/auth/google/callback?code=c1&state=s1", {
-      "POST /v1/auth/google/callback": () =>
-        apiError(404, "NOT_FOUND", "Google sign-in is not configured"),
-    });
+  test("꺼졌거나 없는 공급자의 콜백은 그 로그인 방법을 쓸 수 없다고 말한다", async () => {
+    renderAt(
+      "/auth/callback/5b0c7e2a-9d41-4f6b-8a3e-7c1d2e3f4a5b?code=c1&state=s1",
+      {
+        "POST /v1/auth/oidc/callback": () =>
+          apiError(404, "NOT_FOUND", "Login provider not found"),
+      },
+    );
     expect((await screen.findByRole("alert")).textContent).toBe(
-      "이 설치에서는 Google 로그인을 쓸 수 없습니다 — 이메일과 비밀번호로 로그인하세요.",
+      "이 로그인 방법은 지금 쓸 수 없습니다 — 로그인 화면에서 다른 방법을 고르세요.",
     );
   });
 

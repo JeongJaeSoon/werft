@@ -35,6 +35,7 @@ import {
   createPostgresInviteStore,
   createPostgresJudgmentEgress,
   createPostgresLinkedAccountStore,
+  createPostgresLoginProviderStore,
   createPostgresMcpEgressStore,
   createPostgresMemberStore,
   createPostgresPendingRequests,
@@ -135,6 +136,7 @@ import {
   createTeamService,
   createUsageService,
   createWorkerGateway,
+  derivedSecretKey,
   GITHUB_API_BASE,
   InstallationConfigError,
   installationLimitsFromEnv,
@@ -205,7 +207,6 @@ import {
 import { extensionDepsFor } from "./extension-deps.ts";
 import { githubCallbackUrl } from "./github-link.ts";
 import { githubPackagesConfigFromEnv } from "./github-packages-config.ts";
-import { createGoogleLogin, googleLoginConfigFromEnv } from "./google-login.ts";
 import {
   credentialHostsFromEnv,
   leftOutReporter,
@@ -214,6 +215,7 @@ import {
 import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
 import { eventNeutralizer, startNeutralFill } from "./neutral-fields.ts";
 import { createApiPool, createProbePool } from "./pool.ts";
+import { createProviderLogin } from "./provider-login.ts";
 import { createSlackEventsLimiter } from "./rate-limit.ts";
 import { createReadinessProbe } from "./readiness.ts";
 import { RequestTracing } from "./request-tracing.ts";
@@ -277,6 +279,7 @@ import { registerWorkerRoutes } from "./routes/workers/worker.ts";
 import { PostgresSessionNotifier } from "./session-notifier.ts";
 import { createShutdown } from "./shutdown.ts";
 import {
+  configuredConsoleOrigin,
   consoleOriginFrom,
   slackApiUrlFrom,
   slackEnvWarnings,
@@ -1109,12 +1112,6 @@ if (authorizerListener === undefined) {
 const notifier = new PostgresSessionNotifier(databaseUrl, logger);
 void notifier.start();
 const identity = new DatabaseIdentityStore(db);
-const google = googleLoginConfigFromEnv(process.env);
-if (google.problems.length > 0) {
-  throw new Error(
-    `Invalid Google sign-in settings: ${google.problems.join("; ")}`,
-  );
-}
 // One window and one hashing gate for every account password check (login,
 // the reset issuer's re-check, invite accept), so no route resets another's
 // count.
@@ -1122,7 +1119,13 @@ const lockout = new LoginLockout();
 const passwordWork = new WorkGate();
 const auth = {
   identity,
-  ...(google.config ? { google: createGoogleLogin(google.config) } : {}),
+  // Providers are settings rows; nothing about them is read from the
+  // environment. The redirect URIs are built on CONSOLE_ORIGIN itself.
+  providers: createProviderLogin({
+    providers: createPostgresLoginProviderStore(db, secretKey),
+    consoleOrigin: configuredConsoleOrigin(process.env),
+    flowKey: derivedSecretKey(secretKey, "login-flow-cookie"),
+  }),
   lockout,
   passwordWork,
   bootstrap: await bootstrapGateFromEnv(

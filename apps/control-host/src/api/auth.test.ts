@@ -104,7 +104,7 @@ class MemoryIdentityStore implements IdentityStore {
   now = () => Date.now();
 
   async signInWithExternalIdentity(): Promise<ExternalSignInResult> {
-    throw new Error("google-login.test.ts covers external sign-in");
+    throw new Error("provider-login.test.ts covers external sign-in");
   }
   async countLiveOwners() {
     return this.memberships.filter(

@@ -322,7 +322,8 @@ export const loginMethods = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id),
-    kind: text().$type<"password" | "google">().notNull(),
+    kind: text().$type<"password" | "oidc">().notNull(),
+    /** Ties an external row to its provider by the issuer's exact text. */
     issuer: text(),
     subject: text(),
     /** The address the provider vouched for when the account was linked. */
@@ -348,7 +349,7 @@ export const loginMethods = pgTable(
       .where(sql`${table.kind} <> 'password'`),
     check(
       "login_methods_kind_check",
-      sql`${table.kind} IN ('password', 'google')`,
+      sql`${table.kind} IN ('password', 'oidc')`,
     ),
     check(
       "login_methods_external_check",
@@ -388,6 +389,87 @@ export const webSessions = pgTable(
       .where(sql`${table.revokedAt} IS NULL`),
     // The reconciler deletes rows 30 days past expiry.
     index("web_sessions_expires_at_idx").on(table.expiresAt),
+    // Turning a provider off ends the live sessions its methods made.
+    index("web_sessions_login_method_live_idx")
+      .on(table.loginMethodId)
+      .where(sql`${table.revokedAt} IS NULL`),
+  ],
+);
+
+/**
+ * An OIDC provider people sign in with, one per issuer for the whole
+ * installation. The client secret is not here: it is a `secret_values` row
+ * owned by `login_provider:<id>`.
+ */
+export const loginProviders = pgTable(
+  "login_providers",
+  {
+    /** Part of the redirect URI registered at the provider. */
+    id: uuid().primaryKey(),
+    displayName: text("display_name").notNull(),
+    /** Exactly the discovery document's `issuer`; never changed afterwards. */
+    issuer: text().notNull(),
+    // The endpoints discovery named when it was last checked. Sign-in uses
+    // these and does not read discovery again.
+    authorizationEndpoint: text("authorization_endpoint").notNull(),
+    tokenEndpoint: text("token_endpoint").notNull(),
+    jwksUri: text("jwks_uri").notNull(),
+    userinfoEndpoint: text("userinfo_endpoint"),
+    signingAlgs: text("signing_algs").array().notNull(),
+    issParameterRequired: boolean("iss_parameter_required").notNull(),
+    /** Whether discovery advertised S256; shown, not enforced. */
+    pkceAdvertised: boolean("pkce_advertised").notNull(),
+    discoveryCheckedAt: timestamp("discovery_checked_at", {
+      withTimezone: true,
+    }).notNull(),
+    /** Null until the redirect URI is registered at the provider. */
+    clientId: text("client_id"),
+    tokenAuthMethod: text("token_auth_method")
+      .$type<"client_secret_basic" | "client_secret_post">()
+      .notNull(),
+    /** Lower-cased; empty restricts nothing. */
+    allowedDomains: text("allowed_domains").array().notNull().default([]),
+    jitRole: text("jit_role").$type<"member">(),
+    requireVerifiedEmail: boolean("require_verified_email")
+      .notNull()
+      .default(true),
+    enabled: boolean().notNull().default(false),
+    /** Goes up with every connection or policy change, not with the name. */
+    configRevision: integer("config_revision").notNull().default(1),
+    /** The config_revision a test sign-in last passed with. */
+    testedConfigRevision: integer("tested_config_revision"),
+    testedAt: timestamp("tested_at", { withTimezone: true }),
+    /** Goes up with every change; the edit conflict check. */
+    revision: integer().notNull().default(1),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    createdBy: uuid("created_by").references(() => users.id),
+  },
+  (table) => [
+    // (issuer, subject) names a user, so two providers of one issuer would
+    // name the same person twice.
+    uniqueIndex("login_providers_issuer_uniq").on(table.issuer),
+    check(
+      "login_providers_display_name_check",
+      sql`length(${table.displayName}) BETWEEN 1 AND 64`,
+    ),
+    check(
+      "login_providers_token_auth_method_check",
+      sql`${table.tokenAuthMethod} IN ('client_secret_basic', 'client_secret_post')`,
+    ),
+    check(
+      "login_providers_jit_role_check",
+      sql`${table.jitRole} IS NULL OR ${table.jitRole} = 'member'`,
+    ),
+    // A provider with no client id cannot be signed in with.
+    check(
+      "login_providers_enabled_client_check",
+      sql`NOT ${table.enabled} OR ${table.clientId} IS NOT NULL`,
+    ),
   ],
 );
 

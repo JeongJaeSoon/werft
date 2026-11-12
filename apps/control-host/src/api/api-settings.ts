@@ -14,7 +14,6 @@ import {
   DEFAULT_PENDING_TTL_MS,
   installationLimitProblems,
 } from "@werft-ai/platform";
-import { googleLoginConfigFromEnv } from "./google-login.ts";
 
 /**
  * The API's own settings, apart from the installation limits it shares with
@@ -159,7 +158,6 @@ export function apiReadinessConfigProblems(
   return [
     ...installationLimitProblems(environment),
     ...apiSettingsProblems(environment),
-    ...googleLoginConfigFromEnv(environment).problems,
   ];
 }
 

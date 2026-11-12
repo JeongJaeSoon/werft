@@ -15,18 +15,17 @@ export const authKo = {
 
   "login.or": "또는",
   "login.alternatives": "다른 로그인 방법",
-  "login.google.submit": "Google로 로그인",
-  "login.google.starting": "Google로 이동하는 중…",
-  "login.google.title": "Google 로그인",
-  "login.google.rejected":
-    "Google 계정으로 로그인하지 못했습니다 — 초대받은 이메일 주소의 계정인지 확인하고 다시 시도하세요.",
-  "login.google.forbidden":
-    "이 Google 계정으로는 로그인할 수 없습니다 — 워크스페이스가 허용한 도메인의 계정을 쓰세요.",
-  "login.google.cancelled":
-    "Google 로그인을 마치지 못했습니다 — 다시 시도하세요.",
-  "login.google.backToLogin": "로그인 화면으로",
-  "login.google.unavailable":
-    "이 설치에서는 Google 로그인을 쓸 수 없습니다 — 이메일과 비밀번호로 로그인하세요.",
+  "login.provider.submit": "{name} 계정으로 로그인",
+  "login.provider.starting": "로그인 화면으로 이동하는 중…",
+  "login.provider.title": "SSO 로그인",
+  "login.provider.rejected":
+    "이 계정으로 로그인하지 못했습니다 — 초대받은 이메일 주소의 계정인지 확인하고 다시 시도하세요.",
+  "login.provider.forbidden":
+    "이 계정으로는 로그인할 수 없습니다 — 워크스페이스가 허용한 도메인의 계정을 쓰세요.",
+  "login.provider.cancelled": "로그인을 마치지 못했습니다 — 다시 시도하세요.",
+  "login.provider.backToLogin": "로그인 화면으로",
+  "login.provider.unavailable":
+    "이 로그인 방법은 지금 쓸 수 없습니다 — 로그인 화면에서 다른 방법을 고르세요.",
 
   "bootstrap.title": "첫 소유자 만들기",
   "bootstrap.intro":
@@ -102,17 +101,17 @@ export const authEn: Record<keyof typeof authKo, string> = {
 
   "login.or": "or",
   "login.alternatives": "Other ways to log in",
-  "login.google.submit": "Sign in with Google",
-  "login.google.starting": "Going to Google…",
-  "login.google.title": "Google login",
-  "login.google.rejected":
-    "Could not log in with Google — make sure the account uses the email address you were invited with, then try again.",
-  "login.google.forbidden":
-    "This Google account cannot log in here — use an account from a domain this workspace allows.",
-  "login.google.cancelled": "Google login was not completed — try again.",
-  "login.google.backToLogin": "Back to log in",
-  "login.google.unavailable":
-    "Google login is not available on this installation — log in with your email and password.",
+  "login.provider.submit": "Sign in with {name}",
+  "login.provider.starting": "Going to the sign-in page…",
+  "login.provider.title": "SSO login",
+  "login.provider.rejected":
+    "Could not log in with this account — make sure it uses the email address you were invited with, then try again.",
+  "login.provider.forbidden":
+    "This account cannot log in here — use an account from a domain this workspace allows.",
+  "login.provider.cancelled": "The login was not completed — try again.",
+  "login.provider.backToLogin": "Back to log in",
+  "login.provider.unavailable":
+    "This way to log in is not available right now — pick another one on the login page.",
 
   "bootstrap.title": "Create the first owner",
   "bootstrap.intro":
@@ -190,18 +189,18 @@ export const authJa: Record<keyof typeof authKo, string> = {
 
   "login.or": "または",
   "login.alternatives": "その他のログイン方法",
-  "login.google.submit": "Google でログイン",
-  "login.google.starting": "Google に移動しています…",
-  "login.google.title": "Google ログイン",
-  "login.google.rejected":
-    "Google アカウントでログインできませんでした。招待されたメールアドレスのアカウントか確認して、もう一度お試しください。",
-  "login.google.forbidden":
-    "この Google アカウントではログインできません。ワークスペースで許可されたドメインのアカウントを使ってください。",
-  "login.google.cancelled":
-    "Google ログインが完了しませんでした。もう一度お試しください。",
-  "login.google.backToLogin": "ログイン画面へ",
-  "login.google.unavailable":
-    "この環境では Google ログインを利用できません。メールアドレスとパスワードでログインしてください。",
+  "login.provider.submit": "{name} でログイン",
+  "login.provider.starting": "ログインページに移動しています…",
+  "login.provider.title": "SSO ログイン",
+  "login.provider.rejected":
+    "このアカウントでログインできませんでした。招待されたメールアドレスのアカウントか確認して、もう一度お試しください。",
+  "login.provider.forbidden":
+    "このアカウントではログインできません。ワークスペースで許可されたドメインのアカウントを使ってください。",
+  "login.provider.cancelled":
+    "ログインが完了しませんでした。もう一度お試しください。",
+  "login.provider.backToLogin": "ログイン画面へ",
+  "login.provider.unavailable":
+    "このログイン方法は現在利用できません。ログイン画面で別の方法を選んでください。",
 
   "bootstrap.title": "最初のオーナーを作成",
   "bootstrap.intro":

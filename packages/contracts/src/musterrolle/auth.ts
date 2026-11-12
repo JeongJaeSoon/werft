@@ -105,26 +105,45 @@ export const loginResponseSchema = z
   });
 
 /**
- * Holds one Google sign-in flow's state, nonce and PKCE verifier. `__Host-`
+ * Holds one provider sign-in flow, sealed: its state, nonce and PKCE
+ * verifier, and which provider and settings it was started for. `__Host-`
  * for the reason given at WEB_SESSION_COOKIE_NAME.
  */
-export const GOOGLE_LOGIN_COOKIE_NAME = "__Host-werft_google_login";
-export const GOOGLE_LOGIN_FLOW_TTL_MINUTES = 10;
-export const startGoogleLoginResponseSchema = z
+export const LOGIN_FLOW_COOKIE_NAME = "__Host-werft_login_flow";
+export const LOGIN_FLOW_TTL_MINUTES = 10;
+export const loginProviderParamsSchema = z.object({ id: z.uuid() }).strict();
+export const startProviderLoginResponseSchema = z
   .object({ authorization_url: z.url() })
   .strict();
-export const googleLoginCallbackRequestSchema = z
+export const providerLoginCallbackRequestSchema = z
   .object({
+    /** From the path the provider sent the browser back to. */
+    provider_id: z.uuid(),
     code: z.string().min(1).max(2048),
     state: z.string().min(1).max(256),
+    /** The authorization response's `iss`, when the provider sent one. */
+    iss: z.string().min(1).max(2048).optional(),
   })
   .strict();
+/** What a flow ended in; a sign-in flow ends signed in. */
+export const providerLoginCallbackResponseSchema = z
+  .object({ outcome: z.literal("signed_in"), ...loginResponseSchema.shape })
+  .strict();
 
-/** How a person can sign in on this installation; the login page offers these. */
-export const LOGIN_METHOD_VALUES = ["password", "google"] as const;
+/** The kinds of `login_methods` row a person signs in with. */
+export const LOGIN_METHOD_VALUES = ["password", "oidc"] as const;
 export const loginMethodSchema = z.enum(LOGIN_METHOD_VALUES);
+/** A provider's sign-in button: nothing here is secret. */
+export const loginProviderButtonSchema = z
+  .object({ id: z.uuid(), display_name: z.string().min(1).max(64) })
+  .strict();
+/** How a person can sign in on this installation; the login page offers these. */
 export const loginMethodsResponseSchema = z
-  .object({ methods: z.array(loginMethodSchema) })
+  .object({
+    password: z.literal("on"),
+    /** Only the providers that are turned on. */
+    providers: z.array(loginProviderButtonSchema),
+  })
   .strict();
 
 /** The language a person reads the console and their Slack notices in. */

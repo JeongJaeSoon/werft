@@ -110,7 +110,6 @@ import {
   githubRepositoryWriteResponseSchema,
   githubSettingsResponseSchema,
   githubWorkflowRunSchema,
-  googleLoginCallbackRequestSchema,
   healthResponseSchema,
   importSettingsQuerySchema,
   importSettingsResponseSchema,
@@ -164,6 +163,7 @@ import {
   listUsableAgentsResponseSchema,
   listWorkspaceSlackAppsResponseSchema,
   loginMethodsResponseSchema,
+  loginProviderParamsSchema,
   loginRequestSchema,
   loginResponseSchema,
   lookupSlackChannelsQuerySchema,
@@ -186,6 +186,8 @@ import {
   postSessionAnswerResponseSchema,
   postSessionMessageRequestSchema,
   postSessionMessageResponseSchema,
+  providerLoginCallbackRequestSchema,
+  providerLoginCallbackResponseSchema,
   pullRequestReviewParamsSchema,
   pushRequestParamsSchema,
   pushRequestSchema,
@@ -295,7 +297,7 @@ import {
   startGitHubAppManifestResponseSchema,
   startGitHubInstallationResponseSchema,
   startGitHubLinkResponseSchema,
-  startGoogleLoginResponseSchema,
+  startProviderLoginResponseSchema,
   startSlackInstallResponseSchema,
   startSlackLinkResponseSchema,
   submitPullRequestReviewRequestSchema,
@@ -416,7 +418,7 @@ const requestComponents = {
   UpdateMemberRequest: updateMemberRequestSchema,
   UpdateSessionRequest: updateSessionRequestSchema,
   SetAccessRequest: setAccessRequestSchema,
-  GoogleLoginCallbackRequest: googleLoginCallbackRequestSchema,
+  ProviderLoginCallbackRequest: providerLoginCallbackRequestSchema,
   AuditRetentionRequest: auditRetentionRequestSchema,
   SlackGuestRequest: slackGuestRequestSchema,
   AgentAccessRequest: agentAccessRequestSchema,
@@ -534,7 +536,8 @@ const responseComponents = {
   BootstrapResponse: bootstrapResponseSchema,
   LoginResponse: loginResponseSchema,
   LoginMethodsResponse: loginMethodsResponseSchema,
-  StartGoogleLoginResponse: startGoogleLoginResponseSchema,
+  StartProviderLoginResponse: startProviderLoginResponseSchema,
+  ProviderLoginCallbackResponse: providerLoginCallbackResponseSchema,
   IssuePasswordResetRequest: issuePasswordResetRequestSchema,
   IssuePasswordResetResponse: issuePasswordResetResponseSchema,
   AuditRetentionResponse: auditRetentionResponseSchema,
@@ -1417,10 +1420,10 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Auth",
     summary: "How a person can sign in on this installation",
     description:
-      "`password` always; `google` when Google sign-in is configured. The login page offers these.",
+      "Whether password sign-in is on, and the sign-in providers that are turned on (id and button label only). The login page offers these.",
     auth: "public",
     success: { status: 200, schema: "LoginMethodsResponse" },
-    errors: [],
+    errors: [503],
   },
   {
     method: "post",
@@ -1461,31 +1464,75 @@ export const API_ROUTE_DECLARATIONS = [
   },
   {
     method: "post",
-    path: "/v1/auth/google/start",
-    operationId: "startGoogleLogin",
+    path: "/v1/auth/providers/{id}/start",
+    operationId: "startProviderLogin",
     tag: "Auth",
-    summary: "Begin Google sign-in; answers the Google URL to open",
+    summary:
+      "Begin sign-in with a provider; answers the provider's URL to open",
     description:
-      "Sets a short-lived cookie that binds the flow (state, nonce, PKCE verifier) to this browser. 404 when Google sign-in is not configured.",
+      "Sets a short-lived sealed cookie that binds the flow (state, nonce, PKCE verifier, the provider and its settings) to this browser. 404 when there is no such provider or it is turned off.",
     auth: "public",
     csrf: "always",
-    success: { status: 200, schema: "StartGoogleLoginResponse" },
+    success: {
+      status: 200,
+      schema: "StartProviderLoginResponse",
+      description:
+        "The flow has started; the response sets the flow cookie. Send the browser to `authorization_url`.",
+      example: {
+        authorization_url:
+          "https://idp.example.com/oauth2/authorize?response_type=code&client_id=werft&redirect_uri=https%3A%2F%2Fconsole.example.ts.net%2Fauth%2Fcallback%2F5b0c7e2a-9d41-4f6b-8a3e-7c1d2e3f4a5b&scope=openid+email+profile&state=k3F0&nonce=p9Qz&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256",
+      },
+    },
     errors: [403, 404, 503],
+    errorNotes: {
+      NOT_FOUND: "No provider has this id, or it is turned off.",
+      BACKEND_UNAVAILABLE:
+        "`CONSOLE_ORIGIN` is not set, the provider has no client ID or client secret, or its authorization endpoint is plain http outside a local stack.",
+    },
     idempotent: false,
   },
   {
     method: "post",
-    path: "/v1/auth/google/callback",
-    operationId: "googleLoginCallback",
+    path: "/v1/auth/oidc/callback",
+    operationId: "providerLoginCallback",
     tag: "Auth",
-    summary: "Finish Google sign-in; sets the session cookie",
+    summary: "Finish sign-in with a provider; sets the session cookie",
     description:
-      "Posts the `code` and `state` Google returned to the redirect URI. The first matching rule decides: an already linked Google account signs in as its user; an address that already has an account answers 409 LOGIN_LINK_REQUIRED and is never joined by email; otherwise a live invite for the address, or JIT for an allowed domain, creates the account. Anything else answers 401 without saying whether an account exists. A Google account outside the allowed domains answers 403.",
+      "Posts what the provider returned to the redirect URI: `code`, `state`, `iss` when it sent one, and the `provider_id` from the redirect path. The flow cookie must open, match `state` and `provider_id`, be no older than ten minutes, and the provider must still be on with the settings the flow started under. The first matching rule then decides: an account already linked to the provider's (issuer, subject) signs in as its user; an address the provider vouches for that already has an account answers 409 LOGIN_LINK_REQUIRED and is never joined by email; otherwise a live invite for that address, or the provider's JIT setting, creates the account. Anything else answers 401 without saying why or whether an account exists. An account outside the provider's allowed domains answers 403. Calls to providers share a concurrency limit, past which this answers 429.",
     auth: "public",
     csrf: "always",
-    body: "GoogleLoginCallbackRequest",
-    success: { status: 200, schema: "LoginResponse" },
-    errors: [400, 401, 403, 404, 409, 413, 503],
+    body: "ProviderLoginCallbackRequest",
+    requestExample: {
+      provider_id: "5b0c7e2a-9d41-4f6b-8a3e-7c1d2e3f4a5b",
+      code: "4/0AeaYSHB",
+      state: "k3F0",
+      iss: "https://idp.example.com",
+    },
+    success: {
+      status: 200,
+      schema: "ProviderLoginCallbackResponse",
+      description:
+        "Signed in; the response sets the session cookie and clears the flow cookie. `scopes` are the ones the workspace role holds.",
+      example: {
+        outcome: "signed_in",
+        user_id: EXAMPLE_USER_ID,
+        workspace_id: EXAMPLE_WORKSPACE.id,
+        role: "owner",
+        scopes: ALL_SCOPES,
+        expires_at: "2026-10-25T09:00:00Z",
+      },
+    },
+    errors: [400, 401, 403, 404, 409, 413, 429, 503],
+    errorNotes: {
+      UNAUTHORIZED:
+        "The flow cookie is missing, does not open, is older than ten minutes or was started for another provider or other settings; or the provider's answer does not prove who is signing in; or no rule admits the account. The response does not say which.",
+      NOT_FOUND:
+        "The provider is gone or was turned off after the flow started.",
+      FORBIDDEN:
+        "The request is not from the console's origin, or the account is outside the provider's allowed domains.",
+      RATE_LIMITED:
+        "Too many sign-ins are calling providers at once (`Retry-After: 1`).",
+    },
     errorCodes: { 409: ["LOGIN_LINK_REQUIRED"] },
     idempotent: false,
   },
@@ -7944,6 +7991,9 @@ function paramsSchemaFor(path: string): z.ZodObject {
   }
   if (path === "/v1/usage/tools/{name}/calls") {
     return usageToolCallsParamsSchema;
+  }
+  if (path === "/v1/auth/providers/{id}/start") {
+    return loginProviderParamsSchema;
   }
   throw new Error(`No params schema registered for ${path}`);
 }

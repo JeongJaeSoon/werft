@@ -1,0 +1,915 @@
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { randomBytes } from "node:crypto";
+import {
+  CSRF_HEADER_NAME,
+  CSRF_HEADER_VALUE,
+  LOGIN_FLOW_COOKIE_NAME,
+  loginMethodsResponseSchema,
+  providerLoginCallbackResponseSchema,
+  startProviderLoginResponseSchema,
+  WEB_SESSION_COOKIE_NAME,
+} from "@werft-ai/contracts";
+import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
+import type {
+  ExternalSignInInput,
+  ExternalSignInResult,
+  IdentityStore,
+  LoginProvider,
+  LoginProviderStore,
+} from "@werft-ai/platform";
+import {
+  type MockOidcClaims,
+  type MockOidcServer,
+  startMockOidcServer,
+} from "@werft-ai/testkit/mock-oidc";
+import { createBootstrapGate, WorkGate } from "./auth.ts";
+import { createFlowSealer } from "./oidc/flow-cookie.ts";
+import { GOOGLE_ISSUER } from "./oidc/index.ts";
+import {
+  createProviderLogin,
+  networkPolicyFor,
+  type ProviderLogin,
+  ProviderLoginError,
+  providerRedirectUri,
+} from "./provider-login.ts";
+import { recordRouteErrors } from "./route-error-coverage.ts";
+import { registerPublicAuthRoutes } from "./routes/auth.ts";
+
+const createApiApp = recordRouteErrors("provider-login.test.ts");
+
+const CLIENT_ID = "client-id.apps.example";
+const CLIENT_SECRET = "mock-provider-client-secret";
+// On loopback, so the stand-in provider's plain http is allowed.
+const CONSOLE_ORIGIN = "http://localhost:5173";
+const PROVIDER_ID = "5b0c7e2a-9d41-4f6b-8a3e-7c1d2e3f4a5b";
+const OTHER_ID = "0d6a3f1c-2b7e-4c58-9a1d-6e5f4a3b2c1d";
+const FLOW_KEY = randomBytes(32);
+const TEN_MINUTES = 10 * 60 * 1000;
+
+let idp: MockOidcServer;
+beforeAll(async () => {
+  idp = await startMockOidcServer({
+    clientId: CLIENT_ID,
+    clientSecret: CLIENT_SECRET,
+  });
+});
+afterAll(() => idp.stop());
+
+function providerFor(overrides: Partial<LoginProvider> = {}): LoginProvider {
+  return {
+    id: PROVIDER_ID,
+    displayName: "Mock",
+    issuer: idp.issuer,
+    authorizationEndpoint: `${idp.issuer}/authorize`,
+    tokenEndpoint: `${idp.issuer}/token`,
+    jwksUri: `${idp.issuer}/jwks`,
+    userinfoEndpoint: null,
+    signingAlgs: ["RS256"],
+    issParameterRequired: false,
+    clientId: CLIENT_ID,
+    tokenAuthMethod: "client_secret_post",
+    allowedDomains: [],
+    jitRole: null,
+    requireVerifiedEmail: true,
+    enabled: true,
+    configRevision: 1,
+    ...overrides,
+  };
+}
+
+/** The store's two reads over rows a test can change between requests. */
+function storeOf(rows: LoginProvider[], clientSecret: string | null) {
+  const store: LoginProviderStore = {
+    listEnabled: async () =>
+      rows
+        .filter((row) => row.enabled)
+        .map(({ id, displayName }) => ({ id, displayName })),
+    findForSignIn: async (id) => {
+      const provider = rows.find((row) => row.id === id);
+      return provider ? { provider: { ...provider }, clientSecret } : null;
+    },
+  };
+  return store;
+}
+
+function loginFor(
+  overrides: Partial<LoginProvider> = {},
+  options: {
+    consoleOrigin?: string | null;
+    clientSecret?: string | null;
+    now?: () => number;
+  } = {},
+) {
+  const rows = [providerFor(overrides)];
+  const login = createProviderLogin({
+    providers: storeOf(
+      rows,
+      options.clientSecret === undefined ? CLIENT_SECRET : options.clientSecret,
+    ),
+    consoleOrigin:
+      options.consoleOrigin === undefined
+        ? CONSOLE_ORIGIN
+        : options.consoleOrigin,
+    flowKey: FLOW_KEY,
+    ...(options.now ? { now: options.now } : {}),
+  });
+  return { login, rows, row: rows[0] as LoginProvider };
+}
+
+const alice: MockOidcClaims = {
+  sub: "1001",
+  email: "Alice@Example.com",
+  hd: "example.com",
+  name: "Alice",
+};
+
+async function flow(
+  login: ProviderLogin,
+  claims: MockOidcClaims,
+  providerId = PROVIDER_ID,
+) {
+  const started = await login.start(providerId);
+  const back = await idp.authorize(started.authorizationUrl, claims);
+  return {
+    cookieValue: started.cookieValue as string | undefined,
+    providerId,
+    code: back.code,
+    state: back.state,
+    responseIssuer: undefined as string | undefined,
+  };
+}
+
+/** The kind and the logged reason a call was refused with. */
+async function refusal(work: Promise<unknown>) {
+  try {
+    await work;
+  } catch (error) {
+    if (error instanceof ProviderLoginError) {
+      return { kind: error.kind, reason: error.reason };
+    }
+    throw error;
+  }
+  return null;
+}
+
+describe("provider settings to a connection", () => {
+  test("the redirect URI is the console's callback page for that provider", () => {
+    expect(
+      providerRedirectUri("https://console.example.ts.net/", PROVIDER_ID),
+    ).toBe(`https://console.example.ts.net/auth/callback/${PROVIDER_ID}`);
+    expect(
+      providerRedirectUri("https://console.example.ts.net/some/path?x=1", "p"),
+    ).toBe("https://console.example.ts.net/auth/callback/p");
+  });
+
+  test("plain http reaches a provider only when the console itself is on loopback", () => {
+    for (const origin of [
+      "http://localhost:5173",
+      "http://127.0.0.1:3000",
+      "http://[::1]:3000",
+      "https://localhost",
+    ]) {
+      expect(networkPolicyFor(origin)).toEqual({ plainHttp: "loopback" });
+    }
+    for (const origin of [
+      "https://console.example.ts.net",
+      "http://console.internal:3000",
+      "http://localhost.example.com",
+      "http://10.0.0.5:3000",
+    ]) {
+      expect(networkPolicyFor(origin)).toEqual({ plainHttp: "refuse" });
+    }
+  });
+});
+
+describe("provider sign-in: start", () => {
+  test("asks for a code with PKCE S256, state and nonce, and seals them in the cookie", async () => {
+    const { login } = loginFor({ configRevision: 4 });
+    const { authorizationUrl, cookieValue } = await login.start(PROVIDER_ID);
+    const url = new URL(authorizationUrl);
+    const query = url.searchParams;
+    expect(`${url.origin}${url.pathname}`).toBe(`${idp.issuer}/authorize`);
+    expect(query.get("response_type")).toBe("code");
+    expect(query.get("client_id")).toBe(CLIENT_ID);
+    expect(query.get("redirect_uri")).toBe(
+      `${CONSOLE_ORIGIN}/auth/callback/${PROVIDER_ID}`,
+    );
+    expect(query.get("scope")).toBe("openid email profile");
+    expect(query.get("code_challenge_method")).toBe("S256");
+    expect(query.get("hd")).toBeNull();
+
+    const sealed = createFlowSealer(FLOW_KEY, LOGIN_FLOW_COOKIE_NAME).open(
+      cookieValue,
+    );
+    expect(sealed).toMatchObject({
+      purpose: "login",
+      providerId: PROVIDER_ID,
+      configRevision: 4,
+      state: query.get("state"),
+      nonce: query.get("nonce"),
+    });
+    expect(query.get("code_challenge")).not.toBe(sealed?.verifier);
+    for (const secret of [sealed?.state, sealed?.nonce, sealed?.verifier]) {
+      expect(cookieValue).not.toContain(secret as string);
+    }
+  });
+
+  test("Google with one allowed domain is asked for that domain's accounts", async () => {
+    const { login } = loginFor({
+      issuer: GOOGLE_ISSUER,
+      allowedDomains: ["example.com"],
+    });
+    const { authorizationUrl } = await login.start(PROVIDER_ID);
+    expect(new URL(authorizationUrl).searchParams.get("hd")).toBe(
+      "example.com",
+    );
+  });
+
+  test("a provider that is unknown or turned off is not found", async () => {
+    const { login } = loginFor({ enabled: false });
+    expect(await refusal(login.start(PROVIDER_ID))).toEqual({
+      kind: "not_found",
+      reason: "provider_off",
+    });
+    expect(await refusal(login.start(OTHER_ID))).toEqual({
+      kind: "not_found",
+      reason: "provider_off",
+    });
+  });
+
+  test("without a console origin, a client ID or a client secret there is no sign-in", async () => {
+    expect(
+      await refusal(
+        loginFor({}, { consoleOrigin: null }).login.start(PROVIDER_ID),
+      ),
+    ).toEqual({ kind: "unavailable", reason: "console_origin_unset" });
+    expect(
+      await refusal(
+        loginFor({}, { clientSecret: null }).login.start(PROVIDER_ID),
+      ),
+    ).toEqual({ kind: "unavailable", reason: "client_not_configured" });
+    expect(
+      await refusal(loginFor({ clientId: null }).login.start(PROVIDER_ID)),
+    ).toEqual({ kind: "unavailable", reason: "client_not_configured" });
+  });
+
+  test("the browser is not sent to a plain http page unless the console is on loopback", async () => {
+    const { login } = loginFor(
+      {},
+      { consoleOrigin: "https://console.example.ts.net" },
+    );
+    expect(await refusal(login.start(PROVIDER_ID))).toEqual({
+      kind: "unavailable",
+      reason: "authorization_endpoint_not_allowed",
+    });
+  });
+});
+
+describe("provider sign-in: finish", () => {
+  test("returns the provider, the verified identity and how it may come in", async () => {
+    const { login } = loginFor();
+    const finished = await login.finish(await flow(login, alice));
+    expect(finished.provider).toMatchObject({
+      id: PROVIDER_ID,
+      configRevision: 1,
+    });
+    expect(finished.identity).toMatchObject({
+      issuer: idp.issuer,
+      subject: "1001",
+      email: "alice@example.com",
+      emailVerified: true,
+      name: "Alice",
+    });
+    expect(finished.admission).toEqual({ ownsEmail: true, jitRole: null });
+  });
+
+  const refusals: Array<[string, MockOidcClaims]> = [
+    ["an unverified email", { ...alice, email_verified: false }],
+    ["another audience", { ...alice, aud: "someone-else" }],
+    ["another issuer", { ...alice, iss: "https://evil.example" }],
+    ["an expired token", { ...alice, exp: Math.floor(Date.now() / 1000) - 5 }],
+    ["no exp at all", { ...alice, exp: null }],
+    ["another nonce", { ...alice, nonce: "replayed" }],
+    ["another authorized party", { ...alice, azp: "someone-else" }],
+    ["no subject", { ...alice, sub: "" }],
+  ];
+  for (const [what, claims] of refusals) {
+    test(`refuses ${what}`, async () => {
+      const { login } = loginFor();
+      expect(
+        (await refusal(login.finish(await flow(login, claims))))?.kind,
+      ).toBe("rejected");
+    });
+  }
+
+  test("a provider that says nothing about verification signs in where that is not required, without owning the address", async () => {
+    const silent = { ...alice, email_verified: null };
+    const { login } = loginFor({
+      requireVerifiedEmail: false,
+      jitRole: "member",
+    });
+    const finished = await login.finish(await flow(login, silent));
+    expect(finished.identity).toMatchObject({
+      subject: "1001",
+      email: "alice@example.com",
+      emailVerified: null,
+    });
+    expect(finished.admission).toEqual({ ownsEmail: false, jitRole: null });
+
+    const strict = loginFor().login;
+    expect(
+      (await refusal(strict.finish(await flow(strict, silent))))?.kind,
+    ).toBe("rejected");
+    // "Not verified" is believed whatever the setting.
+    expect(
+      (
+        await refusal(
+          login.finish(await flow(login, { ...alice, email_verified: false })),
+        )
+      )?.kind,
+    ).toBe("rejected");
+  });
+
+  test("refuses no cookie, a cookie that does not open and one sealed with another key", async () => {
+    const { login } = loginFor();
+    const started = await flow(login, alice);
+    const elsewhere = createFlowSealer(
+      randomBytes(32),
+      LOGIN_FLOW_COOKIE_NAME,
+    ).seal({
+      purpose: "login",
+      providerId: PROVIDER_ID,
+      configRevision: 1,
+      state: started.state,
+      nonce: "n",
+      verifier: "v",
+      startedAt: Date.now(),
+    });
+    for (const cookieValue of [
+      undefined,
+      "",
+      "not-a-cookie",
+      `${started.state}.n.v.${Date.now()}`,
+      elsewhere,
+    ]) {
+      expect(await refusal(login.finish({ ...started, cookieValue }))).toEqual({
+        kind: "rejected",
+        reason: "flow_missing",
+      });
+    }
+  });
+
+  test("refuses a state that is not this browser's and a code that was spent", async () => {
+    const { login } = loginFor();
+    const first = await flow(login, alice);
+    const other = await flow(login, alice);
+    expect(
+      await refusal(login.finish({ ...first, cookieValue: other.cookieValue })),
+    ).toEqual({ kind: "rejected", reason: "state_mismatch" });
+
+    const once = await flow(login, alice);
+    await login.finish(once);
+    expect((await refusal(login.finish(once)))?.kind).toBe("rejected");
+  });
+
+  test("refuses a flow older than ten minutes or started in the future", async () => {
+    // The callback's clock stays on the real time, which the provider's
+    // token is dated by; only the start is moved.
+    const callbackAt = Date.now();
+    let clock = callbackAt;
+    const { login } = loginFor({}, { now: () => clock });
+    const startedAt = async (at: number) => {
+      clock = at;
+      const started = await flow(login, alice);
+      clock = callbackAt;
+      return started;
+    };
+
+    const kept = await startedAt(callbackAt - TEN_MINUTES);
+    expect((await login.finish(kept)).identity.subject).toBe("1001");
+    const stale = await startedAt(callbackAt - TEN_MINUTES - 1);
+    expect(await refusal(login.finish(stale))).toEqual({
+      kind: "rejected",
+      reason: "flow_expired",
+    });
+
+    // A replica whose clock runs a minute ahead sealed the cookie.
+    const skewed = await startedAt(callbackAt + 60 * 1000);
+    expect((await login.finish(skewed)).identity.subject).toBe("1001");
+    const ahead = await startedAt(callbackAt + 60 * 1000 + 1);
+    expect(await refusal(login.finish(ahead))).toEqual({
+      kind: "rejected",
+      reason: "flow_expired",
+    });
+  });
+
+  test("refuses a flow brought back to another provider's callback", async () => {
+    const rows = [providerFor(), providerFor({ id: OTHER_ID })];
+    const login = createProviderLogin({
+      providers: storeOf(rows, CLIENT_SECRET),
+      consoleOrigin: CONSOLE_ORIGIN,
+      flowKey: FLOW_KEY,
+    });
+    const started = await flow(login, alice);
+    expect(
+      await refusal(login.finish({ ...started, providerId: OTHER_ID })),
+    ).toEqual({ kind: "rejected", reason: "provider_mismatch" });
+  });
+
+  test("refuses a cookie whose purpose is not a login", async () => {
+    const { login } = loginFor();
+    const sealer = createFlowSealer(FLOW_KEY, LOGIN_FLOW_COOKIE_NAME);
+    for (const purpose of ["invite", "link", "test"] as const) {
+      const started = await flow(login, alice);
+      const opened = sealer.open(started.cookieValue);
+      if (!opened) throw new Error("the started flow did not open");
+      expect(
+        await refusal(
+          login.finish({
+            ...started,
+            cookieValue: sealer.seal({ ...opened, purpose }),
+          }),
+        ),
+      ).toEqual({ kind: "rejected", reason: "flow_purpose" });
+    }
+  });
+
+  test("refuses a flow whose provider's settings changed after it started", async () => {
+    const { login, row } = loginFor();
+    const started = await flow(login, alice);
+    row.configRevision += 1;
+    expect(await refusal(login.finish(started))).toEqual({
+      kind: "rejected",
+      reason: "config_changed",
+    });
+  });
+
+  test("a provider turned off or removed after the start is not found", async () => {
+    const off = loginFor();
+    const started = await flow(off.login, alice);
+    off.row.enabled = false;
+    expect(await refusal(off.login.finish(started))).toEqual({
+      kind: "not_found",
+      reason: "provider_off",
+    });
+
+    const gone = loginFor();
+    const orphan = await flow(gone.login, alice);
+    gone.rows.length = 0;
+    expect(await refusal(gone.login.finish(orphan))).toEqual({
+      kind: "not_found",
+      reason: "provider_off",
+    });
+  });
+
+  test("an address outside the allowed domains is forbidden, after the token is verified", async () => {
+    const { login } = loginFor({ allowedDomains: ["example.com"] });
+    expect(
+      await refusal(
+        login.finish(
+          await flow(login, { ...alice, email: "alice@other.example" }),
+        ),
+      ),
+    ).toEqual({ kind: "forbidden", reason: "domain_not_allowed" });
+    expect(
+      (
+        await refusal(
+          login.finish(
+            await flow(login, {
+              ...alice,
+              email: "alice@other.example",
+              aud: "someone-else",
+            }),
+          ),
+        )
+      )?.kind,
+    ).toBe("rejected");
+  });
+
+  test("a provider that cannot be reached is unavailable, and the next request tries again", async () => {
+    const { login, row } = loginFor();
+    const started = await flow(login, alice);
+    const tokenEndpoint = row.tokenEndpoint;
+    row.tokenEndpoint = "http://127.0.0.1:9/token";
+    expect((await refusal(login.finish(started)))?.kind).toBe("unavailable");
+    row.tokenEndpoint = tokenEndpoint;
+    expect((await login.finish(started)).identity.subject).toBe("1001");
+  });
+});
+
+describe("provider sign-in routes", () => {
+  const signedIn: ExternalSignInResult = {
+    outcome: "signed_in",
+    via: "jit",
+    userId: "00000000-0000-4000-8000-000000000001",
+    workspaceId: "00000000-0000-4000-8000-000000000002",
+    role: "member",
+    expiresAt: new Date(Date.now() + 60_000),
+  };
+
+  function harness(
+    options: {
+      provider?: Partial<LoginProvider>;
+      rows?: LoginProvider[];
+      providers?: ProviderLogin | null;
+      store?: LoginProviderStore;
+      result?: ExternalSignInResult;
+      providerWork?: WorkGate;
+    } = {},
+  ) {
+    const calls: ExternalSignInInput[] = [];
+    const identity = {
+      async signInWithExternalIdentity(input: ExternalSignInInput) {
+        calls.push(input);
+        return options.result ?? signedIn;
+      },
+    } as unknown as IdentityStore;
+    const rows = options.rows ?? [providerFor(options.provider)];
+    const providers =
+      options.providers === undefined
+        ? createProviderLogin({
+            providers: options.store ?? storeOf(rows, CLIENT_SECRET),
+            consoleOrigin: CONSOLE_ORIGIN,
+            flowKey: FLOW_KEY,
+          })
+        : options.providers;
+    const sink = new MemoryLogSink();
+    const logger = new StructuredLogger({ sinks: [sink] });
+    const app = createApiApp({
+      authMode: "api-key",
+      logger,
+      identity,
+      keyStore: { find: async () => null },
+      registerPublicRoutes: (router) =>
+        registerPublicAuthRoutes(router, {
+          identity,
+          logger,
+          bootstrap: createBootstrapGate("x".repeat(32)),
+          ...(providers ? { providers } : {}),
+          ...(options.providerWork
+            ? { providerWork: options.providerWork }
+            : {}),
+        }),
+    });
+    const post = (
+      path: string,
+      init: { body?: unknown; cookie?: string } = {},
+    ) =>
+      app.request(path, {
+        method: "POST",
+        headers: {
+          [CSRF_HEADER_NAME]: CSRF_HEADER_VALUE,
+          "Content-Type": "application/json",
+          ...(init.cookie ? { Cookie: init.cookie } : {}),
+        },
+        ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
+      });
+    const startPath = (id = PROVIDER_ID) => `/v1/auth/providers/${id}/start`;
+    /** The start request and the provider's answer, not yet brought back. */
+    const begin = async (claims: MockOidcClaims, id = PROVIDER_ID) => {
+      const started = await post(startPath(id));
+      expect(started.status).toBe(200);
+      const flowCookie =
+        (started.headers.get("Set-Cookie") ?? "").split(";")[0] ?? "";
+      const { authorization_url } = startProviderLoginResponseSchema.parse(
+        await started.json(),
+      );
+      const back = await idp.authorize(authorization_url, claims);
+      return { flowCookie, body: { provider_id: id, ...back } };
+    };
+    const signIn = async (claims: MockOidcClaims) => {
+      const { flowCookie, body } = await begin(claims);
+      return post("/v1/auth/oidc/callback", { body, cookie: flowCookie });
+    };
+    return { app, post, begin, signIn, calls, rows, sink, startPath };
+  }
+
+  const errorOf = async (response: Response) => {
+    const { error } = await response.json();
+    return { ...error, request_id: undefined };
+  };
+  const clearsFlowCookie = (response: Response) =>
+    response.headers
+      .getSetCookie()
+      .some((cookie) => cookie.startsWith(`${LOGIN_FLOW_COOKIE_NAME}=;`));
+
+  test("the login page is offered the providers that are on, by id and label", async () => {
+    const { app } = harness({
+      rows: [
+        providerFor({ displayName: "Google" }),
+        providerFor({ id: OTHER_ID, displayName: "Okta", enabled: false }),
+      ],
+    });
+    const response = await app.request("/v1/auth/login-methods");
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(loginMethodsResponseSchema.parse(body)).toEqual({
+      password: "on",
+      providers: [{ id: PROVIDER_ID, display_name: "Google" }],
+    });
+    expect(JSON.stringify(body)).not.toContain(CLIENT_ID);
+  });
+
+  test("with no provider the login page is offered the password alone", async () => {
+    for (const h of [harness({ providers: null }), harness({ rows: [] })]) {
+      expect(
+        await (await h.app.request("/v1/auth/login-methods")).json(),
+      ).toEqual({ password: "on", providers: [] });
+    }
+  });
+
+  test("a storage outage answers 503 on every route", async () => {
+    const down = async () => {
+      throw Object.assign(new Error("too many connections"), {
+        code: "53300",
+      });
+    };
+    const { app, post, startPath } = harness({
+      store: { listEnabled: down, findForSignIn: down },
+    });
+    expect((await app.request("/v1/auth/login-methods")).status).toBe(503);
+    expect((await post(startPath())).status).toBe(503);
+  });
+
+  test("start sets a flow cookie scoped like the session cookie", async () => {
+    const { post, startPath } = harness();
+    const response = await post(startPath());
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    const cookie = response.headers.get("Set-Cookie") ?? "";
+    expect(cookie).toStartWith("__Host-werft_login_flow=");
+    expect(cookie).toContain("HttpOnly");
+    expect(cookie).toContain("Secure");
+    expect(cookie).toContain("SameSite=Lax");
+    expect(cookie).toContain("Path=/");
+    expect(cookie).toContain("Max-Age=600");
+    expect(cookie).not.toContain("Domain=");
+  });
+
+  test("a sign-in sets the session cookie, clears the flow cookie and answers the login body", async () => {
+    const { signIn, calls } = harness();
+    const response = await signIn(alice);
+    expect(response.status).toBe(200);
+    const body = providerLoginCallbackResponseSchema.parse(
+      await response.json(),
+    );
+    expect(body.outcome).toBe("signed_in");
+    expect(body.role).toBe("member");
+    expect(
+      response.headers
+        .getSetCookie()
+        .some((cookie) => cookie.startsWith(`${WEB_SESSION_COOKIE_NAME}=`)),
+    ).toBe(true);
+    expect(clearsFlowCookie(response)).toBe(true);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      kind: "oidc",
+      provider: { id: PROVIDER_ID, configRevision: 1 },
+      issuer: idp.issuer,
+      subject: "1001",
+      email: "alice@example.com",
+      displayName: "Alice",
+      jitRole: null,
+      ownsEmail: true,
+    });
+  });
+
+  test("JIT passes the member role down; a nameless account is named by its address", async () => {
+    const { signIn, calls } = harness({
+      provider: { allowedDomains: ["example.com"], jitRole: "member" },
+    });
+    expect(
+      (await signIn({ sub: "1001", email: "Alice@Example.com" })).status,
+    ).toBe(200);
+    expect(calls[0]).toMatchObject({ jitRole: "member", displayName: "alice" });
+  });
+
+  test("an address that has an account answers 409 LOGIN_LINK_REQUIRED", async () => {
+    const { signIn } = harness({ result: { outcome: "link_required" } });
+    const response = await signIn(alice);
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe("LOGIN_LINK_REQUIRED");
+    expect(
+      response.headers
+        .getSetCookie()
+        .some((cookie) => cookie.startsWith(`${WEB_SESSION_COOKIE_NAME}=`)),
+    ).toBe(false);
+  });
+
+  test("every refusal reads the same and says nothing of why; the log does", async () => {
+    const byRules = harness({ result: { outcome: "rejected" } });
+    const responses: Response[] = [await byRules.signIn(alice)];
+
+    const h = harness();
+    responses.push(await h.signIn({ ...alice, email_verified: false }));
+    const noCookie = await h.begin(alice);
+    responses.push(
+      await h.post("/v1/auth/oidc/callback", { body: noCookie.body }),
+    );
+    const forged = await h.begin(alice);
+    responses.push(
+      await h.post("/v1/auth/oidc/callback", {
+        body: forged.body,
+        cookie: `${LOGIN_FLOW_COOKIE_NAME}=not-a-cookie`,
+      }),
+    );
+    const otherState = await h.begin(alice);
+    responses.push(
+      await h.post("/v1/auth/oidc/callback", {
+        body: { ...otherState.body, state: "another-state" },
+        cookie: otherState.flowCookie,
+      }),
+    );
+    const changed = await h.begin(alice);
+    (h.rows[0] as LoginProvider).configRevision += 1;
+    responses.push(
+      await h.post("/v1/auth/oidc/callback", {
+        body: changed.body,
+        cookie: changed.flowCookie,
+      }),
+    );
+
+    const errors = [];
+    for (const response of responses) {
+      expect(response.status).toBe(401);
+      expect(clearsFlowCookie(response)).toBe(true);
+      expect(
+        response.headers
+          .getSetCookie()
+          .some((cookie) => cookie.startsWith(`${WEB_SESSION_COOKIE_NAME}=`)),
+      ).toBe(false);
+      errors.push(await errorOf(response));
+    }
+    expect(errors[0]).toMatchObject({
+      code: "UNAUTHORIZED",
+      message: "Sign-in was not accepted",
+    });
+    for (const error of errors) expect(error).toEqual(errors[0]);
+
+    const reasons = [...byRules.sink.records, ...h.sink.records]
+      .map((record) => JSON.stringify(record))
+      .filter((line) => line.includes("Provider sign-in refused"));
+    for (const reason of [
+      "no_rule_admits",
+      "flow_missing",
+      "state_mismatch",
+      "config_changed",
+    ]) {
+      expect(reasons.some((line) => line.includes(reason))).toBe(true);
+    }
+    // Only the rules were asked about the one the provider vouched for.
+    expect(byRules.calls).toHaveLength(1);
+    expect(h.calls).toHaveLength(0);
+  });
+
+  test("a flow started for one provider is refused at another provider's callback", async () => {
+    const h = harness({
+      rows: [providerFor(), providerFor({ id: OTHER_ID })],
+    });
+    const { flowCookie, body } = await h.begin(alice);
+    const response = await h.post("/v1/auth/oidc/callback", {
+      body: { ...body, provider_id: OTHER_ID },
+      cookie: flowCookie,
+    });
+    expect(response.status).toBe(401);
+    expect(h.calls).toHaveLength(0);
+  });
+
+  test("a domain outside the list answers 403 before any rule runs", async () => {
+    const { signIn, calls } = harness({
+      provider: { allowedDomains: ["example.com"] },
+    });
+    const response = await signIn({ ...alice, email: "alice@other.example" });
+    expect(response.status).toBe(403);
+    expect(clearsFlowCookie(response)).toBe(true);
+    expect(calls).toHaveLength(0);
+  });
+
+  test("a provider that is off answers 404 at the start and at the callback", async () => {
+    const h = harness();
+    const { flowCookie, body } = await h.begin(alice);
+    (h.rows[0] as LoginProvider).enabled = false;
+    expect((await h.post(h.startPath())).status).toBe(404);
+    const callback = await h.post("/v1/auth/oidc/callback", {
+      body,
+      cookie: flowCookie,
+    });
+    expect(callback.status).toBe(404);
+    expect(clearsFlowCookie(callback)).toBe(true);
+    expect(h.calls).toHaveLength(0);
+    expect((await h.post(h.startPath(OTHER_ID))).status).toBe(404);
+  });
+
+  test("a provider turned off between the callback's checks and the session answers 404 with no session", async () => {
+    const { signIn, calls } = harness({ result: { outcome: "provider_off" } });
+    const response = await signIn(alice);
+    expect(response.status).toBe(404);
+    expect(calls).toHaveLength(1);
+    expect(
+      response.headers
+        .getSetCookie()
+        .some((cookie) => cookie.startsWith(`${WEB_SESSION_COOKIE_NAME}=`)),
+    ).toBe(false);
+  });
+
+  test("both routes answer 404 on an installation with no provider sign-in", async () => {
+    const { post, startPath } = harness({ providers: null });
+    expect((await post(startPath())).status).toBe(404);
+    expect(
+      (
+        await post("/v1/auth/oidc/callback", {
+          body: { provider_id: PROVIDER_ID, code: "c", state: "s" },
+        })
+      ).status,
+    ).toBe(404);
+  });
+
+  test("both routes refuse a request without the CSRF header", async () => {
+    const { app, startPath } = harness();
+    for (const path of [startPath(), "/v1/auth/oidc/callback"]) {
+      const response = await app.request(path, { method: "POST" });
+      expect(response.status).toBe(403);
+    }
+  });
+
+  test("a provider id that is not a UUID is not found, without a read", async () => {
+    let reads = 0;
+    const { post, startPath } = harness({
+      store: {
+        listEnabled: async () => [],
+        findForSignIn: async () => {
+          reads += 1;
+          return null;
+        },
+      },
+    });
+    expect((await post(startPath("google"))).status).toBe(404);
+    expect(reads).toBe(0);
+  });
+
+  test("a malformed callback is 400 and an oversized one 413", async () => {
+    const { post } = harness();
+    for (const body of [
+      { code: 1 },
+      { code: "c", state: "s" },
+      { provider_id: "google", code: "c", state: "s" },
+      { provider_id: PROVIDER_ID, code: "c", state: "s", extra: true },
+    ]) {
+      expect((await post("/v1/auth/oidc/callback", { body })).status).toBe(400);
+    }
+    const oversized = await post("/v1/auth/oidc/callback", {
+      body: {
+        provider_id: PROVIDER_ID,
+        code: "x".repeat(65 * 1024),
+        state: "s",
+      },
+    });
+    expect(oversized.status).toBe(413);
+  });
+
+  test("a callback beyond the provider work in progress answers 429 without calling the provider", async () => {
+    const providerWork = new WorkGate(1, 0);
+    const h = harness({ providerWork });
+    const { flowCookie, body } = await h.begin(alice);
+    const release = await (providerWork.tryAcquire() as Promise<() => void>);
+    const busy = await h.post("/v1/auth/oidc/callback", {
+      body,
+      cookie: flowCookie,
+    });
+    expect(busy.status).toBe(429);
+    expect(busy.headers.get("Retry-After")).toBe("1");
+    expect(h.calls).toHaveLength(0);
+    release();
+    // The slot is given back whatever the callback ends in.
+    expect((await h.signIn({ ...alice, aud: "someone-else" })).status).toBe(
+      401,
+    );
+    expect((await h.signIn(alice)).status).toBe(200);
+    expect(providerWork.running).toBe(0);
+  });
+
+  test("an unreachable provider answers 503 and is retried by the next request", async () => {
+    const h = harness();
+    const { flowCookie, body } = await h.begin(alice);
+    const row = h.rows[0] as LoginProvider;
+    const tokenEndpoint = row.tokenEndpoint;
+    row.tokenEndpoint = "http://127.0.0.1:9/token";
+    const callback = await h.post("/v1/auth/oidc/callback", {
+      body,
+      cookie: flowCookie,
+    });
+    expect(callback.status).toBe(503);
+    expect((await callback.json()).error.retryable).toBe(true);
+    row.tokenEndpoint = tokenEndpoint;
+    expect((await h.signIn(alice)).status).toBe(200);
+  });
+
+  test("a provider with no client secret answers 503 at the start", async () => {
+    const { post, startPath } = harness({
+      store: storeOf([providerFor()], null),
+    });
+    const started = await post(startPath());
+    expect(started.status).toBe(503);
+    expect((await started.json()).error.retryable).toBe(true);
+  });
+});

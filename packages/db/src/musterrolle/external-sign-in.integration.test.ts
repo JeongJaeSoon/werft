@@ -18,6 +18,7 @@ import {
   users,
   workspaces,
 } from "../schema.ts";
+import { seedLoginProvider } from "../testing/login-provider.ts";
 import { signInWithExternalIdentity } from "./identity.ts";
 import { createPostgresMemberStore } from "./members.ts";
 
@@ -30,6 +31,7 @@ integration("external sign-in first-entry rules", () => {
   let db: NodePgDatabase<typeof schema>;
   const workspaceId = randomUUID();
   const ownerId = randomUUID();
+  let provider: Awaited<ReturnType<typeof seedLoginProvider>>;
 
   beforeAll(async () => {
     database = await createTempDatabase({ prefix: "external_sign_in" });
@@ -47,6 +49,7 @@ integration("external sign-in first-entry rules", () => {
     await db
       .insert(memberships)
       .values({ workspaceId, userId: ownerId, role: "owner" });
+    provider = await seedLoginProvider(db, { issuer: ISSUER });
   }, 60_000);
 
   afterAll(async () => {
@@ -60,7 +63,8 @@ integration("external sign-in first-entry rules", () => {
     options: Partial<Pick<ExternalSignInInput, "jitRole" | "ownsEmail">> = {},
   ) =>
     signInWithExternalIdentity(db, {
-      kind: "google",
+      kind: "oidc",
+      provider: { id: provider.id, configRevision: provider.configRevision },
       issuer: ISSUER,
       subject,
       email,
@@ -117,7 +121,8 @@ integration("external sign-in first-entry rules", () => {
     expect(written).toHaveLength(1);
     expect(written[0]?.result).toMatchObject({
       new_account: true,
-      login_method: "google",
+      login_method: "oidc",
+      issuer: ISSUER,
     });
     expect(written[0]?.actor).toMatchObject({
       actor_user_id: result.outcome === "signed_in" ? result.userId : "",
@@ -260,7 +265,7 @@ integration("external sign-in first-entry rules", () => {
       await db.insert(loginMethods).values({
         id: randomUUID(),
         userId: bob?.id as string,
-        kind: "google",
+        kind: "oidc",
         issuer: ISSUER,
         subject: null,
       });
@@ -271,7 +276,7 @@ integration("external sign-in first-entry rules", () => {
         loginMethods,
         and(
           eq(loginMethods.userId, bob?.id as string),
-          eq(loginMethods.kind, "google"),
+          eq(loginMethods.kind, "oidc"),
         ),
       ),
     ).toBe(1);

@@ -8,11 +8,9 @@ const MAX_BODY_BYTES = 1024 * 1024;
 /**
  * `refuse`: https only, and never a loopback address. `loopback`: plain http
  * to a loopback host as well, for an installation whose console is itself on
- * loopback. `any`: plain http to whatever host the operator named; only the
- * environment-configured Google sign-in passes it, and it goes away with
- * that configuration.
+ * loopback.
  */
-export type NetworkPolicy = { plainHttp: "refuse" | "loopback" | "any" };
+export type NetworkPolicy = { plainHttp: "refuse" | "loopback" };
 
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
@@ -28,7 +26,6 @@ export function endpointProblem(
   }
   if (url.protocol === "https:") return null;
   if (url.protocol !== "http:") return "invalid_url";
-  if (policy.plainHttp === "any") return null;
   if (policy.plainHttp === "loopback" && LOOPBACK_HOSTS.has(url.hostname)) {
     return null;
   }

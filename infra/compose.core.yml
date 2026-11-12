@@ -278,13 +278,6 @@ services:
       # `:-`: unset, the API mints one and prints it to stderr; an empty value
       # stops it from starting.
       BOOTSTRAP_TOKEN:
-      # Google sign-in (docs/operator/api-server.md "Google 로그인"); unset is off.
-      GOOGLE_OIDC_CLIENT_ID: ${GOOGLE_OIDC_CLIENT_ID:-}
-      GOOGLE_OIDC_CLIENT_SECRET: ${GOOGLE_OIDC_CLIENT_SECRET:-}
-      GOOGLE_OIDC_REDIRECT_URI: ${GOOGLE_OIDC_REDIRECT_URI:-}
-      GOOGLE_OIDC_ISSUER: ${GOOGLE_OIDC_ISSUER:-}
-      GOOGLE_OIDC_ALLOWED_DOMAINS: ${GOOGLE_OIDC_ALLOWED_DOMAINS:-}
-      GOOGLE_OIDC_JIT: ${GOOGLE_OIDC_JIT:-}
       WORKER_IMAGE_RUNTIME: *worker-image-runtime
       WORKER_IMAGE_PREVIOUS_RUNTIME: *worker-image-previous-runtime
       <<: *installation-limits

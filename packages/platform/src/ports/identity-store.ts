@@ -103,17 +103,27 @@ export type ResolvedWebSession = {
  * already normalized, and every domain restriction has been applied.
  */
 export type ExternalSignInInput = {
-  kind: "google";
+  kind: "oidc";
+  /**
+   * The provider the flow ran against, as the callback read it. The sign-in
+   * reads the row again under a lock and makes no session unless it is
+   * still turned on with these settings.
+   */
+  provider: { id: string; configRevision: number };
   issuer: string;
   subject: string;
-  email: string;
+  /**
+   * Normalized. Null when the provider gave none: then only an account
+   * already linked to (issuer, subject) signs in.
+   */
+  email: string | null;
   displayName: string;
   /** Set when the email's domain may join by itself (JIT) as this role. */
   jitRole: MembershipRole | null;
   /**
    * The provider vouches the person owns `email` today, not only when the
-   * account was made. Without it the address claims no invite and learns
-   * nothing about an account that has it.
+   * account was made. Without it the address claims no invite, joins
+   * nothing by itself and learns nothing about an account that has it.
    */
   ownsEmail: boolean;
   newUserId: string;
@@ -144,6 +154,8 @@ export type ExternalSignInResult =
       expiresAt: Date;
     }
   | { outcome: "link_required" }
+  /** The provider was turned off, changed or removed while the flow ran. */
+  | { outcome: "provider_off" }
   | { outcome: "rejected" };
 
 export interface IdentityStore {
