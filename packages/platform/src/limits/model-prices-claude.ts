@@ -100,7 +100,7 @@ function rates(input: number, output: number, cacheRead: number): ClaudeRates {
 }
 
 const SOURCE = "https://platform.claude.com/docs/en/about-claude/pricing";
-const CHECKED = "2026-11-02";
+const CHECKED = "2026-11-13";
 
 type Options = { fast?: number; long?: Card["long"]; geo?: boolean };
 
@@ -118,11 +118,13 @@ function card(standard: ClaudeRates, options: Options = {}): Card {
   };
 }
 
+const FABLE_5_2 = rates(8, 40, 0.2);
 const FABLE_5_1 = rates(10, 50, 0.25);
 const FABLE_5 = rates(10, 50, 1);
 const OPUS_5_5 = rates(4, 20, 0.2);
 const OPUS_5 = rates(5, 25, 0.5);
 const OPUS_4 = rates(15, 75, 1.5);
+const SONNET_5_5 = rates(2, 10, 0.1);
 const SONNET_5 = rates(2, 10, 0.2);
 const SONNET_4 = rates(3, 15, 0.3);
 const HAIKU_5_5 = rates(0.1, 0.5, 0.01);
@@ -131,6 +133,8 @@ const HAIKU_4_5 = rates(1, 5, 0.1);
 /** Every model id the Claude table prices. */
 export const CLAUDE_CARDS: Readonly<Record<string, Card>> =
   claudeCardsSchema.parse({
+    "claude-fable-5-2": card(FABLE_5_2, FAST),
+    "claude-mythos-5-2": card(FABLE_5_2, FAST),
     "claude-fable-5-1": card(FABLE_5_1),
     "claude-mythos-5-1": card(FABLE_5_1),
     "claude-fable-5": card(FABLE_5),
@@ -144,7 +148,7 @@ export const CLAUDE_CARDS: Readonly<Record<string, Card>> =
     "claude-opus-4-5-20251101": card(OPUS_5, BEFORE_4_6),
     "claude-opus-4-0": card(OPUS_4, BEFORE_4_6),
     "claude-opus-4-20250514": card(OPUS_4, BEFORE_4_6),
-    "claude-sonnet-5-5": card(SONNET_5),
+    "claude-sonnet-5-5": card(SONNET_5_5),
     "claude-sonnet-5": card(SONNET_5),
     "claude-sonnet-4-6": card(SONNET_4),
     "claude-sonnet-4-5": card(SONNET_4, BEFORE_4_6),
