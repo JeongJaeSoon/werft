@@ -1874,7 +1874,9 @@ describe("architecture", () => {
         baselineCounts("testRelativeImports"),
       ),
     ).toEqual([]);
-  });
+    // Parsing every test file of the repository took longer than the default
+    // timeout on a loaded CI runner.
+  }, 60_000);
 
   test("the test-file relative-import check catches a path that leaves the package in .ts and .tsx tests, not a source file, a sibling, a package entry or a string", async () => {
     expect(
