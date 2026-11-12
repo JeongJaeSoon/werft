@@ -628,6 +628,8 @@ describe("the run waiting for the relay servers", () => {
         outcome = error;
       },
     );
+    // An input is waiting, so a run that gave up waiting would start its turn.
+    run.send({ uuid: "in-1", message: "hello" });
     // The wait has begun, so its deadline is fixed against the real clock.
     await Bun.sleep(20);
     const began = Date.now();
@@ -656,9 +658,9 @@ describe("the run waiting for the relay servers", () => {
   test("leaves no abort listener behind, however many status updates the wait took", async () => {
     const added = spyOn(AbortSignal.prototype, "addEventListener");
     const removed = spyOn(AbortSignal.prototype, "removeEventListener");
+    const server = new FakeAppServer("thread-1", { github: "never" });
+    const run = runOver(server);
     try {
-      const server = new FakeAppServer("thread-1", { github: "never" });
-      const run = runOver(server);
       const readying = run.ready();
       await Bun.sleep(20);
       for (let update = 0; update < 3; update += 1) {
@@ -680,10 +682,10 @@ describe("the run waiting for the relay servers", () => {
       expect(waiting).toHaveLength(4);
       const released = new Set(abortListeners(removed.mock.calls));
       expect(waiting.filter((listener) => !released.has(listener))).toEqual([]);
-      run.abort();
     } finally {
       added.mockRestore();
       removed.mockRestore();
+      run.abort();
     }
   }, 10_000);
 });
