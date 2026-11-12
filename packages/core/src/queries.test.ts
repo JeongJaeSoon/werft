@@ -205,7 +205,7 @@ test("an agent page asks for one page with summaries, the search going with it, 
   );
 });
 
-test("named agents past a page are read 100 at a time, and a connection's agents a page at a time", async () => {
+test("named agents past a page are read 100 at a time", async () => {
   const { client, calls } = recordingClient();
   const ids = Array.from(
     { length: 150 },
