@@ -414,7 +414,7 @@ describe("priceProviderUsage for an OpenAI model", () => {
 
   // Was 2x, the fast rate (#1515). A tier the page adds later, or one the
   // answer names in a way the proxy does not map, may be dearer than fast:
-  // the owner chose to price it at the highest known multiple (94S-1545).
+  // 94S-1545 prices it at the highest known multiple.
   test("a tier the model's card does not list is priced at the highest known multiple, not the fast one", () => {
     const call = { ...openAi, model: "gpt-5.5", outputTokens: 100_000 };
     const standard = priceProviderUsage(call).costUsd;
