@@ -6,7 +6,6 @@ import type {
   SurfaceBindingStore,
 } from "@werft-ai/platform";
 import {
-  createLoggingSlackNoticeSink,
   createOutboxSlackNoticeSink,
   createRowDelivery,
   createSlackBotApi,
@@ -25,8 +24,7 @@ export interface SlackInboundDeps {
   secrets: Parameters<typeof slackBotToken>[0];
   consoleOrigin: string | null;
   leaseMs: number;
-  /** Defaults to a sink that logs. */
-  notices: SlackNoticeSink | undefined;
+  notices: SlackNoticeSink;
   inbox: Param<typeof createSlackSessionHandler>["inbox"];
   authorization: Param<typeof createSlackSessionHandler>["authorization"];
   identities: AgentIdentityStore;
@@ -65,7 +63,7 @@ export function wireSlackInbound(deps: SlackInboundDeps): SlackInboundHandler {
     releaseRepositoryUnusable: deps.releaseRepositoryUnusable,
     slack: slackApi,
     botToken,
-    notices: deps.notices ?? createLoggingSlackNoticeSink(deps.logger),
+    notices: deps.notices,
     logger: deps.logger,
     connectUrl: slackConnectUrl(deps.consoleOrigin),
   });

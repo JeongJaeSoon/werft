@@ -15,7 +15,6 @@ export * from "./slack-interactions.ts";
 export * from "./slack-link-app-service.ts";
 export * from "./slack-manifest.ts";
 export * from "./slack-mrkdwn.ts";
-export * from "./slack-notice-log.ts";
 export * from "./slack-notice-sink.ts";
 export * from "./slack-outbox.ts";
 export * from "./slack-outbox-enqueue.ts";

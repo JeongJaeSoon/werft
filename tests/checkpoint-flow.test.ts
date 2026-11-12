@@ -5,11 +5,11 @@ import {
   type CheckpointStore,
   createCheckpointService,
   manifestRefFor,
-  structuralBundleVerifier,
 } from "@werft-ai/platform";
 import {
   type CommitCheckpoint,
   finalizeCheckpoint,
+  structuralBundleVerifier,
 } from "@werft-ai/platform/testing/checkpoints";
 import {
   CLAUDE_RUNTIME_FINGERPRINT,

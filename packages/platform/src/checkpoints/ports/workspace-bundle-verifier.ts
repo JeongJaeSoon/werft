@@ -1,6 +1,3 @@
-import { createReadStream } from "node:fs";
-import { gitBundleOffersFrom } from "@werft-ai/runtime-core";
-
 export type WorkspaceBundleVerdict =
   | { readonly status: "restorable" }
   | { readonly reason: string; readonly status: "unusable" };
@@ -77,45 +74,5 @@ export const rejectUnverifiedWorkspaceBundles: WorkspaceBundleVerifier = {
       status: "unusable",
       reason: "no workspace bundle verifier configured",
     };
-  },
-};
-
-/**
- * Everything the bytes alone can settle, and deliberately not more.
- *
- * The bundle header must name the commit as a ref tip and demand no
- * prerequisite a fresh workspace cannot have, and the packfile must match the
- * checksum git wrote into it. That rules out a commit that was never captured,
- * a truncated upload and a corrupted object — the accidents a checkpoint
- * actually meets.
- *
- * What it cannot rule out is a *fabricated* pack: a header, an object count
- * and a recomputed trailer are all things whoever wrote the object could have
- * produced, and the manifest's own digest is no help because the worker hashed
- * the same bytes. Only reconstructing the pack settles that. So a deployment
- * choosing this over a git-backed verifier is choosing to trust its workers
- * about their own commits, and should say so out loud by naming it.
- */
-export const structuralBundleVerifier: WorkspaceBundleVerifier = {
-  async verify({ bases = [], commit, key, path }) {
-    const earlier = new Set<string>();
-    for (const [index, link] of [...bases, { key, path }].entries()) {
-      const verdict = await gitBundleOffersFrom(
-        createReadStream(link.path),
-        index === bases.length ? commit : undefined,
-        earlier,
-      );
-      if (verdict.status !== "offers") {
-        return {
-          status: "unusable",
-          reason:
-            bases.length === 0
-              ? verdict.reason
-              : `${link.key}: ${verdict.reason}`,
-        };
-      }
-      for (const tip of verdict.tips) earlier.add(tip);
-    }
-    return { status: "restorable" };
   },
 };

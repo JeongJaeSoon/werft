@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { randomBytes } from "node:crypto";
+import { createMemorySlackNoticeSink } from "@werft-ai/chat-slack/testing/slack";
 import type { Database } from "@werft-ai/db";
 import { createLogger } from "@werft-ai/observability";
 import { SecretKey, usesConsoleApp } from "@werft-ai/platform";
@@ -89,6 +90,7 @@ describe("slack role startup", () => {
           logger: createLogger({ level: "error", sinks: [] }),
           secretKey,
           leaseMs: 60_000,
+          notices: createMemorySlackNoticeSink().sink,
         });
       }
     } finally {

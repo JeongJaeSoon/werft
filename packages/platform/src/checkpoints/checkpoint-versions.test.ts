@@ -18,6 +18,7 @@ import { createGitBundle } from "@werft-ai/testkit/git-bundle";
 import {
   type CommitCheckpointInput,
   finalizeCheckpoint,
+  structuralBundleVerifier,
 } from "../testing/checkpoints.ts";
 import {
   createCheckpointService,
@@ -30,7 +31,6 @@ import type {
   CheckpointStore,
 } from "./ports/checkpoint-store.ts";
 import { serviceCheckpointVerifier } from "./ports/checkpoint-verifier.ts";
-import { structuralBundleVerifier } from "./ports/workspace-bundle-verifier.ts";
 
 /**
  * what a checkpoint verified is what it restores. Every object is

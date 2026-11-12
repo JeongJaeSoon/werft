@@ -30,6 +30,7 @@ import {
   type CommitCheckpointResult,
   type FinalizeCheckpointInput,
   finalizeCheckpoint,
+  structuralBundleVerifier,
 } from "../testing/checkpoints.ts";
 import { MAX_COOLING_BUNDLES } from "./bundle-throttle.ts";
 import {
@@ -43,10 +44,7 @@ import {
   type CheckpointPointer,
   type CheckpointStore,
 } from "./ports/checkpoint-store.ts";
-import {
-  structuralBundleVerifier,
-  type WorkspaceBundleVerifier,
-} from "./ports/workspace-bundle-verifier.ts";
+import type { WorkspaceBundleVerifier } from "./ports/workspace-bundle-verifier.ts";
 
 const sessionId = "11111111-1111-4111-8111-111111111111";
 const attemptId = "attempt-1";

@@ -22,6 +22,7 @@ import {
   slackConversationKey,
   slackWelcomeText,
 } from "@werft-ai/chat-slack";
+import { createMemorySlackNoticeSink } from "@werft-ai/chat-slack/testing/slack";
 import {
   agentCardRequestSchema,
   SESSION_SCOPE_VALUES,
@@ -404,6 +405,7 @@ async function invited(
       logger,
       secretKey: key,
       leaseMs: 30_000,
+      notices: createMemorySlackNoticeSink().sink,
       slackApiUrl: slack.url,
     }),
     logger,

@@ -4,7 +4,6 @@
 export {
   agentSlackBotToken,
   composeSlackFinalize,
-  createLoggingSlackNoticeSink,
   createOutboxSlackNoticeSink,
   createRowDelivery,
   createSlackAppService,

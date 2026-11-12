@@ -5,10 +5,8 @@ import {
   verifyBundleBytes,
 } from "@werft-ai/testkit/git-bundle";
 
-import {
-  rejectUnverifiedWorkspaceBundles,
-  structuralBundleVerifier,
-} from "./workspace-bundle-verifier.ts";
+import { structuralBundleVerifier } from "../../testing/checkpoints.ts";
+import { rejectUnverifiedWorkspaceBundles } from "./workspace-bundle-verifier.ts";
 
 const real = await createGitBundle();
 
