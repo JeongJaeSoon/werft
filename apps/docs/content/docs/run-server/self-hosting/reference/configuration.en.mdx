@@ -183,7 +183,7 @@ Kubernetes-only settings:
 | `EXECUTION_K8S_WORKER_TOLERATIONS` | Optional JSON array |
 | `EXECUTION_K8S_WORKER_EPHEMERAL_STORAGE_MB` | Ephemeral-storage requests/limits MiB, default 1024; exceeding it causes kubelet eviction |
 
-Scheduler logs failed-worker termination reasons and last 8 KiB under `Execution resource failed; log tail kept`. The log masking rule hides the tail line by line. A secret-shaped value hides only its line. A fragment such as `input:` hides its line and every line after it, except stack frame lines. The lines before it stay as the worker wrote them. See storage/retention in the repository's Kubernetes execution adapter README.
+Scheduler logs failed-worker termination reasons and last 8 KiB under `Execution resource failed; log tail kept`. The log masking rule hides the tail line by line. A secret-shaped value hides only the lines it spans. A fragment such as `input:` hides its line and every line after it. The lines before it stay as the worker wrote them. See storage/retention in the repository's Kubernetes execution adapter README.
 
 <a id="chart가-넣는-값" />
 ## Chart-generated values
