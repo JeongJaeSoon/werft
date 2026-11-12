@@ -1648,7 +1648,7 @@ const SESSIONS: SessionSpec[] = [
   ...[2, 5, 6].map(
     (daysAgo, i): SessionSpec => ({
       creator: ["alex", "owner", "junho"][i]!,
-      title: `문서 검토 의견 정리 #${i + 1} (좁힌 판 프로필)`,
+      title: `문서 검토 의견 정리 #${i + 1} (읽기 전용 에이전트)`,
       agent: "readonly-reviewer",
       turns: [
         `이 문서를 검토해 주세요.\n\n${scripted("readonly", [read("README.md")], "검토 의견 4건을 근거 경로와 함께 정리했습니다.")}`,

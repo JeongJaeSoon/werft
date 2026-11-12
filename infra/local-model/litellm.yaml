@@ -1,5 +1,5 @@
-# LiteLLM in front of the host's Ollama, for the local-litellm profile
-# (tests/fixtures/settings/local-model.json). `gemma4-local` is the model the profile names.
+# LiteLLM in front of the host's Ollama, for the litellm connection
+# (tests/fixtures/settings/local-model.json). `gemma4-local` is the model the connection lists.
 model_list:
   - model_name: gemma4-local
     litellm_params:

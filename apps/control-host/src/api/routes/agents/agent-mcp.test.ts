@@ -74,7 +74,6 @@ const keyStore = {
 };
 
 const catalog = {
-  profiles: {},
   repositories: {},
   mcp_servers: {
     docs: {

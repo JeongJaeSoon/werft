@@ -1812,6 +1812,54 @@ integration("parked pending requests on PostgreSQL", () => {
     ).toBeLessThanOrEqual(32 * 1024);
   });
 
+  test("a group of thousands of answers still carries on, the lines past one message counted", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    const first = await register(worker);
+    await answerWith(owner, sessionId, {
+      request_id: first,
+      kind: "permission",
+      decision: "deny",
+      reason: "r",
+    });
+    // Copies of the answered request, as many as no equal share could fit.
+    await db.execute(sql`
+      INSERT INTO pending_requests (
+        request_id, session_id, turn_id, attempt_id, kind, payload,
+        input_hash, expires_at, resolved_at, answer, answered_at,
+        answer_receipt_id, answered_by, answer_surface, answer_decision_id,
+        tool
+      )
+      SELECT 'req_copy_' || n, session_id, turn_id, attempt_id, kind, payload,
+        input_hash, expires_at, resolved_at, answer, answered_at,
+        answer_receipt_id, answered_by, answer_surface, answer_decision_id,
+        tool
+      FROM pending_requests, generate_series(1, 3000) AS n
+      WHERE request_id = ${first}
+    `);
+    const copies = (
+      await db
+        .select({ requestId: pendingRequests.requestId })
+        .from(pendingRequests)
+        .where(eq(pendingRequests.sessionId, sessionId))
+    ).map((row) => row.requestId);
+    expect(copies).toHaveLength(3001);
+    const turnRowId = await parkRows(worker, copies);
+    await executionGone(worker);
+
+    const [carried] = await continuations(turnRowId);
+    const message = carried?.message ?? "";
+    expect(new TextEncoder().encode(message).length).toBeLessThanOrEqual(
+      32 * 1024,
+    );
+    expect(message).not.toContain("[cut to fit]");
+    const lines = message.split("\n");
+    const shown = lines.filter((line) =>
+      line.startsWith("- Your Bash call: denied. Reason: r"),
+    ).length;
+    expect(shown).toBeGreaterThan(0);
+    expect(lines.at(-1)).toBe(`… ${3001 - shown} more answers cut`);
+  });
+
   test("an interrupt of a parked turn already carried on cancels nothing a worker may hold", async () => {
     const { owner, sessionId, requestId } = await parked();
     expect(await answer(owner, sessionId, requestId)).toMatchObject({

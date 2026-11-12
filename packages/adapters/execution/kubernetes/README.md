@@ -34,7 +34,7 @@ worker namespace 하나에만 거는 `Role`이다. 어댑터가 실제로 부르
 
 phase가 `Failed`인 Pod면 worker 컨테이너 로그의 마지막 200줄을 읽고, 그중 마지막 8 KiB만 `logTail`로 넘긴다. 한 번에 읽는 양은 64 KiB로 제한한다. 서버는 이 상한을 요청한 줄의 앞에서부터 자르므로, 읽은 양이 상한을 채우면 마지막 20줄, 그다음 마지막 1줄로 다시 읽어 로그의 실제 끝을 남긴다. 마지막 한 줄이 64 KiB보다 길면 그 끝은 읽을 수 없다. 이때는 그 줄의 앞 8 KiB를 남기고, 끝을 읽지 못했다는 표시를 붙인다. 로그를 못 읽으면 tail만 빠지고 inspect는 그대로 성공한다.
 
-scheduler는 Pod를 지우기 전에 이 값을 자기 로그 한 줄로 남긴다(`Execution resource failed; log tail kept`, 필드 `log_tail`·`termination_reason`·`exit_code`). DB에는 저장하지 않는다. 그래서 tail이 남는 곳은 scheduler 컨테이너의 stdout뿐이고, 보존 기간도 그 로그와 같다. kubelet의 로그 회전에 따라 지워지고, scheduler Pod가 지워질 때 같이 사라진다. 클러스터에 로그 수집기가 있으면 그쪽 보존 정책을 따른다. worker가 출력한 내용이 그대로 들어가므로 scheduler 로그를 볼 수 있는 사람은 이 tail도 볼 수 있다.
+scheduler는 Pod를 지우기 전에 이 값을 자기 로그 한 줄로 남긴다(`Execution resource failed; log tail kept`, 필드 `log_tail`·`termination_reason`·`exit_code`). DB에는 저장하지 않는다. 그래서 tail이 남는 곳은 scheduler 컨테이너의 stdout뿐이고, 보존 기간도 그 로그와 같다. kubelet의 로그 회전에 따라 지워지고, scheduler Pod가 지워질 때 같이 사라진다. 클러스터에 로그 수집기가 있으면 그쪽 보존 정책을 따른다. tail은 로그 마스킹 규칙([API 서버](../../../../docs/operator/api-server.md)의 '로그 마스킹')을 줄(CR·LF 기준) 단위로 거친다. `Bearer …`·`sk-…` 같은 비밀 모양의 값은 그 값이 걸친 줄만 `[REDACTED]`가 된다. `input:`·`message:`·`token=` 같은 조각은 값이 어디서 끝나는지 알 수 없으므로, 그 줄부터 tail 끝까지(그 뒤의 stack 포함) 가린다. 가린 줄이 이어지면 `[REDACTED]` 한 줄로 합친다. 그 앞의 줄(앞선 로그 줄, 예외 이름과 메시지의 앞부분)은 남는다. 이 줄들에도 비밀 모양 값과 URL login의 마스킹은 걸린다. 그래서 scheduler 로그를 볼 수 있는 사람은 이 줄들도 볼 수 있다. 예를 들어 zod 검증 오류로 죽은 worker의 tail에는 오류 이름과 실패한 필드의 `path`까지가 남고, 첫 `"message": "Invalid input: …"` 줄부터 가려진다.
 
 ## ephemeral-storage
 

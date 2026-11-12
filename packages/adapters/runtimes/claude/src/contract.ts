@@ -284,10 +284,10 @@ export const claudeRuntimeModule: RuntimeModule = {
   eventCodec: claudeEventCodec,
   /**
    * A session made for another build is refused, unless that build's tool
-   * catalog is this one's: a profile row left at the version before an SDK
+   * catalog is this one's: a release pinned at the version before an SDK
    * upgrade then still starts. The transcript a checkpoint resumes is only
    * replayable on the build that wrote it, and the checkpoint's own
-   * fingerprint holds it to that, whatever version the row names.
+   * fingerprint holds it to that, whatever version the release names.
    */
   assertCompatible(runtime) {
     if (
