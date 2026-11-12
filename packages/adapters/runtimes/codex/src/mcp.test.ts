@@ -1,4 +1,11 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import {
+  afterEach,
+  describe,
+  expect,
+  setSystemTime,
+  spyOn,
+  test,
+} from "bun:test";
 import type {
   PlatformMcpServer,
   RuntimeEvent,
@@ -601,4 +608,82 @@ describe("the run waiting for the relay servers", () => {
     );
     run.abort();
   });
+
+  const starting = (server: FakeAppServer) =>
+    server.emit("mcpServer/startupStatus/updated", {
+      name: "github",
+      status: "starting",
+      threadId: null,
+    });
+
+  test("gives up on a server not ready 30 seconds after the wait began, and not before", async () => {
+    const server = new FakeAppServer("thread-1", { github: "never" });
+    const run = runOver(server);
+    let outcome: unknown = "waiting";
+    const readying = run.ready().then(
+      () => {
+        outcome = "ready";
+      },
+      (error: unknown) => {
+        outcome = error;
+      },
+    );
+    // The wait has begun, so its deadline is fixed against the real clock.
+    await Bun.sleep(20);
+    const began = Date.now();
+    try {
+      // The clock moves, and a status update makes the wait look at it.
+      setSystemTime(new Date(began + 29_000));
+      starting(server);
+      await Bun.sleep(20);
+      expect(outcome).toBe("waiting");
+      expect(server.started("turn/start")).toBeUndefined();
+
+      setSystemTime(new Date(began + 31_000));
+      starting(server);
+      // Bounded, so a wait that never gives up fails here with the clock restored.
+      await Promise.race([readying, Bun.sleep(1_000)]);
+      expect(String(outcome)).toContain(
+        "did not start the github MCP server in 30s",
+      );
+      expect(server.started("turn/start")).toBeUndefined();
+    } finally {
+      setSystemTime();
+      run.abort();
+    }
+  }, 10_000);
+
+  test("leaves no abort listener behind, however many status updates the wait took", async () => {
+    const added = spyOn(AbortSignal.prototype, "addEventListener");
+    const removed = spyOn(AbortSignal.prototype, "removeEventListener");
+    try {
+      const server = new FakeAppServer("thread-1", { github: "never" });
+      const run = runOver(server);
+      const readying = run.ready();
+      await Bun.sleep(20);
+      for (let update = 0; update < 3; update += 1) {
+        starting(server);
+        await Bun.sleep(5);
+      }
+      server.emit("mcpServer/startupStatus/updated", {
+        name: "github",
+        status: "ready",
+        threadId: null,
+      });
+      await readying;
+      const abortListeners = (calls: unknown[][]) =>
+        calls
+          .filter(([type]) => type === "abort")
+          .map(([, listener]) => listener);
+      const waiting = abortListeners(added.mock.calls);
+      // One wait per look at the status: the first and one after each update.
+      expect(waiting).toHaveLength(4);
+      const released = new Set(abortListeners(removed.mock.calls));
+      expect(waiting.filter((listener) => !released.has(listener))).toEqual([]);
+      run.abort();
+    } finally {
+      added.mockRestore();
+      removed.mockRestore();
+    }
+  }, 10_000);
 });

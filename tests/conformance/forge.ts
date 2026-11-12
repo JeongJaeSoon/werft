@@ -49,3 +49,30 @@ export async function forgeFile(
 ): Promise<string> {
   return (await forgeGit(engine, ["show", `${commit}:${file}`])).trim();
 }
+
+/**
+ * How many push requests (receive-pack, its ref advertisement included) the
+ * forge has received for the engine's repository, taken or refused. The fake
+ * logs every git request, so a push that failed or was refused still counts.
+ */
+export async function forgePushRequests(
+  engine: EngineFixture,
+): Promise<number> {
+  const out = await docker([
+    "exec",
+    await serviceContainer("fake-git"),
+    "bun",
+    "-e",
+    'console.log(await (await fetch("http://127.0.0.1:3000/requests")).text())',
+  ]);
+  const listed = out.split("\n").find((line) => line.startsWith("["));
+  if (listed === undefined) throw new Error("the forge listed no requests");
+  const requests = JSON.parse(listed) as { path: string }[];
+  // Every clone and fetch is here too: without one the log is not being read.
+  expect(requests.length).toBeGreaterThan(0);
+  return requests.filter(
+    ({ path }) =>
+      path.includes(`/${engine.repositoryId}.git/`) &&
+      path.includes("git-receive-pack"),
+  ).length;
+}
