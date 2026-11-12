@@ -816,6 +816,14 @@ export function createPostgresPendingRequests(
           ) {
             return { outcome: "checkpoint_unavailable" };
           }
+          // This answer may resume the session onto the workspace GC is
+          // removing; the same request goes through once the claim settles.
+          if (
+            session.admissionState === "paused" &&
+            session.workspaceReclaimId !== null
+          ) {
+            return { outcome: "workspace_reclaiming" };
+          }
           // The turn that carries the group on is one input: the answers so
           // far, this one, and an expiry line for every other row must fit
           // it, or the group could never be carried on.

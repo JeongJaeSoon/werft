@@ -269,6 +269,108 @@ integration("stopped workspace reclaim against resume on PostgreSQL", () => {
     expect((await resume(session, before.revision)).outcome).toBe("accepted");
   });
 
+  test("a paused session past its TTL gives up its workspace; resume waits for the removal and comes back on a new one", async () => {
+    const session = await expiredStoppedSession();
+    const pausedAt = new Date(Date.now() - DAY_MS - 60_000);
+    await db
+      .update(sessions)
+      .set({ admissionState: "paused", status: "idle" })
+      .where(eq(sessions.id, session.id));
+    await db
+      .update(sessions)
+      .set({ pausedAt })
+      .where(eq(sessions.id, session.id));
+    const volumes = new Map([[session.workspace, session.id]]);
+    const before = await sessionRow(session.id);
+    const key = crypto.randomUUID();
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let removing!: () => void;
+    const reached = new Promise<void>((resolve) => {
+      removing = resolve;
+    });
+
+    const pass = reclaimWorkspaces({
+      backend: daemon(volumes, async (id) => {
+        removing();
+        await held;
+        volumes.delete(id);
+        return { outcome: "removed" };
+      }),
+      logger: quiet,
+      pausedWorkspaceTtlMs: DAY_MS,
+      stoppedWorkspaceTtlMs: DAY_MS,
+      store: store(),
+    });
+    await reached;
+
+    expect((await resume(session, before.revision, key)).outcome).toBe(
+      "workspace_reclaiming",
+    );
+    const during = await sessionRow(session.id);
+    expect(during.admissionState).toBe("paused");
+    expect(during.revision).toBe(before.revision);
+    expect(
+      await db
+        .select()
+        .from(idempotencyKeys)
+        .where(eq(idempotencyKeys.key, key)),
+    ).toEqual([]);
+
+    release();
+    expect((await pass).workspacesReclaimed).toEqual([session.workspace]);
+    const reclaimed = await sessionRow(session.id);
+    expect(reclaimed.workspaceReclaimId).toBeNull();
+    expect(reclaimed.workspaceReclaimedAt).not.toBeNull();
+    expect(reclaimed.pausedAt).toEqual(pausedAt);
+
+    // The same request now goes through: a new worker restores the pause's
+    // checkpoint onto a new workspace.
+    const retried = await resume(session, before.revision, key);
+    expect(retried.outcome).toBe("accepted");
+    const after = await sessionRow(session.id);
+    expect(after.admissionState).toBe("resuming");
+    expect(after.workspaceReclaimedAt).toBeNull();
+    expect(after.pausedAt).toBeNull();
+  });
+
+  test("a paused session inside its TTL, or with no checkpoint, keeps its workspace", async () => {
+    const recent = await expiredStoppedSession();
+    const bare = await expiredStoppedSession();
+    for (const { id } of [recent, bare]) {
+      await db
+        .update(sessions)
+        .set({ admissionState: "paused", status: "idle" })
+        .where(eq(sessions.id, id));
+    }
+    await db
+      .update(sessions)
+      .set({
+        checkpointRevision: null,
+        pausedAt: new Date(Date.now() - DAY_MS - 60_000),
+      })
+      .where(eq(sessions.id, bare.id));
+    const volumes = new Map([
+      [recent.workspace, recent.id],
+      [bare.workspace, bare.id],
+    ]);
+
+    const summary = await reclaimWorkspaces({
+      backend: daemon(volumes, async () => {
+        throw new Error("must not be removed");
+      }),
+      logger: quiet,
+      pausedWorkspaceTtlMs: DAY_MS,
+      stoppedWorkspaceTtlMs: DAY_MS,
+      store: store(),
+    });
+
+    expect(summary.workspacesReclaimed).toEqual([]);
+    expect(summary.workspacesFailed).toEqual([]);
+  });
+
   test("a stopped session inside its TTL is not touched", async () => {
     const session = await expiredStoppedSession();
     await db

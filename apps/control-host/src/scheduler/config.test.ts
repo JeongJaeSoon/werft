@@ -282,6 +282,32 @@ describe("schedulerConfigFromEnv", () => {
     ).toBe(0);
   });
 
+  test("a paused session keeps its workspace for a day unless told otherwise", () => {
+    expect(schedulerConfigFromEnv(base).pausedWorkspaceTtlMs).toBe(
+      24 * 60 * 60 * 1_000,
+    );
+    expect(
+      schedulerConfigFromEnv({
+        ...base,
+        EXECUTION_WORKSPACE_PAUSED_TTL_SEC: "0",
+      }).pausedWorkspaceTtlMs,
+    ).toBe(0);
+    expect(
+      schedulerConfigFromEnv({
+        ...base,
+        EXECUTION_WORKSPACE_PAUSED_TTL_SEC: "604800",
+      }).pausedWorkspaceTtlMs,
+    ).toBe(7 * 24 * 60 * 60 * 1_000);
+    for (const value of ["-1", "1.5"]) {
+      expect(() =>
+        schedulerConfigFromEnv({
+          ...base,
+          EXECUTION_WORKSPACE_PAUSED_TTL_SEC: value,
+        }),
+      ).toThrow("EXECUTION_WORKSPACE_PAUSED_TTL_SEC");
+    }
+  });
+
   test("a stopped session keeps its workspace for a day unless told otherwise", () => {
     expect(schedulerConfigFromEnv(base).stoppedWorkspaceTtlMs).toBe(
       24 * 60 * 60 * 1_000,

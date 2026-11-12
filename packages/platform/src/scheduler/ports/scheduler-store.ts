@@ -217,6 +217,13 @@ export type PassLock = {
   release(): Promise<void>;
 };
 
+/** How long a resumable session keeps its workspace, by admission state. */
+export type WorkspaceTtls = {
+  stoppedTtlMs: number;
+  /** Absent: a paused session's workspace is never reclaimed. */
+  pausedTtlMs?: number;
+};
+
 export type WorkspaceReclaimClaim =
   | { kind: "retained" }
   | { kind: "unclaimed" }
@@ -456,11 +463,13 @@ export interface SchedulerStore {
    *
    * A `stopped` session is retained until it has been stopped for
    * `stoppedTtlMs`; past that it is a candidate, and only a
-   * `claimWorkspaceReclaim` decides whether its workspace goes.
+   * `claimWorkspaceReclaim` decides whether its workspace goes. A `paused`
+   * session with a checkpoint is the same past `pausedTtlMs` from its
+   * `paused_at`; without `pausedTtlMs` every paused session is retained.
    */
   filterRetainedSessions(
     sessionIds: string[],
-    options: { stoppedTtlMs: number },
+    options: WorkspaceTtls,
   ): Promise<string[]>;
 
   /**
@@ -474,16 +483,19 @@ export interface SchedulerStore {
   /**
    * Decides, under the session's lock, whether this workspace may be removed.
    * `unclaimed`: nothing can come back to the session (closed, or no row), so
-   * the removal needs no claim. `claimed`: a stopped session past its TTL;
-   * resume refuses until `finishWorkspaceReclaim` settles the claim. Anything
-   * else — resumed since, stopped too recently, a launch holding its slot, a
-   * claim already pending — is `retained`.
+   * the removal needs no claim. `claimed`: a stopped session past its TTL, or
+   * a paused one past its TTL with a checkpoint its resume would restore;
+   * resume, an answer that would resume it and a parked turn's interrupt
+   * refuse until `finishWorkspaceReclaim` settles the claim. Anything else —
+   * resumed since, stopped or paused too recently, no restorable checkpoint,
+   * a launch holding its slot, a claim already pending — is `retained`.
    */
-  claimWorkspaceReclaim(input: {
-    sessionId: string;
-    workspaceId: string;
-    stoppedTtlMs: number;
-  }): Promise<WorkspaceReclaimClaim>;
+  claimWorkspaceReclaim(
+    input: {
+      sessionId: string;
+      workspaceId: string;
+    } & WorkspaceTtls,
+  ): Promise<WorkspaceReclaimClaim>;
 
   /**
    * Settles a claim by its id: `removed` records the workspace gone,

@@ -18,7 +18,11 @@ export type InterruptTurnResult =
   // interrupt never cancels input.
   | { outcome: "not_started" }
   // Running on the legacy pod lifecycle, whose worker never polls for control.
-  | { outcome: "unsupported" };
+  | { outcome: "unsupported" }
+  // A parked turn whose session's workspace GC has claimed and not yet
+  // settled: interrupting it may resume an answered group, so it waits, and
+  // nothing is recorded until the same request comes back.
+  | { outcome: "workspace_reclaiming" };
 
 /**
  * api.md § 승인·중단·강제 종료: an interrupt is bound to its target turn and

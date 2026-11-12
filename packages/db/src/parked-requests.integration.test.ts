@@ -44,6 +44,7 @@ import {
   checkpoints,
   events,
   executions,
+  idempotencyKeys,
   pendingRequests,
   permissionGrants,
   pushIntents,
@@ -2306,6 +2307,107 @@ integration("parked pending requests on PostgreSQL", () => {
     expect((await request(second)).settledOutcome).toBe("cancelled");
     expect((await sessionRow(sessionId)).admissionState).toBe("resuming");
     expect(await continuations(firstTurn)).toHaveLength(1);
+  });
+
+  // What the scheduler's workspace GC writes: a claim, then its settling
+  // with the volume removed.
+  function reclaimClaimed(sessionId: string) {
+    return db
+      .update(sessions)
+      .set({
+        workspaceReclaimClaimedAt: sql`now()`,
+        workspaceReclaimId: crypto.randomUUID(),
+        workspaceReclaimWorkspaceId: `ap-ws-${sessionId}`,
+      })
+      .where(eq(sessions.id, sessionId));
+  }
+  function reclaimSettled(sessionId: string) {
+    return db
+      .update(sessions)
+      .set({
+        workspaceReclaimClaimedAt: null,
+        workspaceReclaimId: null,
+        workspaceReclaimWorkspaceId: null,
+        workspaceReclaimedAt: sql`now()`,
+      })
+      .where(eq(sessions.id, sessionId));
+  }
+
+  test("an answer while the parked session's workspace is reclaimed is refused unkept, and resumes it once the reclaim settles", async () => {
+    const { owner, sessionId, requestId } = await parked();
+    await reclaimClaimed(sessionId);
+
+    expect(await failure(answer(owner, sessionId, requestId))).toBe(
+      "BACKEND_UNAVAILABLE",
+    );
+    expect((await request(requestId)).answeredAt).toBeNull();
+    expect((await sessionRow(sessionId)).admissionState).toBe("paused");
+
+    await reclaimSettled(sessionId);
+    expect(await answer(owner, sessionId, requestId)).toMatchObject({
+      resumed: true,
+    });
+    const after = await sessionRow(sessionId);
+    expect(after.admissionState).toBe("resuming");
+    expect(after.workspaceReclaimedAt).toBeNull();
+  });
+
+  test("an expiry while the workspace is reclaimed waits, and carries the answered group on after it", async () => {
+    const { owner, sessionId, requestIds } = await parked(2);
+    const [first = "", second = ""] = requestIds;
+    expect(await answer(owner, sessionId, first)).toMatchObject({
+      resumed: false,
+      waiting_for: 1,
+    });
+    await db
+      .update(pendingRequests)
+      .set({ expiresAt: sql`now() - interval '1 minute'` })
+      .where(eq(pendingRequests.requestId, second));
+    await reclaimClaimed(sessionId);
+
+    // Nothing is written: the request stays a candidate for a later pass.
+    expect(
+      await expireParkedGroups(db, { limit: 1_000, dryRun: false }),
+    ).toEqual([]);
+    expect((await request(second)).resolvedAt).toBeNull();
+    expect((await sessionRow(sessionId)).admissionState).toBe("paused");
+
+    await reclaimSettled(sessionId);
+    expect(
+      await expireParkedGroups(db, { limit: 1_000, dryRun: false }),
+    ).toEqual([sessionId]);
+    expect((await request(second)).settledOutcome).toBe("expired");
+    expect((await sessionRow(sessionId)).admissionState).toBe("resuming");
+  });
+
+  test("interrupting a parked turn while the workspace is reclaimed records nothing, and the same request lifts the pause after", async () => {
+    const { owner, sessionId, first, second } = await twoParks();
+    await answer(owner, sessionId, first);
+    await reclaimClaimed(sessionId);
+    const key = crypto.randomUUID();
+    const interrupt = () =>
+      createPostgresTurnInterrupts(db).interruptAtomic({
+        principal: owner,
+        sessionId,
+        idempotencyKey: key,
+        payloadHash: "interrupt-payload",
+        targetTurnId: "2",
+      });
+
+    expect((await interrupt()).outcome).toBe("workspace_reclaiming");
+    expect((await request(second)).resolvedAt).toBeNull();
+    expect(
+      await db
+        .select()
+        .from(idempotencyKeys)
+        .where(eq(idempotencyKeys.key, key)),
+    ).toEqual([]);
+    expect((await sessionRow(sessionId)).admissionState).toBe("paused");
+
+    await reclaimSettled(sessionId);
+    expect((await interrupt()).outcome).toBe("accepted");
+    expect((await request(second)).settledOutcome).toBe("cancelled");
+    expect((await sessionRow(sessionId)).admissionState).toBe("resuming");
   });
 
   test("a drain park whose requests all expired carries on with the denials", async () => {

@@ -62,6 +62,7 @@ export async function main(
     await preflight({
       logger,
       quotaMarker: environment[QUOTA_PREFLIGHT_MARKER_ENV],
+      pausedWorkspaceTtlMs: config.pausedWorkspaceTtlMs,
       stoppedWorkspaceTtlMs: config.stoppedWorkspaceTtlMs,
       store,
     });
@@ -79,6 +80,7 @@ export async function main(
       resources: config.resources,
       slotLimit: config.slotLimit,
       stopDeadlineMs: stopDeadlineMsOf(config.execution),
+      pausedWorkspaceTtlMs: config.pausedWorkspaceTtlMs,
       stoppedWorkspaceTtlMs: config.stoppedWorkspaceTtlMs,
       store,
       ...(options.stop === undefined ? {} : { stop: options.stop }),

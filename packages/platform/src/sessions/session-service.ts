@@ -1375,7 +1375,7 @@ export function createSessionService(deps: {
         case "workspace_reclaiming":
           throw new SessionServiceError(
             "BACKEND_UNAVAILABLE",
-            "The stopped session's workspace is being reclaimed; retry the same request shortly",
+            "The session's workspace is being reclaimed; retry the same request shortly",
             // A claim settles within the pass that took it unless the daemon
             // did not answer; then the next pass settles it.
             { afterSeconds: 10 },

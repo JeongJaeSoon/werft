@@ -109,9 +109,9 @@ bucket은 `S3_BUCKET`(기본 `claude-sessions`, `infra/compose.core.yml`, `deplo
 
 - **작업 공간 volume** — Docker는 `werft-ws-<installation>-<session>-…` volume(`packages/adapters/execution/local-docker/src/config.ts`의 `DEFAULT_VOLUME_NAME_PREFIX`), Kubernetes는 worker마다 PVC
   - 담는 것: 저장소 checkout과 엔진이 쓰는 파일 전부.
-  - 보존 기간: 세션이 멈춘 뒤 24시간(`DEFAULT_STOPPED_WORKSPACE_TTL_MS`, `packages/platform/src/scheduler/options.ts`, 설정 `EXECUTION_WORKSPACE_STOPPED_TTL_SEC`, `apps/control-host/src/scheduler/config.ts`의 `schedulerConfigFromEnv`). 다시 돌아오지 않을 세션의 volume은 TTL 전에도 지운다.
+  - 보존 기간: 세션이 멈춘 뒤 24시간(`DEFAULT_STOPPED_WORKSPACE_TTL_MS`, `packages/platform/src/scheduler/options.ts`, 설정 `EXECUTION_WORKSPACE_STOPPED_TTL_SEC`, `apps/control-host/src/scheduler/config.ts`의 `schedulerConfigFromEnv`). resume이 받아들일 checkpoint가 있는 `paused` 세션은 pause한 뒤 24시간(`DEFAULT_PAUSED_WORKSPACE_TTL_MS`, 설정 `EXECUTION_WORKSPACE_PAUSED_TTL_SEC`, 기준 `sessions.paused_at`). 다시 돌아오지 않을 세션의 volume은 TTL 전에도 지운다.
   - 삭제 조건: scheduler의 작업 공간 회수(`packages/platform/src/scheduler/workspaces.ts`의 `collectWorkspaces`). 만든 지 `EXECUTION_WORKSPACE_GC_MIN_AGE_SEC`(기본 3600초)가 지나지 않은 volume은 건드리지 않는다. 지운 뒤에도 세션은 마지막 checkpoint에서 다시 연다. 자세한 규칙은 [실행 기반과 worker 격리](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/execution/).
-  - 바꾸기: `EXECUTION_WORKSPACE_STOPPED_TTL_SEC`(compose `infra/compose.core.yml`, Helm은 `scheduler.extraEnv`)와 `EXECUTION_WORKSPACE_GC_MIN_AGE_SEC`(Helm `worker.workspace.gcMinAgeSec`, `deploy/helm/werft/values.yaml`).
+  - 바꾸기: `EXECUTION_WORKSPACE_STOPPED_TTL_SEC`·`EXECUTION_WORKSPACE_PAUSED_TTL_SEC`(compose `infra/compose.core.yml`, Helm은 `scheduler.extraEnv`)와 `EXECUTION_WORKSPACE_GC_MIN_AGE_SEC`(Helm `worker.workspace.gcMinAgeSec`, `deploy/helm/werft/values.yaml`).
 
 ## 로그
 
