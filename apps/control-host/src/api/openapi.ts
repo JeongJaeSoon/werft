@@ -1117,11 +1117,11 @@ const SETTINGS_OWNER =
 const SETTINGS_LIST =
   "The database's rows, disabled ones included, by id. A credential is shown as `stored` with its `last4`, or as the name of the env or Secrets Manager reference; never a value. `state`: `needs_value` (stored, no value yet), `unresolved` (the credential did not resolve on the replica that answered), `disabled`, else `active`. Changes nothing.";
 const SETTINGS_CREATE =
-  "The credential is the value in the request, sealed under this row alone in the same transaction as the row; a reference to the deployment's env or Secrets Manager is the operator's settings CLI's. The destination never changes after: another one is a new id. An id ever used (disabled rows count) is 409 `already_exists`; an entry the catalog's rules refuse is 400 `invalid_entry`. With the secret store off (no `PLATFORM_SECRET_KEY`) a credential is 503.";
+  "The credential is the value in the request, sealed under this row alone in the same transaction as the row; a reference to the deployment's env or Secrets Manager is the operator's settings CLI's. The destination never changes after: another one is a new id. An id ever used (disabled rows count) is 409 `already_exists`; an entry the catalog's rules refuse is 400 `invalid_entry`.";
 const SETTINGS_CREDENTIAL =
-  "Seals a new value for a row that stores its own: rotating it or giving a `needs_value` row its first. Running sessions are not stopped. A row whose credential comes from the operator's deployment is 409 `not_stored`, a disabled one 409 `disabled`, the secret store off 503. Writes a `set_settings_credential` receipt naming the last four characters.";
+  "Seals a new value for a row that stores its own: rotating it or giving a `needs_value` row its first. Running sessions are not stopped. A row whose credential comes from the operator's deployment is 409 `not_stored`, a disabled one 409 `disabled`. Writes a `set_settings_credential` receipt naming the last four characters.";
 const SETTINGS_CONVERT =
-  "For a connection whose key comes from the operator's deployment (an env or Secrets Manager reference): the person types the key, it is sealed under the same id, and the row is stored from then on. The server does not read the referenced value. Ceilings made before keep running on the stored key and their pins do not change. A settings document that still names the old entry leaves the row as it is. A connection that already keeps its own value is 409 `not_external`, a disabled one 409 `disabled`, one that another connection is or was exactly 409 `alias_taken`, the secret store off 503. Writes a `set_settings_credential` receipt naming the last four characters and which reference it replaced.";
+  "For a connection whose key comes from the operator's deployment (an env or Secrets Manager reference): the person types the key, it is sealed under the same id, and the row is stored from then on. The server does not read the referenced value. Ceilings made before keep running on the stored key and their pins do not change. A settings document that still names the old entry leaves the row as it is. A connection that already keeps its own value is 409 `not_external`, a disabled one 409 `disabled`, one that another connection is or was exactly 409 `alias_taken`. Writes a `set_settings_credential` receipt naming the last four characters and which reference it replaced.";
 const SETTINGS_DISABLE =
   "Never undone and nothing is deleted: the id stays taken and the stored value stays sealed. Ceilings over it stop running anything. Disabling one already disabled is 409 `disabled`.";
 const SETTINGS_DISABLE_CONNECTION =
@@ -1601,10 +1601,6 @@ export const API_ROUTE_DECLARATIONS = [
       },
     },
     errors: [401, 403, 404, 503],
-    errorNotes: {
-      BACKEND_UNAVAILABLE:
-        "Also when the API runs without a master key (PLATFORM_SECRET_KEY).",
-    },
   },
   {
     method: "put",
@@ -1645,7 +1641,7 @@ export const API_ROUTE_DECLARATIONS = [
     errorCodes: { 409: ["CONFIG_TOKEN_INVALID"] },
     errorNotes: {
       BACKEND_UNAVAILABLE:
-        "Also when the API runs without a master key (PLATFORM_SECRET_KEY), or Slack could not be reached; nothing stored changed.",
+        "Also when Slack could not be reached; nothing stored changed.",
     },
     idempotent: false,
   },
@@ -1665,10 +1661,6 @@ export const API_ROUTE_DECLARATIONS = [
       example: { receipt_id: EXAMPLE_RECEIPT_ID },
     },
     errors: [401, 403, 404, 503],
-    errorNotes: {
-      BACKEND_UNAVAILABLE:
-        "Also when the API runs without a master key (PLATFORM_SECRET_KEY).",
-    },
     idempotent: false,
   },
   {
@@ -1718,10 +1710,6 @@ export const API_ROUTE_DECLARATIONS = [
       },
     },
     errors: [401, 403, 404, 503],
-    errorNotes: {
-      BACKEND_UNAVAILABLE:
-        "Also when the API runs without a master key (PLATFORM_SECRET_KEY).",
-    },
   },
   {
     method: "put",
@@ -1761,7 +1749,7 @@ export const API_ROUTE_DECLARATIONS = [
     errorCodes: { 409: ["GITHUB_APP_CONFLICT"] },
     errorNotes: {
       BACKEND_UNAVAILABLE:
-        "Also when the API runs without a master key (PLATFORM_SECRET_KEY), or GitHub could not be reached (`github_unreachable`); nothing stored changed.",
+        "Also when GitHub could not be reached (`github_unreachable`); nothing stored changed.",
       GITHUB_APP_CONFLICT: "Here: `same_app`, the reviewer App is this App.",
     },
     idempotent: false,
@@ -1782,10 +1770,6 @@ export const API_ROUTE_DECLARATIONS = [
       example: { receipt_id: EXAMPLE_RECEIPT_ID },
     },
     errors: [401, 403, 404, 503],
-    errorNotes: {
-      BACKEND_UNAVAILABLE:
-        "Also when the API runs without a master key (PLATFORM_SECRET_KEY).",
-    },
     idempotent: false,
   },
   {
@@ -1849,10 +1833,6 @@ export const API_ROUTE_DECLARATIONS = [
     },
     errors: [401, 403, 404, 409, 503],
     errorCodes: { 409: ["GITHUB_APP_CONFLICT"] },
-    errorNotes: {
-      BACKEND_UNAVAILABLE:
-        "Also when the API runs without a master key (PLATFORM_SECRET_KEY).",
-    },
   },
   {
     method: "put",
@@ -1901,7 +1881,7 @@ export const API_ROUTE_DECLARATIONS = [
     errorCodes: { 409: ["GITHUB_APP_CONFLICT"] },
     errorNotes: {
       BACKEND_UNAVAILABLE:
-        "Also when the API runs without a master key (PLATFORM_SECRET_KEY), or GitHub could not be reached (`github_unreachable`); nothing stored changed.",
+        "Also when GitHub could not be reached (`github_unreachable`); nothing stored changed.",
     },
     idempotent: false,
   },
@@ -1935,7 +1915,7 @@ export const API_ROUTE_DECLARATIONS = [
     errors: [400, 401, 403, 404, 503],
     errorNotes: {
       BACKEND_UNAVAILABLE:
-        "Also when the API runs without a master key (PLATFORM_SECRET_KEY), or without CONSOLE_ORIGIN (`console_origin_unset`).",
+        "Also when the API runs without CONSOLE_ORIGIN (`console_origin_unset`).",
     },
     idempotent: false,
   },
@@ -1987,7 +1967,7 @@ export const API_ROUTE_DECLARATIONS = [
     errors: [400, 401, 403, 404, 503],
     errorNotes: {
       BACKEND_UNAVAILABLE:
-        "Also when the API runs without a master key (PLATFORM_SECRET_KEY), GitHub could not be reached (`github_unreachable`), or the App could not be stored (`store_failed`).",
+        "Also when GitHub could not be reached (`github_unreachable`), or the App could not be stored (`store_failed`).",
     },
     idempotent: false,
   },
@@ -2012,10 +1992,6 @@ export const API_ROUTE_DECLARATIONS = [
       },
     },
     errors: [401, 403, 404, 503],
-    errorNotes: {
-      BACKEND_UNAVAILABLE:
-        "Also when the API runs without a master key (PLATFORM_SECRET_KEY).",
-    },
     idempotent: false,
   },
   {
@@ -2045,10 +2021,6 @@ export const API_ROUTE_DECLARATIONS = [
     },
     errors: [400, 401, 403, 404, 502, 503],
     errorCodes: { 502: ["GITHUB_UNAVAILABLE"] },
-    errorNotes: {
-      BACKEND_UNAVAILABLE:
-        "Also when the API runs without a master key (PLATFORM_SECRET_KEY).",
-    },
     idempotent: false,
   },
   {
@@ -2068,10 +2040,6 @@ export const API_ROUTE_DECLARATIONS = [
     },
     errors: [401, 403, 404, 409, 503],
     errorCodes: { 409: ["GITHUB_APP_CONFLICT"] },
-    errorNotes: {
-      BACKEND_UNAVAILABLE:
-        "Also when the API runs without a master key (PLATFORM_SECRET_KEY).",
-    },
     idempotent: false,
   },
   {
@@ -2090,10 +2058,6 @@ export const API_ROUTE_DECLARATIONS = [
       example: { github_apps: [] },
     },
     errors: [401, 403, 404, 503],
-    errorNotes: {
-      BACKEND_UNAVAILABLE:
-        "Also when the API runs without a master key (PLATFORM_SECRET_KEY).",
-    },
   },
   {
     method: "post",
@@ -2145,7 +2109,7 @@ export const API_ROUTE_DECLARATIONS = [
     errorCodes: { 409: ["GITHUB_APP_CONFLICT"] },
     errorNotes: {
       BACKEND_UNAVAILABLE:
-        "Also when the API runs without a master key (PLATFORM_SECRET_KEY), or GitHub could not be reached (`github_unreachable`); nothing stored changed.",
+        "Also when GitHub could not be reached (`github_unreachable`); nothing stored changed.",
     },
     idempotent: false,
   },
@@ -2295,10 +2259,6 @@ export const API_ROUTE_DECLARATIONS = [
     },
     errors: [400, 401, 403, 404, 413, 502, 503],
     errorCodes: { 502: ["GITHUB_UNAVAILABLE"] },
-    errorNotes: {
-      BACKEND_UNAVAILABLE:
-        "Also when the API runs without a master key (PLATFORM_SECRET_KEY).",
-    },
     idempotent: false,
   },
   {
@@ -2480,10 +2440,6 @@ export const API_ROUTE_DECLARATIONS = [
       },
     },
     errors: [401, 403, 404, 503],
-    errorNotes: {
-      BACKEND_UNAVAILABLE:
-        "When the API runs without a master key (PLATFORM_SECRET_KEY).",
-    },
   },
   {
     method: "put",
@@ -2516,9 +2472,6 @@ export const API_ROUTE_DECLARATIONS = [
     },
     errors: [400, 401, 403, 404, 409, 413, 503],
     errorCodes: { 409: ["GITHUB_LINK_NOT_CONFIGURED", "REVISION_CONFLICT"] },
-    errorNotes: {
-      BACKEND_UNAVAILABLE: "Also when the API runs without a secret key.",
-    },
     idempotent: false,
   },
   {
@@ -2549,9 +2502,6 @@ export const API_ROUTE_DECLARATIONS = [
       },
     },
     errors: [400, 401, 403, 404, 413, 503],
-    errorNotes: {
-      BACKEND_UNAVAILABLE: "Also when the API runs without a secret key.",
-    },
     idempotent: false,
   },
   {
@@ -2623,8 +2573,7 @@ export const API_ROUTE_DECLARATIONS = [
     },
     errors: [400, 401, 403, 404, 413, 503],
     errorNotes: {
-      BACKEND_UNAVAILABLE:
-        "When GitHub cannot be asked about the token, or the API runs without a master key (PLATFORM_SECRET_KEY).",
+      BACKEND_UNAVAILABLE: "When GitHub cannot be asked about the token.",
     },
     idempotent: false,
   },
@@ -2656,10 +2605,6 @@ export const API_ROUTE_DECLARATIONS = [
       },
     },
     errors: [401, 403, 404, 503],
-    errorNotes: {
-      BACKEND_UNAVAILABLE:
-        "When the API runs without a master key (PLATFORM_SECRET_KEY).",
-    },
     idempotent: false,
   },
   {
@@ -2759,7 +2704,7 @@ export const API_ROUTE_DECLARATIONS = [
     errorCodes: { 409: ["CONFIG_TOKEN_INVALID", "SLACK_APP_CREATING"] },
     errorNotes: {
       BACKEND_UNAVAILABLE:
-        "Also when the API runs without a master key (PLATFORM_SECRET_KEY), or Slack could not be reached or refused; the app stays `deleting` and the same request retries it.",
+        "Also when Slack could not be reached or refused; the app stays `deleting` and the same request retries it.",
     },
     idempotent: false,
   },
@@ -2790,8 +2735,6 @@ export const API_ROUTE_DECLARATIONS = [
     errorNotes: {
       BAD_REQUEST:
         "Also when `app_id` is not a UUID or `purpose` is not one of the three, `slack_config_token` included.",
-      BACKEND_UNAVAILABLE:
-        "Also when the API runs without a master key (PLATFORM_SECRET_KEY).",
     },
     idempotent: false,
   },
@@ -5209,7 +5152,7 @@ export const API_ROUTE_DECLARATIONS = [
     },
     errorNotes: {
       BACKEND_UNAVAILABLE:
-        "Also when Slack is rate limiting with no list read yet (`Retry-After` is Slack's), when Slack does not answer, or when the API runs without a master key (PLATFORM_SECRET_KEY).",
+        "Also when Slack is rate limiting with no list read yet (`Retry-After` is Slack's), or when Slack does not answer.",
     },
   },
   {
@@ -5736,10 +5679,6 @@ export const API_ROUTE_DECLARATIONS = [
       },
     },
     errors: [401, 403, 404, 503],
-    errorNotes: {
-      BACKEND_UNAVAILABLE:
-        "Also when the API runs without a master key (PLATFORM_SECRET_KEY).",
-    },
   },
   {
     method: "post",
@@ -5773,7 +5712,7 @@ export const API_ROUTE_DECLARATIONS = [
     errorCodes: { 409: ["CONFIG_TOKEN_INVALID"] },
     errorNotes: {
       BACKEND_UNAVAILABLE:
-        "Also without a master key (PLATFORM_SECRET_KEY), without an https events address (`CONSOLE_ORIGIN`, or `SLACK_EVENTS_PUBLIC_URL` when events enter apart from the console), or when Slack refuses or loses the manifest update.",
+        "Also without an https events address (`CONSOLE_ORIGIN`, or `SLACK_EVENTS_PUBLIC_URL` when events enter apart from the console), or when Slack refuses or loses the manifest update.",
     },
   },
   {
@@ -5810,7 +5749,7 @@ export const API_ROUTE_DECLARATIONS = [
     errorNotes: {
       REVISION_CONFLICT: "Here: the agent's app is being deleted.",
       BACKEND_UNAVAILABLE:
-        "Also when the API runs without a master key (PLATFORM_SECRET_KEY) or `CONSOLE_ORIGIN`, when Slack refused the manifest (`error.details.slack_error`; nothing was created) or could not be reached.",
+        "Also when the API runs without `CONSOLE_ORIGIN`, when Slack refused the manifest (`error.details.slack_error`; nothing was created) or could not be reached.",
     },
     idempotent: false,
   },
@@ -5842,8 +5781,6 @@ export const API_ROUTE_DECLARATIONS = [
     },
     errorNotes: {
       REVISION_CONFLICT: "Here: the agent's app is being deleted.",
-      BACKEND_UNAVAILABLE:
-        "Also when the API runs without a master key (PLATFORM_SECRET_KEY).",
     },
     idempotent: false,
   },
@@ -5921,8 +5858,7 @@ export const API_ROUTE_DECLARATIONS = [
     errorNotes: {
       REVISION_CONFLICT:
         "Here: the agent's app changed, or the install was revoked, while it was being installed; start again.",
-      BACKEND_UNAVAILABLE:
-        "Also when the API runs without a master key (PLATFORM_SECRET_KEY), or Slack could not be reached; start again.",
+      BACKEND_UNAVAILABLE: "Also when Slack could not be reached; start again.",
     },
     idempotent: false,
   },
