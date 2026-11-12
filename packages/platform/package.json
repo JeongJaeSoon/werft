@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./testing": "./src/testing/execution-backend-contract.ts",
+    "./testing/catalog": "./src/testing/catalog-fakes.ts",
     "./testing/checkpoints": "./src/testing/checkpoints.ts",
     "./testing/github": "./src/testing/github-fakes.ts",
     "./testing/refusal": "./src/testing/refusal.ts",

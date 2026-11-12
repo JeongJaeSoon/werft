@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { generateKeyPairSync } from "node:crypto";
 import {
+  environmentCredentials,
+  runtimeProviderOf,
+} from "../testing/catalog-fakes.ts";
+import {
   BILLING_NONE_ENDPOINT_MESSAGE,
   billingFitsEndpoint,
   type CatalogProviderConfig,
@@ -8,7 +12,6 @@ import {
   catalogCredentialRefs,
   connectionModels,
   describeConfigError,
-  environmentCredentials,
   mcpBinding,
   mcpUpstreamOf,
   pinnedMcpTools,
@@ -18,7 +21,6 @@ import {
   resolveProvider,
   resolveSessionCatalog,
   runtimeKindOfProvider,
-  runtimeProviderOf,
   sessionCatalogConfigSchema,
   sessionCatalogView,
 } from "./catalog.ts";

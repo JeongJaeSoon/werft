@@ -18,7 +18,6 @@ import {
   RUNTIME_KIND_OF_PROVIDER,
   type RuntimeConfig,
   type RuntimeKind,
-  type runtimeConfigSchema,
   startRepositoryOf,
 } from "@werft-ai/contracts";
 import { z } from "zod";
@@ -671,22 +670,6 @@ export function runtimeConfigWithMcp(
 }
 
 /**
- * The provider as the worker protocol carries it: where the proxy
- * will send the engine's requests, and the attempt's token for that route.
- * The credential stays here; `providerUpstreamOf` is what the proxy gets.
- */
-export function runtimeProviderOf(
-  provider: Pick<CatalogProvider, "kind" | "endpoint">,
-  token: string,
-): z.infer<typeof runtimeConfigSchema.shape.provider> {
-  return {
-    kind: provider.kind,
-    endpoint: provider.endpoint,
-    auth: { kind: "egress_token", token },
-  };
-}
-
-/**
  * A built-in tool list without the tools a session's caller limit denies.
  * `mcp__` names pass through untouched: MCP decisions are not made here.
  * The list itself comes back when nothing is removed.
@@ -1202,13 +1185,6 @@ function privateKeyPem(
     );
   }
   return pem;
-}
-
-/** Environment-only lookup: a secret reference resolves to nothing here. */
-export function environmentCredentials(
-  env: Record<string, string | undefined>,
-): (ref: CredentialRef) => string | undefined {
-  return (ref) => ("value_env" in ref ? env[ref.value_env] : undefined);
 }
 
 /** A zod failure as one line naming each path, for a startup error. */

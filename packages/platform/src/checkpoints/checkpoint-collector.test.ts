@@ -26,6 +26,7 @@ import {
   type CommitCheckpointInput,
   type CommitCheckpointResult,
   finalizeCheckpoint,
+  structuralBundleVerifier,
 } from "../testing/checkpoints.ts";
 import { createCheckpointCollector } from "./checkpoint-collector.ts";
 import {
@@ -39,7 +40,6 @@ import type {
   CheckpointPointer,
   CheckpointStore,
 } from "./ports/checkpoint-store.ts";
-import { structuralBundleVerifier } from "./ports/workspace-bundle-verifier.ts";
 
 /**
  * garbage collection releases and deletes what no restore can reach

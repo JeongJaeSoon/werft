@@ -161,7 +161,7 @@ export function slackSessionHandler(deps: {
   logger: StructuredLogger;
   secretKey: SecretKey;
   leaseMs: number;
-  notices?: SlackNoticeSink;
+  notices: SlackNoticeSink;
   slackApiUrl?: string;
   inbox?: Pick<SlackInboundEventStore, "renew">;
   /** The pass's catalog, already read. No timer reads it again. */
