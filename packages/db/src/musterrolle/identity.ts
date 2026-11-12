@@ -558,13 +558,34 @@ export async function createWebSession(
     if (current?.passwordHash !== input.verifiedPasswordHash) {
       return null;
     }
-    return insertWebSession(tx, input);
+    // Every account with a password has this row since 0138; the insert
+    // only repairs one that lost it, so no session goes without its method.
+    await tx.execute(
+      sql`INSERT INTO ${loginMethods} ("id", "user_id", "kind")
+          VALUES (gen_random_uuid(), ${input.userId}, 'password')
+          ON CONFLICT DO NOTHING`,
+    );
+    const [method] = await tx
+      .select({ id: loginMethods.id })
+      .from(loginMethods)
+      .where(
+        and(
+          eq(loginMethods.userId, input.userId),
+          eq(loginMethods.kind, "password"),
+        ),
+      );
+    if (!method) {
+      throw new Error("password login method is missing after its insert");
+    }
+    return insertWebSession(tx, { ...input, loginMethodId: method.id });
   });
 }
 
 type WebSessionInput = {
   id: string;
   userId: string;
+  /** The login_methods row the user signed in with. */
+  loginMethodId: string;
   tokenHash: Uint8Array;
   ttlMs: number;
   userAgent: string | null;
@@ -600,6 +621,7 @@ async function insertWebSession(
       expiresAt: fromDbNow(input.ttlMs),
       lastSeenAt: DB_NOW,
       userAgent: input.userAgent,
+      loginMethodId: input.loginMethodId,
     })
     .returning({ expiresAt: webSessions.expiresAt });
   if (!row) {
@@ -669,6 +691,7 @@ export async function signInWithExternalIdentity(
       const { expiresAt } = await insertWebSession(tx, {
         ...input.session,
         userId: linked.userId,
+        loginMethodId: linked.id,
       });
       return {
         outcome: "signed_in",
@@ -800,6 +823,7 @@ export async function signInWithExternalIdentity(
     const { expiresAt } = await insertWebSession(tx, {
       ...input.session,
       userId: input.newUserId,
+      loginMethodId: input.newLoginMethodId,
     });
     return {
       outcome: "signed_in",
@@ -816,6 +840,12 @@ export async function signInWithExternalIdentity(
  * The cookie's session, its user and the user's live membership in one
  * query, all judged on the database clock: an expired or revoked session, a
  * disabled account and a disabled membership all come back null.
+ *
+ * A session that names no login method was made before sessions recorded
+ * one, so nothing says how its user signed in. It stands only while the user
+ * has no external login method, when it can only have been a password: a
+ * session that may have come from a provider cannot be cut when that
+ * provider is turned off, so it is not accepted at all.
  */
 export async function resolveWebSession(
   db: Database,
@@ -844,6 +874,14 @@ export async function resolveWebSession(
         isNull(webSessions.revokedAt),
         gt(webSessions.expiresAt, DB_NOW),
         isNull(users.disabledAt),
+        or(
+          isNotNull(webSessions.loginMethodId),
+          sql`NOT EXISTS (
+            SELECT 1 FROM ${loginMethods}
+            WHERE ${loginMethods.userId} = ${users.id}
+              AND ${loginMethods.kind} <> 'password'
+          )`,
+        ),
       ),
     )
     .orderBy(asc(memberships.createdAt), asc(memberships.workspaceId))

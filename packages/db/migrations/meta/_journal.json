@@ -1282,6 +1282,13 @@
       "when": 1794500606922,
       "tag": "0273_paused_at",
       "breakpoints": true
+    },
+    {
+      "idx": 274,
+      "version": "7",
+      "when": 1794509781176,
+      "tag": "0274_web_session_login_method",
+      "breakpoints": true
     }
   ]
 }

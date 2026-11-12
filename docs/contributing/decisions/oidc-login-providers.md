@@ -599,10 +599,17 @@ e2e의 Keycloak은 API 컨테이너와 네트워크 이름공간을 함께 쓰�
 | 단계 | 상태 | PR |
 |---|---|---|
 | 0 설계 | 머지 | JeongJaeSoon/werft#1660 |
-| 1 OIDC 코어 | PR | JeongJaeSoon/werft#1662 |
-| 2~6 | 시작 전 | — |
+| 1 OIDC 코어 | 머지 | JeongJaeSoon/werft#1662 |
+| 2a 세션의 로그인 수단 | PR | JeongJaeSoon/werft#1664 |
+| 2b 공급자 저장, 환경 변수 제거 | 시작 전 | — |
+| 3~6 | 시작 전 | — |
 
 1단계는 3.1절의 표에서 `provider-http.ts`, `discovery.ts`, `jwks.ts`, `id-token.ts`, `flow.ts`(시작과 끝), `issuer-rules.ts`, `errors.ts`를 넣고 환경 변수로 설정한 Google 로그인을 그 위로 옮긴다. 흐름 cookie의 봉인, 응답 `iss`를 라우트에서 넘기는 일, `admission.ts`는 공급자 행이 생기는 2단계에 넣는다. 1단계의 네트워크 정책에는 `http` issuer를 그대로 받는 값이 하나 더 있다. 환경 변수 Google 로그인의 mock IdP만 쓰고, 2단계에서 환경 변수와 함께 없앤다. 12절은 1단계에서 mock IdP에 키 회전을 더한다고 적지만, 1단계의 회전 시험은 모듈 안의 가짜 공급자(요청 함수 자리)로 하고, HTTP mock IdP의 회전은 6단계의 공급자 모양과 함께 넣는다.
+
+2단계는 PR 둘로 나눈다. 한 PR로는 리뷰할 면적이 넓고, 세션 규칙은 나머지와 따로 설 수 있다.
+
+- 2a: `web_sessions.login_method_id`와 그 기록(비밀번호·외부 로그인 모두), 수단이 없는 세션의 조회 조건(5.4절), `login_methods (user_id, issuer)` 유일 인덱스와 그 앞의 검사(5.3절). 인덱스를 여기에 넣는 까닭은 조회 조건이 "이 사용자에게 외부 수단이 있는가"를 이 인덱스로 읽기 때문이다. 환경 변수 Google 로그인은 그대로 돈다. 그래서 옛 세션이 무효가 된 사용자는 같은 방법으로 바로 다시 로그인한다. `kind`의 값은 아직 `google`이다.
+- 2b: 12절 2단계의 나머지. `login_providers`와 공급자 저장소, `kind`를 `oidc`로, 봉인한 흐름 cookie, 공개 경로, `GOOGLE_OIDC_*` 제거, 로그인 화면의 버튼, 끄기와 세션 끊기, 잠금 순서. 5.4절의 살아 있는 세션을 수단으로 찾는 부분 인덱스는 그것을 읽는 끄기와 함께 여기에 넣는다.
 
 ## 17. 리뷰 기록
 
