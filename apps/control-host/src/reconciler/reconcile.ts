@@ -30,6 +30,8 @@ export type ReconcilerRun = {
   decisionsExpired: number;
   toolAuditsExpired: number;
   webSessionsDeleted: number;
+  // Sessions whose copied variable values this pass dropped.
+  envStartsPurged: number;
   // null on a dry run, which projects nothing.
   toolCalls: ToolCallProjection | null;
 };
@@ -114,6 +116,11 @@ export async function runReconciler(input: {
   }): Promise<number>;
   // Web sessions 30 days past expiry.
   deleteExpiredWebSessions(options: {
+    dryRun: boolean;
+    limit: number;
+  }): Promise<number>;
+  // Variable values an open session copied at accept and kept past retention.
+  purgeExpiredEnvStart(options: {
     dryRun: boolean;
     limit: number;
   }): Promise<number>;
@@ -206,6 +213,11 @@ export async function runReconciler(input: {
     dry_run: dryRun,
     deleted_count: webSessionsDeleted,
   });
+  const envStartsPurged = await input.purgeExpiredEnvStart({ dryRun, limit });
+  input.logger.info("Expired session variable values purged", {
+    dry_run: dryRun,
+    purged_count: envStartsPurged,
+  });
   const toolCalls = dryRun ? null : await input.projectToolCalls();
   input.logger.info("Tool calls projected", {
     dry_run: dryRun,
@@ -240,6 +252,7 @@ export async function runReconciler(input: {
     decisionsExpired,
     toolAuditsExpired,
     webSessionsDeleted,
+    envStartsPurged,
     toolCalls,
   };
 }

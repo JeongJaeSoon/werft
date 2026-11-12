@@ -28,7 +28,8 @@ import {
 const integrationTest = testDatabaseUrl() ? test : test.skip;
 
 // What the migrations hold that schema.ts cannot declare: Drizzle has no
-// syntax for functions or triggers, so these are written by hand in SQL.
+// syntax for functions or triggers, so these are written by hand in SQL, and
+// so is an index whose predicate calls one of those functions.
 // Listed exactly, so a migration that loses, disables or rewrites one fails
 // as well; a migration that changes one on purpose updates its line here.
 const MIGRATIONS_ONLY = [
@@ -96,6 +97,11 @@ const MIGRATIONS_ONLY = [
   "function tool_hist_step(state integer[], bucket integer, delta integer) integer[] language sql volatility=i parallel=s body md5 20e7f2741f305c44a7febf7acc1b90ff",
   "function tool_hist_sum(integer[]) integer[] language internal volatility=i parallel=u body md5 3eb6d2f5e7ee95ed566dd6cdda54dac3",
   "function tool_ms_bucket(ms bigint) integer language sql volatility=i parallel=s body md5 6a2f107430551d1a26c5afd7b02f7985",
+  // 0271: the sessions the variable purge reads. Its predicate calls
+  // env_start_without_values, which exists only where the migrations ran; a
+  // migration that changes that function's line above rebuilds this index.
+  "index CREATE INDEX sessions_env_start_values_idx ON public.sessions USING btree (id) WHERE ((env_start IS NOT NULL) AND (env_start IS DISTINCT FROM env_start_without_values(env_start)))",
+  "relation sessions_env_start_values_idx kind=i",
   "trigger CREATE CONSTRAINT TRIGGER pending_requests_slack_thread_status_insert AFTER INSERT ON public.pending_requests DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION slack_thread_status_of_row() enabled=O",
   "trigger CREATE CONSTRAINT TRIGGER pending_requests_slack_thread_status_update AFTER UPDATE ON public.pending_requests DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (((old.resolved_at IS DISTINCT FROM new.resolved_at) OR (old.answered_at IS DISTINCT FROM new.answered_at) OR (old.parked_at IS DISTINCT FROM new.parked_at) OR (old.expires_at IS DISTINCT FROM new.expires_at))) EXECUTE FUNCTION slack_thread_status_of_row() enabled=O",
   "trigger CREATE CONSTRAINT TRIGGER push_intents_slack_thread_status_insert AFTER INSERT ON public.push_intents DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION slack_thread_status_of_row() enabled=O",
