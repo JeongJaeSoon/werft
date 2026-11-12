@@ -36,6 +36,8 @@ For protocol or [gate](#실행-전-게이트) field changes, do not replace ever
 
 Next upgrade to the final release with target egress proxy and worker digests. This prevents proxy/workers from sending new fields before the API is ready. Apply intermediate and final test-ops inputs separately through `scripts/test-ops.sh upgrade`.
 
+Do not follow this order when you upgrade to the profile removal release. Upgrade straight to the final release, with no intermediate release, because an old worker cannot read the new control-host's answer ([Upgrade order of the profile removal release](#프로필-제거-릴리스의-업그레이드-순서)).
+
 <a id="3-upgrade와-영향-세션" />
 ### 3. Upgrade and affected sessions
 
@@ -96,7 +98,7 @@ Compare target changelog actions with your deployed version. Meet every applicab
 | A bot that leaves a private channel leaves it `left` (inactive) (migration 0252) | Update every API that includes the migration → the slack role and the roles that run the outbox, cards and thread status, all with the same image | The `status` CHECK and the drop-reason CHECK of `slack_inbound_events` now accept `left` and `channel_left`. An older image that does not know `left` takes no input from that channel, but its outbox still sends there. Once the first `left` row exists, do not go below this image. If you must, stop writes and sends first and change the `left` rows to `pending_approval`, which loses the meaning of "inactive" |
 | Extension bundle attachments and session resolution (migration 0251) | Update every API that includes the migration | Rolling the image back after 0251 is safe: an old image does not read the `extension_attachments` table or the `sessions.extensions` column, so it ignores the bundle list a session was created with. To roll the schema below 0251, drop the `extension_attachments` table and the `sessions.extensions` column; the bundle lists already fixed on sessions are not restored |
 
-Test new control-host with the previous worker before deployment: complete session turn 1 → remove worker → complete turn 2 from checkpoint, with no 400 BAD_REQUEST in API worker requests. Empty-installation ready 200 does not substitute.
+Test new control-host with the previous worker before deployment: complete session turn 1 → remove worker → complete turn 2 from checkpoint, with no 400 BAD_REQUEST in API worker requests. Empty-installation ready 200 does not substitute. Look at turn 1 first. When the previous worker cannot read the new control-host's answer, the API answers 200 and the worker exits right after it starts, so the absence of 400s does not catch this failure. The profile removal release does not support this combination. When you upgrade to it, check that turn 1 completes with the new control-host and the new worker ([Upgrade order of the profile removal release](#프로필-제거-릴리스의-업그레이드-순서)).
 
 <a id="v010-이후-변경을-처음-적용할-때" />
 ### First applying changes after v0.1.0
@@ -113,7 +115,7 @@ Apply the conditions below after checking whether your installation already incl
 
 When worker images change, Compose upgrade checks calculate restoration plans for every current checkpoint using the new image's engine/SDK/CLI/profile digest. Sessions matching all four continue without approval; notify users and approve the exact `INCOMPATIBLE_CHECKPOINT` list. If checking cannot complete or other validation failures occur, fail closed: include every session with uncollected checkpoints and log this. Recheck after stopping writers. `start_fresh` discards incompatible checkpoint context. Kubernetes pre-upgrade hooks make equivalent decisions from pointer combinations without executing images ([Kubernetes checks](/run-server/self-hosting/upgrade-kubernetes#3-검사-결과와-예외)).
 
-On a worker image change, upgrade retains the old image in the state directory's `previous-worker` file. For each session, the scheduler matches checkpoint engine/SDK/CLI/profile digest scheme against current/previous images, preferring current if both match ([configuration](/run-server/self-hosting/reference/configuration)). The affected list therefore includes sessions restorable by neither image. If either image check fails closed, retain the new-image list unchanged. For rebuilt images with the same combination, the scheduler selects current: do not remove sessions unverified on current merely because previous can restore them. If either is too old to report its combination (a build without combination reporting), previous is not used and the gate retains the new-image list. The support window is one release: another upgrade can affect sessions left on the older image.
+On a worker image change, upgrade retains the old image in the state directory's `previous-worker` file. For each session, the scheduler matches checkpoint engine/SDK/CLI/profile digest scheme against current/previous images, preferring current if both match ([configuration](/run-server/self-hosting/reference/configuration)). The affected list therefore includes sessions restorable by neither image. If either image check fails closed, retain the new-image list unchanged. For rebuilt images with the same combination, the scheduler selects current: do not remove sessions unverified on current merely because previous can restore them. If either is too old to report its combination (a build without combination reporting), previous is not used and the gate retains the new-image list. The support window is one release: another upgrade can affect sessions left on the older image. In the profile removal release, no session launches on the previous image ([Upgrade order of the profile removal release](#프로필-제거-릴리스의-업그레이드-순서)).
 
 <a id="runtime-프로필의-공통-준비" />
 <a id="runtime-버전의-공통-준비" />
@@ -137,6 +139,17 @@ Workers included in `v0.1.0` upload incremental bundles containing only new obje
 
 The release that removes run profiles runs migration `0270_remove_profiles`, which drops the profile tables and columns and deletes the releases made on profiles, their sessions, and the records under those sessions (turns, events, checkpoint rows and so on; 45 tables). Slack outbox rows that name no session (welcome notices and the like) are kept. Of the usage tables only `provider_usage`, which hangs off sessions, is emptied; `agent_usage` stays. A development or verify database that applied an earlier draft of this change (`0269_remove_profiles`) must be created again. Agents and their card versions, teams, keys and the installation settings stay. From then on every session runs the spec its release pinned (connection, model, runtime, tools), and an agent runs again once it is released on a connection. Give each connection the model list (`models`) agents may pick from. **You cannot roll back to a build older than this release.** To go back, restore the database from the backup taken before the upgrade.
 
+<a id="프로필-제거-릴리스의-업그레이드-순서" />
+### Upgrade order of the profile removal release
+
+Upgrade the control-host and worker images together, in one upgrade, to the profile removal release. Its control-host leaves `runtime.profile_id` and `profile_fingerprint` out of the `bootstrap-claim` answer. A worker built before the profile removal (`v0.1.3` included) requires both fields. So that worker logs `POST /bootstrap-claim answered a body this worker cannot read` as soon as the answer arrives and exits with code 1. The session is launched three times and then stops as `recovery_required` (`STARTUP_FAILED`, `execution_gone`). The API answers this request with 200, so looking for 400s on worker requests in the API log does not find this failure. Whether the session's turn 1 completes does.
+
+- Do not do the intermediate release of [2. API → proxy → worker order](#2-api--proxy--worker-순서) or [step 1 of the Kubernetes upgrade](/run-server/self-hosting/upgrade-kubernetes#1-대상-chart와-제어-영역-우선-교체) for this release. While the new control-host runs with old workers, no new session starts. On Compose, `upgrade` straight to the final release. On Kubernetes, upgrade straight with the step 2 commands.
+- A worker image built before the profile removal is outside this release's support window. Do not put such an image in `images.workerPrevious` on purpose. But the Kubernetes [pre-upgrade check](/run-server/self-hosting/upgrade-kubernetes#3-검사-결과와-예외) requires `images.workerPrevious` to be the deployed image in an upgrade that changes the worker image, and approval cannot bypass this. So pass the `worker-previous.json` that the step 2 script makes (the deployed worker image) unchanged in this upgrade. The `previous-worker` file that the Compose `upgrade` keeps is the same. No session launches on that image: `0270` empties the sessions, new sessions always start on the current image, and the current image seals the checkpoints after that. The next upgrade that changes the worker image replaces the previous image with this release's image.
+- After the upgrade, check that one new session completes turn 1.
+
+From the next release on, the support window of the current and previous images applies again. This release's worker is the previous image of the next release. When you remove a response field that the worker reads, follow the order below. First change the worker so that it accepts the answer without the field. Remove the field from the control-host only in a later release, when that worker is the oldest image in the support window. The profile removal release did not follow this order.
+
 <a id="worker-protocol-필드를-걷어내는-순서" />
 ### Removing worker protocol fields
 
@@ -144,8 +157,8 @@ Existing worker containers keep running old images after API upgrades. Even idle
 
 | Field | Phase 1: receiver stops requiring it | Phase 2: sender removes it after phase 1 rollout |
 |---|---|---|
-| Heartbeat response `auth_revision` | Worker accepts responses without it | API stops sending it, after confirming no pre-phase-1 workers remain |
-| Append-events request `batch_key` | API accepts requests without it (not yet implemented) | Worker stops sending it, after confirming no pre-phase-1 APIs remain |
+| Heartbeat response `auth_revision` | Worker accepts responses without it. Every release's worker image since `v0.1.0` has this | The API stops sending it from the release after `v0.1.3`. Every published worker image is past phase 1, so there is nothing to check |
+| Append-events request `batch_key` | The API accepts requests without it from the release after `v0.1.3` | Worker stops sending it (not yet done). Before that, compare the deployed control-host image's tag or digest with the phase-1 release notes |
 
 Premature phase 2 makes old peers reject requests/responses as contract violations. Workers treat invalid heartbeat responses as nonretryable, assume lease loss at the first heartbeat, and stop.
 

@@ -530,6 +530,37 @@ describe("/internal/worker", () => {
     ).toEqual({ status: 409, code: "STALE_EPOCH" });
   });
 
+  test("append-events without batch_key is stored, and its resend is a replay", async () => {
+    const { binding } = await claimed((await seedSession()).session_id);
+    const batch = {
+      ...scope(binding),
+      events: [
+        {
+          event: "status",
+          data: { phase: "running" },
+          source_sequence: 1,
+          occurred_at: clock.toISOString(),
+        },
+      ],
+    };
+    const first = await post(
+      "append-events",
+      binding.session_credential,
+      batch,
+    );
+    expect(first.status).toBe(200);
+    const appended = appendEventsResponseSchema.parse(await first.json());
+    expect(appended.accepted_through).toBe(1);
+    const resent = await post("append-events", binding.session_credential, {
+      ...batch,
+      batch_key: "a-different-key",
+    });
+    expect(resent.status).toBe(200);
+    expect(appendEventsResponseSchema.parse(await resent.json())).toEqual(
+      appended,
+    );
+  });
+
   test("rejects a malformed body with 400 before touching the gateway", async () => {
     const { binding } = await claimed((await seedSession()).session_id);
     expect(

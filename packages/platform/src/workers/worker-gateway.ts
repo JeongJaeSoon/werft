@@ -155,6 +155,8 @@ import type { SessionTitleStore } from "../sessions/ports/session-title-store.ts
 import {
   hashTitleToken,
   type SessionTitler,
+  TITLE_MAX_TOKENS,
+  TITLE_PROVIDER_PATH,
   TITLE_TOKEN_PREFIX,
   titleRun,
 } from "../sessions/session-titler.ts";
@@ -327,6 +329,11 @@ export type EgressGrant = {
   session_id: string;
   attempt_id: string;
   upstream: EgressUpstream;
+  /**
+   * The one request the grant covers, which the proxy holds the body to: a
+   * title call's path, model and output cap. A proxy from before ignores it.
+   */
+  request_limits?: { path: string; model: string; max_tokens: number };
 };
 
 /**
@@ -1296,6 +1303,11 @@ export function createWorkerGateway(deps: {
       session_id: result.sessionId,
       attempt_id: result.attemptId,
       upstream: providerUpstreamOf(run.connection.provider),
+      request_limits: {
+        path: TITLE_PROVIDER_PATH,
+        model: run.model,
+        max_tokens: TITLE_MAX_TOKENS,
+      },
     };
   }
 
@@ -2267,7 +2279,6 @@ export function createWorkerGateway(deps: {
       return {
         lease_expires_at: result.leaseExpiresAt.toISOString(),
         lease_remaining_ms: result.leaseRemainingMs,
-        auth_revision: result.authRevision,
         // A hint, read after the fenced write: the worker's pendingControl
         // poll is what actually hands anything over. A failed read must not
         // turn the lease already renewed into an error the worker reads as

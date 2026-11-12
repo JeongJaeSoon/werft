@@ -271,6 +271,11 @@ async function resumePaused(
   // A paused session can carry the status of an ended one; the resume that
   // completes later makes it live, which an authoritative pin refuses.
   if (pinRefusesLive(session)) return { outcome: "pin_required" };
+  // As from stopped, and checked last so a refusal that retrying cannot fix
+  // is the one given: GC is removing the workspace a launch would mount.
+  if (session.workspaceReclaimId !== null) {
+    return { outcome: "workspace_reclaiming" };
+  }
   // A parked turn is carried on by this resume, once nothing it asked is
   // still open: an answer or an expiry stands for each.
   const parked = await closeParkedGroup(tx, session, {
@@ -310,6 +315,13 @@ export async function moveToResuming(
     | { now: Date; answeredBy: ReceiptActor | null },
 ) {
   const { now } = input;
+  // Every caller refuses or waits while GC holds a claim; a launch now would
+  // mount the volume being removed.
+  if (session.workspaceReclaimId !== null) {
+    throw new Error(
+      `session ${session.id} cannot resume while its workspace is being reclaimed`,
+    );
+  }
   await tx
     .update(sessions)
     .set({
@@ -317,6 +329,7 @@ export async function moveToResuming(
       leaseEpoch: sql`${sessions.leaseEpoch} + 1`,
       admissionState: "resuming",
       updatedAt: now,
+      workspaceReclaimedAt: null,
     })
     .where(eq(sessions.id, session.id));
   // Signalled whether or not input is queued: the receipt waits on a worker

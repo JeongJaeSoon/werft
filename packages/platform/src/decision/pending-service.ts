@@ -142,6 +142,12 @@ export function createPendingRequestService(deps: {
             "CHECKPOINT_UNAVAILABLE",
             "The session has no checkpoint the parked turn can resume from",
           );
+        case "workspace_reclaiming":
+          throw new SessionServiceError(
+            "BACKEND_UNAVAILABLE",
+            "The session's workspace is being reclaimed; retry the same request shortly",
+            { afterSeconds: 10 },
+          );
         case "actor_inactive":
           throw new SessionServiceError(
             "FORBIDDEN",

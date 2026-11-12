@@ -124,6 +124,47 @@ integration("tool call projection on PostgreSQL", () => {
     expect(await calls()).toEqual(["tu-fast", "tu-slow"]);
   }, 20_000);
 
+  // Batches of one put the two rows in separate batches of the same pass.
+  test.each([100, 1])(
+    "a higher id past the margin does not carry the cursor over a lower one inside it (batches of %d)",
+    async (batchSize) => {
+      const id = await session();
+      // `created_at` is the inserting transaction's start, so a transaction
+      // begun long ago stamps its late, higher id past the margin. Stamped
+      // here directly so the test does not race the clock.
+      const insert = (
+        client: Pick<Client, "query">,
+        toolUseId: string,
+        age: "1 hour" | "0 seconds",
+      ) =>
+        client.query(
+          "INSERT INTO events (session_id, type, payload, created_at) VALUES ($1, 'tool_use', $2, now() - $3::interval)",
+          [id, toolUse(toolUseId), age],
+        );
+      const open = new Client({ connectionString: database.url });
+      await open.connect();
+      try {
+        await insert(pool, "tu-low", "0 seconds");
+        await open.query("BEGIN");
+        await insert(open, "tu-open", "0 seconds");
+        await insert(pool, "tu-high", "1 hour");
+        const project = () =>
+          projectToolCalls(db, { batchSize, budgetMs: 10_000 });
+        const during = await project();
+        expect(await calls()).toEqual(["tu-high", "tu-low"]);
+        expect(during.appliedThrough).toBe(0);
+        await open.query("COMMIT");
+        await project();
+        expect(await calls()).toEqual(["tu-high", "tu-low", "tu-open"]);
+      } finally {
+        // Ending the client rolls back what it left open, which would
+        // otherwise hold the next test's TRUNCATE.
+        await open.end();
+      }
+    },
+    20_000,
+  );
+
   test("without the margin the same order loses the row for good", async () => {
     const { commit } = await inverted();
     const project = () =>

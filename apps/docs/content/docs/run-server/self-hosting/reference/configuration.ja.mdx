@@ -82,9 +82,11 @@ scheduler が worker コンテナ作成時に読む値です。未設定は既�
 
 scheduler は `WORKER_IMAGE`・`WORKER_IMAGE_RUNTIME` で現在のイメージ、`WORKER_IMAGE_PREVIOUS`・`WORKER_IMAGE_PREVIOUS_RUNTIME` で直前リリースのイメージを受け取ります。runtime 値は API と同じです（上記 API 設定）。直前イメージは両値を設定する必要があり、一つだけでは起動しません。`WORKER_IMAGE_RUNTIME` がなければ、すべての launch は `WORKER_IMAGE` で起動します。設定すると launch ごとに、セッションの checkpoint ポインターに記録された組み合わせ（engine・SDK・CLI・profile digest scheme）と合うイメージを選び、両方合えば現在のイメージを使います。新規セッション、checkpoint がないセッション、組み合わせ未記録の古い checkpoint は現在のイメージで起動します。どちらとも合わなければ worker を起動せず、`recovery_required`（`incompatible_checkpoint`）で停止し、セッションイベント `checkpoint_restore_failed` に `detected_at: "launch"` が残ります。`retry_restore` で再試行できます。
 
+プロファイル削除前にビルドした worker イメージは、プロファイル削除リリースの control-host の応答を読めないため、サポート範囲に入りません。そのリリースへの upgrade では、アップグレード検査のために `WORKER_IMAGE_PREVIOUS` がそのイメージになることがありますが、そのイメージで起動するセッションはありません（[プロファイル削除リリースのアップグレード順序](/run-server/self-hosting/upgrade-compose#프로필-제거-릴리스의-업그레이드-순서)）。
+
 worker は claim 時に、実際に自分のイメージに含む組み合わせを送ります。設定値と違えば API が claim を拒否し（`LAUNCH_FAILED`、`reason_code` は `worker_image_mismatch`）、その設定値に対してそのイメージを拒否したと記録します。以後、そのイメージで起動するセッションは launch されず待機し、scheduler pass は `images_refused` を error ログに残して exit 1 で終了します。イメージ設定を修正すると（値が変わると）、次の pass から launch を再開します。セッション自体は失敗に変わりません。
 
-デプロイ順序：新 worker は claim に `image_runtime` を含めます。このフィールドを知らない以前の API は拒否するため、API を先に更新し、その後 scheduler の `WORKER_IMAGE` を新イメージに変えます。
+デプロイ順序：新 worker は claim に `image_runtime` を含めます。このフィールドを知らない以前の API は拒否するため、API を先に更新し、その後 scheduler の `WORKER_IMAGE` を新イメージに変えます。プロファイル削除リリースへの更新は例外で、両方を一つの upgrade で一緒に変えます（[プロファイル削除リリースのアップグレード順序](/run-server/self-hosting/upgrade-compose#프로필-제거-릴리스의-업그레이드-순서)）。
 
 | 変数 | 既定値 | 意味 |
 |---|---|---|
@@ -183,7 +185,7 @@ kubernetes モードだけで読む設定は次のとおりです。
 | `EXECUTION_K8S_WORKER_TOLERATIONS` | 任意。JSON array |
 | `EXECUTION_K8S_WORKER_EPHEMERAL_STORAGE_MB` | worker コンテナの ephemeral-storage requests・limits（MiB）。既定 1024。超過すると kubelet が Pod を evict します |
 
-失敗した worker の終了理由とログ tail（最後の 8 KiB）は、scheduler ログの `Execution resource failed; log tail kept` 行に残ります。保存先と保持期間は、リポジトリの Kubernetes 実行アダプターの README（終了理由とログ tail 節）にあります。
+失敗した worker の終了理由とログ tail（最後の 8 KiB）は、scheduler ログの `Execution resource failed; log tail kept` 行に残ります。ログのマスキング規則は tail を行単位で隠します。秘密の形をした値は、その値がまたがる行だけを隠します。`input:` のような断片は、その行から最後までを隠します。それより前の行は残ります（URL の login はその部分だけ隠します）。保存先と保持期間は、リポジトリの Kubernetes 実行アダプターの README（終了理由とログ tail 節）にあります。
 
 <a id="chart가-넣는-값" />
 ## chart が設定する値

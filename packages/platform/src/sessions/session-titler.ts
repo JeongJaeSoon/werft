@@ -14,7 +14,9 @@ const TITLE_TOKEN_TTL_MS = 2 * 60_000;
 // Under the proxy's 30s regrant: the token is used up by the first grant,
 // so an exchange still open then is cut.
 const TITLE_CALL_TIMEOUT_MS = 25_000;
-const TITLE_MAX_TOKENS = 64;
+export const TITLE_MAX_TOKENS = 64;
+// The one call a title token may make; the proxy holds it to these.
+export const TITLE_PROVIDER_PATH = "/v1/messages";
 // What of the first turn the model is shown; a title needs the gist only.
 const EXCERPT_CHARS = 2_000;
 
@@ -41,7 +43,7 @@ export function createSessionTitler(deps: {
   const base = deps.egressUrl.replace(/\/+$/, "");
 
   async function call(token: string, model: string, prompt: string) {
-    const response = await send(`${base}/provider/v1/messages`, {
+    const response = await send(`${base}/provider${TITLE_PROVIDER_PATH}`, {
       method: "POST",
       headers: {
         "content-type": "application/json",

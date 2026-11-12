@@ -47,7 +47,7 @@ x-egress-ports:
   proxy-authorizer-url: &proxy-authorizer-url ${EGRESS_AUTHORIZER_URL:-http://api:3100}
 
 # The worker images' runtime combinations (apps/docs/content/docs/run-server/self-hosting/operate/configuration.mdx).
-# api and slack judge profile pins by them and the scheduler picks each
+# api and slack judge release-pinned runtime versions by them and the scheduler picks each
 # session's image by them, so all three take these anchors. Empty is unset.
 x-worker-runtimes:
   current: &worker-image-runtime ${WORKER_IMAGE_RUNTIME:-}
@@ -465,6 +465,7 @@ services:
       EXECUTION_WORKSPACE_QUOTA_INODES: ${EXECUTION_WORKSPACE_QUOTA_INODES:-1000000}
       EXECUTION_WORKSPACE_GC_MIN_AGE_SEC: ${EXECUTION_WORKSPACE_GC_MIN_AGE_SEC:-3600}
       EXECUTION_WORKSPACE_STOPPED_TTL_SEC: ${EXECUTION_WORKSPACE_STOPPED_TTL_SEC:-86400}
+      EXECUTION_WORKSPACE_PAUSED_TTL_SEC: ${EXECUTION_WORKSPACE_PAUSED_TTL_SEC:-86400}
       # Empty means the built-in names. An install whose volumes were made
       # under other names sets both, or its sessions start on empty workspaces.
       EXECUTION_VOLUME_LABEL_NAMESPACE: ${EXECUTION_VOLUME_LABEL_NAMESPACE:-}

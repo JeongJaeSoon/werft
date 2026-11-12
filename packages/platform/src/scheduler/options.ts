@@ -26,6 +26,13 @@ export const DEFAULT_REPLACEMENT_LIMIT = 3;
 export const DEFAULT_STOPPED_WORKSPACE_TTL_MS = 24 * 60 * 60 * 1_000;
 
 /**
+ * How long a `paused` session with a restorable checkpoint keeps its
+ * workspace, from when it paused. Its resume restores that checkpoint over
+ * whatever the volume holds, so past this the volume is only disk.
+ */
+export const DEFAULT_PAUSED_WORKSPACE_TTL_MS = 24 * 60 * 60 * 1_000;
+
+/**
  * How long a claimed resource on an older isolation contract is left to
  * finish its turn before it is replaced anyway. The control host
  * derives it from the installation's turn limit; this covers callers that
@@ -95,6 +102,8 @@ export type SchedulerOptions = {
   slotLimit: number;
   /** See `DEFAULT_STOPPED_WORKSPACE_TTL_MS`. */
   stoppedWorkspaceTtlMs?: number;
+  /** See `DEFAULT_PAUSED_WORKSPACE_TTL_MS`. */
+  pausedWorkspaceTtlMs?: number;
   /**
    * Shutdown: the pass stops where it would stop on losing its lock, so
    * nothing is reserved or launched after it and the next pass re-observes
@@ -108,7 +117,11 @@ export type SchedulerOptions = {
 
 export type ReclaimOptions = Pick<
   SchedulerOptions,
-  "backend" | "logger" | "stoppedWorkspaceTtlMs" | "store"
+  | "backend"
+  | "logger"
+  | "pausedWorkspaceTtlMs"
+  | "stoppedWorkspaceTtlMs"
+  | "store"
 >;
 
 export type SchedulerRunSummary = {

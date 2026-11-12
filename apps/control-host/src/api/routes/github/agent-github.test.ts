@@ -81,7 +81,6 @@ const keyStore = {
 };
 
 const catalog = {
-  profiles: {},
   repositories: {
     "sample-app": {
       url: "https://github.com/acme/sample-app",

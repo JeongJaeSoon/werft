@@ -359,7 +359,7 @@ export function createPostgresSessionUnitOfWork(
           return { outcome: "credential_unbound" as const, receiptId };
         };
         // Who asks is judged first, so every refusal below (a paused agent,
-        // an unbound credential, a profile the catalog lost) is said only to
+        // an unbound credential, a repository the catalog lost) is said only to
         // someone who may still use the agent: it names the agent's admins
         // or its state.
         const requester = await lockRequester(

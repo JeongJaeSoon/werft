@@ -188,7 +188,6 @@ function memoryRepositories() {
         name: input.name,
         url: input.url,
         branch: input.branch,
-        profiles: null,
         source: "selection" as const,
         version: 1,
         created_at: at,

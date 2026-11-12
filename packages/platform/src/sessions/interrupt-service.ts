@@ -66,6 +66,12 @@ export function createInterruptService(deps: {
             "UNSUPPORTED_CAPABILITY",
             "This session runs on a legacy pod binding that cannot be interrupted",
           );
+        case "workspace_reclaiming":
+          throw new SessionServiceError(
+            "BACKEND_UNAVAILABLE",
+            "The session's workspace is being reclaimed; retry the same request shortly",
+            { afterSeconds: 10 },
+          );
         default:
           return result.response;
       }

@@ -17,6 +17,8 @@ An API readiness response alone cannot establish that an upgrade is safe. Contin
 
 The scheduler looks for an image matching the runtime combination recorded in the checkpoint, checking the current image before the previous one. Rebuilds with different digests can still share a runtime combination. If neither image matches, the session enters recovery_required. Workers still running the previous image can create checkpoints with the old combination even after a compatibility check has finished.
 
+The profile removal release is an exception. It upgrades the control-host and the worker together in one upgrade, and a worker built before the profile removal is outside its support window. That worker cannot read the new control-host's answers ([Upgrade order of the profile removal release](/run-server/self-hosting/upgrade-compose#프로필-제거-릴리스의-업그레이드-순서)). From the next release on, the support window of the current and previous images applies again.
+
 <a id="rolling-update가-중요한-이유" />
 ## Why rolling update order matters
 

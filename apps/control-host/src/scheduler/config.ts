@@ -13,6 +13,7 @@ import {
 } from "@werft-ai/execution-local-docker";
 import { type LogLevel, logLevelFromEnv } from "@werft-ai/observability";
 import {
+  DEFAULT_PAUSED_WORKSPACE_TTL_MS,
   DEFAULT_STOPPED_WORKSPACE_TTL_MS,
   type ExecutionResources,
   type InstallationLimits,
@@ -29,6 +30,7 @@ export type SchedulerEnvironment = LocalDockerBackendEnvironment &
   InstallationLimitsEnvironment & {
     DATABASE_URL?: string | undefined;
     EXECUTION_BACKEND?: string | undefined;
+    EXECUTION_WORKSPACE_PAUSED_TTL_SEC?: string | undefined;
     EXECUTION_WORKSPACE_STOPPED_TTL_SEC?: string | undefined;
     LOG_LEVEL?: string | undefined;
     QUEUE_DATABASE_URL?: string | undefined;
@@ -61,6 +63,7 @@ export type SchedulerConfig = {
   resources: ExecutionResources;
   slotLimit: number;
   stoppedWorkspaceTtlMs: number;
+  pausedWorkspaceTtlMs: number;
 };
 
 export function schedulerConfigFromEnv(
@@ -131,6 +134,13 @@ export function schedulerConfigFromEnv(
       integerSetting(environment, "EXECUTION_WORKSPACE_STOPPED_TTL_SEC", {
         min: 0,
         default: DEFAULT_STOPPED_WORKSPACE_TTL_MS / 1_000,
+      }) * 1_000,
+    // Counted from when the session paused; zero takes a paused session's
+    // workspace on the next pass once it has a checkpoint to resume from.
+    pausedWorkspaceTtlMs:
+      integerSetting(environment, "EXECUTION_WORKSPACE_PAUSED_TTL_SEC", {
+        min: 0,
+        default: DEFAULT_PAUSED_WORKSPACE_TTL_MS / 1_000,
       }) * 1_000,
   };
 }

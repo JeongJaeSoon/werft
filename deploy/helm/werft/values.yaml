@@ -54,7 +54,10 @@ images:
     runtime: {}
   # The release before, so a session whose checkpoint the current image
   # cannot restore resumes on it (WORKER_IMAGE_PREVIOUS). Its digest and
-  # runtime go together, and need images.worker.runtime set.
+  # runtime go together, and need images.worker.runtime set. A worker built
+  # before the profile removal cannot read this control host's claim answer:
+  # it is outside the support window, and sits here only while the upgrade
+  # check demands the deployed image, with no session launching on it.
   workerPrevious:
     repository: ghcr.io/jeongjaesoon/werft-worker
     digest: ""

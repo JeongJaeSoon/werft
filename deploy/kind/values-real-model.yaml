@@ -1,5 +1,5 @@
 # Laid over values.yaml for KIND_MODEL=real (smoke.sh): the real-model
-# settings' claude-coding-real profile against the sample repository of
+# settings' anthropic connection against the sample repository of
 # deps-session.yaml, under infra/compose.real-model.yml's limits.
 config:
   aws:

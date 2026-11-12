@@ -44,6 +44,7 @@ import {
   checkpoints,
   events,
   executions,
+  idempotencyKeys,
   pendingRequests,
   permissionGrants,
   pushIntents,
@@ -1811,6 +1812,54 @@ integration("parked pending requests on PostgreSQL", () => {
     ).toBeLessThanOrEqual(32 * 1024);
   });
 
+  test("a group of thousands of answers still carries on, the lines past one message counted", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    const first = await register(worker);
+    await answerWith(owner, sessionId, {
+      request_id: first,
+      kind: "permission",
+      decision: "deny",
+      reason: "r",
+    });
+    // Copies of the answered request, as many as no equal share could fit.
+    await db.execute(sql`
+      INSERT INTO pending_requests (
+        request_id, session_id, turn_id, attempt_id, kind, payload,
+        input_hash, expires_at, resolved_at, answer, answered_at,
+        answer_receipt_id, answered_by, answer_surface, answer_decision_id,
+        tool
+      )
+      SELECT 'req_copy_' || n, session_id, turn_id, attempt_id, kind, payload,
+        input_hash, expires_at, resolved_at, answer, answered_at,
+        answer_receipt_id, answered_by, answer_surface, answer_decision_id,
+        tool
+      FROM pending_requests, generate_series(1, 3000) AS n
+      WHERE request_id = ${first}
+    `);
+    const copies = (
+      await db
+        .select({ requestId: pendingRequests.requestId })
+        .from(pendingRequests)
+        .where(eq(pendingRequests.sessionId, sessionId))
+    ).map((row) => row.requestId);
+    expect(copies).toHaveLength(3001);
+    const turnRowId = await parkRows(worker, copies);
+    await executionGone(worker);
+
+    const [carried] = await continuations(turnRowId);
+    const message = carried?.message ?? "";
+    expect(new TextEncoder().encode(message).length).toBeLessThanOrEqual(
+      32 * 1024,
+    );
+    expect(message).not.toContain("[cut to fit]");
+    const lines = message.split("\n");
+    const shown = lines.filter((line) =>
+      line.startsWith("- Your Bash call: denied. Reason: r"),
+    ).length;
+    expect(shown).toBeGreaterThan(0);
+    expect(lines.at(-1)).toBe(`… ${3001 - shown} more answers cut`);
+  });
+
   test("an interrupt of a parked turn already carried on cancels nothing a worker may hold", async () => {
     const { owner, sessionId, requestId } = await parked();
     expect(await answer(owner, sessionId, requestId)).toMatchObject({
@@ -2258,6 +2307,107 @@ integration("parked pending requests on PostgreSQL", () => {
     expect((await request(second)).settledOutcome).toBe("cancelled");
     expect((await sessionRow(sessionId)).admissionState).toBe("resuming");
     expect(await continuations(firstTurn)).toHaveLength(1);
+  });
+
+  // What the scheduler's workspace GC writes: a claim, then its settling
+  // with the volume removed.
+  function reclaimClaimed(sessionId: string) {
+    return db
+      .update(sessions)
+      .set({
+        workspaceReclaimClaimedAt: sql`now()`,
+        workspaceReclaimId: crypto.randomUUID(),
+        workspaceReclaimWorkspaceId: `ap-ws-${sessionId}`,
+      })
+      .where(eq(sessions.id, sessionId));
+  }
+  function reclaimSettled(sessionId: string) {
+    return db
+      .update(sessions)
+      .set({
+        workspaceReclaimClaimedAt: null,
+        workspaceReclaimId: null,
+        workspaceReclaimWorkspaceId: null,
+        workspaceReclaimedAt: sql`now()`,
+      })
+      .where(eq(sessions.id, sessionId));
+  }
+
+  test("an answer while the parked session's workspace is reclaimed is refused unkept, and resumes it once the reclaim settles", async () => {
+    const { owner, sessionId, requestId } = await parked();
+    await reclaimClaimed(sessionId);
+
+    expect(await failure(answer(owner, sessionId, requestId))).toBe(
+      "BACKEND_UNAVAILABLE",
+    );
+    expect((await request(requestId)).answeredAt).toBeNull();
+    expect((await sessionRow(sessionId)).admissionState).toBe("paused");
+
+    await reclaimSettled(sessionId);
+    expect(await answer(owner, sessionId, requestId)).toMatchObject({
+      resumed: true,
+    });
+    const after = await sessionRow(sessionId);
+    expect(after.admissionState).toBe("resuming");
+    expect(after.workspaceReclaimedAt).toBeNull();
+  });
+
+  test("an expiry while the workspace is reclaimed waits, and carries the answered group on after it", async () => {
+    const { owner, sessionId, requestIds } = await parked(2);
+    const [first = "", second = ""] = requestIds;
+    expect(await answer(owner, sessionId, first)).toMatchObject({
+      resumed: false,
+      waiting_for: 1,
+    });
+    await db
+      .update(pendingRequests)
+      .set({ expiresAt: sql`now() - interval '1 minute'` })
+      .where(eq(pendingRequests.requestId, second));
+    await reclaimClaimed(sessionId);
+
+    // Nothing is written: the request stays a candidate for a later pass.
+    expect(
+      await expireParkedGroups(db, { limit: 1_000, dryRun: false }),
+    ).toEqual([]);
+    expect((await request(second)).resolvedAt).toBeNull();
+    expect((await sessionRow(sessionId)).admissionState).toBe("paused");
+
+    await reclaimSettled(sessionId);
+    expect(
+      await expireParkedGroups(db, { limit: 1_000, dryRun: false }),
+    ).toEqual([sessionId]);
+    expect((await request(second)).settledOutcome).toBe("expired");
+    expect((await sessionRow(sessionId)).admissionState).toBe("resuming");
+  });
+
+  test("interrupting a parked turn while the workspace is reclaimed records nothing, and the same request lifts the pause after", async () => {
+    const { owner, sessionId, first, second } = await twoParks();
+    await answer(owner, sessionId, first);
+    await reclaimClaimed(sessionId);
+    const key = crypto.randomUUID();
+    const interrupt = () =>
+      createPostgresTurnInterrupts(db).interruptAtomic({
+        principal: owner,
+        sessionId,
+        idempotencyKey: key,
+        payloadHash: "interrupt-payload",
+        targetTurnId: "2",
+      });
+
+    expect((await interrupt()).outcome).toBe("workspace_reclaiming");
+    expect((await request(second)).resolvedAt).toBeNull();
+    expect(
+      await db
+        .select()
+        .from(idempotencyKeys)
+        .where(eq(idempotencyKeys.key, key)),
+    ).toEqual([]);
+    expect((await sessionRow(sessionId)).admissionState).toBe("paused");
+
+    await reclaimSettled(sessionId);
+    expect((await interrupt()).outcome).toBe("accepted");
+    expect((await request(second)).settledOutcome).toBe("cancelled");
+    expect((await sessionRow(sessionId)).admissionState).toBe("resuming");
   });
 
   test("a drain park whose requests all expired carries on with the denials", async () => {
