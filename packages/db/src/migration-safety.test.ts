@@ -10,7 +10,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getTableName, isTable } from "drizzle-orm";
 import { MIGRATIONS_FOLDER } from "./migration-journal.ts";
-import { GROWING_TABLES, migrationSafetyProblems } from "./migration-safety.ts";
+import {
+  changelogReleases,
+  contractProblems,
+  GROWING_TABLES,
+  migrationSafetyProblems,
+} from "./migration-safety.ts";
 import * as schema from "./schema.ts";
 
 const copies: string[] = [];
@@ -188,5 +193,86 @@ describe("migration safety", () => {
         `ALTER TABLE "events" ADD COLUMN "references" text;`,
       ),
     ).toEqual([]);
+  });
+});
+
+describe("contract migrations", () => {
+  // Newest first, as CHANGELOG.md lists them.
+  const releases = ["v0.1.3", "v0.1.2", "v0.1.1", "v0.1.0"];
+  const contractsOf = (...statements: string[]) =>
+    contractProblems(
+      withMigration(statements.join("--> statement-breakpoint\n")),
+      releases,
+    ).map((problem) => problem.replace(/^\d+_under_test/, "under_test"));
+  const unmarked = (how: string, target: string) =>
+    `under_test.sql: ${how} ${target} while a release in the support window may still use it; ` +
+    `name the last release that did with "-- contract: ${target} last used by vX.Y.Z"`;
+
+  test("the packaged migrations follow the rule", () => {
+    expect(contractProblems(MIGRATIONS_FOLDER)).toEqual([]);
+  });
+
+  test("CHANGELOG.md lists its releases newest first", () => {
+    const listed = changelogReleases();
+    expect(listed).toContain("v0.1.0");
+    expect(listed.at(-1)).toBe("v0.1.0");
+  });
+
+  test("a drop or rename without the last release that used it is caught", () => {
+    expect(
+      contractsOf(
+        `ALTER TABLE "sessions" DROP COLUMN "title";`,
+        `ALTER TABLE "public"."sessions" DROP COLUMN IF EXISTS "note", DROP "kind";`,
+        `DROP TABLE "events", "turns";`,
+        `ALTER TABLE "agents" RENAME COLUMN "name" TO "label";`,
+        `ALTER TABLE "agents" RENAME TO "assistants";`,
+      ),
+    ).toEqual([
+      unmarked("DROP COLUMN", "sessions.title"),
+      unmarked("DROP COLUMN", "sessions.note"),
+      unmarked("DROP COLUMN", "sessions.kind"),
+      unmarked("DROP TABLE", "events"),
+      unmarked("DROP TABLE", "turns"),
+      unmarked("RENAME COLUMN", "agents.name"),
+      unmarked("RENAME TO", "agents"),
+    ]);
+  });
+
+  test("the last user needs two releases after it", () => {
+    const drop = (release: string) =>
+      contractsOf(
+        `-- contract: sessions.title last used by ${release}\nALTER TABLE "sessions" DROP COLUMN "title";`,
+      );
+    expect(drop("v0.1.3")).toEqual([
+      "under_test.sql: DROP COLUMN sessions.title needs 2 releases after v0.1.3, its last user; CHANGELOG.md has 0",
+    ]);
+    expect(drop("v0.1.2")).toEqual([
+      "under_test.sql: DROP COLUMN sessions.title needs 2 releases after v0.1.2, its last user; CHANGELOG.md has 1",
+    ]);
+    expect(drop("v0.1.1")).toEqual([]);
+    expect(drop("v0.0.9")).toEqual([
+      "under_test.sql: sessions.title names v0.0.9, which is no release heading in CHANGELOG.md",
+    ]);
+  });
+
+  test("changes that keep the data, and tables the migration creates, pass", () => {
+    expect(
+      contractsOf(
+        `ALTER TABLE "sessions" DROP CONSTRAINT "sessions_x_check";`,
+        `ALTER TABLE "sessions" ALTER COLUMN "x" DROP DEFAULT;`,
+        `ALTER TABLE "sessions" ALTER COLUMN "x" DROP NOT NULL;`,
+        `ALTER TABLE "sessions" RENAME CONSTRAINT "a" TO "b";`,
+        `DROP INDEX IF EXISTS "sessions_x_idx";`,
+        `CREATE TABLE "scratch" ("id" text PRIMARY KEY, "x" text);`,
+        `ALTER TABLE "scratch" DROP COLUMN "x";`,
+        `DROP TABLE "scratch";`,
+      ),
+    ).toEqual([]);
+  });
+
+  test("a quoted column named like a keyword is still a column", () => {
+    expect(
+      contractsOf(`ALTER TABLE "sessions" DROP COLUMN "default";`),
+    ).toEqual([unmarked("DROP COLUMN", "sessions.default")]);
   });
 });

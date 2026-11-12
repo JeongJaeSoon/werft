@@ -239,3 +239,134 @@ export function migrationSafetyProblems(
   }
   return problems;
 }
+
+// Migrations up to this one predate the contract rule; 0270 removed the
+// execution profiles with the release that dropped their workers from the
+// support window.
+const CONTRACT_CHECKED_AFTER_IDX = 273;
+
+// The support window is the current release and the one before it, and a
+// release preparation merged before its tag still ships what follows: with
+// the newest heading being the release under way, its predecessor's
+// control-host still runs on the new schema during the rollout. So the last
+// release that used what a migration drops must have two releases after it.
+const RELEASES_AFTER_LAST_USE = 2;
+
+const CONTRACT_MARKER =
+  /^--\s*contract:\s*(\S+)\s+last used by\s+(v\d+\.\d+\.\d+)\s*$/gm;
+
+/** Release headings of CHANGELOG.md, newest first. */
+export function changelogReleases(
+  changelog = join(import.meta.dir, "../../../CHANGELOG.md"),
+): string[] {
+  return [
+    ...readFileSync(changelog, "utf8").matchAll(/^## (v\d+\.\d+\.\d+)$/gm),
+  ]
+    .map((match) => match[1])
+    .filter((release): release is string => release !== undefined);
+}
+
+/**
+ * A table or column a migration drops or renames must be unused by every
+ * release still in the support window, so old code reading it keeps working
+ * (docs/contributing/decisions/worker-compat.md § 5). The migration names
+ * the last release that used it in a `-- contract: <table>[.<column>] last
+ * used by vX.Y.Z` line; that release needs RELEASES_AFTER_LAST_USE newer
+ * ones in CHANGELOG.md.
+ */
+export function contractProblems(
+  folder: string,
+  releases = changelogReleases(),
+  checkedAfterIdx = CONTRACT_CHECKED_AFTER_IDX,
+): string[] {
+  const problems: string[] = [];
+  for (const entry of readJournal(folder)) {
+    if (entry.idx <= checkedAfterIdx) {
+      continue;
+    }
+    const file = `${entry.tag}.sql`;
+    const raw = readFileSync(join(folder, file), "utf8");
+    const lastUse = new Map(
+      [...raw.matchAll(CONTRACT_MARKER)].map(([, target, release]) => [
+        target,
+        release,
+      ]),
+    );
+    const created = new Set<string>();
+    const removed: { target: string; how: string }[] = [];
+    for (const statement of statementsOf(raw)) {
+      const createTable = statement.match(
+        new RegExp(`^CREATE TABLE (?:IF NOT EXISTS )?${qualified}`, "i"),
+      );
+      if (createTable?.[1]) {
+        created.add(createTable[1]);
+        continue;
+      }
+      const dropTable = statement.match(/^DROP TABLE (?:IF EXISTS )?(.*)$/i);
+      if (dropTable?.[1]) {
+        for (const table of dropTable[1].split(",")) {
+          const bare = table.match(new RegExp(`^\\s*${qualified}`))?.[1];
+          if (bare && !created.has(bare)) {
+            removed.push({ target: bare, how: "DROP TABLE" });
+          }
+        }
+        continue;
+      }
+      const alter = statement.match(
+        new RegExp(
+          `^ALTER TABLE (?:ONLY )?(?:IF EXISTS )?${qualified} (.*)$`,
+          "i",
+        ),
+      );
+      const [, table, action] = alter ?? [];
+      if (!table || action === undefined || created.has(table)) {
+        continue;
+      }
+      for (const drop of action.matchAll(
+        new RegExp(`\\bDROP (?:COLUMN )?(?:IF EXISTS )?${name}`, "gi"),
+      )) {
+        const column = drop[1] ?? "";
+        // DROP CONSTRAINT, DEFAULT, NOT NULL, IDENTITY, EXPRESSION keep the
+        // data; a quoted name is a column whatever it spells.
+        const keyword =
+          !drop[0].endsWith('"') &&
+          /^(constraint|default|not|identity|expression)$/i.test(column);
+        if (!keyword) {
+          removed.push({ target: `${table}.${column}`, how: "DROP COLUMN" });
+        }
+      }
+      const renameColumn = action.match(
+        new RegExp(`\\bRENAME (?:COLUMN )?${name} TO `, "i"),
+      );
+      if (renameColumn?.[1] && !/^(to|constraint)$/i.test(renameColumn[1])) {
+        removed.push({
+          target: `${table}.${renameColumn[1]}`,
+          how: "RENAME COLUMN",
+        });
+      } else if (/\bRENAME TO\b/i.test(action)) {
+        removed.push({ target: table, how: "RENAME TO" });
+      }
+    }
+    for (const { target, how } of removed) {
+      const release = lastUse.get(target);
+      if (release === undefined) {
+        problems.push(
+          `${file}: ${how} ${target} while a release in the support window may still use it; ` +
+            `name the last release that did with "-- contract: ${target} last used by vX.Y.Z"`,
+        );
+        continue;
+      }
+      const newer = releases.indexOf(release);
+      if (newer === -1) {
+        problems.push(
+          `${file}: ${target} names ${release}, which is no release heading in CHANGELOG.md`,
+        );
+      } else if (newer < RELEASES_AFTER_LAST_USE) {
+        problems.push(
+          `${file}: ${how} ${target} needs ${RELEASES_AFTER_LAST_USE} releases after ${release}, its last user; CHANGELOG.md has ${newer}`,
+        );
+      }
+    }
+  }
+  return problems;
+}
