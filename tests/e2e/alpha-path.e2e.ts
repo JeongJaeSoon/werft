@@ -344,6 +344,89 @@ describe("default commit identity", () => {
   );
 });
 
+describe("worker supervisor boundary", () => {
+  test(
+    "a Bash tool cannot read the worker process's environ, descriptors, maps or memory, though it reads PID 1's environ",
+    async () => {
+      // The worker process (the supervisor) holds the session credential and
+      // the tokens the engine is never given, and the engine's commands run
+      // as its uid. The supervisor made itself non-dumpable at start, so the
+      // kernel refuses these reads. PID 1 is the control: it is an ordinary
+      // process of the same uid, and the same probe reads it, so a refusal
+      // is the flag's doing and not a probe that could read nothing.
+      const probe = [
+        'sup=""',
+        "for d in /proc/[0-9]*; do",
+        '  [ "$(cat "$d/comm" 2>/dev/null)" = bun ] || continue',
+        // Brackets keep the pattern from matching this command's own cmdline.
+        '  tr "\\0" " " < "$d/cmdline" 2>/dev/null | grep -q "apps/worker/src/main[.]ts" && sup=$(basename "$d") && break',
+        "done",
+        'denied() { if "$@" >/dev/null 2>&1; then echo readable; else echo denied; fi; }',
+        'owner=$(stat -c %u "/proc/$sup/environ" 2>/dev/null)',
+        'sup_environ=$(denied cat "/proc/$sup/environ")',
+        'sup_fd=$(denied ls "/proc/$sup/fd")',
+        'sup_maps=$(denied cat "/proc/$sup/maps")',
+        'sup_mem=$(denied dd "if=/proc/$sup/mem" bs=1 count=0)',
+        'init_vars=$(tr "\\0" "\\n" < /proc/1/environ 2>/dev/null | grep -c "^WORKER_EXECUTION_ID=")',
+        'capeff=$(sed -n "s/^CapEff:[[:space:]]*//p" /proc/self/status)',
+        'echo "boundary uid=$(id -u) capeff=$capeff sup=$sup owner=$owner environ=$sup_environ fd=$sup_fd maps=$sup_maps mem=$sup_mem init_vars=$init_vars"',
+      ].join("\n");
+      const created = await api.createSession(
+        scripted("b1", [bash(probe)], "probed"),
+      );
+      const sessionId = created.body.session_id;
+      const turn = await poll("the boundary turn", 180_000, async () => {
+        for (const request of await api.pending(sessionId)) {
+          await api.allow(sessionId, request.request_id);
+        }
+        const current = await api.turn(sessionId, "1");
+        return ["queued", "running", "needs_input"].includes(current.status)
+          ? null
+          : current;
+      });
+      expect(turn.status).toBe("completed");
+      const result = (
+        await api.events(
+          sessionId,
+          (event) =>
+            event.event === "tool_result" && event.data.turn_id === "1",
+        )
+      ).at(-1);
+      const printed = JSON.stringify(result?.data.data);
+      const report =
+        /boundary uid=(\d+) capeff=([0-9a-f]+) sup=(\d*) owner=(\d*) environ=(\w+) fd=(\w+) maps=(\w+) mem=(\w+) init_vars=(\d+)/.exec(
+          printed,
+        );
+      if (report === null) throw new Error(`no boundary output in ${printed}`);
+      // The ticket's acceptance evidence, kept in the CI log.
+      console.log(report[0]);
+      const [, uid, capeff, sup, owner, environ, fd, maps, mem, initVars] =
+        report;
+      // Who asked: the worker's uid with no capability, as any command the
+      // engine runs is.
+      expect({ uid, capeff }).toEqual({
+        uid: "1000",
+        capeff: "0000000000000000",
+      });
+      // It found the supervisor, and it is not PID 1.
+      expect(Number(sup)).toBeGreaterThan(1);
+      // The control: the same probe reads a process the flag is not set on.
+      expect(initVars).toBe("1");
+      // A non-dumpable process belongs to root under /proc, and the reads
+      // are refused. Memory is listed last: a host's ptrace policy can
+      // refuse that one on its own, so it is not the evidence the others are.
+      expect({ owner, environ, fd, maps, mem }).toEqual({
+        owner: "0",
+        environ: "denied",
+        fd: "denied",
+        maps: "denied",
+        mem: "denied",
+      });
+    },
+    TIMEOUT,
+  );
+});
+
 describe("concurrency regressions", () => {
   test(
     "a retried create is one session; the same key with another body is refused",
