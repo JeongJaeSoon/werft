@@ -60,13 +60,15 @@
 | 열 | 뜻 |
 |---|---|
 | `exchange_id` (기본 키) | proxy가 호출마다 만든 UUID. 열기, 연장, 보고가 같은 값을 쓴다 |
-| `session_id`, `attempt_id` | 누구의 호출인가. `provider_usage`와 같은 참조다. 제목 호출은 권한이 알려 준 첫 attempt다 |
+| `session_id`, `attempt_id` | 누구의 호출인가. 제목 호출은 권한이 알려 준 첫 attempt다. **외래 키를 걸지 않는다**(아래) |
 | `reserve` | 요청에서 계산한 사용량 추정(모델, 입력·출력 토큰, speed, geo). `/usage`의 `usage`와 같은 모양이다. 금액이 아니라 토큰으로 둔다. 금액은 볼 때 매긴다 |
 | `opened_at` | 처음 넣은 때의 DB 시각. 연장이나 같은 열기의 재전송으로 바뀌지 않는다 |
 | `lease_expires_at` | 이 시각까지 연장이나 보고가 없으면 "lease가 지난 줄"이다 |
 | `noticed_at` | reconciler가 lease 만료를 알린 시각. 알리기 전과 연장된 뒤에는 비어 있다 |
 
 상태 열은 두지 않는다. 줄의 유무와 `lease_expires_at`으로 충분하다.
+
+`session_id`와 `attempt_id`에 외래 키를 걸지 않는다. 외래 키가 있으면 줄을 넣을 때 PostgreSQL이 세션과 attempt 행에 `KEY SHARE` 잠금을 잡는다. 그 두 행은 fence와 `recordModelCutAtomic`이 서로 다른 순서로 잠그므로, 열기가 그 사이에 끼면 교착할 수 있다. 대신 열기가 그 쌍이 있는지 읽어서 확인한다. 지금 세션과 attempt 행을 지우는 코드는 없다. 지우는 migration이 생기면 이 표도 함께 비운다.
 
 ```
 (없음) ──열기──▶ 열림 ──보고(기록·재전송)──▶ (지움, provider_usage에 한 줄)
@@ -101,14 +103,18 @@ authorizer listener에 경로 하나를 더한다. 인증은 `/usage`와 같은 
 
 #### 열기와 보고를 줄 세우는 잠금
 
-열기와 보고는 transaction의 **첫 문장**으로 그 `exchange_id`의 advisory lock을 잡는다(`pg_advisory_xact_lock`, 저장소의 다른 곳과 같은 방식). 세션·attempt 행이 아니라 호출의 id에 건다.
+열기와 보고는 transaction의 **첫 문장**으로 그 `exchange_id`의 advisory lock을 잡는다. 세션·attempt 행이 아니라 호출의 id에 건다.
 
+- **키 공간.** 정수 둘을 받는 `pg_advisory_xact_lock(이 장부 전용 정수, hashtext(exchange_id))`를 쓴다. 저장소의 기존 advisory lock은 모두 키 하나짜리이고(`hashtext`·`hashtextextended`의 결과), PostgreSQL에서 키 하나짜리와 키 둘짜리는 서로 겹치지 않는 공간이다. 그래서 이 lock은 기존 lock(세션을 고칠 때 trigger가 잡는 것 포함)과 충돌하지 않는다. 이 공간은 열기와 보고만 쓴다. 공간 안에서 두 id의 해시가 겹치면 그 둘이 불필요하게 줄을 설 뿐이다.
 - 같은 `exchange_id`의 열기와 보고는, 누구의 이름으로 왔든 한 번에 하나만 돈다.
-- 열기는 행을 잠그지 않는다. 쌍이 있는지와 `provider_usage`를 읽고 줄을 넣을 뿐이다. 보고는 advisory lock을 잡은 뒤 지금처럼 세션·attempt 행을 잠근다.
-- 이 lock을 잡는 것은 열기와 보고뿐이고 둘 다 맨 먼저 잡는다. 다른 writer(fence, `recordModelCutAtomic`)는 이 lock을 모른다. 그래서 이 설계가 새로 만드는 교착 경로가 없다. 세션·attempt 행을 잠그는 기존 코드들 사이의 순서는 이 설계가 바꾸지 않는다.
+- 열기는 행 잠금을 잡지 않는다. 쌍이 있는지와 `provider_usage`를 읽고 줄을 넣을 뿐이고, 표에 외래 키가 없어 넣기가 다른 표의 행을 잠그지 않는다. 보고는 advisory lock을 잡은 뒤 지금처럼 세션·attempt 행을 잠근다.
+- 이 lock은 열기와 보고가 맨 먼저 잡고, 그것을 쥔 채 기다리는 것은 보고의 기존 행 잠금뿐이다. 행 잠금을 쥔 쪽이 이 lock을 기다리는 일은 없다. 그래서 이 설계가 새로 만드는 교착 경로가 없다. 세션·attempt 행을 잠그는 기존 코드들 사이의 순서는 이 설계가 바꾸지 않는다.
 - 연장은 lock을 잡지 않는다. 있는 줄 하나만 고친다.
 
-이 잠금과 위 규칙이 불변식 하나를 지킨다: **보고가 기록된 `exchange_id`에는 그 뒤로 줄이 새로 생기지 않는다.** 늦게 도착한 열기는 `provider_usage`를 보고 넣지 않고, 늦게 도착한 연장은 넣지 못한다. 전제는 "`exchange_id` 하나는 호출 하나의 것"이다. proxy가 호출마다 UUID를 만들므로 정상 동작에서 성립한다. 전제가 깨진 요청(같은 id, 다른 주인)은 `409`로 거절하고 아무것도 덮어쓰지 않는다.
+이 잠금과 위 규칙이 불변식 하나를 지킨다: **보고가 기록된 `exchange_id`에는 그 뒤로 줄이 새로 생기지 않는다.** 늦게 도착한 열기는 `provider_usage`를 보고 넣지 않고, 늦게 도착한 연장은 넣지 못한다. 전제는 둘이다.
+
+- "`exchange_id` 하나는 호출 하나의 것"이다. proxy가 호출마다 UUID를 만들므로 정상 동작에서 성립한다. 전제가 깨진 요청(같은 id, 다른 주인)은 `409`로 거절하고 아무것도 덮어쓰지 않는다.
+- 보고를 받는 control-host가 모두 새 빌드다. 옛 replica의 보고는 이 lock을 잡지 않는다. 섞여 있는 동안에는 보고가 기록된 뒤에 줄이 생길 수 있고, 그 줄은 reconciler가 치운다(6절).
 
 ### 3. 보고가 줄을 지우는 때
 
@@ -153,7 +159,7 @@ reconciler가 주기적으로 lease가 지난 줄을 본다. 2c-1에서는 알�
 
 - **정산된 줄 치우기.** lease가 지난 줄 가운데 `provider_usage`에 같은 `exchange_id`, 같은 세션·attempt의 줄이 있는 것은 알리지 않고 지운다. 옛 replica가 보고를 받아 남은 줄이 여기서 사라진다.
 - **알림.** 나머지 가운데 `noticed_at`이 비어 있는 줄을, 후보를 `FOR UPDATE SKIP LOCKED`로 잡고 만료와 `noticed_at`을 다시 확인한 뒤 `noticed_at`을 적으며 가져온다. 가져온 줄마다 경고 로그 한 줄을 남긴다: `Provider exchange reservation expired unsettled`(`session_id`, `attempt_id`, `exchange_id`, `opened_at`). reconciler replica가 여럿이어도 한 줄을 둘이 가져가지 않는다. 연장되면 `noticed_at`이 비워지고, 다시 만료되면 다시 알린다. 적은 뒤 로그를 쓰기 전에 프로세스가 죽으면 그 알림은 사라진다. 정상 실행에서 중복을 막는 것이지, 장애까지 포함해 정확히 한 번을 보장하지는 않는다.
-- **뜻.** 이 로그는 "이 장부가 정산을 확인하지 못한 줄"이다. 원인은 여럿이다: 보고가 유실됐다, upstream에 연결하지 못했다, upstream이 오류를 답했다, proxy가 응답을 거절했다, 연장이 계속 실패했다. 앞의 하나만 비용이 빠진 경우이고 나머지는 과금되지 않았거나 호출이 아직 살아 있다. 이 로그만으로는 어느 쪽인지 알 수 없다. 원인별로 세려면 proxy가 호출의 끝을 알리는 신호가 따로 필요하다(2c-2의 `release`).
+- **뜻.** 이 로그는 "이 장부가 정산을 확인하지 못한 줄"이다. 원인은 여럿이다: 보고가 유실됐다, proxy가 성공한 응답을 계측 전에 거절했다(본문 인코딩), upstream이 오류를 답했다, upstream에 연결하지 못했다, 연장이 계속 실패했다. 앞의 둘은 provider가 과금했을 수 있는데 기록되지 않은 경우다. 나머지는 과금되지 않았거나 호출이 아직 살아 있다. 이 로그는 어느 쪽인지, 빠진 금액이 얼마인지 판별하지 못한다. 원인별로 세려면 proxy가 호출의 끝을 알리는 신호가 따로 필요하다(2c-2의 `release`).
 - **정리.** lease가 지난 지 7일이 넘은 줄은 지운다. 지우는 문장이 만료 조건을 다시 본다. 그 사이 연장된 줄은 지우지 않는다.
 
 2c-1 시기에 쌓인 줄은 **나중에 과금 근거로 쓰지 않는다.** 과금되지 않은 호출이 섞여 있기 때문이다. 그래서 7일 뒤에 지워도 잃는 것이 없다.
