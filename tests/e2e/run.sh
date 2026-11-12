@@ -74,7 +74,7 @@ case "$*" in
   "--conformance claude_agent_sdk"|"--conformance codex_app_server")
     # The engine-parametrized suite (tests/conformance) on the same stack
     # lifecycle: one engine's worker image, its fake provider, the scripted
-    # prompts. The engine's overlay names the provider the profiles call.
+    # prompts. The engine's overlay names the provider the connections call.
     unset E2E_MODEL_MODE
     conformance="${2}"
     conf_files=(-f tests/conformance/compose.yml)
