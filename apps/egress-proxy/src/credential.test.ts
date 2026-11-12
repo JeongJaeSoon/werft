@@ -2549,13 +2549,13 @@ describe("startCredentialProxy", () => {
         body: '{"model":"m"}',
         signal: worker.signal,
       });
+      // A call that fails before the upstream sees it ends the wait too, so
+      // the failure surfaces where the call is awaited, not as a timeout.
       let settled = false;
-      answered.then(
-        () => {
-          settled = true;
-        },
-        () => {},
-      );
+      const settle = () => {
+        settled = true;
+      };
+      answered.then(settle, settle);
       // Past the cap, a refusal comes back without reaching the upstream.
       while (h.up.seen.length === seen && !settled) await Bun.sleep(5);
       let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
@@ -2584,6 +2584,26 @@ describe("startCredentialProxy", () => {
       await call.streaming();
       call.hangUp();
       await h.hungUp();
+    }
+
+    /**
+     * Fails naming the wait that has not ended, well inside the test's
+     * timeout: each takes milliseconds, and one that stalls would otherwise
+     * show only as the whole test timing out.
+     */
+    async function within<T>(wait: string, done: Promise<T>): Promise<T> {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const stalled = new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`${wait} did not end within 1500ms`)),
+          1_500,
+        );
+      });
+      try {
+        return await Promise.race([done, stalled]);
+      } finally {
+        clearTimeout(timer);
+      }
     }
 
     function capped(h: ReturnType<typeof holding>, cap: number) {
@@ -2687,18 +2707,23 @@ describe("startCredentialProxy", () => {
         { head: "held", cut: false, hangUp: true },
         { head: "held", cut: true, hangUp: true },
       ] as const;
-      for (const round of [...rounds, ...rounds]) {
+      // No pause between rounds: the proxy gives the slot back as the
+      // exchange ends, before the upstream can see the hang-up, so `hungUp`
+      // already follows the release. A leak still runs the cap of 2 out
+      // within the twelve rounds.
+      for (const [index, round] of [...rounds, ...rounds].entries()) {
+        const at = (wait: string) =>
+          `round ${index + 1} ${JSON.stringify(round)}: ${wait}`;
         if (round.head === "held") h.hold();
-        const call = await opened(h, server.port);
-        if (round.head === "sent") await call.streaming();
+        const call = await within(at("open"), opened(h, server.port));
+        if (round.head === "sent") await within(at("stream"), call.streaming());
         if (round.hangUp) call.hangUp();
         if (round.cut) h.end();
-        if (!round.hangUp) await call.drain();
-        await h.hungUp();
-        await Bun.sleep(60);
+        if (!round.hangUp) await within(at("drain"), call.drain());
+        await within(at("upstream hang-up"), h.hungUp());
         h.renew();
       }
-      await admitted(h, server.port);
+      await within("the last call", admitted(h, server.port));
     });
   });
 
