@@ -105,9 +105,11 @@ overlay() {
       if [ -n "$image" ]; then
         printf '    image: %s\n    build: !reset null\n' "$image"
       fi
+      # The old worker is the current image, so every launch and every resume
+      # runs it. A previous image would also need its runtime stamp
+      # (WORKER_IMAGE_PREVIOUS_RUNTIME), which this stack does not set.
       if [ "$service" = scheduler ]; then
-        printf '    environment:\n      WORKER_IMAGE: %s\n      WORKER_IMAGE_PREVIOUS: %s\n' \
-          "$COMPAT_OLD_WORKER" "$COMPAT_OLD_WORKER"
+        printf '    environment:\n      WORKER_IMAGE: %s\n' "$COMPAT_OLD_WORKER"
       fi
     done
   } >"$path"
@@ -116,6 +118,7 @@ overlay() {
 project=""
 cleanup() {
   local status=$?
+  rm -f "$out/old/vars.sh"
   if [ -n "$project" ]; then
     # Either overlay names every service; only the images differ.
     local overlays=(-f "$out/overlay-old.yml")
@@ -162,6 +165,8 @@ fi
   tests/e2e/run.sh --conformance "$COMPAT_ENGINE")
 # shellcheck disable=SC1091
 . "$out/old/vars.sh"
+# It holds the stack's API key; $out is uploaded as an artifact.
+rm -f "$out/old/vars.sh"
 project="${E2E_COMPOSE_PROJECT:?the old run.sh names its compose project}"
 export BOOTSTRAP_TOKEN="${E2E_BOOTSTRAP_TOKEN:-}"
 # What stage 3 brings up, and the cleanup's view of the stack until then.
