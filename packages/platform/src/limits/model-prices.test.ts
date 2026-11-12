@@ -474,6 +474,33 @@ describe("priceProviderUsage for an OpenAI model", () => {
     });
   });
 
+  test("a longer prompt never costs less for a model past its card, at any speed", () => {
+    // gpt-5.2-pro and gpt-5-nano have no long card and are on no speed tab.
+    for (const model of ["gpt-5.2-pro", "gpt-5-nano", "gpt-5.4-mini"]) {
+      for (const speed of ["standard", "fast", "ultrafast", "turbo"]) {
+        const call = {
+          ...openAi,
+          model,
+          speed,
+          inferenceGeo: "global",
+          outputTokens: 100_000,
+        };
+        const atCard = priceProviderUsage({ ...call, inputTokens: 272_000 });
+        const past = priceProviderUsage({ ...call, inputTokens: 272_001 });
+        expect([model, speed, past.pricedBy]).toEqual([
+          model,
+          speed,
+          "fallback",
+        ]);
+        expect([model, speed, past.costUsd >= atCard.costUsd]).toEqual([
+          model,
+          speed,
+          true,
+        ]);
+      }
+    }
+  });
+
   test("every card names the day it was checked", () => {
     for (const [model, entry] of Object.entries(OPENAI_CARDS)) {
       expect([model, entry.checked]).toEqual([

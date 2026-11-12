@@ -184,14 +184,22 @@ export function openAiSpeedMultiplier(model: string, speed: string): number {
 /**
  * What the fallback multiplies its rates by at `speed` for a model that may
  * be an OpenAI one: the highest multiple any card has for that tier, or the
- * highest of any tier for one no card lists.
+ * highest of any tier for one no card lists. A model the table names but
+ * prices past its card keeps its own multiple if that is higher, so a longer
+ * prompt never costs less.
  */
-export function openAiFallbackSpeedMultiplier(speed: string): number {
+export function openAiFallbackSpeedMultiplier(
+  model: string,
+  speed: string,
+): number {
   if (speed === "standard") return 1;
   const listed = Object.values(OPENAI_CARDS).flatMap((entry) =>
     Object.hasOwn(entry.speeds, speed) ? [entry.speeds[speed] ?? 0] : [],
   );
-  return listed.length === 0 ? TOP_SPEED_MULTIPLIER : Math.max(...listed);
+  const tier = listed.length === 0 ? TOP_SPEED_MULTIPLIER : Math.max(...listed);
+  return cardFor(model) === undefined
+    ? tier
+    : Math.max(tier, openAiSpeedMultiplier(model, speed));
 }
 
 /**

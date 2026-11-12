@@ -266,7 +266,7 @@ export function priceProviderUsage(usage: ProviderUsage): {
           ),
         ));
   const speedMultiplier = nonClaude
-    ? openAiFallbackSpeedMultiplier(usage.speed)
+    ? openAiFallbackSpeedMultiplier(usage.model, usage.speed)
     : 1;
   const oneHour = Math.min(
     usage.cacheCreation1hInputTokens,
