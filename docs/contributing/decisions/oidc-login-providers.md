@@ -138,7 +138,7 @@ API가 콜백을 직접 받지 않는 이유는 지금과 같다. 콜백 GET이 
 | 6 | 고정된 `jwks_uri`에서 키를 받아 고른다: `kid`가 같고, `kty`가 `alg`에 맞고(`RS256`은 2048비트 이상 RSA, `ES256`은 P-256), `use`가 없거나 `sig`이고, 키의 `alg`가 없거나 token의 `alg`와 같다. token에 `kid`가 없으면 조건에 맞는 키가 정확히 하나여야 한다. 서명이 맞다 | `401`, JWKS `5xx`·시간 초과는 `503` |
 | 7 | `iss`가 issuer와 같다. Google issuer만 스킴 없는 `accounts.google.com`도 받는다 | `401` |
 | 8 | `aud`가 client ID 하나다(문자열이거나 원소가 하나인 배열). 다른 audience가 함께 있으면 거절한다. 믿는 audience를 따로 설정하는 칸은 두지 않는다. `azp`가 있으면 client ID와 같다 | `401` |
-| 9 | `exp`·`iat`가 유한한 숫자다. `exp`가 지금보다 뒤다. `iat`가 지금보다 60초 넘게 앞서지 않고 11분보다 오래되지 않았다. `nbf`가 있으면 유한한 숫자이고 지났다. 시계 오차는 60초까지 받는다 | `401` |
+| 9 | `exp`·`iat`가 유한한 숫자다. `exp`가 지금보다 뒤다. `iat`가 지금보다 60초 넘게 앞서지 않고 11분보다 오래되지 않았다. `nbf`가 있으면 유한한 숫자이고 지났다. 시계 오차 60초는 공급자 시계가 앞선 쪽(`iat`, `nbf`)에만 준다. `exp`에는 주지 않는다 | `401` |
 | 10 | `nonce`가 cookie `nonce`와 같다(상수 시간 비교) | `401` |
 | 11 | `sub`가 비어 있지 않은 문자열이고 255자 이하다 | `401` |
 | 12 | 이메일을 정한다(6.2절). id_token에 `email`이 없고 공급자 행에 `userinfo_endpoint`가 있으면 access token으로 UserInfo를 한 번 부른다. 응답의 `sub`가 id_token의 `sub`와 같아야 하고, 거기서 `email`·`email_verified`만 가져온다 | `401`, UserInfo `5xx`·시간 초과는 `503` |
@@ -598,8 +598,11 @@ e2e의 Keycloak은 API 컨테이너와 네트워크 이름공간을 함께 쓰�
 
 | 단계 | 상태 | PR |
 |---|---|---|
-| 0 설계 | Codex 승인(3회차) | 이 문서의 PR |
-| 1~6 | 시작 전 | — |
+| 0 설계 | 머지 | JeongJaeSoon/werft#1660 |
+| 1 OIDC 코어 | PR | JeongJaeSoon/werft#1662 |
+| 2~6 | 시작 전 | — |
+
+1단계는 3.1절의 표에서 `provider-http.ts`, `discovery.ts`, `jwks.ts`, `id-token.ts`, `flow.ts`(시작과 끝), `issuer-rules.ts`, `errors.ts`를 넣고 환경 변수로 설정한 Google 로그인을 그 위로 옮긴다. 흐름 cookie의 봉인, 응답 `iss`를 라우트에서 넘기는 일, `admission.ts`는 공급자 행이 생기는 2단계에 넣는다. 1단계의 네트워크 정책에는 `http` issuer를 그대로 받는 값이 하나 더 있다. 환경 변수 Google 로그인의 mock IdP만 쓰고, 2단계에서 환경 변수와 함께 없앤다. 12절은 1단계에서 mock IdP에 키 회전을 더한다고 적지만, 1단계의 회전 시험은 모듈 안의 가짜 공급자(요청 함수 자리)로 하고, HTTP mock IdP의 회전은 6단계의 공급자 모양과 함께 넣는다.
 
 ## 17. 리뷰 기록
 
