@@ -140,6 +140,12 @@ export interface SessionOverviewRowMessages {
   readonly recent: string;
   /** Names the row's opener, e.g. "세션 열기: 배포 점검"; the name alone if unset. */
   readonly open?: ((name: string) => string) | undefined;
+  /**
+   * Follows the status of a session that waits on a recovery decision, e.g.
+   * "복구 필요". The row has no admission column, so without it such a session
+   * reads like any other stopped one. Nothing is added if unset.
+   */
+  readonly recoveryRequired?: string | undefined;
 }
 
 export interface SessionOverviewRowProps {
@@ -186,6 +192,13 @@ export function SessionOverviewRow({
   const repositories = sessionRepositoriesOf(session);
   const RepositoryIcon = repositories.length > 0 ? GitBranch : Folder;
   const statusLabel = messages.status(session.status);
+  // A caller's detail (how long an answer has been awaited) is about a
+  // session that runs; one that waits on a recovery decision does not.
+  const detail =
+    statusDetail ??
+    (session.admission_state === "recovery_required"
+      ? messages.recoveryRequired
+      : undefined);
   return (
     <GridTableRow
       data-slot="session-overview-row"
@@ -220,15 +233,15 @@ export function SessionOverviewRow({
         {/* A narrow column cuts the label, never the wait after it. */}
         <span className="flex min-w-0 whitespace-nowrap">
           <span className="min-w-0 truncate">{statusLabel}</span>
-          {statusDetail ? (
+          {detail ? (
             <span
               className={cn(
                 "flex-none whitespace-pre",
-                typeof statusDetail === "string" ? null : "relative",
+                typeof detail === "string" ? null : "relative",
               )}
             >
               {" · "}
-              {statusDetail}
+              {detail}
             </span>
           ) : null}
         </span>
