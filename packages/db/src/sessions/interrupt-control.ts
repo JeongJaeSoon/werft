@@ -108,6 +108,16 @@ export function createPostgresTurnInterrupts(
         // lifecycle; nothing there polls for control, so the intent would
         // wait forever.
         if (open && turn.attemptId === null) return { outcome: "unsupported" };
+        // An ended turn's interrupt closes its parked group, which may resume
+        // an answered one onto the workspace GC is removing. Checked before
+        // anything is written, so the same request goes through afterwards.
+        if (
+          !open &&
+          session.admissionState === "paused" &&
+          session.workspaceReclaimId !== null
+        ) {
+          return { outcome: "workspace_reclaiming" };
+        }
 
         const at = await dbNow(tx);
         const receiptId = randomUUID();

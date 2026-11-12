@@ -1,4 +1,5 @@
 import {
+  DEFAULT_PAUSED_WORKSPACE_TTL_MS,
   DEFAULT_STOPPED_WORKSPACE_TTL_MS,
   type ReclaimOptions,
   type SchedulerLogger,
@@ -13,11 +14,12 @@ import type {
   PendingWorkspaceReclaim,
   SchedulerStore,
   WorkspaceReclaimClaim,
+  WorkspaceTtls,
 } from "./ports/scheduler-store.ts";
 
 /**
  * Reclaim the workspace volumes of sessions nothing will come back to, and
- * of sessions stopped for longer than their TTL. Runs as the last step of a
+ * of sessions stopped or paused for longer than their TTL. Runs as the last step of a
  * pass, and on its own from `reclaimWorkspaces`.
  */
 export async function collectWorkspaces(
@@ -30,8 +32,12 @@ export async function collectWorkspaces(
   // A backend whose workspaces it does not own leaves both out; there is
   // then nothing here to reclaim.
   if (!listWorkspaces || !removeWorkspace) return;
-  const stoppedTtlMs =
-    options.stoppedWorkspaceTtlMs ?? DEFAULT_STOPPED_WORKSPACE_TTL_MS;
+  const ttls: WorkspaceTtls = {
+    stoppedTtlMs:
+      options.stoppedWorkspaceTtlMs ?? DEFAULT_STOPPED_WORKSPACE_TTL_MS,
+    pausedTtlMs:
+      options.pausedWorkspaceTtlMs ?? DEFAULT_PAUSED_WORKSPACE_TTL_MS,
+  };
   const removal: WorkspaceRemoval = {
     logger,
     remove: (id, sessionId) => removeWorkspace.call(backend, id, { sessionId }),
@@ -73,9 +79,7 @@ export async function collectWorkspaces(
     retained =
       labelled.length === 0
         ? new Set<string>()
-        : new Set(
-            await store.filterRetainedSessions(labelled, { stoppedTtlMs }),
-          );
+        : new Set(await store.filterRetainedSessions(labelled, ttls));
     closedLegacy =
       named.length === 0
         ? new Set<string>()
@@ -119,8 +123,8 @@ export async function collectWorkspaces(
     try {
       claim = await store.claimWorkspaceReclaim({
         sessionId,
-        stoppedTtlMs,
         workspaceId: id,
+        ...ttls,
       });
     } catch (error) {
       summary.workspacesFailed.push(id);

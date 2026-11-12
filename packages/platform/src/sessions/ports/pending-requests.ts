@@ -43,6 +43,10 @@ export type AnswerRequestResult =
   // that cannot carry it on.
   | { outcome: "recovery_required"; unconfirmedTurnId: string | null }
   | { outcome: "checkpoint_unavailable" }
+  // GC holds a claim on the parked session's workspace: refused before the
+  // answer is kept, so the resume it may start never mounts a volume being
+  // removed. The same request goes through once the claim settles.
+  | { outcome: "workspace_reclaiming" }
   // Re-judged inside the write: the requester is gone, or no longer answers
   // for this session.
   | { outcome: "actor_inactive" | "role" };

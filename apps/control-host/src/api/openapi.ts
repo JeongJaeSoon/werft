@@ -3410,6 +3410,8 @@ export const API_ROUTE_DECLARATIONS = [
         "A parked request whose session has a turn with an unknown outcome: the answer is not kept, since the turn could not resume.",
       CHECKPOINT_UNAVAILABLE:
         "A parked request whose session has no checkpoint to resume from: the answer is not kept.",
+      BACKEND_UNAVAILABLE:
+        "Also for a parked request while the session's workspace is being reclaimed: the answer is not kept, and the same request goes through once the reclaim settles; `Retry-After` is 10.",
       BAD_REQUEST:
         "Also when the answer does not fit the pending request (its kind, question or option ids); `message` says how.",
       NOT_FOUND: "Also when `request_id` names no request of the session.",
@@ -4077,6 +4079,8 @@ export const API_ROUTE_DECLARATIONS = [
       NOT_FOUND: "Also when `target_turn_id` names no turn of the session.",
       UNSUPPORTED_CAPABILITY:
         "The turn runs on a legacy pod binding, which no worker polls for control.",
+      BACKEND_UNAVAILABLE:
+        "Also for a parked turn while the session's workspace is being reclaimed: nothing is recorded, and the same request goes through once the reclaim settles; `Retry-After` is 10.",
     },
   },
   {
@@ -4257,7 +4261,7 @@ export const API_ROUTE_DECLARATIONS = [
       UNSUPPORTED_CAPABILITY:
         "The session runs on a legacy pod binding, or has no runtime spec pinned on its own model, which a session needs to run once specs are authoritative.",
       BACKEND_UNAVAILABLE:
-        "Also while the stopped session's workspace is being reclaimed; `Retry-After` is 10.",
+        "Also while the stopped or paused session's workspace is being reclaimed; `Retry-After` is 10.",
     },
   },
   {

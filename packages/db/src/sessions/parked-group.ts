@@ -706,6 +706,15 @@ export async function expireParkedGroups(
         .limit(1)
         .for("update");
       if (!session) return false;
+      // Closing a group may resume the session onto the workspace GC is
+      // removing. Nothing is written, so the requests stay candidates and a
+      // pass after the claim settles expires them and carries the group on.
+      if (
+        session.admissionState === "paused" &&
+        session.workspaceReclaimId !== null
+      ) {
+        return false;
+      }
       const at = await dbNow(tx);
       const ids = await expireLapsedParked(tx, { sessionId, at });
       if (ids.length === 0) return false;

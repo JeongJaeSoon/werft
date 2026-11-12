@@ -1353,6 +1353,10 @@ export const sessions = pgTable(
     // person's pause. A trigger (migration await_park) clears it whenever
     // admission_state leaves pausing and paused, on every write path.
     pauseReason: text("pause_reason"),
+    // When the session entered `paused`, the clock of its workspace TTL. A
+    // trigger (migration paused_at) sets it on entering and clears it on
+    // leaving, on every write path; null means the workspace is kept.
+    pausedAt: timestamp("paused_at", { withTimezone: true }),
     // The session's own park and expiry waits, as given at create. Resolved
     // against the installation's values and cap whenever a request is
     // registered; null means none given.

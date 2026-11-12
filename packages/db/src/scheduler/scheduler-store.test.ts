@@ -1830,6 +1830,152 @@ describe("PostgresSchedulerStore", () => {
     expect((await claim()).kind).toBe("claimed");
   });
 
+  const PAUSED_TTLS = { stoppedTtlMs: DAY_MS, pausedTtlMs: DAY_MS };
+
+  /** Paused a day and a minute ago, with a checkpoint to resume from. */
+  function expiredPaused(
+    overrides: Partial<typeof sessions.$inferInsert> = {},
+  ) {
+    return insertUnassigned({
+      admissionState: "paused",
+      checkpointRevision: 2,
+      pausedAt: new Date(Date.now() - DAY_MS - 60_000),
+      ...overrides,
+    });
+  }
+
+  test("a paused session with a checkpoint is a candidate once its TTL from the pause runs out", async () => {
+    const old = await expiredPaused({ updatedAt: new Date() });
+    const recent = await expiredPaused({ pausedAt: new Date() });
+    const noPointer = await expiredPaused({ checkpointRevision: null });
+    const noClock = await expiredPaused({ pausedAt: null });
+    const ids = [old, recent, noPointer, noClock];
+
+    // The pause's own clock is read, not `updated_at`.
+    expect(
+      new Set(await store.filterRetainedSessions(ids, PAUSED_TTLS)),
+    ).toEqual(new Set([recent, noPointer, noClock]));
+    // Without a paused TTL, no paused session is a candidate.
+    expect(new Set(await store.filterRetainedSessions(ids, DAY))).toEqual(
+      new Set(ids),
+    );
+  });
+
+  test("a paused session is claimed only with a checkpoint its resume would restore", async () => {
+    const claim = (sessionId: string, ttls: typeof DAY = PAUSED_TTLS) =>
+      store.claimWorkspaceReclaim({
+        sessionId,
+        workspaceId: `ap-ws-${sessionId}`,
+        ...ttls,
+      });
+    const pausedAt = new Date(Date.now() - DAY_MS - 60_000);
+    const old = await expiredPaused({ pausedAt });
+
+    expect(await claim(await expiredPaused({ pausedAt: new Date() }))).toEqual({
+      kind: "retained",
+    });
+    expect(await claim(await expiredPaused({ pausedAt: null }))).toEqual({
+      kind: "retained",
+    });
+    expect(
+      await claim(await expiredPaused({ checkpointRevision: null })),
+    ).toEqual({ kind: "retained" });
+    // Retired by start_fresh: a resume would refuse it.
+    expect(
+      await claim(await expiredPaused({ contextResetCheckpointRevision: 2 })),
+    ).toEqual({ kind: "retained" });
+    expect(await claim(await expiredPaused({ podId: "legacy-pod" }))).toEqual({
+      kind: "retained",
+    });
+    expect(
+      await claim(
+        await expiredPaused({ admissionState: "pausing", pausedAt: null }),
+      ),
+    ).toEqual({ kind: "retained" });
+    expect(await claim(old, DAY)).toEqual({ kind: "retained" });
+
+    const claimed = await claim(old);
+    if (claimed.kind !== "claimed") throw new Error("not claimed");
+    const [row] = await db.select().from(sessions).where(eq(sessions.id, old));
+    expect(row?.workspaceReclaimId).toBe(claimed.claimId);
+    // The pause's clock is what the TTL reads; claiming must not move it.
+    expect(row?.pausedAt).toEqual(pausedAt);
+  });
+
+  test("paused_at is stamped by entering paused, kept by other writes and cleared by leaving", async () => {
+    const sessionId = await insertUnassigned();
+    const row = async () => {
+      const [found] = await db
+        .select()
+        .from(sessions)
+        .where(eq(sessions.id, sessionId));
+      if (!found) throw new Error("no session");
+      return found;
+    };
+    const set = (values: Partial<typeof sessions.$inferInsert>) =>
+      db.update(sessions).set(values).where(eq(sessions.id, sessionId));
+
+    expect((await row()).pausedAt).toBeNull();
+    await set({ admissionState: "pausing" });
+    expect((await row()).pausedAt).toBeNull();
+    const before = Date.now();
+    await set({ admissionState: "paused" });
+    const paused = (await row()).pausedAt;
+    if (paused === null) throw new Error("paused_at not stamped");
+    expect(paused.getTime()).toBeGreaterThanOrEqual(before - 5_000);
+
+    // A later write to the row, even one carrying an older clock, keeps it.
+    await set({ title: "renamed", updatedAt: new Date(0) });
+    expect((await row()).pausedAt).toEqual(paused);
+
+    await set({ admissionState: "resuming" });
+    expect((await row()).pausedAt).toBeNull();
+  });
+
+  test("a paused session whose launch still holds its slot is not claimed", async () => {
+    const sessionId = await insertUnassigned({ checkpointRevision: 2 });
+    const intent = await store.reserveLaunch({
+      ...SPEC,
+      backend: "local_docker",
+      now: NOW,
+      sessionId,
+      slotLimit: 10,
+    });
+    if (!intent) throw new Error("reservation refused");
+    await db
+      .update(sessions)
+      .set({ admissionState: "paused" })
+      .where(eq(sessions.id, sessionId));
+    const backdate = () =>
+      db
+        .update(sessions)
+        .set({ pausedAt: new Date(Date.now() - DAY_MS - 60_000) })
+        .where(eq(sessions.id, sessionId));
+    await backdate();
+    const claim = () =>
+      store.claimWorkspaceReclaim({
+        sessionId,
+        workspaceId: "ap-ws-held",
+        ...PAUSED_TTLS,
+      });
+
+    expect(
+      await store.filterRetainedSessions([sessionId], PAUSED_TTLS),
+    ).toEqual([sessionId]);
+    expect(await claim()).toEqual({ kind: "retained" });
+
+    await store.recordObservation(intent, {
+      found: false,
+      observedAt: NOW,
+      providerRef: null,
+      state: "terminated",
+    });
+    await store.confirmExecutionGone(intent.executionId, NOW, null);
+    await backdate();
+
+    expect((await claim()).kind).toBe("claimed");
+  });
+
   test("a claim is settled only by its own id", async () => {
     const stoppedAt = new Date(Date.now() - DAY_MS - 60_000);
     const removed = await insertUnassigned({

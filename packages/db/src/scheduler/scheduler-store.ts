@@ -20,6 +20,7 @@ import type {
   SessionBudget,
   StoredLaunchIntent,
   WorkerImageRefusal,
+  WorkspaceTtls,
 } from "@werft-ai/platform";
 import {
   budgetExceeded,
@@ -68,6 +69,7 @@ import {
   workerImageRefusals,
   workerLaunches,
 } from "../schema.ts";
+import { hasRestorePoint } from "../sessions/pause-policy.ts";
 import { createPostgresWorkerUnitOfWork } from "../worker-unit-of-work.ts";
 
 /** A connection the pass lock can live on for as long as the pass runs. */
@@ -107,8 +109,8 @@ const DESIRED_RUNNING = "running";
 /**
  * The one admission state a session never comes back from. Everything else
  * is resumed into the same session, and its workspace is kept — `stopped`
- * only until its TTL runs out, and then only through
- * `claimWorkspaceReclaim`, which resume waits for. A stopped session resumes
+ * and `paused` only until their TTL runs out, and then only through
+ * `claimWorkspaceReclaim`, which resume waits for. Such a session resumes
  * from its checkpoint, which the worker restores over whatever the volume
  * held, so its volume is a cache past that point, not the session's work.
  */
@@ -893,7 +895,7 @@ export function createPostgresSchedulerStore(
 
     async filterRetainedSessions(
       sessionIds: string[],
-      options: { stoppedTtlMs: number },
+      options: WorkspaceTtls,
     ): Promise<string[]> {
       if (sessionIds.length === 0) return [];
       // Binding a non-uuid to a uuid column is an error, not a miss, and a
@@ -912,8 +914,21 @@ export function createPostgresSchedulerStore(
               and(
                 notInArray(sessions.admissionState, FINAL_ADMISSION_STATES),
                 or(
-                  sql`${sessions.admissionState} <> 'stopped'`,
-                  sql`${sessions.updatedAt} > ${fromDbNow(-options.stoppedTtlMs)}`,
+                  sql`${sessions.admissionState} NOT IN ('stopped', 'paused')`,
+                  and(
+                    sql`${sessions.admissionState} = 'stopped'`,
+                    sql`${sessions.updatedAt} > ${fromDbNow(-options.stoppedTtlMs)}`,
+                  ),
+                  and(
+                    sql`${sessions.admissionState} = 'paused'`,
+                    options.pausedTtlMs === undefined
+                      ? sql`true`
+                      : or(
+                          isNull(sessions.pausedAt),
+                          isNull(sessions.checkpointRevision),
+                          sql`${sessions.pausedAt} > ${fromDbNow(-options.pausedTtlMs)}`,
+                        ),
+                  ),
                 ),
               ),
               // A launch holds its session until `confirmExecutionGone`, so
@@ -957,7 +972,12 @@ export function createPostgresSchedulerStore(
       return rows.map((row) => row.id);
     },
 
-    async claimWorkspaceReclaim({ sessionId, workspaceId, stoppedTtlMs }) {
+    async claimWorkspaceReclaim({
+      sessionId,
+      workspaceId,
+      stoppedTtlMs,
+      pausedTtlMs,
+    }) {
       if (!UUID.test(sessionId)) return { kind: "retained" };
       return db.transaction(async (tx) => {
         // Resume's order (`lockSessionForControl`): the bound launch first,
@@ -980,8 +1000,14 @@ export function createPostgresSchedulerStore(
         const [session] = await tx
           .select({
             admissionState: sessions.admissionState,
+            checkpointPendingReason: sessions.checkpointPendingReason,
+            checkpointRevision: sessions.checkpointRevision,
+            contextResetCheckpointRevision:
+              sessions.contextResetCheckpointRevision,
             executionId: sessions.executionId,
+            pausedAt: sessions.pausedAt,
             pendingClaim: sessions.workspaceReclaimId,
+            podId: sessions.podId,
             updatedAt: sessions.updatedAt,
           })
           .from(sessions)
@@ -999,11 +1025,26 @@ export function createPostgresSchedulerStore(
           .limit(1);
         if (slot) return { kind: "retained" };
         if (session.admissionState === "closed") return { kind: "unclaimed" };
-        if (session.admissionState !== "stopped") return { kind: "retained" };
         // One claim at a time; a pending one is finished by the sweep.
         if (session.pendingClaim !== null) return { kind: "retained" };
         const now = await dbNow(tx);
-        if (session.updatedAt.getTime() > now.getTime() - stoppedTtlMs) {
+        if (session.admissionState === "stopped") {
+          if (session.updatedAt.getTime() > now.getTime() - stoppedTtlMs) {
+            return { kind: "retained" };
+          }
+        } else if (session.admissionState === "paused") {
+          // Its resume restores this checkpoint over whatever the volume
+          // holds; a session its resume would refuse keeps the volume.
+          if (
+            pausedTtlMs === undefined ||
+            session.pausedAt === null ||
+            session.pausedAt.getTime() > now.getTime() - pausedTtlMs ||
+            !hasRestorePoint(session) ||
+            session.podId !== null
+          ) {
+            return { kind: "retained" };
+          }
+        } else {
           return { kind: "retained" };
         }
         const claim = randomUUID();
