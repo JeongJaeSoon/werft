@@ -499,6 +499,8 @@ integration("execution Grant revocation on PostgreSQL", () => {
     ]);
     const after = await sessionRow(session.session_id);
     expect(after.admissionState).toBe("recovery_required");
+    // The operator asked for this stop too: stopped, not failed.
+    expect(after.status).toBe("stopped");
     expect(after.executionId).toBeNull();
     expect(after.executionRevokedAt).not.toBeNull();
   });
