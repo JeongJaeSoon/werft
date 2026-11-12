@@ -59,14 +59,15 @@ const cardSchema = z
         long.rates.cacheReadUsdPerMtok >= standard.cacheReadUsdPerMtok),
     { message: "a long-prompt rate is below its standard one" },
   )
-  // A fast call is priced at its fast rates whatever its length.
+  // The page gives no fast rate for a long prompt, and no model has both.
   .refine(({ long, fast }) => long === undefined || fast === undefined, {
     message: "a card with long-prompt rates cannot have a fast multiple",
   });
 
 export const claudeCardsSchema = z.record(z.string().min(1), cardSchema);
 
-type Card = z.infer<typeof cardSchema>;
+export type ClaudeCard = z.infer<typeof cardSchema>;
+type Card = ClaudeCard;
 
 /**
  * Cache writes cost a multiple of the input rate: 1.25x held five minutes,

@@ -17,6 +17,7 @@ import {
   CLAUDE_CACHE_WRITE_1H as CACHE_WRITE_1H,
   CLAUDE_CACHE_WRITE_5M as CACHE_WRITE_5M,
   CLAUDE_CARDS,
+  type ClaudeCard,
   CLAUDE_GEO_PERCENT as GEO_PERCENT,
   WEB_SEARCH_MICRO_USD,
 } from "./model-prices-claude.ts";
@@ -24,6 +25,7 @@ import {
   OPENAI_ALL_RATES,
   OPENAI_CACHE_WRITE_12H,
   OPENAI_CACHE_WRITE_30M,
+  TOP_SPEED_MULTIPLIER as OPENAI_TOP_SPEED_MULTIPLIER,
   openAiFallbackFloor,
   openAiFallbackSpeedMultiplier,
   openAiRatesFor,
@@ -51,33 +53,10 @@ export const MODEL_PRICES: Readonly<Record<string, ModelPrice>> =
   Object.fromEntries(CARDS.map(([model, card]) => [model, card.standard]));
 
 /**
- * Models with a second rate card for a long prompt: past `aboveTokens` of
- * input, cache included, every part of the call pays `price`.
+ * A model from before Claude 4.6 (a card without `geo`) has a 200K window,
+ * and its card's rates stop there: an answer that used more came from a
+ * provider charging a long-context rate the table does not know.
  */
-const LONG_PROMPT_PRICES: Readonly<
-  Record<string, { aboveTokens: number; price: ModelPrice }>
-> = Object.fromEntries(
-  CARDS.flatMap(([model, card]) =>
-    card.long === undefined
-      ? []
-      : [
-          [
-            model,
-            { aboveTokens: card.long.aboveTokens, price: card.long.rates },
-          ],
-        ],
-  ),
-);
-
-/**
- * Models from before Claude 4.6. They cannot run with `inference_geo` and
- * always pay the standard rates. Their window is 200K tokens and the table's
- * rates stop there: an answer that used more came from a provider charging
- * a long-context rate the table does not know.
- */
-const BEFORE_4_6: ReadonlySet<string> = new Set(
-  CARDS.filter(([, card]) => !card.geo).map(([model]) => model),
-);
 const BEFORE_4_6_CONTEXT_TOKENS = 200_000;
 
 /** `speed: "fast"` rates, a multiple of the standard ones for the models offering it. */
@@ -100,10 +79,26 @@ export const FAST_MODEL_PRICES: Readonly<Record<string, ModelPrice>> =
   );
 
 /**
- * A model the table does not know, at a speed or in a geo it does not know,
- * is charged every part at the highest rate either table has, and an unknown
- * geo at the highest multiplier too: a budget errs on counting too much,
- * never too little.
+ * What a speed multiplies a Claude model's rates by. A tier its card does not
+ * list, `fast` without fast mode or a name the page does not use, is charged
+ * the highest multiple either table has, as the OpenAI table charges one: a
+ * budget errs on counting too much, never too little.
+ */
+const TOP_SPEED_MULTIPLIER = Math.max(
+  OPENAI_TOP_SPEED_MULTIPLIER,
+  ...CARDS.flatMap(([, card]) => (card.fast === undefined ? [] : [card.fast])),
+);
+
+function claudeSpeedMultiplier(card: ClaudeCard, speed: string): number {
+  if (speed === "standard") return 1;
+  return speed === "fast" && card.fast !== undefined
+    ? card.fast
+    : TOP_SPEED_MULTIPLIER;
+}
+
+/**
+ * A model no table knows is charged every part at the highest rate either
+ * table has, and an unknown geo at the highest multiplier too.
  */
 const FALLBACK_PRICE: ModelPrice = (() => {
   const prices = [
@@ -125,7 +120,7 @@ const FALLBACK_GEO_PERCENT = Math.max(...Object.values(GEO_PERCENT));
  * Either may be an OpenAI call, so away from the standard speed every rate
  * is multiplied by the dearest multiple the OpenAI table has for that tier,
  * and its cache writes cost what the dearer of the two providers charges. A
- * model the Claude table names stays on Claude's own highest rates above.
+ * model the Claude table names keeps its own multiples and cache writes.
  */
 const NON_CLAUDE_SHORT_WRITE = Math.max(CACHE_WRITE_5M, OPENAI_CACHE_WRITE_30M);
 const NON_CLAUDE_LONG_WRITE = Math.max(CACHE_WRITE_1H, OPENAI_CACHE_WRITE_12H);
@@ -190,35 +185,28 @@ export function priceProviderUsage(usage: ProviderUsage): {
       pricedBy: "table",
     };
   }
-  const table: Readonly<Record<string, ModelPrice>> =
-    usage.speed === "standard"
-      ? MODEL_PRICES
-      : usage.speed === "fast"
-        ? FAST_MODEL_PRICES
-        : {};
-  const older = BEFORE_4_6.has(usage.model);
+  const card = Object.hasOwn(CLAUDE_CARDS, usage.model)
+    ? CLAUDE_CARDS[usage.model]
+    : undefined;
+  const nonClaude = card === undefined;
+  // A model before Claude 4.6 cannot run with `inference_geo` and always
+  // pays the global rates; an unknown geo pays the highest multiplier.
+  const older = card?.geo === false;
   const geo = older
     ? 100
-    : Object.hasOwn(GEO_PERCENT, usage.inferenceGeo)
-      ? GEO_PERCENT[usage.inferenceGeo]
-      : undefined;
+    : ((Object.hasOwn(GEO_PERCENT, usage.inferenceGeo)
+        ? GEO_PERCENT[usage.inferenceGeo]
+        : undefined) ?? FALLBACK_GEO_PERCENT);
   const promptTokens =
     usage.inputTokens +
     usage.cacheCreationInputTokens +
     usage.cacheReadInputTokens;
-  const longContext = older && promptTokens > BEFORE_4_6_CONTEXT_TOKENS;
-  const longPrompt =
-    usage.speed === "standard" && Object.hasOwn(LONG_PROMPT_PRICES, usage.model)
-      ? LONG_PROMPT_PRICES[usage.model]
-      : undefined;
   const known =
-    geo !== undefined && !longContext && Object.hasOwn(table, usage.model)
-      ? longPrompt !== undefined && promptTokens > longPrompt.aboveTokens
-        ? longPrompt.price
-        : table[usage.model]
-      : undefined;
-  const nonClaude =
-    known === undefined && !Object.hasOwn(MODEL_PRICES, usage.model);
+    card === undefined || (older && promptTokens > BEFORE_4_6_CONTEXT_TOKENS)
+      ? undefined
+      : card.long !== undefined && promptTokens > card.long.aboveTokens
+        ? card.long.rates
+        : card.standard;
   const floor = nonClaude ? openAiFallbackFloor(usage.model) : undefined;
   const rates =
     known ??
@@ -232,9 +220,11 @@ export function priceProviderUsage(usage: ProviderUsage): {
             floor.cacheReadUsdPerMtok,
           ),
         ));
-  const speedMultiplier = nonClaude
-    ? openAiFallbackSpeedMultiplier(usage.model, usage.speed)
-    : 1;
+  // Past its window a Claude model keeps its own multiple on the fallback.
+  const speedMultiplier =
+    card === undefined
+      ? openAiFallbackSpeedMultiplier(usage.model, usage.speed)
+      : claudeSpeedMultiplier(card, usage.speed);
   const oneHour = Math.min(
     usage.cacheCreation1hInputTokens,
     usage.cacheCreationInputTokens,
@@ -251,7 +241,7 @@ export function priceProviderUsage(usage: ProviderUsage): {
     usage.outputTokens * rates.outputUsdPerMtok;
   return {
     costUsd:
-      ((perMtok * speedMultiplier * (geo ?? FALLBACK_GEO_PERCENT)) / 100 +
+      ((perMtok * speedMultiplier * geo) / 100 +
         usage.webSearchRequests * WEB_SEARCH_MICRO_USD) /
       1_000_000,
     pricedBy: known === undefined ? "fallback" : "table",

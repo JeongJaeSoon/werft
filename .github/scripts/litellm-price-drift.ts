@@ -434,7 +434,7 @@ export function compareClaude(litellm: Record<string, Entry>): Drift[] {
       } else if (theirs !== undefined && ours === undefined) {
         report(
           name,
-          `LiteLLM ${theirs}x; werft has no ${name} rates for this model and charges ${name === "us" ? "the global rates" : "its fallback"}`,
+          `LiteLLM ${theirs}x; werft has no ${name} multiple for this model and charges ${name === "us" ? "the global rates" : "the highest multiple either table has"}`,
           true,
         );
       } else if (

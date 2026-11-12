@@ -102,22 +102,38 @@ describe("priceProviderUsage", () => {
     ).toBe(20);
   });
 
-  test("a fast answer from a model without fast rates, or an unknown speed, pays the highest rate of either table", () => {
-    const highest = Math.max(
-      ...[
-        ...Object.values(MODEL_PRICES),
-        ...Object.values(FAST_MODEL_PRICES),
-      ].map((price) => price.outputUsdPerMtok),
-    );
-    for (const usage of [
-      { model: "claude-sonnet-5", speed: "fast" },
-      { model: "claude-opus-5", speed: "turbo" },
-      { model: "claude-opus-5", speed: "unknown" },
-    ]) {
-      expect(
+  test("a fast answer from a model without fast mode, or an unknown speed, pays its own rates at the highest multiple either table has", () => {
+    // 6x is OpenAI's ultrafast, above Claude's 2x fast.
+    for (const [usage, costUsd] of [
+      [{ model: "claude-sonnet-5", speed: "fast" }, 10 * 6],
+      [{ model: "claude-opus-5", speed: "turbo" }, 25 * 6],
+      [{ model: "claude-opus-5", speed: "unknown" }, 25 * 6],
+      [{ model: "claude-fable-5-2", speed: "turbo" }, 40 * 6],
+    ] as const) {
+      expect([
+        usage,
         priceProviderUsage({ ...nothing, ...usage, outputTokens: 1_000_000 }),
-      ).toEqual({ costUsd: highest, pricedBy: "fallback" });
+      ]).toEqual([usage, { costUsd, pricedBy: "table" }]);
     }
+    // A long prompt keeps its long rates at that multiple.
+    expect(
+      priceProviderUsage({
+        ...nothing,
+        model: "claude-haiku-5-5",
+        speed: "turbo",
+        inputTokens: 200_000,
+      }),
+      // 200K at $0.50 long input, times 6.
+    ).toEqual({ costUsd: 0.6, pricedBy: "table" });
+    // Past a pre-4.6 model's window the fallback keeps that multiple too.
+    const past = priceProviderUsage({
+      ...nothing,
+      model: "claude-sonnet-4-5",
+      speed: "turbo",
+      inputTokens: 1_000_000,
+    });
+    expect(past.pricedBy).toBe("fallback");
+    expect(past.costUsd).toBeCloseTo(20 * 6, 9);
   });
 
   test("each web search adds $0.01; web fetch and code execution add nothing", () => {
@@ -179,17 +195,27 @@ describe("priceProviderUsage", () => {
     ).toBe(0.0275);
   });
 
-  test("a geo the table does not know pays the highest rate and the highest multiplier", () => {
+  test("a geo the table does not know pays the model's own rates at the highest geo multiplier", () => {
     for (const inferenceGeo of ["unknown", "eu", "US", "constructor"]) {
-      expect(
+      expect([
+        inferenceGeo,
         priceProviderUsage({
           ...nothing,
           model: "claude-sonnet-5",
           outputTokens: 1_000_000,
           inferenceGeo,
         }),
-      ).toEqual({ costUsd: highest.output * 1.1, pricedBy: "fallback" });
+      ]).toEqual([inferenceGeo, { costUsd: 11, pricedBy: "table" }]);
     }
+    // A model no table knows still pays the highest rate at that multiplier.
+    expect(
+      priceProviderUsage({
+        ...nothing,
+        model: "claude-unknown",
+        outputTokens: 1_000_000,
+        inferenceGeo: "eu",
+      }),
+    ).toEqual({ costUsd: highest.output * 1.1, pricedBy: "fallback" });
   });
 
   test("a model from before 4.6 pays standard rates whatever the geo says", () => {
@@ -758,9 +784,8 @@ describe("priceProviderUsage for an OpenAI model", () => {
     }
   });
 
-  test("a model the Claude table names keeps Claude's highest rates when its speed is not one the table has", () => {
-    // $80 out (claude-fable-5-2 fast) is the highest of both Claude tables;
-    // no OpenAI multiplier.
+  test("a model the Claude table names keeps its own rates and Claude's cache writes when its speed is not one the table has", () => {
+    // $25 out at the highest multiple either table has (6x).
     expect(
       priceProviderUsage({
         ...nothing,
@@ -769,7 +794,7 @@ describe("priceProviderUsage for an OpenAI model", () => {
         outputTokens: 1_000_000,
         cacheCreationInputTokens: 0,
       }),
-    ).toEqual({ costUsd: 80, pricedBy: "fallback" });
+    ).toEqual({ costUsd: 150, pricedBy: "table" });
     const hourLong = priceProviderUsage({
       ...nothing,
       model: "claude-opus-5",
