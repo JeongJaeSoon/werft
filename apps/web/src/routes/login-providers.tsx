@@ -549,7 +549,6 @@ function ProviderSettings({
             <SettingRow
               title={t("loginProviders.name")}
               meta={provider.display_name}
-              description={t("loginProviders.nameHint")}
               actions={
                 <Action
                   label={t("loginProviders.rename")}
@@ -583,6 +582,8 @@ function ProviderSettings({
                 provider.redirect_uri ? (
                   <CopyButton
                     value={provider.redirect_uri}
+                    variant="outline"
+                    size="sm"
                     label={t("loginProviders.copy")}
                     copiedMessage={t("loginProviders.copied")}
                     icon="copy"
@@ -605,13 +606,14 @@ function ProviderSettings({
             <SettingRow
               title={t("loginProviders.discovery")}
               meta={
-                <>
+                // One line: a row's lines stack.
+                <Text as="span" variant="meta">
                   {t("loginProviders.discoveryChecked")}{" "}
                   <RelativeTime
                     value={provider.discovery_checked_at}
                     locale={locale}
                   />
-                </>
+                </Text>
               }
               actions={
                 <Action
@@ -646,9 +648,6 @@ function ProviderSettings({
                   t("loginProviders.unset")
                 )
               }
-              description={t(
-                `loginProviders.authMethod.${provider.token_auth_method}`,
-              )}
               actions={
                 <Action
                   label={t("loginProviders.clientEdit")}
@@ -657,6 +656,12 @@ function ProviderSettings({
                   onClick={() => open("client")}
                 />
               }
+            />
+            <SettingRow
+              title={t("loginProviders.authMethod")}
+              meta={t(
+                `loginProviders.authMethod.${provider.token_auth_method}`,
+              )}
             />
             <SettingRow
               title={t("loginProviders.secret")}
@@ -698,10 +703,10 @@ function ProviderSettings({
               title={t("loginProviders.test")}
               meta={
                 provider.tested_at ? (
-                  <>
+                  <Text as="span" variant="meta">
                     {t("loginProviders.testedAt")}{" "}
                     <RelativeTime value={provider.tested_at} locale={locale} />
-                  </>
+                  </Text>
                 ) : (
                   t("loginProviders.neverTested")
                 )
