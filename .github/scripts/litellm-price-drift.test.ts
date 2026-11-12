@@ -10,126 +10,170 @@ function agreeing(): Record<string, Record<string, number>> {
     const pro = model.endsWith("-pro");
     const entry: Record<string, number> = {};
     const put = (suffix: string, multiple: number) => {
-      entry[`input_cost_per_token${suffix}`] =
-        (card.short.inputUsdPerMtok * multiple) / 1e6;
-      entry[`output_cost_per_token${suffix}`] =
-        (card.short.outputUsdPerMtok * multiple) / 1e6;
-      if (!pro) {
-        entry[`cache_read_input_token_cost${suffix}`] =
-          (card.short.cacheReadUsdPerMtok * multiple) / 1e6;
+      for (const [length, rates] of [
+        ["", card.short],
+        ["_above_272k_tokens", card.long],
+      ] as const) {
+        if (rates === undefined) continue;
+        const at = (rate: number) => (rate * multiple) / 1e6;
+        entry[`input_cost_per_token${length}${suffix}`] = at(
+          rates.inputUsdPerMtok,
+        );
+        entry[`output_cost_per_token${length}${suffix}`] = at(
+          rates.outputUsdPerMtok,
+        );
+        if (pro) continue;
+        entry[`cache_read_input_token_cost${length}${suffix}`] = at(
+          rates.cacheReadUsdPerMtok,
+        );
+        entry[`cache_creation_input_token_cost${length}${suffix}`] = at(
+          rates.inputUsdPerMtok * 1.25,
+        );
+        entry[`cache_creation_input_token_cost_above_12hr${length}${suffix}`] =
+          at(rates.inputUsdPerMtok * 2.5);
       }
     };
     put("", 1);
-    if (card.long !== undefined) {
-      entry.input_cost_per_token_above_272k_tokens =
-        card.long.inputUsdPerMtok / 1e6;
-      entry.output_cost_per_token_above_272k_tokens =
-        card.long.outputUsdPerMtok / 1e6;
-      if (!pro) {
-        entry.cache_read_input_token_cost_above_272k_tokens =
-          card.long.cacheReadUsdPerMtok / 1e6;
-      }
-    }
     for (const [tier, multiple] of Object.entries(card.speeds)) {
       put(tier === "fast" ? "_priority" : `_${tier}`, multiple);
     }
-    entry.input_cost_per_token_batches = card.short.inputUsdPerMtok / 2e6;
+    put("_batches", 0.5);
     data[model] = entry;
   }
   return data;
 }
+
+function entryOf(
+  data: Record<string, Record<string, number>>,
+  model: string,
+): Record<string, number> {
+  const entry = data[model];
+  if (entry === undefined) throw new Error(`no ${model}`);
+  return entry;
+}
+
+const where = (data: Record<string, Record<string, number>>) =>
+  compare(parseLiteLlm(data)).map(({ model, tier, undercharges }) => [
+    model,
+    tier,
+    undercharges,
+  ]);
 
 describe("litellm-price-drift", () => {
   test("data that agrees with the table reports no drift", () => {
     expect(compare(parseLiteLlm(agreeing()))).toEqual([]);
   });
 
-  test("a rate that differs is reported with both figures", () => {
+  test("a rate that differs is reported with both figures and its direction", () => {
     const data = agreeing();
-    const entry = data["gpt-5.5"];
-    if (entry === undefined) throw new Error("no gpt-5.5");
-    entry.output_cost_per_token_priority = 60 / 1e6;
+    entryOf(data, "gpt-5.5").output_cost_per_token_priority = 60 / 1e6;
+    entryOf(data, "gpt-6-sol").input_cost_per_token = 3 / 1e6;
     expect(compare(parseLiteLlm(data))).toEqual([
       {
+        model: "gpt-6-sol",
+        tier: "standard",
+        detail: "`input_cost_per_token`: LiteLLM $3, werft $2",
+        undercharges: true,
+      },
+      {
         model: "gpt-5.5",
-        field: "fast",
+        tier: "fast",
         detail: "`output_cost_per_token_priority`: LiteLLM $60, werft $75",
+        undercharges: false,
       },
     ]);
   });
 
-  test("a long-context rate, a cache write and a missing model are reported", () => {
+  test("long-context rates and cache writes at every tier are compared", () => {
     const data = agreeing();
-    const astra = data["gpt-6-astra"];
-    if (astra === undefined) throw new Error("no gpt-6-astra");
+    const astra = entryOf(data, "gpt-6-astra");
     astra.input_cost_per_token_above_272k_tokens = 25 / 1e6;
-    astra.cache_creation_input_token_cost_above_12hr = 30 / 1e6;
+    astra.cache_creation_input_token_cost_priority = 100 / 1e6;
+    astra.cache_creation_input_token_cost_above_272k_tokens = 100 / 1e6;
+    astra.cache_creation_input_token_cost_above_12hr_above_272k_tokens_ultrafast =
+      1 / 1e6;
+    expect(where(data)).toEqual([
+      // In LiteLLM's key order: long input, long write, fast write, the rest.
+      ["gpt-6-astra", "standard", true],
+      ["gpt-6-astra", "standard", true],
+      ["gpt-6-astra", "fast", true],
+      ["gpt-6-astra", "ultrafast", false],
+    ]);
+  });
+
+  test("a model or a rate LiteLLM does not give is reported", () => {
+    const data = agreeing();
     delete data["o3-pro"];
-    expect(
-      compare(parseLiteLlm(data)).map(({ model, field }) => [model, field]),
-    ).toEqual([
-      ["gpt-6-astra", "standard"],
-      ["gpt-6-astra", "cache write"],
-      ["o3-pro", "entry"],
+    delete entryOf(data, "gpt-6-sol").cache_read_input_token_cost;
+    delete entryOf(data, "gpt-6.1-sol").output_cost_per_token_ultrafast;
+    expect(where(data)).toEqual([
+      ["gpt-6.1-sol", "ultrafast", false],
+      ["gpt-6-sol", "standard", false],
+      ["o3-pro", "standard", false],
     ]);
   });
 
-  test("a tier the card does not list is reported, batch and flex are not", () => {
+  test("a tier the card does not list is compared at werft's highest multiple; batch and flex are skipped", () => {
     const data = agreeing();
-    // gpt-5.4-nano is on no speed tab of werft's card.
-    const nano = data["gpt-5.4-nano"];
-    if (nano === undefined) throw new Error("no gpt-5.4-nano");
+    // gpt-5.4-nano is on no speed tab of werft's card, so werft charges 6x.
+    const nano = entryOf(data, "gpt-5.4-nano");
     nano.input_cost_per_token_priority = 0.4 / 1e6;
-    nano.input_cost_per_token_turbo = 0.8 / 1e6;
+    nano.input_cost_per_token_turbo = 2 / 1e6;
     nano.input_cost_per_token_flex = 0.1 / 1e6;
-    // gpt-6-luna's `decisions` tier is a known one.
-    const luna = data["gpt-6-luna"];
-    if (luna === undefined) throw new Error("no gpt-6-luna");
-    luna.input_cost_per_token_decisions = 0.1 / 1e6;
-    expect(
-      compare(parseLiteLlm(data)).map(({ model, field }) => [model, field]),
-    ).toEqual([
-      ["gpt-5.4-nano", "fast"],
-      ["gpt-5.4-nano", "turbo"],
+    expect(where(data)).toEqual([
+      ["gpt-5.4-nano", "fast", false],
+      ["gpt-5.4-nano", "turbo", true],
     ]);
   });
 
-  test("a difference werft keeps on purpose is not reported", () => {
+  test("a known difference is hidden only while werft charges more", () => {
     const data = agreeing();
-    const mini = data["gpt-5-mini"];
-    if (mini === undefined) throw new Error("no gpt-5-mini");
+    const mini = entryOf(data, "gpt-5-mini");
     mini.output_cost_per_token_priority = 3.6 / 1e6;
+    // gpt-6-luna's `decisions` tier is known: 1x against werft's 6x.
+    entryOf(data, "gpt-6-luna").input_cost_per_token_decisions = 0.1 / 1e6;
     expect(compare(parseLiteLlm(data))).toEqual([]);
+    mini.output_cost_per_token_priority = 100 / 1e6;
+    entryOf(data, "gpt-6-luna").input_cost_per_token_decisions = 1 / 1e6;
+    expect(where(data)).toEqual([
+      ["gpt-6-luna", "decisions", true],
+      ["gpt-5-mini", "fast", true],
+    ]);
   });
 
-  test("a cache read LiteLLM leaves out is reported unless the card prices it at the input rate", () => {
+  test("a rate field this check does not know is reported", () => {
     const data = agreeing();
-    const sol = data["gpt-6-sol"];
-    if (sol === undefined) throw new Error("no gpt-6-sol");
-    delete sol.cache_read_input_token_cost;
-    expect(
-      compare(parseLiteLlm(data)).map(({ model, field }) => [model, field]),
-    ).toEqual([["gpt-6-sol", "standard"]]);
+    entryOf(data, "gpt-5.5").input_cost_per_token_above_128k_tokens = 1 / 1e6;
+    entryOf(data, "gpt-5.5").output_cost_per_token_above_12hr = 1 / 1e6;
+    expect(where(data)).toEqual([
+      ["gpt-5.5", "standard", true],
+      ["gpt-5.5", "standard", true],
+    ]);
   });
 
-  test("an entry werft prices must have numbers where it reads them; other entries are not read", () => {
+  test("every rate field of an entry werft prices must be a number; other entries are not read", () => {
     const data: Record<string, unknown> = agreeing();
     data["unrelated-model"] = { input_cost_per_token: "free" };
     expect(() => parseLiteLlm(data)).not.toThrow();
-    data["gpt-5.5"] = { input_cost_per_token: "5e-6" };
-    expect(() => parseLiteLlm(data)).toThrow(/gpt-5\.5/);
+    data["gpt-6-astra"] = {
+      ...entryOf(agreeing(), "gpt-6-astra"),
+      input_cost_per_token_above_272k_tokens_priority: "100e-6",
+    };
+    expect(() => parseLiteLlm(data)).toThrow(/gpt-6-astra/);
+    data["gpt-6-astra"] = { input_cost_per_token: -1 };
+    expect(() => parseLiteLlm(data)).toThrow(/gpt-6-astra/);
     expect(() => parseLiteLlm([])).toThrow();
   });
 
-  test("the report names the commit and the license", () => {
+  test("the report names the commit, the license and an undercharge", () => {
     const commit = "0".repeat(40);
     const text = render(commit, [
-      { model: "gpt-5.5", field: "fast", detail: "x" },
+      { model: "gpt-5.5", tier: "fast", detail: "x", undercharges: true },
     ]);
     expect(text).toContain(
       `/blob/${commit}/model_prices_and_context_window.json`,
     );
-    expect(text).toContain("| `gpt-5.5` | fast | x |");
+    expect(text).toContain("| `gpt-5.5` | fast | x | **yes** |");
     expect(text).toContain("MIT, Copyright (c) 2023 Berri AI");
   });
 });

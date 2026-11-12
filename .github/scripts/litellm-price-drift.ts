@@ -19,7 +19,11 @@
 import { writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { z } from "zod";
-import { OPENAI_CARDS } from "../../packages/platform/src/limits/model-prices-openai.ts";
+import {
+  OPENAI_CARDS,
+  type OpenAiRates,
+  openAiSpeedMultiplier,
+} from "../../packages/platform/src/limits/model-prices-openai.ts";
 
 const REPO = "BerriAI/litellm";
 const PATH = "model_prices_and_context_window.json";
@@ -27,18 +31,43 @@ const MAX_BYTES = 64 * 1024 * 1024;
 
 const sha = z.string().regex(/^[0-9a-f]{40}$/);
 
+/** The token rates werft prices, by LiteLLM's name for them. */
+const PARTS: Readonly<Record<string, keyof OpenAiRates>> = {
+  input_cost_per_token: "inputUsdPerMtok",
+  output_cost_per_token: "outputUsdPerMtok",
+  cache_read_input_token_cost: "cacheReadUsdPerMtok",
+  // A cache write is a multiple of the input rate.
+  cache_creation_input_token_cost: "inputUsdPerMtok",
+};
+const PART_NAMES = Object.keys(PARTS);
+
+/** A rate field: its part, then a 12-hour write, long context and a tier. */
+const RATE_KEY =
+  /^(input_cost_per_token|output_cost_per_token|cache_read_input_token_cost|cache_creation_input_token_cost)(_above_12hr)?(_above_272k_tokens)?(?:_([a-z]+))?$/;
+
 const perToken = z.number().finite().nonnegative();
 
-/** The fields this check reads; LiteLLM's other fields pass through unread. */
-const entrySchema = z.looseObject({
-  input_cost_per_token: perToken.optional(),
-  output_cost_per_token: perToken.optional(),
-  cache_read_input_token_cost: perToken.optional(),
-  cache_creation_input_token_cost: perToken.optional(),
-  cache_creation_input_token_cost_above_12hr: perToken.optional(),
-});
+/** Every rate field of an entry werft prices must be a rate. */
+const entrySchema = z
+  .record(z.string(), z.unknown())
+  .superRefine((entry, ctx) => {
+    for (const [key, value] of Object.entries(entry)) {
+      if (
+        PART_NAMES.some((part) => key.startsWith(part)) &&
+        !perToken.safeParse(value).success
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: [key],
+          message: "not a non-negative number",
+        });
+      }
+    }
+  });
 
-/** Only the entries werft prices are validated; the rest stay unknown. */
+type Entry = z.infer<typeof entrySchema>;
+
+/** Only the entries werft prices are validated; the rest are not read. */
 export function parseLiteLlm(raw: unknown): Record<string, Entry> {
   const all = z.record(z.string(), z.unknown()).parse(raw);
   const entries: Record<string, Entry> = {};
@@ -55,17 +84,16 @@ export function parseLiteLlm(raw: unknown): Record<string, Entry> {
   return entries;
 }
 
-type Entry = z.infer<typeof entrySchema>;
-
-/** werft's speed tier names as LiteLLM suffixes its fields. */
-const TIER_SUFFIX: Readonly<Record<string, string>> = {
-  fast: "_priority",
-  ultrafast: "_ultrafast",
-};
+/** LiteLLM's tier suffix for werft's `fast`; other tiers share the name. */
+const LITELLM_FAST = "priority";
 /** LiteLLM tiers that are not a speed: a different service, not priced here. */
 const NOT_SPEEDS = new Set(["batches", "flex"]);
 
-/** Differences werft keeps on purpose. Keyed `<model> <field>`. */
+/**
+ * Differences werft keeps on purpose, keyed `<model> <tier>`. Each one only
+ * hides a difference where werft charges more; a LiteLLM rate above werft's
+ * is always reported.
+ */
 export const KNOWN: Readonly<Record<string, string>> = {
   "gpt-5-mini fast":
     "the page lists 1.8x; werft keeps 2x, which errs high (94S-1545)",
@@ -73,15 +101,16 @@ export const KNOWN: Readonly<Record<string, string>> = {
     "not on the pricing page (checked 2026-11-12); werft charges a tier its card does not list 6x, which errs high",
 };
 
-export type Drift = { model: string; field: string; detail: string };
+export type Drift = {
+  model: string;
+  tier: string;
+  detail: string;
+  /** LiteLLM's rate is above werft's, or the rate cannot be compared. */
+  undercharges: boolean;
+};
 
 const CACHE_WRITE_30M = 1.25;
 const CACHE_WRITE_12H = 2.5;
-
-function numberAt(entry: Entry, key: string): number | undefined {
-  const value = entry[key];
-  return typeof value === "number" ? value : undefined;
-}
 
 function same(a: number, b: number): boolean {
   return Math.abs(a - b) <= 1e-9 * Math.max(Math.abs(a), Math.abs(b), 1e-12);
@@ -91,107 +120,121 @@ function perMtok(value: number): string {
   return `$${Number((value * 1_000_000).toPrecision(12))}`;
 }
 
-const PARTS = [
-  ["input_cost_per_token", "inputUsdPerMtok"],
-  ["cache_read_input_token_cost", "cacheReadUsdPerMtok"],
-  ["output_cost_per_token", "outputUsdPerMtok"],
-] as const;
+function suffixOf(tier: string): string {
+  if (tier === "standard") return "";
+  return `_${tier === "fast" ? LITELLM_FAST : tier}`;
+}
 
 export function compare(litellm: Record<string, Entry>): Drift[] {
   const drift: Drift[] = [];
-  const report = (model: string, field: string, detail: string) => {
-    if (!Object.hasOwn(KNOWN, `${model} ${field}`)) {
-      drift.push({ model, field, detail });
+  const report = (
+    model: string,
+    tier: string,
+    detail: string,
+    undercharges: boolean,
+  ) => {
+    if (undercharges || !Object.hasOwn(KNOWN, `${model} ${tier}`)) {
+      drift.push({ model, tier, detail, undercharges });
     }
   };
   for (const [model, card] of Object.entries(OPENAI_CARDS)) {
     const entry = litellm[model];
     if (entry === undefined) {
-      report(model, "entry", "LiteLLM has no entry for this model");
+      report(model, "standard", "LiteLLM has no entry for this model", false);
       continue;
     }
-    const check = (key: string, ours: number, field: string) => {
-      const theirs = numberAt(entry, key);
-      if (theirs === undefined) {
-        // A Pro card prices a cache read at the input rate because the page
-        // gives none; LiteLLM leaves the field out for the same reason.
-        if (
-          key.startsWith("cache_read_") &&
-          ours * 1_000_000 ===
-            (key.includes("272k")
-              ? card.long?.inputUsdPerMtok
-              : card.short.inputUsdPerMtok)
-        ) {
-          return;
-        }
-        report(
-          model,
-          field,
-          `LiteLLM has no \`${key}\`; werft ${perMtok(ours)}`,
-        );
-      } else if (!same(theirs, ours)) {
-        report(
-          model,
-          field,
-          `\`${key}\`: LiteLLM ${perMtok(theirs)}, werft ${perMtok(ours)}`,
-        );
+    // Every rate LiteLLM gives, against what werft charges for it.
+    for (const [key, theirs] of Object.entries(entry)) {
+      // parseLiteLlm has made every such field a number.
+      if (
+        typeof theirs !== "number" ||
+        !PART_NAMES.some((part) => key.startsWith(part))
+      ) {
+        continue;
       }
-    };
-    const tiers: [string, number, string][] = [
-      ["standard", 1, ""],
-      ...Object.entries(card.speeds).map(
-        ([tier, multiple]): [string, number, string] => [
+      const match = RATE_KEY.exec(key);
+      const [, part, twelveHours, long, suffix] = match ?? [];
+      if (
+        part === undefined ||
+        (twelveHours !== undefined &&
+          part !== "cache_creation_input_token_cost")
+      ) {
+        report(
+          model,
+          "standard",
+          `\`${key}\` is a rate this check does not know`,
+          true,
+        );
+        continue;
+      }
+      if (suffix !== undefined && NOT_SPEEDS.has(suffix)) continue;
+      const tier =
+        suffix === undefined
+          ? "standard"
+          : suffix === LITELLM_FAST
+            ? "fast"
+            : suffix;
+      const rates = long === undefined ? card.short : card.long;
+      // A length the card has no rates for is priced by the fallback, which
+      // is at least the highest card of its kind.
+      if (rates === undefined) continue;
+      const rate = PARTS[part];
+      if (rate === undefined) continue;
+      const write =
+        part === "cache_creation_input_token_cost"
+          ? twelveHours === undefined
+            ? CACHE_WRITE_30M
+            : CACHE_WRITE_12H
+          : 1;
+      const ours =
+        (rates[rate] * write * openAiSpeedMultiplier(model, tier)) / 1e6;
+      if (!same(theirs, ours)) {
+        const unlisted =
+          Object.hasOwn(card.speeds, tier) || tier === "standard"
+            ? ""
+            : " (the card does not list this tier; werft charges its highest multiple)";
+        report(
+          model,
           tier,
-          multiple,
-          TIER_SUFFIX[tier] ?? `_${tier}`,
-        ],
-      ),
-    ];
-    for (const [tier, multiple, suffix] of tiers) {
-      for (const [key, part] of PARTS) {
-        check(`${key}${suffix}`, (card.short[part] * multiple) / 1e6, tier);
-        if (card.long === undefined) continue;
-        const longKey =
-          key === "cache_read_input_token_cost"
-            ? `${key}_above_272k_tokens${suffix}`
-            : `${key.replace("_per_token", "_per_token_above_272k_tokens")}${suffix}`;
-        // The page shows no long rates for some fast tiers; werft charges
-        // the long card times the multiple there, which only errs high.
-        if (tier !== "standard" && numberAt(entry, longKey) === undefined) {
-          continue;
+          `\`${key}\`: LiteLLM ${perMtok(theirs)}, werft ${perMtok(ours)}${unlisted}`,
+          theirs > ours,
+        );
+      }
+    }
+    // Rates werft charges that LiteLLM does not give.
+    for (const tier of ["standard", ...Object.keys(card.speeds)]) {
+      for (const part of [
+        "input_cost_per_token",
+        "output_cost_per_token",
+        "cache_read_input_token_cost",
+      ]) {
+        const lengths: [string, OpenAiRates | undefined][] = [
+          ["", card.short],
+          // The page shows no long rates for some fast tiers.
+          ...(tier === "standard"
+            ? [
+                ["_above_272k_tokens", card.long] as [
+                  string,
+                  OpenAiRates | undefined,
+                ],
+              ]
+            : []),
+        ];
+        for (const [length, rates] of lengths) {
+          if (rates === undefined) continue;
+          // A Pro card prices a cache read at the input rate because the
+          // page gives none; LiteLLM leaves the field out for that reason.
+          if (
+            part === "cache_read_input_token_cost" &&
+            rates.cacheReadUsdPerMtok === rates.inputUsdPerMtok
+          ) {
+            continue;
+          }
+          const key = `${part}${length}${suffixOf(tier)}`;
+          if (!Object.hasOwn(entry, key)) {
+            report(model, tier, `LiteLLM has no \`${key}\``, false);
+          }
         }
-        check(longKey, (card.long[part] * multiple) / 1e6, tier);
-      }
-    }
-    // werft charges every model 1.25x / 2.5x of input for a cache write.
-    for (const [key, factor] of [
-      ["cache_creation_input_token_cost", CACHE_WRITE_30M],
-      ["cache_creation_input_token_cost_above_12hr", CACHE_WRITE_12H],
-    ] as const) {
-      const theirs = numberAt(entry, key);
-      const ours = (card.short.inputUsdPerMtok * factor) / 1e6;
-      if (theirs !== undefined && !same(theirs, ours)) {
-        report(
-          model,
-          "cache write",
-          `\`${key}\`: LiteLLM ${perMtok(theirs)}, werft ${perMtok(ours)}`,
-        );
-      }
-    }
-    // A tier LiteLLM prices that the card does not list: werft charges it
-    // the highest multiple, which errs high, but the card may be stale.
-    for (const key of Object.keys(entry)) {
-      const tier = /^input_cost_per_token_([a-z]+)$/.exec(key)?.[1];
-      if (tier === undefined || NOT_SPEEDS.has(tier)) continue;
-      const name =
-        Object.entries(TIER_SUFFIX).find(([, s]) => s === `_${tier}`)?.[0] ??
-        tier;
-      if (!Object.hasOwn(card.speeds, name)) {
-        report(
-          model,
-          name,
-          `LiteLLM prices a \`${tier}\` tier the werft card does not list`,
-        );
       }
     }
   }
@@ -208,11 +251,14 @@ export function render(commit: string, drift: Drift[]): string {
     lines.push("No differences outside the known ones.");
   } else {
     lines.push(
-      "Check each row against https://developers.openai.com/api/docs/pricing before changing the table; LiteLLM can be wrong or late. A difference werft keeps on purpose goes in `KNOWN` in `.github/scripts/litellm-price-drift.ts`.",
+      "Check each row against https://developers.openai.com/api/docs/pricing before changing the table; LiteLLM can be wrong or late. A row marked **werft lower** may undercharge. A difference werft keeps on purpose, where werft charges more, goes in `KNOWN` in `.github/scripts/litellm-price-drift.ts`.",
       "",
-      "| Model | Field | Difference |",
-      "|---|---|---|",
-      ...drift.map((d) => `| \`${d.model}\` | ${d.field} | ${d.detail} |`),
+      "| Model | Tier | Difference | werft lower |",
+      "|---|---|---|---|",
+      ...drift.map(
+        (d) =>
+          `| \`${d.model}\` | ${d.tier} | ${d.detail} | ${d.undercharges ? "**yes**" : "no"} |`,
+      ),
     );
   }
   lines.push(
