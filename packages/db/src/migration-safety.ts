@@ -510,12 +510,30 @@ function removals(
         statement,
         past(statement, past(statement, 2, "if", "exists"), "only"),
       );
-      if (!table || madeHere(created, table) !== undefined) {
+      if (!table) {
         continue;
       }
       const rest = statement.slice(table.next);
       if (isPunct(rest[0], "*")) {
         rest.shift();
+      }
+      const made = madeHere(created, table);
+      if (made !== undefined) {
+        // A table this migration made keeps its exemption under the name
+        // or schema it moves to, and its old name reaches what it hid.
+        let [schema = "public", name = table.name] = JSON.parse(
+          made,
+        ) as string[];
+        for (const action of splitAt(rest, ",")) {
+          if (isWord(action[0], "rename") && isWord(action[1], "to")) {
+            name = nameAt(action, 2)?.name ?? name;
+          } else if (isWord(action[0], "set") && isWord(action[1], "schema")) {
+            schema = nameAt(action, 2)?.name ?? schema;
+          }
+        }
+        created.delete(made);
+        created.add(tableKey(schema, name));
+        continue;
       }
       for (const action of splitAt(rest, ",")) {
         const [verb, object] = action;

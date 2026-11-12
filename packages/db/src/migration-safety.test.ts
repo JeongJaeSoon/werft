@@ -318,6 +318,9 @@ describe("contract migrations", () => {
         `DROP TABLE events;`,
         `CREATE TABLE "a.b".c (id int);`,
         `DROP TABLE a."b.c";`,
+        `CREATE TEMP TABLE agents AS SELECT * FROM public.agents;`,
+        `ALTER TABLE agents RENAME TO agents_backup;`,
+        `DROP TABLE agents;`,
       ),
     ).toEqual([
       unmarked("DROP COLUMN", "sessions.title"),
@@ -326,6 +329,7 @@ describe("contract migrations", () => {
       unmarked("DROP COLUMN", "turns.step"),
       unmarked("DROP TABLE", "events"),
       unmarked("DROP TABLE", "b.c"),
+      unmarked("DROP TABLE", "agents"),
     ]);
   });
 
@@ -363,6 +367,11 @@ describe("contract migrations", () => {
         `DROP TABLE scratch;`,
         `CREATE UNLOGGED TABLE staging (id int);`,
         `DROP TABLE IF EXISTS staging;`,
+        `CREATE TABLE moving (id int);`,
+        `ALTER TABLE moving RENAME TO moved;`,
+        `ALTER TABLE moved SET SCHEMA archive;`,
+        `ALTER TABLE archive.moved DROP COLUMN id;`,
+        `DROP TABLE archive.moved;`,
       ),
     ).toEqual([]);
   });
