@@ -94,6 +94,8 @@ export const settingsKo = {
   "settings.connections.empty":
     "모델 연결이 없습니다. 연결을 추가하고 모델 목록을 정하면 에이전트가 고를 수 있습니다.",
   "settings.connections.kind": "종류",
+  "settings.connections.kindHint.openai_responses":
+    "OpenAI Responses API로 부르는 연결입니다. 이 연결을 쓰는 에이전트는 Codex 엔진으로 실행됩니다.",
   "settings.connections.endpoint": "엔드포인트",
   "settings.connections.endpointDefault":
     "공식 주소가 채워져 있습니다. 비우면 같은 주소로 저장되고, 프록시나 호환 서버를 쓸 때만 바꿉니다.",
@@ -254,6 +256,8 @@ export const settingsEn: Record<keyof typeof settingsKo, string> = {
   "settings.connections.empty":
     "No model connections. Add one and list its models, and agents can pick it.",
   "settings.connections.kind": "Kind",
+  "settings.connections.kindHint.openai_responses":
+    "Calls the OpenAI Responses API. Agents on this connection run on the Codex engine.",
   "settings.connections.endpoint": "Endpoint",
   "settings.connections.endpointDefault":
     "The official address is filled in. Leave it empty to store the same address; change it only for a proxy or a compatible server.",
@@ -416,6 +420,8 @@ export const settingsJa: Record<keyof typeof settingsKo, string> = {
   "settings.connections.empty":
     "モデル接続がありません。接続を追加してモデル一覧を決めると、エージェントが選べます。",
   "settings.connections.kind": "種類",
+  "settings.connections.kindHint.openai_responses":
+    "OpenAI Responses API を呼び出す接続です。この接続を使うエージェントは Codex エンジンで実行されます。",
   "settings.connections.endpoint": "エンドポイント",
   "settings.connections.endpointDefault":
     "公式アドレスが入力済みです。空にすると同じアドレスで保存されます。プロキシや互換サーバーを使うときだけ変更します。",

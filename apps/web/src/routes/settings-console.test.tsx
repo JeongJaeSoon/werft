@@ -327,6 +327,51 @@ describe("모델 연결", () => {
     ]);
   });
 
+  test("an openai_responses connection takes OpenAI's address, says which engine runs it, and is created with an API key", async () => {
+    const OPENAI = "https://api.openai.com";
+    const HINT =
+      "OpenAI Responses API로 부르는 연결입니다. 이 연결을 쓰는 에이전트는 Codex 엔진으로 실행됩니다.";
+    const { api } = renderAt(CONNECTIONS_PAGE, {
+      ...routes(me(), null, {
+        anthropic: "https://api.anthropic.com",
+        openai_responses: OPENAI,
+      }),
+      [`POST ${CONNECTIONS}`]: () => json(201, CHANGE("openai")),
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "연결 추가" }));
+    const dialog = await screen.findByRole("dialog");
+    const kind = within(dialog).getByLabelText<HTMLSelectElement>("종류");
+    expect([...kind.options].map((option) => option.value)).toEqual([
+      "anthropic",
+      "litellm",
+      "openai_responses",
+    ]);
+    // The hint belongs to this kind only.
+    expect(within(dialog).queryByText(HINT) === null).toBe(true);
+    await user.selectOptions(kind, "openai_responses");
+    expect(within(dialog).queryByText(HINT) === null).toBe(false);
+    expect(
+      within(dialog).getByLabelText<HTMLInputElement>("엔드포인트").value,
+    ).toBe(OPENAI);
+    // Only litellm has a second way to authenticate.
+    expect(dialog.querySelector('[name="auth_kind"]') === null).toBe(true);
+
+    await user.type(within(dialog).getByLabelText("id"), "openai");
+    await user.type(within(dialog).getByLabelText("키 값"), "example-key");
+    await user.click(within(dialog).getByRole("button", { name: "만들기" }));
+    await screen.findByText("openai를 만들었습니다.");
+    expect(writes(api.calls).map((call) => call.body)).toEqual([
+      {
+        id: "openai",
+        kind: "openai_responses",
+        billing: "per_token",
+        auth_kind: "api_key",
+        value: "example-key",
+      },
+    ]);
+  });
+
   test("without the allowlist known, nothing warns", async () => {
     renderAt(CONNECTIONS_PAGE, routes(me(), null));
     const user = await setupUser();

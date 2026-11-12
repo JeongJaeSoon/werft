@@ -35,6 +35,8 @@ Choose repositories in the agent's **GitHub** tab, within the workspace's allowe
 
 Starting a session on a release of this connection before providing a key produces an error indicating no key is available for the model connection. The error points to the console path in step 1. Use **Replace value** on the same screen to rotate the key.
 
+To run OpenAI models on the Codex engine, choose the kind `openai_responses` on the same screen. The default address is `https://api.openai.com`, and an API key is the only way to authenticate. Sessions on this connection run on the Codex worker image. For the image and the proxy allowlist (`api.openai.com:443`), follow the [configuration reference](/run-server/self-hosting/reference/configuration).
+
 <a id="2-환경-변수-대안" />
 ### 2. Environment-variable alternative
 
