@@ -139,6 +139,10 @@ import {
   recordEnvRefusal,
 } from "./musterrolle/env-variables.ts";
 import { writeModelCut } from "./musterrolle/model-cut-notices.ts";
+import {
+  lockProviderExchange,
+  settleProviderExchange,
+} from "./provider-exchanges.ts";
 import type { Database } from "./queries.ts";
 import {
   boundedReason,
@@ -2519,6 +2523,9 @@ export function createPostgresWorkerUnitOfWork(
       input: ProviderUsageInput,
     ): Promise<ProviderUsageResult> {
       return db.transaction(async (tx) => {
+        // First, before any row lock: the exchange's ledger row is opened
+        // under the same lock, so an open never lands after this report.
+        await lockProviderExchange(tx, input.exchangeId);
         // Session and attempt locked in the order every fenced write takes
         // them. No fence beyond the pair: an attempt that has lost its
         // session since the call still made it.
@@ -2596,9 +2603,16 @@ export function createPostgresWorkerUnitOfWork(
             .where(eq(providerUsage.exchangeId, input.exchangeId));
           if (stored === undefined) return { outcome: "conflict" };
           const { costUsd, pricedBy, ...was } = stored;
-          return payloadHash(was) === payloadHash(call)
-            ? { outcome: "replayed", costUsd, pricedBy }
-            : { outcome: "conflict" };
+          if (payloadHash(was) !== payloadHash(call)) {
+            return { outcome: "conflict" };
+          }
+          const ledger = await settleProviderExchange(tx, input);
+          return {
+            outcome: "replayed",
+            costUsd,
+            pricedBy,
+            ...(ledger.foreignRow ? { ledgerForeignRow: true as const } : {}),
+          };
         }
         await tx
           .update(sessions)
@@ -2606,10 +2620,12 @@ export function createPostgresWorkerUnitOfWork(
             costUsd: sql`LEAST(${sessions.costUsd} + ${inserted.costUsd}::numeric, ${MAX_SESSION_COST_USD})`,
           })
           .where(eq(sessions.id, input.sessionId));
+        const ledger = await settleProviderExchange(tx, input);
         return {
           outcome: "recorded",
           costUsd: inserted.costUsd,
           pricedBy: inserted.pricedBy,
+          ...(ledger.foreignRow ? { ledgerForeignRow: true as const } : {}),
         };
       });
     },

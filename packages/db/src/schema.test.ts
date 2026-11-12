@@ -187,6 +187,7 @@ describe("database schema", () => {
       "pending_requests",
       "permission_grants",
       "provider_connections",
+      "provider_exchanges",
       "provider_usage",
       "provider_usage_totals",
       "pull_requests",

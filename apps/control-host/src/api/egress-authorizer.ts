@@ -15,6 +15,8 @@ import {
   type GitHubMcpGrant,
   type JsonRpcResponse,
   PACKAGE_REGISTRY_NAMES,
+  type ProviderExchangeLedger,
+  type ProviderUsage,
   verifyGitHubMcpGrant,
   type WorkerGateway,
   WorkerGatewayError,
@@ -40,6 +42,9 @@ export const EGRESS_AUTHORIZER_PATH = "/authorize";
 // Where the proxy reports what a Messages call used, on the same
 // listener for the same reason: only the proxy may say what a session spent.
 export const EGRESS_USAGE_PATH = "/usage";
+// Where the proxy opens and renews a provider call in the exchange ledger
+// before its usage is known (provider-usage-ledger.md). Observation only.
+export const EGRESS_EXCHANGES_PATH = "/exchanges";
 // A token, a purpose and, for the object store, one S3 request line and its
 // headers; anything bigger is not a request from the proxy.
 const MAX_BODY_BYTES = 16 * 1024;
@@ -209,6 +214,39 @@ const usageReportSchema = z.union([
     .strict(),
 ]);
 
+// Open a provider call before calling upstream, with what its request alone
+// says it may use; renew one still streaming. A session's calls only.
+const exchangeRequestSchema = z.discriminatedUnion("op", [
+  z
+    .object({
+      op: z.literal("open"),
+      exchange_id: z.string().uuid(),
+      session_id: z.string().uuid(),
+      attempt_id: z.string().min(1).max(256),
+      reserve: usageSchema,
+    })
+    .strict(),
+  z.object({ op: z.literal("renew"), exchange_id: z.string().uuid() }).strict(),
+]);
+
+/** The report's snake_case usage as the platform counts it. */
+function countedOf(usage: z.infer<typeof usageSchema>): ProviderUsage {
+  return {
+    model: usage.model,
+    inputTokens: usage.input_tokens,
+    outputTokens: usage.output_tokens,
+    cacheCreationInputTokens: usage.cache_creation_input_tokens,
+    cacheCreation1hInputTokens: usage.cache_creation_1h_input_tokens,
+    cacheReadInputTokens: usage.cache_read_input_tokens,
+    speed: usage.speed,
+    inferenceGeo: usage.inference_geo,
+    webSearchRequests: usage.web_search_requests,
+    webFetchRequests: usage.web_fetch_requests,
+    codeExecutionRequests: usage.code_execution_requests,
+    estimated: usage.estimated,
+  };
+}
+
 /**
  * The egress proxy's credential listener, where the API sends a session's
  * title call so the proxy meters it like the engine's own. Unset, every
@@ -268,6 +306,8 @@ export function createEgressAuthorizer(deps: {
     | "recordJudgmentUsage"
   >;
   logger: StructuredLogger;
+  /** Absent, the exchanges route answers 404 as an older API does. */
+  exchanges?: ProviderExchangeLedger;
   /** Absent when the API runs without an object store: the route refuses. */
   objectStore?: ObjectRouteSigner;
   /**
@@ -324,10 +364,12 @@ export function createEgressAuthorizer(deps: {
     if (url.pathname === GITHUB_MCP_UPSTREAM_PATH) {
       return serveGitHubMcp(request);
     }
+    const { exchanges } = deps;
     if (
       request.method !== "POST" ||
       (url.pathname !== EGRESS_AUTHORIZER_PATH &&
-        url.pathname !== EGRESS_USAGE_PATH)
+        url.pathname !== EGRESS_USAGE_PATH &&
+        (url.pathname !== EGRESS_EXCHANGES_PATH || exchanges === undefined))
     ) {
       return problem(404, "NOT_FOUND", "Not found");
     }
@@ -362,6 +404,21 @@ export function createEgressAuthorizer(deps: {
         );
       }
       return answerWithin(() => recordUsage(report), { purpose: "usage" });
+    }
+    if (url.pathname === EGRESS_EXCHANGES_PATH && exchanges !== undefined) {
+      let body: z.infer<typeof exchangeRequestSchema>;
+      try {
+        body = exchangeRequestSchema.parse(JSON.parse(text));
+      } catch {
+        return problem(
+          400,
+          "BAD_REQUEST",
+          "Expected {op: open, exchange_id, session_id, attempt_id, reserve} or {op: renew, exchange_id}",
+        );
+      }
+      return answerWithin(() => recordExchange(exchanges, body), {
+        purpose: "exchange",
+      });
     }
     let body: z.infer<typeof authorizeRequestSchema>;
     try {
@@ -464,20 +521,7 @@ export function createEgressAuthorizer(deps: {
 
   async function recordUsage(report: z.infer<typeof usageReportSchema>) {
     const { usage } = report;
-    const counted = {
-      model: usage.model,
-      inputTokens: usage.input_tokens,
-      outputTokens: usage.output_tokens,
-      cacheCreationInputTokens: usage.cache_creation_input_tokens,
-      cacheCreation1hInputTokens: usage.cache_creation_1h_input_tokens,
-      cacheReadInputTokens: usage.cache_read_input_tokens,
-      speed: usage.speed,
-      inferenceGeo: usage.inference_geo,
-      webSearchRequests: usage.web_search_requests,
-      webFetchRequests: usage.web_fetch_requests,
-      codeExecutionRequests: usage.code_execution_requests,
-      estimated: usage.estimated,
-    };
+    const counted = countedOf(usage);
     if ("judgment_id" in report) {
       const priced = await deps.gateway.recordJudgmentUsage({
         exchangeId: report.exchange_id,
@@ -508,7 +552,50 @@ export function createEgressAuthorizer(deps: {
         cost_usd: priced.costUsd,
       });
     }
+    if (priced.ledgerForeignRow) {
+      deps.logger.warn("Provider exchange ledger row names another owner", {
+        exchange_id: report.exchange_id,
+        session_id: report.session_id,
+        attempt_id: report.attempt_id,
+      });
+    }
     return { cost_usd: priced.costUsd, priced_by: priced.pricedBy };
+  }
+
+  // The proxy does not wait for these answers; they only say what was done.
+  async function recordExchange(
+    ledger: ProviderExchangeLedger,
+    body: z.infer<typeof exchangeRequestSchema>,
+  ): Promise<Response> {
+    if (body.op === "renew") {
+      return Response.json({ state: await ledger.renew(body.exchange_id) });
+    }
+    const opened = await ledger.open({
+      exchangeId: body.exchange_id,
+      sessionId: body.session_id,
+      attemptId: body.attempt_id,
+      reserve: countedOf(body.reserve),
+    });
+    switch (opened.outcome) {
+      case "created":
+        return Response.json({ state: "open" }, { status: 201 });
+      case "open":
+        return Response.json({ state: "open" });
+      case "settled":
+        return Response.json({ state: "settled" });
+      case "unknown_attempt":
+        throw new WorkerGatewayError(
+          404,
+          "NOT_FOUND",
+          "No such attempt of that session",
+        );
+      case "conflict":
+        throw new WorkerGatewayError(
+          409,
+          "IDEMPOTENCY_CONFLICT",
+          "That exchange is another owner's or was opened with another reserve",
+        );
+    }
   }
 
   async function answerWithin(
@@ -533,7 +620,7 @@ export function createEgressAuthorizer(deps: {
         return problem(503, "BACKEND_UNAVAILABLE", "Authorization timed out");
       }
       deadline.finish();
-      return Response.json(outcome);
+      return outcome instanceof Response ? outcome : Response.json(outcome);
     } catch (error) {
       if (error instanceof WorkerGatewayError) {
         // The reason, never the token: a refused token is still a secret

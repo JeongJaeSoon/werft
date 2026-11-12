@@ -145,7 +145,7 @@ Workers also read the following env settings, but scheduler does not forward the
 | `RECONCILER_MAX_CONSECUTIVE_FAILURES` | 3 | Consecutive failures make loop exit 1; restart: unless-stopped restarts it. Below threshold, next pass retries shortly |
 | `RECONCILER_HEALTH_STALE_SEC` | 90 | Unhealthy if last pass failed, current pass exceeded timeout, or no success within this interval. Even immediately after success, a stuck pass becomes unhealthy at its deadline. Must exceed RECONCILER_INTERVAL_SEC + RECONCILER_PASS_TIMEOUT_SEC |
 | `RECONCILER_STATUS_FILE` | `/tmp/reconciler-status.json` | Per-pass lastSuccessAt/lastDegradedAt/lastFailureAt/lastFailureReason/consecutiveFailures/lastPassDurationMs and active passDeadlineAt, read by healthcheck |
-| `RECONCILER_BATCH_SIZE` | 100 | Per-stage row cap (orphan/lease/interrupt reclaim, overdue interrupt/terminate receipts to unknown, queued-input notifications). Leftovers wait next pass. Scheduler terminate-deadline sweeps instead use fixed 100/pass |
+| `RECONCILER_BATCH_SIZE` | 100 | Per-stage row cap (orphan/lease/interrupt reclaim, overdue interrupt/terminate receipts to unknown, queued-input notifications, provider exchange ledger settle/expiry-warning/cleanup). Leftovers wait next pass. Scheduler terminate-deadline sweeps instead use fixed 100/pass |
 
 | Scheduler setting | Default | Constraint |
 | --- | --- | --- |

@@ -67,6 +67,7 @@ import {
   createPostgresWorkerPendingStore,
   createPostgresWorkerUnitOfWork,
   createPostgresWorkspaceKeyStore,
+  createProviderExchangeLedger,
   hasUncollectedCheckpoint,
   newSessionGitHubReaders,
   slackAppKind,
@@ -1080,6 +1081,7 @@ const authorizerListener =
         fetch: createEgressAuthorizer({
           gateway: workers,
           logger,
+          exchanges: createProviderExchangeLedger(db),
           ...(githubMcpGrantKey === null
             ? {}
             : {
