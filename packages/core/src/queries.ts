@@ -299,27 +299,6 @@ async function readEveryPage<
   return { items, last };
 }
 
-/** Every member of the workspace, every page read, oldest first. */
-export function membersQuery(client: ApiClient) {
-  return queryOptions({
-    queryKey: queryKeysOf(client).members,
-    queryFn: async (): Promise<ListMembersResponse> => {
-      const { items, last } = await readEveryPage(
-        (query) =>
-          unwrap(
-            client.GET("/v1/members", { params: { query } }),
-          ) as Promise<ListMembersResponse>,
-      );
-      return {
-        items,
-        next_cursor: null,
-        assignable_roles: last.assignable_roles,
-      };
-    },
-    retry: false,
-  });
-}
-
 /**
  * The workspace's two oldest members, one small read: enough to tell whether
  * anyone joined after the first, and to learn whether the caller may list
@@ -452,32 +431,6 @@ export function agentPagesQuery(client: ApiClient, q?: string) {
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.next_cursor,
     // As memberPagesQuery: coming back reads the first page, not every page.
-    gcTime: 0,
-    retry: false,
-  });
-}
-
-/** The agents whose active release runs on a connection, a page at a time. */
-export function agentsOnConnectionQuery(
-  client: ApiClient,
-  connectionId: string,
-) {
-  return infiniteQueryOptions({
-    queryKey: queryKeysOf(client).agentsOnConnection(connectionId),
-    queryFn: ({ pageParam }) =>
-      unwrap(
-        client.GET("/v1/agents", {
-          params: {
-            query: {
-              include: "summary",
-              connection_id: connectionId,
-              ...(pageParam ? { cursor: pageParam } : {}),
-            },
-          },
-        }),
-      ) as Promise<ListAgentsResponse>,
-    initialPageParam: null as string | null,
-    getNextPageParam: (page) => page.next_cursor,
     gcTime: 0,
     retry: false,
   });

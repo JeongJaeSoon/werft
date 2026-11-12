@@ -6,10 +6,7 @@ import {
   expect,
   test,
 } from "bun:test";
-import {
-  UNATTENDED_PERMISSION_MODES,
-  type WorkerScope,
-} from "@werft-ai/contracts";
+import type { WorkerScope } from "@werft-ai/contracts";
 import {
   createWorkerGateway,
   type WorkerGateway,
@@ -48,7 +45,9 @@ import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
-const RECOVERY_MODES = ["default", ...UNATTENDED_PERMISSION_MODES] as const;
+// The attended default and the two modes in which no tool call waits for a
+// person.
+const RECOVERY_MODES = ["default", "bypassPermissions", "auto"] as const;
 
 // A legacy pod taking an unowned session: the claimant the orphan
 // reconciler hands the session back to.

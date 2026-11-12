@@ -149,24 +149,3 @@ export function equivalentToolCatalogVersions(
     )
     .flatMap((catalog) => [catalog.sdkVersion, catalog.engineVersion]);
 }
-
-/** A name as this build knows it: an old name maps to its new one, any other passes through. */
-export function canonicalToolName(
-  catalog: BuiltinToolCatalog,
-  name: string,
-): string {
-  return Object.hasOwn(catalog.aliases, name)
-    ? (catalog.aliases[name] ?? name)
-    : name;
-}
-
-/** Every older name this build still accepts for `name`, sorted. */
-export function legacyToolNames(
-  catalog: BuiltinToolCatalog,
-  name: string,
-): string[] {
-  return Object.entries(catalog.aliases)
-    .filter(([, canonical]) => canonical === name)
-    .map(([legacy]) => legacy)
-    .sort();
-}

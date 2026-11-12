@@ -109,15 +109,6 @@ export const PERMISSION_MODE_VALUES = [
   "bypassPermissions",
   "auto",
 ] as const;
-// Modes in which no tool call waits for a person (`auto` lets a model
-// classifier decide instead).
-export const UNATTENDED_PERMISSION_MODES = [
-  "bypassPermissions",
-  "auto",
-] as const;
-// The unattended modes nothing judges a call in. The API starts a catalog
-// naming one only when the installation opts in (docs/operator/api-server.md).
-export const OPT_IN_PERMISSION_MODES = ["bypassPermissions"] as const;
 
 export const sessionStatusSchema = z.enum(SESSION_STATUS_VALUES);
 export const admissionStateSchema = z.enum(ADMISSION_STATE_VALUES);
