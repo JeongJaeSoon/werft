@@ -1024,6 +1024,108 @@ export async function escapingTestImports(repo: string): Promise<string[]> {
 }
 
 /**
+ * Workspaces whose output is a bundle (Vite, Next). Each keeps every package
+ * in devDependencies so that an image's production install skips React, the
+ * router and Next, and its bundler runs where devDependencies are installed.
+ * Their source may import a devDependency.
+ */
+const bundledWorkspaces = new Set([
+  "apps/docs",
+  "apps/web",
+  "packages/core",
+  "packages/react",
+]);
+
+/**
+ * Root devDependencies a workspace's tests and tooling may import without
+ * declaring them. Source that an image runs may not.
+ */
+const rootProvided = ["typescript"];
+
+// A workspace's own dist, Next's .next and out, fumadocs' .source: generated
+// from the files read here.
+const buildOutput = /^(?:dist|out|\.[^/]+)\//;
+
+/** The DefinitelyTyped package that carries the types of `name`. */
+const typesPackageOf = (name: string) =>
+  `@types/${name.replace(/^@/, "").replace("/", "__")}`;
+
+/**
+ * Imports of a package the importing workspace's package.json does not
+ * declare, as "<file> -> <specifier>" with the file written from `repo`.
+ * With the hoisted linker such an import resolves through whichever other
+ * workspace installs the package, until that one drops it or an image's
+ * filtered install leaves it out.
+ *
+ * A non-test file under src that loads the package at run time needs it in
+ * dependencies, peerDependencies or optionalDependencies: a production
+ * install skips the rest. Everything else may also take it from
+ * devDependencies or `rootProvided`: test files, test-support/ and
+ * __fixtures__/, files outside src (configs, scripts, benchmarks), the
+ * `bundledWorkspaces`, and imports that are erased (`import type`), for which
+ * the package's @types twin counts too. `node:` and `bun` built-ins, the
+ * package's own name and `@/` (a tsconfig alias; an npm scope is never empty)
+ * are not packages to declare. The check reads one direction only: a
+ * declaration nothing imports is not reported.
+ *
+ * A workspace outside `bundledWorkspaces` that declares one of them as a
+ * run-time dependency is reported as "<its package.json> -> <name>": a
+ * production install would link the bundled package without the
+ * devDependencies its source imports.
+ */
+export async function undeclaredImports(repo: string): Promise<string[]> {
+  const rootDev = (await manifest(repo)).devDependencies ?? {};
+  const provided = rootProvided.filter((name) => name in rootDev);
+  const directories = await workspacePackages(repo);
+  const isBundled = (directory: string) =>
+    bundledWorkspaces.has(slashed(relative(repo, directory)));
+  const bundledNames = new Set<string>();
+  for (const directory of directories.filter(isBundled)) {
+    const name = (await manifest(directory)).name;
+    if (name) bundledNames.add(name);
+  }
+  const found = new Set<string>();
+  for (const directory of directories) {
+    const pkg = await manifest(directory);
+    const runtime = declaredDependencies(pkg);
+    const installed = new Set([
+      ...runtime,
+      ...Object.keys(pkg.devDependencies ?? {}),
+      ...provided,
+    ]);
+    const bundled = isBundled(directory);
+    if (!bundled)
+      for (const name of runtime)
+        if (bundledNames.has(name))
+          found.add(
+            `${slashed(relative(repo, directory))}/package.json -> ${name}`,
+          );
+    for (const file of await scriptsIn(directory)) {
+      const path = slashed(relative(directory, file));
+      if (buildOutput.test(path)) continue;
+      const shipped =
+        !bundled &&
+        path.startsWith("src/") &&
+        !isTestFile(file) &&
+        !path.includes("/__fixtures__/");
+      for (const { specifier, erased } of moduleReferences(await parse(file))) {
+        if (/^(?:\.|@\/|node:|bun:|bun$)/.test(specifier)) continue;
+        const name = packageOf(specifier);
+        if (name === pkg.name) continue;
+        const declared =
+          shipped && !erased
+            ? runtime.has(name)
+            : installed.has(name) ||
+              (erased && installed.has(typesPackageOf(name)));
+        if (!declared)
+          found.add(`${slashed(relative(repo, file))} -> ${specifier}`);
+      }
+    }
+  }
+  return [...found].sort();
+}
+
+/**
  * Files under `directory`/src, .ts and .tsx, tests included, that import a
  * package `forbidden` names. Read from the AST, so require(), import types and
  * re-exports count and a commented-out import does not.
@@ -1906,6 +2008,136 @@ describe("architecture", () => {
       "apps/a/src/flow.test.ts -> ../../../docs/openapi.json",
       "apps/a/src/flow.test.ts -> ../../../packages/b/src/b.ts",
       "apps/a/src/view.test.tsx -> ../../../packages/b/src/b.ts",
+    ]);
+  });
+
+  test("every import names a package its workspace declares, beyond the baseline", async () => {
+    // Parsing every file of every workspace can outlast the default timeout
+    // on a loaded CI runner.
+    expect(
+      baselineRatchet(
+        "undeclared import",
+        tally(await undeclaredImports(root)),
+        baselineCounts("undeclaredImports"),
+      ),
+    ).toEqual([]);
+  }, 60_000);
+
+  test("the declaration check catches an import no manifest section covers, a run-time import of a devDependency and a run-time dependency on a bundled workspace, and lets built-ins, the package's own name, erased imports, tests, tooling and bundled workspaces through", async () => {
+    const workspaces = ["apps/*", "packages/*"];
+    const files = {
+      "apps/a/package.json": JSON.stringify({
+        name: "@werft-ai/a",
+        dependencies: { hono: "4.0.0" },
+        peerDependencies: { react: "19.0.0" },
+        optionalDependencies: { fsevents: "2.0.0" },
+        devDependencies: {
+          "@types/babel__core": "7.0.0",
+          "@types/estree": "1.0.0",
+          "@types/mdast": "4.0.0",
+          "@werft-ai/b": "workspace:*",
+          vite: "7.0.0",
+        },
+      }),
+      "apps/a/src/main.ts": [
+        'import { Hono } from "hono";',
+        'import { jsx } from "react/jsx-runtime";',
+        'import "fsevents";',
+        'import { readFile } from "node:fs/promises";',
+        'import { $ } from "bun";',
+        'import { Database } from "bun:sqlite";',
+        'import { self } from "@werft-ai/a/self";',
+        'import { local } from "./local.ts";',
+        'import { aliased } from "@/lib/aliased";',
+        'import type { B } from "@werft-ai/b/types";',
+        'import type { Root } from "mdast";',
+        'export type Node = import("@babel/core").Node;',
+        "const text = 'import \"left-pad\";';",
+        '// import "left-pad";',
+        'import { b } from "@werft-ai/b";',
+        'export * from "vite";',
+        'import * as ts from "typescript";',
+        'import { walk } from "estree";',
+        'import type { Missing } from "missing-types";',
+        'export const lazy = () => import("pg");',
+        'export const old = require("yaml/util");',
+      ].join("\n"),
+      "apps/a/src/main.test.ts": [
+        'import { b } from "@werft-ai/b";',
+        'import * as ts from "typescript";',
+        'import { chromium } from "playwright-core";',
+        'import { Pool } from "pg";',
+      ].join("\n"),
+      "apps/a/src/view.test.tsx": 'import { render } from "vite";',
+      "apps/a/src/test-support/dom.ts": 'import "vite";\nimport "pg";',
+      "apps/a/src/__fixtures__/vite.config.ts": 'import "vite";',
+      "apps/a/vite.config.ts": [
+        'import { defineConfig } from "vite";',
+        'import * as ts from "typescript";',
+        'import "drizzle-kit";',
+      ].join("\n"),
+      "apps/a/dist/index.ts": 'import "pg";',
+      "apps/a/.next/types/routes.ts": 'import "pg";',
+      "apps/a/node_modules/dep/index.ts": 'import "pg";',
+      "apps/web/package.json": JSON.stringify({
+        name: "@werft-ai/web",
+        devDependencies: { react: "19.0.0" },
+      }),
+      "apps/web/src/main.tsx": 'import "react";\nimport "pg";',
+      "packages/b/package.json": manifestOf("@werft-ai/b"),
+      "packages/b/src/b.ts": "export const b = 1;\n",
+      "packages/c/package.json": JSON.stringify({
+        name: "@werft-ai/c",
+        dependencies: { "@werft-ai/web": "workspace:*" },
+      }),
+      "packages/c/src/out/c.ts": 'import "@werft-ai/web";\nimport "pg";',
+      "packages/react/package.json": JSON.stringify({
+        name: "@werft-ai/react",
+        dependencies: { "@werft-ai/web": "workspace:*" },
+      }),
+    };
+    expect(
+      await inFixture(
+        {
+          ...files,
+          "package.json": JSON.stringify({
+            workspaces,
+            devDependencies: {
+              "playwright-core": "1.0.0",
+              typescript: "5.0.0",
+            },
+          }),
+        },
+        undeclaredImports,
+      ),
+    ).toEqual([
+      "apps/a/src/main.test.ts -> pg",
+      "apps/a/src/main.test.ts -> playwright-core",
+      "apps/a/src/main.ts -> @werft-ai/b",
+      "apps/a/src/main.ts -> estree",
+      "apps/a/src/main.ts -> missing-types",
+      "apps/a/src/main.ts -> pg",
+      "apps/a/src/main.ts -> typescript",
+      "apps/a/src/main.ts -> vite",
+      "apps/a/src/main.ts -> yaml/util",
+      "apps/a/src/test-support/dom.ts -> pg",
+      "apps/a/vite.config.ts -> drizzle-kit",
+      "apps/web/src/main.tsx -> pg",
+      "packages/c/package.json -> @werft-ai/web",
+      "packages/c/src/out/c.ts -> pg",
+    ]);
+    // `typescript` is provided only while the root manifest installs it.
+    expect(
+      (
+        await inFixture(
+          { ...files, "package.json": JSON.stringify({ workspaces }) },
+          undeclaredImports,
+        )
+      ).filter((hit) => hit.endsWith(" -> typescript")),
+    ).toEqual([
+      "apps/a/src/main.test.ts -> typescript",
+      "apps/a/src/main.ts -> typescript",
+      "apps/a/vite.config.ts -> typescript",
     ]);
   });
 
