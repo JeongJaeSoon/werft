@@ -590,7 +590,7 @@ curl -s -b jar -X POST "http://127.0.0.1:3000/v1/sessions/$SESSION_ID/takeover" 
 연결에 쓰는 Slack 앱은 워크스페이스마다 하나인 계정 연결용 앱(link 앱, `slack_apps.kind=link`)뿐이다. env로 넣는 OIDC client는 없다. 요청마다 이렇게 정한다.
 
 1. 상태가 `created`인 link 앱이 있으면 그 앱의 client id와, 서버가 저장소에 봉인한 client secret을 쓴다.
-2. 없으면 연결 시작이 그 자리에서 link 앱을 만든다(워크스페이스의 App Configuration Token으로 `apps.manifest.create`). 자기 계정 연결을 시작할 수 있는 사람(member 포함)이면 누구의 시작이든 만든다. 동시에 여러 시작이 와도 앱은 하나다. 쓸 수 있는 config token이 없거나(`unset`·`needs_reentry`) API가 master key 없이 떴으면 `409 SLACK_LINK_NOT_CONFIGURED`이고, 화면은 "워크스페이스 관리자에게 연동 > Slack 설정을 요청하세요"를 보여 준다.
+2. 없으면 연결 시작이 그 자리에서 link 앱을 만든다(워크스페이스의 App Configuration Token으로 `apps.manifest.create`). 자기 계정 연결을 시작할 수 있는 사람(member 포함)이면 누구의 시작이든 만든다. 동시에 여러 시작이 와도 앱은 하나다. 쓸 수 있는 config token이 없으면(`unset`·`needs_reentry`) `409 SLACK_LINK_NOT_CONFIGURED`이고, 화면은 "워크스페이스 관리자에게 연동 > Slack 설정을 요청하세요"를 보여 준다.
 
 link 앱은 이름 "<워크스페이스 이름> 계정 연결"(Slack 한도 35자에 맞게 워크스페이스 이름을 자른다), 설명 "Werft 콘솔에서 Slack 계정을 연결합니다.", user scope `openid`·`profile`만 가진다. bot·bot scope·event 구독은 없고 redirect는 `<콘솔 origin>/settings/linked-accounts/slack`이다. 문구는 `packages/adapters/chat/slack/src/slack-manifest.ts`의 `LINK_APP_COPY` 한 곳에 있다. config token을 저장할 때는 만들지 않는다. client secret·signing secret은 응답·로그·receipt에 나오지 않고, 그 앱의 per-app secret PUT은 `403`(`reason_code` `server_managed_secret`)이다. owner·admin이 `DELETE /v1/workspaces/{id}/slack/apps/{app_id}`로 지울 수 있고, 지운 뒤 다음 연결 시작이 새로 만든다.
 
@@ -838,7 +838,7 @@ Slack DM이 만든 세션은 `private`로 시작한다(아래 "Slack 스레드�
 
 1. 콘솔 설정 > 워크스페이스 > 연동 > GitHub의 "사용자 계정 연결" 카드에서 콜백 URL을 복사한다. Client ID는 App을 다시 읽을 때 GitHub가 준 값이 보인다.
 2. GitHub의 App 설정(Settings → Developer settings → GitHub Apps → 그 App → General)에서 **Callback URL**에 1의 주소를 그대로 넣고 저장한다. **Expire user authorization tokens**는 그대로 둔다(플랫폼은 token을 받자마자 버린다).
-3. 같은 페이지의 **Client secrets → Generate a new client secret**으로 만든 값을 카드의 "입력"에 붙여 넣고 저장한다(`PUT /v1/workspaces/{id}/github-settings/oauth-client-secret`). 값은 App 키처럼 master key로 암호화해 그 App 행의 `secret_values`에 두고, 응답·receipt·로그 어디에도 나오지 않으며 다시 보여 주지 않는다. 같은 App의 키를 바꾸면 남고, 다른 App으로 바꾸거나 App을 지우면 함께 지워진다. 작성용 App이 없으면 본문을 읽기 전에 `409 GITHUB_LINK_NOT_CONFIGURED`, master key 없이 띄운 API는 `503`이다.
+3. 같은 페이지의 **Client secrets → Generate a new client secret**으로 만든 값을 카드의 "입력"에 붙여 넣고 저장한다(`PUT /v1/workspaces/{id}/github-settings/oauth-client-secret`). 값은 App 키처럼 master key로 암호화해 그 App 행의 `secret_values`에 두고, 응답·receipt·로그 어디에도 나오지 않으며 다시 보여 주지 않는다. 같은 App의 키를 바꾸면 남고, 다른 App으로 바꾸거나 App을 지우면 함께 지워진다. 작성용 App이 없으면 본문을 읽기 전에 `409 GITHUB_LINK_NOT_CONFIGURED`다.
 
 흐름은 다음과 같다.
 
@@ -1008,7 +1008,7 @@ printf '{"value":"%s"}' "$(cat ~/.config/werft/slack-config-token)" |
 | `POST /v1/agents/{id}/slack/install/start` | `{authorize_url, expires_at}`. 부를 때마다 새 state를 만든다 |
 | `POST /v1/slack/install/complete` `{agent_id, state, code}` 또는 `{agent_id, state, error}` | state를 쓰고 설치를 끝낸다. `{slack_app, installation, agent_identity, receipt_id, finalized, warnings}` |
 
-- 둘 다 owner·admin·그 에이전트 관리자(`binding.manage`)가 콘솔 세션(cookie)과 `X-Requested-With`로만 한다. API key는 `403`(`reason_code: web_session_required`), member는 `403`이다. 앱이 없으면 `404`, 만드는 중이면 `409 SLACK_APP_CREATING`, 지우는 중이면 `409 REVISION_CONFLICT`, config token이 없으면 `409 CONFIG_TOKEN_INVALID`다. master key가 없으면 `503`이다.
+- 둘 다 owner·admin·그 에이전트 관리자(`binding.manage`)가 콘솔 세션(cookie)과 `X-Requested-With`로만 한다. API key는 `403`(`reason_code: web_session_required`), member는 `403`이다. 앱이 없으면 `404`, 만드는 중이면 `409 SLACK_APP_CREATING`, 지우는 중이면 `409 REVISION_CONFLICT`, config token이 없으면 `409 CONFIG_TOKEN_INVALID`다.
 - state는 무작위 32바이트이고 DB(`slack_install_states`)에는 sha256 해시만 둔다. 행은 workspace·에이전트·앱(`slack_app_id`)·시작한 사용자·config token의 team·redirect URL에 묶이고 600초 산다. complete는 권한을 확인한 뒤 state를 지우면서 읽는다. 그 뒤로는 결과와 관계없이 다시 쓸 수 없다. 만료된 행은 다음 start가 지운다.
 - state 거절은 `409 SLACK_INSTALL_STATE_INVALID`이고 `details.reason_code`가 `not_found`(없거나 이미 씀)·`expired`·`workspace`·`actor`·`agent`·`app`(앱이 지워지거나 바뀜)이다. 사용자가 동의를 거절하면 `409 SLACK_INSTALL_DENIED`(`details.slack_error`)다.
 - `oauth.v2.access` 답이 이 앱(`app_id`)·이 team·enterprise 아님·bot scope 전부를 만족하지 않으면 `409 SLACK_INSTALL_REJECTED`(`reason_code` `app`·`team`·`enterprise`·`scope`, scope는 `missing_scopes`)이고 아무것도 저장하지 않는다. Slack이 `ok:false`로 답하면 같은 코드에 `reason_code: slack_error`, 닿지 않으면 `503`이다.
@@ -1097,7 +1097,7 @@ Slack 스레드 하나는 세션 하나다. 그 묶음이 `session_links`의 행
 2. 에이전트를 다시 해석한다(`agentForSlackEvent`). 다른 team·앱·회수된 신원이면 로그 한 줄로 넘긴다.
 3. 스레드에 연결이 없고, bot 멘션(`<@BOT>` 또는 `app_mention`)도 없고, DM도 아니면 넘긴다. 안내도 남기지 않는다. 연결된 스레드의 답글은 멘션 없이도 이어진다. 회수된 연결의 스레드는 새 세션을 만들지 않는다.
 4. binding을 읽는다. 채널은 `PUT …/slack-bindings`로 저장한 행이고, DM은 설치의 DM 행이다. DM 행이 없으면 이때 만든다(`mode: mention`, 기본 상한. 동시에 와도 unique와 `ON CONFLICT DO NOTHING` 뒤 다시 읽어 하나다).
-5. bot token(`slack_app:<id>/slack_bot_token`, master key로 연다)으로 `users.info`를 불러 보낸 사람을 읽는다. token이 없거나 master key가 없으면 던져서 나중에 다시 한다.
+5. bot token(`slack_app:<id>/slack_bot_token`, master key로 연다)으로 `users.info`를 불러 보낸 사람을 읽는다. token이 없으면 던져서 나중에 다시 한다.
 6. 이벤트의 `channel_type`(`channel`·`group`·`mpim`·`im`)이 binding의 `surface_kind`와 다르면(공개 채널이 비공개가 됐을 때) 거절하고 안내를 남긴다(`channel_kind_mismatch`). `app_mention`에는 `channel_type`이 없어 채널 binding이면 `conversations.info`로 Slack에 묻는다.
 7. `authorizeSlackInput`(아래 "Slack 멘션·승인 판정")으로 판정한다. 새 스레드는 binding과 활성 release를, 연결된 스레드는 연결 행을 묻는다. release가 binding의 에이전트 것이 아니면 `agent_ceiling`이다. 활성 release가 없으면 경고 로그를 남기고 안내 "이 에이전트는 아직 활성화된 release가 없어요…"(notice 이유 `no_active_release`)를 남긴다. 거절이면 세션 없이 안내를 남긴다. 판정 자체가 실패한 것(`error`)은 그 사람의 거절이 아니라서 던져서 다시 한다.
 8. 메시지에서 `<@BOT>`(Slack이 붙이는 `|이름`까지)을 지운다. 남은 글이 없으면 넘긴다.
@@ -1124,7 +1124,7 @@ Slack 스레드 하나는 세션 하나다. 그 묶음이 `session_links`의 행
 
 - 답 찾기: pass마다 살아 있는(회수·mute 안 됨, `visibility=full`) 연결의 세션에서 끝난 턴(`completed`·`failed`·`outcome_unknown`) 중 행이 없는 것을 읽어 넣는다. 연결보다 먼저 만든 턴은 넣지 않는다. 연결마다 `session_links.answered_through`(표시)까지의 턴은 더 할 일이 없는 턴이라 다시 읽지 않는다. 표시는 행이 있는 턴, `interrupted`·`cancelled` 턴, 연결보다 먼저 끝난 턴을 이어서 넘기고, 아직 도는 턴이나 승인 대기 턴에서 멈춘다. 그래서 pass 비용은 쌓인 턴 수가 아니라 남은 턴 수와 연결 수를 따른다. 역할이 오래 멈췄어도 다시 뜨면 밀린 턴의 답을 각 스레드에 한 번씩 보낸다. 답 글은 마지막 attempt의 top-level(`parent_tool_use_id`가 없는) assistant 이벤트 중 마지막 tool 호출 뒤의 글이다. 지연은 pass 간격만큼이다. 세션 쪽 코드는 outbox를 모른다.
 - 글: 792a의 `escapeSlackControls`로 `<!here>`·`<!channel>`·`<!everyone>`·`<!subteam^…>`·`<#C…>`·`<@U…>`·중첩 `<`·backtick이 든 control·짝 없는 `<`를 글자로 바꾼다. 그래서 Slack이 받는 글의 날 `<`는 허용한 control의 것뿐이다. Slack은 backtick 안의 `<!here>`도 멘션으로 읽으므로, 닫힌 code span·code block 안은 `&`·`<`·`>`를 모두 글자로 바꾸고 멘션 허용(요청자 멘션 포함)도 적용하지 않는다. 안전한 masked link `<url|label>`은 `label (url)`로 풀어 써서 label이 주소를 숨기지 못한다(`maskedLinks: "expand"`). 답은 그 턴을 요청한 사람의 연결된 Slack 계정 멘션만 남긴다. 끝에 콘솔 세션 링크 하나를 붙이고, 40,000자(Slack `chat.postMessage` `text` 한도)를 넘으면 잘라서 `…`와 링크를 붙인다. 한 턴은 메시지 하나다.
-- 요청: `chat.postMessage` `{channel, thread_ts: <스레드 root>, text, link_names: false, unfurl_links: false, unfurl_media: false}`, 안내는 `chat.postEphemeral` `{channel, user, thread_ts, text, link_names: false}`. 보내기 직전(claim)에 설치가 회수되지 않았는지, 세션 행이면 그 스레드의 연결이 살아 있고 mute·`summary`가 아닌지, 카드면 그 요청에 아직 답할 수 있는지(push는 아직 `requested`인지) 다시 본다. 기다리는 사이 바뀌었으면 보내지 않고 `failed`(`not_addressed`)로 닫는다. bot token은 inbox와 같은 `slack_app:<id>/slack_bot_token`이다. master key가 없으면 행을 넣기만 하고 보내지 않는다.
+- 요청: `chat.postMessage` `{channel, thread_ts: <스레드 root>, text, link_names: false, unfurl_links: false, unfurl_media: false}`, 안내는 `chat.postEphemeral` `{channel, user, thread_ts, text, link_names: false}`. 보내기 직전(claim)에 설치가 회수되지 않았는지, 세션 행이면 그 스레드의 연결이 살아 있고 mute·`summary`가 아닌지, 카드면 그 요청에 아직 답할 수 있는지(push는 아직 `requested`인지) 다시 본다. 기다리는 사이 바뀌었으면 보내지 않고 `failed`(`not_addressed`)로 닫는다. bot token은 inbox와 같은 `slack_app:<id>/slack_bot_token`이다.
 - 상태: `pending` → claim(`FOR UPDATE SKIP LOCKED`, `claim_token`, `lease_expires_at = now() + SLACK_ROLE_LEASE_SEC`, 행은 아직 `pending`) → 요청 직전에 `sending`과 `attempts + 1` → 결과. 보내기 전에 lease가 끝난 claim은 시도로 세지 않는다. bot token을 읽지 못해 미룬 경우(`no_bot_token`)는 한 번으로 센다. 일시 실패와 같은 backoff를 쓰고 5번째 시도에서 `failed`다. 결과 판정은 792a `classifySlackSendResult`다. 성공은 `sent`(Slack `ts` 저장), 영구 오류는 `failed`(`error_code` 저장), 그 밖의 실패는 `pending`과 backoff(30초에서 두 배, 상한 5분, DB 시계)이고 5번째 시도에서 `failed`다. 429·`ratelimited`는 `Retry-After`만큼(5분으로 자름) 뒤로 미루고, 429도 시도로 세되 상한은 10번이다. 쓰기는 `id`·`claim_token`이 같을 때만 한다.
 - `uncertain`: Slack이 그 글을 가졌을 수 있어 다시 보내지 않는 행이다. `sending`인 채 lease가 끝난 행(보내는 도중 역할이 죽음), 응답 없이 끊긴 요청, 2xx나 5xx인데 본문을 읽을 수 없는 응답(`unreadable_answer`)이 여기로 간다. 4xx는 본문을 읽지 못해도 status와 `Retry-After`로 판정한다. 그래서 429는 `pending`으로 돌아간다. ts 없는 `ok:true`는 `failed`(`missing_ts`)이고 역시 다시 보내지 않는다. lease가 끝난 행은 다음 pass가 `Slack send outlived its lease; marked uncertain` 한 줄을 남긴다. 어느 쪽이든 답이면 스레드에 "답을 보냈는지 확인하지 못했어요. 웹에서 확인해 주세요"와 세션 링크를 한 번 보낸다.
 - 요청 카드: pass마다 살아 있는 연결의 세션에서 아직 답할 수 있는 권한·질문 요청과 `requested`인 push 요청 중 행이 없는 것을 넣는다. 카드는 요청자를 멘션하고, 모델이 쓴 글(도구 이름·입력, 질문, 브랜치)은 `plain_text`·preformatted 블록에만 넣어 멘션이나 링크가 되지 않는다. 버튼 값은 `{s: <session>, r: <request>, o?: <option index>}`이고 서버가 누를 때 다시 판정한다. 처리되면 interactivity route가 카드를 바꾼다.
@@ -1137,7 +1137,7 @@ Slack 스레드 하나는 세션 하나다. 그 묶음이 `session_links`의 행
 에이전트가 어느 채널에서 답하는지는 `surface_bindings`의 행이다. 행은 에이전트 앱 설치의 채널 하나를 가리킨다. DM은 설치마다 행 하나가 모든 DM을 맡고, 채널 id가 없다(`surface_kind: dm`). 채널 이름은 저장하지 않는다.
 
 - 설정: `PUT /v1/agents/{id}/slack-bindings` `{channel_id, mode, home?, ceiling?}` → `200`, 행 전체와 `set_surface_binding` receipt. 같은 채널의 행을 통째로 바꾸고, 처음이면 만든다. DM은 `{"channel_id": null, ...}`이다. DM 행은 첫 DM이 올 때 `slack` 역할이 기본값으로 만들기도 한다.
-  - 채널의 종류(`surface_kind`)는 서버가 에이전트 앱의 bot token으로 `conversations.info`를 불러 정한다: `is_im`이면 DM, `is_private`·`is_mpim`이면 `private_channel`, 아니면 `public_channel`. 요청의 `channel_kind`는 받기는 하지만 쓰지 않는다. 채널 id가 DM이면 `400`, Slack이 모르는 채널이거나 scope가 모자라면 `400`(`details.slack_error`), Slack이 닿지 않으면 `503`, bot token·master key가 없으면 `409 SLACK_NOT_INSTALLED`다. 그룹 DM은 bot scope에 `mpim:read`가 없어 `400`(`missing_scope`)이다.
+  - 채널의 종류(`surface_kind`)는 서버가 에이전트 앱의 bot token으로 `conversations.info`를 불러 정한다: `is_im`이면 DM, `is_private`·`is_mpim`이면 `private_channel`, 아니면 `public_channel`. 요청의 `channel_kind`는 받기는 하지만 쓰지 않는다. 채널 id가 DM이면 `400`, Slack이 모르는 채널이거나 scope가 모자라면 `400`(`details.slack_error`), Slack이 닿지 않으면 `503`, bot token이 없으면 `409 SLACK_NOT_INSTALLED`다. 그룹 DM은 bot scope에 `mpim:read`가 없어 `400`(`missing_scope`)이다.
   - `mode`: `off`(그 채널은 아무것도 받지 않는다) 또는 `mention`. `ambient`는 `400`이다.
   - `home: true`: 이 채널이 에이전트의 home이 되고, 이전 home은 꺼진다. 에이전트당 home은 하나다. DM은 home이 될 수 없다(`400`).
   - `ceiling`: 채널 상한 `{actions, disclosure}`. 빠지면 기본값(Slack 동작 넷 전부, `full`)이다. 행마다 칸으로 저장한다.
