@@ -341,6 +341,11 @@ export const loginMethods = pgTable(
     uniqueIndex("login_methods_password_user_uniq")
       .on(table.userId)
       .where(sql`${table.kind} = 'password'`),
+    // One subject per issuer for a user. Also what the session lookup reads
+    // to learn whether a user has any external method.
+    uniqueIndex("login_methods_user_issuer_uniq")
+      .on(table.userId, table.issuer)
+      .where(sql`${table.kind} <> 'password'`),
     check(
       "login_methods_kind_check",
       sql`${table.kind} IN ('password', 'google')`,
@@ -368,6 +373,13 @@ export const webSessions = pgTable(
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
     userAgent: text("user_agent"),
+    /**
+     * The login_methods row this session was signed in with. Null only on a
+     * session made before the column existed. No foreign key: the table
+     * grows, and a session outliving its method is cut by the code that
+     * removes the method.
+     */
+    loginMethodId: uuid("login_method_id"),
   },
   (table) => [
     // Logout-everywhere and the login lockout both walk a user's live sessions.

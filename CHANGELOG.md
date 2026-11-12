@@ -51,6 +51,10 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - 공급자 이름이 link-local(`169.254.0.0/16`, `fe80::/10`)·multicast·reserved·unspecified 주소로 풀린다. IPv6는 전역 유니캐스트(`2000::/3`) 가운데 문서용·6to4·Teredo 같은 특수 범위를 뺀 주소와 `fc00::/7`만 받는다. `https` issuer가 loopback 주소로 풀린다. 사설 주소(`10.0.0.0/8` 등)의 공급자는 전처럼 쓸 수 있다.
   - 공급자가 redirect로 답하면 따라가지 않는다. 응답 본문은 1 MiB까지 읽는다.
   - 전보다 받는 경우: ES256으로 서명한 id_token(공급자가 discovery에서 알릴 때). id_token에 `email`이 없으면 UserInfo에서 읽는다(`sub`가 같고 `email_verified`가 `true`일 때).
+- **Google 로그인 수단이 있는 사용자는 올린 뒤 한 번 다시 로그인한다. migration `0274_web_session_login_method`가 `web_sessions.login_method_id`를 더한다**(JeongJaeSoon/werft#1664). 새 버전은 세션마다 그 세션을 만든 로그인 수단을 적는다. 올리기 전에 만든 세션에는 이 값이 없고, 그런 세션은 사용자에게 외부 로그인 수단(Google)이 하나도 없을 때만 받는다. 비밀번호만 쓰는 사용자의 세션은 그대로다. Google 수단이 있는 사용자는 그 세션을 비밀번호로 만들었더라도 다시 로그인한다. 로그인하는 방법은 바뀌지 않는다. 공급자를 끄면 그 공급자로 만든 세션이 끊기게 하는 변경의 바탕이다.
+  - 옛 버전 API 프로세스가 함께 도는 동안(replica가 여럿인 배포의 교체 중)에 옛 프로세스가 만든 세션도 값이 없어 같은 판정을 받는다. 교체 중에 로그인한 Google 사용자는 교체가 끝난 뒤 한 번 더 로그인할 수 있다.
+  - 이 migration은 `login_methods (user_id, issuer)` 유일 인덱스(비밀번호 수단 제외)도 만든다. 한 사용자에게 같은 issuer의 외부 수단이 둘 있으면 `login_methods has a user with two external login methods of one issuer`로 멈추고 아무것도 바꾸지 않는다. 메시지에 적힌 조회로 행을 찾아 하나를 지운 뒤 다시 돌린다. 외부 수단은 지금까지 첫 가입 때만 만들어졌으므로, DB를 직접 고치지 않은 설치에서는 일어나지 않는다.
+  - 옛 버전으로 되돌릴 수 있다. 옛 코드는 새 칸을 읽지 않는다. 칸과 인덱스까지 지우려면 `ALTER TABLE web_sessions DROP COLUMN login_method_id`와 `DROP INDEX login_methods_user_issuer_uniq`를 돌린다.
 - **parked 요청이 수천 개인 승인 대기 그룹이 닫힌다**(JeongJaeSoon/werft#1650). 전에는 약 3,000개를 넘으면 이어 갈 turn의 메시지가 32 KiB를 넘어 그룹을 닫는 transaction이 되돌려졌고, 답은 저장된 채 turn이 이어지지 않았다. 이제 메시지에는 들어가는 만큼의 답이 그대로 실리고, 나머지는 마지막 줄 `… N more answers cut`으로 센다. 그보다 작은 그룹의 메시지는 바뀌지 않는다. 할 일은 없다.
 
 ## v0.1.3
