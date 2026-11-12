@@ -17,7 +17,7 @@ outcome: "サポート範囲と worker pin を保持して chart を更新しま
 
 [変更履歴](https://github.com/JeongJaeSoon/werft/blob/main/CHANGELOG.md)で対象バージョンの運用者向け作業を先に読みます。
 
-環境ごとの values、jq・helm・kubectl、現在の deployed revision と worker-previous.json、DB・S3 バックアップが必要です。kind で、承認待ちのセッションと checkpoint を残して停止したセッションを置いたまま、イメージと schema は変えず `extraEnv` だけを変えて Pod を再作成する `helm upgrade` と `helm rollback`（migrate は何もしませんでした）を実行し、hook の順序とセッションの状態・イベント・checkpoint の継続を確認しました（`deploy/kind/upgrade.sh`）。このページの手順 1・2 も kind でそのまま実行しました。control-host イメージと migration が変わる upgrade、worker イメージが変わる upgrade、直前のイメージで再開するセッション、影響セッションを承認する流れです。chart は公開 chart と同じ形にパッケージしたファイルを使いました。control-host イメージや worker イメージを戻す `helm rollback`（rollback 後の新しい schema と古いコード）は実行確認していません。rollback 前の直接検査だけを実行しました。fixture chart の render と公開 chart の設置を区別します。
+環境ごとの values、jq・helm・kubectl、現在の deployed revision と worker-previous.json、DB・S3 バックアップが必要です。kind で、承認待ちのセッションと checkpoint を残して停止したセッションを置いたまま、イメージと schema は変えず `extraEnv` だけを変えて Pod を再作成する `helm upgrade` と `helm rollback`（migrate は何もしませんでした）を実行し、hook の順序とセッションの状態・イベント・checkpoint の継続を確認しました（`deploy/kind/upgrade.sh`）。このページの手順 1・2 も kind でそのまま実行しました。直前リリースのコミットの schema から control-host イメージを変える upgrade（migrate Job が完了し、新しい build の `/readyz` が `schema: ok` でした）、worker イメージが変わる upgrade、直前のイメージで再開するセッション、影響セッションを承認する流れです。chart は公開 chart と同じ形にパッケージしたファイルを使いました。control-host イメージや worker イメージを戻す `helm rollback`（rollback 後の新しい schema と古いコード）は実行確認していません。rollback 前の直接検査だけを実行しました。fixture chart の render と公開 chart の設置を区別します。
 
 [共通の実行前ゲート](/run-server/self-hosting/upgrade-compose#실행-전-게이트)の有効化順序と rollback の下限を先に照合します。Compose 専用の検査コマンドの代わりに、下記の Helm hook と直接検査を使います。
 
@@ -34,9 +34,11 @@ outcome: "サポート範囲と worker pin を保持して chart を更新しま
 ```bash
 VERSION=<new-version>
 DEPLOYED="$(helm -n werft history werft -o json | jq '[.[] | select(.status == "deployed")] | last.revision')"
+TARGET_RUNTIME="$(helm show values oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
+  | awk '/^  worker:/ {found = 1} found && /^    runtime:/ {sub(/^    runtime: /, ""); print; done = 1; exit} END {if (!done) print "{}"}')"
 helm -n werft get values werft --all --revision "$DEPLOYED" -o json \
-  | jq '.images
-      | .worker.runtime |= ({engine: null, sdkVersion: null, cliVersion: null, profileDigestScheme: null, restorableSchemes: null} + .)
+  | jq --argjson target "$TARGET_RUNTIME" '.images
+      | .worker.runtime |= (($target | map_values(null)) + .)
       | {images: {worker, workerPrevious, egressProxy}}' \
   > control-phase.json
 helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
@@ -47,7 +49,7 @@ kubectl -n werft rollout status deploy/werft-api --timeout=600s
 
 中間 upgrade は新 chart の control-host を適用し、worker・egress proxy は現在のものを維持します。migration、**すべての** API の更新、ready を確認してから次に進みます。起動済み worker はイメージ変更だけでは交代せず、次の launch から新イメージを使います。
 
-`jq` が `runtime` の五つのキーを `null` で敷くのは、Helm が values の map をキーごとに合成するためです。対象 chart は自分の worker イメージの `images.worker.runtime` を含みます。デプロイ済み runtime にないキーは対象 chart の値がそのまま残り、現在の worker イメージに付きます。`null` はそのキーを消します。runtime なしで設置した環境では五つのキーがすべて消えて今と同じく runtime なしのままになり、公開 chart で設置した環境ではデプロイ済み runtime だけが残ります。この `null` を省くと、runtime なしで設置した環境では現在の worker イメージが対象 chart の runtime で設定されます。upgrade 検査は通過しますが、scheduler がそのイメージを拒否し、新しいセッションは起動しません（[よくある問題](/run-server/self-hosting/upgrade-kubernetes#자주-막히는-곳)）。
+`TARGET_RUNTIME` は対象 chart が含む `images.worker.runtime` で、`jq` はそのキーをすべて `null` で敷き、その上にデプロイ済み runtime を重ねます。Helm が values の map をキーごとに合成するためです。対象 chart は自分の worker イメージの runtime を含みます。デプロイ済み runtime にないキーは対象 chart の値がそのまま残り、現在の worker イメージに付きます。`null` は chart が含むキーを消します。chart が含まないキーを `null` と書くと、その `null` が値として残り render が失敗するため、キーの一覧は手で書かず対象 chart から読みます。runtime なしで設置した環境では chart のキーがすべて消えて今と同じく runtime なしのままになり、公開 chart で設置した環境ではデプロイ済み runtime だけが残ります。この `null` を省くと、runtime なしで設置した環境では現在の worker イメージが対象 chart の runtime で設定されます。upgrade 検査は通過しますが、scheduler がそのイメージを拒否し、新しいセッションは起動しません（[よくある問題](/run-server/self-hosting/upgrade-kubernetes#자주-막히는-곳)）。
 
 <a id="2-최종-worker와-proxy-교체" />
 ### 2. 最終的な worker と proxy の更新
@@ -118,7 +120,7 @@ runtime の取得方法は[設定レファレンスの API 設定](/run-server/s
 
 `images.worker` を維持し、デプロイ済みの `images.workerPrevious` を外すか変える upgrade はセッションを比較します。対象イメージ（現在、および存在すれば直前）のどちらとも組み合わせが合わない、または未記録のセッションがあれば `refused` となり、その一覧を承認すると通過します。未記録セッションはいずれの場合もイメージ変更 upgrade と同じように選びます。デプロイ済み直前イメージがなかった、または同じならセッションは比較せず、承認一覧が空なら `proceed` です（残った承認は `refused`）。イメージだけ違って組み合わせが同じ再ビルドでは、直前イメージを外しても現在のイメージで再開できるため一覧に入りません。
 
-選んだセッションが再開できなくてもよい場合、その一覧をそのまま values に入れて同じ upgrade を再実行します。承認はセッション状態を変えません。`no_image` で選んだセッションは再開時に `recovery_required` で止まります。`unrecorded` で選んだセッションは新イメージで起動し、復元時の判定で継続するか `recovery_required` で止まります。
+選んだセッションが再開できなくてもよい場合、その一覧をそのまま values に入れて同じ upgrade を再実行します。承認はセッション状態を変えません。`no_image` で選んだセッションは再開時に worker を起動せず `recovery_required` で止まります。セッションの `attention` が `RESTORE_FAILED`、`incompatible_checkpoint` を示すので、承認したセッションを resume した後はセッションの `admission_state` と `attention` を確認します。`unrecorded` で選んだセッションは新イメージで起動し、復元時の判定で継続するか `recovery_required` で止まります。
 
 ```bash
 helm upgrade --install ... --set-json 'upgrade.approvedSessions=["<sessionId>", ...]'
@@ -141,7 +143,7 @@ kubectl -n werft exec deploy/werft-api -- env \
 
 通常の worker イメージを戻す rollback は `refused` です。戻す revision の `images.workerPrevious` が現在デプロイ済みのイメージではないためです（検査は組み合わせではなくイメージ参照を比較します）。設定や DB を読めなければ `check_failed` です。現在のイメージで動く worker は rollback 後も終了までその組み合わせの checkpoint を残しますが、検査には見えません。出力の `affected` は検査時点で既に選んだセッションです。roll-forward を優先します。それでも戻すと、再開時に scheduler が組み合わせでイメージを選びます。戻した revision の worker と直前イメージ（存在する場合）のどちらとも合わないセッション（現在のイメージが新 SDK・CLI を含む場合、rollback 中に現在のイメージで checkpoint を残したセッション）は `recovery_required` で止まります。`images.worker` を維持する rollback は、現在デプロイ済み直前イメージが戻す revision にも同じまま含まれれば、承認一覧が空のとき `proceed` です（残った承認は `refused`）。外れるか変われば、このページの upgrade 検査と同じようにセッションを比較します。このコマンドは hook ではなく、rollback を止めてはくれません。`refused` なら `affected` を読み、戻すかを判断します。デプロイ済み worker があるのに `UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS` を省くと `check_failed` です。
 
-**検査対象外。** 単一サーバーの[アップグレード検査](/run-server/self-hosting/upgrade-compose)と異なり、この検査は対象イメージを実行しません。ポインターに記録された組み合わせ（engine・SDK・CLI・profile digest 方式）だけを比較し、実際の profile digest は復元時に判定します。検査後に writer を停止して再検査することもありません。worker イメージ変更 upgrade は、対象の `images.workerPrevious` が現在デプロイ済みのイメージと同じ場合だけ通過するため、検査後に現在の worker が残す checkpoint は対象のサポート範囲内です。worker を維持して直前イメージを外す upgrade にはこの保証がありません。直前のイメージで動く worker は検査後もその組み合わせの checkpoint を残せます。最初の checkpoint 前のセッションも同様です。そのため直前イメージを外す前に、その worker の終了を確認します。それより古いイメージで動く worker のセッションは、ポインターが既にその組み合わせなら一覧に入ります。最初の checkpoint 前のセッションは入りません。この制限はサポート範囲から外れるすべてのイメージ、および直前イメージ変更 upgrade にも同じです。対象イメージを registry から取得できるかも検査しません。取得できなければ launch 失敗として現れます。`images.worker.runtime` がそのイメージ自身の出力する値かどうかも検査しません。異なる場合、upgrade は通過し、そのイメージの worker が最初に起動したときに scheduler がイメージを拒否します（[よくある問題](/run-server/self-hosting/upgrade-kubernetes#자주-막히는-곳)）。
+**検査対象外。** 単一サーバーの[アップグレード検査](/run-server/self-hosting/upgrade-compose)と異なり、この検査は対象イメージを実行しません。ポインターに記録された組み合わせ（engine・SDK・CLI・profile digest 方式）だけを比較し、実際の profile digest は復元時に判定します。検査後に writer を停止して再検査することもありません。worker イメージ変更 upgrade は、対象の `images.workerPrevious` が現在デプロイ済みのイメージと同じ場合だけ通過するため、検査後に現在の worker が残す checkpoint は対象のサポート範囲内です。worker を維持して直前イメージを外す upgrade にはこの保証がありません。直前のイメージで動く worker は検査後もその組み合わせの checkpoint を残せます。最初の checkpoint 前のセッションも同様です。そのため直前イメージを外す前に、その worker の終了を確認します。それより古いイメージで動く worker のセッションは、ポインターが既にその組み合わせなら一覧に入ります。最初の checkpoint 前のセッションは入りません。この制限はサポート範囲から外れるすべてのイメージ、および直前イメージ変更 upgrade にも同じです。対象イメージを registry から取得できるかも検査しません。取得できなければ launch 失敗として現れます。`images.worker.runtime` がそのイメージ自身の出力する値かどうかも検査しません。誤っていても upgrade は通過します。engine・SDK・CLI・profile digest 方式のいずれかが worker の claim に書く値と異なると、そのイメージの worker が最初に起動したときに scheduler がイメージを拒否します（[よくある問題](/run-server/self-hosting/upgrade-kubernetes#자주-막히는-곳)）。`restorableSchemes` がそのイメージの実際の復元能力と一致するかは、このときも比較しません。
 
 <a id="4-파일-카탈로그-설치에서-오는-경우" />
 ### 4. ファイル catalog の環境から移行する場合
@@ -190,9 +192,9 @@ Job ログの実際の verdict、rollout、ready 応答を記録します。既�
 
 workerPrevious が現在デプロイ済みのイメージでなければ、承認で続行できない refused です。helm get values の revision を省くと、失敗した upgrade の候補値が返る場合があります。lookup のない helm template や client dry-run は実際の upgrade 検査を代替しません。
 
-upgrade 後に新しいセッションが `queued` のままで、scheduler ログに `Worker image refused: a worker on it claimed under another runtime than configured` が出る場合、`images.worker.runtime` がその worker イメージの値ではありません。runtime を再び外す upgrade は `check_failed`（`WORKER_IMAGE_RUNTIME is not set`）で止まります。そのイメージが出力する runtime（[設定リファレンスの API 設定](/run-server/self-hosting/reference/configuration)）を `images.worker.runtime` に入れ、chart が含むキーのうちそのイメージが出力しないキー（例: `restorableSchemes`）は `null` と書いて、再度 upgrade します。待っていたセッションはその後に launch されます。
+upgrade 後に新しいセッションが `queued` のままで、scheduler ログに `Worker image refused: a worker on it claimed under another runtime than configured` が出る場合、`images.worker.runtime` がその worker イメージの値ではありません。runtime を再び外す upgrade は `check_failed`（`WORKER_IMAGE_RUNTIME is not set`）で止まります。そのイメージが出力する runtime（[設定リファレンスの API 設定](/run-server/self-hosting/reference/configuration)）を `images.worker.runtime` に入れ、chart が含むキーのうちそのイメージが出力しないキー（例: `restorableSchemes`）だけを `null` と書いて、再度 upgrade します。待っていたセッションはその後に launch されます。
 
-`refused` や `check_failed` で止まった upgrade も Helm revision を一つ使います。Helm は既定で revision を 10 個だけ残すため、何度も止まると戻したい revision が history から消えます。戻す revision の値は事前に保存します（`helm -n werft get values werft --all --revision <revision>`）。
+`refused` や `check_failed` で止まった upgrade も Helm revision を一つ使います。Helm は既定で revision を 10 個だけ残すため、何度も止まると戻したい revision が history から消えます。kind では、止まった upgrade 8 回と成功した upgrade 2 回の後、その前のデプロイ済み revision が `release: not found` になりました。history から消えた revision には `helm rollback` できず、値を別に保存していても同じです。何度も試す見込みなら `helm upgrade` に大きめの `--history-max` を渡します（`0` は無制限）。このオプションを付けた upgrade は実行確認していません。
 
 <a id="되돌리기" />
 ## 元に戻す
