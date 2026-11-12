@@ -590,6 +590,9 @@ integration("session terminate on PostgreSQL", () => {
     });
     const after = await sessionRow(session.session_id);
     expect(after.admissionState).toBe("recovery_required");
+    // The operator asked for this stop: the session did not fail. The unknown
+    // turn still holds it for a recovery decision.
+    expect(after.status).toBe("stopped");
     const [turn] = await db
       .select({ status: turns.status, outcomeUnknown: turns.outcomeUnknown })
       .from(turns)
@@ -946,6 +949,28 @@ integration("session terminate on PostgreSQL", () => {
     expect(frames).toEqual([
       { phase: "running" },
       { phase: "failed", admission_state: "recovery_required" },
+    ]);
+    expect(frames.at(-1)).toMatchObject(await readsAs(session));
+  });
+
+  test("a terminate that cuts a running turn puts stopped, not failed, on the stream with recovery_required", async () => {
+    const { session, launch: l, claimed } = await bound("stream-cut");
+    await deliver(claimed);
+    const result = await terminate(
+      session,
+      (await sessionRow(session.session_id)).revision,
+    );
+    if (result.outcome !== "accepted") throw new Error(result.outcome);
+    const stopping = await statusFrames(session);
+    expect(stopping.at(-1)).toMatchObject({
+      phase: "running",
+      admission_state: "stopping",
+    });
+
+    await confirmExecutionGone(db, l.executionId);
+    const frames = await statusFrames(session);
+    expect(frames.slice(stopping.length)).toEqual([
+      { phase: "stopped", admission_state: "recovery_required" },
     ]);
     expect(frames.at(-1)).toMatchObject(await readsAs(session));
   });

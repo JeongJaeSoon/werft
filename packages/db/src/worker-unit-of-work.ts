@@ -3859,12 +3859,15 @@ export function createPostgresWorkerUnitOfWork(
             );
         }
 
-        // A session that asked for this kill (terminate) lands in
-        // `stopped`, unless a turn was left unresolved, in which case the
-        // recovery decision takes precedence just as for any other exit. A
-        // session an operator already closed stays closed: the
-        // unknown turn is recorded above, but nothing reopens the session.
+        // A session that asked for this kill (terminate, execution
+        // revocation) lands in `stopped`. A turn the kill left unresolved
+        // still holds it for a recovery decision, as after any other exit,
+        // but its status says stopped: the operator asked for the stop, the
+        // session did not fail. A session an operator already closed stays
+        // closed: the unknown turn is recorded above, but nothing reopens
+        // the session.
         const stopping = session.admissionState === "stopping";
+        const unresolvedStatus = stopping ? "stopped" : "failed";
         const closed = session.admissionState === "closed";
         // A pause completes only here, on the observed absence, and only onto
         // a checkpoint that covers every turn that ran. One that cannot has
@@ -3941,7 +3944,7 @@ export function createPostgresWorkerUnitOfWork(
               ? {}
               : unresolved.length > 0
                 ? {
-                    status: "failed" as const,
+                    status: unresolvedStatus,
                     admissionState: "recovery_required" as const,
                   }
                 : stopping
@@ -4049,7 +4052,10 @@ export function createPostgresWorkerUnitOfWork(
             sessionId: session.id,
             phase:
               settledInto === "recovery_required"
-                ? "failed"
+                ? // A failed pause has no unresolved turn and is not stopping.
+                  unresolved.length > 0
+                  ? unresolvedStatus
+                  : "failed"
                 : settledInto === "stopped" || settledInto === "closed"
                   ? "stopped"
                   : // A park settles paused with its requests still open.
