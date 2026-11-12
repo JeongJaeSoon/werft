@@ -920,11 +920,13 @@ integration("worker gateway on PostgreSQL", () => {
     expect(extended).toBeGreaterThanOrEqual(floor + LEASE_TTL_MS);
     expect(extended).toBeLessThanOrEqual(ceiling + LEASE_TTL_MS);
     expect(extended).toBeGreaterThan(before);
-    expect(beat.auth_revision).toBe(0);
+    // The answer stopped echoing auth_revision (94S-1038); the row holds it.
+    expect(beat).not.toHaveProperty("auth_revision");
     const [attempt] = await db
       .select()
       .from(attempts)
       .where(eq(attempts.id, claimed.attempt_id));
+    expect(attempt?.authRevision).toBe(0);
     // Audit stamps still record the request clock.
     expect(attempt?.lastHeartbeatAt?.toISOString()).toBe(clock.toISOString());
     expect(attempt?.state).toBe("running");
@@ -2759,7 +2761,13 @@ integration("worker gateway on PostgreSQL", () => {
       ...scopeOf(second),
       attempt_state: "running",
     });
-    expect(beat.auth_revision).toBe(second.auth_revision);
+    // The answer stopped echoing auth_revision (94S-1038); the row holds it.
+    expect(beat).not.toHaveProperty("auth_revision");
+    const [renewed] = await db
+      .select({ authRevision: attempts.authRevision })
+      .from(attempts)
+      .where(eq(attempts.id, second.attempt_id));
+    expect(renewed?.authRevision).toBe(second.auth_revision);
   });
 
   test("writes from a superseded epoch are refused with 409 STALE_EPOCH", async () => {
