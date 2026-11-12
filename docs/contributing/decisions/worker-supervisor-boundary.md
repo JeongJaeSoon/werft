@@ -210,7 +210,7 @@ supervisor가 읽은 내용을 대신 내보내는 경로(rollout 올리기, che
 
 - 배포 요구는 바뀌지 않는다. 이미지 사용자, capability, `securityContext`, 커널 설정이 그대로다.
 - 두 경로를 모두 닫으려면 API와 worker 이미지를 모두 올린다.
-- supervisor 프로세스의 `/proc/<pid>/` 항목은 컨테이너 안에서 worker 사용자로는 읽을 수 없다. capability 없는 root는 열린 descriptor의 번호만 보고, 메모리 지도와 cwd는 읽지 못한다(측정함. 환경과 메모리도 같은 검사를 거친다). 디버깅에는 root이면서 `CAP_SYS_PTRACE`를 가진 프로세스가 필요하다. Docker에서는 `docker exec --privileged -u 0`이다(측정함: `--privileged`만 주고 worker 사용자로 들어가면 읽지 못한다). Kubernetes에서는 worker 컨테이너를 대상으로 하고 root와 `CAP_SYS_PTRACE`를 주는 debug 컨테이너가 필요하다(측정하지 않음). supervisor는 core dump를 남기지 않는다.
+- supervisor 프로세스의 `/proc/<pid>/` 항목 가운데 환경, 메모리, 메모리 지도, cwd, 열린 descriptor는 컨테이너 안에서 worker 사용자로는 읽을 수 없다. 명령행과 프로세스 이름은 누구에게나 보인다. capability 없는 root는 열린 descriptor의 번호만 보고, 메모리 지도와 cwd는 읽지 못한다(측정함. 환경과 메모리도 같은 검사를 거친다). 디버깅에는 root이면서 `CAP_SYS_PTRACE`를 가진 프로세스가 필요하다. Docker에서는 `docker exec --privileged -u 0`이다(측정함: `--privileged`만 주고 worker 사용자로 들어가면 읽지 못한다). Kubernetes에서는 worker 컨테이너를 대상으로 하고 root와 `CAP_SYS_PTRACE`를 주는 debug 컨테이너가 필요하다(측정하지 않음). supervisor는 core dump를 남기지 않는다.
 - worker 이미지를 직접 만드는 경우: supervisor는 Linux에서 `prctl`을 부르지 못하면 뜨지 않는다. 배포하는 이미지(Debian, glibc)에서는 해당하지 않는다.
 
 ## 확인하지 못한 것
