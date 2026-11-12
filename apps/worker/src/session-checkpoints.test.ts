@@ -884,6 +884,48 @@ describe("SessionCheckpoints", () => {
       },
     });
   });
+
+  test("an approval wait's failed capture stays told apart from the turn end's capture that follows", async () => {
+    const h = harness();
+    const { claim, mirror } = await opened(h);
+    await mirror.append(root, [{ type: "user", uuid: "u1", message: "hi" }]);
+
+    expect(
+      await h.port.capture(
+        { ...ready, checkpoint: { ...ready.checkpoint, resume: "elsewhere" } },
+        {
+          scope: scopeOf(claim),
+          recheck: async () => ready,
+          point: "approval_wait",
+        },
+      ),
+    ).toBeNull();
+    expect(
+      await h.port.capture(ready, {
+        scope: scopeOf(claim),
+        recheck: async () => ready,
+      }),
+    ).not.toBeNull();
+
+    expect(
+      h.warnings.filter(({ event }) => event === "worker.checkpoint.failed"),
+    ).toEqual([
+      expect.objectContaining({
+        fields: expect.objectContaining({
+          point: "approval_wait",
+          stage: "transcript",
+        }),
+      }),
+    ]);
+    expect(
+      h.infos
+        .filter(({ event }) => event === "worker.checkpoint.result")
+        .map(({ fields }) => [fields?.point, fields?.outcome]),
+    ).toEqual([
+      ["approval_wait", "refused"],
+      ["turn_end", "succeeded"],
+    ]);
+  });
 });
 
 describe("a publish that fails for a reason other than the mirror", () => {

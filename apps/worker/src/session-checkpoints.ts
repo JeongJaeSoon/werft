@@ -775,6 +775,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
   ): Promise<CheckpointRef | null> {
     const bound = this.#bound;
     if (bound === undefined) return null;
+    const point = context.point ?? "turn_end";
     let stage = "request";
     let revision: number | null = null;
     let manifestRef: string | null = null;
@@ -818,6 +819,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
           outcome = "blocked";
           reasonCode = answer.reason;
           this.#options.logger.warn("worker.checkpoint.blocked", {
+            point,
             reason: answer.reason,
             detail: answer.detail,
           });
@@ -845,6 +847,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         outcome = error instanceof PublishFailure ? "refused" : "failed";
         reasonCode = failedAt;
         this.#options.logger.warn("worker.checkpoint.failed", {
+          point,
           stage: failedAt,
           category: error instanceof PublishFailure ? "refused" : "error",
           reason: describe(error),
@@ -877,6 +880,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       this.#options.logger.info("worker.checkpoint.result", {
         message: "Checkpoint capture finished",
         operation: "checkpoint_capture",
+        point,
         outcome,
         reason_code: reasonCode,
         revision,

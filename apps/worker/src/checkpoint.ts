@@ -48,6 +48,13 @@ export type CheckpointCaptureContext = {
   recheck(): Promise<CheckpointPreparation>;
   /** Goes into the manifest as it is; absent for a turn that was not parked. */
   workerState?: WorkerCheckpointState;
+  /**
+   * Where in the turn the capture runs, for its logs: an approval wait's
+   * capture failing leaves that wait unresumable after a crash, which the
+   * session's pending reason does not keep once the turn ends. Absent at the
+   * turn's end.
+   */
+  point?: "approval_wait";
 };
 
 /**

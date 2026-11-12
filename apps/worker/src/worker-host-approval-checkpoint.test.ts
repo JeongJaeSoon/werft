@@ -241,4 +241,18 @@ describe("WorkerHost approval-wait checkpoints", () => {
     expect(captures).toBe(0);
     await end();
   });
+
+  test("tells the capture it runs at an approval wait, and the turn's end capture that it does not", async () => {
+    const run = checkpointingRun();
+    const points: Array<string | undefined> = [];
+    const { gateway, worker } = host(run, async (_preparation, context) => {
+      points.push(context.point);
+      return REF;
+    });
+    const { end } = await waiting(run, gateway, worker);
+    await end();
+
+    expect(points[0]).toBe("approval_wait");
+    expect(points.slice(1).every((point) => point === undefined)).toBe(true);
+  });
 });
