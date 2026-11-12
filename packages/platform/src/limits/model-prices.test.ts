@@ -412,4 +412,75 @@ describe("priceProviderUsage for an OpenAI model", () => {
     expect(priced.pricedBy).toBe("fallback");
     expect(priced.costUsd).toBeGreaterThanOrEqual(50);
   });
+
+  test("a model no table names is charged the fast multiplier away from the standard speed", () => {
+    const call = { ...openAi, model: "gpt-9", outputTokens: 1_000_000 };
+    const standard = priceProviderUsage(call).costUsd;
+    for (const speed of ["fast", "ultrafast", "unknown"]) {
+      expect(priceProviderUsage({ ...call, speed })).toEqual({
+        costUsd: standard * 2,
+        pricedBy: "fallback",
+      });
+    }
+  });
+
+  test("a model no table names is charged a 12-hour cache write at 2.5x the input rate", () => {
+    const call = { ...openAi, model: "gpt-9" };
+    const plain = priceProviderUsage({ ...call, inputTokens: 1_000_000 });
+    const twelveHours = priceProviderUsage({
+      ...call,
+      cacheCreationInputTokens: 1_000_000,
+      cacheCreation1hInputTokens: 1_000_000,
+    });
+    expect(twelveHours.pricedBy).toBe("fallback");
+    expect(twelveHours.costUsd).toBeCloseTo(plain.costUsd * 2.5, 9);
+  });
+
+  test("the fallback is never cheaper than a known model at the same speed, prompt length and cache lifetime", () => {
+    const parts = {
+      cacheCreationInputTokens: 200_000,
+      cacheCreation1hInputTokens: 100_000,
+      cacheReadInputTokens: 100_000,
+      outputTokens: 100_000,
+    };
+    for (const model of ["gpt-6-astra", "gpt-6.1-sol", "gpt-5.6-sol"]) {
+      for (const speed of ["standard", "fast", "ultrafast"]) {
+        for (const inputTokens of [1_000, 300_000]) {
+          const usage = { ...openAi, ...parts, speed, inputTokens };
+          const known = priceProviderUsage({ ...usage, model });
+          const unknown = priceProviderUsage({ ...usage, model: "gpt-9" });
+          expect(known.pricedBy).toBe("table");
+          expect(unknown.pricedBy).toBe("fallback");
+          expect(unknown.costUsd).toBeGreaterThanOrEqual(known.costUsd);
+        }
+      }
+    }
+  });
+
+  test("a model the Claude table names keeps Claude's highest rates when its speed is not one the table has", () => {
+    // $75 out is the highest of both Claude tables; no OpenAI multiplier.
+    expect(
+      priceProviderUsage({
+        ...nothing,
+        model: "claude-opus-5",
+        speed: "turbo",
+        outputTokens: 1_000_000,
+        cacheCreationInputTokens: 0,
+      }),
+    ).toEqual({ costUsd: 75, pricedBy: "fallback" });
+    const hourLong = priceProviderUsage({
+      ...nothing,
+      model: "claude-opus-5",
+      speed: "turbo",
+      cacheCreationInputTokens: 1_000_000,
+      cacheCreation1hInputTokens: 1_000_000,
+    });
+    const input = priceProviderUsage({
+      ...nothing,
+      model: "claude-opus-5",
+      speed: "turbo",
+      inputTokens: 1_000_000,
+    });
+    expect(hourLong.costUsd).toBeCloseTo(input.costUsd * 2, 9);
+  });
 });

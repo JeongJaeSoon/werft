@@ -150,6 +150,35 @@ const FALLBACK_PRICE: ModelPrice = (() => {
 })();
 const FALLBACK_GEO_PERCENT = Math.max(...Object.values(GEO_PERCENT));
 
+/**
+ * The fallback for a model neither table names, which may be an OpenAI one:
+ * away from the standard speed its fast tier multiplies every rate, and its
+ * cache writes cost what the dearer of the two providers charges. A model the
+ * Claude table names stays on Claude's own highest rates above.
+ */
+const UNNAMED_FAST_FALLBACK_PRICE: ModelPrice = price(
+  Math.max(
+    FALLBACK_PRICE.inputUsdPerMtok,
+    ...OPENAI_ALL_RATES.map(
+      (known) => known.inputUsdPerMtok * OPENAI_FAST_MULTIPLIER,
+    ),
+  ),
+  Math.max(
+    FALLBACK_PRICE.outputUsdPerMtok,
+    ...OPENAI_ALL_RATES.map(
+      (known) => known.outputUsdPerMtok * OPENAI_FAST_MULTIPLIER,
+    ),
+  ),
+  Math.max(
+    FALLBACK_PRICE.cacheReadUsdPerMtok,
+    ...OPENAI_ALL_RATES.map(
+      (known) => known.cacheReadUsdPerMtok * OPENAI_FAST_MULTIPLIER,
+    ),
+  ),
+);
+const UNNAMED_SHORT_WRITE = Math.max(CACHE_WRITE_5M, OPENAI_CACHE_WRITE_30M);
+const UNNAMED_LONG_WRITE = Math.max(CACHE_WRITE_1H, OPENAI_CACHE_WRITE_12H);
+
 export type ProviderUsage = {
   model: string;
   inputTokens: number;
@@ -237,7 +266,13 @@ export function priceProviderUsage(usage: ProviderUsage): {
         ? longPrompt.price
         : table[usage.model]
       : undefined;
-  const rates = known ?? FALLBACK_PRICE;
+  const unnamed =
+    known === undefined && !Object.hasOwn(MODEL_PRICES, usage.model);
+  const rates =
+    known ??
+    (unnamed && usage.speed !== "standard"
+      ? UNNAMED_FAST_FALLBACK_PRICE
+      : FALLBACK_PRICE);
   const oneHour = Math.min(
     usage.cacheCreation1hInputTokens,
     usage.cacheCreationInputTokens,
@@ -246,8 +281,10 @@ export function priceProviderUsage(usage: ProviderUsage): {
     usage.inputTokens * rates.inputUsdPerMtok +
     (usage.cacheCreationInputTokens - oneHour) *
       rates.inputUsdPerMtok *
-      CACHE_WRITE_5M +
-    oneHour * rates.inputUsdPerMtok * CACHE_WRITE_1H +
+      (unnamed ? UNNAMED_SHORT_WRITE : CACHE_WRITE_5M) +
+    oneHour *
+      rates.inputUsdPerMtok *
+      (unnamed ? UNNAMED_LONG_WRITE : CACHE_WRITE_1H) +
     usage.cacheReadInputTokens * rates.cacheReadUsdPerMtok +
     usage.outputTokens * rates.outputUsdPerMtok;
   return {
