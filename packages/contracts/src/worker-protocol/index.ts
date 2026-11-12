@@ -805,9 +805,8 @@ export const heartbeatRequestSchema = workerScopeSchema
 export const heartbeatResponseSchema = z.object({
   lease_expires_at: timestampSchema,
   lease_remaining_ms: leaseRemainingMsSchema,
-  // Nothing reads it: the write is fenced on the request's auth_revision, so
-  // this only echoes it. Optional so the server can stop sending it once no
-  // worker image that requires it is still running.
+  // The server stopped sending it (94S-1038): the write is fenced on the
+  // request's auth_revision, so it only echoed that. Nothing reads it.
   auth_revision: epochSchema.optional(),
   control_pending: z.boolean(),
 });
@@ -835,7 +834,9 @@ export const workerEventSchema = z.discriminatedUnion("event", [
 ]);
 export const appendEventsRequestSchema = workerScopeSchema
   .extend({
-    batch_key: z.string().min(1),
+    // Nothing reads it: a replay is told apart by its source_sequence range.
+    // Optional so a later worker can stop sending it.
+    batch_key: z.string().min(1).optional(),
     events: z.array(workerEventSchema).min(1),
     tool_decisions: toolDecisionsFieldSchema.optional(),
   })

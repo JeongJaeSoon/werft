@@ -2267,7 +2267,6 @@ export function createWorkerGateway(deps: {
       return {
         lease_expires_at: result.leaseExpiresAt.toISOString(),
         lease_remaining_ms: result.leaseRemainingMs,
-        auth_revision: result.authRevision,
         // A hint, read after the fenced write: the worker's pendingControl
         // poll is what actually hands anything over. A failed read must not
         // turn the lease already renewed into an error the worker reads as

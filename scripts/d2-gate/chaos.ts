@@ -41,6 +41,7 @@ type Rule = {
 };
 
 type Batch = {
+  /** `<attempt_id>:<first>-<last>` source_sequence. */
   key: string;
   /** source_sequence → sha256 of the event as sent. */
   events: Record<number, string>;
@@ -122,7 +123,7 @@ function batchOf(path: string, body: string): Batch | null {
   if (!path.endsWith("/append-events")) return null;
   try {
     const parsed = JSON.parse(body) as {
-      batch_key: string;
+      attempt_id: string;
       events: { source_sequence: number }[];
     };
     const events: Record<number, string> = {};
@@ -131,7 +132,11 @@ function batchOf(path: string, body: string): Batch | null {
         .update(JSON.stringify(event))
         .digest("hex");
     }
-    return { key: parsed.batch_key, events };
+    // The attempt and its sequence range, not the worker's batch_key, which
+    // a worker may leave out.
+    const first = parsed.events[0]?.source_sequence ?? 0;
+    const last = parsed.events.at(-1)?.source_sequence ?? 0;
+    return { key: `${parsed.attempt_id}:${first}-${last}`, events };
   } catch {
     return null;
   }

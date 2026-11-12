@@ -797,7 +797,7 @@ export type ChaosRule = {
 
 export type ChaosEntry = {
   at: string;
-  /** append-events only: the batch key and each event's sha256 by source_sequence. */
+  /** append-events only: `<attempt_id>:<first>-<last>` and each event's sha256 by source_sequence. */
   batch: { events: Record<string, string>; key: string } | null;
   /** A `corrupt` rule changed a byte of this answer. */
   corrupted?: boolean;
