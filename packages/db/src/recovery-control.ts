@@ -12,6 +12,7 @@ import type {
   ResumeSessionResult,
 } from "@werft-ai/platform";
 import { receiptActorOf } from "@werft-ai/platform";
+import { isUnsupportedFeaturesReason } from "@werft-ai/runtime-core";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
   controlClock,
@@ -587,7 +588,8 @@ async function retryRestore(
   if (
     session.admissionState !== "recovery_required" ||
     (session.restoreFailureCount < RESTORE_FAILURE_LIMIT &&
-      session.restoreFailureReason !== INCOMPATIBLE_CHECKPOINT_REASON) ||
+      session.restoreFailureReason !== INCOMPATIBLE_CHECKPOINT_REASON &&
+      !isUnsupportedFeaturesReason(session.restoreFailureReason ?? "")) ||
     !hasRestorePoint(session)
   ) {
     return {

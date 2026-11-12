@@ -44,6 +44,7 @@ import {
   type ToolDecisionObserver,
   type TurnEnded,
   unmetFeatures,
+  unsupportedFeaturesReason,
   type WorkerCheckpointState,
   type WorkerGatewayClient,
   WorkerGatewayRequestError,
@@ -931,9 +932,7 @@ export class WorkerHost {
       runtimeRequirementsOf(claim.runtime_config),
     );
     if (unmet.length > 0) {
-      throw new Error(
-        `Runtime ${claim.runtime.kind} ${claim.runtime.version} cannot run this session's settings: it does not support ${unmet.join(", ")}`,
-      );
+      throw new Error(unsupportedFeaturesReason(claim.runtime, unmet));
     }
     if (claim.restore === null) return true;
     const restored =

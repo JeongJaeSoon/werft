@@ -51,6 +51,26 @@ export function featureSupport(
   }
 }
 
+const UNSUPPORTED_FEATURES =
+  " cannot run this session's settings: it does not support ";
+
+/**
+ * Why a worker refuses a claim whose settings need features its engine does
+ * not offer. The same engine refuses on every launch, so the control plane
+ * stops the session on the first one (`isUnsupportedFeaturesReason`).
+ */
+export function unsupportedFeaturesReason(
+  runtime: { kind: string; version: string },
+  unmet: readonly FeatureKey[],
+): string {
+  return `Runtime ${runtime.kind} ${runtime.version}${UNSUPPORTED_FEATURES}${unmet.join(", ")}`;
+}
+
+/** Whether a release reason is `unsupportedFeaturesReason`'s, bounded or not. */
+export function isUnsupportedFeaturesReason(reason: string): boolean {
+  return reason.startsWith("Runtime ") && reason.includes(UNSUPPORTED_FEATURES);
+}
+
 /** The required features the engine does not offer at all, in request order. */
 export function unmetFeatures(
   table: RuntimeCapabilityTable,

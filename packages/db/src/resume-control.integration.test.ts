@@ -696,6 +696,33 @@ integration(
       ).not.toContain(session.sessionId);
     });
 
+    test("a worker whose engine lacks a feature the settings need fails the resume on its first launch, saying why", async () => {
+      const unsupported =
+        "Runtime claude_agent_sdk 0.3.319 cannot run this session's settings: it does not support mcp";
+      const { session } = await pausedSession("unsupported");
+      const resume = await accepted("resume", session);
+      const { worker } = await claimReserved(session);
+      await gateway.release(worker.principal, {
+        ...worker.scope,
+        reason: unsupported,
+      });
+      await confirmExecutionGone(db, worker.executionId);
+
+      expect((await sessionRow(session.sessionId)).admissionState).toBe(
+        "recovery_required",
+      );
+      const receipt = await receiptRow(resume.receipt_id);
+      expect(receipt.status).toBe("failed");
+      expect(receipt.error).toEqual({
+        code: "RECOVERY_REQUIRED",
+        message: unsupported,
+      });
+      expect((await turnRows(session.sessionId)).at(-1)?.status).toBe("queued");
+      expect(
+        (await scheduler().inspectDemand({ limit: 1_000 })).eligibleSessionIds,
+      ).not.toContain(session.sessionId);
+    });
+
     test("resume during the drain cancels the pause: same worker, same turn finished once, pause receipt PAUSE_CANCELLED", async () => {
       const session = await newSession("cancel");
       const worker = await claim(session);

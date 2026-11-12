@@ -1,5 +1,6 @@
 import type { SessionAttention } from "@werft-ai/contracts";
 import { launchRetryDelayMs } from "@werft-ai/platform";
+import { isUnsupportedFeaturesReason } from "@werft-ai/runtime-core";
 import { and, eq, isNull, lte, or } from "drizzle-orm";
 import { LAUNCHABLE_ADMISSION_STATES } from "./control-shared.ts";
 import { DB_NOW, fromDbNow } from "./db-clock.ts";
@@ -28,7 +29,11 @@ type SessionRow = typeof sessions.$inferSelect;
  */
 export const RESTORE_FAILURE_LIMIT = 3;
 
-/** A deterministic runtime mismatch cannot succeed on another launch. */
+/**
+ * A deterministic runtime mismatch cannot succeed on another launch; nor can
+ * an engine that lacks a feature the settings need
+ * (`isUnsupportedFeaturesReason`), which keeps the worker's reason.
+ */
 export const INCOMPATIBLE_CHECKPOINT_REASON = "incompatible_checkpoint";
 
 const INCOMPATIBLE_CHECKPOINT_PREFIX =
@@ -71,6 +76,25 @@ function startupFailure(
 }
 
 /**
+ * The attempt's release reason, bounded, when it is a refusal that every
+ * later launch would repeat: an engine without a feature the settings need.
+ */
+export async function unsupportedFeaturesEndReason(
+  tx: Database,
+  attemptId: string,
+): Promise<string | null> {
+  const [attempt] = await tx
+    .select({ endReason: attempts.endReason })
+    .from(attempts)
+    .where(eq(attempts.id, attemptId))
+    .limit(1);
+  const reason = attempt?.endReason ?? null;
+  return reason !== null && isUnsupportedFeaturesReason(reason)
+    ? boundedReason(reason)
+    : null;
+}
+
+/**
  * Counts the `attemptId` that ended before it was ready for input, in the
  * caller's gone transaction and after the session row there has cleared its
  * binding. Below the limit the session stays active and is signalled again
@@ -98,7 +122,10 @@ export async function recordStartupFailure(
     ? INCOMPATIBLE_CHECKPOINT_REASON
     : boundedReason(endReason);
   const failures = session.restoreFailureCount + 1;
-  const stopped = incompatible || failures >= RESTORE_FAILURE_LIMIT;
+  const stopped =
+    incompatible ||
+    isUnsupportedFeaturesReason(endReason) ||
+    failures >= RESTORE_FAILURE_LIMIT;
   const [updated] = await tx
     .update(sessions)
     .set({
