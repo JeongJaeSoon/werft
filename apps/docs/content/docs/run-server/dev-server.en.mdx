@@ -84,7 +84,7 @@ scripts/local.sh down
 
 To stop while preserving data and removing worker containers and networks, use `scripts/local.sh down --keep-volumes`. Start again with `scripts/local.sh up --fake-model`. PostgreSQL and S3 keep their data in named volumes. S3 objects and their encryption key live together in `local-s3-data`, so checkpoints survive Docker/OrbStack restarts.
 
-When migrating an older LocalStack installation, back up from the old checkout before pulling, then restore into a new, unused project after pulling. Missing checkpoint objects cannot be recovered without a backup; explicitly decide whether to give up their references. Follow the [migration and backup guide](https://github.com/JeongJaeSoon/werft/blob/main/docs/quickstart.md#재부팅이나-docker-재시작-뒤).
+When migrating an older LocalStack installation, back up from the old checkout before pulling, then restore into a new, unused project after pulling. Missing checkpoint objects cannot be recovered without a backup; explicitly decide whether to give up their references. Follow the [recovery guide](https://github.com/JeongJaeSoon/werft/blob/main/docs/quickstart.md#재부팅이나-docker-재시작-뒤).
 
 ## When you are stuck
 
@@ -93,7 +93,7 @@ When migrating an older LocalStack installation, back up from the old checkout b
 | `Docker Engine … is too old` | Upgrade Docker Engine to 28 or later |
 | `127.0.0.1 port(s) … already in use` | Use the `lsof` loop above to find the process using that port |
 | `up` prints `no ANTHROPIC_API_KEY … no model connection` and sessions are refused as no connection (`connection_missing`) | `up` without options uses the real Claude and starts without a key. Enter the key under **Settings > Agent connections > Model connections > Add connection**. To run without a model account, add `--fake-model` |
-| The API does not come up after restarting Docker | Check the S3 volume, encryption key, and logs. For lost objects from an older LocalStack installation, follow the migration and backup guide |
+| The API does not come up after restarting Docker | Check the S3 volume, encryption key, and logs. For lost objects from an older LocalStack installation, follow the recovery guide |
 | After a pull, `up` ends with `has neither an image nor a build context specified` or `port is already allocated` | The Git server's service is now named `fake-git`. Fix the key in your port override file, run `scripts/local.sh down --keep-volumes`, then `up` again. Older sessions stop with `CATALOG_MISMATCH`, so open a new session |
 
 ## Next steps

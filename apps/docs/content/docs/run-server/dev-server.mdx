@@ -84,7 +84,7 @@ scripts/local.sh down
 
 데이터를 보존하고 worker 컨테이너·네트워크도 정리하려면 `scripts/local.sh down --keep-volumes`를 쓴다. 다시 `scripts/local.sh up --fake-model`로 띄우면 PostgreSQL·S3 named volume의 데이터가 남는다. S3 객체와 암호화 키는 `local-s3-data`에 함께 저장되므로 Docker/OrbStack 재시작 뒤에도 checkpoint를 읽을 수 있다.
 
-이전 LocalStack 설치에서 전환할 때는 pull 전에 옛 checkout에서 백업하고, pull 뒤 사용한 적 없는 새 프로젝트에 복원한다. 이미 유실된 checkpoint는 복원할 수 없으므로 복구 가능한 백업을 찾거나 유실 참조를 명시적으로 해제해야 한다. [전환·백업 안내](https://github.com/JeongJaeSoon/werft/blob/main/docs/quickstart.md#재부팅이나-docker-재시작-뒤)를 따른다.
+이전 LocalStack 설치에서 전환할 때는 pull 전에 옛 checkout에서 백업하고, pull 뒤 사용한 적 없는 새 프로젝트에 복원한다. 이미 유실된 checkpoint는 복원할 수 없으므로 복구 가능한 백업을 찾거나 유실 참조를 명시적으로 해제해야 한다. [복구 안내](https://github.com/JeongJaeSoon/werft/blob/main/docs/quickstart.md#재부팅이나-docker-재시작-뒤)를 따른다.
 
 ## 막혔을 때
 
@@ -93,7 +93,7 @@ scripts/local.sh down
 | `Docker Engine … is too old` | Docker Engine을 28 이상으로 올린다 |
 | `127.0.0.1 port(s) … already in use` | 위 `lsof` 루프로 그 포트를 쓰는 프로세스를 찾는다 |
 | `up`이 `no ANTHROPIC_API_KEY … no model connection`을 출력하고 세션이 연결 없음(`connection_missing`)으로 거절된다 | 옵션 없는 `up`은 실제 Claude를 쓰고 key 없이도 뜬다. **설정 > 에이전트 연결 > 모델 연결 > 연결 추가**에서 key를 넣는다. 모델 계정 없이 하려면 `--fake-model`을 붙인다 |
-| Docker를 재시작한 뒤 API가 뜨지 않는다 | S3 volume과 암호화 키를 확인하고 로그를 읽는다. 이전 LocalStack의 객체 유실이면 전환·백업 안내의 복구 결정을 따른다 |
+| Docker를 재시작한 뒤 API가 뜨지 않는다 | S3 volume과 암호화 키를 확인하고 로그를 읽는다. 이전 LocalStack의 객체 유실이면 복구 안내의 복구 결정을 따른다 |
 | pull 뒤 `up`이 `has neither an image nor a build context specified`나 `port is already allocated`로 끝난다 | Git 서버의 서비스 이름이 `fake-git`으로 바뀌었다. 포트 override 파일의 키를 고치고 `scripts/local.sh down --keep-volumes` 뒤 다시 `up`한다. 옛 세션은 `CATALOG_MISMATCH`로 멈추므로 새 세션을 연다 |
 
 ## 다음 단계

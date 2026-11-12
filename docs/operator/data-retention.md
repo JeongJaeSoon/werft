@@ -16,7 +16,7 @@
   - 담는 것: 만든 사람 `created_by_user_id`와 만든 key `created_by_api_key_id`(`schema.ts`의 `createdByUserId`·`createdByApiKeyId`), 상태(`status`, `admission_state`), 실행 spec(연결·모델·런타임), 저장소, 추정 비용 `cost_usd`(`schema.ts`의 `costUsd`), 토큰 합 `provider_tokens`(`schema.ts`의 `providerTokens`), 작업 공간 회수 시각 `workspace_reclaimed_at`(`schema.ts`의 `workspaceReclaimedAt`).
   - 만드는 시점: `POST /v1/sessions`가 첫 입력을 받을 때(`packages/db/src/postgres-unit-of-work.ts`의 `acceptInputAtomic`).
   - 보존 기간: 무기한.
-  - 삭제 조건: 없음. close는 `admission_state`를 `closed`로 바꿀 뿐 행을 지우지 않는다(`packages/db/src/sessions/close-control.ts`의 `finishClose`).
+  - 삭제 조건: 없음. close는 `admission_state`를 `closed`로 바꿀 뿐 행을 지우지 않는다(`packages/db/src/sessions/close-control.ts`의 `closeAtomic`, worker가 drain을 마친 뒤에 닫히는 세션은 `packages/db/src/worker-unit-of-work.ts`의 `confirmExecutionGoneAtomic`).
   - 바꾸기: 없음. 이 절의 다른 표(turn, 이벤트, 도구 호출, 대기 요청, 실행 이력, checkpoint 행, receipt, GitHub 작업, Slack 입출력)도 같다. 보존 기간을 정하는 설정이 없다.
 - **turn과 입력 원문** — `turns` 표(`schema.ts`의 `turns`)
   - 담는 것: 사용자가 보낸 메시지 원문 `message`(`schema.ts`의 `message`), 보낸 사람 `actor_id`(`schema.ts`의 `actorId`), 끝난 turn의 결과·사용량 `result_json`(`schema.ts`의 `resultJson`, 쓰는 곳 `packages/db/src/worker-unit-of-work.ts`의 `finalizeAtomic`).
@@ -62,7 +62,7 @@
 - **checkpoint 행** — `checkpoints`(`schema.ts`의 `checkpoints`), `checkpoint_outputs`(`schema.ts`의 `checkpointOutputs`)
   - 담는 것: manifest의 object key와 version, 부모 revision, transcript 바이트 수, 성과물 파일의 key와 크기.
   - 만드는 시점: turn 끝에 checkpoint pointer를 올릴 때(`worker-unit-of-work.ts`의 `advanceCheckpointPointer`).
-  - 보존 기간: 무기한. GC가 object를 지우면 행에 `collected_at`(`schema.ts`의 `collectedAt`)과 `objects_purged_at`(`schema.ts`의 `objectsPurgedAt`)만 적고 행은 남긴다(`packages/db/src/checkpoints/checkpoint-store.ts`의 `markCollected`).
+  - 보존 기간: 무기한. GC가 object를 지우면 행에 `collected_at`(`schema.ts`의 `collectedAt`)과 `objects_purged_at`(`schema.ts`의 `objectsPurgedAt`)만 적고 행은 남긴다(`packages/db/src/checkpoints/checkpoint-store.ts`의 `markCollected`·`markPurged`).
   - 닫힌 지 하루가 지났고 열린 push 요청이 없는 세션은 GC pass가 정리를 마치면 `sessions.checkpoint_collection_settled_at`을 적고, 다음 pass부터 읽지 않는다. 하루는 worker 자격 증명의 12시간보다 길어서, 그 뒤에 object를 쓸 attempt가 없다.
   - 설치 사용량의 성과물 바이트는 trigger가 key마다 채우는 `checkpoint_output_objects`와 합계 `checkpoint_output_totals`에서 읽는다.
 - **receipt와 멱등 키** — `receipts`(`schema.ts`의 `receipts`), `idempotency_keys`(`schema.ts`의 `idempotencyKeys`)
