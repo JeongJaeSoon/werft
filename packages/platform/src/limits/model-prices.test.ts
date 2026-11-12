@@ -436,22 +436,59 @@ describe("priceProviderUsage for an OpenAI model", () => {
     expect(twelveHours.costUsd).toBeCloseTo(plain.costUsd * 2.5, 9);
   });
 
-  test("the fallback is never cheaper than a known model at the same speed, prompt length and cache lifetime", () => {
-    const parts = {
-      cacheCreationInputTokens: 200_000,
-      cacheCreation1hInputTokens: 100_000,
-      cacheReadInputTokens: 100_000,
-      outputTokens: 100_000,
-    };
+  test("an OpenAI model past its table's prompt length is charged the same multipliers", () => {
+    // gpt-5.4-mini has no long-context card, so 300K of input is the fallback's.
+    const call = { ...openAi, model: "gpt-5.4-mini", inputTokens: 300_000 };
+    const standard = priceProviderUsage(call);
+    expect(standard.pricedBy).toBe("fallback");
+    expect(priceProviderUsage({ ...call, speed: "fast" })).toEqual({
+      costUsd: standard.costUsd * 2,
+      pricedBy: "fallback",
+    });
+    const twelveHours = priceProviderUsage({
+      ...call,
+      inputTokens: 0,
+      cacheCreationInputTokens: 300_000,
+      cacheCreation1hInputTokens: 300_000,
+    });
+    expect(twelveHours.costUsd).toBeCloseTo(standard.costUsd * 2.5, 9);
+  });
+
+  test("the fallback is never cheaper than a known model, part by part, at the same speed, prompt length and geo", () => {
+    // One part at a time, so a low rate on one cannot hide behind another.
+    const partsOf = (size: number) => [
+      { inputTokens: size },
+      { cacheReadInputTokens: size },
+      { cacheCreationInputTokens: size },
+      { cacheCreationInputTokens: size, cacheCreation1hInputTokens: size },
+    ];
+    const usages = [
+      // Up to 272K of input is the short card, past it the long one.
+      ...partsOf(100_000),
+      ...partsOf(272_000),
+      ...partsOf(272_001),
+      { outputTokens: 100_000 },
+      { inputTokens: 272_001, outputTokens: 100_000 },
+    ];
     for (const model of ["gpt-6-astra", "gpt-6.1-sol", "gpt-5.6-sol"]) {
       for (const speed of ["standard", "fast", "ultrafast"]) {
-        for (const inputTokens of [1_000, 300_000]) {
-          const usage = { ...openAi, ...parts, speed, inputTokens };
-          const known = priceProviderUsage({ ...usage, model });
-          const unknown = priceProviderUsage({ ...usage, model: "gpt-9" });
-          expect(known.pricedBy).toBe("table");
-          expect(unknown.pricedBy).toBe("fallback");
-          expect(unknown.costUsd).toBeGreaterThanOrEqual(known.costUsd);
+        for (const inferenceGeo of ["unknown", "global"]) {
+          for (const part of usages) {
+            const usage = { ...nothing, ...part, speed, inferenceGeo };
+            const known = priceProviderUsage({ ...usage, model });
+            const unknown = priceProviderUsage({ ...usage, model: "gpt-9" });
+            expect(known.pricedBy).toBe("table");
+            expect(unknown.pricedBy).toBe("fallback");
+            expect([model, speed, inferenceGeo, part, unknown.costUsd]).toEqual(
+              [
+                model,
+                speed,
+                inferenceGeo,
+                part,
+                Math.max(unknown.costUsd, known.costUsd),
+              ],
+            );
+          }
         }
       }
     }

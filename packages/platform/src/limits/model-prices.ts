@@ -151,12 +151,14 @@ const FALLBACK_PRICE: ModelPrice = (() => {
 const FALLBACK_GEO_PERCENT = Math.max(...Object.values(GEO_PERCENT));
 
 /**
- * The fallback for a model neither table names, which may be an OpenAI one:
- * away from the standard speed its fast tier multiplies every rate, and its
- * cache writes cost what the dearer of the two providers charges. A model the
- * Claude table names stays on Claude's own highest rates above.
+ * The fallback for a model the Claude table does not name: one no table
+ * knows, or an OpenAI one whose table has no rates for the prompt's length.
+ * Either may be an OpenAI call, so away from the standard speed its fast tier
+ * multiplies every rate, and its cache writes cost what the dearer of the two
+ * providers charges. A model the Claude table names stays on Claude's own
+ * highest rates above.
  */
-const UNNAMED_FAST_FALLBACK_PRICE: ModelPrice = price(
+const NON_CLAUDE_FAST_FALLBACK_PRICE: ModelPrice = price(
   Math.max(
     FALLBACK_PRICE.inputUsdPerMtok,
     ...OPENAI_ALL_RATES.map(
@@ -176,8 +178,8 @@ const UNNAMED_FAST_FALLBACK_PRICE: ModelPrice = price(
     ),
   ),
 );
-const UNNAMED_SHORT_WRITE = Math.max(CACHE_WRITE_5M, OPENAI_CACHE_WRITE_30M);
-const UNNAMED_LONG_WRITE = Math.max(CACHE_WRITE_1H, OPENAI_CACHE_WRITE_12H);
+const NON_CLAUDE_SHORT_WRITE = Math.max(CACHE_WRITE_5M, OPENAI_CACHE_WRITE_30M);
+const NON_CLAUDE_LONG_WRITE = Math.max(CACHE_WRITE_1H, OPENAI_CACHE_WRITE_12H);
 
 export type ProviderUsage = {
   model: string;
@@ -266,12 +268,12 @@ export function priceProviderUsage(usage: ProviderUsage): {
         ? longPrompt.price
         : table[usage.model]
       : undefined;
-  const unnamed =
+  const nonClaude =
     known === undefined && !Object.hasOwn(MODEL_PRICES, usage.model);
   const rates =
     known ??
-    (unnamed && usage.speed !== "standard"
-      ? UNNAMED_FAST_FALLBACK_PRICE
+    (nonClaude && usage.speed !== "standard"
+      ? NON_CLAUDE_FAST_FALLBACK_PRICE
       : FALLBACK_PRICE);
   const oneHour = Math.min(
     usage.cacheCreation1hInputTokens,
@@ -281,10 +283,10 @@ export function priceProviderUsage(usage: ProviderUsage): {
     usage.inputTokens * rates.inputUsdPerMtok +
     (usage.cacheCreationInputTokens - oneHour) *
       rates.inputUsdPerMtok *
-      (unnamed ? UNNAMED_SHORT_WRITE : CACHE_WRITE_5M) +
+      (nonClaude ? NON_CLAUDE_SHORT_WRITE : CACHE_WRITE_5M) +
     oneHour *
       rates.inputUsdPerMtok *
-      (unnamed ? UNNAMED_LONG_WRITE : CACHE_WRITE_1H) +
+      (nonClaude ? NON_CLAUDE_LONG_WRITE : CACHE_WRITE_1H) +
     usage.cacheReadInputTokens * rates.cacheReadUsdPerMtok +
     usage.outputTokens * rates.outputUsdPerMtok;
   return {
