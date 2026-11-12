@@ -30,6 +30,12 @@ export type Baseline = {
    * "<test file> -> <specifier>" with the file written from the repository root.
    */
   testRelativeImports: readonly string[];
+  /**
+   * Imports of a package the importing workspace's package.json does not
+   * declare where the file needs it, as "<file> -> <specifier>" with the file
+   * written from the repository root.
+   */
+  undeclaredImports: readonly string[];
 };
 
 export const baseline: Baseline = {
@@ -100,6 +106,20 @@ export const baseline: Baseline = {
     "apps/worker/src/workspace-storage-declaration.integration.test.ts -> ../../../packages/adapters/execution/kubernetes/src/specs.ts",
     "apps/worker/src/workspace-storage-declaration.integration.test.ts -> ../../control-host/src/scheduler/config.ts",
     "packages/sdk/src/client.test.ts -> ../../../docs/openapi.json",
+  ],
+  undeclaredImports: [
+    // apps/worker/Dockerfile copies this file over src/index.ts together with
+    // variants/codex_app_server.package.json over package.json, and that
+    // manifest declares the engine. The checked-in manifest is the Claude
+    // image's and names one engine.
+    "packages/adapters/runtimes/registry/variants/codex_app_server.ts -> @werft-ai/runtime-codex",
+    // Migration tooling under src that only packages/db/scripts and tests
+    // load. drizzle-kit is a devDependency; as a dependency every image that
+    // installs db would carry it.
+    "packages/db/src/migration-folder.ts -> drizzle-kit/api",
+    "packages/db/src/schema-drift.ts -> drizzle-kit/api",
+    // The `bun test` preload, a test-only file whose path is fixed (below).
+    "packages/db/src/pglite-release.ts -> @electric-sql/pglite",
   ],
 };
 
