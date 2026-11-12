@@ -13,6 +13,7 @@ import { githubKo } from "./github.ts";
 import { githubUserLinkKo } from "./github-user-link.ts";
 import { homeKo } from "./home.ts";
 import { linkedKo } from "./linked.ts";
+import { loginProvidersKo } from "./login-providers.ts";
 import { membersKo } from "./members.ts";
 import { modelsKo } from "./models.ts";
 import { outputsKo } from "./outputs.ts";
@@ -236,6 +237,7 @@ export const ko = {
   ...sessionListKo,
   ...flowKo,
   ...linkedKo,
+  ...loginProvidersKo,
   ...outputsKo,
   ...apiKeysKo,
   ...workspaceKo,
