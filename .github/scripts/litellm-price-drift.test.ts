@@ -344,15 +344,18 @@ describe("litellm-price-drift for the Claude table", () => {
   test("fast and US-only multiples are compared, and one this check does not know is reported", () => {
     const data = claudeAgreeing();
     multiplesOf(data, "claude-opus-5-5").fast = 2.5;
-    // werft offers claude-opus-4-7 no fast rates.
+    // werft offers claude-opus-4-7 and -4-6 no fast multiple and charges
+    // their fast calls 6x: above LiteLLM's 2x, below its 8x.
     multiplesOf(data, "claude-opus-4-7").fast = 2;
+    multiplesOf(data, "claude-opus-4-6").fast = 8;
     delete multiplesOf(data, "claude-sonnet-5").us;
     // werft prices claude-sonnet-4-5, from before Claude 4.6, at global rates.
     multiplesOf(data, "claude-sonnet-4-5").us = 1.1;
     multiplesOf(data, "claude-haiku-5-5").eu = 1.2;
     expect(whereClaude(data)).toEqual([
       ["claude-opus-5-5", "fast", true],
-      ["claude-opus-4-7", "fast", true],
+      ["claude-opus-4-7", "fast", false],
+      ["claude-opus-4-6", "fast", true],
       ["claude-sonnet-5", "us", false],
       ["claude-sonnet-4-5", "us", true],
       ["claude-haiku-5-5", "eu", true],

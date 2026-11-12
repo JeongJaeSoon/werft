@@ -84,7 +84,7 @@ export const FAST_MODEL_PRICES: Readonly<Record<string, ModelPrice>> =
  * the highest multiple either table has, as the OpenAI table charges one: a
  * budget errs on counting too much, never too little.
  */
-const TOP_SPEED_MULTIPLIER = Math.max(
+export const CLAUDE_UNLISTED_SPEED_MULTIPLIER = Math.max(
   OPENAI_TOP_SPEED_MULTIPLIER,
   ...CARDS.flatMap(([, card]) => (card.fast === undefined ? [] : [card.fast])),
 );
@@ -93,7 +93,7 @@ function claudeSpeedMultiplier(card: ClaudeCard, speed: string): number {
   if (speed === "standard") return 1;
   return speed === "fast" && card.fast !== undefined
     ? card.fast
-    : TOP_SPEED_MULTIPLIER;
+    : CLAUDE_UNLISTED_SPEED_MULTIPLIER;
 }
 
 /**

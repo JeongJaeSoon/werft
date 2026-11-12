@@ -19,6 +19,7 @@
 import { writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { z } from "zod";
+import { CLAUDE_UNLISTED_SPEED_MULTIPLIER } from "../../packages/platform/src/limits/model-prices.ts";
 import {
   CLAUDE_CACHE_WRITE_1H,
   CLAUDE_CACHE_WRITE_5M,
@@ -432,10 +433,13 @@ export function compareClaude(litellm: Record<string, Entry>): Drift[] {
       } else if (theirs === undefined && ours !== undefined) {
         report(name, `LiteLLM gives no ${name} multiple`, false, false);
       } else if (theirs !== undefined && ours === undefined) {
+        // A model before Claude 4.6 pays the global rates; a speed its card
+        // does not list pays the highest multiple either table has.
+        const charged = name === "us" ? 1 : CLAUDE_UNLISTED_SPEED_MULTIPLIER;
         report(
           name,
-          `LiteLLM ${theirs}x; werft has no ${name} multiple for this model and charges ${name === "us" ? "the global rates" : "the highest multiple either table has"}`,
-          true,
+          `LiteLLM ${theirs}x; werft has no ${name} multiple for this model and charges ${charged}x`,
+          theirs > charged,
         );
       } else if (
         theirs !== undefined &&
