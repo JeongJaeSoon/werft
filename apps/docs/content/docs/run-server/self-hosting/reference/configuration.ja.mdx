@@ -86,7 +86,7 @@ scheduler は `WORKER_IMAGE`・`WORKER_IMAGE_RUNTIME` で現在のイメージ�
 
 worker は claim 時に、実際に自分のイメージに含む組み合わせを送ります。設定値と違えば API が claim を拒否し（`LAUNCH_FAILED`、`reason_code` は `worker_image_mismatch`）、その設定値に対してそのイメージを拒否したと記録します。以後、そのイメージで起動するセッションは launch されず待機し、scheduler pass は `images_refused` を error ログに残して exit 1 で終了します。イメージ設定を修正すると（値が変わると）、次の pass から launch を再開します。セッション自体は失敗に変わりません。
 
-デプロイ順序：新 worker は claim に `image_runtime` を含めます。このフィールドを知らない以前の API は拒否するため、API を先に更新し、その後 scheduler の `WORKER_IMAGE` を新イメージに変えます。
+デプロイ順序：新 worker は claim に `image_runtime` を含めます。このフィールドを知らない以前の API は拒否するため、API を先に更新し、その後 scheduler の `WORKER_IMAGE` を新イメージに変えます。プロファイル削除リリースへの更新は例外で、両方を一つの upgrade で一緒に変えます（[プロファイル削除リリースのアップグレード順序](/run-server/self-hosting/upgrade-compose#프로필-제거-릴리스의-업그레이드-순서)）。
 
 | 変数 | 既定値 | 意味 |
 |---|---|---|

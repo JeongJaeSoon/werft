@@ -82,7 +82,7 @@ checkpoint がないセッションも同じ規則です。worker が claim 後�
 - 原因を直し、`start_fresh` で再起動します。このセッションには破棄する checkpoint がないため損失はありません。終了するなら `close` を使います。
 - pause、terminate、close、実行権限の取り消しで終了した worker は数えません。
 - SIGTERM で drain された worker も数えません。worker は release に `stop_kind: "drain"` を含めます。フィールドを知らない以前の API は strict schema のため 400 `BAD_REQUEST` で拒否します。その場合、worker は `worker.release.stop_kind_refused` を記録し、フィールドなしで一度再 release します。セッションは lease 期限を待たずすぐ戻ります。ただし以前の API は以前の規則で終了を数えます。復元付き claim なら失敗 1 回です。
-- **デプロイ順序：** 制御ホストイメージ（`API_IMAGE`、api・scheduler 共用）を先に更新し、`WORKER_IMAGE` は後に変えます。worker protocol の要求 schema は strict なので、新 worker の新フィールドを以前の API が 400 で拒否します。代替経路があるのは release、pending-control の `reason`・`answer_result`、`platform_tool_trust` です（以前の API が拒否すると worker はフィールドを外して一度再送）。他の新フィールドにはありません。
+- **デプロイ順序：** 制御ホストイメージ（`API_IMAGE`、api・scheduler 共用）を先に更新し、`WORKER_IMAGE` は後に変えます。worker protocol の要求 schema は strict なので、新 worker の新フィールドを以前の API が 400 で拒否します。代替経路があるのは release、pending-control の `reason`・`answer_result`、`platform_tool_trust` です（以前の API が拒否すると worker はフィールドを外して一度再送）。他の新フィールドにはありません。プロファイル削除リリースへの更新は例外で、両方のイメージを一つの upgrade で一緒に変えます。以前の worker が新しい制御ホストの応答を読めないためです（[プロファイル削除リリースのアップグレード順序](/run-server/self-hosting/upgrade-compose#프로필-제거-릴리스의-업그레이드-순서)）。
 
 <a id="3-interrupt-뒤-결과-불명" />
 ### 3. interrupt 後の結果不明

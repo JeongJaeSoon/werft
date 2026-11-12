@@ -86,7 +86,7 @@ A worker image built before the profile removal cannot read the control-host ans
 
 Workers report actual image runtime at claim. Mismatch causes API LAUNCH_FAILED with reason_code worker_image_mismatch and records refusal for that image/configuration. Further launches for it wait; scheduler logs images_refused as error and exits 1. Correcting image configuration (changed values) restores launches next pass. Sessions themselves do not become failed.
 
-Deploy API first, then scheduler WORKER_IMAGE: new workers send claim image_runtime, rejected by old APIs.
+Deploy API first, then scheduler WORKER_IMAGE: new workers send claim image_runtime, rejected by old APIs. The upgrade to the profile removal release is an exception: change both together in one upgrade ([Upgrade order of the profile removal release](/run-server/self-hosting/upgrade-compose#프로필-제거-릴리스의-업그레이드-순서)).
 
 | Variable | Default | Meaning |
 |---|---|---|
