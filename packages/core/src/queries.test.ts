@@ -81,7 +81,7 @@ test("query options and the request each query makes", async () => {
     (entry): entry is [string, (client: ApiClient, id: string) => object] =>
       typeof entry[1] === "function" && entry[0].endsWith("Query"),
   );
-  expect(factories.length).toBe(35);
+  expect(factories.length).toBe(33);
   const out: Record<string, unknown> = {};
   for (const [name, factory] of factories.sort(([a], [b]) =>
     a.localeCompare(b),
@@ -109,51 +109,6 @@ test("the session list asks for the next page by the last page's cursor", async 
   ]);
   const page = { items: [], next_cursor: "cursor-3" };
   expect(getNextPageParam(page, [page], null, [null])).toBe("cursor-3");
-});
-
-test("the member list reads every page, 100 at a time, and hands back all of them", async () => {
-  const pages: Record<
-    string,
-    {
-      items: { user_id: string }[];
-      next_cursor: string | null;
-      assignable_roles: string[];
-    }
-  > = {
-    first: {
-      items: [{ user_id: "a" }, { user_id: "b" }],
-      next_cursor: "c2",
-      assignable_roles: ["owner", "admin", "member"],
-    },
-    c2: {
-      items: [{ user_id: "c" }],
-      next_cursor: "c3",
-      assignable_roles: ["owner", "admin", "member"],
-    },
-    // The role changed while the pages were read: the last word holds.
-    c3: { items: [], next_cursor: null, assignable_roles: ["admin", "member"] },
-  };
-  const calls: unknown[] = [];
-  const client = scoped({
-    GET: (_path: string, init: { params: { query: { cursor?: string } } }) => {
-      calls.push(init.params.query);
-      const data = pages[init.params.query.cursor ?? "first"];
-      return Promise.resolve({ data, response: new Response(null) });
-    },
-  });
-  const { queryFn } = queries.membersQuery(client);
-  expect(
-    (await queryFn({} as Parameters<typeof queryFn>[0])) as unknown,
-  ).toEqual({
-    items: [{ user_id: "a" }, { user_id: "b" }, { user_id: "c" }],
-    next_cursor: null,
-    assignable_roles: ["admin", "member"],
-  });
-  expect(calls).toEqual([
-    { limit: 100 },
-    { cursor: "c2", limit: 100 },
-    { cursor: "c3", limit: 100 },
-  ]);
 });
 
 test("a member page asks the server for one page, the search going with it", async () => {
@@ -250,7 +205,7 @@ test("an agent page asks for one page with summaries, the search going with it, 
   );
 });
 
-test("named agents past a page are read 100 at a time, and a connection's agents a page at a time", async () => {
+test("named agents past a page are read 100 at a time", async () => {
   const { client, calls } = recordingClient();
   const ids = Array.from(
     { length: 150 },
@@ -258,10 +213,6 @@ test("named agents past a page are read 100 at a time, and a connection's agents
   );
   const named = queries.agentSummariesQuery(client, ids);
   await named.queryFn({} as Parameters<typeof named.queryFn>[0]);
-  const onConnection = queries.agentsOnConnectionQuery(client, "coding");
-  await onConnection.queryFn({
-    pageParam: "cursor-2",
-  } as Parameters<typeof onConnection.queryFn>[0]);
   expect(
     calls.map(([, init]) => {
       const query = (init as { params: { query: Record<string, unknown> } })
@@ -270,15 +221,7 @@ test("named agents past a page are read 100 at a time, and a connection's agents
         ? query.ids.split(",").length
         : query;
     }),
-  ).toEqual([
-    100,
-    50,
-    { include: "summary", connection_id: "coding", cursor: "cursor-2" },
-  ]);
-  expect((onConnection.queryKey as readonly unknown[]).slice(0, 2)).toEqual([
-    SCOPE,
-    "agents",
-  ]);
+  ).toEqual([100, 50]);
 });
 
 test("named members are read 100 at a time and handed back as one list", async () => {

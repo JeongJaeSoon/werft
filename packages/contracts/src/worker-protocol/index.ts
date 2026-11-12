@@ -248,8 +248,7 @@ export const projectSettingsSchema = z
 // key does not ride here: the egress proxy injects it, and what the
 // worker holds is a token that is worthless off the worker network and dies
 // with the attempt. That token is still a secret for as long as it lives, so
-// nothing here may reach an event, a manifest or a log — see
-// `loggableBootstrapClaim`.
+// nothing here may reach an event, a manifest or a log.
 // The remote MCP server the session's agent release names. Like the
 // provider, `endpoint` is the upstream the proxy calls, named for the
 // checkpoint fingerprint, and `binding` is what the token was issued
@@ -717,35 +716,6 @@ export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   // worker drops it.
   repository_access: egressTokenAuthSchema.optional(),
 });
-
-// The claim as a log line may carry it: an allowlist of identifiers, never
-// the whole response minus the secrets. The session token, the egress tokens
-// and the repository URL (which may embed a credential) are what a leak would
-// consist of.
-export function loggableBootstrapClaim(response: BootstrapClaimResponse) {
-  return {
-    session_id: response.session_id,
-    attempt_id: response.attempt_id,
-    lease_epoch: response.lease_epoch,
-    execution_generation: response.execution_generation,
-    auth_revision: response.auth_revision,
-    lease_expires_at: response.lease_expires_at,
-    lease_remaining_ms: response.lease_remaining_ms,
-    runtime: response.runtime,
-    spec_digest: response.spec_digest,
-    model: response.runtime_config.model,
-    permission_mode: response.runtime_config.permission_mode,
-    provider_kind: response.runtime_config.provider.kind,
-    claude_md: response.runtime_config.project_settings?.claude_md === true,
-    repository_id: response.workspace.repository?.id ?? null,
-    branch: response.workspace.repository?.branch ?? null,
-    owner_scope: response.principal.owner_scope,
-    restore_revision: response.restore?.revision ?? null,
-    restore_models:
-      response.restore_runtime_configs?.map((config) => config.model) ?? [],
-    remaining_budget_usd: response.remaining_budget_usd,
-  };
-}
 
 export const nextInputRequestSchema = workerScopeSchema
   .extend({ wait_ms: z.number().int().nonnegative().optional() })

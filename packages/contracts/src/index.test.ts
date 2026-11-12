@@ -15,9 +15,7 @@ import {
   heartbeatRequestSchema,
   heartbeatResponseSchema,
   listSessionsQuerySchema,
-  loggableBootstrapClaim,
   nextInputRequestSchema,
-  OPT_IN_PERMISSION_MODES,
   opaqueCursorSchema,
   pendingControlRequestSchema,
   pendingControlResponseSchema,
@@ -37,7 +35,6 @@ import {
   sessionSummarySchema,
   sseEventSchema,
   TURN_STATUS_VALUES,
-  UNATTENDED_PERMISSION_MODES,
   unassignedSessionSignalSchema,
   workerScopeSchema,
 } from "./index.ts";
@@ -70,8 +67,6 @@ describe("session contracts", () => {
     expect(TURN_STATUS_VALUES).toContain("outcome_unknown");
     expect(TURN_STATUS_VALUES).not.toContain("done");
     expect(sessionStatusSchema.safeParse("complete").success).toBe(false);
-    expect(UNATTENDED_PERMISSION_MODES).toEqual(["bypassPermissions", "auto"]);
-    expect(OPT_IN_PERMISSION_MODES).toEqual(["bypassPermissions"]);
   });
 
   test("accepts the api.md create example and rejects the legacy shape", () => {
@@ -967,7 +962,6 @@ describe("worker protocol", () => {
       runtime_config: withoutProjectSettings,
     });
     expect(legacy.runtime_config.project_settings).toBeUndefined();
-    expect(loggableBootstrapClaim(legacy).claude_md).toBe(false);
     expect(
       bootstrapClaimResponseSchema.safeParse({
         ...claim,
@@ -985,14 +979,12 @@ describe("worker protocol", () => {
       }).success,
     ).toBe(true);
     // A session accepted without a repository names none at all.
-    const repositoryless = bootstrapClaimResponseSchema.parse({
-      ...claim,
-      workspace: { repository: null },
-    });
-    expect(loggableBootstrapClaim(repositoryless)).toMatchObject({
-      repository_id: null,
-      branch: null,
-    });
+    expect(
+      bootstrapClaimResponseSchema.safeParse({
+        ...claim,
+        workspace: { repository: null },
+      }).success,
+    ).toBe(true);
     expect(
       bootstrapClaimResponseSchema.safeParse({ ...claim, workspace: {} })
         .success,
@@ -1040,96 +1032,6 @@ describe("worker protocol", () => {
         },
       }).success,
     ).toBe(false);
-  });
-
-  test("the loggable claim is an allowlist: no session token, egress token or repository URL", () => {
-    const claim = bootstrapClaimResponseSchema.parse({
-      ...scope,
-      session_credential: "wsc_token",
-      lease_expires_at: AT,
-      lease_remaining_ms: 120_000,
-      runtime: {
-        kind: "claude_agent_sdk",
-        version: "0.3.270",
-        connection_id: "fake-messages",
-        permission_mode: "default",
-      },
-      spec_digest: `sha256:${"b".repeat(64)}`,
-      runtime_config: {
-        model: "claude-sonnet-5",
-        tools: ["Read"],
-        permission_mode: "acceptEdits",
-        provider: {
-          kind: "litellm",
-          endpoint: "https://litellm.invalid",
-          auth: { kind: "egress_token", token: "provider-token" },
-        },
-        project_settings: { claude_md: false },
-      },
-      workspace: {
-        repository: {
-          id: "sample-app",
-          url: "https://oauth2:repo-token@example.invalid/team/app.git",
-          branch: "main",
-          access: { kind: "egress_token", token: "repository-token" },
-        },
-      },
-      object_store: {
-        access: { kind: "egress_token", token: "object-store-token" },
-      },
-      principal: { owner_scope: "owner_1" },
-      restore: {
-        revision: 4,
-        manifest_ref: "m",
-        manifest_sha256: "a".repeat(64),
-      },
-      restore_runtime_configs: [
-        {
-          model: "claude-opus-5",
-          tools: ["Read"],
-          permission_mode: "default",
-          provider: {
-            kind: "anthropic",
-            endpoint: "https://api.anthropic.com",
-            auth: { kind: "egress_token", token: "restore-provider-token" },
-          },
-        },
-      ],
-      remaining_budget_usd: 12.5,
-    });
-    expect(loggableBootstrapClaim(claim)).toEqual({
-      session_id: scope.session_id,
-      attempt_id: scope.attempt_id,
-      lease_epoch: scope.lease_epoch,
-      execution_generation: scope.execution_generation,
-      auth_revision: scope.auth_revision,
-      lease_expires_at: AT,
-      lease_remaining_ms: 120_000,
-      runtime: claim.runtime,
-      spec_digest: `sha256:${"b".repeat(64)}`,
-      model: "claude-sonnet-5",
-      permission_mode: "acceptEdits",
-      provider_kind: "litellm",
-      claude_md: false,
-      repository_id: "sample-app",
-      branch: "main",
-      owner_scope: "owner_1",
-      restore_revision: 4,
-      restore_models: ["claude-opus-5"],
-      remaining_budget_usd: 12.5,
-    });
-    const line = JSON.stringify(loggableBootstrapClaim(claim));
-    for (const secret of [
-      "restore-provider-token",
-      "wsc_token",
-      "provider-token",
-      "repository-token",
-      "object-store-token",
-      "repo-token",
-      "example.invalid",
-    ]) {
-      expect(line).not.toContain(secret);
-    }
   });
 
   test("a checkpoint and a restore plan name object versions, never the replaceable null one", () => {

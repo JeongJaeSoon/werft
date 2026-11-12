@@ -525,37 +525,6 @@ exports[`query options and the request each query makes 1`] = `
       "retry": false,
     },
   },
-  "agentsOnConnectionQuery": {
-    "calls": [
-      [
-        "/v1/agents",
-        {
-          "params": {
-            "query": {
-              "connection_id": "id-1",
-              "include": "summary",
-            },
-          },
-        },
-      ],
-    ],
-    "options": {
-      "gcTime": 0,
-      "getNextPageParam": [Function],
-      "initialPageParam": null,
-      "queryKey": [
-        {
-          "actor": "user:u-1",
-          "workspace": "w-1",
-        },
-        "agents",
-        {
-          "connection": "id-1",
-        },
-      ],
-      "retry": false,
-    },
-  },
   "agentsQuery": {
     "calls": [
       [
@@ -771,30 +740,6 @@ exports[`query options and the request each query makes 1`] = `
             "i",
           ],
         },
-      ],
-      "retry": false,
-    },
-  },
-  "membersQuery": {
-    "calls": [
-      [
-        "/v1/members",
-        {
-          "params": {
-            "query": {
-              "limit": 100,
-            },
-          },
-        },
-      ],
-    ],
-    "options": {
-      "queryKey": [
-        {
-          "actor": "user:u-1",
-          "workspace": "w-1",
-        },
-        "members",
       ],
       "retry": false,
     },

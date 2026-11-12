@@ -28,12 +28,7 @@ import {
   pushRequestStateSchema,
   sourceRefSchema,
 } from "../api/push-request.ts";
-import {
-  type AgentGitHub,
-  MCP_TOOL_PREFIX,
-  type PushAttached,
-  pushDecisionOf,
-} from "../kollegium/agents.ts";
+import { type AgentGitHub, MCP_TOOL_PREFIX } from "../kollegium/agents.ts";
 import {
   ACTION_REFUSAL_CODES,
   type ActionRefusalCode,
@@ -283,33 +278,6 @@ export const PUSH_CLASS_VALUES = [
   "push.attached",
 ] as const;
 export type PushClass = (typeof PUSH_CLASS_VALUES)[number];
-
-export type ActionPolicy = {
-  push: PushAttached;
-  "pull_request.write": "allow";
-  "pull_request.merge": "workspace_ceiling";
-  review: "allow" | "deny";
-  workflow: "allow" | "deny";
-  "repository.read": "allow";
-};
-
-/**
- * The policy per class, computed from the effective settings; nothing is
- * stored per class. A push is `pushDecisionOf`.
- */
-export function actionPolicyOf(
-  github: AgentGitHub,
-  pushAttached: PushAttached,
-): ActionPolicy {
-  return {
-    push: pushDecisionOf({ settings: github, pushAttached }),
-    "pull_request.write": "allow",
-    "pull_request.merge": "workspace_ceiling",
-    review: github.features.review ? "allow" : "deny",
-    workflow: github.features.actions ? "allow" : "deny",
-    "repository.read": "allow",
-  };
-}
 
 /**
  * The tools a release exposes, by the release's features alone. The server's

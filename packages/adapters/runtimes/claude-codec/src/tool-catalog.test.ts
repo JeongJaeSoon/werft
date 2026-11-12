@@ -3,9 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   type BuiltinToolCatalog,
   CLAUDE_TOOL_CATALOGS,
-  canonicalToolName,
   equivalentToolCatalogVersions,
-  legacyToolNames,
   pinnedClaudeToolCatalog,
   toolCatalogFor,
 } from "./tool-catalog.ts";
@@ -151,32 +149,15 @@ describe("tool catalog lookup", () => {
     expect(toolCatalogFor([catalog], "other_runtime", "9.9.9")).toBeUndefined();
   });
 
-  test("an old name maps forward to the name the build uses now", () => {
-    expect(canonicalToolName(catalog, "Task")).toBe("Agent");
-    expect(canonicalToolName(catalog, "KillShell")).toBe("TaskStop");
-    expect(canonicalToolName(catalog, "Agent")).toBe("Agent");
-    expect(canonicalToolName(catalog, "Read")).toBe("Read");
-    expect(canonicalToolName(catalog, "constructor")).toBe("constructor");
-  });
-
-  test("a current name maps back to every old name of it", () => {
-    expect(legacyToolNames(catalog, "TaskStop")).toEqual([
-      "KillBash",
-      "KillShell",
-    ]);
-    expect(legacyToolNames(catalog, "Agent")).toEqual(["Task"]);
-    expect(legacyToolNames(catalog, "Read")).toEqual([]);
-    expect(legacyToolNames(catalog, "Task")).toEqual([]);
-  });
-
   test("the pinned build carries the renames its engine accepts", () => {
     const pinned = pinnedClaudeToolCatalog();
     if (pinned === undefined) throw new Error("no pinned catalog");
-    expect(canonicalToolName(pinned, "Task")).toBe("Agent");
-    expect(canonicalToolName(pinned, "BashOutput")).toBe("TaskOutput");
-    expect(legacyToolNames(pinned, "TaskStop")).toEqual([
-      "KillBash",
-      "KillShell",
-    ]);
+    expect(pinned.aliases.Task).toBe("Agent");
+    expect(pinned.aliases.BashOutput).toBe("TaskOutput");
+    expect(
+      Object.keys(pinned.aliases)
+        .filter((legacy) => pinned.aliases[legacy] === "TaskStop")
+        .sort(),
+    ).toEqual(["KillBash", "KillShell"]);
   });
 });
