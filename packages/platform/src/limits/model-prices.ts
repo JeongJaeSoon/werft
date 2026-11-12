@@ -17,8 +17,10 @@ import {
   OPENAI_ALL_RATES,
   OPENAI_CACHE_WRITE_12H,
   OPENAI_CACHE_WRITE_30M,
-  OPENAI_FAST_MULTIPLIER,
+  openAiFallbackFloor,
+  openAiFallbackSpeedMultiplier,
   openAiRatesFor,
+  openAiSpeedMultiplier,
 } from "./model-prices-openai.ts";
 
 type ModelPrice = {
@@ -153,31 +155,11 @@ const FALLBACK_GEO_PERCENT = Math.max(...Object.values(GEO_PERCENT));
 /**
  * The fallback for a model the Claude table does not name: one no table
  * knows, or an OpenAI one whose table has no rates for the prompt's length.
- * Either may be an OpenAI call, so away from the standard speed its fast tier
- * multiplies every rate, and its cache writes cost what the dearer of the two
- * providers charges. A model the Claude table names stays on Claude's own
- * highest rates above.
+ * Either may be an OpenAI call, so away from the standard speed every rate
+ * is multiplied by the dearest multiple the OpenAI table has for that tier,
+ * and its cache writes cost what the dearer of the two providers charges. A
+ * model the Claude table names stays on Claude's own highest rates above.
  */
-const NON_CLAUDE_FAST_FALLBACK_PRICE: ModelPrice = price(
-  Math.max(
-    FALLBACK_PRICE.inputUsdPerMtok,
-    ...OPENAI_ALL_RATES.map(
-      (known) => known.inputUsdPerMtok * OPENAI_FAST_MULTIPLIER,
-    ),
-  ),
-  Math.max(
-    FALLBACK_PRICE.outputUsdPerMtok,
-    ...OPENAI_ALL_RATES.map(
-      (known) => known.outputUsdPerMtok * OPENAI_FAST_MULTIPLIER,
-    ),
-  ),
-  Math.max(
-    FALLBACK_PRICE.cacheReadUsdPerMtok,
-    ...OPENAI_ALL_RATES.map(
-      (known) => known.cacheReadUsdPerMtok * OPENAI_FAST_MULTIPLIER,
-    ),
-  ),
-);
 const NON_CLAUDE_SHORT_WRITE = Math.max(CACHE_WRITE_5M, OPENAI_CACHE_WRITE_30M);
 const NON_CLAUDE_LONG_WRITE = Math.max(CACHE_WRITE_1H, OPENAI_CACHE_WRITE_12H);
 
@@ -234,9 +216,9 @@ export function priceProviderUsage(usage: ProviderUsage): {
       1_000_000;
     return {
       costUsd:
-        // As for Claude, a speed that is not `standard` (`fast`, a tier the
-        // table does not know, or none reported) is priced at the fast rate.
-        tokenCost * (usage.speed === "standard" ? 1 : OPENAI_FAST_MULTIPLIER) +
+        // A tier the model's card does not list, or none reported, is
+        // priced at the dearest multiple the table knows.
+        tokenCost * openAiSpeedMultiplier(usage.model, usage.speed) +
         (usage.webSearchRequests * WEB_SEARCH_MICRO_USD) / 1_000_000,
       pricedBy: "table",
     };
@@ -270,11 +252,22 @@ export function priceProviderUsage(usage: ProviderUsage): {
       : undefined;
   const nonClaude =
     known === undefined && !Object.hasOwn(MODEL_PRICES, usage.model);
+  const floor = nonClaude ? openAiFallbackFloor(usage.model) : undefined;
   const rates =
     known ??
-    (nonClaude && usage.speed !== "standard"
-      ? NON_CLAUDE_FAST_FALLBACK_PRICE
-      : FALLBACK_PRICE);
+    (floor === undefined
+      ? FALLBACK_PRICE
+      : price(
+          Math.max(FALLBACK_PRICE.inputUsdPerMtok, floor.inputUsdPerMtok),
+          Math.max(FALLBACK_PRICE.outputUsdPerMtok, floor.outputUsdPerMtok),
+          Math.max(
+            FALLBACK_PRICE.cacheReadUsdPerMtok,
+            floor.cacheReadUsdPerMtok,
+          ),
+        ));
+  const speedMultiplier = nonClaude
+    ? openAiFallbackSpeedMultiplier(usage.speed)
+    : 1;
   const oneHour = Math.min(
     usage.cacheCreation1hInputTokens,
     usage.cacheCreationInputTokens,
@@ -291,7 +284,7 @@ export function priceProviderUsage(usage: ProviderUsage): {
     usage.outputTokens * rates.outputUsdPerMtok;
   return {
     costUsd:
-      ((perMtok * (geo ?? FALLBACK_GEO_PERCENT)) / 100 +
+      ((perMtok * speedMultiplier * (geo ?? FALLBACK_GEO_PERCENT)) / 100 +
         usage.webSearchRequests * WEB_SEARCH_MICRO_USD) /
       1_000_000,
     pricedBy: known === undefined ? "fallback" : "table",
