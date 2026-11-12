@@ -168,11 +168,12 @@ export const disableLoginProviderResponseSchema = z
  * What would happen to the account that just signed in at the provider, by
  * the rules a real sign-in runs. `signs_in`: it is already connected.
  * `link_required`: its address has an account here that is not connected.
- * `joins`: a new member is made. `invite_only`: it comes in with an invite
- * alone. `domain_not_allowed`: outside the allowed domains. `refused`: the
- * user it is connected to, or the account its address has here, is turned
- * off or in no workspace; or its address has an account here and the
- * provider does not prove the address is this account's.
+ * `joins`: a new member is made. `invite_only`: it comes in only when its
+ * address has an invite. `domain_not_allowed`: outside the allowed domains.
+ * `refused`: the user it is connected to, or the account its address has
+ * here, is turned off or in no workspace; or it is not connected and the
+ * provider does not vouch for its address (`address_owned` false), which
+ * then names no account, finds no invite and joins nothing.
  */
 export const LOGIN_PROVIDER_TEST_ENTRY_VALUES = [
   "signs_in",

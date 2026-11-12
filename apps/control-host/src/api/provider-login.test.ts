@@ -856,11 +856,19 @@ describe("provider test sign-in", () => {
       },
       { known: "none", claims: alice, entry: "invite_only" },
       {
-        // Joining by itself takes an address the provider vouches for.
+        // An address the provider does not vouch for finds no invite and
+        // joins nothing: the sign-in is refused.
         provider: { requireVerifiedEmail: false, jitRole: "member" },
         known: "none",
         claims: silent,
-        entry: "invite_only",
+        entry: "refused",
+      },
+      {
+        // A connection is by (issuer, subject); the address is not asked.
+        provider: { requireVerifiedEmail: false },
+        known: "linked",
+        claims: silent,
+        entry: "signs_in",
       },
       {
         provider: { allowedDomains: ["elsewhere.example"], jitRole: "member" },

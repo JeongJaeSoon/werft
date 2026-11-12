@@ -65,15 +65,15 @@ export class ProviderLoginError extends Error {
 function entryOf(
   admission: Admission | null,
   known: LoginProviderEntryPreview,
-  email: string | null,
 ): LoginProviderTestEntry {
   if (admission === null) return "domain_not_allowed";
-  if (known === "refused") return "refused";
   if (known === "linked") return "signs_in";
-  if (known === "account_exists") {
-    return admission.ownsEmail ? "link_required" : "refused";
-  }
-  return email !== null && admission.jitRole !== null ? "joins" : "invite_only";
+  // Past a connection, only an address the provider vouches for decides
+  // anything: without one no account is named, no invite found, nobody
+  // joins.
+  if (known === "refused" || !admission.ownsEmail) return "refused";
+  if (known === "account_exists") return "link_required";
+  return admission.jitRole !== null ? "joins" : "invite_only";
 }
 
 export type ProviderLoginDeps = {
@@ -389,7 +389,7 @@ export function createProviderLogin(deps: ProviderLoginDeps) {
           email: identity.email,
           email_verified: identity.emailVerified,
           address_owned: ownsAddress(provider.issuer, identity),
-          entry: entryOf(admission, known, identity.email),
+          entry: entryOf(admission, known),
         },
       };
     },

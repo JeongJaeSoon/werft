@@ -16,6 +16,7 @@ import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import * as schema from "../schema.ts";
 import {
+  invites,
   loginMethods,
   loginProviders,
   memberships,
@@ -150,7 +151,8 @@ integration("login provider admin store", () => {
   const signIn = (
     target: Pick<LoginProviderRecord, "id" | "configRevision" | "issuer">,
     subject: string,
-    email = `${subject}@example.com`,
+    email: string | null = `${subject}@example.com`,
+    ownsEmail = true,
   ) =>
     signInWithExternalIdentity(db, {
       kind: "oidc",
@@ -159,8 +161,8 @@ integration("login provider admin store", () => {
       subject,
       email,
       displayName: subject,
-      jitRole: "member",
-      ownsEmail: true,
+      jitRole: ownsEmail ? "member" : null,
+      ownsEmail,
       newUserId: randomUUID(),
       newLoginMethodId: randomUUID(),
       receiptId: randomUUID(),
@@ -868,6 +870,15 @@ integration("login provider admin store", () => {
     await person("pv-left", { membership: "off", subject: "pv-left" });
     await person("pv-account", { membership: "live" });
     await person("pv-off-account", { off: true, membership: "live" });
+    await db.insert(invites).values({
+      id: randomUUID(),
+      workspaceId,
+      email: "pv-invited@example.com",
+      role: "member",
+      tokenHash: createHash("sha256").update(randomUUID()).digest(),
+      invitedBy: ownerId,
+      expiresAt: new Date(Date.now() + 3_600_000),
+    });
     const count = async () => ({
       users: (await db.select({ id: users.id }).from(users)).length,
       methods: (await db.select({ id: loginMethods.id }).from(loginMethods))
@@ -879,14 +890,29 @@ integration("login provider admin store", () => {
 
     const preview = (subject: string, email: string | null) =>
       admin.previewEntry({ issuer: provider.issuer, subject, email });
-    // Each with what the sign-in itself answers for the same account.
+    // Each with what the sign-in itself answers for the same account. The
+    // last column is whether the provider vouches for the address; where it
+    // does not, the caller of the preview says `refused` whatever the
+    // preview found (entryOf, provider-login.test.ts).
     const cases = [
-      ["pv-linked", "someone@example.com", "linked", "signed_in"],
-      ["pv-off", "pv-off@example.com", "refused", "rejected"],
-      ["pv-homeless", "pv-homeless@example.com", "refused", "rejected"],
-      ["pv-left", "pv-left@example.com", "refused", "rejected"],
-      ["pv-new", "pv-account@example.com", "account_exists", "link_required"],
-      ["pv-new", "pv-off-account@example.com", "refused", "rejected"],
+      ["pv-linked", "someone@example.com", "linked", "signed_in", true],
+      ["pv-linked", null, "linked", "signed_in", false],
+      ["pv-off", "pv-off@example.com", "refused", "rejected", true],
+      ["pv-homeless", "pv-homeless@example.com", "refused", "rejected", true],
+      ["pv-left", "pv-left@example.com", "refused", "rejected", true],
+      [
+        "pv-new",
+        "pv-account@example.com",
+        "account_exists",
+        "link_required",
+        true,
+      ],
+      ["pv-new", "pv-account@example.com", "account_exists", "rejected", false],
+      ["pv-new", "pv-off-account@example.com", "refused", "rejected", true],
+      // A live invite for the address is not found by an address the
+      // provider does not vouch for, and no address finds nothing.
+      ["pv-new", "pv-invited@example.com", "none", "rejected", false],
+      ["pv-new", null, "none", "rejected", false],
     ] as const;
     for (const [subject, email, expected] of cases) {
       expect(await preview(subject, email), `${subject} ${email}`).toBe(
@@ -902,14 +928,17 @@ integration("login provider admin store", () => {
       }),
     ).toBe("none");
     expect(await preview("pv-new", "pv-nobody@example.com")).toBe("none");
-    expect(await preview("pv-new", null)).toBe("none");
     expect(await count()).toEqual(before);
 
-    for (const [subject, email, , outcome] of cases) {
+    for (const [subject, email, , outcome, owned] of cases) {
       expect(
-        (await signIn(provider, subject, email)).outcome,
-        `${subject} ${email}`,
+        (await signIn(provider, subject, email, owned)).outcome,
+        `${subject} ${email} ${owned}`,
       ).toBe(outcome);
     }
+    // The invite was live all along: vouched for, the same address joins.
+    expect(
+      await signIn(provider, "pv-new", "pv-invited@example.com"),
+    ).toMatchObject({ outcome: "signed_in", via: "invite" });
   });
 });
