@@ -6,8 +6,9 @@
  *
  * Not priced: the Pro, cyber, Rosalind, Law and search models (a model
  * missing here falls to the fallback rate, which is the highest the platform
- * knows), the data-residency uplift (the connection's default endpoint is
- * not a regional one), and the fast tier. `gpt-5.6-sol` is listed at its
+ * knows) and the data-residency uplift (the connection's default endpoint is
+ * not a regional one). The fast tier has no card: it is the multiplier
+ * below, on the table's rates and on the fallback. `gpt-5.6-sol` is listed at its
  * promotional rate until 2026-11-30; the page does not say which of its
  * figures that is, so the table keeps what the page shows and the entry needs
  * a second look then.
