@@ -3022,6 +3022,7 @@ export class WorkerHost {
             scope,
             recheck: () => run.prepareCheckpoint("approval_wait"),
             workerState: { pendingApprovals: waiting },
+            point: "approval_wait",
           }),
           late,
         ]);
