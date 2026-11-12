@@ -109,20 +109,21 @@ describe("structured logging", () => {
     });
   });
 
-  test("masks a multi-line value line by line and keeps the other lines", () => {
+  test("keeps a crash's lines up to the first named value and its stack frames", () => {
     const sink = new MemoryLogSink();
     const logger = createLogger({ sinks: [sink] });
-    const canary = "sk-canary-1552";
+    const canary = "canary-continued-1552";
 
     logger.warn("Execution resource failed; log tail kept", {
       log_tail: [
-        "booting",
-        "ZodError: [",
+        '{"level":"info","event":"worker.claimed"}',
+        "WorkerGatewayRequestError: POST /bootstrap-claim answered a body this worker cannot read: [",
+        '    "path": ["runtime", "profile_id"],',
         '    "message": "Invalid input: expected string, received undefined"',
-        `  GIT_TOKEN=${canary}`,
-        `\tAuthorization: Bearer ${canary}\r`,
-        "prompt: summarize the repository",
-        "    at parse (/app/worker.js:10:5)",
+        `    ${canary}`,
+        "      at post (/app/apps/worker/src/gateway-client.ts:269:13)",
+        `  ${canary}`,
+        "      at processTicksAndRejections (native:7:39)",
         "",
       ].join("\n"),
       single: "Invalid input: expected string",
@@ -130,16 +131,58 @@ describe("structured logging", () => {
 
     expect(sink.records[0]?.fields).toEqual({
       log_tail: [
-        "booting",
-        "ZodError: [",
+        '{"level":"info","event":"worker.claimed"}',
+        "WorkerGatewayRequestError: POST /bootstrap-claim answered a body this worker cannot read: [",
+        '    "path": ["runtime", "profile_id"],',
         "[REDACTED]",
+        "      at post (/app/apps/worker/src/gateway-client.ts:269:13)",
         "[REDACTED]",
-        "[REDACTED]\r",
-        "[REDACTED]",
-        "    at parse (/app/worker.js:10:5)",
+        "      at processTicksAndRejections (native:7:39)",
         "",
       ].join("\n"),
       single: "[REDACTED]",
+    });
+    expect(JSON.stringify(sink.records).includes(canary)).toBe(false);
+  });
+
+  test("hides a named value that runs on into the next lines", () => {
+    const sink = new MemoryLogSink();
+    const logger = createLogger({ sinks: [sink] });
+    const canary = "canary-named-1552";
+
+    logger.warn("cases", {
+      yaml: `config\npassword:\n  ${canary}\nafter`,
+      continued: `start\nprompt: first line\n${canary}`,
+      split: `start\npassword\n=${canary}`,
+      cr: `start\rtoken=${canary}\rafter`,
+      frame: `input: x\n    at f (/srv/ghp_${canary}:1:2)`,
+    });
+
+    expect(sink.records[0]?.fields).toEqual({
+      yaml: "config\n[REDACTED]",
+      continued: "start\n[REDACTED]",
+      split: "start\n[REDACTED]",
+      cr: "start\r[REDACTED]",
+      frame: "[REDACTED]",
+    });
+    expect(JSON.stringify(sink.records).includes(canary)).toBe(false);
+  });
+
+  test("hides only the lines a secret-shaped value spans", () => {
+    const sink = new MemoryLogSink();
+    const logger = createLogger({ sinks: [sink] });
+    const canary = "canary1552shaped";
+
+    logger.warn("cases", {
+      one: `start\nkey sk-${canary}\nend`,
+      across: `start\nBearer\n${canary}\nend`,
+      url: "clone https://agent:pw@host.test/r.git\nnext",
+    });
+
+    expect(sink.records[0]?.fields).toEqual({
+      one: "start\n[REDACTED]\nend",
+      across: "start\n[REDACTED]\nend",
+      url: "clone https://[REDACTED]@host.test/r.git\nnext",
     });
     expect(JSON.stringify(sink.records).includes(canary)).toBe(false);
   });

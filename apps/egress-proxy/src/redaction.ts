@@ -30,11 +30,64 @@ export function sanitizeText(value: string): string {
   return secretValue.test(text) || sensitiveText.test(text) ? REDACTED : text;
 }
 
+const secretValues = new RegExp(secretValue.source, "gi");
+const lineBreak = /(\r\n|\r|\n)/;
+// Nothing but a function name and a source position: no room for a value.
+const stackFrame =
+  /^[ \t]+at (?:(?:async |new )?[\w$.<>]+ \()?(?:\/|file:\/\/|node:|bun:|native)[^\s()]*:\d+:\d+\)?$/;
+
+/**
+ * A multi-line value (a stack, a failed worker's log tail) loses only what
+ * the rules point at, so the lines that say why a process failed survive.
+ * A secret-shaped value has an end: the lines it spans go. A key such as
+ * `password:` or `input:` does not say where its value ends, so every line
+ * from it on goes except bare stack frames.
+ */
+function sanitizeLines(value: string): string {
+  const text = value.replace(urlLogin, `$1${REDACTED}@`);
+  const named = sensitiveText.exec(text);
+  if (named === null && !secretValue.test(text)) return text;
+  const parts = text.split(lineBreak);
+  if (parts.length === 1) return REDACTED;
+
+  // parts alternates line, break, line, …; starts[n] is where line n begins.
+  const starts = [0];
+  for (let i = 1; i < parts.length; i += 2) {
+    const end = (starts.at(-1) ?? 0) + (parts[i - 1]?.length ?? 0);
+    starts.push(end + (parts[i]?.length ?? 0));
+  }
+  const lineOf = (index: number) => {
+    let line = 0;
+    while ((starts[line + 1] ?? Number.POSITIVE_INFINITY) <= index) line++;
+    return line;
+  };
+  const hidden = new Set<number>();
+  for (const match of text.matchAll(secretValues)) {
+    const last = lineOf(match.index + match[0].length - 1);
+    for (let line = lineOf(match.index); line <= last; line++) {
+      hidden.add(line);
+    }
+  }
+  const from = named === null ? starts.length : lineOf(named.index);
+
+  let out = "";
+  let hiding = false;
+  for (let i = 0; i < parts.length; i += 2) {
+    const line = parts[i] ?? "";
+    const hide =
+      hidden.has(i / 2) ||
+      (i / 2 >= from && /\S/.test(line) && !stackFrame.test(line));
+    if (!(hide && hiding)) {
+      out += (i === 0 ? "" : parts[i - 1]) + (hide ? REDACTED : line);
+    }
+    hiding = hide;
+  }
+  return out;
+}
+
 function sanitizeValue(value: unknown, includeMessageBodies: boolean): unknown {
   if (typeof value === "string") {
-    // Line by line, so one matching line of a stack or a log tail does not
-    // hide the lines that say why the process failed.
-    return value.replace(/[^\r\n]+/g, (line) => sanitizeText(line));
+    return sanitizeLines(value);
   }
 
   if (Array.isArray(value)) {

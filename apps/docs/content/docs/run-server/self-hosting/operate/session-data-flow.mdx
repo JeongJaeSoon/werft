@@ -58,7 +58,7 @@ worker의 이벤트 전송 단계가 이벤트에 attempt 단위 `source_sequenc
 2. **claim이 준 비밀값.** worker의 비밀값 가리기 단계가 이 attempt에 받은 비밀값 자체를 찾아 `<redacted>`로 바꾼다. 이 처리는 이벤트 전송과 대기 요청 등록에 걸린다. 엔진이 base64처럼 다시 인코딩한 값은 잡지 못한다.
 3. **프로세스 로그.** 로그 가리기 규칙이 API·worker의 stdout 로그를 가린다. egress proxy는 같은 규칙의 사본을 쓴다. 규칙 목록은 [API 서버](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)의 'provider 키와 저장소 자격 증명은 worker에 가지 않는다' 절에 있다. 이 규칙은 로그용이고 이벤트에는 걸리지 않는다.
 
-1과 3의 패턴 규칙은 가리는 범위가 다르다. 로그 규칙 `sanitizeText`는 비밀 모양이나 `token=` 같은 조각을 하나라도 보면 문자열 전체를 `[REDACTED]`로 바꾼다. 로그 필드의 값이 여러 줄이면 이 규칙을 줄마다 적용해, 걸린 줄만 `[REDACTED]`가 된다. mapper는 대부분 일치한 구간만 바꾸고, `name=value` 꼴에서 값의 끝이 분명하면 값만 가린다. 그러나 mapper의 `hideNamedValues`도 `password: …`처럼 콜론으로 이어지는 값이나 끝을 가를 수 없는 값을 보면 텍스트 전체를 가린다. 그래서 `password:`가 든 YAML 파일을 Read한 도구 결과는 이벤트에서 통째로 사라진다. 두 파일의 패턴 목록도 서로 다르다.
+1과 3의 패턴 규칙은 가리는 범위가 다르다. 로그 규칙 `sanitizeText`는 비밀 모양이나 `token=` 같은 조각을 하나라도 보면 문자열 전체를 `[REDACTED]`로 바꾼다. 로그 필드의 값이 여러 줄이면 줄 단위로 가린다. 비밀 모양의 값은 그 줄만, `token=` 같은 조각은 그 줄부터 끝까지(stack frame 줄은 빼고) 가린다. mapper는 대부분 일치한 구간만 바꾸고, `name=value` 꼴에서 값의 끝이 분명하면 값만 가린다. 그러나 mapper의 `hideNamedValues`도 `password: …`처럼 콜론으로 이어지는 값이나 끝을 가를 수 없는 값을 보면 텍스트 전체를 가린다. 그래서 `password:`가 든 YAML 파일을 Read한 도구 결과는 이벤트에서 통째로 사라진다. 두 파일의 패턴 목록도 서로 다르다.
 
 ## 누가 내용을 보나
 
