@@ -5,6 +5,7 @@ import {
   priceJudgmentUsage,
   priceProviderUsage,
 } from "./model-prices.ts";
+import { CLAUDE_CARDS, claudeCardsSchema } from "./model-prices-claude.ts";
 import { OPENAI_CARDS, openAiCardsSchema } from "./model-prices-openai.ts";
 
 const nothing = {
@@ -536,6 +537,62 @@ describe("priceProviderUsage for an OpenAI model", () => {
       { ...good, short: { ...rates, cacheWriteUsdPerMtok: 1 } },
     ]) {
       expect([bad, openAiCardsSchema.safeParse({ m: bad }).success]).toEqual([
+        bad,
+        false,
+      ]);
+    }
+  });
+
+  test("every Claude card names its source page and the day it was checked", () => {
+    for (const [model, entry] of Object.entries(CLAUDE_CARDS)) {
+      expect([model, entry.source, entry.checked]).toEqual([
+        model,
+        "https://platform.claude.com/docs/en/about-claude/pricing",
+        expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+      ]);
+    }
+  });
+
+  test("the Claude card schema refuses a card that would undercharge or lose its source", () => {
+    const rates = {
+      inputUsdPerMtok: 2,
+      outputUsdPerMtok: 10,
+      cacheReadUsdPerMtok: 0.2,
+    };
+    const good = {
+      source: "https://platform.claude.com/docs/en/about-claude/pricing",
+      checked: "2026-11-13",
+      standard: rates,
+      fast: 2,
+      geo: true,
+    };
+    const long = {
+      aboveTokens: 100_000,
+      rates: { ...rates, outputUsdPerMtok: 20 },
+    };
+    const { fast: _, ...slow } = good;
+    expect(claudeCardsSchema.safeParse({ m: good }).success).toBe(true);
+    expect(claudeCardsSchema.safeParse({ m: { ...slow, long } }).success).toBe(
+      true,
+    );
+    for (const bad of [
+      { ...good, standard: { ...rates, inputUsdPerMtok: -1 } },
+      { ...good, standard: { ...rates, outputUsdPerMtok: Number.NaN } },
+      { ...slow, long: { ...long, rates: { ...rates, outputUsdPerMtok: 9 } } },
+      { ...slow, long: { ...long, aboveTokens: 0 } },
+      // A fast call would be charged its standard-length rates past the threshold.
+      { ...good, long },
+      { ...good, fast: 0.5 },
+      { ...good, geo: undefined },
+      { ...good, checked: "2026-13-01" },
+      { ...good, checked: undefined },
+      {
+        ...good,
+        source: "http://platform.claude.com/docs/en/about-claude/pricing",
+      },
+      { ...good, standard: { ...rates, cacheWriteUsdPerMtok: 1 } },
+    ]) {
+      expect([bad, claudeCardsSchema.safeParse({ m: bad }).success]).toEqual([
         bad,
         false,
       ]);

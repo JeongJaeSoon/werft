@@ -1,18 +1,25 @@
 /**
  * What the platform charges a session for one Messages call: the
  * provider's list price per million tokens, by the model the answer names.
- * The platform owns this table and updates it with its releases, when a
- * model is added or a price changes; checked against Anthropic's pricing
- * on 2026-11-02.
+ * The platform owns the tables and updates them with its releases, when a
+ * model is added or a price changes.
  *
- * Fast mode has its own rates, and each web search adds its
- * per-search fee. US-only inference costs 1.1x on every token rate.
- * An estimate, not a bill: code execution container time is not priced.
+ * A Claude model is priced from `model-prices-claude.ts`: fast mode has its
+ * own rates, and each web search adds its per-search fee. US-only inference
+ * costs 1.1x on every token rate. An estimate, not a bill: code execution
+ * container time is not priced.
  *
  * An OpenAI model, which an `openai_responses` session calls, is priced from
  * `model-prices-openai.ts`.
  */
 
+import {
+  CLAUDE_CACHE_WRITE_1H as CACHE_WRITE_1H,
+  CLAUDE_CACHE_WRITE_5M as CACHE_WRITE_5M,
+  CLAUDE_CARDS,
+  CLAUDE_GEO_PERCENT as GEO_PERCENT,
+  WEB_SEARCH_MICRO_USD,
+} from "./model-prices-claude.ts";
 import {
   OPENAI_ALL_RATES,
   OPENAI_CACHE_WRITE_12H,
@@ -29,11 +36,6 @@ type ModelPrice = {
   cacheReadUsdPerMtok: number;
 };
 
-// Cache writes cost a multiple of the input rate: 1.25x held five minutes,
-// 2x held an hour.
-const CACHE_WRITE_5M = 1.25;
-const CACHE_WRITE_1H = 2;
-
 function price(input: number, output: number, cacheRead: number): ModelPrice {
   return {
     inputUsdPerMtok: input,
@@ -42,42 +44,11 @@ function price(input: number, output: number, cacheRead: number): ModelPrice {
   };
 }
 
-const FABLE_5_1 = price(10, 50, 0.25);
-const FABLE_5 = price(10, 50, 1);
-const OPUS_5_5 = price(4, 20, 0.2);
-const OPUS_5 = price(5, 25, 0.5);
-const OPUS_4 = price(15, 75, 1.5);
-const SONNET_5 = price(2, 10, 0.2);
-const SONNET_4 = price(3, 15, 0.3);
-const HAIKU_4_5 = price(1, 5, 0.1);
-const HAIKU_5_5 = price(0.1, 0.5, 0.01);
+const CARDS = Object.entries(CLAUDE_CARDS);
 
 /** Exact model ids as an answer names them, aliases and dated ids both. */
-export const MODEL_PRICES: Readonly<Record<string, ModelPrice>> = {
-  "claude-fable-5-1": FABLE_5_1,
-  "claude-mythos-5-1": FABLE_5_1,
-  "claude-fable-5": FABLE_5,
-  "claude-mythos-5": FABLE_5,
-  "claude-opus-5-5": OPUS_5_5,
-  "claude-opus-5": OPUS_5,
-  "claude-opus-4-8": OPUS_5,
-  "claude-opus-4-7": OPUS_5,
-  "claude-opus-4-6": OPUS_5,
-  "claude-opus-4-5": OPUS_5,
-  "claude-opus-4-5-20251101": OPUS_5,
-  "claude-opus-4-0": OPUS_4,
-  "claude-opus-4-20250514": OPUS_4,
-  "claude-sonnet-5-5": SONNET_5,
-  "claude-sonnet-5": SONNET_5,
-  "claude-sonnet-4-6": SONNET_4,
-  "claude-sonnet-4-5": SONNET_4,
-  "claude-sonnet-4-5-20250929": SONNET_4,
-  "claude-sonnet-4-0": SONNET_4,
-  "claude-sonnet-4-20250514": SONNET_4,
-  "claude-haiku-5-5": HAIKU_5_5,
-  "claude-haiku-4-5": HAIKU_4_5,
-  "claude-haiku-4-5-20251001": HAIKU_4_5,
-};
+export const MODEL_PRICES: Readonly<Record<string, ModelPrice>> =
+  Object.fromEntries(CARDS.map(([model, card]) => [model, card.standard]));
 
 /**
  * Models with a second rate card for a long prompt: past `aboveTokens` of
@@ -85,9 +56,18 @@ export const MODEL_PRICES: Readonly<Record<string, ModelPrice>> = {
  */
 const LONG_PROMPT_PRICES: Readonly<
   Record<string, { aboveTokens: number; price: ModelPrice }>
-> = {
-  "claude-haiku-5-5": { aboveTokens: 100_000, price: price(0.5, 2.5, 0.05) },
-};
+> = Object.fromEntries(
+  CARDS.flatMap(([model, card]) =>
+    card.long === undefined
+      ? []
+      : [
+          [
+            model,
+            { aboveTokens: card.long.aboveTokens, price: card.long.rates },
+          ],
+        ],
+  ),
+);
 
 /**
  * Models from before Claude 4.6. They cannot run with `inference_geo` and
@@ -95,42 +75,29 @@ const LONG_PROMPT_PRICES: Readonly<
  * rates stop there: an answer that used more came from a provider charging
  * a long-context rate the table does not know.
  */
-const BEFORE_4_6: ReadonlySet<string> = new Set([
-  "claude-opus-4-5",
-  "claude-opus-4-5-20251101",
-  "claude-opus-4-0",
-  "claude-opus-4-20250514",
-  "claude-sonnet-4-5",
-  "claude-sonnet-4-5-20250929",
-  "claude-sonnet-4-0",
-  "claude-sonnet-4-20250514",
-  "claude-haiku-4-5",
-  "claude-haiku-4-5-20251001",
-]);
+const BEFORE_4_6: ReadonlySet<string> = new Set(
+  CARDS.filter(([, card]) => !card.geo).map(([model]) => model),
+);
 const BEFORE_4_6_CONTEXT_TOKENS = 200_000;
 
-/**
- * What `inference_geo` multiplies every token rate by, cache ones included,
- * in percent: a whole micro-dollar figure stays whole, where times 1.1 it
- * would pick up float noise that the ledger's ceil turns into a micro-dollar.
- */
-const GEO_PERCENT: Readonly<Record<string, number>> = {
-  global: 100,
-  us: 110,
-};
-
-/** `speed: "fast"` rates, twice the standard ones for the models offering it. */
-export const FAST_MODEL_PRICES: Readonly<Record<string, ModelPrice>> = {
-  "claude-opus-5-5": price(8, 40, 0.4),
-  "claude-opus-5": price(10, 50, 1),
-  "claude-opus-4-8": price(10, 50, 1),
-};
-
-/**
- * $10 per 1,000 searches, in millionths of a dollar like a token count
- * times its per-million rate. Web fetch has no fee beyond its tokens.
- */
-const WEB_SEARCH_MICRO_USD = 10_000;
+/** `speed: "fast"` rates, a multiple of the standard ones for the models offering it. */
+export const FAST_MODEL_PRICES: Readonly<Record<string, ModelPrice>> =
+  Object.fromEntries(
+    CARDS.flatMap(([model, { standard, fast }]) =>
+      fast === undefined
+        ? []
+        : [
+            [
+              model,
+              price(
+                standard.inputUsdPerMtok * fast,
+                standard.outputUsdPerMtok * fast,
+                standard.cacheReadUsdPerMtok * fast,
+              ),
+            ],
+          ],
+    ),
+  );
 
 /**
  * A model the table does not know, at a speed or in a geo it does not know,
