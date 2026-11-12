@@ -1225,7 +1225,11 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       // that did not run, and always() would pass a failed one.
       expect(jobs.sources?.needs).toBe("publish");
       expect(jobs.index?.needs).toBe("sources");
-      expect(jobs.promote?.needs).toBe("index");
+      // A release also waits for the worker compatibility gate, which runs
+      // on the same path after index (worker-compat.yml).
+      expect(jobs["worker-compat"]?.needs).toBe("index");
+      expect(jobs["worker-compat"]?.if).toBe(jobs.index?.if);
+      expect(jobs.promote?.needs).toEqual(["index", "worker-compat"]);
       expect(jobs["sources-main"]?.needs).toBe("publish-main");
       expect(jobs["index-main"]?.needs).toBe("sources-main");
       expect(jobs["promote-main"]?.needs).toBe("index-main");

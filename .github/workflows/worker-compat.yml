@@ -1,0 +1,182 @@
+# A new control-host against the workers of the releases in the support window
+# (docs/contributing/decisions/worker-compat.md § 4): the old release comes up
+# from its own checkout and images, this checkout's migrate runs under it, and
+# then this checkout's control-host replaces every control-host role while the
+# old worker and proxy stay. Completed turns and a resumed checkpoint are the
+# pass (tests/compat/run.sh).
+#
+#   plan    the old image sets (.github/scripts/worker-compat-plan.sh), and
+#           for a release, the protocol baseline against the newest of them
+#   compat  each set × engine, through tests/compat/run.sh
+#
+# images.yml calls it before either release path promotes an image, with the
+# control-host digest it is about to promote; a failure stops the release.
+# Pull requests (paths below), the schedule and a dispatch build the
+# control-host from the checkout. A dispatch may name the old set itself: a
+# release tag, or main-<12 hex> for main's images of that commit.
+#
+# With no release in the window the run passes and says why in its summary.
+# Not a required check.
+name: Worker compatibility
+
+on:
+  workflow_call:
+    inputs:
+      release_tag:
+        description: The release being made; the window is the releases before it
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      old:
+        description: 'Old image set: vX.Y.Z or main-<12 hex> (empty: the support window)'
+        type: string
+        required: false
+        default: ''
+  pull_request:
+    paths:
+      - .github/workflows/worker-compat.yml
+      - .github/scripts/worker-compat-plan.sh
+      - tests/compat/**
+      - packages/contracts/src/worker-protocol/**
+      - apps/worker/**
+      - apps/control-host/src/api/routes/workers/**
+      - packages/platform/src/workers/**
+      - packages/db/migrations/**
+  schedule:
+    - cron: '41 4 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: worker-compat-${{ github.event.pull_request.number || inputs.release_tag || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # The support window: the current release and this many before it. The
+  # decision record, the plan and tests/compat/run.sh are written for 1.
+  SUPPORT_WINDOW: '1'
+  # The oldest commit the window serves: the profile removal. Releases built
+  # before it are outside the window.
+  FLOOR_COMMIT: ef3627954f2a7b031f4c9ac1fa774ea52d9b24d5
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      olds: ${{ steps.plan.outputs.olds }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: plan
+        env:
+          OLD: ${{ inputs.old }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/worker-compat-plan.sh
+      # A release's baseline must be the protocol of the release before it
+      # (decision § 3.5); a maintainer refreshes it in a pull request after
+      # each tag. Elsewhere a stale baseline is only a warning.
+      - if: steps.plan.outputs.baseline_ref != ''
+        uses: ./.github/actions/bun-setup
+      - if: steps.plan.outputs.baseline_ref != ''
+        run: bun install --frozen-lockfile
+      - if: steps.plan.outputs.baseline_ref != ''
+        name: The protocol baseline is the newest release's
+        env:
+          REF: ${{ steps.plan.outputs.baseline_ref }}
+          GATE: ${{ inputs.release_tag != '' }}
+        run: |
+          if bun scripts/worker-protocol-baseline.ts --ref "$REF" --check; then
+            exit 0
+          fi
+          [ "$GATE" = true ] && exit 1
+          echo "::warning::the protocol baseline is not ${REF}'s yet; a release would stop here"
+
+  compat:
+    needs: plan
+    if: needs.plan.outputs.olds != '[]'
+    name: compat (${{ matrix.old.name }}, ${{ matrix.engine }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        old: ${{ fromJSON(needs.plan.outputs.olds) }}
+        engine: [claude_agent_sdk, codex_app_server]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ matrix.old.commit }}
+          path: old-release
+          persist-credentials: false
+      - uses: ./.github/actions/bun-setup
+      - run: bun install --frozen-lockfile
+      - working-directory: old-release
+        run: bun install --frozen-lockfile
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # A release run tests the control-host digest it is about to promote.
+      - if: inputs.release_tag != ''
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: staged-digests
+          path: ${{ runner.temp }}/staged
+      - id: images
+        name: Pull the images
+        env:
+          ENGINE: ${{ matrix.engine }}
+          OLD_CONTROL_HOST: ${{ matrix.old.control_host }}
+          OLD_WORKER: ${{ matrix.engine == 'codex_app_server' && matrix.old.worker_codex || matrix.old.worker }}
+          OLD_EGRESS_PROXY: ${{ matrix.old.egress_proxy }}
+          STAGED: ${{ runner.temp }}/staged
+          RELEASE: ${{ inputs.release_tag }}
+        run: |
+          [ -n "$OLD_WORKER" ] || { echo "::error::${{ matrix.old.name }} has no worker image for ${ENGINE}"; exit 1; }
+          new=""
+          if [ -n "$RELEASE" ]; then
+            new="$(jq -r '"\(.image)@\(.digest)"' "$STAGED/control-host.json")"
+          fi
+          for ref in "$OLD_CONTROL_HOST" "$OLD_WORKER" "$OLD_EGRESS_PROXY" ${new:+"$new"}; do
+            docker pull -q "$ref"
+          done
+          {
+            echo "old_worker=$OLD_WORKER"
+            echo "new_control_host=$new"
+          } >>"$GITHUB_OUTPUT"
+      - id: run
+        name: Old release, new schema, new control-host
+        env:
+          COMPAT_ENGINE: ${{ matrix.engine }}
+          COMPAT_OLD_DIR: old-release
+          COMPAT_OLD_CONTROL_HOST: ${{ matrix.old.control_host }}
+          COMPAT_OLD_WORKER: ${{ steps.images.outputs.old_worker }}
+          COMPAT_OLD_EGRESS_PROXY: ${{ matrix.old.egress_proxy }}
+          COMPAT_NEW_CONTROL_HOST: ${{ steps.images.outputs.new_control_host }}
+          COMPAT_MIRROR: '1'
+          COMPAT_OUT: ${{ runner.temp }}/compat
+        run: tests/compat/run.sh
+      - if: '!cancelled()'
+        name: Nothing pulled from Docker Hub
+        run: .github/scripts/assert-no-docker-hub-images.sh docker
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: worker-compat-${{ matrix.old.name }}-${{ matrix.engine }}
+          path: ${{ runner.temp }}/compat
+          if-no-files-found: ignore
+          retention-days: 14
