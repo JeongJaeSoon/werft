@@ -183,7 +183,7 @@ kubernetes モードだけで読む設定は次のとおりです。
 | `EXECUTION_K8S_WORKER_TOLERATIONS` | 任意。JSON array |
 | `EXECUTION_K8S_WORKER_EPHEMERAL_STORAGE_MB` | worker コンテナの ephemeral-storage requests・limits（MiB）。既定 1024。超過すると kubelet が Pod を evict します |
 
-失敗した worker の終了理由とログ tail（最後の 8 KiB）は、scheduler ログの `Execution resource failed; log tail kept` 行に残ります。保存先と保持期間は、リポジトリの Kubernetes 実行アダプターの README（終了理由とログ tail 節）にあります。
+失敗した worker の終了理由とログ tail（最後の 8 KiB）は、scheduler ログの `Execution resource failed; log tail kept` 行に残ります。ログのマスキング規則は tail を行ごとに調べます。秘密の形をした値や `input:` のような断片を含む行だけが `[REDACTED]` になり、ほかの行は worker が出力したまま残ります。保存先と保持期間は、リポジトリの Kubernetes 実行アダプターの README（終了理由とログ tail 節）にあります。
 
 <a id="chart가-넣는-값" />
 ## chart が設定する値

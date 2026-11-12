@@ -177,7 +177,7 @@ kubernetes 모드에서만 읽는 설정은 다음과 같다.
 | `EXECUTION_K8S_WORKER_TOLERATIONS` | 선택. JSON array. |
 | `EXECUTION_K8S_WORKER_EPHEMERAL_STORAGE_MB` | worker 컨테이너의 ephemeral-storage requests·limits(MiB). 기본 1024. 넘으면 kubelet이 Pod를 evict한다. |
 
-실패한 worker의 종료 사유와 로그 tail(마지막 8 KiB)은 scheduler 로그의 `Execution resource failed; log tail kept` 줄에 남는다. 저장 위치와 보존 기간은 저장소의 Kubernetes 실행 어댑터 README(종료 사유와 로그 tail 절)에 있다.
+실패한 worker의 종료 사유와 로그 tail(마지막 8 KiB)은 scheduler 로그의 `Execution resource failed; log tail kept` 줄에 남는다. 로그 마스킹 규칙은 tail을 줄마다 따로 검사한다. 비밀 모양의 값이나 `input:` 같은 조각이 든 줄만 `[REDACTED]`가 되고, 나머지 줄은 worker가 출력한 그대로 남는다. 저장 위치와 보존 기간은 저장소의 Kubernetes 실행 어댑터 README(종료 사유와 로그 tail 절)에 있다.
 
 ## chart가 넣는 값
 

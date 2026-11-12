@@ -109,6 +109,41 @@ describe("structured logging", () => {
     });
   });
 
+  test("masks a multi-line value line by line and keeps the other lines", () => {
+    const sink = new MemoryLogSink();
+    const logger = createLogger({ sinks: [sink] });
+    const canary = "sk-canary-1552";
+
+    logger.warn("Execution resource failed; log tail kept", {
+      log_tail: [
+        "booting",
+        "ZodError: [",
+        '    "message": "Invalid input: expected string, received undefined"',
+        `  GIT_TOKEN=${canary}`,
+        `\tAuthorization: Bearer ${canary}\r`,
+        "prompt: summarize the repository",
+        "    at parse (/app/worker.js:10:5)",
+        "",
+      ].join("\n"),
+      single: "Invalid input: expected string",
+    });
+
+    expect(sink.records[0]?.fields).toEqual({
+      log_tail: [
+        "booting",
+        "ZodError: [",
+        "[REDACTED]",
+        "[REDACTED]",
+        "[REDACTED]\r",
+        "[REDACTED]",
+        "    at parse (/app/worker.js:10:5)",
+        "",
+      ].join("\n"),
+      single: "[REDACTED]",
+    });
+    expect(JSON.stringify(sink.records).includes(canary)).toBe(false);
+  });
+
   test("does not propagate logging preparation failures", () => {
     const logger = createLogger({
       sinks: [new MemoryLogSink()],

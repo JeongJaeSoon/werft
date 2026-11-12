@@ -32,7 +32,9 @@ export function sanitizeText(value: string): string {
 
 function sanitizeValue(value: unknown, includeMessageBodies: boolean): unknown {
   if (typeof value === "string") {
-    return sanitizeText(value);
+    // Line by line, so one matching line of a stack or a log tail does not
+    // hide the lines that say why the process failed.
+    return value.replace(/[^\r\n]+/g, (line) => sanitizeText(line));
   }
 
   if (Array.isArray(value)) {
