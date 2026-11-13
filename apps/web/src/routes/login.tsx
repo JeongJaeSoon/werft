@@ -123,7 +123,11 @@ export function LoginScreen() {
       ) : null}
       {closed ? <ProviderChoices redirect={redirect} lead /> : null}
       {formShown ? null : (
-        <Button type="button" variant="ghost" onClick={() => setEmergency(true)}>
+        <Button
+          type="button"
+          variant="ghost"
+          onClick={() => setEmergency(true)}
+        >
           {t("login.emergency.open")}
         </Button>
       )}
