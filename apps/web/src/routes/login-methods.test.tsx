@@ -138,23 +138,20 @@ describe("내 로그인 수단", () => {
     expect(screen.queryByRole("button", { name: /연결$/ }) === null).toBe(true);
   });
 
-  test("connecting leaves for the address the server gives, and the tab remembers why", async () => {
+  test("connecting leaves for the address the server gives, and the tab remembers which flow it left for", async () => {
+    const address = "https://okta.example.com/authorize?client_id=c&state=s1";
     const { left, api } = renderAt(PAGE, {
       ...routes(mine()),
       [`POST ${API}/${OKTA_PROVIDER}/link/start`]: () =>
-        json(200, {
-          authorization_url: "https://okta.example.com/authorize?x",
-        }),
+        json(200, { authorization_url: address }),
     });
     const user = await setupUser();
     await user.click(await screen.findByRole("button", { name: "Okta 연결" }));
-    await waitFor(() =>
-      expect(left).toEqual(["https://okta.example.com/authorize?x"]),
-    );
+    await waitFor(() => expect(left).toEqual([address]));
     expect(writes(api.calls).map((call) => call.path)).toEqual([
       `${API}/${OKTA_PROVIDER}/link/start`,
     ]);
-    expect(sessionStorage.getItem(LINK_FLOW_KEY)).toBe("1");
+    expect(sessionStorage.getItem(LINK_FLOW_KEY)).toBe("s1");
   });
 
   test("a connection the server refuses says why and goes nowhere", async () => {
@@ -324,8 +321,8 @@ describe("내 로그인 수단", () => {
 describe("연결의 콜백", () => {
   const CALLBACK = `/auth/callback/${OKTA_PROVIDER}?code=c1&state=s1`;
 
-  test("a link that went through comes back to the sign-in methods, read there", async () => {
-    sessionStorage.setItem(LINK_FLOW_KEY, "1");
+  test("a link that went through comes back to the sign-in methods, read there, and says so until something is done", async () => {
+    sessionStorage.setItem(LINK_FLOW_KEY, "s1");
     sessionStorage.setItem("ap.postLoginPath", "/members");
     const { history } = renderAt(CALLBACK, {
       ...routes(mine({ linkable: [] })),
@@ -335,10 +332,30 @@ describe("연결의 콜백", () => {
     await waitFor(() => expect(history.location.pathname).toBe(PAGE));
     await screen.findByRole("heading", { level: 1, name: "로그인 수단" });
     await screen.findByText("Acme SSO");
+    await waitFor(() =>
+      expect(
+        screen.getAllByRole("status").map((region) => region.textContent),
+      ).toContain(
+        "연결했습니다. 이제 이 공급자 계정으로 로그인할 수 있습니다.",
+      ),
+    );
     // The tab forgets the link; where a sign-in would have gone is not spent.
     expect(sessionStorage.getItem(LINK_FLOW_KEY)).toBeNull();
     expect(sessionStorage.getItem("ap.postLoginPath")).toBe("/members");
     sessionStorage.removeItem("ap.postLoginPath");
+
+    // The first thing done on the screen takes the notice away, and off the
+    // history entry: Back or a reload does not say it again.
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", { name: "Acme SSO 끊기" }));
+    await screen.findByRole("dialog");
+    await waitFor(() =>
+      expect(history.location.state.loginMethodLinked).toBeUndefined(),
+    );
+    expect(document.body.textContent?.includes("연결했습니다.") === false).toBe(
+      true,
+    );
+    expect(history.location.pathname).toBe(PAGE);
   });
 
   test("a refused link says whose the account is and leads back to the sign-in methods", async () => {
@@ -353,7 +370,7 @@ describe("연결의 콜백", () => {
       ],
     ];
     for (const [reason, text] of cases) {
-      sessionStorage.setItem(LINK_FLOW_KEY, "1");
+      sessionStorage.setItem(LINK_FLOW_KEY, "s1");
       const { container } = renderAt(CALLBACK, {
         ...routes(mine()),
         "POST /v1/auth/oidc/callback": () =>
@@ -371,6 +388,27 @@ describe("연결의 콜백", () => {
       ).toBe(PAGE);
       expect(sessionStorage.getItem(LINK_FLOW_KEY)).toBeNull();
     }
+  });
+
+  test("a link started and given up does not claim the next sign-in of the tab", async () => {
+    // Left for the provider to link, came back without finishing, signed out.
+    sessionStorage.setItem(LINK_FLOW_KEY, "given-up");
+    const { container } = renderAt(CALLBACK, {
+      "POST /v1/auth/oidc/callback": () =>
+        apiError(401, "UNAUTHORIZED", "Sign-in was not accepted"),
+    });
+    await within(container).findByRole("alert");
+    expect(
+      within(container)
+        .getByRole("link", { name: "로그인 화면으로" })
+        .getAttribute("href"),
+    ).toBe("/login");
+    expect(
+      within(container).queryByRole("link", {
+        name: "로그인 수단으로 돌아가기",
+      }) === null,
+    ).toBe(true);
+    expect(sessionStorage.getItem(LINK_FLOW_KEY)).toBeNull();
   });
 
   test("a refused sign-in still leads back to the login page", async () => {
