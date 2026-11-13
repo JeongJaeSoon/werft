@@ -15,6 +15,7 @@ import type {
   IdentityStore,
   InviteService,
   InviteStore,
+  LoginSettingsStore,
 } from "@werft-ai/platform";
 import {
   ApiHttpError,
@@ -36,7 +37,7 @@ import {
   WEB_SESSIONS_PER_USER,
   WorkGate,
 } from "../../auth.ts";
-import { workspaceView } from "../auth.ts";
+import { passwordClosedTo, workspaceView } from "../auth.ts";
 import { mapped, rateLimited, requireParams } from "../errors.ts";
 
 // 32 random bytes, base64url, like every other one-time token here.
@@ -88,6 +89,8 @@ export function registerInviteRoutes(
 export interface PublicInviteRouteDeps {
   invites: Pick<InviteStore, "peekInvite" | "acceptInvite">;
   identity: Pick<IdentityStore, "findWorkspace">;
+  /** Absent: passwords are taken to be open; the store still decides. */
+  loginSettings?: Pick<LoginSettingsStore, "read">;
   /** The login lockout: a wrong password here is a guess at that account. */
   lockout?: LoginLockout;
   passwordWork?: WorkGate;
@@ -106,6 +109,18 @@ function inviteExpired(): ApiHttpError {
 
 function inviteUsed(): ApiHttpError {
   return new ApiHttpError(409, "INVITE_USED", "This invite was already used");
+}
+
+/** The invite is untouched: it is taken through a provider instead. */
+function passwordClosed(): ApiHttpError {
+  return new ApiHttpError(
+    403,
+    "FORBIDDEN",
+    "Password sign-in is closed; accept the invite through a login provider",
+    false,
+    undefined,
+    { reason_code: "password_login_closed" },
+  );
 }
 
 // The local part may be longer than a display name is allowed to be.
@@ -137,6 +152,12 @@ export function registerPublicInviteRoutes(
     }
     const { password } = body;
     const existing = peek.existingUser;
+    // Before the password is looked at: closed is closed whatever was typed,
+    // so the answer, the lockout and the time taken say nothing of whether
+    // it was right. The store decides again under its lock.
+    if (await passwordClosedTo(deps.loginSettings, existing?.id ?? null)) {
+      throw passwordClosed();
+    }
     if (existing) {
       const lockedFor = lockout.retryAfterMs(peek.email);
       if (lockedFor > 0) throw rateLimited(lockedFor, "Too many failed logins");
@@ -145,9 +166,11 @@ export function registerPublicInviteRoutes(
     if (!slot) throw rateLimited(1000, "Too many password checks in progress");
     const releaseSlot = await slot;
     let account: AcceptInviteInput["account"];
+    // The existing account's guess, counted until the invite is accepted.
+    let reservation: ReturnType<LoginLockout["reserve"]> | undefined;
     try {
       if (existing) {
-        const reservation = lockout.reserve(peek.email);
+        reservation = lockout.reserve(peek.email);
         if (reservation.retryAfterMs > 0) {
           throw rateLimited(reservation.retryAfterMs, "Too many failed logins");
         }
@@ -155,8 +178,6 @@ export function registerPublicInviteRoutes(
           deps.logger?.warn("Invite accept refused: wrong password");
           throw new ApiHttpError(401, "UNAUTHORIZED", ACCEPT_REFUSED);
         }
-        reservation.release();
-        lockout.clear(peek.email);
         account = {
           kind: "existing",
           userId: existing.id,
@@ -175,18 +196,35 @@ export function registerPublicInviteRoutes(
       releaseSlot();
     }
     const sessionToken = generateWebSessionToken();
-    const result = await deps.invites.acceptInvite({
-      tokenHash,
-      account,
-      session: {
-        id: randomUUID(),
-        tokenHash: hashWebSessionToken(sessionToken),
-        ttlMs: WEB_SESSION_TTL_MS,
-        userAgent: context.req.header("User-Agent")?.slice(0, 512) ?? null,
-        maxLive: WEB_SESSIONS_PER_USER,
-      },
-      receiptId: randomUUID(),
-    });
+    const result = await deps.invites
+      .acceptInvite({
+        tokenHash,
+        account,
+        session: {
+          id: randomUUID(),
+          tokenHash: hashWebSessionToken(sessionToken),
+          ttlMs: WEB_SESSION_TTL_MS,
+          userAgent: context.req.header("User-Agent")?.slice(0, 512) ?? null,
+          maxLive: WEB_SESSIONS_PER_USER,
+        },
+        receiptId: randomUUID(),
+      })
+      .catch((error: unknown) => {
+        // An outage is not a guess.
+        reservation?.release();
+        throw error;
+      });
+    if (result.outcome === "accepted") {
+      if (existing) lockout.clear(peek.email);
+    } else if (
+      result.outcome !== "account_changed" &&
+      result.outcome !== "password_closed"
+    ) {
+      // Refused for a reason no password decides. The two above stay
+      // counted, as a sign-in the store refuses does: a right password
+      // clears the failures before it only by getting in.
+      reservation?.release();
+    }
     switch (result.outcome) {
       case "expired":
         throw inviteExpired();
@@ -196,15 +234,8 @@ export function registerPublicInviteRoutes(
         // A reset, a disable or a second redemption landed after the check.
         throw new ApiHttpError(401, "UNAUTHORIZED", ACCEPT_REFUSED);
       case "password_closed":
-        // The invite is untouched: it is taken through a provider instead.
-        throw new ApiHttpError(
-          403,
-          "FORBIDDEN",
-          "Password sign-in is closed; accept the invite through a login provider",
-          false,
-          undefined,
-          { reason_code: "password_login_closed" },
-        );
+        // Closed after the check above. The invite is untouched.
+        throw passwordClosed();
       case "emergency_admin":
         // Nothing is spent: with another emergency admin named, it goes
         // through.
