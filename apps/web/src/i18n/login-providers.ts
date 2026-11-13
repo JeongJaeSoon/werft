@@ -192,6 +192,52 @@ export const loginProvidersKo = {
   "loginProviders.result.entry.refused":
     "거절됩니다. 연결된 계정이 꺼져 있거나, 공급자가 주소를 증명하지 않습니다.",
   "loginProviders.result.back": "공급자 설정으로",
+  "loginProviders.disableReason.last":
+    "비밀번호 로그인이 닫혀 있는 동안에는 켜진 마지막 공급자를 끌 수 없습니다. 비밀번호 로그인을 먼저 여세요.",
+  "loginProviders.access.title": "비밀번호 로그인",
+  "loginProviders.access.description":
+    "모두가 공급자로 로그인하게 하려면 비밀번호 로그인을 닫습니다. 닫아도 비상 관리자 한 명은 비밀번호로 로그인할 수 있어, 공급자가 고장 나도 들어올 길이 남습니다.",
+  "loginProviders.access.state": "비밀번호로 로그인할 수 있는 사람",
+  "loginProviders.access.state.on": "비밀번호가 있는 모든 사람",
+  "loginProviders.access.state.emergency_only": "비상 관리자만",
+  "loginProviders.access.close": "닫기",
+  "loginProviders.access.close.name": "비밀번호 로그인 닫기",
+  "loginProviders.access.open": "열기",
+  "loginProviders.access.open.name": "비밀번호 로그인 열기",
+  "loginProviders.access.closeTitle": "비밀번호 로그인을 닫을까요?",
+  "loginProviders.access.closeConsequence.self":
+    "비상 관리자인 나 말고는 비밀번호로 로그인할 수 없게 됩니다. 비밀번호로 로그인한 다른 사람은 모두 로그아웃됩니다.",
+  "loginProviders.access.closeConsequence.other":
+    "비상 관리자 {name} 말고는 비밀번호로 로그인할 수 없게 됩니다. 비밀번호로 로그인한 사람은 모두 로그아웃됩니다. 내가 비밀번호로 로그인했다면 내 세션도 끊깁니다.",
+  "loginProviders.access.openTitle": "비밀번호 로그인을 열까요?",
+  "loginProviders.access.openConsequence":
+    "비밀번호가 있는 사람은 누구나 다시 비밀번호로 로그인할 수 있습니다.",
+  "loginProviders.access.reason.noProvider":
+    "켜진 공급자가 없습니다. 공급자를 먼저 켜세요.",
+  "loginProviders.access.reason.noAdmin":
+    "비상 관리자가 없습니다. 먼저 지정하세요.",
+  "loginProviders.access.reason.lapsed":
+    "비상 관리자가 더는 비밀번호로 로그인할 수 없습니다. 다른 소유자를 지정하세요.",
+  "loginProviders.access.error.locksOut":
+    "이대로는 내가 다시 들어올 수 없습니다. 켜진 공급자의 계정을 내 로그인 수단에 먼저 연결하세요.",
+  "loginProviders.access.done.closed":
+    "비밀번호 로그인을 닫았습니다. 세션 {count}개를 끊었습니다.",
+  "loginProviders.access.done.opened": "비밀번호 로그인을 열었습니다.",
+  "loginProviders.emergency.title": "비상 관리자",
+  "loginProviders.emergency.none": "지정되지 않음",
+  "loginProviders.emergency.lapsed": "비밀번호로 로그인할 수 없음",
+  "loginProviders.emergency.change": "바꾸기",
+  "loginProviders.emergency.change.name": "비상 관리자 바꾸기",
+  "loginProviders.emergency.changeDescription":
+    "비밀번호 로그인을 닫아도 비밀번호로 로그인할 수 있는 소유자 한 명입니다. 켜져 있고 비밀번호가 있는 소유자만 지정할 수 있습니다.",
+  "loginProviders.emergency.changeClosed":
+    "비밀번호 로그인이 닫혀 있어, 지금 비상 관리자의 비밀번호 세션은 끊깁니다.",
+  "loginProviders.emergency.field": "소유자",
+  "loginProviders.emergency.reason.noCandidate":
+    "지정할 수 있는 다른 소유자가 없습니다. 켜져 있고 비밀번호가 있는 소유자만 지정할 수 있습니다.",
+  "loginProviders.emergency.error.notEligible":
+    "이 소유자는 지정할 수 없습니다. 켜져 있고 비밀번호가 있어야 합니다.",
+  "loginProviders.emergency.done": "비상 관리자를 바꿨습니다: {name}",
 } as const;
 
 export const loginProvidersEn: Record<keyof typeof loginProvidersKo, string> = {
@@ -388,6 +434,52 @@ export const loginProvidersEn: Record<keyof typeof loginProvidersKo, string> = {
   "loginProviders.result.entry.refused":
     "It is refused: the connected account is turned off, or the provider does not vouch for the address.",
   "loginProviders.result.back": "Back to the provider",
+  "loginProviders.disableReason.last":
+    "While password login is closed, the last provider that is on cannot be turned off. Open password login first.",
+  "loginProviders.access.title": "Password login",
+  "loginProviders.access.description":
+    "Close password login to have everyone log in through a provider. One emergency admin can still log in with a password, so there is a way in when a provider breaks.",
+  "loginProviders.access.state": "Who can log in with a password",
+  "loginProviders.access.state.on": "Everyone with a password",
+  "loginProviders.access.state.emergency_only": "The emergency admin only",
+  "loginProviders.access.close": "Close",
+  "loginProviders.access.close.name": "Close password login",
+  "loginProviders.access.open": "Open",
+  "loginProviders.access.open.name": "Open password login",
+  "loginProviders.access.closeTitle": "Close password login?",
+  "loginProviders.access.closeConsequence.self":
+    "Nobody but you, the emergency admin, will be able to log in with a password. Everyone else who logged in with a password is logged out.",
+  "loginProviders.access.closeConsequence.other":
+    "Nobody but the emergency admin, {name}, will be able to log in with a password. Everyone who logged in with a password is logged out. If you logged in with a password, so are you.",
+  "loginProviders.access.openTitle": "Open password login?",
+  "loginProviders.access.openConsequence":
+    "Everyone with a password can log in with it again.",
+  "loginProviders.access.reason.noProvider":
+    "No provider is on. Turn a provider on first.",
+  "loginProviders.access.reason.noAdmin":
+    "There is no emergency admin. Name one first.",
+  "loginProviders.access.reason.lapsed":
+    "The emergency admin can no longer log in with a password. Name another owner.",
+  "loginProviders.access.error.locksOut":
+    "You would not be able to get back in. Link an account of a provider that is on to your login methods first.",
+  "loginProviders.access.done.closed":
+    "Password login is closed. {count} sessions ended.",
+  "loginProviders.access.done.opened": "Password login is open.",
+  "loginProviders.emergency.title": "Emergency admin",
+  "loginProviders.emergency.none": "Nobody named",
+  "loginProviders.emergency.lapsed": "Cannot log in with a password",
+  "loginProviders.emergency.change": "Change",
+  "loginProviders.emergency.change.name": "Change the emergency admin",
+  "loginProviders.emergency.changeDescription":
+    "The one owner who can log in with a password even while password login is closed. Only an owner who is on and has a password can be named.",
+  "loginProviders.emergency.changeClosed":
+    "Password login is closed, so the current emergency admin's password sessions end.",
+  "loginProviders.emergency.field": "Owner",
+  "loginProviders.emergency.reason.noCandidate":
+    "There is no other owner to name. Only an owner who is on and has a password can be named.",
+  "loginProviders.emergency.error.notEligible":
+    "This owner cannot be named. They must be on and have a password.",
+  "loginProviders.emergency.done": "The emergency admin is now {name}.",
 };
 
 export const loginProvidersJa: Record<keyof typeof loginProvidersKo, string> = {
@@ -588,4 +680,50 @@ export const loginProvidersJa: Record<keyof typeof loginProvidersKo, string> = {
   "loginProviders.result.entry.refused":
     "拒否されます。連携先のアカウントがオフになっているか、プロバイダーがアドレスを証明していません。",
   "loginProviders.result.back": "プロバイダーの設定へ",
+  "loginProviders.disableReason.last":
+    "パスワードログインを閉じている間は、オンになっている最後のプロバイダーをオフにできません。先にパスワードログインを開いてください。",
+  "loginProviders.access.title": "パスワードログイン",
+  "loginProviders.access.description":
+    "全員にプロバイダーでログインしてもらうには、パスワードログインを閉じます。閉じても緊急管理者 1 人はパスワードでログインできるので、プロバイダーが壊れても入る方法が残ります。",
+  "loginProviders.access.state": "パスワードでログインできる人",
+  "loginProviders.access.state.on": "パスワードを持つ全員",
+  "loginProviders.access.state.emergency_only": "緊急管理者のみ",
+  "loginProviders.access.close": "閉じる",
+  "loginProviders.access.close.name": "パスワードログインを閉じる",
+  "loginProviders.access.open": "開く",
+  "loginProviders.access.open.name": "パスワードログインを開く",
+  "loginProviders.access.closeTitle": "パスワードログインを閉じますか？",
+  "loginProviders.access.closeConsequence.self":
+    "緊急管理者である自分以外は、パスワードでログインできなくなります。パスワードでログインしているほかの人は全員ログアウトされます。",
+  "loginProviders.access.closeConsequence.other":
+    "緊急管理者の {name} 以外は、パスワードでログインできなくなります。パスワードでログインしている人は全員ログアウトされます。自分がパスワードでログインしている場合、自分のセッションも終了します。",
+  "loginProviders.access.openTitle": "パスワードログインを開きますか？",
+  "loginProviders.access.openConsequence":
+    "パスワードを持つ人は、もう一度パスワードでログインできるようになります。",
+  "loginProviders.access.reason.noProvider":
+    "オンのプロバイダーがありません。先にプロバイダーをオンにしてください。",
+  "loginProviders.access.reason.noAdmin":
+    "緊急管理者がいません。先に指定してください。",
+  "loginProviders.access.reason.lapsed":
+    "緊急管理者はパスワードでログインできなくなっています。別のオーナーを指定してください。",
+  "loginProviders.access.error.locksOut":
+    "このままでは自分が入れなくなります。先に、オンのプロバイダーのアカウントを自分のログイン方法に連携してください。",
+  "loginProviders.access.done.closed":
+    "パスワードログインを閉じました。セッションを {count} 件終了しました。",
+  "loginProviders.access.done.opened": "パスワードログインを開きました。",
+  "loginProviders.emergency.title": "緊急管理者",
+  "loginProviders.emergency.none": "指定なし",
+  "loginProviders.emergency.lapsed": "パスワードでログインできません",
+  "loginProviders.emergency.change": "変更",
+  "loginProviders.emergency.change.name": "緊急管理者を変更",
+  "loginProviders.emergency.changeDescription":
+    "パスワードログインを閉じていてもパスワードでログインできるオーナー 1 人です。オンになっていてパスワードを持つオーナーだけを指定できます。",
+  "loginProviders.emergency.changeClosed":
+    "パスワードログインを閉じているため、現在の緊急管理者のパスワードセッションは終了します。",
+  "loginProviders.emergency.field": "オーナー",
+  "loginProviders.emergency.reason.noCandidate":
+    "指定できる別のオーナーがいません。オンになっていてパスワードを持つオーナーだけを指定できます。",
+  "loginProviders.emergency.error.notEligible":
+    "このオーナーは指定できません。オンになっていて、パスワードを持っている必要があります。",
+  "loginProviders.emergency.done": "緊急管理者を {name} に変更しました。",
 };

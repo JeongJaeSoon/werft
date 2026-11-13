@@ -28,9 +28,9 @@ import { useRef, useState } from "react";
 import { scopedKey } from "../api/queries.ts";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
+import { Action } from "../components/setting-action.tsx";
 import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
 import { useAppServices } from "../services.tsx";
-import { Action } from "./login-providers.tsx";
 
 /** Set while a link is at the provider, so the callback knows where back is. */
 export const LINK_FLOW_KEY = "ap.loginMethodLink";
