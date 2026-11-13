@@ -726,7 +726,7 @@ e2e의 Keycloak은 API 컨테이너와 네트워크 이름공간을 함께 쓰�
 
 - 공급자 모양의 계약 시험(`apps/control-host/src/api/provider-shapes.test.ts`)은 discovery와 로그인 서비스를 HTTP mock IdP에 붙여 돌린다. 서버 쪽 요청은 운영 요청 함수를 그대로 쓰고 마지막 연결만 mock으로 돌린다. 그래서 issuer를 각 공급자의 실제 모양(`https://login.microsoftonline.com/<tenant-id>/v2.0` 등)으로 쓰고, 운영과 같은 네트워크 정책(평문 `http` 거절)으로 돈다.
 - 계약 시험은 누가 로그인했고 공급자 규칙이 그 사람을 어떻게 들이는지(주소를 증명했는가, 스스로 가입할 역할)까지를 본다. 그 값으로 저장소가 하는 일(6.1절의 규칙, 초대 token 가입)은 공급자와 무관하고 `provider-login.integration.test.ts`가 고정한다. 계정이 만들어지는 데까지 가는 공급자별 흐름은 Keycloak e2e가 본다.
-- mock IdP(`packages/testkit/src/mock-oidc.ts`)에 모양 옵션을 더했다: issuer의 경로(tenant, realm) 아래의 endpoint, `ES256` 서명, 얇은 id_token과 UserInfo, discovery 문서에 덮어쓰는 목록, 인가 응답의 `iss`, client 인증 방식 하나만 받기, PKCE를 검사하지 않기, 키 회전. 옵션을 주지 않은 mock의 동작은 그대로다.
+- mock IdP(`packages/testkit/src/mock-oidc.ts`)에 모양 옵션을 더했다: issuer의 경로(tenant, realm) 아래의 endpoint, `ES256` 서명, 얇은 id_token과 UserInfo, discovery 문서에 덮어쓰는 목록, 인가 응답의 `iss`, client 인증 방식 하나만 받기, PKCE를 검사하지 않기, 키 회전. 옵션을 주지 않은 mock은 있던 흐름(본문에 실은 client 인증)을 그대로 받고, 달라진 것은 하나다. Basic 헤더에 실은 client 인증도 받는다.
 - Google과 Entra ID의 discovery 목록은 2026-11-13에 공개 문서를 직접 읽은 값이고, Keycloak의 목록은 같은 날 Keycloak 26.8.1의 realm에서 읽은 값이다. OneLogin과 Okta의 목록은 대표 값이고 실제 서버에서 읽지 않았다.
 - 같은 Keycloak(realm의 기본 서명을 `ES256`으로 둔 것)에서 확인한 것: id_token이 `ES256`으로 오고, 인가 응답에 `iss`가 붙고, 틀린 PKCE verifier는 client 인증이 Basic이든 POST든 `400 invalid_grant`로 거절되고, 검증하지 않은 사용자의 token은 `email_verified: false`다. werft를 거치지 않고 Keycloak에 직접 물은 결과이고, werft를 거친 확인은 e2e의 몫이다.
 - Entra ID에서 id_token에 `email`이 없으면(앱 등록에서 켜지 않은 경우) UserInfo에 묻고, 거기에도 없으면 주소 없이 로그인한다(`require_verified_email = false`일 때). UserInfo가 답하지 않으면 그 로그인은 거절된다. 실제 테넌트의 UserInfo 응답은 확인하지 않았다.
