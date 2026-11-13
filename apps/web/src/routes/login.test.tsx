@@ -2,9 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { loginMethodsResponseSchema } from "@werft-ai/contracts";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
 import { apiError, json, me, memberPage } from "../test-support/fake-api.ts";
-import { appHarness } from "../test-support/render-app.tsx";
+import { appHarness, comeBack } from "../test-support/render-app.tsx";
 
-const { renderAt, screen, waitFor } = await appHarness();
+const { act, renderAt, screen, waitFor } = await appHarness();
 
 const GOOGLE = {
   id: "5b0c7e2a-9d41-4f6b-8a3e-7c1d2e3f4a5b",
@@ -94,8 +94,11 @@ describe("로그인 수단 선택", () => {
     await user.click(
       screen.getByRole("button", { name: "Keycloak 계정으로 로그인" }),
     );
-    // Coming back from the provider's page (back button) can start again.
+    // A page shown for the first time is not one come back to.
     window.dispatchEvent(new Event("pageshow"));
+    expect(held()).toEqual([true, true]);
+    // Coming back from the provider's page (back button) can start again.
+    comeBack();
     await waitFor(() =>
       expect(
         screen
@@ -107,6 +110,30 @@ describe("로그인 수단 선택", () => {
     expect(starts.map((c) => c.path)).toEqual([START]);
     expect(starts[0]?.headers.get("x-requested-with")).toBe("werft-web");
     expect(sessionStorage.getItem("ap.postLoginPath")).toBe("/members");
+  });
+
+  test("버튼이 잡힌 것으로 다시 그려지기 전에 또 눌려도 시작은 한 번이다", async () => {
+    const { api, left } = renderAt("/login", {
+      ...methods(GOOGLE, KEYCLOAK),
+      [`POST ${START}`]: () => json(200, { authorization_url: AUTHORIZE }),
+      [`POST /v1/auth/providers/${KEYCLOAK.id}/start`]: () =>
+        json(200, { authorization_url: "https://keycloak.test/authorize" }),
+    });
+    const google = await screen.findByRole("button", {
+      name: "Google 계정으로 로그인",
+    });
+    const keycloak = screen.getByRole("button", {
+      name: "Keycloak 계정으로 로그인",
+    });
+    // Inside one act React draws nothing between the two presses.
+    await act(async () => {
+      google.click();
+      keycloak.click();
+    });
+    await waitFor(() => expect(left).toEqual([AUTHORIZE]));
+    expect(
+      api.calls.filter((c) => c.path.endsWith("/start")).map((c) => c.path),
+    ).toEqual([START]);
   });
 });
 

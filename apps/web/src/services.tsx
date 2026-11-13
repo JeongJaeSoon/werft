@@ -1,9 +1,4 @@
-import {
-  MutationCache,
-  QueryCache,
-  QueryClient,
-  useIsMutating,
-} from "@tanstack/react-query";
+import { MutationCache, QueryCache, QueryClient } from "@tanstack/react-query";
 import { rootRouteId, useRouteContext } from "@tanstack/react-router";
 import {
   type ApiClient,
@@ -31,7 +26,7 @@ export interface Services {
    * `false` when the page stays where it is (the demo).
    */
   readonly leave: (url: string) => unknown;
-  /** Whether the page is on its way to another site; see `useLeave`. */
+  /** Whether a flow at a login provider is being started; see `useLeave`. */
   readonly leaving: Flag;
 }
 
@@ -54,8 +49,11 @@ export function createServices(
 ): Services {
   const leaving = flag();
   // Back from the other site the browser restores the page as it was left
-  // (bfcache), with this still set: being shown again lets go.
-  window.addEventListener("pageshow", () => leaving.set(false));
+  // (bfcache), with this still set. The first show of a page is not that:
+  // a start may already be out by then.
+  window.addEventListener("pageshow", (event) => {
+    if (event.persisted) leaving.set(false);
+  });
   const services: Services = {
     // A production answer outside the contract is logged, not thrown: the
     // screen keeps the value as it came.
@@ -91,28 +89,35 @@ export function useAppServices(): Services {
   return useRouteContext({ from: rootRouteId });
 }
 
-/** The key of every mutation whose answer is an address to leave for. */
-export const LEAVING_KEY = ["leaving"] as const;
-
 /**
- * Leaving for another site, and holding what starts that meanwhile: while a
- * start is out (a mutation under LEAVING_KEY) and once the page is on its
- * way. The page stays live until the other site answers, and a second start
- * in the gap would replace the flow the browser is already on its way to.
- * It is held for the app, not by a screen: one that is replaced and mounted
- * again (a step, a failed re-read) finds it as it is.
+ * Leaving for a flow at a login provider, and holding what starts one
+ * meanwhile: from the moment a start is sent until the page is shown again.
+ * The API keeps one such flow per browser, so a second start would replace
+ * the flow the browser is on its way to, and the first callback would be
+ * refused. `leaveFor` owns a start from its request to the departure: it
+ * takes the hold, asks for the address, leaves, and lets go when the request
+ * fails or the page stays. The hold is the app's and lives outside the query
+ * cache: a screen replaced and mounted again finds it as it is, and so does
+ * a sign-in or sign-out that clears the cache while a start is still out.
  */
 export function useLeave(): readonly [
   held: boolean,
-  leave: (url: string) => void,
+  leaveFor: (address: () => Promise<string>) => Promise<void>,
 ] {
   const { leave, leaving } = useAppServices();
-  const starting = useIsMutating({ mutationKey: LEAVING_KEY }) > 0;
-  const left = useSyncExternalStore(leaving.subscribe, leaving.get);
+  const held = useSyncExternalStore(leaving.subscribe, leaving.get);
   return [
-    starting || left,
-    (url) => {
-      if (leave(url) !== false) leaving.set(true);
+    held,
+    async (address) => {
+      // A second start before the buttons are drawn as held.
+      if (leaving.get()) return;
+      leaving.set(true);
+      let stays = true;
+      try {
+        stays = leave(await address()) === false;
+      } finally {
+        if (stays) leaving.set(false);
+      }
     },
   ];
 }

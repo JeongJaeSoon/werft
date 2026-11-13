@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { QueryClient } from "@tanstack/react-query";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
 import { apiError, json, me } from "../test-support/fake-api.ts";
-import { appHarness } from "../test-support/render-app.tsx";
+import { appHarness, comeBack } from "../test-support/render-app.tsx";
 
 const { renderAt, screen, waitFor } = await appHarness();
 
@@ -476,7 +476,7 @@ describe("공급자 계정으로 가입", () => {
     );
     expect(starts()).toBe(1);
     // Back from the provider's page restores this one as it was left.
-    window.dispatchEvent(new Event("pageshow"));
+    comeBack();
     await waitFor(() =>
       expect(held()).toEqual([[false], [false], [], [false]]),
     );
@@ -646,7 +646,7 @@ describe("공급자 가입의 잠금은 화면이 아니라 앱이 쥔다", () =
     await waitFor(() => expect(left).toEqual([AUTHORIZE]));
     // Gone from the flow that started it, the page is still on its way.
     expect((await button()).hasAttribute("disabled")).toBe(true);
-    window.dispatchEvent(new Event("pageshow"));
+    comeBack();
     await waitFor(async () =>
       expect((await button()).hasAttribute("disabled")).toBe(false),
     );

@@ -38,7 +38,7 @@ import { StatusScreen } from "../components/status-screen.tsx";
 import { StepHeading, useStepMoved } from "../components/step-heading.tsx";
 import { FunnelResetNotice, useFunnel } from "../funnel/tanstack-funnel.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
-import { LEAVING_KEY, useLeave } from "../services.tsx";
+import { useLeave } from "../services.tsx";
 import { POST_LOGIN_PATH_KEY } from "./login.tsx";
 
 /**
@@ -315,36 +315,35 @@ function useProviderStart(
   onEnded: (code: "INVITE_EXPIRED" | "INVITE_USED") => void,
 ) {
   const { client } = useWerft();
-  const [held, leave] = useLeave();
+  const [held, leaveFor] = useLeave();
 
   // The variables are the provider's id alone: the token stays out of them.
-  const start = useMutation<{ authorization_url: string }, ApiError, string>({
-    mutationKey: LEAVING_KEY,
+  const start = useMutation<void, ApiError, string>({
     meta: { public: true },
     mutationFn: (id) =>
-      unwrap(
-        client.POST("/v1/auth/providers/{id}/invite/start", {
-          params: {
-            path: { id },
-            header: { "X-Requested-With": CSRF_HEADER_VALUE },
-          },
-          body: { invite_token: token },
-        }),
-      ),
-    onSuccess: ({ authorization_url }) => {
-      try {
-        // A place an earlier sign-in of this tab meant to return to is not
-        // where a new member lands.
-        sessionStorage.removeItem(POST_LOGIN_PATH_KEY);
-        sessionStorage.setItem(
-          INVITE_FLOW_KEY,
-          new URL(authorization_url).searchParams.get("state") ?? "",
+      leaveFor(async () => {
+        const { authorization_url } = await unwrap(
+          client.POST("/v1/auth/providers/{id}/invite/start", {
+            params: {
+              path: { id },
+              header: { "X-Requested-With": CSRF_HEADER_VALUE },
+            },
+            body: { invite_token: token },
+          }),
         );
-      } catch {
-        // Without it a refused callback speaks of a sign-in, not of joining.
-      }
-      leave(authorization_url);
-    },
+        try {
+          // A place an earlier sign-in of this tab meant to return to is not
+          // where a new member lands.
+          sessionStorage.removeItem(POST_LOGIN_PATH_KEY);
+          sessionStorage.setItem(
+            INVITE_FLOW_KEY,
+            new URL(authorization_url).searchParams.get("state") ?? "",
+          );
+        } catch {
+          // Without it a refused callback speaks of a sign-in, not of joining.
+        }
+        return authorization_url;
+      }),
     onError: (error) => {
       if (isApiError(error, "INVITE_EXPIRED")) onEnded("INVITE_EXPIRED");
       else if (isApiError(error, "INVITE_USED")) onEnded("INVITE_USED");

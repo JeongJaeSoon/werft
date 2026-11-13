@@ -6,7 +6,7 @@ import {
 } from "@werft-ai/contracts";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
 import { apiError, json, me, memberMe } from "../test-support/fake-api.ts";
-import { appHarness } from "../test-support/render-app.tsx";
+import { appHarness, comeBack } from "../test-support/render-app.tsx";
 
 const { renderAt, screen, waitFor, within } = await appHarness();
 
@@ -161,12 +161,74 @@ describe("내 로그인 수단", () => {
     expect(writes(api.calls)).toHaveLength(1);
     expect(screen.queryAllByRole("dialog")).toHaveLength(0);
     // Back from the provider's page restores this one as it was left.
-    window.dispatchEvent(new Event("pageshow"));
+    comeBack();
     await waitFor(() =>
       expect(okta().hasAttribute("aria-disabled")).toBe(false),
     );
     await user.click(okta());
     await waitFor(() => expect(writes(api.calls)).toHaveLength(2));
+  });
+
+  test("a start still out when a sign-in clears the cache holds the starts of the next screen", async () => {
+    let answer: (response: Response) => void = () => {};
+    let viewer = () =>
+      apiError(401, "UNAUTHORIZED", "Authentication is required");
+    const start = `/v1/auth/providers/${OKTA_PROVIDER}/start`;
+    const first = "https://okta.example.com/authorize?state=s1";
+    const { left, api } = renderAt(
+      `/login?redirect=${encodeURIComponent(PAGE)}`,
+      {
+        ...routes(mine()),
+        "GET /v1/auth/me": () => viewer(),
+        "GET /v1/auth/login-methods": () =>
+          json(200, {
+            password: "on",
+            providers: [{ id: OKTA_PROVIDER, display_name: "Okta" }],
+          }),
+        [`POST ${start}`]: () =>
+          new Promise<Response>((resolve) => {
+            answer = resolve;
+          }),
+        "POST /v1/auth/login": () => {
+          viewer = () => json(200, me());
+          return json(200, {
+            user_id: me().user?.id,
+            workspace_id: me().workspace?.id,
+            role: "owner",
+            scopes: me().scopes,
+            expires_at: "2026-12-01T00:00:00.000Z",
+          });
+        },
+        [`POST ${API}/${OKTA_PROVIDER}/link/start`]: () =>
+          json(200, {
+            authorization_url: "https://okta.example.com/authorize?state=s2",
+          }),
+      },
+    );
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "Okta 계정으로 로그인" }),
+    );
+    await waitFor(() => expect(writes(api.calls)).toHaveLength(1));
+    // The provider is slow, and the person signs in another way meanwhile.
+    await user.type(screen.getByLabelText("이메일"), "owner@example.com");
+    await user.type(screen.getByLabelText("비밀번호"), "any words will do");
+    await user.click(screen.getByRole("button", { name: "로그인" }));
+    const okta = () => screen.findByRole("button", { name: "Okta 연결" });
+    expect((await okta()).getAttribute("aria-disabled")).toBe("true");
+    await user.click(await okta());
+    expect(writes(api.calls).map((call) => call.path)).toEqual([
+      start,
+      "/v1/auth/login",
+    ]);
+    // The answer of the first start still leaves, as it did before the hold.
+    answer(json(200, { authorization_url: first }));
+    await waitFor(() => expect(left).toEqual([first]));
+    expect((await okta()).getAttribute("aria-disabled")).toBe("true");
+    comeBack();
+    await waitFor(async () =>
+      expect((await okta()).hasAttribute("aria-disabled")).toBe(false),
+    );
   });
 
   test("a connection the server refuses says why and goes nowhere", async () => {

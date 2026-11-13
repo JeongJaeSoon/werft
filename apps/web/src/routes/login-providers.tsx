@@ -54,7 +54,7 @@ import { refusalText, useHasPermission, useRole } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { isMessageKey, type Translate, useI18n } from "../i18n/i18n.tsx";
-import { useAppServices } from "../services.tsx";
+import { useLeave } from "../services.tsx";
 import {
   FormDialog,
   type Outcome,
@@ -458,7 +458,7 @@ function ProviderSettings({
 }) {
   const { t, locale } = useI18n();
   const navigate = useNavigate();
-  const { leave } = useAppServices();
+  const [held, leaveFor] = useLeave();
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [editing, setEditing] = useState<Editing>(null);
   const [dialogError, setDialogError] = useState<string | null>(null);
@@ -557,14 +557,15 @@ function ProviderSettings({
       onRefused: refused,
     },
   );
+  // A test rides the flow a sign-in rides, so it leaves the way one does.
   const test = useProviderWrite(
     (api, _: undefined) =>
-      unwrap(api.POST("/v1/login-providers/{id}/test/start", id)),
-    {
-      onDone: ({ authorization_url }) => leave(authorization_url),
-      onRefused: refused,
-      step: "test",
-    },
+      leaveFor(
+        async () =>
+          (await unwrap(api.POST("/v1/login-providers/{id}/test/start", id)))
+            .authorization_url,
+      ),
+    { onDone: () => {}, onRefused: refused, step: "test" },
   );
   const enable = useProviderWrite(
     (api, _: undefined) =>
@@ -824,7 +825,7 @@ function ProviderSettings({
                       ? t("loginProviders.error.clientMissing")
                       : undefined
                   }
-                  busy={busy}
+                  busy={busy || held}
                   onClick={() => {
                     setOutcome(null);
                     test.mutate(undefined);

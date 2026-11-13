@@ -30,7 +30,7 @@ import { scopedKey } from "../api/queries.ts";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
-import { LEAVING_KEY, useLeave } from "../services.tsx";
+import { useLeave } from "../services.tsx";
 import { Action } from "./login-providers.tsx";
 
 /**
@@ -83,7 +83,7 @@ const nameOf = (t: Translate, method: MyLoginMethod) =>
 export function LoginMethodsScreen() {
   const { t, locale } = useI18n();
   const { client } = useWerft();
-  const [held, leave] = useLeave();
+  const [held, leaveFor] = useLeave();
   const queryClient = useQueryClient();
   const list = useQuery(myLoginMethodsQuery(client));
   const [outcome, setOutcome] = useState<Outcome | null>(null);
@@ -117,25 +117,24 @@ export function LoginMethodsScreen() {
   const reread = () =>
     queryClient.invalidateQueries({ queryKey: listKey(client) });
 
-  const link = useMutation<{ authorization_url: string }, ApiError, string>({
-    mutationKey: LEAVING_KEY,
+  const link = useMutation<void, ApiError, string>({
     mutationFn: (providerId) =>
-      unwrap(
-        client.POST("/v1/auth/me/login-methods/{provider_id}/link/start", {
-          params: { path: { provider_id: providerId } },
-        }),
-      ),
-    onSuccess: ({ authorization_url }) => {
-      try {
-        sessionStorage.setItem(
-          LINK_FLOW_KEY,
-          new URL(authorization_url).searchParams.get("state") ?? "",
+      leaveFor(async () => {
+        const { authorization_url } = await unwrap(
+          client.POST("/v1/auth/me/login-methods/{provider_id}/link/start", {
+            params: { path: { provider_id: providerId } },
+          }),
         );
-      } catch {
-        // Without it the callback's way back is the login page's.
-      }
-      leave(authorization_url);
-    },
+        try {
+          sessionStorage.setItem(
+            LINK_FLOW_KEY,
+            new URL(authorization_url).searchParams.get("state") ?? "",
+          );
+        } catch {
+          // Without it the callback's way back is the login page's.
+        }
+        return authorization_url;
+      }),
     onError: (error) => {
       setOutcome({
         kind: "error",

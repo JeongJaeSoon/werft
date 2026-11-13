@@ -20,7 +20,7 @@ import { loginMethodsQuery } from "../api/queries.ts";
 import { AuthPage, FormError, Notice } from "../components/auth-page.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
-import { LEAVING_KEY, useLeave } from "../services.tsx";
+import { useLeave } from "../services.tsx";
 
 declare module "@tanstack/react-router" {
   interface HistoryState {
@@ -161,30 +161,29 @@ function ProviderChoices({
 }) {
   const { t } = useI18n();
   const { client } = useWerft();
-  const [held, leave] = useLeave();
+  const [held, leaveFor] = useLeave();
   const methods = useQuery(loginMethodsQuery(client));
 
-  const start = useMutation<{ authorization_url: string }, ApiError, string>({
-    mutationKey: LEAVING_KEY,
+  const start = useMutation<void, ApiError, string>({
     meta: { public: true },
     mutationFn: (id) =>
-      unwrap(
-        client.POST("/v1/auth/providers/{id}/start", {
-          params: {
-            path: { id },
-            header: { "X-Requested-With": CSRF_HEADER_VALUE },
-          },
-        }),
-      ),
-    onSuccess: ({ authorization_url }) => {
-      try {
-        if (redirect) sessionStorage.setItem(POST_LOGIN_PATH_KEY, redirect);
-        else sessionStorage.removeItem(POST_LOGIN_PATH_KEY);
-      } catch {
-        // Without storage the callback lands on home; the sign-in still works.
-      }
-      leave(authorization_url);
-    },
+      leaveFor(async () => {
+        const { authorization_url } = await unwrap(
+          client.POST("/v1/auth/providers/{id}/start", {
+            params: {
+              path: { id },
+              header: { "X-Requested-With": CSRF_HEADER_VALUE },
+            },
+          }),
+        );
+        try {
+          if (redirect) sessionStorage.setItem(POST_LOGIN_PATH_KEY, redirect);
+          else sessionStorage.removeItem(POST_LOGIN_PATH_KEY);
+        } catch {
+          // Without storage the callback lands on home; the sign-in still works.
+        }
+        return authorization_url;
+      }),
   });
 
   const providers = methods.data?.providers ?? [];
