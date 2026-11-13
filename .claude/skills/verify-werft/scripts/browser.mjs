@@ -8,6 +8,7 @@
 //   browser.mjs <run> start | stop
 //   browser.mjs <run> open <path|url>            prints path and title
 //   browser.mjs <run> login <who> [--here] | accept <who>  web-user.mjs credentials, typed, never printed
+//   browser.mjs <run> invite <who>               opens <who>'s invite page and stops there
 //   browser.mjs <run> bootstrap <who>            /bootstrap form from state.env's token and users/<who>
 //   browser.mjs <run> shot <name> [full]         evidence/<name>.png, prints scrollWidth/innerWidth
 //   browser.mjs <run> mockshot <path> <responses.json> <name> [full]   GET response fixtures, explicitly recorded
@@ -394,6 +395,14 @@ switch (cmd) {
     await submit();
     if ((await here()) !== "/") await refused();
     console.log(`accept ${args[0]} -> /`);
+    break;
+  }
+  case "invite": {
+    // Only opens <who>'s invite page, for what `accept` does not walk (the
+    // provider buttons). The token stays off the command line.
+    const token = readFileSync(`${userFile(args[0])}.invite`, "utf8");
+    await navigate(`/invite/${token}`);
+    console.log(`invite ${args[0]} -> ${await here()}`);
     break;
   }
   case "bootstrap": {

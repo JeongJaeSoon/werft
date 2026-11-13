@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { LoginProviderView } from "@werft-ai/contracts";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
 import { apiError, json, me, memberMe } from "../test-support/fake-api.ts";
-import { appHarness } from "../test-support/render-app.tsx";
+import { appHarness, comeBack } from "../test-support/render-app.tsx";
 
 const { renderAt, screen, waitFor, within } = await appHarness();
 
@@ -424,6 +424,86 @@ describe("로그인 공급자 상세", () => {
     expect(writes(api.calls).map((call) => call.path)).toEqual([
       `${API}/${ID}/test/start`,
     ]);
+    // The page is still here while the provider's loads: a second test
+    // would replace the flow the browser is on its way to.
+    const testing = () => screen.getByRole("button", { name: "테스트 로그인" });
+    expect(testing().getAttribute("aria-disabled")).toBe("true");
+    await user.click(testing());
+    expect(writes(api.calls)).toHaveLength(1);
+    comeBack();
+    await waitFor(() =>
+      expect(testing().hasAttribute("aria-disabled")).toBe(false),
+    );
+  });
+
+  // A test and a connection ride the one flow a browser has at the API.
+  const METHODS_PAGE = "/settings/login-methods";
+  const LINK = `/v1/auth/me/login-methods/${ID}/link/start`;
+  const linkable = {
+    "GET /v1/auth/me/login-methods": () =>
+      json(200, {
+        methods: [],
+        linkable: [{ id: ID, display_name: "Acme SSO" }],
+        can_change: true,
+      }),
+  };
+  const heldOpen = () => {
+    const held = {
+      answer: (_: Response) => {},
+      route: () =>
+        new Promise<Response>((resolve) => {
+          held.answer = resolve;
+        }),
+    };
+    return held;
+  };
+
+  test("a test start still out holds the connection on another screen", async () => {
+    const start = heldOpen();
+    const { api, history, left } = renderAt(PAGE, {
+      ...routes([filled()]),
+      ...linkable,
+      [`POST ${API}/${ID}/test/start`]: start.route,
+      [`POST ${LINK}`]: () =>
+        json(200, { authorization_url: "https://idp.example.com/second" }),
+    });
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "테스트 로그인" }),
+    );
+    await waitFor(() => expect(writes(api.calls)).toHaveLength(1));
+    history.push(METHODS_PAGE);
+    const link = await screen.findByRole("button", { name: "Acme SSO 연결" });
+    expect(link.getAttribute("aria-disabled")).toBe("true");
+    await user.click(link);
+    expect(writes(api.calls)).toHaveLength(1);
+    start.answer(json(200, { authorization_url: "https://idp.example.com/x" }));
+    await waitFor(() => expect(left).toEqual(["https://idp.example.com/x"]));
+  });
+
+  test("a connection start still out holds the test on another screen", async () => {
+    const start = heldOpen();
+    const { api, history, left } = renderAt(METHODS_PAGE, {
+      ...routes([filled()]),
+      ...linkable,
+      [`POST ${LINK}`]: start.route,
+      [`POST ${API}/${ID}/test/start`]: () =>
+        json(200, { authorization_url: "https://idp.example.com/second" }),
+    });
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "Acme SSO 연결" }),
+    );
+    await waitFor(() => expect(writes(api.calls)).toHaveLength(1));
+    history.push(PAGE);
+    const testing = await screen.findByRole("button", {
+      name: "테스트 로그인",
+    });
+    expect(testing.getAttribute("aria-disabled")).toBe("true");
+    await user.click(testing);
+    expect(writes(api.calls)).toHaveLength(1);
+    start.answer(json(200, { authorization_url: "https://idp.example.com/x" }));
+    await waitFor(() => expect(left).toEqual(["https://idp.example.com/x"]));
   });
 
   test("a provider whose test passed is turned on", async () => {
@@ -508,6 +588,145 @@ describe("로그인 공급자 상세", () => {
     await screen.findByText("등록된 공급자가 없습니다.");
     expect(history.location.pathname).toBe(LIST_PAGE);
     expect(writes(api.calls).map((call) => call.method)).toEqual(["DELETE"]);
+  });
+
+  const openRules = async (user: Awaited<ReturnType<typeof setupUser>>) => {
+    await user.click(
+      await screen.findByRole("button", { name: "규칙 바꾸기" }),
+    );
+    return screen.findByRole("dialog");
+  };
+
+  test("who may come in is shown, and changed together at the revision that was read", async () => {
+    const { api } = renderAt(PAGE, {
+      ...routes([filled({ allowed_domains: ["example.com"] })]),
+      [`PATCH ${API}/${ID}`]: () => json(200, { provider: filled() }),
+    });
+    const user = await setupUser();
+    const shown = (title: string) =>
+      (screen.getByText(title).closest("li") as HTMLElement).textContent;
+    await screen.findByText("허용 도메인");
+    expect(shown("허용 도메인")).toContain("example.com");
+    expect(shown("초대 없이 가입")).toContain("받지 않음");
+    expect(shown("검증된 이메일")).toContain("요구함");
+
+    const dialog = await openRules(user);
+    const domains = named(dialog, "allowed_domains") as HTMLInputElement;
+    expect(domains.value).toBe("example.com");
+    await user.clear(domains);
+    await user.type(domains, " Example.com,  corp.example.org ");
+    await user.selectOptions(named(dialog, "jit_role"), "member");
+    await user.selectOptions(named(dialog, "require_verified_email"), "false");
+    await user.click(within(dialog).getByRole("button", { name: "저장" }));
+    await screen.findByText("저장했습니다.");
+    const [patch] = writes(api.calls);
+    expect(patch?.headers.get("If-Match")).toBe("3");
+    expect(patch?.body).toEqual({
+      allowed_domains: ["example.com", "corp.example.org"],
+      jit_role: "member",
+      require_verified_email: false,
+    });
+  });
+
+  test("an emptied domain list and a turned-off join are sent as such, not left out", async () => {
+    const { api } = renderAt(PAGE, {
+      ...routes([
+        filled({ allowed_domains: ["example.com"], jit_role: "member" }),
+      ]),
+      [`PATCH ${API}/${ID}`]: () => json(200, { provider: filled() }),
+    });
+    const user = await setupUser();
+    const dialog = await openRules(user);
+    await user.clear(named(dialog, "allowed_domains"));
+    await user.selectOptions(named(dialog, "jit_role"), "");
+    await user.click(within(dialog).getByRole("button", { name: "저장" }));
+    await screen.findByText("저장했습니다.");
+    expect(writes(api.calls)[0]?.body).toEqual({
+      allowed_domains: [],
+      jit_role: null,
+      require_verified_email: true,
+    });
+  });
+
+  test("a form filled before someone else's change is refused, then starts over on what they saved", async () => {
+    // Another owner narrows the domains (revision 4) while this form is open.
+    let stored = filled({ allowed_domains: ["example.com"] });
+    const { api, services } = renderAt(PAGE, {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${API}`]: () =>
+        json(200, { providers: [stored], console_origin_configured: true }),
+      [`PATCH ${API}/${ID}`]: (request) =>
+        request.headers.get("If-Match") === String(stored.revision)
+          ? json(200, { provider: stored })
+          : apiError(412, "VERSION_MISMATCH", "no", false, {
+              current_version: stored.revision,
+            }),
+    });
+    const user = await setupUser();
+    const dialog = await openRules(user);
+    await user.clear(named(dialog, "allowed_domains"));
+    stored = filled({ allowed_domains: ["corp.example.org"], revision: 4 });
+    // The tab comes back and reads the list again under the open form.
+    await services.queryClient.invalidateQueries();
+    // The row behind the dialog shows it; the dialog has the same label.
+    await waitFor(() =>
+      expect(
+        screen
+          .getAllByText("허용 도메인")
+          .map((label) => label.closest("li")?.textContent ?? "")
+          .join(" "),
+      ).toContain("corp.example.org"),
+    );
+
+    await user.click(within(dialog).getByRole("button", { name: "저장" }));
+    expect((await within(dialog).findByRole("alert")).textContent).toContain(
+      "다른 곳에서 설정이 바뀌었습니다",
+    );
+    // The emptied list went under the revision it was typed over.
+    const [refusedWrite] = writes(api.calls);
+    expect(refusedWrite?.headers.get("If-Match")).toBe("3");
+    expect(refusedWrite?.body).toMatchObject({ allowed_domains: [] });
+    // What the form holds now is what the other owner saved.
+    await waitFor(() =>
+      expect((named(dialog, "allowed_domains") as HTMLInputElement).value).toBe(
+        "corp.example.org",
+      ),
+    );
+
+    await user.type(named(dialog, "allowed_domains"), ", example.com");
+    await user.click(within(dialog).getByRole("button", { name: "저장" }));
+    await screen.findByText("저장했습니다.");
+    const [, accepted] = writes(api.calls);
+    expect(accepted?.headers.get("If-Match")).toBe("4");
+    expect(accepted?.body).toMatchObject({
+      allowed_domains: ["corp.example.org", "example.com"],
+    });
+  });
+
+  test("a Google provider is not offered an unverified email, and the server's refusal of its rules is said", async () => {
+    const { api } = renderAt(PAGE, {
+      ...routes([filled({ issuer: "https://accounts.google.com" })]),
+      [`PATCH ${API}/${ID}`]: () =>
+        apiError(400, "BAD_REQUEST", "no", false, {
+          problem: "jit_requires_domains",
+        }),
+    });
+    const user = await setupUser();
+    const dialog = await openRules(user);
+    expect(
+      dialog.querySelectorAll('[name="require_verified_email"]'),
+    ).toHaveLength(0);
+    within(dialog).getByText("Google 공급자는 항상 요구합니다.");
+    await user.selectOptions(named(dialog, "jit_role"), "member");
+    await user.click(within(dialog).getByRole("button", { name: "저장" }));
+    expect((await within(dialog).findByRole("alert")).textContent).toBe(
+      "Google 공급자는 허용 도메인 없이 자동 가입을 켤 수 없습니다.",
+    );
+    // What the form does not hold is not sent: the stored value stands.
+    expect(writes(api.calls)[0]?.body).toEqual({
+      allowed_domains: [],
+      jit_role: "member",
+    });
   });
 
   test("an id that is not in the list says so", async () => {

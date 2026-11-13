@@ -23,9 +23,10 @@ import {
   FieldLabel,
   Input,
   Stepper,
+  Text,
 } from "@werft-ai/ui";
 import { type ReactNode, useId, useState } from "react";
-import { viewerQuery } from "../api/queries.ts";
+import { loginMethodsQuery, viewerQuery } from "../api/queries.ts";
 import {
   DISPLAY_NAME_MAX,
   INVITE_TOKEN_LENGTH,
@@ -37,6 +38,8 @@ import { StatusScreen } from "../components/status-screen.tsx";
 import { StepHeading, useStepMoved } from "../components/step-heading.tsx";
 import { FunnelResetNotice, useFunnel } from "../funnel/tanstack-funnel.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
+import { useLeave } from "../services.tsx";
+import { POST_LOGIN_PATH_KEY } from "./login.tsx";
 
 /**
  * Redeeming an invite link. Whoever opens it may or may not be signed in,
@@ -203,6 +206,8 @@ function AcceptFlow({ token }: { readonly token: string }) {
     }
   };
 
+  const signUp = useProviderStart(token, setEnded);
+
   if (ended === "INVITE_EXPIRED") {
     return (
       <StatusScreen
@@ -237,10 +242,15 @@ function AcceptFlow({ token }: { readonly token: string }) {
       <Stepper label={t("invite.steps")} {...stepper} />
       <funnel.Render
         account={({ history }) => (
-          <AccountStep
-            focus={moved}
-            onPick={(account) => void history.push("password", { account })}
-          />
+          <>
+            <AccountStep
+              focus={moved}
+              // The page is on its way to a provider: not to a password too.
+              held={signUp.held}
+              onPick={(account) => void history.push("password", { account })}
+            />
+            <ProviderSignUp {...signUp} />
+          </>
         )}
         password={({ context, history }) => (
           <PasswordStep
@@ -258,9 +268,11 @@ function AcceptFlow({ token }: { readonly token: string }) {
 
 function AccountStep({
   focus,
+  held,
   onPick,
 }: {
   readonly focus: boolean;
+  readonly held: boolean;
   readonly onPick: (account: Account) => void;
 }) {
   const { t } = useI18n();
@@ -271,12 +283,112 @@ function AccountStep({
       <StepHeading focus={focus} id={questionId}>
         {t("invite.account.question")}
       </StepHeading>
-      <Button type="button" onClick={() => onPick("existing")}>
+      <Button type="button" disabled={held} onClick={() => onPick("existing")}>
         {t("invite.account.existing")}
       </Button>
-      <Button type="button" variant="outline" onClick={() => onPick("new")}>
+      <Button
+        type="button"
+        variant="outline"
+        disabled={held}
+        onClick={() => onPick("new")}
+      >
         {t("invite.account.new")}
       </Button>
+    </section>
+  );
+}
+
+/**
+ * The `state` of the sign-up this tab left for, so that a refused callback
+ * knows it was joining from an invite. The invite's token is not kept.
+ */
+export const INVITE_FLOW_KEY = "ap.inviteFlow";
+
+/**
+ * Starting to join with a provider's account in place of a password. The
+ * start binds the flow to this invite and spends nothing; the callback makes
+ * the account, with the invite's address and role. The flow calls it, above
+ * its steps, so the account choices are held with the provider buttons.
+ */
+function useProviderStart(
+  token: string,
+  onEnded: (code: "INVITE_EXPIRED" | "INVITE_USED") => void,
+) {
+  const { client } = useWerft();
+  const [held, leaveFor] = useLeave();
+
+  // The variables are the provider's id alone: the token stays out of them.
+  const start = useMutation<void, ApiError, string>({
+    meta: { public: true },
+    mutationFn: (id) =>
+      leaveFor(async () => {
+        const { authorization_url } = await unwrap(
+          client.POST("/v1/auth/providers/{id}/invite/start", {
+            params: {
+              path: { id },
+              header: { "X-Requested-With": CSRF_HEADER_VALUE },
+            },
+            body: { invite_token: token },
+          }),
+        );
+        try {
+          // A place an earlier sign-in of this tab meant to return to is not
+          // where a new member lands.
+          sessionStorage.removeItem(POST_LOGIN_PATH_KEY);
+          sessionStorage.setItem(
+            INVITE_FLOW_KEY,
+            new URL(authorization_url).searchParams.get("state") ?? "",
+          );
+        } catch {
+          // Without it a refused callback speaks of a sign-in, not of joining.
+        }
+        return authorization_url;
+      }),
+    onError: (error) => {
+      if (isApiError(error, "INVITE_EXPIRED")) onEnded("INVITE_EXPIRED");
+      else if (isApiError(error, "INVITE_USED")) onEnded("INVITE_USED");
+    },
+  });
+
+  return { start, held };
+}
+
+/**
+ * One button per login provider that is on. A failed lookup leaves the
+ * password steps.
+ */
+function ProviderSignUp({ start, held }: ReturnType<typeof useProviderStart>) {
+  const { t } = useI18n();
+  const { client } = useWerft();
+  const methods = useQuery(loginMethodsQuery(client));
+
+  const providers = methods.data?.providers ?? [];
+  if (providers.length === 0) return null;
+  return (
+    <section
+      className="flex flex-col gap-3"
+      aria-label={t("invite.provider.alternatives")}
+    >
+      <Text variant="sub" className="text-center">
+        {t("login.or")}
+      </Text>
+      <Text variant="sub">{t("invite.provider.hint")}</Text>
+      {start.error ? (
+        <FormError>{t(errorKey(start.error.code))}</FormError>
+      ) : null}
+      {providers.map((provider) => (
+        <Button
+          key={provider.id}
+          type="button"
+          variant="outline"
+          disabled={held}
+          onClick={() => start.mutate(provider.id)}
+        >
+          {held && start.variables === provider.id
+            ? t("login.provider.starting")
+            : t("invite.provider.submit", { name: provider.display_name })}
+        </Button>
+      ))}
     </section>
   );
 }

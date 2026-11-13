@@ -48,13 +48,13 @@ import {
   Link as TextLink,
 } from "@werft-ai/ui";
 import { Plus } from "lucide-react";
-import { useRef, useState } from "react";
+import { Fragment, useRef, useState } from "react";
 import { scopedKey } from "../api/queries.ts";
 import { refusalText, useHasPermission, useRole } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { isMessageKey, type Translate, useI18n } from "../i18n/i18n.tsx";
-import { useAppServices } from "../services.tsx";
+import { useLeave } from "../services.tsx";
 import {
   FormDialog,
   type Outcome,
@@ -118,7 +118,7 @@ function useProviderWrite<V, R>(
   write: (client: ApiClient, variables: V) => Promise<R>,
   handlers: {
     readonly onDone: (answer: R, variables: V) => void;
-    readonly onRefused: (text: string) => void;
+    readonly onRefused: (text: string, error: ApiError) => void;
     readonly step?: "test";
   },
 ) {
@@ -130,7 +130,10 @@ function useProviderWrite<V, R>(
     mutationFn: (variables) => write(client, variables),
     onSuccess: (answer, variables) => handlers.onDone(answer, variables),
     onError: (error) =>
-      handlers.onRefused(refusal(t, error, role, handlers.step ?? "other")),
+      handlers.onRefused(
+        refusal(t, error, role, handlers.step ?? "other"),
+        error,
+      ),
     // A refusal is often news about the provider: its revision moved.
     onSettled: () =>
       queryClient.invalidateQueries({ queryKey: listKey(client) }),
@@ -340,13 +343,16 @@ function AddProvider({
 }
 
 /** A row's action; one that is withheld stays on the page and says why. */
-function Action({
+export function Action({
   label,
+  name,
   reason,
   busy,
   onClick,
 }: {
   readonly label: string;
+  /** What it is called where rows share a label; it contains the label. */
+  readonly name?: string | undefined;
   readonly reason?: string | undefined;
   readonly busy: boolean;
   readonly onClick: (button: HTMLElement) => void;
@@ -356,6 +362,7 @@ function Action({
     // closes on a saved change gives the keyboard back to it while the
     // re-read is still out.
     <RowAction
+      aria-label={name}
       disabled={reason !== undefined}
       aria-disabled={busy || undefined}
       onClick={(event) => {
@@ -374,7 +381,18 @@ function Action({
   );
 }
 
-type Editing = "name" | "client" | "secret" | "disable" | "delete" | null;
+type Editing =
+  | "name"
+  | "client"
+  | "rules"
+  | "secret"
+  | "disable"
+  | "delete"
+  | null;
+
+// The server refuses a Google provider that does not require a verified
+// email; the screen does not offer what it would refuse.
+const GOOGLE_ISSUER = "https://accounts.google.com";
 
 export function LoginProviderScreen() {
   const { t } = useI18n();
@@ -440,7 +458,7 @@ function ProviderSettings({
 }) {
   const { t, locale } = useI18n();
   const navigate = useNavigate();
-  const { leave } = useAppServices();
+  const [held, leaveFor] = useLeave();
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [editing, setEditing] = useState<Editing>(null);
   const [dialogError, setDialogError] = useState<string | null>(null);
@@ -449,10 +467,24 @@ function ProviderSettings({
   const refused = (text: string) => setOutcome({ kind: "error", text });
   const notice = (text: string) => setOutcome({ kind: "notice", text });
   const [opener, setOpener] = useState<HTMLElement | null>(null);
+  // The revision the open form's fields were filled from. A change goes
+  // under it and not under the latest one read, so a form that is older than
+  // the provider is refused instead of undoing what was saved since.
+  const [filledAt, setFilledAt] = useState(provider.revision);
+  const [refill, setRefill] = useState(false);
+  // A form refused as stale starts over on what was read since.
+  if (refill && provider.revision !== filledAt) {
+    setFilledAt(provider.revision);
+    setRefill(false);
+  }
   const open = (next: Editing, button?: HTMLElement) => {
     setOutcome(null);
     setDialogError(null);
     if (button) setOpener(button);
+    if (next !== null) {
+      setFilledAt(provider.revision);
+      setRefill(false);
+    }
     setEditing(next);
   };
   const saved = () => {
@@ -467,18 +499,27 @@ function ProviderSettings({
         display_name?: string;
         client_id?: string;
         token_auth_method?: LoginProviderView["token_auth_method"];
+        allowed_domains?: string[];
+        jit_role?: "member" | null;
+        require_verified_email?: boolean;
       },
     ) =>
       unwrap(
         api.PATCH("/v1/login-providers/{id}", {
           params: {
             path: { id: provider.id },
-            header: { "If-Match": String(provider.revision) },
+            header: { "If-Match": String(filledAt) },
           },
           body,
         }),
       ),
-    { onDone: saved, onRefused: setDialogError },
+    {
+      onDone: saved,
+      onRefused: (text, error) => {
+        setDialogError(text);
+        if (error.code === "VERSION_MISMATCH") setRefill(true);
+      },
+    },
   );
   // The secret on its way from the dialog to the request. Not the mutation's
   // variables: the cache keeps those for as long as this screen is mounted.
@@ -516,14 +557,15 @@ function ProviderSettings({
       onRefused: refused,
     },
   );
+  // A test rides the flow a sign-in rides, so it leaves the way one does.
   const test = useProviderWrite(
     (api, _: undefined) =>
-      unwrap(api.POST("/v1/login-providers/{id}/test/start", id)),
-    {
-      onDone: ({ authorization_url }) => leave(authorization_url),
-      onRefused: refused,
-      step: "test",
-    },
+      leaveFor(
+        async () =>
+          (await unwrap(api.POST("/v1/login-providers/{id}/test/start", id)))
+            .authorization_url,
+      ),
+    { onDone: () => {}, onRefused: refused, step: "test" },
   );
   const enable = useProviderWrite(
     (api, _: undefined) =>
@@ -719,6 +761,41 @@ function ProviderSettings({
         }
       />
       <SettingsSection
+        title={t("loginProviders.section.rules")}
+        description={t("loginProviders.section.rulesHint")}
+        actions={
+          <Action
+            label={t("loginProviders.rulesEdit")}
+            busy={busy}
+            onClick={(button) => open("rules", button)}
+          />
+        }
+        rows={
+          <>
+            <SettingRow
+              title={t("loginProviders.domains")}
+              meta={
+                provider.allowed_domains.length > 0
+                  ? provider.allowed_domains.join(", ")
+                  : t("loginProviders.domainsAny")
+              }
+            />
+            <SettingRow
+              title={t("loginProviders.jit")}
+              meta={t(`loginProviders.jit.${provider.jit_role ?? "off"}`)}
+            />
+            <SettingRow
+              title={t("loginProviders.verified")}
+              meta={t(
+                provider.require_verified_email
+                  ? "loginProviders.verified.required"
+                  : "loginProviders.verified.optional",
+              )}
+            />
+          </>
+        }
+      />
+      <SettingsSection
         title={t("loginProviders.section.test")}
         description={t(`loginProviders.stateHint.${provider.state}`)}
         rows={
@@ -748,7 +825,7 @@ function ProviderSettings({
                       ? t("loginProviders.error.clientMissing")
                       : undefined
                   }
-                  busy={busy}
+                  busy={busy || held}
                   onClick={() => {
                     setOutcome(null);
                     test.mutate(undefined);
@@ -818,16 +895,18 @@ function ProviderSettings({
           });
         }}
       >
-        <Field>
-          <FieldLabel>{t("loginProviders.name")}</FieldLabel>
-          <Input
-            name="display_name"
-            required
-            maxLength={64}
-            autoComplete="off"
-            defaultValue={provider.display_name}
-          />
-        </Field>
+        <Fragment key={filledAt}>
+          <Field>
+            <FieldLabel>{t("loginProviders.name")}</FieldLabel>
+            <Input
+              name="display_name"
+              required
+              maxLength={64}
+              autoComplete="off"
+              defaultValue={provider.display_name}
+            />
+          </Field>
+        </Fragment>
       </FormDialog>
       <FormDialog
         open={editing === "client"}
@@ -849,31 +928,115 @@ function ProviderSettings({
           });
         }}
       >
-        <Field>
-          <FieldLabel>{t("loginProviders.clientId")}</FieldLabel>
-          <Input
-            name="client_id"
-            required
-            maxLength={512}
-            autoComplete="off"
-            spellCheck={false}
-            defaultValue={provider.client_id ?? ""}
-          />
-        </Field>
-        <Field>
-          <FieldLabel>{t("loginProviders.authMethod")}</FieldLabel>
-          <NativeSelect
-            name="token_auth_method"
-            defaultValue={provider.token_auth_method}
-          >
-            <NativeSelectOption value="client_secret_basic">
-              {t("loginProviders.authMethod.client_secret_basic")}
-            </NativeSelectOption>
-            <NativeSelectOption value="client_secret_post">
-              {t("loginProviders.authMethod.client_secret_post")}
-            </NativeSelectOption>
-          </NativeSelect>
-        </Field>
+        <Fragment key={filledAt}>
+          <Field>
+            <FieldLabel>{t("loginProviders.clientId")}</FieldLabel>
+            <Input
+              name="client_id"
+              required
+              maxLength={512}
+              autoComplete="off"
+              spellCheck={false}
+              defaultValue={provider.client_id ?? ""}
+            />
+          </Field>
+          <Field>
+            <FieldLabel>{t("loginProviders.authMethod")}</FieldLabel>
+            <NativeSelect
+              name="token_auth_method"
+              defaultValue={provider.token_auth_method}
+            >
+              <NativeSelectOption value="client_secret_basic">
+                {t("loginProviders.authMethod.client_secret_basic")}
+              </NativeSelectOption>
+              <NativeSelectOption value="client_secret_post">
+                {t("loginProviders.authMethod.client_secret_post")}
+              </NativeSelectOption>
+            </NativeSelect>
+          </Field>
+        </Fragment>
+      </FormDialog>
+      <FormDialog
+        open={editing === "rules"}
+        onOpenChange={(next) => open(next ? "rules" : null)}
+        opener={opener}
+        pending={change.isPending}
+        title={t("loginProviders.section.rules")}
+        description={t("loginProviders.rulesEditDescription")}
+        error={dialogError}
+        submitLabel={t("settings.save")}
+        pendingLabel={t("settings.saving")}
+        onSubmit={(form) => {
+          setDialogError(null);
+          const verified = form.get("require_verified_email");
+          change.mutate({
+            allowed_domains: String(form.get("allowed_domains"))
+              .toLowerCase()
+              .split(/[\s,]+/)
+              .filter(Boolean),
+            jit_role: form.get("jit_role") === "member" ? "member" : null,
+            // Not in the form of a provider that cannot change it.
+            ...(verified === null
+              ? {}
+              : { require_verified_email: verified === "true" }),
+          });
+        }}
+      >
+        <Fragment key={filledAt}>
+          <Field>
+            <FieldLabel>{t("loginProviders.domains")}</FieldLabel>
+            <Input
+              name="allowed_domains"
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="example.com"
+              defaultValue={provider.allowed_domains.join(", ")}
+            />
+            <FieldDescription>
+              {t("loginProviders.domainsHint")}
+            </FieldDescription>
+          </Field>
+          <Field>
+            <FieldLabel>{t("loginProviders.jit")}</FieldLabel>
+            <NativeSelect
+              name="jit_role"
+              defaultValue={provider.jit_role ?? ""}
+            >
+              <NativeSelectOption value="">
+                {t("loginProviders.jit.off")}
+              </NativeSelectOption>
+              <NativeSelectOption value="member">
+                {t("loginProviders.jit.member")}
+              </NativeSelectOption>
+            </NativeSelect>
+            <FieldDescription>{t("loginProviders.jitHint")}</FieldDescription>
+          </Field>
+          <Field>
+            <FieldLabel>{t("loginProviders.verified")}</FieldLabel>
+            {provider.issuer === GOOGLE_ISSUER ? (
+              <FieldDescription>
+                {t("loginProviders.verifiedGoogle")}
+              </FieldDescription>
+            ) : (
+              <>
+                <NativeSelect
+                  name="require_verified_email"
+                  defaultValue={String(provider.require_verified_email)}
+                >
+                  <NativeSelectOption value="true">
+                    {t("loginProviders.verified.required")}
+                  </NativeSelectOption>
+                  <NativeSelectOption value="false">
+                    {t("loginProviders.verified.optional")}
+                  </NativeSelectOption>
+                </NativeSelect>
+                <FieldDescription>
+                  {t("loginProviders.verifiedHint")}
+                </FieldDescription>
+              </>
+            )}
+          </Field>
+        </Fragment>
       </FormDialog>
       <FormDialog
         open={editing === "secret"}

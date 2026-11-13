@@ -57,7 +57,7 @@ export const authKo = {
   "invite.submit": "초대 수락",
   "invite.submitting": "수락하는 중…",
   "invite.wrongPassword":
-    "비밀번호가 맞지 않습니다. 이 이메일로 이미 계정이 있으면 그 계정의 비밀번호를 넣으세요. Google로만 로그인해 온 계정은 비밀번호가 없어 여기서 수락할 수 없습니다 — 소유자나 관리자에게 다시 활성화해 달라고 요청하세요.",
+    "비밀번호가 맞지 않습니다. 이 이메일로 이미 계정이 있으면 그 계정의 비밀번호를 넣으세요. SSO로만 로그인해 온 계정은 비밀번호가 없어 여기서 수락할 수 없습니다 — 소유자나 관리자에게 다시 활성화해 달라고 요청하세요.",
   "invite.expired.title": "쓸 수 없는 초대입니다",
   "invite.expired.body":
     "만료됐거나 회수된 초대입니다. 초대한 사람에게 새 링크를 요청하세요.",
@@ -76,6 +76,14 @@ export const authKo = {
   "invite.account.question": "초대받은 이메일로 쓰는 계정이 있나요?",
   "invite.account.existing": "네, 계정이 있습니다",
   "invite.account.new": "아니요, 처음입니다",
+  "invite.provider.alternatives": "비밀번호 없이 가입",
+  "invite.provider.hint":
+    "처음이면 로그인 공급자의 계정으로 가입할 수도 있습니다. 비밀번호는 정하지 않고, 계정의 이메일은 초대받은 주소가 됩니다.",
+  "invite.provider.submit": "{name} 계정으로 가입",
+  "invite.provider.refused":
+    "가입하지 못했습니다 — 받은 초대 링크를 다시 열어 처음부터 시도하세요. 계속 안 되면 초대가 회수됐거나 만료됐을 수 있으니 초대한 사람에게 문의하세요.",
+  "invite.provider.cancelled":
+    "가입을 마치지 못했습니다 — 받은 초대 링크를 다시 열어 시도하세요.",
   "invite.passwordTitle.existing": "기존 계정으로 수락",
   "invite.passwordTitle.new": "새 계정으로 수락",
   "invite.back": "이전",
@@ -144,7 +152,7 @@ export const authEn: Record<keyof typeof authKo, string> = {
   "invite.submit": "Accept invite",
   "invite.submitting": "Accepting…",
   "invite.wrongPassword":
-    "The password does not match. If this email already has an account, enter that account's password. An account that only signs in with Google has no password and cannot accept here — ask an owner or admin to re-enable it.",
+    "The password does not match. If this email already has an account, enter that account's password. An account that only signs in with SSO has no password and cannot accept here — ask an owner or admin to re-enable it.",
   "invite.expired.title": "This invite cannot be used",
   "invite.expired.body":
     "It expired or was revoked. Ask whoever invited you for a new link.",
@@ -166,6 +174,14 @@ export const authEn: Record<keyof typeof authKo, string> = {
   "invite.passwordTitle.existing": "Accept with your account",
   "invite.passwordTitle.new": "Accept with a new account",
   "invite.account.new": "No, I am new here",
+  "invite.provider.alternatives": "Join without a password",
+  "invite.provider.hint":
+    "If you are new, you can also join with a sign-in provider's account. No password is set, and the account's email is the invited address.",
+  "invite.provider.submit": "Join with {name}",
+  "invite.provider.refused":
+    "Could not join — open your invite link again and start over. If it keeps failing, the invite may have been revoked or expired, so ask whoever invited you.",
+  "invite.provider.cancelled":
+    "Joining was not completed — open your invite link again to retry.",
   "invite.back": "Back",
   "invite.invalid.title": "This invite link is not valid",
   "invite.invalid.body":
@@ -233,7 +249,7 @@ export const authJa: Record<keyof typeof authKo, string> = {
   "invite.submit": "招待を承諾",
   "invite.submitting": "承諾中…",
   "invite.wrongPassword":
-    "パスワードが一致しません。このメールアドレスのアカウントがすでにある場合は、そのアカウントのパスワードを入力してください。Google ログインのみで利用してきたアカウントにはパスワードがないため、ここでは承諾できません。オーナーまたは管理者に再有効化を依頼してください。",
+    "パスワードが一致しません。このメールアドレスのアカウントがすでにある場合は、そのアカウントのパスワードを入力してください。SSO ログインのみで利用してきたアカウントにはパスワードがないため、ここでは承諾できません。オーナーまたは管理者に再有効化を依頼してください。",
   "invite.expired.title": "この招待は使用できません",
   "invite.expired.body":
     "期限切れか、取り消された招待です。招待した人に新しいリンクを依頼してください。",
@@ -253,6 +269,14 @@ export const authJa: Record<keyof typeof authKo, string> = {
     "招待されたメールアドレスのアカウントをお持ちですか？",
   "invite.account.existing": "はい、アカウントがあります",
   "invite.account.new": "いいえ、初めてです",
+  "invite.provider.alternatives": "パスワードなしで参加",
+  "invite.provider.hint":
+    "初めての場合は、ログインプロバイダーのアカウントで参加することもできます。パスワードは設定せず、アカウントのメールアドレスは招待されたアドレスになります。",
+  "invite.provider.submit": "{name} で参加",
+  "invite.provider.refused":
+    "参加できませんでした。受け取った招待リンクをもう一度開いて、最初からお試しください。解決しない場合は、招待が取り消されたか期限切れの可能性があるため、招待した人にお問い合わせください。",
+  "invite.provider.cancelled":
+    "参加が完了しませんでした。受け取った招待リンクをもう一度開いてお試しください。",
   "invite.passwordTitle.existing": "既存のアカウントで承諾",
   "invite.passwordTitle.new": "新しいアカウントで承諾",
   "invite.back": "戻る",

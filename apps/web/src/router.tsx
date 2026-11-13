@@ -43,6 +43,7 @@ import {
   loginSearch,
   safeRedirect,
 } from "./routes/login.tsx";
+import { LoginMethodsScreen } from "./routes/login-methods.tsx";
 import {
   LoginProviderScreen,
   LoginProvidersScreen,
@@ -319,6 +320,12 @@ const preferences = createRoute({
   component: PreferencesScreen,
 });
 
+const loginMethods = createRoute({
+  getParentRoute: () => authed,
+  path: "/settings/login-methods",
+  component: LoginMethodsScreen,
+});
+
 const workspaceSettings = createRoute({
   getParentRoute: () => authed,
   path: "/settings/workspace",
@@ -481,6 +488,7 @@ const routeTree = root.addChildren([
     newAgentKey,
     oldOrgKeys,
     preferences,
+    loginMethods,
     workspaceSettings,
     achievementRules,
     workspaceSlack,

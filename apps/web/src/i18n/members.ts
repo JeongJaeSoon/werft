@@ -50,7 +50,7 @@ export const membersKo = {
   "members.invite.submit": "초대 링크 만들기",
   "members.invite.submitting": "만드는 중…",
   "members.invite.disabledHint":
-    "{name}님은 비활성 상태의 구성원입니다. 다시 초대하지 말고 목록에서 다시 활성화하세요. Google로만 로그인하던 계정은 비밀번호가 없어 초대를 수락할 수 없습니다.",
+    "{name}님은 비활성 상태의 구성원입니다. 다시 초대하지 말고 목록에서 다시 활성화하세요. SSO로만 로그인하던 계정은 비밀번호가 없어 초대를 수락할 수 없습니다.",
   "members.invite.link": "초대 링크",
   "members.invite.linkOnce":
     "이 링크는 지금 한 번만 보입니다. {expires}까지 쓸 수 있습니다. 초대할 사람에게 직접 전하세요.",
@@ -150,7 +150,7 @@ export const membersEn: Record<keyof typeof membersKo, string> = {
   "members.invite.submit": "Create invite link",
   "members.invite.submitting": "Creating…",
   "members.invite.disabledHint":
-    "{name} is a disabled member. Re-enable them in the list instead of inviting again: an account that only logs in with Google has no password and cannot accept an invite.",
+    "{name} is a disabled member. Re-enable them in the list instead of inviting again: an account that only logs in with SSO has no password and cannot accept an invite.",
   "members.invite.link": "Invite link",
   "members.invite.linkOnce":
     "This link is shown only now and works until {expires}. Send it to the person yourself.",
@@ -253,7 +253,7 @@ export const membersJa: Record<keyof typeof membersKo, string> = {
   "members.invite.submit": "招待リンクを作成",
   "members.invite.submitting": "作成中…",
   "members.invite.disabledHint":
-    "{name}さんは無効化されたメンバーです。招待し直さずに、一覧から再有効化してください。Google ログインのみで利用していたアカウントにはパスワードがないため、招待を承諾できません。",
+    "{name}さんは無効化されたメンバーです。招待し直さずに、一覧から再有効化してください。SSO ログインのみで利用していたアカウントにはパスワードがないため、招待を承諾できません。",
   "members.invite.link": "招待リンク",
   "members.invite.linkOnce":
     "このリンクは今回のみ表示されます。{expires}まで使えます。招待する人に直接伝えてください。",

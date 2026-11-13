@@ -14,6 +14,7 @@ import { githubUserLinkEn } from "./github-user-link.ts";
 import { homeEn } from "./home.ts";
 import type { MessageKey } from "./ko.ts";
 import { linkedEn } from "./linked.ts";
+import { loginMethodsEn } from "./login-methods.ts";
 import { loginProvidersEn } from "./login-providers.ts";
 import { membersEn } from "./members.ts";
 import { modelsEn } from "./models.ts";
@@ -232,6 +233,7 @@ export const en: Record<MessageKey, string> = {
   ...sessionListEn,
   ...flowEn,
   ...linkedEn,
+  ...loginMethodsEn,
   ...loginProvidersEn,
   ...outputsEn,
   ...apiKeysEn,

@@ -54,6 +54,11 @@ import { ja, slackJa } from "./ja.ts";
 import { ko, slackKo } from "./ko.ts";
 import { linkedEn, linkedJa, linkedKo } from "./linked.ts";
 import {
+  loginMethodsEn,
+  loginMethodsJa,
+  loginMethodsKo,
+} from "./login-methods.ts";
+import {
   loginProvidersEn,
   loginProvidersJa,
   loginProvidersKo,
@@ -241,6 +246,7 @@ describe("i18n", () => {
         sessionListKo,
         flowKo,
         linkedKo,
+        loginMethodsKo,
         loginProvidersKo,
         outputsKo,
         apiKeysKo,
@@ -272,6 +278,7 @@ describe("i18n", () => {
         sessionListJa,
         flowJa,
         linkedJa,
+        loginMethodsJa,
         loginProvidersJa,
         outputsJa,
         apiKeysJa,
@@ -303,6 +310,7 @@ describe("i18n", () => {
         sessionListEn,
         flowEn,
         linkedEn,
+        loginMethodsEn,
         loginProvidersEn,
         outputsEn,
         apiKeysEn,

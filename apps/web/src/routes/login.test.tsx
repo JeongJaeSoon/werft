@@ -2,9 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { loginMethodsResponseSchema } from "@werft-ai/contracts";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
 import { apiError, json, me, memberPage } from "../test-support/fake-api.ts";
-import { appHarness } from "../test-support/render-app.tsx";
+import { appHarness, comeBack } from "../test-support/render-app.tsx";
 
-const { renderAt, screen, waitFor } = await appHarness();
+const { act, renderAt, screen, waitFor } = await appHarness();
 
 const GOOGLE = {
   id: "5b0c7e2a-9d41-4f6b-8a3e-7c1d2e3f4a5b",
@@ -84,16 +84,59 @@ describe("로그인 수단 선택", () => {
       await screen.findByRole("button", { name: "Google 계정으로 로그인" }),
     );
     await waitFor(() => expect(left).toEqual([AUTHORIZE]));
-    // Coming back from the provider's page (back button) can start again.
-    expect(
+    // The page is still here while the provider's loads: a second start
+    // would replace the flow the browser is on its way to.
+    const held = () =>
       screen
-        .getByRole("button", { name: "Google 계정으로 로그인" })
-        .hasAttribute("disabled"),
-    ).toBe(false);
+        .getAllByRole("button", { name: /Keycloak|이동하는 중/ })
+        .map((button) => button.hasAttribute("disabled"));
+    expect(held()).toEqual([true, true]);
+    // A page shown for the first time is not one come back to. Inside act,
+    // so what the event changed is drawn before the buttons are read.
+    await act(async () => {
+      window.dispatchEvent(new Event("pageshow"));
+    });
+    expect(held()).toEqual([true, true]);
+    await user.click(
+      screen.getByRole("button", { name: "Keycloak 계정으로 로그인" }),
+    );
+    // Coming back from the provider's page (back button) can start again.
+    comeBack();
+    await waitFor(() =>
+      expect(
+        screen
+          .getAllByRole("button", { name: /계정으로 로그인$/ })
+          .map((button) => button.hasAttribute("disabled")),
+      ).toEqual([false, false]),
+    );
     const starts = api.calls.filter((c) => c.path.endsWith("/start"));
     expect(starts.map((c) => c.path)).toEqual([START]);
     expect(starts[0]?.headers.get("x-requested-with")).toBe("werft-web");
     expect(sessionStorage.getItem("ap.postLoginPath")).toBe("/members");
+  });
+
+  test("버튼이 잡힌 것으로 다시 그려지기 전에 또 눌려도 시작은 한 번이다", async () => {
+    const { api, left } = renderAt("/login", {
+      ...methods(GOOGLE, KEYCLOAK),
+      [`POST ${START}`]: () => json(200, { authorization_url: AUTHORIZE }),
+      [`POST /v1/auth/providers/${KEYCLOAK.id}/start`]: () =>
+        json(200, { authorization_url: "https://keycloak.test/authorize" }),
+    });
+    const google = await screen.findByRole("button", {
+      name: "Google 계정으로 로그인",
+    });
+    const keycloak = screen.getByRole("button", {
+      name: "Keycloak 계정으로 로그인",
+    });
+    // Inside one act React draws nothing between the two presses.
+    await act(async () => {
+      google.click();
+      keycloak.click();
+    });
+    await waitFor(() => expect(left).toEqual([AUTHORIZE]));
+    expect(
+      api.calls.filter((c) => c.path.endsWith("/start")).map((c) => c.path),
+    ).toEqual([START]);
   });
 });
 
@@ -137,15 +180,17 @@ describe("공급자 콜백", () => {
     ).toEqual({ provider_id: GOOGLE.id, code: "c1", state: "s1" });
   });
 
-  test("연결로 끝난 흐름은 내 계정으로 돌아가고, 기억한 곳은 쓰지 않는다", async () => {
+  test("연결로 끝난 흐름은 내 로그인 수단으로 돌아가고, 기억한 곳은 쓰지 않는다", async () => {
     sessionStorage.setItem("ap.postLoginPath", "/members");
     const { history } = renderAt(`${CALLBACK_PAGE}?code=c1&state=s1`, {
       "POST /v1/auth/oidc/callback": () =>
         json(200, { outcome: "linked", provider_id: GOOGLE.id }),
       "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/auth/me/login-methods": () =>
+        json(200, { methods: [], linkable: [], can_change: true }),
     });
     await waitFor(() =>
-      expect(history.location.pathname).toBe("/settings/preferences"),
+      expect(history.location.pathname).toBe("/settings/login-methods"),
     );
     expect(sessionStorage.getItem("ap.postLoginPath")).toBe("/members");
     sessionStorage.removeItem("ap.postLoginPath");
