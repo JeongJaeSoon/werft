@@ -1,0 +1,154 @@
+---
+title: "ログインの復旧"
+description: "SSO が壊れた設置に、緊急管理者か復旧コマンドで入り直します"
+pageId: "P35"
+docType: "作業"
+audience: "障害対応の運用者"
+outcome: "SSO が壊れた設置に、緊急管理者か復旧コマンドで入り直します"
+---
+
+<a id="무엇을-하게-되나" />
+## 作業内容
+
+ログインプロバイダー（IdP）やその設定が壊れて、誰もコンソールに入れないときに入り直します。方法は二つです。
+
+| 方法 | 誰が | いつ |
+| --- | --- | --- |
+| 緊急管理者のパスワードログイン | 緊急管理者の owner | 緊急管理者がパスワードを知っている |
+| 復旧コマンド `login-recovery.ts` | API コンテナーでコマンドを実行できる運用者 | 緊急管理者も入れないか、緊急管理者がいない |
+
+復旧コマンドは DB を握る人のための道です。Web のセッションも owner の権限も問いません。
+
+<a id="준비물" />
+## 準備
+
+- この設置の API コンテナーでコマンドを実行する権限。コマンドはコンテナーの `DATABASE_URL` だけを使います。`PLATFORM_SECRET_KEY` や IdP の設定は要りません。
+- 単一サーバー（Compose）では API コンテナーの id。[最初の owner と利用者 key の発行](/run-server/self-hosting/users-and-keys#3-폐기-연락과-실행-권한)と同じように、この設置の status と Docker project label で確認します。
+- Kubernetes では[設置の context・namespace・fullname](/run-server/self-hosting/kubernetes#준비물)。以下の `werft` はその例の設置名です。
+- パスワードを決める owner のアドレス（再設定 token を発行するとき）。
+
+<a id="단계" />
+## 手順
+
+<a id="1-상태-보기" />
+### 1. 状態の確認
+
+まず、何も変えない `status` で今の状態を見ます。
+
+```bash
+API_CONTAINER='<api-container-id-from-this-installation>'
+docker exec "$API_CONTAINER" bun run apps/control-host/src/api/login-recovery.ts status
+```
+
+Kubernetes では次を使います。以下の手順の他のコマンドも、`status` の部分だけを替えて同じ方法で実行します。
+
+```bash
+kubectl -n werft exec deploy/werft-api -c api -- \
+  bun run apps/control-host/src/api/login-recovery.ts status
+```
+
+出力は stdout の JSON 一行です。
+
+| フィールド | 意味 |
+| --- | --- |
+| `outcome` | `ok` |
+| `password_login` | `on`（パスワードのある全員）または `emergency_only`（緊急管理者だけ） |
+| `emergency_admin` | 緊急管理者の `email` と `eligible`。`eligible` が `false` なら、その人は今パスワードでログインできません。指定がなければ `null` |
+| `providers` | プロバイダーごとの `id`、`display_name`、`issuer`、`enabled` |
+
+<a id="2-비상-관리자로-로그인" />
+### 2. 緊急管理者でのログイン
+
+`emergency_admin.eligible` が `true` で、その人がパスワードを知っていれば、コマンドなしで入れます。
+
+1. コンソールの `/login` を開きます。パスワードログインが閉じていれば、プロバイダーのボタンの下の**緊急管理者ログイン**を押します。
+2. 緊急管理者のメールアドレスとパスワードでログインします。
+3. **設定 > ワークスペース > ログイン**で、壊れたプロバイダーをオフにするか直します。オンの最後のプロバイダーをオフにするには、先に**パスワードログイン**を開きます。
+
+<a id="3-공급자를-끄거나-비밀번호-로그인을-연다" />
+### 3. プロバイダーをオフにするか、パスワードログインを開く
+
+緊急管理者も入れなければ、コマンドで変えます。`<provider-id>` は手順 1 の `providers` の `id` です。
+
+```bash
+docker exec "$API_CONTAINER" bun run apps/control-host/src/api/login-recovery.ts disable-provider --id <provider-id>
+docker exec "$API_CONTAINER" bun run apps/control-host/src/api/login-recovery.ts disable-provider --all
+docker exec "$API_CONTAINER" bun run apps/control-host/src/api/login-recovery.ts enable-password
+```
+
+| コマンド | すること |
+| --- | --- |
+| `disable-provider --id <provider-id>` | そのプロバイダーをオフにし、そのプロバイダーでログインしたセッションを切ります |
+| `disable-provider --all` | すべてのプロバイダーをオフにし、そのセッションを切ります |
+| `enable-password` | パスワードログインを全員に開き直します。すでに開いていれば何も変えません |
+
+`disable-provider` の出力は、`providers` にプロバイダーごとの切ったセッション数（`sessions_revoked`）を、行の最後に `password_login_opened` を一度示します。パスワードログインが閉じていて、このコマンドがオンのプロバイダーをオフにした結果オンのプロバイダーが一つも残らなければ、同じトランザクションでパスワードログインも開きます（`password_login_opened: true`）。別のプロバイダーがオンのまま残るか、すでにオフのプロバイダーを選んだときは開きません。そのときパスワードで入る必要があれば、`enable-password` を別に実行します。
+
+パスワードログインが開けば、パスワードのある owner は誰でも `/login` から入れます。
+
+<a id="4-비밀번호-없는-owner에게-비밀번호를-준다" />
+### 4. パスワードのない owner にパスワードを与える
+
+パスワードを知る owner がいなければ（すべての owner がプロバイダーだけで入ってきたか、緊急管理者がパスワードを忘れた）、一人の owner に一度だけ使える再設定 token を発行します。
+
+```bash
+docker exec "$API_CONTAINER" bun run apps/control-host/src/api/login-recovery.ts reset-password --email owner@example.com
+```
+
+- 対象は、アカウントとメンバーシップが有効な owner です。パスワードがなくても構いません。
+- 出力行の `token` は 60 分間に一度だけ使えます（`expires_at`）。この行をログやチケットに残さず、その owner にだけ渡します。
+- token を発行するだけでは何も変わりません。今の緊急管理者もそのままです。
+
+owner は token でパスワードを決めます。コンソールにはこの画面がないので、API を呼びます。パスワードは 12 文字以上です。
+
+```bash
+read -rs WERFT_RESET_TOKEN
+read -rs WERFT_NEW_PASSWORD
+jq -n --arg token "$WERFT_RESET_TOKEN" --arg password "$WERFT_NEW_PASSWORD" '{token: $token, password: $password}' |
+  curl -s -X POST "$CONSOLE_ORIGIN/v1/auth/password-reset" -H 'Content-Type: application/json' --data-binary @-
+unset WERFT_RESET_TOKEN WERFT_NEW_PASSWORD
+```
+
+成功すると、その owner のパスワードが決まり、その owner のすべてのセッションが切れ、同じトランザクションでその owner が緊急管理者になります。この token はパスワードログインが閉じていても使えます。その owner は手順 2 で入ります。
+
+<a id="5-고친-뒤-다시-닫기" />
+### 5. 直した後に閉じ直す
+
+プロバイダーを直し、テストログインが通ったらオンにします。パスワードログインを閉じ直すには [SSO ログインの構成](/run-server/self-hosting/sso#10-비밀번호-로그인-닫기와-비상-관리자)に従います。復旧コマンドには閉じるコマンドはありません。
+
+<a id="확인" />
+## 確認
+
+- `status` をもう一度実行し、`password_login`、`emergency_admin.eligible`、プロバイダーの `enabled` が望んだ値か見ます。
+- コマンドが変えたことは DB の `receipts` テーブルに残ります（`set_password_login`、`disable_login_provider`、`issue_password_reset`、`reset_password`）。人が行ったものではないので `actor` は空で、`result` の `by` か `issued_by` が `operator_cli` です。
+
+| 終了コード | 意味 |
+| --- | --- |
+| 0 | 完了。変えるものがなかったときも 0 です |
+| 1 | 予期しないエラー（DB 接続など）。stderr を見ます |
+| 2 | 使い方の誤り、または `DATABASE_URL` がない |
+| 3 | そのプロバイダーがないか、そのアドレスの有効な owner がいない |
+
+<a id="자주-막히는-곳" />
+## よくある問題
+
+| 症状 | 原因と対処 |
+| --- | --- |
+| `reset-password` が終了コード 3 | そのアドレスの owner がいないか、アカウントかメンバーシップが無効です。admin・member には発行できません。`status` と**メンバー**画面で owner のアドレスを確認します |
+| `disable-provider --id` が終了コード 2 | id が UUID の形ではありません。`status` の `id` をそのまま使います |
+| プロバイダーをオフにしたのにパスワードで入れない | 別のプロバイダーがオンなので、パスワードログインは閉じたままです。`enable-password` を実行します |
+| 緊急管理者がパスワードを入れても拒否される | `eligible` が `false` です（owner でなくなったか、アカウントが無効になった）。手順 4 で別の owner にパスワードを与えます |
+| 失敗を重ねると `429` になる | パスワードログインの失敗ウィンドウにかかりました。少し待ってからやり直します |
+| owner が API で発行した再設定リンクが `409` | パスワードログインが閉じていると、緊急管理者以外の人宛てにはリンクを発行できません。このコマンドの `reset-password` を使います |
+
+<a id="되돌리기" />
+## 元に戻す
+
+- オフにしたプロバイダーは、設定を変えていなければテストし直さずに**オンにする**でオンに戻せます。client の値やルール、設定ドキュメントを変えていれば、テストログインが通らないとオンにできません。
+- 開いたパスワードログインは、コンソールで閉じ直します。
+- 使わなかった再設定 token は 60 分後に期限切れになります。その間に同じ owner 宛てに token を発行し直すと、前の token は使えなくなります。
+
+<a id="다음에-읽을-곳" />
+## 次に読む
+
+[SSO ログインの構成](/run-server/self-hosting/sso)、[SSO プロバイダーごとの値と理由コード](/run-server/self-hosting/reference/sso-providers)。

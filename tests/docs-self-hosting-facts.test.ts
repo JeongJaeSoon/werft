@@ -109,13 +109,13 @@ function facts(source: string) {
 }
 
 describe("self-hosting translation facts", () => {
-  test("Japanese implements all 29 approved destination pages", () => {
+  test("Japanese implements all 32 approved destination pages", () => {
     const implemented = new Set(
       Object.values(states)
         .filter((entry) => entry.locales.ja === "implemented")
         .flatMap((entry) => entry.paths),
     );
-    expect(implemented.size).toBe(29);
+    expect(implemented.size).toBe(32);
     expect([...implemented].sort()).toEqual(
       pages.map((page) => `run-server/self-hosting/${page.path}`).sort(),
     );

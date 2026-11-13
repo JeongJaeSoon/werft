@@ -1,0 +1,142 @@
+---
+title: "로그인 복구"
+description: "SSO가 망가진 설치에 비상 관리자나 복구 명령으로 다시 들어간다"
+pageId: "P35"
+docType: "작업"
+audience: "장애 대응 운영자"
+outcome: "SSO가 망가진 설치에 비상 관리자나 복구 명령으로 다시 들어간다"
+---
+
+## 무엇을 하게 되나
+
+로그인 공급자(IdP)나 그 설정이 망가져 아무도 콘솔에 들어오지 못할 때 다시 들어간다. 길은 둘이다.
+
+| 길 | 누가 | 언제 |
+| --- | --- | --- |
+| 비상 관리자 비밀번호 로그인 | 비상 관리자 owner | 비상 관리자가 비밀번호를 알고 있다 |
+| 복구 명령 `login-recovery.ts` | API 컨테이너에서 명령을 돌릴 수 있는 운영자 | 비상 관리자도 들어오지 못하거나, 비상 관리자가 없다 |
+
+복구 명령은 DB를 쥔 사람의 길이다. 웹 세션도 owner 권한도 묻지 않는다.
+
+## 준비물
+
+- 이 설치의 API 컨테이너에서 명령을 돌릴 권한. 명령은 컨테이너의 `DATABASE_URL`만 쓴다. `PLATFORM_SECRET_KEY`나 IdP 설정은 필요 없다.
+- 단일 서버(Compose)는 API 컨테이너 id. [첫 owner와 사용자 key 발급](/run-server/self-hosting/users-and-keys#3-폐기-연락과-실행-권한)과 같이 이 설치의 status와 Docker project label로 확인한다.
+- Kubernetes는 [설치의 context·namespace·fullname](/run-server/self-hosting/kubernetes#준비물). 아래 `werft`는 그 예시 설치 이름이다.
+- 비밀번호를 정할 owner의 주소(재설정 token을 낼 때).
+
+## 단계
+
+### 1. 상태 보기
+
+먼저 바꾸지 않는 `status`로 지금 상태를 본다.
+
+```bash
+API_CONTAINER='<api-container-id-from-this-installation>'
+docker exec "$API_CONTAINER" bun run apps/control-host/src/api/login-recovery.ts status
+```
+
+Kubernetes에서는 다음을 쓴다. 아래 단계의 다른 명령도 `status` 자리만 바꿔 같은 방식으로 돌린다.
+
+```bash
+kubectl -n werft exec deploy/werft-api -c api -- \
+  bun run apps/control-host/src/api/login-recovery.ts status
+```
+
+출력은 stdout의 JSON 한 줄이다.
+
+| 필드 | 뜻 |
+| --- | --- |
+| `outcome` | `ok` |
+| `password_login` | `on`(비밀번호가 있는 모든 사람) 또는 `emergency_only`(비상 관리자만) |
+| `emergency_admin` | 비상 관리자의 `email`과 `eligible`. `eligible`이 `false`면 그 사람은 지금 비밀번호로 로그인할 수 없다. 지정이 없으면 `null` |
+| `providers` | 공급자마다 `id`, `display_name`, `issuer`, `enabled` |
+
+### 2. 비상 관리자로 로그인
+
+`emergency_admin.eligible`이 `true`이고 그 사람이 비밀번호를 안다면 명령 없이 들어온다.
+
+1. 콘솔의 `/login`을 연다. 비밀번호 로그인이 닫혀 있으면 공급자 버튼 아래의 **비상 관리자 로그인**을 누른다.
+2. 비상 관리자의 이메일과 비밀번호로 로그인한다.
+3. **설정 > 워크스페이스 > 로그인**에서 망가진 공급자를 끄거나 고친다. 마지막으로 켜진 공급자를 끄려면 먼저 **비밀번호 로그인**을 연다.
+
+### 3. 공급자를 끄거나 비밀번호 로그인을 연다
+
+비상 관리자도 들어오지 못하면 명령으로 바꾼다. `<공급자 id>`는 1단계 `providers`의 `id`다.
+
+```bash
+docker exec "$API_CONTAINER" bun run apps/control-host/src/api/login-recovery.ts disable-provider --id <provider-id>
+docker exec "$API_CONTAINER" bun run apps/control-host/src/api/login-recovery.ts disable-provider --all
+docker exec "$API_CONTAINER" bun run apps/control-host/src/api/login-recovery.ts enable-password
+```
+
+| 명령 | 하는 일 |
+| --- | --- |
+| `disable-provider --id <공급자 id>` | 그 공급자를 끄고 그 공급자로 로그인한 세션을 끊는다 |
+| `disable-provider --all` | 모든 공급자를 끄고 그 세션을 끊는다 |
+| `enable-password` | 비밀번호 로그인을 모두에게 다시 연다. 이미 열려 있으면 바꾸지 않는다 |
+
+`disable-provider`의 출력은 `providers`에 공급자마다 끊은 세션 수(`sessions_revoked`)를, 줄 끝에 `password_login_opened`를 한 번 보인다. 비밀번호 로그인이 닫혀 있었고 이 명령이 켜진 공급자를 꺼서 켜진 공급자가 하나도 남지 않으면, 같은 트랜잭션에서 비밀번호 로그인도 연다(`password_login_opened: true`). 다른 공급자가 켜진 채 남거나 이미 꺼진 공급자를 고르면 열지 않는다. 그때 비밀번호로 들어와야 하면 `enable-password`를 따로 돌린다.
+
+비밀번호 로그인이 열리면 비밀번호가 있는 owner는 누구나 `/login`에서 들어온다.
+
+### 4. 비밀번호 없는 owner에게 비밀번호를 준다
+
+비밀번호를 아는 owner가 없으면(모든 owner가 공급자로만 들어왔거나 비상 관리자가 비밀번호를 잊었다) 한 owner에게 한 번 쓰는 재설정 token을 낸다.
+
+```bash
+docker exec "$API_CONTAINER" bun run apps/control-host/src/api/login-recovery.ts reset-password --email owner@example.com
+```
+
+- 대상은 계정과 멤버십이 켜진 owner다. 비밀번호가 없어도 된다.
+- 출력 줄의 `token`은 60분 동안 한 번 쓸 수 있다(`expires_at`). 이 줄을 로그나 티켓에 남기지 말고 그 owner에게만 건넨다.
+- token을 내기만 해서는 아무것도 바뀌지 않는다. 지금의 비상 관리자도 그대로다.
+
+owner는 token으로 비밀번호를 정한다. 콘솔에는 이 화면이 없으므로 API를 부른다. 비밀번호는 12자 이상이다.
+
+```bash
+read -rs WERFT_RESET_TOKEN
+read -rs WERFT_NEW_PASSWORD
+jq -n --arg token "$WERFT_RESET_TOKEN" --arg password "$WERFT_NEW_PASSWORD" '{token: $token, password: $password}' |
+  curl -s -X POST "$CONSOLE_ORIGIN/v1/auth/password-reset" -H 'Content-Type: application/json' --data-binary @-
+unset WERFT_RESET_TOKEN WERFT_NEW_PASSWORD
+```
+
+성공하면 그 owner의 비밀번호가 정해지고, 그 owner의 모든 세션이 끊기고, 같은 트랜잭션에서 그 owner가 비상 관리자가 된다. 이 token은 비밀번호 로그인이 닫혀 있어도 쓸 수 있다. 그 owner는 2단계로 들어온다.
+
+### 5. 고친 뒤 다시 닫기
+
+공급자를 고치고 테스트 로그인이 통과하면 켠다. 비밀번호 로그인을 다시 닫으려면 [SSO 로그인 구성](/run-server/self-hosting/sso#10-비밀번호-로그인-닫기와-비상-관리자)을 따른다. 복구 명령에는 닫는 명령이 없다.
+
+## 확인
+
+- `status`를 다시 돌려 `password_login`, `emergency_admin.eligible`, 공급자의 `enabled`가 바라던 값인지 본다.
+- 명령이 바꾼 것은 DB의 `receipts` 테이블에 남는다(`set_password_login`, `disable_login_provider`, `issue_password_reset`, `reset_password`). 사람이 한 것이 아니라서 `actor`가 비어 있고 `result`의 `by` 또는 `issued_by`가 `operator_cli`다.
+
+| 종료 코드 | 뜻 |
+| --- | --- |
+| 0 | 됐다. 바꿀 것이 없었을 때도 0이다 |
+| 1 | 예상하지 못한 오류(DB 연결 등). stderr를 본다 |
+| 2 | 사용법이 틀렸거나 `DATABASE_URL`이 없다 |
+| 3 | 그런 공급자가 없거나, 그 주소의 켜진 owner가 없다 |
+
+## 자주 막히는 곳
+
+| 증상 | 원인과 조치 |
+| --- | --- |
+| `reset-password`가 종료 코드 3 | 그 주소의 owner가 없거나, 계정이나 멤버십이 꺼져 있다. admin·member에게는 낼 수 없다. `status`와 **구성원** 화면에서 owner 주소를 확인한다 |
+| `disable-provider --id`가 종료 코드 2 | id가 UUID 모양이 아니다. `status`의 `id`를 그대로 쓴다 |
+| 공급자를 껐는데 비밀번호로 들어오지 못한다 | 다른 공급자가 켜져 있어 비밀번호 로그인이 닫힌 채다. `enable-password`를 돌린다 |
+| 비상 관리자가 비밀번호를 넣어도 거절된다 | `eligible`이 `false`다(owner가 아니게 됐거나 계정이 꺼졌다). 4단계로 다른 owner에게 비밀번호를 준다 |
+| 거듭 실패하다 `429`가 된다 | 비밀번호 로그인의 실패 창에 걸렸다. 잠시 뒤 다시 한다 |
+| owner가 API로 낸 재설정 링크가 `409` | 비밀번호 로그인이 닫혀 있으면 비상 관리자가 아닌 사람 앞으로는 링크를 낼 수 없다. 이 명령의 `reset-password`를 쓴다 |
+
+## 되돌리기
+
+- 끈 공급자는 설정을 바꾸지 않았다면 다시 테스트하지 않고 **켜기**로 다시 켠다. client 값이나 규칙, 설정 문서를 바꿨다면 테스트 로그인이 통과해야 켤 수 있다.
+- 연 비밀번호 로그인은 콘솔에서 다시 닫는다.
+- 쓰지 않은 재설정 token은 60분 뒤 만료된다. 그 사이 같은 owner 앞으로 token을 다시 내면 앞의 token은 쓸 수 없게 된다.
+
+## 다음에 읽을 곳
+
+[SSO 로그인 구성](/run-server/self-hosting/sso), [SSO 공급자별 값과 이유 코드](/run-server/self-hosting/reference/sso-providers).
