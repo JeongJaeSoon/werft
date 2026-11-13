@@ -81,6 +81,7 @@ function service(answers: Partial<Record<StoreMethod, unknown>> = {}) {
     };
   const store = {
     read: answering("read", RECORD),
+    emergencyAdminCandidates: answering("emergencyAdminCandidates", []),
     setPasswordLogin: answering("setPasswordLogin", {
       outcome: "unchanged",
       settings: RECORD,
@@ -127,13 +128,31 @@ describe("sign-in settings service", () => {
     expect(asked).toEqual([]);
   });
 
-  test("the owner reads the settings, and one with no emergency admin", async () => {
-    expect(await service().admin.read(caller("owner"))).toEqual(VIEW);
+  test("the owner reads the settings with who can be named, and one with no emergency admin", async () => {
+    const { admin, asked } = service({
+      emergencyAdminCandidates: [
+        { userId: USERS.owner, email: "owner@example.com", displayName: "O" },
+      ],
+    });
+    expect(await admin.read(caller("owner"))).toEqual({
+      settings: VIEW,
+      emergency_admin_candidates: [
+        { user_id: USERS.owner, email: "owner@example.com", display_name: "O" },
+      ],
+    });
+    // The candidates of the caller's workspace, nobody else's.
+    expect(asked.at(-1)).toEqual({
+      method: "emergencyAdminCandidates",
+      input: WORKSPACE,
+    });
     expect(
       await service({
         read: { ...RECORD, emergencyAdmin: null, enabledProviders: 0 },
       }).admin.read(caller("owner")),
-    ).toEqual({ ...VIEW, emergency_admin: null, enabled_providers: 0 });
+    ).toEqual({
+      settings: { ...VIEW, emergency_admin: null, enabled_providers: 0 },
+      emergency_admin_candidates: [],
+    });
   });
 
   test("a change goes to the store as the owner's, with a receipt id of its own", async () => {

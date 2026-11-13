@@ -16152,10 +16152,39 @@
               "enabled_providers"
             ],
             "additionalProperties": false
+          },
+          "emergency_admin_candidates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "user_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "email": {
+                  "type": "string",
+                  "maxLength": 254,
+                  "format": "email",
+                  "pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+                },
+                "display_name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "user_id",
+                "email",
+                "display_name"
+              ],
+              "additionalProperties": false
+            }
           }
         },
         "required": [
-          "settings"
+          "settings",
+          "emergency_admin_candidates"
         ],
         "additionalProperties": false
       },
@@ -46278,7 +46307,7 @@
           "Auth"
         ],
         "summary": "Who may sign in with a password, and the emergency admin",
-        "description": "The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. `password_login` is `on` (everyone with a password) or `emergency_only` (the emergency admin alone; everyone else comes in through a provider). The emergency admin is the one owner whose password sign-in stays open either way; `eligible: false` says they are no longer an owner who can sign in with a password, so another has to be named before passwords can be closed.\n\n**Auth:** cookie session only; no scope.",
+        "description": "The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. `password_login` is `on` (everyone with a password) or `emergency_only` (the emergency admin alone; everyone else comes in through a provider). The emergency admin is the one owner whose password sign-in stays open either way; `eligible: false` says they are no longer an owner who can sign in with a password, so another has to be named before passwords can be closed. `emergency_admin_candidates` are the owners of the caller's workspace who can be named (on, with a password), the one named included while still eligible; oldest membership first, at most 100.\n\n**Auth:** cookie session only; no scope.",
         "security": [
           {
             "cookieSession": []
@@ -46287,7 +46316,7 @@
         "parameters": [],
         "responses": {
           "200": {
-            "description": "The password switch, the emergency admin, and how many providers are on.",
+            "description": "The password switch, the emergency admin, how many providers are on, and who can be named emergency admin.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -46305,7 +46334,14 @@
                       "eligible": true
                     },
                     "enabled_providers": 1
-                  }
+                  },
+                  "emergency_admin_candidates": [
+                    {
+                      "user_id": "019a0000-0000-7000-8000-0000000000c1",
+                      "email": "owner@example.com",
+                      "display_name": "Owner"
+                    }
+                  ]
                 },
                 "schema": {
                   "$ref": "#/components/schemas/LoginSettingsResponse"

@@ -26,6 +26,12 @@ const SETTINGS: LoginSettingsView = {
   },
   enabled_providers: 2,
 };
+const READ = {
+  settings: SETTINGS,
+  emergency_admin_candidates: [
+    { user_id: OWNER, email: "owner@example.com", display_name: "Owner" },
+  ],
+};
 
 function request(
   admin: Partial<LoginSettingsAdmin>,
@@ -56,15 +62,15 @@ describe("sign-in settings routes", () => {
       {
         read: async (caller) => {
           callers.push(caller.ownerId);
-          return SETTINGS;
+          return READ;
         },
       },
       "GET",
     );
     expect(response.status).toBe(200);
-    expect(loginSettingsResponseSchema.parse(await response.json())).toEqual({
-      settings: SETTINGS,
-    });
+    expect(loginSettingsResponseSchema.parse(await response.json())).toEqual(
+      READ,
+    );
     expect(callers).toEqual([WORKSPACE]);
   });
 

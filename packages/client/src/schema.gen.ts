@@ -1045,7 +1045,7 @@ export interface paths {
         };
         /**
          * Who may sign in with a password, and the emergency admin
-         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. `password_login` is `on` (everyone with a password) or `emergency_only` (the emergency admin alone; everyone else comes in through a provider). The emergency admin is the one owner whose password sign-in stays open either way; `eligible: false` says they are no longer an owner who can sign in with a password, so another has to be named before passwords can be closed.
+         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. `password_login` is `on` (everyone with a password) or `emergency_only` (the emergency admin alone; everyone else comes in through a provider). The emergency admin is the one owner whose password sign-in stays open either way; `eligible: false` says they are no longer an owner who can sign in with a password, so another has to be named before passwords can be closed. `emergency_admin_candidates` are the owners of the caller's workspace who can be named (on, with a password), the one named included while still eligible; oldest membership first, at most 100.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -7911,6 +7911,13 @@ export interface components {
                 } | null;
                 enabled_providers: number;
             };
+            emergency_admin_candidates: {
+                /** Format: uuid */
+                user_id: string;
+                /** Format: email */
+                email: string;
+                display_name: string;
+            }[];
         };
         UpdateLoginSettingsResponse: {
             settings: {
@@ -18345,7 +18352,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The password switch, the emergency admin, and how many providers are on. */
+            /** @description The password switch, the emergency admin, how many providers are on, and who can be named emergency admin. */
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -18363,7 +18370,14 @@ export interface operations {
                      *           "eligible": true
                      *         },
                      *         "enabled_providers": 1
-                     *       }
+                     *       },
+                     *       "emergency_admin_candidates": [
+                     *         {
+                     *           "user_id": "019a0000-0000-7000-8000-0000000000c1",
+                     *           "email": "owner@example.com",
+                     *           "display_name": "Owner"
+                     *         }
+                     *       ]
                      *     }
                      */
                     "application/json": components["schemas"]["LoginSettingsResponse"];

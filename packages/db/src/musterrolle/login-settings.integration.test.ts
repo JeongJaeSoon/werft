@@ -289,6 +289,20 @@ integration("who may sign in with a password", () => {
     expect((await settingsRow()).emergencyAdminUserId).toBe(first);
 
     const other = await person("owner");
+    // The list a screen offers is the people the naming takes, the oldest
+    // membership first.
+    const offered = await store.emergencyAdminCandidates(workspaceId);
+    expect(offered[0]?.userId).toBe(first);
+    expect(offered.find((owner) => owner.userId === other.id)).toEqual({
+      userId: other.id,
+      email: other.email,
+      displayName: expect.any(String),
+    });
+    const offeredIds = offered.map((owner) => owner.userId);
+    for (const who of [member, admin, noPassword, off, suspended]) {
+      expect(offeredIds).not.toContain(who.id);
+    }
+    expect(await store.emergencyAdminCandidates(randomUUID())).toEqual([]);
     const named = await store.setEmergencyAdmin({
       userId: other.id,
       audit: audit(first),
@@ -808,6 +822,11 @@ integration("who may sign in with a password", () => {
         role: "member",
       });
       expect(await name()).toEqual({ outcome: "not_eligible" });
+      expect(
+        (await store.emergencyAdminCandidates(workspaceId)).map(
+          (owner) => owner.userId,
+        ),
+      ).not.toContain(split.id);
       expect((await link()).outcome).toBe("not_found");
       // Named by hand, they are shown as unable, and passwords stay open.
       const idp = await provider();

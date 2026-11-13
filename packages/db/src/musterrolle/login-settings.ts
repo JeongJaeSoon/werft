@@ -317,6 +317,35 @@ export function createPostgresLoginSettingsStore(
       return recordOf(db, row);
     },
 
+    async emergencyAdminCandidates(workspaceId) {
+      const owners = await db
+        .select({
+          userId: users.id,
+          email: users.email,
+          displayName: users.displayName,
+        })
+        .from(memberships)
+        .innerJoin(users, eq(users.id, memberships.userId))
+        .where(
+          and(
+            eq(memberships.workspaceId, workspaceId),
+            eq(memberships.role, "owner"),
+            isNull(memberships.disabledAt),
+          ),
+        )
+        .orderBy(asc(memberships.createdAt), asc(memberships.userId))
+        .limit(100);
+      const candidates: typeof owners = [];
+      for (const owner of owners) {
+        // The check the naming itself makes, so the list offers nobody it
+        // would refuse.
+        if (await ownerWithPassword(db, owner.userId, workspaceId)) {
+          candidates.push(owner);
+        }
+      }
+      return candidates;
+    },
+
     setPasswordLogin({ value, audit }) {
       return db.transaction(async (tx) => {
         const settings = await lockLoginSettings(tx, "update");

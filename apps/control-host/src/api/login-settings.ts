@@ -1,4 +1,5 @@
 import type {
+  LoginSettingsResponse,
   LoginSettingsView,
   UpdateLoginSettingsRequest,
   UpdateLoginSettingsResponse,
@@ -54,9 +55,21 @@ export function createLoginSettingsAdmin(deps: {
   store: LoginSettingsStore;
 }) {
   return {
-    async read(caller: Caller): Promise<LoginSettingsView> {
-      await requireSignInOwner(deps.authorization, caller);
-      return viewOf(await deps.store.read());
+    async read(caller: Caller): Promise<LoginSettingsResponse> {
+      const { workspaceId } = await requireSignInOwner(
+        deps.authorization,
+        caller,
+      );
+      const settings = await deps.store.read();
+      const candidates = await deps.store.emergencyAdminCandidates(workspaceId);
+      return {
+        settings: viewOf(settings),
+        emergency_admin_candidates: candidates.map((owner) => ({
+          user_id: owner.userId,
+          email: owner.email,
+          display_name: owner.displayName,
+        })),
+      };
     },
 
     async change(

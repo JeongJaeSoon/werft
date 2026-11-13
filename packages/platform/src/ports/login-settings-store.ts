@@ -56,6 +56,13 @@ export type SetEmergencyAdminResult =
 export interface LoginSettingsStore {
   read(): Promise<LoginSettingsRecord>;
   /**
+   * The workspace's owners setEmergencyAdmin would take, oldest membership
+   * first, at most 100.
+   */
+  emergencyAdminCandidates(
+    workspaceId: string,
+  ): Promise<{ userId: string; email: string; displayName: string }[]>;
+  /**
    * `emergency_only` ends, in the same transaction, the password sessions
    * of everyone but the emergency admin.
    */

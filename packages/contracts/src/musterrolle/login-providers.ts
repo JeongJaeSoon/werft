@@ -243,7 +243,22 @@ export const loginSettingsSchema = z
   .strict();
 
 export const loginSettingsResponseSchema = z
-  .object({ settings: loginSettingsSchema })
+  .object({
+    settings: loginSettingsSchema,
+    /**
+     * The owners who can be named emergency admin, the one named included
+     * while still eligible; oldest membership first, at most 100.
+     */
+    emergency_admin_candidates: z.array(
+      z
+        .object({
+          user_id: userIdSchema,
+          email: emailSchema,
+          display_name: z.string(),
+        })
+        .strict(),
+    ),
+  })
   .strict();
 
 /** One change a request: each is one transaction and one receipt. */
@@ -266,6 +281,7 @@ export const updateLoginSettingsResponseSchema = z
   .strict();
 
 export type LoginSettingsView = z.infer<typeof loginSettingsSchema>;
+export type LoginSettingsResponse = z.infer<typeof loginSettingsResponseSchema>;
 export type UpdateLoginSettingsRequest = z.infer<
   typeof updateLoginSettingsRequestSchema
 >;
