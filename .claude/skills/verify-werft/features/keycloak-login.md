@@ -167,6 +167,7 @@ keycloak_logout() {
 
 ## Gotchas
 
+- 절차는 비밀번호 로그인이 열려 있는 설치를 전제한다(새 run은 그렇다). 도중에 닫으면 8의 끄기가 `409`(`last_provider`)로 거절되고 ana의 세션이 남는다. 닫힌 설치에서 마지막 공급자는 끌 수 없다.
 - `localhost`와 `127.0.0.1`을 섞지 않는다. issuer는 `http://localhost:<port>`(Keycloak의 `--hostname`), 콘솔은 `http://127.0.0.1:<port>`(`CONSOLE_ORIGIN`)다. 콘솔을 `localhost`로 열면 cookie가 다른 host에 묶여 콜백이 `401`이다.
 - overlay는 값 셋(`KEYCLOAK_WERFT_CLIENT_SECRET`, `KEYCLOAK_WERFT_USER_PASSWORD`, `CONSOLE_ORIGIN`)이 없으면 compose 호출을 모두 거절한다. `keycloak-up.sh`가 `VERIFY_STATE_VARS`로 run의 상태에 적어 두므로 `lib.sh`·`down.sh`는 그대로 돈다. 상태 파일은 셸이 source하고 `.mjs` helper가 따로 읽으므로, `up.sh`는 따옴표가 필요 없는 값(글자·숫자와 `_.:/@%+=,-`)만 받는다. `up.sh infra/compose.keycloak.yml`을 직접 부르지 않는다.
 - Keycloak은 API의 네트워크 이름공간을 쓴다(`network_mode: "service:api"`). api 컨테이너를 다시 만들면(`ap_compose up -d api`) Keycloak도 다시 만들어야 하고, `start-dev`의 내장 DB는 volume이 없어 realm을 처음부터 다시 읽는다(사용자 id가 바뀌어 연결해 둔 계정은 다른 사람이 된다).
