@@ -199,7 +199,8 @@ async function listLoginMethods(
  * transaction, and a password goes with its method: a password sign-in
  * reads the hash, not the method row.
  *
- * Only for the session that asks, read again under the user lock.
+ * Only for the session that asks, read again under the user lock: still
+ * live, and still within the age a change is allowed from.
  *
  * The providers that are on are held FOR SHARE first (design 5.6: provider
  * rows come before the user row), so the count of what is left cannot be
@@ -225,9 +226,9 @@ async function unlinkLoginMethod(
     // Under the user lock: a password reset or a sign-out everywhere that
     // held it first has ended the session this was asked from, and what it
     // set must not be undone by a request made before it.
-    if (!user || !(await sessionIsFresh(tx, input))) {
-      return { outcome: "session_gone" };
-    }
+    const asking = user && (await liveSession(tx, input));
+    if (!user || !asking) return { outcome: "session_gone" };
+    if (!asking.fresh) return { outcome: "session_too_old" };
     const methods = await tx
       .select({
         id: loginMethods.id,
@@ -273,21 +274,32 @@ async function unlinkLoginMethod(
   });
 }
 
+/** The user's own live session, and whether it is no older than asked. */
+async function liveSession(
+  db: Database,
+  input: { sessionId: string; userId: string; maxAgeMs: number },
+): Promise<{ fresh: boolean } | undefined> {
+  const [row] = await db
+    .select({
+      fresh: sql<boolean>`${webSessions.createdAt} >= ${DB_NOW} - ${input.maxAgeMs}::double precision * interval '1 millisecond'`,
+    })
+    .from(webSessions)
+    .where(
+      and(
+        eq(webSessions.id, input.sessionId),
+        eq(webSessions.userId, input.userId),
+        isNull(webSessions.revokedAt),
+        gt(webSessions.expiresAt, DB_NOW),
+      ),
+    );
+  return row;
+}
+
 async function sessionIsFresh(
   db: Database,
   input: { sessionId: string; userId: string; maxAgeMs: number },
 ): Promise<boolean> {
-  const count = await db.$count(
-    webSessions,
-    and(
-      eq(webSessions.id, input.sessionId),
-      eq(webSessions.userId, input.userId),
-      isNull(webSessions.revokedAt),
-      gt(webSessions.expiresAt, DB_NOW),
-      sql`${webSessions.createdAt} >= ${DB_NOW} - ${input.maxAgeMs}::double precision * interval '1 millisecond'`,
-    ),
-  );
-  return count > 0;
+  return (await liveSession(db, input))?.fresh === true;
 }
 
 async function inviteForSignUp(

@@ -348,6 +348,32 @@ integration("a person's ways to sign in", () => {
       ).toBe(0);
     });
 
+    test("an invite that expires while its address is being taken says nothing of the address", async () => {
+      const inviteId = await invite("taken@example.com", 1_500);
+      const holder = await pool.connect();
+      try {
+        await holder.query("BEGIN");
+        await holder.query(
+          "INSERT INTO users (id, email, display_name) VALUES ($1, $2, $3)",
+          [randomUUID(), "taken@example.com", "Taken"],
+        );
+        const pending = signUp(inviteId, "sub-taken");
+        // Past the invite's own checks while it was live, and at the insert.
+        await lockWaiters(1);
+        await Bun.sleep(1_700);
+        // The address has an account now, and the invite is dead: dead wins.
+        await holder.query("COMMIT");
+        expect(await pending).toEqual({ outcome: "invite_gone" });
+      } finally {
+        await holder.query("ROLLBACK");
+        holder.release();
+      }
+      expect((await inviteRow(inviteId))?.acceptedAt).toBeNull();
+      expect(
+        await db.$count(loginMethods, eq(loginMethods.subject, "sub-taken")),
+      ).toBe(0);
+    });
+
     test("an invite that expires behind a row lock nobody changed signs nobody in, a linked account included", async () => {
       const inviteId = await invite("kay@example.com", 700);
       const holder = await pool.connect();
@@ -670,6 +696,39 @@ integration("a person's ways to sign in", () => {
       expect(await methodsOf(pat.id)).toHaveLength(2);
     });
 
+    test("a removal whose session grows too old in the wait is refused as too old, the session left live", async () => {
+      const rae = await person("rae@example.com");
+      const asking = await session(rae.id, rae.passwordMethodId);
+      expect(await link(rae.id, asking, "sub-rae", providerB)).toMatchObject({
+        outcome: "linked",
+      });
+      // On the database's clock: a second and a half short of ten minutes.
+      await pool.query(
+        "UPDATE web_sessions SET created_at = clock_timestamp() - interval '10 minutes' + interval '1500 milliseconds' WHERE id = $1",
+        [asking],
+      );
+      const age = { sessionId: asking, userId: rae.id, maxAgeMs: 10 * 60_000 };
+      const holder = await pool.connect();
+      let pending: ReturnType<typeof unlink>;
+      try {
+        await holder.query("BEGIN");
+        await holder.query("SELECT 1 FROM users WHERE id = $1 FOR UPDATE", [
+          rae.id,
+        ]);
+        expect(await store.sessionIsFresh(age)).toBe(true);
+        pending = unlink(rae.id, rae.passwordMethodId, asking);
+        await lockWaiters(1);
+        await Bun.sleep(1_700);
+        await holder.query("COMMIT");
+      } finally {
+        await holder.query("ROLLBACK");
+        holder.release();
+      }
+      expect(await pending).toEqual({ outcome: "session_too_old" });
+      expect(await methodsOf(rae.id)).toHaveLength(2);
+      expect(await liveSessionsOf(rae.passwordMethodId)).toBe(1);
+    });
+
     test("a session left open, and a disabled person's, remove nothing", async () => {
       const quin = await person("quin@example.com");
       const fresh = await session(quin.id, quin.passwordMethodId);
@@ -678,7 +737,7 @@ integration("a person's ways to sign in", () => {
       });
       const old = await session(quin.id, quin.passwordMethodId, 11 * 60_000);
       expect(await unlink(quin.id, quin.passwordMethodId, old)).toEqual({
-        outcome: "session_gone",
+        outcome: "session_too_old",
       });
       // Somebody else's session does not ask for Quin.
       const other = await person("quin.other@example.com");

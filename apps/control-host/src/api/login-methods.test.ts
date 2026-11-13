@@ -520,6 +520,12 @@ describe("a person's own ways to sign in", () => {
       ],
       // The session ended while the request waited behind the user's lock.
       ["session_gone", 401, { code: "UNAUTHORIZED", message: "Sign in again" }],
+      // Or it is still the person's, and grew too old in that wait.
+      [
+        "session_too_old",
+        403,
+        { code: "FORBIDDEN", details: { reason_code: "session_too_old" } },
+      ],
     ] as const) {
       const h = harness({ methods: { unlink: async () => ({ outcome }) } });
       const refused = await h.mine("DELETE", path);

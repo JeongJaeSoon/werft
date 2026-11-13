@@ -92,7 +92,8 @@ export type UnlinkLoginMethodInput = {
   userId: string;
   /**
    * The session that asks. Read again under the user's lock: it must still
-   * be live and no older than `maxAgeMs`.
+   * be live (else `session_gone`) and no older than `maxAgeMs` (else
+   * `session_too_old`).
    */
   sessionId: string;
   maxAgeMs: number;
@@ -105,6 +106,8 @@ export type UnlinkLoginMethodResult =
   | { outcome: "unlinked"; sessionsRevoked: number }
   /** The asking session ended, or its user was disabled, before the lock. */
   | { outcome: "session_gone" }
+  /** The asking session is live but grew older than `maxAgeMs` in the wait. */
+  | { outcome: "session_too_old" }
   | { outcome: "not_found" }
   /** Nothing the user could sign in with would be left. */
   | { outcome: "last_method" };

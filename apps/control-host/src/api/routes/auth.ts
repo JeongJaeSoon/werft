@@ -951,14 +951,8 @@ export function registerAuthRoutes(router: ApiRouter, deps: AuthRouteDeps) {
         maxAgeMs: LINK_SESSION_MAX_AGE_MS,
       }),
     );
-  // Whoever holds a session left open can neither add their own way in to
-  // the account nor take one away: the person signs in again first.
-  const requireFreshSession = async (
-    methods: LoginMethodStore,
-    session: { sessionId: string; userId: string },
-  ) => {
-    if (await sessionIsFresh(methods, session)) return;
-    throw new ApiHttpError(
+  const sessionTooOld = () =>
+    new ApiHttpError(
       403,
       "FORBIDDEN",
       `Sign in again: ways to sign in change within ${LOGIN_LINK_SESSION_MAX_AGE_MINUTES} minutes of signing in`,
@@ -966,6 +960,13 @@ export function registerAuthRoutes(router: ApiRouter, deps: AuthRouteDeps) {
       undefined,
       { reason_code: "session_too_old" },
     );
+  // Whoever holds a session left open can neither add their own way in to
+  // the account nor take one away: the person signs in again first.
+  const requireFreshSession = async (
+    methods: LoginMethodStore,
+    session: { sessionId: string; userId: string },
+  ) => {
+    if (!(await sessionIsFresh(methods, session))) throw sessionTooOld();
   };
 
   apiRoute(router, "listMyLoginMethods", async (context) => {
@@ -1045,6 +1046,8 @@ export function registerAuthRoutes(router: ApiRouter, deps: AuthRouteDeps) {
       // Ended between this request's authentication and its turn.
       throw new ApiHttpError(401, "UNAUTHORIZED", "Sign in again");
     }
+    // Fresh when asked, and past the age by the time its turn came.
+    if (result.outcome === "session_too_old") throw sessionTooOld();
     if (result.outcome === "not_found") {
       throw new ApiHttpError(404, "NOT_FOUND", "No such way to sign in");
     }

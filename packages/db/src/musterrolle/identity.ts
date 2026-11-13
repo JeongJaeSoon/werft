@@ -938,11 +938,13 @@ export async function signUpWithInvite(
       if (!invite) return { outcome: "invite_gone" };
       // The expiry above was judged before the wait for the row lock, and a
       // lock that was only held, the row unchanged, does not judge it again.
-      const live = await tx.$count(
-        invites,
-        and(eq(invites.id, invite.id), gt(invites.expiresAt, DB_NOW)),
-      );
-      if (live === 0) return { outcome: "invite_gone" };
+      // Asked again after every wait that ends in an answer about somebody.
+      const expired = async () =>
+        (await tx.$count(
+          invites,
+          and(eq(invites.id, invite.id), gt(invites.expiresAt, DB_NOW)),
+        )) === 0;
+      if (await expired()) return { outcome: "invite_gone" };
       const [linked] = await tx
         .select({ id: loginMethods.id })
         .from(loginMethods)
@@ -968,8 +970,11 @@ export async function signUpWithInvite(
         .onConflictDoNothing({ target: users.email })
         .returning({ id: users.id });
       // The address has an account, enabled or not. Whoever holds the token
-      // knows the address already, so saying so tells them nothing new.
-      if (created.length === 0) return { outcome: "link_required" };
+      // knows the address already, so saying so tells them nothing new. The
+      // insert may have waited for that account to be made, past the expiry.
+      if (created.length === 0) {
+        return { outcome: (await expired()) ? "invite_gone" : "link_required" };
+      }
       await tx.insert(memberships).values({
         workspaceId: invite.workspaceId,
         userId: input.newUserId,
