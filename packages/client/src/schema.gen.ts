@@ -26413,7 +26413,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: The request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); every caller must send the header. Also while password sign-in is closed (`details.reason_code: password_login_closed`): the invite is not spent, and is accepted through a sign-in provider instead (POST /v1/auth/providers/{id}/invite/start). */
+            /** @description - `FORBIDDEN`: The request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); every caller must send the header. Also while password sign-in is closed (`details.reason_code: password_login_closed`): the invite is not spent, and is accepted through a sign-in provider instead (POST /v1/auth/providers/{id}/invite/start). The answer is the same whoever the invite is for, the emergency admin included, and whatever password was sent. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];

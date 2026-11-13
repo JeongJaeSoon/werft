@@ -4948,7 +4948,7 @@ export const API_ROUTE_DECLARATIONS = [
     },
     errorNotes: {
       FORBIDDEN:
-        "Also while password sign-in is closed (`details.reason_code: password_login_closed`): the invite is not spent, and is accepted through a sign-in provider instead (POST /v1/auth/providers/{id}/invite/start).",
+        "Also while password sign-in is closed (`details.reason_code: password_login_closed`): the invite is not spent, and is accepted through a sign-in provider instead (POST /v1/auth/providers/{id}/invite/start). The answer is the same whoever the invite is for, the emergency admin included, and whatever password was sent.",
       REVISION_CONFLICT:
         "The account is the emergency admin and the invite would turn back on a membership older than the one they sign in through as an owner, in a role other than owner (`details.reason_code: emergency_admin`). The invite is not spent.",
     },

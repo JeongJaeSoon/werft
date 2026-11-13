@@ -152,10 +152,12 @@ export function registerPublicInviteRoutes(
     }
     const { password } = body;
     const existing = peek.existingUser;
-    // Before the password is looked at: closed is closed whatever was typed,
-    // so the answer, the lockout and the time taken say nothing of whether
-    // it was right. The store decides again under its lock.
-    if (await passwordClosedTo(deps.loginSettings, existing?.id ?? null)) {
+    // Before the password is looked at, and for everyone, the emergency
+    // admin included (hence nobody's id): closed is closed whoever the
+    // invite is for and whatever was typed, so the answer, the lockout and
+    // the time taken say neither who the emergency admin is nor whether the
+    // password was right. The store decides again under its lock.
+    if (await passwordClosedTo(deps.loginSettings, null)) {
       throw passwordClosed();
     }
     if (existing) {

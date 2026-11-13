@@ -551,8 +551,17 @@ describe("POST /v1/invites/accept", () => {
     }
   });
 
-  test("the emergency admin's password is looked at while passwords are closed", async () => {
-    const api = app(existing(), {
+  test("the emergency admin's own invite is answered like anyone's while passwords are closed", async () => {
+    let asked = 0;
+    const store = existing({
+      acceptInvite: async () => {
+        asked += 1;
+        return { outcome: "password_closed" };
+      },
+    });
+    const lockout = new LoginLockout({ attempts: 1 });
+    const api = app(store, {
+      lockout,
       loginSettings: {
         read: async () => ({
           passwordLogin: "emergency_only",
@@ -570,8 +579,35 @@ describe("POST /v1/invites/accept", () => {
       token: TOKEN,
       password: "not the password",
     });
-    expect(wrong.status).toBe(401);
-    expect((await accept(api)).status).toBe(200);
+    const shown = async (response: Response) => {
+      const { code, message, details } = await errorOf(response);
+      return { status: response.status, code, message, details };
+    };
+    const wrongShown = await shown(wrong);
+    expect(wrongShown).toMatchObject({
+      status: 403,
+      code: "FORBIDDEN",
+      details: { reason_code: "password_login_closed" },
+    });
+    expect(await shown(await accept(api))).toEqual(wrongShown);
+    // What somebody else's invite gets, to the letter.
+    const other = app(inviteStore(), {
+      loginSettings: {
+        read: async () => ({
+          passwordLogin: "emergency_only",
+          emergencyAdmin: {
+            userId: EXISTING_USER,
+            email: PENDING.email,
+            displayName: "Existing",
+            eligible: true,
+          },
+          enabledProviders: 1,
+        }),
+      },
+    });
+    expect(await shown(await accept(other))).toEqual(wrongShown);
+    expect(asked).toBe(0);
+    expect(lockout.size).toBe(0);
   });
 
   test("a right password clears the failures before it only by being accepted", async () => {
