@@ -15,6 +15,7 @@
 //   browser.mjs <run> blockshot <path> <url pattern> <name>   that request fails (error state)
 //   browser.mjs <run> slowshot <path> <name> [ms]  2.5 s latency, capture mid-load (loading state)
 //   browser.mjs <run> click <text|css> | type <css|@N> <text> | select <css|@N> <value>
+//   browser.mjs <run> type-state <css|@N> <NAME>  a value of the run's state (an overlay's secret), typed, never printed
 //   browser.mjs <run> press <text|css> [Key]      focus it, then a real key (Enter): click leaves focus where it was
 //   browser.mjs <run> key <Key> [count] | eval <expr>   @N: the Nth field in <main>, from 0
 //   browser.mjs <run> measure <name>              evidence/layout/<name>.json for layout-report.mjs
@@ -45,6 +46,7 @@ import {
   globToRegExp,
   NETWORK_ENABLE,
 } from "./response-capture.mjs";
+import { parseRunState } from "./run-state.mjs";
 
 const CHROME =
   process.env.CHROME ??
@@ -156,13 +158,7 @@ if (cmd === "stop") {
   process.exit(0);
 }
 
-const state = Object.fromEntries(
-  readFileSync(join(run, "state.env"), "utf8")
-    .split("\n")
-    .map((line) => line.replace(/^export /, "").match(/^([A-Z_]+)=(.*)$/))
-    .filter(Boolean)
-    .map(([, k, v]) => [k, v.replace(/^"(.*)"$/, "$1")]),
-);
+const state = parseRunState(readFileSync(join(run, "state.env"), "utf8"));
 const url = (p) => (/^https?:/.test(p) ? p : state.VERIFY_API + p);
 const W = Number(process.env.W ?? 1280);
 const H = Number(process.env.H ?? 900);
@@ -724,6 +720,11 @@ switch (cmd) {
   case "type":
     await fill(args[0], args[1]);
     console.log("typed into", args[0]);
+    break;
+  case "type-state":
+    if (!state[args[1]]) throw new Error(`no ${args[1]} in the run's state`);
+    await fill(args[0], state[args[1]]);
+    console.log("typed", args[1], "into", args[0]);
     break;
   case "select": {
     // React tracks a select's value itself; set it the way a user change does.

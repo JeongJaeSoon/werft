@@ -730,6 +730,10 @@ e2e의 Keycloak은 API 컨테이너와 네트워크 이름공간을 함께 쓰�
 - Google과 Entra ID의 discovery 목록은 2026-11-13에 공개 문서를 직접 읽은 값이고, Keycloak의 목록은 같은 날 Keycloak 26.8.1의 realm에서 읽은 값이다. OneLogin과 Okta의 목록은 대표 값이고 실제 서버에서 읽지 않았다.
 - 같은 Keycloak(realm의 기본 서명을 `ES256`으로 둔 것)에서 확인한 것: id_token이 `ES256`으로 오고, 인가 응답에 `iss`가 붙고, 틀린 PKCE verifier는 client 인증이 Basic이든 POST든 `400 invalid_grant`로 거절되고, 검증하지 않은 사용자의 token은 `email_verified: false`다. werft를 거치지 않고 Keycloak에 직접 물은 결과이고, werft를 거친 확인은 e2e의 몫이다.
 - Entra ID에서 id_token에 `email`이 없으면(앱 등록에서 켜지 않은 경우) UserInfo에 묻고, 거기에도 없으면 주소 없이 로그인한다(`require_verified_email = false`일 때). UserInfo가 답하지 않으면 그 로그인은 거절된다. 실제 테넌트의 UserInfo 응답은 확인하지 않았다.
+- Keycloak e2e는 `tests/e2e`에 넣지 않는다. 그 디렉터리의 시험은 HTTP로 API를 모는 것이고 브라우저를 띄우는 장치가 없다. 공급자의 로그인 폼을 사람처럼 거치는 확인은 검증 스택의 run 전용 브라우저로 하고, 저장소에는 그 절차(`.claude/skills/verify-werft/features/keycloak-login.md`)와 overlay(`infra/compose.keycloak.yml`), realm(`infra/keycloak/werft-realm.json`)을 둔다. CI에서는 돌지 않는다. 공급자 모양의 회귀는 계약 시험이 CI에서 잡고, 이 절차는 로그인 흐름을 바꾼 변경이 직접 돌린다.
+- Keycloak은 API 컨테이너의 네트워크 이름공간에 둔다(4.5절의 로컬 예외). 서버가 discovery를 읽는 주소와 브라우저가 로그인하러 가는 주소가 같은 `http://localhost:<port>`여야 issuer가 하나이기 때문이다. 콘솔의 포트는 스택이 뜨기 전에 정한다. 공급자가 브라우저를 `CONSOLE_ORIGIN`으로 돌려보내고 realm의 redirect URI가 그 값으로 만들어진다.
+- realm의 client secret과 사용자 비밀번호는 파일에 두지 않고 run마다 새로 만든다. realm 파일에는 자리표시자만 있고 Keycloak이 import할 때 환경 변수로 채운다. overlay는 그 값이 없으면 compose 호출을 거절한다. 빈 secret으로 뜬 Keycloak을 실수로 쓰지 않게 하려는 것이다.
+- 틀린 PKCE verifier의 확인은 werft가 만든 인가 요청으로 한다. owner의 테스트 로그인을 시작해 받은 주소에서 redirect URI의 마지막 조각만 바꿔 Keycloak에 보내면, 돌아온 콜백은 그 흐름의 것이 아니어서 API가 code를 쓰지 않는다. 그 code를 틀린 verifier와 함께 Keycloak의 token endpoint에 낸다(`.claude/skills/verify-werft/scripts/keycloak-pkce.sh`). werft가 맞는 verifier만 보내는 한 werft를 거쳐서는 이 거절을 볼 수 없다.
 
 ## 17. 리뷰 기록
 

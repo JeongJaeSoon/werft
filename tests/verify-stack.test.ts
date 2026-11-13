@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+// @ts-expect-error plain .mjs next to the verify skill's scripts
+import { parseRunState } from "../.claude/skills/verify-werft/scripts/run-state.mjs";
 
 /**
  * The verify-werft skill's up.sh and its address pool check against
@@ -77,6 +79,8 @@ esac
         VERIFY_AP_ROOT: join(dir, "runs"),
         VERIFY_SLOT_LIMIT: "",
         VERIFY_DEMO_ACCOUNTS: "",
+        VERIFY_CONSOLE_PORT: "",
+        VERIFY_STATE_VARS: "",
         STUB_POOLS: JSON.stringify(stub.pools),
         STUB_IDS: stub.networks.map((_, i) => `id${i}`).join("\n"),
         STUB_NETWORKS: JSON.stringify(stub.networks),
@@ -291,6 +295,100 @@ esac
       expect(stderr).toContain("VERIFY_SLOT_LIMIT must be a positive integer");
     }
     expect(await dockerCalls()).toEqual([]);
+  });
+
+  test("up.sh refuses a console port or a state variable it cannot use without asking docker", async () => {
+    for (const env of [
+      { VERIFY_CONSOLE_PORT: "80a" },
+      { VERIFY_CONSOLE_PORT: "-1" },
+      { VERIFY_CONSOLE_PORT: "0" },
+      { VERIFY_CONSOLE_PORT: "080" },
+      { VERIFY_CONSOLE_PORT: "65536" },
+      { VERIFY_CONSOLE_PORT: "99999999999999999999" },
+      { VERIFY_STATE_VARS: "lower" },
+      { VERIFY_STATE_VARS: "A=B" },
+      { VERIFY_STATE_VARS: "VERIFY_TEST_NEVER_SET" },
+      // A value the shell and the .mjs helpers would not read alike.
+      ...["two words", "it's", 'a"b', "a$b", "a\\b", "line\nline", "a;b"].map(
+        (value) => ({
+          VERIFY_STATE_VARS: "VERIFY_TEST_KEPT",
+          VERIFY_TEST_KEPT: value,
+        }),
+      ),
+    ]) {
+      const { exitCode, stderr } = await run(
+        "up.sh",
+        [],
+        { pools: orbstackPools(30), networks: [] },
+        env,
+      );
+
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain(Object.keys(env)[0] ?? "");
+      // The refusal names the variable, never what it holds.
+      if ("VERIFY_TEST_KEPT" in env) {
+        expect(stderr).not.toContain(env.VERIFY_TEST_KEPT);
+      }
+    }
+    expect(await dockerCalls()).toEqual([]);
+    expect(await runs()).toEqual([]);
+  });
+
+  test("up.sh publishes the API on VERIFY_CONSOLE_PORT and keeps VERIFY_STATE_VARS for the run's later steps", async () => {
+    // local.sh stops at the stand-in's `docker version`; what up.sh wrote for
+    // the run by then stays, because the teardown that follows fails too.
+    const written = async (env: Record<string, string>) => {
+      await rm(join(dir, "runs"), { force: true, recursive: true });
+      await run("up.sh", [], { pools: orbstackPools(30), networks: [] }, env);
+      const [id] = await runs();
+      expect(id).toBeDefined();
+      return join(dir, "runs", id ?? "");
+    };
+    const loopbackOn3000 = async (runDir: string) =>
+      (await Bun.file(join(runDir, "ports.yml")).text())
+        .split("\n")
+        .filter((line) => /"127\.0\.0\.1:\d*:3000"/.test(line))
+        .map((line) => line.trim());
+
+    expect(await loopbackOn3000(await written({}))).toEqual([
+      '- "127.0.0.1::3000"',
+      '- "127.0.0.1::3000"',
+    ]);
+
+    const values = {
+      VERIFY_TEST_KEPT: "0f3a_.:/@%+=,-Z",
+      VERIFY_TEST_ALSO2: "http://127.0.0.1:41234",
+    };
+    const kept = await written({
+      VERIFY_CONSOLE_PORT: "41234",
+      VERIFY_STATE_VARS: Object.keys(values).join(" "),
+      ...values,
+    });
+    expect(await loopbackOn3000(kept)).toEqual([
+      '- "127.0.0.1::3000"',
+      '- "127.0.0.1:41234:3000"',
+    ]);
+    // Read back both ways the run's later steps read it, by readers that were
+    // never given the values: sourced (lib.sh, down.sh) and parsed
+    // (browser.mjs, web-user.mjs). Compose got what the shell reads and
+    // `type-state` types what the parser reads, so the two must agree.
+    const state = join(kept, "state.env");
+    const sourced = Bun.spawnSync(
+      [
+        "bash",
+        "-c",
+        '. "$1" && export -p | grep -c "^declare -x VERIFY_TEST_" && printf "%s|%s" "$VERIFY_TEST_KEPT" "$VERIFY_TEST_ALSO2"',
+        "bash",
+        state,
+      ],
+      { env: { PATH: process.env.PATH ?? "" } },
+    );
+    expect(sourced.stdout.toString()).toBe(
+      `2\n${values.VERIFY_TEST_KEPT}|${values.VERIFY_TEST_ALSO2}`,
+    );
+    const parsed = parseRunState(await Bun.file(state).text());
+    expect(parsed).toMatchObject(values);
+    expect(parsed.COMPOSE_PROJECT_NAME).toMatch(/^verify-ap-/);
   });
 
   test("up.sh hands local.sh 3 worker slots, 7 with the demo data, or VERIFY_SLOT_LIMIT, over the caller's own", async () => {

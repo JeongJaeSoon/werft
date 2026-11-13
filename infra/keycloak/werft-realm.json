@@ -1,0 +1,68 @@
+{
+  "realm": "werft",
+  "enabled": true,
+  "defaultSignatureAlgorithm": "ES256",
+  "clients": [
+    {
+      "clientId": "werft-console",
+      "name": "werft console",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${KEYCLOAK_WERFT_CLIENT_SECRET}",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": ["${KEYCLOAK_WERFT_CONSOLE_ORIGIN}/auth/callback/*"]
+    }
+  ],
+  "users": [
+    {
+      "username": "ana",
+      "email": "ana@acme.example",
+      "emailVerified": true,
+      "firstName": "Ana",
+      "lastName": "Verified",
+      "enabled": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${KEYCLOAK_WERFT_USER_PASSWORD}",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "bo",
+      "email": "bo@acme.example",
+      "emailVerified": true,
+      "firstName": "Bo",
+      "lastName": "Verified",
+      "enabled": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${KEYCLOAK_WERFT_USER_PASSWORD}",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "uma",
+      "email": "uma@acme.example",
+      "emailVerified": false,
+      "firstName": "Uma",
+      "lastName": "Unverified",
+      "enabled": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${KEYCLOAK_WERFT_USER_PASSWORD}",
+          "temporary": false
+        }
+      ]
+    }
+  ]
+}
