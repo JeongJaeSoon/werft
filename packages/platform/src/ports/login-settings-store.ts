@@ -37,7 +37,13 @@ export type SetPasswordLoginResult =
   | { outcome: "locks_out_actor" };
 
 export type SetEmergencyAdminResult =
-  | { outcome: "changed" | "unchanged"; settings: LoginSettingsRecord }
+  | {
+      outcome: "changed";
+      settings: LoginSettingsRecord;
+      /** The former emergency admin's password sessions, under `emergency_only`. */
+      sessionsRevoked: number;
+    }
+  | { outcome: "unchanged"; settings: LoginSettingsRecord }
   /** Not a live owner of the workspace with a password. */
   | { outcome: "not_eligible" }
   /**

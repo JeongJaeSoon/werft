@@ -356,6 +356,7 @@ export function createPostgresLoginSettingsStore(
             ...settings,
             emergencyAdminUserId: userId,
           }),
+          sessionsRevoked,
         };
       });
     },

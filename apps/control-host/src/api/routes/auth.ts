@@ -39,6 +39,7 @@ import {
   type IdentityStore,
   type IdentityWorkspace,
   type LoginMethodStore,
+  type LoginSettingsStore,
   MANAGEMENT_ROLES,
   passwordResetIssueDenial,
 } from "@werft-ai/platform";
@@ -102,6 +103,8 @@ export interface AuthRouteDeps {
   providerWork?: WorkGate;
   /** Absent: no sign-up by invite through a provider, no linking. */
   loginMethods?: LoginMethodStore;
+  /** Absent: the login page is told passwords are open to everyone. */
+  loginSettings?: Pick<LoginSettingsStore, "read">;
 }
 
 const LINK_SESSION_MAX_AGE_MS = LOGIN_LINK_SESSION_MAX_AGE_MINUTES * 60 * 1000;
@@ -234,8 +237,13 @@ export function registerPublicAuthRoutes(
     const buttons = providers
       ? await storageMapped(() => providers.buttons())
       : [];
+    const settings = deps.loginSettings;
     return jsonWithSchema(context, loginMethodsResponseSchema, {
-      password: "on",
+      // What the page shows, not what is enforced: a password sign-in is
+      // checked against the settings in its own transaction.
+      password: settings
+        ? (await storageMapped(() => settings.read())).passwordLogin
+        : "on",
       providers: buttons.map((button) => ({
         id: button.id,
         display_name: button.displayName,

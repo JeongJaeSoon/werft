@@ -47,6 +47,10 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/login-providers/{id}/disable",
     "DELETE /v1/login-providers/{id}",
   ],
+  "routes/login-settings.test.ts": [
+    "GET /v1/login-settings",
+    "PATCH /v1/login-settings",
+  ],
   "routes/sessions/sessions.test.ts": [
     "POST /v1/sessions",
     "GET /v1/sessions",

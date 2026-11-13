@@ -174,6 +174,7 @@ import {
   loginProviderResponseSchema,
   loginRequestSchema,
   loginResponseSchema,
+  loginSettingsResponseSchema,
   lookupSlackChannelsQuerySchema,
   lookupSlackChannelsResponseSchema,
   memberLimitsResponseSchema,
@@ -328,6 +329,8 @@ import {
   updateAgentRequestSchema,
   updateAuthMeRequestSchema,
   updateLoginProviderRequestSchema,
+  updateLoginSettingsRequestSchema,
+  updateLoginSettingsResponseSchema,
   updateMemberRequestSchema,
   updateSessionRequestSchema,
   updateTeamRequestSchema,
@@ -436,6 +439,7 @@ const requestComponents = {
   DiscoverLoginProviderRequest: discoverLoginProviderRequestSchema,
   CreateLoginProviderRequest: createLoginProviderRequestSchema,
   UpdateLoginProviderRequest: updateLoginProviderRequestSchema,
+  UpdateLoginSettingsRequest: updateLoginSettingsRequestSchema,
   SetLoginProviderSecretRequest: setLoginProviderSecretRequestSchema,
   AuditRetentionRequest: auditRetentionRequestSchema,
   SlackGuestRequest: slackGuestRequestSchema,
@@ -560,6 +564,8 @@ const responseComponents = {
   LoginProviderResponse: loginProviderResponseSchema,
   DiscoverLoginProviderResponse: discoverLoginProviderResponseSchema,
   DisableLoginProviderResponse: disableLoginProviderResponseSchema,
+  LoginSettingsResponse: loginSettingsResponseSchema,
+  UpdateLoginSettingsResponse: updateLoginSettingsResponseSchema,
   ListMyLoginMethodsResponse: listMyLoginMethodsResponseSchema,
   UnlinkMyLoginMethodResponse: unlinkMyLoginMethodResponseSchema,
   IssuePasswordResetRequest: issuePasswordResetRequestSchema,
@@ -1142,6 +1148,18 @@ const SETTINGS_DOCUMENT_EXAMPLE = {
 const SETTINGS_OWNER =
   "The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes.";
 const LOGIN_PROVIDER_OWNER = SETTINGS_OWNER;
+const EMERGENCY_ADMIN_NOTE =
+  "The person is the emergency admin (`details.reason_code: emergency_admin`): name another owner with PATCH /v1/login-settings first.";
+const LOGIN_SETTINGS_EXAMPLE = {
+  password_login: "on",
+  emergency_admin: {
+    user_id: "019a0000-0000-7000-8000-0000000000c1",
+    email: "owner@example.com",
+    display_name: "Owner",
+    eligible: true,
+  },
+  enabled_providers: 1,
+};
 const LOGIN_PROVIDER_EXAMPLE = {
   id: "5b0c7e2a-9d41-4f6b-8a3e-7c1d2e3f4a5b",
   display_name: "Keycloak",
@@ -1475,7 +1493,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Auth",
     summary: "How a person can sign in on this installation",
     description:
-      "Whether password sign-in is on, and the sign-in providers that are turned on (id and button label only). The login page offers these.",
+      "Whether password sign-in is open to everyone (`on`) or to the emergency admin alone (`emergency_only`), and the sign-in providers that are turned on (id and button label only). The login page offers these.",
     auth: "public",
     success: { status: 200, schema: "LoginMethodsResponse" },
     errors: [503],
@@ -1511,7 +1529,7 @@ export const API_ROUTE_DECLARATIONS = [
     errors: [400, 401, 403, 413, 429, 503],
     errorNotes: {
       UNAUTHORIZED:
-        "Unknown email, wrong password, or a user with no live workspace membership.",
+        "Unknown email, wrong password, or a user with no live workspace membership. While password sign-in is closed, also anyone but the emergency admin, right password or not: the answer does not tell which.",
       RATE_LIMITED:
         "Five failed logins for this email within 15 minutes lock it until the window ends (`Retry-After` is the time left), or too many logins are being checked at once (`Retry-After: 1`).",
     },
@@ -1600,7 +1618,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Auth",
     summary: "Set a new password with a one-time reset link",
     description:
-      "Spends the token, sets the password, revokes every live web session of the user and writes a `reset_password` receipt. There is no failure window: the token cannot be guessed, and a shared one would let anyone lock recovery out. Password hashing shares login's concurrency limit, past which it answers 429.",
+      "Spends the token, sets the password, revokes every live web session of the user and writes a `reset_password` receipt. There is no failure window: the token cannot be guessed, and a shared one would let anyone lock recovery out. Password hashing shares login's concurrency limit, past which it answers 429. While password sign-in is closed, a link an owner issued answers 401 like a spent one. A link from the operator's recovery command is taken either way, for an owner with or without a password, and in the same transaction makes that owner the emergency admin.",
     auth: "public",
     body: "PasswordResetRequest",
     success: { status: 200, schema: "PasswordResetResponse" },
@@ -1614,11 +1632,16 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Members",
     summary: "Issue a one-time password reset link for a member (owner only)",
     description:
-      "Requires the issuer's current password, counted against the issuer's login failure window. An owner cannot issue a link for themselves, nor for a member who owns another workspace. The token is returned once and expires in one hour; issuing another revokes the member's open link. Writes an `issue_password_reset` receipt whose result names the target's role.",
+      "Requires the issuer's current password, counted against the issuer's login failure window. An owner cannot issue a link for themselves, nor for a member who owns another workspace. The token is returned once and expires in one hour; issuing another revokes the member's open link. Writes an `issue_password_reset` receipt whose result names the target's role. While password sign-in is closed no link is issued: only the operator's recovery command issues one then, for an owner.",
     auth: "session",
     body: "IssuePasswordResetRequest",
     success: { status: 201, schema: "IssuePasswordResetResponse" },
-    errors: [400, 401, 403, 404, 413, 429, 503],
+    errors: [400, 401, 403, 404, 409, 413, 429, 503],
+    errorCodes: { 409: ["REVISION_CONFLICT"] },
+    errorNotes: {
+      REVISION_CONFLICT:
+        "Password sign-in is closed (`details.reason_code: password_login_closed`).",
+    },
     idempotent: false,
   },
   {
@@ -3073,7 +3096,12 @@ export const API_ROUTE_DECLARATIONS = [
         sessions_revoked: 3,
       },
     },
-    errors: [401, 403, 404, 503],
+    errors: [401, 403, 404, 409, 503],
+    errorCodes: { 409: ["REVISION_CONFLICT"] },
+    errorNotes: {
+      REVISION_CONFLICT:
+        "Password sign-in is closed and this is the last provider that is on (`details.reason_code: last_provider`): open password sign-in first.",
+    },
     idempotent: false,
   },
   {
@@ -3090,6 +3118,54 @@ export const API_ROUTE_DECLARATIONS = [
     errorNotes: {
       REVISION_CONFLICT:
         "The provider is on (`details.reason_code: provider_enabled`).",
+    },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/login-settings",
+    operationId: "getLoginSettings",
+    tag: "Auth",
+    summary: "Who may sign in with a password, and the emergency admin",
+    description: `${LOGIN_PROVIDER_OWNER} \`password_login\` is \`on\` (everyone with a password) or \`emergency_only\` (the emergency admin alone; everyone else comes in through a provider). The emergency admin is the one owner whose password sign-in stays open either way; \`eligible: false\` says they are no longer an owner who can sign in with a password, so another has to be named before passwords can be closed.`,
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "LoginSettingsResponse",
+      description:
+        "The password switch, the emergency admin, and how many providers are on.",
+      example: { settings: LOGIN_SETTINGS_EXAMPLE },
+    },
+    errors: [401, 403, 503],
+  },
+  {
+    method: "patch",
+    path: "/v1/login-settings",
+    operationId: "updateLoginSettings",
+    tag: "Auth",
+    summary: "Close or open password sign-in, or name the emergency admin",
+    description: `${LOGIN_PROVIDER_OWNER} One change a request: \`password_login\` or \`emergency_admin_user_id\`, each one transaction and one receipt. Closing passwords (\`emergency_only\`) ends, in that transaction, every password session but the emergency admin's; from then on a password sign-in, a password invite acceptance and an owner-issued reset link are refused for everyone else. Naming another emergency admin while passwords are closed ends the former one's password sessions. The designation is replaced, never cleared. A value that is already set answers 200 with \`sessions_revoked: 0\` and leaves no receipt.`,
+    auth: "session",
+    body: "UpdateLoginSettingsRequest",
+    requestExample: { password_login: "emergency_only" },
+    success: {
+      status: 200,
+      schema: "UpdateLoginSettingsResponse",
+      description:
+        "The settings after the change, and how many sessions ended.",
+      example: {
+        settings: {
+          ...LOGIN_SETTINGS_EXAMPLE,
+          password_login: "emergency_only",
+        },
+        sessions_revoked: 4,
+      },
+    },
+    errors: [400, 401, 403, 409, 503],
+    errorCodes: { 409: ["REVISION_CONFLICT"] },
+    errorNotes: {
+      REVISION_CONFLICT:
+        "`details.reason_code` says why. Closing passwords: `no_provider` (no provider is on), `no_emergency_admin` (none is named, or the one named can no longer sign in with a password), `locks_out_actor` (the caller is not the emergency admin and has no account of a provider that is on). Naming the emergency admin: `not_eligible` (not an owner who is on and has a password), `locks_out_actor` (passwords are closed, and the caller is the one being replaced with no provider account to come back with).",
     },
     idempotent: false,
   },
@@ -3283,7 +3359,7 @@ export const API_ROUTE_DECLARATIONS = [
         "The caller is not a cookie session, or the session is older than ten minutes (`details.reason_code: session_too_old`).",
       NOT_FOUND: "The user has no way to sign in with this id.",
       REVISION_CONFLICT:
-        "It is the only usable way to sign in the user has (`details.reason_code: last_login_method`).",
+        "It is the only usable way to sign in the user has (`details.reason_code: last_login_method`): while password sign-in is closed a password counts as one only for the emergency admin. Or it is the emergency admin's password (`details.reason_code: emergency_admin`): name another owner first.",
     },
     idempotent: false,
   },
@@ -4832,6 +4908,10 @@ export const API_ROUTE_DECLARATIONS = [
     success: { status: 200, schema: "AcceptInviteResponse" },
     errors: [400, 401, 403, 409, 410, 413, 429, 503],
     errorCodes: { 409: ["INVITE_USED"], 410: ["INVITE_EXPIRED"] },
+    errorNotes: {
+      FORBIDDEN:
+        "Also while password sign-in is closed (`details.reason_code: password_login_closed`): the invite is not spent, and is accepted through a sign-in provider instead (POST /v1/auth/providers/{id}/invite/start).",
+    },
     idempotent: false,
   },
   {
@@ -4854,14 +4934,22 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Members",
     summary: "Change a member's role",
     description:
-      "When several apply, the first answers: no `member.manage` (403 FORBIDDEN), your own role (403 SELF_PROTECTED), no such member (404), an owner targeted, or the owner role granted, by an admin (403 OWNER_PROTECTED), a suspended account (409 ACCOUNT_DISABLED), a disabled membership (409 MEMBER_DISABLED), the role it already has (200, nothing written), demoting the workspace's last live owner (409 LAST_OWNER). Writes a `change_member_role` receipt when the role changes.",
+      "When several apply, the first answers: no `member.manage` (403 FORBIDDEN), your own role (403 SELF_PROTECTED), no such member (404), an owner targeted, or the owner role granted, by an admin (403 OWNER_PROTECTED), a suspended account (409 ACCOUNT_DISABLED), a disabled membership (409 MEMBER_DISABLED), the role it already has (200, nothing written), demoting the workspace's last live owner (409 LAST_OWNER), demoting the emergency admin (409 REVISION_CONFLICT). Writes a `change_member_role` receipt when the role changes.",
     auth: "session",
     body: "UpdateMemberRequest",
     success: { status: 200, schema: "MemberView" },
     errors: [400, 401, 403, 404, 409, 413, 503],
     errorCodes: {
       403: ["FORBIDDEN", "SELF_PROTECTED", "OWNER_PROTECTED"],
-      409: ["ACCOUNT_DISABLED", "MEMBER_DISABLED", "LAST_OWNER"],
+      409: [
+        "ACCOUNT_DISABLED",
+        "MEMBER_DISABLED",
+        "LAST_OWNER",
+        "REVISION_CONFLICT",
+      ],
+    },
+    errorNotes: {
+      REVISION_CONFLICT: EMERGENCY_ADMIN_NOTE,
     },
     idempotent: false,
   },
@@ -4872,14 +4960,17 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Members",
     summary: "Disable a member of the workspace",
     description:
-      "In the same transaction: the membership is disabled, every web session of the person is revoked (open event streams end), their personal keys in the workspace are revoked, and the sessions they asked for wait for an owner's takeover. Agent keys are untouched. Only an owner disables an owner: an admin targeting one answers 403 OWNER_PROTECTED and nothing changes. Disabling yourself answers 403 SELF_PROTECTED, the last live owner 409 LAST_OWNER. When several apply, the first answers: no `member.manage` (403 FORBIDDEN), no such member (404), yourself (403 SELF_PROTECTED), an owner targeted by an admin (403 OWNER_PROTECTED), already disabled (200, nothing written), the last live owner (409). Writes a `disable_member` receipt unless the membership was already disabled (`receipt_id` null).",
+      "In the same transaction: the membership is disabled, every web session of the person is revoked (open event streams end), their personal keys in the workspace are revoked, and the sessions they asked for wait for an owner's takeover. Agent keys are untouched. Only an owner disables an owner: an admin targeting one answers 403 OWNER_PROTECTED and nothing changes. Disabling yourself answers 403 SELF_PROTECTED, the last live owner 409 LAST_OWNER. When several apply, the first answers: no `member.manage` (403 FORBIDDEN), no such member (404), yourself (403 SELF_PROTECTED), an owner targeted by an admin (403 OWNER_PROTECTED), already disabled (200, nothing written), the last live owner (409), the emergency admin (409 REVISION_CONFLICT). Writes a `disable_member` receipt unless the membership was already disabled (`receipt_id` null).",
     auth: "session",
     body: "SetAccessRequest",
     success: { status: 200, schema: "SetAccessResponse" },
     errors: [400, 401, 403, 404, 409, 413, 503],
     errorCodes: {
       403: ["FORBIDDEN", "SELF_PROTECTED", "OWNER_PROTECTED"],
-      409: ["LAST_OWNER"],
+      409: ["LAST_OWNER", "REVISION_CONFLICT"],
+    },
+    errorNotes: {
+      REVISION_CONFLICT: EMERGENCY_ADMIN_NOTE,
     },
     idempotent: false,
   },
@@ -4908,12 +4999,18 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Members",
     summary: "Suspend an account",
     description:
-      "Allowed only when every live membership of the account is in a workspace the caller owns or administers; otherwise 403 FORBIDDEN. An account that is an owner, even with that membership disabled, in any workspace the caller is not a live owner of answers 403 OWNER_PROTECTED first. The account cannot sign in anywhere, and the same cut-off as disabling a member applies in each of its workspaces. Suspending yourself answers 403 SELF_PROTECTED. Writes a `disable_user` receipt unless the account was already suspended (`receipt_id` null).",
+      "Allowed only when every live membership of the account is in a workspace the caller owns or administers; otherwise 403 FORBIDDEN. An account that is an owner, even with that membership disabled, in any workspace the caller is not a live owner of answers 403 OWNER_PROTECTED first. The account cannot sign in anywhere, and the same cut-off as disabling a member applies in each of its workspaces. Suspending yourself answers 403 SELF_PROTECTED. Suspending the emergency admin answers 409. Writes a `disable_user` receipt unless the account was already suspended (`receipt_id` null).",
     auth: "session",
     body: "SetAccessRequest",
     success: { status: 200, schema: "SetAccessResponse" },
-    errors: [400, 401, 403, 404, 413, 503],
-    errorCodes: { 403: ["FORBIDDEN", "SELF_PROTECTED", "OWNER_PROTECTED"] },
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: {
+      403: ["FORBIDDEN", "SELF_PROTECTED", "OWNER_PROTECTED"],
+      409: ["REVISION_CONFLICT"],
+    },
+    errorNotes: {
+      REVISION_CONFLICT: EMERGENCY_ADMIN_NOTE,
+    },
     idempotent: false,
   },
   {

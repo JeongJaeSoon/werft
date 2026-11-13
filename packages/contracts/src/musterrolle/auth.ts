@@ -14,7 +14,10 @@ import {
   sessionScopeSchema,
   workspaceRoleSchema,
 } from "./authorization.ts";
-import { loginProviderTestResultSchema } from "./login-providers.ts";
+import {
+  loginProviderTestResultSchema,
+  passwordLoginSchema,
+} from "./login-providers.ts";
 import {
   displayNameSchema,
   emailSchema,
@@ -165,7 +168,8 @@ export const loginProviderButtonSchema = z
 /** How a person can sign in on this installation; the login page offers these. */
 export const loginMethodsResponseSchema = z
   .object({
-    password: z.literal("on"),
+    /** `emergency_only`: the form is for the emergency admin alone. */
+    password: passwordLoginSchema,
     /** Only the providers that are turned on. */
     providers: z.array(loginProviderButtonSchema),
   })

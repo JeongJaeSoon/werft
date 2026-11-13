@@ -171,6 +171,17 @@ describe("invite service", () => {
         owner,
       ),
     ).rejects.toMatchObject({ code: "LAST_OWNER" });
+    await expect(
+      EVERY_ENTRY.changeMemberRole(
+        service({
+          changeMemberRole: async () => ({ outcome: "emergency_admin" }),
+        }),
+        owner,
+      ),
+    ).rejects.toMatchObject({
+      code: "REVISION_CONFLICT",
+      details: { reason_code: "emergency_admin" },
+    });
     const admin = user(MEMBER, "admin");
     await expect(
       EVERY_ENTRY.changeMemberRole(

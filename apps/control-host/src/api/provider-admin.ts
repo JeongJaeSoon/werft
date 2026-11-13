@@ -84,6 +84,36 @@ const secretView = (secret: LoginProviderSecretSummary | null) =>
   };
 
 /**
+ * How people sign in is the signed-in owner's to change: not an admin's, and
+ * not an API key's, whatever it holds. Returns who to record the change as.
+ */
+export async function requireSignInOwner(
+  authorization: AuthorizationPolicy,
+  caller: Caller,
+): Promise<LoginProviderAudit> {
+  await requirePermitted(
+    authorization,
+    caller,
+    "installation.settings.manage",
+    {
+      kind: "workspace",
+      id: caller.ownerId,
+    },
+  );
+  const userId = caller.actor?.userId;
+  const workspaceId = caller.actor?.workspaceId;
+  if (caller.subject.principal?.kind !== "user" || !userId || !workspaceId) {
+    throw new SessionServiceError(
+      "FORBIDDEN",
+      "Only a signed-in person manages the sign-in providers",
+      undefined,
+      { reason_code: "role" },
+    );
+  }
+  return { userId, workspaceId, receiptId: randomUUID() };
+}
+
+/**
  * The owner's side of the sign-in providers (design 7): make one from its
  * discovery document, fill in the client, test it, turn it on and off.
  * Every method re-checks the caller; a secret's value goes in and never
@@ -98,26 +128,8 @@ export function createProviderAdmin(deps: {
   request?: ProviderRequest;
 }) {
   const { store } = deps;
-
-  async function owner(caller: Caller): Promise<LoginProviderAudit> {
-    await requirePermitted(
-      deps.authorization,
-      caller,
-      "installation.settings.manage",
-      { kind: "workspace", id: caller.ownerId },
-    );
-    const userId = caller.actor?.userId;
-    const workspaceId = caller.actor?.workspaceId;
-    if (caller.subject.principal?.kind !== "user" || !userId || !workspaceId) {
-      throw new SessionServiceError(
-        "FORBIDDEN",
-        "Only a signed-in person manages the sign-in providers",
-        undefined,
-        { reason_code: "role" },
-      );
-    }
-    return { userId, workspaceId, receiptId: randomUUID() };
-  }
+  const owner = (caller: Caller) =>
+    requireSignInOwner(deps.authorization, caller);
 
   const viewOf = (record: LoginProviderRecord): LoginProviderView => ({
     id: record.id,

@@ -479,6 +479,22 @@ describe("POST /v1/invites/accept", () => {
     expect(raced.status).toBe(409);
   });
 
+  test("while passwords are closed the invite is refused with why, and no session is made", async () => {
+    const response = await accept(
+      app(
+        inviteStore({
+          acceptInvite: async () => ({ outcome: "password_closed" }),
+        }),
+      ),
+    );
+    expect(response.status).toBe(403);
+    expect(await errorOf(response)).toMatchObject({
+      code: "FORBIDDEN",
+      details: { reason_code: "password_login_closed" },
+    });
+    expect(response.headers.getSetCookie()).toEqual([]);
+  });
+
   test("needs the browser header, a password and a well-formed body", async () => {
     expect((await accept(app(), undefined, {})).status).toBe(403);
     expect((await accept(app(), { token: TOKEN })).status).toBe(400);

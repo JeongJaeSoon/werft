@@ -357,6 +357,7 @@ describe("OpenAPI document", () => {
         "/v1/login-providers/{id}/enable",
         "/v1/login-providers/{id}/refresh-discovery",
         "/v1/login-providers/{id}/test/start",
+        "/v1/login-settings",
         "/v1/connections",
         "/v1/installation/settings/connections",
         "/v1/installation/settings/connections/{id}/auto-mode",
