@@ -30,7 +30,7 @@ import { scopedKey } from "../api/queries.ts";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
-import { useAppServices } from "../services.tsx";
+import { useLeave } from "../services.tsx";
 import { Action } from "./login-providers.tsx";
 
 /**
@@ -83,7 +83,7 @@ const nameOf = (t: Translate, method: MyLoginMethod) =>
 export function LoginMethodsScreen() {
   const { t, locale } = useI18n();
   const { client } = useWerft();
-  const { leave } = useAppServices();
+  const [held, leaveFor] = useLeave();
   const queryClient = useQueryClient();
   const list = useQuery(myLoginMethodsQuery(client));
   const [outcome, setOutcome] = useState<Outcome | null>(null);
@@ -117,24 +117,24 @@ export function LoginMethodsScreen() {
   const reread = () =>
     queryClient.invalidateQueries({ queryKey: listKey(client) });
 
-  const link = useMutation<{ authorization_url: string }, ApiError, string>({
+  const link = useMutation<void, ApiError, string>({
     mutationFn: (providerId) =>
-      unwrap(
-        client.POST("/v1/auth/me/login-methods/{provider_id}/link/start", {
-          params: { path: { provider_id: providerId } },
-        }),
-      ),
-    onSuccess: ({ authorization_url }) => {
-      try {
-        sessionStorage.setItem(
-          LINK_FLOW_KEY,
-          new URL(authorization_url).searchParams.get("state") ?? "",
+      leaveFor(async () => {
+        const { authorization_url } = await unwrap(
+          client.POST("/v1/auth/me/login-methods/{provider_id}/link/start", {
+            params: { path: { provider_id: providerId } },
+          }),
         );
-      } catch {
-        // Without it the callback's way back is the login page's.
-      }
-      leave(authorization_url);
-    },
+        try {
+          sessionStorage.setItem(
+            LINK_FLOW_KEY,
+            new URL(authorization_url).searchParams.get("state") ?? "",
+          );
+        } catch {
+          // Without it the callback's way back is the login page's.
+        }
+        return authorization_url;
+      }),
     onError: (error) => {
       setOutcome({
         kind: "error",
@@ -176,7 +176,7 @@ export function LoginMethodsScreen() {
       ),
     onSettled: reread,
   });
-  const busy = link.isPending || unlink.isPending;
+  const busy = held || unlink.isPending;
 
   const body = () => {
     if (list.isPending) return <Skeleton width="60%" />;
@@ -218,19 +218,25 @@ export function LoginMethodsScreen() {
                       {method.email_at_link}
                     </Text>
                   ) : null}
-                  <Text as="span" variant="meta">
-                    {method.last_login_at ? (
-                      <>
-                        {t("loginMethods.lastLogin")}{" "}
-                        <RelativeTime
-                          value={method.last_login_at}
-                          locale={locale}
-                        />
-                      </>
-                    ) : (
-                      t("loginMethods.neverUsed")
-                    )}
-                  </Text>
+                  {/* A provider account's sign-ins are recorded from the day it
+                      is connected; a password's are not all on record, so
+                      none on record is not "never". */}
+                  {method.kind === "password" &&
+                  method.last_login_at === null ? null : (
+                    <Text as="span" variant="meta">
+                      {method.last_login_at ? (
+                        <>
+                          {t("loginMethods.lastLogin")}{" "}
+                          <RelativeTime
+                            value={method.last_login_at}
+                            locale={locale}
+                          />
+                        </>
+                      ) : (
+                        t("loginMethods.neverUsed")
+                      )}
+                    </Text>
+                  )}
                 </>
               }
               actions={
@@ -304,7 +310,15 @@ export function LoginMethodsScreen() {
       <ConfirmDialog
         open={removing !== null}
         onOpenChange={(open) => {
-          if (!open) setRemoving(null);
+          if (open) return;
+          setRemoving(null);
+          // A refused removal read the list again, and the row the dialog
+          // was opened from may be gone or withheld by now: the page keeps
+          // the reason, and the keyboard goes to it.
+          if (dialogError) {
+            setOutcome({ kind: "error", text: dialogError });
+            outcomeRef.current?.focus();
+          }
         }}
         title={t("loginMethods.unlinkTitle", {
           name: removing ? nameOf(t, removing) : "",

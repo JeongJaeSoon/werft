@@ -6,7 +6,7 @@ import {
 } from "@werft-ai/contracts";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
 import { apiError, json, me, memberMe } from "../test-support/fake-api.ts";
-import { appHarness } from "../test-support/render-app.tsx";
+import { appHarness, comeBack } from "../test-support/render-app.tsx";
 
 const { renderAt, screen, waitFor, within } = await appHarness();
 
@@ -130,6 +130,25 @@ describe("내 로그인 수단", () => {
     expect(screen.getByRole("button", { name: "Okta 연결" })).toBeDefined();
   });
 
+  test("a password with no sign-in on record is not called unused", async () => {
+    renderAt(
+      PAGE,
+      routes(mine({ methods: [password({ last_login_at: null }), acme()] })),
+    );
+    const rows = await waitFor(() => {
+      const found = [
+        ...document.querySelectorAll<HTMLElement>('[data-slot="setting-row"]'),
+      ];
+      expect(found).toHaveLength(3);
+      return found;
+    });
+    const [own, sso] = rows.map((row) => row.textContent ?? "");
+    expect(own).toContain("비밀번호");
+    expect(own).not.toContain("로그인한 적 없음");
+    expect(own).not.toContain("마지막 로그인");
+    expect(sso).toContain("로그인한 적 없음");
+  });
+
   test("with no provider left to connect it says so", async () => {
     renderAt(PAGE, routes(mine({ linkable: [] })));
     expect(
@@ -152,6 +171,83 @@ describe("내 로그인 수단", () => {
       `${API}/${OKTA_PROVIDER}/link/start`,
     ]);
     expect(sessionStorage.getItem(LINK_FLOW_KEY)).toBe("s1");
+    // The page is still here while the provider's loads: a second start
+    // would replace the flow the browser is on its way to.
+    const okta = () => screen.getByRole("button", { name: "Okta 연결" });
+    expect(okta().getAttribute("aria-disabled")).toBe("true");
+    await user.click(okta());
+    await user.click(screen.getByRole("button", { name: "Acme SSO 끊기" }));
+    expect(writes(api.calls)).toHaveLength(1);
+    expect(screen.queryAllByRole("dialog")).toHaveLength(0);
+    // Back from the provider's page restores this one as it was left.
+    comeBack();
+    await waitFor(() =>
+      expect(okta().hasAttribute("aria-disabled")).toBe(false),
+    );
+    await user.click(okta());
+    await waitFor(() => expect(writes(api.calls)).toHaveLength(2));
+  });
+
+  test("a start still out when a sign-in clears the cache holds the starts of the next screen", async () => {
+    let answer: (response: Response) => void = () => {};
+    let viewer = () =>
+      apiError(401, "UNAUTHORIZED", "Authentication is required");
+    const start = `/v1/auth/providers/${OKTA_PROVIDER}/start`;
+    const first = "https://okta.example.com/authorize?state=s1";
+    const { left, api } = renderAt(
+      `/login?redirect=${encodeURIComponent(PAGE)}`,
+      {
+        ...routes(mine()),
+        "GET /v1/auth/me": () => viewer(),
+        "GET /v1/auth/login-methods": () =>
+          json(200, {
+            password: "on",
+            providers: [{ id: OKTA_PROVIDER, display_name: "Okta" }],
+          }),
+        [`POST ${start}`]: () =>
+          new Promise<Response>((resolve) => {
+            answer = resolve;
+          }),
+        "POST /v1/auth/login": () => {
+          viewer = () => json(200, me());
+          return json(200, {
+            user_id: me().user?.id,
+            workspace_id: me().workspace?.id,
+            role: "owner",
+            scopes: me().scopes,
+            expires_at: "2026-12-01T00:00:00.000Z",
+          });
+        },
+        [`POST ${API}/${OKTA_PROVIDER}/link/start`]: () =>
+          json(200, {
+            authorization_url: "https://okta.example.com/authorize?state=s2",
+          }),
+      },
+    );
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "Okta 계정으로 로그인" }),
+    );
+    await waitFor(() => expect(writes(api.calls)).toHaveLength(1));
+    // The provider is slow, and the person signs in another way meanwhile.
+    await user.type(screen.getByLabelText("이메일"), "owner@example.com");
+    await user.type(screen.getByLabelText("비밀번호"), "any words will do");
+    await user.click(screen.getByRole("button", { name: "로그인" }));
+    const okta = () => screen.findByRole("button", { name: "Okta 연결" });
+    expect((await okta()).getAttribute("aria-disabled")).toBe("true");
+    await user.click(await okta());
+    expect(writes(api.calls).map((call) => call.path)).toEqual([
+      start,
+      "/v1/auth/login",
+    ]);
+    // The answer of the first start still leaves, as it did before the hold.
+    answer(json(200, { authorization_url: first }));
+    await waitFor(() => expect(left).toEqual([first]));
+    expect((await okta()).getAttribute("aria-disabled")).toBe("true");
+    comeBack();
+    await waitFor(async () =>
+      expect((await okta()).hasAttribute("aria-disabled")).toBe(false),
+    );
   });
 
   test("a connection the server refuses says why and goes nowhere", async () => {
@@ -271,6 +367,15 @@ describe("내 로그인 수단", () => {
     expect(dialog.textContent).toContain("owner@idp.example.com");
     expect(dialog.textContent).toContain("나중에 다시 연결할 수 있습니다.");
     expect(dialog.textContent).not.toContain("다시 정할 수 없습니다");
+    // Given up with the keyboard, the keyboard is back where it was.
+    await user.keyboard("{Escape}");
+    await waitFor(() =>
+      expect(screen.queryAllByRole("dialog")).toHaveLength(0),
+    );
+    expect(
+      document.activeElement ===
+        screen.getByRole("button", { name: "Acme SSO 끊기" }),
+    ).toBe(true);
   });
 
   test("a removal the server refuses stays in the dialog with its reason, and the list is read again", async () => {
@@ -315,6 +420,48 @@ describe("내 로그인 수단", () => {
         expect(screen.queryByRole("dialog") === null).toBe(true),
       );
     }
+  });
+
+  test("closing a refused removal whose row is gone leaves the keyboard at the reason, on the page", async () => {
+    let listed = 0;
+    renderAt(PAGE, {
+      ...routes(mine()),
+      [`GET ${API}`]: () => {
+        listed += 1;
+        // Somebody removed it in another session meanwhile.
+        return json(
+          200,
+          listed === 1 ? mine() : mine({ methods: [password()] }),
+        );
+      },
+      [`DELETE ${API}/${ACME_ID}`]: () =>
+        apiError(404, "NOT_FOUND", "No such way to sign in"),
+    });
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "Acme SSO 끊기" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "끊기" }));
+    await within(dialog).findByRole("alert");
+    await waitFor(() =>
+      expect(
+        screen.queryAllByRole("button", { name: "Acme SSO 끊기" }),
+      ).toHaveLength(0),
+    );
+    await user.keyboard("{Escape}");
+    await waitFor(() =>
+      expect(screen.queryAllByRole("dialog")).toHaveLength(0),
+    );
+    await waitFor(() =>
+      expect(document.activeElement === document.body).toBe(false),
+    );
+    expect(document.activeElement?.textContent).toBe(
+      "이미 없는 로그인 수단입니다.",
+    );
+    expect(
+      document.querySelector("main")?.contains(document.activeElement),
+    ).toBe(true);
   });
 });
 

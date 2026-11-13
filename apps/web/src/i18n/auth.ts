@@ -76,6 +76,14 @@ export const authKo = {
   "invite.account.question": "초대받은 이메일로 쓰는 계정이 있나요?",
   "invite.account.existing": "네, 계정이 있습니다",
   "invite.account.new": "아니요, 처음입니다",
+  "invite.provider.alternatives": "비밀번호 없이 가입",
+  "invite.provider.hint":
+    "처음이면 로그인 공급자의 계정으로 가입할 수도 있습니다. 비밀번호는 정하지 않고, 계정의 이메일은 초대받은 주소가 됩니다.",
+  "invite.provider.submit": "{name} 계정으로 가입",
+  "invite.provider.refused":
+    "가입하지 못했습니다 — 받은 초대 링크를 다시 열어 처음부터 시도하세요. 계속 안 되면 초대가 회수됐거나 만료됐을 수 있으니 초대한 사람에게 문의하세요.",
+  "invite.provider.cancelled":
+    "가입을 마치지 못했습니다 — 받은 초대 링크를 다시 열어 시도하세요.",
   "invite.passwordTitle.existing": "기존 계정으로 수락",
   "invite.passwordTitle.new": "새 계정으로 수락",
   "invite.back": "이전",
@@ -166,6 +174,14 @@ export const authEn: Record<keyof typeof authKo, string> = {
   "invite.passwordTitle.existing": "Accept with your account",
   "invite.passwordTitle.new": "Accept with a new account",
   "invite.account.new": "No, I am new here",
+  "invite.provider.alternatives": "Join without a password",
+  "invite.provider.hint":
+    "If you are new, you can also join with a sign-in provider's account. No password is set, and the account's email is the invited address.",
+  "invite.provider.submit": "Join with {name}",
+  "invite.provider.refused":
+    "Could not join — open your invite link again and start over. If it keeps failing, the invite may have been revoked or expired, so ask whoever invited you.",
+  "invite.provider.cancelled":
+    "Joining was not completed — open your invite link again to retry.",
   "invite.back": "Back",
   "invite.invalid.title": "This invite link is not valid",
   "invite.invalid.body":
@@ -253,6 +269,14 @@ export const authJa: Record<keyof typeof authKo, string> = {
     "招待されたメールアドレスのアカウントをお持ちですか？",
   "invite.account.existing": "はい、アカウントがあります",
   "invite.account.new": "いいえ、初めてです",
+  "invite.provider.alternatives": "パスワードなしで参加",
+  "invite.provider.hint":
+    "初めての場合は、ログインプロバイダーのアカウントで参加することもできます。パスワードは設定せず、アカウントのメールアドレスは招待されたアドレスになります。",
+  "invite.provider.submit": "{name} で参加",
+  "invite.provider.refused":
+    "参加できませんでした。受け取った招待リンクをもう一度開いて、最初からお試しください。解決しない場合は、招待が取り消されたか期限切れの可能性があるため、招待した人にお問い合わせください。",
+  "invite.provider.cancelled":
+    "参加が完了しませんでした。受け取った招待リンクをもう一度開いてお試しください。",
   "invite.passwordTitle.existing": "既存のアカウントで承諾",
   "invite.passwordTitle.new": "新しいアカウントで承諾",
   "invite.back": "戻る",
