@@ -20,8 +20,22 @@ export type Admission = {
   jitRole: "member" | null;
 };
 
+type Vouched = Pick<OidcIdentity, "email" | "emailVerified" | "claims">;
+
+const domainOf = (email: string | null) =>
+  email === null ? null : email.slice(email.lastIndexOf("@") + 1);
+
+/** The address is on the Google account's own Workspace domain (`hd`). */
+function onHostedDomain(identity: Vouched): boolean {
+  const hostedDomain =
+    typeof identity.claims.hd === "string"
+      ? identity.claims.hd.toLowerCase()
+      : null;
+  return hostedDomain !== null && hostedDomain === domainOf(identity.email);
+}
+
 /**
- * Null when a domain restriction keeps the person out.
+ * Whether the provider vouches the person owns the address today.
  *
  * Signing in proves (issuer, subject). Owning the `email` claim is a
  * separate thing the provider has to say: `email_verified` for most, and
@@ -29,21 +43,25 @@ export type Admission = {
  * Workspace domain (`hd`), since any other address was verified once at
  * sign-up and may since belong to someone else.
  */
+export function ownsAddress(issuer: string, identity: Vouched): boolean {
+  const verified = identity.email !== null && identity.emailVerified === true;
+  return (
+    verified &&
+    (issuer !== GOOGLE_ISSUER ||
+      onHostedDomain(identity) ||
+      domainOf(identity.email) === "gmail.com")
+  );
+}
+
+/** Null when a domain restriction keeps the person out. */
 export function admit(
   policy: AdmissionPolicy,
-  identity: Pick<OidcIdentity, "email" | "emailVerified" | "claims">,
+  identity: Vouched,
 ): Admission | null {
-  const { email } = identity;
-  const domain =
-    email === null ? null : email.slice(email.lastIndexOf("@") + 1);
-  const verified = email !== null && identity.emailVerified === true;
+  const domain = domainOf(identity.email);
   const google = policy.issuer === GOOGLE_ISSUER;
-  const hostedDomain =
-    typeof identity.claims.hd === "string"
-      ? identity.claims.hd.toLowerCase()
-      : null;
-  const hosted = hostedDomain !== null && hostedDomain === domain;
-  const ownsEmail = verified && (!google || hosted || domain === "gmail.com");
+  const hosted = onHostedDomain(identity);
+  const ownsEmail = ownsAddress(policy.issuer, identity);
 
   if (policy.allowedDomains.length === 0) {
     // Google lets anyone make an account, so with no domain list nobody

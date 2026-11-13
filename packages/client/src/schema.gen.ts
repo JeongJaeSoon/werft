@@ -178,6 +178,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/auth/providers/{id}/invite/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Begin an invite's sign-up with a provider; answers the provider's URL to open
+         * @description For the person an invite was sent to, in place of choosing a password. The token goes in the body and is not spent here: the flow cookie binds the flow to the invite, and POST /v1/auth/oidc/callback spends it when the provider vouches for an account no user has yet. The account gets the invite's address and role, whatever address the provider reports. A revoked, replaced or expired token answers 410, an accepted one 409; an unknown token answers like a revoked one.
+         *
+         *     **Auth:** public; no credential. **Idempotency-Key:** ignored.
+         */
+        post: operations["startProviderInvite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/auth/oidc/callback": {
         parameters: {
             query?: never;
@@ -189,7 +211,7 @@ export interface paths {
         put?: never;
         /**
          * Finish sign-in with a provider; sets the session cookie
-         * @description Posts what the provider returned to the redirect URI: `code`, `state`, `iss` when it sent one, and the `provider_id` from the redirect path. The flow cookie must open, match `state` and `provider_id`, be no older than ten minutes, and the provider must still be on with the settings the flow started under. The first matching rule then decides: an account already linked to the provider's (issuer, subject) signs in as its user; an address the provider vouches for that already has an account answers 409 LOGIN_LINK_REQUIRED and is never joined by email; otherwise a live invite for that address, or the provider's JIT setting, creates the account. Anything else answers 401 without saying why or whether an account exists. An account outside the provider's allowed domains answers 403. Calls to providers share a concurrency limit, past which this answers 429.
+         * @description Posts what the provider returned to the redirect URI: `code`, `state`, `iss` when it sent one, and the `provider_id` from the redirect path. The flow cookie must open, match `state` and `provider_id`, be no older than ten minutes, and the provider must still be on with the settings the flow started under. The first matching rule then decides: an account already linked to the provider's (issuer, subject) signs in as its user; an address the provider vouches for that already has an account answers 409 LOGIN_LINK_REQUIRED and is never joined by email; otherwise a live invite for that address, or the provider's JIT setting, creates the account. Anything else answers 401 without saying why or whether an account exists. An account outside the provider's allowed domains answers 403. Calls to providers share a concurrency limit, past which this answers 429. A flow started for an invite ends differently: the invite it was started with, if still live, makes the account with the invite's address and role whatever address the provider reports; an (issuer, subject) some user already has answers 409 ALREADY_EXISTS, an account that already has the invite's address answers 409 LOGIN_LINK_REQUIRED, and neither spends the invite or makes a session. A flow started from POST /v1/auth/me/login-methods/{provider_id}/link/start ends only in the session it was started from: it adds the (issuer, subject) to that session's user, makes no new session, and answers `outcome: "linked"`; an (issuer, subject) a user already has, or a second account of the same issuer for this user, answers 409 ALREADY_EXISTS.
          *
          *     **Auth:** public; no credential. **Idempotency-Key:** ignored.
          */
@@ -848,6 +870,194 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/login-providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the sign-in providers and where each stands
+         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Every provider, on or off, with the redirect URI to register at it, the endpoints discovery named, and `state`: `draft` (no client ID or secret yet), `needs_test`, `ready`, `enabled`, or `enabled_secret_pending` (on, with a new secret waiting for a test sign-in). A client secret is never returned, only its last four characters.
+         *
+         *     **Auth:** cookie session only; no scope.
+         */
+        get: operations["listLoginProviders"];
+        put?: never;
+        /**
+         * Make a sign-in provider from its issuer; it starts off
+         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Checks the issuer's discovery document and, when it can be used, keeps the endpoints it names. The provider is made off, with no client ID and no secret: register the returned `redirect_uri` at the provider first.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        post: operations["createLoginProvider"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/login-providers/discover": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check an issuer's discovery document without saving anything
+         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Reads `<issuer>/.well-known/openid-configuration` now and says whether this server can sign people in with it. A document that cannot be used answers 200 with `outcome: "failed"` and the problem; the provider's response body is never returned.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        post: operations["discoverLoginProvider"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/login-providers/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a sign-in provider that is off
+         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Its client secret goes with it. The login methods people made through it stay, so they sign in as the same users if a provider with the same issuer is made again.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        delete: operations["deleteLoginProvider"];
+        options?: never;
+        head?: never;
+        /**
+         * Change a sign-in provider's settings
+         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Name only the fields to change, with `If-Match: <revision>`. Anything but `display_name` makes the settings a new revision, so a provider that is off has to pass a test sign-in again before it can be turned on. On a provider that is on, `client_id` and `token_auth_method` cannot change: turn it off first. For Google (`https://accounts.google.com`), where anyone can make an account, two rules are refused with 400 and `details.problem`: `require_verified_email: false` (`verified_email_required`) and a `jit_role` with no `allowed_domains` (`jit_requires_domains`).
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        patch: operations["updateLoginProvider"];
+        trace?: never;
+    };
+    "/v1/login-providers/{id}/refresh-discovery": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Read the provider's discovery document again
+         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Replaces the kept endpoints with what the issuer names now. Only on a provider that is off; the settings become a new revision.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        post: operations["refreshLoginProviderDiscovery"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/login-providers/{id}/client-secret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set the provider's client secret
+         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Write-only. On a provider that is off the value becomes its secret and the settings a new revision. On a provider that is on the value waits as a replacement: sign-ins keep the secret they have until a test sign-in passes with the new one. The value a provider that is off already has, or the one that already waits (on with none waiting: the one in use), changes nothing: no revision, no receipt, and a test that passed stands. The value in use, sent while another waits, withdraws the one that waits.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        put: operations["setLoginProviderSecret"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/login-providers/{id}/test/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Begin a test sign-in with the provider as it is set now
+         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Works on a provider that is off. Sets the flow cookie and answers the provider's URL to open; the browser comes back to the redirect URI and POST /v1/auth/oidc/callback answers `outcome: "tested"`. A test makes no account and no session. A pass is written down only if the settings and the secret are still the ones the test started with.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        post: operations["startLoginProviderTest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/login-providers/{id}/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Turn a sign-in provider on
+         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Only when a test sign-in passed with the settings as they are now. The provider then shows on the login page.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        post: operations["enableLoginProvider"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/login-providers/{id}/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Turn a sign-in provider off and end its sessions
+         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. In one transaction the provider goes off and every live session made through it ends, the caller's own included when they signed in with it. A replacement secret that was waiting is dropped.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        post: operations["disableLoginProvider"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/auth/logout": {
         parameters: {
             query?: never;
@@ -896,6 +1106,72 @@ export interface paths {
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         patch: operations["updateAuthMe"];
+        trace?: never;
+    };
+    "/v1/auth/me/login-methods": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The signed-in user's own ways to sign in
+         * @description The password and the provider accounts linked to the signed-in user, whether each can be used now (`usable`: a password that is set, or a provider that is on), and the providers that are on and not linked yet (`linkable`). `can_change` is false once the session is older than ten minutes: sign in again to link or remove one. It changes nothing.
+         *
+         *     **Auth:** cookie session only; no scope.
+         */
+        get: operations["listMyLoginMethods"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/me/login-methods/{provider_id}/link/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Begin linking a provider account to the signed-in user; answers the provider's URL to open
+         * @description Only from a session made within the last ten minutes, so an old session left open cannot be given another way in. Sets the flow cookie, bound to this user and this session; the browser comes back to the redirect URI and POST /v1/auth/oidc/callback answers `outcome: "linked"` in the same session. A sign-in flow cannot be turned into a link, and a link cannot be ended from another session.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        post: operations["startMyLoginMethodLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/me/login-methods/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove one of the signed-in user's ways to sign in
+         * @description Only from a session made within the last ten minutes, like a link. In one transaction the way to sign in is removed and every live session made with it ends, this one included when it was. Removing the password clears it, and it does not come back: a reset link is issued only to an account that has a password. Refused when no usable way to sign in would be left: a provider that is off does not count as one. Writes an `unlink_login_method` receipt.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        delete: operations["unlinkMyLoginMethod"];
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/v1/sessions": {
@@ -4815,6 +5091,9 @@ export interface components {
             password: string;
             display_name?: string;
         };
+        StartProviderInviteRequest: {
+            invite_token: string;
+        };
         UpdateMemberRequest: {
             /** @enum {string} */
             role: "owner" | "admin" | "member";
@@ -4833,6 +5112,25 @@ export interface components {
             code: string;
             state: string;
             iss?: string;
+        };
+        DiscoverLoginProviderRequest: {
+            issuer: string;
+        };
+        CreateLoginProviderRequest: {
+            display_name: string;
+            issuer: string;
+        };
+        UpdateLoginProviderRequest: {
+            display_name?: string;
+            client_id?: string;
+            /** @enum {string} */
+            token_auth_method?: "client_secret_basic" | "client_secret_post";
+            allowed_domains?: string[];
+            jit_role?: "member" | null;
+            require_verified_email?: boolean;
+        };
+        SetLoginProviderSecretRequest: {
+            value: string;
         };
         AuditRetentionRequest: {
             audit_retention_days: number;
@@ -7283,7 +7581,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** @enum {string} */
-            operation: "create_session" | "append_message" | "answer" | "interrupt" | "pause" | "close" | "terminate" | "resume" | "recovery_decision" | "revoke_execution" | "issue_password_reset" | "reset_password" | "recover_owner" | "takeover" | "link_account" | "unlink_account" | "invite_member" | "accept_invite" | "revoke_invite" | "change_member_role" | "disable_member" | "enable_member" | "disable_user" | "enable_user" | "create_agent" | "update_agent" | "create_agent_release" | "activate_agent" | "create_api_key" | "revoke_api_key" | "create_team" | "rename_team" | "delete_team" | "add_team_member" | "remove_team_member" | "set_team_member_role" | "set_agent_managing_team" | "set_agent_usage" | "set_agent_caller_limits" | "set_agent_access_settings" | "add_agent_admin" | "remove_agent_admin" | "bind_credential" | "unbind_credential" | "link_agent_identity" | "revoke_agent_identity" | "set_surface_binding" | "request_surface_binding" | "resolve_surface_binding" | "share_session" | "request_push" | "resolve_push" | "decide_push" | "push" | "open_pull_request" | "update_pull_request" | "comment_pull_request" | "close_pull_request" | "reopen_pull_request" | "merge_pull_request" | "call_mcp" | "set_slack_secret" | "delete_slack_secret" | "set_github_app" | "delete_github_app" | "mint_github_token" | "set_github_ceiling" | "set_github_pull_request_settings" | "set_agent_pull_request_settings" | "add_repository" | "set_repository_branch" | "remove_repository" | "import_repository" | "import_connection" | "import_mcp_server" | "create_connection" | "create_mcp_server" | "set_settings_credential" | "set_connection_auto_mode" | "set_connection_models" | "disable_connection" | "enable_connection" | "disable_mcp_server" | "set_mcp_server_workspaces" | "resolve_repository" | "set_agent_github" | "set_agent_mcp" | "set_repository_github_app" | "review_pull_request" | "dispatch_workflow" | "rerun_workflow" | "attach_repository" | "set_github_packages_token" | "delete_github_packages_token" | "set_github_packages_allowlist" | "fetch_github_package" | "create_achievement_category" | "update_achievement_category" | "archive_achievement_category" | "create_achievement_type" | "update_achievement_type" | "archive_achievement_type" | "create_achievement_rule" | "update_achievement_rule" | "disable_achievement_rule" | "enable_achievement_rule" | "set_achievement_judge" | "rejudge_session" | "review_achievement" | "set_env_variable" | "delete_env_variable" | "set_env_variable_grants" | "resolve_session_env" | "reject_session_env" | "resolve_session_engine_settings" | "set_workspace_engine_settings" | "set_agent_engine_settings" | "register_extension" | "approve_extension" | "attach_extension" | "detach_extension";
+            operation: "create_session" | "append_message" | "answer" | "interrupt" | "pause" | "close" | "terminate" | "resume" | "recovery_decision" | "revoke_execution" | "issue_password_reset" | "reset_password" | "recover_owner" | "takeover" | "link_account" | "unlink_account" | "invite_member" | "accept_invite" | "revoke_invite" | "change_member_role" | "disable_member" | "enable_member" | "disable_user" | "enable_user" | "create_agent" | "update_agent" | "create_agent_release" | "activate_agent" | "create_api_key" | "revoke_api_key" | "create_team" | "rename_team" | "delete_team" | "add_team_member" | "remove_team_member" | "set_team_member_role" | "set_agent_managing_team" | "set_agent_usage" | "set_agent_caller_limits" | "set_agent_access_settings" | "add_agent_admin" | "remove_agent_admin" | "bind_credential" | "unbind_credential" | "link_agent_identity" | "revoke_agent_identity" | "set_surface_binding" | "request_surface_binding" | "resolve_surface_binding" | "share_session" | "request_push" | "resolve_push" | "decide_push" | "push" | "open_pull_request" | "update_pull_request" | "comment_pull_request" | "close_pull_request" | "reopen_pull_request" | "merge_pull_request" | "call_mcp" | "set_slack_secret" | "delete_slack_secret" | "set_github_app" | "delete_github_app" | "mint_github_token" | "set_github_ceiling" | "set_github_pull_request_settings" | "set_agent_pull_request_settings" | "add_repository" | "set_repository_branch" | "remove_repository" | "import_repository" | "import_connection" | "import_mcp_server" | "create_connection" | "create_mcp_server" | "set_settings_credential" | "set_connection_auto_mode" | "set_connection_models" | "disable_connection" | "enable_connection" | "disable_mcp_server" | "set_mcp_server_workspaces" | "resolve_repository" | "set_agent_github" | "set_agent_mcp" | "set_repository_github_app" | "review_pull_request" | "dispatch_workflow" | "rerun_workflow" | "attach_repository" | "set_github_packages_token" | "delete_github_packages_token" | "set_github_packages_allowlist" | "fetch_github_package" | "create_achievement_category" | "update_achievement_category" | "archive_achievement_category" | "create_achievement_type" | "update_achievement_type" | "archive_achievement_type" | "create_achievement_rule" | "update_achievement_rule" | "disable_achievement_rule" | "enable_achievement_rule" | "set_achievement_judge" | "rejudge_session" | "review_achievement" | "set_env_variable" | "delete_env_variable" | "set_env_variable_grants" | "resolve_session_env" | "reject_session_env" | "resolve_session_engine_settings" | "set_workspace_engine_settings" | "set_agent_engine_settings" | "register_extension" | "approve_extension" | "attach_extension" | "detach_extension" | "create_login_provider" | "update_login_provider" | "refresh_login_provider_discovery" | "set_login_provider_secret" | "test_login_provider" | "enable_login_provider" | "disable_login_provider" | "delete_login_provider" | "link_login_method" | "unlink_login_method";
             target_ref: {
                 /** Format: uuid */
                 session_id: string;
@@ -7420,6 +7718,203 @@ export interface components {
             scopes: ("sessions:read" | "sessions:write" | "sessions:approve" | "sessions:control" | "sessions:recover")[];
             /** Format: date-time */
             expires_at: string;
+        } | {
+            /** @constant */
+            outcome: "tested";
+            /** Format: uuid */
+            provider_id: string;
+            test: {
+                /** @constant */
+                passed: true;
+                recorded: boolean;
+                subject: string;
+                email: string | null;
+                email_verified: boolean | null;
+                address_owned: boolean;
+                /** @enum {string} */
+                entry: "signs_in" | "link_required" | "joins" | "invite_only" | "domain_not_allowed" | "refused";
+            } | {
+                /** @constant */
+                passed: false;
+                reason: string;
+            };
+        } | {
+            /** @constant */
+            outcome: "linked";
+            /** Format: uuid */
+            provider_id: string;
+        };
+        ListLoginProvidersResponse: {
+            providers: {
+                /** Format: uuid */
+                id: string;
+                display_name: string;
+                issuer: string;
+                redirect_uri: string | null;
+                authorization_endpoint: string;
+                token_endpoint: string;
+                jwks_uri: string;
+                userinfo_endpoint: string | null;
+                endpoint_hosts: string[];
+                signing_algs: string[];
+                pkce_advertised: boolean;
+                /** Format: date-time */
+                discovery_checked_at: string;
+                client_id: string | null;
+                /** @enum {string} */
+                token_auth_method: "client_secret_basic" | "client_secret_post";
+                client_secret: {
+                    last4: string;
+                    /** Format: date-time */
+                    updated_at: string;
+                } | null;
+                pending_client_secret: {
+                    last4: string;
+                    /** Format: date-time */
+                    updated_at: string;
+                } | null;
+                allowed_domains: string[];
+                jit_role: "member" | null;
+                require_verified_email: boolean;
+                /** @enum {string} */
+                state: "draft" | "needs_test" | "ready" | "enabled" | "enabled_secret_pending";
+                tested_at: string | null;
+                revision: number;
+                /** Format: date-time */
+                created_at: string;
+                /** Format: date-time */
+                updated_at: string;
+            }[];
+            console_origin_configured: boolean;
+        };
+        LoginProviderResponse: {
+            provider: {
+                /** Format: uuid */
+                id: string;
+                display_name: string;
+                issuer: string;
+                redirect_uri: string | null;
+                authorization_endpoint: string;
+                token_endpoint: string;
+                jwks_uri: string;
+                userinfo_endpoint: string | null;
+                endpoint_hosts: string[];
+                signing_algs: string[];
+                pkce_advertised: boolean;
+                /** Format: date-time */
+                discovery_checked_at: string;
+                client_id: string | null;
+                /** @enum {string} */
+                token_auth_method: "client_secret_basic" | "client_secret_post";
+                client_secret: {
+                    last4: string;
+                    /** Format: date-time */
+                    updated_at: string;
+                } | null;
+                pending_client_secret: {
+                    last4: string;
+                    /** Format: date-time */
+                    updated_at: string;
+                } | null;
+                allowed_domains: string[];
+                jit_role: "member" | null;
+                require_verified_email: boolean;
+                /** @enum {string} */
+                state: "draft" | "needs_test" | "ready" | "enabled" | "enabled_secret_pending";
+                tested_at: string | null;
+                revision: number;
+                /** Format: date-time */
+                created_at: string;
+                /** Format: date-time */
+                updated_at: string;
+            };
+        };
+        DiscoverLoginProviderResponse: {
+            /** @constant */
+            outcome: "ok";
+            endpoint_hosts: string[];
+            signing_algs: string[];
+            token_auth_methods: ("client_secret_basic" | "client_secret_post")[];
+            pkce_advertised: boolean;
+        } | {
+            /** @constant */
+            outcome: "failed";
+            /** @enum {string} */
+            problem: "issuer_mismatch" | "invalid_document" | "insecure_endpoint" | "unsupported_flow" | "unsupported_algorithm" | "unsupported_client_auth" | "pkce_s256_unsupported" | "unreachable" | "address_not_allowed";
+        };
+        DisableLoginProviderResponse: {
+            provider: {
+                /** Format: uuid */
+                id: string;
+                display_name: string;
+                issuer: string;
+                redirect_uri: string | null;
+                authorization_endpoint: string;
+                token_endpoint: string;
+                jwks_uri: string;
+                userinfo_endpoint: string | null;
+                endpoint_hosts: string[];
+                signing_algs: string[];
+                pkce_advertised: boolean;
+                /** Format: date-time */
+                discovery_checked_at: string;
+                client_id: string | null;
+                /** @enum {string} */
+                token_auth_method: "client_secret_basic" | "client_secret_post";
+                client_secret: {
+                    last4: string;
+                    /** Format: date-time */
+                    updated_at: string;
+                } | null;
+                pending_client_secret: {
+                    last4: string;
+                    /** Format: date-time */
+                    updated_at: string;
+                } | null;
+                allowed_domains: string[];
+                jit_role: "member" | null;
+                require_verified_email: boolean;
+                /** @enum {string} */
+                state: "draft" | "needs_test" | "ready" | "enabled" | "enabled_secret_pending";
+                tested_at: string | null;
+                revision: number;
+                /** Format: date-time */
+                created_at: string;
+                /** Format: date-time */
+                updated_at: string;
+            };
+            sessions_revoked: number;
+        };
+        ListMyLoginMethodsResponse: {
+            methods: {
+                /** Format: uuid */
+                id: string;
+                /** @enum {string} */
+                kind: "password" | "oidc";
+                provider: {
+                    /** Format: uuid */
+                    id: string;
+                    display_name: string;
+                    enabled: boolean;
+                } | null;
+                issuer: string | null;
+                email_at_link: string | null;
+                /** Format: date-time */
+                created_at: string;
+                last_login_at: string | null;
+                usable: boolean;
+            }[];
+            linkable: {
+                /** Format: uuid */
+                id: string;
+                display_name: string;
+            }[];
+            can_change: boolean;
+        };
+        UnlinkMyLoginMethodResponse: {
+            sessions_revoked: number;
+            /** Format: uuid */
+            receipt_id: string;
         };
         IssuePasswordResetRequest: {
             current_password: string;
@@ -10714,6 +11209,168 @@ export interface operations {
             };
         };
     };
+    startProviderInvite: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Always required: the literal `werft-web`. */
+                "X-Requested-With": "werft-web";
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "invite_token": "apv_0000000000000000000000000000000000000000000000000000000000000000"
+                 *     }
+                 */
+                "application/json": components["schemas"]["StartProviderInviteRequest"];
+            };
+        };
+        responses: {
+            /** @description The flow has started; the response sets the flow cookie. Send the browser to `authorization_url`. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "authorization_url": "https://idp.example.com/oauth2/authorize?response_type=code&client_id=werft-console&state=example"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["StartProviderLoginResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: The request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); every caller must send the header. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. No provider has this id, or it is turned off. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `INVITE_USED`: The invite was already accepted and cannot be used again. */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "INVITE_USED";
+                        };
+                    };
+                };
+            };
+            /** @description - `INVITE_EXPIRED`: The invite was revoked, replaced by a newer one, or has expired. Ask for a new invite. */
+            410: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "INVITE_EXPIRED";
+                        };
+                    };
+                };
+            };
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB. */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "PAYLOAD_TOO_LARGE";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. `CONSOLE_ORIGIN` is not set, the provider has no client ID or client secret, or its authorization endpoint is plain http outside a local stack. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
     providerLoginCallback: {
         parameters: {
             query?: never;
@@ -10839,7 +11496,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `LOGIN_LINK_REQUIRED`: The verified address already has an account. It is never joined by email: sign in with the existing account and link the external login there. */
+            /**
+             * @description - `LOGIN_LINK_REQUIRED`: The verified address already has an account. It is never joined by email: sign in with the existing account and link the external login there.
+             *     - `ALREADY_EXISTS`: A resource with the same identity already exists; the operation names which field must be unique. An invite or a link flow only. `details.reason_code` is `login_method_linked` when a user already has this (issuer, subject), `issuer_linked` when the user linking already has another account of this issuer.
+             */
             409: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -10849,7 +11509,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"] & {
                         error?: {
                             /** @enum {string} */
-                            code?: "LOGIN_LINK_REQUIRED";
+                            code?: "LOGIN_LINK_REQUIRED" | "ALREADY_EXISTS";
                         };
                     };
                 };
@@ -16262,6 +16922,1509 @@ export interface operations {
             };
         };
     };
+    listLoginProviders: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description `console_origin_configured: false` means no provider can be made until `CONSOLE_ORIGIN` is set; `redirect_uri` is null then. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "providers": [
+                     *         {
+                     *           "id": "5b0c7e2a-9d41-4f6b-8a3e-7c1d2e3f4a5b",
+                     *           "display_name": "Keycloak",
+                     *           "issuer": "https://idp.example.com/realms/acme",
+                     *           "redirect_uri": "https://console.example.com/auth/callback/5b0c7e2a-9d41-4f6b-8a3e-7c1d2e3f4a5b",
+                     *           "authorization_endpoint": "https://idp.example.com/realms/acme/protocol/openid-connect/auth",
+                     *           "token_endpoint": "https://idp.example.com/realms/acme/protocol/openid-connect/token",
+                     *           "jwks_uri": "https://idp.example.com/realms/acme/protocol/openid-connect/certs",
+                     *           "userinfo_endpoint": "https://idp.example.com/realms/acme/protocol/openid-connect/userinfo",
+                     *           "endpoint_hosts": [
+                     *             "idp.example.com"
+                     *           ],
+                     *           "signing_algs": [
+                     *             "RS256"
+                     *           ],
+                     *           "pkce_advertised": true,
+                     *           "discovery_checked_at": "2026-10-18T09:00:00Z",
+                     *           "client_id": "werft-console",
+                     *           "token_auth_method": "client_secret_basic",
+                     *           "client_secret": {
+                     *             "last4": "9f3a",
+                     *             "updated_at": "2026-10-18T09:05:00Z"
+                     *           },
+                     *           "pending_client_secret": null,
+                     *           "allowed_domains": [
+                     *             "example.com"
+                     *           ],
+                     *           "jit_role": null,
+                     *           "require_verified_email": true,
+                     *           "state": "enabled",
+                     *           "tested_at": "2026-10-18T09:10:00Z",
+                     *           "revision": 4,
+                     *           "created_at": "2026-10-18T09:00:00Z",
+                     *           "updated_at": "2026-10-18T09:12:00Z"
+                     *         }
+                     *       ],
+                     *       "console_origin_configured": true
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ListLoginProvidersResponse"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    createLoginProvider: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "display_name": "Keycloak",
+                 *       "issuer": "https://idp.example.com/realms/acme"
+                 *     }
+                 */
+                "application/json": components["schemas"]["CreateLoginProviderRequest"];
+            };
+        };
+        responses: {
+            /** @description The new provider, in state `draft`. */
+            201: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "provider": {
+                     *         "id": "5b0c7e2a-9d41-4f6b-8a3e-7c1d2e3f4a5b",
+                     *         "display_name": "Keycloak",
+                     *         "issuer": "https://idp.example.com/realms/acme",
+                     *         "redirect_uri": "https://console.example.com/auth/callback/5b0c7e2a-9d41-4f6b-8a3e-7c1d2e3f4a5b",
+                     *         "authorization_endpoint": "https://idp.example.com/realms/acme/protocol/openid-connect/auth",
+                     *         "token_endpoint": "https://idp.example.com/realms/acme/protocol/openid-connect/token",
+                     *         "jwks_uri": "https://idp.example.com/realms/acme/protocol/openid-connect/certs",
+                     *         "userinfo_endpoint": "https://idp.example.com/realms/acme/protocol/openid-connect/userinfo",
+                     *         "endpoint_hosts": [
+                     *           "idp.example.com"
+                     *         ],
+                     *         "signing_algs": [
+                     *           "RS256"
+                     *         ],
+                     *         "pkce_advertised": true,
+                     *         "discovery_checked_at": "2026-10-18T09:00:00Z",
+                     *         "client_id": null,
+                     *         "token_auth_method": "client_secret_basic",
+                     *         "client_secret": null,
+                     *         "pending_client_secret": null,
+                     *         "allowed_domains": [
+                     *           "example.com"
+                     *         ],
+                     *         "jit_role": null,
+                     *         "require_verified_email": true,
+                     *         "state": "draft",
+                     *         "tested_at": null,
+                     *         "revision": 1,
+                     *         "created_at": "2026-10-18T09:00:00Z",
+                     *         "updated_at": "2026-10-18T09:12:00Z"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["LoginProviderResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. Also when the discovery document cannot be used; `details.problem` names why. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `ALREADY_EXISTS`: A resource with the same identity already exists; the operation names which field must be unique. A provider with this issuer exists already. */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "ALREADY_EXISTS";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. Also when `CONSOLE_ORIGIN` is not set. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    discoverLoginProvider: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "issuer": "https://idp.example.com/realms/acme"
+                 *     }
+                 */
+                "application/json": components["schemas"]["DiscoverLoginProviderRequest"];
+            };
+        };
+        responses: {
+            /** @description `ok` with the hosts this server would send requests to, or `failed` with the problem. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "outcome": "ok",
+                     *       "endpoint_hosts": [
+                     *         "idp.example.com"
+                     *       ],
+                     *       "signing_algs": [
+                     *         "RS256"
+                     *       ],
+                     *       "token_auth_methods": [
+                     *         "client_secret_basic",
+                     *         "client_secret_post"
+                     *       ],
+                     *       "pkce_advertised": true
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DiscoverLoginProviderResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. Also when `CONSOLE_ORIGIN` is not set. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    deleteLoginProvider: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The provider is deleted. */
+            204: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. The provider is on (`details.reason_code: provider_enabled`). */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REVISION_CONFLICT";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    updateLoginProvider: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The `revision` last read, as a number (an entity tag's quotes are allowed). A different one answers `412 VERSION_MISMATCH`; none answers `428 PRECONDITION_REQUIRED`. */
+                "If-Match": string;
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "client_id": "werft-console"
+                 *     }
+                 */
+                "application/json": components["schemas"]["UpdateLoginProviderRequest"];
+            };
+        };
+        responses: {
+            /** @description The provider after the change. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "provider": {
+                     *         "id": "5b0c7e2a-9d41-4f6b-8a3e-7c1d2e3f4a5b",
+                     *         "display_name": "Keycloak",
+                     *         "issuer": "https://idp.example.com/realms/acme",
+                     *         "redirect_uri": "https://console.example.com/auth/callback/5b0c7e2a-9d41-4f6b-8a3e-7c1d2e3f4a5b",
+                     *         "authorization_endpoint": "https://idp.example.com/realms/acme/protocol/openid-connect/auth",
+                     *         "token_endpoint": "https://idp.example.com/realms/acme/protocol/openid-connect/token",
+                     *         "jwks_uri": "https://idp.example.com/realms/acme/protocol/openid-connect/certs",
+                     *         "userinfo_endpoint": "https://idp.example.com/realms/acme/protocol/openid-connect/userinfo",
+                     *         "endpoint_hosts": [
+                     *           "idp.example.com"
+                     *         ],
+                     *         "signing_algs": [
+                     *           "RS256"
+                     *         ],
+                     *         "pkce_advertised": true,
+                     *         "discovery_checked_at": "2026-10-18T09:00:00Z",
+                     *         "client_id": "werft-console",
+                     *         "token_auth_method": "client_secret_basic",
+                     *         "client_secret": {
+                     *           "last4": "9f3a",
+                     *           "updated_at": "2026-10-18T09:05:00Z"
+                     *         },
+                     *         "pending_client_secret": null,
+                     *         "allowed_domains": [
+                     *           "example.com"
+                     *         ],
+                     *         "jit_role": null,
+                     *         "require_verified_email": true,
+                     *         "state": "enabled",
+                     *         "tested_at": "2026-10-18T09:10:00Z",
+                     *         "revision": 4,
+                     *         "created_at": "2026-10-18T09:00:00Z",
+                     *         "updated_at": "2026-10-18T09:12:00Z"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["LoginProviderResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. The provider is on and the change names its client ID or client authentication (`details.reason_code: provider_enabled`). */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REVISION_CONFLICT";
+                        };
+                    };
+                };
+            };
+            /** @description - `VERSION_MISMATCH`: `If-Match` names another version than the current one, the variable does not exist, or `If-None-Match: *` met one that does. Read it again and retry. The provider changed since `revision` was read; `details.current_version` is the one to send. */
+            412: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "VERSION_MISMATCH";
+                        };
+                    };
+                };
+            };
+            /** @description - `PRECONDITION_REQUIRED`: The write sent neither `If-Match` nor `If-None-Match: *`. */
+            428: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "PRECONDITION_REQUIRED";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    refreshLoginProviderDiscovery: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The provider with the endpoints discovery names now. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "provider": {
+                     *         "id": "5b0c7e2a-9d41-4f6b-8a3e-7c1d2e3f4a5b",
+                     *         "display_name": "Keycloak",
+                     *         "issuer": "https://idp.example.com/realms/acme",
+                     *         "redirect_uri": "https://console.example.com/auth/callback/5b0c7e2a-9d41-4f6b-8a3e-7c1d2e3f4a5b",
+                     *         "authorization_endpoint": "https://idp.example.com/realms/acme/protocol/openid-connect/auth",
+                     *         "token_endpoint": "https://idp.example.com/realms/acme/protocol/openid-connect/token",
+                     *         "jwks_uri": "https://idp.example.com/realms/acme/protocol/openid-connect/certs",
+                     *         "userinfo_endpoint": "https://idp.example.com/realms/acme/protocol/openid-connect/userinfo",
+                     *         "endpoint_hosts": [
+                     *           "idp.example.com"
+                     *         ],
+                     *         "signing_algs": [
+                     *           "RS256"
+                     *         ],
+                     *         "pkce_advertised": true,
+                     *         "discovery_checked_at": "2026-10-18T09:00:00Z",
+                     *         "client_id": "werft-console",
+                     *         "token_auth_method": "client_secret_basic",
+                     *         "client_secret": {
+                     *           "last4": "9f3a",
+                     *           "updated_at": "2026-10-18T09:05:00Z"
+                     *         },
+                     *         "pending_client_secret": null,
+                     *         "allowed_domains": [
+                     *           "example.com"
+                     *         ],
+                     *         "jit_role": null,
+                     *         "require_verified_email": true,
+                     *         "state": "needs_test",
+                     *         "tested_at": "2026-10-18T09:10:00Z",
+                     *         "revision": 4,
+                     *         "created_at": "2026-10-18T09:00:00Z",
+                     *         "updated_at": "2026-10-18T09:12:00Z"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["LoginProviderResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: . Fix the request before retrying. The discovery document cannot be used; `details.problem` names why. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. The provider is on (`details.reason_code: provider_enabled`). */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REVISION_CONFLICT";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. Also when `CONSOLE_ORIGIN` is not set. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    setLoginProviderSecret: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "value": "example-client-secret"
+                 *     }
+                 */
+                "application/json": components["schemas"]["SetLoginProviderSecretRequest"];
+            };
+        };
+        responses: {
+            /** @description The provider; the secret shows as its last four characters only. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "provider": {
+                     *         "id": "5b0c7e2a-9d41-4f6b-8a3e-7c1d2e3f4a5b",
+                     *         "display_name": "Keycloak",
+                     *         "issuer": "https://idp.example.com/realms/acme",
+                     *         "redirect_uri": "https://console.example.com/auth/callback/5b0c7e2a-9d41-4f6b-8a3e-7c1d2e3f4a5b",
+                     *         "authorization_endpoint": "https://idp.example.com/realms/acme/protocol/openid-connect/auth",
+                     *         "token_endpoint": "https://idp.example.com/realms/acme/protocol/openid-connect/token",
+                     *         "jwks_uri": "https://idp.example.com/realms/acme/protocol/openid-connect/certs",
+                     *         "userinfo_endpoint": "https://idp.example.com/realms/acme/protocol/openid-connect/userinfo",
+                     *         "endpoint_hosts": [
+                     *           "idp.example.com"
+                     *         ],
+                     *         "signing_algs": [
+                     *           "RS256"
+                     *         ],
+                     *         "pkce_advertised": true,
+                     *         "discovery_checked_at": "2026-10-18T09:00:00Z",
+                     *         "client_id": "werft-console",
+                     *         "token_auth_method": "client_secret_basic",
+                     *         "client_secret": {
+                     *           "last4": "9f3a",
+                     *           "updated_at": "2026-10-18T09:05:00Z"
+                     *         },
+                     *         "pending_client_secret": null,
+                     *         "allowed_domains": [
+                     *           "example.com"
+                     *         ],
+                     *         "jit_role": null,
+                     *         "require_verified_email": true,
+                     *         "state": "needs_test",
+                     *         "tested_at": "2026-10-18T09:10:00Z",
+                     *         "revision": 4,
+                     *         "created_at": "2026-10-18T09:00:00Z",
+                     *         "updated_at": "2026-10-18T09:12:00Z"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["LoginProviderResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    startLoginProviderTest: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The test has started; the response sets the flow cookie. Send the browser to `authorization_url`. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "authorization_url": "https://idp.example.com/oauth2/authorize?response_type=code&client_id=werft-console&state=example"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["StartProviderLoginResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: . Fix the request before retrying. The provider's authorization endpoint is plain http outside a local stack. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. The provider has no client ID or no client secret yet (`details.reason_code: not_tested`). */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REVISION_CONFLICT";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. Also when `CONSOLE_ORIGIN` is not set. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    enableLoginProvider: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The provider, on. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "provider": {
+                     *         "id": "5b0c7e2a-9d41-4f6b-8a3e-7c1d2e3f4a5b",
+                     *         "display_name": "Keycloak",
+                     *         "issuer": "https://idp.example.com/realms/acme",
+                     *         "redirect_uri": "https://console.example.com/auth/callback/5b0c7e2a-9d41-4f6b-8a3e-7c1d2e3f4a5b",
+                     *         "authorization_endpoint": "https://idp.example.com/realms/acme/protocol/openid-connect/auth",
+                     *         "token_endpoint": "https://idp.example.com/realms/acme/protocol/openid-connect/token",
+                     *         "jwks_uri": "https://idp.example.com/realms/acme/protocol/openid-connect/certs",
+                     *         "userinfo_endpoint": "https://idp.example.com/realms/acme/protocol/openid-connect/userinfo",
+                     *         "endpoint_hosts": [
+                     *           "idp.example.com"
+                     *         ],
+                     *         "signing_algs": [
+                     *           "RS256"
+                     *         ],
+                     *         "pkce_advertised": true,
+                     *         "discovery_checked_at": "2026-10-18T09:00:00Z",
+                     *         "client_id": "werft-console",
+                     *         "token_auth_method": "client_secret_basic",
+                     *         "client_secret": {
+                     *           "last4": "9f3a",
+                     *           "updated_at": "2026-10-18T09:05:00Z"
+                     *         },
+                     *         "pending_client_secret": null,
+                     *         "allowed_domains": [
+                     *           "example.com"
+                     *         ],
+                     *         "jit_role": null,
+                     *         "require_verified_email": true,
+                     *         "state": "enabled",
+                     *         "tested_at": "2026-10-18T09:10:00Z",
+                     *         "revision": 4,
+                     *         "created_at": "2026-10-18T09:00:00Z",
+                     *         "updated_at": "2026-10-18T09:12:00Z"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["LoginProviderResponse"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. No test sign-in passed with the settings as they are now, or the client ID or secret is missing (`details.reason_code: not_tested`). */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REVISION_CONFLICT";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    disableLoginProvider: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The provider, off, and how many sessions ended. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "provider": {
+                     *         "id": "5b0c7e2a-9d41-4f6b-8a3e-7c1d2e3f4a5b",
+                     *         "display_name": "Keycloak",
+                     *         "issuer": "https://idp.example.com/realms/acme",
+                     *         "redirect_uri": "https://console.example.com/auth/callback/5b0c7e2a-9d41-4f6b-8a3e-7c1d2e3f4a5b",
+                     *         "authorization_endpoint": "https://idp.example.com/realms/acme/protocol/openid-connect/auth",
+                     *         "token_endpoint": "https://idp.example.com/realms/acme/protocol/openid-connect/token",
+                     *         "jwks_uri": "https://idp.example.com/realms/acme/protocol/openid-connect/certs",
+                     *         "userinfo_endpoint": "https://idp.example.com/realms/acme/protocol/openid-connect/userinfo",
+                     *         "endpoint_hosts": [
+                     *           "idp.example.com"
+                     *         ],
+                     *         "signing_algs": [
+                     *           "RS256"
+                     *         ],
+                     *         "pkce_advertised": true,
+                     *         "discovery_checked_at": "2026-10-18T09:00:00Z",
+                     *         "client_id": "werft-console",
+                     *         "token_auth_method": "client_secret_basic",
+                     *         "client_secret": {
+                     *           "last4": "9f3a",
+                     *           "updated_at": "2026-10-18T09:05:00Z"
+                     *         },
+                     *         "pending_client_secret": null,
+                     *         "allowed_domains": [
+                     *           "example.com"
+                     *         ],
+                     *         "jit_role": null,
+                     *         "require_verified_email": true,
+                     *         "state": "ready",
+                     *         "tested_at": "2026-10-18T09:10:00Z",
+                     *         "revision": 4,
+                     *         "created_at": "2026-10-18T09:00:00Z",
+                     *         "updated_at": "2026-10-18T09:12:00Z"
+                     *       },
+                     *       "sessions_revoked": 3
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DisableLoginProviderResponse"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
     logout: {
         parameters: {
             query?: never;
@@ -16588,6 +18751,331 @@ export interface operations {
                         error?: {
                             /** @enum {string} */
                             code?: "PAYLOAD_TOO_LARGE";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    listMyLoginMethods: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The user's ways to sign in, and what can be linked. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "methods": [
+                     *         {
+                     *           "id": "0d6f4b1e-2a37-4c58-9e60-b1c2d3e4f5a6",
+                     *           "kind": "password",
+                     *           "provider": null,
+                     *           "issuer": null,
+                     *           "email_at_link": null,
+                     *           "created_at": "2026-10-01T09:00:00Z",
+                     *           "last_login_at": "2026-10-11T09:00:00Z",
+                     *           "usable": true
+                     *         }
+                     *       ],
+                     *       "linkable": [
+                     *         {
+                     *           "id": "5b0c7e2a-9d41-4f6b-8a3e-7c1d2e3f4a5b",
+                     *           "display_name": "Example IdP"
+                     *         }
+                     *       ],
+                     *       "can_change": true
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ListMyLoginMethodsResponse"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. The caller is not a cookie session (an API key). */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    startMyLoginMethodLink: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
+            };
+            path: {
+                /** @description The id of a sign-in provider that is on, from `linkable` of GET /v1/auth/me/login-methods. */
+                provider_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The flow has started; the response sets the flow cookie. Send the browser to `authorization_url`. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "authorization_url": "https://idp.example.com/oauth2/authorize?response_type=code&client_id=werft-console&state=example"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["StartProviderLoginResponse"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. The caller is not a cookie session, or the session is older than ten minutes (`details.reason_code: session_too_old`). */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. No provider has this id, or it is turned off. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. `CONSOLE_ORIGIN` is not set, the provider has no client ID or client secret, or its authorization endpoint is plain http outside a local stack. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    unlinkMyLoginMethod: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
+            };
+            path: {
+                /** @description The id of one of the caller's own ways to sign in, from GET /v1/auth/me/login-methods. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed, and how many sessions ended with it. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "sessions_revoked": 1,
+                     *       "receipt_id": "7a1c9e3b-5d2f-4a6c-8e0b-1d3f5a7c9e2b"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["UnlinkMyLoginMethodResponse"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. Also when the session ended, or its user was turned off, while the request waited its turn: nothing was removed. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. The caller is not a cookie session, or the session is older than ten minutes (`details.reason_code: session_too_old`). */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. The user has no way to sign in with this id. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. It is the only usable way to sign in the user has (`details.reason_code: last_login_method`). */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REVISION_CONFLICT";
                         };
                     };
                 };

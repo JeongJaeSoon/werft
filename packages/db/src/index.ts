@@ -44,6 +44,7 @@ export * from "./musterrolle/identity.ts";
 export * from "./musterrolle/identity-reader.ts";
 export * from "./musterrolle/invites.ts";
 export * from "./musterrolle/linked-accounts.ts";
+export * from "./musterrolle/login-methods.ts";
 export * from "./musterrolle/login-providers.ts";
 export * from "./musterrolle/member-teams.ts";
 export * from "./musterrolle/members.ts";

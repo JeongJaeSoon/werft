@@ -24,9 +24,49 @@ export type LoginFlow = {
   verifier: string;
   /** Milliseconds since the epoch, on this server's clock. */
   startedAt: number;
+  /**
+   * A `test` flow: the owner who started it, their session, and the stored
+   * secret it tries (the row and its version: a slot emptied and filled
+   * again counts from 1 on another row).
+   */
+  test?: {
+    userId: string;
+    sessionId: string;
+    secretSlot: "current" | "next";
+    secretId: string;
+    secretVersion: number;
+  };
+  /** An `invite` flow: the one invite it was started with. */
+  invite?: { inviteId: string };
+  /** A `link` flow: who links, and the session they started it from. */
+  link?: { userId: string; sessionId: string };
 };
 
 const PURPOSES: readonly string[] = ["login", "invite", "link", "test"];
+
+function testOf(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) return false;
+  const test = value as Record<string, unknown>;
+  return (
+    typeof test.userId === "string" &&
+    test.userId !== "" &&
+    typeof test.sessionId === "string" &&
+    test.sessionId !== "" &&
+    (test.secretSlot === "current" || test.secretSlot === "next") &&
+    typeof test.secretId === "string" &&
+    test.secretId !== "" &&
+    Number.isInteger(test.secretVersion)
+  );
+}
+
+/** An object whose named values are all non-empty text. */
+function textsOf(value: unknown, names: readonly string[]): boolean {
+  if (typeof value !== "object" || value === null) return false;
+  const record = value as Record<string, unknown>;
+  return names.every(
+    (name) => typeof record[name] === "string" && record[name] !== "",
+  );
+}
 
 function flowOf(value: unknown): LoginFlow | null {
   if (typeof value !== "object" || value === null) return null;
@@ -41,7 +81,16 @@ function flowOf(value: unknown): LoginFlow | null {
     !text("nonce") ||
     !text("verifier") ||
     !Number.isInteger(flow.configRevision) ||
-    !Number.isFinite(flow.startedAt)
+    !Number.isFinite(flow.startedAt) ||
+    // A test flow names who runs it; no other flow carries that.
+    (flow.purpose === "test") !== (flow.test !== undefined) ||
+    (flow.test !== undefined && !testOf(flow.test)) ||
+    // What an invite or a link flow is bound to rides only on that flow.
+    // That it is there is for the callback that ends the flow to require.
+    (flow.invite !== undefined &&
+      (flow.purpose !== "invite" || !textsOf(flow.invite, ["inviteId"]))) ||
+    (flow.link !== undefined &&
+      (flow.purpose !== "link" || !textsOf(flow.link, ["userId", "sessionId"])))
   ) {
     return null;
   }

@@ -17,6 +17,8 @@ export const SECRET_PURPOSE_VALUES = [
   "github_packages_token",
   "settings_credential",
   "login_client_secret",
+  // A replacement for a provider that is on; used once a test sign-in passes.
+  "login_client_secret_next",
 ] as const;
 export const secretPurposeSchema = z.enum(SECRET_PURPOSE_VALUES);
 

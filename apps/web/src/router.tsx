@@ -44,6 +44,10 @@ import {
   safeRedirect,
 } from "./routes/login.tsx";
 import {
+  LoginProviderScreen,
+  LoginProvidersScreen,
+} from "./routes/login-providers.tsx";
+import {
   InvitesScreen,
   MembersLayout,
   MembersScreen,
@@ -369,6 +373,18 @@ const mcpServers = createRoute({
   component: McpServersScreen,
 });
 
+const loginProviders = createRoute({
+  getParentRoute: () => authed,
+  path: "/settings/workspace/login",
+  component: LoginProvidersScreen,
+});
+
+const loginProvider = createRoute({
+  getParentRoute: () => authed,
+  path: "/settings/workspace/login/$providerId",
+  component: LoginProviderScreen,
+});
+
 const oldUsage = createRoute({
   getParentRoute: () => authed,
   path: "/usage",
@@ -473,6 +489,8 @@ const routeTree = root.addChildren([
     orgKeys,
     connections,
     mcpServers,
+    loginProviders,
+    loginProvider,
     oldUsage,
     operations.addChildren([
       operationsOverview,

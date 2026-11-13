@@ -158,8 +158,13 @@ integration("provider sign-in first-entry rules on PostgreSQL", () => {
     const { error } = await response.json();
     return { code: error.code, message: error.message };
   };
-  const signedInBody = async (response: Response) =>
-    providerLoginCallbackResponseSchema.parse(await response.json());
+  const signedInBody = async (response: Response) => {
+    const body = providerLoginCallbackResponseSchema.parse(
+      await response.json(),
+    );
+    if (body.outcome !== "signed_in") throw new Error("not a sign-in");
+    return body;
+  };
   const methodsOf = (userId: string) =>
     db.select().from(loginMethods).where(eq(loginMethods.userId, userId));
   const userByEmail = async (email: string) =>
