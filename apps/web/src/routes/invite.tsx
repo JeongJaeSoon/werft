@@ -38,7 +38,7 @@ import { StatusScreen } from "../components/status-screen.tsx";
 import { StepHeading, useStepMoved } from "../components/step-heading.tsx";
 import { FunnelResetNotice, useFunnel } from "../funnel/tanstack-funnel.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
-import { useLeave } from "../services.tsx";
+import { LEAVING_KEY, useLeave } from "../services.tsx";
 import { POST_LOGIN_PATH_KEY } from "./login.tsx";
 
 /**
@@ -307,19 +307,19 @@ export const INVITE_FLOW_KEY = "ap.inviteFlow";
 /**
  * Starting to join with a provider's account in place of a password. The
  * start binds the flow to this invite and spends nothing; the callback makes
- * the account, with the invite's address and role. It is held by the flow,
- * above its steps: a step left and come back to finds a start that is still
- * out, or a page already leaving, as it is.
+ * the account, with the invite's address and role. The flow calls it, above
+ * its steps, so the account choices are held with the provider buttons.
  */
 function useProviderStart(
   token: string,
   onEnded: (code: "INVITE_EXPIRED" | "INVITE_USED") => void,
 ) {
   const { client } = useWerft();
-  const [leaving, leave] = useLeave();
+  const [held, leave] = useLeave();
 
   // The variables are the provider's id alone: the token stays out of them.
   const start = useMutation<{ authorization_url: string }, ApiError, string>({
+    mutationKey: LEAVING_KEY,
     meta: { public: true },
     mutationFn: (id) =>
       unwrap(
@@ -351,7 +351,7 @@ function useProviderStart(
     },
   });
 
-  return { start, held: start.isPending || leaving };
+  return { start, held };
 }
 
 /**

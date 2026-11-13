@@ -598,6 +598,61 @@ describe("공급자 계정으로 가입", () => {
   });
 });
 
+describe("공급자 가입의 잠금은 화면이 아니라 앱이 쥔다", () => {
+  const KEYCLOAK = {
+    id: "0d6a3f1c-2b7e-4c58-9a1d-6e5f4a3b2c1d",
+    display_name: "Keycloak",
+  };
+  const START = `/v1/auth/providers/${KEYCLOAK.id}/invite/start`;
+  const AUTHORIZE = "https://idp.example.test/authorize?state=s1";
+
+  test("시작 요청이 나가 있는 동안 화면이 오류로 바뀌었다 돌아와도 두 번째 시작은 없다", async () => {
+    let answer: (response: Response) => void = () => {};
+    let viewer = signedOut;
+    const { api, left, services } = renderAt(`/invite/${TOKEN}`, {
+      "GET /v1/auth/me": () => viewer(),
+      "GET /v1/auth/login-methods": () =>
+        json(200, { password: "on", providers: [KEYCLOAK] }),
+      [`POST ${START}`]: () =>
+        new Promise<Response>((resolve) => {
+          answer = resolve;
+        }),
+    });
+    const user = await setupUser();
+    const starts = () =>
+      api.calls.filter((c) => c.path.endsWith("/invite/start")).length;
+    const button = () =>
+      screen.findByRole("button", {
+        name: /Keycloak 계정으로 가입|이동하는 중/,
+      });
+    await user.click(await button());
+    await waitFor(() => expect(starts()).toBe(1));
+    // The tab comes back, the re-read of who is signed in fails once, and
+    // the flow is replaced by the failure screen.
+    viewer = () => apiError(503, "BACKEND_UNAVAILABLE", "storage down");
+    void services.queryClient.invalidateQueries();
+    const retry = await screen.findByRole("button", { name: "다시 시도" });
+    expect(
+      screen.queryAllByRole("button", { name: /계정으로 가입$|이동하는 중/ }),
+    ).toHaveLength(0);
+    viewer = signedOut;
+    await user.click(retry);
+    // A new flow, and the start of the old one is still out.
+    const again = await button();
+    expect(again.hasAttribute("disabled")).toBe(true);
+    await user.click(again);
+    expect(starts()).toBe(1);
+    answer(json(200, { authorization_url: AUTHORIZE }));
+    await waitFor(() => expect(left).toEqual([AUTHORIZE]));
+    // Gone from the flow that started it, the page is still on its way.
+    expect((await button()).hasAttribute("disabled")).toBe(true);
+    window.dispatchEvent(new Event("pageshow"));
+    await waitFor(async () =>
+      expect((await button()).hasAttribute("disabled")).toBe(false),
+    );
+  });
+});
+
 describe("공급자 가입의 콜백", () => {
   const CALLBACK = "/auth/callback/0d6a3f1c-2b7e-4c58-9a1d-6e5f4a3b2c1d";
   const REFUSED =

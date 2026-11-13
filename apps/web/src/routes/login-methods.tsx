@@ -30,7 +30,7 @@ import { scopedKey } from "../api/queries.ts";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
-import { useLeave } from "../services.tsx";
+import { LEAVING_KEY, useLeave } from "../services.tsx";
 import { Action } from "./login-providers.tsx";
 
 /**
@@ -83,7 +83,7 @@ const nameOf = (t: Translate, method: MyLoginMethod) =>
 export function LoginMethodsScreen() {
   const { t, locale } = useI18n();
   const { client } = useWerft();
-  const [leaving, leave] = useLeave();
+  const [held, leave] = useLeave();
   const queryClient = useQueryClient();
   const list = useQuery(myLoginMethodsQuery(client));
   const [outcome, setOutcome] = useState<Outcome | null>(null);
@@ -118,6 +118,7 @@ export function LoginMethodsScreen() {
     queryClient.invalidateQueries({ queryKey: listKey(client) });
 
   const link = useMutation<{ authorization_url: string }, ApiError, string>({
+    mutationKey: LEAVING_KEY,
     mutationFn: (providerId) =>
       unwrap(
         client.POST("/v1/auth/me/login-methods/{provider_id}/link/start", {
@@ -176,7 +177,7 @@ export function LoginMethodsScreen() {
       ),
     onSettled: reread,
   });
-  const busy = link.isPending || unlink.isPending || leaving;
+  const busy = held || unlink.isPending;
 
   const body = () => {
     if (list.isPending) return <Skeleton width="60%" />;
