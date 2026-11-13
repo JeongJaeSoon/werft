@@ -149,6 +149,40 @@ integration("web sessions and the login method that made them", () => {
     );
   });
 
+  test("a password login puts its time on the method; one that makes no session puts nothing", async () => {
+    const { userId, methodId } = await passwordUser("timed");
+    const lastLogin = async () => {
+      const [row] = await db
+        .select({ at: loginMethods.lastLoginAt })
+        .from(loginMethods)
+        .where(eq(loginMethods.id, methodId));
+      return row?.at ?? null;
+    };
+    expect(await lastLogin()).toBeNull();
+    // The hash checked is no longer the stored one: no session.
+    const refused = await createWebSession(db, {
+      id: randomUUID(),
+      userId,
+      verifiedPasswordHash: `${PASSWORD_HASH}-replaced`,
+      tokenHash: newToken(),
+      ttlMs: 60_000,
+      userAgent: null,
+      maxLive: 5,
+    });
+    expect(refused).toBeNull();
+    expect(await lastLogin()).toBeNull();
+    await passwordSession(userId);
+    expect(await lastLogin()).toBeInstanceOf(Date);
+    // Every later login moves it. Set far back first, so the two logins need
+    // not fall in different milliseconds.
+    await db
+      .update(loginMethods)
+      .set({ lastLoginAt: new Date(0) })
+      .where(eq(loginMethods.id, methodId));
+    await passwordSession(userId);
+    expect((await lastLogin())?.getTime()).toBeGreaterThan(0);
+  });
+
   test("a password account that lost its method row gets it back, so the session still names one", async () => {
     const { userId, methodId } = await passwordUser("lost");
     await db.delete(loginMethods).where(eq(loginMethods.id, methodId));
