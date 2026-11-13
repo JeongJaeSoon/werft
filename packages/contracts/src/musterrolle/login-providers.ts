@@ -246,8 +246,9 @@ export const loginSettingsResponseSchema = z
   .object({
     settings: loginSettingsSchema,
     /**
-     * The owners who can be named emergency admin, the one named included
-     * while still eligible; oldest membership first, at most 100.
+     * The owners who can be named emergency admin, oldest membership first,
+     * at most 100. The one named is listed like any other: while still
+     * eligible and within those 100.
      */
     emergency_admin_candidates: z.array(
       z

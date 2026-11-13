@@ -133,6 +133,15 @@ describe("로그인 수단 선택", () => {
     expect(
       screen.queryByRole("button", { name: "비상 관리자 로그인" }) === null,
     ).toBe(true);
+    // Clearing the field to retype it is not leaving the form: it stays,
+    // and so does the keyboard.
+    await user.clear(email);
+    const cleared = screen.getByRole("textbox", { name: "이메일" });
+    expect((cleared as HTMLInputElement).value).toBe("");
+    expect(document.activeElement === cleared).toBe(true);
+    expect(
+      screen.queryByRole("button", { name: "비상 관리자 로그인" }) === null,
+    ).toBe(true);
   });
 
   test("공급자를 고르면 그 공급자의 시작 요청 뒤 공급자 화면으로 가고, 돌아올 곳을 기억한다", async () => {

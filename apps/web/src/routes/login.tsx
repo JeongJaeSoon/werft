@@ -85,8 +85,11 @@ export function LoginScreen() {
   // Passwords closed to everyone but the emergency admin: the form waits
   // behind a button. A form someone is already filling in stays, since the
   // answer can arrive after they started; so does it when the answer fails.
+  // Having started is remembered apart from the values: clearing a field
+  // to retype it is not leaving the form.
+  const [started, setStarted] = useState(email !== "");
   const closed = methods.data?.password === "emergency_only";
-  const formShown = !closed || emergency || email !== "" || password !== "";
+  const formShown = !closed || emergency || started;
   useEffect(() => {
     // The button that opened the form is gone; the keyboard goes on to it.
     if (emergency) emailField.current?.focus();
@@ -146,7 +149,10 @@ export function LoginScreen() {
             autoComplete="username"
             required
             value={email}
-            onChange={(event) => setEmail(event.target.value)}
+            onChange={(event) => {
+              setStarted(true);
+              setEmail(event.target.value);
+            }}
           />
         </Field>
         <Field>
@@ -157,7 +163,10 @@ export function LoginScreen() {
             autoComplete="current-password"
             required
             value={password}
-            onChange={(event) => setPassword(event.target.value)}
+            onChange={(event) => {
+              setStarted(true);
+              setPassword(event.target.value);
+            }}
           />
         </Field>
         {login.error ? (

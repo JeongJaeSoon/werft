@@ -1045,7 +1045,7 @@ export interface paths {
         };
         /**
          * Who may sign in with a password, and the emergency admin
-         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. `password_login` is `on` (everyone with a password) or `emergency_only` (the emergency admin alone; everyone else comes in through a provider). The emergency admin is the one owner whose password sign-in stays open either way; `eligible: false` says they are no longer an owner who can sign in with a password, so another has to be named before passwords can be closed. `emergency_admin_candidates` are the owners of the caller's workspace who can be named (on, with a password), the one named included while still eligible; oldest membership first, at most 100.
+         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. `password_login` is `on` (everyone with a password) or `emergency_only` (the emergency admin alone; everyone else comes in through a provider). The emergency admin is the one owner whose password sign-in stays open either way; `eligible: false` says they are no longer an owner who can sign in with a password, so another has to be named before passwords can be closed. `emergency_admin_candidates` are the owners of the caller's workspace who can be named (on, with a password), oldest membership first, at most 100; the one named is listed like any other, while still eligible and within those 100.
          *
          *     **Auth:** cookie session only; no scope.
          */
