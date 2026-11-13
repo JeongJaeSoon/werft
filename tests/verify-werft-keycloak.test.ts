@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 // @ts-expect-error plain .mjs next to the verify skill's scripts
@@ -95,6 +95,22 @@ describe("pkce-verdict.mjs", () => {
       expect((await exit("200", { id_token: "value-not-to-print" }))[0]).toBe(
         1,
       );
+
+      // Reached through a symlink it still judges: a file that only got
+      // imported would print nothing and exit 0.
+      await symlink(join(script, ".."), join(dir, "linked"));
+      const file = join(dir, "body");
+      await writeFile(file, JSON.stringify({ error: "invalid_grant" }));
+      const linked = Bun.spawnSync([
+        "node",
+        join(dir, "linked", "pkce-verdict.mjs"),
+        "400",
+        file,
+      ]);
+      expect([linked.exitCode, linked.stdout.toString().trim()]).toEqual([
+        1,
+        "400 invalid_grant | undefined | tokens: none",
+      ]);
     } finally {
       await rm(dir, { force: true, recursive: true });
     }

@@ -11,7 +11,7 @@
 //
 // Prints one line (the error, its description, the names of any tokens,
 // never their values) and exits 0 only for the PKCE refusal.
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const TOKENS = ["id_token", "access_token", "refresh_token"];
@@ -40,7 +40,17 @@ export function pkceVerdict(status, text) {
   };
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+// Run as a command, by whatever path: node keeps the path as it was typed
+// and import.meta.url is the real one, so a checkout reached through a
+// symlink would otherwise import this file, judge nothing and exit 0.
+const command = (() => {
+  try {
+    return realpathSync(process.argv[1]) === fileURLToPath(import.meta.url);
+  } catch {
+    return false;
+  }
+})();
+if (command) {
   const [status, file] = process.argv.slice(2);
   const verdict = pkceVerdict(Number(status), readFileSync(file, "utf8"));
   console.log(verdict.line);

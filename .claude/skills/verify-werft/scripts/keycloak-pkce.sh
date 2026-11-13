@@ -58,5 +58,7 @@ http=$(curl -sS -o "$out.token" -w '%{http_code}' \
 # Exit 0 only for Keycloak's own PKCE refusal; any other 400 is a failure.
 verdict=$(node "$scripts/pkce-verdict.mjs" "$http" "$out.token")
 refused=$?
-echo "token endpoint, wrong verifier: $verdict"
+# No line is no verdict, whatever the exit code says.
+[ -n "$verdict" ] || refused=1
+echo "token endpoint, wrong verifier: ${verdict:-(no verdict)}"
 exit "$refused"
