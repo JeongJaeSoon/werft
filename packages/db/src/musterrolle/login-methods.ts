@@ -199,8 +199,9 @@ async function listLoginMethods(
  * transaction, and a password goes with its method: a password sign-in
  * reads the hash, not the method row.
  *
- * Only for the session that asks, read again under the user lock: still
- * live, and still within the age a change is allowed from.
+ * Only for the session that asks, read again under the user lock and once
+ * more after the last wait: still live, and still within the age a change
+ * is allowed from.
  *
  * The providers that are on are held FOR SHARE first (design 5.6: provider
  * rows come before the user row), so the count of what is left cannot be
@@ -247,6 +248,22 @@ async function unlinkLoginMethod(
         usable(method, user.passwordHash !== null, enabledIssuers),
     );
     if (left.length === 0) return { outcome: "last_method" };
+    // The sessions this ends, locked ahead of the last look at the asking
+    // one: a renewal or a sign-out can hold one of them, and that wait is
+    // the last one here. What is written below waits for nothing.
+    await tx
+      .select({ id: webSessions.id })
+      .from(webSessions)
+      .where(
+        and(
+          eq(webSessions.loginMethodId, target.id),
+          isNull(webSessions.revokedAt),
+        ),
+      )
+      .for("update");
+    const still = await liveSession(tx, input);
+    if (!still) return { outcome: "session_gone" };
+    if (!still.fresh) return { outcome: "session_too_old" };
     const revoked = await tx
       .update(webSessions)
       .set({ revokedAt: DB_NOW })

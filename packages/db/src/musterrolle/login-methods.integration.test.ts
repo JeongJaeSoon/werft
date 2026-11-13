@@ -177,6 +177,39 @@ integration("a person's ways to sign in", () => {
     }
     throw new Error(`fewer than ${count} transactions waited on a lock`);
   };
+  // What ends with time is set and waited for on the database's clock, the
+  // one that judges it: the host's may run ahead of it or behind.
+  /** The invite dies `ms` from now. */
+  const dying = (inviteId: string, ms: number) =>
+    pool.query(
+      "UPDATE invites SET expires_at = clock_timestamp() + $2::double precision * interval '1 millisecond' WHERE id = $1",
+      [inviteId, ms],
+    );
+  /** The session turns ten minutes old `ms` from now. */
+  const aging = (sessionId: string, ms: number) =>
+    pool.query(
+      "UPDATE web_sessions SET created_at = clock_timestamp() - interval '10 minutes' + $2::double precision * interval '1 millisecond' WHERE id = $1",
+      [sessionId, ms],
+    );
+  /** Resolves once the database answers yes. */
+  const once = async (question: string, id: string) => {
+    for (let i = 0; i < 100; i += 1) {
+      const { rows } = await pool.query<{ yes: boolean }>(question, [id]);
+      if (rows[0]?.yes) return;
+      await Bun.sleep(50);
+    }
+    throw new Error(`never true: ${question}`);
+  };
+  const dead = (inviteId: string) =>
+    once(
+      "SELECT expires_at <= clock_timestamp() AS yes FROM invites WHERE id = $1",
+      inviteId,
+    );
+  const tooOld = (sessionId: string) =>
+    once(
+      "SELECT created_at < clock_timestamp() - interval '10 minutes' AS yes FROM web_sessions WHERE id = $1",
+      sessionId,
+    );
   const userByEmail = async (email: string) =>
     (await db.select().from(users).where(eq(users.email, email)))[0];
   const inviteRow = async (id: string) =>
@@ -325,7 +358,7 @@ integration("a person's ways to sign in", () => {
     });
 
     test("an invite that expires while the sign-up waits leaves no account behind", async () => {
-      const inviteId = await invite("jo@example.com", 1_000);
+      const inviteId = await invite("jo@example.com");
       const holder = await pool.connect();
       try {
         // Another transaction is writing the same address: the sign-up's own
@@ -335,8 +368,10 @@ integration("a person's ways to sign in", () => {
           "INSERT INTO users (id, email, display_name) VALUES ($1, $2, $3)",
           [randomUUID(), "jo@example.com", "Jo"],
         );
+        await dying(inviteId, 1_000);
         const pending = signUp(inviteId, "sub-jo");
-        await Bun.sleep(1_600);
+        await lockWaiters(1);
+        await dead(inviteId);
         await holder.query("ROLLBACK");
         expect(await pending).toEqual({ outcome: "invite_gone" });
       } finally {
@@ -349,7 +384,7 @@ integration("a person's ways to sign in", () => {
     });
 
     test("an invite that expires while its address is being taken says nothing of the address", async () => {
-      const inviteId = await invite("taken@example.com", 1_500);
+      const inviteId = await invite("taken@example.com");
       const holder = await pool.connect();
       try {
         await holder.query("BEGIN");
@@ -357,10 +392,11 @@ integration("a person's ways to sign in", () => {
           "INSERT INTO users (id, email, display_name) VALUES ($1, $2, $3)",
           [randomUUID(), "taken@example.com", "Taken"],
         );
+        await dying(inviteId, 1_000);
         const pending = signUp(inviteId, "sub-taken");
         // Past the invite's own checks while it was live, and at the insert.
         await lockWaiters(1);
-        await Bun.sleep(1_700);
+        await dead(inviteId);
         // The address has an account now, and the invite is dead: dead wins.
         await holder.query("COMMIT");
         expect(await pending).toEqual({ outcome: "invite_gone" });
@@ -375,7 +411,8 @@ integration("a person's ways to sign in", () => {
     });
 
     test("an invite that expires behind a row lock nobody changed signs nobody in, a linked account included", async () => {
-      const inviteId = await invite("kay@example.com", 700);
+      const inviteId = await invite("kay@example.com");
+      await dying(inviteId, 1_000);
       const holder = await pool.connect();
       try {
         // Held and left as it was: the sign-up's own read of the row is not
@@ -387,7 +424,7 @@ integration("a person's ways to sign in", () => {
         // sub-bob is bob's.
         const pending = signUp(inviteId, "sub-bob");
         await lockWaiters(1);
-        await Bun.sleep(900);
+        await dead(inviteId);
         await holder.query("COMMIT");
         expect(await pending).toEqual({ outcome: "invite_gone" });
       } finally {
@@ -702,11 +739,7 @@ integration("a person's ways to sign in", () => {
       expect(await link(rae.id, asking, "sub-rae", providerB)).toMatchObject({
         outcome: "linked",
       });
-      // On the database's clock: a second and a half short of ten minutes.
-      await pool.query(
-        "UPDATE web_sessions SET created_at = clock_timestamp() - interval '10 minutes' + interval '1500 milliseconds' WHERE id = $1",
-        [asking],
-      );
+      await aging(asking, 1_500);
       const age = { sessionId: asking, userId: rae.id, maxAgeMs: 10 * 60_000 };
       const holder = await pool.connect();
       let pending: ReturnType<typeof unlink>;
@@ -718,7 +751,7 @@ integration("a person's ways to sign in", () => {
         expect(await store.sessionIsFresh(age)).toBe(true);
         pending = unlink(rae.id, rae.passwordMethodId, asking);
         await lockWaiters(1);
-        await Bun.sleep(1_700);
+        await tooOld(asking);
         await holder.query("COMMIT");
       } finally {
         await holder.query("ROLLBACK");
@@ -727,6 +760,39 @@ integration("a person's ways to sign in", () => {
       expect(await pending).toEqual({ outcome: "session_too_old" });
       expect(await methodsOf(rae.id)).toHaveLength(2);
       expect(await liveSessionsOf(rae.passwordMethodId)).toBe(1);
+    });
+
+    test("the same when the wait is for a session the removal would end", async () => {
+      const sam = await person("sam@example.com");
+      const first = await session(sam.id, sam.passwordMethodId);
+      const linked = await link(sam.id, first, "sub-sam", providerB);
+      if (linked.outcome !== "linked") throw new Error(linked.outcome);
+      // Asked from the provider's session, to remove the password.
+      const asking = await session(sam.id, linked.loginMethodId);
+      await aging(asking, 1_500);
+      const holder = await pool.connect();
+      let pending: ReturnType<typeof unlink>;
+      try {
+        // What a renewal holds for a moment: one of the password's sessions.
+        await holder.query("BEGIN");
+        await holder.query(
+          "SELECT 1 FROM web_sessions WHERE id = $1 FOR UPDATE",
+          [first],
+        );
+        pending = unlink(sam.id, sam.passwordMethodId, asking);
+        await lockWaiters(1);
+        await tooOld(asking);
+        await holder.query("COMMIT");
+      } finally {
+        await holder.query("ROLLBACK");
+        holder.release();
+      }
+      expect(await pending).toEqual({ outcome: "session_too_old" });
+      expect(
+        (await userByEmail("sam@example.com"))?.passwordHash,
+      ).not.toBeNull();
+      expect(await methodsOf(sam.id)).toHaveLength(2);
+      expect(await liveSessionsOf(sam.passwordMethodId)).toBe(1);
     });
 
     test("a session left open, and a disabled person's, remove nothing", async () => {
