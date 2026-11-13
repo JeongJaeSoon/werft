@@ -130,6 +130,25 @@ describe("내 로그인 수단", () => {
     expect(screen.getByRole("button", { name: "Okta 연결" })).toBeDefined();
   });
 
+  test("a password with no sign-in on record is not called unused", async () => {
+    renderAt(
+      PAGE,
+      routes(mine({ methods: [password({ last_login_at: null }), acme()] })),
+    );
+    const rows = await waitFor(() => {
+      const found = [
+        ...document.querySelectorAll<HTMLElement>('[data-slot="setting-row"]'),
+      ];
+      expect(found).toHaveLength(3);
+      return found;
+    });
+    const [own, sso] = rows.map((row) => row.textContent ?? "");
+    expect(own).toContain("비밀번호");
+    expect(own).not.toContain("로그인한 적 없음");
+    expect(own).not.toContain("마지막 로그인");
+    expect(sso).toContain("로그인한 적 없음");
+  });
+
   test("with no provider left to connect it says so", async () => {
     renderAt(PAGE, routes(mine({ linkable: [] })));
     expect(

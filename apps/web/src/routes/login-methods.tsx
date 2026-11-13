@@ -218,19 +218,25 @@ export function LoginMethodsScreen() {
                       {method.email_at_link}
                     </Text>
                   ) : null}
-                  <Text as="span" variant="meta">
-                    {method.last_login_at ? (
-                      <>
-                        {t("loginMethods.lastLogin")}{" "}
-                        <RelativeTime
-                          value={method.last_login_at}
-                          locale={locale}
-                        />
-                      </>
-                    ) : (
-                      t("loginMethods.neverUsed")
-                    )}
-                  </Text>
+                  {/* A provider account's sign-ins are recorded from the day it
+                      is connected; a password's are not all on record, so
+                      none on record is not "never". */}
+                  {method.kind === "password" &&
+                  method.last_login_at === null ? null : (
+                    <Text as="span" variant="meta">
+                      {method.last_login_at ? (
+                        <>
+                          {t("loginMethods.lastLogin")}{" "}
+                          <RelativeTime
+                            value={method.last_login_at}
+                            locale={locale}
+                          />
+                        </>
+                      ) : (
+                        t("loginMethods.neverUsed")
+                      )}
+                    </Text>
+                  )}
                 </>
               }
               actions={
