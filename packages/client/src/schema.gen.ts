@@ -233,7 +233,7 @@ export interface paths {
         put?: never;
         /**
          * Set a new password with a one-time reset link
-         * @description Spends the token, sets the password, revokes every live web session of the user and writes a `reset_password` receipt. There is no failure window: the token cannot be guessed, and a shared one would let anyone lock recovery out. Password hashing shares login's concurrency limit, past which it answers 429. While password sign-in is closed, a link an owner issued answers 401 like a spent one. A link from the operator's recovery command is taken either way, for an owner with or without a password, and in the same transaction makes that owner the emergency admin.
+         * @description Spends the token, sets the password, revokes every live web session of the user and writes a `reset_password` receipt. There is no failure window: the token cannot be guessed, and a shared one would let anyone lock recovery out. Password hashing shares login's concurrency limit, past which it answers 429. While password sign-in is closed, a link an owner issued for anyone but the emergency admin answers 401 like a spent one; one issued for the emergency admin, who still signs in with a password, is taken. A link from the operator's recovery command is taken either way, for an owner with or without a password, and in the same transaction makes that owner the emergency admin.
          *
          *     **Auth:** public; no credential. **Idempotency-Key:** ignored.
          */
@@ -255,7 +255,7 @@ export interface paths {
         put?: never;
         /**
          * Issue a one-time password reset link for a member (owner only)
-         * @description Requires the issuer's current password, counted against the issuer's login failure window. An owner cannot issue a link for themselves, nor for a member who owns another workspace. The token is returned once and expires in one hour; issuing another revokes the member's open link. Writes an `issue_password_reset` receipt whose result names the target's role. While password sign-in is closed no link is issued: only the operator's recovery command issues one then, for an owner.
+         * @description Requires the issuer's current password, counted against the issuer's login failure window. An owner cannot issue a link for themselves, nor for a member who owns another workspace. The token is returned once and expires in one hour; issuing another revokes the member's open link. Writes an `issue_password_reset` receipt whose result names the target's role. While password sign-in is closed a link is issued only for the emergency admin, who still signs in with a password; for anyone else only the operator's recovery command issues one then, for an owner.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -11853,7 +11853,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. Password sign-in is closed (`details.reason_code: password_login_closed`). */
+            /** @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. Password sign-in is closed and the member is not the emergency admin (`details.reason_code: password_login_closed`). */
             409: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];

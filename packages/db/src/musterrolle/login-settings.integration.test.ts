@@ -529,6 +529,37 @@ integration("who may sign in with a password", () => {
         ),
       ),
     ).toBe(0);
+
+    // The emergency admin still signs in with a password, so another
+    // owner's link for them is issued and taken while passwords are closed.
+    const forAdmin = newHash();
+    expect(
+      (
+        await issuePasswordReset(db, {
+          id: randomUUID(),
+          workspaceId,
+          userId: first,
+          issuedBy: owner.id,
+          issuerPasswordHash: HASH,
+          tokenHash: forAdmin,
+          ttlMs: 60_000,
+          receiptId: randomUUID(),
+        })
+      ).outcome,
+    ).toBe("issued");
+    expect(
+      await consumePasswordReset(db, {
+        tokenHash: forAdmin,
+        passwordHash: "argon2id$changed",
+        receiptId: randomUUID(),
+      }),
+    ).not.toBeNull();
+    expect(
+      await db.$count(
+        users,
+        and(eq(users.id, first), eq(users.passwordHash, "argon2id$changed")),
+      ),
+    ).toBe(1);
   });
 
   test("the emergency admin is not turned off, demoted, or left without a password until another is named", async () => {
