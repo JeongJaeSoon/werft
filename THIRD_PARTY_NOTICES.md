@@ -235,7 +235,7 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | gopd | 1.2.0 | MIT | worker, worker-codex |
 | has-symbols | 1.1.0 | MIT | worker, worker-codex |
 | hasown | 2.0.4 | MIT | worker, worker-codex |
-| hono | 4.13.11 | MIT | control-host, worker, worker-codex |
+| hono | 4.13.16 | MIT | control-host, worker, worker-codex |
 | hono | 4.13.7 | MIT | worker, worker-codex |
 | http-errors | 2.0.1 | MIT | worker, worker-codex |
 | iconv-lite | 0.7.3 | MIT | worker, worker-codex |
