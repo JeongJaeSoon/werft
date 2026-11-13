@@ -151,6 +151,26 @@ export function permissionsOf(role: WorkspaceRole): AuthorizationAction[] {
     .map(([action]) => action);
 }
 
+/**
+ * Whether a password is of no use to this user now (null: no such account):
+ * passwords are closed and they are not the emergency admin. Read without a
+ * lock, before the password decides anything, so that while passwords are
+ * closed a right one and a wrong one take the same road. The transaction
+ * that makes the session reads the settings again under its lock.
+ */
+export async function passwordClosedTo(
+  settings: Pick<LoginSettingsStore, "read"> | undefined,
+  userId: string | null,
+): Promise<boolean> {
+  if (!settings) return false;
+  const { passwordLogin, emergencyAdmin } = await storageMapped(() =>
+    settings.read(),
+  );
+  return (
+    passwordLogin === "emergency_only" && emergencyAdmin?.userId !== userId
+  );
+}
+
 export function workspaceView(row: IdentityWorkspace): Workspace {
   return {
     id: row.id,
@@ -392,12 +412,13 @@ export function registerPublicAuthRoutes(
       Awaited<ReturnType<IdentityStore["findLiveMembership"]>>
     >;
     let verifiedPasswordHash: string;
+    let reservation: ReturnType<LoginLockout["reserve"]>;
     try {
       // Counted as a failure before the password is checked, in the same
       // synchronous step as the lockout check: a burst of concurrent
       // guesses cannot all see the window open while their hashes are
       // still running. Success clears it below.
-      const reservation = lockout.reserve(email);
+      reservation = lockout.reserve(email);
       if (reservation.retryAfterMs > 0) {
         throw rateLimited(reservation.retryAfterMs, "Too many failed logins");
       }
@@ -408,10 +429,16 @@ export function registerPublicAuthRoutes(
         found = await storageMapped(() =>
           deps.identity.findUserForLogin(email),
         );
-        verified = await verifyPassword(
-          body.password,
-          found?.passwordHash ?? null,
+        const closed = await passwordClosedTo(
+          deps.loginSettings,
+          found?.id ?? null,
         );
+        // The hash is checked either way and, while passwords are closed to
+        // this person, its answer dropped: right or wrong, the request does
+        // the same work and ends the same way.
+        verified =
+          (await verifyPassword(body.password, found?.passwordHash ?? null)) &&
+          !closed;
         const candidate = found;
         live =
           verified && candidate
@@ -437,7 +464,6 @@ export function registerPublicAuthRoutes(
     } finally {
       releaseSlot();
     }
-    lockout.clear(email);
     const token = generateWebSessionToken();
     const created = await storageMapped(() =>
       deps.identity.createWebSession({
@@ -449,11 +475,20 @@ export function registerPublicAuthRoutes(
         userAgent: context.req.header("User-Agent")?.slice(0, 512) ?? null,
         maxLive: WEB_SESSIONS_PER_USER,
       }),
-    );
+    ).catch((error: unknown) => {
+      // An outage is not a guess here either.
+      reservation.release();
+      throw error;
+    });
     if (!created) {
-      // A reset or a disable landed after the password was checked.
+      // Passwords were closed to this person, or a reset or a disable
+      // landed, after the checks above. It stays counted and is logged as a
+      // wrong password is: neither the answer, the lockout nor the log may
+      // say the password was right.
+      deps.logger?.warn("Login failed", { has_user: true });
       throw new ApiHttpError(401, "UNAUTHORIZED", INVALID_CREDENTIALS);
     }
+    lockout.clear(email);
     const { expiresAt } = created;
     setWebSessionCookie(context, token, expiresAt);
     return jsonWithSchema(context, loginResponseSchema, {

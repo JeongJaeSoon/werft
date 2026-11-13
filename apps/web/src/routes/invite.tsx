@@ -23,9 +23,10 @@ import {
   FieldLabel,
   Input,
   Stepper,
+  Text,
 } from "@werft-ai/ui";
 import { type ReactNode, useId, useState } from "react";
-import { viewerQuery } from "../api/queries.ts";
+import { loginMethodsQuery, viewerQuery } from "../api/queries.ts";
 import {
   DISPLAY_NAME_MAX,
   INVITE_TOKEN_LENGTH,
@@ -37,6 +38,8 @@ import { StatusScreen } from "../components/status-screen.tsx";
 import { StepHeading, useStepMoved } from "../components/step-heading.tsx";
 import { FunnelResetNotice, useFunnel } from "../funnel/tanstack-funnel.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
+import { useLeave } from "../services.tsx";
+import { POST_LOGIN_PATH_KEY } from "./login.tsx";
 
 /**
  * Redeeming an invite link. Whoever opens it may or may not be signed in,
@@ -136,6 +139,12 @@ const hasAccount = (data: unknown): data is AcceptSteps["password"] =>
   ((data as { account?: unknown }).account === "existing" ||
     (data as { account?: unknown }).account === "new");
 
+/** The refusal of an invite's password while passwords are closed. */
+const passwordClosed = (error: unknown) =>
+  isApiError(error, "FORBIDDEN") &&
+  (error.details as { reason_code?: unknown } | null)?.reason_code ===
+    "password_login_closed";
+
 /*
  * Which account the reader says they have only shapes the form (autofill, the
  * name field); the request is the same either way. The password never goes
@@ -164,6 +173,12 @@ function AcceptFlow({ token }: { readonly token: string }) {
     onStepSelect: () => void funnel.history.back(),
   });
   const moved = useStepMoved(funnel.step);
+  const methods = useQuery(loginMethodsQuery(client));
+  // Whether the keyboard has been in the steps: only then is there a place
+  // to hand it on from when they give way.
+  const [touched, setTouched] = useState(false);
+  const [retried, setRetried] = useState(false);
+  const closedId = useId();
   // Kept apart from the mutation, which is reset so the password goes too.
   const [ended, setEnded] = useState<
     "INVITE_EXPIRED" | "INVITE_USED" | undefined
@@ -199,9 +214,14 @@ function AcceptFlow({ token }: { readonly token: string }) {
       accept.reset();
       if (isApiError(error, "INVITE_EXPIRED")) setEnded("INVITE_EXPIRED");
       else if (isApiError(error, "INVITE_USED")) setEnded("INVITE_USED");
+      // Passwords were closed and this page had not heard: ask again, so the
+      // steps give way to the providers.
+      else if (passwordClosed(error)) void methods.refetch();
       throw error;
     }
   };
+
+  const signUp = useProviderStart(token, setEnded);
 
   if (ended === "INVITE_EXPIRED") {
     return (
@@ -230,37 +250,92 @@ function AcceptFlow({ token }: { readonly token: string }) {
       />
     );
   }
+  // While passwords are closed an invite sets none, whoever it is for: the
+  // providers are the only way in, at whichever step the answer arrived.
+  if (methods.data?.password === "emergency_only") {
+    return (
+      <div className="flex flex-col gap-3">
+        {/* Taking the place of steps someone was in, it takes the keyboard
+            their field gave up and is read with its reason. */}
+        <StepHeading
+          // Mounted again when a retry brought providers, to take focus anew.
+          key={String(retried)}
+          focus={touched || retried}
+          describedBy={closedId}
+        >
+          {t("invite.closed.title")}
+        </StepHeading>
+        <p className="m-0" id={closedId}>
+          {t("invite.closed.intro")}
+        </p>
+        {methods.data.providers.length === 0 ? (
+          // The two lists are read apart, so this one can be a moment behind.
+          <>
+            <Text variant="sub">{t("invite.closed.noProvider")}</Text>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={methods.isFetching}
+              onClick={async () => {
+                const { data } = await methods.refetch();
+                // This button goes with the notice, for the providers or for
+                // the steps of passwords opened again: what comes takes over.
+                if (
+                  data &&
+                  (data.providers.length > 0 ||
+                    data.password !== "emergency_only")
+                )
+                  setRetried(true);
+              }}
+            >
+              {t("common.retry")}
+            </Button>
+          </>
+        ) : (
+          <ProviderSignUp {...signUp} lead />
+        )}
+      </div>
+    );
+  }
 
   return (
-    <>
+    // biome-ignore lint/a11y/noStaticElementInteractions: the handler only watches focus from the controls inside
+    <div className="contents" onFocus={() => setTouched(true)}>
       <FunnelResetNotice funnel={funnel} />
       <Stepper label={t("invite.steps")} {...stepper} />
       <funnel.Render
         account={({ history }) => (
-          <AccountStep
-            focus={moved}
-            onPick={(account) => void history.push("password", { account })}
-          />
+          <>
+            <AccountStep
+              focus={moved || retried}
+              // The page is on its way to a provider: not to a password too.
+              held={signUp.held}
+              onPick={(account) => void history.push("password", { account })}
+            />
+            <ProviderSignUp {...signUp} />
+          </>
         )}
         password={({ context, history }) => (
           <PasswordStep
             account={context.account}
-            focus={moved}
+            focus={moved || retried}
             pending={accept.isPending}
             send={send}
             onBack={() => void history.back()}
           />
         )}
       />
-    </>
+    </div>
   );
 }
 
 function AccountStep({
   focus,
+  held,
   onPick,
 }: {
   readonly focus: boolean;
+  readonly held: boolean;
   readonly onPick: (account: Account) => void;
 }) {
   const { t } = useI18n();
@@ -271,12 +346,123 @@ function AccountStep({
       <StepHeading focus={focus} id={questionId}>
         {t("invite.account.question")}
       </StepHeading>
-      <Button type="button" onClick={() => onPick("existing")}>
+      <Button type="button" disabled={held} onClick={() => onPick("existing")}>
         {t("invite.account.existing")}
       </Button>
-      <Button type="button" variant="outline" onClick={() => onPick("new")}>
+      <Button
+        type="button"
+        variant="outline"
+        disabled={held}
+        onClick={() => onPick("new")}
+      >
         {t("invite.account.new")}
       </Button>
+    </section>
+  );
+}
+
+/**
+ * The `state` of the sign-up this tab left for, so that a refused callback
+ * knows it was joining from an invite. The invite's token is not kept.
+ */
+export const INVITE_FLOW_KEY = "ap.inviteFlow";
+
+/**
+ * Starting to join with a provider's account in place of a password. The
+ * start binds the flow to this invite and spends nothing; the callback makes
+ * the account, with the invite's address and role. The flow calls it, above
+ * its steps, so the account choices are held with the provider buttons.
+ */
+function useProviderStart(
+  token: string,
+  onEnded: (code: "INVITE_EXPIRED" | "INVITE_USED") => void,
+) {
+  const { client } = useWerft();
+  const [held, leaveFor] = useLeave();
+
+  // The variables are the provider's id alone: the token stays out of them.
+  const start = useMutation<void, ApiError, string>({
+    meta: { public: true },
+    mutationFn: (id) =>
+      leaveFor(async () => {
+        const { authorization_url } = await unwrap(
+          client.POST("/v1/auth/providers/{id}/invite/start", {
+            params: {
+              path: { id },
+              header: { "X-Requested-With": CSRF_HEADER_VALUE },
+            },
+            body: { invite_token: token },
+          }),
+        );
+        try {
+          // A place an earlier sign-in of this tab meant to return to is not
+          // where a new member lands.
+          sessionStorage.removeItem(POST_LOGIN_PATH_KEY);
+          sessionStorage.setItem(
+            INVITE_FLOW_KEY,
+            new URL(authorization_url).searchParams.get("state") ?? "",
+          );
+        } catch {
+          // Without it a refused callback speaks of a sign-in, not of joining.
+        }
+        return authorization_url;
+      }),
+    onError: (error) => {
+      if (isApiError(error, "INVITE_EXPIRED")) onEnded("INVITE_EXPIRED");
+      else if (isApiError(error, "INVITE_USED")) onEnded("INVITE_USED");
+    },
+  });
+
+  return { start, held };
+}
+
+/**
+ * One button per login provider that is on. A failed lookup leaves the
+ * password steps.
+ */
+function ProviderSignUp({
+  start,
+  held,
+  lead = false,
+}: ReturnType<typeof useProviderStart> & {
+  /** They are the way in, not the alternative to the steps above them. */
+  readonly lead?: boolean;
+}) {
+  const { t } = useI18n();
+  const { client } = useWerft();
+  const methods = useQuery(loginMethodsQuery(client));
+
+  const providers = methods.data?.providers ?? [];
+  if (providers.length === 0) return null;
+  return (
+    <section
+      className="flex flex-col gap-3"
+      aria-label={t("invite.provider.alternatives")}
+    >
+      {lead ? null : (
+        <>
+          <Text variant="sub" className="text-center">
+            {t("login.or")}
+          </Text>
+          <Text variant="sub">{t("invite.provider.hint")}</Text>
+        </>
+      )}
+      {start.error ? (
+        <FormError>{t(errorKey(start.error.code))}</FormError>
+      ) : null}
+      {providers.map((provider) => (
+        <Button
+          key={provider.id}
+          type="button"
+          variant="outline"
+          disabled={held}
+          onClick={() => start.mutate(provider.id)}
+        >
+          {held && start.variables === provider.id
+            ? t("login.provider.starting")
+            : t("invite.provider.submit", { name: provider.display_name })}
+        </Button>
+      ))}
     </section>
   );
 }
@@ -313,7 +499,9 @@ function PasswordStep({
       onSubmit={submitStep(form, send, (error) =>
         isApiError(error, "UNAUTHORIZED")
           ? t("invite.wrongPassword")
-          : t(errorKey(isApiError(error) ? error.code : "UNKNOWN")),
+          : passwordClosed(error)
+            ? t("invite.closed.refused")
+            : t(errorKey(isApiError(error) ? error.code : "UNKNOWN")),
       )}
     >
       <StepHeading focus={focus}>

@@ -14,11 +14,14 @@ import * as schema from "@werft-ai/db";
 import {
   createDatabaseIdentityReader,
   createPostgresInviteStore,
+  createPostgresLoginSettingsStore,
   createPostgresMemberStore,
   invites,
+  loginMethods,
   memberships,
   receipts,
   users,
+  workspaces,
 } from "@werft-ai/db";
 import { fixtureTeam } from "@werft-ai/db/testing/fixture-team";
 import {
@@ -34,12 +37,15 @@ import { createApiApp } from "./app.ts";
 import {
   createBootstrapGate,
   DatabaseIdentityStore,
+  hashPassword,
   hashWebSessionToken,
   LoginLockout,
   WorkGate,
 } from "./auth.ts";
 import { DatabaseApiKeyStore } from "./keys.ts";
+import { createLoginSettingsAdmin } from "./login-settings.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
+import { registerLoginSettingsRoutes } from "./routes/login-settings.ts";
 import {
   registerInviteRoutes,
   registerPublicInviteRoutes,
@@ -103,6 +109,13 @@ integration("invites and roles over HTTP on PostgreSQL", () => {
             store: createPostgresMemberStore(db),
           }),
           inviteService,
+        );
+        registerLoginSettingsRoutes(
+          router,
+          createLoginSettingsAdmin({
+            authorization,
+            store: createPostgresLoginSettingsStore(db),
+          }),
         );
       },
     });
@@ -507,13 +520,31 @@ integration("invites and roles over HTTP on PostgreSQL", () => {
     expect(receipt?.actor).toMatchObject({ actor_user_id: ownerId });
     expect(receipt?.result).toEqual({ from: "member", to: "owner" });
 
-    // Ownership handed over: the new owner demotes the old one.
-    const demoted = await send(
-      "PATCH",
-      `/v1/members/${ownerId}`,
-      { role: "member" },
-      as(memberCookie),
-    );
+    // Ownership handed over: the new owner demotes the old one. The old one
+    // set the installation up, so they are its emergency admin, and that has
+    // to be handed over first.
+    const demote = () =>
+      send(
+        "PATCH",
+        `/v1/members/${ownerId}`,
+        { role: "member" },
+        as(memberCookie),
+      );
+    const emergencyAdmin = (userId: string) =>
+      send(
+        "PATCH",
+        "/v1/login-settings",
+        { emergency_admin_user_id: userId },
+        as(memberCookie),
+      );
+    const held = await demote();
+    expect(held.status).toBe(409);
+    expect((await held.json()).error.details).toEqual({
+      reason_code: "emergency_admin",
+    });
+    expect(await receiptsOf("change_member_role")).toHaveLength(1);
+    expect((await emergencyAdmin(memberId)).status).toBe(200);
+    const demoted = await demote();
     expect(demoted.status).toBe(200);
 
     const last = await send(
@@ -536,6 +567,9 @@ integration("invites and roles over HTTP on PostgreSQL", () => {
       as(memberCookie),
     );
     expect(restored.status).toBe(200);
+    // Back as the tests below found it: the first owner is the one who cannot
+    // be turned off or demoted.
+    expect((await emergencyAdmin(ownerId)).status).toBe(200);
   });
 
   describe("races: an invite is spent once, a workspace keeps an owner", () => {
@@ -650,6 +684,37 @@ integration("invites and roles over HTTP on PostgreSQL", () => {
           ),
         );
       expect(await liveOwners()).toBe(2);
+      // The first owner is the emergency admin, whom nobody demotes. For the
+      // race to be between equals, an owner of another workspace holds that
+      // while it runs, named as that workspace's own owner would name them.
+      const elsewhere = {
+        workspaceId: crypto.randomUUID(),
+        userId: crypto.randomUUID(),
+      };
+      await db.insert(workspaces).values({
+        id: elsewhere.workspaceId,
+        slug: "elsewhere",
+        name: "Elsewhere",
+      });
+      await db.insert(users).values({
+        id: elsewhere.userId,
+        email: "owner@elsewhere.example",
+        passwordHash: await hashPassword(PASSWORD),
+        displayName: "Owner elsewhere",
+      });
+      await db.insert(memberships).values({ ...elsewhere, role: "owner" });
+      await db.insert(loginMethods).values({
+        id: crypto.randomUUID(),
+        userId: elsewhere.userId,
+        kind: "password",
+      });
+      const parked = await createPostgresLoginSettingsStore(
+        db,
+      ).setEmergencyAdmin({
+        userId: elsewhere.userId,
+        audit: { ...elsewhere, receiptId: crypto.randomUUID() },
+      });
+      expect(parked.outcome).toBe("changed");
       const results = await Promise.all([
         send(
           "PATCH",
@@ -690,6 +755,27 @@ integration("invites and roles over HTTP on PostgreSQL", () => {
         expect(response.status).toBe(403);
         expect((await response.json()).error.code).toBe("SELF_PROTECTED");
       }
+      expect(await liveOwners()).toBe(2);
+
+      // The first owner again, and with it they are not demoted at all: the
+      // refusal comes before the question of who is left.
+      const back = await send(
+        "PATCH",
+        "/v1/login-settings",
+        { emergency_admin_user_id: ownerId },
+        as(ownerCookie),
+      );
+      expect(back.status).toBe(200);
+      const kept = await send(
+        "PATCH",
+        `/v1/members/${ownerId}`,
+        { role: "member" },
+        as(coOwnerCookie),
+      );
+      expect(kept.status).toBe(409);
+      expect((await kept.json()).error.details).toEqual({
+        reason_code: "emergency_admin",
+      });
       expect(await liveOwners()).toBe(2);
     });
   });

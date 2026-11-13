@@ -29,6 +29,13 @@ function savedAs(locale: Locale, route: Routes[string]): Routes[string] {
   };
 }
 
+/** Back from another site: the browser restores the page as it was left. */
+export function comeBack(): void {
+  const shown = new Event("pageshow");
+  Object.defineProperty(shown, "persisted", { value: true });
+  window.dispatchEvent(shown);
+}
+
 /**
  * The whole app at a path against a fake API. Call once per test file, at
  * the top level: the DOM has to exist before the router and Testing Library
