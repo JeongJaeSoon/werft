@@ -1470,10 +1470,7 @@ describe("provider sign-in routes", () => {
       ["a member's session", { ...ownerSession, role: "member" }],
       ["another owner's session", { ...ownerSession, userId: OTHER_ID }],
       ["the owner's other session", { ...ownerSession, sessionId: OTHER_ID }],
-      [
-        "the owner's third session",
-        { ...ownerSession, sessionId: RECEIPT_ID },
-      ],
+      ["the owner's third session", { ...ownerSession, sessionId: RECEIPT_ID }],
     ];
     for (const [what, session] of others) {
       test(`with ${what} it is 401: nothing recorded, nobody signed in`, async () => {
