@@ -374,7 +374,18 @@ function Action({
   );
 }
 
-type Editing = "name" | "client" | "secret" | "disable" | "delete" | null;
+type Editing =
+  | "name"
+  | "client"
+  | "rules"
+  | "secret"
+  | "disable"
+  | "delete"
+  | null;
+
+// The server refuses a Google provider that does not require a verified
+// email; the screen does not offer what it would refuse.
+const GOOGLE_ISSUER = "https://accounts.google.com";
 
 export function LoginProviderScreen() {
   const { t } = useI18n();
@@ -467,6 +478,9 @@ function ProviderSettings({
         display_name?: string;
         client_id?: string;
         token_auth_method?: LoginProviderView["token_auth_method"];
+        allowed_domains?: string[];
+        jit_role?: "member" | null;
+        require_verified_email?: boolean;
       },
     ) =>
       unwrap(
@@ -719,6 +733,41 @@ function ProviderSettings({
         }
       />
       <SettingsSection
+        title={t("loginProviders.section.rules")}
+        description={t("loginProviders.section.rulesHint")}
+        actions={
+          <Action
+            label={t("loginProviders.rulesEdit")}
+            busy={busy}
+            onClick={(button) => open("rules", button)}
+          />
+        }
+        rows={
+          <>
+            <SettingRow
+              title={t("loginProviders.domains")}
+              meta={
+                provider.allowed_domains.length > 0
+                  ? provider.allowed_domains.join(", ")
+                  : t("loginProviders.domainsAny")
+              }
+            />
+            <SettingRow
+              title={t("loginProviders.jit")}
+              meta={t(`loginProviders.jit.${provider.jit_role ?? "off"}`)}
+            />
+            <SettingRow
+              title={t("loginProviders.verified")}
+              meta={t(
+                provider.require_verified_email
+                  ? "loginProviders.verified.required"
+                  : "loginProviders.verified.optional",
+              )}
+            />
+          </>
+        }
+      />
+      <SettingsSection
         title={t("loginProviders.section.test")}
         description={t(`loginProviders.stateHint.${provider.state}`)}
         rows={
@@ -873,6 +922,81 @@ function ProviderSettings({
               {t("loginProviders.authMethod.client_secret_post")}
             </NativeSelectOption>
           </NativeSelect>
+        </Field>
+      </FormDialog>
+      <FormDialog
+        open={editing === "rules"}
+        onOpenChange={(next) => open(next ? "rules" : null)}
+        opener={opener}
+        pending={change.isPending}
+        title={t("loginProviders.section.rules")}
+        description={t("loginProviders.rulesEditDescription")}
+        error={dialogError}
+        submitLabel={t("settings.save")}
+        pendingLabel={t("settings.saving")}
+        onSubmit={(form) => {
+          setDialogError(null);
+          const verified = form.get("require_verified_email");
+          change.mutate({
+            allowed_domains: String(form.get("allowed_domains"))
+              .toLowerCase()
+              .split(/[\s,]+/)
+              .filter(Boolean),
+            jit_role: form.get("jit_role") === "member" ? "member" : null,
+            // Not in the form of a provider that cannot change it.
+            ...(verified === null
+              ? {}
+              : { require_verified_email: verified === "true" }),
+          });
+        }}
+      >
+        <Field>
+          <FieldLabel>{t("loginProviders.domains")}</FieldLabel>
+          <Input
+            name="allowed_domains"
+            autoComplete="off"
+            spellCheck={false}
+            placeholder="example.com"
+            defaultValue={provider.allowed_domains.join(", ")}
+          />
+          <FieldDescription>{t("loginProviders.domainsHint")}</FieldDescription>
+        </Field>
+        <Field>
+          <FieldLabel>{t("loginProviders.jit")}</FieldLabel>
+          <NativeSelect name="jit_role" defaultValue={provider.jit_role ?? ""}>
+            <NativeSelectOption value="">
+              {t("loginProviders.jit.off")}
+            </NativeSelectOption>
+            <NativeSelectOption value="member">
+              {t("loginProviders.jit.member")}
+            </NativeSelectOption>
+          </NativeSelect>
+          <FieldDescription>{t("loginProviders.jitHint")}</FieldDescription>
+        </Field>
+        <Field>
+          <FieldLabel>{t("loginProviders.verified")}</FieldLabel>
+          {provider.issuer === GOOGLE_ISSUER ? (
+            <FieldDescription>
+              {t("loginProviders.verifiedGoogle")}
+            </FieldDescription>
+          ) : (
+            <>
+              <NativeSelect
+                name="require_verified_email"
+                defaultValue={String(provider.require_verified_email)}
+              >
+                <NativeSelectOption value="true">
+                  {t("loginProviders.verified.required")}
+                </NativeSelectOption>
+                <NativeSelectOption value="false">
+                  {t("loginProviders.verified.optional")}
+                </NativeSelectOption>
+              </NativeSelect>
+              <FieldDescription>
+                {t("loginProviders.verifiedHint")}
+              </FieldDescription>
+            </>
+          )}
         </Field>
       </FormDialog>
       <FormDialog

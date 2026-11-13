@@ -103,6 +103,27 @@ export const loginProvidersKo = {
     "저장하면 다시 테스트해야 켤 수 있습니다.",
   "loginProviders.secretDescriptionOn":
     "새 값은 바로 쓰이지 않고 테스트 로그인을 기다립니다. 지금 쓰는 값을 다시 넣으면 기다리는 값을 거둡니다.",
+  "loginProviders.section.rules": "누가 들어올 수 있나",
+  "loginProviders.section.rulesHint":
+    "이 공급자의 계정 가운데 누구를 받을지 정합니다.",
+  "loginProviders.rulesEdit": "규칙 바꾸기",
+  "loginProviders.rulesEditDescription":
+    "켜진 공급자에는 바로 적용됩니다. 꺼진 공급자는 바꾼 뒤 다시 테스트해야 켤 수 있습니다.",
+  "loginProviders.domains": "허용 도메인",
+  "loginProviders.domainsAny": "제한 없음",
+  "loginProviders.domainsHint":
+    "이메일 도메인이 여기 있는 계정만 로그인합니다. 쉼표나 공백으로 나눠 적고, 비우면 제한하지 않습니다.",
+  "loginProviders.jit": "초대 없이 가입",
+  "loginProviders.jit.off": "받지 않음",
+  "loginProviders.jit.member": "member로 가입",
+  "loginProviders.jitHint":
+    "켜면 공급자가 이메일 주소를 보증한 사람은 초대 없이 member로 들어옵니다. 끄면 초대받은 사람만 가입합니다.",
+  "loginProviders.verified": "검증된 이메일",
+  "loginProviders.verified.required": "요구함",
+  "loginProviders.verified.optional": "요구하지 않음",
+  "loginProviders.verifiedHint":
+    "요구하지 않으면 공급자가 이메일 검증 여부를 알려 주지 않는 계정도 로그인합니다. 그런 계정은 초대 링크로만 가입하고, 이메일 주소로 초대나 기존 계정을 찾지 않습니다.",
+  "loginProviders.verifiedGoogle": "Google 공급자는 항상 요구합니다.",
   "loginProviders.section.test": "테스트와 켜기",
   "loginProviders.stateHint.draft":
     "Client ID와 client secret을 넣으면 테스트할 수 있습니다.",
@@ -276,6 +297,27 @@ export const loginProvidersEn: Record<keyof typeof loginProvidersKo, string> = {
     "Saving means another test before it can be turned on.",
   "loginProviders.secretDescriptionOn":
     "The new value is not used at once; it waits for a test sign-in. Entering the value in use again withdraws the one that waits.",
+  "loginProviders.section.rules": "Who can come in",
+  "loginProviders.section.rulesHint":
+    "Which of this provider's accounts are let in.",
+  "loginProviders.rulesEdit": "Change rules",
+  "loginProviders.rulesEditDescription":
+    "On a provider that is on, this applies at once. One that is off needs another test before it can be turned on.",
+  "loginProviders.domains": "Allowed domains",
+  "loginProviders.domainsAny": "Any",
+  "loginProviders.domainsHint":
+    "Only accounts whose email domain is listed sign in. Separate with commas or spaces; leave empty for no limit.",
+  "loginProviders.jit": "Join without an invite",
+  "loginProviders.jit.off": "Not accepted",
+  "loginProviders.jit.member": "Join as a member",
+  "loginProviders.jitHint":
+    "When on, a person whose email address the provider vouches for joins as a member without an invite. When off, only invited people join.",
+  "loginProviders.verified": "Verified email",
+  "loginProviders.verified.required": "Required",
+  "loginProviders.verified.optional": "Not required",
+  "loginProviders.verifiedHint":
+    "When not required, accounts the provider says nothing about verifying sign in too. They join by invite link only, and their email address is never used to find an invite or an existing account.",
+  "loginProviders.verifiedGoogle": "A Google provider always requires it.",
   "loginProviders.section.test": "Test and turn on",
   "loginProviders.stateHint.draft":
     "Enter the client ID and the client secret to test it.",
@@ -452,6 +494,27 @@ export const loginProvidersJa: Record<keyof typeof loginProvidersKo, string> = {
     "保存すると、オンにする前にもう一度テストが必要です。",
   "loginProviders.secretDescriptionOn":
     "新しい値はすぐには使われず、テストログインを待ちます。現在使っている値をもう一度入力すると、待っている値を取り下げます。",
+  "loginProviders.section.rules": "誰が入れるか",
+  "loginProviders.section.rulesHint":
+    "このプロバイダーのアカウントのうち、誰を受け入れるかを決めます。",
+  "loginProviders.rulesEdit": "ルールを変更",
+  "loginProviders.rulesEditDescription":
+    "オンのプロバイダーにはすぐに適用されます。オフのプロバイダーは、変更後にもう一度テストしないとオンにできません。",
+  "loginProviders.domains": "許可ドメイン",
+  "loginProviders.domainsAny": "制限なし",
+  "loginProviders.domainsHint":
+    "メールのドメインがここにあるアカウントだけがログインできます。カンマか空白で区切り、空にすると制限しません。",
+  "loginProviders.jit": "招待なしで参加",
+  "loginProviders.jit.off": "受け入れない",
+  "loginProviders.jit.member": "member として参加",
+  "loginProviders.jitHint":
+    "オンにすると、プロバイダーがメールアドレスを保証した人は招待なしで member として参加します。オフにすると、招待された人だけが参加します。",
+  "loginProviders.verified": "検証済みメール",
+  "loginProviders.verified.required": "要求する",
+  "loginProviders.verified.optional": "要求しない",
+  "loginProviders.verifiedHint":
+    "要求しない場合、プロバイダーがメールの検証状態を知らせないアカウントもログインできます。そのアカウントは招待リンクでのみ参加し、メールアドレスで招待や既存のアカウントを探すことはありません。",
+  "loginProviders.verifiedGoogle": "Google プロバイダーは常に要求します。",
   "loginProviders.section.test": "テストとオン",
   "loginProviders.stateHint.draft":
     "Client ID と client secret を入力するとテストできます。",
