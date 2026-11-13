@@ -76,6 +76,10 @@ export const authKo = {
   "invite.account.question": "초대받은 이메일로 쓰는 계정이 있나요?",
   "invite.account.existing": "네, 계정이 있습니다",
   "invite.account.new": "아니요, 처음입니다",
+  "invite.provider.alternatives": "비밀번호 없이 가입",
+  "invite.provider.hint":
+    "처음이면 로그인 공급자의 계정으로 가입할 수도 있습니다. 비밀번호는 정하지 않고, 계정의 이메일은 초대받은 주소가 됩니다.",
+  "invite.provider.submit": "{name} 계정으로 가입",
   "invite.passwordTitle.existing": "기존 계정으로 수락",
   "invite.passwordTitle.new": "새 계정으로 수락",
   "invite.back": "이전",
@@ -166,6 +170,10 @@ export const authEn: Record<keyof typeof authKo, string> = {
   "invite.passwordTitle.existing": "Accept with your account",
   "invite.passwordTitle.new": "Accept with a new account",
   "invite.account.new": "No, I am new here",
+  "invite.provider.alternatives": "Join without a password",
+  "invite.provider.hint":
+    "If you are new, you can also join with a sign-in provider's account. No password is set, and the account's email is the invited address.",
+  "invite.provider.submit": "Join with {name}",
   "invite.back": "Back",
   "invite.invalid.title": "This invite link is not valid",
   "invite.invalid.body":
@@ -253,6 +261,10 @@ export const authJa: Record<keyof typeof authKo, string> = {
     "招待されたメールアドレスのアカウントをお持ちですか？",
   "invite.account.existing": "はい、アカウントがあります",
   "invite.account.new": "いいえ、初めてです",
+  "invite.provider.alternatives": "パスワードなしで参加",
+  "invite.provider.hint":
+    "初めての場合は、ログインプロバイダーのアカウントで参加することもできます。パスワードは設定せず、アカウントのメールアドレスは招待されたアドレスになります。",
+  "invite.provider.submit": "{name} で参加",
   "invite.passwordTitle.existing": "既存のアカウントで承諾",
   "invite.passwordTitle.new": "新しいアカウントで承諾",
   "invite.back": "戻る",

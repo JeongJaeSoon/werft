@@ -382,3 +382,135 @@ describe("비밀번호 보존 범위", () => {
     await waitFor(() => expect(cachedPassword(services)).toBe(false));
   });
 });
+
+describe("공급자 계정으로 가입", () => {
+  const KEYCLOAK = {
+    id: "0d6a3f1c-2b7e-4c58-9a1d-6e5f4a3b2c1d",
+    display_name: "Keycloak",
+  };
+  const OKTA = {
+    id: "5b0c7e2a-9d41-4f6b-8a3e-7c1d2e3f4a5b",
+    display_name: "Okta",
+  };
+  const START = `/v1/auth/providers/${KEYCLOAK.id}/invite/start`;
+  const AUTHORIZE = "https://idp.example.test/authorize?state=s1";
+  const on = (...providers: (typeof KEYCLOAK)[]) => ({
+    "GET /v1/auth/me": signedOut,
+    "GET /v1/auth/login-methods": () =>
+      json(200, { password: "on", providers }),
+  });
+  const join = async () => {
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "Keycloak 계정으로 가입" }),
+    );
+  };
+  const choices = () =>
+    screen.queryByRole("region", { name: "비밀번호 없이 가입" });
+
+  test("켜진 공급자마다 버튼이 있고, 누르면 초대를 그 흐름에 묶은 뒤 공급자 화면으로 간다", async () => {
+    sessionStorage.setItem("ap.postLoginPath", "/members");
+    const { api, left, services } = renderAt(`/invite/${TOKEN}`, {
+      ...on(KEYCLOAK, OKTA),
+      [`POST ${START}`]: () => json(200, { authorization_url: AUTHORIZE }),
+    });
+    await join();
+    await waitFor(() => expect(left).toEqual([AUTHORIZE]));
+    expect(
+      [...(choices()?.querySelectorAll("button") ?? [])].map(
+        (button) => button.textContent,
+      ),
+    ).toEqual(["Keycloak 계정으로 가입", "Okta 계정으로 가입"]);
+    const starts = api.calls.filter((c) => c.path.endsWith("/invite/start"));
+    expect(starts.map((c) => c.path)).toEqual([START]);
+    expect(starts[0]?.body).toEqual({ invite_token: TOKEN });
+    expect(starts[0]?.headers.get("x-requested-with")).toBe("werft-web");
+    // The invite is not accepted here: the callback spends it.
+    expect(acceptCalls(api)).toHaveLength(0);
+    // Where an earlier sign-in of the tab meant to go is not for a new member.
+    expect(sessionStorage.getItem("ap.postLoginPath")).toBeNull();
+    // What the page keeps of the request names the provider, not the invite.
+    expect(
+      services.queryClient
+        .getMutationCache()
+        .getAll()
+        .some((m) => JSON.stringify(m.state).includes(TOKEN)),
+    ).toBe(false);
+    // Coming back from the provider's page (back button) can start again.
+    expect(
+      screen
+        .getByRole("button", { name: "Keycloak 계정으로 가입" })
+        .hasAttribute("disabled"),
+    ).toBe(false);
+  });
+
+  for (const [name, methods] of [
+    [
+      "켜진 공급자가 없으면",
+      () => json(200, { password: "on", providers: [] }),
+    ],
+    [
+      "목록을 못 읽으면",
+      () => apiError(503, "BACKEND_UNAVAILABLE", "storage down"),
+    ],
+  ] as const) {
+    test(`${name} 비밀번호 단계만 있다`, async () => {
+      renderAt(`/invite/${TOKEN}`, {
+        "GET /v1/auth/me": signedOut,
+        "GET /v1/auth/login-methods": methods,
+      });
+      expect(
+        await screen.findByRole("button", { name: "아니요, 처음입니다" }),
+      ).toBeDefined();
+      expect(choices()).toBeNull();
+    });
+  }
+
+  for (const [status, code, title] of [
+    [410, "INVITE_EXPIRED", "쓸 수 없는 초대입니다"],
+    [409, "INVITE_USED", "이미 수락한 초대입니다"],
+  ] as const) {
+    test(`살아 있지 않은 초대(${code})는 비밀번호 수락과 같은 안내를 보여 주고 어디로도 가지 않는다`, async () => {
+      const { left } = renderAt(`/invite/${TOKEN}`, {
+        ...on(KEYCLOAK),
+        [`POST ${START}`]: () => apiError(status, code, "not live"),
+      });
+      await join();
+      expect(await screen.findByText(title)).toBeDefined();
+      expect(choices()).toBeNull();
+      expect(left).toEqual([]);
+    });
+  }
+
+  test("그 밖의 거절은 까닭을 말하고 두 길을 그대로 둔다", async () => {
+    const { left } = renderAt(`/invite/${TOKEN}`, {
+      ...on(KEYCLOAK),
+      [`POST ${START}`]: () =>
+        apiError(503, "BACKEND_UNAVAILABLE", "CONSOLE_ORIGIN is not set"),
+    });
+    await join();
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "서버가 응답하지 않습니다 — 잠시 뒤 다시 시도하세요.",
+    );
+    expect(left).toEqual([]);
+    expect(
+      screen.getByRole("button", { name: "아니요, 처음입니다" }),
+    ).toBeDefined();
+    expect(
+      screen
+        .getByRole("button", { name: "Keycloak 계정으로 가입" })
+        .hasAttribute("disabled"),
+    ).toBe(false);
+  });
+
+  test("비밀번호 단계로 넘어가면 공급자 버튼은 없다", async () => {
+    renderAt(`/invite/${TOKEN}`, on(KEYCLOAK));
+    const user = await setupUser();
+    await screen.findByRole("button", { name: "Keycloak 계정으로 가입" });
+    await user.click(
+      screen.getByRole("button", { name: "아니요, 처음입니다" }),
+    );
+    await screen.findByLabelText("비밀번호");
+    expect(choices()).toBeNull();
+  });
+});
