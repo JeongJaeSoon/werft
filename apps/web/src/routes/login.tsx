@@ -15,7 +15,7 @@ import {
   Text,
   Link as TextLink,
 } from "@werft-ai/ui";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { loginMethodsQuery } from "../api/queries.ts";
 import { AuthPage, FormError, Notice } from "../components/auth-page.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
@@ -79,6 +79,18 @@ export function LoginScreen() {
   const loginEmail = useLocation({ select: (l) => l.state.loginEmail });
   const [email, setEmail] = useState(loginEmail ?? "");
   const [password, setPassword] = useState("");
+  const methods = useQuery(loginMethodsQuery(client));
+  const [emergency, setEmergency] = useState(false);
+  const emailField = useRef<HTMLInputElement>(null);
+  // Passwords closed to everyone but the emergency admin: the form waits
+  // behind a button. A form someone is already filling in stays, since the
+  // answer can arrive after they started; so does it when the answer fails.
+  const closed = methods.data?.password === "emergency_only";
+  const formShown = !closed || emergency || email !== "" || password !== "";
+  useEffect(() => {
+    // The button that opened the form is gone; the keyboard goes on to it.
+    if (emergency) emailField.current?.focus();
+  }, [emergency]);
 
   const login = useMutation<unknown, ApiError>({
     meta: { public: true },
@@ -109,10 +121,22 @@ export function LoginScreen() {
       {search.notice && !login.error ? (
         <Notice>{t(NOTICE_KEY[search.notice])}</Notice>
       ) : null}
-      <form className="flex flex-col gap-4" onSubmit={submit}>
+      {closed ? <ProviderChoices redirect={redirect} lead /> : null}
+      {formShown ? null : (
+        <Button type="button" variant="ghost" onClick={() => setEmergency(true)}>
+          {t("login.emergency.open")}
+        </Button>
+      )}
+      <form
+        className="flex flex-col gap-4"
+        onSubmit={submit}
+        hidden={!formShown}
+      >
+        {closed ? <Text variant="sub">{t("login.emergency.hint")}</Text> : null}
         <Field>
           <FieldLabel>{t("login.email")}</FieldLabel>
           <Input
+            ref={emailField}
             type="email"
             name="email"
             autoComplete="username"
@@ -139,7 +163,7 @@ export function LoginScreen() {
           {login.isPending ? t("login.submitting") : t("login.submit")}
         </Button>
       </form>
-      <ProviderChoices redirect={redirect} />
+      {closed ? null : <ProviderChoices redirect={redirect} />}
       <Text variant="sub">
         {t("login.bootstrapPrompt")}{" "}
         <TextLink asChild underline="always">
@@ -156,8 +180,11 @@ export function LoginScreen() {
  */
 function ProviderChoices({
   redirect,
+  lead = false,
 }: {
   readonly redirect: string | undefined;
+  /** They are the way in, not the alternative to the form above them. */
+  readonly lead?: boolean;
 }) {
   const { t } = useI18n();
   const { client } = useWerft();
@@ -191,11 +218,13 @@ function ProviderChoices({
   return (
     <section
       className="flex flex-col gap-3"
-      aria-label={t("login.alternatives")}
+      aria-label={t(lead ? "login.provider.title" : "login.alternatives")}
     >
-      <Text variant="sub" className="text-center">
-        {t("login.or")}
-      </Text>
+      {lead ? null : (
+        <Text variant="sub" className="text-center">
+          {t("login.or")}
+        </Text>
+      )}
       {start.error ? (
         <FormError>{t(errorKey(start.error.code))}</FormError>
       ) : null}

@@ -15,6 +15,9 @@ export const authKo = {
 
   "login.or": "또는",
   "login.alternatives": "다른 로그인 방법",
+  "login.emergency.open": "비상 관리자 로그인",
+  "login.emergency.hint":
+    "이 설치는 비밀번호 로그인을 꺼 두었습니다. 비상 관리자만 비밀번호로 로그인할 수 있습니다.",
   "login.provider.submit": "{name} 계정으로 로그인",
   "login.provider.starting": "로그인 화면으로 이동하는 중…",
   "login.provider.title": "SSO 로그인",
@@ -101,6 +104,9 @@ export const authEn: Record<keyof typeof authKo, string> = {
 
   "login.or": "or",
   "login.alternatives": "Other ways to log in",
+  "login.emergency.open": "Emergency admin login",
+  "login.emergency.hint":
+    "Password login is turned off on this installation. Only the emergency admin can log in with a password.",
   "login.provider.submit": "Sign in with {name}",
   "login.provider.starting": "Going to the sign-in page…",
   "login.provider.title": "SSO login",
@@ -189,6 +195,9 @@ export const authJa: Record<keyof typeof authKo, string> = {
 
   "login.or": "または",
   "login.alternatives": "その他のログイン方法",
+  "login.emergency.open": "緊急管理者ログイン",
+  "login.emergency.hint":
+    "このインストールではパスワードログインがオフになっています。パスワードでログインできるのは緊急管理者だけです。",
   "login.provider.submit": "{name} でログイン",
   "login.provider.starting": "ログインページに移動しています…",
   "login.provider.title": "SSO ログイン",
