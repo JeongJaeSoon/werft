@@ -46,7 +46,8 @@ import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 
 // Made per run: nothing here is a value anyone could use elsewhere.
-const made = () => randomBytes(18).toString("base64url");
+// 32 characters, the least a bootstrap token may be.
+const made = () => randomBytes(24).toString("base64url");
 const BOOTSTRAP = made();
 const OWNER_WORD = made();
 const CLIENT_ID = "client-id.apps.example";
