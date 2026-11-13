@@ -200,7 +200,7 @@ Keycloak はユーザーごとに `email_verified` を送ります。Keycloak �
 | `403` | `password_login_closed` | パスワードログインが閉じている間に、招待をパスワードで承諾しようとしました |
 | `403` | `session_too_old` | ログインから 10 分が過ぎたセッションで、ログイン方法を接続・解除しようとしました |
 | `409 LOGIN_LINK_REQUIRED` | | 証明されたアドレスのアカウントがすでにあるので、プロバイダーのアカウントを結び付けませんでした |
-| `409 ALREADY_EXISTS` | `login_method_linked`、`issuer_linked` またはなし | `login_method_linked`：このプロバイダーのアカウントがすでに別のユーザーに接続されています。`issuer_linked`：接続しようとするユーザーに同じ issuer の別のアカウントがあります。なし：同じ issuer のプロバイダーをもう一つ作ろうとしました |
+| `409 ALREADY_EXISTS` | `login_method_linked`、`issuer_linked` またはなし | `login_method_linked`：このプロバイダーのアカウントがすでにユーザーに接続されています（自分のアカウントを含む）。`issuer_linked`：接続しようとするユーザーに同じ issuer の別のアカウントがあります。なし：同じ issuer のプロバイダーをもう一つ作ろうとしました |
 | `503` | | `CONSOLE_ORIGIN` がないので redirect URI を作れません |
 
 <a id="감사-기록" />

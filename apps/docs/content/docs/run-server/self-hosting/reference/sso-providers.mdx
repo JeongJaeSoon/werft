@@ -193,7 +193,7 @@ Keycloak은 사용자마다 `email_verified`를 보낸다. Keycloak에서 주소
 | `403` | `password_login_closed` | 비밀번호 로그인이 닫힌 동안 초대를 비밀번호로 수락하려 했다 |
 | `403` | `session_too_old` | 로그인한 지 10분이 지난 세션으로 로그인 수단을 연결·끊으려 했다 |
 | `409 LOGIN_LINK_REQUIRED` | | 증명된 주소의 계정이 이미 있어 공급자 계정을 붙이지 않았다 |
-| `409 ALREADY_EXISTS` | `login_method_linked`, `issuer_linked` 또는 없음 | `login_method_linked`: 이 공급자 계정이 이미 다른 사용자에 연결돼 있다. `issuer_linked`: 연결하려는 사용자에게 같은 issuer의 다른 계정이 있다. 없음: 같은 issuer의 공급자를 또 만들려 했다 |
+| `409 ALREADY_EXISTS` | `login_method_linked`, `issuer_linked` 또는 없음 | `login_method_linked`: 이 공급자 계정이 이미 사용자에 연결돼 있다(자기 계정 포함). `issuer_linked`: 연결하려는 사용자에게 같은 issuer의 다른 계정이 있다. 없음: 같은 issuer의 공급자를 또 만들려 했다 |
 | `503` | | `CONSOLE_ORIGIN`이 없어 redirect URI를 만들 수 없다 |
 
 ## 감사 기록
