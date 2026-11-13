@@ -456,20 +456,20 @@ IdP가 사람을 인증했다는 것은 `(issuer, subject)`를 증명한다. 그
 
 ### 9.3 운영자 CLI
 
-`apps/control-host/src/api/login-recovery.ts`. API 컨테이너 안에서 `DATABASE_URL`과 `PLATFORM_SECRET_KEY`로 실행한다. 출력은 JSON 한 줄이고 종료 코드가 계약이다. 쓰기마다 receipt를 남기고 actor는 운영자 CLI다.
+`apps/control-host/src/api/login-recovery.ts`. API 컨테이너 안에서 `DATABASE_URL`로 실행한다. 출력은 JSON 한 줄이고 종료 코드가 계약이다(0 됨, 1 예상 못 한 오류, 2 사용법, 3 그런 공급자나 owner가 없음). 쓰기마다 receipt를 남기고, receipt는 운영자 CLI가 했다고 적는다(16절 "5a에서 정한 것").
 
 | 명령 | 뜻 |
 |---|---|
 | `status` | 공급자(이름, issuer, 켜짐), `password_login`, 비상 관리자 주소 |
 | `enable-password` | `password_login`을 `on`으로 |
-| `disable-provider --id <id>` 또는 `--all` | 공급자를 끄고 세션을 끊는다. `emergency_only`였다면 같은 트랜잭션에서 먼저 `password_login`을 `on`으로 바꾼다 |
+| `disable-provider --id <id>` 또는 `--all` | 공급자를 끄고 세션을 끊는다. `emergency_only`였고 끄고 나면 켜진 공급자가 하나도 남지 않을 때는 같은 트랜잭션에서 먼저 `password_login`을 `on`으로 바꾼다 |
 | `reset-password --email <주소>` | 그 owner에게 한 번 쓰는 비밀번호 재설정 링크를 낸다. 링크를 써서 비밀번호를 정하면 그 owner가 비상 관리자가 된다 |
 
 `reset-password`는 있던 재설정 흐름을 그대로 쓰지 못한다. 그 흐름은 대상에게 비밀번호가 이미 있어야 하고, 발급자를 비밀번호로 다시 인증한 owner로 받는다. 그래서 운영자 전용 계약을 둔다.
 
 - 발급: 대상은 계정과 멤버십이 켜진 owner여야 한다. 비밀번호가 없어도 된다. 발급자는 사용자가 아니라 운영자 CLI이고, `password_resets` 행이 그것을 구분한다. **발급은 비상 관리자 지정을 바꾸지 않는다.** 쓰지 않은 링크는 비밀번호가 아니다. 지금의 비상 관리자는 링크가 쓰일 때까지 그대로 비밀번호로 들어온다.
 - 사용: 한 트랜잭션에서 `login_settings`를 `FOR UPDATE`로 잠그고, 대상이 지금도 계정과 멤버십이 켜진 owner인지, 링크가 만료·사용·취소되지 않았는지 본다. 통과하면 hash를 적고, `password` 수단이 없으면 만들고, 그 사용자의 모든 세션을 끊고, **같은 트랜잭션에서** 그 owner를 비상 관리자로 지정한다(이미 그 사람이면 그대로 둔다). 지정이 바뀌는 순간 새 비상 관리자에게는 실제 비밀번호가 있다. 링크가 쓰이지 않거나 만료되면 아무것도 바뀌지 않는다.
-- 운영자가 낸 링크의 사용은 `emergency_only`에서도 그 대상에게 열려 있다. 운영자는 DB와 `PLATFORM_SECRET_KEY`를 쥔 사람이고, 이것이 잠긴 설치로 들어오는 길이다.
+- 운영자가 낸 링크의 사용은 `emergency_only`에서도 그 대상에게 열려 있다. 운영자는 DB를 쥔 사람이고, 이것이 잠긴 설치로 들어오는 길이다.
 - 지정이 비어 있는 설치(9.2절)에서도 같다. 링크를 내는 것은 자격을 채우지 않고, 링크를 써서 비밀번호를 정하는 트랜잭션이 지정한다.
 - 링크는 owner가 내는 재설정 링크와 같이 60분 뒤 만료되고(`PASSWORD_RESET_TTL_MINUTES`) 한 번만 쓴다. 다른 secret과 달리 이 token은 출력해야 쓸 수 있다.
 
@@ -606,7 +606,9 @@ e2e의 Keycloak은 API 컨테이너와 네트워크 이름공간을 함께 쓰�
 | 3b 관리 화면 | PR | — |
 | 4a 초대 token 가입, 로그인 수단 연결·끊기 API | 작업 중 | — |
 | 4b 초대·내 계정 화면 | 작업 중 | — |
-| 5~6 | 시작 전 | — |
+| 5a 비밀번호 로그인 설정, 비상 관리자, 운영자 CLI | 작업 중 | — |
+| 5b 비밀번호 로그인 화면 | 시작 전 | — |
+| 6 | 시작 전 | — |
 
 1단계는 3.1절의 표에서 `provider-http.ts`, `discovery.ts`, `jwks.ts`, `id-token.ts`, `flow.ts`(시작과 끝), `issuer-rules.ts`, `errors.ts`를 넣고 환경 변수로 설정한 Google 로그인을 그 위로 옮긴다. 흐름 cookie의 봉인, 응답 `iss`를 라우트에서 넘기는 일, `admission.ts`는 공급자 행이 생기는 2단계에 넣는다. 1단계의 네트워크 정책에는 `http` issuer를 그대로 받는 값이 하나 더 있다. 환경 변수 Google 로그인의 mock IdP만 쓰고, 2단계에서 환경 변수와 함께 없앤다. 12절은 1단계에서 mock IdP에 키 회전을 더한다고 적지만, 1단계의 회전 시험은 모듈 안의 가짜 공급자(요청 함수 자리)로 하고, HTTP mock IdP의 회전은 6단계의 공급자 모양과 함께 넣는다.
 
@@ -683,6 +685,19 @@ e2e의 Keycloak은 API 컨테이너와 네트워크 이름공간을 함께 쓰�
 - 연결의 거절은 까닭을 나눠 말한다. 그 공급자 계정이 다른 사용자의 것(`login_method_linked`)과, 같은 공급자의 다른 계정을 이미 연결한 것(`issuer_linked`)이다.
 - 가입 규칙(허용 도메인, 초대 없이 가입, 검증된 이메일 요구)은 공급자 상세의 한 구역에서 보고 한 대화상자에서 함께 바꾼다. 3b가 화면 밖에 둔 것이다. 켜진 공급자에도 바꿀 수 있고 바로 적용된다. 꺼진 공급자는 설정 revision이 올라가므로 다시 테스트해야 켤 수 있다. Google 공급자의 대화상자에는 검증된 이메일 선택지가 없다. 서버가 거절할 값을 권하지 않는다. 도메인은 쉼표나 공백으로 나눠 적고 소문자로 보낸다.
 - 초대 수락과 구성원 화면의 안내에서 "Google로만 로그인하던 계정"은 "SSO로만 로그인하던 계정"이 됐다.
+
+5단계는 PR 둘로 나눈다. 5a는 서버 쪽(테이블과 migration, 닫힌 동안의 판정, 관리 API, 운영자 CLI)이고 5b는 화면이다. 5a에서 정한 것은 다음과 같다.
+
+- 설정은 `login_settings`의 한 행이다(migration `0277_login_settings`). 행이 하나뿐이라는 것과, `emergency_only`이면 비상 관리자가 지정돼 있다는 것을 CHECK 제약이 지킨다. 업그레이드 때의 처음 지정은 9.2절대로 migration이 한다.
+- 이 행이 관문이다. 설정에 기대는 트랜잭션(비밀번호 로그인, 초대 수락, 역할 변경, 구성원·계정 끄기, 수단 끊기, owner의 재설정 링크 발급과 사용)은 가장 먼저 이 행을 `FOR SHARE`로 잡고, 설정이나 그 바탕을 바꾸는 트랜잭션(비밀번호 전환, 비상 관리자 교체, 공급자 끄기, bootstrap, 운영자 링크의 사용, 운영자 CLI의 쓰기)은 `FOR UPDATE`로 잡는다. 그래서 설정을 바꾸는 쪽은 비상 관리자의 사용자·멤버십 행을 잠그지 않고 읽어도 된다. 비상 관리자의 자격을 빼앗을 수 있는 변경은 모두 이 행 뒤에 줄을 서기 때문이다.
+- 관리 API는 `GET /v1/login-settings`와 `PATCH /v1/login-settings`다. 공급자 관리 API와 같은 사람(로그인한 owner)만 쓴다. `PATCH`는 요청 하나에 변경 하나(`password_login` 또는 `emergency_admin_user_id`)만 받는다. 둘은 서로 다른 트랜잭션이고 receipt도 따로라서, 한 요청에 둘을 받으면 앞의 것만 적용된 채 실패할 수 있다.
+- 거절은 새 오류 코드를 만들지 않고 있던 코드에 `details.reason_code`를 붙인다. `409 REVISION_CONFLICT`에 `no_provider`, `no_emergency_admin`, `locks_out_actor`, `not_eligible`(설정 변경), `emergency_admin`(비상 관리자를 끄기·강등·비밀번호 끊기), `last_provider`(닫힌 동안 마지막 공급자 끄기), `password_login_closed`(닫힌 동안 owner의 재설정 링크 발급)가 붙고, 닫힌 동안의 초대 비밀번호 수락은 `403 FORBIDDEN`에 `password_login_closed`다. 닫힌 동안 비상 관리자가 아닌 사람의 비밀번호 로그인은 비밀번호가 맞아도 틀린 비밀번호와 같은 `401`이다. 다르게 답하면 누가 비상 관리자인지 밖에서 가려낼 수 있다.
+- `emergency_only`인 동안 비상 관리자를 바꾸면 같은 트랜잭션에서 옛 비상 관리자의 비밀번호 세션을 끊는다. 그 사람은 이제 다른 사람과 같기 때문이다. 바꾸는 owner가 옛 비상 관리자 자신이고 켜진 공급자의 계정이 없으면 거절한다(`locks_out_actor`). 9.1절의 "자기를 잠그지 않는다"를 교체에도 적용한 것이다.
+- 운영자 CLI는 `DATABASE_URL`만 요구한다. 9.3절의 초안은 `PLATFORM_SECRET_KEY`도 적었지만 어느 명령도 secret store를 열지 않는다. DB에 쓸 수 있는 사람은 재설정 링크 행을 직접 넣을 수도 있으므로, 키를 요구해도 막는 것이 없고 복구할 때 필요한 것만 하나 늘어난다.
+- `disable-provider`는 끄고 나서 켜진 공급자가 하나도 남지 않을 때만 비밀번호 로그인을 켠다. 9.3절의 초안은 `emergency_only`이면 언제나 켠다고 적었다. 공급자 둘 가운데 망가진 하나를 끄는 일이 모두의 비밀번호 로그인을 조용히 다시 여는 것은 운영자가 청한 것보다 넓다. 남은 공급자도 못 쓰는 경우는 `--all`이나 `enable-password`가 맡고, 비상 관리자는 어느 경우에도 비밀번호로 들어온다.
+- 운영자 CLI가 남기는 receipt에는 actor가 없다. receipt의 actor는 principal(API 키, 사용자, 설치)이고 CLI를 돌리는 사람은 그 가운데 누구도 아니다. 대신 `result.by: "operator_cli"`를 적고, 재설정 링크의 발급·사용 receipt는 `result.issued_by: "operator_cli"`를 적는다. `password_resets.issued_by`가 NULL인 행이 운영자가 낸 링크다.
+- 로그인 화면이 읽는 공개 `GET /v1/auth/login-methods`의 `password`는 `on` 또는 `emergency_only`다. 이 값은 화면이 무엇을 보여 줄지만 정한다. 판정은 비밀번호 로그인의 트랜잭션이 설정 행을 읽어서 한다.
+- 업그레이드로 비상 관리자가 지정된 owner는 그때부터 9.2절의 보호를 받는다. 비밀번호 로그인을 닫은 적이 없는 설치에서도 그 owner를 끄거나 강등하거나 그 비밀번호를 끊으려면 먼저 다른 owner를 비상 관리자로 지정해야 한다. 이 변경은 CHANGELOG의 "운영자가 할 일"에 적는다.
 
 ## 17. 리뷰 기록
 
