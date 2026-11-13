@@ -6,7 +6,7 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import * as schema from "../schema.ts";
@@ -83,6 +83,10 @@ integration("a person's ways to sign in", () => {
       .values({ id: passwordMethodId, userId: id, kind: "password" });
     return { id, passwordMethodId };
   };
+  // Times the database judges are set on its clock: the host's may run
+  // ahead of it or behind.
+  const fromDbNow = (ms: number) =>
+    sql<Date>`clock_timestamp() + ${ms}::double precision * interval '1 millisecond'`;
   const invite = async (email: string, ttlMs = 60_000) => {
     const inviter =
       (await userByEmail("inviter@example.com"))?.id ??
@@ -95,7 +99,7 @@ integration("a person's ways to sign in", () => {
       role: "member",
       tokenHash: createHash("sha256").update(id).digest(),
       invitedBy: inviter,
-      expiresAt: new Date(Date.now() + ttlMs),
+      expiresAt: fromDbNow(ttlMs),
     });
     return id;
   };
@@ -129,8 +133,8 @@ integration("a person's ways to sign in", () => {
       id,
       userId,
       tokenHash: newHash(),
-      createdAt: new Date(Date.now() - ageMs),
-      expiresAt: new Date(Date.now() + 3_600_000),
+      createdAt: fromDbNow(-ageMs),
+      expiresAt: fromDbNow(3_600_000),
       loginMethodId,
     });
     return id;
@@ -177,8 +181,6 @@ integration("a person's ways to sign in", () => {
     }
     throw new Error(`fewer than ${count} transactions waited on a lock`);
   };
-  // What ends with time is set and waited for on the database's clock, the
-  // one that judges it: the host's may run ahead of it or behind.
   /** The invite dies `ms` from now. */
   const dying = (inviteId: string, ms: number) =>
     pool.query(
@@ -682,11 +684,14 @@ integration("a person's ways to sign in", () => {
           "UPDATE login_providers SET enabled = false WHERE id = $1",
           [providerB.id],
         );
-        const pending = unlink(noa.id, noa.passwordMethodId);
-        await Bun.sleep(400);
+        const pending = unlink(noa.id, noa.passwordMethodId, noaSession);
+        // At the provider row, not ahead of it: the answer below is read
+        // after the turn-off, not beside it.
+        await lockWaiters(1);
         await holder.query("COMMIT");
         expect(await pending).toEqual({ outcome: "last_method" });
       } finally {
+        await holder.query("ROLLBACK");
         holder.release();
         await setEnabled(providerB, true);
       }
