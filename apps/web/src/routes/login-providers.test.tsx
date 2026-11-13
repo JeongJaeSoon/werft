@@ -568,6 +568,61 @@ describe("로그인 공급자 상세", () => {
     });
   });
 
+  test("a form filled before someone else's change is refused, then starts over on what they saved", async () => {
+    // Another owner narrows the domains (revision 4) while this form is open.
+    let stored = filled({ allowed_domains: ["example.com"] });
+    const { api, services } = renderAt(PAGE, {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${API}`]: () =>
+        json(200, { providers: [stored], console_origin_configured: true }),
+      [`PATCH ${API}/${ID}`]: (request) =>
+        request.headers.get("If-Match") === String(stored.revision)
+          ? json(200, { provider: stored })
+          : apiError(412, "VERSION_MISMATCH", "no", false, {
+              current_version: stored.revision,
+            }),
+    });
+    const user = await setupUser();
+    const dialog = await openRules(user);
+    await user.clear(named(dialog, "allowed_domains"));
+    stored = filled({ allowed_domains: ["corp.example.org"], revision: 4 });
+    // The tab comes back and reads the list again under the open form.
+    await services.queryClient.invalidateQueries();
+    // The row behind the dialog shows it; the dialog has the same label.
+    await waitFor(() =>
+      expect(
+        screen
+          .getAllByText("허용 도메인")
+          .map((label) => label.closest("li")?.textContent ?? "")
+          .join(" "),
+      ).toContain("corp.example.org"),
+    );
+
+    await user.click(within(dialog).getByRole("button", { name: "저장" }));
+    expect((await within(dialog).findByRole("alert")).textContent).toContain(
+      "다른 곳에서 설정이 바뀌었습니다",
+    );
+    // The emptied list went under the revision it was typed over.
+    const [refusedWrite] = writes(api.calls);
+    expect(refusedWrite?.headers.get("If-Match")).toBe("3");
+    expect(refusedWrite?.body).toMatchObject({ allowed_domains: [] });
+    // What the form holds now is what the other owner saved.
+    await waitFor(() =>
+      expect((named(dialog, "allowed_domains") as HTMLInputElement).value).toBe(
+        "corp.example.org",
+      ),
+    );
+
+    await user.type(named(dialog, "allowed_domains"), ", example.com");
+    await user.click(within(dialog).getByRole("button", { name: "저장" }));
+    await screen.findByText("저장했습니다.");
+    const [, accepted] = writes(api.calls);
+    expect(accepted?.headers.get("If-Match")).toBe("4");
+    expect(accepted?.body).toMatchObject({
+      allowed_domains: ["corp.example.org", "example.com"],
+    });
+  });
+
   test("a Google provider is not offered an unverified email, and the server's refusal of its rules is said", async () => {
     const { api } = renderAt(PAGE, {
       ...routes([filled({ issuer: "https://accounts.google.com" })]),

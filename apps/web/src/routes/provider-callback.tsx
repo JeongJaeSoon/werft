@@ -139,10 +139,15 @@ function TestResult({ test }: { readonly test: LoginProviderTestResult }) {
   );
 }
 
-/** Whether this browser left for the provider to link an account. */
-function linkFlowStarted(): boolean {
+/**
+ * Whether the flow that came back is the link this tab left for. A link
+ * started and given up leaves its mark behind, and the next sign-in in the
+ * tab is not that link.
+ */
+function linkFlowStarted(state: string | undefined): boolean {
   try {
-    return sessionStorage.getItem(LINK_FLOW_KEY) !== null;
+    const started = sessionStorage.getItem(LINK_FLOW_KEY);
+    return started !== null && started !== "" && started === state;
   } catch {
     return false;
   }
@@ -175,7 +180,7 @@ export function ProviderCallbackScreen() {
   });
   const sent = useRef(false);
   // Read once and forgotten: the next flow of this tab may be a sign-in.
-  const [linking] = useState(linkFlowStarted);
+  const [linking] = useState(() => linkFlowStarted(state));
   useEffect(() => {
     try {
       sessionStorage.removeItem(LINK_FLOW_KEY);
@@ -208,7 +213,11 @@ export function ProviderCallbackScreen() {
         // A link signed nobody in either: the person goes back to their
         // account, in the session they started from. The list is read
         // there: this page came from the provider with an empty cache.
-        await navigate({ to: "/settings/login-methods", replace: true });
+        await navigate({
+          to: "/settings/login-methods",
+          replace: true,
+          state: (previous) => ({ ...previous, loginMethodLinked: true }),
+        });
         return;
       }
       queryClient.clear();
