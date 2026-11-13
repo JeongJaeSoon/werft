@@ -78,7 +78,7 @@ sudo install -d -m 700 -o "$USER" /var/lib/werft/test-ops
 | `EGRESS_AUTHORIZER_TOKEN` | 32 文字以上のランダムな値 |
 | `PLATFORM_SECRET_KEY` | `openssl rand -hex 32` の 64 文字 hex。失うと保存した資格情報を読めなくなります |
 | `BOOTSTRAP_TOKEN` | コメントのままにします。最初の owner を作るトークンは API が生成し、手順 4 の `deploy` の後に `scripts/test-ops.sh bootstrap-token` が一度だけ表示します。固定値が必要なら、コメントを外して 32–256 文字のランダムな値を設定します。その場合、このコマンドはトークンを出力しません |
-| `CONSOLE_ORIGIN` | コンソールから GitHub App を作るときに必要な、ブラウザのコンソール origin（`scheme://host[:port]`）。なければ「GitHub で作成」ボタンは無効です。Slack アカウント連携のリダイレクトと Slack のイベントアドレスもこの値から計算します(なければ Slack 連携は無効です)。env の例にはこの行がないため、自分で追加します。SSH tunnel で開くなら `http://127.0.0.1:<tunnel port>` を指定します。設置後の追加・変更は `start` ではなく `TEST_OPS_OBJECT_STORE=s3 scripts/test-ops.sh upgrade /var/lib/werft/test-ops/current.json` で現在の release を再適用して反映します |
+| `CONSOLE_ORIGIN` | コンソールから GitHub App を作るときに必要な、ブラウザのコンソール origin（`scheme://host[:port]`）。なければ「GitHub で作成」ボタンは無効です。Slack アカウント連携のリダイレクトと Slack のイベントアドレスもこの値から計算します(なければ Slack 連携は無効です)。[SSO ログイン](/run-server/self-hosting/sso)のプロバイダーの redirect URI もこの値から作り、なければプロバイダーを作成できません。env の例にはこの行がないため、自分で追加します。SSH tunnel で開くなら `http://127.0.0.1:<tunnel port>` を指定します。設置後の追加・変更は `start` ではなく `TEST_OPS_OBJECT_STORE=s3 scripts/test-ops.sh upgrade /var/lib/werft/test-ops/current.json` で現在の release を再適用して反映します |
 
 例の LocalStack 値を運用 S3 の値に変更します。秘密をコマンドラインやログへ出力しないでください。
 

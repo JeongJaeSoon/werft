@@ -259,5 +259,32 @@
     "audience": "배포 운영자",
     "outcome": "checkpoint와 runtime과 schema 지원 창을 이해한다",
     "codeBlocks": "none"
+  },
+  {
+    "id": "P34",
+    "path": "sso",
+    "title": "SSO 로그인 구성",
+    "type": "작업",
+    "audience": "설치 owner",
+    "outcome": "OIDC 공급자로 로그인하게 하고 가입 규칙을 정한다",
+    "codeBlocks": "some"
+  },
+  {
+    "id": "P35",
+    "path": "recover-sign-in",
+    "title": "로그인 복구",
+    "type": "작업",
+    "audience": "장애 대응 운영자",
+    "outcome": "SSO가 망가진 설치에 비상 관리자나 복구 명령으로 다시 들어간다",
+    "codeBlocks": "some"
+  },
+  {
+    "id": "P36",
+    "path": "reference/sso-providers",
+    "title": "SSO 공급자별 값과 이유 코드",
+    "type": "레퍼런스",
+    "audience": "설치 owner",
+    "outcome": "공급자별 입력 값과 화면의 이유 코드를 찾는다",
+    "codeBlocks": "none"
   }
 ]

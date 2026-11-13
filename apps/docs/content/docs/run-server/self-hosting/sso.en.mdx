@@ -1,0 +1,250 @@
+---
+title: "Configure SSO sign-in"
+description: "Let people sign in with an OIDC provider and set the sign-up rules"
+pageId: "P34"
+docType: "Task"
+audience: "Installation owners"
+outcome: "Let people sign in with an OIDC provider and set the sign-up rules"
+---
+
+<a id="무엇을-하게-되나" />
+## What you will do
+
+Let people sign in to the console with your company IdP (an OpenID Connect provider such as Google Workspace, OneLogin, Microsoft Entra ID, Okta, or Keycloak). Add a provider, check it with a test sign-in, and turn it on. Decide who can join, and close password sign-in if you want.
+
+werft has two kinds of sign-in method.
+
+| Method | Description |
+| --- | --- |
+| Password | Email and password. The first owner is always created with a password. It can be closed for the whole installation; even then one emergency admin still signs in with a password |
+| OIDC provider | An IdP an owner registers in the console. You can have several providers, one per issuer |
+
+Rules to know:
+
+- Providers are configured only on the console screens. There are no environment variables for SSO. Providers and client secrets are stored in the database.
+- A person is found by the provider's `(issuer, subject)`. werft never attaches a sign-in to an existing account by email address. If an account with the same address exists, that person signs in and links the provider themselves, or joins through an invite link.
+- Turning a provider off ends the sessions made through it on the spot.
+- There is no mapping of IdP groups to roles, no SCIM sync, no SAML, and no IdP-side logout propagation. Removing a person in the IdP leaves their werft sessions and account in place, so [disable the member](#되돌리기).
+
+This feature ships in the release after `v0.1.3`. Up to `v0.1.3`, only Google sign-in could be turned on, through environment variables. If you are upgrading such an installation, read [Move from environment-variable Google sign-in](#9-환경-변수-google-로그인에서-옮기기) first.
+
+<a id="준비물" />
+## Before you begin
+
+| What | Why |
+| --- | --- |
+| An owner account | Only owners can open the provider screens. Admins and members cannot see them |
+| `CONSOLE_ORIGIN` | The public address people open the console at in a browser (`scheme://host[:port]`). The redirect URI you register at the provider is built from it. Without it no provider can be created. On a single server put it in the [env file](/run-server/self-hosting/single-server#2-비밀과-설정-문서); on Kubernetes put it in `api.extraEnv` in the values |
+| `PLATFORM_SECRET_KEY` | A value your installation already has. Client secrets are sealed with this key. If you change or lose it, the stored secrets can no longer be read |
+| An IdP on `https` | The issuer and every IdP endpoint must be `https`. `http` is accepted only when both the IdP and `CONSOLE_ORIGIN` are on `localhost` or `127.0.0.1` (for local trials) |
+| A route from the API to the IdP | The API server calls the IdP's discovery, token, JWKS, and UserInfo addresses itself. An IdP on a private address works. A name that resolves to link-local (`169.254.0.0/16` and the like) is refused |
+| IdP admin rights | You must be able to create an app (client) in the IdP and register a redirect URI |
+
+Open the console at the same address as `CONSOLE_ORIGIN`. The sign-in flow uses a `__Host-` cookie, which is kept only on `https` or on `localhost` and `127.0.0.1`. A console opened under another host name rejects the sign-in when the browser comes back from the IdP.
+
+<a id="단계" />
+## Steps
+
+<a id="1-공급자-만들기" />
+### 1. Create the provider
+
+1. Sign in as an owner and open **Settings > Workspace > Login**.
+2. Press **Add provider** and enter **Name** and **Issuer**. The name is the text of the button on the sign-in screen (up to 64 characters). Enter the issuer exactly as the IdP gives it, keeping or omitting the trailing `/` the way the IdP does.
+3. When you press **Create**, the server reads the IdP's configuration document (`<issuer>/.well-known/openid-configuration`) right away. If something is wrong, nothing is created and the reason is shown ([Configuration document problems](/run-server/self-hosting/reference/sso-providers#설정-문서의-문제)).
+4. If it passes, a provider that is off is created and the detail screen opens. Its state is **Draft**.
+
+The issuer cannot be changed after creation, because a different issuer changes everyone's identity. If you need another issuer, create a new provider. Only one provider per issuer is allowed.
+
+<a id="2-idp에-앱-등록하기" />
+### 2. Register an app at the IdP
+
+**Values to register at the provider** on the detail screen holds two things.
+
+| On screen | Where it goes |
+| --- | --- |
+| **Redirect URI** | `<CONSOLE_ORIGIN>/auth/callback/<provider-id>`. Register it verbatim as the redirect (callback) URI of the IdP app. It differs per provider |
+| **Where the server sends requests** | The hosts the API server sends requests to during sign-in. If you have firewall or egress rules, open these hosts |
+
+In the IdP, create a web application (confidential client, authorization code flow) and enter this redirect URI. werft always requests the scope `openid email profile`. werft always sends PKCE (S256). Clients without a client secret (public clients) are not supported. What to create in each IdP and which values to bring back are in [Values per provider](/run-server/self-hosting/reference/sso-providers#공급자별-값).
+
+<a id="3-client-값-넣기" />
+### 3. Enter the client values
+
+In the **Client** section, enter the values the IdP gave you.
+
+1. In **Change** next to **Client ID**, set the client ID and choose **Client authentication**. Pick the one of `HTTP Basic (client_secret_basic)` and `POST body (client_secret_post)` that matches the IdP app. The initial value is Basic if the IdP lists it, otherwise POST.
+2. Paste the secret into **Set value** next to **Client secret**. The stored value is never shown again; only its last four characters remain.
+
+Once both are in, the state becomes **Needs a test**.
+
+<a id="4-테스트-로그인" />
+### 4. Test sign-in
+
+Press **Test sign-in** in the **Test and turn on** section. The browser goes to the IdP's sign-in screen, comes back, and shows the **Test sign-in result**. A test creates neither an account nor a session.
+
+| Result screen | Meaning |
+| --- | --- |
+| Subject (sub) | The identifier the IdP gave this account. werft finds people by the issuer and this value |
+| Email, `email_verified` | The address the IdP sent and whether it is verified. "Not sent" if the IdP sent nothing |
+| Address proof | Whether werft trusts this address as this account's own. werft neither finds nor creates accounts with an address it does not trust |
+| If this account signs in | What would happen if this account really signed in under the current rules |
+
+On failure a **Reason code** is shown. Causes and fixes per code are in [Test sign-in reason codes](/run-server/self-hosting/reference/sso-providers#테스트-로그인의-이유-코드). If the settings change during the test, it is not recorded as passed; test again.
+
+<a id="5-켜기" />
+### 5. Turn it on
+
+When the test passes, the state becomes **Ready to turn on** and **Turn on** becomes available. Once on, the sign-in screen shows a button with the provider's name (for example **Sign in with Keycloak**).
+
+| State | Meaning |
+| --- | --- |
+| Draft | The client ID or the client secret is missing |
+| Needs a test | No test has passed with the current settings. Changing the settings of a provider that is off returns it to this state. A provider whose rules were changed while on is also in this state once turned off |
+| Ready to turn on | Passed and off |
+| On | The button appears on the sign-in screen |
+| On · new secret waiting | On, and a newly entered client secret waits for a test |
+
+<a id="6-누가-들어올-수-있나" />
+### 6. Who can come in
+
+Press **Change rules** under **Who can come in** on the detail screen. On a provider that is on, changes apply immediately. A provider that is off must pass a test again after the change before it can be turned on. Rules are settings too, so a provider whose rules you changed while on needs a test before it can be turned on again after being turned off.
+
+| Rule | Value |
+| --- | --- |
+| **Allowed domains** | Only accounts whose email domain is on the list sign in. Separate entries with commas or spaces, up to 50. Leave it empty for no restriction. With a list, accounts without an address werft trusts are refused |
+| **Join without an invite** | **Not accepted** (default) or **Join as a member**. When on, people whose address the IdP proves get a member account without an invite |
+| **Verified email** | **Required** (default) or **Not required**. When not required, accounts from IdPs that do not send `email_verified` also sign in. Their address is not trusted, so such accounts join only through invite links |
+
+"Address proof" means the IdP sent `email_verified: true`. For Google the address must also be on `gmail.com` or equal the Workspace domain (`hd`). An account for which the IdP sends `email_verified: false` cannot sign in under any setting.
+
+An account coming in through a provider button is judged in this order, from the top.
+
+1. The allowed domains and the **Verified email** rule are checked first. If they fail, the sign-in is refused even for an account that is already linked. Outside the allowed domains gives `403`; failing the verification rule gives `401`.
+2. This provider account is already linked to a werft user → sign in as that user. The email is not used to find the account. If the user or the membership is disabled, refuse.
+3. A werft account with the proven address already exists → refuse without attaching (`409 LOGIN_LINK_REQUIRED`). That person signs in with their original method and [links the account](#8-계정-연결과-끊기).
+4. A live invite for the proven address exists → create the account with the invite's role.
+5. **Join without an invite** is **Join as a member** and the address is proven → create a member account.
+6. Otherwise refuse (`401`). The screen does not tell the reasons apart.
+
+Accounts created through a provider have no password. A Google provider cannot turn **Verified email** off, and cannot turn **Join without an invite** on without allowed domains, because anyone can create a Google account.
+
+<a id="7-초대로-가입" />
+### 7. Join through an invite
+
+A person who opens an invite link sent from the **Members** screen also sees the button of each provider that is on. Joining with the button makes the account's email the invited address and its role the invite's role. The invite link is the basis, so the address the IdP sends is not used. People from IdPs that do not send `email_verified` join this way.
+
+The allowed domains and **Verified email** also apply to invite sign-ups. If this provider account is already linked to another user, or an account with the invited address already exists, nothing is created and the invite is not used up.
+
+<a id="8-계정-연결과-끊기" />
+### 8. Link and remove sign-in methods
+
+People who already have an account sign in and link a provider account themselves in **Settings > Sign-in methods**.
+
+- Pressing **Connect** under **Providers you can connect** signs in at the IdP and comes back. The account signed in at the IdP is linked. Its email address may differ from the werft account. The provider's allowed domains and **Verified email** rule also apply to linking.
+- Linking and removing work only within 10 minutes of signing in. After that, sign out and sign in again.
+- A provider account links to only one user, and a user links only one account per provider.
+- A method cannot be removed if it is the only usable one left. Accounts of a provider that is off do not count as usable.
+- Removing the password deletes it. The person cannot set it again themselves. For an owner, the operator can give one back with `reset-password` in [Recover sign-in](/run-server/self-hosting/recover-sign-in).
+- Removing a method ends every session signed in with it.
+
+<a id="9-환경-변수-google-로그인에서-옮기기" />
+### 9. Move from environment-variable Google sign-in
+
+An installation that used Google sign-in through the `GOOGLE_OIDC_*` environment variables does not get its old settings moved automatically. After the upgrade, Google sign-in is off and only the password remains on the sign-in screen. People who signed in only with Google cannot sign in again until an owner registers the provider again.
+
+1. Stop every API process of the old version before starting the new one. Google sign-in fails on any old process still running.
+2. Remove `GOOGLE_OIDC_CLIENT_ID`, `GOOGLE_OIDC_CLIENT_SECRET`, `GOOGLE_OIDC_REDIRECT_URI`, `GOOGLE_OIDC_ISSUER`, `GOOGLE_OIDC_ALLOWED_DOMAINS`, and `GOOGLE_OIDC_JIT` from the env file or values. They are not read even if left in place. Add `CONSOLE_ORIGIN` if it is missing.
+3. Sign in as an owner who has a password and register Google as a provider again from [step 1](#1-공급자-만들기). The issuer is `https://accounts.google.com`.
+4. In the OAuth client in the Google Cloud console, replace the authorized redirect URI with the new redirect URI shown on the screen. Delete the old address (`…/auth/google/callback`). You can keep using the same OAuth client.
+5. Set the rules you had in the old `GOOGLE_OIDC_ALLOWED_DOMAINS` and `GOOGLE_OIDC_JIT` again in [step 6](#6-누가-들어올-수-있나), then test and turn it on.
+
+People who used to sign in with Google come back to the same werft account once a provider with the same issuer (`https://accounts.google.com`) is on. The link between a person and their Google account stays in the database, and Google gives the same Google account the same `sub`. Registering under a different issuer makes them different people.
+
+People with a Google method sign in once more after the upgrade. Sessions created before the upgrade carry no record of which method made them, so such sessions of people with an external sign-in method are not accepted. Sessions of people who use only a password are kept.
+
+<a id="10-비밀번호-로그인-닫기와-비상-관리자" />
+### 10. Close password sign-in and the emergency admin
+
+To make everyone sign in through a provider, press **Close** in the **Password login** section of **Settings > Workspace > Login**. Even when closed, one **Emergency admin** still signs in with a password. That is the way in when a provider breaks.
+
+The emergency admin is one enabled owner who has a password. On a new installation it is initially the first owner; on an upgraded installation, the owner of that kind with the oldest membership. An installation without such an owner has none. Choose another owner with **Change** next to **Emergency admin**. It cannot be emptied.
+
+Closing requires all three conditions. If one fails, the screen blocks the button and says why.
+
+| Condition | API `details.reason_code` when it fails |
+| --- | --- |
+| At least one provider is on | `no_provider` |
+| An emergency admin is set and can still sign in with a password now | `no_emergency_admin` |
+| The closing owner is the emergency admin, or has linked an account of a provider that is on to their own sign-in methods | `locks_out_actor` |
+
+Closing ends the password sessions of everyone except the emergency admin. While closed:
+
+| Action | Result |
+| --- | --- |
+| Password sign-in by anyone but the emergency admin | The same `401` as a wrong password, even with the right password |
+| Sign-in screen | Provider buttons come first; the password fields appear after pressing **Emergency admin login** |
+| Accepting an invite | Only provider buttons, with no password step. A password accept request gets `403` (`password_login_closed`) |
+| A password reset link an owner issues through the API for anyone but the emergency admin (the console has no screen for this) | Issuing gets `409` (`password_login_closed`); using a link issued earlier gets `401` |
+| Turning off the last provider that is on | `409` (`last_provider`). Open password sign-in first |
+
+The person set as emergency admin cannot be disabled (membership or account), changed to a non-owner, or have their password removed (`409`, `emergency_admin`). The same holds on installations where password sign-in is not closed. Make another owner the emergency admin first. If no other owner has a password, give one a password with `reset-password` in [Recover sign-in](/run-server/self-hosting/recover-sign-in). Changing the emergency admin while closed ends the former emergency admin's password sessions.
+
+<a id="확인" />
+## Verify
+
+- Open `/login` in a signed-out browser: there is a sign-in button with the provider's name. Signing in at the IdP with it brings you back to the console.
+- The public API the sign-in screen uses lists the providers that are on.
+
+```bash
+curl -s "$CONSOLE_ORIGIN/v1/auth/login-methods"
+```
+
+The expected response is `{"password":"on","providers":[{"id":"<provider-id>","display_name":"<name>"}]}`. If password sign-in is closed, `password` is `emergency_only`.
+
+- On the provider's detail screen the state is **On** and **Last test that passed** has a time.
+
+<a id="자주-막히는-곳" />
+## Troubleshooting
+
+| Symptom | Cause and fix |
+| --- | --- |
+| "The console's public address (CONSOLE_ORIGIN) is not set, so no provider can be made. …" | The API has no `CONSOLE_ORIGIN`. Add it and restart the API |
+| On create, "An address that is not https cannot be used." | The issuer or an IdP endpoint is `http`. Production installations use only `https` IdPs |
+| On create, "The configuration document names another issuer. …" | The issuer was not entered exactly as the IdP gives it (trailing `/`, tenant part, and so on). See [Values per provider](/run-server/self-hosting/reference/sso-providers#공급자별-값) |
+| The IdP refuses with "redirect URI does not match" | The IdP app's redirect URI differs from **Redirect URI** on the screen. Deleting and recreating the provider changes its id and therefore the address |
+| Test reason code `code_refused` | The IdP's token endpoint refused the code exchange. Check the client ID and client secret, **Client authentication**, and the IdP app's redirect URI. The IdP's logs record the reason |
+| Sign-in screen "Could not log in with this account — …" | `401`. No linked account, invite, or sign-up rule matched, or checking the IdP response failed. If an owner runs a test sign-in with the same account, "If this account signs in" and the reason code are shown |
+| Sign-in screen "This account cannot log in here — …" | `403`. Outside the allowed domains |
+| After provider sign-in, "The server is unavailable — try again shortly." | `503`. The server could not reach the IdP, the IdP answered with an error, or the IdP's address is not allowed. A test sign-in by an owner shows the reason code (starting with `provider_`) |
+| "An account with this email already exists — …" | An account with the same address exists, so nothing was attached (`409 LOGIN_LINK_REQUIRED`). That person signs in with the method they used before (password or another provider) and [links the account](#8-계정-연결과-끊기) |
+| Linking or removing is blocked in **Settings > Sign-in methods** | More than 10 minutes have passed since sign-in (`session_too_old`). Sign in again |
+| Back from the IdP but refused | The console was opened under a host name other than `CONSOLE_ORIGIN`. The cookie is bound to another host |
+
+All reason codes are in [SSO provider values and reason codes](/run-server/self-hosting/reference/sso-providers). If sign-in is broken and nobody can get in, follow [Recover sign-in](/run-server/self-hosting/recover-sign-in).
+
+<a id="되돌리기" />
+## Roll back
+
+| Goal | How |
+| --- | --- |
+| Pause a provider | **Turn off** on the detail screen. It leaves the sign-in screen and every session made through it ends. If you signed in with that provider, your session ends too. If no settings, rules included, changed after the last test that passed, turning it on again needs no new test |
+| Change the client ID, authentication method, or configuration document of a provider that is on | Turn it off, change, test, and turn it on. The name and the **Who can come in** rules can be changed while on |
+| Change the client secret | **Change value** while on. The new value goes in as a replacement candidate and is used once a test sign-in passes with it. Until then sign-ins use the current value. To withdraw the candidate, enter the current value again |
+| Remove a provider | Turn it off, then **Delete**. The settings and client secret are deleted. People's accounts and their links to that provider's accounts remain, so recreating a provider with the same issuer brings the same people back |
+| Open password sign-in again | **Open** under **Password login**. People with a password sign in with it again |
+| Remove people deleted in the IdP | werft does not learn of deletions in the IdP. **Disable** the person on the **Members** screen to revoke their sessions and personal keys |
+
+<a id="보안-참고" />
+## Security notes
+
+- Client secrets are sealed with `PLATFORM_SECRET_KEY` in the database's secret store. The screen and the API return only the last four characters and when it was changed. It is not written to logs either.
+- Creating, changing, setting the secret of, testing, turning on, turning off, and deleting a provider, opening and closing password sign-in, changing the emergency admin, and linking and removing accounts leave audit records in the database's `receipts` table. The `operation` names are in [Audit records](/run-server/self-hosting/reference/sso-providers#감사-기록).
+- Turning a provider off ends its sessions without waiting for them to expire.
+- The server reads the IdP's signing keys (JWKS) fresh on every sign-in. If the IdP rotates or removes keys, the next sign-in follows.
+- Sign-ins use only the endpoints checked at creation. If the IdP's endpoints changed, turn the provider off and press **Read again** next to **Configuration document**.
+- An `http` IdP is accepted only when both the IdP and `CONSOLE_ORIGIN` are on loopback. Production installations never send secrets or codes in plain text.
+
+<a id="다음에-읽을-곳" />
+## Next steps
+
+[SSO provider values and reason codes](/run-server/self-hosting/reference/sso-providers), [Recover sign-in](/run-server/self-hosting/recover-sign-in), [Create the first owner and issue user keys](/run-server/self-hosting/users-and-keys).

@@ -1,0 +1,215 @@
+---
+title: "SSO 공급자별 값과 이유 코드"
+description: "공급자별 입력 값과 화면의 이유 코드를 찾는다"
+pageId: "P36"
+docType: "레퍼런스"
+audience: "설치 owner"
+outcome: "공급자별 입력 값과 화면의 이유 코드를 찾는다"
+---
+
+## 계약
+
+이 페이지는 [SSO 로그인 구성](/run-server/self-hosting/sso)의 값을 공급자별로 찾는 곳이다. werft 쪽 값(화면 이름, 상태, 이유 코드)은 werft 코드가 정한 것이다. IdP 쪽 화면과 메뉴 이름은 각 공급자가 바꿀 수 있으므로 공급자의 문서를 함께 본다.
+
+### 확인 상태
+
+| 공급자 | 확인한 방법 |
+| --- | --- |
+| Keycloak | 실제 Keycloak 서버로 공급자 추가, 테스트 로그인, 켜기, 로그인, 첫 가입, 초대 가입, 계정 연결과 연결 요구, 허용 도메인과 검증되지 않은 주소의 거절, 끄기와 세션 끊김, 틀린 PKCE verifier의 거절, 비밀번호 로그인 닫기, 복구 명령을 확인했다 |
+| Google Workspace | 공개 문서의 모양을 흉내 낸 시험용 IdP로만 확인했다. 실제 Google Workspace로는 확인 전이다 |
+| OneLogin | 시험용 IdP로만 확인했다. 실제 OneLogin으로는 확인 전이다. 특히 client secret을 쓰는 앱에서 OneLogin이 틀린 PKCE verifier를 거절하는지는 모른다 |
+| Microsoft Entra ID | 시험용 IdP로만 확인했다. 실제 Entra ID로는 확인 전이다 |
+| Okta | 시험용 IdP로만 확인했다. 실제 Okta로는 확인 전이다 |
+
+실제 공급자에서 어긋나는 점을 찾으면 테스트 로그인의 이유 코드와 함께 [이슈](https://github.com/JeongJaeSoon/werft/issues)로 알린다.
+
+## 공급자별 값
+
+모든 공급자에서 werft에 넣는 값은 네 가지다: Issuer, Client ID, Client secret, Client 인증 방식. IdP에는 화면의 **Redirect URI** 하나를 등록한다. werft가 요청하는 scope는 `openid email profile`이고, 언제나 PKCE(S256)를 보낸다.
+
+| 공급자 | Issuer 모양 | 주소 증명 | 초대 없이 가입 |
+| --- | --- | --- | --- |
+| Google Workspace | `https://accounts.google.com` | `email_verified`와 Workspace 도메인(`hd`) | 허용 도메인이 있을 때만 |
+| OneLogin | `https://<subdomain>.onelogin.com/oidc/2` | 기본 설정은 없다 | 기본 설정은 안 된다 |
+| Microsoft Entra ID | `https://login.microsoftonline.com/<tenant-id>/v2.0` | 없다 | 안 된다 |
+| Okta | `https://<org>.okta.com` 또는 `https://<org>.okta.com/oauth2/<server>` | `email_verified`(UserInfo) | 된다 |
+| Keycloak | `https://<host>/realms/<realm>` | `email_verified` | 된다 |
+
+"주소 증명"이 없는 공급자의 사람은 초대 링크나 계정 연결로만 들어온다. 그런 공급자에 허용 도메인을 넣으면 모든 로그인이 거절된다(`403`).
+
+### Google Workspace
+
+IdP에서 만들 것: Google Cloud 콘솔에서 OAuth client를 웹 애플리케이션으로 만들고, 승인된 리디렉션 URI에 화면의 **Redirect URI**를 넣는다. 받은 client ID와 client secret을 werft에 넣는다.
+
+| werft 값 | 넣을 것 |
+| --- | --- |
+| Issuer | `https://accounts.google.com` |
+| Client 인증 방식 | 처음 값(`client_secret_basic`) |
+| 검증된 이메일 | **요구함**. Google 공급자는 끌 수 없다 |
+| 허용 도메인 | Workspace 도메인. **초대 없이 가입**을 켜려면 필요하다 |
+
+Google만의 규칙:
+
+- 주소 증명: `email_verified`가 `true`이고, 주소가 `gmail.com`이거나 계정의 Workspace 도메인(`hd`)과 같아야 한다. Google 계정에 붙인 다른 도메인의 주소는 로그인은 되지만 증명된 주소로 보지 않는다.
+- 허용 도메인이 있으면 Workspace 계정만 받는다. `hd`가 주소의 도메인과 같고 목록에 있어야 한다. 개인 `gmail.com` 계정은 목록에 `gmail.com`을 넣어도 들어오지 못한다.
+- 허용 도메인이 하나면 werft가 Google에 `hd`를 넘겨 그 도메인의 계정을 먼저 고르게 한다. 판정은 돌아온 token으로 다시 한다.
+- id_token의 `iss`가 스킴 없는 `accounts.google.com`이어도 받는다.
+- Google은 인가 응답에 `iss`를 붙인다고 알리므로, 돌아온 주소에 `iss`가 없으면 거절한다(`response_issuer_mismatch`).
+- 같은 Google 계정의 `sub`는 OAuth client가 달라도 같다. client를 새로 만들어도 있던 연결이 산다.
+
+### OneLogin
+
+IdP에서 만들 것: OneLogin 관리 화면에서 OpenID Connect 앱을 만든다. Application Type은 Web, Token Endpoint의 인증 방식은 Basic 또는 POST로 한다. "None (PKCE)"는 werft가 지원하지 않는다. Redirect URI에 화면의 값을 넣는다.
+
+| werft 값 | 넣을 것 |
+| --- | --- |
+| Issuer | `https://<subdomain>.onelogin.com/oidc/2` |
+| Client 인증 방식 | OneLogin 앱에 고른 방식과 같은 것. OneLogin 앱은 방식을 하나만 받는다. 다르면 테스트가 `code_refused`로 실패한다 |
+| 검증된 이메일 | 기본 설정에서는 **요구하지 않음**. 요구하면 모든 로그인이 `email_unverified`로 거절된다 |
+| 허용 도메인 | 기본 설정에서는 비운다 |
+
+OneLogin은 기본으로 `email_verified`를 보내지 않는다. 그래서 기본 설정의 OneLogin 사람은 주소가 증명되지 않는다. 초대 링크로 가입하고, 기존 계정은 로그인한 뒤 연결한다. **초대 없이 가입**은 쓸 수 없다. OneLogin 관리자가 사용자 정의 속성 `email_verified`(값 `true`)를 만들어 앱의 parameter로 id_token에 넣으면, 주소가 증명되어 **검증된 이메일**을 요구하고 허용 도메인과 **초대 없이 가입**을 쓸 수 있다. 테스트 로그인 결과의 `email_verified`로 어느 쪽인지 본다.
+
+### Microsoft Entra ID
+
+IdP에서 만들 것: Entra 관리 센터의 앱 등록에서 Web 플랫폼의 redirect URI에 화면의 값을 넣고, client secret을 만든다. id_token에 `email`을 넣으려면 선택적 클레임에 `email`을 더한다.
+
+| werft 값 | 넣을 것 |
+| --- | --- |
+| Issuer | `https://login.microsoftonline.com/<tenant-id>/v2.0`. `<tenant-id>`는 디렉터리(tenant) ID다 |
+| Client 인증 방식 | 처음 값 |
+| 검증된 이메일 | **요구하지 않음**. 요구하면 모든 로그인이 거절된다 |
+| 허용 도메인 | 비운다 |
+
+Entra ID만의 규칙:
+
+- `common`·`organizations` issuer는 설정 문서의 issuer가 `{tenantid}` 틀이라 `issuer_mismatch`로 만들 수 없다. tenant별 issuer를 쓴다.
+- Entra ID는 `email_verified`를 보내지 않는다. 사람은 초대 링크로 가입하거나 로그인한 뒤 연결한다. **초대 없이 가입**은 쓸 수 없다.
+- id_token에 `email`이 없으면 werft가 UserInfo endpoint에 한 번 묻는다. 그래도 주소는 증명되지 않는다.
+- Entra ID의 `sub`는 앱 등록마다 다르다. client ID를 다른 앱 등록의 것으로 바꾸면 모든 사람의 연결이 끊긴다.
+- client secret에는 만료가 있다. 만료 전에 공급자를 켠 채로 새 secret을 넣고 테스트 로그인으로 바꾼다([되돌리기](/run-server/self-hosting/sso#되돌리기)).
+- 설정 문서가 PKCE 지원을 알리지 않지만 werft는 PKCE를 보낸다.
+
+### Okta
+
+IdP에서 만들 것: Okta 관리 화면에서 OIDC Web Application 앱을 만들고, Sign-in redirect URI에 화면의 값을 넣는다. client authentication은 client secret으로 한다.
+
+| werft 값 | 넣을 것 |
+| --- | --- |
+| Issuer | org 서버는 `https://<org>.okta.com`, 사용자 정의 인가 서버는 `https://<org>.okta.com/oauth2/<server>`(예: `default`). 앱이 쓰는 서버의 issuer를 넣는다 |
+| Client 인증 방식 | Okta 앱에 고른 방식과 같은 것 |
+| 검증된 이메일 | **요구함** |
+
+Okta의 id_token에는 주소가 없을 수 있다. 그때 werft가 UserInfo에서 `email`과 `email_verified`를 읽는다. UserInfo의 `sub`가 id_token과 다르면 거절한다(`userinfo_subject_mismatch`). UserInfo가 주소를 검증하지 않았다고 하면 어느 설정에서도 거절한다.
+
+### Keycloak
+
+IdP에서 만들 것: realm에 OpenID Connect client를 만든다. Client authentication을 켜고(confidential), Standard flow를 쓰고, Valid redirect URIs에 화면의 값을 넣는다. Credentials 탭의 client secret을 werft에 넣는다.
+
+| werft 값 | 넣을 것 |
+| --- | --- |
+| Issuer | `https://<host>/realms/<realm>` |
+| Client 인증 방식 | Keycloak client의 Client Authenticator가 "Client Id and Secret"이면 처음 값 |
+| 검증된 이메일 | **요구함** |
+
+Keycloak은 사용자마다 `email_verified`를 보낸다. Keycloak에서 주소를 검증하지 않은 사용자는 `false`라서 어느 설정에서도 거절한다(`email_unverified`). Keycloak에서 검증한다. Keycloak은 `RS256`과 `ES256` 서명 모두 된다.
+
+## 설정 문서의 문제
+
+공급자를 만들거나 **다시 읽기**를 누를 때 서버가 issuer의 설정 문서를 읽는다. 쓸 수 없으면 API는 `400`과 `details.problem`으로, 화면은 문장으로 답한다. 아무것도 저장하지 않는다.
+
+| `problem` | 원인 | 조치 |
+| --- | --- | --- |
+| `issuer_mismatch` | 문서의 `issuer`가 넣은 issuer와 글자 그대로 같지 않다 | 끝의 `/`까지 공급자가 알린 대로 넣는다. Entra ID는 tenant별 issuer를 쓴다 |
+| `invalid_document` | 문서가 JSON 객체가 아니거나, 필요한 endpoint가 없거나 올바른 URL이 아니다 | issuer 주소가 맞는지, `<issuer>/.well-known/openid-configuration`이 IdP의 설정 문서인지 본다 |
+| `insecure_endpoint` | issuer나 endpoint가 `https`가 아니다 | `https` IdP를 쓴다. `http`는 로컬 시험에서만 된다 |
+| `unsupported_flow` | authorization code 흐름이 없다 | IdP의 앱 종류를 웹 애플리케이션으로 한다 |
+| `unsupported_algorithm` | id_token 서명이 `RS256`·`ES256`이 아니다 | IdP의 서명 알고리즘을 바꾼다 |
+| `unsupported_client_auth` | `client_secret_basic`·`client_secret_post`를 지원하지 않는다 | client secret을 쓰는 앱으로 만든다 |
+| `pkce_s256_unsupported` | PKCE 방식을 알리면서 S256이 없다 | IdP에서 S256을 켠다 |
+| `unreachable` | 응답이 없거나(DNS, 연결, 10초 시간 제한) `200`이 아닌 상태로 답했다. issuer의 경로가 틀려 `404`가 와도 이 값이다 | issuer 주소, 그리고 API 서버에서 IdP로 가는 네트워크와 방화벽을 본다 |
+| `address_not_allowed` | 이름이 서버가 요청할 수 없는 주소(link-local, multicast 등)로 풀린다 | IdP의 DNS를 확인한다 |
+
+## 테스트 로그인의 이유 코드
+
+테스트 로그인이 실패하면 결과 화면의 **이유 코드**에 나온다. 실제 로그인은 이유를 화면에 보이지 않는다. 검증 거절은 `401`이고, `provider_`로 시작하는 IdP 통신·응답 문제는 `503`이다. owner가 같은 계정으로 테스트해 이유를 찾는다.
+
+| 이유 코드 | 원인 | 조치 |
+| --- | --- | --- |
+| `provider_unreachable` | IdP의 token·JWKS·UserInfo endpoint에서 응답이 없다 | 네트워크와 **서버가 요청을 보내는 곳**의 host를 본다 |
+| `provider_answered` | IdP가 `5xx`로 답했거나, JWKS가 `200`이 아니거나 키 목록이 아닌 문서로 답했다 | IdP 상태와 JWKS 주소의 응답을 보고 다시 테스트한다 |
+| `provider_address_not_allowed` | endpoint의 이름이 요청할 수 없는 주소로 풀린다 | IdP의 DNS를 본다 |
+| `config_changed` | 테스트하는 동안 설정이나 secret이 바뀌었다 | 다시 테스트한다 |
+| `response_issuer_mismatch` | 돌아온 주소의 `iss`가 issuer와 다르거나, 반드시 있어야 하는데 없다 | issuer가 맞는지 본다 |
+| `code_refused` | token endpoint가 code 교환을 거절했다(`4xx`) | client ID, client secret, **Client 인증 방식**, IdP의 redirect URI를 본다 |
+| `no_id_token` | token 응답에 id_token이 없다 | IdP 앱에서 `openid` scope와 OIDC를 켠다 |
+| `malformed_token` | id_token을 읽을 수 없다 | IdP 앱이 서명된 JWT id_token을 내는지 본다 |
+| `alg_not_allowed` | id_token의 서명 알고리즘이 설정 문서가 알린 `RS256`·`ES256`이 아니다 | IdP의 서명 설정을 본다. 바꿨다면 공급자를 끄고 **다시 읽기** |
+| `no_matching_key` | JWKS에 id_token의 키가 없다 | IdP의 키 회전을 본다 |
+| `bad_signature` | 서명이 맞지 않는다 | IdP의 키와 JWKS 주소를 본다 |
+| `issuer_mismatch` | id_token의 `iss`가 issuer와 다르다 | issuer를 본다 |
+| `audience_mismatch` | id_token의 `aud`가 이 client ID 하나가 아니다 | Client ID를 본다 |
+| `authorized_party_mismatch` | id_token의 `azp`가 client ID와 다르다 | Client ID를 본다 |
+| `expired` | id_token이 만료됐다 | 서버와 IdP의 시계를 맞춘다 |
+| `issued_at_invalid` | id_token의 `iat`가 미래이거나 너무 오래됐다 | 서버와 IdP의 시계를 맞춘다 |
+| `not_yet_valid` | id_token의 `nbf`가 아직 오지 않았다 | 시계를 맞춘다 |
+| `nonce_mismatch` | id_token의 `nonce`가 이 흐름의 것이 아니다 | 다시 테스트한다 |
+| `subject_invalid` | `sub`가 비었거나 255자를 넘는다 | IdP의 subject 설정을 본다 |
+| `userinfo_refused` | UserInfo가 주소 정보를 주지 않았다 | IdP 앱에 `email` scope와 UserInfo를 허락한다 |
+| `userinfo_subject_mismatch` | UserInfo의 `sub`가 id_token과 다르다 | IdP 설정을 본다 |
+| `email_unverified` | IdP가 주소를 검증하지 않았다고 했거나, **검증된 이메일**을 요구하는데 주소나 `email_verified`가 없다 | IdP에서 주소를 검증하거나, `email_verified`를 보내지 않는 IdP면 **요구하지 않음**으로 바꾼다 |
+
+## 이 계정이 로그인하면
+
+테스트가 통과하면 그 계정이 실제로 로그인했을 때의 결과가 나온다.
+
+| 결과 | 뜻 |
+| --- | --- |
+| 연결된 계정으로 로그인됩니다 | 이 공급자 계정이 werft 사용자에 연결돼 있다 |
+| 같은 주소의 계정이 있지만 … 로그인되지 않습니다 | 연결은 없고 증명된 주소의 계정이 있다. 그 사람이 로그인해 연결한다 |
+| 새 멤버로 가입됩니다 | **초대 없이 가입**으로 member가 된다 |
+| 이 주소로 온 초대가 있어야 들어옵니다 | 계정이 없다. 초대가 있으면 그 역할로 들어온다 |
+| 허용 도메인 밖이라 거절됩니다 | 허용 도메인 밖이거나, 목록이 있는데 주소가 증명되지 않았다. 연결된 계정이어도 거절한다 |
+| 거절됩니다. … | 연결된 사용자가 꺼져 있거나, 주소가 증명되지 않았다. 초대 링크나 계정 연결로 들어온다 |
+
+## API의 거절
+
+화면은 아래 거절을 문장으로 보인다. API를 직접 부를 때 `details.reason_code`(400은 `details.problem`)로 구분한다.
+
+| 상태와 코드 | 값 | 뜻 |
+| --- | --- | --- |
+| `400` | `verified_email_required` | Google 공급자에서 **검증된 이메일**을 끄려 했다 |
+| `400` | `jit_requires_domains` | Google 공급자에서 허용 도메인 없이 **초대 없이 가입**을 켜려 했다 |
+| `409 REVISION_CONFLICT` | `not_tested` | client 값이 없거나 지금 설정으로 통과한 테스트가 없는데 테스트·켜기를 했다 |
+| `409 REVISION_CONFLICT` | `provider_enabled` | 켜진 공급자의 client ID·인증 방식·설정 문서를 바꾸거나 지우려 했다 |
+| `409 REVISION_CONFLICT` | `last_provider` | 비밀번호 로그인이 닫힌 동안 켜진 마지막 공급자를 끄려 했다 |
+| `409 REVISION_CONFLICT` | `no_provider` | 켜진 공급자 없이 비밀번호 로그인을 닫으려 했다 |
+| `409 REVISION_CONFLICT` | `no_emergency_admin` | 비상 관리자가 없거나 비밀번호로 로그인할 수 없는데 닫으려 했다 |
+| `409 REVISION_CONFLICT` | `locks_out_actor` | 닫거나 비상 관리자를 바꾸면 요청한 owner가 다시 들어올 수 없다 |
+| `409 REVISION_CONFLICT` | `not_eligible` | 비상 관리자로 고른 사람이 켜진 owner가 아니거나 비밀번호가 없다 |
+| `409 REVISION_CONFLICT` | `emergency_admin` | 비상 관리자를 끄거나, owner가 아니게 바꾸거나, 그 비밀번호를 끊으려 했다 |
+| `409 REVISION_CONFLICT` | `last_login_method` | 쓸 수 있는 마지막 로그인 수단을 끊으려 했다 |
+| `409 REVISION_CONFLICT` | `password_login_closed` | 비밀번호 로그인이 닫힌 동안 비상 관리자가 아닌 사람 앞으로 재설정 링크를 내려 했다 |
+| `403` | `password_login_closed` | 비밀번호 로그인이 닫힌 동안 초대를 비밀번호로 수락하려 했다 |
+| `403` | `session_too_old` | 로그인한 지 10분이 지난 세션으로 로그인 수단을 연결·끊으려 했다 |
+| `409 LOGIN_LINK_REQUIRED` | | 증명된 주소의 계정이 이미 있어 공급자 계정을 붙이지 않았다 |
+| `409 ALREADY_EXISTS` | `login_method_linked`, `issuer_linked` 또는 없음 | `login_method_linked`: 이 공급자 계정이 이미 사용자에 연결돼 있다(자기 계정 포함). `issuer_linked`: 연결하려는 사용자에게 같은 issuer의 다른 계정이 있다. 없음: 같은 issuer의 공급자를 또 만들려 했다 |
+| `503` | | `CONSOLE_ORIGIN`이 없어 redirect URI를 만들 수 없다 |
+
+## 감사 기록
+
+공급자와 로그인 설정의 변경은 DB의 `receipts` 테이블에 남는다. `operation` 값은 다음과 같다.
+
+| `operation` | 무엇 |
+| --- | --- |
+| `create_login_provider`, `update_login_provider`, `delete_login_provider` | 공급자 만들기, 이름·client·규칙 바꾸기, 삭제 |
+| `set_login_provider_secret` | client secret 넣기(값은 남기지 않는다) |
+| `refresh_login_provider_discovery` | 설정 문서 다시 읽기 |
+| `test_login_provider` | 테스트 로그인 통과 |
+| `enable_login_provider`, `disable_login_provider` | 켜기, 끄기(끊은 세션 수) |
+| `set_password_login`, `set_emergency_admin` | 비밀번호 로그인 열기·닫기, 비상 관리자 바꾸기 |
+| `link_login_method`, `unlink_login_method` | 계정 연결, 끊기 |
+| `accept_invite` | 초대 수락(공급자 가입 포함) |
+| `issue_password_reset`, `reset_password` | 재설정 token 발급, 사용 |
+
+복구 명령이 한 변경은 `actor`가 비어 있고 `result`의 `by` 또는 `issued_by`가 `operator_cli`다.

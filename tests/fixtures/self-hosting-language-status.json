@@ -271,6 +271,30 @@
       "ja": "korean-link"
     }
   },
+  "P34": {
+    "paths": ["run-server/self-hosting/sso"],
+    "locales": {
+      "ko": "implemented",
+      "en": "implemented",
+      "ja": "implemented"
+    }
+  },
+  "P35": {
+    "paths": ["run-server/self-hosting/recover-sign-in"],
+    "locales": {
+      "ko": "implemented",
+      "en": "implemented",
+      "ja": "implemented"
+    }
+  },
+  "P36": {
+    "paths": ["run-server/self-hosting/reference/sso-providers"],
+    "locales": {
+      "ko": "implemented",
+      "en": "implemented",
+      "ja": "implemented"
+    }
+  },
   "H01": {
     "paths": ["run-server/self-hosting/operate/session-data-flow"],
     "held": true,

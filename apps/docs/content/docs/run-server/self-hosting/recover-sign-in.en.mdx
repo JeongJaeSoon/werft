@@ -1,0 +1,154 @@
+---
+title: "Recover sign-in"
+description: "Get back into an installation with broken SSO through the emergency admin or the recovery command"
+pageId: "P35"
+docType: "Task"
+audience: "Incident responders"
+outcome: "Get back into an installation with broken SSO through the emergency admin or the recovery command"
+---
+
+<a id="무엇을-하게-되나" />
+## What you will do
+
+Get back in when a sign-in provider (IdP) or its settings break and nobody can enter the console. There are two ways.
+
+| Way | Who | When |
+| --- | --- | --- |
+| Emergency admin password sign-in | The emergency admin owner | The emergency admin knows their password |
+| Recovery command `login-recovery.ts` | An operator who can run commands in the API container | Even the emergency admin cannot get in, or there is no emergency admin |
+
+The recovery command is the way for whoever holds the database. It asks for neither a web session nor owner rights.
+
+<a id="준비물" />
+## Before you begin
+
+- Permission to run commands in this installation's API container. The command uses only the container's `DATABASE_URL`. It does not need `PLATFORM_SECRET_KEY` or the IdP settings.
+- On a single server (Compose), the API container id. Confirm it with this installation's status and Docker project label, as in [Create the first owner and issue user keys](/run-server/self-hosting/users-and-keys#3-폐기-연락과-실행-권한).
+- On Kubernetes, [the installation's context, namespace, and fullname](/run-server/self-hosting/kubernetes#준비물). `werft` below is the example installation name.
+- The address of the owner who will get a password (when issuing a reset token).
+
+<a id="단계" />
+## Steps
+
+<a id="1-상태-보기" />
+### 1. Check the state
+
+First look at the current state with `status`, which changes nothing.
+
+```bash
+API_CONTAINER='<api-container-id-from-this-installation>'
+docker exec "$API_CONTAINER" bun run apps/control-host/src/api/login-recovery.ts status
+```
+
+On Kubernetes, use the following. The other commands in the steps below run the same way, replacing only `status`.
+
+```bash
+kubectl -n werft exec deploy/werft-api -c api -- \
+  bun run apps/control-host/src/api/login-recovery.ts status
+```
+
+The output is one line of JSON on stdout.
+
+| Field | Meaning |
+| --- | --- |
+| `outcome` | `ok` |
+| `password_login` | `on` (everyone with a password) or `emergency_only` (only the emergency admin) |
+| `emergency_admin` | The emergency admin's `email` and `eligible`. If `eligible` is `false`, that person cannot sign in with a password now. `null` when none is set |
+| `providers` | For each provider, `id`, `display_name`, `issuer`, and `enabled` |
+
+<a id="2-비상-관리자로-로그인" />
+### 2. Sign in as the emergency admin
+
+If `emergency_admin.eligible` is `true` and that person knows the password, they get in without any command.
+
+1. Open `/login` on the console. If password sign-in is closed, press **Emergency admin login** below the provider buttons.
+2. Sign in with the emergency admin's email and password.
+3. In **Settings > Workspace > Login**, turn off or fix the broken provider. To turn off the last provider that is on, first open **Password login**.
+
+<a id="3-공급자를-끄거나-비밀번호-로그인을-연다" />
+### 3. Turn providers off or open password sign-in
+
+If even the emergency admin cannot get in, change things with the command. `<provider-id>` is the `id` from `providers` in step 1.
+
+```bash
+docker exec "$API_CONTAINER" bun run apps/control-host/src/api/login-recovery.ts disable-provider --id <provider-id>
+docker exec "$API_CONTAINER" bun run apps/control-host/src/api/login-recovery.ts disable-provider --all
+docker exec "$API_CONTAINER" bun run apps/control-host/src/api/login-recovery.ts enable-password
+```
+
+| Command | What it does |
+| --- | --- |
+| `disable-provider --id <provider-id>` | Turns that provider off and ends the sessions made through it |
+| `disable-provider --all` | Turns every provider off and ends their sessions |
+| `enable-password` | Opens password sign-in to everyone again. Changes nothing if it is already open |
+
+The output of `disable-provider` shows the number of sessions it ended (`sessions_revoked`) for each provider in `providers`, and `password_login_opened` once at the end of the line. If password sign-in was closed and this command turns off providers that were on so that none is left on, it also opens password sign-in in the same transaction (`password_login_opened: true`). If another provider stays on, or you pick a provider that was already off, it does not open it. If you then need to get in with a password, run `enable-password` separately.
+
+Once password sign-in is open, any owner with a password gets in at `/login`.
+
+<a id="4-비밀번호-없는-owner에게-비밀번호를-준다" />
+### 4. Give an owner without a password a password
+
+If no owner knows a password (all owners came in through providers, or the emergency admin forgot theirs), issue a one-time reset token to one owner.
+
+```bash
+docker exec "$API_CONTAINER" bun run apps/control-host/src/api/login-recovery.ts reset-password --email owner@example.com
+```
+
+- The target is an owner whose account and membership are enabled. They need not have a password.
+- The `token` in the output line can be used once within 60 minutes (`expires_at`). Do not leave this line in logs or tickets; hand it only to that owner.
+- Issuing a token alone changes nothing. The current emergency admin stays as is.
+
+The owner sets a password with the token. The console has no screen for this, so call the API. Passwords are at least 12 characters.
+
+```bash
+read -rs WERFT_RESET_TOKEN
+read -rs WERFT_NEW_PASSWORD
+jq -n --arg token "$WERFT_RESET_TOKEN" --arg password "$WERFT_NEW_PASSWORD" '{token: $token, password: $password}' |
+  curl -s -X POST "$CONSOLE_ORIGIN/v1/auth/password-reset" -H 'Content-Type: application/json' --data-binary @-
+unset WERFT_RESET_TOKEN WERFT_NEW_PASSWORD
+```
+
+On success the owner's password is set, all of that owner's sessions end, and in the same transaction that owner becomes the emergency admin. This token works even while password sign-in is closed. The owner then gets in through step 2.
+
+<a id="5-고친-뒤-다시-닫기" />
+### 5. Close again after the fix
+
+Fix the provider and turn it on once a test sign-in passes. To close password sign-in again, follow [Configure SSO sign-in](/run-server/self-hosting/sso#10-비밀번호-로그인-닫기와-비상-관리자). The recovery command has no command for closing.
+
+<a id="확인" />
+## Verify
+
+- Run `status` again and check that `password_login`, `emergency_admin.eligible`, and each provider's `enabled` are what you wanted.
+- What the command changed is recorded in the database's `receipts` table (`set_password_login`, `disable_login_provider`, `issue_password_reset`, `reset_password`). Since no person did it, `actor` is empty and `by` or `issued_by` in `result` is `operator_cli`.
+
+| Exit code | Meaning |
+| --- | --- |
+| 0 | Done. Also 0 when nothing had to change |
+| 1 | Unexpected error (database connection and the like). Read stderr |
+| 2 | Wrong usage, or no `DATABASE_URL` |
+| 3 | No such provider, or no enabled owner with that address |
+
+<a id="자주-막히는-곳" />
+## Troubleshooting
+
+| Symptom | Cause and fix |
+| --- | --- |
+| `reset-password` exits with code 3 | No owner has that address, or their account or membership is disabled. It cannot be issued to admins or members. Check the owner's address with `status` and on the **Members** screen |
+| `disable-provider --id` exits with code 2 | The id is not shaped like a UUID. Use the `id` from `status` as is |
+| A provider is off but password sign-in still does not work | Another provider is on, so password sign-in stays closed. Run `enable-password` |
+| The emergency admin's password is refused | `eligible` is `false` (they stopped being an owner or the account was disabled). Give another owner a password with step 4 |
+| Repeated failures turn into `429` | The password sign-in failure window was hit. Try again a little later |
+| A reset link an owner issued through the API gets `409` | While password sign-in is closed, no link can be issued for anyone but the emergency admin. Use this command's `reset-password` |
+
+<a id="되돌리기" />
+## Roll back
+
+- A provider that was turned off goes back on with **Turn on** and no new test, if its settings were not changed. If you changed client values, rules, or the configuration document, a test sign-in must pass before it can be turned on.
+- Password sign-in that was opened is closed again in the console.
+- An unused reset token expires after 60 minutes. Issuing another token for the same owner in the meantime makes the earlier one unusable.
+
+<a id="다음에-읽을-곳" />
+## Next steps
+
+[Configure SSO sign-in](/run-server/self-hosting/sso), [SSO provider values and reason codes](/run-server/self-hosting/reference/sso-providers).

@@ -1,0 +1,223 @@
+---
+title: "SSO provider values and reason codes"
+description: "Find the values to enter per provider and the reason codes on screen"
+pageId: "P36"
+docType: "Reference"
+audience: "Installation owners"
+outcome: "Find the values to enter per provider and the reason codes on screen"
+---
+
+<a id="계약" />
+## Contract
+
+This page is where you look up the values of [Configure SSO sign-in](/run-server/self-hosting/sso) per provider. werft-side values (screen names, states, reason codes) are set by the werft code. IdP-side screens and menu names can be changed by each provider, so read the provider's own documentation alongside.
+
+<a id="확인-상태" />
+### Verification status
+
+| Provider | How it was checked |
+| --- | --- |
+| Keycloak | Checked with a real Keycloak server: adding the provider, test sign-in, turning on, sign-in, first sign-up, invite sign-up, linking and the link requirement, refusal outside the allowed domains and of unverified addresses, turning off and ending sessions, refusal of a wrong PKCE verifier, closing password sign-in, and the recovery command |
+| Google Workspace | Checked only with a test IdP that imitates the shape of the public documentation. Not yet checked with a real Google Workspace |
+| OneLogin | Checked only with a test IdP. Not yet checked with a real OneLogin. In particular, whether OneLogin refuses a wrong PKCE verifier for an app that uses a client secret is unknown |
+| Microsoft Entra ID | Checked only with a test IdP. Not yet checked with a real Entra ID |
+| Okta | Checked only with a test IdP. Not yet checked with a real Okta |
+
+If you find a mismatch with a real provider, report it as an [issue](https://github.com/JeongJaeSoon/werft/issues) together with the test sign-in reason code.
+
+<a id="공급자별-값" />
+## Values per provider
+
+Every provider takes four values in werft: Issuer, Client ID, Client secret, and Client authentication. At the IdP you register one value, the **Redirect URI** shown on screen. werft requests the scope `openid email profile` and always sends PKCE (S256).
+
+| Provider | Issuer shape | Address proof | Join without an invite |
+| --- | --- | --- | --- |
+| Google Workspace | `https://accounts.google.com` | `email_verified` and the Workspace domain (`hd`) | Only with allowed domains |
+| OneLogin | `https://<subdomain>.onelogin.com/oidc/2` | None by default | Not by default |
+| Microsoft Entra ID | `https://login.microsoftonline.com/<tenant-id>/v2.0` | None | No |
+| Okta | `https://<org>.okta.com` or `https://<org>.okta.com/oauth2/<server>` | `email_verified` (UserInfo) | Yes |
+| Keycloak | `https://<host>/realms/<realm>` | `email_verified` | Yes |
+
+People from a provider without "address proof" come in only through invite links or account linking. Putting allowed domains on such a provider refuses every sign-in (`403`).
+
+### Google Workspace
+
+What to create at the IdP: in the Google Cloud console, create an OAuth client of type web application and put the **Redirect URI** from the screen into the authorized redirect URIs. Enter the client ID and client secret you get into werft.
+
+| werft value | What to enter |
+| --- | --- |
+| Issuer | `https://accounts.google.com` |
+| Client authentication | The initial value (`client_secret_basic`) |
+| Verified email | **Required**. A Google provider cannot turn it off |
+| Allowed domains | The Workspace domain. Needed to turn on **Join without an invite** |
+
+Rules specific to Google:
+
+- Address proof: `email_verified` is `true` and the address is on `gmail.com` or equals the account's Workspace domain (`hd`). Addresses of other domains attached to a Google account can sign in but are not treated as proven.
+- With allowed domains, only Workspace accounts are accepted. `hd` must equal the address's domain and be on the list. Personal `gmail.com` accounts cannot get in even with `gmail.com` on the list.
+- With exactly one allowed domain, werft passes `hd` to Google so that accounts of that domain are offered first. The decision is made again from the returned token.
+- An id_token `iss` of `accounts.google.com` without the scheme is also accepted.
+- Google announces that it adds `iss` to the authorization response, so a return address without `iss` is refused (`response_issuer_mismatch`).
+- The `sub` of a Google account is the same across OAuth clients. Creating a new client keeps existing links working.
+
+### OneLogin
+
+What to create at the IdP: create an OpenID Connect app in the OneLogin admin screen. Set Application Type to Web and the Token Endpoint authentication method to Basic or POST. werft does not support "None (PKCE)". Put the value from the screen into Redirect URI.
+
+| werft value | What to enter |
+| --- | --- |
+| Issuer | `https://<subdomain>.onelogin.com/oidc/2` |
+| Client authentication | The same method you chose in the OneLogin app. A OneLogin app accepts only one method. If they differ, the test fails with `code_refused` |
+| Verified email | **Not required** with the default setup. If required, every sign-in is refused with `email_unverified` |
+| Allowed domains | Leave empty with the default setup |
+
+By default OneLogin does not send `email_verified`, so people from a OneLogin with the default setup have no proven address. They join through invite links, and existing accounts link after signing in. **Join without an invite** cannot be used. If a OneLogin admin creates a custom attribute `email_verified` (value `true`) and adds it to the id_token as an app parameter, addresses are proven, so you can require **Verified email** and use allowed domains and **Join without an invite**. Check which case applies from `email_verified` in the test sign-in result.
+
+### Microsoft Entra ID
+
+What to create at the IdP: in an app registration in the Entra admin center, put the value from the screen into the redirect URI of the Web platform and create a client secret. To put `email` into the id_token, add `email` to the optional claims.
+
+| werft value | What to enter |
+| --- | --- |
+| Issuer | `https://login.microsoftonline.com/<tenant-id>/v2.0`. `<tenant-id>` is the directory (tenant) ID |
+| Client authentication | The initial value |
+| Verified email | **Not required**. If required, every sign-in is refused |
+| Allowed domains | Leave empty |
+
+Rules specific to Entra ID:
+
+- The `common` and `organizations` issuers cannot be created (`issuer_mismatch`), because the issuer in their configuration document is a `{tenantid}` template. Use a per-tenant issuer.
+- Entra ID does not send `email_verified`. People join through invite links or link after signing in. **Join without an invite** cannot be used.
+- If the id_token has no `email`, werft asks the UserInfo endpoint once. Even then the address is not proven.
+- Entra ID's `sub` differs per app registration. Changing the client ID to one from another app registration breaks everyone's link.
+- Client secrets expire. Before expiry, enter a new secret while the provider is on and switch with a test sign-in ([Roll back](/run-server/self-hosting/sso#되돌리기)).
+- The configuration document does not announce PKCE support, but werft sends PKCE.
+
+### Okta
+
+What to create at the IdP: create an OIDC Web Application app in the Okta admin screen and put the value from the screen into the Sign-in redirect URI. Use a client secret for client authentication.
+
+| werft value | What to enter |
+| --- | --- |
+| Issuer | For the org server `https://<org>.okta.com`; for a custom authorization server `https://<org>.okta.com/oauth2/<server>` (for example `default`). Enter the issuer of the server the app uses |
+| Client authentication | The same method you chose in the Okta app |
+| Verified email | **Required** |
+
+Okta's id_token may lack the address. Then werft reads `email` and `email_verified` from UserInfo. If the UserInfo `sub` differs from the id_token, the sign-in is refused (`userinfo_subject_mismatch`). If UserInfo says the address is not verified, it is refused under any setting.
+
+### Keycloak
+
+What to create at the IdP: create an OpenID Connect client in the realm. Turn Client authentication on (confidential), use Standard flow, and put the value from the screen into Valid redirect URIs. Enter the client secret from the Credentials tab into werft.
+
+| werft value | What to enter |
+| --- | --- |
+| Issuer | `https://<host>/realms/<realm>` |
+| Client authentication | The initial value, if the Keycloak client's Client Authenticator is "Client Id and Secret" |
+| Verified email | **Required** |
+
+Keycloak sends `email_verified` for each user. A user whose address Keycloak has not verified gets `false` and is refused under any setting (`email_unverified`). Verify the address in Keycloak. Keycloak works with both `RS256` and `ES256` signatures.
+
+<a id="설정-문서의-문제" />
+## Configuration document problems
+
+When you create a provider or press **Read again**, the server reads the issuer's configuration document. If it cannot be used, the API answers `400` with `details.problem` and the screen answers with a sentence. Nothing is stored.
+
+| `problem` | Cause | Fix |
+| --- | --- | --- |
+| `issuer_mismatch` | The document's `issuer` is not literally the same as the issuer you entered | Enter it exactly as the provider gives it, trailing `/` included. Entra ID uses a per-tenant issuer |
+| `invalid_document` | The document is not a JSON object, or a required endpoint is missing or not a valid URL | Check that the issuer address is right and that `<issuer>/.well-known/openid-configuration` is the IdP's configuration document |
+| `insecure_endpoint` | The issuer or an endpoint is not `https` | Use an `https` IdP. `http` works only for local trials |
+| `unsupported_flow` | There is no authorization code flow | Make the IdP app a web application |
+| `unsupported_algorithm` | The id_token signature is neither `RS256` nor `ES256` | Change the IdP's signing algorithm |
+| `unsupported_client_auth` | Neither `client_secret_basic` nor `client_secret_post` is supported | Create an app that uses a client secret |
+| `pkce_s256_unsupported` | PKCE methods are announced but S256 is not among them | Turn on S256 at the IdP |
+| `unreachable` | No answer (DNS, connection, the 10-second time limit), or an answer with a status other than `200`. A `404` from a wrong issuer path is also this value | Check the issuer address, and the network and firewall from the API server to the IdP |
+| `address_not_allowed` | The name resolves to an address the server may not call (link-local, multicast, and so on) | Check the IdP's DNS |
+
+<a id="테스트-로그인의-이유-코드" />
+## Test sign-in reason codes
+
+When a test sign-in fails, the code appears under **Reason code** on the result screen. A real sign-in does not show the reason on screen. A failed check is `401`, and a problem reaching or hearing from the IdP (codes starting with `provider_`) is `503`. An owner finds the reason by testing with the same account.
+
+| Reason code | Cause | Fix |
+| --- | --- | --- |
+| `provider_unreachable` | No answer from the IdP's token, JWKS, or UserInfo endpoint | Check the network and the hosts in **Where the server sends requests** |
+| `provider_answered` | The IdP answered with `5xx`, or the JWKS answered with a status other than `200` or with a document that is not a key list | Check the IdP's status and the response from the JWKS address, then test again |
+| `provider_address_not_allowed` | An endpoint's name resolves to an address that may not be called | Check the IdP's DNS |
+| `config_changed` | The settings or the secret changed during the test | Test again |
+| `response_issuer_mismatch` | The `iss` on the return address differs from the issuer, or is missing where it is required | Check the issuer |
+| `code_refused` | The token endpoint refused the code exchange (`4xx`) | Check the client ID, client secret, **Client authentication**, and the redirect URI at the IdP |
+| `no_id_token` | The token response has no id_token | Turn on the `openid` scope and OIDC in the IdP app |
+| `malformed_token` | The id_token cannot be read | Check that the IdP app issues a signed JWT id_token |
+| `alg_not_allowed` | The id_token's signing algorithm is not one of `RS256` and `ES256` announced in the configuration document | Check the IdP's signing settings. If you changed them, turn the provider off and press **Read again** |
+| `no_matching_key` | The JWKS lacks the id_token's key | Check the IdP's key rotation |
+| `bad_signature` | The signature does not match | Check the IdP's keys and JWKS address |
+| `issuer_mismatch` | The id_token's `iss` differs from the issuer | Check the issuer |
+| `audience_mismatch` | The id_token's `aud` is not exactly this client ID | Check the Client ID |
+| `authorized_party_mismatch` | The id_token's `azp` differs from the client ID | Check the Client ID |
+| `expired` | The id_token has expired | Synchronize the clocks of the server and the IdP |
+| `issued_at_invalid` | The id_token's `iat` is in the future or too old | Synchronize the clocks of the server and the IdP |
+| `not_yet_valid` | The id_token's `nbf` has not arrived yet | Synchronize the clocks |
+| `nonce_mismatch` | The id_token's `nonce` does not belong to this flow | Test again |
+| `subject_invalid` | `sub` is empty or longer than 255 characters | Check the IdP's subject settings |
+| `userinfo_refused` | UserInfo did not give the address information | Allow the `email` scope and UserInfo in the IdP app |
+| `userinfo_subject_mismatch` | The UserInfo `sub` differs from the id_token | Check the IdP settings |
+| `email_unverified` | The IdP said the address is not verified, or **Verified email** is required but the address or `email_verified` is missing | Verify the address at the IdP, or switch to **Not required** for an IdP that does not send `email_verified` |
+
+<a id="이-계정이-로그인하면" />
+## If this account signs in
+
+When the test passes, the result shows what would happen if that account really signed in.
+
+| Result | Meaning |
+| --- | --- |
+| It signs in as the account it is connected to | This provider account is linked to a werft user |
+| An account with this address exists but … does not sign in | There is no link, and an account with the proven address exists. That person signs in and links |
+| It joins as a new member | Becomes a member through **Join without an invite** |
+| It comes in only with an invite sent to this address | There is no account. With an invite, they come in with its role |
+| It is refused: outside the allowed domains | Outside the allowed domains, or there is a list and the address is not proven. Refused even for a linked account |
+| It is refused: … | The linked user is disabled, or the address is not proven. They come in through an invite link or account linking |
+
+<a id="api의-거절" />
+## API refusals
+
+The screen shows the refusals below as sentences. When calling the API directly, tell them apart by `details.reason_code` (for 400, `details.problem`).
+
+| Status and code | Value | Meaning |
+| --- | --- | --- |
+| `400` | `verified_email_required` | Tried to turn **Verified email** off on a Google provider |
+| `400` | `jit_requires_domains` | Tried to turn **Join without an invite** on for a Google provider without allowed domains |
+| `409 REVISION_CONFLICT` | `not_tested` | Tested or turned on without client values, or without a test that passed with the current settings |
+| `409 REVISION_CONFLICT` | `provider_enabled` | Tried to change the client ID, authentication method, or configuration document of a provider that is on, or to delete it |
+| `409 REVISION_CONFLICT` | `last_provider` | Tried to turn off the last provider that is on while password sign-in is closed |
+| `409 REVISION_CONFLICT` | `no_provider` | Tried to close password sign-in with no provider on |
+| `409 REVISION_CONFLICT` | `no_emergency_admin` | Tried to close while there is no emergency admin or the emergency admin cannot sign in with a password |
+| `409 REVISION_CONFLICT` | `locks_out_actor` | Closing or changing the emergency admin would leave the requesting owner unable to get back in |
+| `409 REVISION_CONFLICT` | `not_eligible` | The person chosen as emergency admin is not an enabled owner or has no password |
+| `409 REVISION_CONFLICT` | `emergency_admin` | Tried to disable the emergency admin, make them a non-owner, or remove their password |
+| `409 REVISION_CONFLICT` | `last_login_method` | Tried to remove the last usable sign-in method |
+| `409 REVISION_CONFLICT` | `password_login_closed` | Tried to issue a reset link for someone other than the emergency admin while password sign-in is closed |
+| `403` | `password_login_closed` | Tried to accept an invite with a password while password sign-in is closed |
+| `403` | `session_too_old` | Tried to link or remove a sign-in method with a session more than 10 minutes after sign-in |
+| `409 LOGIN_LINK_REQUIRED` | | An account with the proven address already exists, so the provider account was not attached |
+| `409 ALREADY_EXISTS` | `login_method_linked`, `issuer_linked`, or none | `login_method_linked`: this provider account is already linked to a user (your own account included). `issuer_linked`: the linking user already has another account of the same issuer. None: tried to create another provider with the same issuer |
+| `503` | | There is no `CONSOLE_ORIGIN`, so no redirect URI can be built |
+
+<a id="감사-기록" />
+## Audit records
+
+Changes to providers and sign-in settings are recorded in the database's `receipts` table. The `operation` values are as follows.
+
+| `operation` | What |
+| --- | --- |
+| `create_login_provider`, `update_login_provider`, `delete_login_provider` | Creating a provider, changing its name, client, or rules, deleting it |
+| `set_login_provider_secret` | Entering a client secret (the value is not recorded) |
+| `refresh_login_provider_discovery` | Reading the configuration document again |
+| `test_login_provider` | A test sign-in that passed |
+| `enable_login_provider`, `disable_login_provider` | Turning on, turning off (with the number of sessions ended) |
+| `set_password_login`, `set_emergency_admin` | Opening or closing password sign-in, changing the emergency admin |
+| `link_login_method`, `unlink_login_method` | Linking and removing an account |
+| `accept_invite` | Accepting an invite (including sign-up through a provider) |
+| `issue_password_reset`, `reset_password` | Issuing and using a reset token |
+
+Changes made by the recovery command have an empty `actor`, and `by` or `issued_by` in `result` is `operator_cli`.

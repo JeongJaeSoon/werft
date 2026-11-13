@@ -1,0 +1,223 @@
+---
+title: "SSO プロバイダーごとの値と理由コード"
+description: "プロバイダーごとの入力値と画面の理由コードを調べます"
+pageId: "P36"
+docType: "レファレンス"
+audience: "設置 owner"
+outcome: "プロバイダーごとの入力値と画面の理由コードを調べます"
+---
+
+<a id="계약" />
+## 契約
+
+このページは [SSO ログインの構成](/run-server/self-hosting/sso)の値をプロバイダーごとに調べる場所です。werft 側の値（画面の名前、状態、理由コード）は werft のコードが決めたものです。IdP 側の画面とメニューの名前は各プロバイダーが変えることがあるので、プロバイダーのドキュメントも合わせて見てください。
+
+<a id="확인-상태" />
+### 確認の状態
+
+| プロバイダー | 確認した方法 |
+| --- | --- |
+| Keycloak | 実際の Keycloak サーバーで、プロバイダーの追加、テストログイン、オン、ログイン、最初の参加、招待での参加、アカウントの接続と接続の要求、許可ドメインと未検証アドレスの拒否、オフとセッションの切断、誤った PKCE verifier の拒否、パスワードログインを閉じること、復旧コマンドを確認しました |
+| Google Workspace | 公開ドキュメントの形をまねた試験用 IdP でだけ確認しました。実際の Google Workspace では未確認です |
+| OneLogin | 試験用 IdP でだけ確認しました。実際の OneLogin では未確認です。特に、client secret を使うアプリで OneLogin が誤った PKCE verifier を拒否するかはわかりません |
+| Microsoft Entra ID | 試験用 IdP でだけ確認しました。実際の Entra ID では未確認です |
+| Okta | 試験用 IdP でだけ確認しました。実際の Okta では未確認です |
+
+実際のプロバイダーで食い違いを見つけたら、テストログインの理由コードと一緒に [issue](https://github.com/JeongJaeSoon/werft/issues) で知らせてください。
+
+<a id="공급자별-값" />
+## プロバイダーごとの値
+
+どのプロバイダーでも werft に入れる値は四つです: Issuer、Client ID、Client secret、Client 認証方式。IdP には画面の **Redirect URI** を一つ登録します。werft が要求する scope は `openid email profile` で、常に PKCE（S256）を送ります。
+
+| プロバイダー | Issuer の形 | アドレスの証明 | 招待なしで参加 |
+| --- | --- | --- | --- |
+| Google Workspace | `https://accounts.google.com` | `email_verified` と Workspace のドメイン（`hd`） | 許可ドメインがあるときだけ |
+| OneLogin | `https://<subdomain>.onelogin.com/oidc/2` | 既定の設定ではない | 既定の設定ではできない |
+| Microsoft Entra ID | `https://login.microsoftonline.com/<tenant-id>/v2.0` | ない | できない |
+| Okta | `https://<org>.okta.com` または `https://<org>.okta.com/oauth2/<server>` | `email_verified`（UserInfo） | できる |
+| Keycloak | `https://<host>/realms/<realm>` | `email_verified` | できる |
+
+「アドレスの証明」がないプロバイダーの人は、招待リンクかアカウントの接続でだけ入ります。そうしたプロバイダーに許可ドメインを入れると、すべてのログインが拒否されます（`403`）。
+
+### Google Workspace
+
+IdP で作るもの: Google Cloud コンソールで OAuth client を Web アプリケーションとして作成し、承認済みのリダイレクト URI に画面の **Redirect URI** を入れます。受け取った client ID と client secret を werft に入れます。
+
+| werft の値 | 入れるもの |
+| --- | --- |
+| Issuer | `https://accounts.google.com` |
+| Client 認証方式 | 初期値（`client_secret_basic`） |
+| 検証済みメール | **要求する**。Google のプロバイダーではオフにできません |
+| 許可ドメイン | Workspace のドメイン。**招待なしで参加**をオンにするには必要です |
+
+Google だけのルール:
+
+- アドレスの証明: `email_verified` が `true` で、アドレスが `gmail.com` であるか、アカウントの Workspace のドメイン（`hd`）と同じである必要があります。Google アカウントに付けた別ドメインのアドレスは、ログインはできますが証明されたアドレスとは見なしません。
+- 許可ドメインがあると Workspace アカウントだけを受け付けます。`hd` がアドレスのドメインと同じで、リストにある必要があります。個人の `gmail.com` アカウントは、リストに `gmail.com` を入れても入れません。
+- 許可ドメインが一つなら、werft は Google に `hd` を渡し、そのドメインのアカウントを先に選ばせます。判定は戻ってきた token でやり直します。
+- id_token の `iss` がスキームなしの `accounts.google.com` でも受け付けます。
+- Google は認可応答に `iss` を付けると表明しているので、戻ってきたアドレスに `iss` がなければ拒否します（`response_issuer_mismatch`）。
+- 同じ Google アカウントの `sub` は OAuth client が違っても同じです。client を作り直しても既存の接続は生きます。
+
+### OneLogin
+
+IdP で作るもの: OneLogin の管理画面で OpenID Connect アプリを作成します。Application Type は Web、Token Endpoint の認証方式は Basic か POST にします。「None (PKCE)」には werft は対応していません。Redirect URI に画面の値を入れます。
+
+| werft の値 | 入れるもの |
+| --- | --- |
+| Issuer | `https://<subdomain>.onelogin.com/oidc/2` |
+| Client 認証方式 | OneLogin アプリで選んだ方式と同じもの。OneLogin アプリは方式を一つだけ受け付けます。違うとテストが `code_refused` で失敗します |
+| 検証済みメール | 既定の設定では**要求しない**。要求すると、すべてのログインが `email_unverified` で拒否されます |
+| 許可ドメイン | 既定の設定では空にします |
+
+OneLogin は既定では `email_verified` を送りません。そのため、既定の設定の OneLogin の人はアドレスが証明されません。招待リンクで参加し、既存のアカウントはログインしてから接続します。**招待なしで参加**は使えません。OneLogin の管理者がカスタム属性 `email_verified`（値 `true`）を作り、アプリの parameter として id_token に入れると、アドレスが証明されるので、**検証済みメール**を要求し、許可ドメインと**招待なしで参加**を使えます。どちらかはテストログインの結果の `email_verified` で確認します。
+
+### Microsoft Entra ID
+
+IdP で作るもの: Entra 管理センターのアプリの登録で、Web プラットフォームの redirect URI に画面の値を入れ、client secret を作成します。id_token に `email` を入れるには、オプションの要求に `email` を追加します。
+
+| werft の値 | 入れるもの |
+| --- | --- |
+| Issuer | `https://login.microsoftonline.com/<tenant-id>/v2.0`。`<tenant-id>` はディレクトリ（テナント）ID です |
+| Client 認証方式 | 初期値 |
+| 検証済みメール | **要求しない**。要求すると、すべてのログインが拒否されます |
+| 許可ドメイン | 空にします |
+
+Entra ID だけのルール:
+
+- `common`・`organizations` の issuer は、設定ドキュメントの issuer が `{tenantid}` のひな形なので、`issuer_mismatch` で作成できません。テナントごとの issuer を使います。
+- Entra ID は `email_verified` を送りません。人は招待リンクで参加するか、ログインしてから接続します。**招待なしで参加**は使えません。
+- id_token に `email` がなければ、werft は UserInfo endpoint に一度問い合わせます。それでもアドレスは証明されません。
+- Entra ID の `sub` はアプリの登録ごとに異なります。client ID を別のアプリの登録のものに変えると、全員の接続が切れます。
+- client secret には期限があります。期限の前に、プロバイダーをオンのまま新しい secret を入れ、テストログインで切り替えます（[元に戻す](/run-server/self-hosting/sso#되돌리기)）。
+- 設定ドキュメントは PKCE への対応を表明しませんが、werft は PKCE を送ります。
+
+### Okta
+
+IdP で作るもの: Okta の管理画面で OIDC の Web Application アプリを作成し、Sign-in redirect URI に画面の値を入れます。client の認証は client secret で行います。
+
+| werft の値 | 入れるもの |
+| --- | --- |
+| Issuer | org サーバーは `https://<org>.okta.com`、カスタム認可サーバーは `https://<org>.okta.com/oauth2/<server>`（例: `default`）。アプリが使うサーバーの issuer を入れます |
+| Client 認証方式 | Okta アプリで選んだ方式と同じもの |
+| 検証済みメール | **要求する** |
+
+Okta の id_token にはアドレスがないことがあります。そのとき werft は UserInfo から `email` と `email_verified` を読みます。UserInfo の `sub` が id_token と違えば拒否します（`userinfo_subject_mismatch`）。UserInfo がアドレスを検証していないと言えば、どの設定でも拒否します。
+
+### Keycloak
+
+IdP で作るもの: realm に OpenID Connect の client を作成します。Client authentication をオンにし（confidential）、Standard flow を使い、Valid redirect URIs に画面の値を入れます。Credentials タブの client secret を werft に入れます。
+
+| werft の値 | 入れるもの |
+| --- | --- |
+| Issuer | `https://<host>/realms/<realm>` |
+| Client 認証方式 | Keycloak client の Client Authenticator が「Client Id and Secret」なら初期値 |
+| 検証済みメール | **要求する** |
+
+Keycloak はユーザーごとに `email_verified` を送ります。Keycloak でアドレスを検証していないユーザーは `false` なので、どの設定でも拒否します（`email_unverified`）。Keycloak で検証します。Keycloak は `RS256` と `ES256` のどちらの署名でも使えます。
+
+<a id="설정-문서의-문제" />
+## 設定ドキュメントの問題
+
+プロバイダーを作成するときや**読み直す**を押したとき、サーバーは issuer の設定ドキュメントを読みます。使えなければ、API は `400` と `details.problem` で、画面は文で答えます。何も保存しません。
+
+| `problem` | 原因 | 対処 |
+| --- | --- | --- |
+| `issuer_mismatch` | ドキュメントの `issuer` が入力した issuer と文字どおりに同じではありません | 末尾の `/` までプロバイダーが示すとおりに入れます。Entra ID はテナントごとの issuer を使います |
+| `invalid_document` | ドキュメントが JSON オブジェクトではないか、必要な endpoint がないか正しい URL ではありません | issuer のアドレスが正しいか、`<issuer>/.well-known/openid-configuration` が IdP の設定ドキュメントかを見ます |
+| `insecure_endpoint` | issuer か endpoint が `https` ではありません | `https` の IdP を使います。`http` はローカルの試用でだけ使えます |
+| `unsupported_flow` | authorization code フローがありません | IdP のアプリの種類を Web アプリケーションにします |
+| `unsupported_algorithm` | id_token の署名が `RS256`・`ES256` ではありません | IdP の署名アルゴリズムを変えます |
+| `unsupported_client_auth` | `client_secret_basic`・`client_secret_post` に対応していません | client secret を使うアプリとして作成します |
+| `pkce_s256_unsupported` | PKCE の方式を表明しているのに S256 がありません | IdP で S256 をオンにします |
+| `unreachable` | 応答がない（DNS、接続、10 秒の時間制限）か、`200` ではない状態で答えました。issuer のパスが違って `404` が返ってもこの値です | issuer のアドレスと、API サーバーから IdP へのネットワークとファイアウォールを見ます |
+| `address_not_allowed` | 名前が、サーバーがリクエストできないアドレス（link-local、multicast など）に解決されます | IdP の DNS を確認します |
+
+<a id="테스트-로그인의-이유-코드" />
+## テストログインの理由コード
+
+テストログインが失敗すると、結果の画面の**理由コード**に表示されます。実際のログインでは理由を画面に表示しません。検証での拒否は `401`、`provider_` で始まる IdP との通信・応答の問題は `503` です。owner が同じアカウントでテストして理由を探します。
+
+| 理由コード | 原因 | 対処 |
+| --- | --- | --- |
+| `provider_unreachable` | IdP の token・JWKS・UserInfo endpoint から応答がありません | ネットワークと**サーバーのリクエスト先**の host を見ます |
+| `provider_answered` | IdP が `5xx` で答えたか、JWKS が `200` 以外か鍵の一覧ではないドキュメントで答えました | IdP の状態と JWKS のアドレスの応答を見て、もう一度テストします |
+| `provider_address_not_allowed` | endpoint の名前がリクエストできないアドレスに解決されます | IdP の DNS を見ます |
+| `config_changed` | テスト中に設定か secret が変わりました | もう一度テストします |
+| `response_issuer_mismatch` | 戻ってきたアドレスの `iss` が issuer と違うか、必要なのにありません | issuer が正しいか見ます |
+| `code_refused` | token endpoint が code の交換を拒否しました（`4xx`） | client ID、client secret、**Client 認証方式**、IdP の redirect URI を見ます |
+| `no_id_token` | token の応答に id_token がありません | IdP アプリで `openid` scope と OIDC をオンにします |
+| `malformed_token` | id_token を読めません | IdP アプリが署名付き JWT の id_token を出すか見ます |
+| `alg_not_allowed` | id_token の署名アルゴリズムが、設定ドキュメントが示した `RS256`・`ES256` ではありません | IdP の署名の設定を見ます。変えたなら、プロバイダーをオフにして**読み直す** |
+| `no_matching_key` | JWKS に id_token の鍵がありません | IdP の鍵のローテーションを見ます |
+| `bad_signature` | 署名が合いません | IdP の鍵と JWKS のアドレスを見ます |
+| `issuer_mismatch` | id_token の `iss` が issuer と違います | issuer を見ます |
+| `audience_mismatch` | id_token の `aud` がこの client ID 一つではありません | Client ID を見ます |
+| `authorized_party_mismatch` | id_token の `azp` が client ID と違います | Client ID を見ます |
+| `expired` | id_token の期限が切れています | サーバーと IdP の時計を合わせます |
+| `issued_at_invalid` | id_token の `iat` が未来か、古すぎます | サーバーと IdP の時計を合わせます |
+| `not_yet_valid` | id_token の `nbf` の時刻がまだ来ていません | 時計を合わせます |
+| `nonce_mismatch` | id_token の `nonce` がこのフローのものではありません | もう一度テストします |
+| `subject_invalid` | `sub` が空か、255 文字を超えます | IdP の subject の設定を見ます |
+| `userinfo_refused` | UserInfo がアドレスの情報をくれませんでした | IdP アプリで `email` scope と UserInfo を許可します |
+| `userinfo_subject_mismatch` | UserInfo の `sub` が id_token と違います | IdP の設定を見ます |
+| `email_unverified` | IdP がアドレスを検証していないと言ったか、**検証済みメール**を要求しているのにアドレスか `email_verified` がありません | IdP でアドレスを検証するか、`email_verified` を送らない IdP なら**要求しない**に変えます |
+
+<a id="이-계정이-로그인하면" />
+## このアカウントがログインすると
+
+テストが通ると、そのアカウントが実際にログインしたときの結果が表示されます。
+
+| 結果 | 意味 |
+| --- | --- |
+| 連携済みのアカウントでログインします | このプロバイダーのアカウントが werft のユーザーに接続されています |
+| 同じアドレスのアカウントがありますが … ログインできません | 接続はなく、証明されたアドレスのアカウントがあります。その人がログインして接続します |
+| 新しいメンバーとして参加します | **招待なしで参加**で member になります |
+| このアドレス宛ての招待がある場合のみ入れます | アカウントがありません。招待があれば、そのロールで入ります |
+| 許可ドメイン外のため拒否されます | 許可ドメインの外か、リストがあるのにアドレスが証明されていません。接続済みのアカウントでも拒否します |
+| 拒否されます。… | 接続先のユーザーが無効か、アドレスが証明されていません。招待リンクかアカウントの接続で入ります |
+
+<a id="api의-거절" />
+## API の拒否
+
+画面は以下の拒否を文で示します。API を直接呼ぶときは `details.reason_code`（400 は `details.problem`）で区別します。
+
+| 状態とコード | 値 | 意味 |
+| --- | --- | --- |
+| `400` | `verified_email_required` | Google のプロバイダーで**検証済みメール**をオフにしようとしました |
+| `400` | `jit_requires_domains` | Google のプロバイダーで、許可ドメインなしで**招待なしで参加**をオンにしようとしました |
+| `409 REVISION_CONFLICT` | `not_tested` | client の値がないか、今の設定で通ったテストがないのにテスト・オンをしようとしました |
+| `409 REVISION_CONFLICT` | `provider_enabled` | オンのプロバイダーの client ID・認証方式・設定ドキュメントを変えるか、削除しようとしました |
+| `409 REVISION_CONFLICT` | `last_provider` | パスワードログインが閉じている間に、オンの最後のプロバイダーをオフにしようとしました |
+| `409 REVISION_CONFLICT` | `no_provider` | オンのプロバイダーなしでパスワードログインを閉じようとしました |
+| `409 REVISION_CONFLICT` | `no_emergency_admin` | 緊急管理者がいないか、パスワードでログインできないのに閉じようとしました |
+| `409 REVISION_CONFLICT` | `locks_out_actor` | 閉じるか緊急管理者を変えると、リクエストした owner が入り直せなくなります |
+| `409 REVISION_CONFLICT` | `not_eligible` | 緊急管理者に選んだ人が有効な owner ではないか、パスワードがありません |
+| `409 REVISION_CONFLICT` | `emergency_admin` | 緊急管理者を無効化するか、owner でなくすか、そのパスワードを解除しようとしました |
+| `409 REVISION_CONFLICT` | `last_login_method` | 使える最後のログイン方法を解除しようとしました |
+| `409 REVISION_CONFLICT` | `password_login_closed` | パスワードログインが閉じている間に、緊急管理者以外の人宛てに再設定リンクを発行しようとしました |
+| `403` | `password_login_closed` | パスワードログインが閉じている間に、招待をパスワードで承諾しようとしました |
+| `403` | `session_too_old` | ログインから 10 分が過ぎたセッションで、ログイン方法を接続・解除しようとしました |
+| `409 LOGIN_LINK_REQUIRED` | | 証明されたアドレスのアカウントがすでにあるので、プロバイダーのアカウントを結び付けませんでした |
+| `409 ALREADY_EXISTS` | `login_method_linked`、`issuer_linked` またはなし | `login_method_linked`：このプロバイダーのアカウントがすでにユーザーに接続されています（自分のアカウントを含む）。`issuer_linked`：接続しようとするユーザーに同じ issuer の別のアカウントがあります。なし：同じ issuer のプロバイダーをもう一つ作ろうとしました |
+| `503` | | `CONSOLE_ORIGIN` がないので redirect URI を作れません |
+
+<a id="감사-기록" />
+## 監査記録
+
+プロバイダーとログイン設定の変更は DB の `receipts` テーブルに残ります。`operation` の値は次のとおりです。
+
+| `operation` | 何 |
+| --- | --- |
+| `create_login_provider`, `update_login_provider`, `delete_login_provider` | プロバイダーの作成、名前・client・ルールの変更、削除 |
+| `set_login_provider_secret` | client secret の入力（値は残しません） |
+| `refresh_login_provider_discovery` | 設定ドキュメントの読み直し |
+| `test_login_provider` | テストログインの合格 |
+| `enable_login_provider`, `disable_login_provider` | オン、オフ（切ったセッション数） |
+| `set_password_login`, `set_emergency_admin` | パスワードログインを開く・閉じる、緊急管理者の変更 |
+| `link_login_method`, `unlink_login_method` | アカウントの接続、解除 |
+| `accept_invite` | 招待の承諾（プロバイダーでの参加を含む） |
+| `issue_password_reset`, `reset_password` | 再設定 token の発行、使用 |
+
+復旧コマンドによる変更は `actor` が空で、`result` の `by` か `issued_by` が `operator_cli` です。
