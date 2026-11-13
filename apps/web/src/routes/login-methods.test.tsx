@@ -367,6 +367,15 @@ describe("내 로그인 수단", () => {
     expect(dialog.textContent).toContain("owner@idp.example.com");
     expect(dialog.textContent).toContain("나중에 다시 연결할 수 있습니다.");
     expect(dialog.textContent).not.toContain("다시 정할 수 없습니다");
+    // Given up with the keyboard, the keyboard is back where it was.
+    await user.keyboard("{Escape}");
+    await waitFor(() =>
+      expect(screen.queryAllByRole("dialog")).toHaveLength(0),
+    );
+    expect(
+      document.activeElement ===
+        screen.getByRole("button", { name: "Acme SSO 끊기" }),
+    ).toBe(true);
   });
 
   test("a removal the server refuses stays in the dialog with its reason, and the list is read again", async () => {
