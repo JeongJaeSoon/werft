@@ -596,6 +596,95 @@ describe("공급자 계정으로 가입", () => {
     await screen.findByLabelText("비밀번호");
     expect(shown()).toBe(0);
   });
+
+  describe("비밀번호 로그인을 닫은 설치", () => {
+    const closed = (...providers: (typeof KEYCLOAK)[]) => ({
+      "GET /v1/auth/me": signedOut,
+      "GET /v1/auth/login-methods": () =>
+        json(200, { password: "emergency_only", providers }),
+    });
+    const CLOSED = () =>
+      apiError(403, "FORBIDDEN", "Password sign-in is closed", false, {
+        reason_code: "password_login_closed",
+      });
+    const passwordSteps = () =>
+      screen.queryAllByRole("button", { name: "아니요, 처음입니다" }).length +
+      screen.queryAllByRole("button", { name: "네, 계정이 있습니다" }).length +
+      screen.queryAllByLabelText("비밀번호").length +
+      screen.queryAllByText("또는").length;
+
+    test("비밀번호 단계 없이 공급자 버튼만 보이고, 누르면 그 공급자로 가입을 시작한다", async () => {
+      const { api, left } = renderAt(`/invite/${TOKEN}`, {
+        ...closed(KEYCLOAK, OKTA),
+        [`POST ${START}`]: () => json(200, { authorization_url: AUTHORIZE }),
+      });
+      await screen.findByRole("button", { name: "Keycloak 계정으로 가입" });
+      expect(
+        screen.getByText(/이 설치는 비밀번호 로그인을 꺼 두어/),
+      ).toBeDefined();
+      expect(passwordSteps()).toBe(0);
+      expect(
+        [...(choices()?.querySelectorAll("button") ?? [])].map(
+          (button) => button.textContent,
+        ),
+      ).toEqual(["Keycloak 계정으로 가입", "Okta 계정으로 가입"]);
+      await join();
+      await waitFor(() => expect(left).toEqual([AUTHORIZE]));
+      expect(acceptCalls(api)).toHaveLength(0);
+    });
+
+    test("닫힌 것을 모르고 보낸 비밀번호가 거절되면 다시 읽고, 비밀번호 단계가 공급자 버튼에 자리를 내준다", async () => {
+      let answers = 0;
+      const { api } = renderAt(`/invite/${TOKEN}`, {
+        "GET /v1/auth/me": signedOut,
+        // Open when the page read it; closed by the time the password went.
+        "GET /v1/auth/login-methods": () =>
+          json(200, {
+            password: answers++ === 0 ? "on" : "emergency_only",
+            providers: [KEYCLOAK],
+          }),
+        "POST /v1/invites/accept": CLOSED,
+      });
+      await accept("있음", "wrong password!!");
+      await screen.findByText(/이 설치는 비밀번호 로그인을 꺼 두어/);
+      expect(acceptCalls(api)).toHaveLength(1);
+      expect(passwordSteps()).toBe(0);
+      expect(
+        screen.queryAllByRole("button", { name: "Keycloak 계정으로 가입" }),
+      ).toHaveLength(1);
+    });
+
+    test("목록을 다시 읽지 못하면 폼이 남고, 권한이 아니라 닫힌 것을 말한다", async () => {
+      renderAt(`/invite/${TOKEN}`, {
+        "GET /v1/auth/me": signedOut,
+        "GET /v1/auth/login-methods": () =>
+          apiError(503, "BACKEND_UNAVAILABLE", "storage down"),
+        "POST /v1/invites/accept": CLOSED,
+      });
+      await accept("있음", "wrong password!!");
+      const alerts = await screen.findAllByRole("alert");
+      expect(alerts.map((alert) => alert.textContent)).toEqual([
+        "이 설치는 비밀번호 로그인을 꺼 두어 비밀번호로는 가입할 수 없습니다 — 받은 초대 링크를 다시 열어 로그인 공급자의 계정으로 가입하세요.",
+      ]);
+      expect(screen.getByRole("button", { name: "초대 수락" })).toBeDefined();
+    });
+
+    test("다른 까닭의 403은 닫힌 것으로 읽지 않는다", async () => {
+      const { api } = renderAt(`/invite/${TOKEN}`, {
+        ...on(KEYCLOAK),
+        "POST /v1/invites/accept": () =>
+          apiError(403, "FORBIDDEN", "Not allowed"),
+      });
+      await accept("있음", "wrong password!!");
+      const alerts = await screen.findAllByRole("alert");
+      expect(alerts.map((alert) => alert.textContent)).toEqual([
+        "권한이 없습니다 — 소유자나 관리자에게 요청하세요.",
+      ]);
+      expect(
+        api.calls.filter((c) => c.path === "/v1/auth/login-methods"),
+      ).toHaveLength(1);
+    });
+  });
 });
 
 describe("공급자 가입의 잠금은 화면이 아니라 앱이 쥔다", () => {

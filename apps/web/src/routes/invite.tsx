@@ -139,6 +139,12 @@ const hasAccount = (data: unknown): data is AcceptSteps["password"] =>
   ((data as { account?: unknown }).account === "existing" ||
     (data as { account?: unknown }).account === "new");
 
+/** The refusal of an invite's password while passwords are closed. */
+const passwordClosed = (error: unknown) =>
+  isApiError(error, "FORBIDDEN") &&
+  (error.details as { reason_code?: unknown } | null)?.reason_code ===
+    "password_login_closed";
+
 /*
  * Which account the reader says they have only shapes the form (autofill, the
  * name field); the request is the same either way. The password never goes
@@ -167,6 +173,7 @@ function AcceptFlow({ token }: { readonly token: string }) {
     onStepSelect: () => void funnel.history.back(),
   });
   const moved = useStepMoved(funnel.step);
+  const methods = useQuery(loginMethodsQuery(client));
   // Kept apart from the mutation, which is reset so the password goes too.
   const [ended, setEnded] = useState<
     "INVITE_EXPIRED" | "INVITE_USED" | undefined
@@ -202,6 +209,9 @@ function AcceptFlow({ token }: { readonly token: string }) {
       accept.reset();
       if (isApiError(error, "INVITE_EXPIRED")) setEnded("INVITE_EXPIRED");
       else if (isApiError(error, "INVITE_USED")) setEnded("INVITE_USED");
+      // Passwords were closed and this page had not heard: ask again, so the
+      // steps give way to the providers.
+      else if (passwordClosed(error)) void methods.refetch();
       throw error;
     }
   };
@@ -233,6 +243,16 @@ function AcceptFlow({ token }: { readonly token: string }) {
           </Link>
         }
       />
+    );
+  }
+  // While passwords are closed an invite sets none, whoever it is for: the
+  // providers are the only way in, at whichever step the answer arrived.
+  if (methods.data?.password === "emergency_only") {
+    return (
+      <>
+        <p className="m-0">{t("invite.closed.intro")}</p>
+        <ProviderSignUp {...signUp} lead />
+      </>
     );
   }
 
@@ -357,7 +377,14 @@ function useProviderStart(
  * One button per login provider that is on. A failed lookup leaves the
  * password steps.
  */
-function ProviderSignUp({ start, held }: ReturnType<typeof useProviderStart>) {
+function ProviderSignUp({
+  start,
+  held,
+  lead = false,
+}: ReturnType<typeof useProviderStart> & {
+  /** They are the way in, not the alternative to the steps above them. */
+  readonly lead?: boolean;
+}) {
   const { t } = useI18n();
   const { client } = useWerft();
   const methods = useQuery(loginMethodsQuery(client));
@@ -369,10 +396,14 @@ function ProviderSignUp({ start, held }: ReturnType<typeof useProviderStart>) {
       className="flex flex-col gap-3"
       aria-label={t("invite.provider.alternatives")}
     >
-      <Text variant="sub" className="text-center">
-        {t("login.or")}
-      </Text>
-      <Text variant="sub">{t("invite.provider.hint")}</Text>
+      {lead ? null : (
+        <>
+          <Text variant="sub" className="text-center">
+            {t("login.or")}
+          </Text>
+          <Text variant="sub">{t("invite.provider.hint")}</Text>
+        </>
+      )}
       {start.error ? (
         <FormError>{t(errorKey(start.error.code))}</FormError>
       ) : null}
@@ -425,7 +456,9 @@ function PasswordStep({
       onSubmit={submitStep(form, send, (error) =>
         isApiError(error, "UNAUTHORIZED")
           ? t("invite.wrongPassword")
-          : t(errorKey(isApiError(error) ? error.code : "UNKNOWN")),
+          : passwordClosed(error)
+            ? t("invite.closed.refused")
+            : t(errorKey(isApiError(error) ? error.code : "UNKNOWN")),
       )}
     >
       <StepHeading focus={focus}>

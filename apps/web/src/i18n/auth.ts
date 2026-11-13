@@ -83,6 +83,10 @@ export const authKo = {
   "invite.provider.hint":
     "처음이면 로그인 공급자의 계정으로 가입할 수도 있습니다. 비밀번호는 정하지 않고, 계정의 이메일은 초대받은 주소가 됩니다.",
   "invite.provider.submit": "{name} 계정으로 가입",
+  "invite.closed.intro":
+    "초대를 수락하면 워크스페이스에 들어갑니다. 이 설치는 비밀번호 로그인을 꺼 두어, 로그인 공급자의 계정으로 가입합니다. 계정의 이메일은 초대받은 주소가 됩니다.",
+  "invite.closed.refused":
+    "이 설치는 비밀번호 로그인을 꺼 두어 비밀번호로는 가입할 수 없습니다 — 받은 초대 링크를 다시 열어 로그인 공급자의 계정으로 가입하세요.",
   "invite.provider.refused":
     "가입하지 못했습니다 — 받은 초대 링크를 다시 열어 처음부터 시도하세요. 계속 안 되면 초대가 회수됐거나 만료됐을 수 있으니 초대한 사람에게 문의하세요.",
   "invite.provider.cancelled":
@@ -184,6 +188,10 @@ export const authEn: Record<keyof typeof authKo, string> = {
   "invite.provider.hint":
     "If you are new, you can also join with a sign-in provider's account. No password is set, and the account's email is the invited address.",
   "invite.provider.submit": "Join with {name}",
+  "invite.closed.intro":
+    "Accepting adds you to the workspace. Password login is turned off on this installation, so you join with a sign-in provider's account. The account's email is the invited address.",
+  "invite.closed.refused":
+    "Password login is turned off on this installation, so you can't join with a password — open the invite link again and join with a sign-in provider's account.",
   "invite.provider.refused":
     "Could not join — open your invite link again and start over. If it keeps failing, the invite may have been revoked or expired, so ask whoever invited you.",
   "invite.provider.cancelled":
@@ -282,6 +290,10 @@ export const authJa: Record<keyof typeof authKo, string> = {
   "invite.provider.hint":
     "初めての場合は、ログインプロバイダーのアカウントで参加することもできます。パスワードは設定せず、アカウントのメールアドレスは招待されたアドレスになります。",
   "invite.provider.submit": "{name} で参加",
+  "invite.closed.intro":
+    "招待を承諾すると、ワークスペースに参加します。このインストールではパスワードログインがオフになっているため、ログインプロバイダーのアカウントで参加します。アカウントのメールアドレスは招待されたアドレスになります。",
+  "invite.closed.refused":
+    "このインストールではパスワードログインがオフになっているため、パスワードでは参加できません — 招待リンクをもう一度開き、ログインプロバイダーのアカウントで参加してください。",
   "invite.provider.refused":
     "参加できませんでした。受け取った招待リンクをもう一度開いて、最初からお試しください。解決しない場合は、招待が取り消されたか期限切れの可能性があるため、招待した人にお問い合わせください。",
   "invite.provider.cancelled":
