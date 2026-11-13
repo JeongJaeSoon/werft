@@ -13,7 +13,7 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import * as schema from "../schema.ts";
@@ -41,7 +41,10 @@ import {
 import { createPostgresInviteStore } from "./invites.ts";
 import { createPostgresLoginMethodStore } from "./login-methods.ts";
 import { createPostgresLoginProviderAdminStore } from "./login-providers.ts";
-import { createPostgresLoginSettingsStore } from "./login-settings.ts";
+import {
+  createPostgresLoginSettingsStore,
+  EMERGENCY_ADMIN_CANDIDATES,
+} from "./login-settings.ts";
 import { createPostgresMemberStore } from "./members.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -325,6 +328,50 @@ integration("who may sign in with a password", () => {
       (await store.setEmergencyAdmin({ userId: other.id, audit: audit(first) }))
         .outcome,
     ).toBe("unchanged");
+  });
+
+  test("owners nobody could name do not use up the list of candidates", async () => {
+    // A full list's worth of owners without a password, all older members
+    // than the one owner who can be named.
+    const crowd: string[] = Array.from(
+      { length: EMERGENCY_ADMIN_CANDIDATES },
+      () => randomUUID(),
+    );
+    await db.insert(users).values(
+      crowd.map((id, index) => ({
+        id,
+        email: `crowd${index}@example.com`,
+        passwordHash: null,
+        displayName: `Crowd ${index}`,
+      })),
+    );
+    await db.insert(memberships).values(
+      crowd.map((userId) => ({
+        workspaceId,
+        userId,
+        role: "owner" as const,
+        createdAt: sql`now() - interval '1 hour'`,
+      })),
+    );
+    try {
+      const late = await person("owner");
+      const offered = (await store.emergencyAdminCandidates(workspaceId)).map(
+        (owner) => owner.userId,
+      );
+      expect(offered).toContain(late.id);
+      expect(offered.filter((id) => crowd.includes(id))).toEqual([]);
+      expect(
+        (
+          await store.setEmergencyAdmin({
+            userId: late.id,
+            audit: audit(first),
+          })
+        ).outcome,
+      ).toBe("changed");
+    } finally {
+      await db.delete(memberships).where(inArray(memberships.userId, crowd));
+      await db.delete(users).where(inArray(users.id, crowd));
+    }
   });
 
   test("passwords are not closed without a provider, an emergency admin who can sign in, and a way back for the one asking", async () => {

@@ -208,7 +208,7 @@ export const loginProvidersKo = {
   "loginProviders.access.closeConsequence.self":
     "비상 관리자인 나 말고는 비밀번호로 로그인할 수 없게 됩니다. 비밀번호로 로그인한 다른 사람은 모두 로그아웃됩니다.",
   "loginProviders.access.closeConsequence.other":
-    "비상 관리자 {name} 말고는 비밀번호로 로그인할 수 없게 됩니다. 비밀번호로 로그인한 사람은 모두 로그아웃됩니다. 내가 비밀번호로 로그인했다면 내 세션도 끊깁니다.",
+    "비상 관리자 {name} 말고는 비밀번호로 로그인할 수 없게 됩니다. {name} 말고 비밀번호로 로그인한 사람은 모두 로그아웃됩니다. 내가 비밀번호로 로그인했다면 내 세션도 끊깁니다.",
   "loginProviders.access.openTitle": "비밀번호 로그인을 열까요?",
   "loginProviders.access.openConsequence":
     "비밀번호가 있는 사람은 누구나 다시 비밀번호로 로그인할 수 있습니다.",
@@ -450,7 +450,7 @@ export const loginProvidersEn: Record<keyof typeof loginProvidersKo, string> = {
   "loginProviders.access.closeConsequence.self":
     "Nobody but you, the emergency admin, will be able to log in with a password. Everyone else who logged in with a password is logged out.",
   "loginProviders.access.closeConsequence.other":
-    "Nobody but the emergency admin, {name}, will be able to log in with a password. Everyone who logged in with a password is logged out. If you logged in with a password, so are you.",
+    "Nobody but the emergency admin, {name}, will be able to log in with a password. Everyone but {name} who logged in with a password is logged out. If you logged in with a password, so are you.",
   "loginProviders.access.openTitle": "Open password login?",
   "loginProviders.access.openConsequence":
     "Everyone with a password can log in with it again.",
@@ -696,7 +696,7 @@ export const loginProvidersJa: Record<keyof typeof loginProvidersKo, string> = {
   "loginProviders.access.closeConsequence.self":
     "緊急管理者である自分以外は、パスワードでログインできなくなります。パスワードでログインしているほかの人は全員ログアウトされます。",
   "loginProviders.access.closeConsequence.other":
-    "緊急管理者の {name} 以外は、パスワードでログインできなくなります。パスワードでログインしている人は全員ログアウトされます。自分がパスワードでログインしている場合、自分のセッションも終了します。",
+    "緊急管理者の {name} 以外は、パスワードでログインできなくなります。{name} 以外でパスワードでログインしている人は全員ログアウトされます。自分がパスワードでログインしている場合、自分のセッションも終了します。",
   "loginProviders.access.openTitle": "パスワードログインを開きますか？",
   "loginProviders.access.openConsequence":
     "パスワードを持つ人は、もう一度パスワードでログインできるようになります。",

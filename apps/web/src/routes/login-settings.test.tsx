@@ -166,6 +166,10 @@ describe("비밀번호 로그인 설정", () => {
     );
     const dialog = await screen.findByRole("dialog");
     expect(dialog.textContent).toContain("비상 관리자 Dana 말고는");
+    // Dana's own password sessions are the ones that stay.
+    expect(dialog.textContent).toContain(
+      "Dana 말고 비밀번호로 로그인한 사람은 모두 로그아웃됩니다",
+    );
     expect(dialog.textContent).toContain("내 세션도 끊깁니다");
     await user.click(within(dialog).getByRole("button", { name: "닫기" }));
     expect((await within(dialog).findByRole("alert")).textContent).toBe(
