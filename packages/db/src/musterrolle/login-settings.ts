@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { ReceiptOperation } from "@werft-ai/contracts";
 import type {
   LoginSettingsAudit,
@@ -7,6 +8,7 @@ import type {
 } from "@werft-ai/platform";
 import { and, eq, inArray, isNotNull, isNull, ne, or } from "drizzle-orm";
 import { DB_NOW } from "../db-clock.ts";
+import { secretOwnerWorkspace } from "../installation-settings.ts";
 import type { Database } from "../queries.ts";
 import {
   loginMethods,
@@ -199,6 +201,56 @@ async function recordOf(
       eq(loginProviders.enabled, true),
     ),
   };
+}
+
+/**
+ * The receipt of a change the operator CLI made (design 9.3). It has no
+ * actor: a receipt's actor is a principal, and whoever runs the CLI is
+ * whoever holds the database.
+ */
+export async function writeOperatorReceipt(
+  tx: Database,
+  operation: ReceiptOperation,
+  result: Record<string, unknown>,
+): Promise<void> {
+  const workspaceId = await secretOwnerWorkspace(tx);
+  if (workspaceId === null) {
+    throw new Error("no workspace to keep the receipt under");
+  }
+  await tx.insert(receipts).values({
+    id: randomUUID(),
+    ownerId: workspaceId,
+    operation,
+    targetRef: {
+      resource: { kind: "workspace", id: workspaceId },
+      workspace_id: workspaceId,
+    },
+    status: "succeeded",
+    result: { ...result, by: "operator_cli" },
+  });
+}
+
+/** For a caller that holds the settings for update and found them closed. */
+export async function openPasswordsAsOperator(tx: Database): Promise<void> {
+  await tx
+    .update(loginSettings)
+    .set({ passwordLogin: "on", updatedAt: DB_NOW });
+  await writeOperatorReceipt(tx, "set_password_login", {
+    password_login: "on",
+    sessions_revoked: 0,
+  });
+}
+
+/** Opens password sign-in to everyone again, from the operator CLI. */
+export async function enablePasswordLoginAsOperator(
+  db: Database,
+): Promise<{ outcome: "changed" | "unchanged" }> {
+  return db.transaction(async (tx) => {
+    const settings = await lockLoginSettings(tx, "update");
+    if (settings.passwordLogin === "on") return { outcome: "unchanged" };
+    await openPasswordsAsOperator(tx);
+    return { outcome: "changed" };
+  });
 }
 
 export function createPostgresLoginSettingsStore(
