@@ -16,7 +16,7 @@ import type {
 import { assignableRoles, memberActions } from "./member-rules.ts";
 import type { AuthorizationPolicy, Caller } from "./policy.ts";
 import { requirePermitted } from "./require-permitted.ts";
-import { SessionServiceError } from "./service-errors.ts";
+import { EMERGENCY_ADMIN, SessionServiceError } from "./service-errors.ts";
 
 export const INVITE_TTL_MS = INVITE_TTL_DAYS * 24 * 60 * 60 * 1000;
 
@@ -192,6 +192,8 @@ export function createInviteService(deps: {
             "LAST_OWNER",
             "The workspace must keep at least one live owner",
           );
+        case "emergency_admin":
+          throw EMERGENCY_ADMIN();
         case "actor_inactive":
           throw new SessionServiceError("FORBIDDEN", NOT_AN_OWNER);
         case "owner_protected":

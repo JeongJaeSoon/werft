@@ -38,6 +38,7 @@ import {
   createPostgresLoginMethodStore,
   createPostgresLoginProviderAdminStore,
   createPostgresLoginProviderStore,
+  createPostgresLoginSettingsStore,
   createPostgresMcpEgressStore,
   createPostgresMemberStore,
   createPostgresPendingRequests,
@@ -215,6 +216,7 @@ import {
   settingsSource,
 } from "./installation-settings.ts";
 import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
+import { createLoginSettingsAdmin } from "./login-settings.ts";
 import { eventNeutralizer, startNeutralFill } from "./neutral-fields.ts";
 import { createApiPool, createProbePool } from "./pool.ts";
 import { createProviderAdmin } from "./provider-admin.ts";
@@ -244,6 +246,7 @@ import {
   registerSettingsConsoleRoutes,
 } from "./routes/installation-settings.ts";
 import { registerLoginProviderRoutes } from "./routes/login-providers.ts";
+import { registerLoginSettingsRoutes } from "./routes/login-settings.ts";
 import { registerAgentCallerLimitsRoutes } from "./routes/musterrolle/agent-caller-limits.ts";
 import { registerAgentIdentityRoutes } from "./routes/musterrolle/agent-identities.ts";
 import { registerAgentUsageRoutes } from "./routes/musterrolle/agent-usage.ts";
@@ -1139,10 +1142,16 @@ const providerAdmin = createProviderAdmin({
   login: providerLogin,
   consoleOrigin: configuredConsoleOrigin(process.env),
 });
+const loginSettingsStore = createPostgresLoginSettingsStore(db);
+const loginSettingsAdmin = createLoginSettingsAdmin({
+  authorization,
+  store: loginSettingsStore,
+});
 const auth = {
   identity,
   providers: providerLogin,
   loginMethods: createPostgresLoginMethodStore(db),
+  loginSettings: loginSettingsStore,
   lockout,
   passwordWork,
   bootstrap: await bootstrapGateFromEnv(
@@ -1194,6 +1203,7 @@ const app = createApiApp({
     registerPublicInviteRoutes(router, {
       invites: inviteStore,
       identity,
+      loginSettings: loginSettingsStore,
       lockout,
       passwordWork,
       logger,
@@ -1227,6 +1237,7 @@ const app = createApiApp({
     registerInstallationSettingsRoutes(router, settingsDocument);
     registerSettingsConsoleRoutes(router, settingsConsole);
     registerLoginProviderRoutes(router, providerAdmin);
+    registerLoginSettingsRoutes(router, loginSettingsAdmin);
     registerAchievementRoutes(router, achievementRules);
     registerSessionAchievementRoutes(
       router,

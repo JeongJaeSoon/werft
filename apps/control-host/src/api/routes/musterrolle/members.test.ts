@@ -575,6 +575,22 @@ describe("PATCH /v1/members/{user_id}", () => {
     expect((await errorOf(response)).code).toBe("LAST_OWNER");
   });
 
+  test("the emergency admin cannot be demoted, and the refusal says why", async () => {
+    const response = await patch(
+      app(store(), {
+        roles: roleStore({
+          changeMemberRole: async () => ({ outcome: "emergency_admin" }),
+        }),
+      }),
+      { role: "member" },
+    );
+    expect(response.status).toBe(409);
+    expect(await errorOf(response)).toMatchObject({
+      code: "REVISION_CONFLICT",
+      details: { reason_code: "emergency_admin" },
+    });
+  });
+
   test("a member who is not here, or a malformed id, is not found", async () => {
     const missing = await patch(
       app(store(), {
@@ -734,6 +750,15 @@ describe.each([
       const self = await post(answering({ outcome: "self_protected" }));
       expect(self.status).toBe(403);
       expect((await errorOf(self)).code).toBe("SELF_PROTECTED");
+    });
+
+    test("the emergency admin cannot be disabled, and the refusal says why", async () => {
+      const response = await post(answering({ outcome: "emergency_admin" }));
+      expect(response.status).toBe(409);
+      expect(await errorOf(response)).toMatchObject({
+        code: "REVISION_CONFLICT",
+        details: { reason_code: "emergency_admin" },
+      });
     });
   }
   if (disabled && scope === "membership") {

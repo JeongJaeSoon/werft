@@ -222,6 +222,10 @@ export const RECEIPT_OPERATION_VALUES = [
   // the subject or an address.
   "link_login_method",
   "unlink_login_method",
+  // Who may sign in with a password, and the emergency admin. User ids and
+  // counts only.
+  "set_password_login",
+  "set_emergency_admin",
 ] as const;
 
 export const receiptStatusSchema = z.enum(RECEIPT_STATUS_VALUES);

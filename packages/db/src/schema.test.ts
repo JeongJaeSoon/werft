@@ -177,6 +177,7 @@ describe("database schema", () => {
       "linked_accounts",
       "login_methods",
       "login_providers",
+      "login_settings",
       "mcp_servers",
       "member_team_members",
       "member_teams",

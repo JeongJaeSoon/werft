@@ -48,6 +48,7 @@ import type {
 } from "@werft-ai/platform";
 import { createApiApp } from "./app.ts";
 import type { BootstrapGate } from "./auth.ts";
+import type { LoginSettingsAdmin } from "./login-settings.ts";
 import { buildOpenApiDocument, DOCUMENTED_ROUTE_SCOPES } from "./openapi.ts";
 import type { ProviderAdmin } from "./provider-admin.ts";
 import { createSlackEventsLimiter } from "./rate-limit.ts";
@@ -74,6 +75,7 @@ import {
   registerSettingsConsoleRoutes,
 } from "./routes/installation-settings.ts";
 import { registerLoginProviderRoutes } from "./routes/login-providers.ts";
+import { registerLoginSettingsRoutes } from "./routes/login-settings.ts";
 import { registerAgentCallerLimitsRoutes } from "./routes/musterrolle/agent-caller-limits.ts";
 import { registerAgentIdentityRoutes } from "./routes/musterrolle/agent-identities.ts";
 import { registerAgentUsageRoutes } from "./routes/musterrolle/agent-usage.ts";
@@ -190,6 +192,7 @@ function apiApp() {
       registerInstallationSettingsRoutes(router, {} as SettingsDocumentService);
       registerSettingsConsoleRoutes(router, {} as SettingsConsoleService);
       registerLoginProviderRoutes(router, {} as ProviderAdmin);
+      registerLoginSettingsRoutes(router, {} as LoginSettingsAdmin);
       registerWorkspaceRoutes(router, {} as WorkspaceRouteDeps);
       registerAchievementRoutes(router, {} as AchievementRuleService);
       registerSessionAchievementRoutes(router, {} as SessionAchievementService);

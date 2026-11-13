@@ -12,7 +12,7 @@ import type {
 import { memberView } from "./invite-service.ts";
 import type { AuthorizationPolicy, Caller } from "./policy.ts";
 import { requirePermitted } from "./require-permitted.ts";
-import { SessionServiceError } from "./service-errors.ts";
+import { EMERGENCY_ADMIN, SessionServiceError } from "./service-errors.ts";
 
 /** `receiptId` and `effects` are null when the state was already as asked. */
 export type AccessChange = {
@@ -77,6 +77,8 @@ export function createMemberService(deps: {
           "LAST_OWNER",
           "The workspace must keep at least one live owner",
         );
+      case "emergency_admin":
+        throw EMERGENCY_ADMIN();
       case "elsewhere":
         throw new SessionServiceError(
           "FORBIDDEN",

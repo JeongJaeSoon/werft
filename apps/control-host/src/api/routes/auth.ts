@@ -39,6 +39,7 @@ import {
   type IdentityStore,
   type IdentityWorkspace,
   type LoginMethodStore,
+  type LoginSettingsStore,
   MANAGEMENT_ROLES,
   passwordResetIssueDenial,
 } from "@werft-ai/platform";
@@ -102,6 +103,8 @@ export interface AuthRouteDeps {
   providerWork?: WorkGate;
   /** Absent: no sign-up by invite through a provider, no linking. */
   loginMethods?: LoginMethodStore;
+  /** Absent: the login page is told passwords are open to everyone. */
+  loginSettings?: Pick<LoginSettingsStore, "read">;
 }
 
 const LINK_SESSION_MAX_AGE_MS = LOGIN_LINK_SESSION_MAX_AGE_MINUTES * 60 * 1000;
@@ -146,6 +149,26 @@ export function permissionsOf(role: WorkspaceRole): AuthorizationAction[] {
   )
     .filter(([, roles]) => roles.includes(role))
     .map(([action]) => action);
+}
+
+/**
+ * Whether a password is of no use to this user now (null: no such account):
+ * passwords are closed and they are not the emergency admin. Read without a
+ * lock, before the password decides anything, so that while passwords are
+ * closed a right one and a wrong one take the same road. The transaction
+ * that makes the session reads the settings again under its lock.
+ */
+export async function passwordClosedTo(
+  settings: Pick<LoginSettingsStore, "read"> | undefined,
+  userId: string | null,
+): Promise<boolean> {
+  if (!settings) return false;
+  const { passwordLogin, emergencyAdmin } = await storageMapped(() =>
+    settings.read(),
+  );
+  return (
+    passwordLogin === "emergency_only" && emergencyAdmin?.userId !== userId
+  );
 }
 
 export function workspaceView(row: IdentityWorkspace): Workspace {
@@ -234,8 +257,13 @@ export function registerPublicAuthRoutes(
     const buttons = providers
       ? await storageMapped(() => providers.buttons())
       : [];
+    const settings = deps.loginSettings;
     return jsonWithSchema(context, loginMethodsResponseSchema, {
-      password: "on",
+      // What the page shows, not what is enforced: a password sign-in is
+      // checked against the settings in its own transaction.
+      password: settings
+        ? (await storageMapped(() => settings.read())).passwordLogin
+        : "on",
       providers: buttons.map((button) => ({
         id: button.id,
         display_name: button.displayName,
@@ -384,12 +412,13 @@ export function registerPublicAuthRoutes(
       Awaited<ReturnType<IdentityStore["findLiveMembership"]>>
     >;
     let verifiedPasswordHash: string;
+    let reservation: ReturnType<LoginLockout["reserve"]>;
     try {
       // Counted as a failure before the password is checked, in the same
       // synchronous step as the lockout check: a burst of concurrent
       // guesses cannot all see the window open while their hashes are
       // still running. Success clears it below.
-      const reservation = lockout.reserve(email);
+      reservation = lockout.reserve(email);
       if (reservation.retryAfterMs > 0) {
         throw rateLimited(reservation.retryAfterMs, "Too many failed logins");
       }
@@ -400,10 +429,16 @@ export function registerPublicAuthRoutes(
         found = await storageMapped(() =>
           deps.identity.findUserForLogin(email),
         );
-        verified = await verifyPassword(
-          body.password,
-          found?.passwordHash ?? null,
+        const closed = await passwordClosedTo(
+          deps.loginSettings,
+          found?.id ?? null,
         );
+        // The hash is checked either way and, while passwords are closed to
+        // this person, its answer dropped: right or wrong, the request does
+        // the same work and ends the same way.
+        verified =
+          (await verifyPassword(body.password, found?.passwordHash ?? null)) &&
+          !closed;
         const candidate = found;
         live =
           verified && candidate
@@ -429,7 +464,6 @@ export function registerPublicAuthRoutes(
     } finally {
       releaseSlot();
     }
-    lockout.clear(email);
     const token = generateWebSessionToken();
     const created = await storageMapped(() =>
       deps.identity.createWebSession({
@@ -441,11 +475,20 @@ export function registerPublicAuthRoutes(
         userAgent: context.req.header("User-Agent")?.slice(0, 512) ?? null,
         maxLive: WEB_SESSIONS_PER_USER,
       }),
-    );
+    ).catch((error: unknown) => {
+      // An outage is not a guess here either.
+      reservation.release();
+      throw error;
+    });
     if (!created) {
-      // A reset or a disable landed after the password was checked.
+      // Passwords were closed to this person, or a reset or a disable
+      // landed, after the checks above. It stays counted and is logged as a
+      // wrong password is: neither the answer, the lockout nor the log may
+      // say the password was right.
+      deps.logger?.warn("Login failed", { has_user: true });
       throw new ApiHttpError(401, "UNAUTHORIZED", INVALID_CREDENTIALS);
     }
+    lockout.clear(email);
     const { expiresAt } = created;
     setWebSessionCookie(context, token, expiresAt);
     return jsonWithSchema(context, loginResponseSchema, {
@@ -1061,6 +1104,16 @@ export function registerAuthRoutes(router: ApiRouter, deps: AuthRouteDeps) {
         { reason_code: "last_login_method" },
       );
     }
+    if (result.outcome === "emergency_admin") {
+      throw new ApiHttpError(
+        409,
+        "REVISION_CONFLICT",
+        "The emergency admin keeps their password; name another owner first",
+        false,
+        undefined,
+        { reason_code: "emergency_admin" },
+      );
+    }
     deps.logger?.info("Login method unlinked", {
       user_id: session.userId,
       login_method_id: id,
@@ -1141,6 +1194,15 @@ export function registerAuthRoutes(router: ApiRouter, deps: AuthRouteDeps) {
           403,
           "FORBIDDEN",
           "The member owns another workspace; only that workspace can reset them",
+        );
+      case "password_closed":
+        throw new ApiHttpError(
+          409,
+          "REVISION_CONFLICT",
+          "Password sign-in is closed to this member",
+          false,
+          undefined,
+          { reason_code: "password_login_closed" },
         );
     }
     deps.logger?.info("Password reset link issued", {

@@ -41,6 +41,7 @@ import {
   invites,
   loginMethods,
   loginProviders,
+  loginSettings,
   memberships,
   passwordResets,
   receipts,
@@ -50,6 +51,12 @@ import {
 } from "../schema.ts";
 import { insertBuiltinAchievementTypes } from "../sessions/achievement-rules.ts";
 import { rowsOf } from "../statement-rows.ts";
+import {
+  lockLoginSettings,
+  ownerBySignIn,
+  passwordOpenTo,
+  revokePasswordSessions,
+} from "./login-settings.ts";
 
 // Identity queries for the cookie-session path. API keys keep
 // their own helpers in queries.ts so that path is untouched.
@@ -96,6 +103,8 @@ export async function bootstrapOwner(
     if ((await countLiveOwners(tx)) > 0) {
       throw new BootstrapDoneError();
     }
+    // Ahead of the invite and user rows (design 5.6); written at the end.
+    await lockLoginSettings(tx, "update");
     const [spent] = await tx
       .insert(bootstrapTokenUses)
       .values({ tokenHash: input.bootstrapTokenHash })
@@ -198,6 +207,11 @@ export async function bootstrapOwner(
         target: [memberships.workspaceId, memberships.userId],
         set: { role: "owner", disabledAt: null },
       });
+    // The only live owner, and one with a password: the emergency admin of
+    // a new installation, and of a recovered one (design 9.2).
+    await tx
+      .update(loginSettings)
+      .set({ emergencyAdminUserId: user.id, updatedAt: DB_NOW });
     if (recovered) {
       const members = tx
         .select({ userId: memberships.userId })
@@ -279,6 +293,8 @@ export async function issuePasswordReset(
   input: IssuePasswordResetInput,
 ): Promise<IssuePasswordResetResult> {
   return db.transaction(async (tx) => {
+    // Ahead of the user rows (design 5.6).
+    const settings = await lockLoginSettings(tx, "share");
     const locked = await tx
       .select({ id: users.id, passwordHash: users.passwordHash })
       .from(users)
@@ -341,6 +357,10 @@ export async function issuePasswordReset(
     ) {
       return { outcome: "owner_elsewhere" };
     }
+    // A password nobody may sign in with is not handed out (design 9.1).
+    if (!passwordOpenTo(settings, input.userId)) {
+      return { outcome: "password_closed" };
+    }
     await tx
       .update(passwordResets)
       .set({ revokedAt: DB_NOW })
@@ -388,6 +408,83 @@ export async function issuePasswordReset(
 }
 
 /**
+ * The operator CLI's link for an owner (design 9.3). The owner need have no
+ * password, and nobody's password vouches for the issue: whoever runs the
+ * CLI holds the database. Issuing changes nothing else. The emergency admin
+ * is named when the link is used, never here.
+ */
+export async function issueOperatorPasswordReset(
+  db: Database,
+  input: {
+    id: string;
+    email: string;
+    tokenHash: Uint8Array;
+    ttlMs: number;
+    receiptId: string;
+  },
+): Promise<
+  | { outcome: "issued"; userId: string; workspaceId: string; expiresAt: Date }
+  /** No live owner has this address. */
+  | { outcome: "not_found" }
+> {
+  return db.transaction(async (tx) => {
+    const [user] = await tx
+      .select({ id: users.id })
+      .from(users)
+      .where(and(eq(users.email, input.email), isNull(users.disabledAt)))
+      .for("update");
+    if (!user) return { outcome: "not_found" };
+    // An owner where their sign-in lands: the link is to let them back in
+    // as one.
+    const owned = await ownerBySignIn(tx, user.id);
+    if (!owned) return { outcome: "not_found" };
+    await tx
+      .update(passwordResets)
+      .set({ revokedAt: DB_NOW })
+      .where(
+        and(
+          eq(passwordResets.userId, user.id),
+          isNull(passwordResets.usedAt),
+          isNull(passwordResets.revokedAt),
+        ),
+      );
+    const [row] = await tx
+      .insert(passwordResets)
+      .values({
+        id: input.id,
+        workspaceId: owned.workspaceId,
+        userId: user.id,
+        tokenHash: input.tokenHash,
+        issuedBy: null,
+        expiresAt: fromDbNow(input.ttlMs),
+      })
+      .returning({ expiresAt: passwordResets.expiresAt });
+    if (!row) {
+      throw new Error("password reset insert returned no row");
+    }
+    await tx.insert(receipts).values({
+      id: input.receiptId,
+      ownerId: owned.workspaceId,
+      operation: "issue_password_reset",
+      targetRef: { user_id: user.id, workspace_id: owned.workspaceId },
+      status: "succeeded",
+      // No actor: a receipt's actor is a principal, and the CLI is none.
+      result: {
+        issued_by: "operator_cli",
+        target_role: "owner",
+        expires_at: row.expiresAt.toISOString(),
+      },
+    });
+    return {
+      outcome: "issued",
+      userId: user.id,
+      workspaceId: owned.workspaceId,
+      expiresAt: row.expiresAt,
+    };
+  });
+}
+
+/**
  * Spends the link, sets the password and ends every live session of the
  * user in one transaction. Locks run user row first, then the link, the same
  * order as issuePasswordReset and recovery, so neither can deadlock this.
@@ -399,14 +496,32 @@ export async function consumePasswordReset(
   input: ConsumePasswordResetInput,
 ): Promise<{ userId: string; workspaceId: string } | null> {
   return db.transaction(async (tx) => {
+    // Who a link is for and who issued it never change, so both are read
+    // ahead of the locks they choose.
     const [candidate] = await tx
-      .select({ userId: passwordResets.userId })
+      .select({
+        userId: passwordResets.userId,
+        issuedBy: passwordResets.issuedBy,
+      })
       .from(passwordResets)
       .where(eq(passwordResets.tokenHash, input.tokenHash));
     if (!candidate) {
       return null;
     }
+    // The operator CLI's link names its owner the emergency admin as it
+    // sets their password (design 9.3), so it takes the settings for
+    // update; an owner's link only depends on them.
+    const byOperator = candidate.issuedBy === null;
+    const settings = await lockLoginSettings(
+      tx,
+      byOperator ? "update" : "share",
+    );
+    if (!byOperator && !passwordOpenTo(settings, candidate.userId)) {
+      return null;
+    }
     // Disabled after the link was issued: the link dies with the account.
+    // An owner's link resets a password that exists; the operator's may be
+    // the account's first.
     const [user] = await tx
       .select({ id: users.id })
       .from(users)
@@ -414,7 +529,7 @@ export async function consumePasswordReset(
         and(
           eq(users.id, candidate.userId),
           isNull(users.disabledAt),
-          isNotNull(users.passwordHash),
+          byOperator ? undefined : isNotNull(users.passwordHash),
         ),
       )
       .for("update");
@@ -445,7 +560,7 @@ export async function consumePasswordReset(
     // lock: recovery holds the membership before the user row, the reverse
     // of this transaction.
     const [member] = await tx
-      .select({ userId: memberships.userId })
+      .select({ role: memberships.role })
       .from(memberships)
       .where(
         and(
@@ -457,6 +572,14 @@ export async function consumePasswordReset(
     if (!member) {
       return null;
     }
+    // The operator's link is for an owner, and still for one when used: it
+    // names them the emergency admin, who must sign in as an owner.
+    if (
+      byOperator &&
+      (await ownerBySignIn(tx, reset.userId))?.workspaceId !== reset.workspaceId
+    ) {
+      return null;
+    }
     await tx
       .update(users)
       .set({ passwordHash: input.passwordHash })
@@ -466,13 +589,46 @@ export async function consumePasswordReset(
       .set({ usedAt: DB_NOW })
       .where(eq(passwordResets.id, reset.id));
     const revoked = await revokeUserWebSessions(tx, reset.userId);
+    const named = byOperator && settings.emergencyAdminUserId !== reset.userId;
+    if (byOperator) {
+      // An owner who only ever signed in through a provider has no
+      // password method yet.
+      await tx.execute(
+        sql`INSERT INTO ${loginMethods} ("id", "user_id", "kind")
+            VALUES (gen_random_uuid(), ${reset.userId}, 'password')
+            ON CONFLICT DO NOTHING`,
+      );
+    }
+    if (named) {
+      // In the transaction that gives them a password, so whoever is named
+      // can sign in with one. An unused link names nobody.
+      await tx
+        .update(loginSettings)
+        .set({ emergencyAdminUserId: reset.userId, updatedAt: DB_NOW });
+      // While passwords are closed, whoever was named before is now like
+      // everyone else (as when an owner names another).
+      if (
+        settings.passwordLogin === "emergency_only" &&
+        settings.emergencyAdminUserId !== null
+      ) {
+        await revokePasswordSessions(tx, {
+          only: settings.emergencyAdminUserId,
+        });
+      }
+    }
     await tx.insert(receipts).values({
       id: input.receiptId,
       ownerId: reset.workspaceId,
       operation: "reset_password",
       targetRef: { user_id: reset.userId, workspace_id: reset.workspaceId },
       status: "succeeded",
-      result: { issued_by: reset.issuedBy, sessions_revoked: revoked },
+      result: {
+        issued_by: reset.issuedBy ?? "operator_cli",
+        sessions_revoked: revoked,
+        ...(named
+          ? { emergency_admin_before: settings.emergencyAdminUserId }
+          : {}),
+      },
     });
     return { userId: reset.userId, workspaceId: reset.workspaceId };
   });
@@ -553,6 +709,12 @@ export async function createWebSession(
   },
 ): Promise<{ expiresAt: Date } | null> {
   return db.transaction(async (tx) => {
+    // Held until the session is in: closing passwords waits for this and
+    // then ends the session with the others (design 9.1).
+    const settings = await lockLoginSettings(tx, "share");
+    if (!passwordOpenTo(settings, input.userId)) {
+      return null;
+    }
     const [current] = await tx
       .select({ passwordHash: users.passwordHash })
       .from(users)
@@ -568,15 +730,18 @@ export async function createWebSession(
           VALUES (gen_random_uuid(), ${input.userId}, 'password')
           ON CONFLICT DO NOTHING`,
     );
+    // Recorded with the session or not at all: what the person's list of
+    // sign-in methods shows as the last time the password was used.
     const [method] = await tx
-      .select({ id: loginMethods.id })
-      .from(loginMethods)
+      .update(loginMethods)
+      .set({ lastLoginAt: DB_NOW })
       .where(
         and(
           eq(loginMethods.userId, input.userId),
           eq(loginMethods.kind, "password"),
         ),
-      );
+      )
+      .returning({ id: loginMethods.id });
     if (!method) {
       throw new Error("password login method is missing after its insert");
     }

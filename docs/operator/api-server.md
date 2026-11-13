@@ -547,7 +547,7 @@ curl -s -X POST http://127.0.0.1:3000/v1/auth/password-reset -H 'Content-Type: a
 
 Google(`https://accounts.google.com`)은 누구나 계정을 만들 수 있어서 두 가지를 받지 않는다(`400`): 검증된 이메일 요구를 끄는 것(`verified_email_required`), 허용 도메인 없이 JIT 역할을 주는 것(`jit_requires_domains`).
 
-로그인 화면은 공개 `GET /v1/auth/login-methods`(`{"password":"on","providers":[{"id":"…","display_name":"Google"}]}`, 켜진 공급자가 없으면 `providers`가 빈 목록)로 고를 수 있는 수단을 받는다. 흐름: 웹이 `POST /v1/auth/providers/{id}/start`(`X-Requested-With` 필요)로 `authorization_url`을 받아 연다. 응답은 `__Host-werft_login_flow` cookie(10분)를 세운다. 이 cookie는 state·nonce·PKCE verifier·공급자 id·그때의 설정 revision을 `PLATFORM_SECRET_KEY`에서 낸 키로 봉인한 값이라 브라우저가 읽거나 바꿀 수 없다. 공급자가 리디렉션 URI로 `code`·`state`(공급자에 따라 `iss`도)를 돌려주면 웹이 공급자 id와 함께 `POST /v1/auth/oidc/callback`에 보낸다. API는 cookie를 지우고, 열어서 state·10분·공급자 id·설정 revision이 맞는지 본 뒤 code를 교환하고 id_token의 서명(JWKS)·iss·aud·exp·nonce·`email_verified`를 확인한다. 그다음 허용 도메인을 보고(`403`) 첫 진입 규칙을 위에서부터 적용한다.
+로그인 화면은 공개 `GET /v1/auth/login-methods`(`{"password":"on","providers":[{"id":"…","display_name":"Google"}]}`, 켜진 공급자가 없으면 `providers`가 빈 목록, 비밀번호 로그인이 닫혀 있으면 `password`가 `emergency_only`)로 고를 수 있는 수단을 받는다. 흐름: 웹이 `POST /v1/auth/providers/{id}/start`(`X-Requested-With` 필요)로 `authorization_url`을 받아 연다. 응답은 `__Host-werft_login_flow` cookie(10분)를 세운다. 이 cookie는 state·nonce·PKCE verifier·공급자 id·그때의 설정 revision을 `PLATFORM_SECRET_KEY`에서 낸 키로 봉인한 값이라 브라우저가 읽거나 바꿀 수 없다. 공급자가 리디렉션 URI로 `code`·`state`(공급자에 따라 `iss`도)를 돌려주면 웹이 공급자 id와 함께 `POST /v1/auth/oidc/callback`에 보낸다. API는 cookie를 지우고, 열어서 state·10분·공급자 id·설정 revision이 맞는지 본 뒤 code를 교환하고 id_token의 서명(JWKS)·iss·aud·exp·nonce·`email_verified`를 확인한다. 그다음 허용 도메인을 보고(`403`) 첫 진입 규칙을 위에서부터 적용한다.
 
 아래에서 "증명된 주소"는 공급자가 지금 그 이메일의 주인임을 보증하는 경우다. Google은 `email_verified`이면서 이메일 도메인이 계정의 Workspace 도메인(`hd`)과 같거나 `gmail.com`일 때이고, 그 밖의 공급자는 `email_verified`가 `true`일 때다.
 
@@ -574,6 +574,46 @@ Google(`https://accounts.google.com`)은 누구나 계정을 만들 수 있어�
 `__Host-` cookie는 `Secure`라 curl은 HTTPS나 `localhost`·`127.0.0.1`에서만 jar에 남긴다. 다른 호스트의 `http://` 주소로는 흐름이 이어지지 않는다.
 
 시험용 IdP는 저장소 checkout(`packages/testkit`)이나 `local` target 이미지에서만 돈다. 게시 이미지에는 testkit이 없다. `bun packages/testkit/src/mock-oidc-main.ts`(`MOCK_OIDC_PORT`·`MOCK_OIDC_CLIENT_ID`·`MOCK_OIDC_CLIENT_SECRET`·`MOCK_OIDC_ISSUER`·`MOCK_OIDC_PUBLIC_URL`)가 공급자 대신 discovery·JWKS·authorize·token을 낸다. authorize는 바로 동의하고, 로그인할 계정은 authorization URL에 붙인 `login_hint`(id_token claim JSON의 base64url)로 고른다. 통합 테스트(`provider-login.integration.test.ts`)가 같은 IdP로 다섯 규칙을 고정한다. 테스트 이름의 규칙 번호(2 초대, 3 JIT, 4 같은 이메일)는 위 목록의 순서와 다르다. 위 목록이 실제 적용 순서다.
+
+### 비밀번호 로그인 끄기, 비상 관리자, 복구
+
+비밀번호 로그인은 설치 전체에서 닫을 수 있다. 닫아도 **비상 관리자** 한 명은 비밀번호로 들어온다. 공급자(IdP)나 그 설정이 망가졌을 때 들어올 사람을 남겨 두는 것이다. 비상 관리자는 계정과 멤버십이 켜져 있고 비밀번호가 있는 owner 한 명이다. 새 설치는 bootstrap이 만든 owner가, 올린 설치는 migration `0277_login_settings`가 고른 owner(비밀번호가 있는 켜진 owner 가운데 멤버십이 가장 오래된 사람)가 비상 관리자다. 그런 owner가 없는 설치는 비어 있다.
+
+로그인한 owner가 아래 두 route로 본다·바꾼다. 공급자 관리 route와 같은 사람만 쓴다(admin, member, API key는 `403`).
+
+| route | 하는 일 |
+|---|---|
+| `GET /v1/login-settings` | `password_login`(`on` 또는 `emergency_only`), 비상 관리자(주소, 이름, 지금도 자격이 있는지 `eligible`), 켜진 공급자 수 |
+| `PATCH /v1/login-settings` | `{"password_login": "emergency_only"}`·`{"password_login": "on"}` 또는 `{"emergency_admin_user_id": "…"}`. 요청 하나에 변경 하나다. 응답의 `sessions_revoked`는 이 변경이 끊은 비밀번호 세션 수다 |
+
+닫으려면(`emergency_only`) 셋이 모두 참이어야 한다. 아니면 `409 REVISION_CONFLICT`이고 `details.reason_code`가 까닭을 말한다: 켜진 공급자가 하나 이상 있다(`no_provider`), 비상 관리자가 지정돼 있고 지금도 비밀번호로 들어올 수 있다(`no_emergency_admin`), 바꾸는 owner가 비상 관리자이거나 켜진 공급자의 계정을 연결해 뒀다(`locks_out_actor`). 닫으면 같은 트랜잭션에서 비상 관리자를 뺀 모든 사람의 비밀번호 세션이 끊기고, 닫혀 있는 동안에는 다음이 거절된다.
+
+- 비상 관리자가 아닌 사람의 비밀번호 로그인: 비밀번호가 맞아도 틀린 비밀번호와 같은 `401`이다. 실패로 세어지므로 거듭하면 틀린 비밀번호와 같이 `429`가 되고, 로그에도 같은 `Login failed` 줄이 남는다.
+- 초대의 비밀번호 수락: `403`(`details.reason_code: password_login_closed`). 초대는 쓰이지 않고, 공급자로 수락한다. 비상 관리자의 초대도 같다. 누구의 초대든, 넣은 비밀번호가 맞든 틀리든 같은 답이고 실패로 세지 않는다.
+- 비상 관리자가 아닌 사람 앞으로 owner가 내는 비밀번호 재설정 링크: 발급은 `409`(`password_login_closed`), 이미 낸 링크의 사용은 `401`. 비상 관리자는 닫힌 동안에도 비밀번호를 쓰므로, 다른 owner가 비상 관리자 앞으로 내는 링크는 발급도 사용도 된다.
+- 켜진 마지막 공급자를 끄는 것: `409`(`last_provider`). 먼저 비밀번호 로그인을 연다.
+
+비상 관리자는 다른 owner로 바꿀 수만 있고 비울 수 없다. 새 비상 관리자도 비밀번호가 있는 켜진 owner여야 한다(아니면 `409`, `not_eligible`). 닫혀 있는 동안 바꾸면 옛 비상 관리자의 비밀번호 세션이 끊긴다. 지정된 사람은 끄거나(멤버십, 계정), owner가 아니게 바꾸거나, 그 비밀번호를 끊을 수 없다(`409`, `details.reason_code: emergency_admin`). 비밀번호 로그인을 닫지 않은 설치에서도 같다. 먼저 다른 owner를 비상 관리자로 지정한다. 비밀번호가 있는 다른 owner가 없으면 아래 `reset-password`로 한 명에게 비밀번호를 준다.
+
+로그인이 망가져 아무도 못 들어오면 API 컨테이너에서 복구 명령을 돌린다. `DATABASE_URL`만 있으면 되고, 출력은 stdout의 JSON 한 줄이다.
+
+```sh
+docker compose exec -T api bun run apps/control-host/src/api/login-recovery.ts status
+docker compose exec -T api bun run apps/control-host/src/api/login-recovery.ts enable-password
+docker compose exec -T api bun run apps/control-host/src/api/login-recovery.ts disable-provider --id "$PROVIDER_ID"   # 또는 --all
+docker compose exec -T api bun run apps/control-host/src/api/login-recovery.ts reset-password --email owner@example.com
+```
+
+| 명령 | 하는 일 |
+|---|---|
+| `status` | 공급자(id, 이름, issuer, 켜짐), `password_login`, 비상 관리자의 주소와 `eligible`. 아무것도 바꾸지 않는다 |
+| `enable-password` | 비밀번호 로그인을 모두에게 다시 연다 |
+| `disable-provider` | 공급자를 끄고 그 공급자로 만든 세션을 끊는다. 비밀번호 로그인이 닫혀 있었고 끄고 나면 켜진 공급자가 하나도 남지 않을 때는 같은 트랜잭션에서 비밀번호 로그인을 연다(`password_login_opened: true`) |
+| `reset-password` | 켜진 owner에게 한 번 쓰는 token을 낸다(60분). 비밀번호가 없는 owner도 된다 |
+
+종료 코드는 0(됨, 바꿀 것이 없었을 때도), 1(예상 못 한 오류), 2(사용법), 3(그런 공급자가 없거나 그 주소의 켜진 owner가 없음)이다. `reset-password`의 출력에는 token이 그대로 들어 있다. 로그에 남기지 말고 그 owner에게만 건넨다. owner는 그 token으로 `POST /v1/auth/password-reset`(`{"token": "…", "password": "…"}`)을 불러 비밀번호를 정한다. 그 요청이 비밀번호를 적는 트랜잭션에서 그 owner가 비상 관리자가 된다. token을 내기만 하고 쓰지 않으면 아무것도 바뀌지 않는다. 이 token은 비밀번호 로그인이 닫혀 있어도 쓸 수 있다.
+
+명령이 바꾼 것은 receipt로 남는다(`set_password_login`, `disable_login_provider`, `issue_password_reset`, `reset_password`). 사람이 아니라 명령이 한 것이라 `actor`는 비어 있고 `result`의 `by` 또는 `issued_by`가 `operator_cli`다.
 
 ### workspace key, 개인 key, 오프보딩
 

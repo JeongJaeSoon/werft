@@ -12,7 +12,7 @@ import {
   type SecretSlot,
   secretOwnerRef,
 } from "@werft-ai/platform";
-import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { DB_NOW } from "../db-clock.ts";
 import { secretOwnerWorkspace } from "../installation-settings.ts";
 import type { Database } from "../queries.ts";
@@ -33,6 +33,11 @@ import {
   writeSecretInTx,
 } from "../secrets/secret-values.ts";
 import { findLiveMembership } from "./identity.ts";
+import {
+  lockLoginSettings,
+  openPasswordsAsOperator,
+  writeOperatorReceipt,
+} from "./login-settings.ts";
 
 export const LOGIN_CLIENT_SECRET_PURPOSE = "login_client_secret";
 /** A replacement for a provider that is on, until a test sign-in passes. */
@@ -691,6 +696,10 @@ export function createPostgresLoginProviderAdminStore(
 
     disable(input) {
       return db.transaction(async (tx) => {
+        // For update, and ahead of the provider row (design 5.6): two
+        // providers going off at once, or one going off as passwords are
+        // closed, queue here and the later one counts what is left.
+        const settings = await lockLoginSettings(tx, "update");
         const row = await lockedProvider(tx, input.id);
         if (!row) return { outcome: "not_found" as const };
         if (!row.enabled) {
@@ -699,6 +708,18 @@ export function createPostgresLoginProviderAdminStore(
             provider: await recordOf(tx, row),
             sessionsRevoked: 0,
           };
+        }
+        if (
+          settings.passwordLogin === "emergency_only" &&
+          (await tx.$count(
+            loginProviders,
+            and(
+              eq(loginProviders.enabled, true),
+              ne(loginProviders.id, row.id),
+            ),
+          )) === 0
+        ) {
+          return { outcome: "last_provider" as const };
         }
         const off = await turnOff(tx, row.id);
         if (!off) return { outcome: "not_found" as const };
@@ -762,4 +783,63 @@ export function createPostgresLoginProviderAdminStore(
       return account.disabledAt === null ? "account_exists" : "refused";
     },
   };
+}
+
+/**
+ * The operator CLI's way in when sign-in through a provider is broken
+ * (design 9.3): turns one provider off, or all of them, and ends their
+ * sessions. If passwords are closed and this leaves no provider on, they
+ * are opened first, in the same transaction, so the installation is never
+ * left with nobody but the emergency admin able to sign in.
+ */
+export async function disableLoginProvidersAsOperator(
+  db: Database,
+  target: { id: string } | "all",
+): Promise<
+  | {
+      outcome: "disabled";
+      /** Every provider asked about; `sessionsRevoked` is 0 for one off already. */
+      providers: { id: string; displayName: string; sessionsRevoked: number }[];
+      passwordLoginOpened: boolean;
+    }
+  | { outcome: "not_found" }
+> {
+  return db.transaction(async (tx) => {
+    const settings = await lockLoginSettings(tx, "update");
+    // Every row, in id order: what is left on is counted under their locks.
+    const rows = await tx
+      .select()
+      .from(loginProviders)
+      .orderBy(asc(loginProviders.id))
+      .for("update");
+    const asked = rows.filter(
+      (row) => target === "all" || row.id === target.id,
+    );
+    if (target !== "all" && asked.length === 0) {
+      return { outcome: "not_found" as const };
+    }
+    const going = new Set(
+      asked.filter((row) => row.enabled).map((row) => row.id),
+    );
+    const leftOn = rows.some((row) => row.enabled && !going.has(row.id));
+    const passwordLoginOpened =
+      settings.passwordLogin === "emergency_only" && going.size > 0 && !leftOn;
+    if (passwordLoginOpened) await openPasswordsAsOperator(tx);
+    const providers = [];
+    for (const row of asked) {
+      const off = going.has(row.id) ? await turnOff(tx, row.id) : null;
+      if (off) {
+        await writeOperatorReceipt(tx, "disable_login_provider", {
+          provider_id: row.id,
+          sessions_revoked: off.sessionsRevoked,
+        });
+      }
+      providers.push({
+        id: row.id,
+        displayName: row.displayName,
+        sessionsRevoked: off?.sessionsRevoked ?? 0,
+      });
+    }
+    return { outcome: "disabled" as const, providers, passwordLoginOpened };
+  });
 }

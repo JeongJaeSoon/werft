@@ -15,6 +15,15 @@ export class SessionServiceError extends Error {
 export const NOT_FOUND = () =>
   new SessionServiceError("NOT_FOUND", "Resource not found");
 
+/** The emergency admin stays a live owner with a password (design 9.2). */
+export const EMERGENCY_ADMIN = () =>
+  new SessionServiceError(
+    "REVISION_CONFLICT",
+    "This person is the emergency admin; name another owner first",
+    undefined,
+    { reason_code: "emergency_admin" },
+  );
+
 export const ACTOR_INACTIVE = () =>
   new SessionServiceError(
     "FORBIDDEN",

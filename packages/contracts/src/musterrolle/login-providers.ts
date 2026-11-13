@@ -1,8 +1,10 @@
 import { z } from "zod";
+import { userIdSchema } from "../shared/index.ts";
 import {
   SECRET_VALUE_MAX_LENGTH,
   SECRET_VALUE_MIN_LENGTH,
 } from "./slack-secrets.ts";
+import { emailSchema } from "./workspaces.ts";
 
 /** The owner's view of the sign-in providers and the requests that change them. */
 
@@ -214,6 +216,62 @@ export const loginProviderTestResultSchema = z.discriminatedUnion("passed", [
     .strict(),
 ]);
 
+/**
+ * Who may sign in with a password. `emergency_only`: the emergency admin
+ * alone; everyone else comes in through a provider.
+ */
+export const PASSWORD_LOGIN_VALUES = ["on", "emergency_only"] as const;
+export const passwordLoginSchema = z.enum(PASSWORD_LOGIN_VALUES);
+
+export const loginSettingsSchema = z
+  .object({
+    password_login: passwordLoginSchema,
+    /** Null only on an installation that has never had one. */
+    emergency_admin: z
+      .object({
+        user_id: userIdSchema,
+        email: emailSchema,
+        display_name: z.string(),
+        /** False: no longer an owner who can sign in with a password. */
+        eligible: z.boolean(),
+      })
+      .strict()
+      .nullable(),
+    /** How many providers are on. */
+    enabled_providers: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const loginSettingsResponseSchema = z
+  .object({ settings: loginSettingsSchema })
+  .strict();
+
+/** One change a request: each is one transaction and one receipt. */
+export const updateLoginSettingsRequestSchema = z
+  .object({
+    password_login: passwordLoginSchema.optional(),
+    emergency_admin_user_id: userIdSchema.optional(),
+  })
+  .strict()
+  .refine((body) => Object.keys(body).length === 1, {
+    message: "Name exactly one field to change",
+  });
+
+export const updateLoginSettingsResponseSchema = z
+  .object({
+    settings: loginSettingsSchema,
+    /** The password sessions the change ended. */
+    sessions_revoked: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export type LoginSettingsView = z.infer<typeof loginSettingsSchema>;
+export type UpdateLoginSettingsRequest = z.infer<
+  typeof updateLoginSettingsRequestSchema
+>;
+export type UpdateLoginSettingsResponse = z.infer<
+  typeof updateLoginSettingsResponseSchema
+>;
 export type LoginProviderView = z.infer<typeof loginProviderSchema>;
 export type LoginProviderState = z.infer<typeof loginProviderStateSchema>;
 export type ListLoginProvidersResponse = z.infer<

@@ -51,6 +51,7 @@ import {
 } from "../schema.ts";
 import { decodeMemberCursor, encodeMemberCursor } from "../sessions/cursors.ts";
 import { createWebSession } from "./identity.ts";
+import { keepsOwnerSignIn, lockLoginSettings } from "./login-settings.ts";
 
 // Invites and roles. Lock order, everywhere here: invite, then
 // user, then membership, then web session — the user -> link -> session
@@ -309,6 +310,9 @@ async function acceptInviteOnce(
   input: AcceptInviteInput,
 ): Promise<AcceptInviteResult> {
   return db.transaction(async (tx) => {
+    // Ahead of every other lock here (design 5.6), and held to the end: an
+    // accept sets a password and signs in with it.
+    const settings = await lockLoginSettings(tx, "share");
     // External first sign-in creates accounts under this lock, then takes
     // invites; taking it first keeps the same order. An invite's email
     // never changes, so reading it unlocked is enough to name the lock.
@@ -342,6 +346,12 @@ async function acceptInviteOnce(
       .from(users)
       .where(eq(users.email, invite.email))
       .for("update");
+    // While passwords are closed an invite is taken through a provider, by
+    // everyone. The emergency admin's password is for signing in; an answer
+    // that set them apart here would tell an invite's holder who they are.
+    if (settings.passwordLogin !== "on") {
+      return { outcome: "password_closed" };
+    }
     const { account: expected } = input;
     let userId: string;
     let verifiedPasswordHash: string;
@@ -397,6 +407,20 @@ async function acceptInviteOnce(
       membership && membership.disabledAt === null
         ? (membership.role as MembershipRole)
         : (invite.role as MembershipRole);
+    // A membership the invite turns back on is as old as it was: for the
+    // emergency admin it must not take the sign-in from the owner's one. A
+    // new membership is the newest, and takes nobody's.
+    if (
+      membership &&
+      membership.disabledAt !== null &&
+      settings.emergencyAdminUserId === userId &&
+      !(await keepsOwnerSignIn(tx, userId, {
+        workspaceId: invite.workspaceId,
+        role,
+      }))
+    ) {
+      return { outcome: "emergency_admin" };
+    }
     if (!membership) {
       await tx
         .insert(memberships)
@@ -459,6 +483,9 @@ async function changeMemberRole(
   const { actor } = input;
   const userId = input.userId.toLowerCase();
   return db.transaction(async (tx) => {
+    // Ahead of the user rows (design 5.6): naming another emergency admin
+    // waits for this, and this sees who it named.
+    const settings = await lockLoginSettings(tx, "share");
     // Both people's user rows first, as setAccess takes them: re-checked
     // after a membership lock wait, a joined user row is still the old
     // snapshot's, so a target suspended meanwhile would read as live.
@@ -520,6 +547,10 @@ async function changeMemberRole(
     );
     if (target.role === "owner" && otherLiveOwners.length === 0) {
       return { outcome: "last_owner" };
+    }
+    // Only an owner is the emergency admin (design 9.2).
+    if (settings.emergencyAdminUserId === userId) {
+      return { outcome: "emergency_admin" };
     }
     await tx
       .update(memberships)

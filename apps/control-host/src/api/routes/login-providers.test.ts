@@ -235,6 +235,8 @@ const ROUTES: ReadonlyArray<{
     refusals: [
       ["FORBIDDEN", 403],
       ["NOT_FOUND", 404],
+      // The last provider that is on, while passwords are closed.
+      ["REVISION_CONFLICT", 409],
     ],
   },
   {

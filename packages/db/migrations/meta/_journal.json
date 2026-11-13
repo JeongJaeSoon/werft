@@ -1303,6 +1303,13 @@
       "when": 1794511547433,
       "tag": "0276_web_sessions_login_method_idx",
       "breakpoints": true
+    },
+    {
+      "idx": 277,
+      "version": "7",
+      "when": 1794531096160,
+      "tag": "0277_login_settings",
+      "breakpoints": true
     }
   ]
 }

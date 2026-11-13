@@ -108,6 +108,8 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   delete_login_provider: "로그인 공급자 삭제",
   link_login_method: "로그인 수단 연결",
   unlink_login_method: "로그인 수단 끊기",
+  set_password_login: "비밀번호 로그인 설정",
+  set_emergency_admin: "비상 관리자 지정",
   set_github_app: "GitHub App 등록",
   delete_github_app: "GitHub App 삭제",
   mint_github_token: "GitHub 토큰 발급",

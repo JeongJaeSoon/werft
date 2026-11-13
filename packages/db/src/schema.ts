@@ -473,6 +473,45 @@ export const loginProviders = pgTable(
   ],
 );
 
+/**
+ * Who may sign in with a password, for the whole installation. One row:
+ * every change to it, and every change that depends on it, queues on its
+ * lock.
+ */
+export const loginSettings = pgTable(
+  "login_settings",
+  {
+    /** Always true; with the check, what keeps the table to one row. */
+    id: boolean().primaryKey().default(true),
+    passwordLogin: text("password_login")
+      .$type<"on" | "emergency_only">()
+      .notNull()
+      .default("on"),
+    /**
+     * The one owner who still signs in with a password under
+     * `emergency_only`. Replaced, never cleared, once set.
+     */
+    emergencyAdminUserId: uuid("emergency_admin_user_id").references(
+      () => users.id,
+    ),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    check("login_settings_single_row_check", sql`${table.id}`),
+    check(
+      "login_settings_password_login_check",
+      sql`${table.passwordLogin} IN ('on', 'emergency_only')`,
+    ),
+    // Passwords cannot be closed to everyone.
+    check(
+      "login_settings_emergency_admin_check",
+      sql`${table.passwordLogin} = 'on' OR ${table.emergencyAdminUserId} IS NOT NULL`,
+    ),
+  ],
+);
+
 export const passwordResets = pgTable(
   "password_resets",
   {
@@ -485,9 +524,8 @@ export const passwordResets = pgTable(
       .references(() => users.id),
     /** sha256 of the one-time token; the token itself is never stored. */
     tokenHash: bytea("token_hash").notNull().unique(),
-    issuedBy: uuid("issued_by")
-      .notNull()
-      .references(() => users.id),
+    /** The owner who issued the link; NULL when the operator CLI did. */
+    issuedBy: uuid("issued_by").references(() => users.id),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     usedAt: timestamp("used_at", { withTimezone: true }),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),

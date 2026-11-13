@@ -34,6 +34,7 @@ import {
   type IdentityWorkspace,
   type IssuePasswordResetInput,
   type IssuePasswordResetResult,
+  type LoginSettingsStore,
   type ResolvedWebSession,
 } from "@werft-ai/platform";
 import { Hono } from "hono";
@@ -395,6 +396,7 @@ function harness(
     lockout?: LoginLockout;
     passwordWork?: WorkGate;
     bootstrapToken?: string;
+    loginSettings?: Pick<LoginSettingsStore, "read">;
   } = {},
 ) {
   const identity = new MemoryIdentityStore();
@@ -407,6 +409,7 @@ function harness(
     logger,
     ...(options.lockout ? { lockout: options.lockout } : {}),
     ...(options.passwordWork ? { passwordWork: options.passwordWork } : {}),
+    ...(options.loginSettings ? { loginSettings: options.loginSettings } : {}),
   };
   const app = createApiApp({
     authMode: options.authMode ?? "api-key",
@@ -1043,6 +1046,24 @@ describe("account recovery", () => {
     expect(h.identity.resets).toHaveLength(0);
   });
 
+  test("while password sign-in is closed to the member, no link is issued", async () => {
+    const h = harness();
+    const { issue } = await withMember(h);
+    // The store decides this under its lock (packages/db covers when); the
+    // route only has to say it and hand out no token.
+    h.identity.issuePasswordReset = async () => ({
+      outcome: "password_closed",
+    });
+    const closed = await issue();
+    expect(closed.status).toBe(409);
+    const text = await closed.text();
+    const { error } = apiErrorResponseSchema.parse(JSON.parse(text));
+    expect(error.code).toBe("REVISION_CONFLICT");
+    expect(error.details).toEqual({ reason_code: "password_login_closed" });
+    // The token is made before the store is asked.
+    expect(text).not.toContain("apr_");
+  });
+
   test("a link for another owner is recorded as such; one for an owner elsewhere is refused", async () => {
     const h = harness();
     const { member, issue, workspace } = await withMember(h);
@@ -1410,6 +1431,148 @@ describe("login lockout", () => {
     ).map((r) => r.status);
     expect(statuses.filter((s) => s === 401)).toHaveLength(5);
     expect(statuses.filter((s) => s === 429)).toHaveLength(7);
+  });
+
+  test("a sign-in the store refuses after the password matched is counted and logged like a wrong one", async () => {
+    // Passwords closed to this person: the store decides that under its lock
+    // (packages/db covers when). Seven tries in a row, right and wrong.
+    const tries = async (password: string) => {
+      const h = harness({
+        lockout: new LoginLockout({ now: () => 1_000_000 }),
+      });
+      await h.bootstrap();
+      h.identity.createWebSession = async () => null;
+      const answers: unknown[] = [];
+      for (let i = 0; i < 7; i += 1) {
+        const response = await h.login("owner@example.com", password);
+        const { error } = apiErrorResponseSchema.parse(await response.json());
+        answers.push({
+          status: response.status,
+          code: error.code,
+          message: error.message,
+          retryAfter: response.headers.get("Retry-After"),
+          cookie: response.headers.get("Set-Cookie"),
+        });
+      }
+      const logged = h.sink.records
+        .filter((record) => record.message === "Login failed")
+        .map(({ level, fields }) => ({ level, fields }));
+      return { answers, logged };
+    };
+    const right = await tries(PASSWORD);
+    expect(right.answers.map((a) => (a as { status: number }).status)).toEqual([
+      401, 401, 401, 401, 401, 429, 429,
+    ]);
+    expect(right.logged).toHaveLength(5);
+    expect(right).toEqual(await tries(WRONG));
+  });
+
+  test("while passwords are closed to a person, a right password and a wrong one do the same work and end the same way", async () => {
+    let emergencyAdmin = "someone else";
+    const closed: Pick<LoginSettingsStore, "read"> = {
+      read: async () => ({
+        passwordLogin: "emergency_only",
+        emergencyAdmin: {
+          userId: emergencyAdmin,
+          email: "admin@example.com",
+          displayName: "Admin",
+          eligible: true,
+        },
+        enabledProviders: 1,
+      }),
+    };
+    const tries = async (password: string) => {
+      const h = harness({
+        lockout: new LoginLockout({ now: () => 1_000_000 }),
+        loginSettings: closed,
+      });
+      await h.bootstrap();
+      // What only a password taken as right would reach.
+      const reached: string[] = [];
+      h.identity.findLiveMembership = async () => {
+        reached.push("membership");
+        return null;
+      };
+      h.identity.createWebSession = async () => {
+        reached.push("session");
+        return null;
+      };
+      const answers: unknown[] = [];
+      for (let i = 0; i < 7; i += 1) {
+        const response = await h.login("owner@example.com", password);
+        const { error } = apiErrorResponseSchema.parse(await response.json());
+        answers.push({
+          status: response.status,
+          code: error.code,
+          message: error.message,
+          retryAfter: response.headers.get("Retry-After"),
+          cookie: response.headers.get("Set-Cookie"),
+        });
+      }
+      const logged = h.sink.records
+        .filter((record) => record.message === "Login failed")
+        .map(({ level, fields }) => ({ level, fields }));
+      return { answers, logged, reached };
+    };
+    const right = await tries(PASSWORD);
+    expect(right.reached).toEqual([]);
+    expect(right.answers.map((a) => (a as { status: number }).status)).toEqual([
+      401, 401, 401, 401, 401, 429, 429,
+    ]);
+    expect(right).toEqual(await tries(WRONG));
+
+    // The emergency admin's password is looked at, and gets them in.
+    const h = harness({ loginSettings: closed });
+    await h.bootstrap();
+    emergencyAdmin = h.identity.users[0]?.id ?? "";
+    expect((await h.login("owner@example.com", WRONG)).status).toBe(401);
+    expect((await h.login()).status).toBe(200);
+  });
+
+  test("an outage while the session is made does not spend the budget", async () => {
+    const lockout = new LoginLockout({ now: () => 1_000_000 });
+    const h = harness({ lockout });
+    await h.bootstrap();
+    const createWebSession = h.identity.createWebSession.bind(h.identity);
+    h.identity.createWebSession = async () => {
+      throw Object.assign(new Error("connection lost"), { code: "08006" });
+    };
+    for (let i = 0; i < 6; i += 1) {
+      expect((await h.login()).status).toBe(503);
+    }
+    expect(lockout.size).toBe(0);
+    h.identity.createWebSession = createWebSession;
+    expect((await h.login()).status).toBe(200);
+  });
+
+  test("an outage reading the password switch is a 503, and not a guess", async () => {
+    const lockout = new LoginLockout({ now: () => 1_000_000 });
+    const h = harness({
+      lockout,
+      loginSettings: {
+        read: async () => {
+          throw Object.assign(new Error("connection lost"), { code: "08006" });
+        },
+      },
+    });
+    await h.bootstrap();
+    for (let i = 0; i < 6; i += 1) {
+      expect((await h.login()).status).toBe(503);
+    }
+    expect(lockout.size).toBe(0);
+  });
+
+  test("a sign-in that makes a session clears the count of failures before it", async () => {
+    const h = harness({ lockout: new LoginLockout({ now: () => 1_000_000 }) });
+    await h.bootstrap();
+    for (let i = 0; i < 4; i += 1) {
+      expect((await h.login("owner@example.com", WRONG)).status).toBe(401);
+    }
+    expect((await h.login()).status).toBe(200);
+    for (let i = 0; i < 5; i += 1) {
+      expect((await h.login("owner@example.com", WRONG)).status).toBe(401);
+    }
+    expect((await h.login()).status).toBe(429);
   });
 
   test("a storage outage does not spend the budget, even in a concurrent burst", async () => {

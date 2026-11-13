@@ -110,7 +110,9 @@ export type UnlinkLoginMethodResult =
   | { outcome: "session_too_old" }
   | { outcome: "not_found" }
   /** Nothing the user could sign in with would be left. */
-  | { outcome: "last_method" };
+  | { outcome: "last_method" }
+  /** The emergency admin keeps their password; name another one first. */
+  | { outcome: "emergency_admin" };
 
 /** How people come to have, and stop having, ways to sign in. */
 export interface LoginMethodStore {

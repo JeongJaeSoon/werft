@@ -141,4 +141,17 @@ describe("member access", () => {
       ).rejects.toMatchObject({ code });
     }
   });
+
+  test("the emergency admin is turned off in neither scope: a conflict that names why", async () => {
+    const { service } = serviceAnswering({ outcome: "emergency_admin" });
+    for (const attempt of [
+      () => service.disableMember(asOwner(), MEMBER),
+      () => service.disableUser(asOwner(), MEMBER),
+    ]) {
+      await expect(attempt()).rejects.toMatchObject({
+        code: "REVISION_CONFLICT",
+        details: { reason_code: "emergency_admin" },
+      });
+    }
+  });
 });
