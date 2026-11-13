@@ -206,6 +206,8 @@ function AcceptFlow({ token }: { readonly token: string }) {
     }
   };
 
+  const signUp = useProviderStart(token, setEnded);
+
   if (ended === "INVITE_EXPIRED") {
     return (
       <StatusScreen
@@ -243,9 +245,11 @@ function AcceptFlow({ token }: { readonly token: string }) {
           <>
             <AccountStep
               focus={moved}
+              // The page is on its way to a provider: not to a password too.
+              held={signUp.held}
               onPick={(account) => void history.push("password", { account })}
             />
-            <ProviderSignUp token={token} onEnded={setEnded} />
+            <ProviderSignUp {...signUp} />
           </>
         )}
         password={({ context, history }) => (
@@ -264,9 +268,11 @@ function AcceptFlow({ token }: { readonly token: string }) {
 
 function AccountStep({
   focus,
+  held,
   onPick,
 }: {
   readonly focus: boolean;
+  readonly held: boolean;
   readonly onPick: (account: Account) => void;
 }) {
   const { t } = useI18n();
@@ -277,10 +283,15 @@ function AccountStep({
       <StepHeading focus={focus} id={questionId}>
         {t("invite.account.question")}
       </StepHeading>
-      <Button type="button" onClick={() => onPick("existing")}>
+      <Button type="button" disabled={held} onClick={() => onPick("existing")}>
         {t("invite.account.existing")}
       </Button>
-      <Button type="button" variant="outline" onClick={() => onPick("new")}>
+      <Button
+        type="button"
+        variant="outline"
+        disabled={held}
+        onClick={() => onPick("new")}
+      >
         {t("invite.account.new")}
       </Button>
     </section>
@@ -294,22 +305,18 @@ function AccountStep({
 export const INVITE_FLOW_KEY = "ap.inviteFlow";
 
 /**
- * Joining with a provider's account in place of a password: one button per
- * login provider that is on. The start binds the flow to this invite and
- * spends nothing; the callback makes the account, with the invite's address
- * and role. A failed lookup leaves the password steps.
+ * Starting to join with a provider's account in place of a password. The
+ * start binds the flow to this invite and spends nothing; the callback makes
+ * the account, with the invite's address and role. It is held by the flow,
+ * above its steps: a step left and come back to finds a start that is still
+ * out, or a page already leaving, as it is.
  */
-function ProviderSignUp({
-  token,
-  onEnded,
-}: {
-  readonly token: string;
-  readonly onEnded: (code: "INVITE_EXPIRED" | "INVITE_USED") => void;
-}) {
-  const { t } = useI18n();
+function useProviderStart(
+  token: string,
+  onEnded: (code: "INVITE_EXPIRED" | "INVITE_USED") => void,
+) {
   const { client } = useWerft();
   const [leaving, leave] = useLeave();
-  const methods = useQuery(loginMethodsQuery(client));
 
   // The variables are the provider's id alone: the token stays out of them.
   const start = useMutation<{ authorization_url: string }, ApiError, string>({
@@ -344,6 +351,18 @@ function ProviderSignUp({
     },
   });
 
+  return { start, held: start.isPending || leaving };
+}
+
+/**
+ * One button per login provider that is on. A failed lookup leaves the
+ * password steps.
+ */
+function ProviderSignUp({ start, held }: ReturnType<typeof useProviderStart>) {
+  const { t } = useI18n();
+  const { client } = useWerft();
+  const methods = useQuery(loginMethodsQuery(client));
+
   const providers = methods.data?.providers ?? [];
   if (providers.length === 0) return null;
   return (
@@ -363,10 +382,10 @@ function ProviderSignUp({
           key={provider.id}
           type="button"
           variant="outline"
-          disabled={start.isPending || leaving}
+          disabled={held}
           onClick={() => start.mutate(provider.id)}
         >
-          {(start.isPending || leaving) && start.variables === provider.id
+          {held && start.variables === provider.id
             ? t("login.provider.starting")
             : t("invite.provider.submit", { name: provider.display_name })}
         </Button>

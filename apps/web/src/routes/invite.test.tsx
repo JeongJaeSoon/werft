@@ -453,7 +453,12 @@ describe("공급자 계정으로 가입", () => {
     });
     const user = await setupUser();
     const held = () =>
-      ["Keycloak 계정으로 가입", "Okta 계정으로 가입", LEAVING].map((name) =>
+      [
+        "Keycloak 계정으로 가입",
+        "Okta 계정으로 가입",
+        LEAVING,
+        "아니요, 처음입니다",
+      ].map((name) =>
         screen
           .queryAllByRole("button", { name })
           .map((button) => button.hasAttribute("disabled")),
@@ -464,7 +469,7 @@ describe("공급자 계정으로 가입", () => {
     await waitFor(() => expect(left).toEqual([AUTHORIZE]));
     // The page is still here while the provider's loads: a second start
     // would replace the flow the browser is on its way to.
-    expect(held()).toEqual([[], [true], [true]]);
+    expect(held()).toEqual([[], [true], [true], [true]]);
     await user.click(screen.getByRole("button", { name: LEAVING }));
     await user.click(
       screen.getByRole("button", { name: "Okta 계정으로 가입" }),
@@ -472,9 +477,49 @@ describe("공급자 계정으로 가입", () => {
     expect(starts()).toBe(1);
     // Back from the provider's page restores this one as it was left.
     window.dispatchEvent(new Event("pageshow"));
-    await waitFor(() => expect(held()).toEqual([[false], [false], []]));
+    await waitFor(() =>
+      expect(held()).toEqual([[false], [false], [], [false]]),
+    );
     await join();
     await waitFor(() => expect(starts()).toBe(2));
+  });
+
+  test("시작 요청이 나가 있는 동안 다른 단계로 갔다 와도 두 번째 시작은 없다", async () => {
+    let answer: (response: Response) => void = () => {};
+    const { api, left, history } = renderAt(`/invite/${TOKEN}`, {
+      ...on(KEYCLOAK),
+      [`POST ${START}`]: () =>
+        new Promise<Response>((resolve) => {
+          answer = resolve;
+        }),
+    });
+    const user = await setupUser();
+    const starts = () =>
+      api.calls.filter((c) => c.path.endsWith("/invite/start")).length;
+    const fresh = () =>
+      screen.findByRole("button", { name: "아니요, 처음입니다" });
+    // The password step was visited, so the browser can go forward to it.
+    await user.click(await fresh());
+    await screen.findByLabelText("비밀번호");
+    history.back();
+    await join();
+    await waitFor(() => expect(starts()).toBe(1));
+    // The page is on its way to a provider: the password steps wait too.
+    expect((await fresh()).hasAttribute("disabled")).toBe(true);
+    await user.click(await fresh());
+    expect(screen.queryAllByLabelText("비밀번호")).toHaveLength(0);
+    // A step reached another way (the browser's forward) and left again
+    // finds the start still out: it is the flow's, not the step's.
+    history.forward();
+    await screen.findByLabelText("비밀번호");
+    expect(shown()).toBe(0);
+    history.back();
+    const again = await screen.findByRole("button", { name: LEAVING });
+    expect(again.hasAttribute("disabled")).toBe(true);
+    await user.click(again);
+    expect(starts()).toBe(1);
+    answer(json(200, { authorization_url: AUTHORIZE }));
+    await waitFor(() => expect(left).toEqual([AUTHORIZE]));
   });
 
   for (const [name, methods] of [

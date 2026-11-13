@@ -633,7 +633,9 @@ describe("로그인 공급자 상세", () => {
     });
     const user = await setupUser();
     const dialog = await openRules(user);
-    expect(dialog.querySelector('[name="require_verified_email"]')).toBeNull();
+    expect(
+      dialog.querySelectorAll('[name="require_verified_email"]'),
+    ).toHaveLength(0);
     within(dialog).getByText("Google 공급자는 항상 요구합니다.");
     await user.selectOptions(named(dialog, "jit_role"), "member");
     await user.click(within(dialog).getByRole("button", { name: "저장" }));
