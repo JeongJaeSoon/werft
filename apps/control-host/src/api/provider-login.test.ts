@@ -441,7 +441,7 @@ describe("provider sign-in: finish", () => {
                       userId: OWNER.userId,
                       sessionId: OWNER.sessionId,
                       secretSlot: "current" as const,
-                      secretId: RECEIPT_ID,
+                      secretId: OTHER_ID,
                       secretVersion: 1,
                     },
                   }
@@ -534,9 +534,10 @@ function adminOf(overrides: Partial<LoginProvider> = {}) {
     row: providerFor({ enabled: false, ...overrides }),
     slot: "current" as LoginProviderSecretSlot,
     clientSecret: CLIENT_SECRET as string | null,
-    // The row the secret sits in. The start is never handed a receipt id,
-    // so it cannot arrive at this one by another road.
-    secretId: RECEIPT_ID,
+    // The row the secret sits in: an id that is not the provider's, the
+    // owner's, their session's or the receipt's, so a test passes only when
+    // the callback compares it with the one the start sealed.
+    secretId: OTHER_ID,
     secretVersion: 1 as number | null,
     known: "none" as LoginProviderEntryPreview,
     outcome: "recorded" as "recorded" | "stale" | "not_found",
@@ -629,7 +630,7 @@ describe("provider test sign-in", () => {
         userId: OWNER.userId,
         sessionId: OWNER.sessionId,
         secretSlot: "next",
-        secretId: RECEIPT_ID,
+        secretId: OTHER_ID,
         secretVersion: 3,
       },
     });
@@ -794,7 +795,7 @@ describe("provider test sign-in", () => {
       // A slot emptied and filled again counts its versions from 1 anew.
       "the secret for another in the same slot at the same version",
       (stored) => {
-        stored.secretId = OTHER_ID;
+        stored.secretId = PROVIDER_ID;
       },
     ],
     [
