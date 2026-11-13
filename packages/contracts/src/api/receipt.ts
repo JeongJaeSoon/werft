@@ -218,6 +218,10 @@ export const RECEIPT_OPERATION_VALUES = [
   "enable_login_provider",
   "disable_login_provider",
   "delete_login_provider",
+  // A person's own ways to sign in. The issuer and the method's id; never
+  // the subject or an address.
+  "link_login_method",
+  "unlink_login_method",
 ] as const;
 
 export const receiptStatusSchema = z.enum(RECEIPT_STATUS_VALUES);

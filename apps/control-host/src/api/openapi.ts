@@ -127,6 +127,7 @@ import {
   linkAgentIdentityRequestSchema,
   linkAgentIdentityResponseSchema,
   linkedAccountParamsSchema,
+  linkMyLoginMethodParamsSchema,
   listAchievementCategoriesResponseSchema,
   listAchievementRulesResponseSchema,
   listAchievementTypesResponseSchema,
@@ -147,6 +148,7 @@ import {
   listLoginProvidersResponseSchema,
   listMembersQuerySchema,
   listMembersResponseSchema,
+  listMyLoginMethodsResponseSchema,
   listMyTeamsQuerySchema,
   listMyTeamsResponseSchema,
   listPendingRequestsResponseSchema,
@@ -178,6 +180,7 @@ import {
   memberParamsSchema,
   memberUserParamsSchema,
   memberViewSchema,
+  myLoginMethodParamsSchema,
   openPullRequestQuerySchema,
   openPullRequestRequestSchema,
   openPullRequestResponseSchema,
@@ -304,6 +307,7 @@ import {
   startGitHubAppManifestResponseSchema,
   startGitHubInstallationResponseSchema,
   startGitHubLinkResponseSchema,
+  startProviderInviteRequestSchema,
   startProviderLoginResponseSchema,
   startSlackInstallResponseSchema,
   startSlackLinkResponseSchema,
@@ -318,6 +322,7 @@ import {
   terminateSessionResponseSchema,
   turnIdParamsSchema,
   turnSummarySchema,
+  unlinkMyLoginMethodResponseSchema,
   updateAchievementCategoryRequestSchema,
   updateAchievementTypeRequestSchema,
   updateAgentRequestSchema,
@@ -423,6 +428,7 @@ const requestComponents = {
   SlackLinkCallbackRequest: slackLinkCallbackRequestSchema,
   CreateInviteRequest: createInviteRequestSchema,
   AcceptInviteRequest: acceptInviteRequestSchema,
+  StartProviderInviteRequest: startProviderInviteRequestSchema,
   UpdateMemberRequest: updateMemberRequestSchema,
   UpdateSessionRequest: updateSessionRequestSchema,
   SetAccessRequest: setAccessRequestSchema,
@@ -554,6 +560,8 @@ const responseComponents = {
   LoginProviderResponse: loginProviderResponseSchema,
   DiscoverLoginProviderResponse: discoverLoginProviderResponseSchema,
   DisableLoginProviderResponse: disableLoginProviderResponseSchema,
+  ListMyLoginMethodsResponse: listMyLoginMethodsResponseSchema,
+  UnlinkMyLoginMethodResponse: unlinkMyLoginMethodResponseSchema,
   IssuePasswordResetRequest: issuePasswordResetRequestSchema,
   IssuePasswordResetResponse: issuePasswordResetResponseSchema,
   AuditRetentionResponse: auditRetentionResponseSchema,
@@ -1540,12 +1548,47 @@ export const API_ROUTE_DECLARATIONS = [
   },
   {
     method: "post",
+    path: "/v1/auth/providers/{id}/invite/start",
+    operationId: "startProviderInvite",
+    tag: "Auth",
+    summary:
+      "Begin an invite's sign-up with a provider; answers the provider's URL to open",
+    description:
+      "For the person an invite was sent to, in place of choosing a password. The token goes in the body and is not spent here: the flow cookie binds the flow to the invite, and POST /v1/auth/oidc/callback spends it when the provider vouches for an account no user has yet. The account gets the invite's address and role, whatever address the provider reports. A revoked, replaced or expired token answers 410, an accepted one 409; an unknown token answers like a revoked one.",
+    auth: "public",
+    csrf: "always",
+    body: "StartProviderInviteRequest",
+    requestExample: {
+      invite_token:
+        "apv_0000000000000000000000000000000000000000000000000000000000000000",
+    },
+    success: {
+      status: 200,
+      schema: "StartProviderLoginResponse",
+      description:
+        "The flow has started; the response sets the flow cookie. Send the browser to `authorization_url`.",
+      example: {
+        authorization_url:
+          "https://idp.example.com/oauth2/authorize?response_type=code&client_id=werft-console&state=example",
+      },
+    },
+    errors: [400, 403, 404, 409, 410, 413, 503],
+    errorNotes: {
+      NOT_FOUND: "No provider has this id, or it is turned off.",
+      BACKEND_UNAVAILABLE:
+        "`CONSOLE_ORIGIN` is not set, the provider has no client ID or client secret, or its authorization endpoint is plain http outside a local stack.",
+    },
+    errorCodes: { 409: ["INVITE_USED"], 410: ["INVITE_EXPIRED"] },
+    idempotent: false,
+  },
+  {
+    method: "post",
     path: "/v1/auth/oidc/callback",
     operationId: "providerLoginCallback",
     tag: "Auth",
     summary: "Finish sign-in with a provider; sets the session cookie",
     description:
-      "Posts what the provider returned to the redirect URI: `code`, `state`, `iss` when it sent one, and the `provider_id` from the redirect path. The flow cookie must open, match `state` and `provider_id`, be no older than ten minutes, and the provider must still be on with the settings the flow started under. The first matching rule then decides: an account already linked to the provider's (issuer, subject) signs in as its user; an address the provider vouches for that already has an account answers 409 LOGIN_LINK_REQUIRED and is never joined by email; otherwise a live invite for that address, or the provider's JIT setting, creates the account. Anything else answers 401 without saying why or whether an account exists. An account outside the provider's allowed domains answers 403. Calls to providers share a concurrency limit, past which this answers 429.",
+      "Posts what the provider returned to the redirect URI: `code`, `state`, `iss` when it sent one, and the `provider_id` from the redirect path. The flow cookie must open, match `state` and `provider_id`, be no older than ten minutes, and the provider must still be on with the settings the flow started under. The first matching rule then decides: an account already linked to the provider's (issuer, subject) signs in as its user; an address the provider vouches for that already has an account answers 409 LOGIN_LINK_REQUIRED and is never joined by email; otherwise a live invite for that address, or the provider's JIT setting, creates the account. Anything else answers 401 without saying why or whether an account exists. An account outside the provider's allowed domains answers 403. Calls to providers share a concurrency limit, past which this answers 429. A flow started for an invite ends differently: the invite it was started with, if still live, makes the account with the invite's address and role whatever address the provider reports; an (issuer, subject) some user already has answers 409 ALREADY_EXISTS, an account that already has the invite's address answers 409 LOGIN_LINK_REQUIRED, and neither spends the invite or makes a session. A flow started from POST /v1/auth/me/login-methods/{provider_id}/link/start ends only in the session it was started from: it adds the (issuer, subject) to that session's user, makes no new session, and answers `outcome: \"linked\"`; an (issuer, subject) a user already has, or a second account of the same issuer for this user, answers 409 ALREADY_EXISTS.",
     auth: "public",
     csrf: "always",
     body: "ProviderLoginCallbackRequest",
@@ -1579,8 +1622,10 @@ export const API_ROUTE_DECLARATIONS = [
         "The request is not from the console's origin, or the account is outside the provider's allowed domains.",
       RATE_LIMITED:
         "Too many sign-ins are calling providers at once (`Retry-After: 1`).",
+      ALREADY_EXISTS:
+        "An invite or a link flow only. `details.reason_code` is `login_method_linked` when a user already has this (issuer, subject), `issuer_linked` when the user linking already has another account of this issuer.",
     },
-    errorCodes: { 409: ["LOGIN_LINK_REQUIRED"] },
+    errorCodes: { 409: ["LOGIN_LINK_REQUIRED", "ALREADY_EXISTS"] },
     idempotent: false,
   },
   {
@@ -3173,6 +3218,107 @@ export const API_ROUTE_DECLARATIONS = [
     errors: [400, 401, 403, 413, 503],
     errorNotes: {
       FORBIDDEN: "Also when the caller is not a cookie session (an API key).",
+    },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/auth/me/login-methods",
+    operationId: "listMyLoginMethods",
+    tag: "Auth",
+    summary: "The signed-in user's own ways to sign in",
+    description:
+      "The password and the provider accounts linked to the signed-in user, whether each can be used now (`usable`: a password that is set, or a provider that is on), and the providers that are on and not linked yet (`linkable`). `can_change` is false once the session is older than ten minutes: sign in again to link or remove one. It changes nothing.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "ListMyLoginMethodsResponse",
+      description: "The user's ways to sign in, and what can be linked.",
+      example: {
+        methods: [
+          {
+            id: "0d6f4b1e-2a37-4c58-9e60-b1c2d3e4f5a6",
+            kind: "password",
+            provider: null,
+            issuer: null,
+            email_at_link: null,
+            created_at: "2026-10-01T09:00:00Z",
+            last_login_at: "2026-10-11T09:00:00Z",
+            usable: true,
+          },
+        ],
+        linkable: [
+          {
+            id: "5b0c7e2a-9d41-4f6b-8a3e-7c1d2e3f4a5b",
+            display_name: "Example IdP",
+          },
+        ],
+        can_change: true,
+      },
+    },
+    errors: [401, 403, 503],
+    errorNotes: {
+      FORBIDDEN: "The caller is not a cookie session (an API key).",
+    },
+  },
+  {
+    method: "post",
+    path: "/v1/auth/me/login-methods/{provider_id}/link/start",
+    operationId: "startMyLoginMethodLink",
+    tag: "Auth",
+    summary:
+      "Begin linking a provider account to the signed-in user; answers the provider's URL to open",
+    description:
+      'Only from a session made within the last ten minutes, so an old session left open cannot be given another way in. Sets the flow cookie, bound to this user and this session; the browser comes back to the redirect URI and POST /v1/auth/oidc/callback answers `outcome: "linked"` in the same session. A sign-in flow cannot be turned into a link, and a link cannot be ended from another session.',
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "StartProviderLoginResponse",
+      description:
+        "The flow has started; the response sets the flow cookie. Send the browser to `authorization_url`.",
+      example: {
+        authorization_url:
+          "https://idp.example.com/oauth2/authorize?response_type=code&client_id=werft-console&state=example",
+      },
+    },
+    errors: [401, 403, 404, 503],
+    errorNotes: {
+      FORBIDDEN:
+        "The caller is not a cookie session, or the session is older than ten minutes (`details.reason_code: session_too_old`).",
+      NOT_FOUND: "No provider has this id, or it is turned off.",
+      BACKEND_UNAVAILABLE:
+        "`CONSOLE_ORIGIN` is not set, the provider has no client ID or client secret, or its authorization endpoint is plain http outside a local stack.",
+    },
+    idempotent: false,
+  },
+  {
+    method: "delete",
+    path: "/v1/auth/me/login-methods/{id}",
+    operationId: "unlinkMyLoginMethod",
+    tag: "Auth",
+    summary: "Remove one of the signed-in user's ways to sign in",
+    description:
+      "Only from a session made within the last ten minutes, like a link. In one transaction the way to sign in is removed and every live session made with it ends, this one included when it was. Removing the password clears it, and it does not come back: a reset link is issued only to an account that has a password. Refused when no usable way to sign in would be left: a provider that is off does not count as one. Writes an `unlink_login_method` receipt.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "UnlinkMyLoginMethodResponse",
+      description: "Removed, and how many sessions ended with it.",
+      example: {
+        sessions_revoked: 1,
+        receipt_id: "7a1c9e3b-5d2f-4a6c-8e0b-1d3f5a7c9e2b",
+      },
+    },
+    errors: [401, 403, 404, 409, 503],
+    errorCodes: { 409: ["REVISION_CONFLICT"] },
+    errorNotes: {
+      UNAUTHORIZED:
+        "Also when the session ended, or its user was turned off, while the request waited its turn: nothing was removed.",
+      FORBIDDEN:
+        "The caller is not a cookie session, or the session is older than ten minutes (`details.reason_code: session_too_old`).",
+      NOT_FOUND: "The user has no way to sign in with this id.",
+      REVISION_CONFLICT:
+        "It is the only usable way to sign in the user has (`details.reason_code: last_login_method`).",
     },
     idempotent: false,
   },
@@ -8119,6 +8265,10 @@ const PATH_PARAMETER_DESCRIPTIONS: Readonly<Record<string, string>> = {
     "The agent whose Slack app sends the interactions.",
   "invites/{id}": "The invite's id.",
   "linked-accounts/{id}": "The linked account's id.",
+  "login-methods/{id}":
+    "The id of one of the caller's own ways to sign in, from GET /v1/auth/me/login-methods.",
+  "login-methods/{provider_id}":
+    "The id of a sign-in provider that is on, from `linkable` of GET /v1/auth/me/login-methods.",
   "mcp-servers/{id}": "The MCP server's id.",
   "members/{userId}": "The member's user id.",
   "members/{user_id}": "The member's user id.",
@@ -8291,10 +8441,16 @@ function paramsSchemaFor(path: string): z.ZodObject {
     return usageToolCallsParamsSchema;
   }
   if (
-    path === "/v1/auth/providers/{id}/start" ||
+    path.startsWith("/v1/auth/providers/{id}/") ||
     path.startsWith("/v1/login-providers/{id}")
   ) {
     return loginProviderParamsSchema;
+  }
+  if (path === "/v1/auth/me/login-methods/{id}") {
+    return myLoginMethodParamsSchema;
+  }
+  if (path === "/v1/auth/me/login-methods/{provider_id}/link/start") {
+    return linkMyLoginMethodParamsSchema;
   }
   throw new Error(`No params schema registered for ${path}`);
 }

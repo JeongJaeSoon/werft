@@ -79,6 +79,7 @@ export * from "./action/ports/pull-request-settings.ts";
 export * from "./ports/identity-store.ts";
 export * from "./ports/installation-settings-store.ts";
 export * from "./ports/linked-account-store.ts";
+export * from "./ports/login-method-store.ts";
 export * from "./ports/login-provider-store.ts";
 export * from "./github/ports/mcp-egress.ts";
 export * from "./ports/member-store.ts";

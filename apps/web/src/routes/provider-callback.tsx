@@ -53,6 +53,7 @@ function refusalKey(error: ApiError): MessageKey {
 
 type Finished =
   | { readonly outcome: "signed_in" }
+  | { readonly outcome: "linked" }
   | {
       readonly outcome: "tested";
       readonly provider_id: string;
@@ -178,6 +179,12 @@ export function ProviderCallbackScreen() {
       // An owner's test signed nobody in: their session and what it has
       // read stand, and the answer is shown here.
       if (answer.outcome === "tested") return;
+      if (answer.outcome === "linked") {
+        // A link signed nobody in either: the person goes back to their
+        // account, in the session they started from.
+        await navigate({ to: "/settings/preferences", replace: true });
+        return;
+      }
       queryClient.clear();
       await navigate({ to: takePostLoginPath(), replace: true });
     },

@@ -8,11 +8,15 @@ import {
   issuePasswordResetResponseSchema,
   LOGIN_FLOW_COOKIE_NAME,
   LOGIN_FLOW_TTL_MINUTES,
+  LOGIN_LINK_SESSION_MAX_AGE_MINUTES,
+  linkMyLoginMethodParamsSchema,
+  listMyLoginMethodsResponseSchema,
   loginMethodsResponseSchema,
   loginProviderParamsSchema,
   loginRequestSchema,
   loginResponseSchema,
   memberParamsSchema,
+  myLoginMethodParamsSchema,
   normalizeEmail,
   PASSWORD_RESET_TTL_MINUTES,
   passwordResetRequestSchema,
@@ -20,7 +24,9 @@ import {
   providerLoginCallbackRequestSchema,
   providerLoginCallbackResponseSchema,
   scopesForRole,
+  startProviderInviteRequestSchema,
   startProviderLoginResponseSchema,
+  unlinkMyLoginMethodResponseSchema,
   updateAuthMeRequestSchema,
   type Workspace,
   type WorkspaceRole,
@@ -32,6 +38,7 @@ import {
   BootstrapTokenSpentError,
   type IdentityStore,
   type IdentityWorkspace,
+  type LoginMethodStore,
   MANAGEMENT_ROLES,
   passwordResetIssueDenial,
 } from "@werft-ai/platform";
@@ -93,7 +100,11 @@ export interface AuthRouteDeps {
   providers?: ProviderLogin;
   /** How many callbacks may be calling a provider at once. */
   providerWork?: WorkGate;
+  /** Absent: no sign-up by invite through a provider, no linking. */
+  loginMethods?: LoginMethodStore;
 }
+
+const LINK_SESSION_MAX_AGE_MS = LOGIN_LINK_SESSION_MAX_AGE_MINUTES * 60 * 1000;
 
 const INVALID_CREDENTIALS = "Invalid email or password";
 const PASSWORD_RESET_TTL_MS = PASSWORD_RESET_TTL_MINUTES * 60 * 1000;
@@ -446,44 +457,8 @@ export function registerPublicAuthRoutes(
     });
   });
 
-  const providerOff = () =>
-    new ApiHttpError(404, "NOT_FOUND", "No such sign-in provider");
-  /**
-   * The reason goes to the log only. Every 401 reads the same, so a caller
-   * cannot tell which check failed.
-   */
-  const providerMapped = async <T>(
-    providerId: string,
-    work: () => Promise<T>,
-  ): Promise<T> => {
-    try {
-      return await storageMapped(work);
-    } catch (error) {
-      if (!(error instanceof ProviderLoginError)) throw error;
-      deps.logger?.warn("Provider sign-in refused", {
-        provider_id: providerId,
-        kind: error.kind,
-        reason: error.reason,
-      });
-      if (error.kind === "not_found") throw providerOff();
-      if (error.kind === "forbidden") {
-        throw new ApiHttpError(
-          403,
-          "FORBIDDEN",
-          "This account's domain is not allowed here",
-        );
-      }
-      if (error.kind === "unavailable") {
-        throw new ApiHttpError(
-          503,
-          "BACKEND_UNAVAILABLE",
-          "Sign-in with this provider is unavailable, try again later",
-          true,
-        );
-      }
-      throw new ApiHttpError(401, "UNAUTHORIZED", PROVIDER_REJECTED);
-    }
-  };
+  const providerMapped = <T>(providerId: string, work: () => Promise<T>) =>
+    providerStep(deps.logger, providerId, work);
 
   apiRoute(
     router,
@@ -498,6 +473,48 @@ export function registerPublicAuthRoutes(
       const providers = deps.providers;
       if (!providers) throw providerOff();
       const flow = await providerMapped(id, () => providers.start(id));
+      setLoginFlowCookie(context, flow.cookieValue);
+      context.header("Cache-Control", "no-store");
+      return jsonWithSchema(context, startProviderLoginResponseSchema, {
+        authorization_url: flow.authorizationUrl,
+      });
+    },
+  );
+
+  apiRoute(
+    router,
+    "startProviderInvite",
+    ingestThenStopClock,
+    async (context) => {
+      const violation = browserRequestViolation(context);
+      if (violation) {
+        throw new ApiHttpError(403, "FORBIDDEN", `Refused: ${violation}`);
+      }
+      const { id } = requireParams(context, loginProviderParamsSchema);
+      const body = await parseJsonBody(
+        context,
+        startProviderInviteRequestSchema,
+      );
+      const providers = deps.providers;
+      const methods = deps.loginMethods;
+      if (!providers || !methods) throw providerOff();
+      // An unknown token is a 256-bit guess; it answers like a revoked one,
+      // as when a password redeems it.
+      const invite = await storageMapped(() =>
+        methods.inviteForSignUp(hashWebSessionToken(body.invite_token)),
+      );
+      if (invite.outcome !== "pending") {
+        throw invite.outcome === "used"
+          ? new ApiHttpError(409, "INVITE_USED", "This invite was already used")
+          : new ApiHttpError(
+              410,
+              "INVITE_EXPIRED",
+              "This invite was revoked, replaced or has expired",
+            );
+      }
+      const flow = await providerMapped(id, () =>
+        providers.startInvite({ providerId: id, inviteId: invite.inviteId }),
+      );
       setLoginFlowCookie(context, flow.cookieValue);
       context.header("Cache-Control", "no-store");
       return jsonWithSchema(context, startProviderLoginResponseSchema, {
@@ -527,12 +544,6 @@ export function registerPublicAuthRoutes(
       const cookieValue = getCookie(context, LOGIN_FLOW_COOKIE_NAME);
       const providers = deps.providers;
       if (!providers) throw providerOff();
-      // The requests to the provider are made for anyone who asks.
-      const slot = providerWork.tryAcquire();
-      if (!slot) {
-        throw rateLimited(1000, "Too many sign-ins in progress");
-      }
-      const releaseSlot = await slot;
       const callback = {
         cookieValue,
         providerId: body.provider_id,
@@ -540,19 +551,31 @@ export function registerPublicAuthRoutes(
         state: body.state,
         responseIssuer: body.iss,
       };
-      let finished: Awaited<ReturnType<ProviderLogin["finish"]>>;
+      const purpose = providers.purposeOf(cookieValue);
+      // A test and a link end only in the session they were started from.
+      // Read ahead of the work slot: a storage outage here holds none.
+      const sessionCookie =
+        purpose === "test" || purpose === "link"
+          ? webSessionCookie(context)
+          : undefined;
+      const session = sessionCookie
+        ? await storageMapped(() =>
+            deps.identity.resolveWebSession(hashWebSessionToken(sessionCookie)),
+          )
+        : null;
+      // The requests to the provider are made for anyone who asks.
+      const slot = providerWork.tryAcquire();
+      if (!slot) {
+        throw rateLimited(1000, "Too many sign-ins in progress");
+      }
+      const releaseSlot = await slot;
+      // What the flow ends in, once the provider has answered and the work
+      // slot is given back.
+      let end: () => Promise<Response>;
       try {
-        if (providers.purposeOf(cookieValue) === "test") {
+        if (purpose === "test") {
           // An owner's test of a provider: the session of this request has
           // to be the one the test was started from, and still an owner's.
-          const sessionCookie = webSessionCookie(context);
-          const session = sessionCookie
-            ? await storageMapped(() =>
-                deps.identity.resolveWebSession(
-                  hashWebSessionToken(sessionCookie),
-                ),
-              )
-            : null;
           const tested = await providerMapped(body.provider_id, () =>
             providers.finishTest({
               ...callback,
@@ -581,85 +604,276 @@ export function registerPublicAuthRoutes(
             test: tested.test,
           });
         }
-        finished = await providerMapped(body.provider_id, () =>
-          providers.finish(callback),
-        );
+        if (purpose === "invite") {
+          const answer = await providerMapped(body.provider_id, () =>
+            providers.finishInvite(callback),
+          );
+          end = () => signUpByInvite(context, answer);
+        } else if (purpose === "link") {
+          const answer = await providerMapped(body.provider_id, () =>
+            providers.finishLink({
+              ...callback,
+              session: session && {
+                userId: session.userId,
+                sessionId: session.sessionId,
+              },
+            }),
+          );
+          // finishLink refused a request with no session.
+          if (!session) throw new Error("a link ended without its session");
+          end = () => link(context, answer, session);
+        } else {
+          const answer = await providerMapped(body.provider_id, () =>
+            providers.finish(callback),
+          );
+          end = () => signIn(context, answer);
+        }
       } finally {
         releaseSlot();
       }
-      const { provider, identity, admission } = finished;
-      const token = generateWebSessionToken();
-      const result = await storageMapped(() =>
-        deps.identity.signInWithExternalIdentity({
-          kind: "oidc",
-          provider: {
-            id: provider.id,
-            configRevision: provider.configRevision,
-          },
-          issuer: identity.issuer,
-          subject: identity.subject,
-          email: identity.email,
-          displayName: displayNameFor(identity),
-          jitRole: admission.jitRole,
-          ownsEmail: admission.ownsEmail,
-          newUserId: randomUUID(),
-          newLoginMethodId: randomUUID(),
-          receiptId: randomUUID(),
-          session: {
-            id: randomUUID(),
-            tokenHash: hashWebSessionToken(token),
-            ttlMs: WEB_SESSION_TTL_MS,
-            userAgent: context.req.header("User-Agent")?.slice(0, 512) ?? null,
-            maxLive: WEB_SESSIONS_PER_USER,
-          },
-        }),
-      );
-      if (result.outcome === "provider_off") {
-        deps.logger?.warn("Provider sign-in refused", {
-          provider_id: provider.id,
-          kind: "not_found",
-          reason: "provider_off_at_sign_in",
-        });
+      return end();
+    },
+  );
+
+  type Answer = Awaited<ReturnType<ProviderLogin["finish"]>>;
+  const sessionInput = (context: Context, token: string) => ({
+    id: randomUUID(),
+    tokenHash: hashWebSessionToken(token),
+    ttlMs: WEB_SESSION_TTL_MS,
+    userAgent: context.req.header("User-Agent")?.slice(0, 512) ?? null,
+    maxLive: WEB_SESSIONS_PER_USER,
+  });
+  const refusedAfterAnswer = (providerId: string, reason: string) =>
+    deps.logger?.warn("Provider sign-in refused", {
+      provider_id: providerId,
+      kind: reason === "provider_off_at_sign_in" ? "not_found" : "rejected",
+      reason,
+    });
+  const linkRequired = () =>
+    new ApiHttpError(
+      409,
+      "LOGIN_LINK_REQUIRED",
+      "Sign in with your existing account, then connect this provider in settings",
+    );
+  const alreadyLinked = (reason: "login_method_linked" | "issuer_linked") =>
+    new ApiHttpError(
+      409,
+      "ALREADY_EXISTS",
+      reason === "issuer_linked"
+        ? "Another account of this provider is connected to you already"
+        : "This provider account is connected to a user already",
+      false,
+      undefined,
+      { reason_code: reason },
+    );
+
+  /** The end of an `invite` flow: the invite admits, the provider says who. */
+  const signUpByInvite = async (
+    context: Context,
+    answer: Answer & { inviteId: string },
+  ) => {
+    const { provider, identity, admission } = answer;
+    const methods = deps.loginMethods;
+    if (!methods) throw providerOff();
+    const token = generateWebSessionToken();
+    const result = await storageMapped(() =>
+      methods.signUpWithInvite({
+        provider: { id: provider.id, configRevision: provider.configRevision },
+        inviteId: answer.inviteId,
+        issuer: identity.issuer,
+        subject: identity.subject,
+        vouchedEmail: admission.ownsEmail ? identity.email : null,
+        name: identity.name?.trim().slice(0, 64) || null,
+        newUserId: randomUUID(),
+        newLoginMethodId: randomUUID(),
+        receiptId: randomUUID(),
+        session: sessionInput(context, token),
+      }),
+    );
+    switch (result.outcome) {
+      case "provider_off":
+        refusedAfterAnswer(provider.id, "provider_off_at_sign_in");
         throw providerOff();
-      }
-      if (result.outcome === "link_required") {
+      case "invite_gone":
+        refusedAfterAnswer(provider.id, "invite_gone");
+        throw new ApiHttpError(401, "UNAUTHORIZED", PROVIDER_REJECTED);
+      case "already_linked":
+        refusedAfterAnswer(provider.id, "invite_account_linked");
+        throw alreadyLinked("login_method_linked");
+      case "link_required":
         deps.logger?.info("Provider sign-in needs linking to an account", {
           provider_id: provider.id,
         });
-        throw new ApiHttpError(
-          409,
-          "LOGIN_LINK_REQUIRED",
-          "Sign in with your existing account, then connect this provider in settings",
-        );
-      }
-      if (result.outcome === "rejected") {
-        deps.logger?.warn("Provider sign-in refused", {
-          provider_id: provider.id,
-          kind: "rejected",
-          reason: "no_rule_admits",
-        });
+        throw linkRequired();
+    }
+    deps.logger?.info("Provider sign-in", {
+      provider_id: provider.id,
+      user_id: result.userId,
+      workspace_id: result.workspaceId,
+      via: "invite_token",
+    });
+    setWebSessionCookie(context, token, result.expiresAt);
+    return jsonWithSchema(context, providerLoginCallbackResponseSchema, {
+      outcome: "signed_in",
+      user_id: result.userId,
+      workspace_id: result.workspaceId,
+      role: result.role,
+      scopes: [...scopesForRole(result.role)],
+      expires_at: result.expiresAt.toISOString(),
+    });
+  };
+
+  /** The end of a `link` flow: one more way in for the session's user. */
+  const link = async (
+    context: Context,
+    answer: Answer,
+    session: { userId: string; sessionId: string; workspaceId: string },
+  ) => {
+    const { provider, identity, admission } = answer;
+    const methods = deps.loginMethods;
+    if (!methods) throw providerOff();
+    const result = await storageMapped(() =>
+      methods.link({
+        provider: { id: provider.id, configRevision: provider.configRevision },
+        issuer: identity.issuer,
+        subject: identity.subject,
+        vouchedEmail: admission.ownsEmail ? identity.email : null,
+        userId: session.userId,
+        sessionId: session.sessionId,
+        workspaceId: session.workspaceId,
+        newLoginMethodId: randomUUID(),
+        receiptId: randomUUID(),
+      }),
+    );
+    switch (result.outcome) {
+      case "provider_off":
+        refusedAfterAnswer(provider.id, "provider_off_at_sign_in");
+        throw providerOff();
+      case "session_gone":
+        refusedAfterAnswer(provider.id, "link_session_gone");
         throw new ApiHttpError(401, "UNAUTHORIZED", PROVIDER_REJECTED);
-      }
-      deps.logger?.info("Provider sign-in", {
+      case "already_linked":
+        throw alreadyLinked("login_method_linked");
+      case "issuer_linked":
+        throw alreadyLinked("issuer_linked");
+    }
+    deps.logger?.info("Login method linked", {
+      provider_id: provider.id,
+      user_id: session.userId,
+      login_method_id: result.loginMethodId,
+    });
+    context.header("Cache-Control", "no-store");
+    return jsonWithSchema(context, providerLoginCallbackResponseSchema, {
+      outcome: "linked",
+      provider_id: provider.id,
+    });
+  };
+
+  /** The end of a `login` flow: the first-entry rules decide (design 6.1). */
+  const signIn = async (context: Context, answer: Answer) => {
+    const { provider, identity, admission } = answer;
+    const token = generateWebSessionToken();
+    const result = await storageMapped(() =>
+      deps.identity.signInWithExternalIdentity({
+        kind: "oidc",
+        provider: {
+          id: provider.id,
+          configRevision: provider.configRevision,
+        },
+        issuer: identity.issuer,
+        subject: identity.subject,
+        email: identity.email,
+        displayName: displayNameFor(identity),
+        jitRole: admission.jitRole,
+        ownsEmail: admission.ownsEmail,
+        newUserId: randomUUID(),
+        newLoginMethodId: randomUUID(),
+        receiptId: randomUUID(),
+        session: sessionInput(context, token),
+      }),
+    );
+    if (result.outcome === "provider_off") {
+      deps.logger?.warn("Provider sign-in refused", {
         provider_id: provider.id,
-        user_id: result.userId,
-        workspace_id: result.workspaceId,
-        via: result.via,
+        kind: "not_found",
+        reason: "provider_off_at_sign_in",
       });
-      setWebSessionCookie(context, token, result.expiresAt);
-      return jsonWithSchema(context, providerLoginCallbackResponseSchema, {
-        outcome: "signed_in",
-        user_id: result.userId,
-        workspace_id: result.workspaceId,
-        role: result.role,
-        scopes: [...scopesForRole(result.role)],
-        expires_at: result.expiresAt.toISOString(),
+      throw providerOff();
+    }
+    if (result.outcome === "link_required") {
+      deps.logger?.info("Provider sign-in needs linking to an account", {
+        provider_id: provider.id,
       });
-    },
-  );
+      throw linkRequired();
+    }
+    if (result.outcome === "rejected") {
+      deps.logger?.warn("Provider sign-in refused", {
+        provider_id: provider.id,
+        kind: "rejected",
+        reason: "no_rule_admits",
+      });
+      throw new ApiHttpError(401, "UNAUTHORIZED", PROVIDER_REJECTED);
+    }
+    deps.logger?.info("Provider sign-in", {
+      provider_id: provider.id,
+      user_id: result.userId,
+      workspace_id: result.workspaceId,
+      via: result.via,
+    });
+    setWebSessionCookie(context, token, result.expiresAt);
+    return jsonWithSchema(context, providerLoginCallbackResponseSchema, {
+      outcome: "signed_in",
+      user_id: result.userId,
+      workspace_id: result.workspaceId,
+      role: result.role,
+      scopes: [...scopesForRole(result.role)],
+      expires_at: result.expiresAt.toISOString(),
+    });
+  };
 }
 
 const PROVIDER_REJECTED = "Sign-in was not accepted";
+
+const providerOff = () =>
+  new ApiHttpError(404, "NOT_FOUND", "No such sign-in provider");
+
+/**
+ * Runs a step of a provider flow. Why it was refused goes to the log only:
+ * every 401 reads the same, so a caller cannot tell which check failed.
+ */
+async function providerStep<T>(
+  logger: StructuredLogger | undefined,
+  providerId: string,
+  work: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await storageMapped(work);
+  } catch (error) {
+    if (!(error instanceof ProviderLoginError)) throw error;
+    logger?.warn("Provider sign-in refused", {
+      provider_id: providerId,
+      kind: error.kind,
+      reason: error.reason,
+    });
+    if (error.kind === "not_found") throw providerOff();
+    if (error.kind === "forbidden") {
+      throw new ApiHttpError(
+        403,
+        "FORBIDDEN",
+        "This account's domain is not allowed here",
+      );
+    }
+    if (error.kind === "unavailable") {
+      throw new ApiHttpError(
+        503,
+        "BACKEND_UNAVAILABLE",
+        "Sign-in with this provider is unavailable, try again later",
+        true,
+      );
+    }
+    throw new ApiHttpError(401, "UNAUTHORIZED", PROVIDER_REJECTED);
+  }
+}
 
 function displayNameFor(identity: {
   name: string | null;
@@ -711,6 +925,151 @@ export function registerAuthRoutes(router: ApiRouter, deps: AuthRouteDeps) {
       deps.identity.setUserLocale(session.userId, body.locale),
     );
     return context.body(null, 204);
+  });
+
+  /** A person's ways to sign in are theirs to see and change, signed in. */
+  const ownSession = (context: Context) => {
+    const principal = context.get("principal");
+    const session = context.get("webSession");
+    if (principal.kind !== "user" || !session) {
+      throw new ApiHttpError(
+        403,
+        "FORBIDDEN",
+        "A user's ways to sign in change from their own session only",
+      );
+    }
+    return session;
+  };
+  const sessionIsFresh = (
+    methods: LoginMethodStore,
+    session: { sessionId: string; userId: string },
+  ) =>
+    storageMapped(() =>
+      methods.sessionIsFresh({
+        sessionId: session.sessionId,
+        userId: session.userId,
+        maxAgeMs: LINK_SESSION_MAX_AGE_MS,
+      }),
+    );
+  const sessionTooOld = () =>
+    new ApiHttpError(
+      403,
+      "FORBIDDEN",
+      `Sign in again: ways to sign in change within ${LOGIN_LINK_SESSION_MAX_AGE_MINUTES} minutes of signing in`,
+      false,
+      undefined,
+      { reason_code: "session_too_old" },
+    );
+  // Whoever holds a session left open can neither add their own way in to
+  // the account nor take one away: the person signs in again first.
+  const requireFreshSession = async (
+    methods: LoginMethodStore,
+    session: { sessionId: string; userId: string },
+  ) => {
+    if (!(await sessionIsFresh(methods, session))) throw sessionTooOld();
+  };
+
+  apiRoute(router, "listMyLoginMethods", async (context) => {
+    const session = ownSession(context);
+    const methods = deps.loginMethods;
+    if (!methods) throw providerOff();
+    const [mine, fresh] = await Promise.all([
+      storageMapped(() => methods.list(session.userId)),
+      sessionIsFresh(methods, session),
+    ]);
+    context.header("Cache-Control", "no-store");
+    return jsonWithSchema(context, listMyLoginMethodsResponseSchema, {
+      methods: mine.methods.map((method) => ({
+        id: method.id,
+        kind: method.kind,
+        provider: method.provider && {
+          id: method.provider.id,
+          display_name: method.provider.displayName,
+          enabled: method.provider.enabled,
+        },
+        issuer: method.issuer,
+        email_at_link: method.emailAtLink,
+        created_at: method.createdAt.toISOString(),
+        last_login_at: method.lastLoginAt?.toISOString() ?? null,
+        usable: method.usable,
+      })),
+      linkable: mine.linkable.map((provider) => ({
+        id: provider.id,
+        display_name: provider.displayName,
+      })),
+      can_change: fresh,
+    });
+  });
+
+  apiRoute(router, "startMyLoginMethodLink", async (context) => {
+    const session = ownSession(context);
+    const { provider_id: id } = requireParams(
+      context,
+      linkMyLoginMethodParamsSchema,
+    );
+    const providers = deps.providers;
+    const methods = deps.loginMethods;
+    if (!providers || !methods) throw providerOff();
+    await requireFreshSession(methods, session);
+    const flow = await providerStep(deps.logger, id, () =>
+      providers.startLink({
+        providerId: id,
+        userId: session.userId,
+        sessionId: session.sessionId,
+      }),
+    );
+    setLoginFlowCookie(context, flow.cookieValue);
+    context.header("Cache-Control", "no-store");
+    return jsonWithSchema(context, startProviderLoginResponseSchema, {
+      authorization_url: flow.authorizationUrl,
+    });
+  });
+
+  apiRoute(router, "unlinkMyLoginMethod", async (context) => {
+    const session = ownSession(context);
+    const { id } = requireParams(context, myLoginMethodParamsSchema);
+    const methods = deps.loginMethods;
+    if (!methods) throw providerOff();
+    await requireFreshSession(methods, session);
+    const receiptId = randomUUID();
+    const result = await storageMapped(() =>
+      methods.unlink({
+        userId: session.userId,
+        sessionId: session.sessionId,
+        maxAgeMs: LINK_SESSION_MAX_AGE_MS,
+        loginMethodId: id,
+        workspaceId: session.workspaceId,
+        receiptId,
+      }),
+    );
+    if (result.outcome === "session_gone") {
+      // Ended between this request's authentication and its turn.
+      throw new ApiHttpError(401, "UNAUTHORIZED", "Sign in again");
+    }
+    // Fresh when asked, and past the age by the time its turn came.
+    if (result.outcome === "session_too_old") throw sessionTooOld();
+    if (result.outcome === "not_found") {
+      throw new ApiHttpError(404, "NOT_FOUND", "No such way to sign in");
+    }
+    if (result.outcome === "last_method") {
+      throw new ApiHttpError(
+        409,
+        "REVISION_CONFLICT",
+        "This is the only way you can sign in; connect another first",
+        false,
+        undefined,
+        { reason_code: "last_login_method" },
+      );
+    }
+    deps.logger?.info("Login method unlinked", {
+      user_id: session.userId,
+      login_method_id: id,
+      sessions_revoked: result.sessionsRevoked,
+    });
+    return jsonWithSchema(context, unlinkMyLoginMethodResponseSchema, {
+      sessions_revoked: result.sessionsRevoked,
+      receipt_id: receiptId,
+    });
   });
 
   apiRoute(router, "issuePasswordReset", async (context) => {

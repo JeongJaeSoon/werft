@@ -126,9 +126,17 @@ export const providerLoginCallbackRequestSchema = z
     iss: z.string().min(1).max(2048).optional(),
   })
   .strict();
+/** A sign-up through a provider starts from the invite's token. */
+export const startProviderInviteRequestSchema = z
+  .object({
+    /** In the body, never the URL, as when a password redeems it. */
+    invite_token: z.string().min(1).max(256),
+  })
+  .strict();
 /**
- * What a flow ended in. A sign-in flow ends signed in; an owner's test of a
- * provider ends in what the provider answered, and signs nobody in.
+ * What a flow ended in. A sign-in flow and an invite's sign-up end signed
+ * in; an owner's test of a provider ends in what the provider answered, and
+ * a link in one more way to sign in: neither signs anybody in.
  */
 export const providerLoginCallbackResponseSchema = z.discriminatedUnion(
   "outcome",
@@ -143,6 +151,7 @@ export const providerLoginCallbackResponseSchema = z.discriminatedUnion(
         test: loginProviderTestResultSchema,
       })
       .strict(),
+    z.object({ outcome: z.literal("linked"), provider_id: z.uuid() }).strict(),
   ],
 );
 
