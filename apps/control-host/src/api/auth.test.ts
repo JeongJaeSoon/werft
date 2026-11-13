@@ -1430,6 +1430,53 @@ describe("login lockout", () => {
     expect(statuses.filter((s) => s === 429)).toHaveLength(7);
   });
 
+  test("a sign-in the store refuses after the password matched is counted and logged like a wrong one", async () => {
+    // Passwords closed to this person: the store decides that under its lock
+    // (packages/db covers when). Seven tries in a row, right and wrong.
+    const tries = async (password: string) => {
+      const h = harness({
+        lockout: new LoginLockout({ now: () => 1_000_000 }),
+      });
+      await h.bootstrap();
+      h.identity.createWebSession = async () => null;
+      const answers: unknown[] = [];
+      for (let i = 0; i < 7; i += 1) {
+        const response = await h.login("owner@example.com", password);
+        const { error } = apiErrorResponseSchema.parse(await response.json());
+        answers.push({
+          status: response.status,
+          code: error.code,
+          message: error.message,
+          retryAfter: response.headers.get("Retry-After"),
+          cookie: response.headers.get("Set-Cookie"),
+        });
+      }
+      const logged = h.sink.records
+        .filter((record) => record.message === "Login failed")
+        .map(({ level, fields }) => ({ level, fields }));
+      return { answers, logged };
+    };
+    const right = await tries(PASSWORD);
+    expect(right.answers.map((a) => (a as { status: number }).status)).toEqual([
+      401, 401, 401, 401, 401, 429, 429,
+    ]);
+    expect(right.logged).toHaveLength(5);
+    expect(right).toEqual(await tries(WRONG));
+  });
+
+  test("a sign-in that makes a session clears the count of failures before it", async () => {
+    const h = harness({ lockout: new LoginLockout({ now: () => 1_000_000 }) });
+    await h.bootstrap();
+    for (let i = 0; i < 4; i += 1) {
+      expect((await h.login("owner@example.com", WRONG)).status).toBe(401);
+    }
+    expect((await h.login()).status).toBe(200);
+    for (let i = 0; i < 5; i += 1) {
+      expect((await h.login("owner@example.com", WRONG)).status).toBe(401);
+    }
+    expect((await h.login()).status).toBe(429);
+  });
+
   test("a storage outage does not spend the budget, even in a concurrent burst", async () => {
     const lockout = new LoginLockout({ now: () => 1_000_000 });
     const h = harness({ lockout });

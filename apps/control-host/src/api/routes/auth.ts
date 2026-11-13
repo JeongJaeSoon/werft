@@ -437,7 +437,6 @@ export function registerPublicAuthRoutes(
     } finally {
       releaseSlot();
     }
-    lockout.clear(email);
     const token = generateWebSessionToken();
     const created = await storageMapped(() =>
       deps.identity.createWebSession({
@@ -451,9 +450,14 @@ export function registerPublicAuthRoutes(
       }),
     );
     if (!created) {
-      // A reset or a disable landed after the password was checked.
+      // Passwords are closed to this person, or a reset or a disable landed
+      // after the password was checked. It stays counted and is logged as a
+      // wrong password is: neither the answer, the lockout nor the log may
+      // say the password was right.
+      deps.logger?.warn("Login failed", { has_user: true });
       throw new ApiHttpError(401, "UNAUTHORIZED", INVALID_CREDENTIALS);
     }
+    lockout.clear(email);
     const { expiresAt } = created;
     setWebSessionCookie(context, token, expiresAt);
     return jsonWithSchema(context, loginResponseSchema, {
