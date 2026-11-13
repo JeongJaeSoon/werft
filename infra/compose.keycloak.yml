@@ -1,0 +1,38 @@
+# Opt-in overlay: a real Keycloak as a login provider, to drive provider
+# sign-in end to end against a server this repository did not write
+# (docs/contributing/decisions/oidc-login-providers.md, section 10).
+#
+# Keycloak joins the API's network namespace, so the API and a browser on
+# this host both reach the realm at http://localhost:${KEYCLOAK_PORT}: one
+# issuer for both. The API takes a plain-http issuer only on loopback, and
+# only while CONSOLE_ORIGIN is on loopback too.
+#
+# The realm (infra/keycloak/werft-realm.json) signs with ES256 and has the
+# client `werft-console`, two users whose email is verified (ana, bo) and
+# one whose email is not (uma). The client secret and the users' password
+# come from the environment and are in no file.
+#
+# Never layer this over a real deployment: it publishes a development-mode
+# Keycloak beside the API.
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.8.1@sha256:3f3c5f8e03c614774b4bd9173b88391fefa4153bfc010d8012d59ad825377332
+    profiles: ["apps"]
+    network_mode: "service:api"
+    command:
+      - start-dev
+      - --import-realm
+      - --http-port=${KEYCLOAK_PORT:-8089}
+      - --hostname=http://localhost:${KEYCLOAK_PORT:-8089}
+    environment:
+      KEYCLOAK_WERFT_CLIENT_SECRET: ${KEYCLOAK_WERFT_CLIENT_SECRET:?the werft realm's client secret}
+      KEYCLOAK_WERFT_USER_PASSWORD: ${KEYCLOAK_WERFT_USER_PASSWORD:?the password of the werft realm's users}
+      KEYCLOAK_WERFT_CONSOLE_ORIGIN: ${CONSOLE_ORIGIN:?the console origin the redirect URIs are built on}
+    volumes:
+      # From the repository root: this file is layered with -f, and a layered
+      # file's paths are the project directory's, not its own.
+      - ./infra/keycloak/werft-realm.json:/opt/keycloak/data/import/werft-realm.json:ro
+  api:
+    ports:
+      # The same number on both sides: the issuer names it.
+      - "127.0.0.1:${KEYCLOAK_PORT:-8089}:${KEYCLOAK_PORT:-8089}"

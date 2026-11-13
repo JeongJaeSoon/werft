@@ -575,6 +575,8 @@ Google(`https://accounts.google.com`)은 누구나 계정을 만들 수 있어�
 
 시험용 IdP는 저장소 checkout(`packages/testkit`)이나 `local` target 이미지에서만 돈다. 게시 이미지에는 testkit이 없다. `bun packages/testkit/src/mock-oidc-main.ts`(`MOCK_OIDC_PORT`·`MOCK_OIDC_CLIENT_ID`·`MOCK_OIDC_CLIENT_SECRET`·`MOCK_OIDC_ISSUER`·`MOCK_OIDC_PUBLIC_URL`)가 공급자 대신 discovery·JWKS·authorize·token을 낸다. authorize는 바로 동의하고, 로그인할 계정은 authorization URL에 붙인 `login_hint`(id_token claim JSON의 base64url)로 고른다. 통합 테스트(`provider-login.integration.test.ts`)가 같은 IdP로 다섯 규칙을 고정한다. 테스트 이름의 규칙 번호(2 초대, 3 JIT, 4 같은 이메일)는 위 목록의 순서와 다르다. 위 목록이 실제 적용 순서다.
 
+실제 공급자 서버로 같은 흐름을 브라우저에서 보려면 로컬 스택에 `infra/compose.keycloak.yml`을 겹친다. 운영 설정이 아니고, 개발 모드 Keycloak을 API 옆에 여는 것이므로 실제 배포에는 겹치지 않는다. Keycloak은 API 컨테이너의 네트워크 이름공간에서 `KEYCLOAK_PORT`(기본 `8089`)로 뜨고, 그 포트가 `127.0.0.1`에 게시된다. 그래서 API와 이 머신의 브라우저가 같은 issuer `http://localhost:<KEYCLOAK_PORT>/realms/werft`를 본다(평문 `http` issuer는 issuer와 `CONSOLE_ORIGIN`이 모두 loopback일 때만 받는다). realm `werft`에는 client `werft-console`과 사용자 ana·bo(주소 검증됨), uma(검증 안 됨)가 있고 id_token은 `ES256`으로 서명한다. overlay는 값 셋을 요구하고, 없으면 `down`을 포함한 모든 compose 호출이 멈춘다: `KEYCLOAK_WERFT_CLIENT_SECRET`(그 client의 secret), `KEYCLOAK_WERFT_USER_PASSWORD`(세 사용자의 비밀번호), `CONSOLE_ORIGIN`(realm의 redirect URI가 `<CONSOLE_ORIGIN>/auth/callback/*`로 만들어진다). 두 값은 파일에 없으니 띄울 때마다 새로 만든다. 공급자는 관리 화면에서 issuer와 client ID `werft-console`, 그 secret으로 등록한다.
+
 ### 비밀번호 로그인 끄기, 비상 관리자, 복구
 
 비밀번호 로그인은 설치 전체에서 닫을 수 있다. 닫아도 **비상 관리자** 한 명은 비밀번호로 들어온다. 공급자(IdP)나 그 설정이 망가졌을 때 들어올 사람을 남겨 두는 것이다. 비상 관리자는 계정과 멤버십이 켜져 있고 비밀번호가 있는 owner 한 명이다. 새 설치는 bootstrap이 만든 owner가, 올린 설치는 migration `0277_login_settings`가 고른 owner(비밀번호가 있는 켜진 owner 가운데 멤버십이 가장 오래된 사람)가 비상 관리자다. 그런 owner가 없는 설치는 비어 있다.

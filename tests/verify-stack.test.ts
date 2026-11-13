@@ -77,6 +77,8 @@ esac
         VERIFY_AP_ROOT: join(dir, "runs"),
         VERIFY_SLOT_LIMIT: "",
         VERIFY_DEMO_ACCOUNTS: "",
+        VERIFY_CONSOLE_PORT: "",
+        VERIFY_STATE_VARS: "",
         STUB_POOLS: JSON.stringify(stub.pools),
         STUB_IDS: stub.networks.map((_, i) => `id${i}`).join("\n"),
         STUB_NETWORKS: JSON.stringify(stub.networks),
@@ -291,6 +293,76 @@ esac
       expect(stderr).toContain("VERIFY_SLOT_LIMIT must be a positive integer");
     }
     expect(await dockerCalls()).toEqual([]);
+  });
+
+  test("up.sh refuses a console port or a state variable it cannot use without asking docker", async () => {
+    for (const env of [
+      { VERIFY_CONSOLE_PORT: "80a" },
+      { VERIFY_CONSOLE_PORT: "-1" },
+      { VERIFY_STATE_VARS: "lower" },
+      { VERIFY_STATE_VARS: "A=B" },
+      { VERIFY_STATE_VARS: "VERIFY_TEST_NEVER_SET" },
+    ]) {
+      const { exitCode, stderr } = await run(
+        "up.sh",
+        [],
+        { pools: orbstackPools(30), networks: [] },
+        env,
+      );
+
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain(Object.keys(env)[0] ?? "");
+    }
+    expect(await dockerCalls()).toEqual([]);
+    expect(await runs()).toEqual([]);
+  });
+
+  test("up.sh publishes the API on VERIFY_CONSOLE_PORT and keeps VERIFY_STATE_VARS for the run's later steps", async () => {
+    // local.sh stops at the stand-in's `docker version`; what up.sh wrote for
+    // the run by then stays, because the teardown that follows fails too.
+    const written = async (env: Record<string, string>) => {
+      await rm(join(dir, "runs"), { force: true, recursive: true });
+      await run("up.sh", [], { pools: orbstackPools(30), networks: [] }, env);
+      const [id] = await runs();
+      expect(id).toBeDefined();
+      return join(dir, "runs", id ?? "");
+    };
+    const loopbackOn3000 = async (runDir: string) =>
+      (await Bun.file(join(runDir, "ports.yml")).text())
+        .split("\n")
+        .filter((line) => /"127\.0\.0\.1:\d*:3000"/.test(line))
+        .map((line) => line.trim());
+
+    expect(await loopbackOn3000(await written({}))).toEqual([
+      '- "127.0.0.1::3000"',
+      '- "127.0.0.1::3000"',
+    ]);
+
+    const kept = await written({
+      VERIFY_CONSOLE_PORT: "41234",
+      VERIFY_STATE_VARS: "VERIFY_TEST_KEPT VERIFY_TEST_ALSO",
+      VERIFY_TEST_KEPT: "a value's own $HOME",
+      VERIFY_TEST_ALSO: "http://127.0.0.1:41234",
+    });
+    expect(await loopbackOn3000(kept)).toEqual([
+      '- "127.0.0.1::3000"',
+      '- "127.0.0.1:41234:3000"',
+    ]);
+    // Read back the way lib.sh and down.sh read it: sourced, in a shell that
+    // was never given the values.
+    const sourced = Bun.spawnSync(
+      [
+        "bash",
+        "-c",
+        '. "$1" && export -p | grep -c "^declare -x VERIFY_TEST_" && printf "%s|%s" "$VERIFY_TEST_KEPT" "$VERIFY_TEST_ALSO"',
+        "bash",
+        join(kept, "state.env"),
+      ],
+      { env: { PATH: process.env.PATH ?? "" } },
+    );
+    expect(sourced.stdout.toString()).toBe(
+      "2\na value's own $HOME|http://127.0.0.1:41234",
+    );
   });
 
   test("up.sh hands local.sh 3 worker slots, 7 with the demo data, or VERIFY_SLOT_LIMIT, over the caller's own", async () => {

@@ -8,6 +8,9 @@
 #   up.sh infra/compose.x.yml  the same, with opt-in overlays on top
 #   VERIFY_DEMO_ACCOUNTS=1 up.sh  include the local demo accounts and data
 #   VERIFY_SLOT_LIMIT=5 up.sh  worker slots other than the default: 3, or 7 with the demo data
+#   VERIFY_CONSOLE_PORT=41234 up.sh  the API and console on that loopback port, not an ephemeral one
+#   VERIFY_STATE_VARS="A B" up.sh  keep these exported variables in the run's state: an overlay
+#                              that requires them needs them in every later compose call, down included
 #
 # Each worker takes a network, and so an address pool entry, of its own, so
 # the stack holds at most slots + 1 networks; up.sh stops before anything
@@ -23,6 +26,16 @@ slots=${VERIFY_SLOT_LIMIT:-$default_slots}
 case "$slots" in
   '' | 0* | *[!0-9]* | ?????*) echo "up.sh: VERIFY_SLOT_LIMIT must be a positive integer below 10000 (got '$slots')" >&2; exit 1 ;;
 esac
+console_port=${VERIFY_CONSOLE_PORT:-}
+case "$console_port" in
+  *[!0-9]*) echo "up.sh: VERIFY_CONSOLE_PORT must be a port number (got '$console_port')" >&2; exit 1 ;;
+esac
+for name in ${VERIFY_STATE_VARS:-}; do
+  case "$name" in
+    *[!A-Z0-9_]* | [0-9]*) echo "up.sh: VERIFY_STATE_VARS takes variable names (got '$name')" >&2; exit 1 ;;
+  esac
+  [ -n "${!name:-}" ] || { echo "up.sh: VERIFY_STATE_VARS names $name, which is not set" >&2; exit 1; }
+done
 "$(dirname "$0")/address-pool.sh" "$((slots + 1))" || {
   if [ "$?" = 1 ]; then
     echo "up.sh: nothing was started; down a stack you started, or start with a smaller VERIFY_SLOT_LIMIT" >&2
@@ -60,7 +73,7 @@ services:
       - "127.0.0.1::3000"
   api:
     ports: !override
-      - "127.0.0.1::3000"
+      - "127.0.0.1:${console_port}:3000"
     environment:
       BOOTSTRAP_TOKEN: "$token"
 EOF
@@ -74,6 +87,7 @@ EOF
   overlays=""
   for overlay in "$@"; do overlays="$overlays:$repo/$overlay"; done
   printf 'export COMPOSE_FILE=%q\n' "$repo/compose.yaml:$run/ports.yml$overlays"
+  for name in ${VERIFY_STATE_VARS:-}; do printf 'export %s=%q\n' "$name" "${!name}"; done
   # Per-run tags, as tests/e2e/run.sh does: the scheduler starts workers from
   # WORKER_IMAGE, so a shared :dev tag would let another stack's build
   # change what this one runs (and the reverse).
