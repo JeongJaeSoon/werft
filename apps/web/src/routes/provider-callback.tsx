@@ -16,11 +16,12 @@ import {
   Text,
   Link as TextLink,
 } from "@werft-ai/ui";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AuthPage, FormError } from "../components/auth-page.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, type MessageKey, useI18n } from "../i18n/i18n.tsx";
 import { POST_LOGIN_PATH_KEY, safeRedirect } from "./login.tsx";
+import { LINK_FLOW_KEY, myLoginMethodsQuery } from "./login-methods.tsx";
 
 export interface ProviderCallbackSearch {
   readonly code?: string;
@@ -44,6 +45,12 @@ export function providerCallbackSearch(
 }
 
 function refusalKey(error: ApiError): MessageKey {
+  // Only a link, or an invite's sign-up, is refused for whose the account is.
+  if (error.code === "ALREADY_EXISTS")
+    return (error.details as { reason_code?: unknown } | null)?.reason_code ===
+      "issuer_linked"
+      ? "loginMethods.callback.issuer"
+      : "loginMethods.callback.taken";
   if (error.code === "UNAUTHORIZED") return "login.provider.rejected";
   if (error.code === "FORBIDDEN") return "login.provider.forbidden";
   // The callback route answers 404 when the provider is gone or turned off.
@@ -132,6 +139,15 @@ function TestResult({ test }: { readonly test: LoginProviderTestResult }) {
   );
 }
 
+/** Whether this browser left for the provider to link an account. */
+function linkFlowStarted(): boolean {
+  try {
+    return sessionStorage.getItem(LINK_FLOW_KEY) !== null;
+  } catch {
+    return false;
+  }
+}
+
 function takePostLoginPath(): string {
   try {
     const stored = sessionStorage.getItem(POST_LOGIN_PATH_KEY);
@@ -158,6 +174,15 @@ export function ProviderCallbackScreen() {
     from: "/auth/callback/$providerId",
   });
   const sent = useRef(false);
+  // Read once and forgotten: the next flow of this tab may be a sign-in.
+  const [linking] = useState(linkFlowStarted);
+  useEffect(() => {
+    try {
+      sessionStorage.removeItem(LINK_FLOW_KEY);
+    } catch {
+      // Nothing to forget where nothing could be kept.
+    }
+  }, []);
 
   const finish = useMutation<Finished, ApiError>({
     meta: { public: true },
@@ -182,7 +207,10 @@ export function ProviderCallbackScreen() {
       if (answer.outcome === "linked") {
         // A link signed nobody in either: the person goes back to their
         // account, in the session they started from.
-        await navigate({ to: "/settings/preferences", replace: true });
+        await queryClient.invalidateQueries({
+          queryKey: myLoginMethodsQuery(client).queryKey,
+        });
+        await navigate({ to: "/settings/login-methods", replace: true });
         return;
       }
       queryClient.clear();
@@ -225,7 +253,14 @@ export function ProviderCallbackScreen() {
           </FormError>
           <Text variant="sub">
             <TextLink asChild underline="always">
-              <Link to="/login">{t("login.provider.backToLogin")}</Link>
+              {linking ? (
+                // Signed in already: the login page would only send them on.
+                <Link to="/settings/login-methods">
+                  {t("loginMethods.callback.back")}
+                </Link>
+              ) : (
+                <Link to="/login">{t("login.provider.backToLogin")}</Link>
+              )}
             </TextLink>
           </Text>
         </>

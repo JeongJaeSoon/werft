@@ -16,6 +16,7 @@ import {
   House,
   KeyRound,
   Link as LinkIcon,
+  LogIn,
   LogOut,
   type LucideIcon,
   Monitor,
@@ -61,6 +62,7 @@ type NavPath =
   | "/settings/workspace/mcp-servers"
   | "/settings/linked-accounts"
   | "/settings/api-keys"
+  | "/settings/login-methods"
   | "/settings/preferences";
 
 type NavIcon = ComponentType<{
@@ -246,6 +248,11 @@ export function useSettingsNavGroups(): readonly NavGroup[] {
           icon: LinkIcon,
         },
         { to: "/settings/api-keys", label: "nav.apiKeys", icon: KeyRound },
+        {
+          to: "/settings/login-methods",
+          label: "loginMethods.title",
+          icon: LogIn,
+        },
         { to: "/settings/preferences", label: "nav.preferences", icon: Globe },
       ],
     },
