@@ -6,6 +6,7 @@ import {
   isApiError,
   type RetryTiming,
 } from "@werft-ai/client";
+import { useEffect, useState } from "react";
 import { createApiClient } from "./api/client.ts";
 
 /**
@@ -67,4 +68,30 @@ export function createServices(
 
 export function useAppServices(): Services {
   return useRouteContext({ from: rootRouteId });
+}
+
+/**
+ * Leaving for another site, and holding what started it meanwhile. The page
+ * stays live until that site answers, and a second start in the gap would
+ * replace the flow the browser is already on its way to. Back from there
+ * restores this page as it was left (bfcache), so being shown again lets go.
+ */
+export function useLeave(): readonly [
+  leaving: boolean,
+  leave: (url: string) => void,
+] {
+  const { leave } = useAppServices();
+  const [leaving, setLeaving] = useState(false);
+  useEffect(() => {
+    const shown = () => setLeaving(false);
+    window.addEventListener("pageshow", shown);
+    return () => window.removeEventListener("pageshow", shown);
+  }, []);
+  return [
+    leaving,
+    (url) => {
+      setLeaving(true);
+      leave(url);
+    },
+  ];
 }

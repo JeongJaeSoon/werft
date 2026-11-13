@@ -405,8 +405,13 @@ describe("공급자 계정으로 가입", () => {
       await screen.findByRole("button", { name: "Keycloak 계정으로 가입" }),
     );
   };
+  const LEAVING = "로그인 화면으로 이동하는 중…";
   const choices = () =>
     screen.queryByRole("region", { name: "비밀번호 없이 가입" });
+  // A count, not `toBeNull()` on an element: that passes on one that is there.
+  const shown = () =>
+    screen.queryAllByRole("region", { name: "비밀번호 없이 가입" }).length +
+    screen.queryAllByRole("button", { name: /계정으로 가입$/ }).length;
 
   test("켜진 공급자마다 버튼이 있고, 누르면 초대를 그 흐름에 묶은 뒤 공급자 화면으로 간다", async () => {
     sessionStorage.setItem("ap.postLoginPath", "/members");
@@ -414,13 +419,14 @@ describe("공급자 계정으로 가입", () => {
       ...on(KEYCLOAK, OKTA),
       [`POST ${START}`]: () => json(200, { authorization_url: AUTHORIZE }),
     });
-    await join();
-    await waitFor(() => expect(left).toEqual([AUTHORIZE]));
+    await screen.findByRole("button", { name: "Keycloak 계정으로 가입" });
     expect(
       [...(choices()?.querySelectorAll("button") ?? [])].map(
         (button) => button.textContent,
       ),
     ).toEqual(["Keycloak 계정으로 가입", "Okta 계정으로 가입"]);
+    await join();
+    await waitFor(() => expect(left).toEqual([AUTHORIZE]));
     const starts = api.calls.filter((c) => c.path.endsWith("/invite/start"));
     expect(starts.map((c) => c.path)).toEqual([START]);
     expect(starts[0]?.body).toEqual({ invite_token: TOKEN });
@@ -436,12 +442,39 @@ describe("공급자 계정으로 가입", () => {
         .getAll()
         .some((m) => JSON.stringify(m.state).includes(TOKEN)),
     ).toBe(false);
-    // Coming back from the provider's page (back button) can start again.
-    expect(
-      screen
-        .getByRole("button", { name: "Keycloak 계정으로 가입" })
-        .hasAttribute("disabled"),
-    ).toBe(false);
+    // A refused callback is told by this that it was joining; not the invite.
+    expect(sessionStorage.getItem("ap.inviteFlow")).toBe("s1");
+  });
+
+  test("떠나는 동안에는 다시 시작하지 못하고, 뒤로 돌아오면 다시 할 수 있다", async () => {
+    const { api, left } = renderAt(`/invite/${TOKEN}`, {
+      ...on(KEYCLOAK, OKTA),
+      [`POST ${START}`]: () => json(200, { authorization_url: AUTHORIZE }),
+    });
+    const user = await setupUser();
+    const held = () =>
+      ["Keycloak 계정으로 가입", "Okta 계정으로 가입", LEAVING].map((name) =>
+        screen
+          .queryAllByRole("button", { name })
+          .map((button) => button.hasAttribute("disabled")),
+      );
+    const starts = () =>
+      api.calls.filter((c) => c.path.endsWith("/invite/start")).length;
+    await join();
+    await waitFor(() => expect(left).toEqual([AUTHORIZE]));
+    // The page is still here while the provider's loads: a second start
+    // would replace the flow the browser is on its way to.
+    expect(held()).toEqual([[], [true], [true]]);
+    await user.click(screen.getByRole("button", { name: LEAVING }));
+    await user.click(
+      screen.getByRole("button", { name: "Okta 계정으로 가입" }),
+    );
+    expect(starts()).toBe(1);
+    // Back from the provider's page restores this one as it was left.
+    window.dispatchEvent(new Event("pageshow"));
+    await waitFor(() => expect(held()).toEqual([[false], [false], []]));
+    await join();
+    await waitFor(() => expect(starts()).toBe(2));
   });
 
   for (const [name, methods] of [
@@ -455,14 +488,19 @@ describe("공급자 계정으로 가입", () => {
     ],
   ] as const) {
     test(`${name} 비밀번호 단계만 있다`, async () => {
-      renderAt(`/invite/${TOKEN}`, {
+      const { api, services } = renderAt(`/invite/${TOKEN}`, {
         "GET /v1/auth/me": signedOut,
         "GET /v1/auth/login-methods": methods,
       });
-      expect(
-        await screen.findByRole("button", { name: "아니요, 처음입니다" }),
-      ).toBeDefined();
-      expect(choices()).toBeNull();
+      await screen.findByRole("button", { name: "아니요, 처음입니다" });
+      // Not before the answer: nothing is there while the list is out either.
+      await waitFor(() => {
+        expect(api.calls.some((c) => c.path === "/v1/auth/login-methods")).toBe(
+          true,
+        );
+        expect(services.queryClient.isFetching()).toBe(0);
+      });
+      expect(shown()).toBe(0);
     });
   }
 
@@ -476,8 +514,8 @@ describe("공급자 계정으로 가입", () => {
         [`POST ${START}`]: () => apiError(status, code, "not live"),
       });
       await join();
-      expect(await screen.findByText(title)).toBeDefined();
-      expect(choices()).toBeNull();
+      await screen.findByText(title);
+      expect(shown()).toBe(0);
       expect(left).toEqual([]);
     });
   }
@@ -511,6 +549,62 @@ describe("공급자 계정으로 가입", () => {
       screen.getByRole("button", { name: "아니요, 처음입니다" }),
     );
     await screen.findByLabelText("비밀번호");
-    expect(choices()).toBeNull();
+    expect(shown()).toBe(0);
+  });
+});
+
+describe("공급자 가입의 콜백", () => {
+  const CALLBACK = "/auth/callback/0d6a3f1c-2b7e-4c58-9a1d-6e5f4a3b2c1d";
+  const REFUSED =
+    "가입하지 못했습니다 — 초대가 회수됐거나 만료됐을 수 있고, 공급자가 알려 준 계정 정보가 받아들여지지 않았을 수도 있습니다. 받은 초대 링크를 다시 열어 시도하고, 계속 안 되면 초대한 사람에게 문의하세요.";
+  const notAccepted = {
+    "POST /v1/auth/oidc/callback": () =>
+      apiError(401, "UNAUTHORIZED", "Sign-in was not accepted"),
+  };
+  afterEach(() => sessionStorage.removeItem("ap.inviteFlow"));
+
+  test("거절된 가입은 초대를 다시 열라고 말하고, 주소를 맞추라고 하지 않는다", async () => {
+    // The invite was revoked meanwhile, or the provider did not vouch for
+    // the address: the server answers both alike.
+    sessionStorage.setItem("ap.inviteFlow", "s1");
+    renderAt(`${CALLBACK}?code=c1&state=s1`, notAccepted);
+    expect((await screen.findByRole("alert")).textContent).toBe(REFUSED);
+    expect(sessionStorage.getItem("ap.inviteFlow")).toBeNull();
+  });
+
+  test("공급자에서 그만둔 가입도 초대를 다시 열라고 말하고, 아무것도 보내지 않는다", async () => {
+    sessionStorage.setItem("ap.inviteFlow", "s1");
+    const { api } = renderAt(`${CALLBACK}?state=s1`, notAccepted);
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "가입을 마치지 못했습니다 — 받은 초대 링크를 다시 열어 시도하세요.",
+    );
+    expect(
+      api.calls.filter((c) => c.path === "/v1/auth/oidc/callback"),
+    ).toHaveLength(0);
+  });
+
+  test("시작했다가 그만둔 가입은 그 탭의 다음 로그인을 가입으로 읽게 하지 않는다", async () => {
+    sessionStorage.setItem("ap.inviteFlow", "given-up");
+    renderAt(`${CALLBACK}?code=c1&state=s1`, notAccepted);
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "이 계정으로 로그인하지 못했습니다 — 초대받은 이메일 주소의 계정인지 확인하고 다시 시도하세요.",
+    );
+    expect(sessionStorage.getItem("ap.inviteFlow")).toBeNull();
+  });
+
+  test("초대 주소의 계정이 이미 있으면 그렇게 말하고 로그인 화면으로 이끈다", async () => {
+    sessionStorage.setItem("ap.inviteFlow", "s1");
+    renderAt(`${CALLBACK}?code=c1&state=s1`, {
+      "POST /v1/auth/oidc/callback": () =>
+        apiError(409, "LOGIN_LINK_REQUIRED", "An account exists"),
+    });
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "이미 이 이메일로 만든 계정이 있습니다 — 비밀번호로 로그인하세요.",
+    );
+    expect(
+      screen
+        .getByRole("link", { name: "로그인 화면으로" })
+        .getAttribute("href"),
+    ).toBe("/login");
   });
 });

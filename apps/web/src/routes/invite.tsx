@@ -38,7 +38,7 @@ import { StatusScreen } from "../components/status-screen.tsx";
 import { StepHeading, useStepMoved } from "../components/step-heading.tsx";
 import { FunnelResetNotice, useFunnel } from "../funnel/tanstack-funnel.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
-import { useAppServices } from "../services.tsx";
+import { useLeave } from "../services.tsx";
 import { POST_LOGIN_PATH_KEY } from "./login.tsx";
 
 /**
@@ -288,6 +288,12 @@ function AccountStep({
 }
 
 /**
+ * The `state` of the sign-up this tab left for, so that a refused callback
+ * knows it was joining from an invite. The invite's token is not kept.
+ */
+export const INVITE_FLOW_KEY = "ap.inviteFlow";
+
+/**
  * Joining with a provider's account in place of a password: one button per
  * login provider that is on. The start binds the flow to this invite and
  * spends nothing; the callback makes the account, with the invite's address
@@ -302,7 +308,7 @@ function ProviderSignUp({
 }) {
   const { t } = useI18n();
   const { client } = useWerft();
-  const { leave } = useAppServices();
+  const [leaving, leave] = useLeave();
   const methods = useQuery(loginMethodsQuery(client));
 
   // The variables are the provider's id alone: the token stays out of them.
@@ -323,8 +329,12 @@ function ProviderSignUp({
         // A place an earlier sign-in of this tab meant to return to is not
         // where a new member lands.
         sessionStorage.removeItem(POST_LOGIN_PATH_KEY);
+        sessionStorage.setItem(
+          INVITE_FLOW_KEY,
+          new URL(authorization_url).searchParams.get("state") ?? "",
+        );
       } catch {
-        // Nothing to forget where nothing could be kept.
+        // Without it a refused callback speaks of a sign-in, not of joining.
       }
       leave(authorization_url);
     },
@@ -353,12 +363,10 @@ function ProviderSignUp({
           key={provider.id}
           type="button"
           variant="outline"
-          // Not held after success: back from the provider's page (bfcache)
-          // must be able to start again.
-          disabled={start.isPending}
+          disabled={start.isPending || leaving}
           onClick={() => start.mutate(provider.id)}
         >
-          {start.isPending && start.variables === provider.id
+          {(start.isPending || leaving) && start.variables === provider.id
             ? t("login.provider.starting")
             : t("invite.provider.submit", { name: provider.display_name })}
         </Button>

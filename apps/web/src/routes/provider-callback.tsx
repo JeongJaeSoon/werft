@@ -20,6 +20,7 @@ import { useEffect, useRef, useState } from "react";
 import { AuthPage, FormError } from "../components/auth-page.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, type MessageKey, useI18n } from "../i18n/i18n.tsx";
+import { INVITE_FLOW_KEY } from "./invite.tsx";
 import { POST_LOGIN_PATH_KEY, safeRedirect } from "./login.tsx";
 import { LINK_FLOW_KEY } from "./login-methods.tsx";
 
@@ -44,14 +45,18 @@ export function providerCallbackSearch(
   };
 }
 
-function refusalKey(error: ApiError): MessageKey {
+function refusalKey(error: ApiError, joining: boolean): MessageKey {
   // Only a link, or an invite's sign-up, is refused for whose the account is.
   if (error.code === "ALREADY_EXISTS")
     return (error.details as { reason_code?: unknown } | null)?.reason_code ===
       "issuer_linked"
       ? "loginMethods.callback.issuer"
       : "loginMethods.callback.taken";
-  if (error.code === "UNAUTHORIZED") return "login.provider.rejected";
+  if (error.code === "UNAUTHORIZED")
+    // Joining from an invite does not go by the provider's address, and the
+    // server does not say which it was: the invite ended meanwhile, or what
+    // the provider said of the account was not taken.
+    return joining ? "invite.provider.refused" : "login.provider.rejected";
   if (error.code === "FORBIDDEN") return "login.provider.forbidden";
   // The callback route answers 404 when the provider is gone or turned off.
   if (error.code === "NOT_FOUND") return "login.provider.unavailable";
@@ -140,13 +145,13 @@ function TestResult({ test }: { readonly test: LoginProviderTestResult }) {
 }
 
 /**
- * Whether the flow that came back is the link this tab left for. A link
- * started and given up leaves its mark behind, and the next sign-in in the
- * tab is not that link.
+ * Whether the flow that came back is the one this tab left for under `key`
+ * (a link, an invite's sign-up). One started and given up leaves its mark
+ * behind, and the next sign-in in the tab is not that flow.
  */
-function linkFlowStarted(state: string | undefined): boolean {
+function flowStarted(key: string, state: string | undefined): boolean {
   try {
-    const started = sessionStorage.getItem(LINK_FLOW_KEY);
+    const started = sessionStorage.getItem(key);
     return started !== null && started !== "" && started === state;
   } catch {
     return false;
@@ -180,10 +185,12 @@ export function ProviderCallbackScreen() {
   });
   const sent = useRef(false);
   // Read once and forgotten: the next flow of this tab may be a sign-in.
-  const [linking] = useState(() => linkFlowStarted(state));
+  const [linking] = useState(() => flowStarted(LINK_FLOW_KEY, state));
+  const [joining] = useState(() => flowStarted(INVITE_FLOW_KEY, state));
   useEffect(() => {
     try {
       sessionStorage.removeItem(LINK_FLOW_KEY);
+      sessionStorage.removeItem(INVITE_FLOW_KEY);
     } catch {
       // Nothing to forget where nothing could be kept.
     }
@@ -234,7 +241,12 @@ export function ProviderCallbackScreen() {
     finish.mutate();
   }, [code, state, finish]);
 
-  const failure = !code || !state ? "login.provider.cancelled" : null;
+  const failure =
+    code && state
+      ? null
+      : joining
+        ? "invite.provider.cancelled"
+        : "login.provider.cancelled";
   if (tested)
     return (
       <AuthPage title={t("loginProviders.result.title")}>
@@ -256,7 +268,7 @@ export function ProviderCallbackScreen() {
       {failure || finish.error ? (
         <>
           <FormError>
-            {t(failure ?? refusalKey(finish.error as ApiError))}
+            {t(failure ?? refusalKey(finish.error as ApiError, joining))}
           </FormError>
           <Text variant="sub">
             <TextLink asChild underline="always">

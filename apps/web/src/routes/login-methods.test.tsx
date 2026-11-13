@@ -152,6 +152,21 @@ describe("내 로그인 수단", () => {
       `${API}/${OKTA_PROVIDER}/link/start`,
     ]);
     expect(sessionStorage.getItem(LINK_FLOW_KEY)).toBe("s1");
+    // The page is still here while the provider's loads: a second start
+    // would replace the flow the browser is on its way to.
+    const okta = () => screen.getByRole("button", { name: "Okta 연결" });
+    expect(okta().getAttribute("aria-disabled")).toBe("true");
+    await user.click(okta());
+    await user.click(screen.getByRole("button", { name: "Acme SSO 끊기" }));
+    expect(writes(api.calls)).toHaveLength(1);
+    expect(screen.queryAllByRole("dialog")).toHaveLength(0);
+    // Back from the provider's page restores this one as it was left.
+    window.dispatchEvent(new Event("pageshow"));
+    await waitFor(() =>
+      expect(okta().hasAttribute("aria-disabled")).toBe(false),
+    );
+    await user.click(okta());
+    await waitFor(() => expect(writes(api.calls)).toHaveLength(2));
   });
 
   test("a connection the server refuses says why and goes nowhere", async () => {

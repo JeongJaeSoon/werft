@@ -84,12 +84,25 @@ describe("로그인 수단 선택", () => {
       await screen.findByRole("button", { name: "Google 계정으로 로그인" }),
     );
     await waitFor(() => expect(left).toEqual([AUTHORIZE]));
-    // Coming back from the provider's page (back button) can start again.
-    expect(
+    // The page is still here while the provider's loads: a second start
+    // would replace the flow the browser is on its way to.
+    const held = () =>
       screen
-        .getByRole("button", { name: "Google 계정으로 로그인" })
-        .hasAttribute("disabled"),
-    ).toBe(false);
+        .getAllByRole("button", { name: /Keycloak|이동하는 중/ })
+        .map((button) => button.hasAttribute("disabled"));
+    expect(held()).toEqual([true, true]);
+    await user.click(
+      screen.getByRole("button", { name: "Keycloak 계정으로 로그인" }),
+    );
+    // Coming back from the provider's page (back button) can start again.
+    window.dispatchEvent(new Event("pageshow"));
+    await waitFor(() =>
+      expect(
+        screen
+          .getAllByRole("button", { name: /계정으로 로그인$/ })
+          .map((button) => button.hasAttribute("disabled")),
+      ).toEqual([false, false]),
+    );
     const starts = api.calls.filter((c) => c.path.endsWith("/start"));
     expect(starts.map((c) => c.path)).toEqual([START]);
     expect(starts[0]?.headers.get("x-requested-with")).toBe("werft-web");

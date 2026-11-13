@@ -20,7 +20,7 @@ import { loginMethodsQuery } from "../api/queries.ts";
 import { AuthPage, FormError, Notice } from "../components/auth-page.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
-import { useAppServices } from "../services.tsx";
+import { useLeave } from "../services.tsx";
 
 declare module "@tanstack/react-router" {
   interface HistoryState {
@@ -161,7 +161,7 @@ function ProviderChoices({
 }) {
   const { t } = useI18n();
   const { client } = useWerft();
-  const { leave } = useAppServices();
+  const [leaving, leave] = useLeave();
   const methods = useQuery(loginMethodsQuery(client));
 
   const start = useMutation<{ authorization_url: string }, ApiError, string>({
@@ -204,12 +204,10 @@ function ProviderChoices({
           key={provider.id}
           type="button"
           variant="outline"
-          // Not held after success: back from the provider's page (bfcache)
-          // must be able to start again.
-          disabled={start.isPending}
+          disabled={start.isPending || leaving}
           onClick={() => start.mutate(provider.id)}
         >
-          {start.isPending && start.variables === provider.id
+          {(start.isPending || leaving) && start.variables === provider.id
             ? t("login.provider.starting")
             : t("login.provider.submit", { name: provider.display_name })}
         </Button>
