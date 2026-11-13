@@ -1203,6 +1203,7 @@ const app = createApiApp({
     registerPublicInviteRoutes(router, {
       invites: inviteStore,
       identity,
+      loginSettings: loginSettingsStore,
       lockout,
       passwordWork,
       logger,

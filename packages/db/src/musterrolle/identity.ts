@@ -730,15 +730,18 @@ export async function createWebSession(
           VALUES (gen_random_uuid(), ${input.userId}, 'password')
           ON CONFLICT DO NOTHING`,
     );
+    // Recorded with the session or not at all: what the person's list of
+    // sign-in methods shows as the last time the password was used.
     const [method] = await tx
-      .select({ id: loginMethods.id })
-      .from(loginMethods)
+      .update(loginMethods)
+      .set({ lastLoginAt: DB_NOW })
       .where(
         and(
           eq(loginMethods.userId, input.userId),
           eq(loginMethods.kind, "password"),
         ),
-      );
+      )
+      .returning({ id: loginMethods.id });
     if (!method) {
       throw new Error("password login method is missing after its insert");
     }

@@ -20,7 +20,7 @@ import { loginMethodsQuery } from "../api/queries.ts";
 import { AuthPage, FormError, Notice } from "../components/auth-page.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
-import { useAppServices } from "../services.tsx";
+import { useLeave } from "../services.tsx";
 
 declare module "@tanstack/react-router" {
   interface HistoryState {
@@ -201,29 +201,29 @@ function ProviderChoices({
 }) {
   const { t } = useI18n();
   const { client } = useWerft();
-  const { leave } = useAppServices();
+  const [held, leaveFor] = useLeave();
   const methods = useQuery(loginMethodsQuery(client));
 
-  const start = useMutation<{ authorization_url: string }, ApiError, string>({
+  const start = useMutation<void, ApiError, string>({
     meta: { public: true },
     mutationFn: (id) =>
-      unwrap(
-        client.POST("/v1/auth/providers/{id}/start", {
-          params: {
-            path: { id },
-            header: { "X-Requested-With": CSRF_HEADER_VALUE },
-          },
-        }),
-      ),
-    onSuccess: ({ authorization_url }) => {
-      try {
-        if (redirect) sessionStorage.setItem(POST_LOGIN_PATH_KEY, redirect);
-        else sessionStorage.removeItem(POST_LOGIN_PATH_KEY);
-      } catch {
-        // Without storage the callback lands on home; the sign-in still works.
-      }
-      leave(authorization_url);
-    },
+      leaveFor(async () => {
+        const { authorization_url } = await unwrap(
+          client.POST("/v1/auth/providers/{id}/start", {
+            params: {
+              path: { id },
+              header: { "X-Requested-With": CSRF_HEADER_VALUE },
+            },
+          }),
+        );
+        try {
+          if (redirect) sessionStorage.setItem(POST_LOGIN_PATH_KEY, redirect);
+          else sessionStorage.removeItem(POST_LOGIN_PATH_KEY);
+        } catch {
+          // Without storage the callback lands on home; the sign-in still works.
+        }
+        return authorization_url;
+      }),
   });
 
   const providers = methods.data?.providers ?? [];
@@ -246,12 +246,10 @@ function ProviderChoices({
           key={provider.id}
           type="button"
           variant="outline"
-          // Not held after success: back from the provider's page (bfcache)
-          // must be able to start again.
-          disabled={start.isPending}
+          disabled={held}
           onClick={() => start.mutate(provider.id)}
         >
-          {start.isPending && start.variables === provider.id
+          {held && start.variables === provider.id
             ? t("login.provider.starting")
             : t("login.provider.submit", { name: provider.display_name })}
         </Button>

@@ -31,7 +31,11 @@ const services = createServices({
       if (path !== "/v1/auth/me") notify("write");
     },
   }),
-  leave: () => notify("leave"),
+  // The page stays: nothing is held for a site it is not going to.
+  leave: () => {
+    notify("leave");
+    return false;
+  },
 });
 
 const container = document.getElementById("root");

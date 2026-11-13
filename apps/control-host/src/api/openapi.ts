@@ -1653,7 +1653,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Auth",
     summary: "Set a new password with a one-time reset link",
     description:
-      "Spends the token, sets the password, revokes every live web session of the user and writes a `reset_password` receipt. There is no failure window: the token cannot be guessed, and a shared one would let anyone lock recovery out. Password hashing shares login's concurrency limit, past which it answers 429. While password sign-in is closed, a link an owner issued answers 401 like a spent one. A link from the operator's recovery command is taken either way, for an owner with or without a password, and in the same transaction makes that owner the emergency admin.",
+      "Spends the token, sets the password, revokes every live web session of the user and writes a `reset_password` receipt. There is no failure window: the token cannot be guessed, and a shared one would let anyone lock recovery out. Password hashing shares login's concurrency limit, past which it answers 429. While password sign-in is closed, a link an owner issued for anyone but the emergency admin answers 401 like a spent one; one issued for the emergency admin, who still signs in with a password, is taken. A link from the operator's recovery command is taken either way, for an owner with or without a password, and in the same transaction makes that owner the emergency admin.",
     auth: "public",
     body: "PasswordResetRequest",
     success: { status: 200, schema: "PasswordResetResponse" },
@@ -1667,7 +1667,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Members",
     summary: "Issue a one-time password reset link for a member (owner only)",
     description:
-      "Requires the issuer's current password, counted against the issuer's login failure window. An owner cannot issue a link for themselves, nor for a member who owns another workspace. The token is returned once and expires in one hour; issuing another revokes the member's open link. Writes an `issue_password_reset` receipt whose result names the target's role. While password sign-in is closed no link is issued: only the operator's recovery command issues one then, for an owner.",
+      "Requires the issuer's current password, counted against the issuer's login failure window. An owner cannot issue a link for themselves, nor for a member who owns another workspace. The token is returned once and expires in one hour; issuing another revokes the member's open link. Writes an `issue_password_reset` receipt whose result names the target's role. While password sign-in is closed a link is issued only for the emergency admin, who still signs in with a password; for anyone else only the operator's recovery command issues one then, for an owner.",
     auth: "session",
     body: "IssuePasswordResetRequest",
     success: { status: 201, schema: "IssuePasswordResetResponse" },
@@ -1675,7 +1675,7 @@ export const API_ROUTE_DECLARATIONS = [
     errorCodes: { 409: ["REVISION_CONFLICT"] },
     errorNotes: {
       REVISION_CONFLICT:
-        "Password sign-in is closed (`details.reason_code: password_login_closed`).",
+        "Password sign-in is closed and the member is not the emergency admin (`details.reason_code: password_login_closed`).",
     },
     idempotent: false,
   },
@@ -4957,7 +4957,7 @@ export const API_ROUTE_DECLARATIONS = [
     },
     errorNotes: {
       FORBIDDEN:
-        "Also while password sign-in is closed (`details.reason_code: password_login_closed`): the invite is not spent, and is accepted through a sign-in provider instead (POST /v1/auth/providers/{id}/invite/start).",
+        "Also while password sign-in is closed (`details.reason_code: password_login_closed`): the invite is not spent, and is accepted through a sign-in provider instead (POST /v1/auth/providers/{id}/invite/start). The answer is the same whoever the invite is for, the emergency admin included, and whatever password was sent.",
       REVISION_CONFLICT:
         "The account is the emergency admin and the invite would turn back on a membership older than the one they sign in through as an owner, in a role other than owner (`details.reason_code: emergency_admin`). The invite is not spent.",
     },

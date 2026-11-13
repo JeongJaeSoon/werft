@@ -126,19 +126,25 @@ if [ "${D2_GATE_UP_ONLY:-0}" = 1 ]; then
 fi
 # The gate, then the recovery sweep on the same stack: nothing in
 # the gate proves the reconciler service acts without a pass run by hand.
+# Each file is a bun run of its own: bun runs the files of one run in
+# directory order, which differs between runner images, not as given.
+# The gate must come first: its A-05 expects the session's own token mint,
+# and an earlier clone of gate-app leaves the token in the API's cache.
 status=0
 # Fresh, so a reused D2_GATE_OUT cannot pass on an older run's reports.
-rm -f "$out/gate.junit.xml" "$out/roles.junit.xml"
-bun test tests/d2-gate/gate.e2e.test.ts tests/d2-gate/reconciler-sweep.e2e.test.ts \
+rm -f "$out/gate.junit.xml" "$out/sweep.junit.xml" "$out/roles.junit.xml"
+bun test tests/d2-gate/gate.e2e.test.ts \
   --reporter=junit --reporter-outfile="$out/gate.junit.xml" \
   --timeout 1800000 2>&1 | tee "$out/test.log" || status=$?
+bun test tests/d2-gate/reconciler-sweep.e2e.test.ts \
+  --reporter=junit --reporter-outfile="$out/sweep.junit.xml" \
+  --timeout 1800000 2>&1 | tee -a "$out/test.log" || status=$?
 # Last, the role checks, which restart the services and stop
-# PostgreSQL, so nothing may run after them on this stack. A run of its own:
-# bun orders the files of one run by path, not as given.
+# PostgreSQL, so nothing may run after them on this stack.
 bun test tests/d2-gate/control-host-roles.e2e.test.ts \
   --reporter=junit --reporter-outfile="$out/roles.junit.xml" \
   --timeout 1800000 2>&1 | tee -a "$out/test.log" || status=$?
 # Every test by name and result; one that skipped or never ran fails too.
-bun .github/scripts/d2-gate-verdict.ts "$out/gate.junit.xml" "$out/roles.junit.xml" \
-  2>&1 | tee "$out/verdict.txt" || status=$?
+bun .github/scripts/d2-gate-verdict.ts "$out/gate.junit.xml" "$out/sweep.junit.xml" \
+  "$out/roles.junit.xml" 2>&1 | tee "$out/verdict.txt" || status=$?
 exit "$status"

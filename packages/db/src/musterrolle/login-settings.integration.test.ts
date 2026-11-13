@@ -542,6 +542,85 @@ integration("who may sign in with a password", () => {
       .where(eq(invites.id, inviteId));
     expect(invite?.acceptedAt).toBeNull();
     expect(await db.$count(users, eq(users.email, "new@example.com"))).toBe(0);
+
+    // The emergency admin's own invite is answered the same: their password
+    // is for signing in, and another answer here would say who they are.
+    const elsewhere = randomUUID();
+    await db
+      .insert(workspaces)
+      .values({ id: elsewhere, slug: `w-${elsewhere}`, name: "Elsewhere" });
+    const [admin] = await db
+      .select({ email: users.email })
+      .from(users)
+      .where(eq(users.id, first));
+    const adminInvite = newHash();
+    await db.insert(invites).values({
+      id: randomUUID(),
+      workspaceId: elsewhere,
+      email: admin?.email ?? "",
+      role: "member",
+      tokenHash: adminInvite,
+      invitedBy: owner.id,
+      expiresAt: fromDbNow(60_000),
+    });
+    expect(
+      await createPostgresInviteStore(db).acceptInvite({
+        tokenHash: adminInvite,
+        account: {
+          kind: "existing",
+          userId: first,
+          verifiedPasswordHash: HASH,
+        },
+        session: {
+          id: randomUUID(),
+          tokenHash: newHash(),
+          ttlMs: 60_000,
+          userAgent: null,
+          maxLive: 5,
+        },
+        receiptId: randomUUID(),
+      }),
+    ).toEqual({ outcome: "password_closed" });
+    expect(
+      await db.$count(
+        memberships,
+        and(
+          eq(memberships.workspaceId, elsewhere),
+          eq(memberships.userId, first),
+        ),
+      ),
+    ).toBe(0);
+
+    // The emergency admin still signs in with a password, so another
+    // owner's link for them is issued and taken while passwords are closed.
+    const forAdmin = newHash();
+    expect(
+      (
+        await issuePasswordReset(db, {
+          id: randomUUID(),
+          workspaceId,
+          userId: first,
+          issuedBy: owner.id,
+          issuerPasswordHash: HASH,
+          tokenHash: forAdmin,
+          ttlMs: 60_000,
+          receiptId: randomUUID(),
+        })
+      ).outcome,
+    ).toBe("issued");
+    expect(
+      await consumePasswordReset(db, {
+        tokenHash: forAdmin,
+        passwordHash: "argon2id$changed",
+        receiptId: randomUUID(),
+      }),
+    ).not.toBeNull();
+    expect(
+      await db.$count(
+        users,
+        and(eq(users.id, first), eq(users.passwordHash, "argon2id$changed")),
+      ),
+    ).toBe(1);
   });
 
   test("the emergency admin is not turned off, demoted, or left without a password until another is named", async () => {
