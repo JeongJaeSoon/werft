@@ -14,6 +14,7 @@ import {
   sessionScopeSchema,
   workspaceRoleSchema,
 } from "./authorization.ts";
+import { loginProviderTestResultSchema } from "./login-providers.ts";
 import {
   displayNameSchema,
   emailSchema,
@@ -125,10 +126,25 @@ export const providerLoginCallbackRequestSchema = z
     iss: z.string().min(1).max(2048).optional(),
   })
   .strict();
-/** What a flow ended in; a sign-in flow ends signed in. */
-export const providerLoginCallbackResponseSchema = z
-  .object({ outcome: z.literal("signed_in"), ...loginResponseSchema.shape })
-  .strict();
+/**
+ * What a flow ended in. A sign-in flow ends signed in; an owner's test of a
+ * provider ends in what the provider answered, and signs nobody in.
+ */
+export const providerLoginCallbackResponseSchema = z.discriminatedUnion(
+  "outcome",
+  [
+    z
+      .object({ outcome: z.literal("signed_in"), ...loginResponseSchema.shape })
+      .strict(),
+    z
+      .object({
+        outcome: z.literal("tested"),
+        provider_id: z.uuid(),
+        test: loginProviderTestResultSchema,
+      })
+      .strict(),
+  ],
+);
 
 /** The kinds of `login_methods` row a person signs in with. */
 export const LOGIN_METHOD_VALUES = ["password", "oidc"] as const;

@@ -94,11 +94,43 @@ describe("flow cookie", () => {
     }
   });
 
+  const owner = {
+    userId: "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+    sessionId: "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01",
+    secretSlot: "next",
+    // Any id: the sealer asks only that there is one.
+    secretId: flow.providerId,
+    secretVersion: 2,
+  } as const;
+
   test("every purpose a flow can have opens as that purpose", () => {
-    for (const purpose of ["login", "invite", "link", "test"] as const) {
+    for (const purpose of ["login", "invite", "link"] as const) {
       expect(sealer.open(sealer.seal({ ...flow, purpose }))?.purpose).toBe(
         purpose,
       );
+    }
+    expect(
+      sealer.open(sealer.seal({ ...flow, purpose: "test", test: owner })),
+    ).toEqual({ ...flow, purpose: "test", test: owner });
+  });
+
+  test("a test flow names who runs it and which secret it tries, and no other flow does", () => {
+    const broken: unknown[] = [
+      // A test with nobody behind it.
+      { ...flow, purpose: "test" },
+      // A sign-in dressed as someone's test.
+      { ...flow, purpose: "login", test: owner },
+      { ...flow, purpose: "test", test: { ...owner, userId: "" } },
+      { ...flow, purpose: "test", test: { ...owner, sessionId: undefined } },
+      { ...flow, purpose: "test", test: { ...owner, secretSlot: "other" } },
+      { ...flow, purpose: "test", test: { ...owner, secretVersion: "2" } },
+      { ...flow, purpose: "test", test: { ...owner, secretId: undefined } },
+      { ...flow, purpose: "test", test: { ...owner, secretId: "" } },
+      { ...flow, purpose: "test", test: "owner" },
+      { ...flow, purpose: "test", test: null },
+    ];
+    for (const payload of broken) {
+      expect(sealer.open(sealRaw(payload)), JSON.stringify(payload)).toBeNull();
     }
   });
 });

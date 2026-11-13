@@ -522,7 +522,30 @@ curl -s -X POST http://127.0.0.1:3000/v1/auth/password-reset -H 'Content-Type: a
 | JIT 역할 | 없음(기본) 또는 `member`. `member`는 증명된 주소의 계정을 초대 없이 member로 만든다. Google은 허용 도메인이 있을 때만이다 |
 | 켜짐 | 꺼진 공급자는 로그인 화면에 나오지 않고 두 route가 `404`다. 끄는 순간 그 공급자로 만든 web session도 같은 트랜잭션에서 끊긴다 |
 
-공급자에 등록하는 리디렉션 URI는 `<CONSOLE_ORIGIN>/auth/callback/<공급자 id>`다. `CONSOLE_ORIGIN`이 없으면 시작 요청이 `503`이다. 공급자의 주소는 `https`여야 한다. `CONSOLE_ORIGIN`이 `localhost`·`127.0.0.1`인 로컬 스택에서만 loopback의 `http` 공급자를 쓸 수 있다. 공급자를 만들고 고치는 관리 화면과 API는 아직 없다.
+공급자에 등록하는 리디렉션 URI는 `<CONSOLE_ORIGIN>/auth/callback/<공급자 id>`다. `CONSOLE_ORIGIN`이 없으면 시작 요청이 `503`이다. 공급자의 주소는 `https`여야 한다. `CONSOLE_ORIGIN`이 `localhost`·`127.0.0.1`인 로컬 스택에서만 loopback의 `http` 공급자를 쓸 수 있다.
+
+공급자는 owner가 관리 API로 만들고 고친다(관리 화면은 뒤따르는 변경에 들어온다). 모두 콘솔 세션의 owner만 쓸 수 있고(`installation.settings.manage`), admin·member와 API key는 `403`이다. 쓰기마다 receipt가 남는다.
+
+| 요청 | 하는 일 |
+|---|---|
+| `GET /v1/login-providers` | 공급자 전체와 각자의 `state`, 등록할 `redirect_uri` |
+| `POST /v1/login-providers/discover` | issuer의 discovery 문서를 지금 읽어 쓸 수 있는지 답한다. 저장하지 않는다 |
+| `POST /v1/login-providers` | issuer와 이름으로 만든다. 꺼진 채로 만들어진다 |
+| `PATCH /v1/login-providers/{id}` | 이름, client ID, token 인증 방식, 허용 도메인, JIT 역할, 검증된 이메일 요구. `If-Match: <revision>` 필요 |
+| `PUT /v1/login-providers/{id}/client-secret` | client secret을 넣는다. 쓰기 전용이고 응답에는 끝 네 글자만 나온다 |
+| `POST /v1/login-providers/{id}/refresh-discovery` | discovery를 다시 읽어 endpoint를 바꾼다. 꺼진 공급자만 |
+| `POST /v1/login-providers/{id}/test/start` | 지금 설정으로 테스트 로그인을 시작한다 |
+| `POST /v1/login-providers/{id}/enable` | 켠다. 지금 설정으로 테스트 로그인이 통과했어야 한다 |
+| `POST /v1/login-providers/{id}/disable` | 끄고, 그 공급자로 만든 세션을 끊는다(`sessions_revoked`) |
+| `DELETE /v1/login-providers/{id}` | 꺼진 공급자를 지운다. secret도 지운다. 사용자와 공급자 계정의 연결은 남는다 |
+
+`state`는 `draft`(client ID나 secret이 없음), `needs_test`(지금 설정으로 통과한 테스트가 없음), `ready`(통과했고 꺼져 있음), `enabled`, `enabled_secret_pending`(켜져 있고 새 secret이 테스트를 기다림)이다. 공급자의 상태가 받지 않는 요청은 `409 REVISION_CONFLICT`이고 `details.reason_code`가 `not_tested` 또는 `provider_enabled`다.
+
+등록 순서: `CONSOLE_ORIGIN`을 설정한다 → 공급자를 만든다 → 응답의 `redirect_uri`를 공급자(IdP)의 client에 등록한다 → client ID와 secret을 넣는다 → 테스트 로그인을 통과한다 → 켠다. 테스트 로그인은 `test/start`가 준 `authorization_url`을 같은 브라우저에서 열어 공급자에 로그인하면 끝난다. 계정도 세션도 만들지 않고, 공급자가 보증한 계정과 그 계정이 실제로 로그인하면 어떻게 되는지(`entry`)를 답한다. 테스트 도중 설정이나 secret이 바뀌면 통과로 기록하지 않는다.
+
+켜진 공급자는 이름과 정책(허용 도메인, JIT 역할, 검증된 이메일 요구)만 바로 바꿀 수 있다. client ID, token 인증 방식, endpoint를 바꾸려면 먼저 끈다. secret은 켠 채로 바꿀 수 있다. 새 값은 교체 후보로 들어가고, 테스트 로그인이 그 값으로 통과하면 그때 바뀐다. 그 전까지 로그인은 원래 secret을 쓴다. 잘못 넣은 후보는 다른 값을 넣어 바꾸거나, 지금 쓰는 secret을 다시 넣어 거둔다.
+
+Google(`https://accounts.google.com`)은 누구나 계정을 만들 수 있어서 두 가지를 받지 않는다(`400`): 검증된 이메일 요구를 끄는 것(`verified_email_required`), 허용 도메인 없이 JIT 역할을 주는 것(`jit_requires_domains`).
 
 로그인 화면은 공개 `GET /v1/auth/login-methods`(`{"password":"on","providers":[{"id":"…","display_name":"Google"}]}`, 켜진 공급자가 없으면 `providers`가 빈 목록)로 고를 수 있는 수단을 받는다. 흐름: 웹이 `POST /v1/auth/providers/{id}/start`(`X-Requested-With` 필요)로 `authorization_url`을 받아 연다. 응답은 `__Host-werft_login_flow` cookie(10분)를 세운다. 이 cookie는 state·nonce·PKCE verifier·공급자 id·그때의 설정 revision을 `PLATFORM_SECRET_KEY`에서 낸 키로 봉인한 값이라 브라우저가 읽거나 바꿀 수 없다. 공급자가 리디렉션 URI로 `code`·`state`(공급자에 따라 `iss`도)를 돌려주면 웹이 공급자 id와 함께 `POST /v1/auth/oidc/callback`에 보낸다. API는 cookie를 지우고, 열어서 state·10분·공급자 id·설정 revision이 맞는지 본 뒤 code를 교환하고 id_token의 서명(JWKS)·iss·aud·exp·nonce·`email_verified`를 확인한다. 그다음 허용 도메인을 보고(`403`) 첫 진입 규칙을 위에서부터 적용한다.
 

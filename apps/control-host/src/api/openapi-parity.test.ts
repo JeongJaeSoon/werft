@@ -49,6 +49,7 @@ import type {
 import { createApiApp } from "./app.ts";
 import type { BootstrapGate } from "./auth.ts";
 import { buildOpenApiDocument, DOCUMENTED_ROUTE_SCOPES } from "./openapi.ts";
+import type { ProviderAdmin } from "./provider-admin.ts";
 import { createSlackEventsLimiter } from "./rate-limit.ts";
 import { ROUTE_ERROR_TESTS } from "./route-error-coverage.ts";
 import { registerAgentPullRequestRoutes } from "./routes/action/agent-pull-request.ts";
@@ -72,6 +73,7 @@ import {
   registerInstallationSettingsRoutes,
   registerSettingsConsoleRoutes,
 } from "./routes/installation-settings.ts";
+import { registerLoginProviderRoutes } from "./routes/login-providers.ts";
 import { registerAgentCallerLimitsRoutes } from "./routes/musterrolle/agent-caller-limits.ts";
 import { registerAgentIdentityRoutes } from "./routes/musterrolle/agent-identities.ts";
 import { registerAgentUsageRoutes } from "./routes/musterrolle/agent-usage.ts";
@@ -187,6 +189,7 @@ function apiApp() {
       registerSessionOutputRoutes(router, {} as SessionOutputService);
       registerInstallationSettingsRoutes(router, {} as SettingsDocumentService);
       registerSettingsConsoleRoutes(router, {} as SettingsConsoleService);
+      registerLoginProviderRoutes(router, {} as ProviderAdmin);
       registerWorkspaceRoutes(router, {} as WorkspaceRouteDeps);
       registerAchievementRoutes(router, {} as AchievementRuleService);
       registerSessionAchievementRoutes(router, {} as SessionAchievementService);

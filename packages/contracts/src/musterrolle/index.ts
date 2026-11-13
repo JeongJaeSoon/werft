@@ -10,6 +10,7 @@ export * from "./github-packages.ts";
 export * from "./github-repository.ts";
 export * from "./github-settings.ts";
 export * from "./linked-accounts.ts";
+export * from "./login-providers.ts";
 export * from "./session-shares.ts";
 export * from "./slack-apps.ts";
 export * from "./slack-bindings.ts";

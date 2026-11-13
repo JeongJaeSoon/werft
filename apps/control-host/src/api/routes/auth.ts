@@ -35,6 +35,7 @@ import {
   MANAGEMENT_ROLES,
   passwordResetIssueDenial,
 } from "@werft-ai/platform";
+import type { Context } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { z } from "zod";
 import {
@@ -65,6 +66,21 @@ import {
 } from "../auth.ts";
 import { type ProviderLogin, ProviderLoginError } from "../provider-login.ts";
 import { rateLimited, requireParams } from "./errors.ts";
+
+const flowCookie = {
+  httpOnly: true,
+  secure: true,
+  sameSite: "Lax",
+  path: "/",
+} as const;
+
+/** Binds the browser to the flow it just started, for as long as a flow lives. */
+export function setLoginFlowCookie(context: Context, value: string): void {
+  setCookie(context, LOGIN_FLOW_COOKIE_NAME, value, {
+    ...flowCookie,
+    maxAge: LOGIN_FLOW_TTL_MINUTES * 60,
+  });
+}
 
 export interface AuthRouteDeps {
   identity: IdentityStore;
@@ -468,12 +484,6 @@ export function registerPublicAuthRoutes(
       throw new ApiHttpError(401, "UNAUTHORIZED", PROVIDER_REJECTED);
     }
   };
-  const flowCookie = {
-    httpOnly: true,
-    secure: true,
-    sameSite: "Lax",
-    path: "/",
-  } as const;
 
   apiRoute(
     router,
@@ -488,10 +498,7 @@ export function registerPublicAuthRoutes(
       const providers = deps.providers;
       if (!providers) throw providerOff();
       const flow = await providerMapped(id, () => providers.start(id));
-      setCookie(context, LOGIN_FLOW_COOKIE_NAME, flow.cookieValue, {
-        ...flowCookie,
-        maxAge: LOGIN_FLOW_TTL_MINUTES * 60,
-      });
+      setLoginFlowCookie(context, flow.cookieValue);
       context.header("Cache-Control", "no-store");
       return jsonWithSchema(context, startProviderLoginResponseSchema, {
         authorization_url: flow.authorizationUrl,
@@ -526,16 +533,56 @@ export function registerPublicAuthRoutes(
         throw rateLimited(1000, "Too many sign-ins in progress");
       }
       const releaseSlot = await slot;
+      const callback = {
+        cookieValue,
+        providerId: body.provider_id,
+        code: body.code,
+        state: body.state,
+        responseIssuer: body.iss,
+      };
       let finished: Awaited<ReturnType<ProviderLogin["finish"]>>;
       try {
+        if (providers.purposeOf(cookieValue) === "test") {
+          // An owner's test of a provider: the session of this request has
+          // to be the one the test was started from, and still an owner's.
+          const sessionCookie = webSessionCookie(context);
+          const session = sessionCookie
+            ? await storageMapped(() =>
+                deps.identity.resolveWebSession(
+                  hashWebSessionToken(sessionCookie),
+                ),
+              )
+            : null;
+          const tested = await providerMapped(body.provider_id, () =>
+            providers.finishTest({
+              ...callback,
+              owner:
+                session?.role === "owner"
+                  ? {
+                      userId: session.userId,
+                      sessionId: session.sessionId,
+                      workspaceId: session.workspaceId,
+                    }
+                  : null,
+              receiptId: randomUUID(),
+            }),
+          );
+          deps.logger?.info("Provider test sign-in", {
+            provider_id: tested.providerId,
+            passed: tested.test.passed,
+            ...(tested.test.passed
+              ? { recorded: tested.test.recorded }
+              : { reason: tested.test.reason }),
+          });
+          context.header("Cache-Control", "no-store");
+          return jsonWithSchema(context, providerLoginCallbackResponseSchema, {
+            outcome: "tested",
+            provider_id: tested.providerId,
+            test: tested.test,
+          });
+        }
         finished = await providerMapped(body.provider_id, () =>
-          providers.finish({
-            cookieValue,
-            providerId: body.provider_id,
-            code: body.code,
-            state: body.state,
-            responseIssuer: body.iss,
-          }),
+          providers.finish(callback),
         );
       } finally {
         releaseSlot();

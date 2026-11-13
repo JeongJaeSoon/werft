@@ -218,6 +218,29 @@ export async function readSecretInTx(
   return row ? openRow(key, row) : null;
 }
 
+/**
+ * The slot's value with the row it is and its version, read as one row. A
+ * slot dropped and written again starts at version 1 on a new row, so only
+ * the pair says which stored value this is. `value` is null when it does
+ * not open (sealed under another key); null when unset.
+ */
+export async function openSecretStamped(
+  db: Database,
+  key: SecretKey,
+  named: SecretSlot,
+): Promise<{ id: string; secretVersion: number; value: string | null } | null> {
+  const [row] = await db
+    .select()
+    .from(secretValues)
+    .where(bySlot(canonical(named)));
+  if (!row) return null;
+  let value: string | null = null;
+  try {
+    value = openRow(key, row);
+  } catch {}
+  return { id: row.id, secretVersion: row.secretVersion, value };
+}
+
 /** Drops the slot's value; the last four characters it had, or null. */
 export async function deleteSecretInTx(
   tx: Database,

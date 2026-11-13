@@ -35,6 +35,7 @@ import {
   createPostgresInviteStore,
   createPostgresJudgmentEgress,
   createPostgresLinkedAccountStore,
+  createPostgresLoginProviderAdminStore,
   createPostgresLoginProviderStore,
   createPostgresMcpEgressStore,
   createPostgresMemberStore,
@@ -215,6 +216,7 @@ import {
 import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
 import { eventNeutralizer, startNeutralFill } from "./neutral-fields.ts";
 import { createApiPool, createProbePool } from "./pool.ts";
+import { createProviderAdmin } from "./provider-admin.ts";
 import { createProviderLogin } from "./provider-login.ts";
 import { createSlackEventsLimiter } from "./rate-limit.ts";
 import { createReadinessProbe } from "./readiness.ts";
@@ -240,6 +242,7 @@ import {
   registerInstallationSettingsRoutes,
   registerSettingsConsoleRoutes,
 } from "./routes/installation-settings.ts";
+import { registerLoginProviderRoutes } from "./routes/login-providers.ts";
 import { registerAgentCallerLimitsRoutes } from "./routes/musterrolle/agent-caller-limits.ts";
 import { registerAgentIdentityRoutes } from "./routes/musterrolle/agent-identities.ts";
 import { registerAgentUsageRoutes } from "./routes/musterrolle/agent-usage.ts";
@@ -1117,15 +1120,27 @@ const identity = new DatabaseIdentityStore(db);
 // count.
 const lockout = new LoginLockout();
 const passwordWork = new WorkGate();
+// Providers are settings rows; nothing about them is read from the
+// environment. The redirect URIs are built on CONSOLE_ORIGIN itself.
+const loginProviderAdminStore = createPostgresLoginProviderAdminStore(
+  db,
+  secretKey,
+);
+const providerLogin = createProviderLogin({
+  providers: createPostgresLoginProviderStore(db, secretKey),
+  admin: loginProviderAdminStore,
+  consoleOrigin: configuredConsoleOrigin(process.env),
+  flowKey: derivedSecretKey(secretKey, "login-flow-cookie"),
+});
+const providerAdmin = createProviderAdmin({
+  authorization,
+  store: loginProviderAdminStore,
+  login: providerLogin,
+  consoleOrigin: configuredConsoleOrigin(process.env),
+});
 const auth = {
   identity,
-  // Providers are settings rows; nothing about them is read from the
-  // environment. The redirect URIs are built on CONSOLE_ORIGIN itself.
-  providers: createProviderLogin({
-    providers: createPostgresLoginProviderStore(db, secretKey),
-    consoleOrigin: configuredConsoleOrigin(process.env),
-    flowKey: derivedSecretKey(secretKey, "login-flow-cookie"),
-  }),
+  providers: providerLogin,
   lockout,
   passwordWork,
   bootstrap: await bootstrapGateFromEnv(
@@ -1209,6 +1224,7 @@ const app = createApiApp({
     registerUsageRoutes(router, usage);
     registerInstallationSettingsRoutes(router, settingsDocument);
     registerSettingsConsoleRoutes(router, settingsConsole);
+    registerLoginProviderRoutes(router, providerAdmin);
     registerAchievementRoutes(router, achievementRules);
     registerSessionAchievementRoutes(
       router,
