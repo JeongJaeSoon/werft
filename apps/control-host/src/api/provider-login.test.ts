@@ -441,6 +441,7 @@ describe("provider sign-in: finish", () => {
                       userId: OWNER.userId,
                       sessionId: OWNER.sessionId,
                       secretSlot: "current" as const,
+                      secretId: OTHER_ID,
                       secretVersion: 1,
                     },
                   }
@@ -533,6 +534,10 @@ function adminOf(overrides: Partial<LoginProvider> = {}) {
     row: providerFor({ enabled: false, ...overrides }),
     slot: "current" as LoginProviderSecretSlot,
     clientSecret: CLIENT_SECRET as string | null,
+    // The row the secret sits in: an id that is not the provider's, the
+    // owner's, their session's or the receipt's, so a test passes only when
+    // the callback compares it with the one the start sealed.
+    secretId: OTHER_ID,
     secretVersion: 1 as number | null,
     known: "none" as LoginProviderEntryPreview,
     outcome: "recorded" as "recorded" | "stale" | "not_found",
@@ -548,6 +553,7 @@ function adminOf(overrides: Partial<LoginProvider> = {}) {
             provider: { ...stored.row },
             slot: stored.slot,
             clientSecret: stored.clientSecret,
+            secretId: stored.secretVersion === null ? null : stored.secretId,
             secretVersion: stored.secretVersion,
           }
         : null,
@@ -624,6 +630,7 @@ describe("provider test sign-in", () => {
         userId: OWNER.userId,
         sessionId: OWNER.sessionId,
         secretSlot: "next",
+        secretId: OTHER_ID,
         secretVersion: 3,
       },
     });
@@ -679,6 +686,10 @@ describe("provider test sign-in", () => {
     ["nobody signed in, or someone who is not an owner", null],
     ["another owner", { ...OWNER, userId: OTHER_ID }],
     ["the same owner in another session", { ...OWNER, sessionId: OTHER_ID }],
+    // Each once more with another id: one case alone would also pass a
+    // check that refused that one id and let every other in.
+    ["yet another owner", { ...OWNER, userId: PROVIDER_ID }],
+    ["the same owner in a third session", { ...OWNER, sessionId: RECEIPT_ID }],
   ];
   for (const [who, owner] of strangers) {
     test(`a test brought back by ${who} is refused and nothing is written down`, async () => {
@@ -782,6 +793,20 @@ describe("provider test sign-in", () => {
       "which secret is tried",
       (stored) => {
         stored.slot = "next";
+      },
+    ],
+    [
+      // A slot emptied and filled again counts its versions from 1 anew.
+      "the secret for another in the same slot at the same version",
+      (stored) => {
+        stored.secretId = PROVIDER_ID;
+      },
+    ],
+    [
+      // Once more with another row, as with the strangers above.
+      "the secret for a third in the same slot at the same version",
+      (stored) => {
+        stored.secretId = RECEIPT_ID;
       },
     ],
     [
@@ -1445,6 +1470,7 @@ describe("provider sign-in routes", () => {
       ["a member's session", { ...ownerSession, role: "member" }],
       ["another owner's session", { ...ownerSession, userId: OTHER_ID }],
       ["the owner's other session", { ...ownerSession, sessionId: OTHER_ID }],
+      ["the owner's third session", { ...ownerSession, sessionId: RECEIPT_ID }],
     ];
     for (const [what, session] of others) {
       test(`with ${what} it is 401: nothing recorded, nobody signed in`, async () => {
