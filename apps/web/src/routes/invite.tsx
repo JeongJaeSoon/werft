@@ -278,8 +278,14 @@ function AcceptFlow({ token }: { readonly token: string }) {
               disabled={methods.isFetching}
               onClick={async () => {
                 const { data } = await methods.refetch();
-                // This button goes with the notice: the heading takes over.
-                if (data?.providers.length) setRetried(true);
+                // This button goes with the notice, for the providers or for
+                // the steps of passwords opened again: what comes takes over.
+                if (
+                  data &&
+                  (data.providers.length > 0 ||
+                    data.password !== "emergency_only")
+                )
+                  setRetried(true);
               }}
             >
               {t("common.retry")}
@@ -301,7 +307,7 @@ function AcceptFlow({ token }: { readonly token: string }) {
         account={({ history }) => (
           <>
             <AccountStep
-              focus={moved}
+              focus={moved || retried}
               // The page is on its way to a provider: not to a password too.
               held={signUp.held}
               onPick={(account) => void history.push("password", { account })}
@@ -312,7 +318,7 @@ function AcceptFlow({ token }: { readonly token: string }) {
         password={({ context, history }) => (
           <PasswordStep
             account={context.account}
-            focus={moved}
+            focus={moved || retried}
             pending={accept.isPending}
             send={send}
             onBack={() => void history.back()}

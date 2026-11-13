@@ -725,6 +725,35 @@ describe("공급자 계정으로 가입", () => {
       await handedOn();
     });
 
+    test("다시 읽으니 비밀번호가 다시 열려 있으면 단계가 돌아오고, 그 제목이 포커스를 받는다", async () => {
+      let reads = 0;
+      renderAt(`/invite/${TOKEN}`, {
+        "GET /v1/auth/me": signedOut,
+        "GET /v1/auth/login-methods": () =>
+          json(200, {
+            password: reads++ === 0 ? "emergency_only" : "on",
+            providers: [],
+          }),
+      });
+      const user = await setupUser();
+      await user.click(
+        await screen.findByRole("button", { name: "다시 시도" }),
+      );
+      await waitFor(() =>
+        expect(
+          document.activeElement ===
+            screen.getByRole("heading", {
+              level: 2,
+              name: "초대받은 이메일로 쓰는 계정이 있나요?",
+            }),
+        ).toBe(true),
+      );
+      expect(headings()).toBe(0);
+      expect(
+        screen.queryAllByRole("button", { name: "다시 시도" }),
+      ).toHaveLength(0);
+    });
+
     test("다시 읽어도 공급자가 없으면 안내와 버튼이 남고, 포커스는 버튼에 그대로 있다", async () => {
       const { api } = renderAt(`/invite/${TOKEN}`, closed());
       const user = await setupUser();
