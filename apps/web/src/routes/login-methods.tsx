@@ -4,6 +4,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
+import { useLocation, useNavigate } from "@tanstack/react-router";
 import { type ApiClient, type ApiError, unwrap } from "@werft-ai/client";
 import type {
   ListMyLoginMethodsResponse,
@@ -24,7 +25,7 @@ import {
   Skeleton,
   Text,
 } from "@werft-ai/ui";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { scopedKey } from "../api/queries.ts";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
@@ -32,8 +33,18 @@ import { Action } from "../components/setting-action.tsx";
 import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
 import { useAppServices } from "../services.tsx";
 
-/** Set while a link is at the provider, so the callback knows where back is. */
+/**
+ * The `state` of the link this tab left for the provider with, so the
+ * callback of that flow, and of no other, knows where back is.
+ */
 export const LINK_FLOW_KEY = "ap.loginMethodLink";
+
+declare module "@tanstack/react-router" {
+  interface HistoryState {
+    /** The callback of a link that went through; said on this screen. */
+    readonly loginMethodLinked?: boolean;
+  }
+}
 
 const listKey = (client: ApiClient) => scopedKey(client, "my-login-methods");
 
@@ -79,6 +90,29 @@ export function LoginMethodsScreen() {
   const [removing, setRemoving] = useState<MyLoginMethod | null>(null);
   const [dialogError, setDialogError] = useState<string | null>(null);
   const outcomeRef = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
+  // Back from a link that went through. Read from the history entry and not
+  // from a mark taken once: on its way in from the callback this screen
+  // mounts twice, and the second mount would find such a mark spent. Said
+  // after the render, so the live region has a change to announce.
+  const justLinked = useLocation({
+    select: (location) => location.state.loginMethodLinked === true,
+  });
+  useEffect(() => {
+    if (justLinked)
+      setOutcome({ kind: "notice", text: t("loginMethods.done.linked") });
+  }, [justLinked, t]);
+  // The entry stops saying it with the first thing the person does here, so
+  // Back or a reload after that does not bring the notice over newer news.
+  const acted = () => {
+    setOutcome(null);
+    if (justLinked)
+      void navigate({
+        to: ".",
+        replace: true,
+        state: ({ loginMethodLinked: _, ...rest }) => rest,
+      });
+  };
   // A refusal is often news: the session grew old, a provider went off.
   const reread = () =>
     queryClient.invalidateQueries({ queryKey: listKey(client) });
@@ -92,7 +126,10 @@ export function LoginMethodsScreen() {
       ),
     onSuccess: ({ authorization_url }) => {
       try {
-        sessionStorage.setItem(LINK_FLOW_KEY, "1");
+        sessionStorage.setItem(
+          LINK_FLOW_KEY,
+          new URL(authorization_url).searchParams.get("state") ?? "",
+        );
       } catch {
         // Without it the callback's way back is the login page's.
       }
@@ -208,7 +245,7 @@ export function LoginMethodsScreen() {
                   }
                   busy={busy}
                   onClick={() => {
-                    setOutcome(null);
+                    acted();
                     setDialogError(null);
                     setRemoving(method);
                   }}
@@ -236,7 +273,7 @@ export function LoginMethodsScreen() {
                         reason={stale}
                         busy={busy}
                         onClick={() => {
-                          setOutcome(null);
+                          acted();
                           link.mutate(provider.id);
                         }}
                       />
