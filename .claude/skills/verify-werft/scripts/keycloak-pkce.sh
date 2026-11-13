@@ -55,7 +55,8 @@ http=$(curl -sS -o "$out.token" -w '%{http_code}' \
   --data-urlencode "redirect_uri@$out.redirect" \
   --data-urlencode "code_verifier=$(printf 'x%.0s' $(seq 1 64))" \
   "$issuer/protocol/openid-connect/token")
-echo "token endpoint, wrong verifier: $http $(node -e '
-const body = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"));
-console.log(body.error, "|", body.error_description, "| id_token present:", "id_token" in body);' "$out.token")"
-[ "$http" = 400 ]
+# Exit 0 only for Keycloak's own PKCE refusal; any other 400 is a failure.
+verdict=$(node "$scripts/pkce-verdict.mjs" "$http" "$out.token")
+refused=$?
+echo "token endpoint, wrong verifier: $verdict"
+exit "$refused"

@@ -18,7 +18,7 @@
 ## How to get to it (user POV)
 
 - owner: 설정 > 워크스페이스 > "로그인"(`/settings/workspace/login`) → "공급자 추가" → 상세 화면에서 client 값, "테스트 로그인", "켜기", "규칙 바꾸기", "끄기".
-- 누구나: `/login`의 "Keycloak 계정으로 로그인", 설정 > "로그인 수단"(`/settings/login-methods`)의 "Keycloak 연결".
+- 누구나: `/login`의 "Keycloak 계정으로 로그인", 설정 > "로그인 수단"(`/settings/login-methods`)에서 Keycloak 줄의 "연결"(접근성 이름 "Keycloak 연결").
 - realm의 사람은 ana·bo(주소 검증됨)와 uma(검증 안 됨), 모두 `@acme.example`이고 비밀번호는 이 run의 한 값이다. Keycloak의 폼에는 `type '#username' <이름>`, `type-state '#password' KEYCLOAK_WERFT_USER_PASSWORD`, `click '#kc-login'`으로 들어간다.
 
 ## Driving it with lib.sh
@@ -103,7 +103,7 @@ keycloak_logout() {
 
    ```sh
    node "$B" "$RUN" open "$CONSOLE_ORIGIN/settings/login-methods"
-   node "$B" "$RUN" click "Keycloak 연결"                 # -> /settings/login-methods, "연결했습니다. 이제 이 공급자 계정으로 로그인할 수 있습니다."
+   node "$B" "$RUN" click '[aria-label="Keycloak 연결"]'  # 보이는 글자는 "연결"이다. -> /settings/login-methods, "연결했습니다. 이제 이 공급자 계정으로 로그인할 수 있습니다."
    werft_logout                                           # 204
    node "$B" "$RUN" open "$CONSOLE_ORIGIN/login"
    node "$B" "$RUN" click "Keycloak 계정으로 로그인"       # -> /
@@ -154,7 +154,7 @@ keycloak_logout() {
    .claude/skills/verify-werft/scripts/keycloak-pkce.sh "$RUN" "$PID"
    ```
 
-   기대: `challenge S256, 43 chars`, `back at: /auth/callback/pkce-probe`, `code received: yes`, `token endpoint, wrong verifier: 400 invalid_grant | PKCE verification failed: Code mismatch | id_token present: false`, exit 0. 중간의 `! failed request: POST /v1/auth/oidc/callback -> 400`은 예상한 줄이다. 흐름이 속하지 않는 주소로 돌아온 콜백을 API가 본문 검증에서 거절해, code가 쓰이지 않은 채 남는다.
+   기대: `challenge S256, 43 chars`, `back at: /auth/callback/pkce-probe`, `code received: yes`, `token endpoint, wrong verifier: 400 invalid_grant | PKCE verification failed: Code mismatch | tokens: none`, exit 0. 다른 까닭의 `400`(쓰인 code, 맞지 않는 redirect URI, client 인증 실패)은 exit 1이다(`pkce-verdict.mjs`). 중간의 `! failed request: POST /v1/auth/oidc/callback -> 400`은 예상한 줄이다. 흐름이 속하지 않는 주소로 돌아온 콜백을 API가 본문 검증에서 거절해, code가 쓰이지 않은 채 남는다.
 
 10. **`kc-no-secret-in-logs`.** 값은 pipe로 `grep`에 간다.
 
@@ -168,7 +168,7 @@ keycloak_logout() {
 ## Gotchas
 
 - `localhost`와 `127.0.0.1`을 섞지 않는다. issuer는 `http://localhost:<port>`(Keycloak의 `--hostname`), 콘솔은 `http://127.0.0.1:<port>`(`CONSOLE_ORIGIN`)다. 콘솔을 `localhost`로 열면 cookie가 다른 host에 묶여 콜백이 `401`이다.
-- overlay는 값 셋(`KEYCLOAK_WERFT_CLIENT_SECRET`, `KEYCLOAK_WERFT_USER_PASSWORD`, `CONSOLE_ORIGIN`)이 없으면 compose 호출을 모두 거절한다. `keycloak-up.sh`가 `VERIFY_STATE_VARS`로 run의 상태에 적어 두므로 `lib.sh`·`down.sh`는 그대로 돈다. `up.sh infra/compose.keycloak.yml`을 직접 부르지 않는다.
+- overlay는 값 셋(`KEYCLOAK_WERFT_CLIENT_SECRET`, `KEYCLOAK_WERFT_USER_PASSWORD`, `CONSOLE_ORIGIN`)이 없으면 compose 호출을 모두 거절한다. `keycloak-up.sh`가 `VERIFY_STATE_VARS`로 run의 상태에 적어 두므로 `lib.sh`·`down.sh`는 그대로 돈다. 상태 파일은 셸이 source하고 `.mjs` helper가 따로 읽으므로, `up.sh`는 따옴표가 필요 없는 값(글자·숫자와 `_.:/@%+=,-`)만 받는다. `up.sh infra/compose.keycloak.yml`을 직접 부르지 않는다.
 - Keycloak은 API의 네트워크 이름공간을 쓴다(`network_mode: "service:api"`). api 컨테이너를 다시 만들면(`ap_compose up -d api`) Keycloak도 다시 만들어야 하고, `start-dev`의 내장 DB는 volume이 없어 realm을 처음부터 다시 읽는다(사용자 id가 바뀌어 연결해 둔 계정은 다른 사람이 된다).
 - 브라우저의 Keycloak 세션은 werft 로그아웃으로 끝나지 않는다. 사람을 바꿀 때는 `keycloak_logout`을 먼저 한다.
 - `click`이 Keycloak으로 넘어가면 출력에 인가 요청의 주소가 찍힌다. `state`는 가려지고, 함께 보이는 `nonce`·`code_challenge`는 공급자에게 공개하는 값이다.

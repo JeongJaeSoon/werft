@@ -28,13 +28,21 @@ case "$slots" in
 esac
 console_port=${VERIFY_CONSOLE_PORT:-}
 case "$console_port" in
-  *[!0-9]*) echo "up.sh: VERIFY_CONSOLE_PORT must be a port number (got '$console_port')" >&2; exit 1 ;;
+  '') ;;
+  0* | *[!0-9]* | ??????*) echo "up.sh: VERIFY_CONSOLE_PORT must be a port from 1 to 65535 (got '$console_port')" >&2; exit 1 ;;
+  *) [ "$console_port" -le 65535 ] || { echo "up.sh: VERIFY_CONSOLE_PORT must be a port from 1 to 65535 (got '$console_port')" >&2; exit 1; } ;;
 esac
+# The state file is sourced by the shell scripts and parsed by the .mjs
+# helpers (run-state.mjs). A value both read alike needs no quoting, so only
+# such values are taken; the value itself is never echoed.
 for name in ${VERIFY_STATE_VARS:-}; do
   case "$name" in
     *[!A-Z0-9_]* | [0-9]*) echo "up.sh: VERIFY_STATE_VARS takes variable names (got '$name')" >&2; exit 1 ;;
   esac
   [ -n "${!name:-}" ] || { echo "up.sh: VERIFY_STATE_VARS names $name, which is not set" >&2; exit 1; }
+  case "${!name}" in
+    *[!A-Za-z0-9_.:/@%+=,-]*) echo "up.sh: VERIFY_STATE_VARS: the value of $name has a character the state file does not carry (letters, digits and _.:/@%+=,- only)" >&2; exit 1 ;;
+  esac
 done
 "$(dirname "$0")/address-pool.sh" "$((slots + 1))" || {
   if [ "$?" = 1 ]; then
@@ -87,7 +95,7 @@ EOF
   overlays=""
   for overlay in "$@"; do overlays="$overlays:$repo/$overlay"; done
   printf 'export COMPOSE_FILE=%q\n' "$repo/compose.yaml:$run/ports.yml$overlays"
-  for name in ${VERIFY_STATE_VARS:-}; do printf 'export %s=%q\n' "$name" "${!name}"; done
+  for name in ${VERIFY_STATE_VARS:-}; do printf 'export %s=%s\n' "$name" "${!name}"; done
   # Per-run tags, as tests/e2e/run.sh does: the scheduler starts workers from
   # WORKER_IMAGE, so a shared :dev tag would let another stack's build
   # change what this one runs (and the reverse).

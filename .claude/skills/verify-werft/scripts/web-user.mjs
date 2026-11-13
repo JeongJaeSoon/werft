@@ -27,6 +27,7 @@ import { generateKeyPairSync, randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { parseRunState } from "./run-state.mjs";
 
 const [runArg, cmd, who, ...rest] = process.argv.slice(2);
 if (!runArg || !cmd || !who) {
@@ -41,13 +42,7 @@ const root =
 const run = runArg.includes("/")
   ? runArg
   : join(root, runArg.replace(/^verify-ap-/, ""));
-const state = Object.fromEntries(
-  readFileSync(join(run, "state.env"), "utf8")
-    .split("\n")
-    .map((line) => line.replace(/^export /, "").match(/^([A-Z_]+)=(.*)$/))
-    .filter(Boolean)
-    .map(([, k, v]) => [k, v.replace(/^"(.*)"$/, "$1")]),
-);
+const state = parseRunState(readFileSync(join(run, "state.env"), "utf8"));
 const api = state.VERIFY_API;
 if (!api) {
   console.error(

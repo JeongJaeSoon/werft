@@ -45,6 +45,7 @@ import {
   globToRegExp,
   NETWORK_ENABLE,
 } from "./response-capture.mjs";
+import { parseRunState } from "./run-state.mjs";
 
 const CHROME =
   process.env.CHROME ??
@@ -156,13 +157,7 @@ if (cmd === "stop") {
   process.exit(0);
 }
 
-const state = Object.fromEntries(
-  readFileSync(join(run, "state.env"), "utf8")
-    .split("\n")
-    .map((line) => line.replace(/^export /, "").match(/^([A-Z_]+)=(.*)$/))
-    .filter(Boolean)
-    .map(([, k, v]) => [k, v.replace(/^"(.*)"$/, "$1")]),
-);
+const state = parseRunState(readFileSync(join(run, "state.env"), "utf8"));
 const url = (p) => (/^https?:/.test(p) ? p : state.VERIFY_API + p);
 const W = Number(process.env.W ?? 1280);
 const H = Number(process.env.H ?? 900);

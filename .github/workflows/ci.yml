@@ -403,6 +403,7 @@ jobs:
               - tests/pages-workflow.
               - tests/preview-reap.
               - tests/verify-werft-response-capture.
+              - tests/verify-werft-keycloak.
               - tests/release-auto.
               - tests/schema-subset.
               - tests/sdk-release.

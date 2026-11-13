@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+// @ts-expect-error plain .mjs next to the verify skill's scripts
+import { parseRunState } from "../.claude/skills/verify-werft/scripts/run-state.mjs";
 
 /**
  * The verify-werft skill's up.sh and its address pool check against
@@ -299,9 +301,20 @@ esac
     for (const env of [
       { VERIFY_CONSOLE_PORT: "80a" },
       { VERIFY_CONSOLE_PORT: "-1" },
+      { VERIFY_CONSOLE_PORT: "0" },
+      { VERIFY_CONSOLE_PORT: "080" },
+      { VERIFY_CONSOLE_PORT: "65536" },
+      { VERIFY_CONSOLE_PORT: "99999999999999999999" },
       { VERIFY_STATE_VARS: "lower" },
       { VERIFY_STATE_VARS: "A=B" },
       { VERIFY_STATE_VARS: "VERIFY_TEST_NEVER_SET" },
+      // A value the shell and the .mjs helpers would not read alike.
+      ...["two words", "it's", 'a"b', "a$b", "a\\b", "line\nline", "a;b"].map(
+        (value) => ({
+          VERIFY_STATE_VARS: "VERIFY_TEST_KEPT",
+          VERIFY_TEST_KEPT: value,
+        }),
+      ),
     ]) {
       const { exitCode, stderr } = await run(
         "up.sh",
@@ -312,6 +325,10 @@ esac
 
       expect(exitCode).toBe(1);
       expect(stderr).toContain(Object.keys(env)[0] ?? "");
+      // The refusal names the variable, never what it holds.
+      if ("VERIFY_TEST_KEPT" in env) {
+        expect(stderr).not.toContain(env.VERIFY_TEST_KEPT);
+      }
     }
     expect(await dockerCalls()).toEqual([]);
     expect(await runs()).toEqual([]);
@@ -338,31 +355,40 @@ esac
       '- "127.0.0.1::3000"',
     ]);
 
+    const values = {
+      VERIFY_TEST_KEPT: "0f3a_.:/@%+=,-Z",
+      VERIFY_TEST_ALSO2: "http://127.0.0.1:41234",
+    };
     const kept = await written({
       VERIFY_CONSOLE_PORT: "41234",
-      VERIFY_STATE_VARS: "VERIFY_TEST_KEPT VERIFY_TEST_ALSO",
-      VERIFY_TEST_KEPT: "a value's own $HOME",
-      VERIFY_TEST_ALSO: "http://127.0.0.1:41234",
+      VERIFY_STATE_VARS: Object.keys(values).join(" "),
+      ...values,
     });
     expect(await loopbackOn3000(kept)).toEqual([
       '- "127.0.0.1::3000"',
       '- "127.0.0.1:41234:3000"',
     ]);
-    // Read back the way lib.sh and down.sh read it: sourced, in a shell that
-    // was never given the values.
+    // Read back both ways the run's later steps read it, by readers that were
+    // never given the values: sourced (lib.sh, down.sh) and parsed
+    // (browser.mjs, web-user.mjs). Compose got what the shell reads and
+    // `type-state` types what the parser reads, so the two must agree.
+    const state = join(kept, "state.env");
     const sourced = Bun.spawnSync(
       [
         "bash",
         "-c",
-        '. "$1" && export -p | grep -c "^declare -x VERIFY_TEST_" && printf "%s|%s" "$VERIFY_TEST_KEPT" "$VERIFY_TEST_ALSO"',
+        '. "$1" && export -p | grep -c "^declare -x VERIFY_TEST_" && printf "%s|%s" "$VERIFY_TEST_KEPT" "$VERIFY_TEST_ALSO2"',
         "bash",
-        join(kept, "state.env"),
+        state,
       ],
       { env: { PATH: process.env.PATH ?? "" } },
     );
     expect(sourced.stdout.toString()).toBe(
-      "2\na value's own $HOME|http://127.0.0.1:41234",
+      `2\n${values.VERIFY_TEST_KEPT}|${values.VERIFY_TEST_ALSO2}`,
     );
+    const parsed = parseRunState(await Bun.file(state).text());
+    expect(parsed).toMatchObject(values);
+    expect(parsed.COMPOSE_PROJECT_NAME).toMatch(/^verify-ap-/);
   });
 
   test("up.sh hands local.sh 3 worker slots, 7 with the demo data, or VERIFY_SLOT_LIMIT, over the caller's own", async () => {
