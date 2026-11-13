@@ -479,9 +479,9 @@ IdP가 사람을 인증했다는 것은 `(issuer, subject)`를 증명한다. 그
 
 | IdP | issuer 모양 | 주소 증명 | 그 밖 | 결과 |
 |---|---|---|---|---|
-| Google | `https://accounts.google.com` | `email_verified`가 온다. Workspace 계정은 `hd`가 온다 | id_token `iss`가 스킴 없이 올 수 있다 | 로그인, 초대(주소·token), JIT(허용 도메인 필수) |
+| Google | `https://accounts.google.com` | `email_verified`가 온다. Workspace 계정은 `hd`가 온다 | id_token `iss`가 스킴 없이 올 수 있다. discovery가 인가 응답의 `iss`(RFC 9207)를 켜 두어, 콜백에 `iss`가 있어야 한다 | 로그인, 초대(주소·token), JIT(허용 도메인 필수) |
 | OneLogin | `https://<subdomain>.onelogin.com/oidc/2` | 기본으로는 `email_verified`가 오지 않는다. 관리자가 사용자 정의 속성으로 더할 수 있다 | client 인증 방식을 앱에서 하나만 고른다 | 기본 설정: `require_verified_email = false`로 로그인, 초대 token으로 가입, JIT 불가. `email_verified`를 더하면 JIT 가능 |
-| Entra ID | `https://login.microsoftonline.com/<tenant-id>/v2.0` | `email_verified`가 오지 않는다. `email`은 정확하다고 보장되지 않고, 앱 등록에서 켜야 온다 | `common`·`organizations` issuer는 discovery의 `issuer`가 `{tenantid}` 틀이라 `issuer_mismatch`다. 화면이 "tenant별 issuer를 쓰라"고 안내한다. `sub`는 앱마다 다르다 | `require_verified_email = false`로 로그인, 초대 token으로 가입, JIT 불가 |
+| Entra ID | `https://login.microsoftonline.com/<tenant-id>/v2.0` | `email_verified`가 오지 않는다. `email`은 정확하다고 보장되지 않고, 앱 등록에서 켜야 온다 | `common`·`organizations` issuer는 discovery의 `issuer`가 `{tenantid}` 틀이라 `issuer_mismatch`다. 화면이 "tenant별 issuer를 쓰라"고 안내한다. `sub`는 앱마다 다르다. discovery가 UserInfo endpoint(Microsoft Graph)를 주므로, id_token에 `email`이 없으면 UserInfo에 묻는다 | `require_verified_email = false`로 로그인, 초대 token으로 가입, JIT 불가 |
 | Okta | `https://<org>.okta.com` 또는 `…/oauth2/<server>` | `email_verified`가 온다 | code 흐름의 id_token은 얇을 수 있다. scope의 클레임 전체는 UserInfo가 준다 | UserInfo 보완(4.3절 12)으로 로그인, 초대, JIT |
 | Keycloak | `https://<host>/realms/<realm>` | `email_verified`가 온다. 검증 안 한 사용자는 `false`다 | `ES256`으로 서명하게 설정할 수 있다 | 검증된 사용자: 로그인, 초대, JIT. `false`인 사용자: 거절. Keycloak에서 검증한다 |
 
@@ -608,7 +608,7 @@ e2e의 Keycloak은 API 컨테이너와 네트워크 이름공간을 함께 쓰�
 | 4b 초대·내 계정 화면 | 작업 중 | — |
 | 5a 비밀번호 로그인 설정, 비상 관리자, 운영자 CLI | 작업 중 | — |
 | 5b 비밀번호 로그인 화면 | 작업 중 | — |
-| 6 | 시작 전 | — |
+| 6 공급자 모양 계약 시험, Keycloak e2e | 작업 중 | — |
 
 1단계는 3.1절의 표에서 `provider-http.ts`, `discovery.ts`, `jwks.ts`, `id-token.ts`, `flow.ts`(시작과 끝), `issuer-rules.ts`, `errors.ts`를 넣고 환경 변수로 설정한 Google 로그인을 그 위로 옮긴다. 흐름 cookie의 봉인, 응답 `iss`를 라우트에서 넘기는 일, `admission.ts`는 공급자 행이 생기는 2단계에 넣는다. 1단계의 네트워크 정책에는 `http` issuer를 그대로 받는 값이 하나 더 있다. 환경 변수 Google 로그인의 mock IdP만 쓰고, 2단계에서 환경 변수와 함께 없앤다. 12절은 1단계에서 mock IdP에 키 회전을 더한다고 적지만, 1단계의 회전 시험은 모듈 안의 가짜 공급자(요청 함수 자리)로 하고, HTTP mock IdP의 회전은 6단계의 공급자 모양과 함께 넣는다.
 
@@ -721,6 +721,15 @@ e2e의 Keycloak은 API 컨테이너와 네트워크 이름공간을 함께 쓰�
 - 닫힌 설치의 로그인 화면은 공급자 버튼을 먼저 보이고 비밀번호 폼은 "비상 관리자 로그인" 뒤에 둔다. 폼은 로그인 수단 목록의 답을 기다리지 않고 그린다. 목록을 읽지 못해도 비밀번호 로그인은 남아야 하기 때문이다. 그래서 닫힌 설치에서는 폼이 잠깐 보였다가 버튼으로 바뀌고, 답이 오기 전에 쓰기 시작한 폼은 그대로 둔다. 버튼을 눌러 폼을 열면 포커스가 이메일 칸으로 간다.
 - 닫힌 설치의 초대 화면은 계정 종류 질문과 비밀번호 단계를 내지 않고 공급자 버튼만 보인다(9.1절). 닫힌 동안 서버가 초대의 비밀번호 수락을 누구에게나 거절하기 때문이다. 로그인 화면과 달리 폼을 버튼 뒤에 남기지 않는다. 비상 관리자도 초대로는 비밀번호를 쓰지 못한다. 목록의 답이 오기 전이나 목록을 읽지 못했을 때는 비밀번호 단계가 그대로 나온다. 그때 서버가 닫힌 것으로 거절하면(`403`, `password_login_closed`) 목록을 다시 읽어 공급자 버튼으로 넘어가고, 다시 읽지 못하면 폼에 닫힌 것을 말한다. 단계가 공급자 버튼에 자리를 내줄 때, 단계 안에 포커스가 있었던 적이 있으면 닫힌 화면의 제목이 포커스를 받고 까닭이 함께 읽힌다. 아무것도 건드리지 않은 채 열린 화면은 포커스를 옮기지 않는다. 닫혔는데 목록에 공급자가 없는 답(두 값을 따로 읽어 잠깐 어긋난 경우)에는 그렇게 말하고 다시 읽는 버튼을 둔다. 그 버튼으로 다시 읽은 답이 화면을 바꾸면(공급자가 생겼거나 그사이 다시 열려 단계가 돌아왔으면) 버튼이 사라지므로 새 화면의 제목이 포커스를 받고, 답이 같으면 포커스는 버튼에 남는다.
 - 공급자를 켜거나 끄는 변경은 설정도 다시 읽는다. 켜진 공급자 수가 닫기 버튼과 마지막 공급자 끄기의 판정을 바꾸기 때문이다.
+
+6에서 정한 것은 다음과 같다.
+
+- 공급자 모양의 계약 시험(`apps/control-host/src/api/provider-shapes.test.ts`)은 discovery와 로그인 서비스를 HTTP mock IdP에 붙여 돌린다. 서버 쪽 요청은 운영 요청 함수를 그대로 쓰고 마지막 연결만 mock으로 돌린다. 그래서 issuer를 각 공급자의 실제 모양(`https://login.microsoftonline.com/<tenant-id>/v2.0` 등)으로 쓰고, 운영과 같은 네트워크 정책(평문 `http` 거절)으로 돈다.
+- 계약 시험은 누가 로그인했고 공급자 규칙이 그 사람을 어떻게 들이는지(주소를 증명했는가, 스스로 가입할 역할)까지를 본다. 그 값으로 저장소가 하는 일(6.1절의 규칙, 초대 token 가입)은 공급자와 무관하고 `provider-login.integration.test.ts`가 고정한다. 계정이 만들어지는 데까지 가는 공급자별 흐름은 Keycloak e2e가 본다.
+- mock IdP(`packages/testkit/src/mock-oidc.ts`)에 모양 옵션을 더했다: issuer의 경로(tenant, realm) 아래의 endpoint, `ES256` 서명, 얇은 id_token과 UserInfo, discovery 문서에 덮어쓰는 목록, 인가 응답의 `iss`, client 인증 방식 하나만 받기, PKCE를 검사하지 않기, 키 회전. 옵션을 주지 않은 mock은 있던 흐름(본문에 실은 client 인증)을 그대로 받고, 달라진 것은 하나다. Basic 헤더에 실은 client 인증도 받는다.
+- Google과 Entra ID의 discovery 목록은 2026-11-13에 공개 문서를 직접 읽은 값이고, Keycloak의 목록은 같은 날 Keycloak 26.8.1의 realm에서 읽은 값이다. OneLogin과 Okta의 목록은 대표 값이고 실제 서버에서 읽지 않았다.
+- 같은 Keycloak(realm의 기본 서명을 `ES256`으로 둔 것)에서 확인한 것: id_token이 `ES256`으로 오고, 인가 응답에 `iss`가 붙고, 틀린 PKCE verifier는 client 인증이 Basic이든 POST든 `400 invalid_grant`로 거절되고, 검증하지 않은 사용자의 token은 `email_verified: false`다. werft를 거치지 않고 Keycloak에 직접 물은 결과이고, werft를 거친 확인은 e2e의 몫이다.
+- Entra ID에서 id_token에 `email`이 없으면(앱 등록에서 켜지 않은 경우) UserInfo에 묻고, 거기에도 없으면 주소 없이 로그인한다(`require_verified_email = false`일 때). UserInfo가 답하지 않으면 그 로그인은 거절된다. 실제 테넌트의 UserInfo 응답은 확인하지 않았다.
 
 ## 17. 리뷰 기록
 
