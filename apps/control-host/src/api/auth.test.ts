@@ -1043,6 +1043,24 @@ describe("account recovery", () => {
     expect(h.identity.resets).toHaveLength(0);
   });
 
+  test("while password sign-in is closed to the member, no link is issued", async () => {
+    const h = harness();
+    const { issue } = await withMember(h);
+    // The store decides this under its lock (packages/db covers when); the
+    // route only has to say it and hand out no token.
+    h.identity.issuePasswordReset = async () => ({
+      outcome: "password_closed",
+    });
+    const closed = await issue();
+    expect(closed.status).toBe(409);
+    const text = await closed.text();
+    const { error } = apiErrorResponseSchema.parse(JSON.parse(text));
+    expect(error.code).toBe("REVISION_CONFLICT");
+    expect(error.details).toEqual({ reason_code: "password_login_closed" });
+    // The token is made before the store is asked.
+    expect(text).not.toContain("apr_");
+  });
+
   test("a link for another owner is recorded as such; one for an owner elsewhere is refused", async () => {
     const h = harness();
     const { member, issue, workspace } = await withMember(h);
