@@ -98,6 +98,8 @@ describe("flow cookie", () => {
     userId: "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
     sessionId: "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01",
     secretSlot: "next",
+    // Any id: the sealer asks only that there is one.
+    secretId: flow.providerId,
     secretVersion: 2,
   } as const;
 
@@ -122,6 +124,8 @@ describe("flow cookie", () => {
       { ...flow, purpose: "test", test: { ...owner, sessionId: undefined } },
       { ...flow, purpose: "test", test: { ...owner, secretSlot: "other" } },
       { ...flow, purpose: "test", test: { ...owner, secretVersion: "2" } },
+      { ...flow, purpose: "test", test: { ...owner, secretId: undefined } },
+      { ...flow, purpose: "test", test: { ...owner, secretId: "" } },
       { ...flow, purpose: "test", test: "owner" },
       { ...flow, purpose: "test", test: null },
     ];
