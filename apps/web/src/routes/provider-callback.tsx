@@ -21,7 +21,7 @@ import { AuthPage, FormError } from "../components/auth-page.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, type MessageKey, useI18n } from "../i18n/i18n.tsx";
 import { POST_LOGIN_PATH_KEY, safeRedirect } from "./login.tsx";
-import { LINK_FLOW_KEY, myLoginMethodsQuery } from "./login-methods.tsx";
+import { LINK_FLOW_KEY } from "./login-methods.tsx";
 
 export interface ProviderCallbackSearch {
   readonly code?: string;
@@ -206,10 +206,8 @@ export function ProviderCallbackScreen() {
       if (answer.outcome === "tested") return;
       if (answer.outcome === "linked") {
         // A link signed nobody in either: the person goes back to their
-        // account, in the session they started from.
-        await queryClient.invalidateQueries({
-          queryKey: myLoginMethodsQuery(client).queryKey,
-        });
+        // account, in the session they started from. The list is read
+        // there: this page came from the provider with an empty cache.
         await navigate({ to: "/settings/login-methods", replace: true });
         return;
       }

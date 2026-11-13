@@ -137,15 +137,17 @@ describe("공급자 콜백", () => {
     ).toEqual({ provider_id: GOOGLE.id, code: "c1", state: "s1" });
   });
 
-  test("연결로 끝난 흐름은 내 계정으로 돌아가고, 기억한 곳은 쓰지 않는다", async () => {
+  test("연결로 끝난 흐름은 내 로그인 수단으로 돌아가고, 기억한 곳은 쓰지 않는다", async () => {
     sessionStorage.setItem("ap.postLoginPath", "/members");
     const { history } = renderAt(`${CALLBACK_PAGE}?code=c1&state=s1`, {
       "POST /v1/auth/oidc/callback": () =>
         json(200, { outcome: "linked", provider_id: GOOGLE.id }),
       "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/auth/me/login-methods": () =>
+        json(200, { methods: [], linkable: [], can_change: true }),
     });
     await waitFor(() =>
-      expect(history.location.pathname).toBe("/settings/preferences"),
+      expect(history.location.pathname).toBe("/settings/login-methods"),
     );
     expect(sessionStorage.getItem("ap.postLoginPath")).toBe("/members");
     sessionStorage.removeItem("ap.postLoginPath");
