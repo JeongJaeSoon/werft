@@ -91,12 +91,15 @@ describe("로그인 수단 선택", () => {
         .getAllByRole("button", { name: /Keycloak|이동하는 중/ })
         .map((button) => button.hasAttribute("disabled"));
     expect(held()).toEqual([true, true]);
+    // A page shown for the first time is not one come back to. Inside act,
+    // so what the event changed is drawn before the buttons are read.
+    await act(async () => {
+      window.dispatchEvent(new Event("pageshow"));
+    });
+    expect(held()).toEqual([true, true]);
     await user.click(
       screen.getByRole("button", { name: "Keycloak 계정으로 로그인" }),
     );
-    // A page shown for the first time is not one come back to.
-    window.dispatchEvent(new Event("pageshow"));
-    expect(held()).toEqual([true, true]);
     // Coming back from the provider's page (back button) can start again.
     comeBack();
     await waitFor(() =>
