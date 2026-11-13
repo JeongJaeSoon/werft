@@ -22,7 +22,6 @@ import {
   CopyButton,
   DangerZone,
   DangerZoneRow,
-  DisabledReason,
   EmptyState,
   Field,
   FieldDescription,
@@ -40,7 +39,6 @@ import {
   PageBreadcrumbCurrent,
   PageBreadcrumbLink,
   RelativeTime,
-  RowAction,
   SettingRow,
   SettingsSection,
   Skeleton,
@@ -52,9 +50,15 @@ import { Fragment, useRef, useState } from "react";
 import { scopedKey } from "../api/queries.ts";
 import { refusalText, useHasPermission, useRole } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
+import { Action } from "../components/setting-action.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { isMessageKey, type Translate, useI18n } from "../i18n/i18n.tsx";
 import { useLeave } from "../services.tsx";
+import {
+  loginSettingsKey,
+  loginSettingsQuery,
+  PasswordLoginSettings,
+} from "./login-settings.tsx";
 import {
   FormDialog,
   type Outcome,
@@ -102,6 +106,8 @@ function refusal(
   if (error.code === "REVISION_CONFLICT") {
     if (details?.reason_code === "provider_enabled")
       return t("loginProviders.error.enabled");
+    if (details?.reason_code === "last_provider")
+      return t("loginProviders.disableReason.last");
     if (details?.reason_code === "not_tested")
       return t(
         step === "test"
@@ -134,9 +140,13 @@ function useProviderWrite<V, R>(
         refusal(t, error, role, handlers.step ?? "other"),
         error,
       ),
-    // A refusal is often news about the provider: its revision moved.
+    // A refusal is often news about the provider: its revision moved. How
+    // many providers are on decides what the password switch offers.
     onSettled: () =>
-      queryClient.invalidateQueries({ queryKey: listKey(client) }),
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: listKey(client) }),
+        queryClient.invalidateQueries({ queryKey: loginSettingsKey(client) }),
+      ]),
   });
 }
 
@@ -268,6 +278,7 @@ export function LoginProvidersScreen() {
             ))}
           </GridTable>
         )}
+        <PasswordLoginSettings />
       </div>
       <AddProvider open={adding} onOpenChange={setAdding} opener={opener} />
     </Page>
@@ -339,45 +350,6 @@ function AddProvider({
         <FieldDescription>{t("loginProviders.issuerHint")}</FieldDescription>
       </Field>
     </FormDialog>
-  );
-}
-
-/** A row's action; one that is withheld stays on the page and says why. */
-export function Action({
-  label,
-  name,
-  reason,
-  busy,
-  onClick,
-}: {
-  readonly label: string;
-  /** What it is called where rows share a label; it contains the label. */
-  readonly name?: string | undefined;
-  readonly reason?: string | undefined;
-  readonly busy: boolean;
-  readonly onClick: (button: HTMLElement) => void;
-}) {
-  const button = (
-    // Busy is `aria-disabled`, which keeps the button focusable: a dialog that
-    // closes on a saved change gives the keyboard back to it while the
-    // re-read is still out.
-    <RowAction
-      aria-label={name}
-      disabled={reason !== undefined}
-      aria-disabled={busy || undefined}
-      onClick={(event) => {
-        if (!busy) onClick(event.currentTarget);
-      }}
-    >
-      {label}
-    </RowAction>
-  );
-  return reason === undefined ? (
-    button
-  ) : (
-    <DisabledReason reason={reason} label={label}>
-      {button}
-    </DisabledReason>
   );
 }
 
@@ -457,8 +429,10 @@ function ProviderSettings({
   readonly provider: LoginProviderView;
 }) {
   const { t, locale } = useI18n();
+  const { client } = useWerft();
   const navigate = useNavigate();
   const [held, leaveFor] = useLeave();
+  const access = useQuery(loginSettingsQuery(client));
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [editing, setEditing] = useState<Editing>(null);
   const [dialogError, setDialogError] = useState<string | null>(null);
@@ -604,6 +578,11 @@ function ProviderSettings({
     disable.isPending ||
     remove.isPending;
   const locked = on ? t("loginProviders.lockedWhileOn") : undefined;
+  // The server keeps the last provider on while passwords are closed: with
+  // it off, nobody but the emergency admin could sign in.
+  const lastWhileClosed =
+    access.data?.settings.password_login === "emergency_only" &&
+    access.data.settings.enabled_providers <= 1;
 
   return (
     <div className="flex flex-col gap-[var(--werft-space-block)]">
@@ -866,7 +845,13 @@ function ProviderSettings({
           description={t("loginProviders.disableDescription")}
           actionLabel={t("loginProviders.disable")}
           disabled={busy}
-          reason={on ? undefined : t("loginProviders.disableReason")}
+          reason={
+            on
+              ? lastWhileClosed
+                ? t("loginProviders.disableReason.last")
+                : undefined
+              : t("loginProviders.disableReason")
+          }
           onAction={() => open("disable")}
         />
         <DangerZoneRow

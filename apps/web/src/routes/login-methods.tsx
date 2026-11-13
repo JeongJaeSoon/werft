@@ -29,9 +29,9 @@ import { useEffect, useRef, useState } from "react";
 import { scopedKey } from "../api/queries.ts";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
+import { Action } from "../components/setting-action.tsx";
 import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
 import { useLeave } from "../services.tsx";
-import { Action } from "./login-providers.tsx";
 
 /**
  * The `state` of the link this tab left for the provider with, so the

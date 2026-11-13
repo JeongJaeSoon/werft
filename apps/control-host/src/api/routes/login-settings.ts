@@ -18,8 +18,8 @@ export function registerLoginSettingsRoutes(
   admin: LoginSettingsAdmin,
 ) {
   apiRoute(router, "getLoginSettings", async (context) => {
-    const settings = await mapped(() => admin.read(context.get("caller")));
-    return jsonWithSchema(context, loginSettingsResponseSchema, { settings });
+    const read = await mapped(() => admin.read(context.get("caller")));
+    return jsonWithSchema(context, loginSettingsResponseSchema, read);
   });
 
   apiRoute(router, "updateLoginSettings", async (context) => {

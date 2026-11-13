@@ -570,6 +570,59 @@ describe("로그인 공급자 상세", () => {
     ]);
   });
 
+  const closedAccess = (enabled_providers: number) => ({
+    "GET /v1/login-settings": () =>
+      json(200, {
+        settings: {
+          password_login: "emergency_only",
+          emergency_admin: null,
+          enabled_providers,
+        },
+        emergency_admin_candidates: [],
+      }),
+  });
+  const LAST =
+    "비밀번호 로그인이 닫혀 있는 동안에는 켜진 마지막 공급자를 끌 수 없습니다. 비밀번호 로그인을 먼저 여세요.";
+
+  test("while passwords are closed the last provider that is on is not turned off", async () => {
+    renderAt(PAGE, {
+      ...routes([filled({ state: "enabled", tested_at: AT })]),
+      ...closedAccess(1),
+    });
+    await waitFor(() =>
+      expect(withheld(screen.getByRole("button", { name: "끄기" }))).toBe(LAST),
+    );
+  });
+
+  test("with another provider on it is turned off; a refusal that raced says why, and how many are on is read again", async () => {
+    const on = filled({ state: "enabled", tested_at: AT });
+    const { api } = renderAt(PAGE, {
+      ...routes([on]),
+      ...closedAccess(2),
+      [`POST ${API}/${ID}/disable`]: () =>
+        apiError(409, "REVISION_CONFLICT", "no", false, {
+          reason_code: "last_provider",
+        }),
+    });
+    const user = await setupUser();
+    const off = await screen.findByRole("button", { name: "끄기" });
+    await waitFor(() =>
+      expect(api.calls.some((call) => call.path === "/v1/login-settings")).toBe(
+        true,
+      ),
+    );
+    expect(withheld(off)).toBe(null);
+    await user.click(off);
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "끄기" }));
+    expect((await within(dialog).findByRole("alert")).textContent).toBe(LAST);
+    await waitFor(() =>
+      expect(
+        api.calls.filter((call) => call.path === "/v1/login-settings").length,
+      ).toBe(2),
+    );
+  });
+
   test("a provider that is off is deleted after a confirmation, and the list opens", async () => {
     let listed = [filled()];
     const { api, history } = renderAt(PAGE, {

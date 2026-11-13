@@ -596,6 +596,215 @@ describe("공급자 계정으로 가입", () => {
     await screen.findByLabelText("비밀번호");
     expect(shown()).toBe(0);
   });
+
+  describe("비밀번호 로그인을 닫은 설치", () => {
+    const closed = (...providers: (typeof KEYCLOAK)[]) => ({
+      "GET /v1/auth/me": signedOut,
+      "GET /v1/auth/login-methods": () =>
+        json(200, { password: "emergency_only", providers }),
+    });
+    const CLOSED = () =>
+      apiError(403, "FORBIDDEN", "Password sign-in is closed", false, {
+        reason_code: "password_login_closed",
+      });
+    const passwordSteps = () =>
+      screen.queryAllByRole("button", { name: "아니요, 처음입니다" }).length +
+      screen.queryAllByRole("button", { name: "네, 계정이 있습니다" }).length +
+      screen.queryAllByLabelText("비밀번호").length +
+      screen.queryAllByText("또는").length;
+    const TITLE = "로그인 공급자의 계정으로 가입";
+    const headings = () =>
+      screen.queryAllByRole("heading", { level: 2, name: TITLE }).length;
+    // The heading has the keyboard, and what is read after it is the reason.
+    const handedOn = () =>
+      waitFor(() => {
+        const title = screen.getByRole("heading", { level: 2, name: TITLE });
+        expect(document.activeElement === title).toBe(true);
+        expect(
+          document.getElementById(title.getAttribute("aria-describedby") ?? "")
+            ?.textContent,
+        ).toContain("이 설치는 비밀번호 로그인을 꺼 두어");
+      });
+
+    test("비밀번호 단계 없이 공급자 버튼만 보이고, 누르면 그 공급자로 가입을 시작한다", async () => {
+      const { api, left } = renderAt(`/invite/${TOKEN}`, {
+        ...closed(KEYCLOAK, OKTA),
+        [`POST ${START}`]: () => json(200, { authorization_url: AUTHORIZE }),
+      });
+      await screen.findByRole("button", { name: "Keycloak 계정으로 가입" });
+      expect(
+        screen.getByText(/이 설치는 비밀번호 로그인을 꺼 두어/),
+      ).toBeDefined();
+      expect(passwordSteps()).toBe(0);
+      // Nobody was in the steps: the page keeps focus where it was.
+      expect(headings()).toBe(1);
+      expect(document.activeElement?.tagName).not.toBe("H2");
+      expect(
+        [...(choices()?.querySelectorAll("button") ?? [])].map(
+          (button) => button.textContent,
+        ),
+      ).toEqual(["Keycloak 계정으로 가입", "Okta 계정으로 가입"]);
+      await join();
+      await waitFor(() => expect(left).toEqual([AUTHORIZE]));
+      expect(acceptCalls(api)).toHaveLength(0);
+    });
+
+    test("닫힌 것을 모르고 보낸 비밀번호가 거절되면 다시 읽고, 비밀번호 단계가 공급자 버튼에 자리를 내준다", async () => {
+      let answers = 0;
+      const { api } = renderAt(`/invite/${TOKEN}`, {
+        "GET /v1/auth/me": signedOut,
+        // Open when the page read it; closed by the time the password went.
+        "GET /v1/auth/login-methods": () =>
+          json(200, {
+            password: answers++ === 0 ? "on" : "emergency_only",
+            providers: [KEYCLOAK],
+          }),
+        "POST /v1/invites/accept": CLOSED,
+      });
+      await accept("있음", "wrong password!!");
+      await screen.findByText(/이 설치는 비밀번호 로그인을 꺼 두어/);
+      expect(acceptCalls(api)).toHaveLength(1);
+      expect(passwordSteps()).toBe(0);
+      await handedOn();
+      expect(
+        screen.queryAllByRole("button", { name: "Keycloak 계정으로 가입" }),
+      ).toHaveLength(1);
+    });
+
+    test("답이 늦게 와 비밀번호를 쓰던 사람 밑에서 바뀌면, 제목이 포커스를 받고 까닭이 함께 읽힌다", async () => {
+      let answer: (response: Response) => void = () => {};
+      const { api } = renderAt(`/invite/${TOKEN}`, {
+        "GET /v1/auth/me": signedOut,
+        "GET /v1/auth/login-methods": () =>
+          new Promise<Response>((resolve) => {
+            answer = resolve;
+          }),
+      });
+      const user = await setupUser();
+      await user.click(
+        await screen.findByRole("button", { name: "아니요, 처음입니다" }),
+      );
+      const field = await screen.findByLabelText("비밀번호");
+      await user.type(field, "half typed");
+      expect(document.activeElement === field).toBe(true);
+      answer(json(200, { password: "emergency_only", providers: [KEYCLOAK] }));
+      await handedOn();
+      expect(passwordSteps()).toBe(0);
+      // Nothing was sent, and what was typed went with the field.
+      expect(acceptCalls(api)).toHaveLength(0);
+      expect(document.body.innerHTML.includes("half typed")).toBe(false);
+    });
+
+    test("닫혔는데 목록에 공급자가 없으면 그렇게 말하고, 다시 읽을 수 있다", async () => {
+      let reads = 0;
+      renderAt(`/invite/${TOKEN}`, {
+        "GET /v1/auth/me": signedOut,
+        // Read a moment behind the switch: the provider is in the next read.
+        "GET /v1/auth/login-methods": () =>
+          json(200, {
+            password: "emergency_only",
+            providers: reads++ === 0 ? [] : [KEYCLOAK],
+          }),
+      });
+      const user = await setupUser();
+      await screen.findByText(
+        /지금 가입에 쓸 수 있는 로그인 공급자가 없습니다/,
+      );
+      expect(passwordSteps()).toBe(0);
+      expect(shown()).toBe(0);
+      // Opened closed, nobody in the steps: nothing took focus.
+      expect(document.activeElement?.tagName).not.toBe("H2");
+      await user.click(screen.getByRole("button", { name: "다시 시도" }));
+      await screen.findByRole("button", { name: "Keycloak 계정으로 가입" });
+      expect(
+        screen.queryAllByText(
+          /지금 가입에 쓸 수 있는 로그인 공급자가 없습니다/,
+        ),
+      ).toHaveLength(0);
+      // The button that was pressed went with the notice.
+      await handedOn();
+    });
+
+    test("다시 읽으니 비밀번호가 다시 열려 있으면 단계가 돌아오고, 그 제목이 포커스를 받는다", async () => {
+      let reads = 0;
+      renderAt(`/invite/${TOKEN}`, {
+        "GET /v1/auth/me": signedOut,
+        "GET /v1/auth/login-methods": () =>
+          json(200, {
+            password: reads++ === 0 ? "emergency_only" : "on",
+            providers: [],
+          }),
+      });
+      const user = await setupUser();
+      await user.click(
+        await screen.findByRole("button", { name: "다시 시도" }),
+      );
+      await waitFor(() =>
+        expect(
+          document.activeElement ===
+            screen.getByRole("heading", {
+              level: 2,
+              name: "초대받은 이메일로 쓰는 계정이 있나요?",
+            }),
+        ).toBe(true),
+      );
+      expect(headings()).toBe(0);
+      expect(
+        screen.queryAllByRole("button", { name: "다시 시도" }),
+      ).toHaveLength(0);
+    });
+
+    test("다시 읽어도 공급자가 없으면 안내와 버튼이 남고, 포커스는 버튼에 그대로 있다", async () => {
+      const { api } = renderAt(`/invite/${TOKEN}`, closed());
+      const user = await setupUser();
+      const retry = await screen.findByRole("button", { name: "다시 시도" });
+      await user.click(retry);
+      await waitFor(() =>
+        expect(
+          api.calls.filter((c) => c.path === "/v1/auth/login-methods"),
+        ).toHaveLength(2),
+      );
+      await waitFor(() => expect(retry.hasAttribute("disabled")).toBe(false));
+      expect(
+        screen.getAllByText(/지금 가입에 쓸 수 있는 로그인 공급자가 없습니다/),
+      ).toHaveLength(1);
+      expect(
+        document.activeElement ===
+          screen.getByRole("button", { name: "다시 시도" }),
+      ).toBe(true);
+    });
+
+    test("목록을 다시 읽지 못하면 폼이 남고, 권한이 아니라 닫힌 것을 말한다", async () => {
+      renderAt(`/invite/${TOKEN}`, {
+        "GET /v1/auth/me": signedOut,
+        "GET /v1/auth/login-methods": () =>
+          apiError(503, "BACKEND_UNAVAILABLE", "storage down"),
+        "POST /v1/invites/accept": CLOSED,
+      });
+      await accept("있음", "wrong password!!");
+      const alerts = await screen.findAllByRole("alert");
+      expect(alerts.map((alert) => alert.textContent)).toEqual([
+        "이 설치는 비밀번호 로그인을 꺼 두어 비밀번호로는 가입할 수 없습니다 — 받은 초대 링크를 다시 열어 로그인 공급자의 계정으로 가입하세요.",
+      ]);
+      expect(screen.getByRole("button", { name: "초대 수락" })).toBeDefined();
+    });
+
+    test("다른 까닭의 403은 닫힌 것으로 읽지 않는다", async () => {
+      const { api } = renderAt(`/invite/${TOKEN}`, {
+        ...on(KEYCLOAK),
+        "POST /v1/invites/accept": () =>
+          apiError(403, "FORBIDDEN", "Not allowed"),
+      });
+      await accept("있음", "wrong password!!");
+      const alerts = await screen.findAllByRole("alert");
+      expect(alerts.map((alert) => alert.textContent)).toEqual([
+        "권한이 없습니다 — 소유자나 관리자에게 요청하세요.",
+      ]);
+      expect(
+        api.calls.filter((c) => c.path === "/v1/auth/login-methods"),
+      ).toHaveLength(1);
+    });
+  });
 });
 
 describe("공급자 가입의 잠금은 화면이 아니라 앱이 쥔다", () => {

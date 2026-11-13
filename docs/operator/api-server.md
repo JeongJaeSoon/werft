@@ -583,7 +583,7 @@ Google(`https://accounts.google.com`)은 누구나 계정을 만들 수 있어�
 
 | route | 하는 일 |
 |---|---|
-| `GET /v1/login-settings` | `password_login`(`on` 또는 `emergency_only`), 비상 관리자(주소, 이름, 지금도 자격이 있는지 `eligible`), 켜진 공급자 수 |
+| `GET /v1/login-settings` | `password_login`(`on` 또는 `emergency_only`), 비상 관리자(주소, 이름, 지금도 자격이 있는지 `eligible`), 켜진 공급자 수, 비상 관리자로 지정할 수 있는 owner 목록(`emergency_admin_candidates`, 멤버십이 오래된 순으로 100명까지) |
 | `PATCH /v1/login-settings` | `{"password_login": "emergency_only"}`·`{"password_login": "on"}` 또는 `{"emergency_admin_user_id": "…"}`. 요청 하나에 변경 하나다. 응답의 `sessions_revoked`는 이 변경이 끊은 비밀번호 세션 수다 |
 
 닫으려면(`emergency_only`) 셋이 모두 참이어야 한다. 아니면 `409 REVISION_CONFLICT`이고 `details.reason_code`가 까닭을 말한다: 켜진 공급자가 하나 이상 있다(`no_provider`), 비상 관리자가 지정돼 있고 지금도 비밀번호로 들어올 수 있다(`no_emergency_admin`), 바꾸는 owner가 비상 관리자이거나 켜진 공급자의 계정을 연결해 뒀다(`locks_out_actor`). 닫으면 같은 트랜잭션에서 비상 관리자를 뺀 모든 사람의 비밀번호 세션이 끊기고, 닫혀 있는 동안에는 다음이 거절된다.
@@ -594,6 +594,8 @@ Google(`https://accounts.google.com`)은 누구나 계정을 만들 수 있어�
 - 켜진 마지막 공급자를 끄는 것: `409`(`last_provider`). 먼저 비밀번호 로그인을 연다.
 
 비상 관리자는 다른 owner로 바꿀 수만 있고 비울 수 없다. 새 비상 관리자도 비밀번호가 있는 켜진 owner여야 한다(아니면 `409`, `not_eligible`). 닫혀 있는 동안 바꾸면 옛 비상 관리자의 비밀번호 세션이 끊긴다. 지정된 사람은 끄거나(멤버십, 계정), owner가 아니게 바꾸거나, 그 비밀번호를 끊을 수 없다(`409`, `details.reason_code: emergency_admin`). 비밀번호 로그인을 닫지 않은 설치에서도 같다. 먼저 다른 owner를 비상 관리자로 지정한다. 비밀번호가 있는 다른 owner가 없으면 아래 `reset-password`로 한 명에게 비밀번호를 준다.
+
+콘솔에서는 owner가 설정 > 워크스페이스 > **로그인**의 "비밀번호 로그인" 구역에서 닫고, 열고, 비상 관리자를 바꾼다. 서버가 거절할 닫기(켜진 공급자가 없음, 비상 관리자가 없거나 자격을 잃음)와 닫힌 동안 마지막 공급자를 끄는 것은 버튼이 비활성이고 까닭이 붙는다. 닫힌 설치의 로그인 화면은 공급자 버튼을 먼저 보이고, 비밀번호 폼은 "비상 관리자 로그인"을 누르면 나온다.
 
 로그인이 망가져 아무도 못 들어오면 API 컨테이너에서 복구 명령을 돌린다. `DATABASE_URL`만 있으면 되고, 출력은 stdout의 JSON 한 줄이다.
 

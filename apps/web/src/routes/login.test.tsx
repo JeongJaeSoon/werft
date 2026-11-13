@@ -21,6 +21,15 @@ const loginMethods = (...providers: (typeof GOOGLE)[]) => ({
 const methods = (...providers: (typeof GOOGLE)[]) => ({
   "GET /v1/auth/login-methods": () => json(200, loginMethods(...providers)),
 });
+/** Passwords closed to everyone but the emergency admin. */
+const closedLoginMethods = (...providers: (typeof GOOGLE)[]) => ({
+  password: "emergency_only",
+  providers,
+});
+const closedMethods = (...providers: (typeof GOOGLE)[]) => ({
+  "GET /v1/auth/login-methods": () =>
+    json(200, closedLoginMethods(...providers)),
+});
 const AUTHORIZE = "https://accounts.google.test/o/oauth2/v2/auth?state=s1";
 const START = `/v1/auth/providers/${GOOGLE.id}/start`;
 const CALLBACK_PAGE = `/auth/callback/${GOOGLE.id}`;
@@ -34,7 +43,11 @@ const signedIn = {
 
 describe("로그인 수단 선택", () => {
   test("픽스처는 서버가 보낼 수 있는 모양이다", () => {
-    for (const body of [loginMethods(), loginMethods(GOOGLE, KEYCLOAK)])
+    for (const body of [
+      loginMethods(),
+      loginMethods(GOOGLE, KEYCLOAK),
+      closedLoginMethods(GOOGLE),
+    ])
       expect(loginMethodsResponseSchema.safeParse(body).success).toBe(true);
   });
 
@@ -70,6 +83,65 @@ describe("로그인 수단 선택", () => {
     expect(
       screen.queryByRole("region", { name: "다른 로그인 방법" }),
     ).toBeNull();
+  });
+
+  test("비밀번호 로그인을 닫은 설치는 공급자가 먼저이고, 폼은 '비상 관리자 로그인' 뒤에 있다", async () => {
+    renderAt("/login", closedMethods(GOOGLE));
+    const choices = await screen.findByRole("region", { name: "SSO 로그인" });
+    expect(
+      [...choices.querySelectorAll("button")].map((b) => b.textContent),
+    ).toEqual(["Google 계정으로 로그인"]);
+    expect(screen.queryByText("또는")).toBeNull();
+    expect(screen.queryByRole("textbox", { name: "이메일" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "로그인" })).toBeNull();
+
+    const user = await setupUser();
+    await user.click(
+      screen.getByRole("button", { name: "비상 관리자 로그인" }),
+    );
+    const email = screen.getByRole("textbox", { name: "이메일" });
+    // The button that had the focus is gone; the field takes it.
+    await waitFor(() => expect(document.activeElement === email).toBe(true));
+    expect(
+      screen.getByText(
+        "이 설치는 비밀번호 로그인을 꺼 두었습니다. 비상 관리자만 비밀번호로 로그인할 수 있습니다.",
+      ),
+    ).toBeDefined();
+    expect(screen.getByRole("button", { name: "로그인" })).toBeDefined();
+    expect(
+      screen.queryByRole("button", { name: "비상 관리자 로그인" }) === null,
+    ).toBe(true);
+    // Still the provider first, and one set of buttons.
+    expect(screen.getAllByRole("region").length).toBe(1);
+  });
+
+  test("닫혔다는 답이 오기 전에 쓰기 시작한 폼은 그대로 남는다", async () => {
+    let answer = (_: Response) => {};
+    const answered = new Promise<Response>((resolve) => {
+      answer = resolve;
+    });
+    renderAt("/login", { "GET /v1/auth/login-methods": () => answered });
+    const user = await setupUser();
+    await user.type(
+      await screen.findByRole("textbox", { name: "이메일" }),
+      "owner@example.com",
+    );
+    await act(async () => answer(json(200, closedLoginMethods(GOOGLE))));
+    await screen.findByRole("region", { name: "SSO 로그인" });
+    const email = screen.getByRole("textbox", { name: "이메일" });
+    expect((email as HTMLInputElement).value).toBe("owner@example.com");
+    expect(
+      screen.queryByRole("button", { name: "비상 관리자 로그인" }) === null,
+    ).toBe(true);
+    // Clearing the field to retype it is not leaving the form: it stays,
+    // and so does the keyboard.
+    await user.clear(email);
+    const cleared = screen.getByRole("textbox", { name: "이메일" });
+    expect((cleared as HTMLInputElement).value).toBe("");
+    expect(document.activeElement === cleared).toBe(true);
+    expect(
+      screen.queryByRole("button", { name: "비상 관리자 로그인" }) === null,
+    ).toBe(true);
   });
 
   test("공급자를 고르면 그 공급자의 시작 요청 뒤 공급자 화면으로 가고, 돌아올 곳을 기억한다", async () => {

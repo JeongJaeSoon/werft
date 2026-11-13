@@ -3162,14 +3162,23 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "getLoginSettings",
     tag: "Auth",
     summary: "Who may sign in with a password, and the emergency admin",
-    description: `${LOGIN_PROVIDER_OWNER} \`password_login\` is \`on\` (everyone with a password) or \`emergency_only\` (the emergency admin alone; everyone else comes in through a provider). The emergency admin is the one owner whose password sign-in stays open either way; \`eligible: false\` says they are no longer an owner who can sign in with a password, so another has to be named before passwords can be closed.`,
+    description: `${LOGIN_PROVIDER_OWNER} \`password_login\` is \`on\` (everyone with a password) or \`emergency_only\` (the emergency admin alone; everyone else comes in through a provider). The emergency admin is the one owner whose password sign-in stays open either way; \`eligible: false\` says they are no longer an owner who can sign in with a password, so another has to be named before passwords can be closed. \`emergency_admin_candidates\` are the owners of the caller's workspace who can be named (on, with a password), oldest membership first, at most 100; the one named is listed like any other, while still eligible and within those 100.`,
     auth: "session",
     success: {
       status: 200,
       schema: "LoginSettingsResponse",
       description:
-        "The password switch, the emergency admin, and how many providers are on.",
-      example: { settings: LOGIN_SETTINGS_EXAMPLE },
+        "The password switch, the emergency admin, how many providers are on, and who can be named emergency admin.",
+      example: {
+        settings: LOGIN_SETTINGS_EXAMPLE,
+        emergency_admin_candidates: [
+          {
+            user_id: LOGIN_SETTINGS_EXAMPLE.emergency_admin.user_id,
+            email: LOGIN_SETTINGS_EXAMPLE.emergency_admin.email,
+            display_name: LOGIN_SETTINGS_EXAMPLE.emergency_admin.display_name,
+          },
+        ],
+      },
     },
     errors: [401, 403, 503],
   },

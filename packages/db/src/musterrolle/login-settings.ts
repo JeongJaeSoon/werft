@@ -6,7 +6,19 @@ import type {
   LoginSettingsStore,
   PasswordLogin,
 } from "@werft-ai/platform";
-import { and, asc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  ne,
+  notExists,
+  or,
+  sql,
+} from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { DB_NOW } from "../db-clock.ts";
 import { secretOwnerWorkspace } from "../installation-settings.ts";
 import type { Database } from "../queries.ts";
@@ -19,6 +31,11 @@ import {
   users,
   webSessions,
 } from "../schema.ts";
+
+const olderMembership = alias(memberships, "older_membership");
+
+/** How many owners the emergency admin's change offers at most. */
+export const EMERGENCY_ADMIN_CANDIDATES = 100;
 
 export type LockedLoginSettings = {
   passwordLogin: PasswordLogin;
@@ -315,6 +332,43 @@ export function createPostgresLoginSettingsStore(
         .from(loginSettings);
       if (!row) throw new Error("login_settings has no row");
       return recordOf(db, row);
+    },
+
+    emergencyAdminCandidates(workspaceId) {
+      // ownerWithPassword as one query, so the cap counts people the naming
+      // takes and not owners it would refuse: no older live membership
+      // means this one is where their sign-in lands (ownerBySignIn).
+      return db
+        .select({
+          userId: users.id,
+          email: users.email,
+          displayName: users.displayName,
+        })
+        .from(memberships)
+        .innerJoin(users, eq(users.id, memberships.userId))
+        .where(
+          and(
+            eq(memberships.workspaceId, workspaceId),
+            eq(memberships.role, "owner"),
+            isNull(memberships.disabledAt),
+            isNull(users.disabledAt),
+            isNotNull(users.passwordHash),
+            notExists(
+              db
+                .select({ one: sql`1` })
+                .from(olderMembership)
+                .where(
+                  and(
+                    eq(olderMembership.userId, memberships.userId),
+                    isNull(olderMembership.disabledAt),
+                    sql`(${olderMembership.createdAt}, ${olderMembership.workspaceId}) < (${memberships.createdAt}, ${memberships.workspaceId})`,
+                  ),
+                ),
+            ),
+          ),
+        )
+        .orderBy(asc(memberships.createdAt), asc(memberships.userId))
+        .limit(EMERGENCY_ADMIN_CANDIDATES);
     },
 
     setPasswordLogin({ value, audit }) {
