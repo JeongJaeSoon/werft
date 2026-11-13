@@ -144,7 +144,7 @@ People who already have an account sign in and link a provider account themselve
 - Linking and removing work only within 10 minutes of signing in. After that, sign out and sign in again.
 - A provider account links to only one user, and a user links only one account per provider.
 - A method cannot be removed if it is the only usable one left. Accounts of a provider that is off do not count as usable.
-- Removing the password deletes it, and it cannot be set again.
+- Removing the password deletes it. The person cannot set it again themselves. For an owner, the operator can give one back with `reset-password` in [Recover sign-in](/run-server/self-hosting/recover-sign-in).
 - Removing a method ends every session signed in with it.
 
 <a id="9-환경-변수-google-로그인에서-옮기기" />
@@ -208,14 +208,15 @@ The expected response is `{"password":"on","providers":[{"id":"<provider-id>","d
 
 | Symptom | Cause and fix |
 | --- | --- |
-| "The console's public address (CONSOLE_ORIGIN) is not set, so no provider can be made." | The API has no `CONSOLE_ORIGIN`. Add it and restart the API |
+| "The console's public address (CONSOLE_ORIGIN) is not set, so no provider can be made. …" | The API has no `CONSOLE_ORIGIN`. Add it and restart the API |
 | On create, "An address that is not https cannot be used." | The issuer or an IdP endpoint is `http`. Production installations use only `https` IdPs |
-| On create, "The configuration document names another issuer." | The issuer was not entered exactly as the IdP gives it (trailing `/`, tenant part, and so on). See [Values per provider](/run-server/self-hosting/reference/sso-providers#공급자별-값) |
+| On create, "The configuration document names another issuer. …" | The issuer was not entered exactly as the IdP gives it (trailing `/`, tenant part, and so on). See [Values per provider](/run-server/self-hosting/reference/sso-providers#공급자별-값) |
 | The IdP refuses with "redirect URI does not match" | The IdP app's redirect URI differs from **Redirect URI** on the screen. Deleting and recreating the provider changes its id and therefore the address |
 | Test reason code `code_refused` | The IdP's token endpoint refused the code exchange. Check the client ID and client secret, **Client authentication**, and the IdP app's redirect URI. The IdP's logs record the reason |
-| Sign-in screen "Could not log in with this account" | `401`. No linked account, invite, or sign-up rule matched, or checking the IdP response failed. If an owner runs a test sign-in with the same account, "If this account signs in" and the reason code are shown |
-| Sign-in screen "This account cannot log in here" | `403`. Outside the allowed domains |
-| "An account with this email already exists" | An account with the same address exists, so nothing was attached (`409 LOGIN_LINK_REQUIRED`). That person signs in with the method they used before (password or another provider) and [links the account](#8-계정-연결과-끊기) |
+| Sign-in screen "Could not log in with this account — …" | `401`. No linked account, invite, or sign-up rule matched, or checking the IdP response failed. If an owner runs a test sign-in with the same account, "If this account signs in" and the reason code are shown |
+| Sign-in screen "This account cannot log in here — …" | `403`. Outside the allowed domains |
+| Sign-in screen "This way to log in is not available right now — …" | `503`. The server could not reach the IdP, the IdP answered with an error, or the IdP's address is not allowed. A test sign-in by an owner shows the reason code (starting with `provider_`) |
+| "An account with this email already exists — …" | An account with the same address exists, so nothing was attached (`409 LOGIN_LINK_REQUIRED`). That person signs in with the method they used before (password or another provider) and [links the account](#8-계정-연결과-끊기) |
 | Linking or removing is blocked in **Settings > Sign-in methods** | More than 10 minutes have passed since sign-in (`session_too_old`). Sign in again |
 | Back from the IdP but refused | The console was opened under a host name other than `CONSOLE_ORIGIN`. The cookie is bound to another host |
 

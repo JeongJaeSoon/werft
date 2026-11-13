@@ -137,12 +137,12 @@ When you create a provider or press **Read again**, the server reads the issuer'
 <a id="테스트-로그인의-이유-코드" />
 ## Test sign-in reason codes
 
-When a test sign-in fails, the code appears under **Reason code** on the result screen. A real sign-in does not show the reason on screen (`401`). An owner finds the reason by testing with the same account.
+When a test sign-in fails, the code appears under **Reason code** on the result screen. A real sign-in does not show the reason on screen. A failed check is `401`, and a problem reaching or hearing from the IdP (codes starting with `provider_`) is `503`. An owner finds the reason by testing with the same account.
 
 | Reason code | Cause | Fix |
 | --- | --- | --- |
 | `provider_unreachable` | No answer from the IdP's token, JWKS, or UserInfo endpoint | Check the network and the hosts in **Where the server sends requests** |
-| `provider_answered` | The IdP answered with `5xx` | Check the IdP's status and test again |
+| `provider_answered` | The IdP answered with `5xx`, or the JWKS answered with a status other than `200` or with a document that is not a key list | Check the IdP's status and the response from the JWKS address, then test again |
 | `provider_address_not_allowed` | An endpoint's name resolves to an address that may not be called | Check the IdP's DNS |
 | `config_changed` | The settings or the secret changed during the test | Test again |
 | `response_issuer_mismatch` | The `iss` on the return address differs from the issuer, or is missing where it is required | Check the issuer |
@@ -176,7 +176,7 @@ When the test passes, the result shows what would happen if that account really 
 | It joins as a new member | Becomes a member through **Join without an invite** |
 | It comes in only with an invite sent to this address | There is no account. With an invite, they come in with its role |
 | It is refused: outside the allowed domains | Outside the allowed domains, or there is a list and the address is not proven. Refused even for a linked account |
-| It is refused | The linked user is disabled, or the address is not proven. They come in through an invite link or account linking |
+| It is refused: … | The linked user is disabled, or the address is not proven. They come in through an invite link or account linking |
 
 <a id="api의-거절" />
 ## API refusals
@@ -200,7 +200,7 @@ The screen shows the refusals below as sentences. When calling the API directly,
 | `403` | `password_login_closed` | Tried to accept an invite with a password while password sign-in is closed |
 | `403` | `session_too_old` | Tried to link or remove a sign-in method with a session more than 10 minutes after sign-in |
 | `409 LOGIN_LINK_REQUIRED` | | An account with the proven address already exists, so the provider account was not attached |
-| `409 ALREADY_EXISTS` | `issuer_linked` or none | This provider account is linked to another user, or this user already has another account of the same provider. Creating another provider with the same issuer also gives this code |
+| `409 ALREADY_EXISTS` | `login_method_linked`, `issuer_linked`, or none | `login_method_linked`: this provider account is already linked to another user. `issuer_linked`: the linking user already has another account of the same issuer. None: tried to create another provider with the same issuer |
 | `503` | | There is no `CONSOLE_ORIGIN`, so no redirect URI can be built |
 
 <a id="감사-기록" />
