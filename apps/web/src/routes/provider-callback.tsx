@@ -6,8 +6,16 @@ import {
   useSearch,
 } from "@tanstack/react-router";
 import { type ApiError, CSRF_HEADER_VALUE, unwrap } from "@werft-ai/client";
+import type { LoginProviderTestResult } from "@werft-ai/contracts";
 import { useWerft } from "@werft-ai/react";
-import { Text, Link as TextLink } from "@werft-ai/ui";
+import {
+  Alert,
+  AlertDescription,
+  Code,
+  KeyValueList,
+  Text,
+  Link as TextLink,
+} from "@werft-ai/ui";
 import { useEffect, useRef } from "react";
 import { AuthPage, FormError } from "../components/auth-page.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
@@ -43,6 +51,86 @@ function refusalKey(error: ApiError): MessageKey {
   return errorKey(error.code);
 }
 
+type Finished =
+  | { readonly outcome: "signed_in" }
+  | {
+      readonly outcome: "tested";
+      readonly provider_id: string;
+      readonly test: LoginProviderTestResult;
+    };
+
+/** What the provider answered to an owner's test, and what it would mean. */
+function TestResult({ test }: { readonly test: LoginProviderTestResult }) {
+  const { t } = useI18n();
+  if (!test.passed)
+    return (
+      <>
+        <Alert variant="red" role="alert">
+          <AlertDescription>
+            {t("loginProviders.result.failed")}
+          </AlertDescription>
+        </Alert>
+        <KeyValueList
+          items={[
+            {
+              label: t("loginProviders.result.reason"),
+              value: <Code className="wrap-anywhere">{test.reason}</Code>,
+            },
+          ]}
+        />
+      </>
+    );
+  const said = (value: boolean | null) =>
+    t(
+      value === null
+        ? "loginProviders.result.unsaid"
+        : value
+          ? "loginProviders.result.yes"
+          : "loginProviders.result.no",
+    );
+  return (
+    <>
+      <Alert variant={test.recorded ? "default" : "amber"} role="status">
+        <AlertDescription>
+          {t(
+            test.recorded
+              ? "loginProviders.result.passed"
+              : "loginProviders.result.unrecorded",
+          )}
+        </AlertDescription>
+      </Alert>
+      <KeyValueList
+        items={[
+          {
+            label: t("loginProviders.result.subject"),
+            value: <Code className="wrap-anywhere">{test.subject}</Code>,
+          },
+          {
+            label: t("loginProviders.result.email"),
+            value: test.email ?? t("loginProviders.result.unsaid"),
+          },
+          {
+            label: t("loginProviders.result.emailVerified"),
+            value: said(test.email_verified),
+          },
+          {
+            label: t("loginProviders.result.addressOwned"),
+            value: t(
+              test.address_owned
+                ? "loginProviders.result.addressOwned.yes"
+                : "loginProviders.result.addressOwned.no",
+            ),
+          },
+          {
+            label: t("loginProviders.result.entry"),
+            value: t(`loginProviders.result.entry.${test.entry}`),
+          },
+        ]}
+      />
+    </>
+  );
+}
+
 function takePostLoginPath(): string {
   try {
     const stored = sessionStorage.getItem(POST_LOGIN_PATH_KEY);
@@ -70,8 +158,10 @@ export function ProviderCallbackScreen() {
   });
   const sent = useRef(false);
 
-  const finish = useMutation<unknown, ApiError>({
+  const finish = useMutation<Finished, ApiError>({
     meta: { public: true },
+    // A test's answer names an account; it goes when this screen does.
+    gcTime: 0,
     mutationFn: () =>
       unwrap(
         client.POST("/v1/auth/oidc/callback", {
@@ -84,11 +174,15 @@ export function ProviderCallbackScreen() {
           },
         }),
       ),
-    onSuccess: async () => {
+    onSuccess: async (answer) => {
+      // An owner's test signed nobody in: their session and what it has
+      // read stand, and the answer is shown here.
+      if (answer.outcome === "tested") return;
       queryClient.clear();
       await navigate({ to: takePostLoginPath(), replace: true });
     },
   });
+  const tested = finish.data?.outcome === "tested" ? finish.data : null;
 
   // The code is single use: a second POST (a re-render, StrictMode) would be
   // refused and hide the first one's answer.
@@ -99,6 +193,22 @@ export function ProviderCallbackScreen() {
   }, [code, state, finish]);
 
   const failure = !code || !state ? "login.provider.cancelled" : null;
+  if (tested)
+    return (
+      <AuthPage title={t("loginProviders.result.title")}>
+        <TestResult test={tested.test} />
+        <Text variant="sub">
+          <TextLink asChild underline="always">
+            <Link
+              to="/settings/workspace/login/$providerId"
+              params={{ providerId: tested.provider_id }}
+            >
+              {t("loginProviders.result.back")}
+            </Link>
+          </TextLink>
+        </Text>
+      </AuthPage>
+    );
   return (
     <AuthPage title={t("login.provider.title")}>
       {failure || finish.error ? (

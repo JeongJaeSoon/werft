@@ -56,6 +56,7 @@ type NavPath =
   | "/settings/workspace/achievement-rules"
   | "/settings/workspace/integrations/slack"
   | "/settings/workspace/api-keys"
+  | "/settings/workspace/login"
   | "/settings/workspace/model-connections"
   | "/settings/workspace/mcp-servers"
   | "/settings/linked-accounts"
@@ -206,7 +207,14 @@ export function useSettingsNavGroups(): readonly NavGroup[] {
       icon: SettingsIcon,
     });
   }
-  if (useHasPermission("installation.settings.manage")) {
+  const installationManage = useHasPermission("installation.settings.manage");
+  if (installationManage) {
+    // Who signs in, and through which provider, is the owner's to set.
+    workspace.push({
+      to: "/settings/workspace/login",
+      label: "loginProviders.nav",
+      icon: SettingsIcon,
+    });
     agentConnections.push({
       to: "/settings/workspace/model-connections",
       label: "settings.connections.nav",

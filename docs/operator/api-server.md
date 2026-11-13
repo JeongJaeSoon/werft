@@ -524,7 +524,7 @@ curl -s -X POST http://127.0.0.1:3000/v1/auth/password-reset -H 'Content-Type: a
 
 공급자에 등록하는 리디렉션 URI는 `<CONSOLE_ORIGIN>/auth/callback/<공급자 id>`다. `CONSOLE_ORIGIN`이 없으면 시작 요청이 `503`이다. 공급자의 주소는 `https`여야 한다. `CONSOLE_ORIGIN`이 `localhost`·`127.0.0.1`인 로컬 스택에서만 loopback의 `http` 공급자를 쓸 수 있다.
 
-공급자는 owner가 관리 API로 만들고 고친다(관리 화면은 뒤따르는 변경에 들어온다). 모두 콘솔 세션의 owner만 쓸 수 있고(`installation.settings.manage`), admin·member와 API key는 `403`이다. 쓰기마다 receipt가 남는다.
+공급자는 owner가 콘솔의 설정 > 워크스페이스 > **로그인**(`/settings/workspace/login`)에서 만들고 고친다. 화면은 아래 관리 API를 부른다. 공급자를 더하면 그 공급자의 화면이 IdP에 등록할 redirect URI와 서버가 요청을 보내는 host를 보여 주고, client ID와 client secret을 넣은 뒤 **테스트 로그인**이 통과하면 **켜기**가 열린다. 테스트 로그인은 IdP의 로그인 화면을 거쳐 돌아와 결과(받은 `sub`·이메일·`email_verified`, 주소가 증명됐는지, 그 계정이 로그인하면 어떻게 되는지, 실패면 이유 코드)를 보여 준다. 화면과 API 모두 콘솔 세션의 owner만 쓸 수 있고(`installation.settings.manage`), admin·member와 API key는 `403`이다. 쓰기마다 receipt가 남는다.
 
 | 요청 | 하는 일 |
 |---|---|

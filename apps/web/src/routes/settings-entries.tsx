@@ -38,6 +38,7 @@ import {
   refusalText,
   useRole,
 } from "../auth/guard.tsx";
+import { focusBack } from "../components/row-menu.tsx";
 import { type Translate, useI18n } from "../i18n/i18n.tsx";
 
 export type SettingsKind = "connection" | "mcp";
@@ -378,10 +379,13 @@ export function FormDialog({
   submitLabel,
   pendingLabel,
   onSubmit,
+  opener,
   children,
 }: {
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
+  /** The button that opened it, which gets the keyboard back on close. */
+  readonly opener?: HTMLElement | null;
   readonly pending: boolean;
   readonly title: string;
   readonly description: ReactNode;
@@ -404,7 +408,7 @@ export function FormDialog({
         onOpenChange(next);
       }}
     >
-      <DialogContent>
+      <DialogContent onCloseAutoFocus={focusBack(opener)}>
         <form className="flex flex-col gap-4" onSubmit={submit}>
           <DialogHeader>
             <DialogTitle>{title}</DialogTitle>
