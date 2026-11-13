@@ -33,6 +33,8 @@ export const loginMethodsKo = {
     "비밀번호가 지워지고, 다시 정할 수 없습니다. 비밀번호로 로그인한 세션은 모두 로그아웃되고, 지금 세션이 그중 하나면 함께 로그아웃됩니다.",
   "loginMethods.done.unlinked":
     "끊었습니다. 세션 {count}개가 로그아웃됐습니다.",
+  "loginMethods.done.linked":
+    "연결했습니다. 이제 이 공급자 계정으로 로그인할 수 있습니다.",
   "loginMethods.error.gone": "이미 없는 로그인 수단입니다.",
   "loginMethods.error.providerOff": "이 공급자는 지금 쓸 수 없습니다.",
   "loginMethods.callback.taken":
@@ -72,6 +74,8 @@ export const loginMethodsEn: Record<keyof typeof loginMethodsKo, string> = {
   "loginMethods.unlinkConsequence.password":
     "Your password is erased and cannot be set again. Every session signed in with the password is logged out, this one included if it is one of them.",
   "loginMethods.done.unlinked": "Removed. {count} sessions were logged out.",
+  "loginMethods.done.linked":
+    "Connected. You can now sign in with this provider account.",
   "loginMethods.error.gone": "That sign-in method no longer exists.",
   "loginMethods.error.providerOff": "This provider cannot be used right now.",
   "loginMethods.callback.taken":
@@ -112,6 +116,8 @@ export const loginMethodsJa: Record<keyof typeof loginMethodsKo, string> = {
     "パスワードは消去され、設定し直すことはできません。パスワードでログインしたセッションはすべてログアウトされ、現在のセッションがその一つであれば一緒にログアウトされます。",
   "loginMethods.done.unlinked":
     "解除しました。セッションを {count} 件ログアウトしました。",
+  "loginMethods.done.linked":
+    "接続しました。今後はこのプロバイダーのアカウントでログインできます。",
   "loginMethods.error.gone": "このログイン方法はすでにありません。",
   "loginMethods.error.providerOff": "このプロバイダーは今は使用できません。",
   "loginMethods.callback.taken":
