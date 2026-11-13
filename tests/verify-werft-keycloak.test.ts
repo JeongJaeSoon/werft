@@ -3,7 +3,7 @@ import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 // @ts-expect-error plain .mjs next to the verify skill's scripts
-import { pkceVerdict } from "../.claude/skills/verify-werft/scripts/pkce-verdict.mjs";
+import { pkceVerdict } from "../.claude/skills/verify-werft/scripts/pkce-refusal.mjs";
 // @ts-expect-error plain .mjs next to the verify skill's scripts
 import { parseRunState } from "../.claude/skills/verify-werft/scripts/run-state.mjs";
 
@@ -96,21 +96,27 @@ describe("pkce-verdict.mjs", () => {
         1,
       );
 
-      // Reached through a symlink it still judges: a file that only got
-      // imported would print nothing and exit 0.
+      // Reached through a symlink it still judges, with either way node
+      // names the main file: a command that printed nothing and exited 0
+      // there would turn the probe green.
       await symlink(join(script, ".."), join(dir, "linked"));
       const file = join(dir, "body");
       await writeFile(file, JSON.stringify({ error: "invalid_grant" }));
-      const linked = Bun.spawnSync([
-        "node",
-        join(dir, "linked", "pkce-verdict.mjs"),
-        "400",
-        file,
-      ]);
-      expect([linked.exitCode, linked.stdout.toString().trim()]).toEqual([
-        1,
-        "400 invalid_grant | undefined | tokens: none",
-      ]);
+      for (const flags of [[], ["--preserve-symlinks-main"]]) {
+        const linked = Bun.spawnSync([
+          "node",
+          ...flags,
+          join(dir, "linked", "pkce-verdict.mjs"),
+          "400",
+          file,
+        ]);
+        expect([linked.exitCode, linked.stdout.toString().trim()]).toEqual([
+          1,
+          "400 invalid_grant | undefined | tokens: none",
+        ]);
+      }
+      // Without its arguments it is a usage error, not a verdict.
+      expect(Bun.spawnSync(["node", script]).exitCode).toBe(2);
     } finally {
       await rm(dir, { force: true, recursive: true });
     }
