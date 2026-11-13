@@ -936,6 +936,13 @@ export async function signUpWithInvite(
         .for("update");
       // Ahead of the link below: a dead invite signs nobody in, linked or not.
       if (!invite) return { outcome: "invite_gone" };
+      // The expiry above was judged before the wait for the row lock, and a
+      // lock that was only held, the row unchanged, does not judge it again.
+      const live = await tx.$count(
+        invites,
+        and(eq(invites.id, invite.id), gt(invites.expiresAt, DB_NOW)),
+      );
+      if (live === 0) return { outcome: "invite_gone" };
       const [linked] = await tx
         .select({ id: loginMethods.id })
         .from(loginMethods)

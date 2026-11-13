@@ -90,6 +90,12 @@ export type LoginMethodsRecord = {
 
 export type UnlinkLoginMethodInput = {
   userId: string;
+  /**
+   * The session that asks. Read again under the user's lock: it must still
+   * be live and no older than `maxAgeMs`.
+   */
+  sessionId: string;
+  maxAgeMs: number;
   loginMethodId: string;
   workspaceId: string;
   receiptId: string;
@@ -97,6 +103,8 @@ export type UnlinkLoginMethodInput = {
 
 export type UnlinkLoginMethodResult =
   | { outcome: "unlinked"; sessionsRevoked: number }
+  /** The asking session ended, or its user was disabled, before the lock. */
+  | { outcome: "session_gone" }
   | { outcome: "not_found" }
   /** Nothing the user could sign in with would be left. */
   | { outcome: "last_method" };

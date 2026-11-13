@@ -3246,7 +3246,7 @@ export const API_ROUTE_DECLARATIONS = [
           "https://idp.example.com/oauth2/authorize?response_type=code&client_id=werft-console&state=example",
       },
     },
-    errors: [400, 401, 403, 404, 503],
+    errors: [401, 403, 404, 503],
     errorNotes: {
       FORBIDDEN:
         "The caller is not a cookie session, or the session is older than ten minutes (`details.reason_code: session_too_old`).",
@@ -3274,9 +3274,11 @@ export const API_ROUTE_DECLARATIONS = [
         receipt_id: "7a1c9e3b-5d2f-4a6c-8e0b-1d3f5a7c9e2b",
       },
     },
-    errors: [400, 401, 403, 404, 409, 503],
+    errors: [401, 403, 404, 409, 503],
     errorCodes: { 409: ["REVISION_CONFLICT"] },
     errorNotes: {
+      UNAUTHORIZED:
+        "Also when the session ended, or its user was turned off, while the request waited its turn: nothing was removed.",
       FORBIDDEN:
         "The caller is not a cookie session, or the session is older than ten minutes (`details.reason_code: session_too_old`).",
       NOT_FOUND: "The user has no way to sign in with this id.",

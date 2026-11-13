@@ -199,6 +199,8 @@ async function listLoginMethods(
  * transaction, and a password goes with its method: a password sign-in
  * reads the hash, not the method row.
  *
+ * Only for the session that asks, read again under the user lock.
+ *
  * The providers that are on are held FOR SHARE first (design 5.6: provider
  * rows come before the user row), so the count of what is left cannot be
  * undone by a provider being turned off while this runs. The user row is
@@ -218,9 +220,14 @@ async function unlinkLoginMethod(
     const [user] = await tx
       .select({ passwordHash: users.passwordHash })
       .from(users)
-      .where(eq(users.id, input.userId))
+      .where(and(eq(users.id, input.userId), isNull(users.disabledAt)))
       .for("update");
-    if (!user) return { outcome: "not_found" };
+    // Under the user lock: a password reset or a sign-out everywhere that
+    // held it first has ended the session this was asked from, and what it
+    // set must not be undone by a request made before it.
+    if (!user || !(await sessionIsFresh(tx, input))) {
+      return { outcome: "session_gone" };
+    }
     const methods = await tx
       .select({
         id: loginMethods.id,

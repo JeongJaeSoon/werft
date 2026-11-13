@@ -152,13 +152,31 @@ integration("a person's ways to sign in", () => {
       newLoginMethodId: randomUUID(),
       receiptId: randomUUID(),
     });
-  const unlink = (userId: string, loginMethodId: string) =>
+  /** Asked from `asking`, or from a session the person has just made. */
+  const unlink = async (
+    userId: string,
+    loginMethodId: string,
+    asking?: string,
+  ) =>
     store.unlink({
       userId,
+      sessionId: asking ?? (await session(userId, null)),
+      maxAgeMs: 10 * 60_000,
       loginMethodId,
       workspaceId,
       receiptId: randomUUID(),
     });
+  /** Resolves once `count` transactions of this database wait on a lock. */
+  const lockWaiters = async (count: number) => {
+    for (let i = 0; i < 300; i += 1) {
+      const { rows } = await pool.query<{ waiting: string }>(
+        "SELECT count(*)::text AS waiting FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'",
+      );
+      if (Number(rows[0]?.waiting) >= count) return;
+      await Bun.sleep(10);
+    }
+    throw new Error(`fewer than ${count} transactions waited on a lock`);
+  };
   const userByEmail = async (email: string) =>
     (await db.select().from(users).where(eq(users.email, email)))[0];
   const inviteRow = async (id: string) =>
@@ -328,6 +346,29 @@ integration("a person's ways to sign in", () => {
       expect(
         await db.$count(loginMethods, eq(loginMethods.subject, "sub-jo")),
       ).toBe(0);
+    });
+
+    test("an invite that expires behind a row lock nobody changed signs nobody in, a linked account included", async () => {
+      const inviteId = await invite("kay@example.com", 700);
+      const holder = await pool.connect();
+      try {
+        // Held and left as it was: the sign-up's own read of the row is not
+        // judged again when the lock is given.
+        await holder.query("BEGIN");
+        await holder.query("SELECT 1 FROM invites WHERE id = $1 FOR UPDATE", [
+          inviteId,
+        ]);
+        // sub-bob is bob's.
+        const pending = signUp(inviteId, "sub-bob");
+        await lockWaiters(1);
+        await Bun.sleep(900);
+        await holder.query("COMMIT");
+        expect(await pending).toEqual({ outcome: "invite_gone" });
+      } finally {
+        await holder.query("ROLLBACK");
+        holder.release();
+      }
+      expect(await userByEmail("kay@example.com")).toBeUndefined();
     });
 
     test("one invite makes one account, and one external account joins once", async () => {
@@ -591,17 +632,69 @@ integration("a person's ways to sign in", () => {
       ).not.toBeNull();
     });
 
-    /** Resolves once `count` transactions of this database wait on a lock. */
-    const lockWaiters = async (count: number) => {
-      for (let i = 0; i < 300; i += 1) {
-        const { rows } = await pool.query<{ waiting: string }>(
-          "SELECT count(*)::text AS waiting FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'",
+    test("a removal that waited behind a password reset finds its session ended and undoes nothing", async () => {
+      const pat = await person("pat@example.com");
+      const asking = await session(pat.id, pat.passwordMethodId);
+      // Another way in, so the password is not the last one.
+      expect(await link(pat.id, asking, "sub-pat", providerB)).toMatchObject({
+        outcome: "linked",
+      });
+      const holder = await pool.connect();
+      let pending: ReturnType<typeof unlink>;
+      try {
+        // What a reset does, in its order: the user row, the new hash, every
+        // session of the user ended.
+        await holder.query("BEGIN");
+        await holder.query("SELECT 1 FROM users WHERE id = $1 FOR UPDATE", [
+          pat.id,
+        ]);
+        pending = unlink(pat.id, pat.passwordMethodId, asking);
+        await lockWaiters(1);
+        await holder.query(
+          "UPDATE users SET password_hash = 'argon2id$reset' WHERE id = $1",
+          [pat.id],
         );
-        if (Number(rows[0]?.waiting) >= count) return;
-        await Bun.sleep(10);
+        await holder.query(
+          "UPDATE web_sessions SET revoked_at = now() WHERE user_id = $1",
+          [pat.id],
+        );
+        await holder.query("COMMIT");
+      } finally {
+        await holder.query("ROLLBACK");
+        holder.release();
       }
-      throw new Error(`fewer than ${count} writes waited on the user row`);
-    };
+      expect(await pending).toEqual({ outcome: "session_gone" });
+      expect((await userByEmail("pat@example.com"))?.passwordHash).toBe(
+        "argon2id$reset",
+      );
+      expect(await methodsOf(pat.id)).toHaveLength(2);
+    });
+
+    test("a session left open, and a disabled person's, remove nothing", async () => {
+      const quin = await person("quin@example.com");
+      const fresh = await session(quin.id, quin.passwordMethodId);
+      expect(await link(quin.id, fresh, "sub-quin", providerB)).toMatchObject({
+        outcome: "linked",
+      });
+      const old = await session(quin.id, quin.passwordMethodId, 11 * 60_000);
+      expect(await unlink(quin.id, quin.passwordMethodId, old)).toEqual({
+        outcome: "session_gone",
+      });
+      // Somebody else's session does not ask for Quin.
+      const other = await person("quin.other@example.com");
+      const theirs = await session(other.id, other.passwordMethodId);
+      expect(await unlink(quin.id, quin.passwordMethodId, theirs)).toEqual({
+        outcome: "session_gone",
+      });
+      await db
+        .update(users)
+        .set({ disabledAt: new Date() })
+        .where(eq(users.id, quin.id));
+      expect(await unlink(quin.id, quin.passwordMethodId, fresh)).toEqual({
+        outcome: "session_gone",
+      });
+      expect(await methodsOf(quin.id)).toHaveLength(2);
+    });
 
     // Both stand in line at the user row. Held, the row lets the test say
     // which of the two is first in that line.
@@ -633,7 +726,10 @@ integration("a person's ways to sign in", () => {
               maxLive: 5,
             },
           });
-        const remove = () => unlink(racer.id, linked.loginMethodId);
+        // Asked from a session made before the row is held: making one
+        // would itself wait on the user row.
+        const remove = () =>
+          unlink(racer.id, linked.loginMethodId, racerSession);
         const holder = await pool.connect();
         let signedIn: ReturnType<typeof signIn>;
         let removed: ReturnType<typeof remove>;

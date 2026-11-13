@@ -544,12 +544,6 @@ export function registerPublicAuthRoutes(
       const cookieValue = getCookie(context, LOGIN_FLOW_COOKIE_NAME);
       const providers = deps.providers;
       if (!providers) throw providerOff();
-      // The requests to the provider are made for anyone who asks.
-      const slot = providerWork.tryAcquire();
-      if (!slot) {
-        throw rateLimited(1000, "Too many sign-ins in progress");
-      }
-      const releaseSlot = await slot;
       const callback = {
         cookieValue,
         providerId: body.provider_id,
@@ -559,6 +553,7 @@ export function registerPublicAuthRoutes(
       };
       const purpose = providers.purposeOf(cookieValue);
       // A test and a link end only in the session they were started from.
+      // Read ahead of the work slot: a storage outage here holds none.
       const sessionCookie =
         purpose === "test" || purpose === "link"
           ? webSessionCookie(context)
@@ -568,6 +563,12 @@ export function registerPublicAuthRoutes(
             deps.identity.resolveWebSession(hashWebSessionToken(sessionCookie)),
           )
         : null;
+      // The requests to the provider are made for anyone who asks.
+      const slot = providerWork.tryAcquire();
+      if (!slot) {
+        throw rateLimited(1000, "Too many sign-ins in progress");
+      }
+      const releaseSlot = await slot;
       // What the flow ends in, once the provider has answered and the work
       // slot is given back.
       let end: () => Promise<Response>;
@@ -1033,11 +1034,17 @@ export function registerAuthRoutes(router: ApiRouter, deps: AuthRouteDeps) {
     const result = await storageMapped(() =>
       methods.unlink({
         userId: session.userId,
+        sessionId: session.sessionId,
+        maxAgeMs: LINK_SESSION_MAX_AGE_MS,
         loginMethodId: id,
         workspaceId: session.workspaceId,
         receiptId,
       }),
     );
+    if (result.outcome === "session_gone") {
+      // Ended between this request's authentication and its turn.
+      throw new ApiHttpError(401, "UNAUTHORIZED", "Sign in again");
+    }
     if (result.outcome === "not_found") {
       throw new ApiHttpError(404, "NOT_FOUND", "No such way to sign in");
     }
