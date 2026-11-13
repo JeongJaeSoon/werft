@@ -174,7 +174,7 @@ describe("입력 검증(W24 규약)", () => {
     await accept("있음", "wrong password!!");
     const alerts = await screen.findAllByRole("alert");
     expect(alerts).toHaveLength(1);
-    expect(alerts[0]?.textContent).toContain("Google로만 로그인해 온 계정은");
+    expect(alerts[0]?.textContent).toContain("SSO로만 로그인해 온 계정은");
     expect(history.location.pathname).toBe(`/invite/${TOKEN}`);
     expect(screen.getByRole("button", { name: "초대 수락" })).toBeDefined();
   });

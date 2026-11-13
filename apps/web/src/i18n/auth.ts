@@ -57,7 +57,7 @@ export const authKo = {
   "invite.submit": "초대 수락",
   "invite.submitting": "수락하는 중…",
   "invite.wrongPassword":
-    "비밀번호가 맞지 않습니다. 이 이메일로 이미 계정이 있으면 그 계정의 비밀번호를 넣으세요. Google로만 로그인해 온 계정은 비밀번호가 없어 여기서 수락할 수 없습니다 — 소유자나 관리자에게 다시 활성화해 달라고 요청하세요.",
+    "비밀번호가 맞지 않습니다. 이 이메일로 이미 계정이 있으면 그 계정의 비밀번호를 넣으세요. SSO로만 로그인해 온 계정은 비밀번호가 없어 여기서 수락할 수 없습니다 — 소유자나 관리자에게 다시 활성화해 달라고 요청하세요.",
   "invite.expired.title": "쓸 수 없는 초대입니다",
   "invite.expired.body":
     "만료됐거나 회수된 초대입니다. 초대한 사람에게 새 링크를 요청하세요.",
@@ -144,7 +144,7 @@ export const authEn: Record<keyof typeof authKo, string> = {
   "invite.submit": "Accept invite",
   "invite.submitting": "Accepting…",
   "invite.wrongPassword":
-    "The password does not match. If this email already has an account, enter that account's password. An account that only signs in with Google has no password and cannot accept here — ask an owner or admin to re-enable it.",
+    "The password does not match. If this email already has an account, enter that account's password. An account that only signs in with SSO has no password and cannot accept here — ask an owner or admin to re-enable it.",
   "invite.expired.title": "This invite cannot be used",
   "invite.expired.body":
     "It expired or was revoked. Ask whoever invited you for a new link.",
@@ -233,7 +233,7 @@ export const authJa: Record<keyof typeof authKo, string> = {
   "invite.submit": "招待を承諾",
   "invite.submitting": "承諾中…",
   "invite.wrongPassword":
-    "パスワードが一致しません。このメールアドレスのアカウントがすでにある場合は、そのアカウントのパスワードを入力してください。Google ログインのみで利用してきたアカウントにはパスワードがないため、ここでは承諾できません。オーナーまたは管理者に再有効化を依頼してください。",
+    "パスワードが一致しません。このメールアドレスのアカウントがすでにある場合は、そのアカウントのパスワードを入力してください。SSO ログインのみで利用してきたアカウントにはパスワードがないため、ここでは承諾できません。オーナーまたは管理者に再有効化を依頼してください。",
   "invite.expired.title": "この招待は使用できません",
   "invite.expired.body":
     "期限切れか、取り消された招待です。招待した人に新しいリンクを依頼してください。",
