@@ -197,6 +197,11 @@ export interface LoginProviderAdminStore {
         sessionsRevoked: number;
       }
     | { outcome: "not_found" }
+    /**
+     * The last one on while passwords are closed: nobody but the emergency
+     * admin could sign in. Passwords are turned on first.
+     */
+    | { outcome: "last_provider" }
   >;
   /** Only a provider that is off; its secrets go with it. */
   delete(input: {

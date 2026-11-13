@@ -51,6 +51,7 @@ import {
 } from "../schema.ts";
 import { decodeMemberCursor, encodeMemberCursor } from "../sessions/cursors.ts";
 import { createWebSession } from "./identity.ts";
+import { lockLoginSettings, passwordOpenTo } from "./login-settings.ts";
 
 // Invites and roles. Lock order, everywhere here: invite, then
 // user, then membership, then web session — the user -> link -> session
@@ -309,6 +310,9 @@ async function acceptInviteOnce(
   input: AcceptInviteInput,
 ): Promise<AcceptInviteResult> {
   return db.transaction(async (tx) => {
+    // Ahead of every other lock here (design 5.6), and held to the end: an
+    // accept sets a password and signs in with it.
+    const settings = await lockLoginSettings(tx, "share");
     // External first sign-in creates accounts under this lock, then takes
     // invites; taking it first keeps the same order. An invite's email
     // never changes, so reading it unlocked is enough to name the lock.
@@ -342,6 +346,11 @@ async function acceptInviteOnce(
       .from(users)
       .where(eq(users.email, invite.email))
       .for("update");
+    // While passwords are closed an invite is taken through a provider;
+    // only the emergency admin's own account still has a password to give.
+    if (!passwordOpenTo(settings, account?.id ?? "")) {
+      return { outcome: "password_closed" };
+    }
     const { account: expected } = input;
     let userId: string;
     let verifiedPasswordHash: string;
@@ -459,6 +468,9 @@ async function changeMemberRole(
   const { actor } = input;
   const userId = input.userId.toLowerCase();
   return db.transaction(async (tx) => {
+    // Ahead of the user rows (design 5.6): naming another emergency admin
+    // waits for this, and this sees who it named.
+    const settings = await lockLoginSettings(tx, "share");
     // Both people's user rows first, as setAccess takes them: re-checked
     // after a membership lock wait, a joined user row is still the old
     // snapshot's, so a target suspended meanwhile would read as live.
@@ -520,6 +532,10 @@ async function changeMemberRole(
     );
     if (target.role === "owner" && otherLiveOwners.length === 0) {
       return { outcome: "last_owner" };
+    }
+    // Only an owner is the emergency admin (design 9.2).
+    if (settings.emergencyAdminUserId === userId) {
+      return { outcome: "emergency_admin" };
     }
     await tx
       .update(memberships)

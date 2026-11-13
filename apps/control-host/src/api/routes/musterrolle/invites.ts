@@ -195,6 +195,16 @@ export function registerPublicInviteRoutes(
       case "account_changed":
         // A reset, a disable or a second redemption landed after the check.
         throw new ApiHttpError(401, "UNAUTHORIZED", ACCEPT_REFUSED);
+      case "password_closed":
+        // The invite is untouched: it is taken through a provider instead.
+        throw new ApiHttpError(
+          403,
+          "FORBIDDEN",
+          "Password sign-in is closed; accept the invite through a login provider",
+          false,
+          undefined,
+          { reason_code: "password_login_closed" },
+        );
     }
     const workspace = await deps.identity.findWorkspace(result.workspaceId);
     if (!workspace) throw new Error("accepted invite has no workspace");

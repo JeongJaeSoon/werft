@@ -25,6 +25,8 @@ export type SetAccessResult =
   | { outcome: "unchanged"; member: MemberRecord }
   | { outcome: "not_found" }
   | { outcome: "last_owner" }
+  /** The emergency admin is not turned off; name another one first. */
+  | { outcome: "emergency_admin" }
   /** The account also belongs to a workspace the actor does not manage. */
   | { outcome: "elsewhere" }
   /** The target is an owner where the actor is not. */

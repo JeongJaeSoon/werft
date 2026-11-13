@@ -74,7 +74,9 @@ export type IssuePasswordResetResult =
   | { outcome: "issued"; expiresAt: Date }
   | { outcome: "not_found" }
   | { outcome: "issuer_changed" }
-  | { outcome: "owner_elsewhere" };
+  | { outcome: "owner_elsewhere" }
+  /** Passwords are closed to the target; only the operator CLI issues one. */
+  | { outcome: "password_closed" };
 
 export type ConsumePasswordResetInput = {
   tokenHash: Uint8Array;
@@ -275,6 +277,8 @@ export type RevokeInviteResult =
 export type ChangeRoleResult =
   | { outcome: "changed" | "unchanged"; member: MemberRecord }
   | { outcome: "not_found" | "last_owner" | "actor_inactive" }
+  /** The emergency admin stays an owner; name another one first. */
+  | { outcome: "emergency_admin" }
   // What `memberVerdict` refuses.
   | {
       outcome:
@@ -329,7 +333,9 @@ export type AcceptInviteResult =
     }
   | { outcome: "expired" | "used" }
   /** The account changed between the peek and the write; ask again. */
-  | { outcome: "account_changed" };
+  | { outcome: "account_changed" }
+  /** Passwords are closed to this account: the invite is taken through a provider. */
+  | { outcome: "password_closed" };
 
 export interface InviteStore {
   /** Revokes the address's live invite, if any, in the same transaction. */

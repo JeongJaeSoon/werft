@@ -14,11 +14,13 @@ import {
   invites,
   loginMethods,
   loginProviders,
+  loginSettings,
   receipts,
   users,
   webSessions,
 } from "../schema.ts";
 import { signUpWithInvite } from "./identity.ts";
+import { lockLoginSettings, passwordOpenTo } from "./login-settings.ts";
 
 async function writeReceipt(
   tx: Database,
@@ -167,6 +169,16 @@ async function listLoginMethods(
     providers.filter((row) => row.enabled).map((row) => row.issuer),
   );
   const linkedIssuers = new Set(rows.map((row) => row.issuer));
+  const [settings] = await db
+    .select({
+      passwordLogin: loginSettings.passwordLogin,
+      emergencyAdminUserId: loginSettings.emergencyAdminUserId,
+    })
+    .from(loginSettings);
+  const hasPassword =
+    user?.passwordHash != null &&
+    settings !== undefined &&
+    passwordOpenTo(settings, userId);
   return {
     methods: rows.map((row) => {
       const provider = row.issuer === null ? null : byIssuer.get(row.issuer);
@@ -184,7 +196,7 @@ async function listLoginMethods(
         emailAtLink: row.emailAtLink,
         createdAt: row.createdAt,
         lastLoginAt: row.lastLoginAt,
-        usable: usable(row, user?.passwordHash != null, enabledIssuers),
+        usable: usable(row, hasPassword, enabledIssuers),
       };
     }),
     linkable: providers
@@ -214,6 +226,9 @@ async function unlinkLoginMethod(
   input: UnlinkLoginMethodInput,
 ): Promise<UnlinkLoginMethodResult> {
   return db.transaction(async (tx) => {
+    // Ahead of the provider rows (design 5.6). Closing passwords and naming
+    // an emergency admin wait for this; this counts by what they left.
+    const settings = await lockLoginSettings(tx, "share");
     const on = await tx
       .select({ issuer: loginProviders.issuer })
       .from(loginProviders)
@@ -241,11 +256,22 @@ async function unlinkLoginMethod(
       .for("update");
     const target = methods.find((method) => method.id === input.loginMethodId);
     if (!target) return { outcome: "not_found" };
+    // The emergency admin is whoever still has a password (design 9.2).
+    if (
+      target.kind === "password" &&
+      settings.emergencyAdminUserId === input.userId
+    ) {
+      return { outcome: "emergency_admin" };
+    }
     const enabledIssuers = new Set(on.map((row) => row.issuer));
     const left = methods.filter(
       (method) =>
         method.id !== target.id &&
-        usable(method, user.passwordHash !== null, enabledIssuers),
+        usable(
+          method,
+          user.passwordHash !== null && passwordOpenTo(settings, input.userId),
+          enabledIssuers,
+        ),
     );
     if (left.length === 0) return { outcome: "last_method" };
     // The sessions this ends, locked ahead of the last look at the asking

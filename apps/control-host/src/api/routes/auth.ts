@@ -1061,6 +1061,16 @@ export function registerAuthRoutes(router: ApiRouter, deps: AuthRouteDeps) {
         { reason_code: "last_login_method" },
       );
     }
+    if (result.outcome === "emergency_admin") {
+      throw new ApiHttpError(
+        409,
+        "REVISION_CONFLICT",
+        "The emergency admin keeps their password; name another owner first",
+        false,
+        undefined,
+        { reason_code: "emergency_admin" },
+      );
+    }
     deps.logger?.info("Login method unlinked", {
       user_id: session.userId,
       login_method_id: id,
@@ -1141,6 +1151,15 @@ export function registerAuthRoutes(router: ApiRouter, deps: AuthRouteDeps) {
           403,
           "FORBIDDEN",
           "The member owns another workspace; only that workspace can reset them",
+        );
+      case "password_closed":
+        throw new ApiHttpError(
+          409,
+          "REVISION_CONFLICT",
+          "Password sign-in is closed to this member",
+          false,
+          undefined,
+          { reason_code: "password_login_closed" },
         );
     }
     deps.logger?.info("Password reset link issued", {

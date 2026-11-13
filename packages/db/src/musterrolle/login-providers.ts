@@ -12,7 +12,7 @@ import {
   type SecretSlot,
   secretOwnerRef,
 } from "@werft-ai/platform";
-import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { DB_NOW } from "../db-clock.ts";
 import { secretOwnerWorkspace } from "../installation-settings.ts";
 import type { Database } from "../queries.ts";
@@ -33,6 +33,7 @@ import {
   writeSecretInTx,
 } from "../secrets/secret-values.ts";
 import { findLiveMembership } from "./identity.ts";
+import { lockLoginSettings } from "./login-settings.ts";
 
 export const LOGIN_CLIENT_SECRET_PURPOSE = "login_client_secret";
 /** A replacement for a provider that is on, until a test sign-in passes. */
@@ -691,6 +692,10 @@ export function createPostgresLoginProviderAdminStore(
 
     disable(input) {
       return db.transaction(async (tx) => {
+        // For update, and ahead of the provider row (design 5.6): two
+        // providers going off at once, or one going off as passwords are
+        // closed, queue here and the later one counts what is left.
+        const settings = await lockLoginSettings(tx, "update");
         const row = await lockedProvider(tx, input.id);
         if (!row) return { outcome: "not_found" as const };
         if (!row.enabled) {
@@ -699,6 +704,18 @@ export function createPostgresLoginProviderAdminStore(
             provider: await recordOf(tx, row),
             sessionsRevoked: 0,
           };
+        }
+        if (
+          settings.passwordLogin === "emergency_only" &&
+          (await tx.$count(
+            loginProviders,
+            and(
+              eq(loginProviders.enabled, true),
+              ne(loginProviders.id, row.id),
+            ),
+          )) === 0
+        ) {
+          return { outcome: "last_provider" as const };
         }
         const off = await turnOff(tx, row.id);
         if (!off) return { outcome: "not_found" as const };

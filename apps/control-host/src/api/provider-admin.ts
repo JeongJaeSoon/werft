@@ -38,7 +38,10 @@ const NOT_FOUND = () =>
   new SessionServiceError("NOT_FOUND", "No such sign-in provider");
 
 /** A change the provider's state does not take; `reason` tells which. */
-const conflict = (reason: "provider_enabled" | "not_tested", message: string) =>
+const conflict = (
+  reason: "provider_enabled" | "not_tested" | "last_provider",
+  message: string,
+) =>
   new SessionServiceError("REVISION_CONFLICT", message, undefined, {
     reason_code: reason,
   });
@@ -402,6 +405,12 @@ export function createProviderAdmin(deps: {
       const audit = await owner(caller);
       const disabled = await store.disable({ id, audit });
       if (disabled.outcome === "not_found") throw NOT_FOUND();
+      if (disabled.outcome === "last_provider") {
+        throw conflict(
+          "last_provider",
+          "Turn password sign-in on before turning the last provider off",
+        );
+      }
       return {
         provider: viewOf(disabled.provider),
         sessions_revoked: disabled.sessionsRevoked,

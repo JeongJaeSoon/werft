@@ -36,6 +36,7 @@ import {
 } from "../schema.ts";
 import { memberColumns, memberRecord } from "./invites.ts";
 import { revokeUserLinkedAccounts } from "./linked-accounts.ts";
+import { lockLoginSettings } from "./login-settings.ts";
 
 const TAKEOVER = "takeover";
 
@@ -134,6 +135,9 @@ async function setAccess(
   const userId = input.userId.toLowerCase();
   const workspaceId = actor.workspaceId;
   return db.transaction(async (tx) => {
+    // Ahead of the user rows (design 5.6): naming another emergency admin
+    // waits for this, and this sees who it named.
+    const settings = await lockLoginSettings(tx, "share");
     // Lock order: user, then membership, then web session. The user rows
     // come first even when only a membership changes: re-checked after a
     // membership lock wait, a joined row is still the old snapshot's, so an
@@ -259,6 +263,11 @@ async function setAccess(
     }
     if ((current !== null) === disabled) {
       return { outcome: "unchanged", member: memberRecord(target) };
+    }
+    // Whichever scope: either would leave nobody to sign in with a
+    // password once passwords are closed (design 9.2).
+    if (disabled && settings.emergencyAdminUserId === userId) {
+      return { outcome: "emergency_admin" };
     }
 
     if (scope === "membership") {
