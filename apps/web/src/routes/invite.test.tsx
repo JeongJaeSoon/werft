@@ -712,6 +712,8 @@ describe("공급자 계정으로 가입", () => {
       );
       expect(passwordSteps()).toBe(0);
       expect(shown()).toBe(0);
+      // Opened closed, nobody in the steps: nothing took focus.
+      expect(document.activeElement?.tagName).not.toBe("H2");
       await user.click(screen.getByRole("button", { name: "다시 시도" }));
       await screen.findByRole("button", { name: "Keycloak 계정으로 가입" });
       expect(
@@ -719,6 +721,28 @@ describe("공급자 계정으로 가입", () => {
           /지금 가입에 쓸 수 있는 로그인 공급자가 없습니다/,
         ),
       ).toHaveLength(0);
+      // The button that was pressed went with the notice.
+      await handedOn();
+    });
+
+    test("다시 읽어도 공급자가 없으면 안내와 버튼이 남고, 포커스는 버튼에 그대로 있다", async () => {
+      const { api } = renderAt(`/invite/${TOKEN}`, closed());
+      const user = await setupUser();
+      const retry = await screen.findByRole("button", { name: "다시 시도" });
+      await user.click(retry);
+      await waitFor(() =>
+        expect(
+          api.calls.filter((c) => c.path === "/v1/auth/login-methods"),
+        ).toHaveLength(2),
+      );
+      await waitFor(() => expect(retry.hasAttribute("disabled")).toBe(false));
+      expect(
+        screen.getAllByText(/지금 가입에 쓸 수 있는 로그인 공급자가 없습니다/),
+      ).toHaveLength(1);
+      expect(
+        document.activeElement ===
+          screen.getByRole("button", { name: "다시 시도" }),
+      ).toBe(true);
     });
 
     test("목록을 다시 읽지 못하면 폼이 남고, 권한이 아니라 닫힌 것을 말한다", async () => {

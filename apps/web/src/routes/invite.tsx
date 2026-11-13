@@ -177,6 +177,7 @@ function AcceptFlow({ token }: { readonly token: string }) {
   // Whether the keyboard has been in the steps: only then is there a place
   // to hand it on from when they give way.
   const [touched, setTouched] = useState(false);
+  const [retried, setRetried] = useState(false);
   const closedId = useId();
   // Kept apart from the mutation, which is reset so the password goes too.
   const [ended, setEnded] = useState<
@@ -256,7 +257,12 @@ function AcceptFlow({ token }: { readonly token: string }) {
       <div className="flex flex-col gap-3">
         {/* Taking the place of steps someone was in, it takes the keyboard
             their field gave up and is read with its reason. */}
-        <StepHeading focus={touched} describedBy={closedId}>
+        <StepHeading
+          // Mounted again when a retry brought providers, to take focus anew.
+          key={String(retried)}
+          focus={touched || retried}
+          describedBy={closedId}
+        >
           {t("invite.closed.title")}
         </StepHeading>
         <p className="m-0" id={closedId}>
@@ -270,7 +276,11 @@ function AcceptFlow({ token }: { readonly token: string }) {
               type="button"
               variant="outline"
               disabled={methods.isFetching}
-              onClick={() => void methods.refetch()}
+              onClick={async () => {
+                const { data } = await methods.refetch();
+                // This button goes with the notice: the heading takes over.
+                if (data?.providers.length) setRetried(true);
+              }}
             >
               {t("common.retry")}
             </Button>
