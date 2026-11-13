@@ -421,6 +421,48 @@ describe("내 로그인 수단", () => {
       );
     }
   });
+
+  test("closing a refused removal whose row is gone leaves the keyboard at the reason, on the page", async () => {
+    let listed = 0;
+    renderAt(PAGE, {
+      ...routes(mine()),
+      [`GET ${API}`]: () => {
+        listed += 1;
+        // Somebody removed it in another session meanwhile.
+        return json(
+          200,
+          listed === 1 ? mine() : mine({ methods: [password()] }),
+        );
+      },
+      [`DELETE ${API}/${ACME_ID}`]: () =>
+        apiError(404, "NOT_FOUND", "No such way to sign in"),
+    });
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "Acme SSO 끊기" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "끊기" }));
+    await within(dialog).findByRole("alert");
+    await waitFor(() =>
+      expect(
+        screen.queryAllByRole("button", { name: "Acme SSO 끊기" }),
+      ).toHaveLength(0),
+    );
+    await user.keyboard("{Escape}");
+    await waitFor(() =>
+      expect(screen.queryAllByRole("dialog")).toHaveLength(0),
+    );
+    await waitFor(() =>
+      expect(document.activeElement === document.body).toBe(false),
+    );
+    expect(document.activeElement?.textContent).toBe(
+      "이미 없는 로그인 수단입니다.",
+    );
+    expect(
+      document.querySelector("main")?.contains(document.activeElement),
+    ).toBe(true);
+  });
 });
 
 describe("연결의 콜백", () => {

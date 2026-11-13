@@ -310,7 +310,15 @@ export function LoginMethodsScreen() {
       <ConfirmDialog
         open={removing !== null}
         onOpenChange={(open) => {
-          if (!open) setRemoving(null);
+          if (open) return;
+          setRemoving(null);
+          // A refused removal read the list again, and the row the dialog
+          // was opened from may be gone or withheld by now: the page keeps
+          // the reason, and the keyboard goes to it.
+          if (dialogError) {
+            setOutcome({ kind: "error", text: dialogError });
+            outcomeRef.current?.focus();
+          }
         }}
         title={t("loginMethods.unlinkTitle", {
           name: removing ? nameOf(t, removing) : "",
