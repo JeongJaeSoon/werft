@@ -289,6 +289,7 @@ describe("OpenAPI document", () => {
   const SETS_SESSION_COOKIE = new Set([
     "/v1/auth/login",
     "/v1/auth/providers/{id}/start",
+    "/v1/auth/providers/{id}/invite/start",
     "/v1/auth/oidc/callback",
     "/v1/invites/accept",
   ]);
@@ -343,8 +344,12 @@ describe("OpenAPI document", () => {
         "/v1/auth/login-methods",
         "/v1/auth/logout",
         "/v1/auth/me",
+        "/v1/auth/me/login-methods",
+        "/v1/auth/me/login-methods/{id}",
+        "/v1/auth/me/login-methods/{provider_id}/link/start",
         "/v1/auth/oidc/callback",
         "/v1/auth/password-reset",
+        "/v1/auth/providers/{id}/invite/start",
         "/v1/auth/providers/{id}/start",
         "/v1/login-providers",
         "/v1/login-providers/discover",

@@ -1548,6 +1548,41 @@ export const API_ROUTE_DECLARATIONS = [
   },
   {
     method: "post",
+    path: "/v1/auth/providers/{id}/invite/start",
+    operationId: "startProviderInvite",
+    tag: "Auth",
+    summary:
+      "Begin an invite's sign-up with a provider; answers the provider's URL to open",
+    description:
+      "For the person an invite was sent to, in place of choosing a password. The token goes in the body and is not spent here: the flow cookie binds the flow to the invite, and POST /v1/auth/oidc/callback spends it when the provider vouches for an account no user has yet. The account gets the invite's address and role, whatever address the provider reports. A revoked, replaced or expired token answers 410, an accepted one 409; an unknown token answers like a revoked one.",
+    auth: "public",
+    csrf: "always",
+    body: "StartProviderInviteRequest",
+    requestExample: {
+      invite_token:
+        "apv_0000000000000000000000000000000000000000000000000000000000000000",
+    },
+    success: {
+      status: 200,
+      schema: "StartProviderLoginResponse",
+      description:
+        "The flow has started; the response sets the flow cookie. Send the browser to `authorization_url`.",
+      example: {
+        authorization_url:
+          "https://idp.example.com/oauth2/authorize?response_type=code&client_id=werft-console&state=example",
+      },
+    },
+    errors: [400, 403, 404, 409, 410, 413, 503],
+    errorNotes: {
+      NOT_FOUND: "No provider has this id, or it is turned off.",
+      BACKEND_UNAVAILABLE:
+        "`CONSOLE_ORIGIN` is not set, the provider has no client ID or client secret, or its authorization endpoint is plain http outside a local stack.",
+    },
+    errorCodes: { 409: ["INVITE_USED"], 410: ["INVITE_EXPIRED"] },
+    idempotent: false,
+  },
+  {
+    method: "post",
     path: "/v1/auth/oidc/callback",
     operationId: "providerLoginCallback",
     tag: "Auth",
