@@ -686,6 +686,10 @@ describe("provider test sign-in", () => {
     ["nobody signed in, or someone who is not an owner", null],
     ["another owner", { ...OWNER, userId: OTHER_ID }],
     ["the same owner in another session", { ...OWNER, sessionId: OTHER_ID }],
+    // Each once more with another id: one case alone would also pass a
+    // check that refused that one id and let every other in.
+    ["yet another owner", { ...OWNER, userId: PROVIDER_ID }],
+    ["the same owner in a third session", { ...OWNER, sessionId: RECEIPT_ID }],
   ];
   for (const [who, owner] of strangers) {
     test(`a test brought back by ${who} is refused and nothing is written down`, async () => {
@@ -796,6 +800,13 @@ describe("provider test sign-in", () => {
       "the secret for another in the same slot at the same version",
       (stored) => {
         stored.secretId = PROVIDER_ID;
+      },
+    ],
+    [
+      // Once more with another row, as with the strangers above.
+      "the secret for a third in the same slot at the same version",
+      (stored) => {
+        stored.secretId = RECEIPT_ID;
       },
     ],
     [
@@ -1459,6 +1470,10 @@ describe("provider sign-in routes", () => {
       ["a member's session", { ...ownerSession, role: "member" }],
       ["another owner's session", { ...ownerSession, userId: OTHER_ID }],
       ["the owner's other session", { ...ownerSession, sessionId: OTHER_ID }],
+      [
+        "the owner's third session",
+        { ...ownerSession, sessionId: RECEIPT_ID },
+      ],
     ];
     for (const [what, session] of others) {
       test(`with ${what} it is 401: nothing recorded, nobody signed in`, async () => {
