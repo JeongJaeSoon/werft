@@ -67,13 +67,17 @@ async function standIn(issuer: string, shape: Shape = {}) {
 }
 
 /** The server's requests, each landing on the stand-in `pick` names. */
-function requestTo(pick: (path: string) => MockOidcServer): ProviderRequest {
+function requestTo(
+  pick: (path: string) => MockOidcServer,
+  /** What the server reads instead of the stand-in's answer, for a provider that answers wrongly. */
+  answered: (path: string, text: string) => string = (_, text) => text,
+): ProviderRequest {
   return createProviderRequest({
     // Any public address: it is judged, never connected to.
     lookup: async () => [{ address: "8.8.8.8", family: 4 }],
-    fetch: ((target: URL | string, init?: RequestInit) => {
+    fetch: (async (target: URL | string, init?: RequestInit) => {
       const { pathname, search } = new URL(String(target));
-      return fetch(
+      const response = await fetch(
         `http://127.0.0.1:${pick(pathname).port}${pathname}${search}`,
         {
           ...(init?.method === undefined ? {} : { method: init.method }),
@@ -83,6 +87,13 @@ function requestTo(pick: (path: string) => MockOidcServer): ProviderRequest {
           ...(init?.signal == null ? {} : { signal: init.signal }),
         },
       );
+      const headers = new Headers(response.headers);
+      headers.delete("Content-Length");
+      headers.delete("Content-Encoding");
+      return new Response(answered(pathname, await response.text()), {
+        status: response.status,
+        headers,
+      });
     }) as unknown as typeof fetch,
   });
 }
@@ -453,12 +464,20 @@ describe("Entra ID: a tenant's issuer, no `email_verified`, an `email` only when
   });
 
   test("without that requirement the account signs in and an invite's token signs it up, with or without an address, and joins nobody", async () => {
-    const login = loginWith(providerOf(endpoints, OPEN), request);
+    const asked: string[] = [];
+    const login = loginWith(
+      providerOf(endpoints, OPEN),
+      requestTo((path) => {
+        asked.push(path);
+        return idp;
+      }),
+    );
+    const userinfo = new URL(`${ISSUER}/userinfo`).pathname;
     // Without an address in the token UserInfo is asked, and has none to
     // add.
-    for (const [claims, email] of [
-      [lee, "lee@acme.example"],
-      [{ ...lee, email: null }, null],
+    for (const [claims, email, lookups] of [
+      [lee, "lee@acme.example", 0],
+      [{ ...lee, email: null }, null, 1],
     ] as const) {
       const unvouched = {
         issuer: ISSUER,
@@ -468,9 +487,27 @@ describe("Entra ID: a tenant's issuer, no `email_verified`, an `email` only when
         ownsEmail: false,
         jitRole: null,
       };
-      expect(who(await signIn(login, idp, claims))).toEqual(unvouched);
-      expect(who(await signUpByInvite(login, idp, claims))).toEqual(unvouched);
+      for (const enter of [signIn, signUpByInvite]) {
+        asked.length = 0;
+        expect(who(await enter(login, idp, claims))).toEqual(unvouched);
+        expect(asked.filter((path) => path === userinfo).length).toBe(lookups);
+      }
     }
+  });
+
+  test("a token without an address is not accepted while UserInfo does not answer", async () => {
+    const login = loginWith(
+      providerOf(endpoints, {
+        ...OPEN,
+        userinfoEndpoint: `${ISSUER}/userinfo-gone`,
+      }),
+      request,
+    );
+    expect(await refusal(signIn(login, idp, { ...lee, email: null }))).toEqual({
+      kind: "rejected",
+      reason: "userinfo_refused",
+    });
+    expect(who(await signIn(login, idp, lee)).subject).toBe(lee.sub);
   });
 });
 
@@ -551,7 +588,19 @@ describe("Keycloak: a realm's issuer, ES256, `email_verified: false` for an unve
   beforeAll(async () => {
     idp = await standIn(ISSUER, {
       signingAlg: "ES256",
+      // The lists of a Keycloak 26.8.1 realm's discovery document as read
+      // on 2026-11-13.
       discovery: {
+        response_types_supported: [
+          "code",
+          "none",
+          "id_token",
+          "token",
+          "id_token token",
+          "code id_token",
+          "code token",
+          "code id_token token",
+        ],
         id_token_signing_alg_values_supported: [
           "PS384",
           "RS384",
@@ -612,6 +661,38 @@ describe("Keycloak: a realm's issuer, ES256, `email_verified: false` for an unve
       UNVERIFIED,
     );
   });
+});
+
+describe("an issuer written with a trailing slash", () => {
+  const pat: MockOidcClaims = { sub: "7001", email: "pat@acme.example" };
+
+  for (const issuer of [
+    "https://slash.example/",
+    "https://slash.example/realms/werft/",
+  ]) {
+    test(`${issuer} is kept as written, and is not the issuer without the slash`, async () => {
+      const idp = await standIn(issuer);
+      const request = requestTo(() => idp);
+      const endpoints = await discover(issuer, POLICY, request);
+      expect(endpoints).toMatchObject({
+        issuer,
+        tokenEndpoint: `${issuer}token`,
+        jwksUri: `${issuer}jwks`,
+      });
+      const login = loginWith(providerOf(endpoints), request);
+      expect(who(await signIn(login, idp, pat))).toMatchObject({
+        issuer,
+        subject: pat.sub,
+      });
+      const problem = await discover(
+        issuer.slice(0, -1),
+        POLICY,
+        request,
+      ).catch((error: unknown) => error);
+      expect(problem).toBeInstanceOf(OidcDiscoveryError);
+      expect((problem as OidcDiscoveryError).problem).toBe("issuer_mismatch");
+    });
+  }
 });
 
 describe("a provider that rotates its signing key", () => {
@@ -723,6 +804,29 @@ describe("a provider that does not check PKCE for a client with a secret", () =>
     expect(await refusal(signIn(login, lax, pat))).toEqual({
       kind: "rejected",
       reason: "code_refused",
+    });
+  });
+
+  test("a token whose signature does not hold under the published key is still refused", async () => {
+    // The provider's own token, one signature byte changed on the way.
+    const altered = requestTo(
+      () => lax,
+      (path, text) => {
+        if (!path.endsWith("/token")) return text;
+        const tokens = JSON.parse(text) as { id_token: string };
+        const [header, payload, signature = ""] = tokens.id_token.split(".");
+        const bytes = Buffer.from(signature, "base64url");
+        bytes[0] = (bytes[0] ?? 0) ^ 0x01;
+        return JSON.stringify({
+          ...tokens,
+          id_token: `${header}.${payload}.${bytes.toString("base64url")}`,
+        });
+      },
+    );
+    const login = loginWith(providerOf(endpoints), altered);
+    expect(await refusal(signIn(login, lax, pat))).toEqual({
+      kind: "rejected",
+      reason: "bad_signature",
     });
   });
 

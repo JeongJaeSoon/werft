@@ -121,9 +121,10 @@ export async function startMockOidcServer(options: {
   const grants = new Map<string, Grant>();
   /** What UserInfo answers, by the access token it was issued with. */
   const userinfo = new Map<string, Record<string, unknown>>();
-  const base = options.issuer
-    ? new URL(options.issuer).pathname.replace(/\/$/, "")
-    : "";
+  // An issuer written with a trailing slash stays as written in the
+  // document and the tokens; only what is appended to it loses the slash.
+  const under = (url: string) => url.replace(/\/$/, "");
+  const base = options.issuer ? under(new URL(options.issuer).pathname) : "";
   const sendsIssuer =
     options.discovery?.authorization_response_iss_parameter_supported === true;
   let issuer = options.issuer ?? "";
@@ -144,11 +145,11 @@ export async function startMockOidcServer(options: {
       if (route === "/.well-known/openid-configuration") {
         const document = {
           issuer,
-          authorization_endpoint: `${publicUrl}/authorize`,
-          token_endpoint: `${issuer}/token`,
-          jwks_uri: `${issuer}/jwks`,
+          authorization_endpoint: `${under(publicUrl)}/authorize`,
+          token_endpoint: `${under(issuer)}/token`,
+          jwks_uri: `${under(issuer)}/jwks`,
           ...(options.thinIdToken
-            ? { userinfo_endpoint: `${issuer}/userinfo` }
+            ? { userinfo_endpoint: `${under(issuer)}/userinfo` }
             : {}),
           response_types_supported: ["code"],
           id_token_signing_alg_values_supported: [alg],
