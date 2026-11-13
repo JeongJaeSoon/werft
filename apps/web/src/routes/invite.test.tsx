@@ -601,7 +601,7 @@ describe("공급자 계정으로 가입", () => {
 describe("공급자 가입의 콜백", () => {
   const CALLBACK = "/auth/callback/0d6a3f1c-2b7e-4c58-9a1d-6e5f4a3b2c1d";
   const REFUSED =
-    "가입하지 못했습니다 — 초대가 회수됐거나 만료됐을 수 있고, 공급자가 알려 준 계정 정보가 받아들여지지 않았을 수도 있습니다. 받은 초대 링크를 다시 열어 시도하고, 계속 안 되면 초대한 사람에게 문의하세요.";
+    "가입하지 못했습니다 — 받은 초대 링크를 다시 열어 처음부터 시도하세요. 계속 안 되면 초대가 회수됐거나 만료됐을 수 있으니 초대한 사람에게 문의하세요.";
   const notAccepted = {
     "POST /v1/auth/oidc/callback": () =>
       apiError(401, "UNAUTHORIZED", "Sign-in was not accepted"),
@@ -609,8 +609,8 @@ describe("공급자 가입의 콜백", () => {
   afterEach(() => sessionStorage.removeItem("ap.inviteFlow"));
 
   test("거절된 가입은 초대를 다시 열라고 말하고, 주소를 맞추라고 하지 않는다", async () => {
-    // The invite was revoked meanwhile, or the provider did not vouch for
-    // the address: the server answers both alike.
+    // The invite was revoked meanwhile, the provider did not vouch for the
+    // address, the flow ran out: the server answers them alike.
     sessionStorage.setItem("ap.inviteFlow", "s1");
     renderAt(`${CALLBACK}?code=c1&state=s1`, notAccepted);
     expect((await screen.findByRole("alert")).textContent).toBe(REFUSED);

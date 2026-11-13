@@ -54,8 +54,9 @@ function refusalKey(error: ApiError, joining: boolean): MessageKey {
       : "loginMethods.callback.taken";
   if (error.code === "UNAUTHORIZED")
     // Joining from an invite does not go by the provider's address, and the
-    // server does not say which it was: the invite ended meanwhile, or what
-    // the provider said of the account was not taken.
+    // server does not say what it was (the invite ended meanwhile, what the
+    // provider said of the account was not taken, the flow ran out): the
+    // copy names the way on, not a cause.
     return joining ? "invite.provider.refused" : "login.provider.rejected";
   if (error.code === "FORBIDDEN") return "login.provider.forbidden";
   // The callback route answers 404 when the provider is gone or turned off.

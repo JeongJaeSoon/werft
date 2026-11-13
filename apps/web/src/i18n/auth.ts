@@ -81,7 +81,7 @@ export const authKo = {
     "처음이면 로그인 공급자의 계정으로 가입할 수도 있습니다. 비밀번호는 정하지 않고, 계정의 이메일은 초대받은 주소가 됩니다.",
   "invite.provider.submit": "{name} 계정으로 가입",
   "invite.provider.refused":
-    "가입하지 못했습니다 — 초대가 회수됐거나 만료됐을 수 있고, 공급자가 알려 준 계정 정보가 받아들여지지 않았을 수도 있습니다. 받은 초대 링크를 다시 열어 시도하고, 계속 안 되면 초대한 사람에게 문의하세요.",
+    "가입하지 못했습니다 — 받은 초대 링크를 다시 열어 처음부터 시도하세요. 계속 안 되면 초대가 회수됐거나 만료됐을 수 있으니 초대한 사람에게 문의하세요.",
   "invite.provider.cancelled":
     "가입을 마치지 못했습니다 — 받은 초대 링크를 다시 열어 시도하세요.",
   "invite.passwordTitle.existing": "기존 계정으로 수락",
@@ -179,7 +179,7 @@ export const authEn: Record<keyof typeof authKo, string> = {
     "If you are new, you can also join with a sign-in provider's account. No password is set, and the account's email is the invited address.",
   "invite.provider.submit": "Join with {name}",
   "invite.provider.refused":
-    "Could not join — the invite may have been revoked or expired, or what the provider reported about this account was not accepted. Open your invite link again to retry, and if it keeps failing, ask whoever invited you.",
+    "Could not join — open your invite link again and start over. If it keeps failing, the invite may have been revoked or expired, so ask whoever invited you.",
   "invite.provider.cancelled":
     "Joining was not completed — open your invite link again to retry.",
   "invite.back": "Back",
@@ -274,7 +274,7 @@ export const authJa: Record<keyof typeof authKo, string> = {
     "初めての場合は、ログインプロバイダーのアカウントで参加することもできます。パスワードは設定せず、アカウントのメールアドレスは招待されたアドレスになります。",
   "invite.provider.submit": "{name} で参加",
   "invite.provider.refused":
-    "参加できませんでした。招待が取り消されたか期限切れになった可能性、またはプロバイダーが返したアカウント情報が受け入れられなかった可能性があります。受け取った招待リンクをもう一度開いてお試しください。解決しない場合は招待した人にお問い合わせください。",
+    "参加できませんでした。受け取った招待リンクをもう一度開いて、最初からお試しください。解決しない場合は、招待が取り消されたか期限切れの可能性があるため、招待した人にお問い合わせください。",
   "invite.provider.cancelled":
     "参加が完了しませんでした。受け取った招待リンクをもう一度開いてお試しください。",
   "invite.passwordTitle.existing": "既存のアカウントで承諾",
