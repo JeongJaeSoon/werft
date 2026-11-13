@@ -51,11 +51,7 @@ import {
 } from "../schema.ts";
 import { decodeMemberCursor, encodeMemberCursor } from "../sessions/cursors.ts";
 import { createWebSession } from "./identity.ts";
-import {
-  keepsOwnerSignIn,
-  lockLoginSettings,
-  passwordOpenTo,
-} from "./login-settings.ts";
+import { keepsOwnerSignIn, lockLoginSettings } from "./login-settings.ts";
 
 // Invites and roles. Lock order, everywhere here: invite, then
 // user, then membership, then web session — the user -> link -> session
@@ -350,9 +346,10 @@ async function acceptInviteOnce(
       .from(users)
       .where(eq(users.email, invite.email))
       .for("update");
-    // While passwords are closed an invite is taken through a provider;
-    // only the emergency admin's own account still has a password to give.
-    if (!passwordOpenTo(settings, account?.id ?? "")) {
+    // While passwords are closed an invite is taken through a provider, by
+    // everyone. The emergency admin's password is for signing in; an answer
+    // that set them apart here would tell an invite's holder who they are.
+    if (settings.passwordLogin !== "on") {
       return { outcome: "password_closed" };
     }
     const { account: expected } = input;

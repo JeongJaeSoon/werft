@@ -14,9 +14,11 @@ import * as schema from "@werft-ai/db";
 import {
   createPostgresLoginMethodStore,
   createPostgresLoginProviderStore,
+  createPostgresLoginSettingsStore,
   invites,
   loginMethods,
   loginProviders,
+  memberships,
   receipts,
   users,
   webSessions,
@@ -37,6 +39,7 @@ import { createApiApp } from "./app.ts";
 import {
   createBootstrapGate,
   DatabaseIdentityStore,
+  hashPassword,
   hashWebSessionToken,
   LoginLockout,
 } from "./auth.ts";
@@ -467,6 +470,32 @@ integration(
 
     describe("linking and removing from a session", () => {
       let owner = "";
+
+      // Whoever sets an installation up is its emergency admin, and that
+      // person keeps their password. These tests are about anyone's own ways
+      // in, so a second owner holds the designation; nobody signs in as them.
+      beforeAll(async () => {
+        const id = randomUUID();
+        await db.insert(users).values({
+          id,
+          email: "second-owner@example.com",
+          passwordHash: await hashPassword(made()),
+          displayName: "Second owner",
+        });
+        await db
+          .insert(memberships)
+          .values({ workspaceId, userId: id, role: "owner" });
+        await db
+          .insert(loginMethods)
+          .values({ id: randomUUID(), userId: id, kind: "password" });
+        const handed = await createPostgresLoginSettingsStore(
+          db,
+        ).setEmergencyAdmin({
+          userId: id,
+          audit: { userId: ownerId, workspaceId, receiptId: randomUUID() },
+        });
+        expect(handed.outcome).toBe("changed");
+      });
 
       test("the owner sees a password, and the providers that can be linked", async () => {
         const signedIn = await passwordLogin("owner@example.com", OWNER_WORD);

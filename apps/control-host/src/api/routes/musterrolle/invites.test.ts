@@ -18,6 +18,7 @@ import {
   type InviteRecord,
   type InviteService,
   type InviteStore,
+  type LoginSettingsStore,
 } from "@werft-ai/platform";
 import { errorOf } from "../../../testing/api-error.ts";
 import { hashPassword, hashWebSessionToken, LoginLockout } from "../../auth.ts";
@@ -122,6 +123,7 @@ function app(
     authorization?: AuthorizationPolicy;
     person?: boolean;
     lockout?: LoginLockout;
+    loginSettings?: Pick<LoginSettingsStore, "read">;
   } = {},
 ) {
   const service = createInviteService({
@@ -148,6 +150,9 @@ function app(
         invites: store,
         identity: { findWorkspace: async () => WORKSPACE_ROW },
         ...(options.lockout ? { lockout: options.lockout } : {}),
+        ...(options.loginSettings
+          ? { loginSettings: options.loginSettings }
+          : {}),
       }),
     registerRoutes: (router) => registerInviteRoutes(router, routed),
   });
@@ -493,6 +498,158 @@ describe("POST /v1/invites/accept", () => {
       details: { reason_code: "password_login_closed" },
     });
     expect(response.headers.getSetCookie()).toEqual([]);
+  });
+
+  test("while passwords are closed the invite is refused before the password is looked at: right or wrong, the same answer and no count", async () => {
+    const closed: Pick<LoginSettingsStore, "read"> = {
+      read: async () => ({
+        passwordLogin: "emergency_only",
+        emergencyAdmin: {
+          userId: OWNER_USER,
+          email: "owner@example.com",
+          displayName: "Owner",
+          eligible: true,
+        },
+        enabledProviders: 1,
+      }),
+    };
+    // An address with an account, and one without.
+    for (const store of [existing, inviteStore]) {
+      const lockout = new LoginLockout({ attempts: 1 });
+      let asked = 0;
+      const api = app(
+        store({
+          acceptInvite: async () => {
+            asked += 1;
+            return { outcome: "password_closed" };
+          },
+        }),
+        { lockout, loginSettings: closed },
+      );
+      const answers: unknown[] = [];
+      for (const password of [PASSWORD, "not the password", PASSWORD]) {
+        const response = await accept(api, { token: TOKEN, password });
+        const { code, message, details } = await errorOf(response);
+        answers.push({
+          status: response.status,
+          code,
+          message,
+          details,
+          cookies: response.headers.getSetCookie(),
+        });
+      }
+      expect(answers[0]).toMatchObject({
+        status: 403,
+        code: "FORBIDDEN",
+        details: { reason_code: "password_login_closed" },
+        cookies: [],
+      });
+      expect(answers[1]).toEqual(answers[0]);
+      expect(answers[2]).toEqual(answers[0]);
+      expect(asked).toBe(0);
+      expect(lockout.size).toBe(0);
+    }
+  });
+
+  test("the emergency admin's own invite is answered like anyone's while passwords are closed", async () => {
+    let asked = 0;
+    const store = existing({
+      acceptInvite: async () => {
+        asked += 1;
+        return { outcome: "password_closed" };
+      },
+    });
+    const lockout = new LoginLockout({ attempts: 1 });
+    const api = app(store, {
+      lockout,
+      loginSettings: {
+        read: async () => ({
+          passwordLogin: "emergency_only",
+          emergencyAdmin: {
+            userId: EXISTING_USER,
+            email: PENDING.email,
+            displayName: "Existing",
+            eligible: true,
+          },
+          enabledProviders: 1,
+        }),
+      },
+    });
+    const wrong = await accept(api, {
+      token: TOKEN,
+      password: "not the password",
+    });
+    const shown = async (response: Response) => {
+      const { code, message, details } = await errorOf(response);
+      return { status: response.status, code, message, details };
+    };
+    const wrongShown = await shown(wrong);
+    expect(wrongShown).toMatchObject({
+      status: 403,
+      code: "FORBIDDEN",
+      details: { reason_code: "password_login_closed" },
+    });
+    expect(await shown(await accept(api))).toEqual(wrongShown);
+    // What somebody else's invite gets, to the letter.
+    const other = app(inviteStore(), {
+      loginSettings: {
+        read: async () => ({
+          passwordLogin: "emergency_only",
+          emergencyAdmin: {
+            userId: EXISTING_USER,
+            email: PENDING.email,
+            displayName: "Existing",
+            eligible: true,
+          },
+          enabledProviders: 1,
+        }),
+      },
+    });
+    expect(await shown(await accept(other))).toEqual(wrongShown);
+    expect(asked).toBe(0);
+    expect(lockout.size).toBe(0);
+  });
+
+  test("a right password clears the failures before it only by being accepted", async () => {
+    const wrong = { token: TOKEN, password: "not the password" };
+    const refusedThenWrong = async (
+      outcome: "password_closed" | "account_changed" | "accepted",
+    ) => {
+      const api = app(
+        existing(
+          outcome === "accepted"
+            ? {}
+            : { acceptInvite: async () => ({ outcome }) },
+        ),
+        { lockout: new LoginLockout({ attempts: 3 }) },
+      );
+      expect((await accept(api, wrong)).status).toBe(401);
+      const right = await accept(api);
+      // Two are counted now, unless the right one was accepted.
+      return [
+        right.status,
+        (await accept(api, wrong)).status,
+        (await accept(api, wrong)).status,
+      ];
+    };
+    expect(await refusedThenWrong("password_closed")).toEqual([403, 401, 429]);
+    expect(await refusedThenWrong("account_changed")).toEqual([401, 401, 429]);
+    expect(await refusedThenWrong("accepted")).toEqual([200, 401, 401]);
+  });
+
+  test("a refusal no password decides, and an outage, are not counted as guesses", async () => {
+    for (const acceptInvite of [
+      async () => ({ outcome: "emergency_admin" }) as const,
+      async () => ({ outcome: "expired" }) as const,
+      outage,
+    ]) {
+      const lockout = new LoginLockout({ attempts: 1 });
+      const api = app(existing({ acceptInvite }), { lockout });
+      const first = await accept(api);
+      expect(first.status).not.toBe(429);
+      expect(lockout.size).toBe(0);
+      expect((await accept(api)).status).toBe(first.status);
+    }
   });
 
   test("an invite that would move the emergency admin's sign-in is refused with why, and no session is made", async () => {
