@@ -16,10 +16,13 @@ export function useStepMoved(step: string): boolean {
 export function StepHeading({
   focus,
   id,
+  describedBy,
   children,
 }: {
   readonly focus: boolean;
   readonly id?: string;
+  /** What is read after the heading when it takes focus. */
+  readonly describedBy?: string;
   readonly children: ReactNode;
 }) {
   const heading = useRef<HTMLHeadingElement>(null);
@@ -27,7 +30,13 @@ export function StepHeading({
     if (focus) heading.current?.focus();
   }, [focus]);
   return (
-    <Heading ref={heading} id={id} tabIndex={-1} className="outline-none">
+    <Heading
+      ref={heading}
+      id={id}
+      aria-describedby={describedBy}
+      tabIndex={-1}
+      className="outline-none"
+    >
       {children}
     </Heading>
   );

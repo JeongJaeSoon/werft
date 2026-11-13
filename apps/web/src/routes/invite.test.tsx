@@ -612,6 +612,19 @@ describe("공급자 계정으로 가입", () => {
       screen.queryAllByRole("button", { name: "네, 계정이 있습니다" }).length +
       screen.queryAllByLabelText("비밀번호").length +
       screen.queryAllByText("또는").length;
+    const TITLE = "로그인 공급자의 계정으로 가입";
+    const headings = () =>
+      screen.queryAllByRole("heading", { level: 2, name: TITLE }).length;
+    // The heading has the keyboard, and what is read after it is the reason.
+    const handedOn = () =>
+      waitFor(() => {
+        const title = screen.getByRole("heading", { level: 2, name: TITLE });
+        expect(document.activeElement === title).toBe(true);
+        expect(
+          document.getElementById(title.getAttribute("aria-describedby") ?? "")
+            ?.textContent,
+        ).toContain("이 설치는 비밀번호 로그인을 꺼 두어");
+      });
 
     test("비밀번호 단계 없이 공급자 버튼만 보이고, 누르면 그 공급자로 가입을 시작한다", async () => {
       const { api, left } = renderAt(`/invite/${TOKEN}`, {
@@ -623,6 +636,9 @@ describe("공급자 계정으로 가입", () => {
         screen.getByText(/이 설치는 비밀번호 로그인을 꺼 두어/),
       ).toBeDefined();
       expect(passwordSteps()).toBe(0);
+      // Nobody was in the steps: the page keeps focus where it was.
+      expect(headings()).toBe(1);
+      expect(document.activeElement?.tagName).not.toBe("H2");
       expect(
         [...(choices()?.querySelectorAll("button") ?? [])].map(
           (button) => button.textContent,
@@ -649,9 +665,60 @@ describe("공급자 계정으로 가입", () => {
       await screen.findByText(/이 설치는 비밀번호 로그인을 꺼 두어/);
       expect(acceptCalls(api)).toHaveLength(1);
       expect(passwordSteps()).toBe(0);
+      await handedOn();
       expect(
         screen.queryAllByRole("button", { name: "Keycloak 계정으로 가입" }),
       ).toHaveLength(1);
+    });
+
+    test("답이 늦게 와 비밀번호를 쓰던 사람 밑에서 바뀌면, 제목이 포커스를 받고 까닭이 함께 읽힌다", async () => {
+      let answer: (response: Response) => void = () => {};
+      const { api } = renderAt(`/invite/${TOKEN}`, {
+        "GET /v1/auth/me": signedOut,
+        "GET /v1/auth/login-methods": () =>
+          new Promise<Response>((resolve) => {
+            answer = resolve;
+          }),
+      });
+      const user = await setupUser();
+      await user.click(
+        await screen.findByRole("button", { name: "아니요, 처음입니다" }),
+      );
+      const field = await screen.findByLabelText("비밀번호");
+      await user.type(field, "half typed");
+      expect(document.activeElement === field).toBe(true);
+      answer(json(200, { password: "emergency_only", providers: [KEYCLOAK] }));
+      await handedOn();
+      expect(passwordSteps()).toBe(0);
+      // Nothing was sent, and what was typed went with the field.
+      expect(acceptCalls(api)).toHaveLength(0);
+      expect(document.body.innerHTML.includes("half typed")).toBe(false);
+    });
+
+    test("닫혔는데 목록에 공급자가 없으면 그렇게 말하고, 다시 읽을 수 있다", async () => {
+      let reads = 0;
+      renderAt(`/invite/${TOKEN}`, {
+        "GET /v1/auth/me": signedOut,
+        // Read a moment behind the switch: the provider is in the next read.
+        "GET /v1/auth/login-methods": () =>
+          json(200, {
+            password: "emergency_only",
+            providers: reads++ === 0 ? [] : [KEYCLOAK],
+          }),
+      });
+      const user = await setupUser();
+      await screen.findByText(
+        /지금 가입에 쓸 수 있는 로그인 공급자가 없습니다/,
+      );
+      expect(passwordSteps()).toBe(0);
+      expect(shown()).toBe(0);
+      await user.click(screen.getByRole("button", { name: "다시 시도" }));
+      await screen.findByRole("button", { name: "Keycloak 계정으로 가입" });
+      expect(
+        screen.queryAllByText(
+          /지금 가입에 쓸 수 있는 로그인 공급자가 없습니다/,
+        ),
+      ).toHaveLength(0);
     });
 
     test("목록을 다시 읽지 못하면 폼이 남고, 권한이 아니라 닫힌 것을 말한다", async () => {

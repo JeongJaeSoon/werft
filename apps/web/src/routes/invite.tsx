@@ -174,6 +174,10 @@ function AcceptFlow({ token }: { readonly token: string }) {
   });
   const moved = useStepMoved(funnel.step);
   const methods = useQuery(loginMethodsQuery(client));
+  // Whether the keyboard has been in the steps: only then is there a place
+  // to hand it on from when they give way.
+  const [touched, setTouched] = useState(false);
+  const closedId = useId();
   // Kept apart from the mutation, which is reset so the password goes too.
   const [ended, setEnded] = useState<
     "INVITE_EXPIRED" | "INVITE_USED" | undefined
@@ -249,15 +253,38 @@ function AcceptFlow({ token }: { readonly token: string }) {
   // providers are the only way in, at whichever step the answer arrived.
   if (methods.data?.password === "emergency_only") {
     return (
-      <>
-        <p className="m-0">{t("invite.closed.intro")}</p>
-        <ProviderSignUp {...signUp} lead />
-      </>
+      <div className="flex flex-col gap-3">
+        {/* Taking the place of steps someone was in, it takes the keyboard
+            their field gave up and is read with its reason. */}
+        <StepHeading focus={touched} describedBy={closedId}>
+          {t("invite.closed.title")}
+        </StepHeading>
+        <p className="m-0" id={closedId}>
+          {t("invite.closed.intro")}
+        </p>
+        {methods.data.providers.length === 0 ? (
+          // The two lists are read apart, so this one can be a moment behind.
+          <>
+            <Text variant="sub">{t("invite.closed.noProvider")}</Text>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={methods.isFetching}
+              onClick={() => void methods.refetch()}
+            >
+              {t("common.retry")}
+            </Button>
+          </>
+        ) : (
+          <ProviderSignUp {...signUp} lead />
+        )}
+      </div>
     );
   }
 
   return (
-    <>
+    // biome-ignore lint/a11y/noStaticElementInteractions: the handler only watches focus from the controls inside
+    <div className="contents" onFocus={() => setTouched(true)}>
       <FunnelResetNotice funnel={funnel} />
       <Stepper label={t("invite.steps")} {...stepper} />
       <funnel.Render
@@ -282,7 +309,7 @@ function AcceptFlow({ token }: { readonly token: string }) {
           />
         )}
       />
-    </>
+    </div>
   );
 }
 

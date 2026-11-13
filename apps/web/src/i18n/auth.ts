@@ -83,6 +83,9 @@ export const authKo = {
   "invite.provider.hint":
     "처음이면 로그인 공급자의 계정으로 가입할 수도 있습니다. 비밀번호는 정하지 않고, 계정의 이메일은 초대받은 주소가 됩니다.",
   "invite.provider.submit": "{name} 계정으로 가입",
+  "invite.closed.title": "로그인 공급자의 계정으로 가입",
+  "invite.closed.noProvider":
+    "지금 가입에 쓸 수 있는 로그인 공급자가 없습니다 — 잠시 뒤 다시 시도하세요. 계속 안 되면 초대한 사람에게 문의하세요.",
   "invite.closed.intro":
     "초대를 수락하면 워크스페이스에 들어갑니다. 이 설치는 비밀번호 로그인을 꺼 두어, 로그인 공급자의 계정으로 가입합니다. 계정의 이메일은 초대받은 주소가 됩니다.",
   "invite.closed.refused":
@@ -188,6 +191,9 @@ export const authEn: Record<keyof typeof authKo, string> = {
   "invite.provider.hint":
     "If you are new, you can also join with a sign-in provider's account. No password is set, and the account's email is the invited address.",
   "invite.provider.submit": "Join with {name}",
+  "invite.closed.title": "Join with a sign-in provider's account",
+  "invite.closed.noProvider":
+    "No sign-in provider is available to join with right now — try again in a moment. If it keeps happening, ask the person who invited you.",
   "invite.closed.intro":
     "Accepting adds you to the workspace. Password login is turned off on this installation, so you join with a sign-in provider's account. The account's email is the invited address.",
   "invite.closed.refused":
@@ -290,6 +296,9 @@ export const authJa: Record<keyof typeof authKo, string> = {
   "invite.provider.hint":
     "初めての場合は、ログインプロバイダーのアカウントで参加することもできます。パスワードは設定せず、アカウントのメールアドレスは招待されたアドレスになります。",
   "invite.provider.submit": "{name} で参加",
+  "invite.closed.title": "ログインプロバイダーのアカウントで参加",
+  "invite.closed.noProvider":
+    "現在、参加に使えるログインプロバイダーがありません — しばらくしてからもう一度お試しください。続く場合は、招待した人にお問い合わせください。",
   "invite.closed.intro":
     "招待を承諾すると、ワークスペースに参加します。このインストールではパスワードログインがオフになっているため、ログインプロバイダーのアカウントで参加します。アカウントのメールアドレスは招待されたアドレスになります。",
   "invite.closed.refused":
