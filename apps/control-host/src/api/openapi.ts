@@ -4907,10 +4907,15 @@ export const API_ROUTE_DECLARATIONS = [
     body: "AcceptInviteRequest",
     success: { status: 200, schema: "AcceptInviteResponse" },
     errors: [400, 401, 403, 409, 410, 413, 429, 503],
-    errorCodes: { 409: ["INVITE_USED"], 410: ["INVITE_EXPIRED"] },
+    errorCodes: {
+      409: ["INVITE_USED", "REVISION_CONFLICT"],
+      410: ["INVITE_EXPIRED"],
+    },
     errorNotes: {
       FORBIDDEN:
         "Also while password sign-in is closed (`details.reason_code: password_login_closed`): the invite is not spent, and is accepted through a sign-in provider instead (POST /v1/auth/providers/{id}/invite/start).",
+      REVISION_CONFLICT:
+        "The account is the emergency admin and the invite would turn back on a membership older than the one they sign in through as an owner, in a role other than owner (`details.reason_code: emergency_admin`). The invite is not spent.",
     },
     idempotent: false,
   },

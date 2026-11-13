@@ -205,6 +205,17 @@ export function registerPublicInviteRoutes(
           undefined,
           { reason_code: "password_login_closed" },
         );
+      case "emergency_admin":
+        // Nothing is spent: with another emergency admin named, it goes
+        // through.
+        throw new ApiHttpError(
+          409,
+          "REVISION_CONFLICT",
+          "The emergency admin cannot rejoin this workspace; name another emergency admin first",
+          false,
+          undefined,
+          { reason_code: "emergency_admin" },
+        );
     }
     const workspace = await deps.identity.findWorkspace(result.workspaceId);
     if (!workspace) throw new Error("accepted invite has no workspace");

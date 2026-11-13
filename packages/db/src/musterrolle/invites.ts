@@ -51,7 +51,11 @@ import {
 } from "../schema.ts";
 import { decodeMemberCursor, encodeMemberCursor } from "../sessions/cursors.ts";
 import { createWebSession } from "./identity.ts";
-import { lockLoginSettings, passwordOpenTo } from "./login-settings.ts";
+import {
+  keepsOwnerSignIn,
+  lockLoginSettings,
+  passwordOpenTo,
+} from "./login-settings.ts";
 
 // Invites and roles. Lock order, everywhere here: invite, then
 // user, then membership, then web session — the user -> link -> session
@@ -406,6 +410,20 @@ async function acceptInviteOnce(
       membership && membership.disabledAt === null
         ? (membership.role as MembershipRole)
         : (invite.role as MembershipRole);
+    // A membership the invite turns back on is as old as it was: for the
+    // emergency admin it must not take the sign-in from the owner's one. A
+    // new membership is the newest, and takes nobody's.
+    if (
+      membership &&
+      membership.disabledAt !== null &&
+      settings.emergencyAdminUserId === userId &&
+      !(await keepsOwnerSignIn(tx, userId, {
+        workspaceId: invite.workspaceId,
+        role,
+      }))
+    ) {
+      return { outcome: "emergency_admin" };
+    }
     if (!membership) {
       await tx
         .insert(memberships)

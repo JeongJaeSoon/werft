@@ -335,7 +335,9 @@ export type AcceptInviteResult =
   /** The account changed between the peek and the write; ask again. */
   | { outcome: "account_changed" }
   /** Passwords are closed to this account: the invite is taken through a provider. */
-  | { outcome: "password_closed" };
+  | { outcome: "password_closed" }
+  /** It would move the emergency admin's sign-in off their owner's membership. */
+  | { outcome: "emergency_admin" };
 
 export interface InviteStore {
   /** Revokes the address's live invite, if any, in the same transaction. */

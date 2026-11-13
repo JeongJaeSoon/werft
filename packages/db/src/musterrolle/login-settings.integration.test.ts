@@ -866,6 +866,40 @@ integration("who may sign in with a password", () => {
           receiptId: randomUUID(),
         }),
       ).toEqual({ outcome: "emergency_admin" });
+      // An invite there would turn it on the same way, and is not spent.
+      const inviteToken = newHash();
+      await db.insert(invites).values({
+        id: randomUUID(),
+        workspaceId: elsewhere,
+        email: split.email,
+        role: "member",
+        tokenHash: inviteToken,
+        invitedBy: boss.id,
+        expiresAt: fromDbNow(60_000),
+      });
+      expect(
+        await createPostgresInviteStore(db).acceptInvite({
+          tokenHash: inviteToken,
+          account: {
+            kind: "existing",
+            userId: split.id,
+            verifiedPasswordHash: HASH,
+          },
+          session: {
+            id: randomUUID(),
+            tokenHash: newHash(),
+            ttlMs: 60_000,
+            userAgent: null,
+            maxLive: 5,
+          },
+          receiptId: randomUUID(),
+        }),
+      ).toEqual({ outcome: "emergency_admin" });
+      const [invite] = await db
+        .select({ acceptedAt: invites.acceptedAt })
+        .from(invites)
+        .where(eq(invites.tokenHash, inviteToken));
+      expect(invite?.acceptedAt).toBeNull();
       expect(await findLiveMembership(db, split.id)).toEqual({
         workspaceId,
         role: "owner",
@@ -874,6 +908,7 @@ integration("who may sign in with a password", () => {
       await db
         .update(loginSettings)
         .set({ passwordLogin: "on", emergencyAdminUserId: first });
+      await db.delete(invites).where(eq(invites.workspaceId, elsewhere));
       await db
         .delete(passwordResets)
         .where(eq(passwordResets.workspaceId, elsewhere));

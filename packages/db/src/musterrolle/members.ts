@@ -36,7 +36,7 @@ import {
 } from "../schema.ts";
 import { memberColumns, memberRecord } from "./invites.ts";
 import { revokeUserLinkedAccounts } from "./linked-accounts.ts";
-import { lockLoginSettings } from "./login-settings.ts";
+import { keepsOwnerSignIn, lockLoginSettings } from "./login-settings.ts";
 
 const TAKEOVER = "takeover";
 
@@ -270,33 +270,14 @@ async function setAccess(
       return { outcome: "emergency_admin" };
     }
     // Nor does a membership come back on that their sign-in would land on
-    // in place of the owner's one: a session acts through the oldest live
-    // membership (findLiveMembership).
+    // in place of the owner's one.
     if (
       !disabled &&
       scope === "membership" &&
-      settings.emergencyAdminUserId === userId
+      settings.emergencyAdminUserId === userId &&
+      !(await keepsOwnerSignIn(tx, userId, { workspaceId, role: target.role }))
     ) {
-      const [landing] = await tx
-        .select({
-          workspaceId: memberships.workspaceId,
-          role: memberships.role,
-        })
-        .from(memberships)
-        .where(
-          and(
-            eq(memberships.userId, userId),
-            or(
-              isNull(memberships.disabledAt),
-              eq(memberships.workspaceId, workspaceId),
-            ),
-          ),
-        )
-        .orderBy(asc(memberships.createdAt), asc(memberships.workspaceId))
-        .limit(1);
-      if (landing?.workspaceId === workspaceId && landing.role !== "owner") {
-        return { outcome: "emergency_admin" };
-      }
+      return { outcome: "emergency_admin" };
     }
 
     if (scope === "membership") {

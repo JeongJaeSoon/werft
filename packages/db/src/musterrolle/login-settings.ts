@@ -104,6 +104,36 @@ export async function ownerBySignIn(
     : null;
 }
 
+/**
+ * Whether the user's sign-in stays where it lands once their membership of
+ * `workspaceId`, now off, is on again with `role`. A membership older than
+ * the one they sign in through takes its place (ownerBySignIn), so one that
+ * is not an owner's does not come back to the emergency admin.
+ */
+export async function keepsOwnerSignIn(
+  db: Database,
+  userId: string,
+  revived: { workspaceId: string; role: string },
+): Promise<boolean> {
+  const [landing] = await db
+    .select({ workspaceId: memberships.workspaceId })
+    .from(memberships)
+    .where(
+      and(
+        eq(memberships.userId, userId),
+        or(
+          isNull(memberships.disabledAt),
+          eq(memberships.workspaceId, revived.workspaceId),
+        ),
+      ),
+    )
+    .orderBy(asc(memberships.createdAt), asc(memberships.workspaceId))
+    .limit(1);
+  return (
+    landing?.workspaceId !== revived.workspaceId || revived.role === "owner"
+  );
+}
+
 /** The providers that are on, held so none goes off under the caller. */
 const enabledIssuers = async (tx: Database): Promise<string[]> =>
   (

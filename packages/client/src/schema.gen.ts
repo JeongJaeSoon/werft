@@ -26259,7 +26259,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `INVITE_USED`: The invite was already accepted and cannot be used again. */
+            /**
+             * @description - `INVITE_USED`: The invite was already accepted and cannot be used again.
+             *     - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. The account is the emergency admin and the invite would turn back on a membership older than the one they sign in through as an owner, in a role other than owner (`details.reason_code: emergency_admin`). The invite is not spent.
+             */
             409: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -26269,7 +26272,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"] & {
                         error?: {
                             /** @enum {string} */
-                            code?: "INVITE_USED";
+                            code?: "INVITE_USED" | "REVISION_CONFLICT";
                         };
                     };
                 };

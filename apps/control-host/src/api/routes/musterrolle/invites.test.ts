@@ -495,6 +495,22 @@ describe("POST /v1/invites/accept", () => {
     expect(response.headers.getSetCookie()).toEqual([]);
   });
 
+  test("an invite that would move the emergency admin's sign-in is refused with why, and no session is made", async () => {
+    const response = await accept(
+      app(
+        inviteStore({
+          acceptInvite: async () => ({ outcome: "emergency_admin" }),
+        }),
+      ),
+    );
+    expect(response.status).toBe(409);
+    expect(await errorOf(response)).toMatchObject({
+      code: "REVISION_CONFLICT",
+      details: { reason_code: "emergency_admin" },
+    });
+    expect(response.headers.getSetCookie()).toEqual([]);
+  });
+
   test("needs the browser header, a password and a well-formed body", async () => {
     expect((await accept(app(), undefined, {})).status).toBe(403);
     expect((await accept(app(), { token: TOKEN })).status).toBe(400);
