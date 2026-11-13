@@ -53,6 +53,7 @@ import { insertBuiltinAchievementTypes } from "../sessions/achievement-rules.ts"
 import { rowsOf } from "../statement-rows.ts";
 import {
   lockLoginSettings,
+  ownerBySignIn,
   passwordOpenTo,
   revokePasswordSessions,
 } from "./login-settings.ts";
@@ -433,18 +434,9 @@ export async function issueOperatorPasswordReset(
       .where(and(eq(users.email, input.email), isNull(users.disabledAt)))
       .for("update");
     if (!user) return { outcome: "not_found" };
-    const [owned] = await tx
-      .select({ workspaceId: memberships.workspaceId })
-      .from(memberships)
-      .where(
-        and(
-          eq(memberships.userId, user.id),
-          eq(memberships.role, "owner"),
-          isNull(memberships.disabledAt),
-        ),
-      )
-      .orderBy(asc(memberships.createdAt), asc(memberships.workspaceId))
-      .limit(1);
+    // An owner where their sign-in lands: the link is to let them back in
+    // as one.
+    const owned = await ownerBySignIn(tx, user.id);
     if (!owned) return { outcome: "not_found" };
     await tx
       .update(passwordResets)
@@ -577,8 +569,15 @@ export async function consumePasswordReset(
           isNull(memberships.disabledAt),
         ),
       );
-    // The operator's link is for an owner, and still for one when used.
-    if (!member || (byOperator && member.role !== "owner")) {
+    if (!member) {
+      return null;
+    }
+    // The operator's link is for an owner, and still for one when used: it
+    // names them the emergency admin, who must sign in as an owner.
+    if (
+      byOperator &&
+      (await ownerBySignIn(tx, reset.userId))?.workspaceId !== reset.workspaceId
+    ) {
       return null;
     }
     await tx

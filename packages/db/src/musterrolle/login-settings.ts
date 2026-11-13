@@ -6,7 +6,7 @@ import type {
   LoginSettingsStore,
   PasswordLogin,
 } from "@werft-ai/platform";
-import { and, eq, inArray, isNotNull, isNull, ne, or } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { DB_NOW } from "../db-clock.ts";
 import { secretOwnerWorkspace } from "../installation-settings.ts";
 import type { Database } from "../queries.ts";
@@ -67,22 +67,41 @@ async function ownerWithPassword(
   userId: string,
   workspaceId?: string,
 ): Promise<boolean> {
-  const [row] = await db
-    .select({ id: users.id })
-    .from(users)
-    .innerJoin(memberships, eq(memberships.userId, users.id))
+  const owner = await ownerBySignIn(db, userId);
+  if (!owner?.hasPassword) return false;
+  return workspaceId === undefined || owner.workspaceId === workspaceId;
+}
+
+/**
+ * The workspace a sign-in makes this user an owner of, or null. A session
+ * acts through the oldest live membership (findLiveMembership), so an owner
+ * membership behind an older one gives nobody an owner's powers: whoever is
+ * to recover the installation must be an owner by this rule.
+ */
+export async function ownerBySignIn(
+  db: Database,
+  userId: string,
+): Promise<{ workspaceId: string; hasPassword: boolean } | null> {
+  const [first] = await db
+    .select({
+      workspaceId: memberships.workspaceId,
+      role: memberships.role,
+      hasPassword: sql<boolean>`${users.passwordHash} IS NOT NULL`,
+    })
+    .from(memberships)
+    .innerJoin(users, eq(users.id, memberships.userId))
     .where(
       and(
-        eq(users.id, userId),
-        isNull(users.disabledAt),
-        isNotNull(users.passwordHash),
-        eq(memberships.role, "owner"),
+        eq(memberships.userId, userId),
         isNull(memberships.disabledAt),
-        workspaceId ? eq(memberships.workspaceId, workspaceId) : undefined,
+        isNull(users.disabledAt),
       ),
     )
+    .orderBy(asc(memberships.createdAt), asc(memberships.workspaceId))
     .limit(1);
-  return row !== undefined;
+  return first?.role === "owner"
+    ? { workspaceId: first.workspaceId, hasPassword: first.hasPassword }
+    : null;
 }
 
 /** The providers that are on, held so none goes off under the caller. */

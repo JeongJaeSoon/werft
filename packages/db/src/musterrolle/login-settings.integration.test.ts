@@ -27,12 +27,14 @@ import {
   receipts,
   users,
   webSessions,
+  workspaces,
 } from "../schema.ts";
 import { seedLoginProvider } from "../testing/login-provider.ts";
 import {
   bootstrapOwner,
   consumePasswordReset,
   createWebSession,
+  findLiveMembership,
   issueOperatorPasswordReset,
   issuePasswordReset,
 } from "./identity.ts";
@@ -758,5 +760,126 @@ integration("who may sign in with a password", () => {
         .set({ passwordHash: HASH })
         .where(eq(users.id, first));
     });
+  });
+
+  test("an owner whose sign-in lands on an older membership elsewhere is not one who can recover the installation", async () => {
+    const elsewhere = randomUUID();
+    await db
+      .insert(workspaces)
+      .values({ id: elsewhere, slug: `w-${elsewhere}`, name: "Elsewhere" });
+    const boss = await person("owner");
+    const split = await person("owner");
+    try {
+      await db.insert(memberships).values([
+        { workspaceId: elsewhere, userId: boss.id, role: "owner" },
+        {
+          workspaceId: elsewhere,
+          userId: split.id,
+          role: "member",
+          createdAt: new Date("2000-01-01T00:00:00Z"),
+        },
+      ]);
+      const older = (disabled: boolean) =>
+        db
+          .update(memberships)
+          .set({ disabledAt: disabled ? new Date() : null })
+          .where(
+            and(
+              eq(memberships.workspaceId, elsewhere),
+              eq(memberships.userId, split.id),
+            ),
+          );
+      const name = () =>
+        store.setEmergencyAdmin({ userId: split.id, audit: audit(first) });
+      const link = () => {
+        const tokenHash = newHash();
+        return issueOperatorPasswordReset(db, {
+          id: randomUUID(),
+          email: split.email,
+          tokenHash,
+          ttlMs: 60_000,
+          receiptId: randomUUID(),
+        }).then((issued) => ({ outcome: issued.outcome, tokenHash }));
+      };
+
+      // What a session of theirs acts through: not the owner's membership.
+      expect(await findLiveMembership(db, split.id)).toEqual({
+        workspaceId: elsewhere,
+        role: "member",
+      });
+      expect(await name()).toEqual({ outcome: "not_eligible" });
+      expect((await link()).outcome).toBe("not_found");
+      // Named by hand, they are shown as unable, and passwords stay open.
+      const idp = await provider();
+      await account(first, idp);
+      await db.update(loginSettings).set({ emergencyAdminUserId: split.id });
+      expect((await store.read()).emergencyAdmin?.eligible).toBe(false);
+      expect(
+        await store.setPasswordLogin({
+          value: "emergency_only",
+          audit: audit(first),
+        }),
+      ).toEqual({ outcome: "no_emergency_admin" });
+      await db.update(loginSettings).set({ emergencyAdminUserId: first });
+
+      // A link issued while they were an owner by sign-in dies when the
+      // older membership comes back.
+      await older(true);
+      const issued = await link();
+      expect(issued.outcome).toBe("issued");
+      await older(false);
+      expect(
+        await consumePasswordReset(db, {
+          tokenHash: issued.tokenHash,
+          passwordHash: HASH,
+          receiptId: randomUUID(),
+        }),
+      ).toBeNull();
+      const [unused] = await db
+        .select({ usedAt: passwordResets.usedAt })
+        .from(passwordResets)
+        .where(eq(passwordResets.tokenHash, issued.tokenHash));
+      expect(unused?.usedAt).toBeNull();
+      expect((await settingsRow()).emergencyAdminUserId).toBe(first);
+
+      // Named while that membership is off, they keep it off.
+      await older(true);
+      expect((await name()).outcome).toBe("changed");
+      expect(
+        await createPostgresMemberStore(db).setAccess({
+          actor: {
+            ...acting(boss.id),
+            workspaceId: elsewhere,
+            principal: {
+              ...acting(boss.id).principal,
+              ownerId: elsewhere,
+              actor: {
+                ...acting(boss.id).principal.actor,
+                workspaceId: elsewhere,
+              },
+            },
+          },
+          userId: split.id,
+          scope: "membership",
+          disabled: false,
+          reason: null,
+          receiptId: randomUUID(),
+        }),
+      ).toEqual({ outcome: "emergency_admin" });
+      expect(await findLiveMembership(db, split.id)).toEqual({
+        workspaceId,
+        role: "owner",
+      });
+    } finally {
+      await db
+        .update(loginSettings)
+        .set({ passwordLogin: "on", emergencyAdminUserId: first });
+      await db
+        .delete(passwordResets)
+        .where(eq(passwordResets.workspaceId, elsewhere));
+      await db
+        .delete(memberships)
+        .where(eq(memberships.workspaceId, elsewhere));
+    }
   });
 });

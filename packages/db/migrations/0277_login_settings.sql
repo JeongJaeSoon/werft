@@ -20,10 +20,12 @@ ALTER TABLE "password_resets" ALTER COLUMN "issued_by" DROP NOT NULL;--> stateme
 ALTER TABLE "login_settings" ADD CONSTRAINT "login_settings_emergency_admin_user_id_users_id_fk" FOREIGN KEY ("emergency_admin_user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 -- The row, with the first emergency admin: of the owners who can sign in
 -- with a password today (account and membership on, a password set), the
--- one whose membership is oldest. An installation whose owners all sign in
--- through a provider gets none, and cannot close passwords until one sets a
--- password through the operator CLI's link. A new installation gets its
--- emergency admin at bootstrap.
+-- one whose membership is oldest. An owner here is one by the membership a
+-- sign-in lands on, the oldest live one: an owner membership behind an
+-- older one gives its holder no owner's session. An installation whose
+-- owners all sign in through a provider gets none, and cannot close
+-- passwords until one sets a password through the operator CLI's link. A
+-- new installation gets its emergency admin at bootstrap.
 INSERT INTO "login_settings" ("emergency_admin_user_id")
 SELECT (
 	SELECT "memberships"."user_id"
@@ -33,6 +35,13 @@ SELECT (
 		AND "memberships"."disabled_at" IS NULL
 		AND "users"."disabled_at" IS NULL
 		AND "users"."password_hash" IS NOT NULL
+		AND NOT EXISTS (
+			SELECT 1
+			FROM "memberships" AS "older"
+			WHERE "older"."user_id" = "memberships"."user_id"
+				AND "older"."disabled_at" IS NULL
+				AND ("older"."created_at", "older"."workspace_id") < ("memberships"."created_at", "memberships"."workspace_id")
+		)
 	ORDER BY "memberships"."created_at", "memberships"."user_id"
 	LIMIT 1
 );
