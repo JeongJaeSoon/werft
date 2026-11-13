@@ -510,6 +510,88 @@ describe("로그인 공급자 상세", () => {
     expect(writes(api.calls).map((call) => call.method)).toEqual(["DELETE"]);
   });
 
+  const openRules = async (user: Awaited<ReturnType<typeof setupUser>>) => {
+    await user.click(
+      await screen.findByRole("button", { name: "규칙 바꾸기" }),
+    );
+    return screen.findByRole("dialog");
+  };
+
+  test("who may come in is shown, and changed together at the revision that was read", async () => {
+    const { api } = renderAt(PAGE, {
+      ...routes([filled({ allowed_domains: ["example.com"] })]),
+      [`PATCH ${API}/${ID}`]: () => json(200, { provider: filled() }),
+    });
+    const user = await setupUser();
+    const shown = (title: string) =>
+      (screen.getByText(title).closest("li") as HTMLElement).textContent;
+    await screen.findByText("허용 도메인");
+    expect(shown("허용 도메인")).toContain("example.com");
+    expect(shown("초대 없이 가입")).toContain("받지 않음");
+    expect(shown("검증된 이메일")).toContain("요구함");
+
+    const dialog = await openRules(user);
+    const domains = named(dialog, "allowed_domains") as HTMLInputElement;
+    expect(domains.value).toBe("example.com");
+    await user.clear(domains);
+    await user.type(domains, " Example.com,  corp.example.org ");
+    await user.selectOptions(named(dialog, "jit_role"), "member");
+    await user.selectOptions(named(dialog, "require_verified_email"), "false");
+    await user.click(within(dialog).getByRole("button", { name: "저장" }));
+    await screen.findByText("저장했습니다.");
+    const [patch] = writes(api.calls);
+    expect(patch?.headers.get("If-Match")).toBe("3");
+    expect(patch?.body).toEqual({
+      allowed_domains: ["example.com", "corp.example.org"],
+      jit_role: "member",
+      require_verified_email: false,
+    });
+  });
+
+  test("an emptied domain list and a turned-off join are sent as such, not left out", async () => {
+    const { api } = renderAt(PAGE, {
+      ...routes([
+        filled({ allowed_domains: ["example.com"], jit_role: "member" }),
+      ]),
+      [`PATCH ${API}/${ID}`]: () => json(200, { provider: filled() }),
+    });
+    const user = await setupUser();
+    const dialog = await openRules(user);
+    await user.clear(named(dialog, "allowed_domains"));
+    await user.selectOptions(named(dialog, "jit_role"), "");
+    await user.click(within(dialog).getByRole("button", { name: "저장" }));
+    await screen.findByText("저장했습니다.");
+    expect(writes(api.calls)[0]?.body).toEqual({
+      allowed_domains: [],
+      jit_role: null,
+      require_verified_email: true,
+    });
+  });
+
+  test("a Google provider is not offered an unverified email, and the server's refusal of its rules is said", async () => {
+    const { api } = renderAt(PAGE, {
+      ...routes([filled({ issuer: "https://accounts.google.com" })]),
+      [`PATCH ${API}/${ID}`]: () =>
+        apiError(400, "BAD_REQUEST", "no", false, {
+          problem: "jit_requires_domains",
+        }),
+    });
+    const user = await setupUser();
+    const dialog = await openRules(user);
+    expect(dialog.querySelector('[name="require_verified_email"]')).toBeNull();
+    within(dialog).getByText("Google 공급자는 항상 요구합니다.");
+    await user.selectOptions(named(dialog, "jit_role"), "member");
+    await user.click(within(dialog).getByRole("button", { name: "저장" }));
+    expect((await within(dialog).findByRole("alert")).textContent).toBe(
+      "Google 공급자는 허용 도메인 없이 자동 가입을 켤 수 없습니다.",
+    );
+    // What the form does not hold is not sent: the stored value stands.
+    expect(writes(api.calls)[0]?.body).toEqual({
+      allowed_domains: [],
+      jit_role: "member",
+    });
+  });
+
   test("an id that is not in the list says so", async () => {
     renderAt(PAGE, routes([]));
     await screen.findByText("이 공급자는 없습니다. 지워졌을 수 있습니다.");
