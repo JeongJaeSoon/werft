@@ -543,4 +543,39 @@ describe("enqueueSessionModelMoveNotices", () => {
     expect(rows.map((row) => row.channelId)).toEqual([creator.slackUserId]);
     expect(rows[0]?.body.text).toContain(`moved to ${move.to}`);
   });
+
+  test("a claim that rolls back after the move leaves no notice behind", async () => {
+    const w = await world();
+    const creator = await w.person("creator", { locale: "en" });
+    await w.startSession(creator);
+    await db.insert(unassignedSessions).values({ sessionId: w.sessionId });
+
+    const rolledBack = new Error("claim rolled back");
+    await expect(
+      db.transaction(async (tx) => {
+        await moveSessionsToSuccessors(
+          tx,
+          { partition: "default", sessionId: w.sessionId },
+          {
+            modelMoves: [{ connectionId: TEST_CONNECTION_ID, ...move }],
+            now: NOW,
+          },
+        );
+        expect(
+          (await tx.select().from(slackOutbox)).map((row) => row.channelId),
+        ).toEqual([creator.slackUserId]);
+        throw rolledBack;
+      }),
+    ).rejects.toBe(rolledBack);
+
+    const [session] = await db
+      .select({ model: sessions.model })
+      .from(sessions)
+      .where(eq(sessions.id, w.sessionId));
+    expect(session?.model).toBe(move.from);
+    expect(
+      await db.select().from(events).where(eq(events.sessionId, w.sessionId)),
+    ).toEqual([]);
+    expect(await w.outbox()).toEqual([]);
+  });
 });
