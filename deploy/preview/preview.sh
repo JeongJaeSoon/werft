@@ -7,8 +7,10 @@
 # own: signing in to one does not sign another out.
 #
 #   deploy/preview/preview.sh up <N>    check the PR head out, build its images
-#                                       (tag pr-<N>), install or upgrade, and
-#                                       read /readyz through Traefik
+#                                       (tag pr-<N>), install it in a fresh
+#                                       namespace (an existing preview's is
+#                                       deleted first), and read /readyz
+#                                       through Traefik
 #   deploy/preview/preview.sh down <N>  delete the namespace, the image tags
 #                                       and the checkout
 #   deploy/preview/preview.sh list      the previews: URL, head, memory in use,
@@ -175,7 +177,7 @@ lock_preview() {
 }
 
 up() {
-  local n namespace host dir head code
+  local n namespace host dir head code existing=""
   n="$(pr_number "${1:-}")"
   namespace="pr-${n}"
   host="${namespace}.localhost"
@@ -186,6 +188,7 @@ up() {
   require_local_only
   if kubectl get namespace "$namespace" >/dev/null 2>&1; then
     require_preview "$namespace"
+    existing=1
   else
     require_memory "$namespace"
   fi
@@ -201,6 +204,13 @@ up() {
   cp "$root/deploy/kind/up.sh" "${dir}/src/deploy/kind/preview-up.sh"
   echo "${namespace}: head ${head}"
 
+  # A Helm upgrade would run the chart's pre-upgrade upgrade-check, which
+  # fails on the rebuilt worker image (preview installs set no worker
+  # runtime). A preview keeps no data worth that check, so it is reinstalled.
+  if [ -n "$existing" ]; then
+    echo "${namespace}: deleting the running preview to install ${head} fresh"
+    kubectl delete namespace "$namespace" --wait --timeout 5m
+  fi
   kubectl create namespace "$namespace" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
   kubectl label namespace "$namespace" --overwrite werft.dev/preview=true >/dev/null
   kubectl annotate namespace "$namespace" --overwrite \

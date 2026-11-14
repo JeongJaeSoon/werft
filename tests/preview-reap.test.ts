@@ -78,19 +78,27 @@ exit 1
       `#!/bin/sh\necho "$*" >> "${dir}/docker-calls"\n[ "$1" = ps ]\n`,
       { mode: 0o755 },
     );
-    await writeFile(join(dir, "bin", "git"), "#!/bin/sh\nexit 0\n", {
-      mode: 0o755,
-    });
+    // Fails the git call whose arguments contain STUB_GIT_FAIL.
+    await writeFile(
+      join(dir, "bin", "git"),
+      `#!/bin/sh
+[ -n "$STUB_GIT_FAIL" ] && case "$*" in *"$STUB_GIT_FAIL"*) exit 1 ;; esac
+exit 0
+`,
+      { mode: 0o755 },
+    );
     await writeFile(join(dir, "bin", "orb"), "#!/bin/sh\necho false\n", {
       mode: 0o755,
     });
-    // Answers `helm status` for STUB_RELEASES; everything else fails, which
-    // ends `up` at the Traefik install.
+    // Answers `helm status` as deployed for STUB_RELEASES; everything else
+    // fails, which ends `up` at the Traefik install unless it is listed.
     await writeFile(
       join(dir, "bin", "helm"),
       `#!/bin/sh
 echo "$*" >> "${dir}/helm-calls"
-[ "$1" = status ] && case " $STUB_RELEASES " in *" $2 "*) exit 0 ;; esac
+[ "$1" = status ] && case " $STUB_RELEASES " in
+  *" $2 "*) echo '{"info":{"status":"deployed"}}'; exit 0 ;;
+esac
 exit 1
 `,
       { mode: 0o755 },
@@ -343,13 +351,14 @@ exit 1
     );
   });
 
-  const up = async (releases: string) => {
+  const up = async (releases: string, env: Record<string, string> = {}) => {
     const handle = Bun.spawn(["bash", script, "up", "18"], {
       env: {
         ...process.env,
         PATH: `${join(dir, "bin")}:${process.env.PATH ?? ""}`,
         PREVIEW_HOME: join(dir, "home"),
         STUB_RELEASES: releases,
+        ...env,
       },
       stderr: "pipe",
       stdout: "pipe",
@@ -372,4 +381,47 @@ exit 1
       helm.filter((call) => call.startsWith("status agent-platform")),
     ).toEqual([]);
   });
+
+  // The stub kubectl finds pr-18 with the preview label and refuses
+  // `create namespace`, which ends `up` right after the reinstall decision.
+  const checkout = () =>
+    mkdir(join(dir, "home", "pr-18", "src", "deploy", "kind"), {
+      recursive: true,
+    });
+
+  test("up deletes a running preview's namespace before installing it again", async () => {
+    await checkout();
+    const result = await up("traefik");
+    expect(result.exitCode).not.toBe(0);
+    const kubectl = await calls("kubectl-calls");
+    const removal = kubectl.indexOf(
+      "delete namespace pr-18 --wait --timeout 5m",
+    );
+    const creation = kubectl.findIndex((call) =>
+      call.startsWith("create namespace pr-18 "),
+    );
+    expect(removal).toBeGreaterThan(-1);
+    expect(creation).toBeGreaterThan(removal);
+  });
+
+  test("up installs nothing when the running preview cannot be deleted", async () => {
+    await checkout();
+    const result = await up("traefik", { STUB_DELETE_EXIT: "1" });
+    expect(result.exitCode).not.toBe(0);
+    expect(await deleted()).toEqual(["pr-18"]);
+    expect(
+      (await calls("kubectl-calls")).filter((call) =>
+        call.startsWith("create namespace "),
+      ),
+    ).toEqual([]);
+  });
+
+  for (const step of ["fetch", "checkout"]) {
+    test(`up keeps a running preview when the PR head ${step} fails`, async () => {
+      await checkout();
+      const result = await up("traefik", { STUB_GIT_FAIL: step });
+      expect(result.exitCode).not.toBe(0);
+      expect(await deleted()).toEqual([]);
+    });
+  }
 });
