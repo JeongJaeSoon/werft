@@ -14,7 +14,7 @@
 
 - 브라우저나 curl로 `$API/readyz`, `$API/docs`.
 - key 호출자: `/v1/sessions/{id}/usage`, `/v1/usage/summary?scope=me`.
-- owner의 웹 cookie(`ap_as owner` 뒤 `ap_web`): `/v1/limits`, `/v1/usage/summary?scope=installation`. 홈과 `/usage` 화면이 부르는 방식이다.
+- owner의 웹 cookie(`ap_as owner` 뒤 `ap_web`): `/v1/limits`, `/v1/usage/summary?scope=installation`. 홈과 `/operations/usage` 화면이 부르는 방식이다.
 
 ## Driving it with lib.sh
 

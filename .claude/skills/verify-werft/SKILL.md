@@ -10,7 +10,7 @@ description: Drive the Werft stack the way a user does — launch it locally wit
 | 표면 | 무엇 | 몰기 |
 |---|---|---|
 | web API (cookie) | `/v1/auth/**`(bootstrap·login-methods·login·me·logout, 로그인 공급자), 초대·구성원·팀·에이전트·권한별 key·연동 계정·공유·감사 열람·워크스페이스 설정 | `ap_web` (curl + CSRF 헤더 + cookie), 자격 값이 본문에 드는 요청은 `web-user.mjs` |
-| 웹 콘솔 | `apps/web`을 API가 같은 origin에서 서빙: `/login`·`/bootstrap`·`/`·`/members`·`/invite/{token}`·`/sessions`·`/members/teams`·`/agents`·`/usage`·`/settings/*` | 이 run의 headless Chrome(`browser.mjs`: 폭·다크·오류·로딩 스크린샷), 서빙 헤더는 curl |
+| 웹 콘솔 | `apps/web`을 API가 같은 origin에서 서빙: `/login`·`/bootstrap`·`/`·`/members`·`/invite/{token}`·`/sessions`·`/members/teams`·`/agents`·`/operations/usage`·`/settings/*` | 이 run의 headless Chrome(`browser.mjs`: 폭·다크·오류·로딩 스크린샷), 서빙 헤더는 curl |
 | API | `/v1/sessions/**`, `/v1/receipts/{id}`, `/v1/usage/summary`, `/v1/sessions/counts`, `/docs`, `/readyz` (`/v1/limits`는 owner cookie로 `ap_web`) | `ap_get`·`ap_post` (Bearer key) |
 | CLI | key CLI(`apps/control-host/src/api/keys.ts`)의 `create`·`revoke` | `ap_key`·`ap_revoke` |
 | 실제 GitHub | `JeongJaeSoon/werft-sandbox`와 App `werft-sandbox-agent`: App 등록, 상한, 에이전트 GitHub 설정, clone·push·PR, workflow dispatch·run·rerun, 게이트 receipt | `github-sandbox/overlay.yml`로 띄운 run에서 `web-user.mjs github-app`·`ap_web`·`ap_post`, GitHub 쪽은 `gh`. [github-sandbox.md](features/github-sandbox.md) |
