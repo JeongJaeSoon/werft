@@ -16,9 +16,11 @@ import { codexEngine } from "./engines/codex.ts";
  * stack.
  */
 const TIMEOUT = 600_000;
-// Long enough that both turns sit in their model call at once, whichever
-// worker starts first.
-const HELD_MS = 60_000;
+// Each fake answers a call only this long after it arrives, so once both
+// calls have arrived and both sessions still run, both calls are pending at
+// once. Long enough for one worker to start well after the other (seconds
+// apart in a local run).
+const HELD_MS = 180_000;
 
 type Side = { engine: EngineFixture; name: string; image: string };
 
@@ -113,7 +115,8 @@ describe("two engines on one stack", () => {
       for (const run of started) {
         expect([
           run.name,
-          (await run.api.settledTurn(run.sessionId, "1")).status,
+          (await run.api.settledTurn(run.sessionId, "1", HELD_MS + 120_000))
+            .status,
         ]).toEqual([run.name, "completed"]);
       }
 
