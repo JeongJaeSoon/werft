@@ -1140,7 +1140,9 @@ describe("worker image per session", () => {
       }
       const ensured = backend.ensureCalls.length;
       const dropped = await run();
-      expect(dropped.launchesRetracted).toEqual([ref]);
+      // Counted as the dropped engine it is, not as a retracted image.
+      expect(dropped.launchesEngineDropped).toEqual([ref]);
+      expect(dropped.launchesRetracted).toEqual([]);
       expect(dropped.launchesQuarantined).toEqual([]);
       expect(dropped.failedLaunches).toEqual([]);
       expect(row.launchFailureCount).toBe(4);
@@ -1184,7 +1186,8 @@ describe("worker image per session", () => {
       row.observedState = "unknown";
       backend.containers.clear();
       const resumed = await run();
-      expect(resumed.launchesRetracted).toHaveLength(1);
+      expect(resumed.launchesEngineDropped).toHaveLength(1);
+      expect(resumed.launchesRetracted).toEqual([]);
       expect(resumed.launchesQuarantined).toEqual([]);
       expect(row.launchFailureCount).toBe(4);
       expect((await run()).waitingForEngine).toEqual([codexSession]);

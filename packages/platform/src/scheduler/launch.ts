@@ -72,7 +72,8 @@ export async function reensure(
     });
     return;
   }
-  if (await rebuildsRetracted(ctx, execution, stored)) {
+  const cause = await giveBackCause(ctx, execution, stored);
+  if (cause !== null) {
     // Given back instead, the session chooses afresh: a fixed build, or a
     // hold. A replacement it had pending is settled first, or the exit
     // would wait on the rebuild.
@@ -83,16 +84,11 @@ export async function reensure(
     if (!(await confirmGone(ctx, execution, seenIncarnation(execution)))) {
       return;
     }
-    summary.launchesRetracted.push(ref);
-    logger.warn(
-      "Launch's worker image is retracted; given back unbuilt so its session chooses an image again",
-      {
-        ...fieldsOf(ref),
-        image: stored.image,
-        reason,
-        session_id: execution.sessionId,
-      },
-    );
+    reportGivenBack(ctx, ref, cause, "given back", {
+      image: stored.image,
+      reason,
+      session_id: execution.sessionId,
+    });
     return;
   }
   if (!execution.launchRetryDue) {
@@ -172,22 +168,48 @@ export async function reensure(
 }
 
 /**
- * An unclaimed launch whose rebuild would run a retracted image. No worker
- * bound it, so nothing runs on it yet; built again it would restore its
- * session on that image.
+ * Why an unclaimed launch is given back instead of built again, or null to
+ * build it. No worker bound it, so nothing runs on it yet: `retracted`, its
+ * rebuild would restore its session on a retracted image; `engine_dropped`,
+ * no configured image runs its session's engine.
  */
-export async function rebuildsRetracted(
+export async function giveBackCause(
   ctx: PassContext,
   execution: ActiveExecution,
   stored: StoredLaunchIntent,
-): Promise<boolean> {
-  if (execution.claimed) return false;
+): Promise<"retracted" | "engine_dropped" | null> {
+  if (execution.claimed) return null;
   // An intent from before images were stored takes the current setting.
   const image = stored.image ?? ctx.options.image;
-  return (
-    (await retractedImagesOf(ctx)).rebuildsRetracted(image) ||
-    (await engineDropped(ctx, execution.sessionId))
-  );
+  if ((await retractedImagesOf(ctx)).rebuildsRetracted(image)) {
+    return "retracted";
+  }
+  return (await engineDropped(ctx, execution.sessionId))
+    ? "engine_dropped"
+    : null;
+}
+
+/** Counts and logs a launch given back unbuilt, under its cause. */
+export function reportGivenBack(
+  ctx: PassContext,
+  ref: ExecutionRef,
+  cause: "retracted" | "engine_dropped",
+  done: "given back" | "torn down",
+  fields: Record<string, unknown>,
+): void {
+  if (cause === "retracted") {
+    ctx.summary.launchesRetracted.push(ref);
+    ctx.logger.warn(
+      `Launch's worker image is retracted; ${done} unbuilt so its session chooses an image again`,
+      { ...fieldsOf(ref), ...fields },
+    );
+  } else {
+    ctx.summary.launchesEngineDropped.push(ref);
+    ctx.logger.warn(
+      `No configured worker image runs the launch's session engine; ${done} unbuilt so its session waits for one`,
+      { ...fieldsOf(ref), ...fields },
+    );
+  }
 }
 
 /**

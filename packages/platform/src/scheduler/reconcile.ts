@@ -1,6 +1,6 @@
 import { WORKER_EXIT_LEASE_LOST } from "@werft-ai/contracts";
 import { confirmGone, kill, killRequested } from "./kill.ts";
-import { launchFailed, rebuildsRetracted, reensure } from "./launch.ts";
+import { giveBackCause, launchFailed, reensure } from "./launch.ts";
 import {
   fieldsOf,
   messageOf,
@@ -238,7 +238,10 @@ async function reconcile(
     // fails: it is cleared and given back as its rebuild would be, so that
     // exit never counts toward quarantine and its queued input is kept.
     const stored = storedIntentOf(execution);
-    if (stored !== null && (await rebuildsRetracted(ctx, execution, stored))) {
+    if (
+      stored !== null &&
+      (await giveBackCause(ctx, execution, stored)) !== null
+    ) {
       if (!(await teardown(ctx, execution, "failed_attempt", observed))) return;
       lock.throwIfAborted();
       await store.recordObservation(ref, unknownObservation(now()));
@@ -295,11 +298,11 @@ async function reconcile(
     // after the host stopped between its teardown and its rebuild: it is
     // given back now, still not counted.
     if (
-      await rebuildsRetracted(
+      (await giveBackCause(
         ctx,
         execution,
         storedIntentOf(execution) as StoredLaunchIntent,
-      )
+      )) !== null
     ) {
       await reensure(ctx, execution, execution.pendingReplacement ?? "missing");
       return;
