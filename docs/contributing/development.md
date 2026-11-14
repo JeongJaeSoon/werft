@@ -115,7 +115,7 @@ deploy/preview/preview.sh reap       # PR이 닫혔거나 머지됐거나 TTL이
 - 진입점은 미리보기 전체가 같이 쓰는 Traefik 하나다. 없으면 `up`이 namespace `preview-ingress`에 chart 42.1.3으로 한 번 설치한다(IngressClass `preview`, LoadBalancer 18180 http·18543 https). Traefik CRD는 설치하지 않는다. OrbStack은 LoadBalancer 포트를 Mac의 `127.0.0.1`에만 연다. `k8s.expose_services`가 켜져 있으면 `up`이 멈춘다.
 - 주소는 `http://pr-<번호>.localhost:18180/`이다. 각 namespace의 Ingress `preview-pr-<번호>`가 Host `pr-<번호>.localhost`를 api로 보낸다. Ingress 이름이 namespace마다 같으면 Traefik router가 충돌해 두 번째 host가 404가 된다.
   - 브라우저와 curl은 `*.localhost`를 loopback으로 풀어서 DNS가 필요 없다.
-  - 브라우저는 `http://*.localhost`를 안전한 출처로 본다. 그래서 콘솔의 `__Host-` 세션 쿠키(Secure)가 http에서도 설정된다. 18543 https는 Traefik 자체 서명 인증서라 쓰지 않는다.
+  - Chrome은 `http://*.localhost`를 안전한 출처로 본다. 그래서 콘솔의 `__Host-` 세션 쿠키(Secure)가 http에서도 설정된다. 다른 브라우저에서는 확인하지 않았다. 18543 https는 Traefik 자체 서명 인증서라 쓰지 않는다.
   - 세션 쿠키는 host에만 붙으므로 미리보기마다 따로 저장된다. 한쪽에 로그인해도 다른 쪽이 풀리지 않는다.
   - 데모 계정과 비밀번호는 [quickstart](../quickstart.md)의 "웹 콘솔 데모 계정"과 같다. Mac 밖에서 보려면 아래 [Actions 미리보기](#actions-미리보기)를 쓴다.
 - 새 미리보기를 띄우기 전에 노드 allocatable 메모리에서 Pod requests 합을 뺀 값이 `PREVIEW_MEMORY_MI`(기본 2560: 미리보기 Deployment requests 1792Mi와 worker 하나 768Mi)보다 작으면 이유를 적고 멈춘다. `MAX_MEMORY_MI`는 allocatable 대신 셀 값이다. 이미 있는 미리보기를 다시 `up`할 때는 세지 않는다.
@@ -151,6 +151,7 @@ Mac 밖에서 보려면 PR에 라벨 `preview`를 붙인다. `.github/workflows/
 막는 것:
 
 - `pull_request`만 쓰고 `pull_request_target`은 쓰지 않는다. 시작 전에 `.github/scripts/preview-request.sh`가 PR을 다시 읽어 fork PR, 닫힌 PR, 라벨이 이미 떨어진 PR, 시작한 사람이 write 미만인 경우를 거절한다. 라벨은 triage 이상만 붙일 수 있고 triage는 push 권한이 없어서 한 단계 더 막는다.
+- 이 검사는 PR에 든 workflow가 돌리는 것이라, 그 PR이 workflow를 고치면 함께 바뀐다. 같은 저장소 브랜치에 push할 수 있는 사람은 믿는다는 전제다. fork PR에서는 GitHub이 `GITHUB_TOKEN`을 읽기 전용으로 주므로, 검사를 지운 fork라도 PR 댓글을 쓰지 못한다.
 - secret을 쓰지 않는다. 실제 모델 key, GitHub App, Slack 연동이 없다. egress proxy와 worker 샌드박스 정책은 그대로다.
 - PR 코드를 돌리는 job `serve`는 읽기 권한(`contents`, `pull-requests`)만 갖고 Actions cache를 쓰지 않는다(`cache-mode: none`, image-cache action 없음). PR 댓글은 PR 코드를 돌리지 않는 다른 runner의 job `announce`가 `serve`의 artifact를 항목마다 검사한 뒤 쓴다.
 - 비밀번호를 바꾸는 코드가 없는 오래된 head는 고정 비밀번호로 뜬다. 그래서 `serve`는 두 계정이 run의 비밀번호로 로그인되는지 확인한 뒤에만 터널을 연다.

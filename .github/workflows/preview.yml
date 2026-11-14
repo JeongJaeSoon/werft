@@ -56,7 +56,11 @@ defaults:
 
 env:
   PR: ${{ github.event.pull_request.number || inputs.pr }}
-  MARKER: '<!-- werft-preview run=${{ github.run_id }} -->'
+  MARKER: '<!-- werft-preview run=${{ github.run_id }} attempt=${{ github.run_attempt }} -->'
+  # A re-run keeps the run id and the earlier attempts' artifacts.
+  ANNOUNCE_ARTIFACT: preview-announce-${{ github.run_attempt }}
+  # Well under a PR comment's 65536 characters with the rest of the body.
+  ARMOR_MAX_BYTES: '32768'
   RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
 jobs:
@@ -124,6 +128,13 @@ jobs:
           echo "::add-mask::${DEMO_ACCOUNTS_PASSWORD}"
           export DEMO_ACCOUNTS_PASSWORD
           printf '%s\n' "$DEMO_ACCOUNTS_PASSWORD" | age --armor -R "$RUNNER_TEMP/recipients" >"$RUNNER_TEMP/password.age"
+          # Each SSH key adds a stanza (about 1 KiB for RSA 4096); announce
+          # refuses a ciphertext over the limit, so fail before the stack.
+          size="$(wc -c <"$RUNNER_TEMP/password.age")"
+          [ "$size" -le "$ARMOR_MAX_BYTES" ] || {
+            echo "::error::the password ciphertext for $(wc -l <"$RUNNER_TEMP/recipients") recipients is ${size} bytes, over ${ARMOR_MAX_BYTES}"
+            exit 1
+          }
           echo "started=true" >>"$GITHUB_OUTPUT"
           scripts/local.sh up --fake-model
           # A head from before DEMO_ACCOUNTS_PASSWORD keeps the public
@@ -181,7 +192,7 @@ jobs:
       # What `announce` reads to write the PR comment.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: preview-announce
+          name: ${{ env.ANNOUNCE_ARTIFACT }}
           path: ${{ runner.temp }}/announce.json
           retention-days: 1
       - name: Stay up
@@ -249,7 +260,7 @@ jobs:
           base="repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           artifact=""
           while [ -z "$artifact" ]; do
-            artifact="$(gh api "${base}/artifacts" --jq '.artifacts[] | select(.name == "preview-announce") | .id' | head -n 1)"
+            artifact="$(gh api "${base}/artifacts" --jq ".artifacts[] | select(.name == \"${ANNOUNCE_ARTIFACT}\") | .id" | head -n 1)"
             [ -n "$artifact" ] && break
             serve="$(gh api "${base}/jobs" --jq '.jobs[] | select(.name == "serve") | .status')"
             if [ "$serve" = completed ]; then
@@ -266,8 +277,9 @@ jobs:
           password="$(jq -r '.password | strings' announce.json)"
           now="$(date +%s)"
           # Only an age armor: header, base64 lines, footer.
-          armor=$'^-----BEGIN AGE ENCRYPTED FILE-----\n([A-Za-z0-9+/=]{1,64}\n){1,40}-----END AGE ENCRYPTED FILE-----$'
-          [[ "$password" =~ $armor ]] || { echo "::error::not an age armor"; exit 1; }
+          armor=$'^-----BEGIN AGE ENCRYPTED FILE-----\n([A-Za-z0-9+/=]{1,64}\n)+-----END AGE ENCRYPTED FILE-----$'
+          [ "${#password}" -le "$ARMOR_MAX_BYTES" ] && [[ "$password" =~ $armor ]] ||
+            { echo "::error::not an age armor of at most ${ARMOR_MAX_BYTES} bytes"; exit 1; }
           [[ "$url" =~ ^https://[a-z0-9-]+\.trycloudflare\.com$ ]] || { echo "::error::not a quick tunnel address"; exit 1; }
           [[ "$head" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::not a head sha"; exit 1; }
           [[ "$until" =~ ^[0-9]+$ ]] && [ "$until" -gt "$now" ] && [ "$until" -le $((now + 181 * 60)) ] ||
