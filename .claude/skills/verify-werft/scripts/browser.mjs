@@ -111,9 +111,10 @@ if (cmd === "start") {
   );
   writeFileSync(pidFile, String(child.pid));
   child.unref();
+  // A CI runner's first Chrome start has taken over 10 s.
   for (
     let i = 0;
-    i < 50 && !existsSync(join(profile, "DevToolsActivePort"));
+    i < 150 && !existsSync(join(profile, "DevToolsActivePort"));
     i++
   )
     await sleep(200);

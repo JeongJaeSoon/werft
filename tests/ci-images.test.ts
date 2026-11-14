@@ -515,3 +515,31 @@ describe("the D2 gate workflow", () => {
     expect(text).toContain("assert-no-docker-hub-images.sh docker");
   });
 });
+
+describe("the Keycloak login workflow", () => {
+  // keycloak-login.yml starts the product stack with infra/compose.keycloak.yml
+  // and lays the e2e overlays and a Keycloak one of its own over it.
+  const OVERLAY = "tests/e2e/compose.ci-keycloak.yml";
+  const text = read(".github/workflows/keycloak-login.yml");
+  const keycloak = (path: string) =>
+    (
+      Bun.YAML.parse(read(path)) as {
+        services: Record<string, { image?: string }>;
+      }
+    ).services.keycloak?.image;
+
+  test("pulls Keycloak from the mirror, by the overlay's digest", () => {
+    const [, name = "", digest] = keycloak(OVERLAY)?.match(MIRROR_REF) ?? [];
+    const entry = entryOf(name, digest);
+    expect(keycloak("infra/compose.keycloak.yml")).toBe(
+      entry && `${shortName(entry.source)}:${entry.tag}@${entry.digest}`,
+    );
+  });
+
+  test("lays the overlays over the stack, and checks nothing came from Docker Hub", () => {
+    expect(text).toContain(
+      `tests/e2e/compose.ci-mirror.yml ${CACHE_OVERLAY} ${OVERLAY}`,
+    );
+    expect(text).toContain("assert-no-docker-hub-images.sh docker");
+  });
+});

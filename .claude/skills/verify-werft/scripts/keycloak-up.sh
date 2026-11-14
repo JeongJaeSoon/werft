@@ -2,7 +2,9 @@
 # up.sh with a real Keycloak as a login provider (infra/compose.keycloak.yml):
 # sign-in through a server this repository did not write, in a browser.
 # Prints what up.sh prints (run directory on stdout, run id on stderr), once
-# Keycloak answers on the issuer.
+# Keycloak answers on the issuer. When Keycloak never answers it still prints
+# the run directory, exits 1 and leaves the stack up; when up.sh fails, up.sh
+# has torn its run down and nothing is printed.
 #
 #   keycloak-up.sh [more overlays…]
 #
@@ -47,4 +49,6 @@ for _ in $(seq 1 90); do
   sleep 2
 done
 echo "keycloak-up.sh: no discovery document at $issuer after 180 s; see \`ap_compose logs keycloak\`, then down.sh $(basename "$run")" >&2
+# The stack is still up, so a caller can collect its logs and tear it down.
+echo "$run"
 exit 1

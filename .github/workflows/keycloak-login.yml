@@ -1,0 +1,170 @@
+name: Keycloak login
+
+# Provider sign-in end to end against a real Keycloak, in a headless Chrome:
+# add the provider, test sign-in, enable, link, first sign-up, the unverified
+# refusal, disabling ends the provider's sessions, Keycloak refusing a wrong
+# PKCE verifier, and no secret in the API's log. The walk is the verify
+# skill's (.claude/skills/verify-werft/features/keycloak-login.md);
+# keycloak-login.sh runs it here and by hand alike.
+#
+# Every night on main, and on the pull requests that change the sign-in path
+# or this check. Deliberately NOT a required status check, like the D2 gate:
+# it does not run on most pull requests, so a required context would leave
+# them waiting forever. A failure on main lands in an issue instead
+# (docs/contributing/ci.md § Keycloak 로그인 확인).
+on:
+  schedule:
+    # 03:47 KST, apart from the D2 gate (03:17) and main-push-run.yml.
+    - cron: '47 18 * * *'
+  workflow_dispatch:
+  pull_request:
+    # The API's and the console's sign-in code, the walk's scripts, and this
+    # check. A change elsewhere that breaks sign-in is caught by the nightly.
+    paths:
+      - apps/control-host/src/api/oidc/**
+      - apps/control-host/src/api/auth.ts
+      - apps/control-host/src/api/*login*.ts
+      - apps/control-host/src/api/routes/auth.ts
+      - apps/control-host/src/api/routes/login-*.ts
+      - apps/web/src/auth/**
+      - apps/web/src/components/auth-page.tsx
+      - apps/web/src/i18n/auth.ts
+      - apps/web/src/i18n/login-*.ts
+      # The walk's "만들기" and "저장" buttons.
+      - apps/web/src/i18n/settings.ts
+      - apps/web/src/routes/login*.tsx
+      - apps/web/src/routes/provider-callback.tsx
+      - packages/contracts/src/musterrolle/auth.ts
+      - packages/contracts/src/musterrolle/*login*.ts
+      - packages/db/src/musterrolle/login-*.ts
+      - infra/compose.keycloak.yml
+      - infra/keycloak/**
+      - .claude/skills/verify-werft/scripts/keycloak-*.sh
+      - .claude/skills/verify-werft/scripts/pkce-*.mjs
+      - .claude/skills/verify-werft/scripts/browser.mjs
+      - .claude/skills/verify-werft/scripts/web-user.mjs
+      - .claude/skills/verify-werft/scripts/lib.sh
+      - .claude/skills/verify-werft/scripts/up.sh
+      - .claude/skills/verify-werft/scripts/down.sh
+      - tests/e2e/compose.ci-keycloak.yml
+      - .github/workflows/keycloak-login.yml
+      - '!**/*.test.ts'
+      - '!**/*.test.tsx'
+
+permissions:
+  contents: read
+
+concurrency:
+  # A new push supersedes a pull request's run. A nightly or manual run is
+  # never cancelled by the next one: a cancellation would read as a failure.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  keycloak-login:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      # The runner image's Chrome; its version is printed below.
+      CHROME: /usr/bin/google-chrome
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # browser.mjs needs a WebSocket global (Node 22 and later).
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - uses: ./.github/actions/image-cache
+      - name: Start the stack with Keycloak
+        id: up
+        run: |
+          "$CHROME" --version
+          # A run Keycloak never answered on is printed too, so the steps
+          # below still collect its logs, tear it down and check the record.
+          up=0
+          run=$(.claude/skills/verify-werft/scripts/keycloak-up.sh \
+            tests/e2e/compose.ci-mirror.yml tests/e2e/compose.ci-cache.yml tests/e2e/compose.ci-keycloak.yml) || up=$?
+          [ -n "$run" ] || { echo "::error::keycloak-up.sh started no run"; exit 1; }
+          echo "run=$run" >>"$GITHUB_OUTPUT"
+          # The run's client secret and password: keycloak-up.sh made them
+          # and nothing prints them; masked anyway, so a slip shows as ***.
+          # shellcheck disable=SC1091
+          . "$run/state.env"
+          echo "::add-mask::$KEYCLOAK_WERFT_CLIENT_SECRET"
+          echo "::add-mask::$KEYCLOAK_WERFT_USER_PASSWORD"
+          exit "$up"
+      - name: keycloak-login.sh
+        env:
+          RUN: ${{ steps.up.outputs.run }}
+        run: .claude/skills/verify-werft/scripts/keycloak-login.sh "$RUN"
+      - if: always() && steps.up.outputs.run != ''
+        name: Compose logs into the record
+        env:
+          RUN: ${{ steps.up.outputs.run }}
+        run: |
+          # shellcheck disable=SC1091
+          . .claude/skills/verify-werft/scripts/lib.sh "$RUN"
+          ap_compose logs --no-color --timestamps >"$RUN/evidence/compose.log" 2>&1 || true
+          cp "$RUN/browser/chrome.log" "$RUN/evidence/chrome.log" 2>/dev/null || true
+      # Stops Chrome, then removes the stack and the images it built: on the
+      # containerd image store a built image carries a RepoDigest, which the
+      # check below would read as a pull.
+      - if: always() && steps.up.outputs.run != ''
+        name: down.sh
+        env:
+          RUN: ${{ steps.up.outputs.run }}
+        run: .claude/skills/verify-werft/scripts/down.sh "$RUN"
+      - if: '!cancelled()'
+        name: Nothing pulled from Docker Hub
+        run: .github/scripts/assert-no-docker-hub-images.sh docker
+      # Only evidence/ is uploaded (shots, logs); state.env, users/ and the
+      # cookies stay. A file in it that holds either value is dropped and
+      # fails the job.
+      - if: always() && steps.up.outputs.run != ''
+        name: No secret in the record
+        env:
+          RUN: ${{ steps.up.outputs.run }}
+        run: |
+          # shellcheck disable=SC1091
+          . "$RUN/state.env"
+          leaked=$(grep -rlF -f <(printf '%s\n%s\n' "$KEYCLOAK_WERFT_CLIENT_SECRET" "$KEYCLOAK_WERFT_USER_PASSWORD") "$RUN/evidence" || true)
+          [ -z "$leaked" ] || { echo "::error::the run's secret is in: $leaked"; rm -f $leaked; exit 1; }
+          echo "evidence files holding the client secret or the password: 0"
+      - if: always() && steps.up.outputs.run != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: keycloak-login-record
+          path: ${{ steps.up.outputs.run }}/evidence
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # A job of its own, not a last step: a job timeout cancels every step left
+  # in that job, so only another job still sees a check that hung. One open
+  # issue per signal: repeats append to it. Not on a pull request, where the
+  # red check already says it; a manual run is a person asking, and the body
+  # names the ref.
+  report-failure:
+    needs: keycloak-login
+    if: always() && needs.keycloak-login.result != 'success' && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    # The job writes issues; nothing else in this workflow may.
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Open or update the Keycloak login failure issue
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          RESULT: ${{ needs.keycloak-login.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          {
+            echo "<!-- ci-keycloak-login-failure -->"
+            echo "The Keycloak login check ended \`${RESULT}\` on \`${GITHUB_REF_NAME}\` @ \`${GITHUB_SHA}\` (${GITHUB_EVENT_NAME}, [run ${GITHUB_RUN_ID}](${RUN_URL}))."
+            echo
+            echo "The \`keycloak-login.sh\` step names the sub-feature that failed (\`FAIL <name>: …\`); the \`keycloak-login-record\` artifact has its screenshot, the compose logs and Chrome's log. Reproduce with \`.claude/skills/verify-werft/scripts/keycloak-up.sh\`, then \`keycloak-login.sh <run id>\`. Close this issue once the failure is understood; the next failure opens a new one."
+          } >body.md
+          .github/scripts/upsert-ci-issue.sh ci-keycloak-login-failure \
+            "CI: Keycloak login check failed (nightly)" body.md

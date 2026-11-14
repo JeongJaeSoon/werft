@@ -1,0 +1,9 @@
+# CI-only overlay, laid after infra/compose.keycloak.yml and
+# compose.ci-mirror.yml by keycloak-login.yml: Keycloak from the CI mirror
+# (ci-image-mirror.yml) by the very digest infra/compose.keycloak.yml pins.
+# Not in compose.ci-mirror.yml: that file goes over stacks with no Keycloak,
+# where this entry would start one. tests/ci-images.test.ts holds the digest
+# to the overlay's and the mirror list's.
+services:
+  keycloak:
+    image: ghcr.io/jeongjaesoon/werft-ci/keycloak@sha256:3f3c5f8e03c614774b4bd9173b88391fefa4153bfc010d8012d59ad825377332
