@@ -1663,6 +1663,7 @@ export function createPostgresSessionReader(
           return {
             ...summary,
             auto_model_migration: optedOut === undefined,
+            holds_execution: row.executionId !== null,
             ...(workspaceLimitMode === undefined
               ? {}
               : { workspace_limit_mode: workspaceLimitMode }),

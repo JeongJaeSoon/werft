@@ -94,7 +94,7 @@ function setup(
     /** Absent: IN_CEILING. */
     repositoryCeiling?: RepositoryCeiling | null;
     /** Whether a listed image may launch; absent, the dep is left out. */
-    launchable?: boolean;
+    launchable?: () => boolean;
   } = {},
 ) {
   const accepted: AcceptSessionInput[] = [];
@@ -232,7 +232,7 @@ function setup(
     },
     ...(options.launchable === undefined
       ? {}
-      : { launchable: () => options.launchable ?? true }),
+      : { launchable: options.launchable }),
     limits: {
       queuedInputLimitPerSession: 10,
       storageLimitBytes: 1e15,
@@ -596,33 +596,59 @@ describe("a session pinned to an agent release", () => {
       session: Partial<SessionDetailRecord> = {},
     ) => {
       const s = setup({
-        ...(launchable === undefined ? {} : { launchable }),
+        ...(launchable === undefined ? {} : { launchable: () => launchable }),
         session: { ...sessionOn(), ...session },
       });
       return (await s.service.getSession(s.caller, SESSION)).attention;
     };
-    expect(await attentionOf(false)).toEqual({
+    const waiting = {
       code: "NO_WORKER_IMAGE",
       reason: "runtime_retired",
-    });
-    expect(await attentionOf(false, { admission_state: "resuming" })).toEqual({
-      code: "NO_WORKER_IMAGE",
-      reason: "runtime_retired",
-    });
+    } as const;
+    expect(await attentionOf(false)).toEqual(waiting);
+    expect(await attentionOf(false, { admission_state: "resuming" })).toEqual(
+      waiting,
+    );
     expect(await attentionOf(true)).toBeNull();
     expect(await attentionOf(undefined)).toBeNull();
-    // Not waiting for a launch: paused, closed, or a worker already up.
-    expect(await attentionOf(false, { admission_state: "paused" })).toBeNull();
-    expect(await attentionOf(false, { admission_state: "closed" })).toBeNull();
+    // Released: the detail still shows the last attempt's execution.
     expect(
       await attentionOf(false, {
         execution: {
           backend: "local_docker",
-          state: "running",
+          state: "suspended",
+          observed_at: null,
+        },
+      }),
+    ).toEqual(waiting);
+    // Not waiting for a launch: paused, closed, or a worker already named.
+    expect(await attentionOf(false, { admission_state: "paused" })).toBeNull();
+    expect(await attentionOf(false, { admission_state: "closed" })).toBeNull();
+    expect(
+      await attentionOf(false, {
+        holds_execution: true,
+        execution: {
+          backend: "local_docker",
+          state: "pending",
           observed_at: null,
         },
       }),
     ).toBeNull();
+    // Judged on every read: listing an unretracted image clears it.
+    let launchable = false;
+    const s = setup({ launchable: () => launchable, session: sessionOn() });
+    expect((await s.service.getSession(s.caller, SESSION)).attention).toEqual(
+      waiting,
+    );
+    launchable = true;
+    expect(
+      (await s.service.getSession(s.caller, SESSION)).attention,
+    ).toBeNull();
+    // Before the budget: raising the budget would launch nothing either.
+    expect(await attentionOf(true, { cost_usd: 2_000 })).toMatchObject({
+      code: "BUDGET_EXCEEDED",
+    });
+    expect(await attentionOf(false, { cost_usd: 2_000 })).toEqual(waiting);
     // What the store says, and a catalog the session no longer fits, come first.
     expect(
       await attentionOf(false, {
@@ -1120,6 +1146,7 @@ function sessionOn(): SessionDetailRecord {
     repository_mode: "repository",
     github_policy_source: "release",
     auto_model_migration: true,
+    holds_execution: false,
   };
 }
 

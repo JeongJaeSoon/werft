@@ -387,7 +387,7 @@ export function createSessionService(deps: {
       record.spec !== null &&
       (record.admission_state === "active" ||
         record.admission_state === "resuming") &&
-      record.execution === null &&
+      !record.holds_execution &&
       !deps.launchable(record.spec)
     );
   }
@@ -590,6 +590,7 @@ export function createSessionService(deps: {
       branch,
       repository_mode,
       github_policy_source,
+      holds_execution,
       ...detail
     } = record;
     const spend = { costUsd: cost_usd, providerTokens: provider_tokens };

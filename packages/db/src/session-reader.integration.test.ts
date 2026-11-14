@@ -338,6 +338,9 @@ integration("session reader on PostgreSQL", () => {
     expect((await reader.getSession(OWNER, sessionId))?.execution?.state).toBe(
       "running",
     );
+    expect((await reader.getSession(OWNER, sessionId))?.holds_execution).toBe(
+      true,
+    );
 
     // Released: the session no longer names one, its last attempt does.
     await db
@@ -350,6 +353,9 @@ integration("session reader on PostgreSQL", () => {
       .where(eq(executions.id, later));
     expect((await reader.getSession(OWNER, sessionId))?.execution?.state).toBe(
       "suspended",
+    );
+    expect((await reader.getSession(OWNER, sessionId))?.holds_execution).toBe(
+      false,
     );
     const body = encodeArchiveChunk([
       JSON.stringify({
