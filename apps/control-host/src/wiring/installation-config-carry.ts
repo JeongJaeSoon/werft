@@ -20,7 +20,8 @@ async function main(): Promise<void> {
         process.env,
         createPostgresInstallationConfigStore(db),
       );
-      for (const warning of warnings) process.stderr.write(`note: ${warning}\n`);
+      for (const warning of warnings)
+        process.stderr.write(`note: ${warning}\n`);
     },
   );
 }

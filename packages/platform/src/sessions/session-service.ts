@@ -600,10 +600,13 @@ export function createSessionService(deps: {
     const spend = { costUsd: cost_usd, providerTokens: provider_tokens };
     // A detail only reports; a limit that cannot be read leaves its line
     // out, while dispatch refuses on its own read.
-    const budget = await readSetting(deps.limits).then(sessionBudgetOf, (error) => {
-      if (error instanceof InstallationConfigUnavailableError) return null;
-      throw error;
-    });
+    const budget = await readSetting(deps.limits).then(
+      sessionBudgetOf,
+      (error) => {
+        if (error instanceof InstallationConfigUnavailableError) return null;
+        throw error;
+      },
+    );
     const attached = attachedRepositoriesOf(
       detail.attached_repository_ids,
       catalog.repositories,

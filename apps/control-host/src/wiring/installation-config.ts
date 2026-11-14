@@ -126,9 +126,8 @@ function readOf(all: Record<string, unknown>): InstallationConfigRead {
       if (entry.kind === "blocked") {
         throw new InstallationConfigUnavailableError(key);
       }
-      return INSTALLATION_CONFIG[key].default as InstallationConfigValues[
-        typeof key
-      ];
+      return INSTALLATION_CONFIG[key]
+        .default as InstallationConfigValues[typeof key];
     },
   };
 }

@@ -32,7 +32,12 @@ const CONFIG: InstallationConfig = {
   },
   queued_input_limit_per_session: unsaved(20),
   storage_limit_bytes: unsaved(1_073_741_824),
-  session_cost_limit_usd: { value: 25, default: 25, saved: false, blocked: true },
+  session_cost_limit_usd: {
+    value: 25,
+    default: 25,
+    saved: false,
+    blocked: true,
+  },
   session_token_limit: unsaved(0),
   workspace_enforce: unsaved("warn" as const),
 };

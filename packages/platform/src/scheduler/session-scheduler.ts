@@ -1,4 +1,4 @@
-import { InstallationConfigUnavailableError } from "../limits/installation-limits.ts";
+import { InstallationConfigUnavailableError } from "../limits/index.ts";
 import { fillSlots } from "./launch.ts";
 import {
   DEFAULT_DRAIN_DEADLINE_MS,

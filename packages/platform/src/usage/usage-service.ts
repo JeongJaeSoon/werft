@@ -23,9 +23,9 @@ import {
   budgetExceeded,
   type InstallationLimits,
   readSetting,
-  STORAGE_ACCOUNTED_CONTENT,
   type SessionLimits,
   type Setting,
+  STORAGE_ACCOUNTED_CONTENT,
   sessionBudgetOf,
 } from "../limits/installation-limits.ts";
 import {
