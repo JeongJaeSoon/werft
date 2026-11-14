@@ -85,6 +85,22 @@ integration("repository attachments on PostgreSQL", () => {
     return { ownerId, sessionId, attemptId, request };
   }
 
+  /** The fence of the session's open attempt, its epochs matched on the session. */
+  async function owning(sessionId: string, attemptId: string) {
+    await pool.query(
+      `UPDATE sessions SET lease_epoch = 1, execution_generation = 1,
+         auth_revision = 1 WHERE id = $1`,
+      [sessionId],
+    );
+    return {
+      sessionId,
+      attemptId,
+      leaseEpoch: 1,
+      executionGeneration: 1,
+      authRevision: 1,
+    };
+  }
+
   const receiptOf = (outcome: RepositoryAttachmentOutcome) =>
     outcome.outcome === "requested" ? outcome.row.receiptId : "none";
 
@@ -213,24 +229,48 @@ integration("repository attachments on PostgreSQL", () => {
     expect(await pins.list(s.sessionId)).toEqual(new Map([["docs", COMMIT]]));
 
     // A worker that fetched another tip is answered with the kept pin.
+    const fence = await owning(s.sessionId, s.attemptId);
     expect(
-      await pins.pin(s.sessionId.toUpperCase(), [
+      await pins.pin({ ...fence, sessionId: s.sessionId.toUpperCase() }, [
         { repositoryId: "docs", commit: OTHER },
         { repositoryId: "tools", commit: OTHER },
       ]),
-    ).toEqual(
-      new Map([
+    ).toEqual({
+      outcome: "ok",
+      pins: new Map([
         ["docs", COMMIT],
         ["tools", OTHER],
       ]),
-    );
-    expect(await pins.pin(s.sessionId, [])).toEqual(new Map());
+    });
+    expect(await pins.pin(fence, [])).toEqual({
+      outcome: "ok",
+      pins: new Map(),
+    });
     // Another session's pins are its own.
     const t = await session([]);
     expect(await pins.list(t.sessionId)).toEqual(new Map());
     await expect(
-      pins.pin(t.sessionId, [{ repositoryId: "docs", commit: "c0ffee" }]),
+      pins.pin(await owning(t.sessionId, t.attemptId), [
+        { repositoryId: "docs", commit: "c0ffee" },
+      ]),
     ).rejects.toThrow();
+  });
+
+  test("only the attempt that owns the session pins", async () => {
+    const pins = createPostgresRepositoryPins(db);
+    const s = await session([]);
+    const fence = await owning(s.sessionId, s.attemptId);
+    const asked = [{ repositoryId: "docs", commit: COMMIT }];
+
+    expect(await pins.pin({ ...fence, leaseEpoch: 0 }, asked)).toEqual({
+      outcome: "stale_epoch",
+    });
+    await pool.query(
+      "UPDATE attempts SET lease_expires_at = now() - interval '1 second' WHERE id = $1",
+      [s.attemptId],
+    );
+    expect(await pins.pin(fence, asked)).toEqual({ outcome: "lease_expired" });
+    expect(await pins.list(s.sessionId)).toEqual(new Map());
   });
 
   test("a failed fetch leaves the list and fails its receipt; asking again starts over with a new receipt", async () => {

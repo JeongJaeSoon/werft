@@ -5,6 +5,7 @@ import type {
   RepositoryAttachFailure,
   RepositoryAttachResult,
 } from "@werft-ai/contracts";
+import type { FenceRejection, WorkerFence } from "./worker-unit-of-work.ts";
 
 /** One repository the agent attached mid-session, as its row stands. */
 export type RepositoryAttachmentRow = {
@@ -95,9 +96,13 @@ export interface RepositoryAttachmentStore {
  */
 export interface RepositoryPinStore {
   list(sessionId: string): Promise<Map<string, string>>;
-  /** Pins what is not pinned yet and answers the kept commit of each one asked. */
+  /**
+   * Pins what is not pinned yet and answers the kept commit of each one
+   * asked, in the same transaction that holds the fence: a pin outlives the
+   * attempt, so only the session's owner writes one.
+   */
   pin(
-    sessionId: string,
+    fence: WorkerFence,
     pins: ReadonlyArray<{ repositoryId: string; commit: string }>,
-  ): Promise<Map<string, string>>;
+  ): Promise<{ outcome: "ok"; pins: Map<string, string> } | FenceRejection>;
 }

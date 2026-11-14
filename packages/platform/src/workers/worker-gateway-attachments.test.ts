@@ -146,16 +146,20 @@ function wired() {
   const owner = { lost: false };
   const repositoryPins: RepositoryPinStore = {
     list: async () => new Map(pins),
-    pin: async (_sessionId, asked) => {
+    pin: async (_fence, asked) => {
+      if (owner.lost) return { outcome: "lease_expired" };
       for (const pin of asked) {
         if (!pins.has(pin.repositoryId)) pins.set(pin.repositoryId, pin.commit);
       }
-      return new Map(
-        asked.flatMap((pin) => {
-          const kept = pins.get(pin.repositoryId);
-          return kept === undefined ? [] : [[pin.repositoryId, kept]];
-        }),
-      );
+      return {
+        outcome: "ok",
+        pins: new Map(
+          asked.flatMap((pin) => {
+            const kept = pins.get(pin.repositoryId);
+            return kept === undefined ? [] : [[pin.repositoryId, kept]];
+          }),
+        ),
+      };
     },
   };
   const binding = {
@@ -193,15 +197,6 @@ function wired() {
         outcome: "claimed",
         binding: testBinding({ sessionId: SESSION }),
       }),
-      checkpointStateAtomic: async () =>
-        owner.lost
-          ? { outcome: "lease_expired" }
-          : {
-              outcome: "ok",
-              pointer: null,
-              restorable: false,
-              pendingReason: null,
-            },
     }),
     catalog,
     github: gate,

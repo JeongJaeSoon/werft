@@ -2835,9 +2835,6 @@ export function createWorkerGateway(deps: {
     ): Promise<RepositoryPinsResponse> {
       const fence = requireScope(principal, request);
       if (deps.repositoryPins === undefined) return { pins: [] };
-      // A pin outlives the attempt, so only the session's owner writes one.
-      const state = await work.checkpointStateAtomic({ fence, now: now() });
-      if (state.outcome !== "ok") rejected(state);
       const allowed = new Set(
         (await deps.github?.additionalRepositories?.(fence.sessionId)) ?? [],
       );
@@ -2849,9 +2846,12 @@ export function createWorkerGateway(deps: {
         seen.add(pin.repository_id);
         return [{ repositoryId: pin.repository_id, commit: pin.commit }];
       });
-      const kept = await deps.repositoryPins.pin(fence.sessionId, asked);
+      // A pin outlives the attempt: the store checks the fence in the
+      // transaction that writes it, so a lease lost meanwhile writes nothing.
+      const kept = await deps.repositoryPins.pin(fence, asked);
+      if (kept.outcome !== "ok") rejected(kept);
       return {
-        pins: [...kept].map(([repository_id, commit]) => ({
+        pins: [...kept.pins].map(([repository_id, commit]) => ({
           repository_id,
           commit,
         })),

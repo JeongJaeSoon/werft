@@ -25,6 +25,7 @@ import {
   sessionRepositoryPins,
   sessions,
 } from "./schema.ts";
+import { acquireFence } from "./sessions/fence.ts";
 
 const sessionRelease = alias(agentReleases, "session_release");
 const activeRelease = alias(agentReleases, "active_release");
@@ -343,10 +344,11 @@ export function createPostgresRepositoryAttachments(
 
 export function createPostgresRepositoryPins(db: Database): RepositoryPinStore {
   const read = async (
+    tx: Database,
     sessionId: string,
     repositoryIds?: readonly string[],
   ): Promise<Map<string, string>> => {
-    const rows = await db
+    const rows = await tx
       .select({
         repositoryId: sessionRepositoryPins.repositoryId,
         commit: sessionRepositoryPins.gitCommit,
@@ -363,24 +365,31 @@ export function createPostgresRepositoryPins(db: Database): RepositoryPinStore {
     return new Map(rows.map((row) => [row.repositoryId, row.commit]));
   };
   return {
-    list: (rawSessionId) => read(rawSessionId.toLowerCase()),
-    async pin(rawSessionId, pins) {
-      const sessionId = rawSessionId.toLowerCase();
-      if (pins.length === 0) return new Map();
-      await db
-        .insert(sessionRepositoryPins)
-        .values(
-          pins.map((pin) => ({
+    list: (rawSessionId) => read(db, rawSessionId.toLowerCase()),
+    pin: (fence, pins) =>
+      db.transaction(async (tx) => {
+        const fenced = await acquireFence(tx, fence);
+        if (fenced.outcome !== "ok") return { outcome: fenced.outcome };
+        const sessionId = fence.sessionId.toLowerCase();
+        if (pins.length === 0) return { outcome: "ok", pins: new Map() };
+        await tx
+          .insert(sessionRepositoryPins)
+          .values(
+            pins.map((pin) => ({
+              sessionId,
+              repositoryId: pin.repositoryId,
+              gitCommit: pin.commit,
+            })),
+          )
+          .onConflictDoNothing();
+        return {
+          outcome: "ok",
+          pins: await read(
+            tx,
             sessionId,
-            repositoryId: pin.repositoryId,
-            gitCommit: pin.commit,
-          })),
-        )
-        .onConflictDoNothing();
-      return read(
-        sessionId,
-        pins.map((pin) => pin.repositoryId),
-      );
-    },
+            pins.map((pin) => pin.repositoryId),
+          ),
+        };
+      }),
   };
 }
