@@ -80,14 +80,15 @@ case "$*" in
     conf_files=(-f tests/conformance/compose.yml)
     # Low enough that one scripted reply with a large usage spends it
     # (tests/conformance/budget.conformance.ts), high enough that the other
-    # scenarios' replies never do.
-    export SESSION_COST_LIMIT_USD="${SESSION_COST_LIMIT_USD:-0.25}"
+    # scenarios' replies never do, and above what one call reserves at its
+    # open: its whole cap of output, about a dollar on either engine.
+    export SESSION_COST_LIMIT_USD="${SESSION_COST_LIMIT_USD:-5}"
     if [ "$conformance" = codex_app_server ]; then
       conf_files=(-f infra/compose.codex-worker.yml "${conf_files[@]}")
       model_overlay=tests/conformance/compose.codex.yml
     fi ;;
   --real-model) real_model=1; model_overlay=infra/compose.real-model.yml; export E2E_MODEL_MODE=real
-    export SESSION_COST_LIMIT_USD="${SESSION_COST_LIMIT_USD:-1}" ;;
+    export SESSION_COST_LIMIT_USD="${SESSION_COST_LIMIT_USD:-3}" ;;
   --local-model) local_model=1; model_overlay=infra/compose.local-model.yml; export E2E_MODEL_MODE=local
     export SESSION_COST_LIMIT_USD="${SESSION_COST_LIMIT_USD:-25}" ;;
   *) echo "usage: tests/e2e/run.sh [--real-model | --local-model | --conformance <runtime_kind>]" >&2; exit 2 ;;

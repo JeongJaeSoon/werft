@@ -29,6 +29,13 @@ API と scheduler は、下記のうち `SESSION_TOKEN_LIMIT` を除く六つの
 | `SESSION_TOKEN_LIMIT` | セッション累積 provider token 数。費用上限と同じ呼び出しを単価によらず数えます。0 は上限なし（既定）です | `SESSION_COST_LIMIT_USD` と同じです。両上限は同じ判定（`budgetExceeded`）を通り、どちらが先に達しても `BUDGET_EXCEEDED` です。`attention.reason` は達した上限だけを記します |
 | `PROVIDER_MAX_RETRIES` | 失敗した Messages 要求の再送回数。worker env の `WORKER_PROVIDER_MAX_RETRIES` を経由して SDK の `CLAUDE_CODE_MAX_RETRIES` に渡します。0 なら最初の失敗で turn が終わります | turn は `failed(api_error)`。turn 詳細の `result` に `api_error_status`・`provider_error`・`last_retry_status` が残ります |
 
+**コストとトークンの上限は provider 呼び出し一つずつにもかかります。** egress proxy は課金される provider 呼び出し(Messages、Responses)を送る前に、API でその呼び出しを開きます。API はセッションの累計コスト・トークンに、まだ終わっていない呼び出しの予約と今回の呼び出しの予約を足します。その合計が上限に届くと `403 BUDGET_EXCEEDED` で拒否し、proxy はその呼び出しを provider に送りません。予約は要求のバイト数を入力トークンとみなして最も高い cache write 単価(Claude は 2 倍、OpenAI は 2.5 倍)で数え、出力は要求の出力上限すべて(上限のない Responses 要求は 32,768 トークン)で数えます。`claude-sonnet-5` や `gpt-5.5` の呼び出し一つでおよそ 1〜2 ドルです。
+
+- セッションは上限より呼び出し一つの予約分だけ早く止まります。`SESSION_COST_LIMIT_USD` が呼び出し一つの予約より小さいと、最初の呼び出しから拒否されます。
+- セッションに記録されるコストは予約ではなく、provider が報告した使用量です。使用量の報告が最後まで失敗した呼び出しは、その予約を数え続けます。
+- API が 5 秒以内に呼び出しを開けないと、proxy は呼び出しを送らず `503` で答えます。エンジンは再試行します。
+- 上限は推定です。長い応答一つはその呼び出しの予約まで行くことがあります。出力上限のない Responses 要求は、32,768 トークンを超えて推論した分だけ上回ることがあります。
+
 <a id="api-설정" />
 ## API 設定
 

@@ -7,10 +7,11 @@ import { engineFromEnv } from "./engines.ts";
 /**
  * A provider call's usage is recorded against the session, and once the
  * session is over its cost limit the next provider call is refused before it
- * reaches the provider. SESSION_COST_LIMIT_USD is 0.25 on this stack
- * (tests/e2e/run.sh --conformance), and one scripted reply of 100000 input
+ * reaches the provider. SESSION_COST_LIMIT_USD is 5 on this stack
+ * (tests/e2e/run.sh --conformance), and one scripted reply of 5000000 input
  * tokens costs more than that on any metered model.
  */
+const LIMIT_USD = 5;
 const engine = engineFromEnv();
 const api = new Api(
   await e2eStack({ needsMessages: false, connectionId: engine.connectionId }),
@@ -60,7 +61,7 @@ describe(`cost limit on ${engine.runtimeKind}`, () => {
           id,
           commands: ["echo budget"],
           final: "never reached",
-          usage: { input_tokens: 100_000, output_tokens: 1_000 },
+          usage: { input_tokens: 5_000_000, output_tokens: 1_000 },
         }),
         undefined,
         engine.repositoryId,
@@ -76,8 +77,8 @@ describe(`cost limit on ${engine.runtimeKind}`, () => {
 
       // The first call was metered; the second never reached the provider.
       const usage = await api.usage(sessionId);
-      expect(Number(usage.cost.amount_usd)).toBeGreaterThan(0.25);
-      expect(usage.token_count).toBeGreaterThanOrEqual(101_000);
+      expect(Number(usage.cost.amount_usd)).toBeGreaterThan(LIMIT_USD);
+      expect(usage.token_count).toBeGreaterThanOrEqual(5_001_000);
       expect(usage.budget_exceeded).toBe(true);
       const calls = await engine.modelCalls(id);
       expect(calls.map((call) => call.step)).toEqual([0]);

@@ -42,8 +42,9 @@ export const EGRESS_AUTHORIZER_PATH = "/authorize";
 // Where the proxy reports what a Messages call used, on the same
 // listener for the same reason: only the proxy may say what a session spent.
 export const EGRESS_USAGE_PATH = "/usage";
-// Where the proxy opens and renews a provider call in the exchange ledger
-// before its usage is known (provider-usage-ledger.md). Observation only.
+// Where the proxy opens, renews and releases a provider call in the exchange
+// ledger before its usage is known (provider-usage-ledger.md); an open the
+// session's budget cannot hold is refused.
 export const EGRESS_EXCHANGES_PATH = "/exchanges";
 // A token, a purpose and, for the object store, one S3 request line and its
 // headers; anything bigger is not a request from the proxy.
