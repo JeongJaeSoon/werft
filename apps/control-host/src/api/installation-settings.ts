@@ -42,17 +42,25 @@ export function settingsSource(options: {
   return {
     async read() {
       const waiting = new Set<string>();
-      for (const {
-        entry,
-        env,
-        outcome,
-      } of await options.store.carryEnvCredentials(
+      for (const carry of await options.store.carryEnvCredentials(
         (name) => options.env[name],
       )) {
-        switch (outcome) {
-          case "carried":
+        const { entry, env } = carry;
+        switch (carry.outcome) {
+          case "carried": {
+            const rebound =
+              carry.rebound === undefined
+                ? ""
+                : ` (${carry.rebound.push_requests} push requests and ${carry.rebound.worker_credentials} worker credentials moved to its new binding)`;
             options.warn(
-              `${entry} took its credential from ${env} into the database and no longer reads it; remove ${env}`,
+              `${entry} took its credential from ${env} into the database and no longer reads it; remove ${env}${rebound}`,
+            );
+            break;
+          }
+          case "invalid":
+            warnOnce(
+              `${entry} invalid`,
+              `${entry} is left out and not carried into the database: ${carry.reason}. Correct ${env} and restart the API`,
             );
             break;
           case "missing":

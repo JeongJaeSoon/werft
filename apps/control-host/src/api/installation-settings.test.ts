@@ -112,4 +112,36 @@ describe("settingsSource", () => {
       "connection:main could not carry PROVIDER_KEY into the database and is left out; it is tried again on each read",
     ]);
   });
+
+  test("a value the catalog refuses is left out and warned once with the reason", async () => {
+    const reason =
+      "connections.main.auth.value_env: PROVIDER_KEY is shorter than 8 bytes";
+    const { settings, warnings } = source([
+      [{ entry, env: "PROVIDER_KEY", outcome: "invalid", reason }],
+      [{ entry, env: "PROVIDER_KEY", outcome: "invalid", reason }],
+    ]);
+    for (let read = 0; read < 2; read += 1) {
+      expect(Object.keys((await settings.read()).connections)).toEqual([]);
+    }
+    expect(warnings).toEqual([
+      `connection:main is left out and not carried into the database: ${reason}. Correct PROVIDER_KEY and restart the API`,
+    ]);
+  });
+
+  test("a carried repository says how many held rows moved to its new binding", async () => {
+    const { settings, warnings } = source([
+      [
+        {
+          entry: "repository:ghes",
+          env: "PROVIDER_KEY",
+          outcome: "carried",
+          rebound: { push_requests: 2, worker_credentials: 1 },
+        },
+      ],
+    ]);
+    await settings.read();
+    expect(warnings).toEqual([
+      "repository:ghes took its credential from PROVIDER_KEY into the database and no longer reads it; remove PROVIDER_KEY (2 push requests and 1 worker credentials moved to its new binding)",
+    ]);
+  });
 });

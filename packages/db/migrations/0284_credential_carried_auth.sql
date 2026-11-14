@@ -1,5 +1,6 @@
 ALTER TABLE "catalog_repositories" DROP CONSTRAINT "catalog_repositories_credential_check";--> statement-breakpoint
 ALTER TABLE "catalog_repositories" ADD COLUMN "carried_auth" jsonb;--> statement-breakpoint
+ALTER TABLE "catalog_repositories" ADD COLUMN "carried_binding" jsonb;--> statement-breakpoint
 ALTER TABLE "mcp_servers" ADD COLUMN "carried_auth" jsonb;--> statement-breakpoint
 ALTER TABLE "provider_connections" ADD COLUMN "carried_auth" jsonb;--> statement-breakpoint
 ALTER TABLE "catalog_repositories" ADD CONSTRAINT "catalog_repositories_credential_check" CHECK (CASE "catalog_repositories"."auth_kind"

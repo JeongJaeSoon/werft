@@ -48,16 +48,28 @@ export interface InstallationSettings {
 /**
  * What became of one row whose credential names an env variable:
  * `missing` when the variable has no value, `waiting` while there is no
- * workspace to keep a value under (or no secret store), `failed` on a
- * database error. Only `carried` changed the row.
+ * workspace to keep a value under (or no secret store), `invalid` when the
+ * catalog would refuse the value, `failed` on a database error. Only
+ * `carried` changed the row.
  */
 export type EnvCredentialCarry = {
   /** `<kind>:<id>`. */
   entry: string;
   /** The variable's name, never its value. */
   env: string;
-  outcome: "carried" | "missing" | "waiting" | "failed";
-};
+} & (
+  | {
+      outcome: "carried";
+      /**
+       * A repository's: the push requests and worker credentials moved from
+       * its old binding to the new one.
+       */
+      rebound?: { push_requests: number; worker_credentials: number };
+    }
+  | { outcome: "missing" | "waiting" | "failed" }
+  /** `reason` names where the reference sits, never the value. */
+  | { outcome: "invalid"; reason: string }
+);
 
 export interface InstallationSettingsStore {
   /**
@@ -77,7 +89,9 @@ export interface InstallationSettingsStore {
   /**
    * Seals the value `env` gives each enabled row's `value_env` and points
    * the row at it as its own stored value, once: its old `auth` is kept for
-   * a rollback and a receipt names the variable. One transaction per row,
+   * a rollback and a receipt names the variable. A repository's binding
+   * changes with its reference, so the rows that held exactly the old one
+   * are moved to the new one in the same transaction. One transaction per row,
    * in the settings writers' lock order; a row changed since it was listed
    * is left as it is, so two replicas move it once.
    */

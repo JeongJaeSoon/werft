@@ -7,10 +7,14 @@ import {
   catalogMcpServerSchema,
   catalogProviderSchema,
   catalogRepositorySchema,
+  describeConfigError,
   type EnvCredentialCarry,
   type InstallationSettingsStore,
   type ModelFamilies,
   modelFamiliesSchema,
+  repositoryBinding,
+  resolveCredential,
+  resolveSessionCatalog,
   type SecretKey,
   type SecretOwnerRef,
   type StoredOwnerKind,
@@ -22,9 +26,11 @@ import {
   catalogRepositories,
   mcpServers,
   providerConnections,
+  pushRequests,
   receipts,
   type SettingsCredentialSource,
   settingsGeneration,
+  workerCredentials,
   workspaces,
 } from "./schema.ts";
 import { openSecretsOf, writeSecretInTx } from "./secrets/secret-values.ts";
@@ -43,7 +49,11 @@ type EnvRow = {
   auth: Record<string, unknown> & { value_env: string };
   /** A connection's whole definition, `auth` inside it. */
   definition?: Record<string, unknown>;
+  /** A repository's place, which its binding hashes with `auth`. */
+  place?: { url: string; branch: string };
 };
+
+type Binding = { from: string; to: string };
 
 function namesEnv(auth: unknown): auth is EnvRow["auth"] {
   return (
@@ -94,7 +104,12 @@ async function envRows(
   }
   if (wants("repository")) {
     const query = tx
-      .select({ id: catalogRepositories.id, auth: catalogRepositories.auth })
+      .select({
+        id: catalogRepositories.id,
+        auth: catalogRepositories.auth,
+        url: catalogRepositories.url,
+        branch: catalogRepositories.branch,
+      })
       .from(catalogRepositories)
       .where(
         and(
@@ -110,7 +125,12 @@ async function envRows(
       ? query
       : query.for("update"))) {
       if (namesEnv(row.auth)) {
-        rows.push({ kind: "repository", id: row.id, auth: row.auth });
+        rows.push({
+          kind: "repository",
+          id: row.id,
+          auth: row.auth,
+          place: { url: row.url, branch: row.branch },
+        });
       }
     }
   }
@@ -136,10 +156,90 @@ async function envRows(
   return rows;
 }
 
-/** The row names its own stored value from now on; its old `auth` is kept. */
-async function pointAtStored(tx: Database, row: EnvRow): Promise<void> {
+function storedAuth(row: EnvRow): Record<string, unknown> {
   const { value_env: _name, ...kept } = row.auth;
-  const auth = { ...kept, stored: `${row.kind}:${row.id}` };
+  return { ...kept, stored: `${row.kind}:${row.id}` };
+}
+
+/**
+ * The value as the catalog takes it and, for a repository, its binding
+ * before and after the move. Throws as the catalog would, naming where the
+ * reference sits and never the value.
+ */
+function carriedValue(
+  row: EnvRow,
+  value: string,
+): { value: string; binding?: Binding } {
+  const lookup = () => value;
+  const ref = { value_env: row.auth.value_env };
+  if (row.kind === "connection") {
+    return {
+      value: resolveCredential(`connections.${row.id}.auth`, ref, lookup),
+    };
+  }
+  if (row.kind === "mcp") {
+    return {
+      value: resolveCredential(`mcp_servers.${row.id}.auth`, ref, lookup),
+    };
+  }
+  const listed = (auth: Record<string, unknown>) => {
+    const config = catalogRepositorySchema.parse({ ...row.place, auth });
+    const repository = resolveSessionCatalog(
+      { repositories: { [row.id]: config } },
+      lookup,
+    ).repositories[row.id];
+    if (repository?.auth === undefined || !("value" in repository.auth)) {
+      throw new Error(`repositories.${row.id}.auth names no App key`);
+    }
+    return { repository, value: repository.auth.value };
+  };
+  const before = listed(row.auth);
+  return {
+    value: before.value,
+    binding: {
+      from: repositoryBinding(row.id, before.repository),
+      to: repositoryBinding(row.id, listed(storedAuth(row)).repository),
+    },
+  };
+}
+
+/**
+ * Moves the rows that held exactly the repository's old binding to its new
+ * one: the push requests a pull request is opened, updated and merged from,
+ * and the worker credentials a running session's token is reissued under.
+ */
+async function rebind(
+  tx: Database,
+  { from, to }: Binding,
+): Promise<{ push_requests: number; worker_credentials: number }> {
+  const pushes = await tx
+    .update(pushRequests)
+    .set({ repositoryBinding: to })
+    .where(eq(pushRequests.repositoryBinding, from))
+    .returning({ id: pushRequests.id });
+  const credentials = await tx
+    .update(workerCredentials)
+    .set({ binding: to })
+    .where(
+      and(
+        eq(workerCredentials.purpose, "repository"),
+        eq(workerCredentials.binding, from),
+      ),
+    )
+    .returning({ attemptId: workerCredentials.attemptId });
+  return {
+    push_requests: pushes.length,
+    worker_credentials: credentials.length,
+  };
+}
+
+/** The row names its own stored value from now on; its old `auth` is kept. */
+async function pointAtStored(
+  tx: Database,
+  row: EnvRow,
+  binding: Binding | undefined,
+): Promise<void> {
+  const auth = storedAuth(row);
   switch (row.kind) {
     case "connection":
       await tx
@@ -158,6 +258,7 @@ async function pointAtStored(tx: Database, row: EnvRow): Promise<void> {
           auth,
           credentialSource: "stored",
           carriedAuth: row.auth,
+          carriedBinding: binding ?? null,
           version: sql`${catalogRepositories.version} + 1`,
           updatedBy: null,
           updatedAt: sql`now()`,
@@ -472,50 +573,77 @@ export function createPostgresInstallationSettingsStore(
           continue;
         }
         try {
-          const outcome = await db.transaction(async (tx) => {
-            await lockCatalogWrites(tx);
-            const [row] = await envRows(tx, listed);
-            // Disabled, moved or rewritten since it was listed: whoever
-            // did that decided, and another replica may have moved it.
-            if (
-              row === undefined ||
-              canonicalJson(row.auth) !== canonicalJson(listed.auth)
-            ) {
-              return null;
-            }
-            const workspaceId = await secretOwnerWorkspace(tx);
-            if (workspaceId === null) return "waiting" as const;
-            await pointAtStored(tx, row);
-            await writeSecretInTx(
-              tx,
-              key,
-              {
-                workspaceId,
-                owner: { kind: row.kind, id: row.id },
-                purpose: PURPOSE,
-              },
-              value,
-              null,
-            );
-            await tx.insert(receipts).values({
-              id: randomUUID(),
-              ownerId: workspaceId,
-              operation: "set_settings_credential",
-              targetRef: {
-                resource: { kind: "workspace", id: workspaceId },
-                workspace_id: workspaceId,
-              },
-              status: "succeeded",
-              result: {
-                [TARGET[row.kind]]: row.id,
-                replaced: "value_env",
-                value_env: name,
-                by: "env_import",
-              },
-            });
-            return "carried" as const;
-          });
-          if (outcome !== null) outcomes.push({ entry, env: name, outcome });
+          const outcome = await db.transaction(
+            async (tx): Promise<EnvCredentialCarry | null> => {
+              await lockCatalogWrites(tx);
+              const [row] = await envRows(tx, listed);
+              // Disabled, moved or rewritten since it was listed: whoever
+              // did that decided, and another replica may have moved it.
+              if (
+                row === undefined ||
+                canonicalJson(row.auth) !== canonicalJson(listed.auth)
+              ) {
+                return null;
+              }
+              let carried: ReturnType<typeof carriedValue>;
+              try {
+                carried = carriedValue(row, value);
+              } catch (error) {
+                // Sealed, a value the catalog refuses would show its last
+                // four characters for no use.
+                return {
+                  entry,
+                  env: name,
+                  outcome: "invalid",
+                  reason: describeConfigError(error),
+                };
+              }
+              const workspaceId = await secretOwnerWorkspace(tx);
+              if (workspaceId === null) {
+                return { entry, env: name, outcome: "waiting" };
+              }
+              await pointAtStored(tx, row, carried.binding);
+              const rebound =
+                carried.binding === undefined
+                  ? undefined
+                  : await rebind(tx, carried.binding);
+              await writeSecretInTx(
+                tx,
+                key,
+                {
+                  workspaceId,
+                  owner: { kind: row.kind, id: row.id },
+                  purpose: PURPOSE,
+                },
+                carried.value,
+                null,
+              );
+              await tx.insert(receipts).values({
+                id: randomUUID(),
+                ownerId: workspaceId,
+                operation: "set_settings_credential",
+                targetRef: {
+                  resource: { kind: "workspace", id: workspaceId },
+                  workspace_id: workspaceId,
+                },
+                status: "succeeded",
+                result: {
+                  [TARGET[row.kind]]: row.id,
+                  replaced: "value_env",
+                  value_env: name,
+                  by: "env_import",
+                  ...(rebound === undefined ? {} : { rebound }),
+                },
+              });
+              return {
+                entry,
+                env: name,
+                outcome: "carried",
+                ...(rebound === undefined ? {} : { rebound }),
+              };
+            },
+          );
+          if (outcome !== null) outcomes.push(outcome);
         } catch {
           outcomes.push({ entry, env: name, outcome: "failed" });
         }

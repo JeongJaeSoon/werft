@@ -12,7 +12,7 @@ import type {
   SettingsEntryState,
   SettingsMcpServer,
 } from "@werft-ai/contracts";
-import { rsaPrivateKey } from "../github/service/github-app-service.ts";
+import { rsaPrivateKey } from "../github/index.ts";
 import {
   type AuthorizationPolicy,
   type Caller,
