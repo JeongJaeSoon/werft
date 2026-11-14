@@ -1345,6 +1345,13 @@
       "when": 1794680417932,
       "tag": "0282_settings_seed_decided",
       "breakpoints": true
+    },
+    {
+      "idx": 283,
+      "version": "7",
+      "when": 1794682597182,
+      "tag": "0283_session_repository_pins",
+      "breakpoints": true
     }
   ]
 }
