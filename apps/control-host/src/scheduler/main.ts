@@ -73,9 +73,7 @@ export async function main(
       ...(config.imageRuntime === undefined
         ? {}
         : { imageRuntime: config.imageRuntime }),
-      ...(config.previousImage === undefined
-        ? {}
-        : { previousImage: config.previousImage }),
+      olderImages: config.olderImages,
       logger,
       resources: config.resources,
       slotLimit: config.slotLimit,

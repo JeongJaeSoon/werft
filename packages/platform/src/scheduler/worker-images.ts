@@ -9,9 +9,147 @@ import {
 import type { RuntimeVersions } from "../sessions/index.ts";
 
 export type WorkerImagesEnvironment = {
+  WORKER_IMAGE?: string | undefined;
+  WORKER_IMAGES?: string | undefined;
+  WORKER_IMAGE_PREVIOUS?: string | undefined;
   WORKER_IMAGE_PREVIOUS_RUNTIME?: string | undefined;
   WORKER_IMAGE_RUNTIME?: string | undefined;
 };
+
+/** One entry of `WORKER_IMAGES`. */
+export type ListedWorkerImage = {
+  readonly image: string;
+  readonly runtime: ImageRuntime;
+};
+
+/**
+ * Images of one engine an installation may list: the newest and the release
+ * before it. An operating limit, not a proof: that the older one really is
+ * the release before is what the compatibility CI checks.
+ */
+export const WORKER_IMAGES_PER_ENGINE = 2;
+
+const SINGLE_IMAGE_SETTINGS = [
+  "WORKER_IMAGE",
+  "WORKER_IMAGE_RUNTIME",
+  "WORKER_IMAGE_PREVIOUS",
+  "WORKER_IMAGE_PREVIOUS_RUNTIME",
+] as const;
+const DIGEST_REFERENCE = /^[^@\s]+@sha256:[0-9a-f]{64}$/;
+const ISO_TIME =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/;
+
+/**
+ * `WORKER_IMAGES`: a JSON array of `{image, runtime, released_at}`, newest
+ * first, each image pinned by digest and each runtime its build's
+ * `imageFingerprint()` output. `released_at` must fall strictly in the
+ * array's order, so a list pasted out of order stops the process instead of
+ * starting new sessions on an older image. Null when unset: the single-image
+ * settings apply, and setting both throws.
+ */
+export function workerImageListFromEnv(
+  environment: WorkerImagesEnvironment,
+): readonly [ListedWorkerImage, ...ListedWorkerImage[]] | null {
+  const text = environment.WORKER_IMAGES;
+  if (!text) return null;
+  const alongside = SINGLE_IMAGE_SETTINGS.filter((name) => environment[name]);
+  if (alongside.length > 0) {
+    throw new Error(
+      `WORKER_IMAGES replaces ${alongside.join(", ")}; set one or the other`,
+    );
+  }
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    throw new Error("WORKER_IMAGES is not JSON");
+  }
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error("WORKER_IMAGES must be a non-empty JSON array");
+  }
+  const listed: ListedWorkerImage[] = [];
+  let newer: { at: number; text: string } | null = null;
+  for (const [index, entry] of value.entries()) {
+    const where = `WORKER_IMAGES[${index}]`;
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+      throw new Error(`${where} must be a JSON object`);
+    }
+    const { image, runtime, released_at, ...rest } = entry as Record<
+      string,
+      unknown
+    >;
+    const unknown = Object.keys(rest);
+    if (unknown.length > 0) {
+      throw new Error(`${where} has unknown field(s): ${unknown.join(", ")}`);
+    }
+    if (typeof image !== "string" || !DIGEST_REFERENCE.test(image)) {
+      throw new Error(
+        `${where}.image must be pinned by digest (repository@sha256:<digest>)`,
+      );
+    }
+    if (listed.some((earlier) => earlier.image === image)) {
+      throw new Error(`${where}.image ${image} is listed twice`);
+    }
+    if (
+      typeof runtime !== "object" ||
+      runtime === null ||
+      Array.isArray(runtime)
+    ) {
+      throw new Error(`${where}.runtime must be a JSON object`);
+    }
+    const at = typeof released_at === "string" ? Date.parse(released_at) : NaN;
+    if (
+      typeof released_at !== "string" ||
+      !ISO_TIME.test(released_at) ||
+      Number.isNaN(at)
+    ) {
+      throw new Error(`${where}.released_at must be an ISO 8601 time`);
+    }
+    if (newer !== null && at >= newer.at) {
+      throw new Error(
+        `${where}.released_at ${released_at} is not before ${newer.text} above it: list the newest image first`,
+      );
+    }
+    newer = { at, text: released_at };
+    listed.push({
+      image,
+      runtime: readRuntime(`${where}.runtime`, JSON.stringify(runtime)),
+    });
+  }
+  const engines = [...new Set(listed.map(({ runtime }) => runtime.engine))];
+  if (engines.length > 1) {
+    throw new Error(
+      `WORKER_IMAGES lists images of ${engines.join(" and ")}: images of one engine only`,
+    );
+  }
+  if (listed.length > WORKER_IMAGES_PER_ENGINE) {
+    throw new Error(
+      `WORKER_IMAGES lists ${listed.length} ${engines[0]} images: at most ${WORKER_IMAGES_PER_ENGINE}, the newest and the release before it`,
+    );
+  }
+  return listed as [ListedWorkerImage, ...ListedWorkerImage[]];
+}
+
+/**
+ * The runtimes of the configured worker images, newest first, from
+ * `WORKER_IMAGES` or the single-image settings; null when none is set.
+ */
+export function configuredImageRuntimesFromEnv(
+  environment: WorkerImagesEnvironment,
+): readonly [ImageRuntime, ...ImageRuntime[]] | null {
+  const listed = workerImageListFromEnv(environment);
+  if (listed !== null) {
+    return listed.map(({ runtime }) => runtime) as [
+      ImageRuntime,
+      ...ImageRuntime[],
+    ];
+  }
+  const runtimes = workerImageRuntimesFromEnv(environment);
+  if (runtimes === null) return null;
+  return runtimes.previous === null
+    ? [runtimes.current]
+    : [runtimes.current, runtimes.previous];
+}
 
 /**
  * What the configured worker images stamp: the current one new sessions
@@ -163,17 +301,12 @@ function describe(runtime: ImageRuntime): string {
   return `${runtime.engine} sdk ${runtime.sdkVersion} cli ${runtime.cliVersion} digest scheme ${runtime.profileDigestScheme}`;
 }
 
+/** New releases name the newest image's versions; any listed image's still run. */
 export function runtimeVersionsOf(
-  images: WorkerImageRuntimes,
+  runtimes: readonly [ImageRuntime, ...ImageRuntime[]],
 ): RuntimeVersions {
-  const current = imageRuntimeVersions(images.current);
   return {
-    current,
-    accepted: [
-      ...current,
-      ...(images.previous === null
-        ? []
-        : imageRuntimeVersions(images.previous)),
-    ],
+    current: imageRuntimeVersions(runtimes[0]),
+    accepted: runtimes.flatMap(imageRuntimeVersions),
   };
 }

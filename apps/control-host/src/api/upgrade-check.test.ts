@@ -213,6 +213,11 @@ describe("runUpgradeCheck", () => {
       "JSON array of session ids",
     ],
     ["no database url", { DATABASE_URL: undefined }, "DATABASE_URL"],
+    [
+      "a list of images, which it cannot judge",
+      { WORKER_IMAGES: "[]" },
+      "WORKER_IMAGES is set",
+    ],
   ])("%s is check_failed with exit 1", async (_, overrides, reason) => {
     let read = false;
     const { code, output } = await run(overrides, async () => {

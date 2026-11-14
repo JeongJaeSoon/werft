@@ -960,6 +960,7 @@ const MUST_FAIL: [string, string[], RegExp][] = [
   ]),
   ...[
     "scheduler.extraEnv.WORKER_IMAGE=reg/worker@sha256:x",
+    "scheduler.extraEnv.WORKER_IMAGES=x",
     "api.extraEnv.WORKER_IMAGE_RUNTIME=x",
     "config.limits.WORKER_IMAGE_PREVIOUS=reg/worker@sha256:x",
     "secrets.catalogEnv={ANTHROPIC_API_KEY,WORKER_IMAGE_PREVIOUS_RUNTIME}",

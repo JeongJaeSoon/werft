@@ -918,7 +918,7 @@ function harness(
   options: {
     drainDeadlineMs?: number;
     imageRuntime?: ImageRuntime;
-    previousImage?: { image: string; runtime: ImageRuntime };
+    olderImages?: { image: string; runtime: ImageRuntime }[];
     stop?: AbortSignal;
     stopDeadlineMs?: number;
     stoppedWorkspaceTtlMs?: number;
@@ -942,9 +942,9 @@ function harness(
       ...(options.imageRuntime === undefined
         ? {}
         : { imageRuntime: options.imageRuntime }),
-      ...(options.previousImage === undefined
+      ...(options.olderImages === undefined
         ? {}
-        : { previousImage: options.previousImage }),
+        : { olderImages: options.olderImages }),
       ...(options.drainDeadlineMs === undefined
         ? {}
         : { drainDeadlineMs: options.drainDeadlineMs }),
@@ -971,7 +971,7 @@ describe("worker image per session", () => {
   };
   const twoImages = {
     imageRuntime: current,
-    previousImage: { image: "worker:previous", runtime: previous },
+    olderImages: [{ image: "worker:previous", runtime: previous }],
   };
   const launchedImageOf = (store: MemoryStore, sessionId: string) =>
     [...store.executions.values()].find((e) => e.sessionId === sessionId)
@@ -1066,7 +1066,7 @@ describe("worker image per session", () => {
   test("one digest configured under two runtimes is refused only under the one a worker contradicted", async () => {
     const { run, store } = harness(10, {
       imageRuntime: current,
-      previousImage: { image: "worker:test", runtime: previous },
+      olderImages: [{ image: "worker:test", runtime: previous }],
     });
     store.refusals.push({ image: "sha256:worker:test", assumed: previous });
     const [sealedOld, fresh] = store.addUnassigned(2);

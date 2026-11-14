@@ -147,6 +147,13 @@ function causeOf(error: unknown): string {
 function readSettings(environment: UpgradeCheckEnvironment) {
   const databaseUrl = environment.DATABASE_URL;
   if (!databaseUrl) throw new Error("DATABASE_URL is not set");
+  // Fails closed rather than judging other images than the scheduler would
+  // launch: the check compares single-image settings only.
+  if (environment.WORKER_IMAGES) {
+    throw new Error(
+      "WORKER_IMAGES is set: this check reads WORKER_IMAGE and WORKER_IMAGE_PREVIOUS only and cannot judge a list",
+    );
+  }
   const targetWorker = environment.WORKER_IMAGE;
   if (!targetWorker) throw new Error("WORKER_IMAGE is not set");
   const state = environment.UPGRADE_DEPLOYED_STATE;
