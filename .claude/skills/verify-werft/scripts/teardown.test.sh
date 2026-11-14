@@ -44,8 +44,9 @@ teardown_guard verify-ap-x verify-ap-verify-ap-x verify-ap-verify-ap-x; check "g
 teardown_images "$p" >/dev/null
 want=$(printf '%s\n' \
   "image ls -q werft-control-host:$p" "image ls -q werft-worker:$p" "image ls -q werft-egress-proxy:$p" \
+  "image ls -q werft-worker-deps:$p" \
   "image ls -q $p-migrate:latest" "image ls -q $p-fake-git:latest" "image ls -q $p-gitea:latest")
-[ "$(cat "$log")" = "$want" ]; check "images: inspects exactly six tags of the project" 0 $?
+[ "$(cat "$log")" = "$want" ]; check "images: inspects exactly seven tags of the project" 0 $?
 
 TEARDOWN_CONTAINERS="c1"
 TEARDOWN_NETWORKS="net1"
