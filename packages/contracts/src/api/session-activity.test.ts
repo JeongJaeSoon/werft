@@ -5,7 +5,7 @@ import {
   type SessionSummary,
 } from "./session.ts";
 
-// The agent map's list cards, as the list API answers them.
+// List cards, as the list API answers them.
 const NOW = Date.parse("2026-10-25T01:30:00Z");
 const ago = (minutes: number) => new Date(NOW - minutes * 60_000).toISOString();
 
@@ -153,7 +153,7 @@ function cardOf(item: SessionSummary, activity: SessionActivity) {
 }
 
 describe("session list activity", () => {
-  test("a list page carries each agent map card's counts, line and open request", () => {
+  test("a list page carries each card's counts, line and open request", () => {
     const page = listSessionsResponseSchema.parse({
       items: CARDS.map((card, index) => ({
         id: `0000000${index + 1}-0000-4000-8000-000000000000`,

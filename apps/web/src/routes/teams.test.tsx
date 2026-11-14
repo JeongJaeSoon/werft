@@ -236,7 +236,7 @@ describe("팀 화면", () => {
 
   test("사이드바에서 빠져도 팀 주소는 그대로 열린다", async () => {
     const server = teamServer();
-    renderAt("/teams", server.routes);
+    renderAt("/members/teams", server.routes);
     expect(
       await screen.findByRole("link", { name: "팀 열기: 결제팀" }),
     ).toBeDefined();
@@ -816,20 +816,18 @@ describe("팀 화면", () => {
     expect(within(section).getByText("결제팀")).toBeDefined();
   });
 
-  test("예전 팀 주소는 구성원의 팀 탭으로 옮겨 간다", async () => {
+  test("팀 목록과 팀 상세는 구성원의 팀 탭 안에서 열린다", async () => {
     const server = teamServer();
-    const list = renderAt("/teams", server.routes);
+    const list = renderAt("/members/teams", server.routes);
     await screen.findByRole("link", { name: "팀 열기: 결제팀" });
-    expect(list.history.location.pathname).toBe("/members/teams");
     const tab = screen.getByRole("link", { name: "팀", current: "page" });
     expect(tab.getAttribute("href")).toBe("/members/teams");
     list.container.remove();
 
-    const detail = renderAt(`/teams/${TEAM_ID}`, server.routes);
+    renderAt(`/members/teams/${TEAM_ID}`, server.routes);
     expect(
       await screen.findByRole("heading", { level: 2, name: "결제팀" }),
     ).toBeDefined();
-    expect(detail.history.location.pathname).toBe(`/members/teams/${TEAM_ID}`);
     // The team opens inside the 팀 tab, which stays the current one.
     expect(
       screen.getByRole("link", { name: "팀", current: "page" }),

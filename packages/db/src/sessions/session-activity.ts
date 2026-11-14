@@ -13,9 +13,8 @@ import { eventWithNeutralFields } from "./event-payload.ts";
  * The list card's activity line and counts for a page of sessions, in one
  * statement: each session's newest events by the (session_id, id) index, so
  * the cost follows the page size and the window, not a session's history.
- * Calls, results and their states follow the agent map's run tree
- * (packages/react run-tree.ts). The window is a suffix of the stream, so a
- * call inside it has its result, question and turn end inside it too.
+ * The window is a suffix of the stream, so a call inside it has its result,
+ * question and turn end inside it too.
  *
  * Calls pair with results by grouping one stream, never by joining: the
  * planner cannot estimate rows filtered on jsonb fields and chose nested

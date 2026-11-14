@@ -202,27 +202,6 @@ const invites = createRoute({
   component: InvitesScreen,
 });
 
-// Where teams lived before they joined 구성원: bookmarks still land.
-const oldTeams = createRoute({
-  getParentRoute: () => authed,
-  path: "/teams",
-  beforeLoad: () => {
-    throw redirect({ to: "/members/teams", replace: true });
-  },
-});
-
-const oldTeam = createRoute({
-  getParentRoute: () => authed,
-  path: "/teams/$teamId",
-  beforeLoad: ({ params }) => {
-    throw redirect({
-      to: "/members/teams/$teamId",
-      params: { teamId: params.teamId },
-      replace: true,
-    });
-  },
-});
-
 const sessions = createRoute({
   getParentRoute: () => authed,
   path: "/sessions",
@@ -235,17 +214,6 @@ const session = createRoute({
   getParentRoute: () => authed,
   path: "/sessions/$id",
   component: SessionDetailScreen,
-});
-
-// A path of its own beats /sessions/$id. The graph's code loads only here.
-const agentMap = createRoute({
-  getParentRoute: () => authed,
-  path: "/sessions/map",
-  component: lazyRouteComponent(
-    () => import("./routes/agent-map.tsx"),
-    "AgentMapScreen",
-  ),
-  pendingComponent: () => <StatusScreen kind="loading" />,
 });
 
 const linkedAccounts = createRoute({
@@ -303,15 +271,6 @@ const newAgentKey = createRoute({
   getParentRoute: () => authed,
   path: "/settings/api-keys/agents/new",
   component: NewAgentKeyScreen,
-});
-
-// Where the organization key lived before it joined the workspace settings.
-const oldOrgKeys = createRoute({
-  getParentRoute: () => authed,
-  path: "/settings/api-keys/org",
-  beforeLoad: () => {
-    throw redirect({ to: "/settings/workspace/api-keys", replace: true });
-  },
 });
 
 const preferences = createRoute({
@@ -392,14 +351,6 @@ const loginProvider = createRoute({
   component: LoginProviderScreen,
 });
 
-const oldUsage = createRoute({
-  getParentRoute: () => authed,
-  path: "/usage",
-  beforeLoad: ({ search }) => {
-    throw redirect({ to: "/operations/usage", search, replace: true });
-  },
-});
-
 const loadOperations = () => import("./routes/operations.tsx");
 
 const operations = createRoute({
@@ -470,13 +421,10 @@ const routeTree = root.addChildren([
   authed.addChildren([
     home,
     members.addChildren([memberList, teams, team, invites]),
-    oldTeams,
-    oldTeam,
     agents,
     newAgent,
     agent,
     sessions,
-    agentMap,
     session,
     linkedAccounts,
     slackLink,
@@ -486,7 +434,6 @@ const routeTree = root.addChildren([
     newApiKey,
     agentKeys,
     newAgentKey,
-    oldOrgKeys,
     preferences,
     loginMethods,
     workspaceSettings,
@@ -499,7 +446,6 @@ const routeTree = root.addChildren([
     mcpServers,
     loginProviders,
     loginProvider,
-    oldUsage,
     operations.addChildren([
       operationsOverview,
       operationsUsage,

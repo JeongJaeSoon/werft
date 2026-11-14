@@ -100,8 +100,8 @@ function questionOf(frame: SessionEventFrame) {
 
 /**
  * The tool calls a question or permission request holds back: asked, with
- * neither an answer nor a result yet. As in run-tree, a request is answered
- * once a later status leaves needs_input; the session stays there while any
+ * neither an answer nor a result yet. A request is answered once a later
+ * status leaves needs_input; the session stays there while any
  * other request waits, so one known `answered` is let go sooner.
  */
 export function heldToolCalls(

@@ -7,7 +7,6 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./agent-map": "./src/components/agent-map/index.ts",
     "./blocks": "./src/blocks/index.ts",
     "./components": "./src/components/index.ts"
   },

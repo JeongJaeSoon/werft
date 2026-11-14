@@ -343,17 +343,6 @@ describe("API key", () => {
     ).toBe("page");
   });
 
-  test("조직 관리 key의 옛 주소는 워크스페이스 설정 아래로 간다", async () => {
-    const { history } = renderAt("/settings/api-keys/org", {
-      ...ownerOk,
-      ...keysServer(),
-    });
-    expect(
-      await screen.findByRole("heading", { level: 1, name: "조직 관리 키" }),
-    ).toBeDefined();
-    expect(history.location.pathname).toBe(ORG);
-  });
-
   test("조직 관리 key 자리는 서버가 api_key.manage를 준 사람에게만 보인다", async () => {
     renderAt(PERSONAL, { ...memberOk, ...keysServer() });
     const nav = await screen.findByRole("navigation", { name: "키 목록" });
