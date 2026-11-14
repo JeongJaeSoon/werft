@@ -162,6 +162,24 @@ orch heavy <program> -- .claude/skills/verify-werft/scripts/down.sh <run id>
 orch release verify-stack
 ```
 
+## Git LFS 객체 받기
+
+sandbox에는 LFS 업로드 경로가 없다(worker도 egress proxy도 업로드를 열지 않는다). 그래서 앞선 검증이 올려 둔 객체 하나(oid `e503fa2e603377bc54e3173205a6a06e7392907ddcfc1bda377172df82a4f5d9`, 38 bytes, 내용 `werft-sandbox LFS object for 94S-1095`)를 pointer로 다시 쓴다. pointer는 sandbox `main`에 없으므로 세션 안에서 로컬 브랜치에 commit하고 받는다. 4단계의 에이전트와 key로 새 세션을 만든다. 이 세션은 push하지 않는다.
+
+```sh
+# L1. pointer commit → git lfs pull
+. "$VERIFY_RUN/ids.sh"; ap_as owner
+CMD='git switch -qc lfs-check && mkdir -p lfs && printf "version https://git-lfs.github.com/spec/v1\noid sha256:e503fa2e603377bc54e3173205a6a06e7392907ddcfc1bda377172df82a4f5d9\nsize 38\n" > lfs/hello.bin && printf "lfs/hello.bin filter=lfs diff=lfs merge=lfs -text\n" > .gitattributes && git add .gitattributes lfs/hello.bin && git commit -qm "test: lfs pointer" && git lfs version && git lfs pull origin && cat lfs/hello.bin && sha256sum lfs/hello.bin'
+SPEC="GATE-SPEC $(jq -nc --arg c "$CMD" '{id:"lfs1",steps:[{tool:"Bash",input:{command:$c,description:"pull the LFS object"}}],final:"pulled"}')"
+LSID=$(ap_post /v1/sessions "$(jq -nc --arg r "$REL" --arg m "$SPEC" '{agent_release_id:$r, message:$m}')" | head -1 | jq -r .session_id)
+printf 'LSID=%s\n' "$LSID"
+# 4단계처럼 needs_input을 기다려 Bash 권한을 사람의 cookie로 allow하고 turn 1 completed를 기다린다
+ap_compose exec -T postgres psql -U postgres -d sessions -At -c "select payload->>'content' from events where session_id='$LSID' and type='tool_result'" | tee "$EVIDENCE/gh-lfs.txt"
+ap_compose logs egress-proxy 2>&1 | grep -c "lfs"
+```
+
+기대: `git-lfs/…` 한 줄, 파일 내용 `werft-sandbox LFS object for 94S-1095`, `sha256sum`이 위 oid와 같다. LFS batch는 저장소 route(`/repository/sandbox/.git/info/lfs/objects/batch`)로, 객체는 `EGRESS_PACKAGES_REDIRECT_ALLOWLIST`의 `github-cloud.githubusercontent.com`으로 받는다. overlay에서 그 host를 빼면 객체 다운로드가 `502`다. 끝나면 세션을 terminate한다.
+
 ## PR 본문 읽기와 꼬리 교체 (`get_pull_request`, `expected_body_sha256`)
 
 설계는 `docs/contributing/decisions/pull-request-read.md`의 C다. 위 1–5단계로 세션이 commit A를 push하고 PR을 연 뒤 한다. 릴리스의 `features`는 모두 false여도 된다. fake 모델의 GATE-SPEC으로 MCP 도구를 부르고, 도구 결과는 DB `events`의 `tool_result`에서 읽는다(`/v1/sessions/{id}/events`는 SSE라 `head`로 끊기지 않는다).
@@ -230,6 +248,10 @@ ap_compose exec -T postgres psql -U postgres -d sessions -At -c "select result::
 - 기본값(C): `ceiling.merge: false`.
 
 ## Gotchas
+
+- **실제 GitHub App 흐름은 이 절차에서만 본다.** CI의 e2e 스택(`tests/e2e`)은 실제 GitHub가 아니라 로컬 가짜 git host와 가짜 App 키(`werft/local/fake-github-app`)로 돈다. 그래서 실제 App 토큰이 있어야 하는 흐름(실제 저장소 clone, `attach_repository`로 붙이기, 실제 GitHub로의 push·PR, LFS 객체의 redirect)은 CI가 확인하지 않고, 이 로컬 sandbox run으로만 확인한다. 이 흐름을 바꾼 PR은 이 절차의 출력을 근거로 남긴다.
+
+- **파생 worker 이미지는 이 run의 태그 밖 이름으로 둔다.** 출하 worker 이미지에는 npm·go가 없다. 그런 도구를 더한 파생 이미지가 필요하면 이 run의 `WORKER_IMAGE`(`werft-worker:<project>`)에서 `FROM`으로 만들고, 다른 이름(예: `werft-worker-deps:<run id>`)을 붙인다. `down.sh`는 이 run의 태그와 compose가 이름 붙인 이미지만 정확한 이름으로 지우므로(`--rmi local` 포함), 다른 이름의 파생 이미지는 down 뒤에도 남는다. 파생 이미지에 run 태그를 덮어 쓰면 down이 함께 지운다. 그 이미지로 worker를 띄우려면 `WORKER_IMAGE=<파생 이미지> ap_compose up -d --no-deps --no-build scheduler`로 scheduler만 다시 만든다. 이미 떠 있는 worker는 옛 이미지 그대로이므로 새 세션을 만든다. 다 쓰면 `docker image rm <정확한 이름>`으로 지운다.
 
 - **api만 재시작하면 주소가 바뀐다.** `ap_compose restart api`는 ephemeral 포트를 새로 받아 `state.env`의 주소와 어긋난다. `lib.sh`를 source한 뒤 `ap_as` 다음 줄에 `API=http://127.0.0.1:$(ap_compose port api 3000 | cut -d: -f2)`로 바꿔야 `ap_*`가 닿는다(`VERIFY_API`가 아니라 `API`를 읽는다). `state.env`는 agent-guard가 막으므로 열지 않는다.
 

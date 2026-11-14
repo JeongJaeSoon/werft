@@ -12,6 +12,9 @@ services:
           create_host_path: false
   egress-proxy:
     environment:
-      EGRESS_CREDENTIAL_ALLOWLIST: api.anthropic.com:443,github.com:443
+      # Replaces the default list whole (infra/compose.core.yml), so the
+      # defaults, the public package registries among them, are restated
+      # before github.com.
+      EGRESS_CREDENTIAL_ALLOWLIST: api.anthropic.com:443,api.openai.com:443,registry.npmjs.org:443,rubygems.org:443,proxy.golang.org:443,sum.golang.org:443,github.com:443
       # Where GitHub keeps LFS objects; the repository route fetches them there.
       EGRESS_PACKAGES_REDIRECT_ALLOWLIST: github-cloud.githubusercontent.com:443
