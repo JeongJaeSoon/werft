@@ -8,6 +8,8 @@ import {
   createCatalogRegistry,
   type InstallationSettingsStore,
   type InstalledRuntimes,
+  imagesOfEngine,
+  launchableImagesFor,
   RuntimeFeatureGate,
   type RuntimeVersions,
   registryCatalog,
@@ -103,6 +105,26 @@ export function runtimeVersionsFromEnv(
     ),
   );
   return { accepted: [...accepted.values()] };
+}
+
+/**
+ * Whether a session of a runtime kind has an unretracted listed image of
+ * its engine to launch on, by the scheduler's engine rule (the descriptor's
+ * `checkpointEngine`). Always with the single-image settings, which retract
+ * nothing. A kind with no listed image at all is not in the catalog either:
+ * that session reads CATALOG_MISMATCH first.
+ */
+export function launchableKindsFromEnv(
+  env: Record<string, string | undefined>,
+): (kind: string) => boolean {
+  const images = launchableImagesFor(env);
+  return (kind) =>
+    images === null ||
+    imagesOfEngine(
+      images,
+      installedDescriptors.find((descriptor) => descriptor.kind === kind)
+        ?.checkpointEngine ?? null,
+    ).length > 0;
 }
 
 /** The catalog a one-off job reads: the installation's settings, read once. */

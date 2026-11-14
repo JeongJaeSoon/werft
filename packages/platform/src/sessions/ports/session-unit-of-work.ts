@@ -188,6 +188,9 @@ export type SessionDetailRecord = Omit<SessionDetail, "runtime"> & {
   repository_mode: "repository" | "none";
   github_policy_source: string;
   auto_model_migration: boolean;
+  // Whether the session row names an execution now. `execution` alone cannot
+  // say: once released it still shows the last attempt's. Never exposed.
+  holds_execution: boolean;
 };
 
 export interface SessionUnitOfWork {
