@@ -140,14 +140,16 @@ describe("the catalog a registry makes", () => {
       {
         repositories: {},
         runtime_versions: {
-          accepted: [{ kind: "claude_agent_sdk", version: "0.3.270" }],
+          accepted: [
+            { kind: "claude_agent_sdk", engine: "claude", version: "0.3.270" },
+          ],
         },
         tool_catalogs,
       },
       registry,
     );
     expect(catalog.runtime_versions?.accepted).toEqual([
-      { kind: "claude_agent_sdk", version: "0.3.270" },
+      { kind: "claude_agent_sdk", engine: "claude", version: "0.3.270" },
     ]);
     expect(catalog.tool_catalogs).toBe(tool_catalogs);
   });

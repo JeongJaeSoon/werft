@@ -591,7 +591,9 @@ describe("a session pinned to an agent release", () => {
     const otherEngine = setup({
       catalog: {
         ...catalog,
-        runtime_versions: { accepted: [{ kind: "codex_app_server", version }] },
+        runtime_versions: {
+          accepted: [{ kind: "codex_app_server", engine: "codex", version }],
+        },
       },
       session: { ...sessionOn(), spec },
     });
@@ -607,7 +609,7 @@ describe("a session pinned to an agent release", () => {
     const sameEngine = setup({
       catalog: {
         ...catalog,
-        runtime_versions: { accepted: [{ kind, version }] },
+        runtime_versions: { accepted: [{ kind, engine: "claude", version }] },
       },
       session: { ...sessionOn(), spec },
     });
@@ -624,8 +626,8 @@ describe("a session pinned to an agent release", () => {
         ...catalog,
         runtime_versions: {
           accepted: [
-            { kind: "claude_agent_sdk", version: "0.3.280" },
-            { kind: "claude_agent_sdk", version: "2.1.280" },
+            { kind: "claude_agent_sdk", engine: "claude", version: "0.3.280" },
+            { kind: "claude_agent_sdk", engine: "claude", version: "2.1.280" },
           ],
         },
       },
@@ -647,7 +649,9 @@ describe("a session pinned to an agent release", () => {
       catalog: {
         ...catalog,
         runtime_versions: {
-          accepted: [{ kind: "codex_app_server", version: "0.3.270" }],
+          accepted: [
+            { kind: "codex_app_server", engine: "codex", version: "0.3.270" },
+          ],
         },
       },
     });
@@ -668,8 +672,8 @@ describe("a session pinned to an agent release", () => {
         ...catalog,
         runtime_versions: {
           accepted: [
-            { kind: "claude_agent_sdk", version: "0.3.270" },
-            { kind: "claude_agent_sdk", version: "2.1.270" },
+            { kind: "claude_agent_sdk", engine: "claude", version: "0.3.270" },
+            { kind: "claude_agent_sdk", engine: "claude", version: "2.1.270" },
           ],
         },
       },

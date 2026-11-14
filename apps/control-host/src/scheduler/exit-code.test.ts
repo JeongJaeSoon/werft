@@ -13,6 +13,7 @@ const clean: SchedulerRunSummary = {
   imagesRefused: [],
   heldIncompatible: [],
   heldRetired: [],
+  waitingForEngine: [],
   killFailed: [],
   killed: [],
   killsStopping: [],

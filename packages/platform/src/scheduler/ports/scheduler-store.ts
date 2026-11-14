@@ -270,10 +270,15 @@ export interface SchedulerStore {
    * another launch, or another scheduler pass).
    */
   reserveLaunch(input: ReserveLaunchInput): Promise<StoredLaunchIntent | null>;
-  /** The session's pointer runtime and the revision it was read at (0: none). */
-  pointerRuntimeOf(
-    sessionId: string,
-  ): Promise<{ pointer: PointerRuntime; checkpointRevision: number }>;
+  /**
+   * The session's pointer runtime, the revision it was read at (0: none),
+   * and the runtime kind its spec pins (null: none, or not a string).
+   */
+  pointerRuntimeOf(sessionId: string): Promise<{
+    pointer: PointerRuntime;
+    checkpointRevision: number;
+    runtimeKind: string | null;
+  }>;
   /** Every recorded image refusal (`WorkerImageRefusal`). */
   workerImageRefusals(): Promise<WorkerImageRefusal[]>;
   /**

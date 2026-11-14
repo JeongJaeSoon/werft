@@ -4031,6 +4031,7 @@ integration("worker gateway on PostgreSQL", () => {
     ).toEqual({
       pointer: recordedPointer(VERIFIED_RUNTIME, 2),
       checkpointRevision: 0,
+      runtimeKind: "claude_agent_sdk",
     });
 
     // A launch the scheduler reserved without a combination leaves the

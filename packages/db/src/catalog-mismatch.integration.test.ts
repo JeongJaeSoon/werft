@@ -13,6 +13,7 @@ import {
   runScheduler,
   type TerminateExecutionResult,
 } from "@werft-ai/platform";
+import type { ImageRuntime } from "@werft-ai/runtime-core";
 import {
   createTempDatabase,
   type TempDatabase,
@@ -514,10 +515,11 @@ integration("claim against a catalog that dropped the pair", () => {
   });
 
   describe("leaves everything alone when the pair is not what stops the claim", () => {
-    async function reserved(sessionId: string) {
+    async function reserved(sessionId: string, imageRuntime?: ImageRuntime) {
       const intent = await store().reserveLaunch({
         backend: "local_docker",
         image: "worker:test",
+        ...(imageRuntime === undefined ? {} : { imageRuntime }),
         now: new Date(),
         resources: RESOURCES,
         sessionId,
@@ -539,7 +541,8 @@ integration("claim against a catalog that dropped the pair", () => {
       settings: {
         generation?: number | null;
         unsettledRepositoryIds?: ReadonlySet<string>;
-        runtimeVersions?: ReadonlyArray<{ kind: string; version: string }>;
+        runtimeVersions?: ClaimCatalog["runtimeVersions"];
+        imageRuntime?: ImageRuntime;
       } = {},
     ) {
       return createPostgresWorkerUnitOfWork(db).claimAtomic({
@@ -553,6 +556,9 @@ integration("claim against a catalog that dropped the pair", () => {
         },
         costLimitUsd,
         tokenLimit: null,
+        ...(settings.imageRuntime === undefined
+          ? {}
+          : { imageRuntime: settings.imageRuntime }),
         nonceHash: hashWorkerToken(launch.nonce),
         executionId: launch.ref.executionId,
         executionGeneration: launch.ref.generation,
@@ -644,6 +650,64 @@ integration("claim against a catalog that dropped the pair", () => {
         ).outcome,
       ).toBe("no_session");
       await untouched(session.session_id, launch.ref);
+    });
+
+    // A worker runs one engine: by the one it reports, else by the one its
+    // launch was reserved for (an older build reports none).
+    describe("a worker of another engine", () => {
+      const bothEngines = [
+        {
+          kind: "claude_agent_sdk",
+          version: TEST_RUNTIME_VERSION,
+          engine: "claude",
+        },
+        {
+          kind: "codex_app_server",
+          version: TEST_RUNTIME_VERSION,
+          engine: "codex",
+        },
+      ];
+      const runtimeOf = (engine: string): ImageRuntime => ({
+        engine,
+        sdkVersion: TEST_RUNTIME_VERSION,
+        cliVersion: TEST_RUNTIME_VERSION,
+        profileDigestScheme: 1,
+      });
+
+      test("by the engine it reports", async () => {
+        const session = await queuedSession(REGISTERED);
+        const launch = await reserved(session.session_id);
+        expect(
+          (
+            await claim(launch, 1_000, new Set(), {
+              runtimeVersions: bothEngines,
+              imageRuntime: runtimeOf("codex"),
+            })
+          ).outcome,
+        ).toBe("no_session");
+        await untouched(session.session_id, launch.ref);
+        expect(
+          (
+            await claim(launch, 1_000, new Set(), {
+              runtimeVersions: bothEngines,
+              imageRuntime: runtimeOf("claude"),
+            })
+          ).outcome,
+        ).toBe("claimed");
+      });
+
+      test("by its launch's engine when it reports none", async () => {
+        const session = await queuedSession(REGISTERED);
+        const launch = await reserved(session.session_id, runtimeOf("codex"));
+        expect(
+          (
+            await claim(launch, 1_000, new Set(), {
+              runtimeVersions: bothEngines,
+            })
+          ).outcome,
+        ).toBe("no_session");
+        await untouched(session.session_id, launch.ref);
+      });
     });
 
     // A connection another replica may hold the credential of; that replica

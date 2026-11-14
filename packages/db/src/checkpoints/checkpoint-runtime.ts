@@ -131,15 +131,23 @@ function combinationOf(
 
 /**
  * The image combination the session's pointer was sealed under, for
- * choosing the image its next launch runs on, and the revision it was read
- * at (0 with no pointer).
+ * choosing the image its next launch runs on, the revision it was read at
+ * (0 with no pointer), and the runtime kind the session's spec pins (null:
+ * none, or not a string).
  */
 export async function readPointerImageRuntime(
   db: Database,
   sessionId: string,
-): Promise<{ pointer: PointerRuntime; checkpointRevision: number }> {
+): Promise<{
+  pointer: PointerRuntime;
+  checkpointRevision: number;
+  runtimeKind: string | null;
+}> {
   const [row] = await db
     .select({
+      runtimeKind: sql<
+        string | null
+      >`CASE WHEN jsonb_typeof(${sessions.runtimeSpec} -> 'runtime' -> 'kind') = 'string' THEN ${sessions.runtimeSpec} -> 'runtime' ->> 'kind' END`,
       checkpointRevision: sessions.checkpointRevision,
       checkpointPendingReason: sessions.checkpointPendingReason,
       contextResetCheckpointRevision: sessions.contextResetCheckpointRevision,
@@ -161,8 +169,9 @@ export async function readPointerImageRuntime(
     .limit(1);
   // What the claim's restore skips (a start_fresh retired it, or a pending
   // reason blocks it) restores nothing, so no image is held to it.
+  const runtimeKind = row?.runtimeKind ?? null;
   if (row === undefined || !hasRestorePoint(row)) {
-    return { pointer: { kind: "none" }, checkpointRevision: 0 };
+    return { pointer: { kind: "none" }, checkpointRevision: 0, runtimeKind };
   }
   const runtime = runtimeOfColumns(row);
   return {
@@ -171,6 +180,7 @@ export async function readPointerImageRuntime(
         ? { kind: "unrecorded" }
         : recordedPointer(runtime, row.runtimeProfileScheme),
     checkpointRevision: row.checkpointRevision,
+    runtimeKind,
   };
 }
 

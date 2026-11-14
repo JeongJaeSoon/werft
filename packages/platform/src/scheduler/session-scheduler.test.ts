@@ -88,6 +88,8 @@ class MemoryStore implements SchedulerStore {
     string,
     { pointer: PointerRuntime; checkpointRevision: number }
   >();
+  /** The runtime kind each session's spec pins; unset reads as none. */
+  readonly runtimeKinds = new Map<string, string>();
   readonly refusals: WorkerImageRefusal[] = [];
   /** Sessions stopped before launch, with the detail they were held on. */
   readonly held = new Map<string, string>();
@@ -96,12 +98,13 @@ class MemoryStore implements SchedulerStore {
   readonly reservedRuntimes = new Map<string, ImageRuntime | undefined>();
 
   async pointerRuntimeOf(sessionId: string) {
-    return (
-      this.pointers.get(sessionId) ?? {
+    return {
+      ...(this.pointers.get(sessionId) ?? {
         pointer: { kind: "none" } as const,
         checkpointRevision: 0,
-      }
-    );
+      }),
+      runtimeKind: this.runtimeKinds.get(sessionId) ?? null,
+    };
   }
 
   async workerImageRefusals() {
@@ -919,6 +922,7 @@ function harness(
   slotLimit = 10,
   options: {
     drainDeadlineMs?: number;
+    engineOfKind?: (kind: string) => string | undefined;
     imageRuntime?: ImageRuntime;
     olderImages?: { image: string; runtime: ImageRuntime }[];
     retractedImages?: { image: string; runtime: ImageRuntime }[];
@@ -951,6 +955,9 @@ function harness(
       ...(options.retractedImages === undefined
         ? {}
         : { retractedImages: options.retractedImages }),
+      ...(options.engineOfKind === undefined
+        ? {}
+        : { engineOfKind: options.engineOfKind }),
       ...(options.drainDeadlineMs === undefined
         ? {}
         : { drainDeadlineMs: options.drainDeadlineMs }),
@@ -1022,6 +1029,86 @@ describe("worker image per session", () => {
     expect(summary.heldIncompatible).toEqual([sealedOld as string]);
     expect(backend.containers.size).toBe(0);
     expect(store.held.get(sealedOld as string)).toContain("sdk 0.3.270");
+  });
+
+  describe("by the session's engine", () => {
+    const codex: ImageRuntime = {
+      ...current,
+      engine: "codex",
+      sdkVersion: "0.9.0",
+      cliVersion: "0.9.0",
+    };
+    const engineOfKind = (kind: string) =>
+      ({ claude_agent_sdk: "claude", codex_app_server: "codex" })[kind];
+    const on = (store: MemoryStore, kind: string) => {
+      const [id] = store.addUnassigned(1);
+      store.runtimeKinds.set(id as string, kind);
+      return id as string;
+    };
+
+    test("each session launches on its own engine's image, whichever is newest", async () => {
+      const { run, store } = harness(10, {
+        engineOfKind,
+        imageRuntime: codex,
+        olderImages: [{ image: "worker:claude", runtime: current }],
+      });
+      const codexSession = on(store, "codex_app_server");
+      const claudeSession = on(store, "claude_agent_sdk");
+      const summary = await run();
+      expect(summary.launched).toHaveLength(2);
+      expect(launchedImageOf(store, codexSession)).toBe("sha256:worker:test");
+      expect(store.reservedRuntimes.get(codexSession)).toEqual(codex);
+      // A single-image host switched from claude to codex keeps launching
+      // its claude sessions on the previous image, checkpoint or not.
+      expect(launchedImageOf(store, claudeSession)).toBe(
+        "sha256:worker:claude",
+      );
+      expect(store.reservedRuntimes.get(claudeSession)).toEqual(current);
+    });
+
+    test("a session no image runs waits without a slot or a hold, and the next in line launches", async () => {
+      const { backend, run, store } = harness(1, {
+        engineOfKind,
+        imageRuntime: current,
+      });
+      const codexSession = on(store, "codex_app_server");
+      const unknown = on(store, "pi_coding_agent");
+      const unnamed = store.addUnassigned(1)[0] as string;
+      const claudeSession = on(store, "claude_agent_sdk");
+      store.pointers.set(unknown, {
+        pointer: { kind: "unrecorded" },
+        checkpointRevision: 2,
+      });
+      const summary = await run();
+      expect(summary.waitingForEngine).toEqual([
+        codexSession,
+        unknown,
+        unnamed,
+      ]);
+      expect(summary.heldIncompatible).toEqual([]);
+      expect(store.held.size).toBe(0);
+      expect(summary.launched).toHaveLength(1);
+      expect(launchedImageOf(store, claudeSession)).toBe("sha256:worker:test");
+      expect(backend.containers.size).toBe(1);
+    });
+
+    test("a checkpoint whose engine no image runs is stopped before launch", async () => {
+      const { run, store } = harness(10, {
+        engineOfKind,
+        imageRuntime: current,
+      });
+      const sealed = on(store, "codex_app_server");
+      store.pointers.set(sealed, {
+        pointer: { kind: "recorded", runtime: codex },
+        checkpointRevision: 4,
+      });
+      const summary = await run();
+      expect(summary.heldIncompatible).toEqual([sealed]);
+      expect(summary.waitingForEngine).toEqual([]);
+      expect(store.held.get(sealed)).toContain(
+        "no configured worker image runs the codex engine",
+      );
+    });
   });
 
   describe("retracted images", () => {

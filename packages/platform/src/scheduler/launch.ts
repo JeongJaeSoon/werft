@@ -421,20 +421,30 @@ export async function fillSlots(ctx: PassContext): Promise<void> {
     if (current?.runtime === undefined && available.retracted.length === 0) {
       return current ?? null;
     }
-    const { pointer, checkpointRevision } =
+    const { pointer, checkpointRevision, runtimeKind } =
       await store.pointerRuntimeOf(sessionId);
+    const engine =
+      options.engineOfKind === undefined
+        ? undefined
+        : runtimeKind === null
+          ? null
+          : (options.engineOfKind(runtimeKind) ?? null);
     // Never empty: options.image is either pinned or retracted.
-    const selection = selectWorkerImage(pointer, [
-      ...available.pinned.map(({ image, runtime }) => ({
-        image,
-        runtime: runtime as ImageRuntime,
-      })),
-      ...available.retracted.map(({ image, runtime }) => ({
-        image,
-        runtime,
-        retracted: true,
-      })),
-    ] as [WorkerImageCandidate<string>, ...WorkerImageCandidate<string>[]]);
+    const selection = selectWorkerImage(
+      pointer,
+      [
+        ...available.pinned.map(({ image, runtime }) => ({
+          image,
+          runtime: runtime as ImageRuntime,
+        })),
+        ...available.retracted.map(({ image, runtime }) => ({
+          image,
+          runtime,
+          retracted: true,
+        })),
+      ] as [WorkerImageCandidate<string>, ...WorkerImageCandidate<string>[]],
+      engine,
+    );
     if (selection.kind === "selected") {
       // By the pair: one digest configured twice under two runtimes is
       // refused only under the one a worker contradicted.
@@ -446,6 +456,12 @@ export async function fillSlots(ctx: PassContext): Promise<void> {
       )
         ? null
         : { image: selection.image, runtime: selection.runtime };
+    }
+    // Not held: it waits for an image of its engine, uses no slot, and the
+    // API says why (its runtime is not shipped) on each read.
+    if (selection.reason === "engine_unavailable") {
+      summary.waitingForEngine.push(sessionId);
+      return null;
     }
     // A session with no checkpoint is not held: it waits, and the API says
     // why (every image retracted) on each read.
