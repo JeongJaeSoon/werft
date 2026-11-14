@@ -166,7 +166,7 @@ SDK를 올리는 릴리스는 이미지가 싣는 런타임 버전을 바꾸고,
 
 이 릴리스부터 migrate는 설정 문서(`SETTINGS_DOCUMENT`, test-ops는 `PLATFORM_SETTINGS_DOCUMENT`)와 옛 설정 디렉터리(`/legacy-config`)를 빈 설치에만 한 번 넣는다(`settings seed`). 그 뒤 연결·저장소·MCP 서버는 콘솔(설정 > 에이전트 연결)에서 바꾼다. 문서를 고쳐 다시 배포해도 들어가지 않는다.
 
-- migration `0281_settings_seed_decided`가 `settings_generation.seed_decided_at` 열을 더한다. 올린 뒤 첫 migrate가 이 시각을 적는다. 연결이나 MCP 서버가 이미 있는 설치(사용 중지한 것 포함)는 아무것도 가져오지 않고 그 시각만 적는다. 저장소 행만 있는 설치는 빈 설치로 보고 한 번 넣는다.
+- migration `0282_settings_seed_decided`가 `settings_generation.seed_decided_at` 열을 더한다. 올린 뒤 첫 migrate가 이 시각을 적는다. 연결이나 MCP 서버가 이미 있는 설치(사용 중지한 것 포함)는 아무것도 가져오지 않고 그 시각만 적는다. 저장소 행만 있는 설치는 빈 설치로 보고 한 번 넣는다.
 - 가져오지 않을 때 migrate 로그에 값 없이 한 줄이 남는다: `note: <디렉터리와 문서> not imported: the installation already holds settings. They seed an empty installation only; change settings in the console`. 시각을 적은 뒤에는 `the automatic seed ran on <시각>`으로 나온다. 이 줄은 실패가 아니다.
 - 문서의 내용을 일부러 다시 넣을 때는 owner가 손으로 `settings import`를 돌린다. 이 명령은 바뀌지 않았다.
 - test-ops `upgrade`는 바뀐 문서를 넣지도, DB와 비교하지도 않는다. 문서의 digest가 바뀌면 `upgrade: the settings document changed; it is not imported into a deployed installation, so change settings in the console`을 남긴다. `deploy`의 확인은 그대로다.
