@@ -121,6 +121,8 @@ printf '%s\n' '{"services":{"x":{"image":"alpine:3"}},"networks":{"default":{}}}
 
 원인을 고친 뒤 같은 release 파일과 같은 환경으로 `deploy`를 다시 실행한다. 이미 성공한 설치를 다시 시작할 때는 `start`를 쓴다.
 
+`preflight`가 `path(s) the containers mount are not readable by other users`로 멈추면 저장소 checkout이나 번들이 제한적인 umask(`077`, `027`)에서 만들어진 것이다. postgres(uid 999)와 migrate(uid 1000)는 호스트 사용자로 돌지 않아 그 파일을 읽지 못한다. 출력된 경로를 확인하고 checkout이나 번들 디렉터리에 `chmod -R o+rX`, 설정 문서에 `chmod o+r`를 실행하거나 umask `022`에서 다시 받는다. 이 검사가 없는 이전 릴리스에서는 같은 원인이 `deploy`의 postgres unhealthy와 postgres 로그의 `Permission denied`로만 드러난다.
+
 처음 restart policy가 바뀌는 업그레이드에서 LocalStack 컨테이너를 재생성하면 객체를 잃을 수 있다. `status`가 미수거 checkpoint 0개임을 확인하지 못하면 업그레이드를 미룬다. API 기동 실패와 `pending.json`이 겹치면 `reseed`도 거부되며, `reset`은 모든 데이터를 버린다. `backup --stop`은 이 차단을 해제하지 않는다.
 
 LocalStack은 컨테이너가 재생성되면 메모리의 object를 잃는다. DB에 미수거 checkpoint가 남아 bucket이 비면 API가 기동을 거부한다. 자동 재시작과 수동 start의 조건은 [Compose 수명주기](/run-server/self-hosting/stop-compose)를 따른다.

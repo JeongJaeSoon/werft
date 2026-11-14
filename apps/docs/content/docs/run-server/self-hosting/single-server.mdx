@@ -201,6 +201,8 @@ printf '%s\n' '{"services":{"x":{"image":"alpine:3"}},"networks":{"default":{}}}
 
 원인을 고친 뒤 같은 release 파일과 같은 환경으로 `deploy`를 다시 실행한다. 이미 성공한 설치를 다시 시작할 때는 `start`를 쓴다.
 
+`preflight`가 `path(s) the containers mount are not readable by other users`로 멈추면 저장소 checkout이나 번들이 제한적인 umask(`077`, `027`)에서 만들어진 것이다. postgres(uid 999)와 migrate(uid 1000)는 호스트 사용자로 돌지 않아 그 파일을 읽지 못한다. 출력된 경로를 확인하고 checkout이나 번들 디렉터리에 `chmod -R o+rX`, 설정 문서에 `chmod o+r`를 실행하거나 umask `022`에서 다시 받는다. 이 검사가 없는 이전 릴리스에서는 같은 원인이 `deploy`의 postgres unhealthy와 postgres 로그의 `Permission denied`로만 드러난다.
+
 quota 오류는 [XFS 준비](/run-server/self-hosting/prepare-xfs), bucket 보호·권한 오류는 [bucket 준비](/run-server/self-hosting/prepare-checkpoint-bucket)를 확인한다. env 권한 오류는 [2단계의 파일 모드](#2-비밀과-설정-문서), settings digest 오류는 [3단계의 digest·release 입력 생성](#3-release-입력-생성)을 확인한다. 첫 deploy가 실패해도 정상 배포의 상태 파일이 있다고 가정하지 않는다.
 
 ## 되돌리기
