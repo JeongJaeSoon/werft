@@ -187,6 +187,34 @@ async function world(options: { installation?: "verified" | "pending" } = {}) {
       createdByUserId: creator?.userId ?? null,
     });
   };
+  /**
+   * A second installation of the agent's app, in team T2, where `who` is
+   * linked under the same Slack user id as in T1.
+   */
+  const secondInstallation = async (who: Person) => {
+    const id = crypto.randomUUID();
+    await db.insert(slackInstallations).values({
+      id,
+      workspaceId,
+      appId,
+      teamId: "T2",
+      status: "verified",
+      botUserId: "UBOT2",
+      verifiedAt: NOW,
+    });
+    await db.insert(linkedAccounts).values({
+      id: crypto.randomUUID(),
+      workspaceId,
+      userId: who.userId,
+      provider: "slack",
+      externalTenant: "T2",
+      externalUserId: who.slackUserId,
+      status: "active",
+      verifiedVia: "slack_oidc",
+      verifiedAt: NOW,
+    });
+    return id;
+  };
   const outbox = () => db.select().from(slackOutbox);
   return {
     workspaceId,
@@ -197,6 +225,7 @@ async function world(options: { installation?: "verified" | "pending" } = {}) {
     person,
     inTeam,
     startSession,
+    secondInstallation,
     outbox,
   };
 }
@@ -255,7 +284,7 @@ describe("enqueueModelCutNotices", () => {
       expect(row.agentId).toBe(w.agentId);
       expect(row.body.text).toContain("claude-opus-5-5");
       expect(row.dedupeKey).toBe(
-        `model-not-allowed:${w.workspaceId}:${w.sessionId}:${row.channelId}`,
+        `model-not-allowed:${w.workspaceId}:${w.sessionId}:${w.installationId}:${row.channelId}`,
       );
     }
     const textOf = (who: Person) =>
@@ -282,6 +311,39 @@ describe("enqueueModelCutNotices", () => {
     // The new administrator was not told at the first cut, and is now.
     expect(await enqueueModelCutNotices(db, cut)).toBe(1);
     expect(await w.outbox()).toHaveLength(2);
+  });
+
+  test("the same Slack user id in two of the agent's installations gets a DM in each", async () => {
+    const w = await world();
+    const creator = await w.person("creator");
+    const second = await w.secondInstallation(creator);
+    await w.startSession(creator);
+    const cut = { sessionId: w.sessionId, model: "claude-opus-5-5" };
+    expect(await enqueueModelCutNotices(db, cut)).toBe(2);
+    expect((await w.outbox()).map((row) => row.installationId).sort()).toEqual(
+      [w.installationId, second].sort(),
+    );
+    expect(await enqueueModelCutNotices(db, cut)).toBe(0);
+  });
+
+  test("an installation told under the key from before installations is not told again; the one it crowded out is", async () => {
+    const w = await world();
+    const creator = await w.person("creator");
+    await w.startSession(creator);
+    const cut = { sessionId: w.sessionId, model: "claude-opus-5-5" };
+    expect(await enqueueModelCutNotices(db, cut)).toBe(1);
+    // What a cut before the change left: the same row under the old key.
+    await db
+      .update(slackOutbox)
+      .set({
+        dedupeKey: `model-not-allowed:${w.workspaceId}:${w.sessionId}:${creator.slackUserId}`,
+      })
+      .where(eq(slackOutbox.sessionId, w.sessionId));
+    const second = await w.secondInstallation(creator);
+    expect(await enqueueModelCutNotices(db, cut)).toBe(1);
+    expect((await w.outbox()).map((row) => row.installationId).sort()).toEqual(
+      [w.installationId, second].sort(),
+    );
   });
 
   test("passes over disabled members, revoked or missing links and other Slack teams", async () => {
@@ -528,31 +590,7 @@ describe("a session held as runtime_retired", () => {
   test("the same Slack user id in two of the agent's installations gets a DM in each", async () => {
     const w = await world();
     const creator = await w.person("creator");
-    const [app] = await db
-      .select({ appId: slackInstallations.appId })
-      .from(slackInstallations)
-      .where(eq(slackInstallations.id, w.installationId));
-    const second = crypto.randomUUID();
-    await db.insert(slackInstallations).values({
-      id: second,
-      workspaceId: w.workspaceId,
-      appId: app?.appId ?? "",
-      teamId: "T2",
-      status: "verified",
-      botUserId: "UBOT2",
-      verifiedAt: NOW,
-    });
-    await db.insert(linkedAccounts).values({
-      id: crypto.randomUUID(),
-      workspaceId: w.workspaceId,
-      userId: creator.userId,
-      provider: "slack",
-      externalTenant: "T2",
-      externalUserId: creator.slackUserId,
-      status: "active",
-      verifiedVia: "slack_oidc",
-      verifiedAt: NOW,
-    });
+    const second = await w.secondInstallation(creator);
     await w.startSession(creator);
     expect(
       await enqueueRuntimeRetiredNotices(db, {
@@ -760,6 +798,22 @@ describe("enqueueSessionModelMoveNotices", () => {
     expect(await moved(move.to)).toBe(1);
     expect(await moved(move.to)).toBe(0);
     expect(await moved("claude-sonnet-5-2")).toBe(1);
+  });
+
+  test("the same Slack user id in two of the agent's installations gets a DM in each", async () => {
+    const w = await world();
+    const creator = await w.person("creator");
+    const second = await w.secondInstallation(creator);
+    await w.startSession(creator);
+    expect(
+      await enqueueSessionModelMoveNotices(db, {
+        sessionId: w.sessionId,
+        ...move,
+      }),
+    ).toBe(2);
+    expect((await w.outbox()).map((row) => row.installationId).sort()).toEqual(
+      [w.installationId, second].sort(),
+    );
   });
 
   test("a session without a creator tells nobody", async () => {
