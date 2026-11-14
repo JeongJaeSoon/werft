@@ -274,7 +274,8 @@ integration(
           gateway,
           // As server.ts wires it: a billed call waits for its open.
           exchanges: createProviderExchangeLedger(db, {
-            admits: admitsReservations({ costUsd: 25, tokens: null }),
+            admits: async () =>
+              admitsReservations({ costUsd: 25, tokens: null }),
           }),
           logger: createLogger({ sinks: [] }),
           token: AUTHORIZER_BEARER,
