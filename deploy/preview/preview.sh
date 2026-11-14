@@ -473,6 +473,12 @@ last_labeled() {
   tail -n 1 <<<"$events"
 }
 
+# Replaces sync's record of pull request $1 in one rename.
+record() {
+  printf '%s\n' "$2" >"${PREVIEW_HOME}/sync/pr-$1.tmp"
+  mv -f -- "${PREVIEW_HOME}/sync/pr-$1.tmp" "${PREVIEW_HOME}/sync/pr-$1"
+}
+
 # Everyone but this Mac's own GitHub login who may push to the repository.
 other_pushers() {
   (cd "$root" && gh api --paginate "repos/{owner}/{repo}/collaborators" \
@@ -496,8 +502,8 @@ other_pushers() {
 # answer changes nothing.
 sync() {
   local pulls n head cross state_file tried status tried_at ns_head source
-  local labeled label_at actor others code namespace up_at count refusal
-  local wanted=" " LIMIT=500
+  local labeled label_at actor others code namespace up_at count refusal rows
+  local wanted=" " kept="" LIMIT=500
   lock_preview sync
   echo "sync $(date -u +%Y-%m-%dT%H:%M:%SZ): label ${PREVIEW_LABEL}"
   mkdir -p "${PREVIEW_HOME}/sync"
@@ -521,29 +527,33 @@ sync() {
   done <<<"$pulls"
 
   # First what is no longer wanted (label off, closed, merged), so a long
-  # build below does not hold it up.
-  for namespace in $( (
-    cd "${PREVIEW_HOME}/sync" && ls -1
-    kubectl get namespaces -l werft.dev/preview=true -o json | jq -r \
-      '.items[] | select(.metadata.annotations["werft.dev/preview-source"] == "label") | .metadata.name'
-  ) | grep -E '^pr-[1-9][0-9]{0,6}$' | sort -u); do
-    n="${namespace#pr-}"
+  # build below does not hold it up. Owner and up time come from one read:
+  # `down` keeps a namespace whose up time changed since (75), so one
+  # brought up again in between, by hand or not, stays.
+  rows="$(kubectl get namespaces -l werft.dev/preview=true -o json | jq -r '.items[]
+    | select(.metadata.annotations["werft.dev/preview-source"] == "label")
+    | [.metadata.name, (.metadata.annotations["werft.dev/preview-up-at"] // "")]
+    | join("\u001f")')"
+  while IFS=$'\x1f' read -r namespace up_at; do
+    [[ "$namespace" =~ ^pr-([1-9][0-9]{0,6})$ ]] || continue
+    n="${BASH_REMATCH[1]}"
     [[ "$wanted" == *" ${n} "* ]] && continue
-    source="$(kubectl get namespace "$namespace" -o jsonpath='{.metadata.annotations.werft\.dev/preview-source}' 2>/dev/null || true)"
-    if [ "$source" = label ]; then
-      up_at="$(kubectl get namespace "$namespace" -o jsonpath='{.metadata.annotations.werft\.dev/preview-up-at}')"
-      echo "${namespace}: no longer labeled or open; down"
-      code=0
-      PREVIEW_REAP_UP_AT="$up_at" "$here/preview.sh" down "$n" </dev/null || code=$?
-      case "$code" in
-        0) comment "$n" "내려갔다
+    echo "${namespace}: no longer labeled or open; down"
+    code=0
+    PREVIEW_REAP_UP_AT="$up_at" "$here/preview.sh" down "$n" </dev/null || code=$?
+    case "$code" in
+      0) comment "$n" "내려갔다
 
 $(date -u '+%Y-%m-%d %H:%M UTC')에 내렸다. 라벨 \`${PREVIEW_LABEL}\`가 없거나 PR이 닫혔다. 다시 보려면 열린 PR에 라벨을 붙인다." ;;
-        75) echo "${namespace}: kept, see above"; continue ;;
-        *) echo "${namespace}: down failed" >&2; continue ;;
-      esac
-    fi
-    rm -f -- "${PREVIEW_HOME}/sync/${namespace}" "${PREVIEW_HOME}/sync/${namespace}.log"
+      75) echo "${namespace}: kept, see above"; kept+="${n} " ;;
+      *) echo "${namespace}: down failed" >&2; kept+="${n} " ;;
+    esac
+  done <<<"$rows"
+  for state_file in "${PREVIEW_HOME}/sync"/pr-*; do
+    [[ "$(basename -- "$state_file")" =~ ^pr-([1-9][0-9]{0,6})$ ]] || continue
+    n="${BASH_REMATCH[1]}"
+    [[ "$wanted$kept" == *" ${n} "* ]] && continue
+    rm -f -- "$state_file" "${state_file}.log"
   done
 
   while IFS=$'\t' read -r n head cross; do
@@ -554,7 +564,8 @@ $(date -u '+%Y-%m-%d %H:%M UTC')에 내렸다. 라벨 \`${PREVIEW_LABEL}\`가 �
     fi
     state_file="${PREVIEW_HOME}/sync/pr-${n}"
     tried="" status="" tried_at=""
-    [ -f "$state_file" ] && read -r tried status tried_at <"$state_file"
+    # A record cut short reads as part of one, or none.
+    [ -f "$state_file" ] && { read -r tried status tried_at <"$state_file" || true; }
     ns_head="$(kubectl get namespace "pr-${n}" -o jsonpath='{.metadata.annotations.werft\.dev/preview-head}' 2>/dev/null || true)"
     source="$(kubectl get namespace "pr-${n}" -o jsonpath='{.metadata.annotations.werft\.dev/preview-source}' 2>/dev/null || true)"
     if [ "$ns_head" = "$head" ] && [ "$source" = label ] && [ "$status" = up ]; then
@@ -566,17 +577,9 @@ $(date -u '+%Y-%m-%d %H:%M UTC')에 내렸다. 라벨 \`${PREVIEW_LABEL}\`가 �
     fi
     label_at="${labeled%% *}"
     actor="${labeled#* }"
-    # Brought up by hand at this head: it now follows the label.
-    if [ "$ns_head" = "$head" ] && [ "$source" != label ] && [ "$(readyz "pr-${n}")" = 200 ]; then
-      kubectl annotate namespace "pr-${n}" --overwrite werft.dev/preview-source=label >/dev/null
-      echo "$head up $label_at" >"$state_file"
-      echo "pr-${n}: already up at ${head:0:12}, now follows the label"
-      comment "$n" "$(up_body "$n" "$head")"
-      continue
-    fi
     if [ "$tried" = "$head" ] && [ "$tried_at" = "$label_at" ]; then
       if [ "$status" = up ] && [ -z "$ns_head" ]; then
-        echo "$head gone $label_at" >"$state_file"
+        record "$n" "$head gone $label_at"
         echo "pr-${n}: gone at ${head:0:12}; up again on a push or a new label"
         comment "$n" "내려갔다
 
@@ -593,7 +596,7 @@ $(date -u '+%Y-%m-%d %H:%M UTC') 전에 미리보기가 없어졌다(마지막�
       refusal="이 저장소에 push할 수 있는 사람이 미리보기를 띄우는 Mac의 GitHub 로그인 말고도 있다($(tr '\n' ' ' <<<"$others" | sed 's/ $//')). PR 코드가 그 Mac에서 돌기 때문에 그동안은 띄우지 않는다."
     fi
     if [ -n "$refusal" ]; then
-      echo "$head refused $label_at" >"$state_file"
+      record "$n" "$head refused $label_at"
       echo "pr-${n}: refused at ${head:0:12}: ${refusal}"
       comment "$n" "거절했다
 
@@ -609,7 +612,7 @@ head \`${head}\`를 빌드해 띄운다. 몇 분 걸린다."
       >"${PREVIEW_HOME}/sync/pr-${n}.log" 2>&1 || code=$?
     case "$code" in
       0)
-        echo "$head up $label_at" >"$state_file"
+        record "$n" "$head up $label_at"
         echo "pr-${n}: up at ${head:0:12}"
         comment "$n" "$(up_body "$n" "$head")"
         ;;
@@ -617,7 +620,7 @@ head \`${head}\`를 빌드해 띄운다. 몇 분 걸린다."
         echo "pr-${n}: busy or the head moved; the next run tries again: $(tail -n 1 "${PREVIEW_HOME}/sync/pr-${n}.log")"
         ;;
       *)
-        echo "$head failed $label_at" >"$state_file"
+        record "$n" "$head failed $label_at"
         echo "pr-${n}: up failed (exit ${code}); see ${PREVIEW_HOME}/sync/pr-${n}.log"
         comment "$n" "실패했다
 
@@ -635,7 +638,7 @@ up_body() {
 - 주소: $(url "pr-$1")
 - head: \`$2\`
 - 데모 계정: \`demo-owner@example.test\`(owner), \`demo-member@example.test\`(member). 비밀번호는 [quickstart](https://github.com/JeongJaeSoon/werft/blob/main/docs/quickstart.md)의 "웹 콘솔 데모 계정"과 같다.
-- 새 커밋을 push하면 1분 안팎에 새 head로 다시 띄운다. 라벨 \`${PREVIEW_LABEL}\`를 떼거나 PR을 닫으면 내려간다. 마지막으로 띄운 지 ${PREVIEW_TTL_HOURS}시간이 지나면 내려가고 라벨이 떨어진다.
+- 새 커밋을 push하면 다음 실행(1분 안팎)에서 새 head를 빌드해 다시 띄운다. 라벨 \`${PREVIEW_LABEL}\`를 떼거나 PR을 닫으면 내려간다. 마지막으로 띄운 지 ${PREVIEW_TTL_HOURS}시간이 지나면 내려간다. 라벨은 남으니, 다시 보려면 push하거나 라벨을 다시 붙인다.
 
 fake 모델이라 실제 모델·GitHub·Slack에는 닿지 않는다.
 EOF

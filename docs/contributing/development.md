@@ -152,7 +152,7 @@ PR에 라벨 `preview`를 붙이면, `preview.sh sync`를 1분마다 돌리는 M
 
 1. 그 Mac의 gh 로그인, 저장소의 push 권한자, 라벨(`PREVIEW_LABEL`, 기본 `preview`)이 붙은 열린 PR을 읽는다. 하나라도 읽지 못하거나 PR이 500개 이상이면(목록이 잘렸을 수 있다) 아무것도 바꾸지 않고 `reap`만 돈다.
 2. 라벨을 뗐거나 닫혔거나 머지된 PR의 미리보기 중 `sync`가 띄운 것(`werft.dev/preview-source=label`)을 `down`한다. 긴 빌드보다 먼저 한다. 손으로 띄운 미리보기는 `reap`에 맡긴다.
-3. 라벨이 붙은 PR마다, 떠 있는 head가 PR head와 다르면 아래 검사를 거쳐 `up <번호> <head>`로 그 head를 띄운다. 그 사이 push로 head가 바뀌면 `up`이 75로 끝나고 다음 실행이 새 head로 한다. 손으로 같은 head를 띄워 `/readyz`가 200인 미리보기는 그대로 넘겨받는다.
+3. 라벨이 붙은 PR마다, 떠 있는 head가 PR head와 다르면 아래 검사를 거쳐 `up <번호> <head>`로 그 head를 띄운다. 그 사이 push로 head가 바뀌면 `up`이 75로 끝나고 다음 실행이 새 head로 한다. 손으로 띄운 미리보기가 있으면 같은 head여도 `up`처럼 지우고 새로 설치한다.
 4. `reap`을 돈다.
 
 다음이면 띄우지 않고 이유를 로그와 PR 댓글에 적는다.

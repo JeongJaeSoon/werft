@@ -132,6 +132,7 @@ case "$1" in
     fi
     exit "$code" ;;
   down)
+    [ "\${STUB_DOWN_EXIT:-0}" = 0 ] || { echo "pr-$2: up again" >&2; exit "$STUB_DOWN_EXIT"; }
     jq --arg n "pr-$2" '.items |= map(select(.metadata.name != $n))' "$ns" >"$ns.tmp"
     mv "$ns.tmp" "$ns" ;;
 esac
@@ -420,17 +421,44 @@ esac
     expect(posted[0]).toContain("PR 미리보기: 내려갔다");
   });
 
-  test("adopts a preview brought up by hand at the PR's head", async () => {
+  test("keeps the record of a preview whose down did not go through", async () => {
+    await pulls([]);
+    await namespaces([{ name: "pr-5", head: HEAD_A, source: "label" }]);
+    await state(5, `${HEAD_A} up ${LABELED_1}`);
+    const result = await sync({ STUB_DOWN_EXIT: "75" });
+    expect(result.stdout).toContain("pr-5: kept, see above");
+    expect(await readState(5)).toBe(`${HEAD_A} up ${LABELED_1}`);
+    expect(await writes()).toEqual([]);
+  });
+
+  test("installs over a preview brought up by hand, refusals first", async () => {
     await pulls([{ number: 5, head: HEAD_A }]);
-    await labeled(5, [{ at: LABELED_1, by: "owner" }]);
+    await labeled(5, [{ at: LABELED_1, by: "someone" }]);
     await namespaces([{ name: "pr-5", head: HEAD_A }]);
     await sync();
     expect(await lines("preview-calls")).toEqual([]);
-    expect(await lines("kubectl-calls")).toContain(
-      "annotate namespace pr-5 --overwrite werft.dev/preview-source=label",
-    );
-    expect(await readState(5)).toBe(`${HEAD_A} up ${LABELED_1}`);
+    expect(await readState(5)).toBe(`${HEAD_A} refused ${LABELED_1}`);
+    await labeled(5, [{ at: LABELED_2, by: "owner" }]);
+    await sync();
+    expect(await lines("preview-calls")).toEqual([
+      `up 5 ${HEAD_A} source=label reap_up_at=unset`,
+    ]);
   });
+
+  for (const record of ["", HEAD_A]) {
+    test(`reads a cut-short record (${JSON.stringify(record)}) as no attempt`, async () => {
+      await pulls([{ number: 5, head: HEAD_A }]);
+      await labeled(5, [{ at: LABELED_1, by: "owner" }]);
+      await mkdir(join(dir, "home", "sync"), { recursive: true });
+      await writeFile(join(dir, "home", "sync", "pr-5"), record);
+      const result = await sync();
+      expect(result.exitCode).toBe(0);
+      expect(await lines("preview-calls")).toEqual([
+        `up 5 ${HEAD_A} source=label reap_up_at=unset`,
+      ]);
+      expect(result.stdout).toContain("reap deleted:");
+    });
+  }
 
   for (const missing of ["pulls.json", "user.json"]) {
     test(`changes nothing when GitHub does not answer (${missing})`, async () => {
