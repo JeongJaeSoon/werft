@@ -211,6 +211,8 @@ printf '%s\n' '{"services":{"x":{"image":"alpine:3"}},"networks":{"default":{}}}
 
 原因を直し、同じ release ファイルと同じ環境で `deploy` を再実行します。成功済みの環境を再起動するときは `start` を使います。
 
+`preflight` が `path(s) the containers mount are not readable by other users` で止まった場合、リポジトリの checkout またはバンドルが制限的な umask（`077`、`027`）で作られています。postgres（uid 999）と migrate（uid 1000）はホストのユーザーとして実行されないため、そのファイルを読めません。出力されたパスを確認し、checkout またはバンドルのディレクトリに `chmod -R o+rX`、設定文書に `chmod o+r` を実行するか、umask `022` で取得し直します。この検査がない以前のリリースでは、同じ原因が `deploy` での postgres unhealthy と、postgres ログの `Permission denied` としてのみ現れます。
+
 quota エラーは [XFS の準備](/run-server/self-hosting/prepare-xfs)、bucket の保護・権限エラーは [bucket の準備](/run-server/self-hosting/prepare-checkpoint-bucket)を確認します。env 権限エラーは[手順 2 のファイル mode](#2-비밀과-설정-문서)、settings digest エラーは[手順 3 の digest・release 入力生成](#3-release-입력-생성)を確認します。最初の deploy が失敗しても、正常デプロイの状態ファイルがあるとは考えないでください。
 
 <a id="되돌리기" />

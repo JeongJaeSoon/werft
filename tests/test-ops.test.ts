@@ -212,6 +212,128 @@ describe("scripts/test-ops.sh", () => {
     expect(result.stderr).toContain("Docker Engine 27.5.1 is too old");
   });
 
+  describe("preflight and the modes of what the containers mount", () => {
+    // A daemon new enough, and a render whose bind sources are files here.
+    async function preflightWith(modes: {
+      dir: number;
+      sql: number;
+      settings: number;
+    }) {
+      const head = Bun.spawnSync(["git", "-C", repoRoot, "rev-parse", "HEAD"])
+        .stdout.toString()
+        .trim();
+      const manifest = JSON.parse(await readFile(EXAMPLE_MANIFEST, "utf8"));
+      manifest.source_commit = head;
+      await writeFile(join(dir, "release.json"), JSON.stringify(manifest));
+      const initdb = join(dir, "migrations");
+      await mkdir(initdb);
+      await writeFile(join(initdb, "0000_m0.sql"), "select 1;\n");
+      await chmod(join(initdb, "0000_m0.sql"), modes.sql);
+      await chmod(initdb, modes.dir);
+      await writeFile(join(dir, "installation.json"), "{}\n");
+      await chmod(join(dir, "installation.json"), modes.settings);
+      const bind = (source: string, target: string) => ({
+        source,
+        target,
+        type: "bind",
+      });
+      await writeFile(
+        join(dir, "render.json"),
+        JSON.stringify({
+          services: {
+            migrate: {
+              volumes: [
+                bind(
+                  join(dir, "installation.json"),
+                  "/settings/installation.json",
+                ),
+              ],
+            },
+            postgres: {
+              volumes: [
+                {
+                  source: "pgdata",
+                  target: "/var/lib/postgresql/data",
+                  type: "volume",
+                },
+                bind(initdb, "/docker-entrypoint-initdb.d"),
+              ],
+            },
+          },
+        }),
+      );
+      await writeFile(
+        join(dir, "bin", "docker"),
+        [
+          "#!/bin/sh",
+          `echo "$*" >> "${calls}"`,
+          '[ "$1" = version ] && { echo 29.0.0; exit 0; }',
+          '[ "$1 $2" = "compose version" ] && { echo 2.30.0; exit 0; }',
+          `case " $* " in *" config --format json "*) cat "${join(dir, "render.json")}"; exit 0;; esac`,
+          "exit 1",
+          "",
+        ].join("\n"),
+        { mode: 0o755 },
+      );
+      return run(["preflight", join(dir, "release.json")], env);
+    }
+
+    const clean = () =>
+      Bun.spawnSync([
+        "git",
+        "-C",
+        repoRoot,
+        "status",
+        "--porcelain",
+        "--untracked-files=no",
+      ]).stdout.toString() === "";
+
+    test("refuses a bind source made under umask 077", async () => {
+      // The checkout check comes first; a working tree with edits stops there.
+      if (!clean()) return;
+      const result = await preflightWith({
+        dir: 0o700,
+        settings: 0o600,
+        sql: 0o600,
+      });
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain(`  ${join(dir, "migrations")}\n`);
+      expect(result.stderr).toContain(
+        `  ${join(dir, "migrations", "0000_m0.sql")}\n`,
+      );
+      expect(result.stderr).toContain(`  ${join(dir, "installation.json")}\n`);
+      expect(result.stderr).toContain(
+        "3 path(s) the containers mount are not readable by other users",
+      );
+      expect(await dockerCalls()).not.toContain(" up ");
+    });
+
+    test("refuses a directory others cannot list", async () => {
+      if (!clean()) return;
+      const result = await preflightWith({
+        dir: 0o751,
+        settings: 0o644,
+        sql: 0o644,
+      });
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain(
+        "1 path(s) the containers mount are not readable by other users",
+      );
+    });
+
+    test("passes bind sources made under umask 022", async () => {
+      if (!clean()) return;
+      const result = await preflightWith({
+        dir: 0o755,
+        settings: 0o644,
+        sql: 0o644,
+      });
+      expect(result.stderr).not.toContain("not readable by other users");
+      // The next check asks the daemon about LocalStack, which this one refuses.
+      expect(result.stderr).toContain("cannot tell whether LocalStack runs");
+    });
+  });
+
   test("refuses an object store it does not know", async () => {
     const result = await run(["status"], {
       ...env,

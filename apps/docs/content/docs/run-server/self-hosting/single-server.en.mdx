@@ -211,6 +211,8 @@ printf '%s\n' '{"services":{"x":{"image":"alpine:3"}},"networks":{"default":{}}}
 
 Fix the cause, then rerun `deploy` with the same release file and environment. Use `start` to restart an installation that has already succeeded.
 
+If `preflight` stops with `path(s) the containers mount are not readable by other users`, the checkout or bundle was made under a restrictive umask (`077`, `027`). Postgres (uid 999) and migrate (uid 1000) do not run as the host user and cannot read those files. Check the listed paths, then run `chmod -R o+rX` on the checkout or bundle directory and `chmod o+r` on the settings document, or fetch it again under umask `022`. Releases without this check show the same cause only as an unhealthy postgres at `deploy`, with `Permission denied` in the postgres log.
+
 For quota errors, see [XFS preparation](/run-server/self-hosting/prepare-xfs); for bucket protection/permission errors, see [Bucket preparation](/run-server/self-hosting/prepare-checkpoint-bucket). For env permissions, check [step 2 file modes](#2-비밀과-설정-문서); for settings digest errors, check [step 3 digest and release generation](#3-release-입력-생성). A failed first deploy does not imply a successful deployment state file exists.
 
 <a id="되돌리기" />

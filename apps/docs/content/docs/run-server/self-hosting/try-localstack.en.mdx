@@ -129,6 +129,8 @@ printf '%s\n' '{"services":{"x":{"image":"alpine:3"}},"networks":{"default":{}}}
 
 After fixing the cause, rerun `deploy` with the same release file and environment. Use `start` to restart an installation that has already succeeded.
 
+If `preflight` stops with `path(s) the containers mount are not readable by other users`, the checkout or bundle was made under a restrictive umask (`077`, `027`). Postgres (uid 999) and migrate (uid 1000) do not run as the host user and cannot read those files. Check the listed paths, then run `chmod -R o+rX` on the checkout or bundle directory and `chmod o+r` on the settings document, or fetch it again under umask `022`. Releases without this check show the same cause only as an unhealthy postgres at `deploy`, with `Permission denied` in the postgres log.
+
 The first upgrade changing restart policies may recreate LocalStack and lose objects. Postpone the upgrade unless `status` confirms 0 uncollected checkpoints. If API startup failure coincides with `pending.json`, `reseed` is also rejected; `reset` discards all data. `backup --stop` does not remove this block.
 
 LocalStack loses in-memory objects when its container is recreated. The API refuses to start if the database retains uncollected checkpoints but the bucket is empty. For automatic and manual start conditions, see the [Compose lifecycle](/run-server/self-hosting/stop-compose).

@@ -429,6 +429,22 @@ check_bundle() {
   done
 }
 
+# Compose bind-mounts host files (the release's init SQL and LocalStack script,
+# the settings document) into containers that run as their own users, so a
+# checkout or bundle made under umask 077 or 027 otherwise surfaces only as an
+# unhealthy postgres after deploy has created its volume.
+check_mount_modes() {
+  local source path closed=()
+  while IFS= read -r source; do
+    while IFS= read -r path; do closed+=("$path"); done \
+      < <(find -H "$source" \( -type f ! -perm -004 \) -o \( -type d ! -perm -005 \) 2>/dev/null)
+  done < <(printf '%s' "$RENDER" | jq -r '[.services[].volumes[]? | select(.type == "bind") | .source] | unique[]')
+  [ "${#closed[@]}" = 0 ] && return
+  printf '  %s\n' "${closed[@]:0:10}" >&2
+  [ "${#closed[@]}" -le 10 ] || printf '  ... and %s more\n' "$(( ${#closed[@]} - 10 ))" >&2
+  die "${#closed[@]} path(s) the containers mount are not readable by other users (above), and the containers do not run as you. Run chmod -R o+rX on the checkout or bundle directory and chmod o+r on the settings document, or make them again under umask 022"
+}
+
 # The loaded manifest against this host. The workspace quota itself is the
 # scheduler's own probe at startup (deploy and upgrade wait for it).
 preflight() {
@@ -459,6 +475,7 @@ preflight() {
   compose_version="$(docker compose version --short 2>/dev/null)" || die "docker compose (v2) is not installed"
   version_at_least "$compose_version" "$MIN_COMPOSE" || die "docker compose $compose_version is too old; $MIN_COMPOSE or newer"
   render
+  check_mount_modes
   # Before the bucket is touched with what may be another installation's settings.
   [ ! -e "$IDENTITY" ] || check_identity
   # Reseed alone moves a running LocalStack: it puts the objects back.
