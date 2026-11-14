@@ -78,5 +78,6 @@ API로 세션을 만들고 쓰는 사람.
 | [결정(설계): 에이전트 담당 팀과 액션 RBAC](contributing/decisions/agent-rbac.md) | 에이전트·세션 action별 지금 권한 실측, 담당 팀 안팎 주체별 RBAC 표, 워크스페이스 설정 두 축(바깥쪽의 에이전트 접근, 세션 열람 상한), 담당 팀 필수와 기존 에이전트 이행, 앞선 결정과의 차이, 구현 단위 R1~R5 |
 | [결정(설계): 범용 OIDC 로그인 공급자](contributing/decisions/oidc-login-providers.md) | 공급자를 설정 행으로 두는 OIDC 모듈 구조, 검증 순서와 거절 경우, endpoint 고정과 주소 검사, 봉인한 흐름 cookie, `login_providers`·`login_methods`·세션의 로그인 수단 칸, 증명된 주소와 초대 token 가입·계정 연결 규칙, 관리자 화면과 테스트 로그인, 공급자 끄기와 세션 끊기, 비밀번호 끄기·비상 관리자·CLI 복구, 공급자별 차이, `GOOGLE_OIDC_*` 제거, 단계별 PR (Codex 설계 리뷰 승인, 구현 중) |
 | [결정(설계): 새 control-host와 지원 창 안 옛 worker의 호환 계약](contributing/decisions/worker-compat.md) | 요청·응답·JSON 밖의 약속·DB의 expand → contract 규칙, 직전 지원 릴리스의 worker protocol 고정본과 두 방향 계약 시험, 실제 이미지 매트릭스와 릴리스 gate, migration 삭제 검사 |
+| [결정(설계): egress proxy forward 연결 이어 쓰기](contributing/decisions/egress-proxy-keep-alive.md) | Bun fetch가 닫힐 proxy 연결을 다시 써서 끊기는 문제, 요청을 하나씩 받는 안을 고른 이유, 이어 쓰는 조건, 지키는 smuggling 방어와 시험 사례 |
 | [결정(설계): 에이전트 지도 뷰 선택](contributing/decisions/agent-map-views.md) | 그래프를 두고 줌 캔버스를 두 번째 뷰로 고르게 하는 설계, 전환 UI와 공유 상태, 주소·설정으로 뷰 고정, 접근성, 단계 A1~D와 세션 사이 관계 데이터 의존, 열린 질문 (승인됨, 구현 미착수) |
 | [실제 Claude로 확인하기](real-claude.md) | 실제 Claude로 스택 확인 |
