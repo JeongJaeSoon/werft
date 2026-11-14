@@ -12,6 +12,11 @@ export type ProxyRequest =
       body: RequestBody;
       head: string;
       host: string;
+      /**
+       * The client asked, explicitly, to send its next request on this
+       * connection; see `keepAliveOf`.
+       */
+      keepAlive: boolean;
       kind: "forward";
       port: number;
     }
@@ -38,6 +43,9 @@ export function parseRequestHead(head: string): ProxyRequest {
     return invalid(400, "malformed request line");
   }
   const [method = "", target = "", version = ""] = parts;
+  // The method reaches the upstream as it came; the target is re-serialised
+  // from its URL.
+  if (!TOKEN.test(method)) return invalid(400, "malformed request line");
   if (!version.startsWith("HTTP/1.")) {
     return invalid(505, `unsupported version ${version}`);
   }
@@ -71,6 +79,7 @@ export function parseRequestHead(head: string): ProxyRequest {
     body,
     head: rewrite(method, url, headers),
     host: normalizeHost(url.hostname),
+    keepAlive: version === "HTTP/1.1" && keepAliveOf(headers),
     kind: "forward",
     port,
   };
@@ -107,22 +116,42 @@ function bodyOf(headers: Array<[string, string]>): RequestBody | string {
     : "malformed content-length";
 }
 
+/**
+ * Persistence is opt-in although HTTP/1.1 defaults to it: clients that do
+ * not say keep-alive (curl, git) honour `connection: close`, so they keep
+ * the one-request connection they always had. Bun's fetch and node:http
+ * say it, and ignore the close.
+ */
+function keepAliveOf(headers: Array<[string, string]>): boolean {
+  const tokens = (field: string): string[] =>
+    headers
+      .filter(([name]) => name === field)
+      .flatMap(([, value]) => value.split(","))
+      .map((token) => token.trim().toLowerCase());
+  const connection = tokens("connection");
+  return (
+    connection.includes("keep-alive") &&
+    !connection.includes("close") &&
+    !tokens("proxy-connection").includes("close")
+  );
+}
+
 function invalid(status: number, reason: string): ProxyRequest {
   return { kind: "invalid", reason, status };
 }
 
-/** null on an obs-folded or otherwise malformed field, which we never accept. */
+/**
+ * null on an obs-folded or otherwise malformed field, which we never accept:
+ * a name that is not a token (whitespace before the colon included, RFC
+ * 9112 §5.1) or a value carrying a control character (`parseField`).
+ */
 function parseHeaders(lines: string[]): Array<[string, string]> | null {
   const headers: Array<[string, string]> = [];
   for (const line of lines) {
     if (line.length === 0) continue;
-    if (line.startsWith(" ") || line.startsWith("\t")) return null;
-    const colon = line.indexOf(":");
-    if (colon <= 0) return null;
-    headers.push([
-      line.slice(0, colon).trim().toLowerCase(),
-      line.slice(colon + 1).trim(),
-    ]);
+    const field = parseField(line);
+    if (field === undefined) return null;
+    headers.push([field.name, field.value]);
   }
   return headers;
 }
@@ -158,6 +187,19 @@ function splitAuthority(target: string): { host: string; port: number } | null {
 }
 
 const TOKEN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+/**
+ * A control character other than HTAB (RFC 9110 §5.5). A bare CR or LF is
+ * the dangerous one: lines are split on CRLF only, so a peer that also ends
+ * lines on LF reads a field hidden inside this one's value — a second
+ * Content-Length or a Transfer-Encoding nobody here framed by.
+ */
+function hasControl(value: string): boolean {
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i);
+    if ((code < 0x20 && code !== 0x09) || code === 0x7f) return true;
+  }
+  return false;
+}
 
 /** A `name: value` line, name lower-cased; undefined for anything else. */
 export function parseField(
@@ -167,7 +209,9 @@ export function parseField(
   if (colon <= 0) return undefined;
   const name = line.slice(0, colon);
   if (!TOKEN.test(name)) return undefined;
-  return { name: name.toLowerCase(), value: line.slice(colon + 1).trim() };
+  const value = line.slice(colon + 1);
+  if (hasControl(value)) return undefined;
+  return { name: name.toLowerCase(), value: value.trim() };
 }
 
 /** Index just past the CRLFCRLF that ends the head, or -1. */
@@ -207,10 +251,10 @@ const MAX_TRAILER_BYTES = 16 * 1024;
  * sends past it — a pipelined request, or one written on a connection it was
  * told to close — reaches the upstream judged for this one. Such a
  * request could carry another destination's credentials. The bytes are
- * dropped rather than answered: the proxy ends the connection once the
- * answer is complete (response.ts), and a client that had reused it sends
- * that request again on a fresh one. The answer's body is counted with the
- * same framer.
+ * dropped rather than answered, and the connection then ends once the
+ * answer is complete: the proxy reads a next request only from bytes that
+ * arrive after its exchange is over (`proxy.ts`). The answer's body is
+ * counted with the same framer.
  *
  * Chunked bodies are framed rather than refused: git over http sends one
  * whenever a request outgrows its `http.postBuffer`.
