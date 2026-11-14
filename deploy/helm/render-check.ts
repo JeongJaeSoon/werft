@@ -1787,7 +1787,10 @@ errors.push(
     ["--set", `images.worker.digest=${CURRENT_DIGEST}`],
     packaged,
   );
-  if (both.ok || !/set images\.workers: \[\] to deploy images\.worker alone/.test(both.out)) {
+  if (
+    both.ok ||
+    !/set images\.workers: \[\] to deploy images\.worker alone/.test(both.out)
+  ) {
     errors.push(
       `package, images.worker beside the package's list: expected the render to fail, got ${both.ok ? "a render" : both.out.slice(0, 200)}`,
     );
@@ -1862,6 +1865,36 @@ errors.push(
             want,
           )
         : [`next-workers, control phase of ${label}: ${control.out}`]),
+    );
+  }
+  {
+    // The docs apply the phase over the installation's own values file,
+    // whose runtime Helm would merge with a {} of the phase.
+    const installation = join(
+      mkdtempSync(join(tmpdir(), "render-check-installation-")),
+      "values.yaml",
+    );
+    writeFileSync(
+      installation,
+      JSON.stringify({
+        images: {
+          worker: {
+            runtime: { ...CURRENT_RUNTIME, restorableSchemes: [1] },
+          },
+        },
+      }),
+    );
+    const control = nextWorkers("control", single);
+    const label =
+      "next-workers, control phase of a single image without runtime over a values file that sets one";
+    errors.push(
+      ...(control.ok
+        ? checkWorkerImages(
+            label,
+            render(["-f", installation, "-f", control.file], packaged),
+            { image: `${WORKER_REPOSITORY}@${deployedImage.digest}` },
+          )
+        : [`${label}: ${control.out}`]),
     );
   }
   const first = nextWorkers("final", single, {

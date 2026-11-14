@@ -396,7 +396,8 @@ describe("next-workers.jq, control phase", () => {
         egressProxy,
       },
     });
-    // Deployed without a runtime, it stays without one.
+    // Deployed without a runtime, it stays without one: null, which clears
+    // a runtime the installation's own values file sets.
     expect(run("control", single({ digest: digest("a") }), [])).toEqual({
       ok: true,
       images: {
@@ -404,12 +405,12 @@ describe("next-workers.jq, control phase", () => {
         worker: {
           repository: "reg/werft-worker",
           digest: digest("a"),
-          runtime: {},
+          runtime: null,
         },
         workerPrevious: {
           repository: "reg/werft-worker",
           digest: "",
-          runtime: {},
+          runtime: null,
         },
         egressProxy,
       },

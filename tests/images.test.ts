@@ -1577,7 +1577,9 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       expect(at).toBeGreaterThan(-1);
       expect(lines.slice(at, at + 3)).toEqual([
         "  workers:",
-        ...releaseImages(images).map((entry) => `    - ${JSON.stringify(entry)}`),
+        ...releaseImages(images).map(
+          (entry) => `    - ${JSON.stringify(entry)}`,
+        ),
       ]);
       expect(lines.slice(at + 3)).toEqual(original.slice(at + 1));
       expect(

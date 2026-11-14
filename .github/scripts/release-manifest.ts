@@ -121,7 +121,9 @@ export function buildManifest(input: {
   }
   const workers = JSON.stringify(releaseImages(baked));
   if (JSON.stringify(packaged?.workers) !== workers) {
-    throw new Error("the chart's images.workers is not the published worker images");
+    throw new Error(
+      "the chart's images.workers is not the published worker images",
+    );
   }
   if (JSON.stringify(JSON.parse(chart.releaseImages)) !== workers) {
     throw new Error(

@@ -52,13 +52,17 @@ next_workers() {
     --slurpfile release target-chart/werft/files/release-images.json \
     --argjson known "$KNOWN"
 }
+# Drop the runtime the values files before them set, which Helm would merge with the next one
+echo '{"images": {"worker": {"runtime": null}}}' > worker-reset.json
+echo '{"images": {"workerPrevious": {"runtime": null}}}' > worker-previous-reset.json
 ```
 
 ```bash
 KNOWN='{}'
 deployed_values && next_workers control > control-phase.json \
   && helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
-    --namespace werft -f values-<installation>.yaml -f control-phase.json \
+    --namespace werft -f values-<installation>.yaml \
+    -f worker-reset.json -f worker-previous-reset.json -f control-phase.json \
     --set-json 'upgrade.approvedSessions=[]' --timeout 10m \
   && kubectl -n werft rollout status deploy/werft-api --timeout=600s
 ```
@@ -89,8 +93,8 @@ if deployed_values \
     jq '{images: {workerPrevious: (.images.worker | {repository, digest, runtime})}}' \
       deployed-values.json > "$PREVIOUS"
   fi
-  set -- -f values-<installation>.yaml -f worker.json
-  if [ -f "$PREVIOUS" ]; then set -- "$@" -f "$PREVIOUS"; fi
+  set -- -f values-<installation>.yaml -f worker-reset.json -f worker.json
+  if [ -f "$PREVIOUS" ]; then set -- "$@" -f worker-previous-reset.json -f "$PREVIOUS"; fi
   if helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
     --namespace werft "$@" --timeout 10m; then
     if [ "$PREVIOUS" != worker-previous.json ]; then mv "$PREVIOUS" worker-previous.json; fi
@@ -98,7 +102,7 @@ if deployed_values \
 fi
 ```
 
-`ENGINE` is the engine this installation deploys; an installation that deploys the Codex worker sets `ENGINE=codex`. Left as it is, the worker becomes the Claude image, and the previous-image file is chosen against an image the installation does not deploy. `deployed_values` reads the values of the deployed revision. Without the revision, a failed upgrade makes get values return that attempted revision's candidate image. When digests differ, save current into a candidate file, replacing worker-previous.json only after successful upgrade. Failed upgrades leave the preserved file untouched. With identical digests, pass the existing file unchanged. An upgrade retaining the first installation's worker may have no file yet; that is valid. When any command before it fails, `helm upgrade` does not run.
+`ENGINE` is the engine this installation deploys; an installation that deploys the Codex worker sets `ENGINE=codex`. Left as it is, the worker becomes the Claude image, and the previous-image file is chosen against an image the installation does not deploy. `deployed_values` reads the values of the deployed revision. Without the revision, a failed upgrade makes get values return that attempted revision's candidate image. When digests differ, save current into a candidate file, replacing worker-previous.json only after successful upgrade. Failed upgrades leave the preserved file untouched. With identical digests, pass the existing file unchanged. An upgrade retaining the first installation's worker may have no file yet; that is valid. When any command before it fails, `helm upgrade` does not run. Helm merges a values file's runtime key by key into the runtime of the files before it, so a file that clears that runtime (`worker-reset.json`, `worker-previous-reset.json`) goes before each image file. Without it, a key of the last image that your installation values still hold, such as `restorableSchemes`, sticks to the new image, which then claims to restore checkpoints it cannot.
 
 - An upgrade without `worker.json` applies the published chart's list of two images. An installation whose values set `images.worker` fails at render (`set images.workers: [] to deploy images.worker alone`). One whose values do not becomes a list installation and does not keep the current image as the previous one. When no image of the target list restores the current image's checkpoints (another engine, SDK or CLI, or an image deployed without a runtime), the pre-upgrade check stops with a `refused` that no approval covers.
 - Keep `worker-previous.json` beside installation files and pass it on subsequent upgrades. Omitting it when the worker digest is unchanged drops the deployed previous image. Checks then compare sessions and refuse if any match neither target current/previous combination or lack recorded combinations (approval can bypass this). If omitted accidentally, restore the file rather than approving. With no affected sessions and empty upgrade.approvedSessions, checks pass; stale approvals cause refused. See “What checks do not cover” below. Main charts merged the same day can share worker digests.

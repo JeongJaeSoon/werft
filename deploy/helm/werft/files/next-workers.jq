@@ -49,10 +49,12 @@ def entry($where):
 | (($images.workers // []) | length > 0) as $listed
 | if $phase == "control" then
     if $listed then {images: (cleared + {workers: $images.workers, egressProxy: $images.egressProxy})}
+    # No runtime is null: Helm merges a {} of a later values file into the
+    # runtime an installation's own values file may still set.
     else {images: {
       workers: [],
-      worker: ($images.worker | {repository, digest, runtime: (.runtime // {})}),
-      workerPrevious: ($images.workerPrevious | {repository, digest: (.digest // ""), runtime: (.runtime // {})}),
+      worker: ($images.worker | {repository, digest, runtime: (if (.runtime // {}) == {} then null else .runtime end)}),
+      workerPrevious: ($images.workerPrevious | {repository, digest: (.digest // ""), runtime: (if (.runtime // {}) == {} then null else .runtime end)}),
       egressProxy: $images.egressProxy}}
     end
   elif $phase != "final" then fail("phase must be control or final, not \($phase | tojson)")

@@ -210,7 +210,10 @@ export function bakeValues(text: string, images: ChartImages): string {
   };
   for (const key of ["controlHost", "egressProxy", "worker"] as const) {
     const match = once(
-      new RegExp(`^  ${key}:\\n    repository: (\\S+)\\n    digest: ""\\n`, "gm"),
+      new RegExp(
+        `^  ${key}:\\n    repository: (\\S+)\\n    digest: ""\\n`,
+        "gm",
+      ),
       `images.${key}`,
     );
     const image = images[key];

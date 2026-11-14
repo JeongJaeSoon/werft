@@ -52,13 +52,17 @@ next_workers() {
     --slurpfile release target-chart/werft/files/release-images.json \
     --argjson known "$KNOWN"
 }
+# Drop the runtime the values files before them set, which Helm would merge with the next one
+echo '{"images": {"worker": {"runtime": null}}}' > worker-reset.json
+echo '{"images": {"workerPrevious": {"runtime": null}}}' > worker-previous-reset.json
 ```
 
 ```bash
 KNOWN='{}'
 deployed_values && next_workers control > control-phase.json \
   && helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
-    --namespace werft -f values-<installation>.yaml -f control-phase.json \
+    --namespace werft -f values-<installation>.yaml \
+    -f worker-reset.json -f worker-previous-reset.json -f control-phase.json \
     --set-json 'upgrade.approvedSessions=[]' --timeout 10m \
   && kubectl -n werft rollout status deploy/werft-api --timeout=600s
 ```
@@ -89,8 +93,8 @@ if deployed_values \
     jq '{images: {workerPrevious: (.images.worker | {repository, digest, runtime})}}' \
       deployed-values.json > "$PREVIOUS"
   fi
-  set -- -f values-<installation>.yaml -f worker.json
-  if [ -f "$PREVIOUS" ]; then set -- "$@" -f "$PREVIOUS"; fi
+  set -- -f values-<installation>.yaml -f worker-reset.json -f worker.json
+  if [ -f "$PREVIOUS" ]; then set -- "$@" -f worker-previous-reset.json -f "$PREVIOUS"; fi
   if helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
     --namespace werft "$@" --timeout 10m; then
     if [ "$PREVIOUS" != worker-previous.json ]; then mv "$PREVIOUS" worker-previous.json; fi
@@ -98,7 +102,7 @@ if deployed_values \
 fi
 ```
 
-`ENGINE` はこの環境がデプロイするエンジンです。Codex worker をデプロイする環境は `ENGINE=codex` にします。そのままにすると worker が Claude イメージに変わり、直前イメージのファイルもデプロイしていないイメージと比較して決まります。`deployed_values` は deployed revision の値を読みます。revision を省くと、失敗した upgrade がある場合、その revision の値、つまり更新候補のイメージが返ります。worker digest が違えば現在のイメージを候補ファイルに書き、upgrade 成功後だけ `worker-previous.json` をそのファイルで置き換えます。失敗した upgrade は保存ファイルを変更しません。digest が同じなら既存ファイルをそのまま渡します。初回設置後、worker が変わらない upgrade にはまだファイルがなくても問題ありません。前のコマンドが一つでも失敗すると `helm upgrade` は実行されません。
+`ENGINE` はこの環境がデプロイするエンジンです。Codex worker をデプロイする環境は `ENGINE=codex` にします。そのままにすると worker が Claude イメージに変わり、直前イメージのファイルもデプロイしていないイメージと比較して決まります。`deployed_values` は deployed revision の値を読みます。revision を省くと、失敗した upgrade がある場合、その revision の値、つまり更新候補のイメージが返ります。worker digest が違えば現在のイメージを候補ファイルに書き、upgrade 成功後だけ `worker-previous.json` をそのファイルで置き換えます。失敗した upgrade は保存ファイルを変更しません。digest が同じなら既存ファイルをそのまま渡します。初回設置後、worker が変わらない upgrade にはまだファイルがなくても問題ありません。前のコマンドが一つでも失敗すると `helm upgrade` は実行されません。Helm は values ファイルの runtime を前のファイルの runtime とキーごとに統合します。そのため、イメージのファイルの前にその runtime を空にするファイル（`worker-reset.json`、`worker-previous-reset.json`）を渡します。渡さないと、環境の values に残った前のイメージの `restorableSchemes` などのキーが新しいイメージに付きます。すると新しいイメージが、復元できない checkpoint を復元できると伝えることになります。
 
 - `worker.json` なしで upgrade すると、公開 chart の二つのイメージの一覧が適用されます。values に `images.worker` を書いた環境は render で失敗します（`set images.workers: [] to deploy images.worker alone`）。書いていない環境は一覧の環境に変わり、現在のイメージを直前のイメージとして残しません。現在のイメージの checkpoint を対象一覧のイメージが復元できない場合（エンジン・SDK・CLI が違う、または runtime なしでデプロイしたイメージ）、アップグレード前検査は承認できない `refused` で停止します。
 - `worker-previous.json` は設置環境とともに保管し、次の upgrade にも渡します。worker digest が同じ upgrade で省くと、デプロイ済みの直前イメージが失われます。その場合、事前検査はセッションを比較し、対象イメージ（現在、および存在すれば直前）のどちらとも組み合わせが合わない、または組み合わせ未記録のセッションがあれば `refused` で停止します（承認可能）。誤って省いたなら承認せず、ファイルを追加して再実行します。選択セッションがなく `upgrade.approvedSessions` が空なら通過します（前回承認が残っていれば `refused`）。見えないセッションについては下記「検査対象外」を参照してください。同日にマージされた `main` chart は worker digest が同じ場合があります。
