@@ -402,6 +402,17 @@ esac
     expect(posted[1]).toContain("PR 미리보기: 떠 있다");
   });
 
+  test("does not hold a bringing-up comment for an up that built nothing", async () => {
+    await pulls([{ number: 5, head: HEAD_A }]);
+    await labeled(5, [{ at: LABELED_1, by: "owner" }]);
+    await sync({ STUB_GH_WRITE_FAILS: "올리는 중", STUB_UP_EXIT: "75" });
+    await rm(join(dir, "gh", "repos__owner___repo__issues_5_events.json"));
+
+    await sync();
+    expect(await writes()).toEqual([]);
+    expect(await lines("preview-calls")).toHaveLength(1);
+  });
+
   test("does not add a second comment when its own cannot be looked up", async () => {
     await pulls([{ number: 5, head: HEAD_A }]);
     await labeled(5, [{ at: LABELED_1, by: "owner" }]);

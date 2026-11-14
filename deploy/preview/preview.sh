@@ -468,7 +468,10 @@ comment() {
     fi; then
     rm -f -- "$pending"
   else
-    echo "pr-${n}: writing the PR comment failed; the next run writes it again" >&2
+    echo "pr-${n}: writing the PR comment failed" >&2
+    # "Bringing up" is not held: the same run writes how it ended, and an
+    # up that ends in 75 builds nothing until a later run says so itself.
+    [[ "$2" == "올리는 중"* ]] && return
     printf '%s\n' "$2" >"${pending}.tmp"
     mv -f -- "${pending}.tmp" "$pending"
   fi
