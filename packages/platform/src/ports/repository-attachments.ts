@@ -84,9 +84,14 @@ export interface RepositoryAttachmentStore {
    * failed fetch also takes the repository off the attached list, and a
    * fetched one pins its commit unless the session has pinned one already.
    * A report for a row no longer pending, or for an earlier request than the
-   * row's receipt, changes nothing, so a resent one is safe.
+   * row's receipt, changes nothing, so a resent one is safe. Each report is
+   * settled under the reporting attempt's fence; once it no longer holds,
+   * the rest are left pending for the attempt that owns the session.
    */
-  settle(sessionId: string, results: RepositoryAttachResult[]): Promise<void>;
+  settle(
+    fence: WorkerFence,
+    results: RepositoryAttachResult[],
+  ): Promise<{ outcome: "ok" } | FenceRejection>;
 }
 
 /**

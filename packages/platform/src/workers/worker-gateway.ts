@@ -921,10 +921,11 @@ export function createWorkerGateway(deps: {
   // catalog's URL; one that left the catalog is settled failed rather than
   // handed out forever.
   async function attachOrders(
-    sessionId: string,
+    fence: WorkerFence,
     pinned: boolean,
   ): Promise<RepositoryAttachOrder[] | undefined> {
     if (deps.attachments === undefined) return undefined;
+    const { sessionId } = fence;
     const rows = await deps.attachments.pending(sessionId);
     // A repository attached again after a failed fetch keeps its first pin.
     const pins =
@@ -935,8 +936,8 @@ export function createWorkerGateway(deps: {
       (row) => own(catalog.repositories, row.repositoryId) === undefined,
     );
     if (gone.length > 0) {
-      await deps.attachments.settle(
-        sessionId,
+      const settled = await deps.attachments.settle(
+        fence,
         gone.map((row) => ({
           repository_id: row.repositoryId,
           receipt_id: row.receiptId,
@@ -944,6 +945,7 @@ export function createWorkerGateway(deps: {
           failure: "fetch_failed",
         })),
       );
+      if (settled.outcome !== "ok") rejected(settled);
     }
     return rows.flatMap((row) => {
       const entry = own(catalog.repositories, row.repositoryId);
@@ -2563,11 +2565,15 @@ export function createWorkerGateway(deps: {
           : { delivered: request.delivered }),
       });
       if (result.outcome !== "ok") return rejected(result);
-      if (request.attached !== undefined) {
-        await deps.attachments?.settle(fence.sessionId, request.attached);
+      if (request.attached !== undefined && deps.attachments !== undefined) {
+        // Not in the poll's transaction: a report that arrives after the
+        // session changed hands settles nothing, and is fetched again by the
+        // attempt that now owns it.
+        const settled = await deps.attachments.settle(fence, request.attached);
+        if (settled.outcome !== "ok") rejected(settled);
       }
       const attachments = await attachOrders(
-        fence.sessionId,
+        fence,
         request.capabilities?.repository_pins === true,
       );
       return {

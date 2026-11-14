@@ -82,7 +82,8 @@ integration("repository attachments on PostgreSQL", () => {
       actor,
       result: { repository_id: repositoryId, attempt_id: attemptId },
     });
-    return { ownerId, sessionId, attemptId, request };
+    const fence = await owning(sessionId, attemptId);
+    return { ownerId, sessionId, attemptId, request, fence };
   }
 
   /** The fence of the session's open attempt, its epochs matched on the session. */
@@ -182,8 +183,8 @@ integration("repository attachments on PostgreSQL", () => {
       status: "attached" as const,
       commit: COMMIT,
     };
-    await store.settle(s.sessionId, [report]);
-    await store.settle(s.sessionId, [
+    await store.settle(s.fence, [report]);
+    await store.settle(s.fence, [
       {
         repository_id: "docs",
         receipt_id,
@@ -218,7 +219,7 @@ integration("repository attachments on PostgreSQL", () => {
     const OTHER = "b".repeat(40);
     expect(await pins.list(s.sessionId)).toEqual(new Map());
 
-    await store.settle(s.sessionId, [
+    await store.settle(s.fence, [
       {
         repository_id: "docs",
         receipt_id: receiptOf(await store.request(s.request())),
@@ -229,7 +230,7 @@ integration("repository attachments on PostgreSQL", () => {
     expect(await pins.list(s.sessionId)).toEqual(new Map([["docs", COMMIT]]));
 
     // A worker that fetched another tip is answered with the kept pin.
-    const fence = await owning(s.sessionId, s.attemptId);
+    const { fence } = s;
     expect(
       await pins.pin({ ...fence, sessionId: s.sessionId.toUpperCase() }, [
         { repositoryId: "docs", commit: OTHER },
@@ -250,16 +251,14 @@ integration("repository attachments on PostgreSQL", () => {
     const t = await session([]);
     expect(await pins.list(t.sessionId)).toEqual(new Map());
     await expect(
-      pins.pin(await owning(t.sessionId, t.attemptId), [
-        { repositoryId: "docs", commit: "c0ffee" },
-      ]),
+      pins.pin(t.fence, [{ repositoryId: "docs", commit: "c0ffee" }]),
     ).rejects.toThrow();
   });
 
   test("only the attempt that owns the session pins", async () => {
     const pins = createPostgresRepositoryPins(db);
     const s = await session([]);
-    const fence = await owning(s.sessionId, s.attemptId);
+    const { fence } = s;
     const asked = [{ repositoryId: "docs", commit: COMMIT }];
 
     expect(await pins.pin({ ...fence, leaseEpoch: 0 }, asked)).toEqual({
@@ -273,6 +272,63 @@ integration("repository attachments on PostgreSQL", () => {
     expect(await pins.list(s.sessionId)).toEqual(new Map());
   });
 
+  test("a report from an attempt that lost the session settles and pins nothing", async () => {
+    const store = createPostgresRepositoryAttachments(db);
+    const pins = createPostgresRepositoryPins(db);
+    const s = await session([]);
+    const receipt_id = receiptOf(await store.request(s.request()));
+    const report = {
+      repository_id: "docs",
+      receipt_id,
+      status: "attached" as const,
+      commit: COMMIT,
+    };
+
+    expect(await store.settle({ ...s.fence, leaseEpoch: 0 }, [report])).toEqual(
+      { outcome: "stale_epoch" },
+    );
+    await pool.query(
+      "UPDATE attempts SET lease_expires_at = now() - interval '1 second' WHERE id = $1",
+      [s.attemptId],
+    );
+    expect(await store.settle(s.fence, [report])).toEqual({
+      outcome: "lease_expired",
+    });
+
+    expect(await store.find(s.sessionId, "docs")).toMatchObject({
+      status: "pending",
+      receiptId: receipt_id,
+    });
+    expect(await pins.list(s.sessionId)).toEqual(new Map());
+    expect((await receipts(s.ownerId)).map((r) => r.status)).toEqual([
+      "accepted",
+    ]);
+  });
+
+  test("a settle and a pin of the same repository at once both finish", async () => {
+    const store = createPostgresRepositoryAttachments(db);
+    const pins = createPostgresRepositoryPins(db);
+    for (let round = 0; round < 10; round += 1) {
+      const s = await session([]);
+      const receipt_id = receiptOf(await store.request(s.request()));
+      const [settled, pinned] = await Promise.all([
+        store.settle(s.fence, [
+          {
+            repository_id: "docs",
+            receipt_id,
+            status: "attached",
+            commit: COMMIT,
+          },
+        ]),
+        pins.pin(s.fence, [{ repositoryId: "docs", commit: "b".repeat(40) }]),
+      ]);
+      expect(settled).toEqual({ outcome: "ok" });
+      expect(pinned.outcome).toBe("ok");
+      const kept = await pins.list(s.sessionId);
+      expect(pinned).toEqual({ outcome: "ok", pins: kept });
+    }
+  }, 30_000);
+
   test("a failed fetch leaves the list and fails its receipt; asking again starts over with a new receipt", async () => {
     const store = createPostgresRepositoryAttachments(db);
     const s = await session(["other"]);
@@ -282,7 +338,7 @@ integration("repository attachments on PostgreSQL", () => {
       status: "failed" as const,
       failure: "fetch_too_large" as const,
     };
-    await store.settle(s.sessionId, [failedReport]);
+    await store.settle(s.fence, [failedReport]);
 
     expect(await attachedList(s.sessionId)).toEqual(["other"]);
     const [failed] = await receipts(s.ownerId);
@@ -303,7 +359,7 @@ integration("repository attachments on PostgreSQL", () => {
     expect(receiptOf(retried)).toBe(all[1]?.id ?? "missing");
 
     // The first failure, resent after the retry, settles nothing of it.
-    await store.settle(s.sessionId, [failedReport]);
+    await store.settle(s.fence, [failedReport]);
     expect(await store.find(s.sessionId, "docs")).toMatchObject({
       status: "pending",
       receiptId: receiptOf(retried),

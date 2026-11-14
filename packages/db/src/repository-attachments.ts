@@ -267,10 +267,14 @@ export function createPostgresRepositoryAttachments(
       return rows.map(rowOf);
     },
 
-    async settle(rawSessionId, results) {
-      const sessionId = rawSessionId.toLowerCase();
+    async settle(fence, results) {
+      const sessionId = fence.sessionId.toLowerCase();
       for (const result of results) {
-        await db.transaction(async (tx) => {
+        const settled = await db.transaction(async (tx) => {
+          // Taken first, so this and the pin route lock the session row
+          // before the pin's key, in one order.
+          const fenced = await acquireFence(tx, fence);
+          if (fenced.outcome !== "ok") return fenced;
           const now = new Date();
           const [row] = await tx
             .update(sessionRepositoryAttachments)
@@ -295,7 +299,7 @@ export function createPostgresRepositoryAttachments(
               ),
             )
             .returning({ receiptId: sessionRepositoryAttachments.receiptId });
-          if (row === undefined) return;
+          if (row === undefined) return { outcome: "ok" as const };
           if (result.status === "attached") {
             await tx
               .insert(sessionRepositoryPins)
@@ -336,8 +340,11 @@ export function createPostgresRepositoryAttachments(
               })
               .where(eq(sessions.id, sessionId));
           }
+          return { outcome: "ok" as const };
         });
+        if (settled.outcome !== "ok") return settled;
       }
+      return { outcome: "ok" };
     },
   };
 }
