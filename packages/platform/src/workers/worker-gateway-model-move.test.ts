@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   bootstrapClaimResponseSchema,
   GITHUB_MCP_TOOLS,
+  githubMcpToolNames,
 } from "@werft-ai/contracts";
 import type {
   ClaimInput,
@@ -22,6 +23,7 @@ import {
 } from "./legacy-runtime-configs.ts";
 import {
   createWorkerGateway,
+  earlierGitHubServers,
   GITHUB_TOOL_ADDITIONS,
 } from "./worker-gateway.ts";
 
@@ -161,16 +163,13 @@ describe("run configs kept on the session row, at claim", () => {
       "sonnet-5-1 0 0",
       ...models.flatMap((model) => [`${model} 1 3`, `${model} 0 0`]),
     ];
-    // The running config before get_pull_request, then before
-    // merge_pull_request too; then each kept one the same way, to the cap.
+    // The running config before get_pull_request, then each kept one the
+    // same way, to the cap.
     const five = await shapesWith(5);
     expect(five.shapes).toEqual([
       ...before(five.models),
       "sonnet-5-1 1 2",
-      "sonnet-5-1 1 1",
-      "sonnet-4-0 1 2",
-      "sonnet-4-0 1 1",
-      "sonnet-4-1 1 2",
+      ...five.models.slice(0, 4).map((model) => `${model} 1 2`),
     ]);
     const seven = await shapesWith(7);
     expect(seven.shapes).toEqual([...before(seven.models), "sonnet-5-1 1 2"]);
@@ -183,6 +182,36 @@ describe("run configs kept on the session row, at claim", () => {
     const listed: string[] = GITHUB_TOOL_ADDITIONS.flat();
     expect(new Set(listed).size).toBe(listed.length);
     expect([...listed].sort()).toEqual(Object.keys(GITHUB_MCP_TOOLS).sort());
+  });
+
+  test("each earlier list leaves out its addition and every later one, newest first, and a list the server never held is not offered", () => {
+    const server = {
+      name: "github",
+      endpoint: "http://egress/mcp/github",
+      binding: "rel-1",
+      tools: githubMcpToolNames([
+        "request_push",
+        "merge_pull_request",
+        "get_pull_request",
+      ]),
+      trusted: githubMcpToolNames(["request_push", "get_pull_request"]),
+    };
+    const lists = earlierGitHubServers(server, [
+      ["request_push"],
+      ["merge_pull_request"],
+      ["dispatch_workflow"],
+      ["get_pull_request"],
+    ]).map(({ tools, trusted }) => ({ tools, trusted }));
+    expect(lists).toEqual([
+      {
+        tools: githubMcpToolNames(["request_push", "merge_pull_request"]),
+        trusted: githubMcpToolNames(["request_push"]),
+      },
+      {
+        tools: githubMcpToolNames(["request_push"]),
+        trusted: githubMcpToolNames(["request_push"]),
+      },
+    ]);
   });
 
   test("an entry that no longer parses, or no entry, offers nothing", async () => {

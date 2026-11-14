@@ -379,40 +379,50 @@ function withRestoreExtensions(
 
 /**
  * The built-in `github` server's tools in the order sessions gained them: the
- * tools it was first attached with, then one entry per change that added
- * some. A checkpoint's digest hashes the whole tool list, so one taken before
- * an addition matches only the list without that addition and every later
- * one. A new tool is appended here as its own entry.
+ * tools it had at migration 0270, which emptied `sessions` and with it every
+ * earlier checkpoint, then one entry per change that added some. A
+ * checkpoint's digest hashes the whole tool list, so one taken before an
+ * addition matches only the list without that addition and every later one.
+ * A new tool is appended here as its own entry.
  */
 export const GITHUB_TOOL_ADDITIONS: readonly (readonly GitHubMcpTool[])[] = [
   [
     "request_push",
     "open_pull_request",
+    "get_push_request",
+    "update_pull_request",
     "comment_pull_request",
+    "close_pull_request",
+    "reopen_pull_request",
+    "merge_pull_request",
     "dispatch_workflow",
     "get_workflow_run",
     "rerun_workflow",
     "submit_review",
+    "list_repositories",
+    "attach_repository",
   ],
-  ["attach_repository"],
-  ["list_repositories", "update_pull_request"],
-  ["close_pull_request", "reopen_pull_request"],
-  ["get_push_request"],
-  ["merge_pull_request"],
   ["get_pull_request"],
 ];
 
 /** The server as it was before each addition it holds, newest first. */
-function earlierGitHubServers(server: ClaimedMcpServer): ClaimedMcpServer[] {
+export function earlierGitHubServers(
+  server: ClaimedMcpServer,
+  additions: readonly (readonly GitHubMcpTool[])[] = GITHUB_TOOL_ADDITIONS,
+): ClaimedMcpServer[] {
   const later = new Set<string>();
-  return GITHUB_TOOL_ADDITIONS.slice(1)
+  let held = server.tools.length;
+  return additions
+    .slice(1)
     .reverse()
     .flatMap((added) => {
       for (const tool of githubMcpToolNames(added)) later.add(tool);
       const earlier = (tools: readonly string[]) =>
         tools.filter((tool) => !later.has(tool));
       const tools = earlier(server.tools);
-      if (tools.length === server.tools.length) return [];
+      // An addition this server never held leaves the list of the one after.
+      if (tools.length === held) return [];
+      held = tools.length;
       return [
         {
           ...server,
