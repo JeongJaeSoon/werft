@@ -396,6 +396,7 @@ const installationSettings = settingsSource({
   store: createPostgresInstallationSettingsStore(db, secretKey),
   env: process.env,
   readSecret: secretsManagerReader(process.env),
+  warn: (message) => logger.warn(message, {}),
 });
 const reportLeftOut = leftOutReporter((message, fields) =>
   logger.warn(message, fields),

@@ -1359,6 +1359,13 @@
       "when": 1794684107070,
       "tag": "0284_session_repository_pin_restore_failed",
       "breakpoints": true
+    },
+    {
+      "idx": 285,
+      "version": "7",
+      "when": 1794692119992,
+      "tag": "0285_credential_carried_auth",
+      "breakpoints": true
     }
   ]
 }

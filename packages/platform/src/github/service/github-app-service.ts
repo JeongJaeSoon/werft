@@ -142,7 +142,7 @@ export function githubAppManifest(input: {
  * A PEM as GitHub hands it out, or pasted with Windows line ends; anything
  * that is not an RSA private key is refused before GitHub sees it.
  */
-function rsaPrivateKey(raw: string): string {
+export function rsaPrivateKey(raw: string): string {
   const pem = raw.replace(/\r\n?/g, "\n").trim();
   try {
     if (createPrivateKey(pem).asymmetricKeyType === "rsa") return pem;
