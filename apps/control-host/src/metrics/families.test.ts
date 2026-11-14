@@ -27,6 +27,7 @@ function snapshot(
     providerUsage: [],
     launchQueue: { sessions: 0, oldestWaitSeconds: 0 },
     inputQueueOldestAgeSeconds: 0,
+    sessionWorkerImages: [],
     ...overrides,
   };
 }
@@ -42,6 +43,13 @@ const row = (
   awaitingAnswer: awaiting.answer ?? false,
   count: 1,
 });
+
+const image = (
+  image: string,
+  status: string,
+  admission: string,
+  count: number,
+) => ({ image, status, admission, count });
 
 describe("session state", () => {
   test.each([
@@ -105,6 +113,7 @@ describe("label values", () => {
 // Labels whose values come from a small set, or from the capped names.
 const ALLOWED_LABELS: Record<string, string[]> = {
   sessions: ["state", "status", "admission"],
+  sessions_by_worker_image: ["image"],
   turns_total: ["status"],
   turn_duration_seconds: ["status", "le"],
   turns_outcome_unknown: [],
@@ -230,6 +239,14 @@ describe("exposition", () => {
         ],
         launchQueue: { sessions: 2, oldestWaitSeconds: 17.25 },
         inputQueueOldestAgeSeconds: 3,
+        sessionWorkerImages: [
+          image("ghcr.io/x/worker@sha256:aa", "running", "active", 2),
+          image("ghcr.io/x/worker@sha256:aa", "idle", "paused", 1),
+          image("ghcr.io/x/worker@sha256:bb", "idle", "recovery_required", 1),
+          // Ended either way: by status, and by admission.
+          image("ghcr.io/x/worker@sha256:bb", "stopped", "active", 5),
+          image("ghcr.io/x/worker@sha256:cc", "idle", "closed", 4),
+        ],
       }),
     );
     const lines = text.trimEnd().split("\n");
@@ -262,6 +279,14 @@ describe("exposition", () => {
     );
     expect(lines).toContain("werft_launch_queue_oldest_wait_seconds 17.25");
     expect(lines).toContain("werft_input_queue_oldest_age_seconds 3");
+    expect(
+      lines.filter((line) =>
+        line.startsWith("werft_sessions_by_worker_image{"),
+      ),
+    ).toEqual([
+      'werft_sessions_by_worker_image{image="ghcr.io/x/worker@sha256:aa"} 3',
+      'werft_sessions_by_worker_image{image="ghcr.io/x/worker@sha256:bb"} 1',
+    ]);
     expect(text).toContain("not Kubernetes infrastructure cost");
   });
 

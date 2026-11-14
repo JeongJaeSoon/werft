@@ -31,6 +31,7 @@ scrape ごとに DB を読んで集計します。scrape 間隔を短くする�
 | 名前 | 型 | label | 意味 |
 |---|---|---|---|
 | `werft_sessions` | gauge | `state`、`status`、`admission` | セッション数。`state` は下の状態表で決まります。`status` は API が示す状態（`needs_input` を含む）、`admission` は `sessions.admission_state` です |
+| `werft_sessions_by_worker_image` | gauge | `image` | `ended` ではないセッション数を、最後の launch が選んだ worker イメージ別に数えます。launch したことのないセッションは数えません。series がないイメージは、そのイメージで最後に launch したセッションがもう残っていないことを示します |
 | `werft_turns_total` | counter | `status` | `completed`・`failed`・`interrupted`・`cancelled` で終了した turn 数 |
 | `werft_turn_duration_seconds` | histogram | `status`、`le` | 上記 turn のうち開始したものの開始から終了までの時間。bucket は 1、5、15、30、60、120、300、600、1800、3600 秒 |
 | `werft_turns_outcome_unknown` | gauge | なし | execution が消失し、結果が不明な turn 数。運用者の復旧判断を待ちます |
@@ -92,6 +93,7 @@ scrape ごとに DB を読んで集計します。scrape 間隔を短くする�
 
 - セッション id、turn id、利用者 id、API key id、エージェント id、attempt id は label にしません。エージェント別費用は `GET /v1/usage/*` で確認します。
 - `state`・`status`・`admission`・`outcome`・`priced_by`・`kind`・`le` には定義済みの値だけが出ます。
+- `image` はインストール設定の worker イメージ参照です。値の数は、まだセッションが残っているイメージの数に収まります。
 - `tool` と `model` はデータに由来します。MCP ツールの `mcp__<server>__<tool>` は `mcp__<server>` にまとめます。その後、初出順に `tool` は 100 個、`model` は 50 個まで名前を保持し、残りは `other` にまとめます。行を削除しないため、名前を得た値は通常そのまま残ります。ただし上限到達後、projection が遅れて追加した行（`tool`）や遅れて commit された行（`model`、`recorded_at` は transaction 開始時刻）の時刻がより早いと、名前が一つ `other` と入れ替わる場合があります。そのとき押し出された名前の series は途切れ、入った名前は新しい series として始まり、`other` は一度跳ねるか reset として読まれます。
 - テスト：cardinality のテストで、label 名の一覧、id 形式の値がないこと、上限を確認します。
 

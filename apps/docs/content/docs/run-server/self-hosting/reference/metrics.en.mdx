@@ -31,6 +31,7 @@ The prefix is `werft_`, defined in one place in the code.
 | Name | Type | Labels | Meaning |
 |---|---|---|---|
 | `werft_sessions` | gauge | `state`, `status`, `admission` | Session count. `state` follows the table below. `status` is the API status (including `needs_input`); `admission` is `sessions.admission_state` |
+| `werft_sessions_by_worker_image` | gauge | `image` | Sessions not `ended`, by the worker image their newest launch was pinned to. Sessions never launched are not counted. An image with no series has no session left whose newest launch used it |
 | `werft_turns_total` | counter | `status` | Turns ending as `completed`, `failed`, `interrupted`, or `cancelled` |
 | `werft_turn_duration_seconds` | histogram | `status`, `le` | Start-to-finish duration for turns above that actually started. Buckets: 1, 5, 15, 30, 60, 120, 300, 600, 1800, 3600 seconds |
 | `werft_turns_outcome_unknown` | gauge | None | Turns with unknown outcomes after execution disappeared, awaiting operator recovery decisions |
@@ -92,6 +93,7 @@ The first matching row determines `state`. Each session matches exactly one row,
 
 - Session, turn, user, API key, agent, and attempt ids are never labels. Use `GET /v1/usage/*` for per-agent costs.
 - `state`, `status`, `admission`, `outcome`, `priced_by`, `kind`, and `le` have fixed value sets.
+- `image` is a worker image reference from the installation's configuration. Its values are bounded by the images that still have sessions.
 - `tool` and `model` come from data. MCP tools `mcp__<server>__<tool>` collapse to `mcp__<server>`. The first 100 tool names and 50 model names keep their names in order of appearance; the rest become `other`. Rows are not deleted, so named values usually remain. However, once the cap is full, a late projection row (`tool`) or late-committed row (`model`, where `recorded_at` is transaction start time) with an earlier timestamp can swap a name with `other`. The displaced series stops, the newly named series starts, and `other` may jump or look like a reset.
 - Tests: the cardinality test checks label names, absence of id-shaped values, and caps.
 

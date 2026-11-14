@@ -5956,6 +5956,27 @@ export interface components {
                 reason: "unresolved" | "not_granted" | "reserved_name" | "too_large" | "runtime_unsupported";
             }) | null;
             durability: components["schemas"]["SessionDurability"];
+            /** @description What the session's worker images ran, as recorded at launch and checkpoint; `runtime.version` is instead the version its agent release pinned. Absent from a server older than the field. */
+            worker_runtime?: {
+                /** @description The worker image pinned for the session's first launch, by digest where the backend resolves one. Null before the first launch, and on a session from before the record. */
+                first_image: string | null;
+                /** @description The runtime combination of the first checkpoint the session committed with one: the engine, its SDK and CLI versions, and the run settings' digest. Written once. Null before that checkpoint, and on a session from before the record. */
+                first: {
+                    engine: string;
+                    sdk_version: string;
+                    cli_version: string;
+                    profile_sha256: string;
+                } | null;
+                /** @description The runtime combination of the checkpoint the session's next launch would restore, which the worker image it launches on has to match. Null when no checkpoint would be restored (none committed, or start_fresh retired it), and for a checkpoint committed before the combination was recorded. */
+                checkpoint: {
+                    engine: string;
+                    sdk_version: string;
+                    cli_version: string;
+                    profile_sha256: string;
+                    /** @description How `profile_sha256` was computed. An image restores the checkpoint only when it has the same engine, SDK and CLI versions and still computes this scheme. */
+                    profile_digest_scheme: number;
+                } | null;
+            };
         };
         SessionDurability: {
             last_transcript_persisted_at: string | null;
