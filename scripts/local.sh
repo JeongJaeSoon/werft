@@ -336,15 +336,20 @@ demo_accounts() {
     echo "local.sh: demo accounts not added: $refusal" >&2
     return
   fi
-  compose exec -T -e DEMO_ACCOUNTS=local api bun run apps/control-host/src/api/demo-accounts.ts >&2 ||
+  compose exec -T -e DEMO_ACCOUNTS=local ${demo_password[@]+"${demo_password[@]}"} api bun run apps/control-host/src/api/demo-accounts.ts >&2 ||
     die "adding the demo accounts failed; the stack itself is up"
   [ "${LOCAL_DEMO_DATA:-1}" = 0 ] || demo_data
 }
 
+# DEMO_ACCOUNTS_PASSWORD from the shell replaces the public demo password
+# (.github/workflows/preview.yml); by name only, so it is in no argv.
+demo_password=()
+[ -z "${DEMO_ACCOUNTS_PASSWORD+set}" ] || demo_password=(-e DEMO_ACCOUNTS_PASSWORD)
+
 # Exit 2 is the CLI's refusal, a real-model stack's included: said, not fatal.
 demo_data() {
   local code=0
-  compose exec -T -e DEMO_ACCOUNTS=local api bun run apps/control-host/src/api/demo-data.ts >&2 || code=$?
+  compose exec -T -e DEMO_ACCOUNTS=local ${demo_password[@]+"${demo_password[@]}"} api bun run apps/control-host/src/api/demo-data.ts >&2 || code=$?
   case "$code" in
     0) ;;
     2) echo "local.sh: demo data not added" >&2 ;;

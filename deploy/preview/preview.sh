@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Brings a pull request up as a preview on OrbStack's built-in Kubernetes:
-# its own namespace pr-<N>, reached by Host pr-<N>.$PREVIEW_DOMAIN through
-# one Traefik shared by every preview.
+# its own namespace pr-<N>, at http://pr-<N>.localhost:18180/ through one
+# Traefik shared by every preview. Browsers resolve *.localhost to loopback
+# and count http on it as a secure origin, so the console's Secure
+# __Host- session cookie is set there, and each preview's host keeps its
+# own: signing in to one does not sign another out.
 #
 #   deploy/preview/preview.sh up <N>    check the PR head out, build its images
 #                                       (tag pr-<N>), install or upgrade, and
@@ -24,7 +27,6 @@
 #
 #   PREVIEW_HOME       checkouts and up.sh state, outside any git worktree
 #                      (default ~/.cache/werft/preview)
-#   PREVIEW_DOMAIN     the hosts' parent domain (default preview.94soon.dev)
 #   PREVIEW_MEMORY_MI  what one preview needs from the node's unrequested
 #                      memory before `up` installs it (default 2560: the
 #                      requests of deploy/preview/values.yaml's Deployments
@@ -36,7 +38,6 @@
 set -euo pipefail
 
 PREVIEW_HOME="${PREVIEW_HOME:-${XDG_CACHE_HOME:-$HOME/.cache}/werft/preview}"
-PREVIEW_DOMAIN="${PREVIEW_DOMAIN:-preview.94soon.dev}"
 PREVIEW_MEMORY_MI="${PREVIEW_MEMORY_MI:-2560}"
 PREVIEW_TTL_HOURS="${PREVIEW_TTL_HOURS:-24}"
 INGRESS_NAMESPACE=preview-ingress
@@ -54,11 +55,6 @@ usage() {
   exit 2
 }
 
-# It goes into the Ingress manifest below.
-if ! [[ "$PREVIEW_DOMAIN" =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ ]]; then
-  echo "PREVIEW_DOMAIN must be a DNS name, not '${PREVIEW_DOMAIN}'" >&2
-  exit 1
-fi
 for name in PREVIEW_MEMORY_MI MAX_MEMORY_MI; do
   if [ -n "${!name:-}" ] && ! [[ "${!name}" =~ ^[0-9]+$ ]]; then
     echo "${name} must be a whole number of MiB, not '${!name}'" >&2
@@ -135,16 +131,14 @@ require_memory() {
   echo "memory: ${allocatable}Mi - ${requested}Mi requested = ${free}Mi free, ${PREVIEW_MEMORY_MI}Mi needed"
 }
 
-readyz() {
-  local host="$1"
-  curl -sk -o /dev/null -w '%{http_code}' --max-time 5 \
-    --resolve "${host}:${HTTPS_PORT}:127.0.0.1" "https://${host}:${HTTPS_PORT}/readyz" || true
+url() {
+  printf 'http://%s.localhost:%s/' "$1" "$HTTP_PORT"
 }
 
-# The printed URLs are the entry point's (443); this is the same
-# host on Traefik's own port, which needs no DNS.
-local_hint() {
-  echo "on this Mac: curl -k --resolve ${1}:${HTTPS_PORT}:127.0.0.1 https://${1}:${HTTPS_PORT}/"
+readyz() {
+  local host="$1.localhost"
+  curl -s -o /dev/null -w '%{http_code}' --max-time 5 \
+    --resolve "${host}:${HTTP_PORT}:127.0.0.1" "http://${host}:${HTTP_PORT}/readyz" || true
 }
 
 free_port() {
@@ -184,7 +178,7 @@ up() {
   local n namespace host dir head code
   n="$(pr_number "${1:-}")"
   namespace="pr-${n}"
-  host="${namespace}.${PREVIEW_DOMAIN}"
+  host="${namespace}.localhost"
   dir="${PREVIEW_HOME}/${namespace}"
   SECONDS=0
 
@@ -241,13 +235,12 @@ EOF
   kubectl annotate namespace "$namespace" --overwrite "werft.dev/preview-head=${head}" >/dev/null
 
   for _ in $(seq 1 30); do
-    code="$(readyz "$host")"
+    code="$(readyz "$namespace")"
     [ "$code" = 200 ] && break
     sleep 2
   done
-  echo "GET https://${host}/readyz (Traefik 127.0.0.1:${HTTPS_PORT}) -> ${code}"
-  echo "${namespace} up in ${SECONDS}s: https://${host}/"
-  local_hint "$host"
+  echo "GET $(url "$namespace")readyz -> ${code}"
+  echo "${namespace} up in ${SECONDS}s: $(url "$namespace")"
   [ "$code" = 200 ]
 }
 
@@ -316,18 +309,16 @@ memory_used_mi() {
 
 list() {
   local namespace head up_at memory
-  printf '%-10s %-44s %-12s %-20s %-14s %s\n' NAMESPACE URL HEAD UP_AT MEMORY READYZ
+  printf '%-10s %-36s %-12s %-20s %-14s %s\n' NAMESPACE URL HEAD UP_AT MEMORY READYZ
   kubectl get namespaces -l werft.dev/preview=true -o json | jq -r '.items[]
     | [.metadata.name,
        (.metadata.annotations["werft.dev/preview-head"] // "-"),
        (.metadata.annotations["werft.dev/preview-up-at"] // "-")] | @tsv' \
     | while IFS=$'\t' read -r namespace head up_at; do
       memory="$(memory_used_mi "$namespace")Mi used"
-      printf '%-10s %-44s %-12s %-20s %-14s %s\n' "$namespace" \
-        "https://${namespace}.${PREVIEW_DOMAIN}/" "${head:0:12}" "$up_at" "$memory" \
-        "$(readyz "${namespace}.${PREVIEW_DOMAIN}")"
+      printf '%-10s %-36s %-12s %-20s %-14s %s\n' "$namespace" \
+        "$(url "$namespace")" "${head:0:12}" "$up_at" "$memory" "$(readyz "$namespace")"
     done
-  local_hint "pr-<N>.${PREVIEW_DOMAIN}"
 }
 
 # Only labeled pr-<N> namespaces. The TTL needs no GitHub; a PR state that

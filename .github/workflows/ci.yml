@@ -402,6 +402,7 @@ jobs:
               - tests/local-sh.
               - tests/pages-workflow.
               - tests/preview-reap.
+              - tests/preview-request.
               - tests/verify-werft-response-capture.
               - tests/verify-werft-keycloak.
               - tests/release-auto.

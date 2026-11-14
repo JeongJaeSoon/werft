@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import {
+  DEMO_PASSWORD,
   demoAccountsRefusal,
   demoDatabaseUrl,
+  demoPassword,
   previewDatabaseRefusal,
 } from "./demo-accounts.ts";
 
@@ -226,4 +228,22 @@ describe("demoAccountsRefusal", () => {
     );
     expect(result.stdout.toString()).toBe("");
   });
+});
+
+describe("demoPassword", () => {
+  test("is the public one unless DEMO_ACCOUNTS_PASSWORD is set", () => {
+    expect(demoPassword({})).toBe(DEMO_PASSWORD);
+    expect(
+      demoPassword({ DEMO_ACCOUNTS_PASSWORD: "placeholder-run-password" }),
+    ).toBe("placeholder-run-password");
+  });
+
+  test.each(["", "too-short"])(
+    "refuses %p instead of falling back to the public one",
+    (value) => {
+      expect(() => demoPassword({ DEMO_ACCOUNTS_PASSWORD: value })).toThrow(
+        "DEMO_ACCOUNTS_PASSWORD must be a password of at least 12 characters",
+      );
+    },
+  );
 });

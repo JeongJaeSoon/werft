@@ -385,6 +385,8 @@ const NOT_SETTINGS: Record<string, string> = {
   NEXT_PUBLIC_BASE_PATH: "inlined into the docs site by its next.config.mjs",
   DEMO_FIXTURES:
     "inlined into the console demo build by apps/web/vite.config.ts",
+  DEMO_ACCOUNTS_PASSWORD:
+    "the Actions preview's demo password (docs/contributing/development.md)",
   CHOKIDAR_USEPOLLING:
     "the Vite dev server's file watcher (docs/contributing/development.md)",
   EXECUTION_VOLUME_LABEL_NAMESPACE:
