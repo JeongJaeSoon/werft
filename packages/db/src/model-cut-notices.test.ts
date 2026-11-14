@@ -326,7 +326,7 @@ describe("enqueueModelCutNotices", () => {
     expect(await enqueueModelCutNotices(db, cut)).toBe(0);
   });
 
-  test("someone told under the key from before installations is not told again", async () => {
+  test("an installation told under the key from before installations is not told again; the one it crowded out is", async () => {
     const w = await world();
     const creator = await w.person("creator");
     await w.startSession(creator);
@@ -339,8 +339,11 @@ describe("enqueueModelCutNotices", () => {
         dedupeKey: `model-not-allowed:${w.workspaceId}:${w.sessionId}:${creator.slackUserId}`,
       })
       .where(eq(slackOutbox.sessionId, w.sessionId));
-    expect(await enqueueModelCutNotices(db, cut)).toBe(0);
-    expect(await w.outbox()).toHaveLength(1);
+    const second = await w.secondInstallation(creator);
+    expect(await enqueueModelCutNotices(db, cut)).toBe(1);
+    expect((await w.outbox()).map((row) => row.installationId).sort()).toEqual(
+      [w.installationId, second].sort(),
+    );
   });
 
   test("passes over disabled members, revoked or missing links and other Slack teams", async () => {

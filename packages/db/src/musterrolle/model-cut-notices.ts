@@ -93,21 +93,19 @@ export async function enqueueModelCutNotices(
   });
   let enqueued = 0;
   for (const person of recipients) {
-    const [toldBefore] = await tx
-      .select({ id: slackOutbox.id })
-      .from(slackOutbox)
-      .where(
-        eq(
-          slackOutbox.dedupeKey,
-          modelCutDedupeKeyWithoutInstallation(
-            workspaceId,
-            input.sessionId,
-            person.slackUserId,
-          ),
+    if (
+      await toldWithoutInstallation(
+        tx,
+        modelCutDedupeKeyWithoutInstallation(
+          workspaceId,
+          input.sessionId,
+          person.slackUserId,
         ),
+        person.installationId,
       )
-      .limit(1);
-    if (toldBefore) continue;
+    ) {
+      continue;
+    }
     const [row] = await tx
       .insert(slackOutbox)
       .values({
@@ -264,6 +262,29 @@ async function enqueueCreatorNotices(
     if (row) enqueued += 1;
   }
   return enqueued;
+}
+
+/**
+ * Whether a notice went to this installation under a key from before
+ * installations were in it. The row kept its installation, so one that lost
+ * its row to that key's collision is still told.
+ */
+export async function toldWithoutInstallation(
+  tx: Database,
+  dedupeKey: string,
+  installationId: string,
+): Promise<boolean> {
+  const [row] = await tx
+    .select({ id: slackOutbox.id })
+    .from(slackOutbox)
+    .where(
+      and(
+        eq(slackOutbox.dedupeKey, dedupeKey),
+        eq(slackOutbox.installationId, installationId),
+      ),
+    )
+    .limit(1);
+  return row !== undefined;
 }
 
 async function noticedSession(tx: Database, sessionId: string) {

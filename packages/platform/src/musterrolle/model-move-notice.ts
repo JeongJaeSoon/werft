@@ -16,6 +16,22 @@ export function modelMoveDedupeKey(
   return `model-move:${kind}:${agentId}:${from}:${to}:${revision}:${installationId}:${slackUserId}`;
 }
 
+/**
+ * The key a move was told under before installations were in it. A failed
+ * move is told again at the same revision when it is retried, so one told
+ * before the change must not be told a second time.
+ */
+export function modelMoveDedupeKeyWithoutInstallation(
+  kind: ModelMoveNotice["kind"],
+  agentId: string,
+  from: string,
+  to: string,
+  slackUserId: string,
+  revision: number,
+): string {
+  return `model-move:${kind}:${agentId}:${from}:${to}:${revision}:${slackUserId}`;
+}
+
 const COPY: Record<UserLocale, (notice: ModelMoveNotice) => string> = {
   ko: (n) =>
     n.kind === "moved"

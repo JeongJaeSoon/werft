@@ -2,12 +2,16 @@ import { randomUUID } from "node:crypto";
 import {
   type ModelMoveNotice,
   modelMoveDedupeKey,
+  modelMoveDedupeKeyWithoutInstallation,
   modelMoveNoticeText,
 } from "@werft-ai/platform";
 import { eq } from "drizzle-orm";
 import type { Database } from "../queries.ts";
 import { agents, slackOutbox } from "../schema.ts";
-import { slackRecipientsOf } from "./model-cut-notices.ts";
+import {
+  slackRecipientsOf,
+  toldWithoutInstallation,
+} from "./model-cut-notices.ts";
 
 export async function enqueueModelMoveNotices(
   tx: Database,
@@ -33,6 +37,22 @@ export async function enqueueModelMoveNotices(
   });
   let enqueued = 0;
   for (const person of recipients) {
+    if (
+      await toldWithoutInstallation(
+        tx,
+        modelMoveDedupeKeyWithoutInstallation(
+          input.kind,
+          input.agentId,
+          input.from,
+          input.to,
+          person.slackUserId,
+          input.revision,
+        ),
+        person.installationId,
+      )
+    ) {
+      continue;
+    }
     const [row] = await tx
       .insert(slackOutbox)
       .values({

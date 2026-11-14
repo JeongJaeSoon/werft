@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { PGlite } from "@electric-sql/pglite";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import type { Database } from "../queries.ts";
 import * as schema from "../schema.ts";
@@ -195,6 +196,29 @@ describe("enqueueModelMoveNotices", () => {
     ]);
     expect(rows.map((row) => row.installationId)).toContain(second);
     expect(await moved()).toBe(0);
+  });
+
+  test("a failure told under the key from before installations is not told again at its retry", async () => {
+    const w = await world();
+    const one = await w.admin("one", "en");
+    const failed = () =>
+      enqueueModelMoveNotices(db, {
+        workspaceId: w.workspaceId,
+        agentId: w.agentId,
+        kind: "failed",
+        ...move,
+        revision: 3,
+      });
+    expect(await failed()).toBe(1);
+    // What a failure before the change left: the same row under the old key.
+    await db
+      .update(slackOutbox)
+      .set({
+        dedupeKey: `model-move:failed:${w.agentId}:${move.from}:${move.to}:3:${one.slackUserId}`,
+      })
+      .where(eq(slackOutbox.agentId, w.agentId));
+    expect(await failed()).toBe(0);
+    expect(await db.select().from(slackOutbox)).toHaveLength(1);
   });
 
   test("an agent that is gone tells nobody", async () => {

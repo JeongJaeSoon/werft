@@ -21,7 +21,7 @@ export function modelCutDedupeKey(
 
 /**
  * The key a cut was told under before installations were in it. A session cut
- * again after the change must not tell the same person a second time.
+ * again after the change must not tell the same account a second time.
  */
 export function modelCutDedupeKeyWithoutInstallation(
   workspaceId: string,
