@@ -174,6 +174,17 @@ SDK を上げるリリースでは、イメージが載せるランタイムの�
 
 mock Slack 試験スタック(`infra/compose.mock-slack.yml`)が使っていた `SLACK_API_URL`・`SLACK_OIDC_ISSUER` は `MOCK_SLACK_API_URL`・`MOCK_SLACK_OIDC_ISSUER` に変わりました。古い名前は読まず、残っていれば `Ignored removed settings` の警告に名前が出ます。新しい名前に値があると、アドレスに関係なく起動時に `Mock Slack override in use: <名前>` の警告を一行出します。運用設定にはどちらの名前も置きません。
 
+<a id="성과-판정-연결과-되돌리기" />
+### 成果判定の接続とロールバック
+
+`openai_decisions` 接続(成果判定器 Luna 用)を作った後にこの種類を知らないビルドへ戻すと、そのビルドの 設定 > エージェント接続 > モデル接続 の一覧と `GET /v1/installation/settings/connections` が、ほかの接続も含めて失敗します。使用停止した接続も一覧で読まれるため、使用停止では解消しません。エージェントの実行と release はその接続を飛ばすので影響はありません。戻す前に DB でその接続の行を削除します。
+
+```sql
+DELETE FROM provider_connections WHERE definition->>'kind' = 'openai_decisions';
+```
+
+保存したキーの値は残ります。判定設定に保存した接続 id も残り、戻したビルドでは Luna ルールを判定しません。再度アップグレードした後、接続を作り直して判定設定で選びます。アップグレード前の DB バックアップから復元して戻す場合は、追加の作業はありません。
+
 <a id="worker-protocol-필드를-걷어내는-순서" />
 ### worker protocol フィールドを削除する順序
 

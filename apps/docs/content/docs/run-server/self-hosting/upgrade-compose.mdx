@@ -156,6 +156,16 @@ SDK를 올리는 릴리스는 이미지가 싣는 런타임 버전을 바꾸고,
 
 mock Slack 시험 스택(`infra/compose.mock-slack.yml`)이 쓰던 `SLACK_API_URL`·`SLACK_OIDC_ISSUER`는 `MOCK_SLACK_API_URL`·`MOCK_SLACK_OIDC_ISSUER`로 바뀌었다. 옛 이름은 읽지 않고, 남아 있으면 `Ignored removed settings` 경고에 이름이 나온다. 새 이름에 값이 있으면 주소와 상관없이 시작할 때 `Mock Slack override in use: <이름>` 경고를 한 줄 남긴다. 운영 설정에는 두 이름 모두 두지 않는다.
 
+### 성과 판정 연결과 되돌리기
+
+`openai_decisions` 연결(성과 판정기 Luna용)을 만든 뒤 이 종류를 모르는 빌드로 되돌리면, 그 빌드의 설정 > 에이전트 연결 > 모델 연결 목록과 `GET /v1/installation/settings/connections`가 다른 연결까지 함께 실패한다. 사용 중지한 연결도 목록에 읽히므로 사용 중지로는 풀리지 않는다. 에이전트 실행과 release는 그 연결을 건너뛰므로 영향이 없다. 되돌리기 전에 DB에서 그 연결 행을 지운다.
+
+```sql
+DELETE FROM provider_connections WHERE definition->>'kind' = 'openai_decisions';
+```
+
+넣어 둔 key 값은 남는다. 판정 설정에 저장된 연결 id도 남고, 되돌린 빌드에서 Luna 규칙은 판정되지 않는다. 다시 올린 뒤 연결을 다시 만들고 판정 설정에서 고른다. 업그레이드 전 백업으로 DB를 복원해 되돌릴 때는 할 일이 없다.
+
 ### worker protocol 필드를 걷어내는 순서
 
 API를 업그레이드해도 이미 떠 있는 worker 컨테이너는 옛 이미지로 계속 돈다. 입력이 없는 worker도 `WORKER_IDLE_TIMEOUT_SEC`(기본 1800초) 동안 남는다. 그래서 worker protocol의 필드는 받는 쪽이 먼저 그 필드 없이도 받아들이게 바꾸고, 그 릴리스로 모두 교체된 다음에야 보내는 쪽이 필드를 뺀다. 한 릴리스에서 양쪽을 같이 바꾸지 않는다.

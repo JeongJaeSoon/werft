@@ -8,15 +8,20 @@ const luna = (value: string): JudgeProvider => ({
   auth: { kind: "api_key", value, ref: { stored: "connection:luna" } },
 });
 
-function registry(judge: Record<string, JudgeProvider> | null) {
+function registry(
+  judge: Record<string, JudgeProvider> | null,
+  next: Record<string, JudgeProvider> | null = judge,
+) {
   const refreshes: Array<number | undefined> = [];
-  return {
+  const read = {
     refreshes,
     settings: judge === null ? null : { judge_connections: judge },
     async refresh(maxAgeMs?: number) {
       refreshes.push(maxAgeMs);
+      read.settings = next === null ? null : { judge_connections: next };
     },
   };
+  return read;
 }
 
 describe("the judge's connections from the installation settings", () => {
@@ -40,12 +45,17 @@ describe("the judge's connections from the installation settings", () => {
     expect(await unread.ids()).toEqual([]);
   });
 
-  test("the ids a person may name are read again first, sorted", async () => {
-    const read = registry({ zeta: luna("z"), luna: luna("l") });
-    expect(await settingsJudgeConnections(read).ids()).toEqual([
-      "luna",
-      "zeta",
-    ]);
+  test("the ids a person may name are read again first, sorted, and later judgments use that read", async () => {
+    const read = registry(
+      { old: luna("o") },
+      { zeta: luna("z"), luna: luna("l") },
+    );
+    const connections = settingsJudgeConnections(read);
+    expect(await connections.ids()).toEqual(["luna", "zeta"]);
     expect(read.refreshes).toEqual([0]);
+    expect(await connections.upstream("old")).toBeNull();
+    expect((await connections.upstream("zeta"))?.headers).toEqual([
+      ["authorization", "Bearer z"],
+    ]);
   });
 });
