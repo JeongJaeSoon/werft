@@ -74,7 +74,7 @@ helm show chart "$(jq -r .chart.ref "$TAG/release-manifest.json")" --version "$(
 
 | | checkout 設置 | バンドル設置 |
 |---|---|---|
-| 必要なもの | git、jq、curl、bun 1.3.14、デプロイ commit の checkout | docker、jq、curl |
+| 必要なもの | git、jq、curl、openssl、bun 1.3.14、デプロイ commit の checkout | docker、jq、curl、openssl、sha256sum、tar(gzip 対応) |
 | `preflight` `deploy` `start` `stop` `status` `key` `reset` `manifest` | 対応 | 対応 |
 | `upgrade` `backup` `reseed` `restore-drill` | 対応 | 拒否。checkout で実行します |
 

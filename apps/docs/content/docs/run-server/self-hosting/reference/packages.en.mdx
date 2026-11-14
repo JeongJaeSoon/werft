@@ -74,7 +74,7 @@ GitHub Releases for `v*` include `werft-test-ops-<tag>.tar.gz`, containing Compo
 
 | | Checkout installation | Bundle installation |
 |---|---|---|
-| Requirements | git, jq, curl, bun 1.3.14, checkout of deployment commit | docker, jq, curl |
+| Requirements | git, jq, curl, openssl, bun 1.3.14, checkout of deployment commit | docker, jq, curl, openssl, sha256sum, tar (with gzip) |
 | `preflight` `deploy` `start` `stop` `status` `key` `reset` `manifest` | Supported | Supported |
 | `upgrade` `backup` `reseed` `restore-drill` | Supported | Rejected; use a checkout |
 

@@ -70,7 +70,7 @@ helm show chart "$(jq -r .chart.ref "$TAG/release-manifest.json")" --version "$(
 
 | | checkout 설치 | 번들 설치 |
 |---|---|---|
-| 필요한 것 | git, jq, curl, bun 1.3.14, 배포 commit의 checkout | docker, jq, curl |
+| 필요한 것 | git, jq, curl, openssl, bun 1.3.14, 배포 commit의 checkout | docker, jq, curl, openssl, sha256sum, tar(gzip 지원) |
 | `preflight` `deploy` `start` `stop` `status` `key` `reset` `manifest` | 지원 | 지원 |
 | `upgrade` `backup` `reseed` `restore-drill` | 지원 | 거부. checkout에서 한다 |
 
