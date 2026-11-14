@@ -375,6 +375,7 @@ describe("OpenAPI document", () => {
         "/v1/installation/settings/mcp-servers/{id}",
         "/v1/installation/settings/mcp-servers/{id}/credential",
         "/v1/installation/settings/mcp-servers/{id}/disable",
+        "/v1/installation/settings/repositories/{id}/credential",
         "/v1/limits",
         "/v1/linked-accounts",
         "/v1/linked-accounts/github/callback",

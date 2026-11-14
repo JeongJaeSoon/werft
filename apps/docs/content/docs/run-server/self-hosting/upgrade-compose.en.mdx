@@ -117,6 +117,8 @@ When worker images change, Compose upgrade checks calculate restoration plans fo
 
 On a worker image change, upgrade retains the old image in the state directory's `previous-worker` file. For each session, the scheduler matches checkpoint engine/SDK/CLI/profile digest scheme against current/previous images, preferring current if both match ([configuration](/run-server/self-hosting/reference/configuration)). The affected list therefore includes sessions restorable by neither image. If either image check fails closed, retain the new-image list unchanged. For rebuilt images with the same combination, the scheduler selects current: do not remove sessions unverified on current merely because previous can restore them. If either is too old to report its combination (a build without combination reporting), previous is not used and the gate retains the new-image list. The support window is one release: another upgrade can affect sessions left on the older image. In the profile removal release, no session launches on the previous image ([Upgrade order of the profile removal release](#프로필-제거-릴리스의-업그레이드-순서)).
 
+Do not use this upgrade on a stack that runs both engines (`infra/compose.two-engines.yml`). That stack keeps the other engine's (Claude) image in the previous image's place, and the upgrade rewrites that place with the image it replaces, dropping the Claude image. There is no compose procedure yet for changing a two-engine stack's worker images.
+
 <a id="runtime-프로필의-공통-준비" />
 <a id="runtime-버전의-공통-준비" />
 ### Shared runtime version preparation
@@ -191,6 +193,37 @@ From this release on, migrate imports the settings document (`SETTINGS_DOCUMENT`
 - test-ops `upgrade` neither imports a changed document nor compares it with the database. When the document's digest changes, it logs `upgrade: the settings document changed; it is not imported into a deployed installation, so change settings in the console`. The check in `deploy` is unchanged.
 - A development volume kept with `scripts/local.sh down --keep-volumes` does not get changes to the fixtures (`tests/fixtures/settings/`). Recreate the volume or run `settings import`.
 - After a rollback, the earlier release's migrate imports the document on every deploy again. When an item changed in the console differs from the same id in the document, that import is refused, migrate fails and the API does not start. Before rolling back, remove such items from the document or match them to the console. Keep the `seed_decided_at` column. Earlier builds do not read it.
+
+<a id="env로-가리키던-자격-증명은-db로-한-번-옮긴다" />
+### Credentials named by env move into the database once
+
+From this release the api no longer reads a setting's `value_env` (a connection, a repository naming its own GitHub App, an MCP server) from env. When it reads the settings it seals the value in the database as that row's own stored value, once. `secret_id` stays as it is.
+
+- Migration `0285_credential_carried_auth` adds a `carried_auth` column to `provider_connections`, `catalog_repositories` and `mcp_servers` and a `carried_binding` column to `catalog_repositories`, and changes `catalog_repositories_credential_check` so an explicit App repository may hold a stored value. It adds an INSERT trigger (`…_carried_binding`) to `push_requests` and `worker_credentials`.
+- After the upgrade the api logs, once per moved row, `<kind>:<id> took its credential from <name> into the database and no longer reads it; remove <name>`. The name can then go from env. No value is in the log or the receipt: the `set_settings_credential` receipt carries the variable's name and `by: env_import` only.
+- With no workspace yet (before bootstrap) the value is read from env until then, and moved on the first settings read after the workspace exists (within 10 seconds).
+- A row whose variable has no value is left out, with one warning: `<kind>:<id> names <name>, which the API does not have, so it is left out. …`. Set the variable and restart the api. A connection can also take its key from the console's "Enter key on screen".
+- A value the run path would refuse (a key shorter than 8 bytes or with surrounding whitespace or a control character, an App key that is not an RSA private key PEM), and a key shorter than 8 characters (a stored value shows its last four), is not moved. The row is left out, with one warning: `<kind>:<id> is left out and not carried into the database: <reason>. Correct <name> and restart the API`. The reason names the variable only.
+- Moving an explicit App repository changes its credential reference and so its repository binding. In the same transaction, the push requests and running sessions' repository tokens that hold exactly the old binding move to the new one. So a push made before the move still opens and merges a pull request, and a running session gets its token again. The counts are in the log (`… (N push requests and M worker credentials moved to its new binding)`) and in the receipt's `rebound`. A row written later with the old binding, by a replica that has not read the move yet (each reads again every 10 seconds) or by a previous build, is stored with the new binding as it is written (the trigger above). Once the rollback SQL clears `carried_binding`, the trigger changes nothing. The moving transaction locks both tables, so requests that write push requests or worker tokens wait meanwhile. When it cannot lock them within 5 seconds it moves nothing and tries again on the next read. Afterwards change that App's key with `POST /v1/installation/settings/repositories/{id}/credential` (owners and admins, an RSA private key PEM). Changing env is no longer read.
+- **Upgrade to this release with one api, or start the new build only after every old replica is down.** Each replica reads the settings again every 10 seconds on its own, so one that has not read the move yet may meanwhile fail a moved push request with `catalog_changed` or refuse a running session's token reissue. Compose runs one api, so upgrade it as usual. With Helm, follow step 1 of the [Kubernetes upgrade](/run-server/self-hosting/upgrade-kubernetes). A push failed that way is pushed with the new binding when requested again.
+- Importing the old document by hand with `settings import` after the move stops at `conflicts` for the moved items: same id, other content (a `--from-dir` repository is `kept`). Remove them from the document, or use one from `settings export`.
+- A URL repository (`auth` `basic` or `bearer`) is not used to run anything, so it is not moved.
+- Rollback: earlier builds read a stored value on connections and MCP servers, but refuse one on an explicit App repository, which drops out as `invalid`. Roll back in this order:
+  1. Stop every api replica of this release. One left running moves the rows back on its next settings read (within 10 seconds).
+  2. Run the SQL below as one transaction. It puts the rows' env references back, and the bindings the move changed on push requests and worker tokens.
+  3. Give the api those variables again and start the earlier build. If a key was changed in the console after the move, the row goes back to the env value, so put the new value in env.
+
+  Keep the `carried_auth` and `carried_binding` columns and the sealed values.
+
+```sql
+BEGIN;
+UPDATE push_requests p SET repository_binding = r.carried_binding->>'from' FROM catalog_repositories r WHERE r.carried_binding IS NOT NULL AND p.repository_binding = r.carried_binding->>'to';
+UPDATE worker_credentials w SET binding = r.carried_binding->>'from' FROM catalog_repositories r WHERE r.carried_binding IS NOT NULL AND w.purpose = 'repository' AND w.binding = r.carried_binding->>'to';
+UPDATE provider_connections SET definition = jsonb_set(definition, '{auth}', carried_auth), credential_source = 'external', carried_auth = NULL WHERE carried_auth IS NOT NULL;
+UPDATE catalog_repositories SET auth = carried_auth, credential_source = 'external', carried_auth = NULL, carried_binding = NULL, version = version + 1 WHERE carried_auth IS NOT NULL;
+UPDATE mcp_servers SET auth = carried_auth, credential_source = 'external', carried_auth = NULL WHERE carried_auth IS NOT NULL;
+COMMIT;
+```
 
 <a id="mock-slack-env-이름" />
 ### Mock Slack variable names

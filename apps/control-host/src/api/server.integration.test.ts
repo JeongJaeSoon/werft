@@ -43,13 +43,20 @@ const POLL_INTERVAL_MS = 100;
 // line. The server binds PORT=0 so the OS hands it a free port: a port picked
 // here (it was pid-derived) can already be held on a shared runner, and the
 // bind then fails. `port` resolves undefined if stdout ends first.
+// `catalogLoaded` resolves on the first session catalog read, which the
+// server finishes after it listens: false if stdout ends first.
 function serverStdout(stream: ReadableStream<Uint8Array>): {
   text: Promise<string>;
   port: Promise<number | undefined>;
+  catalogLoaded: Promise<boolean>;
 } {
   let found: (port: number | undefined) => void = () => {};
   const port = new Promise<number | undefined>((resolve) => {
     found = resolve;
+  });
+  let loaded: (loaded: boolean) => void = () => {};
+  const catalogLoaded = new Promise<boolean>((resolve) => {
+    loaded = resolve;
   });
   const text = (async () => {
     const decoder = new TextDecoder();
@@ -64,15 +71,17 @@ function serverStdout(stream: ReadableStream<Uint8Array>): {
       ) {
         const line = all.slice(scanned, newline);
         scanned = newline + 1;
+        if (line.includes('"Session catalog loaded"')) loaded(true);
         if (!line.includes('"API listening"')) continue;
         const record = JSON.parse(line) as { fields?: { port?: number } };
         found(record.fields?.port);
       }
     }
     found(undefined);
+    loaded(false);
     return all + decoder.decode();
   })();
-  return { text, port };
+  return { text, port, catalogLoaded };
 }
 
 // Waits for the server to report its port, then polls `path` on it until the
@@ -431,6 +440,15 @@ integration("API server on PostgreSQL", () => {
           headers: { "X-Owner-Id": "forged-owner" },
         });
         expect(forged.status).toBe(401);
+
+        // The server listens before its first catalog read; a session asked
+        // for in between finds no connection (94S-1619).
+        expect(
+          await Promise.race([
+            stdout.catalogLoaded,
+            Bun.sleep(SERVER_START_DEADLINE_MS).then(() => false),
+          ]),
+        ).toBe(true);
 
         const call = (
           key: string,

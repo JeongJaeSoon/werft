@@ -9,6 +9,23 @@ export function modelMoveDedupeKey(
   agentId: string,
   from: string,
   to: string,
+  installationId: string,
+  slackUserId: string,
+  revision: number,
+): string {
+  return `model-move:${kind}:${agentId}:${from}:${to}:${revision}:${installationId}:${slackUserId}`;
+}
+
+/**
+ * The key a move was told under before installations were in it. A failed
+ * move is told again at the same revision when it is retried, so one told
+ * before the change must not be told a second time.
+ */
+export function modelMoveDedupeKeyWithoutInstallation(
+  kind: ModelMoveNotice["kind"],
+  agentId: string,
+  from: string,
+  to: string,
   slackUserId: string,
   revision: number,
 ): string {
@@ -43,15 +60,19 @@ export type SessionModelMoveNotice = {
   to: string;
 };
 
-/** One DM per person per session and move; a later move of the same session tells again. */
+/**
+ * One DM per Slack account per session and move; a later move of the same
+ * session tells again.
+ */
 export function sessionModelMoveDedupeKey(
   workspaceId: string,
   sessionId: string,
   from: string,
   to: string,
+  installationId: string,
   slackUserId: string,
 ): string {
-  return `session-model-move:${workspaceId}:${sessionId}:${from}:${to}:${slackUserId}`;
+  return `session-model-move:${workspaceId}:${sessionId}:${from}:${to}:${installationId}:${slackUserId}`;
 }
 
 const SESSION_COPY: Record<

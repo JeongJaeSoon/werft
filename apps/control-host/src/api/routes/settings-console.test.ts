@@ -51,12 +51,13 @@ function request(
 
 type Method = keyof SettingsConsoleService;
 
+// `/repositories/{id}/credential` is back for a repository naming its own
+// GitHub App only; the service answers 404 for any other.
 describe("removed URL repository routes", () => {
   for (const [method, suffix] of [
     ["GET", "/repositories"],
     ["POST", "/repositories"],
     ["PATCH", "/repositories/legacy"],
-    ["POST", "/repositories/legacy/credential"],
     ["POST", "/repositories/legacy/disable"],
   ] as const) {
     test(`${method} ${suffix} is not registered`, async () => {
@@ -130,6 +131,15 @@ const WRITES: ReadonlyArray<{
       args: [kind, "console"],
     },
   ]),
+  {
+    method: "POST",
+    path: `${BASE}/repositories/console/credential`,
+    service: "setCredential",
+    body: { value: "example-key" },
+    invalid: { value: "" },
+    status: 200,
+    args: ["repository", "console", "example-key"],
+  },
   {
     method: "POST",
     path: `${BASE}/connections/console/enable`,

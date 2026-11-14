@@ -1338,6 +1338,8 @@ export function createWorkerGateway(deps: {
   // repository token on the route named for each. The list is not pinned at
   // the claim: the gate reads the release and catalog again on every fetch.
   // Each one's commit is, for a worker that parses it: the session's pin.
+  // One whose pin a worker could not fetch again is left out, whatever the
+  // worker parses, rather than fetched at the branch tip unasked.
   async function additionalWorkspaceRepositories(
     sessionId: string,
     token: string,
@@ -1348,10 +1350,14 @@ export function createWorkerGateway(deps: {
       pinned && ids.length > 0
         ? await deps.repositoryPins?.list(sessionId)
         : undefined;
+    const lost =
+      ids.length > 0
+        ? await deps.repositoryPins?.restoreFailures(sessionId)
+        : undefined;
     return ids.flatMap((id) => {
       const entry = own(catalog.repositories, id);
       const commit = pins?.get(id);
-      return entry === undefined
+      return entry === undefined || lost?.has(id) === true
         ? []
         : [
             {
@@ -2858,9 +2864,10 @@ export function createWorkerGateway(deps: {
     },
 
     // The claim's unpinned repositories as the worker fetched them, kept
-    // first-writer-wins. Only a repository the session may work on now is
-    // kept; the rest are left out of the answer, and the worker keeps what
-    // it fetched for them this attempt only.
+    // first-writer-wins, and the pinned ones it could not fetch at their
+    // pin. Only a repository the session may work on now is kept or marked;
+    // the rest are left out of the answer, and the worker keeps what it
+    // fetched for them this attempt only.
     async repositoryPins(
       principal: WorkerPrincipal,
       request: RepositoryPinsRequest,
@@ -2870,17 +2877,23 @@ export function createWorkerGateway(deps: {
       const allowed = new Set(
         (await deps.github?.additionalRepositories?.(fence.sessionId)) ?? [],
       );
-      const seen = new Set<string>();
-      const asked = request.pins.flatMap((pin) => {
-        if (!allowed.has(pin.repository_id) || seen.has(pin.repository_id)) {
-          return [];
-        }
-        seen.add(pin.repository_id);
-        return [{ repositoryId: pin.repository_id, commit: pin.commit }];
-      });
+      const pinsOf = (listed: RepositoryPinsRequest["pins"]) => {
+        const seen = new Set<string>();
+        return listed.flatMap((pin) => {
+          if (!allowed.has(pin.repository_id) || seen.has(pin.repository_id)) {
+            return [];
+          }
+          seen.add(pin.repository_id);
+          return [{ repositoryId: pin.repository_id, commit: pin.commit }];
+        });
+      };
       // A pin outlives the attempt: the store checks the fence in the
       // transaction that writes it, so a lease lost meanwhile writes nothing.
-      const kept = await deps.repositoryPins.pin(fence, asked);
+      const kept = await deps.repositoryPins.pin(
+        fence,
+        pinsOf(request.pins),
+        pinsOf(request.restore_failed ?? []),
+      );
       if (kept.outcome !== "ok") rejected(kept);
       return {
         pins: [...kept.pins].map(([repository_id, commit]) => ({

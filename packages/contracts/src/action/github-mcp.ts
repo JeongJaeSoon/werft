@@ -189,6 +189,21 @@ export const LISTED_REPOSITORY_MEANING = {
   string
 >;
 
+/**
+ * Why a `failed` repository is not there, when the list knows: the session
+ * had recorded the commit it first fetched, and a later fetch of that commit
+ * failed (a resume, or another worker taking the session). It is not fetched
+ * at the branch tip instead; attaching it again does that.
+ */
+export const LISTED_REPOSITORY_FAILURE_VALUES = ["restore_failed"] as const;
+export const LISTED_REPOSITORY_FAILURE_MEANING = {
+  restore_failed:
+    "could not be fetched again at the commit this session recorded; attach it again to fetch the branch's current tip",
+} as const satisfies Record<
+  (typeof LISTED_REPOSITORY_FAILURE_VALUES)[number],
+  string
+>;
+
 export const listedRepositorySchema = z.object({
   id: z.string().min(1),
   name: z.string(),
@@ -198,6 +213,10 @@ export const listedRepositorySchema = z.object({
   meaning: z.string().optional(),
   /** The git remote name an `attached` repository was given; absent otherwise. */
   remote: z.string().min(1).optional(),
+  /** Only on a `failed` repository whose cause the list knows. */
+  failure: z.enum(LISTED_REPOSITORY_FAILURE_VALUES).optional(),
+  /** The recorded commit a `restore_failed` repository could not be fetched at. */
+  commit: z.string().min(1).optional(),
 });
 export type ListedRepository = z.infer<typeof listedRepositorySchema>;
 
@@ -628,7 +647,7 @@ export const GITHUB_MCP_TOOLS = {
     output: actionResultSchema(listRepositoriesResponseSchema),
     feature: null,
     actionClass: "repository.read",
-    description: `List the repositories this session works with, ${LIST_REPOSITORIES_LIMIT_DEFAULT} a page (\`limit\` 1 to ${LIST_REPOSITORIES_LIMIT_MAX}): the one named when the session was created, and those the agent's settings allow it to attach. Listing fetches nothing and changes nothing. \`status\` is \`attached\` (the platform lists it as added to the session; \`remote\` is the git remote name it was given, \`origin\` for the repository named when the session was created), \`pending\` or \`failed\` (its fetch is running, or ended with an error), \`not_attached\` (allowed, not added yet), \`allowed_in_newer_release\` (only the agent's current release allows it) or \`revoked\` (it was added, but the agent's settings no longer allow it; its working copy stays, and it has no \`remote\`). \`next_cursor\` is non-null when more follow; \`cursor\` takes it for the next page. \`query\` keeps those whose id or name contains it. Each repository's \`meaning\` is its status in plain words.`,
+    description: `List the repositories this session works with, ${LIST_REPOSITORIES_LIMIT_DEFAULT} a page (\`limit\` 1 to ${LIST_REPOSITORIES_LIMIT_MAX}): the one named when the session was created, and those the agent's settings allow it to attach. Listing fetches nothing and changes nothing. \`status\` is \`attached\` (the platform lists it as added to the session; \`remote\` is the git remote name it was given, \`origin\` for the repository named when the session was created), \`pending\` or \`failed\` (its fetch is running, or ended with an error; \`failure\` \`restore_failed\` means it could not be fetched again at \`commit\`, the commit this session recorded for it, so the session no longer fetches it, and attaching it again fetches the branch's current tip), \`not_attached\` (allowed, not added yet), \`allowed_in_newer_release\` (only the agent's current release allows it) or \`revoked\` (it was added, but the agent's settings no longer allow it; its working copy stays, and it has no \`remote\`). \`next_cursor\` is non-null when more follow; \`cursor\` takes it for the next page. \`query\` keeps those whose id or name contains it. Each repository's \`meaning\` is its status in plain words.`,
     refusals: GITHUB_WORK_REFUSALS,
   },
   attach_repository: {
@@ -641,7 +660,7 @@ export const GITHUB_MCP_TOOLS = {
     output: actionResultSchema(waitedRepositoryAttachmentSchema),
     feature: null,
     actionClass: "repository.read",
-    description: `Attach one allowed repository to the session as a git remote named \`repository_id\`, with its default branch fetched to \`<repository_id>/<branch>\`. A session has no repository in its workspace until one is attached (or was named when the session was created). A new attach is recorded on the session; a repository already attached, or the session's own, is answered as attached with nothing new recorded. It is meant for a repository whose code the task reads or changes, and \`list_repositories\` needs no attach. \`status\` is \`pending\` while the fetch runs. \`wait_seconds\` (0 to ${GITHUB_MCP_WAIT_SECONDS_MAX}, default 0) holds the answer until the fetch ends or the seconds have passed; \`final\` is false when the fetch was still running at the end of the wait. Attaching an attached repository changes nothing, so a repeat with the same arguments is safe. A failure that comes from the connection (an \`upstream connection failed\` answer, or HTTP 502 or 503) is transient and says nothing about the repository; \`repository_not_allowed\` is a refusal by the agent's settings, not a connection failure. The fetch leaves no working tree, so Read, Glob and Grep cannot see the repository; it is read with Bash, for example \`git ls-tree -r <repository_id>/<branch>\`, \`git show <repository_id>/<branch>:<path>\` or \`git grep <pattern> <repository_id>/<branch>\`. A session without Bash can attach a repository but cannot read it. A git worktree or clone outside the workspace is not part of what a push or checkpoint holds.`,
+    description: `Attach one allowed repository to the session as a git remote named \`repository_id\`, with its default branch fetched to \`<repository_id>/<branch>\`. A session has no repository in its workspace until one is attached (or was named when the session was created). A new attach is recorded on the session; a repository already attached, or the session's own, is answered as attached with nothing new recorded. One \`list_repositories\` shows as \`restore_failed\` is fetched anew, at the branch's current tip. It is meant for a repository whose code the task reads or changes, and \`list_repositories\` needs no attach. \`status\` is \`pending\` while the fetch runs. \`wait_seconds\` (0 to ${GITHUB_MCP_WAIT_SECONDS_MAX}, default 0) holds the answer until the fetch ends or the seconds have passed; \`final\` is false when the fetch was still running at the end of the wait. Attaching an attached repository changes nothing, so a repeat with the same arguments is safe. A failure that comes from the connection (an \`upstream connection failed\` answer, or HTTP 502 or 503) is transient and says nothing about the repository; \`repository_not_allowed\` is a refusal by the agent's settings, not a connection failure. The fetch leaves no working tree, so Read, Glob and Grep cannot see the repository; it is read with Bash, for example \`git ls-tree -r <repository_id>/<branch>\`, \`git show <repository_id>/<branch>:<path>\` or \`git grep <pattern> <repository_id>/<branch>\`. A session without Bash can attach a repository but cannot read it. A git worktree or clone outside the workspace is not part of what a push or checkpoint holds.`,
     refusals: [
       ...GITHUB_WORK_REFUSALS,
       "repository_not_allowed",

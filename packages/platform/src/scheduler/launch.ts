@@ -23,6 +23,7 @@ import type {
   StoredLaunchIntent,
 } from "./ports/scheduler-store.ts";
 import {
+  imageIdentity,
   imagesOfEngine,
   sameCombination,
   selectWorkerImage,
@@ -266,6 +267,31 @@ async function judgeEngineDropped(
   );
 }
 
+/**
+ * A launch whose resource runs a retracted image. Unclaimed, it is judged as
+ * a rebuild would be: given back on doubt, which costs its session no more
+ * than choosing an image again. Claimed, a worker is serving its session, so
+ * only an image known retracted counts: draining it ends that worker.
+ */
+export async function runsRetracted(
+  ctx: PassContext,
+  execution: ActiveExecution,
+): Promise<boolean> {
+  if (!ctx.options.retractedImages?.length) return false;
+  if (execution.claimed) {
+    // A row from before images were stored says nothing of what its worker
+    // runs, and the current setting is no evidence of it either.
+    const image = execution.image;
+    if (image === null) return false;
+    return (await retractedImagesOf(ctx)).pinned.some(
+      (retracted) => imageIdentity(retracted) === imageIdentity(image),
+    );
+  }
+  return (await retractedImagesOf(ctx)).rebuildsRetracted(
+    execution.image ?? ctx.options.image,
+  );
+}
+
 type RetractedImages = {
   /** The retracted images as configured and as this backend pins them. */
   pinned: readonly string[];
@@ -291,9 +317,6 @@ function retractedImagesOf(ctx: PassContext): Promise<RetractedImages> {
       const configured = (ctx.options.retractedImages ?? []).map(
         ({ image }) => image,
       );
-      if (everyImageRetracted(ctx.options)) {
-        return { pinned: configured, rebuildsRetracted: () => true };
-      }
       const resolveAll = async (images: readonly string[]) => {
         const resolved = new Set(images);
         let complete = true;
@@ -308,6 +331,9 @@ function retractedImagesOf(ctx: PassContext): Promise<RetractedImages> {
       };
       const retracted = await resolveAll(configured);
       const pinned = [...retracted.resolved];
+      if (everyImageRetracted(ctx.options)) {
+        return { pinned, rebuildsRetracted: () => true };
+      }
       if (retracted.complete) {
         return {
           pinned,

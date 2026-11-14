@@ -104,6 +104,8 @@ incremental checkpoint와 release 도구 복원 후보 하한을 모두 포함�
 
 worker 이미지가 바뀌면 upgrade는 바뀌기 전 이미지를 직전 이미지로 남긴다(upgrade 스크립트의 상태 디렉터리에 `previous-worker` 파일로 둔다). scheduler는 세션마다 checkpoint 포인터의 조합(engine·SDK·CLI·profile digest scheme)과 같은 이미지를 현재·직전 중에서 고르고, 둘 다 맞으면 현재 이미지를 쓴다([설정 레퍼런스 § scheduler·worker 컨테이너·egress 설정](/run-server/self-hosting/reference/configuration)). 그래서 게이트는 새 이미지로 복원할 수 없는 세션 가운데 직전 이미지로도 복원할 수 없는 세션만 영향 목록에 올린다. 새 이미지와 직전 이미지 가운데 어느 한쪽의 검사라도 fail-closed로 끝나면 새 이미지 기준 목록을 그대로 쓴다. 같은 조합으로 다시 빌드한 이미지라면 scheduler는 새 이미지로 띄우므로, 새 이미지로 복원된다고 확인하지 못한 세션은 직전 이미지가 복원하더라도 목록에서 빼지 않는다. 어느 한쪽이 자기 조합을 출력하지 못하는 옛 이미지면(조합 출력 기능이 없는 빌드) 직전 이미지를 쓰지 않고, 게이트도 새 이미지 기준 목록을 그대로 쓴다. 지원 창은 한 릴리스다. 한 번 더 업그레이드하면 그 전 이미지에 남은 세션이 다시 영향 목록에 오른다. 프로필 제거 릴리스에서는 직전 이미지로 뜨는 세션이 없다([프로필 제거 릴리스의 업그레이드 순서](#프로필-제거-릴리스의-업그레이드-순서)).
 
+두 엔진을 함께 돌리는 스택(`infra/compose.two-engines.yml`)에는 이 upgrade를 쓰지 않는다. 그 스택은 직전 이미지 자리에 다른 엔진(Claude)의 이미지를 두는데, upgrade는 그 자리를 바뀌기 전 이미지로 다시 써서 Claude 이미지를 빼 버린다. 두 엔진 스택의 worker 이미지를 바꾸는 compose 절차는 아직 없다.
+
 <a id="runtime-프로필의-공통-준비" />
 
 ### runtime 버전의 공통 준비
@@ -172,6 +174,36 @@ SDK를 올리는 릴리스는 이미지가 싣는 런타임 버전을 바꾸고,
 - test-ops `upgrade`는 바뀐 문서를 넣지도, DB와 비교하지도 않는다. 문서의 digest가 바뀌면 `upgrade: the settings document changed; it is not imported into a deployed installation, so change settings in the console`을 남긴다. `deploy`의 확인은 그대로다.
 - `scripts/local.sh down --keep-volumes`로 남긴 개발 volume에는 fixture(`tests/fixtures/settings/`)의 변경이 들어가지 않는다. volume을 새로 만들거나 `settings import`를 돌린다.
 - 되돌리면 앞선 release의 migrate가 배포마다 문서를 다시 가져온다. 콘솔에서 바꾼 항목이 문서의 같은 id와 다르면 그 가져오기가 거절되고 migrate가 실패해 API가 뜨지 않는다. 되돌리기 전에 그런 항목을 문서에서 빼거나 콘솔의 값에 맞춘다. `seed_decided_at` 열은 지우지 않는다. 앞선 빌드는 이 열을 읽지 않는다.
+
+### env로 가리키던 자격 증명은 DB로 한 번 옮긴다
+
+이 릴리스부터 api는 설정의 `value_env`(연결, 자기 GitHub App을 적은 저장소, MCP 서버)를 env에서 읽지 않는다. 설정을 읽을 때 그 값을 DB에 봉인해 그 행의 저장값으로 한 번 옮긴다. `secret_id`는 그대로다.
+
+- migration `0285_credential_carried_auth`가 `provider_connections`·`catalog_repositories`·`mcp_servers`에 `carried_auth` 열을, `catalog_repositories`에 `carried_binding` 열을 더하고, 명시적 App 저장소도 저장값을 갖도록 `catalog_repositories_credential_check`를 바꾼다. `push_requests`·`worker_credentials`에는 INSERT trigger(`…_carried_binding`)를 단다.
+- 올린 뒤 api 로그에 옮긴 행마다 `<kind>:<id> took its credential from <이름> into the database and no longer reads it; remove <이름>`이 한 번 나온다. 그 뒤 env에서 그 이름을 빼도 된다. 값은 로그와 receipt에 나오지 않는다. receipt `set_settings_credential`에는 변수 이름과 `by: env_import`만 남는다.
+- 첫 워크스페이스가 없으면(bootstrap 전) 그때까지는 env에서 읽고, 워크스페이스가 생긴 뒤 첫 설정 읽기(10초 안)에 옮긴다.
+- env에 값이 없는 행은 빠지고 경고가 한 번 남는다: `<kind>:<id> names <이름>, which the API does not have, so it is left out. …`. 변수를 넣고 api를 다시 띄운다. 연결이면 콘솔의 "화면에서 키 넣기"로도 된다.
+- 실행 경로가 거절할 값(8바이트보다 짧거나 앞뒤 공백·제어 문자가 있는 키, RSA 개인 키 PEM이 아닌 App 키)과 8자보다 짧은 키(저장값은 끝 네 글자를 보여 준다)는 옮기지 않는다. 그 행은 빠지고 `<kind>:<id> is left out and not carried into the database: <이유>. Correct <이름> and restart the API`가 한 번 남는다. 이유에는 변수 이름만 나온다.
+- 명시적 App 저장소를 옮기면 자격 참조가 바뀌어 저장소 binding도 바뀐다. 같은 트랜잭션에서 그 저장소의 옛 binding을 그대로 가진 push 요청과 실행 중 세션의 저장소 토큰을 새 binding으로 옮긴다. 그래서 옮기기 전에 만든 push로 PR을 열고 병합할 수 있고, 실행 중 세션도 토큰을 다시 받는다. 옮긴 행 수는 로그(`… (N push requests and M worker credentials moved to its new binding)`)와 receipt의 `rebound`에 남는다. 아직 옮김을 읽지 않은 replica(10초마다 다시 읽는다)나 앞선 빌드가 그 뒤 옛 binding으로 쓰는 행은 DB가 쓰는 순간 새 binding으로 적는다(위 trigger). 되돌리기 SQL이 `carried_binding`을 비우면 trigger는 아무것도 바꾸지 않는다. 옮기는 트랜잭션은 두 표를 잠가 그동안 push 요청과 worker 토큰을 쓰는 요청이 기다린다. 5초 안에 잠그지 못하면 옮기지 않고 다음 읽기에서 다시 한다. 옮긴 뒤 그 App 키는 `POST /v1/installation/settings/repositories/{id}/credential`(owner·admin, RSA 개인 키 PEM)로 바꾼다. env를 바꿔도 읽지 않는다.
+- **이 릴리스로 올릴 때는 api를 하나로 줄이거나 옛 replica를 모두 내린 뒤 새 빌드를 띄운다.** replica는 저마다 10초마다 설정을 다시 읽으므로, 아직 옮김을 읽지 않은 replica가 그 사이 옮겨진 push 요청을 `catalog_changed`로 실패시키거나 실행 중 세션의 토큰 재발급을 거절할 수 있다. Compose의 api는 하나라 그대로 올리면 된다. Helm은 [Kubernetes 업그레이드](/run-server/self-hosting/upgrade-kubernetes)의 1단계를 따른다. 그렇게 실패한 push는 다시 요청하면 새 binding으로 push된다.
+- 옮긴 뒤 옛 문서를 손으로 `settings import`하면 옮긴 항목은 같은 id에 다른 내용이라 `conflicts`로 멈춘다(`--from-dir`의 저장소는 `kept`로 남는다). 그 항목을 문서에서 빼거나 `settings export`로 받은 문서를 쓴다.
+- URL 저장소(`auth`가 `basic`·`bearer`)는 실행에 쓰이지 않으므로 옮기지 않는다.
+- 되돌리기: 앞선 빌드는 연결·MCP 서버의 저장값은 읽지만 명시적 App 저장소의 저장값은 거절해 그 저장소가 `invalid`로 빠진다. 되돌릴 때는 이 순서를 지킨다.
+  1. 이 릴리스의 api replica를 모두 내린다. 하나라도 살아 있으면 다음 설정 읽기(10초 안)에 되돌린 행을 다시 옮긴다.
+  2. 아래 SQL을 한 트랜잭션으로 실행한다. 행의 env 참조를 되돌리고, 옮길 때 바꾼 push 요청과 worker 토큰의 binding도 옛 값으로 되돌린다.
+  3. 그 변수들을 api env에 다시 넣고 앞선 빌드를 띄운다. 옮긴 뒤 콘솔에서 키를 바꿨다면 env의 값으로 돌아가므로 env에 새 값을 넣는다.
+
+  `carried_auth`·`carried_binding` 열과 봉인한 값은 남겨 둔다.
+
+```sql
+BEGIN;
+UPDATE push_requests p SET repository_binding = r.carried_binding->>'from' FROM catalog_repositories r WHERE r.carried_binding IS NOT NULL AND p.repository_binding = r.carried_binding->>'to';
+UPDATE worker_credentials w SET binding = r.carried_binding->>'from' FROM catalog_repositories r WHERE r.carried_binding IS NOT NULL AND w.purpose = 'repository' AND w.binding = r.carried_binding->>'to';
+UPDATE provider_connections SET definition = jsonb_set(definition, '{auth}', carried_auth), credential_source = 'external', carried_auth = NULL WHERE carried_auth IS NOT NULL;
+UPDATE catalog_repositories SET auth = carried_auth, credential_source = 'external', carried_auth = NULL, carried_binding = NULL, version = version + 1 WHERE carried_auth IS NOT NULL;
+UPDATE mcp_servers SET auth = carried_auth, credential_source = 'external', carried_auth = NULL WHERE carried_auth IS NOT NULL;
+COMMIT;
+```
 
 ### mock Slack env 이름
 

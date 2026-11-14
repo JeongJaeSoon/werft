@@ -12,8 +12,10 @@ const appKey = generateKeyPairSync("rsa", { modulusLength: 2048 })
 
 /**
  * The catalog the API would read after migrate imported the fixture: its
- * connections with their models, and its repositories, credentials resolved
- * from `env` (the fake GitHub App's key from a generated one).
+ * connections with their models, and its repositories. As the API's first
+ * read does, an env reference with a value in `env` is carried into a
+ * stored value of its row's own; one without stays and does not resolve.
+ * The fake GitHub App's key comes from a generated one.
  */
 export async function fixtureCatalog(
   name: string,
@@ -24,32 +26,47 @@ export async function fixtureCatalog(
       join(import.meta.dir, `../fixtures/settings/${name}.json`),
     ).json(),
   );
+  const stored = new Map<string, string>();
+  const carried = <T extends { auth?: unknown }>(
+    kind: string,
+    id: string,
+    entry: T,
+  ): T => {
+    const { value_env: name, ...kept } = (entry.auth ?? {}) as {
+      value_env?: string;
+    };
+    const value = name === undefined ? undefined : env[name];
+    if (!value) return entry;
+    stored.set(`${kind}:${id}`, value);
+    return { ...entry, auth: { ...kept, stored: `${kind}:${id}` } };
+  };
   const snapshot = settingsSnapshot(
     {
       generation: 0,
       connections: Object.entries(entries.connections).map(
         ([id, provider]) => ({
           id,
-          provider,
+          provider: carried("connection", id, provider),
           ...(entries.connection_models?.[id] ?? {}),
         }),
       ),
       repositories: Object.entries(entries.repositories).map(
-        ([id, repository]) => ({ id, repository }),
+        ([id, repository]) => ({
+          id,
+          repository: carried("repository", id, repository),
+        }),
       ),
       mcpServers: Object.entries(entries.mcp_servers).map(([id, server]) => ({
         id,
-        server,
+        server: carried("mcp", id, server),
       })),
-      stored: new Map(),
+      stored,
       invalid: [],
     },
     (ref) =>
-      "value_env" in ref
-        ? env[ref.value_env]
-        : "secret_id" in ref && ref.secret_id === "werft/local/fake-github-app"
-          ? appKey
-          : undefined,
+      "secret_id" in ref && ref.secret_id === "werft/local/fake-github-app"
+        ? appKey
+        : undefined,
   );
   if (snapshot.left_out.length > 0) {
     throw new Error(

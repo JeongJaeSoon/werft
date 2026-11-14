@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { generateKeyPairSync } from "node:crypto";
 import {
   type Principal,
   scopesForRole,
@@ -676,5 +677,96 @@ describe("a connection's models", () => {
         { "claude-sonnet-5": { family: "sonnet", rank: 5 } },
       ],
     ]);
+  });
+});
+
+describe("a repository's own GitHub App key", () => {
+  const pem = generateKeyPairSync("rsa", { modulusLength: 2048 })
+    .privateKey.export({ type: "pkcs8", format: "pem" })
+    .toString();
+  const repositoryRow = (id: string, auth: unknown): SettingsRow => ({
+    id,
+    entry: { url: "https://github.example/acme/app", branch: "main", auth },
+    origin: "import",
+    last4: "----",
+    createdAt: AT,
+    disabledAt: null,
+  });
+  const rows = {
+    repository: [
+      repositoryRow("platform-app", {
+        kind: "github_app",
+        app_id: 7,
+        installation_id: 8,
+        api_base: "https://github.example/api/v3",
+        stored: "repository:platform-app",
+      }),
+      repositoryRow("console-app", { kind: "github_app" }),
+      repositoryRow("url-repo", {
+        kind: "bearer",
+        stored: "repository:url-repo",
+      }),
+    ],
+  };
+
+  test("an owner or an admin replaces it with an RSA private key, which reaches the store and not the answer", async () => {
+    for (const who of ["owner", "admin"] as const) {
+      const { settings, writes } = service({ rows });
+      const changed = await settings.setCredential(
+        caller(who),
+        "repository",
+        "platform-app",
+        pem.replace(/\n/g, "\r\n"),
+      );
+      expect(changed).toEqual({ id: "platform-app", receipt_id: RECEIPT });
+      expect(writes).toEqual([
+        ["setValue", { kind: "repository", id: "platform-app" }, pem.trim()],
+      ]);
+    }
+  });
+
+  test("a member or an API key is refused and nothing is written", async () => {
+    const { settings, writes } = service({ rows });
+    for (const who of [caller("member"), apiKey]) {
+      expect(
+        (
+          await refusal(
+            settings.setCredential(who, "repository", "platform-app", pem),
+          )
+        ).code,
+      ).toBe("FORBIDDEN");
+    }
+    expect(writes).toEqual([]);
+  });
+
+  test("anything but an RSA private key is 400 invalid_private_key, never echoed", async () => {
+    const { settings, writes } = service({ rows });
+    const value = "example-not-a-key-1234";
+    const refused = await refusal(
+      settings.setCredential(
+        caller("owner"),
+        "repository",
+        "platform-app",
+        value,
+      ),
+    );
+    expect(refused.code).toBe("BAD_REQUEST");
+    expect(refused.details).toEqual({ reason_code: "invalid_private_key" });
+    expect(JSON.stringify(refused)).not.toContain(value);
+    expect(writes).toEqual([]);
+  });
+
+  test("a URL repository, one on the console's App or an unknown id is 404", async () => {
+    const { settings, writes } = service({ rows });
+    for (const id of ["url-repo", "console-app", "missing"]) {
+      expect(
+        (
+          await refusal(
+            settings.setCredential(caller("owner"), "repository", id, pem),
+          )
+        ).code,
+      ).toBe("NOT_FOUND");
+    }
+    expect(writes).toEqual([]);
   });
 });

@@ -16,6 +16,7 @@ const FIXTURES = {
   "real-model": "tests/fixtures/settings/real-model.json",
   "fake-model": "tests/fixtures/settings/fake-model.json",
   "local-model": "tests/fixtures/settings/local-model.json",
+  "two-engines": "tests/fixtures/settings/conformance-two-engines.json",
   "d2-gate": "scripts/d2-gate/settings.json",
 } as const;
 type Fixture = keyof typeof FIXTURES;

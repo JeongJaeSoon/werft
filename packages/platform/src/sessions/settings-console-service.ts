@@ -12,6 +12,7 @@ import type {
   SettingsEntryState,
   SettingsMcpServer,
 } from "@werft-ai/contracts";
+import { rsaPrivateKey } from "../github/index.ts";
 import {
   type AuthorizationPolicy,
   type Caller,
@@ -31,6 +32,7 @@ import {
   type CatalogMcpServerConfig,
   type CatalogProviderConfig,
   CONNECTION_ENDPOINT_DEFAULTS,
+  isRegisteredGitHubApp,
   type ModelFamilies,
   modelFamiliesSchema,
 } from "./catalog.ts";
@@ -44,10 +46,14 @@ import {
 
 type Provider = CatalogProviderConfig;
 type SettingsKind = Exclude<DocumentSettingsKind, "repository">;
+type GitHubAppAuthView = Parameters<typeof isRegisteredGitHubApp>[0];
 
-const ACTION: Record<SettingsKind, AuthorizationAction> = {
+// Repositories are an owner's or an admin's, as the store's writers are;
+// the console only replaces the key of one naming its own GitHub App.
+const ACTION: Record<DocumentSettingsKind, AuthorizationAction> = {
   connection: "installation.settings.manage",
   mcp: "installation.settings.manage",
+  repository: "workspace.manage",
 };
 
 const OUTRANKED = () =>
@@ -94,7 +100,7 @@ export function createSettingsConsoleService(deps: {
 
   async function writer(
     caller: Caller,
-    kind: SettingsKind,
+    kind: DocumentSettingsKind,
   ): Promise<TeamActor> {
     await requirePermitted(deps.authorization, caller, ACTION[kind], {
       kind: "workspace",
@@ -257,7 +263,7 @@ export function createSettingsConsoleService(deps: {
 
   async function onRow(
     caller: Caller,
-    kind: SettingsKind,
+    kind: DocumentSettingsKind,
     id: string,
     write: (actor: TeamActor) => Promise<SettingsConsoleResult>,
   ): Promise<SettingsChangeResponse> {
@@ -394,9 +400,15 @@ export function createSettingsConsoleService(deps: {
       );
     },
 
+    /**
+     * Replaces the value of a row that keeps its own. Of the repositories
+     * only one naming its own GitHub App, whose value is the App's private
+     * key, refused unless it is one; its id and App stay as they are. URL
+     * repositories stay out of the console (#1178).
+     */
     setCredential(
       caller: Caller,
-      kind: SettingsKind,
+      kind: DocumentSettingsKind,
       id: string,
       value: string,
     ) {
@@ -405,9 +417,20 @@ export function createSettingsConsoleService(deps: {
           throw SECRET_STORE_OFF();
         });
       }
-      return onRow(caller, kind, id, (actor) =>
-        store.setValue({ kind, id }, value, actor),
-      );
+      return onRow(caller, kind, id, async (actor) => {
+        if (kind !== "repository") {
+          return store.setValue({ kind, id }, value, actor);
+        }
+        const row = (await store.listRows("repository")).find(
+          (listed) => listed.id === id,
+        );
+        const auth = (row?.entry as { auth?: GitHubAppAuthView } | undefined)
+          ?.auth;
+        if (auth?.kind !== "github_app" || isRegisteredGitHubApp(auth)) {
+          return { outcome: "not_found" as const };
+        }
+        return store.setValue({ kind, id }, rsaPrivateKey(value), actor);
+      });
     },
 
     convertConnection(caller: Caller, id: string, value: string) {

@@ -60,7 +60,7 @@ teardown_volumes() {
 teardown_images() {
   local tag found
   for tag in "werft-control-host:$1" "werft-worker:$1" "werft-egress-proxy:$1" \
-    "$1-migrate:latest" "$1-fake-git:latest" "$1-gitea:latest"; do
+    "werft-worker-deps:$1" "$1-migrate:latest" "$1-fake-git:latest" "$1-gitea:latest"; do
     found=$(docker image ls -q "$tag") || return 1
     [ -z "$found" ] || echo "$tag"
   done
