@@ -216,14 +216,18 @@ function carriedValue(
  * and the worker credentials a running session's token is reissued under.
  * A replica that has not read the move yet still inserts the old one; the
  * tables' insert triggers move those once this commits, and the lock waits
- * out inserts already made in transactions that commit later.
+ * out inserts already made in transactions that commit later. EXCLUSIVE
+ * also waits out row locks (`FOR UPDATE`), so the rewrite never queues
+ * behind a writer that then queues behind the lock; a busy table makes the
+ * carry fail and try again on the next read.
  */
 async function rebind(
   tx: Database,
   { from, to }: Binding,
 ): Promise<{ push_requests: number; worker_credentials: number }> {
+  await tx.execute(sql`SET LOCAL lock_timeout = '5s'`);
   await tx.execute(
-    sql`LOCK TABLE ${pushRequests}, ${workerCredentials} IN SHARE ROW EXCLUSIVE MODE`,
+    sql`LOCK TABLE ${pushRequests}, ${workerCredentials} IN EXCLUSIVE MODE`,
   );
   const pushes = await tx
     .update(pushRequests)
@@ -615,11 +619,13 @@ export function createPostgresInstallationSettingsStore(
               if (workspaceId === null) {
                 return { entry, env: name, outcome: "waiting" };
               }
-              await pointAtStored(tx, row, carried.binding);
+              // Before the row lock pointAtStored takes, so the table lock
+              // is waited for holding only the catalog lock.
               const rebound =
                 carried.binding === undefined
                   ? undefined
                   : await rebind(tx, carried.binding);
+              await pointAtStored(tx, row, carried.binding);
               await writeSecretInTx(
                 tx,
                 key,

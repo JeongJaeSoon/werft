@@ -554,6 +554,45 @@ integration("carrying env credentials into stored values", () => {
     expect(await pushBinding(id)).toBe(await bindingNow("ghes"));
   });
 
+  test("a writer holding a push request's row lock finishes, and the carry after it", async () => {
+    await addWorkspace();
+    const { ghesPush } = await heldBindings();
+    let update = () => {};
+    const updating = new Promise<void>((resolve) => {
+      update = resolve;
+    });
+    let locked = () => {};
+    const lockedYet = new Promise<void>((resolve) => {
+      locked = resolve;
+    });
+    // An approval: FOR UPDATE, then UPDATE.
+    const writer = db.transaction(async (tx) => {
+      await tx
+        .select({ id: pushRequests.id })
+        .from(pushRequests)
+        .where(eq(pushRequests.id, ghesPush))
+        .for("update");
+      locked();
+      await updating;
+      await tx
+        .update(pushRequests)
+        .set({ decisionReason: "approved" })
+        .where(eq(pushRequests.id, ghesPush));
+    });
+    await lockedYet;
+    const carry = createPostgresInstallationSettingsStore(
+      db,
+      KEY,
+    ).carryEnvCredentials(env);
+    await Bun.sleep(300);
+    update();
+    await writer;
+    expect(
+      (await carry).find(({ entry }) => entry === "repository:ghes"),
+    ).toMatchObject({ outcome: "carried" });
+    expect(await pushBinding(ghesPush)).toBe(await bindingNow("ghes"));
+  });
+
   test("the rollback SQL in the upgrade guide restores the env references and the old bindings", async () => {
     await addWorkspace();
     const { before, ghesPush, otherPush, push } = await heldBindings();
