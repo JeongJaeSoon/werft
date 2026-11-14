@@ -50,6 +50,7 @@ import {
   createPostgresPushIntents,
   createPostgresPushRequests,
   createPostgresRepositoryAttachments,
+  createPostgresRepositoryPins,
   createPostgresSecretStore,
   createPostgresSessionAttributionStore,
   createPostgresSessionControl,
@@ -1040,6 +1041,7 @@ const workers = createWorkerGateway({
   pending: createPostgresWorkerPendingStore(db),
   github,
   attachments: repositoryAttachmentStore,
+  repositoryPins: createPostgresRepositoryPins(db),
   attribution: {
     store: sessionAttribution,
     ledger: commitAttributions,

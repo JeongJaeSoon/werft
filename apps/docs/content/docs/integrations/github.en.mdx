@@ -132,7 +132,7 @@ If an attach fails on a connection error (an `upstream connection failed` answer
 - Attaching the same repository again changes nothing and succeeds. While the fetch is running the tool answers `pending` with `final: false` at once. With `wait_seconds` (0 to 7, default 0) it holds the answer until the fetch ends or the seconds have passed; `final` is true once the fetch has ended.
 - The fetch is limited to 300 seconds and 2 GiB. Past either, the attachment fails with the reason in `failure` (`fetch_timeout`, `fetch_too_large`).
 - Each attachment leaves an `attach_repository` [receipt](/approvals/receipt): who asked and from which attempt, the repository, the release, the commit fetched, and the refusal reason (`repository_not_allowed` or `allowed_in_newer_release`).
-- When the session restarts on another worker (a restore), the attached repositories' remotes are added again. A CLAUDE.md in an attached repository is not read as instructions.
+- When the session restarts on another worker (a restore), the attached repositories' remotes are added again, at the commit the session first fetched rather than the branch's current tip. The code the session reads does not change when the remote branch moves or is rewritten in between. A CLAUDE.md in an attached repository is not read as instructions.
 
 ## Link your GitHub account
 

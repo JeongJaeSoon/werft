@@ -1462,14 +1462,23 @@ describe("attach_repository", () => {
   test("a repository already attached answers final at once", async () => {
     const h = harness();
     await h.call("attach_repository", { repository_id: "docs" });
-    await h.attachmentStore.settle(SESSION, [
+    await h.attachmentStore.settle(
       {
-        repository_id: "docs",
-        receipt_id: "receipt-1",
-        status: "attached",
-        commit: "c".repeat(40),
+        sessionId: SESSION,
+        attemptId: "att_1",
+        leaseEpoch: 1,
+        executionGeneration: 1,
+        authRevision: 1,
       },
-    ]);
+      [
+        {
+          repository_id: "docs",
+          receipt_id: "receipt-1",
+          status: "attached",
+          commit: "c".repeat(40),
+        },
+      ],
+    );
     const started = performance.now();
     const answer = payload(
       await h.call("attach_repository", {

@@ -246,12 +246,31 @@ describe("workerImageListFromEnv", () => {
       "WORKER_IMAGES[1].released_at",
     ],
     [
-      "two engines",
+      "an engine's older image first, past another engine's",
+      list(
+        entry(OLD, { ...previous, engine: "codex" }, "2026-10-01T00:00:00Z"),
+        entry(NEW, current, "2026-11-10T00:00:00Z"),
+        entry(
+          `ghcr.io/x/worker@sha256:${"c".repeat(64)}`,
+          { ...current, engine: "codex" },
+          "2026-11-12T00:00:00Z",
+        ),
+      ),
+      "WORKER_IMAGES[2].released_at 2026-11-12T00:00:00Z is not before 2026-10-01T00:00:00Z of the codex image above it",
+    ],
+    [
+      "three images of one engine beside another's",
       list(
         entry(NEW, current, "2026-11-10T00:00:00Z"),
-        entry(OLD, { ...previous, engine: "codex" }, "2026-10-01T00:00:00Z"),
+        ...["c", "d", "e"].map((digit, index) =>
+          entry(
+            `ghcr.io/x/worker@sha256:${digit.repeat(64)}`,
+            { ...current, engine: "codex" },
+            `2026-11-0${3 - index}T00:00:00Z`,
+          ),
+        ),
       ),
-      "images of claude and codex",
+      "lists 3 unretracted codex images: at most 2",
     ],
     [
       "three images of one engine",
@@ -268,6 +287,29 @@ describe("workerImageListFromEnv", () => {
     ],
   ])("refuses %s", (_, environment, message) => {
     expect(() => workerImageListFromEnv(environment)).toThrow(message);
+  });
+
+  test("two engines list two images each, ordered within each engine only", () => {
+    const codexNew = { ...current, engine: "codex" };
+    const codexOld = { ...previous, engine: "codex" };
+    const image = (digit: string) =>
+      `ghcr.io/x/worker@sha256:${digit.repeat(64)}`;
+    expect(
+      workerImageListFromEnv(
+        list(
+          entry(image("c"), codexNew, "2026-11-10T00:00:00Z"),
+          // The same instant as the codex image above: another engine's.
+          entry(NEW, current, "2026-11-10T00:00:00Z"),
+          entry(image("d"), codexOld, "2026-10-20T00:00:00Z"),
+          entry(OLD, previous, "2026-11-01T00:00:00Z"),
+        ),
+      ),
+    ).toEqual([
+      { image: image("c"), runtime: codexNew, retracted: false },
+      { image: NEW, runtime: current, retracted: false },
+      { image: image("d"), runtime: codexOld, retracted: false },
+      { image: OLD, runtime: previous, retracted: false },
+    ]);
   });
 
   test("refuses the single-image settings beside it", () => {
@@ -315,7 +357,11 @@ test("pins take any listed image's versions, under the kinds of its engine only"
     { kind: "claude_agent_sdk", checkpointEngine: "claude" },
     { kind: "codex_app_server", checkpointEngine: "codex" },
   ];
-  const claude = (version: string) => ({ kind: "claude_agent_sdk", version });
+  const claude = (version: string) => ({
+    kind: "claude_agent_sdk",
+    engine: "claude",
+    version,
+  });
   expect(runtimeVersionsOf([current, previous], kinds)).toEqual({
     accepted: [
       claude("0.3.280"),
@@ -329,8 +375,8 @@ test("pins take any listed image's versions, under the kinds of its engine only"
     accepted: [
       claude("0.3.280"),
       claude("2.1.280"),
-      { kind: "codex_app_server", version: "0.3.270" },
-      { kind: "codex_app_server", version: "2.1.270" },
+      { kind: "codex_app_server", engine: "codex", version: "0.3.270" },
+      { kind: "codex_app_server", engine: "codex", version: "2.1.270" },
     ],
   });
   expect(
@@ -477,6 +523,77 @@ describe("selectWorkerImage", () => {
         selectWorkerImage(
           { kind: "recorded", runtime: { ...previous, sdkVersion: "0.3.260" } },
           retracted,
+        ),
+      ).toMatchObject({ kind: "none", reason: "incompatible_checkpoint" });
+    });
+  });
+
+  describe("by the session's engine", () => {
+    const codex = { ...current, engine: "codex", sdkVersion: "0.9.0" };
+    const mixed = [
+      { image: "worker@sha256:claude", runtime: current },
+      { image: "worker@sha256:codex", runtime: codex },
+    ] as const;
+
+    test("a session with no checkpoint runs on its own engine's newest image, not the newest of all", () => {
+      for (const pointer of [
+        { kind: "none" },
+        { kind: "unrecorded" },
+      ] as const) {
+        expect(selectWorkerImage(pointer, mixed, "codex")).toEqual({
+          kind: "selected",
+          image: "worker@sha256:codex",
+          runtime: codex,
+        });
+        expect(selectWorkerImage(pointer, mixed, "claude")).toMatchObject({
+          image: "worker@sha256:claude",
+        });
+      }
+    });
+
+    test("a checkpoint resumes on its engine's image", () => {
+      expect(
+        selectWorkerImage({ kind: "recorded", runtime: codex }, mixed, "codex"),
+      ).toMatchObject({ kind: "selected", image: "worker@sha256:codex" });
+    });
+
+    test("no image of the engine leaves a session with no checkpoint waiting, and holds a checkpoint", () => {
+      const claudeOnly = [mixed[0]] as const;
+      for (const pointer of [
+        { kind: "none" },
+        { kind: "unrecorded" },
+      ] as const) {
+        expect(selectWorkerImage(pointer, claudeOnly, "codex")).toEqual({
+          kind: "none",
+          reason: "engine_unavailable",
+          detail: "no configured worker image runs the codex engine",
+        });
+        expect(selectWorkerImage(pointer, claudeOnly, null)).toEqual({
+          kind: "none",
+          reason: "engine_unavailable",
+          detail: "the session's runtime kind is not one this host runs",
+        });
+      }
+      const held = selectWorkerImage(
+        { kind: "recorded", runtime: codex },
+        claudeOnly,
+        "codex",
+      );
+      expect(held).toMatchObject({
+        kind: "none",
+        reason: "incompatible_checkpoint",
+      });
+      expect(held.kind === "none" && held.detail).toContain(
+        "no configured worker image runs the codex engine",
+      );
+    });
+
+    test("a checkpoint of another engine than the session's is not restored by the image that sealed it", () => {
+      expect(
+        selectWorkerImage(
+          { kind: "recorded", runtime: current },
+          mixed,
+          "codex",
         ),
       ).toMatchObject({ kind: "none", reason: "incompatible_checkpoint" });
     });

@@ -62,17 +62,25 @@ export interface WorkspacePreparer {
   attachRepositories?(input: {
     descriptor: WorkspaceDescriptor;
     signal: AbortSignal;
-  }): Promise<{ attached: string[]; failed: string[] }>;
+  }): Promise<AttachedRepositories>;
   /**
    * One repository the agent attached mid-session, as `attachRepositories`
-   * adds each; the commit its branch was fetched at. Throws
-   * `AttachLimitError` past the fetch's time or size limit.
+   * adds each; the commit it was fetched at: its `commit` when it has one,
+   * else its branch's tip. Throws `AttachLimitError` past the fetch's time
+   * or size limit.
    */
   attachRepository?(
     repository: AdditionalWorkspaceRepository,
     signal: AbortSignal,
   ): Promise<string>;
 }
+
+/** By repository id; `commits` names what each attached one was fetched at. */
+export type AttachedRepositories = {
+  attached: string[];
+  failed: string[];
+  commits: Map<string, string>;
+};
 
 /**
  * How long, and how large, one attachment's fetch may get. The size is the
@@ -85,6 +93,8 @@ export const DEFAULT_ATTACH_LIMITS: AttachLimits = {
   maxBytes: 2 * 1024 ** 3,
 };
 const ATTACH_SIZE_CHECK_MS = 1_000;
+// Where a scratch mirror holds a pinned commit until the checkout takes it.
+const PINNED_REF = "refs/werft/pinned";
 
 export class AttachLimitError extends Error {
   constructor(readonly failure: "fetch_timeout" | "fetch_too_large") {
@@ -314,19 +324,23 @@ export class GitWorkspace implements WorkspacePreparer {
   async attachRepositories(input: {
     descriptor: WorkspaceDescriptor;
     signal: AbortSignal;
-  }): Promise<{ attached: string[]; failed: string[] }> {
+  }): Promise<AttachedRepositories> {
     const attached: string[] = [];
     const failed: string[] = [];
+    const commits = new Map<string, string>();
     for (const repository of input.descriptor.additional_repositories ?? []) {
       try {
-        await this.attachRepository(repository, input.signal);
+        commits.set(
+          repository.id,
+          await this.attachRepository(repository, input.signal),
+        );
         attached.push(repository.id);
       } catch (error) {
         if (input.signal.aborted) throw error;
         failed.push(repository.id);
       }
     }
-    return { attached, failed };
+    return { attached, failed, commits };
   }
 
   async attachRepository(
@@ -377,24 +391,58 @@ export class GitWorkspace implements WorkspacePreparer {
           measuring = false;
         });
     }, ATTACH_SIZE_CHECK_MS);
+    const source = remote.route?.url ?? remote.url;
     try {
-      await check(
-        git(
-          [
-            "clone",
-            "--quiet",
-            "--bare",
-            "--single-branch",
-            "--branch",
-            branch,
-            "--",
-            remote.route?.url ?? remote.url,
-            mirror,
-          ],
-          { network: true, cwd: "/" },
-        ),
-        "fetch",
-      );
+      // The session's pin is fetched by name alone, never through the branch:
+      // the branch may have moved past it, been rewritten or deleted since.
+      const fetched =
+        repository.commit === undefined ? `refs/heads/${branch}` : PINNED_REF;
+      if (repository.commit === undefined) {
+        await check(
+          git(
+            [
+              "clone",
+              "--quiet",
+              "--bare",
+              "--single-branch",
+              "--branch",
+              branch,
+              "--",
+              source,
+              mirror,
+            ],
+            { network: true, cwd: "/" },
+          ),
+          "fetch",
+        );
+      } else {
+        await check(
+          git(["init", "--quiet", "--bare", "--", mirror], { cwd: "/" }),
+          "fetch",
+        );
+        await check(
+          git(
+            [
+              "fetch",
+              "--quiet",
+              "--no-tags",
+              "--",
+              source,
+              `+${repository.commit}:${PINNED_REF}`,
+            ],
+            { network: true, cwd: mirror },
+          ),
+          "fetch",
+        );
+        const type = await git(["cat-file", "-t", `${PINNED_REF}^{object}`], {
+          cwd: mirror,
+        });
+        if (type.code !== 0 || type.stdout.trim() !== "commit") {
+          throw new Error(
+            `The pinned object ${repository.commit} of ${id} is not a commit`,
+          );
+        }
+      }
       // A clone quicker than the sampler is measured once more here.
       if ((await bytesUnder(mirror)) > this.attachLimits.maxBytes) {
         throw new AttachLimitError("fetch_too_large");
@@ -405,7 +453,7 @@ export class GitWorkspace implements WorkspacePreparer {
           "--quiet",
           "--no-tags",
           mirror,
-          `+refs/heads/${branch}:refs/remotes/${id}/${branch}`,
+          `+${fetched}:refs/remotes/${id}/${branch}`,
         ]),
         "fetch",
       );

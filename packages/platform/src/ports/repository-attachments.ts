@@ -5,6 +5,7 @@ import type {
   RepositoryAttachFailure,
   RepositoryAttachResult,
 } from "@werft-ai/contracts";
+import type { FenceRejection, WorkerFence } from "./worker-unit-of-work.ts";
 
 /** One repository the agent attached mid-session, as its row stands. */
 export type RepositoryAttachmentRow = {
@@ -80,9 +81,33 @@ export interface RepositoryAttachmentStore {
   pending(sessionId: string): Promise<RepositoryAttachmentRow[]>;
   /**
    * Settles pending rows from a worker's reports and their receipts; a
-   * failed fetch also takes the repository off the attached list. A report
-   * for a row no longer pending, or for an earlier request than the row's
-   * receipt, changes nothing, so a resent one is safe.
+   * failed fetch also takes the repository off the attached list, and a
+   * fetched one pins its commit unless the session has pinned one already.
+   * A report for a row no longer pending, or for an earlier request than the
+   * row's receipt, changes nothing, so a resent one is safe. Each report is
+   * settled under the reporting attempt's fence; once it no longer holds,
+   * the rest are left pending for the attempt that owns the session.
    */
-  settle(sessionId: string, results: RepositoryAttachResult[]): Promise<void>;
+  settle(
+    fence: WorkerFence,
+    results: RepositoryAttachResult[],
+  ): Promise<{ outcome: "ok" } | FenceRejection>;
+}
+
+/**
+ * The commit a session first fetched each attached repository at, by
+ * repository id. Written once: a later pin of the same repository keeps the
+ * first commit.
+ */
+export interface RepositoryPinStore {
+  list(sessionId: string): Promise<Map<string, string>>;
+  /**
+   * Pins what is not pinned yet and answers the kept commit of each one
+   * asked, in the same transaction that holds the fence: a pin outlives the
+   * attempt, so only the session's owner writes one.
+   */
+  pin(
+    fence: WorkerFence,
+    pins: ReadonlyArray<{ repositoryId: string; commit: string }>,
+  ): Promise<{ outcome: "ok"; pins: Map<string, string> } | FenceRejection>;
 }

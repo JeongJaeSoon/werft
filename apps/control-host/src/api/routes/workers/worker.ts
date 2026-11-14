@@ -108,6 +108,9 @@ export function registerWorkerRoutes(
   call("/protected-commits", (principal, body) =>
     gateway.protectedCommits(principal, body),
   );
+  call("/repository-pins", (principal, body) =>
+    gateway.repositoryPins(principal, body),
+  );
   call("/restore-plan", (principal, body) =>
     gateway.restorePlan(principal, body),
   );

@@ -19,4 +19,7 @@ export const WORKER_CAPABILITIES: WorkerCapabilities = {
   // and the Claude adapter appends its instruction.
   response_language: true,
   answer_surface: true,
+  // GitWorkspace fetches an additional repository's `commit` by name, and
+  // the host reports what it pinned (worker-host.ts `pinRepositories`).
+  repository_pins: true,
 };

@@ -95,6 +95,12 @@ export type SchedulerOptions = {
    * `image` is one of them, and nothing launches.
    */
   retractedImages?: readonly { image: string; runtime: ImageRuntime }[];
+  /**
+   * The engine a session's runtime kind runs on (the codec descriptor's
+   * `checkpointEngine`). With it each session launches on an image of its
+   * own engine only; without it any listed image is a candidate.
+   */
+  engineOfKind?: (kind: string) => string | undefined;
   /** Failed attempts per launch before it is given up on; see the default. */
   launchFailureLimit?: number;
   /** First backoff after a failed attempt; doubles per failure up to the cap. */
@@ -162,6 +168,8 @@ export type SchedulerRunSummary = {
   heldIncompatible: string[];
   /** Sessions stopped before launch: only a retracted image restores their checkpoint. */
   heldRetired: string[];
+  /** Sessions passed over: no listed image runs their engine. */
+  waitingForEngine: string[];
   launched: ExecutionRef[];
   /**
    * Launches left alone this pass because their last failed attempt still

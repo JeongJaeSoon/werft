@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  REPOSITORY_PINS_MAX,
   type RuntimeConfig,
   type SessionEvent,
   sessionEventSchema,
@@ -9,6 +10,7 @@ import {
   approvalInputHash,
   type RuntimeEvent,
   type TurnEnded,
+  WorkerGatewayRequestError,
 } from "@werft-ai/runtime-core";
 
 import { unwiredCheckpoints } from "./checkpoint.ts";
@@ -519,7 +521,10 @@ describe("WorkerHost over a run that implements the contract itself", () => {
     // Written again with the attached repository, once at the claim before.
     expect(routed).toEqual([
       { repository: null },
-      { repository: null, additional_repositories: [{ ...entry, access }] },
+      {
+        repository: null,
+        additional_repositories: [{ ...entry, access, commit }],
+      },
     ]);
     expect(modules).toEqual([[], ["github.com/acme/docs"]]);
   });
@@ -569,7 +574,7 @@ describe("WorkerHost over a run that implements the contract itself", () => {
         prepare: async () => "restore",
         attachRepositories: async ({ descriptor }) => {
           steps.push(descriptor.additional_repositories);
-          return { attached: ["docs"], failed: [] };
+          return { attached: ["docs"], failed: [], commits: new Map() };
         },
       },
     });
@@ -577,6 +582,191 @@ describe("WorkerHost over a run that implements the contract itself", () => {
     await worker.runLoop();
 
     expect(steps).toEqual(["restoring", "restored", [docs], "started"]);
+  });
+
+  describe("pins the claim's unpinned repositories before the engine starts", () => {
+    const docs = {
+      id: "docs",
+      url: "https://github.com/acme/docs.git",
+      branch: "main",
+    };
+    const wiki = {
+      id: "wiki",
+      url: "https://github.com/acme/wiki.git",
+      branch: "main",
+      commit: "a".repeat(40),
+    };
+    const fetchedAt = "b".repeat(40);
+
+    function pinning(
+      answer: (pins: unknown) => Promise<{
+        pins: Array<{ repository_id: string; commit: string }>;
+      }>,
+      // An attach order for docs that an earlier attempt never settled,
+      // handed out by a heartbeat before this claim's pins are kept.
+      early = false,
+      // More unpinned repositories fetched besides docs, named r0, r1, …
+      extra = 0,
+    ) {
+      const more = Array.from({ length: extra }, (_, index) => ({
+        ...docs,
+        id: `r${index}`,
+      }));
+      const gateway = new FakeWorkerGateway();
+      if (early) gateway.attachOrders = [{ ...docs, receipt_id: "r-1" }];
+      const claim = gateway.bootstrapClaim.bind(gateway);
+      gateway.bootstrapClaim = async (request) => ({
+        ...(await claim(request)),
+        workspace: {
+          repository: null,
+          additional_repositories: [{ ...docs }, { ...wiki }, ...more],
+        },
+      });
+      const steps: unknown[] = [];
+      Object.assign(gateway, {
+        repositoryPins: async (request: { pins: unknown }) => {
+          steps.push({ pins: request.pins });
+          return answer(request.pins);
+        },
+      });
+      const warnings: string[] = [];
+      const run = new ScriptedRun();
+      run.onSend = (sent) => {
+        void (async () => {
+          while (early && gateway.attachReports.length === 0) {
+            await Bun.sleep(1);
+          }
+          finish(run, sent);
+        })();
+      };
+      const worker = new WorkerHost({
+        checkpoints: unwiredCheckpoints,
+        execution: { bootstrapNonce: "wln_test", generation: 1, id: "exec-1" },
+        gateway,
+        logger: {
+          info: () => {},
+          warn: (event) => warnings.push(event),
+          error: () => {},
+        },
+        runtimes: {
+          launcherFor: () => ({
+            start: () => {
+              steps.push("started");
+              return run;
+            },
+          }),
+        },
+        timeouts: { ...timeouts, heartbeatIntervalMs: 2 },
+        workspace: {
+          ...noWorkspace,
+          attachRepositories: async () => ({
+            attached: ["docs", "wiki", ...more.map((entry) => entry.id)],
+            failed: [],
+            commits: new Map([
+              ["docs", fetchedAt],
+              ["wiki", wiki.commit],
+              ...more.map((entry): [string, string] => [entry.id, fetchedAt]),
+            ]),
+          }),
+          attachRepository: async (repository) => {
+            steps.push({ refetched: repository });
+            return repository.commit ?? fetchedAt;
+          },
+        },
+      });
+      gateway.enqueue("hello");
+      return { gateway, steps, warnings, worker };
+    }
+
+    test("reports only what it fetched unpinned, and fetches nothing again when that is kept", async () => {
+      const { steps, worker } = pinning(async (pins) => ({
+        pins: pins as Array<{ repository_id: string; commit: string }>,
+      }));
+      const summary = await worker.runLoop();
+      expect(summary.turns.map((turn) => turn.status)).toEqual(["completed"]);
+      expect(steps).toEqual([
+        { pins: [{ repository_id: "docs", commit: fetchedAt }] },
+        "started",
+      ]);
+    });
+
+    test("reports more repositories than one request carries in batches the route accepts", async () => {
+      const { steps, worker } = pinning(
+        async (pins) => ({
+          pins: pins as Array<{ repository_id: string; commit: string }>,
+        }),
+        false,
+        REPOSITORY_PINS_MAX,
+      );
+      const summary = await worker.runLoop();
+      expect(summary.turns.map((turn) => turn.status)).toEqual(["completed"]);
+      const sizes = steps.map((step) =>
+        typeof step === "object" && step !== null && "pins" in step
+          ? (step.pins as unknown[]).length
+          : step,
+      );
+      expect(sizes).toEqual([REPOSITORY_PINS_MAX, 1, "started"]);
+    });
+
+    test("fetches the session's pin instead when another attempt pinned first", async () => {
+      const first = "c".repeat(40);
+      const { steps, worker } = pinning(async () => ({
+        pins: [{ repository_id: "docs", commit: first }],
+      }));
+      await worker.runLoop();
+      expect(steps).toEqual([
+        { pins: [{ repository_id: "docs", commit: fetchedAt }] },
+        { refetched: { ...docs, commit: first } },
+        "started",
+      ]);
+    });
+
+    test("an attach order handed out before the pins were kept fetches the pin, not the branch's tip", async () => {
+      const first = "c".repeat(40);
+      const { gateway, steps, worker } = pinning(
+        async () => ({ pins: [{ repository_id: "docs", commit: first }] }),
+        true,
+      );
+      await worker.runLoop();
+      expect(steps.filter((step) => step !== "started")).toEqual([
+        { pins: [{ repository_id: "docs", commit: fetchedAt }] },
+        { refetched: { ...docs, commit: first } },
+        { refetched: { ...docs, commit: first } },
+      ]);
+      expect(gateway.attachReports).toEqual([
+        {
+          repository_id: "docs",
+          receipt_id: "r-1",
+          status: "attached",
+          commit: first,
+        },
+      ]);
+    });
+
+    test("a control-host without the route leaves the run unpinned", async () => {
+      const { steps, warnings, worker } = pinning(async () => {
+        throw new WorkerGatewayRequestError(404, null, "Not Found", false);
+      });
+      const summary = await worker.runLoop();
+      expect(summary.turns.map((turn) => turn.status)).toEqual(["completed"]);
+      expect(steps.at(-1)).toBe("started");
+      expect(warnings).toContain("worker.workspace.pins_unsupported");
+    });
+
+    test("any other failure fails the claim before the engine starts", async () => {
+      const { gateway, steps, worker } = pinning(async () => {
+        throw new WorkerGatewayRequestError(
+          400,
+          "BAD_REQUEST",
+          "bad pins",
+          false,
+        );
+      });
+      const summary = await worker.runLoop();
+      expect(summary.outcome).toBe("failed");
+      expect(steps).not.toContain("started");
+      expect(gateway.releases).toHaveLength(1);
+    });
   });
 
   test("an attachment handed out before the workspace is prepared waits for it", async () => {

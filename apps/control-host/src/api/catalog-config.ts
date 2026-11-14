@@ -92,11 +92,14 @@ export function runtimeVersionsFromEnv(
   if (runtimes === null) return undefined;
   const listed = runtimeVersionsOf(runtimes, installedDescriptors).accepted;
   const accepted = new Map(
-    listed.flatMap(({ kind, version }) =>
+    listed.flatMap(({ kind, version, engine }) =>
       [
         version,
         ...equivalentToolCatalogVersions(installedToolCatalogs, kind, version),
-      ].map((each) => [`${kind}\n${each}`, { kind, version: each }] as const),
+      ].map(
+        (each) =>
+          [`${kind}\n${each}`, { kind, version: each, engine }] as const,
+      ),
     ),
   );
   return { accepted: [...accepted.values()] };

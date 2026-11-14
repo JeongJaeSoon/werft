@@ -98,10 +98,12 @@ describe("installed runtimes", () => {
     });
     expect(listed?.accepted).toContainEqual({
       kind: "claude_agent_sdk",
+      engine: "claude",
       version: "0.3.280",
     });
     expect(listed?.accepted).toContainEqual({
       kind: "claude_agent_sdk",
+      engine: "claude",
       version: "0.3.270",
     });
     // A claude image ships no Codex runtime, whatever its version strings.
@@ -152,10 +154,12 @@ describe("installed runtimes", () => {
     })?.accepted;
     expect(claude).toContainEqual({
       kind: "claude_agent_sdk",
+      engine: "claude",
       version: "0.3.270",
     });
     expect(claude).not.toContainEqual({
       kind: "codex_app_server",
+      engine: "codex",
       version: "0.3.270",
     });
     const codex = runtimeVersionsFromEnv({
@@ -165,7 +169,9 @@ describe("installed runtimes", () => {
         cliVersion: "0.3.319",
       }),
     })?.accepted;
-    expect(codex).toEqual([{ kind: "codex_app_server", version: "0.3.319" }]);
+    expect(codex).toEqual([
+      { kind: "codex_app_server", engine: "codex", version: "0.3.319" },
+    ]);
   });
 
   test("switching engines keeps the previous engine's sessions running, under its own kind", () => {
@@ -181,18 +187,22 @@ describe("installed runtimes", () => {
     })?.accepted;
     expect(accepted).toContainEqual({
       kind: "codex_app_server",
+      engine: "codex",
       version: "0.9.0",
     });
     expect(accepted).toContainEqual({
       kind: "claude_agent_sdk",
+      engine: "claude",
       version: "0.3.270",
     });
     expect(accepted).not.toContainEqual({
       kind: "claude_agent_sdk",
+      engine: "claude",
       version: "0.9.0",
     });
     expect(accepted).not.toContainEqual({
       kind: "codex_app_server",
+      engine: "codex",
       version: "0.3.270",
     });
   });

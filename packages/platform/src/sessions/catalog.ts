@@ -906,10 +906,11 @@ export type RuntimeAtVersion = {
  * The runtimes the configured worker images ship: each image's SDK and CLI
  * version, under each runtime kind of the image's engine. A session whose
  * spec names a listed pair runs. A version string alone matches nothing:
- * two engines may ship the same one.
+ * two engines may ship the same one. `engine` is the image's: a worker
+ * claims only the pairs of its own.
  */
 export type RuntimeVersions = {
-  readonly accepted: readonly RuntimeAtVersion[];
+  readonly accepted: ReadonlyArray<RuntimeAtVersion & { engine: string }>;
 };
 
 /** Whether a release's runtime runs on the configured images. */

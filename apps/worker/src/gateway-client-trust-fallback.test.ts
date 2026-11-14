@@ -107,6 +107,7 @@ describe("claim against a control-host older than platform_tool_trust", () => {
       user_env: true,
       response_language: true,
       answer_surface: true,
+      repository_pins: true,
     });
   });
 
@@ -127,6 +128,7 @@ describe("claim against a control-host older than platform_tool_trust", () => {
         user_env: true,
         response_language: true,
         answer_surface: true,
+        repository_pins: true,
       },
       {
         approval_remember: true,
@@ -135,6 +137,7 @@ describe("claim against a control-host older than platform_tool_trust", () => {
         user_env: true,
         response_language: true,
         answer_surface: true,
+        repository_pins: true,
       },
     ]);
   });
@@ -167,6 +170,7 @@ describe("claim against a control-host older than platform_tool_trust", () => {
         user_env: true,
         response_language: true,
         answer_surface: true,
+        repository_pins: true,
       },
       {
         approval_remember: true,
@@ -175,6 +179,7 @@ describe("claim against a control-host older than platform_tool_trust", () => {
         user_env: true,
         response_language: true,
         answer_surface: true,
+        repository_pins: true,
       },
       {
         approval_remember: true,
@@ -183,6 +188,7 @@ describe("claim against a control-host older than platform_tool_trust", () => {
         user_env: true,
         response_language: true,
         answer_surface: true,
+        repository_pins: true,
       },
     ]);
   });
@@ -253,6 +259,7 @@ describe("claim against a control-host older than user_env", () => {
         user_env: true,
         response_language: true,
         answer_surface: true,
+        repository_pins: true,
       },
       {
         approval_remember: true,
@@ -261,6 +268,7 @@ describe("claim against a control-host older than user_env", () => {
         engine_settings: true,
         response_language: true,
         answer_surface: true,
+        repository_pins: true,
       },
     ]);
   });
@@ -281,6 +289,7 @@ describe("claim against a control-host older than user_env", () => {
         user_env: true,
         response_language: true,
         answer_surface: true,
+        repository_pins: true,
       },
       {
         approval_remember: true,
@@ -288,6 +297,7 @@ describe("claim against a control-host older than user_env", () => {
         engine_settings: true,
         response_language: true,
         answer_surface: true,
+        repository_pins: true,
       },
     ]);
   });
@@ -326,6 +336,7 @@ describe("claim against a control-host older than user_env", () => {
         user_env: true,
         response_language: true,
         answer_surface: true,
+        repository_pins: true,
       },
       {
         approval_remember: true,
@@ -334,6 +345,7 @@ describe("claim against a control-host older than user_env", () => {
         engine_settings: true,
         response_language: true,
         answer_surface: true,
+        repository_pins: true,
       },
       {
         approval_remember: true,
@@ -342,6 +354,7 @@ describe("claim against a control-host older than user_env", () => {
         engine_settings: true,
         response_language: true,
         answer_surface: true,
+        repository_pins: true,
       },
       {
         approval_remember: true,
@@ -349,6 +362,7 @@ describe("claim against a control-host older than user_env", () => {
         engine_settings: true,
         response_language: true,
         answer_surface: true,
+        repository_pins: true,
       },
     ]);
   });
@@ -369,6 +383,7 @@ describe("claim against a control-host older than user_env", () => {
         user_env: true,
         response_language: true,
         answer_surface: true,
+        repository_pins: true,
       },
       {
         approval_remember: true,
@@ -377,6 +392,7 @@ describe("claim against a control-host older than user_env", () => {
         engine_settings: true,
         user_env: true,
         answer_surface: true,
+        repository_pins: true,
       },
     ]);
   });
@@ -397,6 +413,7 @@ describe("claim against a control-host older than user_env", () => {
         user_env: true,
         response_language: true,
         answer_surface: true,
+        repository_pins: true,
       },
       {
         approval_remember: true,
@@ -405,8 +422,25 @@ describe("claim against a control-host older than user_env", () => {
         user_env: true,
         response_language: true,
         answer_surface: true,
+        repository_pins: true,
       },
     ]);
+  });
+
+  test("a control-host that does not know repository_pins is claimed again without it only", async () => {
+    const { gateway, sent } = gatewayAgainst((request) =>
+      lacks(request, "repository_pins")
+        ? json(200, claimAnswer)
+        : badRequest(refusing("repository_pins")),
+    );
+    await gateway.bootstrapClaim(withUserEnv);
+    expect(sent).toHaveLength(2);
+    const [first, second] = sent.map(
+      (entry) => entry.body.capabilities as Record<string, unknown>,
+    );
+    const { repository_pins, ...rest } = first ?? {};
+    expect(repository_pins).toBe(true);
+    expect(second).toEqual(rest);
   });
 
   test("a worker that did not announce user_env never loses it to a refusal", async () => {

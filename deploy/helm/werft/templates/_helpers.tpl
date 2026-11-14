@@ -214,11 +214,11 @@ scheduler would refuse.
 {{- fail "images.workers replaces images.worker and images.workerPrevious: leave their digest and runtime empty (a packaged chart fills images.worker; clear it with --set images.worker.digest= --set-json 'images.worker.runtime=null')" -}}
 {{- end -}}
 {{- end -}}
-{{- $unretracted := 0 -}}
+{{- /* By engine: each engine's images are ordered and counted on their own. */ -}}
+{{- $unretracted := dict -}}
 {{- $entries := list -}}
 {{- $digests := list -}}
-{{- $engines := list -}}
-{{- $newer := now -}}
+{{- $newer := dict -}}
 {{- range $index, $entry := $workers -}}
 {{- $name := printf "images.workers[%d]" $index -}}
 {{- if not (kindIs "map" $entry) -}}
@@ -231,13 +231,14 @@ scheduler would refuse.
 {{- fail (printf "%s.retracted must be true or false" $name) -}}
 {{- end -}}
 {{- $retracted := eq $entry.retracted true -}}
-{{- if not $retracted -}}
-{{- $unretracted = add1 $unretracted -}}
-{{- end -}}
 {{- if not (and (kindIs "map" $entry.runtime) $entry.runtime) -}}
 {{- fail (printf "%s.runtime is required: set the runtime images.yml recorded for it" $name) -}}
 {{- end -}}
 {{- $_ := include "ap.checkRuntime" (dict "name" (printf "%s.runtime" $name) "runtime" $entry.runtime) -}}
+{{- $engine := $entry.runtime.engine -}}
+{{- if not $retracted -}}
+{{- $_ := set $unretracted $engine (add1 (get $unretracted $engine | default 0)) -}}
+{{- end -}}
 {{- if not (and (kindIs "string" $entry.releasedAt) $entry.releasedAt) -}}
 {{- fail (printf "%s.releasedAt must be the image's release time as a string, e.g. \"2026-11-10T00:00:00Z\"" $name) -}}
 {{- end -}}
@@ -246,10 +247,10 @@ scheduler would refuse.
 {{- if or (not (regexMatch `^[1-9]\d{3}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?(Z|[+-]([01]\d|2[0-3]):[0-5]\d)$` $entry.releasedAt)) $at.IsZero -}}
 {{- fail (printf "%s.releasedAt %q is not an RFC 3339 time, e.g. \"2026-11-10T00:00:00Z\"" $name $entry.releasedAt) -}}
 {{- end -}}
-{{- if and (gt $index 0) (not ($at.Before $newer)) -}}
-{{- fail (printf "%s.releasedAt %s is not before the entry above it: list the newest image first" $name $entry.releasedAt) -}}
+{{- if and (hasKey $newer $engine) (not ($at.Before (get $newer $engine))) -}}
+{{- fail (printf "%s.releasedAt %s is not before the %s image above it: list each engine's newest image first" $name $entry.releasedAt $engine) -}}
 {{- end -}}
-{{- $newer = $at -}}
+{{- $_ := set $newer $engine $at -}}
 {{- $image := include "ap.imageRef" (dict "root" $ "label" $name "image" $entry) -}}
 {{- /* The distribution reference grammar the readers hold every image to. */ -}}
 {{- if not (regexMatch `^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?)*(?::\d+)?/)?[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*)*@sha256:[0-9a-f]{64}$` $image) -}}
@@ -259,19 +260,17 @@ scheduler would refuse.
 {{- fail (printf "%s.digest %s is listed twice" $name $entry.digest) -}}
 {{- end -}}
 {{- $digests = append $digests $entry.digest -}}
-{{- $engines = append $engines $entry.runtime.engine | uniq -}}
 {{- $rendered := dict "image" $image "runtime" $entry.runtime "released_at" $entry.releasedAt -}}
 {{- if $retracted -}}
 {{- $_ := set $rendered "retracted" true -}}
 {{- end -}}
 {{- $entries = append $entries $rendered -}}
 {{- end -}}
-{{- if gt (len $engines) 1 -}}
-{{- fail (printf "images.workers lists images of %s: images of one engine only" (join " and " $engines)) -}}
-{{- end -}}
 {{- /* WORKER_IMAGES_PER_ENGINE, as workerImageListFromEnv: a retracted image stays listed beside its fix. */ -}}
-{{- if gt $unretracted 2 -}}
-{{- fail (printf "images.workers lists %d unretracted images: at most 2, the newest and the release before it" $unretracted) -}}
+{{- range $engine, $count := $unretracted -}}
+{{- if gt $count 2 -}}
+{{- fail (printf "images.workers lists %d unretracted %s images: at most 2 per engine, the newest and the release before it" $count $engine) -}}
+{{- end -}}
 {{- end -}}
 {{- toJson $entries -}}
 {{- end -}}

@@ -7,6 +7,8 @@ import {
   modelCutDedupeKey,
   modelCutEventMessage,
   modelCutNoticeText,
+  runtimeRetiredDedupeKey,
+  runtimeRetiredNoticeText,
   sessionModelMoveDedupeKey,
   sessionModelMoveNoticeText,
 } from "@werft-ai/platform";
@@ -163,6 +165,59 @@ export async function enqueueSessionModelMoveNotices(
           input.sessionId,
           input.from,
           input.to,
+          person.slackUserId,
+        ),
+      })
+      .onConflictDoNothing({ target: slackOutbox.dedupeKey })
+      .returning({ id: slackOutbox.id });
+    if (row) enqueued += 1;
+  }
+  return enqueued;
+}
+
+/**
+ * Writes one `model_notice` row telling whoever created the session that it
+ * stopped as `runtime_retired`, in the hold's transaction. The agent's
+ * administrators are not told: the fix, a rebuilt worker image, is the
+ * installation operator's, and the stop shows on the session.
+ */
+export async function enqueueRuntimeRetiredNotices(
+  tx: Database,
+  input: { sessionId: string; checkpointRevision: number },
+): Promise<number> {
+  const session = await noticedSession(tx, input.sessionId);
+  if (session === null || session.createdByUserId === null) return 0;
+  const { workspaceId, agentId } = session;
+  const recipients = await slackRecipientsOf(tx, {
+    workspaceId,
+    agentId,
+    userId: session.createdByUserId,
+    administrators: false,
+  });
+  let enqueued = 0;
+  for (const person of recipients) {
+    const [row] = await tx
+      .insert(slackOutbox)
+      .values({
+        id: randomUUID(),
+        workspaceId,
+        agentId,
+        slackAppId: person.slackAppId,
+        installationId: person.installationId,
+        kind: "model_notice",
+        channelId: person.slackUserId,
+        threadTs: "",
+        slackUserId: null,
+        sessionId: input.sessionId,
+        body: {
+          text: runtimeRetiredNoticeText(person.locale, session.agentName),
+          ...(person.locale === null ? {} : { locale: person.locale }),
+        },
+        dedupeKey: runtimeRetiredDedupeKey(
+          workspaceId,
+          input.sessionId,
+          input.checkpointRevision,
+          person.installationId,
           person.slackUserId,
         ),
       })

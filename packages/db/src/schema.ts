@@ -2793,6 +2793,30 @@ export const sessionRepositoryAttachments = pgTable(
   ],
 );
 
+// The commit a session first fetched each attached repository at, written
+// once and never moved: every later fetch of that repository in the session,
+// a resume's included, takes this commit rather than the branch tip.
+export const sessionRepositoryPins = pgTable(
+  "session_repository_pins",
+  {
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => sessions.id),
+    repositoryId: text("repository_id").notNull(),
+    gitCommit: text("git_commit").notNull(),
+    pinnedAt: timestamp("pinned_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.sessionId, table.repositoryId] }),
+    check(
+      "session_repository_pins_commit_check",
+      sql`${table.gitCommit} ~ '^[0-9a-f]{40}([0-9a-f]{24})?$'`,
+    ),
+  ],
+);
+
 // api.md § 승인·중단·강제 종료: a control request the worker has to act on,
 // kept apart from the input FIFO. An interrupt names its turn and the attempt
 // that turn is bound to — a running turn never moves to another attempt — and

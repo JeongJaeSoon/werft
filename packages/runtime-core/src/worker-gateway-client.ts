@@ -24,6 +24,8 @@ import type {
   RegisterPendingResponse,
   ReleaseRequest,
   ReleaseResponse,
+  RepositoryPinsRequest,
+  RepositoryPinsResponse,
   RestorePlanRequest,
   RestorePlanResponse,
   WorkerReadyRequest,
@@ -94,6 +96,15 @@ export interface WorkerGatewayClient {
   protectedCommits?(
     request: ProtectedCommitsRequest,
   ): Promise<ProtectedCommitsResponse>;
+  /**
+   * Records the commits the claim's unpinned additional repositories were
+   * fetched at, before the engine starts, and answers the session's kept
+   * pin of each. Optional, as `protectedCommits`: a worker without it pins
+   * nothing.
+   */
+  repositoryPins?(
+    request: RepositoryPinsRequest,
+  ): Promise<RepositoryPinsResponse>;
   /**
    * The committed checkpoint judged against what this worker runs. Asked
    * after the claim, before the engine starts.

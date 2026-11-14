@@ -11,6 +11,7 @@ import {
   runScheduler,
   type SchedulerRunSummary,
 } from "@werft-ai/platform";
+import { installedDescriptors } from "@werft-ai/runtime-codecs";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { PASS_DEGRADED_EXIT, PASS_SKIPPED_EXIT } from "../pass-loop/loop.ts";
 import { schedulerBackendFor } from "./backend.ts";
@@ -79,6 +80,9 @@ export async function main(
         : { imageRuntime: config.imageRuntime }),
       olderImages: config.olderImages,
       retractedImages: config.retractedImages,
+      engineOfKind: (kind) =>
+        installedDescriptors.find((descriptor) => descriptor.kind === kind)
+          ?.checkpointEngine,
       logger,
       resources: config.resources,
       slotLimit: config.slotLimit,
