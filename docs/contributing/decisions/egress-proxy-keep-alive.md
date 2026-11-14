@@ -123,16 +123,16 @@ response rewriter가 최종 머리를 만들 때 proxy에 묻는다(`keepOpen`).
 | CL/TE 충돌 | 이어 쓰는 연결의 두 번째 요청이 `content-length`와 `transfer-encoding: chunked`를 함께 보냄 | 400, 연결이 닫히고, upstream이 그 요청을 받지 않는다 |
 | 중복 Content-Length | 두 번째 요청이 다른 길이 둘, 또는 같은 길이 둘 | 400, 연결이 닫히고, upstream이 그 요청을 받지 않는다 |
 | 남는 body 바이트 | keep-alive 요청 + body + body 밖의 요청을 한 번에 씀 | 첫 응답 머리가 `connection: close`, 연결이 닫히고, body 밖의 요청은 아무 upstream에도 닿지 않는다 |
-| pipelined 두 번째 요청 | 첫 요청을 upstream이 받은 뒤, 답이 오기 전에 두 번째 요청을 보냄 | 응답 머리가 close, 연결이 닫히고, 두 번째 요청은 아무 upstream에도 닿지 않는다 |
-| 이어 쓰기 머리 뒤의 pipelining | 머리가 close를 말하지 않은 뒤, body가 끝나기 전에 두 번째 요청을 보냄 | body가 끝까지 오고 연결이 닫히며, 두 번째 요청은 아무 upstream에도 닿지 않는다 |
+| pipelined 두 번째 요청 | 첫 요청을 upstream이 받은 뒤, 답이 오기 전에 두 번째 요청을 보냄. upstream은 proxy가 그 바이트를 버렸다고 로그에 남긴 뒤에야 답한다 | 응답 머리가 close, 연결이 닫히고, 두 번째 요청은 아무 upstream에도 닿지 않는다 |
+| 이어 쓰기 머리 뒤의 pipelining | 머리가 close를 말하지 않은 뒤, body가 끝나기 전에 두 번째 요청을 보냄. body의 나머지는 버렸다는 로그 뒤에 온다 | body가 끝까지 오고 연결이 닫히며, 두 번째 요청은 아무 upstream에도 닿지 않는다 |
 | upstream 오류 뒤 재사용 | 응답 머리가 잘린 upstream(502), body가 Content-Length보다 짧게 끊긴 upstream | 둘 다 연결이 닫힌다 |
 | 이어 쓰지 않는 응답 | 길이 없이 닫혀서 끝나는 응답, HTTP/1.0 응답 | 머리가 `connection: close`, 연결이 닫힌다 |
 | upload 도중의 답 | body 100바이트 중 10바이트만 보냈는데 upstream이 401 | 머리가 close, 연결이 닫힌다 |
-| 끝난 upstream의 늦은 쓰기 | 답을 마친 upstream이 150ms 뒤 가짜 응답을 씀. 그동안 다음 교환이 진행 | 다음 응답에 가짜 바이트가 섞이지 않는다 |
-| body 없는 응답 뒤의 바이트 | HEAD 응답, 204 응답 뒤에 upstream이 가짜 응답을 붙임 | 다른 origin으로 간 다음 응답에 섞이지 않는다 |
-| 묻기 전에 온 답 | 연결하자마자 답을 쓰는 upstream, dial 결과를 늦게 돌려주는 proxy | 머리가 close, 연결이 닫힌다(dispatch가 끝나지 않았다) |
+| 끝난 upstream의 늦은 handler | 다음 교환의 upstream이 쓰기를 받지 않아 다음 요청 머리가 `toUpstream`에 남은 동안, 끝난 upstream의 `drain`·`data`(가짜 응답)·`error`·`close` handler를 시험이 직접 다시 부름 | 끝난 upstream에 한 바이트도 쓰이지 않고, client 연결은 열린 채, 다음 응답에 가짜 바이트가 섞이지 않는다 |
+| body 없는 응답 뒤의 바이트 | HEAD 응답, 204 응답과 같은 write로 upstream이 가짜 응답을 붙임 | 다른 origin으로 간 다음 응답에 섞이지 않는다 |
+| 묻기 전에 온 답 | 연결하자마자 답을 쓰는 upstream. dial 결과는 proxy가 그 답을 받아 둔 뒤에 돌려준다 | 머리가 close, 연결이 닫힌다(dispatch가 끝나지 않았다) |
 | forward 뒤 CONNECT | 이어 쓰는 연결에서 CONNECT, 맞는 이름과 다른 이름의 ClientHello | 맞으면 터널이 통하고, 다르면 한 바이트도 건너가지 않고 닫힌다 |
-| queue가 밀린 응답 | 8 MiB 응답을 받은 뒤 같은 연결로 두 번째 요청 | 두 번째 응답도 온다(drain 뒤에 상태를 되돌리는 경로) |
+| queue가 밀린 응답 | 읽기를 멈춘 client에 32 MiB 응답. upstream이 답을 마친 뒤(proxy가 upstream을 닫은 뒤), 아직 queue가 남은 동안 두 번째 요청을 보내는 경우와 보내지 않는 경우 | 보내면 응답이 끝까지 온 뒤 닫히고 새 dial이 없다. 안 보내면 drain 뒤의 두 번째 요청에 답이 온다 |
 | 쉬는 연결 | 짧은 머리 기한의 proxy에서 한 교환 뒤 아무것도 보내지 않음. 머리를 반만 보냄 | 앞은 408 없이 닫히고, 뒤는 408 |
 | connection cap | client당 1개인 proxy에서 한 연결로 요청 셋, 그동안 두 번째 연결 | 셋 다 답을 받고, 두 번째 연결은 503 |
 | 머리에 숨긴 줄 | 요청·응답 칸 값의 bare LF·bare CR·NUL, 콜론 앞 공백, token이 아닌 method, 상태 줄의 LF, trailer의 LF | 모두 거절한다(단위 시험 `request.test.ts`, `response.test.ts`). HTAB와 obs-text는 받는다 |
@@ -140,7 +140,7 @@ response rewriter가 최종 머리를 만들 때 proxy에 묻는다(`keepOpen`).
 | keep-alive를 말하지 않은 client | `connection` 칸 없는 HTTP/1.1 요청 | 지금처럼 `connection: close` 뒤에 닫힌다(기존 시험 그대로) |
 | Bun client | client당 연결 1개인 proxy로 `testing/pooled-client.ts`가 401·401·403·401 fetch POST를 10번 | 모두 자기 답을 받는다. 두 번째 연결을 열었으면 503이 났을 것이다 |
 
-새 시험이 무엇을 잡는지는 고친 부분을 하나씩 되돌린 복사본에서 확인한다. main 코드에서는 새 시험 23개가 실패한다. 끝난 upstream 검사를 빼면 11개, `discarding` 검사를 빼면 3개, 제어 문자 검사를 빼면 4개, dispatch·queue 조건을 빼면 1개(묻기 전에 온 답)가 실패한다. `toUpstream`이 비었다는 조건만 빼는 경우를 잡는 시험은 없다. 그 경우 되돌릴 때 queue를 버리므로 바이트가 새지 않는다. 그래도 남은 upload를 받아 줄 곳이 없으니 닫는 보수적인 조건으로 둔다.
+새 시험이 무엇을 잡는지는 고친 부분을 하나씩 되돌린 복사본에서 확인한다. main 코드에서는 새 시험 23개가 실패한다. 끝난 upstream 검사는 자리마다 따로 뺀다. `deliver`의 검사를 빼면 1개(늦은 handler), `close`·`error` 검사를 빼면 11개, `drain`이 끝난 attempt에도 쓰게 하면 1개(늦은 handler)가 실패한다. `discarding` 검사는 `reusable`에서 빼면 2개(남는 body 바이트, pipelined 두 번째 요청), 되돌리기 직전에서 빼면 1개(queue가 밀린 동안 보낸 요청)가 실패한다. 제어 문자 검사를 빼면 4개, dispatch·queue 조건을 빼면 1개(묻기 전에 온 답)가 실패한다. `toUpstream`이 비었다는 조건만 빼는 경우를 잡는 시험은 없다. 그 경우 되돌릴 때 queue를 버리므로 바이트가 새지 않는다. 그래도 남은 upload를 받아 줄 곳이 없으니 닫는 보수적인 조건으로 둔다.
 
 재현 확인은 1절과 같은 조건(worker 이미지, `keepalive` 지정 없음, 300번)으로 돌리고 실패 0을 PR에 적는다.
 
