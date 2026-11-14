@@ -162,6 +162,33 @@ orch heavy <program> -- .claude/skills/verify-werft/scripts/down.sh <run id>
 orch release verify-stack
 ```
 
+## PR 본문 읽기와 꼬리 교체 (`get_pull_request`, `expected_body_sha256`)
+
+설계는 `docs/contributing/decisions/pull-request-read.md`의 C다. 위 1–5단계로 세션이 commit A를 push하고 PR을 연 뒤 한다. 릴리스의 `features`는 모두 false여도 된다. fake 모델의 GATE-SPEC으로 MCP 도구를 부르고, 도구 결과는 DB `events`의 `tool_result`에서 읽는다(`/v1/sessions/{id}/events`는 SSE라 `head`로 끊기지 않는다).
+
+```sh
+# R1. 사람 글(CRLF 줄, HTML 주석, 끝 공백)과 옛 모양 꼬리로 본문을 바꾼다
+#     옛 모양: "---", <!-- werft:pr-tail -->, "Opened by Werft from session `<SID>`, commit `<A7>`.", 빈 줄,
+#     "- Agent: …", "- Push request: …", "- Trigger: …", "- Started by: …", <!-- /werft:pr-tail -->
+#     파일은 Write 도구나 printf로 만들고 gh api -X PATCH …/pulls/<n> -F body=@<file>로 넣는다.
+#     jq -j .body로 받아 cmp하면 GitHub가 CRLF까지 그대로 둔 것을 본다.
+# R2. 같은 세션에서 commit B(GATE-SPEC Bash) → push 요청 → 승인 → pushed → POST …/pull-request '{}' (created: false)
+# R3. 꼬리 교체 확인: 꼬리 하나, commit B, 사람 글은 "\n\n---\n<!-- werft:pr-tail -->" 앞부분이 바이트 그대로
+# R4. 읽기
+M=$(jq -nc --arg p "$PRID2" '"PR 읽어 GATE-SPEC " + ({id:"r1",steps:[{tool:"mcp__github__get_pull_request",input:{push_request_id:$p}}],final:"read"}|tojson)' -r)
+ap_post "/v1/sessions/$SID/messages" "$(jq -nc --arg m "$M" '{message:$m}')"
+ap_compose exec -T postgres psql -U postgres -d sessions -At -c "select payload->>'content' from events where session_id='$SID' and turn_id='<n>' and type='tool_result'"
+# R5. 사람이 GitHub에서 본문을 고친 뒤 R4의 body_sha256으로 update_pull_request → body_changed, 본문·제목 그대로
+# R6. 지금 본문의 sha256(jq -j .body | shasum -a 256)으로 다시 부르면 성공하고 꼬리는 하나
+```
+
+기대:
+
+- R4의 `result.body`는 R1의 사람 글이고(꼬리와 그 위 `---` 없이, CRLF·주석 그대로), `body_sha256`은 `jq -j .body | shasum -a 256`과 같고, `untrusted: true`다.
+- R5는 `{"ok":false,"refusal":{"code":"body_changed","by":"platform","retryable":false,…}}`이고 receipt `update_pull_request` failed `refusal: body_changed`가 남는다. GitHub의 본문과 제목은 바뀌지 않는다.
+- 토큰 receipt `mint_github_token`(`purpose: pull_request_read`, `permissions: {"pull_requests": "read"}`)는 새로 발급할 때만 남는다. 같은 저장소의 `outcome_refresh`가 같은 권한 조합의 토큰을 먼저 캐시에 두므로, 보려면 `ap_compose restart api`(Gotchas의 주소 갱신) 직후 R4를 부른다.
+- 에이전트 GitHub 스위치를 끄면(`PUT /v1/agents/{id}/github/enabled {"enabled":false}`) 읽기는 MCP 허가에서 막혀 `tool_result`가 `egress token refused`다. 게이트까지 가지 않으므로 receipt가 없다.
+
 ## 머지 허용 측정 (`merge_pull_request`)
 
 워크스페이스 상한 `ceiling.merge`(기본 off)가 켜져 있을 때만 에이전트의 MCP 도구 `merge_pull_request(push_request_id)`가 PR을 squash 머지한다. 꺼져 있으면 resolver와 토큰 발급 전에 `GITHUB_REFUSED` 409 `merge_off`로 거부한다. 머지에 관한 거부 사유는 `merge_off`·`merge_blocked`·`head_moved`·`pull_request_closed`·`no_pull_request`다(PR 공통 거부 `not_pushed`·`not_found` 등도 같은 도구에서 나올 수 있다). fake 모델은 GATE-SPEC 단계의 `tool`을 그대로 내보내므로 실제 모델 키 없이 사용자 메시지 "머지해"를 도구 호출로 바꿀 수 있다(`tool: "mcp__github__merge_pull_request"`, `input: {push_request_id}`). 위 1–3단계(App 등록·릴리스)와 5단계(push·PR)를 먼저 한다. 릴리스의 `features`는 모두 false여도 된다. 머지는 워크스페이스 상한만 본다.
