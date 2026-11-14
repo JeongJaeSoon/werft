@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { PGlite } from "@electric-sql/pglite";
+import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
@@ -10,6 +11,7 @@ import {
 } from "./musterrolle/model-cut-notices.ts";
 import type { Database } from "./queries.ts";
 import { holdIncompatibleBeforeLaunch } from "./restore-failures.ts";
+import { createPostgresSchedulerStore } from "./scheduler/scheduler-store.ts";
 import * as schema from "./schema.ts";
 import {
   agentAdmins,
@@ -561,6 +563,156 @@ describe("a session held as runtime_retired", () => {
     expect((await w.outbox()).map((row) => row.installationId).sort()).toEqual(
       [w.installationId, second].sort(),
     );
+  });
+});
+
+describe("a launch that moves off a retracted worker image", () => {
+  const RETRACTED = "sha256:retracted";
+  const FIXED = "sha256:fixed";
+  const schedulerStore = () =>
+    createPostgresSchedulerStore(db, {
+      sessionCostLimitUsd: 1_000,
+      sessionTokenLimit: null,
+      connectForLock: async () => ({
+        query: async (text: string) => ({
+          rows: (await client.query<Record<string, unknown>>(text)).rows,
+        }),
+        release: () => undefined,
+        on: () => undefined,
+        off: () => undefined,
+      }),
+      logger: new StructuredLogger({ sinks: [new MemoryLogSink()] }),
+    });
+  /** Reserves a launch on `image`, then lets it end, as a finished turn does. */
+  const launch = async (
+    sessionId: string,
+    image: string,
+    retractedImages?: readonly string[],
+  ) => {
+    const store = schedulerStore();
+    const stored = await store.reserveLaunch({
+      backend: "local_docker",
+      image,
+      ...(retractedImages === undefined ? {} : { retractedImages }),
+      now: NOW,
+      resources: { cpus: 1, memoryBytes: 512 * 1024 * 1024, pidsLimit: 256 },
+      sessionId,
+      slotLimit: 10,
+    });
+    if (stored === null) throw new Error("not reserved");
+    await store.confirmExecutionGone(stored.executionId, NOW, null);
+    return stored;
+  };
+  const replaced = (sessionId: string) =>
+    db
+      .select({ payload: events.payload })
+      .from(events)
+      .where(eq(events.sessionId, sessionId))
+      .then((rows) =>
+        rows
+          .map(({ payload }) => payload as Record<string, unknown>)
+          .filter(({ subtype }) => subtype === "worker_image_replaced"),
+      );
+  const signalled = async (sessionId: string) => {
+    await db
+      .insert(unassignedSessions)
+      .values({ sessionId })
+      .onConflictDoNothing();
+  };
+
+  test("records the move on the session and tells only its creator, in their language, linked to the session", async () => {
+    const w = await world();
+    const creator = await w.person("creator", { locale: "ko" });
+    const admin = await w.person("admin");
+    await db.insert(agentAdmins).values({
+      workspaceId: w.workspaceId,
+      agentId: w.agentId,
+      userId: admin.userId,
+    });
+    await w.startSession(creator);
+    await signalled(w.sessionId);
+    await launch(w.sessionId, RETRACTED);
+    await signalled(w.sessionId);
+    const moved = await launch(w.sessionId, FIXED, [RETRACTED]);
+
+    expect(await replaced(w.sessionId)).toEqual([
+      {
+        type: "system",
+        subtype: "worker_image_replaced",
+        from: RETRACTED,
+        to: FIXED,
+        reason: "retracted",
+      },
+    ]);
+    const rows = await w.outbox();
+    expect(rows.map((row) => row.channelId)).toEqual([creator.slackUserId]);
+    const [row] = rows;
+    expect(row?.kind).toBe("model_notice");
+    expect(row?.threadTs).toBe("");
+    expect(row?.sessionId).toBe(w.sessionId);
+    expect(row?.body.text).toContain("worker 이미지가 철회되어");
+    expect(row?.body.locale).toBe("ko");
+    expect(row?.dedupeKey).toContain(`:${moved.generation}:`);
+  });
+
+  test("a launch that is no move off a retracted image records and tells nothing", async () => {
+    const w = await world();
+    const creator = await w.person("creator");
+    await w.startSession(creator);
+    // The first launch has no earlier image to move off.
+    await signalled(w.sessionId);
+    await launch(w.sessionId, RETRACTED, [RETRACTED]);
+    // The same image again: nothing moved.
+    await signalled(w.sessionId);
+    await launch(w.sessionId, RETRACTED, [RETRACTED]);
+    // Nothing retracted that this session ran.
+    await signalled(w.sessionId);
+    await launch(w.sessionId, FIXED, ["sha256:other"]);
+    // Nothing retracted at all.
+    await signalled(w.sessionId);
+    await launch(w.sessionId, RETRACTED);
+    await signalled(w.sessionId);
+    await launch(w.sessionId, FIXED);
+
+    expect(await replaced(w.sessionId)).toEqual([]);
+    expect(await w.outbox()).toEqual([]);
+  });
+
+  test("one digest under another repository path is the same image", async () => {
+    const digest = `sha256:${"d".repeat(64)}`;
+    const w = await world();
+    const creator = await w.person("creator");
+    await w.startSession(creator);
+    await signalled(w.sessionId);
+    await launch(w.sessionId, `registry-a.invalid/worker@${digest}`);
+    // Mirrored: the same image, pulled from another registry, moved nowhere.
+    await signalled(w.sessionId);
+    await launch(w.sessionId, `registry-b.invalid/worker@${digest}`, [
+      `registry-b.invalid/worker@${digest}`,
+    ]);
+    expect(await replaced(w.sessionId)).toEqual([]);
+    // Retracted under its mirror's path: leaving it is a move.
+    await signalled(w.sessionId);
+    await launch(w.sessionId, FIXED, [`registry-c.invalid/worker@${digest}`]);
+    expect(await replaced(w.sessionId)).toEqual([
+      expect.objectContaining({
+        from: `registry-b.invalid/worker@${digest}`,
+        to: FIXED,
+      }),
+    ]);
+    expect(await w.outbox()).toHaveLength(1);
+  });
+
+  test("a session without a creator still records the move and tells nobody", async () => {
+    const w = await world();
+    await w.startSession(null);
+    await signalled(w.sessionId);
+    await launch(w.sessionId, RETRACTED);
+    await signalled(w.sessionId);
+    await launch(w.sessionId, FIXED, [RETRACTED]);
+
+    expect(await replaced(w.sessionId)).toHaveLength(1);
+    expect(await w.outbox()).toEqual([]);
   });
 });
 

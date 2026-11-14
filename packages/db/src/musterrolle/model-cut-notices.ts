@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   MODEL_NOT_ALLOWED_EVENT_CODE,
   type ModelCutCause,
+  type UserLocale,
 } from "@werft-ai/contracts";
 import {
   modelCutDedupeKey,
@@ -11,6 +12,8 @@ import {
   runtimeRetiredNoticeText,
   sessionModelMoveDedupeKey,
   sessionModelMoveNoticeText,
+  workerImageReplacedDedupeKey,
+  workerImageReplacedNoticeText,
 } from "@werft-ai/platform";
 import { and, eq, isNull, ne, or } from "drizzle-orm";
 import { dbNow } from "../db-clock.ts";
@@ -181,11 +184,58 @@ export async function enqueueSessionModelMoveNotices(
  * administrators are not told: the fix, a rebuilt worker image, is the
  * installation operator's, and the stop shows on the session.
  */
-export async function enqueueRuntimeRetiredNotices(
+export function enqueueRuntimeRetiredNotices(
   tx: Database,
   input: { sessionId: string; checkpointRevision: number },
 ): Promise<number> {
-  const session = await noticedSession(tx, input.sessionId);
+  return enqueueCreatorNotices(tx, input.sessionId, {
+    text: runtimeRetiredNoticeText,
+    dedupeKey: (workspaceId, installationId, slackUserId) =>
+      runtimeRetiredDedupeKey(
+        workspaceId,
+        input.sessionId,
+        input.checkpointRevision,
+        installationId,
+        slackUserId,
+      ),
+  });
+}
+
+/**
+ * Writes one `model_notice` row telling whoever created the session that its
+ * launch moved off a retracted worker image, in the reservation's
+ * transaction. Not the agent's administrators, as for the stop.
+ */
+export function enqueueWorkerImageReplacedNotices(
+  tx: Database,
+  input: { sessionId: string; generation: number },
+): Promise<number> {
+  return enqueueCreatorNotices(tx, input.sessionId, {
+    text: workerImageReplacedNoticeText,
+    dedupeKey: (workspaceId, installationId, slackUserId) =>
+      workerImageReplacedDedupeKey(
+        workspaceId,
+        input.sessionId,
+        input.generation,
+        installationId,
+        slackUserId,
+      ),
+  });
+}
+
+async function enqueueCreatorNotices(
+  tx: Database,
+  sessionId: string,
+  notice: {
+    text: (locale: UserLocale | null, agent: string) => string;
+    dedupeKey: (
+      workspaceId: string,
+      installationId: string,
+      slackUserId: string,
+    ) => string;
+  },
+): Promise<number> {
+  const session = await noticedSession(tx, sessionId);
   if (session === null || session.createdByUserId === null) return 0;
   const { workspaceId, agentId } = session;
   const recipients = await slackRecipientsOf(tx, {
@@ -208,15 +258,13 @@ export async function enqueueRuntimeRetiredNotices(
         channelId: person.slackUserId,
         threadTs: "",
         slackUserId: null,
-        sessionId: input.sessionId,
+        sessionId,
         body: {
-          text: runtimeRetiredNoticeText(person.locale, session.agentName),
+          text: notice.text(person.locale, session.agentName),
           ...(person.locale === null ? {} : { locale: person.locale }),
         },
-        dedupeKey: runtimeRetiredDedupeKey(
+        dedupeKey: notice.dedupeKey(
           workspaceId,
-          input.sessionId,
-          input.checkpointRevision,
           person.installationId,
           person.slackUserId,
         ),

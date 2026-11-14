@@ -45,6 +45,7 @@ export * from "./musterrolle/action-notice.ts";
 export * from "./musterrolle/model-cut-notice.ts";
 export * from "./musterrolle/model-move-notice.ts";
 export * from "./musterrolle/runtime-retired-notice.ts";
+export * from "./musterrolle/worker-image-replaced-notice.ts";
 export * from "./decision/index.ts";
 export * from "./surface/ports/agent-welcomable.ts";
 export * from "./surface/ports/approvable.ts";

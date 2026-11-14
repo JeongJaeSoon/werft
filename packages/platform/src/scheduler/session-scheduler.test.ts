@@ -1154,25 +1154,63 @@ describe("worker image per session", () => {
       expect(store.reservedRuntimes.get(sealedOld)).toEqual(previous);
     });
 
+    const reservedWith = (store: MemoryStore) => {
+      const inputs: ReserveLaunchInput[] = [];
+      const reserve = store.reserveLaunch.bind(store);
+      store.reserveLaunch = async (input) => {
+        inputs.push(input);
+        return reserve(input);
+      };
+      return inputs;
+    };
+
     test("a retracted image is never pinned, so one gone from the registry stops nothing", async () => {
       const { backend, run, store } = harness(10, {
         imageRuntime: current,
         olderImages: [{ image: "worker:previous", runtime: previous }],
         retractedImages: [{ image: "worker:previous", runtime: previous }],
       });
-      const resolved: string[] = [];
       const resolve = backend.resolveImage.bind(backend);
       backend.resolveImage = async (image: string) => {
-        resolved.push(image);
+        if (image === "worker:previous") throw new Error("manifest unknown");
         return resolve(image);
       };
+      const inputs = reservedWith(store);
       const [fresh] = store.addUnassigned(1);
       const summary = await run();
-      expect(resolved).toEqual(["worker:test"]);
       expect(summary.imageUnresolved).toBe(false);
       expect(launchedImageOf(store, fresh as string)).toBe(
         "sha256:worker:test",
       );
+      // Judged as configured only: an id it may have been pinned to is unknown.
+      expect(inputs.map((input) => input.retractedImages)).toEqual([
+        ["worker:previous"],
+      ]);
+    });
+
+    test("a reservation is told the retracted images as configured and as pinned, and nothing when none is retracted", async () => {
+      const retracting = harness(10, {
+        imageRuntime: current,
+        olderImages: [{ image: "worker:fixed", runtime: previous }],
+        retractedImages: [{ image: "worker:previous", runtime: previous }],
+      });
+      const told = reservedWith(retracting.store);
+      retracting.store.addUnassigned(2);
+      await retracting.run();
+      expect(told.map((input) => input.retractedImages)).toEqual([
+        ["worker:previous", "sha256:worker:previous"],
+        ["worker:previous", "sha256:worker:previous"],
+      ]);
+
+      const plain = harness(10, {
+        imageRuntime: current,
+        olderImages: [{ image: "worker:previous", runtime: previous }],
+      });
+      const untold = reservedWith(plain.store);
+      plain.store.addUnassigned(1);
+      await plain.run();
+      expect(untold).toHaveLength(1);
+      expect(untold[0]).not.toHaveProperty("retractedImages");
     });
 
     describe("an unclaimed launch on an image retracted since it was reserved", () => {

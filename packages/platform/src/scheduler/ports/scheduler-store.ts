@@ -41,6 +41,13 @@ export type ReserveLaunchInput = {
   imageRuntime?: ImageRuntime;
   now: Date;
   resources: ExecutionResources;
+  /**
+   * The retracted images as configured and as this backend pins them. When
+   * the session's previous launch ran one and this launch takes another
+   * image, the reservation records `worker_image_replaced` and tells the
+   * session's creator. Absent when nothing is retracted.
+   */
+  retractedImages?: readonly string[];
   sessionId: string;
   /**
    * Global cap on reserved launch slots, enforced inside the reservation
