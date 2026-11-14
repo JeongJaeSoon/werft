@@ -1878,8 +1878,8 @@ export const sessionEventArchives = pgTable(
     }).notNull(),
     // The session's activity over every event through activity_through,
     // taken before they left; a later chunk of the same pass repeats it.
-    // No API answers it any more: only readSessionActivity (the db bench)
-    // reads it.
+    // No API answers it any more: the archiver merges the previous chunk's
+    // value into the next, and readSessionActivity (the db bench) reads it.
     activity: jsonb().notNull(),
     activityThrough: bigint("activity_through", { mode: "number" }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })

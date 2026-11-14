@@ -336,8 +336,7 @@ const activityToolTarget = z.string().meta({
   description:
     "What the call acts on, the first of its input's `command`, `file_path`, `path`, `pattern`, `url`, `query` or `description` that is a non-empty string; empty when none is.",
 });
-// In no API response: only the event archive's stored rollup and the db
-// bench read it.
+// In no API response: the event archive stores it and the db bench reads it.
 export const sessionActivitySchema = z.object({
   last: z
     .discriminatedUnion("kind", [
@@ -549,7 +548,8 @@ export const sessionSummarySchema = z.object({
   revision: revisionSchema,
   admission_state: admissionStateSchema,
   status: sessionStatusSchema.meta({ description: NEEDS_INPUT_PROJECTION }),
-  // Optional like activity; the detail carries the whole wait.
+  // Optional, so a summary from an older server parses; the detail carries
+  // the whole wait.
   input_wait: inputWaitSchema.pick({ state: true }).nullable().optional().meta({
     description:
       "Which stage the session's wait for an answer is in; null when it waits on none. `GET /v1/sessions/{id}` says what it waits on. Absent from a server older than the field.",
