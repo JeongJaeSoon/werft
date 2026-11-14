@@ -1,26 +1,25 @@
 /**
- * The answer to a forwarded (absolute-form) exchange: its heads rewritten so
- * the client closes the connection, and its body counted so the proxy knows
+ * The answer to a forwarded (absolute-form) exchange: its heads stripped of
+ * the upstream's hop-by-hop fields, and its body counted so the proxy knows
  * when the exchange is over.
  *
- * The proxy forwards exactly one request per client connection. It asks the
- * upstream to close (`rewrite` in request.ts), but an upstream may not:
+ * The proxy forwards exactly one request per upstream connection. It asks
+ * the upstream to close (`rewrite` in request.ts), but an upstream may not:
  * Bun.serve keeps a connection open after any answer its handler produced
- * asynchronously, and says nothing in the head. A client that reads such a
- * head as keep-alive pools the proxy connection and sends its next request —
- * to whatever origin — down it. That is how a worker's S3 list after its
- * gateway claim landed on the API.
+ * asynchronously, and says nothing in the head. Piping the client's next
+ * request down that socket is how a worker's S3 list after its gateway
+ * claim once landed on the API. So `complete` tells the proxy the moment
+ * the answer is over, and the proxy ends the upstream then.
  *
- * So the final head the client sees always says `connection: close`,
- * whatever the upstream said; interim 1xx heads only lose their hop-by-hop
- * fields. That is not enough on its own: Bun's node:http reuses a
- * connection after a non-2xx answer even when told to close, so the
- * transcript mirror's PUT after a 404 GET came down the same socket. The
- * body is therefore framed as well, and `complete` tells the proxy to end
- * the connection the moment the answer is over; a client that had already
- * sent another request on it gets an EOF and sends it again on a fresh one.
- * The request side — nothing past the one request reaches the upstream —
- * is `createBodyFramer` in request.ts.
+ * The client side is the proxy's choice, made when the final head goes
+ * through (`keepOpen`): either the head says `connection: close` and the
+ * proxy ends the client connection after the answer, or it says nothing and
+ * the proxy reads the client's next request as a new one. Telling Bun to
+ * close is not enough on its own: its fetch and node:http pool the socket
+ * anyway and send the next request before they see the FIN, and on that
+ * EOF they fail the request instead of sending it again. The request side —
+ * nothing past the one request reaches the upstream — is `createBodyFramer`
+ * in request.ts.
  */
 
 import {
@@ -54,23 +53,34 @@ export type ResponseRewriter = {
   readonly complete: boolean;
   /** Something has been handed to the client (a head, interim or final). */
   readonly started: boolean;
+  /**
+   * The final head told the client the connection closes, which binds the
+   * proxy to close it (RFC 9112 §9.6). True until that head is written.
+   */
+  readonly closes: boolean;
 };
 
 /**
  * `maxHeadBytes` bounds every head the answer starts with together, interim
  * ones included, so an upstream cannot keep the client busy with 1xx heads.
  * `headOnly` is a HEAD request's answer, which has no body whatever its
- * Content-Length says.
+ * Content-Length says. `keepOpen` is asked once, at the final head, whether
+ * the proxy means to read another request from the client; an answer whose
+ * body only the upstream's close ends, or an HTTP/1.0 one, always closes.
  */
 export function createResponseRewriter(
   maxHeadBytes: number,
-  { headOnly }: { headOnly: boolean },
+  {
+    headOnly,
+    keepOpen = () => false,
+  }: { headOnly: boolean; keepOpen?: () => boolean },
 ): ResponseRewriter {
   let buffer: Uint8Array = NOTHING;
   /** Head bytes already handed on: the interim heads before this one. */
   let consumed = 0;
   let done = false;
   let started = false;
+  let closes = true;
   /** Null until the final head, and for a close-delimited body. */
   let body: BodyFramer | null = null;
   /** Anything past the body is the upstream's, and nobody's to receive. */
@@ -82,6 +92,9 @@ export function createResponseRewriter(
       : taken.forward;
   };
   return {
+    get closes() {
+      return closes;
+    },
     get complete() {
       return body?.complete ?? false;
     },
@@ -132,7 +145,13 @@ export function createResponseRewriter(
         body = framing.kind === "close" ? null : createBodyFramer(framing);
         const rest = bodyBytes(buffer);
         if (!(rest instanceof Uint8Array)) return rest;
-        out.push(kept, CLOSE, rest);
+        // The status line passes as the upstream wrote it, and HTTP/1.0
+        // without `keep-alive` — which the proxy strips — means close.
+        closes =
+          body === null ||
+          !ascii(lines[0] ?? NOTHING).startsWith("HTTP/1.1 ") ||
+          !keepOpen();
+        out.push(kept, closes ? CLOSE : CRLF, rest);
         buffer = NOTHING;
         done = true;
         return handOver(out);
@@ -214,8 +233,11 @@ function withoutHopFields(lines: Uint8Array[]): Uint8Array | string {
   return join(kept);
 }
 
+/** The reason phrase reaches the client as it is, so it may not hide a line. */
 function statusOf(line: Uint8Array): number | null {
-  const match = /^HTTP\/1\.[01] ([1-5]\d\d)(?: |$)/.exec(ascii(line));
+  const match = /^HTTP\/1\.[01] ([1-5]\d\d)(?: [\t\x20-\x7e\x80-\xff]*)?$/.exec(
+    ascii(line),
+  );
   return match === null ? null : Number(match[1]);
 }
 

@@ -18,6 +18,7 @@ import {
  * for the daemon host.
  */
 const BIG = "a".repeat(8 * 1024 * 1024);
+const HUGE_LENGTH = 4 * BIG.length;
 
 type EchoState = { pending: Uint8Array | null };
 
@@ -81,12 +82,20 @@ describe("egress proxy", () => {
         // A body far past a socket's write buffer, so the proxy has to queue
         // and drain rather than write it all in one go.
         if (url.pathname === "/large") return new Response(BIG);
+        if (url.pathname === "/huge") return new Response(BIG.repeat(4));
         // Answered after a timer, as the API answers after its database: Bun
         // then leaves the connection open despite the `connection: close`.
         if (url.pathname === "/claim") await Bun.sleep(10);
         if (url.pathname === "/missing") {
           await Bun.sleep(10);
           return new Response("missing", { status: 404 });
+        }
+        if (url.pathname === "/unauthorized" || url.pathname === "/forbidden") {
+          await request.text();
+          await Bun.sleep(1);
+          return new Response("no", {
+            status: url.pathname === "/forbidden" ? 403 : 401,
+          });
         }
         return new Response(`upstream ${url.pathname} ${await request.text()}`);
       },
@@ -131,6 +140,10 @@ describe("egress proxy", () => {
               if (part === END) {
                 socket.end();
                 return;
+              }
+              if (part === GATE) {
+                await scriptGate.passed;
+                continue;
               }
               socket.write(part);
               await Bun.sleep(5);
@@ -206,8 +219,15 @@ describe("egress proxy", () => {
   // pipe it to the first upstream. The worker's S3 list after its gateway
   // claim reached the API and failed as an XML parse error.
   /** Runs `testing/pooled-client.ts` against the proxy; one line per request. */
-  async function pooledClient(...requests: string[]): Promise<string[]> {
-    const via = `http://127.0.0.1:${proxy.port}`;
+  function pooledClient(...requests: string[]): Promise<string[]> {
+    return pooledClientVia(proxy.port, ...requests);
+  }
+
+  async function pooledClientVia(
+    port: number,
+    ...requests: string[]
+  ): Promise<string[]> {
+    const via = `http://127.0.0.1:${port}`;
     const client = Bun.spawn(
       [
         process.execPath,
@@ -400,6 +420,567 @@ describe("egress proxy", () => {
     );
     expect(await talk.waitFor("502")).toContain("response head");
     expect(await waitFor(() => talk.isClosed(), 2_000)).toBe(true);
+  });
+
+  // Bun's fetch pools the proxy connection whatever the head says and sends
+  // its next request before it sees the FIN; on that EOF it fails the
+  // request instead of sending it again. So a client that asks to keep the
+  // connection gets it kept: one request at a time, each read and judged as
+  // if it came on a fresh connection, and each on a fresh upstream.
+  describe("a kept client connection", () => {
+    const kept = (line: string, ...fields: string[]) =>
+      request(line, "connection: keep-alive", ...fields);
+    const headOf = (text: string) =>
+      text.slice(0, text.indexOf("\r\n\r\n")).toLowerCase();
+    const discarded = (warnings: string[]) =>
+      warnings.some((line) =>
+        line.includes("Discarding bytes sent past the request"),
+      );
+
+    /** The handlers the proxy gave one upstream dial, to replay late. */
+    type Handlers = {
+      close(socket: unknown, error?: Error): void;
+      data(socket: unknown, chunk: Uint8Array): void;
+      drain(socket: unknown): void;
+      error(socket: unknown, error: Error): void;
+    };
+    type Dial = {
+      closed: boolean;
+      handlers: Handlers;
+      /** The first bytes the upstream sent have reached the proxy. */
+      heard: Promise<void>;
+      socket: { write(data: Uint8Array): number };
+    };
+
+    /**
+     * A proxy whose warnings and upstream dials a test can watch. `onDial`
+     * runs before the dial reports back to the proxy.
+     */
+    async function watched(
+      allowPrivate: Array<{ host: string; port: number }>,
+      {
+        maxBufferedBytes,
+        onDial,
+      }: {
+        maxBufferedBytes?: number;
+        onDial?: (dial: Dial, index: number) => Promise<void> | void;
+      } = {},
+    ) {
+      const warnings: string[] = [];
+      const dials: Dial[] = [];
+      const server = await startEgressProxy({
+        connect: async (options) => {
+          const handlers = options.socket;
+          let heard = (): void => undefined;
+          const dial = {
+            closed: false,
+            handlers: handlers as unknown as Handlers,
+            heard: new Promise<void>((resolve) => {
+              heard = resolve;
+            }),
+          } as Dial;
+          const socket = await Bun.connect({
+            ...options,
+            socket: {
+              ...handlers,
+              close(peer, error) {
+                dial.closed = true;
+                handlers.close?.(peer, error);
+              },
+              data(peer, chunk) {
+                heard();
+                handlers.data?.(peer, chunk);
+              },
+            },
+          });
+          dial.socket = socket as unknown as Dial["socket"];
+          await onDial?.(dial, dials.length);
+          dials.push(dial);
+          return socket;
+        },
+        logger: createProxyLogger("warn", (line) => warnings.push(line)),
+        ...(maxBufferedBytes === undefined ? {} : { maxBufferedBytes }),
+        policy: { allow: [], allowPrivate },
+        port: 0,
+        resolve,
+      });
+      return { dials, server, warnings };
+    }
+
+    test("each request reaches its own upstream and is judged afresh", async () => {
+      const talk = await connect(proxy.port);
+      talk.send(
+        `${kept(
+          `POST http://gateway.test:${upstreamPort}/claim HTTP/1.1`,
+          "content-length: 2",
+        )}hi`,
+      );
+      expect(headOf(await talk.waitFor("upstream /claim hi"))).not.toContain(
+        "connection: close",
+      );
+      // The next head may arrive in pieces.
+      const next = kept(`GET http://other.test:${other.port}/next HTTP/1.1`);
+      talk.send(next.slice(0, 20));
+      await Bun.sleep(20);
+      talk.send(next.slice(20));
+      await talk.waitFor("other /next");
+      expect(talk.isClosed()).toBe(false);
+      // A destination the policy refuses is refused on a kept connection too.
+      talk.send(kept("GET http://metadata.test/latest/meta-data/ HTTP/1.1"));
+      expect(await talk.waitFor("403")).toContain("link_local");
+      expect(await waitFor(() => talk.isClosed(), 2_000)).toBe(true);
+    });
+
+    test.each([
+      ["both framings", "content-length: 5", "transfer-encoding: chunked"],
+      ["two lengths", "content-length: 5", "content-length: 6"],
+      ["the same length twice", "content-length: 5", "content-length: 5"],
+    ])(
+      "a next request with %s is refused and reaches nobody",
+      async (_name, one, two) => {
+        const talk = await connect(proxy.port);
+        talk.send(kept(`GET http://other.test:${other.port}/first HTTP/1.1`));
+        await talk.waitFor("other /first");
+        talk.send(
+          `${kept(
+            `POST http://scripted.test:${scripted.port}/two-readings HTTP/1.1`,
+            one as string,
+            two as string,
+          )}hello`,
+        );
+        expect(await talk.waitFor("400 Bad Request")).toContain(
+          "content-length",
+        );
+        expect(await waitFor(() => talk.isClosed(), 2_000)).toBe(true);
+        expect(scriptedHeard).not.toContain("/two-readings");
+      },
+    );
+
+    test("bytes past the body close the connection and reach nobody", async () => {
+      const closed = scriptedClosed;
+      const talk = await connect(proxy.port);
+      // One write: the next request rides in the same segment as the body.
+      talk.send(
+        `${kept(
+          `POST http://scripted.test:${scripted.port}/keep-alive HTTP/1.1`,
+          "content-length: 5",
+        )}hello${kept(
+          `GET http://scripted.test:${scripted.port}/stolen-leftover HTTP/1.1`,
+          "authorization: meant-for-the-next",
+        )}`,
+      );
+      expect(headOf(await talk.waitFor("\r\n\r\nok"))).toContain(
+        "\r\nconnection: close",
+      );
+      expect(await waitFor(() => talk.isClosed(), 2_000)).toBe(true);
+      expect(await waitFor(() => scriptedClosed > closed, 2_000)).toBe(true);
+      expect(scriptedHeard).toContain("hello");
+      expect(scriptedHeard).not.toContain("stolen-leftover");
+      expect(scriptedHeard).not.toContain("meant-for-the-next");
+    });
+
+    test("a request sent before the answer came is discarded, and the connection closes", async () => {
+      const { server, warnings } = await watched([
+        { host: "scripted.test", port: scripted.port },
+      ]);
+      scriptGate = closedGate();
+      try {
+        const talk = await connect(server.port);
+        talk.send(
+          kept(`GET http://scripted.test:${scripted.port}/gated-ok HTTP/1.1`),
+        );
+        expect(
+          await waitFor(() => scriptedHeard.includes("GET /gated-ok "), 2_000),
+        ).toBe(true);
+        talk.send(
+          kept(
+            `GET http://scripted.test:${scripted.port}/stolen-early HTTP/1.1`,
+          ),
+        );
+        // The answer is held until the proxy has seen the early request.
+        expect(await waitFor(() => discarded(warnings), 2_000)).toBe(true);
+        scriptGate.open();
+        expect(headOf(await talk.waitFor("\r\n\r\nok"))).toContain(
+          "\r\nconnection: close",
+        );
+        expect(await waitFor(() => talk.isClosed(), 2_000)).toBe(true);
+        expect(scriptedHeard).not.toContain("stolen-early");
+      } finally {
+        scriptGate.open();
+        server.stop();
+      }
+    });
+
+    test("a request sent after a kept head but before its body ended is discarded", async () => {
+      const { server, warnings } = await watched([
+        { host: "scripted.test", port: scripted.port },
+      ]);
+      scriptGate = closedGate();
+      try {
+        const talk = await connect(server.port);
+        talk.send(
+          kept(`GET http://scripted.test:${scripted.port}/gated-body HTTP/1.1`),
+        );
+        // The head promised to keep the connection; the client spoke too
+        // soon.
+        expect(headOf(await talk.waitFor("\r\n\r\nok"))).not.toContain(
+          "connection: close",
+        );
+        talk.send(
+          kept(
+            `GET http://scripted.test:${scripted.port}/stolen-mid-body HTTP/1.1`,
+          ),
+        );
+        expect(await waitFor(() => discarded(warnings), 2_000)).toBe(true);
+        scriptGate.open();
+        await talk.waitFor("\r\n\r\nokok");
+        expect(await waitFor(() => talk.isClosed(), 2_000)).toBe(true);
+        expect(scriptedHeard).not.toContain("stolen-mid-body");
+      } finally {
+        scriptGate.open();
+        server.stop();
+      }
+    });
+
+    test.each([
+      ["closes inside its head", "/torn", "502 Bad Gateway"],
+      ["closes inside its body", "/short", "\r\n\r\nabc"],
+    ])(
+      "a connection whose upstream %s is not kept",
+      async (_name, path, seen) => {
+        const talk = await connect(proxy.port);
+        talk.send(
+          kept(`GET http://scripted.test:${scripted.port}${path} HTTP/1.1`),
+        );
+        await talk.waitFor(seen as string);
+        expect(await waitFor(() => talk.isClosed(), 2_000)).toBe(true);
+      },
+    );
+
+    test.each([
+      ["has no framing", "/eof", "all of it"],
+      ["is HTTP/1.0", "/http10", "\r\n\r\nok"],
+    ])(
+      "a connection whose answer %s is not kept",
+      async (_name, path, seen) => {
+        const talk = await connect(proxy.port);
+        talk.send(
+          kept(`GET http://scripted.test:${scripted.port}${path} HTTP/1.1`),
+        );
+        expect(headOf(await talk.waitFor(seen as string))).toContain(
+          "\r\nconnection: close",
+        );
+        expect(await waitFor(() => talk.isClosed(), 2_000)).toBe(true);
+      },
+    );
+
+    test("an answer that comes before the upload is over is not kept", async () => {
+      const talk = await connect(proxy.port);
+      talk.send(
+        `${kept(
+          `POST http://scripted.test:${scripted.port}/early-401 HTTP/1.1`,
+          "content-length: 100",
+        )}${"x".repeat(10)}`,
+      );
+      expect(headOf(await talk.waitFor("\r\n\r\nno"))).toContain(
+        "\r\nconnection: close",
+      );
+      expect(await waitFor(() => talk.isClosed(), 2_000)).toBe(true);
+    });
+
+    test("an upstream that acts after its answer never touches the next exchange", async () => {
+      // The second upstream takes nothing until released, so the next
+      // request's head sits queued while the first upstream's handlers are
+      // replayed: a late drain would write it there, a late close or error
+      // would end the client, late data would reach it.
+      let refused = 0;
+      let release = (): void => undefined;
+      const { dials, server } = await watched(
+        [
+          { host: "scripted.test", port: scripted.port },
+          { host: "gateway.test", port: upstreamPort },
+        ],
+        {
+          onDial: (dial, index) => {
+            if (index !== 1) return;
+            const write = dial.socket.write.bind(dial.socket);
+            dial.socket.write = () => {
+              refused += 1;
+              return 0;
+            };
+            release = () => {
+              dial.socket.write = write;
+              dial.handlers.drain(dial.socket);
+            };
+          },
+        },
+      );
+      try {
+        const talk = await connect(server.port);
+        talk.send(
+          kept(`GET http://scripted.test:${scripted.port}/keep-alive HTTP/1.1`),
+        );
+        await talk.waitFor("\r\n\r\nok");
+        const old = dials[0];
+        if (old === undefined) throw new Error("no first dial");
+        const writtenToOld: string[] = [];
+        old.socket.write = (data) => {
+          writtenToOld.push(new TextDecoder().decode(data));
+          return data.byteLength;
+        };
+        talk.send(
+          kept(`GET http://gateway.test:${upstreamPort}/after-done HTTP/1.1`),
+        );
+        expect(await waitFor(() => refused > 0, 2_000)).toBe(true);
+        old.handlers.drain(old.socket);
+        old.handlers.data(
+          old.socket,
+          new TextEncoder().encode(
+            "HTTP/1.1 200 OK\r\ncontent-length: 6\r\n\r\nforged",
+          ),
+        );
+        old.handlers.error(old.socket, new Error("late"));
+        old.handlers.close(old.socket);
+        expect(writtenToOld).toEqual([]);
+        release();
+        expect(await talk.waitFor("upstream /after-done ")).not.toContain(
+          "forged",
+        );
+        expect(talk.isClosed()).toBe(false);
+        talk.close();
+      } finally {
+        release();
+        server.stop();
+      }
+    });
+
+    test.each([
+      ["HEAD", "/head-forged"],
+      ["GET", "/no-content-forged"],
+    ])(
+      "bytes behind a %s answer with no body never reach the next origin",
+      async (method, path) => {
+        const talk = await connect(proxy.port);
+        talk.send(
+          kept(
+            `${method} http://scripted.test:${scripted.port}${path} HTTP/1.1`,
+          ),
+        );
+        // The forged answer came in the same write as the head.
+        await talk.waitFor("\r\n\r\n");
+        talk.send(kept(`GET http://other.test:${other.port}/after HTTP/1.1`));
+        expect(await talk.waitFor("other /after")).not.toContain("forged");
+        talk.close();
+      },
+    );
+
+    test("a CONNECT on a kept connection goes through the same tunnel gate", async () => {
+      const talk = await connect(proxy.port);
+      talk.send(kept(`GET http://other.test:${other.port}/first HTTP/1.1`));
+      await talk.waitFor("other /first");
+      talk.send(request(`CONNECT tunnel.test:${echo.port} HTTP/1.1`));
+      await talk.waitFor("200 Connection Established");
+      talk.sendBytes(clientHello({ serverNames: ["tunnel.test"] }));
+      talk.send("ping-after-a-forward");
+      await talk.waitFor("ping-after-a-forward");
+      talk.close();
+
+      const before = sunk;
+      const evil = await connect(proxy.port);
+      evil.send(kept(`GET http://other.test:${other.port}/first HTTP/1.1`));
+      await evil.waitFor("other /first");
+      evil.send(request(`CONNECT sink.test:${sink.port} HTTP/1.1`));
+      await evil.waitFor("200 Connection Established");
+      evil.sendBytes(clientHello({ serverNames: ["evil.test"] }));
+      expect(await waitFor(() => evil.isClosed(), 5_000)).toBe(true);
+      expect(sunk).toBe(before);
+    });
+
+    test("an answer the upstream sent before it was asked is not kept", async () => {
+      // Speaks first, so its whole answer is held until the dial reports
+      // back and is delivered while the dispatch is still writing the
+      // request: reusing the connection there would leave that request to
+      // be written into the next exchange's queue.
+      const eager = Bun.listen<undefined>({
+        hostname: "127.0.0.1",
+        port: 0,
+        socket: {
+          data() {},
+          open(socket) {
+            socket.write("HTTP/1.1 200 OK\r\ncontent-length: 5\r\n\r\neager");
+          },
+        },
+      });
+      // The dial reports back only once the proxy holds the eager answer.
+      const { server: held } = await watched(
+        [{ host: "127.0.0.1", port: eager.port }],
+        { onDial: (dial) => dial.heard },
+      );
+      try {
+        const talk = await connect(held.port);
+        talk.send(
+          kept(`GET http://127.0.0.1:${eager.port}/eager-ask HTTP/1.1`),
+        );
+        expect(headOf(await talk.waitFor("\r\n\r\neager"))).toContain(
+          "\r\nconnection: close",
+        );
+        expect(await waitFor(() => talk.isClosed(), 2_000)).toBe(true);
+      } finally {
+        held.stop();
+        eager.stop(true);
+      }
+    });
+
+    test.each([
+      ["a request sent while it drained closes it", true],
+      ["it is kept once the answer drained", false],
+    ])(
+      "an answer still queued for a client that stopped reading: %s",
+      async (_name, speakEarly) => {
+        // Far past what loopback buffers hold, so the answer is complete
+        // upstream while most of it still sits in the proxy's queue. The
+        // first case is what shows the queue was not empty: had the
+        // connection already been reset, its early request would have been
+        // served on a second dial.
+        const { dials, server, warnings } = await watched(
+          [
+            { host: "gateway.test", port: upstreamPort },
+            { host: "other.test", port: other.port ?? 0 },
+          ],
+          { maxBufferedBytes: 2 * HUGE_LENGTH },
+        );
+        const talk = await connect(server.port);
+        try {
+          talk.stopReading();
+          talk.send(
+            kept(`GET http://gateway.test:${upstreamPort}/huge HTTP/1.1`),
+          );
+          // The proxy ends the upstream once the answer is complete.
+          expect(await waitFor(() => dials[0]?.closed === true, 10_000)).toBe(
+            true,
+          );
+          if (speakEarly) {
+            talk.send(
+              kept(`GET http://other.test:${other.port}/too-early HTTP/1.1`),
+            );
+            expect(await waitFor(() => discarded(warnings), 2_000)).toBe(true);
+          }
+          talk.resumeReading();
+          await talk.waitForBody(HUGE_LENGTH, 30_000);
+          if (speakEarly) {
+            expect(await waitFor(() => talk.isClosed(), 2_000)).toBe(true);
+            expect(dials).toHaveLength(1);
+            return;
+          }
+          talk.send(
+            kept(`GET http://other.test:${other.port}/after-huge HTTP/1.1`),
+          );
+          expect(
+            await waitFor(
+              () => talk.tail().includes("other /after-huge"),
+              5_000,
+            ),
+          ).toBe(true);
+          expect(dials).toHaveLength(2);
+        } finally {
+          talk.resumeReading();
+          talk.close();
+          server.stop();
+        }
+      },
+      60_000,
+    );
+
+    test("an idle kept connection is closed without a 408", async () => {
+      const quick = await startEgressProxy({
+        headTimeoutMs: 200,
+        logger: silent,
+        policy: {
+          allow: [],
+          allowPrivate: [{ host: "other.test", port: other.port ?? 0 }],
+        },
+        port: 0,
+        resolve,
+      });
+      try {
+        const idle = await connect(quick.port);
+        idle.send(kept(`GET http://other.test:${other.port}/idle HTTP/1.1`));
+        await idle.waitFor("other /idle");
+        expect(await waitFor(() => idle.isClosed(), 2_000)).toBe(true);
+        expect(idle.text()).not.toContain("408");
+        // A head left half-sent is still answered.
+        const halfway = await connect(quick.port);
+        halfway.send(kept(`GET http://other.test:${other.port}/idle HTTP/1.1`));
+        await halfway.waitFor("other /idle");
+        halfway.send("GET http://other.test");
+        expect(await halfway.waitFor("408")).toContain("timed out");
+      } finally {
+        quick.stop();
+      }
+    });
+
+    test("a kept connection holds the one slot it was given", async () => {
+      const capped = await startEgressProxy({
+        logger: silent,
+        maxConnectionsPerClient: 1,
+        policy: {
+          allow: [],
+          allowPrivate: [{ host: "other.test", port: other.port ?? 0 }],
+        },
+        port: 0,
+        resolve,
+      });
+      try {
+        const talk = await connect(capped.port);
+        for (const path of ["/one", "/two", "/three"]) {
+          talk.send(
+            kept(`GET http://other.test:${other.port}${path} HTTP/1.1`),
+          );
+          await talk.waitFor(`other ${path}`);
+        }
+        const second = await connect(capped.port);
+        expect(await second.waitFor("503")).toContain("too many connections");
+        talk.close();
+      } finally {
+        capped.stop();
+      }
+    });
+
+    test("Bun's fetch gets every answer after non-2xx ones, on one connection", async () => {
+      // One connection per client: a fetch that opened another while the
+      // first was kept would be refused with a 503.
+      const single = await startEgressProxy({
+        logger: silent,
+        maxConnectionsPerClient: 1,
+        policy: {
+          allow: [],
+          allowPrivate: [{ host: "gateway.test", port: upstreamPort }],
+        },
+        port: 0,
+        resolve,
+      });
+      const post = (path: string) => [
+        "fetch",
+        "POST",
+        `http://gateway.test:${upstreamPort}${path}`,
+      ];
+      try {
+        // Linux lost about one run in nine of these to the old close.
+        for (let run = 0; run < 10; run += 1) {
+          expect(
+            await pooledClientVia(
+              single.port,
+              ...post("/unauthorized"),
+              ...post("/unauthorized"),
+              ...post("/forbidden"),
+              ...post("/unauthorized"),
+            ),
+          ).toEqual(["401 no", "401 no", "403 no", "401 no"]);
+        }
+      } finally {
+        single.stop();
+      }
+    }, 30_000);
   });
 
   test("an allowlisted absolute-form request reaches the upstream", async () => {
@@ -1156,12 +1737,44 @@ describe("egress proxy", () => {
 const HEAD_200 = "HTTP/1.1 200 Connection Established\r\n\r\n";
 
 const END = Symbol("end");
+/**
+ * Holds the script until the test opens `scriptGate`: the test acts in the
+ * middle of an answer, and goes on only once the proxy has seen it act.
+ */
+const GATE = Symbol("gate");
+
+type Gate = { open(): void; passed: Promise<void> };
+
+function closedGate(): Gate {
+  let open = (): void => undefined;
+  const passed = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  return { open, passed };
+}
+
+let scriptGate = closedGate();
+
 /** What `scripted.test` writes for each path, one write per element. */
-const SCRIPTS: Record<string, Array<string | typeof END>> = {
+const SCRIPTS: Record<string, Array<string | typeof END | typeof GATE>> = {
   "/continue": [
     "HTTP/1.1 100 Continue\r\n\r\n",
     "HTTP/1.1 201 Created\r\ncontent-length: 4\r\n\r\ndone",
   ],
+  // A body-less answer with a forged answer in the same write behind it.
+  "/head-forged": [
+    "HTTP/1.1 200 OK\r\ncontent-length: 6\r\n\r\nHTTP/1.1 200 OK\r\ncontent-length: 6\r\n\r\nforged",
+  ],
+  "/no-content-forged": [
+    "HTTP/1.1 204 No Content\r\n\r\nHTTP/1.1 200 OK\r\ncontent-length: 6\r\n\r\nforged",
+  ],
+  "/gated-ok": [GATE, "HTTP/1.1 200 OK\r\ncontent-length: 2\r\n\r\nok"],
+  "/gated-body": ["HTTP/1.1 200 OK\r\ncontent-length: 4\r\n\r\nok", GATE, "ok"],
+  // Answers before the upload is over, as an auth failure does.
+  "/early-401": ["HTTP/1.1 401 Unauthorized\r\ncontent-length: 2\r\n\r\nno"],
+  "/eof": ["HTTP/1.1 200 OK\r\n\r\nall of it", END],
+  "/http10": ["HTTP/1.0 200 OK\r\ncontent-length: 2\r\n\r\nok"],
+  "/short": ["HTTP/1.1 200 OK\r\ncontent-length: 10\r\n\r\nabc", END],
   "/huge-head": [
     `HTTP/1.1 200 OK\r\nx-pad: ${"a".repeat(20_000)}`,
     "\r\ncontent-length: 2\r\n\r\nok",
@@ -1208,6 +1821,8 @@ type Conversation = {
   /** Stop draining without closing — a client the proxy has to give up on. */
   stopReading(): void;
   resumeReading(): void;
+  /** The last bytes received, kept however long the transfer was. */
+  tail(): string;
   text(): string;
   waitFor(needle: string, timeoutMs?: number): Promise<string>;
   waitForBytes(count: number, timeoutMs?: number): Promise<number>;
@@ -1220,6 +1835,7 @@ type Conversation = {
  */
 async function connect(port: number, slowReadMs = 0): Promise<Conversation> {
   let received = "";
+  let last = "";
   let bytes = 0;
   let headerBytes: number | null = null;
   let closed = false;
@@ -1255,10 +1871,10 @@ async function connect(port: number, slowReadMs = 0): Promise<Conversation> {
           }
         }
         bytes += chunk.byteLength;
+        const decoded = new TextDecoder().decode(chunk);
         // A megabyte-scale transfer is measured, not accumulated.
-        if (received.length < 64 * 1024) {
-          received += new TextDecoder().decode(chunk);
-        }
+        if (received.length < 64 * 1024) received += decoded;
+        last = (last + decoded).slice(-4096);
         if (headerBytes === null) {
           const end = received.indexOf("\r\n\r\n");
           if (end >= 0) headerBytes = end + 4;
@@ -1290,6 +1906,9 @@ async function connect(port: number, slowReadMs = 0): Promise<Conversation> {
     },
     resumeReading(): void {
       (socket as unknown as { resume(): boolean }).resume();
+    },
+    tail(): string {
+      return last;
     },
     text(): string {
       return received;

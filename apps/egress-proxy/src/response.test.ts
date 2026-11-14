@@ -111,6 +111,108 @@ describe("response head rewriter", () => {
     expect(rewrite(answer)).toStartWith(`error: ${error}`);
   });
 
+  test.each([
+    // A client reading LF as an end of line would see a second length and
+    // take the next origin's answer, on a kept connection, for this body.
+    [
+      "HTTP/1.1 200 OK\r\nX-Test: a\nContent-Length: 99\r\nContent-Length: 0\r\n\r\n",
+      "malformed response header field",
+    ],
+    [
+      "HTTP/1.1 200 OK\r\nX-Test: a\rContent-Length: 99\r\nContent-Length: 0\r\n\r\n",
+      "malformed response header field",
+    ],
+    [
+      "HTTP/1.1 200 OK\nContent-Length: 99\r\nContent-Length: 0\r\n\r\n",
+      "malformed response status line",
+    ],
+    [
+      "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n0\r\nX: a\nY: b\r\n\r\n",
+      "response malformed chunked trailer field",
+    ],
+  ])("a line hidden inside another is refused: %#", (answer, error) => {
+    expect(rewrite(answer)).toStartWith(`error: ${error}`);
+  });
+
+  describe("keeping the client connection", () => {
+    const kept = (answer: string, headOnly = false) => {
+      const rewriter = createResponseRewriter(MAX, {
+        headOnly,
+        keepOpen: () => true,
+      });
+      const result = rewriter.push(latin1(answer));
+      if ("error" in result) throw new Error(result.error);
+      return {
+        closes: rewriter.closes,
+        out: String.fromCharCode(...result.bytes),
+      };
+    };
+
+    test("a framed answer the proxy keeps the connection for says nothing about closing", () => {
+      expect(
+        kept(
+          "HTTP/1.1 401 Unauthorized\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\nContent-Length: 2\r\n\r\nno",
+        ),
+      ).toEqual({
+        closes: false,
+        out: "HTTP/1.1 401 Unauthorized\r\nContent-Length: 2\r\n\r\nno",
+      });
+      expect(
+        kept("HTTP/1.1 200 OK\r\nContent-Length: 9\r\n\r\n", true).closes,
+      ).toBe(false);
+      expect(kept("HTTP/1.1 204 No Content\r\n\r\n").closes).toBe(false);
+      expect(
+        kept("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n").closes,
+      ).toBe(false);
+    });
+
+    test("only the final head is asked, and an interim one never closes", () => {
+      let asked = 0;
+      const rewriter = createResponseRewriter(MAX, {
+        headOnly: false,
+        keepOpen: () => {
+          asked += 1;
+          return true;
+        },
+      });
+      rewriter.push(latin1("HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 103 Ea"));
+      expect(asked).toBe(0);
+      expect(rewriter.closes).toBe(true);
+      rewriter.push(
+        latin1("rly Hints\r\n\r\nHTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n"),
+      );
+      expect(asked).toBe(1);
+      expect(rewriter.closes).toBe(false);
+    });
+
+    test.each([
+      // Only the upstream's close ends it, so the client's has to follow.
+      ["a body with no framing", "HTTP/1.1 200 OK\r\n\r\nall"],
+      // HTTP/1.0 without the keep-alive the proxy strips means close.
+      ["an HTTP/1.0 answer", "HTTP/1.0 200 OK\r\nContent-Length: 0\r\n\r\n"],
+    ])("%s still closes", (_name, answer) => {
+      const { closes, out } = kept(answer as string);
+      expect(closes).toBe(true);
+      expect(out).toContain("\r\nconnection: close\r\n\r\n");
+    });
+
+    test("a proxy that will not keep the connection says close", () => {
+      const rewriter = createResponseRewriter(MAX, {
+        headOnly: false,
+        keepOpen: () => false,
+      });
+      const result = rewriter.push(
+        latin1("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n"),
+      );
+      expect(result).toEqual({
+        bytes: latin1(
+          "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nconnection: close\r\n\r\n",
+        ),
+      });
+      expect(rewriter.closes).toBe(true);
+    });
+  });
+
   describe("the end of the answer", () => {
     const answer = (headOnly = false) =>
       createResponseRewriter(MAX, { headOnly });

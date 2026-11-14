@@ -152,6 +152,15 @@ type ClientState = {
   discarding: boolean;
   /** The upstream is done; end the client once its queue has drained. */
   closeWhenDrained: boolean;
+  /**
+   * The exchange is over and the connection is kept; read the next request
+   * once the client has been written everything it is owed.
+   */
+  reuseWhenDrained: boolean;
+  /** The forwarded request in flight asked to keep the connection. */
+  keepAlive: boolean;
+  /** An exchange has finished on this connection and it was kept. */
+  reused: boolean;
   /** Still counted against the connection caps. */
   counted: boolean;
   /** An outbound attempt for this client is in flight. */
@@ -239,6 +248,10 @@ export async function startEgressProxy(
           socket.end();
           return;
         }
+        if (socket.data.reuseWhenDrained) {
+          nextRequest(socket);
+          return;
+        }
         const upstream = socket.data.upstream;
         if (upstream !== null) reader(upstream).resume();
         unstall(socket);
@@ -255,6 +268,9 @@ export async function startEgressProxy(
           buffer: new Uint8Array(0),
           discarding: false,
           closeWhenDrained: false,
+          reuseWhenDrained: false,
+          keepAlive: false,
+          reused: false,
           counted: true,
           dispatching: false,
           early: [],
@@ -292,18 +308,87 @@ export async function startEgressProxy(
           reply(socket, 503, "too many connections from this client");
           return;
         }
-        // A client that opens a socket and never speaks would otherwise hold
-        // its slot forever, which is the whole of the denial of service.
-        socket.data.headTimer = setTimeout(() => {
-          if (socket.data.phase !== "head") return;
-          logger.warn("Client never finished its request head", {
-            client: remote,
-          });
-          reply(socket, 408, "request head timed out");
-        }, headTimeoutMs);
+        armHeadTimer(socket);
       },
     },
   });
+
+  /**
+   * A client that opens a socket and never speaks would otherwise hold its
+   * slot forever, which is the whole of the denial of service; a kept
+   * connection between requests is held to the same deadline. One that
+   * sent nothing since its last answer is closed without a 408: a client
+   * that pools it may have just written a request, and would take the 408
+   * for that request's answer.
+   */
+  function armHeadTimer(socket: Socket<ClientState>): void {
+    socket.data.headTimer = setTimeout(() => {
+      const state = socket.data;
+      if (state.phase !== "head") return;
+      if (state.reused && state.buffer.byteLength === 0) {
+        state.phase = "closed";
+        socket.end();
+        return;
+      }
+      logger.warn("Client never finished its request head", {
+        client: state.remote,
+      });
+      reply(socket, 408, "request head timed out");
+    }, headTimeoutMs);
+  }
+
+  /**
+   * The connection may carry another request once this answer ends: the
+   * client asked for it, its request body is over and has all been handed
+   * to the upstream, nothing arrived past that body, and the dispatch that
+   * sent it has returned. An upload the upstream answered before it was
+   * over leaves bytes nobody will read as a body. A dispatch still running
+   * — an answer the upstream sent before it was asked, delivered from
+   * `adopt` — would go on writing the old request into the next one's
+   * queue.
+   */
+  function reusable(socket: Socket<ClientState>): boolean {
+    const state = socket.data;
+    return (
+      state.phase === "piping" &&
+      state.keepAlive &&
+      !state.discarding &&
+      !state.dispatching &&
+      state.early.length === 0 &&
+      state.toUpstream.chunks.length === 0 &&
+      (state.body?.complete ?? false)
+    );
+  }
+
+  /**
+   * The exchange is over and the client asked to keep the connection: what
+   * it sends from here is a new request, read and judged as if on a fresh
+   * connection. Bytes the proxy saw before this reset were pipelined and
+   * have been discarded, so the connection is not kept after all.
+   */
+  function nextRequest(socket: Socket<ClientState>): void {
+    const state = socket.data;
+    state.reuseWhenDrained = false;
+    if (state.phase === "closed") return;
+    if (state.discarding) {
+      state.phase = "closed";
+      socket.end();
+      return;
+    }
+    clearStallTimer(state);
+    state.body = null;
+    state.buffer = new Uint8Array(0);
+    state.early = [];
+    state.earlyBytes = 0;
+    state.keepAlive = false;
+    state.phase = "head";
+    state.reused = true;
+    state.toUpstream = { bytes: 0, chunks: [] };
+    state.upstream = null;
+    // Reading stopped if the old upstream fell behind on the request body.
+    reader(socket).resume();
+    armHeadTimer(socket);
+  }
 
   function onClientData(socket: Socket<ClientState>, chunk: Uint8Array): void {
     const state = socket.data;
@@ -388,7 +473,10 @@ export async function startEgressProxy(
       return;
     }
     state.phase = "connecting";
-    if (request.kind === "forward") state.body = createBodyFramer(request.body);
+    if (request.kind === "forward") {
+      state.body = createBodyFramer(request.body);
+      state.keepAlive = request.keepAlive;
+    }
     // Bytes pipelined in the same segment as the head are early bytes too.
     if (!holdEarly(socket, rest)) return;
     const expiry = Date.now() + dispatchTimeoutMs;
@@ -451,6 +539,7 @@ export async function startEgressProxy(
           request.kind === "forward"
             ? createResponseRewriter(MAX_HEAD_BYTES, {
                 headOnly: request.head.startsWith("HEAD "),
+                keepOpen: () => reusable(socket),
               })
             : null,
         );
@@ -686,7 +775,7 @@ export async function startEgressProxy(
     // `adopt`: bytes are held, a close or error is remembered, and a hold
     // past the cap pauses this socket alone. The connect deadline bounds how
     // long any of it can sit.
-    let phase: "pending" | "adopted" | "abandoned" = "pending";
+    let phase: "pending" | "adopted" | "abandoned" | "finished" = "pending";
     const held: Queue = { bytes: 0, chunks: [] };
     let closedEarly = false;
     let failedEarly: Error | null = null;
@@ -704,7 +793,7 @@ export async function startEgressProxy(
     };
     /** false once the client's queue is past its cap. */
     const deliver = (chunk: Uint8Array): boolean => {
-      if (client.data.phase === "closed") return true;
+      if (phase === "finished" || client.data.phase === "closed") return true;
       if (answer === null) {
         return push(client, client.data.toClient, chunk, maxBuffered);
       }
@@ -717,11 +806,21 @@ export async function startEgressProxy(
         result.bytes.byteLength === 0 ||
         push(client, client.data.toClient, result.bytes, maxBuffered);
       if (!answer.complete) return keepingUp;
-      // The exchange is over whether or not the upstream agrees; ending it
-      // here is what stops a client that ignores `connection: close` from
-      // waiting on this socket for an answer to its next request.
+      // The exchange is over whether or not the upstream agrees. From here
+      // nothing this upstream does reaches the client, which may already be
+      // on its next request.
+      phase = "finished";
       upstream?.end();
-      endClient();
+      if (answer.closes || !reusable(client)) {
+        // Ending it here is what stops a client that ignores
+        // `connection: close` from waiting on this socket for an answer to
+        // its next request.
+        endClient();
+      } else if (client.data.toClient.chunks.length > 0) {
+        client.data.reuseWhenDrained = true;
+      } else {
+        nextRequest(client);
+      }
       return true;
     };
     /** Ends the client once whatever it is still owed has been written. */
@@ -733,6 +832,7 @@ export async function startEgressProxy(
       client.end();
     };
     const onClose = (): void => {
+      if (phase === "finished") return;
       if (answer !== null && !answer.done) {
         refuseAnswer("closed before its response head was complete");
         return;
@@ -742,6 +842,7 @@ export async function startEgressProxy(
       endClient();
     };
     const onError = (error: Error): void => {
+      if (phase === "finished") return;
       logger.warn("Upstream connection failed", { error: error.message });
       client.end();
     };

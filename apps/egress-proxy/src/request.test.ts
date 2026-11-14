@@ -111,6 +111,70 @@ describe("parseRequestHead", () => {
       status: 400,
     });
   });
+
+  test("only an HTTP/1.1 client that says keep-alive, and never close, keeps the connection", () => {
+    const keepAlive = (version: string, ...lines: string[]) => {
+      const parsed = parseRequestHead(
+        head(`GET http://a.test/ ${version}`, ...lines),
+      );
+      if (parsed.kind !== "forward") throw new Error("expected a forward");
+      return parsed.keepAlive;
+    };
+    expect(keepAlive("HTTP/1.1", "Connection: keep-alive")).toBe(true);
+    expect(keepAlive("HTTP/1.1", "Connection: Upgrade, Keep-Alive")).toBe(true);
+    // Bun's fetch and node:http send both.
+    expect(
+      keepAlive(
+        "HTTP/1.1",
+        "Proxy-Connection: Keep-Alive",
+        "Connection: keep-alive",
+      ),
+    ).toBe(true);
+    // HTTP/1.1 defaults to persistent, but curl and git honour close.
+    expect(keepAlive("HTTP/1.1")).toBe(false);
+    expect(keepAlive("HTTP/1.0", "Connection: keep-alive")).toBe(false);
+    expect(keepAlive("HTTP/1.1", "Connection: keep-alive, close")).toBe(false);
+    expect(
+      keepAlive("HTTP/1.1", "Connection: keep-alive", "Connection: CLOSE"),
+    ).toBe(false);
+    expect(
+      keepAlive(
+        "HTTP/1.1",
+        "Connection: keep-alive",
+        "Proxy-Connection: close",
+      ),
+    ).toBe(false);
+  });
+
+  test("a field that could hide another line from a peer reading LF as an end of line is refused", () => {
+    for (const field of [
+      // Bare LF: a lenient upstream sees a Transfer-Encoding we never framed by.
+      "X-Test: value\nTransfer-Encoding: chunked",
+      "X-Test: value\rTransfer-Encoding: chunked",
+      "X-Test: nul\u0000",
+      // Whitespace before the colon (RFC 9112 §5.1).
+      "Content-Length : 4",
+      "Bad Name: x",
+    ]) {
+      expect(
+        parseRequestHead(
+          head("POST http://a.test/ HTTP/1.1", field, "Content-Length: 4"),
+        ),
+      ).toMatchObject({ kind: "invalid", status: 400 });
+    }
+    // The method is forwarded as it came, so it has to be a token.
+    expect(
+      parseRequestHead(
+        head("GET\nTransfer-Encoding:chunked http://a.test/ HTTP/1.1"),
+      ),
+    ).toMatchObject({ kind: "invalid", status: 400 });
+    // Tabs and obs-text are field content, not lines.
+    expect(
+      parseRequestHead(
+        head("GET http://a.test/ HTTP/1.1", "X-Test: a\tb", "X-Name: café"),
+      ),
+    ).toMatchObject({ kind: "forward" });
+  });
 });
 
 describe("request body framing", () => {
