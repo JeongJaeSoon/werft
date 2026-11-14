@@ -173,6 +173,25 @@ SDK를 올리는 릴리스는 이미지가 싣는 런타임 버전을 바꾸고,
 - `scripts/local.sh down --keep-volumes`로 남긴 개발 volume에는 fixture(`tests/fixtures/settings/`)의 변경이 들어가지 않는다. volume을 새로 만들거나 `settings import`를 돌린다.
 - 되돌리면 앞선 release의 migrate가 배포마다 문서를 다시 가져온다. 콘솔에서 바꾼 항목이 문서의 같은 id와 다르면 그 가져오기가 거절되고 migrate가 실패해 API가 뜨지 않는다. 되돌리기 전에 그런 항목을 문서에서 빼거나 콘솔의 값에 맞춘다. `seed_decided_at` 열은 지우지 않는다. 앞선 빌드는 이 열을 읽지 않는다.
 
+### env로 가리키던 자격 증명은 DB로 한 번 옮긴다
+
+이 릴리스부터 api는 설정의 `value_env`(연결, 자기 GitHub App을 적은 저장소, MCP 서버)를 env에서 읽지 않는다. 설정을 읽을 때 그 값을 DB에 봉인해 그 행의 저장값으로 한 번 옮긴다. `secret_id`는 그대로다.
+
+- migration `0283_credential_carried_auth`가 `provider_connections`·`catalog_repositories`·`mcp_servers`에 `carried_auth` 열을 더하고, 명시적 App 저장소도 저장값을 갖도록 `catalog_repositories_credential_check`를 바꾼다.
+- 올린 뒤 api 로그에 옮긴 행마다 `<kind>:<id> took its credential from <이름> into the database and no longer reads it; remove <이름>`이 한 번 나온다. 그 뒤 env에서 그 이름을 빼도 된다. 값은 로그와 receipt에 나오지 않는다. receipt `set_settings_credential`에는 변수 이름과 `by: env_import`만 남는다.
+- 첫 워크스페이스가 없으면(bootstrap 전) 그때까지는 env에서 읽고, 워크스페이스가 생긴 뒤 첫 설정 읽기(10초 안)에 옮긴다.
+- env에 값이 없는 행은 빠지고 경고가 한 번 남는다: `<kind>:<id> names <이름>, which the API does not have, so it is left out. …`. 변수를 넣고 api를 다시 띄운다. 연결이면 콘솔의 "화면에서 키 넣기"로도 된다.
+- 명시적 App 저장소를 옮기면 자격 참조가 바뀌어 저장소 binding도 바뀐다. 옮기는 순간 진행 중이던 그 저장소의 push·PR 요청은 한 번 `catalog_changed`로 거절된다. 다시 시도하면 된다. 옮긴 뒤 그 App 키는 `POST /v1/installation/settings/repositories/{id}/credential`(owner·admin, RSA 개인 키 PEM)로 바꾼다. env를 바꿔도 읽지 않는다.
+- 옮긴 뒤 옛 문서를 손으로 `settings import`하면 옮긴 항목은 같은 id에 다른 내용이라 `conflicts`로 멈춘다(`--from-dir`의 저장소는 `kept`로 남는다). 그 항목을 문서에서 빼거나 `settings export`로 받은 문서를 쓴다.
+- URL 저장소(`auth`가 `basic`·`bearer`)는 실행에 쓰이지 않으므로 옮기지 않는다.
+- 되돌리기: 앞선 빌드는 연결·MCP 서버의 저장값은 읽지만 명시적 App 저장소의 저장값은 거절해 그 저장소가 `invalid`로 빠진다. 되돌릴 때는 그 변수들을 api env에 다시 넣고 아래로 행을 되돌린다. 옮긴 뒤 콘솔에서 키를 바꿨다면 env의 값으로 돌아가므로 env에 새 값을 넣는다. `carried_auth` 열과 봉인한 값은 남겨 둔다.
+
+```sql
+UPDATE provider_connections SET definition = jsonb_set(definition, '{auth}', carried_auth), credential_source = 'external', carried_auth = NULL WHERE carried_auth IS NOT NULL;
+UPDATE catalog_repositories SET auth = carried_auth, credential_source = 'external', carried_auth = NULL WHERE carried_auth IS NOT NULL;
+UPDATE mcp_servers SET auth = carried_auth, credential_source = 'external', carried_auth = NULL WHERE carried_auth IS NOT NULL;
+```
+
 ### mock Slack env 이름
 
 mock Slack 시험 스택(`infra/compose.mock-slack.yml`)이 쓰던 `SLACK_API_URL`·`SLACK_OIDC_ISSUER`는 `MOCK_SLACK_API_URL`·`MOCK_SLACK_OIDC_ISSUER`로 바뀌었다. 옛 이름은 읽지 않고, 남아 있으면 `Ignored removed settings` 경고에 이름이 나온다. 새 이름에 값이 있으면 주소와 상관없이 시작할 때 `Mock Slack override in use: <이름>` 경고를 한 줄 남긴다. 운영 설정에는 두 이름 모두 두지 않는다.

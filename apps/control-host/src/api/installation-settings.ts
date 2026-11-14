@@ -7,21 +7,72 @@ import {
 } from "@werft-ai/platform";
 import type { SecretReader } from "./catalog-config.ts";
 
+function missingMessage(entry: string, name: string): string {
+  const carry = `${entry} names ${name}, which the API does not have, so it is left out. Set ${name} and restart the API to carry the value into the database once`;
+  return entry.startsWith("connection:")
+    ? `${carry}, or enter the key on the connection in Settings > Connections`
+    : carry;
+}
+
 /**
  * Where the api's registry reads the installation settings from, every
- * credential resolved: a stored value from the database on each read, an
- * env reference from `env`, a Secrets Manager one once per process
- * (rotating it means a restart, as with the files). A reference that cannot
- * be read leaves its row out of that read and is tried again on the next.
+ * credential resolved: a stored value from the database on each read, a
+ * Secrets Manager one once per process (rotating it means a restart, as
+ * with the files). A reference that cannot be read leaves its row out of
+ * that read and is tried again on the next.
+ *
+ * An env reference is no longer read: each read first carries its value
+ * into a stored one, once. Until the first workspace exists there is
+ * nothing to keep it under, so until then the value is read from `env`.
+ * The warnings name variables, never values, and come once per row.
  */
 export function settingsSource(options: {
-  store: Pick<InstallationSettingsStore, "read">;
+  store: Pick<InstallationSettingsStore, "read" | "carryEnvCredentials">;
   env: Record<string, string | undefined>;
   readSecret: SecretReader;
+  warn: (message: string) => void;
 }): { read(): Promise<SettingsSnapshot> } {
   const fetched = new Map<string, string>();
+  const warned = new Set<string>();
+  const warnOnce = (key: string, message: string) => {
+    if (warned.has(key)) return;
+    warned.add(key);
+    options.warn(message);
+  };
   return {
     async read() {
+      const waiting = new Set<string>();
+      for (const {
+        entry,
+        env,
+        outcome,
+      } of await options.store.carryEnvCredentials(
+        (name) => options.env[name],
+      )) {
+        switch (outcome) {
+          case "carried":
+            options.warn(
+              `${entry} took its credential from ${env} into the database and no longer reads it; remove ${env}`,
+            );
+            break;
+          case "missing":
+            warnOnce(`${entry} missing`, missingMessage(entry, env));
+            break;
+          case "waiting":
+            waiting.add(env);
+            warnOnce(
+              `${entry} waiting`,
+              `${entry} reads ${env} until the first workspace exists; then the API carries it into the database once`,
+            );
+            break;
+          case "failed":
+            warnOnce(
+              `${entry} failed`,
+              `${entry} could not carry ${env} into the database and is left out; it is tried again on each read`,
+            );
+            break;
+        }
+      }
       const settings = await options.store.read({ openStored: true });
       for (const ref of settingsCredentialRefs(settings)) {
         if (!("secret_id" in ref) || fetched.has(ref.secret_id)) continue;
@@ -34,7 +85,9 @@ export function settingsSource(options: {
       }
       return settingsSnapshot(settings, (ref: CredentialRef) =>
         "value_env" in ref
-          ? options.env[ref.value_env]
+          ? waiting.has(ref.value_env)
+            ? options.env[ref.value_env]
+            : undefined
           : "secret_id" in ref
             ? fetched.get(ref.secret_id)
             : undefined,

@@ -192,6 +192,26 @@ SDK を上げるリリースでは、イメージが載せるランタイムの�
 - `scripts/local.sh down --keep-volumes` で残した開発 volume には、fixture(`tests/fixtures/settings/`)の変更が入りません。volume を作り直すか、`settings import` を実行します。
 - ロールバックすると、以前のリリースの migrate がデプロイのたびに文書を再び取り込みます。コンソールで変えた項目が文書の同じ id と異なると、その取り込みが拒否されて migrate が失敗し、API が起動しません。ロールバックの前に、そうした項目を文書から外すか、コンソールの値に合わせます。`seed_decided_at` 列は削除しません。以前のビルドはこの列を読みません。
 
+<a id="env로-가리키던-자격-증명은-db로-한-번-옮긴다" />
+### env で指していた資格情報は DB へ一度移す
+
+このリリースから api は設定の `value_env`（接続、自分の GitHub App を書いたリポジトリ、MCP サーバー）を env から読みません。設定を読むときにその値を DB に封印し、その行の保存値として一度移します。`secret_id` はそのままです。
+
+- migration `0283_credential_carried_auth` が `provider_connections`・`catalog_repositories`・`mcp_servers` に `carried_auth` 列を追加し、明示的な App のリポジトリも保存値を持てるよう `catalog_repositories_credential_check` を変えます。
+- アップグレード後、移した行ごとに api のログに `<kind>:<id> took its credential from <名前> into the database and no longer reads it; remove <名前>` が一度出ます。そのあと env からその名前を外せます。値はログにも receipt にも出ません。receipt `set_settings_credential` には変数名と `by: env_import` だけが残ります。
+- 最初のワークスペースがない間（bootstrap 前）はそれまで env から読み、ワークスペースができたあと最初の設定読み込み（10 秒以内）で移します。
+- env に値がない行は外され、警告が一度出ます: `<kind>:<id> names <名前>, which the API does not have, so it is left out. …`。変数を入れて api を再起動します。接続ならコンソールの「画面でキーを入れる」でもできます。
+- 明示的な App のリポジトリを移すと資格情報の参照が変わり、リポジトリの binding も変わります。移した瞬間に進行中だったそのリポジトリの push・PR 要求は一度 `catalog_changed` で拒否されます。やり直せば通ります。移したあと、その App のキーは `POST /v1/installation/settings/repositories/{id}/credential`（owner・admin、RSA 秘密鍵 PEM）で変えます。env を変えても読みません。
+- 移したあと古い文書を手で `settings import` すると、移した項目は同じ id で内容が違うため `conflicts` で止まります（`--from-dir` のリポジトリは `kept` で残ります）。その項目を文書から外すか、`settings export` で受け取った文書を使います。
+- URL リポジトリ（`auth` が `basic`・`bearer`）は実行に使われないので移しません。
+- ロールバック: 以前のビルドは接続・MCP サーバーの保存値は読みますが、明示的な App のリポジトリの保存値は拒否し、そのリポジトリは `invalid` として外れます。ロールバックするときは、それらの変数を api の env に戻し、下の SQL で行を戻します。移したあとコンソールでキーを変えていたら env の値に戻るので、env に新しい値を入れます。`carried_auth` 列と封印した値は残します。
+
+```sql
+UPDATE provider_connections SET definition = jsonb_set(definition, '{auth}', carried_auth), credential_source = 'external', carried_auth = NULL WHERE carried_auth IS NOT NULL;
+UPDATE catalog_repositories SET auth = carried_auth, credential_source = 'external', carried_auth = NULL WHERE carried_auth IS NOT NULL;
+UPDATE mcp_servers SET auth = carried_auth, credential_source = 'external', carried_auth = NULL WHERE carried_auth IS NOT NULL;
+```
+
 <a id="mock-slack-env-이름" />
 ### mock Slack の環境変数名
 

@@ -45,6 +45,20 @@ export interface InstallationSettings {
   invalid: readonly string[];
 }
 
+/**
+ * What became of one row whose credential names an env variable:
+ * `missing` when the variable has no value, `waiting` while there is no
+ * workspace to keep a value under (or no secret store), `failed` on a
+ * database error. Only `carried` changed the row.
+ */
+export type EnvCredentialCarry = {
+  /** `<kind>:<id>`. */
+  entry: string;
+  /** The variable's name, never its value. */
+  env: string;
+  outcome: "carried" | "missing" | "waiting" | "failed";
+};
+
 export interface InstallationSettingsStore {
   /**
    * One snapshot of the rows and the generation they were read at. Without
@@ -60,4 +74,14 @@ export interface InstallationSettingsStore {
     value: string,
     updatedBy: string | null,
   ): Promise<void>;
+  /**
+   * Seals the value `env` gives each enabled row's `value_env` and points
+   * the row at it as its own stored value, once: its old `auth` is kept for
+   * a rollback and a receipt names the variable. One transaction per row,
+   * in the settings writers' lock order; a row changed since it was listed
+   * is left as it is, so two replicas move it once.
+   */
+  carryEnvCredentials(
+    env: (name: string) => string | undefined,
+  ): Promise<EnvCredentialCarry[]>;
 }

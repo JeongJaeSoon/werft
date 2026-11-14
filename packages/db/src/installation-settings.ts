@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { canonicalJson } from "@werft-ai/contracts";
 import {
   type CatalogMcpServerConfig,
   type CatalogProviderConfig,
@@ -5,6 +7,7 @@ import {
   catalogMcpServerSchema,
   catalogProviderSchema,
   catalogRepositorySchema,
+  type EnvCredentialCarry,
   type InstallationSettingsStore,
   type ModelFamilies,
   modelFamiliesSchema,
@@ -13,11 +16,13 @@ import {
   type StoredOwnerKind,
 } from "@werft-ai/platform";
 import { and, asc, eq, isNull, ne, sql } from "drizzle-orm";
+import { lockCatalogWrites } from "./catalog-repositories.ts";
 import type { Database } from "./queries.ts";
 import {
   catalogRepositories,
   mcpServers,
   providerConnections,
+  receipts,
   type SettingsCredentialSource,
   settingsGeneration,
   workspaces,
@@ -25,6 +30,148 @@ import {
 import { openSecretsOf, writeSecretInTx } from "./secrets/secret-values.ts";
 
 const PURPOSE = "settings_credential";
+
+const TARGET: Record<StoredOwnerKind, string> = {
+  connection: "connection_id",
+  repository: "repository_id",
+  mcp: "mcp_server_id",
+};
+
+type EnvRow = {
+  kind: StoredOwnerKind;
+  id: string;
+  auth: Record<string, unknown> & { value_env: string };
+  /** A connection's whole definition, `auth` inside it. */
+  definition?: Record<string, unknown>;
+};
+
+function namesEnv(auth: unknown): auth is EnvRow["auth"] {
+  return (
+    typeof auth === "object" &&
+    auth !== null &&
+    typeof (auth as { value_env?: unknown }).value_env === "string"
+  );
+}
+
+/**
+ * Enabled rows whose credential names an env variable. Given `only`, that
+ * one row, locked.
+ */
+async function envRows(
+  tx: Database,
+  only?: { kind: StoredOwnerKind; id: string },
+): Promise<EnvRow[]> {
+  const wants = (kind: StoredOwnerKind) =>
+    only === undefined || only.kind === kind;
+  const rows: EnvRow[] = [];
+  if (wants("connection")) {
+    const query = tx
+      .select({
+        id: providerConnections.id,
+        definition: providerConnections.definition,
+      })
+      .from(providerConnections)
+      .where(
+        and(
+          isNull(providerConnections.disabledAt),
+          eq(providerConnections.credentialSource, "external"),
+          only === undefined ? undefined : eq(providerConnections.id, only.id),
+        ),
+      );
+    for (const row of await (only === undefined
+      ? query
+      : query.for("update"))) {
+      const auth = row.definition.auth;
+      if (namesEnv(auth)) {
+        rows.push({
+          kind: "connection",
+          id: row.id,
+          auth,
+          definition: row.definition,
+        });
+      }
+    }
+  }
+  if (wants("repository")) {
+    const query = tx
+      .select({ id: catalogRepositories.id, auth: catalogRepositories.auth })
+      .from(catalogRepositories)
+      .where(
+        and(
+          isNull(catalogRepositories.removedAt),
+          // A URL repository is no catalog entry since #1178: nothing reads
+          // its token, so there is nothing to carry.
+          eq(catalogRepositories.authKind, "github_app_explicit"),
+          eq(catalogRepositories.credentialSource, "external"),
+          only === undefined ? undefined : eq(catalogRepositories.id, only.id),
+        ),
+      );
+    for (const row of await (only === undefined
+      ? query
+      : query.for("update"))) {
+      if (namesEnv(row.auth)) {
+        rows.push({ kind: "repository", id: row.id, auth: row.auth });
+      }
+    }
+  }
+  if (wants("mcp")) {
+    const query = tx
+      .select({ id: mcpServers.id, auth: mcpServers.auth })
+      .from(mcpServers)
+      .where(
+        and(
+          isNull(mcpServers.disabledAt),
+          eq(mcpServers.credentialSource, "external"),
+          only === undefined ? undefined : eq(mcpServers.id, only.id),
+        ),
+      );
+    for (const row of await (only === undefined
+      ? query
+      : query.for("update"))) {
+      if (namesEnv(row.auth)) {
+        rows.push({ kind: "mcp", id: row.id, auth: row.auth });
+      }
+    }
+  }
+  return rows;
+}
+
+/** The row names its own stored value from now on; its old `auth` is kept. */
+async function pointAtStored(tx: Database, row: EnvRow): Promise<void> {
+  const { value_env: _name, ...kept } = row.auth;
+  const auth = { ...kept, stored: `${row.kind}:${row.id}` };
+  switch (row.kind) {
+    case "connection":
+      await tx
+        .update(providerConnections)
+        .set({
+          definition: { ...row.definition, auth },
+          credentialSource: "stored",
+          carriedAuth: row.auth,
+        })
+        .where(eq(providerConnections.id, row.id));
+      return;
+    case "repository":
+      await tx
+        .update(catalogRepositories)
+        .set({
+          auth,
+          credentialSource: "stored",
+          carriedAuth: row.auth,
+          version: sql`${catalogRepositories.version} + 1`,
+          updatedBy: null,
+          updatedAt: sql`now()`,
+        })
+        .where(eq(catalogRepositories.id, row.id));
+      return;
+    case "mcp":
+      await tx
+        .update(mcpServers)
+        .set({ auth, credentialSource: "stored", carriedAuth: row.auth })
+        .where(eq(mcpServers.id, row.id));
+      return;
+  }
+}
 
 type RepositoryRow = typeof catalogRepositories.$inferSelect;
 type McpRow = typeof mcpServers.$inferSelect;
@@ -308,6 +455,72 @@ export function createPostgresInstallationSettingsStore(
           updatedBy,
         );
       });
+    },
+
+    async carryEnvCredentials(env) {
+      const outcomes: EnvCredentialCarry[] = [];
+      for (const listed of await envRows(db)) {
+        const entry = `${listed.kind}:${listed.id}`;
+        const name = listed.auth.value_env;
+        const value = env(name);
+        if (value === undefined || value === "") {
+          outcomes.push({ entry, env: name, outcome: "missing" });
+          continue;
+        }
+        if (key === null) {
+          outcomes.push({ entry, env: name, outcome: "waiting" });
+          continue;
+        }
+        try {
+          const outcome = await db.transaction(async (tx) => {
+            await lockCatalogWrites(tx);
+            const [row] = await envRows(tx, listed);
+            // Disabled, moved or rewritten since it was listed: whoever
+            // did that decided, and another replica may have moved it.
+            if (
+              row === undefined ||
+              canonicalJson(row.auth) !== canonicalJson(listed.auth)
+            ) {
+              return null;
+            }
+            const workspaceId = await secretOwnerWorkspace(tx);
+            if (workspaceId === null) return "waiting" as const;
+            await pointAtStored(tx, row);
+            await writeSecretInTx(
+              tx,
+              key,
+              {
+                workspaceId,
+                owner: { kind: row.kind, id: row.id },
+                purpose: PURPOSE,
+              },
+              value,
+              null,
+            );
+            await tx.insert(receipts).values({
+              id: randomUUID(),
+              ownerId: workspaceId,
+              operation: "set_settings_credential",
+              targetRef: {
+                resource: { kind: "workspace", id: workspaceId },
+                workspace_id: workspaceId,
+              },
+              status: "succeeded",
+              result: {
+                [TARGET[row.kind]]: row.id,
+                replaced: "value_env",
+                value_env: name,
+                by: "env_import",
+              },
+            });
+            return "carried" as const;
+          });
+          if (outcome !== null) outcomes.push({ entry, env: name, outcome });
+        } catch {
+          outcomes.push({ entry, env: name, outcome: "failed" });
+        }
+      }
+      return outcomes;
     },
   };
 }

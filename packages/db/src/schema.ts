@@ -5532,6 +5532,7 @@ export const catalogRepositories = pgTable(
     auth: jsonb().$type<Record<string, unknown>>(),
     credentialSource:
       text("credential_source").$type<SettingsCredentialSource>(),
+    carriedAuth: jsonb("carried_auth").$type<Record<string, unknown>>(),
     appRole: text("app_role").notNull().default("author"),
     source: text().notNull(),
     version: integer().notNull().default(1),
@@ -5577,7 +5578,7 @@ export const catalogRepositories = pgTable(
       sql`CASE ${table.authKind}
         WHEN 'github_app' THEN ${table.auth} IS NULL AND ${table.credentialSource} IS NULL
         WHEN 'none' THEN ${table.auth} IS NULL AND ${table.credentialSource} IS NULL
-        WHEN 'github_app_explicit' THEN ${table.auth} IS NOT NULL AND ${table.credentialSource} = 'external'
+        WHEN 'github_app_explicit' THEN ${table.auth} IS NOT NULL AND ${table.credentialSource} IN ('stored', 'external')
         ELSE ${table.auth} IS NOT NULL AND ${table.credentialSource} IN ('stored', 'external')
       END`,
     ),
@@ -5606,6 +5607,14 @@ export const providerConnections = pgTable(
      * the old definition keeps matching this row.
      */
     replacesAuth: jsonb("replaces_auth").$type<Record<string, unknown>>(),
+    /**
+     * The `auth` an env reference gave this row before the api carried its
+     * value into a stored one, on this table and the repository and MCP
+     * tables alike. Only for putting the row back after a rollback: no
+     * import or alias check reads it, so two rows carried from one
+     * definition stay apart.
+     */
+    carriedAuth: jsonb("carried_auth").$type<Record<string, unknown>>(),
     /**
      * The models an agent may name on this connection, and their families
      * for a retired model's successor. Beside `definition`, never in it: this
@@ -5662,6 +5671,7 @@ export const mcpServers = pgTable(
     credentialSource: text("credential_source")
       .$type<SettingsCredentialSource>()
       .notNull(),
+    carriedAuth: jsonb("carried_auth").$type<Record<string, unknown>>(),
     // By slug, as the catalog matches them: an import may run before the
     // workspace exists, and a slug never changes.
     workspaces: jsonb().$type<string[]>().notNull(),

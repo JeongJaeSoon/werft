@@ -192,6 +192,26 @@ From this release on, migrate imports the settings document (`SETTINGS_DOCUMENT`
 - A development volume kept with `scripts/local.sh down --keep-volumes` does not get changes to the fixtures (`tests/fixtures/settings/`). Recreate the volume or run `settings import`.
 - After a rollback, the earlier release's migrate imports the document on every deploy again. When an item changed in the console differs from the same id in the document, that import is refused, migrate fails and the API does not start. Before rolling back, remove such items from the document or match them to the console. Keep the `seed_decided_at` column. Earlier builds do not read it.
 
+<a id="env로-가리키던-자격-증명은-db로-한-번-옮긴다" />
+### Credentials named by env move into the database once
+
+From this release the api no longer reads a setting's `value_env` (a connection, a repository naming its own GitHub App, an MCP server) from env. When it reads the settings it seals the value in the database as that row's own stored value, once. `secret_id` stays as it is.
+
+- Migration `0283_credential_carried_auth` adds a `carried_auth` column to `provider_connections`, `catalog_repositories` and `mcp_servers`, and changes `catalog_repositories_credential_check` so an explicit App repository may hold a stored value.
+- After the upgrade the api logs, once per moved row, `<kind>:<id> took its credential from <name> into the database and no longer reads it; remove <name>`. The name can then go from env. No value is in the log or the receipt: the `set_settings_credential` receipt carries the variable's name and `by: env_import` only.
+- With no workspace yet (before bootstrap) the value is read from env until then, and moved on the first settings read after the workspace exists (within 10 seconds).
+- A row whose variable has no value is left out, with one warning: `<kind>:<id> names <name>, which the API does not have, so it is left out. …`. Set the variable and restart the api. A connection can also take its key from the console's "Enter key on screen".
+- Moving an explicit App repository changes its credential reference and so its repository binding. A push or pull request on that repository in flight at that moment is refused once with `catalog_changed`; try it again. Afterwards change that App's key with `POST /v1/installation/settings/repositories/{id}/credential` (owners and admins, an RSA private key PEM). Changing env is no longer read.
+- Importing the old document by hand with `settings import` after the move stops at `conflicts` for the moved items: same id, other content (a `--from-dir` repository is `kept`). Remove them from the document, or use one from `settings export`.
+- A URL repository (`auth` `basic` or `bearer`) is not used to run anything, so it is not moved.
+- Rollback: earlier builds read a stored value on connections and MCP servers, but refuse one on an explicit App repository, which drops out as `invalid`. To roll back, give the api those variables again and put the rows back as below. If a key was changed in the console after the move, the row goes back to the env value, so put the new value in env. Keep the `carried_auth` column and the sealed values.
+
+```sql
+UPDATE provider_connections SET definition = jsonb_set(definition, '{auth}', carried_auth), credential_source = 'external', carried_auth = NULL WHERE carried_auth IS NOT NULL;
+UPDATE catalog_repositories SET auth = carried_auth, credential_source = 'external', carried_auth = NULL WHERE carried_auth IS NOT NULL;
+UPDATE mcp_servers SET auth = carried_auth, credential_source = 'external', carried_auth = NULL WHERE carried_auth IS NOT NULL;
+```
+
 <a id="mock-slack-env-이름" />
 ### Mock Slack variable names
 
