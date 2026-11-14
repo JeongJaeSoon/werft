@@ -98,7 +98,7 @@ const RETRY_CASES: ReadonlyArray<{
   },
   {
     name: "팀 목록",
-    path: "/teams",
+    path: "/members/teams",
     routes: meOk,
     failingKey: "GET /v1/teams",
     answer: () => json(200, { items: [], next_cursor: null }),
@@ -180,7 +180,7 @@ describe("불러오기 실패", () => {
   for (const item of [
     { path: "/agents", key: "GET /v1/agents", action: "새 에이전트" },
     { path: "/members", key: "GET /v1/members", action: "초대 링크 만들기" },
-    { path: "/teams", key: "GET /v1/teams", action: "팀 만들기" },
+    { path: "/members/teams", key: "GET /v1/teams", action: "팀 만들기" },
   ]) {
     test(`${item.path}: 목록이 실패하면 권한 확인 중 문구도, 만들기 동작도 남기지 않는다`, async () => {
       renderAt(item.path, { ...meOk, [item.key]: failing });

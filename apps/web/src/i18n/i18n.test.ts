@@ -10,7 +10,6 @@ import {
   sessionsJa,
   sessionsKo,
 } from "@werft-ai/react";
-import { AGENT_MAP_MESSAGES } from "../../../../packages/react/src/components/agent-map/messages.ts";
 import { OPERATIONS_MESSAGES } from "../../../../packages/react/src/components/operations/messages.ts";
 import {
   achievementRulesEn,
@@ -90,20 +89,10 @@ describe("i18n", () => {
     for (const locale of LOCALES) {
       for (const state of states) {
         const label = catalogs[locale][`sessions.status.${state}`];
-        expect(AGENT_MAP_MESSAGES[locale].status(state)).toBe(label);
         expect(OPERATIONS_MESSAGES[locale].sessionCounts.status(state)).toBe(
           label,
         );
       }
-      expect(AGENT_MAP_MESSAGES[locale].lane("queued")).toBe(
-        catalogs[locale]["sessions.status.queued"],
-      );
-      expect(AGENT_MAP_MESSAGES[locale].run("wait")).toBe(
-        catalogs[locale]["sessions.status.needs_input"],
-      );
-      expect(AGENT_MAP_MESSAGES[locale].run("idle")).not.toBe(
-        AGENT_MAP_MESSAGES[locale].run("wait"),
-      );
       expect(catalogs[locale]["workspace.danger"]).toBe(
         catalogs[locale]["slack.danger"],
       );

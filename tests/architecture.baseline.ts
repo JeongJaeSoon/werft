@@ -97,11 +97,10 @@ export const baseline: Baseline = {
     "ports/workspace-settings.ts": 1,
   },
   testRelativeImports: [
-    // The package entries that export these two (`@werft-ai/react/agent-map`,
-    // `@werft-ai/react/components`) load Radix, which decides at import time
-    // whether a DOM exists. This test registers none, so going through them
-    // leaves every later DOM test in the same process without its portals.
-    "apps/web/src/i18n/i18n.test.ts -> ../../../../packages/react/src/components/agent-map/messages.ts",
+    // The package entry that exports this (`@werft-ai/react/components`)
+    // loads Radix, which decides at import time whether a DOM exists. This
+    // test registers none, so going through it leaves every later DOM test in
+    // the same process without its portals.
     "apps/web/src/i18n/i18n.test.ts -> ../../../../packages/react/src/components/operations/messages.ts",
     "apps/worker/src/workspace-storage-declaration.integration.test.ts -> ../../../packages/adapters/execution/kubernetes/src/specs.ts",
     "apps/worker/src/workspace-storage-declaration.integration.test.ts -> ../../control-host/src/scheduler/config.ts",

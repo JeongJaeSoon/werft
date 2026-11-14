@@ -45,7 +45,7 @@
 ## 현재 구현과 보류
 
 - 세션 목록: `relation`·`q`·`status` 필터와 `/v1/sessions/counts`. `channel`·`created_by`는 응답 필드이며 query 필터가 아니다. 목록·상세에 `agent`·`created_by`·`channel`·`model`·`repository`가 있다.
-- 사용량: `/usage`의 내 사용량·설치 전체와 한도. 설치 전체·`/v1/limits`는 owner cookie만 허용한다.
+- 사용량: `/operations/usage`의 내 사용량·설치 전체와 한도. 설치 전체·`/v1/limits`는 owner cookie만 허용한다.
 - Slack: 서명 검증 → inbox 중복 제거 → slack role claim·lease → binding·연결 계정이 맞으면 세션 생성(P-SLACK-MENTION-ONLY) → 세션이 기다리는 요청의 카드 → 카드 버튼의 서명된 interaction(P-SLACK-APPROVAL-CLICK).
 - 데모: `VERIFY_DEMO_ACCOUNTS=1`로 별도 run을 띄운다. 기본 run은 bootstrap을 위해 seed를 끈다.
 - 보류: API key 마지막 사용 시각·발급자 이름은 아직 main에 없다. 검증 절차를 만들지 않는다.

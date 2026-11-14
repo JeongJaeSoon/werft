@@ -290,24 +290,8 @@ describe("app shell", () => {
     });
   }
 
-  test("/sessions/map is a screen under 세션, not a session", async () => {
-    renderAt("/sessions/map", {
-      ...signedIn,
-      "GET /v1/sessions": () => json(200, { items: [], next_cursor: null }),
-    });
-    await screen.findByRole("heading", { level: 1, name: "에이전트 지도" });
-    const [header] = await screen.findAllByRole("banner");
-    await waitFor(() =>
-      expect(header?.textContent).toBe("메뉴 열기세션/에이전트 지도"),
-    );
-    expect(contentColumn()?.dataset.slot).toBe("page-frame");
-  });
-
   test("the top bar's trail is a named nav: a list, the item a link back, the page current", async () => {
-    renderAt("/sessions/map", {
-      ...signedIn,
-      "GET /v1/sessions": () => json(200, { items: [], next_cursor: null }),
-    });
+    renderAt("/agents/new", signedIn);
     const [header] = await screen.findAllByRole("banner");
     const trail = await within(header as HTMLElement).findByRole("navigation", {
       name: "메뉴 위치",
@@ -316,13 +300,13 @@ describe("app shell", () => {
     await waitFor(() =>
       expect(within(trail).getAllByRole("listitem")).toHaveLength(2),
     );
-    const back = within(trail).getByRole("link", { name: "세션" });
-    expect(back.getAttribute("href")).toBe("/sessions");
+    const back = within(trail).getByRole("link", { name: "에이전트" });
+    expect(back.getAttribute("href")).toBe("/agents");
     expect(
       [...trail.querySelectorAll("[aria-current=page]")].map(
         (item) => item.textContent,
       ),
-    ).toEqual(["에이전트 지도"]);
+    ).toEqual(["새 에이전트"]);
     // The separator is drawn, not read.
     expect(
       within(trail)
@@ -333,14 +317,14 @@ describe("app shell", () => {
   });
 
   test("only the current page's sidebar row is marked, and its icon inherits the text colour", async () => {
-    renderAt("/sessions/map", signedIn);
+    renderAt("/agents/new", signedIn);
     const nav = await screen.findByRole("navigation", { name: "주요 메뉴" });
     await waitFor(() =>
       expect(
         [...nav.querySelectorAll("a[aria-current=page]")].map(
           (link) => link.textContent,
         ),
-      ).toEqual(["세션"]),
+      ).toEqual(["에이전트"]),
     );
     const current = nav.querySelector("a[aria-current=page]");
     for (const cls of [
@@ -354,14 +338,6 @@ describe("app shell", () => {
     expect(current?.querySelector("svg")?.getAttribute("class")).not.toMatch(
       /text-/,
     );
-  });
-
-  test("the sessions list opens the agent map", async () => {
-    renderAt("/sessions", signedIn);
-    await screen.findByRole("heading", { level: 1, name: "세션" });
-    expect(
-      screen.getByRole("link", { name: "에이전트 지도" }).getAttribute("href"),
-    ).toBe("/sessions/map");
   });
 
   test("a session's detail lays out the whole area itself", async () => {
@@ -878,7 +854,7 @@ describe("who the cache belongs to", () => {
       "/members/teams",
       "/operations",
       "/operations/tools",
-      "/usage",
+      "/operations/usage",
       "/settings/api-keys",
       "/settings/linked-accounts",
       "/settings/workspace",

@@ -992,23 +992,6 @@ describe("사용량·한도", () => {
     ).toHaveLength(1);
   });
 
-  test("예전 /usage는 기간·범위를 그대로 들고 /operations/usage로 간다", async () => {
-    setSystemTime(NOW);
-    const { history } = renderAt("/usage?days=7&scope=me", {
-      "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/limits": () => json(200, LIMITS),
-      ...usageRoutes,
-    });
-    expect(
-      await screen.findByRole("figure", { name: "일자별 추정 비용, 7일" }),
-    ).toBeTruthy();
-    expect(history.location.pathname).toBe("/operations/usage");
-    expect(new URLSearchParams(history.location.search).get("scope")).toBe(
-      "me",
-    );
-    expect(new URLSearchParams(history.location.search).get("days")).toBe("7");
-  });
-
   test("한도 탭: owner는 한도 표를 본다", async () => {
     setSystemTime(NOW);
     renderAt("/operations/limits", {
