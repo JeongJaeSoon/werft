@@ -22,10 +22,10 @@ Create a Compose installation using LocalStack on a Linux test server. This is a
 | Docker Compose | 2.24.6 or later |
 | Disk | Docker data-root on XFS mounted with `prjquota`. `preflight` does not check this. Otherwise the scheduler quota check fails during `deploy` and installation stops. Complete [XFS disk preparation](/run-server/self-hosting/prepare-xfs) first on ext4 servers. Docker Desktop is unsupported |
 | Time | NTP synchronized. Docker starts automatically after reboot |
-| Tools | `git`, `jq`, `curl`, `openssl`, Bun 1.3.14, Docker Buildx plugin, and an account with Docker daemon access |
+| Tools | For a checkout installation, `git`, `jq`, `curl`, `openssl`, Bun 1.3.14, and the Docker Buildx plugin. For a release bundle installation, `jq`, `curl`, `openssl`, and `sha256sum`. Both need an account with Docker daemon access |
 | External access | Download images from `ghcr.io` and Docker Hub without signing in. Sessions connect to `api.anthropic.com` and `github.com` |
 
-A repository checkout is required because Compose files and `scripts/test-ops.sh` are read from it. Images are not built from the checkout.
+As in [single-server installation](/run-server/self-hosting/single-server), there are two ways to install. A repository checkout works for every published tag, and a `v*` release can also be installed from its bundle with no checkout and no host Bun. Either way, the Compose files and `scripts/test-ops.sh` are read from the downloaded directory, and no image is built.
 
 Complete [XFS preparation](/run-server/self-hosting/prepare-xfs) on a Linux server separate from production data. Choose a test-only project, installation id, ports, and state/secret directories. test-ops defaults to project `werft-test-ops`; override it with `TEST_OPS_PROJECT`. If the default paths below belong to an existing installation, choose different paths and `TEST_OPS_*` values.
 
@@ -51,6 +51,8 @@ bun install --frozen-lockfile
 ```
 
 Confirm all three images return digests and that you checked out the matching source commit.
+
+To install a `v*` release without a checkout, follow [Get the release bundle in single-server installation](/run-server/self-hosting/single-server#릴리스-번들로-받기) instead of the two blocks above. Run the later steps from the bundle directory.
 
 <a id="2-시험-설정" />
 ### 2. Test configuration
@@ -100,7 +102,7 @@ sudo install -m 644 -o "$USER" /dev/null /etc/werft/settings.json
 <a id="3-release-입력과-설치" />
 ### 3. Release input and installation
 
-Generate the release as in [single-server step 3](/run-server/self-hosting/single-server#3-release-입력-생성). Write it outside the checkout at `/var/lib/werft/test-ops/release.json`. Do not run the S3 preflight at this stage; use:
+Generate the release as in [single-server step 3](/run-server/self-hosting/single-server#3-release-입력-생성). If you downloaded the bundle, use that step's `manifest` command for bundles. Write it outside the checkout at `/var/lib/werft/test-ops/release.json`. Do not run the S3 preflight at this stage; use:
 
 ```bash
 TEST_OPS_OBJECT_STORE=localstack scripts/test-ops.sh preflight /var/lib/werft/test-ops/release.json

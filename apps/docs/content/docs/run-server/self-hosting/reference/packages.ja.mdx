@@ -70,7 +70,7 @@ helm show chart "$(jq -r .chart.ref "$TAG/release-manifest.json")" --version "$(
 <a id="checkout-없이-설치하기-릴리스-번들" />
 ## checkout なしで設置する：リリースバンドル
 
-`v*` リリースの GitHub Release には、compose ファイル、`scripts/test-ops.sh`、設定例を含む `werft-test-ops-<tag>.tar.gz` が添付されます。イメージは含まず、リリースの `release-manifest.json` の digest で公開済みイメージを取得します。バンドルなら[単一サーバー設置](/run-server/self-hosting/single-server)の checkout 準備とホストの bun は不要です。ダウンロードから `deploy` までのコマンドはリポジトリの `docs/operator/test-ops.md`（「リリースバンドルで設置」）にあります。
+`v*` リリースの GitHub Release には、compose ファイル、`scripts/test-ops.sh`、設定例を含む `werft-test-ops-<tag>.tar.gz` が添付されます。イメージは含まず、リリースの `release-manifest.json` の digest で公開済みイメージを取得します。バンドルなら[単一サーバー設置](/run-server/self-hosting/single-server)の checkout 準備とホストの bun は不要です。ダウンロードから `deploy` までのコマンドは[単一サーバーのリリースバンドル取得](/run-server/self-hosting/single-server#릴리스-번들로-받기)にあります。
 
 | | checkout 設置 | バンドル設置 |
 |---|---|---|

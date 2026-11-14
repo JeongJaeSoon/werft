@@ -13,7 +13,7 @@ Choose how to install a shared Werft server for your team. Production installati
 
 | Method | Execution backend | Requirements | Guide |
 | --- | --- | --- | --- |
-| Single server | One Linux server with Docker Compose. One worker container per session. HA is outside scope | Docker 28 or later, Compose 2.24.6 or later, Docker data-root on XFS mounted with `prjquota`, a repository checkout, and a persistent AWS S3 bucket | [Single-server installation](/run-server/self-hosting/single-server) |
+| Single server | One Linux server with Docker Compose. One worker container per session. HA is outside scope | Docker 28 or later, Compose 2.24.6 or later, Docker data-root on XFS mounted with `prjquota`, a repository checkout or a `v*` release bundle, and a persistent AWS S3 bucket | [Single-server installation](/run-server/self-hosting/single-server) |
 | Kubernetes | Published Helm chart. One worker Pod per session | A CNI enforcing NetworkPolicy, `helm` 3, PostgreSQL 16, and S3-compatible object storage (default protection requires a bucket with versioning, Object Lock, and SSE-S3 enabled). No repository checkout needed | [Kubernetes installation](/run-server/self-hosting/kubernetes) |
 
 Choose a single server if you want to operate one machine with `scripts/test-ops.sh`. Choose Kubernetes if you already have a cluster, PostgreSQL, and object storage and want chart-based installation. Both paths require access to published packages on `ghcr.io` without signing in. For existing installations, choose [Upgrade Compose](/run-server/self-hosting/upgrade-compose) or [Upgrade Kubernetes](/run-server/self-hosting/upgrade-kubernetes).
