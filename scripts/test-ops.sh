@@ -429,35 +429,57 @@ check_bundle() {
   done
 }
 
-# The uid[:gid] a service reads its bind mounts as, empty when unknown: the
-# render's `user:`, else what these images run as. postgres's entrypoint drops
-# to its postgres user, LocalStack's supervisor stays root, and the
+# The uid[:gid[,gid...]] a service reads its bind mounts as, empty when
+# unknown: the render's `user:`, else what these images run as, plus the
+# numeric `group_add` groups. postgres's entrypoint drops to its postgres user
+# (also in ssl-cert, 101), LocalStack's supervisor stays root, and the
 # control-host image runs as 1000.
 mount_reader() {
-  local user="$1" image="$2"
+  local user="$1" image="$2" reader="" uid gids="" group
+  local -a added=()
   if [ -n "$user" ]; then
-    case "$user" in *[!0-9:]* | :*) ;; *) printf '%s' "$user" ;; esac
-    return 0
+    case "$user" in *[!0-9:]* | :*) ;; *) reader="$user" ;; esac
+  else
+    case "$image" in
+      postgres:*) reader='999:999,101' ;;
+      localstack/localstack:*) reader='0:0' ;;
+      "$API_IMAGE") reader='1000:1000' ;;
+    esac
   fi
-  case "$image" in
-    postgres:*) printf '999:999' ;;
-    localstack/localstack:*) printf '0:0' ;;
-    "$API_IMAGE") printf '1000:1000' ;;
-  esac
+  [ -n "$reader" ] || return 0
+  uid="${reader%%:*}"
+  [ "$reader" = "$uid" ] || gids="${reader#*:}"
+  [ -z "$3" ] || IFS=, read -r -a added <<<"$3"
+  if [ "${#added[@]}" != 0 ]; then
+    for group in "${added[@]}"; do
+      case "$group" in '' | *[!0-9]*) ;; *) gids="${gids:+$gids,}$group" ;; esac
+    done
+  fi
+  printf '%s:%s' "$uid" "$gids"
 }
 
-# Sets MODE_OK to the find expression for "uid $2 (gid $3) has the permission
-# bits $1 (4 read, 5 read and search)", by owner, then group, then others.
+# Sets MODE_OK to the find expression for "uid $2 (groups $3, comma
+# separated) has the permission bits $1 (4 read, 5 read and search)", by
+# owner, then group, then others.
 mode_ok() {
-  local bits="$1" uid="$2" gid="$3"
+  local bits="$1" uid="$2" group in_group=() not_group=()
+  local -a groups=()
+  [ -z "$3" ] || IFS=, read -r -a groups <<<"$3"
   if [ -z "$uid" ]; then
     MODE_OK=(-perm "-00${bits}")
-  elif [ -z "$gid" ]; then
-    MODE_OK=(\( -user "$uid" -perm "-${bits}00" \) -o \( ! -user "$uid" -perm "-00${bits}" \))
-  else
-    MODE_OK=(\( -user "$uid" -perm "-${bits}00" \) -o \( ! -user "$uid" -group "$gid" -perm "-0${bits}0" \)
-      -o \( ! -user "$uid" ! -group "$gid" -perm "-00${bits}" \))
+    return 0
   fi
+  MODE_OK=(\( -user "$uid" -perm "-${bits}00" \))
+  if [ "${#groups[@]}" = 0 ]; then
+    MODE_OK+=(-o \( ! -user "$uid" -perm "-00${bits}" \))
+    return 0
+  fi
+  for group in "${groups[@]}"; do
+    in_group+=(-o -group "$group")
+    not_group+=(! -group "$group")
+  done
+  MODE_OK+=(-o \( ! -user "$uid" \( "${in_group[@]:1}" \) -perm "-0${bits}0" \)
+    -o \( ! -user "$uid" "${not_group[@]}" -perm "-00${bits}" \))
 }
 
 # Compose bind-mounts host files (the release's init SQL, the settings
@@ -466,19 +488,19 @@ mode_ok() {
 # surfaces only as an unhealthy postgres or a failed migrate after deploy has
 # created the database volume.
 check_mount_modes() {
-  local list found errs service user image source reader uid gid path file_ok dir_ok closed=()
+  local list found errs service user image added source reader uid gid path file_ok dir_ok closed_at=() closed=()
   list="$(mktemp)" found="$(mktemp)" errs="$(mktemp)"
   if ! printf '%s' "$RENDER" | jq -j '.services | to_entries[] | .key as $s | .value as $v
       | ($v.volumes // [])[] | select(.type == "bind")
-      | "\($s)\u0000\($v.user // "")\u0000\($v.image // "")\u0000\(.source)\u0000"' >"$list"; then
+      | "\($s)\u0000\($v.user // "")\u0000\($v.image // "")\u0000\(($v.group_add // []) | map(tostring) | join(","))\u0000\(.source)\u0000"' >"$list"; then
     rm -f "$list" "$found" "$errs"
     die "cannot read the bind mounts of the render"
   fi
   while IFS= read -r -d '' service && IFS= read -r -d '' user && IFS= read -r -d '' image \
-    && IFS= read -r -d '' source; do
+    && IFS= read -r -d '' added && IFS= read -r -d '' source; do
     # A missing source is compose's to create, as an empty directory.
     [ -e "$source" ] || continue
-    reader="$(mount_reader "$user" "$image")"
+    reader="$(mount_reader "$user" "$image" "$added")"
     uid="${reader%%:*}" gid=""
     [ "$reader" = "$uid" ] || gid="${reader#*:}"
     [ "$uid" != 0 ] || continue
@@ -486,17 +508,16 @@ check_mount_modes() {
     file_ok=("${MODE_OK[@]}")
     mode_ok 5 "$uid" "$gid"
     dir_ok=("${MODE_OK[@]}")
-    if ! find -H "$source" \( \( -type f ! \( "${file_ok[@]}" \) \) -o \( -type d ! \( "${dir_ok[@]}" \) \) \) \
-      -print0 >"$found" 2>"$errs"; then
+    closed_at=(\( \( -type f ! \( "${file_ok[@]}" \) \) -o \( -type d ! \( "${dir_ok[@]}" \) \) \) -print0)
+    # The source itself, then what is under it except dot entries, which the
+    # legacy import skips (like the .gitkeep that keeps the directory).
+    if ! { find -H "$source" -maxdepth 0 "${closed_at[@]}" \
+      && find -H "$source" -mindepth 1 -name '.*' -prune -o "${closed_at[@]}"; } >"$found" 2>"$errs"; then
       cat "$errs" >&2
       rm -f "$list" "$found" "$errs"
       die "cannot check the modes under $source (above)"
     fi
-    while IFS= read -r -d '' path; do
-      # The legacy import skips dot entries, like the .gitkeep that keeps the directory.
-      case "${path#"$source"}" in */.*) continue ;; esac
-      closed+=("$path ($service, uid ${uid:-unknown})")
-    done <"$found"
+    while IFS= read -r -d '' path; do closed+=("$path ($service, uid ${uid:-unknown})"); done <"$found"
   done <"$list"
   rm -f "$list" "$found" "$errs"
   [ "${#closed[@]}" != 0 ] || return 0

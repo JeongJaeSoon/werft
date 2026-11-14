@@ -215,7 +215,7 @@ describe("scripts/test-ops.sh", () => {
 
   describe("preflight and the modes of what the containers mount", () => {
     // The checkout check comes first; a working tree with edits stops there.
-    const cleanTest = test.skipIf(
+    const dirty =
       Bun.spawnSync([
         "git",
         "-C",
@@ -223,9 +223,11 @@ describe("scripts/test-ops.sh", () => {
         "status",
         "--porcelain",
         "--untracked-files=no",
-      ]).stdout.toString() !== "",
-    );
+      ]).stdout.toString() !== "";
     const me = process.getuid?.() ?? 0;
+    const cleanTest = test.skipIf(dirty);
+    // root walks any directory.
+    const unprivilegedTest = test.skipIf(dirty || me === 0);
     // A uid that owns nothing here and is none of the ones the script knows.
     const other = me + 1;
     const refusal = "path(s) the containers mount cannot be read by the user";
@@ -250,7 +252,7 @@ describe("scripts/test-ops.sh", () => {
     async function preflightWith(
       services: Record<
         string,
-        { binds: string[]; image?: string; user?: string }
+        { binds: string[]; groupAdd?: number[]; image?: string; user?: string }
       >,
     ) {
       const head = Bun.spawnSync(["git", "-C", repoRoot, "rev-parse", "HEAD"])
@@ -260,21 +262,24 @@ describe("scripts/test-ops.sh", () => {
       manifest.source_commit = head;
       await writeFile(join(dir, "release.json"), JSON.stringify(manifest));
       const rendered = Object.fromEntries(
-        Object.entries(services).map(([name, { binds, image, user }]) => [
-          name,
-          {
-            ...(image ? { image } : {}),
-            ...(user ? { user } : {}),
-            volumes: [
-              { source: "data", target: "/data", type: "volume" },
-              ...binds.map((source, i) => ({
-                source,
-                target: `/mount/${i}`,
-                type: "bind",
-              })),
-            ],
-          },
-        ]),
+        Object.entries(services).map(
+          ([name, { binds, groupAdd, image, user }]) => [
+            name,
+            {
+              ...(groupAdd ? { group_add: groupAdd } : {}),
+              ...(image ? { image } : {}),
+              ...(user ? { user } : {}),
+              volumes: [
+                { source: "data", target: "/data", type: "volume" },
+                ...binds.map((source, i) => ({
+                  source,
+                  target: `/mount/${i}`,
+                  type: "bind",
+                })),
+              ],
+            },
+          ],
+        ),
       );
       await writeFile(
         join(dir, "render.json"),
@@ -327,11 +332,17 @@ describe("scripts/test-ops.sh", () => {
       async () => {
         const owned = await file("installation.json", 0o600);
         const shared = await file("shared.conf", 0o640);
+        const added = await file("added.conf", 0o640);
         // A new file's group is its directory's on BSD, the creator's on Linux.
         const { gid } = await stat(shared);
         const result = await preflightWith({
           api: { binds: [shared], user: `${other}:${gid}` },
           migrate: { binds: [owned], user: `${me}:${other}` },
+          slack: {
+            binds: [added],
+            groupAdd: [gid],
+            user: `${other}:${other}`,
+          },
         });
         expect(result.stderr).not.toContain(refusal);
         expect(result.stderr).toContain(passed);
@@ -344,6 +355,8 @@ describe("scripts/test-ops.sh", () => {
         const script = await file("10-create-resources.sh", 0o700);
         const owned = await file("only-root.conf", 0o600);
         const legacy = await directory("legacy-config", 0o755);
+        // Not walked at all: an unwalkable one would otherwise stop the check.
+        await mkdir(join(legacy, ".cache"), { mode: 0o000 });
         const result = await preflightWith({
           localstack: {
             binds: [script],
@@ -352,6 +365,7 @@ describe("scripts/test-ops.sh", () => {
           migrate: { binds: [legacy], user: `${other}:${other}` },
           scheduler: { binds: [owned], user: "0:0" },
         });
+        await chmod(join(legacy, ".cache"), 0o755);
         expect(result.stderr).not.toContain(refusal);
         expect(result.stderr).toContain(passed);
       },
@@ -377,9 +391,7 @@ describe("scripts/test-ops.sh", () => {
       expect(result.stderr).toContain(`1 ${refusal}`);
     });
 
-    cleanTest("stops when it cannot walk a source", async () => {
-      // root walks any directory.
-      if (me === 0) return;
+    unprivilegedTest("stops when it cannot walk a source", async () => {
       const legacy = await directory("legacy-config", 0o755);
       await mkdir(join(legacy, "closed"), { mode: 0o000 });
       const result = await preflightWith({
