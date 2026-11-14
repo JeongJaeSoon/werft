@@ -23,7 +23,7 @@
 - 누구나: `/login`의 "Keycloak 계정으로 로그인", 설정 > "로그인 수단"(`/settings/login-methods`)에서 Keycloak 줄의 "연결"(접근성 이름 "Keycloak 연결").
 - realm의 사람은 ana·bo(주소 검증됨)와 uma(검증 안 됨), 모두 `@acme.example`이고 비밀번호는 이 run의 한 값이다. Keycloak의 폼에는 `type '#username' <이름>`, `type-state '#password' KEYCLOAK_WERFT_USER_PASSWORD`, `click '#kc-login'`으로 들어간다.
 
-## Running it
+## Driving it with lib.sh
 
 Preconditions: `scripts/keycloak-up.sh`로 띄운 새 run이다(`up.sh` run에는 Keycloak이 없다). bootstrap 전이다. 스크립트가 bootstrap부터 하므로 한 run에서 한 번만 돈다. 다시 돌리려면 run을 내리고 새로 띄운다.
 
