@@ -16,6 +16,13 @@ const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
 const PATH = "/v1/installation-config";
 const RECEIPT = "019a0000-0000-7000-8000-0000000000e1";
 
+const unsaved = <T>(value: T) => ({
+  value,
+  default: value,
+  saved: false,
+  blocked: false,
+});
+
 const CONFIG: InstallationConfig = {
   pending_request_ttl_sec: {
     value: 3600,
@@ -23,6 +30,11 @@ const CONFIG: InstallationConfig = {
     saved: true,
     blocked: false,
   },
+  queued_input_limit_per_session: unsaved(20),
+  storage_limit_bytes: unsaved(1_073_741_824),
+  session_cost_limit_usd: { value: 25, default: 25, saved: false, blocked: true },
+  session_token_limit: unsaved(0),
+  workspace_enforce: unsaved("warn" as const),
 };
 
 function request(
@@ -64,7 +76,12 @@ describe("installation config routes", () => {
   });
 
   test("PATCH hands the service only the keys sent, an empty body included", async () => {
-    for (const body of [{ pending_request_ttl_sec: 3600 }, {}]) {
+    for (const body of [
+      { pending_request_ttl_sec: 3600 },
+      { session_cost_limit_usd: 0.5, session_token_limit: 0 },
+      { workspace_enforce: "fail" },
+      {},
+    ]) {
       const asked: unknown[] = [];
       const response = await request(
         {
@@ -90,6 +107,11 @@ describe("installation config routes", () => {
     [{ pending_request_ttl_sec: 1.5 }, "pending_request_ttl_sec"],
     [{ pending_request_ttl_sec: "3600" }, "pending_request_ttl_sec"],
     [{ pending_request_ttl_sec: null }, "pending_request_ttl_sec"],
+    [{ queued_input_limit_per_session: 0 }, "queued_input_limit_per_session"],
+    [{ storage_limit_bytes: 0 }, "storage_limit_bytes"],
+    [{ session_cost_limit_usd: 0 }, "session_cost_limit_usd"],
+    [{ session_token_limit: -1 }, "session_token_limit"],
+    [{ workspace_enforce: "force" }, "workspace_enforce"],
     // An unknown key is the body's fault, not a key's.
     [{ pending_request_ttl_sec: 60, extra: 1 }, ""],
   ] as const) {

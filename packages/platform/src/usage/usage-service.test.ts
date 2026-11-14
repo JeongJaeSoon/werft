@@ -18,7 +18,10 @@ import {
   type WorkspaceRole,
 } from "@werft-ai/contracts";
 import { testCaller } from "@werft-ai/testkit/callers";
-import type { InstallationLimits } from "../limits/installation-limits.ts";
+import type {
+  InstallationLimits,
+  SessionLimits,
+} from "../limits/installation-limits.ts";
 import { SessionServiceError } from "../musterrolle/index.ts";
 import {
   type Caller,
@@ -36,7 +39,7 @@ import {
   toolFindings,
 } from "./usage-service.ts";
 
-const limits: InstallationLimits = {
+const limits: InstallationLimits & SessionLimits = {
   executionSlotLimit: 0,
   queuedInputLimitPerSession: 3,
   storageLimitBytes: Number.MAX_SAFE_INTEGER,

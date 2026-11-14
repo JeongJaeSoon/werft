@@ -24,9 +24,9 @@ const HOUR = 3_600_000;
 let client: PGlite;
 let db: PgliteDatabase<typeof schema>;
 
-const read = () =>
+const read = (budget: typeof BUDGET | null = BUDGET) =>
   readPlatformMetrics(db as unknown as Database, {
-    budget: BUDGET,
+    budget,
     buckets: BUCKETS,
   });
 
@@ -454,9 +454,11 @@ describe("queues", () => {
       );
     }
     const { launchQueue } = await read();
-    expect(launchQueue.sessions).toBe(1);
-    expect(launchQueue.oldestWaitSeconds).toBeGreaterThanOrEqual(90);
-    expect(launchQueue.oldestWaitSeconds).toBeLessThan(600);
+    expect(launchQueue?.sessions).toBe(1);
+    expect(launchQueue?.oldestWaitSeconds).toBeGreaterThanOrEqual(90);
+    expect(launchQueue?.oldestWaitSeconds).toBeLessThan(600);
+    // A budget that cannot be read counts nothing under a guess.
+    expect((await read(null)).launchQueue).toBeNull();
   });
 
   test("the input queue's oldest age skips claimed and not yet visible rows", async () => {

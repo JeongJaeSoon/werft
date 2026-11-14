@@ -18,6 +18,7 @@ import type {
   SchedulerDemand,
   SchedulerStore,
   SessionBudget,
+  Setting,
   StoredLaunchIntent,
   WorkerImageRefusal,
   WorkspaceTtls,
@@ -30,6 +31,7 @@ import {
   imageIdentity,
   launchNonceFingerprint,
   parseExecutionResources,
+  readSetting,
 } from "@werft-ai/platform";
 import {
   and,
@@ -96,13 +98,14 @@ export type PostgresSchedulerStoreOptions = {
   /** Lifetime of a bootstrap nonce; matches the gateway's own default. */
   nonceTtlMs?: number;
   /**
-   * SESSION_COST_LIMIT_USD. A session that has spent it is not launched for:
-   * its worker would be told to release at its first poll, and the next pass
-   * would launch another, round and round.
+   * A session that has spent it is not launched for: its worker would be
+   * told to release at its first poll, and the next pass would launch
+   * another, round and round. Read for each page of demand and each
+   * reservation, outside the transaction; a failed read fails that call.
    */
-  sessionCostLimitUsd: number;
-  /** SESSION_TOKEN_LIMIT, for the same reason; null, none. */
-  sessionTokenLimit: number | null;
+  sessionCostLimitUsd: Setting<number>;
+  /** Provider tokens, for the same reason; null, none. */
+  sessionTokenLimit: Setting<number | null>;
   logger?: StructuredLogger;
 };
 
@@ -174,9 +177,12 @@ export function createPostgresSchedulerStore(
   options: PostgresSchedulerStoreOptions,
 ): SchedulerStore {
   const nonceTtlMs = options.nonceTtlMs ?? DEFAULT_NONCE_TTL_MS;
-  const budget = {
-    costUsd: options.sessionCostLimitUsd,
-    tokens: options.sessionTokenLimit,
+  const budgetNow = async (): Promise<SessionBudget> => {
+    const [costUsd, tokens] = await Promise.all([
+      readSetting(options.sessionCostLimitUsd),
+      readSetting(options.sessionTokenLimit),
+    ]);
+    return { costUsd, tokens };
   };
   const work = createPostgresWorkerUnitOfWork(db, {
     ...(options.logger ? { logger: options.logger } : {}),
@@ -257,6 +263,7 @@ export function createPostgresSchedulerStore(
           eligibleSessionIds: [],
         };
       }
+      const budget = await budgetNow();
       const eligible = await db
         .select({ sessionId: unassignedSessions.sessionId })
         .from(unassignedSessions)
@@ -283,6 +290,7 @@ export function createPostgresSchedulerStore(
     async reserveLaunch(
       input: ReserveLaunchInput,
     ): Promise<StoredLaunchIntent | null> {
+      const budget = await budgetNow();
       return db.transaction(async (tx) => {
         // One advisory lock serializes every reservation so the capacity
         // check below cannot be raced by another scheduler pass; the session

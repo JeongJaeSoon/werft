@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { InstallationConfigStore } from "@werft-ai/db";
+import { InstallationConfigUnavailableError } from "@werft-ai/platform";
 import {
+  carryInstallationConfig,
   createInstallationConfigSource,
-  InstallationConfigUnavailableError,
-  importInstallationConfig,
 } from "./installation-config.ts";
 
 function memoryStore(initial: Record<string, unknown> = {}) {
@@ -38,42 +38,71 @@ function memoryStore(initial: Record<string, unknown> = {}) {
   };
 }
 
-const CARRIED =
-  "PENDING_REQUEST_TTL_SEC was carried into Settings > Workspace > Execution limits and is no longer read; remove it";
+const carried = (name: string) =>
+  `${name} was carried into Settings > Workspace > Execution limits and is no longer read; remove it`;
 const IGNORED = "Ignored removed settings: PENDING_REQUEST_TTL_SEC";
 
-describe("importInstallationConfig", () => {
+describe("carryInstallationConfig", () => {
   test("nothing set reads nothing", async () => {
     const memory = memoryStore();
-    expect(await importInstallationConfig({}, memory.store)).toEqual({
+    expect(await carryInstallationConfig({}, memory.store)).toEqual({
       warnings: [],
-      invalid: [],
     });
     expect(memory.calls.readAll).toBe(0);
+  });
+
+  test("a blank variable is one nobody set", async () => {
+    const memory = memoryStore();
+    expect(
+      await carryInstallationConfig(
+        { SESSION_COST_LIMIT_USD: "", WORKSPACE_ENFORCE: "  " },
+        memory.store,
+      ),
+    ).toEqual({ warnings: [] });
+    expect(memory.saved).toEqual({});
   });
 
   test("a valid value with nothing saved is carried in once; after that it is ignored", async () => {
     const memory = memoryStore();
     const env = { PENDING_REQUEST_TTL_SEC: " 90 " };
-    expect(await importInstallationConfig(env, memory.store)).toEqual({
-      warnings: [CARRIED],
-      invalid: [],
+    expect(await carryInstallationConfig(env, memory.store)).toEqual({
+      warnings: [carried("PENDING_REQUEST_TTL_SEC")],
     });
     expect(memory.saved).toEqual({ pending_request_ttl_sec: 90 });
-    expect(await importInstallationConfig(env, memory.store)).toEqual({
+    expect(await carryInstallationConfig(env, memory.store)).toEqual({
       warnings: [IGNORED],
-      invalid: [],
+    });
+  });
+
+  test("every limit the roles read from env is carried in, as each read it", async () => {
+    const memory = memoryStore();
+    await carryInstallationConfig(
+      {
+        QUEUED_INPUT_LIMIT_PER_SESSION: "5",
+        STORAGE_LIMIT_BYTES: "2048",
+        SESSION_COST_LIMIT_USD: "0.5",
+        SESSION_TOKEN_LIMIT: "0",
+        WORKSPACE_ENFORCE: "fail",
+      },
+      memory.store,
+    );
+    expect(memory.saved).toEqual({
+      queued_input_limit_per_session: 5,
+      storage_limit_bytes: 2048,
+      session_cost_limit_usd: 0.5,
+      session_token_limit: 0,
+      workspace_enforce: "fail",
     });
   });
 
   test("a saved value wins over the env, whatever it holds", async () => {
     const memory = memoryStore({ pending_request_ttl_sec: 600 });
     expect(
-      await importInstallationConfig(
+      await carryInstallationConfig(
         { PENDING_REQUEST_TTL_SEC: "nonsense" },
         memory.store,
       ),
-    ).toEqual({ warnings: [IGNORED], invalid: [] });
+    ).toEqual({ warnings: [IGNORED] });
     expect(memory.saved).toEqual({ pending_request_ttl_sec: 600 });
   });
 
@@ -86,46 +115,47 @@ describe("importInstallationConfig", () => {
     test(`${JSON.stringify(raw)} is carried in as ${value}, as the earlier release read it`, async () => {
       const memory = memoryStore();
       expect(
-        await importInstallationConfig(
+        await carryInstallationConfig(
           { PENDING_REQUEST_TTL_SEC: raw },
           memory.store,
         ),
-      ).toEqual({ warnings: [CARRIED], invalid: [] });
+      ).toEqual({ warnings: [carried("PENDING_REQUEST_TTL_SEC")] });
       expect(memory.saved).toEqual({ pending_request_ttl_sec: value });
     });
   }
 
-  // The values that used to stop the API at start.
-  for (const raw of ["0", "-1", "0.001", "1e12", "30m", "", "604801"]) {
-    test(`${JSON.stringify(raw)} is not carried in, and the warning never carries it`, async () => {
+  // The values that used to stop a role at start.
+  for (const [name, key, raw] of [
+    ["PENDING_REQUEST_TTL_SEC", "pending_request_ttl_sec", "30m"],
+    ["PENDING_REQUEST_TTL_SEC", "pending_request_ttl_sec", "604801"],
+    ["SESSION_COST_LIMIT_USD", "session_cost_limit_usd", "0"],
+    ["SESSION_TOKEN_LIMIT", "session_token_limit", "1.5"],
+    ["STORAGE_LIMIT_BYTES", "storage_limit_bytes", "lots"],
+    ["WORKSPACE_ENFORCE", "workspace_enforce", "force"],
+  ] as const) {
+    test(`${name}=${JSON.stringify(raw)} is kept as a refusal, and the warning never carries it`, async () => {
       const memory = memoryStore();
-      const { warnings, invalid } = await importInstallationConfig(
-        { PENDING_REQUEST_TTL_SEC: raw },
+      const { warnings } = await carryInstallationConfig(
+        { [name]: raw },
         memory.store,
       );
-      expect(invalid).toEqual(["pending_request_ttl_sec"]);
       expect(warnings).toHaveLength(1);
-      expect(warnings[0]).toStartWith(
-        "PENDING_REQUEST_TTL_SEC was not carried in",
-      );
-      if (raw !== "") expect(warnings[0]).not.toContain(raw);
-      expect(memory.saved).toEqual({});
+      expect(warnings[0]).toStartWith(`${name} was not carried in`);
+      expect(warnings[0]).not.toContain(raw);
+      expect(memory.saved).toEqual({ [key]: { refused_env: name } });
     });
   }
 });
 
-function sourceOver(
-  memory: ReturnType<typeof memoryStore>,
-  env: Record<string, string> = {},
-) {
+function sourceOver(memory: ReturnType<typeof memoryStore>) {
   let clock = 0;
   const warnings: string[] = [];
   const source = createInstallationConfigSource({
-    env,
     store: memory.store,
-    warn: (message) => warnings.push(message),
+    warn: (message: string) => warnings.push(message),
     refreshMs: 10_000,
     retryMs: 60_000,
+    maxStaleMs: 60_000,
     now: () => clock,
   });
   return {
@@ -141,31 +171,40 @@ describe("createInstallationConfigSource", () => {
   test("nothing saved is the default", async () => {
     const { source } = sourceOver(memoryStore());
     expect(await source.get("pending_request_ttl_sec")).toBe(1800);
-    expect(await source.view()).toEqual({
-      pending_request_ttl_sec: {
-        value: 1800,
-        default: 1800,
-        saved: false,
-        blocked: false,
-      },
+    expect((await source.view()).pending_request_ttl_sec).toEqual({
+      value: 1800,
+      default: 1800,
+      saved: false,
+      blocked: false,
     });
+    expect(await source.sessionLimits()).toEqual({
+      queuedInputLimitPerSession: 20,
+      storageLimitBytes: 1_073_741_824,
+      sessionCostLimitUsd: 25,
+      sessionTokenLimit: null,
+    });
+    expect(await source.get("workspace_enforce")).toBe("warn");
     expect(source.loaded()).toBe(true);
   });
 
-  test("the carry-over lands before the first read, so the old value applies, not the default", async () => {
-    const memory = memoryStore();
-    const { source, warnings } = sourceOver(memory, {
-      PENDING_REQUEST_TTL_SEC: "90",
+  test("a saved token limit of 0 sets none; any other is the limit", async () => {
+    const memory = memoryStore({ session_token_limit: 0 });
+    const { source, advance } = sourceOver(memory);
+    expect(await source.sessionTokenLimit()).toBeNull();
+    memory.saved.session_token_limit = 500_000;
+    advance(10_000);
+    expect(await source.sessionTokenLimit()).toBe(500_000);
+    expect(await source.sessionBudget()).toEqual({
+      costUsd: 25,
+      tokens: 500_000,
     });
-    expect(await source.get("pending_request_ttl_sec")).toBe(90);
-    await source.started;
-    expect(warnings).toEqual([CARRIED]);
-    expect(memory.calls.importValue).toBe(1);
   });
 
-  test("a wrong env value blocks the key until a value is saved, instead of running on the default", async () => {
-    const memory = memoryStore();
-    const { source } = sourceOver(memory, { PENDING_REQUEST_TTL_SEC: "30m" });
+  test("a refused carry blocks its key until a value is saved, instead of running on the default", async () => {
+    const memory = memoryStore({
+      pending_request_ttl_sec: { refused_env: "PENDING_REQUEST_TTL_SEC" },
+    });
+    const { source } = sourceOver(memory);
     await source.started;
     await expect(source.get("pending_request_ttl_sec")).rejects.toBeInstanceOf(
       InstallationConfigUnavailableError,
@@ -188,6 +227,18 @@ describe("createInstallationConfigSource", () => {
       blocked: false,
     });
     expect(await source.get("pending_request_ttl_sec")).toBe(1800);
+  });
+
+  test("a blocked key refuses only what reads it", async () => {
+    const memory = memoryStore({
+      storage_limit_bytes: { refused_env: "STORAGE_LIMIT_BYTES" },
+    });
+    const { source } = sourceOver(memory);
+    await expect(source.sessionLimits()).rejects.toBeInstanceOf(
+      InstallationConfigUnavailableError,
+    );
+    expect(await source.sessionBudget()).toEqual({ costUsd: 25, tokens: null });
+    expect(await source.get("workspace_enforce")).toBe("warn");
   });
 
   test("a saved value that breaks the key's rule blocks the key instead of running on the default", async () => {
@@ -223,35 +274,41 @@ describe("createInstallationConfigSource", () => {
     expect(await source.get("pending_request_ttl_sec")).toBe(75);
   });
 
-  test("a failed reload keeps the last values read", async () => {
-    const memory = memoryStore({ pending_request_ttl_sec: 60 });
+  test("a failed reload keeps the last values only until they are too old, then refuses", async () => {
+    const memory = memoryStore({ session_cost_limit_usd: 5 });
     const { source, advance, warnings } = sourceOver(memory);
     await source.started;
     memory.fail(true);
     advance(10_000);
-    expect(await source.get("pending_request_ttl_sec")).toBe(60);
+    expect(await source.get("session_cost_limit_usd")).toBe(5);
     expect(warnings).toEqual([
       "Installation config could not be read; keeping the last",
     ]);
+    advance(50_000);
+    const refused = await source.get("session_cost_limit_usd").catch((e) => e);
+    expect(refused).toBeInstanceOf(InstallationConfigUnavailableError);
+    expect((refused as InstallationConfigUnavailableError).key).toBeNull();
+    expect(warnings.at(-1)).toBe(
+      "Installation config could not be read; refusing what it sets",
+    );
+    memory.fail(false);
+    expect(await source.get("session_cost_limit_usd")).toBe(5);
   });
 
-  test("a database that is down at start does not block the start; the first read that reaches it carries the env in", async () => {
-    const memory = memoryStore();
+  test("a database that is down at start does not block the start; nothing is applied until a read succeeds", async () => {
+    const memory = memoryStore({ pending_request_ttl_sec: 90 });
     memory.fail(true);
-    const { source, warnings } = sourceOver(memory, {
-      PENDING_REQUEST_TTL_SEC: "90",
-    });
+    const { source, warnings } = sourceOver(memory);
     await source.started;
     expect(warnings).toEqual([
       "Installation config could not be read; retrying",
     ]);
     expect(source.loaded()).toBe(false);
-    await expect(source.get("pending_request_ttl_sec")).rejects.toThrow(
-      "database is down",
+    await expect(source.get("pending_request_ttl_sec")).rejects.toBeInstanceOf(
+      InstallationConfigUnavailableError,
     );
     memory.fail(false);
     expect(await source.get("pending_request_ttl_sec")).toBe(90);
-    expect(warnings.at(-1)).toBe(CARRIED);
   });
 
   test("a save shows at once in the view of the process that made it", async () => {

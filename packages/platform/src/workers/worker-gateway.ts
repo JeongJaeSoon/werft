@@ -96,7 +96,12 @@ import {
 import type { GitHubMcpStore } from "../github/ports/github-mcp.ts";
 import type { GitHubPackagesStore } from "../github/ports/github-packages.ts";
 import type { McpEgressStore } from "../github/ports/mcp-egress.ts";
-import { budgetExceeded } from "../limits/installation-limits.ts";
+import {
+  budgetExceeded,
+  readSetting,
+  type SessionBudget,
+  type Setting,
+} from "../limits/installation-limits.ts";
 import {
   type PricedBy,
   type ProviderUsage,
@@ -263,13 +268,18 @@ export interface ClaimTelemetrySource {
 }
 
 export type WorkerGatewayOptions = {
-  workspaceEnforce?: "warn" | "fail" | "off";
+  /** Read at each claim; a claim that cannot read it is a retryable 503. */
+  workspaceEnforce?: Setting<"warn" | "fail" | "off">;
   /** How long a heartbeat extends the lease. */
   leaseTtlMs: number;
-  /** SESSION_COST_LIMIT_USD: past it a session is dispatched nothing new. */
-  sessionCostLimitUsd: number;
-  /** SESSION_TOKEN_LIMIT, held the same way; null, none. */
-  sessionTokenLimit: number | null;
+  /**
+   * Past it a session is dispatched nothing new. Read at each claim,
+   * exchange, input and finalize, so a saved change applies to the next
+   * one; one that cannot read it is a retryable 503.
+   */
+  sessionCostLimitUsd: Setting<number>;
+  /** Provider tokens, held the same way; null, none. */
+  sessionTokenLimit: Setting<number | null>;
   /** Lifetime of the session token handed out by bootstrapClaim. */
   sessionTokenTtlMs?: number;
   /**
@@ -1035,19 +1045,40 @@ export function createWorkerGateway(deps: {
   const leaseTtlMs = deps.options.leaseTtlMs;
   const sessionTokenTtlMs =
     deps.options.sessionTokenTtlMs ?? DEFAULT_SESSION_TOKEN_TTL_MS;
-  const tokenLimit = deps.options.sessionTokenLimit;
+  const unreadable = (what: string, error: unknown): WorkerGatewayError =>
+    new WorkerGatewayError(
+      503,
+      "BACKEND_UNAVAILABLE",
+      `${what} could not be read: ${error instanceof Error ? error.message : String(error)}`,
+      true,
+    );
+  const budgetNow = async (): Promise<SessionBudget> => {
+    try {
+      const [costUsd, tokens] = await Promise.all([
+        readSetting(deps.options.sessionCostLimitUsd),
+        readSetting(deps.options.sessionTokenLimit),
+      ]);
+      return { costUsd, tokens };
+    } catch (error) {
+      throw unreadable("The session's cost and token limits", error);
+    }
+  };
+  const workspaceEnforceNow = async (): Promise<"warn" | "fail" | "off"> => {
+    try {
+      return await readSetting(
+        deps.options.workspaceEnforce ?? DEFAULT_WORKSPACE_ENFORCE,
+      );
+    } catch (error) {
+      throw unreadable("What a worker does past its workspace quota", error);
+    }
+  };
   const pendingTtl = deps.options.pendingTtlMs ?? DEFAULT_PENDING_TTL_MS;
   const pendingTtlMs = async (): Promise<number> => {
     if (typeof pendingTtl === "number") return pendingTtl;
     try {
       return await pendingTtl();
     } catch (error) {
-      throw new WorkerGatewayError(
-        503,
-        "BACKEND_UNAVAILABLE",
-        `How long the request may wait could not be read: ${error instanceof Error ? error.message : String(error)}`,
-        true,
-      );
+      throw unreadable("How long the request may wait", error);
     }
   };
   const maxWaitMs = deps.options.maxWaitMs ?? DEFAULT_MAX_WAIT_MS;
@@ -1403,12 +1434,7 @@ export function createWorkerGateway(deps: {
       tokenHash: hashTitleToken(token),
     });
     if (result.outcome !== "ok") return null;
-    if (
-      budgetExceeded(result, {
-        costUsd: deps.options.sessionCostLimitUsd,
-        tokens: tokenLimit,
-      })
-    ) {
+    if (budgetExceeded(result, await budgetNow())) {
       throw new WorkerGatewayError(
         403,
         "BUDGET_EXCEEDED",
@@ -1572,14 +1598,18 @@ export function createWorkerGateway(deps: {
       const objectStoreToken = generateEgressToken("object_store");
       const mcpToken = generateEgressToken("mcp");
       const packagesToken = generateEgressToken("packages");
+      // Read before the claim, so one that cannot read them spends no nonce;
+      // the same read is what the engine is told it may spend.
+      const budget = await budgetNow();
+      const workspaceEnforce = await workspaceEnforceNow();
       const claimable = claimCatalog();
       // One read for the check, the token's binding and the response, so a
       // refresh between them cannot drop a server the claim already bound.
       const mcpServers = catalog.mcp_servers;
       const result = await work.claimAtomic({
         ...claimable,
-        costLimitUsd: deps.options.sessionCostLimitUsd,
-        tokenLimit,
+        costLimitUsd: budget.costUsd,
+        tokenLimit: budget.tokens,
         nonceHash: hashWorkerToken(request.credential.nonce),
         executionId: request.execution_id,
         executionGeneration: request.execution_generation,
@@ -1827,9 +1857,8 @@ export function createWorkerGateway(deps: {
             // turn on it.
             remaining_budget_usd: binding.unmetered
               ? null
-              : Math.max(0, deps.options.sessionCostLimitUsd - binding.costUsd),
-            workspace_enforce:
-              deps.options.workspaceEnforce ?? DEFAULT_WORKSPACE_ENFORCE,
+              : Math.max(0, budget.costUsd - binding.costUsd),
+            workspace_enforce: workspaceEnforce,
             ...(binding.grants === undefined || binding.grants.length === 0
               ? {}
               : {
@@ -2081,12 +2110,7 @@ export function createWorkerGateway(deps: {
         // with the engine's token included; a session past its
         // limit gets no new provider exchange, and the proxy's regrant cuts
         // an open one.
-        if (
-          budgetExceeded(result, {
-            costUsd: deps.options.sessionCostLimitUsd,
-            tokens: tokenLimit,
-          })
-        ) {
+        if (budgetExceeded(result, await budgetNow())) {
           throw new WorkerGatewayError(
             403,
             "BUDGET_EXCEEDED",
@@ -2312,11 +2336,12 @@ export function createWorkerGateway(deps: {
       const deadline =
         now().getTime() + Math.min(request.wait_ms ?? 0, maxWaitMs);
       for (;;) {
+        const budget = await budgetNow();
         const result = await work.nextInputAtomic({
           fence,
           now: now(),
-          costLimitUsd: deps.options.sessionCostLimitUsd,
-          tokenLimit,
+          costLimitUsd: budget.costUsd,
+          tokenLimit: budget.tokens,
         });
         if (result.outcome !== "ok") rejected(result);
         // A draining attempt is never handed new input, and neither is a
@@ -2670,15 +2695,14 @@ export function createWorkerGateway(deps: {
         finalSourceSequence: request.final_source_sequence,
         terminal: request.terminal,
         checkpoint: request.checkpoint,
-        costLimitUsd: deps.options.sessionCostLimitUsd,
-        tokenLimit,
       };
       // A finalize that already committed is answered from the stored turn.
       // Re-verifying its checkpoint could fail for a reason that has nothing
       // to do with this turn, and the worker has no other way to learn a
-      // result that is already durable.
+      // result that is already durable; nor do the limits, which it needs not.
       const settled = await work.peekFinalizeAtomic(attempt);
       if (settled.outcome !== "open") return finalizeAnswer(settled);
+      const budget = await budgetNow();
       let checkpointVersionsHeld = false;
       let checkpointTranscriptBytes: number | undefined;
       let checkpointOutputs: readonly CheckpointOutputObject[] | undefined;
@@ -2723,6 +2747,8 @@ export function createWorkerGateway(deps: {
       // request started with.
       const finalized = await work.finalizeAtomic({
         ...attempt,
+        costLimitUsd: budget.costUsd,
+        tokenLimit: budget.tokens,
         checkpointVersionsHeld,
         ...(checkpointTranscriptBytes === undefined
           ? {}

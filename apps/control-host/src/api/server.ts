@@ -153,7 +153,6 @@ import {
   releaseStartable,
   resolveAgentRelease,
   SessionServiceError,
-  sessionBudgetOf,
   settingsJudgeConnections,
   withConsoleRepositories,
 } from "@werft-ai/platform";
@@ -167,6 +166,10 @@ import {
   wireGitHubRegistry,
   wireGitPusher,
 } from "../wiring/github-api.ts";
+import {
+  createInstallationConfigSource,
+  spendLimitSettings,
+} from "../wiring/installation-config.ts";
 import {
   type SlackServicesStageDeps,
   wireSlackBot,
@@ -216,10 +219,7 @@ import {
 import { extensionDepsFor } from "./extension-deps.ts";
 import { githubCallbackUrl } from "./github-link.ts";
 import { githubPackagesConfigFromEnv } from "./github-packages-config.ts";
-import {
-  createInstallationConfigAdmin,
-  createInstallationConfigSource,
-} from "./installation-config.ts";
+import { createInstallationConfigAdmin } from "./installation-config.ts";
 import {
   credentialHostsFromEnv,
   leftOutReporter,
@@ -391,6 +391,11 @@ if (checkpointStorage !== "disabled") {
 
 const pool = createApiPool(databaseUrl, logger);
 const db = drizzle(pool, { schema });
+const installationConfigStore = createPostgresInstallationConfigStore(db);
+const installationConfig = createInstallationConfigSource({
+  store: installationConfigStore,
+  warn: (message, fields) => logger.warn(message, fields ?? {}),
+});
 const catalogRepositoryStore = createPostgresCatalogRepositoryStore(db);
 const installationSettings = settingsSource({
   store: createPostgresInstallationSettingsStore(db, secretKey),
@@ -529,18 +534,21 @@ const sessions = createSessionService({
   credentials: credentialBindings,
   callerLimits: createPostgresCallerLimitGate(db),
   launchable: (spec) => launchableKind(spec.runtime.kind),
-  limits,
+  limits: installationConfig.sessionLimits,
 });
 const sessionOutputs = createSessionOutputService({
   sessions,
   source: checkpoints.outputs,
 });
-// The same parsed limits admission and dispatch run under, so what this
-// reports is what the gates enforce.
+// The same limits admission and dispatch run under, so what this reports is
+// what the gates enforce.
 const usage = createUsageService({
   authorization,
   reader: createPostgresUsageReader(db),
-  limits,
+  limits: async () => ({
+    ...limits,
+    ...(await installationConfig.sessionLimits()),
+  }),
 });
 const pendingRequests = createPendingRequestService({
   authorization,
@@ -602,16 +610,10 @@ const { store: slackSettingsStore } = carryOverSlackSettings({
   retryMs: CATALOG_READ_RETRY_MS,
 });
 const slackEventsBase = slackEventsBaseOf(slackSettingsStore, consoleOrigin);
-const installationConfig = createInstallationConfigSource({
-  env: process.env,
-  store: createPostgresInstallationConfigStore(db),
-  warn: (message, fields) => logger.warn(message, fields ?? {}),
-  refreshMs: CATALOG_REFRESH_MS,
-  retryMs: CATALOG_READ_RETRY_MS,
-});
 const installationConfigAdmin = createInstallationConfigAdmin({
   authorization,
   source: installationConfig,
+  store: installationConfigStore,
 });
 const slackActiveReleaseWarning: SlackServicesStageDeps["activeReleaseWarning"] =
   async (workspaceId, agentId) => {
@@ -1109,9 +1111,8 @@ const workers = createWorkerGateway({
         },
       }),
   options: {
-    sessionCostLimitUsd: limits.sessionCostLimitUsd,
-    workspaceEnforce: settings.workspaceEnforce,
-    sessionTokenLimit: limits.sessionTokenLimit,
+    ...spendLimitSettings(installationConfig),
+    workspaceEnforce: () => installationConfig.get("workspace_enforce"),
     leaseTtlMs: settings.leaseTtlMs,
     // How long a permission or question takes answers. The worker waits
     // exactly this long once the request is registered.
@@ -1130,7 +1131,8 @@ const authorizerListener =
           gateway: workers,
           logger,
           exchanges: createProviderExchangeLedger(db, {
-            admits: admitsReservations(sessionBudgetOf(limits)),
+            admits: async () =>
+              admitsReservations(await installationConfig.sessionBudget()),
           }),
           ...(githubMcpGrantKey === null
             ? {}

@@ -95,7 +95,7 @@ async function rows() {
 }
 
 function ledgerOf(admits: (held: HeldSpend) => boolean = () => true) {
-  return createProviderExchangeLedger(db, { admits });
+  return createProviderExchangeLedger(db, { admits: async () => admits });
 }
 
 async function releasedAgo(exchangeId: string, agoMs: number) {
@@ -265,6 +265,29 @@ describe("judging a session's budget at the open", () => {
         reserve: RESERVE,
       }),
     ).toEqual({ outcome: "open" });
+  });
+
+  test("limits that cannot be read refuse a new open, not the same open again", async () => {
+    const who = await owner();
+    let reads = 0;
+    const unreadable = createProviderExchangeLedger(db, {
+      admits: async () => {
+        reads += 1;
+        throw new Error("the installation settings could not be read");
+      },
+    });
+    const exchangeId = crypto.randomUUID();
+    await expect(
+      unreadable.open({ exchangeId, ...who, reserve: RESERVE }),
+    ).rejects.toThrow("could not be read");
+    expect(await rows()).toEqual([]);
+
+    await ledgerOf().open({ exchangeId, ...who, reserve: RESERVE });
+    expect(
+      await unreadable.open({ exchangeId, ...who, reserve: RESERVE }),
+    ).toEqual({ outcome: "open" });
+    // Read before each open, so a saved limit applies to the next call.
+    expect(reads).toBe(2);
   });
 
   test("an unmetered session's judge is told so", async () => {

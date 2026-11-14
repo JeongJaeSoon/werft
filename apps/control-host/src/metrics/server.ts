@@ -10,12 +10,11 @@ import {
   type StructuredLogger,
 } from "@werft-ai/observability";
 import {
-  installationLimitsFromEnv,
+  InstallationConfigUnavailableError,
   messageOf,
-  type SessionBudget,
-  sessionBudgetOf,
 } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
+import { installationConfigOf } from "../wiring/installation-config.ts";
 import { renderMetrics, TURN_DURATION_BUCKETS } from "./families.ts";
 
 const DEFAULT_METRICS_PORT = 9464;
@@ -70,10 +69,6 @@ export function serveMetrics(environment: NodeJS.ProcessEnv = process.env) {
   const databaseUrl = environment.DATABASE_URL;
   if (!databaseUrl) throw new Error("DATABASE_URL is required");
   const port = metricsPort(environment);
-  // The scheduler's budget, so the launch queue counts what it would launch.
-  const budget: SessionBudget = sessionBudgetOf(
-    installationLimitsFromEnv(environment),
-  );
   const logger = createLogger({
     level: logLevelFromEnv(environment.LOG_LEVEL),
   });
@@ -85,11 +80,21 @@ export function serveMetrics(environment: NodeJS.ProcessEnv = process.env) {
     { readOnly: true },
   );
   const db = drizzle(pool, { schema });
+  const installationConfig = installationConfigOf(db, logger);
   const handler = metricsHandler(
     async () =>
       renderMetrics(
         await readPlatformMetrics(db, {
-          budget,
+          // The scheduler's budget, so the launch queue counts what it
+          // would launch.
+          budget: await installationConfig
+            .sessionBudget()
+            .catch((error: unknown) => {
+              if (error instanceof InstallationConfigUnavailableError) {
+                return null;
+              }
+              throw error;
+            }),
           buckets: TURN_DURATION_BUCKETS,
         }),
       ),

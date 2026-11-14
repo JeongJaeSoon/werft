@@ -66,7 +66,9 @@ integration("the provider exchange ledger under concurrent writers", () => {
   });
 
   function ledgerOf(admits: (held: HeldSpend) => boolean = () => true) {
-    return createProviderExchangeLedger(db as unknown as Database, { admits });
+    return createProviderExchangeLedger(db as unknown as Database, {
+      admits: async () => admits,
+    });
   }
 
   async function owner() {

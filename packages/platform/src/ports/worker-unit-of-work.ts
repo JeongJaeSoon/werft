@@ -477,6 +477,12 @@ export type FinalizeResult =
 
 export type PeekFinalizeResult = FinalizeResult | { outcome: "open" };
 
+/** A settled turn is read without the limits, so it answers while they cannot be. */
+export type PeekFinalizeInput = Omit<
+  FinalizeInput,
+  "costLimitUsd" | "tokenLimit"
+>;
+
 export type CheckpointStateInput = {
   fence: WorkerFence;
   now: Date;
@@ -654,7 +660,7 @@ export interface WorkerUnitOfWork {
   commitEventsAtomic(input: CommitEventsInput): Promise<CommitEventsResult>;
   // The same question finalizeAtomic answers, without committing anything:
   // it lets a caller settle a replay before doing work that can fail.
-  peekFinalizeAtomic(input: FinalizeInput): Promise<PeekFinalizeResult>;
+  peekFinalizeAtomic(input: PeekFinalizeInput): Promise<PeekFinalizeResult>;
   finalizeAtomic(input: FinalizeInput): Promise<FinalizeResult>;
   // The fenced read behind the checkpoint protocol: proves the caller still
   // owns the session before a pointer is read on its behalf, and records the

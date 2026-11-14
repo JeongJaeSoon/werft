@@ -16,10 +16,7 @@ const base = {
   EXECUTION_INSTALLATION_ID: "dev-a",
   MAX_TURN_SECONDS: "3600",
   PROVIDER_MAX_RETRIES: "2",
-  QUEUED_INPUT_LIMIT_PER_SESSION: "20",
   S3_BUCKET: "claude-sessions",
-  SESSION_COST_LIMIT_USD: "25",
-  STORAGE_LIMIT_BYTES: "1073741824",
   WORKER_GATEWAY_URL: "http://host.docker.internal:3000",
   WORKER_IMAGE: "werft-worker:dev",
 };
@@ -95,10 +92,6 @@ describe("schedulerConfigFromEnv", () => {
       executionSlotLimit: 10,
       maxTurnSeconds: 3600,
       providerMaxRetries: 2,
-      queuedInputLimitPerSession: 20,
-      sessionCostLimitUsd: 25,
-      sessionTokenLimit: null,
-      storageLimitBytes: 1073741824,
     });
     const docker = dockerOf(config);
     expect(docker.workerLimits).toEqual({
@@ -252,9 +245,6 @@ describe("schedulerConfigFromEnv", () => {
       "EXECUTION_SLOT_LIMIT",
       "MAX_TURN_SECONDS",
       "PROVIDER_MAX_RETRIES",
-      "QUEUED_INPUT_LIMIT_PER_SESSION",
-      "SESSION_COST_LIMIT_USD",
-      "STORAGE_LIMIT_BYTES",
     ]) {
       expect(() =>
         schedulerConfigFromEnv({ ...base, [name]: undefined }),

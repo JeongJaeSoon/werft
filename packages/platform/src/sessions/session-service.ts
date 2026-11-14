@@ -47,7 +47,13 @@ import {
 } from "../extensions/session-extensions.ts";
 import {
   budgetExceeded,
+  InstallationConfigUnavailableError,
+  readSetting,
+  type SessionBudget,
+  type SessionLimits,
   type SessionSpend,
+  type Setting,
+  sessionBudgetOf,
 } from "../limits/installation-limits.ts";
 import {
   type AuthorizationPolicy,
@@ -316,20 +322,22 @@ export function createSessionService(deps: {
   // Whether a worker image the scheduler would launch the session's spec on
   // is listed (`launchableImagesFor`); absent, every spec has one.
   launchable?: (spec: SpecSource) => boolean;
-  limits: InputLimits & {
-    sessionCostLimitUsd: number;
-    sessionTokenLimit: number | null;
-  };
+  // Read once per admission or detail, which then holds that one read.
+  // Throws InstallationConfigUnavailableError while a limit cannot be read.
+  limits: Setting<SessionLimits>;
   now?: () => Date;
 }) {
   const { authorization, inputs, controls, reader, catalog } = deps;
-  const budget = {
-    costUsd: deps.limits.sessionCostLimitUsd,
-    tokens: deps.limits.sessionTokenLimit,
-  };
+  async function inputLimits(): Promise<InputLimits> {
+    const limits = await readSetting(deps.limits);
+    return {
+      queuedInputLimitPerSession: limits.queuedInputLimitPerSession,
+      storageLimitBytes: limits.storageLimitBytes,
+    };
+  }
   // Names only the limits reached: an unmetered session spends no dollars,
   // so its message never shows a dollar limit it cannot reach.
-  function reachedLimits(spend: SessionSpend): string {
+  function reachedLimits(spend: SessionSpend, budget: SessionBudget): string {
     const reached: string[] = [];
     if (spend.costUsd >= budget.costUsd) {
       reached.push(`${budget.costUsd} USD cost limit`);
@@ -339,10 +347,6 @@ export function createSessionService(deps: {
     }
     return reached.join(" and its ");
   }
-  const inputLimits: InputLimits = {
-    queuedInputLimitPerSession: deps.limits.queuedInputLimitPerSession,
-    storageLimitBytes: deps.limits.storageLimitBytes,
-  };
   const now = deps.now ?? (() => new Date());
 
   /**
@@ -594,6 +598,12 @@ export function createSessionService(deps: {
       ...detail
     } = record;
     const spend = { costUsd: cost_usd, providerTokens: provider_tokens };
+    // A detail only reports; a limit that cannot be read leaves its line
+    // out, while dispatch refuses on its own read.
+    const budget = await readSetting(deps.limits).then(sessionBudgetOf, (error) => {
+      if (error instanceof InstallationConfigUnavailableError) return null;
+      throw error;
+    });
     const attached = attachedRepositoriesOf(
       detail.attached_repository_ids,
       catalog.repositories,
@@ -619,10 +629,10 @@ export function createSessionService(deps: {
           : null) ??
         // Dispatch stops at the same predicate (nextInputAtomic), so what
         // this says and what the gateway does come from one comparison.
-        (budgetExceeded(spend, budget)
+        (budget !== null && budgetExceeded(spend, budget)
           ? {
               code: "BUDGET_EXCEEDED",
-              reason: `The session has reached its ${reachedLimits(spend)}; queued messages will not run and a pending resume will not launch`,
+              reason: `The session has reached its ${reachedLimits(spend, budget)}; queued messages will not run and a pending resume will not launch`,
             }
           : null),
       runtime: runtimeFor(spec),
@@ -654,7 +664,7 @@ export function createSessionService(deps: {
       agentReleaseId: target.releaseId,
       agentPrivate: true,
       message: input.body.message,
-      limits: inputLimits,
+      limits: await inputLimits(),
     });
     if (result.outcome === "replayed") return result.response;
     // Whatever else the write found (a key reused for another body, a key
@@ -919,7 +929,7 @@ export function createSessionService(deps: {
           ? {}
           : { permissionWait: input.body.permission_wait }),
         message: input.body.message,
-        limits: inputLimits,
+        limits: await inputLimits(),
       });
       switch (result.outcome) {
         case "conflict":
@@ -1010,7 +1020,7 @@ export function createSessionService(deps: {
         idempotencyKey: input.idempotencyKey,
         payloadHash: payloadHash(input.body),
         message: input.body.message,
-        limits: inputLimits,
+        limits: await inputLimits(),
         callerSubject: actor.subject,
         channel: actor.subject.surface.kind,
         ...(input.slackMessage === undefined
