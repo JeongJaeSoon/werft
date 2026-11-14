@@ -148,6 +148,9 @@ export { ENV, NO_PROXY_VALUE } from "@werft-ai/contracts/execution";
  * 7: the workspace volume carries an inode ceiling beside its byte one
  * . A version, not only the fingerprint, so a host rolled back
  *    past it reads these workers as newer and leaves them be.
+ *
+ * Each bump records in isolation-contract.test.ts whether it needs the
+ * worker image's cooperation.
  */
 export const ISOLATION_CONTRACT = 7;
 

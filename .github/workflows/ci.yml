@@ -334,6 +334,7 @@ jobs:
               - packages/adapters/execution/local-docker/src/backend.
               - packages/adapters/execution/local-docker/src/config.
               - packages/adapters/execution/local-docker/src/docker-client.
+              - packages/adapters/execution/local-docker/src/isolation-contract.
               - packages/adapters/execution/local-docker/src/workspace
               - tests/backup-restore.
               - tests/images.
