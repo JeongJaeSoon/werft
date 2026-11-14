@@ -174,7 +174,7 @@ SDK を上げるリリースでは、イメージが載せるランタイムの�
 
 インストール全体の実行の上限は、env ではなく owner が **設定 > ワークスペース > 実行の上限** で保存します(`GET`・`PATCH /v1/installation-config`、監査記録 `update_installation_config`)。このリリースで移す値は、人の応答の待ち時間(`PENDING_REQUEST_TTL_SEC`、既定 1800 秒)の一つです。保存するとその API はすぐに、ほかの replica は 10 秒以内に従います。すでに待っているリクエストは最初に受けた時間のままです。
 
-- migration `0280_installation_config` が、キーごとに一行の `installation_config` テーブルを追加します。新しい API が初めて起動したときにそのキーの行がなく、API コンテナーに `PENDING_REQUEST_TTL_SEC` が渡されていれば、その値を一度だけ移し、値を含まない警告を出します。ワークスペースがあれば作成者のない監査記録(`by: "env_import"`)を残します。`infra/compose.core.yml` も Helm chart もこの値を渡さないので、インストール側の overlay や `api.extraEnv` で自分で渡していた場合にだけ移されます。
+- migration `0281_installation_config` が、キーごとに一行の `installation_config` テーブルを追加します。新しい API が初めて起動したときにそのキーの行がなく、API コンテナーに `PENDING_REQUEST_TTL_SEC` が渡されていれば、その値を一度だけ移し、値を含まない警告を出します。ワークスペースがあれば作成者のない監査記録(`by: "env_import"`)を残します。`infra/compose.core.yml` も Helm chart もこの値を渡さないので、インストール側の overlay や `api.extraEnv` で自分で渡していた場合にだけ移されます。
 - 移したあと env の行を削除します。残っていると、起動のたびに `Ignored removed settings: PENDING_REQUEST_TTL_SEC` の警告が出ます。
 - 1〜604800 の整数でない値は移しません。以前のリリースと違い起動は止まらず、既定値でも動きません。画面で値を保存するまで、新しい権限リクエスト・質問の登録は `503 BACKEND_UNAVAILABLE` で拒否され(worker が送り直します)、起動時に `PENDING_REQUEST_TTL_SEC was not carried in` の警告が出ます。
 - worker は `QUESTION_TIMEOUT_SEC` を読みません。launcher が渡したことのない値なので、動作は同じです(gateway が登録するまで 30 分)。
