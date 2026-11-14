@@ -126,7 +126,7 @@ node "$B" "$RUN" open /members/teams
 node "$B" "$RUN" eval 'document.querySelector("main").innerText'
 ```
 
-기대: 구성원·팀·초대 LinkTabs. 구성원 표는 `role=table`, 이름 “구성원 표”, 구성원·역할·관리 열의 GridTable이며 tr/td가 아니다. 행을 누르면 편집이 열린다. “구성원 초대”로 `?invite.step=details`를 열고 제출 “초대 링크 만들기” 뒤 `?invite.step=link`로 간다. “닫기”의 확인에서 “복사하지 않고 나가기”를 고른다. 초대 완료 링크는 한 번만 보이며 snapshot/shot으로 남기지 않는다. 닫은 뒤 초대 탭에 invitee가 있다. 팀 탭에서 “팀 만들기”. `/teams`는 `/members/teams`로 이동한다. 320px에서 표만 가로 스크롤하고 관리 버튼과 배지가 겹치지 않는다.
+기대: 구성원·팀·초대 LinkTabs. 구성원 표는 `role=table`, 이름 “구성원 표”, 구성원·역할·관리 열의 GridTable이며 tr/td가 아니다. 행을 누르면 편집이 열린다. “구성원 초대”로 `?invite.step=details`를 열고 제출 “초대 링크 만들기” 뒤 `?invite.step=link`로 간다. “닫기”의 확인에서 “복사하지 않고 나가기”를 고른다. 초대 완료 링크는 한 번만 보이며 snapshot/shot으로 남기지 않는다. 닫은 뒤 초대 탭에 invitee가 있다. 팀 탭에서 “팀 만들기”. 옛 주소 `/teams`는 없는 화면이다. 320px에서 표만 가로 스크롤하고 관리 버튼과 배지가 겹치지 않는다.
 
 역할·비활성은 수락한 member에만 수행한다. owner를 비활성화하지 않는다.
 
@@ -491,7 +491,7 @@ ap_get "/v1/sessions/$SID/outputs"
 ```sh
 # Actor: owner.
 ap_as owner
-node "$B" "$RUN" open /usage
+node "$B" "$RUN" open /operations/usage
 node "$B" "$RUN" shot usage-owner
 node "$B" "$RUN" click '설치 전체'
 node "$B" "$RUN" shot usage-installation
@@ -499,7 +499,7 @@ node "$B" "$RUN" open /
 node "$B" "$RUN" click 'Verify Owner'
 node "$B" "$RUN" click 로그아웃
 node "$B" "$RUN" login member
-node "$B" "$RUN" open /usage
+node "$B" "$RUN" open /operations/usage
 node "$B" "$RUN" shot usage-member
 ```
 

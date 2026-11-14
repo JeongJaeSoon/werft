@@ -35,7 +35,6 @@ const W_NARROW = 840;
 const KEY_LISTS = new Set([
   "/settings/api-keys",
   "/settings/api-keys/agents",
-  "/settings/api-keys/org",
 ]);
 // A row that wraps on a narrow screen puts its action under the text, where
 // centring does not apply.

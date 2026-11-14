@@ -38,4 +38,4 @@ Preconditions:
 - `/readyz`는 인증이 없다. `/v1`은 key도 웹 cookie도 없으면 401.
 - `/docs`는 외부 스크립트 없이 열리는 정적 HTML이다. 브라우저 확인은 필수가 아니다.
 
-`/usage` 화면은 “사용량·한도”다. 내 사용량과 owner 전용 설치 전체를 고른다. 세션·실행 시간·추정 비용·토큰과 UTC 집계 기준을 표시하고 owner에게만 한도 표를 보인다. summary의 period는 생성 시각 기준 `[since,until)`이고 basis는 created_in_period·provider_usage_estimate·turn_wall_clock이다. 절차: [procedures.md](procedures.md) P-API-USAGE·P-WEB-USAGE. 소스: `packages/contracts/src/api/usage.ts`, `packages/platform/src/usage/usage-service.ts`, `apps/web/src/routes/usage.tsx`.
+`/operations/usage` 화면은 “사용량·한도”다. 내 사용량과 owner 전용 설치 전체를 고른다. 세션·실행 시간·추정 비용·토큰과 UTC 집계 기준을 표시하고 owner에게만 한도 표를 보인다. summary의 period는 생성 시각 기준 `[since,until)`이고 basis는 created_in_period·provider_usage_estimate·turn_wall_clock이다. 절차: [procedures.md](procedures.md) P-API-USAGE·P-WEB-USAGE. 소스: `packages/contracts/src/api/usage.ts`, `packages/platform/src/usage/usage-service.ts`, `apps/web/src/routes/usage.tsx`.
