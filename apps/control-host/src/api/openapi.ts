@@ -115,6 +115,8 @@ import {
   githubSettingsResponseSchema,
   githubWorkflowRunSchema,
   healthResponseSchema,
+  INSTALLATION_CONFIG,
+  INSTALLATION_CONFIG_KEYS,
   importSettingsQuerySchema,
   importSettingsResponseSchema,
   installationConfigSchema,
@@ -1159,6 +1161,19 @@ const SETTINGS_DOCUMENT_EXAMPLE = {
 
 const SETTINGS_OWNER =
   "The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes.";
+
+/** Every key at its default, nothing saved. */
+const INSTALLATION_CONFIG_EXAMPLE = Object.fromEntries(
+  INSTALLATION_CONFIG_KEYS.map((key) => [
+    key,
+    {
+      value: INSTALLATION_CONFIG[key].default,
+      default: INSTALLATION_CONFIG[key].default,
+      saved: false,
+      blocked: false,
+    },
+  ]),
+);
 const LOGIN_PROVIDER_OWNER = SETTINGS_OWNER;
 const EMERGENCY_ADMIN_NOTE =
   "The person is the emergency admin (`details.reason_code: emergency_admin`): name another owner with PATCH /v1/login-settings first.";
@@ -3282,20 +3297,13 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "getInstallationConfig",
     tag: "Workspace settings",
     summary: "Execution limits for the whole installation",
-    description: `${SETTINGS_OWNER} Each key gives \`value\`, what applies now; \`default\`, what applies while nothing is saved; \`saved\`, false until an owner saves the key or an upgrade carries its old environment variable in; and \`blocked\`, true while that variable held a value the key does not accept and nothing is saved: what the key sets is refused (a permission or question is not registered, 503) until a value is saved, and no default stands in. \`pending_request_ttl_sec\` is how long a permission or question a session raised takes answers once registered (1 to 604800 seconds). The values apply to every workspace of the installation.`,
+    description: `${SETTINGS_OWNER} Each key gives \`value\`, what applies now; \`default\`, what applies while nothing is saved; \`saved\`, false until an owner saves the key or an upgrade carries its old environment variable in; and \`blocked\`, true while that variable held a value the key does not accept and nothing is saved: only what the key sets is refused (503, retryable) until a value is saved, and no default stands in. \`pending_request_ttl_sec\` is how long a permission or question a session raised takes answers once registered (1 to 604800 seconds); while blocked, a permission or question is not registered. \`queued_input_limit_per_session\` is how many queued turns one session holds before the next input answers 429 (1 to 100000), and \`storage_limit_bytes\` the input bytes the installation retains before the next answers 413; while either is blocked, a new session or input is refused. \`session_cost_limit_usd\` (above 0, up to 1000000) and \`session_token_limit\` (0 sets none) stop a session that reached either: it is launched, claimed and given nothing more, and a new provider call is refused. A raised limit reaches a running worker at its next claim; a lowered one stops the next provider call. While either is blocked, no session is launched and no provider call is opened. \`workspace_enforce\` (\`warn\`, \`fail\`, \`off\`) is what a worker does once its workspace outgrows its quota, read at each claim. The values apply to every workspace of the installation.`,
     auth: "session",
     success: {
       status: 200,
       schema: "InstallationConfig",
       description: "Every key, as it applies now.",
-      example: {
-        pending_request_ttl_sec: {
-          value: 1800,
-          default: 1800,
-          saved: false,
-          blocked: false,
-        },
-      },
+      example: INSTALLATION_CONFIG_EXAMPLE,
     },
     errors: [401, 403, 503],
   },
@@ -3305,18 +3313,28 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "updateInstallationConfig",
     tag: "Workspace settings",
     summary: "Save execution limits",
-    description: `${SETTINGS_OWNER} Only the keys sent change; saving a key's default keeps it saved, so an old environment variable is never carried in again. All keys are one transaction and one receipt (\`update_installation_config\`, each changed key's value and the one before); values already saved answer 200 without \`receipt_id\` and leave no receipt. This API applies a change at once; another replica within 10 seconds. A permission or question already registered keeps the wait it was given.`,
+    description: `${SETTINGS_OWNER} Only the keys sent change; saving a key's default keeps it saved, so an old environment variable is never carried in again. All keys are one transaction and one receipt (\`update_installation_config\`, each changed key's value and the one before); values already saved answer 200 without \`receipt_id\` and leave no receipt. This API applies a change at once; another replica within 10 seconds. A permission or question already registered keeps the wait it was given. A raised cost limit reaches a running worker at its next claim; a lowered one stops its next provider call.`,
     auth: "session",
     body: "UpdateInstallationConfigRequest",
-    requestExample: { pending_request_ttl_sec: 3600 },
+    requestExample: {
+      pending_request_ttl_sec: 3600,
+      session_cost_limit_usd: 10,
+    },
     success: {
       status: 200,
       schema: "UpdateInstallationConfigResponse",
       description: "Every key after the change.",
       example: {
+        ...INSTALLATION_CONFIG_EXAMPLE,
         pending_request_ttl_sec: {
           value: 3600,
           default: 1800,
+          saved: true,
+          blocked: false,
+        },
+        session_cost_limit_usd: {
+          value: 10,
+          default: 25,
           saved: true,
           blocked: false,
         },

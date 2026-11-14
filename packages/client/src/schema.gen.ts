@@ -1123,7 +1123,7 @@ export interface paths {
         };
         /**
          * Execution limits for the whole installation
-         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Each key gives `value`, what applies now; `default`, what applies while nothing is saved; `saved`, false until an owner saves the key or an upgrade carries its old environment variable in; and `blocked`, true while that variable held a value the key does not accept and nothing is saved: what the key sets is refused (a permission or question is not registered, 503) until a value is saved, and no default stands in. `pending_request_ttl_sec` is how long a permission or question a session raised takes answers once registered (1 to 604800 seconds). The values apply to every workspace of the installation.
+         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Each key gives `value`, what applies now; `default`, what applies while nothing is saved; `saved`, false until an owner saves the key or an upgrade carries its old environment variable in; and `blocked`, true while that variable held a value the key does not accept and nothing is saved: only what the key sets is refused (503, retryable) until a value is saved, and no default stands in. `pending_request_ttl_sec` is how long a permission or question a session raised takes answers once registered (1 to 604800 seconds); while blocked, a permission or question is not registered. `queued_input_limit_per_session` is how many queued turns one session holds before the next input answers 429 (1 to 100000), and `storage_limit_bytes` the input bytes the installation retains before the next answers 413; while either is blocked, a new session or input is refused. `session_cost_limit_usd` (above 0, up to 1000000) and `session_token_limit` (0 sets none) stop a session that reached either: it is launched, claimed and given nothing more, and a new provider call is refused. A raised limit reaches a running worker at its next claim; a lowered one stops the next provider call. While either is blocked, no session is launched and no provider call is opened. `workspace_enforce` (`warn`, `fail`, `off`) is what a worker does once its workspace outgrows its quota, read at each claim. The values apply to every workspace of the installation.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -1135,7 +1135,7 @@ export interface paths {
         head?: never;
         /**
          * Save execution limits
-         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Only the keys sent change; saving a key's default keeps it saved, so an old environment variable is never carried in again. All keys are one transaction and one receipt (`update_installation_config`, each changed key's value and the one before); values already saved answer 200 without `receipt_id` and leave no receipt. This API applies a change at once; another replica within 10 seconds. A permission or question already registered keeps the wait it was given.
+         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Only the keys sent change; saving a key's default keeps it saved, so an old environment variable is never carried in again. All keys are one transaction and one receipt (`update_installation_config`, each changed key's value and the one before); values already saved answer 200 without `receipt_id` and leave no receipt. This API applies a change at once; another replica within 10 seconds. A permission or question already registered keeps the wait it was given. A raised cost limit reaches a running worker at its next claim; a lowered one stops its next provider call.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -5224,6 +5224,12 @@ export interface components {
         };
         UpdateInstallationConfigRequest: {
             pending_request_ttl_sec?: number;
+            queued_input_limit_per_session?: number;
+            storage_limit_bytes?: number;
+            session_cost_limit_usd?: number;
+            session_token_limit?: number;
+            /** @enum {string} */
+            workspace_enforce?: "warn" | "fail" | "off";
         };
         SetLoginProviderSecretRequest: {
             value: string;
@@ -8081,11 +8087,75 @@ export interface components {
                 saved: boolean;
                 blocked: boolean;
             };
+            queued_input_limit_per_session: {
+                value: number;
+                default: number;
+                saved: boolean;
+                blocked: boolean;
+            };
+            storage_limit_bytes: {
+                value: number;
+                default: number;
+                saved: boolean;
+                blocked: boolean;
+            };
+            session_cost_limit_usd: {
+                value: number;
+                default: number;
+                saved: boolean;
+                blocked: boolean;
+            };
+            session_token_limit: {
+                value: number;
+                default: number;
+                saved: boolean;
+                blocked: boolean;
+            };
+            workspace_enforce: {
+                /** @enum {string} */
+                value: "warn" | "fail" | "off";
+                /** @enum {string} */
+                default: "warn" | "fail" | "off";
+                saved: boolean;
+                blocked: boolean;
+            };
         };
         UpdateInstallationConfigResponse: {
             pending_request_ttl_sec: {
                 value: number;
                 default: number;
+                saved: boolean;
+                blocked: boolean;
+            };
+            queued_input_limit_per_session: {
+                value: number;
+                default: number;
+                saved: boolean;
+                blocked: boolean;
+            };
+            storage_limit_bytes: {
+                value: number;
+                default: number;
+                saved: boolean;
+                blocked: boolean;
+            };
+            session_cost_limit_usd: {
+                value: number;
+                default: number;
+                saved: boolean;
+                blocked: boolean;
+            };
+            session_token_limit: {
+                value: number;
+                default: number;
+                saved: boolean;
+                blocked: boolean;
+            };
+            workspace_enforce: {
+                /** @enum {string} */
+                value: "warn" | "fail" | "off";
+                /** @enum {string} */
+                default: "warn" | "fail" | "off";
                 saved: boolean;
                 blocked: boolean;
             };
@@ -18973,6 +19043,36 @@ export interface operations {
                      *         "default": 1800,
                      *         "saved": false,
                      *         "blocked": false
+                     *       },
+                     *       "queued_input_limit_per_session": {
+                     *         "value": 20,
+                     *         "default": 20,
+                     *         "saved": false,
+                     *         "blocked": false
+                     *       },
+                     *       "storage_limit_bytes": {
+                     *         "value": 1073741824,
+                     *         "default": 1073741824,
+                     *         "saved": false,
+                     *         "blocked": false
+                     *       },
+                     *       "session_cost_limit_usd": {
+                     *         "value": 25,
+                     *         "default": 25,
+                     *         "saved": false,
+                     *         "blocked": false
+                     *       },
+                     *       "session_token_limit": {
+                     *         "value": 0,
+                     *         "default": 0,
+                     *         "saved": false,
+                     *         "blocked": false
+                     *       },
+                     *       "workspace_enforce": {
+                     *         "value": "warn",
+                     *         "default": "warn",
+                     *         "saved": false,
+                     *         "blocked": false
                      *       }
                      *     }
                      */
@@ -19042,7 +19142,8 @@ export interface operations {
             content: {
                 /**
                  * @example {
-                 *       "pending_request_ttl_sec": 3600
+                 *       "pending_request_ttl_sec": 3600,
+                 *       "session_cost_limit_usd": 10
                  *     }
                  */
                 "application/json": components["schemas"]["UpdateInstallationConfigRequest"];
@@ -19062,6 +19163,36 @@ export interface operations {
                      *         "value": 3600,
                      *         "default": 1800,
                      *         "saved": true,
+                     *         "blocked": false
+                     *       },
+                     *       "queued_input_limit_per_session": {
+                     *         "value": 20,
+                     *         "default": 20,
+                     *         "saved": false,
+                     *         "blocked": false
+                     *       },
+                     *       "storage_limit_bytes": {
+                     *         "value": 1073741824,
+                     *         "default": 1073741824,
+                     *         "saved": false,
+                     *         "blocked": false
+                     *       },
+                     *       "session_cost_limit_usd": {
+                     *         "value": 10,
+                     *         "default": 25,
+                     *         "saved": true,
+                     *         "blocked": false
+                     *       },
+                     *       "session_token_limit": {
+                     *         "value": 0,
+                     *         "default": 0,
+                     *         "saved": false,
+                     *         "blocked": false
+                     *       },
+                     *       "workspace_enforce": {
+                     *         "value": "warn",
+                     *         "default": "warn",
+                     *         "saved": false,
                      *         "blocked": false
                      *       },
                      *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"

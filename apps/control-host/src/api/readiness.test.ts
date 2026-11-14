@@ -148,9 +148,6 @@ describe("readiness probe", () => {
       EXECUTION_SLOT_LIMIT: "10",
       MAX_TURN_SECONDS: "3600",
       PROVIDER_MAX_RETRIES: "2",
-      QUEUED_INPUT_LIMIT_PER_SESSION: "20",
-      SESSION_COST_LIMIT_USD: "25",
-      STORAGE_LIMIT_BYTES: "1073741824",
     };
     const probe = (extra: Record<string, string | undefined>) =>
       createReadinessProbe({
@@ -160,13 +157,17 @@ describe("readiness probe", () => {
         environment: { ...environment, ...limits, ...extra },
       })();
     expect(await probe({})).toEqual({ ready: true });
+    // A limit the console keeps is not read here, set or not.
+    expect(await probe({ SESSION_COST_LIMIT_USD: "abc" })).toEqual({
+      ready: true,
+    });
     expect(
-      await probe({ SESSION_COST_LIMIT_USD: undefined, MAX_TURN_SECONDS: "0" }),
+      await probe({ PROVIDER_MAX_RETRIES: undefined, MAX_TURN_SECONDS: "0" }),
     ).toEqual({
       ready: false,
       check: "config",
       reason:
-        "configuration: MAX_TURN_SECONDS must be an integer from 1 to 604800, SESSION_COST_LIMIT_USD is required",
+        "configuration: MAX_TURN_SECONDS must be an integer from 1 to 604800, PROVIDER_MAX_RETRIES is required",
     });
   });
 

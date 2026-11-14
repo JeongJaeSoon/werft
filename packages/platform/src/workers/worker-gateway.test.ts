@@ -3032,6 +3032,136 @@ describe("unmetered sessions", () => {
     expect(await claim(true)).toBeNull();
     expect(await claim(false)).toBe(0.75);
   });
+
+  test("each claim reads the limits anew; one that cannot read them spends no nonce", async () => {
+    let costLimit = 1;
+    let enforce: "warn" | "fail" | "off" = "warn";
+    let unreadable = false;
+    const judged: number[] = [];
+    const instance = createWorkerGateway({
+      work: work({
+        claimAtomic: async (input) => {
+          judged.push(input.costLimitUsd);
+          return {
+            outcome: "claimed",
+            binding: testBinding({
+              sessionId: scope.session_id,
+              attemptId: "att_1",
+              leaseEpoch: 1,
+              executionGeneration: 1,
+              authRevision: 0,
+              leaseExpiresAt: new Date("2026-09-22T00:00:30Z"),
+              leaseRemainingMs: 30_000,
+              ownerScope: "owner-a",
+              repository: null,
+              restore: null,
+              costUsd: 0.25,
+              providerTokens: 0,
+            }),
+          };
+        },
+      }),
+      catalog: testCatalog({}),
+      checkpoints: acceptAllCheckpoints,
+      options: {
+        sessionCostLimitUsd: async () => {
+          if (unreadable) {
+            throw new Error("the installation settings could not be read");
+          }
+          return costLimit;
+        },
+        sessionTokenLimit: async () => null,
+        workspaceEnforce: async () => enforce,
+        leaseTtlMs: 30_000,
+      },
+    });
+    const claim = () =>
+      instance.bootstrapClaim(
+        { kind: "bootstrap" },
+        {
+          execution_id: "e",
+          execution_generation: 1,
+          credential: { kind: "launch_nonce", nonce: "n" },
+        },
+      );
+    expect(await claim()).toMatchObject({
+      remaining_budget_usd: 0.75,
+      workspace_enforce: "warn",
+    });
+    // A save in another process reaches the next claim, not one under way.
+    costLimit = 5;
+    enforce = "fail";
+    expect(await claim()).toMatchObject({
+      remaining_budget_usd: 4.75,
+      workspace_enforce: "fail",
+    });
+    expect(judged).toEqual([1, 5]);
+    unreadable = true;
+    await expect(claim()).rejects.toMatchObject({
+      status: 503,
+      code: "BACKEND_UNAVAILABLE",
+      retryable: true,
+    });
+    expect(judged).toEqual([1, 5]);
+  });
+
+  test("a committed finalize answers while the limits cannot be read; an open one waits for them", async () => {
+    let settled = true;
+    let committed = 0;
+    const instance = createWorkerGateway({
+      work: work({
+        async peekFinalizeAtomic() {
+          return settled
+            ? {
+                outcome: "replayed",
+                result: {
+                  turnId: "1",
+                  status: "completed",
+                  checkpointRevision: null,
+                },
+              }
+            : { outcome: "open" };
+        },
+        async finalizeAtomic() {
+          committed += 1;
+          throw new Error("not reached");
+        },
+      }),
+      catalog: { connections: {}, repositories: {} },
+      checkpoints: acceptAllCheckpoints,
+      options: {
+        sessionCostLimitUsd: async () => {
+          throw new Error("the installation settings could not be read");
+        },
+        sessionTokenLimit: null,
+        leaseTtlMs: 30_000,
+      },
+    });
+    const finalize = () =>
+      instance.finalize(principal, {
+        ...scope,
+        turn_id: "1",
+        finalize_key: "f",
+        final_source_sequence: 0,
+        terminal: {
+          status: "completed",
+          reason: null,
+          result: null,
+          usage: null,
+        },
+        checkpoint: null,
+      });
+    expect(await finalize()).toMatchObject({
+      turn_id: "1",
+      status: "completed",
+    });
+    settled = false;
+    await expect(finalize()).rejects.toMatchObject({
+      status: 503,
+      code: "BACKEND_UNAVAILABLE",
+    });
+    expect(committed).toBe(0);
+  });
 });
 
 describe("egress and claim through the real GitHub gate", () => {
