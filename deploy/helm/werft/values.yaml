@@ -62,6 +62,14 @@ images:
     repository: ghcr.io/jeongjaesoon/werft-worker
     digest: ""
     runtime: {}
+  # The worker images as one list (WORKER_IMAGES), newest first, instead of
+  # images.worker and images.workerPrevious, whose digest and runtime must
+  # then be empty (a packaged release fills images.worker: clear its runtime
+  # with null, which {} does not). Each entry: {repository, digest, runtime,
+  # releasedAt}, runtime as images.yml recorded it and releasedAt an RFC 3339
+  # time with seconds (at most milliseconds), strictly decreasing down the list. At most two images,
+  # of one engine.
+  workers: []
 
 # The chart never holds a secret value. Each workload reads only the keys it
 # needs from this one Secret:

@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { packageChart } from "../../.github/scripts/chart-package.ts";
+import { workerImageListFromEnv } from "../../packages/platform/src/scheduler/worker-images.ts";
 import { parseImageRuntime } from "../../packages/runtime-core/src/image-runtime.ts";
 
 const dir = import.meta.dir;
@@ -455,6 +456,8 @@ function checkWorkerImages(
     runtime?: string;
     previousRuntime?: string;
     previousImage?: string;
+    /** images.workers: WORKER_IMAGES on all three, and no WORKER_IMAGE. */
+    list?: string;
   },
 ): string[] {
   const errors: string[] = [];
@@ -481,7 +484,22 @@ function checkWorkerImages(
         "WORKER_IMAGE_PREVIOUS",
         role === "scheduler" ? want.previousImage : undefined,
       ],
+      ["WORKER_IMAGES", want.list],
+      ...(want.list === undefined
+        ? []
+        : [["WORKER_IMAGE", undefined] as [string, undefined]]),
     ];
+    // What the chart renders must be what every reader starts on.
+    const list = env.get("WORKER_IMAGES");
+    if (list !== undefined) {
+      try {
+        workerImageListFromEnv({ WORKER_IMAGES: list });
+      } catch (error) {
+        errors.push(
+          `${label}: ${role} WORKER_IMAGES is refused: ${(error as Error).message}`,
+        );
+      }
+    }
     for (const [name, value] of expected) {
       if (env.get(name) !== value) {
         errors.push(
@@ -787,7 +805,10 @@ function checkUpgradeHook(
   if (value("UPGRADE_DEPLOYED_STATE") !== "") {
     fail("UPGRADE_DEPLOYED_STATE is not empty without a cluster");
   }
-  if (!DIGEST_REF.test(value("WORKER_IMAGE") ?? "")) {
+  if (
+    value("WORKER_IMAGES") === undefined &&
+    !DIGEST_REF.test(value("WORKER_IMAGE") ?? "")
+  ) {
     fail("WORKER_IMAGE is not the target worker digest");
   }
   // It must judge the images the target scheduler will launch on.
@@ -799,6 +820,7 @@ function checkUpgradeHook(
       ? []
       : podSpecOf(schedulerDeployment).containers[0].env;
   for (const name of [
+    "WORKER_IMAGES",
     "WORKER_IMAGE",
     "WORKER_IMAGE_PREVIOUS",
     "WORKER_IMAGE_RUNTIME",
@@ -817,6 +839,24 @@ function checkUpgradeHook(
   return errors;
 }
 
+const LISTED_RUNTIME = { engine: "claude", sdkVersion: "1", cliVersion: "1" };
+const listedWorker = (fields: Record<string, unknown> = {}) => ({
+  repository: "reg/worker",
+  digest: `sha256:${"5".repeat(64)}`,
+  runtime: LISTED_RUNTIME,
+  releasedAt: "2026-11-10T00:00:00Z",
+  ...fields,
+});
+// A packaged chart fills images.worker, and helm merges a map into the
+// default: only null clears its runtime.
+const listInstead = (workers: unknown) => [
+  "--set",
+  "images.worker.digest=",
+  "--set-json",
+  "images.worker.runtime=null",
+  "--set-json",
+  `images.workers=${JSON.stringify(workers)}`,
+];
 const MUST_FAIL: [string, string[], RegExp][] = [
   ["default values (no digests)", [], /digest must be sha256/],
   [
@@ -972,6 +1012,123 @@ const MUST_FAIL: [string, string[], RegExp][] = [
     `a worker image variable through ${set.split(/[.=]/).slice(0, 2).join(".")}`,
     ["-f", ciDigests, "--set", set],
     /must not be set through extraEnv, config\.limits or secrets\.catalogEnv/,
+  ]),
+  [
+    "images.workers beside images.worker",
+    [
+      "-f",
+      ciDigests,
+      "--set-json",
+      `images.workers=[{"repository":"reg/worker","digest":"sha256:${"5".repeat(64)}","runtime":{"engine":"claude","sdkVersion":"1","cliVersion":"1"},"releasedAt":"2026-11-10T00:00:00Z"}]`,
+    ],
+    /images\.workers replaces images\.worker and images\.workerPrevious/,
+  ],
+  // Each one the readers' workerImageListFromEnv also refuses: the chart must
+  // not render a list every process then fails to start on.
+  ...(
+    [
+      ["not a list", { a: 1 }, /images\.workers must be a list/],
+      [
+        "an unknown field",
+        [listedWorker({ tag: "x" })],
+        /images\.workers\[0\] has unknown field\(s\): tag/,
+      ],
+      [
+        "no runtime",
+        [listedWorker({ runtime: undefined })],
+        /images\.workers\[0\]\.runtime is required/,
+      ],
+      [
+        "a bad runtime",
+        [listedWorker({ runtime: { ...LISTED_RUNTIME, engine: "gemini" } })],
+        /images\.workers\[0\]\.runtime\.engine must be one of/,
+      ],
+      [
+        "a release time that is not a string",
+        [listedWorker({ releasedAt: 20261110 })],
+        /images\.workers\[0\]\.releasedAt must be/,
+      ],
+      [
+        "a release time that is not a time",
+        [listedWorker({ releasedAt: "oops" })],
+        /images\.workers\[0\]\.releasedAt "oops" is not an RFC 3339 time/,
+      ],
+      [
+        "a release time in a two-digit year",
+        [listedWorker({ releasedAt: "0099-11-10T00:00:00Z" })],
+        /is not an RFC 3339 time/,
+      ],
+      [
+        "release times finer than a millisecond",
+        [
+          listedWorker({ releasedAt: "2026-11-10T00:00:00.0002Z" }),
+          listedWorker({
+            digest: `sha256:${"6".repeat(64)}`,
+            releasedAt: "2026-11-10T00:00:00.0001Z",
+          }),
+        ],
+        /images\.workers\[0\]\.releasedAt .* is not an RFC 3339 time/,
+      ],
+      [
+        "a release time out of range",
+        [listedWorker({ releasedAt: "2026-02-30T00:00:00Z" })],
+        /is not an RFC 3339 time/,
+      ],
+      [
+        "the older image first",
+        [
+          listedWorker({ releasedAt: "2026-10-01T00:00:00Z" }),
+          listedWorker({ digest: `sha256:${"6".repeat(64)}` }),
+        ],
+        /images\.workers\[1\]\.releasedAt .* is not before the entry above it/,
+      ],
+      [
+        "one release time twice",
+        [listedWorker(), listedWorker({ digest: `sha256:${"6".repeat(64)}` })],
+        /images\.workers\[1\]\.releasedAt .* is not before/,
+      ],
+      [
+        "one digest twice",
+        [listedWorker(), listedWorker({ releasedAt: "2026-10-01T00:00:00Z" })],
+        /images\.workers\[1\]\.digest .* is listed twice/,
+      ],
+      [
+        "two engines",
+        [
+          listedWorker(),
+          listedWorker({
+            digest: `sha256:${"6".repeat(64)}`,
+            releasedAt: "2026-10-01T00:00:00Z",
+            runtime: { ...LISTED_RUNTIME, engine: "codex" },
+          }),
+        ],
+        /images of claude and codex: images of one engine only/,
+      ],
+      [
+        "three images",
+        ["5", "6", "7"].map((digit, index) =>
+          listedWorker({
+            digest: `sha256:${digit.repeat(64)}`,
+            releasedAt: `2026-1${2 - index}-01T00:00:00Z`,
+          }),
+        ),
+        /images\.workers lists 3 images: at most 2/,
+      ],
+      [
+        "a repository no reference allows",
+        [listedWorker({ repository: "bad repo" })],
+        /images\.workers\[0\]\.repository: "bad repo@sha256:.*" is not an image reference/,
+      ],
+      [
+        "no digest",
+        [listedWorker({ digest: undefined })],
+        /images\.workers\[0\]\.digest must be sha256/,
+      ],
+    ] as const
+  ).map(([what, workers, error]): [string, string[], RegExp] => [
+    `images.workers with ${what}`,
+    ["-f", ciDigests, ...listInstead(workers)],
+    error,
   ]),
 ];
 
@@ -1301,6 +1458,49 @@ errors.push(
   ),
 );
 
+const WORKER_REPOSITORY = "ghcr.io/jeongjaesoon/werft-worker";
+const CURRENT_DIGEST = `sha256:${"5".repeat(64)}`;
+const workerList = [
+  {
+    repository: WORKER_REPOSITORY,
+    digest: CURRENT_DIGEST,
+    runtime: CURRENT_RUNTIME,
+    releasedAt: "2026-11-10T00:00:00Z",
+  },
+  {
+    repository: WORKER_REPOSITORY,
+    digest: PREVIOUS_DIGEST,
+    runtime: { ...PREVIOUS_RUNTIME, restorableSchemes: [1] },
+    releasedAt: "2026-10-01T00:00:00Z",
+  },
+];
+const sortedDeep = (value: unknown): unknown =>
+  Array.isArray(value)
+    ? value.map(sortedDeep)
+    : value !== null && typeof value === "object"
+      ? Object.fromEntries(
+          Object.entries(value)
+            .sort(([a], [b]) => (a < b ? -1 : 1))
+            .map(([k, v]) => [k, sortedDeep(v)]),
+        )
+      : value;
+const renderedList = {
+  list: JSON.stringify(
+    sortedDeep(
+      workerList.map((w) => ({
+        image: `${w.repository}@${w.digest}`,
+        runtime: w.runtime,
+        released_at: w.releasedAt,
+      })),
+    ),
+  ),
+};
+const listManifests = render(["-f", ciDigests, ...listInstead(workerList)]);
+errors.push(
+  ...checkWorkerImages("image list", listManifests, renderedList),
+  ...checkUpgradeHook("image list", listManifests, true, []),
+);
+
 // What a publishing run makes: a package that renders with no values at all,
 // holding every promise above. Only the main and tag runs package for real, so
 // this is the pull request's one look at helm's side of it.
@@ -1350,6 +1550,12 @@ errors.push(
     runtime: asRendered(CURRENT_RUNTIME),
   }),
   ...checkUpgradeHook("package", packagedManifests, true, []),
+  // The switch the docs give an operator of the packaged chart.
+  ...checkWorkerImages(
+    "package, image list",
+    render(listInstead(workerList), packaged),
+    renderedList,
+  ),
 );
 for (const [label, args, message] of MUST_FAIL) {
   const { ok, out } = helmTemplate(args);
@@ -1423,5 +1629,5 @@ if (errors.length > 0) {
   process.exit(1);
 }
 console.log(
-  `render-check: default and aws example renders pass, a package renders with its own values, scheduler off and on, workspace storage declaration unset/false/true, slack off, preview on, metrics on, worker images (one, current runtime, two) alike on api, slack and scheduler, the upgrade check ahead of migrate; ${MUST_FAIL.length} bad inputs, an internet-facing ALB, ${CONSOLE_BREAKS.length} broken console Ingresses and a preview aws example refused; the console Ingress on and off`,
+  `render-check: default and aws example renders pass, a package renders with its own values, scheduler off and on, workspace storage declaration unset/false/true, slack off, preview on, metrics on, worker images (one, current runtime, two, a list) alike on api, slack and scheduler, the upgrade check ahead of migrate; ${MUST_FAIL.length} bad inputs, an internet-facing ALB, ${CONSOLE_BREAKS.length} broken console Ingresses and a preview aws example refused; the console Ingress on and off`,
 );
