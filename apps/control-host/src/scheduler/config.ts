@@ -162,8 +162,8 @@ function configuredImages(
     const retractedImages = listed
       .filter(({ retracted }) => retracted)
       .map(pair);
-    // Every image retracted: the newest still names the quota helper's image,
-    // and the scheduler launches nothing.
+    // Every image retracted: `image` is one of them, and the scheduler
+    // launches nothing and runs no quota probe on it.
     const [newest = listed[0], ...older] = launchable;
     return {
       image: newest.image,

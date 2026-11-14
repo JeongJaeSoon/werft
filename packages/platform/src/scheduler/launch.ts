@@ -1,6 +1,6 @@
 import type { ImageRuntime } from "@werft-ai/runtime-core";
 import { confirmGone, kill, killRequested } from "./kill.ts";
-import { launchRetryDelayMs } from "./options.ts";
+import { launchRetryDelayMs, type SchedulerOptions } from "./options.ts";
 import {
   countsAsLaunchFailure,
   failedEnsureObservation,
@@ -183,34 +183,67 @@ export async function rebuildsRetracted(
   if (execution.claimed) return false;
   // An intent from before images were stored takes the current setting.
   const image = stored.image ?? ctx.options.image;
-  return (await retractedImageIds(ctx)).has(image);
+  return (await retractedImageJudge(ctx))(image);
 }
 
-const retractedIds = new WeakMap<PassContext, Promise<Set<string>>>();
+const retractedJudges = new WeakMap<
+  PassContext,
+  Promise<(image: string) => boolean>
+>();
 
 /**
- * The retracted images as this backend pins them (for Docker, the image id
- * a stored intent holds), resolved once per pass and only when asked. One it
- * can no longer resolve has nothing left to build from either.
+ * Whether a stored image is retracted, judged against the retracted images
+ * as this backend pins them (for Docker, the image id a stored intent
+ * holds), resolved once per pass and only when asked. A retracted image it
+ * cannot resolve may still be the one an intent holds by id, under a tag it
+ * keeps; then only an image resolved from an unretracted entry is built
+ * again. Giving an unclaimed launch back costs its session no more than
+ * choosing an image again.
  */
-function retractedImageIds(ctx: PassContext): Promise<Set<string>> {
-  let ids = retractedIds.get(ctx);
-  if (ids === undefined) {
-    ids = (async () => {
-      const resolved = new Set<string>();
-      for (const { image } of ctx.options.retractedImages ?? []) {
-        resolved.add(image);
-        try {
-          resolved.add(await ctx.backend.resolveImage(image));
-        } catch {
-          // Unresolvable now: a stored intent naming it cannot be built.
+function retractedImageJudge(
+  ctx: PassContext,
+): Promise<(image: string) => boolean> {
+  let judge = retractedJudges.get(ctx);
+  if (judge === undefined) {
+    judge = (async () => {
+      if (everyImageRetracted(ctx.options)) return () => true;
+      const resolveAll = async (images: readonly string[]) => {
+        const resolved = new Set(images);
+        let complete = true;
+        for (const image of images) {
+          try {
+            resolved.add(await ctx.backend.resolveImage(image));
+          } catch {
+            complete = false;
+          }
         }
-      }
-      return resolved;
+        return { complete, resolved };
+      };
+      const retracted = await resolveAll(
+        (ctx.options.retractedImages ?? []).map(({ image }) => image),
+      );
+      if (retracted.complete) return (image) => retracted.resolved.has(image);
+      const { resolved: launchable } = await resolveAll([
+        ctx.options.image,
+        ...(ctx.options.olderImages ?? []).map(({ image }) => image),
+      ]);
+      return (image) => retracted.resolved.has(image) || !launchable.has(image);
     })();
-    retractedIds.set(ctx, ids);
+    retractedJudges.set(ctx, judge);
   }
-  return ids;
+  return judge;
+}
+
+/**
+ * Listed digests are unique, so `image` is retracted only when every listed
+ * image is; then nothing is launched or built again.
+ */
+function everyImageRetracted(
+  options: Pick<SchedulerOptions, "image" | "retractedImages">,
+): boolean {
+  return (options.retractedImages ?? []).some(
+    ({ image }) => image === options.image,
+  );
 }
 
 /**

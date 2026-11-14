@@ -20,6 +20,12 @@ import { verifyWorkspaceQuotaOnce } from "./quota-preflight.ts";
 export type PreflightContext = Omit<ReclaimOptions, "backend"> & {
   /** See QUOTA_PREFLIGHT_MARKER_ENV. */
   quotaMarker: string | undefined;
+  /**
+   * False when every worker image is retracted: the pass creates no
+   * workspace, and the probe's helper, which holds CAP_SYS_ADMIN, would run
+   * a retracted image.
+   */
+  probeQuota: boolean;
 };
 
 export type SchedulerBackend = {
@@ -92,6 +98,7 @@ async function dockerPreflight(
     );
     throw error;
   }
+  if (!context.probeQuota) return;
   await verifyWorkspaceQuotaOnce({
     logger,
     marker: context.quotaMarker,

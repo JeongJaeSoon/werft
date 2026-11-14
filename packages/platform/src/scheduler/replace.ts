@@ -44,38 +44,27 @@ export async function replace(
     ctx;
   const ref = refOf(execution);
   const stored = storedIntentOf(execution);
-  const retracted =
-    stored !== null && (await rebuildsRetracted(ctx, execution, stored));
-  if (execution.claimed || stored === null || retracted) {
+  if (execution.claimed || stored === null) {
     // Nothing to rebuild from: a claimed launch spent its credential on a
-    // binding, a pre-intent row never had one, and a retracted image is
-    // not built again. Teardown and close.
+    // binding, and a pre-intent row never had one. Teardown and close.
     if (!(await teardown(ctx, execution, reason, observed))) return;
     summary.replaced.push(ref);
-    if (retracted && execution.pendingReplacement !== null) {
-      // An earlier pass's rebuild, which the exit would otherwise wait on.
-      lock.throwIfAborted();
-      await store.settleReplacement(ref, execution.replacementCount);
-    }
     if (
       !(await confirmGone(ctx, execution, seenIncarnation(execution, observed)))
     ) {
       return;
     }
-    (retracted ? summary.launchesRetracted : summary.terminatedObserved).push(
-      ref,
-    );
-    logger.warn(
-      retracted
-        ? "Launch's worker image is retracted; torn down unbuilt so its session chooses an image again"
-        : "Replaced an execution nothing can rebuild; closed",
-      {
-        ...fieldsOf(ref),
-        claimed: execution.claimed,
-        reason,
-        session_id: execution.sessionId,
-      },
-    );
+    summary.terminatedObserved.push(ref);
+    logger.warn("Replaced an execution nothing can rebuild; closed", {
+      ...fieldsOf(ref),
+      claimed: execution.claimed,
+      reason,
+      session_id: execution.sessionId,
+    });
+    return;
+  }
+  if (await rebuildsRetracted(ctx, execution, stored)) {
+    await retire(ctx, execution, reason, observed, acceptedFingerprint);
     return;
   }
   if (!execution.launchRetryDue) {
@@ -173,6 +162,63 @@ export async function replace(
   if (!(await teardown(ctx, execution, reason, observed))) return;
   summary.replaced.push(ref);
   await reensure(ctx, execution, reason, attempts);
+}
+
+/**
+ * Tears down an unclaimed launch whose image is retracted and gives its slot
+ * back unbuilt, so its session chooses an image again on a later pass. The
+ * record comes first, as for a rebuild: it shuts the bootstrap door, so a
+ * worker cannot bind while the resource goes, and a claim that got there
+ * first refuses it. Settling it after the teardown is what lets the exit be
+ * confirmed instead of waiting on a rebuild that will not come.
+ */
+async function retire(
+  ctx: PassContext,
+  execution: ActiveExecution,
+  reason: ReplaceReason,
+  observed: ExecutionObservation,
+  acceptedFingerprint: string | null,
+): Promise<void> {
+  const { lock, logger, store, summary } = ctx;
+  const ref = refOf(execution);
+  lock.throwIfAborted();
+  const attempts = await store.requestReplacement(
+    ref,
+    reason,
+    execution.replacementCount,
+    acceptedFingerprint,
+  );
+  if (attempts === null) {
+    logger.info("Replacement refused; launch moved on since it was read", {
+      ...fieldsOf(ref),
+      reason,
+      session_id: execution.sessionId,
+    });
+    return;
+  }
+  if (!(await teardown(ctx, execution, reason, observed))) return;
+  summary.replaced.push(ref);
+  lock.throwIfAborted();
+  await store.settleReplacement(ref, attempts);
+  // The record revoked the credential, so the launch it judged holds none.
+  if (
+    !(await confirmGone(ctx, execution, {
+      claimed: false,
+      nonceFingerprint: null,
+    }))
+  ) {
+    return;
+  }
+  summary.launchesRetracted.push(ref);
+  logger.warn(
+    "Launch's worker image is retracted; torn down unbuilt so its session chooses an image again",
+    {
+      ...fieldsOf(ref),
+      image: execution.image,
+      reason,
+      session_id: execution.sessionId,
+    },
+  );
 }
 
 /**

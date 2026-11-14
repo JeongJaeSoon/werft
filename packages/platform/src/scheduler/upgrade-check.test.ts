@@ -311,6 +311,21 @@ describe("assessUpgrade", () => {
       ).toBe("proceed");
     });
 
+    test("a fully retracted list kept as it is changes nothing", () => {
+      const images: Assessed["target"] = [
+        { image: n, runtime: previous, retracted: true },
+      ];
+      expect(
+        assessUpgrade({
+          deployed: images,
+          target: images,
+          writers: [],
+          sessions: [on("s-previous", previous)],
+          approved: [],
+        }),
+      ).toEqual({ verdict: "proceed", affected: [], approved: [] });
+    });
+
     test("the flag alone is a change, both ways", () => {
       const retract = assessUpgrade({
         deployed: [

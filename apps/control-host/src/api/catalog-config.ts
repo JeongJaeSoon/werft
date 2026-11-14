@@ -16,6 +16,7 @@ import {
   type SessionCatalog,
   settingsView,
   withConsoleRepositories,
+  workerImageListFromEnv,
 } from "@werft-ai/platform";
 import {
   equivalentToolCatalogVersions,
@@ -101,9 +102,12 @@ export function runtimeVersionsFromEnv(
       ),
     ]),
   ];
+  // Every image retracted: no new session starts on any of them.
+  const noneLaunchable =
+    workerImageListFromEnv(env)?.every(({ retracted }) => retracted) ?? false;
   return {
     accepted: withEquivalents(versions.accepted),
-    current: withEquivalents(versions.current),
+    current: noneLaunchable ? [] : withEquivalents(versions.current),
   };
 }
 

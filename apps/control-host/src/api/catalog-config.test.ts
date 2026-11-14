@@ -104,6 +104,28 @@ describe("installed runtimes", () => {
         WORKER_IMAGE_PREVIOUS_RUNTIME: JSON.stringify(previous),
       }),
     );
+    const retracted = (flags: [boolean, boolean]) =>
+      runtimeVersionsFromEnv({
+        WORKER_IMAGES: JSON.stringify([
+          {
+            image: `reg/worker@sha256:${"a".repeat(64)}`,
+            runtime: current,
+            released_at: "2026-11-10T00:00:00Z",
+            retracted: flags[0],
+          },
+          {
+            image: `reg/worker@sha256:${"b".repeat(64)}`,
+            runtime: previous,
+            released_at: "2026-10-01T00:00:00Z",
+            retracted: flags[1],
+          },
+        ]),
+      });
+    // New sessions start on the newest unretracted image, and on none once all are.
+    expect(retracted([true, false])?.current).toContain("0.3.270");
+    expect(retracted([true, false])?.current).not.toContain("0.3.280");
+    expect(retracted([true, true])?.current).toEqual([]);
+    expect(retracted([true, true])?.accepted).toEqual(listed?.accepted ?? []);
   });
 });
 

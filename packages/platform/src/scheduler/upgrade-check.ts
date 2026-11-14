@@ -100,9 +100,11 @@ export function assessUpgrade(input: {
     .map(({ image }) => image);
   if (
     changed.length === 0 &&
-    deployedNewest !== undefined &&
-    targetNewest !== undefined &&
-    kept(deployedNewest, [targetNewest])
+    // Both undefined: every image retracted on either side, so no session
+    // launches before or after.
+    (deployedNewest === undefined
+      ? targetNewest === undefined
+      : targetNewest !== undefined && kept(deployedNewest, [targetNewest]))
   ) {
     return assessNothingReplaced(
       input.approved,

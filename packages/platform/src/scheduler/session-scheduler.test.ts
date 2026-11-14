@@ -1111,6 +1111,7 @@ describe("worker image per session", () => {
         ];
         return {
           ...h,
+          options,
           sealed,
           ref: {
             executionId: intent.executionId,
@@ -1180,6 +1181,70 @@ describe("worker image per session", () => {
             .slice(ensured)
             .every((call) => call.image !== "sha256:worker:previous"),
         ).toBe(true);
+      });
+
+      test("a worker that claims while the image is judged is not torn down", async () => {
+        const { backend, records, run, ref, store } =
+          await reservedOnPrevious();
+        backend.staleFor.add(`${ref.executionId}#${ref.generation}`);
+        const resolve = backend.resolveImage.bind(backend);
+        backend.resolveImage = async (image: string) => {
+          if (image === "worker:previous") {
+            const row = store.executions.get(ref.executionId);
+            if (row) row.claimed = true;
+          }
+          return resolve(image);
+        };
+        const terminated = backend.terminateCalls.length;
+        const summary = await run();
+        expect(backend.terminateCalls.slice(terminated)).toEqual([]);
+        expect(summary.launchesRetracted).toEqual([]);
+        expect(summary.replaced).toEqual([]);
+        expect(
+          records.some(
+            (r) => r.level === "info" && r.message.includes("moved on"),
+          ),
+        ).toBe(true);
+      });
+
+      test("a retracted image that cannot be resolved leaves only the unretracted ones to build", async () => {
+        const { backend, run, ref, store } = await reservedOnPrevious();
+        const [fresh] = store.addUnassigned(1);
+        await run();
+        const freshRef = [...store.executions.values()].find(
+          (e) => e.sessionId === fresh,
+        );
+        if (!freshRef) throw new Error("fresh not launched");
+        const resolve = backend.resolveImage.bind(backend);
+        // The digest reference is gone, but the image id a launch holds is not.
+        backend.resolveImage = async (image: string) => {
+          if (image === "worker:previous")
+            throw new Error("not on this daemon");
+          return resolve(image);
+        };
+        backend.containers.clear();
+        const ensured = backend.ensureCalls.length;
+        const summary = await run();
+        expect(summary.launchesRetracted).toEqual([ref]);
+        const rebuilt = backend.ensureCalls.slice(ensured).map((c) => c.image);
+        expect(rebuilt).not.toContain("sha256:worker:previous");
+        expect(rebuilt).toContain("sha256:worker:test");
+        expect(summary.reensured).toContainEqual({
+          executionId: freshRef.executionId,
+          generation: freshRef.generation,
+        });
+      });
+
+      test("with every image retracted, a launch on an image no longer listed is given back too", async () => {
+        const { backend, options, run, ref } = await reservedOnPrevious();
+        if (!options) throw new Error("no options");
+        options.olderImages = [];
+        options.retractedImages = [{ image: "worker:test", runtime: current }];
+        backend.containers.clear();
+        const ensured = backend.ensureCalls.length;
+        const summary = await run();
+        expect(summary.launchesRetracted).toEqual([ref]);
+        expect(backend.ensureCalls.slice(ensured)).toEqual([]);
       });
     });
 
