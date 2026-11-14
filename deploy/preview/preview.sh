@@ -6,11 +6,13 @@
 # __Host- session cookie is set there, and each preview's host keeps its
 # own: signing in to one does not sign another out.
 #
-#   deploy/preview/preview.sh up <N>    check the PR head out, build its images
+#   deploy/preview/preview.sh up <N> [<sha>]
+#                                       check the PR head out, build its images
 #                                       (tag pr-<N>), install it in a fresh
 #                                       namespace (an existing preview's is
 #                                       deleted first), and read /readyz
-#                                       through Traefik
+#                                       through Traefik; with <sha>, exit 75
+#                                       unless the head is still that commit
 #   deploy/preview/preview.sh down <N>  delete the namespace, the image tags
 #                                       and the checkout
 #   deploy/preview/preview.sh list      the previews: URL, head, memory in use,
@@ -18,6 +20,10 @@
 #   deploy/preview/preview.sh reap      `down` every preview whose last `up`
 #                                       is older than the TTL or whose PR is
 #                                       closed or merged
+#   deploy/preview/preview.sh sync      bring up or down the previews of the
+#                                       PRs with PREVIEW_LABEL (see sync()),
+#                                       then reap; for a scheduler run every
+#                                       minute
 #
 # The PR's own tree is installed (Dockerfiles, chart, stand-ins) by this
 # checkout's deploy/kind/up.sh, copied into it, so a head that predates
@@ -37,11 +43,21 @@
 #                      its allocatable memory
 #   PREVIEW_TTL_HOURS  how long after its last `up` reap deletes a preview
 #                      (default 24)
+#   PREVIEW_DOMAIN     optional: each preview also answers Host
+#                      pr-<N>.<PREVIEW_DOMAIN>, for a reverse proxy that
+#                      ends TLS for *.<PREVIEW_DOMAIN> and passes Host on
+#                      unchanged; its https address is the one printed
+#   PREVIEW_LABEL      the pull request label `sync` follows (default
+#                      preview)
+#   PREVIEW_SOURCE     `up` writes it to the namespace's annotation
+#                      werft.dev/preview-source (`sync` sets label)
 set -euo pipefail
 
 PREVIEW_HOME="${PREVIEW_HOME:-${XDG_CACHE_HOME:-$HOME/.cache}/werft/preview}"
 PREVIEW_MEMORY_MI="${PREVIEW_MEMORY_MI:-2560}"
 PREVIEW_TTL_HOURS="${PREVIEW_TTL_HOURS:-24}"
+PREVIEW_DOMAIN="${PREVIEW_DOMAIN:-}"
+PREVIEW_LABEL="${PREVIEW_LABEL:-preview}"
 INGRESS_NAMESPACE=preview-ingress
 TRAEFIK_CHART=oci://ghcr.io/traefik/helm/traefik
 TRAEFIK_VERSION=42.1.3
@@ -53,7 +69,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/../.." && pwd)"
 
 usage() {
-  echo "usage: $0 up <PR number> | down <PR number> | list | reap" >&2
+  echo "usage: $0 up <PR number> [<head sha>] | down <PR number> | list | reap | sync" >&2
   exit 2
 }
 
@@ -65,6 +81,15 @@ for name in PREVIEW_MEMORY_MI MAX_MEMORY_MI; do
 done
 if ! [[ "$PREVIEW_TTL_HOURS" =~ ^[0-9]+$ ]]; then
   echo "PREVIEW_TTL_HOURS must be a whole number of hours, not '${PREVIEW_TTL_HOURS}'" >&2
+  exit 1
+fi
+if [ -n "$PREVIEW_DOMAIN" ] &&
+  ! [[ "$PREVIEW_DOMAIN" =~ ^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$ ]]; then
+  echo "PREVIEW_DOMAIN must be a lowercase DNS name such as preview.example.dev, not '${PREVIEW_DOMAIN}'" >&2
+  exit 1
+fi
+if ! [[ "$PREVIEW_LABEL" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,49}$ ]]; then
+  echo "PREVIEW_LABEL must be a label name of letters, digits, . _ -, not '${PREVIEW_LABEL}'" >&2
   exit 1
 fi
 
@@ -134,7 +159,31 @@ require_memory() {
 }
 
 url() {
-  printf 'http://%s.localhost:%s/' "$1" "$HTTP_PORT"
+  if [ -n "$PREVIEW_DOMAIN" ]; then
+    printf 'https://%s.%s/' "$1" "$PREVIEW_DOMAIN"
+  else
+    printf 'http://%s.localhost:%s/' "$1" "$HTTP_PORT"
+  fi
+}
+
+# The Ingress rules for each host, all to the namespace's api.
+ingress_rules() {
+  local host service="$1"
+  shift
+  for host in "$@"; do
+    cat <<EOF
+    - host: ${host}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ${service}
+                port:
+                  number: 3000
+EOF
+  done
 }
 
 readyz() {
@@ -196,6 +245,11 @@ up() {
 
   git -C "$root" fetch -q origin "+refs/pull/${n}/head:refs/preview/${namespace}"
   head="$(git -C "$root" rev-parse "refs/preview/${namespace}")"
+  # `sync` passes the head it checked; a push since then is not that head.
+  if [ -n "${2:-}" ] && [ "$head" != "$2" ]; then
+    echo "${namespace}: head is ${head} now, not the ${2} asked for" >&2
+    exit 75
+  fi
   if [ -d "${dir}/src" ]; then
     git -C "${dir}/src" checkout -q --force --detach "$head"
   else
@@ -214,7 +268,8 @@ up() {
   kubectl create namespace "$namespace" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
   kubectl label namespace "$namespace" --overwrite werft.dev/preview=true >/dev/null
   kubectl annotate namespace "$namespace" --overwrite \
-    "werft.dev/preview-up-at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >/dev/null
+    "werft.dev/preview-up-at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    ${PREVIEW_SOURCE:+"werft.dev/preview-source=${PREVIEW_SOURCE}"} >/dev/null
 
   CLUSTER_PROVIDER=orbstack KIND_MODEL=fake RELEASE=werft \
     NAMESPACE="$namespace" IMAGE_TAG="$namespace" \
@@ -231,16 +286,7 @@ metadata:
 spec:
   ingressClassName: preview
   rules:
-    - host: ${host}
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: $(cat "${dir}/state/fullname")-api
-                port:
-                  number: 3000
+$(ingress_rules "$(cat "${dir}/state/fullname")-api" "$host" ${PREVIEW_DOMAIN:+"${namespace}.${PREVIEW_DOMAIN}"})
 EOF
   kubectl annotate namespace "$namespace" --overwrite "werft.dev/preview-head=${head}" >/dev/null
 
@@ -249,7 +295,7 @@ EOF
     [ "$code" = 200 ] && break
     sleep 2
   done
-  echo "GET $(url "$namespace")readyz -> ${code}"
+  echo "GET http://${host}:${HTTP_PORT}/readyz -> ${code}"
   # The quickstart's demo accounts and data, as scripts/local.sh adds them.
   # The data's exit 2 is its CLI refusing (a head without it, say): said,
   # not fatal.
@@ -399,10 +445,207 @@ reap() {
   [ "${#failed[@]}" = 0 ]
 }
 
+COMMENT_MARKER='<!-- werft-preview-local -->'
+
+# Writes the pull request's one sync comment (the marker, by this gh user),
+# editing it after the first. A failed write is logged, not fatal.
+comment() {
+  local n="$1" body id
+  body="${COMMENT_MARKER}
+### PR 미리보기: $2"
+  id="$(cd "$root" && gh api --paginate "repos/{owner}/{repo}/issues/${n}/comments" \
+    --jq ".[] | select(.user.login == \"${gh_user}\" and (.body | startswith(\"${COMMENT_MARKER}\"))) | .id" \
+    </dev/null | tail -n 1)" || id=""
+  if [ -n "$id" ]; then
+    (cd "$root" && gh api -X PATCH "repos/{owner}/{repo}/issues/comments/${id}" -f body="$body" --jq .id </dev/null) >/dev/null
+  else
+    (cd "$root" && gh api "repos/{owner}/{repo}/issues/${n}/comments" -f body="$body" --jq .id </dev/null) >/dev/null
+  fi || echo "pr-${n}: writing the PR comment failed" >&2
+}
+
+# When the label was last put on the pull request and by whom:
+# "<created_at> <login>", or nothing.
+last_labeled() {
+  local events
+  events="$(cd "$root" && gh api --paginate "repos/{owner}/{repo}/issues/$1/events" \
+    --jq ".[] | select(.event == \"labeled\" and .label.name == \"${PREVIEW_LABEL}\") | \"\(.created_at) \(.actor.login)\"" \
+    </dev/null)" || return 1
+  tail -n 1 <<<"$events"
+}
+
+# Everyone but this Mac's own GitHub login who may push to the repository.
+other_pushers() {
+  (cd "$root" && gh api --paginate "repos/{owner}/{repo}/collaborators" \
+    --jq ".[] | select(.permissions.push and .login != \"${gh_user}\") | .login" </dev/null)
+}
+
+# A labeled open pull request from a branch of this repository gets a
+# preview of its head, brought up again when the head moves; taking the
+# label off or closing the pull request downs it. Previews brought up by
+# hand (no werft.dev/preview-source=label) are left to reap.
+#
+# The previews run the pull request's code on this Mac (its Dockerfiles,
+# chart and scripts), so only a label this Mac's own GitHub login put on
+# counts, and nothing runs while anyone else may push to the repository.
+#
+# PREVIEW_HOME/sync/pr-<N> holds "<head> <up|failed|refused|gone>
+# <labeled at>": a head is tried once per label, so a failing head is not
+# rebuilt every run, and putting the label on again asks again. A preview
+# gone at the head it was up at (reap's TTL, a `down` by hand) keeps its
+# label and comes back on a push or a new label. Anything GitHub does not
+# answer changes nothing.
+sync() {
+  local pulls n head cross state_file tried status tried_at ns_head source
+  local labeled label_at actor others code namespace up_at count refusal
+  local wanted=" " LIMIT=500
+  lock_preview sync
+  echo "sync $(date -u +%Y-%m-%dT%H:%M:%SZ): label ${PREVIEW_LABEL}"
+  mkdir -p "${PREVIEW_HOME}/sync"
+  if ! gh_user="$(cd "$root" && gh api user --jq .login </dev/null)" ||
+    ! others="$(other_pushers)" ||
+    ! pulls="$(cd "$root" && GH_NO_UPDATE_NOTIFIER=1 gh pr list --label "$PREVIEW_LABEL" \
+      --state open --limit "$LIMIT" --json number,headRefOid,isCrossRepository \
+      --jq '.[] | [.number, .headRefOid, .isCrossRepository] | @tsv' </dev/null)"; then
+    echo "sync: GitHub could not be read; no preview changed"
+    reap
+    return
+  fi
+  count="$(grep -c . <<<"$pulls" || true)"
+  if [ "$count" -ge "$LIMIT" ]; then
+    echo "sync: ${count} labeled pull requests, the list may be cut; no preview changed"
+    reap
+    return
+  fi
+  while IFS=$'\t' read -r n head cross; do
+    [[ "$n" =~ ^[1-9][0-9]{0,6}$ ]] && wanted+="${n} "
+  done <<<"$pulls"
+
+  # First what is no longer wanted (label off, closed, merged), so a long
+  # build below does not hold it up.
+  for namespace in $( (
+    cd "${PREVIEW_HOME}/sync" && ls -1
+    kubectl get namespaces -l werft.dev/preview=true -o json | jq -r \
+      '.items[] | select(.metadata.annotations["werft.dev/preview-source"] == "label") | .metadata.name'
+  ) | grep -E '^pr-[1-9][0-9]{0,6}$' | sort -u); do
+    n="${namespace#pr-}"
+    [[ "$wanted" == *" ${n} "* ]] && continue
+    source="$(kubectl get namespace "$namespace" -o jsonpath='{.metadata.annotations.werft\.dev/preview-source}' 2>/dev/null || true)"
+    if [ "$source" = label ]; then
+      up_at="$(kubectl get namespace "$namespace" -o jsonpath='{.metadata.annotations.werft\.dev/preview-up-at}')"
+      echo "${namespace}: no longer labeled or open; down"
+      code=0
+      PREVIEW_REAP_UP_AT="$up_at" "$here/preview.sh" down "$n" </dev/null || code=$?
+      case "$code" in
+        0) comment "$n" "내려갔다
+
+$(date -u '+%Y-%m-%d %H:%M UTC')에 내렸다. 라벨 \`${PREVIEW_LABEL}\`가 없거나 PR이 닫혔다. 다시 보려면 열린 PR에 라벨을 붙인다." ;;
+        75) echo "${namespace}: kept, see above"; continue ;;
+        *) echo "${namespace}: down failed" >&2; continue ;;
+      esac
+    fi
+    rm -f -- "${PREVIEW_HOME}/sync/${namespace}" "${PREVIEW_HOME}/sync/${namespace}.log"
+  done
+
+  while IFS=$'\t' read -r n head cross; do
+    [ -n "$n" ] || continue
+    if ! [[ "$n" =~ ^[1-9][0-9]{0,6}$ && "$head" =~ ^[0-9a-f]{40}$ ]]; then
+      echo "sync: skipped a row that is not a pull request number and head: ${n} ${head}"
+      continue
+    fi
+    state_file="${PREVIEW_HOME}/sync/pr-${n}"
+    tried="" status="" tried_at=""
+    [ -f "$state_file" ] && read -r tried status tried_at <"$state_file"
+    ns_head="$(kubectl get namespace "pr-${n}" -o jsonpath='{.metadata.annotations.werft\.dev/preview-head}' 2>/dev/null || true)"
+    source="$(kubectl get namespace "pr-${n}" -o jsonpath='{.metadata.annotations.werft\.dev/preview-source}' 2>/dev/null || true)"
+    if [ "$ns_head" = "$head" ] && [ "$source" = label ] && [ "$status" = up ]; then
+      continue
+    fi
+    if ! labeled="$(last_labeled "$n")" || [ -z "$labeled" ]; then
+      echo "pr-${n}: the label's events could not be read; nothing changed"
+      continue
+    fi
+    label_at="${labeled%% *}"
+    actor="${labeled#* }"
+    # Brought up by hand at this head: it now follows the label.
+    if [ "$ns_head" = "$head" ] && [ "$source" != label ] && [ "$(readyz "pr-${n}")" = 200 ]; then
+      kubectl annotate namespace "pr-${n}" --overwrite werft.dev/preview-source=label >/dev/null
+      echo "$head up $label_at" >"$state_file"
+      echo "pr-${n}: already up at ${head:0:12}, now follows the label"
+      comment "$n" "$(up_body "$n" "$head")"
+      continue
+    fi
+    if [ "$tried" = "$head" ] && [ "$tried_at" = "$label_at" ]; then
+      if [ "$status" = up ] && [ -z "$ns_head" ]; then
+        echo "$head gone $label_at" >"$state_file"
+        echo "pr-${n}: gone at ${head:0:12}; up again on a push or a new label"
+        comment "$n" "내려갔다
+
+$(date -u '+%Y-%m-%d %H:%M UTC') 전에 미리보기가 없어졌다(마지막으로 띄운 지 ${PREVIEW_TTL_HOURS}시간이 지났거나 손으로 내렸다). 다시 보려면 새 커밋을 push하거나 라벨 \`${PREVIEW_LABEL}\`를 다시 붙인다."
+      fi
+      continue
+    fi
+    refusal=""
+    if [ "$cross" != false ]; then
+      refusal="fork의 브랜치다. 이 저장소의 브랜치에서 연 PR만 띄운다."
+    elif [ "$actor" != "$gh_user" ]; then
+      refusal="라벨 \`${PREVIEW_LABEL}\`를 마지막으로 붙인 ${actor}가 미리보기를 띄우는 Mac의 GitHub 로그인이 아니다. PR 코드가 그 Mac에서 돌기 때문에 그 로그인이 붙인 라벨만 센다."
+    elif [ -n "$others" ]; then
+      refusal="이 저장소에 push할 수 있는 사람이 미리보기를 띄우는 Mac의 GitHub 로그인 말고도 있다($(tr '\n' ' ' <<<"$others" | sed 's/ $//')). PR 코드가 그 Mac에서 돌기 때문에 그동안은 띄우지 않는다."
+    fi
+    if [ -n "$refusal" ]; then
+      echo "$head refused $label_at" >"$state_file"
+      echo "pr-${n}: refused at ${head:0:12}: ${refusal}"
+      comment "$n" "거절했다
+
+${refusal}"
+      continue
+    fi
+    echo "pr-${n}: up at ${head:0:12}, labeled by ${actor} at ${label_at}"
+    comment "$n" "올리는 중
+
+head \`${head}\`를 빌드해 띄운다. 몇 분 걸린다."
+    code=0
+    PREVIEW_SOURCE=label "$here/preview.sh" up "$n" "$head" </dev/null \
+      >"${PREVIEW_HOME}/sync/pr-${n}.log" 2>&1 || code=$?
+    case "$code" in
+      0)
+        echo "$head up $label_at" >"$state_file"
+        echo "pr-${n}: up at ${head:0:12}"
+        comment "$n" "$(up_body "$n" "$head")"
+        ;;
+      75)
+        echo "pr-${n}: busy or the head moved; the next run tries again: $(tail -n 1 "${PREVIEW_HOME}/sync/pr-${n}.log")"
+        ;;
+      *)
+        echo "$head failed $label_at" >"$state_file"
+        echo "pr-${n}: up failed (exit ${code}); see ${PREVIEW_HOME}/sync/pr-${n}.log"
+        comment "$n" "실패했다
+
+head \`${head}\`를 띄우지 못했다(exit ${code}). 로그는 미리보기를 띄우는 Mac에 있다. 새 커밋을 push하거나 라벨 \`${PREVIEW_LABEL}\`를 다시 붙이면 다시 시도한다."
+        ;;
+    esac
+  done <<<"$pulls"
+  reap
+}
+
+up_body() {
+  cat <<EOF
+떠 있다
+
+- 주소: $(url "pr-$1")
+- head: \`$2\`
+- 데모 계정: \`demo-owner@example.test\`(owner), \`demo-member@example.test\`(member). 비밀번호는 [quickstart](https://github.com/JeongJaeSoon/werft/blob/main/docs/quickstart.md)의 "웹 콘솔 데모 계정"과 같다.
+- 새 커밋을 push하면 1분 안팎에 새 head로 다시 띄운다. 라벨 \`${PREVIEW_LABEL}\`를 떼거나 PR을 닫으면 내려간다. 마지막으로 띄운 지 ${PREVIEW_TTL_HOURS}시간이 지나면 내려가고 라벨이 떨어진다.
+
+fake 모델이라 실제 모델·GitHub·Slack에는 닿지 않는다.
+EOF
+}
+
 case "${1:-}" in
-  up) up "${2:-}" ;;
+  up) up "${2:-}" "${3:-}" ;;
   down) down "${2:-}" ;;
   list) list ;;
   reap) reap ;;
+  sync) sync ;;
   *) usage ;;
 esac

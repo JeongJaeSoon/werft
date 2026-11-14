@@ -342,7 +342,7 @@ demo_accounts() {
 }
 
 # DEMO_ACCOUNTS_PASSWORD from the shell replaces the public demo password
-# (.github/workflows/preview.yml); by name only, so it is in no argv.
+# (demo-accounts.ts demoPassword); by name only, so it is in no argv.
 demo_password=()
 [ -z "${DEMO_ACCOUNTS_PASSWORD+set}" ] || demo_password=(-e DEMO_ACCOUNTS_PASSWORD)
 
