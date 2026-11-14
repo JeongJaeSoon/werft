@@ -74,6 +74,7 @@ export async function main(
         ? {}
         : { imageRuntime: config.imageRuntime }),
       olderImages: config.olderImages,
+      retractedImages: config.retractedImages,
       logger,
       resources: config.resources,
       slotLimit: config.slotLimit,

@@ -23,6 +23,7 @@ import {
 import {
   INCOMPATIBLE_CHECKPOINT_REASON,
   RESTORE_FAILURE_LIMIT,
+  RUNTIME_RETIRED_REASON,
 } from "./restore-failures.ts";
 import { createPostgresSchedulerStore } from "./scheduler/scheduler-store.ts";
 import * as schema from "./schema.ts";
@@ -593,6 +594,7 @@ integration("startup failures before ready on PostgreSQL", () => {
       scheduler().holdIncompatibleBeforeLaunch({
         sessionId: session.sessionId,
         checkpointRevision,
+        reason: INCOMPATIBLE_CHECKPOINT_REASON,
         detail: "no configured worker image runs sdkVersion 0.3.260",
         now: new Date(),
       });
@@ -655,12 +657,67 @@ integration("startup failures before ready on PostgreSQL", () => {
     expect(await launchable(session)).toBe(true);
   });
 
+  test("a checkpoint only a retracted image restores holds as runtime_retired, and retry_restore lets it back", async () => {
+    const session = await checkpointedSession("launch-hold-retired");
+    const detail =
+      "the checkpoint was sealed on claude sdk 0.3.270; only a retracted worker image restores it";
+    expect(
+      await scheduler().holdIncompatibleBeforeLaunch({
+        sessionId: session.sessionId,
+        checkpointRevision: 0,
+        reason: RUNTIME_RETIRED_REASON,
+        detail,
+        now: new Date(),
+      }),
+    ).toBe("held");
+    expect(await sessionRow(session.sessionId)).toMatchObject({
+      admissionState: "recovery_required",
+      restoreFailureReason: RUNTIME_RETIRED_REASON,
+    });
+    expect(
+      (await reader().getSession(session.ownerId, session.sessionId))
+        ?.attention,
+    ).toEqual({
+      code: "RESTORE_FAILED",
+      reason: RUNTIME_RETIRED_REASON,
+      failures: 1,
+      retry_at: null,
+    });
+    expect(
+      await systemEvents(session.sessionId, "checkpoint_restore_failed"),
+    ).toEqual([
+      expect.objectContaining({
+        detected_at: "launch",
+        detail,
+        reason: RUNTIME_RETIRED_REASON,
+      }),
+    ]);
+    const [status] = await db
+      .select({ payload: events.payload })
+      .from(events)
+      .where(
+        and(eq(events.sessionId, session.sessionId), eq(events.type, "status")),
+      )
+      .orderBy(desc(events.id))
+      .limit(1);
+    expect(status?.payload).toMatchObject({
+      admission_state: "recovery_required",
+      reason: RUNTIME_RETIRED_REASON,
+    });
+    // Once a fixed image is listed, the same checkpoint is tried again.
+    expect(await decide(session, "retry_restore")).toMatchObject({
+      outcome: "accepted",
+    });
+    expect(await launchable(session)).toBe(true);
+  });
+
   test("a checkpoint start_fresh retired holds no image and no session", async () => {
     const session = await checkpointedSession("launch-hold-fresh");
     const hold = () =>
       scheduler().holdIncompatibleBeforeLaunch({
         sessionId: session.sessionId,
         checkpointRevision: 0,
+        reason: INCOMPATIBLE_CHECKPOINT_REASON,
         detail: "no configured worker image runs it",
         now: new Date(),
       });
@@ -693,6 +750,7 @@ integration("startup failures before ready on PostgreSQL", () => {
       await scheduler().holdIncompatibleBeforeLaunch({
         sessionId: session.sessionId,
         checkpointRevision: 0,
+        reason: INCOMPATIBLE_CHECKPOINT_REASON,
         detail: "no configured worker image runs it",
         now: new Date(),
       }),

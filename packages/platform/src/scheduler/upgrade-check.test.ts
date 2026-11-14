@@ -231,6 +231,138 @@ describe("assessUpgrade", () => {
     });
   });
 
+  describe("a retracted image restores nothing", () => {
+    const fix = "worker@sha256:fix";
+
+    test("retracting the deployed newest image needs a fixed build beside it; waiting does not help", () => {
+      for (const target of [
+        [{ image: n, runtime: previous, retracted: true }],
+        [
+          { image: n1, runtime: current },
+          { image: n, runtime: previous, retracted: true },
+        ],
+      ] as Assessed["target"][]) {
+        const refused = assessUpgrade({
+          ...upgrade,
+          target,
+          sessions: [on("s-previous", previous)],
+          approved: ["s-previous"],
+        });
+        expect(refused.verdict).toBe("refused");
+        expect(refused.reason).toContain(
+          `workers on ${n}, the deployed newest image`,
+        );
+        expect(refused.reason).toContain(
+          "keep that image unretracted in the target release, or list beside it one that restores its checkpoints (a fixed build of the same engine, SDK and CLI)",
+        );
+      }
+      expect(
+        assessUpgrade({
+          ...upgrade,
+          target: [
+            { image: n1, runtime: current },
+            { image: fix, runtime: previous },
+            { image: n, runtime: previous, retracted: true },
+          ],
+          sessions: [on("s-previous", previous)],
+          approved: [],
+        }),
+      ).toEqual({ verdict: "proceed", affected: [], approved: [] });
+    });
+
+    test("an older image retracted while a launch on it holds a slot names both ways out", () => {
+      const deployed: Assessed["deployed"] = [
+        { image: n1, runtime: current },
+        { image: n, runtime: previous },
+      ];
+      const target: Assessed["target"] = [
+        { image: n1, runtime: current },
+        { image: n, runtime: previous, retracted: true },
+      ];
+      const held = assessUpgrade({
+        deployed,
+        target,
+        writers: [{ image: n, runtime: previous }],
+        sessions: [on("s-previous", previous)],
+        approved: ["s-previous"],
+      });
+      expect(held.verdict).toBe("refused");
+      expect(held.reason).toContain(
+        `workers on ${n} still hold a slot and keep sealing checkpoints no unretracted target image restores`,
+      );
+      expect(held.reason).toContain(
+        "list an unretracted image that restores them in the target release (the image itself, or a fixed build of the same engine, SDK and CLI), or run the upgrade once no launch on it holds a slot",
+      );
+      // Once its slots are free, what it sealed is approved like a dropped image.
+      const drained = { deployed, target, writers: [] };
+      expect(
+        assessUpgrade({
+          ...drained,
+          sessions: [on("s-previous", previous)],
+          approved: [],
+        }).affected,
+      ).toEqual([{ sessionId: "s-previous", reason: "no_image" }]);
+      expect(
+        assessUpgrade({
+          ...drained,
+          sessions: [on("s-previous", previous)],
+          approved: ["s-previous"],
+        }).verdict,
+      ).toBe("proceed");
+    });
+
+    test("the flag alone is a change, both ways", () => {
+      const retract = assessUpgrade({
+        deployed: [
+          { image: n1, runtime: current },
+          { image: n, runtime: previous },
+        ],
+        target: [
+          { image: n1, runtime: current },
+          { image: n, runtime: previous, retracted: true },
+        ],
+        writers: [],
+        sessions: [on("s-previous", previous)],
+        approved: [],
+      });
+      expect(retract.verdict).toBe("refused");
+      expect(retract.reason).toContain(`retracted: ${n};`);
+      // Lifting a retraction moves sessions back onto the image: compared, and
+      // here nothing is stranded.
+      expect(
+        assessUpgrade({
+          deployed: [
+            { image: n1, runtime: current },
+            { image: n, runtime: previous, retracted: true },
+          ],
+          target: [
+            { image: n1, runtime: current },
+            { image: n, runtime: previous },
+          ],
+          writers: [],
+          sessions: [on("s-previous", previous), on("s-unrecorded", null)],
+          approved: ["s-unrecorded"],
+        }),
+      ).toEqual({
+        verdict: "proceed",
+        affected: [{ sessionId: "s-unrecorded", reason: "unrecorded" }],
+        approved: ["s-unrecorded"],
+      });
+    });
+
+    test("with every deployed image retracted, no new session seals anything until the target", () => {
+      expect(
+        assessUpgrade({
+          deployed: [{ image: n, runtime: previous, retracted: true }],
+          target: [{ image: fix, runtime: previous }],
+          writers: [],
+          sessions: [on("s-previous", previous)],
+          approved: [],
+        }),
+      ).toEqual({ verdict: "proceed", affected: [], approved: [] });
+    });
+  });
+
   test("unchanged worker images go ahead without looking at sessions or launches", () => {
     for (const target of [
       [{ image: n, runtime: previous }],
@@ -269,7 +401,9 @@ describe("assessUpgrade", () => {
       expect(refused.affected).toEqual([
         { sessionId: "s-previous", reason: "no_image" },
       ]);
-      expect(refused.reason).toContain(`dropped or redeclared: ${n};`);
+      expect(refused.reason).toContain(
+        `dropped, redeclared or retracted: ${n};`,
+      );
 
       expect(
         assessUpgrade({ ...kept, sessions, approved: ["s-previous"] }).verdict,
@@ -333,7 +467,9 @@ describe("assessUpgrade", () => {
       expect(assessment.affected).toEqual([
         { sessionId: "s-previous", reason: "no_image" },
       ]);
-      expect(assessment.reason).toContain(`dropped or redeclared: ${n};`);
+      expect(assessment.reason).toContain(
+        `dropped, redeclared or retracted: ${n};`,
+      );
       // Restorable schemes are what image choice reads too.
       const widened = assessUpgrade({
         ...kept,
@@ -345,7 +481,9 @@ describe("assessUpgrade", () => {
         approved: [],
       });
       expect(widened.verdict).toBe("refused");
-      expect(widened.reason).toContain(`dropped or redeclared: ${n};`);
+      expect(widened.reason).toContain(
+        `dropped, redeclared or retracted: ${n};`,
+      );
     });
 
     test("restorable schemes listed in another order are the same declaration", () => {

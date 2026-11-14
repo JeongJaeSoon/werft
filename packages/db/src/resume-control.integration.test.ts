@@ -1066,6 +1066,7 @@ integration(
         await scheduler().holdIncompatibleBeforeLaunch({
           sessionId: session.sessionId,
           checkpointRevision: 0,
+          reason: "incompatible_checkpoint",
           detail,
           now: new Date(),
         }),

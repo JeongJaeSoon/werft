@@ -61,6 +61,8 @@ export type SchedulerConfig = {
   imageRuntime?: ImageRuntime;
   /** Newest first after `image`; empty without a runtime. */
   olderImages: { image: string; runtime: ImageRuntime }[];
+  /** Listed but retracted, newest first; `image` among them only when all are. */
+  retractedImages: { image: string; runtime: ImageRuntime }[];
   limits: InstallationLimits;
   logLevel: LogLevel;
   resources: ExecutionResources;
@@ -140,14 +142,34 @@ export function schedulerConfigFromEnv(
 
 function configuredImages(
   environment: SchedulerEnvironment,
-): Pick<SchedulerConfig, "image" | "imageRuntime" | "olderImages"> {
+): Pick<
+  SchedulerConfig,
+  "image" | "imageRuntime" | "olderImages" | "retractedImages"
+> {
   const listed = workerImageListFromEnv(environment);
   if (listed !== null) {
-    const [newest, ...older] = listed;
+    const pair = ({
+      image,
+      runtime,
+    }: {
+      image: string;
+      runtime: ImageRuntime;
+    }) => ({
+      image,
+      runtime,
+    });
+    const launchable = listed.filter(({ retracted }) => !retracted);
+    const retractedImages = listed
+      .filter(({ retracted }) => retracted)
+      .map(pair);
+    // Every image retracted: the newest still names the quota helper's image,
+    // and the scheduler launches nothing.
+    const [newest = listed[0], ...older] = launchable;
     return {
       image: newest.image,
       imageRuntime: newest.runtime,
-      olderImages: older.map(({ image, runtime }) => ({ image, runtime })),
+      olderImages: older.map(pair),
+      retractedImages,
     };
   }
   const image = environment.WORKER_IMAGE;
@@ -166,6 +188,7 @@ function configuredImages(
       runtimes?.previous == null || !previousImage
         ? []
         : [{ image: previousImage, runtime: runtimes.previous }],
+    retractedImages: [],
   };
 }
 

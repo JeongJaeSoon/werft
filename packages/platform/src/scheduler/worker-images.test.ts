@@ -92,9 +92,39 @@ describe("workerImageListFromEnv", () => {
         ),
       ),
     ).toEqual([
-      { image: NEW, runtime: current },
-      { image: OLD, runtime: previous },
+      { image: NEW, runtime: current, retracted: false },
+      { image: OLD, runtime: previous, retracted: false },
     ]);
+  });
+
+  test("a retracted image stays listed and leaves room for its fix; every image retracted still reads", () => {
+    const FIX = `ghcr.io/x/worker@sha256:${"c".repeat(64)}`;
+    expect(
+      workerImageListFromEnv(
+        list(
+          entry(FIX, previous, "2026-11-12T00:00:00Z"),
+          entry(NEW, current, "2026-11-10T00:00:00Z"),
+          entry(OLD, previous, "2026-10-01T00:00:00Z", { retracted: true }),
+        ),
+      )?.map(({ image, retracted }) => [image, retracted]),
+    ).toEqual([
+      [FIX, false],
+      [NEW, false],
+      [OLD, true],
+    ]);
+    expect(
+      workerImageListFromEnv(
+        list(entry(NEW, current, "2026-11-10T00:00:00Z", { retracted: true })),
+      )?.[0].retracted,
+    ).toBe(true);
+    expect(
+      configuredImageRuntimesFromEnv(
+        list(
+          entry(NEW, current, "2026-11-10T00:00:00Z", { retracted: true }),
+          entry(OLD, previous, "2026-10-01T00:00:00Z"),
+        ),
+      ),
+    ).toEqual([previous, current]);
   });
 
   test.each<[string, WorkerImagesEnvironment, string]>([
@@ -104,8 +134,13 @@ describe("workerImageListFromEnv", () => {
     ["a string entry", list(NEW), "WORKER_IMAGES[0] must be a JSON object"],
     [
       "an unknown field",
-      list(entry(NEW, current, "2026-11-10T00:00:00Z", { retracted: true })),
-      "WORKER_IMAGES[0] has unknown field(s): retracted",
+      list(entry(NEW, current, "2026-11-10T00:00:00Z", { pinned: true })),
+      "WORKER_IMAGES[0] has unknown field(s): pinned",
+    ],
+    [
+      "retracted as text",
+      list(entry(NEW, current, "2026-11-10T00:00:00Z", { retracted: "yes" })),
+      "WORKER_IMAGES[0].retracted must be true or false",
     ],
     [
       "a tag",
@@ -209,7 +244,7 @@ describe("workerImageListFromEnv", () => {
           "2026-09-01T00:00:00Z",
         ),
       ),
-      "lists 3 claude images: at most 2",
+      "lists 3 unretracted claude images: at most 2",
     ],
   ])("refuses %s", (_, environment, message) => {
     expect(() => workerImageListFromEnv(environment)).toThrow(message);
@@ -349,6 +384,61 @@ describe("selectWorkerImage", () => {
       expect(sameCombination(v2, { ...v2, restorableSchemes: [2] })).toBe(true);
       expect(canRestoreCheckpoint(v2, current)).toBe(true);
       expect(canRestoreCheckpoint(current, v2)).toBe(false);
+    });
+  });
+
+  describe("a retracted image", () => {
+    const retracted = [
+      { image: "worker@sha256:new", runtime: current },
+      { image: "worker@sha256:old", runtime: previous, retracted: true },
+    ] as const;
+
+    test("is never selected; what only it restores is runtime_retired", () => {
+      const outcome = selectWorkerImage(
+        { kind: "recorded", runtime: previous },
+        retracted,
+      );
+      expect(outcome).toMatchObject({
+        kind: "none",
+        reason: "runtime_retired",
+      });
+      expect(outcome.kind === "none" && outcome.detail).toContain(
+        "only a retracted worker image restores it, and the others run claude sdk 0.3.280",
+      );
+    });
+
+    test("gives its sessions to a rebuild of the same combination", () => {
+      expect(
+        selectWorkerImage({ kind: "recorded", runtime: previous }, [
+          ...retracted,
+          { image: "worker@sha256:fixed", runtime: { ...previous } },
+        ]),
+      ).toMatchObject({ kind: "selected", image: "worker@sha256:fixed" });
+    });
+
+    test("with every image retracted, nothing is selected, sealed or new", () => {
+      const all = [
+        { image: "worker@sha256:new", runtime: current, retracted: true },
+      ] as const;
+      for (const pointer of [
+        { kind: "none" },
+        { kind: "unrecorded" },
+        { kind: "recorded", runtime: current },
+      ] as const) {
+        expect(selectWorkerImage(pointer, all)).toMatchObject({
+          kind: "none",
+          reason: "runtime_retired",
+        });
+      }
+    });
+
+    test("does not turn a checkpoint nothing restores into runtime_retired", () => {
+      expect(
+        selectWorkerImage(
+          { kind: "recorded", runtime: { ...previous, sdkVersion: "0.3.260" } },
+          retracted,
+        ),
+      ).toMatchObject({ kind: "none", reason: "incompatible_checkpoint" });
     });
   });
 

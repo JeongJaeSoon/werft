@@ -20,6 +20,7 @@ import type {
   ActiveExecution,
   LaunchFailureOutcome,
   ReplaceReason,
+  StoredLaunchIntent,
 } from "./ports/scheduler-store.ts";
 import {
   sameCombination,
@@ -29,9 +30,14 @@ import {
 
 type PinnedImage = { image: string; runtime: ImageRuntime | undefined };
 type PinnedImages = {
-  /** Current first. Every runtime is set, or there is one image without. */
-  pinned: [PinnedImage, ...PinnedImage[]];
+  /**
+   * Current first. Every runtime is set, or there is one image without.
+   * Empty only when every configured image is retracted.
+   */
+  pinned: PinnedImage[];
   refused: readonly PinnedImage[];
+  /** Configured but retracted: judged with, never launched on. */
+  retracted: readonly { image: string; runtime: ImageRuntime }[];
 };
 
 export async function reensure(
@@ -63,6 +69,29 @@ export async function reensure(
       previous_state: execution.observedState,
       session_id: execution.sessionId,
     });
+    return;
+  }
+  if (await rebuildsRetracted(ctx, execution, stored)) {
+    // Given back instead, the session chooses afresh: a fixed build, or a
+    // hold. A replacement it had pending is settled first, or the exit
+    // would wait on the rebuild.
+    if (reason !== "missing" || execution.pendingReplacement !== null) {
+      lock.throwIfAborted();
+      await store.settleReplacement(ref, replacementCount);
+    }
+    if (!(await confirmGone(ctx, execution, seenIncarnation(execution)))) {
+      return;
+    }
+    summary.launchesRetracted.push(ref);
+    logger.warn(
+      "Launch's worker image is retracted; given back unbuilt so its session chooses an image again",
+      {
+        ...fieldsOf(ref),
+        image: stored.image,
+        reason,
+        session_id: execution.sessionId,
+      },
+    );
     return;
   }
   if (!execution.launchRetryDue) {
@@ -139,6 +168,49 @@ export async function reensure(
     // same pass rather than left running until the next one.
     await kill(ctx, execution);
   }
+}
+
+/**
+ * An unclaimed launch whose rebuild would run a retracted image. No worker
+ * bound it, so nothing runs on it yet; built again it would restore its
+ * session on that image.
+ */
+export async function rebuildsRetracted(
+  ctx: PassContext,
+  execution: ActiveExecution,
+  stored: StoredLaunchIntent,
+): Promise<boolean> {
+  if (execution.claimed) return false;
+  // An intent from before images were stored takes the current setting.
+  const image = stored.image ?? ctx.options.image;
+  return (await retractedImageIds(ctx)).has(image);
+}
+
+const retractedIds = new WeakMap<PassContext, Promise<Set<string>>>();
+
+/**
+ * The retracted images as this backend pins them (for Docker, the image id
+ * a stored intent holds), resolved once per pass and only when asked. One it
+ * can no longer resolve has nothing left to build from either.
+ */
+function retractedImageIds(ctx: PassContext): Promise<Set<string>> {
+  let ids = retractedIds.get(ctx);
+  if (ids === undefined) {
+    ids = (async () => {
+      const resolved = new Set<string>();
+      for (const { image } of ctx.options.retractedImages ?? []) {
+        resolved.add(image);
+        try {
+          resolved.add(await ctx.backend.resolveImage(image));
+        } catch {
+          // Unresolvable now: a stored intent naming it cannot be built.
+        }
+      }
+      return resolved;
+    })();
+    retractedIds.set(ctx, ids);
+  }
+  return ids;
 }
 
 /**
@@ -254,12 +326,22 @@ export async function fillSlots(ctx: PassContext): Promise<void> {
   // gets whatever it names when the launch is reserved, and keeps it.
   let images: PinnedImages | null | undefined;
   const pinnedImages = async (): Promise<PinnedImages | null> => {
+    // A retracted image is judged with, never pinned: one gone from the
+    // registry must not stop admission on the others.
+    const retracted = options.retractedImages ?? [];
     const configured: PinnedImage[] = [
       { image: options.image, runtime: options.imageRuntime },
       ...(options.imageRuntime === undefined
         ? []
         : (options.olderImages ?? [])),
-    ];
+    ].filter(
+      ({ image, runtime }) =>
+        runtime === undefined ||
+        !retracted.some(
+          (entry) =>
+            entry.image === image && sameCombination(entry.runtime, runtime),
+        ),
+    );
     const pinned: PinnedImage[] = [];
     for (const { image, runtime } of configured) {
       try {
@@ -295,7 +377,7 @@ export async function fillSlots(ctx: PassContext): Promise<void> {
         );
       }
     }
-    return { pinned: pinned as [PinnedImage, ...PinnedImage[]], refused };
+    return { pinned, refused, retracted };
   };
   // The image this session launches on; null when it waits this pass.
   const imageFor = async (
@@ -303,16 +385,23 @@ export async function fillSlots(ctx: PassContext): Promise<void> {
     available: PinnedImages,
   ): Promise<PinnedImage | null> => {
     const [current] = available.pinned;
-    if (current.runtime === undefined) return current;
+    if (current?.runtime === undefined && available.retracted.length === 0) {
+      return current ?? null;
+    }
     const { pointer, checkpointRevision } =
       await store.pointerRuntimeOf(sessionId);
-    const selection = selectWorkerImage(
-      pointer,
-      available.pinned.map(({ image, runtime }) => ({
+    // Never empty: options.image is either pinned or retracted.
+    const selection = selectWorkerImage(pointer, [
+      ...available.pinned.map(({ image, runtime }) => ({
         image,
         runtime: runtime as ImageRuntime,
-      })) as [WorkerImageCandidate<string>, ...WorkerImageCandidate<string>[]],
-    );
+      })),
+      ...available.retracted.map(({ image, runtime }) => ({
+        image,
+        runtime,
+        retracted: true,
+      })),
+    ] as [WorkerImageCandidate<string>, ...WorkerImageCandidate<string>[]]);
     if (selection.kind === "selected") {
       // By the pair: one digest configured twice under two runtimes is
       // refused only under the one a worker contradicted.
@@ -325,17 +414,26 @@ export async function fillSlots(ctx: PassContext): Promise<void> {
         ? null
         : { image: selection.image, runtime: selection.runtime };
     }
+    // A session with no checkpoint is not held: it waits, and the API says
+    // why (every image retracted) on each read.
+    if (pointer.kind === "none") return null;
     lock.throwIfAborted();
     const held = await store.holdIncompatibleBeforeLaunch({
       sessionId,
       checkpointRevision,
+      reason: selection.reason,
       detail: selection.detail,
       now: now(),
     });
     if (held === "held") {
-      summary.heldIncompatible.push(sessionId);
+      (selection.reason === "runtime_retired"
+        ? summary.heldRetired
+        : summary.heldIncompatible
+      ).push(sessionId);
       logger.warn(
-        "No configured worker image matches the session's checkpoint; stopped before launch as incompatible_checkpoint",
+        selection.reason === "runtime_retired"
+          ? "Only a retracted worker image runs the session's checkpoint; stopped before launch as runtime_retired"
+          : "No configured worker image matches the session's checkpoint; stopped before launch as incompatible_checkpoint",
         { detail: selection.detail, session_id: sessionId },
       );
     }

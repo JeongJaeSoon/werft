@@ -1,5 +1,10 @@
 import { confirmGone } from "./kill.ts";
-import { backingOff, launchFailed, reensure } from "./launch.ts";
+import {
+  backingOff,
+  launchFailed,
+  rebuildsRetracted,
+  reensure,
+} from "./launch.ts";
 import {
   fieldsOf,
   messageOf,
@@ -39,23 +44,38 @@ export async function replace(
     ctx;
   const ref = refOf(execution);
   const stored = storedIntentOf(execution);
-  if (execution.claimed || stored === null) {
+  const retracted =
+    stored !== null && (await rebuildsRetracted(ctx, execution, stored));
+  if (execution.claimed || stored === null || retracted) {
     // Nothing to rebuild from: a claimed launch spent its credential on a
-    // binding, a pre-intent row never had one. Teardown and close.
+    // binding, a pre-intent row never had one, and a retracted image is
+    // not built again. Teardown and close.
     if (!(await teardown(ctx, execution, reason, observed))) return;
     summary.replaced.push(ref);
+    if (retracted && execution.pendingReplacement !== null) {
+      // An earlier pass's rebuild, which the exit would otherwise wait on.
+      lock.throwIfAborted();
+      await store.settleReplacement(ref, execution.replacementCount);
+    }
     if (
       !(await confirmGone(ctx, execution, seenIncarnation(execution, observed)))
     ) {
       return;
     }
-    summary.terminatedObserved.push(ref);
-    logger.warn("Replaced an execution nothing can rebuild; closed", {
-      ...fieldsOf(ref),
-      claimed: execution.claimed,
-      reason,
-      session_id: execution.sessionId,
-    });
+    (retracted ? summary.launchesRetracted : summary.terminatedObserved).push(
+      ref,
+    );
+    logger.warn(
+      retracted
+        ? "Launch's worker image is retracted; torn down unbuilt so its session chooses an image again"
+        : "Replaced an execution nothing can rebuild; closed",
+      {
+        ...fieldsOf(ref),
+        claimed: execution.claimed,
+        reason,
+        session_id: execution.sessionId,
+      },
+    );
     return;
   }
   if (!execution.launchRetryDue) {

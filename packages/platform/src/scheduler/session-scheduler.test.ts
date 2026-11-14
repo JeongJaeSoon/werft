@@ -91,6 +91,7 @@ class MemoryStore implements SchedulerStore {
   readonly refusals: WorkerImageRefusal[] = [];
   /** Sessions stopped before launch, with the detail they were held on. */
   readonly held = new Map<string, string>();
+  readonly heldReasons = new Map<string, HoldIncompatibleInput["reason"]>();
   /** The runtime each reservation assumed, by session. */
   readonly reservedRuntimes = new Map<string, ImageRuntime | undefined>();
 
@@ -111,6 +112,7 @@ class MemoryStore implements SchedulerStore {
     if (!this.unassigned.has(input.sessionId)) return "stale" as const;
     this.unassigned.delete(input.sessionId);
     this.held.set(input.sessionId, input.detail);
+    this.heldReasons.set(input.sessionId, input.reason);
     return "held" as const;
   }
 
@@ -919,6 +921,7 @@ function harness(
     drainDeadlineMs?: number;
     imageRuntime?: ImageRuntime;
     olderImages?: { image: string; runtime: ImageRuntime }[];
+    retractedImages?: { image: string; runtime: ImageRuntime }[];
     stop?: AbortSignal;
     stopDeadlineMs?: number;
     stoppedWorkspaceTtlMs?: number;
@@ -945,6 +948,9 @@ function harness(
       ...(options.olderImages === undefined
         ? {}
         : { olderImages: options.olderImages }),
+      ...(options.retractedImages === undefined
+        ? {}
+        : { retractedImages: options.retractedImages }),
       ...(options.drainDeadlineMs === undefined
         ? {}
         : { drainDeadlineMs: options.drainDeadlineMs }),
@@ -1016,6 +1022,181 @@ describe("worker image per session", () => {
     expect(summary.heldIncompatible).toEqual([sealedOld as string]);
     expect(backend.containers.size).toBe(0);
     expect(store.held.get(sealedOld as string)).toContain("sdk 0.3.270");
+  });
+
+  describe("retracted images", () => {
+    const sealedOn = (store: MemoryStore, runtime: ImageRuntime) => {
+      const [id] = store.addUnassigned(1);
+      store.pointers.set(id as string, {
+        pointer: { kind: "recorded", runtime },
+        checkpointRevision: 3,
+      });
+      return id as string;
+    };
+
+    test("a session sealed only on a retracted image stops as runtime_retired; the others launch", async () => {
+      const { backend, run, store } = harness(10, {
+        imageRuntime: current,
+        retractedImages: [{ image: "worker:previous", runtime: previous }],
+      });
+      const sealedOld = sealedOn(store, previous);
+      const [fresh] = store.addUnassigned(1);
+      const summary = await run();
+      expect(summary.heldRetired).toEqual([sealedOld]);
+      expect(summary.heldIncompatible).toEqual([]);
+      expect(store.heldReasons.get(sealedOld)).toBe("runtime_retired");
+      expect(store.held.get(sealedOld)).toContain(
+        "only a retracted worker image restores it",
+      );
+      expect(launchedImageOf(store, fresh as string)).toBe(
+        "sha256:worker:test",
+      );
+      expect([...backend.containers.keys()]).toHaveLength(1);
+    });
+
+    test("a rebuild of the retracted combination takes its sessions", async () => {
+      const { run, store } = harness(10, {
+        imageRuntime: current,
+        olderImages: [{ image: "worker:fixed", runtime: previous }],
+        retractedImages: [{ image: "worker:previous", runtime: previous }],
+      });
+      const sealedOld = sealedOn(store, previous);
+      const summary = await run();
+      expect(summary.heldRetired).toEqual([]);
+      expect(launchedImageOf(store, sealedOld)).toBe("sha256:worker:fixed");
+      expect(store.reservedRuntimes.get(sealedOld)).toEqual(previous);
+    });
+
+    test("a retracted image is never pinned, so one gone from the registry stops nothing", async () => {
+      const { backend, run, store } = harness(10, {
+        imageRuntime: current,
+        olderImages: [{ image: "worker:previous", runtime: previous }],
+        retractedImages: [{ image: "worker:previous", runtime: previous }],
+      });
+      const resolved: string[] = [];
+      const resolve = backend.resolveImage.bind(backend);
+      backend.resolveImage = async (image: string) => {
+        resolved.push(image);
+        return resolve(image);
+      };
+      const [fresh] = store.addUnassigned(1);
+      const summary = await run();
+      expect(resolved).toEqual(["worker:test"]);
+      expect(summary.imageUnresolved).toBe(false);
+      expect(launchedImageOf(store, fresh as string)).toBe(
+        "sha256:worker:test",
+      );
+    });
+
+    describe("an unclaimed launch on an image retracted since it was reserved", () => {
+      const imagesOf = (store: MemoryStore, sessionId: string) =>
+        [...store.executions.values()]
+          .filter((e) => e.sessionId === sessionId)
+          .map((e) => e.image);
+      const reservedOnPrevious = async () => {
+        const options: Parameters<typeof harness>[1] = {
+          imageRuntime: current,
+          olderImages: [{ image: "worker:previous", runtime: previous }],
+        };
+        const h = harness(10, options);
+        const sealed = sealedOn(h.store, previous);
+        await h.run();
+        expect(imagesOf(h.store, sealed)).toEqual(["sha256:worker:previous"]);
+        const [intent] = h.backend.ensureCalls;
+        if (!intent) throw new Error("no intent");
+        // The release that retracts it lists a fixed build of the same combination.
+        options.olderImages = [{ image: "worker:fixed", runtime: previous }];
+        options.retractedImages = [
+          { image: "worker:previous", runtime: previous },
+        ];
+        return {
+          ...h,
+          sealed,
+          ref: {
+            executionId: intent.executionId,
+            generation: intent.generation,
+          },
+        };
+      };
+
+      test("is given back, not built again, and its session moves to the fix", async () => {
+        const { backend, records, run, sealed, ref, store } =
+          await reservedOnPrevious();
+        const ensured = backend.ensureCalls.length;
+        backend.containers.clear();
+        const summary = await run();
+        expect(summary.launchesRetracted).toEqual([ref]);
+        expect(summary.reensured).toEqual([]);
+        expect(
+          backend.ensureCalls
+            .slice(ensured)
+            .every((call) => call.image !== "sha256:worker:previous"),
+        ).toBe(true);
+        expect(
+          records.some((r) =>
+            r.message.includes("worker image is retracted; given back unbuilt"),
+          ),
+        ).toBe(true);
+        await run();
+        expect(imagesOf(store, sealed)).toEqual([
+          "sha256:worker:previous",
+          "sha256:worker:fixed",
+        ]);
+      });
+
+      test("with a replacement pending, the replacement is settled and it is given back", async () => {
+        const { backend, run, ref, store } = await reservedOnPrevious();
+        const ensured = backend.ensureCalls.length;
+        backend.staleFor.add(`${ref.executionId}#${ref.generation}`);
+        const summary = await run();
+        // Torn down for the replacement, then not built again.
+        expect(summary.replaced).toEqual([ref]);
+        expect(summary.reensured).toEqual([]);
+        expect(summary.launchesRetracted).toEqual([ref]);
+        expect(store.executions.get(ref.executionId)?.pendingReplacement).toBe(
+          null,
+        );
+        expect(
+          backend.ensureCalls
+            .slice(ensured)
+            .every((call) => call.image !== "sha256:worker:previous"),
+        ).toBe(true);
+      });
+
+      test("a rebuild an earlier pass recorded and never built is settled and given back", async () => {
+        const { backend, run, ref, store } = await reservedOnPrevious();
+        // A host that died between the teardown and the create.
+        const row = store.executions.get(ref.executionId);
+        if (!row) throw new Error("no row");
+        row.pendingReplacement = "spec_mismatch";
+        backend.containers.clear();
+        const ensured = backend.ensureCalls.length;
+        const summary = await run();
+        expect(summary.launchesRetracted).toEqual([ref]);
+        expect(summary.reensured).toEqual([]);
+        expect(row.pendingReplacement).toBeNull();
+        expect(
+          backend.ensureCalls
+            .slice(ensured)
+            .every((call) => call.image !== "sha256:worker:previous"),
+        ).toBe(true);
+      });
+    });
+
+    test("with every image retracted nothing launches: a sealed session stops, a new one waits", async () => {
+      const { backend, run, store } = harness(10, {
+        imageRuntime: current,
+        retractedImages: [{ image: "worker:test", runtime: current }],
+      });
+      const sealed = sealedOn(store, current);
+      const [fresh] = store.addUnassigned(1);
+      const summary = await run();
+      expect(summary.launched).toEqual([]);
+      expect(backend.containers.size).toBe(0);
+      expect(summary.heldRetired).toEqual([sealed]);
+      expect(store.unassigned.has(fresh as string)).toBe(true);
+      expect(store.held.has(fresh as string)).toBe(false);
+    });
   });
 
   test("an image a worker refused under its configured runtime launches nothing; the other one still does", async () => {

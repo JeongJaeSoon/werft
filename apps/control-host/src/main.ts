@@ -123,6 +123,7 @@ async function supervise(role: PassLoopRoleName): Promise<number> {
   // Every pass child logs at this level; a typo stops the loop here, once.
   const level = logLevelFromEnv(process.env.LOG_LEVEL);
   let passEnv: Record<string, string> | undefined;
+  let everyImageRetracted = false;
   // The passes would refuse a bad setting one by one; refuse it here, once.
   if (role === "scheduler") {
     const { assertPassOutlastsStop, schedulerConfigFromEnv } = await import(
@@ -131,7 +132,12 @@ async function supervise(role: PassLoopRoleName): Promise<number> {
     const { QUOTA_PREFLIGHT_MARKER_ENV } = await import(
       "./scheduler/quota-preflight.ts"
     );
-    const { execution } = schedulerConfigFromEnv(process.env);
+    const { execution, image, retractedImages } = schedulerConfigFromEnv(
+      process.env,
+    );
+    everyImageRetracted = retractedImages.some(
+      (retracted) => retracted.image === image,
+    );
     assertPassOutlastsStop(config.passTimeoutMs, execution);
     // The first pass of every loop probes the workspace quota afresh.
     const marker = `${config.statusFile}.quota-verified`;
@@ -146,6 +152,13 @@ async function supervise(role: PassLoopRoleName): Promise<number> {
     reconcilerSettings(process.env);
   }
   const logger = createLogger({ level });
+  // Once per loop, not per pass: the settings do not change under it.
+  if (everyImageRetracted) {
+    logger.error(
+      "Every worker image in WORKER_IMAGES is retracted: no session launches until an unretracted image is listed; sessions with a checkpoint stop as runtime_retired",
+      {},
+    );
+  }
   if (role === "slack") {
     const { slackApiUrlWarnings } = await import("./api/slack-config.ts");
     for (const warning of slackApiUrlWarnings(process.env)) {

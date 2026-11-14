@@ -89,6 +89,12 @@ export type SchedulerOptions = {
   imageRuntime?: ImageRuntime;
   /** Older images after `image`, newest first, for sessions sealed on them. */
   olderImages?: readonly { image: string; runtime: ImageRuntime }[];
+  /**
+   * Listed images no session launches on, newest first: a session only they
+   * restore is stopped as `runtime_retired`. When every image is retracted
+   * `image` is one of them, and nothing launches.
+   */
+  retractedImages?: readonly { image: string; runtime: ImageRuntime }[];
   /** Failed attempts per launch before it is given up on; see the default. */
   launchFailureLimit?: number;
   /** First backoff after a failed attempt; doubles per failure up to the cap. */
@@ -154,6 +160,8 @@ export type SchedulerRunSummary = {
   imagesRefused: string[];
   /** Sessions stopped before launch: no configured image matches their checkpoint. */
   heldIncompatible: string[];
+  /** Sessions stopped before launch: only a retracted image restores their checkpoint. */
+  heldRetired: string[];
   launched: ExecutionRef[];
   /**
    * Launches left alone this pass because their last failed attempt still
@@ -167,6 +175,11 @@ export type SchedulerRunSummary = {
    * was written. The slot comes back once the kill is confirmed.
    */
   launchesQuarantined: ExecutionRef[];
+  /**
+   * Unclaimed launches whose resource was to be built again on a retracted
+   * image: given back instead, so their sessions choose an image afresh.
+   */
+  launchesRetracted: ExecutionRef[];
   orphansTerminated: ExecutionRef[];
   /** Orphans the provider would not terminate; each still holds a slot. */
   orphansUnresolved: ExecutionRef[];
