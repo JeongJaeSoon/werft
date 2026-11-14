@@ -9,8 +9,8 @@ export * from "./agents/agent-mcp.ts";
 export * from "./agents.ts";
 export * from "./catalog-repositories.ts";
 export {
-  listUncollectedSessionPointers,
   listUnreleasedLaunchImages,
+  listUpgradeSessions,
   type RuntimeFingerprint,
   readPointerRuntime,
 } from "./checkpoints/checkpoint-runtime.ts";

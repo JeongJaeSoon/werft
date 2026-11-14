@@ -13,6 +13,8 @@ import {
   inArray,
   isNotNull,
   isNull,
+  ne,
+  or,
   type SQL,
   sql,
 } from "drizzle-orm";
@@ -215,16 +217,27 @@ export async function readPointerRuntime(
 }
 
 /**
- * Every session that holds a checkpoint no collection has ended, the set an
- * upgrade can strand (the compose gate checks the same one), with its
- * pointer read by readPointerImageRuntime's rules.
+ * The sessions an upgrade can strand, with each pointer read by
+ * readPointerImageRuntime's rules: every one that holds a checkpoint no
+ * collection has ended (the compose gate checks the same set), and every one
+ * not closed, which an upgrade that drops its engine's images strands with
+ * or without one. `runtimeKind` as readPointerImageRuntime reads it.
  */
-export async function listUncollectedSessionPointers(
-  db: Database,
-): Promise<{ sessionId: string; pointer: PointerRuntime }[]> {
+export async function listUpgradeSessions(db: Database): Promise<
+  {
+    sessionId: string;
+    pointer: PointerRuntime;
+    open: boolean;
+    runtimeKind: string | null;
+  }[]
+> {
   const rows = await db
     .select({
       sessionId: sessions.id,
+      open: sql<boolean>`${sessions.admissionState} <> 'closed'`,
+      runtimeKind: sql<
+        string | null
+      >`CASE WHEN jsonb_typeof(${sessions.runtimeSpec} -> 'runtime' -> 'kind') = 'string' THEN ${sessions.runtimeSpec} -> 'runtime' ->> 'kind' END`,
       checkpointRevision: sessions.checkpointRevision,
       checkpointPendingReason: sessions.checkpointPendingReason,
       contextResetCheckpointRevision: sessions.contextResetCheckpointRevision,
@@ -243,26 +256,31 @@ export async function listUncollectedSessionPointers(
       ),
     )
     .where(
-      inArray(
-        sessions.id,
-        db
-          .selectDistinct({ sessionId: checkpoints.sessionId })
-          .from(checkpoints)
-          .where(isNull(checkpoints.collectedAt)),
+      or(
+        ne(sessions.admissionState, "closed"),
+        inArray(
+          sessions.id,
+          db
+            .selectDistinct({ sessionId: checkpoints.sessionId })
+            .from(checkpoints)
+            .where(isNull(checkpoints.collectedAt)),
+        ),
       ),
     )
     .orderBy(asc(sessions.id));
-  return rows.map((row) => {
+  return rows.map(({ sessionId, open, runtimeKind, ...row }) => {
     if (!hasRestorePoint(row)) {
-      return { sessionId: row.sessionId, pointer: { kind: "none" } };
+      return { sessionId, pointer: { kind: "none" }, open, runtimeKind };
     }
     const runtime = runtimeOfColumns(row);
     return {
-      sessionId: row.sessionId,
+      sessionId,
       pointer:
         runtime === null
           ? { kind: "unrecorded" }
           : recordedPointer(runtime, row.runtimeProfileScheme),
+      open,
+      runtimeKind,
     };
   });
 }

@@ -1,7 +1,4 @@
-import {
-  listUncollectedSessionPointers,
-  listUnreleasedLaunchImages,
-} from "@werft-ai/db";
+import { listUnreleasedLaunchImages, listUpgradeSessions } from "@werft-ai/db";
 import { createLogger, type StructuredLogger } from "@werft-ai/observability";
 import {
   assessNothingReplaced,
@@ -16,6 +13,7 @@ import {
   workerImageListFromEnv,
   workerImageRuntimesFromEnv,
 } from "@werft-ai/platform";
+import { installedDescriptors } from "@werft-ai/runtime-codecs";
 import { withJobDatabase } from "../job-database.ts";
 
 export type UpgradeCheckEnvironment = Readonly<
@@ -42,9 +40,10 @@ const UPGRADE_CHECK_EXIT = {
 
 /**
  * The pre-upgrade check (helm hook `upgrade-check`, or by hand before a
- * `helm rollback`): reads every session holding an uncollected checkpoint
- * and prints one JSON line saying whether the target release's worker
- * images leave any of them with nothing to resume on.
+ * `helm rollback`): reads every session holding an uncollected checkpoint,
+ * and every one not closed with the engine its runtime kind runs on, and
+ * prints one JSON line saying whether the target release's worker images
+ * leave any of them with nothing to resume on.
  *
  * Read: `DATABASE_URL`; the target's `WORKER_IMAGES`, or its `WORKER_IMAGE`,
  * `WORKER_IMAGE_RUNTIME`, `WORKER_IMAGE_PREVIOUS`,
@@ -320,8 +319,22 @@ function approvedSessions(text: string): string[] {
 
 function listSessions(logger: StructuredLogger) {
   return (databaseUrl: string) =>
-    withJobDatabase("upgrade-check", databaseUrl, logger, ({ db }) =>
-      listUncollectedSessionPointers(db),
+    withJobDatabase("upgrade-check", databaseUrl, logger, async ({ db }) =>
+      (await listUpgradeSessions(db)).map(
+        ({ sessionId, pointer, open, runtimeKind }): UpgradeSession =>
+          open
+            ? {
+                sessionId,
+                pointer,
+                engine:
+                  runtimeKind === null
+                    ? null
+                    : (installedDescriptors.find(
+                        (descriptor) => descriptor.kind === runtimeKind,
+                      )?.checkpointEngine ?? null),
+              }
+            : { sessionId, pointer },
+      ),
     );
 }
 

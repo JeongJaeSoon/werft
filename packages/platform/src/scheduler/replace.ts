@@ -1,9 +1,10 @@
 import { confirmGone } from "./kill.ts";
 import {
   backingOff,
+  giveBackCause,
   launchFailed,
-  rebuildsRetracted,
   reensure,
+  reportGivenBack,
 } from "./launch.ts";
 import {
   fieldsOf,
@@ -63,8 +64,9 @@ export async function replace(
     });
     return;
   }
-  if (await rebuildsRetracted(ctx, execution, stored)) {
-    await retire(ctx, execution, reason, observed, acceptedFingerprint);
+  const cause = await giveBackCause(ctx, execution, stored);
+  if (cause !== null) {
+    await retire(ctx, execution, cause, reason, observed, acceptedFingerprint);
     return;
   }
   if (!execution.launchRetryDue) {
@@ -165,8 +167,9 @@ export async function replace(
 }
 
 /**
- * Tears down an unclaimed launch whose image is retracted and gives its slot
- * back unbuilt, so its session chooses an image again on a later pass. The
+ * Tears down an unclaimed launch whose image is retracted, or whose session's
+ * engine no configured image runs, and gives its slot back unbuilt, so its
+ * session chooses an image again on a later pass. The
  * record comes first, as for a rebuild: it shuts the bootstrap door, so a
  * worker cannot bind while the resource goes, and a claim that got there
  * first refuses it. Settling it after the teardown is what lets the exit be
@@ -175,6 +178,7 @@ export async function replace(
 async function retire(
   ctx: PassContext,
   execution: ActiveExecution,
+  cause: "retracted" | "engine_dropped",
   reason: ReplaceReason,
   observed: ExecutionObservation,
   acceptedFingerprint: string | null,
@@ -209,16 +213,11 @@ async function retire(
   ) {
     return;
   }
-  summary.launchesRetracted.push(ref);
-  logger.warn(
-    "Launch's worker image is retracted; torn down unbuilt so its session chooses an image again",
-    {
-      ...fieldsOf(ref),
-      image: execution.image,
-      reason,
-      session_id: execution.sessionId,
-    },
-  );
+  reportGivenBack(ctx, ref, cause, "torn down", {
+    image: execution.image,
+    reason,
+    session_id: execution.sessionId,
+  });
 }
 
 /**

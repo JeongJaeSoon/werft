@@ -582,6 +582,172 @@ describe("assessUpgrade", () => {
   });
 });
 
+describe("assessUpgrade with two engines", () => {
+  const codex = {
+    cliVersion: "0.9.0",
+    engine: "codex",
+    profileDigestScheme: 1,
+    sdkVersion: "0.9.0",
+  };
+  const codexNext = { ...codex, cliVersion: "0.10.0", sdkVersion: "0.10.0" };
+  const c = "worker@sha256:c";
+  const c1 = "worker@sha256:c1";
+  const deployed: Assessed["deployed"] = [
+    { image: n, runtime: previous },
+    { image: c, runtime: codex },
+  ];
+  const open = (
+    sessionId: string,
+    engine: string | null,
+    pointer: UpgradeSession["pointer"] = { kind: "none" },
+  ): UpgradeSession => ({ sessionId, pointer, engine });
+  const dropCodex: Omit<Assessed, "sessions" | "approved"> = {
+    deployed,
+    target: [
+      { image: n1, runtime: current },
+      { image: n, runtime: previous },
+    ],
+    writers: [],
+  };
+
+  test("dropping an engine lists each of its sessions once, open ones checkpoint or not, until approved exactly", () => {
+    const sessions = [
+      open("s-codex-waiting", "codex"),
+      open("s-codex-sealed", "codex", { kind: "recorded", runtime: codex }),
+      open("s-codex-unrecorded", "codex", { kind: "unrecorded" }),
+      on("s-codex-closed", codex),
+      open("s-claude", "claude"),
+      open("s-unknown-kind", null),
+    ];
+    const affected: AffectedSession[] = [
+      { sessionId: "s-codex-closed", reason: "no_image" },
+      { sessionId: "s-codex-sealed", reason: "no_image" },
+      { sessionId: "s-codex-unrecorded", reason: "unrecorded" },
+      { sessionId: "s-codex-waiting", reason: "no_engine_image" },
+      { sessionId: "s-unknown-kind", reason: "no_engine_image" },
+    ];
+    const unapproved = assessUpgrade({ ...dropCodex, sessions, approved: [] });
+    expect(unapproved.verdict).toBe("refused");
+    expect(unapproved.affected).toEqual(affected);
+    expect(
+      assessUpgrade({
+        ...dropCodex,
+        sessions,
+        approved: affected.map(({ sessionId }) => sessionId),
+      }),
+    ).toEqual({
+      verdict: "proceed",
+      affected,
+      approved: affected.map(({ sessionId }) => sessionId).sort(),
+    });
+  });
+
+  test("a launch of the dropped engine still holding a slot is refused, approved or not", () => {
+    const sessions = [open("s-codex-waiting", "codex")];
+    const assessment = assessUpgrade({
+      ...dropCodex,
+      writers: [{ image: c, runtime: codex }],
+      sessions,
+      approved: ["s-codex-waiting"],
+    });
+    expect(assessment.verdict).toBe("refused");
+    expect(assessment.reason).toContain(`workers on ${c} still hold a slot`);
+  });
+
+  test("a slot holder of the dropped engine is refused even on an image retracted already", () => {
+    const assessment = assessUpgrade({
+      ...dropCodex,
+      deployed: [
+        { image: n, runtime: previous },
+        { image: c, runtime: codex, retracted: true },
+      ],
+      writers: [{ image: c, runtime: codex }],
+      sessions: [],
+      approved: [],
+    });
+    expect(assessment.verdict).toBe("refused");
+    expect(assessment.reason).toContain(`workers on ${c} still hold a slot`);
+  });
+
+  test("an engine the target keeps is held to its own newest image while another is dropped", () => {
+    const assessment = assessUpgrade({
+      deployed,
+      target: [{ image: n1, runtime: current }],
+      writers: [],
+      sessions: [],
+      approved: [],
+    });
+    expect(assessment.verdict).toBe("refused");
+    expect(assessment.reason).toContain(
+      `workers on ${n}, the deployed newest image of the claude engine, keep sealing`,
+    );
+  });
+
+  test("an engine whose target images are all retracted is kept, not dropped", () => {
+    const assessment = assessUpgrade({
+      ...dropCodex,
+      target: [
+        ...dropCodex.target,
+        { image: c, runtime: codex, retracted: true },
+      ],
+      sessions: [],
+      approved: [],
+    });
+    expect(assessment.verdict).toBe("refused");
+    expect(assessment.reason).toContain(
+      `workers on ${c}, the deployed newest image of the codex engine`,
+    );
+  });
+
+  test("a new image of one engine leaves the other's sessions alone and checks only what moved", () => {
+    expect(
+      assessUpgrade({
+        deployed,
+        target: [
+          { image: n, runtime: previous },
+          { image: c1, runtime: codexNext },
+          { image: c, runtime: codex },
+        ],
+        writers: [],
+        sessions: [
+          open("s-claude", "claude", { kind: "recorded", runtime: previous }),
+          open("s-codex", "codex", { kind: "recorded", runtime: codex }),
+        ],
+        approved: [],
+      }),
+    ).toEqual({ verdict: "proceed", affected: [], approved: [] });
+  });
+
+  test("the same images listed in another order replace nothing", () => {
+    const reordered = assessUpgrade({
+      deployed,
+      target: [
+        { image: c, runtime: codex },
+        { image: n, runtime: previous },
+      ],
+      writers: [],
+      sessions: [open("s-codex", "codex")],
+      approved: ["s-stale"],
+    });
+    expect(reordered.verdict).toBe("refused");
+    expect(reordered.reason).toContain("the worker images do not change");
+  });
+
+  test("a deployed image nothing declared a runtime for has no engine to drop, so it stays protected", () => {
+    const assessment = assessUpgrade({
+      deployed: [{ image: n, runtime: null }],
+      target: [{ image: c, runtime: codex }],
+      writers: [],
+      sessions: [],
+      approved: [],
+    });
+    expect(assessment.verdict).toBe("refused");
+    expect(assessment.reason).toContain(
+      `workers on ${n}, the deployed newest image, keep sealing`,
+    );
+  });
+});
+
 describe("assessNothingReplaced", () => {
   test("proceeds with no approvals, saying nothing about any session", () => {
     expect(assessNothingReplaced([], "nothing was deployed")).toEqual({

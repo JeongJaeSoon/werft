@@ -1,6 +1,6 @@
 import { WORKER_EXIT_LEASE_LOST } from "@werft-ai/contracts";
 import { confirmGone, kill, killRequested } from "./kill.ts";
-import { launchFailed, reensure } from "./launch.ts";
+import { giveBackCause, launchFailed, reensure } from "./launch.ts";
 import {
   fieldsOf,
   messageOf,
@@ -13,7 +13,10 @@ import {
   unknownObservation,
 } from "./pass-context.ts";
 import type { TerminateExecutionResult } from "./ports/execution-backend.ts";
-import type { ActiveExecution } from "./ports/scheduler-store.ts";
+import type {
+  ActiveExecution,
+  StoredLaunchIntent,
+} from "./ports/scheduler-store.ts";
 import { replace, teardown } from "./replace.ts";
 
 /** Step 1: reconcile rows against the provider. */
@@ -230,6 +233,21 @@ async function reconcile(
     // down had its credential revoked when the replacement was recorded.
     // The failure is fenced on that credential and revokes it, so the same
     // dead resource is never counted twice.
+    // One whose image or engine left the configuration since it was
+    // reserved exits because there is nothing it can claim, not because it
+    // fails: it is cleared and given back as its rebuild would be, so that
+    // exit never counts toward quarantine and its queued input is kept.
+    const stored = storedIntentOf(execution);
+    if (
+      stored !== null &&
+      (await giveBackCause(ctx, execution, stored)) !== null
+    ) {
+      if (!(await teardown(ctx, execution, "failed_attempt", observed))) return;
+      lock.throwIfAborted();
+      await store.recordObservation(ref, unknownObservation(now()));
+      await reensure(ctx, execution, execution.pendingReplacement ?? "missing");
+      return;
+    }
     const outcome = await launchFailed(
       ctx,
       execution,
@@ -276,6 +294,19 @@ async function reconcile(
     // and it is counted now — a create that never takes cannot hold its
     // slot forever. Fenced on that credential, which the record revokes:
     // a create landing later is torn down as a failed attempt.
+    // Also where a give-back for a gone image or engine (above) resumes
+    // after the host stopped between its teardown and its rebuild: it is
+    // given back now, still not counted.
+    if (
+      (await giveBackCause(
+        ctx,
+        execution,
+        storedIntentOf(execution) as StoredLaunchIntent,
+      )) !== null
+    ) {
+      await reensure(ctx, execution, execution.pendingReplacement ?? "missing");
+      return;
+    }
     await launchFailed(
       ctx,
       execution,

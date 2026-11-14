@@ -10,7 +10,7 @@ import {
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import {
-  listUncollectedSessionPointers,
+  listUpgradeSessions,
   readPointerRuntime,
 } from "./checkpoints/checkpoint-runtime.ts";
 import { migrate } from "./migrate.ts";
@@ -130,7 +130,7 @@ integration("checkpoint runtime columns, expand", () => {
   }, 60_000);
 });
 
-integration("listUncollectedSessionPointers", () => {
+integration("listUpgradeSessions", () => {
   let database: TempDatabase;
   let pool: Pool;
   let db: NodePgDatabase<typeof schema>;
@@ -146,11 +146,19 @@ integration("listUncollectedSessionPointers", () => {
     await database.drop();
   }, 60_000);
 
-  async function session(id: string) {
+  // Closed unless `open`: a closed session is listed only for a checkpoint.
+  async function session(id: string, open?: { kind: unknown }) {
+    const spec = open === undefined ? null : { runtime: { kind: open.kind } };
     await pool.query(
-      `INSERT INTO sessions (id, owner_id, repo_url, branch, repository_id)
-       VALUES ($1, 'owner', 'https://example.invalid/a.git', 'main', 'repo-a')`,
-      [id],
+      `INSERT INTO sessions (id, owner_id, repo_url, branch, repository_id, admission_state,
+         runtime_spec, spec_source, spec_source_digest, spec_digest)
+       VALUES ($1, 'owner', 'https://example.invalid/a.git', 'main', 'repo-a', $2, $3, $3, $4, $4)`,
+      [
+        id,
+        open === undefined ? "closed" : "active",
+        spec,
+        spec === null ? null : "d".repeat(64),
+      ],
     );
   }
 
@@ -223,7 +231,8 @@ integration("listUncollectedSessionPointers", () => {
     );
     await checkpoint(collected, 0, { collected: true, runtime: true });
 
-    expect(await listUncollectedSessionPointers(db)).toEqual([
+    const closed = { open: false, runtimeKind: null };
+    expect(await listUpgradeSessions(db)).toEqual([
       {
         sessionId: recorded,
         pointer: {
@@ -235,10 +244,43 @@ integration("listUncollectedSessionPointers", () => {
             profileDigestScheme: 2,
           },
         },
+        ...closed,
       },
-      { sessionId: unrecorded, pointer: { kind: "unrecorded" } },
-      { sessionId: noPointer, pointer: { kind: "none" } },
-      { sessionId: retired, pointer: { kind: "none" } },
+      { sessionId: unrecorded, pointer: { kind: "unrecorded" }, ...closed },
+      { sessionId: noPointer, pointer: { kind: "none" }, ...closed },
+      { sessionId: retired, pointer: { kind: "none" }, ...closed },
+    ]);
+  }, 60_000);
+
+  test("lists every open session, checkpoint or not, with the runtime kind its spec pins", async () => {
+    const [codex, numbered, sealed] = ["a", "b", "c"].map(
+      (prefix) => `${prefix}${randomUUID().slice(1)}`,
+    ) as [string, string, string];
+    await session(codex, { kind: "codex_app_server" });
+    await session(numbered, { kind: 7 });
+    await session(sealed, { kind: "claude_agent_sdk" });
+    await checkpoint(sealed, 0, { pointer: true, runtime: true });
+    await session(`d${randomUUID().slice(1)}`);
+
+    expect(await listUpgradeSessions(db)).toEqual([
+      {
+        sessionId: codex,
+        pointer: { kind: "none" },
+        open: true,
+        runtimeKind: "codex_app_server",
+      },
+      {
+        sessionId: numbered,
+        pointer: { kind: "none" },
+        open: true,
+        runtimeKind: null,
+      },
+      {
+        sessionId: sealed,
+        pointer: expect.objectContaining({ kind: "recorded" }),
+        open: true,
+        runtimeKind: "claude_agent_sdk",
+      },
     ]);
   }, 60_000);
 });

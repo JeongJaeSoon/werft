@@ -131,6 +131,21 @@ helm upgrade --install ... --set-json 'upgrade.approvedSessions=["<sessionId>", 
 
 承認一覧は release values に残ります。次の upgrade ごとに `--set-json 'upgrade.approvedSessions=[]'` で空にし、その upgrade の一覧を読み直して承認します。残った一覧が今回の `affected` と違えば `refused` で止まりますが、同じでサポート範囲の条件も合えばそのまま通過します。
 
+**エンジンごとに判定します。** イメージ一覧で Claude と Codex を一緒に動かすインストールのように、デプロイ済みのイメージと対象のイメージに二つ以上のエンジンがあると、上の判定をエンジンごとに行います。対象があるエンジンのイメージを一つでも書けば（撤回したものだけでも）、そのエンジンは残ります。そのエンジンのデプロイ済みの最新イメージが封印する checkpoint を対象のイメージが復元できなければ、承認で通せない `refused` です。エンジンが一つだけのデプロイと、runtime なしでデプロイしたイメージがあるデプロイは、エンジンを分けずにこれまでどおり判定します。
+
+**エンジンを外す upgrade。** 対象があるエンジンのイメージを一つも書かなければ、そのエンジンを外す upgrade です。このとき検査はそのエンジンの最新イメージを保護しません。代わりに、閉じていないそのエンジンのセッションを、checkpoint がなくても `no_engine_image` として選びます。runtime kind をこのホストが知らない、または kind がない開いたセッションも `no_engine_image` です。checkpoint があるセッションは checkpoint の判定が先なので、`no_image` か `unrecorded` として載ります。一つのセッションは一つの理由だけで載ります。そのエンジンの launch が slot を握っていれば（claim 前も含む）、承認で通せない `refused` です。その slot が解放されてから再実行します。承認したセッションは次のようになります。
+
+- checkpoint がないセッションは slot を使わずに待ちます。API では attention `CATALOG_MISMATCH` として見えます。
+- 記録された checkpoint があるセッションは launch 前に `recovery_required` で止まります（attention `RESTORE_FAILED`、reason `incompatible_checkpoint`）。
+- runtime が記録されていない checkpoint のセッションは待ちます。
+- そのエンジンの新しいセッションは、API からも Slack からも作れません（`UNSUPPORTED_CAPABILITY`）。撤回したイメージだけを残したエンジンは外したことにならないので、この拒否は起きません。
+
+エンジンを外すこと自体は、セッションも restore point も消しません。ただし通常の保持規則（checkpoint GC、止まったセッションの workspace TTL など）はそのまま適用されます。
+
+**検査と rollout の間の競合。** 検査は、実行した時点で slot を握っている launch だけを見ます。検査の後 rollout の前に、古い scheduler が外したエンジンの launch を予約することがあります。その worker は新しい control-host で claim するセッションを見つけられずに終了します。scheduler はこの終了を launch 失敗として数えず、その launch を作り直さずに返します（撤回したイメージの launch も同じです）。その後、セッションは上のとおり slot なしで待つか止まります。検査の後に claim してすでに動いている worker は、この設定だけでは止まりません。
+
+**戻し方。** 外したエンジンのセッションをまた動かすには、そのエンジンの撤回していないイメージを一覧に戻す upgrade をします。そのイメージはセッションの runtime バージョンを載せている必要があります。承認一覧は空にします。すると待っていたセッションは次の pass でそのイメージで起動します。`incompatible_checkpoint` で止まったセッションは `retry_restore` で再試行します。
+
 Job は承認一覧を `UPGRADE_APPROVED_SESSIONS`（JSON 配列）、デプロイ済み worker を `UPGRADE_DEPLOYED_WORKER_IMAGE`、デプロイ済み直前イメージを `UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS`（なければ空値）、それぞれの runtime を `UPGRADE_DEPLOYED_WORKER_IMAGE_RUNTIME`・`UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS_RUNTIME` で受け取ります。デプロイ済み scheduler がイメージ一覧（`WORKER_IMAGES`）で動いていれば、その一覧を `UPGRADE_DEPLOYED_WORKER_IMAGES` で受け取ります。chart が現在の scheduler Deployment のこれらの値を `lookup` で読み、名前の前に `UPGRADE_DEPLOYED_` を付けて渡します。デプロイ済み runtime がなければ、そのイメージは digest だけで比較します。kind で実際の `helm upgrade` を実行し、次を確認しました。`lookup` がデプロイ済み worker イメージと直前イメージを読みます。直前イメージを外す upgrade は、そのイメージで封印されたセッションを `no_image` として選び、`refused` で停止します。その一覧を正確に承認すると `proceed` です。worker イメージを変え、現在の worker イメージを直前イメージにする upgrade は `proceed` です。worker イメージを維持し、直前イメージだけを別のイメージに変える upgrade、イメージ一覧、slot を持つ launch のイメージ判定は実行確認していません（テストでのみ確認しました）。runtime 表の例外を開けるのは、chart が一緒に渡す `UPGRADE_DEPLOYED_STATE` だけです。`absent` は scheduler Deployment がなく、namespace の `default` ServiceAccount は読めたことを意味します（この経路にはその ServiceAccount の `get` 権限が必要）。`unpinned` は Deployment が runtime・直前イメージなしで動く状態です。`helm template` とクライアント `--dry-run` では `lookup` が何も読まずデプロイ済みの値がすべて空なので、その render で実行した Job は `check_failed` になります。`--dry-run=server` はクラスタを読みますが hook を実行しないため判定の代わりにはなりません。検査は `DATABASE_URL` が今回の DB であることを信頼します。別の空 DB を指すと `absent` 経路が通過します。初回設置（`pre-install`）と `scheduler.enabled: false` では Job を作りません。Job と scheduler に同じイメージを渡すため、`WORKER_IMAGE`・`WORKER_IMAGE_PREVIOUS`・`WORKER_IMAGE_RUNTIME`・`WORKER_IMAGE_PREVIOUS_RUNTIME` は `*.extraEnv`、`config.limits`、`secrets.catalogEnv` で渡せません。渡すと render が失敗します。`images.worker` と `images.workerPrevious` で指定します。
 
 **`helm rollback` の前に。** rollback は hook を実行しないため、同じコマンドを api Pod で直接実行します。値は戻す revision のもの（`helm get values --revision <revision>`）を指定します。
