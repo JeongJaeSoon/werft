@@ -1,0 +1,23 @@
+# The fake providers for tests/e2e/run.sh --conformance two_engines, last,
+# after infra/compose.fake-model.yml and infra/compose.two-engines.yml: the
+# fake Responses API on beside the fake Messages API, the settings with one
+# connection to each (tests/fixtures/settings/conformance-two-engines.json),
+# and its control port published so the suite can read what each model call
+# carried.
+services:
+  fake-responses:
+    profiles: !reset []
+    ports:
+      - "127.0.0.1::4031"
+  migrate:
+    environment:
+      SETTINGS_DOCUMENT: /settings/conformance-two-engines.json
+  egress-proxy:
+    environment:
+      EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: fake-git:3000,fake-messages:4010,fake-mcp:4020,localstack:4566,fake-responses:4030
+  api:
+    environment:
+      EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: fake-git:3000,fake-messages:4010,fake-mcp:4020,localstack:4566,fake-responses:4030
+    depends_on:
+      fake-responses:
+        condition: service_healthy

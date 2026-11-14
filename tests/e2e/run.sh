@@ -71,10 +71,12 @@ conformance=""
 conf_files=()
 case "$*" in
   "") unset E2E_MODEL_MODE ;;
-  "--conformance claude_agent_sdk"|"--conformance codex_app_server")
+  "--conformance claude_agent_sdk"|"--conformance codex_app_server"|"--conformance two_engines")
     # The engine-parametrized suite (tests/conformance) on the same stack
     # lifecycle: one engine's worker image, its fake provider, the scripted
     # prompts. The engine's overlay names the provider the connections call.
+    # two_engines runs tests/conformance/two-engines.e2e.ts alone, on a stack
+    # with both engines' images and both fake providers.
     unset E2E_MODEL_MODE
     conformance="${2}"
     conf_files=(-f tests/conformance/compose.yml)
@@ -86,12 +88,15 @@ case "$*" in
     if [ "$conformance" = codex_app_server ]; then
       conf_files=(-f infra/compose.codex-worker.yml "${conf_files[@]}")
       model_overlay=tests/conformance/compose.codex.yml
+    elif [ "$conformance" = two_engines ]; then
+      conf_files+=(-f infra/compose.fake-model.yml -f infra/compose.two-engines.yml)
+      model_overlay=tests/conformance/compose.two-engines.yml
     fi ;;
   --real-model) real_model=1; model_overlay=infra/compose.real-model.yml; export E2E_MODEL_MODE=real
     export SESSION_COST_LIMIT_USD="${SESSION_COST_LIMIT_USD:-3}" ;;
   --local-model) local_model=1; model_overlay=infra/compose.local-model.yml; export E2E_MODEL_MODE=local
     export SESSION_COST_LIMIT_USD="${SESSION_COST_LIMIT_USD:-25}" ;;
-  *) echo "usage: tests/e2e/run.sh [--real-model | --local-model | --conformance <runtime_kind>]" >&2; exit 2 ;;
+  *) echo "usage: tests/e2e/run.sh [--real-model | --local-model | --conformance <runtime_kind> | --conformance two_engines]" >&2; exit 2 ;;
 esac
 if [ -n "$local_model" ]; then
   tags_status=0
@@ -156,6 +161,14 @@ mkdir -p "$out/workers"
 export EXECUTION_INSTALLATION_ID="e2e${run_id}"
 export API_IMAGE="werft-control-host:${project}"
 export WORKER_IMAGE="werft-worker:${project}"
+# Both engines: Codex is the current image and Claude the previous one
+# (infra/compose.two-engines.yml). Named here alone, never taken from the
+# shell, so the cleanup removes only an image this run built.
+previous_image=""
+if [ "$conformance" = two_engines ]; then
+  previous_image="$WORKER_IMAGE"
+  export WORKER_IMAGE="werft-worker-codex:${project}" WORKER_IMAGE_PREVIOUS="$previous_image"
+fi
 export EGRESS_PROXY_IMAGE="werft-egress-proxy:${project}"
 # The first owner's, for firstOwnerCookie in tests/e2e/client.ts:
 # infra/compose.core.yml passes it to the API.
@@ -171,6 +184,14 @@ dc() {
     ${conf_files[@]+"${conf_files[@]}"} -f "$model_overlay" \
     ${E2E_COMPOSE_OVERRIDE:+-f "$E2E_COMPOSE_OVERRIDE"} \
     ${E2E_COMPOSE_CACHE:+-f "$E2E_COMPOSE_CACHE"} --profile apps "$@"
+}
+# two_engines builds its Codex image under infra/compose.codex-worker.yml's
+# build argument, apart from the stack, whose overlays build the Claude one.
+dc_codex() {
+  docker compose -p "$project" -f infra/compose.yml -f tests/e2e/compose.yml \
+    -f infra/compose.codex-worker.yml \
+    ${E2E_COMPOSE_OVERRIDE:+-f "$E2E_COMPOSE_OVERRIDE"} \
+    ${E2E_COMPOSE_CACHE:+-f "$E2E_COMPOSE_CACHE"} --profile worker "$@"
 }
 
 events_pid=""
@@ -188,7 +209,8 @@ cleanup() {
     [ -z "$ids" ] || docker network rm $ids >/dev/null 2>&1 || true
     ids="$(docker volume ls -q --filter "label=${volume_label}")"
     [ -z "$ids" ] || docker volume rm -f $ids >/dev/null 2>&1 || true
-    docker image rm "$API_IMAGE" "$WORKER_IMAGE" "$EGRESS_PROXY_IMAGE" >/dev/null 2>&1 || true
+    docker image rm "$API_IMAGE" "$WORKER_IMAGE" "$EGRESS_PROXY_IMAGE" \
+      ${previous_image:+"$previous_image"} >/dev/null 2>&1 || true
   fi
   # Stopping the event stream ends the loop; each `docker logs -f` ends with
   # its container, which is gone by now unless the stack is kept.
@@ -227,6 +249,26 @@ while read -r id name; do
   docker logs -f --timestamps "$id" >"$out/workers/${name}.log" 2>&1 &
 done <"$out/.events" &
 
+if [ "$conformance" = two_engines ]; then
+  echo "== build both worker images" >&2
+  { dc_codex build worker && dc build worker; } >"$out/build.log" 2>&1 ||
+    { tail -50 "$out/build.log" >&2; exit 1; }
+  # Read from each built image as .github/workflows/images.yml does, before
+  # the stack starts: the scheduler, api and slack take them at start.
+  image_runtime() {
+    docker run --rm -i --network none --entrypoint bun "$1" \
+      run apps/worker/src/image-runtime.ts <<<'{}' | jq -c 'del(.profiles)'
+  }
+  WORKER_IMAGE_RUNTIME="$(image_runtime "$WORKER_IMAGE")"
+  WORKER_IMAGE_PREVIOUS_RUNTIME="$(image_runtime "$WORKER_IMAGE_PREVIOUS")"
+  export WORKER_IMAGE_RUNTIME WORKER_IMAGE_PREVIOUS_RUNTIME
+  if [ "$(jq -r .engine <<<"$WORKER_IMAGE_RUNTIME")" != codex ] ||
+    [ "$(jq -r .engine <<<"$WORKER_IMAGE_PREVIOUS_RUNTIME")" != claude ]; then
+    echo "e2e two_engines: the images hold ${WORKER_IMAGE_RUNTIME} and ${WORKER_IMAGE_PREVIOUS_RUNTIME}, not codex and claude" >&2
+    exit 1
+  fi
+fi
+
 echo "== build + up (${project})" >&2
 # The command docs/quickstart.md gives, plus the overlay and project above.
 dc up -d --build >"$out/up.log" 2>&1 || { tail -50 "$out/up.log" >&2; exit 1; }
@@ -247,6 +289,11 @@ sdk_version="$(sed -n 's/.*"@anthropic-ai\/claude-agent-sdk": "\([^"]*\)".*/\1/p
   echo "docker_engine: ${docker_version}"
   echo "api_image: ${API_IMAGE} $(image_id "$API_IMAGE")"
   echo "worker_image: ${WORKER_IMAGE} $(image_id "$WORKER_IMAGE")"
+  if [ -n "$previous_image" ]; then
+    echo "worker_image_runtime: ${WORKER_IMAGE_RUNTIME}"
+    echo "worker_image_previous: ${previous_image} $(image_id "$previous_image")"
+    echo "worker_image_previous_runtime: ${WORKER_IMAGE_PREVIOUS_RUNTIME}"
+  fi
   echo "egress_proxy_image: ${EGRESS_PROXY_IMAGE} $(image_id "$EGRESS_PROXY_IMAGE")"
   echo "claude_agent_sdk: ${sdk_version}"
   echo "claude_code: ${claude_version}"
@@ -269,7 +316,7 @@ export E2E_API_KEY="$api_key"
 # Every suite signs in as the first owner to release its agent on the
 # stack's connection (tests/e2e/client.ts e2eStack): a session runs a release.
 export E2E_BOOTSTRAP_TOKEN="$BOOTSTRAP_TOKEN"
-if [ "$conformance" = codex_app_server ]; then
+if [ "$conformance" = codex_app_server ] || [ "$conformance" = two_engines ]; then
   export E2E_RESPONSES_URL="http://127.0.0.1:$(dc port fake-responses 4031 | sed 's/.*://')"
 fi
 if [ -z "$real_model$local_model" ] && [ "$conformance" != codex_app_server ]; then
@@ -289,14 +336,17 @@ if [ -n "$conformance" ]; then export E2E_BOOTSTRAP_TOKEN="$BOOTSTRAP_TOKEN"; fi
 if [ "${E2E_UP_ONLY:-0}" = 1 ]; then
   export E2E_KEEP=1
   # Holds the API key, so only here and never in a CI artifact.
-  export -p | grep -E ' (E2E_[A-Z_]*|CONFORMANCE_RUNTIME_KIND|DOCKER_HOST|EXECUTION_INSTALLATION_ID|SESSION_COST_LIMIT_USD|[A-Z_]+_IMAGE)=' >"$out/vars.sh"
+  export -p | grep -E ' (E2E_[A-Z_]*|CONFORMANCE_RUNTIME_KIND|DOCKER_HOST|EXECUTION_INSTALLATION_ID|SESSION_COST_LIMIT_USD|[A-Z_]+_IMAGE|WORKER_IMAGE_PREVIOUS)=' >"$out/vars.sh"
   echo "stack up: source $out/vars.sh" >&2
   exit 0
 fi
 
 echo "== tests/e2e" >&2
 set +e
-if [ -n "$conformance" ]; then
+if [ "$conformance" = two_engines ]; then
+  # Not the engine suite: its fixture selector names one engine per stack.
+  suites=(./tests/conformance/two-engines.e2e.ts)
+elif [ -n "$conformance" ]; then
   suites=(./tests/conformance/*.conformance.ts)
 elif [ -n "$real_model$local_model" ]; then
   suites=(./tests/e2e/real-model.e2e.ts)
