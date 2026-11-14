@@ -140,10 +140,18 @@ describe.skipIf(npm === null && process.env.CI === undefined)(
       return { app, ...result };
     }
 
+    // Exact host: a substring match would let codeload.github.com stand in
+    // for github.com.
     const denied = (host: string) =>
-      warnings.some(
-        (line) => line.includes("Egress denied") && line.includes(host),
-      );
+      warnings.some((line) => {
+        const record = JSON.parse(line) as {
+          message?: string;
+          fields?: { host?: unknown };
+        };
+        return (
+          record.message === "Egress denied" && record.fields?.host === host
+        );
+      });
 
     test("an attached repository's dependency installs through git once codeload is refused", async () => {
       const { app, code, output } = await install("attached", "acme/dep");
