@@ -295,8 +295,8 @@ import {
 } from "./slack-config.ts";
 import { signInWithSlackOff } from "./slack-link.ts";
 import {
+  carryOverSlackSettings,
   createSlackSettingsAdmin,
-  importSlackEventsPublicUrl,
   slackEventsBaseOf,
 } from "./slack-settings.ts";
 import { installedToolCatalogView } from "./tool-catalogs.ts";
@@ -583,13 +583,14 @@ if (consoleOrigin === null) {
 const slackLinkOff = signInWithSlackOff(consoleOrigin, true);
 if (slackLinkOff !== null) logger.warn(slackLinkOff, {});
 const slackSettingsStore = createPostgresSlackSettingsStore(db);
-for (const warning of await importSlackEventsPublicUrl(
-  process.env,
-  slackSettingsStore,
-)) {
-  logger.warn(warning, {});
-}
 const slackEventsBase = slackEventsBaseOf(slackSettingsStore, consoleOrigin);
+void carryOverSlackSettings({
+  env: process.env,
+  store: slackSettingsStore,
+  eventsBase: slackEventsBase,
+  warn: (message, fields) => logger.warn(message, fields ?? {}),
+  retryMs: CATALOG_READ_RETRY_MS,
+});
 const slackActiveReleaseWarning: SlackServicesStageDeps["activeReleaseWarning"] =
   async (workspaceId, agentId) => {
     const release = (await agentStore.get(workspaceId, agentId))
@@ -649,12 +650,6 @@ const {
   activeReleaseWarning: slackActiveReleaseWarning,
   logger,
 });
-if ((await slackEventsBase()) === null) {
-  logger.warn(
-    "Slack apps get no event subscription (CONSOLE_ORIGIN unset or not https, and no events address saved in Settings > Integrations > Slack): installs finish with events_url_unset",
-    {},
-  );
-}
 const slackSettingsAdmin = createSlackSettingsAdmin({
   authorization,
   store: slackSettingsStore,

@@ -12,6 +12,7 @@ import {
   SessionServiceError,
 } from "@werft-ai/platform";
 import {
+  carryOverSlackSettings,
   createSlackSettingsAdmin,
   importSlackEventsPublicUrl,
   slackEventsBaseOf,
@@ -271,5 +272,49 @@ describe("carrying SLACK_EVENTS_PUBLIC_URL in on upgrade", () => {
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toContain("was not carried in");
     expect(warnings.join("\n")).not.toContain("canary");
+  });
+});
+
+describe("the carry-over at start", () => {
+  test("a database that does not answer yet is retried, not a stopped start", async () => {
+    const { store, row } = memoryStore(null);
+    let down = true;
+    const flaky: SlackSettingsStore = {
+      ...store,
+      read: async () => {
+        if (down) throw new Error("connect ECONNREFUSED");
+        return store.read();
+      },
+    };
+    const warned: string[] = [];
+    await carryOverSlackSettings({
+      env: { SLACK_EVENTS_PUBLIC_URL: `${EVENTS}/` },
+      store: flaky,
+      eventsBase: slackEventsBaseOf(flaky, CONSOLE),
+      warn: (message) => warned.push(message),
+      retryMs: 5,
+    });
+    expect(warned).toEqual(["Slack settings could not be read; retrying"]);
+    expect(row()).toBe(null);
+    down = false;
+    await Bun.sleep(50);
+    expect(row()).toEqual({ eventsPublicUrl: EVENTS });
+    expect(warned.slice(1)).toEqual([
+      "SLACK_EVENTS_PUBLIC_URL was carried into Settings > Integrations > Slack and is no longer read; remove it",
+    ]);
+  });
+
+  test("says once that no events address is known", async () => {
+    const { store } = memoryStore(null);
+    const warned: string[] = [];
+    await carryOverSlackSettings({
+      env: {},
+      store,
+      eventsBase: slackEventsBaseOf(store, null),
+      warn: (message) => warned.push(message),
+      retryMs: 5,
+    });
+    expect(warned).toHaveLength(1);
+    expect(warned[0]).toStartWith("Slack apps get no event subscription");
   });
 });

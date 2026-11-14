@@ -106,3 +106,37 @@ export async function importSlackEventsPublicUrl(
       ]
     : ["Ignored removed settings: SLACK_EVENTS_PUBLIC_URL"];
 }
+
+const EVENTS_UNSET =
+  "Slack apps get no event subscription (CONSOLE_ORIGIN unset or not https, and no events address saved in Settings > Integrations > Slack): installs finish with events_url_unset";
+
+/**
+ * The carry-over and the no-address warning at start, without holding the
+ * start up: the database may not answer yet, and the server stays up and
+ * tries again, as its catalog read does. Resolves after the first attempt.
+ */
+export function carryOverSlackSettings(deps: {
+  env: Record<string, string | undefined>;
+  store: SlackSettingsStore;
+  eventsBase: () => Promise<string | null>;
+  warn: (message: string, fields?: Record<string, unknown>) => void;
+  retryMs: number;
+}): Promise<void> {
+  return importSlackEventsPublicUrl(deps.env, deps.store).then(
+    async (warnings) => {
+      for (const warning of warnings) deps.warn(warning);
+      // A read failing here only skips the hint; the carry-over is done.
+      if ((await deps.eventsBase().catch(() => undefined)) === null) {
+        deps.warn(EVENTS_UNSET);
+      }
+    },
+    (error: unknown) => {
+      deps.warn("Slack settings could not be read; retrying", {
+        error_name: error instanceof Error ? error.name : typeof error,
+      });
+      setTimeout(() => {
+        void carryOverSlackSettings(deps);
+      }, deps.retryMs).unref();
+    },
+  );
+}
