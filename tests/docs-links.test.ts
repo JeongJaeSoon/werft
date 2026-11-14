@@ -386,7 +386,7 @@ const NOT_SETTINGS: Record<string, string> = {
   DEMO_FIXTURES:
     "inlined into the console demo build by apps/web/vite.config.ts",
   DEMO_ACCOUNTS_PASSWORD:
-    "the Actions preview's demo password (docs/contributing/development.md)",
+    "a local stack's own demo password in place of the public one (scripts/local.sh)",
   CHOKIDAR_USEPOLLING:
     "the Vite dev server's file watcher (docs/contributing/development.md)",
   EXECUTION_VOLUME_LABEL_NAMESPACE:

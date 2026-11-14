@@ -585,14 +585,48 @@ describe("a session pinned to an agent release", () => {
     });
   });
 
+  test("a session whose version string only an image of another engine ships says the images no longer ship its runtime", async () => {
+    const spec = testSpecSource();
+    const { kind, version } = spec.runtime;
+    const otherEngine = setup({
+      catalog: {
+        ...catalog,
+        runtime_versions: { accepted: [{ kind: "codex_app_server", version }] },
+      },
+      session: { ...sessionOn(), spec },
+    });
+    expect(
+      (await otherEngine.service.getSession(otherEngine.caller, SESSION))
+        .attention,
+    ).toMatchObject({
+      code: "CATALOG_MISMATCH",
+      reason: expect.stringContaining(
+        `${kind} ${version}, which the worker images no longer ship`,
+      ),
+    });
+    const sameEngine = setup({
+      catalog: {
+        ...catalog,
+        runtime_versions: { accepted: [{ kind, version }] },
+      },
+      session: { ...sessionOn(), spec },
+    });
+    expect(
+      (await sameEngine.service.getSession(sameEngine.caller, SESSION))
+        .attention,
+    ).toBeNull();
+  });
+
   test("a release on a runtime the worker images no longer accept takes no new session", async () => {
     const stale = setup({
       accept: "unsupported",
       catalog: {
         ...catalog,
         runtime_versions: {
-          current: ["0.3.280", "2.1.280"],
-          accepted: ["0.3.280", "2.1.280"],
+          accepted: [
+            { kind: "claude_agent_sdk", version: "0.3.280" },
+            { kind: "claude_agent_sdk", version: "2.1.280" },
+          ],
         },
       },
     });
@@ -607,12 +641,36 @@ describe("a session pinned to an agent release", () => {
     expect(stale.accepted[0]).toMatchObject({ repository: null });
     expect(stale.accepted[0]?.model).toBeUndefined();
 
+    // The release's version string, shipped by an image of another engine.
+    const otherEngine = setup({
+      accept: "unsupported",
+      catalog: {
+        ...catalog,
+        runtime_versions: {
+          accepted: [{ kind: "codex_app_server", version: "0.3.270" }],
+        },
+      },
+    });
+    await expect(
+      otherEngine.service.createSession(otherEngine.caller, {
+        idempotencyKey: "k",
+        body,
+      }),
+    ).rejects.toMatchObject({
+      code: "UNSUPPORTED_CAPABILITY",
+      message: expect.stringContaining(
+        "claude_agent_sdk 0.3.270, which the current worker images do not ship",
+      ),
+    });
+
     const current = setup({
       catalog: {
         ...catalog,
         runtime_versions: {
-          current: ["0.3.270", "2.1.270"],
-          accepted: ["0.3.270", "2.1.270"],
+          accepted: [
+            { kind: "claude_agent_sdk", version: "0.3.270" },
+            { kind: "claude_agent_sdk", version: "2.1.270" },
+          ],
         },
       },
     });

@@ -290,15 +290,35 @@ describe("workerImageListFromEnv", () => {
   });
 });
 
-test("new sessions take the newest image's versions; pins take any listed image's", () => {
-  expect(runtimeVersionsOf([current, previous])).toEqual({
-    current: ["0.3.280", "2.1.280"],
-    accepted: ["0.3.280", "2.1.280", "0.3.270", "2.1.270"],
+test("pins take any listed image's versions, under the kinds of its engine only", () => {
+  const kinds = [
+    { kind: "claude_agent_sdk", checkpointEngine: "claude" },
+    { kind: "codex_app_server", checkpointEngine: "codex" },
+  ];
+  const claude = (version: string) => ({ kind: "claude_agent_sdk", version });
+  expect(runtimeVersionsOf([current, previous], kinds)).toEqual({
+    accepted: [
+      claude("0.3.280"),
+      claude("2.1.280"),
+      claude("0.3.270"),
+      claude("2.1.270"),
+    ],
   });
-  expect(runtimeVersionsOf([current])).toEqual({
-    current: ["0.3.280", "2.1.280"],
-    accepted: ["0.3.280", "2.1.280"],
+  const codex = { ...previous, engine: "codex" };
+  expect(runtimeVersionsOf([current, codex], kinds)).toEqual({
+    accepted: [
+      claude("0.3.280"),
+      claude("2.1.280"),
+      { kind: "codex_app_server", version: "0.3.270" },
+      { kind: "codex_app_server", version: "2.1.270" },
+    ],
   });
+  expect(
+    runtimeVersionsOf(
+      [current],
+      [{ kind: "codex_app_server", checkpointEngine: "codex" }],
+    ),
+  ).toEqual({ accepted: [] });
 });
 
 describe("selectWorkerImage", () => {

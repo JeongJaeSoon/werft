@@ -373,12 +373,18 @@ function describe(runtime: ImageRuntime): string {
   return `${runtime.engine} sdk ${runtime.sdkVersion} cli ${runtime.cliVersion} digest scheme ${runtime.profileDigestScheme}`;
 }
 
-/** New releases name the newest image's versions; any listed image's still run. */
+/** An image runs the runtime kinds whose checkpoints carry its engine. */
 export function runtimeVersionsOf(
   runtimes: readonly [ImageRuntime, ...ImageRuntime[]],
+  kinds: ReadonlyArray<{ kind: string; checkpointEngine: string }>,
 ): RuntimeVersions {
   return {
-    current: imageRuntimeVersions(runtimes[0]),
-    accepted: runtimes.flatMap(imageRuntimeVersions),
+    accepted: runtimes.flatMap((runtime) =>
+      kinds
+        .filter(({ checkpointEngine }) => checkpointEngine === runtime.engine)
+        .flatMap(({ kind }) =>
+          imageRuntimeVersions(runtime).map((version) => ({ kind, version })),
+        ),
+    ),
   };
 }

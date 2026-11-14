@@ -96,8 +96,18 @@ describe("installed runtimes", () => {
         },
       ]),
     });
-    expect(listed?.current).toContain("0.3.280");
-    expect(listed?.accepted).toContain("0.3.270");
+    expect(listed?.accepted).toContainEqual({
+      kind: "claude_agent_sdk",
+      version: "0.3.280",
+    });
+    expect(listed?.accepted).toContainEqual({
+      kind: "claude_agent_sdk",
+      version: "0.3.270",
+    });
+    // A claude image ships no Codex runtime, whatever its version strings.
+    expect(
+      listed?.accepted.some(({ kind }) => kind === "codex_app_server"),
+    ).toBe(false);
     expect(listed).toEqual(
       runtimeVersionsFromEnv({
         WORKER_IMAGE_RUNTIME: JSON.stringify(current),
@@ -121,11 +131,70 @@ describe("installed runtimes", () => {
           },
         ]),
       });
-    // New sessions start on the newest unretracted image, and on none once all are.
-    expect(retracted([true, false])?.current).toContain("0.3.270");
-    expect(retracted([true, false])?.current).not.toContain("0.3.280");
-    expect(retracted([true, true])?.current).toEqual([]);
-    expect(retracted([true, true])?.accepted).toEqual(listed?.accepted ?? []);
+    // A retracted image's versions stay accepted: a fixed build of the same
+    // combination takes what was sealed on it.
+    const pairs = (versions: typeof listed) =>
+      (versions?.accepted ?? [])
+        .map(({ kind, version }) => `${kind} ${version}`)
+        .sort();
+    expect(pairs(retracted([true, false]))).toEqual(pairs(listed));
+    expect(pairs(retracted([true, true]))).toEqual(pairs(listed));
+  });
+
+  test("an older build with the image's own tool catalog runs, under the image's kind only", () => {
+    // The installed claude catalog of 0.3.319 is also 0.3.270's.
+    const claude = runtimeVersionsFromEnv({
+      WORKER_IMAGE_RUNTIME: JSON.stringify({
+        engine: "claude",
+        sdkVersion: "0.3.319",
+        cliVersion: "2.1.319",
+      }),
+    })?.accepted;
+    expect(claude).toContainEqual({
+      kind: "claude_agent_sdk",
+      version: "0.3.270",
+    });
+    expect(claude).not.toContainEqual({
+      kind: "codex_app_server",
+      version: "0.3.270",
+    });
+    const codex = runtimeVersionsFromEnv({
+      WORKER_IMAGE_RUNTIME: JSON.stringify({
+        engine: "codex",
+        sdkVersion: "0.3.319",
+        cliVersion: "0.3.319",
+      }),
+    })?.accepted;
+    expect(codex).toEqual([{ kind: "codex_app_server", version: "0.3.319" }]);
+  });
+
+  test("switching engines keeps the previous engine's sessions running, under its own kind", () => {
+    const codex = { engine: "codex", sdkVersion: "0.9.0", cliVersion: "0.9.0" };
+    const claude = {
+      engine: "claude",
+      sdkVersion: "0.3.270",
+      cliVersion: "2.1.270",
+    };
+    const accepted = runtimeVersionsFromEnv({
+      WORKER_IMAGE_RUNTIME: JSON.stringify(codex),
+      WORKER_IMAGE_PREVIOUS_RUNTIME: JSON.stringify(claude),
+    })?.accepted;
+    expect(accepted).toContainEqual({
+      kind: "codex_app_server",
+      version: "0.9.0",
+    });
+    expect(accepted).toContainEqual({
+      kind: "claude_agent_sdk",
+      version: "0.3.270",
+    });
+    expect(accepted).not.toContainEqual({
+      kind: "claude_agent_sdk",
+      version: "0.9.0",
+    });
+    expect(accepted).not.toContainEqual({
+      kind: "codex_app_server",
+      version: "0.3.270",
+    });
   });
 });
 
