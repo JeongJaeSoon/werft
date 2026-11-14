@@ -169,6 +169,8 @@ describe("i18n", () => {
       expect(path[locale].endsWith(catalog["loginMethods.title"])).toBe(true);
       expect(text).toContain(path[locale]);
       expect([locale, password[locale].test(text)]).toEqual([locale, false]);
+      // Someone who cannot sign in any way they had is told whom to ask.
+      expect(text.toLowerCase()).toContain(catalog["role.owner"].toLowerCase());
     }
   });
 
