@@ -105,7 +105,7 @@ describe("runUpgradeCheck", () => {
     });
     expect(code).toBe(2);
     expect(output.reason).toContain(
-      "workers on worker@sha256:n-minus-1 keep sealing",
+      "workers on worker@sha256:n-minus-1, the deployed newest image",
     );
 
     // Declared, its runtime is judged instead of its digest.
@@ -132,7 +132,7 @@ describe("runUpgradeCheck", () => {
     const refused = await run(dropped, listed, undefined, writer);
     expect(refused.code).toBe(2);
     expect(refused.output.reason).toContain(
-      "workers on worker@sha256:n-minus-1 keep sealing",
+      "workers on worker@sha256:n-minus-1 still hold a slot",
     );
     expect((await run(dropped, listed)).code).toBe(0);
   });

@@ -106,21 +106,31 @@ export function assessUpgrade(input: {
       return reason === null ? [] : [{ sessionId: session.sessionId, reason }];
     })
     .sort((a, b) => a.sessionId.localeCompare(b.sessionId));
-  const stranded = [
+  const stranded = (writers: readonly UpgradeImage[]) => [
     ...new Set(
-      [deployed[0], ...input.writers]
+      writers
         .filter(
           (writer) => resumesOn(writer, deployed) && !resumesOn(writer, target),
         )
         .map(({ image }) => image),
     ),
-  ].sort();
-  if (stranded.length > 0) {
+  ];
+  // New sessions start on it until the rollout, so no wait ends this.
+  if (stranded([deployed[0]]).length > 0) {
     return {
       verdict: "refused",
       affected,
       approved,
-      reason: `workers on ${stranded.join(" ")} keep sealing checkpoints after this check and no target image restores them, so no approval covers them: keep the image in the target release, or wait until no launch on it holds a slot`,
+      reason: `workers on ${deployed[0].image}, the deployed newest image, keep sealing checkpoints after this check and no target image restores them, so no approval covers them: keep that image, or one that restores its checkpoints, in the target release`,
+    };
+  }
+  const launches = stranded(input.writers).sort();
+  if (launches.length > 0) {
+    return {
+      verdict: "refused",
+      affected,
+      approved,
+      reason: `workers on ${launches.join(" ")} still hold a slot and keep sealing checkpoints no target image restores, so no approval covers them: keep the image in the target release, or run the upgrade once no launch on it holds a slot`,
     };
   }
   const ids = affected.map((session) => session.sessionId);
@@ -148,9 +158,14 @@ function kept(
       image === deployed.image &&
       (deployed.runtime === null ||
         (sameCombination(deployed.runtime, runtime) &&
-          restorableSchemesOf(deployed.runtime).join() ===
-            restorableSchemesOf(runtime).join())),
+          schemeSet(deployed.runtime) === schemeSet(runtime))),
   );
+}
+
+function schemeSet(runtime: ImageRuntime): string {
+  return [...new Set(restorableSchemesOf(runtime))]
+    .sort((a, b) => a - b)
+    .join();
 }
 
 // A writer with no runtime recorded seals whatever its image runs, which only

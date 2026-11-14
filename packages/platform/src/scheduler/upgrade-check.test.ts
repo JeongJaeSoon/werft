@@ -130,7 +130,7 @@ describe("assessUpgrade", () => {
       });
       expect(assessment.verdict).toBe("refused");
       expect(assessment.reason).toContain(
-        `workers on ${n} keep sealing checkpoints`,
+        `workers on ${n}, the deployed newest image, keep sealing checkpoints`,
       );
       expect(assessment.affected).toEqual([
         { sessionId: "s-previous", reason: "no_image" },
@@ -170,7 +170,7 @@ describe("assessUpgrade", () => {
       approved: [],
     });
     expect(dropped.verdict).toBe("refused");
-    expect(dropped.reason).toContain(`workers on ${n} keep sealing`);
+    expect(dropped.reason).toContain(`workers on ${n}, the deployed newest`);
   });
 
   describe("a launch still holding a slot", () => {
@@ -192,7 +192,9 @@ describe("assessUpgrade", () => {
           approved: ["s-older"],
         });
         expect(assessment.verdict).toBe("refused");
-        expect(assessment.reason).toContain(`workers on ${other} keep sealing`);
+        expect(assessment.reason).toContain(
+          `workers on ${other} still hold a slot`,
+        );
       }
     });
 
@@ -283,7 +285,9 @@ describe("assessUpgrade", () => {
           approved: ["s-previous"],
         });
         expect(assessment.verdict).toBe("refused");
-        expect(assessment.reason).toContain(`workers on ${n} keep sealing`);
+        expect(assessment.reason).toContain(
+          `workers on ${n} still hold a slot`,
+        );
       }
     });
 
@@ -342,6 +346,23 @@ describe("assessUpgrade", () => {
       });
       expect(widened.verdict).toBe("refused");
       expect(widened.reason).toContain(`dropped or redeclared: ${n};`);
+    });
+
+    test("restorable schemes listed in another order are the same declaration", () => {
+      const schemes = (restorableSchemes: number[]) => ({
+        ...previous,
+        profileDigestScheme: 2,
+        restorableSchemes,
+      });
+      expect(
+        assessUpgrade({
+          deployed: [{ image: n, runtime: schemes([1, 2]) }],
+          target: [{ image: n, runtime: schemes([2, 1]) }],
+          writers: [],
+          sessions: [on("s-unrecorded", null)],
+          approved: [],
+        }),
+      ).toEqual({ verdict: "proceed", affected: [], approved: [] });
     });
 
     test("a session with no recorded combination is listed too, as for a replaced image", () => {
