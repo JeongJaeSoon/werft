@@ -296,12 +296,10 @@ const githubAppAuthSchema = z
       isRegisteredGitHubApp(auth) ||
       (auth.app_id !== undefined &&
         auth.installation_id !== undefined &&
-        // An explicit App's key is the deployment's, never the console's.
-        auth.stored === undefined &&
-        (auth.value_env === undefined) !== (auth.secret_id === undefined)),
+        namesOneRef(auth)),
     {
       message:
-        "name app_id, installation_id and exactly one of value_env or secret_id, or none of them to use the App registered in the console",
+        "name app_id, installation_id and exactly one of value_env, secret_id or stored, or none of them to use the App registered in the console",
     },
   );
 

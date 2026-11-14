@@ -453,6 +453,23 @@ describe("catalog config schema", () => {
       }
     });
 
+    test("an explicit App's key may be its row's stored value, still exactly one reference", () => {
+      const { value_env: _name, ...named } = appAuth;
+      const stored = { ...named, stored: "repository:app" };
+      expect(
+        sessionCatalogConfigSchema.safeParse(
+          config({ app: { ...github, auth: stored } }),
+        ).success,
+      ).toBe(true);
+      expect(
+        sessionCatalogConfigSchema.safeParse(
+          config({
+            app: { ...github, auth: { ...appAuth, stored: "repository:app" } },
+          }),
+        ).success,
+      ).toBe(false);
+    });
+
     test("{ kind: github_app } alone uses the App registered in the console, with no key to resolve", () => {
       const registered = { ...github, auth: { kind: "github_app" } };
       const catalog = load(

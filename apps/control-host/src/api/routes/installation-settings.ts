@@ -131,6 +131,23 @@ export function registerSettingsConsoleRoutes(
     });
   }
 
+  apiRoute(router, "setSettingsRepositoryCredential", async (context) => {
+    const { id } = requireParams(context, settingsIdParamsSchema);
+    const body = await parseJsonBody(
+      context,
+      setSettingsCredentialRequestSchema,
+    );
+    const changed = await mapped(() =>
+      settings.setCredential(
+        context.get("caller"),
+        "repository",
+        id,
+        body.value,
+      ),
+    );
+    return jsonWithSchema(context, settingsChangeResponseSchema, changed);
+  });
+
   apiRoute(router, "enableSettingsConnection", async (context) => {
     const { id } = requireParams(context, settingsIdParamsSchema);
     const changed = await mapped(() =>
