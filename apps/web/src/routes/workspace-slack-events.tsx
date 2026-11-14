@@ -47,7 +47,9 @@ export function eventsBaseOf(value: string): string | null {
   }
   if (url.protocol !== "https:" || url.username !== "" || url.password !== "")
     return null;
-  return `${url.origin}${url.pathname}`.replace(/\/+$/, "");
+  const base = `${url.origin}${url.pathname}`.replace(/\/+$/, "");
+  // Percent-encoding can lengthen what was typed; the limit is on what is kept.
+  return base.length > MAX_LENGTH ? null : base;
 }
 
 /**

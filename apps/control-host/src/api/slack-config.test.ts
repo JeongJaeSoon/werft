@@ -85,6 +85,9 @@ describe("parseEventsPublicUrl", () => {
     expect(parseEventsPublicUrl("https://events.example.test:8443/a/b")).toBe(
       "https://events.example.test:8443/a/b",
     );
+    expect(parseEventsPublicUrl("https://events.example.test/한")).toBe(
+      "https://events.example.test/%ED%95%9C",
+    );
   });
 
   test.each([
@@ -99,6 +102,10 @@ describe("parseEventsPublicUrl", () => {
     ["a user alone", "https://user@events.example.test"],
     ["another scheme", "wss://events.example.test"],
     ["over 2048 characters", `https://events.example.test/${"a".repeat(2030)}`],
+    [
+      "a short path that encodes past 2048 characters",
+      `https://events.example.test/${"한".repeat(230)}`,
+    ],
   ])("refuses %s", (_, value) => {
     expect(parseEventsPublicUrl(value)).toBe(null);
   });

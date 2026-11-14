@@ -115,7 +115,9 @@ export function parseEventsPublicUrl(value: string): string | null {
   ) {
     return null;
   }
-  return `${url.origin}${url.pathname}`.replace(/\/+$/, "");
+  const base = `${url.origin}${url.pathname}`.replace(/\/+$/, "");
+  // Percent-encoding can lengthen what was typed; the limit is on what is kept.
+  return base.length > SLACK_EVENTS_PUBLIC_URL_MAX ? null : base;
 }
 
 /**

@@ -177,6 +177,9 @@ describe("eventsBaseOf", () => {
   test("keeps what the server keeps, and refuses what it refuses", () => {
     expect(eventsBaseOf("  ")).toBe("");
     expect(eventsBaseOf(" https://events.example.test/in/ ")).toBe(EVENTS);
+    expect(eventsBaseOf("https://events.example.test/한")).toBe(
+      "https://events.example.test/%ED%95%9C",
+    );
     for (const refused of [
       "http://127.0.0.1:3000",
       "https://events.example.test/?",
@@ -184,6 +187,8 @@ describe("eventsBaseOf", () => {
       "https://user@events.example.test",
       "events.example.test",
       `https://events.example.test/${"a".repeat(2030)}`,
+      // Short as typed, past the limit once percent-encoded.
+      `https://events.example.test/${"한".repeat(230)}`,
     ]) {
       expect(eventsBaseOf(refused)).toBe(null);
     }
