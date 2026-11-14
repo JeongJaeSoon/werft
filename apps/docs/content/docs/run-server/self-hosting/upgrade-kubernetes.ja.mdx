@@ -235,7 +235,7 @@ rollback は migrate hook を実行しません（`pre-rollback` ではありま
 
 1. 一覧から外します。`images.workers`（`WORKER_IMAGES`）からその要素を外し（単一の値の環境では `images.worker` と `images.workerPrevious` のどちらにも置かず）、上の手順どおり upgrade します。それ以降、新しい launch はそのイメージを選びません。同じ組み合わせのイメージが一覧に残らないセッションがどうなるかは、[設定リファレンス](/run-server/self-hosting/reference/configuration)のイメージ一覧を見ます。
 2. `werft_sessions_by_worker_image{image="<repository>@sha256:<digest>"}` の series がなくなるまで待ちます。この指標は終わっていないセッションを、最後の launch のイメージ別に数えます（[指標リファレンス](/run-server/self-hosting/reference/metrics)、[指標の収集](/run-server/self-hosting/collect-metrics)）。series があれば、そのイメージで最後に launch したセッションがまだ開いています。休んでいる開いたセッションも series に残るため、そうしたセッションが終わるか、別のイメージで launch し直すまで待ちます。この指標は `stopped` のセッションを数えないため、series がなくても手順 3 を飛ばしません。
-3. そのイメージでスロットを持つ launch がないことを DB で確認します。運用者の DB クライアントで下の問い合わせを実行し、行が一つもない必要があります。この行には、そのイメージで動いている worker と、worker が付く前に作り直されるときに保存されたイメージ（つまり削除しようとしているイメージ）で作り直される launch の両方が含まれます。スロットは、scheduler がリソースの消えたことを確認してから解放されます。
+3. そのイメージでスロットを持つ launch がないことを DB で確認します。運用者の DB クライアントで下の問い合わせを実行し、行が一つもない必要があります。この行には、scheduler が管理するそのイメージの worker と、worker が付く前に作り直されるときに保存されたイメージ（つまり削除しようとしているイメージ）で作り直される launch の両方が含まれます。スロットは、scheduler がリソースの消えたことを確認してから解放されます。記録から外れ、scheduler が別に片付ける orphan Pod はここに出ません。orphan は作り直されず、ノードがすでに取得したイメージで動くため、registry から削除してもその Pod には影響しません。
 
 ```sql
 SELECT session_id, generation, claimed_attempt_id IS NOT NULL AS claimed
