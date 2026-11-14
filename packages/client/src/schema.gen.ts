@@ -1123,7 +1123,7 @@ export interface paths {
         };
         /**
          * Execution limits for the whole installation
-         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Each key gives `value`, what applies now; `default`, what applies while nothing is saved; and `saved`, false until an owner saves the key or an upgrade carries its old environment variable in. `pending_request_ttl_sec` is how long a permission or question a session raised takes answers once registered (1 to 604800 seconds). The values apply to every workspace of the installation.
+         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Each key gives `value`, what applies now; `default`, what applies while nothing is saved; `saved`, false until an owner saves the key or an upgrade carries its old environment variable in; and `blocked`, true while that variable held a value the key does not accept and nothing is saved: what the key sets is refused (a permission or question is not registered, 503) until a value is saved, and no default stands in. `pending_request_ttl_sec` is how long a permission or question a session raised takes answers once registered (1 to 604800 seconds). The values apply to every workspace of the installation.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -8074,6 +8074,7 @@ export interface components {
                 value: number;
                 default: number;
                 saved: boolean;
+                blocked: boolean;
             };
         };
         UpdateInstallationConfigResponse: {
@@ -8081,6 +8082,7 @@ export interface components {
                 value: number;
                 default: number;
                 saved: boolean;
+                blocked: boolean;
             };
             /** Format: uuid */
             receipt_id?: string;
@@ -18964,7 +18966,8 @@ export interface operations {
                      *       "pending_request_ttl_sec": {
                      *         "value": 1800,
                      *         "default": 1800,
-                     *         "saved": false
+                     *         "saved": false,
+                     *         "blocked": false
                      *       }
                      *     }
                      */
@@ -19053,7 +19056,8 @@ export interface operations {
                      *       "pending_request_ttl_sec": {
                      *         "value": 3600,
                      *         "default": 1800,
-                     *         "saved": true
+                     *         "saved": true,
+                     *         "blocked": false
                      *       },
                      *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
                      *     }
@@ -19061,7 +19065,7 @@ export interface operations {
                     "application/json": components["schemas"]["UpdateInstallationConfigResponse"];
                 };
             };
-            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. Also when a value is outside its key's range. */
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. Also when a value is outside its key's range or of another type; `details.issues[].path` names the key, as for any invalid body. */
             400: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];

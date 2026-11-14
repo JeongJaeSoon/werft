@@ -37,6 +37,11 @@ const entrySchema = <S extends z.ZodType>(schema: S) =>
       default: schema,
       /** False while nothing was saved or carried in. */
       saved: z.boolean(),
+      /**
+       * True while the old env value could not be carried in and nothing is
+       * saved: what the key sets is refused until a value is saved.
+       */
+      blocked: z.boolean(),
     })
     .strict();
 

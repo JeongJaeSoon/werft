@@ -68,7 +68,7 @@ export async function importInstallationConfig(
 export class InstallationConfigUnavailableError extends Error {
   constructor(readonly key: InstallationConfigKey) {
     super(
-      `${INSTALLATION_CONFIG[key].env} could not be carried into ${SETTINGS_PAGE}; save ${key} there`,
+      `${key} has no value this release accepts; save it in ${SETTINGS_PAGE}`,
     );
   }
 }
@@ -110,48 +110,59 @@ export function createInstallationConfigSource(deps: {
 
   let cache: { saved: Record<string, unknown>; at: number } | null = null;
   // One read at a time, so a later one always lands after an earlier one.
+  // A failed read leaves the cache as it was.
   let loading: Promise<Record<string, unknown>> | null = null;
-  const reload = (): Promise<Record<string, unknown>> => {
+  const load = (): Promise<Record<string, unknown>> => {
     if (loading !== null) return loading;
-    const attempt = (async () => {
+    loading = (async () => {
       await carry();
       return deps.store.readAll();
-    })().then(
-      (saved) => {
+    })()
+      .then((saved) => {
         cache = { saved, at: now() };
         return saved;
-      },
-      (error: unknown) => {
-        if (cache === null) throw error;
-        deps.warn("Installation config could not be read; keeping the last", {
-          error_name: error instanceof Error ? error.name : typeof error,
-        });
-        return cache.saved;
-      },
-    );
-    loading = attempt.finally(() => {
-      loading = null;
-    });
+      })
+      .finally(() => {
+        loading = null;
+      });
     return loading;
   };
-  const saved = (): Promise<Record<string, unknown>> =>
-    cache !== null && now() - cache.at < deps.refreshMs
-      ? Promise.resolve(cache.saved)
-      : reload();
+  const saved = async (): Promise<Record<string, unknown>> => {
+    if (cache !== null && now() - cache.at < deps.refreshMs) {
+      return cache.saved;
+    }
+    try {
+      return await load();
+    } catch (error) {
+      if (cache === null) throw error;
+      deps.warn("Installation config could not be read; keeping the last", {
+        error_name: error instanceof Error ? error.name : typeof error,
+      });
+      return cache.saved;
+    }
+  };
 
-  const savedValue = <K extends InstallationConfigKey>(
+  type Entry<K extends InstallationConfigKey> =
+    | { kind: "saved"; value: InstallationConfigValues[K] }
+    | { kind: "default" }
+    | { kind: "blocked" };
+  // A key is blocked while its old env value could not be carried in and
+  // nothing is saved, or while what is saved breaks the key's rule: it
+  // never runs on a default nobody chose.
+  const entryOf = <K extends InstallationConfigKey>(
     all: Record<string, unknown>,
     key: K,
-  ): InstallationConfigValues[K] | undefined => {
-    if (!(key in all)) return undefined;
+  ): Entry<K> => {
+    if (!(key in all))
+      return invalid.has(key) ? { kind: "blocked" } : { kind: "default" };
     const parsed = INSTALLATION_CONFIG[key].schema.safeParse(all[key]);
     return parsed.success
-      ? (parsed.data as InstallationConfigValues[K])
-      : undefined;
+      ? { kind: "saved", value: parsed.data as InstallationConfigValues[K] }
+      : { kind: "blocked" };
   };
 
   const start = (): Promise<void> =>
-    reload().then(
+    load().then(
       () => undefined,
       (error: unknown) => {
         deps.warn("Installation config could not be read; retrying", {
@@ -166,37 +177,43 @@ export function createInstallationConfigSource(deps: {
   return {
     started: start(),
 
+    /** False until the carry-over and a first read have succeeded. */
+    loaded: () => cache !== null,
+
     /**
      * What applies now: the saved value, else the default. Throws while the
-     * key's old env value could not be carried in and nothing is saved.
+     * key is blocked.
      */
     async get<K extends InstallationConfigKey>(
       key: K,
     ): Promise<InstallationConfigValues[K]> {
-      const value = savedValue(await saved(), key);
-      if (value !== undefined) return value;
-      if (invalid.has(key)) throw new InstallationConfigUnavailableError(key);
+      const entry = entryOf(await saved(), key);
+      if (entry.kind === "saved") return entry.value;
+      if (entry.kind === "blocked") {
+        throw new InstallationConfigUnavailableError(key);
+      }
       return INSTALLATION_CONFIG[key].default as InstallationConfigValues[K];
     },
 
     /**
      * Every key as the console shows it, read fresh: a read already under
-     * way may have begun before a save, so it is waited out first.
+     * way may have begun before a save, so it is waited out first. A failed
+     * read fails the view and keeps the values the process applies.
      */
     async view(): Promise<InstallationConfig> {
       await loading?.catch(() => undefined);
-      cache = null;
-      const all = await reload();
+      const all = await load();
       return Object.fromEntries(
         INSTALLATION_CONFIG_KEYS.map((key) => {
-          const value = savedValue(all, key);
+          const entry = entryOf(all, key);
           const fallback = INSTALLATION_CONFIG[key].default;
           return [
             key,
             {
-              value: value ?? fallback,
+              value: entry.kind === "saved" ? entry.value : fallback,
               default: fallback,
-              saved: value !== undefined,
+              saved: entry.kind === "saved",
+              blocked: entry.kind === "blocked",
             },
           ];
         }),

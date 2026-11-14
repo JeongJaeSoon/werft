@@ -124,8 +124,14 @@ describe("createInstallationConfigSource", () => {
     const { source } = sourceOver(memoryStore());
     expect(await source.get("pending_request_ttl_sec")).toBe(1800);
     expect(await source.view()).toEqual({
-      pending_request_ttl_sec: { value: 1800, default: 1800, saved: false },
+      pending_request_ttl_sec: {
+        value: 1800,
+        default: 1800,
+        saved: false,
+        blocked: false,
+      },
     });
+    expect(source.loaded()).toBe(true);
   });
 
   test("the carry-over lands before the first read, so the old value applies, not the default", async () => {
@@ -146,16 +152,45 @@ describe("createInstallationConfigSource", () => {
     await expect(source.get("pending_request_ttl_sec")).rejects.toBeInstanceOf(
       InstallationConfigUnavailableError,
     );
+    expect((await source.view()).pending_request_ttl_sec).toEqual({
+      value: 1800,
+      default: 1800,
+      saved: false,
+      blocked: true,
+    });
+    // Saving the default itself unblocks it.
     await memory.store.setValues({
-      values: { pending_request_ttl_sec: 120 },
+      values: { pending_request_ttl_sec: 1800 },
       audit: { userId: "u", workspaceId: "w", receiptId: "r" },
     });
     expect((await source.view()).pending_request_ttl_sec).toEqual({
-      value: 120,
+      value: 1800,
       default: 1800,
       saved: true,
+      blocked: false,
     });
-    expect(await source.get("pending_request_ttl_sec")).toBe(120);
+    expect(await source.get("pending_request_ttl_sec")).toBe(1800);
+  });
+
+  test("a saved value that breaks the key's rule blocks the key instead of running on the default", async () => {
+    const memory = memoryStore({ pending_request_ttl_sec: 0 });
+    const { source } = sourceOver(memory);
+    await source.started;
+    await expect(source.get("pending_request_ttl_sec")).rejects.toBeInstanceOf(
+      InstallationConfigUnavailableError,
+    );
+    expect((await source.view()).pending_request_ttl_sec.blocked).toBe(true);
+  });
+
+  test("a view that cannot read keeps what the process applies", async () => {
+    const memory = memoryStore({ pending_request_ttl_sec: 60 });
+    const { source } = sourceOver(memory);
+    await source.started;
+    expect(await source.get("pending_request_ttl_sec")).toBe(60);
+    memory.fail(true);
+    await expect(source.view()).rejects.toThrow("database is down");
+    expect(await source.get("pending_request_ttl_sec")).toBe(60);
+    expect(source.loaded()).toBe(true);
   });
 
   test("values are read again only once older than the refresh interval", async () => {
@@ -192,6 +227,7 @@ describe("createInstallationConfigSource", () => {
     expect(warnings).toEqual([
       "Installation config could not be read; retrying",
     ]);
+    expect(source.loaded()).toBe(false);
     await expect(source.get("pending_request_ttl_sec")).rejects.toThrow(
       "database is down",
     );

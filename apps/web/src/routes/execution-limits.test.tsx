@@ -16,8 +16,12 @@ const RECEIPT = "019a0000-0000-7000-8000-0000000000e1";
 const LABEL = "응답 대기 시간 (초)";
 const INVALID = `1부터 ${PENDING_REQUEST_TTL_SEC_MAX}까지의 정수(초)를 적으세요.`;
 
-const config = (value: number, saved: boolean): InstallationConfig => ({
-  pending_request_ttl_sec: { value, default: 1800, saved },
+const config = (
+  value: number,
+  saved: boolean,
+  blocked = false,
+): InstallationConfig => ({
+  pending_request_ttl_sec: { value, default: 1800, saved, blocked },
 });
 
 const routes = (
@@ -49,6 +53,33 @@ describe("설정 › 실행 한도의 응답 대기 시간", () => {
     expect(
       within(area).queryByRole("button", { name: "기본값으로" }) === null,
     ).toBe(true);
+    expect(within(area).queryByRole("status") === null).toBe(true);
+  });
+
+  test("쓸 수 있는 값이 없으면 그렇다고 알리고, 보이는 기본값 그대로도 저장할 수 있다", async () => {
+    let current = config(1800, false, true);
+    const { api } = renderAt(PAGE, {
+      ...routes(() => current),
+      [`PATCH ${API}`]: () => {
+        current = config(1800, true);
+        return json(200, { ...current, receipt_id: RECEIPT });
+      },
+    });
+    const user = await setupUser();
+    const area = await section();
+    await waitFor(() => expect(field(area).value).toBe("1800"));
+    expect(within(area).getByRole("status").textContent).toContain(
+      "값을 저장할 때까지 세션의 권한 요청과 질문을 받지 않습니다.",
+    );
+    expect(area.textContent).not.toContain("기본값 1800초를 씁니다.");
+    await user.click(within(area).getByRole("button", { name: "저장" }));
+    await screen.findByText("응답 대기 시간을 저장했습니다.");
+    expect(api.calls.find((call) => call.method === "PATCH")?.body).toEqual({
+      pending_request_ttl_sec: 1800,
+    });
+    await waitFor(() =>
+      expect(within(area).queryByRole("status") === null).toBe(true),
+    );
   });
 
   test("바꾼 값을 저장하면 그 키만 보내고, 기본값으로 되돌리기가 생긴다", async () => {

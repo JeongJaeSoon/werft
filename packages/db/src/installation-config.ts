@@ -108,6 +108,11 @@ export function createPostgresInstallationConfigStore(
 
     importValue(key, value) {
       return db.transaction(async (tx) => {
+        // Queued with saves, so a save never records `previous` as nothing
+        // while this insert lands under it.
+        await tx.execute(
+          sql`SELECT pg_advisory_xact_lock(hashtext('installation_config'))`,
+        );
         // Every reading process tries at start; only the first insert lands.
         const inserted = await tx
           .insert(installationConfig)

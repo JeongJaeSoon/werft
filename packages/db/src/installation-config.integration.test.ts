@@ -104,8 +104,10 @@ integration("the installation's config by key", () => {
         },
     );
     expect(results).toHaveLength(2);
-    expect(results[0]?.previous.a).toBe(null);
-    expect(results[1]?.previous.a).toBe(results[0]?.values.a ?? -1);
+    // Not by created_at: that is when each transaction began.
+    const first = results.find((result) => result.previous.a === null);
+    const second = results.find((result) => result !== first);
+    expect(second?.previous.a).toBe(first?.values.a ?? -1);
   });
 
   test("an import lands once across processes, with an actor-less receipt, and never over a saved key", async () => {
@@ -123,6 +125,34 @@ integration("the installation's config by key", () => {
         actor: null,
       },
     ]);
+  });
+
+  test("an import and a save at once leave receipts that agree with the order they landed in", async () => {
+    await withWorkspace();
+    for (let round = 0; round < 10; round++) {
+      await db.delete(receipts);
+      await db.delete(installationConfig);
+      await Promise.all([
+        store.importValue("a", 90),
+        store.setValues({ values: { a: 60 }, audit: audit() }),
+      ]);
+      expect(await store.readAll()).toEqual({ a: 60 });
+      // created_at is when each transaction began, not when it landed past
+      // the lock, so the rows are put in landing order by what they say.
+      const results: unknown = (await configReceipts())
+        .map((row) => row.result as { by?: string })
+        .sort(
+          (x, y) => Number(x.by === undefined) - Number(y.by === undefined),
+        );
+      // Import first: the save names it. Save first: the import is skipped.
+      expect<unknown[]>([
+        [
+          { values: { a: 90 }, previous: { a: null }, by: "env_import" },
+          { values: { a: 60 }, previous: { a: 90 } },
+        ],
+        [{ values: { a: 60 }, previous: { a: null } }],
+      ]).toContainEqual(results);
+    }
   });
 
   test("an import before the first workspace keeps the value without a receipt", async () => {

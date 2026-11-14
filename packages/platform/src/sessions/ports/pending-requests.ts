@@ -148,8 +148,10 @@ export type RegisterPendingInput = {
   request: RegisterPendingRequest["request"];
   // Present: the store writes the `question` event with the row.
   announce?: RegisterPendingRequest["announce"];
-  // A lifetime on the storage clock, never a caller deadline.
-  ttlMs: number;
+  // A lifetime on the storage clock, never a caller deadline. Asked only
+  // for a new row: a replayed registration keeps its expiry, so a setting
+  // that cannot be read does not refuse it.
+  ttlMs: () => Promise<number>;
   // The approval-wait checkpoint taken while the engine waits on this
   // request, already verified like a finalize's.
   checkpoint?: ApprovalCheckpointCommit;

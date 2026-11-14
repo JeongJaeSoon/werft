@@ -17,7 +17,12 @@ const PATH = "/v1/installation-config";
 const RECEIPT = "019a0000-0000-7000-8000-0000000000e1";
 
 const CONFIG: InstallationConfig = {
-  pending_request_ttl_sec: { value: 3600, default: 1800, saved: true },
+  pending_request_ttl_sec: {
+    value: 3600,
+    default: 1800,
+    saved: true,
+    blocked: false,
+  },
 };
 
 function request(
@@ -101,6 +106,15 @@ describe("installation config routes", () => {
       );
       expect(response.status).toBe(400);
       expect(called).toBe(false);
+      const { error } = apiErrorResponseSchema.parse(await response.json());
+      const paths = (
+        error.details as { issues: { path: string }[] }
+      ).issues.map((issue) => issue.path);
+      expect(paths.length).toBeGreaterThan(0);
+      // The key at fault is named, whichever it is.
+      for (const path of paths) {
+        expect(Object.keys(invalid)).toContain(path === "" ? "extra" : path);
+      }
     });
   }
 

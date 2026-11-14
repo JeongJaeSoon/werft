@@ -1346,7 +1346,14 @@ const app = createApiApp({
     createReadinessProbe({
       db: probePool,
       requiredEnv: API_READINESS_REQUIRED_ENV,
-      configProblems: apiReadinessConfigProblems,
+      // A blocked key stays out: the owner fixes it in the console, which
+      // a not-ready API would keep them from reaching.
+      configProblems: (environment) => [
+        ...apiReadinessConfigProblems(environment),
+        ...(installationConfig.loaded()
+          ? []
+          : ["installation config not read yet"]),
+      ],
     }),
   ),
 });

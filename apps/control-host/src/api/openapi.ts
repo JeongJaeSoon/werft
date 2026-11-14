@@ -3282,14 +3282,19 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "getInstallationConfig",
     tag: "Workspace settings",
     summary: "Execution limits for the whole installation",
-    description: `${SETTINGS_OWNER} Each key gives \`value\`, what applies now; \`default\`, what applies while nothing is saved; and \`saved\`, false until an owner saves the key or an upgrade carries its old environment variable in. \`pending_request_ttl_sec\` is how long a permission or question a session raised takes answers once registered (1 to 604800 seconds). The values apply to every workspace of the installation.`,
+    description: `${SETTINGS_OWNER} Each key gives \`value\`, what applies now; \`default\`, what applies while nothing is saved; \`saved\`, false until an owner saves the key or an upgrade carries its old environment variable in; and \`blocked\`, true while that variable held a value the key does not accept and nothing is saved: what the key sets is refused (a permission or question is not registered, 503) until a value is saved, and no default stands in. \`pending_request_ttl_sec\` is how long a permission or question a session raised takes answers once registered (1 to 604800 seconds). The values apply to every workspace of the installation.`,
     auth: "session",
     success: {
       status: 200,
       schema: "InstallationConfig",
       description: "Every key, as it applies now.",
       example: {
-        pending_request_ttl_sec: { value: 1800, default: 1800, saved: false },
+        pending_request_ttl_sec: {
+          value: 1800,
+          default: 1800,
+          saved: false,
+          blocked: false,
+        },
       },
     },
     errors: [401, 403, 503],
@@ -3309,13 +3314,19 @@ export const API_ROUTE_DECLARATIONS = [
       schema: "UpdateInstallationConfigResponse",
       description: "Every key after the change.",
       example: {
-        pending_request_ttl_sec: { value: 3600, default: 1800, saved: true },
+        pending_request_ttl_sec: {
+          value: 3600,
+          default: 1800,
+          saved: true,
+          blocked: false,
+        },
         receipt_id: EXAMPLE_RECEIPT_ID,
       },
     },
     errors: [400, 401, 403, 503],
     errorNotes: {
-      BAD_REQUEST: "Also when a value is outside its key's range.",
+      BAD_REQUEST:
+        "Also when a value is outside its key's range or of another type; `details.issues[].path` names the key, as for any invalid body.",
     },
     idempotent: false,
   },

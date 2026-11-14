@@ -2463,7 +2463,6 @@ export function createWorkerGateway(deps: {
       request: RegisterPendingRequest,
     ): Promise<RegisterPendingResponse> {
       const fence = requireScope(principal, request);
-      const ttlMs = await pendingTtlMs();
       const checkpoint =
         request.checkpoint === undefined
           ? undefined
@@ -2481,7 +2480,7 @@ export function createWorkerGateway(deps: {
         ...(request.announce === undefined
           ? {}
           : { announce: request.announce }),
-        ttlMs,
+        ttlMs: pendingTtlMs,
         ...(checkpoint === undefined ? {} : { checkpoint }),
         ...(request.checkpoint_failure === undefined
           ? {}

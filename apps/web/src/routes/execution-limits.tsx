@@ -6,6 +6,8 @@ import type {
 } from "@werft-ai/contracts";
 import { useWerft } from "@werft-ai/react";
 import {
+  Alert,
+  AlertDescription,
   Button,
   Field,
   FieldDescription,
@@ -138,7 +140,8 @@ function PendingWait({
   const entry = read.data.pending_request_ttl_sec;
   const typed = draft ?? `${entry.value}`;
   const seconds = waitSecondsOf(typed);
-  const unchanged = seconds === entry.value;
+  // A blocked key takes any valid value, the default shown included.
+  const unchanged = seconds === entry.value && !entry.blocked;
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -160,6 +163,11 @@ function PendingWait({
       box
     >
       <form className="flex w-full flex-col gap-4" noValidate onSubmit={submit}>
+        {entry.blocked ? (
+          <Alert variant="amber" role="status">
+            <AlertDescription>{t("limits.waitBlocked")}</AlertDescription>
+          </Alert>
+        ) : null}
         <Field>
           <FieldLabel htmlFor={inputId}>{t("limits.waitLabel")}</FieldLabel>
           <div className="flex items-center gap-2">
@@ -186,9 +194,12 @@ function PendingWait({
             </Text>
           </div>
           <FieldDescription>
-            {t(entry.saved ? "limits.defaultIs" : "limits.defaultApplies", {
-              seconds: entry.default,
-            })}
+            {t(
+              entry.saved || entry.blocked
+                ? "limits.defaultIs"
+                : "limits.defaultApplies",
+              { seconds: entry.default },
+            )}
           </FieldDescription>
           <FieldDescription>{t("limits.waitApplies")}</FieldDescription>
           <FieldError>{shownError}</FieldError>

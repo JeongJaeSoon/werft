@@ -14,6 +14,8 @@ export const executionLimitsKo = {
   "limits.seconds": "초",
   "limits.defaultApplies": "저장한 값이 없어 기본값 {seconds}초를 씁니다.",
   "limits.defaultIs": "기본값은 {seconds}초입니다.",
+  "limits.waitBlocked":
+    "쓸 수 있는 값이 없습니다. API 환경 변수 PENDING_REQUEST_TTL_SEC가 범위를 벗어나 옮겨 오지 못했거나, 저장된 값이 이 버전의 범위를 벗어났습니다. 값을 저장할 때까지 세션의 권한 요청과 질문을 받지 않습니다. 환경 변수가 남아 있으면 저장한 뒤 지우세요.",
   "limits.waitApplies":
     "저장하면 바로 다음 요청부터 적용됩니다. 이미 기다리는 요청은 처음 받은 시간을 그대로 씁니다.",
   "limits.waitInvalid": "1부터 {max}까지의 정수(초)를 적으세요.",
@@ -36,6 +38,8 @@ export const executionLimitsEn: Record<keyof typeof executionLimitsKo, string> =
     "limits.defaultApplies":
       "Nothing is saved, so the default of {seconds} seconds applies.",
     "limits.defaultIs": "The default is {seconds} seconds.",
+    "limits.waitBlocked":
+      "No usable value. The API's PENDING_REQUEST_TTL_SEC was out of range and was not carried in, or the saved value is out of this version's range. Until a value is saved, sessions cannot ask for permissions or questions. If the variable is still set, remove it after saving.",
     "limits.waitApplies":
       "A save applies from the next request on. A request already waiting keeps the wait it was given.",
     "limits.waitInvalid": "Enter a whole number of seconds from 1 to {max}.",
@@ -58,6 +62,8 @@ export const executionLimitsJa: Record<keyof typeof executionLimitsKo, string> =
     "limits.defaultApplies":
       "保存した値がないため、既定の {seconds} 秒を使います。",
     "limits.defaultIs": "既定は {seconds} 秒です。",
+    "limits.waitBlocked":
+      "使える値がありません。API の環境変数 PENDING_REQUEST_TTL_SEC が範囲外で移せなかったか、保存された値がこのバージョンの範囲外です。値を保存するまで、セッションの権限リクエストと質問を受け付けません。環境変数が残っていれば、保存したあと削除してください。",
     "limits.waitApplies":
       "保存すると次のリクエストから適用されます。すでに待っているリクエストは最初に受けた時間のままです。",
     "limits.waitInvalid": "1 から {max} までの整数 (秒) を入力してください。",
