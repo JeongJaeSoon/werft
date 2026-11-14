@@ -10,14 +10,14 @@ import {
 } from "./slack-config.ts";
 
 const ORIGIN = "https://werft.example";
-const LEGACY_REDIRECT = `${ORIGIN}/settings/linked-accounts/slack`;
+const REDIRECT = `${ORIGIN}/settings/linked-accounts/slack`;
 const AGENT = "019a0000-0000-7000-8000-0000000000a1";
 
 describe("the public addresses computed from CONSOLE_ORIGIN", () => {
-  test("the redirect equals what SLACK_OIDC_REDIRECT_URI held for the same console", () => {
+  test("the redirect is the console origin and the fixed link path", () => {
     const origin = consoleOriginFrom({ CONSOLE_ORIGIN: ORIGIN });
     expect(origin).toBe(ORIGIN);
-    expect(slackLinkRedirectUrl(origin ?? "")).toBe(LEGACY_REDIRECT);
+    expect(slackLinkRedirectUrl(origin ?? "")).toBe(REDIRECT);
   });
 
   test("the events address equals what SLACK_EVENTS_PUBLIC_URL held for the same console", () => {
@@ -70,63 +70,56 @@ describe("the public addresses computed from CONSOLE_ORIGIN", () => {
   });
 });
 
-describe("the retired SLACK_OIDC_REDIRECT_URI", () => {
-  test("still names the console until the next release, when CONSOLE_ORIGIN is unset", () => {
+describe("settings an older deployment may still pass", () => {
+  const removed = {
+    SLACK_OIDC_REDIRECT_URI:
+      "https://old.example/settings/linked-accounts/slack",
+    SLACK_OIDC_CLIENT_ID: "client-canary",
+    SLACK_OIDC_CLIENT_SECRET: "secret-canary",
+  };
+
+  test("are not read: without CONSOLE_ORIGIN nothing is computed, with it only it counts", () => {
+    expect(consoleOriginFrom(removed)).toBeNull();
+    expect(slackEventsPublicUrlFrom(removed)).toBeNull();
+    expect(consoleOriginFrom({ ...removed, CONSOLE_ORIGIN: ORIGIN })).toBe(
+      ORIGIN,
+    );
     expect(
-      consoleOriginFrom({ SLACK_OIDC_REDIRECT_URI: LEGACY_REDIRECT }),
+      slackEventsPublicUrlFrom({ ...removed, CONSOLE_ORIGIN: ORIGIN }),
     ).toBe(ORIGIN);
   });
 
-  test("CONSOLE_ORIGIN wins over it", () => {
+  test("are not parsed either: a malformed old redirect does not stop the process", () => {
     expect(
-      consoleOriginFrom({
-        CONSOLE_ORIGIN: "https://other.example",
-        SLACK_OIDC_REDIRECT_URI: LEGACY_REDIRECT,
+      consoleOriginFrom({ SLACK_OIDC_REDIRECT_URI: "not a url" }),
+    ).toBeNull();
+  });
+
+  test("give one warning that names them and carries no value", () => {
+    const warnings = slackEnvWarnings({ ...removed, CONSOLE_ORIGIN: ORIGIN });
+    expect(warnings).toEqual([
+      "Ignored removed settings: SLACK_OIDC_REDIRECT_URI, SLACK_OIDC_CLIENT_ID, SLACK_OIDC_CLIENT_SECRET",
+    ]);
+    expect(
+      slackEnvWarnings({ CONSOLE_ORIGIN: ORIGIN, SLACK_OIDC_CLIENT_ID: "x" }),
+    ).toEqual(["Ignored removed settings: SLACK_OIDC_CLIENT_ID"]);
+  });
+
+  test("an empty one, as an old compose file passes it, is silent", () => {
+    expect(
+      slackEnvWarnings({
+        CONSOLE_ORIGIN: ORIGIN,
+        SLACK_OIDC_REDIRECT_URI: "",
+        SLACK_OIDC_CLIENT_ID: "",
+        SLACK_OIDC_CLIENT_SECRET: "",
       }),
-    ).toBe("https://other.example");
+    ).toEqual([]);
   });
 });
 
 describe("slackEnvWarnings", () => {
   test("a clean installation is silent", () => {
     expect(slackEnvWarnings({ CONSOLE_ORIGIN: ORIGIN })).toEqual([]);
-  });
-
-  test("a redirect that matches the computed one is retired, a different one is a mismatch", () => {
-    const same = slackEnvWarnings({
-      CONSOLE_ORIGIN: ORIGIN,
-      SLACK_OIDC_REDIRECT_URI: LEGACY_REDIRECT,
-    });
-    expect(same).toHaveLength(1);
-    expect(same[0]).toContain("retired");
-    const other = slackEnvWarnings({
-      CONSOLE_ORIGIN: ORIGIN,
-      SLACK_OIDC_REDIRECT_URI:
-        "https://other.example/settings/linked-accounts/slack",
-    });
-    expect(other).toHaveLength(1);
-    expect(other[0]).toContain("mismatch");
-  });
-
-  test("a redirect that stands in for CONSOLE_ORIGIN is called out as a fallback", () => {
-    const warnings = slackEnvWarnings({
-      SLACK_OIDC_REDIRECT_URI: LEGACY_REDIRECT,
-    });
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toContain("CONSOLE_ORIGIN");
-    expect(warnings[0]).toContain("fallback");
-  });
-
-  test("a leftover client id or secret is ignored with a warning", () => {
-    expect(
-      slackEnvWarnings({ CONSOLE_ORIGIN: ORIGIN, SLACK_OIDC_CLIENT_ID: "x" }),
-    ).toHaveLength(1);
-    expect(
-      slackEnvWarnings({
-        CONSOLE_ORIGIN: ORIGIN,
-        SLACK_OIDC_CLIENT_SECRET: "x",
-      }),
-    ).toHaveLength(1);
   });
 
   test("an events override that differs from the computed address is flagged, an equal one is not", () => {

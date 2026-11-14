@@ -43,7 +43,7 @@
 | 세션 | `web_sessions`, `resolveWebSession` | 어떤 로그인 수단으로 만든 세션인지 기록하지 않는다. 조회 결과(`ResolvedWebSession`)에 만든 시각이 없다. 수명은 14일이고 쓰는 동안 계속 늘어난다(`WEB_SESSION_TTL_MS`) |
 | 비밀 저장 | `packages/platform/src/ports/secret-store.ts`, `packages/db/src/secrets/secret-values.ts` | `secret_values`에 AES-256-GCM으로 봉인한다. 슬롯은 `(workspace, owner, purpose)`다. 설치 전체 설정(모델 연결 등)의 값은 기본 workspace 아래 `<kind>:<id>` owner로 두고, workspace용 경로는 이 owner를 거절한다(`isSettingsSecretOwner`). `PLATFORM_SECRET_KEY`는 API 시작에 필수다(`loadSecretKey`) |
 | 권한 | `packages/platform/src/musterrolle/policy.ts` `MANAGEMENT_ROLES` | `installation.settings.manage`는 owner만 가진다 |
-| 공개 주소 | `apps/control-host/src/api/slack-config.ts` `consoleOriginFrom` | `CONSOLE_ORIGIN`에서 공개 주소를 얻는다. 없으면 옛 `SLACK_OIDC_REDIRECT_URI`의 origin을 이번 릴리스에 한해 쓴다. 둘 다 없으면 Slack·GitHub 계정 연결을 시작할 수 없다 |
+| 공개 주소 | `apps/control-host/src/api/slack-config.ts` `consoleOriginFrom` | `CONSOLE_ORIGIN`에서만 공개 주소를 얻는다. 없으면 Slack·GitHub 계정 연결과 로그인 공급자의 redirect를 만들 수 없다 |
 | 마이그레이션 검사 | `packages/db/src/migration-safety.ts` | `web_sessions`는 커지는 테이블이다. 이 테이블의 `UPDATE`·`DELETE`는 트랜잭션 밖 단계여도 거절한다. 인라인 외래 키도 거절한다. `CREATE INDEX CONCURRENTLY` 앞에는 `DROP INDEX CONCURRENTLY IF EXISTS`가 있어야 한다 |
 | 가짜 IdP | `packages/testkit/src/mock-oidc.ts` | id_token 클레임을 `login_hint`로 주입한다. 틀린 `aud`, 지난 `exp`, 미검증 이메일을 시험에서 만들 수 있다. 키는 하나이고 회전하지 않는다. PKCE verifier를 항상 검사한다 |
 | 운영자 CLI | `apps/control-host/src/api/keys.ts`, `slack-app.ts` | 파일 하나가 명령 하나다. API 컨테이너 안에서 `DATABASE_URL`과 `PLATFORM_SECRET_KEY`로 실행하고, 종료 코드가 계약이다 |
@@ -194,7 +194,7 @@ discovery 문서는 다음을 모두 채워야 한다. 하나라도 어기면 �
 |---|---|---|
 | JWKS 회전 | JWKS는 캐시하지 않는다. 로그인마다 받는다(지금과 같다) | IdP가 키를 돌리거나 지우면 다음 로그인부터 바로 따른다. 지운 키를 캐시 수명만큼 더 믿는 틈이 없다. 값은 로그인마다 JWKS endpoint가 살아 있어야 한다는 것이다. JWKS 요청은 code 교환이 성공한 뒤에만 나간다 |
 | redirect URI | 공급자마다 다르다: `<CONSOLE_ORIGIN>/auth/callback/<provider_id>` | 여러 IdP를 쓰는 client는 IdP마다 다른 redirect URI를 쓰라는 권고(RFC 9700 4.4.2)를 따른다 |
-| `CONSOLE_ORIGIN` | redirect URI의 유일한 소스다. 이 코드는 `CONSOLE_ORIGIN`만 직접 읽고, `consoleOriginFrom`의 옛 Slack 폴백은 쓰지 않는다. 없으면 공급자를 만들 수 없고 화면이 이유를 보여 준다 | 요청의 `Host` 헤더로 redirect URI를 만들지 않는다. SSO 전용 설정이 아니므로 결정 7과 어긋나지 않는다 |
+| `CONSOLE_ORIGIN` | redirect URI의 유일한 소스다. Slack 연결과 같은 `consoleOriginFrom`이 `CONSOLE_ORIGIN`에서만 계산한다. 없으면 공급자를 만들 수 없고 화면이 이유를 보여 준다 | 요청의 `Host` 헤더로 redirect URI를 만들지 않는다. SSO 전용 설정이 아니므로 결정 7과 어긋나지 않는다 |
 | scope | `openid email profile` 고정 | 지금과 같다. 그룹 매핑이 `groups`를 더할 때 칸을 만든다 |
 | client secret 없는 client | 지원하지 않는다 | 서버가 secret을 지킬 수 있다 |
 | 동시 처리 | 콜백의 IdP 호출에 동시 실행 상한을 둔다(비밀번호 hash의 `WorkGate`와 같은 방식). 넘으면 `429` | 인증 없는 호출이 IdP로 나가는 요청을 무한히 만들지 못한다 |

@@ -135,6 +135,14 @@ SDK를 올리는 릴리스는 이미지가 싣는 런타임 버전을 바꾸고,
 
 다음 릴리스부터는 현재·직전 이미지의 지원 창으로 돌아간다. 이 릴리스의 worker가 다음 릴리스의 직전 이미지다. worker가 읽는 응답 필드를 뺄 때는 아래 순서를 지킨다. worker가 먼저 그 필드 없이도 응답을 받아들이게 바꾸고, 그 worker가 지원 창의 가장 옛 이미지가 되는 릴리스에서 control-host가 필드를 뺀다. 프로필 제거 릴리스는 이 순서를 지키지 않았다.
 
+### 지운 Slack 연결 env
+
+이 릴리스부터 API와 slack 역할은 `SLACK_OIDC_REDIRECT_URI`·`SLACK_OIDC_CLIENT_ID`·`SLACK_OIDC_CLIENT_SECRET`을 읽지 않는다. Slack 계정 연결의 redirect는 `CONSOLE_ORIGIN`에 고정 경로 `/settings/linked-accounts/slack`을 붙여 계산한다. client id와 secret은 워크스페이스마다 설정 > 워크스페이스 > 연동 > Slack에서 만든 link 앱의 것만 쓴다.
+
+- 올리기 전에 API와 slack 역할에 `CONSOLE_ORIGIN`이 있는지 본다. 앞선 릴리스는 `CONSOLE_ORIGIN`이 없으면 `SLACK_OIDC_REDIRECT_URI`의 origin을 대신 썼다. 이 릴리스에서는 그때 Slack 계정 연결이 `503`이 되고, Slack 앱을 만들 수 없고, `SLACK_EVENTS_PUBLIC_URL`도 없으면 이벤트 구독이 등록되지 않는다(`events_url_unset`).
+- 세 값을 지운다. Compose는 `infra/compose.core.yml`이 더는 넘기지 않으므로 설치의 env 파일에서 줄만 지운다. Kubernetes는 `api.extraEnv`와 `slack.extraEnv`에서 지운다. 값이 남아 있으면 API가 시작할 때 `Ignored removed settings: <이름>` 경고를 한 번 남긴다. 값은 출력하지 않고 동작에도 쓰지 않는다.
+- 이 릴리스는 앞선 빌드로 되돌릴 수 없으므로([프로필 제거의 롤백 하한](#프로필-제거의-롤백-하한)), 되돌릴 때를 위해 남겨 둘 줄은 없다.
+
 ### worker protocol 필드를 걷어내는 순서
 
 API를 업그레이드해도 이미 떠 있는 worker 컨테이너는 옛 이미지로 계속 돈다. 입력이 없는 worker도 `WORKER_IDLE_TIMEOUT_SEC`(기본 1800초) 동안 남는다. 그래서 worker protocol의 필드는 받는 쪽이 먼저 그 필드 없이도 받아들이게 바꾸고, 그 릴리스로 모두 교체된 다음에야 보내는 쪽이 필드를 뺀다. 한 릴리스에서 양쪽을 같이 바꾸지 않는다.

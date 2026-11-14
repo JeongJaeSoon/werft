@@ -653,7 +653,7 @@ curl -s -b jar -X POST "http://127.0.0.1:3000/v1/sessions/$SESSION_ID/takeover" 
 |---|---|---|
 | `CONSOLE_ORIGIN` | 없음(연결을 끔. 시작 요청은 `503`. Slack 앱 생성도 꺼진다) | 절대 http(s) origin. 사람이 브라우저로 콘솔을 여는 공개 주소이고, 이 주소에서 모든 주소를 계산한다. Slack 연결의 redirect는 `<CONSOLE_ORIGIN>/settings/linked-accounts/slack`, 에이전트 앱의 redirect는 `<CONSOLE_ORIGIN>/agents/<agent_id>/slack/callback`이다. 설정 > 워크스페이스 > 연동 > Slack 화면이 이 주소들을 복사할 수 있게 보여 준다 |
 
-`SLACK_OIDC_REDIRECT_URI`·`SLACK_OIDC_CLIENT_ID`·`SLACK_OIDC_CLIENT_SECRET`은 없어졌다. 옛 값이 남아 있으면 시작할 때 값 없이 경고만 남기고 무시한다(`CONSOLE_ORIGIN`이 없을 때만 옛 redirect의 origin을 이번 릴리스에 한해 쓴다). 지울 것과 되돌릴 때 남길 것은 `CHANGELOG.md`의 "운영자가 할 일"을 따른다.
+이 주소와 client를 env로 따로 넣는 설정은 없다. 예전 배포가 넣던 Slack 연결 env는 [업그레이드](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/upgrade-compose#지운-slack-연결-env)의 "지운 Slack 연결 env"를 따라 지운다.
 
 연결에 쓰는 Slack 앱은 워크스페이스마다 하나인 계정 연결용 앱(link 앱, `slack_apps.kind=link`)뿐이다. env로 넣는 OIDC client는 없다. 요청마다 이렇게 정한다.
 
@@ -900,7 +900,7 @@ Slack DM이 만든 세션은 `private`로 시작한다(아래 "Slack 스레드�
 
 | 변수 | 기본값 | 허용 범위 |
 |---|---|---|
-| `CONSOLE_ORIGIN` | 없음(옛 `SLACK_OIDC_REDIRECT_URI`가 있으면 이번 릴리스에 한해 그 origin을 쓰고 "폐기 예정" 경고를 낸다. 다음 릴리스에서 이 폴백은 없어진다) | 절대 http(s) origin. 공개 주소의 유일한 소스다. Slack 연결·이벤트 주소도 여기서 계산한다(위 "Slack 계정 연결"). GitHub 연결 콜백 `<콘솔 origin>/settings/linked-accounts/github`와 commit·PR의 세션 URL `<콘솔 origin>/sessions/<id>`에 쓴다. 둘 다 없으면 콜백 URL이 없어 연결을 시작할 수 없고(`409 GITHUB_LINK_NOT_CONFIGURED`), commit에 `Agent-Session` 트레일러가 들어가지 않으며 PR 꼬리는 세션 id만 싣는다 |
+| `CONSOLE_ORIGIN` | 없음 | 절대 http(s) origin. 공개 주소의 유일한 소스다. Slack 연결·이벤트 주소도 여기서 계산한다(위 "Slack 계정 연결"). GitHub 연결 콜백 `<콘솔 origin>/settings/linked-accounts/github`와 commit·PR의 세션 URL `<콘솔 origin>/sessions/<id>`에 쓴다. 없으면 콜백 URL이 없어 연결을 시작할 수 없고(`409 GITHUB_LINK_NOT_CONFIGURED`), commit의 `Agent-Session` 트레일러와 PR 꼬리는 세션 URL 대신 세션 id를 싣는다 |
 
 **준비(owner·admin, 사람이 한다).** 작성용 App이 콘솔에 등록돼 있어야 한다(위 "GitHub 저장소").
 
