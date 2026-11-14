@@ -150,6 +150,15 @@ SDK を上げるリリースでは、イメージが載せるランタイムの�
 
 次のリリースからは、現在・直前のイメージのサポート範囲に戻ります。このリリースの worker が次のリリースの直前のイメージです。worker が読む応答フィールドを外すときは、下の順序を守ります。まず worker がそのフィールドなしでも応答を受け付けるように変えます。その worker がサポート範囲で最も古いイメージになるリリースで、control-host がフィールドを外します。プロファイル削除リリースはこの順序を守りませんでした。
 
+<a id="지운-slack-연결-env" />
+### 削除した Slack 連携の環境変数
+
+このリリースから、API と slack ロールは `SLACK_OIDC_REDIRECT_URI`・`SLACK_OIDC_CLIENT_ID`・`SLACK_OIDC_CLIENT_SECRET` を読みません。Slack アカウント連携のリダイレクトは、`CONSOLE_ORIGIN` に固定パス `/settings/linked-accounts/slack` を付けて計算します。client ID と secret は、ワークスペースごとに 設定 > ワークスペース > 連携 > Slack で作った link アプリのものだけを使います。
+
+- アップグレードの前に、API と slack ロールに `CONSOLE_ORIGIN` があるか確認します。以前のリリースは、`CONSOLE_ORIGIN` がないと `SLACK_OIDC_REDIRECT_URI` の origin を代わりに使いました。このリリースでは、その場合 Slack アカウント連携が `503` になり、Slack アプリを作れず、イベント購読も登録されません(`events_url_unset`)。
+- 三つの値を削除します。Compose は `infra/compose.core.yml` がもう渡さないので、インストールの env ファイルから行を消すだけです。Kubernetes は `api.extraEnv` と `slack.extraEnv` から削除します。値が残っていると、API は起動時に `Ignored removed settings: <名前>` の警告を一度だけ出します。値は出力せず、動作にも使いません。
+- このリリースは以前のビルドに戻せないため([プロファイル削除の rollback 下限](#프로필-제거의-롤백-하한))、ロールバックのために残しておく行はありません。
+
 <a id="worker-protocol-필드를-걷어내는-순서" />
 ### worker protocol フィールドを削除する順序
 

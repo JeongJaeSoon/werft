@@ -1,4 +1,4 @@
-import { SLACK_API_URL, slackLinkRedirectUrl } from "../wiring/chat-slack.ts";
+import { SLACK_API_URL } from "../wiring/chat-slack.ts";
 
 const PLAIN_HTTP_HOSTS = new Set([
   "localhost",
@@ -63,19 +63,10 @@ function originOf(name: string, value: string): string {
  * URIs on this: an origin guessed from another setting would be registered
  * at the provider and then change under it.
  */
-export function configuredConsoleOrigin(env: Env): string | null {
+export function consoleOriginFrom(env: Env): string | null {
   return env.CONSOLE_ORIGIN
     ? originOf("CONSOLE_ORIGIN", env.CONSOLE_ORIGIN)
     : null;
-}
-
-export function consoleOriginFrom(env: Env): string | null {
-  const configured = configuredConsoleOrigin(env);
-  if (configured !== null) return configured;
-  if (env.SLACK_OIDC_REDIRECT_URI) {
-    return originOf("SLACK_OIDC_REDIRECT_URI", env.SLACK_OIDC_REDIRECT_URI);
-  }
-  return null;
 }
 
 function computedEventsBase(consoleOrigin: string | null): string | null {
@@ -114,37 +105,23 @@ function parsed(value: string | undefined): URL | null {
   }
 }
 
+/**
+ * Settings an older deployment may still pass. Nothing reads them; the Slack
+ * link redirect comes from CONSOLE_ORIGIN and each workspace's link app holds
+ * its own client.
+ */
+const REMOVED_SLACK_ENV = [
+  "SLACK_OIDC_REDIRECT_URI",
+  "SLACK_OIDC_CLIENT_ID",
+  "SLACK_OIDC_CLIENT_SECRET",
+] as const;
+
 /** Startup warnings name the variable, never its value. */
 export function slackEnvWarnings(env: Env): string[] {
   const warnings: string[] = [];
-  const consoleOrigin = env.CONSOLE_ORIGIN
-    ? originOf("CONSOLE_ORIGIN", env.CONSOLE_ORIGIN)
-    : null;
-
-  const redirect = parsed(env.SLACK_OIDC_REDIRECT_URI);
-  if (env.SLACK_OIDC_REDIRECT_URI) {
-    if (consoleOrigin === null) {
-      warnings.push(
-        "SLACK_OIDC_REDIRECT_URI is retired: its origin is used only because CONSOLE_ORIGIN is unset. Set CONSOLE_ORIGIN and remove it; the fallback ends in the next release",
-      );
-    } else if (
-      redirect === null ||
-      redirect.toString() !== slackLinkRedirectUrl(consoleOrigin)
-    ) {
-      warnings.push(
-        "SLACK_OIDC_REDIRECT_URI mismatch: it differs from the address computed from CONSOLE_ORIGIN and is ignored. Remove it",
-      );
-    } else {
-      warnings.push(
-        "SLACK_OIDC_REDIRECT_URI is retired and ignored: the address is computed from CONSOLE_ORIGIN. Remove it",
-      );
-    }
-  }
-
-  if (env.SLACK_OIDC_CLIENT_ID || env.SLACK_OIDC_CLIENT_SECRET) {
-    warnings.push(
-      "SLACK_OIDC_CLIENT_ID and SLACK_OIDC_CLIENT_SECRET are retired and ignored: each workspace links Slack accounts with its own link app (Integrations > Slack). Remove them",
-    );
+  const removed = REMOVED_SLACK_ENV.filter((name) => env[name]);
+  if (removed.length > 0) {
+    warnings.push(`Ignored removed settings: ${removed.join(", ")}`);
   }
 
   const events = parsed(env.SLACK_EVENTS_PUBLIC_URL);

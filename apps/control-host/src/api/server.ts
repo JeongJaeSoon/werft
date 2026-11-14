@@ -286,7 +286,6 @@ import { registerWorkerRoutes } from "./routes/workers/worker.ts";
 import { PostgresSessionNotifier } from "./session-notifier.ts";
 import { createShutdown } from "./shutdown.ts";
 import {
-  configuredConsoleOrigin,
   consoleOriginFrom,
   slackApiUrlFrom,
   slackEnvWarnings,
@@ -1133,14 +1132,14 @@ const loginProviderAdminStore = createPostgresLoginProviderAdminStore(
 const providerLogin = createProviderLogin({
   providers: createPostgresLoginProviderStore(db, secretKey),
   admin: loginProviderAdminStore,
-  consoleOrigin: configuredConsoleOrigin(process.env),
+  consoleOrigin,
   flowKey: derivedSecretKey(secretKey, "login-flow-cookie"),
 });
 const providerAdmin = createProviderAdmin({
   authorization,
   store: loginProviderAdminStore,
   login: providerLogin,
-  consoleOrigin: configuredConsoleOrigin(process.env),
+  consoleOrigin,
 });
 const loginSettingsStore = createPostgresLoginSettingsStore(db);
 const loginSettingsAdmin = createLoginSettingsAdmin({

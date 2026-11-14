@@ -150,6 +150,15 @@ Upgrade the control-host and worker images together, in one upgrade, to the prof
 
 From the next release on, the support window of the current and previous images applies again. This release's worker is the previous image of the next release. When you remove a response field that the worker reads, follow the order below. First change the worker so that it accepts the answer without the field. Remove the field from the control-host only in a later release, when that worker is the oldest image in the support window. The profile removal release did not follow this order.
 
+<a id="지운-slack-연결-env" />
+### Removed Slack linking variables
+
+From this release on, the API and the slack role no longer read `SLACK_OIDC_REDIRECT_URI`, `SLACK_OIDC_CLIENT_ID` or `SLACK_OIDC_CLIENT_SECRET`. The Slack account linking redirect is `CONSOLE_ORIGIN` with the fixed path `/settings/linked-accounts/slack`. The client ID and secret come only from each workspace's link app, made in Settings > Workspace > Integrations > Slack.
+
+- Before you upgrade, check that the API and the slack role have `CONSOLE_ORIGIN`. Earlier releases used the origin of `SLACK_OIDC_REDIRECT_URI` when `CONSOLE_ORIGIN` was unset. In this release, Slack account linking then answers `503`, Slack apps cannot be created, and no event subscription is registered (`events_url_unset`).
+- Remove the three variables. On Compose, `infra/compose.core.yml` no longer passes them, so delete the lines from your env file. On Kubernetes, delete them from `api.extraEnv` and `slack.extraEnv`. If one is still set, the API logs the warning `Ignored removed settings: <names>` once at startup. It prints no value and does not use it.
+- This release cannot be rolled back to an earlier build ([Rollback floor of the profile removal](#프로필-제거의-롤백-하한)), so no line needs to stay for a rollback.
+
 <a id="worker-protocol-필드를-걷어내는-순서" />
 ### Removing worker protocol fields
 

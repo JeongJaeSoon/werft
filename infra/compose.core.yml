@@ -297,14 +297,6 @@ services:
       # redirect, the Slack events address and the session URL in commits and
       # PRs (docs/operator/api-server.md). Unset keeps Slack linking off.
       CONSOLE_ORIGIN: ${CONSOLE_ORIGIN:-}
-      # Retired. Passed through for this release only: a stack that still sets
-      # them gets a startup warning, and an image from before this change
-      # that it is rolled back to still finds them. REDIRECT_URI also keeps
-      # its origin as the console's. Delete the three lines with the fallback
-      # in the next release.
-      SLACK_OIDC_REDIRECT_URI: ${SLACK_OIDC_REDIRECT_URI:-}
-      SLACK_OIDC_CLIENT_ID: ${SLACK_OIDC_CLIENT_ID:-}
-      SLACK_OIDC_CLIENT_SECRET: ${SLACK_OIDC_CLIENT_SECRET:-}
       # The egress proxy's authorizer. Not published and not on
       # any worker allowlist: only the proxy, on this compose network, calls
       # it. Without both the API starts, and every worker's provider and
@@ -612,8 +604,6 @@ services:
       WORKER_IMAGE_PREVIOUS_RUNTIME: *worker-image-previous-runtime
       <<: *installation-limits
       CONSOLE_ORIGIN: ${CONSOLE_ORIGIN:-}
-      # Retired; same one-release pass-through as the api's.
-      SLACK_OIDC_REDIRECT_URI: ${SLACK_OIDC_REDIRECT_URI:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       BUN_OPTIONS: *pass-loop-bun-options
       # Slack's outbound calls decrypt bot tokens here.

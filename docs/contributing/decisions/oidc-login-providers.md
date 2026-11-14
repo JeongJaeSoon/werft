@@ -43,7 +43,7 @@
 | 세션 | `web_sessions`, `resolveWebSession` | 어떤 로그인 수단으로 만든 세션인지 기록하지 않는다. 조회 결과(`ResolvedWebSession`)에 만든 시각이 없다. 수명은 14일이고 쓰는 동안 계속 늘어난다(`WEB_SESSION_TTL_MS`) |
 | 비밀 저장 | `packages/platform/src/ports/secret-store.ts`, `packages/db/src/secrets/secret-values.ts` | `secret_values`에 AES-256-GCM으로 봉인한다. 슬롯은 `(workspace, owner, purpose)`다. 설치 전체 설정(모델 연결 등)의 값은 기본 workspace 아래 `<kind>:<id>` owner로 두고, workspace용 경로는 이 owner를 거절한다(`isSettingsSecretOwner`). `PLATFORM_SECRET_KEY`는 API 시작에 필수다(`loadSecretKey`) |
 | 권한 | `packages/platform/src/musterrolle/policy.ts` `MANAGEMENT_ROLES` | `installation.settings.manage`는 owner만 가진다 |
-| 공개 주소 | `apps/control-host/src/api/slack-config.ts` `consoleOriginFrom` | `CONSOLE_ORIGIN`에서 공개 주소를 얻는다. 없으면 옛 `SLACK_OIDC_REDIRECT_URI`의 origin을 이번 릴리스에 한해 쓴다. 둘 다 없으면 Slack·GitHub 계정 연결을 시작할 수 없다 |
+| 공개 주소 | `apps/control-host/src/api/slack-config.ts` `consoleOriginFrom` | `CONSOLE_ORIGIN`에서만 공개 주소를 얻는다. 없으면 Slack·GitHub 계정 연결과 로그인 공급자의 redirect를 만들 수 없다 |
 | 마이그레이션 검사 | `packages/db/src/migration-safety.ts` | `web_sessions`는 커지는 테이블이다. 이 테이블의 `UPDATE`·`DELETE`는 트랜잭션 밖 단계여도 거절한다. 인라인 외래 키도 거절한다. `CREATE INDEX CONCURRENTLY` 앞에는 `DROP INDEX CONCURRENTLY IF EXISTS`가 있어야 한다 |
 | 가짜 IdP | `packages/testkit/src/mock-oidc.ts` | id_token 클레임을 `login_hint`로 주입한다. 틀린 `aud`, 지난 `exp`, 미검증 이메일을 시험에서 만들 수 있다. 키는 하나이고 회전하지 않는다. PKCE verifier를 항상 검사한다 |
 | 운영자 CLI | `apps/control-host/src/api/keys.ts`, `slack-app.ts` | 파일 하나가 명령 하나다. API 컨테이너 안에서 `DATABASE_URL`과 `PLATFORM_SECRET_KEY`로 실행하고, 종료 코드가 계약이다 |
