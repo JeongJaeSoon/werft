@@ -1,12 +1,15 @@
 /**
- * The Decisions API as its guide documented it, read 2026-11-02:
+ * The Decisions API as documented, read 2026-11-15:
  * https://developers.openai.com/api/docs/guides/decisions
+ * https://developers.openai.com/api/reference/resources/decisions
  * `POST /v1/decisions`; Luna (`gpt-6-luna`) charges $0.10 per million
  * uncached input tokens and nothing for its answers. Prompt caching
  * (`prompt_cache_key`, `prompt_cache_options`) is not used.
  *
- * ASSUMPTION marks what the guide does not document; confirm each against
- * a real connection.
+ * Confirmed with a real call on 2026-11-15: one choice question parsed as
+ * below, 280 input tokens recorded as $0.000028.
+ *
+ * ASSUMPTION marks what neither page documents.
  */
 
 /** One choice question, as the judge sends it per (rule, evidence) pair. */
@@ -28,8 +31,7 @@ export const DECISIONS_REQUEST_FIXTURE = {
 } as const;
 
 export const DECISIONS_CHOICE_RESPONSE_FIXTURE = {
-  // ASSUMPTION: whether the answer carries a top-level `id` is not
-  // documented; the parser neither needs nor refuses one.
+  model: "gpt-6-luna",
   answers: [
     {
       type: "choice",
@@ -42,10 +44,12 @@ export const DECISIONS_CHOICE_RESPONSE_FIXTURE = {
       confidence: 0.94,
     },
   ],
-  // ASSUMPTION: no output token field is documented; output is not charged.
+  // Output tokens are reported but not charged; the parser ignores them.
   usage: {
     input_tokens: 612,
     input_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 },
+    output_tokens: 3,
+    total_tokens: 615,
   },
 } as const;
 
