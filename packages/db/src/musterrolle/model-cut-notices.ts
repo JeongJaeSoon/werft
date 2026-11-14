@@ -7,12 +7,15 @@ import {
   modelCutDedupeKey,
   modelCutEventMessage,
   modelCutNoticeText,
+  sessionModelMoveDedupeKey,
+  sessionModelMoveNoticeText,
 } from "@werft-ai/platform";
 import { and, eq, isNull, ne, or } from "drizzle-orm";
 import { dbNow } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
 import {
   agentReleases,
+  agents,
   linkedAccounts,
   memberships,
   sessions,
@@ -73,17 +76,8 @@ export async function enqueueModelCutNotices(
   tx: Database,
   input: { sessionId: string; model: string; cause?: ModelCutCause },
 ): Promise<number> {
-  const [session] = await tx
-    .select({
-      workspaceId: sessions.workspaceId,
-      createdByUserId: sessions.createdByUserId,
-      agentId: agentReleases.agentId,
-    })
-    .from(sessions)
-    .innerJoin(agentReleases, eq(agentReleases.id, sessions.agentReleaseId))
-    .where(eq(sessions.id, input.sessionId))
-    .limit(1);
-  if (!session || session.workspaceId === null) return 0;
+  const session = await noticedSession(tx, input.sessionId);
+  if (session === null) return 0;
   const { workspaceId, agentId } = session;
   const recipients = await slackRecipientsOf(tx, {
     workspaceId,
@@ -122,9 +116,89 @@ export async function enqueueModelCutNotices(
   return enqueued;
 }
 
+/**
+ * Writes one `model_notice` row telling whoever created the session that its
+ * model moved to the next model of its series, in the move's transaction.
+ * The agent's administrators are told of the agent's own move instead
+ * (`enqueueModelMoveNotices`), so they are not told again per session.
+ */
+export async function enqueueSessionModelMoveNotices(
+  tx: Database,
+  input: { sessionId: string; from: string; to: string },
+): Promise<number> {
+  const session = await noticedSession(tx, input.sessionId);
+  if (session === null || session.createdByUserId === null) return 0;
+  const { workspaceId, agentId } = session;
+  const recipients = await slackRecipientsOf(tx, {
+    workspaceId,
+    agentId,
+    userId: session.createdByUserId,
+    administrators: false,
+  });
+  let enqueued = 0;
+  for (const person of recipients) {
+    const [row] = await tx
+      .insert(slackOutbox)
+      .values({
+        id: randomUUID(),
+        workspaceId,
+        agentId,
+        slackAppId: person.slackAppId,
+        installationId: person.installationId,
+        kind: "model_notice",
+        channelId: person.slackUserId,
+        threadTs: "",
+        slackUserId: null,
+        sessionId: input.sessionId,
+        body: {
+          text: sessionModelMoveNoticeText(person.locale, {
+            agent: session.agentName,
+            from: input.from,
+            to: input.to,
+          }),
+          ...(person.locale === null ? {} : { locale: person.locale }),
+        },
+        dedupeKey: sessionModelMoveDedupeKey(
+          workspaceId,
+          input.sessionId,
+          input.from,
+          input.to,
+          person.slackUserId,
+        ),
+      })
+      .onConflictDoNothing({ target: slackOutbox.dedupeKey })
+      .returning({ id: slackOutbox.id });
+    if (row) enqueued += 1;
+  }
+  return enqueued;
+}
+
+async function noticedSession(tx: Database, sessionId: string) {
+  const [session] = await tx
+    .select({
+      workspaceId: sessions.workspaceId,
+      createdByUserId: sessions.createdByUserId,
+      agentId: agentReleases.agentId,
+      agentName: agents.name,
+    })
+    .from(sessions)
+    .innerJoin(agentReleases, eq(agentReleases.id, sessions.agentReleaseId))
+    .innerJoin(agents, eq(agents.id, agentReleases.agentId))
+    .where(eq(sessions.id, sessionId))
+    .limit(1);
+  if (!session || session.workspaceId === null) return null;
+  return { ...session, workspaceId: session.workspaceId };
+}
+
 export async function slackRecipientsOf(
   tx: Database,
-  input: { workspaceId: string; agentId: string; userId: string | null },
+  input: {
+    workspaceId: string;
+    agentId: string;
+    userId: string | null;
+    /** Defaults to true: the agent's administrators are told as well. */
+    administrators?: boolean;
+  },
 ) {
   const { workspaceId, agentId } = input;
   return await tx
@@ -172,7 +246,9 @@ export async function slackRecipientsOf(
           input.userId === null
             ? undefined
             : eq(linkedAccounts.userId, input.userId),
-          administers(tx, workspaceId, linkedAccounts.userId, agentId),
+          input.administrators === false
+            ? undefined
+            : administers(tx, workspaceId, linkedAccounts.userId, agentId),
         ),
       ),
     );

@@ -3,7 +3,10 @@ import type { PGlite } from "@electric-sql/pglite";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
-import { enqueueModelCutNotices } from "./musterrolle/model-cut-notices.ts";
+import {
+  enqueueModelCutNotices,
+  enqueueSessionModelMoveNotices,
+} from "./musterrolle/model-cut-notices.ts";
 import type { Database } from "./queries.ts";
 import * as schema from "./schema.ts";
 import {
@@ -21,6 +24,7 @@ import {
   slackApps,
   slackInstallations,
   slackOutbox,
+  unassignedSessions,
   users,
   workspaces,
 } from "./schema.ts";
@@ -29,7 +33,10 @@ import {
   sessionPinColumns,
   TEST_CONNECTION_ID,
 } from "./testing/spec-pins.ts";
-import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
+import {
+  createPostgresWorkerUnitOfWork,
+  moveSessionsToSuccessors,
+} from "./worker-unit-of-work.ts";
 
 let client: PGlite;
 let db: Database;
@@ -437,5 +444,103 @@ describe("enqueueModelCutNotices", () => {
         model: "claude-opus-5-5",
       }),
     ).toBe(0);
+  });
+});
+
+describe("enqueueSessionModelMoveNotices", () => {
+  const move = { from: "claude-sonnet-5", to: "claude-sonnet-5-1" };
+
+  test("tells only the session's creator, in their language, linked to the session", async () => {
+    const w = await world();
+    const creator = await w.person("creator", { locale: "ko" });
+    const admin = await w.person("admin");
+    await db.insert(agentAdmins).values({
+      workspaceId: w.workspaceId,
+      agentId: w.agentId,
+      userId: admin.userId,
+    });
+    await w.startSession(creator);
+
+    expect(
+      await enqueueSessionModelMoveNotices(db, {
+        sessionId: w.sessionId,
+        ...move,
+      }),
+    ).toBe(1);
+
+    const rows = await w.outbox();
+    expect(rows.map((row) => row.channelId)).toEqual([creator.slackUserId]);
+    const [row] = rows;
+    expect(row?.kind).toBe("model_notice");
+    expect(row?.threadTs).toBe("");
+    expect(row?.sessionId).toBe(w.sessionId);
+    expect(row?.body.text).toContain("claude-sonnet-5-1(으)로 옮겼어요");
+    expect(row?.body.locale).toBe("ko");
+  });
+
+  test("one move tells once; a later move of the same session tells again", async () => {
+    const w = await world();
+    const creator = await w.person("creator", { locale: "en" });
+    await w.startSession(creator);
+    const moved = (to: string) =>
+      enqueueSessionModelMoveNotices(db, {
+        sessionId: w.sessionId,
+        from: move.from,
+        to,
+      });
+    expect(await moved(move.to)).toBe(1);
+    expect(await moved(move.to)).toBe(0);
+    expect(await moved("claude-sonnet-5-2")).toBe(1);
+  });
+
+  test("a session without a creator tells nobody", async () => {
+    const w = await world();
+    const admin = await w.person("admin");
+    await db.insert(agentAdmins).values({
+      workspaceId: w.workspaceId,
+      agentId: w.agentId,
+      userId: admin.userId,
+    });
+    await w.startSession(null);
+    expect(
+      await enqueueSessionModelMoveNotices(db, {
+        sessionId: w.sessionId,
+        ...move,
+      }),
+    ).toBe(0);
+  });
+
+  test("the claim's move writes the timeline event and the creator's notice together", async () => {
+    const w = await world();
+    const creator = await w.person("creator", { locale: "en" });
+    await w.startSession(creator);
+    await db.insert(unassignedSessions).values({ sessionId: w.sessionId });
+
+    expect(
+      await moveSessionsToSuccessors(
+        db,
+        { partition: "default", sessionId: w.sessionId },
+        {
+          modelMoves: [{ connectionId: TEST_CONNECTION_ID, ...move }],
+          now: NOW,
+        },
+      ),
+    ).toBe(1);
+
+    const [session] = await db
+      .select({ model: sessions.model })
+      .from(sessions)
+      .where(eq(sessions.id, w.sessionId));
+    expect(session?.model).toBe(move.to);
+    const timeline = await db
+      .select({ payload: events.payload })
+      .from(events)
+      .where(eq(events.sessionId, w.sessionId));
+    expect(timeline.map((row) => row.payload)).toContainEqual(
+      expect.objectContaining({ subtype: "model_migrated", ...move }),
+    );
+    const rows = await w.outbox();
+    expect(rows.map((row) => row.channelId)).toEqual([creator.slackUserId]);
+    expect(rows[0]?.body.text).toContain(`moved to ${move.to}`);
   });
 });

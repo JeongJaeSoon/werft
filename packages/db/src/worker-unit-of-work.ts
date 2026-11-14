@@ -138,7 +138,10 @@ import {
   plainEnvOf,
   recordEnvRefusal,
 } from "./musterrolle/env-variables.ts";
-import { writeModelCut } from "./musterrolle/model-cut-notices.ts";
+import {
+  enqueueSessionModelMoveNotices,
+  writeModelCut,
+} from "./musterrolle/model-cut-notices.ts";
 import {
   lockProviderExchange,
   settleProviderExchange,
@@ -1284,6 +1287,11 @@ export async function moveSessionsToSuccessors(
         },
         turnRowId: null,
         now: await dbNow(tx),
+      });
+      await enqueueSessionModelMoveNotices(tx, {
+        sessionId: id,
+        from: move.from,
+        to: move.to,
       });
     }
   }
