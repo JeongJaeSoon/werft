@@ -965,7 +965,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        engine: [claude_agent_sdk, codex_app_server]
+        # two_engines: one stack running both, a session of each at once
+        # (tests/conformance/two-engines.e2e.ts), not the suite again.
+        engine: [claude_agent_sdk, codex_app_server, two_engines]
     steps:
       - name: Validate product test plan
         if: '!cancelled()'

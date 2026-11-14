@@ -117,6 +117,8 @@ When worker images change, Compose upgrade checks calculate restoration plans fo
 
 On a worker image change, upgrade retains the old image in the state directory's `previous-worker` file. For each session, the scheduler matches checkpoint engine/SDK/CLI/profile digest scheme against current/previous images, preferring current if both match ([configuration](/run-server/self-hosting/reference/configuration)). The affected list therefore includes sessions restorable by neither image. If either image check fails closed, retain the new-image list unchanged. For rebuilt images with the same combination, the scheduler selects current: do not remove sessions unverified on current merely because previous can restore them. If either is too old to report its combination (a build without combination reporting), previous is not used and the gate retains the new-image list. The support window is one release: another upgrade can affect sessions left on the older image. In the profile removal release, no session launches on the previous image ([Upgrade order of the profile removal release](#프로필-제거-릴리스의-업그레이드-순서)).
 
+Do not use this upgrade on a stack that runs both engines (`infra/compose.two-engines.yml`). That stack keeps the other engine's (Claude) image in the previous image's place, and the upgrade rewrites that place with the image it replaces, dropping the Claude image. There is no compose procedure yet for changing a two-engine stack's worker images.
+
 <a id="runtime-프로필의-공통-준비" />
 <a id="runtime-버전의-공통-준비" />
 ### Shared runtime version preparation

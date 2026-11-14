@@ -1,0 +1,32 @@
+# Both engines on one compose stack: Codex sessions on the WORKER_IMAGE
+# image, Claude sessions on the WORKER_IMAGE_PREVIOUS image. The scheduler
+# picks each session's image by its engine, so with both runtimes declared
+# the pair runs side by side, not as a switch from one to the other.
+#
+# The two images are built apart: the Codex one through
+# infra/compose.codex-worker.yml, then the Claude one by `worker` here, under
+# the previous tag so that `up --build` never builds Claude into the Codex
+# tag. Each runtime is read from its built image before the stack starts:
+#
+#   export WORKER_IMAGE=werft-worker-codex:dev WORKER_IMAGE_PREVIOUS=werft-worker:dev
+#   docker compose -f infra/compose.yml -f infra/compose.codex-worker.yml --profile worker build worker
+#   docker compose -f infra/compose.yml -f infra/compose.two-engines.yml --profile worker build worker
+#   runtime() { docker run --rm -i --network none --entrypoint bun "$1" run apps/worker/src/image-runtime.ts <<<'{}' | jq -c 'del(.profiles)'; }
+#   export WORKER_IMAGE_RUNTIME="$(runtime "$WORKER_IMAGE")" WORKER_IMAGE_PREVIOUS_RUNTIME="$(runtime "$WORKER_IMAGE_PREVIOUS")"
+#
+# Without the runtimes the scheduler refuses to start (WORKER_IMAGE_PREVIOUS
+# and its runtime are set together). The connections are the settings' own:
+# tests/conformance/compose.two-engines.yml adds both fake providers for
+# tests/e2e/run.sh --conformance two_engines.
+#
+# A compose upgrade (scripts/test-ops.sh upgrade, upgrade-compose.mdx) keeps
+# one engine: it rewrites WORKER_IMAGE_PREVIOUS as the image it replaces, so
+# it does not apply to this overlay.
+services:
+  worker:
+    image: ${WORKER_IMAGE_PREVIOUS:-werft-worker:dev}
+
+  scheduler:
+    environment:
+      WORKER_IMAGE: ${WORKER_IMAGE:-werft-worker-codex:dev}
+      WORKER_IMAGE_PREVIOUS: ${WORKER_IMAGE_PREVIOUS:-werft-worker:dev}
