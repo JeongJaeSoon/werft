@@ -14,7 +14,7 @@ outcome: "運用環境に合う設置経路を選びます"
 
 | 方法 | 実行基盤 | 前提 | ページ |
 | --- | --- | --- | --- |
-| 単一サーバー | 一台の Linux サーバー、Docker Compose。セッションごとに worker コンテナ。HA は対象外です | Docker 28 以上、Compose 2.24.6 以上、Docker データルートが `prjquota` 付きで mount された XFS、リポジトリ checkout、永続 AWS S3 bucket | [単一サーバー設置](/run-server/self-hosting/single-server) |
+| 単一サーバー | 一台の Linux サーバー、Docker Compose。セッションごとに worker コンテナ。HA は対象外です | Docker 28 以上、Compose 2.24.6 以上、Docker データルートが `prjquota` 付きで mount された XFS、リポジトリ checkout または `v*` リリースバンドル、永続 AWS S3 bucket | [単一サーバー設置](/run-server/self-hosting/single-server) |
 | Kubernetes | 公開 Helm chart。セッションごとに worker Pod | NetworkPolicy を強制する CNI、`helm` 3、PostgreSQL 16、S3 互換 object store（既定の保護モードでは versioning、Object Lock、SSE-S3 が有効な bucket が必要）。リポジトリ checkout は不要です | [Kubernetes 設置](/run-server/self-hosting/kubernetes) |
 
 選択基準は単純です。一台のサーバーに設置して `scripts/test-ops.sh` で運用するなら単一サーバー、既にクラスタ・PostgreSQL・object store があり chart で設置するなら Kubernetes です。どちらも `ghcr.io` から公開パッケージをログインなしで取得できる必要があります。設置済みなら [Compose アップグレード](/run-server/self-hosting/upgrade-compose)または [Kubernetes アップグレード](/run-server/self-hosting/upgrade-kubernetes)を選びます。

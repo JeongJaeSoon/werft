@@ -22,11 +22,11 @@ Install published images pinned by digest on one Linux server and check `/readyz
 | Docker Compose | 2.24.6 or later |
 | Disk | Docker data-root on XFS mounted with `prjquota`. `preflight` does not check this. Otherwise the scheduler quota check fails during `deploy` and installation stops. Complete [XFS preparation](/run-server/self-hosting/prepare-xfs) first on ext4 servers. Docker Desktop is unsupported |
 | Time | NTP synchronized. Docker starts automatically after reboot |
-| Tools | `git`, `jq`, `curl`, `openssl`, Bun 1.3.14, Docker Buildx plugin, and an account with Docker daemon access |
+| Tools | For a checkout installation, `git`, `jq`, `curl`, `openssl`, Bun 1.3.14, and the Docker Buildx plugin. For a release bundle installation, `jq`, `curl`, `openssl`, `sha256sum`, and `tar` (with gzip). Both need an account with Docker daemon access |
 | Object store | Persistent AWS S3 bucket. Compose test-ops supports AWS S3 only, without custom endpoints. Check protection and permissions in [Bucket preparation](/run-server/self-hosting/prepare-checkpoint-bucket) |
 | External access | Download images from `ghcr.io` and Docker Hub without signing in. Sessions connect to `api.anthropic.com` and `github.com` |
 
-A repository checkout is required because Compose files and `scripts/test-ops.sh` are read from it. Images are not built from the checkout.
+There are two ways to install. A repository checkout works for every published tag (`main-<12>`, `v<version>`). A `v*` release can also be installed from the bundle attached to its GitHub Release (`werft-test-ops-<tag>.tar.gz`), with no checkout and no host Bun. Either way, the Compose files and `scripts/test-ops.sh` are read from the downloaded directory, and no image is built. The bundle refuses `upgrade`, `backup`, `reseed`, and `restore-drill`. Run those from a repository checked out at the release's `source_commit`, with the same env file and state directory.
 
 - Prepare the [XFS disk](/run-server/self-hosting/prepare-xfs) and [checkpoint bucket](/run-server/self-hosting/prepare-checkpoint-bucket) first.
 - Choose an [access path](/run-server/self-hosting/access) before remote bootstrap.
@@ -58,6 +58,25 @@ bun install --frozen-lockfile
 ```
 
 The checkout must match the selected release commit, and dependency installation must succeed. Store the release file outside the checkout to keep the checkout clean.
+
+<a id="릴리스-번들로-받기" />
+#### Get the release bundle
+
+To install a `v*` release without a checkout, run the following instead of the two blocks above. `TAG` is the release tag chosen from the [package contract](/run-server/self-hosting/reference/packages).
+
+```bash
+TAG='<release-tag>'
+BASE="https://github.com/JeongJaeSoon/werft/releases/download/$TAG"
+mkdir -p "$HOME/werft-releases/$TAG"
+cd "$HOME/werft-releases/$TAG"
+curl -fsSLO "$BASE/werft-test-ops-$TAG.tar.gz"
+curl -fsSLO "$BASE/werft-test-ops-$TAG.tar.gz.sha256"
+sha256sum -c "werft-test-ops-$TAG.tar.gz.sha256"
+tar -xzf "werft-test-ops-$TAG.tar.gz"
+cd "werft-test-ops-$TAG"
+```
+
+`sha256sum` must print `OK`. The sha256 only catches a damaged download and does not prove where the file came from, so use only files downloaded from this GitHub Release address. The `infra/` and `scripts/` paths in later steps are relative to this directory. The bundle carries the release's `release-manifest.json`, so step 3 does not look up image digests separately.
 
 <a id="2-비밀과-설정-문서" />
 ### 2. Secrets and settings document
@@ -140,6 +159,15 @@ jq -n \
 ```
 
 Confirm all three image digests are nonempty.
+
+If you downloaded the release bundle, run the following in the bundle directory instead of the block above. `manifest` writes a file of the same format from the commit and image digests of the release manifest inside the bundle, plus the settings document's digest.
+
+```bash
+DEPLOYMENT_DIR=/var/lib/werft/test-ops
+scripts/test-ops.sh manifest release-manifest.json /etc/werft/settings.json > "$DEPLOYMENT_DIR/release.json"
+```
+
+Run step 4 and `bootstrap-token` from the bundle directory with the same commands. The bundle's `preflight` and `deploy` refuse the file if its commit or images differ from the bundle's release.
 
 <a id="4-s3를-명시해-검사설치" />
 ### 4. Explicitly select S3, check, and install
@@ -236,7 +264,7 @@ For a healthy installation, preserve data through [stop and restart](/run-server
 <a id="checkout-なしでインストールする-リリースバンドル" />
 <a id="checkout-없이-설치하기-릴리스-번들" />
 
-[Deployment package contract](/run-server/self-hosting/reference/packages#계약)
+[Get the release bundle](/run-server/self-hosting/single-server#릴리스-번들로-받기)
 
 <a id="when-you-build-the-images-yourself" />
 <a id="イメージを自分でビルドするとき" />

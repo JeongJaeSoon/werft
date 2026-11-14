@@ -13,7 +13,7 @@ outcome: "운영 환경에 맞는 설치 경로를 고른다"
 
 | 방식 | 실행 기반 | 전제 | 페이지 |
 | --- | --- | --- | --- |
-| 단일 서버 | Linux 서버 한 대, Docker Compose. 세션마다 worker 컨테이너. HA는 범위 밖 | Docker 28 이상, Compose 2.24.6 이상, Docker 데이터 루트가 `prjquota`로 mount된 XFS, 저장소 checkout, 영속 AWS S3 bucket | [단일 서버 설치](/run-server/self-hosting/single-server) |
+| 단일 서버 | Linux 서버 한 대, Docker Compose. 세션마다 worker 컨테이너. HA는 범위 밖 | Docker 28 이상, Compose 2.24.6 이상, Docker 데이터 루트가 `prjquota`로 mount된 XFS, 저장소 checkout 또는 `v*` 릴리스 번들, 영속 AWS S3 bucket | [단일 서버 설치](/run-server/self-hosting/single-server) |
 | Kubernetes | 게시된 Helm chart. 세션마다 worker Pod | NetworkPolicy를 강제하는 CNI, `helm` 3, PostgreSQL 16, S3 호환 object store(기본 보호 모드는 versioning, Object Lock, SSE-S3가 켜진 bucket을 요구한다). 저장소 checkout은 필요 없다 | [Kubernetes 설치](/run-server/self-hosting/kubernetes) |
 
 고르는 기준은 단순하다. 서버 한 대에 올리고 `scripts/test-ops.sh`로 운영하려면 단일 서버, 이미 클러스터와 PostgreSQL, object store가 있고 chart로 올리려면 Kubernetes다. 두 방식 모두 `ghcr.io`에서 게시 패키지를 로그인 없이 받을 수 있어야 한다. 이미 설치했다면 [Compose 업그레이드](/run-server/self-hosting/upgrade-compose) 또는 [Kubernetes 업그레이드](/run-server/self-hosting/upgrade-kubernetes)를 선택한다.
