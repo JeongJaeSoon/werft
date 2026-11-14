@@ -217,6 +217,22 @@ helm -n werft rollback werft <revision> --wait --timeout 10m
 
 링크한 공통 실행 전 게이트와 직접 검사에서 rollback 가능성을 확인한 뒤에만 되돌린다. hook이 없으므로 rollback 명령이 검사를 자동으로 막아 주지 않는다. 롤포워드가 우선이다.
 
+## 옛 worker 이미지 지우기
+
+세션은 이미지가 아니라 런타임 조합으로 재개한다. 그래서 registry의 옛 worker 이미지는 아래를 차례로 확인한 뒤 지워도 된다. 지우는 일은 registry에서 하고, werft는 이미지를 지우지 않는다. 다시 빌드할 수 없는 취약점처럼 그 이미지로 더는 띄우면 안 될 때는 지우기 전에 목록에서 [철회](/run-server/self-hosting/reference/configuration)한다.
+
+1. 목록에서 뺀다. `images.workers`(`WORKER_IMAGES`)에서 그 원소를 빼고(단일 값 설치는 `images.worker`와 `images.workerPrevious` 어디에도 두지 않고) 위 단계대로 upgrade한다. 그 뒤로 새 launch는 그 이미지를 고르지 않는다. 같은 조합의 이미지가 목록에 남지 않는 세션이 어떻게 되는지는 [설정 레퍼런스](/run-server/self-hosting/reference/configuration)의 이미지 목록을 본다.
+2. `werft_sessions_by_worker_image{image="<repository>@sha256:<digest>"}` series가 없어질 때까지 기다린다. 이 지표는 끝나지 않은 세션을 마지막 launch의 이미지별로 센다([지표 레퍼런스](/run-server/self-hosting/reference/metrics), [지표 수집](/run-server/self-hosting/collect-metrics)). series가 있으면 그 이미지로 마지막 launch를 한 세션이 열려 있다. 그 launch가 worker가 붙기 전에 다시 만들어지면 저장된 이미지, 곧 지울 이미지로 다시 만들어진다. 쉬고 있는 열린 세션도 series에 남으므로, 그런 세션이 끝나거나 다른 이미지로 다시 launch될 때까지 기다린다.
+3. 그 이미지로 떠 있는 worker Pod가 없는지 본다. 아래 명령이 아무것도 출력하지 않아야 한다.
+
+```bash
+IMAGE='<repository>@sha256:<digest>'
+kubectl -n werft get pods -l app.kubernetes.io/component=worker -o json \
+  | jq -r --arg image "$IMAGE" '.items[] | select(any(.spec.containers[]; .image == $image)) | .metadata.name'
+```
+
+세 가지가 모두 맞으면 registry에서 지운다. 지운 뒤 그 이미지를 목록에 담은 Helm revision으로 rollback하면 그 revision의 scheduler가 그 이미지로 launch하다 pull에 실패한다. 되돌릴 수 있게 남겨 둘 revision이 담은 이미지는 지우지 않는다. 이 절차는 kind에서 실행 확인하지 않았다.
+
 ## 다음에 읽을 곳
 
 [업그레이드 호환성](/run-server/self-hosting/explanation/compatibility), [Kubernetes 수명주기](/run-server/self-hosting/remove-kubernetes), [세션 복구](/run-server/self-hosting/recover-sessions).

@@ -228,6 +228,23 @@ rollback は migrate hook を実行しません（`pre-rollback` ではありま
 
 リンクした共通の実行前ゲートと直接検査で rollback 可能と確認してからだけ戻します。hook がないため、rollback コマンドが自動検査で止めてはくれません。roll-forward を優先します。
 
+<a id="옛-worker-이미지-지우기" />
+## 古い worker イメージを削除する
+
+セッションはイメージではなくランタイムの組み合わせで再開します。そのため registry の古い worker イメージは、以下を順に確認してから削除できます。削除は registry で行い、werft はイメージを削除しません。再ビルドで直せない脆弱性のように、そのイメージでもう起動してはならないときは、削除する前に一覧で[撤回](/run-server/self-hosting/reference/configuration)します。
+
+1. 一覧から外します。`images.workers`（`WORKER_IMAGES`）からその要素を外し（単一の値の環境では `images.worker` と `images.workerPrevious` のどちらにも置かず）、上の手順どおり upgrade します。それ以降、新しい launch はそのイメージを選びません。同じ組み合わせのイメージが一覧に残らないセッションがどうなるかは、[設定リファレンス](/run-server/self-hosting/reference/configuration)のイメージ一覧を見ます。
+2. `werft_sessions_by_worker_image{image="<repository>@sha256:<digest>"}` の series がなくなるまで待ちます。この指標は終わっていないセッションを、最後の launch のイメージ別に数えます（[指標リファレンス](/run-server/self-hosting/reference/metrics)、[指標の収集](/run-server/self-hosting/collect-metrics)）。series があれば、そのイメージで最後に launch したセッションがまだ開いています。その launch が worker が付く前に作り直されると、保存されたイメージ、つまり削除しようとしているイメージで作り直されます。休んでいる開いたセッションも series に残るため、そうしたセッションが終わるか、別のイメージで launch し直すまで待ちます。
+3. そのイメージで動いている worker Pod がないことを確認します。下のコマンドが何も出力しない必要があります。
+
+```bash
+IMAGE='<repository>@sha256:<digest>'
+kubectl -n werft get pods -l app.kubernetes.io/component=worker -o json \
+  | jq -r --arg image "$IMAGE" '.items[] | select(any(.spec.containers[]; .image == $image)) | .metadata.name'
+```
+
+三つがすべて満たされたら registry から削除します。削除したあと、そのイメージを一覧に含む Helm revision へ rollback すると、その revision の scheduler がそのイメージで launch しようとして pull に失敗します。戻せるように残しておく revision が含むイメージは削除しません。この手順は kind で実行確認していません。
+
 <a id="다음에-읽을-곳" />
 ## 次に読む
 

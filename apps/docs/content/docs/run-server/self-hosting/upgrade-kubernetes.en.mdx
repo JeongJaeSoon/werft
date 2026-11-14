@@ -232,6 +232,23 @@ Rollback does not run migrate hooks (they are not pre-rollback). Database schema
 
 Roll back only after shared gates and the direct check establish viability. Without hooks, rollback does not automatically enforce checks. Prefer roll-forward.
 
+<a id="옛-worker-이미지-지우기" />
+## Delete old worker images
+
+Sessions resume on a runtime combination, not on an image. An old worker image may therefore be deleted from the registry once the checks below pass, in order. The deletion happens in the registry; werft does not delete images. When the image must not run again, such as for a vulnerability that cannot be rebuilt away, [retract](/run-server/self-hosting/reference/configuration) it in the list before deleting it.
+
+1. Remove it from the list. Drop its entry from `images.workers` (`WORKER_IMAGES`), or, on an install with single values, keep it out of both `images.worker` and `images.workerPrevious`, and upgrade as in the steps above. From then on no new launch chooses that image. What happens to a session whose combination has no image left in the list is described under the image list in the [configuration reference](/run-server/self-hosting/reference/configuration).
+2. Wait until the series `werft_sessions_by_worker_image{image="<repository>@sha256:<digest>"}` is gone. The gauge counts sessions that have not ended, by the image of their newest launch ([metrics reference](/run-server/self-hosting/reference/metrics), [collect metrics](/run-server/self-hosting/collect-metrics)). While the series exists, a session whose newest launch is on that image is still open. If that launch is rebuilt before a worker binds it, it is rebuilt on its stored image, the one you are about to delete. An open session at rest stays in the series too, so wait until such sessions end or launch again on another image.
+3. Check that no worker Pod runs on that image. The command below must print nothing.
+
+```bash
+IMAGE='<repository>@sha256:<digest>'
+kubectl -n werft get pods -l app.kubernetes.io/component=worker -o json \
+  | jq -r --arg image "$IMAGE" '.items[] | select(any(.spec.containers[]; .image == $image)) | .metadata.name'
+```
+
+When all three hold, delete it from the registry. Rolling back afterwards to a Helm revision whose list holds that image makes that revision's scheduler fail to pull it when it launches on it. Keep the images held by any revision you want to be able to roll back to. This procedure has not been run on kind.
+
 <a id="다음에-읽을-곳" />
 ## Next steps
 
