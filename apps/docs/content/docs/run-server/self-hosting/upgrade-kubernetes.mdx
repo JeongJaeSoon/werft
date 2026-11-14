@@ -143,13 +143,13 @@ mkdir -p "$TAG" && curl -fsSL -o "$TAG/release-manifest.json" \
 
 프로그램은 이렇게 목록을 만든다.
 
-- 엔진마다 `releasedAt`이 늦은 이미지부터 적고, 철회되지 않은 이미지를 둘까지 남긴다. 셋째부터는 빠진다. 빠진 이미지가 필요한 세션은 [업그레이드 전 검사](#3-검사-결과와-예외)가 판정한다. 그 이미지로 slot을 쥔 launch의 checkpoint를 남은 이미지가 복원하지 못하면 승인할 수 없는 `refused`이고, checkpoint만 남은 세션은 affected 목록에 오른다.
+- 엔진마다 `releasedAt`이 늦은 이미지부터 적고, 철회되지 않은 이미지를 둘까지 남긴다. 셋째부터는 빠진다. 빠진 이미지가 필요한 세션은 [업그레이드 전 검사](#3-검사-결과와-예외)가 판정한다. 그 이미지로 slot을 쥔 launch의 checkpoint를 남은 이미지가 복원하지 못하면 승인할 수 없는 `refused`이고, checkpoint만 남은 세션은 affected 목록에 오른다. runtime 없이 배포한 단일 이미지에서 시작한 launch는 runtime 기록이 없다. 그래서 같은 runtime으로 다시 빌드한 이미지가 목록에 있어도, 그 launch가 봉인하는 checkpoint는 그 이미지 자신만 복원한다고 본다. 그 이미지가 빠지는 upgrade(대개 목록으로 바꾼 다음 upgrade)는 그 launch가 slot을 놓을 때까지 `refused`다. 멈춘 뒤의 checkpoint는 runtime이 맞는 이미지에서 재개된다.
 - 같은 digest는 한 번만 적는다. 배포된 이미지가 철회되어 있으면 대상 릴리스가 같은 digest를 적어도 철회된 채로 둔다. 철회된 이미지는 남긴 이미지 가운데 가장 오래된 것보다 새로울 때만 남긴다. 철회되지 않은 이미지가 하나도 없는 엔진은 철회된 이미지를 모두 남긴다(목록에서 엔진이 빠지는 것과 다르다). 오래된 철회 이미지가 빠지면 그 조합의 checkpoint는 `runtime_retired` 대신 `incompatible_checkpoint`로 멈춘다.
 - 다음이면 values 파일을 만들지 않고 실패한다. 배포된 이미지에 runtime이나 `releasedAt`이 없을 때, 대상 이미지가 배포된 같은 엔진의 어느 이미지보다도 늦지 않을 때, 같은 digest가 다른 runtime·시각·repository로 적혀 있을 때, 같은 엔진의 두 이미지가 같은 시각일 때다. `releasedAt`은 commit 시각이라 게시 순서와 다를 수 있다. 배포된 이미지보다 오래된 commit에 붙인 태그의 chart와, main이 이미 게시한 commit을 태그 push로 다시 빌드한 chart(digest는 다르고 시각은 같다)가 여기에 걸린다. 그때는 더 새 릴리스의 chart로 올린다.
 
 명령은 `&&`로 이어져 있어, 프로그램이 실패하면 `helm upgrade`는 돌지 않는다. upgrade가 실패해도 다시 돌리면 같은 deployed revision에서 같은 파일이 나오므로 따로 보관할 파일은 없다. 승인 목록은 위처럼 매번 비운다. 쓰지 않는 엔진은 `workers.json`에서 그 엔진의 항목을 지우고 넘겨도 된다. 배포된 이미지에 있던 엔진을 지우면 그 upgrade는 엔진을 빼는 upgrade로 판정된다(아래 "엔진을 빼는 upgrade").
 
-kind에서 이 절차를 그대로 따라 했다(`deploy/kind/upgrade.sh`의 `list`·`next-list` 단계). runtime 없이 설치한 단일 이미지 A를 [B, A, C]로 바꿨다(B는 A를 다시 빌드한 이미지, C는 Codex 이미지). 이어 control phase를 거친 목록을 [D, B, C]로 바꿨다. 두 upgrade 모두 승인 없이 `proceed`였다. A에서 승인을 기다리던 세션은 같은 Pod에서 이어져 A가 목록에서 빠진 뒤 끝났다. 멈춘 세션은 B에서, 다음에는 D에서 checkpoint로 재개했다. Codex 세션은 kind에서 돌리지 않았다.
+kind에서 이 절차를 그대로 따라 했다(`deploy/kind/upgrade.sh`의 `list`·`next-list` 단계). runtime 없이 설치한 단일 이미지 A를 [B, A, C]로 바꿨다(B는 A를 다시 빌드한 이미지, C는 Codex 이미지). A에서 승인을 기다리던 세션은 같은 Pod에서 이어졌다. 이어 control phase를 거친 목록을 [D, B, C]로 바꾸려 했다. 그 세션의 launch가 A에서 slot을 쥐고 있어 `refused`였다. 실패한 revision 뒤에 절차를 다시 돌리면 같은 파일이 나왔다. 그 세션이 끝나 멈춘 뒤에는 같은 파일로 `proceed`였다. 두 upgrade 모두 승인 목록은 비어 있었다. 멈춘 두 세션은 D에서 checkpoint로 재개했다. 하나는 B에서, 하나는 A에서 멈춘 세션이다. Codex 세션은 kind에서 돌리지 않았다.
 
 ### 3. 검사 결과와 예외
 

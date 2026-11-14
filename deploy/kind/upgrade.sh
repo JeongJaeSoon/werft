@@ -20,8 +20,9 @@
 #                  through files/next-workers.jq (B: A rebuilt, C: Codex);
 #                  S3 waits on A in the same Pod; S2 resumes on B
 #   6. next-list   the control phase keeps that list, then [D, B, C] drops A:
-#                  the check proceeds with S3 still on A, S3 completes there,
-#                  S2 resumes on D
+#                  refused while S3's launch on A holds a slot, the rerun
+#                  gives the same file, and once S3 completes and pauses it
+#                  proceeds; S2 (paused on B) and S3 (paused on A) resume on D
 #
 #   deploy/kind/upgrade.sh         run all of it; delete the cluster and
 #                                  registry at the end if this run created them
@@ -436,18 +437,22 @@ rendered() { jq -c '[.images.workers[] | {image: "\(.repository)@\(.digest)", re
 # The list as WORKER_IMAGES spells it: the chart's toJson sorts the keys.
 as_env() { jq -cS . <<<"$1"; }
 
+# pause_session <id>: paused, and its worker Pod gone.
+pause_session() {
+  local paused _
+  paused="$(post "/v1/sessions/$1/pause" "$(jq -nc --argjson r "$(get "/v1/sessions/$1" | jq .revision)" '{expected_revision: $r, reason: "list test"}')")"
+  settle_receipt "$(echo "$paused" | jq -r .receipt_id)" pause
+  wait_session "paused" '.admission_state == "paused"' "$1"
+  for _ in $(seq 1 60); do
+    [ -z "$(worker_pods "$1")" ] && return
+    sleep 1
+  done
+  fail "$1 is paused and still has a worker Pod"
+}
 # S1 is done but its idle worker still holds memory a runner-sized node needs
 # for S3's worker and S2's next one.
-for sid in "$s1" "$s2"; do
-  paused="$(post "/v1/sessions/${sid}/pause" "$(jq -nc --argjson r "$(get "/v1/sessions/${sid}" | jq .revision)" '{expected_revision: $r, reason: "list test"}')")"
-  settle_receipt "$(echo "$paused" | jq -r .receipt_id)" pause
-  wait_session "paused" '.admission_state == "paused"' "$sid"
-done
-for _ in $(seq 1 60); do
-  [ -z "$(worker_pods "$s1")" ] && break
-  sleep 1
-done
-[ -z "$(worker_pods "$s1")" ] || fail "S1 is paused and still has a worker Pod"
+pause_session "$s1"
+pause_session "$s2"
 checkpoint_list="$(get "/v1/sessions/${s2}" | jq '.durability.checkpoint_revision')"
 s3="$(new_session '{"id":"list-wait","final":"list turn done","steps":[{"tool":"Bash","input":{"command":"echo list | tee list.txt","description":"write a file"}}]}')"
 wait_session "waiting for input" '.status == "needs_input"' "$s3"
@@ -532,17 +537,36 @@ next_workers final "$work/deployed-list.json" "$work/release-2.json" '{}' >"$wor
 jq -e --arg b "$digest_b" --arg c "$digest_c" --arg d "$digest_d" \
   '[.images.workers[].digest] == [$d, $b, $c]' "$work/workers-2.json" >/dev/null ||
   fail "next-workers gave $(jq -c '[.images.workers[].digest]' "$work/workers-2.json") for the next list"
-# A is dropped while S3's worker still runs on it: D and B restore what it
-# writes, so the check proceeds with nothing to approve.
+# S3 launched on A before any runtime was declared for it, so its launch
+# record has none and only A is known to restore what it seals: dropping A
+# is refused while that launch holds a slot.
+if helm upgrade "$RELEASE" "$root/deploy/helm/werft" --namespace "$NAMESPACE" \
+  -f "$work/release-values.json" -f "$work/workers-2.json" \
+  --set-json 'upgrade.approvedSessions=[]' --wait --timeout 10m; then
+  fail "dropping A passed while S3's worker held a slot on it"
+fi
+verdict="$(k logs "job/${fullname}-upgrade-check" | jq -c 'select(.verdict)')"
+echo "upgrade-check: ${verdict}"
+echo "$verdict" | jq -e --arg a "${image_repo}-worker@${digest_a}" \
+  '.verdict == "refused" and (.reason | startswith("workers on \($a) still hold a slot"))' >/dev/null ||
+  fail "dropping A was not refused for S3's slot"
+# The failed revision is not the deployed one: the procedure gives the same file.
+deployed_values "$work/deployed-retry.json"
+next_workers final "$work/deployed-retry.json" "$work/release-2.json" '{}' >"$work/workers-2-retry.json"
+cmp -s "$work/workers-2.json" "$work/workers-2-retry.json" || fail "the rerun after the refusal gave another list"
+open_api
+[ "$(worker_pods "$s3")" = "$worker_s3" ] || fail "S3's worker Pod changed: $(worker_pods "$s3")"
+post "/v1/sessions/${s3}/answers" "$(jq -nc --arg r "$request_s3" '{request_id: $r, kind: "permission", action: "allow"}')" >/dev/null
+wait_turn "$s3" 1
+pause_session "$s3"
+checkpoint_s3="$(get "/v1/sessions/${s3}" | jq '.durability.checkpoint_revision')"
+echo "S3 completed on A after the refusal and paused"
 upgrade_to "$work/workers-2.json"
 list_2="$(as_env "$(rendered "$work/workers-2.json")")"
 same_list "$list_2"
 [ "$(hook_env UPGRADE_DEPLOYED_WORKER_IMAGES)" = "$list_1" ] || fail "the upgrade-check Job did not get the list deployed before it"
 echo "list -> next list ${list_2}"
 open_api
-[ "$(worker_pods "$s3")" = "$worker_s3" ] || fail "S3's worker Pod changed: $(worker_pods "$s3")"
-post "/v1/sessions/${s3}/answers" "$(jq -nc --arg r "$request_s3" '{request_id: $r, kind: "permission", action: "allow"}')" >/dev/null
-wait_turn "$s3" 1
 resumed="$(post "/v1/sessions/${s2}/resume" "$(jq -nc --argjson r "$(get "/v1/sessions/${s2}" | jq .revision)" '{expected_revision: $r}')")"
 settle_receipt "$(echo "$resumed" | jq -r .receipt_id)" resume
 wait_session "active" '.admission_state == "active"' "$s2"
@@ -551,9 +575,18 @@ wait_session "active" '.admission_state == "active"' "$s2"
 post "/v1/sessions/${s2}/messages" "$(jq -nc --arg m 'GATE-SPEC {"id":"list-fifth","steps":[],"final":"turn five done"}' '{message: $m}')" >/dev/null
 wait_turn "$s2" 5
 [ "$(pod_image "$s2")" = "${image_repo}-worker@${digest_d}" ] || fail "S2 runs $(pod_image "$s2"), not D"
-echo "S3 completed on A after A left the list; S2 resumed on D and ran turn 5"
+# What A sealed for S3 restores on D, though A left the list.
+resumed="$(post "/v1/sessions/${s3}/resume" "$(jq -nc --argjson r "$(get "/v1/sessions/${s3}" | jq .revision)" '{expected_revision: $r}')")"
+settle_receipt "$(echo "$resumed" | jq -r .receipt_id)" resume
+wait_session "active" '.admission_state == "active"' "$s3"
+[ "$(get "/v1/receipts/$(echo "$resumed" | jq -r .receipt_id)" | jq '.result.checkpoint_revision')" = "$checkpoint_s3" ] ||
+  fail "S3 did not resume from the checkpoint it paused at on A"
+post "/v1/sessions/${s3}/messages" "$(jq -nc --arg m 'GATE-SPEC {"id":"list-s3-second","steps":[],"final":"S3 turn two done"}' '{message: $m}')" >/dev/null
+wait_turn "$s3" 2
+[ "$(pod_image "$s3")" = "${image_repo}-worker@${digest_d}" ] || fail "S3 runs $(pod_image "$s3"), not D"
+echo "S2 resumed on D from B and ran turn 5; S3 resumed on D from A and ran turn 2"
 [ "$(get "/v1/sessions/${s2}/usage" | jq .cost.reported_turn_count)" = 5 ] || fail "S2's five turns were not reported once each"
-[ "$(get "/v1/sessions/${s3}/usage" | jq .cost.reported_turn_count)" = 1 ] || fail "S3's turn was not reported once"
+[ "$(get "/v1/sessions/${s3}/usage" | jq .cost.reported_turn_count)" = 2 ] || fail "S3's two turns were not reported once each"
 pass
 
 echo
