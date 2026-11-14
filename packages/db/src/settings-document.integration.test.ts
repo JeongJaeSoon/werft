@@ -537,4 +537,166 @@ integration("settings document import and export", () => {
       ),
     ).rejects.toThrow(/no settings row/);
   });
+
+  describe("migrate's seed", () => {
+    async function emptyInstallation() {
+      await clear();
+      await db.update(settingsGeneration).set({ seedDecidedAt: null });
+    }
+    const decidedAt = async () =>
+      (await db.select().from(settingsGeneration))[0]?.seedDecidedAt ?? null;
+    const step = (from: SettingsEntries, databaseOwnsRepositories = false) => ({
+      entries: from,
+      databaseOwnsRepositories,
+    });
+    const another = (): SettingsEntries =>
+      parseSettingsDocument({
+        version: 1,
+        connections: {
+          later: {
+            kind: "anthropic",
+            endpoint: "https://api.anthropic.invalid",
+            auth: { kind: "api_key", value_env: "LATER_KEY" },
+          },
+        },
+        repositories: {},
+        mcp_servers: {},
+      });
+
+    test("an empty installation is seeded once; the next seed is decided and imports nothing", async () => {
+      await emptyInstallation();
+      expect(await store().decideSeed()).toEqual({ outcome: "empty" });
+      // Deciding `empty` writes nothing.
+      expect(await decidedAt()).toBeNull();
+      const seeded = await store().seedEntries([step(entries())]);
+      expect(seeded.outcome).toBe("applied");
+      const counts = await rowCounts();
+      expect(counts).toEqual({ connections: 2, repositories: 3, mcp: 1 });
+      const at = await decidedAt();
+      if (at === null) throw new Error("the seed recorded no time");
+
+      const again = await store().seedEntries([step(another())]);
+      expect(again).toEqual({ outcome: "decided", decided_at: at });
+      expect(await store().decideSeed()).toEqual({
+        outcome: "decided",
+        decided_at: at,
+      });
+      expect(await rowCounts()).toEqual(counts);
+    });
+
+    test("an empty document is a seed too: a document given later is not imported", async () => {
+      await emptyInstallation();
+      const nothing = parseSettingsDocument({
+        version: 1,
+        connections: {},
+        repositories: {},
+        mcp_servers: {},
+      });
+      expect((await store().seedEntries([step(nothing)])).outcome).toBe(
+        "applied",
+      );
+      expect(await decidedAt()).not.toBeNull();
+      expect((await store().seedEntries([step(another())])).outcome).toBe(
+        "decided",
+      );
+      expect(await rowCounts()).toEqual({
+        connections: 0,
+        repositories: 0,
+        mcp: 0,
+      });
+    });
+
+    test("settings already there, disabled ones too, decide it; deleting them later does not seed again", async () => {
+      await emptyInstallation();
+      await store().importEntries(another(), operator);
+      await db
+        .update(providerConnections)
+        .set({ disabledAt: new Date() })
+        .where(eq(providerConnections.id, "later"));
+      expect(await store().decideSeed()).toEqual({ outcome: "not_empty" });
+      const at = await decidedAt();
+      if (at === null) throw new Error("the decision recorded no time");
+
+      // A rollback's cleanup may delete rows: the decision stays.
+      await clear();
+      expect(await store().seedEntries([step(entries())])).toEqual({
+        outcome: "decided",
+        decided_at: at,
+      });
+      expect(await rowCounts()).toEqual({
+        connections: 0,
+        repositories: 0,
+        mcp: 0,
+      });
+    });
+
+    test("repository rows alone, as a release before connections moved into the database left them, still seed", async () => {
+      await emptyInstallation();
+      await store().importEntries(
+        parseSettingsDocument({
+          version: 1,
+          connections: {},
+          repositories: { app: DOCUMENT.repositories.app },
+          mcp_servers: {},
+        }),
+        operator,
+      );
+      expect(await store().decideSeed()).toEqual({ outcome: "empty" });
+      const seeded = await store().seedEntries([step(entries(), true)]);
+      expect(seeded.outcome).toBe("applied");
+      expect(await rowCounts()).toEqual({
+        connections: 2,
+        repositories: 3,
+        mcp: 1,
+      });
+    });
+
+    test("a refused later step takes the earlier one back and decides nothing", async () => {
+      await emptyInstallation();
+      const clash = parseSettingsDocument({
+        ...DOCUMENT,
+        connections: {
+          main: {
+            ...DOCUMENT.connections.main,
+            endpoint: "http://10.0.0.6:4000",
+          },
+        },
+        repositories: {},
+        mcp_servers: {},
+      });
+      const refused = await store().seedEntries([
+        step(entries(), true),
+        step(clash),
+      ]);
+      expect(refused).toMatchObject({
+        outcome: "refused",
+        step: 1,
+        conflicts: ["connection:main"],
+      });
+      expect(await rowCounts()).toEqual({
+        connections: 0,
+        repositories: 0,
+        mcp: 0,
+      });
+      expect(await decidedAt()).toBeNull();
+      expect(await store().decideSeed()).toEqual({ outcome: "empty" });
+    });
+
+    test("two seeds at once import once", async () => {
+      await emptyInstallation();
+      const results = await Promise.all([
+        store().seedEntries([step(entries())]),
+        store().seedEntries([step(entries())]),
+      ]);
+      expect(results.map((result) => result.outcome).sort()).toEqual([
+        "applied",
+        "decided",
+      ]);
+      expect(await rowCounts()).toEqual({
+        connections: 2,
+        repositories: 3,
+        mcp: 1,
+      });
+    });
+  });
 });

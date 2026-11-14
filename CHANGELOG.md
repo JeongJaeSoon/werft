@@ -12,6 +12,10 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ## 미출시
 
+### 운영자가 할 일
+
+- **migrate는 설정 문서와 옛 설정 디렉터리를 빈 설치에만 한 번 넣는다. 그 뒤 연결·저장소·MCP 서버는 콘솔에서 바꾼다**(JeongJaeSoon/werft#1715). 문서(`SETTINGS_DOCUMENT`, test-ops는 `PLATFORM_SETTINGS_DOCUMENT`)를 고쳐 다시 배포해도 들어가지 않는다. Compose·Helm의 migrate가 `settings import` 대신 `settings seed --from-dir /legacy-config [--document <문서>]`를 돌린다. migration `0282_settings_seed_decided`가 `settings_generation.seed_decided_at`을 더하고, 올린 뒤 첫 migrate가 그 시각을 적는다. 연결이나 MCP 서버가 이미 있는 설치(사용 중지한 것 포함)는 아무것도 가져오지 않고 시각만 적으며, 로그에 `note: … not imported: the installation already holds settings. They seed an empty installation only; change settings in the console` 한 줄을 남긴다. 실패가 아니다. 저장소 행만 있는 설치는 빈 설치로 보고 한 번 넣는다. 문서를 일부러 다시 넣을 때는 owner가 `settings import`를 손으로 돌린다. test-ops `upgrade`는 바뀐 문서를 넣지도 DB와 비교하지도 않고, digest가 바뀌면 `upgrade: the settings document changed; …` 로그만 남긴다(`deploy`의 확인은 그대로). `scripts/local.sh down --keep-volumes`로 남긴 개발 volume에는 fixture 변경이 들어가지 않으니 volume을 새로 만들거나 `settings import`를 돌린다. 되돌리면 앞선 migrate가 배포마다 문서를 다시 가져오고, 콘솔에서 바꾼 항목이 문서의 같은 id와 다르면 migrate가 실패해 API가 뜨지 않는다. 되돌리기 전에 그 항목을 문서에서 빼거나 콘솔의 값에 맞춘다. `seed_decided_at` 열은 지우지 않는다([설정 문서는 빈 설치에 한 번만 들어간다](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/upgrade-compose#설정-문서는-빈-설치에-한-번만-들어간다)).
+
 ## v0.2.0
 
 `v0.1.3` 뒤 `main`에 들어간 변경이다. 실행 프로필을 없앴고(migration `0270`이 세션과 그 기록을 비운다), API와 env 일부가 예전과 호환되지 않게 바뀌어 minor 버전을 올린다. 올리기 전에 DB를 백업하고 아래 "운영자가 할 일"을 모두 읽는다. worker 안의 명령이 세션을 가로채거나 credential을 읽던 보안 문제 두 건을 고쳤으므로 `v0.1.3` 이하를 쓰는 곳은 올리기를 권한다.

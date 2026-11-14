@@ -7,6 +7,9 @@ import {
   type SettingsDocumentStore,
   type SettingsEntries,
   type SettingsImportResult,
+  type SettingsSeedDecision,
+  type SettingsSeedResult,
+  type SettingsSeedStep,
 } from "@werft-ai/platform";
 import {
   documentFromDir,
@@ -104,12 +107,33 @@ function fakeStore(
   result: SettingsImportResult,
   /** The sessions a given list of left-out ids would find. */
   stranded: (ids: readonly string[]) => Stranded = () => [],
+  seed: { decision?: SettingsSeedDecision; result?: SettingsSeedResult } = {},
 ) {
   const asked: Array<Parameters<SettingsDocumentStore["importEntries"]>> = [];
+  const seeded: SettingsSeedStep[][] = [];
+  let decided = 0;
   const store: Pick<
     SettingsDocumentStore,
-    "exportEntries" | "importEntries" | "sessionsOnRepositories"
+    | "exportEntries"
+    | "importEntries"
+    | "sessionsOnRepositories"
+    | "decideSeed"
+    | "seedEntries"
   > = {
+    decideSeed: async () => {
+      decided++;
+      return seed.decision ?? { outcome: "empty" };
+    },
+    seedEntries: async (steps) => {
+      seeded.push([...steps]);
+      return (
+        seed.result ?? {
+          outcome: "applied",
+          steps: steps.map(() => PLAN),
+          receipt_ids: [],
+        }
+      );
+    },
     sessionsOnRepositories: async (ids) => stranded(ids),
     exportEntries: async () => ({
       entries: {
@@ -130,7 +154,7 @@ function fakeStore(
       return result;
     },
   };
-  return { store, asked };
+  return { store, asked, seeded, decisions: () => decided };
 }
 
 function captured() {
@@ -185,9 +209,189 @@ describe("settings CLI arguments", () => {
       ["import", "--document", "a", "--force"],
       ["import", "--document", "a", "--if-present"],
       ["export", "--if-present"],
+      ["seed"],
+      ["seed", "--document", "a", "--dry-run"],
+      ["seed", "--from-dir", "b", "--if-present"],
     ]) {
       expect(() => parseSettingsCommand(argv)).toThrow("Usage:");
     }
+  });
+
+  test("seed takes the directory, the document or both", () => {
+    expect(
+      parseSettingsCommand([
+        "seed",
+        "--from-dir",
+        "/legacy-config",
+        "--document",
+        "/settings/s.json",
+      ]),
+    ).toEqual({
+      command: "seed",
+      dir: "/legacy-config",
+      document: "/settings/s.json",
+    });
+    expect(parseSettingsCommand(["seed", "--from-dir", "/l"])).toEqual({
+      command: "seed",
+      dir: "/l",
+    });
+  });
+});
+
+describe("settings seed", () => {
+  const seedCommand = (document?: string, dir?: string) => ({
+    command: "seed" as const,
+    ...(dir === undefined ? {} : { dir }),
+    ...(document === undefined ? {} : { document }),
+  });
+  const appliedImport = {
+    ...PLAN,
+    outcome: "applied" as const,
+    receipt_ids: [],
+  };
+
+  test.each([
+    [
+      { outcome: "decided", decided_at: new Date("2026-11-01T00:00:00Z") },
+      "the automatic seed ran on 2026-11-01T00:00:00.000Z",
+    ],
+    [{ outcome: "not_empty" }, "the installation already holds settings"],
+  ] as const)(
+    "once decided (%o) it reads no file and imports nothing",
+    async (decision, why) => {
+      const fake = fakeStore(appliedImport, () => [], { decision });
+      const { output, err, out } = captured();
+      // Neither can be read: nothing is touched once the seed is decided.
+      const document = join(root, "no-such-document.json");
+      const notADirectory = join(root, "not-a-directory");
+      await writeFile(notADirectory, "");
+      expect(
+        await runSettingsCommand(
+          seedCommand(document, notADirectory),
+          { settings: fake.store },
+          output,
+        ),
+      ).toBe(true);
+      expect(fake.seeded).toEqual([]);
+      expect(out).toEqual([]);
+      expect(err).toEqual([
+        `note: ${notADirectory} and the settings document ${document} (SETTINGS_DOCUMENT) not imported: ${why}. They seed an empty installation only; change settings in the console`,
+      ]);
+    },
+  );
+
+  test("an empty installation is seeded from the directory, then the document, in one call", async () => {
+    const path = join(root, "seed.json");
+    await writeFile(
+      path,
+      JSON.stringify({
+        version: 1,
+        connections: {},
+        repositories: {},
+        mcp_servers: {
+          docs: {
+            url: "https://mcp.example.invalid/mcp",
+            credential_ref: "mcp/docs",
+            auth: { kind: "bearer", value_env: "DOCS_TOKEN" },
+            workspaces: ["*"],
+          },
+        },
+      }),
+    );
+    const fake = fakeStore(appliedImport);
+    const { output, err } = captured();
+    expect(
+      await runSettingsCommand(
+        seedCommand(path, oldCatalog),
+        { settings: fake.store },
+        output,
+      ),
+    ).toBe(true);
+    expect(fake.seeded).toHaveLength(1);
+    const [fromDir, fromDocument] = fake.seeded[0] ?? [];
+    expect(fromDir?.databaseOwnsRepositories).toBe(true);
+    expect(Object.keys(fromDir?.entries.connections ?? {})).toEqual([
+      "fake-messages",
+    ]);
+    expect(fromDocument?.databaseOwnsRepositories).toBe(false);
+    expect(Object.keys(fromDocument?.entries.mcp_servers ?? {})).toEqual([
+      "docs",
+    ]);
+    expect(err.at(-1)).toBe(
+      `seeded from ${oldCatalog} and the settings document ${path} (SETTINGS_DOCUMENT); from here on settings are changed in the console`,
+    );
+  });
+
+  test("an empty installation with a missing directory and no document is nothing to seed", async () => {
+    const fake = fakeStore(appliedImport);
+    const { output, err } = captured();
+    expect(
+      await runSettingsCommand(
+        seedCommand(undefined, join(root, "absent")),
+        { settings: fake.store },
+        output,
+      ),
+    ).toBe(true);
+    expect(err).toEqual(["nothing to seed"]);
+    expect(fake.seeded).toEqual([]);
+  });
+
+  // Asking is what records the marker on an installation that holds settings.
+  test("an installation that holds settings is decided even with no input", async () => {
+    const fake = fakeStore(appliedImport, () => [], {
+      decision: { outcome: "not_empty" },
+    });
+    const { output, err } = captured();
+    const absent = join(root, "absent");
+    expect(
+      await runSettingsCommand(
+        seedCommand(undefined, absent),
+        { settings: fake.store },
+        output,
+      ),
+    ).toBe(true);
+    expect(fake.decisions()).toBe(1);
+    expect(err).toEqual([
+      `note: ${absent} not imported: the installation already holds settings. They seed an empty installation only; change settings in the console`,
+    ]);
+  });
+
+  test("a refused step exits non-zero and names its source and conflicts", async () => {
+    const fake = fakeStore(appliedImport, () => [], {
+      result: {
+        ...PLAN,
+        conflicts: ["connection:fake-messages"],
+        outcome: "refused",
+        step: 0,
+      },
+    });
+    const { output, err } = captured();
+    expect(
+      await runSettingsCommand(
+        seedCommand(undefined, oldCatalog),
+        { settings: fake.store },
+        output,
+      ),
+    ).toBe(false);
+    expect(err.at(-1)).toBe(
+      `refused: nothing changed (${oldCatalog} conflicts: connection:fake-messages)`,
+    );
+  });
+
+  test("another migrate that decided first while this one read is a note, not a failure", async () => {
+    const fake = fakeStore(appliedImport, () => [], {
+      result: { outcome: "not_empty" },
+    });
+    const { output, err } = captured();
+    expect(
+      await runSettingsCommand(
+        seedCommand(undefined, oldCatalog),
+        { settings: fake.store },
+        output,
+      ),
+    ).toBe(true);
+    expect(fake.seeded).toHaveLength(1);
+    expect(err.at(-1)).toContain("the installation already holds settings");
   });
 });
 
