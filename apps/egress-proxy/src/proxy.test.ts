@@ -18,6 +18,7 @@ import {
  * for the daemon host.
  */
 const BIG = "a".repeat(8 * 1024 * 1024);
+const HUGE_LENGTH = 4 * BIG.length;
 
 type EchoState = { pending: Uint8Array | null };
 
@@ -81,6 +82,7 @@ describe("egress proxy", () => {
         // A body far past a socket's write buffer, so the proxy has to queue
         // and drain rather than write it all in one go.
         if (url.pathname === "/large") return new Response(BIG);
+        if (url.pathname === "/huge") return new Response(BIG.repeat(4));
         // Answered after a timer, as the API answers after its database: Bun
         // then leaves the connection open despite the `connection: close`.
         if (url.pathname === "/claim") await Bun.sleep(10);
@@ -95,7 +97,6 @@ describe("egress proxy", () => {
             status: url.pathname === "/forbidden" ? 403 : 401,
           });
         }
-        if (url.pathname === "/slow") await Bun.sleep(300);
         return new Response(`upstream ${url.pathname} ${await request.text()}`);
       },
       hostname: "127.0.0.1",
@@ -140,8 +141,8 @@ describe("egress proxy", () => {
                 socket.end();
                 return;
               }
-              if (part === PAUSE) {
-                await Bun.sleep(150);
+              if (part === GATE) {
+                await scriptGate.passed;
                 continue;
               }
               socket.write(part);
@@ -431,6 +432,80 @@ describe("egress proxy", () => {
       request(line, "connection: keep-alive", ...fields);
     const headOf = (text: string) =>
       text.slice(0, text.indexOf("\r\n\r\n")).toLowerCase();
+    const discarded = (warnings: string[]) =>
+      warnings.some((line) =>
+        line.includes("Discarding bytes sent past the request"),
+      );
+
+    /** The handlers the proxy gave one upstream dial, to replay late. */
+    type Handlers = {
+      close(socket: unknown, error?: Error): void;
+      data(socket: unknown, chunk: Uint8Array): void;
+      drain(socket: unknown): void;
+      error(socket: unknown, error: Error): void;
+    };
+    type Dial = {
+      closed: boolean;
+      handlers: Handlers;
+      /** The first bytes the upstream sent have reached the proxy. */
+      heard: Promise<void>;
+      socket: { write(data: Uint8Array): number };
+    };
+
+    /**
+     * A proxy whose warnings and upstream dials a test can watch. `onDial`
+     * runs before the dial reports back to the proxy.
+     */
+    async function watched(
+      allowPrivate: Array<{ host: string; port: number }>,
+      {
+        maxBufferedBytes,
+        onDial,
+      }: {
+        maxBufferedBytes?: number;
+        onDial?: (dial: Dial, index: number) => Promise<void> | void;
+      } = {},
+    ) {
+      const warnings: string[] = [];
+      const dials: Dial[] = [];
+      const server = await startEgressProxy({
+        connect: async (options) => {
+          const handlers = options.socket;
+          let heard = (): void => undefined;
+          const dial = {
+            closed: false,
+            handlers: handlers as unknown as Handlers,
+            heard: new Promise<void>((resolve) => {
+              heard = resolve;
+            }),
+          } as Dial;
+          const socket = await Bun.connect({
+            ...options,
+            socket: {
+              ...handlers,
+              close(peer, error) {
+                dial.closed = true;
+                handlers.close?.(peer, error);
+              },
+              data(peer, chunk) {
+                heard();
+                handlers.data?.(peer, chunk);
+              },
+            },
+          });
+          dial.socket = socket as unknown as Dial["socket"];
+          await onDial?.(dial, dials.length);
+          dials.push(dial);
+          return socket;
+        },
+        logger: createProxyLogger("warn", (line) => warnings.push(line)),
+        ...(maxBufferedBytes === undefined ? {} : { maxBufferedBytes }),
+        policy: { allow: [], allowPrivate },
+        port: 0,
+        resolve,
+      });
+      return { dials, server, warnings };
+    }
 
     test("each request reaches its own upstream and is judged afresh", async () => {
       const talk = await connect(proxy.port);
@@ -505,40 +580,66 @@ describe("egress proxy", () => {
     });
 
     test("a request sent before the answer came is discarded, and the connection closes", async () => {
-      const talk = await connect(proxy.port);
-      talk.send(
-        kept(`GET http://scripted.test:${scripted.port}/slow-ok HTTP/1.1`),
-      );
-      expect(
-        await waitFor(() => scriptedHeard.includes("GET /slow-ok "), 2_000),
-      ).toBe(true);
-      talk.send(
-        kept(`GET http://scripted.test:${scripted.port}/stolen-early HTTP/1.1`),
-      );
-      expect(headOf(await talk.waitFor("\r\n\r\nok"))).toContain(
-        "\r\nconnection: close",
-      );
-      expect(await waitFor(() => talk.isClosed(), 2_000)).toBe(true);
-      expect(scriptedHeard).not.toContain("stolen-early");
+      const { server, warnings } = await watched([
+        { host: "scripted.test", port: scripted.port },
+      ]);
+      scriptGate = closedGate();
+      try {
+        const talk = await connect(server.port);
+        talk.send(
+          kept(`GET http://scripted.test:${scripted.port}/gated-ok HTTP/1.1`),
+        );
+        expect(
+          await waitFor(() => scriptedHeard.includes("GET /gated-ok "), 2_000),
+        ).toBe(true);
+        talk.send(
+          kept(
+            `GET http://scripted.test:${scripted.port}/stolen-early HTTP/1.1`,
+          ),
+        );
+        // The answer is held until the proxy has seen the early request.
+        expect(await waitFor(() => discarded(warnings), 2_000)).toBe(true);
+        scriptGate.open();
+        expect(headOf(await talk.waitFor("\r\n\r\nok"))).toContain(
+          "\r\nconnection: close",
+        );
+        expect(await waitFor(() => talk.isClosed(), 2_000)).toBe(true);
+        expect(scriptedHeard).not.toContain("stolen-early");
+      } finally {
+        scriptGate.open();
+        server.stop();
+      }
     });
 
     test("a request sent after a kept head but before its body ended is discarded", async () => {
-      const talk = await connect(proxy.port);
-      talk.send(
-        kept(`GET http://scripted.test:${scripted.port}/slow-body HTTP/1.1`),
-      );
-      // The head promised to keep the connection; the client spoke too soon.
-      expect(headOf(await talk.waitFor("\r\n\r\nok"))).not.toContain(
-        "connection: close",
-      );
-      talk.send(
-        kept(
-          `GET http://scripted.test:${scripted.port}/stolen-mid-body HTTP/1.1`,
-        ),
-      );
-      await talk.waitFor("\r\n\r\nokok");
-      expect(await waitFor(() => talk.isClosed(), 2_000)).toBe(true);
-      expect(scriptedHeard).not.toContain("stolen-mid-body");
+      const { server, warnings } = await watched([
+        { host: "scripted.test", port: scripted.port },
+      ]);
+      scriptGate = closedGate();
+      try {
+        const talk = await connect(server.port);
+        talk.send(
+          kept(`GET http://scripted.test:${scripted.port}/gated-body HTTP/1.1`),
+        );
+        // The head promised to keep the connection; the client spoke too
+        // soon.
+        expect(headOf(await talk.waitFor("\r\n\r\nok"))).not.toContain(
+          "connection: close",
+        );
+        talk.send(
+          kept(
+            `GET http://scripted.test:${scripted.port}/stolen-mid-body HTTP/1.1`,
+          ),
+        );
+        expect(await waitFor(() => discarded(warnings), 2_000)).toBe(true);
+        scriptGate.open();
+        await talk.waitFor("\r\n\r\nokok");
+        expect(await waitFor(() => talk.isClosed(), 2_000)).toBe(true);
+        expect(scriptedHeard).not.toContain("stolen-mid-body");
+      } finally {
+        scriptGate.open();
+        server.stop();
+      }
     });
 
     test.each([
@@ -587,18 +688,70 @@ describe("egress proxy", () => {
       expect(await waitFor(() => talk.isClosed(), 2_000)).toBe(true);
     });
 
-    test("an upstream that writes on after its answer never reaches the next one", async () => {
-      const talk = await connect(proxy.port);
-      talk.send(
-        kept(`GET http://scripted.test:${scripted.port}/late-forged HTTP/1.1`),
+    test("an upstream that acts after its answer never touches the next exchange", async () => {
+      // The second upstream takes nothing until released, so the next
+      // request's head sits queued while the first upstream's handlers are
+      // replayed: a late drain would write it there, a late close or error
+      // would end the client, late data would reach it.
+      let refused = 0;
+      let release = (): void => undefined;
+      const { dials, server } = await watched(
+        [
+          { host: "scripted.test", port: scripted.port },
+          { host: "gateway.test", port: upstreamPort },
+        ],
+        {
+          onDial: (dial, index) => {
+            if (index !== 1) return;
+            const write = dial.socket.write.bind(dial.socket);
+            dial.socket.write = () => {
+              refused += 1;
+              return 0;
+            };
+            release = () => {
+              dial.socket.write = write;
+              dial.handlers.drain(dial.socket);
+            };
+          },
+        },
       );
-      await talk.waitFor("\r\n\r\nok");
-      // The forged answer is written 150ms in, while this one takes 300ms.
-      talk.send(kept(`GET http://gateway.test:${upstreamPort}/slow HTTP/1.1`));
-      expect(await talk.waitFor("upstream /slow ", 3_000)).not.toContain(
-        "forged",
-      );
-      talk.close();
+      try {
+        const talk = await connect(server.port);
+        talk.send(
+          kept(`GET http://scripted.test:${scripted.port}/keep-alive HTTP/1.1`),
+        );
+        await talk.waitFor("\r\n\r\nok");
+        const old = dials[0];
+        if (old === undefined) throw new Error("no first dial");
+        const writtenToOld: string[] = [];
+        old.socket.write = (data) => {
+          writtenToOld.push(new TextDecoder().decode(data));
+          return data.byteLength;
+        };
+        talk.send(
+          kept(`GET http://gateway.test:${upstreamPort}/after-done HTTP/1.1`),
+        );
+        expect(await waitFor(() => refused > 0, 2_000)).toBe(true);
+        old.handlers.drain(old.socket);
+        old.handlers.data(
+          old.socket,
+          new TextEncoder().encode(
+            "HTTP/1.1 200 OK\r\ncontent-length: 6\r\n\r\nforged",
+          ),
+        );
+        old.handlers.error(old.socket, new Error("late"));
+        old.handlers.close(old.socket);
+        expect(writtenToOld).toEqual([]);
+        release();
+        expect(await talk.waitFor("upstream /after-done ")).not.toContain(
+          "forged",
+        );
+        expect(talk.isClosed()).toBe(false);
+        talk.close();
+      } finally {
+        release();
+        server.stop();
+      }
     });
 
     test.each([
@@ -613,9 +766,8 @@ describe("egress proxy", () => {
             `${method} http://scripted.test:${scripted.port}${path} HTTP/1.1`,
           ),
         );
+        // The forged answer came in the same write as the head.
         await talk.waitFor("\r\n\r\n");
-        // Past the 5ms the script waits before its forged answer.
-        await Bun.sleep(50);
         talk.send(kept(`GET http://other.test:${other.port}/after HTTP/1.1`));
         expect(await talk.waitFor("other /after")).not.toContain("forged");
         talk.close();
@@ -659,28 +811,15 @@ describe("egress proxy", () => {
           },
         },
       });
-      const held = await startEgressProxy({
-        connect: async (options) => {
-          const socket = await Bun.connect(options);
-          await Bun.sleep(50);
-          return socket;
-        },
-        logger: silent,
-        policy: {
-          allow: [],
-          allowPrivate: [
-            { host: "eager.test", port: eager.port },
-            { host: "scripted.test", port: scripted.port },
-          ],
-        },
-        port: 0,
-        resolve: async (host) =>
-          host === "eager.test" ? ["127.0.0.1"] : resolve(host),
-      });
+      // The dial reports back only once the proxy holds the eager answer.
+      const { server: held } = await watched(
+        [{ host: "127.0.0.1", port: eager.port }],
+        { onDial: (dial) => dial.heard },
+      );
       try {
         const talk = await connect(held.port);
         talk.send(
-          kept(`GET http://eager.test:${eager.port}/eager-ask HTTP/1.1`),
+          kept(`GET http://127.0.0.1:${eager.port}/eager-ask HTTP/1.1`),
         );
         expect(headOf(await talk.waitFor("\r\n\r\neager"))).toContain(
           "\r\nconnection: close",
@@ -692,24 +831,61 @@ describe("egress proxy", () => {
       }
     });
 
-    test("a connection is kept only once a large answer has drained", async () => {
-      const talk = await connect(proxy.port);
-      talk.send(kept(`GET http://gateway.test:${upstreamPort}/large HTTP/1.1`));
-      await talk.waitForBody(BIG.length);
-      talk.send(
-        kept(`GET http://other.test:${other.port}/after-large HTTP/1.1`),
-      );
-      const deadline = Date.now() + 5_000;
-      while (!talk.tail().includes("other /after-large")) {
-        if (talk.isClosed() || Date.now() > deadline) {
-          throw new Error(
-            `no second answer; ended ${JSON.stringify(talk.tail().slice(-200))}`,
+    test.each([
+      ["a request sent while it drained closes it", true],
+      ["it is kept once the answer drained", false],
+    ])(
+      "an answer still queued for a client that stopped reading: %s",
+      async (_name, speakEarly) => {
+        // Far past what loopback buffers hold, so the answer is complete
+        // upstream while most of it still sits in the proxy's queue.
+        const { dials, server, warnings } = await watched(
+          [
+            { host: "gateway.test", port: upstreamPort },
+            { host: "other.test", port: other.port ?? 0 },
+          ],
+          { maxBufferedBytes: 2 * HUGE_LENGTH },
+        );
+        try {
+          const talk = await connect(server.port);
+          talk.stopReading();
+          talk.send(
+            kept(`GET http://gateway.test:${upstreamPort}/huge HTTP/1.1`),
           );
+          // The proxy ends the upstream once the answer is complete.
+          expect(await waitFor(() => dials[0]?.closed === true, 10_000)).toBe(
+            true,
+          );
+          if (speakEarly) {
+            talk.send(
+              kept(`GET http://other.test:${other.port}/too-early HTTP/1.1`),
+            );
+            expect(await waitFor(() => discarded(warnings), 2_000)).toBe(true);
+          }
+          talk.resumeReading();
+          await talk.waitForBody(HUGE_LENGTH, 30_000);
+          if (speakEarly) {
+            expect(await waitFor(() => talk.isClosed(), 2_000)).toBe(true);
+            expect(dials).toHaveLength(1);
+            return;
+          }
+          talk.send(
+            kept(`GET http://other.test:${other.port}/after-huge HTTP/1.1`),
+          );
+          expect(
+            await waitFor(
+              () => talk.tail().includes("other /after-huge"),
+              5_000,
+            ),
+          ).toBe(true);
+          expect(dials).toHaveLength(2);
+          talk.close();
+        } finally {
+          server.stop();
         }
-        await Bun.sleep(10);
-      }
-      talk.close();
-    });
+      },
+      60_000,
+    );
 
     test("an idle kept connection is closed without a 408", async () => {
       const quick = await startEgressProxy({
@@ -1557,33 +1733,39 @@ describe("egress proxy", () => {
 const HEAD_200 = "HTTP/1.1 200 Connection Established\r\n\r\n";
 
 const END = Symbol("end");
-/** Waits long enough for a client to act in the middle of an answer. */
-const PAUSE = Symbol("pause");
+/**
+ * Holds the script until the test opens `scriptGate`: the test acts in the
+ * middle of an answer, and goes on only once the proxy has seen it act.
+ */
+const GATE = Symbol("gate");
+
+type Gate = { open(): void; passed: Promise<void> };
+
+function closedGate(): Gate {
+  let open = (): void => undefined;
+  const passed = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  return { open, passed };
+}
+
+let scriptGate = closedGate();
+
 /** What `scripted.test` writes for each path, one write per element. */
-const SCRIPTS: Record<string, Array<string | typeof END | typeof PAUSE>> = {
+const SCRIPTS: Record<string, Array<string | typeof END | typeof GATE>> = {
   "/continue": [
     "HTTP/1.1 100 Continue\r\n\r\n",
     "HTTP/1.1 201 Created\r\ncontent-length: 4\r\n\r\ndone",
   ],
-  // A body-less answer whose upstream sends a forged answer behind it.
+  // A body-less answer with a forged answer in the same write behind it.
   "/head-forged": [
-    "HTTP/1.1 200 OK\r\ncontent-length: 6\r\n\r\n",
-    "HTTP/1.1 200 OK\r\ncontent-length: 6\r\n\r\nforged",
+    "HTTP/1.1 200 OK\r\ncontent-length: 6\r\n\r\nHTTP/1.1 200 OK\r\ncontent-length: 6\r\n\r\nforged",
   ],
   "/no-content-forged": [
-    "HTTP/1.1 204 No Content\r\n\r\n",
-    "HTTP/1.1 200 OK\r\ncontent-length: 6\r\n\r\nforged",
+    "HTTP/1.1 204 No Content\r\n\r\nHTTP/1.1 200 OK\r\ncontent-length: 6\r\n\r\nforged",
   ],
-  // Keeps writing after its answer is complete, while the client's next
-  // exchange is in flight.
-  "/late-forged": [
-    "HTTP/1.1 200 OK\r\ncontent-length: 2\r\n\r\nok",
-    PAUSE,
-    "HTTP/1.1 200 OK\r\ncontent-length: 6\r\n\r\nforged",
-    END,
-  ],
-  "/slow-ok": [PAUSE, "HTTP/1.1 200 OK\r\ncontent-length: 2\r\n\r\nok"],
-  "/slow-body": ["HTTP/1.1 200 OK\r\ncontent-length: 4\r\n\r\nok", PAUSE, "ok"],
+  "/gated-ok": [GATE, "HTTP/1.1 200 OK\r\ncontent-length: 2\r\n\r\nok"],
+  "/gated-body": ["HTTP/1.1 200 OK\r\ncontent-length: 4\r\n\r\nok", GATE, "ok"],
   // Answers before the upload is over, as an auth failure does.
   "/early-401": ["HTTP/1.1 401 Unauthorized\r\ncontent-length: 2\r\n\r\nno"],
   "/eof": ["HTTP/1.1 200 OK\r\n\r\nall of it", END],

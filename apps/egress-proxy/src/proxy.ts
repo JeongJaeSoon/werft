@@ -338,13 +338,6 @@ export async function startEgressProxy(
   }
 
   /**
-   * The exchange is over and the client asked to keep the connection: what
-   * it sends from here is a new request, read and judged as if on a fresh
-   * connection. Bytes that arrived before this point were sent before the
-   * client had its whole answer — pipelined — and were discarded, so the
-   * connection is not kept after all.
-   */
-  /**
    * The connection may carry another request once this answer ends: the
    * client asked for it, its request body is over and has all been handed
    * to the upstream, nothing arrived past that body, and the dispatch that
@@ -367,6 +360,12 @@ export async function startEgressProxy(
     );
   }
 
+  /**
+   * The exchange is over and the client asked to keep the connection: what
+   * it sends from here is a new request, read and judged as if on a fresh
+   * connection. Bytes the proxy saw before this reset were pipelined and
+   * have been discarded, so the connection is not kept after all.
+   */
   function nextRequest(socket: Socket<ClientState>): void {
     const state = socket.data;
     state.reuseWhenDrained = false;
