@@ -3374,7 +3374,7 @@ describe("compose layers", () => {
           name,
           cost: services[name]?.environment?.SESSION_COST_LIMIT_USD,
           turn: services[name]?.environment?.MAX_TURN_SECONDS,
-        }).toEqual({ name, cost: "1", turn: "600" });
+        }).toEqual({ name, cost: "3", turn: "600" });
     },
     COMPOSE_RENDER_TIMEOUT_MS,
   );

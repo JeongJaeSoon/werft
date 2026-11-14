@@ -24,8 +24,8 @@ const WRITE_SLICE_BYTES = 64 * 1024;
 const BODY_HIGH_WATER_BYTES = 256 * 1024;
 
 /**
- * Errors from a dial that never wrote a request byte. Only these are safe to
- * retry for a POST: the upstream cannot have seen the request.
+ * Errors from an exchange that never wrote a request byte: the upstream
+ * cannot have seen the request, nor billed it.
  */
 const BEFORE_REQUEST = new WeakSet<Error>();
 const CONNECT_CODES = new Set([
@@ -37,7 +37,15 @@ const CONNECT_CODES = new Set([
   "ENETUNREACH",
 ]);
 
-/** True for a connection-stage failure that sent nothing. */
+/** True for any failure before a request byte was written. */
+export function wroteNothing(error: unknown): boolean {
+  return error instanceof Error && BEFORE_REQUEST.has(error);
+}
+
+/**
+ * True for a connection-stage failure that sent nothing: the only kind safe
+ * to retry for a POST, where a cancel is not a reason to dial again.
+ */
 export function failedBeforeRequest(error: unknown): boolean {
   if (!(error instanceof Error) || !BEFORE_REQUEST.has(error)) return false;
   const code = (error as { code?: unknown }).code;
@@ -108,7 +116,9 @@ export function upstreamExchange(
       fail(reason instanceof Error ? reason : new Error("exchange aborted"));
     };
     if (call.signal.aborted) {
-      reject(new Error("exchange aborted"));
+      const error = new Error("exchange aborted");
+      BEFORE_REQUEST.add(error);
+      reject(error);
       return;
     }
     call.signal.addEventListener("abort", onAbort, { once: true });

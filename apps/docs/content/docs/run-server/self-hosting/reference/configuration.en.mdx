@@ -29,6 +29,13 @@ API and scheduler refuse startup if any of the six required values below (all ex
 | `SESSION_TOKEN_LIMIT` | Cumulative provider tokens from the same calls, independent of prices. 0 is unlimited (default) | Same as SESSION_COST_LIMIT_USD. Shared budgetExceeded returns BUDGET_EXCEEDED for whichever limit is reached first; attention.reason names only reached limits |
 | `PROVIDER_MAX_RETRIES` | Retries for failed Messages requests, passed through WORKER_PROVIDER_MAX_RETRIES to SDK CLAUDE_CODE_MAX_RETRIES. 0 ends the turn on first failure | `failed(api_error)`; turn result retains api_error_status/provider_error/last_retry_status |
 
+**The cost and token limits also hold each provider call.** Before the egress proxy sends a billed provider call (Messages, Responses), it opens the call with the API. The API adds the reserves of the session's unfinished calls and this call's reserve to the session's spend so far. When the sum reaches a limit, it refuses with `403 BUDGET_EXCEEDED`, and the proxy does not send the call to the provider. A reserve counts the request's bytes as input tokens at the dearest cache-write rate (2× for Claude, 2.5× for OpenAI), and the request's whole output cap as output (32,768 tokens for a Responses request without a cap). One `claude-sonnet-5` or `gpt-5.5` call reserves roughly $1–2.
+
+- A session stops one call's reserve before its limit. With `SESSION_COST_LIMIT_USD` below one call's reserve, the first call is refused.
+- The cost a session records is the usage the provider reported, not the reserve. A call whose usage report finally failed goes on counting its reserve.
+- When the API cannot open a call within 5 seconds, the proxy does not send it and answers `503`. The engine retries.
+- The limits are estimates. One long answer can go up to its call's reserve. A Responses request without an output cap can exceed it by whatever it reasons past 32,768 tokens.
+
 <a id="api-설정" />
 ## API settings
 

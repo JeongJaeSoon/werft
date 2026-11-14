@@ -13,7 +13,7 @@
 
 - migrate가 `tests/fixtures/settings/real-model.json`을 가져온다. 연결은 `https://api.anthropic.com`을 부르는 `anthropic` 하나이고, 그 모델 목록에 `claude-sonnet-5`가 있다. 이 문서에는 fake를 가리키는 연결이 없다. fake 문서(`fake-model.json`)는 `--fake-model` overlay를 얹을 때만 가져온다.
 - key의 기본 경로는 콘솔이다. B는 key 없이 뜨고, 설정 > 에이전트 연결 > 모델 연결 > 연결 추가에서 넣은 key가 DB에 봉인돼 저장된다. 환경 변수는 대안이다. 셸의 `ANTHROPIC_API_KEY`(없으면 저장소 `.env`의 그 줄)가 있으면 **API 컨테이너에만** 이름으로 전달되고(`infra/compose.local.yml`), 설정 문서의 `value_env`가 그 값을 읽는다. 추적되는 compose 파일과 명령 인자 어디에도 값이 없다. worker는 attempt 범위의 egress token만 받고, egress proxy가 `api.anthropic.com:443`(기본 `EGRESS_CREDENTIAL_ALLOWLIST`)으로 나가는 요청에 key를 붙인다.
-- 상한: `infra/compose.real-model.yml`이 기본으로 `SESSION_COST_LIMIT_USD=1`(세션당 1달러), `MAX_TURN_SECONDS=600`(turn당 600초)을 건다. A와 B가 같은 값을 쓴다. 올리려면 같은 이름의 변수를 셸에 export한다. B(`local.sh up`)는 저장소 `.env`에 적은 값도 읽는다. `local.sh`를 거치지 않고 `docker compose up`으로 띄우면 이 overlay가 없으므로 core 기본값(세션당 25달러, turn당 3600초)이다.
+- 상한: `infra/compose.real-model.yml`이 기본으로 `SESSION_COST_LIMIT_USD=3`(세션당 3달러), `MAX_TURN_SECONDS=600`(turn당 600초)을 건다. A와 B가 같은 값을 쓴다. 올리려면 같은 이름의 변수를 셸에 export한다. B(`local.sh up`)는 저장소 `.env`에 적은 값도 읽는다. `local.sh`를 거치지 않고 `docker compose up`으로 띄우면 이 overlay가 없으므로 core 기본값(세션당 25달러, turn당 3600초)이다.
 
 `ANTHROPIC_API_KEY`가 셸과 `.env` 어디에도 없거나 비어 있을 때 `run.sh --real-model`(A)은 Docker를 건드리기 전에 exit 2로 끝난다. `local.sh up`(B)은 뜨되, 모델 연결 없이 뜬다고 알리고 화면 경로를 한 줄로 알려 준다. 어느 쪽도 fake로 대신 뜨지 않는다. 연결에 key가 없는 동안 그 연결의 release로 세션을 만들면 화면 경로를 알려 주는 오류로 거절된다. 연결을 넣으면 쓸 수 있게 된다. `.env`의 key 줄 따옴표가 깨졌으면 B도 exit 2로 끝난다. fake로 돌리려면 `--fake-model`을 명시한다.
 
@@ -177,7 +177,7 @@ Sonnet 5 기준(100만 토큰당 입력 2달러, 출력 10달러, 캐시 쓰기 
 
 - A는 turn 세 개에 모델 호출이 10번 안팎이다. 캐시가 맞으면 한 번 실행에 약 0.2달러이고, 캐시가 전혀 맞지 않아도 0.6달러를 넘지 않을 것으로 본다. 이미지 빌드까지 합쳐 처음에는 10분 남짓 걸린다.
 - B는 보내는 메시지만큼 든다. 위 예시(turn 두 개)는 A와 비슷한 규모다.
-- 상한은 기본 세션당 1달러다(위 [상한](#기본-스택이-쓰는-것)대로 올릴 수 있다). SDK가 호출이 끝날 때마다 누적 비용을 확인하므로 마지막 호출 하나만큼은 넘을 수 있다. 넘으면 그 turn이 `budget_exceeded`로 실패한다. B에서는 새 세션을 만들면 다시 1달러가 생긴다.
+- 상한은 기본 세션당 3달러다(위 [상한](#기본-스택이-쓰는-것)대로 올릴 수 있다). egress proxy는 호출마다 보내기 전에, 지금까지의 비용에 그 호출의 예약(요청 전체를 가장 비싼 cache write 단가로, 출력은 상한 전체로 매긴 값, Claude Code 요청 하나에 1달러 안팎)을 더해 상한과 비교하고, 닿으면 그 호출을 보내지 않는다. 그래서 세션은 상한보다 호출 하나의 예약만큼 일찍 멈추고, 상한을 예약보다 낮게 두면 첫 호출부터 거절된다. 실제로 매기는 비용은 예약이 아니라 사용량이다. 멈추면 그 turn이 `budget_exceeded`로 실패한다. B에서는 새 세션을 만들면 다시 3달러가 생긴다.
 
 실제로 든 비용은 A는 `test.log`의 `cost_usd`, B는 세션의 `usage`에 있다. 둘 다 egress proxy가 계측한 usage를 플랫폼 가격표로 환산한 추정치다. 청구액은 Console에서 확인한다.
 
@@ -189,5 +189,5 @@ Sonnet 5 기준(100만 토큰당 입력 2달러, 출력 10달러, 캐시 쓰기 
 | `local.sh up`이 `invalid ANTHROPIC_API_KEY quoting`으로 exit 2로 끝난다 | `.env`의 key 줄 따옴표가 한쪽만 있다. 따옴표를 맞추거나 그 줄을 지우고(key는 화면으로 넣는다) 다시 실행한다 |
 | 세션이 `connection_missing`(연결 없음)이거나 모델 key를 넣으라는 오류로 거절된다 | 모델 연결에 key가 없다. 설정 > 에이전트 연결 > 모델 연결 > 연결 추가에서 넣는다 |
 | `local.sh up`이 `docker compose … is too old; … is an overlay on compose.yaml's include`로 끝난다 | Docker Compose가 2.24.6보다 낮다. 2.24.0–2.24.5는 `include` 위의 overlay를 `conflicts with imported resource`로 거부한다. compose를 올린다 |
-| turn이 `budget_exceeded`로 실패한다 | 세션 비용이 1달러 상한을 넘었다. 새 세션을 만든다 |
+| turn이 `budget_exceeded`로 실패한다 | 세션 비용과 다음 호출의 예약을 더한 값이 3달러 상한에 닿았다. 새 세션을 만든다 |
 | 그 밖의 증상 | [quickstart 8장](quickstart.md#8-막혔을-때)을 본다 |

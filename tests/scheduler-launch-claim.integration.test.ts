@@ -5,6 +5,7 @@ import {
   attempts,
   createPostgresSessionUnitOfWork,
   createPostgresWorkerUnitOfWork,
+  createProviderExchangeLedger,
   turns,
   workerLaunches,
 } from "@werft-ai/db";
@@ -18,6 +19,7 @@ import {
 import { removeWorkerNetworks } from "@werft-ai/execution-local-docker/testing";
 import { createLogger } from "@werft-ai/observability";
 import {
+  admitsReservations,
   createWorkerGateway,
   launchNonceFingerprint,
 } from "@werft-ai/platform";
@@ -273,6 +275,10 @@ integration(
       authorizer = Bun.serve({
         fetch: createEgressAuthorizer({
           gateway,
+          // As server.ts wires it: a billed call waits for its open.
+          exchanges: createProviderExchangeLedger(db, {
+            admits: admitsReservations({ costUsd: 25, tokens: null }),
+          }),
           logger: createLogger({ sinks: [] }),
           token: AUTHORIZER_BEARER,
         }),

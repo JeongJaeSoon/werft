@@ -37,6 +37,9 @@ test("an upstream on the credential lists alone is reached by its route and refu
     async fetch(request) {
       if (request.headers.get("authorization") !== `Bearer ${AUTHORIZER_TOKEN}`)
         return new Response("no", { status: 401 });
+      // A billed call waits for the exchange ledger to open it.
+      if (new URL(request.url).pathname === "/exchanges")
+        return Response.json({ state: "open" }, { status: 201 });
       const body = (await request.json()) as { token: string };
       if (body.token !== WORKER_TOKEN)
         return new Response("unknown", { status: 401 });
