@@ -5,9 +5,11 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import {
   enqueueModelCutNotices,
+  enqueueRuntimeRetiredNotices,
   enqueueSessionModelMoveNotices,
 } from "./musterrolle/model-cut-notices.ts";
 import type { Database } from "./queries.ts";
+import { holdIncompatibleBeforeLaunch } from "./restore-failures.ts";
 import * as schema from "./schema.ts";
 import {
   agentAdmins,
@@ -444,6 +446,67 @@ describe("enqueueModelCutNotices", () => {
         model: "claude-opus-5-5",
       }),
     ).toBe(0);
+  });
+});
+
+describe("a session held as runtime_retired", () => {
+  const hold = (
+    sessionId: string,
+    reason: "runtime_retired" | "incompatible_checkpoint",
+  ) =>
+    holdIncompatibleBeforeLaunch(db, {
+      sessionId,
+      checkpointRevision: 1,
+      reason,
+      detail: "only a retracted worker image restores it",
+      now: NOW,
+    });
+
+  test("tells only its creator, in their language, linked to the session", async () => {
+    const w = await world();
+    const creator = await w.person("creator", { locale: "ja" });
+    const admin = await w.person("admin");
+    await db.insert(agentAdmins).values({
+      workspaceId: w.workspaceId,
+      agentId: w.agentId,
+      userId: admin.userId,
+    });
+    await w.startSession(creator);
+
+    expect(await hold(w.sessionId, "runtime_retired")).toBe("held");
+
+    const rows = await w.outbox();
+    expect(rows.map((row) => row.channelId)).toEqual([creator.slackUserId]);
+    const [row] = rows;
+    expect(row?.kind).toBe("model_notice");
+    expect(row?.threadTs).toBe("");
+    expect(row?.sessionId).toBe(w.sessionId);
+    expect(row?.body.text).toContain("worker イメージが撤回され");
+    expect(row?.body.locale).toBe("ja");
+  });
+
+  test("an incompatible checkpoint, or a hold that finds the session moved on, tells nobody", async () => {
+    const w = await world();
+    const creator = await w.person("creator");
+    await w.startSession(creator);
+    expect(await hold(w.sessionId, "incompatible_checkpoint")).toBe("held");
+    // Held already: the same judgement again is stale.
+    expect(await hold(w.sessionId, "runtime_retired")).toBe("stale");
+    expect(await w.outbox()).toEqual([]);
+  });
+
+  test("one checkpoint tells once; a later one tells again", async () => {
+    const w = await world();
+    const creator = await w.person("creator");
+    await w.startSession(creator);
+    const told = (checkpointRevision: number) =>
+      enqueueRuntimeRetiredNotices(db, {
+        sessionId: w.sessionId,
+        checkpointRevision,
+      });
+    expect(await told(1)).toBe(1);
+    expect(await told(1)).toBe(0);
+    expect(await told(2)).toBe(1);
   });
 });
 

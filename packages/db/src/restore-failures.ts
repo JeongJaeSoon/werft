@@ -4,6 +4,7 @@ import { isUnsupportedFeaturesReason } from "@werft-ai/runtime-core";
 import { and, eq, isNull, lte, or } from "drizzle-orm";
 import { LAUNCHABLE_ADMISSION_STATES } from "./control-shared.ts";
 import { DB_NOW, fromDbNow } from "./db-clock.ts";
+import { enqueueRuntimeRetiredNotices } from "./musterrolle/model-cut-notices.ts";
 import type { Database } from "./queries.ts";
 import { openResumeReceipt } from "./resume-control.ts";
 import {
@@ -302,6 +303,15 @@ export async function holdIncompatibleBeforeLaunch(
       turnRowId: null,
       now: input.now,
     });
+    // An incompatible checkpoint is the session's own state; a retracted
+    // image is the installation's doing, which the creator would not see
+    // coming.
+    if (input.reason === RUNTIME_RETIRED_REASON) {
+      await enqueueRuntimeRetiredNotices(tx, {
+        sessionId: input.sessionId,
+        checkpointRevision: input.checkpointRevision,
+      });
+    }
     return "held";
   });
 }
