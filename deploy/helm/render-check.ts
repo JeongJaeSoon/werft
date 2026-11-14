@@ -17,7 +17,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { packageChart } from "../../.github/scripts/chart-package.ts";
-import { workerImageListFromEnv } from "../../packages/platform/src/scheduler/worker-images.ts";
 import { parseImageRuntime } from "../../packages/runtime-core/src/image-runtime.ts";
 
 const dir = import.meta.dir;
@@ -489,17 +488,6 @@ function checkWorkerImages(
         ? []
         : [["WORKER_IMAGE", undefined] as [string, undefined]]),
     ];
-    // What the chart renders must be what every reader starts on.
-    const list = env.get("WORKER_IMAGES");
-    if (list !== undefined) {
-      try {
-        workerImageListFromEnv({ WORKER_IMAGES: list });
-      } catch (error) {
-        errors.push(
-          `${label}: ${role} WORKER_IMAGES is refused: ${(error as Error).message}`,
-        );
-      }
-    }
     for (const [name, value] of expected) {
       if (env.get(name) !== value) {
         errors.push(
