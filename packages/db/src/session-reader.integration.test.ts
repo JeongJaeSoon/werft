@@ -235,6 +235,31 @@ integration("session reader on PostgreSQL", () => {
     ).toBe(at.toISOString());
   });
 
+  test("the session list and detail answer no activity", async () => {
+    const { sessionId } = await queuedSession();
+    await db.insert(events).values({
+      sessionId,
+      type: "assistant",
+      payload: {
+        type: "assistant",
+        tool_call: { id: "t-1", name: "Read", input: {} },
+        parent_tool_use_id: null,
+      },
+    });
+    const reader = createPostgresSessionReader(db);
+    const item = (
+      await reader.listSessions(
+        OWNER,
+        { limit: 100 },
+        { userId: null, apiKeyId: null },
+      )
+    ).items.find((listed) => listed.id === sessionId);
+    const detail = await reader.getSession(OWNER, sessionId);
+    if (item === undefined || detail === null) throw new Error("not read");
+    expect(Object.hasOwn(item, "activity")).toBe(false);
+    expect(Object.hasOwn(detail, "activity")).toBe(false);
+  });
+
   test("a detail read in a caller's read committed transaction is refused", async () => {
     const { sessionId } = await queuedSession();
     await db.transaction(async (tx) => {
