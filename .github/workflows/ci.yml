@@ -1034,6 +1034,14 @@ jobs:
       && contains(fromJSON('["all","quickstart"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    # compose.core.yml reads it from the shell, so the guides still run as
+    # written. The demo seed in `scripts/local.sh up --fake-model` starts its
+    # sessions one at a time, and each waits for the next scheduler pass to
+    # launch its worker: at the default 5s, about 40s per seed, and the
+    # first guide seeds twice. Like tests/e2e/compose.yml's faster loop, it
+    # only shortens waits.
+    env:
+      SCHEDULER_INTERVAL_SEC: "1"
     steps:
       - name: Validate executable guide plan
         if: '!cancelled()'
