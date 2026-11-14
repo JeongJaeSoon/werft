@@ -254,8 +254,11 @@ jobs:
     permissions:
       actions: read
       pull-requests: write
+    outputs:
+      comment: ${{ steps.comment.outputs.id }}
     steps:
       - name: Wait for the address and comment
+        id: comment
         env:
           GH_TOKEN: ${{ github.token }}
           STARTER: ${{ github.triggering_actor }}
@@ -296,13 +299,15 @@ jobs:
           인터넷에 공개된 주소다. fake 모델이라 실제 모델·GitHub·Slack에는 닿지 않는다. 세션 화면의 실시간 이벤트(SSE)는 quick tunnel이 지원하지 않는다.
           EOF
           )"
-          gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" -f body="$body" --jq .html_url
+          id="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" -f body="$body" --jq .id)"
+          echo "comment ${id}"
+          echo "id=${id}" >>"$GITHUB_OUTPUT"
 
   # A job of its own: a job timeout cancels every step left in serve. The
   # runner, and the tunnel with it, is gone once serve has ended.
   finish:
     needs: [serve, announce]
-    if: always() && needs.serve.result != 'skipped'
+    if: always() && needs.announce.outputs.comment != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -313,13 +318,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RESULT: ${{ needs.serve.result }}
           ENDED: ${{ needs.serve.outputs.ended }}
+          COMMENT: ${{ needs.announce.outputs.comment }}
         run: |
-          id="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" \
-            --jq ".[] | select(.body | startswith(env.MARKER)) | .id" | head -n 1)"
-          if [ -z "$id" ]; then
-            echo "no preview comment of this run (serve ${RESULT})"
-            exit 0
-          fi
+          [[ "$COMMENT" =~ ^[0-9]+$ ]] || { echo "::error::not a comment id"; exit 1; }
           case "${RESULT}:${ENDED}" in
             success:closed) why="PR이 닫혔다" ;;
             success:unlabeled) why="라벨 \`preview\`를 뗐다" ;;
@@ -330,4 +331,4 @@ jobs:
           at="$(date -u '+%Y-%m-%d %H:%M UTC')"
           body="$(printf '%s\n### PR 미리보기: 내려갔다\n\n%s 기준으로 runner와 터널이 닫혔다. 이유: %s. 다시 보려면 라벨 `preview`를 다시 붙인다. [run](%s)\n' \
             "$MARKER" "$at" "$why" "$RUN_URL")"
-          gh api -X PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${id}" -f body="$body" --jq .html_url
+          gh api -X PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT}" -f body="$body" --jq .html_url
