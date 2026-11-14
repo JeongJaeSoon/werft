@@ -84,14 +84,15 @@ describe("installation config routes", () => {
     }
   });
 
-  for (const invalid of [
-    { pending_request_ttl_sec: 0 },
-    { pending_request_ttl_sec: 604_801 },
-    { pending_request_ttl_sec: 1.5 },
-    { pending_request_ttl_sec: "3600" },
-    { pending_request_ttl_sec: null },
-    { pending_request_ttl_sec: 60, extra: 1 },
-  ]) {
+  for (const [invalid, path] of [
+    [{ pending_request_ttl_sec: 0 }, "pending_request_ttl_sec"],
+    [{ pending_request_ttl_sec: 604_801 }, "pending_request_ttl_sec"],
+    [{ pending_request_ttl_sec: 1.5 }, "pending_request_ttl_sec"],
+    [{ pending_request_ttl_sec: "3600" }, "pending_request_ttl_sec"],
+    [{ pending_request_ttl_sec: null }, "pending_request_ttl_sec"],
+    // An unknown key is the body's fault, not a key's.
+    [{ pending_request_ttl_sec: 60, extra: 1 }, ""],
+  ] as const) {
     test(`PATCH refuses ${JSON.stringify(invalid)} before the service`, async () => {
       let called = false;
       const response = await request(
@@ -107,14 +108,11 @@ describe("installation config routes", () => {
       expect(response.status).toBe(400);
       expect(called).toBe(false);
       const { error } = apiErrorResponseSchema.parse(await response.json());
-      const paths = (
-        error.details as { issues: { path: string }[] }
-      ).issues.map((issue) => issue.path);
-      expect(paths.length).toBeGreaterThan(0);
-      // The key at fault is named, whichever it is.
-      for (const path of paths) {
-        expect(Object.keys(invalid)).toContain(path === "" ? "extra" : path);
-      }
+      expect(
+        (error.details as { issues: { path: string }[] }).issues.map(
+          (issue) => issue.path,
+        ),
+      ).toEqual([path]);
     });
   }
 

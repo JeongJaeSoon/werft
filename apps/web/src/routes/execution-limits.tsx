@@ -62,7 +62,7 @@ export function ExecutionLimitsScreen() {
   return (
     <Page title={t("limits.title")} description={t("limits.description")}>
       <div className={SECTIONS}>
-        <OutcomeLine outcome={outcome} />
+        <OutcomeLine outcome={outcome} live />
         <PendingWait onOutcome={setOutcome} />
       </div>
     </Page>
@@ -79,6 +79,7 @@ function PendingWait({
   const queryClient = useQueryClient();
   const role = useRole();
   const inputId = useId();
+  const blockedId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const read = useQuery({
     queryKey: configKey(client),
@@ -165,7 +166,9 @@ function PendingWait({
       <form className="flex w-full flex-col gap-4" noValidate onSubmit={submit}>
         {entry.blocked ? (
           <Alert variant="amber" role="status">
-            <AlertDescription>{t("limits.waitBlocked")}</AlertDescription>
+            <AlertDescription id={blockedId}>
+              {t("limits.waitBlocked")}
+            </AlertDescription>
           </Alert>
         ) : null}
         <Field>
@@ -183,6 +186,8 @@ function PendingWait({
               step={1}
               value={typed}
               aria-invalid={shownError !== null || undefined}
+              // Heard on reaching the field, not only when the page loads.
+              aria-describedby={entry.blocked ? blockedId : undefined}
               onChange={(event) => {
                 setDraft(event.target.value);
                 setShownError(null);

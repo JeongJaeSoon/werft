@@ -47541,7 +47541,7 @@
             }
           },
           "400": {
-            "description": "- `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. Also when a value is outside its key's range or of another type; `details.issues[].path` names the key, as for any invalid body.",
+            "description": "- `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. Also when a value is outside its key's range or of another type; `details.issues[].path` names that key. An unknown key is reported on the body itself, with an empty `path`.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"

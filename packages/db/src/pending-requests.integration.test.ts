@@ -946,6 +946,32 @@ integration("pending requests and answers on PostgreSQL", () => {
     expect(rows).toEqual([]);
   });
 
+  test("a slow wait read finishes before the registration's clock starts, so the lease and the expiry are judged after it", async () => {
+    const { worker } = await runningSession();
+    const via = gatewayWith(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      return 5_000;
+    });
+    const [before] = await db
+      .execute<{ at: string }>(sql`SELECT clock_timestamp()::text AS at`)
+      .then((result) => result.rows);
+    const first = await register(worker, permission(), HASH_A, undefined, via);
+    expect(first.response.expires_in_ms).toBe(5_000);
+    const [row] = await db
+      .select({
+        createdAt: pendingRequests.createdAt,
+        expiresAt: pendingRequests.expiresAt,
+      })
+      .from(pendingRequests)
+      .where(eq(pendingRequests.requestId, first.requestId));
+    expect(row).toBeDefined();
+    if (row === undefined || before === undefined) return;
+    expect(row.expiresAt.getTime() - row.createdAt.getTime()).toBe(5_000);
+    expect(
+      row.createdAt.getTime() - new Date(before.at).getTime(),
+    ).toBeGreaterThanOrEqual(400);
+  });
+
   test("a registration whose reply was lost still replays after its turn closed", async () => {
     const { sessionId, worker } = await runningSession();
     const first = await register(worker, permission());

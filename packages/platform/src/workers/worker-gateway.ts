@@ -2471,6 +2471,12 @@ export function createWorkerGateway(deps: {
               request.turn_id,
               request.checkpoint,
             );
+      // Read before the transaction, never on its connection or its clock;
+      // a failure refuses only a new row, so a replay still lands.
+      const ttl = await pendingTtlMs().then(
+        (ms) => ({ ms }),
+        (error: unknown) => ({ error }),
+      );
       const result = await requirePending().registerAtomic({
         fence,
         turnId: request.turn_id,
@@ -2480,7 +2486,10 @@ export function createWorkerGateway(deps: {
         ...(request.announce === undefined
           ? {}
           : { announce: request.announce }),
-        ttlMs: pendingTtlMs,
+        ttlMs: () => {
+          if ("error" in ttl) throw ttl.error;
+          return ttl.ms;
+        },
         ...(checkpoint === undefined ? {} : { checkpoint }),
         ...(request.checkpoint_failure === undefined
           ? {}

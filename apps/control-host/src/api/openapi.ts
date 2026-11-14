@@ -3326,7 +3326,7 @@ export const API_ROUTE_DECLARATIONS = [
     errors: [400, 401, 403, 503],
     errorNotes: {
       BAD_REQUEST:
-        "Also when a value is outside its key's range or of another type; `details.issues[].path` names the key, as for any invalid body.",
+        "Also when a value is outside its key's range or of another type; `details.issues[].path` names that key. An unknown key is reported on the body itself, with an empty `path`.",
     },
     idempotent: false,
   },

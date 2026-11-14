@@ -71,6 +71,11 @@ describe("설정 › 실행 한도의 응답 대기 시간", () => {
     expect(within(area).getByRole("status").textContent).toContain(
       "값을 저장할 때까지 세션의 권한 요청과 질문을 받지 않습니다.",
     );
+    const described = (field(area).getAttribute("aria-describedby") ?? "")
+      .split(" ")
+      .map((id) => document.getElementById(id)?.textContent ?? "")
+      .join(" ");
+    expect(described).toContain("값을 저장할 때까지");
     expect(area.textContent).not.toContain("기본값 1800초를 씁니다.");
     await user.click(within(area).getByRole("button", { name: "저장" }));
     await screen.findByText("응답 대기 시간을 저장했습니다.");
