@@ -369,14 +369,17 @@ integration("slack-app create on PostgreSQL against a fake Slack", () => {
     ).toBe(`${CONSOLE}/v1/slack/events/${agentId}`);
     const afterComputed = updates();
 
-    expect(
-      await createPostgresSlackSettingsStore(db).importEventsPublicUrl(
-        "https://events.example.test",
-      ),
-    ).toBe(true);
+    expect(await createPostgresSlackSettingsStore(db).read()).toBe(null);
     const manifests: unknown[] = [];
-    for (const _ of [1, 2]) {
-      const done = await run(["finalize", "--agent", agentId]);
+    // The removed env, before any server carried it in: the CLI does.
+    for (const warning of [
+      "slack-app: SLACK_EVENTS_PUBLIC_URL was carried into Settings > Integrations > Slack and is no longer read; remove it",
+      "slack-app: Ignored removed settings: SLACK_EVENTS_PUBLIC_URL",
+    ]) {
+      const done = await run(["finalize", "--agent", agentId], slack.url, {
+        SLACK_EVENTS_PUBLIC_URL: "https://events.example.test",
+      });
+      expect(done.err).toEqual([warning]);
       expect(done.code).toBe(SLACK_APP_EXIT.created);
       expect(JSON.parse(done.out[0] ?? "{}")).toEqual({
         outcome: "finalized",

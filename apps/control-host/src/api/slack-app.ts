@@ -30,7 +30,10 @@ import {
   SlackConfigError,
   slackApiUrlFrom,
 } from "./slack-config.ts";
-import { slackEventsBaseOf } from "./slack-settings.ts";
+import {
+  importSlackEventsPublicUrl,
+  slackEventsBaseOf,
+} from "./slack-settings.ts";
 
 /** Part of the CLI contract: scripts and the verify skill branch on these. */
 export const SLACK_APP_EXIT = {
@@ -252,13 +255,19 @@ export async function runSlackApp(
         consoleOrigin,
       });
       if (command.command === "finalize") {
+        const settings = createPostgresSlackSettingsStore(database.db);
+        // Run before the server has carried the env in, it does so itself:
+        // Slack keeps whatever address it is sent.
+        for (const warning of await importSlackEventsPublicUrl(
+          io.env,
+          settings,
+        )) {
+          io.err(`slack-app: ${warning}`);
+        }
         return await finalize(
           command.agentId,
           deps,
-          slackEventsBaseOf(
-            createPostgresSlackSettingsStore(database.db),
-            consoleOrigin,
-          ),
+          slackEventsBaseOf(settings, consoleOrigin),
           io,
         );
       }
