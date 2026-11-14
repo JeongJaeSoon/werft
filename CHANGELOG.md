@@ -90,6 +90,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 - **parked 요청이 수천 개인 승인 대기 그룹이 닫힌다**(JeongJaeSoon/werft#1650). 전에는 약 3,000개를 넘으면 이어 갈 turn의 메시지가 32 KiB를 넘어 그룹을 닫는 transaction이 되돌려졌고, 답은 저장된 채 turn이 이어지지 않았다. 이제 메시지에는 들어가는 만큼의 답이 그대로 실리고, 나머지는 마지막 줄 `… N more answers cut`으로 센다. 그보다 작은 그룹의 메시지는 바뀌지 않는다. 할 일은 없다.
 - **release 메모(`note`)를 없앴다. `POST /v1/agents/{id}/releases`에 `note`를 보내면 400이다**(JeongJaeSoon/werft#1690). 값이 `null`이어도 거절한다. release를 담은 응답(release 생성, 에이전트 상세의 `releases`·`active_release` 등)에도 `note`가 없다. release를 만드는 스크립트·클라이언트에서 `note`를 빼고, 응답의 `note`를 읽던 곳을 고친다. 이미 남긴 메모는 DB의 `agent_releases.note`에 남지만 API로는 읽을 수 없다. 이 열은 지원 창의 이전 릴리스가 아직 읽으므로 이번에 지우지 않고, 두 릴리스 뒤의 migration이 지운다.
 - **세션 목록 `GET /v1/sessions`의 항목과 세션 상세 `GET /v1/sessions/{id}`에 `activity`가 없다**(JeongJaeSoon/werft#1693). 세션의 최근 이벤트 500개를 요약하던 객체(`last`, `tool_count`, `error_count`, `subagent_count`, `current_tool`, `window`)다. 웹 콘솔은 에이전트 지도를 지운 뒤 이 값을 읽지 않는다. 이 값을 읽던 스크립트·클라이언트는 고친다. 세션 이벤트는 `GET /v1/sessions/{id}/events`로 전처럼 읽을 수 있다. migration은 없다.
+- **세션 이벤트 보관(session archive)이 chunk마다 세션 activity를 계산해 저장하지 않는다. migration `0279_session_event_archive_activity_defaults`가 `session_event_archives.activity`·`activity_through`에 기본값(빈 activity, `0`)을 준다**(JeongJaeSoon/werft#1695). 위 항목으로 이 값을 읽는 API가 없어졌다. 기본값만 바꾸므로 행을 다시 쓰지 않고, 이미 보관한 행의 값은 그대로다. 두 열은 지원 창의 이전 릴리스가 아직 쓰고 읽으므로 이번에 지우지 않고, 두 릴리스 뒤의 migration이 지운다. 롤아웃 중 아직 이전 버전인 API(replica가 여럿인 배포의 교체 중)나 이전 버전으로 되돌린 API는, 이 버전이 보관한 세션의 목록 activity에서 보관된 이벤트를 세지 못하고 표에 남은 이벤트만 센다. 오류는 나지 않는다. 할 일은 없다.
 
 ## v0.1.3
 
