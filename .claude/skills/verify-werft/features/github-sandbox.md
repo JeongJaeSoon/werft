@@ -173,12 +173,16 @@ CMD='git switch -qc lfs-check && mkdir -p lfs && printf "version https://git-lfs
 SPEC="GATE-SPEC $(jq -nc --arg c "$CMD" '{id:"lfs1",steps:[{tool:"Bash",input:{command:$c,description:"pull the LFS object"}}],final:"pulled"}')"
 LSID=$(ap_post /v1/sessions "$(jq -nc --arg r "$REL" --arg m "$SPEC" '{agent_release_id:$r, message:$m}')" | head -1 | jq -r .session_id)
 printf 'LSID=%s\n' "$LSID"
-# 4단계처럼 권한 요청이 오면 사람의 cookie로 allow하고 turn 1 completed를 기다린다
+for i in $(seq 1 90); do s=$(ap_get "/v1/sessions/$LSID" | head -1 | jq -r .status); case $s in needs_input|idle|failed) break ;; esac; sleep 2; done; echo "$s"
+REQ=$(ap_get "/v1/sessions/$LSID/pending-requests" | head -1 | jq -r '.items[0].request_id // empty')
+[ -z "$REQ" ] || ap_web POST "/v1/sessions/$LSID/answers" "$(jq -nc --arg r "$REQ" '{request_id:$r, kind:"permission", action:"allow"}')"
+for i in $(seq 1 60); do [ "$(ap_get "/v1/sessions/$LSID/turns/1" | head -1 | jq -r .status)" = completed ] && break; sleep 2; done
+ap_get "/v1/sessions/$LSID/turns/1" | head -1 | jq -r .status   # completed
 ap_compose exec -T postgres psql -U postgres -d sessions -At -c "select payload->>'content' from events where session_id='$LSID' and type='tool_result'" | tee "$EVIDENCE/gh-lfs.txt"
 ap_compose logs egress-proxy 2>&1 | grep -c "lfs"
 ```
 
-기대: `git-lfs/…` 한 줄, 파일 내용 `werft-sandbox LFS object for 94S-1095`, `sha256sum`이 위 oid와 같다. LFS batch는 저장소 route(`/repository/sandbox/.git/info/lfs/objects/batch`)로, 객체는 `EGRESS_PACKAGES_REDIRECT_ALLOWLIST`의 `github-cloud.githubusercontent.com`으로 받는다. egress proxy 로그에는 `Credential route LFS object` 줄이 남는다. run `20261115-012625-32204`에서 내용과 sha256이 위 값과 같았다. overlay에서 그 host를 빼면 proxy가 redirect를 거절해 객체 다운로드가 `502`다(`Credential route redirect refused` 경고. 코드 기준이며 이 run에서 빼 보지는 않았다). 끝나면 세션을 terminate한다.
+기대: `git-lfs/…` 한 줄, 파일 내용 `werft-sandbox LFS object for 94S-1095`, `sha256sum`이 위 oid와 같다. LFS batch는 저장소 route(`/repository/sandbox/.git/info/lfs/objects/batch`)로, 객체는 `EGRESS_PACKAGES_REDIRECT_ALLOWLIST`의 `github-cloud.githubusercontent.com`으로 받는다. egress proxy 로그에는 `Credential route LFS object` 줄이 남는다. run `20261115-012625-32204`에서 내용과 sha256이 위 값과 같았다. 객체 주소는 batch 응답에서 온다. overlay에서 그 host를 빼면 proxy가 그 주소를 처음 검사할 때 거절해(`Credential route denied` 경고) 객체 다운로드가 `502`다. 코드(`apps/egress-proxy/src/credential.ts`의 `lfsObject`) 기준이며, 이 run에서 빼 보지는 않았다. 끝나면 세션을 terminate한다.
 
 ## PR 본문 읽기와 꼬리 교체 (`get_pull_request`, `expected_body_sha256`)
 
@@ -253,8 +257,8 @@ ap_compose exec -T postgres psql -U postgres -d sessions -At -c "select result::
 
 - **파생 worker 이미지는 이 run의 태그 밖 이름으로 둔다.** 출하 worker 이미지에는 npm·go가 없다. 그런 도구를 더한 파생 이미지가 필요하면 이 run의 `WORKER_IMAGE`(`werft-worker:<project>`)에서 `FROM`으로 만들고, 다른 이름(예: `werft-worker-deps:<run id>`)을 붙인다. `down.sh`는 이 run의 태그와 compose가 이름 붙인 이미지만 정확한 이름으로 지우므로(`--rmi local` 포함), 다른 이름의 파생 이미지는 down 뒤에도 남는다. 파생 이미지에 run 태그를 덮어 쓰면 down이 함께 지운다. 다 쓰면 `docker image rm <정확한 이름>`으로 지운다. 그 이미지로 worker를 띄우는 방법(scheduler만 `WORKER_IMAGE`를 바꿔 다시 만들기)은 아직 확인하지 못했다. 2026-11-15 run에서 그 명령이 agent-guard에 막혀 실행되지 않았다. 그래서 공개 npm 설치 출력도 아직 없다. 이 절차를 처음 돌리는 사람은 명령과 결과를 여기에 적는다. scheduler를 다시 만들 때는 아래 master key 항목을 먼저 본다.
 
-- **run 안에서 api(또는 master key를 받는 서비스)를 `ap_compose up -d`로 다시 만들지 않는다.** `PLATFORM_SECRET_KEY`는 `up.sh`를 부른 Bash 호출에만 있다. 다른 호출에서 컨테이너를 다시 만들면 그 값 없이 뜬다. 등록한 App 키를 풀지 못해 clone이 실패한다(api 로그 `SecretDecryptError`). 코드를 바꿔 다시 봐야 하면 그 run을 내리고 새 run을 띄운다. `ap_compose restart`는 컨테이너를 다시 만들지 않는다(바로 아래의 주소 항목).
-- **카탈로그에 같은 GitHub 저장소를 두 항목으로 넣지 않는다.** `catalog_repositories`의 `full_name`이 unique라, 같은 저장소를 가리키는 두 항목이 있으면 migrate가 exit 1로 멈춘다. 다른 브랜치를 써야 하면(예: 시험용 브랜치) 기존 `sandbox` 항목의 `branch`를 바꾼 설정 문서를 overlay로 넣는다.
+- **run 안에서 api(또는 master key를 받는 서비스)를 `ap_compose up -d`로 다시 만들지 않는다.** `PLATFORM_SECRET_KEY`는 `up.sh`를 부른 Bash 호출에만 있다. 다른 호출에서 컨테이너를 다시 만들면 그 값을 받지 못한다. key가 없으면 api가 `PLATFORM_SECRET_KEY is required`로 뜨지 않는다. 다른 key로 뜨면 등록한 App 키를 풀지 못해 clone이 실패한다(api 로그 `SecretDecryptError`, 2026-11-15 run이 이 경우였다). 코드를 바꿔 다시 봐야 하면 그 run을 내리고 새 run을 띄운다. `ap_compose restart`는 컨테이너를 다시 만들지 않는다(바로 아래의 주소 항목).
+- **카탈로그에 같은 GitHub 저장소를 두 항목으로 넣지 않는다.** `catalog_repositories_full_name_key`가 지워지지 않은 `github_app` 항목의 `lower(owner), lower(name)`을 unique로 묶는다. 그래서 같은 저장소를 가리키는 `github_app` 항목이 둘이면 migrate가 exit 1로 멈춘다. 다른 브랜치를 써야 하면(예: 시험용 브랜치) 기존 `sandbox` 항목의 `branch`를 바꾼 설정 문서를 overlay로 넣는다.
 
 - **api만 재시작하면 주소가 바뀐다.** `ap_compose restart api`는 ephemeral 포트를 새로 받아 `state.env`의 주소와 어긋난다. `lib.sh`를 source한 뒤 `ap_as` 다음 줄에 `API=http://127.0.0.1:$(ap_compose port api 3000 | cut -d: -f2)`로 바꿔야 `ap_*`가 닿는다(`VERIFY_API`가 아니라 `API`를 읽는다). `state.env`는 agent-guard가 막으므로 열지 않는다.
 
