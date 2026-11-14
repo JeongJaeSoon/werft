@@ -26,6 +26,7 @@ import {
 } from "../../musterrolle/index.ts";
 import type { TeamActor } from "../../ports/team-store.ts";
 import type { AchievementRuleStore } from "./achievement-store.ts";
+import type { JudgeConnections } from "./judge-connections.ts";
 
 const conflict = (reasonCode: string, message: string, extra = {}) =>
   new SessionServiceError("REVISION_CONFLICT", message, undefined, {
@@ -51,6 +52,13 @@ const UNKNOWN = {
       undefined,
       { reason_code: "unknown_type", field: "type_id" },
     ),
+  unknown_connection: () =>
+    new SessionServiceError(
+      "BAD_REQUEST",
+      "No enabled openai_decisions connection has this id",
+      undefined,
+      { reason_code: "unknown_connection", field: "connection_id" },
+    ),
 };
 
 const RULE_LIMIT = () =>
@@ -63,9 +71,10 @@ const RULE_LIMIT = () =>
 export function createAchievementRuleService(deps: {
   authorization: AuthorizationPolicy;
   store: AchievementRuleStore;
+  judgeConnections: JudgeConnections;
   newId?: () => string;
 }) {
-  const { authorization, store } = deps;
+  const { authorization, store, judgeConnections } = deps;
   const newId = deps.newId ?? (() => crypto.randomUUID());
 
   async function manager(caller: Caller): Promise<TeamActor> {
@@ -363,7 +372,10 @@ export function createAchievementRuleService(deps: {
       await reader(caller);
       const settings = await store.getJudge(own);
       if (settings === null) throw NOT_FOUND();
-      return { achievement_judge: settings };
+      return {
+        achievement_judge: settings,
+        connections: [...(await judgeConnections.ids())],
+      };
     },
 
     async setJudge(
@@ -371,8 +383,18 @@ export function createAchievementRuleService(deps: {
       workspaceId: string,
       settings: AchievementJudgeSettings,
     ): Promise<AchievementJudgeChangeResponse> {
-      sameWorkspace(caller, workspaceId);
+      const own = sameWorkspace(caller, workspaceId);
       const actor = await manager(caller);
+      // A connection disabled since it was named stays saveable, so the
+      // other fields can still change; only a newly named one must exist.
+      const named = settings.connection_id;
+      if (
+        named !== null &&
+        !(await judgeConnections.ids()).includes(named) &&
+        (await store.getJudge(own))?.connection_id !== named
+      ) {
+        throw UNKNOWN.unknown_connection();
+      }
       const receiptId = newId();
       const result = await store.setJudge({ actor, receiptId, settings });
       if (result.outcome === "actor_inactive") throw OUTRANKED();

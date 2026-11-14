@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { providerKindSchema } from "../shared/provider-kind.ts";
+import { connectionKindSchema } from "../shared/provider-kind.ts";
 
 /**
  * The installation's settings without a secret value
@@ -126,7 +126,7 @@ export const settingsConnectionSchema = z
     id: z.string().min(1),
     origin: settingsEntryOriginSchema,
     state: settingsEntryStateSchema,
-    kind: providerKindSchema,
+    kind: connectionKindSchema,
     endpoint: z.string(),
     billing: z.enum(["per_token", "none"]),
     auth_kind: z.enum(["api_key", "bearer"]),
@@ -177,7 +177,7 @@ export const listSettingsMcpServersResponseSchema = z
 export const createSettingsConnectionRequestSchema = z
   .object({
     id: consoleEntryId,
-    kind: providerKindSchema,
+    kind: connectionKindSchema,
     /** Empty takes the kind's default; a kind with none is refused. */
     endpoint: z.string().optional(),
     billing: z.enum(["per_token", "none"]).optional(),

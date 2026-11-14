@@ -7442,13 +7442,19 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Workspace settings",
     summary: "Read how the workspace's achievement judge runs",
     description:
-      "`workspace.settings.achievement_judge` of the caller's workspace, every field filled with its default when never set. `connection_id` null leaves `luna` rules unjudged; `always` rules count regardless. Another workspace is 404. Every member reads it, and so does a member's personal key (`workspace.read`); an agent's key is 403.",
+      "`workspace.settings.achievement_judge` of the caller's workspace, every field filled with its default when never set, and `connections`, the enabled `openai_decisions` connections of the installation whose credential resolves: the ids `connection_id` may name. `connection_id` null leaves `luna` rules unjudged; `always` rules count regardless. Another workspace is 404. Every member reads it, and so does a member's personal key (`workspace.read`); an agent's key is 403.",
     scope: "read",
     success: {
       status: 200,
       schema: "AchievementJudgeResponse",
-      description: "The settings.",
-      example: { achievement_judge: ACHIEVEMENT_JUDGE_EXAMPLE },
+      description: "The settings, and the connections they may name.",
+      example: {
+        achievement_judge: {
+          ...ACHIEVEMENT_JUDGE_EXAMPLE,
+          connection_id: "luna-main",
+        },
+        connections: ["luna-main"],
+      },
     },
     errors: [401, 404, 503],
   },
@@ -7458,7 +7464,7 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "putAchievementJudge",
     tag: "Workspace settings",
     summary: "Change how the workspace's achievement judge runs",
-    description: `${ACHIEVEMENT_MANAGERS} Replaces the settings; a field left out takes its default. \`threshold\` is between 0 and 1, \`every_n_turns\` null or 5 to 100, \`transcript\` \`none\` or \`recent\`. Writes a \`set_achievement_judge\` receipt with the settings saved. Another workspace is 404.`,
+    description: `${ACHIEVEMENT_MANAGERS} Replaces the settings; a field left out takes its default. \`threshold\` is between 0 and 1, \`every_n_turns\` null or 5 to 100, \`transcript\` \`none\` or \`recent\`. \`connection_id\` names one of the read's \`connections\`, else 400 \`unknown_connection\`; one named before it was disabled is kept as it is. Writes a \`set_achievement_judge\` receipt with the settings saved. Another workspace is 404.`,
     auth: "session",
     body: "AchievementJudgeRequest",
     requestExample: { ...ACHIEVEMENT_JUDGE_EXAMPLE, every_n_turns: 10 },

@@ -33,6 +33,7 @@ function snapshot(
   return {
     generation,
     connections: { "conn-1": testConnection() },
+    judge_connections: {},
     repositories: {},
     mcp_servers: {},
     left_out: [],

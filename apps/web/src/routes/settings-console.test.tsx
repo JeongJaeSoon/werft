@@ -346,6 +346,7 @@ describe("모델 연결", () => {
       "anthropic",
       "litellm",
       "openai_responses",
+      "openai_decisions",
     ]);
     // The hint belongs to this kind only.
     expect(within(dialog).queryByText(HINT) === null).toBe(true);
@@ -365,6 +366,74 @@ describe("모델 연결", () => {
       {
         id: "openai",
         kind: "openai_responses",
+        billing: "per_token",
+        auth_kind: "api_key",
+        value: "example-key",
+      },
+    ]);
+  });
+
+  test("an openai_decisions row says it only judges achievements, and offers no models or auto mode", async () => {
+    renderAt(CONNECTIONS_PAGE, {
+      ...routes(),
+      [`GET ${CONNECTIONS}`]: () =>
+        json(200, {
+          items: [
+            connection("luna", {
+              kind: "openai_decisions",
+              endpoint: "https://api.openai.com",
+              models: [],
+            }),
+          ],
+          credential_hosts: null,
+          endpoint_defaults: {},
+        }),
+    });
+    const table = await screen.findByRole("table", { name: "모델 연결" });
+    const row = rowOf(table, "luna");
+    expect(row.textContent).toContain("성과 판정 전용");
+    expect(row.textContent).not.toContain("자동 모드");
+    expect(row.textContent).not.toContain("모델 없음");
+    expect(
+      within(row)
+        .getAllByRole("button")
+        .map((button) => button.getAttribute("aria-label")),
+    ).toEqual(["luna 값 바꾸기", "luna 사용 중지"]);
+  });
+
+  test("an openai_decisions connection is Luna's, takes OpenAI's address and no billing choice, and is created with an API key", async () => {
+    const OPENAI = "https://api.openai.com";
+    const HINT =
+      "성과 판정기 Luna(OpenAI Decisions API, gpt-6-luna)가 부르는 연결입니다. 에이전트는 이 연결로 실행되지 않습니다. 성과 규칙 > 판정 설정에서 고릅니다.";
+    const { api } = renderAt(CONNECTIONS_PAGE, {
+      ...routes(me(), null, {
+        anthropic: "https://api.anthropic.com",
+        openai_decisions: OPENAI,
+      }),
+      [`POST ${CONNECTIONS}`]: () => json(201, CHANGE("luna")),
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "연결 추가" }));
+    const dialog = await screen.findByRole("dialog");
+    const kind = within(dialog).getByLabelText<HTMLSelectElement>("종류");
+    expect(within(dialog).queryByText(HINT) === null).toBe(true);
+    expect(dialog.querySelector('[name="billing"]') === null).toBe(false);
+    await user.selectOptions(kind, "openai_decisions");
+    expect(within(dialog).queryByText(HINT) === null).toBe(false);
+    expect(
+      within(dialog).getByLabelText<HTMLInputElement>("엔드포인트").value,
+    ).toBe(OPENAI);
+    expect(dialog.querySelector('[name="billing"]') === null).toBe(true);
+    expect(dialog.querySelector('[name="auth_kind"]') === null).toBe(true);
+
+    await user.type(within(dialog).getByLabelText("id"), "luna");
+    await user.type(within(dialog).getByLabelText("키 값"), "example-key");
+    await user.click(within(dialog).getByRole("button", { name: "만들기" }));
+    await screen.findByText("luna를 만들었습니다.");
+    expect(writes(api.calls).map((call) => call.body)).toEqual([
+      {
+        id: "luna",
+        kind: "openai_decisions",
         billing: "per_token",
         auth_kind: "api_key",
         value: "example-key",

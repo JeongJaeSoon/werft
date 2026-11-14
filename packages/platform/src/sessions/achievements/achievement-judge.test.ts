@@ -581,6 +581,7 @@ function fakeLuna(
       options.connected === false
         ? null
         : { url: "https://api.openai.com", headers: [] },
+    ids: async () => [],
   };
   const luna: Luna = {
     connections,

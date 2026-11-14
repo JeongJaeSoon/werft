@@ -14,3 +14,12 @@ export const PROVIDER_KIND_VALUES = [
 ] as const;
 export const providerKindSchema = z.enum(PROVIDER_KIND_VALUES);
 export type ProviderKind = z.infer<typeof providerKindSchema>;
+
+// `openai_decisions` is the achievement judge's Luna (OpenAI Decisions API).
+// An operator adds it like any connection, but no agent runs on it, so a
+// release and the worker protocol never name it.
+export const CONNECTION_KIND_VALUES = [
+  ...PROVIDER_KIND_VALUES,
+  "openai_decisions",
+] as const;
+export const connectionKindSchema = z.enum(CONNECTION_KIND_VALUES);

@@ -4070,14 +4070,14 @@ export interface paths {
         };
         /**
          * Read how the workspace's achievement judge runs
-         * @description `workspace.settings.achievement_judge` of the caller's workspace, every field filled with its default when never set. `connection_id` null leaves `luna` rules unjudged; `always` rules count regardless. Another workspace is 404. Every member reads it, and so does a member's personal key (`workspace.read`); an agent's key is 403.
+         * @description `workspace.settings.achievement_judge` of the caller's workspace, every field filled with its default when never set, and `connections`, the enabled `openai_decisions` connections of the installation whose credential resolves: the ids `connection_id` may name. `connection_id` null leaves `luna` rules unjudged; `always` rules count regardless. Another workspace is 404. Every member reads it, and so does a member's personal key (`workspace.read`); an agent's key is 403.
          *
          *     **Scope:** `sessions:read` (API key or cookie session).
          */
         get: operations["getAchievementJudge"];
         /**
          * Change how the workspace's achievement judge runs
-         * @description Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Replaces the settings; a field left out takes its default. `threshold` is between 0 and 1, `every_n_turns` null or 5 to 100, `transcript` `none` or `recent`. Writes a `set_achievement_judge` receipt with the settings saved. Another workspace is 404.
+         * @description Owners and admins (`achievement_rule.manage`), signed in; API keys are refused. Replaces the settings; a field left out takes its default. `threshold` is between 0 and 1, `every_n_turns` null or 5 to 100, `transcript` `none` or `recent`. `connection_id` names one of the read's `connections`, else 400 `unknown_connection`; one named before it was disabled is kept as it is. Writes a `set_achievement_judge` receipt with the settings saved. Another workspace is 404.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -9281,6 +9281,7 @@ export interface components {
                 /** @default 20 */
                 max_per_session: number;
             };
+            connections: string[];
         };
         AchievementJudgeChangeResponse: {
             achievement_judge: {
@@ -9351,7 +9352,7 @@ export interface components {
                 /** @enum {string} */
                 state: "active" | "needs_value" | "unresolved" | "disabled";
                 /** @enum {string} */
-                kind: "anthropic" | "litellm" | "openai_responses";
+                kind: "anthropic" | "litellm" | "openai_responses" | "openai_decisions";
                 endpoint: string;
                 /** @enum {string} */
                 billing: "per_token" | "none";
@@ -9417,7 +9418,7 @@ export interface components {
         CreateSettingsConnectionRequest: {
             id: string;
             /** @enum {string} */
-            kind: "anthropic" | "litellm" | "openai_responses";
+            kind: "anthropic" | "litellm" | "openai_responses" | "openai_decisions";
             endpoint?: string;
             /** @enum {string} */
             billing?: "per_token" | "none";
@@ -40430,7 +40431,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The settings. */
+            /** @description The settings, and the connections they may name. */
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -40440,7 +40441,7 @@ export interface operations {
                     /**
                      * @example {
                      *       "achievement_judge": {
-                     *         "connection_id": null,
+                     *         "connection_id": "luna-main",
                      *         "threshold": 0.9,
                      *         "on_evidence": true,
                      *         "every_n_turns": null,
@@ -40448,7 +40449,10 @@ export interface operations {
                      *         "transcript": "recent",
                      *         "daily_budget_usd": 1,
                      *         "max_per_session": 20
-                     *       }
+                     *       },
+                     *       "connections": [
+                     *         "luna-main"
+                     *       ]
                      *     }
                      */
                     "application/json": components["schemas"]["AchievementJudgeResponse"];

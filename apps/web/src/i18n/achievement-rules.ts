@@ -13,7 +13,10 @@ export const achievementRulesKo = {
     "Luna(OpenAI Decisions API, gpt-6-luna). 예·아니오와 확률만 답합니다.",
   "achievementRules.judge.connection": "Luna 연결",
   "achievementRules.judge.noConnection":
-    "연결 없음 · 운영자가 연결을 추가하면 고를 수 있다",
+    "연결 없음 · Luna 규칙은 판정하지 않습니다",
+  "achievementRules.judge.noConnections":
+    "설치 owner가 설정 > 에이전트 연결 > 모델 연결에서 openai_decisions 연결을 추가하면 고를 수 있습니다.",
+  "achievementRules.judge.unavailable": "{id} · 쓸 수 없음",
   "achievementRules.judge.sent":
     "PR 제목·저장소 이름과, 규칙에 따라 out/ 파일 앞부분·최근 대화가 OpenAI로 갑니다.",
   "achievementRules.judge.when": "판정 시점",
@@ -140,7 +143,10 @@ export const achievementRulesEn: Record<
     "Luna (OpenAI Decisions API, gpt-6-luna). It answers only yes or no, with a probability.",
   "achievementRules.judge.connection": "Luna connection",
   "achievementRules.judge.noConnection":
-    "No connection · you can pick one once the operator adds it",
+    "No connection · Luna rules are not judged",
+  "achievementRules.judge.noConnections":
+    "You can pick one once the installation owner adds an openai_decisions connection under Settings > Agent connections > Model connections.",
+  "achievementRules.judge.unavailable": "{id} · unavailable",
   "achievementRules.judge.sent":
     "Pull request titles and repository names go to OpenAI, and, depending on the rules, the start of out/ files and the recent conversation.",
   "achievementRules.judge.when": "When to judge",
@@ -273,8 +279,10 @@ export const achievementRulesJa: Record<
   "achievementRules.judge.judgeHint":
     "Luna（OpenAI Decisions API、gpt-6-luna）。はい・いいえと確率だけを答えます。",
   "achievementRules.judge.connection": "Luna 接続",
-  "achievementRules.judge.noConnection":
-    "接続なし · 運用者が接続を追加すると選べます",
+  "achievementRules.judge.noConnection": "接続なし · Luna ルールは判定しません",
+  "achievementRules.judge.noConnections":
+    "インストールの owner が「設定 > エージェント接続 > モデル接続」で openai_decisions 接続を追加すると選べます。",
+  "achievementRules.judge.unavailable": "{id} · 使用不可",
   "achievementRules.judge.sent":
     "PR のタイトル・リポジトリ名と、ルールに応じて out/ ファイルの冒頭・最近の会話が OpenAI に送られます。",
   "achievementRules.judge.when": "判定のタイミング",

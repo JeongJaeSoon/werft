@@ -192,7 +192,8 @@ function routes(overrides: Routes = {}) {
     "GET /v1/achievement-categories": () => json(200, { items: CATEGORIES }),
     "GET /v1/achievement-types": () => json(200, { items: TYPES }),
     "GET /v1/achievement-rules": () => json(200, { items: RULES }),
-    [`GET ${JUDGE}`]: () => json(200, { achievement_judge: SETTINGS }),
+    [`GET ${JUDGE}`]: () =>
+      json(200, { achievement_judge: SETTINGS, connections: [] }),
     "GET /v1/usage/achievements": usage,
     "GET /v1/members": () =>
       json(200, memberPage({ items: [OWNER.member], next_cursor: null })),
@@ -324,14 +325,16 @@ describe("성과 규칙", () => {
     ).toBe("page");
   });
 
-  test("판정 설정: 연결이 없으면 고를 수 없고, 오늘·이번 달 판정 비용을 보인다", async () => {
+  test("판정 설정: 연결이 없으면 '연결 없음'만 있고 추가할 곳을 알리며, 오늘·이번 달 판정 비용을 보인다", async () => {
     await opened();
     const select = screen.getByRole("combobox", { name: "Luna 연결" });
-    expect((select as HTMLSelectElement).disabled).toBe(true);
     expect(select.textContent).toBe(
-      "연결 없음 · 운영자가 연결을 추가하면 고를 수 있다",
+      "연결 없음 · Luna 규칙은 판정하지 않습니다",
     );
     const card = section("판정 설정");
+    expect(card?.textContent).toContain(
+      "설치 owner가 설정 > 에이전트 연결 > 모델 연결에서 openai_decisions 연결을 추가하면 고를 수 있습니다.",
+    );
     await waitFor(() =>
       expect(card?.textContent).toContain(
         "오늘 판정 비용 $0.01 / $1.00 · 이번 달 $0.16 · 판정 1회 예상 약 $0.00025 (근거 요약만)",
@@ -402,20 +405,61 @@ describe("성과 규칙", () => {
     });
   }
 
-  test("판정 설정: 저장된 연결은 그 하나만 고를 수 있다", async () => {
+  test("판정 설정: 서버가 준 openai_decisions 연결을 고르고, 사용 중지된 저장 연결은 쓸 수 없다고 보인다", async () => {
     await opened({
       [`GET ${JUDGE}`]: () =>
         json(200, {
-          achievement_judge: { ...SETTINGS, connection_id: "openai-decisions" },
+          achievement_judge: { ...SETTINGS, connection_id: "luna-old" },
+          connections: ["luna-a", "luna-b"],
         }),
     });
     const select = (await screen.findByRole("combobox", {
       name: "Luna 연결",
     })) as HTMLSelectElement;
-    await waitFor(() => expect(select.disabled).toBe(false));
-    expect([...select.options].map((option) => option.textContent)).toEqual([
-      "openai-decisions",
+    await waitFor(() => expect(select.value).toBe("luna-old"));
+    expect(
+      [...select.options].map((option) => [option.value, option.textContent]),
+    ).toEqual([
+      ["", "연결 없음 · Luna 규칙은 판정하지 않습니다"],
+      ["luna-a", "luna-a"],
+      ["luna-b", "luna-b"],
+      ["luna-old", "luna-old · 쓸 수 없음"],
     ]);
+    expect(section("판정 설정")?.textContent).not.toContain(
+      "openai_decisions 연결을 추가하면",
+    );
+  });
+
+  test("판정 설정: 연결을 고르고 저장하면 그 connection_id를 PUT 한다", async () => {
+    let sent: Record<string, unknown> | null = null;
+    await opened({
+      [`GET ${JUDGE}`]: () =>
+        json(200, { achievement_judge: SETTINGS, connections: ["luna-a"] }),
+      [`PUT ${JUDGE}`]: async (request) => {
+        sent = (await request.json()) as Record<string, unknown>;
+        return json(200, {
+          achievement_judge: { ...SETTINGS, ...sent },
+          receipt_id: RECEIPT_ID,
+        });
+      },
+    });
+    const user = await setupUser();
+    const card = section("판정 설정") as HTMLElement;
+    await user.selectOptions(
+      within(card).getByRole("combobox", { name: "Luna 연결" }),
+      "luna-a",
+    );
+    await user.click(within(card).getByRole("button", { name: "저장" }));
+    await waitFor(() => expect(sent).not.toBe(null));
+    expect(sent).toMatchObject({ connection_id: "luna-a" });
+    // The list survives the save's answer, which carries none.
+    expect(
+      (
+        within(card).getByRole("combobox", {
+          name: "Luna 연결",
+        }) as HTMLSelectElement
+      ).value,
+    ).toBe("luna-a");
   });
 
   test("판정 설정: 행은 폼의 gap-4를 받지 않는 한 블록 안에 있다", async () => {

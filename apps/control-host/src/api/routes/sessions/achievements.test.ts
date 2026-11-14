@@ -25,6 +25,7 @@ import {
   createSessionAchievementService,
   type DecisionLog,
   type IdentityStore,
+  type JudgeConnections,
   type MembershipRole,
   type ResolvedWebSession,
 } from "@werft-ai/platform";
@@ -142,6 +143,12 @@ const store = {
   },
 } as AchievementRuleStore;
 
+const LUNA_CONNECTION = "luna-main";
+const judgeConnections: JudgeConnections = {
+  upstream: async () => null,
+  ids: async () => [LUNA_CONNECTION],
+};
+
 const sessions = new Map<string, ResolvedWebSession>();
 function cookieFor(role: MembershipRole, workspaceId = WORKSPACE): string {
   const token = generateWebSessionToken();
@@ -238,6 +245,7 @@ const app = createApiApp({
           },
         }),
         store,
+        judgeConnections,
       }),
     ),
 });
@@ -706,6 +714,47 @@ describe("achievement rule management", () => {
       achievement_judge: { ...JUDGE, every_n_turns: 10, on_idle: true },
       receipt_id: expect.any(String),
     });
+  });
+
+  test("the judge settings list the openai_decisions connections, and only one of them can be newly named", async () => {
+    const read = await call(
+      "GET",
+      `/v1/workspaces/${WORKSPACE}/achievement-judge`,
+      "member",
+    );
+    expect(await read.json()).toEqual({
+      achievement_judge: JUDGE,
+      connections: [LUNA_CONNECTION],
+    });
+    const refused = await call(
+      "PUT",
+      `/v1/workspaces/${WORKSPACE}/achievement-judge`,
+      "owner",
+      { connection_id: "anthropic-main" },
+    );
+    expect(refused.status).toBe(400);
+    expect(apiErrorResponseSchema.parse(await refused.json())).toMatchObject({
+      error: {
+        details: { reason_code: "unknown_connection", field: "connection_id" },
+      },
+    });
+    expect(calls.filter(({ method }) => method === "setJudge")).toEqual([]);
+    const named = await call(
+      "PUT",
+      `/v1/workspaces/${WORKSPACE}/achievement-judge`,
+      "owner",
+      { connection_id: LUNA_CONNECTION },
+    );
+    expect(named.status).toBe(200);
+    // Disabled since it was named: still saved, so other fields can change.
+    next = { getJudge: { ...JUDGE, connection_id: "luna-old" } };
+    const kept = await call(
+      "PUT",
+      `/v1/workspaces/${WORKSPACE}/achievement-judge`,
+      "owner",
+      { connection_id: "luna-old", on_idle: true },
+    );
+    expect(kept.status).toBe(200);
   });
 
   test("a storage outage answers 503", async () => {

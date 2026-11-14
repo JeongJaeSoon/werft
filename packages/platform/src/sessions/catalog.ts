@@ -158,6 +158,16 @@ export const catalogProviderSchema = z.discriminatedUnion("kind", [
       billing: billingSchema,
     })
     .strict(),
+  // The achievement judge's Luna (achievement-rules.md §4), never an agent's:
+  // no runtime speaks the Decisions API. A judgment is always priced.
+  z
+    .object({
+      kind: z.literal("openai_decisions"),
+      endpoint: webUrl,
+      auth: credentialRef(z.literal("api_key")),
+      billing: z.literal("per_token").optional(),
+    })
+    .strict(),
 ]);
 
 export const catalogConnectionsSchema = z.record(
@@ -176,6 +186,7 @@ export const CONNECTION_ENDPOINT_DEFAULTS: Readonly<
 > = {
   anthropic: "https://api.anthropic.com",
   openai_responses: "https://api.openai.com",
+  openai_decisions: "https://api.openai.com",
 };
 
 const PRIVATE_NAME_SUFFIXES = [
@@ -436,6 +447,16 @@ export type CatalogProvider =
       auth: { kind: "api_key"; value: string; ref: CredentialRef };
       billing?: "none" | undefined;
     };
+
+/**
+ * An `openai_decisions` connection with its credential resolved: the
+ * achievement judge's, kept apart from the connections agents run on.
+ */
+export type JudgeProvider = {
+  kind: "openai_decisions";
+  endpoint: string;
+  auth: { kind: "api_key"; value: string; ref: CredentialRef };
+};
 
 /**
  * A provider connection as the services hold it: where calls go, the models
@@ -763,6 +784,14 @@ export function providerUpstreamOf(provider: CatalogProvider): EgressUpstream {
       auth.kind === "bearer" || kind === "openai_responses"
         ? [["authorization", `Bearer ${auth.value}`]]
         : [["x-api-key", auth.value]],
+  };
+}
+
+/** Where the judgment route goes: OpenAI takes its key as a bearer token. */
+export function judgeUpstreamOf(provider: JudgeProvider): EgressUpstream {
+  return {
+    url: provider.endpoint,
+    headers: [["authorization", `Bearer ${provider.auth.value}`]],
   };
 }
 
@@ -1151,9 +1180,19 @@ export function resolveSessionCatalog(
 /** A connection's provider with its credential looked up, or why it cannot be. */
 export function resolveProvider(
   id: string,
+  provider: Exclude<CatalogProviderConfig, { kind: "openai_decisions" }>,
+  lookup: (ref: CredentialRef) => string | undefined,
+): CatalogProvider;
+export function resolveProvider(
+  id: string,
   provider: CatalogProviderConfig,
   lookup: (ref: CredentialRef) => string | undefined,
-): CatalogProvider {
+): CatalogProvider | JudgeProvider;
+export function resolveProvider(
+  id: string,
+  provider: CatalogProviderConfig,
+  lookup: (ref: CredentialRef) => string | undefined,
+): CatalogProvider | JudgeProvider {
   const { kind: authKind, ...fields } = provider.auth;
   const ref = credentialRefOf(fields);
   const value = resolveCredential(`connections.${id}.auth`, ref, lookup);
@@ -1162,7 +1201,7 @@ export function resolveProvider(
     ...rest,
     ...(billing === "none" ? { billing } : {}),
     auth: { kind: authKind, value, ref },
-  } as CatalogProvider;
+  } as CatalogProvider | JudgeProvider;
 }
 
 // A PEM spans lines, which an environment variable often carries as `\n`

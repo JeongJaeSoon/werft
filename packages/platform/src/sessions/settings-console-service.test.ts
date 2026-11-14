@@ -251,7 +251,42 @@ describe("settings console service", () => {
     ).toEqual({
       anthropic: "https://api.anthropic.com",
       openai_responses: "https://api.openai.com",
+      openai_decisions: "https://api.openai.com",
     });
+  });
+
+  test("an openai_decisions connection takes OpenAI's address and an API key, and is always priced", async () => {
+    const { settings, writes } = service();
+    const { endpoint: _named, ...open } = NEW_CONNECTION;
+    await settings.createConnection(caller("owner"), {
+      ...open,
+      kind: "openai_decisions",
+      billing: "per_token",
+    });
+    expect(writes[0]?.[1]).toMatchObject({
+      entry: {
+        kind: "openai_decisions",
+        endpoint: "https://api.openai.com",
+        auth: { kind: "api_key", stored: "connection:console" },
+      },
+    });
+    for (const refused of [
+      { billing: "none" as const, endpoint: "http://luna.internal:8080" },
+      { auth_kind: "bearer" as const },
+    ]) {
+      const { settings: again, writes: none } = service();
+      const answer = await refusal(
+        again.createConnection(caller("owner"), {
+          ...open,
+          kind: "openai_decisions",
+          ...refused,
+        }),
+      );
+      expect(answer.details, JSON.stringify(refused)).toMatchObject({
+        reason_code: "invalid_entry",
+      });
+      expect(none).toEqual([]);
+    }
   });
 
   test("an entry the catalog refuses and a closed secret store are refused before the store", async () => {
