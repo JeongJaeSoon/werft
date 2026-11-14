@@ -110,6 +110,7 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   unlink_login_method: "로그인 수단 끊기",
   set_password_login: "비밀번호 로그인 설정",
   set_emergency_admin: "비상 관리자 지정",
+  update_slack_settings: "Slack 이벤트 주소 변경",
   set_github_app: "GitHub App 등록",
   delete_github_app: "GitHub App 삭제",
   mint_github_token: "GitHub 토큰 발급",

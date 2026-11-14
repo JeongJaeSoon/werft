@@ -226,6 +226,9 @@ export const RECEIPT_OPERATION_VALUES = [
   // counts only.
   "set_password_login",
   "set_emergency_admin",
+  // The Slack events address for the whole installation: the address saved
+  // and the one before it.
+  "update_slack_settings",
 ] as const;
 
 export const receiptStatusSchema = z.enum(RECEIPT_STATUS_VALUES);

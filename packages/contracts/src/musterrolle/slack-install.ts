@@ -10,7 +10,7 @@ import { slackAppSchema } from "./slack-apps.ts";
 
 /**
  * `events_url_unset`: no https events address is known (CONSOLE_ORIGIN is
- * unset or not https, and SLACK_EVENTS_PUBLIC_URL is not set), so the app's event
+ * unset or not https, and no events address is saved in Slack settings), so the app's event
  * subscription was not registered. `reinstall_required`: Slack answered the
  * manifest update with `permissions_updated`, so the app must be installed
  * again before the new scopes apply. The membership states of

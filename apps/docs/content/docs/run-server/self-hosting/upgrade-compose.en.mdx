@@ -155,9 +155,24 @@ From the next release on, the support window of the current and previous images 
 
 From this release on, the API and the slack role no longer read `SLACK_OIDC_REDIRECT_URI`, `SLACK_OIDC_CLIENT_ID` or `SLACK_OIDC_CLIENT_SECRET`. The Slack account linking redirect is `CONSOLE_ORIGIN` with the fixed path `/settings/linked-accounts/slack`. The client ID and secret come only from each workspace's link app, made in Settings > Workspace > Integrations > Slack.
 
-- Before you upgrade, check that the API and the slack role have `CONSOLE_ORIGIN`. Earlier releases used the origin of `SLACK_OIDC_REDIRECT_URI` when `CONSOLE_ORIGIN` was unset. In this release, Slack account linking then answers `503`, Slack apps cannot be created, and, unless `SLACK_EVENTS_PUBLIC_URL` is set, no event subscription is registered (`events_url_unset`).
+- Before you upgrade, check that the API and the slack role have `CONSOLE_ORIGIN`. Earlier releases used the origin of `SLACK_OIDC_REDIRECT_URI` when `CONSOLE_ORIGIN` was unset. In this release, Slack account linking then answers `503`, Slack apps cannot be created, and, unless an events entrance is saved (below), no event subscription is registered (`events_url_unset`).
 - Remove the three variables. On Compose, `infra/compose.core.yml` no longer passes them, so delete the lines from your env file. On Kubernetes, delete them from `api.extraEnv` and `slack.extraEnv`. If one is still set, the API logs the warning `Ignored removed settings: <names>` once at startup. It prints no value and does not use it.
 - This release cannot be rolled back to an earlier build ([Rollback floor of the profile removal](#프로필-제거의-롤백-하한)), so no line needs to stay for a rollback.
+
+<a id="웹으로-옮긴-slack-이벤트-입구-주소" />
+### Slack events entrance moved to the web
+
+From this release on, the API no longer reads `SLACK_EVENTS_PUBLIC_URL`. When events enter apart from the console, an owner saves an https address without a query, fragment or credentials as the events entrance under **Settings > Integrations > Slack** (`PUT /v1/slack-settings`, audit record `update_slack_settings`). Left empty, the address computed from `CONSOLE_ORIGIN` applies. Before saving, the screen shows the computed address and the URL Slack will be sent. The value is one for the whole installation.
+
+- Migration `0278_slack_settings` adds the `slack_settings` table. When the new API first starts with that table empty and `SLACK_EVENTS_PUBLIC_URL` actually present in the API container, it carries the value in once and logs a warning without the value. The carry-over is recorded as an audit record without an author (`by: "env_import"`). Compose's `infra/compose.core.yml` does not pass this variable to the API, so it is carried in only if you passed it yourself through an overlay of your installation or `api.extraEnv` (Kubernetes). Otherwise, save it on the screen after the upgrade.
+- After the carry-over, delete the line from your env. While it stays, every start logs `Ignored removed settings: SLACK_EVENTS_PUBLIC_URL`. A value that is not https or has a query is not carried in, and the warning says so. Unlike earlier releases, startup does not stop.
+- Changing the saved address does not send it to apps already made. Press Recheck on the agent's Slack tab, or run `slack-app finalize`.
+- Keep the `slack_settings` table when rolling back. Earlier builds do not read it.
+
+<a id="mock-slack-env-이름" />
+### Mock Slack variable names
+
+`SLACK_API_URL` and `SLACK_OIDC_ISSUER`, used by the mock Slack test stack (`infra/compose.mock-slack.yml`), are now `MOCK_SLACK_API_URL` and `MOCK_SLACK_OIDC_ISSUER`. The old names are not read; if one is still set, the `Ignored removed settings` warning names it. When a new name has a value, startup logs one warning, `Mock Slack override in use: <names>`, whatever the address. Keep neither name in operational config.
 
 <a id="worker-protocol-필드를-걷어내는-순서" />
 ### Removing worker protocol fields

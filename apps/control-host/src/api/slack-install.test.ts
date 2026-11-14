@@ -188,7 +188,7 @@ describe("slack-install against a mock Slack", () => {
 
   test("exit codes for a missing token, a refused token, another app and an unreachable Slack", async () => {
     const env = {
-      SLACK_API_URL: apiUrl,
+      MOCK_SLACK_API_URL: apiUrl,
       DATABASE_URL: "postgres://unused",
     };
     const argv = (appId: string) => [
@@ -213,33 +213,36 @@ describe("slack-install against a mock Slack", () => {
         "app_mismatch: the token belongs to app A0MOCK, not A0OTHER",
       ],
       [
-        { SLACK_BOT_TOKEN: TOKEN, SLACK_API_URL: "http://127.0.0.1:9/api" },
+        {
+          SLACK_BOT_TOKEN: TOKEN,
+          MOCK_SLACK_API_URL: "http://127.0.0.1:9/api",
+        },
         "A0MOCK",
         SLACK_INSTALL_EXIT.slack_auth_failed,
         "Slack could not be reached",
       ],
       [
-        { SLACK_BOT_TOKEN: TOKEN, SLACK_API_URL: "file:///etc" },
+        { SLACK_BOT_TOKEN: TOKEN, MOCK_SLACK_API_URL: "file:///etc" },
         "A0MOCK",
         SLACK_INSTALL_EXIT.usage,
-        "SLACK_API_URL must be https",
+        "MOCK_SLACK_API_URL must be https",
       ],
       [
         // The token would cross the network in clear text.
         {
           SLACK_BOT_TOKEN: TOKEN,
-          SLACK_API_URL: "http://slack.example.com/api",
+          MOCK_SLACK_API_URL: "http://slack.example.com/api",
         },
         "A0MOCK",
         SLACK_INSTALL_EXIT.usage,
-        "SLACK_API_URL must be https (http only for a local mock)",
+        "MOCK_SLACK_API_URL must be https (http only for a local mock)",
       ],
       ...["http://[2001:db8::1]/api", "http://intranet/api"].map(
         (url): [Record<string, string>, string, number, string] => [
-          { SLACK_BOT_TOKEN: TOKEN, SLACK_API_URL: url },
+          { SLACK_BOT_TOKEN: TOKEN, MOCK_SLACK_API_URL: url },
           "A0MOCK",
           SLACK_INSTALL_EXIT.usage,
-          "SLACK_API_URL must be https (http only for a local mock)",
+          "MOCK_SLACK_API_URL must be https (http only for a local mock)",
         ],
       ),
     ];
@@ -255,7 +258,7 @@ describe("slack-install against a mock Slack", () => {
   test("an unexpected error is exit 1 and is scrubbed of the token", async () => {
     const run = capture({
       SLACK_BOT_TOKEN: TOKEN,
-      SLACK_API_URL: apiUrl,
+      MOCK_SLACK_API_URL: apiUrl,
       DATABASE_URL: "postgres://unused",
     });
     run.io.openDatabase = async () => {

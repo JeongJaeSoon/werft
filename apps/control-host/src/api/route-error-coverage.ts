@@ -51,6 +51,10 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "GET /v1/login-settings",
     "PATCH /v1/login-settings",
   ],
+  "routes/slack-settings.test.ts": [
+    "GET /v1/slack-settings",
+    "PUT /v1/slack-settings",
+  ],
   "routes/sessions/sessions.test.ts": [
     "POST /v1/sessions",
     "GET /v1/sessions",

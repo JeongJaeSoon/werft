@@ -22,7 +22,8 @@ const CONNECTIONS = {
   ],
 };
 // Every settings page reads the connections for its model card; the
-// Slack page also reads the token and the apps it made.
+// Slack page also reads the token, the apps it made and, for the owner,
+// the events entrance.
 const renderAt: typeof harness.renderAt = (path, routes, locale) =>
   harness.renderAt(
     path,
@@ -32,6 +33,13 @@ const renderAt: typeof harness.renderAt = (path, routes, locale) =>
         json(200, workspaceEngineSettings()),
       [`GET ${TOKEN}`]: () => json(200, REGISTERED_TOKEN),
       [`GET ${APPS}`]: () => json(200, { items: [] }),
+      "GET /v1/slack-settings": () =>
+        json(200, {
+          events_public_url: null,
+          computed_events_base: "https://console.example.test",
+          events_url_template:
+            "https://console.example.test/v1/slack/events/{agent_id}",
+        }),
       ...routes,
     },
     locale,
@@ -409,10 +417,10 @@ describe("워크스페이스 설정", () => {
     });
     const toggle = await screen.findByRole("switch", GUEST_SWITCH);
     const user = await setupUser();
-    const copies = within(
-      await screen.findByRole("region", { name: "Slack 앱에 넣을 주소" }),
-    ).getAllByRole("button", { name: "복사" });
-    (copies[copies.length - 1] as HTMLElement).focus();
+    // The events entrance's last control comes right before the guest card.
+    within(await screen.findByRole("region", { name: "이벤트 입구 주소" }))
+      .getByRole("button", { name: "저장" })
+      .focus();
     await user.tab();
     expect(document.activeElement === toggle).toBe(true);
     await user.keyboard(" ");

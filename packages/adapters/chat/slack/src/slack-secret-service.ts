@@ -104,7 +104,8 @@ export function createSlackSecretService(deps: {
   /** Null when the API runs without a master key. */
   store: SecretStore | null;
   tokens: SlackConfigTokens | null;
-  urls: SlackPublicUrls;
+  /** Read on each answer: the events address can change while the API runs. */
+  urls: () => Promise<SlackPublicUrls>;
   /** The kind of one of the workspace's Slack apps, or null when it has none. */
   appKind: (
     workspaceId: string,
@@ -161,7 +162,7 @@ export function createSlackSecretService(deps: {
       const tokens = await managedTokens(caller, workspaceId);
       return slackConfigTokenSummaryOf(
         await tokens.describe(workspaceId),
-        deps.urls,
+        await deps.urls(),
       );
     },
 
@@ -186,7 +187,7 @@ export function createSlackSecretService(deps: {
       switch (result.outcome) {
         case "stored":
           return {
-            ...slackConfigTokenSummaryOf(result.summary, deps.urls),
+            ...slackConfigTokenSummaryOf(result.summary, await deps.urls()),
             receipt_id: audit.receiptId,
             warnings:
               result.previousIssuerUserId !== null &&

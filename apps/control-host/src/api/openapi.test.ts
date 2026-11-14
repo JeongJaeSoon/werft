@@ -469,6 +469,7 @@ describe("OpenAPI document", () => {
         "/v1/agents/{id}/slack-channels",
         "/v1/agents/{id}/slack/channels",
         "/v1/agents/{id}/slack/install/start",
+        "/v1/slack-settings",
         "/v1/slack/events/{agent_id}",
         "/v1/slack/install/complete",
         "/v1/slack/interactions/{agent_id}",

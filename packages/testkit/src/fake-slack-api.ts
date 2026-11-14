@@ -1,7 +1,7 @@
 import { createHmac, randomBytes } from "node:crypto";
 
 // Slack's Web API over HTTP, for tests and the local stack: whatever reads
-// SLACK_API_URL can be pointed at `<url>/api`. Every token it hands out is
+// MOCK_SLACK_API_URL can be pointed at `<url>/api`. Every token it hands out is
 // made here at runtime; none is a real credential.
 
 export type FakeSlackApp = {
@@ -1153,7 +1153,7 @@ export function slackEventEnvelope(input: {
   };
 }
 
-/** The Web API fake on its own port: `url` is what SLACK_API_URL takes. */
+/** The Web API fake on its own port: `url` is what MOCK_SLACK_API_URL takes. */
 export function startFakeSlackApi(
   options: Parameters<typeof createFakeSlackWebApi>[0] = {},
 ) {

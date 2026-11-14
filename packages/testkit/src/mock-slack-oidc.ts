@@ -18,7 +18,7 @@ export type MockSlackAccount = {
 };
 
 export type MockSlackOidc = {
-  /** The issuer: what SLACK_OIDC_ISSUER is set to. */
+  /** The issuer: what MOCK_SLACK_OIDC_ISSUER is set to. */
   url: string;
   /** Where it listens, when that differs from the issuer it signs as. */
   listenUrl: string;

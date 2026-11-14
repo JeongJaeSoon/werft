@@ -151,7 +151,10 @@ integration("the workspace's link app, made on the first Slack link", () => {
             authorization,
             store: createPostgresSecretStore(db, key),
             tokens,
-            urls: { redirect_url: null, events_url_template: null },
+            urls: async () => ({
+              redirect_url: null,
+              events_url_template: null,
+            }),
             appKind: (workspaceId, slackAppId) =>
               slackAppKind(db, workspaceId, slackAppId),
           }),
@@ -168,7 +171,10 @@ integration("the workspace's link app, made on the first Slack link", () => {
             authorization,
             store: createPostgresSecretStore(db, key),
             tokens,
-            urls: { redirect_url: null, events_url_template: null },
+            urls: async () => ({
+              redirect_url: null,
+              events_url_template: null,
+            }),
             appKind: (workspaceId, slackAppId) =>
               slackAppKind(db, workspaceId, slackAppId),
           }),

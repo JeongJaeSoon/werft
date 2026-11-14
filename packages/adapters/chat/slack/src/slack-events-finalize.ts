@@ -23,10 +23,11 @@ export type SlackEventsFinalizeTarget = Pick<
 export function createSlackEventsFinalize(deps: {
   apps: Pick<SlackAppService, "updateAgentAppManifest">;
   agents: Pick<SlackAppStore, "manifestAgent">;
-  publicUrl: string | null;
+  publicUrl: () => Promise<string | null>;
 }): (target: SlackEventsFinalizeTarget) => Promise<SlackFinalizeResult> {
   return async (target) => {
-    if (deps.publicUrl === null) {
+    const publicUrl = await deps.publicUrl();
+    if (publicUrl === null) {
       return { finalized: false, warnings: [{ code: "events_url_unset" }] };
     }
     const agent = await deps.agents.manifestAgent(
@@ -43,7 +44,7 @@ export function createSlackEventsFinalize(deps: {
         name: agent.name,
         botName: agent.slug,
         description: agent.role,
-        eventsUrl: slackEventsUrl(deps.publicUrl, target.agentId),
+        eventsUrl: slackEventsUrl(publicUrl, target.agentId),
       },
     );
     return {

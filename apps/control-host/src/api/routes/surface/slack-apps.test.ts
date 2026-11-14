@@ -159,13 +159,13 @@ function appWith(enabled: boolean) {
           tokens,
           api: slack.api,
           consoleOrigin: ORIGIN,
-          eventsPublicUrl: "https://events.example.test",
+          eventsPublicUrl: async () => "https://events.example.test",
         }),
         secrets: createSlackSecretService({
           authorization,
           store: enabled ? secrets.store : null,
           tokens,
-          urls: { redirect_url: null, events_url_template: null },
+          urls: async () => ({ redirect_url: null, events_url_template: null }),
           appKind: async (workspaceId, slackAppId) => {
             kindLookups.push(slackAppId);
             const row = apps.rows.get(slackAppId);

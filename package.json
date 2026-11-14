@@ -19,7 +19,7 @@
     "keys": "docker compose --profile apps exec -T api bun run apps/control-host/src/api/keys.ts",
     "grants": "docker compose --profile apps exec -T api bun run apps/control-host/src/api/grants.ts",
     "settings": "docker compose --profile apps exec -T api bun run apps/control-host/src/api/settings.ts",
-    "slack-install": "docker compose --profile apps exec -T -e SLACK_BOT_TOKEN -e SLACK_API_URL api bun run apps/control-host/src/api/slack-install.ts",
+    "slack-install": "docker compose --profile apps exec -T -e SLACK_BOT_TOKEN -e MOCK_SLACK_API_URL api bun run apps/control-host/src/api/slack-install.ts",
     "keys:k8s": "scripts/k8s-api.sh keys",
     "grants:k8s": "scripts/k8s-api.sh grants",
     "settings:k8s": "scripts/k8s-api.sh settings"

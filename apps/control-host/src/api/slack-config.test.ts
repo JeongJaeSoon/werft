@@ -1,13 +1,18 @@
 import { describe, expect, test } from "bun:test";
 import { slackEventsUrl, slackLinkRedirectUrl } from "@werft-ai/chat-slack";
 import {
+  computedEventsBase,
   consoleOriginFrom,
+  parseEventsPublicUrl,
   SlackConfigError,
+  slackApiUrlFrom,
   slackApiUrlWarnings,
   slackEnvWarnings,
-  slackEventsPublicUrlFrom,
   slackIssuerFrom,
 } from "./slack-config.ts";
+
+const eventsBaseFrom = (env: Record<string, string | undefined>) =>
+  computedEventsBase(consoleOriginFrom(env));
 
 const ORIGIN = "https://werft.example";
 const REDIRECT = `${ORIGIN}/settings/linked-accounts/slack`;
@@ -20,12 +25,9 @@ describe("the public addresses computed from CONSOLE_ORIGIN", () => {
     expect(slackLinkRedirectUrl(origin ?? "")).toBe(REDIRECT);
   });
 
-  test("the events address equals what SLACK_EVENTS_PUBLIC_URL held for the same console", () => {
-    const computed = slackEventsPublicUrlFrom({ CONSOLE_ORIGIN: ORIGIN });
-    const legacy = slackEventsPublicUrlFrom({
-      SLACK_EVENTS_PUBLIC_URL: ORIGIN,
-    });
-    expect(computed).toBe(legacy);
+  test("the events address is the console origin and the fixed events path", () => {
+    const computed = eventsBaseFrom({ CONSOLE_ORIGIN: ORIGIN });
+    expect(computed).toBe(ORIGIN);
     expect(slackEventsUrl(computed ?? "", AGENT)).toBe(
       `${ORIGIN}/v1/slack/events/${AGENT}`,
     );
@@ -38,35 +40,74 @@ describe("the public addresses computed from CONSOLE_ORIGIN", () => {
   });
 
   test("plain http reaches events only on a local host: Slack calls https", () => {
-    expect(
-      slackEventsPublicUrlFrom({ CONSOLE_ORIGIN: "http://127.0.0.1:3000" }),
-    ).toBe("http://127.0.0.1:3000");
-    expect(
-      slackEventsPublicUrlFrom({ CONSOLE_ORIGIN: "http://werft.example" }),
-    ).toBeNull();
+    expect(eventsBaseFrom({ CONSOLE_ORIGIN: "http://127.0.0.1:3000" })).toBe(
+      "http://127.0.0.1:3000",
+    );
+    expect(eventsBaseFrom({ CONSOLE_ORIGIN: "http://werft.example" })).toBe(
+      null,
+    );
   });
 
   test("nothing is computed without a console origin", () => {
-    expect(consoleOriginFrom({})).toBeNull();
-    expect(slackEventsPublicUrlFrom({})).toBeNull();
+    expect(consoleOriginFrom({})).toBe(null);
+    expect(eventsBaseFrom({})).toBe(null);
   });
 
-  test("SLACK_EVENTS_PUBLIC_URL still wins, with its path prefix, when events enter apart from the console", () => {
+  test("SLACK_EVENTS_PUBLIC_URL is no longer read: only CONSOLE_ORIGIN counts", () => {
     expect(
-      slackEventsPublicUrlFrom({
+      eventsBaseFrom({
         CONSOLE_ORIGIN: ORIGIN,
         SLACK_EVENTS_PUBLIC_URL: "https://events.example.test/in/",
       }),
-    ).toBe("https://events.example.test/in");
+    ).toBe(ORIGIN);
+    expect(
+      eventsBaseFrom({
+        SLACK_EVENTS_PUBLIC_URL: "https://events.example.test",
+      }),
+    ).toBe(null);
   });
 
-  test("a malformed override stops the process; the console origin must be http(s)", () => {
-    expect(() =>
-      slackEventsPublicUrlFrom({ SLACK_EVENTS_PUBLIC_URL: "http://x.test" }),
-    ).toThrow(SlackConfigError);
+  test("the console origin must be http(s)", () => {
     expect(() => consoleOriginFrom({ CONSOLE_ORIGIN: "/relative" })).toThrow(
       SlackConfigError,
     );
+  });
+});
+
+describe("parseEventsPublicUrl", () => {
+  test("keeps an https base and its path prefix, without the trailing slash", () => {
+    expect(parseEventsPublicUrl("https://events.example.test")).toBe(
+      "https://events.example.test",
+    );
+    expect(parseEventsPublicUrl("https://events.example.test/in/")).toBe(
+      "https://events.example.test/in",
+    );
+    expect(parseEventsPublicUrl("https://events.example.test:8443/a/b")).toBe(
+      "https://events.example.test:8443/a/b",
+    );
+    expect(parseEventsPublicUrl("https://events.example.test/한")).toBe(
+      "https://events.example.test/%ED%95%9C",
+    );
+  });
+
+  test.each([
+    ["plain http, even on a local host", "http://127.0.0.1:3000"],
+    ["a relative path", "/v1/slack"],
+    ["not a URL", "events.example.test"],
+    ["a query", "https://events.example.test/?a=1"],
+    ["an empty query", "https://events.example.test/?"],
+    ["a fragment", "https://events.example.test/#in"],
+    ["an empty fragment", "https://events.example.test/#"],
+    ["credentials", "https://user:pass@events.example.test"],
+    ["a user alone", "https://user@events.example.test"],
+    ["another scheme", "wss://events.example.test"],
+    ["over 2048 characters", `https://events.example.test/${"a".repeat(2030)}`],
+    [
+      "a short path that encodes past 2048 characters",
+      `https://events.example.test/${"한".repeat(230)}`,
+    ],
+  ])("refuses %s", (_, value) => {
+    expect(parseEventsPublicUrl(value)).toBe(null);
   });
 });
 
@@ -79,26 +120,41 @@ describe("settings an older deployment may still pass", () => {
   };
 
   test("are not read: without CONSOLE_ORIGIN nothing is computed, with it only it counts", () => {
-    expect(consoleOriginFrom(removed)).toBeNull();
-    expect(slackEventsPublicUrlFrom(removed)).toBeNull();
+    expect(consoleOriginFrom(removed)).toBe(null);
+    expect(eventsBaseFrom(removed)).toBe(null);
     expect(consoleOriginFrom({ ...removed, CONSOLE_ORIGIN: ORIGIN })).toBe(
       ORIGIN,
     );
-    expect(
-      slackEventsPublicUrlFrom({ ...removed, CONSOLE_ORIGIN: ORIGIN }),
-    ).toBe(ORIGIN);
+    expect(eventsBaseFrom({ ...removed, CONSOLE_ORIGIN: ORIGIN })).toBe(ORIGIN);
   });
 
-  test("are not parsed either: a malformed old redirect does not stop the process", () => {
-    expect(
-      consoleOriginFrom({ SLACK_OIDC_REDIRECT_URI: "not a url" }),
-    ).toBeNull();
+  test("SLACK_API_URL and SLACK_OIDC_ISSUER are not read: Slack's own addresses stay", () => {
+    const old = {
+      SLACK_API_URL: "http://mock-slack:4020/api",
+      SLACK_OIDC_ISSUER: "http://mock-slack:4020",
+    };
+    expect(slackApiUrlFrom(old)).toBe("https://slack.com/api");
+    expect(slackIssuerFrom(old)).toBe("https://slack.com");
+  });
+
+  test("are not parsed either: a malformed old value does not stop the process", () => {
+    expect(consoleOriginFrom({ SLACK_OIDC_REDIRECT_URI: "not a url" })).toBe(
+      null,
+    );
+    expect(slackApiUrlFrom({ SLACK_API_URL: "not a url" })).toBe(
+      "https://slack.com/api",
+    );
   });
 
   test("give one warning that names them and carries no value", () => {
-    const warnings = slackEnvWarnings({ ...removed, CONSOLE_ORIGIN: ORIGIN });
+    const warnings = slackEnvWarnings({
+      ...removed,
+      SLACK_API_URL: "http://mock-slack:4020/api",
+      SLACK_OIDC_ISSUER: "http://mock-slack:4020",
+      CONSOLE_ORIGIN: ORIGIN,
+    });
     expect(warnings).toEqual([
-      "Ignored removed settings: SLACK_OIDC_REDIRECT_URI, SLACK_OIDC_CLIENT_ID, SLACK_OIDC_CLIENT_SECRET",
+      "Ignored removed settings: SLACK_OIDC_REDIRECT_URI, SLACK_OIDC_CLIENT_ID, SLACK_OIDC_CLIENT_SECRET, SLACK_API_URL, SLACK_OIDC_ISSUER",
     ]);
     expect(
       slackEnvWarnings({ CONSOLE_ORIGIN: ORIGIN, SLACK_OIDC_CLIENT_ID: "x" }),
@@ -122,73 +178,82 @@ describe("slackEnvWarnings", () => {
     expect(slackEnvWarnings({ CONSOLE_ORIGIN: ORIGIN })).toEqual([]);
   });
 
-  test("an events override that differs from the computed address is flagged, an equal one is not", () => {
-    expect(
-      slackEnvWarnings({
-        CONSOLE_ORIGIN: ORIGIN,
-        SLACK_EVENTS_PUBLIC_URL: "https://events.example.test",
-      })[0],
-    ).toContain("mismatch");
-    expect(
-      slackEnvWarnings({
-        CONSOLE_ORIGIN: ORIGIN,
-        SLACK_EVENTS_PUBLIC_URL: `${ORIGIN}/`,
-      }),
-    ).toEqual([]);
-  });
-
-  test("SLACK_API_URL and SLACK_OIDC_ISSUER away from Slack are test-only; the mock hosts and Slack itself are silent", () => {
-    for (const name of ["SLACK_API_URL", "SLACK_OIDC_ISSUER"] as const) {
-      const warnings = slackEnvWarnings({
-        CONSOLE_ORIGIN: ORIGIN,
-        [name]: "https://slack-proxy.example",
-      });
-      expect(warnings).toHaveLength(1);
-      expect(warnings[0]).toContain(name);
-      expect(warnings[0]).toContain("test stack only");
+  test("a mock override warns once, whatever host it names, Slack's own and the mock's included", () => {
+    for (const value of [
+      "http://mock-slack:4020",
+      "https://slack.com",
+      "https://slack-proxy.example",
+    ]) {
+      expect(
+        slackEnvWarnings({
+          CONSOLE_ORIGIN: ORIGIN,
+          MOCK_SLACK_API_URL: `${value}/api`,
+          MOCK_SLACK_OIDC_ISSUER: value,
+        }),
+      ).toEqual([
+        "Mock Slack override in use: MOCK_SLACK_API_URL, MOCK_SLACK_OIDC_ISSUER. It is for the mock Slack test stack only; remove it from operational config",
+      ]);
     }
     expect(
       slackEnvWarnings({
-        CONSOLE_ORIGIN: "http://127.0.0.1:3000",
-        SLACK_API_URL: "http://mock-slack:4020/api",
-        SLACK_OIDC_ISSUER: "http://mock-slack:4020",
-      }),
-    ).toEqual([]);
-    expect(
-      slackEnvWarnings({
         CONSOLE_ORIGIN: ORIGIN,
-        SLACK_API_URL: "https://slack.com/api/",
-        SLACK_OIDC_ISSUER: "https://slack.com",
+        MOCK_SLACK_OIDC_ISSUER: "http://mock-slack:4020",
       }),
-    ).toEqual([]);
+    ).toEqual([
+      "Mock Slack override in use: MOCK_SLACK_OIDC_ISSUER. It is for the mock Slack test stack only; remove it from operational config",
+    ]);
   });
 
-  test("the Slack role's API warning names SLACK_API_URL only", () => {
-    const warnings = slackApiUrlWarnings({
-      SLACK_API_URL: "https://slack-proxy.example/api",
-      SLACK_OIDC_ISSUER: "https://slack-proxy.example",
-    });
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toContain("SLACK_API_URL");
-    expect(warnings[0]).not.toContain("slack-proxy.example");
+  test("the Slack role's warnings name the API address only", () => {
+    expect(
+      slackApiUrlWarnings({
+        MOCK_SLACK_API_URL: "http://mock-slack:4020/api",
+        MOCK_SLACK_OIDC_ISSUER: "http://mock-slack:4020",
+      }),
+    ).toEqual([
+      "Mock Slack override in use: MOCK_SLACK_API_URL. It is for the mock Slack test stack only; remove it from operational config",
+    ]);
     expect(
       slackApiUrlWarnings({ SLACK_API_URL: "http://mock-slack:4020/api" }),
-    ).toEqual([]);
+    ).toEqual(["Ignored removed settings: SLACK_API_URL"]);
     expect(slackApiUrlWarnings({})).toEqual([]);
   });
 
   test("no warning carries a value", () => {
     const secret = "https://leak-canary.example/path-canary";
-    const text = slackEnvWarnings({
-      CONSOLE_ORIGIN: ORIGIN,
-      SLACK_OIDC_REDIRECT_URI: secret,
-      SLACK_EVENTS_PUBLIC_URL: secret,
-      SLACK_API_URL: secret,
-      SLACK_OIDC_ISSUER: secret,
-      SLACK_OIDC_CLIENT_ID: "client-canary",
-      SLACK_OIDC_CLIENT_SECRET: "secret-canary",
-    }).join("\n");
+    const text = [
+      ...slackEnvWarnings({
+        CONSOLE_ORIGIN: ORIGIN,
+        SLACK_OIDC_REDIRECT_URI: secret,
+        SLACK_EVENTS_PUBLIC_URL: secret,
+        SLACK_API_URL: secret,
+        SLACK_OIDC_ISSUER: secret,
+        MOCK_SLACK_API_URL: secret,
+        MOCK_SLACK_OIDC_ISSUER: secret,
+        SLACK_OIDC_CLIENT_ID: "client-canary",
+        SLACK_OIDC_CLIENT_SECRET: "secret-canary",
+      }),
+      ...slackApiUrlWarnings({
+        SLACK_API_URL: secret,
+        MOCK_SLACK_API_URL: secret,
+      }),
+    ].join("\n");
     expect(text).not.toContain("canary");
+  });
+});
+
+describe("slackApiUrlFrom", () => {
+  test("defaults to Slack and takes a local mock over plain http", () => {
+    expect(slackApiUrlFrom({})).toBe("https://slack.com/api");
+    expect(
+      slackApiUrlFrom({ MOCK_SLACK_API_URL: "http://mock-slack:4020/api/" }),
+    ).toBe("http://mock-slack:4020/api");
+  });
+
+  test("plain http elsewhere would send tokens in clear text", () => {
+    expect(() =>
+      slackApiUrlFrom({ MOCK_SLACK_API_URL: "http://slack.example/api" }),
+    ).toThrow("MOCK_SLACK_API_URL must be https (http only for a local mock)");
   });
 });
 
@@ -196,16 +261,16 @@ describe("slackIssuerFrom", () => {
   test("defaults to Slack, trims a trailing slash, and accepts a local mock", () => {
     expect(slackIssuerFrom({})).toBe("https://slack.com");
     expect(
-      slackIssuerFrom({ SLACK_OIDC_ISSUER: "http://mock-slack:4020/" }),
+      slackIssuerFrom({ MOCK_SLACK_OIDC_ISSUER: "http://mock-slack:4020/" }),
     ).toBe("http://mock-slack:4020");
   });
 
   test("must be an absolute http(s) URL", () => {
-    expect(() => slackIssuerFrom({ SLACK_OIDC_ISSUER: "/relative" })).toThrow(
-      SlackConfigError,
-    );
     expect(() =>
-      slackIssuerFrom({ SLACK_OIDC_ISSUER: "ftp://slack.example" }),
+      slackIssuerFrom({ MOCK_SLACK_OIDC_ISSUER: "/relative" }),
+    ).toThrow("MOCK_SLACK_OIDC_ISSUER must be an absolute URL");
+    expect(() =>
+      slackIssuerFrom({ MOCK_SLACK_OIDC_ISSUER: "ftp://slack.example" }),
     ).toThrow(SlackConfigError);
   });
 });

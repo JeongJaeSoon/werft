@@ -12,9 +12,10 @@
 #   off     removes those mappings (the same --https and --set-path as on)
 #   status  tailscale funnel status
 #
-# Set SLACK_EVENTS_PUBLIC_URL=https://<host>.ts.net[:<https>] on the API (this
-# entrance is apart from the console, so CONSOLE_ORIGIN cannot stand for it)
-# afterwards, then run Finalize (an install, or `slack-app finalize`).
+# Afterwards an owner saves https://<host>.ts.net[:<https>] as the events
+# entrance in Settings > Integrations > Slack (this entrance is apart from the
+# console, so CONSOLE_ORIGIN cannot stand for it), then runs Finalize (an
+# install, Recheck on the agent's Slack tab, or `slack-app finalize`).
 #
 # Usage: PORT=<api port> scripts/slack-funnel.sh on
 #        scripts/slack-funnel.sh off|status

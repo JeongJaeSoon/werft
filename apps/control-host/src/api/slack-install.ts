@@ -31,7 +31,7 @@ export const SLACK_INSTALL_EXIT = {
 
 const USAGE = `Usage: bun run apps/control-host/src/api/slack-install.ts register --workspace <workspace_id> --app-id <app_id>
 Environment: SLACK_BOT_TOKEN (required; never an argument), DATABASE_URL (required),
-             SLACK_API_URL (default https://slack.com/api; http only for a local mock)
+             MOCK_SLACK_API_URL (mock Slack test stack only; default https://slack.com/api)
 Exit codes: 0 verified, 1 unexpected error, 2 usage, 3 Slack refused the token,
             4 workspace_conflict, 5 revoked, 6 workspace not found,
             7 the token belongs to another app`;

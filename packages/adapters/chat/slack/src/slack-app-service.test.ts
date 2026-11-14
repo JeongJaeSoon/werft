@@ -281,7 +281,7 @@ async function setup(
     api: slack.api,
     consoleOrigin:
       options.consoleOrigin === undefined ? ORIGIN : options.consoleOrigin,
-    eventsPublicUrl: options.eventsPublicUrl ?? null,
+    eventsPublicUrl: async () => options.eventsPublicUrl ?? null,
     ...(options.logger ? { logger: options.logger } : {}),
     ...(options.activeReleaseWarning
       ? { activeReleaseWarning: options.activeReleaseWarning }
