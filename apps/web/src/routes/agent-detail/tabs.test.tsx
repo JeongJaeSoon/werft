@@ -16,6 +16,7 @@ import {
   USER_ID,
 } from "../../test-support/fake-api.ts";
 import { appHarness } from "../../test-support/render-app.tsx";
+import { usagePeriod } from "../operations.tsx";
 
 const { renderAt, screen, waitFor, within } = await appHarness();
 const { formatExactTime, formatRelativeTime } = await import("@werft-ai/ui");
@@ -51,6 +52,25 @@ const figureTexts = (glance: HTMLElement) =>
         (line) => line.textContent,
       ),
     );
+/** A GET /v1/usage/summary?scope=agent answer, every cost counted. */
+const agentUsage = (cost: string) => {
+  const { since, until } = usagePeriod(7);
+  return {
+    scope: "agent",
+    session_count: 3,
+    cost_usd: cost,
+    cost_complete: true,
+    run_seconds: 0,
+    token_count: 0,
+    period: { since, until },
+    refreshed_at: until,
+    basis: {
+      sessions: "created_in_period",
+      cost: "provider_usage_estimate",
+      run_time: "turn_wall_clock",
+    },
+  };
+};
 /** A GET /v1/agents item with the counts its summary carries. */
 const listed = (
   id: string,
@@ -509,74 +529,102 @@ describe("에이전트 상세 탭", () => {
     ).toBe(2);
   });
 
-  test("설치 사용량을 읽는 사람에게는 셋째 칸에 이 에이전트의 최근 7일 추정 비용이 보인다", async () => {
-    const figures = (cost: string) => ({
-      session_count: 3,
-      input_tokens: 0,
-      output_tokens: 0,
-      cache_read_input_tokens: 0,
-      cache_creation_input_tokens: 0,
-      token_count: 0,
-      cost_usd: cost,
-    });
+  test("셋째 칸은 이 에이전트의 사용량 합계(scope=agent)에서 최근 7일 추정 비용을 읽는다", async () => {
     const { api } = renderAt(DETAIL, {
       ...meOk,
       ...agentServer().routes,
-      "GET /v1/usage/breakdown": () =>
-        json(200, {
-          rows: [
-            { key: "other-agent", label: "other", ...figures("4.000000") },
-            { key: AGENT_ID, label: "agent", ...figures("0.960000") },
-          ],
-          totals: figures("4.960000"),
-        }),
+      "GET /v1/usage/summary": () => json(200, agentUsage("0.960000")),
     });
     const glance = await screen.findByRole("list", { name: "에이전트 현황" });
-    await within(glance).findByText("$0.96");
-    const cost = within(glance).getAllByRole("listitem")[2] as HTMLElement;
-    expect(cost.textContent).toContain("최근 7일 비용");
-    expect(cost.textContent).toContain("추정");
-    expect(cost.textContent).toContain("제공업체 청구액과 다를 수 있음");
-    const asked = new URLSearchParams(
-      api.calls.find((call) => call.path === "/v1/usage/breakdown")?.search,
+    await waitFor(() =>
+      expect(figureTexts(glance)[2]).toEqual([
+        "최근 7일 비용추정",
+        "$0.96",
+        "제공업체 청구액과 다를 수 있음",
+      ]),
     );
-    expect(asked.get("scope")).toBe("installation");
-    expect(asked.get("by")).toBe("agent");
-    expect(
-      Date.parse(asked.get("until") ?? "") -
-        Date.parse(asked.get("since") ?? ""),
-    ).toBe(7 * 86_400_000);
+    const asked = api.calls.filter((call) => call.path === "/v1/usage/summary");
+    expect(asked).toHaveLength(1);
+    const query = new URLSearchParams(asked[0]?.search);
+    expect([...query.keys()].sort()).toEqual([
+      "agent_id",
+      "scope",
+      "since",
+      "until",
+    ]);
+    expect(query.get("scope")).toBe("agent");
+    expect(query.get("agent_id")).toBe(AGENT_ID);
+    const { since, until } = usagePeriod(7);
+    expect(query.get("since")).toBe(since);
+    expect(query.get("until")).toBe(until);
+    expect(api.calls.some((call) => call.path === "/v1/usage/breakdown")).toBe(
+      false,
+    );
   });
 
   test("기간 안에 이 에이전트의 세션이 없으면 비용은 $0.00이다", async () => {
     renderAt(DETAIL, {
       ...meOk,
       ...agentServer().routes,
-      "GET /v1/usage/breakdown": () =>
-        json(200, {
-          rows: [],
-          totals: {
-            session_count: 0,
-            input_tokens: 0,
-            output_tokens: 0,
-            cache_read_input_tokens: 0,
-            cache_creation_input_tokens: 0,
-            token_count: 0,
-            cost_usd: "0",
-          },
-        }),
+      "GET /v1/usage/summary": () => json(200, agentUsage("0.000000")),
     });
     const glance = await screen.findByRole("list", { name: "에이전트 현황" });
     await within(glance).findByText("$0.00");
   });
 
-  test("비용을 읽지 못하면 비용 칸은 —와 이유를 보인다", async () => {
-    renderAt(DETAIL, {
+  test("합계에 비용을 모르는 턴이 있으면 값 옆에 일부 미집계를 붙이고, 다 셌으면 붙이지 않는다", async () => {
+    let complete = false;
+    const { services } = renderAt(DETAIL, {
       ...meOk,
       ...agentServer().routes,
-      "GET /v1/usage/breakdown": () => apiError(500, "INTERNAL_ERROR", "boom"),
+      "GET /v1/usage/summary": () =>
+        json(200, { ...agentUsage("1.250000"), cost_complete: complete }),
     });
     const glance = await screen.findByRole("list", { name: "에이전트 현황" });
+    await waitFor(() =>
+      expect(figureTexts(glance)[2]?.[1]).toBe("$1.25일부 미집계"),
+    );
+    complete = true;
+    await services.queryClient.refetchQueries();
+    await waitFor(() => expect(figureTexts(glance)[2]?.[1]).toBe("$1.25"));
+  });
+
+  for (const [status, code, reason] of [
+    [403, "FORBIDDEN", "소유자·관리자와 에이전트 관리자만 볼 수 있음"],
+    [500, "INTERNAL_ERROR", "불러오지 못함"],
+  ] as const) {
+    test(`비용 읽기가 ${status}이면 $0이 아니라 —와 이유(${reason})를 보인다`, async () => {
+      renderAt(DETAIL, {
+        ...meOk,
+        ...agentServer().routes,
+        "GET /v1/usage/summary": () => apiError(status, code, "no"),
+      });
+      const glance = await screen.findByRole("list", { name: "에이전트 현황" });
+      await waitFor(() =>
+        expect(figureTexts(glance)[2]).toEqual([
+          "최근 7일 비용추정",
+          "—",
+          reason,
+        ]),
+      );
+      expect(glance.textContent).not.toContain("$0");
+    });
+  }
+
+  test("다시 읽기가 실패하면 앞서 읽은 비용을 두지 않고 —와 이유를 보인다", async () => {
+    let fail = false;
+    const { services } = renderAt(DETAIL, {
+      ...meOk,
+      ...agentServer().routes,
+      "GET /v1/usage/summary": () =>
+        fail
+          ? apiError(500, "INTERNAL_ERROR", "boom")
+          : json(200, agentUsage("2.000000")),
+    });
+    const glance = await screen.findByRole("list", { name: "에이전트 현황" });
+    await within(glance).findByText("$2.00");
+    fail = true;
+    await services.queryClient.refetchQueries();
     await waitFor(() =>
       expect(figureTexts(glance)[2]).toEqual([
         "최근 7일 비용추정",
@@ -663,8 +711,8 @@ describe("에이전트 상세 탭", () => {
     );
   });
 
-  test("관리자에게 수는 보이고, 설치 사용량을 못 읽으니 비용은 —와 이유이며 묻지 않는다", async () => {
-    const { api } = renderAt(DETAIL, {
+  test("관리자에게 수와 이 에이전트의 최근 7일 비용이 보인다", async () => {
+    renderAt(DETAIL, {
       "GET /v1/auth/me": () => json(200, me(undefined, "admin")),
       ...agentServer().routes,
       "GET /v1/agents": () =>
@@ -672,44 +720,62 @@ describe("에이전트 상세 탭", () => {
           items: [listed(AGENT_ID, { needs_input_count: 1, running_count: 3 })],
           next_cursor: null,
         }),
+      "GET /v1/usage/summary": () => json(200, agentUsage("0.420000")),
     });
     const glance = await screen.findByRole("list", { name: "에이전트 현황" });
     await waitFor(() =>
       expect(figureTexts(glance)).toEqual([
         ["답변 대기", "1", "담당자가 답할 요청"],
         ["작업 중", "3", "지금 실행 중인 세션"],
-        ["최근 7일 비용추정", "—", "소유자만 볼 수 있음"],
+        ["최근 7일 비용추정", "$0.42", "제공업체 청구액과 다를 수 있음"],
       ]),
-    );
-    expect(api.calls.some((call) => call.path === "/v1/usage/breakdown")).toBe(
-      false,
     );
   });
 
-  test("에이전트 목록도 설치 사용량도 못 읽는 구성원에게는 세 칸 모두 —와 이유이고 묻지도 않는다", async () => {
+  test("이 에이전트를 맡은 구성원에게는 수는 —지만 비용은 보인다", async () => {
+    renderAt(DETAIL, {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/administered-agents": () =>
+        json(200, { items: [agentServer().detail().agent] }),
+      ...agentServer().routes,
+      "GET /v1/usage/summary": () => json(200, agentUsage("3.100000")),
+    });
+    const glance = await screen.findByRole("list", { name: "에이전트 현황" });
+    await waitFor(() =>
+      expect(figureTexts(glance)[2]).toEqual([
+        "최근 7일 비용추정",
+        "$3.10",
+        "제공업체 청구액과 다를 수 있음",
+      ]),
+    );
+  });
+
+  test("에이전트 목록을 못 읽고 비용도 거절된 구성원에게는 세 칸 모두 —와 이유이고 목록은 묻지 않는다", async () => {
     const { api } = renderAt(DETAIL, {
       "GET /v1/auth/me": () => json(200, memberMe()),
       "GET /v1/administered-agents": () => json(200, { items: [] }),
       ...agentServer().routes,
+      "GET /v1/usage/summary": () => apiError(403, "FORBIDDEN", "no"),
     });
     const glance = await screen.findByRole("list", { name: "에이전트 현황" });
-    expect(figureTexts(glance)).toEqual([
-      ["답변 대기", "—", "소유자와 관리자만 볼 수 있음"],
-      ["작업 중", "—", "소유자와 관리자만 볼 수 있음"],
-      ["최근 7일 비용추정", "—", "소유자만 볼 수 있음"],
-    ]);
+    await waitFor(() =>
+      expect(figureTexts(glance)).toEqual([
+        ["답변 대기", "—", "소유자와 관리자만 볼 수 있음"],
+        ["작업 중", "—", "소유자와 관리자만 볼 수 있음"],
+        [
+          "최근 7일 비용추정",
+          "—",
+          "소유자·관리자와 에이전트 관리자만 볼 수 있음",
+        ],
+      ]),
+    );
     // The dash is not read out; the reason under it is.
     expect(
       within(glance)
         .getAllByText("—")
         .every((dash) => dash.getAttribute("aria-hidden") === "true"),
     ).toBe(true);
-    expect(
-      api.calls.some(
-        (call) =>
-          call.path === "/v1/usage/breakdown" || call.path === "/v1/agents",
-      ),
-    ).toBe(false);
+    expect(api.calls.some((call) => call.path === "/v1/agents")).toBe(false);
   });
 
   test("머리 태그는 릴리스한 에이전트를 목록과 같은 상태 이름으로 부른다", async () => {
