@@ -77,6 +77,24 @@ describe("importInstallationConfig", () => {
     expect(memory.saved).toEqual({ pending_request_ttl_sec: 600 });
   });
 
+  // What the earlier env parser took (`Number`), so an upgrade keeps it.
+  for (const [raw, value] of [
+    ["1800.0", 1800],
+    ["+1800", 1800],
+    ["1e3", 1000],
+  ] as const) {
+    test(`${JSON.stringify(raw)} is carried in as ${value}, as the earlier release read it`, async () => {
+      const memory = memoryStore();
+      expect(
+        await importInstallationConfig(
+          { PENDING_REQUEST_TTL_SEC: raw },
+          memory.store,
+        ),
+      ).toEqual({ warnings: [CARRIED], invalid: [] });
+      expect(memory.saved).toEqual({ pending_request_ttl_sec: value });
+    });
+  }
+
   // The values that used to stop the API at start.
   for (const raw of ["0", "-1", "0.001", "1e12", "30m", "", "604801"]) {
     test(`${JSON.stringify(raw)} is not carried in, and the warning never carries it`, async () => {

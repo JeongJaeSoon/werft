@@ -13,10 +13,15 @@ import { requireSignInOwner } from "./provider-admin.ts";
 
 const SETTINGS_PAGE = "Settings > Workspace > Execution limits";
 
-/** An env value as the key's rule reads it: digits are a number. */
+/**
+ * An env value as the key's rule reads it. A number is read the way the
+ * env parsers read it (`Number`, so `1800.0`, `+1800` and `1e3` too): a
+ * value an earlier release ran on is carried in, not blocked.
+ */
 function envValueOf(raw: string): unknown {
   const trimmed = raw.trim();
-  return /^\d+$/.test(trimmed) ? Number(trimmed) : trimmed;
+  const number = Number(trimmed);
+  return trimmed !== "" && Number.isFinite(number) ? number : trimmed;
 }
 
 /**
