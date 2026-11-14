@@ -11,8 +11,10 @@ import { launchSession } from "@werft-ai/db/testing/launches";
 import { TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
 import { createLogger, type LogRecord } from "@werft-ai/observability";
 import {
+  admitsReservations,
   createWorkerGateway,
   hashJudgmentToken,
+  type SessionBudget,
   WorkerGatewayError,
 } from "@werft-ai/platform";
 import { acceptAllCheckpoints } from "@werft-ai/platform/testing/checkpoints";
@@ -434,15 +436,20 @@ describe("the provider exchange ledger route", () => {
   const used = { ...reserve, output_tokens: 40, estimated: false };
   let records: LogRecord[];
   let withLedger: (request: Request) => Promise<Response>;
+  // Room for a few of these reserves; a test narrows it to none.
+  let budget: SessionBudget;
 
   beforeEach(() => {
+    budget = { costUsd: 25, tokens: null };
     records = [];
     withLedger = createEgressAuthorizer({
       gateway,
       logger: createLogger({
         sinks: [{ write: (record) => void records.push(record) }],
       }),
-      exchanges: createProviderExchangeLedger(db),
+      exchanges: createProviderExchangeLedger(db, {
+        admits: admitsReservations(budget),
+      }),
       token: AUTHORIZER_TOKEN,
     });
   });
@@ -627,6 +634,45 @@ describe("the provider exchange ledger route", () => {
         },
       }),
     ]);
+  });
+
+  test("an open the session's budget cannot hold answers 403 BUDGET_EXCEEDED and makes no row", async () => {
+    const claim = await claimed();
+    budget.costUsd = 0.000_001;
+    const refused = await send({
+      op: "open",
+      exchange_id: crypto.randomUUID(),
+      session_id: claim.session_id,
+      attempt_id: claim.attempt_id,
+      reserve,
+    });
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toMatchObject({ code: "BUDGET_EXCEEDED" });
+    expect(await ledgerRows()).toEqual([]);
+  });
+
+  test("a release marks the call and its late open answers released; one for no such attempt is 404", async () => {
+    const claim = await claimed();
+    const call = {
+      exchange_id: crypto.randomUUID(),
+      session_id: claim.session_id,
+      attempt_id: claim.attempt_id,
+      reserve,
+    };
+    const released = await send({ op: "release", ...call });
+    expect(released.status).toBe(200);
+    expect(await released.json()).toEqual({ state: "released" });
+    const late = await send({ op: "open", ...call });
+    expect(late.status).toBe(200);
+    expect(await late.json()).toEqual({ state: "released" });
+
+    const missing = await send({
+      op: "release",
+      ...call,
+      exchange_id: crypto.randomUUID(),
+      attempt_id: "att-missing",
+    });
+    expect(missing.status).toBe(404);
   });
 });
 
