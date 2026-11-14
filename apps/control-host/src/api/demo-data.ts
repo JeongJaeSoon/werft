@@ -526,6 +526,9 @@ async function alreadySeeded(
 }
 
 const SETTLE_TIMEOUT_MS = 180_000;
+// One session is polled at a time, so this costs the api a few reads a
+// second; at 2s each session waited for a poll after reaching its state.
+const SETTLE_POLL_MS = 500;
 
 async function until<T>(
   what: string,
@@ -535,7 +538,7 @@ async function until<T>(
   while (Date.now() < deadline) {
     const value = await check();
     if (value !== null) return value;
-    await Bun.sleep(2_000);
+    await Bun.sleep(SETTLE_POLL_MS);
   }
   throw new Error(`timed out waiting for ${what}`);
 }
