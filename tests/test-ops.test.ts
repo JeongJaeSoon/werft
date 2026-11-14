@@ -1526,7 +1526,7 @@ exit 0
         }),
       );
       await expect(checkRender(model, { store: "localstack" })).rejects.toThrow(
-        "repositories.sample.auth: name app_id, installation_id and exactly one of value_env or secret_id",
+        "repositories.sample.auth: name app_id, installation_id and exactly one of value_env, secret_id or stored, or none of them to use the App registered in the console",
       );
     },
     COMPOSE_RENDER_TIMEOUT_MS,

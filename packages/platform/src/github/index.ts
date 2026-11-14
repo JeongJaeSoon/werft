@@ -2,6 +2,7 @@
 // only the names sessions/ and workers/ use, not a barrel over the directory.
 export { allowedOwners, isGitHubNpmTarball } from "./egress/github-packages.ts";
 export { createGitHubPackagesEgress } from "./egress/github-packages-egress.ts";
+export { rsaPrivateKey } from "./service/github-app-service.ts";
 export {
   createGitHubConnectionResolver,
   type GitHubConnectionResolver,
