@@ -17,6 +17,13 @@ import {
 import { createRepositoryAttachmentService } from "./repository-attachment-service.ts";
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
+const FENCE = {
+  sessionId: SESSION,
+  attemptId: "att_1",
+  leaseEpoch: 1,
+  executionGeneration: 1,
+  authRevision: 1,
+};
 const COMMIT = "c".repeat(40);
 const APP = { id: "app", name: "acme/app", branch: "main" };
 const DOCS = { id: "docs", name: "acme/docs", branch: "trunk" };
@@ -152,7 +159,7 @@ describe("list", () => {
     const s = service();
     const docs = await s.attach("docs", "att_1");
     const tools = await s.attach("tools", "att_1");
-    await s.store.settle(SESSION, [
+    await s.store.settle(FENCE, [
       {
         repository_id: "docs",
         receipt_id: docs.receipt_id ?? "",
@@ -287,7 +294,7 @@ describe("list", () => {
     test("a repository attached by a fetch or the start list and then taken off the list is revoked; allowed ones are not", async () => {
       const fetched = service({ context: agent() });
       await fetched.attach("docs");
-      await fetched.store.settle(SESSION, [
+      await fetched.store.settle(FENCE, [
         {
           repository_id: "docs",
           receipt_id:
@@ -622,7 +629,7 @@ describe("attach", () => {
     const first = await s.attach("docs");
     expect(first).toMatchObject({ status: "pending", already_attached: false });
     expect(await s.attach("docs")).toEqual(first);
-    await s.store.settle(SESSION, [
+    await s.store.settle(FENCE, [
       {
         repository_id: "docs",
         receipt_id: first.receipt_id ?? "",
@@ -675,7 +682,7 @@ describe("attach", () => {
       waitMs: 1_000,
       onSleep: async () => {
         if (++sleeps === 2) {
-          await store?.settle(SESSION, [
+          await store?.settle(FENCE, [
             {
               repository_id: "docs",
               receipt_id: "receipt-1",
@@ -703,7 +710,7 @@ describe("attach", () => {
       waitMs: 1_000,
       onSleep: async () => {
         if (++sleeps === 3) {
-          await store?.settle(SESSION, [
+          await store?.settle(FENCE, [
             {
               repository_id: "docs",
               receipt_id: "receipt-1",
@@ -733,7 +740,7 @@ describe("attach", () => {
     });
     expect((await s.attach("docs")).status).toBe("pending");
     expect(sleeps).toBe(5);
-    await s.store.settle(SESSION, [
+    await s.store.settle(FENCE, [
       {
         repository_id: "docs",
         receipt_id: "receipt-1",
@@ -789,11 +796,11 @@ describe("attach", () => {
       status: "failed" as const,
       failure: "fetch_failed" as const,
     };
-    await s.store.settle(SESSION, [failed]);
+    await s.store.settle(FENCE, [failed]);
     // The report's answer was lost; the agent asks again before it is resent.
     const again = await s.attach("docs");
     expect(again).toMatchObject({ status: "pending", receipt_id: "receipt-2" });
-    await s.store.settle(SESSION, [failed]);
+    await s.store.settle(FENCE, [failed]);
     expect(s.store.rows.get("docs")).toMatchObject({
       status: "pending",
       receiptId: "receipt-2",
@@ -817,10 +824,10 @@ describe("attach", () => {
     expect(s.store.receipts).toHaveLength(1);
     // Both workers report; only the first report settles.
     const receipt_id = first.receipt_id ?? "";
-    await s.store.settle(SESSION, [
+    await s.store.settle(FENCE, [
       { repository_id: "docs", receipt_id, status: "attached", commit: COMMIT },
     ]);
-    await s.store.settle(SESSION, [
+    await s.store.settle(FENCE, [
       {
         repository_id: "docs",
         receipt_id,

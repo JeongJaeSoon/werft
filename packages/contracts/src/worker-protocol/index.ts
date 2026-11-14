@@ -99,6 +99,9 @@ export const checkpointRefSchema = z.object({
 //     language the engine is asked to answer in
 //   answer_surface: a pending-control answer may carry `answer_surface`, where
 //     the person answered
+//   repository_pins: an additional repository and an attach order may carry
+//     `commit`, which the worker fetches instead of the branch tip, and the
+//     worker reports what it pinned on `/repository-pins`
 // A server older than a key refuses the body as a 400 whose `details.issues`
 // names it; the worker sends once more without the refused key, so neither
 // side has to deploy first.
@@ -111,6 +114,7 @@ export const workerCapabilitiesSchema = z
     engine_settings: z.literal(true).optional(),
     response_language: z.literal(true).optional(),
     answer_surface: z.literal(true).optional(),
+    repository_pins: z.literal(true).optional(),
   })
   .strict();
 
@@ -174,11 +178,23 @@ export const workspaceRepositorySchema = z
     access: egressTokenAuthSchema.optional(),
   })
   .strict();
+// The commit a session fetched an attached repository at first, which every
+// later fetch of it in that session takes again, whatever the branch did
+// since. SHA-1 or SHA-256 object names, as git reports them.
+export const repositoryPinCommitSchema = z
+  .string()
+  .regex(/^[0-9a-f]{40}([0-9a-f]{24})?$/);
+
 // Another catalog repository the session's release lets it work on
 // (session-multi-repository.md decision 2): a git remote named `id` in the
-// workspace, its `branch` fetched through the egress route for `id`.
+// workspace, its `branch` fetched through the egress route for `id`, at
+// `commit` when the session has pinned one (sent only to a worker that
+// announced `repository_pins`).
 export const additionalWorkspaceRepositorySchema = workspaceRepositorySchema
-  .extend({ id: z.string().min(1) })
+  .extend({
+    id: z.string().min(1),
+    commit: repositoryPinCommitSchema.optional(),
+  })
   .strict();
 
 // Null for a session accepted without a repository. `additional_repositories`
@@ -984,12 +1000,15 @@ export const parkedDeliverySchema = z
 // (session-repository-attachment.md decision 3). `receipt_id` names the
 // request: a result settles only the request it echoes, so a resent result
 // for an earlier one never settles a later request for the same repository.
+// `commit` is the session's pin of the repository, as on
+// `additionalWorkspaceRepositorySchema`.
 export const repositoryAttachOrderSchema = z
   .object({
     id: z.string().min(1),
     url: z.string().min(1),
     branch: z.string().min(1),
     receipt_id: z.string().min(1),
+    commit: repositoryPinCommitSchema.optional(),
   })
   .strict();
 export const repositoryAttachResultSchema = z.discriminatedUnion("status", [
@@ -998,7 +1017,7 @@ export const repositoryAttachResultSchema = z.discriminatedUnion("status", [
       repository_id: z.string().min(1),
       receipt_id: z.string().min(1),
       status: z.literal("attached"),
-      commit: z.string().regex(/^[0-9a-f]{40}([0-9a-f]{24})?$/),
+      commit: repositoryPinCommitSchema,
     })
     .strict(),
   z
@@ -1162,6 +1181,27 @@ export const protectedCommitsResponseSchema = z
       .array(z.string().regex(/^[0-9a-f]{40}$/))
       .max(MAX_PROTECTED_COMMITS),
   })
+  .strict();
+
+// The commits a worker fetched the claim's unpinned additional repositories
+// at, reported before its engine starts. The session keeps the first commit
+// it ever records for a repository; the answer names the kept one for each
+// reported repository, which the worker fetches instead when it differs.
+// Called only by a worker that announced `repository_pins`.
+export const REPOSITORY_PINS_MAX = 256;
+const repositoryPinSchema = z
+  .object({
+    repository_id: z.string().min(1),
+    commit: repositoryPinCommitSchema,
+  })
+  .strict();
+export const repositoryPinsRequestSchema = workerScopeSchema
+  .extend({
+    pins: z.array(repositoryPinSchema).min(1).max(REPOSITORY_PINS_MAX),
+  })
+  .strict();
+export const repositoryPinsResponseSchema = z
+  .object({ pins: z.array(repositoryPinSchema).max(REPOSITORY_PINS_MAX) })
   .strict();
 
 // What the worker runs, so the server can say whether the committed
@@ -1399,6 +1439,10 @@ export type ProtectedCommitsRequest = z.infer<
 export type ProtectedCommitsResponse = z.infer<
   typeof protectedCommitsResponseSchema
 >;
+export type RepositoryPinsRequest = z.infer<typeof repositoryPinsRequestSchema>;
+export type RepositoryPinsResponse = z.infer<
+  typeof repositoryPinsResponseSchema
+>;
 export type RestorePlanRequest = z.infer<typeof restorePlanRequestSchema>;
 export type RestorePlanWire = z.infer<typeof restorePlanSchema>;
 export type RestorePlanResponse = z.infer<typeof restorePlanResponseSchema>;
@@ -1510,6 +1554,10 @@ export const WORKER_PROTOCOL_ROUTES = {
   "/protected-commits": {
     request: protectedCommitsRequestSchema,
     response: protectedCommitsResponseSchema,
+  },
+  "/repository-pins": {
+    request: repositoryPinsRequestSchema,
+    response: repositoryPinsResponseSchema,
   },
   "/restore-plan": {
     request: restorePlanRequestSchema,

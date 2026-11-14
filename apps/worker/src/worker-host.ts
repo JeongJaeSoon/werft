@@ -21,6 +21,7 @@ import type {
 import {
   DEFAULT_WORKSPACE_ENFORCE,
   MAX_TURN_COST_USD,
+  REPOSITORY_PINS_MAX,
   TURN_BUDGET_EXCEEDED_REASON,
   TURN_INPUT_WAIT_PARKED_REASON,
   TURN_WORKSPACE_QUOTA_EXCEEDED_REASON,
@@ -791,9 +792,18 @@ export class WorkerHost {
     order: RepositoryAttachOrder,
   ): Promise<void> {
     const attach = this.options.workspace.attachRepository;
+    // `commit` is the session's pin: the fetch takes it and the report echoes
+    // it, so settling keeps the pin as it is. An order handed out before the
+    // claim's repositories were pinned has none; the claim's entry has it.
     const { receipt_id, ...entry } = order;
+    const pinned = claim.workspace.additional_repositories?.find(
+      (listed) => listed.id === order.id,
+    )?.commit;
     const repository: AdditionalWorkspaceRepository = {
       ...entry,
+      ...(entry.commit === undefined && pinned !== undefined
+        ? { commit: pinned }
+        : {}),
       ...(claim.repository_access === undefined
         ? {}
         : { access: claim.repository_access }),
@@ -816,7 +826,10 @@ export class WorkerHost {
       };
       const listed = claim.workspace.additional_repositories ?? [];
       if (!listed.some((entry) => entry.id === order.id)) {
-        claim.workspace.additional_repositories = [...listed, repository];
+        claim.workspace.additional_repositories = [
+          ...listed,
+          { ...repository, commit },
+        ];
       }
       await this.writeEngineRoutes(claim);
     } catch (error) {
@@ -900,7 +913,78 @@ export class WorkerHost {
       attached: attached.attached,
       failed: attached.failed,
     });
+    const pinned = await this.untilStopped(
+      this.pinRepositories(claim, attached.commits),
+    );
+    if (pinned === undefined || this.stopping !== undefined) return;
     return plan;
+  }
+
+  /**
+   * Records, before the engine sees them, the commits the claim's unpinned
+   * repositories were fetched at, so every later claim of the session takes
+   * the same ones. A session that pinned another commit first (a second
+   * attempt racing this one) has that one fetched instead. A control-host
+   * without the route keeps nothing and the run goes on unpinned; any other
+   * failure fails the claim rather than let the engine read a commit the
+   * session has not recorded.
+   */
+  private async pinRepositories(
+    claim: BootstrapClaimResponse,
+    commits: ReadonlyMap<string, string>,
+  ): Promise<true> {
+    const report = this.options.gateway.repositoryPins;
+    const listed = claim.workspace.additional_repositories ?? [];
+    const unpinned = listed.flatMap((repository) => {
+      const commit = commits.get(repository.id);
+      return repository.commit === undefined && commit !== undefined
+        ? [{ repository_id: repository.id, commit }]
+        : [];
+    });
+    if (report === undefined || unpinned.length === 0) return true;
+    const kept = new Map<string, string>();
+    for (let at = 0; at < unpinned.length; at += REPOSITORY_PINS_MAX) {
+      try {
+        const answer = await report.call(this.options.gateway, {
+          ...this.scope,
+          pins: unpinned.slice(at, at + REPOSITORY_PINS_MAX),
+        });
+        for (const pin of answer.pins) kept.set(pin.repository_id, pin.commit);
+      } catch (error) {
+        // Only the first batch can say the route is missing; later, a 404
+        // would leave the pins already kept unfetched.
+        if (
+          at === 0 &&
+          error instanceof WorkerGatewayRequestError &&
+          error.status === 404
+        ) {
+          this.logger.warn("worker.workspace.pins_unsupported", {
+            repositories: unpinned.length,
+          });
+          return true;
+        }
+        throw error;
+      }
+    }
+    const attach = this.options.workspace.attachRepository;
+    for (const repository of listed) {
+      const commit = kept.get(repository.id);
+      if (commit === undefined) continue;
+      repository.commit = commit;
+      if (commit === commits.get(repository.id) || attach === undefined) {
+        continue;
+      }
+      // Another attempt pinned first; its commit is the session's.
+      await attach.call(
+        this.options.workspace,
+        repository,
+        this.preparation.signal,
+      );
+    }
+    this.logger.info("worker.workspace.repositories_pinned", {
+      pinned: [...kept.keys()],
+    });
+    return true;
   }
 
   /**

@@ -22,11 +22,15 @@ const current = describeProtocol(
   "output",
 );
 const problems = compatibilityProblems(baseline, current);
+const accepted = new Set(ACCEPTED.map((entry) => entry.problem));
+// The tests below change `current` on purpose; what is already accepted
+// between it and the baseline is not theirs to find.
+const unaccepted = (found: string[]) =>
+  found.filter((problem) => !accepted.has(problem));
 
 describe("worker protocol against the baseline release", () => {
   test("a worker of the baseline release can still talk to this control-host", () => {
-    const accepted = new Set(ACCEPTED.map((entry) => entry.problem));
-    const open = problems.filter((problem) => !accepted.has(problem));
+    const open = unaccepted(problems);
     // On failure: follow the expand → contract order in
     // docs/contributing/decisions/worker-compat.md § 2, or, when the
     // difference cannot reach a worker of that release, list it in
@@ -83,7 +87,9 @@ describe("compatibilityProblems", () => {
   };
 
   test("finds a response field removed while the baseline worker requires it", () => {
-    const found = compatibilityProblems(withProfile(baseline), current);
+    const found = unaccepted(
+      compatibilityProblems(withProfile(baseline), current),
+    );
     expect(found).toEqual([
       '/bootstrap-claim response $: the receiver requires "profile_fingerprint"; the sender may leave it out',
       '/bootstrap-claim response $.runtime: the receiver requires "profile_id"; the sender may leave it out',
@@ -93,7 +99,7 @@ describe("compatibilityProblems", () => {
   test("finds a removed route", () => {
     const fewer = structuredClone(current);
     delete fewer.routes["/heartbeat"];
-    expect(compatibilityProblems(baseline, fewer)).toEqual([
+    expect(unaccepted(compatibilityProblems(baseline, fewer))).toEqual([
       "/heartbeat: the route is gone",
     ]);
   });
@@ -150,7 +156,7 @@ describe("compatibilityProblems", () => {
     route.request.opaque = route.request.opaque.map((part) =>
       part.replace(/refine [0-9a-f]+$/, "refine 0000000000000000"),
     );
-    const found = compatibilityProblems(baseline, changed);
+    const found = unaccepted(compatibilityProblems(baseline, changed));
     expect(found.length).toBeGreaterThan(0);
     expect(
       found.every((line) =>

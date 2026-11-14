@@ -6,8 +6,9 @@ import {
 import type {
   RepositoryAttachmentRow,
   RepositoryAttachmentStore,
+  RepositoryPinStore,
 } from "@werft-ai/platform";
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import {
   agentGitHubSettingsRowOf,
@@ -21,8 +22,10 @@ import {
   attempts,
   receipts,
   sessionRepositoryAttachments,
+  sessionRepositoryPins,
   sessions,
 } from "./schema.ts";
+import { acquireFence } from "./sessions/fence.ts";
 
 const sessionRelease = alias(agentReleases, "session_release");
 const activeRelease = alias(agentReleases, "active_release");
@@ -264,10 +267,14 @@ export function createPostgresRepositoryAttachments(
       return rows.map(rowOf);
     },
 
-    async settle(rawSessionId, results) {
-      const sessionId = rawSessionId.toLowerCase();
+    async settle(fence, results) {
+      const sessionId = fence.sessionId.toLowerCase();
       for (const result of results) {
-        await db.transaction(async (tx) => {
+        const settled = await db.transaction(async (tx) => {
+          // Taken first, so this and the pin route lock the session row
+          // before the pin's key, in one order.
+          const fenced = await acquireFence(tx, fence);
+          if (fenced.outcome !== "ok") return fenced;
           const now = new Date();
           const [row] = await tx
             .update(sessionRepositoryAttachments)
@@ -292,7 +299,17 @@ export function createPostgresRepositoryAttachments(
               ),
             )
             .returning({ receiptId: sessionRepositoryAttachments.receiptId });
-          if (row === undefined) return;
+          if (row === undefined) return { outcome: "ok" as const };
+          if (result.status === "attached") {
+            await tx
+              .insert(sessionRepositoryPins)
+              .values({
+                sessionId,
+                repositoryId: result.repository_id,
+                gitCommit: result.commit,
+              })
+              .onConflictDoNothing();
+          }
           await tx
             .update(receipts)
             .set(
@@ -323,8 +340,63 @@ export function createPostgresRepositoryAttachments(
               })
               .where(eq(sessions.id, sessionId));
           }
+          return { outcome: "ok" as const };
         });
+        if (settled.outcome !== "ok") return settled;
       }
+      return { outcome: "ok" };
     },
+  };
+}
+
+export function createPostgresRepositoryPins(db: Database): RepositoryPinStore {
+  const read = async (
+    tx: Database,
+    sessionId: string,
+    repositoryIds?: readonly string[],
+  ): Promise<Map<string, string>> => {
+    const rows = await tx
+      .select({
+        repositoryId: sessionRepositoryPins.repositoryId,
+        commit: sessionRepositoryPins.gitCommit,
+      })
+      .from(sessionRepositoryPins)
+      .where(
+        and(
+          eq(sessionRepositoryPins.sessionId, sessionId),
+          repositoryIds === undefined
+            ? undefined
+            : inArray(sessionRepositoryPins.repositoryId, [...repositoryIds]),
+        ),
+      );
+    return new Map(rows.map((row) => [row.repositoryId, row.commit]));
+  };
+  return {
+    list: (rawSessionId) => read(db, rawSessionId.toLowerCase()),
+    pin: (fence, pins) =>
+      db.transaction(async (tx) => {
+        const fenced = await acquireFence(tx, fence);
+        if (fenced.outcome !== "ok") return { outcome: fenced.outcome };
+        const sessionId = fence.sessionId.toLowerCase();
+        if (pins.length === 0) return { outcome: "ok", pins: new Map() };
+        await tx
+          .insert(sessionRepositoryPins)
+          .values(
+            pins.map((pin) => ({
+              sessionId,
+              repositoryId: pin.repositoryId,
+              gitCommit: pin.commit,
+            })),
+          )
+          .onConflictDoNothing();
+        return {
+          outcome: "ok",
+          pins: await read(
+            tx,
+            sessionId,
+            pins.map((pin) => pin.repositoryId),
+          ),
+        };
+      }),
   };
 }

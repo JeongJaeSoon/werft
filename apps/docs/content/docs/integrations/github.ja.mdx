@@ -132,7 +132,7 @@ attach が接続エラー(`upstream connection failed` の応答、または HTT
 - 同じリポジトリをもう一度付けても何も変えずに成功する。取得中なら `pending` と `final: false` をすぐ返す。`wait_seconds`（0〜7 秒、既定 0）を渡すと、取得が終わるかその秒数が過ぎるまで待ってから答え、終わっていれば `final: true` になる。
 - 取得には 300 秒と 2 GiB の上限がある。超えると付けるのは失敗で終わり、`failure` に理由（`fetch_timeout`、`fetch_too_large`）が残る。
 - 付けるたびに `attach_repository` の[レシート](/approvals/receipt)が残る。要求した人と attempt、リポジトリ、リリース、取得したコミット、拒否の理由（`repository_not_allowed`・`allowed_in_newer_release`）が入る。
-- セッションが別の worker で再開すると（restore）、付けたリポジトリのリモートをもう一度付ける。付けたリポジトリの CLAUDE.md は指示として読まない。
+- セッションが別の worker で再開すると（restore）、付けたリポジトリのリモートをもう一度付ける。このときブランチの今の先端ではなく、そのセッションが最初に取得した commit を取得する。その間にリモートのブランチが進んだり書き換えられたりしても、セッションが読むコードは変わらない。付けたリポジトリの CLAUDE.md は指示として読まない。
 
 ## 自分の GitHub アカウントを連携する
 

@@ -188,7 +188,7 @@ export function memoryAttachmentStore(
     async pending() {
       return [...rows.values()].filter((row) => row.status === "pending");
     },
-    async settle(_sessionId, results) {
+    async settle(_fence, results) {
       for (const result of results) {
         const row = rows.get(result.repository_id);
         if (
@@ -216,6 +216,7 @@ export function memoryAttachmentStore(
           if (list !== null) list.splice(list.indexOf(row.repositoryId), 1);
         }
       }
+      return { outcome: "ok" };
     },
   };
   return Object.assign(store, { rows, receipts, agent, attached: () => list });
