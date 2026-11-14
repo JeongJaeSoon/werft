@@ -51,7 +51,7 @@ DB と workspace volume は残ります。LocalStack は volume を使わずメ�
 - 設置直後、1 時間後、業務終了前に `scripts/test-ops.sh status` でサービス、release、object store、ready、scheduler/reconciler health を確認します。
 - api、scheduler、reconciler のログとディスク、inode、quota を確認します。ディスク空き容量が 20% を下回る前に対応します。
 - 自動バックアップと失敗通知を試験し、[GC dry-run](/run-server/self-hosting/backup-and-restore)を別途定期実行します。
-- [key 廃止時の連絡](/run-server/self-hosting/users-and-keys)と[費用・トークン上限](/run-server/self-hosting/reference/configuration#설치-상한)（Compose・chart の `SESSION_COST_LIMIT_USD` 既定値は 25 USD）を利用者に案内します。
+- [key 廃止時の連絡](/run-server/self-hosting/users-and-keys)と[費用・トークン上限](/run-server/self-hosting/reference/configuration#웹에서-정하는-실행-한도)（設定 > ワークスペース > 実行の上限、セッションの費用の既定値は 25 USD）を利用者に案内します。
 - Anthropic などの provider コンソールに月間上限を設定し、セッションごとの上限とプラットフォームの推定費用を provider の実際の費用と照合します。
 - [Datadog の基準](/run-server/self-hosting/operate/monitoring-datadog)に沿って監視します。
 

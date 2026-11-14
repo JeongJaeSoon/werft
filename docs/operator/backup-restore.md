@@ -234,8 +234,7 @@ scripts/verify-restore.sh --project ap-restore-1   # 마지막 줄들: bucket PA
 # 3. (선택) 실제 API 프로세스를 복원본 위에 locked로 띄워 /readyz 200 확인
 DATABASE_URL=postgresql://postgres:dev@127.0.0.1:25432/sessions AUTH_MODE=api-key PORT=27999 \
 AWS_ENDPOINT_URL=http://127.0.0.1:25433 AWS_REGION=ap-northeast-1 S3_BUCKET=claude-sessions \
-EXECUTION_SLOT_LIMIT=10 QUEUED_INPUT_LIMIT_PER_SESSION=20 STORAGE_LIMIT_BYTES=1073741824 \
-MAX_TURN_SECONDS=3600 SESSION_COST_LIMIT_USD=25 PROVIDER_MAX_RETRIES=2 \
+EXECUTION_SLOT_LIMIT=10 MAX_TURN_SECONDS=3600 PROVIDER_MAX_RETRIES=2 \
 CHECKPOINT_OBJECT_PROTECTION=locked bun apps/control-host/src/api/server.ts   # + 위와 같은 AWS 자격 증명
 
 # 4. 정리 (복원본만. --rmi local은 복원이 빌드한 이미지)

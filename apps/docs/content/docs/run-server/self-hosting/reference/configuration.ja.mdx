@@ -17,24 +17,13 @@ outcome: "入力形式、範囲、反映時点を調べます"
 <a id="설치-상한" />
 ## 設置上限
 
-API と scheduler は、下記のうち `SESSION_TOKEN_LIMIT` を除く六つの値がない、またはいずれかの形式が不正な場合、問題を一行にすべて記録し起動しません。`SESSION_TOKEN_LIMIT` は未設定なら 0（上限なし）です。両プロセスは同じ parser を使います。`SESSION_TOKEN_LIMIT` の 0 以外にコードの既定値はなく、compose の `x-installation-limits` がローカル既定値を渡します。起動済み API の `/readyz` も同じ検証を `config` チェックで再実行します。
+API と scheduler は、下記の三つの値がない、または形式が不正な場合、問題を一行にすべて記録し起動しません。両プロセスは同じ parser を使います。コードに既定値はなく、compose の `x-installation-limits` と chart の `config.limits` がローカル既定値を渡します。起動済み API の `/readyz` も同じ検証を `config` チェックで再実行します。セッションの待機メッセージ・入力の保管・費用・トークンの上限は env ではなく [Web で決める実行の上限](#웹에서-정하는-실행-한도) です。
 
 | 変数 | 意味 | 超過時 |
 |---|---|---|
 | `EXECUTION_SLOT_LIMIT` | 同時に slot を保持する worker 数。0 なら受付だけ行い、何も起動しません | 入力は拒否せず `queued` にします |
-| `QUEUED_INPUT_LIMIT_PER_SESSION` | 一つのセッションが蓄積できる `queued` turn 数 | `429 RATE_LIMITED`、`retryable:true`、`Retry-After: 5` |
-| `STORAGE_LIMIT_BYTES` | 環境全体が保持する入力 message の UTF-8 bytes。event・checkpoint object・worker ディスクは数えません（ディスクは workspace quota が担当） | `413 STORAGE_LIMIT_EXCEEDED`、`retryable:false` |
 | `MAX_TURN_SECONDS` | 一つの turn の実時間上限。承認待ちも含み、worker env の `WORKER_MAX_TURN_SEC` に渡します | turn は `failed(turn_timeout)`。エンジンが応答しなければ `outcome_unknown(turn_timeout)` |
-| `SESSION_COST_LIMIT_USD` | セッション累積費用（egress proxy が計測した Messages 呼び出し別 usage をプラットフォーム価格表で換算した合計、推定値） | 新 turn を dispatch しません。セッション詳細に `attention.code=BUDGET_EXCEEDED` が出て worker は slot を返します。入力は引き続き `queued` で受け付けます |
-| `SESSION_TOKEN_LIMIT` | セッション累積 provider token 数。費用上限と同じ呼び出しを単価によらず数えます。0 は上限なし（既定）です | `SESSION_COST_LIMIT_USD` と同じです。両上限は同じ判定（`budgetExceeded`）を通り、どちらが先に達しても `BUDGET_EXCEEDED` です。`attention.reason` は達した上限だけを記します |
 | `PROVIDER_MAX_RETRIES` | 失敗した Messages 要求の再送回数。worker env の `WORKER_PROVIDER_MAX_RETRIES` を経由して SDK の `CLAUDE_CODE_MAX_RETRIES` に渡します。0 なら最初の失敗で turn が終わります | turn は `failed(api_error)`。turn 詳細の `result` に `api_error_status`・`provider_error`・`last_retry_status` が残ります |
-
-**コストとトークンの上限は provider 呼び出し一つずつにもかかります。** egress proxy は課金される provider 呼び出し(Messages、Responses)を送る前に、API でその呼び出しを開きます。API はセッションの累計コスト・トークンに、まだ終わっていない呼び出しの予約と今回の呼び出しの予約を足します。その合計が上限に届くと `403 BUDGET_EXCEEDED` で拒否し、proxy はその呼び出しを provider に送りません。予約は要求のバイト数を入力トークンとみなして最も高い cache write 単価(Claude は 2 倍、OpenAI は 2.5 倍)で数え、出力は要求の出力上限すべて(上限のない Responses 要求は 32,768 トークン)で数えます。`claude-sonnet-5` や `gpt-5.5` の呼び出し一つでおよそ 1〜2 ドルです。
-
-- セッションは上限より呼び出し一つの予約分だけ早く止まります。`SESSION_COST_LIMIT_USD` が呼び出し一つの予約より小さいと、最初の呼び出しから拒否されます。
-- セッションに記録されるコストは予約ではなく、provider が報告した使用量です。使用量の報告が最後まで失敗した呼び出しは、その予約を数え続けます。
-- API が 5 秒以内に呼び出しを開けないと、proxy は呼び出しを送らず `503` で答えます。エンジンは再試行します。
-- 上限は推定です。長い応答一つはその呼び出しの予約まで行くことがあります。出力上限のない Responses 要求は、32,768 トークンを超えて推論した分だけ上回ることがあります。
 
 <a id="api-설정" />
 ## API 設定
@@ -84,11 +73,30 @@ GitHub Packages bot token（[決定](https://github.com/JeongJaeSoon/werft/blob/
 <a id="웹에서-정하는-실행-한도" />
 ## Web で決める実行の上限
 
-次の値は env ではなく、owner が **設定 > ワークスペース > 実行の上限** で保存します（`PATCH /v1/installation-config`）。インストール全体で一つで、保存するとその API はすぐに、ほかの replica は 10 秒以内に従います。保存した値がなければ既定値を使います。以前の env 名はアップグレード時に一度だけ移します（[Web に移した実行の上限](/run-server/self-hosting/upgrade-compose#웹으로-옮긴-실행-한도)）。
+次の値は env ではなく、owner が **設定 > ワークスペース > 実行の上限** で保存します（`PATCH /v1/installation-config`）。インストール全体で一つで、保存するとその API はすぐに、ほかの replica と scheduler・slack・metrics role は 10 秒以内に従います。保存した値がなければ既定値を使います。どの role も以前の env を読みません。migrate がアップグレード時に一度だけ移します（[Web に移した実行の上限](/run-server/self-hosting/upgrade-compose#웹으로-옮긴-실행-한도)）。
 
-| 画面の欄（以前の env） | 既定値 | 許可範囲 |
-|---|---|---|
-| 応答の待ち時間（`PENDING_REQUEST_TTL_SEC`） | 1800 | 整数 1–604800 秒。承認・質問要求を受け付ける期間です。登録済み要求は worker がこの時間待ち、すでに登録された要求は変えた値に従いません。gateway が登録するまでは worker が 30 分待ちます。turn 実時間 `MAX_TURN_SECONDS` に待ち時間も含むため、待機はその上限を超えません |
+| 画面の欄（以前の env） | 既定値 | 意味と許可範囲 | 超過時 |
+|---|---|---|---|
+| 応答の待ち時間（`PENDING_REQUEST_TTL_SEC`） | 1800 | 整数 1–604800 秒。承認・質問要求を受け付ける期間です。登録済み要求は worker がこの時間待ち、すでに登録された要求は変えた値に従いません。gateway が登録するまでは worker が 30 分待ちます。turn 実時間 `MAX_TURN_SECONDS` に待ち時間も含むため、待機はその上限を超えません | 答えのない要求を閉じます |
+| セッションの費用（`SESSION_COST_LIMIT_USD`） | 25 | 0 より大きく 1000000 以下の USD。セッション累積費用（egress proxy が計測した provider 呼び出し別 usage をプラットフォーム価格表で換算した合計、推定値） | 新 turn を dispatch しません。セッション詳細に `attention.code=BUDGET_EXCEEDED` が出て worker は slot を返します。入力は引き続き `queued` で受け付けます |
+| セッションのトークン（`SESSION_TOKEN_LIMIT`） | 0（上限なし） | 整数 0–9007199254740991。セッション累積 provider token 数。費用上限と同じ呼び出しを単価によらず数えます | セッションの費用と同じです。両上限は同じ判定（`budgetExceeded`）を通り、どちらが先に達しても `BUDGET_EXCEEDED` です。`attention.reason` は達した上限だけを記します |
+| 待機メッセージ（`QUEUED_INPUT_LIMIT_PER_SESSION`） | 20 | 整数 1–100000。一つのセッションが蓄積できる `queued` turn 数 | `429 RATE_LIMITED`、`retryable:true`、`Retry-After: 5` |
+| 入力の保管（`STORAGE_LIMIT_BYTES`） | 1073741824（1 GiB） | 整数 1–9007199254740991 bytes。環境全体が保持する入力 message の UTF-8 bytes。event・checkpoint object・worker ディスクは数えません（ディスクは workspace quota が担当） | `413 STORAGE_LIMIT_EXCEEDED`、`retryable:false` |
+| 作業領域の容量（`WORKSPACE_ENFORCE`） | `warn` | `warn`・`fail`・`off`。worker の workspace が quota を超えたときの動作です。worker は claim 時に値を受けるため、すでに動いている worker は受けた値を使い続けます | `warn` はログ `worker.turn.workspace_quota_exceeded` だけを残し、`fail` は超えた turn を止め、`off` は測りません |
+
+**使える値がないとき。** 移せなかった env 値（範囲外）や、このリリースが受け付けない保存値のあるキーは止まります。既定値では動きません。そのキーを読む処理だけが拒否され、画面はその欄に案内を出し、値を保存すると解けます。設定を 60 秒を超えて読めないとき（DB 障害）も、すべてのキーが同じです。
+
+- 応答の待ち時間: 新しい権限リクエスト・質問の登録が `503 BACKEND_UNAVAILABLE`（`retryable:true`）で拒否されます。worker が再送します。
+- セッションの費用・トークン・待機メッセージ・入力の保管: セッション作成とメッセージの受付が `503 BACKEND_UNAVAILABLE` で拒否されます。セッションの費用・トークンはほかにも止めます。scheduler は launch だけを飛ばし（ログ `Launches skipped: the session limits cannot be read`）、終了と workspace の回収は続けます。worker の claim・次の入力・provider 呼び出しの開始・finalize は `503`（再試行）を受けます。すでに開いた provider 呼び出しを開き直すことと、すでに確定した finalize の応答はそのまま通ります。metrics は launch 待ち行列の gauge（`werft_launch_queue_*`）を空にします。
+- 作業領域の容量: worker の claim が `503` を受け、セッションが始まりません。
+
+**コストとトークンの上限は provider 呼び出し一つずつにもかかります。** egress proxy は課金される provider 呼び出し(Messages、Responses)を送る前に、API でその呼び出しを開きます。API はセッションの累計コスト・トークンに、まだ終わっていない呼び出しの予約と今回の呼び出しの予約を足します。その合計が上限に届くと `403 BUDGET_EXCEEDED` で拒否し、proxy はその呼び出しを provider に送りません。予約は要求のバイト数を入力トークンとみなして最も高い cache write 単価(Claude は 2 倍、OpenAI は 2.5 倍)で数え、出力は要求の出力上限すべて(上限のない Responses 要求は 32,768 トークン)で数えます。`claude-sonnet-5` や `gpt-5.5` の呼び出し一つでおよそ 1〜2 ドルです。
+
+- セッションは上限より呼び出し一つの予約分だけ早く止まります。セッションの費用上限が呼び出し一つの予約より小さいと、最初の呼び出しから拒否されます。
+- 下げた上限は実行中のセッションの次の provider 呼び出しからかかります。上げた上限は、実行中の worker には次の claim で届きます（worker は claim 時に残りの予算を SDK の `maxBudgetUsd` として受けるためです）。
+- セッションに記録されるコストは予約ではなく、provider が報告した使用量です。使用量の報告が最後まで失敗した呼び出しは、その予約を数え続けます。
+- API が 5 秒以内に呼び出しを開けないと、proxy は呼び出しを送らず `503` で答えます。エンジンは再試行します。
+- 上限は推定です。長い応答一つはその呼び出しの予約まで行くことがあります。出力上限のない Responses 要求は、32,768 トークンを超えて推論した分だけ上回ることがあります。
 
 <a id="schedulerworker-컨테이너egress-설정" />
 ## scheduler・worker コンテナ・egress 設定

@@ -34,5 +34,5 @@ relay는 `ollama.internal`이라는 별칭으로 부른다. loopback에 바인�
 
 - 통과는 연결과 프로토콜이 된다는 뜻이다. tool_use, permission, transcript 보관, checkpoint, 새 worker에서 재개가 로컬 모델로도 돈다. 모델이 열린 과제를 얼마나 잘 하는지는 따로 봐야 한다. 이 시나리오는 정해진 명령 하나를 실행시킬 뿐이다.
 - 약한 모델은 tool을 한 번 부른 뒤 결과를 보고하지 않고 turn을 끝낼 수 있다. 엔진은 이것을 정상 종료로 기록하므로 turn이 `completed`라도 과제가 끝났다는 뜻은 아니다. 여러 단계가 필요한 과제는 저장소 상태로 결과를 확인한다.
-- 비용은 실제 비용이 아니다. 가격표(`packages/platform/src/limits/model-prices.ts`)에 없는 모델이라 가장 비싼 단가로 추정한다. Ollama는 prompt cache를 `cache_read_input_tokens`로 보고하지만 LiteLLM 경로는 전부 `input_tokens`로 보고해서, 같은 대화라도 LiteLLM 쪽 추정치가 몇 배 크다. 세션 상한은 compose 기본값 `SESSION_COST_LIMIT_USD=25`이다.
+- 비용은 실제 비용이 아니다. 가격표(`packages/platform/src/limits/model-prices.ts`)에 없는 모델이라 가장 비싼 단가로 추정한다. Ollama는 prompt cache를 `cache_read_input_tokens`로 보고하지만 LiteLLM 경로는 전부 `input_tokens`로 보고해서, 같은 대화라도 LiteLLM 쪽 추정치가 몇 배 크다. 세션 비용 상한은 기본값 25달러이고, 설정 > 워크스페이스 > 실행 한도에서 바꾼다.
 - `num_ctx`로는 MLX runner(`gemma4:26b-mlx`)의 메모리를 줄일 수 없다. 그래서 `litellm.yaml`에 넣지 않는다. LiteLLM은 `litellm_params.num_ctx`를 Ollama의 `options.num_ctx`로 넘기지만, Ollama 0.40.0의 MLX runner는 이 값을 처음 모델을 올린 요청에서만 받아 `ollama ps`의 CONTEXT로 보여 줄 뿐이고, 값이 달라도 모델을 다시 올리지 않는다. KV cache는 미리 잡지 않고 쓴 만큼 늘어나므로, 짧은 요청의 메모리 peak는 32768로 올리든 262144로 올리든 17.09 GiB로 같았다. CONTEXT가 262144로 보여도 메모리가 그만큼 잡혀 있다는 뜻은 아니다.

@@ -79,7 +79,7 @@ Identify API_CONTAINER from this installation's status and project label. On Kub
 <a id="과금-없는-연결-billing-none" />
 ### Unmetered connections (`billing: none`)
 
-Self-hosted models (Ollama, private-network LiteLLM, etc.) have no per-token charge. If absent from the price table and left unchanged, they use the highest fallback rate and hit `SESSION_COST_LIMIT_USD` and SDK `maxBudgetUsd`, cutting turns. Declare such a connection with `billing: none`.
+Self-hosted models (Ollama, private-network LiteLLM, etc.) have no per-token charge. If absent from the price table and left unchanged, they use the highest fallback rate and hit the session cost limit and SDK `maxBudgetUsd`, cutting turns. Declare such a connection with `billing: none`.
 
 ```yaml
 kind: litellm
@@ -97,9 +97,9 @@ models:
 - The claim's `remaining_budget_usd` is `null`, and the worker passes no `maxBudgetUsd` to the SDK, because the SDK prices an unknown model at its own estimate and cuts the turn on that budget. With no budget to hold, the worker does not drain when the SDK's cost tally restarts (for example after `/clear`).
 - `GET /v1/sessions/{id}/usage` answers `cost.kind: "unmetered"` with `amount_usd` `"0.000000"`. No cost limit applies to the session, so `cost_limit_usd` is `null`, and the limit notice (`attention.reason`) names no dollar limit. `budget_exceeded` becomes `true` only on the token limit.
 - Billing mode is fixed at session creation in `sessions.unmetered`; pricing, claim budgets and usage displays read that value. What a connection points at (endpoint, kind, `billing`, credential source) never changes: when you need other values, add a connection under a new id and release the agent again.
-- The token limit (`SESSION_TOKEN_LIMIT`) and time and concurrency limits (`MAX_TURN_SECONDS`, `EXECUTION_SLOT_LIMIT`, `QUEUED_INPUT_LIMIT_PER_SESSION`) still apply. Tokens of `unmetered` rows are added to `sessions.provider_tokens` too.
+- The session token limit and time and concurrency limits (`MAX_TURN_SECONDS`, `EXECUTION_SLOT_LIMIT`, waiting messages) still apply ([execution limits set on the web](/run-server/self-hosting/reference/configuration#웹에서-정하는-실행-한도)). Tokens of `unmetered` rows are added to `sessions.provider_tokens` too.
 - The API accepts `none` only when the endpoint host is a private address (10/8, 172.16/12, 192.168/16, 100.64/10, 127/8, 169.254/16, `::1`, fc00::/7, fe80::/10) or a name public DNS does not serve (a compose service name without a dot, `localhost`, `.internal`, `.local`, `.localhost`, `.lan`, `.home.arpa`). On the egress proxy, list that host in `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`.
-- A private address is necessary but not sufficient: a private-network LiteLLM can still front a paid upstream. The operator is responsible for the `none` declaration; a wrong one sends paid calls with no cost limit. Setting `SESSION_TOKEN_LIMIT` still bounds tokens per session. Watch Datadog `werft.provider.unmetered_tokens_1h` (tokens of `unmetered` rows over the last hour) alongside the provider console's usage.
+- A private address is necessary but not sufficient: a private-network LiteLLM can still front a paid upstream. The operator is responsible for the `none` declaration; a wrong one sends paid calls with no cost limit. A session token limit still bounds tokens per session. Watch Datadog `werft.provider.unmetered_tokens_1h` (tokens of `unmetered` rows over the last hour) alongside the provider console's usage.
 
 Meet the [upgrade gate](/run-server/self-hosting/upgrade-compose#실행-전-게이트) before enabling it.
 

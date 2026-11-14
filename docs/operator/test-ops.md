@@ -214,7 +214,7 @@ sudo install -d -m 700 -o "$USER" /var/lib/werft/test-ops   # TEST_OPS_STATE_DIR
 
 `BOOTSTRAP_TOKEN`은 요구하지 않는다. 웹 콘솔의 첫 owner를 만드는 토큰(32~256자 무작위 값)이고 API에만 간다. 넣지 않으면 API가 기동할 때 하나를 만들어 api 컨테이너의 `BOOTSTRAP_TOKEN_FILE`(compose.test-ops.yml이 정하는 `/tmp/werft-bootstrap-token`, 소유자만 읽는다)에 둔다. 로그에는 출력하지 않고, `scripts/test-ops.sh bootstrap-token`이 한 번 꺼내 보이면서 지운다. 쓰기에 실패하면 토큰을 만들었다는 한 줄만 남기고 값은 어디에도 출력하지 않으니, 그때는 `BOOTSTRAP_TOKEN`을 env 파일에 넣는다. 예시 파일처럼 줄을 주석으로 두면 이 자동 생성 경로를 쓴다. 주석을 풀고 값을 비우면 API가 기동하지 않는다. 첫 owner가 생긴 뒤에는 이 값이 다시 통과하지 않으므로 env 파일에 남겨 둬도 된다([API 서버](api-server.md#api-인증과-권한)의 웹 콘솔·계정 복구 문단).
 
-`compose.test-ops.yml`과 `compose.test-ops.s3.yml`은 위 값을 `${X:?}`로 요구하기만 한다. 하나라도 비면 compose가 렌더를 거부하고 core의 로컬 기본값으로 뜨는 일이 없다. 설치 상한(`EXECUTION_SLOT_LIMIT`, `SESSION_COST_LIMIT_USD` 등)은 넣지 않으면 core 기본값을 쓴다.
+`compose.test-ops.yml`과 `compose.test-ops.s3.yml`은 위 값을 `${X:?}`로 요구하기만 한다. 하나라도 비면 compose가 렌더를 거부하고 core의 로컬 기본값으로 뜨는 일이 없다. 설치 상한(`EXECUTION_SLOT_LIMIT`, `MAX_TURN_SECONDS` 등)은 넣지 않으면 core 기본값을 쓴다. 세션 비용 같은 실행 한도는 owner가 웹 콘솔의 설정 > 워크스페이스 > 실행 한도에서 정한다. env 파일의 `SESSION_COST_LIMIT_USD` 같은 예전 줄은 저장한 값이 없을 때 migrate가 한 번 옮겨 담는다.
 
 호스트 포트가 이미 쓰이면 env 파일에 다음을 넣는다. 값을 주지 않으면 기본값을 쓴다. 어떤 값이든 `127.0.0.1`에만 열린다.
 
@@ -392,7 +392,7 @@ docker exec werft-test-ops-api-1 bun run apps/control-host/src/api/grants.ts rev
 test-ops는 운영자의 Anthropic key 하나를 모든 세션이 같이 쓴다.
 
 - key는 콘솔의 모델 연결 화면(설정 > 에이전트 연결 > 모델 연결)에서 넣는 것이 기본이다. DB에 봉인돼 저장되고(`PLATFORM_SECRET_KEY`로 연다), 키를 넣기 전에는 그 연결의 release로 세션이 시작되지 않고 화면 경로를 알려 주는 오류가 난다. env로 두려면 env 파일의 `ANTHROPIC_API_KEY`를 채우고 연결이 `value_env`로 이름만 가리키게 한다. compose는 이 값을 API 컨테이너에만 넘긴다. worker는 key를 받지 않는다. egress proxy의 provider route가 요청마다 API에 물어 key를 붙인다.
-- 비용은 세션별 `SESSION_COST_LIMIT_USD`(기본 25)로 막는다. Anthropic 콘솔에도 월 한도를 건다.
+- 비용은 실행 한도의 세션 비용(기본 25달러, 설정 > 워크스페이스 > 실행 한도)으로 막는다. Anthropic 콘솔에도 월 한도를 건다.
 - 교체(화면에서 넣은 key): 콘솔에서 새 key를 만든다 → 모델 연결 화면에서 그 연결의 "값 바꾸기"로 새 key를 넣는다 → 세션 한 턴을 확인한다 → 옛 key를 폐기한다. env 파일은 건드리지 않는다. 저장형 연결은 env 값을 읽지 않으므로 env만 바꾸면 계속 옛 key로 돈다.
 - 교체(env 참조 연결): 콘솔에서 새 key를 만든다 → env 파일 값을 바꾼다 → `scripts/test-ops.sh upgrade /var/lib/werft/test-ops/current.json`으로 같은 release를 다시 적용한다(바뀐 설정만 컨테이너를 새로 만든다) → `/readyz`와 세션 한 턴을 확인한다 → 옛 key를 폐기한다. 참조 이름이 같으므로 연결과 release spec은 바뀌지 않고 진행 중인 세션도 그대로 이어진다.
 

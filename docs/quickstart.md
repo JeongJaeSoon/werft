@@ -205,7 +205,7 @@ wait_for "/v1/sessions/$SID/turns/2" .status completed
 get "/v1/sessions/$SID/turns/2" | jq -e '.status == "completed"'
 ```
 
-202와 함께 `turn_id: "2"`가 온다. 같은 worker의 같은 Claude Code 세션에서 이어진다. 세션 하나에 쌓을 수 있는 대기 입력은 `QUEUED_INPUT_LIMIT_PER_SESSION`(기본 20)개이고, 넘으면 429다.
+202와 함께 `turn_id: "2"`가 온다. 같은 worker의 같은 Claude Code 세션에서 이어진다. 세션 하나에 쌓을 수 있는 대기 입력은 설정 > 워크스페이스 > 실행 한도의 "대기 메시지"(기본 20)개이고, 넘으면 429다.
 
 ### ⑥ interrupt
 
