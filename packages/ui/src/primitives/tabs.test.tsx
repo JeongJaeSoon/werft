@@ -27,7 +27,7 @@ describe("Tabs", () => {
     }
   });
 
-  test("탭은 상태 사이에 바뀌는 글자색·배경·테두리만 전환하고 reduced motion에서 전환하지 않는다", () => {
+  test("탭은 상태 사이에 바뀌는 글자색·배경·테두리·투명도만 전환하고 reduced motion에서 전환하지 않는다", () => {
     const { getByRole } = render(
       <Tabs defaultValue="a">
         <TabsList>
@@ -36,8 +36,9 @@ describe("Tabs", () => {
       </Tabs>,
     );
     const classes = getByRole("tab", { name: "개요" }).className.split(" ");
+    // opacity: disabled:opacity-50 fades as it did under transition-all.
     expect(classes).toContain(
-      "transition-[color,background-color,border-color]",
+      "transition-[color,background-color,border-color,opacity]",
     );
     expect(classes).toContain("motion-reduce:transition-none");
     expect(classes).not.toContain("transition-all");
