@@ -79,7 +79,6 @@ jobs:
       # The pulls and builds of the quickstart job, from the CI mirror.
       COMPOSE_FILE: compose.yaml:tests/e2e/compose.ci-mirror.yml
       SCHEDULER_INTERVAL_SEC: '1'
-      RECIPIENTS: ${{ runner.temp }}/recipients
     steps:
       # This workflow's own ref: nothing of the pull request has run yet.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -94,6 +93,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           STARTER: ${{ github.triggering_actor }}
           RECIPIENT: ${{ inputs.recipient }}
+          RECIPIENTS: ${{ runner.temp }}/recipients
           LABEL_HEAD: ${{ github.event.pull_request.head.sha }}
         run: request/.github/scripts/preview-request.sh
       - name: cloudflared and age
@@ -122,7 +122,7 @@ jobs:
           DEMO_ACCOUNTS_PASSWORD="$(openssl rand -base64 18 | tr '+/' '-_')"
           echo "::add-mask::${DEMO_ACCOUNTS_PASSWORD}"
           export DEMO_ACCOUNTS_PASSWORD
-          printf '%s\n' "$DEMO_ACCOUNTS_PASSWORD" | age --armor -R "$RECIPIENTS" >"$RUNNER_TEMP/password.age"
+          printf '%s\n' "$DEMO_ACCOUNTS_PASSWORD" | age --armor -R "$RUNNER_TEMP/recipients" >"$RUNNER_TEMP/password.age"
           echo "started=true" >>"$GITHUB_OUTPUT"
           scripts/local.sh up --fake-model
           # A head from before DEMO_ACCOUNTS_PASSWORD keeps the public
