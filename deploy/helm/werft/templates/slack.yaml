@@ -47,10 +47,7 @@ spec:
               value: {{ .Values.slack.batchSize | quote }}
             - name: SLACK_ROLE_LEASE_SEC
               value: {{ .Values.slack.leaseSec | quote }}
-            {{- range $name, $value := .Values.config.limits }}
-            - name: {{ $name | quote }}
-              value: {{ $value | toString | quote }}
-            {{- end }}
+            {{- include "ap.limitsEnv" . | nindent 12 }}
             - name: LOG_LEVEL
               value: {{ .Values.config.logLevel | quote }}
             {{- include "ap.extraEnv" .Values.slack.extraEnv | nindent 12 }}

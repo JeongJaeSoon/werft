@@ -3369,12 +3369,18 @@ describe("compose layers", () => {
             key: false,
           });
       }
-      for (const name of ["api", "scheduler"])
+      // The cost limit is the console's: migrate carries it in, no role
+      // reads it.
+      for (const [name, cost, turn] of [
+        ["migrate", "3", undefined],
+        ["api", undefined, "600"],
+        ["scheduler", undefined, "600"],
+      ] as const)
         expect({
           name,
           cost: services[name]?.environment?.SESSION_COST_LIMIT_USD,
           turn: services[name]?.environment?.MAX_TURN_SECONDS,
-        }).toEqual({ name, cost: "3", turn: "600" });
+        }).toEqual({ name, cost, turn });
     },
     COMPOSE_RENDER_TIMEOUT_MS,
   );

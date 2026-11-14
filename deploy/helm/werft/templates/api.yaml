@@ -36,8 +36,6 @@ spec:
           env:
             - name: TRACE_INGEST_PORT
               value: {{ .Values.config.tracing.ingestPort | quote }}
-            - name: WORKSPACE_ENFORCE
-              value: {{ .Values.api.workspaceEnforce | quote }}
             {{- include "ap.secretEnv" (dict "root" . "key" "DATABASE_URL") | nindent 12 }}
             {{- include "ap.secretEnv" (dict "root" . "key" "EGRESS_AUTHORIZER_TOKEN") | nindent 12 }}
             {{- range .Values.secrets.catalogEnv }}
@@ -61,10 +59,7 @@ spec:
               value: {{ .Values.config.egress.credentialPrivateAllowlist | quote }}
             - name: AUTH_MODE
               value: {{ .Values.config.authMode | quote }}
-            {{- range $name, $value := .Values.config.limits }}
-            - name: {{ $name | quote }}
-              value: {{ $value | toString | quote }}
-            {{- end }}
+            {{- include "ap.limitsEnv" . | nindent 12 }}
             - name: HEARTBEAT_TTL_SEC
               value: {{ .Values.config.heartbeatTtlSec | quote }}
             - name: LOG_LEVEL

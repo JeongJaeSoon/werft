@@ -8,15 +8,17 @@
 # budget to the SDK as maxBudgetUsd. The shell or the project's .env can raise
 # them. The cost limit must stay above what one call reserves at its open
 # (its request priced at the dearest cache write, plus its whole output cap),
-# or the first call is refused.
+# or the first call is refused. The cost limit is the console's: migrate
+# carries this one in while none is saved, so a volume that already holds one
+# keeps it (Settings > Workspace > Execution limits changes it).
 x-real-model-limits: &real-model-limits
-  SESSION_COST_LIMIT_USD: ${SESSION_COST_LIMIT_USD:-3}
   MAX_TURN_SECONDS: ${MAX_TURN_SECONDS:-600}
 
 services:
   migrate:
     environment:
       SETTINGS_DOCUMENT: ${SETTINGS_DOCUMENT-/settings/real-model.json}
+      SESSION_COST_LIMIT_USD: ${SESSION_COST_LIMIT_USD:-3}
   api:
     environment:
       <<: *real-model-limits

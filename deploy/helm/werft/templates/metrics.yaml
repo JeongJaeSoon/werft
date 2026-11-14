@@ -44,10 +44,7 @@ spec:
               value: {{ .Values.metrics.port | quote }}
             - name: LOG_LEVEL
               value: {{ .Values.config.logLevel | quote }}
-            {{- range $name, $value := .Values.config.limits }}
-            - name: {{ $name }}
-              value: {{ $value | quote }}
-            {{- end }}
+            {{- include "ap.limitsEnv" . | nindent 12 }}
             {{- include "ap.extraEnv" .Values.metrics.extraEnv | nindent 12 }}
           # /healthz answers while the process serves; /metrics reads the
           # database, so no probe calls it.
