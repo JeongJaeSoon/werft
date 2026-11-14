@@ -474,13 +474,23 @@ comment() {
   fi
 }
 
-# Sends again each comment a run before could not write, whether or not the
-# pull request is still labeled or open, without bringing anything up.
+# Sends again each comment a run before could not write, without bringing
+# anything up; $1 is " <N> <N> ", the pull requests still labeled and open
+# or whose down did not go through. Called after sync's downs, so any other
+# has no label preview left: it is told so, whatever the held comment said
+# (reap may have taken the preview while GitHub could not be read).
 send_pending() {
-  local pending
+  local pending n body
   for pending in "${PREVIEW_HOME}/sync"/pr-*.comment; do
     [[ "$(basename -- "$pending")" =~ ^pr-([1-9][0-9]{0,6})\.comment$ ]] || continue
-    comment "${BASH_REMATCH[1]}" "$(cat -- "$pending")"
+    n="${BASH_REMATCH[1]}"
+    body="$(cat -- "$pending")"
+    if [[ "$1" != *" ${n} "* && "$body" != 내려갔다* ]]; then
+      body="내려갔다
+
+$(date -u '+%Y-%m-%d %H:%M UTC') 전에 미리보기가 없어졌다. 라벨 \`${PREVIEW_LABEL}\`가 없거나 PR이 닫혔다. 다시 보려면 열린 PR에 라벨을 붙인다."
+    fi
+    comment "$n" "$body"
   done
 }
 
@@ -547,7 +557,6 @@ sync() {
   while IFS=$'\t' read -r n head cross; do
     [[ "$n" =~ ^[1-9][0-9]{0,6}$ ]] && wanted+="${n} "
   done <<<"$pulls"
-  send_pending
 
   # First what is no longer wanted (label off, closed, merged), so a long
   # build below does not hold it up. Owner and up time come from one read:
@@ -578,6 +587,7 @@ $(date -u '+%Y-%m-%d %H:%M UTC')에 내렸다. 라벨 \`${PREVIEW_LABEL}\`가 �
     [[ "$wanted$kept" == *" ${n} "* ]] && continue
     rm -f -- "$state_file" "${state_file}.log"
   done
+  send_pending "$wanted$kept"
 
   while IFS=$'\t' read -r n head cross; do
     [ -n "$n" ] || continue

@@ -353,6 +353,26 @@ esac
     expect(await writes()).toHaveLength(1);
   });
 
+  test("says down, not up, for a held comment whose preview went while GitHub was away", async () => {
+    await pulls([{ number: 5, head: HEAD_A }]);
+    await labeled(5, [{ at: LABELED_1, by: "owner" }]);
+    await sync({ STUB_GH_WRITE_FAILS: "떠 있다" });
+    // The PR closes, and reap takes the preview in a run that could not
+    // read GitHub.
+    await pulls([]);
+    await namespaces([]);
+
+    await sync();
+    const posted = await writes();
+    expect(posted).toHaveLength(2);
+    expect(posted[1]).toContain("PR 미리보기: 내려갔다");
+    expect(posted[1]).not.toContain("떠 있다");
+    expect(await lines("preview-calls")).toHaveLength(1);
+
+    await sync();
+    expect(await writes()).toHaveLength(2);
+  });
+
   test("does not add a second comment when its own cannot be looked up", async () => {
     await pulls([{ number: 5, head: HEAD_A }]);
     await labeled(5, [{ at: LABELED_1, by: "owner" }]);
