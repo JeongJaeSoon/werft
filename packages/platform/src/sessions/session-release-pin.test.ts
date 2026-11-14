@@ -12,6 +12,11 @@ import {
   sessionCredentialUnboundDetailsSchema,
 } from "@werft-ai/contracts";
 import { releaseNotRunnableReason } from "../agents/agent-service.ts";
+import {
+  InstallationConfigUnavailableError,
+  type SessionLimits,
+  type Setting,
+} from "../limits/installation-limits.ts";
 import { SessionServiceError } from "../musterrolle/index.ts";
 import { callerFor, createAuthorizationPolicy } from "../musterrolle/policy.ts";
 import type { AgentContact } from "../ports/credential-binding-store.ts";
@@ -95,6 +100,8 @@ function setup(
     repositoryCeiling?: RepositoryCeiling | null;
     /** Whether a listed image may launch; absent, the dep is left out. */
     launchable?: () => boolean;
+    /** Absent: a 1000 USD budget with no token limit. */
+    limits?: Setting<SessionLimits>;
   } = {},
 ) {
   const accepted: AcceptSessionInput[] = [];
@@ -233,7 +240,7 @@ function setup(
     ...(options.launchable === undefined
       ? {}
       : { launchable: options.launchable }),
-    limits: {
+    limits: options.limits ?? {
       queuedInputLimitPerSession: 10,
       storageLimitBytes: 1e15,
       sessionCostLimitUsd: 1_000,
@@ -269,6 +276,33 @@ describe("a session pinned to an agent release", () => {
       release_id: "rel-1",
     });
     expect(accepted[0]?.agentReleaseId).toBe("rel-1");
+  });
+
+  test("limits that cannot be read refuse a new session; a detail leaves only its budget line out", async () => {
+    const blocked = async (): Promise<SessionLimits> => {
+      throw new InstallationConfigUnavailableError("session_cost_limit_usd");
+    };
+    const s = setup({
+      limits: blocked,
+      session: { ...sessionOn(), cost_usd: 2_000 },
+    });
+    await expect(
+      s.service.createSession(s.caller, { idempotencyKey: "k", body }),
+    ).rejects.toBeInstanceOf(InstallationConfigUnavailableError);
+    expect(s.accepted).toEqual([]);
+    expect(
+      (await s.service.getSession(s.caller, SESSION)).attention,
+    ).toBeNull();
+
+    const down = setup({
+      limits: async () => {
+        throw new Error("connection reset");
+      },
+      session: sessionOn(),
+    });
+    await expect(down.service.getSession(down.caller, SESSION)).rejects.toThrow(
+      "connection reset",
+    );
   });
 
   test("a repository outside the release's GitHub repositories is refused as repository_not_allowed before acceptance", async () => {

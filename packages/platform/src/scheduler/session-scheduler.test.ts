@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { WORKER_EXIT_LEASE_LOST } from "@werft-ai/contracts";
 import type { ImageRuntime } from "@werft-ai/runtime-core";
+import { InstallationConfigUnavailableError } from "../limits/installation-limits.ts";
 import type { ExecutionIncarnation } from "../ports/worker-unit-of-work.ts";
 import {
   hashWorkerToken,
@@ -4552,6 +4553,40 @@ describe("runScheduler workspace GC", () => {
 
     expect(summary.workspacesReclaimed).toEqual(["ap-ws-done"]);
     expect([...backend.workspaces.keys()]).toEqual(["ap-ws-live"]);
+  });
+
+  test("limits that cannot be read skip the launches, not the reclaim", async () => {
+    const { backend, records, run, store } = harness();
+    backend.workspaces.set("ap-ws-done", "session-done");
+    store.addUnassigned(1);
+    const inspect = store.inspectDemand.bind(store);
+    store.inspectDemand = async (input) => {
+      // The store reads the budget only when it is asked for sessions.
+      if (input.limit > 0) {
+        throw new InstallationConfigUnavailableError("session_cost_limit_usd");
+      }
+      return inspect(input);
+    };
+
+    const summary = await run();
+
+    expect(summary.launched).toEqual([]);
+    expect(backend.ensureCalls).toHaveLength(0);
+    expect(summary.workspacesReclaimed).toEqual(["ap-ws-done"]);
+    expect(
+      records.filter((r) => r.message.startsWith("Launches skipped")),
+    ).toEqual([
+      {
+        level: "warn",
+        message: "Launches skipped: the session limits cannot be read",
+        fields: { setting: "session_cost_limit_usd" },
+      },
+    ]);
+
+    store.inspectDemand = async () => {
+      throw new Error("connection reset");
+    };
+    await expect(run()).rejects.toThrow("connection reset");
   });
 
   test("asks the daemon before the database, never the other way round", async () => {
