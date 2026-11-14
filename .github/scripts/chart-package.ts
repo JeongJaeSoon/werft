@@ -22,25 +22,28 @@ import { join } from "node:path";
 
 import { parseImageRuntime } from "../../packages/runtime-core/src/image-runtime.ts";
 
+type WorkerImage = {
+  repository: string;
+  digest: string;
+  runtime: Record<string, unknown>;
+  /** The images.workers entry's releasedAt, as images.yml recorded it. */
+  releasedAt: string;
+};
+
 export type ChartImages = {
   controlHost: { repository: string; digest: string };
   egressProxy: { repository: string; digest: string };
-  worker: {
-    repository: string;
-    digest: string;
-    runtime: Record<string, unknown>;
-  };
+  worker: WorkerImage;
   /**
    * The Codex worker image: a catalog entry the chart does not deploy. One
    * worker image holds one engine, so a deployment that runs Codex copies this
    * repository, digest and runtime into `worker`.
    */
-  workerCodex: {
-    repository: string;
-    digest: string;
-    runtime: Record<string, unknown>;
-  };
+  workerCodex: WorkerImage;
 };
+
+/** The images.workers entries of a package, read by files/next-workers.jq. */
+export const RELEASE_IMAGES_FILE = "files/release-images.json";
 
 const APPS = {
   "control-host": "controlHost",
@@ -49,6 +52,8 @@ const APPS = {
   "worker-codex": "workerCodex",
 } as const;
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
+// What images.yml writes, a subset of the chart's releasedAt.
+const RELEASED_AT = /^[1-9]\d{3}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
 const NUMBER = "(?:0|[1-9]\\d*)";
 const PRERELEASE = `(?:${NUMBER}|\\d*[A-Za-z-][0-9A-Za-z-]*)`;
 // Semver's grammar, less build metadata: `+` cannot go in the helm.sh/chart
@@ -154,12 +159,30 @@ export function publishedImages(
     }
     return runtime as Record<string, unknown>;
   };
+  const releasedAtOf = (app: "worker" | "worker-codex") => {
+    const { releasedAt } = seen.get(app) as { releasedAt?: unknown };
+    // A day that does not exist (2026-02-30) does not survive the round trip.
+    if (
+      typeof releasedAt !== "string" ||
+      !RELEASED_AT.test(releasedAt) ||
+      Number.isNaN(Date.parse(releasedAt)) ||
+      new Date(releasedAt).toISOString() !== releasedAt.replace("Z", ".000Z")
+    ) {
+      throw new Error(`${app} has releasedAt ${JSON.stringify(releasedAt)}`);
+    }
+    return releasedAt;
+  };
   return {
     ...images,
-    worker: { ...images.worker, runtime: runtimeOf("worker", "claude") },
+    worker: {
+      ...images.worker,
+      runtime: runtimeOf("worker", "claude"),
+      releasedAt: releasedAtOf("worker"),
+    },
     workerCodex: {
       ...images.workerCodex,
       runtime: runtimeOf("worker-codex", "codex"),
+      releasedAt: releasedAtOf("worker-codex"),
     },
   };
 }
@@ -203,12 +226,24 @@ export function bakeValues(text: string, images: ChartImages): string {
   for (const key of ["worker", "workerCodex"] as const) {
     edit(
       key,
-      "((?:    #.*\\n)*)    runtime: \\{\\}\\n",
+      '((?:    #.*\\n)*)    runtime: \\{\\}\\n    releasedAt: ""\\n',
       (comments) =>
-        `${comments}    runtime: ${JSON.stringify(images[key].runtime)}\n`,
+        `${comments}    runtime: ${JSON.stringify(images[key].runtime)}\n    releasedAt: ${JSON.stringify(images[key].releasedAt)}\n`,
     );
   }
   return text.slice(0, start) + block + text.slice(end);
+}
+
+/** The package's worker images as images.workers entries, Claude first. */
+export function releaseImages(images: ChartImages): WorkerImage[] {
+  return [images.worker, images.workerCodex].map(
+    ({ repository, digest, runtime, releasedAt }) => ({
+      repository,
+      digest,
+      runtime,
+      releasedAt,
+    }),
+  );
 }
 
 export function packageChart(input: {
@@ -225,6 +260,10 @@ export function packageChart(input: {
   writeFileSync(
     valuesPath,
     bakeValues(readFileSync(valuesPath, "utf8"), images),
+  );
+  writeFileSync(
+    join(copy, RELEASE_IMAGES_FILE),
+    `${JSON.stringify(releaseImages(images), null, 2)}\n`,
   );
   mkdirSync(outDir, { recursive: true });
   const result = spawnSync(

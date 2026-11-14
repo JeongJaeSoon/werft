@@ -16,6 +16,12 @@
 #   4. rollback    helm rollback to the first revision: no hook ran; the old
 #                  Deployments are back; S1 is still waiting, is answered and
 #                  completes; S2 runs a third turn
+#   5. list        the single worker image A becomes images.workers [B, A, C]
+#                  through files/next-workers.jq (B: A rebuilt, C: Codex);
+#                  S3 waits on A in the same Pod; S2 resumes on B
+#   6. next-list   the control phase keeps that list, then [D, B, C] drops A:
+#                  the check proceeds with S3 still on A, S3 completes there,
+#                  S2 resumes on D
 #
 #   deploy/kind/upgrade.sh         run all of it; delete the cluster and
 #                                  registry at the end if this run created them
@@ -372,6 +378,171 @@ for sid in "$s1" "$s2"; do
 done
 [ "$(get "/v1/sessions/${s1}/usage" | jq .cost.reported_turn_count)" = 1 ] || fail "S1's turn was not reported once"
 [ "$(get "/v1/sessions/${s2}/usage" | jq .cost.reported_turn_count)" = 3 ] || fail "S2's three turns were not reported once each"
+pass
+
+# The images.workers procedure of the upgrade docs, with the chart's own
+# files/next-workers.jq: the single-image install goes to a list, then to the
+# next list. The release images stand in for packaged ones: B and D are A
+# rebuilt with another label (another digest, the same runtime), C is the
+# Codex image. Nothing launches a Codex session here (kind has no fake
+# Responses API); the compose two_engines conformance runs both engines.
+step list
+image_repo="localhost:${REGISTRY_PORT:-5001}/werft"
+# deployed_values <file>: the values of the deployed revision, as the docs read them.
+deployed_values() {
+  local revision
+  revision="$(helm history "$RELEASE" --namespace "$NAMESPACE" -o json | jq '[.[] | select(.status == "deployed")] | last.revision')"
+  helm get values "$RELEASE" --namespace "$NAMESPACE" --all --revision "$revision" -o json >"$1"
+}
+env_of() { k get "deploy/${fullname}-$1" -o json | jq -r --arg n "$2" '[.spec.template.spec.containers[0].env[]? | select(.name == $n) | .value] | first // ""'; }
+pod_image() { k get pods -l "werft.session-id=$1" -o json | jq -r '[.items[].spec.containers[0].image] | unique | join(",")'; }
+runtime_of() {
+  docker run --rm -i --network none --entrypoint bun "$1" run apps/worker/src/image-runtime.ts <<<'{}' | jq -c 'del(.profiles)'
+}
+# push <local ref>: the registry digest the cluster pulls it by.
+push() {
+  docker push -q "$1" >/dev/null
+  docker inspect --format '{{index .RepoDigests 0}}' "$1" | sed 's/.*@//'
+}
+rebuild() {
+  printf 'FROM %s\nLABEL werft.kind-rebuild=%s\n' "${image_repo}-worker:dev" "$1" |
+    docker build -q -t "${image_repo}-worker:rebuild-$1" - >/dev/null
+  push "${image_repo}-worker:rebuild-$1"
+}
+# upgrade_to <values file>: helm upgrade of the checkout's chart over up.sh's
+# values; the hook verdict must be proceed with an empty approval list.
+upgrade_to() {
+  helm upgrade "$RELEASE" "$root/deploy/helm/werft" --namespace "$NAMESPACE" \
+    -f "$work/release-values.json" -f "$1" \
+    --set-json 'upgrade.approvedSessions=[]' --wait --timeout 10m
+  rollout
+  verdict="$(k logs "job/${fullname}-upgrade-check" | jq -c 'select(.verdict)')"
+  echo "upgrade-check: ${verdict}"
+  echo "$verdict" | jq -e '.verdict == "proceed"' >/dev/null || fail "upgrade-check did not say proceed"
+}
+hook_env() { k get "job/${fullname}-upgrade-check" -o json | jq -r --arg n "$1" '[.spec.template.spec.containers[0].env[] | select(.name == $n) | .value] | first // ""'; }
+# same_list <expected WORKER_IMAGES>: api, scheduler and the hook carry it.
+same_list() {
+  local component
+  for component in api scheduler; do
+    [ "$(env_of "$component" WORKER_IMAGES)" = "$1" ] || fail "${component} WORKER_IMAGES is $(env_of "$component" WORKER_IMAGES), not $1"
+    [ -z "$(env_of "$component" WORKER_IMAGE)" ] || fail "${component} still sets WORKER_IMAGE beside the list"
+  done
+  [ "$(hook_env WORKER_IMAGES)" = "$1" ] || fail "the upgrade-check Job judged $(hook_env WORKER_IMAGES), not the list that rolled out"
+}
+rendered() { jq -c '[.images.workers[] | {image: "\(.repository)@\(.digest)", released_at: .releasedAt, runtime} + (if .retracted then {retracted: true} else {} end)]' "$1"; }
+# The list as WORKER_IMAGES spells it: the chart's toJson sorts the keys.
+as_env() { jq -cS . <<<"$1"; }
+
+paused="$(post "/v1/sessions/${s2}/pause" "$(jq -nc --argjson r "$(get "/v1/sessions/${s2}" | jq .revision)" '{expected_revision: $r, reason: "list test"}')")"
+settle_receipt "$(echo "$paused" | jq -r .receipt_id)" pause
+wait_session "paused" '.admission_state == "paused"' "$s2"
+checkpoint_list="$(get "/v1/sessions/${s2}" | jq '.durability.checkpoint_revision')"
+s3="$(new_session '{"id":"list-wait","final":"list turn done","steps":[{"tool":"Bash","input":{"command":"echo list | tee list.txt","description":"write a file"}}]}')"
+wait_session "waiting for input" '.status == "needs_input"' "$s3"
+request_s3="$(get "/v1/sessions/${s3}/pending-requests" | jq -r '.items[0].request_id')"
+worker_s3="$(worker_pods "$s3")"
+[ "$(echo "$worker_s3" | grep -c .)" = 1 ] || fail "S3 does not have exactly one worker Pod: ${worker_s3}"
+echo "S2 paused at checkpoint revision ${checkpoint_list}; S3 ${s3} waits on ${request_s3} in ${worker_s3}"
+
+deployed_values "$work/deployed-single.json"
+digest_a="$(jq -r .images.worker.digest "$work/deployed-single.json")"
+[ "$(pod_image "$s3")" = "${image_repo}-worker@${digest_a}" ] || fail "S3 runs $(pod_image "$s3"), not A"
+runtime_a="$(runtime_of "${image_repo}-worker:dev")"
+digest_b="$(rebuild b)"
+digest_d="$(rebuild d)"
+docker build -q -f "$root/apps/worker/Dockerfile" -t "${image_repo}-worker-codex:dev" \
+  --build-arg WORKER_RUNTIME=codex_app_server \
+  ${BUN_IMAGE:+--build-arg "BUN_IMAGE=$BUN_IMAGE"} \
+  ${BUILDKIT_SYNTAX:+--build-arg "BUILDKIT_SYNTAX=$BUILDKIT_SYNTAX"} \
+  "$root" >/dev/null
+digest_c="$(push "${image_repo}-worker-codex:dev")"
+runtime_c="$(runtime_of "${image_repo}-worker-codex:dev")"
+jq -e '.engine == "codex"' <<<"$runtime_c" >/dev/null || fail "the Codex image runs ${runtime_c}"
+for digest in "$digest_a" "$digest_b" "$digest_c" "$digest_d"; do
+  [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || fail "an image has no registry digest: '${digest}'"
+done
+[ "$digest_b" != "$digest_a" ] && [ "$digest_d" != "$digest_b" ] || fail "the rebuilds kept A's digest"
+echo "A ${digest_a}, B ${digest_b}, C ${digest_c}, D ${digest_d}"
+# release_images <claude digest> <claude time> <codex time>: files/release-images.json of a package.
+release_images() {
+  jq -n --arg repo "${image_repo}-worker" --arg d "$1" --arg t "$2" --argjson r "$runtime_a" \
+    --arg crepo "${image_repo}-worker-codex" --arg cd "$digest_c" --arg ct "$3" --argjson cr "$runtime_c" \
+    '[{repository: $repo, digest: $d, runtime: $r, releasedAt: $t},
+      {repository: $crepo, digest: $cd, runtime: $cr, releasedAt: $ct}]'
+}
+next_workers() {
+  jq -n -f "$root/deploy/helm/werft/files/next-workers.jq" --arg phase "$1" \
+    --slurpfile deployed "$2" --slurpfile release "$3" --argjson known "$4"
+}
+release_images "$digest_b" 2026-01-02T00:00:00Z 2026-01-02T00:00:00Z >"$work/release-1.json"
+next_workers final "$work/deployed-single.json" "$work/release-1.json" \
+  "$(jq -n --arg a "$digest_a" --argjson r "$runtime_a" '{($a): {runtime: $r, releasedAt: "2026-01-01T00:00:00Z"}}')" \
+  >"$work/workers-1.json"
+jq -e --arg a "$digest_a" --arg b "$digest_b" --arg c "$digest_c" \
+  '[.images.workers[].digest] == [$b, $a, $c]' "$work/workers-1.json" >/dev/null ||
+  fail "next-workers gave $(jq -c '[.images.workers[].digest]' "$work/workers-1.json") for the first list"
+single_image="$(env_of scheduler WORKER_IMAGE)"
+upgrade_to "$work/workers-1.json"
+list_1="$(as_env "$(rendered "$work/workers-1.json")")"
+same_list "$list_1"
+[ "$(hook_env UPGRADE_DEPLOYED_WORKER_IMAGE)" = "$single_image" ] && [ -z "$(hook_env UPGRADE_DEPLOYED_WORKER_IMAGES)" ] ||
+  fail "the upgrade-check Job did not get the single image deployed before it"
+echo "single image ${single_image} -> list ${list_1}"
+open_api
+[ "$(get "/v1/sessions/${s3}/pending-requests" | jq -r '.items[0].request_id')" = "$request_s3" ] || fail "S3's pending request changed"
+[ "$(worker_pods "$s3")" = "$worker_s3" ] || fail "S3's worker Pod changed: $(worker_pods "$s3")"
+resumed="$(post "/v1/sessions/${s2}/resume" "$(jq -nc --argjson r "$(get "/v1/sessions/${s2}" | jq .revision)" '{expected_revision: $r}')")"
+settle_receipt "$(echo "$resumed" | jq -r .receipt_id)" resume
+wait_session "active" '.admission_state == "active"' "$s2"
+[ "$(get "/v1/receipts/$(echo "$resumed" | jq -r .receipt_id)" | jq '.result.checkpoint_revision')" = "$checkpoint_list" ] ||
+  fail "S2 did not resume from the checkpoint it paused at"
+post "/v1/sessions/${s2}/messages" "$(jq -nc --arg m 'GATE-SPEC {"id":"list-fourth","steps":[],"final":"turn four done"}' '{message: $m}')" >/dev/null
+wait_turn "$s2" 4
+# The compatible rebuild is the newest Claude image: the session moves to it.
+[ "$(pod_image "$s2")" = "${image_repo}-worker@${digest_b}" ] || fail "S2 runs $(pod_image "$s2"), not B"
+echo "S2 resumed on B and ran turn 4; S3 still waits on A in ${worker_s3}"
+paused="$(post "/v1/sessions/${s2}/pause" "$(jq -nc --argjson r "$(get "/v1/sessions/${s2}" | jq .revision)" '{expected_revision: $r, reason: "next list test"}')")"
+settle_receipt "$(echo "$paused" | jq -r .receipt_id)" pause
+wait_session "paused" '.admission_state == "paused"' "$s2"
+checkpoint_next="$(get "/v1/sessions/${s2}" | jq '.durability.checkpoint_revision')"
+pass
+
+step next-list
+deployed_values "$work/deployed-list.json"
+next_workers control "$work/deployed-list.json" "$work/release-1.json" '{}' >"$work/control-phase.json"
+upgrade_to "$work/control-phase.json"
+same_list "$list_1"
+[ "$(hook_env UPGRADE_DEPLOYED_WORKER_IMAGES)" = "$list_1" ] || fail "the upgrade-check Job did not get the deployed list"
+echo "the control phase kept the list"
+deployed_values "$work/deployed-list.json"
+release_images "$digest_d" 2026-01-03T00:00:00Z 2026-01-02T00:00:00Z >"$work/release-2.json"
+next_workers final "$work/deployed-list.json" "$work/release-2.json" '{}' >"$work/workers-2.json"
+jq -e --arg b "$digest_b" --arg c "$digest_c" --arg d "$digest_d" \
+  '[.images.workers[].digest] == [$d, $b, $c]' "$work/workers-2.json" >/dev/null ||
+  fail "next-workers gave $(jq -c '[.images.workers[].digest]' "$work/workers-2.json") for the next list"
+# A is dropped while S3's worker still runs on it: D and B restore what it
+# writes, so the check proceeds with nothing to approve.
+upgrade_to "$work/workers-2.json"
+list_2="$(as_env "$(rendered "$work/workers-2.json")")"
+same_list "$list_2"
+[ "$(hook_env UPGRADE_DEPLOYED_WORKER_IMAGES)" = "$list_1" ] || fail "the upgrade-check Job did not get the list deployed before it"
+echo "list -> next list ${list_2}"
+open_api
+[ "$(worker_pods "$s3")" = "$worker_s3" ] || fail "S3's worker Pod changed: $(worker_pods "$s3")"
+post "/v1/sessions/${s3}/answers" "$(jq -nc --arg r "$request_s3" '{request_id: $r, kind: "permission", action: "allow"}')" >/dev/null
+wait_turn "$s3" 1
+resumed="$(post "/v1/sessions/${s2}/resume" "$(jq -nc --argjson r "$(get "/v1/sessions/${s2}" | jq .revision)" '{expected_revision: $r}')")"
+settle_receipt "$(echo "$resumed" | jq -r .receipt_id)" resume
+wait_session "active" '.admission_state == "active"' "$s2"
+[ "$(get "/v1/receipts/$(echo "$resumed" | jq -r .receipt_id)" | jq '.result.checkpoint_revision')" = "$checkpoint_next" ] ||
+  fail "S2 did not resume from the checkpoint it paused at on B"
+post "/v1/sessions/${s2}/messages" "$(jq -nc --arg m 'GATE-SPEC {"id":"list-fifth","steps":[],"final":"turn five done"}' '{message: $m}')" >/dev/null
+wait_turn "$s2" 5
+[ "$(pod_image "$s2")" = "${image_repo}-worker@${digest_d}" ] || fail "S2 runs $(pod_image "$s2"), not D"
+echo "S3 completed on A after A left the list; S2 resumed on D and ran turn 5"
+[ "$(get "/v1/sessions/${s2}/usage" | jq .cost.reported_turn_count)" = 5 ] || fail "S2's five turns were not reported once each"
+[ "$(get "/v1/sessions/${s3}/usage" | jq .cost.reported_turn_count)" = 1 ] || fail "S3's turn was not reported once"
 pass
 
 echo

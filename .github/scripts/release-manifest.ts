@@ -16,6 +16,8 @@ import {
   chartVersion,
   effectiveRef,
   publishedImages,
+  RELEASE_IMAGES_FILE,
+  releaseImages,
 } from "./chart-package.ts";
 
 const MANIFEST_SCHEMA = 1;
@@ -47,6 +49,9 @@ export type ReleaseManifest = {
   workerRuntime: Record<string, unknown>;
   /** The Codex worker image's runtime; `images["worker-codex"]` is that image. */
   workerCodexRuntime: Record<string, unknown>;
+  /** Each worker image's images.workers releasedAt, as the chart holds it. */
+  workerReleasedAt: string;
+  workerCodexReleasedAt: string;
   chart: {
     name: string;
     version: string;
@@ -61,6 +66,8 @@ export type ChartFiles = {
   /** Chart.yaml and values.yaml of the package, read from inside it. */
   chartYaml: string;
   valuesYaml: string;
+  /** files/release-images.json of the package. */
+  releaseImages: string;
 };
 
 export function buildManifest(input: {
@@ -139,6 +146,28 @@ export function buildManifest(input: {
     }
     images[app] = { image: repository, digest, platforms };
   }
+  // Both worker images of one commit share the time, so a text search would
+  // not tell the two entries apart.
+  const packaged = (
+    Bun.YAML.parse(chart.valuesYaml) as {
+      images?: Record<string, { releasedAt?: unknown }>;
+    }
+  ).images;
+  for (const key of ["worker", "workerCodex"] as const) {
+    if (packaged?.[key]?.releasedAt !== baked[key].releasedAt) {
+      throw new Error(
+        `the chart's images.${key}.releasedAt is ${packaged?.[key]?.releasedAt}, not ${baked[key].releasedAt}`,
+      );
+    }
+  }
+  if (
+    JSON.stringify(JSON.parse(chart.releaseImages)) !==
+    JSON.stringify(releaseImages(baked))
+  ) {
+    throw new Error(
+      `the chart's ${RELEASE_IMAGES_FILE} is not the published worker images`,
+    );
+  }
   return {
     schema: MANIFEST_SCHEMA,
     tag,
@@ -146,6 +175,8 @@ export function buildManifest(input: {
     images,
     workerRuntime: baked.worker.runtime,
     workerCodexRuntime: baked.workerCodex.runtime,
+    workerReleasedAt: baked.worker.releasedAt,
+    workerCodexReleasedAt: baked.workerCodex.releasedAt,
     chart: {
       name: CHART_NAME,
       version: expected.version,
@@ -176,6 +207,7 @@ function readChart(dir: string): ChartFiles {
     tgzName,
     chartYaml: inside("Chart.yaml"),
     valuesYaml: inside("values.yaml"),
+    releaseImages: inside(RELEASE_IMAGES_FILE),
   };
 }
 

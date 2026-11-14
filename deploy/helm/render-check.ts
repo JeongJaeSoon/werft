@@ -12,7 +12,7 @@
 // `bun deploy/helm/render-check.ts` (CI's helm-chart job).
 
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -1439,6 +1439,13 @@ const PREVIOUS_RUNTIME = {
   sdkVersion: "0.3.270",
   cliVersion: "2.1.270",
 };
+const CODEX_RUNTIME = {
+  engine: "codex",
+  sdkVersion: "0.167.0",
+  cliVersion: "0.167.0",
+  profileDigestScheme: 1,
+};
+const PACKAGED_AT = "2026-11-12T00:00:00Z";
 const PREVIOUS_DIGEST = `sha256:${"4".repeat(64)}`;
 const workerImages = [
   "--set-json",
@@ -1633,15 +1640,70 @@ const packaged = (() => {
     images: {
       controlHost: image("controlHost"),
       egressProxy: image("egressProxy"),
-      worker: { ...image("worker"), runtime: CURRENT_RUNTIME },
+      worker: {
+        ...image("worker"),
+        runtime: CURRENT_RUNTIME,
+        releasedAt: PACKAGED_AT,
+      },
       workerCodex: {
         ...image("workerCodex"),
-        runtime: { ...CURRENT_RUNTIME, engine: "codex" },
+        runtime: CODEX_RUNTIME,
+        releasedAt: PACKAGED_AT,
       },
     },
   });
   return tgz;
 })();
+const packagedFile = (file: string) => {
+  const result = spawnSync("tar", ["-xzOf", packaged, `werft/${file}`], {
+    encoding: "utf8",
+  });
+  if (result.status !== 0) {
+    throw new Error(`the package has no ${file}: ${result.stderr}`);
+  }
+  return result.stdout;
+};
+/**
+ * files/next-workers.jq of the package, run as the upgrade docs run it, on
+ * the package's own files/release-images.json; the values file it writes.
+ */
+const nextWorkers = (
+  phase: "control" | "final",
+  deployed: unknown,
+  known: Record<string, unknown> = {},
+  release = packagedFile("files/release-images.json"),
+): { ok: true; file: string } | { ok: false; out: string } => {
+  const tmp = mkdtempSync(join(tmpdir(), "render-check-next-"));
+  const program = join(tmp, "next-workers.jq");
+  writeFileSync(program, packagedFile("files/next-workers.jq"));
+  writeFileSync(join(tmp, "deployed.json"), JSON.stringify(deployed));
+  writeFileSync(join(tmp, "release.json"), release);
+  const result = spawnSync(
+    "jq",
+    [
+      "-n",
+      "-f",
+      program,
+      "--arg",
+      "phase",
+      phase,
+      "--slurpfile",
+      "deployed",
+      join(tmp, "deployed.json"),
+      "--slurpfile",
+      "release",
+      join(tmp, "release.json"),
+      "--argjson",
+      "known",
+      JSON.stringify(known),
+    ],
+    { encoding: "utf8" },
+  );
+  if (result.status !== 0) return { ok: false, out: result.stderr };
+  const file = join(tmp, `${phase}.json`);
+  writeFileSync(file, result.stdout);
+  return { ok: true, file };
+};
 const packagedManifests = render([], packaged);
 errors.push(
   ...check("package", packagedManifests, true),
@@ -1656,6 +1718,131 @@ errors.push(
     renderedList,
   ),
 );
+
+// The upgrade docs' list procedure on the package: single image -> list ->
+// next list, each values file from the package's own next-workers.jq.
+{
+  type Entry = {
+    repository: string;
+    digest: string;
+    runtime: Record<string, unknown>;
+    releasedAt: string;
+  };
+  const released = JSON.parse(
+    packagedFile("files/release-images.json"),
+  ) as Entry[];
+  const asList = (entries: Entry[]) => ({
+    list: JSON.stringify(
+      sortedDeep(
+        entries.map((e) => ({
+          image: `${e.repository}@${e.digest}`,
+          runtime: e.runtime,
+          released_at: e.releasedAt,
+        })),
+      ),
+    ),
+  });
+  const [claude, codex] = released as [Entry, Entry];
+  const deployedImage: Entry = {
+    repository: WORKER_REPOSITORY,
+    digest: `sha256:${"7".repeat(64)}`,
+    runtime: PREVIOUS_RUNTIME,
+    releasedAt: "2026-10-01T00:00:00Z",
+  };
+  const egressProxy = {
+    repository: "ghcr.io/jeongjaesoon/werft-egress-proxy",
+    digest: `sha256:${"8".repeat(64)}`,
+  };
+  const single = {
+    images: {
+      worker: {
+        repository: WORKER_REPOSITORY,
+        digest: deployedImage.digest,
+        runtime: {},
+        releasedAt: PACKAGED_AT,
+      },
+      workerPrevious: {
+        repository: WORKER_REPOSITORY,
+        digest: "",
+        runtime: {},
+      },
+      workers: [],
+      egressProxy,
+    },
+  };
+  const first = nextWorkers("final", single, {
+    [deployedImage.digest]: {
+      runtime: deployedImage.runtime,
+      releasedAt: deployedImage.releasedAt,
+    },
+  });
+  const listed = [claude, deployedImage, codex];
+  const next: Entry = {
+    ...claude,
+    digest: `sha256:${"9".repeat(64)}`,
+    releasedAt: "2026-11-20T00:00:00Z",
+  };
+  if (!first.ok) {
+    errors.push(`next-workers, single image to list: ${first.out}`);
+  } else {
+    errors.push(
+      ...checkWorkerImages(
+        "next-workers, single image to list",
+        render(["-f", first.file], packaged),
+        asList(listed),
+      ),
+    );
+    const deployedList = {
+      images: {
+        ...(
+          JSON.parse(readFileSync(first.file, "utf8")) as {
+            images: Record<string, unknown>;
+          }
+        ).images,
+        egressProxy,
+      },
+    };
+    const control = nextWorkers("control", deployedList);
+    errors.push(
+      ...(control.ok
+        ? checkWorkerImages(
+            "next-workers, control phase keeps the list",
+            render(["-f", control.file], packaged),
+            asList(listed),
+          )
+        : [`next-workers, control phase: ${control.out}`]),
+    );
+    const second = nextWorkers(
+      "final",
+      deployedList,
+      {},
+      JSON.stringify([next, codex]),
+    );
+    errors.push(
+      ...(second.ok
+        ? checkWorkerImages(
+            "next-workers, list to next list",
+            render(["-f", second.file], packaged),
+            asList([next, claude, codex]),
+          )
+        : [`next-workers, list to next list: ${second.out}`]),
+    );
+    const older = nextWorkers(
+      "final",
+      deployedList,
+      {},
+      JSON.stringify([{ ...next, releasedAt: "2026-09-01T00:00:00Z" }, codex]),
+    );
+    if (
+      older.ok ||
+      !/is not newer than every deployed claude image/.test(older.out)
+    ) {
+      errors.push(
+        `next-workers: a release older than the deployed image must be refused, got ${older.ok ? "a list" : older.out}`,
+      );
+    }
+  }
+}
 for (const [label, args, message] of MUST_FAIL) {
   const { ok, out } = helmTemplate(args);
   if (ok || !message.test(out)) {
