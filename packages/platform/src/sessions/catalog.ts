@@ -896,23 +896,39 @@ export function modelMoves(
   });
 }
 
-/**
- * The engine versions the configured worker images ship (each image's SDK
- * and CLI version). A session whose spec names any `accepted` version runs;
- * `current` is the image new releases are made on.
- */
-export type RuntimeVersions = {
-  readonly accepted: readonly string[];
-  readonly current: readonly string[];
+/** A runtime kind at one version, as a release's runtime spec names it. */
+export type RuntimeAtVersion = {
+  readonly kind: string;
+  readonly version: string;
 };
 
-/** Whether a release's runtime version runs on the configured images. */
+/**
+ * The runtimes the configured worker images ship: each image's SDK and CLI
+ * version, under each runtime kind of the image's engine. A session whose
+ * spec names a listed pair runs. A version string alone matches nothing:
+ * two engines may ship the same one.
+ */
+export type RuntimeVersions = {
+  readonly accepted: readonly RuntimeAtVersion[];
+};
+
+/** Whether a release's runtime runs on the configured images. */
 export function runtimeVersionAccepted(
   catalog: { runtime_versions?: RuntimeVersions | undefined },
-  version: string,
+  runtime: RuntimeAtVersion,
 ): boolean {
   const accepted = catalog.runtime_versions?.accepted;
-  return accepted === undefined || accepted.includes(version);
+  return accepted === undefined || runtimeListed(accepted, runtime);
+}
+
+export function runtimeListed(
+  accepted: readonly RuntimeAtVersion[],
+  runtime: RuntimeAtVersion,
+): boolean {
+  return accepted.some(
+    (listed) =>
+      listed.kind === runtime.kind && listed.version === runtime.version,
+  );
 }
 
 /**

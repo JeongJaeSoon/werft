@@ -81,30 +81,25 @@ export function refuseFileCatalog(
 }
 
 /**
- * The configured worker images' engine versions; undefined without them.
- * `current` and `accepted` also name the older builds whose tool catalog is
- * an image's own: a release made on one of them still runs.
+ * The configured worker images' runtimes; undefined without them. Each kind
+ * also names its older builds whose tool catalog is an image's own: a
+ * release made on one of them still runs.
  */
 export function runtimeVersionsFromEnv(
   env: Record<string, string | undefined>,
 ): RuntimeVersions | undefined {
   const runtimes = configuredImageRuntimesFromEnv(env);
   if (runtimes === null) return undefined;
-  const versions = runtimeVersionsOf(runtimes);
-  const withEquivalents = (listed: readonly string[]) => [
-    ...new Set([
-      ...listed,
-      ...installedDescriptors.flatMap(({ kind }) =>
-        listed.flatMap((version) =>
-          equivalentToolCatalogVersions(installedToolCatalogs, kind, version),
-        ),
-      ),
-    ]),
-  ];
-  return {
-    accepted: withEquivalents(versions.accepted),
-    current: withEquivalents(versions.current),
-  };
+  const listed = runtimeVersionsOf(runtimes, installedDescriptors).accepted;
+  const accepted = new Map(
+    listed.flatMap(({ kind, version }) =>
+      [
+        version,
+        ...equivalentToolCatalogVersions(installedToolCatalogs, kind, version),
+      ].map((each) => [`${kind}\n${each}`, { kind, version: each }] as const),
+    ),
+  );
+  return { accepted: [...accepted.values()] };
 }
 
 /** The catalog a one-off job reads: the installation's settings, read once. */

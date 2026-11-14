@@ -353,7 +353,7 @@ export function createSessionService(deps: {
     if (spec === null) return false;
     const connection = connectionOf(catalog, spec.connection.id);
     if (connection === undefined) return false;
-    if (!runtimeVersionAccepted(catalog, spec.runtime.version)) return false;
+    if (!runtimeVersionAccepted(catalog, spec.runtime)) return false;
     if (
       !connectionModels(connection).includes(spec.model) &&
       !(
@@ -390,7 +390,7 @@ export function createSessionService(deps: {
     if (!connectionModels(connection).includes(spec.model)) {
       return `Model ${spec.model} was taken off the model list of connection ${spec.connection.id}; messages will not run until an operator adds it back, or you start a new session on another model`;
     }
-    if (!runtimeVersionAccepted(catalog, spec.runtime.version)) {
+    if (!runtimeVersionAccepted(catalog, spec.runtime)) {
       return `The session runs ${spec.runtime.kind} ${spec.runtime.version}, which the worker images no longer ship; start a new session on the agent's current release`;
     }
     return "The session's repository is no longer in this host's catalog as the session was created on it; messages will not run until an operator restores it";
@@ -782,8 +782,7 @@ export function createSessionService(deps: {
         | { kind: SpecSource["runtime"]["kind"]; version: string }
         | undefined;
       const staleRuntime =
-        runtime === undefined ||
-        !runtimeVersionAccepted(catalog, runtime.version);
+        runtime === undefined || !runtimeVersionAccepted(catalog, runtime);
       const runnable =
         connection !== undefined &&
         model !== undefined &&
