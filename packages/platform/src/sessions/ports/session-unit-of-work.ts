@@ -36,6 +36,15 @@ export type InputLimits = {
   storageLimitBytes: number;
 };
 
+// A function is asked only for a new input and throws while the limits
+// cannot be read, so a replay answers then too. Synchronous: nothing waits
+// between the replay check and the insert.
+export type InputLimitsSource = InputLimits | (() => InputLimits);
+
+export function inputLimitsOf(source: InputLimitsSource): InputLimits {
+  return typeof source === "function" ? source() : source;
+}
+
 // Why an input was not queued although nothing else was wrong with it.
 // queue_full: the session already holds its limit of queued turns.
 // storage_exhausted: the message would take retained content past the
@@ -110,7 +119,7 @@ export type AcceptSessionInput = {
   // them and the installation's when it is raised.
   permissionWait?: PermissionWaitRequest;
   message: string;
-  limits: InputLimits;
+  limits: InputLimitsSource;
 };
 
 export type AcceptSessionResult =
@@ -134,7 +143,7 @@ export type AppendMessageInput = {
   idempotencyKey: string;
   payloadHash: string;
   message: string;
-  limits: InputLimits;
+  limits: InputLimitsSource;
   // Where the input came from; left out, the turn records none.
   channel?: SurfaceKind;
   slackMessage?: SlackMessageRef;

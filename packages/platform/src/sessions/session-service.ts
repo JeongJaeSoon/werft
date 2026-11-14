@@ -328,12 +328,22 @@ export function createSessionService(deps: {
   now?: () => Date;
 }) {
   const { authorization, inputs, controls, reader, catalog } = deps;
-  async function inputLimits(): Promise<InputLimits> {
-    const limits = await readSetting(deps.limits);
-    return {
-      queuedInputLimitPerSession: limits.queuedInputLimitPerSession,
-      storageLimitBytes: limits.storageLimitBytes,
-    };
+  // Read before the transaction; a limit that cannot be read refuses only a
+  // new input, so a replay of one already taken still answers.
+  async function inputLimits(): Promise<() => InputLimits> {
+    try {
+      const limits = await readSetting(deps.limits);
+      const read: InputLimits = {
+        queuedInputLimitPerSession: limits.queuedInputLimitPerSession,
+        storageLimitBytes: limits.storageLimitBytes,
+      };
+      return () => read;
+    } catch (error) {
+      if (!(error instanceof InstallationConfigUnavailableError)) throw error;
+      return () => {
+        throw error;
+      };
+    }
   }
   // Names only the limits reached: an unmetered session spends no dollars,
   // so its message never shows a dollar limit it cannot reach.
