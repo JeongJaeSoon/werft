@@ -390,7 +390,7 @@ describe("사용량·한도", () => {
     ["admin", () => me(undefined, "admin")],
     ["member", memberMe],
   ] as const) {
-    test(`${role}: 한도 탭·설치 전체 범위·slot 줄이 없고 /v1/limits를 읽지 않는다`, async () => {
+    test(`${role}: 개요에 설치 전체 범위·slot 줄이 없고 /v1/limits를 읽지 않으며, 한도 탭은 있다`, async () => {
       setSystemTime(NOW);
       const { api } = renderAt("/operations", {
         "GET /v1/auth/me": () => json(200, who()),
@@ -402,7 +402,7 @@ describe("사용량·한도", () => {
         within(tabs)
           .getAllByRole("link")
           .map((a) => a.textContent),
-      ).toEqual(["개요", "사용량", "도구 활동"]);
+      ).toEqual(["개요", "사용량", "도구 활동", "한도"]);
       expect(screen.queryByRole("group", { name: "집계 범위" })).toBeNull();
       expect(screen.queryByText("동시 실행 슬롯 · 설치 전체")).toBeNull();
       expect(api.calls.some((call) => call.path === "/v1/limits")).toBe(false);
@@ -1020,14 +1020,70 @@ describe("사용량·한도", () => {
     expect(within(table).getByText("7 / 10")).toBeTruthy();
   });
 
-  test("한도 탭을 member가 열면 권한 없음이고 /v1/limits를 읽지 않는다", async () => {
-    const { api } = renderAt("/operations/limits", {
-      "GET /v1/auth/me": () => json(200, memberMe()),
+  const MEMBER_LIMITS = {
+    scope: "me",
+    refreshed_at: "2026-10-24T12:40:00.000Z",
+    limits: {
+      queued_input_limit_per_session: 20,
+      max_turn_seconds: 3600,
+      session_cost_limit_usd: "25.00",
+      session_token_limit: null,
+    },
+  };
+
+  for (const [role, who] of [
+    ["admin", () => me(undefined, "admin")],
+    ["member", memberMe],
+  ] as const) {
+    test(`한도 탭: ${role}는 /v1/limits?scope=me만 읽어 세션 한도 4개와 정적 행을 본다`, async () => {
+      setSystemTime(NOW);
+      const { api } = renderAt("/operations/limits", {
+        "GET /v1/auth/me": () => json(200, who()),
+        "GET /v1/limits?scope=me": () => json(200, MEMBER_LIMITS),
+      });
+      const table = await screen.findByRole("table", { name: "한도" });
+      await within(table).findByText("$25.00");
+      const rows = [...table.querySelectorAll("[role=row]")]
+        .slice(1)
+        .map((row) =>
+          [...row.querySelectorAll("[role=cell]")]
+            .slice(0, 3)
+            .map((cell) => cell.textContent),
+        );
+      expect(rows).toEqual([
+        ["동시 실행 슬롯", "—", "설정 안 됨"],
+        ["월 비용", "—", "설정 안 됨"],
+        ["성과물 저장", "미계측", "한도 없음"],
+        ["세션당 비용", "세션마다 셉니다", "$25.00"],
+        ["세션당 토큰", "세션마다 셉니다", "설정 안 됨"],
+        ["세션당 대기 입력", "세션마다 셉니다", "20건"],
+        ["턴 최대 시간", "세션마다 셉니다", "1시간 0분"],
+      ]);
+      expect(screen.queryByText("실행 용량") === null).toBe(true);
+      expect(
+        api.calls
+          .filter((call) => call.path === "/v1/limits")
+          .map((call) => call.search),
+      ).toEqual(["?scope=me"]);
     });
-    expect(
-      await screen.findByText("이 화면을 볼 권한이 없습니다"),
-    ).toBeTruthy();
-    expect(screen.queryByRole("table", { name: "한도" })).toBeNull();
-    expect(api.calls.some((call) => call.path === "/v1/limits")).toBe(false);
+  }
+
+  test("한도 탭: member의 한도 읽기가 실패하면 0이나 빈 표가 아니라 다시 시도할 수 있는 실패를 보인다", async () => {
+    let calls = 0;
+    renderAt("/operations/limits", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/limits?scope=me": () =>
+        ++calls === 1
+          ? json(500, { error: { code: "INTERNAL", message: "x" } })
+          : json(200, MEMBER_LIMITS),
+    });
+    const retry = await screen.findByRole("button", { name: "다시 시도" });
+    expect(screen.queryByRole("table", { name: "한도" }) === null).toBe(true);
+    expect(screen.queryByText("설정 안 됨") === null).toBe(true);
+    const user = await setupUser();
+    await user.click(retry);
+    const table = await screen.findByRole("table", { name: "한도" });
+    expect(await within(table).findByText("$25.00")).toBeTruthy();
+    expect(calls).toBe(2);
   });
 });

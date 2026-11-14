@@ -14,6 +14,7 @@ import { type ApiClient, unwrap } from "@werft-ai/client";
 import type {
   CountSessionsResponse,
   InstallationLimitsResponse,
+  MemberLimitsResponse,
   UsageBreakdownBy,
   UsageBreakdownResponse,
   UsageSeriesResponse,
@@ -56,7 +57,6 @@ import { Badge, Card, EmptyState, Section, Skeleton } from "@werft-ai/ui";
 import { useRef, useState } from "react";
 import { useHasPermission } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
-import { StatusScreen } from "../components/status-screen.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 import {
   type OperationsSearch,
@@ -197,14 +197,14 @@ const TAB_PATHS: Readonly<Record<OperationsTab, string>> = {
   limits: "/operations/limits",
 };
 
+const TABS: readonly OperationsTab[] = ["overview", "usage", "tools", "limits"];
+
 function useCurrentTab() {
-  const operator = useHasPermission("usage.installation_read");
   const pathname = useRouterState({
     // The screen on show, not the one still loading: the head moves with it.
     select: (s) => (s.resolvedLocation ?? s.location).pathname,
   });
-  const tabs: OperationsTab[] = ["overview", "usage", "tools"];
-  if (operator) tabs.push("limits");
+  const tabs = TABS;
   const current =
     tabs.find(
       (tab) =>
@@ -662,11 +662,22 @@ export function OperationsToolsScreen() {
 }
 
 export function OperationsLimitsScreen() {
+  const { client } = useWerft();
   const operator = useHasPermission("usage.installation_read");
-  const limits = useInstallationLimits(operator);
-  if (!operator) return <StatusScreen kind="forbidden" />;
+  const installation = useInstallationLimits(operator);
+  const own = useQuery({
+    queryKey: scopedKey(client, "limits", "me"),
+    queryFn: () =>
+      unwrap(
+        client.GET("/v1/limits", { params: { query: { scope: "me" } } }),
+      ) as Promise<MemberLimitsResponse>,
+    enabled: !operator,
+    retry: false,
+  });
+  const limits = operator ? installation : own;
   return (
     <InstallationLimits
+      scope={operator ? "installation" : "me"}
       limits={limits.data}
       error={
         limits.isError ? (

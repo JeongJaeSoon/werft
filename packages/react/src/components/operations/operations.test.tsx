@@ -727,6 +727,94 @@ describe("InstallationLimits", () => {
       "한도를 읽는 중",
     ]);
   });
+
+  const MEMBER_LIMITS = {
+    scope: "me" as const,
+    refreshed_at: "2026-10-24T12:40:00Z",
+    limits: {
+      queued_input_limit_per_session: 20,
+      max_turn_seconds: 3600,
+      session_cost_limit_usd: "25.00",
+      session_token_limit: 2_000_000,
+    },
+  };
+  const tableRows = (getByRole: (role: string, o: object) => HTMLElement) =>
+    [...getByRole("table", { name: "한도" }).querySelectorAll("[role=row]")]
+      .slice(1)
+      .map((row) =>
+        [...row.querySelectorAll("[role=cell]")].map(
+          (cell) => cell.textContent,
+        ),
+      );
+  const STATIC_MEMBER_ROWS = [
+    [
+      "동시 실행 슬롯",
+      "—",
+      "설정 안 됨",
+      "구성원별 상한은 없습니다. 설치 전체의 슬롯을 함께 씁니다",
+    ],
+    ["월 비용", "—", "설정 안 됨", "구성원별 월 비용 한도는 없습니다"],
+    [
+      "성과물 저장",
+      "미계측",
+      "한도 없음",
+      "구성원별 성과물 용량은 세지 않습니다",
+    ],
+  ];
+
+  test('scope="me": 세션 한도 4개와 값을 만들지 않는 정적 행만 보이고 설치 전체 용량은 없다', () => {
+    const { getByRole, queryAllByRole, queryByText } = withPlatform(
+      <InstallationLimits
+        scope="me"
+        limits={MEMBER_LIMITS}
+        timeZone="Asia/Seoul"
+      />,
+    );
+    expect(tableRows(getByRole).map((row) => row.slice(0, 3))).toEqual([
+      ...STATIC_MEMBER_ROWS.map((row) => row.slice(0, 3)),
+      ["세션당 비용", "세션마다 셉니다", "$25.00"],
+      ["세션당 토큰", "세션마다 셉니다", "2,000,000"],
+      ["세션당 대기 입력", "세션마다 셉니다", "20건"],
+      ["턴 최대 시간", "세션마다 셉니다", "1시간 0분"],
+    ]);
+    expect(tableRows(getByRole).slice(0, 3)).toEqual(STATIC_MEMBER_ROWS);
+    expect(queryByText("실행 용량") === null).toBe(true);
+    expect(queryAllByRole("meter")).toHaveLength(0);
+    expect(document.body.textContent).toContain(
+      "내 세션에 적용됩니다 · 오후 9:40 기준",
+    );
+    expect(document.body.textContent).not.toContain("/");
+  });
+
+  test('scope="me": 읽는 동안에도 정적 행은 보이고 받을 값 칸만 skeleton이다', () => {
+    const { getByRole, getAllByRole } = withPlatform(
+      <InstallationLimits scope="me" limits={undefined} />,
+    );
+    const rows = tableRows(getByRole);
+    expect(rows.slice(0, 3)).toEqual(STATIC_MEMBER_ROWS);
+    expect(rows.slice(3).map((row) => row.slice(1, 3))).toEqual([
+      ["세션마다 셉니다", "불러오는 중"],
+      ["세션마다 셉니다", "불러오는 중"],
+      ["세션마다 셉니다", "불러오는 중"],
+      ["세션마다 셉니다", "불러오는 중"],
+    ]);
+    expect(getAllByRole("status").map((s) => s.textContent)).toEqual([
+      "한도를 읽는 중",
+    ]);
+  });
+
+  test('scope="me": 읽기 실패는 받은 오류 하나만 한도 제목 아래에 보인다', () => {
+    const { queryByRole, getByText } = withPlatform(
+      <InstallationLimits
+        scope="me"
+        limits={undefined}
+        error={<p>읽지 못했습니다</p>}
+      />,
+    );
+    expect(getByText("읽지 못했습니다")).toBeTruthy();
+    expect(queryByRole("table") === null).toBe(true);
+    expect(queryByRole("heading", { name: "한도" }) === null).toBe(false);
+  });
 });
 
 describe("UsageKpis", () => {

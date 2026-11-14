@@ -99,6 +99,14 @@ export interface InstallationLimitsMessages {
   readonly maxTurn: string;
   readonly maxTurnNote: string;
   readonly loading: string;
+  /** `scope="me"`: the limits a member's own sessions run under. */
+  readonly memberNote: string;
+  readonly memberSlotsNote: string;
+  readonly monthlyCost: string;
+  readonly monthlyCostNote: string;
+  readonly memberOutputsNote: string;
+  /** A figure the platform keeps for no member. */
+  readonly notMeasured: string;
 }
 
 export interface UsageCostTableMessages {
@@ -508,6 +516,13 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         maxTurn: "턴 최대 시간",
         maxTurnNote: "턴 하나가 돌 수 있는 시간",
         loading: "한도를 읽는 중",
+        memberNote: "내 세션에 적용됩니다",
+        memberSlotsNote:
+          "구성원별 상한은 없습니다. 설치 전체의 슬롯을 함께 씁니다",
+        monthlyCost: "월 비용",
+        monthlyCostNote: "구성원별 월 비용 한도는 없습니다",
+        memberOutputsNote: "구성원별 성과물 용량은 세지 않습니다",
+        notMeasured: "미계측",
       },
       usageCostTable: {
         sessions: "세션",
@@ -709,6 +724,13 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         maxTurn: "ターンの最大時間",
         maxTurnNote: "1つのターンを実行できる時間",
         loading: "上限を読み込み中",
+        memberNote: "自分のセッションに適用されます",
+        memberSlotsNote:
+          "メンバーごとの上限はありません。インストール全体のスロットを共有します",
+        monthlyCost: "月間コスト",
+        monthlyCostNote: "メンバーごとの月間コスト上限はありません",
+        memberOutputsNote: "メンバーごとの成果物の容量は数えません",
+        notMeasured: "未計測",
       },
       usageCostTable: {
         sessions: "セッション",
@@ -910,6 +932,13 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         maxTurn: "Longest turn",
         maxTurnNote: "How long one turn may run",
         loading: "Loading limits",
+        memberNote: "Applies to your sessions",
+        memberSlotsNote:
+          "No cap per member. Members share the installation's slots",
+        monthlyCost: "Monthly cost",
+        monthlyCostNote: "No monthly cost limit per member",
+        memberOutputsNote: "Outputs are not counted per member",
+        notMeasured: "Not measured",
       },
       usageCostTable: {
         sessions: "Sessions",
