@@ -6,6 +6,7 @@ import {
 } from "@werft-ai/contracts";
 import {
   modelCutDedupeKey,
+  modelCutDedupeKeyWithoutInstallation,
   modelCutEventMessage,
   modelCutNoticeText,
   runtimeRetiredDedupeKey,
@@ -71,9 +72,10 @@ export async function writeModelCut(
  * is installed in. A session without a workspace, creator or agent release
  * (rows from before them) tells only whom it can resolve.
  *
- * The key is per person and session, so a later attempt cut for the same
- * reason adds nothing for someone already told; a person who became an
- * administrator since is told at that cut.
+ * The key is per Slack account and session, so a later attempt cut for the
+ * same reason adds nothing for someone already told, under this key or the
+ * one before installations were in it; a person who became an administrator
+ * since is told at that cut.
  * The notice goes as a direct message: the person's Slack user id is the
  * channel and there is no thread.
  */
@@ -91,6 +93,21 @@ export async function enqueueModelCutNotices(
   });
   let enqueued = 0;
   for (const person of recipients) {
+    const [toldBefore] = await tx
+      .select({ id: slackOutbox.id })
+      .from(slackOutbox)
+      .where(
+        eq(
+          slackOutbox.dedupeKey,
+          modelCutDedupeKeyWithoutInstallation(
+            workspaceId,
+            input.sessionId,
+            person.slackUserId,
+          ),
+        ),
+      )
+      .limit(1);
+    if (toldBefore) continue;
     const [row] = await tx
       .insert(slackOutbox)
       .values({
@@ -111,6 +128,7 @@ export async function enqueueModelCutNotices(
         dedupeKey: modelCutDedupeKey(
           workspaceId,
           input.sessionId,
+          person.installationId,
           person.slackUserId,
         ),
       })
@@ -127,55 +145,27 @@ export async function enqueueModelCutNotices(
  * The agent's administrators are told of the agent's own move instead
  * (`enqueueModelMoveNotices`), so they are not told again per session.
  */
-export async function enqueueSessionModelMoveNotices(
+export function enqueueSessionModelMoveNotices(
   tx: Database,
   input: { sessionId: string; from: string; to: string },
 ): Promise<number> {
-  const session = await noticedSession(tx, input.sessionId);
-  if (session === null || session.createdByUserId === null) return 0;
-  const { workspaceId, agentId } = session;
-  const recipients = await slackRecipientsOf(tx, {
-    workspaceId,
-    agentId,
-    userId: session.createdByUserId,
-    administrators: false,
-  });
-  let enqueued = 0;
-  for (const person of recipients) {
-    const [row] = await tx
-      .insert(slackOutbox)
-      .values({
-        id: randomUUID(),
+  return enqueueCreatorNotices(tx, input.sessionId, {
+    text: (locale, agent) =>
+      sessionModelMoveNoticeText(locale, {
+        agent,
+        from: input.from,
+        to: input.to,
+      }),
+    dedupeKey: (workspaceId, installationId, slackUserId) =>
+      sessionModelMoveDedupeKey(
         workspaceId,
-        agentId,
-        slackAppId: person.slackAppId,
-        installationId: person.installationId,
-        kind: "model_notice",
-        channelId: person.slackUserId,
-        threadTs: "",
-        slackUserId: null,
-        sessionId: input.sessionId,
-        body: {
-          text: sessionModelMoveNoticeText(person.locale, {
-            agent: session.agentName,
-            from: input.from,
-            to: input.to,
-          }),
-          ...(person.locale === null ? {} : { locale: person.locale }),
-        },
-        dedupeKey: sessionModelMoveDedupeKey(
-          workspaceId,
-          input.sessionId,
-          input.from,
-          input.to,
-          person.slackUserId,
-        ),
-      })
-      .onConflictDoNothing({ target: slackOutbox.dedupeKey })
-      .returning({ id: slackOutbox.id });
-    if (row) enqueued += 1;
-  }
-  return enqueued;
+        input.sessionId,
+        input.from,
+        input.to,
+        installationId,
+        slackUserId,
+      ),
+  });
 }
 
 /**

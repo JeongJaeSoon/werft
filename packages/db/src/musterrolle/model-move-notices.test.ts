@@ -63,15 +63,33 @@ async function world() {
     redirectUrl: "https://example.invalid/slack/callback",
     eventsState: "verified",
   });
-  await db.insert(slackInstallations).values({
-    id: crypto.randomUUID(),
-    workspaceId,
-    appId,
-    teamId: "T1",
-    status: "verified",
-    botUserId: "UBOT",
-    verifiedAt: NOW,
-  });
+  const installation = async (teamId: string) => {
+    const id = crypto.randomUUID();
+    await db.insert(slackInstallations).values({
+      id,
+      workspaceId,
+      appId,
+      teamId,
+      status: "verified",
+      botUserId: `UBOT${teamId}`,
+      verifiedAt: NOW,
+    });
+    return id;
+  };
+  await installation("T1");
+  const link = async (userId: string, label: string, tenant: string) => {
+    await db.insert(linkedAccounts).values({
+      id: crypto.randomUUID(),
+      workspaceId,
+      userId,
+      provider: "slack",
+      externalTenant: tenant,
+      externalUserId: `U${label.toUpperCase()}`,
+      status: "active",
+      verifiedVia: "slack_oidc",
+      verifiedAt: NOW,
+    });
+  };
   const admin = async (label: string, locale: "ko" | "en" | "ja") => {
     const userId = crypto.randomUUID();
     await db.insert(users).values({
@@ -84,21 +102,11 @@ async function world() {
     await db
       .insert(memberships)
       .values({ workspaceId, userId, role: "member" });
-    await db.insert(linkedAccounts).values({
-      id: crypto.randomUUID(),
-      workspaceId,
-      userId,
-      provider: "slack",
-      externalTenant: "T1",
-      externalUserId: `U${label.toUpperCase()}`,
-      status: "active",
-      verifiedVia: "slack_oidc",
-      verifiedAt: NOW,
-    });
+    await link(userId, label, "T1");
     await db.insert(agentAdmins).values({ workspaceId, agentId, userId });
-    return `U${label.toUpperCase()}`;
+    return { userId, slackUserId: `U${label.toUpperCase()}` };
   };
-  return { workspaceId, agentId, admin };
+  return { workspaceId, agentId, admin, installation, link };
 }
 
 const move = {
@@ -109,8 +117,8 @@ const move = {
 describe("enqueueModelMoveNotices", () => {
   test("tells each administrator in their language, as a direct message", async () => {
     const w = await world();
-    const ko = await w.admin("ko", "ko");
-    const en = await w.admin("en", "en");
+    const { slackUserId: ko } = await w.admin("ko", "ko");
+    const { slackUserId: en } = await w.admin("en", "en");
     expect(
       await enqueueModelMoveNotices(db, {
         workspaceId: w.workspaceId,
@@ -164,6 +172,29 @@ describe("enqueueModelMoveNotices", () => {
     expect(await enqueueModelMoveNotices(db, { ...base, kind: "moved" })).toBe(
       1,
     );
+  });
+
+  test("the same Slack user id in two of the agent's installations gets a DM in each", async () => {
+    const w = await world();
+    const one = await w.admin("one", "en");
+    const second = await w.installation("T2");
+    await w.link(one.userId, "one", "T2");
+    const moved = () =>
+      enqueueModelMoveNotices(db, {
+        workspaceId: w.workspaceId,
+        agentId: w.agentId,
+        kind: "moved",
+        ...move,
+        revision: 3,
+      });
+    expect(await moved()).toBe(2);
+    const rows = await db.select().from(slackOutbox);
+    expect(rows.map((row) => row.channelId)).toEqual([
+      one.slackUserId,
+      one.slackUserId,
+    ]);
+    expect(rows.map((row) => row.installationId)).toContain(second);
+    expect(await moved()).toBe(0);
   });
 
   test("an agent that is gone tells nobody", async () => {

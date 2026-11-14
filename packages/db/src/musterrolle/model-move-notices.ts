@@ -60,6 +60,7 @@ export async function enqueueModelMoveNotices(
           input.agentId,
           input.from,
           input.to,
+          person.installationId,
           person.slackUserId,
           input.revision,
         ),
