@@ -34,10 +34,13 @@ import {
   type RegisterPendingResponse,
   type ReleaseRequest,
   type ReleaseResponse,
+  type RepositoryPinsRequest,
+  type RepositoryPinsResponse,
   type RestorePlanRequest,
   type RestorePlanResponse,
   registerPendingResponseSchema,
   releaseResponseSchema,
+  repositoryPinsResponseSchema,
   requestBodyInvalidDetailsSchema,
   restorePlanResponseSchema,
   type WorkerCapabilities,
@@ -59,6 +62,7 @@ const REFUSABLE_CAPABILITIES = [
   "engine_settings",
   "response_language",
   "answer_surface",
+  "repository_pins",
 ] as const;
 
 // Only what a response body has to answer, so the worker never imports zod.
@@ -216,6 +220,12 @@ export class HttpWorkerGatewayClient implements WorkerGatewaySession {
       request,
       protectedCommitsResponseSchema,
     );
+  }
+
+  repositoryPins(
+    request: RepositoryPinsRequest,
+  ): Promise<RepositoryPinsResponse> {
+    return this.post("/repository-pins", request, repositoryPinsResponseSchema);
   }
 
   restorePlan(request: RestorePlanRequest): Promise<RestorePlanResponse> {

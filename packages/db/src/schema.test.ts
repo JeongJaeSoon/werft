@@ -209,6 +209,7 @@ describe("database schema", () => {
       "session_outcomes",
       "session_pre_metering_cost",
       "session_repository_attachments",
+      "session_repository_pins",
       "session_share_targets",
       "session_shares",
       "session_title_requests",

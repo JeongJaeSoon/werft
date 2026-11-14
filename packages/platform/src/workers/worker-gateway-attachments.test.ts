@@ -12,6 +12,7 @@ import type {
   GitHubSessionContext,
 } from "../github/ports/github-gate.ts";
 import { createGitHubGate } from "../github/service/github-gate.ts";
+import type { RepositoryPinStore } from "../ports/repository-attachments.ts";
 import type { WorkerUnitOfWork } from "../ports/worker-unit-of-work.ts";
 import type { CatalogRepository } from "../sessions/catalog.ts";
 import type { WorkerPendingStore } from "../sessions/ports/pending-requests.ts";
@@ -139,6 +140,22 @@ function wired() {
     context: { context },
     catalog,
   });
+  // First writer wins, as the table's primary key does.
+  const pins = new Map<string, string>();
+  const repositoryPins: RepositoryPinStore = {
+    list: async () => new Map(pins),
+    pin: async (_sessionId, asked) => {
+      for (const pin of asked) {
+        if (!pins.has(pin.repositoryId)) pins.set(pin.repositoryId, pin.commit);
+      }
+      return new Map(
+        asked.flatMap((pin) => {
+          const kept = pins.get(pin.repositoryId);
+          return kept === undefined ? [] : [[pin.repositoryId, kept]];
+        }),
+      );
+    },
+  };
   const binding = {
     sessionId: SESSION,
     attemptId: "att_1",
@@ -179,6 +196,7 @@ function wired() {
     github: gate,
     pending,
     attachments: store,
+    repositoryPins,
     checkpoints: acceptAllCheckpoints,
     options: {
       sessionCostLimitUsd: 1_000,
@@ -199,7 +217,7 @@ function wired() {
       actor,
       repositoryId,
     });
-  return { gateway, receipts, memory, attach, fetchDocs };
+  return { gateway, receipts, memory, attach, fetchDocs, pins };
 }
 
 describe("a repository attached mid-session", () => {
@@ -291,5 +309,78 @@ describe("a repository attached mid-session", () => {
       status: "attached",
       commit: COMMIT,
     });
+  });
+});
+
+describe("the session's pin of an attached repository", () => {
+  const OTHER = "e".repeat(40);
+  const claim = (w: ReturnType<typeof wired>, pins: boolean) =>
+    w.gateway.bootstrapClaim(
+      { kind: "bootstrap" },
+      {
+        execution_id: "e",
+        execution_generation: 1,
+        credential: { kind: "launch_nonce", nonce: "n" },
+        ...(pins ? { capabilities: { repository_pins: true } } : {}),
+      },
+    );
+  const poll = (w: ReturnType<typeof wired>, pins: boolean) =>
+    w.gateway.pendingControl(principal, {
+      ...scope,
+      answers_after: 0,
+      ...(pins ? { capabilities: { repository_pins: true } } : {}),
+    });
+
+  test("is kept first-writer-wins, only for a repository the session may work on, once per repository", async () => {
+    const w = wired();
+    await w.attach("docs");
+    const pin = (pins: Array<{ repository_id: string; commit: string }>) =>
+      w.gateway.repositoryPins(principal, { ...scope, pins });
+    expect(
+      await pin([
+        { repository_id: "docs", commit: COMMIT },
+        { repository_id: "docs", commit: OTHER },
+        { repository_id: "tools", commit: COMMIT },
+      ]),
+    ).toEqual({ pins: [{ repository_id: "docs", commit: COMMIT }] });
+    expect(await pin([{ repository_id: "docs", commit: OTHER }])).toEqual({
+      pins: [{ repository_id: "docs", commit: COMMIT }],
+    });
+    expect([...w.pins]).toEqual([["docs", COMMIT]]);
+  });
+
+  test("a stale attempt cannot pin", async () => {
+    const w = wired();
+    await w.attach("docs");
+    await expect(
+      w.gateway.repositoryPins(
+        { ...principal, leaseEpoch: 2 },
+        { ...scope, pins: [{ repository_id: "docs", commit: COMMIT }] },
+      ),
+    ).rejects.toMatchObject({ status: 409, code: "STALE_EPOCH" });
+    expect(w.pins.size).toBe(0);
+  });
+
+  test("rides on the claim and the attach order only for a worker that parses it", async () => {
+    const w = wired();
+    const receipt_id = (await w.attach("docs")).receipt_id ?? "missing";
+    w.pins.set("docs", COMMIT);
+    const listed = async (pins: boolean) =>
+      bootstrapClaimResponseSchema.parse(await claim(w, pins)).workspace
+        .additional_repositories?.[0]?.commit;
+    expect(await listed(false)).toBeUndefined();
+    expect(await listed(true)).toBe(COMMIT);
+    expect((await poll(w, false)).attachments).toEqual([
+      { id: "docs", url: onGitHub("docs").url, branch: "main", receipt_id },
+    ]);
+    expect((await poll(w, true)).attachments).toEqual([
+      {
+        id: "docs",
+        url: onGitHub("docs").url,
+        branch: "main",
+        receipt_id,
+        commit: COMMIT,
+      },
+    ]);
   });
 });

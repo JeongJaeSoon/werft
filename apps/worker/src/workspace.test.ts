@@ -482,7 +482,11 @@ describe("GitWorkspace", () => {
       },
       signal: new AbortController().signal,
     });
-    expect(result).toEqual({ attached: ["docs"], failed: ["gone"] });
+    expect(result).toEqual({
+      attached: ["docs"],
+      failed: ["gone"],
+      commits: new Map([["docs", git(["rev-parse", "HEAD"], seed)]]),
+    });
     expect(git(["rev-parse", "refs/remotes/docs/trunk"], root)).toBe(
       git(["rev-parse", "HEAD"], seed),
     );
@@ -519,6 +523,64 @@ describe("GitWorkspace", () => {
       );
       expect(commit).toBe(head);
       expect(git(["rev-parse", "refs/remotes/docs/trunk"], root)).toBe(head);
+    });
+
+    for (const move of ["moved on", "force-pushed away"] as const) {
+      test(`fetches the pinned commit though the branch ${move}`, async () => {
+        await prepare(descriptor());
+        const { docs, head } = await docsRepository();
+        const seed = join(scratch, "docs-seed");
+        await writeFile(join(seed, "LATER.md"), "later\n");
+        git(["add", "LATER.md"], seed);
+        if (move === "moved on") {
+          git(["commit", "--quiet", "-m", "later"], seed);
+          git(["push", "--quiet", "origin", "HEAD:trunk"], seed);
+        } else {
+          git(["commit", "--quiet", "--amend", "-m", "rewritten"], seed);
+          git(["push", "--quiet", "--force", "origin", "HEAD:trunk"], seed);
+        }
+        expect(git(["rev-parse", "trunk"], docs)).not.toBe(head);
+
+        const commit = await new GitWorkspace(root, [
+          "AGENTS.md",
+          "CLAUDE.md",
+        ]).attachRepository(
+          { id: "docs", url: docs, branch: "trunk", commit: head },
+          new AbortController().signal,
+        );
+        expect(commit).toBe(head);
+        expect(git(["rev-parse", "refs/remotes/docs/trunk"], root)).toBe(head);
+        expect(await readdir(join(root, ".git"))).not.toContain("attach");
+      });
+    }
+
+    test("a pin the remote no longer has fails and leaves no remote", async () => {
+      await prepare(descriptor());
+      const { docs } = await docsRepository();
+      const failed = await new GitWorkspace(root, ["AGENTS.md", "CLAUDE.md"])
+        .attachRepository(
+          { id: "docs", url: docs, branch: "trunk", commit: "e".repeat(40) },
+          new AbortController().signal,
+        )
+        .catch((error: unknown) => error);
+      expect(failed).toBeInstanceOf(Error);
+      expect(git(["remote"], root)).not.toContain("docs");
+      expect(await readdir(join(root, ".git"))).not.toContain("attach");
+    });
+
+    test("a pin naming a tree rather than a commit fails", async () => {
+      await prepare(descriptor());
+      const { docs } = await docsRepository();
+      const tree = git(["rev-parse", "trunk^{tree}"], docs);
+      const failed = await new GitWorkspace(root, ["AGENTS.md", "CLAUDE.md"])
+        .attachRepository(
+          { id: "docs", url: docs, branch: "trunk", commit: tree },
+          new AbortController().signal,
+        )
+        .catch((error: unknown) => error);
+      expect(failed).toBeInstanceOf(Error);
+      expect(String(failed)).toContain("is not a commit");
+      expect(git(["remote"], root)).not.toContain("docs");
     });
 
     test("a fetch past the size limit fails as too large and leaves no remote", async () => {
@@ -762,7 +824,11 @@ describe("GitWorkspace without a repository", () => {
       },
       signal: new AbortController().signal,
     });
-    expect(result).toEqual({ attached: ["docs"], failed: [] });
+    expect(result).toEqual({
+      attached: ["docs"],
+      failed: [],
+      commits: new Map([["docs", git(["rev-parse", "HEAD"], seed)]]),
+    });
     expect(git(["rev-parse", "refs/remotes/docs/trunk"], root)).toBe(
       git(["rev-parse", "HEAD"], seed),
     );

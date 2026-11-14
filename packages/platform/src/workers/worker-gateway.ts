@@ -35,6 +35,8 @@ import type {
   ReleaseRequest,
   ReleaseResponse,
   RepositoryAttachOrder,
+  RepositoryPinsRequest,
+  RepositoryPinsResponse,
   RequestParkRequest,
   RequestParkResponse,
   RestorePlanRequest,
@@ -101,7 +103,10 @@ import {
   priceJudgmentUsage,
   priceProviderUsage,
 } from "../limits/model-prices.ts";
-import type { RepositoryAttachmentStore } from "../ports/repository-attachments.ts";
+import type {
+  RepositoryAttachmentStore,
+  RepositoryPinStore,
+} from "../ports/repository-attachments.ts";
 import type {
   ClaimInput as ClaimInputOf,
   EgressBindings,
@@ -684,6 +689,9 @@ export function createWorkerGateway(deps: {
   githubMcp?: { store: GitHubMcpStore; grantKey: Uint8Array };
   // Absent, no attachment reaches a worker and its reports are dropped.
   attachments?: Pick<RepositoryAttachmentStore, "pending" | "settle">;
+  // Absent, a worker fetches every attached repository at its branch tip,
+  // and `/repository-pins` keeps nothing.
+  repositoryPins?: RepositoryPinStore;
   // Absent, the GitHub Packages registries refuse every request and a
   // claim names no GitHub owners.
   githubPackages?: {
@@ -914,9 +922,15 @@ export function createWorkerGateway(deps: {
   // handed out forever.
   async function attachOrders(
     sessionId: string,
+    pinned: boolean,
   ): Promise<RepositoryAttachOrder[] | undefined> {
     if (deps.attachments === undefined) return undefined;
     const rows = await deps.attachments.pending(sessionId);
+    // A repository attached again after a failed fetch keeps its first pin.
+    const pins =
+      pinned && rows.length > 0
+        ? await deps.repositoryPins?.list(sessionId)
+        : undefined;
     const gone = rows.filter(
       (row) => own(catalog.repositories, row.repositoryId) === undefined,
     );
@@ -933,6 +947,7 @@ export function createWorkerGateway(deps: {
     }
     return rows.flatMap((row) => {
       const entry = own(catalog.repositories, row.repositoryId);
+      const commit = pins?.get(row.repositoryId);
       return entry === undefined
         ? []
         : [
@@ -941,6 +956,7 @@ export function createWorkerGateway(deps: {
               url: entry.url,
               branch: row.branch,
               receipt_id: row.receiptId,
+              ...(commit === undefined ? {} : { commit }),
             },
           ];
     });
@@ -1286,15 +1302,22 @@ export function createWorkerGateway(deps: {
 
   // The repositories besides its own the session's release lets it work on
   // (session-multi-repository.md decision 2), reached with the attempt's
-  // repository token on the route named for each. Not pinned at the claim:
-  // the gate reads the release and catalog again on every fetch.
+  // repository token on the route named for each. The list is not pinned at
+  // the claim: the gate reads the release and catalog again on every fetch.
+  // Each one's commit is, for a worker that parses it: the session's pin.
   async function additionalWorkspaceRepositories(
     sessionId: string,
     token: string,
+    pinned: boolean,
   ): Promise<AdditionalWorkspaceRepository[]> {
     const ids = (await deps.github?.additionalRepositories?.(sessionId)) ?? [];
+    const pins =
+      pinned && ids.length > 0
+        ? await deps.repositoryPins?.list(sessionId)
+        : undefined;
     return ids.flatMap((id) => {
       const entry = own(catalog.repositories, id);
+      const commit = pins?.get(id);
       return entry === undefined
         ? []
         : [
@@ -1303,6 +1326,7 @@ export function createWorkerGateway(deps: {
               url: entry.url,
               branch: entry.branch,
               access: { kind: "egress_token" as const, token },
+              ...(commit === undefined ? {} : { commit }),
             },
           ];
     });
@@ -1755,6 +1779,7 @@ export function createWorkerGateway(deps: {
           const additional = await additionalWorkspaceRepositories(
             binding.sessionId,
             repositoryToken,
+            request.capabilities?.repository_pins === true,
           );
           return {
             session_id: binding.sessionId,
@@ -2541,7 +2566,10 @@ export function createWorkerGateway(deps: {
       if (request.attached !== undefined) {
         await deps.attachments?.settle(fence.sessionId, request.attached);
       }
-      const attachments = await attachOrders(fence.sessionId);
+      const attachments = await attachOrders(
+        fence.sessionId,
+        request.capabilities?.repository_pins === true,
+      );
       return {
         ...(attachments === undefined ? {} : { attachments }),
         control:
@@ -2795,6 +2823,36 @@ export function createWorkerGateway(deps: {
         }),
       );
       return { commits };
+    },
+
+    // The claim's unpinned repositories as the worker fetched them, kept
+    // first-writer-wins. Only a repository the session may work on now is
+    // kept; the rest are left out of the answer, and the worker keeps what
+    // it fetched for them this attempt only.
+    async repositoryPins(
+      principal: WorkerPrincipal,
+      request: RepositoryPinsRequest,
+    ): Promise<RepositoryPinsResponse> {
+      const fence = requireScope(principal, request);
+      if (deps.repositoryPins === undefined) return { pins: [] };
+      const allowed = new Set(
+        (await deps.github?.additionalRepositories?.(fence.sessionId)) ?? [],
+      );
+      const seen = new Set<string>();
+      const asked = request.pins.flatMap((pin) => {
+        if (!allowed.has(pin.repository_id) || seen.has(pin.repository_id)) {
+          return [];
+        }
+        seen.add(pin.repository_id);
+        return [{ repositoryId: pin.repository_id, commit: pin.commit }];
+      });
+      const kept = await deps.repositoryPins.pin(fence.sessionId, asked);
+      return {
+        pins: [...kept].map(([repository_id, commit]) => ({
+          repository_id,
+          commit,
+        })),
+      };
     },
 
     // The committed checkpoint as a download list, or the reason there is

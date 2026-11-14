@@ -427,6 +427,7 @@ describe("PendingRequestRegistry", () => {
           user_env: true,
           response_language: true,
           answer_surface: true,
+          repository_pins: true,
         });
       }
     });

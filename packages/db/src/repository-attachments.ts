@@ -6,8 +6,9 @@ import {
 import type {
   RepositoryAttachmentRow,
   RepositoryAttachmentStore,
+  RepositoryPinStore,
 } from "@werft-ai/platform";
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import {
   agentGitHubSettingsRowOf,
@@ -21,6 +22,7 @@ import {
   attempts,
   receipts,
   sessionRepositoryAttachments,
+  sessionRepositoryPins,
   sessions,
 } from "./schema.ts";
 
@@ -293,6 +295,16 @@ export function createPostgresRepositoryAttachments(
             )
             .returning({ receiptId: sessionRepositoryAttachments.receiptId });
           if (row === undefined) return;
+          if (result.status === "attached") {
+            await tx
+              .insert(sessionRepositoryPins)
+              .values({
+                sessionId,
+                repositoryId: result.repository_id,
+                gitCommit: result.commit,
+              })
+              .onConflictDoNothing();
+          }
           await tx
             .update(receipts)
             .set(
@@ -325,6 +337,50 @@ export function createPostgresRepositoryAttachments(
           }
         });
       }
+    },
+  };
+}
+
+export function createPostgresRepositoryPins(db: Database): RepositoryPinStore {
+  const read = async (
+    sessionId: string,
+    repositoryIds?: readonly string[],
+  ): Promise<Map<string, string>> => {
+    const rows = await db
+      .select({
+        repositoryId: sessionRepositoryPins.repositoryId,
+        commit: sessionRepositoryPins.gitCommit,
+      })
+      .from(sessionRepositoryPins)
+      .where(
+        and(
+          eq(sessionRepositoryPins.sessionId, sessionId),
+          repositoryIds === undefined
+            ? undefined
+            : inArray(sessionRepositoryPins.repositoryId, [...repositoryIds]),
+        ),
+      );
+    return new Map(rows.map((row) => [row.repositoryId, row.commit]));
+  };
+  return {
+    list: (rawSessionId) => read(rawSessionId.toLowerCase()),
+    async pin(rawSessionId, pins) {
+      const sessionId = rawSessionId.toLowerCase();
+      if (pins.length === 0) return new Map();
+      await db
+        .insert(sessionRepositoryPins)
+        .values(
+          pins.map((pin) => ({
+            sessionId,
+            repositoryId: pin.repositoryId,
+            gitCommit: pin.commit,
+          })),
+        )
+        .onConflictDoNothing();
+      return read(
+        sessionId,
+        pins.map((pin) => pin.repositoryId),
+      );
     },
   };
 }

@@ -132,7 +132,7 @@ attach가 연결 오류(`upstream connection failed` 답이나 HTTP 502·503)로
 - 같은 저장소를 다시 붙이면 아무것도 바꾸지 않고 성공한다. 받아 오는 중이면 `pending`과 `final: false`를 바로 돌려준다. `wait_seconds`(0~7초, 기본 0)를 주면 받아 오기가 끝나거나 그 시간이 지날 때까지 기다렸다 답하고, 끝났으면 `final: true`다.
 - 받아 오기에는 시간 상한 300초와 크기 상한 2 GiB가 있다. 넘으면 부착이 실패로 끝나고 `failure`에 이유(`fetch_timeout`, `fetch_too_large`)가 남는다.
 - 부착마다 `attach_repository` [receipt](/approvals/receipt)가 남는다. 요청한 사람·attempt, 저장소, release, 받아 온 commit, 거절 사유(`repository_not_allowed`·`allowed_in_newer_release`)가 들어간다.
-- 세션이 다른 worker에서 다시 시작하면(restore) 붙인 저장소의 원격을 다시 단다. 붙인 저장소의 CLAUDE.md는 지시문으로 읽지 않는다.
+- 세션이 다른 worker에서 다시 시작하면(restore) 붙인 저장소의 원격을 다시 단다. 이때 브랜치의 지금 끝이 아니라 그 세션이 처음 받은 commit을 받는다. 그 사이 원격 브랜치가 움직이거나 다시 써져도 세션이 읽는 코드는 바뀌지 않는다. 붙인 저장소의 CLAUDE.md는 지시문으로 읽지 않는다.
 
 ## 내 GitHub 계정 연결
 

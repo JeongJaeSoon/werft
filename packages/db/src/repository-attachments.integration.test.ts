@@ -13,7 +13,10 @@ import {
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresGitHubGateStore } from "./github-settings.ts";
-import { createPostgresRepositoryAttachments } from "./repository-attachments.ts";
+import {
+  createPostgresRepositoryAttachments,
+  createPostgresRepositoryPins,
+} from "./repository-attachments.ts";
 import * as schema from "./schema.ts";
 import {
   releaseSpecColumns,
@@ -190,6 +193,44 @@ integration("repository attachments on PostgreSQL", () => {
       row: { status: "attached", commit: COMMIT },
     });
     expect(await receipts(s.ownerId)).toHaveLength(1);
+  });
+
+  test("an attached report pins its commit, first writer wins, and the pin outlives a failed re-attach", async () => {
+    const store = createPostgresRepositoryAttachments(db);
+    const pins = createPostgresRepositoryPins(db);
+    const s = await session([]);
+    const OTHER = "b".repeat(40);
+    expect(await pins.list(s.sessionId)).toEqual(new Map());
+
+    await store.settle(s.sessionId, [
+      {
+        repository_id: "docs",
+        receipt_id: receiptOf(await store.request(s.request())),
+        status: "attached",
+        commit: COMMIT,
+      },
+    ]);
+    expect(await pins.list(s.sessionId)).toEqual(new Map([["docs", COMMIT]]));
+
+    // A worker that fetched another tip is answered with the kept pin.
+    expect(
+      await pins.pin(s.sessionId.toUpperCase(), [
+        { repositoryId: "docs", commit: OTHER },
+        { repositoryId: "tools", commit: OTHER },
+      ]),
+    ).toEqual(
+      new Map([
+        ["docs", COMMIT],
+        ["tools", OTHER],
+      ]),
+    );
+    expect(await pins.pin(s.sessionId, [])).toEqual(new Map());
+    // Another session's pins are its own.
+    const t = await session([]);
+    expect(await pins.list(t.sessionId)).toEqual(new Map());
+    await expect(
+      pins.pin(t.sessionId, [{ repositoryId: "docs", commit: "c0ffee" }]),
+    ).rejects.toThrow();
   });
 
   test("a failed fetch leaves the list and fails its receipt; asking again starts over with a new receipt", async () => {
