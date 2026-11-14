@@ -1359,6 +1359,11 @@ const app = createApiApp({
         ...(installationConfig.loaded()
           ? []
           : ["installation config not read yet"]),
+        // Until then every session is refused for a connection or
+        // repository it does not know; a read fails only on the database.
+        ...(catalogRegistry.settings === null
+          ? ["session catalog not read yet"]
+          : []),
       ],
     }),
   ),

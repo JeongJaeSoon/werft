@@ -432,6 +432,16 @@ integration("API server on PostgreSQL", () => {
         });
         expect(forged.status).toBe(401);
 
+        // Listening comes before the first catalog read; readiness waits
+        // for it, as a load balancer does before sending sessions here.
+        let ready = await fetch(`http://127.0.0.1:${port}/readyz`);
+        const readyBy = Date.now() + SERVER_START_DEADLINE_MS;
+        while (ready.status !== 200 && Date.now() < readyBy) {
+          await Bun.sleep(POLL_INTERVAL_MS);
+          ready = await fetch(`http://127.0.0.1:${port}/readyz`);
+        }
+        expect(await ready.text()).toContain('"status":"ready"');
+
         const call = (
           key: string,
           method: string,

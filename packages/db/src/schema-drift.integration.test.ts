@@ -71,6 +71,8 @@ const MIGRATIONS_ONLY = [
   "function provider_usage_totals_add() trigger language plpgsql volatility=v parallel=u body md5 51a5dbe75562562eb9d0788546a19357",
   "function provider_usage_totals_clear() trigger language plpgsql volatility=v parallel=u body md5 85a0b1f735cb692332ac4baaa297ba69",
   "function provider_usage_totals_recount() trigger language plpgsql volatility=v parallel=u body md5 21f013ae13ff4eeb4ca390ed5296bf34",
+  // 0284: a binding written after a credential carry is stored as the new one.
+  "function push_requests_carried_binding() trigger language plpgsql volatility=v parallel=u body md5 1465c4cb3cdcbef3ad8805665fceb678",
   // 0000: the queue's admission count.
   "function queue_unassigned_session_count() double precision language sql volatility=s parallel=u body md5 77ab23e0fa3455549b846ff0e7980c2a",
   // 0172: a system pause's reason is cleared once the session leaves it.
@@ -99,6 +101,7 @@ const MIGRATIONS_ONLY = [
   "function tool_hist_step(state integer[], bucket integer, delta integer) integer[] language sql volatility=i parallel=s body md5 20e7f2741f305c44a7febf7acc1b90ff",
   "function tool_hist_sum(integer[]) integer[] language internal volatility=i parallel=u body md5 3eb6d2f5e7ee95ed566dd6cdda54dac3",
   "function tool_ms_bucket(ms bigint) integer language sql volatility=i parallel=s body md5 6a2f107430551d1a26c5afd7b02f7985",
+  "function worker_credentials_carried_binding() trigger language plpgsql volatility=v parallel=u body md5 c177fc2107e2ae0bb773a103bc2b5a5f",
   // 0271: the sessions the variable purge reads. Its predicate calls
   // env_start_without_values, which exists only where the migrations ran; a
   // migration that changes that function's line above rebuilds this index.
@@ -132,6 +135,7 @@ const MIGRATIONS_ONLY = [
   "trigger CREATE TRIGGER provider_usage_count_insert AFTER INSERT ON public.provider_usage REFERENCING NEW TABLE AS added_rows FOR EACH STATEMENT EXECUTE FUNCTION provider_usage_totals_add() enabled=O",
   "trigger CREATE TRIGGER provider_usage_count_tokens AFTER INSERT ON public.provider_usage FOR EACH ROW EXECUTE FUNCTION sessions_count_provider_tokens() enabled=O",
   "trigger CREATE TRIGGER provider_usage_count_truncate AFTER TRUNCATE ON public.provider_usage FOR EACH STATEMENT EXECUTE FUNCTION provider_usage_totals_clear() enabled=O",
+  "trigger CREATE TRIGGER push_requests_carried_binding BEFORE INSERT ON public.push_requests FOR EACH ROW WHEN ((new.repository_binding IS NOT NULL)) EXECUTE FUNCTION push_requests_carried_binding() enabled=O",
   "trigger CREATE TRIGGER sessions_clear_env_values_trg BEFORE UPDATE OF admission_state ON public.sessions FOR EACH ROW WHEN (((new.admission_state = 'closed'::admission_state) AND (old.admission_state IS DISTINCT FROM 'closed'::admission_state) AND (new.env_start IS NOT NULL))) EXECUTE FUNCTION sessions_clear_env_values() enabled=O",
   "trigger CREATE TRIGGER sessions_clear_pause_reason BEFORE UPDATE ON public.sessions FOR EACH ROW WHEN (((new.pause_reason IS NOT NULL) AND (new.admission_state <> ALL (ARRAY['pausing'::admission_state, 'paused'::admission_state])))) EXECUTE FUNCTION sessions_clear_pause_reason() enabled=O",
   "trigger CREATE TRIGGER sessions_pin_required_insert BEFORE INSERT ON public.sessions FOR EACH ROW WHEN (((new.status <> ALL (ARRAY['failed'::session_status, 'stopped'::session_status])) AND ((new.agent_release_id IS NULL) OR (new.runtime_spec IS NULL) OR ((new.runtime_spec ->> 'model'::text) IS DISTINCT FROM new.model)))) EXECUTE FUNCTION sessions_pin_required() enabled=O",
@@ -143,6 +147,7 @@ const MIGRATIONS_ONLY = [
   "trigger CREATE TRIGGER tool_calls_count_truncate AFTER TRUNCATE ON public.tool_calls FOR EACH STATEMENT EXECUTE FUNCTION tool_call_outcomes_clear() enabled=O",
   "trigger CREATE TRIGGER tool_calls_count_update AFTER UPDATE ON public.tool_calls REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION tool_call_outcomes_move() enabled=O",
   "trigger CREATE TRIGGER turns_charge_storage AFTER INSERT ON public.turns FOR EACH ROW EXECUTE FUNCTION storage_usage_charge_turn() enabled=O",
+  "trigger CREATE TRIGGER worker_credentials_carried_binding BEFORE INSERT ON public.worker_credentials FOR EACH ROW WHEN ((new.purpose = 'repository'::text)) EXECUTE FUNCTION worker_credentials_carried_binding() enabled=O",
 ];
 
 const databases: TempDatabase[] = [];
