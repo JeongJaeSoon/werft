@@ -511,7 +511,7 @@ describe("secretsOf", () => {
 
 /** What the proxy sends the exchange ledger (provider-usage-ledger.md). */
 type LedgerRequest = {
-  op: "open" | "renew";
+  op: "open" | "renew" | "release";
   exchange_id: string;
   session_id?: string;
   attempt_id?: string;
@@ -1185,22 +1185,26 @@ describe("startCredentialProxy", () => {
       expect(up.seen).toEqual([]);
     });
 
-    test("opens the call in the exchange ledger before the upstream answers, under the id its report carries", async () => {
-      // The upstream answers only once the open has reached the ledger.
-      let ledgered: LedgerRequest[] = [];
-      const up = upstream(async () => {
-        await until(() => ledgered.length === 1);
-        return Response.json({
+    test("waits for the exchange ledger to open the call before calling the upstream, under the id its report carries", async () => {
+      const up = upstream(() =>
+        Response.json({
           id: "resp_1",
           model: "gpt-5.5",
           usage: { input_tokens: 10, output_tokens: 2 },
-        });
+        }),
+      );
+      // Answered slowly: a proxy that did not wait would have gone upstream.
+      let seenAtOpen = -1;
+      const auth = authorizer(bearerKey(up), undefined, async () => {
+        await Bun.sleep(200);
+        seenAtOpen = up.seen.length;
+        return Response.json({ state: "open" }, { status: 201 });
       });
-      const auth = authorizer(bearerKey(up));
-      ledgered = auth.ledgered;
       const server = proxy(auth.url, up.port);
       const body = '{"model":"gpt-5.5","stream":false}';
       expect((await responses(server.port, { body })).status).toBe(200);
+      expect(seenAtOpen).toBe(0);
+      expect(up.seen).toHaveLength(1);
       await until(() => auth.reported.length === 1);
       expect(auth.ledgered).toEqual([
         {
@@ -1220,32 +1224,147 @@ describe("startCredentialProxy", () => {
       expect(auth.asked).toHaveLength(1);
     });
 
-    test("a ledger that refuses, fails or never answers changes nothing for the call", async () => {
+    test("a call the ledger does not open is answered 503, never sent, and released", async () => {
       for (const ledgerAnswer of [
+        // An API from before the ledger.
         () => Response.json({ code: "NOT_FOUND" }, { status: 404 }),
         () => new Response("down", { status: 503 }),
-        () => new Promise<Response>(() => {}),
+        () => Response.json({ state: "settled" }),
+        () => Response.json({ state: "released" }),
+        () => Response.json({ code: "CONFLICT" }, { status: 409 }),
+        () => Response.json({ code: "FORBIDDEN" }, { status: 403 }),
+        () => new Response("not json"),
       ]) {
-        const up = upstream(() =>
-          Response.json({
-            id: "resp_1",
-            model: "gpt-5.5",
-            usage: { input_tokens: 10, output_tokens: 2 },
-          }),
-        );
+        const up = upstream(() => Response.json({ id: "resp_1" }));
         const auth = authorizer(bearerKey(up), undefined, ledgerAnswer);
         const server = proxy(auth.url, up.port);
-        const started = performance.now();
         const answered = await responses(server.port);
-        expect(answered.status).toBe(200);
-        expect(await answered.json()).toMatchObject({ id: "resp_1" });
-        // Not held for the ledger's 5-second timeout.
-        expect(performance.now() - started).toBeLessThan(2_000);
-        await until(() => auth.reported.length === 1);
-        expect(auth.reported[0]?.usage).toMatchObject({ output_tokens: 2 });
-        expect(auth.ledgered).toHaveLength(1);
+        expect(answered.status).toBe(503);
+        await answered.body?.cancel();
+        // The API may have opened it and lost only its answer.
+        await until(() => auth.ledgered.length === 2);
+        const [open, release] = auth.ledgered;
+        expect(open?.op).toBe("open");
+        expect(release).toEqual({ ...open, op: "release" } as LedgerRequest);
+        expect(up.seen).toEqual([]);
+        expect(auth.reported).toEqual([]);
       }
     }, 20_000);
+
+    test("a call the ledger refuses for its session's budget is answered in the Responses error shape, never sent nor released", async () => {
+      const up = upstream(() => Response.json({ id: "resp_1" }));
+      const auth = authorizer(bearerKey(up), undefined, () =>
+        Response.json(
+          { code: "BUDGET_EXCEEDED", message: "limit reached" },
+          { status: 403 },
+        ),
+      );
+      const server = proxy(auth.url, up.port);
+      const refused = await responses(server.port);
+      expect(refused.status).toBe(403);
+      expect(await refused.json()).toEqual({
+        error: {
+          type: "permission_error",
+          code: "BUDGET_EXCEEDED",
+          message:
+            "BUDGET_EXCEEDED: the session has reached its cost or token limit",
+        },
+      });
+      await Bun.sleep(100);
+      expect(auth.ledgered.map((one) => one.op)).toEqual(["open"]);
+      expect(up.seen).toEqual([]);
+    });
+
+    test("a call that ends while its open waits is released, never sent", async () => {
+      const up = upstream(() => Response.json({ id: "resp_1" }));
+      const auth = authorizer(
+        bearerKey(up),
+        undefined,
+        () => new Promise<Response>(() => {}),
+      );
+      const cut = new AbortController();
+      const server = proxy(auth.url, up.port, {
+        exchangeDeadline: () => cut.signal,
+      });
+      const answering = responses(server.port);
+      await until(() => auth.ledgered.length === 1);
+      cut.abort(new Error("exchange deadline"));
+      await (await answering).body?.cancel();
+      await until(() => auth.ledgered.length === 2);
+      const [open, release] = auth.ledgered;
+      expect(release).toEqual({ ...open, op: "release" } as LedgerRequest);
+      expect(up.seen).toEqual([]);
+    });
+
+    test("a call the upstream answers with an error is released, and one it answers is not", async () => {
+      for (const [status, ops] of [
+        [429, ["open", "release"]],
+        [500, ["open", "release"]],
+        [200, ["open"]],
+      ] as const) {
+        const up = upstream(() =>
+          Response.json(
+            {
+              id: "resp_1",
+              model: "gpt-5.5",
+              usage: { input_tokens: 1, output_tokens: 1 },
+            },
+            { status },
+          ),
+        );
+        const auth = authorizer(bearerKey(up));
+        const server = proxy(auth.url, up.port);
+        const answered = await responses(server.port);
+        expect(answered.status).toBe(status);
+        await answered.text();
+        await until(() => auth.ledgered.length === ops.length);
+        await Bun.sleep(100);
+        expect({ status, ops: auth.ledgered.map((one) => one.op) }).toEqual({
+          status,
+          ops: [...ops],
+        });
+      }
+    }, 20_000);
+
+    test("a call whose upstream refused the connection or failed its certificate is released", async () => {
+      const closed = Bun.serve({
+        hostname: "127.0.0.1",
+        port: 0,
+        fetch: () => new Response(),
+      });
+      const closedPort = closed.port ?? 0;
+      closed.stop(true);
+      const tls = upstream(() => Response.json({ id: "resp_1" }), certificate);
+      for (const [url, port] of [
+        [`http://upstream.test:${closedPort}`, closedPort],
+        // No upstreamCa: its certificate is from no trusted root.
+        [`https://upstream.test:${tls.port}`, tls.port],
+      ] as const) {
+        const auth = authorizer(
+          granting(url, [["authorization", `Bearer ${OPENAI_KEY}`]]),
+        );
+        const server = proxy(auth.url, port);
+        expect((await responses(server.port)).status).toBe(502);
+        await until(() => auth.ledgered.length === 2);
+        expect(auth.ledgered.map((one) => one.op)).toEqual(["open", "release"]);
+      }
+      expect(tls.seen).toEqual([]);
+    }, 20_000);
+
+    test("a call cut once its request reached the upstream keeps its reservation", async () => {
+      const up = upstream(() => new Promise<Response>(() => {}));
+      const auth = authorizer(bearerKey(up));
+      const cut = new AbortController();
+      const server = proxy(auth.url, up.port, {
+        exchangeDeadline: () => cut.signal,
+      });
+      const answering = responses(server.port);
+      await until(() => up.seen.length === 1);
+      cut.abort(new Error("exchange deadline"));
+      await (await answering).body?.cancel();
+      await Bun.sleep(150);
+      expect(auth.ledgered.map((one) => one.op)).toEqual(["open"]);
+    });
 
     test("an open call is renewed in the ledger beside each regrant, and not once it has ended", async () => {
       const up = upstream(
@@ -1640,7 +1759,7 @@ describe("startCredentialProxy", () => {
       expect(auth.reported).toHaveLength(3);
     });
 
-    test("a session whose report was given up on is refused as a spent budget from then on", async () => {
+    test("a call whose report was given up on stays in the ledger, and the proxy leaves the session's next call to it", async () => {
       const up = upstream(() =>
         Response.json({ model: "m", usage: { input_tokens: 1 } }),
       );
@@ -1655,12 +1774,14 @@ describe("startCredentialProxy", () => {
       // The first try and its one retry are both refused: the report is lost.
       await until(() => auth.reported.length === 2);
       await Bun.sleep(100);
-      const seenBefore = up.seen.length;
+      // Not released: its row goes on counting at the session's next open.
+      expect(auth.ledgered.map((one) => one.op)).toEqual(["open"]);
 
-      const refused = await messages(server.port);
-      expect(refused.status).toBe(403);
-      expect(await refused.text()).toContain("BUDGET_EXCEEDED:");
-      expect(up.seen).toHaveLength(seenBefore);
+      const next = await messages(server.port);
+      expect(next.status).toBe(200);
+      await next.text();
+      expect(auth.ledgered.filter((one) => one.op === "open")).toHaveLength(2);
+      expect(up.seen).toHaveLength(2);
     });
   });
 
