@@ -169,6 +169,20 @@ type_in '[name="allowed_domains"]' acme.example
 select=$(B select '[name="jit_role"]' member) || fail "select jit_role"
 [ "$select" = "selected member" ] || fail "jit_role: $select"
 click "저장"
+# The later steps only sign in people from acme.example, so a rule that was
+# dropped on the way would not show there.
+ap_as owner 2>/dev/null || fail "no owner cookie"
+rules=
+for _ in $(seq 1 20); do
+  web GET /v1/login-providers
+  rules=$(printf '%s' "$WEB_BODY" | PID=$PID node -e '
+    const p = JSON.parse(require("node:fs").readFileSync(0, "utf8")).providers?.find((p) => p.id === process.env.PID);
+    console.log(p ? `${p.allowed_domains.join(",")} ${p.jit_role}` : "no provider");' 2>/dev/null)
+  [ "$rules" = "acme.example member" ] && break
+  sleep 0.5
+done
+[ "$rules" = "acme.example member" ] || fail "saved rules are \"${rules:-unreadable}\" (GET /v1/login-providers $WEB_STATUS), not acme.example and member"
+echo "  rules: $rules"
 web GET /v1/auth/login-methods
 [ "$WEB_STATUS" = 200 ] || fail "login-methods answered $WEB_STATUS"
 printf '%s' "$WEB_BODY" | PID=$PID node -e '
@@ -246,8 +260,11 @@ login=$(B login owner) || fail "browser login"
 ok
 
 step=kc-no-secret-in-logs
+# A log that could not be read would match nothing.
+api_log=$(ap_compose logs --no-color api) || fail "could not read the API's log"
+[ -n "$api_log" ] || fail "the API's log is empty"
 for name in KEYCLOAK_WERFT_CLIENT_SECRET KEYCLOAK_WERFT_USER_PASSWORD; do
-  lines=$(ap_compose logs --no-color api | grep -c -F -f <(printf '%s\n' "${!name}"))
+  lines=$(printf '%s\n' "$api_log" | grep -c -F -f <(printf '%s\n' "${!name}"))
   [ "$lines" = 0 ] || fail "$name is on $lines line(s) of the API's log"
   echo "  $name in the API's log: 0 lines"
 done

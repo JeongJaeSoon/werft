@@ -30,6 +30,8 @@ on:
       - apps/web/src/components/auth-page.tsx
       - apps/web/src/i18n/auth.ts
       - apps/web/src/i18n/login-*.ts
+      # The walk's "만들기" and "저장" buttons.
+      - apps/web/src/i18n/settings.ts
       - apps/web/src/routes/login*.tsx
       - apps/web/src/routes/provider-callback.tsx
       - packages/contracts/src/musterrolle/auth.ts
@@ -76,8 +78,12 @@ jobs:
         id: up
         run: |
           "$CHROME" --version
+          # A run Keycloak never answered on is printed too, so the steps
+          # below still collect its logs, tear it down and check the record.
+          up=0
           run=$(.claude/skills/verify-werft/scripts/keycloak-up.sh \
-            tests/e2e/compose.ci-mirror.yml tests/e2e/compose.ci-cache.yml tests/e2e/compose.ci-keycloak.yml)
+            tests/e2e/compose.ci-mirror.yml tests/e2e/compose.ci-cache.yml tests/e2e/compose.ci-keycloak.yml) || up=$?
+          [ -n "$run" ] || { echo "::error::keycloak-up.sh started no run"; exit 1; }
           echo "run=$run" >>"$GITHUB_OUTPUT"
           # The run's client secret and password: keycloak-up.sh made them
           # and nothing prints them; masked anyway, so a slip shows as ***.
@@ -85,6 +91,7 @@ jobs:
           . "$run/state.env"
           echo "::add-mask::$KEYCLOAK_WERFT_CLIENT_SECRET"
           echo "::add-mask::$KEYCLOAK_WERFT_USER_PASSWORD"
+          exit "$up"
       - name: keycloak-login.sh
         env:
           RUN: ${{ steps.up.outputs.run }}
