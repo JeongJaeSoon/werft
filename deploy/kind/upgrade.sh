@@ -400,13 +400,15 @@ runtime_of() {
   docker run --rm -i --network none --entrypoint bun "$1" run apps/worker/src/image-runtime.ts <<<'{}' | jq -c 'del(.profiles)'
 }
 # push <local ref>: the registry digest the cluster pulls it by.
+# errexit is off inside $(...): every step returns its failure, or a stale tag
+# from an earlier run would pass for the new image.
 push() {
-  docker push -q "$1" >/dev/null
+  docker push -q "$1" >/dev/null || return
   docker inspect --format '{{index .RepoDigests 0}}' "$1" | sed 's/.*@//'
 }
 rebuild() {
   printf 'FROM %s\nLABEL werft.kind-rebuild=%s\n' "${image_repo}-worker:dev" "$1" |
-    docker build -q -t "${image_repo}-worker:rebuild-$1" - >/dev/null
+    docker build -q -t "${image_repo}-worker:rebuild-$1" - >/dev/null || return
   push "${image_repo}-worker:rebuild-$1"
 }
 # upgrade_to <values file>: helm upgrade of the checkout's chart over up.sh's
@@ -434,9 +436,18 @@ rendered() { jq -c '[.images.workers[] | {image: "\(.repository)@\(.digest)", re
 # The list as WORKER_IMAGES spells it: the chart's toJson sorts the keys.
 as_env() { jq -cS . <<<"$1"; }
 
-paused="$(post "/v1/sessions/${s2}/pause" "$(jq -nc --argjson r "$(get "/v1/sessions/${s2}" | jq .revision)" '{expected_revision: $r, reason: "list test"}')")"
-settle_receipt "$(echo "$paused" | jq -r .receipt_id)" pause
-wait_session "paused" '.admission_state == "paused"' "$s2"
+# S1 is done but its idle worker still holds memory a runner-sized node needs
+# for S3's worker and S2's next one.
+for sid in "$s1" "$s2"; do
+  paused="$(post "/v1/sessions/${sid}/pause" "$(jq -nc --argjson r "$(get "/v1/sessions/${sid}" | jq .revision)" '{expected_revision: $r, reason: "list test"}')")"
+  settle_receipt "$(echo "$paused" | jq -r .receipt_id)" pause
+  wait_session "paused" '.admission_state == "paused"' "$sid"
+done
+for _ in $(seq 1 60); do
+  [ -z "$(worker_pods "$s1")" ] && break
+  sleep 1
+done
+[ -z "$(worker_pods "$s1")" ] || fail "S1 is paused and still has a worker Pod"
 checkpoint_list="$(get "/v1/sessions/${s2}" | jq '.durability.checkpoint_revision')"
 s3="$(new_session '{"id":"list-wait","final":"list turn done","steps":[{"tool":"Bash","input":{"command":"echo list | tee list.txt","description":"write a file"}}]}')"
 wait_session "waiting for input" '.status == "needs_input"' "$s3"

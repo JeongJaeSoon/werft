@@ -136,14 +136,15 @@ deployed_values && next_workers final > workers.json \
     --set-json 'upgrade.approvedSessions=[]' --timeout 10m
 ```
 
-単一イメージの環境を初めて切り替えるときは、`KNOWN` にデプロイ済みのイメージごとの `releasedAt` を、runtime なしでデプロイしていれば runtime も digest で書きます。単一の values の `images.worker.releasedAt` は chart の既定値で、環境が決めた digest と合わないことがあるため、プログラムは読みません。値はデプロイしたリリースの manifest から得ます。`releasedAt` はそのリリースの commit の committer 時刻です。Codex イメージを `images.worker` としてデプロイしているなら、`worker`・`workerRuntime` の代わりに `worker-codex`・`workerCodexRuntime` を読みます。`images.workerPrevious` があれば、そのリリースの manifest で同じ項目をもう一つ作って合わせます。
+単一イメージの環境を初めて切り替えるときは、`KNOWN` にデプロイ済みのイメージごとの `releasedAt` を、runtime なしでデプロイしていれば runtime も digest で書きます。単一の values の `images.worker.releasedAt` は chart の既定値で、環境が決めた digest と合わないことがあるため、プログラムは読みません。値はデプロイしたリリースの manifest から得ます。`releasedAt` はそのリリースの commit の committer 時刻です。Codex イメージを `images.worker` としてデプロイしているなら、`IMAGE=` の行を `IMAGE=worker-codex RUNTIME=workerCodexRuntime RELEASED=workerCodexReleasedAt` に変えます。`images.workerPrevious` があれば、そのリリースの manifest で同じ項目をもう一つ作って合わせます。
 
 ```bash
 TAG=<the deployed release, e.g. v0.2.0>
+IMAGE=worker RUNTIME=workerRuntime RELEASED=workerReleasedAt
 mkdir -p "$TAG" && curl -fsSL -o "$TAG/release-manifest.json" \
   "https://github.com/JeongJaeSoon/werft/releases/download/$TAG/release-manifest.json" \
   && AT="$(curl -fsS "https://api.github.com/repos/JeongJaeSoon/werft/commits/$(jq -r .commit "$TAG/release-manifest.json")" | jq -er .commit.committer.date)" \
-  && KNOWN="$(jq -c --arg at "$AT" '{(.images.worker.digest): {runtime: .workerRuntime, releasedAt: (.workerReleasedAt // $at)}}' "$TAG/release-manifest.json")"
+  && KNOWN="$(jq -c --arg at "$AT" --arg i "$IMAGE" --arg r "$RUNTIME" --arg t "$RELEASED" '{(.images[$i].digest): {runtime: .[$r], releasedAt: (.[$t] // $at)}}' "$TAG/release-manifest.json")"
 ```
 
 プログラムは次のように一覧を作ります。

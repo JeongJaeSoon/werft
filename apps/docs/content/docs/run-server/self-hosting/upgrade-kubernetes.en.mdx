@@ -136,14 +136,15 @@ deployed_values && next_workers final > workers.json \
     --set-json 'upgrade.approvedSessions=[]' --timeout 10m
 ```
 
-When converting a single-image installation for the first time, put each deployed image's `releasedAt` in `KNOWN` by digest, and its runtime too if it was deployed without one. The program does not read `images.worker.releasedAt` from single values: it is the chart default and may not match the digest the installation set. Take the values from the deployed release's manifest; `releasedAt` is the committer time of that release's commit. If the Codex image was deployed as `images.worker`, read `worker-codex` and `workerCodexRuntime` instead of `worker` and `workerRuntime`. If `images.workerPrevious` is set, build one more entry from its release's manifest and merge the two.
+When converting a single-image installation for the first time, put each deployed image's `releasedAt` in `KNOWN` by digest, and its runtime too if it was deployed without one. The program does not read `images.worker.releasedAt` from single values: it is the chart default and may not match the digest the installation set. Take the values from the deployed release's manifest; `releasedAt` is the committer time of that release's commit. If the Codex image was deployed as `images.worker`, change the `IMAGE=` line to `IMAGE=worker-codex RUNTIME=workerCodexRuntime RELEASED=workerCodexReleasedAt`. If `images.workerPrevious` is set, build one more entry from its release's manifest and merge the two.
 
 ```bash
 TAG=<the deployed release, e.g. v0.2.0>
+IMAGE=worker RUNTIME=workerRuntime RELEASED=workerReleasedAt
 mkdir -p "$TAG" && curl -fsSL -o "$TAG/release-manifest.json" \
   "https://github.com/JeongJaeSoon/werft/releases/download/$TAG/release-manifest.json" \
   && AT="$(curl -fsS "https://api.github.com/repos/JeongJaeSoon/werft/commits/$(jq -r .commit "$TAG/release-manifest.json")" | jq -er .commit.committer.date)" \
-  && KNOWN="$(jq -c --arg at "$AT" '{(.images.worker.digest): {runtime: .workerRuntime, releasedAt: (.workerReleasedAt // $at)}}' "$TAG/release-manifest.json")"
+  && KNOWN="$(jq -c --arg at "$AT" --arg i "$IMAGE" --arg r "$RUNTIME" --arg t "$RELEASED" '{(.images[$i].digest): {runtime: .[$r], releasedAt: (.[$t] // $at)}}' "$TAG/release-manifest.json")"
 ```
 
 The program builds the list like this:

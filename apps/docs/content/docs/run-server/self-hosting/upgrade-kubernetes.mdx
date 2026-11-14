@@ -130,14 +130,15 @@ deployed_values && next_workers final > workers.json \
     --set-json 'upgrade.approvedSessions=[]' --timeout 10m
 ```
 
-단일 이미지 설치를 처음 바꿀 때는 `KNOWN`에 배포된 이미지마다 `releasedAt`을, runtime 없이 배포했다면 runtime도 digest로 적는다. 단일 values의 `images.worker.releasedAt`은 chart 기본값이라 설치가 정한 digest와 맞지 않을 수 있어 프로그램이 읽지 않는다. 값은 배포한 릴리스의 manifest에서 얻는다. `releasedAt`은 그 릴리스 commit의 committer 시각이다. Codex 이미지를 `images.worker`로 배포했다면 `worker`·`workerRuntime` 대신 `worker-codex`·`workerCodexRuntime`을 읽는다. `images.workerPrevious`가 있으면 그 릴리스의 manifest로 같은 항목을 하나 더 만들어 합친다.
+단일 이미지 설치를 처음 바꿀 때는 `KNOWN`에 배포된 이미지마다 `releasedAt`을, runtime 없이 배포했다면 runtime도 digest로 적는다. 단일 values의 `images.worker.releasedAt`은 chart 기본값이라 설치가 정한 digest와 맞지 않을 수 있어 프로그램이 읽지 않는다. 값은 배포한 릴리스의 manifest에서 얻는다. `releasedAt`은 그 릴리스 commit의 committer 시각이다. Codex 이미지를 `images.worker`로 배포했다면 `IMAGE=` 줄을 `IMAGE=worker-codex RUNTIME=workerCodexRuntime RELEASED=workerCodexReleasedAt`로 바꾼다. `images.workerPrevious`가 있으면 그 릴리스의 manifest로 같은 항목을 하나 더 만들어 합친다.
 
 ```bash
 TAG=<the deployed release, e.g. v0.2.0>
+IMAGE=worker RUNTIME=workerRuntime RELEASED=workerReleasedAt
 mkdir -p "$TAG" && curl -fsSL -o "$TAG/release-manifest.json" \
   "https://github.com/JeongJaeSoon/werft/releases/download/$TAG/release-manifest.json" \
   && AT="$(curl -fsS "https://api.github.com/repos/JeongJaeSoon/werft/commits/$(jq -r .commit "$TAG/release-manifest.json")" | jq -er .commit.committer.date)" \
-  && KNOWN="$(jq -c --arg at "$AT" '{(.images.worker.digest): {runtime: .workerRuntime, releasedAt: (.workerReleasedAt // $at)}}' "$TAG/release-manifest.json")"
+  && KNOWN="$(jq -c --arg at "$AT" --arg i "$IMAGE" --arg r "$RUNTIME" --arg t "$RELEASED" '{(.images[$i].digest): {runtime: .[$r], releasedAt: (.[$t] // $at)}}' "$TAG/release-manifest.json")"
 ```
 
 프로그램은 이렇게 목록을 만든다.
