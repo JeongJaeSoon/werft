@@ -53,7 +53,7 @@ const imageVariables = Object.values(ci.jobs).flatMap((job) =>
 );
 
 describe("the mirror list", () => {
-  test("names each digest once, from Docker Hub", () => {
+  test("names each digest once, from Docker Hub or quay.io", () => {
     expect(mirrored.length).toBeGreaterThan(0);
     // A name may carry two digests while a bump is under way (docs/contributing/ci.md § 서드파티 이미지 미러).
     const keys = new Set(
@@ -62,7 +62,7 @@ describe("the mirror list", () => {
     expect(keys.size).toBe(mirrored.length);
     for (const { name, source, tag, digest } of mirrored) {
       expect(name).toMatch(/^[a-z0-9-]+$/);
-      expect(source).toMatch(/^docker\.io\/[a-z0-9._/-]+$/);
+      expect(source).toMatch(/^(docker|quay)\.io\/[a-z0-9._/-]+$/);
       expect(typeof tag).toBe("string");
       expect(digest).toMatch(/^sha256:[0-9a-f]{64}$/);
     }

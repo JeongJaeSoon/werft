@@ -2,7 +2,8 @@ name: CI image mirror
 
 # Copies every third-party image CI pulls — service containers, the images
 # the Docker suites start, the dind daemon of `workspace-quota` — from Docker
-# Hub to ghcr.io/<owner>/werft-ci/<name>, byte for byte: the copy
+# Hub (and Keycloak from quay.io) to ghcr.io/<owner>/werft-ci/<name>, byte
+# for byte: the copy
 # keeps the upstream digest, so ci.yml pins the very digest Docker Hub
 # publishes and the daemon verifies it on every pull. Docker Hub is
 # then out of the CI path: its anonymous rate limit had already failed
@@ -105,6 +106,13 @@ jobs:
             source: docker.io/library/registry
             tag: "2.8.3"
             digest: sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
+          # The login provider the Keycloak sign-in check drives
+          # (infra/compose.keycloak.yml pins the same digest). From quay.io,
+          # not Docker Hub, and mirrored the same way.
+          - name: keycloak
+            source: quay.io/keycloak/keycloak
+            tag: "26.8.1"
+            digest: sha256:3f3c5f8e03c614774b4bd9173b88391fefa4153bfc010d8012d59ad825377332
     steps:
       - name: Copy by digest
         env:
