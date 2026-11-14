@@ -7,6 +7,7 @@ import {
   assessNothingReplaced,
   assessUpgrade,
   type ListedWorkerImage,
+  readRuntime,
   type UpgradeAssessment,
   type UpgradeImage,
   type UpgradeSession,
@@ -14,7 +15,6 @@ import {
   workerImageListFromEnv,
   workerImageRuntimesFromEnv,
 } from "@werft-ai/platform";
-import { parseImageRuntime } from "@werft-ai/runtime-core";
 import { withJobDatabase } from "../job-database.ts";
 
 export type UpgradeCheckEnvironment = Readonly<
@@ -291,12 +291,7 @@ function deployedImages(
 }
 
 function deployedRuntime(name: string, value: string | undefined) {
-  if (!value) return null;
-  try {
-    return parseImageRuntime(value);
-  } catch (error) {
-    throw new Error(`${name}: ${(error as Error).message}`);
-  }
+  return value ? readRuntime(name, value) : null;
 }
 
 function approvedSessions(text: string): string[] {

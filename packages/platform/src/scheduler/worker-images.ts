@@ -220,7 +220,8 @@ export function workerImageRuntimesFromEnv(
   };
 }
 
-function readRuntime(name: string, value: string): ImageRuntime {
+/** `parseImageRuntime`, its error prefixed with the setting it came from. */
+export function readRuntime(name: string, value: string): ImageRuntime {
   try {
     return parseImageRuntime(value);
   } catch (error) {
