@@ -94,20 +94,30 @@ export interface RepositoryAttachmentStore {
   ): Promise<{ outcome: "ok" } | FenceRejection>;
 }
 
+/** A repository and a commit of it, as a pin or a failure names them. */
+export type RepositoryPin = { repositoryId: string; commit: string };
+
 /**
  * The commit a session first fetched each attached repository at, by
  * repository id. Written once: a later pin of the same repository keeps the
- * first commit.
+ * first commit. A pin a worker could not fetch again stays as a restore
+ * failure until the agent attaches the repository anew.
  */
 export interface RepositoryPinStore {
+  /** The pins still in force, restore failures left out. */
   list(sessionId: string): Promise<Map<string, string>>;
+  /** The pins a worker could not fetch again, with the commit each named. */
+  restoreFailures(sessionId: string): Promise<Map<string, string>>;
   /**
    * Pins what is not pinned yet and answers the kept commit of each one
    * asked, in the same transaction that holds the fence: a pin outlives the
-   * attempt, so only the session's owner writes one.
+   * attempt, so only the session's owner writes one. Each restore failure
+   * marks its pin when the commit is still the pin's and records the
+   * session's `repository_restore_failed` event, both once.
    */
   pin(
     fence: WorkerFence,
-    pins: ReadonlyArray<{ repositoryId: string; commit: string }>,
+    pins: ReadonlyArray<RepositoryPin>,
+    restoreFailed?: ReadonlyArray<RepositoryPin>,
   ): Promise<{ outcome: "ok"; pins: Map<string, string> } | FenceRejection>;
 }
