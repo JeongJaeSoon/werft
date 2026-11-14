@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   canRestoreCheckpoint,
   configuredImageRuntimesFromEnv,
+  launchableImagesFor,
   runtimeVersionsOf,
   sameCombination,
   selectWorkerImage,
@@ -125,6 +126,25 @@ describe("workerImageListFromEnv", () => {
         ),
       ),
     ).toEqual([previous, current]);
+  });
+
+  test("the launchable images are the unretracted ones; the single-image settings retract nothing", () => {
+    expect(
+      launchableImagesFor(
+        list(
+          entry(NEW, current, "2026-11-10T00:00:00Z", { retracted: true }),
+          entry(OLD, previous, "2026-10-01T00:00:00Z"),
+        ),
+      )?.map(({ image }) => image),
+    ).toEqual([OLD]);
+    expect(
+      launchableImagesFor(
+        list(entry(NEW, current, "2026-11-10T00:00:00Z", { retracted: true })),
+      ),
+    ).toEqual([]);
+    expect(
+      launchableImagesFor({ WORKER_IMAGE_RUNTIME: JSON.stringify(current) }),
+    ).toBeNull();
   });
 
   test.each<[string, WorkerImagesEnvironment, string]>([

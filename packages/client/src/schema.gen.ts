@@ -5963,6 +5963,11 @@ export interface components {
                 reason: string;
             } | {
                 /** @constant */
+                code: "NO_WORKER_IMAGE";
+                /** @enum {string} */
+                reason: "runtime_retired";
+            } | {
+                /** @constant */
                 code: "RESTORE_FAILED";
                 reason: string;
                 failures: number;

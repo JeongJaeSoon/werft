@@ -93,6 +93,8 @@ function setup(
     agentSettings?: AgentGitHubSettingsRow;
     /** Absent: IN_CEILING. */
     repositoryCeiling?: RepositoryCeiling | null;
+    /** Whether a listed image may launch; absent, the dep is left out. */
+    launchable?: boolean;
   } = {},
 ) {
   const accepted: AcceptSessionInput[] = [];
@@ -228,6 +230,9 @@ function setup(
       hiddenAgentRefs: unreached,
       readEvents: unreached,
     },
+    ...(options.launchable === undefined
+      ? {}
+      : { launchable: () => options.launchable ?? true }),
     limits: {
       queuedInputLimitPerSession: 10,
       storageLimitBytes: 1e15,
@@ -582,6 +587,55 @@ describe("a session pinned to an agent release", () => {
         code: "CATALOG_MISMATCH",
         reason: expect.stringContaining("claude-opus-5-5"),
       });
+    });
+  });
+
+  test("a session waiting for a launch with every listed image retracted says no worker image may take it", async () => {
+    const attentionOf = async (
+      launchable: boolean | undefined,
+      session: Partial<SessionDetailRecord> = {},
+    ) => {
+      const s = setup({
+        ...(launchable === undefined ? {} : { launchable }),
+        session: { ...sessionOn(), ...session },
+      });
+      return (await s.service.getSession(s.caller, SESSION)).attention;
+    };
+    expect(await attentionOf(false)).toEqual({
+      code: "NO_WORKER_IMAGE",
+      reason: "runtime_retired",
+    });
+    expect(await attentionOf(false, { admission_state: "resuming" })).toEqual({
+      code: "NO_WORKER_IMAGE",
+      reason: "runtime_retired",
+    });
+    expect(await attentionOf(true)).toBeNull();
+    expect(await attentionOf(undefined)).toBeNull();
+    // Not waiting for a launch: paused, closed, or a worker already up.
+    expect(await attentionOf(false, { admission_state: "paused" })).toBeNull();
+    expect(await attentionOf(false, { admission_state: "closed" })).toBeNull();
+    expect(
+      await attentionOf(false, {
+        execution: {
+          backend: "local_docker",
+          state: "running",
+          observed_at: null,
+        },
+      }),
+    ).toBeNull();
+    // What the store says, and a catalog the session no longer fits, come first.
+    expect(
+      await attentionOf(false, {
+        attention: {
+          code: "RESTORE_FAILED",
+          reason: "runtime_retired",
+          failures: 1,
+          retry_at: null,
+        },
+      }),
+    ).toMatchObject({ code: "RESTORE_FAILED" });
+    expect(await attentionOf(false, { spec: null })).toMatchObject({
+      code: "CATALOG_MISMATCH",
     });
   });
 

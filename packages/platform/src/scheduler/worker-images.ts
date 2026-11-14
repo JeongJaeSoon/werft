@@ -176,6 +176,22 @@ export function workerImageListFromEnv(
 }
 
 /**
+ * The listed images a new launch may take: the unretracted ones, newest
+ * first. Null without `WORKER_IMAGES`: the single-image settings retract
+ * nothing. Empty when every listed image is retracted.
+ */
+export function launchableImagesFor(
+  environment: Readonly<Record<string, string | undefined>> &
+    WorkerImagesEnvironment,
+): readonly ListedWorkerImage[] | null {
+  return (
+    workerImageListFromEnv(environment)?.filter(
+      ({ retracted }) => !retracted,
+    ) ?? null
+  );
+}
+
+/**
  * The runtimes of the configured worker images, from `WORKER_IMAGES` or the
  * single-image settings; null when none is set. Newest first, the
  * unretracted ones ahead: the first is what new releases name, and a

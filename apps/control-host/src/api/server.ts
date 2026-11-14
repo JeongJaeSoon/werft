@@ -146,6 +146,7 @@ import {
   GITHUB_API_BASE,
   InstallationConfigError,
   installationLimitsFromEnv,
+  launchableImagesFor,
   messageOf,
   registryCatalog,
   releaseModel,
@@ -409,6 +410,7 @@ const catalogRegistry = createCatalogRegistry({
   },
 });
 const runtimeVersions = runtimeVersionsFromEnv(process.env);
+const launchableImages = launchableImagesFor(process.env);
 const catalog = registryCatalog(
   {
     repositories: {},
@@ -525,6 +527,7 @@ const sessions = createSessionService({
   extensions: extensionDeps,
   credentials: credentialBindings,
   callerLimits: createPostgresCallerLimitGate(db),
+  launchable: () => launchableImages === null || launchableImages.length > 0,
   limits,
 });
 const sessionOutputs = createSessionOutputService({

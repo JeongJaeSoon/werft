@@ -230,6 +230,15 @@ export const sessionAttentionSchema = z.discriminatedUnion("code", [
     code: z.literal("CATALOG_MISMATCH"),
     reason: z.string().min(1),
   }),
+  // Every worker image the installation lists is retracted
+  // (runtime_retired), so the session's next launch has no image to take
+  // and its messages wait. Judged on every read: listing an unretracted
+  // image clears it. A session whose checkpoint only a retracted image
+  // restores is stopped instead and shows RESTORE_FAILED.
+  z.object({
+    code: z.literal("NO_WORKER_IMAGE"),
+    reason: z.enum(["runtime_retired"]),
+  }),
   // Workers claimed with the session's checkpoint kept ending before the
   // restore finished. While retry_at is set the next launch waits
   // for it; null means the limit was reached and the session is held in
