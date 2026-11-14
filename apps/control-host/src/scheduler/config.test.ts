@@ -129,17 +129,16 @@ describe("schedulerConfigFromEnv", () => {
     };
     const config = schedulerConfigFromEnv(withImages);
     expect(config.imageRuntime).toEqual(current);
-    expect(config.previousImage).toEqual({
-      image: "werft-worker:previous",
-      runtime: previous,
-    });
+    expect(config.olderImages).toEqual([
+      { image: "werft-worker:previous", runtime: previous },
+    ]);
     // One image, as before: no previous, and without a runtime no selection.
     const single = schedulerConfigFromEnv({
       ...base,
       WORKER_IMAGE_RUNTIME: JSON.stringify(current),
     });
     expect(single.imageRuntime).toEqual(current);
-    expect(single.previousImage).toBeUndefined();
+    expect(single.olderImages).toEqual([]);
     expect(schedulerConfigFromEnv(base).imageRuntime).toBeUndefined();
     for (const half of [
       { ...withImages, WORKER_IMAGE_PREVIOUS: "" },
@@ -152,6 +151,47 @@ describe("schedulerConfigFromEnv", () => {
     expect(() =>
       schedulerConfigFromEnv({ ...base, WORKER_IMAGE_RUNTIME: "0.3.280" }),
     ).toThrow("WORKER_IMAGE_RUNTIME");
+  });
+
+  test("WORKER_IMAGES gives the newest image, the older ones, and the quota helper's image", () => {
+    const current = {
+      engine: "claude",
+      sdkVersion: "0.3.280",
+      cliVersion: "2.1.280",
+      profileDigestScheme: 1,
+    };
+    const previous = {
+      ...current,
+      sdkVersion: "0.3.270",
+      cliVersion: "2.1.270",
+    };
+    const NEW = `registry.local/worker@sha256:${"a".repeat(64)}`;
+    const OLD = `registry.local/worker@sha256:${"b".repeat(64)}`;
+    const { WORKER_IMAGE: _single, ...withoutImage } = base;
+    const config = schedulerConfigFromEnv({
+      ...withoutImage,
+      EXECUTION_WORKSPACE_QUOTA: "on",
+      WORKER_IMAGES: JSON.stringify([
+        { image: NEW, runtime: current, released_at: "2026-11-10T00:00:00Z" },
+        { image: OLD, runtime: previous, released_at: "2026-10-01T00:00:00Z" },
+      ]),
+    });
+    expect(config.image).toBe(NEW);
+    expect(config.imageRuntime).toEqual(current);
+    expect(config.olderImages).toEqual([{ image: OLD, runtime: previous }]);
+    const quota = dockerOf(config).workspaceQuota;
+    expect(quota.mode === "enforced" ? quota.helperImage : null).toBe(NEW);
+    expect(() =>
+      schedulerConfigFromEnv({
+        ...base,
+        WORKER_IMAGES: JSON.stringify([
+          { image: NEW, runtime: current, released_at: "2026-11-10T00:00:00Z" },
+        ]),
+      }),
+    ).toThrow("WORKER_IMAGES replaces WORKER_IMAGE");
+    expect(() => schedulerConfigFromEnv(withoutImage)).toThrow(
+      "WORKER_IMAGES or WORKER_IMAGE is required",
+    );
   });
 
   test("falls back to QUEUE_DATABASE_URL and honours explicit limits", () => {

@@ -256,13 +256,10 @@ export async function fillSlots(ctx: PassContext): Promise<void> {
   const pinnedImages = async (): Promise<PinnedImages | null> => {
     const configured: PinnedImage[] = [
       { image: options.image, runtime: options.imageRuntime },
+      ...(options.imageRuntime === undefined
+        ? []
+        : (options.olderImages ?? [])),
     ];
-    if (
-      options.imageRuntime !== undefined &&
-      options.previousImage !== undefined
-    ) {
-      configured.push(options.previousImage);
-    }
     const pinned: PinnedImage[] = [];
     for (const { image, runtime } of configured) {
       try {

@@ -6,6 +6,7 @@ import {
   installedRuntimeVersions,
   loadSecretKey,
   refuseFileCatalog,
+  runtimeVersionsFromEnv,
   SECRET_KEY_SETTING,
 } from "./catalog-config.ts";
 
@@ -68,6 +69,41 @@ describe("installed runtimes", () => {
   test("a release on an Anthropic or LiteLLM connection has its runtime", () => {
     expect(installedRuntimeVersions.claude_agent_sdk).toBeString();
     expect(installedRuntimes.offers("claude_agent_sdk", "skills")).toBe(true);
+  });
+
+  test("a list of images gives the versions the two single-image settings give", () => {
+    const current = {
+      engine: "claude",
+      sdkVersion: "0.3.280",
+      cliVersion: "2.1.280",
+    };
+    const previous = {
+      ...current,
+      sdkVersion: "0.3.270",
+      cliVersion: "2.1.270",
+    };
+    const listed = runtimeVersionsFromEnv({
+      WORKER_IMAGES: JSON.stringify([
+        {
+          image: `reg/worker@sha256:${"a".repeat(64)}`,
+          runtime: current,
+          released_at: "2026-11-10T00:00:00Z",
+        },
+        {
+          image: `reg/worker@sha256:${"b".repeat(64)}`,
+          runtime: previous,
+          released_at: "2026-10-01T00:00:00Z",
+        },
+      ]),
+    });
+    expect(listed?.current).toContain("0.3.280");
+    expect(listed?.accepted).toContain("0.3.270");
+    expect(listed).toEqual(
+      runtimeVersionsFromEnv({
+        WORKER_IMAGE_RUNTIME: JSON.stringify(current),
+        WORKER_IMAGE_PREVIOUS_RUNTIME: JSON.stringify(previous),
+      }),
+    );
   });
 });
 

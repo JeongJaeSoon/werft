@@ -20,6 +20,7 @@ import {
   type InstallationLimitsEnvironment,
   installationLimitsFromEnv,
   type SchedulerOptions,
+  workerImageListFromEnv,
   workerImageRuntimesFromEnv,
 } from "@werft-ai/platform";
 import { queueDatabaseUrl } from "../database-url.ts";
@@ -36,6 +37,7 @@ export type SchedulerEnvironment = LocalDockerBackendEnvironment &
     QUEUE_DATABASE_URL?: string | undefined;
     WORKER_CPUS?: string | undefined;
     WORKER_IMAGE?: string | undefined;
+    WORKER_IMAGES?: string | undefined;
     WORKER_IMAGE_PREVIOUS?: string | undefined;
     WORKER_IMAGE_PREVIOUS_RUNTIME?: string | undefined;
     WORKER_IMAGE_RUNTIME?: string | undefined;
@@ -57,7 +59,8 @@ export type SchedulerConfig = {
   image: string;
   /** Without them every launch takes `image` and nothing is held to a combination. */
   imageRuntime?: ImageRuntime;
-  previousImage?: { image: string; runtime: ImageRuntime };
+  /** Newest first after `image`; empty without a runtime. */
+  olderImages: { image: string; runtime: ImageRuntime }[];
   limits: InstallationLimits;
   logLevel: LogLevel;
   resources: ExecutionResources;
@@ -70,15 +73,7 @@ export function schedulerConfigFromEnv(
   environment: SchedulerEnvironment,
 ): SchedulerConfig {
   const databaseUrl = queueDatabaseUrl(environment);
-  const image = environment.WORKER_IMAGE;
-  if (!image) throw new Error("WORKER_IMAGE is required");
-  const runtimes = workerImageRuntimesFromEnv(environment);
-  const previousImage = environment.WORKER_IMAGE_PREVIOUS;
-  if (!previousImage !== (runtimes?.previous == null)) {
-    throw new Error(
-      "WORKER_IMAGE_PREVIOUS and WORKER_IMAGE_PREVIOUS_RUNTIME are set together",
-    );
-  }
+  const images = configuredImages(environment);
   // The adapter defaults this for tests; a real scheduler must say which
   // installation it is, or two installations on one daemon reap each other.
   if (!environment.EXECUTION_INSTALLATION_ID) {
@@ -94,20 +89,18 @@ export function schedulerConfigFromEnv(
     // before it is replaced. No turn outlasts MAX_TURN_SECONDS
     // the grace covers the finalize and checkpoint that end it.
     drainDeadlineMs: limits.maxTurnSeconds * 1_000 + DRAIN_FINALIZE_GRACE_MS,
-    execution: executionFromEnv(environment, {
-      workerLimits: {
-        maxTurnSeconds: limits.maxTurnSeconds,
-        providerMaxRetries: limits.providerMaxRetries,
+    // The workspace quota helper runs from the newest image, listed or not.
+    execution: executionFromEnv(
+      { ...environment, WORKER_IMAGE: images.image },
+      {
+        workerLimits: {
+          maxTurnSeconds: limits.maxTurnSeconds,
+          providerMaxRetries: limits.providerMaxRetries,
+        },
+        logLevel,
       },
-      logLevel,
-    }),
-    image,
-    ...(runtimes === null ? {} : { imageRuntime: runtimes.current }),
-    ...(runtimes?.previous == null || !previousImage
-      ? {}
-      : {
-          previousImage: { image: previousImage, runtime: runtimes.previous },
-        }),
+    ),
+    ...images,
     limits,
     logLevel,
     resources: {
@@ -142,6 +135,37 @@ export function schedulerConfigFromEnv(
         min: 0,
         default: DEFAULT_PAUSED_WORKSPACE_TTL_MS / 1_000,
       }) * 1_000,
+  };
+}
+
+function configuredImages(
+  environment: SchedulerEnvironment,
+): Pick<SchedulerConfig, "image" | "imageRuntime" | "olderImages"> {
+  const listed = workerImageListFromEnv(environment);
+  if (listed !== null) {
+    const [newest, ...older] = listed;
+    return {
+      image: newest.image,
+      imageRuntime: newest.runtime,
+      olderImages: older.map(({ image, runtime }) => ({ image, runtime })),
+    };
+  }
+  const image = environment.WORKER_IMAGE;
+  if (!image) throw new Error("WORKER_IMAGES or WORKER_IMAGE is required");
+  const runtimes = workerImageRuntimesFromEnv(environment);
+  const previousImage = environment.WORKER_IMAGE_PREVIOUS;
+  if (!previousImage !== (runtimes?.previous == null)) {
+    throw new Error(
+      "WORKER_IMAGE_PREVIOUS and WORKER_IMAGE_PREVIOUS_RUNTIME are set together",
+    );
+  }
+  return {
+    image,
+    ...(runtimes === null ? {} : { imageRuntime: runtimes.current }),
+    olderImages:
+      runtimes?.previous == null || !previousImage
+        ? []
+        : [{ image: previousImage, runtime: runtimes.previous }],
   };
 }
 

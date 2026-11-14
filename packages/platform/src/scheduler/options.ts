@@ -87,8 +87,8 @@ export type SchedulerOptions = {
    * (`selectWorkerImage`), and one no image matches is stopped.
    */
   imageRuntime?: ImageRuntime;
-  /** The release before `image`, for sessions sealed on it. */
-  previousImage?: { image: string; runtime: ImageRuntime };
+  /** Older images after `image`, newest first, for sessions sealed on them. */
+  olderImages?: readonly { image: string; runtime: ImageRuntime }[];
   /** Failed attempts per launch before it is given up on; see the default. */
   launchFailureLimit?: number;
   /** First backoff after a failed attempt; doubles per failure up to the cap. */

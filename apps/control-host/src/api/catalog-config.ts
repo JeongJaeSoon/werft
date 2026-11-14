@@ -4,6 +4,7 @@ import {
 } from "@aws-sdk/client-secrets-manager";
 import {
   type CatalogRepositoryStore,
+  configuredImageRuntimesFromEnv,
   createCatalogRegistry,
   type InstallationSettingsStore,
   type InstalledRuntimes,
@@ -15,7 +16,6 @@ import {
   type SessionCatalog,
   settingsView,
   withConsoleRepositories,
-  workerImageRuntimesFromEnv,
 } from "@werft-ai/platform";
 import {
   equivalentToolCatalogVersions,
@@ -88,9 +88,9 @@ export function refuseFileCatalog(
 export function runtimeVersionsFromEnv(
   env: Record<string, string | undefined>,
 ): RuntimeVersions | undefined {
-  const images = workerImageRuntimesFromEnv(env);
-  if (images === null) return undefined;
-  const versions = runtimeVersionsOf(images);
+  const runtimes = configuredImageRuntimesFromEnv(env);
+  if (runtimes === null) return undefined;
+  const versions = runtimeVersionsOf(runtimes);
   const withEquivalents = (listed: readonly string[]) => [
     ...new Set([
       ...listed,

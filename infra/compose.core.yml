@@ -49,9 +49,12 @@ x-egress-ports:
 # The worker images' runtime combinations (apps/docs/content/docs/run-server/self-hosting/operate/configuration.mdx).
 # api and slack judge release-pinned runtime versions by them and the scheduler picks each
 # session's image by them, so all three take these anchors. Empty is unset.
+# WORKER_IMAGES is passed only so setting it stops the stack: the scheduler
+# here always has WORKER_IMAGE, which a list does not run beside.
 x-worker-runtimes:
   current: &worker-image-runtime ${WORKER_IMAGE_RUNTIME:-}
   previous: &worker-image-previous-runtime ${WORKER_IMAGE_PREVIOUS_RUNTIME:-}
+  list: &worker-images ${WORKER_IMAGES:-}
 
 # The pass-loop roles (scheduler, reconciler, slack) each run two Bun
 # processes, the loop and its pass child, idle between passes. --smol keeps
@@ -280,6 +283,7 @@ services:
       BOOTSTRAP_TOKEN:
       WORKER_IMAGE_RUNTIME: *worker-image-runtime
       WORKER_IMAGE_PREVIOUS_RUNTIME: *worker-image-previous-runtime
+      WORKER_IMAGES: *worker-images
       <<: *installation-limits
       # The egress proxy's credential lists, the same defaults: the console
       # warns when a connection's endpoint is on neither. Only a warning;
@@ -439,6 +443,7 @@ services:
       WORKER_IMAGE_RUNTIME: *worker-image-runtime
       WORKER_IMAGE_PREVIOUS: ${WORKER_IMAGE_PREVIOUS:-}
       WORKER_IMAGE_PREVIOUS_RUNTIME: *worker-image-previous-runtime
+      WORKER_IMAGES: *worker-images
       EXECUTION_INSTALLATION_ID: ${EXECUTION_INSTALLATION_ID:-local}
       EXECUTION_EGRESS_PROXY_URL: *worker-proxy-url
       EXECUTION_EGRESS_CREDENTIAL_PORT: *egress-credential-port
@@ -602,6 +607,7 @@ services:
       SLACK_ROLE_LEASE_SEC: ${SLACK_ROLE_LEASE_SEC:-60}
       WORKER_IMAGE_RUNTIME: *worker-image-runtime
       WORKER_IMAGE_PREVIOUS_RUNTIME: *worker-image-previous-runtime
+      WORKER_IMAGES: *worker-images
       <<: *installation-limits
       CONSOLE_ORIGIN: ${CONSOLE_ORIGIN:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
