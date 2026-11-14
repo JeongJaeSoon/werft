@@ -238,16 +238,17 @@ Roll back only after shared gates and the direct check establish viability. With
 Sessions resume on a runtime combination, not on an image. An old worker image may therefore be deleted from the registry once the checks below pass, in order. The deletion happens in the registry; werft does not delete images. When the image must not run again, such as for a vulnerability that cannot be rebuilt away, [retract](/run-server/self-hosting/reference/configuration) it in the list before deleting it.
 
 1. Remove it from the list. Drop its entry from `images.workers` (`WORKER_IMAGES`), or, on an install with single values, keep it out of both `images.worker` and `images.workerPrevious`, and upgrade as in the steps above. From then on no new launch chooses that image. What happens to a session whose combination has no image left in the list is described under the image list in the [configuration reference](/run-server/self-hosting/reference/configuration).
-2. Wait until the series `werft_sessions_by_worker_image{image="<repository>@sha256:<digest>"}` is gone. The gauge counts sessions that have not ended, by the image of their newest launch ([metrics reference](/run-server/self-hosting/reference/metrics), [collect metrics](/run-server/self-hosting/collect-metrics)). While the series exists, a session whose newest launch is on that image is still open. If that launch is rebuilt before a worker binds it, it is rebuilt on its stored image, the one you are about to delete. An open session at rest stays in the series too, so wait until such sessions end or launch again on another image.
-3. Check that no worker Pod runs on that image. The command below must print nothing.
+2. Wait until the series `werft_sessions_by_worker_image{image="<repository>@sha256:<digest>"}` is gone. The gauge counts sessions that have not ended, by the image of their newest launch ([metrics reference](/run-server/self-hosting/reference/metrics), [collect metrics](/run-server/self-hosting/collect-metrics)). While the series exists, a session whose newest launch is on that image is still open. An open session at rest stays in the series too, so wait until such sessions end or launch again on another image. The gauge does not count `stopped` sessions, so do not skip step 3 when the series is gone.
+3. Check in the database that no launch on that image holds a slot. Run the query below with your own database client; it must return no rows. Those rows cover a worker running on that image and a launch that, rebuilt before a worker binds it, is rebuilt on its stored image, the one you are about to delete. A slot is released only after the scheduler confirms the resource is gone.
 
-```bash
-IMAGE='<repository>@sha256:<digest>'
-kubectl -n werft get pods -l app.kubernetes.io/component=worker -o json \
-  | jq -r --arg image "$IMAGE" '.items[] | select(any(.spec.containers[]; .image == $image)) | .metadata.name'
+```sql
+SELECT session_id, generation, claimed_attempt_id IS NOT NULL AS claimed
+FROM worker_launches
+WHERE image = '<repository>@sha256:<digest>'
+  AND slot_released_at IS NULL;
 ```
 
-When all three hold, delete it from the registry. Rolling back afterwards to a Helm revision whose list holds that image makes that revision's scheduler fail to pull it when it launches on it. Keep the images held by any revision you want to be able to roll back to. This procedure has not been run on kind.
+When all three hold, delete it from the registry. Rolling back afterwards to a Helm revision whose list holds that image makes that revision's scheduler fail to pull it on any node without a cached copy when it launches on it (worker Pods pull with `IfNotPresent`). Keep the images held by any revision you want to be able to roll back to. This procedure has not been run end to end.
 
 <a id="다음에-읽을-곳" />
 ## Next steps

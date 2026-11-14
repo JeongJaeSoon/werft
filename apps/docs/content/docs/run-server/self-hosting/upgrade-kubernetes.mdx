@@ -222,16 +222,17 @@ helm -n werft rollback werft <revision> --wait --timeout 10m
 세션은 이미지가 아니라 런타임 조합으로 재개한다. 그래서 registry의 옛 worker 이미지는 아래를 차례로 확인한 뒤 지워도 된다. 지우는 일은 registry에서 하고, werft는 이미지를 지우지 않는다. 다시 빌드할 수 없는 취약점처럼 그 이미지로 더는 띄우면 안 될 때는 지우기 전에 목록에서 [철회](/run-server/self-hosting/reference/configuration)한다.
 
 1. 목록에서 뺀다. `images.workers`(`WORKER_IMAGES`)에서 그 원소를 빼고(단일 값 설치는 `images.worker`와 `images.workerPrevious` 어디에도 두지 않고) 위 단계대로 upgrade한다. 그 뒤로 새 launch는 그 이미지를 고르지 않는다. 같은 조합의 이미지가 목록에 남지 않는 세션이 어떻게 되는지는 [설정 레퍼런스](/run-server/self-hosting/reference/configuration)의 이미지 목록을 본다.
-2. `werft_sessions_by_worker_image{image="<repository>@sha256:<digest>"}` series가 없어질 때까지 기다린다. 이 지표는 끝나지 않은 세션을 마지막 launch의 이미지별로 센다([지표 레퍼런스](/run-server/self-hosting/reference/metrics), [지표 수집](/run-server/self-hosting/collect-metrics)). series가 있으면 그 이미지로 마지막 launch를 한 세션이 열려 있다. 그 launch가 worker가 붙기 전에 다시 만들어지면 저장된 이미지, 곧 지울 이미지로 다시 만들어진다. 쉬고 있는 열린 세션도 series에 남으므로, 그런 세션이 끝나거나 다른 이미지로 다시 launch될 때까지 기다린다.
-3. 그 이미지로 떠 있는 worker Pod가 없는지 본다. 아래 명령이 아무것도 출력하지 않아야 한다.
+2. `werft_sessions_by_worker_image{image="<repository>@sha256:<digest>"}` series가 없어질 때까지 기다린다. 이 지표는 끝나지 않은 세션을 마지막 launch의 이미지별로 센다([지표 레퍼런스](/run-server/self-hosting/reference/metrics), [지표 수집](/run-server/self-hosting/collect-metrics)). series가 있으면 그 이미지로 마지막 launch를 한 세션이 열려 있다. 쉬고 있는 열린 세션도 series에 남으므로, 그런 세션이 끝나거나 다른 이미지로 다시 launch될 때까지 기다린다. 이 지표는 `stopped` 세션을 세지 않으므로, series가 없어도 3단계를 건너뛰지 않는다.
+3. 그 이미지로 슬롯을 쥔 launch가 없는지 DB에서 본다. 운영자의 DB 클라이언트로 아래 질의를 돌려 행이 하나도 없어야 한다. 이 행에는 그 이미지로 떠 있는 worker와, worker가 붙기 전에 다시 만들어질 때 저장된 이미지(곧 지울 이미지)로 다시 만들어지는 launch가 모두 들어 있다. 슬롯은 scheduler가 리소스가 사라진 것을 확인한 뒤에야 풀린다.
 
-```bash
-IMAGE='<repository>@sha256:<digest>'
-kubectl -n werft get pods -l app.kubernetes.io/component=worker -o json \
-  | jq -r --arg image "$IMAGE" '.items[] | select(any(.spec.containers[]; .image == $image)) | .metadata.name'
+```sql
+SELECT session_id, generation, claimed_attempt_id IS NOT NULL AS claimed
+FROM worker_launches
+WHERE image = '<repository>@sha256:<digest>'
+  AND slot_released_at IS NULL;
 ```
 
-세 가지가 모두 맞으면 registry에서 지운다. 지운 뒤 그 이미지를 목록에 담은 Helm revision으로 rollback하면 그 revision의 scheduler가 그 이미지로 launch하다 pull에 실패한다. 되돌릴 수 있게 남겨 둘 revision이 담은 이미지는 지우지 않는다. 이 절차는 kind에서 실행 확인하지 않았다.
+세 가지가 모두 맞으면 registry에서 지운다. 지운 뒤 그 이미지를 목록에 담은 Helm revision으로 rollback하면, 그 revision의 scheduler가 그 이미지로 launch할 때 이미지가 캐시되지 않은 노드에서는 pull에 실패한다(worker Pod는 `IfNotPresent`로 받는다). 되돌릴 수 있게 남겨 둘 revision이 담은 이미지는 지우지 않는다. 이 절차를 처음부터 끝까지 실행 확인하지는 않았다.
 
 ## 다음에 읽을 곳
 
