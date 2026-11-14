@@ -746,16 +746,22 @@ describe("InstallationLimits", () => {
           (cell) => cell.textContent,
         ),
       );
+  // The "—" is hidden from screen readers, which read the words after it.
   const STATIC_MEMBER_ROWS = [
     [
-      "동시 실행 슬롯",
-      "—",
+      "구성원당 동시 실행 슬롯",
+      "—제공 안 됨",
       "설정 안 됨",
       "구성원별 상한은 없습니다. 설치 전체의 슬롯을 함께 씁니다",
     ],
-    ["월 비용", "—", "설정 안 됨", "구성원별 월 비용 한도는 없습니다"],
     [
-      "성과물 저장",
+      "구성원당 월 비용",
+      "—제공 안 됨",
+      "설정 안 됨",
+      "구성원별 월 비용 한도는 없습니다",
+    ],
+    [
+      "구성원당 성과물 저장",
       "미계측",
       "한도 없음",
       "구성원별 성과물 용량은 세지 않습니다",
@@ -778,6 +784,15 @@ describe("InstallationLimits", () => {
       ["턴 최대 시간", "세션마다 셉니다", "1시간 0분"],
     ]);
     expect(tableRows(getByRole).slice(0, 3)).toEqual(STATIC_MEMBER_ROWS);
+    expect(
+      [
+        ...getByRole("table", { name: "한도" }).querySelectorAll(
+          '[aria-hidden="true"]',
+        ),
+      ]
+        .filter((el) => el.textContent === "—")
+        .map((el) => el.nextElementSibling?.className),
+    ).toEqual(["sr-only", "sr-only"]);
     expect(queryByText("실행 용량") === null).toBe(true);
     expect(queryAllByRole("meter")).toHaveLength(0);
     expect(document.body.textContent).toContain(

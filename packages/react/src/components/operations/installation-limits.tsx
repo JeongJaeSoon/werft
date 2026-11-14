@@ -65,7 +65,12 @@ export function InstallationLimits({
   const noLimit = <Badge>{messages.noLimit}</Badge>;
   const notSet = <Badge>{messages.notSet}</Badge>;
   const notMeasured = <Badge>{messages.notMeasured}</Badge>;
-  const none = "—";
+  const none = (
+    <>
+      <span aria-hidden>—</span>
+      <span className="sr-only">{messages.noFigure}</span>
+    </>
+  );
   const fixed: readonly ReactNode[] = [
     perSession,
     noLimit,
@@ -111,9 +116,9 @@ export function InstallationLimits({
   // No member figure exists for these yet, so none is made up from the
   // installation's.
   const memberRows: readonly Row[] = [
-    [messages.slots, none, notSet, messages.memberSlotsNote],
-    [messages.monthlyCost, none, notSet, messages.monthlyCostNote],
-    [messages.outputs, notMeasured, noLimit, messages.memberOutputsNote],
+    [messages.memberSlots, none, notSet, messages.memberSlotsNote],
+    [messages.memberMonthlyCost, none, notSet, messages.memberMonthlyCostNote],
+    [messages.memberOutputs, notMeasured, noLimit, messages.memberOutputsNote],
   ];
   const installationRows: readonly Row[] = [
     [
