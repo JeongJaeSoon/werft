@@ -276,32 +276,76 @@ describe("carrying SLACK_EVENTS_PUBLIC_URL in on upgrade", () => {
 });
 
 describe("the carry-over at start", () => {
-  test("a database that does not answer yet is retried, not a stopped start", async () => {
-    const { store, row } = memoryStore(null);
-    let down = true;
-    const flaky: SlackSettingsStore = {
-      ...store,
+  const CARRIED =
+    "SLACK_EVENTS_PUBLIC_URL was carried into Settings > Integrations > Slack and is no longer read; remove it";
+  const RETRYING = "Slack settings could not be read; retrying";
+
+  /** A memory store whose reads fail while `down` is set. */
+  function flakyStore() {
+    const memory = memoryStore(null);
+    const state = { down: true };
+    const store: SlackSettingsStore = {
+      ...memory.store,
       read: async () => {
-        if (down) throw new Error("connect ECONNREFUSED");
-        return store.read();
+        if (state.down) throw new Error("connect ECONNREFUSED");
+        return memory.store.read();
       },
     };
+    return { ...memory, store, state };
+  }
+
+  test("a database that does not answer yet is retried, not a stopped start", async () => {
+    const { store, row, state } = flakyStore();
     const warned: string[] = [];
     await carryOverSlackSettings({
       env: { SLACK_EVENTS_PUBLIC_URL: `${EVENTS}/` },
-      store: flaky,
-      eventsBase: slackEventsBaseOf(flaky, CONSOLE),
+      store,
+      consoleOrigin: CONSOLE,
       warn: (message) => warned.push(message),
       retryMs: 5,
-    });
-    expect(warned).toEqual(["Slack settings could not be read; retrying"]);
+    }).started;
+    expect(warned).toEqual([RETRYING]);
     expect(row()).toBe(null);
-    down = false;
+    state.down = false;
     await Bun.sleep(50);
     expect(row()).toEqual({ eventsPublicUrl: EVENTS });
-    expect(warned.slice(1)).toEqual([
-      "SLACK_EVENTS_PUBLIC_URL was carried into Settings > Integrations > Slack and is no longer read; remove it",
-    ]);
+    expect(warned.slice(1)).toEqual([CARRIED]);
+  });
+
+  test("a request before the retry carries the env in first, never sending the computed address", async () => {
+    const { store, imports, state } = flakyStore();
+    const warned: string[] = [];
+    const carrying = carryOverSlackSettings({
+      env: { SLACK_EVENTS_PUBLIC_URL: EVENTS },
+      store,
+      consoleOrigin: CONSOLE,
+      warn: (message) => warned.push(message),
+      retryMs: 60_000,
+    });
+    await carrying.started;
+    state.down = false;
+    const base = slackEventsBaseOf(carrying.store, CONSOLE);
+    expect(await base()).toBe(EVENTS);
+    expect(await base()).toBe(EVENTS);
+    expect(imports).toEqual([EVENTS]);
+    expect(warned).toEqual([RETRYING, CARRIED]);
+  });
+
+  test("a read failing with nothing to carry still warns of no address once it answers", async () => {
+    const { store, state } = flakyStore();
+    const warned: string[] = [];
+    await carryOverSlackSettings({
+      env: {},
+      store,
+      consoleOrigin: null,
+      warn: (message) => warned.push(message),
+      retryMs: 5,
+    }).started;
+    expect(warned).toEqual([RETRYING]);
+    state.down = false;
+    await Bun.sleep(50);
+    expect(warned).toHaveLength(2);
+    expect(warned[1]).toStartWith("Slack apps get no event subscription");
   });
 
   test("says once that no events address is known", async () => {
@@ -310,10 +354,10 @@ describe("the carry-over at start", () => {
     await carryOverSlackSettings({
       env: {},
       store,
-      eventsBase: slackEventsBaseOf(store, null),
+      consoleOrigin: null,
       warn: (message) => warned.push(message),
       retryMs: 5,
-    });
+    }).started;
     expect(warned).toHaveLength(1);
     expect(warned[0]).toStartWith("Slack apps get no event subscription");
   });

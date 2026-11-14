@@ -582,15 +582,14 @@ if (consoleOrigin === null) {
 }
 const slackLinkOff = signInWithSlackOff(consoleOrigin, true);
 if (slackLinkOff !== null) logger.warn(slackLinkOff, {});
-const slackSettingsStore = createPostgresSlackSettingsStore(db);
-const slackEventsBase = slackEventsBaseOf(slackSettingsStore, consoleOrigin);
-void carryOverSlackSettings({
+const { store: slackSettingsStore } = carryOverSlackSettings({
   env: process.env,
-  store: slackSettingsStore,
-  eventsBase: slackEventsBase,
+  store: createPostgresSlackSettingsStore(db),
+  consoleOrigin,
   warn: (message, fields) => logger.warn(message, fields ?? {}),
   retryMs: CATALOG_READ_RETRY_MS,
 });
+const slackEventsBase = slackEventsBaseOf(slackSettingsStore, consoleOrigin);
 const slackActiveReleaseWarning: SlackServicesStageDeps["activeReleaseWarning"] =
   async (workspaceId, agentId) => {
     const release = (await agentStore.get(workspaceId, agentId))
