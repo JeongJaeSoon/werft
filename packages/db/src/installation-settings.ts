@@ -7,6 +7,7 @@ import {
   catalogMcpServerSchema,
   catalogProviderSchema,
   catalogRepositorySchema,
+  CatalogCredentialError,
   describeConfigError,
   type EnvCredentialCarry,
   type InstallationSettingsStore,
@@ -161,6 +162,8 @@ function storedAuth(row: EnvRow): Record<string, unknown> {
   return { ...kept, stored: `${row.kind}:${row.id}` };
 }
 
+const MIN_SEALED_CHARACTERS = 8;
+
 /**
  * The value as the catalog takes it and, for a repository, its binding
  * before and after the move. Throws as the catalog would, naming where the
@@ -172,15 +175,19 @@ function carriedValue(
 ): { value: string; binding?: Binding } {
   const lookup = () => value;
   const ref = { value_env: row.auth.value_env };
-  if (row.kind === "connection") {
-    return {
-      value: resolveCredential(`connections.${row.id}.auth`, ref, lookup),
-    };
-  }
-  if (row.kind === "mcp") {
-    return {
-      value: resolveCredential(`mcp_servers.${row.id}.auth`, ref, lookup),
-    };
+  if (row.kind !== "repository") {
+    const path = `${row.kind === "connection" ? "connections" : "mcp_servers"}.${row.id}.auth`;
+    const checked = resolveCredential(path, ref, lookup);
+    // A sealed value shows its last four characters. The catalog counts
+    // bytes, which a non-ASCII value meets with fewer characters.
+    if ([...checked].length < MIN_SEALED_CHARACTERS) {
+      throw new CatalogCredentialError(
+        path,
+        ref,
+        `is shorter than ${MIN_SEALED_CHARACTERS} characters`,
+      );
+    }
+    return { value: checked };
   }
   const listed = (auth: Record<string, unknown>) => {
     const config = catalogRepositorySchema.parse({ ...row.place, auth });
@@ -233,6 +240,40 @@ async function rebind(
   };
 }
 
+/**
+ * A replica reads the catalog again every 10 seconds (an old build's too,
+ * which then leaves the moved row out), so one may still write the old
+ * binding just after a move: a push request created, or a session claimed,
+ * from the catalog it held. Each read moves those rows as well, for long
+ * enough that no catalog holds the old binding any more.
+ */
+async function rebindLate(db: Database): Promise<EnvCredentialCarry[]> {
+  const outcomes: EnvCredentialCarry[] = [];
+  for (const row of await db
+    .select({
+      id: catalogRepositories.id,
+      binding: catalogRepositories.carriedBinding,
+      carried: catalogRepositories.carriedAuth,
+    })
+    .from(catalogRepositories)
+    .where(
+      sql`(${catalogRepositories.carriedBinding}->>'at')::timestamptz > now() - interval '10 minutes'`,
+    )) {
+    if (row.binding === null || !namesEnv(row.carried)) continue;
+    const { from, to } = row.binding;
+    const rebound = await db.transaction((tx) => rebind(tx, { from, to }));
+    if (rebound.push_requests + rebound.worker_credentials > 0) {
+      outcomes.push({
+        entry: `repository:${row.id}`,
+        env: row.carried.value_env,
+        outcome: "rebound",
+        rebound,
+      });
+    }
+  }
+  return outcomes;
+}
+
 /** The row names its own stored value from now on; its old `auth` is kept. */
 async function pointAtStored(
   tx: Database,
@@ -258,7 +299,10 @@ async function pointAtStored(
           auth,
           credentialSource: "stored",
           carriedAuth: row.auth,
-          carriedBinding: binding ?? null,
+          carriedBinding:
+            binding === undefined
+              ? null
+              : sql`jsonb_build_object('from', ${binding.from}::text, 'to', ${binding.to}::text, 'at', now())`,
           version: sql`${catalogRepositories.version} + 1`,
           updatedBy: null,
           updatedAt: sql`now()`,
@@ -559,7 +603,7 @@ export function createPostgresInstallationSettingsStore(
     },
 
     async carryEnvCredentials(env) {
-      const outcomes: EnvCredentialCarry[] = [];
+      const outcomes = await rebindLate(db);
       for (const listed of await envRows(db)) {
         const entry = `${listed.kind}:${listed.id}`;
         const name = listed.auth.value_env;

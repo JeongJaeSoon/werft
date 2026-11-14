@@ -19,7 +19,7 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresInstallationSettingsStore } from "./installation-settings.ts";
@@ -336,7 +336,8 @@ integration("carrying env credentials into stored values", () => {
     const short: Record<string, string> = {
       PROVIDER_KEY: "abcd",
       APP_KEY: "not a key",
-      MCP_TOKEN: "abc",
+      // Eight UTF-8 bytes, which the catalog takes, but four characters.
+      MCP_TOKEN: "éééé",
     };
     const outcomes = await createPostgresInstallationSettingsStore(
       db,
@@ -435,7 +436,7 @@ integration("carrying env credentials into stored values", () => {
     await credential("repository", before);
     // Another purpose holding the same text is not a repository binding.
     await credential("provider", before);
-    return { before, ghesPush, otherPush };
+    return { before, ghesPush, otherPush, push };
   }
 
   const pushBinding = async (id: string) =>
@@ -484,7 +485,37 @@ integration("carrying env credentials into stored values", () => {
       .select({ carriedBinding: catalogRepositories.carriedBinding })
       .from(catalogRepositories)
       .where(eq(catalogRepositories.id, "ghes"));
-    expect(app?.carriedBinding).toEqual({ from: before, to: after });
+    expect(app?.carriedBinding).toMatchObject({ from: before, to: after });
+  });
+
+  test("a push request written with the old binding just after the move is moved on the next read, and only for a while", async () => {
+    await addWorkspace();
+    const { before, push } = await heldBindings();
+    const store = createPostgresInstallationSettingsStore(db, KEY);
+    await store.carryEnvCredentials(env);
+    const after = await bindingNow("ghes");
+    // A replica that had not read the move yet.
+    const late = await push(before);
+    expect(await store.carryEnvCredentials(env)).toEqual([
+      {
+        entry: "repository:ghes",
+        env: "APP_KEY",
+        outcome: "rebound",
+        rebound: { push_requests: 1, worker_credentials: 0 },
+      },
+    ]);
+    expect(await pushBinding(late)).toBe(after);
+    expect(await store.carryEnvCredentials(env)).toEqual([]);
+
+    await db
+      .update(catalogRepositories)
+      .set({
+        carriedBinding: sql`jsonb_set(${catalogRepositories.carriedBinding}, '{at}', to_jsonb(now() - interval '11 minutes'))`,
+      })
+      .where(eq(catalogRepositories.id, "ghes"));
+    const later = await push(before);
+    expect(await store.carryEnvCredentials(env)).toEqual([]);
+    expect(await pushBinding(later)).toBe(before);
   });
 
   test("the rollback SQL in the upgrade guide restores the env references and the old bindings", async () => {

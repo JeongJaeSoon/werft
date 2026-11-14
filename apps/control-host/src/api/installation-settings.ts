@@ -57,6 +57,11 @@ export function settingsSource(options: {
             );
             break;
           }
+          case "rebound":
+            options.warn(
+              `${entry} moved ${carry.rebound.push_requests} push requests and ${carry.rebound.worker_credentials} worker credentials written with its old binding after the move to the new one`,
+            );
+            break;
           case "invalid":
             warnOnce(
               `${entry} invalid`,
