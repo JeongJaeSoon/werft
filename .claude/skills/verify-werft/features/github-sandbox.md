@@ -164,7 +164,7 @@ orch release verify-stack
 
 ## Git LFS 객체 받기
 
-sandbox에는 LFS 업로드 경로가 없다(worker도 egress proxy도 업로드를 열지 않는다). 그래서 앞선 검증이 올려 둔 객체 하나(oid `e503fa2e603377bc54e3173205a6a06e7392907ddcfc1bda377172df82a4f5d9`, 38 bytes, 내용 `werft-sandbox LFS object for 94S-1095`)를 pointer로 다시 쓴다. pointer는 sandbox `main`에 없으므로 세션 안에서 로컬 브랜치에 commit하고 받는다. 4단계의 에이전트와 key로 새 세션을 만든다. 이 세션은 push하지 않는다.
+sandbox에는 LFS 업로드 경로가 없다(worker도 egress proxy도 업로드를 열지 않는다). 그래서 앞선 검증이 올려 둔 객체 하나(oid `e503fa2e603377bc54e3173205a6a06e7392907ddcfc1bda377172df82a4f5d9`, 38 bytes, 한 줄짜리 텍스트)를 pointer로 다시 쓴다. pointer는 sandbox `main`에 없으므로 세션 안에서 로컬 브랜치에 commit하고 받는다. 4단계의 에이전트와 key로 새 세션을 만든다. 이 세션은 push하지 않는다.
 
 ```sh
 # L1. pointer commit → git lfs pull
@@ -182,7 +182,7 @@ ap_compose exec -T postgres psql -U postgres -d sessions -At -c "select payload-
 ap_compose logs egress-proxy 2>&1 | grep -c "lfs"
 ```
 
-기대: `git-lfs/…` 한 줄, 파일 내용 `werft-sandbox LFS object for 94S-1095`, `sha256sum`이 위 oid와 같다. LFS batch는 저장소 route(`/repository/sandbox/.git/info/lfs/objects/batch`)로, 객체는 `EGRESS_PACKAGES_REDIRECT_ALLOWLIST`의 `github-cloud.githubusercontent.com`으로 받는다. egress proxy 로그에는 `Credential route LFS object` 줄이 남는다. run `20261115-012625-32204`에서 내용과 sha256이 위 값과 같았다. 객체 주소는 batch 응답에서 온다. overlay에서 그 host를 빼면 proxy가 그 주소를 처음 검사할 때 거절해(`Credential route denied` 경고) 객체 다운로드가 `502`다. 코드(`apps/egress-proxy/src/credential.ts`의 `lfsObject`) 기준이며, 이 run에서 빼 보지는 않았다. 끝나면 세션을 terminate한다.
+기대: `git-lfs/…` 한 줄, `werft-sandbox LFS object for `로 시작하는 파일 내용 한 줄, `sha256sum`이 위 oid와 같다. oid가 내용의 sha256이므로 내용은 이 일치로 확인한다. LFS batch는 저장소 route(`/repository/sandbox/.git/info/lfs/objects/batch`)로, 객체는 `EGRESS_PACKAGES_REDIRECT_ALLOWLIST`의 `github-cloud.githubusercontent.com`으로 받는다. egress proxy 로그에는 `Credential route LFS object` 줄이 남는다. run `20261115-012625-32204`에서 내용과 sha256이 위 값과 같았다. 객체 주소는 batch 응답에서 온다. overlay에서 그 host를 빼면 proxy가 그 주소를 처음 검사할 때 거절해(`Credential route denied` 경고) 객체 다운로드가 `502`다. 코드(`apps/egress-proxy/src/credential.ts`의 `lfsObject`) 기준이며, 이 run에서 빼 보지는 않았다. 끝나면 세션을 terminate한다.
 
 ## PR 본문 읽기와 꼬리 교체 (`get_pull_request`, `expected_body_sha256`)
 
