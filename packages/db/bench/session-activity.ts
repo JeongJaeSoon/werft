@@ -1,5 +1,5 @@
 /**
- * What the session list costs on PostgreSQL once it reads each listed
+ * What the session list costs on PostgreSQL, beside reading each listed
  * session's activity: one owner's sessions over 90 days among the whole
  * installation's, the listed ones with long tool-heavy histories and every
  * other session with a short one. Seeds a fresh database the URL names.
@@ -108,24 +108,27 @@ const timed = (fn: () => Promise<unknown>) => timedMs(fn, RUNS);
 const table: Record<string, unknown> = {};
 for (const limit of PAGES) {
   const page = await reader.listSessions(OWNER, { limit }, VIEWER);
+  const ids = page.items.map((item) => item.id);
+  const activities = await readSessionActivity(db, ids);
   if (
     page.items.length !== limit ||
-    page.items.some((item) => item.activity?.window.complete !== false)
+    ids.some((id) => activities.get(id)?.window.complete !== false)
   ) {
     throw new Error("seed failed");
   }
   table[`listSessions(limit ${limit})`] = await timed(() =>
     reader.listSessions(OWNER, { limit }, VIEWER),
   );
-  const ids = page.items.map((item) => item.id);
-  table[`  of which activity(${limit})`] = await timed(() =>
-    readSessionActivity(db, ids),
-  );
+  table[`activity(${limit})`] = await timed(() => readSessionActivity(db, ids));
 }
 console.table(table);
 const sample = (await reader.listSessions(OWNER, { limit: 1 }, VIEWER))
   .items[0];
-console.log(JSON.stringify(sample?.activity));
+if (sample !== undefined) {
+  console.log(
+    JSON.stringify((await readSessionActivity(db, [sample.id])).get(sample.id)),
+  );
+}
 
 const ids = (
   await reader.listSessions(OWNER, { limit: Math.max(...PAGES) }, VIEWER)

@@ -7,17 +7,10 @@ import {
 } from "@werft-ai/testkit/postgres";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { createPostgresSessionShareStore } from "../musterrolle/session-shares.ts";
 import { createPostgresSessionReader } from "../postgres-unit-of-work.ts";
 import * as schema from "../schema.ts";
-import {
-  events,
-  sessionShares,
-  sessions,
-  turns,
-  users,
-  workspaces,
-} from "../schema.ts";
+import { events, sessions, turns } from "../schema.ts";
+import { readSessionActivity } from "./session-activity.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -44,7 +37,7 @@ const result = (id: string, isError = false) => ({
   tool_result: { tool_call_id: id, is_error: isError, text: "" },
 });
 
-integration("session list activity on PostgreSQL", () => {
+integration("session activity on PostgreSQL", () => {
   let database: TempDatabase;
   let pool: Pool;
   let db: NodePgDatabase<typeof schema>;
@@ -68,18 +61,14 @@ integration("session list activity on PostgreSQL", () => {
     await database?.drop();
   }, 60_000);
 
-  async function session(
-    ownerId = OWNER,
-    of: { workspaceId?: string; createdByUserId?: string } = {},
-  ) {
+  async function session() {
     const [row] = await db
       .insert(sessions)
       .values({
         id: crypto.randomUUID(),
-        ownerId,
+        ownerId: OWNER,
         repoUrl: "https://example.invalid/app.git",
         branch: "main",
-        ...of,
       })
       .returning({ id: sessions.id });
     if (!row) throw new Error("no session");
@@ -111,13 +100,23 @@ integration("session list activity on PostgreSQL", () => {
     return { id: row.id, turnId: turn.id, record };
   }
 
-  async function activity(id: string, ownerId = OWNER) {
-    const detail = await createPostgresSessionReader(db).getSession(
-      ownerId,
-      id,
-    );
-    return detail?.activity;
+  async function activity(id: string) {
+    return (await readSessionActivity(db, [id])).get(id);
   }
+
+  test("the session list and detail answer no activity", async () => {
+    const s = await session();
+    await s.record("assistant", assistant(use("t-1", "Read")));
+    const reader = createPostgresSessionReader(db);
+    const item = (
+      await reader.listSessions(OWNER, { limit: 100 }, VIEWER)
+    ).items.find((listed) => listed.id === s.id);
+    const detail = await reader.getSession(OWNER, s.id);
+    if (item === undefined || detail === null) throw new Error("not read");
+    expect(Object.hasOwn(item, "activity")).toBe(false);
+    expect(Object.hasOwn(detail, "activity")).toBe(false);
+    expect((await activity(s.id))?.tool_count).toBe(1);
+  });
 
   test("a session without events has an empty, complete window", async () => {
     const { id } = await session();
@@ -289,71 +288,6 @@ integration("session list activity on PostgreSQL", () => {
     });
   });
 
-  test("a waiting question reaches only viewers the session detail answers", async () => {
-    const workspaceId = crypto.randomUUID();
-    await db.insert(workspaces).values({
-      id: workspaceId,
-      slug: `ws-${workspaceId.slice(0, 8)}`,
-      name: "ws",
-    });
-    const [alice, bob] = [crypto.randomUUID(), crypto.randomUUID()];
-    for (const id of [alice, bob]) {
-      await db.insert(users).values({
-        id,
-        email: `${id}@example.invalid`,
-        passwordHash: "argon2id$placeholder",
-        displayName: id.slice(0, 8),
-      });
-    }
-    const secret = await session(workspaceId, {
-      workspaceId,
-      createdByUserId: alice,
-    });
-    await db.insert(sessionShares).values({
-      sessionId: secret.id,
-      ownerId: workspaceId,
-      workspaceId,
-      scope: "private",
-    });
-    await secret.record("assistant", assistant(use("t-q", "AskUserQuestion")));
-    await secret.record("question", {
-      request_id: "r-q",
-      tool_use_id: "t-q",
-      kind: "question",
-      input: {
-        questions: [
-          {
-            question_id: "q0",
-            prompt: "Which customer?",
-            options: [],
-            multi_select: false,
-            allow_free_text: true,
-          },
-        ],
-      },
-    });
-    const listed = async (userId: string) =>
-      (
-        await createPostgresSessionReader(db).listSessions(
-          workspaceId,
-          { limit: 100 },
-          { userId, apiKeyId: null },
-        )
-      ).items.flatMap((item) =>
-        item.id === secret.id ? [item.activity?.current_tool?.request] : [],
-      );
-    const shares = createPostgresSessionShareStore(db);
-    const detailFor = (userId: string) =>
-      shares.visibleTo(workspaceId, secret.id, { userId, apiKeyId: null });
-
-    expect(await detailFor(alice)).toBe(true);
-    expect(await listed(alice)).toEqual([
-      { kind: "question", prompt: "Which customer?" },
-    ]);
-    expect(await detailFor(bob)).toBe(false);
-    expect(await listed(bob)).toEqual([]);
-  });
-
   test("a call its turn's result or a stopped session leaves open is interrupted, not current or failed", async () => {
     const byTurn = await session();
     await byTurn.record(
@@ -411,18 +345,18 @@ integration("session list activity on PostgreSQL", () => {
     });
   });
 
-  test("a list page reads activity in a fixed number of statements, whatever its size", async () => {
-    const reader = createPostgresSessionReader(db);
+  test("activity for many sessions reads in a fixed number of statements, whatever their number", async () => {
     const statementsFor = async (count: number) => {
-      const owner = `owner-page-${count}`;
+      const ids: string[] = [];
       for (let i = 0; i < count; i += 1) {
-        const s = await session(owner);
+        const s = await session();
         await s.record("assistant", assistant(use(`t-${i}`, "Read")));
+        ids.push(s.id);
       }
       statements = 0;
-      const page = await reader.listSessions(owner, { limit: 100 }, VIEWER);
-      expect(page.items).toHaveLength(count);
-      expect(page.items.every((item) => item.activity?.tool_count === 1)).toBe(
+      const read = await readSessionActivity(db, ids);
+      expect(read.size).toBe(count);
+      expect([...read.values()].every((one) => one.tool_count === 1)).toBe(
         true,
       );
       return statements;

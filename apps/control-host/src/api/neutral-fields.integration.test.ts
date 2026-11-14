@@ -1,7 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import * as schema from "@werft-ai/db";
 import {
-  createPostgresSessionReader,
   events,
   fillNeutralFields,
   projectToolCalls,
@@ -64,7 +63,7 @@ integration("events stored before the neutral fields, once filled", () => {
     await database?.drop();
   }, 60_000);
 
-  test("read in the session list and the tool calls as the neutral ones are", async () => {
+  test("read in the tool calls as the neutral ones are", async () => {
     const id = crypto.randomUUID();
     await db.insert(sessions).values({
       id,
@@ -110,17 +109,6 @@ integration("events stored before the neutral fields, once filled", () => {
       budgetMs: 10_000,
     });
     expect(fill).toMatchObject({ filled: 8, caughtUp: true });
-
-    // As the session list reads the same events written with the neutral
-    // fields (session-activity.integration.test.ts).
-    const detail = await createPostgresSessionReader(db).getSession(OWNER, id);
-    expect(detail?.activity).toMatchObject({
-      tool_count: 4,
-      error_count: 1,
-      subagent_count: 1,
-      last: { kind: "tool", name: "Grep", target: "max" },
-      current_tool: { id: "t-task", name: "Task", state: "running" },
-    });
 
     // As before, the projection counts the calls of tool_use events.
     await projectToolCalls(db, { batchSize: 100, budgetMs: 10_000 });

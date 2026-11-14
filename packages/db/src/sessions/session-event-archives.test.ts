@@ -11,6 +11,7 @@ import type { Database } from "../queries.ts";
 import * as schema from "../schema.ts";
 import { createPostgresUsageReader } from "../usage-reader.ts";
 import { encodeEventCursor } from "./cursors.ts";
+import { readSessionActivity } from "./session-activity.ts";
 import {
   ARCHIVE_CHUNK_EVENTS,
   type ArchiveChunkRow,
@@ -194,7 +195,7 @@ const detail = async (sessionId: string, store?: ArchiveObjectStore) => {
   const found = await reader(store).getSession(OWNER, sessionId);
   return {
     last_event_at: found?.last_event_at,
-    activity: found?.activity,
+    activity: (await readSessionActivity(db, [sessionId])).get(sessionId),
   };
 };
 
