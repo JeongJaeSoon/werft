@@ -20,7 +20,7 @@ export type GitHubMcpServices = {
   >;
   pullRequests: Pick<
     PullRequestService,
-    "open" | "schedule" | "update" | "comment" | "setState" | "merge"
+    "open" | "schedule" | "read" | "update" | "comment" | "setState" | "merge"
   >;
   githubWork: Pick<
     GitHubWorkService,

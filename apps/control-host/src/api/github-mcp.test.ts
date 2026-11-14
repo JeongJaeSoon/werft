@@ -137,6 +137,7 @@ beforeEach(async () => {
           pullRequests: {
             schedule: unused,
             open: unused,
+            read: unused,
             update: unused,
             comment: unused,
             setState: unused,
@@ -342,6 +343,7 @@ describe("the built-in github MCP server on stored rows", () => {
       "mcp__github__request_push",
       "mcp__github__open_pull_request",
       "mcp__github__get_push_request",
+      "mcp__github__get_pull_request",
       "mcp__github__update_pull_request",
       "mcp__github__comment_pull_request",
       "mcp__github__close_pull_request",
@@ -427,6 +429,7 @@ describe("the built-in github MCP server on stored rows", () => {
       "request_push",
       "open_pull_request",
       "get_push_request",
+      "get_pull_request",
       "update_pull_request",
       "comment_pull_request",
       "close_pull_request",

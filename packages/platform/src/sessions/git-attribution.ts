@@ -410,6 +410,34 @@ function scanLine(
  * around the tail is kept as written.
  */
 export function withPullRequestTail(body: string, tail: string): string {
+  const split = splitTail(body);
+  if (!split.found) {
+    return split.head === "" ? tail : `${split.head}\n\n${tail}`;
+  }
+  return [split.head, tail, split.rest]
+    .filter((part) => part !== "")
+    .join("\n\n");
+}
+
+/**
+ * `body` without the tail `withPullRequestTail` would replace; a body that
+ * has none is answered as it is, nothing closed or added.
+ */
+export function withoutPullRequestTail(body: string): string {
+  const split = splitTail(body);
+  if (!split.found) return body;
+  return [split.head, split.rest].filter((part) => part !== "").join("\n\n");
+}
+
+/**
+ * The text before and after the tail. Without one, `head` is the body with
+ * trailing blank lines dropped and every block it leaves open closed.
+ */
+function splitTail(
+  body: string,
+):
+  | { found: false; head: string }
+  | { found: true; head: string; rest: string } {
   // GitHub's editor saves CRLF. The result is cut from `body` at these
   // offsets, so the person's text keeps its own line endings.
   const lines = body.split(/\r?\n/);
@@ -502,7 +530,7 @@ export function withPullRequestTail(body: string, tail: string): string {
     const head = [headBefore(lines.length), ...closing]
       .filter((part) => part !== "")
       .join("\n");
-    return head === "" ? tail : `${head}\n\n${tail}`;
+    return { found: false, head };
   }
   const [from, to] = pair;
   // The marker follows the tail's own `---` line; keep the text above it.
@@ -513,7 +541,7 @@ export function withPullRequestTail(body: string, tail: string): string {
   let next = to + 1;
   while (next < lines.length && blank(next)) next += 1;
   const rest = next < lines.length ? body.slice(starts[next]) : "";
-  return [head, tail, rest].filter((part) => part !== "").join("\n\n");
+  return { found: true, head, rest };
 }
 
 const NO_TAIL = "\u0000";

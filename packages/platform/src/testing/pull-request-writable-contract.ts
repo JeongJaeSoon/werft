@@ -84,6 +84,17 @@ export function describePullRequestWritableContract(make: MakeForgeSubject) {
       });
     });
 
+    test("an edit that answers null writes nothing, the title included", async () => {
+      const { api, newBranch, openPullRequest, pullRequestOnForge } =
+        await make();
+      const number = await openPullRequest(await newBranch());
+      await api.updatePullRequestBody(number, () => null, "Stopped");
+      expect(pullRequestOnForge(number)).toMatchObject({
+        title: "Agent result",
+        body: "What the session did.",
+      });
+    });
+
     test("an update of a pull request the forge does not have throws", async () => {
       const { api } = await make();
       await expect(

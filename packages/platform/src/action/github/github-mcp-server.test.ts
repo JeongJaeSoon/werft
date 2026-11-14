@@ -51,6 +51,8 @@ import {
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
 const OTHER = "22222222-2222-4222-8222-222222222222";
+/** The hash the fake update answers as a body changed since the read. */
+const STALE = "0".repeat(64);
 const KEY = new Uint8Array(32).fill(7);
 const grant = { sessionId: SESSION, attemptId: "att_1" };
 
@@ -95,6 +97,13 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
     sessionId: string;
     pushRequestId: string;
     state: string;
+  }> = [];
+  const reads: Array<{ sessionId: string; pushRequestId: string }> = [];
+  const updates: Array<{
+    sessionId: string;
+    pushRequestId: string;
+    body: unknown;
+    expectedBodySha256: string | undefined;
   }> = [];
   const policies: AuthorizationPolicy[] = [];
   const control: {
@@ -158,6 +167,7 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
         mergedAt: null,
         closedAt: null,
         title: "t",
+        body: "",
         mergeCommitSha: null,
         additions: null,
         deletions: null,
@@ -327,7 +337,26 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
           }
           return { created: true } as never;
         },
-        update: unused,
+        read: async (_actor, sessionId, pushRequestId) => {
+          reads.push({ sessionId, pushRequestId });
+          return { number: 7, untrusted: true } as never;
+        },
+        update: async (_actor, sessionId, pushRequestId, input) => {
+          updates.push({
+            sessionId,
+            pushRequestId,
+            body: await input.readBody(),
+            expectedBodySha256: input.expectedBodySha256,
+          });
+          if (input.expectedBodySha256 === STALE) {
+            const { code, message } = PULL_REQUEST_REFUSAL_ERRORS.body_changed;
+            throw new SessionServiceError(code, message, undefined, {
+              refusal: "body_changed",
+              receipt_id: "receipt-pr",
+            });
+          }
+          return { body_source: null } as never;
+        },
         comment: unused,
         merge: unused,
         setState: async (_actor, sessionId, pushRequestId, state) => {
@@ -393,6 +422,8 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
     scheduled,
     snapshots,
     states,
+    reads,
+    updates,
     policies,
     gate,
     workStore,
@@ -486,6 +517,7 @@ describe("tools/list", () => {
       "request_push",
       "open_pull_request",
       "get_push_request",
+      "get_pull_request",
       "update_pull_request",
       "comment_pull_request",
       "close_pull_request",
@@ -501,6 +533,7 @@ describe("tools/list", () => {
       "request_push",
       "open_pull_request",
       "get_push_request",
+      "get_pull_request",
       "update_pull_request",
       "comment_pull_request",
       "close_pull_request",
@@ -1664,7 +1697,83 @@ describe("list_repositories", () => {
   });
 });
 
+describe("get_pull_request (94S-1453)", () => {
+  const PUSH = "55555555-5555-4555-8555-555555555555";
+
+  test("reads the pull request of a push request on the grant's session, and takes nothing else", async () => {
+    const h = harness();
+    expect(
+      payload(await h.call("get_pull_request", { push_request_id: PUSH })),
+    ).toEqual({ body: { ok: true, result: { number: 7, untrusted: true } } });
+    expect(h.reads).toEqual([{ sessionId: SESSION, pushRequestId: PUSH }]);
+    for (const args of [{}, { push_request_id: PUSH, number: 7 }]) {
+      expect(payload(await h.call("get_pull_request", args))).toMatchObject({
+        isError: true,
+        body: { refusal: { code: "validation_error" } },
+      });
+    }
+    expect(h.reads).toHaveLength(1);
+  });
+});
+
 describe("update_pull_request", () => {
+  const PUSH = "55555555-5555-4555-8555-555555555555";
+
+  test("hands expected_body_sha256 to the service apart from the content", async () => {
+    const h = harness();
+    const hash = "a".repeat(64);
+    await h.call("update_pull_request", {
+      push_request_id: PUSH,
+      title: "New",
+      expected_body_sha256: hash,
+    });
+    expect(h.updates).toEqual([
+      {
+        sessionId: SESSION,
+        pushRequestId: PUSH,
+        body: { title: "New" },
+        expectedBodySha256: hash,
+      },
+    ]);
+  });
+
+  test("a body changed since the read is body_changed, the platform's and final", async () => {
+    const h = harness();
+    expect(
+      payload(
+        await h.call("update_pull_request", {
+          push_request_id: PUSH,
+          title: "New",
+          expected_body_sha256: STALE,
+        }),
+      ),
+    ).toMatchObject({
+      body: {
+        ok: false,
+        refusal: { code: "body_changed", by: "platform", retryable: false },
+      },
+    });
+  });
+
+  test("a hash that is not 64 lower-case hex digits is a validation error", async () => {
+    const h = harness();
+    for (const hash of ["A".repeat(64), "a".repeat(63)]) {
+      expect(
+        payload(
+          await h.call("update_pull_request", {
+            push_request_id: PUSH,
+            title: "New",
+            expected_body_sha256: hash,
+          }),
+        ),
+      ).toMatchObject({
+        isError: true,
+        body: { refusal: { code: "validation_error" } },
+      });
+    }
+    expect(h.updates).toEqual([]);
+  });
+
   test("needs a title or a body", async () => {
     const h = harness();
     expect(

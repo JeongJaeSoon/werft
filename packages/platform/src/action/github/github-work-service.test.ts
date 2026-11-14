@@ -99,6 +99,7 @@ function harness(
           mergedAt: null,
           closedAt: null,
           title: "t",
+          body: "",
           mergeCommitSha: null,
           additions: null,
           deletions: null,

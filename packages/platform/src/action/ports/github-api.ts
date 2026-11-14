@@ -82,11 +82,12 @@ export interface GitHubApi {
   }>;
   /**
    * Reads the pull request's body and writes back what `edit` makes of it,
-   * with `title` in the same write when one is given.
+   * with `title` in the same write when one is given. When `edit` answers
+   * null nothing is written, the title included.
    */
   updatePullRequestBody(
     number: number,
-    edit: (body: string) => string,
+    edit: (body: string) => string | null,
     title?: string,
   ): Promise<void>;
   /**

@@ -119,13 +119,20 @@ export const GITHUB_TOOL_HANDLERS: ToolHandlers = {
       ),
     ),
 
+  get_pull_request: async (
+    { services, actor, sessionId },
+    { push_request_id },
+  ) =>
+    done(await services.pullRequests.read(actor, sessionId, push_request_id)),
+
   update_pull_request: async (
     { services, actor, sessionId },
-    { push_request_id, ...body },
+    { push_request_id, expected_body_sha256, ...body },
   ) =>
     done(
       await services.pullRequests.update(actor, sessionId, push_request_id, {
         readBody: async () => body,
+        expectedBodySha256: expected_body_sha256,
       }),
     ),
 

@@ -7202,7 +7202,7 @@ export interface components {
                 /** @enum {string} */
                 operation: "mint_github_token" | "dispatch_workflow" | "rerun_workflow" | "review_pull_request" | "merge_pull_request";
                 /** @enum {string} */
-                purpose: "clone" | "push" | "pull_request" | "actions_read" | "dispatch" | "rerun" | "review" | "outcome_refresh" | "merge";
+                purpose: "clone" | "push" | "pull_request" | "actions_read" | "dispatch" | "rerun" | "review" | "outcome_refresh" | "merge" | "pull_request_read";
                 /** @enum {string} */
                 reason_code: "github_disabled" | "repository_not_allowed" | "feature_off" | "over_workspace_ceiling" | "app_permission_missing" | "no_reviewer_app" | "app_required" | "workflow_not_allowed" | "agent_ref_refused" | "run_ref_unprovable" | "actions_off" | "github_settings_unsupported" | "github_host_unsupported" | "repository_none" | "workflow_review_need_session_repository" | "ambiguous_app" | "pinned_app_removed" | "merge_off";
                 /** Format: date-time */

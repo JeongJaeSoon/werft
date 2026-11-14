@@ -159,6 +159,8 @@ export const GITHUB_PURPOSE_VALUES = [
   // GA-4b: the platform reading a pull request it recorded.
   "outcome_refresh",
   "merge",
+  // The agent reading the pull request of its own push request.
+  "pull_request_read",
 ] as const;
 export const githubPurposeSchema = z.enum(GITHUB_PURPOSE_VALUES);
 
@@ -220,6 +222,7 @@ export function githubPermissionsFor(
         permissions: { contents: "read", pull_requests: "write" },
       };
     case "outcome_refresh":
+    case "pull_request_read":
       return {
         role: "author",
         feature: null,

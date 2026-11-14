@@ -156,7 +156,7 @@ function harness(
     },
     updatePullRequestBody: async (number, edit) => {
       calls.push(`tail ${number}`);
-      tails.push(edit(""));
+      tails.push(edit("") ?? "");
     },
   };
   const gate: GitHubGate = {

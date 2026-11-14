@@ -445,6 +445,31 @@ describe("permission table", () => {
       permissions: { pull_requests: "read" },
     });
   });
+
+  test("pull_request_read asks pull_requests:read alone, and goes through the agent's switch and scope (94S-1453)", async () => {
+    const { grant } = harness();
+    const read = await grant({ purpose: "pull_request_read" });
+    expect(read?.role).toBe("author");
+    expect(read?.permissions).toEqual({ pull_requests: "read" });
+    expect(
+      (
+        await refused(
+          harness({ githubEnabled: false }).grant({
+            purpose: "pull_request_read",
+          }),
+        )
+      ).reason,
+    ).toBe("github_disabled");
+    expect(
+      (
+        await refused(
+          harness({ github: settings({ repositories: ["ghes"] }) }).grant({
+            purpose: "pull_request_read",
+          }),
+        )
+      ).reason,
+    ).toBe("repository_not_allowed");
+  });
 });
 
 describe("refusals", () => {
@@ -1169,7 +1194,11 @@ describe("another repository than the session's", () => {
         purpose: "clone",
         permissions: { contents: "read" },
       });
-      for (const purpose of ["push", "pull_request"] as const) {
+      for (const purpose of [
+        "push",
+        "pull_request",
+        "pull_request_read",
+      ] as const) {
         expect(await grant({ purpose, repositoryId: "docs" })).toMatchObject({
           context: { repositoryId: "docs" },
         });

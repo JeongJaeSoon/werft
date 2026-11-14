@@ -62,6 +62,7 @@ function answer(number: number, state: PullState) {
     headSha: "a".repeat(40),
     base: "main",
     title: `${"t".repeat(200)}-${number}`,
+    body: "",
     mergedAt: state === "merged" ? at : null,
     closedAt: state === "open" ? null : at,
     mergeCommitSha: state === "merged" ? "d".repeat(40) : null,

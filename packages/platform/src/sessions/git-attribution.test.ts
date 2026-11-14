@@ -9,6 +9,7 @@ import {
   PULL_REQUEST_TAIL_MARKER,
   pullRequestTail,
   sessionUrlOf,
+  withoutPullRequestTail,
   withPullRequestTail,
 } from "./git-attribution.ts";
 
@@ -531,6 +532,29 @@ describe("replacing the pull request tail", () => {
       expect(withPullRequestTail(withPullRequestTail(body, tail), newer)).toBe(
         withPullRequestTail(body, newer),
       );
+    }
+  });
+});
+
+describe("the body without its tail (94S-1453)", () => {
+  const tail = `---\n${PULL_REQUEST_TAIL_MARKER}\nOpened by Werft from session \`s\`, commit \`abc\`.\n\n- Agent: none, release none\n- Push request: \`p\`\n- Trigger: web\n- Started by: none (App only)\n${PULL_REQUEST_TAIL_END_MARKER}`;
+
+  test("the tail withPullRequestTail replaces is the one left out, the text around it kept", () => {
+    const crlf = "Intro\r\nline";
+    expect(withoutPullRequestTail(`${crlf}\n\n${tail}\n\nAfter`)).toBe(
+      `${crlf}\n\nAfter`,
+    );
+    expect(withoutPullRequestTail(tail)).toBe("");
+  });
+
+  test("a body with no tail, a quoted one or an edited one is answered as it is", () => {
+    for (const body of [
+      "",
+      "Summary\n\n<details>\nleft open",
+      `\`\`\`\n${tail}\n\`\`\``,
+      tail.replace("- Trigger: web", "- Trigger: web\n- Reviewed: yes"),
+    ]) {
+      expect(withoutPullRequestTail(body)).toBe(body);
     }
   });
 });
