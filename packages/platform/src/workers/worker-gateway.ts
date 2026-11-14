@@ -2835,6 +2835,9 @@ export function createWorkerGateway(deps: {
     ): Promise<RepositoryPinsResponse> {
       const fence = requireScope(principal, request);
       if (deps.repositoryPins === undefined) return { pins: [] };
+      // A pin outlives the attempt, so only the session's owner writes one.
+      const state = await work.checkpointStateAtomic({ fence, now: now() });
+      if (state.outcome !== "ok") rejected(state);
       const allowed = new Set(
         (await deps.github?.additionalRepositories?.(fence.sessionId)) ?? [],
       );

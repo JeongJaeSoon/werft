@@ -791,11 +791,18 @@ export class WorkerHost {
     order: RepositoryAttachOrder,
   ): Promise<void> {
     const attach = this.options.workspace.attachRepository;
-    // `commit`, when the order has one, is the session's pin: the fetch takes
-    // it and the report echoes it, so settling keeps the pin as it is.
+    // `commit` is the session's pin: the fetch takes it and the report echoes
+    // it, so settling keeps the pin as it is. An order handed out before the
+    // claim's repositories were pinned has none; the claim's entry has it.
     const { receipt_id, ...entry } = order;
+    const pinned = claim.workspace.additional_repositories?.find(
+      (listed) => listed.id === order.id,
+    )?.commit;
     const repository: AdditionalWorkspaceRepository = {
       ...entry,
+      ...(entry.commit === undefined && pinned !== undefined
+        ? { commit: pinned }
+        : {}),
       ...(claim.repository_access === undefined
         ? {}
         : { access: claim.repository_access }),

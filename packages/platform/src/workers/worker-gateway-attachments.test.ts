@@ -142,6 +142,8 @@ function wired() {
   });
   // First writer wins, as the table's primary key does.
   const pins = new Map<string, string>();
+  // Whether the attempt's lease has lapsed in the database.
+  const owner = { lost: false };
   const repositoryPins: RepositoryPinStore = {
     list: async () => new Map(pins),
     pin: async (_sessionId, asked) => {
@@ -191,6 +193,15 @@ function wired() {
         outcome: "claimed",
         binding: testBinding({ sessionId: SESSION }),
       }),
+      checkpointStateAtomic: async () =>
+        owner.lost
+          ? { outcome: "lease_expired" }
+          : {
+              outcome: "ok",
+              pointer: null,
+              restorable: false,
+              pendingReason: null,
+            },
     }),
     catalog,
     github: gate,
@@ -217,7 +228,7 @@ function wired() {
       actor,
       repositoryId,
     });
-  return { gateway, receipts, memory, attach, fetchDocs, pins };
+  return { gateway, receipts, memory, attach, fetchDocs, pins, owner };
 }
 
 describe("a repository attached mid-session", () => {
@@ -358,6 +369,19 @@ describe("the session's pin of an attached repository", () => {
         { ...scope, pins: [{ repository_id: "docs", commit: COMMIT }] },
       ),
     ).rejects.toMatchObject({ status: 409, code: "STALE_EPOCH" });
+    expect(w.pins.size).toBe(0);
+  });
+
+  test("an attempt whose lease lapsed cannot pin, though its token still matches", async () => {
+    const w = wired();
+    await w.attach("docs");
+    w.owner.lost = true;
+    await expect(
+      w.gateway.repositoryPins(principal, {
+        ...scope,
+        pins: [{ repository_id: "docs", commit: COMMIT }],
+      }),
+    ).rejects.toMatchObject({ status: 409, code: "LEASE_EXPIRED" });
     expect(w.pins.size).toBe(0);
   });
 

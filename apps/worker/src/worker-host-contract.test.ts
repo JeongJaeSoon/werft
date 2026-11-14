@@ -601,8 +601,12 @@ describe("WorkerHost over a run that implements the contract itself", () => {
       answer: (pins: unknown) => Promise<{
         pins: Array<{ repository_id: string; commit: string }>;
       }>,
+      // An attach order for docs that an earlier attempt never settled,
+      // handed out by a heartbeat before this claim's pins are kept.
+      early = false,
     ) {
       const gateway = new FakeWorkerGateway();
+      if (early) gateway.attachOrders = [{ ...docs, receipt_id: "r-1" }];
       const claim = gateway.bootstrapClaim.bind(gateway);
       gateway.bootstrapClaim = async (request) => ({
         ...(await claim(request)),
@@ -620,7 +624,14 @@ describe("WorkerHost over a run that implements the contract itself", () => {
       });
       const warnings: string[] = [];
       const run = new ScriptedRun();
-      run.onSend = (sent) => finish(run, sent);
+      run.onSend = (sent) => {
+        void (async () => {
+          while (early && gateway.attachReports.length === 0) {
+            await Bun.sleep(1);
+          }
+          finish(run, sent);
+        })();
+      };
       const worker = new WorkerHost({
         checkpoints: unwiredCheckpoints,
         execution: { bootstrapNonce: "wln_test", generation: 1, id: "exec-1" },
@@ -638,7 +649,7 @@ describe("WorkerHost over a run that implements the contract itself", () => {
             },
           }),
         },
-        timeouts,
+        timeouts: { ...timeouts, heartbeatIntervalMs: 2 },
         workspace: {
           ...noWorkspace,
           attachRepositories: async () => ({
@@ -684,6 +695,28 @@ describe("WorkerHost over a run that implements the contract itself", () => {
       ]);
     });
 
+    test("an attach order handed out before the pins were kept fetches the pin, not the branch's tip", async () => {
+      const first = "c".repeat(40);
+      const { gateway, steps, worker } = pinning(
+        async () => ({ pins: [{ repository_id: "docs", commit: first }] }),
+        true,
+      );
+      await worker.runLoop();
+      expect(steps.filter((step) => step !== "started")).toEqual([
+        { pins: [{ repository_id: "docs", commit: fetchedAt }] },
+        { refetched: { ...docs, commit: first } },
+        { refetched: { ...docs, commit: first } },
+      ]);
+      expect(gateway.attachReports).toEqual([
+        {
+          repository_id: "docs",
+          receipt_id: "r-1",
+          status: "attached",
+          commit: first,
+        },
+      ]);
+    });
+
     test("a control-host without the route leaves the run unpinned", async () => {
       const { steps, warnings, worker } = pinning(async () => {
         throw new WorkerGatewayRequestError(404, null, "Not Found", false);
@@ -698,7 +731,7 @@ describe("WorkerHost over a run that implements the contract itself", () => {
       const { gateway, steps, worker } = pinning(async () => {
         throw new WorkerGatewayRequestError(
           400,
-          "VALIDATION_ERROR",
+          "BAD_REQUEST",
           "bad pins",
           false,
         );
