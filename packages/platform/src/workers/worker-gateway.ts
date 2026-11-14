@@ -1143,17 +1143,16 @@ export function createWorkerGateway(deps: {
       unlimited.tools.length === current.tools.length
         ? []
         : offerings(unlimited, false);
-    // A list that fit the cap before a tool was added was at most one short
-    // of it (each config offers two, the running one one), so the running
-    // config's earlier list takes that place; the other earlier lists come
-    // last, where the cap cuts first.
+    // The lists from before a tool was added only fill what the cap leaves,
+    // so no config offered before is pushed out; the running one's first.
     const offered = appendNew(
       beforeLimit,
       appendNew(
-        [...beforeAddition(current), ...offerings(current, true)],
+        offerings(current, true),
         appendNew(
           kept.flatMap((config) => offerings(config, false)),
           [
+            ...beforeAddition(current),
             ...(beforeLimit.length === 0 ? [] : beforeAddition(unlimited)),
             ...kept.flatMap(beforeAddition),
           ],

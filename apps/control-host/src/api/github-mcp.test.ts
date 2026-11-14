@@ -392,13 +392,13 @@ describe("the built-in github MCP server on stored rows", () => {
     const { claim } = await seeded({ github: settings({ actions: true }) });
     const current = claim.runtime_config;
     expect(claim.restore_runtime_configs).toEqual([
+      expect.objectContaining({ tools: ["Read"] }),
       {
         ...current,
         tools: current.tools.filter(
           (tool) => tool !== "mcp__github__get_pull_request",
         ),
       },
-      expect.objectContaining({ tools: ["Read"] }),
     ]);
   });
 
@@ -411,8 +411,8 @@ describe("the built-in github MCP server on stored rows", () => {
         config.tools.some((tool) => tool.startsWith("mcp__github__")),
       ]),
     ).toEqual([
-      [["fake", "github"], false, true],
       [["fake"], false, false],
+      [["fake", "github"], false, true],
     ]);
   });
 
