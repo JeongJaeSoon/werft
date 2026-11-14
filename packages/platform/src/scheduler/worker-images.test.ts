@@ -5,6 +5,7 @@ import {
   runtimeVersionsOf,
   sameCombination,
   selectWorkerImage,
+  type WorkerImagesEnvironment,
   workerImageListFromEnv,
   workerImageRuntimesFromEnv,
 } from "./worker-images.ts";
@@ -96,7 +97,7 @@ describe("workerImageListFromEnv", () => {
     ]);
   });
 
-  test.each([
+  test.each<[string, WorkerImagesEnvironment, string]>([
     ["not JSON", { WORKER_IMAGES: "[" }, "is not JSON"],
     ["empty", list(), "non-empty JSON array"],
     ["an object", { WORKER_IMAGES: "{}" }, "non-empty JSON array"],
@@ -117,8 +118,40 @@ describe("workerImageListFromEnv", () => {
         entry(NEW, current, "2026-11-10T00:00:00Z"),
         entry(NEW, previous, "2026-10-01T00:00:00Z"),
       ),
-      "WORKER_IMAGES[1].image ghcr.io/x/worker@sha256:aaaa",
+      "WORKER_IMAGES[1].image sha256:aaaa",
     ],
+    [
+      "one digest under two names",
+      list(
+        entry(NEW, current, "2026-11-10T00:00:00Z"),
+        entry(
+          `mirror.local:5000/x/worker@sha256:${"a".repeat(64)}`,
+          previous,
+          "2026-10-01T00:00:00Z",
+        ),
+      ),
+      "WORKER_IMAGES[1].image sha256:aaaa",
+    ],
+    ...[
+      `https://ghcr.io/x/worker@sha256:${"a".repeat(64)}`,
+      `ghcr.io/X/Worker@sha256:${"a".repeat(64)}`,
+      `ghcr.io/x/worker:1.2@sha256:${"a".repeat(64)}`,
+      `ghcr.io/x/worker@sha256:${"A".repeat(64)}`,
+    ].map((image): [string, WorkerImagesEnvironment, string] => [
+      `the reference ${image.slice(0, 28)}…`,
+      list(entry(image, current, "2026-11-10T00:00:00Z")),
+      "WORKER_IMAGES[0].image must be pinned by digest",
+    ]),
+    ...[
+      "2026-02-30T00:00:00Z",
+      "2026-11-10T24:00:00Z",
+      "2026-11-10T00:60:00Z",
+      "2026-11-10T00:00:00+24:00",
+    ].map((at): [string, WorkerImagesEnvironment, string] => [
+      `the time ${at}, which no calendar has`,
+      list(entry(NEW, current, at)),
+      "WORKER_IMAGES[0].released_at must be an ISO 8601 time",
+    ]),
     [
       "a runtime as text",
       list(

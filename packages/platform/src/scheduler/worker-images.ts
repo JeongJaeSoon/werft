@@ -35,9 +35,42 @@ const SINGLE_IMAGE_SETTINGS = [
   "WORKER_IMAGE_PREVIOUS",
   "WORKER_IMAGE_PREVIOUS_RUNTIME",
 ] as const;
-const DIGEST_REFERENCE = /^[^@\s]+@sha256:[0-9a-f]{64}$/;
+// The distribution reference grammar, `[host[:port]/]name@sha256:<hex>`.
+const LABEL = "[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?";
+const COMPONENT = "[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*";
+const DIGEST_REFERENCE = new RegExp(
+  `^(?:${LABEL}(?:\\.${LABEL})*(?::\\d+)?/)?${COMPONENT}(?:/${COMPONENT})*@(sha256:[0-9a-f]{64})$`,
+);
 const ISO_TIME =
-  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/;
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?(?:Z|[+-](\d{2}):(\d{2}))$/;
+
+/** Milliseconds since the epoch, or NaN unless every field is in range. */
+function isoTime(text: string): number {
+  const match = ISO_TIME.exec(text);
+  if (match === null) return NaN;
+  const [
+    year = 0,
+    month = 0,
+    day = 0,
+    hour = 0,
+    minute = 0,
+    second = 0,
+    offsetHour = 0,
+    offsetMinute = 0,
+  ] = match.slice(1).map((part) => Number(part ?? 0));
+  const at = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
+  // Date.UTC rolls 2026-02-30 over to March; a field out of range does not survive.
+  const inRange =
+    at.getUTCFullYear() === year &&
+    at.getUTCMonth() === month - 1 &&
+    at.getUTCDate() === day &&
+    at.getUTCHours() === hour &&
+    at.getUTCMinutes() === minute &&
+    at.getUTCSeconds() === second &&
+    offsetHour < 24 &&
+    offsetMinute < 60;
+  return inRange ? Date.parse(text) : NaN;
+}
 
 /**
  * `WORKER_IMAGES`: a JSON array of `{image, runtime, released_at}`, newest
@@ -82,13 +115,16 @@ export function workerImageListFromEnv(
     if (unknown.length > 0) {
       throw new Error(`${where} has unknown field(s): ${unknown.join(", ")}`);
     }
-    if (typeof image !== "string" || !DIGEST_REFERENCE.test(image)) {
+    const digest =
+      typeof image === "string" ? DIGEST_REFERENCE.exec(image)?.[1] : undefined;
+    if (typeof image !== "string" || digest === undefined) {
       throw new Error(
         `${where}.image must be pinned by digest (repository@sha256:<digest>)`,
       );
     }
-    if (listed.some((earlier) => earlier.image === image)) {
-      throw new Error(`${where}.image ${image} is listed twice`);
+    // Two names for one digest run the same image, which has one runtime.
+    if (listed.some((earlier) => earlier.image.endsWith(`@${digest}`))) {
+      throw new Error(`${where}.image ${digest} is listed twice`);
     }
     if (
       typeof runtime !== "object" ||
@@ -97,12 +133,8 @@ export function workerImageListFromEnv(
     ) {
       throw new Error(`${where}.runtime must be a JSON object`);
     }
-    const at = typeof released_at === "string" ? Date.parse(released_at) : NaN;
-    if (
-      typeof released_at !== "string" ||
-      !ISO_TIME.test(released_at) ||
-      Number.isNaN(at)
-    ) {
+    const at = typeof released_at === "string" ? isoTime(released_at) : NaN;
+    if (typeof released_at !== "string" || Number.isNaN(at)) {
       throw new Error(`${where}.released_at must be an ISO 8601 time`);
     }
     if (newer !== null && at >= newer.at) {
