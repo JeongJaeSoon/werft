@@ -179,7 +179,7 @@ SDK를 올리는 릴리스는 이미지가 싣는 런타임 버전을 바꾸고,
 
 이 릴리스부터 api는 설정의 `value_env`(연결, 자기 GitHub App을 적은 저장소, MCP 서버)를 env에서 읽지 않는다. 설정을 읽을 때 그 값을 DB에 봉인해 그 행의 저장값으로 한 번 옮긴다. `secret_id`는 그대로다.
 
-- migration `0284_credential_carried_auth`가 `provider_connections`·`catalog_repositories`·`mcp_servers`에 `carried_auth` 열을, `catalog_repositories`에 `carried_binding` 열을 더하고, 명시적 App 저장소도 저장값을 갖도록 `catalog_repositories_credential_check`를 바꾼다. `push_requests`·`worker_credentials`에는 INSERT trigger(`…_carried_binding`)를 단다.
+- migration `0285_credential_carried_auth`가 `provider_connections`·`catalog_repositories`·`mcp_servers`에 `carried_auth` 열을, `catalog_repositories`에 `carried_binding` 열을 더하고, 명시적 App 저장소도 저장값을 갖도록 `catalog_repositories_credential_check`를 바꾼다. `push_requests`·`worker_credentials`에는 INSERT trigger(`…_carried_binding`)를 단다.
 - 올린 뒤 api 로그에 옮긴 행마다 `<kind>:<id> took its credential from <이름> into the database and no longer reads it; remove <이름>`이 한 번 나온다. 그 뒤 env에서 그 이름을 빼도 된다. 값은 로그와 receipt에 나오지 않는다. receipt `set_settings_credential`에는 변수 이름과 `by: env_import`만 남는다.
 - 첫 워크스페이스가 없으면(bootstrap 전) 그때까지는 env에서 읽고, 워크스페이스가 생긴 뒤 첫 설정 읽기(10초 안)에 옮긴다.
 - env에 값이 없는 행은 빠지고 경고가 한 번 남는다: `<kind>:<id> names <이름>, which the API does not have, so it is left out. …`. 변수를 넣고 api를 다시 띄운다. 연결이면 콘솔의 "화면에서 키 넣기"로도 된다.

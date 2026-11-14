@@ -199,7 +199,7 @@ SDK を上げるリリースでは、イメージが載せるランタイムの�
 
 このリリースから api は設定の `value_env`（接続、自分の GitHub App を書いたリポジトリ、MCP サーバー）を env から読みません。設定を読むときにその値を DB に封印し、その行の保存値として一度移します。`secret_id` はそのままです。
 
-- migration `0284_credential_carried_auth` が `provider_connections`・`catalog_repositories`・`mcp_servers` に `carried_auth` 列を、`catalog_repositories` に `carried_binding` 列を追加し、明示的な App のリポジトリも保存値を持てるよう `catalog_repositories_credential_check` を変えます。`push_requests`・`worker_credentials` には INSERT trigger（`…_carried_binding`）を付けます。
+- migration `0285_credential_carried_auth` が `provider_connections`・`catalog_repositories`・`mcp_servers` に `carried_auth` 列を、`catalog_repositories` に `carried_binding` 列を追加し、明示的な App のリポジトリも保存値を持てるよう `catalog_repositories_credential_check` を変えます。`push_requests`・`worker_credentials` には INSERT trigger（`…_carried_binding`）を付けます。
 - アップグレード後、移した行ごとに api のログに `<kind>:<id> took its credential from <名前> into the database and no longer reads it; remove <名前>` が一度出ます。そのあと env からその名前を外せます。値はログにも receipt にも出ません。receipt `set_settings_credential` には変数名と `by: env_import` だけが残ります。
 - 最初のワークスペースがない間（bootstrap 前）はそれまで env から読み、ワークスペースができたあと最初の設定読み込み（10 秒以内）で移します。
 - env に値がない行は外され、警告が一度出ます: `<kind>:<id> names <名前>, which the API does not have, so it is left out. …`。変数を入れて api を再起動します。接続ならコンソールの「画面でキーを入れる」でもできます。

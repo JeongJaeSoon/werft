@@ -71,7 +71,7 @@ const MIGRATIONS_ONLY = [
   "function provider_usage_totals_add() trigger language plpgsql volatility=v parallel=u body md5 51a5dbe75562562eb9d0788546a19357",
   "function provider_usage_totals_clear() trigger language plpgsql volatility=v parallel=u body md5 85a0b1f735cb692332ac4baaa297ba69",
   "function provider_usage_totals_recount() trigger language plpgsql volatility=v parallel=u body md5 21f013ae13ff4eeb4ca390ed5296bf34",
-  // 0284: a binding written after a credential carry is stored as the new one.
+  // 0285: a binding written after a credential carry is stored as the new one.
   "function push_requests_carried_binding() trigger language plpgsql volatility=v parallel=u body md5 1465c4cb3cdcbef3ad8805665fceb678",
   // 0000: the queue's admission count.
   "function queue_unassigned_session_count() double precision language sql volatility=s parallel=u body md5 77ab23e0fa3455549b846ff0e7980c2a",
