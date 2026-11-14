@@ -514,6 +514,9 @@ export async function startEgressProxy(
         reason: decision.reason,
       });
       if (unresolved) reply(socket, 502, decision.reason);
+      // npm falls back from a GitHub tarball to `git clone` only on an
+      // HTTP error, so a refusal answers rather than drops
+      // (npm-git-dependency.test.ts).
       else reply(socket, 403, `egress denied: ${decision.reason}`);
       return;
     }
