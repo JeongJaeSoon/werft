@@ -33,6 +33,8 @@ outcome: "サポート範囲と worker pin を保持して chart を更新しま
 
 プロファイル削除リリースへ更新するときは、この手順を行いません。そのリリースの control-host の応答を以前の worker が読めないため、手順 1 と手順 2 の間は新しいセッションが一つも起動しません。手順 2 で control-host と worker を一つの upgrade で一緒に更新します（[プロファイル削除リリースのアップグレード順序](/run-server/self-hosting/upgrade-compose#프로필-제거-릴리스의-업그레이드-순서)）。
 
+env で指していた資格情報を DB へ移すリリース（migration `0284_credential_carried_auth`）へ更新するときは、この手順の前に `kubectl -n werft scale deploy/werft-api --replicas=0` で以前の api をすべて止め、下の `helm upgrade` に `--set api.replicas=1` を加えます。chart の既定の api replica は複数で、まだ移したことを読んでいない replica が、移した push 要求を `catalog_changed` で失敗させたり、トークン再発行を拒否したりすることがあります。api のログで移した行（`… took its credential from …`）を確かめたあと、手順 2 が replica 数を values のとおりに戻します（[env で指していた資格情報は DB へ一度移す](/run-server/self-hosting/upgrade-compose#env로-가리키던-자격-증명은-db로-한-번-옮긴다)）。
+
 ```bash
 VERSION=<new-version>
 DEPLOYED="$(helm -n werft history werft -o json | jq '[.[] | select(.status == "deployed")] | last.revision')"

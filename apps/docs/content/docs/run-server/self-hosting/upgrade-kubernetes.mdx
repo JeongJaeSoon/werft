@@ -29,6 +29,8 @@ outcome: "지원 창과 worker pin을 보존하며 chart를 교체한다"
 
 프로필 제거 릴리스로 올릴 때는 이 단계를 하지 않는다. 그 릴리스의 control-host 응답을 옛 worker가 읽지 못해, 1단계와 2단계 사이에는 새 세션이 하나도 뜨지 않는다. 2단계로 control-host와 worker를 한 upgrade에서 함께 바꾼다([프로필 제거 릴리스의 업그레이드 순서](/run-server/self-hosting/upgrade-compose#프로필-제거-릴리스의-업그레이드-순서)).
 
+env로 가리키던 자격 증명을 DB로 옮기는 릴리스(migration `0284_credential_carried_auth`)로 올릴 때는 이 단계 전에 `kubectl -n werft scale deploy/werft-api --replicas=0`으로 옛 api를 모두 내리고, 아래 `helm upgrade`에 `--set api.replicas=1`을 더한다. chart의 기본 api replica는 여럿이고, 아직 옮김을 읽지 않은 replica가 옮겨진 push 요청을 `catalog_changed`로 실패시키거나 토큰 재발급을 거절할 수 있다. api 로그에 옮김 줄(`… took its credential from …`)을 확인한 뒤 2단계가 replica 수를 values대로 되돌린다([env로 가리키던 자격 증명은 DB로 한 번 옮긴다](/run-server/self-hosting/upgrade-compose#env로-가리키던-자격-증명은-db로-한-번-옮긴다)).
+
 ```bash
 VERSION=<new-version>
 DEPLOYED="$(helm -n werft history werft -o json | jq '[.[] | select(.status == "deployed")] | last.revision')"

@@ -491,6 +491,25 @@ describe("the platform's push", () => {
     expect(github.tokenRequests.length).toBe(tokensBefore);
   });
 
+  test("a push failed in a carry's window, by a replica that had not read the move yet, is pushed when asked again", async () => {
+    const before = catalogOf({ app: appRepository() });
+    const carried = catalogOf({
+      app: {
+        ...appRepository(),
+        auth: { ...appRepository().auth, ref: { stored: "repository:app" } },
+      },
+    });
+    const job = jobFor(carried, "app");
+    expect((await run(before, job)).outcome).toEqual({
+      state: "failed",
+      refusal: "catalog_changed",
+    });
+    // A new request for the same commit, once that replica has read it.
+    expect(
+      (await run(carried, { ...job, id: crypto.randomUUID() })).outcome,
+    ).toMatchObject({ state: "pushed" });
+  });
+
   test("a session whose release carries GitHub settings the gate cannot read is failed before a token is asked for", async () => {
     const catalog = catalogOf({ app: appRepository() });
     const job = jobFor(catalog, "app");
