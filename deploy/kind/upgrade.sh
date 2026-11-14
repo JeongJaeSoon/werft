@@ -23,6 +23,12 @@
 #                  refused while S3's launch on A holds a slot, the rerun
 #                  gives the same file, and once S3 completes and pauses it
 #                  proceeds; S2 (paused on B) and S3 (paused on A) resume on D
+#   7. list-rollback
+#                  helm rollback from that list to the single image A: no hook
+#                  ran; api and scheduler are back on WORKER_IMAGE; S2 (paused
+#                  on D) resumes on A and a new S4 launches on A; then a list
+#                  that keeps A: S4's worker, started before it, runs turn 2
+#                  in the same Pod
 #
 #   deploy/kind/upgrade.sh         run all of it; delete the cluster and
 #                                  registry at the end if this run created them
@@ -462,6 +468,7 @@ worker_s3="$(worker_pods "$s3")"
 echo "S2 paused at checkpoint revision ${checkpoint_list}; S3 ${s3} waits on ${request_s3} in ${worker_s3}"
 
 deployed_values "$work/deployed-single.json"
+single_revision="$(helm status "$RELEASE" --namespace "$NAMESPACE" -o json | jq .version)"
 digest_a="$(jq -r .images.worker.digest "$work/deployed-single.json")"
 [ "$(pod_image "$s3")" = "${image_repo}-worker@${digest_a}" ] || fail "S3 runs $(pod_image "$s3"), not A"
 runtime_a="$(runtime_of "${image_repo}-worker:dev")"
@@ -587,6 +594,87 @@ wait_turn "$s3" 2
 echo "S2 resumed on D from B and ran turn 5; S3 resumed on D from A and ran turn 2"
 [ "$(get "/v1/sessions/${s2}/usage" | jq .cost.reported_turn_count)" = 5 ] || fail "S2's five turns were not reported once each"
 [ "$(get "/v1/sessions/${s3}/usage" | jq .cost.reported_turn_count)" = 2 ] || fail "S3's two turns were not reported once each"
+pass
+
+step list-rollback
+# launch_images <sid>: the image of each of its launches, oldest first.
+launch_images() {
+  k exec deploy/postgres -- psql -U postgres -d sessions -Atc \
+    "SELECT coalesce(image, '') FROM worker_launches WHERE session_id = '$1' ORDER BY generation"
+}
+pause_session "$s2"
+pause_session "$s3"
+checkpoint_rollback="$(get "/v1/sessions/${s2}" | jq '.durability.checkpoint_revision')"
+check_uid="$(k get "job/${fullname}-upgrade-check" -o jsonpath='{.metadata.uid}')"
+# No hook judges a rollback: the docs' direct check, from a list deployment
+# (the running scheduler's WORKER_IMAGES), against the target revision's image.
+# The api Pod of a list carries WORKER_IMAGES itself, which the check refuses
+# beside a single target image.
+direct="$(k exec "deploy/${fullname}-api" -- env -u WORKER_IMAGES \
+  UPGRADE_DEPLOYED_WORKER_IMAGES="$(env_of scheduler WORKER_IMAGES)" \
+  WORKER_IMAGE="$single_image" WORKER_IMAGE_RUNTIME="$runtime_a" \
+  bun run apps/control-host/src/api/upgrade-check.ts 2>&1 | jq -c 'select(.verdict?)' 2>/dev/null || true)"
+echo "direct check before the rollback: ${direct}"
+echo "$direct" | jq -e '.verdict == "proceed" and .affected == []' >/dev/null ||
+  fail "the direct check from the list to A did not say proceed"
+helm rollback "$RELEASE" "$single_revision" --namespace "$NAMESPACE" --wait --timeout 10m
+rollout
+helm history "$RELEASE" --namespace "$NAMESPACE"
+[ "$(k get "job/${fullname}-upgrade-check" -o jsonpath='{.metadata.uid}')" = "$check_uid" ] ||
+  fail "a hook Job was created by the rollback"
+# A single-image install gives the image to the scheduler only.
+[ "$(env_of scheduler WORKER_IMAGE)" = "$single_image" ] ||
+  fail "scheduler WORKER_IMAGE is '$(env_of scheduler WORKER_IMAGE)', not ${single_image}"
+for component in api scheduler; do
+  [ -z "$(env_of "$component" WORKER_IMAGES)" ] || fail "${component} still sets WORKER_IMAGES after the rollback"
+done
+echo "rollback to revision ${single_revision} ran no hook; the scheduler is back on ${single_image}, no WORKER_IMAGES left"
+open_api
+s4="$(new_session '{"id":"rollback-new","steps":[],"final":"rollback turn one done"}')"
+wait_turn "$s4" 1
+worker_s4="$(worker_pods "$s4")"
+[ "$(echo "$worker_s4" | grep -c .)" = 1 ] || fail "S4 does not have exactly one worker Pod: ${worker_s4}"
+[ "$(pod_image "$s4")" = "$single_image" ] || fail "S4 runs $(pod_image "$s4"), not A"
+[ "$(launch_images "$s4")" = "$single_image" ] || fail "S4's launches are $(launch_images "$s4" | tr '\n' ' '), not one on A"
+echo "S4 ${s4} launched on A after the rollback and idles in ${worker_s4}"
+resumed="$(post "/v1/sessions/${s2}/resume" "$(jq -nc --argjson r "$(get "/v1/sessions/${s2}" | jq .revision)" '{expected_revision: $r}')")"
+settle_receipt "$(echo "$resumed" | jq -r .receipt_id)" resume
+wait_session "active" '.admission_state == "active"' "$s2"
+[ "$(get "/v1/receipts/$(echo "$resumed" | jq -r .receipt_id)" | jq '.result.checkpoint_revision')" = "$checkpoint_rollback" ] ||
+  fail "S2 did not resume from the checkpoint it paused at on D"
+post "/v1/sessions/${s2}/messages" "$(jq -nc --arg m 'GATE-SPEC {"id":"rollback-sixth","steps":[],"final":"turn six done"}' '{message: $m}')" >/dev/null
+wait_turn "$s2" 6
+[ "$(pod_image "$s2")" = "$single_image" ] || fail "S2 runs $(pod_image "$s2"), not A"
+[ "$(launch_images "$s2" | tail -n 1)" = "$single_image" ] || fail "S2's newest launch is not on A"
+echo "S2 resumed on A from D after the rollback and ran turn 6"
+# S4's idle worker is the one the next upgrade carries; S2's would leave the
+# rollout's surge Pod no room on a runner-sized node.
+pause_session "$s2"
+
+deployed_values "$work/deployed-rolled-back.json"
+[ "$(jq -r .images.worker.digest "$work/deployed-rolled-back.json")" = "$digest_a" ] ||
+  fail "the deployed revision after the rollback is not the single image A"
+release_images "$digest_a" 2026-01-01T00:00:00Z 2026-01-02T00:00:00Z >"$work/release-same.json"
+next_workers final "$work/deployed-rolled-back.json" "$work/release-same.json" \
+  "$(jq -n --arg a "$digest_a" --argjson r "$runtime_a" '{($a): {runtime: $r, releasedAt: "2026-01-01T00:00:00Z"}}')" \
+  >"$work/workers-same.json"
+jq -e --arg a "$digest_a" --arg c "$digest_c" '[.images.workers[].digest] == [$a, $c]' "$work/workers-same.json" >/dev/null ||
+  fail "next-workers gave $(jq -c '[.images.workers[].digest]' "$work/workers-same.json") for the list that keeps A"
+upgrade_to "$work/workers-same.json"
+list_same="$(as_env "$(rendered "$work/workers-same.json")")"
+same_list "$list_same"
+[ "$(hook_env UPGRADE_DEPLOYED_WORKER_IMAGE)" = "$single_image" ] && [ -z "$(hook_env UPGRADE_DEPLOYED_WORKER_IMAGES)" ] ||
+  fail "the upgrade-check Job did not get the single image the rollback deployed"
+echo "single image ${single_image} -> list ${list_same}"
+open_api
+[ "$(worker_pods "$s4")" = "$worker_s4" ] || fail "S4's worker Pod changed: $(worker_pods "$s4")"
+post "/v1/sessions/${s4}/messages" "$(jq -nc --arg m 'GATE-SPEC {"id":"rollback-new-second","steps":[],"final":"S4 turn two done"}' '{message: $m}')" >/dev/null
+wait_turn "$s4" 2
+[ "$(worker_pods "$s4")" = "$worker_s4" ] || fail "S4 ran turn 2 in another Pod: $(worker_pods "$s4")"
+[ "$(launch_images "$s4")" = "$single_image" ] || fail "S4's launches are $(launch_images "$s4" | tr '\n' ' '), not the one on A"
+echo "S4's worker, started on the single image, ran turn 2 in ${worker_s4} after the list upgrade"
+[ "$(get "/v1/sessions/${s2}/usage" | jq .cost.reported_turn_count)" = 6 ] || fail "S2's six turns were not reported once each"
+[ "$(get "/v1/sessions/${s4}/usage" | jq .cost.reported_turn_count)" = 2 ] || fail "S4's two turns were not reported once each"
 pass
 
 echo
