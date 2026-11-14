@@ -12,6 +12,10 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ## 미출시
 
+## v0.2.0
+
+`v0.1.3` 뒤 `main`에 들어간 변경이다. 실행 프로필을 없앴고(migration `0270`이 세션과 그 기록을 비운다), API와 env 일부가 예전과 호환되지 않게 바뀌어 minor 버전을 올린다. 올리기 전에 DB를 백업하고 아래 "운영자가 할 일"을 모두 읽는다. launch nonce 보안 수정이 있으므로 `v0.1.3` 이하를 쓰는 곳은 올리기를 권한다.
+
 ### 보안
 
 - **worker 안에서 실행된 명령이 launch nonce로 세션을 가로채거나, worker 이미지의 새 launch를 전부 막을 수 있었다**(JeongJaeSoon/werft#1626). `v0.1.0`부터 `v0.1.3`까지가 영향을 받는다. nonce(`WORKER_BOOTSTRAP_NONCE`)는 worker 컨테이너의 프로세스 환경에 있고, engine이 실행한 명령이 같은 사용자로 돌아 그 값을 읽을 수 있다. 그 값으로 claim을 다시 보내면 worker가 첫 호출을 하기 전(기본 5초 안)에는 세션의 credential이 그 명령에게 넘어갔다. claim에 다른 `image_runtime`을 적으면 시점과 무관하게 execution이 끝나고 worker 이미지가 거절 목록에 올라, 그 이미지로는 어떤 세션도 뜨지 않았다. 둘 다 nonce가 만료되기 전(발급 뒤 10분)에만 가능했다. 이제 worker는 claim 직후 heartbeat 하나를 보내 API가 받아들인 뒤에만 engine을 띄우고, API는 그 뒤에 온 claim을 `401`로 거절하며 아무것도 바꾸지 않는다. 이 경로로 거절 목록에 오른 이미지는 scheduler 로그의 `Worker image refused`로 알 수 있다. 이미지와 설정한 runtime이 실제로 맞는데 그 로그가 있으면 DB의 `worker_image_refusals`에서 그 이미지의 행을 지운다(`claimed` 열이 claim에 적힌 값이다). 이 표를 비우는 명령은 없다.
