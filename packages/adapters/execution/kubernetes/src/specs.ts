@@ -76,6 +76,9 @@ export function checkoutDirOf(
  * 1: non-root, read-only rootfs, dropped caps, RuntimeDefault seccomp, no
  *    ServiceAccount token, per-session PVC, nonce through a Secret.
  * 2: no cluster DNS; the proxy's name reaches the Pod through hostAliases.
+ *
+ * Each bump records in isolation-contract.test.ts whether it needs the
+ * worker image's cooperation.
  */
 export const ISOLATION_CONTRACT = 2;
 
