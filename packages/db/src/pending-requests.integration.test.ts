@@ -946,7 +946,27 @@ integration("pending requests and answers on PostgreSQL", () => {
     expect(rows).toEqual([]);
   });
 
-  test("a slow wait read finishes before the registration's clock starts, so the lease and the expiry are judged after it", async () => {
+  test("a lease that runs out while the wait is read refuses the registration and writes nothing", async () => {
+    const { worker } = await runningSession();
+    const via = gatewayWith(async () => {
+      await db
+        .update(attempts)
+        .set({ leaseExpiresAt: sql`now() - interval '1 second'` })
+        .where(eq(attempts.id, worker.scope.attempt_id));
+      return 120_000;
+    });
+    const fresh = `req_${crypto.randomUUID()}`;
+    expect(
+      await failure(register(worker, permission(), HASH_A, fresh, via)),
+    ).toBe("LEASE_EXPIRED");
+    const rows = await db
+      .select({ id: pendingRequests.requestId })
+      .from(pendingRequests)
+      .where(eq(pendingRequests.requestId, fresh));
+    expect(rows).toEqual([]);
+  });
+
+  test("a slow wait read finishes before the registration's clock starts, so the expiry counts from after it", async () => {
     const { worker } = await runningSession();
     const via = gatewayWith(async () => {
       await new Promise((resolve) => setTimeout(resolve, 400));
