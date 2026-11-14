@@ -1129,9 +1129,10 @@ export function createWorkerGateway(deps: {
     const grown = beforeAdded.some((server, at) => server !== mcp[at]);
     const offerings = (config: RuntimeConfig, running: boolean) => [
       ...(running ? [] : [withMcp(config, mcp, mcpToken)]),
-      ...(grown ? [withMcp(config, beforeAdded, mcpToken)] : []),
       ...(attached ? [withMcp(config, legacy, mcpToken)] : []),
     ];
+    const beforeAddition = (config: RuntimeConfig) =>
+      grown ? [withMcp(config, beforeAdded, mcpToken)] : [];
     // First, ahead of the cap: what the session ran before its limit removed
     // a tool is the config its own checkpoints carry.
     const unlimited = specConfigOf(
@@ -1142,11 +1143,21 @@ export function createWorkerGateway(deps: {
       unlimited.tools.length === current.tools.length
         ? []
         : offerings(unlimited, false);
+    // A list that fit the cap before a tool was added was at most one short
+    // of it (each config offers two, the running one one), so the running
+    // config's earlier list takes that place; the other earlier lists come
+    // last, where the cap cuts first.
     const offered = appendNew(
       beforeLimit,
       appendNew(
-        offerings(current, true),
-        kept.flatMap((config) => offerings(config, false)),
+        [...beforeAddition(current), ...offerings(current, true)],
+        appendNew(
+          kept.flatMap((config) => offerings(config, false)),
+          [
+            ...(beforeLimit.length === 0 ? [] : beforeAddition(unlimited)),
+            ...kept.flatMap(beforeAddition),
+          ],
+        ),
       ),
     ).slice(0, MAX_RESTORE_CONFIGS);
     return offered.length === 0 ? {} : { restore_runtime_configs: offered };

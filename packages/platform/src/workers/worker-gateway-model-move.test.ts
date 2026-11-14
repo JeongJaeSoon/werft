@@ -44,7 +44,9 @@ function work(overrides: Partial<WorkerUnitOfWork>): WorkerUnitOfWork {
 
 function claimWith(
   over: CatalogConnection,
-  bound: Partial<Pick<WorkerBinding, "legacyRuntimeConfigs">> = {},
+  bound: Partial<
+    Pick<WorkerBinding, "legacyRuntimeConfigs" | "githubMcp">
+  > = {},
   accepted?: string[],
 ) {
   const seen: ClaimInput[] = [];
@@ -120,6 +122,31 @@ describe("run configs kept on the session row, at claim", () => {
         (c) => `${c.model}/${c.permission_mode}`,
       ),
     ).toEqual(["sonnet-5-0/bypassPermissions"]);
+  });
+
+  test("with get_pull_request added, every config offered before still fits the cap, the running one's earlier list too", async () => {
+    const live = (await claimWith(connection).claimed).runtime_config;
+    const models = Array.from({ length: 7 }, (_, at) => `sonnet-4-${at}`);
+    const response = await claimWith(connection, {
+      legacyRuntimeConfigs: models.map((model) =>
+        storableLegacyConfig({ ...live, model }),
+      ),
+      githubMcp: {
+        releaseId: "rel-1",
+        tools: ["mcp__github__request_push", "mcp__github__get_pull_request"],
+      },
+    }).claimed;
+    const shapes = (response.restore_runtime_configs ?? []).map(
+      (config) =>
+        `${config.model} ${(config.mcp_servers ?? []).length} ${config.tools.includes("mcp__github__get_pull_request")}`,
+    );
+    // Before the tool, the claim offered 15: the running config without the
+    // server, and each kept one with it and without it.
+    expect(shapes).toEqual([
+      "sonnet-5-1 1 false",
+      "sonnet-5-1 0 false",
+      ...models.flatMap((model) => [`${model} 1 true`, `${model} 0 false`]),
+    ]);
   });
 
   test("an entry that no longer parses, or no entry, offers nothing", async () => {
