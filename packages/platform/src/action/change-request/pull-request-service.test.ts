@@ -1301,6 +1301,20 @@ describe("reading the pull request (94S-1453)", () => {
     expect(read.body_sha256).toBe(bodySha256(body));
   });
 
+  test("the title and a key block are redacted too; the hash is SHA-256 of GitHub's text", async () => {
+    const pem = (edge: string) => `-----${edge} RSA PRIVATE KEY-----`;
+    const h = await opened(
+      `Before\n${pem("BEGIN")}\nMIIE\n${pem("END")}\nAfter`,
+    );
+    h.titles.set(7, "Rotate ghp_abc");
+    const read = await h.service.read(actor, SESSION, PUSH);
+    expect(read.title).toBe("[REDACTED]");
+    expect(read.body).toBe("Before\n[REDACTED]\n[REDACTED]\n[REDACTED]\nAfter");
+    expect(read.body_sha256).toBe(
+      new Bun.CryptoHasher("sha256").update(h.body).digest("hex"),
+    );
+  });
+
   test("a merged pull request reads as merged", async () => {
     const h = await opened("Note");
     h.merge();
@@ -1383,6 +1397,11 @@ describe("reading the pull request (94S-1453)", () => {
     expect(cut.body_truncated).toBe(true);
     expect(cut.body).toBe("가".repeat(21_845));
     expect(cut.body.includes("�")).toBe(false);
+
+    // Four bytes each, two UTF-16 units: 65540 bytes.
+    const wide = await opened("😀".repeat(16_385));
+    const cutWide = await wide.service.read(actor, SESSION, PUSH);
+    expect(cutWide.body).toBe("😀".repeat(16_384));
   });
 });
 
@@ -1473,6 +1492,37 @@ describe("updating against the body that was read (94S-1453)", () => {
       expectedBodySha256: bodySha256(h.bodies.get(7) ?? ""),
     });
     expect(h.bodies.get(7)).toBe(`Shorter\n\n${h.tail}`);
+  });
+
+  test("read whole but too long to write whole, the body sent back with its hash is refused, not cut", async () => {
+    // Under the read's byte limit, over what a legacy body keeps.
+    const h = await opened("a".repeat(64_500));
+    const read = await h.service.read(actor, SESSION, PUSH);
+    expect(read.body_truncated).toBe(false);
+    const before = h.bodies.get(7);
+    expect(
+      await refusal(
+        h.service.update(actor, SESSION, PUSH, {
+          readBody: async () => ({ title: "New", body: read.body }),
+          expectedBodySha256: read.body_sha256 ?? undefined,
+        }),
+      ),
+    ).toMatchObject({
+      code: "PAYLOAD_TOO_LARGE",
+      details: { refusal: "body_too_long" },
+    });
+    expect(h.writes).toEqual([]);
+    expect(h.bodies.get(7)).toBe(before);
+    expect(h.titles.get(7)).toBeUndefined();
+    expect(h.receipts.at(-1)).toMatchObject({
+      result: { verdict: "refuse", refusal: "body_too_long" },
+    });
+
+    // Without a hash the agent's own text is cut, as before.
+    await h.service.update(actor, SESSION, PUSH, {
+      readBody: async () => ({ body: read.body }),
+    });
+    expect(h.bodies.get(7)?.includes("…(truncated)")).toBe(true);
   });
 
   test("without a hash, a body that fits is rewritten as before", async () => {

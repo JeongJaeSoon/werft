@@ -382,19 +382,38 @@ describe("the built-in github MCP server on stored rows", () => {
   test("a checkpoint made before the server was attached still restores", async () => {
     const { claim } = await seeded({ github: settings({ actions: true }) });
     const { mcp_servers: _servers, ...unattached } = claim.runtime_config;
+    expect(claim.restore_runtime_configs).toContainEqual({
+      ...unattached,
+      tools: ["Read"],
+    });
+  });
+
+  test("a checkpoint made before get_pull_request was added still restores", async () => {
+    const { claim } = await seeded({ github: settings({ actions: true }) });
+    const current = claim.runtime_config;
     expect(claim.restore_runtime_configs).toEqual([
-      { ...unattached, tools: ["Read"] },
+      {
+        ...current,
+        tools: current.tools.filter(
+          (tool) => tool !== "mcp__github__get_pull_request",
+        ),
+      },
+      expect.objectContaining({ tools: ["Read"] }),
     ]);
   });
 
-  test("beside a catalog server, the earlier checkpoint names that server alone", async () => {
+  test("beside a catalog server, the earlier checkpoints keep that server", async () => {
     const { claim } = await seeded({ remote: true });
     expect(
       claim.restore_runtime_configs?.map((config) => [
         config.mcp_servers?.map((server) => server.name),
-        config.tools.filter((tool) => tool.startsWith("mcp__github__")),
+        config.tools.includes("mcp__github__get_pull_request"),
+        config.tools.some((tool) => tool.startsWith("mcp__github__")),
       ]),
-    ).toEqual([[["fake"], []]]);
+    ).toEqual([
+      [["fake", "github"], false, true],
+      [["fake"], false, false],
+    ]);
   });
 
   test("a release without GitHub settings attaches no server", async () => {

@@ -87,10 +87,15 @@ verify-werft의 GitHub sandbox 절차([github-sandbox.md](../../../.claude/skill
   - 포트의 `updatePullRequestBody`는 `edit`이 `null`을 돌려주면 아무 PATCH도 보내지 않는다(제목 포함). 서비스는 그 콜백 안에서 해시를 비교한다.
   - `body_changed`: `expected_body_sha256`이 주어졌는데 다시 읽은 본문의 해시가 다르다. 제목만 고치는 호출도 해시를 주면 비교한다. API 오류 코드는 기존의 `REVISION_CONFLICT`(409)다.
   - `body_unverified`: 본문을 다시 쓰는 호출에 해시가 없는데, 다시 읽은 본문이 `get_pull_request`가 자를 크기다. API 오류 코드는 기존의 `PRECONDITION_REQUIRED`(428)다. 설계안은 "잘린 응답을 준 PR"이라고 했지만, 읽은 적이 있는지를 저장하지 않고 본문 크기로 판정한다. 결과는 같고 상태를 둘 곳이 필요 없다. 그래서 `get_pull_request`를 부르지 않은 세션도 이런 PR의 본문은 해시 없이 다시 쓰지 못한다. 제목만 고치는 것은 된다.
-  - 둘 다 `by: platform`, `retryable: false`이고, `update_pull_request` receipt에 `refusal`로 남는다.
+  - 잘린 읽기에는 해시가 없으므로, `body_unverified`가 나는 PR의 본문은 에이전트가 다시 쓸 수 없다. 설계안 B와 같다. 크기는 `get_pull_request`와 같이 꼬리를 빼고 마스킹한 뒤에 잰다. 그래서 긴 비밀값 줄이 `[REDACTED]`로 줄어 64 KiB 안에 들면 그 본문은 통째로 읽히고 해시도 나온다.
+  - `body_too_long`: `expected_body_sha256`과 함께 보낸 legacy `body`가 플랫폼이 쓸 수 있는 길이(`maxBodyLength - 2000`자, GitHub는 63536자)를 넘어 잘리게 될 때다. API 오류 코드는 기존의 `PAYLOAD_TOO_LARGE`(413)다. 읽기 상한(64 KiB, UTF-8 bytes)과 쓰기 상한(UTF-16 문자 수)은 단위가 다르다. 그래서 통째로 읽힌 본문을 그대로 돌려보내도 쓰기에서 뒷부분이 잘릴 수 있다. 해시를 준 쓰기는 읽은 글을 고치는 것이므로 자르지 않고 거절한다. 해시 없는 쓰기는 지금처럼 `…(truncated)`를 붙여 자른다. 구조화 필드로 쓰는 본문은 새로 짜는 글이라 이 검사를 하지 않는다. Codex 리뷰가 찾았다.
+  - 셋 다 `by: platform`, `retryable: false`이고, `update_pull_request` receipt에 `refusal`로 남는다.
+  - 읽은 본문을 그대로 돌려보내도 바뀌는 것이 있다. 쓰기는 에이전트가 보낸 글에 PR 열기와 같은 정리(멘션·닫기 키워드·교차 참조 무력화, `<!--` 무력화)를 한다. 읽기에서 `[REDACTED]`가 된 줄은 그대로 `[REDACTED]`로 쓰인다. 에이전트가 보낸 글은 에이전트의 글로 다룬다는 기존 규칙을 따른 것이다.
   - 비교와 쓰기 사이에 사람이 고치면 막지 못한다. GitHub에 조건부 쓰기가 없기 때문이다. 이 한계는 도구 설명에도 적었다.
+- **배포 전 checkpoint의 복원.** claim은 내장 서버의 도구 이름을 `runtime_config.tools`에 하나씩 넣고, Claude checkpoint 지문은 그 목록 전체를 해시한다(`packages/adapters/runtimes/claude/src/profile-fingerprint.ts`). 그래서 도구 하나가 늘면 배포 전에 만든 checkpoint의 지문이 지금 설정과 맞지 않는다. claim의 복원 후보(`restore_runtime_configs`, `packages/platform/src/workers/worker-gateway.ts`의 `restoreRuntimesOf`)에 "`get_pull_request`가 없는 github 서버" 설정을 더했다. 이미 있는 "github 서버가 붙기 전" 후보와 같은 자리다. Codex 리뷰가 찾았다. 앞서 `merge_pull_request`를 더할 때는 이런 후보를 두지 않았다. 그 일은 따로 티켓으로 남겼다.
 - **시험.**
-  - 서비스(`pull-request-service.test.ts`): 꼬리를 뺀 본문과 해시, 마스킹, 머지 상태, 보이지 않는 세션, 게이트 거절, PR 없음과 다른 head, 64 KiB 경계(정확히 65536 bytes는 통째로, 65537은 잘림, 3바이트 문자는 문자 경계), 해시 일치 쓰기, 해시 불일치 때 PATCH 0건, 해시 없는 긴 본문 거절과 제목만 고치기.
+  - 서비스(`pull-request-service.test.ts`): 꼬리를 뺀 본문과 해시, 마스킹, 머지 상태, 보이지 않는 세션, 게이트 거절, PR 없음과 다른 head, 64 KiB 경계(정확히 65536 bytes는 통째로, 65537은 잘림, 3바이트 문자는 문자 경계), 해시 일치 쓰기, 해시 불일치 때 PATCH 0건, 해시 없는 긴 본문 거절과 제목만 고치기, 통째로 읽혔지만 쓰기에서 잘릴 본문의 `body_too_long`, 제목과 private key 블록의 마스킹, 4바이트 문자 경계, 따로 계산한 SHA-256과의 비교.
+  - claim(`apps/control-host/src/api/github-mcp.test.ts`): 복원 후보에 `get_pull_request`가 없는 설정이 있다.
   - 게이트: `pull_request_read`의 권한이 `pull_requests: read` 하나뿐이다. 스위치를 끄면 `github_disabled`, 범위 밖이면 `repository_not_allowed`다. 붙인 저장소는 허용한다.
   - MCP 서버: 인자 검사, `body_changed` 봉투.
   - 어댑터와 forge 계약: `null` edit는 PATCH 0건, 읽기에 본문이 실린다.

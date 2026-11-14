@@ -264,6 +264,8 @@ export function createPullRequestService(deps: {
     body: string;
     source: PullRequestBodySource;
     template: PullRequestTemplateRecord | null;
+    /** A legacy `body` that was cut to fit. */
+    cut?: boolean;
   }> {
     if (hasStructuredFields(content)) {
       const { settings } = where;
@@ -338,17 +340,13 @@ export function createPullRequestService(deps: {
         template: record,
       };
     }
+    const text = stripEngineSignatures(content.body ?? "");
+    const cleaned = cleanBody(text, where.maxLength - 2_000, redact);
     return {
       template: null,
-      body: withPullRequestTail(
-        cleanBody(
-          stripEngineSignatures(content.body ?? ""),
-          where.maxLength - 2_000,
-          redact,
-        ),
-        where.tail,
-      ),
+      body: withPullRequestTail(cleaned, where.tail),
       source: { kind: content.body === undefined ? "platform" : "agent" },
+      cut: cleaned !== cleanBody(text, Number.POSITIVE_INFINITY, redact),
     };
   }
 
@@ -1141,6 +1139,10 @@ export function createPullRequestService(deps: {
           })
         : null;
       const expected = input.expectedBodySha256;
+      // Edited against a read, a cut would drop the end of the read text.
+      if (expected !== undefined && written?.cut === true) {
+        return await refuse("body_too_long", fields);
+      }
       // Set inside the edit, which runs on the body GitHub answers just
       // before the write; a stop sends no PATCH, the title's included.
       const stop: { refusal: "body_changed" | "body_unverified" | null } = {

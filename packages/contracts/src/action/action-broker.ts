@@ -117,6 +117,8 @@ export const ACTION_REFUSAL_CODES = {
   body_changed: actionRefusalSpec("platform"),
   // A body too long to read whole is rewritten only against its hash.
   body_unverified: actionRefusalSpec("platform"),
+  // Edited against a read, the body would lose its end; nothing was written.
+  body_too_long: actionRefusalSpec("platform"),
   // `request_push.pull_request` needs the PR tool trusted in this session;
   // nothing was created. Call request_push without it, then open_pull_request.
   pull_request_needs_tool_call: actionRefusalSpec("platform"),

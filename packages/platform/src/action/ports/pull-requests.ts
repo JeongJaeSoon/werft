@@ -86,7 +86,12 @@ export const PULL_REQUEST_REFUSAL_ERRORS: Record<
   body_unverified: {
     code: "PRECONDITION_REQUIRED",
     message:
-      "The pull request body is too long to read whole; rewriting it needs expected_body_sha256",
+      "The pull request body is longer than get_pull_request answers whole; it is not rewritten, its title can be",
+  },
+  body_too_long: {
+    code: "PAYLOAD_TOO_LARGE",
+    message:
+      "The new pull request body would be cut to fit; nothing was written",
   },
 };
 

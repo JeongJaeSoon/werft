@@ -50,6 +50,7 @@ import {
   DEFAULT_WORKSPACE_ENFORCE,
   ENGINE_COAUTHOR_EMAILS,
   GITHUB_MCP_SERVER,
+  githubMcpToolNames,
   githubRefusalStatus,
   IMAGE_GIT_AUTHOR,
   MAX_RESTORE_CONFIGS,
@@ -373,6 +374,27 @@ function withRestoreExtensions(
           withExtensions(config, extensions),
         ),
       };
+}
+
+// Tools the built-in `github` server gained while sessions ran with it. A
+// checkpoint's digest hashes the whole tool list, so one taken before an
+// addition matches only the list without it.
+const GITHUB_TOOLS_ADDED_LATER: ReadonlySet<string> = new Set(
+  githubMcpToolNames(["get_pull_request"]),
+);
+
+function withoutLaterGitHubTools(server: ClaimedMcpServer): ClaimedMcpServer {
+  const earlier = (tools: readonly string[]) =>
+    tools.filter((tool) => !GITHUB_TOOLS_ADDED_LATER.has(tool));
+  const tools = earlier(server.tools);
+  if (tools.length === server.tools.length) return server;
+  return {
+    ...server,
+    tools,
+    ...(server.trusted === undefined
+      ? {}
+      : { trusted: earlier(server.trusted) }),
+  };
 }
 
 function fenceOf(scope: WorkerScope): WorkerFence {
@@ -1099,8 +1121,15 @@ export function createWorkerGateway(deps: {
     // name only the catalog server; they resume into a run that has both.
     const legacy = mcp.filter((server) => server.name !== GITHUB_MCP_SERVER);
     const attached = legacy.length !== mcp.length;
+    const beforeAdded = mcp.map((server) =>
+      server.name === GITHUB_MCP_SERVER
+        ? withoutLaterGitHubTools(server)
+        : server,
+    );
+    const grown = beforeAdded.some((server, at) => server !== mcp[at]);
     const offerings = (config: RuntimeConfig, running: boolean) => [
       ...(running ? [] : [withMcp(config, mcp, mcpToken)]),
+      ...(grown ? [withMcp(config, beforeAdded, mcpToken)] : []),
       ...(attached ? [withMcp(config, legacy, mcpToken)] : []),
     ];
     // First, ahead of the cap: what the session ran before its limit removed
