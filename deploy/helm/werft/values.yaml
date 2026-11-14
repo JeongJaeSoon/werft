@@ -169,14 +169,12 @@ api:
   # computed from it (docs/operator/api-server.md). Unset, Slack accounts
   # cannot be linked and an install leaves the app without an event
   # subscription (events_url_unset).
-  # Only when this Ingress is in-house and Slack's events enter on a separate
+  # When this Ingress is in-house and Slack's events enter on a separate
   # internet-facing entrance routing just /v1/slack/events and
-  # /v1/slack/interactions, set that entrance's https base (no query) as
-  # SLACK_EVENTS_PUBLIC_URL; it replaces the address computed from
-  # CONSOLE_ORIGIN for events.
+  # /v1/slack/interactions, an owner saves that entrance's https base in
+  # Settings > Integrations > Slack; it is not an environment variable.
   #   extraEnv:
   #     CONSOLE_ORIGIN: https://werft.example.com
-  #     SLACK_EVENTS_PUBLIC_URL: https://slack-events.example.com
   extraEnv: {}
 
 # One replica, replaced with Recreate: a second scheduler never gets the

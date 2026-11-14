@@ -66,6 +66,7 @@ import {
   SlackGuest,
 } from "./workspace-settings.tsx";
 import { SlackApps, useWorkspaceSlackApps } from "./workspace-slack-apps.tsx";
+import { SlackEventsSetting } from "./workspace-slack-events.tsx";
 
 const SLACK_APPS_URL = "https://api.slack.com/apps";
 
@@ -181,6 +182,7 @@ function SlackCard({
   const role = useRole();
   const workspaceId = useMe()?.workspace?.id ?? "";
   const canManage = useHasPermission("workspace.manage");
+  const canSetEvents = useHasPermission("installation.settings.manage");
   const apps = useWorkspaceSlackApps();
   const titleId = useId();
   const [editing, setEditing] = useState(false);
@@ -346,80 +348,90 @@ function SlackCard({
     setDeleting(true);
   };
 
-  const body = !canManage ? null : start ? (
-    // No list yet: the call to action lives in the section's empty box.
-    <SettingsSection
-      titleAs="h3"
-      titleRef={tokenHeadingRef}
-      title={t("workspace.tokenSection")}
-      description={t("workspace.tokenSectionHint")}
-      box
-    >
-      <div className="flex flex-col items-start gap-3">
-        <Text weight="medium">{t("workspace.slackEmpty")}</Text>
-        <Text variant="sub">{t("workspace.slackEmptyHint")}</Text>
-        {form ?? (
-          <Button
-            ref={actionRef}
-            type="button"
-            onClick={() => setEditing(true)}
-          >
-            {t("workspace.tokenAdd")}
-          </Button>
-        )}
-      </div>
-    </SettingsSection>
-  ) : (
+  // Apart from the token: it decides where events enter, token or not.
+  const events = canSetEvents ? (
+    <SlackEventsSetting onOutcome={onOutcome} onSaved={refresh} />
+  ) : null;
+  const body = !canManage ? null : (
     <>
-      <SettingsSection
-        titleAs="h3"
-        titleRef={tokenHeadingRef}
-        title={t("workspace.tokenSection")}
-        description={t("workspace.tokenSectionHint")}
-        foot={
-          // Says what the row's "last token check" means; no token, no check.
-          summary?.updated_at ? (
-            <Text variant="meta">{t("workspace.tokenHint")}</Text>
-          ) : undefined
-        }
-        rows={
-          token.isPending || deciding ? (
-            <RowListItem>
-              <Skeleton width="50%" />
-            </RowListItem>
-          ) : token.isError ? (
-            <>
-              <RowListItem>
-                {storeOff(token.error) ? (
-                  <ErrorState
-                    title={t("status.loadFailed")}
-                    message={t("workspace.tokenStoreUnavailable")}
-                  />
-                ) : (
-                  <LoadFailure
-                    error={token.error}
-                    onRetry={() => void token.refetch()}
-                  />
-                )}
-              </RowListItem>
-              {/* A token read before the failure can still be deleted,
+      {start ? (
+        // No list yet: the call to action lives in the section's empty box.
+        <SettingsSection
+          titleAs="h3"
+          titleRef={tokenHeadingRef}
+          title={t("workspace.tokenSection")}
+          description={t("workspace.tokenSectionHint")}
+          box
+        >
+          <div className="flex flex-col items-start gap-3">
+            <Text weight="medium">{t("workspace.slackEmpty")}</Text>
+            <Text variant="sub">{t("workspace.slackEmptyHint")}</Text>
+            {form ?? (
+              <Button
+                ref={actionRef}
+                type="button"
+                onClick={() => setEditing(true)}
+              >
+                {t("workspace.tokenAdd")}
+              </Button>
+            )}
+          </div>
+        </SettingsSection>
+      ) : (
+        <>
+          <SettingsSection
+            titleAs="h3"
+            titleRef={tokenHeadingRef}
+            title={t("workspace.tokenSection")}
+            description={t("workspace.tokenSectionHint")}
+            foot={
+              // Says what the row's "last token check" means; no token, no check.
+              summary?.updated_at ? (
+                <Text variant="meta">{t("workspace.tokenHint")}</Text>
+              ) : undefined
+            }
+            rows={
+              token.isPending || deciding ? (
+                <RowListItem>
+                  <Skeleton width="50%" />
+                </RowListItem>
+              ) : token.isError ? (
+                <>
+                  <RowListItem>
+                    {storeOff(token.error) ? (
+                      <ErrorState
+                        title={t("status.loadFailed")}
+                        message={t("workspace.tokenStoreUnavailable")}
+                      />
+                    ) : (
+                      <LoadFailure
+                        error={token.error}
+                        onRetry={() => void token.refetch()}
+                      />
+                    )}
+                  </RowListItem>
+                  {/* A token read before the failure can still be deleted,
                   from the danger zone. */}
-            </>
-          ) : (
-            <TokenRow
-              summary={summary}
-              editing={editing}
-              actionRef={actionRef}
-              onEdit={onEdit}
-              form={form}
-              locale={locale}
-            />
-          )
-        }
-      />
-      {summary ? (
-        <SlackAddresses urls={summary.urls} onOutcome={onOutcome} />
-      ) : null}
+                </>
+              ) : (
+                <TokenRow
+                  summary={summary}
+                  editing={editing}
+                  actionRef={actionRef}
+                  onEdit={onEdit}
+                  form={form}
+                  locale={locale}
+                />
+              )
+            }
+          />
+          {summary ? (
+            <SlackAddresses urls={summary.urls} onOutcome={onOutcome} />
+          ) : null}
+        </>
+      )}
+      {/* One place in every state, so a half-typed address survives. */}
+      {events}
       {withApps ? <SlackApps /> : null}
     </>
   );

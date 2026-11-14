@@ -106,6 +106,7 @@ import { registerPauseRoutes } from "./routes/sessions/pause.ts";
 import { registerPendingRoutes } from "./routes/sessions/pending.ts";
 import { registerReceiptRoutes } from "./routes/sessions/receipts.ts";
 import { registerSessionRoutes } from "./routes/sessions/sessions.ts";
+import { registerSlackSettingsRoutes } from "./routes/slack-settings.ts";
 import { registerSlackAppRoutes } from "./routes/surface/slack-apps.ts";
 import { registerSlackBindingRoutes } from "./routes/surface/slack-bindings.ts";
 import { registerSlackChannelRoutes } from "./routes/surface/slack-channels.ts";
@@ -114,6 +115,7 @@ import { registerSlackInstallRoutes } from "./routes/surface/slack-install.ts";
 import { registerSlackInteractionRoutes } from "./routes/surface/slack-interactions.ts";
 import { registerSlackSecretRoutes } from "./routes/surface/slack-secrets.ts";
 import { registerUsageRoutes } from "./routes/usage/usage.ts";
+import type { SlackSettingsAdmin } from "./slack-settings.ts";
 
 // Routes the OpenAPI table declares but no Hono handler serves yet. Shrink
 // this list as sibling tickets land; a route removed from here must exist.
@@ -193,6 +195,7 @@ function apiApp() {
       registerSettingsConsoleRoutes(router, {} as SettingsConsoleService);
       registerLoginProviderRoutes(router, {} as ProviderAdmin);
       registerLoginSettingsRoutes(router, {} as LoginSettingsAdmin);
+      registerSlackSettingsRoutes(router, {} as SlackSettingsAdmin);
       registerWorkspaceRoutes(router, {} as WorkspaceRouteDeps);
       registerAchievementRoutes(router, {} as AchievementRuleService);
       registerSessionAchievementRoutes(router, {} as SessionAchievementService);

@@ -512,6 +512,24 @@ export const loginSettings = pgTable(
   ],
 );
 
+/**
+ * The installation's Slack settings. No row until an owner saves one or an
+ * upgrade carries SLACK_EVENTS_PUBLIC_URL in, which it does only then.
+ */
+export const slackSettings = pgTable(
+  "slack_settings",
+  {
+    /** Always true; with the check, what keeps the table to one row. */
+    id: boolean().primaryKey().default(true),
+    /** Null: computed from CONSOLE_ORIGIN. */
+    eventsPublicUrl: text("events_public_url"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [check("slack_settings_single_row_check", sql`${table.id}`)],
+);
+
 export const passwordResets = pgTable(
   "password_resets",
   {

@@ -11,6 +11,7 @@ import {
   agents,
   agentVersions,
   createPostgresSlackConfigTokenStore,
+  createPostgresSlackSettingsStore,
   memberships,
   secretValues,
   slackApps,
@@ -69,7 +70,7 @@ integration("slack-app create on PostgreSQL against a fake Slack", () => {
       env: {
         DATABASE_URL: "postgres://handled-by-openDatabase",
         CONSOLE_ORIGIN: CONSOLE,
-        SLACK_API_URL: apiUrl,
+        MOCK_SLACK_API_URL: apiUrl,
         ...extraEnv,
       },
       out: (line) => out.push(line),
@@ -368,10 +369,14 @@ integration("slack-app create on PostgreSQL against a fake Slack", () => {
     ).toBe(`${CONSOLE}/v1/slack/events/${agentId}`);
     const afterComputed = updates();
 
-    const env = { SLACK_EVENTS_PUBLIC_URL: "https://events.example.test/" };
+    expect(
+      await createPostgresSlackSettingsStore(db).importEventsPublicUrl(
+        "https://events.example.test",
+      ),
+    ).toBe(true);
     const manifests: unknown[] = [];
     for (const _ of [1, 2]) {
-      const done = await run(["finalize", "--agent", agentId], slack.url, env);
+      const done = await run(["finalize", "--agent", agentId]);
       expect(done.code).toBe(SLACK_APP_EXIT.created);
       expect(JSON.parse(done.out[0] ?? "{}")).toEqual({
         outcome: "finalized",
@@ -393,9 +398,9 @@ integration("slack-app create on PostgreSQL against a fake Slack", () => {
     });
 
     const bare = await agent(workspaceId);
-    expect(
-      (await run(["finalize", "--agent", bare], slack.url, env)).code,
-    ).toBe(SLACK_APP_EXIT.agent_not_found);
+    expect((await run(["finalize", "--agent", bare])).code).toBe(
+      SLACK_APP_EXIT.agent_not_found,
+    );
   });
 
   test("nothing printed carries a token or an app secret", () => {

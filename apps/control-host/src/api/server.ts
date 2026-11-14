@@ -64,6 +64,7 @@ import {
   createPostgresSlackInboundEventStore,
   createPostgresSlackInstallStore,
   createPostgresSlackOutboxStore,
+  createPostgresSlackSettingsStore,
   createPostgresSurfaceBindingStore,
   createPostgresTeamStore,
   createPostgresTurnInterrupts,
@@ -274,6 +275,7 @@ import { registerPauseRoutes } from "./routes/sessions/pause.ts";
 import { registerPendingRoutes } from "./routes/sessions/pending.ts";
 import { registerReceiptRoutes } from "./routes/sessions/receipts.ts";
 import { registerSessionRoutes } from "./routes/sessions/sessions.ts";
+import { registerSlackSettingsRoutes } from "./routes/slack-settings.ts";
 import { registerSlackAppRoutes } from "./routes/surface/slack-apps.ts";
 import { registerSlackBindingRoutes } from "./routes/surface/slack-bindings.ts";
 import { registerSlackChannelRoutes } from "./routes/surface/slack-channels.ts";
@@ -289,10 +291,14 @@ import {
   consoleOriginFrom,
   slackApiUrlFrom,
   slackEnvWarnings,
-  slackEventsPublicUrlFrom,
   slackIssuerFrom,
 } from "./slack-config.ts";
 import { signInWithSlackOff } from "./slack-link.ts";
+import {
+  createSlackSettingsAdmin,
+  importSlackEventsPublicUrl,
+  slackEventsBaseOf,
+} from "./slack-settings.ts";
 import { installedToolCatalogView } from "./tool-catalogs.ts";
 import {
   startTelemetryIngest,
@@ -576,7 +582,14 @@ if (consoleOrigin === null) {
 }
 const slackLinkOff = signInWithSlackOff(consoleOrigin, true);
 if (slackLinkOff !== null) logger.warn(slackLinkOff, {});
-const slackEventsPublicUrl = slackEventsPublicUrlFrom(process.env);
+const slackSettingsStore = createPostgresSlackSettingsStore(db);
+for (const warning of await importSlackEventsPublicUrl(
+  process.env,
+  slackSettingsStore,
+)) {
+  logger.warn(warning, {});
+}
+const slackEventsBase = slackEventsBaseOf(slackSettingsStore, consoleOrigin);
 const slackActiveReleaseWarning: SlackServicesStageDeps["activeReleaseWarning"] =
   async (workspaceId, agentId) => {
     const release = (await agentStore.get(workspaceId, agentId))
@@ -630,18 +643,23 @@ const {
   bindings: surfaceBindingStore,
   installStates: slackInstallStore,
   consoleOrigin,
-  eventsPublicUrl: slackEventsPublicUrl,
+  eventsPublicUrl: slackEventsBase,
   appKind: (workspaceId, slackAppId) =>
     slackAppKind(db, workspaceId, slackAppId),
   activeReleaseWarning: slackActiveReleaseWarning,
   logger,
 });
-if (slackEventsPublicUrl === null) {
+if ((await slackEventsBase()) === null) {
   logger.warn(
-    "Slack apps get no event subscription (CONSOLE_ORIGIN unset or not https, and no SLACK_EVENTS_PUBLIC_URL): installs finish with events_url_unset",
+    "Slack apps get no event subscription (CONSOLE_ORIGIN unset or not https, and no events address saved in Settings > Integrations > Slack): installs finish with events_url_unset",
     {},
   );
 }
+const slackSettingsAdmin = createSlackSettingsAdmin({
+  authorization,
+  store: slackSettingsStore,
+  consoleOrigin,
+});
 const credentialBindingService = createCredentialBindingService({
   authorization,
   store: credentialBindings,
@@ -1237,6 +1255,7 @@ const app = createApiApp({
     registerSettingsConsoleRoutes(router, settingsConsole);
     registerLoginProviderRoutes(router, providerAdmin);
     registerLoginSettingsRoutes(router, loginSettingsAdmin);
+    registerSlackSettingsRoutes(router, slackSettingsAdmin);
     registerAchievementRoutes(router, achievementRules);
     registerSessionAchievementRoutes(
       router,

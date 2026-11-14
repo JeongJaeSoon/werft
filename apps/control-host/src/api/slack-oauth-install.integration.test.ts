@@ -125,7 +125,7 @@ integration(
                   createSlackEventsFinalize({
                     apps: appService,
                     agents: apps,
-                    publicUrl,
+                    publicUrl: async () => publicUrl,
                   }),
                 ),
           now: () => clock,
@@ -442,7 +442,7 @@ integration(
 
     const PUBLIC = "https://werft.example.ts.net:8443";
 
-    test("with SLACK_EVENTS_PUBLIC_URL, complete registers the event subscription in the whole manifest", async () => {
+    test("with a saved events address, complete registers the event subscription in the whole manifest", async () => {
       const { done, updates, appId, agentId } = await installed(`${PUBLIC}/`);
       expect(updates).toBe(1);
       expect(done).toMatchObject({ finalized: true, warnings: [] });

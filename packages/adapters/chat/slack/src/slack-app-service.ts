@@ -67,7 +67,7 @@ const NO_CONSOLE_ORIGIN = () =>
 const EVENTS_URL_UNSET = () =>
   new SessionServiceError(
     "BACKEND_UNAVAILABLE",
-    "No https events address is known (CONSOLE_ORIGIN, or SLACK_EVENTS_PUBLIC_URL when events enter apart from the console), so no Request URL can be sent to Slack",
+    "No https events address is known (CONSOLE_ORIGIN, or the events address in Settings > Integrations > Slack when events enter apart from the console), so no Request URL can be sent to Slack",
     undefined,
     { reason_code: "events_url_unset" },
   );
@@ -142,7 +142,8 @@ export function createSlackAppService(deps: {
   tokens: SlackConfigTokens | null;
   api: SlackConfigApi;
   consoleOrigin: string | null;
-  eventsPublicUrl?: string | null;
+  /** Read on each use: an owner can change it while the API runs. */
+  eventsPublicUrl?: () => Promise<string | null>;
   onAgentAppChanged?: (agentId: string) => void;
   /** Why the agent's Slack sessions would be refused now; null when they would start. */
   activeReleaseWarning?: (
@@ -166,6 +167,10 @@ export function createSlackAppService(deps: {
   };
   const now = deps.now ?? (() => new Date());
   const newId = deps.newId ?? (() => crypto.randomUUID());
+  const eventsUrlOf = async (agentId: string): Promise<string | null> => {
+    const base = (await deps.eventsPublicUrl?.()) ?? null;
+    return base === null ? null : slackEventsUrl(base, agentId);
+  };
 
   async function agentWarnings(
     workspaceId: string,
@@ -364,10 +369,7 @@ export function createSlackAppService(deps: {
         throw NOT_FOUND();
       return {
         slack_app: record === null ? null : slackAppView(record),
-        event_url:
-          deps.eventsPublicUrl == null
-            ? null
-            : slackEventsUrl(deps.eventsPublicUrl, agentId),
+        event_url: await eventsUrlOf(agentId),
         events: record?.events ?? {
           state: "pending",
           checked_at: null,
@@ -387,14 +389,13 @@ export function createSlackAppService(deps: {
       const record = await apps.findForAgent(caller.ownerId, agentId);
       const agent = await apps.manifestAgent(caller.ownerId, agentId);
       if (record === null || agent === null) throw NOT_FOUND();
+      const eventsUrl = await eventsUrlOf(agentId);
       return buildAgentAppManifest({
         name: agent.name,
         botName: agent.slug,
         description: agent.role,
         redirectUrl: record.redirectUrl,
-        ...(deps.eventsPublicUrl == null
-          ? {}
-          : { eventsUrl: slackEventsUrl(deps.eventsPublicUrl, agentId) }),
+        ...(eventsUrl === null ? {} : { eventsUrl }),
       });
     },
 
@@ -530,7 +531,8 @@ export function createSlackAppService(deps: {
     ): Promise<GetSlackAppResponse> {
       await permitAgent(caller, agentId);
       const { apps } = ready();
-      if (deps.eventsPublicUrl == null) throw EVENTS_URL_UNSET();
+      const eventsUrl = await eventsUrlOf(agentId);
+      if (eventsUrl === null) throw EVENTS_URL_UNSET();
       const record = await apps.findForAgent(caller.ownerId, agentId);
       const agent = await apps.manifestAgent(caller.ownerId, agentId);
       if (record === null || agent === null) throw NOT_FOUND();
@@ -538,7 +540,7 @@ export function createSlackAppService(deps: {
         name: agent.name,
         botName: agent.slug,
         description: agent.role,
-        eventsUrl: slackEventsUrl(deps.eventsPublicUrl, agentId),
+        eventsUrl,
       });
       return service.getAgentApp(caller, agentId);
     },

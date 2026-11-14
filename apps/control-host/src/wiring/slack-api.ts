@@ -150,7 +150,8 @@ export interface SlackServicesStageDeps {
   bindings: SurfaceBindingStore;
   installStates: NonNullable<Param<typeof createSlackInstallService>["states"]>;
   consoleOrigin: string | null;
-  eventsPublicUrl: string | null;
+  /** The events base, read on each use. */
+  eventsPublicUrl: () => Promise<string | null>;
   appKind: Param<typeof createSlackSecretService>["appKind"];
   activeReleaseWarning: NonNullable<
     Param<typeof createSlackAppService>["activeReleaseWarning"]
@@ -176,7 +177,8 @@ export function wireSlackServices(
     authorization,
     store: secrets(),
     tokens: config.tokens,
-    urls: slackPublicUrlsOf(deps.consoleOrigin, deps.eventsPublicUrl),
+    urls: async () =>
+      slackPublicUrlsOf(deps.consoleOrigin, await deps.eventsPublicUrl()),
     appKind: deps.appKind,
   });
   const signingSecrets = createSlackSigningSecrets({

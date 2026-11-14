@@ -231,6 +231,7 @@ describe("연동 › Slack의 자동으로 만든 Slack 앱", () => {
     ).toEqual([
       "Slack 앱 생성",
       "Slack 앱에 넣을 주소",
+      "이벤트 입구 주소",
       "자동으로 만든 Slack 앱",
     ]);
     expect(

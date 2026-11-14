@@ -32,7 +32,7 @@ function io(env: Record<string, string | undefined>) {
 const ENV = {
   DATABASE_URL: "postgres://unused",
   CONSOLE_ORIGIN: "http://127.0.0.1:3000",
-  SLACK_API_URL: "http://127.0.0.1:9/api",
+  MOCK_SLACK_API_URL: "http://127.0.0.1:9/api",
 };
 const ARGS = ["create", "--workspace", WORKSPACE, "--agent", AGENT];
 
@@ -115,7 +115,10 @@ describe("slack-app command line", () => {
   test.each([
     ["DATABASE_URL", { ...ENV, DATABASE_URL: undefined }],
     ["CONSOLE_ORIGIN", { ...ENV, CONSOLE_ORIGIN: undefined }],
-    ["SLACK_API_URL", { ...ENV, SLACK_API_URL: "http://slack.example/api" }],
+    [
+      "MOCK_SLACK_API_URL",
+      { ...ENV, MOCK_SLACK_API_URL: "http://slack.example/api" },
+    ],
   ])("a missing or unsafe %s is usage, before the database", async (_, env) => {
     const run = io(env);
     expect(await runSlackApp(ARGS, run.io)).toBe(SLACK_APP_EXIT.usage);

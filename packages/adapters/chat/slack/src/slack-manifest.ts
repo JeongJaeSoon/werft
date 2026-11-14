@@ -29,7 +29,11 @@ export type AgentAppManifestInput = {
 };
 
 export function slackInteractionsUrlOf(eventsUrl: string): string {
-  return eventsUrl.replace(/\/v1\/slack\/events\//, "/v1/slack/interactions/");
+  // The route's own segment, last: a saved base's path prefix may repeat it.
+  return eventsUrl.replace(
+    /\/v1\/slack\/events\/([^/]+)$/,
+    "/v1/slack/interactions/$1",
+  );
 }
 
 const clip = (value: string, max: number) =>

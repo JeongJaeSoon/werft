@@ -69,7 +69,7 @@ export const PASS_LOOP_ROLES = {
     stopGraceSec: 30,
     statusFile: "/tmp/scheduler-status.json",
   },
-  // SLACK_ROLE, not SLACK: SLACK_API_URL and SLACK_OIDC_* are the api's.
+  // SLACK_ROLE, not SLACK: the SLACK_* names belong to Slack settings.
   slack: {
     prefix: "SLACK_ROLE",
     intervalSec: 2,

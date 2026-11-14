@@ -301,6 +301,48 @@ export const putSlackConfigTokenResponseSchema = slackConfigTokenSummarySchema
   })
   .strict();
 
+/**
+ * Where Slack's event and interaction requests enter, for the whole
+ * installation. `events_public_url` is what an owner saved: set only when
+ * they enter apart from the console; null means the base computed from
+ * CONSOLE_ORIGIN (`computed_events_base`, null when Slack could not reach
+ * it). `events_url_template` is what Slack is sent, from whichever applies.
+ */
+export const slackSettingsSchema = z
+  .object({
+    events_public_url: z.string().nullable(),
+    computed_events_base: z.string().nullable(),
+    events_url_template: z.string().nullable(),
+  })
+  .strict();
+
+/** The longest events address kept. */
+export const SLACK_EVENTS_PUBLIC_URL_MAX = 2048;
+
+/**
+ * An absolute https URL without a query, fragment or credentials; a path
+ * prefix is kept. Null clears it.
+ */
+export const updateSlackSettingsRequestSchema = z
+  .object({
+    events_public_url: z.string().max(SLACK_EVENTS_PUBLIC_URL_MAX).nullable(),
+  })
+  .strict();
+
+export const updateSlackSettingsResponseSchema = slackSettingsSchema
+  .extend({
+    /** Only when the saved address changed. */
+    receipt_id: z.uuid().optional(),
+  })
+  .strict();
+
+export type SlackSettings = z.infer<typeof slackSettingsSchema>;
+export type UpdateSlackSettingsRequest = z.infer<
+  typeof updateSlackSettingsRequestSchema
+>;
+export type UpdateSlackSettingsResponse = z.infer<
+  typeof updateSlackSettingsResponseSchema
+>;
 export type SlackAppKind = z.infer<typeof slackAppKindSchema>;
 export type SlackAppState = z.infer<typeof slackAppStateSchema>;
 export type SlackAppSecretPurpose = z.infer<typeof slackAppSecretPurposeSchema>;

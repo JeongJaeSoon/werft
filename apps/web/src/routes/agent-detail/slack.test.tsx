@@ -2232,7 +2232,7 @@ describe("Slack management", () => {
     });
     expect(
       await screen.findByText(
-        "Slack이 이벤트를 보낼 https 주소를 알 수 없습니다. 관리자에게 CONSOLE_ORIGIN(이벤트를 콘솔과 따로 받으면 SLACK_EVENTS_PUBLIC_URL) 설정을 요청하세요.",
+        "Slack이 이벤트를 보낼 https 주소를 알 수 없습니다. 관리자에게 CONSOLE_ORIGIN 설정을 요청하거나, 이벤트를 콘솔과 따로 받으면 owner가 설정 > 연동 > Slack의 이벤트 입구 주소를 적으세요.",
       ),
     ).toBeDefined();
   });
@@ -2311,7 +2311,7 @@ describe("Slack management", () => {
     );
     expect(
       await screen.findByText(
-        "Slack がイベントを送る https アドレスが分かりません。管理者に CONSOLE_ORIGIN(イベントをコンソールと別に受ける場合は SLACK_EVENTS_PUBLIC_URL)の設定を依頼してください。",
+        "Slack がイベントを送る https アドレスが分かりません。管理者に CONSOLE_ORIGIN の設定を依頼するか、イベントをコンソールと別に受ける場合は owner が 設定 > 連携 > Slack のイベントの入口アドレスを入力してください。",
       ),
     ).toBeDefined();
   });

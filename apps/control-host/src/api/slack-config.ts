@@ -1,3 +1,4 @@
+import { SLACK_EVENTS_PUBLIC_URL_MAX } from "@werft-ai/contracts";
 import { SLACK_API_URL } from "../wiring/chat-slack.ts";
 
 const PLAIN_HTTP_HOSTS = new Set([
@@ -13,34 +14,43 @@ export class SlackConfigError extends Error {}
 
 type Env = Record<string, string | undefined>;
 
-/** SLACK_API_URL, or Slack's own; tokens ride in a header, so https only. */
+/**
+ * MOCK_SLACK_API_URL, or Slack's own; tokens ride in a header, so https only.
+ * The MOCK_ prefix says it at the place it is set: only a mock Slack test
+ * stack points this anywhere else.
+ */
 export function slackApiUrlFrom(env: Env): string {
-  const value = (env.SLACK_API_URL || SLACK_API_URL).replace(/\/+$/, "");
+  const value = (env.MOCK_SLACK_API_URL || SLACK_API_URL).replace(/\/+$/, "");
   let url: URL;
   try {
     url = new URL(value);
   } catch {
-    throw new SlackConfigError("SLACK_API_URL must be an absolute URL");
+    throw new SlackConfigError("MOCK_SLACK_API_URL must be an absolute URL");
   }
   const local = PLAIN_HTTP_HOSTS.has(url.hostname);
   if (url.protocol !== "https:" && !(url.protocol === "http:" && local)) {
     throw new SlackConfigError(
-      "SLACK_API_URL must be https (http only for a local mock)",
+      "MOCK_SLACK_API_URL must be https (http only for a local mock)",
     );
   }
   return value;
 }
 
 export function slackIssuerFrom(env: Env): string {
-  const value = (env.SLACK_OIDC_ISSUER || SLACK_ISSUER).replace(/\/+$/, "");
+  const value = (env.MOCK_SLACK_OIDC_ISSUER || SLACK_ISSUER).replace(
+    /\/+$/,
+    "",
+  );
   let protocol: string;
   try {
     protocol = new URL(value).protocol;
   } catch {
-    throw new SlackConfigError("SLACK_OIDC_ISSUER must be an absolute URL");
+    throw new SlackConfigError(
+      "MOCK_SLACK_OIDC_ISSUER must be an absolute URL",
+    );
   }
   if (protocol !== "https:" && protocol !== "http:") {
-    throw new SlackConfigError("SLACK_OIDC_ISSUER must be an http(s) URL");
+    throw new SlackConfigError("MOCK_SLACK_OIDC_ISSUER must be an http(s) URL");
   }
   return value;
 }
@@ -69,7 +79,10 @@ export function consoleOriginFrom(env: Env): string | null {
     : null;
 }
 
-function computedEventsBase(consoleOrigin: string | null): string | null {
+/** The events base when no address is saved: the console's own origin. */
+export function computedEventsBase(
+  consoleOrigin: string | null,
+): string | null {
   if (consoleOrigin === null) return null;
   const url = new URL(consoleOrigin);
   // Slack calls https request URLs only.
@@ -77,32 +90,32 @@ function computedEventsBase(consoleOrigin: string | null): string | null {
   return PLAIN_HTTP_HOSTS.has(url.hostname) ? url.origin : null;
 }
 
-export function slackEventsPublicUrlFrom(env: Env): string | null {
-  const value = env.SLACK_EVENTS_PUBLIC_URL;
-  if (!value) return computedEventsBase(consoleOriginFrom(env));
+/**
+ * A saved events address, without its trailing slash; null when it is not
+ * an absolute https URL free of a query, fragment and credentials. A path
+ * prefix stays: a proxy in front may route on it.
+ */
+export function parseEventsPublicUrl(value: string): string | null {
+  if (value.length > SLACK_EVENTS_PUBLIC_URL_MAX) return null;
   let url: URL;
   try {
     url = new URL(value);
   } catch {
-    throw new SlackConfigError(
-      "SLACK_EVENTS_PUBLIC_URL must be an absolute URL",
-    );
-  }
-  if (url.protocol !== "https:" || url.search !== "" || url.hash !== "") {
-    throw new SlackConfigError(
-      "SLACK_EVENTS_PUBLIC_URL must be an https URL without a query",
-    );
-  }
-  return `${url.origin}${url.pathname}`.replace(/\/+$/, "");
-}
-
-function parsed(value: string | undefined): URL | null {
-  if (!value) return null;
-  try {
-    return new URL(value);
-  } catch {
     return null;
   }
+  if (
+    url.protocol !== "https:" ||
+    url.search !== "" ||
+    url.hash !== "" ||
+    url.username !== "" ||
+    url.password !== "" ||
+    // `https://host?` parses with an empty search; the text still had one.
+    value.includes("?") ||
+    value.includes("#")
+  ) {
+    return null;
+  }
+  return `${url.origin}${url.pathname}`.replace(/\/+$/, "");
 }
 
 /**
@@ -114,6 +127,9 @@ const REMOVED_SLACK_ENV = [
   "SLACK_OIDC_REDIRECT_URI",
   "SLACK_OIDC_CLIENT_ID",
   "SLACK_OIDC_CLIENT_SECRET",
+  // Renamed to MOCK_SLACK_API_URL and MOCK_SLACK_OIDC_ISSUER.
+  "SLACK_API_URL",
+  "SLACK_OIDC_ISSUER",
 ] as const;
 
 /** Startup warnings name the variable, never its value. */
@@ -123,42 +139,18 @@ export function slackEnvWarnings(env: Env): string[] {
   if (removed.length > 0) {
     warnings.push(`Ignored removed settings: ${removed.join(", ")}`);
   }
-
-  const events = parsed(env.SLACK_EVENTS_PUBLIC_URL);
-  if (events !== null) {
-    const computed = computedEventsBase(consoleOriginFrom(env));
-    if (
-      computed !== null &&
-      `${events.origin}${events.pathname}`.replace(/\/+$/, "") !== computed
-    ) {
-      warnings.push(
-        "SLACK_EVENTS_PUBLIC_URL mismatch: it differs from the address computed from CONSOLE_ORIGIN. It is used because events enter apart from the console; remove it if they do not",
-      );
-    }
-  }
-
   warnings.push(
-    ...slackApiUrlWarnings(env),
-    ...awayFromSlack("SLACK_OIDC_ISSUER", env.SLACK_OIDC_ISSUER, SLACK_ISSUER),
+    ...mockOverrides(env, ["MOCK_SLACK_API_URL", "MOCK_SLACK_OIDC_ISSUER"]),
   );
   return warnings;
 }
 
-function awayFromSlack(
-  name: string,
-  value: string | undefined,
-  standard: string,
-): string[] {
-  const url = parsed(value);
-  if (
-    url === null ||
-    url.toString().replace(/\/+$/, "") === standard ||
-    PLAIN_HTTP_HOSTS.has(url.hostname)
-  ) {
-    return [];
-  }
+/** Any value counts, whatever its host: only a test stack sets these. */
+function mockOverrides(env: Env, names: readonly string[]): string[] {
+  const set = names.filter((name) => env[name]);
+  if (set.length === 0) return [];
   return [
-    `${name} points away from Slack: it is for the mock Slack test stack only. Remove it from operational config`,
+    `Mock Slack override in use: ${set.join(", ")}. It is for the mock Slack test stack only; remove it from operational config`,
   ];
 }
 
@@ -167,5 +159,8 @@ function awayFromSlack(
  * warns on its own start, where the API's warnings are not seen.
  */
 export function slackApiUrlWarnings(env: Env): string[] {
-  return awayFromSlack("SLACK_API_URL", env.SLACK_API_URL, SLACK_API_URL);
+  return [
+    ...(env.SLACK_API_URL ? ["Ignored removed settings: SLACK_API_URL"] : []),
+    ...mockOverrides(env, ["MOCK_SLACK_API_URL"]),
+  ];
 }

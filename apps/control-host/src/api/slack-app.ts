@@ -3,6 +3,7 @@ import * as schema from "@werft-ai/db";
 import {
   createPostgresSlackAppStore,
   createPostgresSlackConfigTokenStore,
+  createPostgresSlackSettingsStore,
   type Database,
 } from "@werft-ai/db";
 import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
@@ -28,8 +29,8 @@ import {
   consoleOriginFrom,
   SlackConfigError,
   slackApiUrlFrom,
-  slackEventsPublicUrlFrom,
 } from "./slack-config.ts";
+import { slackEventsBaseOf } from "./slack-settings.ts";
 
 /** Part of the CLI contract: scripts and the verify skill branch on these. */
 export const SLACK_APP_EXIT = {
@@ -54,9 +55,9 @@ const USAGE = `Usage: bun run apps/control-host/src/api/slack-app.ts create --wo
   (<CONSOLE_ORIGIN>/v1/slack/events/<agent_id>), as an install does;
   running it again changes nothing.
 Environment: DATABASE_URL and PLATFORM_SECRET_KEY (required),
-             CONSOLE_ORIGIN (the console's public origin: create's OAuth redirect and finalize's events address),
-             SLACK_EVENTS_PUBLIC_URL (finalize, only when events enter apart from the console: its https base)
-Test only:   SLACK_API_URL (default https://slack.com/api; for the mock Slack stack)
+             CONSOLE_ORIGIN (the console's public origin: create's OAuth redirect and finalize's events address,
+             unless an owner saved one in Settings > Integrations > Slack)
+Test only:   MOCK_SLACK_API_URL (default https://slack.com/api; for the mock Slack stack)
 Exit codes: 0 created, or the agent or workspace already had it, or finalized; 1 unexpected error; 2 usage;
             3 the config token is missing or Slack no longer takes it (paste a new one);
             4 agent or workspace not found, or the agent has no created app;
@@ -172,6 +173,7 @@ const EXIT_BY_CODE: Partial<Record<string, number>> = {
 async function finalize(
   agentId: string,
   deps: SlackCliDeps & { apps: SlackAppStore },
+  eventsBase: () => Promise<string | null>,
   io: SlackAppIo,
 ): Promise<number> {
   const app = await deps.apps.findAgentApp(agentId);
@@ -179,16 +181,16 @@ async function finalize(
     io.err("slack-app: NOT_FOUND: the agent has no created Slack app");
     return SLACK_APP_EXIT.agent_not_found;
   }
-  const publicUrl = slackEventsPublicUrlFrom(io.env);
+  const publicUrl = await eventsBase();
   const result = await wireSlackCliEventsFinalize({
     apps: wireSlackCliAppService(deps),
     agents: deps.apps,
-    publicUrl,
+    publicUrl: async () => publicUrl,
   })({ workspaceId: app.workspaceId, agentId, slackAppId: app.id });
   const warnings = result.warnings.map((warning) => warning.code);
   if (!result.finalized) {
     io.err(
-      `slack-app: ${warnings.join(",")}: set CONSOLE_ORIGIN to the https console origin (or SLACK_EVENTS_PUBLIC_URL to the funnel's https base when events enter apart from it); nothing was sent`,
+      `slack-app: ${warnings.join(",")}: set CONSOLE_ORIGIN to the https console origin (or the events address in Settings > Integrations > Slack when events enter apart from it); nothing was sent`,
     );
     return SLACK_APP_EXIT.events_url_unset;
   }
@@ -250,7 +252,15 @@ export async function runSlackApp(
         consoleOrigin,
       });
       if (command.command === "finalize") {
-        return await finalize(command.agentId, deps, io);
+        return await finalize(
+          command.agentId,
+          deps,
+          slackEventsBaseOf(
+            createPostgresSlackSettingsStore(database.db),
+            consoleOrigin,
+          ),
+          io,
+        );
       }
       if (command.kind === "link") {
         const result = await wireSlackCliLinkAppService(

@@ -50,6 +50,7 @@ export * from "./musterrolle/login-settings.ts";
 export * from "./musterrolle/member-teams.ts";
 export * from "./musterrolle/members.ts";
 export * from "./musterrolle/session-shares.ts";
+export * from "./musterrolle/slack-settings.ts";
 export * from "./musterrolle/surface-bindings.ts";
 export * from "./neutral-fields.ts";
 export * from "./postgres-unit-of-work.ts";

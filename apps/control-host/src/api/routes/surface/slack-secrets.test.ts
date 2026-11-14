@@ -120,7 +120,8 @@ function appWith(enabled: boolean) {
                 api: slack.api,
               })
             : null,
-          urls: slackPublicUrlsOf("https://console.example.test", null),
+          urls: async () =>
+            slackPublicUrlsOf("https://console.example.test", null),
           appKind: async () => null,
         }),
       ),

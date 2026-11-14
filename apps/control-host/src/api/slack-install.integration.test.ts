@@ -54,7 +54,7 @@ integration("slack-install on PostgreSQL", () => {
     const io: SlackInstallIo = {
       env: {
         SLACK_BOT_TOKEN: TOKEN,
-        SLACK_API_URL: `${slack.listenUrl}/api`,
+        MOCK_SLACK_API_URL: `${slack.listenUrl}/api`,
         DATABASE_URL: "postgres://handled-by-openDatabase",
       },
       out: (line) => lines.push(line),
@@ -196,7 +196,7 @@ integration("slack-install on PostgreSQL", () => {
           env: {
             PATH: process.env.PATH ?? "",
             SLACK_BOT_TOKEN: TOKEN,
-            SLACK_API_URL: `${otherSlack.listenUrl}/api`,
+            MOCK_SLACK_API_URL: `${otherSlack.listenUrl}/api`,
             DATABASE_URL: database.url,
           },
           stdout: "pipe",

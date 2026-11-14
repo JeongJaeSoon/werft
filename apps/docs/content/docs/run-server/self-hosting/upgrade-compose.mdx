@@ -139,9 +139,22 @@ SDK를 올리는 릴리스는 이미지가 싣는 런타임 버전을 바꾸고,
 
 이 릴리스부터 API와 slack 역할은 `SLACK_OIDC_REDIRECT_URI`·`SLACK_OIDC_CLIENT_ID`·`SLACK_OIDC_CLIENT_SECRET`을 읽지 않는다. Slack 계정 연결의 redirect는 `CONSOLE_ORIGIN`에 고정 경로 `/settings/linked-accounts/slack`을 붙여 계산한다. client id와 secret은 워크스페이스마다 설정 > 워크스페이스 > 연동 > Slack에서 만든 link 앱의 것만 쓴다.
 
-- 올리기 전에 API와 slack 역할에 `CONSOLE_ORIGIN`이 있는지 본다. 앞선 릴리스는 `CONSOLE_ORIGIN`이 없으면 `SLACK_OIDC_REDIRECT_URI`의 origin을 대신 썼다. 이 릴리스에서는 그때 Slack 계정 연결이 `503`이 되고, Slack 앱을 만들 수 없고, `SLACK_EVENTS_PUBLIC_URL`도 없으면 이벤트 구독이 등록되지 않는다(`events_url_unset`).
+- 올리기 전에 API와 slack 역할에 `CONSOLE_ORIGIN`이 있는지 본다. 앞선 릴리스는 `CONSOLE_ORIGIN`이 없으면 `SLACK_OIDC_REDIRECT_URI`의 origin을 대신 썼다. 이 릴리스에서는 그때 Slack 계정 연결이 `503`이 되고, Slack 앱을 만들 수 없고, 저장한 이벤트 입구 주소(아래)도 없으면 이벤트 구독이 등록되지 않는다(`events_url_unset`).
 - 세 값을 지운다. Compose는 `infra/compose.core.yml`이 더는 넘기지 않으므로 설치의 env 파일에서 줄만 지운다. Kubernetes는 `api.extraEnv`와 `slack.extraEnv`에서 지운다. 값이 남아 있으면 API가 시작할 때 `Ignored removed settings: <이름>` 경고를 한 번 남긴다. 값은 출력하지 않고 동작에도 쓰지 않는다.
 - 이 릴리스는 앞선 빌드로 되돌릴 수 없으므로([프로필 제거의 롤백 하한](#프로필-제거의-롤백-하한)), 되돌릴 때를 위해 남겨 둘 줄은 없다.
+
+### 웹으로 옮긴 Slack 이벤트 입구 주소
+
+이 릴리스부터 API는 `SLACK_EVENTS_PUBLIC_URL`을 읽지 않는다. 이벤트 입구를 콘솔과 따로 둘 때는 owner가 **설정 > 연동 > Slack**의 "이벤트 입구 주소"에 query·fragment·계정 정보 없는 https 주소를 저장한다(`PUT /v1/slack-settings`, 감사 기록 `update_slack_settings`). 비워 두면 `CONSOLE_ORIGIN`에서 계산한 주소를 쓴다. 저장 전에 화면이 계산한 주소와 Slack에 보낼 URL을 보여 준다. 이 값은 설치 전체에 하나다.
+
+- migration `0278_slack_settings`가 `slack_settings` 표를 더한다. 새 API가 처음 뜰 때 이 표가 비어 있고 API 컨테이너에 `SLACK_EVENTS_PUBLIC_URL`이 실제로 들어와 있으면 그 값을 한 번 옮겨 담고, 값 없이 경고를 남긴다. 옮긴 기록은 작성자 없는 감사 기록(`by: "env_import"`)으로 남는다. Compose의 `infra/compose.core.yml`은 이 값을 API에 넘기지 않으므로, 설치 쪽 overlay나 `api.extraEnv`(Kubernetes)로 직접 넘긴 경우에만 옮겨진다. 그 밖에는 올린 뒤 화면에서 저장한다.
+- 옮긴 뒤 env의 줄을 지운다. 남아 있으면 시작할 때마다 `Ignored removed settings: SLACK_EVENTS_PUBLIC_URL` 경고가 남는다. 값이 https가 아니거나 query가 있으면 옮기지 않고 그렇다고 경고한다. 앞선 릴리스와 달리 시작은 멈추지 않는다.
+- 저장한 주소를 바꿔도 이미 만든 앱에는 바로 보내지 않는다. 에이전트의 Slack 탭에서 "다시 확인"을 누르거나 `slack-app finalize`를 실행한다.
+- `slack_settings` 표는 되돌릴 때 지우지 않는다. 앞선 빌드는 이 표를 읽지 않는다.
+
+### mock Slack env 이름
+
+mock Slack 시험 스택(`infra/compose.mock-slack.yml`)이 쓰던 `SLACK_API_URL`·`SLACK_OIDC_ISSUER`는 `MOCK_SLACK_API_URL`·`MOCK_SLACK_OIDC_ISSUER`로 바뀌었다. 옛 이름은 읽지 않고, 남아 있으면 `Ignored removed settings` 경고에 이름이 나온다. 새 이름에 값이 있으면 주소와 상관없이 시작할 때 `Mock Slack override in use: <이름>` 경고를 한 줄 남긴다. 운영 설정에는 두 이름 모두 두지 않는다.
 
 ### worker protocol 필드를 걷어내는 순서
 

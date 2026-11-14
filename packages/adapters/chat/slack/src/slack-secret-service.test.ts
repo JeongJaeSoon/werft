@@ -79,10 +79,11 @@ function serviceWith(
     tokens: options.off
       ? null
       : createSlackConfigTokens({ store: tokenStore.store, api: slack.api }),
-    urls: slackPublicUrlsOf(
-      "https://console.example.test",
-      "https://events.example.test/prefix",
-    ),
+    urls: async () =>
+      slackPublicUrlsOf(
+        "https://console.example.test",
+        "https://events.example.test/prefix",
+      ),
     appKind: async () => options.appKind ?? null,
   });
   return { service, secrets, slack, tokenStore };

@@ -147,7 +147,7 @@ export const workspaceKo = {
   "workspace.tokenDeleted": "App Configuration Token을 삭제했습니다.",
   "workspace.addressesTitle": "Slack 앱에 넣을 주소",
   "workspace.addressesHint":
-    "콘솔의 공개 주소(CONSOLE_ORIGIN)에서 계산한 주소입니다. 콘솔이 만드는 앱에는 자동으로 들어가므로, Slack 앱을 직접 만들었을 때만 복사해서 넣으세요.",
+    "콘솔의 공개 주소(CONSOLE_ORIGIN)에서 계산한 주소입니다. 이벤트 입구 주소를 저장했으면 이벤트 주소는 그것을 씁니다. 콘솔이 만드는 앱에는 자동으로 들어가므로, Slack 앱을 직접 만들었을 때만 복사해서 넣으세요.",
   "workspace.addressRedirect": "Sign in with Slack 리디렉션 URL",
   "workspace.addressEvents": "이벤트 요청 URL",
   "workspace.addressEventsHint":
@@ -160,6 +160,24 @@ export const workspaceKo = {
     "콘솔의 공개 주소(CONSOLE_ORIGIN)가 설정되지 않아 주소를 만들 수 없습니다. 운영자에게 설정을 요청하세요.",
   "workspace.addressNoHttps":
     "Slack은 https 주소만 부릅니다. 콘솔의 공개 주소가 https가 아니어서 이벤트 주소를 만들 수 없습니다.",
+  "workspace.eventsTitle": "이벤트 입구 주소",
+  "workspace.eventsHint":
+    "Slack의 이벤트·버튼 요청이 콘솔과 다른 입구(인터넷 쪽 Ingress, 터널 등)로 들어올 때만 적습니다. 비우면 콘솔의 공개 주소(CONSOLE_ORIGIN)를 씁니다. 이 설치의 모든 워크스페이스에 적용됩니다.",
+  "workspace.eventsLabel": "입구의 https 주소 (선택)",
+  "workspace.eventsComputed": "비워 두면 쓰는 주소: {url}",
+  "workspace.eventsComputedNone":
+    "비워 두면 쓸 주소가 없습니다. 콘솔의 공개 주소(CONSOLE_ORIGIN)가 없거나 https가 아닙니다.",
+  "workspace.eventsInvalid":
+    "https 주소여야 하고 ?·#·계정 정보는 넣을 수 없습니다. 경로(/werft 등)는 넣을 수 있습니다.",
+  "workspace.eventsPreview": "저장하면 Slack에 보낼 이벤트 요청 URL",
+  "workspace.eventsPreviewNone":
+    "보낼 주소가 없어 새로 설치하는 앱은 이벤트를 받지 못합니다.",
+  "workspace.eventsSave": "저장",
+  "workspace.eventsClear": "비우기",
+  "workspace.eventsSaved":
+    "이벤트 입구 주소를 저장했습니다. 이미 만든 앱은 에이전트의 Slack 탭에서 '다시 확인'을 눌러 새 주소를 보내세요.",
+  "workspace.eventsCleared":
+    "이벤트 입구 주소를 비웠습니다. 이미 만든 앱은 에이전트의 Slack 탭에서 '다시 확인'을 눌러 새 주소를 보내세요.",
 };
 
 export const workspaceEn: Record<keyof typeof workspaceKo, string> = {
@@ -313,7 +331,7 @@ export const workspaceEn: Record<keyof typeof workspaceKo, string> = {
   "workspace.tokenDeleted": "Deleted the App Configuration Token.",
   "workspace.addressesTitle": "Addresses for a Slack app",
   "workspace.addressesHint":
-    "Computed from the console's public address (CONSOLE_ORIGIN). Apps the console makes get them automatically; copy them only for a Slack app you made yourself.",
+    "Computed from the console's public address (CONSOLE_ORIGIN); the events address uses the events entrance when one is saved. Apps the console makes get them automatically; copy them only for a Slack app you made yourself.",
   "workspace.addressRedirect": "Sign in with Slack redirect URL",
   "workspace.addressEvents": "Events Request URL",
   "workspace.addressEventsHint":
@@ -326,6 +344,24 @@ export const workspaceEn: Record<keyof typeof workspaceKo, string> = {
     "The console's public address (CONSOLE_ORIGIN) is not set, so no address can be made. Ask the operator to set it.",
   "workspace.addressNoHttps":
     "Slack only calls https addresses. The console's public address is not https, so no events address can be made.",
+  "workspace.eventsTitle": "Events entrance",
+  "workspace.eventsHint":
+    "Fill this in only when Slack's event and button requests enter apart from the console (an internet-facing ingress, a tunnel). Empty, the console's public address (CONSOLE_ORIGIN) is used. It applies to every workspace of this installation.",
+  "workspace.eventsLabel": "The entrance's https address (optional)",
+  "workspace.eventsComputed": "Used while empty: {url}",
+  "workspace.eventsComputedNone":
+    "Nothing is used while empty: the console's public address (CONSOLE_ORIGIN) is unset or not https.",
+  "workspace.eventsInvalid":
+    "Use an https address without ?, # or account details. A path (such as /werft) is fine.",
+  "workspace.eventsPreview": "Events Request URL Slack is sent once saved",
+  "workspace.eventsPreviewNone":
+    "No address to send, so apps installed from now on get no events.",
+  "workspace.eventsSave": "Save",
+  "workspace.eventsClear": "Clear",
+  "workspace.eventsSaved":
+    "Saved the events entrance. For apps made before, press “Recheck” on the agent's Slack tab to send them the new address.",
+  "workspace.eventsCleared":
+    "Cleared the events entrance. For apps made before, press “Recheck” on the agent's Slack tab to send them the new address.",
 };
 
 export const workspaceJa: Record<keyof typeof workspaceKo, string> = {
@@ -480,7 +516,7 @@ export const workspaceJa: Record<keyof typeof workspaceKo, string> = {
   "workspace.tokenDeleted": "App Configuration Token を削除しました。",
   "workspace.addressesTitle": "Slack アプリに入れるアドレス",
   "workspace.addressesHint":
-    "コンソールの公開アドレス(CONSOLE_ORIGIN)から計算したアドレスです。コンソールが作るアプリには自動で入ります。Slack アプリを自分で作った場合だけ、コピーして入れてください。",
+    "コンソールの公開アドレス(CONSOLE_ORIGIN)から計算したアドレスです。イベントの入口アドレスを保存していれば、イベントのアドレスはそれを使います。コンソールが作るアプリには自動で入ります。Slack アプリを自分で作った場合だけ、コピーして入れてください。",
   "workspace.addressRedirect": "Sign in with Slack のリダイレクト URL",
   "workspace.addressEvents": "イベントのリクエスト URL",
   "workspace.addressEventsHint":
@@ -493,4 +529,22 @@ export const workspaceJa: Record<keyof typeof workspaceKo, string> = {
     "コンソールの公開アドレス(CONSOLE_ORIGIN)が設定されていないため、アドレスを作れません。運用者に設定を依頼してください。",
   "workspace.addressNoHttps":
     "Slack は https のアドレスにしか接続しません。コンソールの公開アドレスが https ではないため、イベントのアドレスを作れません。",
+  "workspace.eventsTitle": "イベントの入口アドレス",
+  "workspace.eventsHint":
+    "Slack のイベント・ボタンのリクエストがコンソールとは別の入口(インターネット側の Ingress、トンネルなど)から入るときだけ入力します。空のままならコンソールの公開アドレス(CONSOLE_ORIGIN)を使います。このインストールのすべてのワークスペースに適用されます。",
+  "workspace.eventsLabel": "入口の https アドレス(任意)",
+  "workspace.eventsComputed": "空のときに使うアドレス: {url}",
+  "workspace.eventsComputedNone":
+    "空のときに使うアドレスがありません。コンソールの公開アドレス(CONSOLE_ORIGIN)が未設定か、https ではありません。",
+  "workspace.eventsInvalid":
+    "https のアドレスにしてください。?・#・アカウント情報は入れられません。パス(/werft など)は入れられます。",
+  "workspace.eventsPreview": "保存すると Slack に送るイベントのリクエスト URL",
+  "workspace.eventsPreviewNone":
+    "送るアドレスがないため、これからインストールするアプリはイベントを受け取れません。",
+  "workspace.eventsSave": "保存",
+  "workspace.eventsClear": "クリア",
+  "workspace.eventsSaved":
+    "イベントの入口アドレスを保存しました。作成済みのアプリには、エージェントの Slack タブで「再確認」を押して新しいアドレスを送ってください。",
+  "workspace.eventsCleared":
+    "イベントの入口アドレスをクリアしました。作成済みのアプリには、エージェントの Slack タブで「再確認」を押して新しいアドレスを送ってください。",
 };

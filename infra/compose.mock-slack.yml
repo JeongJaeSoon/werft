@@ -6,7 +6,7 @@
 # the authorize URL. The issuer is only reachable inside the compose network.
 # It accepts the client of any app the Web API fake below made (a
 # workspace's link app). The same service fakes
-# Slack's Web API for SLACK_API_URL (config token rotation, app manifests,
+# Slack's Web API for MOCK_SLACK_API_URL (config token rotation, app manifests,
 # oauth.v2.access); `POST http://mock-slack:4020/fake/config-tokens` returns
 # a config token it accepts. Never layer this over a real deployment: the
 # API would trust whatever the mock signs.
@@ -37,8 +37,8 @@ services:
       # Each workspace links with the link app it makes through the fake on
       # the first start. The issuer and API URL below are for this mock
       # only; an operational deployment never sets them.
-      SLACK_OIDC_ISSUER: http://mock-slack:4020
-      SLACK_API_URL: http://mock-slack:4020/api
+      MOCK_SLACK_OIDC_ISSUER: http://mock-slack:4020
+      MOCK_SLACK_API_URL: http://mock-slack:4020/api
       # The console as a browser on this host opens it; the redirect and
       # events addresses are computed from it.
       CONSOLE_ORIGIN: http://127.0.0.1:3000
@@ -48,7 +48,7 @@ services:
   slack:
     environment:
       CONSOLE_ORIGIN: http://127.0.0.1:3000
-      SLACK_API_URL: http://mock-slack:4020/api
+      MOCK_SLACK_API_URL: http://mock-slack:4020/api
     depends_on:
       mock-slack:
         condition: service_healthy

@@ -155,9 +155,24 @@ SDK を上げるリリースでは、イメージが載せるランタイムの�
 
 このリリースから、API と slack ロールは `SLACK_OIDC_REDIRECT_URI`・`SLACK_OIDC_CLIENT_ID`・`SLACK_OIDC_CLIENT_SECRET` を読みません。Slack アカウント連携のリダイレクトは、`CONSOLE_ORIGIN` に固定パス `/settings/linked-accounts/slack` を付けて計算します。client ID と secret は、ワークスペースごとに 設定 > ワークスペース > 連携 > Slack で作った link アプリのものだけを使います。
 
-- アップグレードの前に、API と slack ロールに `CONSOLE_ORIGIN` があるか確認します。以前のリリースは、`CONSOLE_ORIGIN` がないと `SLACK_OIDC_REDIRECT_URI` の origin を代わりに使いました。このリリースでは、その場合 Slack アカウント連携が `503` になり、Slack アプリを作れず、`SLACK_EVENTS_PUBLIC_URL` もなければイベント購読も登録されません(`events_url_unset`)。
+- アップグレードの前に、API と slack ロールに `CONSOLE_ORIGIN` があるか確認します。以前のリリースは、`CONSOLE_ORIGIN` がないと `SLACK_OIDC_REDIRECT_URI` の origin を代わりに使いました。このリリースでは、その場合 Slack アカウント連携が `503` になり、Slack アプリを作れず、保存したイベントの入口アドレス(下記)もなければイベント購読も登録されません(`events_url_unset`)。
 - 三つの値を削除します。Compose は `infra/compose.core.yml` がもう渡さないので、インストールの env ファイルから行を消すだけです。Kubernetes は `api.extraEnv` と `slack.extraEnv` から削除します。値が残っていると、API は起動時に `Ignored removed settings: <名前>` の警告を一度だけ出します。値は出力せず、動作にも使いません。
 - このリリースは以前のビルドに戻せないため([プロファイル削除の rollback 下限](#프로필-제거의-롤백-하한))、ロールバックのために残しておく行はありません。
+
+<a id="웹으로-옮긴-slack-이벤트-입구-주소" />
+### Web に移した Slack イベントの入口アドレス
+
+このリリースから、API は `SLACK_EVENTS_PUBLIC_URL` を読みません。イベントの入口をコンソールと別にする場合は、owner が **設定 > 連携 > Slack** の「イベントの入口アドレス」に query・fragment・アカウント情報のない https アドレスを保存します(`PUT /v1/slack-settings`、監査記録 `update_slack_settings`)。空のままなら `CONSOLE_ORIGIN` から計算したアドレスを使います。保存の前に、画面が計算したアドレスと Slack に送る URL を表示します。この値はインストール全体で一つです。
+
+- migration `0278_slack_settings` が `slack_settings` テーブルを追加します。新しい API が初めて起動したときにこのテーブルが空で、API コンテナーに `SLACK_EVENTS_PUBLIC_URL` が実際に渡されていれば、その値を一度だけ移し、値を含まない警告を出します。移した記録は作成者のない監査記録(`by: "env_import"`)として残ります。Compose の `infra/compose.core.yml` はこの値を API に渡さないので、インストール側の overlay や `api.extraEnv`(Kubernetes)で自分で渡していた場合にだけ移されます。それ以外はアップグレード後に画面で保存します。
+- 移したあと env の行を削除します。残っていると、起動のたびに `Ignored removed settings: SLACK_EVENTS_PUBLIC_URL` の警告が出ます。https でない値や query のある値は移さず、その旨を警告します。以前のリリースと違い、起動は止まりません。
+- 保存したアドレスを変えても、作成済みのアプリにはすぐには送りません。エージェントの Slack タブで「再確認」を押すか、`slack-app finalize` を実行します。
+- ロールバックするときも `slack_settings` テーブルは削除しません。以前のビルドはこのテーブルを読みません。
+
+<a id="mock-slack-env-이름" />
+### mock Slack の環境変数名
+
+mock Slack 試験スタック(`infra/compose.mock-slack.yml`)が使っていた `SLACK_API_URL`・`SLACK_OIDC_ISSUER` は `MOCK_SLACK_API_URL`・`MOCK_SLACK_OIDC_ISSUER` に変わりました。古い名前は読まず、残っていれば `Ignored removed settings` の警告に名前が出ます。新しい名前に値があると、アドレスに関係なく起動時に `Mock Slack override in use: <名前>` の警告を一行出します。運用設定にはどちらの名前も置きません。
 
 <a id="worker-protocol-필드를-걷어내는-순서" />
 ### worker protocol フィールドを削除する順序

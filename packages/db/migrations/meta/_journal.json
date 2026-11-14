@@ -1310,6 +1310,13 @@
       "when": 1794531096160,
       "tag": "0277_login_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 278,
+      "version": "7",
+      "when": 1794660517275,
+      "tag": "0278_slack_settings",
+      "breakpoints": true
     }
   ]
 }

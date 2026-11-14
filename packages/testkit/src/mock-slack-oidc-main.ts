@@ -4,7 +4,7 @@ import { startMockSlackOidc } from "./mock-slack-oidc.ts";
 // The local stack's Sign in with Slack, for infra/compose.mock-slack.yml:
 // linking a Slack account end to end without a Slack app. The client id and
 // secret are fixed test values, not credentials. The same port answers
-// Slack's Web API (`/api/<method>`) for SLACK_API_URL, and
+// Slack's Web API (`/api/<method>`) for MOCK_SLACK_API_URL, and
 // `POST /fake/config-tokens` hands out a config token it will take.
 const port = Number(process.env.MOCK_SLACK_PORT ?? "4020");
 const idp = await startMockSlackOidc({

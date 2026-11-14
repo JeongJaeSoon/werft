@@ -39,7 +39,7 @@ export const slackEn = {
   "slack.error.consoleOrigin":
     "The console's public address (CONSOLE_ORIGIN) is not set, so no Slack app can be created. Ask an administrator to configure it.",
   "slack.error.eventsUrl":
-    "No https address is known for Slack to send events to. Ask an administrator to set CONSOLE_ORIGIN (or SLACK_EVENTS_PUBLIC_URL when events enter apart from the console).",
+    "No https address is known for Slack to send events to. Ask an administrator to set CONSOLE_ORIGIN, or, when events enter apart from the console, have an owner fill in the events entrance under Settings > Integrations > Slack.",
   "slack.error.creating":
     "App creation is still being checked. Ask an administrator to check Slack for the app, then refresh.",
   "slack.error.notInstalled":

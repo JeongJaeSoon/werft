@@ -303,6 +303,7 @@ import {
   slackLinkCallbackRequestSchema,
   slackLinkCallbackResponseSchema,
   slackSecretSummarySchema,
+  slackSettingsSchema,
   sseEventSchema,
   startGitHubAppManifestRequestSchema,
   startGitHubAppManifestResponseSchema,
@@ -333,6 +334,8 @@ import {
   updateLoginSettingsResponseSchema,
   updateMemberRequestSchema,
   updateSessionRequestSchema,
+  updateSlackSettingsRequestSchema,
+  updateSlackSettingsResponseSchema,
   updateTeamRequestSchema,
   usageAchievementsQuerySchema,
   usageAchievementsResponseSchema,
@@ -440,6 +443,7 @@ const requestComponents = {
   CreateLoginProviderRequest: createLoginProviderRequestSchema,
   UpdateLoginProviderRequest: updateLoginProviderRequestSchema,
   UpdateLoginSettingsRequest: updateLoginSettingsRequestSchema,
+  UpdateSlackSettingsRequest: updateSlackSettingsRequestSchema,
   SetLoginProviderSecretRequest: setLoginProviderSecretRequestSchema,
   AuditRetentionRequest: auditRetentionRequestSchema,
   SlackGuestRequest: slackGuestRequestSchema,
@@ -578,6 +582,8 @@ const responseComponents = {
   DeleteSlackSecretResponse: deleteSlackSecretResponseSchema,
   SlackConfigTokenSummary: slackConfigTokenSummarySchema,
   PutSlackConfigTokenResponse: putSlackConfigTokenResponseSchema,
+  SlackSettings: slackSettingsSchema,
+  UpdateSlackSettingsResponse: updateSlackSettingsResponseSchema,
   GetGitHubAppResponse: getGitHubAppResponseSchema,
   StartGitHubAppManifestResponse: startGitHubAppManifestResponseSchema,
   CompleteGitHubAppManifestResponse: completeGitHubAppManifestResponseSchema,
@@ -1740,7 +1746,7 @@ export const API_ROUTE_DECLARATIONS = [
     summary:
       "Whether the Slack App Configuration Token is set (owner or admin)",
     description:
-      "Says whether a token is set, its last four characters, when it was last set and by whom, when the current access token expires and which Slack user issued it. `state` is `unset`, `active`, or `needs_reentry` when Slack no longer takes the stored token or a rotation's answer was lost: paste a new one. The token itself is never returned. `urls` are the addresses to copy into a Slack app made by hand, computed from the console's public origin (`CONSOLE_ORIGIN`) and fixed paths: `redirect_url` for Sign in with Slack and `events_url_template` with `{agent_id}` for the agent's id. Each is null when it cannot be computed: no origin, or (events) an origin that is not https. API keys are refused.",
+      "Says whether a token is set, its last four characters, when it was last set and by whom, when the current access token expires and which Slack user issued it. `state` is `unset`, `active`, or `needs_reentry` when Slack no longer takes the stored token or a rotation's answer was lost: paste a new one. The token itself is never returned. `urls` are the addresses to copy into a Slack app made by hand, computed from the console's public origin (`CONSOLE_ORIGIN`) and fixed paths: `redirect_url` for Sign in with Slack and `events_url_template` with `{agent_id}` for the agent's id, on the events address an owner saved (PUT /v1/slack-settings) when there is one. Each is null when it cannot be computed: no origin, or (events) no saved address and an origin that is not https. API keys are refused.",
     auth: "session",
     success: {
       status: 200,
@@ -3210,6 +3216,57 @@ export const API_ROUTE_DECLARATIONS = [
     errorNotes: {
       REVISION_CONFLICT:
         "`details.reason_code` says why. Closing passwords: `no_provider` (no provider is on), `no_emergency_admin` (none is named, or the one named can no longer sign in with a password), `locks_out_actor` (the caller is not the emergency admin and has no account of a provider that is on). Naming the emergency admin: `not_eligible` (not an owner who is on and has a password), `locks_out_actor` (passwords are closed, and the caller is the one being replaced with no provider account to come back with).",
+    },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/slack-settings",
+    operationId: "getSlackSettings",
+    tag: "Workspace settings",
+    summary: "Where Slack's events enter, for the whole installation",
+    description: `${SETTINGS_OWNER} \`events_public_url\` is the https base an owner saved because Slack's event and interaction requests enter apart from the console (another ingress, a funnel); null means \`computed_events_base\`, the console's origin from \`CONSOLE_ORIGIN\` (null when there is none or it is not https). \`events_url_template\` is what an agent app's event subscription is sent, \`{agent_id}\` standing for the agent's id; its interactions address is beside it under \`/v1/slack/interactions/\`. The value applies to every workspace of the installation.`,
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "SlackSettings",
+      description:
+        "The saved address, the computed one, and what Slack is sent.",
+      example: {
+        events_public_url: null,
+        computed_events_base: "https://werft.example.com",
+        events_url_template:
+          "https://werft.example.com/v1/slack/events/{agent_id}",
+      },
+    },
+    errors: [401, 403, 503],
+  },
+  {
+    method: "put",
+    path: "/v1/slack-settings",
+    operationId: "updateSlackSettings",
+    tag: "Workspace settings",
+    summary: "Save or clear where Slack's events enter",
+    description: `${SETTINGS_OWNER} \`events_public_url\`: an absolute https URL without a query, fragment or credentials, at most 2048 characters; a path prefix is kept and a trailing slash dropped. Null or an empty string clears it, and the base is computed from \`CONSOLE_ORIGIN\` again. A change is one transaction and one receipt (\`update_slack_settings\`, the saved and the previous address); the value already saved answers 200 without \`receipt_id\` and leaves no receipt. Apps made before keep the address they were sent until their events are checked again (POST /v1/agents/{id}/slack/app/events/recheck).`,
+    auth: "session",
+    body: "UpdateSlackSettingsRequest",
+    requestExample: { events_public_url: "https://events.example.com/werft" },
+    success: {
+      status: 200,
+      schema: "UpdateSlackSettingsResponse",
+      description: "The settings after the change.",
+      example: {
+        events_public_url: "https://events.example.com/werft",
+        computed_events_base: "https://werft.example.com",
+        events_url_template:
+          "https://events.example.com/werft/v1/slack/events/{agent_id}",
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
+    errors: [400, 401, 403, 503],
+    errorNotes: {
+      BAD_REQUEST:
+        "Also when the address is not an https URL without a query, fragment or credentials (`details.reason_code: events_url_invalid`), or is longer than 2048 characters.",
     },
     idempotent: false,
   },
@@ -6318,7 +6375,7 @@ export const API_ROUTE_DECLARATIONS = [
     errorCodes: { 409: ["CONFIG_TOKEN_INVALID"] },
     errorNotes: {
       BACKEND_UNAVAILABLE:
-        "Also without an https events address (`CONSOLE_ORIGIN`, or `SLACK_EVENTS_PUBLIC_URL` when events enter apart from the console), or when Slack refuses or loses the manifest update.",
+        "Also without an https events address (`CONSOLE_ORIGIN`, or the address saved with PUT /v1/slack-settings when events enter apart from the console), or when Slack refuses or loses the manifest update.",
     },
   },
   {
@@ -6475,7 +6532,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Slack's Events API request URL for one agent's app",
     description:
-      "Called by Slack, not by people: each agent app's event subscription points here (Finalize registers it when an https events address is known: `CONSOLE_ORIGIN`, or `SLACK_EVENTS_PUBLIC_URL` when events enter apart from the console). The body is read up to 256 KiB (413 above that), then checked in this order: the `v0` signature (`X-Slack-Signature`) over the raw bytes with the app's signing secret, the `X-Slack-Request-Timestamp` within 300 seconds, then the JSON. An unknown agent, an agent without a created app, an app without a signing secret, a wrong, missing or stale signature all answer the same 401. A signed `url_verification` answers its `challenge`. An `event_callback` is stored once per `(team_id, event_id)`, so Slack's retries (`X-Slack-Retry-Num`) answer 200 without a second row; one for another app or team than the agent's install, from a bot, or of a message subtype other than `thread_broadcast`, is stored as dropped with its reason. `app_uninstalled` and `tokens_revoked` mark the install revoked and revoke the agent's identity on it, so the console shows the app as needing a reinstall; a repeat or an event sent before a reinstall changes nothing. Any other envelope type answers 200 and is ignored. A failed write answers 5xx so Slack sends the event again. Rate limited per agent and overall before any database read (429).",
+      "Called by Slack, not by people: each agent app's event subscription points here (Finalize registers it when an https events address is known: `CONSOLE_ORIGIN`, or the address saved with PUT /v1/slack-settings when events enter apart from the console). The body is read up to 256 KiB (413 above that), then checked in this order: the `v0` signature (`X-Slack-Signature`) over the raw bytes with the app's signing secret, the `X-Slack-Request-Timestamp` within 300 seconds, then the JSON. An unknown agent, an agent without a created app, an app without a signing secret, a wrong, missing or stale signature all answer the same 401. A signed `url_verification` answers its `challenge`. An `event_callback` is stored once per `(team_id, event_id)`, so Slack's retries (`X-Slack-Retry-Num`) answer 200 without a second row; one for another app or team than the agent's install, from a bot, or of a message subtype other than `thread_broadcast`, is stored as dropped with its reason. `app_uninstalled` and `tokens_revoked` mark the install revoked and revoke the agent's identity on it, so the console shows the app as needing a reinstall; a repeat or an event sent before a reinstall changes nothing. Any other envelope type answers 200 and is ignored. A failed write answers 5xx so Slack sends the event again. Rate limited per agent and overall before any database read (429).",
     auth: "public",
     body: "SlackEventEnvelope",
     requestExample: {

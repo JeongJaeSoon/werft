@@ -157,18 +157,18 @@ describe("control host executable", () => {
   );
 
   test(
-    "the slack loop warns once at start when SLACK_API_URL points away from Slack, without the value",
+    "the slack loop warns once at start when MOCK_SLACK_API_URL is set, without the value",
     async () => {
       const seen = await runUntil(
         ["slack"],
         {
           DATABASE_URL: "postgres://nobody@127.0.0.1:1/none",
           PLATFORM_SECRET_KEY: "ab".repeat(32),
-          SLACK_API_URL: "https://slack-proxy.example/api",
+          MOCK_SLACK_API_URL: "https://slack-proxy.example/api",
         },
-        "SLACK_API_URL points away from Slack",
+        "Mock Slack override in use: MOCK_SLACK_API_URL",
       );
-      expect(seen).toContain("SLACK_API_URL points away from Slack");
+      expect(seen).toContain("Mock Slack override in use: MOCK_SLACK_API_URL");
       expect(seen).not.toContain("slack-proxy.example");
     },
     TIMEOUT_MS,
