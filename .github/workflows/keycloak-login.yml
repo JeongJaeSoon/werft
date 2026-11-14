@@ -63,7 +63,6 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
-      VERIFY_AP_ROOT: ${{ runner.temp }}/verify-werft
       # The runner image's Chrome; its version is printed below.
       CHROME: /usr/bin/google-chrome
     steps:
