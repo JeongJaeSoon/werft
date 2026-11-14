@@ -14,7 +14,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
-- **게시 chart의 기본 worker 이미지가 그 릴리스의 Claude·Codex 두 이미지 목록(`images.workers`)으로 바뀐다. 패키지의 `images.worker`는 비어 있고, Helm values의 `images.workerCodex`는 없어졌다**(JeongJaeSoon/werft#PR2). 새 설치는 두 엔진의 세션을 함께 띄운다. 올리기 전에 단일 이미지를 유지할지 목록으로 바꿀지 정한다. 두 절차 모두 [Kubernetes 업그레이드](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/upgrade-kubernetes)에 있다. control-host를 먼저 바꾸는 1단계는 두 설치에 같다.
+- **게시 chart의 기본 worker 이미지가 그 릴리스의 Claude·Codex 두 이미지 목록(`images.workers`)으로 바뀐다. 패키지의 `images.worker`는 비어 있고, Helm values의 `images.workerCodex`는 없어졌다**(JeongJaeSoon/werft#1737). 새 설치는 두 엔진의 세션을 함께 띄운다. 올리기 전에 단일 이미지를 유지할지 목록으로 바꿀지 정한다. 두 절차 모두 [Kubernetes 업그레이드](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/upgrade-kubernetes)에 있다. control-host를 먼저 바꾸는 1단계는 두 설치에 같다.
   - 단일 이미지를 유지하려면 values에 `images.workers: []`와 `images.worker`의 repository·digest·runtime을 적는다. 값은 대상 chart의 `files/release-images.json`에서 얻는다. 1단계의 `next_workers control`과 2단계의 `worker.json`이 이 값을 만든다. Codex 이미지를 배포하는 설치는 2단계의 `ENGINE`을 `codex`로 둔다.
   - 목록으로 바꾸려면 [이미지 목록 설치의 upgrade](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/upgrade-kubernetes#이미지-목록-설치의-upgrade)를 따른다. 2단계는 대상 chart의 `files/next-workers.jq final`로 만든 목록을 넘긴다. 처음 바꿀 때는 `KNOWN`에 배포된 이미지(있으면 직전 이미지도)의 `releasedAt`을 적고, runtime 없이 배포했다면 runtime도 적는다(JeongJaeSoon/werft#1731).
   - 이 절차 없이 올리면 결과는 설치에 따라 다르다. values에 `images.worker`를 적은 설치는 render에서 실패한다(`set images.workers: [] to deploy images.worker alone`). hook과 migration은 돌지 않는다. 적지 않은 설치는 목록 설치로 바뀌고, 지금 이미지를 직전 이미지로 남기지 않는다. 지금 이미지의 checkpoint를 목록의 이미지가 복원하지 못하면(엔진·SDK·CLI가 다르거나 runtime 없이 배포한 이미지) 업그레이드 전 검사가 승인할 수 없는 `refused`로 멈춘다.
