@@ -429,20 +429,80 @@ check_bundle() {
   done
 }
 
-# Compose bind-mounts host files (the release's init SQL and LocalStack script,
-# the settings document) into containers that run as their own users, so a
-# checkout or bundle made under umask 077 or 027 otherwise surfaces only as an
-# unhealthy postgres after deploy has created its volume.
+# The uid[:gid] a service reads its bind mounts as, empty when unknown: the
+# render's `user:`, else what these images run as. postgres's entrypoint drops
+# to its postgres user, LocalStack's supervisor stays root, and the
+# control-host image runs as 1000.
+mount_reader() {
+  local user="$1" image="$2"
+  if [ -n "$user" ]; then
+    case "$user" in *[!0-9:]* | :*) ;; *) printf '%s' "$user" ;; esac
+    return 0
+  fi
+  case "$image" in
+    postgres:*) printf '999:999' ;;
+    localstack/localstack:*) printf '0:0' ;;
+    "$API_IMAGE") printf '1000:1000' ;;
+  esac
+}
+
+# Sets MODE_OK to the find expression for "uid $2 (gid $3) has the permission
+# bits $1 (4 read, 5 read and search)", by owner, then group, then others.
+mode_ok() {
+  local bits="$1" uid="$2" gid="$3"
+  if [ -z "$uid" ]; then
+    MODE_OK=(-perm "-00${bits}")
+  elif [ -z "$gid" ]; then
+    MODE_OK=(\( -user "$uid" -perm "-${bits}00" \) -o \( ! -user "$uid" -perm "-00${bits}" \))
+  else
+    MODE_OK=(\( -user "$uid" -perm "-${bits}00" \) -o \( ! -user "$uid" -group "$gid" -perm "-0${bits}0" \)
+      -o \( ! -user "$uid" ! -group "$gid" -perm "-00${bits}" \))
+  fi
+}
+
+# Compose bind-mounts host files (the release's init SQL, the settings
+# document, the legacy config directory) into containers that do not run as
+# the operator, so a checkout or bundle made under umask 077 or 027 otherwise
+# surfaces only as an unhealthy postgres or a failed migrate after deploy has
+# created the database volume.
 check_mount_modes() {
-  local source path closed=()
-  while IFS= read -r source; do
-    while IFS= read -r path; do closed+=("$path"); done \
-      < <(find -H "$source" \( -type f ! -perm -004 \) -o \( -type d ! -perm -005 \) 2>/dev/null)
-  done < <(printf '%s' "$RENDER" | jq -r '[.services[].volumes[]? | select(.type == "bind") | .source] | unique[]')
-  [ "${#closed[@]}" = 0 ] && return
+  local list found errs service user image source reader uid gid path file_ok dir_ok closed=()
+  list="$(mktemp)" found="$(mktemp)" errs="$(mktemp)"
+  if ! printf '%s' "$RENDER" | jq -j '.services | to_entries[] | .key as $s | .value as $v
+      | ($v.volumes // [])[] | select(.type == "bind")
+      | "\($s)\u0000\($v.user // "")\u0000\($v.image // "")\u0000\(.source)\u0000"' >"$list"; then
+    rm -f "$list" "$found" "$errs"
+    die "cannot read the bind mounts of the render"
+  fi
+  while IFS= read -r -d '' service && IFS= read -r -d '' user && IFS= read -r -d '' image \
+    && IFS= read -r -d '' source; do
+    # A missing source is compose's to create, as an empty directory.
+    [ -e "$source" ] || continue
+    reader="$(mount_reader "$user" "$image")"
+    uid="${reader%%:*}" gid=""
+    [ "$reader" = "$uid" ] || gid="${reader#*:}"
+    [ "$uid" != 0 ] || continue
+    mode_ok 4 "$uid" "$gid"
+    file_ok=("${MODE_OK[@]}")
+    mode_ok 5 "$uid" "$gid"
+    dir_ok=("${MODE_OK[@]}")
+    if ! find -H "$source" \( \( -type f ! \( "${file_ok[@]}" \) \) -o \( -type d ! \( "${dir_ok[@]}" \) \) \) \
+      -print0 >"$found" 2>"$errs"; then
+      cat "$errs" >&2
+      rm -f "$list" "$found" "$errs"
+      die "cannot check the modes under $source (above)"
+    fi
+    while IFS= read -r -d '' path; do
+      # The legacy import skips dot entries, like the .gitkeep that keeps the directory.
+      case "${path#"$source"}" in */.*) continue ;; esac
+      closed+=("$path ($service, uid ${uid:-unknown})")
+    done <"$found"
+  done <"$list"
+  rm -f "$list" "$found" "$errs"
+  [ "${#closed[@]}" != 0 ] || return 0
   printf '  %s\n' "${closed[@]:0:10}" >&2
-  [ "${#closed[@]}" -le 10 ] || printf '  ... and %s more\n' "$(( ${#closed[@]} - 10 ))" >&2
-  die "${#closed[@]} path(s) the containers mount are not readable by other users (above), and the containers do not run as you. Run chmod -R o+rX on the checkout or bundle directory and chmod o+r on the settings document, or make them again under umask 022"
+  [ "${#closed[@]}" -le 10 ] || printf '  ... and %s more\n' "$((${#closed[@]} - 10))" >&2
+  die "${#closed[@]} path(s) the containers mount cannot be read by the user their container runs as (above). Give that user read access (chmod -R o+rX on the checkout or bundle directory and chmod o+r on the settings document are enough), or make them again under umask 022"
 }
 
 # The loaded manifest against this host. The workspace quota itself is the
