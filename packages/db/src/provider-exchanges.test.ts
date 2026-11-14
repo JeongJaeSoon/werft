@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { PGlite } from "@electric-sql/pglite";
-import type { ProviderUsage } from "@werft-ai/platform";
+import type { HeldSpend, ProviderUsage } from "@werft-ai/platform";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
@@ -94,6 +94,19 @@ async function rows() {
   return db.select().from(providerExchanges);
 }
 
+function ledgerOf(admits: (held: HeldSpend) => boolean = () => true) {
+  return createProviderExchangeLedger(db, { admits });
+}
+
+async function releasedAgo(exchangeId: string, agoMs: number) {
+  await db
+    .update(providerExchanges)
+    .set({
+      releasedAt: sql`clock_timestamp() - ${agoMs}::double precision * interval '1 millisecond'`,
+    })
+    .where(eq(providerExchanges.exchangeId, exchangeId));
+}
+
 async function expireLease(exchangeId: string, agoMs = 1_000) {
   await db
     .update(providerExchanges)
@@ -106,7 +119,7 @@ async function expireLease(exchangeId: string, agoMs = 1_000) {
 describe("opening and renewing a provider exchange", () => {
   test("an open makes a row with the reserve and a lease; the same open again keeps its first time", async () => {
     const who = await owner();
-    const ledger = createProviderExchangeLedger(db);
+    const ledger = ledgerOf();
     const exchangeId = crypto.randomUUID();
     expect(await ledger.open({ exchangeId, ...who, reserve: RESERVE })).toEqual(
       { outcome: "created" },
@@ -129,7 +142,7 @@ describe("opening and renewing a provider exchange", () => {
   test("another owner or another reserve under the same id is refused and changes nothing", async () => {
     const a = await owner();
     const b = await owner();
-    const ledger = createProviderExchangeLedger(db);
+    const ledger = ledgerOf();
     const exchangeId = crypto.randomUUID();
     await ledger.open({ exchangeId, ...a, reserve: RESERVE });
     const before = await rows();
@@ -149,7 +162,7 @@ describe("opening and renewing a provider exchange", () => {
   test("an open for a pair that does not exist makes no row", async () => {
     const a = await owner();
     const b = await owner();
-    const ledger = createProviderExchangeLedger(db);
+    const ledger = ledgerOf();
     expect(
       await ledger.open({
         exchangeId: crypto.randomUUID(),
@@ -163,7 +176,7 @@ describe("opening and renewing a provider exchange", () => {
 
   test("a renewal extends a row that exists and clears its notice; it never makes one", async () => {
     const who = await owner();
-    const ledger = createProviderExchangeLedger(db);
+    const ledger = ledgerOf();
     expect(await ledger.renew(crypto.randomUUID())).toBe("gone");
     expect(await rows()).toEqual([]);
 
@@ -180,10 +193,174 @@ describe("opening and renewing a provider exchange", () => {
   });
 });
 
+describe("judging a session's budget at the open", () => {
+  test("the judge sees the stored spend and every unreleased reserve, the new one's included", async () => {
+    const who = await owner();
+    const other = await owner();
+    const seen: HeldSpend[] = [];
+    const ledger = ledgerOf((held) => {
+      seen.push(held);
+      return true;
+    });
+    const first = crypto.randomUUID();
+    await ledger.open({ exchangeId: first, ...who, reserve: RESERVE });
+    // Another session's row and a released row of this one count nothing.
+    await ledger.open({
+      exchangeId: crypto.randomUUID(),
+      ...other,
+      reserve: RESERVE,
+    });
+    const released = crypto.randomUUID();
+    await ledger.open({ exchangeId: released, ...who, reserve: RESERVE });
+    await ledger.release({ exchangeId: released, ...who, reserve: RESERVE });
+    const bigger = { ...RESERVE, outputTokens: 64_000 };
+    await ledger.open({
+      exchangeId: crypto.randomUUID(),
+      ...who,
+      reserve: bigger,
+    });
+    expect(seen[3]).toMatchObject({
+      costUsd: 0,
+      providerTokens: 0,
+      unmetered: false,
+    });
+    expect(seen[3]?.reserves).toHaveLength(2);
+    expect(seen[3]?.reserves).toEqual(
+      expect.arrayContaining([RESERVE, bigger]),
+    );
+
+    // Reported, the first call counts as stored spend and no longer as a
+    // reserve. (Triggers are off here: the token count is the integration
+    // test's.)
+    await report(who, first);
+    await ledger.open({
+      exchangeId: crypto.randomUUID(),
+      ...who,
+      reserve: RESERVE,
+    });
+    expect(seen[4]).toMatchObject({ costUsd: 0.0084, unmetered: false });
+    expect(seen[4]?.reserves).toHaveLength(2);
+    expect(seen[4]?.reserves).toEqual(
+      expect.arrayContaining([RESERVE, bigger]),
+    );
+  });
+
+  test("a refused open makes no row; the same open again once admitted is not judged twice", async () => {
+    const who = await owner();
+    const exchangeId = crypto.randomUUID();
+    expect(
+      await ledgerOf(() => false).open({
+        exchangeId,
+        ...who,
+        reserve: RESERVE,
+      }),
+    ).toEqual({ outcome: "budget_exceeded" });
+    expect(await rows()).toEqual([]);
+
+    await ledgerOf().open({ exchangeId, ...who, reserve: RESERVE });
+    expect(
+      await ledgerOf(() => false).open({
+        exchangeId,
+        ...who,
+        reserve: RESERVE,
+      }),
+    ).toEqual({ outcome: "open" });
+  });
+
+  test("an unmetered session's judge is told so", async () => {
+    const who = await owner();
+    await db
+      .update(sessions)
+      .set({ unmetered: true })
+      .where(eq(sessions.id, who.sessionId));
+    let unmetered: boolean | undefined;
+    await ledgerOf((held) => {
+      unmetered = held.unmetered;
+      return true;
+    }).open({ exchangeId: crypto.randomUUID(), ...who, reserve: RESERVE });
+    expect(unmetered).toBe(true);
+  });
+});
+
+describe("releasing a call the provider never billed", () => {
+  test("a release marks the row; it no longer renews, and the same open finds it released", async () => {
+    const who = await owner();
+    const ledger = ledgerOf();
+    const exchangeId = crypto.randomUUID();
+    await ledger.open({ exchangeId, ...who, reserve: RESERVE });
+    expect(await ledger.release({ exchangeId, ...who, reserve: RESERVE })).toBe(
+      "released",
+    );
+    const [marked] = await rows();
+    expect(marked?.releasedAt).not.toBeNull();
+    expect(await ledger.renew(exchangeId)).toBe("gone");
+    expect(await ledger.open({ exchangeId, ...who, reserve: RESERVE })).toEqual(
+      { outcome: "released" },
+    );
+    // Released twice, the first time stands.
+    await ledger.release({ exchangeId, ...who, reserve: RESERVE });
+    expect((await rows())[0]?.releasedAt?.getTime()).toBe(
+      marked?.releasedAt?.getTime() ?? -1,
+    );
+  });
+
+  test("a release before its open leaves a mark, so the late open counts nothing", async () => {
+    const who = await owner();
+    const ledger = ledgerOf();
+    const exchangeId = crypto.randomUUID();
+    expect(await ledger.release({ exchangeId, ...who, reserve: RESERVE })).toBe(
+      "released",
+    );
+    expect(await ledger.open({ exchangeId, ...who, reserve: RESERVE })).toEqual(
+      { outcome: "released" },
+    );
+    const [mark] = await rows();
+    expect(mark?.releasedAt).not.toBeNull();
+  });
+
+  test("a release after the report changes nothing; a released row a report reaches is deleted", async () => {
+    const who = await owner();
+    const ledger = ledgerOf();
+    const reported = crypto.randomUUID();
+    await report(who, reported);
+    expect(
+      await ledger.release({ exchangeId: reported, ...who, reserve: RESERVE }),
+    ).toBe("settled");
+    expect(await rows()).toEqual([]);
+
+    const released = crypto.randomUUID();
+    await ledger.open({ exchangeId: released, ...who, reserve: RESERVE });
+    await ledger.release({ exchangeId: released, ...who, reserve: RESERVE });
+    expect(await report(who, released)).toMatchObject({ outcome: "recorded" });
+    expect(await rows()).toEqual([]);
+  });
+
+  test("another owner's release, or one for no such pair, changes nothing", async () => {
+    const a = await owner();
+    const b = await owner();
+    const ledger = ledgerOf();
+    const exchangeId = crypto.randomUUID();
+    await ledger.open({ exchangeId, ...a, reserve: RESERVE });
+    const before = await rows();
+    expect(await ledger.release({ exchangeId, ...b, reserve: RESERVE })).toBe(
+      "conflict",
+    );
+    expect(
+      await ledger.release({
+        exchangeId: crypto.randomUUID(),
+        sessionId: a.sessionId,
+        attemptId: b.attemptId,
+        reserve: RESERVE,
+      }),
+    ).toBe("unknown_attempt");
+    expect(await rows()).toEqual(before);
+  });
+});
+
 describe("a usage report and the ledger", () => {
   test("a report deletes its own row, and a replay of it changes nothing more", async () => {
     const who = await owner();
-    const ledger = createProviderExchangeLedger(db);
+    const ledger = ledgerOf();
     const exchangeId = crypto.randomUUID();
     await ledger.open({ exchangeId, ...who, reserve: RESERVE });
     expect(await report(who, exchangeId)).toMatchObject({
@@ -215,7 +392,7 @@ describe("a usage report and the ledger", () => {
 
   test("once reported, a late open makes no row and a late renewal finds none", async () => {
     const who = await owner();
-    const ledger = createProviderExchangeLedger(db);
+    const ledger = ledgerOf();
     const exchangeId = crypto.randomUUID();
     await report(who, exchangeId);
     expect(await ledger.open({ exchangeId, ...who, reserve: RESERVE })).toEqual(
@@ -231,7 +408,7 @@ describe("a usage report and the ledger", () => {
     const exchangeId = crypto.randomUUID();
     await report(who, exchangeId);
     expect(
-      await createProviderExchangeLedger(db).open({
+      await ledgerOf().open({
         exchangeId,
         sessionId: who.sessionId.toUpperCase(),
         attemptId: who.attemptId,
@@ -244,7 +421,7 @@ describe("a usage report and the ledger", () => {
   test("a late open naming another owner than the report is refused", async () => {
     const a = await owner();
     const b = await owner();
-    const ledger = createProviderExchangeLedger(db);
+    const ledger = ledgerOf();
     const exchangeId = crypto.randomUUID();
     await report(a, exchangeId);
     expect(await ledger.open({ exchangeId, ...b, reserve: RESERVE })).toEqual({
@@ -256,7 +433,7 @@ describe("a usage report and the ledger", () => {
   test("a report from another owner leaves the row and says so; a conflicting report leaves it too", async () => {
     const a = await owner();
     const b = await owner();
-    const ledger = createProviderExchangeLedger(db);
+    const ledger = ledgerOf();
     const exchangeId = crypto.randomUUID();
     await ledger.open({ exchangeId, ...a, reserve: RESERVE });
     expect(await report(b, exchangeId)).toMatchObject({
@@ -281,7 +458,7 @@ describe("a usage report and the ledger", () => {
 
   test("a report for no such attempt leaves the row", async () => {
     const who = await owner();
-    const ledger = createProviderExchangeLedger(db);
+    const ledger = ledgerOf();
     const exchangeId = crypto.randomUUID();
     await ledger.open({ exchangeId, ...who, reserve: RESERVE });
     expect(
@@ -297,7 +474,7 @@ describe("a usage report and the ledger", () => {
 describe("the reconciler's pass over the ledger", () => {
   async function expiredRow(who: Owner, agoMs = 1_000): Promise<string> {
     const exchangeId = crypto.randomUUID();
-    await createProviderExchangeLedger(db).open({
+    await ledgerOf().open({
       exchangeId,
       ...who,
       reserve: RESERVE,
@@ -344,7 +521,7 @@ describe("the reconciler's pass over the ledger", () => {
         .noticed,
     ).toEqual([]);
 
-    await createProviderExchangeLedger(db).renew(exchangeId);
+    await ledgerOf().renew(exchangeId);
     expect(
       (await reconcileProviderExchanges(db, { limit: 10, dryRun: false }))
         .noticed,
@@ -358,7 +535,7 @@ describe("the reconciler's pass over the ledger", () => {
 
   test("a row whose lease is still running is left alone", async () => {
     const who = await owner();
-    await createProviderExchangeLedger(db).open({
+    await ledgerOf().open({
       exchangeId: crypto.randomUUID(),
       ...who,
       reserve: RESERVE,
@@ -369,17 +546,35 @@ describe("the reconciler's pass over the ledger", () => {
     expect(await rows()).toHaveLength(1);
   });
 
-  test("a row expired past the keep period is deleted", async () => {
+  test("a row released past the keep period is deleted; an unreleased row is kept whatever its age", async () => {
     const who = await owner();
     const day = 24 * 60 * 60 * 1_000;
-    await expiredRow(who, (PROVIDER_EXCHANGE_KEEP_DAYS + 1) * day);
-    const kept = await expiredRow(who, (PROVIDER_EXCHANGE_KEEP_DAYS - 1) * day);
+    const gone = await expiredRow(who, day);
+    await releasedAgo(gone, (PROVIDER_EXCHANGE_KEEP_DAYS + 1) * day);
+    const recent = await expiredRow(who, day);
+    await releasedAgo(recent, (PROVIDER_EXCHANGE_KEEP_DAYS - 1) * day);
+    const unreleased = await expiredRow(
+      who,
+      (PROVIDER_EXCHANGE_KEEP_DAYS + 30) * day,
+    );
     const result = await reconcileProviderExchanges(db, {
       limit: 10,
       dryRun: false,
     });
     expect(result.deleted).toBe(1);
-    expect((await rows()).map((row) => row.exchangeId)).toEqual([kept]);
+    expect((await rows()).map((row) => row.exchangeId).sort()).toEqual(
+      [recent, unreleased].sort(),
+    );
+  });
+
+  test("a released row is never noticed, expired or not", async () => {
+    const who = await owner();
+    const exchangeId = await expiredRow(who);
+    await ledgerOf().release({ exchangeId, ...who, reserve: RESERVE });
+    expect(
+      (await reconcileProviderExchanges(db, { limit: 10, dryRun: false }))
+        .noticed,
+    ).toEqual([]);
   });
 
   test("each step takes at most the batch limit", async () => {
@@ -428,6 +623,7 @@ describe("the reconciler's pass over the ledger", () => {
         who,
         (PROVIDER_EXCHANGE_KEEP_DAYS + 1 + n) * day,
       );
+      await releasedAgo(exchangeId, (PROVIDER_EXCHANGE_KEEP_DAYS + 1) * day);
       await db.insert(providerUsage).values({
         exchangeId,
         ...who,

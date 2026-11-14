@@ -87,6 +87,7 @@ import {
   type Tracer,
 } from "@werft-ai/observability";
 import {
+  admitsReservations,
   CATALOG_REFRESH_MS,
   createAchievementJudge,
   createAchievementRuleService,
@@ -150,6 +151,7 @@ import {
   releaseStartable,
   resolveAgentRelease,
   SessionServiceError,
+  sessionBudgetOf,
   settingsJudgeConnections,
   withConsoleRepositories,
 } from "@werft-ai/platform";
@@ -1104,7 +1106,9 @@ const authorizerListener =
         fetch: createEgressAuthorizer({
           gateway: workers,
           logger,
-          exchanges: createProviderExchangeLedger(db),
+          exchanges: createProviderExchangeLedger(db, {
+            admits: admitsReservations(sessionBudgetOf(limits)),
+          }),
           ...(githubMcpGrantKey === null
             ? {}
             : {

@@ -215,18 +215,18 @@ const usageReportSchema = z.union([
 ]);
 
 // Open a provider call before calling upstream, with what its request alone
-// says it may use; renew one still streaming. A session's calls only.
+// says it may use, where the session's budget is judged; renew one still
+// streaming; release one the provider never billed. A session's calls only.
+const exchangeCall = {
+  exchange_id: z.string().uuid(),
+  session_id: z.string().uuid(),
+  attempt_id: z.string().min(1).max(256),
+  reserve: usageSchema,
+};
 const exchangeRequestSchema = z.discriminatedUnion("op", [
-  z
-    .object({
-      op: z.literal("open"),
-      exchange_id: z.string().uuid(),
-      session_id: z.string().uuid(),
-      attempt_id: z.string().min(1).max(256),
-      reserve: usageSchema,
-    })
-    .strict(),
+  z.object({ op: z.literal("open"), ...exchangeCall }).strict(),
   z.object({ op: z.literal("renew"), exchange_id: z.string().uuid() }).strict(),
+  z.object({ op: z.literal("release"), ...exchangeCall }).strict(),
 ]);
 
 /** The report's snake_case usage as the platform counts it. */
@@ -413,7 +413,7 @@ export function createEgressAuthorizer(deps: {
         return problem(
           400,
           "BAD_REQUEST",
-          "Expected {op: open, exchange_id, session_id, attempt_id, reserve} or {op: renew, exchange_id}",
+          "Expected {op: open | release, exchange_id, session_id, attempt_id, reserve} or {op: renew, exchange_id}",
         );
       }
       return answerWithin(() => recordExchange(exchanges, body), {
@@ -562,7 +562,8 @@ export function createEgressAuthorizer(deps: {
     return { cost_usd: priced.costUsd, priced_by: priced.pricedBy };
   }
 
-  // The proxy does not wait for these answers; they only say what was done.
+  // The proxy calls upstream only on an open answered `open`; a renewal's
+  // and a release's answers only say what was done.
   async function recordExchange(
     ledger: ProviderExchangeLedger,
     body: z.infer<typeof exchangeRequestSchema>,
@@ -570,31 +571,48 @@ export function createEgressAuthorizer(deps: {
     if (body.op === "renew") {
       return Response.json({ state: await ledger.renew(body.exchange_id) });
     }
-    const opened = await ledger.open({
+    const call = {
       exchangeId: body.exchange_id,
       sessionId: body.session_id,
       attemptId: body.attempt_id,
       reserve: countedOf(body.reserve),
-    });
+    };
+    const unknownAttempt = () =>
+      new WorkerGatewayError(
+        404,
+        "NOT_FOUND",
+        "No such attempt of that session",
+      );
+    const conflict = () =>
+      new WorkerGatewayError(
+        409,
+        "IDEMPOTENCY_CONFLICT",
+        "That exchange is another owner's or was opened with another reserve",
+      );
+    if (body.op === "release") {
+      const released = await ledger.release(call);
+      if (released === "unknown_attempt") throw unknownAttempt();
+      if (released === "conflict") throw conflict();
+      return Response.json({ state: released });
+    }
+    const opened = await ledger.open(call);
     switch (opened.outcome) {
       case "created":
         return Response.json({ state: "open" }, { status: 201 });
       case "open":
-        return Response.json({ state: "open" });
       case "settled":
-        return Response.json({ state: "settled" });
+      case "released":
+        return Response.json({ state: opened.outcome });
+      case "budget_exceeded":
+        throw new WorkerGatewayError(
+          403,
+          "BUDGET_EXCEEDED",
+          "The session's spend with this call's reserve reaches its cost or token limit",
+        );
       case "unknown_attempt":
-        throw new WorkerGatewayError(
-          404,
-          "NOT_FOUND",
-          "No such attempt of that session",
-        );
+        throw unknownAttempt();
       case "conflict":
-        throw new WorkerGatewayError(
-          409,
-          "IDEMPOTENCY_CONFLICT",
-          "That exchange is another owner's or was opened with another reserve",
-        );
+        throw conflict();
     }
   }
 

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import type { ProviderUsage } from "@werft-ai/platform";
+import type { HeldSpend, ProviderUsage } from "@werft-ai/platform";
 import {
   createTempDatabase,
   type TempDatabase,
@@ -12,6 +12,7 @@ import {
   createProviderExchangeLedger,
   LOCK_SPACE,
   lockProviderExchange,
+  lockProviderExchangeSession,
 } from "./provider-exchanges.ts";
 import type { Database } from "./queries.ts";
 import * as schema from "./schema.ts";
@@ -63,6 +64,10 @@ integration("the provider exchange ledger under concurrent writers", () => {
     await pool.end();
     await database.drop();
   });
+
+  function ledgerOf(admits: (held: HeldSpend) => boolean = () => true) {
+    return createProviderExchangeLedger(db as unknown as Database, { admits });
+  }
 
   async function owner() {
     const sessionId = crypto.randomUUID();
@@ -154,11 +159,7 @@ integration("the provider exchange ledger under concurrent writers", () => {
       });
       expect(await waits(reporting)).toBe("waited");
       expect(await waitingOnLock(exchangeId, 1)).toBe(1);
-      opening = createProviderExchangeLedger(db as unknown as Database).open({
-        exchangeId,
-        ...who,
-        reserve: RESERVE,
-      });
+      opening = ledgerOf().open({ exchangeId, ...who, reserve: RESERVE });
       expect(await waits(opening)).toBe("waited");
       expect(await waitingOnLock(exchangeId, 2)).toBe(2);
     } finally {
@@ -184,11 +185,7 @@ integration("the provider exchange ledger under concurrent writers", () => {
     let opening: Promise<unknown> | undefined;
     try {
       await lockProviderExchange(report.asDb, exchangeId);
-      opening = createProviderExchangeLedger(db as unknown as Database).open({
-        exchangeId,
-        ...who,
-        reserve: RESERVE,
-      });
+      opening = ledgerOf().open({ exchangeId, ...who, reserve: RESERVE });
       expect(await waits(opening)).toBe("waited");
       // The report records its usage, then commits.
       await report.run(
@@ -214,9 +211,7 @@ integration("the provider exchange ledger under concurrent writers", () => {
     // What any other advisory lock in the repository takes: the one-key form.
     await other.run("SELECT pg_advisory_xact_lock(hashtext($1))", [exchangeId]);
     try {
-      const opening = createProviderExchangeLedger(
-        db as unknown as Database,
-      ).open({ exchangeId, ...who, reserve: RESERVE });
+      const opening = ledgerOf().open({ exchangeId, ...who, reserve: RESERVE });
       expect(await waits(opening)).toBe("done");
       expect(await opening).toEqual({ outcome: "created" });
     } finally {
@@ -233,7 +228,7 @@ integration("the provider exchange ledger under concurrent writers", () => {
       [who.sessionId, who.attemptId],
     );
     try {
-      const ledger = createProviderExchangeLedger(db as unknown as Database);
+      const ledger = ledgerOf();
       const exchangeId = crypto.randomUUID();
       const opening = ledger.open({ exchangeId, ...who, reserve: RESERVE });
       expect(await waits(opening)).toBe("done");
@@ -244,5 +239,96 @@ integration("the provider exchange ledger under concurrent writers", () => {
     } finally {
       await fence.end();
     }
+  }, 20_000);
+
+  test("two opens of one session queue on its lock however its id is spelled, so only one fits a limit of one call", async () => {
+    const who = await owner();
+    // Room for one reserve: the second open must see the first's row.
+    const ledger = ledgerOf((held) => held.reserves.length <= 1);
+    const gate = await held();
+    let openings: Promise<{ outcome: string }>[] = [];
+    try {
+      await lockProviderExchangeSession(gate.asDb, who.sessionId);
+      openings = [who.sessionId, who.sessionId.toUpperCase()].map((sessionId) =>
+        ledger.open({
+          exchangeId: crypto.randomUUID(),
+          ...who,
+          sessionId,
+          reserve: RESERVE,
+        }),
+      );
+      for (const opening of openings) {
+        expect(await waits(opening)).toBe("waited");
+      }
+    } finally {
+      await gate.end();
+    }
+    const outcomes = (await Promise.all(openings)).map((one) => one.outcome);
+    expect(outcomes.sort()).toEqual(["budget_exceeded", "created"]);
+  }, 20_000);
+
+  test("migration 0280 keeps the rows still leased when its transaction began", async () => {
+    const who = await owner();
+    const migration = await Bun.file(
+      new URL(
+        "../migrations/0280_provider_exchange_release.sql",
+        import.meta.url,
+      ),
+    ).text();
+    const sweep = migration.split("--> statement-breakpoint").at(-1) ?? "";
+    expect(sweep).toContain("DELETE");
+    const stale = crypto.randomUUID();
+    const leased = crypto.randomUUID();
+    const migrating = await held();
+    try {
+      await migrating.asDb.insert(providerExchanges).values([
+        {
+          exchangeId: stale,
+          ...who,
+          reserve: RESERVE,
+          leaseExpiresAt: sql`now() - interval '1 second'`,
+        },
+        {
+          exchangeId: leased,
+          ...who,
+          reserve: RESERVE,
+          leaseExpiresAt: sql`clock_timestamp() + interval '200 milliseconds'`,
+        },
+      ]);
+      // As if the ALTER waited for its lock past the lease.
+      await migrating.run("SELECT pg_sleep(0.4)");
+      await migrating.run(sweep);
+    } finally {
+      await migrating.end();
+    }
+    const left = (await db.select().from(providerExchanges))
+      .map((row) => row.exchangeId)
+      .filter((id) => id === stale || id === leased);
+    expect(left).toEqual([leased]);
+  }, 20_000);
+
+  test("after a report the judge sees its cost and tokens as stored spend, and its row gone", async () => {
+    const who = await owner();
+    const exchangeId = crypto.randomUUID();
+    await ledgerOf().open({ exchangeId, ...who, reserve: RESERVE });
+    await createPostgresWorkerUnitOfWork(
+      db as unknown as Database,
+    ).recordProviderUsageAtomic({
+      exchangeId,
+      ...who,
+      usage: { ...RESERVE, outputTokens: 80, estimated: false },
+      priceFor: () => ({ costUsd: 0.0084, pricedBy: "table" }),
+    });
+    let seen: HeldSpend | undefined;
+    await ledgerOf((held) => {
+      seen = held;
+      return true;
+    }).open({ exchangeId: crypto.randomUUID(), ...who, reserve: RESERVE });
+    expect(seen).toEqual({
+      costUsd: 0.0084,
+      providerTokens: RESERVE.inputTokens + 80,
+      unmetered: false,
+      reserves: [RESERVE],
+    });
   }, 20_000);
 });

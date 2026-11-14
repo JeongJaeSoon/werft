@@ -3169,8 +3169,17 @@ export const providerExchanges = pgTable(
     }).notNull(),
     // When the reconciler logged the lease as expired; a renewal clears it.
     noticedAt: timestamp("noticed_at", { withTimezone: true }),
+    // Set when the proxy said the provider never billed the call: the row
+    // stays so a late open cannot count the reserve again, and no judgment
+    // counts it.
+    releasedAt: timestamp("released_at", { withTimezone: true }),
   },
-  (table) => [index("provider_exchanges_lease_idx").on(table.leaseExpiresAt)],
+  (table) => [
+    index("provider_exchanges_lease_idx").on(table.leaseExpiresAt),
+    index("provider_exchanges_session_held_idx")
+      .on(table.sessionId)
+      .where(sql`${table.releasedAt} IS NULL`),
+  ],
 );
 
 // provider_usage summed per session and model by the provider_usage insert
