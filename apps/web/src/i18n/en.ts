@@ -9,6 +9,7 @@ import { authEn } from "./auth.ts";
 import { commonEn } from "./common.ts";
 import { engineSettingsEn } from "./engine-settings.ts";
 import { errorsEn } from "./errors.ts";
+import { executionLimitsEn } from "./execution-limits.ts";
 import { githubEn } from "./github.ts";
 import { githubUserLinkEn } from "./github-user-link.ts";
 import { homeEn } from "./home.ts";
@@ -235,6 +236,7 @@ export const en: Record<MessageKey, string> = {
   ...linkedEn,
   ...loginMethodsEn,
   ...loginProvidersEn,
+  ...executionLimitsEn,
   ...outputsEn,
   ...apiKeysEn,
   ...workspaceEn,

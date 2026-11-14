@@ -10,10 +10,12 @@ import * as schema from "@werft-ai/db";
 import {
   createPostgresSessionUnitOfWork,
   createPostgresWorkerUnitOfWork,
+  createProviderExchangeLedger,
 } from "@werft-ai/db";
 import { launchSession } from "@werft-ai/db/testing/launches";
 import { createLogger } from "@werft-ai/observability";
 import {
+  admitsReservations,
   createWorkerGateway,
   type GitHubGrant,
   priceProviderUsage,
@@ -73,6 +75,7 @@ import { GitWorkspace } from "../apps/worker/src/workspace.ts";
 const AUTHORIZER_BEARER = `authorizer-${crypto.randomUUID()}`;
 const CLAUDE_CONNECTION = "claude";
 const RESPONSES_CONNECTION = "openai";
+const SESSION_COST_LIMIT_USD = 1_000;
 const REPOSITORY_HOST = "git.test";
 const silentProxy = createProxyLogger("error", () => {});
 
@@ -193,7 +196,7 @@ async function topology(
     },
     checkpoints: acceptAllCheckpoints,
     options: {
-      sessionCostLimitUsd: 1_000,
+      sessionCostLimitUsd: SESSION_COST_LIMIT_USD,
       sessionTokenLimit: null,
       leaseTtlMs: 60_000,
     },
@@ -203,6 +206,13 @@ async function topology(
     port: 0,
     fetch: createEgressAuthorizer({
       gateway,
+      // As server.ts wires it: a billed call waits for its open.
+      exchanges: createProviderExchangeLedger(db, {
+        admits: admitsReservations({
+          costUsd: SESSION_COST_LIMIT_USD,
+          tokens: null,
+        }),
+      }),
       logger: createLogger({ sinks: [] }),
       token: AUTHORIZER_BEARER,
     }),

@@ -31,6 +31,7 @@ import {
   createPostgresGitHubPackagesStore,
   createPostgresGitHubPinStore,
   createPostgresGitHubSettingsStore,
+  createPostgresInstallationConfigStore,
   createPostgresInstallationSettingsStore,
   createPostgresInviteStore,
   createPostgresJudgmentEgress,
@@ -214,6 +215,10 @@ import { extensionDepsFor } from "./extension-deps.ts";
 import { githubCallbackUrl } from "./github-link.ts";
 import { githubPackagesConfigFromEnv } from "./github-packages-config.ts";
 import {
+  createInstallationConfigAdmin,
+  createInstallationConfigSource,
+} from "./installation-config.ts";
+import {
   credentialHostsFromEnv,
   leftOutReporter,
   settingsSource,
@@ -244,6 +249,7 @@ import {
   registerSessionAttributionRoutes,
   registerSessionOutcomeRoutes,
 } from "./routes/github/github-work.ts";
+import { registerInstallationConfigRoutes } from "./routes/installation-config.ts";
 import {
   registerInstallationSettingsRoutes,
   registerSettingsConsoleRoutes,
@@ -592,6 +598,17 @@ const { store: slackSettingsStore } = carryOverSlackSettings({
   retryMs: CATALOG_READ_RETRY_MS,
 });
 const slackEventsBase = slackEventsBaseOf(slackSettingsStore, consoleOrigin);
+const installationConfig = createInstallationConfigSource({
+  env: process.env,
+  store: createPostgresInstallationConfigStore(db),
+  warn: (message, fields) => logger.warn(message, fields ?? {}),
+  refreshMs: CATALOG_REFRESH_MS,
+  retryMs: CATALOG_READ_RETRY_MS,
+});
+const installationConfigAdmin = createInstallationConfigAdmin({
+  authorization,
+  source: installationConfig,
+});
 const slackActiveReleaseWarning: SlackServicesStageDeps["activeReleaseWarning"] =
   async (workspaceId, agentId) => {
     const release = (await agentStore.get(workspaceId, agentId))
@@ -1093,7 +1110,8 @@ const workers = createWorkerGateway({
     leaseTtlMs: settings.leaseTtlMs,
     // How long a permission or question takes answers. The worker waits
     // exactly this long once the request is registered.
-    pendingTtlMs: settings.pendingTtlMs,
+    pendingTtlMs: async () =>
+      (await installationConfig.get("pending_request_ttl_sec")) * 1000,
     stopWaiting: shutdown.stopWaiting,
   },
 });
@@ -1256,6 +1274,7 @@ const app = createApiApp({
     registerLoginProviderRoutes(router, providerAdmin);
     registerLoginSettingsRoutes(router, loginSettingsAdmin);
     registerSlackSettingsRoutes(router, slackSettingsAdmin);
+    registerInstallationConfigRoutes(router, installationConfigAdmin);
     registerAchievementRoutes(router, achievementRules);
     registerSessionAchievementRoutes(
       router,
@@ -1327,7 +1346,14 @@ const app = createApiApp({
     createReadinessProbe({
       db: probePool,
       requiredEnv: API_READINESS_REQUIRED_ENV,
-      configProblems: apiReadinessConfigProblems,
+      // A blocked key stays out: the owner fixes it in the console, which
+      // a not-ready API would keep them from reaching.
+      configProblems: (environment) => [
+        ...apiReadinessConfigProblems(environment),
+        ...(installationConfig.loaded()
+          ? []
+          : ["installation config not read yet"]),
+      ],
     }),
   ),
 });

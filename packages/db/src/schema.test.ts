@@ -173,6 +173,7 @@ describe("database schema", () => {
       "github_workspace_settings",
       "grants",
       "idempotency_keys",
+      "installation_config",
       "invites",
       "linked_accounts",
       "login_methods",

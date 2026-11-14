@@ -16,6 +16,7 @@ import {
   failedBeforeRequest,
   type UpstreamBody,
   upstreamExchange,
+  wroteNothing,
 } from "./upstream-http.ts";
 import {
   type MessagesUsage,
@@ -54,7 +55,10 @@ import {
 
 export const DEFAULT_CREDENTIAL_PORT = 3129;
 const DEFAULT_AUTHORIZE_TIMEOUT_MS = 10_000;
-/** One open or renewal in the exchange ledger; nothing waits on it. */
+/**
+ * One request to the exchange ledger. A billed call waits this long for its
+ * open; renewals and releases are waited on by nothing.
+ */
 const LEDGER_TIMEOUT_MS = 5_000;
 /**
  * Waits between tries of one usage report. The report carries the exchange's
@@ -1185,9 +1189,6 @@ export function startCredentialProxy(
     allow: [],
     allowPrivate: [],
   };
-  // One entry per session that lost a report, never evicted: dropping one
-  // would re-approve a session whose stored cost is still too low.
-  const unreportedSessions = new Set<string>();
   let open = 0;
   let bodyBytes = 0;
   const perClient = new Map<string, number>();
@@ -1327,19 +1328,62 @@ export function startCredentialProxy(
       // the same one; only an authorizer that could not answer is retried.
       const backoff = usageBackoffMs[tried];
       if ((status !== null && status < 500) || backoff === undefined) {
+        // The call's ledger row stays and goes on counting its reserve, so
+        // the session's later calls are still judged against it.
         logger.error("Provider usage went unreported", { ...fields, status });
-        // Fail closed: the session's stored cost now undercounts, so its
-        // later provider calls are refused as a spent budget.
-        if (grant.sessionId !== null) unreportedSessions.add(grant.sessionId);
         return;
       }
       await Bun.sleep(backoff);
     }
   }
 
-  // The exchange ledger only observes (provider-usage-ledger.md): nothing
-  // waits for it, and no answer or failure reaches the call. An older API
-  // answers 404, which is dropped like any other.
+  // A billed call's open in the exchange ledger (provider-usage-ledger.md,
+  // "2c-2"): "open" lets it go upstream, "budget" is the session's limit, and
+  // anything else, an older API's 404 included, is "failed".
+  async function openLedger(
+    body: Readonly<Record<string, unknown>>,
+    signal: AbortSignal,
+  ): Promise<"open" | "budget" | "failed"> {
+    try {
+      const response = await fetch(exchangesUrl, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${options.authorizer.token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ op: "open", ...body }),
+        redirect: "error",
+        signal: AbortSignal.any([
+          AbortSignal.timeout(LEDGER_TIMEOUT_MS),
+          signal,
+        ]),
+      });
+      const answer: unknown = await response.json().catch(() => null);
+      const state =
+        typeof answer === "object" && answer !== null
+          ? (answer as { state?: unknown }).state
+          : undefined;
+      if (
+        response.status === 201 ||
+        (response.status === 200 && state === "open")
+      ) {
+        return "open";
+      }
+      if (response.status === 403 && isBudgetRefusal(answer)) return "budget";
+      logger.warn("Exchange ledger did not open the call", {
+        status: response.status,
+        state: typeof state === "string" ? state : null,
+      });
+    } catch (error) {
+      logger.warn("Exchange ledger unreachable", {
+        error: error instanceof Error ? error.name : "error",
+      });
+    }
+    return "failed";
+  }
+
+  // A renewal or a release: nothing waits for it, and no answer or failure
+  // reaches the call. A release lost leaves the row counted, never fewer.
   function toLedger(body: Readonly<Record<string, unknown>>): void {
     void (async () => {
       try {
@@ -1663,8 +1707,9 @@ export function startCredentialProxy(
     // The exchange's id: the ledger's open and renewals and the usage
     // report all name the call by it.
     exchangeId: string,
-    // Called once with the whole body just before the upstream is called.
-    beforeUpstream?: (body: Uint8Array | null) => void,
+    // A billed call's ledger entry, opened with the whole body just before
+    // the upstream is called.
+    ledger?: LedgerCall,
   ): Promise<Response> {
     const who = {
       purpose: route.purpose,
@@ -1739,7 +1784,8 @@ export function startCredentialProxy(
             ? objectBody(request, grant)
             : await whole;
       if (body instanceof Uint8Array) sent = body;
-      beforeUpstream?.(sent);
+      const refused = await ledger?.open(sent, signal);
+      if (refused) return refused;
       const headers = upstreamRequestHeaders(request.headers, grant);
       if (route.lfs !== undefined) {
         headers.set("accept", LFS_MEDIA_TYPE);
@@ -1800,6 +1846,7 @@ export function startCredentialProxy(
         }
       }
     } catch (error) {
+      if (wroteNothing(error)) ledger?.release();
       if (error instanceof BodyTooLargeError) {
         return reply(413, "request body too large", route.purpose);
       }
@@ -1810,6 +1857,8 @@ export function startCredentialProxy(
       return reply(502, "upstream connection failed", route.purpose);
     }
     logger.info("Credential route", { ...fields, status: response.status });
+    // A provider bills no call it answered with an error.
+    if (!response.ok) ledger?.release();
     let presigned: string[] = [];
     if (route.lfs !== undefined && response.ok) {
       const answered = await lfsAnswer(response);
@@ -2134,7 +2183,7 @@ export function startCredentialProxy(
       ]);
       let regrant: ReturnType<typeof setTimeout> | undefined;
       const exchangeId = crypto.randomUUID();
-      // Set once the ledger open is sent: renewals follow it, never lead.
+      // Set once the ledger opened the call: renewals follow it, never lead.
       let opened = false;
       let ended = false;
       let answered = false;
@@ -2294,19 +2343,6 @@ export function startCredentialProxy(
             return reply(403, outside, route.purpose);
           }
         }
-        // A session whose spend went unreported has a stored cost below its
-        // real one, so the budget gate can no longer be trusted for it.
-        if (
-          route.purpose === "provider" &&
-          authorized.grant.sessionId !== null &&
-          unreportedSessions.has(authorized.grant.sessionId)
-        ) {
-          release();
-          logger.warn("Provider call refused: session usage unreported", {
-            session_id: authorized.grant.sessionId,
-          });
-          return budgetExceededReply(route.path);
-        }
         // Authorized: from here the exchange deadline bounds it, not the
         // idle clock, which a silent non-streaming call would trip.
         server.timeout(request, 0);
@@ -2319,6 +2355,42 @@ export function startCredentialProxy(
           (route.path === "/v1/messages" || route.path === RESPONSES_PATH) &&
           sessionId !== null &&
           attemptId !== null;
+        // The open's body, once sent: a release repeats it.
+        let entry: Record<string, unknown> | null = null;
+        const ledger: LedgerCall | undefined = ledgered
+          ? {
+              async open(sent, signal) {
+                const asked = {
+                  exchange_id: exchangeId,
+                  session_id: sessionId,
+                  attempt_id: attemptId,
+                  reserve: requestEstimate(sent, route.path === RESPONSES_PATH),
+                };
+                entry = asked;
+                const answer = await openLedger(asked, signal);
+                if (answer === "open") {
+                  opened = true;
+                  return null;
+                }
+                if (answer === "budget") {
+                  logger.warn("Provider call refused: session budget", {
+                    session_id: sessionId,
+                  });
+                  return budgetExceededReply(route.path);
+                }
+                // The API may have opened it and lost only its answer.
+                toLedger({ op: "release", ...asked });
+                return reply(
+                  503,
+                  "the usage ledger could not open the call; retry in a few seconds",
+                  route.purpose,
+                );
+              },
+              release() {
+                if (entry !== null) toLedger({ op: "release", ...entry });
+              },
+            }
+          : undefined;
         const response = await exchange(
           request,
           route,
@@ -2327,18 +2399,7 @@ export function startCredentialProxy(
           ends,
           whole,
           exchangeId,
-          ledgered
-            ? (sent) => {
-                toLedger({
-                  op: "open",
-                  exchange_id: exchangeId,
-                  session_id: sessionId,
-                  attempt_id: attemptId,
-                  reserve: requestEstimate(sent, route.path === RESPONSES_PATH),
-                });
-                opened = true;
-              }
-            : undefined,
+          ledger,
         );
         const relayed = new Response(tracked(response.body, release), {
           status: response.status,
@@ -2373,6 +2434,14 @@ export function startCredentialProxy(
 }
 
 class BodyTooLargeError extends Error {}
+
+/** A billed provider call's entry in the exchange ledger. */
+type LedgerCall = {
+  /** Null lets the call go upstream; a response answers it instead. */
+  open(body: Uint8Array | null, signal: AbortSignal): Promise<Response | null>;
+  /** Says the provider cannot have billed a call that was opened. */
+  release(): void;
+};
 
 type Dialable = { address: string; host: string; port: number };
 

@@ -6,7 +6,7 @@ owner가 워크스페이스에 GitHub App을 등록하고 에이전트 상한을
 
 - `app-register` `PUT /v1/workspaces/{id}/github-app`(owner·admin, cookie만, master key 필요) → `github_app`(`app_id`, `slug`, `permissions`, `warnings`)과 `set_github_app` receipt. `GET`은 `check.state: "ok"`와 sandbox 저장소의 `installation_id`.
 - `ceiling` `GET`·`PUT /v1/workspaces/{id}/github-settings`: `ceiling`(workflows·actions·checks·issues·review), `revision`(처음 0, 쓸 때마다 +1, 다르면 `409 REVISION_CONFLICT`), `apps.author.permissions`. `set_github_ceiling` receipt.
-- `agent-github` 설정(`repositories`, `push_approval`, `features`, `actions_allow`)은 `PUT /v1/agents/{id}/github/settings` `{expected_revision, settings, start_repository_id}`로 저장한다(웹 세션만, API key는 `403 web_session_required`, 어긋난 revision은 `409 REVISION_CONFLICT`). 읽기는 `GET /v1/agents/{id}/github`의 `github`·`settings_revision`·`start_repository_id`·`legacy_defaults`·`options`. 설정 행이 생긴 에이전트에 `github`가 든 릴리스 요청은 `409 github_settings_exist`다. 아래 3단계의 릴리스 본문 `github`는 행이 없는 에이전트의 첫 설정에만 쓴다. `start_repository_id`는 저장·읽기만 되고 세션 시작에는 쓰이지 않는다(`startRepositoryOf`).
+- `agent-github` 설정(`repositories`, `push_approval`, `features`, `actions_allow`)은 `PUT /v1/agents/{id}/github/settings` `{expected_revision, settings, start_repository_id}`로 저장한다(웹 세션만, API key는 `403 web_session_required`, 어긋난 revision은 `409 REVISION_CONFLICT`). 설정 행이 아직 없는 에이전트의 첫 저장은 `expected_revision: null`이다. 읽기는 `GET /v1/agents/{id}/github`의 `github`·`settings_revision`·`start_repository_id`·`legacy_defaults`·`options`. 설정 행이 생긴 에이전트에 `github`가 든 릴리스 요청은 `409 github_settings_exist`다. 아래 3단계의 릴리스 본문 `github`는 행이 없는 에이전트의 첫 설정에만 쓴다. `start_repository_id`는 저장·읽기만 되고 세션 시작에는 쓰이지 않는다(`startRepositoryOf`).
 - `clone` 세션 생성(`agent_release_id`) → worker가 egress proxy로 clone. 시작 저장소 규칙: 요청의 `repository_id`가 있으면 그 저장소, 없으면 설정 행이 있는 에이전트는 저장소 없이 시작해 `attach_repository`로 붙인 저장소를 받아 오고, 행이 없는 에이전트(아래 3단계의 릴리스 `github`로 설정한 경우)는 릴리스의 저장소로 시작한다. 게이트가 `mint_github_token`(`purpose: clone`)을 남긴다.
 - `push` `POST …/push-requests` `{}` → `requested` → `POST …/approve` `{git_commit}` → `approved` → `pushing` → `pushed`. `git_commit`은 요청이 고정한 값이어야 한다.
 - `pull-request` `POST …/push-requests/{id}/pull-request` → 201 `created: true`, 다시 부르면 200 `created: false`. GitHub 작성자는 `app/werft-sandbox-agent`.
@@ -84,14 +84,14 @@ node $U <run id> key owner personal sessions:read,sessions:write,sessions:approv
 SPEC='GATE-SPEC {"id":"gh1","steps":[{"tool":"Bash","input":{"command":"mkdir -p notes && date -u +%FT%TZ > notes/verify-skill.txt && git add notes/verify-skill.txt && git commit -qm \"docs: verify-werft sandbox note\" && git log --oneline -1","description":"commit a note"}}],"final":"committed"}'
 SID=$(ap_post /v1/sessions "$(jq -nc --arg r "$REL" --arg m "$SPEC" '{agent_release_id:$r, message:$m}')" | head -1 | jq -r .session_id)
 printf 'SID=%s\n' "$SID"
-for i in $(seq 1 90); do [ "$(ap_get "/v1/sessions/$SID" | head -1 | jq -r .status)" = needs_input ] && break; sleep 2; done
-REQ=$(ap_get "/v1/sessions/$SID/pending-requests" | head -1 | jq -r '.items[0].request_id')
-ap_web POST "/v1/sessions/$SID/answers" "$(jq -nc --arg r "$REQ" '{request_id:$r, kind:"permission", action:"allow"}')"
+for i in $(seq 1 90); do s=$(ap_get "/v1/sessions/$SID" | head -1 | jq -r .status); case $s in needs_input|idle|failed) break ;; esac; sleep 2; done; echo "$s"
+REQ=$(ap_get "/v1/sessions/$SID/pending-requests" | head -1 | jq -r '.items[0].request_id // empty')
+[ -z "$REQ" ] || ap_web POST "/v1/sessions/$SID/answers" "$(jq -nc --arg r "$REQ" '{request_id:$r, kind:"permission", action:"allow"}')"
 for i in $(seq 1 60); do [ "$(ap_get "/v1/sessions/$SID/turns/1" | head -1 | jq -r .status)" = completed ] && break; sleep 2; done
 ap_get "/v1/sessions/$SID/turns/1" | tee "$EVIDENCE/gh-turn.txt"
 ```
 
-기대: 세션 `201`(저장소 `sandbox`. 설정 행이 없는 에이전트라서이고, 행이 있는 에이전트는 `repository_id: null`로 시작한다), `needs_input`에 Bash 권한 요청 하나, answers `202`(사람의 cookie로 답한다. 웹에서 발급한 개인 key로 자기 세션에 답하면 `403 FORBIDDEN` `self_approval`), turn 1 `completed`. clone이 실패하면 세션이 `failed`이고 이유는 6의 `mint_github_token` 거절 receipt에 있다.
+기대: 세션 `201`(저장소 `sandbox`. 설정 행이 없는 에이전트라서이고, 행이 있는 에이전트는 `repository_id: null`로 시작한다). Bash 권한 요청은 올 때만 답한다. run `20261115-012625-32204`(2026-11-15)에서는 권한 요청 없이 Bash가 실행되어 `needs_input`을 거치지 않고 turn 1이 끝났다. 요청이 오면 `needs_input`에 하나, answers `202`(사람의 cookie로 답한다. 웹에서 발급한 개인 key로 자기 세션에 답하면 `403 FORBIDDEN` `self_approval`), turn 1 `completed`. clone이 실패하면 세션이 `failed`이고 이유는 6의 `mint_github_token` 거절 receipt에 있다.
 
 ```sh
 # 4b. push 거절 3종 (승인 전 push 요청이 없는 상태에서, 5보다 먼저)
@@ -162,6 +162,28 @@ orch heavy <program> -- .claude/skills/verify-werft/scripts/down.sh <run id>
 orch release verify-stack
 ```
 
+## Git LFS 객체 받기
+
+sandbox에는 LFS 업로드 경로가 없다(worker도 egress proxy도 업로드를 열지 않는다). 그래서 앞선 검증이 올려 둔 객체 하나(oid `e503fa2e603377bc54e3173205a6a06e7392907ddcfc1bda377172df82a4f5d9`, 38 bytes, 한 줄짜리 텍스트)를 pointer로 다시 쓴다. pointer는 sandbox `main`에 없으므로 세션 안에서 로컬 브랜치에 commit하고 받는다. 4단계의 에이전트와 key로 새 세션을 만든다. 이 세션은 push하지 않는다.
+
+```sh
+# L1. pointer commit → git lfs pull
+. "$VERIFY_RUN/ids.sh"; ap_as owner
+CMD='git switch -qc lfs-check && mkdir -p lfs && printf "version https://git-lfs.github.com/spec/v1\noid sha256:e503fa2e603377bc54e3173205a6a06e7392907ddcfc1bda377172df82a4f5d9\nsize 38\n" > lfs/hello.bin && printf "lfs/hello.bin filter=lfs diff=lfs merge=lfs -text\n" > .gitattributes && git add .gitattributes lfs/hello.bin && git commit -qm "test: lfs pointer" && git lfs version && git lfs pull origin && cat lfs/hello.bin && sha256sum lfs/hello.bin'
+SPEC="GATE-SPEC $(jq -nc --arg c "$CMD" '{id:"lfs1",steps:[{tool:"Bash",input:{command:$c,description:"pull the LFS object"}}],final:"pulled"}')"
+LSID=$(ap_post /v1/sessions "$(jq -nc --arg r "$REL" --arg m "$SPEC" '{agent_release_id:$r, message:$m}')" | head -1 | jq -r .session_id)
+printf 'LSID=%s\n' "$LSID"
+for i in $(seq 1 90); do s=$(ap_get "/v1/sessions/$LSID" | head -1 | jq -r .status); case $s in needs_input|idle|failed) break ;; esac; sleep 2; done; echo "$s"
+REQ=$(ap_get "/v1/sessions/$LSID/pending-requests" | head -1 | jq -r '.items[0].request_id // empty')
+[ -z "$REQ" ] || ap_web POST "/v1/sessions/$LSID/answers" "$(jq -nc --arg r "$REQ" '{request_id:$r, kind:"permission", action:"allow"}')"
+for i in $(seq 1 60); do [ "$(ap_get "/v1/sessions/$LSID/turns/1" | head -1 | jq -r .status)" = completed ] && break; sleep 2; done
+ap_get "/v1/sessions/$LSID/turns/1" | head -1 | jq -r .status   # completed
+ap_compose exec -T postgres psql -U postgres -d sessions -At -c "select payload->>'content' from events where session_id='$LSID' and type='tool_result'" | tee "$EVIDENCE/gh-lfs.txt"
+ap_compose logs egress-proxy 2>&1 | grep -c "lfs"
+```
+
+기대: `git-lfs/…` 한 줄, `werft-sandbox LFS object for `로 시작하는 파일 내용 한 줄, `sha256sum`이 위 oid와 같다. oid가 내용의 sha256이므로 내용은 이 일치로 확인한다. LFS batch는 저장소 route(`/repository/sandbox/.git/info/lfs/objects/batch`)로, 객체는 `EGRESS_PACKAGES_REDIRECT_ALLOWLIST`의 `github-cloud.githubusercontent.com`으로 받는다. egress proxy 로그에는 `Credential route LFS object` 줄이 남는다. run `20261115-012625-32204`에서 내용과 sha256이 위 값과 같았다. 객체 주소는 batch 응답에서 온다. overlay에서 그 host를 빼면 proxy가 그 주소를 처음 검사할 때 거절해(`Credential route denied` 경고) 객체 다운로드가 `502`다. 코드(`apps/egress-proxy/src/credential.ts`의 `lfsObject`) 기준이며, 이 run에서 빼 보지는 않았다. 끝나면 세션을 terminate한다.
+
 ## PR 본문 읽기와 꼬리 교체 (`get_pull_request`, `expected_body_sha256`)
 
 설계는 `docs/contributing/decisions/pull-request-read.md`의 C다. 위 1–5단계로 세션이 commit A를 push하고 PR을 연 뒤 한다. 릴리스의 `features`는 모두 false여도 된다. fake 모델의 GATE-SPEC으로 MCP 도구를 부르고, 도구 결과는 DB `events`의 `tool_result`에서 읽는다(`/v1/sessions/{id}/events`는 SSE라 `head`로 끊기지 않는다).
@@ -230,6 +252,13 @@ ap_compose exec -T postgres psql -U postgres -d sessions -At -c "select result::
 - 기본값(C): `ceiling.merge: false`.
 
 ## Gotchas
+
+- **실제 GitHub App 흐름은 이 절차에서만 본다.** CI의 e2e 스택(`tests/e2e`)은 실제 GitHub가 아니라 로컬 가짜 git host와 가짜 App 키(`werft/local/fake-github-app`)로 돈다. 그래서 실제 App 토큰이 있어야 하는 흐름(실제 저장소 clone, `attach_repository`로 붙이기, 실제 GitHub로의 push·PR, LFS 객체의 redirect)은 CI가 확인하지 않고, 이 로컬 sandbox run으로만 확인한다. 이 흐름을 바꾼 PR은 이 절차의 출력을 근거로 남긴다.
+
+- **파생 worker 이미지는 이 run의 태그 밖 이름으로 둔다.** 출하 worker 이미지에는 npm·go가 없다. 그런 도구를 더한 파생 이미지가 필요하면 이 run의 `WORKER_IMAGE`(`werft-worker:<project>`)에서 `FROM`으로 만들고, 다른 이름(예: `werft-worker-deps:<run id>`)을 붙인다. `down.sh`는 이 run의 태그와 compose가 이름 붙인 이미지만 정확한 이름으로 지우므로(`--rmi local` 포함), 다른 이름의 파생 이미지는 down 뒤에도 남는다. 파생 이미지에 run 태그를 덮어 쓰면 down이 함께 지운다. 다 쓰면 `docker image rm <정확한 이름>`으로 지운다. 그 이미지로 worker를 띄우는 방법(scheduler만 `WORKER_IMAGE`를 바꿔 다시 만들기)은 아직 확인하지 못했다. 2026-11-15 run에서 그 명령이 agent-guard에 막혀 실행되지 않았다. 그래서 공개 npm 설치 출력도 아직 없다. 이 절차를 처음 돌리는 사람은 명령과 결과를 여기에 적는다. scheduler를 다시 만들 때는 아래 master key 항목을 먼저 본다.
+
+- **run 안에서 api(또는 master key를 받는 서비스)를 `ap_compose up -d`로 다시 만들지 않는다.** `PLATFORM_SECRET_KEY`는 `up.sh`를 부른 Bash 호출에만 있다. 다른 호출에서 컨테이너를 다시 만들면 그 값을 받지 못한다. key가 없으면 api가 `PLATFORM_SECRET_KEY is required`로 뜨지 않는다. 다른 key로 뜨면 등록한 App 키를 풀지 못해 clone이 실패한다(api 로그 `SecretDecryptError`, 2026-11-15 run이 이 경우였다). 코드를 바꿔 다시 봐야 하면 그 run을 내리고 새 run을 띄운다. `ap_compose restart`는 컨테이너를 다시 만들지 않는다(바로 아래의 주소 항목).
+- **카탈로그에 같은 GitHub 저장소를 두 항목으로 넣지 않는다.** `catalog_repositories_full_name_key`가 지워지지 않은 `github_app` 항목의 `lower(owner), lower(name)`을 unique로 묶는다. 그래서 같은 저장소를 가리키는 `github_app` 항목이 둘이면 migrate가 exit 1로 멈춘다. 다른 브랜치를 써야 하면(예: 시험용 브랜치) 기존 `sandbox` 항목의 `branch`를 바꾼 설정 문서를 overlay로 넣는다.
 
 - **api만 재시작하면 주소가 바뀐다.** `ap_compose restart api`는 ephemeral 포트를 새로 받아 `state.env`의 주소와 어긋난다. `lib.sh`를 source한 뒤 `ap_as` 다음 줄에 `API=http://127.0.0.1:$(ap_compose port api 3000 | cut -d: -f2)`로 바꿔야 `ap_*`가 닿는다(`VERIFY_API`가 아니라 `API`를 읽는다). `state.env`는 agent-guard가 막으므로 열지 않는다.
 

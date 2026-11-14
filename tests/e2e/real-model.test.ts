@@ -118,7 +118,7 @@ describe("real-model compose layers", () => {
       const limits = installationLimitsFromEnv(
         defaults(base[name], overlay[name]),
       );
-      expect(limits.sessionCostLimitUsd).toBe(1);
+      expect(limits.sessionCostLimitUsd).toBe(3);
       expect(limits.maxTurnSeconds).toBe(600);
     }
   });
@@ -236,9 +236,9 @@ echo " 0 fail"
     expect(record).toContain("command: tests/e2e/run.sh --real-model");
     expect(record).toContain("model: claude-sonnet-5");
     expect(record).toContain("provider_endpoint: https://api.anthropic.com");
-    expect(record).toContain("session_cost_limit_usd: 1");
+    expect(record).toContain("session_cost_limit_usd: 3");
     // The suite compares the session's limit with the one the stack got.
-    expect(argv).toMatch(/^bun test .* limit=1 key=$/m);
+    expect(argv).toMatch(/^bun test .* limit=3 key=$/m);
     expect(record).toMatch(/^tested_sha: [0-9a-f]{40} /m);
     expect(await recordText(result.out)).not.toContain(PROBE);
     expect(result.stderr).not.toContain(PROBE);
@@ -247,12 +247,12 @@ echo " 0 fail"
   test("a limit from the shell reaches the stack, the record and the suite alike", async () => {
     const result = run("shell-limit", {
       [KEY_VARIABLE]: PROBE,
-      SESSION_COST_LIMIT_USD: "3",
+      SESSION_COST_LIMIT_USD: "4",
     });
     expect(result.status).toBe(0);
-    expect(await result.argv).toMatch(/^bun test .* limit=3 key=$/m);
+    expect(await result.argv).toMatch(/^bun test .* limit=4 key=$/m);
     const record = await Bun.file(join(result.out, "record.txt")).text();
-    expect(record).toContain("session_cost_limit_usd: 3");
+    expect(record).toContain("session_cost_limit_usd: 4");
   });
 
   test("an up-only stack hands the suite its limit through vars.sh", async () => {
@@ -260,7 +260,7 @@ echo " 0 fail"
     expect(result.status).toBe(0);
     expect(await result.argv).not.toContain("bun test");
     const vars = await Bun.file(join(result.out, "vars.sh")).text();
-    expect(vars).toMatch(/ SESSION_COST_LIMIT_USD="1"$/m);
+    expect(vars).toMatch(/ SESSION_COST_LIMIT_USD="3"$/m);
     expect(vars).toMatch(/ E2E_MODEL_MODE="real"$/m);
   });
 

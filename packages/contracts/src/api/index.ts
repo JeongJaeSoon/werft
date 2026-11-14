@@ -7,6 +7,7 @@ export * from "./engine-settings.ts";
 export * from "./event.ts";
 export * from "./github-work.ts";
 export * from "./health.ts";
+export * from "./installation-config.ts";
 export * from "./installation-settings.ts";
 export * from "./neutral-event.ts";
 export * from "./output.ts";

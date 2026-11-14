@@ -48,6 +48,7 @@ import type {
 } from "@werft-ai/platform";
 import { createApiApp } from "./app.ts";
 import type { BootstrapGate } from "./auth.ts";
+import type { InstallationConfigAdmin } from "./installation-config.ts";
 import type { LoginSettingsAdmin } from "./login-settings.ts";
 import { buildOpenApiDocument, DOCUMENTED_ROUTE_SCOPES } from "./openapi.ts";
 import type { ProviderAdmin } from "./provider-admin.ts";
@@ -70,6 +71,7 @@ import {
   registerSessionAttributionRoutes,
   registerSessionOutcomeRoutes,
 } from "./routes/github/github-work.ts";
+import { registerInstallationConfigRoutes } from "./routes/installation-config.ts";
 import {
   registerInstallationSettingsRoutes,
   registerSettingsConsoleRoutes,
@@ -196,6 +198,7 @@ function apiApp() {
       registerLoginProviderRoutes(router, {} as ProviderAdmin);
       registerLoginSettingsRoutes(router, {} as LoginSettingsAdmin);
       registerSlackSettingsRoutes(router, {} as SlackSettingsAdmin);
+      registerInstallationConfigRoutes(router, {} as InstallationConfigAdmin);
       registerWorkspaceRoutes(router, {} as WorkspaceRouteDeps);
       registerAchievementRoutes(router, {} as AchievementRuleService);
       registerSessionAchievementRoutes(router, {} as SessionAchievementService);

@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createServer, type Server, type Socket } from "node:net";
-import { upstreamExchange } from "./upstream-http.ts";
+import {
+  failedBeforeRequest,
+  upstreamExchange,
+  wroteNothing,
+} from "./upstream-http.ts";
 
 /** A server that answers every connection with the bytes it is given. */
 function raw(
@@ -161,5 +165,64 @@ describe("upstreamExchange", () => {
     expect(new TextDecoder().decode((await reader?.read())?.value)).toBe("a");
     controller.abort(new Error("grant ended"));
     await expect(reader?.read()).rejects.toThrow("grant ended");
+  });
+});
+
+describe("what a failed exchange had written", () => {
+  function cancelled(
+    port: number,
+    tls: { serverName: string } | null,
+    signal: AbortSignal,
+  ): Promise<unknown> {
+    return upstreamExchange(
+      { address: "127.0.0.1", port, tls },
+      {
+        method: "POST",
+        target: "/v1/messages",
+        headers: [["host", "upstream.test"]],
+        body: Buffer.from("{}"),
+        signal,
+      },
+    ).catch((error: unknown) => error);
+  }
+
+  test("a call cancelled before it came in wrote nothing, and is no reason to dial again", async () => {
+    const error = await cancelled(9, null, AbortSignal.abort());
+    expect(wroteNothing(error)).toBe(true);
+    expect(failedBeforeRequest(error)).toBe(false);
+  });
+
+  test("a call cancelled during the TLS handshake wrote nothing", async () => {
+    // Takes the connection and never answers the client's hello.
+    const sockets: Socket[] = [];
+    const stalled = createServer((socket) => sockets.push(socket));
+    servers.push(stalled);
+    const port = await new Promise<number>((resolve) =>
+      stalled.listen(0, "127.0.0.1", () => {
+        const address = stalled.address();
+        resolve(typeof address === "object" && address ? address.port : 0);
+      }),
+    );
+    const cut = new AbortController();
+    const failing = cancelled(
+      port,
+      { serverName: "upstream.test" },
+      cut.signal,
+    );
+    while (sockets.length === 0) await Bun.sleep(10);
+    cut.abort(new Error("cut in the handshake"));
+    const error = await failing;
+    for (const socket of sockets) socket.destroy();
+    expect(wroteNothing(error)).toBe(true);
+    expect(failedBeforeRequest(error)).toBe(false);
+  });
+
+  test("a call cancelled once its request was written may have been billed", async () => {
+    const up = await raw(() => {});
+    const cut = new AbortController();
+    const failing = cancelled(up.port, null, cut.signal);
+    while (up.requests.length === 0) await Bun.sleep(10);
+    cut.abort(new Error("cut after the request"));
+    expect(wroteNothing(await failing)).toBe(false);
   });
 });

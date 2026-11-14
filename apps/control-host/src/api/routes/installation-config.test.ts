@@ -1,0 +1,140 @@
+import { describe, expect, test } from "bun:test";
+import {
+  apiErrorResponseSchema,
+  type InstallationConfig,
+  installationConfigSchema,
+  updateInstallationConfigResponseSchema,
+} from "@werft-ai/contracts";
+import { SessionServiceError } from "@werft-ai/platform";
+import type { InstallationConfigAdmin } from "../installation-config.ts";
+import { recordRouteErrors } from "../route-error-coverage.ts";
+import { registerInstallationConfigRoutes } from "./installation-config.ts";
+
+const createApiApp = recordRouteErrors("routes/installation-config.test.ts");
+
+const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
+const PATH = "/v1/installation-config";
+const RECEIPT = "019a0000-0000-7000-8000-0000000000e1";
+
+const CONFIG: InstallationConfig = {
+  pending_request_ttl_sec: {
+    value: 3600,
+    default: 1800,
+    saved: true,
+    blocked: false,
+  },
+};
+
+function request(
+  admin: Partial<InstallationConfigAdmin>,
+  method: "GET" | "PATCH",
+  body?: unknown,
+) {
+  return createApiApp({
+    authMode: "none",
+    registerRoutes: (router) =>
+      registerInstallationConfigRoutes(
+        router,
+        admin as InstallationConfigAdmin,
+      ),
+  }).request(PATH, {
+    method,
+    headers: { "X-Owner-Id": WORKSPACE, "Content-Type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+}
+
+describe("installation config routes", () => {
+  test("GET answers every key the service reads for the caller", async () => {
+    const callers: unknown[] = [];
+    const response = await request(
+      {
+        read: async (caller) => {
+          callers.push(caller.ownerId);
+          return CONFIG;
+        },
+      },
+      "GET",
+    );
+    expect(response.status).toBe(200);
+    expect(installationConfigSchema.parse(await response.json())).toEqual(
+      CONFIG,
+    );
+    expect(callers).toEqual([WORKSPACE]);
+  });
+
+  test("PATCH hands the service only the keys sent, an empty body included", async () => {
+    for (const body of [{ pending_request_ttl_sec: 3600 }, {}]) {
+      const asked: unknown[] = [];
+      const response = await request(
+        {
+          change: async (_caller, change) => {
+            asked.push(change);
+            return { ...CONFIG, receipt_id: RECEIPT };
+          },
+        },
+        "PATCH",
+        body,
+      );
+      expect(response.status).toBe(200);
+      expect(
+        updateInstallationConfigResponseSchema.parse(await response.json()),
+      ).toEqual({ ...CONFIG, receipt_id: RECEIPT });
+      expect(asked).toEqual([body]);
+    }
+  });
+
+  for (const [invalid, path] of [
+    [{ pending_request_ttl_sec: 0 }, "pending_request_ttl_sec"],
+    [{ pending_request_ttl_sec: 604_801 }, "pending_request_ttl_sec"],
+    [{ pending_request_ttl_sec: 1.5 }, "pending_request_ttl_sec"],
+    [{ pending_request_ttl_sec: "3600" }, "pending_request_ttl_sec"],
+    [{ pending_request_ttl_sec: null }, "pending_request_ttl_sec"],
+    // An unknown key is the body's fault, not a key's.
+    [{ pending_request_ttl_sec: 60, extra: 1 }, ""],
+  ] as const) {
+    test(`PATCH refuses ${JSON.stringify(invalid)} before the service`, async () => {
+      let called = false;
+      const response = await request(
+        {
+          change: async () => {
+            called = true;
+            return CONFIG;
+          },
+        },
+        "PATCH",
+        invalid,
+      );
+      expect(response.status).toBe(400);
+      expect(called).toBe(false);
+      const { error } = apiErrorResponseSchema.parse(await response.json());
+      expect(
+        (error.details as { issues: { path: string }[] }).issues.map(
+          (issue) => issue.path,
+        ),
+      ).toEqual([path]);
+    });
+  }
+
+  for (const [method, service] of [
+    ["GET", "read"],
+    ["PATCH", "change"],
+  ] as const) {
+    test(`${method} answers 403 when the service refuses the caller`, async () => {
+      const response = await request(
+        {
+          [service]: async () => {
+            throw new SessionServiceError("FORBIDDEN", "no", undefined, {
+              reason_code: "role",
+            });
+          },
+        },
+        method,
+        method === "PATCH" ? {} : undefined,
+      );
+      expect(response.status).toBe(403);
+      const { error } = apiErrorResponseSchema.parse(await response.json());
+      expect(error.code).toBe("FORBIDDEN");
+    });
+  }
+});

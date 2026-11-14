@@ -27,6 +27,7 @@ import {
   OrgKeysScreen,
 } from "./routes/api-keys.tsx";
 import { BootstrapScreen } from "./routes/bootstrap.tsx";
+import { ExecutionLimitsScreen } from "./routes/execution-limits.tsx";
 import { HomeScreen } from "./routes/home.tsx";
 import { InviteScreen } from "./routes/invite.tsx";
 import { AuthedError, AuthedLayout, RootLayout } from "./routes/layout.tsx";
@@ -345,6 +346,12 @@ const loginProviders = createRoute({
   component: LoginProvidersScreen,
 });
 
+const executionLimits = createRoute({
+  getParentRoute: () => authed,
+  path: "/settings/workspace/limits",
+  component: ExecutionLimitsScreen,
+});
+
 const loginProvider = createRoute({
   getParentRoute: () => authed,
   path: "/settings/workspace/login/$providerId",
@@ -446,6 +453,7 @@ const routeTree = root.addChildren([
     mcpServers,
     loginProviders,
     loginProvider,
+    executionLimits,
     operations.addChildren([
       operationsOverview,
       operationsUsage,
