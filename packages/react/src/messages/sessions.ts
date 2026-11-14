@@ -289,7 +289,7 @@ export const sessionsKo = {
   "session.event.modelMigrated":
     "{from}이(가) 허용 목록에서 빠져 같은 시리즈의 {to}(으)로 옮겼습니다. 다음 턴부터 {to}(으)로 실행됩니다.",
   "session.event.workerImageReplaced":
-    "worker 이미지 {from}이(가) 철회되어 같은 계열의 수정된 이미지 {to}(으)로 옮겨 이어 갑니다.",
+    "worker 이미지 {from}이(가) 철회되어 {to}(으)로 띄웁니다.",
   "session.event.phase.interrupting": "멈추는 중",
   "session.event.phase.engine_stopped": "엔진이 멈춤",
   "session.event.approvalCheckpointFailed.capture_failed":
@@ -601,7 +601,7 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.event.modelMigrated":
     "{from} left the allowed list, so the session moved to {to}, the next model of the same series. It runs on {to} from this turn on.",
   "session.event.workerImageReplaced":
-    "Worker image {from} was retracted, so the session carries on from a fixed image of the same line, {to}.",
+    "Worker image {from} was retracted, so the session launches on {to} instead.",
   "session.event.phase.interrupting": "Stopping",
   "session.event.phase.engine_stopped": "Engine stopped",
   "session.event.approvalCheckpointFailed.capture_failed":
@@ -887,7 +887,7 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
   "session.event.modelMigrated":
     "{from} が許可リストから外れたため、同じシリーズの {to} に切り替えました。このターンから {to} で実行されます。",
   "session.event.workerImageReplaced":
-    "worker イメージ {from} が撤回されたため、同じ系列の修正イメージ {to} に移って続けます。",
+    "worker イメージ {from} が撤回されたため、{to} で起動します。",
   "session.event.phase.interrupting": "停止中",
   "session.event.phase.engine_stopped": "エンジン停止",
   "session.event.approvalCheckpointFailed.capture_failed":

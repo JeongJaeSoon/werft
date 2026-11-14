@@ -650,7 +650,7 @@ describe("a launch that moves off a retracted worker image", () => {
     expect(row?.kind).toBe("model_notice");
     expect(row?.threadTs).toBe("");
     expect(row?.sessionId).toBe(w.sessionId);
-    expect(row?.body.text).toContain("worker 이미지가 철회됐어요");
+    expect(row?.body.text).toContain("worker 이미지가 철회되어");
     expect(row?.body.locale).toBe("ko");
     expect(row?.dedupeKey).toContain(`:${moved.generation}:`);
   });
@@ -676,6 +676,31 @@ describe("a launch that moves off a retracted worker image", () => {
 
     expect(await replaced(w.sessionId)).toEqual([]);
     expect(await w.outbox()).toEqual([]);
+  });
+
+  test("one digest under another repository path is the same image", async () => {
+    const digest = `sha256:${"d".repeat(64)}`;
+    const w = await world();
+    const creator = await w.person("creator");
+    await w.startSession(creator);
+    await signalled(w.sessionId);
+    await launch(w.sessionId, `registry-a.invalid/worker@${digest}`);
+    // Mirrored: the same image, pulled from another registry, moved nowhere.
+    await signalled(w.sessionId);
+    await launch(w.sessionId, `registry-b.invalid/worker@${digest}`, [
+      `registry-b.invalid/worker@${digest}`,
+    ]);
+    expect(await replaced(w.sessionId)).toEqual([]);
+    // Retracted under its mirror's path: leaving it is a move.
+    await signalled(w.sessionId);
+    await launch(w.sessionId, FIXED, [`registry-c.invalid/worker@${digest}`]);
+    expect(await replaced(w.sessionId)).toEqual([
+      expect.objectContaining({
+        from: `registry-b.invalid/worker@${digest}`,
+        to: FIXED,
+      }),
+    ]);
+    expect(await w.outbox()).toHaveLength(1);
   });
 
   test("a session without a creator still records the move and tells nobody", async () => {

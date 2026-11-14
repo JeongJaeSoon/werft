@@ -27,6 +27,7 @@ import {
   DEFAULT_NONCE_TTL_MS,
   generateLaunchNonce,
   hashWorkerToken,
+  imageIdentity,
   launchNonceFingerprint,
   parseExecutionResources,
 } from "@werft-ai/platform";
@@ -350,11 +351,13 @@ export function createPostgresSchedulerStore(
                 .where(eq(workerLaunches.sessionId, input.sessionId))
                 .orderBy(desc(workerLaunches.generation))
                 .limit(1);
+        const from =
+          previous?.image == null ? null : imageIdentity(previous.image);
         const movedFrom =
-          previous?.image != null &&
-          previous.image !== input.image &&
-          input.retractedImages?.includes(previous.image)
-            ? previous.image
+          from !== null &&
+          from !== imageIdentity(input.image) &&
+          input.retractedImages?.some((image) => imageIdentity(image) === from)
+            ? (previous?.image ?? null)
             : null;
         const intent: StoredLaunchIntent = {
           executionId: `exec-${randomUUID()}`,

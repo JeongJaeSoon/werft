@@ -46,6 +46,17 @@ const COMPONENT = "[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*";
 const DIGEST_REFERENCE = new RegExp(
   `^(?:${LABEL}(?:\\.${LABEL})*(?::\\d+)?/)?${COMPONENT}(?:/${COMPONENT})*@(sha256:[0-9a-f]{64})$`,
 );
+
+/**
+ * What tells two image references apart: the digest of a `name@sha256:`
+ * reference, so one image under two repository paths (a registry mirror) is
+ * one image; any other reference (a Docker image id) as it is.
+ */
+export function imageIdentity(reference: string): string {
+  const at = reference.lastIndexOf("@sha256:");
+  return at === -1 ? reference : reference.slice(at + 1);
+}
+
 const ISO_TIME =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?(?:Z|[+-](\d{2}):(\d{2}))$/;
 
