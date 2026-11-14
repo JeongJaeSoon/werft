@@ -1,11 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link as RouterLink } from "@tanstack/react-router";
+import { isApiError } from "@werft-ai/client";
 import type { AgentDetail, SessionSummary } from "@werft-ai/contracts";
-import {
-  agentSessionsQuery,
-  agentSummariesQuery,
-  usageBreakdownQuery,
-} from "@werft-ai/core";
+import { agentSessionsQuery, agentSummariesQuery } from "@werft-ai/core";
 import { useWerft } from "@werft-ai/react";
 import {
   OPERATIONS_MESSAGES,
@@ -43,6 +40,7 @@ import { OutcomeLine } from "../../components/outcome.tsx";
 import { withNodes } from "../../components/with-nodes.tsx";
 import { type Locale, useI18n } from "../../i18n/i18n.tsx";
 import { usagePeriod } from "../operations.tsx";
+import { usageSummaryQuery } from "../usage.tsx";
 import { credentialBindingsQuery } from "./credentials.tsx";
 import { mcpSettingsQuery } from "./mcp-settings.ts";
 import { ModelRemovedAlert } from "./model-removed.tsx";
@@ -107,31 +105,38 @@ export function AgentGlance({ detail }: { readonly detail: AgentDetail }) {
 }
 
 /**
- * The agent's cost over the last 7 days. Only the install-wide figures split
- * by agent, so only owners see a number.
+ * The agent's cost over the last 7 days. Who may read it depends on whether
+ * the viewer manages this agent, which the role alone does not tell, so the
+ * server's 403 decides.
  */
 function WeekCost({ agentId }: { readonly agentId: string }) {
   const { t, locale } = useI18n();
   const { client } = useWerft();
-  const operator = useHasPermission("usage.installation_read");
   const { since, until } = usagePeriod(7);
-  const breakdown = useQuery({
-    ...usageBreakdownQuery(client, "installation", since, "agent", until),
-    enabled: operator,
-  });
-  const row = breakdown.data?.rows.find((item) => item.key === agentId);
+  const summary = useQuery(
+    usageSummaryQuery(client, "agent", since, { until, agentId }),
+  );
+  const { data, error } = summary;
   return (
     <Figure
       label={t("agent.glance.cost")}
       badge={<Badge variant="gray">{t("usage.kpi.estimated")}</Badge>}
       value={
-        !operator
-          ? { missing: t("agent.glance.costWithheld") }
-          : breakdown.isError
-            ? { missing: t("agents.cards.unavailable") }
-            : breakdown.data
-              ? OPERATIONS_MESSAGES[locale].format.usd(row?.cost_usd ?? "0")
-              : undefined
+        summary.isError
+          ? {
+              missing: isApiError(error, "FORBIDDEN")
+                ? t("agent.glance.costWithheld")
+                : t("agents.cards.unavailable"),
+            }
+          : data
+            ? OPERATIONS_MESSAGES[locale].format.usd(data.cost_usd)
+            : undefined
+      }
+      // A partial sum must not pass for the whole spend.
+      flag={
+        data && !summary.isError && !data.cost_complete ? (
+          <Badge variant="amber">{t("agent.glance.costPartial")}</Badge>
+        ) : null
       }
       note={t("usage.kpi.costNote")}
     />
@@ -142,11 +147,14 @@ function Figure({
   label,
   badge,
   value,
+  flag,
   note,
 }: {
   readonly label: string;
   readonly badge?: ReactNode;
   readonly value: Reading;
+  /** A Badge drawn after the figure, about the figure itself. */
+  readonly flag?: ReactNode;
   readonly note: string;
 }) {
   const { t } = useI18n();
@@ -163,6 +171,11 @@ function Figure({
           ) : typeof value === "object" ? (
             // A screen reader hears the reason under it instead.
             <span aria-hidden="true">—</span>
+          ) : flag ? (
+            <span className="inline-flex flex-wrap items-center gap-2">
+              {value}
+              {flag}
+            </span>
           ) : (
             value
           )

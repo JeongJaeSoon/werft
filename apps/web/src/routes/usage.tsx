@@ -1,22 +1,30 @@
 import { type ApiClient, unwrap } from "@werft-ai/client";
 import type {
+  UsageSummaryQuery,
   UsageSummaryResponse,
-  UsageSummaryScope,
 } from "@werft-ai/contracts";
 import { scopedKey } from "../api/queries.ts";
 import type { Translate } from "../i18n/i18n.tsx";
 
 export function usageSummaryQuery(
   client: ApiClient,
-  scope: UsageSummaryScope,
+  scope: UsageSummaryQuery["scope"],
   since: string,
+  { until, agentId }: { until?: string; agentId?: string } = {},
 ) {
   return {
-    queryKey: scopedKey(client, "usage-summary", scope, since),
+    queryKey: scopedKey(client, "usage-summary", scope, since, until, agentId),
     queryFn: () =>
       unwrap(
         client.GET("/v1/usage/summary", {
-          params: { query: { scope, since } },
+          params: {
+            query: {
+              scope,
+              since,
+              ...(until === undefined ? {} : { until }),
+              ...(agentId === undefined ? {} : { agent_id: agentId }),
+            },
+          },
         }),
       ) as Promise<UsageSummaryResponse>,
     // A failure shows its retry button at once, like the home's limits.
