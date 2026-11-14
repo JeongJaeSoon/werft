@@ -22,7 +22,7 @@ Install published images pinned by digest on one Linux server and check `/readyz
 | Docker Compose | 2.24.6 or later |
 | Disk | Docker data-root on XFS mounted with `prjquota`. `preflight` does not check this. Otherwise the scheduler quota check fails during `deploy` and installation stops. Complete [XFS preparation](/run-server/self-hosting/prepare-xfs) first on ext4 servers. Docker Desktop is unsupported |
 | Time | NTP synchronized. Docker starts automatically after reboot |
-| Tools | For a checkout installation, `git`, `jq`, `curl`, `openssl`, Bun 1.3.14, and the Docker Buildx plugin. For a release bundle installation, `jq`, `curl`, `openssl`, and `sha256sum`. Both need an account with Docker daemon access |
+| Tools | For a checkout installation, `git`, `jq`, `curl`, `openssl`, Bun 1.3.14, and the Docker Buildx plugin. For a release bundle installation, `jq`, `curl`, `openssl`, `sha256sum`, and `tar` (with gzip). Both need an account with Docker daemon access |
 | Object store | Persistent AWS S3 bucket. Compose test-ops supports AWS S3 only, without custom endpoints. Check protection and permissions in [Bucket preparation](/run-server/self-hosting/prepare-checkpoint-bucket) |
 | External access | Download images from `ghcr.io` and Docker Hub without signing in. Sessions connect to `api.anthropic.com` and `github.com` |
 

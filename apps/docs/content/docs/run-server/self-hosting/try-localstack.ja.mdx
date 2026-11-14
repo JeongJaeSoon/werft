@@ -22,7 +22,7 @@ Linux 試験サーバーに LocalStack を使う Compose 環境を設置しま�
 | Docker Compose | 2.24.6 以上 |
 | ディスク | Docker データルートが XFS で、`prjquota` 付きで mount されていること。`preflight` はこれを確認しません。満たさなければ `deploy` で scheduler の quota 検査が失敗し、設置が止まります。ext4 サーバーでは先に [XFS ディスクの準備](/run-server/self-hosting/prepare-xfs)を完了します。Docker Desktop では使えません |
 | 時刻 | NTP 同期。再起動後に Docker が自動起動すること |
-| ツール | checkout 設置では `git`、`jq`、`curl`、`openssl`、Bun 1.3.14、Docker Buildx プラグイン。リリースバンドル設置では `jq`、`curl`、`openssl`、`sha256sum`。どちらも Docker daemon にアクセスできるアカウント |
+| ツール | checkout 設置では `git`、`jq`、`curl`、`openssl`、Bun 1.3.14、Docker Buildx プラグイン。リリースバンドル設置では `jq`、`curl`、`openssl`、`sha256sum`、`tar`(gzip 対応)。どちらも Docker daemon にアクセスできるアカウント |
 | 外部 | `ghcr.io` と Docker Hub からイメージを取得できること。パッケージはログイン不要です。セッションは `api.anthropic.com` と `github.com` にアクセスします |
 
 設置方法は[単一サーバー設置](/run-server/self-hosting/single-server)と同じく二つです。リポジトリ checkout はすべての公開タグに使え、`v*` リリースはバンドルで checkout とホストの Bun なしに設置できます。どちらでも compose ファイルと `scripts/test-ops.sh` は取得したディレクトリから読み、イメージはビルドしません。
@@ -52,7 +52,7 @@ bun install --frozen-lockfile
 
 三つのイメージがすべて digest を返し、同じ source commit を checkout したことを確認します。
 
-`v*` リリースを checkout なしで設置するときは、上の二つのブロックの代わりに[単一サーバーのリリースバンドル取得](/run-server/self-hosting/single-server#릴리스-번들로-받기)に従います。以降の手順はバンドルのディレクトリで実行します。
+`v*` リリースを checkout なしで設置するときは、上の二つのブロックの代わりに[単一サーバーのリリースバンドル取得](/run-server/self-hosting/single-server#릴리스-번들로-받기)に従います。以降の手順はバンドルのディレクトリで実行します。バンドルは `backup` と `reseed` を拒否するため、下の「よくある問題」の計画再起動の手順は、同じ env ファイルと状態ディレクトリのまま、そのリリースの `source_commit` を checkout したリポジトリで実行します。
 
 <a id="2-시험-설정" />
 ### 2. 試験設定

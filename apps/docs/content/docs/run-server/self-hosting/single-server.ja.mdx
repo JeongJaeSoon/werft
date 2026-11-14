@@ -22,7 +22,7 @@ outcome: "永続 S3 を使うサーバーの ready 応答を確認します"
 | Docker Compose | 2.24.6 以上 |
 | ディスク | Docker データルートが XFS で、`prjquota` 付きで mount されていること。`preflight` はこれを確認しません。満たさなければ `deploy` で scheduler の quota 検査が失敗し、設置が止まります。ext4 サーバーでは先に [XFS ディスクの準備](/run-server/self-hosting/prepare-xfs)を完了します。Docker Desktop では使えません |
 | 時刻 | NTP 同期。再起動後に Docker が自動起動すること |
-| ツール | checkout 設置では `git`、`jq`、`curl`、`openssl`、Bun 1.3.14、Docker Buildx プラグイン。リリースバンドル設置では `jq`、`curl`、`openssl`、`sha256sum`。どちらも Docker daemon にアクセスできるアカウント |
+| ツール | checkout 設置では `git`、`jq`、`curl`、`openssl`、Bun 1.3.14、Docker Buildx プラグイン。リリースバンドル設置では `jq`、`curl`、`openssl`、`sha256sum`、`tar`(gzip 対応)。どちらも Docker daemon にアクセスできるアカウント |
 | object store | 永続 AWS S3 bucket。Compose test-ops は AWS S3 のみに対応し、独自 endpoint は指定できません。[bucket の準備](/run-server/self-hosting/prepare-checkpoint-bucket)で保護契約と権限を確認します |
 | 外部 | `ghcr.io` と Docker Hub からイメージを取得できること。パッケージはログイン不要です。セッションは `api.anthropic.com` と `github.com` にアクセスします |
 

@@ -22,7 +22,7 @@ Create a Compose installation using LocalStack on a Linux test server. This is a
 | Docker Compose | 2.24.6 or later |
 | Disk | Docker data-root on XFS mounted with `prjquota`. `preflight` does not check this. Otherwise the scheduler quota check fails during `deploy` and installation stops. Complete [XFS disk preparation](/run-server/self-hosting/prepare-xfs) first on ext4 servers. Docker Desktop is unsupported |
 | Time | NTP synchronized. Docker starts automatically after reboot |
-| Tools | For a checkout installation, `git`, `jq`, `curl`, `openssl`, Bun 1.3.14, and the Docker Buildx plugin. For a release bundle installation, `jq`, `curl`, `openssl`, and `sha256sum`. Both need an account with Docker daemon access |
+| Tools | For a checkout installation, `git`, `jq`, `curl`, `openssl`, Bun 1.3.14, and the Docker Buildx plugin. For a release bundle installation, `jq`, `curl`, `openssl`, `sha256sum`, and `tar` (with gzip). Both need an account with Docker daemon access |
 | External access | Download images from `ghcr.io` and Docker Hub without signing in. Sessions connect to `api.anthropic.com` and `github.com` |
 
 As in [single-server installation](/run-server/self-hosting/single-server), there are two ways to install. A repository checkout works for every published tag, and a `v*` release can also be installed from its bundle with no checkout and no host Bun. Either way, the Compose files and `scripts/test-ops.sh` are read from the downloaded directory, and no image is built.
@@ -52,7 +52,7 @@ bun install --frozen-lockfile
 
 Confirm all three images return digests and that you checked out the matching source commit.
 
-To install a `v*` release without a checkout, follow [Get the release bundle in single-server installation](/run-server/self-hosting/single-server#릴리스-번들로-받기) instead of the two blocks above. Run the later steps from the bundle directory.
+To install a `v*` release without a checkout, follow [Get the release bundle in single-server installation](/run-server/self-hosting/single-server#릴리스-번들로-받기) instead of the two blocks above. Run the later steps from the bundle directory. The bundle refuses `backup` and `reseed`, so run the planned-restart procedure under "Troubleshooting" below from a repository checked out at the release's `source_commit`, with the same env file and state directory.
 
 <a id="2-시험-설정" />
 ### 2. Test configuration

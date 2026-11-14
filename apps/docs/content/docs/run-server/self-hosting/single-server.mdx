@@ -20,7 +20,7 @@ Linux 한 대에 게시 이미지를 digest로 고정해 설치하고 `/readyz`�
 | Docker Compose | 2.24.6 이상 |
 | 디스크 | Docker 데이터 루트가 XFS이고 `prjquota`로 mount돼 있다. `preflight`는 이것을 보지 않는다. 아니면 `deploy`에서 scheduler의 quota 검사가 실패해 설치가 멈춘다. ext4 서버는 [XFS 디스크 준비](/run-server/self-hosting/prepare-xfs)를 먼저 끝낸다. Docker Desktop에서는 쓸 수 없다 |
 | 시간 | NTP 동기화. 재부팅 뒤 Docker가 자동으로 시작한다 |
-| 도구 | checkout 설치는 `git`, `jq`, `curl`, `openssl`, Bun 1.3.14, Docker Buildx 플러그인. 릴리스 번들 설치는 `jq`, `curl`, `openssl`, `sha256sum`. 둘 다 Docker daemon에 접근할 수 있는 계정 |
+| 도구 | checkout 설치는 `git`, `jq`, `curl`, `openssl`, Bun 1.3.14, Docker Buildx 플러그인. 릴리스 번들 설치는 `jq`, `curl`, `openssl`, `sha256sum`, `tar`(gzip 지원). 둘 다 Docker daemon에 접근할 수 있는 계정 |
 | object store | 영속 AWS S3 bucket. Compose test-ops는 AWS S3만 지원하며 사용자 endpoint를 받지 않는다. [bucket 준비](/run-server/self-hosting/prepare-checkpoint-bucket)에서 보호 계약과 권한을 확인한다 |
 | 외부 | `ghcr.io`와 Docker Hub에서 이미지를 받을 수 있다. 패키지는 로그인 없이 받는다. 세션은 `api.anthropic.com`과 `github.com`에 나간다 |
 
