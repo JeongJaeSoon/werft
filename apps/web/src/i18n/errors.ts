@@ -11,7 +11,7 @@ export const errorsKo = {
   "error.NETWORK_ERROR":
     "서버에 연결하지 못했습니다 — 네트워크 연결을 확인하세요.",
   "error.LOGIN_LINK_REQUIRED":
-    "이미 이 이메일로 만든 계정이 있습니다 — 비밀번호로 로그인하세요.",
+    "이미 이 이메일로 만든 계정이 있습니다 — 그 계정에 쓰던 수단으로 로그인한 뒤 설정 > 로그인 수단에서 이 공급자를 연결하세요. 그 수단으로 로그인할 수 없으면 소유자에게 요청하세요.",
   "error.UNKNOWN": "처리하지 못했습니다 — 잠시 뒤 다시 시도하세요.",
   "error.NOT_FOUND": "더 이상 없는 항목입니다 — 목록을 다시 불러오세요.",
   "error.PAYLOAD_TOO_LARGE": "입력이 너무 깁니다 — 줄여서 다시 보내세요.",
@@ -58,7 +58,7 @@ export const errorsEn: Record<keyof typeof errorsKo, string> = {
   "error.BACKEND_UNAVAILABLE": "The server is unavailable — try again shortly.",
   "error.NETWORK_ERROR": "Could not reach the server — check your connection.",
   "error.LOGIN_LINK_REQUIRED":
-    "An account with this email already exists — log in with its password.",
+    "An account with this email already exists — log in the way you used to, then connect this provider in Settings > Sign-in methods. If you can't log in that way, ask an owner.",
   "error.UNKNOWN": "Something went wrong — try again shortly.",
   "error.NOT_FOUND": "It no longer exists — reload the list.",
   "error.PAYLOAD_TOO_LARGE":
@@ -110,7 +110,7 @@ export const errorsJa: Record<keyof typeof errorsKo, string> = {
   "error.NETWORK_ERROR":
     "サーバーに接続できませんでした。ネットワーク接続を確認してください。",
   "error.LOGIN_LINK_REQUIRED":
-    "このメールアドレスのアカウントはすでに存在します。そのアカウントのパスワードでログインしてください。",
+    "このメールアドレスのアカウントはすでに存在します。そのアカウントで使っていた方法でログインしてから、設定 > ログイン方法でこのプロバイダーを接続してください。その方法でログインできない場合は、オーナーに依頼してください。",
   "error.UNKNOWN":
     "問題が発生しました。しばらくしてからもう一度お試しください。",
   "error.NOT_FOUND": "すでに存在しません。一覧を再読み込みしてください。",

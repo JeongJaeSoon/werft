@@ -154,6 +154,24 @@ describe("i18n", () => {
     }
   });
 
+  test("the link-required error sends people to their sign-in methods, never to a password", () => {
+    // The existing account may have no password, or password sign-in may be
+    // closed to it; any method it has links on that page.
+    const path = {
+      ko: "설정 > 로그인 수단",
+      en: "Settings > Sign-in methods",
+      ja: "設定 > ログイン方法",
+    };
+    const password = { ko: /비밀번호/, en: /password/i, ja: /パスワード/ };
+    for (const locale of LOCALES) {
+      const catalog = catalogs[locale];
+      const text = catalog["error.LOGIN_LINK_REQUIRED"];
+      expect(path[locale].endsWith(catalog["loginMethods.title"])).toBe(true);
+      expect(text).toContain(path[locale]);
+      expect([locale, password[locale].test(text)]).toEqual([locale, false]);
+    }
+  });
+
   test("menu paths use one separator, '>', in every locale", () => {
     // The public docs write menu paths with ">"; a "›" here reads as a
     // different menu.
