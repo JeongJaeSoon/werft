@@ -664,13 +664,22 @@ describe("concurrency regressions", () => {
       // which is what leaves the nonce opening nothing: not a second
       // credential, and not the image refusal a claim under another runtime
       // would record.
+      //
+      // Each call takes its own connection: the egress proxy ends every
+      // forwarded exchange, but Bun's fetch on Linux pools the socket after a
+      // non-2xx answer anyway, and the next call on it fails as "socket
+      // connection was closed". A failed call prints its error code, since
+      // Bun's own report quotes this source, and its `authorization:` hides
+      // the whole tool result from the events.
       const replay = [
+        'const failed = (e) => ({ status: "error_" + (e.code ?? e.name) });',
         "const claim = async (extra) => {",
         '  const r = await fetch(process.env.U.replace(/\\/$/, "") + "/internal/worker/bootstrap-claim", {',
         '    method: "POST",',
+        "    keepalive: false,",
         '    headers: { authorization: "Bearer " + process.env.N, "content-type": "application/json" },',
         '    body: JSON.stringify({ execution_id: process.env.X, execution_generation: Number(process.env.G), credential: { kind: "launch_nonce", nonce: process.env.N }, ...extra }),',
-        "  });",
+        "  }).catch(failed);",
         "  return r.status;",
         "};",
         "const plain = await claim({});",
@@ -680,9 +689,10 @@ describe("concurrency regressions", () => {
         "const scoped = async (bearer) => {",
         '  const r = await fetch(process.env.U.replace(/\\/$/, "") + "/internal/worker/heartbeat", {',
         '    method: "POST",',
+        "    keepalive: false,",
         '    headers: { authorization: "Bearer " + bearer, "content-type": "application/json" },',
         '    body: JSON.stringify({ session_id: "00000000-0000-4000-8000-000000000000", turn_id: null, attempt_id: "none", lease_epoch: 1, execution_generation: 1, auth_revision: 1, attempt_state: "starting" }),',
-        "  });",
+        "  }).catch(failed);",
         "  return r.status;",
         "};",
         "const known = await scoped(process.env.N);",
