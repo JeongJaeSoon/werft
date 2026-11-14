@@ -1,6 +1,11 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { lookup as dnsLookup } from "node:dns/promises";
-import { scopesForRole, type WorkspaceRole } from "@werft-ai/contracts";
+import {
+  PASSWORD_MIN_LENGTH,
+  passwordSchema,
+  scopesForRole,
+  type WorkspaceRole,
+} from "@werft-ai/contracts";
 import {
   bootstrapOwner,
   countUsers,
@@ -42,6 +47,23 @@ export const DEMO_ACCOUNTS = [
   displayName: string;
   role: WorkspaceRole;
 }[];
+
+/**
+ * The demo accounts' password: DEMO_ACCOUNTS_PASSWORD when it is set (a
+ * preview open to the internet makes one per run, .github/workflows/preview.yml),
+ * else the public DEMO_PASSWORD. A value that is set but no valid password
+ * throws rather than falling back to the public one.
+ */
+export function demoPassword(env: Record<string, string | undefined>): string {
+  const chosen = env.DEMO_ACCOUNTS_PASSWORD;
+  if (chosen === undefined) return DEMO_PASSWORD;
+  if (!passwordSchema.safeParse(chosen).success) {
+    throw new Error(
+      `DEMO_ACCOUNTS_PASSWORD must be a password of at least ${PASSWORD_MIN_LENGTH} characters`,
+    );
+  }
+  return chosen;
+}
 
 // The compose postgres service, or a database on this machine.
 const LOCAL_DATABASE_HOSTS = new Set([
@@ -210,8 +232,9 @@ async function liveOwner(db: Database, preferEmail: string) {
  */
 export async function seedDemoAccounts(
   db: Database,
+  password: string = DEMO_PASSWORD,
 ): Promise<DemoAccountOutcome[]> {
-  const passwordHash = await hashPassword(DEMO_PASSWORD);
+  const passwordHash = await hashPassword(password);
   const outcomes: DemoAccountOutcome[] = [];
   for (const account of DEMO_ACCOUNTS) {
     if ((await findUserId(db, account.email)) !== null) {
@@ -318,12 +341,13 @@ async function main(): Promise<void> {
     process.exitCode = 2;
     return;
   }
+  const password = demoPassword(process.env);
   await withJobDatabase(
     "demo-accounts",
     demoDatabaseUrl(process.env),
     createLogger(),
     async ({ db }) => {
-      for (const { email, outcome } of await seedDemoAccounts(db)) {
+      for (const { email, outcome } of await seedDemoAccounts(db, password)) {
         console.log(`${outcome} ${email}`);
       }
     },

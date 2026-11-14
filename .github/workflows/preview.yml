@@ -1,0 +1,343 @@
+name: PR preview
+
+# A pull request's console open to the internet for a while: the quickstart
+# stack (fake model, demo accounts and data) on this runner, behind a
+# Cloudflare quick tunnel (trycloudflare.com, no account). The `preview`
+# label starts one for 60 minutes; a manual run takes the PR, the minutes
+# and one more recipient for the password. Removing the label, closing the
+# PR, or adding the label again ends the running one
+# (docs/contributing/development.md § Actions 미리보기).
+#
+# The address is public, so:
+#   - only an open PR from a branch of this repository, started by someone
+#     with write access or above (.github/scripts/preview-request.sh); no
+#     pull_request_target, no secrets, no model key or integration;
+#   - the job that runs the PR's code holds no write token and no cache:
+#     `announce`, on a runner of its own that runs none of it, writes the
+#     PR comment from a checked artifact;
+#   - the demo password is made per run and never written in the clear
+#     (public logs are readable by anyone): the log masks it, and the PR
+#     comment holds it encrypted with age to the starter's SSH keys on
+#     GitHub. A job summary would show only once the preview is gone.
+on:
+  pull_request:
+    types: [labeled, unlabeled]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number (a branch of this repository)
+        required: true
+        type: number
+      minutes:
+        description: Minutes the preview stays up (5 to 180)
+        default: 60
+        type: number
+      recipient:
+        description: 'Optional: one more age1… or ssh-ed25519/ssh-rsa public key to encrypt the demo password to'
+        default: ''
+        type: string
+
+permissions: {}
+cache-mode: none
+
+# One preview per pull request: a newer `preview` label event or manual run
+# cancels the running one. Other labels get a group of their own and change
+# nothing.
+concurrency:
+  group: >-
+    ${{ (github.event_name == 'workflow_dispatch' || github.event.label.name == 'preview')
+      && format('preview-{0}', github.event.pull_request.number || inputs.pr)
+      || format('preview-other-{0}', github.run_id) }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  PR: ${{ github.event.pull_request.number || inputs.pr }}
+  MARKER: '<!-- werft-preview run=${{ github.run_id }} attempt=${{ github.run_attempt }} -->'
+  # A re-run keeps the run id and the earlier attempts' artifacts.
+  ANNOUNCE_ARTIFACT: preview-announce-${{ github.run_attempt }}
+  # Well under a PR comment's 65536 characters with the rest of the body.
+  ARMOR_MAX_BYTES: '32768'
+  RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+jobs:
+  serve:
+    if: github.event_name == 'workflow_dispatch' || (github.event.action == 'labeled' && github.event.label.name == 'preview')
+    runs-on: ubuntu-24.04
+    # The longest preview (180) plus building and starting the stack.
+    timeout-minutes: 210
+    # Reads only: the pull request (state, labels) and the public checkout.
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      ended: ${{ steps.stay.outputs.ended }}
+    env:
+      MINUTES: ${{ inputs.minutes || 60 }}
+      CLOUDFLARED_VERSION: 2026.10.7
+      CLOUDFLARED_SHA256: 1f99fb518b83dec2ba8d870a7cc991d82a77e6196295a3d2754ba17ab9f91872
+      AGE_VERSION: v1.3.2
+      AGE_SHA256: cbe24006683f8eb669266162894b9a522a1af52f2665fbc63a4bb032ed26ac10
+      # The pulls and builds of the quickstart job, from the CI mirror.
+      COMPOSE_FILE: compose.yaml:tests/e2e/compose.ci-mirror.yml
+      SCHEDULER_INTERVAL_SEC: '1'
+    steps:
+      # This workflow's own ref: nothing of the pull request has run yet.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/scripts/preview-request.sh
+          sparse-checkout-cone-mode: false
+          path: request
+      - name: Check the request
+        id: request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STARTER: ${{ github.triggering_actor }}
+          RECIPIENT: ${{ inputs.recipient }}
+          RECIPIENTS: ${{ runner.temp }}/recipients
+          LABEL_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: request/.github/scripts/preview-request.sh
+      - name: cloudflared and age
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          cd "$RUNNER_TEMP"
+          curl -fsSL --retry 3 -o bin/cloudflared \
+            "https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/cloudflared-linux-amd64"
+          echo "${CLOUDFLARED_SHA256}  bin/cloudflared" | sha256sum -c -
+          curl -fsSL --retry 3 -o age.tar.gz \
+            "https://github.com/FiloSottile/age/releases/download/${AGE_VERSION}/age-${AGE_VERSION}-linux-amd64.tar.gz"
+          echo "${AGE_SHA256}  age.tar.gz" | sha256sum -c -
+          tar -xzf age.tar.gz --strip-components 1 -C bin age/age
+          chmod +x bin/cloudflared bin/age
+          echo "$RUNNER_TEMP/bin" >>"$GITHUB_PATH"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.request.outputs.head }}
+          persist-credentials: false
+          path: pr
+      - name: Start the stack
+        id: up
+        working-directory: pr
+        run: |
+          # The demo accounts get this password from their first row on.
+          DEMO_ACCOUNTS_PASSWORD="$(openssl rand -base64 18 | tr '+/' '-_')"
+          echo "::add-mask::${DEMO_ACCOUNTS_PASSWORD}"
+          export DEMO_ACCOUNTS_PASSWORD
+          printf '%s\n' "$DEMO_ACCOUNTS_PASSWORD" | age --armor -R "$RUNNER_TEMP/recipients" >"$RUNNER_TEMP/password.age"
+          # Each SSH key adds a stanza (about 1 KiB for RSA 4096); announce
+          # refuses a ciphertext over the limit, so fail before the stack.
+          size="$(wc -c <"$RUNNER_TEMP/password.age")"
+          [ "$size" -le "$ARMOR_MAX_BYTES" ] || {
+            echo "::error::the password ciphertext for $(wc -l <"$RUNNER_TEMP/recipients") recipients is ${size} bytes, over ${ARMOR_MAX_BYTES}"
+            exit 1
+          }
+          echo "started=true" >>"$GITHUB_OUTPUT"
+          scripts/local.sh up --fake-model
+          # A head from before DEMO_ACCOUNTS_PASSWORD keeps the public
+          # password, and local.sh says a refused seed without failing: both
+          # accounts must sign in with this one before the tunnel opens.
+          for email in demo-owner@example.test demo-member@example.test; do
+            code="$(curl -sS -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:3000/v1/auth/login \
+              -H 'content-type: application/json' -H 'x-requested-with: werft-web' \
+              --data "$(jq -n --arg email "$email" --arg password "$DEMO_ACCOUNTS_PASSWORD" '{email: $email, password: $password}')")"
+            echo "${email} sign-in with the run's password on 127.0.0.1:3000: ${code}"
+            [ "$code" = 200 ] || { echo "::error::${email} does not sign in with the run's password; not opening the tunnel"; exit 1; }
+          done
+      - name: Open the tunnel
+        id: tunnel
+        env:
+          HEAD: ${{ steps.request.outputs.head }}
+        run: |
+          # A quick tunnel now and then comes up without an address or never
+          # reaches the origin; a fresh one usually does. `timeout` ends it
+          # even if every later step hangs.
+          for attempt in 1 2 3; do
+            log="$RUNNER_TEMP/cloudflared-${attempt}.log"
+            timeout "$((MINUTES * 60 + 600))" \
+              cloudflared tunnel --no-autoupdate --url http://127.0.0.1:3000 >"$log" 2>&1 &
+            pid=$!
+            url=""
+            for _ in $(seq 60); do
+              url="$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$log" | head -n 1 || true)"
+              [ -n "$url" ] && break
+              kill -0 "$pid" 2>/dev/null || break
+              sleep 1
+            done
+            code=""
+            if [ -n "$url" ]; then
+              for _ in $(seq 60); do
+                code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "${url}/readyz" || true)"
+                [ "$code" = 200 ] && break
+                sleep 2
+              done
+            fi
+            echo "attempt ${attempt}: ${url:-no address} /readyz ${code:-not tried}"
+            if [ "$code" = 200 ]; then
+              echo "pid=${pid}" >>"$GITHUB_OUTPUT"
+              echo "url=${url}" >>"$GITHUB_OUTPUT"
+              jq -n --arg url "$url" --arg head "$HEAD" --rawfile password "$RUNNER_TEMP/password.age" \
+                --argjson until "$(($(date +%s) + MINUTES * 60))" \
+                '{url: $url, head: $head, until: $until, password: $password}' >"$RUNNER_TEMP/announce.json"
+              exit 0
+            fi
+            kill "$pid" 2>/dev/null || true
+            wait "$pid" 2>/dev/null || true
+          done
+          echo "::error::no quick tunnel reached the stack in 3 attempts"
+          exit 1
+      # What `announce` reads to write the PR comment.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ env.ANNOUNCE_ARTIFACT }}
+          path: ${{ runner.temp }}/announce.json
+          retention-days: 1
+      - name: Stay up
+        id: stay
+        env:
+          GH_TOKEN: ${{ github.token }}
+          URL: ${{ steps.tunnel.outputs.url }}
+          PID: ${{ steps.tunnel.outputs.pid }}
+          LABELED: ${{ github.event_name == 'pull_request' }}
+        run: |
+          deadline=$((SECONDS + MINUTES * 60))
+          misses=0
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            sleep 30
+            kill -0 "$PID" 2>/dev/null || { echo "::error::cloudflared exited"; exit 1; }
+            code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "${URL}/readyz" || true)"
+            if [ "$code" = 200 ]; then misses=0; else misses=$((misses + 1)); echo "/readyz ${code} (${misses} in a row)"; fi
+            [ "$misses" -lt 6 ] || { echo "::error::the tunnel stopped answering /readyz"; exit 1; }
+            # Backs up the label event's cancel, which a PR with a merge
+            # conflict never sends. A failed read keeps the preview.
+            if pull="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR}" 2>/dev/null)"; then
+              if [ "$(jq -r .state <<<"$pull")" != open ]; then
+                echo "ended=closed" >>"$GITHUB_OUTPUT"; echo "#${PR} closed; taking it down"; exit 0
+              fi
+              if [ "$LABELED" = true ] && ! jq -e '[.labels[].name] | index("preview")' <<<"$pull" >/dev/null; then
+                echo "ended=unlabeled" >>"$GITHUB_OUTPUT"; echo "the preview label is gone; taking it down"; exit 0
+              fi
+            fi
+          done
+          echo "ended=time" >>"$GITHUB_OUTPUT"
+          echo "up for ${MINUTES} minutes; taking it down"
+      - name: Take it down
+        if: always() && steps.up.outputs.started == 'true'
+        timeout-minutes: 5
+        working-directory: pr
+        env:
+          PID: ${{ steps.tunnel.outputs.pid }}
+        run: |
+          if [ -n "$PID" ]; then
+            # Started by another step, so not this shell's child to wait on.
+            kill "$PID" 2>/dev/null || true
+            for _ in $(seq 20); do kill -0 "$PID" 2>/dev/null || break; sleep 0.5; done
+            if kill -0 "$PID" 2>/dev/null; then echo "::warning::cloudflared still running"; else echo "cloudflared stopped"; fi
+          fi
+          scripts/local.sh down
+
+  # Writes the PR comment, on a runner that runs none of the PR's code: the
+  # address comes from serve's artifact, checked field by field.
+  announce:
+    if: github.event_name == 'workflow_dispatch' || (github.event.action == 'labeled' && github.event.label.name == 'preview')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      actions: read
+      pull-requests: write
+    outputs:
+      comment: ${{ steps.comment.outputs.id }}
+    steps:
+      - name: Wait for the address and comment
+        id: comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STARTER: ${{ github.triggering_actor }}
+        run: |
+          base="repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          artifact=""
+          while [ -z "$artifact" ]; do
+            artifact="$(gh api "${base}/artifacts" --jq ".artifacts[] | select(.name == \"${ANNOUNCE_ARTIFACT}\") | .id" | head -n 1)"
+            [ -n "$artifact" ] && break
+            serve="$(gh api "${base}/jobs" --jq '.jobs[] | select(.name == "serve") | .status')"
+            if [ "$serve" = completed ]; then
+              echo "serve ended without an address; no comment"
+              exit 0
+            fi
+            sleep 15
+          done
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact}/zip" >announce.zip
+          unzip -p announce.zip announce.json >announce.json
+          url="$(jq -r '.url | strings' announce.json)"
+          head="$(jq -r '.head | strings' announce.json)"
+          until="$(jq -r '.until | numbers | floor' announce.json)"
+          password="$(jq -r '.password | strings' announce.json)"
+          now="$(date +%s)"
+          # Only an age armor: header, base64 lines, footer.
+          armor=$'^-----BEGIN AGE ENCRYPTED FILE-----\n([A-Za-z0-9+/=]{1,64}\n)+-----END AGE ENCRYPTED FILE-----$'
+          [ "${#password}" -le "$ARMOR_MAX_BYTES" ] && [[ "$password" =~ $armor ]] ||
+            { echo "::error::not an age armor of at most ${ARMOR_MAX_BYTES} bytes"; exit 1; }
+          [[ "$url" =~ ^https://[a-z0-9-]+\.trycloudflare\.com$ ]] || { echo "::error::not a quick tunnel address"; exit 1; }
+          [[ "$head" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::not a head sha"; exit 1; }
+          [[ "$until" =~ ^[0-9]+$ ]] && [ "$until" -gt "$now" ] && [ "$until" -le $((now + 181 * 60)) ] ||
+            { echo "::error::not an end time within 180 minutes"; exit 1; }
+          until_at="$(date -u -d "@${until}" '+%Y-%m-%d %H:%M UTC') ($(TZ=Asia/Seoul date -d "@${until}" '+%H:%M KST'))"
+          body="$(cat <<EOF
+          ${MARKER}
+          ### PR 미리보기: 떠 있다
+
+          - 주소: ${url}
+          - head: \`${head}\`
+          - 내려가는 시각: ${until_at}. 라벨 \`preview\`를 떼거나 PR을 닫으면 바로 내려간다.
+          - 데모 계정: \`demo-owner@example.test\`(owner), \`demo-member@example.test\`(member)
+          - 비밀번호: 이 run마다 새로 만든다. 아래 암호문은 @${STARTER}의 GitHub SSH 키(ssh-ed25519·ssh-rsa)와 직접 실행의 \`recipient\`로만 열린다.
+
+          <details><summary>비밀번호 암호문(age)</summary>
+
+          \`password.age\`로 저장해 \`age -d -i ~/.ssh/id_ed25519 password.age\`로 연다. ssh-agent나 하드웨어 키에만 있는 키로는 열 수 없다.
+
+          \`\`\`text
+          ${password}
+          \`\`\`
+
+          </details>
+
+          인터넷에 공개된 주소다. fake 모델이라 실제 모델·GitHub·Slack에는 닿지 않는다. 세션 화면의 실시간 이벤트(SSE)는 quick tunnel이 지원하지 않는다.
+          EOF
+          )"
+          id="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" -f body="$body" --jq .id)"
+          echo "comment ${id}"
+          echo "id=${id}" >>"$GITHUB_OUTPUT"
+
+  # A job of its own: a job timeout cancels every step left in serve. The
+  # runner, and the tunnel with it, is gone once serve has ended.
+  finish:
+    needs: [serve, announce]
+    if: always() && needs.announce.outputs.comment != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Mark the comment taken down
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESULT: ${{ needs.serve.result }}
+          ENDED: ${{ needs.serve.outputs.ended }}
+          COMMENT: ${{ needs.announce.outputs.comment }}
+        run: |
+          [[ "$COMMENT" =~ ^[0-9]+$ ]] || { echo "::error::not a comment id"; exit 1; }
+          case "${RESULT}:${ENDED}" in
+            success:closed) why="PR이 닫혔다" ;;
+            success:unlabeled) why="라벨 \`preview\`를 뗐다" ;;
+            success:*) why="정한 시간이 끝났다" ;;
+            cancelled:*) why="run이 취소됐다(라벨을 뗐거나 다시 붙였다)" ;;
+            *) why="run이 실패했다" ;;
+          esac
+          at="$(date -u '+%Y-%m-%d %H:%M UTC')"
+          body="$(printf '%s\n### PR 미리보기: 내려갔다\n\n%s 기준으로 runner와 터널이 닫혔다. 이유: %s. 다시 보려면 라벨 `preview`를 다시 붙인다. [run](%s)\n' \
+            "$MARKER" "$at" "$why" "$RUN_URL")"
+          gh api -X PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT}" -f body="$body" --jq .html_url

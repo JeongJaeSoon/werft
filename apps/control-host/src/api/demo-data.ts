@@ -4,9 +4,9 @@ import { type CatalogProviderConfig, messageOf } from "@werft-ai/platform";
 import { withJobDatabase } from "../job-database.ts";
 import {
   DEMO_ACCOUNTS,
-  DEMO_PASSWORD,
   demoAccountsRefusal,
   demoDatabaseUrl,
+  demoPassword,
   previewDatabaseRefusal,
 } from "./demo-accounts.ts";
 
@@ -317,10 +317,10 @@ export class DemoClient {
     return response.body;
   }
 
-  async login(email: string) {
+  async login(email: string, password: string) {
     const response = await this.request("POST", "/v1/auth/login", {
       email,
-      password: DEMO_PASSWORD,
+      password,
     });
     if (response.status !== 200) {
       throw new Error(`signing in as ${email} answered ${response.status}`);
@@ -691,7 +691,10 @@ export type DemoDataOutcome = {
  * session title (an untitled one by its first message), and leaves every
  * existing row alone. The demo accounts must exist already.
  */
-async function seedDemoData(base: string): Promise<DemoDataOutcome[]> {
+async function seedDemoData(
+  base: string,
+  password: string,
+): Promise<DemoDataOutcome[]> {
   const clients = {} as Record<Role, DemoClient>;
   for (const account of DEMO_ACCOUNTS) {
     clients[account.role] = new DemoClient(base);
@@ -700,7 +703,7 @@ async function seedDemoData(base: string): Promise<DemoDataOutcome[]> {
   let failure: { error: unknown } | null = null;
   try {
     for (const account of DEMO_ACCOUNTS) {
-      await clients[account.role].login(account.email);
+      await clients[account.role].login(account.email, password);
     }
     outcomes = await seedAs(clients);
   } catch (error) {
@@ -845,7 +848,7 @@ async function main(): Promise<void> {
     return;
   }
   const base = `http://127.0.0.1:${process.env.PORT ?? 3000}`;
-  const outcomes = await seedDemoData(base);
+  const outcomes = await seedDemoData(base, demoPassword(process.env));
   for (const { kind, name, outcome } of outcomes) {
     console.log(`${outcome} ${kind} ${name}`);
   }

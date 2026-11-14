@@ -113,7 +113,11 @@ deploy/preview/preview.sh reap       # PR이 닫혔거나 머지됐거나 TTL이
 
 - 설치는 PR head의 트리(Dockerfile·chart·대역 서비스)를 이 checkout의 `deploy/kind/up.sh`(orbstack 모드)로 한다. up.sh를 PR checkout에 복사해 돌리므로 orbstack 모드가 없는 오래된 head도 뜬다. 값은 `deploy/preview/values.yaml`을 얹는다(api·egress proxy를 1개로, worker 메모리를 fake 모델에 맞게 낮춘다).
 - 진입점은 미리보기 전체가 같이 쓰는 Traefik 하나다. 없으면 `up`이 namespace `preview-ingress`에 chart 42.1.3으로 한 번 설치한다(IngressClass `preview`, LoadBalancer 18180 http·18543 https). Traefik CRD는 설치하지 않는다. OrbStack은 LoadBalancer 포트를 Mac의 `127.0.0.1`에만 연다. `k8s.expose_services`가 켜져 있으면 `up`이 멈춘다.
-- 각 namespace에 Ingress `preview-pr-<번호>`가 Host `pr-<번호>.preview.94soon.dev`를 api로 보낸다. Ingress 이름이 namespace마다 같으면 Traefik router가 충돌해 두 번째 host가 404가 된다. 바깥 DNS·인증서가 없을 때는 `curl --resolve pr-123.preview.94soon.dev:18543:127.0.0.1 -k https://pr-123.preview.94soon.dev:18543/readyz`로 확인한다.
+- 주소는 `http://pr-<번호>.localhost:18180/`이다. 각 namespace의 Ingress `preview-pr-<번호>`가 Host `pr-<번호>.localhost`를 api로 보낸다. Ingress 이름이 namespace마다 같으면 Traefik router가 충돌해 두 번째 host가 404가 된다.
+  - 브라우저와 curl은 `*.localhost`를 loopback으로 풀어서 DNS가 필요 없다.
+  - Chrome은 `http://*.localhost`를 안전한 출처로 본다. 그래서 콘솔의 `__Host-` 세션 쿠키(Secure)가 http에서도 설정된다. 다른 브라우저에서는 확인하지 않았다. 18543 https는 Traefik 자체 서명 인증서라 쓰지 않는다.
+  - 세션 쿠키는 host에만 붙으므로 미리보기마다 따로 저장된다. 한쪽에 로그인해도 다른 쪽이 풀리지 않는다.
+  - 데모 계정과 비밀번호는 [quickstart](../quickstart.md)의 "웹 콘솔 데모 계정"과 같다. Mac 밖에서 보려면 아래 [Actions 미리보기](#actions-미리보기)를 쓴다.
 - 새 미리보기를 띄우기 전에 노드 allocatable 메모리에서 Pod requests 합을 뺀 값이 `PREVIEW_MEMORY_MI`(기본 2560: 미리보기 Deployment requests 1792Mi와 worker 하나 768Mi)보다 작으면 이유를 적고 멈춘다. `MAX_MEMORY_MI`는 allocatable 대신 셀 값이다. 이미 있는 미리보기를 다시 `up`할 때는 세지 않는다.
 - namespace에는 label `werft.dev/preview=true`, annotation `werft.dev/preview-head`(설치한 head)·`werft.dev/preview-up-at`(마지막 `up` 시작 시각, UTC)이 붙는다. `down`은 이 label이 없는 namespace를 지우지 않는다.
 - checkout과 up.sh 상태는 `PREVIEW_HOME`(기본 `~/.cache/werft/preview`) 아래 `pr-<번호>`에, PR head는 ref `refs/preview/pr-<번호>`에 둔다. 둘 다 `down`이 지운다.
@@ -133,6 +137,30 @@ deploy/preview/preview.sh reap       # PR이 닫혔거나 머지됐거나 TTL이
 `reap`을 주기적으로 돌리려면 작업용 worktree가 아니라 `reap` 전용 detached checkout에서 돌린다. 작업용 worktree는 지워지거나 브랜치가 바뀐다. 실행마다 그 checkout만 `git fetch origin` 뒤 `origin/main`으로 옮기고, 실패하면 이유를 로그에 적고 가진 코드로 `reap`을 돌린다. 그 checkout은 손으로 고치지 않는다.
 
 gh는 로그인한 사용자의 인증을 쓰므로, 주기 실행은 그 사용자의 세션에서 도는 스케줄러(예: 15분 간격)로 건다.
+
+`preview.sh`는 PR head의 Dockerfile·chart를 이 Mac에서 그대로 빌드·실행한다. 검토한 PR에만 쓴다.
+
+### Actions 미리보기
+
+Mac 밖에서 보려면 PR에 라벨 `preview`를 붙인다. `.github/workflows/preview.yml`이 GitHub Actions runner에서 quickstart 스택(fake 모델, 데모 계정과 데이터)을 띄우고 Cloudflare quick tunnel(`https://<임의>.trycloudflare.com`, 계정 불필요)로 연다. 주소는 PR 댓글로 온다. 60분 뒤 스스로 내려가고 댓글이 "내려갔다"로 바뀐다.
+
+- 시간을 바꾸거나 다른 recipient를 더하려면 workflow를 직접 실행한다: `gh workflow run preview.yml -f pr=123 -f minutes=30`(5~180분).
+- 내리기: 라벨을 떼거나 PR을 닫는다. 라벨을 다시 붙이면 앞 run이 취소되고 새로 뜬다. 라벨을 붙인 시점의 head를 띄우므로, push한 뒤 새 head를 보려면 라벨을 다시 붙인다. merge conflict가 있는 PR에서는 `pull_request` 이벤트가 오지 않아 라벨로 시작·취소되지 않는다(실행 중인 run은 1분 안팎마다 라벨과 PR 상태를 다시 읽어 스스로 내려간다).
+- 데모 계정은 quickstart와 같은 두 이메일이지만 비밀번호는 run마다 새로 만든다(`DEMO_ACCOUNTS_PASSWORD`). 공개 저장소의 Actions 로그와 summary는 누구나 읽으므로 평문은 남기지 않는다. 로그에서는 mask하고, PR 댓글에 [age](https://github.com/FiloSottile/age)로 시작한 사람의 GitHub SSH 공개 키(ssh-ed25519·ssh-rsa)에 암호화한 텍스트를 접어 둔다(job summary는 job이 끝난 뒤에야 보여서 쓰지 않는다). 그 텍스트를 `password.age`로 저장해 `age -d -i ~/.ssh/id_ed25519 password.age`로 연다. ssh-agent나 하드웨어 키에만 있는 키로는 열 수 없으니, 그때는 직접 실행의 `recipient`에 age 공개 키(`age-keygen`)를 넣는다.
+
+막는 것:
+
+- `pull_request`만 쓰고 `pull_request_target`은 쓰지 않는다. 시작 전에 `.github/scripts/preview-request.sh`가 PR을 다시 읽어 fork PR, 닫힌 PR, 라벨이 이미 떨어진 PR, 시작한 사람이 write 미만인 경우를 거절한다. 라벨은 triage 이상만 붙일 수 있고 triage는 push 권한이 없어서 한 단계 더 막는다.
+- 이 검사는 PR에 든 workflow가 돌리는 것이라, 그 PR이 workflow를 고치면 함께 바뀐다. 같은 저장소 브랜치에 push할 수 있는 사람은 믿는다는 전제다. fork PR에서는 GitHub이 `GITHUB_TOKEN`을 읽기 전용으로 주므로, 검사를 지운 fork라도 PR 댓글을 쓰지 못한다.
+- secret을 쓰지 않는다. 실제 모델 key, GitHub App, Slack 연동이 없다. egress proxy와 worker 샌드박스 정책은 그대로다.
+- PR 코드를 돌리는 job `serve`는 읽기 권한(`contents`, `pull-requests`)만 갖고 Actions cache를 쓰지 않는다(`cache-mode: none`, image-cache action 없음). PR 댓글은 PR 코드를 돌리지 않는 다른 runner의 job `announce`가 `serve`의 artifact를 항목마다 검사한 뒤 쓴다.
+- 비밀번호를 바꾸는 코드가 없는 오래된 head는 고정 비밀번호로 뜬다. 그래서 `serve`는 두 계정이 run의 비밀번호로 로그인되는지 확인한 뒤에만 터널을 연다.
+
+남는 것:
+
+- 로그인 화면과 공개 API는 인터넷의 누구나 닿는다. 로그인 실패 5번이면 그 계정이 15분 잠기므로(이메일이 공개돼 있다) 누군가 미리보기를 막을 수 있다.
+- quick tunnel은 SSE를 지원하지 않고 동시 요청을 200개로 제한한다([Cloudflare](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/trycloudflare/)). 세션 화면의 실시간 이벤트가 오지 않을 수 있다.
+- 주소는 추측하기 어렵지만 비밀이 아니다(PR 댓글에 적는다).
 
 ## 테스트·스크립트 배치
 
