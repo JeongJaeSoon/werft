@@ -86,6 +86,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - 비밀번호 로그인의 때가 그 사람의 로그인 수단에 적힌다(`GET /v1/auth/me/login-methods`의 비밀번호 항목 `last_login_at`). 전에는 공급자 로그인만 적혔다. 올리기 전부터 쓰던 비밀번호는 다음 비밀번호 로그인까지 비어 있다.
   - 옛 버전으로 되돌릴 수 있다. 옛 코드는 `login_settings`를 읽지 않으므로, 되돌리면 비밀번호 로그인이 닫혀 있던 설치도 모두에게 다시 열린다. 복구 명령으로 낸 재설정 token 가운데 쓰지 않은 것은 되돌리기 전에 지운다(`DELETE FROM password_resets WHERE issued_by IS NULL AND used_at IS NULL`). 완전히 걷어내려면 그 뒤 `DROP TABLE login_settings`를 돌리고, `password_resets.issued_by`가 NULL인 행이 없을 때 `ALTER TABLE password_resets ALTER COLUMN issued_by SET NOT NULL`을 돌린다.
 - **parked 요청이 수천 개인 승인 대기 그룹이 닫힌다**(JeongJaeSoon/werft#1650). 전에는 약 3,000개를 넘으면 이어 갈 turn의 메시지가 32 KiB를 넘어 그룹을 닫는 transaction이 되돌려졌고, 답은 저장된 채 turn이 이어지지 않았다. 이제 메시지에는 들어가는 만큼의 답이 그대로 실리고, 나머지는 마지막 줄 `… N more answers cut`으로 센다. 그보다 작은 그룹의 메시지는 바뀌지 않는다. 할 일은 없다.
+- **release 메모(`note`)를 없앴다. `POST /v1/agents/{id}/releases`에 `note`를 보내면 400이다**(JeongJaeSoon/werft#1690). 값이 `null`이어도 거절한다. release를 담은 응답(release 생성, 에이전트 상세의 `releases`·`active_release` 등)에도 `note`가 없다. release를 만드는 스크립트·클라이언트에서 `note`를 빼고, 응답의 `note`를 읽던 곳을 고친다. 이미 남긴 메모는 DB의 `agent_releases.note`에 남지만 API로는 읽을 수 없다. 이 열은 지원 창의 이전 릴리스가 아직 읽으므로 이번에 지우지 않고, 두 릴리스 뒤의 migration이 지운다.
 
 ## v0.1.3
 

@@ -53,7 +53,6 @@ const release = (over: Partial<AgentRelease> = {}): AgentRelease => ({
   created_at: "2026-11-04T01:00:00.000Z",
   approved_by: null,
   approved_at: null,
-  note: null,
   label: "2026-11-04_10:00:00",
   activated_at: null,
   deactivated_at: null,

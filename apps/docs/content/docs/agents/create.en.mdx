@@ -104,8 +104,6 @@ echo "$release" | jq '{id: .release.id, created, tools: .release.effective_tools
 
 The release id is a hash of the card, the connection and the pinned run settings. Creating a release again with the same contents returns the same release with `created: false`.
 
-A `note` in the request (1 to 200 characters after trimming) is kept on the release. The note is not part of the id, so creating the release again with the same contents keeps the first note. An empty note or one over 200 characters answers 400.
-
 People name a release by its `label`: the second it was created, in Seoul time, as `2026-10-30_14:30:28`. When the same agent gets more than one release in the same second, the second one onward ends in `-2`, `-3`, and so on. The console's release history, the agent's header tag and the session lists use this name. The release id is still the identifier. A card's `version_no` only goes up when the card changes, so releasing the same card on another connection keeps the same version.
 
 The console's release history shows, for each release, what changed against the release the same agent made just before it (allowed repositories, model, tools and MCP, prompt, settings), with who made it and when. Credentials show only as "Changed", never their values. The session screen shows the release the session uses and marks it when it is not the agent's active release. A session keeps the release it started on, so changed settings apply from new sessions. The session response's `agent.release_is_active` carries that comparison.

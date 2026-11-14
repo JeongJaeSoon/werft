@@ -527,7 +527,6 @@ describe("agent, version and release", () => {
       created_at: AT,
       approved_by: null,
       approved_at: null,
-      note: null,
       label: "2026-10-30_14:30:28",
       activated_at: null,
       deactivated_at: null,
@@ -549,6 +548,9 @@ describe("agent, version and release", () => {
         ...release,
         effective_tools: { tools: [] },
       }).success,
+    ).toBe(false);
+    expect(
+      agentReleaseSchema.safeParse({ ...release, note: null }).success,
     ).toBe(false);
   });
 
@@ -575,32 +577,16 @@ describe("agent, version and release", () => {
     }
   });
 
-  test("a release note is trimmed and counts 1 to 200 code points, as the column does", () => {
-    const request = (note?: string) =>
+  test("a release request carrying a note is refused", () => {
+    const request = (extra: Record<string, unknown>) =>
       createAgentReleaseRequestSchema.safeParse({
         version_id: VERSION_ID,
         connection_id: "fake-messages",
-        ...(note === undefined ? {} : { note }),
-      });
-    // 200 emoji are 400 UTF-16 units but 200 characters to char_length.
-    const emoji = "🚀".repeat(200);
-    expect(request(emoji).data?.note).toBe(emoji);
-    expect(request(`  ${"a".repeat(200)}\n`).data?.note).toBe("a".repeat(200));
-    expect(request("hotfix").data?.note).toBe("hotfix");
-    expect(request().data).not.toHaveProperty("note");
-    // Postgres text cannot hold NUL; letting one through is a 500 at insert.
-    for (const note of [
-      "",
-      "   ",
-      "\n\t",
-      "🚀".repeat(201),
-      "a".repeat(201),
-      "a\u0000b",
-    ]) {
-      expect(request(note).success, JSON.stringify(note.slice(0, 8))).toBe(
-        false,
-      );
-    }
+        ...extra,
+      }).success;
+    expect(request({})).toBe(true);
+    expect(request({ note: "hotfix" })).toBe(false);
+    expect(request({ note: null })).toBe(false);
   });
 
   test("a release snapshot has no room for a live credential", () => {
@@ -618,7 +604,6 @@ describe("agent, version and release", () => {
       created_at: AT,
       approved_by: null,
       approved_at: null,
-      note: null,
       label: "2026-10-30_14:30:28",
       activated_at: null,
       deactivated_at: null,
@@ -712,7 +697,6 @@ describe("agent, version and release", () => {
       created_at: AT,
       approved_by: null,
       approved_at: null,
-      note: null,
       label: "2026-10-30_14:30:28",
       activated_at: null,
       deactivated_at: null,

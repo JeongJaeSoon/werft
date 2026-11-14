@@ -108,7 +108,6 @@ function storedRelease(): AgentRelease {
     created_at: AT,
     approved_by: null,
     approved_at: null,
-    note: null,
     label: "2026-10-11_09:00:00",
     activated_at: null,
     deactivated_at: null,
@@ -962,23 +961,14 @@ describe("POST /v1/agents/{id}/releases", () => {
     expect(JSON.stringify(released)).not.toContain("catalog-provider-key");
   });
 
-  test("carries a trimmed note, null without one, and refuses a blank or long one", async () => {
-    const noted = createAgentReleaseResponseSchema.parse(
-      await (
-        await send(app(), "POST", path, { ...body, note: "  hotfix  " })
-      ).json(),
-    );
-    expect(noted.release.note).toBe("hotfix");
-    const bare = createAgentReleaseResponseSchema.parse(
-      await (await send(app(), "POST", path, body)).json(),
-    );
-    expect(bare.release.note).toBeNull();
-    expect(bare.release.id).toBe(noted.release.id);
-    for (const note of ["   ", "a".repeat(201), "a\u0000b", 7]) {
+  test("refuses a note and answers without one", async () => {
+    for (const note of ["hotfix", null]) {
       const response = await send(app(), "POST", path, { ...body, note });
       expect(response.status).toBe(400);
       expect(await codeOf(response)).toBe("BAD_REQUEST");
     }
+    const released = await (await send(app(), "POST", path, body)).json();
+    expect(released.release).not.toHaveProperty("note");
   });
 
   test("a release without a repository is made on none", async () => {

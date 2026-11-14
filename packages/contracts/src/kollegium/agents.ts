@@ -891,18 +891,6 @@ export const policyPinsSchema = z
   })
   .strict();
 
-export const RELEASE_NOTE_MAX_CODE_POINTS = 200;
-
-// Counted in code points, as the column's char_length check counts them.
-// Postgres text cannot store NUL, so it is refused here rather than at insert.
-const releaseNoteSchema = z
-  .string()
-  .refine((note) => {
-    const length = [...note].length;
-    return length >= 1 && length <= RELEASE_NOTE_MAX_CODE_POINTS;
-  }, `note must be 1 to ${RELEASE_NOTE_MAX_CODE_POINTS} characters`)
-  .refine((note) => !note.includes("\u0000"), "note must not contain NUL");
-
 /**
  * How people name a release: the second it was made in Asia/Seoul, as
  * `2026-10-30_14:30:28`. A release made later in the same second of the
@@ -917,8 +905,8 @@ export const releaseLabelSchema = z
  * A version pinned to the runtime settings it was released against.
  *
  * The resolved config travels with the release so a connection or card
- * edit cannot change an in-flight session. Everything but `created_by`, `approved_by`,
- * `note`, `label` and the timestamps goes into the release id.
+ * edit cannot change an in-flight session. Everything but `created_by`,
+ * `approved_by`, `label` and the timestamps goes into the release id.
  */
 export const agentReleaseSchema = z
   .object({
@@ -942,8 +930,6 @@ export const agentReleaseSchema = z
     /** Set by the first activation, never by creating the release. */
     approved_by: userIdSchema.nullable(),
     approved_at: timestampSchema.nullable(),
-    /** What the person releasing it wrote; a re-release keeps the first. */
-    note: releaseNoteSchema.nullable(),
     label: releaseLabelSchema,
     /** Its latest activation, read from the activation history. */
     activated_at: timestampSchema.nullable(),
@@ -1228,8 +1214,6 @@ export const createAgentReleaseRequestSchema = z
   .object({
     version_id: agentVersionIdSchema,
     connection_id: z.string().min(1).max(128),
-    /** Trimmed; blank is refused. Leaves an existing release's note as is. */
-    note: z.string().trim().pipe(releaseNoteSchema).optional(),
     repository_id: z.string().min(1).max(128).optional(),
     /** Absent: the active release's, unless this one has no repository. */
     github: agentGitHubSchema.optional(),

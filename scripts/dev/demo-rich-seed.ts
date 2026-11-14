@@ -470,8 +470,6 @@ type AgentSpec = {
   // Indexes into versions that get a release, in order; the last one in
   // active is activated.
   release: number[];
-  // A release note per version index, kept when the release already exists.
-  notes?: Record<number, string>;
   active: number | null;
   status?: "paused" | "archived";
   admins?: { user?: string; team?: string }[];
@@ -528,11 +526,6 @@ const AGENTS: AgentSpec[] = [
       },
     ],
     release: [0, 1, 2],
-    notes: {
-      0: "첫 배포: 점검 목록만 확인한다",
-      1: "릴리스 노트 초안을 더하고, 프로덕션 명령은 확인을 받게 했다",
-      2: "배포 후 헬스체크 요약까지 — 금요일 규칙을 검토하는 중이라 아직 켜지 않는다",
-    },
     active: 1,
     admins: [{ team: "플랫폼팀" }, { user: "alex" }],
   },
@@ -559,10 +552,6 @@ const AGENTS: AgentSpec[] = [
       },
     ],
     release: [0, 1],
-    notes: {
-      0: "좁힌 판 v1(Read·Glob·Grep)로 시작",
-      1: "질문 도구가 든 v2 판으로 옮겼다 — v1 판은 은퇴",
-    },
     active: 1,
     admins: [{ team: "플랫폼팀" }],
   },
@@ -687,7 +676,6 @@ async function ensureAgents(owner: Web) {
                 version_id: version.id,
                 connection_id: CONNECTION,
                 ...(spec.repository ? { repository_id: "sample-app" } : {}),
-                ...(spec.notes?.[index] ? { note: spec.notes[index] } : {}),
               },
             )
           ).release.id;
@@ -1184,7 +1172,6 @@ async function ensureGitHub(owner: Web, workspaceId: string) {
         {
           version_id: versionId,
           connection_id: CONNECTION,
-          note: "저장소 없이 먼저 배포",
         },
       );
       await activate(first.release.id);
@@ -1209,7 +1196,6 @@ async function ensureGitHub(owner: Web, workspaceId: string) {
           version_id: versionId,
           connection_id: CONNECTION,
           repository_id: picked[0],
-          note: "GitHub 저장소 2개에서 pull request까지",
           github: {
             repositories: picked,
             push_approval: true,

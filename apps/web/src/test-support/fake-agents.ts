@@ -494,7 +494,6 @@ export function seedRelease(
     created_at: `2026-10-11T01:0${n}:00.000Z`,
     approved_by: null,
     approved_at: null,
-    note: null,
     label: `2026-10-11_10:0${n}:00`,
     activated_at: null,
     deactivated_at: null,

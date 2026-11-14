@@ -68,7 +68,6 @@ function release(connectionId: string = TEST_CONNECTION_ID): AgentRelease {
     created_at: "2026-10-11T00:00:00.000Z",
     approved_by: null,
     approved_at: "2026-10-11T00:00:00.000Z",
-    note: null,
     label: "2026-10-11_09:00:00",
     activated_at: null,
     deactivated_at: null,

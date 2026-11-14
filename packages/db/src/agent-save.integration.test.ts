@@ -488,7 +488,6 @@ integration("a card save releases (Z1) on PostgreSQL", () => {
       connection_id: TEST_CONNECTION_ID,
       repository_id: "app",
       github,
-      note: "pinned",
     });
     await agentsService.activateAgent(caller, made.agent.id, {
       release_id: pinned.release.id,
