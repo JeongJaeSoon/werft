@@ -1894,12 +1894,23 @@ export const sessionEventArchives = pgTable(
     lastOccurredAt: timestamp("last_occurred_at", {
       withTimezone: true,
     }).notNull(),
-    // The session's activity over every event through activity_through,
-    // taken before they left; a later chunk of the same pass repeats it.
-    // No API answers it any more: the archiver merges the previous chunk's
-    // value into the next, and readSessionActivity (the db bench) reads it.
-    activity: jsonb().notNull(),
-    activityThrough: bigint("activity_through", { mode: "number" }).notNull(),
+    // Written only by the previous release, which reads the newest chunk's
+    // pair for its session list and merges it into the next chunk. The
+    // defaults are an empty activity over no events, which that release
+    // reads as one with nothing archived. A later migration drops both.
+    activity: jsonb()
+      .notNull()
+      .default({
+        last: null,
+        tool_count: 0,
+        error_count: 0,
+        subagent_count: 0,
+        current_tool: null,
+        window: { events: 0, complete: false, since: null },
+      }),
+    activityThrough: bigint("activity_through", { mode: "number" })
+      .notNull()
+      .default(0),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

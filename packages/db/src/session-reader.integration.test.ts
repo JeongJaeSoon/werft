@@ -350,8 +350,6 @@ integration("session reader on PostgreSQL", () => {
       bytes: body.length,
       lastCreatedAt: stored.createdAt,
       lastOccurredAt: stored.createdAt,
-      activity: {},
-      activityThrough: stored.id,
     });
     await db.delete(events).where(eq(events.id, stored.id));
     expect(
