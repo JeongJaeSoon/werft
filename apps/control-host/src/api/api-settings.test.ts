@@ -28,7 +28,6 @@ describe("apiSettingsFromEnv", () => {
     expect(apiSettingsFromEnv({})).toEqual({
       leaseTtlMs: 30_000,
       logLevel: "info",
-      pendingTtlMs: 1_800_000,
       sse: {},
       workspaceEnforce: "warn",
     });
@@ -45,7 +44,6 @@ describe("apiSettingsFromEnv", () => {
       apiSettingsFromEnv({
         HEARTBEAT_TTL_SEC: "45",
         LOG_LEVEL: "debug",
-        PENDING_REQUEST_TTL_SEC: "3600",
         SSE_MAX_STREAMS: "512",
         SSE_MAX_STREAMS_PER_OWNER: "16",
         SSE_REPLAY_MAX_BYTES: "65536",
@@ -53,7 +51,6 @@ describe("apiSettingsFromEnv", () => {
     ).toEqual({
       leaseTtlMs: 45_000,
       logLevel: "debug",
-      pendingTtlMs: 3_600_000,
       sse: { batchMaxBytes: 65_536, maxStreams: 512, maxStreamsPerOwner: 16 },
       workspaceEnforce: "warn",
     });
@@ -62,12 +59,6 @@ describe("apiSettingsFromEnv", () => {
   // The ticket's reproduction: each of these used to start the API on a
   // default nobody chose.
   test.each([
-    ["PENDING_REQUEST_TTL_SEC", "0"],
-    ["PENDING_REQUEST_TTL_SEC", "-1"],
-    ["PENDING_REQUEST_TTL_SEC", "0.001"],
-    ["PENDING_REQUEST_TTL_SEC", "1e12"],
-    ["PENDING_REQUEST_TTL_SEC", "30m"],
-    ["PENDING_REQUEST_TTL_SEC", ""],
     ["SSE_MAX_STREAMS", "25O"],
     ["SSE_MAX_STREAMS", "0"],
     ["SSE_MAX_STREAMS_PER_OWNER", "-8"],
@@ -95,7 +86,6 @@ describe("apiSettingsFromEnv", () => {
   test("names every problem at once", () => {
     const environment = {
       SSE_MAX_STREAMS: "25O",
-      PENDING_REQUEST_TTL_SEC: "0",
       LOG_LEVEL: "loud",
     };
     let thrown: unknown;
@@ -107,7 +97,6 @@ describe("apiSettingsFromEnv", () => {
     expect(thrown).toBeInstanceOf(ApiSettingsError);
     expect(apiSettingsProblems(environment)).toEqual([
       'LOG_LEVEL must be one of debug|info|warn|error, got "loud"',
-      "PENDING_REQUEST_TTL_SEC must be an integer from 1 to 604800",
       "SSE_MAX_STREAMS must be a positive integer",
     ]);
     expect(apiSettingsProblems({})).toEqual([]);

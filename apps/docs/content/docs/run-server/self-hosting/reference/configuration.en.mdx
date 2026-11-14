@@ -37,7 +37,6 @@ At startup, API reads these through one parser. Unset values use defaults; inval
 | Variable | Default | Allowed range |
 |---|---|---|
 | `HEARTBEAT_TTL_SEC` | 30 | Greater than 20, at most 86400. Workers relinquish leases 10 seconds early (WORKER_LEASE_SAFETY_MARGIN_SEC) and heartbeat every 5 seconds (WORKER_HEARTBEAT_INTERVAL_SEC; older workers 10). A TTL at or below margin + 10 seconds loses old attempts around their first heartbeat. Launchers do not pass these two worker settings, so validation uses defaults |
-| `PENDING_REQUEST_TTL_SEC` | 1800 | Integer 1–604800. Lifetime of approval/question requests. Workers wait this long after registration. QUESTION_TIMEOUT_SEC applies only before gateway registration confirmation. MAX_TURN_SECONDS includes waits and still bounds them |
 | `SSE_MAX_STREAMS` · `SSE_MAX_STREAMS_PER_OWNER` · `SSE_REPLAY_MAX_BYTES` | 256 · 8 · 1 MiB | Positive integers |
 | `LOG_LEVEL` | `info` | debug/info/warn/error, case-insensitive; empty means info. Scheduler/reconciler loops and egress-proxy reject invalid values by the same rule. Workers inherit scheduler's value |
 | `WEB_DIST_DIR` | Unset (no console); control-host image: `/app/apps/web/dist` | Absolute path containing index.html, the apps/web build output |
@@ -72,6 +71,15 @@ Set the following only to send GitHub Packages bot tokens ([decision](https://gi
 | `GITHUB_PACKAGES_API_URL` | `https://api.github.com` | Queries token scopes (GET /user) |
 | `GITHUB_PACKAGES_NPM_URL` | `https://npm.pkg.github.com` | github-npm upstream |
 | `GITHUB_PACKAGES_RUBYGEMS_URL` | `https://rubygems.pkg.github.com` | github-rubygems upstream |
+
+<a id="웹에서-정하는-실행-한도" />
+## Execution limits set on the web
+
+An owner saves these under **Settings > Workspace > Execution limits**, not in env (`PATCH /v1/installation-config`). They are one for the whole installation; a save applies at once on that API and within 10 seconds on other replicas. With nothing saved, the default applies. The old env names are carried in once at upgrade ([Execution limits moved to the web](/run-server/self-hosting/upgrade-compose#웹으로-옮긴-실행-한도)).
+
+| Field on the screen (old env) | Default | Allowed range |
+|---|---|---|
+| Wait for an answer (`PENDING_REQUEST_TTL_SEC`) | 1800 | Integer 1–604800 seconds. Lifetime of approval/question requests. Workers wait this long after registration; a request already registered keeps the wait it was given. Until the gateway registers a request, the worker waits 30 minutes. MAX_TURN_SECONDS includes waits and still bounds them |
 
 <a id="schedulerworker-컨테이너egress-설정" />
 ## Scheduler, worker container, and egress settings
@@ -137,7 +145,7 @@ API memory is determined by checkpoint bundle validation: at most two validation
 
 Compose Postgres uses POSTGRES_USER (postgres), POSTGRES_PASSWORD (dev), POSTGRES_DB (sessions); all services build DSNs from the same values.
 
-Workers also read the following env settings, but scheduler does not forward them, so production uses code defaults: WORKER_ANSWER_POLL_SEC (1), WORKER_ATTACH_FETCH_TIMEOUT_SEC (300, fetch one repository attached mid-session), WORKER_ATTACH_FETCH_MAX_MB (2048, fetched scratch mirror size), WORKER_CLAIM_TIMEOUT_SEC (60), WORKER_DRAIN_TIMEOUT_SEC (100, reduced to fit stop grace), WORKER_HEARTBEAT_INTERVAL_SEC (5), WORKER_IDLE_TIMEOUT_SEC (1800), WORKER_LEASE_SAFETY_MARGIN_SEC (10), WORKER_NEXT_INPUT_RETRY_SEC (60), WORKER_NEXT_INPUT_WAIT_SEC (20), WORKER_REQUEST_TIMEOUT_SEC (30), WORKER_STARTUP_TIMEOUT_SEC (3600), QUESTION_TIMEOUT_SEC (1800), WORKER_CLAUDE_CONFIG_DIR ($HOME/.claude).
+Workers also read the following env settings, but scheduler does not forward them, so production uses code defaults: WORKER_ANSWER_POLL_SEC (1), WORKER_ATTACH_FETCH_TIMEOUT_SEC (300, fetch one repository attached mid-session), WORKER_ATTACH_FETCH_MAX_MB (2048, fetched scratch mirror size), WORKER_CLAIM_TIMEOUT_SEC (60), WORKER_DRAIN_TIMEOUT_SEC (100, reduced to fit stop grace), WORKER_HEARTBEAT_INTERVAL_SEC (5), WORKER_IDLE_TIMEOUT_SEC (1800), WORKER_LEASE_SAFETY_MARGIN_SEC (10), WORKER_NEXT_INPUT_RETRY_SEC (60), WORKER_NEXT_INPUT_WAIT_SEC (20), WORKER_REQUEST_TIMEOUT_SEC (30), WORKER_STARTUP_TIMEOUT_SEC (3600), WORKER_CLAUDE_CONFIG_DIR ($HOME/.claude).
 
 <a id="감독-루프" />
 ## Supervisor loops

@@ -96,9 +96,14 @@ describe("workerConfigFromEnv", () => {
     expect(() =>
       workerConfigFromEnv({ ...launched, WORKER_GATEWAY_URL: "not-a-url" }),
     ).toThrow("WORKER_GATEWAY_URL not-a-url is not a URL");
-    expect(() =>
-      workerConfigFromEnv({ ...launched, QUESTION_TIMEOUT_SEC: "0" }),
-    ).toThrow("QUESTION_TIMEOUT_SEC must be a positive number");
+  });
+
+  test("QUESTION_TIMEOUT_SEC is no longer read: a question waits 30 minutes before it is registered", () => {
+    const config = workerConfigFromEnv({
+      ...launched,
+      QUESTION_TIMEOUT_SEC: "0",
+    } as Parameters<typeof workerConfigFromEnv>[0]);
+    expect(config.timeouts.questionTimeoutMs).toBe(1_800_000);
   });
 
   test("refuses a long poll the request timeout would always abort", () => {

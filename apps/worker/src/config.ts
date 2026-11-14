@@ -57,7 +57,6 @@ export type WorkerEnvironment = WorkerObjectStoreEnvironment & {
   WORKER_PROVIDER_MAX_RETRIES?: string | undefined;
   WORKER_REQUEST_TIMEOUT_SEC?: string | undefined;
   WORKER_STARTUP_TIMEOUT_SEC?: string | undefined;
-  QUESTION_TIMEOUT_SEC?: string | undefined;
 };
 
 export type WorkerTimeouts = {
@@ -119,8 +118,8 @@ export type WorkerTimeouts = {
   nextInputWaitMs: number;
   /**
    * A pending permission or question denied once nobody has answered it,
-   * until the gateway has registered it; from then on the server's
-   * PENDING_REQUEST_TTL_SEC decides.
+   * until the gateway has registered it; from then on the installation's
+   * wait, saved in the console, decides.
    */
   questionTimeoutMs: number;
   requestTimeoutMs: number;
@@ -265,7 +264,7 @@ export function workerConfigFromEnv(
         60,
       ),
       nextInputWaitMs,
-      questionTimeoutMs: seconds(environment, "QUESTION_TIMEOUT_SEC", 1800),
+      questionTimeoutMs: QUESTION_TIMEOUT_MS,
       requestTimeoutMs,
       startupTimeoutMs: seconds(
         environment,
@@ -354,6 +353,12 @@ export const SHUTDOWN_RESERVE_MS = 12_000;
  * of gateway outage ridden out; a longer lease leaves more.
  */
 export const LEASE_SAFETY_MARGIN_MS = WORKER_LEASE_SAFETY_MARGIN_MS;
+
+/**
+ * How long a permission or question waits before the gateway registers it.
+ * No launcher passes a value, so it is fixed: the installation default.
+ */
+const QUESTION_TIMEOUT_MS = 30 * 60 * 1000;
 
 function drainBudget(configured: number, stopGraceMs: number | undefined) {
   if (stopGraceMs === undefined) return configured;

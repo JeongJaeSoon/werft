@@ -229,6 +229,9 @@ export const RECEIPT_OPERATION_VALUES = [
   // The Slack events address for the whole installation: the address saved
   // and the one before it.
   "update_slack_settings",
+  // Installation settings by key: each changed key's value and the one
+  // before it.
+  "update_installation_config",
 ] as const;
 
 export const receiptStatusSchema = z.enum(RECEIPT_STATUS_VALUES);

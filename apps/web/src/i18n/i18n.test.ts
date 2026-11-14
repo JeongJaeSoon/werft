@@ -34,6 +34,11 @@ import {
   engineSettingsKo,
 } from "./engine-settings.ts";
 import { errorsEn, errorsJa, errorsKo } from "./errors.ts";
+import {
+  executionLimitsEn,
+  executionLimitsJa,
+  executionLimitsKo,
+} from "./execution-limits.ts";
 import { githubEn, githubJa, githubKo } from "./github.ts";
 import {
   githubUserLinkEn,
@@ -257,6 +262,7 @@ describe("i18n", () => {
         linkedKo,
         loginMethodsKo,
         loginProvidersKo,
+        executionLimitsKo,
         outputsKo,
         apiKeysKo,
         workspaceKo,
@@ -289,6 +295,7 @@ describe("i18n", () => {
         linkedJa,
         loginMethodsJa,
         loginProvidersJa,
+        executionLimitsJa,
         outputsJa,
         apiKeysJa,
         workspaceJa,
@@ -321,6 +328,7 @@ describe("i18n", () => {
         linkedEn,
         loginMethodsEn,
         loginProvidersEn,
+        executionLimitsEn,
         outputsEn,
         apiKeysEn,
         workspaceEn,
