@@ -73,7 +73,7 @@ GitHub Packages bot token([결정](https://github.com/JeongJaeSoon/werft/blob/ma
 
 | 화면의 칸 (옛 env) | 기본값 | 의미와 허용 범위 | 넘었을 때 |
 |---|---|---|---|
-| 응답 대기 시간 (`PENDING_REQUEST_TTL_SEC`) | 1800 | 정수 1–604800초. 승인·질문 요청을 받는 기간이다. 등록된 요청은 worker가 이 값만큼 기다리고, 이미 등록된 요청은 바꾼 값을 따르지 않는다. gateway가 등록하기 전까지는 worker가 30분 기다린다. turn 벽시계 `MAX_TURN_SECONDS`에는 대기 시간도 들어가므로, 대기는 그 상한을 넘지 못한다 | 답이 없는 요청을 닫는다 |
+| 사람 응답 (`PENDING_REQUEST_TTL_SEC`) | 1800 | 정수 1–604800초. 승인·질문 요청을 받는 기간이다. 등록된 요청은 worker가 이 값만큼 기다리고, 이미 등록된 요청은 바꾼 값을 따르지 않는다. gateway가 등록하기 전까지는 worker가 30분 기다린다. turn 벽시계 `MAX_TURN_SECONDS`에는 대기 시간도 들어가므로, 대기는 그 상한을 넘지 못한다 | 답이 없는 요청을 닫는다 |
 | 세션 비용 (`SESSION_COST_LIMIT_USD`) | 25 | 0보다 크고 1000000 이하인 USD. 세션 누적 비용(egress proxy가 계측한 provider 호출별 usage를 플랫폼 가격표로 환산한 합, 추정치) | 새 turn을 dispatch하지 않는다. 세션 상세 `attention.code=BUDGET_EXCEEDED`가 뜨고 worker는 슬롯을 반납한다. 입력은 계속 `queued`로 받는다 |
 | 세션 토큰 (`SESSION_TOKEN_LIMIT`) | 0 (상한 없음) | 정수 0–9007199254740991. 세션 누적 provider token 수. 비용 상한과 같은 호출을 세되 단가와 무관하다 | 세션 비용과 같다. 두 상한은 같은 판정(`budgetExceeded`)을 지나며 어느 쪽이 먼저 닿아도 `BUDGET_EXCEEDED`다. `attention.reason`은 닿은 상한만 적는다 |
 | 대기 메시지 (`QUEUED_INPUT_LIMIT_PER_SESSION`) | 20 | 정수 1–100000. 세션 하나가 쌓아 둘 수 있는 `queued` turn 수 | `429 RATE_LIMITED`, `retryable:true`, `Retry-After: 5` |
@@ -82,8 +82,8 @@ GitHub Packages bot token([결정](https://github.com/JeongJaeSoon/werft/blob/ma
 
 **쓸 수 있는 값이 없을 때.** 옮겨 오지 못한 env 값(범위 밖)이나 이 릴리스가 받지 않는 저장값이 있는 키는 막힌다. 기본값으로 돌지 않는다. 그 키를 읽는 일만 거절되고, 화면은 그 칸에 안내를 보이며, 값을 저장하면 풀린다. 설정을 60초 넘게 읽지 못할 때(DB 장애)도 모든 키가 같다.
 
-- 응답 대기 시간: 새 권한 요청·질문의 등록이 `503 BACKEND_UNAVAILABLE`(`retryable:true`)로 거절된다. worker가 다시 보낸다.
-- 세션 비용·토큰·대기 메시지·입력 보관: 세션 생성과 메시지 접수가 `503 BACKEND_UNAVAILABLE`로 거절된다. 세션 비용·토큰은 그 밖에도 막는다. scheduler는 launch만 건너뛰고(로그 `Launches skipped: the session limits cannot be read`) 종료·workspace 회수는 계속한다. worker의 claim·다음 입력·provider 호출 열기·finalize는 `503`(재시도)을 받는다. 이미 연 provider 호출을 다시 여는 것과 이미 끝난 finalize의 답은 그대로 받는다. metrics는 launch 대기열 gauge(`werft_launch_queue_*`)를 비운다.
+- 사람 응답: 새 권한 요청·질문의 등록이 `503 BACKEND_UNAVAILABLE`(`retryable:true`)로 거절된다. worker가 다시 보낸다.
+- 세션 비용·토큰·대기 메시지·입력 보관: 세션 생성과 메시지 접수가 `503 BACKEND_UNAVAILABLE`로 거절된다. 이미 받은 요청을 같은 `Idempotency-Key`로 다시 보내면 저장된 응답을 그대로 받는다. 이 네 값을 보여 주는 `GET /v1/limits`와 `GET /v1/sessions/{id}/usage`도 넷 중 하나가 막히면 `503`이다. 세션 비용·토큰은 그 밖에도 막는다. scheduler는 launch만 건너뛰고(로그 `Launches skipped: the session limits cannot be read`) 종료·workspace 회수는 계속한다. worker의 claim·다음 입력·provider 호출 열기·finalize는 `503`(재시도)을 받는다. 이미 연 provider 호출을 다시 여는 것과 이미 끝난 finalize의 답은 그대로 받는다. metrics는 launch 대기열 gauge(`werft_launch_queue_*`)를 비운다.
 - 작업 공간 용량: worker의 claim이 `503`을 받아 세션이 시작되지 않는다.
 
 **비용·토큰 상한은 provider 호출 하나하나에도 걸린다.** egress proxy는 과금되는 provider 호출(Messages, Responses)을 보내기 전에 API에 그 호출을 연다. API는 세션의 누적 비용·토큰에, 아직 끝나지 않은 호출들의 예약과 이번 호출의 예약을 더한다. 그 합이 상한에 닿으면 `403 BUDGET_EXCEEDED`로 거절하고, proxy는 그 호출을 provider로 보내지 않는다. 예약은 요청 바이트 수를 입력 token으로 보고 가장 비싼 cache write 단가(Claude 2배, OpenAI 2.5배)로 매기고, 출력은 요청의 출력 상한 전체(Responses 요청에 상한이 없으면 32,768 token)로 매긴다. `claude-sonnet-5`나 `gpt-5.5` 호출 하나에 대략 1–2달러다.
