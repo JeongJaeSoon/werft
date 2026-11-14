@@ -582,13 +582,28 @@ integration("startup failures before ready on PostgreSQL", () => {
     expect(await scheduler().pointerRuntimeOf(fresh.sessionId)).toEqual({
       pointer: { kind: "none" },
       checkpointRevision: 0,
+      runtimeKind: "claude_agent_sdk",
     });
+    // The kind the scheduler picks an engine by is the spec's, read as the
+    // claim reads it: a kind that is not a string names none.
+    const kindRead = async (kind: unknown) => {
+      await db
+        .update(sessions)
+        .set({
+          runtimeSpec: sql`jsonb_set(${sessions.runtimeSpec}, '{runtime,kind}', ${JSON.stringify(kind)}::jsonb)`,
+        })
+        .where(eq(sessions.id, fresh.sessionId));
+      return (await scheduler().pointerRuntimeOf(fresh.sessionId)).runtimeKind;
+    };
+    expect(await kindRead("codex_app_server")).toBe("codex_app_server");
+    expect(await kindRead(7)).toBeNull();
     const session = await checkpointedSession("launch-hold");
     // This gateway's verifier records no runtime, as a checkpoint committed
     // before the columns existed would read.
     expect(await scheduler().pointerRuntimeOf(session.sessionId)).toEqual({
       pointer: { kind: "unrecorded" },
       checkpointRevision: 0,
+      runtimeKind: "claude_agent_sdk",
     });
     const hold = (checkpointRevision: number) =>
       scheduler().holdIncompatibleBeforeLaunch({
@@ -729,6 +744,7 @@ integration("startup failures before ready on PostgreSQL", () => {
     expect(await scheduler().pointerRuntimeOf(session.sessionId)).toEqual({
       pointer: { kind: "none" },
       checkpointRevision: 0,
+      runtimeKind: "claude_agent_sdk",
     });
     // A pass that read the pointer before the decision is refused too.
     expect(await hold()).toBe("stale");

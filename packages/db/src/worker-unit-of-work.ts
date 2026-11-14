@@ -62,6 +62,7 @@ import {
   type ResolvedCredential,
   type RestoreBaseInput,
   type RestoreBaseResult,
+  runnableOfEngine,
   runtimeConfigOfSpec,
   type SessionBudget,
   sameCombination,
@@ -2064,6 +2065,11 @@ export function createPostgresWorkerUnitOfWork(
           await refuseWorkerImage(tx, launch, assumed, input.imageRuntime);
           return { outcome: "image_mismatch", assumed };
         }
+        // A worker runs one engine: only sessions of its kinds bind here.
+        const runnable = runnableOfEngine(
+          input.runnable,
+          input.imageRuntime?.engine ?? launch.runtimeEngine,
+        );
 
         // A retry of a claim whose response was lost gets the same binding
         // and a fresh session token; it never selects a second session.
@@ -2145,7 +2151,7 @@ export function createPostgresWorkerUnitOfWork(
           // connection. Rotating the token first would revoke the old one,
           // bump the revision and then fail on the way out, leaving a
           // binding nobody holds a token for and a retry that mutates again.
-          if (!runsHere(bound.session, input.runnable)) {
+          if (!runsHere(bound.session, runnable)) {
             return { outcome: "connection_unavailable" };
           }
           await revokeCredentials(tx, bound.attempt.id, input.now);
@@ -2217,7 +2223,7 @@ export function createPostgresWorkerUnitOfWork(
                 inArray(sessions.admissionState, LAUNCHABLE_ADMISSION_STATES),
                 isNull(sessions.executionRevokedAt),
                 isNull(sessions.takeoverRequiredAt),
-                runnableCondition(input.runnable),
+                runnableCondition(runnable),
                 withinBudget(budgetOf(input)),
                 restoreRetryDue(),
                 ...(launch.sessionId === null
@@ -2250,7 +2256,7 @@ export function createPostgresWorkerUnitOfWork(
                   tx,
                   launch,
                   launch.sessionId,
-                  input,
+                  { ...input, runnable },
                   input.now,
                 );
           return { outcome: givenUp ?? "no_session" };
@@ -2269,7 +2275,7 @@ export function createPostgresWorkerUnitOfWork(
         // and so can an exit that starts a restore backoff.
         if (
           !locked ||
-          !runsHere(locked, input.runnable) ||
+          !runsHere(locked, runnable) ||
           locked.podId !== null ||
           !LAUNCHABLE_ADMISSION_STATES.includes(locked.admissionState) ||
           locked.executionRevokedAt !== null ||

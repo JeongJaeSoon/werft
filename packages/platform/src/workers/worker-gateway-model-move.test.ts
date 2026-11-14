@@ -55,7 +55,8 @@ function claimWith(
   bound: Partial<
     Pick<WorkerBinding, "legacyRuntimeConfigs" | "githubMcp">
   > = {},
-  accepted?: { kind: string; version: string }[],
+  accepted?: { kind: string; engine: string; version: string }[],
+  engine?: string,
 ) {
   const seen: ClaimInput[] = [];
   const spec = testSpecSource({ model: "sonnet-5-1" });
@@ -86,6 +87,16 @@ function claimWith(
       execution_id: "e",
       execution_generation: 1,
       credential: { kind: "launch_nonce", nonce: "n" },
+      ...(engine === undefined
+        ? {}
+        : {
+            image_runtime: {
+              engine,
+              sdk_version: "0.3.270",
+              cli_version: "2.1.270",
+              profile_digest_scheme: 1,
+            },
+          }),
     },
   );
   return { claimed, seen };
@@ -224,8 +235,8 @@ describe("run configs kept on the session row, at claim", () => {
 describe("what a claim asks the store to match", () => {
   test("each connection with the models it offers, and the runtime versions it accepts", async () => {
     const accepted = [
-      { kind: "claude_agent_sdk", version: "0.3.270" },
-      { kind: "codex_app_server", version: "0.3.250" },
+      { kind: "claude_agent_sdk", engine: "claude", version: "0.3.270" },
+      { kind: "codex_app_server", engine: "codex", version: "0.3.250" },
     ];
     const { claimed, seen } = claimWith(connection, {}, accepted);
     await claimed;
@@ -234,6 +245,17 @@ describe("what a claim asks the store to match", () => {
     ]);
     expect(seen[0]?.runnable.runtimeVersions).toEqual(accepted);
     expect([...(seen[0]?.unsettledConnectionIds ?? [])]).toEqual([]);
+  });
+
+  test("each pair with its engine and the worker's own runtime, for the store to narrow by", async () => {
+    const accepted = [
+      { kind: "claude_agent_sdk", engine: "claude", version: "0.3.270" },
+      { kind: "codex_app_server", engine: "codex", version: "0.3.270" },
+    ];
+    const { claimed, seen } = claimWith(connection, {}, accepted, "codex");
+    await claimed;
+    expect(seen[0]?.runnable.runtimeVersions).toEqual(accepted);
+    expect(seen[0]?.imageRuntime?.engine).toBe("codex");
   });
 
   test("no accepted list leaves the runtime version open", async () => {

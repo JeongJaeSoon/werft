@@ -109,7 +109,8 @@ export function workerImageListFromEnv(
     throw new Error("WORKER_IMAGES must be a non-empty JSON array");
   }
   const listed: ListedWorkerImage[] = [];
-  let newer: { at: number; text: string } | null = null;
+  // Newest first within each engine; two engines' releases may share a time.
+  const newer = new Map<string, { at: number; text: string }>();
   for (const [index, entry] of value.entries()) {
     const where = `WORKER_IMAGES[${index}]`;
     if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
@@ -145,32 +146,28 @@ export function workerImageListFromEnv(
     if (typeof released_at !== "string" || Number.isNaN(at)) {
       throw new Error(`${where}.released_at must be an ISO 8601 time`);
     }
-    if (newer !== null && at >= newer.at) {
+    const parsed = readRuntime(`${where}.runtime`, JSON.stringify(runtime));
+    const above = newer.get(parsed.engine);
+    if (above !== undefined && at >= above.at) {
       throw new Error(
-        `${where}.released_at ${released_at} is not before ${newer.text} above it: list the newest image first`,
+        `${where}.released_at ${released_at} is not before ${above.text} of the ${parsed.engine} image above it: list each engine's newest image first`,
       );
     }
-    newer = { at, text: released_at };
+    newer.set(parsed.engine, { at, text: released_at });
     if (retracted !== undefined && typeof retracted !== "boolean") {
       throw new Error(`${where}.retracted must be true or false`);
     }
-    listed.push({
-      image,
-      runtime: readRuntime(`${where}.runtime`, JSON.stringify(runtime)),
-      retracted: retracted === true,
-    });
+    listed.push({ image, runtime: parsed, retracted: retracted === true });
   }
-  const engines = [...new Set(listed.map(({ runtime }) => runtime.engine))];
-  if (engines.length > 1) {
-    throw new Error(
-      `WORKER_IMAGES lists images of ${engines.join(" and ")}: images of one engine only`,
-    );
-  }
-  const unretracted = listed.filter(({ retracted }) => !retracted).length;
-  if (unretracted > WORKER_IMAGES_PER_ENGINE) {
-    throw new Error(
-      `WORKER_IMAGES lists ${unretracted} unretracted ${engines[0]} images: at most ${WORKER_IMAGES_PER_ENGINE}, the newest and the release before it`,
-    );
+  for (const engine of newer.keys()) {
+    const unretracted = listed.filter(
+      ({ runtime, retracted }) => runtime.engine === engine && !retracted,
+    ).length;
+    if (unretracted > WORKER_IMAGES_PER_ENGINE) {
+      throw new Error(
+        `WORKER_IMAGES lists ${unretracted} unretracted ${engine} images: at most ${WORKER_IMAGES_PER_ENGINE}, the newest and the release before it`,
+      );
+    }
   }
   return listed as [ListedWorkerImage, ...ListedWorkerImage[]];
 }
@@ -178,8 +175,8 @@ export function workerImageListFromEnv(
 /**
  * The runtimes of the configured worker images, from `WORKER_IMAGES` or the
  * single-image settings; null when none is set. Newest first, the
- * unretracted ones ahead: the first is what new releases name, and a
- * retracted image's workers keep running until they are drained.
+ * unretracted ones ahead; a retracted image's workers keep running until
+ * they are drained, so its runtimes stay accepted.
  */
 export function configuredImageRuntimesFromEnv(
   environment: WorkerImagesEnvironment,
@@ -283,6 +280,8 @@ export type WorkerImageCandidate<I> = {
  * `runtime_retired`: only a retracted image runs what the session needs —
  * restores its checkpoint, or, with every image retracted, anything at all.
  * `incompatible_checkpoint`: no listed image restores it.
+ * `engine_unavailable`: a session with no checkpoint, and no image of its
+ * engine listed; it waits for one rather than stopping.
  */
 export type WorkerImageSelection<I> =
   | {
@@ -292,7 +291,10 @@ export type WorkerImageSelection<I> =
     }
   | {
       readonly kind: "none";
-      readonly reason: "incompatible_checkpoint" | "runtime_retired";
+      readonly reason:
+        | "incompatible_checkpoint"
+        | "runtime_retired"
+        | "engine_unavailable";
       readonly detail: string;
     };
 
@@ -303,11 +305,33 @@ export type WorkerImageSelection<I> =
  * rebuild with only OS fixes, or the fix of a retracted build) the newer
  * wins. A session with nothing recorded runs on the newest unretracted. The
  * one judgment the scheduler and the upgrade pre-check share.
+ *
+ * `engine`, when given, is the session's (null: a runtime kind this host
+ * does not know): only images of it are candidates. Left out, every listed
+ * image is.
  */
 export function selectWorkerImage<I>(
   pointer: PointerRuntime,
-  images: readonly [WorkerImageCandidate<I>, ...WorkerImageCandidate<I>[]],
+  listed: readonly [WorkerImageCandidate<I>, ...WorkerImageCandidate<I>[]],
+  engine?: string | null,
 ): WorkerImageSelection<I> {
+  const images =
+    engine === undefined
+      ? listed
+      : listed.filter((candidate) => candidate.runtime.engine === engine);
+  if (images.length === 0) {
+    const missing =
+      engine === null
+        ? "the session's runtime kind is not one this host runs"
+        : `no configured worker image runs the ${engine} engine`;
+    return pointer.kind === "recorded"
+      ? {
+          kind: "none",
+          reason: "incompatible_checkpoint",
+          detail: `the checkpoint was sealed on ${describe(pointer.runtime)}; ${missing}`,
+        }
+      : { kind: "none", reason: "engine_unavailable", detail: missing };
+  }
   const launchable = images.filter((candidate) => !candidate.retracted);
   if (pointer.kind !== "recorded") {
     const [newest] = launchable;
@@ -383,7 +407,11 @@ export function runtimeVersionsOf(
       kinds
         .filter(({ checkpointEngine }) => checkpointEngine === runtime.engine)
         .flatMap(({ kind }) =>
-          imageRuntimeVersions(runtime).map((version) => ({ kind, version })),
+          imageRuntimeVersions(runtime).map((version) => ({
+            kind,
+            version,
+            engine: runtime.engine,
+          })),
         ),
     ),
   };

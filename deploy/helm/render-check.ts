@@ -1068,7 +1068,7 @@ const MUST_FAIL: [string, string[], RegExp][] = [
           listedWorker({ releasedAt: "2026-10-01T00:00:00Z" }),
           listedWorker({ digest: `sha256:${"6".repeat(64)}` }),
         ],
-        /images\.workers\[1\]\.releasedAt .* is not before the entry above it/,
+        /images\.workers\[1\]\.releasedAt .* is not before the claude image above it/,
       ],
       [
         "one release time twice",
@@ -1081,16 +1081,34 @@ const MUST_FAIL: [string, string[], RegExp][] = [
         /images\.workers\[1\]\.digest .* is listed twice/,
       ],
       [
-        "two engines",
+        "an engine's older image first, past another engine's",
         [
-          listedWorker(),
           listedWorker({
-            digest: `sha256:${"6".repeat(64)}`,
             releasedAt: "2026-10-01T00:00:00Z",
             runtime: { ...LISTED_RUNTIME, engine: "codex" },
           }),
+          listedWorker({ digest: `sha256:${"6".repeat(64)}` }),
+          listedWorker({
+            digest: `sha256:${"7".repeat(64)}`,
+            releasedAt: "2026-11-12T00:00:00Z",
+            runtime: { ...LISTED_RUNTIME, engine: "codex" },
+          }),
         ],
-        /images of claude and codex: images of one engine only/,
+        /images\.workers\[2\]\.releasedAt .* is not before the codex image above it/,
+      ],
+      [
+        "three images of one engine beside another's",
+        [
+          listedWorker(),
+          ...["6", "7", "8"].map((digit, index) =>
+            listedWorker({
+              digest: `sha256:${digit.repeat(64)}`,
+              releasedAt: `2026-11-0${3 - index}T00:00:00Z`,
+              runtime: { ...LISTED_RUNTIME, engine: "codex" },
+            }),
+          ),
+        ],
+        /images\.workers lists 3 unretracted codex images: at most 2 per engine/,
       ],
       [
         "three images",
@@ -1100,7 +1118,7 @@ const MUST_FAIL: [string, string[], RegExp][] = [
             releasedAt: `2026-1${2 - index}-01T00:00:00Z`,
           }),
         ),
-        /images\.workers lists 3 unretracted images: at most 2/,
+        /images\.workers lists 3 unretracted claude images: at most 2/,
       ],
       [
         "three unretracted beside a retracted one",
@@ -1111,7 +1129,7 @@ const MUST_FAIL: [string, string[], RegExp][] = [
             ...(index === 3 ? { retracted: true } : {}),
           }),
         ),
-        /images\.workers lists 3 unretracted images: at most 2/,
+        /images\.workers lists 3 unretracted claude images: at most 2/,
       ],
       [
         "retracted as text",
@@ -1534,6 +1552,41 @@ errors.push(
       ),
     },
   ),
+  // Two engines, two images each, ordered within each engine only: the
+  // codex image may share the claude one's release time.
+  ...(() => {
+    const codexEntries = [
+      {
+        repository: WORKER_REPOSITORY,
+        digest: `sha256:${"8".repeat(64)}`,
+        runtime: { ...CURRENT_RUNTIME, engine: "codex" },
+        releasedAt: "2026-11-10T00:00:00Z",
+      },
+      {
+        repository: WORKER_REPOSITORY,
+        digest: `sha256:${"9".repeat(64)}`,
+        runtime: { ...PREVIOUS_RUNTIME, engine: "codex" },
+        releasedAt: "2026-11-01T00:00:00Z",
+      },
+    ];
+    const [claudeNew, claudeOld] = workerList;
+    const mixed = [codexEntries[0], claudeNew, codexEntries[1], claudeOld];
+    return checkWorkerImages(
+      "image list of two engines",
+      render(["-f", ciDigests, ...listInstead(mixed)]),
+      {
+        list: JSON.stringify(
+          sortedDeep(
+            mixed.map((w) => ({
+              image: `${w?.repository}@${w?.digest}`,
+              runtime: w?.runtime,
+              released_at: w?.releasedAt,
+            })),
+          ),
+        ),
+      },
+    );
+  })(),
   ...checkWorkerImages(
     "image list with retracted: false",
     render([

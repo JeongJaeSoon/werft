@@ -110,8 +110,33 @@ export type ClaimCatalog = {
     url: string;
     branch: string;
   }>;
-  runtimeVersions: ReadonlyArray<{ kind: string; version: string }> | null;
+  /** `engine`: the engine of the image that ships the pair. */
+  runtimeVersions: ReadonlyArray<{
+    kind: string;
+    version: string;
+    engine?: string;
+  }> | null;
 };
+
+/**
+ * The pairs a worker of `engine` runs: the one it reports, else the one its
+ * launch was reserved for. With neither, every pair, as on a host of one
+ * engine.
+ */
+export function runnableOfEngine(
+  runnable: ClaimCatalog,
+  engine: string | null | undefined,
+): ClaimCatalog {
+  if (typeof engine !== "string" || runnable.runtimeVersions === null) {
+    return runnable;
+  }
+  return {
+    ...runnable,
+    runtimeVersions: runnable.runtimeVersions.filter(
+      (pair) => pair.engine === engine,
+    ),
+  };
+}
 
 /** A session on `from` over the connection moves to `to` at its claim. */
 export type ModelMove = {
