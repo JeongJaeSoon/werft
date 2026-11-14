@@ -1,5 +1,5 @@
 {
-  "id": "22053719-67a5-4ccd-af34-ac056096fadf",
+  "id": "b20dac8a-5bf7-451b-99ba-13e57d8881cd",
   "prevId": "1592f03d-2ca7-4dd8-9311-48dd17d2e756",
   "version": "7",
   "dialect": "postgresql",
@@ -3534,18 +3534,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "carried_auth": {
-          "name": "carried_auth",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "carried_binding": {
-          "name": "carried_binding",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
         "app_role": {
           "name": "app_role",
           "type": "text",
@@ -3700,7 +3688,7 @@
         },
         "catalog_repositories_credential_check": {
           "name": "catalog_repositories_credential_check",
-          "value": "CASE \"catalog_repositories\".\"auth_kind\"\n        WHEN 'github_app' THEN \"catalog_repositories\".\"auth\" IS NULL AND \"catalog_repositories\".\"credential_source\" IS NULL\n        WHEN 'none' THEN \"catalog_repositories\".\"auth\" IS NULL AND \"catalog_repositories\".\"credential_source\" IS NULL\n        WHEN 'github_app_explicit' THEN \"catalog_repositories\".\"auth\" IS NOT NULL AND \"catalog_repositories\".\"credential_source\" IN ('stored', 'external')\n        ELSE \"catalog_repositories\".\"auth\" IS NOT NULL AND \"catalog_repositories\".\"credential_source\" IN ('stored', 'external')\n      END"
+          "value": "CASE \"catalog_repositories\".\"auth_kind\"\n        WHEN 'github_app' THEN \"catalog_repositories\".\"auth\" IS NULL AND \"catalog_repositories\".\"credential_source\" IS NULL\n        WHEN 'none' THEN \"catalog_repositories\".\"auth\" IS NULL AND \"catalog_repositories\".\"credential_source\" IS NULL\n        WHEN 'github_app_explicit' THEN \"catalog_repositories\".\"auth\" IS NOT NULL AND \"catalog_repositories\".\"credential_source\" = 'external'\n        ELSE \"catalog_repositories\".\"auth\" IS NOT NULL AND \"catalog_repositories\".\"credential_source\" IN ('stored', 'external')\n      END"
         }
       },
       "isRLSEnabled": false
@@ -7258,12 +7246,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "carried_auth": {
-          "name": "carried_auth",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
         "workspaces": {
           "name": "workspaces",
           "type": "jsonb",
@@ -8393,12 +8375,6 @@
         },
         "replaces_auth": {
           "name": "replaces_auth",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "carried_auth": {
-          "name": "carried_auth",
           "type": "jsonb",
           "primaryKey": false,
           "notNull": false
@@ -11355,6 +11331,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "restore_failed_at": {
+          "name": "restore_failed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {},

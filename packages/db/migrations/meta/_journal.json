@@ -1356,8 +1356,8 @@
     {
       "idx": 284,
       "version": "7",
-      "when": 1794684771646,
-      "tag": "0284_credential_carried_auth",
+      "when": 1794684107070,
+      "tag": "0284_session_repository_pin_restore_failed",
       "breakpoints": true
     }
   ]

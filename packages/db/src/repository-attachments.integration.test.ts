@@ -272,6 +272,142 @@ integration("repository attachments on PostgreSQL", () => {
     expect(await pins.list(s.sessionId)).toEqual(new Map());
   });
 
+  async function restoreEvents(sessionId: string) {
+    const { rows } = await pool.query(
+      `SELECT payload FROM events
+        WHERE session_id = $1 AND type = 'system'
+          AND payload->>'subtype' = 'repository_restore_failed'`,
+      [sessionId],
+    );
+    return rows.map((row) => row.payload as Record<string, unknown>);
+  }
+
+  test("a restore failure marks only the pin it names, once, with one session event", async () => {
+    const pins = createPostgresRepositoryPins(db);
+    const s = await session(["docs"]);
+    const OTHER = "b".repeat(40);
+    const failed = (commit: string) => [{ repositoryId: "docs", commit }];
+    await pins.pin(s.fence, [{ repositoryId: "docs", commit: COMMIT }]);
+
+    // Not the owner: nothing marked.
+    expect(
+      await pins.pin({ ...s.fence, leaseEpoch: 0 }, [], failed(COMMIT)),
+    ).toEqual({ outcome: "stale_epoch" });
+    // Another commit than the pin: an old report, not this pin's failure.
+    await pins.pin(s.fence, [], failed(OTHER));
+    expect(await pins.restoreFailures(s.sessionId)).toEqual(new Map());
+    expect(await restoreEvents(s.sessionId)).toEqual([]);
+
+    await pins.pin(s.fence, [], failed(COMMIT));
+    await pins.pin(s.fence, [], failed(COMMIT));
+    expect(await pins.restoreFailures(s.sessionId.toUpperCase())).toEqual(
+      new Map([["docs", COMMIT]]),
+    );
+    expect(await pins.list(s.sessionId)).toEqual(new Map());
+    expect(await restoreEvents(s.sessionId)).toEqual([
+      {
+        type: "system",
+        subtype: "repository_restore_failed",
+        repository_id: "docs",
+        commit: COMMIT,
+      },
+    ]);
+    // A worker that fetched the tip meanwhile is not answered with it: the
+    // repository stays failed until it is asked for again.
+    expect(
+      await pins.pin(s.fence, [{ repositoryId: "docs", commit: OTHER }]),
+    ).toEqual({ outcome: "ok", pins: new Map() });
+    expect(await pins.restoreFailures(s.sessionId)).toEqual(
+      new Map([["docs", COMMIT]]),
+    );
+  });
+
+  test("asking again for a repository whose pin failed fetches it anew and pins what that fetch took", async () => {
+    const store = createPostgresRepositoryAttachments(db);
+    const pins = createPostgresRepositoryPins(db);
+    const OTHER = "b".repeat(40);
+    // On the list from the start, and attached mid-session: neither answers
+    // "already attached" once its pin is lost.
+    const started = await session(["docs"]);
+    const attached = await session([]);
+    await store.settle(attached.fence, [
+      {
+        repository_id: "docs",
+        receipt_id: receiptOf(await store.request(attached.request())),
+        status: "attached",
+        commit: COMMIT,
+      },
+    ]);
+    await pins.pin(started.fence, [{ repositoryId: "docs", commit: COMMIT }]);
+    for (const s of [started, attached]) {
+      await pins.pin(s.fence, [], [{ repositoryId: "docs", commit: COMMIT }]);
+
+      const outcome = await store.request(s.request());
+      expect(outcome).toMatchObject({
+        outcome: "requested",
+        row: { status: "pending", commit: null },
+      });
+      expect(await pins.restoreFailures(s.sessionId)).toEqual(new Map());
+      expect(await attachedList(s.sessionId)).toEqual(["docs"]);
+      await store.settle(s.fence, [
+        {
+          repository_id: "docs",
+          receipt_id: receiptOf(outcome),
+          status: "attached",
+          commit: OTHER,
+        },
+      ]);
+      expect(await pins.list(s.sessionId)).toEqual(new Map([["docs", OTHER]]));
+    }
+    expect(
+      (await receipts(attached.ownerId)).map((receipt) => receipt.status),
+    ).toEqual(["succeeded", "succeeded"]);
+  });
+
+  test("a fetch pending when its pin is lost keeps its receipt and pins what it took", async () => {
+    const store = createPostgresRepositoryAttachments(db);
+    const pins = createPostgresRepositoryPins(db);
+    const OTHER = "b".repeat(40);
+    const lose = async (s: Awaited<ReturnType<typeof session>>) => {
+      await pins.pin(s.fence, [{ repositoryId: "docs", commit: COMMIT }]);
+      await pins.pin(s.fence, [], [{ repositoryId: "docs", commit: COMMIT }]);
+    };
+    const settled = (s: Awaited<ReturnType<typeof session>>, id: string) =>
+      store.settle(s.fence, [
+        {
+          repository_id: "docs",
+          receipt_id: id,
+          status: "attached",
+          commit: OTHER,
+        },
+      ]);
+
+    // Asked again meanwhile: the pending fetch stays the one to settle.
+    const asked = await session([]);
+    const first = receiptOf(await store.request(asked.request()));
+    await lose(asked);
+    expect(await store.request(asked.request())).toMatchObject({
+      outcome: "unchanged",
+      row: { status: "pending", receiptId: first },
+    });
+    expect(await pins.restoreFailures(asked.sessionId)).toEqual(new Map());
+    await settled(asked, first);
+    expect(await pins.list(asked.sessionId)).toEqual(
+      new Map([["docs", OTHER]]),
+    );
+    expect(await receipts(asked.ownerId)).toHaveLength(1);
+
+    // Not asked again: what the fetch took replaces the lost pin.
+    const quiet = await session([]);
+    const only = receiptOf(await store.request(quiet.request()));
+    await lose(quiet);
+    await settled(quiet, only);
+    expect(await pins.list(quiet.sessionId)).toEqual(
+      new Map([["docs", OTHER]]),
+    );
+    expect(await pins.restoreFailures(quiet.sessionId)).toEqual(new Map());
+  });
+
   test("a report from an attempt that lost the session settles and pins nothing", async () => {
     const store = createPostgresRepositoryAttachments(db);
     const pins = createPostgresRepositoryPins(db);

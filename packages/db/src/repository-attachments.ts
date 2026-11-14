@@ -2,13 +2,14 @@ import { randomUUID } from "node:crypto";
 import {
   newSessionGitHubPolicy,
   type RepositoryAttachFailure,
+  repositoryRestoreFailedEventDataSchema,
 } from "@werft-ai/contracts";
 import type {
   RepositoryAttachmentRow,
   RepositoryAttachmentStore,
   RepositoryPinStore,
 } from "@werft-ai/platform";
-import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import {
   agentGitHubSettingsRowOf,
@@ -26,6 +27,7 @@ import {
   sessions,
 } from "./schema.ts";
 import { acquireFence } from "./sessions/fence.ts";
+import { recordEvent } from "./sessions/session-events.ts";
 
 const sessionRelease = alias(agentReleases, "session_release");
 const activeRelease = alias(agentReleases, "active_release");
@@ -117,10 +119,29 @@ export function createPostgresRepositoryAttachments(
             ),
           )
           .limit(1);
-        if (existing !== undefined && existing.status !== "failed") {
+        // A repository a worker could not fetch again at its pin is attached
+        // in name only: asking again fetches the branch tip and pins anew.
+        const [lost] = await tx
+          .delete(sessionRepositoryPins)
+          .where(
+            and(
+              eq(sessionRepositoryPins.sessionId, input.sessionId),
+              eq(sessionRepositoryPins.repositoryId, input.repositoryId),
+              isNotNull(sessionRepositoryPins.restoreFailedAt),
+            ),
+          )
+          .returning({ repositoryId: sessionRepositoryPins.repositoryId });
+        // A fetch still pending is left to settle its own receipt; without
+        // the pin it takes the tip.
+        if (
+          existing !== undefined &&
+          (existing.status === "pending" ||
+            (lost === undefined && existing.status !== "failed"))
+        ) {
           return { outcome: "unchanged" as const, row: rowOf(existing) };
         }
         if (
+          lost === undefined &&
           existing === undefined &&
           (session.attached === null ||
             session.attached.includes(input.repositoryId))
@@ -301,6 +322,8 @@ export function createPostgresRepositoryAttachments(
             .returning({ receiptId: sessionRepositoryAttachments.receiptId });
           if (row === undefined) return { outcome: "ok" as const };
           if (result.status === "attached") {
+            // A pin in force stays; one a worker could not fetch again gives
+            // way to what this attach fetched, which the agent asked for.
             await tx
               .insert(sessionRepositoryPins)
               .values({
@@ -308,7 +331,18 @@ export function createPostgresRepositoryAttachments(
                 repositoryId: result.repository_id,
                 gitCommit: result.commit,
               })
-              .onConflictDoNothing();
+              .onConflictDoUpdate({
+                target: [
+                  sessionRepositoryPins.sessionId,
+                  sessionRepositoryPins.repositoryId,
+                ],
+                set: {
+                  gitCommit: result.commit,
+                  pinnedAt: now,
+                  restoreFailedAt: null,
+                },
+                setWhere: isNotNull(sessionRepositoryPins.restoreFailedAt),
+              });
           }
           await tx
             .update(receipts)
@@ -353,6 +387,7 @@ export function createPostgresRepositoryPins(db: Database): RepositoryPinStore {
   const read = async (
     tx: Database,
     sessionId: string,
+    failed: boolean,
     repositoryIds?: readonly string[],
   ): Promise<Map<string, string>> => {
     const rows = await tx
@@ -364,6 +399,9 @@ export function createPostgresRepositoryPins(db: Database): RepositoryPinStore {
       .where(
         and(
           eq(sessionRepositoryPins.sessionId, sessionId),
+          failed
+            ? isNotNull(sessionRepositoryPins.restoreFailedAt)
+            : isNull(sessionRepositoryPins.restoreFailedAt),
           repositoryIds === undefined
             ? undefined
             : inArray(sessionRepositoryPins.repositoryId, [...repositoryIds]),
@@ -372,12 +410,45 @@ export function createPostgresRepositoryPins(db: Database): RepositoryPinStore {
     return new Map(rows.map((row) => [row.repositoryId, row.commit]));
   };
   return {
-    list: (rawSessionId) => read(db, rawSessionId.toLowerCase()),
-    pin: (fence, pins) =>
+    list: (rawSessionId) => read(db, rawSessionId.toLowerCase(), false),
+    restoreFailures: (rawSessionId) =>
+      read(db, rawSessionId.toLowerCase(), true),
+    pin: (fence, pins, restoreFailed = []) =>
       db.transaction(async (tx) => {
         const fenced = await acquireFence(tx, fence);
         if (fenced.outcome !== "ok") return { outcome: fenced.outcome };
         const sessionId = fence.sessionId.toLowerCase();
+        const now = new Date();
+        for (const failure of restoreFailed) {
+          // Only the pin the worker tried: a report naming another commit,
+          // or one already marked, changes nothing and records nothing.
+          const [marked] = await tx
+            .update(sessionRepositoryPins)
+            .set({ restoreFailedAt: now })
+            .where(
+              and(
+                eq(sessionRepositoryPins.sessionId, sessionId),
+                eq(sessionRepositoryPins.repositoryId, failure.repositoryId),
+                eq(sessionRepositoryPins.gitCommit, failure.commit),
+                isNull(sessionRepositoryPins.restoreFailedAt),
+              ),
+            )
+            .returning({ repositoryId: sessionRepositoryPins.repositoryId });
+          if (marked === undefined) continue;
+          await recordEvent(tx, {
+            sessionId,
+            type: "system",
+            payload: repositoryRestoreFailedEventDataSchema.parse({
+              type: "system",
+              subtype: "repository_restore_failed",
+              repository_id: failure.repositoryId,
+              commit: failure.commit,
+            }),
+            turnRowId: null,
+            attemptId: fence.attemptId,
+            now,
+          });
+        }
         if (pins.length === 0) return { outcome: "ok", pins: new Map() };
         await tx
           .insert(sessionRepositoryPins)
@@ -394,6 +465,7 @@ export function createPostgresRepositoryPins(db: Database): RepositoryPinStore {
           pins: await read(
             tx,
             sessionId,
+            false,
             pins.map((pin) => pin.repositoryId),
           ),
         };

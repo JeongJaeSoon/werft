@@ -899,8 +899,10 @@ const pullRequests = createPullRequestService({
 // each made with the authorization of the one session a grant names.
 const githubMcpStore = createPostgresGitHubMcpStore(db);
 const repositoryAttachmentStore = createPostgresRepositoryAttachments(db);
+const repositoryPinStore = createPostgresRepositoryPins(db);
 const repositoryAttachments = createRepositoryAttachmentService({
   store: repositoryAttachmentStore,
+  pins: repositoryPinStore,
   context: githubGateStore,
   catalog,
 });
@@ -1042,7 +1044,7 @@ const workers = createWorkerGateway({
   pending: createPostgresWorkerPendingStore(db),
   github,
   attachments: repositoryAttachmentStore,
-  repositoryPins: createPostgresRepositoryPins(db),
+  repositoryPins: repositoryPinStore,
   attribution: {
     store: sessionAttribution,
     ledger: commitAttributions,

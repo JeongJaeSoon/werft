@@ -133,6 +133,7 @@ attach が接続エラー(`upstream connection failed` の応答、または HTT
 - 取得には 300 秒と 2 GiB の上限がある。超えると付けるのは失敗で終わり、`failure` に理由（`fetch_timeout`、`fetch_too_large`）が残る。
 - 付けるたびに `attach_repository` の[レシート](/approvals/receipt)が残る。要求した人と attempt、リポジトリ、リリース、取得したコミット、拒否の理由（`repository_not_allowed`・`allowed_in_newer_release`）が入る。
 - セッションが別の worker で再開すると（restore）、付けたリポジトリのリモートをもう一度付ける。このときブランチの今の先端ではなく、そのセッションが最初に取得した commit を取得する。その間にリモートのブランチが進んだり書き換えられたりしても、セッションが読むコードは変わらない。付けたリポジトリの CLAUDE.md は指示として読まない。
+- その commit がリモートから消えてもう一度取得できないと、そのリポジトリは付いていない扱いになる。セッションイベントに `system` イベント（`subtype: "repository_restore_failed"`、`repository_id`、`commit`）が一度残り、`list_repositories` はそのリポジトリを `failed`（`failure: restore_failed`、記録した `commit`）として示す。エージェントが付け直すと、ブランチの今の先端を取得する。
 
 ## 自分の GitHub アカウントを連携する
 

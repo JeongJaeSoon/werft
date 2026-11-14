@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   APPROVAL_CHECKPOINT_FAILURE_VALUES,
+  repositoryRestoreFailedEventDataSchema,
   SESSION_EVENT_NAMES,
   type SessionEventName,
   STATUS_EVENT_PHASE_VALUES,
@@ -420,5 +421,28 @@ describe("presentTurnEvent", () => {
         },
       }),
     ).toMatchObject({ summary: [{ text: "approval_checkpoint_failed" }] });
+  });
+
+  test("an attached repository not fetched again at its commit names both", () => {
+    const commit = "a".repeat(40);
+    expect(
+      presentTurnEvent({
+        event: "system",
+        data: repositoryRestoreFailedEventDataSchema.parse({
+          type: "system",
+          subtype: "repository_restore_failed",
+          repository_id: "docs",
+          commit,
+        }),
+      }),
+    ).toEqual({
+      label: { key: "session.event.kind.system" },
+      summary: [
+        {
+          key: "session.event.repositoryRestoreFailed",
+          params: { repository: "docs", commit: commit.slice(0, 12) },
+        },
+      ],
+    });
   });
 });

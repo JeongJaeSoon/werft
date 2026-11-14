@@ -2795,7 +2795,9 @@ export const sessionRepositoryAttachments = pgTable(
 
 // The commit a session first fetched each attached repository at, written
 // once and never moved: every later fetch of that repository in the session,
-// a resume's included, takes this commit rather than the branch tip.
+// a resume's included, takes this commit rather than the branch tip. Once a
+// worker cannot fetch it again (`restore_failed_at`), the repository is not
+// handed out until the agent attaches it anew, which drops this row.
 export const sessionRepositoryPins = pgTable(
   "session_repository_pins",
   {
@@ -2807,6 +2809,7 @@ export const sessionRepositoryPins = pgTable(
     pinnedAt: timestamp("pinned_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    restoreFailedAt: timestamp("restore_failed_at", { withTimezone: true }),
   },
   (table) => [
     primaryKey({ columns: [table.sessionId, table.repositoryId] }),

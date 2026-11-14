@@ -3,7 +3,9 @@ import {
   bootstrapClaimResponseSchema,
   GITHUB_CEILING_NONE,
   GITHUB_FEATURES_NONE,
+  LISTED_REPOSITORY_FAILURE_MEANING,
   type ReceiptActor,
+  repositoryPinsRequestSchema,
 } from "@werft-ai/contracts";
 import type {
   GitHubConnection,
@@ -135,33 +137,44 @@ function wired() {
       return outcome;
     },
   }) as typeof memory;
-  const attachments = createRepositoryAttachmentService({
-    store,
-    context: { context },
-    catalog,
-  });
   // First writer wins, as the table's primary key does.
   const pins = new Map<string, string>();
+  // The pins a worker could not fetch again, as `restore_failed_at` marks.
+  const lost = new Set<string>();
   // Whether the attempt's lease has lapsed in the database.
   const owner = { lost: false };
+  const live = (ids?: readonly string[]) =>
+    new Map(
+      [...pins].filter(
+        ([id]) => !lost.has(id) && (ids === undefined || ids.includes(id)),
+      ),
+    );
   const repositoryPins: RepositoryPinStore = {
-    list: async () => new Map(pins),
-    pin: async (_fence, asked) => {
+    list: async () => live(),
+    restoreFailures: async () =>
+      new Map([...pins].filter(([id]) => lost.has(id))),
+    pin: async (_fence, asked, restoreFailed = []) => {
       if (owner.lost) return { outcome: "lease_expired" };
+      for (const failure of restoreFailed) {
+        if (pins.get(failure.repositoryId) === failure.commit) {
+          lost.add(failure.repositoryId);
+        }
+      }
       for (const pin of asked) {
         if (!pins.has(pin.repositoryId)) pins.set(pin.repositoryId, pin.commit);
       }
       return {
         outcome: "ok",
-        pins: new Map(
-          asked.flatMap((pin) => {
-            const kept = pins.get(pin.repositoryId);
-            return kept === undefined ? [] : [[pin.repositoryId, kept]];
-          }),
-        ),
+        pins: live(asked.map((pin) => pin.repositoryId)),
       };
     },
   };
+  const attachments = createRepositoryAttachmentService({
+    store,
+    pins: repositoryPins,
+    context: { context },
+    catalog,
+  });
   const binding = {
     sessionId: SESSION,
     attemptId: "att_1",
@@ -223,7 +236,17 @@ function wired() {
       actor,
       repositoryId,
     });
-  return { gateway, receipts, memory, attach, fetchDocs, pins, owner };
+  return {
+    gateway,
+    receipts,
+    memory,
+    attach,
+    attachments,
+    fetchDocs,
+    pins,
+    lost,
+    owner,
+  };
 }
 
 describe("a repository attached mid-session", () => {
@@ -401,5 +424,87 @@ describe("the session's pin of an attached repository", () => {
         commit: COMMIT,
       },
     ]);
+  });
+});
+
+describe("a pinned repository a worker could not fetch again", () => {
+  const OTHER = "e".repeat(40);
+  const claimed = async (w: ReturnType<typeof wired>, pins: boolean) =>
+    bootstrapClaimResponseSchema.parse(
+      await w.gateway.bootstrapClaim(
+        { kind: "bootstrap" },
+        {
+          execution_id: "e",
+          execution_generation: 1,
+          credential: { kind: "launch_nonce", nonce: "n" },
+          ...(pins ? { capabilities: { repository_pins: true } } : {}),
+        },
+      ),
+    ).workspace.additional_repositories ?? [];
+  const lose = (w: ReturnType<typeof wired>, commit: string) =>
+    w.gateway.repositoryPins(principal, {
+      ...scope,
+      pins: [],
+      restore_failed: [{ repository_id: "docs", commit }],
+    });
+
+  test("is marked only for the pin it names, and no claim hands it out after", async () => {
+    const w = wired();
+    await w.attach("docs");
+    w.pins.set("docs", COMMIT);
+    // Another commit than the pin: an old report, not this pin's failure.
+    expect(await lose(w, OTHER)).toEqual({ pins: [] });
+    expect(w.lost.size).toBe(0);
+    expect((await claimed(w, true)).map(({ id }) => id)).toEqual(["docs"]);
+
+    expect(await lose(w, COMMIT)).toEqual({ pins: [] });
+    expect([...w.lost]).toEqual(["docs"]);
+    // Neither kind of worker fetches it at the branch tip instead.
+    expect(await claimed(w, true)).toEqual([]);
+    expect(await claimed(w, false)).toEqual([]);
+  });
+
+  test("lists as failed with the commit it could not fetch, and how to get it back", async () => {
+    const w = wired();
+    const receipt_id = (await w.attach("docs")).receipt_id ?? "missing";
+    await w.gateway.pendingControl(principal, {
+      ...scope,
+      answers_after: 0,
+      attached: [
+        {
+          repository_id: "docs",
+          receipt_id,
+          status: "attached",
+          commit: COMMIT,
+        },
+      ],
+    });
+    w.pins.set("docs", COMMIT);
+    await lose(w, COMMIT);
+    const { repositories } = await w.attachments.list(SESSION);
+    expect(repositories.find(({ id }) => id === "docs")).toEqual({
+      id: "docs",
+      name: "acme/docs",
+      branch: "main",
+      status: "failed",
+      failure: "restore_failed",
+      commit: COMMIT,
+      meaning: LISTED_REPOSITORY_FAILURE_MEANING.restore_failed,
+    });
+  });
+
+  test("is refused unless the report names a pin or a restore failure", () => {
+    const base = { ...scope, pins: [] };
+    expect(repositoryPinsRequestSchema.safeParse(base).success).toBe(false);
+    expect(
+      repositoryPinsRequestSchema.safeParse({ ...base, restore_failed: [] })
+        .success,
+    ).toBe(false);
+    expect(
+      repositoryPinsRequestSchema.safeParse({
+        ...base,
+        restore_failed: [{ repository_id: "docs", commit: COMMIT }],
+      }).success,
+    ).toBe(true);
   });
 });
