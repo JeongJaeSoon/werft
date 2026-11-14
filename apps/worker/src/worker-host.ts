@@ -408,6 +408,9 @@ export class WorkerHost {
     this.startAttachments = resolve;
   });
   private readonly attaching = new Set<string>();
+  // Repository id to the pinned commit startup could not fetch: an order
+  // queued before the failure still names that commit.
+  private readonly restoreFailures = new Map<string, string>();
   private stoppedAt: number | undefined;
   private readonly stopped: Promise<void>;
   private announceStop: () => void = () => {};
@@ -795,15 +798,18 @@ export class WorkerHost {
     // `commit` is the session's pin: the fetch takes it and the report echoes
     // it, so settling keeps the pin as it is. An order handed out before the
     // claim's repositories were pinned has none; the claim's entry has it.
-    const { receipt_id, ...entry } = order;
-    const pinned = claim.workspace.additional_repositories?.find(
-      (listed) => listed.id === order.id,
-    )?.commit;
+    // One startup could not restore is fetched anew at the branch's tip.
+    const { receipt_id, commit: ordered, ...entry } = order;
+    const lost = this.restoreFailures.get(order.id);
+    const pinned =
+      ordered !== undefined && ordered !== lost
+        ? ordered
+        : claim.workspace.additional_repositories?.find(
+            (listed) => listed.id === order.id,
+          )?.commit;
     const repository: AdditionalWorkspaceRepository = {
       ...entry,
-      ...(entry.commit === undefined && pinned !== undefined
-        ? { commit: pinned }
-        : {}),
+      ...(pinned === undefined ? {} : { commit: pinned }),
       ...(claim.repository_access === undefined
         ? {}
         : { access: claim.repository_access }),
@@ -824,12 +830,17 @@ export class WorkerHost {
         status: "attached",
         commit,
       };
+      // What this fetch took is what a later order in this attempt takes
+      // too, one startup could not restore included.
       const listed = claim.workspace.additional_repositories ?? [];
-      if (!listed.some((entry) => entry.id === order.id)) {
+      const known = listed.find((entry) => entry.id === order.id);
+      if (known === undefined) {
         claim.workspace.additional_repositories = [
           ...listed,
           { ...repository, commit },
         ];
+      } else {
+        known.commit = commit;
       }
       await this.writeEngineRoutes(claim);
     } catch (error) {
@@ -914,7 +925,7 @@ export class WorkerHost {
       failed: attached.failed,
     });
     const pinned = await this.untilStopped(
-      this.pinRepositories(claim, attached.commits),
+      this.pinRepositories(claim, attached.commits, attached.failed),
     );
     if (pinned === undefined || this.stopping !== undefined) return;
     return plan;
@@ -927,11 +938,15 @@ export class WorkerHost {
    * attempt racing this one) has that one fetched instead. A control-host
    * without the route keeps nothing and the run goes on unpinned; any other
    * failure fails the claim rather than let the engine read a commit the
-   * session has not recorded.
+   * session has not recorded. A pinned one the fetch could not take, for
+   * whatever reason, is reported too: the session stops handing it out, it
+   * leaves this attempt's list and routes, and no order of this attempt takes
+   * that commit again.
    */
   private async pinRepositories(
     claim: BootstrapClaimResponse,
     commits: ReadonlyMap<string, string>,
+    failed: readonly string[],
   ): Promise<true> {
     const report = this.options.gateway.repositoryPins;
     const listed = claim.workspace.additional_repositories ?? [];
@@ -941,13 +956,38 @@ export class WorkerHost {
         ? [{ repository_id: repository.id, commit }]
         : [];
     });
-    if (report === undefined || unpinned.length === 0) return true;
+    const lost = listed.flatMap((repository) =>
+      repository.commit !== undefined && failed.includes(repository.id)
+        ? [{ repository_id: repository.id, commit: repository.commit }]
+        : [],
+    );
+    // The commit alone: the fetch's own error can quote the remote.
+    for (const loss of lost) {
+      this.restoreFailures.set(loss.repository_id, loss.commit);
+      this.logger.warn("worker.workspace.restore_failed", loss);
+    }
+    if (lost.length > 0) {
+      // Not attached any more: no route either, or the engine's own git
+      // would fetch the branch's tip without an attach.
+      claim.workspace.additional_repositories = listed.filter(
+        (repository) => !this.restoreFailures.has(repository.id),
+      );
+      await this.writeEngineRoutes(claim);
+    }
+    if (report === undefined || unpinned.length + lost.length === 0) {
+      return true;
+    }
     const kept = new Map<string, string>();
-    for (let at = 0; at < unpinned.length; at += REPOSITORY_PINS_MAX) {
+    const reported = Math.max(unpinned.length, lost.length);
+    for (let at = 0; at < reported; at += REPOSITORY_PINS_MAX) {
+      const restoreFailed = lost.slice(at, at + REPOSITORY_PINS_MAX);
       try {
         const answer = await report.call(this.options.gateway, {
           ...this.scope,
           pins: unpinned.slice(at, at + REPOSITORY_PINS_MAX),
+          ...(restoreFailed.length === 0
+            ? {}
+            : { restore_failed: restoreFailed }),
         });
         for (const pin of answer.pins) kept.set(pin.repository_id, pin.commit);
       } catch (error) {

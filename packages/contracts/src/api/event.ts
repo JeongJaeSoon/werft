@@ -66,6 +66,7 @@ export const PLATFORM_SYSTEM_SUBTYPE_VALUES = [
   "transcript_limit_reached",
   "workspace_limit_mode",
   "approval_checkpoint_failed",
+  "repository_restore_failed",
 ] as const;
 // Why an approval request waits without the checkpoint the worker tried to
 // take for it, so a crash during the wait cannot resume it: the capture
@@ -85,6 +86,17 @@ export const approvalCheckpointFailedEventDataSchema = z
     subtype: z.literal("approval_checkpoint_failed"),
     request_id: requestIdSchema,
     reason: approvalCheckpointFailureSchema,
+  })
+  .strict();
+// An attached repository a worker could not fetch again at the commit the
+// session recorded for it. Written once per recorded commit; the session
+// hands the repository out no more until the agent attaches it again.
+export const repositoryRestoreFailedEventDataSchema = z
+  .object({
+    type: z.literal("system"),
+    subtype: z.literal("repository_restore_failed"),
+    repository_id: z.string().min(1),
+    commit: z.string().regex(/^[0-9a-f]{40}([0-9a-f]{24})?$/),
   })
   .strict();
 // `parked` when a park commits, `expired` when a parked group's last
