@@ -236,7 +236,8 @@ export const sessionAttentionSchema = z.discriminatedUnion("code", [
   // recovery_required. A deterministic runtime mismatch stops after
   // the first launch with reason incompatible_checkpoint, and an engine
   // that lacks a feature the settings need after the first launch with
-  // the worker's reason. After the
+  // the worker's reason. A checkpoint only a retracted worker image
+  // restores stops before any launch with reason runtime_retired. After the
   // cause is fixed, retry_restore tries the same checkpoint again; start_fresh
   // continues without it, close ends the session. A restore that succeeds
   // clears it.

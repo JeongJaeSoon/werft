@@ -38,6 +38,12 @@ export const RESTORE_FAILURE_LIMIT = 3;
  */
 export const INCOMPATIBLE_CHECKPOINT_REASON = "incompatible_checkpoint";
 
+/**
+ * Only a retracted worker image restores the checkpoint: it waits for an
+ * image that does to be listed, or for start_fresh.
+ */
+export const RUNTIME_RETIRED_REASON = "runtime_retired";
+
 const INCOMPATIBLE_CHECKPOINT_PREFIX =
   "Checkpoint restore refused (INCOMPATIBLE_CHECKPOINT):";
 
@@ -193,15 +199,19 @@ export async function recordStartupFailure(
 
 /**
  * What a restore refusing the checkpoint as incompatible records, before
- * anything is launched: no configured worker image can resume it. Stale
- * when the session left launchable admission, its pointer moved past
- * `checkpointRevision`, or a launch holds a slot for it.
+ * anything is launched: no launchable worker image can resume it
+ * (`runtime_retired` when a retracted one could). Stale when the session
+ * left launchable admission, its pointer moved past `checkpointRevision`,
+ * or a launch holds a slot for it.
  */
 export async function holdIncompatibleBeforeLaunch(
   db: Database,
   input: {
     sessionId: string;
     checkpointRevision: number;
+    reason:
+      | typeof INCOMPATIBLE_CHECKPOINT_REASON
+      | typeof RUNTIME_RETIRED_REASON;
     detail: string;
     now: Date;
   },
@@ -238,7 +248,7 @@ export async function holdIncompatibleBeforeLaunch(
       .update(sessions)
       .set({
         restoreFailureCount: failures,
-        restoreFailureReason: INCOMPATIBLE_CHECKPOINT_REASON,
+        restoreFailureReason: input.reason,
         restoreRetryAt: null,
         status: "failed",
         admissionState: "recovery_required",
@@ -259,7 +269,7 @@ export async function holdIncompatibleBeforeLaunch(
         detail: boundedReason(input.detail),
         failures,
         limit: RESTORE_FAILURE_LIMIT,
-        reason: INCOMPATIBLE_CHECKPOINT_REASON,
+        reason: input.reason,
         retry_at: null,
       },
       turnRowId: null,
@@ -286,7 +296,7 @@ export async function holdIncompatibleBeforeLaunch(
       phase: "failed",
       extra: {
         admission_state: "recovery_required",
-        reason: INCOMPATIBLE_CHECKPOINT_REASON,
+        reason: input.reason,
         ...(resumeFailed === null ? {} : { resume_failed: resumeFailed }),
       },
       turnRowId: null,

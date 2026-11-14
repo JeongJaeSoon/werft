@@ -207,17 +207,14 @@ scheduler would refuse.
 {{- define "ap.workerImages" -}}
 {{- $workers := .Values.images.workers -}}
 {{- if not (kindIs "slice" $workers) -}}
-{{- fail "images.workers must be a list of {repository, digest, runtime, releasedAt}" -}}
+{{- fail "images.workers must be a list of {repository, digest, runtime, releasedAt, retracted?}" -}}
 {{- end -}}
 {{- with .Values.images -}}
 {{- if or .worker.digest .worker.runtime .workerPrevious.digest .workerPrevious.runtime -}}
 {{- fail "images.workers replaces images.worker and images.workerPrevious: leave their digest and runtime empty (a packaged chart fills images.worker; clear it with --set images.worker.digest= --set-json 'images.worker.runtime=null')" -}}
 {{- end -}}
 {{- end -}}
-{{- /* WORKER_IMAGES_PER_ENGINE, and one engine per list, as workerImageListFromEnv. */ -}}
-{{- if gt (len $workers) 2 -}}
-{{- fail (printf "images.workers lists %d images: at most 2, the newest and the release before it" (len $workers)) -}}
-{{- end -}}
+{{- $unretracted := 0 -}}
 {{- $entries := list -}}
 {{- $digests := list -}}
 {{- $engines := list -}}
@@ -225,10 +222,17 @@ scheduler would refuse.
 {{- range $index, $entry := $workers -}}
 {{- $name := printf "images.workers[%d]" $index -}}
 {{- if not (kindIs "map" $entry) -}}
-{{- fail (printf "%s must be a map of repository, digest, runtime and releasedAt" $name) -}}
+{{- fail (printf "%s must be a map of repository, digest, runtime, releasedAt and retracted" $name) -}}
 {{- end -}}
-{{- with without (keys $entry) "repository" "digest" "runtime" "releasedAt" -}}
+{{- with without (keys $entry) "repository" "digest" "runtime" "releasedAt" "retracted" -}}
 {{- fail (printf "%s has unknown field(s): %s" $name (join ", " (sortAlpha .))) -}}
+{{- end -}}
+{{- if and (hasKey $entry "retracted") (not (kindIs "bool" $entry.retracted)) -}}
+{{- fail (printf "%s.retracted must be true or false" $name) -}}
+{{- end -}}
+{{- $retracted := eq $entry.retracted true -}}
+{{- if not $retracted -}}
+{{- $unretracted = add1 $unretracted -}}
 {{- end -}}
 {{- if not (and (kindIs "map" $entry.runtime) $entry.runtime) -}}
 {{- fail (printf "%s.runtime is required: set the runtime images.yml recorded for it" $name) -}}
@@ -256,10 +260,18 @@ scheduler would refuse.
 {{- end -}}
 {{- $digests = append $digests $entry.digest -}}
 {{- $engines = append $engines $entry.runtime.engine | uniq -}}
-{{- $entries = append $entries (dict "image" $image "runtime" $entry.runtime "released_at" $entry.releasedAt) -}}
+{{- $rendered := dict "image" $image "runtime" $entry.runtime "released_at" $entry.releasedAt -}}
+{{- if $retracted -}}
+{{- $_ := set $rendered "retracted" true -}}
+{{- end -}}
+{{- $entries = append $entries $rendered -}}
 {{- end -}}
 {{- if gt (len $engines) 1 -}}
 {{- fail (printf "images.workers lists images of %s: images of one engine only" (join " and " $engines)) -}}
+{{- end -}}
+{{- /* WORKER_IMAGES_PER_ENGINE, as workerImageListFromEnv: a retracted image stays listed beside its fix. */ -}}
+{{- if gt $unretracted 2 -}}
+{{- fail (printf "images.workers lists %d unretracted images: at most 2, the newest and the release before it" $unretracted) -}}
 {{- end -}}
 {{- toJson $entries -}}
 {{- end -}}

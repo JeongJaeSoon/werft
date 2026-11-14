@@ -34,6 +34,7 @@ import {
   INCOMPATIBLE_CHECKPOINT_REASON,
   RESTORE_FAILURE_LIMIT,
   RESTORE_FAILURES_CLEARED,
+  RUNTIME_RETIRED_REASON,
 } from "./restore-failures.ts";
 import {
   queuedTurnCount,
@@ -589,6 +590,7 @@ async function retryRestore(
     session.admissionState !== "recovery_required" ||
     (session.restoreFailureCount < RESTORE_FAILURE_LIMIT &&
       session.restoreFailureReason !== INCOMPATIBLE_CHECKPOINT_REASON &&
+      session.restoreFailureReason !== RUNTIME_RETIRED_REASON &&
       !isUnsupportedFeaturesReason(session.restoreFailureReason ?? "")) ||
     !hasRestorePoint(session)
   ) {

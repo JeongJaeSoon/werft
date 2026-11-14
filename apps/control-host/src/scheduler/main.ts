@@ -62,6 +62,10 @@ export async function main(
     await preflight({
       logger,
       quotaMarker: environment[QUOTA_PREFLIGHT_MARKER_ENV],
+      // Listed digests are unique: `image` is retracted only when all are.
+      probeQuota: !config.retractedImages.some(
+        ({ image }) => image === config.image,
+      ),
       pausedWorkspaceTtlMs: config.pausedWorkspaceTtlMs,
       stoppedWorkspaceTtlMs: config.stoppedWorkspaceTtlMs,
       store,
@@ -74,6 +78,7 @@ export async function main(
         ? {}
         : { imageRuntime: config.imageRuntime }),
       olderImages: config.olderImages,
+      retractedImages: config.retractedImages,
       logger,
       resources: config.resources,
       slotLimit: config.slotLimit,

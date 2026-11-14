@@ -63,6 +63,8 @@ export type HoldIncompatibleInput = {
   sessionId: string;
   /** The pointer revision the image was chosen against. */
   checkpointRevision: number;
+  /** `runtime_retired`: only a retracted image restores the checkpoint. */
+  reason: "incompatible_checkpoint" | "runtime_retired";
   detail: string;
   now: Date;
 };
@@ -275,9 +277,9 @@ export interface SchedulerStore {
   /** Every recorded image refusal (`WorkerImageRefusal`). */
   workerImageRefusals(): Promise<WorkerImageRefusal[]>;
   /**
-   * Stops a session no configured image can resume before anything is
-   * launched for it: `recovery_required` with `incompatible_checkpoint`, as
-   * a restore that refused its checkpoint would. `stale` when the session is
+   * Stops a session no launchable image can resume before anything is
+   * launched for it: `recovery_required` with the input's reason, as a
+   * restore that refused its checkpoint would. `stale` when the session is
    * no longer launchable or its pointer moved past `checkpointRevision`.
    */
   holdIncompatibleBeforeLaunch(

@@ -66,9 +66,12 @@ images:
   # images.worker and images.workerPrevious, whose digest and runtime must
   # then be empty (a packaged release fills images.worker: clear its runtime
   # with null, which {} does not). Each entry: {repository, digest, runtime,
-  # releasedAt}, runtime as images.yml recorded it and releasedAt an RFC 3339
-  # time with seconds (at most milliseconds), strictly decreasing down the list. At most two images,
-  # of one engine.
+  # releasedAt, retracted?}, runtime as images.yml recorded it and releasedAt
+  # an RFC 3339 time with seconds (at most milliseconds), strictly decreasing
+  # down the list. retracted: true keeps an image listed but launches nothing
+  # on it; its sessions move to an unretracted image of the same engine, SDK
+  # and CLI, or stop as runtime_retired. At most two unretracted images, of
+  # one engine.
   workers: []
 
 # The chart never holds a secret value. Each workload reads only the keys it

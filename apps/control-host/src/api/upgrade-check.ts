@@ -7,6 +7,7 @@ import {
   assessNothingReplaced,
   assessUpgrade,
   type ListedWorkerImage,
+  newestLaunchable,
   readRuntime,
   type UpgradeAssessment,
   type UpgradeImage,
@@ -105,10 +106,15 @@ export async function runUpgradeCheck(input: {
   } catch (error) {
     return failed((error as Error).message);
   }
+  // What new sessions start on, then the image after it that also launches.
+  const launchable = settings.target.filter(({ retracted }) => !retracted);
   base = {
-    deployedWorker: settings.deployed?.[0].image ?? null,
-    targetWorker: settings.target[0].image,
-    targetPreviousWorker: settings.target[1]?.image ?? null,
+    deployedWorker:
+      settings.deployed === null
+        ? null
+        : (newestLaunchable(settings.deployed)?.image ?? null),
+    targetWorker: launchable[0]?.image ?? null,
+    targetPreviousWorker: launchable[1]?.image ?? null,
   };
 
   if (settings.deployed === null) {
@@ -167,8 +173,8 @@ export async function runUpgradeCheck(input: {
 function withRuntimes(
   images: Images<UpgradeImage>,
 ): Images<ListedWorkerImage> | null {
-  const listed = images.flatMap(({ image, runtime }) =>
-    runtime === null ? [] : [{ image, runtime }],
+  const listed = images.flatMap(({ image, runtime, retracted }) =>
+    runtime === null ? [] : [{ image, runtime, retracted: retracted === true }],
   );
   return listed.length === images.length
     ? (listed as unknown as Images<ListedWorkerImage>)

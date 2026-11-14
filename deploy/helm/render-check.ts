@@ -1100,7 +1100,23 @@ const MUST_FAIL: [string, string[], RegExp][] = [
             releasedAt: `2026-1${2 - index}-01T00:00:00Z`,
           }),
         ),
-        /images\.workers lists 3 images: at most 2/,
+        /images\.workers lists 3 unretracted images: at most 2/,
+      ],
+      [
+        "three unretracted beside a retracted one",
+        ["5", "6", "7", "8"].map((digit, index) =>
+          listedWorker({
+            digest: `sha256:${digit.repeat(64)}`,
+            releasedAt: `2026-0${9 - index}-01T00:00:00Z`,
+            ...(index === 3 ? { retracted: true } : {}),
+          }),
+        ),
+        /images\.workers lists 3 unretracted images: at most 2/,
+      ],
+      [
+        "retracted as text",
+        [listedWorker({ retracted: "true" })],
+        /images\.workers\[0\]\.retracted must be true or false/,
       ],
       [
         "a repository no reference allows",
@@ -1487,6 +1503,48 @@ const listManifests = render(["-f", ciDigests, ...listInstead(workerList)]);
 errors.push(
   ...checkWorkerImages("image list", listManifests, renderedList),
   ...checkUpgradeHook("image list", listManifests, true, []),
+);
+// A retracted image stays listed beside the two that launch, marked so; one
+// not retracted renders no flag, as the readers default it.
+const retractedEntry = {
+  repository: WORKER_REPOSITORY,
+  digest: `sha256:${"7".repeat(64)}`,
+  runtime: PREVIOUS_RUNTIME,
+  releasedAt: "2026-09-01T00:00:00Z",
+};
+errors.push(
+  ...checkWorkerImages(
+    "image list with a retracted image",
+    render([
+      "-f",
+      ciDigests,
+      ...listInstead([...workerList, { ...retractedEntry, retracted: true }]),
+    ]),
+    {
+      list: JSON.stringify(
+        sortedDeep([
+          ...JSON.parse(renderedList.list),
+          {
+            image: `${retractedEntry.repository}@${retractedEntry.digest}`,
+            released_at: retractedEntry.releasedAt,
+            retracted: true,
+            runtime: retractedEntry.runtime,
+          },
+        ]),
+      ),
+    },
+  ),
+  ...checkWorkerImages(
+    "image list with retracted: false",
+    render([
+      "-f",
+      ciDigests,
+      ...listInstead(
+        workerList.map((worker) => ({ ...worker, retracted: false })),
+      ),
+    ]),
+    renderedList,
+  ),
 );
 
 // What a publishing run makes: a package that renders with no values at all,

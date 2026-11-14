@@ -114,6 +114,31 @@ describe("installed runtimes", () => {
         WORKER_IMAGE_PREVIOUS_RUNTIME: JSON.stringify(previous),
       }),
     );
+    const retracted = (flags: [boolean, boolean]) =>
+      runtimeVersionsFromEnv({
+        WORKER_IMAGES: JSON.stringify([
+          {
+            image: `reg/worker@sha256:${"a".repeat(64)}`,
+            runtime: current,
+            released_at: "2026-11-10T00:00:00Z",
+            retracted: flags[0],
+          },
+          {
+            image: `reg/worker@sha256:${"b".repeat(64)}`,
+            runtime: previous,
+            released_at: "2026-10-01T00:00:00Z",
+            retracted: flags[1],
+          },
+        ]),
+      });
+    // A retracted image's versions stay accepted: a fixed build of the same
+    // combination takes what was sealed on it.
+    const pairs = (versions: typeof listed) =>
+      (versions?.accepted ?? [])
+        .map(({ kind, version }) => `${kind} ${version}`)
+        .sort();
+    expect(pairs(retracted([true, false]))).toEqual(pairs(listed));
+    expect(pairs(retracted([true, true]))).toEqual(pairs(listed));
   });
 
   test("an older build with the image's own tool catalog runs, under the image's kind only", () => {

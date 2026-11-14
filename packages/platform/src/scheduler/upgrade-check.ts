@@ -15,6 +15,8 @@ import {
 export type UpgradeImage = {
   readonly image: string;
   readonly runtime: ImageRuntime | null;
+  /** Listed, but nothing launches on it, so it restores nothing. */
+  readonly retracted?: boolean;
 };
 
 type Images<I> = readonly [I, ...I[]];
@@ -77,7 +79,8 @@ export function assessNothingReplaced(
  * on the deployed newest image, which new sessions start on until the
  * rollout, and on every launch still holding a slot. A writer whose
  * checkpoints the deployed images cannot restore either is stranded already,
- * not by this release.
+ * not by this release. A retracted image restores nothing, deployed or
+ * target, and new sessions start on the newest unretracted one.
  */
 export function assessUpgrade(input: {
   /** Newest first, as the cluster runs them now. */
@@ -90,10 +93,19 @@ export function assessUpgrade(input: {
   readonly approved: readonly string[];
 }): UpgradeAssessment {
   const { deployed, target } = input;
+  const deployedNewest = newestLaunchable(deployed);
+  const targetNewest = newestLaunchable(target);
   const changed = deployed
     .filter((image) => !kept(image, target))
     .map(({ image }) => image);
-  if (changed.length === 0 && kept(deployed[0], [target[0]])) {
+  if (
+    changed.length === 0 &&
+    // Both undefined: every image retracted on either side, so no session
+    // launches before or after.
+    (deployedNewest === undefined
+      ? targetNewest === undefined
+      : targetNewest !== undefined && kept(deployedNewest, [targetNewest]))
+  ) {
     return assessNothingReplaced(
       input.approved,
       "the worker images do not change",
@@ -106,22 +118,28 @@ export function assessUpgrade(input: {
       return reason === null ? [] : [{ sessionId: session.sessionId, reason }];
     })
     .sort((a, b) => a.sessionId.localeCompare(b.sessionId));
+  const restorers = {
+    deployed: deployed.filter((image) => !image.retracted),
+    target: target.filter((image) => !image.retracted),
+  };
   const stranded = (writers: readonly UpgradeImage[]) => [
     ...new Set(
       writers
         .filter(
-          (writer) => resumesOn(writer, deployed) && !resumesOn(writer, target),
+          (writer) =>
+            resumesOn(writer, restorers.deployed) &&
+            !resumesOn(writer, restorers.target),
         )
         .map(({ image }) => image),
     ),
   ];
   // New sessions start on it until the rollout, so no wait ends this.
-  if (stranded([deployed[0]]).length > 0) {
+  if (deployedNewest !== undefined && stranded([deployedNewest]).length > 0) {
     return {
       verdict: "refused",
       affected,
       approved,
-      reason: `workers on ${deployed[0].image}, the deployed newest image, keep sealing checkpoints after this check and no target image restores them, so no approval covers them: keep that image, or one that restores its checkpoints, in the target release`,
+      reason: `workers on ${deployedNewest.image}, the deployed newest image, keep sealing checkpoints after this check and no unretracted target image restores them, so no approval covers them: keep that image unretracted in the target release, or list beside it one that restores its checkpoints (a fixed build of the same engine, SDK and CLI)`,
     };
   }
   const launches = stranded(input.writers).sort();
@@ -130,7 +148,7 @@ export function assessUpgrade(input: {
       verdict: "refused",
       affected,
       approved,
-      reason: `workers on ${launches.join(" ")} still hold a slot and keep sealing checkpoints no target image restores, so no approval covers them: keep the image in the target release, or run the upgrade once no launch on it holds a slot`,
+      reason: `workers on ${launches.join(" ")} still hold a slot and keep sealing checkpoints no unretracted target image restores, so no approval covers them: list an unretracted image that restores them in the target release (the image itself, or a fixed build of the same engine, SDK and CLI), or run the upgrade once no launch on it holds a slot`,
     };
   }
   const ids = affected.map((session) => session.sessionId);
@@ -141,10 +159,17 @@ export function assessUpgrade(input: {
       verdict: "refused",
       affected,
       approved,
-      reason: `${ids.length} session(s) could resume on no target image (deployed images dropped or redeclared: ${changed.join(" ") || "none"}; newest ${deployed[0].image} → ${target[0].image}); approve exactly this list in upgrade.approvedSessions${ids.length === 0 ? " (empty)" : ""} — not approved: ${missing.join(" ") || "none"}; no longer affected: ${extra.join(" ") || "none"}`,
+      reason: `${ids.length} session(s) could resume on no unretracted target image (deployed images dropped, redeclared or retracted: ${changed.join(" ") || "none"}; newest ${deployedNewest?.image ?? "none"} → ${targetNewest?.image ?? "none"}); approve exactly this list in upgrade.approvedSessions${ids.length === 0 ? " (empty)" : ""} — not approved: ${missing.join(" ") || "none"}; no longer affected: ${extra.join(" ") || "none"}`,
     };
   }
   return { verdict: "proceed", affected, approved };
+}
+
+/** What new sessions start on; none when every image is retracted. */
+export function newestLaunchable<I extends { readonly retracted?: boolean }>(
+  images: readonly I[],
+): I | undefined {
+  return images.find((image) => !image.retracted);
 }
 
 // Only what image choice reads counts: a runtime nothing declared was never
@@ -154,8 +179,9 @@ function kept(
   target: readonly WorkerImageCandidate<string>[],
 ): boolean {
   return target.some(
-    ({ image, runtime }) =>
+    ({ image, runtime, retracted }) =>
       image === deployed.image &&
+      Boolean(retracted) === Boolean(deployed.retracted) &&
       (deployed.runtime === null ||
         (sameCombination(deployed.runtime, runtime) &&
           schemeSet(deployed.runtime) === schemeSet(runtime))),

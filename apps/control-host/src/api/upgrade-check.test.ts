@@ -205,6 +205,53 @@ describe("runUpgradeCheck", () => {
       expect(dropped.output.reason).toContain(`workers on ${digest("a")}`);
     });
 
+    test("a retraction in either list reaches the judgement and the report", async () => {
+      const retracting = {
+        ...target,
+        ...deployedList,
+        WORKER_IMAGES: JSON.stringify([
+          {
+            image: digest("b"),
+            runtime: current,
+            released_at: "2026-11-15T00:00:00Z",
+          },
+          {
+            image: digest("a"),
+            runtime: previous,
+            released_at: "2026-11-01T00:00:00Z",
+            retracted: true,
+          },
+        ]),
+      };
+      const refused = await run(retracting);
+      expect(refused.code).toBe(2);
+      expect(refused.output).toMatchObject({
+        deployedWorker: digest("a"),
+        targetWorker: digest("b"),
+        targetPreviousWorker: null,
+      });
+      expect(refused.output.reason).toContain(
+        "no unretracted target image restores them",
+      );
+      // Deployed retracted, the target lists its fixed build: nothing seals
+      // on the retracted image, and its sessions resume on the fix.
+      const fixed = await run({
+        ...target,
+        UPGRADE_DEPLOYED_WORKER_IMAGE: "",
+        UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS: undefined,
+        UPGRADE_DEPLOYED_WORKER_IMAGES: JSON.stringify([
+          {
+            image: digest("c"),
+            runtime: previous,
+            released_at: "2026-10-01T00:00:00Z",
+            retracted: true,
+          },
+        ]),
+      });
+      expect(fixed.code).toBe(0);
+      expect(fixed.output.deployedWorker).toBeNull();
+    });
+
     test.each([
       [
         "a list beside the single-image settings",
