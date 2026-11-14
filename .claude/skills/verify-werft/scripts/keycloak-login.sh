@@ -119,7 +119,14 @@ from_api=$(ap_compose exec -T api bun -e 'console.log((await fetch(process.argv.
 [ "$from_api" = 200 ] || fail "discovery from the api container: ${from_api:-no answer}"
 WU bootstrap owner >/dev/null || fail "bootstrap owner"
 WU login owner >/dev/null || fail "owner's password session for curl"
+# The steps find buttons and notices by their Korean text, and the console
+# follows the browser's language (a runner's Chrome is en-US).
+mkdir -p "$RUN/browser" && mkdir -p -m 700 "$RUN/browser/profile" && mkdir -p "$RUN/browser/profile/Default"
+[ -e "$RUN/browser/profile/Default/Preferences" ] ||
+  printf '{"intl":{"accept_languages":"ko,en-US,en"}}\n' >"$RUN/browser/profile/Default/Preferences"
 B start >/dev/null || fail "Chrome did not start"
+lang=$(value 'navigator.language')
+[ "$lang" = ko ] || fail "the browser's language is ${lang:-unknown}, not ko"
 login=$(B login owner) || fail "browser login"
 [ "$login" = "login owner -> /" ] || fail "browser login: $login"
 ok

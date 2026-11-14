@@ -45,5 +45,5 @@ run=$(.claude/skills/verify-werft/scripts/keycloak-up.sh)
 - 브라우저의 Keycloak 세션은 werft 로그아웃으로 끝나지 않는다. 스크립트는 사람을 바꿀 때 Keycloak의 로그아웃을 먼저 한다.
 - 연결은 로그인한 지 10분 안에만 된다. 스크립트는 그 안에 끝난다(로컬 약 80초).
 - `click`이 Keycloak으로 넘어가면 출력에 인가 요청의 주소가 찍힌다. `state`는 가려지고, 함께 보이는 `nonce`·`code_challenge`는 공급자에게 공개하는 값이다.
-- 화면 문구로 버튼과 안내를 찾으므로 그 문구(`apps/web/src/i18n/`)가 바뀌면 스크립트도 바꾼다. CI workflow의 경로 필터가 그 파일을 바꾼 PR에서 스크립트를 돌린다.
+- 화면 문구로 버튼과 안내를 찾으므로 그 문구(`apps/web/src/i18n/`)가 바뀌면 스크립트도 바꾼다. 콘솔은 브라우저 언어를 따르므로, 스크립트는 Chrome을 띄우기 전에 run의 profile에 `intl.accept_languages`를 `ko`로 적고 `navigator.language`가 `ko`인지 본다(CI runner의 Chrome은 en-US다). CI workflow의 경로 필터가 그 파일을 바꾼 PR에서 스크립트를 돌린다.
 - 포트 둘은 `keycloak-up.sh`가 띄우기 직전에 고른다. 그 사이 다른 프로세스가 가져가면 `up.sh`가 실패하고 스스로 내린다. 다시 띄우면 된다.
