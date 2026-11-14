@@ -99,6 +99,18 @@ export interface InstallationLimitsMessages {
   readonly maxTurn: string;
   readonly maxTurnNote: string;
   readonly loading: string;
+  /** `scope="me"`: the limits a member's own sessions run under. */
+  readonly memberNote: string;
+  readonly memberSlots: string;
+  readonly memberSlotsNote: string;
+  readonly memberMonthlyCost: string;
+  readonly memberMonthlyCostNote: string;
+  readonly memberOutputs: string;
+  readonly memberOutputsNote: string;
+  /** A figure the platform keeps for no member. */
+  readonly notMeasured: string;
+  /** Read out in place of the "—" of a figure no API gives. */
+  readonly noFigure: string;
 }
 
 export interface UsageCostTableMessages {
@@ -508,6 +520,16 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         maxTurn: "턴 최대 시간",
         maxTurnNote: "턴 하나가 돌 수 있는 시간",
         loading: "한도를 읽는 중",
+        memberNote: "내 세션에 적용됩니다",
+        memberSlots: "구성원당 동시 실행 슬롯",
+        memberSlotsNote:
+          "구성원별 상한은 없습니다. 설치 전체의 슬롯을 함께 씁니다",
+        memberMonthlyCost: "구성원당 월 비용",
+        memberMonthlyCostNote: "구성원별 월 비용 한도는 없습니다",
+        memberOutputs: "구성원당 성과물 저장",
+        memberOutputsNote: "구성원별 성과물 용량은 세지 않습니다",
+        notMeasured: "미계측",
+        noFigure: "제공 안 됨",
       },
       usageCostTable: {
         sessions: "세션",
@@ -709,6 +731,16 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         maxTurn: "ターンの最大時間",
         maxTurnNote: "1つのターンを実行できる時間",
         loading: "上限を読み込み中",
+        memberNote: "自分のセッションに適用されます",
+        memberSlots: "メンバーあたりの同時実行スロット",
+        memberSlotsNote:
+          "メンバーごとの上限はありません。インストール全体のスロットを共有します",
+        memberMonthlyCost: "メンバーあたりの月間コスト",
+        memberMonthlyCostNote: "メンバーごとの月間コスト上限はありません",
+        memberOutputs: "メンバーあたりの成果物の保存",
+        memberOutputsNote: "メンバーごとの成果物の容量は数えません",
+        notMeasured: "未計測",
+        noFigure: "提供なし",
       },
       usageCostTable: {
         sessions: "セッション",
@@ -910,6 +942,16 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         maxTurn: "Longest turn",
         maxTurnNote: "How long one turn may run",
         loading: "Loading limits",
+        memberNote: "Applies to your sessions",
+        memberSlots: "Concurrent slots per member",
+        memberSlotsNote:
+          "No cap per member. Members share the installation's slots",
+        memberMonthlyCost: "Monthly cost per member",
+        memberMonthlyCostNote: "No monthly cost limit per member",
+        memberOutputs: "Output storage per member",
+        memberOutputsNote: "Outputs are not counted per member",
+        notMeasured: "Not measured",
+        noFigure: "Not provided",
       },
       usageCostTable: {
         sessions: "Sessions",
