@@ -217,6 +217,7 @@ export async function enqueueRuntimeRetiredNotices(
           workspaceId,
           input.sessionId,
           input.checkpointRevision,
+          person.installationId,
           person.slackUserId,
         ),
       })

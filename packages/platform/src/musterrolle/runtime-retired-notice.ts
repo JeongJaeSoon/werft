@@ -1,16 +1,18 @@
 import { DEFAULT_USER_LOCALE, type UserLocale } from "@werft-ai/contracts";
 
 /**
- * One DM per person per session and checkpoint: a session held again on a
- * later checkpoint tells again, the same hold seen twice does not.
+ * One DM per Slack account per session and checkpoint: a session held again
+ * on a later checkpoint tells again, the same hold seen twice does not. A
+ * Slack user id is unique only within its installation's team.
  */
 export function runtimeRetiredDedupeKey(
   workspaceId: string,
   sessionId: string,
   checkpointRevision: number,
+  installationId: string,
   slackUserId: string,
 ): string {
-  return `runtime-retired:${workspaceId}:${sessionId}:${checkpointRevision}:${slackUserId}`;
+  return `runtime-retired:${workspaceId}:${sessionId}:${checkpointRevision}:${installationId}:${slackUserId}`;
 }
 
 const COPY: Record<UserLocale, (agent: string) => string> = {
