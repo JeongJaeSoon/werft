@@ -1,6 +1,6 @@
 {
-  "release": null,
-  "commit": "e1ac45bf5b592200c119bb3b45584bc823a35651",
+  "release": "v0.2.0",
+  "commit": "53c1b7d0aa595a2c42d33636c4b503e0ee381a50",
   "routes": {
     "/bootstrap-claim": {
       "request": {
