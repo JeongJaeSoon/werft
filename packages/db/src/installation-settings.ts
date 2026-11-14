@@ -619,8 +619,9 @@ export function createPostgresInstallationSettingsStore(
               if (workspaceId === null) {
                 return { entry, env: name, outcome: "waiting" };
               }
-              // Before the row lock pointAtStored takes, so the table lock
-              // is waited for holding only the catalog lock.
+              // Before pointAtStored writes the row, so the table lock is
+              // waited for holding only the catalog lock and this row's,
+              // which no writer of the two tables waits on.
               const rebound =
                 carried.binding === undefined
                   ? undefined
