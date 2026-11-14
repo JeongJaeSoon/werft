@@ -594,7 +594,7 @@ describe("에이전트 상세 탭", () => {
     [500, "INTERNAL_ERROR", "불러오지 못함"],
   ] as const) {
     test(`비용 읽기가 ${status}이면 $0이 아니라 —와 이유(${reason})를 보인다`, async () => {
-      renderAt(DETAIL, {
+      const { api } = renderAt(DETAIL, {
         ...meOk,
         ...agentServer().routes,
         "GET /v1/usage/summary": () => apiError(status, code, "no"),
@@ -608,6 +608,10 @@ describe("에이전트 상세 탭", () => {
         ]),
       );
       expect(glance.textContent).not.toContain("$0");
+      // Not retried: the reason is shown at once.
+      expect(
+        api.calls.filter((call) => call.path === "/v1/usage/summary"),
+      ).toHaveLength(1);
     });
   }
 
