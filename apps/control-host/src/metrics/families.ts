@@ -1,5 +1,5 @@
 // The platform metrics in the Prometheus text exposition format (0.0.4).
-// Every name, label and help line lives here; apps/docs/content/docs/run-server/self-hosting/operate/metrics.mdx is
+// Every name, label and help line lives here; apps/docs/content/docs/run-server/self-hosting/reference/metrics.mdx is
 // their reference for operators.
 import { type PlatformMetricsSnapshot, publicStatus } from "@werft-ai/db";
 
@@ -156,6 +156,16 @@ export function metricFamilies(snapshot: PlatformMetricsSnapshot): Family[] {
     );
   }
 
+  const images = new Tally();
+  for (const row of snapshot.sessionWorkerImages) {
+    const { state } = sessionState({
+      ...row,
+      awaitingApproval: false,
+      awaitingAnswer: false,
+    });
+    if (state !== "ended") images.add({ image: row.image }, BigInt(row.count));
+  }
+
   const calls = new Tally();
   const results = new Tally();
   for (const row of snapshot.toolCalls) {
@@ -205,6 +215,12 @@ export function metricFamilies(snapshot: PlatformMetricsSnapshot): Family[] {
       type: "gauge",
       help: "Sessions by state, with the public status and the admission state it is read from.",
       samples: sessions.samples(),
+    },
+    {
+      name: "sessions_by_worker_image",
+      type: "gauge",
+      help: "Sessions the `sessions` gauge does not count as ended, by the worker image their newest launch was pinned to. Sessions never launched are not counted.",
+      samples: images.samples(),
     },
     {
       name: "turns_total",
