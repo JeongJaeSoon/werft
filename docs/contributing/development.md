@@ -173,7 +173,7 @@ head마다 라벨 한 번에 한 번만 시도한다. `PREVIEW_HOME/sync/pr-<번
 
 - `*.<PREVIEW_DOMAIN>`를 reverse proxy로 푸는 사설 DNS와, 그 proxy에서 TLS를 끝내는 `*.<PREVIEW_DOMAIN>` 인증서.
 - proxy는 Host 헤더를 바꾸지 않고 Mac의 Traefik http 포트로 넘긴다. control-host는 브라우저 요청의 Origin host가 Host와 같아야 받는다. 세션 쿠키(`__Host-`, Secure)는 https 주소의 host마다 따로 저장된다.
-- Traefik은 Mac의 `127.0.0.1:18180`에만 있다. `k8s.expose_services`를 켜지 말고, proxy가 닿는 Mac 주소 하나에서 proxy 주소에서 오는 연결만 받는 포워더를 둔다. 예: `socat TCP-LISTEN:18180,bind=<Mac 주소>,reuseaddr,fork,range=<proxy 주소>/32 TCP:127.0.0.1:18180`.
+- Traefik은 Mac의 `127.0.0.1:18180`에만 있다. `k8s.expose_services`를 켜지 말고, proxy가 tailnet에 있으면 `tailscale serve --bg --tcp 18180 tcp://127.0.0.1:18180`으로 그 포트를 tailnet에만 연다. proxy는 Mac의 tailnet 주소 `:18180`으로 보낸다.
 
 이 주소는 tailnet 같은 사설망 안에서만 연다. 데모 계정은 quickstart의 공개 비밀번호를 그대로 쓰고, PR 댓글도 그 문서를 가리킨다. 사설망에 든 기기는 누구나 데모 계정으로 로그인할 수 있다는 전제다. 미리보기를 인터넷에 열지 않는다.
 
