@@ -900,7 +900,7 @@ Slack DM이 만든 세션은 `private`로 시작한다(아래 "Slack 스레드�
 
 | 변수 | 기본값 | 허용 범위 |
 |---|---|---|
-| `CONSOLE_ORIGIN` | 없음 | 절대 http(s) origin. 공개 주소의 유일한 소스다. Slack 연결·이벤트 주소도 여기서 계산한다(위 "Slack 계정 연결"). GitHub 연결 콜백 `<콘솔 origin>/settings/linked-accounts/github`와 commit·PR의 세션 URL `<콘솔 origin>/sessions/<id>`에 쓴다. 둘 다 없으면 콜백 URL이 없어 연결을 시작할 수 없고(`409 GITHUB_LINK_NOT_CONFIGURED`), commit에 `Agent-Session` 트레일러가 들어가지 않으며 PR 꼬리는 세션 id만 싣는다 |
+| `CONSOLE_ORIGIN` | 없음 | 절대 http(s) origin. 공개 주소의 유일한 소스다. Slack 연결·이벤트 주소도 여기서 계산한다(위 "Slack 계정 연결"). GitHub 연결 콜백 `<콘솔 origin>/settings/linked-accounts/github`와 commit·PR의 세션 URL `<콘솔 origin>/sessions/<id>`에 쓴다. 없으면 콜백 URL이 없어 연결을 시작할 수 없고(`409 GITHUB_LINK_NOT_CONFIGURED`), commit의 `Agent-Session` 트레일러와 PR 꼬리는 세션 URL 대신 세션 id를 싣는다 |
 
 **준비(owner·admin, 사람이 한다).** 작성용 App이 콘솔에 등록돼 있어야 한다(위 "GitHub 저장소").
 

@@ -194,7 +194,7 @@ discovery 문서는 다음을 모두 채워야 한다. 하나라도 어기면 �
 |---|---|---|
 | JWKS 회전 | JWKS는 캐시하지 않는다. 로그인마다 받는다(지금과 같다) | IdP가 키를 돌리거나 지우면 다음 로그인부터 바로 따른다. 지운 키를 캐시 수명만큼 더 믿는 틈이 없다. 값은 로그인마다 JWKS endpoint가 살아 있어야 한다는 것이다. JWKS 요청은 code 교환이 성공한 뒤에만 나간다 |
 | redirect URI | 공급자마다 다르다: `<CONSOLE_ORIGIN>/auth/callback/<provider_id>` | 여러 IdP를 쓰는 client는 IdP마다 다른 redirect URI를 쓰라는 권고(RFC 9700 4.4.2)를 따른다 |
-| `CONSOLE_ORIGIN` | redirect URI의 유일한 소스다. 이 코드는 `CONSOLE_ORIGIN`만 직접 읽고, `consoleOriginFrom`의 옛 Slack 폴백은 쓰지 않는다. 없으면 공급자를 만들 수 없고 화면이 이유를 보여 준다 | 요청의 `Host` 헤더로 redirect URI를 만들지 않는다. SSO 전용 설정이 아니므로 결정 7과 어긋나지 않는다 |
+| `CONSOLE_ORIGIN` | redirect URI의 유일한 소스다. Slack 연결과 같은 `consoleOriginFrom`이 `CONSOLE_ORIGIN`에서만 계산한다. 없으면 공급자를 만들 수 없고 화면이 이유를 보여 준다 | 요청의 `Host` 헤더로 redirect URI를 만들지 않는다. SSO 전용 설정이 아니므로 결정 7과 어긋나지 않는다 |
 | scope | `openid email profile` 고정 | 지금과 같다. 그룹 매핑이 `groups`를 더할 때 칸을 만든다 |
 | client secret 없는 client | 지원하지 않는다 | 서버가 secret을 지킬 수 있다 |
 | 동시 처리 | 콜백의 IdP 호출에 동시 실행 상한을 둔다(비밀번호 hash의 `WorkGate`와 같은 방식). 넘으면 `429` | 인증 없는 호출이 IdP로 나가는 요청을 무한히 만들지 못한다 |

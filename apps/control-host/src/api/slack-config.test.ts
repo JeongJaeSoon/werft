@@ -89,6 +89,12 @@ describe("settings an older deployment may still pass", () => {
     ).toBe(ORIGIN);
   });
 
+  test("are not parsed either: a malformed old redirect does not stop the process", () => {
+    expect(
+      consoleOriginFrom({ SLACK_OIDC_REDIRECT_URI: "not a url" }),
+    ).toBeNull();
+  });
+
   test("give one warning that names them and carries no value", () => {
     const warnings = slackEnvWarnings({ ...removed, CONSOLE_ORIGIN: ORIGIN });
     expect(warnings).toEqual([

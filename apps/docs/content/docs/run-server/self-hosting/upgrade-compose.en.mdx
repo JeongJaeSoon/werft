@@ -155,7 +155,7 @@ From the next release on, the support window of the current and previous images 
 
 From this release on, the API and the slack role no longer read `SLACK_OIDC_REDIRECT_URI`, `SLACK_OIDC_CLIENT_ID` or `SLACK_OIDC_CLIENT_SECRET`. The Slack account linking redirect is `CONSOLE_ORIGIN` with the fixed path `/settings/linked-accounts/slack`. The client ID and secret come only from each workspace's link app, made in Settings > Workspace > Integrations > Slack.
 
-- Before you upgrade, check that the API and the slack role have `CONSOLE_ORIGIN`. Earlier releases used the origin of `SLACK_OIDC_REDIRECT_URI` when `CONSOLE_ORIGIN` was unset. In this release, Slack account linking then answers `503`, Slack apps cannot be created, and no event subscription is registered (`events_url_unset`).
+- Before you upgrade, check that the API and the slack role have `CONSOLE_ORIGIN`. Earlier releases used the origin of `SLACK_OIDC_REDIRECT_URI` when `CONSOLE_ORIGIN` was unset. In this release, Slack account linking then answers `503`, Slack apps cannot be created, and, unless `SLACK_EVENTS_PUBLIC_URL` is set, no event subscription is registered (`events_url_unset`).
 - Remove the three variables. On Compose, `infra/compose.core.yml` no longer passes them, so delete the lines from your env file. On Kubernetes, delete them from `api.extraEnv` and `slack.extraEnv`. If one is still set, the API logs the warning `Ignored removed settings: <names>` once at startup. It prints no value and does not use it.
 - This release cannot be rolled back to an earlier build ([Rollback floor of the profile removal](#프로필-제거의-롤백-하한)), so no line needs to stay for a rollback.
 

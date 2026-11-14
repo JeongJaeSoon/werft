@@ -139,7 +139,7 @@ SDK를 올리는 릴리스는 이미지가 싣는 런타임 버전을 바꾸고,
 
 이 릴리스부터 API와 slack 역할은 `SLACK_OIDC_REDIRECT_URI`·`SLACK_OIDC_CLIENT_ID`·`SLACK_OIDC_CLIENT_SECRET`을 읽지 않는다. Slack 계정 연결의 redirect는 `CONSOLE_ORIGIN`에 고정 경로 `/settings/linked-accounts/slack`을 붙여 계산한다. client id와 secret은 워크스페이스마다 설정 > 워크스페이스 > 연동 > Slack에서 만든 link 앱의 것만 쓴다.
 
-- 올리기 전에 API와 slack 역할에 `CONSOLE_ORIGIN`이 있는지 본다. 앞선 릴리스는 `CONSOLE_ORIGIN`이 없으면 `SLACK_OIDC_REDIRECT_URI`의 origin을 대신 썼다. 이 릴리스에서는 그때 Slack 계정 연결이 `503`이 되고, Slack 앱을 만들 수 없고, 이벤트 구독이 등록되지 않는다(`events_url_unset`).
+- 올리기 전에 API와 slack 역할에 `CONSOLE_ORIGIN`이 있는지 본다. 앞선 릴리스는 `CONSOLE_ORIGIN`이 없으면 `SLACK_OIDC_REDIRECT_URI`의 origin을 대신 썼다. 이 릴리스에서는 그때 Slack 계정 연결이 `503`이 되고, Slack 앱을 만들 수 없고, `SLACK_EVENTS_PUBLIC_URL`도 없으면 이벤트 구독이 등록되지 않는다(`events_url_unset`).
 - 세 값을 지운다. Compose는 `infra/compose.core.yml`이 더는 넘기지 않으므로 설치의 env 파일에서 줄만 지운다. Kubernetes는 `api.extraEnv`와 `slack.extraEnv`에서 지운다. 값이 남아 있으면 API가 시작할 때 `Ignored removed settings: <이름>` 경고를 한 번 남긴다. 값은 출력하지 않고 동작에도 쓰지 않는다.
 - 이 릴리스는 앞선 빌드로 되돌릴 수 없으므로([프로필 제거의 롤백 하한](#프로필-제거의-롤백-하한)), 되돌릴 때를 위해 남겨 둘 줄은 없다.
 
