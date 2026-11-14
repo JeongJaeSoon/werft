@@ -1,0 +1,23 @@
+# Sessions on a worker with real Node and npm, stacked after overlay.yml:
+#   up.sh .claude/skills/verify-werft/github-sandbox/overlay.yml .claude/skills/verify-werft/github-sandbox/derived-worker.yml
+# The derived image is built by the same `up --build` as the run's worker
+# image, from it, so the scheduler launches it from the first session; the
+# scheduler is never recreated afterwards. down.sh removes it by its run tag.
+services:
+  worker-deps:
+    image: werft-worker-deps:${COMPOSE_PROJECT_NAME}
+    build:
+      context: ./.claude/skills/verify-werft/github-sandbox/derived-worker
+      additional_contexts:
+        base: service:worker
+    profiles: ["apps"]
+    command: ["npm", "--version"]
+    network_mode: none
+    read_only: true
+    user: "1000:1000"
+    tmpfs:
+      - /tmp:uid=1000,gid=1000
+      - /home/bun:uid=1000,gid=1000
+  scheduler:
+    environment:
+      WORKER_IMAGE: werft-worker-deps:${COMPOSE_PROJECT_NAME}
