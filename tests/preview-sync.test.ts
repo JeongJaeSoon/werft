@@ -89,7 +89,8 @@ case "$1 $2" in
   "config view") echo "apiVersion: v1" ;;
   "get namespaces") cat "$ns" ;;
   "get namespace")
-    jq -e --arg n "$3" '.items[] | select(.metadata.name == $n)' "$ns" >/dev/null || exit 1
+    jq -e --arg n "$3" '.items[] | select(.metadata.name == $n)' "$ns" >/dev/null ||
+      { [[ "$*" == *--ignore-not-found* ]] && exit 0; exit 1; }
     if [ "$4" = -o ]; then
       key="\${5#jsonpath=\\{.metadata.}"
       key="\${key%\\}}"
@@ -371,6 +372,34 @@ esac
 
     await sync();
     expect(await writes()).toHaveLength(2);
+  });
+
+  test("says down for a held up comment of a labeled PR whose preview is gone", async () => {
+    await pulls([{ number: 5, head: HEAD_A }]);
+    await labeled(5, [{ at: LABELED_1, by: "owner" }]);
+    await sync({ STUB_GH_WRITE_FAILS: "떠 있다" });
+    // reap's TTL takes the preview, and the label's events cannot be read.
+    await namespaces([]);
+    await rm(join(dir, "gh", "repos__owner___repo__issues_5_events.json"));
+
+    await sync();
+    const posted = await writes();
+    expect(posted).toHaveLength(2);
+    expect(posted[1]).toContain("PR 미리보기: 내려갔다");
+    expect(posted[1]).not.toContain("떠 있다");
+    expect(await lines("preview-calls")).toHaveLength(1);
+  });
+
+  test("sends a held up comment as it is while its preview is there", async () => {
+    await pulls([{ number: 5, head: HEAD_A }]);
+    await labeled(5, [{ at: LABELED_1, by: "owner" }]);
+    await sync({ STUB_GH_WRITE_FAILS: "떠 있다" });
+    await rm(join(dir, "gh", "repos__owner___repo__issues_5_events.json"));
+
+    await sync();
+    const posted = await writes();
+    expect(posted).toHaveLength(2);
+    expect(posted[1]).toContain("PR 미리보기: 떠 있다");
   });
 
   test("does not add a second comment when its own cannot be looked up", async () => {

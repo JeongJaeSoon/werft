@@ -477,18 +477,26 @@ comment() {
 # Sends again each comment a run before could not write, without bringing
 # anything up; $1 is " <N> <N> ", the pull requests still labeled and open
 # or whose down did not go through. Called after sync's downs, so any other
-# has no label preview left: it is told so, whatever the held comment said
-# (reap may have taken the preview while GitHub could not be read).
+# has no label preview left: it is told so, whatever the held comment said.
+# A held "up" is sent only while its label preview is there: reap or a down
+# by hand may have taken it while GitHub could not be read, and the rest of
+# the run corrects nothing when the label's events cannot be read.
 send_pending() {
-  local pending n body
+  local pending n body source
   for pending in "${PREVIEW_HOME}/sync"/pr-*.comment; do
     [[ "$(basename -- "$pending")" =~ ^pr-([1-9][0-9]{0,6})\.comment$ ]] || continue
     n="${BASH_REMATCH[1]}"
     body="$(cat -- "$pending")"
-    if [[ "$1" != *" ${n} "* && "$body" != 내려갔다* ]]; then
-      body="내려갔다
+    if [[ "$1" != *" ${n} "* ]]; then
+      [[ "$body" == 내려갔다* ]] || body="내려갔다
 
 $(date -u '+%Y-%m-%d %H:%M UTC') 전에 미리보기가 없어졌다. 라벨 \`${PREVIEW_LABEL}\`가 없거나 PR이 닫혔다. 다시 보려면 열린 PR에 라벨을 붙인다."
+    elif [[ "$body" == "떠 있다"* ]]; then
+      source="$(kubectl get namespace "pr-${n}" \
+        -o jsonpath='{.metadata.annotations.werft\.dev/preview-source}' --ignore-not-found)" || continue
+      [ "$source" = label ] || body="내려갔다
+
+$(date -u '+%Y-%m-%d %H:%M UTC') 전에 미리보기가 없어졌다(마지막으로 띄운 지 ${PREVIEW_TTL_HOURS}시간이 지났거나 손으로 내렸다). 다시 보려면 새 커밋을 push하거나 라벨 \`${PREVIEW_LABEL}\`를 다시 붙인다."
     fi
     comment "$n" "$body"
   done
