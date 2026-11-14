@@ -388,17 +388,38 @@ describe("the built-in github MCP server on stored rows", () => {
     });
   });
 
-  test("a checkpoint made before get_pull_request was added still restores", async () => {
+  test("a checkpoint made before any of the server's later tools was added still restores, newest list first", async () => {
     const { claim } = await seeded({ github: settings({ actions: true }) });
     const current = claim.runtime_config;
+    const added: string[] = [];
+    const before = (...tools: string[]) => {
+      added.push(...tools.map((tool) => `mcp__github__${tool}`));
+      return {
+        ...current,
+        tools: current.tools.filter((tool) => !added.includes(tool)),
+      };
+    };
+    const offered = [
+      before("get_pull_request"),
+      before("merge_pull_request"),
+      before("get_push_request"),
+      before("close_pull_request", "reopen_pull_request"),
+      before("list_repositories", "update_pull_request"),
+      before("attach_repository"),
+    ];
     expect(claim.restore_runtime_configs).toEqual([
       expect.objectContaining({ tools: ["Read"] }),
-      {
-        ...current,
-        tools: current.tools.filter(
-          (tool) => tool !== "mcp__github__get_pull_request",
-        ),
-      },
+      ...offered,
+    ]);
+    // The list the server was first attached with, for a release with actions.
+    expect(offered.at(-1)?.tools).toEqual([
+      "Read",
+      "mcp__github__request_push",
+      "mcp__github__open_pull_request",
+      "mcp__github__comment_pull_request",
+      "mcp__github__dispatch_workflow",
+      "mcp__github__get_workflow_run",
+      "mcp__github__rerun_workflow",
     ]);
   });
 
@@ -407,12 +428,11 @@ describe("the built-in github MCP server on stored rows", () => {
     expect(
       claim.restore_runtime_configs?.map((config) => [
         config.mcp_servers?.map((server) => server.name),
-        config.tools.includes("mcp__github__get_pull_request"),
-        config.tools.some((tool) => tool.startsWith("mcp__github__")),
+        config.tools.filter((tool) => tool.startsWith("mcp__github__")).length,
       ]),
     ).toEqual([
-      [["fake"], false, false],
-      [["fake", "github"], false, true],
+      [["fake"], 0],
+      ...[10, 9, 8, 6, 4, 3].map((count) => [["fake", "github"], count]),
     ]);
   });
 

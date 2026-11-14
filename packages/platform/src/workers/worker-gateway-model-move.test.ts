@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { bootstrapClaimResponseSchema } from "@werft-ai/contracts";
+import {
+  bootstrapClaimResponseSchema,
+  GITHUB_MCP_TOOLS,
+} from "@werft-ai/contracts";
 import type {
   ClaimInput,
   WorkerBinding,
@@ -17,7 +20,10 @@ import {
   LEGACY_CONFIG_TOKEN,
   storableLegacyConfig,
 } from "./legacy-runtime-configs.ts";
-import { createWorkerGateway } from "./worker-gateway.ts";
+import {
+  createWorkerGateway,
+  GITHUB_TOOL_ADDITIONS,
+} from "./worker-gateway.ts";
 
 const connection: CatalogConnection = testConnection({
   models: ["sonnet-5-1", "opus-5-0"],
@@ -124,7 +130,7 @@ describe("run configs kept on the session row, at claim", () => {
     ).toEqual(["sonnet-5-0/bypassPermissions"]);
   });
 
-  test("with get_pull_request added, the configs offered before keep their places and the earlier lists fill what the cap leaves", async () => {
+  test("with github tools added, the configs offered before keep their places and the earlier lists fill what the cap leaves", async () => {
     const live = (await claimWith(connection).claimed).runtime_config;
     const shapesWith = async (count: number) => {
       const models = Array.from({ length: count }, (_, at) => `sonnet-4-${at}`);
@@ -134,31 +140,49 @@ describe("run configs kept on the session row, at claim", () => {
         ),
         githubMcp: {
           releaseId: "rel-1",
-          tools: ["mcp__github__request_push", "mcp__github__get_pull_request"],
+          tools: [
+            "mcp__github__request_push",
+            "mcp__github__merge_pull_request",
+            "mcp__github__get_pull_request",
+          ],
         },
       }).claimed;
       return {
         models,
         shapes: (response.restore_runtime_configs ?? []).map(
           (config) =>
-            `${config.model} ${(config.mcp_servers ?? []).length} ${config.tools.includes("mcp__github__get_pull_request")}`,
+            `${config.model} ${(config.mcp_servers ?? []).length} ${config.tools.filter((tool) => tool.startsWith("mcp__github__")).length}`,
         ),
       };
     };
-    // What the claim offered before the tool: the running config without the
-    // server, then each kept one with it and without it.
+    // What the claim offered before any earlier list: the running config
+    // without the server, then each kept one with it and without it.
     const before = (models: string[]) => [
-      "sonnet-5-1 0 false",
-      ...models.flatMap((model) => [`${model} 1 true`, `${model} 0 false`]),
+      "sonnet-5-1 0 0",
+      ...models.flatMap((model) => [`${model} 1 3`, `${model} 0 0`]),
     ];
-    const seven = await shapesWith(7);
-    expect(seven.shapes).toEqual([
-      ...before(seven.models),
-      "sonnet-5-1 1 false",
+    // The running config before get_pull_request, then before
+    // merge_pull_request too; then each kept one the same way, to the cap.
+    const five = await shapesWith(5);
+    expect(five.shapes).toEqual([
+      ...before(five.models),
+      "sonnet-5-1 1 2",
+      "sonnet-5-1 1 1",
+      "sonnet-4-0 1 2",
+      "sonnet-4-0 1 1",
+      "sonnet-4-1 1 2",
     ]);
+    const seven = await shapesWith(7);
+    expect(seven.shapes).toEqual([...before(seven.models), "sonnet-5-1 1 2"]);
     // Eight kept configs already overflowed the cap: the same 16 as before.
     const eight = await shapesWith(8);
     expect(eight.shapes).toEqual(before(eight.models).slice(0, 16));
+  });
+
+  test("every github tool has its place in the order the server gained them", () => {
+    const listed: string[] = GITHUB_TOOL_ADDITIONS.flat();
+    expect(new Set(listed).size).toBe(listed.length);
+    expect([...listed].sort()).toEqual(Object.keys(GITHUB_MCP_TOOLS).sort());
   });
 
   test("an entry that no longer parses, or no entry, offers nothing", async () => {
