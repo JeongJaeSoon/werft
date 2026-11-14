@@ -5779,6 +5779,26 @@
                     "properties": {
                       "code": {
                         "type": "string",
+                        "const": "NO_WORKER_IMAGE"
+                      },
+                      "reason": {
+                        "type": "string",
+                        "enum": [
+                          "runtime_retired"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "code",
+                      "reason"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "code": {
+                        "type": "string",
                         "const": "RESTORE_FAILED"
                       },
                       "reason": {

@@ -4,6 +4,7 @@ import { parseSettingsDocument } from "@werft-ai/platform";
 import {
   installedRuntimes,
   installedRuntimeVersions,
+  launchableKindsFromEnv,
   loadSecretKey,
   refuseFileCatalog,
   runtimeVersionsFromEnv,
@@ -205,6 +206,70 @@ describe("installed runtimes", () => {
       engine: "codex",
       version: "0.3.270",
     });
+  });
+
+  test("a session waits without an image only when every listed image of its own engine is retracted", () => {
+    const claude = (retracted: boolean, digit: string, at: string) => ({
+      image: `reg/claude@sha256:${digit.repeat(64)}`,
+      runtime: {
+        engine: "claude",
+        sdkVersion: "0.3.270",
+        cliVersion: "2.1.270",
+      },
+      released_at: at,
+      retracted,
+    });
+    const codex = {
+      image: `reg/codex@sha256:${"c".repeat(64)}`,
+      runtime: { engine: "codex", sdkVersion: "0.9.0", cliVersion: "0.9.0" },
+      released_at: "2026-11-10T00:00:00Z",
+    };
+    const env = (list: unknown[]) => ({ WORKER_IMAGES: JSON.stringify(list) });
+    const kinds = (list: unknown[]) =>
+      [
+        ...new Set(
+          runtimeVersionsFromEnv(env(list))?.accepted.map(({ kind }) => kind),
+        ),
+      ].sort();
+
+    // Only claude's images retracted: claude sessions wait, codex ones launch,
+    // and claude stays in the catalog, so they read NO_WORKER_IMAGE.
+    const claudeRetracted = [
+      claude(true, "a", "2026-11-10T00:00:00Z"),
+      claude(true, "b", "2026-10-01T00:00:00Z"),
+      codex,
+    ];
+    const launchable = launchableKindsFromEnv(env(claudeRetracted));
+    expect(launchable("claude_agent_sdk")).toBe(false);
+    expect(launchable("codex_app_server")).toBe(true);
+    expect(kinds(claudeRetracted)).toEqual([
+      "claude_agent_sdk",
+      "codex_app_server",
+    ]);
+    // One claude image left: it launches.
+    expect(
+      launchableKindsFromEnv(
+        env([
+          claude(true, "a", "2026-11-10T00:00:00Z"),
+          claude(false, "b", "2026-10-01T00:00:00Z"),
+          codex,
+        ]),
+      )("claude_agent_sdk"),
+    ).toBe(true);
+    // No claude image listed at all: claude leaves the catalog, so its
+    // sessions read CATALOG_MISMATCH before this is asked.
+    expect(launchableKindsFromEnv(env([codex]))("claude_agent_sdk")).toBe(
+      false,
+    );
+    expect(kinds([codex])).toEqual(["codex_app_server"]);
+    // A kind this host does not run has no image, and the single-image
+    // settings retract nothing.
+    expect(launchable("unknown_kind")).toBe(false);
+    expect(
+      launchableKindsFromEnv({
+        WORKER_IMAGE_RUNTIME: JSON.stringify(codex.runtime),
+      })("claude_agent_sdk"),
+    ).toBe(true);
   });
 });
 

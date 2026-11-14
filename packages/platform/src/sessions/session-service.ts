@@ -313,6 +313,9 @@ export function createSessionService(deps: {
   // Who a requester refused for an unbound credential is told to ask.
   credentials?: Pick<CredentialBindingStore, "contacts">;
   callerLimits?: CallerLimitGate;
+  // Whether a worker image the scheduler would launch the session's spec on
+  // is listed (`launchableImagesFor`); absent, every spec has one.
+  launchable?: (spec: SpecSource) => boolean;
   limits: InputLimits & {
     sessionCostLimitUsd: number;
     sessionTokenLimit: number | null;
@@ -373,6 +376,19 @@ export function createSessionService(deps: {
       repository !== undefined &&
       repository.url === record.repo_url &&
       repository.branch === record.branch
+    );
+  }
+
+  // A launch is what it waits for: a worker that is already up keeps
+  // serving it until it is drained.
+  function waitsWithoutImage(record: SessionDetailRecord): boolean {
+    return (
+      deps.launchable !== undefined &&
+      record.spec !== null &&
+      (record.admission_state === "active" ||
+        record.admission_state === "resuming") &&
+      !record.holds_execution &&
+      !deps.launchable(record.spec)
     );
   }
 
@@ -574,6 +590,7 @@ export function createSessionService(deps: {
       branch,
       repository_mode,
       github_policy_source,
+      holds_execution,
       ...detail
     } = record;
     const spend = { costUsd: cost_usd, providerTokens: provider_tokens };
@@ -594,6 +611,12 @@ export function createSessionService(deps: {
               code: "CATALOG_MISMATCH",
               reason: mismatchReason(record),
             }) ??
+        // A session waiting for a launch that no listed image may take. One
+        // whose checkpoint only a retracted image restores is stopped by the
+        // scheduler instead, and shows RESTORE_FAILED above.
+        (waitsWithoutImage(record)
+          ? { code: "NO_WORKER_IMAGE", reason: "runtime_retired" }
+          : null) ??
         // Dispatch stops at the same predicate (nextInputAtomic), so what
         // this says and what the gateway does come from one comparison.
         (budgetExceeded(spend, budget)

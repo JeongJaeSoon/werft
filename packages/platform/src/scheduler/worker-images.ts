@@ -184,6 +184,22 @@ export function workerImageListFromEnv(
 }
 
 /**
+ * The listed images a new launch may take: the unretracted ones, newest
+ * first. Null without `WORKER_IMAGES`: the single-image settings retract
+ * nothing. Empty when every listed image is retracted.
+ */
+export function launchableImagesFor(
+  environment: Readonly<Record<string, string | undefined>> &
+    WorkerImagesEnvironment,
+): readonly ListedWorkerImage[] | null {
+  return (
+    workerImageListFromEnv(environment)?.filter(
+      ({ retracted }) => !retracted,
+    ) ?? null
+  );
+}
+
+/**
  * The runtimes of the configured worker images, from `WORKER_IMAGES` or the
  * single-image settings; null when none is set. Newest first, the
  * unretracted ones ahead; a retracted image's workers keep running until
@@ -310,6 +326,20 @@ export type WorkerImageSelection<I> =
     };
 
 /**
+ * The images a session of `engine` may run on: every one when `engine` is
+ * left out, none when it is null (a runtime kind this host does not know).
+ * The scheduler's choice and the API's `NO_WORKER_IMAGE` filter alike.
+ */
+export function imagesOfEngine<T extends { runtime: { engine: string } }>(
+  images: readonly T[],
+  engine: string | null | undefined,
+): readonly T[] {
+  return engine === undefined
+    ? images
+    : images.filter((image) => image.runtime.engine === engine);
+}
+
+/**
  * The image a session's next launch runs on: the newest unretracted one that
  * restores its checkpoint (`canRestoreCheckpoint`: the same engine, SDK and
  * CLI). `images` is newest first, so of two that share a combination (a
@@ -326,10 +356,7 @@ export function selectWorkerImage<I>(
   listed: readonly [WorkerImageCandidate<I>, ...WorkerImageCandidate<I>[]],
   engine?: string | null,
 ): WorkerImageSelection<I> {
-  const images =
-    engine === undefined
-      ? listed
-      : listed.filter((candidate) => candidate.runtime.engine === engine);
+  const images = imagesOfEngine(listed, engine);
   if (images.length === 0) {
     const missing =
       engine === null

@@ -190,6 +190,7 @@ import {
 } from "./auth.ts";
 import {
   installedRuntimeVersions,
+  launchableKindsFromEnv,
   loadSecretKey,
   refuseFileCatalog,
   runtimeVersionsFromEnv,
@@ -410,6 +411,7 @@ const catalogRegistry = createCatalogRegistry({
   },
 });
 const runtimeVersions = runtimeVersionsFromEnv(process.env);
+const launchableKind = launchableKindsFromEnv(process.env);
 const catalog = registryCatalog(
   {
     repositories: {},
@@ -526,6 +528,7 @@ const sessions = createSessionService({
   extensions: extensionDeps,
   credentials: credentialBindings,
   callerLimits: createPostgresCallerLimitGate(db),
+  launchable: (spec) => launchableKind(spec.runtime.kind),
   limits,
 });
 const sessionOutputs = createSessionOutputService({
