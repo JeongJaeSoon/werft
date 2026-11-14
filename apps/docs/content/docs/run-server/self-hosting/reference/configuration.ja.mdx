@@ -44,7 +44,6 @@ API は設置上限以外に次の値を起動時に一つの parser で読み�
 | 変数 | 既定値 | 許可範囲 |
 |---|---|---|
 | `HEARTBEAT_TTL_SEC` | 30 | 20 超、86400 以下。worker は lease 終了の 10 秒前に lease を手放し（`WORKER_LEASE_SAFETY_MARGIN_SEC`）、5 秒ごとに heartbeat を送ります（`WORKER_HEARTBEAT_INTERVAL_SEC`、以前の worker は 10 秒）。margin と 10 秒の合計以下なら、以前の worker の attempt は最初の heartbeat 頃に lease を失います。launcher は worker の両値を渡さないため、既定値で判定します |
-| `PENDING_REQUEST_TTL_SEC` | 1800 | 整数 1–604800。承認・質問要求を受け付ける期間です。登録済み要求は worker がこの時間待ちます。worker の `QUESTION_TIMEOUT_SEC` は gateway が登録確認する前だけ適用します。turn 実時間 `MAX_TURN_SECONDS` に待ち時間も含むため、待機はその上限を超えません |
 | `SSE_MAX_STREAMS`・`SSE_MAX_STREAMS_PER_OWNER`・`SSE_REPLAY_MAX_BYTES` | 256・8・1 MiB | 正の整数 |
 | `LOG_LEVEL` | `info` | `debug`・`info`・`warn`・`error`（大文字・小文字不問、空値は `info`）。scheduler・reconciler loop と egress-proxy も同じ規則で起動を拒否します。worker は scheduler の値を受け取ります |
 | `WEB_DIST_DIR` | なし（Web コンソールを配信しない）。control-host イメージは `/app/apps/web/dist` | `index.html` のある絶対パス。Web コンソール（`apps/web`）のビルド結果です |
@@ -79,6 +78,15 @@ GitHub Packages bot token（[決定](https://github.com/JeongJaeSoon/werft/blob/
 | `GITHUB_PACKAGES_API_URL` | `https://api.github.com` | 登録 token の scope を問い合わせる先（`GET /user`） |
 | `GITHUB_PACKAGES_NPM_URL` | `https://npm.pkg.github.com` | `github-npm` route の upstream |
 | `GITHUB_PACKAGES_RUBYGEMS_URL` | `https://rubygems.pkg.github.com` | `github-rubygems` route の upstream |
+
+<a id="웹에서-정하는-실행-한도" />
+## Web で決める実行の上限
+
+次の値は env ではなく、owner が **設定 > ワークスペース > 実行の上限** で保存します（`PATCH /v1/installation-config`）。インストール全体で一つで、保存するとその API はすぐに、ほかの replica は 10 秒以内に従います。保存した値がなければ既定値を使います。以前の env 名はアップグレード時に一度だけ移します（[Web に移した実行の上限](/run-server/self-hosting/upgrade-compose#웹으로-옮긴-실행-한도)）。
+
+| 画面の欄（以前の env） | 既定値 | 許可範囲 |
+|---|---|---|
+| 応答の待ち時間（`PENDING_REQUEST_TTL_SEC`） | 1800 | 整数 1–604800 秒。承認・質問要求を受け付ける期間です。登録済み要求は worker がこの時間待ち、すでに登録された要求は変えた値に従いません。gateway が登録するまでは worker が 30 分待ちます。turn 実時間 `MAX_TURN_SECONDS` に待ち時間も含むため、待機はその上限を超えません |
 
 <a id="schedulerworker-컨테이너egress-설정" />
 ## scheduler・worker コンテナ・egress 設定
@@ -144,7 +152,7 @@ API コンテナのメモリは checkpoint bundle 検証によって決まりま
 
 compose の Postgres は `POSTGRES_USER`（`postgres`）・`POSTGRES_PASSWORD`（`dev`）・`POSTGRES_DB`（`sessions`）で作り、すべてのサービスが同じ値で DSN を作ります。
 
-worker は次も env から読みますが、scheduler が渡さないため運用ではコード既定値に固定です。`WORKER_ANSWER_POLL_SEC`（1）、`WORKER_ATTACH_FETCH_TIMEOUT_SEC`（300、セッション途中で追加した一つのリポジトリの取得時間）、`WORKER_ATTACH_FETCH_MAX_MB`（2048、そのリポジトリの scratch mirror サイズ）、`WORKER_CLAIM_TIMEOUT_SEC`（60）、`WORKER_DRAIN_TIMEOUT_SEC`（100、stop 猶予内に短縮）、`WORKER_HEARTBEAT_INTERVAL_SEC`（5）、`WORKER_IDLE_TIMEOUT_SEC`（1800）、`WORKER_LEASE_SAFETY_MARGIN_SEC`（10）、`WORKER_NEXT_INPUT_RETRY_SEC`（60）、`WORKER_NEXT_INPUT_WAIT_SEC`（20）、`WORKER_REQUEST_TIMEOUT_SEC`（30）、`WORKER_STARTUP_TIMEOUT_SEC`（3600）、`QUESTION_TIMEOUT_SEC`（1800）、`WORKER_CLAUDE_CONFIG_DIR`（`$HOME/.claude`）。
+worker は次も env から読みますが、scheduler が渡さないため運用ではコード既定値に固定です。`WORKER_ANSWER_POLL_SEC`（1）、`WORKER_ATTACH_FETCH_TIMEOUT_SEC`（300、セッション途中で追加した一つのリポジトリの取得時間）、`WORKER_ATTACH_FETCH_MAX_MB`（2048、そのリポジトリの scratch mirror サイズ）、`WORKER_CLAIM_TIMEOUT_SEC`（60）、`WORKER_DRAIN_TIMEOUT_SEC`（100、stop 猶予内に短縮）、`WORKER_HEARTBEAT_INTERVAL_SEC`（5）、`WORKER_IDLE_TIMEOUT_SEC`（1800）、`WORKER_LEASE_SAFETY_MARGIN_SEC`（10）、`WORKER_NEXT_INPUT_RETRY_SEC`（60）、`WORKER_NEXT_INPUT_WAIT_SEC`（20）、`WORKER_REQUEST_TIMEOUT_SEC`（30）、`WORKER_STARTUP_TIMEOUT_SEC`（3600）、`WORKER_CLAUDE_CONFIG_DIR`（`$HOME/.claude`）。
 
 <a id="감독-루프" />
 ## 監督ループ

@@ -115,7 +115,7 @@ describe(`tool approval on ${engine.runtimeKind}`, () => {
     async () => {
       const { sessionId, requestId, toolUseId } =
         await askForApproval("expire");
-      // PENDING_REQUEST_TTL_SEC is 90 in tests/conformance/compose.yml.
+      // 90 seconds: tests/conformance/compose.yml carries it in.
       await poll(`${requestId} to expire`, 240_000, async () =>
         (await api.pending(sessionId)).length === 0 ? true : null,
       );

@@ -11,7 +11,6 @@ import { integerSetting, settingProblems } from "@werft-ai/contracts/settings";
 import { type LogLevel, logLevelFromEnv } from "@werft-ai/observability";
 import {
   DEFAULT_LEASE_TTL_MS,
-  DEFAULT_PENDING_TTL_MS,
   installationLimitProblems,
 } from "@werft-ai/platform";
 
@@ -25,7 +24,6 @@ export type ApiSettings = {
   workspaceEnforce: WorkspaceEnforce;
   leaseTtlMs: number;
   logLevel: LogLevel;
-  pendingTtlMs: number;
   sse: {
     batchMaxBytes?: number;
     maxStreams?: number;
@@ -39,9 +37,6 @@ export class ApiSettingsError extends Error {
     super(`Invalid API settings: ${problems.join("; ")}`);
   }
 }
-
-/** A week, as MAX_TURN_SECONDS allows at most; no turn waits longer. */
-const MAX_PENDING_REQUEST_TTL_SEC = 7 * 24 * 60 * 60;
 
 export function apiSettingsFromEnv(
   environment: Record<string, string | undefined>,
@@ -67,12 +62,6 @@ export function apiSettingsFromEnv(
     heartbeatTtlMsFromEnv(environment.HEARTBEAT_TTL_SEC),
   );
   const logLevel = read(() => logLevelFromEnv(environment.LOG_LEVEL));
-  const pendingTtlSec = read(() =>
-    optionalInteger("PENDING_REQUEST_TTL_SEC", {
-      min: 1,
-      max: MAX_PENDING_REQUEST_TTL_SEC,
-    }),
-  );
   const sse = {
     batchMaxBytes: read(() =>
       optionalInteger("SSE_REPLAY_MAX_BYTES", { min: 1 }),
@@ -107,10 +96,6 @@ export function apiSettingsFromEnv(
     workspaceEnforce: workspaceEnforce as WorkspaceEnforce,
     leaseTtlMs: leaseTtlMs as number,
     logLevel: logLevel as LogLevel,
-    pendingTtlMs:
-      pendingTtlSec === undefined
-        ? DEFAULT_PENDING_TTL_MS
-        : pendingTtlSec * 1000,
     sse: {
       ...(sse.batchMaxBytes === undefined
         ? {}

@@ -219,7 +219,8 @@ export function createPostgresWorkerPendingStore(
           return { outcome: "turn_interrupted" };
         }
         if (!leaseHeld(fenced.attempt, at)) return { outcome: "lease_expired" };
-        const expiresAt = new Date(at.getTime() + input.ttlMs);
+        const ttlMs = input.ttlMs();
+        const expiresAt = new Date(at.getTime() + ttlMs);
         // Read before the insert: whether the stream already says this
         // session is waiting, and whether that is still true. An earlier
         // wait that lapsed with no write is reported first, so the stream
@@ -360,7 +361,7 @@ export function createPostgresWorkerPendingStore(
         return {
           outcome: "registered",
           expiresAt,
-          expiresInMs: input.ttlMs,
+          expiresInMs: ttlMs,
         };
       });
     },

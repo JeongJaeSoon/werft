@@ -1331,6 +1331,13 @@
       "when": 1794672413015,
       "tag": "0280_provider_exchange_release",
       "breakpoints": true
+    },
+    {
+      "idx": 281,
+      "version": "7",
+      "when": 1794677567225,
+      "tag": "0281_installation_config",
+      "breakpoints": true
     }
   ]
 }

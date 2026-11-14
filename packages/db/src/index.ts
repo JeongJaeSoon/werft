@@ -29,6 +29,7 @@ export * from "./github/github-packages.ts";
 export * from "./github/github-pins.ts";
 export * from "./github/mcp-egress.ts";
 export * from "./github-settings.ts";
+export * from "./installation-config.ts";
 export * from "./installation-settings.ts";
 export * from "./migration-head.ts";
 export * from "./musterrolle/agent-admins.ts";

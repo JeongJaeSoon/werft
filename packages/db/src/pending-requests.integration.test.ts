@@ -113,7 +113,7 @@ integration("pending requests and answers on PostgreSQL", () => {
   let gateway: WorkerGateway;
   let service: ReturnType<typeof createPendingRequestService>;
 
-  const gatewayWith = (pendingTtlMs?: number) =>
+  const gatewayWith = (pendingTtlMs?: number | (() => Promise<number>)) =>
     createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
       catalog,
@@ -909,6 +909,87 @@ integration("pending requests and answers on PostgreSQL", () => {
         }),
       ),
     ).toBe("NOT_FOUND");
+  });
+
+  test("a wait that cannot be read refuses a new registration with a retryable 503 and writes nothing, but a replay keeps its expiry", async () => {
+    const { worker } = await runningSession();
+    let readable = true;
+    const via = gatewayWith(async () => {
+      if (!readable) throw new Error("installation config unavailable");
+      return 120_000;
+    });
+    const first = await register(worker, permission(), HASH_A, undefined, via);
+    expect(first.response.expires_in_ms).toBe(120_000);
+    readable = false;
+    const again = await register(
+      worker,
+      permission(),
+      HASH_A,
+      first.requestId,
+      via,
+    );
+    expect(again.response.expires_at).toBe(first.response.expires_at);
+    const fresh = `req_${crypto.randomUUID()}`;
+    let refused: unknown;
+    try {
+      await register(worker, permission(), HASH_A, fresh, via);
+    } catch (error) {
+      refused = error;
+    }
+    expect(refused).toBeInstanceOf(WorkerGatewayError);
+    expect((refused as WorkerGatewayError).status).toBe(503);
+    expect((refused as WorkerGatewayError).retryable).toBe(true);
+    const rows = await db
+      .select({ id: pendingRequests.requestId })
+      .from(pendingRequests)
+      .where(eq(pendingRequests.requestId, fresh));
+    expect(rows).toEqual([]);
+  });
+
+  test("a lease that runs out while the wait is read refuses the registration and writes nothing", async () => {
+    const { worker } = await runningSession();
+    const via = gatewayWith(async () => {
+      await db
+        .update(attempts)
+        .set({ leaseExpiresAt: sql`now() - interval '1 second'` })
+        .where(eq(attempts.id, worker.scope.attempt_id));
+      return 120_000;
+    });
+    const fresh = `req_${crypto.randomUUID()}`;
+    expect(
+      await failure(register(worker, permission(), HASH_A, fresh, via)),
+    ).toBe("LEASE_EXPIRED");
+    const rows = await db
+      .select({ id: pendingRequests.requestId })
+      .from(pendingRequests)
+      .where(eq(pendingRequests.requestId, fresh));
+    expect(rows).toEqual([]);
+  });
+
+  test("a slow wait read finishes before the registration's clock starts, so the expiry counts from after it", async () => {
+    const { worker } = await runningSession();
+    const via = gatewayWith(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      return 5_000;
+    });
+    const [before] = await db
+      .execute<{ at: string }>(sql`SELECT clock_timestamp()::text AS at`)
+      .then((result) => result.rows);
+    const first = await register(worker, permission(), HASH_A, undefined, via);
+    expect(first.response.expires_in_ms).toBe(5_000);
+    const [row] = await db
+      .select({
+        createdAt: pendingRequests.createdAt,
+        expiresAt: pendingRequests.expiresAt,
+      })
+      .from(pendingRequests)
+      .where(eq(pendingRequests.requestId, first.requestId));
+    expect(row).toBeDefined();
+    if (row === undefined || before === undefined) return;
+    expect(row.expiresAt.getTime() - row.createdAt.getTime()).toBe(5_000);
+    expect(
+      row.createdAt.getTime() - new Date(before.at).getTime(),
+    ).toBeGreaterThanOrEqual(400);
   });
 
   test("a registration whose reply was lost still replays after its turn closed", async () => {

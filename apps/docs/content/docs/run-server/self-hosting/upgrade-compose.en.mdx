@@ -169,6 +169,17 @@ From this release on, the API no longer reads `SLACK_EVENTS_PUBLIC_URL`. When ev
 - Changing the saved address does not send it to apps already made. Press Recheck on the agent's Slack tab, or run `slack-app finalize`.
 - Keep the `slack_settings` table when rolling back. Earlier builds do not read it.
 
+<a id="웹으로-옮긴-실행-한도" />
+### Execution limits moved to the web
+
+An owner saves the installation-wide execution limits under **Settings > Workspace > Execution limits** instead of env (`GET`/`PATCH /v1/installation-config`, audit record `update_installation_config`). This release moves one value, how long a person has to answer (`PENDING_REQUEST_TTL_SEC`, 1800 seconds by default). A save applies at once on that API and within 10 seconds on other replicas. A request already waiting keeps the wait it was given.
+
+- Migration `0281_installation_config` adds the `installation_config` table, one row per key. When the new API first starts with no row for that key and `PENDING_REQUEST_TTL_SEC` present in the API container, it carries the value in once and logs a warning without the value. With a workspace, the carry-over is recorded as an audit record without an author (`by: "env_import"`). Neither `infra/compose.core.yml` nor the Helm chart passes this variable, so it is carried in only if you passed it yourself through an overlay of your installation or `api.extraEnv`.
+- After the carry-over, delete the line from your env. While it stays, every start logs `Ignored removed settings: PENDING_REQUEST_TTL_SEC`.
+- A value that is not a whole number from 1 to 604800 is not carried in. Unlike earlier releases, startup does not stop, and the default does not apply either. Until a value is saved on the screen, registering a new permission request or question is refused with `503 BACKEND_UNAVAILABLE` (the worker sends it again), and startup logs `PENDING_REQUEST_TTL_SEC was not carried in`.
+- Workers no longer read `QUESTION_TIMEOUT_SEC`. No launcher ever passed it, so nothing changes (30 minutes until the gateway registers the request).
+- Keep the `installation_config` table when rolling back. Earlier builds do not read it and read the env instead, so put the env line back when rolling back.
+
 <a id="mock-slack-env-이름" />
 ### Mock Slack variable names
 

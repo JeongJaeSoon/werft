@@ -530,6 +530,19 @@ export const slackSettings = pgTable(
   (table) => [check("slack_settings_single_row_check", sql`${table.id}`)],
 );
 
+/**
+ * Installation settings an owner keeps in the console, one row per key. A
+ * row is never deleted, a reset to the default included: an absent row is
+ * what lets an upgrade carry the key's old env value in.
+ */
+export const installationConfig = pgTable("installation_config", {
+  key: text().primaryKey(),
+  value: jsonb().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
 export const passwordResets = pgTable(
   "password_resets",
   {

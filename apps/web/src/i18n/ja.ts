@@ -9,6 +9,7 @@ import { authJa } from "./auth.ts";
 import { commonJa } from "./common.ts";
 import { engineSettingsJa } from "./engine-settings.ts";
 import { errorsJa } from "./errors.ts";
+import { executionLimitsJa } from "./execution-limits.ts";
 import { githubJa } from "./github.ts";
 import { githubUserLinkJa } from "./github-user-link.ts";
 import { homeJa } from "./home.ts";
@@ -237,6 +238,7 @@ export const ja: Record<MessageKey, string> = {
   ...linkedJa,
   ...loginMethodsJa,
   ...loginProvidersJa,
+  ...executionLimitsJa,
   ...outputsJa,
   ...apiKeysJa,
   ...workspaceJa,

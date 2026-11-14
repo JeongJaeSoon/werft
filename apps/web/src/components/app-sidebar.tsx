@@ -58,6 +58,7 @@ type NavPath =
   | "/settings/workspace/integrations/slack"
   | "/settings/workspace/api-keys"
   | "/settings/workspace/login"
+  | "/settings/workspace/limits"
   | "/settings/workspace/model-connections"
   | "/settings/workspace/mcp-servers"
   | "/settings/linked-accounts"
@@ -215,6 +216,11 @@ export function useSettingsNavGroups(): readonly NavGroup[] {
     workspace.push({
       to: "/settings/workspace/login",
       label: "loginProviders.nav",
+      icon: SettingsIcon,
+    });
+    workspace.push({
+      to: "/settings/workspace/limits",
+      label: "limits.nav",
       icon: SettingsIcon,
     });
     agentConnections.push({

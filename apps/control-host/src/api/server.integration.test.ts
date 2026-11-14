@@ -906,7 +906,6 @@ integration("API server on PostgreSQL", () => {
         EGRESS_AUTHORIZER_TOKEN: "t".repeat(32),
         HEARTBEAT_TTL_SEC: "10",
         LOG_LEVEL: "inf0",
-        PENDING_REQUEST_TTL_SEC: "0",
         SSE_MAX_STREAMS: "25O",
       });
       expect(refused.exitCode, refused.stderr).not.toBe(0);
@@ -917,7 +916,6 @@ integration("API server on PostgreSQL", () => {
         "AUTH_MODE=none",
         "HEARTBEAT_TTL_SEC",
         "LOG_LEVEL",
-        "PENDING_REQUEST_TTL_SEC",
         "SSE_MAX_STREAMS",
       ]) {
         expect(refused.stderr).toContain(name);

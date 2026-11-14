@@ -45,7 +45,7 @@ export type PendingRequestsOptions = {
   /**
    * How long this worker holds a callback the gateway has not registered.
    * Once it has, the gateway's own expiry replaces this, longer or shorter:
-   * the installation's PENDING_REQUEST_TTL_SEC is the API's alone.
+   * the installation's wait, saved in the console, is the API's alone.
    */
   timeoutMs: number;
   onOwnershipLost?: (error: unknown) => void;

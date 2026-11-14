@@ -269,9 +269,11 @@ export type WorkerGatewayOptions = {
   sessionTokenTtlMs?: number;
   /**
    * How long a registered permission or question takes answers (30 minutes
-   * by default). The worker is told what is left, never a deadline.
+   * by default). The worker is told what is left, never a deadline. A
+   * function is asked at each registration, so a saved change applies to
+   * the next one; when it fails, the registration is a retryable 503.
    */
-  pendingTtlMs?: number;
+  pendingTtlMs?: number | (() => Promise<number>);
   /** Upper bound on nextInput long-polling. */
   maxWaitMs?: number;
   /** Once aborted, nextInput answers with what it has instead of waiting. */
@@ -1016,7 +1018,20 @@ export function createWorkerGateway(deps: {
   const sessionTokenTtlMs =
     deps.options.sessionTokenTtlMs ?? DEFAULT_SESSION_TOKEN_TTL_MS;
   const tokenLimit = deps.options.sessionTokenLimit;
-  const pendingTtlMs = deps.options.pendingTtlMs ?? DEFAULT_PENDING_TTL_MS;
+  const pendingTtl = deps.options.pendingTtlMs ?? DEFAULT_PENDING_TTL_MS;
+  const pendingTtlMs = async (): Promise<number> => {
+    if (typeof pendingTtl === "number") return pendingTtl;
+    try {
+      return await pendingTtl();
+    } catch (error) {
+      throw new WorkerGatewayError(
+        503,
+        "BACKEND_UNAVAILABLE",
+        `How long the request may wait could not be read: ${error instanceof Error ? error.message : String(error)}`,
+        true,
+      );
+    }
+  };
   const maxWaitMs = deps.options.maxWaitMs ?? DEFAULT_MAX_WAIT_MS;
   const pollIntervalMs =
     deps.options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
@@ -2456,6 +2471,12 @@ export function createWorkerGateway(deps: {
               request.turn_id,
               request.checkpoint,
             );
+      // Read before the transaction, never on its connection or its clock;
+      // a failure refuses only a new row, so a replay still lands.
+      const ttl = await pendingTtlMs().then(
+        (ms) => ({ ms }),
+        (error: unknown) => ({ error }),
+      );
       const result = await requirePending().registerAtomic({
         fence,
         turnId: request.turn_id,
@@ -2465,7 +2486,10 @@ export function createWorkerGateway(deps: {
         ...(request.announce === undefined
           ? {}
           : { announce: request.announce }),
-        ttlMs: pendingTtlMs,
+        ttlMs: () => {
+          if ("error" in ttl) throw ttl.error;
+          return ttl.ms;
+        },
         ...(checkpoint === undefined ? {} : { checkpoint }),
         ...(request.checkpoint_failure === undefined
           ? {}
