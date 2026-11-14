@@ -21,6 +21,7 @@ import type {
 import {
   DEFAULT_WORKSPACE_ENFORCE,
   MAX_TURN_COST_USD,
+  REPOSITORY_PINS_MAX,
   TURN_BUDGET_EXCEEDED_REASON,
   TURN_INPUT_WAIT_PARKED_REASON,
   TURN_WORKSPACE_QUOTA_EXCEEDED_REASON,
@@ -941,21 +942,29 @@ export class WorkerHost {
         : [];
     });
     if (report === undefined || unpinned.length === 0) return true;
-    let kept: Map<string, string>;
-    try {
-      const answer = await report.call(this.options.gateway, {
-        ...this.scope,
-        pins: unpinned,
-      });
-      kept = new Map(answer.pins.map((pin) => [pin.repository_id, pin.commit]));
-    } catch (error) {
-      if (error instanceof WorkerGatewayRequestError && error.status === 404) {
-        this.logger.warn("worker.workspace.pins_unsupported", {
-          repositories: unpinned.length,
+    const kept = new Map<string, string>();
+    for (let at = 0; at < unpinned.length; at += REPOSITORY_PINS_MAX) {
+      try {
+        const answer = await report.call(this.options.gateway, {
+          ...this.scope,
+          pins: unpinned.slice(at, at + REPOSITORY_PINS_MAX),
         });
-        return true;
+        for (const pin of answer.pins) kept.set(pin.repository_id, pin.commit);
+      } catch (error) {
+        // Only the first batch can say the route is missing; later, a 404
+        // would leave the pins already kept unfetched.
+        if (
+          at === 0 &&
+          error instanceof WorkerGatewayRequestError &&
+          error.status === 404
+        ) {
+          this.logger.warn("worker.workspace.pins_unsupported", {
+            repositories: unpinned.length,
+          });
+          return true;
+        }
+        throw error;
       }
-      throw error;
     }
     const attach = this.options.workspace.attachRepository;
     for (const repository of listed) {

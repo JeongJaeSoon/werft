@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  REPOSITORY_PINS_MAX,
   type RuntimeConfig,
   type SessionEvent,
   sessionEventSchema,
@@ -604,7 +605,13 @@ describe("WorkerHost over a run that implements the contract itself", () => {
       // An attach order for docs that an earlier attempt never settled,
       // handed out by a heartbeat before this claim's pins are kept.
       early = false,
+      // More unpinned repositories fetched besides docs, named r0, r1, …
+      extra = 0,
     ) {
+      const more = Array.from({ length: extra }, (_, index) => ({
+        ...docs,
+        id: `r${index}`,
+      }));
       const gateway = new FakeWorkerGateway();
       if (early) gateway.attachOrders = [{ ...docs, receipt_id: "r-1" }];
       const claim = gateway.bootstrapClaim.bind(gateway);
@@ -612,7 +619,7 @@ describe("WorkerHost over a run that implements the contract itself", () => {
         ...(await claim(request)),
         workspace: {
           repository: null,
-          additional_repositories: [{ ...docs }, { ...wiki }],
+          additional_repositories: [{ ...docs }, { ...wiki }, ...more],
         },
       });
       const steps: unknown[] = [];
@@ -653,11 +660,12 @@ describe("WorkerHost over a run that implements the contract itself", () => {
         workspace: {
           ...noWorkspace,
           attachRepositories: async () => ({
-            attached: ["docs", "wiki"],
+            attached: ["docs", "wiki", ...more.map((entry) => entry.id)],
             failed: [],
             commits: new Map([
               ["docs", fetchedAt],
               ["wiki", wiki.commit],
+              ...more.map((entry): [string, string] => [entry.id, fetchedAt]),
             ]),
           }),
           attachRepository: async (repository) => {
@@ -680,6 +688,24 @@ describe("WorkerHost over a run that implements the contract itself", () => {
         { pins: [{ repository_id: "docs", commit: fetchedAt }] },
         "started",
       ]);
+    });
+
+    test("reports more repositories than one request carries in batches the route accepts", async () => {
+      const { steps, worker } = pinning(
+        async (pins) => ({
+          pins: pins as Array<{ repository_id: string; commit: string }>,
+        }),
+        false,
+        REPOSITORY_PINS_MAX,
+      );
+      const summary = await worker.runLoop();
+      expect(summary.turns.map((turn) => turn.status)).toEqual(["completed"]);
+      const sizes = steps.map((step) =>
+        typeof step === "object" && step !== null && "pins" in step
+          ? (step.pins as unknown[]).length
+          : step,
+      );
+      expect(sizes).toEqual([REPOSITORY_PINS_MAX, 1, "started"]);
     });
 
     test("fetches the session's pin instead when another attempt pinned first", async () => {
