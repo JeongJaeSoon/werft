@@ -1876,8 +1876,10 @@ export const sessionEventArchives = pgTable(
     lastOccurredAt: timestamp("last_occurred_at", {
       withTimezone: true,
     }).notNull(),
-    // The list card's activity over every event through activity_through,
+    // The session's activity over every event through activity_through,
     // taken before they left; a later chunk of the same pass repeats it.
+    // No API answers it any more: only readSessionActivity (the db bench)
+    // reads it.
     activity: jsonb().notNull(),
     activityThrough: bigint("activity_through", { mode: "number" }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
