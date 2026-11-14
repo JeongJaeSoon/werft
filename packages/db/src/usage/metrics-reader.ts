@@ -9,6 +9,7 @@ import {
   sessions,
   turns,
   unassignedSessions,
+  workerLaunches,
 } from "../schema.ts";
 import { rowsOf } from "../statement-rows.ts";
 
@@ -63,6 +64,16 @@ export type PlatformMetricsSnapshot = {
   }[];
   launchQueue: { sessions: number; oldestWaitSeconds: number };
   inputQueueOldestAgeSeconds: number;
+  /**
+   * Sessions not stopping, stopped, closing or closed, by the image their
+   * newest launch was pinned to; a session never launched is not counted.
+   */
+  sessionWorkerImages: {
+    image: string;
+    status: string;
+    admission: string;
+    count: number;
+  }[];
 };
 
 export type PlatformMetricsOptions = {
@@ -89,6 +100,7 @@ export async function readPlatformMetrics(
     providerUsageRows,
     launchQueue,
     inputQueueOldestAgeSeconds,
+    sessionWorkerImages,
   ] = await Promise.all([
     readSessions(db),
     readSettledTurns(db, options.buckets),
@@ -97,6 +109,7 @@ export async function readPlatformMetrics(
     readProviderUsage(db),
     readLaunchQueue(db, options.budget),
     readInputQueueOldestAge(db),
+    readSessionWorkerImages(db),
   ]);
   return {
     sessions: sessionRows,
@@ -106,7 +119,44 @@ export async function readPlatformMetrics(
     providerUsage: providerUsageRows,
     launchQueue,
     inputQueueOldestAgeSeconds,
+    sessionWorkerImages,
   };
+}
+
+// The admissions the `sessions` gauge files as ended whatever the status;
+// the rest of that judgement (a stopped status) is the renderer's.
+const ENDED_ADMISSIONS = ["stopping", "stopped", "closing", "closed"];
+
+async function readSessionWorkerImages(db: Database) {
+  const rows = rowsOf<{
+    image: string;
+    status: string;
+    admission: string;
+    count: number | string;
+  }>(
+    await db.execute(sql`
+    SELECT image, status, admission, count(*)::int AS count
+    FROM (
+      SELECT DISTINCT ON (l.session_id)
+        l.image, s.status, s.admission_state AS admission
+      FROM ${workerLaunches} l
+      JOIN ${sessions} s ON s.id = l.session_id
+      WHERE l.image IS NOT NULL
+        AND s.admission_state NOT IN (${sql.join(
+          ENDED_ADMISSIONS.map((admission) => sql`${admission}`),
+          sql`, `,
+        )})
+      ORDER BY l.session_id, l.created_at DESC, l.generation DESC
+    ) newest
+    GROUP BY 1, 2, 3
+  `),
+  );
+  return rows.map((row) => ({
+    image: row.image,
+    status: row.status,
+    admission: row.admission,
+    count: Number(row.count),
+  }));
 }
 
 async function readSessions(db: Database) {

@@ -80,6 +80,7 @@ import {
 } from "drizzle-orm";
 import { captureMcpStart } from "./agents/mcp-settings.ts";
 import { earlierInSecond, releaseLabel } from "./agents/release-labels.ts";
+import { workerRuntimeView } from "./checkpoints/checkpoint-runtime.ts";
 import {
   containsPattern,
   findIdempotent,
@@ -1629,6 +1630,10 @@ export function createPostgresSessionReader(
                   .select({
                     sequence: turns.sequence,
                     transcriptBytes: checkpoints.transcriptBytes,
+                    runtimeEngine: checkpoints.runtimeEngine,
+                    runtimeSdkVersion: checkpoints.runtimeSdkVersion,
+                    runtimeCliVersion: checkpoints.runtimeCliVersion,
+                    runtimeProfileSha256: checkpoints.runtimeProfileSha256,
                   })
                   .from(checkpoints)
                   .leftJoin(turns, eq(turns.id, checkpoints.turnId))
@@ -1714,6 +1719,7 @@ export function createPostgresSessionReader(
                 row.checkpointPendingReason,
               ),
             }),
+            worker_runtime: workerRuntimeView(row, checkpoint ?? null),
           };
         },
         { isolationLevel: "repeatable read", accessMode: "read only" },

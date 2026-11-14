@@ -28,6 +28,7 @@ scrape마다 DB를 읽어 값을 집계한다. scrape 간격을 짧게 잡을수
 | 이름 | 타입 | 라벨 | 뜻 |
 |---|---|---|---|
 | `werft_sessions` | gauge | `state`, `status`, `admission` | 세션 수. `state`는 아래 상태표로 정한다. `status`는 API가 보여 주는 상태(`needs_input` 포함), `admission`은 `sessions.admission_state` |
+| `werft_sessions_by_worker_image` | gauge | `image` | `ended`가 아닌 세션 수를 마지막 launch가 고른 worker 이미지별로. launch한 적이 없는 세션은 세지 않는다. series가 없는 이미지는 그 이미지로 마지막 launch를 한 세션이 남지 않았다는 뜻이다 |
 | `werft_turns_total` | counter | `status` | `completed`·`failed`·`interrupted`·`cancelled`로 끝난 turn 수 |
 | `werft_turn_duration_seconds` | histogram | `status`, `le` | 위 turn 중 시작한 것의 시작부터 끝까지 걸린 시간. bucket 1, 5, 15, 30, 60, 120, 300, 600, 1800, 3600초 |
 | `werft_turns_outcome_unknown` | gauge | 없음 | 실행이 사라져 결과를 모르는 turn 수. 운영자의 복구 결정을 기다린다 |
@@ -84,6 +85,7 @@ scrape마다 DB를 읽어 값을 집계한다. scrape 간격을 짧게 잡을수
 
 - 세션 id, turn id, 사용자 id, API key id, 에이전트 id, attempt id는 라벨로 쓰지 않는다. 에이전트별 비용은 `GET /v1/usage/*`로 본다.
 - `state`·`status`·`admission`·`outcome`·`priced_by`·`kind`·`le`는 정해진 값만 나온다.
+- `image`는 설치 설정의 worker 이미지 참조다. 값 수는 아직 세션이 남아 있는 이미지 수로 묶인다.
 - `tool`과 `model`은 데이터에서 온다. MCP 도구 `mcp__<server>__<tool>`은 `mcp__<server>`로 접는다. 그다음 처음 나타난 순서로 `tool`은 100개, `model`은 50개까지만 이름을 두고 나머지는 `other`로 합친다. 행을 지우지 않으므로 이름을 얻은 값은 보통 그대로 남는다. 다만 상한이 찬 뒤 projection이 늦게 넣은 행(`tool`)이나 늦게 커밋된 행(`model`, `recorded_at`은 트랜잭션 시작 시각)이 더 이른 시각을 가지면 이름 하나가 `other`와 자리를 바꿀 수 있다. 그때 밀려난 이름의 series는 끊기고, 들어온 이름은 새 series로 시작하며, `other`는 한 번 튀거나 reset으로 읽힌다.
 - 테스트: cardinality 시험이 라벨 이름 목록, id 모양 값이 없음, 상한을 확인한다.
 

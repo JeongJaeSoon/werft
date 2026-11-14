@@ -5911,6 +5911,102 @@
           },
           "durability": {
             "$ref": "#/components/schemas/SessionDurability"
+          },
+          "worker_runtime": {
+            "description": "What the session's worker images ran, as recorded at launch and checkpoint; `runtime.version` is instead the version its agent release pinned. Absent from a server older than the field.",
+            "type": "object",
+            "properties": {
+              "first_image": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The worker image pinned for the session's first launch, by digest where the backend resolves one. Null before the first launch, and on a session from before the record."
+              },
+              "first": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "engine": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "sdk_version": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "cli_version": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "profile_sha256": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": [
+                      "engine",
+                      "sdk_version",
+                      "cli_version",
+                      "profile_sha256"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The runtime combination of the first checkpoint the session committed with one: the engine, its SDK and CLI versions, and the run settings' digest. Written once. Null before that checkpoint, and on a session from before the record."
+              },
+              "checkpoint": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "engine": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "sdk_version": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "cli_version": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "profile_sha256": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": [
+                      "engine",
+                      "sdk_version",
+                      "cli_version",
+                      "profile_sha256"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The runtime combination of the checkpoint the session's next launch would restore, which the worker image it launches on has to match. Null when no checkpoint would be restored (none committed, or start_fresh retired it), and for a checkpoint committed before the combination was recorded."
+              }
+            },
+            "required": [
+              "first_image",
+              "first",
+              "checkpoint"
+            ],
+            "additionalProperties": false
           }
         },
         "required": [

@@ -1,3 +1,4 @@
+import type { SessionWorkerRuntime } from "@werft-ai/contracts";
 import {
   type FinalizeInput,
   type PointerRuntime,
@@ -72,6 +73,43 @@ export function runtimeOfColumns(
     cliVersion: row.runtimeCliVersion,
     profileSha256: row.runtimeProfileSha256,
   };
+}
+
+/**
+ * The session detail's `worker_runtime`: the session's own record, and the
+ * pointer's combination when a launch would restore that checkpoint.
+ */
+export function workerRuntimeView(
+  session: RuntimeColumns & {
+    firstWorkerImage: string | null;
+    checkpointRevision: number | null;
+    checkpointPendingReason: string | null;
+    contextResetCheckpointRevision: number | null;
+  },
+  pointer: RuntimeColumns | null,
+): SessionWorkerRuntime {
+  const restored =
+    pointer !== null && hasRestorePoint(session)
+      ? runtimeOfColumns(pointer)
+      : null;
+  return {
+    first_image: session.firstWorkerImage,
+    first: combinationView(runtimeOfColumns(session)),
+    checkpoint: combinationView(restored),
+  };
+}
+
+function combinationView(
+  runtime: RuntimeFingerprint | null,
+): SessionWorkerRuntime["first"] {
+  return runtime === null
+    ? null
+    : {
+        engine: runtime.engine,
+        sdk_version: runtime.sdkVersion,
+        cli_version: runtime.cliVersion,
+        profile_sha256: runtime.profileSha256,
+      };
 }
 
 /**

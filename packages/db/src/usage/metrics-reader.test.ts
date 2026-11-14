@@ -482,3 +482,63 @@ describe("queues", () => {
     expect(snapshot.inputQueueOldestAgeSeconds).toBe(0);
   });
 });
+
+describe("worker images", () => {
+  let generation = 0;
+  async function launch(
+    sessionId: string,
+    image: string | null,
+    agoSeconds: number,
+  ) {
+    await client.query(
+      `INSERT INTO worker_launches (execution_id, generation, session_id, backend, image, resources, created_at)
+       VALUES ($1, $2, $3, 'local_docker', $4, $5, now() - ($6 || ' seconds')::interval)`,
+      [
+        `exec-${crypto.randomUUID()}`,
+        ++generation,
+        sessionId,
+        image,
+        image === null ? null : "{}",
+        agoSeconds,
+      ],
+    );
+  }
+
+  test("each live session counts once, under its newest launch's image", async () => {
+    const moved = await session();
+    await launch(moved, "worker@sha256:aa", 600);
+    await launch(moved, "worker@sha256:bb", 60);
+    const running = await session({ status: "running" });
+    await launch(running, "worker@sha256:aa", 30);
+    // A reservation not yet given a spec, and a session never launched.
+    await launch(await session(), null, 10);
+    await session({ status: "queued" });
+    // Ended sessions hold no image.
+    await launch(
+      await session({ status: "stopped", admission: "closed" }),
+      "worker@sha256:aa",
+      30,
+    );
+    await launch(
+      await session({ admission: "stopping" }),
+      "worker@sha256:aa",
+      30,
+    );
+
+    const rows = (await read()).sessionWorkerImages;
+    expect(rows.sort((a, b) => a.image.localeCompare(b.image))).toEqual([
+      {
+        image: "worker@sha256:aa",
+        status: "running",
+        admission: "active",
+        count: 1,
+      },
+      {
+        image: "worker@sha256:bb",
+        status: "idle",
+        admission: "active",
+        count: 1,
+      },
+    ]);
+  });
+});

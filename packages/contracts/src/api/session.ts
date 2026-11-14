@@ -136,6 +136,28 @@ export const sessionRuntimeViewSchema = sessionRuntimeSchema.extend({
   // Fixed with the session's spec: a later release does not change it.
   permission_mode: permissionModeSchema,
 });
+const runtimeCombinationSchema = z.object({
+  engine: z.string().min(1),
+  sdk_version: z.string().min(1),
+  cli_version: z.string().min(1),
+  profile_sha256: z.string().min(1),
+});
+// What the worker images actually ran, as checkpoints recorded it; `runtime`
+// is what the release pinned.
+export const sessionWorkerRuntimeSchema = z.object({
+  first_image: z.string().min(1).nullable().meta({
+    description:
+      "The worker image pinned for the session's first launch, by digest where the backend resolves one. Null before the first launch, and on a session from before the record.",
+  }),
+  first: runtimeCombinationSchema.nullable().meta({
+    description:
+      "The runtime combination of the first checkpoint the session committed with one: the engine, its SDK and CLI versions, and the run settings' digest. Written once. Null before that checkpoint, and on a session from before the record.",
+  }),
+  checkpoint: runtimeCombinationSchema.nullable().meta({
+    description:
+      "The runtime combination of the checkpoint the session's next launch would restore, which the worker image it launches on has to match. Null when no checkpoint would be restored (none committed, or start_fresh retired it), and for a checkpoint committed before the combination was recorded.",
+  }),
+});
 export const executionObservationSchema = z.object({
   backend: executionBackendSchema,
   state: executionStateSchema,
@@ -520,6 +542,10 @@ export const sessionDetailSchema = sessionSummarySchema.extend({
   }),
   attention: sessionAttentionSchema.nullable(),
   durability: sessionDurabilitySchema,
+  worker_runtime: sessionWorkerRuntimeSchema.optional().meta({
+    description:
+      "What the session's worker images ran, as recorded at launch and checkpoint; `runtime.version` is instead the version its agent release pinned. Absent from a server older than the field.",
+  }),
 });
 
 export const MESSAGE_MAX_BYTES = 32 * 1024;
@@ -659,6 +685,7 @@ export type AttemptState = z.infer<typeof attemptStateSchema>;
 export type ExecutionState = z.infer<typeof executionStateSchema>;
 export type RuntimeKind = z.infer<typeof runtimeKindSchema>;
 export type ExecutionBackend = z.infer<typeof executionBackendSchema>;
+export type SessionWorkerRuntime = z.infer<typeof sessionWorkerRuntimeSchema>;
 export type PermissionMode = z.infer<typeof permissionModeSchema>;
 export type SessionRuntime = z.infer<typeof sessionRuntimeSchema>;
 export type SessionRuntimeView = z.infer<typeof sessionRuntimeViewSchema>;
