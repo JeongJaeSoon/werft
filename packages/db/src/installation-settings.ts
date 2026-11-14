@@ -1,13 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { canonicalJson } from "@werft-ai/contracts";
 import {
+  CatalogCredentialError,
   type CatalogMcpServerConfig,
   type CatalogProviderConfig,
   type CatalogRepositoryConfig,
   catalogMcpServerSchema,
   catalogProviderSchema,
   catalogRepositorySchema,
-  CatalogCredentialError,
   describeConfigError,
   type EnvCredentialCarry,
   type InstallationSettingsStore,
@@ -214,11 +214,17 @@ function carriedValue(
  * Moves the rows that held exactly the repository's old binding to its new
  * one: the push requests a pull request is opened, updated and merged from,
  * and the worker credentials a running session's token is reissued under.
+ * A replica that has not read the move yet still inserts the old one; the
+ * tables' insert triggers move those once this commits, and the lock waits
+ * out inserts already made in transactions that commit later.
  */
 async function rebind(
   tx: Database,
   { from, to }: Binding,
 ): Promise<{ push_requests: number; worker_credentials: number }> {
+  await tx.execute(
+    sql`LOCK TABLE ${pushRequests}, ${workerCredentials} IN SHARE ROW EXCLUSIVE MODE`,
+  );
   const pushes = await tx
     .update(pushRequests)
     .set({ repositoryBinding: to })
@@ -238,40 +244,6 @@ async function rebind(
     push_requests: pushes.length,
     worker_credentials: credentials.length,
   };
-}
-
-/**
- * A replica reads the catalog again every 10 seconds (an old build's too,
- * which then leaves the moved row out), so one may still write the old
- * binding just after a move: a push request created, or a session claimed,
- * from the catalog it held. Each read moves those rows as well, for long
- * enough that no catalog holds the old binding any more.
- */
-async function rebindLate(db: Database): Promise<EnvCredentialCarry[]> {
-  const outcomes: EnvCredentialCarry[] = [];
-  for (const row of await db
-    .select({
-      id: catalogRepositories.id,
-      binding: catalogRepositories.carriedBinding,
-      carried: catalogRepositories.carriedAuth,
-    })
-    .from(catalogRepositories)
-    .where(
-      sql`(${catalogRepositories.carriedBinding}->>'at')::timestamptz > now() - interval '10 minutes'`,
-    )) {
-    if (row.binding === null || !namesEnv(row.carried)) continue;
-    const { from, to } = row.binding;
-    const rebound = await db.transaction((tx) => rebind(tx, { from, to }));
-    if (rebound.push_requests + rebound.worker_credentials > 0) {
-      outcomes.push({
-        entry: `repository:${row.id}`,
-        env: row.carried.value_env,
-        outcome: "rebound",
-        rebound,
-      });
-    }
-  }
-  return outcomes;
 }
 
 /** The row names its own stored value from now on; its old `auth` is kept. */
@@ -299,10 +271,7 @@ async function pointAtStored(
           auth,
           credentialSource: "stored",
           carriedAuth: row.auth,
-          carriedBinding:
-            binding === undefined
-              ? null
-              : sql`jsonb_build_object('from', ${binding.from}::text, 'to', ${binding.to}::text, 'at', now())`,
+          carriedBinding: binding ?? null,
           version: sql`${catalogRepositories.version} + 1`,
           updatedBy: null,
           updatedAt: sql`now()`,
@@ -603,7 +572,7 @@ export function createPostgresInstallationSettingsStore(
     },
 
     async carryEnvCredentials(env) {
-      const outcomes = await rebindLate(db);
+      const outcomes: EnvCredentialCarry[] = [];
       for (const listed of await envRows(db)) {
         const entry = `${listed.kind}:${listed.id}`;
         const name = listed.auth.value_env;

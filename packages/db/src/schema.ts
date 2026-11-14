@@ -5534,12 +5534,11 @@ export const catalogRepositories = pgTable(
       text("credential_source").$type<SettingsCredentialSource>(),
     carriedAuth: jsonb("carried_auth").$type<Record<string, unknown>>(),
     // The repository binding before and after a carry rewrote the push
-    // requests and worker credentials that held it, for a rollback to undo,
-    // and when (rows written late with the old one are moved for a while).
+    // requests and worker credentials that held it, for a rollback to undo.
+    // While it is set, those tables' insert triggers write `to` for `from`.
     carriedBinding: jsonb("carried_binding").$type<{
       from: string;
       to: string;
-      at: string;
     }>(),
     appRole: text("app_role").notNull().default("author"),
     source: text().notNull(),

@@ -50,9 +50,7 @@ export interface InstallationSettings {
  * `missing` when the variable has no value, `waiting` while there is no
  * workspace to keep a value under (or no secret store), `invalid` when the
  * catalog would refuse the value, `failed` on a database error. Only
- * `carried` changed the row. `rebound` is a repository carried a little
- * earlier whose old binding was written again since, by a replica that
- * had not read the move yet, and moved.
+ * `carried` changed the row.
  */
 export type EnvCredentialCarry = {
   /** `<kind>:<id>`. */
@@ -67,10 +65,6 @@ export type EnvCredentialCarry = {
        * its old binding to the new one.
        */
       rebound?: { push_requests: number; worker_credentials: number };
-    }
-  | {
-      outcome: "rebound";
-      rebound: { push_requests: number; worker_credentials: number };
     }
   | { outcome: "missing" | "waiting" | "failed" }
   /** `reason` names where the reference sits, never the value. */

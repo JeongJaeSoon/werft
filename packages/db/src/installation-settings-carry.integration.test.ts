@@ -387,7 +387,10 @@ integration("carrying env credentials into stored values", () => {
       return id;
     };
     const before = await bindingNow("ghes");
-    const push = async (binding: string) => {
+    const push = async (
+      binding: string,
+      on: Pick<typeof db, "insert"> = db,
+    ) => {
       const sessionId = await session();
       const receiptId = randomUUID();
       await db.insert(receipts).values({
@@ -397,7 +400,7 @@ integration("carrying env credentials into stored values", () => {
         targetRef: { session_id: sessionId },
       });
       const id = randomUUID();
-      await db.insert(pushRequests).values({
+      await on.insert(pushRequests).values({
         id,
         ownerId: "owner",
         sessionId,
@@ -436,7 +439,23 @@ integration("carrying env credentials into stored values", () => {
     await credential("repository", before);
     // Another purpose holding the same text is not a repository binding.
     await credential("provider", before);
-    return { before, ghesPush, otherPush, push };
+    // A claim or reissue: the live repository credential is replaced.
+    const reissue = async (binding: string) => {
+      await db
+        .update(workerCredentials)
+        .set({ revokedAt: new Date() })
+        .where(eq(workerCredentials.purpose, "repository"));
+      await credential("repository", binding);
+      return (
+        await db
+          .select({ binding: workerCredentials.binding })
+          .from(workerCredentials)
+          .where(
+            sql`${workerCredentials.purpose} = 'repository' AND ${workerCredentials.revokedAt} IS NULL`,
+          )
+      )[0]?.binding;
+    };
+    return { before, ghesPush, otherPush, push, reissue };
   }
 
   const pushBinding = async (id: string) =>
@@ -488,39 +507,56 @@ integration("carrying env credentials into stored values", () => {
     expect(app?.carriedBinding).toMatchObject({ from: before, to: after });
   });
 
-  test("a push request written with the old binding just after the move is moved on the next read, and only for a while", async () => {
+  test("the old binding written after the move, by a replica that has not read it yet, is stored as the new one", async () => {
+    await addWorkspace();
+    const { before, push, reissue } = await heldBindings();
+    await createPostgresInstallationSettingsStore(db, KEY).carryEnvCredentials(
+      env,
+    );
+    const after = await bindingNow("ghes");
+    expect(await pushBinding(await push(before))).toBe(after);
+    expect(await reissue(before)).toBe(after);
+    const other = await push("sha256:another-repository");
+    expect(await pushBinding(other)).toBe("sha256:another-repository");
+  });
+
+  test("a push request inserted before the move and committed after it is moved too", async () => {
     await addWorkspace();
     const { before, push } = await heldBindings();
-    const store = createPostgresInstallationSettingsStore(db, KEY);
-    await store.carryEnvCredentials(env);
-    const after = await bindingNow("ghes");
-    // A replica that had not read the move yet.
-    const late = await push(before);
-    expect(await store.carryEnvCredentials(env)).toEqual([
-      {
-        entry: "repository:ghes",
-        env: "APP_KEY",
-        outcome: "rebound",
-        rebound: { push_requests: 1, worker_credentials: 0 },
-      },
-    ]);
-    expect(await pushBinding(late)).toBe(after);
-    expect(await store.carryEnvCredentials(env)).toEqual([]);
-
-    await db
-      .update(catalogRepositories)
-      .set({
-        carriedBinding: sql`jsonb_set(${catalogRepositories.carriedBinding}, '{at}', to_jsonb(now() - interval '11 minutes'))`,
-      })
-      .where(eq(catalogRepositories.id, "ghes"));
-    const later = await push(before);
-    expect(await store.carryEnvCredentials(env)).toEqual([]);
-    expect(await pushBinding(later)).toBe(before);
+    let commit = () => {};
+    const committing = new Promise<void>((resolve) => {
+      commit = resolve;
+    });
+    let id = "";
+    let inserted = () => {};
+    const insertedYet = new Promise<void>((resolve) => {
+      inserted = resolve;
+    });
+    const writer = db.transaction(async (tx) => {
+      id = await push(before, tx);
+      inserted();
+      await committing;
+    });
+    await insertedYet;
+    const carry = createPostgresInstallationSettingsStore(
+      db,
+      KEY,
+    ).carryEnvCredentials(env);
+    await Bun.sleep(300);
+    commit();
+    await writer;
+    expect(
+      (await carry).find(({ entry }) => entry === "repository:ghes"),
+    ).toMatchObject({
+      outcome: "carried",
+      rebound: { push_requests: 2, worker_credentials: 1 },
+    });
+    expect(await pushBinding(id)).toBe(await bindingNow("ghes"));
   });
 
   test("the rollback SQL in the upgrade guide restores the env references and the old bindings", async () => {
     await addWorkspace();
-    const { before, ghesPush, otherPush } = await heldBindings();
+    const { before, ghesPush, otherPush, push } = await heldBindings();
     await createPostgresInstallationSettingsStore(db, KEY).carryEnvCredentials(
       env,
     );
@@ -558,5 +594,7 @@ integration("carrying env credentials into stored values", () => {
       provider: before,
     });
     expect(await pushBinding(otherPush)).toBe("sha256:another-repository");
+    // The previous build writes the old binding again, and it is kept.
+    expect(await pushBinding(await push(before))).toBe(before);
   });
 });
