@@ -34,8 +34,8 @@ worker 이미지 하나는 엔진 하나만 돌린다(`apps/worker/src/compositi
 | 설정을 읽는 role | scheduler·API·Slack·일회성 database catalog 명령이 모두 같은 parser로 같은 목록을 읽는다. compose·Helm은 세 role에 같은 값을 준다 |
 | 업그레이드 검사 | 엔진마다 판정한다(오케스트레이터 결정 (a), Codex 반론 AMEND 반영). 대상이 이미지를 하나라도 적은 엔진(철회만 적어도)은 남고, 그 엔진의 배포된 가장 새 이미지는 지금처럼 승인 없이 보호한다. 하나도 적지 않은 엔진은 뺀 것으로 보고 그 보호를 건너뛰는 대신, 닫히지 않은 그 엔진의 세션을 checkpoint가 없어도 `no_engine_image`로 고른다(조회는 미수거 checkpoint 세션과 닫히지 않은 세션의 합). slot을 쥔 launch는 엔진과 상관없이 거부한다. runtime 없이 배포된 이미지가 있으면 엔진을 모르므로 나누지 않는다. 검사와 rollout 사이에 예약된 뺀 엔진의 claim 전 launch는 scheduler가 다시 만들지 않고 돌려보낸다. 승인 규칙은 지금처럼 정확히 같은 목록 |
 | Helm | `images.workers` 기본값에 Claude·Codex 이미지를 하나씩 둔다(오케스트레이터 결정). release manifest와 chart baker가 목록용 `released_at`을 낸다 |
-| compose | 두 엔진 overlay(`infra/compose.two-engines.yml`)가 scheduler·API·Slack에서 단일 env 네 개를 지우고 `WORKER_IMAGES`를 준다. compose 운영 업그레이드(test-ops `upgrade`)는 엔진 하나 그대로 |
-| conformance | 두 엔진 overlay 스택에서 Claude 세션과 Codex 세션이 각자 끝나고, 각 launch의 이미지 digest·claim에 적힌 runtime·세션 kind가 맞는지 본다 |
+| compose | 두 엔진 overlay(`infra/compose.two-engines.yml`)는 `WORKER_IMAGES`를 쓰지 않고 단일 env를 쓴다. `WORKER_IMAGE`가 Codex 이미지, `WORKER_IMAGE_PREVIOUS`가 Claude 이미지이고, 두 runtime은 빌드한 이미지에서 images.yml과 같은 명령으로 읽는다(두 이미지 빌드 → runtime 추출 → 스택 시작). `WORKER_IMAGES`는 `repository@sha256:<digest>`만 받는데 compose는 이미지를 로컬에서 빌드해 repository digest가 없기 때문이다. 목록의 digest 규칙은 그대로 둔다. compose 운영 업그레이드(test-ops `upgrade`)는 엔진 하나 그대로이고, previous를 교체되는 이미지로 다시 쓰므로 이 overlay에는 쓰지 않는다 |
+| conformance | `tests/e2e/run.sh --conformance two_engines`가 두 엔진 overlay 스택에서 전용 시험(`tests/conformance/two-engines.e2e.ts`) 하나를 돌린다. 엔진 suite의 fixture 선택기는 스택마다 엔진 하나라서 suite를 다시 돌리지 않는다. Claude 세션과 Codex 세션의 turn이 동시에 model 호출에 머문 뒤 각자 끝나고, 세션마다 컨테이너의 Docker image id, launch에 pin된 이미지·엔진(claim이 그것에 묶인다), 첫 checkpoint에 적힌 엔진, 세션 kind가 맞는지 본다. 혼합 라우팅을 보이는 시험이고 `WORKER_IMAGES` 배포 경로 자체는 보지 않는다 |
 
 ## 버전 조합과 배포 순서
 
@@ -60,5 +60,5 @@ worker 이미지 하나는 엔진 하나만 돌린다(`apps/worker/src/compositi
 1. **허용 목록을 (kind, version) 쌍으로**(platform·db·control-host): catalog, session-service, `ClaimCatalog`, `runsHere`·`versionUnknownHere`·SQL, catalog-config, `current` 제거. **동작 변경 하나**: 이미지 엔진의 kind가 아닌 세션은 버전 문자열이 같아도 받지 않는다. 그런 세션은 지금도 그 이미지에서 돌지 못한다(worker의 `installed.require`). 시험: 같은 버전 문자열의 다른 kind 거부(만들기·불일치 사유·claim), SQL과 `runsHere`가 같은 답, 엔진 바꾸기 단일 env가 두 kind를 다 받는다.
 2. **scheduler가 세션 엔진으로 고르기**: 목록 검증(엔진마다 철회되지 않은 항목 2개, 엔진 안 순서. 철회 작업과 맞춘다), 포인터 조회에 kind, 후보 필터, 이미지 없음 건너뛰기, claim의 엔진 검증. 시험: 2+2 허용, 엔진별 셋째 거부, 목록 순서별 고르기, checkpoint/spec 엔진 충돌, spec 없음·모르는 kind, 한 엔진 거절 뒤 다음 페이지의 다른 엔진, 엔진 바꾸기 단일 env, 세션 지정 launch의 엔진 불일치 `no_session`, partition claim의 엔진 필터, 낡은 `checkpointRevision`의 hold `stale`, 이미지가 돌아온 뒤 다시 뜸.
 3. **업그레이드 검사**: 엔진마다 판정하고, 엔진 이미지가 없는 세션을 영향 세션으로. 이미지 목록 작업의 검사 위에. 다음 릴리스(v0.2.1) 전에 들어가야 한다.
-4. **compose overlay와 두 엔진 conformance.**
+4. **compose overlay와 두 엔진 conformance**: 위 표의 compose·conformance 행. 설계 반론(Codex AMEND)의 지적을 반영했다. runtime 추출 명령은 images.yml 그대로(`jq -c 'del(.profiles)'`까지)이고, 두 엔진 overlay에는 test-ops `upgrade`를 쓰지 않으며, 한 엔진의 유일한 이미지를 바꾸는 upgrade는 승인만으로 통과하지 않는다.
 5. **Helm 기본값·release manifest·render-check·문서**(설정 레퍼런스, 복구·업그레이드 문서, `compose.codex-worker.yml` 설명, ko·en·ja).
