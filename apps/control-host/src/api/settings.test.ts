@@ -261,11 +261,13 @@ describe("settings seed", () => {
     async (decision, why) => {
       const fake = fakeStore(appliedImport, () => [], { decision });
       const { output, err, out } = captured();
-      // Not there: nothing is read once the seed is decided.
+      // Neither can be read: nothing is touched once the seed is decided.
       const document = join(root, "no-such-document.json");
+      const notADirectory = join(root, "not-a-directory");
+      await writeFile(notADirectory, "");
       expect(
         await runSettingsCommand(
-          seedCommand(document, oldCatalog),
+          seedCommand(document, notADirectory),
           { settings: fake.store },
           output,
         ),
@@ -273,7 +275,7 @@ describe("settings seed", () => {
       expect(fake.seeded).toEqual([]);
       expect(out).toEqual([]);
       expect(err).toEqual([
-        `note: ${oldCatalog} and the settings document ${document} (SETTINGS_DOCUMENT) not imported: ${why}. They seed an empty installation only; change settings in the console`,
+        `note: ${notADirectory} and the settings document ${document} (SETTINGS_DOCUMENT) not imported: ${why}. They seed an empty installation only; change settings in the console`,
       ]);
     },
   );
@@ -320,7 +322,7 @@ describe("settings seed", () => {
     );
   });
 
-  test("a missing directory and no document is nothing to seed, and decides nothing", async () => {
+  test("an empty installation with a missing directory and no document is nothing to seed", async () => {
     const fake = fakeStore(appliedImport);
     const { output, err } = captured();
     expect(
@@ -331,8 +333,27 @@ describe("settings seed", () => {
       ),
     ).toBe(true);
     expect(err).toEqual(["nothing to seed"]);
-    expect(fake.decisions()).toBe(0);
     expect(fake.seeded).toEqual([]);
+  });
+
+  // Asking is what records the marker on an installation that holds settings.
+  test("an installation that holds settings is decided even with no input", async () => {
+    const fake = fakeStore(appliedImport, () => [], {
+      decision: { outcome: "not_empty" },
+    });
+    const { output, err } = captured();
+    const absent = join(root, "absent");
+    expect(
+      await runSettingsCommand(
+        seedCommand(undefined, absent),
+        { settings: fake.store },
+        output,
+      ),
+    ).toBe(true);
+    expect(fake.decisions()).toBe(1);
+    expect(err).toEqual([
+      `note: ${absent} not imported: the installation already holds settings. They seed an empty installation only; change settings in the console`,
+    ]);
   });
 
   test("a refused step exits non-zero and names its source and conflicts", async () => {

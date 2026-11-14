@@ -222,39 +222,48 @@ async function seed(
   stores: SettingsStores,
   output: Output,
 ): Promise<boolean> {
-  const sources: Array<{ dir: string } | { document: string }> = [
-    ...(command.dir === undefined || (await dirIsEmpty(command.dir))
-      ? []
-      : [{ dir: command.dir }]),
+  type Source = { dir: string } | { document: string };
+  const nameOf = (sources: Source[]) =>
+    sources
+      .map((source) =>
+        "dir" in source
+          ? source.dir
+          : `the settings document ${source.document} (SETTINGS_DOCUMENT)`,
+      )
+      .join(" and ");
+  const given: Source[] = [
+    ...(command.dir === undefined ? [] : [{ dir: command.dir }]),
     ...(command.document === undefined ? [] : [{ document: command.document }]),
   ];
-  const named = sources
-    .map((source) =>
-      "dir" in source
-        ? source.dir
-        : `the settings document ${source.document} (SETTINGS_DOCUMENT)`,
-    )
-    .join(" and ");
-  if (sources.length === 0) {
-    output.err("nothing to seed");
-    return true;
-  }
   const notSeeded = (
     decision: Exclude<SettingsSeedDecision, { outcome: "empty" }>,
   ) =>
     output.err(
-      `note: ${named} not imported: ${
+      `note: ${nameOf(given)} not imported: ${
         decision.outcome === "decided"
           ? `the automatic seed ran on ${decision.decided_at.toISOString()}`
           : "the installation already holds settings"
       }. They seed an empty installation only; change settings in the console`,
     );
-  // Decided before anything is read: what is not imported need not parse.
+  // Decided before anything is touched: an installation that holds settings
+  // gets its marker even with no input, and inputs it no longer takes need
+  // not parse, nor even be readable.
   const decision = await stores.settings.decideSeed();
   if (decision.outcome !== "empty") {
     notSeeded(decision);
     return true;
   }
+  const sources: Source[] = [];
+  for (const source of given) {
+    if (!("dir" in source) || !(await dirIsEmpty(source.dir))) {
+      sources.push(source);
+    }
+  }
+  if (sources.length === 0) {
+    output.err("nothing to seed");
+    return true;
+  }
+  const named = nameOf(sources);
   const steps: SettingsSeedStep[] = [];
   const skipped: string[] = [];
   for (const source of sources) {
