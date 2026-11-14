@@ -163,7 +163,7 @@ PR에 라벨 `preview`를 붙이면, `preview.sh sync`를 1분마다 돌리는 M
 
 `up`은 PR의 Dockerfile을 빌드하고, PR의 chart·manifest를 OrbStack 클러스터 관리자 권한으로 설치하고, PR checkout의 스크립트(`scripts/k8s-api.sh`)를 Mac에서 직접 실행한다. 그래서 라벨 미리보기는 "그 Mac 사용자가 자기가 push한 코드를 돌린다"는 전제에서만 자동으로 돈다. push할 수 있는 사람이 늘면 이 전제가 깨지므로 모든 PR을 거절한다.
 
-head마다 라벨 한 번에 한 번만 시도한다. `PREVIEW_HOME/sync/pr-<번호>`에 `<head> <up|failed|refused|gone> <라벨을 붙인 시각>`을 적어 실패한 head를 매분 다시 빌드하지 않는다. 다시 시도하려면 새 커밋을 push하거나 라벨을 다시 붙인다. `up`의 출력은 `PREVIEW_HOME/sync/pr-<번호>.log`에 남는다. 공개 PR 댓글에는 로그를 붙이지 않는다.
+head마다 라벨 한 번에 한 번만 시도한다. `PREVIEW_HOME/sync/pr-<번호>`에 `<head> <up|failed|refused|gone> <라벨을 붙인 시각>`을 적어 실패한 head를 매분 다시 빌드하지 않는다. 다시 시도하려면 새 커밋을 push하거나 라벨을 다시 붙인다. `up`의 출력은 `PREVIEW_HOME/sync/pr-<번호>.log`에 남는다. 공개 PR 댓글에는 로그를 붙이지 않는다. GitHub가 댓글 쓰기를 받지 않으면 그 내용을 `PREVIEW_HOME/sync/pr-<번호>.comment`에 두고, 다음 실행이 빌드 없이 댓글만 다시 쓴다.
 
 `reap`의 TTL은 라벨 미리보기에도 걸린다. 떠 있던 head의 미리보기가 없어지면(TTL, 손으로 `down`) 댓글을 "내려갔다"로 고치고 라벨은 남긴다. 새 push나 라벨을 다시 붙이면 다시 뜬다.
 

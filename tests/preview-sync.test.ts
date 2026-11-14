@@ -39,7 +39,8 @@ describe("deploy/preview/preview.sh sync", () => {
     await mkdir(join(dir, "deploy", "preview"), { recursive: true });
     await copyFile(script, join(dir, "deploy", "preview", "under-test.sh"));
     // Answers from gh/<path>.json through the call's own --jq; writes
-    // (-X PATCH, -f) are recorded in gh-writes.
+    // (-X PATCH, -f) are recorded in gh-writes, unless their body holds
+    // STUB_GH_WRITE_FAILS, which fails them.
     await writeFile(
       join(dir, "bin", "gh"),
       `#!/bin/bash
@@ -65,6 +66,10 @@ while [ $# -gt 0 ]; do
   shift
 done
 if [ "$method" != GET ]; then
+  if [ -n "\${STUB_GH_WRITE_FAILS:-}" ] && [[ "$body" == *"$STUB_GH_WRITE_FAILS"* ]]; then
+    echo "stub: HTTP 502" >&2
+    exit 1
+  fi
   printf '%s %s\\n%s\\n' "$method" "$path" "$body" >> "${dir}/gh-writes"
   echo 1
   exit 0
@@ -301,6 +306,74 @@ esac
     await sync();
     expect(await lines("preview-calls")).toEqual([]);
     expect(await writes()).toEqual([]);
+  });
+
+  test("writes a comment GitHub did not take again, without another up", async () => {
+    await pulls([{ number: 5, head: HEAD_A }]);
+    await labeled(5, [{ at: LABELED_1, by: "owner" }]);
+    const failed = await sync({ STUB_GH_WRITE_FAILS: "떠 있다" });
+    expect(failed.exitCode).toBe(0);
+    expect(failed.stderr).toContain("pr-5: writing the PR comment failed");
+    expect(await readState(5)).toBe(`${HEAD_A} up ${LABELED_1}`);
+    expect((await writes()).map((write) => write.split("\n")[2])).toEqual([
+      "### PR 미리보기: 올리는 중",
+    ]);
+
+    await sync();
+    expect(await lines("preview-calls")).toEqual([
+      `up 5 ${HEAD_A} source=label reap_up_at=unset`,
+    ]);
+    const posted = await writes();
+    expect(posted).toHaveLength(2);
+    expect(posted[1]).toContain("PR 미리보기: 떠 있다");
+    expect(posted[1]).toContain("https://pr-5.preview.example.dev/");
+
+    await sync();
+    expect(await lines("preview-calls")).toHaveLength(1);
+    expect(await writes()).toHaveLength(2);
+  });
+
+  test("writes the comment of a PR no longer labeled again after its down", async () => {
+    await pulls([]);
+    await namespaces([{ name: "pr-5", head: HEAD_A, source: "label" }]);
+    await state(5, `${HEAD_A} up ${LABELED_1}`);
+    await sync({ STUB_GH_WRITE_FAILS: "내려갔다" });
+    expect(await writes()).toEqual([]);
+    expect(await readState(5)).toBeNull();
+
+    await sync();
+    expect(
+      (await lines("preview-calls")).map((call) => call.split(" ")[0]),
+    ).toEqual(["down"]);
+    const posted = await writes();
+    expect(posted).toHaveLength(1);
+    expect(posted[0]).toContain("PR 미리보기: 내려갔다");
+
+    await sync();
+    expect(await writes()).toHaveLength(1);
+  });
+
+  test("does not add a second comment when its own cannot be looked up", async () => {
+    await pulls([{ number: 5, head: HEAD_A }]);
+    await labeled(5, [{ at: LABELED_1, by: "owner" }]);
+    await rm(join(dir, "gh", "repos__owner___repo__issues_5_comments.json"));
+    await sync({ STUB_UP_EXIT: "1" });
+    expect(await writes()).toEqual([]);
+
+    await gh("repos/{owner}/{repo}/issues/5/comments", [
+      {
+        id: 12,
+        user: { login: "owner" },
+        body: "<!-- werft-preview-local -->",
+      },
+    ]);
+    await sync();
+    const posted = await writes();
+    expect(posted.map((write) => write.split("\n")[0])).toEqual([
+      "PATCH repos/{owner}/{repo}/issues/comments/12",
+    ]);
+    expect(posted[0]).toContain("PR 미리보기: 실패했다");
+    expect(await lines("preview-calls")).toHaveLength(1);
   });
 
   test("brings a push up again", async () => {

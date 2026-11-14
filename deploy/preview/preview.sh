@@ -448,19 +448,40 @@ reap() {
 COMMENT_MARKER='<!-- werft-preview-local -->'
 
 # Writes the pull request's one sync comment (the marker, by this gh user),
-# editing it after the first. A failed write is logged, not fatal.
+# editing it after the first. A write GitHub does not take is kept in
+# sync/pr-<N>.comment for the next run to send again (send_pending), since
+# a run that finds the preview as it left it brings nothing up and writes
+# nothing else; a later write replaces it.
 comment() {
-  local n="$1" body id
+  local n="$1" body id pending="${PREVIEW_HOME}/sync/pr-$1.comment"
   body="${COMMENT_MARKER}
 ### PR 미리보기: $2"
-  id="$(cd "$root" && gh api --paginate "repos/{owner}/{repo}/issues/${n}/comments" \
+  # A list that cannot be read is a failed write, not "no comment yet": a
+  # new one would leave the old one standing.
+  if id="$(cd "$root" && gh api --paginate "repos/{owner}/{repo}/issues/${n}/comments" \
     --jq ".[] | select(.user.login == \"${gh_user}\" and (.body | startswith(\"${COMMENT_MARKER}\"))) | .id" \
-    </dev/null | tail -n 1)" || id=""
-  if [ -n "$id" ]; then
-    (cd "$root" && gh api -X PATCH "repos/{owner}/{repo}/issues/comments/${id}" -f body="$body" --jq .id </dev/null) >/dev/null
+    </dev/null | tail -n 1)" &&
+    if [ -n "$id" ]; then
+      (cd "$root" && gh api -X PATCH "repos/{owner}/{repo}/issues/comments/${id}" -f body="$body" --jq .id </dev/null) >/dev/null
+    else
+      (cd "$root" && gh api "repos/{owner}/{repo}/issues/${n}/comments" -f body="$body" --jq .id </dev/null) >/dev/null
+    fi; then
+    rm -f -- "$pending"
   else
-    (cd "$root" && gh api "repos/{owner}/{repo}/issues/${n}/comments" -f body="$body" --jq .id </dev/null) >/dev/null
-  fi || echo "pr-${n}: writing the PR comment failed" >&2
+    echo "pr-${n}: writing the PR comment failed; the next run writes it again" >&2
+    printf '%s\n' "$2" >"${pending}.tmp"
+    mv -f -- "${pending}.tmp" "$pending"
+  fi
+}
+
+# Sends again each comment a run before could not write, whether or not the
+# pull request is still labeled or open, without bringing anything up.
+send_pending() {
+  local pending
+  for pending in "${PREVIEW_HOME}/sync"/pr-*.comment; do
+    [[ "$(basename -- "$pending")" =~ ^pr-([1-9][0-9]{0,6})\.comment$ ]] || continue
+    comment "${BASH_REMATCH[1]}" "$(cat -- "$pending")"
+  done
 }
 
 # When the label was last put on the pull request and by whom:
@@ -499,7 +520,8 @@ other_pushers() {
 # rebuilt every run, and putting the label on again asks again. A preview
 # gone at the head it was up at (reap's TTL, a `down` by hand) keeps its
 # label and comes back on a push or a new label. Anything GitHub does not
-# answer changes nothing.
+# answer changes nothing; a comment it did not take is written again on the
+# next run (comment).
 sync() {
   local pulls n head cross state_file tried status tried_at ns_head source
   local labeled label_at actor others code namespace up_at count refusal rows
@@ -525,6 +547,7 @@ sync() {
   while IFS=$'\t' read -r n head cross; do
     [[ "$n" =~ ^[1-9][0-9]{0,6}$ ]] && wanted+="${n} "
   done <<<"$pulls"
+  send_pending
 
   # First what is no longer wanted (label off, closed, merged), so a long
   # build below does not hold it up. Owner and up time come from one read:
