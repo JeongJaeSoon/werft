@@ -109,6 +109,7 @@ deploy/preview/preview.sh up 123     # PR head를 꺼내 이미지 3종(태그 p
 deploy/preview/preview.sh list       # 떠 있는 미리보기의 URL·head·메모리·/readyz
 deploy/preview/preview.sh down 123   # namespace, 이미지 태그, checkout을 지운다
 deploy/preview/preview.sh reap       # PR이 닫혔거나 머지됐거나 TTL이 지난 미리보기를 down한다
+deploy/preview/preview.sh sync       # 라벨이 붙은 PR을 up하고, 라벨을 뗐거나 닫힌 PR을 down한 뒤 reap한다
 ```
 
 - 설치는 PR head의 트리(Dockerfile·chart·대역 서비스)를 이 checkout의 `deploy/kind/up.sh`(orbstack 모드)로 한다. up.sh를 PR checkout에 복사해 돌리므로 orbstack 모드가 없는 오래된 head도 뜬다. 값은 `deploy/preview/values.yaml`을 얹는다(api·egress proxy를 1개로, worker 메모리를 fake 모델에 맞게 낮춘다).
@@ -117,13 +118,14 @@ deploy/preview/preview.sh reap       # PR이 닫혔거나 머지됐거나 TTL이
   - 브라우저와 curl은 `*.localhost`를 loopback으로 풀어서 DNS가 필요 없다.
   - Chrome은 `http://*.localhost`를 안전한 출처로 본다. 그래서 콘솔의 `__Host-` 세션 쿠키(Secure)가 http에서도 설정된다. 다른 브라우저에서는 확인하지 않았다. 18543 https는 Traefik 자체 서명 인증서라 쓰지 않는다.
   - 세션 쿠키는 host에만 붙으므로 미리보기마다 따로 저장된다. 한쪽에 로그인해도 다른 쪽이 풀리지 않는다.
-  - 데모 계정과 비밀번호는 [quickstart](../quickstart.md)의 "웹 콘솔 데모 계정"과 같다. Mac 밖에서 보려면 아래 [Actions 미리보기](#actions-미리보기)를 쓴다.
+  - 데모 계정과 비밀번호는 [quickstart](../quickstart.md)의 "웹 콘솔 데모 계정"과 같다. 다른 기기에서 보려면 아래 [내부 도메인으로 열기](#내부-도메인으로-열기)를 쓴다.
 - 새 미리보기를 띄우기 전에 노드 allocatable 메모리에서 Pod requests 합을 뺀 값이 `PREVIEW_MEMORY_MI`(기본 2560: 미리보기 Deployment requests 1792Mi와 worker 하나 768Mi)보다 작으면 이유를 적고 멈춘다. `MAX_MEMORY_MI`는 allocatable 대신 셀 값이다. 이미 있는 미리보기를 다시 `up`할 때는 세지 않는다.
 - 이미 떠 있는 미리보기에 `up`을 다시 돌리면 PR head를 받아 checkout한 뒤 namespace `pr-<번호>`를 지우고 새로 설치한다. Helm 업그레이드는 하지 않는다.
   - 이유: `up`은 이미지를 다시 빌드하므로 head가 같아도 worker 이미지 digest가 바뀐다. 업그레이드하면 chart의 pre-upgrade hook `upgrade-check`가 돈다. 미리보기 설치는 worker runtime을 넘기지 않으므로 이 검사가 `check_failed`로 업그레이드를 멈춘다.
   - 미리보기는 버리는 설치라 이 검사가 지키는 세션·데이터가 필요 없다. 그래서 검사를 끄거나 `images.workerPrevious`를 넘기지 않고 새로 설치한다. chart를 고치지 않으므로 오래된 head도 같은 방식으로 다시 뜨고, 실제 설치의 upgrade-check는 그대로다.
   - 앞 설치의 데이터(세션, 데모 외 계정, 설정)와 Secret은 남지 않는다. 데모 계정과 데이터는 `up`이 다시 넣는다. fetch나 checkout이 실패하면 지우기 전에 멈추므로 떠 있던 미리보기가 남는다. 이미지 빌드와 설치는 지운 뒤에 한다. 빌드가 실패하면 빈 namespace가, 설치가 실패하면 일부만 설치된 namespace가 남는다. 고친 뒤 다시 `up`하거나 `down`한다.
-- namespace에는 label `werft.dev/preview=true`, annotation `werft.dev/preview-head`(설치한 head)·`werft.dev/preview-up-at`(마지막 `up` 시작 시각, UTC)이 붙는다. `down`은 이 label이 없는 namespace를 지우지 않는다.
+- namespace에는 label `werft.dev/preview=true`, annotation `werft.dev/preview-head`(설치한 head)·`werft.dev/preview-up-at`(마지막 `up` 시작 시각, UTC)이 붙는다. `sync`가 띄운 namespace에는 `werft.dev/preview-source=label`도 붙는다(`up`이 `PREVIEW_SOURCE`를 적는다). `down`은 label `werft.dev/preview=true`가 없는 namespace를 지우지 않는다.
+- `up <번호> <sha>`는 받아 온 PR head가 그 sha가 아니면 아무것도 지우지 않고 75로 끝난다.
 - checkout과 up.sh 상태는 `PREVIEW_HOME`(기본 `~/.cache/werft/preview`) 아래 `pr-<번호>`에, PR head는 ref `refs/preview/pr-<번호>`에 둔다. 둘 다 `down`이 지운다.
 
 ### 미리보기 자동 정리
@@ -138,33 +140,48 @@ deploy/preview/preview.sh reap       # PR이 닫혔거나 머지됐거나 TTL이
 
 실행마다 시각, namespace별 판단, 지운 namespace 목록(`reap deleted: …`)을 출력한다. `down`이 하나라도 실패하면 나머지를 마저 본 뒤 0이 아닌 값으로 끝난다.
 
-`reap`을 주기적으로 돌리려면 작업용 worktree가 아니라 `reap` 전용 detached checkout에서 돌린다. 작업용 worktree는 지워지거나 브랜치가 바뀐다. 실행마다 그 checkout만 `git fetch origin` 뒤 `origin/main`으로 옮기고, 실패하면 이유를 로그에 적고 가진 코드로 `reap`을 돌린다. 그 checkout은 손으로 고치지 않는다.
+`reap`은 따로 돌리지 않고 [`sync`](#라벨-미리보기)가 실행마다 마지막에 돈다.
 
-gh는 로그인한 사용자의 인증을 쓰므로, 주기 실행은 그 사용자의 세션에서 도는 스케줄러(예: 15분 간격)로 건다.
+`preview.sh`는 PR head의 Dockerfile·chart·스크립트를 이 Mac에서 그대로 빌드·실행한다. 손으로 `up`할 때는 검토한 PR에만 쓴다.
 
-`preview.sh`는 PR head의 Dockerfile·chart를 이 Mac에서 그대로 빌드·실행한다. 검토한 PR에만 쓴다.
+### 라벨 미리보기
 
-### Actions 미리보기
+PR에 라벨 `preview`를 붙이면, `preview.sh sync`를 1분마다 돌리는 Mac이 그 PR head를 띄운다. 상태는 PR 댓글 하나에 적고 바뀔 때 고친다(올리는 중, 떠 있다, 실패했다, 거절했다, 내려갔다). 라벨이 붙어 있는 동안 새 push는 다음 실행에서 새 head로 다시 띄운다. 라벨을 떼거나 PR을 닫으면 내려간다.
 
-Mac 밖에서 보려면 PR에 라벨 `preview`를 붙인다. `.github/workflows/preview.yml`이 GitHub Actions runner에서 quickstart 스택(fake 모델, 데모 계정과 데이터)을 띄우고 Cloudflare quick tunnel(`https://<임의>.trycloudflare.com`, 계정 불필요)로 연다. 주소는 PR 댓글로 온다. 60분 뒤 스스로 내려가고 댓글이 "내려갔다"로 바뀐다.
+`sync`는 한 번 실행에서 다음을 한다.
 
-- 시간을 바꾸거나 다른 recipient를 더하려면 workflow를 직접 실행한다: `gh workflow run preview.yml -f pr=123 -f minutes=30`(5~180분).
-- 내리기: 라벨을 떼거나 PR을 닫는다. 라벨을 다시 붙이면 앞 run이 취소되고 새로 뜬다. 라벨을 붙인 시점의 head를 띄우므로, push한 뒤 새 head를 보려면 라벨을 다시 붙인다. merge conflict가 있는 PR에서는 `pull_request` 이벤트가 오지 않아 라벨로 시작·취소되지 않는다(실행 중인 run은 1분 안팎마다 라벨과 PR 상태를 다시 읽어 스스로 내려간다).
-- 데모 계정은 quickstart와 같은 두 이메일이지만 비밀번호는 run마다 새로 만든다(`DEMO_ACCOUNTS_PASSWORD`). 공개 저장소의 Actions 로그와 summary는 누구나 읽으므로 평문은 남기지 않는다. 로그에서는 mask하고, PR 댓글에 [age](https://github.com/FiloSottile/age)로 시작한 사람의 GitHub SSH 공개 키(ssh-ed25519·ssh-rsa)에 암호화한 텍스트를 접어 둔다(job summary는 job이 끝난 뒤에야 보여서 쓰지 않는다). 그 텍스트를 `password.age`로 저장해 `age -d -i ~/.ssh/id_ed25519 password.age`로 연다. ssh-agent나 하드웨어 키에만 있는 키로는 열 수 없으니, 그때는 직접 실행의 `recipient`에 age 공개 키(`age-keygen`)를 넣는다.
+1. 그 Mac의 gh 로그인, 저장소의 push 권한자, 라벨(`PREVIEW_LABEL`, 기본 `preview`)이 붙은 열린 PR을 읽는다. 하나라도 읽지 못하거나 PR이 500개 이상이면(목록이 잘렸을 수 있다) 아무것도 바꾸지 않고 `reap`만 돈다.
+2. 라벨을 뗐거나 닫혔거나 머지된 PR의 미리보기 중 `sync`가 띄운 것(`werft.dev/preview-source=label`)을 `down`한다. 긴 빌드보다 먼저 한다. 손으로 띄운 미리보기는 `reap`에 맡긴다.
+3. 라벨이 붙은 PR마다, 떠 있는 head가 PR head와 다르면 아래 검사를 거쳐 `up <번호> <head>`로 그 head를 띄운다. 그 사이 push로 head가 바뀌면 `up`이 75로 끝나고 다음 실행이 새 head로 한다. 손으로 같은 head를 띄워 `/readyz`가 200인 미리보기는 그대로 넘겨받는다.
+4. `reap`을 돈다.
 
-막는 것:
+다음이면 띄우지 않고 이유를 로그와 PR 댓글에 적는다.
 
-- `pull_request`만 쓰고 `pull_request_target`은 쓰지 않는다. 시작 전에 `.github/scripts/preview-request.sh`가 PR을 다시 읽어 fork PR, 닫힌 PR, 라벨이 이미 떨어진 PR, 시작한 사람이 write 미만인 경우를 거절한다. 라벨은 triage 이상만 붙일 수 있고 triage는 push 권한이 없어서 한 단계 더 막는다.
-- 이 검사는 PR에 든 workflow가 돌리는 것이라, 그 PR이 workflow를 고치면 함께 바뀐다. 같은 저장소 브랜치에 push할 수 있는 사람은 믿는다는 전제다. fork PR에서는 GitHub이 `GITHUB_TOKEN`을 읽기 전용으로 주므로, 검사를 지운 fork라도 PR 댓글을 쓰지 못한다.
-- secret을 쓰지 않는다. 실제 모델 key, GitHub App, Slack 연동이 없다. egress proxy와 worker 샌드박스 정책은 그대로다.
-- PR 코드를 돌리는 job `serve`는 읽기 권한(`contents`, `pull-requests`)만 갖고 Actions cache를 쓰지 않는다(`cache-mode: none`, image-cache action 없음). PR 댓글은 PR 코드를 돌리지 않는 다른 runner의 job `announce`가 `serve`의 artifact를 항목마다 검사한 뒤 쓴다.
-- 비밀번호를 바꾸는 코드가 없는 오래된 head는 고정 비밀번호로 뜬다. 그래서 `serve`는 두 계정이 run의 비밀번호로 로그인되는지 확인한 뒤에만 터널을 연다.
+- fork의 브랜치에서 연 PR이다.
+- 라벨을 마지막으로 붙인 사람이 그 Mac의 gh 로그인이 아니다.
+- 저장소에 그 로그인 말고도 push 권한자가 있다.
 
-남는 것:
+`up`은 PR의 Dockerfile을 빌드하고, PR의 chart·manifest를 OrbStack 클러스터 관리자 권한으로 설치하고, PR checkout의 스크립트(`scripts/k8s-api.sh`)를 Mac에서 직접 실행한다. 그래서 라벨 미리보기는 "그 Mac 사용자가 자기가 push한 코드를 돌린다"는 전제에서만 자동으로 돈다. push할 수 있는 사람이 늘면 이 전제가 깨지므로 모든 PR을 거절한다.
 
-- 로그인 화면과 공개 API는 인터넷의 누구나 닿는다. 로그인 실패 5번이면 그 계정이 15분 잠기므로(이메일이 공개돼 있다) 누군가 미리보기를 막을 수 있다.
-- quick tunnel은 SSE를 지원하지 않고 동시 요청을 200개로 제한한다([Cloudflare](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/trycloudflare/)). 세션 화면의 실시간 이벤트가 오지 않을 수 있다.
-- 주소는 추측하기 어렵지만 비밀이 아니다(PR 댓글에 적는다).
+head마다 라벨 한 번에 한 번만 시도한다. `PREVIEW_HOME/sync/pr-<번호>`에 `<head> <up|failed|refused|gone> <라벨을 붙인 시각>`을 적어 실패한 head를 매분 다시 빌드하지 않는다. 다시 시도하려면 새 커밋을 push하거나 라벨을 다시 붙인다. `up`의 출력은 `PREVIEW_HOME/sync/pr-<번호>.log`에 남는다. 공개 PR 댓글에는 로그를 붙이지 않는다.
+
+`reap`의 TTL은 라벨 미리보기에도 걸린다. 떠 있던 head의 미리보기가 없어지면(TTL, 손으로 `down`) 댓글을 "내려갔다"로 고치고 라벨은 남긴다. 새 push나 라벨을 다시 붙이면 다시 뜬다.
+
+#### 내부 도메인으로 열기
+
+`PREVIEW_DOMAIN`(예: `preview.example.dev`)을 주면 각 미리보기의 Ingress가 Host `pr-<번호>.<PREVIEW_DOMAIN>`도 api로 보내고, `list`·`up`·PR 댓글이 주소를 `https://pr-<번호>.<PREVIEW_DOMAIN>/`로 적는다. 그 앞에 둘 것은 다음과 같다.
+
+- `*.<PREVIEW_DOMAIN>`를 reverse proxy로 푸는 사설 DNS와, 그 proxy에서 TLS를 끝내는 `*.<PREVIEW_DOMAIN>` 인증서.
+- proxy는 Host 헤더를 바꾸지 않고 Mac의 Traefik http 포트로 넘긴다. control-host는 브라우저 요청의 Origin host가 Host와 같아야 받는다. 세션 쿠키(`__Host-`, Secure)는 https 주소의 host마다 따로 저장된다.
+- Traefik은 Mac의 `127.0.0.1:18180`에만 있다. `k8s.expose_services`를 켜지 말고, proxy가 닿는 Mac 주소 하나에서 proxy 주소에서 오는 연결만 받는 포워더를 둔다. 예: `socat TCP-LISTEN:18180,bind=<Mac 주소>,reuseaddr,fork,range=<proxy 주소>/32 TCP:127.0.0.1:18180`.
+
+이 주소는 tailnet 같은 사설망 안에서만 연다. 데모 계정은 quickstart의 공개 비밀번호를 그대로 쓰고, PR 댓글도 그 문서를 가리킨다. 사설망에 든 기기는 누구나 데모 계정으로 로그인할 수 있다는 전제다. 미리보기를 인터넷에 열지 않는다.
+
+#### 주기 실행
+
+`sync`는 작업용 worktree가 아니라 전용 detached checkout에서 돌린다. 작업용 worktree는 지워지거나 브랜치가 바뀐다. 실행마다 그 checkout만 `git fetch origin` 뒤 `origin/main`으로 옮기고, 실패하면 이유를 로그에 적고 가진 코드로 돌린다. 그 checkout은 손으로 고치지 않는다. PR 코드는 그 checkout에서 돌지 않는다. `up`이 PR마다 따로 꺼낸 checkout에서 돈다.
+
+gh는 로그인한 사용자의 인증을 쓰므로, 그 사용자의 세션에서 도는 스케줄러로 1분마다 건다(macOS에서는 LaunchAgent의 `StartInterval`). `sync`는 잠금(`PREVIEW_HOME/sync.lock`)을 잡으므로 긴 빌드 동안 다음 실행은 75로 끝난다. 스케줄러의 PATH에 kubectl·helm·docker·gh·jq·bun·orb가 있어야 한다.
 
 ## 테스트·스크립트 배치
 

@@ -50,7 +50,7 @@ export const DEMO_ACCOUNTS = [
 
 /**
  * The demo accounts' password: DEMO_ACCOUNTS_PASSWORD when it is set (a
- * preview open to the internet makes one per run, .github/workflows/preview.yml),
+ * stack that must not use the public one sets it, through scripts/local.sh),
  * else the public DEMO_PASSWORD. A value that is set but no valid password
  * throws rather than falling back to the public one.
  */
