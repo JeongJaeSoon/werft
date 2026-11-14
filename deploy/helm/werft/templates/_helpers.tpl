@@ -25,13 +25,17 @@ app.kubernetes.io/component: {{ .component }}
 kubernetes backend refuses a bare tag, and so does this chart for every image.
 */}}
 {{- define "ap.image" -}}
-{{- $image := index .root.Values.images .name -}}
-{{- $repository := required (printf "images.%s.repository is required" .name) $image.repository -}}
+{{- include "ap.imageRef" (dict "root" .root "label" (printf "images.%s" .name) "image" (index .root.Values.images .name)) -}}
+{{- end -}}
+
+{{- define "ap.imageRef" -}}
+{{- $image := .image -}}
+{{- $repository := required (printf "%s.repository is required" .label) $image.repository -}}
 {{- if regexMatch "@|:[^/]+$" $repository -}}
-{{- fail (printf "images.%s.repository must not carry a tag or digest (got %q); set images.%s.digest" .name $repository .name) -}}
+{{- fail (printf "%s.repository must not carry a tag or digest (got %q); set %s.digest" .label $repository .label) -}}
 {{- end -}}
 {{- if not (regexMatch "^sha256:[0-9a-f]{64}$" (toString $image.digest)) -}}
-{{- fail (printf "images.%s.digest must be sha256:<64 hex> (got %q): every image is pinned by digest" .name (toString $image.digest)) -}}
+{{- fail (printf "%s.digest must be sha256:<64 hex> (got %q): every image is pinned by digest" .label (toString $image.digest)) -}}
 {{- end -}}
 {{- $registry := .root.Values.images.registry | trimSuffix "/" -}}
 {{- if $registry -}}
@@ -139,7 +143,7 @@ images than the scheduler launches.
 {{- end -}}
 {{- range $name := list "WORKER_IMAGE" "WORKER_IMAGES" "WORKER_IMAGE_PREVIOUS" "WORKER_IMAGE_RUNTIME" "WORKER_IMAGE_PREVIOUS_RUNTIME" -}}
 {{- if has $name $names -}}
-{{- fail (printf "%s must not be set through extraEnv, config.limits or secrets.catalogEnv; set images.worker and images.workerPrevious" $name) -}}
+{{- fail (printf "%s must not be set through extraEnv, config.limits or secrets.catalogEnv; set images.workers, or images.worker and images.workerPrevious" $name) -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
@@ -157,11 +161,16 @@ images than the scheduler launches.
 {{- end -}}
 
 {{/*
-The worker images' runtime combinations. The api and slack judge release spec
-pins against them and the scheduler picks each session's image by them, so
-all three render this one definition and cannot disagree.
+The worker images' runtime combinations: images.workers as WORKER_IMAGES, or
+the runtimes of images.worker and images.workerPrevious. The api and slack
+judge release spec pins against them and the scheduler picks each session's
+image by them, so all three render this one definition and cannot disagree.
 */}}
 {{- define "ap.workerRuntimeEnv" -}}
+{{- if .Values.images.workers }}
+- name: WORKER_IMAGES
+  value: {{ include "ap.workerImages" . | quote }}
+{{- else -}}
 {{- $current := .Values.images.worker.runtime -}}
 {{- $previous := .Values.images.workerPrevious -}}
 {{- if and $previous.digest (not $previous.runtime) -}}
@@ -174,8 +183,91 @@ all three render this one definition and cannot disagree.
 {{- fail "images.workerPrevious needs images.worker.runtime beside it" -}}
 {{- end -}}
 {{- range $name, $runtime := dict "images.worker.runtime" $current "images.workerPrevious.runtime" $previous.runtime -}}
-{{- /* The same rules as parseImageRuntime, which every reader starts with. */ -}}
 {{- if $runtime -}}
+{{- $_ := include "ap.checkRuntime" (dict "name" $name "runtime" $runtime) -}}
+{{- end -}}
+{{- end -}}
+{{- with $current }}
+- name: WORKER_IMAGE_RUNTIME
+  value: {{ toJson . | quote }}
+{{- end }}
+{{- with $previous.runtime }}
+- name: WORKER_IMAGE_PREVIOUS_RUNTIME
+  value: {{ toJson . | quote }}
+{{- end }}
+{{- end }}
+{{- end -}}
+
+{{/*
+images.workers as the WORKER_IMAGES JSON, newest first. Order, release times
+and how many images of one engine are checked where the list is read: every
+reader fails to start, and the upgrade check before it, on a list the
+scheduler would refuse.
+*/}}
+{{- define "ap.workerImages" -}}
+{{- $workers := .Values.images.workers -}}
+{{- if not (kindIs "slice" $workers) -}}
+{{- fail "images.workers must be a list of {repository, digest, runtime, releasedAt}" -}}
+{{- end -}}
+{{- with .Values.images -}}
+{{- if or .worker.digest .worker.runtime .workerPrevious.digest .workerPrevious.runtime -}}
+{{- fail "images.workers replaces images.worker and images.workerPrevious: leave their digest and runtime empty (a packaged chart fills images.worker; clear it with --set images.worker.digest= --set-json 'images.worker.runtime=null')" -}}
+{{- end -}}
+{{- end -}}
+{{- /* WORKER_IMAGES_PER_ENGINE, and one engine per list, as workerImageListFromEnv. */ -}}
+{{- if gt (len $workers) 2 -}}
+{{- fail (printf "images.workers lists %d images: at most 2, the newest and the release before it" (len $workers)) -}}
+{{- end -}}
+{{- $entries := list -}}
+{{- $digests := list -}}
+{{- $engines := list -}}
+{{- $newer := now -}}
+{{- range $index, $entry := $workers -}}
+{{- $name := printf "images.workers[%d]" $index -}}
+{{- if not (kindIs "map" $entry) -}}
+{{- fail (printf "%s must be a map of repository, digest, runtime and releasedAt" $name) -}}
+{{- end -}}
+{{- with without (keys $entry) "repository" "digest" "runtime" "releasedAt" -}}
+{{- fail (printf "%s has unknown field(s): %s" $name (join ", " (sortAlpha .))) -}}
+{{- end -}}
+{{- if not (and (kindIs "map" $entry.runtime) $entry.runtime) -}}
+{{- fail (printf "%s.runtime is required: set the runtime images.yml recorded for it" $name) -}}
+{{- end -}}
+{{- $_ := include "ap.checkRuntime" (dict "name" (printf "%s.runtime" $name) "runtime" $entry.runtime) -}}
+{{- if not (and (kindIs "string" $entry.releasedAt) $entry.releasedAt) -}}
+{{- fail (printf "%s.releasedAt must be the image's release time as a string, e.g. \"2026-11-10T00:00:00Z\"" $name) -}}
+{{- end -}}
+{{- /* RFC 3339 with seconds, a subset of what the readers accept: they compare in milliseconds (Date.parse) and read years below 100 as 19xx. */ -}}
+{{- $at := toDate "2006-01-02T15:04:05Z07:00" $entry.releasedAt -}}
+{{- if or (not (regexMatch `^[1-9]\d{3}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?(Z|[+-]([01]\d|2[0-3]):[0-5]\d)$` $entry.releasedAt)) $at.IsZero -}}
+{{- fail (printf "%s.releasedAt %q is not an RFC 3339 time, e.g. \"2026-11-10T00:00:00Z\"" $name $entry.releasedAt) -}}
+{{- end -}}
+{{- if and (gt $index 0) (not ($at.Before $newer)) -}}
+{{- fail (printf "%s.releasedAt %s is not before the entry above it: list the newest image first" $name $entry.releasedAt) -}}
+{{- end -}}
+{{- $newer = $at -}}
+{{- $image := include "ap.imageRef" (dict "root" $ "label" $name "image" $entry) -}}
+{{- /* The distribution reference grammar the readers hold every image to. */ -}}
+{{- if not (regexMatch `^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?)*(?::\d+)?/)?[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*)*@sha256:[0-9a-f]{64}$` $image) -}}
+{{- fail (printf "%s.repository: %q is not an image reference the scheduler accepts" $name $image) -}}
+{{- end -}}
+{{- if has $entry.digest $digests -}}
+{{- fail (printf "%s.digest %s is listed twice" $name $entry.digest) -}}
+{{- end -}}
+{{- $digests = append $digests $entry.digest -}}
+{{- $engines = append $engines $entry.runtime.engine | uniq -}}
+{{- $entries = append $entries (dict "image" $image "runtime" $entry.runtime "released_at" $entry.releasedAt) -}}
+{{- end -}}
+{{- if gt (len $engines) 1 -}}
+{{- fail (printf "images.workers lists images of %s: images of one engine only" (join " and " $engines)) -}}
+{{- end -}}
+{{- toJson $entries -}}
+{{- end -}}
+
+{{/* The same rules as parseImageRuntime, which every reader starts with. */}}
+{{- define "ap.checkRuntime" -}}
+{{- $name := .name -}}
+{{- $runtime := .runtime -}}
 {{- with without (keys $runtime) "engine" "sdkVersion" "cliVersion" "profileDigestScheme" "profiles" "restorableSchemes" -}}
 {{- fail (printf "%s has unknown field(s): %s" $name (join ", " (sortAlpha .))) -}}
 {{- end -}}
@@ -216,22 +308,19 @@ all three render this one definition and cannot disagree.
 {{- end -}}
 {{- end -}}
 {{- end -}}
-{{- end -}}
-{{- with $current }}
-- name: WORKER_IMAGE_RUNTIME
-  value: {{ toJson . | quote }}
-{{- end }}
-{{- with $previous.runtime }}
-- name: WORKER_IMAGE_PREVIOUS_RUNTIME
-  value: {{ toJson . | quote }}
-{{- end }}
-{{- end -}}
 
-{{/* The previous worker image, for what launches on it: the scheduler. */}}
-{{- define "ap.workerPreviousImageEnv" -}}
+{{/*
+The images the scheduler launches, and the upgrade check judges: the list
+rides in ap.workerRuntimeEnv, so only single-image settings render here.
+*/}}
+{{- define "ap.workerImageEnv" -}}
+{{- if not .Values.images.workers }}
+- name: WORKER_IMAGE
+  value: {{ include "ap.image" (dict "root" . "name" "worker") | quote }}
 {{- if .Values.images.workerPrevious.digest }}
 - name: WORKER_IMAGE_PREVIOUS
   value: {{ include "ap.image" (dict "root" . "name" "workerPrevious") | quote }}
+{{- end }}
 {{- end }}
 {{- end -}}
 

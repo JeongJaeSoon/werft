@@ -67,9 +67,7 @@ spec:
             {{- end }}
             - name: UPGRADE_DEPLOYED_STATE
               value: {{ $state | quote }}
-            - name: WORKER_IMAGE
-              value: {{ include "ap.image" (dict "root" . "name" "worker") | quote }}
-            {{- with include "ap.workerPreviousImageEnv" . | trim }}{{ . | nindent 12 }}{{ end }}
+            {{- with include "ap.workerImageEnv" . | trim }}{{ . | nindent 12 }}{{ end }}
             {{- with include "ap.workerRuntimeEnv" . | trim }}{{ . | nindent 12 }}{{ end }}
             - name: UPGRADE_APPROVED_SESSIONS
               value: {{ toJson .Values.upgrade.approvedSessions | quote }}
