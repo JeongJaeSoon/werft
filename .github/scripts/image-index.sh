@@ -28,7 +28,7 @@ for app in control-host worker worker-codex egress-proxy; do
       exit 1
     fi
   done
-  for field in app image base commit ref runtime; do
+  for field in app image base commit ref releasedAt runtime; do
     if [ "$(jq -cS ".${field}" "$amd64")" != "$(jq -cS ".${field}" "$arm64")" ]; then
       echo "::error::${app}: amd64 and arm64 differ in ${field}"
       exit 1

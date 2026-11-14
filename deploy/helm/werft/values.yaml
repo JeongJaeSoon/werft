@@ -42,16 +42,21 @@ images:
     # adds restorableSchemes: [1, 2] (it must include profileDigestScheme). Empty launches every session on this image, and
     # an upgrade can then keep this image but not replace it
     # (the Kubernetes install page of the docs site (operate/kubernetes-deployment)).
+    # releasedAt is not read here: it is this image's images.workers
+    # releasedAt (its commit's committer time), which a packaged release
+    # fills along with files/release-images.json.
     runtime: {}
+    releasedAt: ""
   # The Codex worker image of the same release (apps/worker built with
   # WORKER_RUNTIME=codex_app_server). The chart does not deploy it and reads
   # nothing from this entry: a deployment that runs Codex copies this
   # repository, digest and runtime into images.worker. A packaged release
-  # fills the digest and runtime.
+  # fills the digest, runtime and releasedAt.
   workerCodex:
     repository: ghcr.io/jeongjaesoon/werft-worker-codex
     digest: ""
     runtime: {}
+    releasedAt: ""
   # The release before, so a session whose checkpoint the current image
   # cannot restore resumes on it (WORKER_IMAGE_PREVIOUS). Its digest and
   # runtime go together, and need images.worker.runtime set. A worker built
@@ -74,7 +79,9 @@ images:
   # both kinds of agent. retracted: true keeps an image listed but launches
   # nothing on it; its sessions move to an unretracted image of the same
   # engine, SDK and CLI, or stop as runtime_retired. At most two unretracted
-  # images per engine.
+  # images per engine. files/next-workers.jq builds the next list from a
+  # packaged release's images and the deployed values (the Kubernetes upgrade
+  # page of the docs site).
   workers: []
 
 # The chart never holds a secret value. Each workload reads only the keys it

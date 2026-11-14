@@ -96,6 +96,69 @@ An installation that deploys the Codex worker (one that copies the chart's `imag
 
 Do not pass control-phase.json to the final upgrade. Replace worker-previous.json only on success and retain it for future upgrades. Clear approvals each upgrade and inspect the new affected list.
 
+<a id="이미지-목록-설치의-upgrade" />
+#### Upgrading an image-list installation
+
+An installation that sets its worker images with `images.workers` (one that runs Claude and Codex together) builds its values file with the target chart's `files/next-workers.jq` instead of the `images.worker` commands above. Converting a single-image installation to a list for the first time uses the same procedure. The target release's two worker image entries are in the same chart's `files/release-images.json`. Do not upgrade a list installation with a chart that lacks these two files (a release from before this procedure).
+
+```bash
+VERSION=<new version>
+rm -rf target-chart \
+  && helm pull oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" --untar --untardir target-chart
+# deployed_values: the values of the deployed revision; next_workers <control|final>: the values file
+deployed_values() {
+  DEPLOYED="$(helm -n werft history werft -o json | jq '[.[] | select(.status == "deployed")] | last.revision')" \
+    && helm -n werft get values werft --all --revision "$DEPLOYED" -o json > deployed-values.json
+}
+next_workers() {
+  jq -n -f target-chart/werft/files/next-workers.jq --arg phase "$1" \
+    --slurpfile deployed deployed-values.json \
+    --slurpfile release target-chart/werft/files/release-images.json \
+    --argjson known "$KNOWN"
+}
+```
+
+**Step 1 (control plane).** A list installation passes the deployed list as it is. Helm replaces a list whole instead of merging it key by key, so there is no `null` overlay for runtime keys. Instead the digest and runtime of `images.worker` and `images.workerPrevious` are cleared: a published chart fills `images.worker`, and the chart refuses single values beside a list. When converting a single-image installation for the first time, do step 1 above unchanged (`next_workers control` refuses a single-image installation).
+
+```bash
+KNOWN='{}'
+deployed_values && next_workers control > control-phase.json \
+  && helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
+    --namespace werft -f values-<installation>.yaml -f control-phase.json \
+    --set-json 'upgrade.approvedSessions=[]' --timeout 10m \
+  && kubectl -n werft rollout status deploy/werft-api --timeout=600s
+```
+
+**Step 2 (final list).** The target release's two images are added to the deployed images: the deployed list for a list installation, or the deployed `images.worker` and (if set) `images.workerPrevious` for a single-image installation. Do not pass `worker-previous.json`; the previous image is read from the deployed values.
+
+```bash
+deployed_values && next_workers final > workers.json \
+  && helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
+    --namespace werft -f values-<installation>.yaml -f workers.json \
+    --set-json 'upgrade.approvedSessions=[]' --timeout 10m
+```
+
+When converting a single-image installation for the first time, put each deployed image's `releasedAt` in `KNOWN` by digest, and its runtime too if it was deployed without one. The program does not read `images.worker.releasedAt` from single values: it is the chart default and may not match the digest the installation set. Take the values from the deployed release's manifest; `releasedAt` is the committer time of that release's commit. If the Codex image was deployed as `images.worker`, change the `IMAGE=` line to `IMAGE=worker-codex RUNTIME=workerCodexRuntime RELEASED=workerCodexReleasedAt`. If `images.workerPrevious` is set, build one more entry from its release's manifest and merge the two.
+
+```bash
+TAG=<the deployed release, e.g. v0.2.0>
+IMAGE=worker RUNTIME=workerRuntime RELEASED=workerReleasedAt
+mkdir -p "$TAG" && curl -fsSL -o "$TAG/release-manifest.json" \
+  "https://github.com/JeongJaeSoon/werft/releases/download/$TAG/release-manifest.json" \
+  && AT="$(curl -fsS "https://api.github.com/repos/JeongJaeSoon/werft/commits/$(jq -r .commit "$TAG/release-manifest.json")" | jq -er .commit.committer.date)" \
+  && KNOWN="$(jq -c --arg at "$AT" --arg i "$IMAGE" --arg r "$RUNTIME" --arg t "$RELEASED" '{(.images[$i].digest): {runtime: .[$r], releasedAt: (.[$t] // $at)}}' "$TAG/release-manifest.json")"
+```
+
+The program builds the list like this:
+
+- Each engine's images go newest `releasedAt` first, and up to two unretracted images are kept; a third is dropped. The [pre-upgrade check](#3-검사-결과와-예외) judges the sessions that need a dropped image: if the images left cannot restore the checkpoint of a launch holding a slot on it, the result is `refused` with no approval possible, and a session with only a checkpoint is listed as affected. A launch started on a single image deployed without a runtime has no runtime on record. So even with a rebuild of the same runtime in the list, only that image itself is taken to restore the checkpoints it seals. An upgrade that drops that image (usually the one after the switch to a list) is `refused` until the launch lets go of its slot. Once it is paused, its checkpoint resumes on an image whose runtime matches.
+- A digest is listed once. A deployed retracted image stays retracted even when the target release names the same digest. A retracted image is kept only when it is newer than the oldest image kept; an engine with no unretracted image keeps all its retracted images (which is not the same as the engine leaving the list). Once an old retracted image is dropped, checkpoints of its combination stop as `incompatible_checkpoint` instead of `runtime_retired`.
+- It fails without writing a values file when a deployed image has no runtime or `releasedAt`, when a target image is not newer than every deployed image of its engine, when one digest is given with another runtime, time or repository, and when two images of one engine have the same time. `releasedAt` is a commit time and can differ from the publishing order: a chart of a tag on a commit older than the deployed image, and a chart that rebuilt by tag push a commit main had already published (another digest, the same time), stop here. Upgrade with a newer release's chart instead.
+
+The commands are joined by `&&`, so `helm upgrade` does not run when the program fails. A failed upgrade, run again, gives the same file from the same deployed revision, so there is no file to keep. Clear the approval list every time as above. An engine you do not use may be deleted from `workers.json` before passing it; deleting an engine the deployed images had makes the upgrade one that drops an engine (see "An upgrade that drops an engine" below).
+
+This procedure was followed on kind (the `list` and `next-list` steps of `deploy/kind/upgrade.sh`). A single image A installed without a runtime became [B, A, C] (B is A rebuilt, C the Codex image), and a session waiting for an approval on A went on in the same Pod. After a control phase, the switch to [D, B, C] was `refused` while that session's launch held a slot on A. Rerunning the procedure after the failed revision gave the same file. Once the session finished and was paused, the same file was `proceed`. Both upgrades ran with an empty approval list. The two paused sessions resumed from their checkpoints on D, one paused on B and one on A. No Codex session ran on kind.
+
 <a id="3-검사-결과와-예외" />
 ### 3. Check results and exceptions
 
@@ -235,6 +298,24 @@ helm -n werft rollback werft <revision> --wait --timeout 10m
 Rollback does not run migrate hooks (they are not pre-rollback). Database schema stays new; old builds can still report ready on later schemas because readyz checks only that their migration list is a prefix of applied migrations. Do not deploy irreversible migrations. A migration that can be reversed only down to some image (for example `0243`) has that floor written per image in the [Compose upgrade table](/run-server/self-hosting/upgrade-compose); do not roll back below it. Before reverting workers, read [incremental checkpoint rollback](/run-server/self-hosting/upgrade-compose#workercontrol-host-롤백과-incremental-checkpoint).
 
 Roll back only after shared gates and the direct check establish viability. Without hooks, rollback does not automatically enforce checks. Prefer roll-forward.
+
+<a id="옛-worker-이미지-지우기" />
+## Delete old worker images
+
+Sessions resume on a runtime combination, not on an image. An old worker image may therefore be deleted from the registry once the checks below pass, in order. The deletion happens in the registry; werft does not delete images. When the image must not run again, such as for a vulnerability that cannot be rebuilt away, [retract](/run-server/self-hosting/reference/configuration) it in the list before deleting it.
+
+1. Remove it from the list. On a list install (`images.workers`, `WORKER_IMAGES`), the program in [Upgrading an image-list installation](#이미지-목록-설치의-upgrade) keeps at most two unretracted images per engine, so the image drops out by itself once you upgrade to two newer releases of that engine. A retracted image drops out once it is older than the oldest kept unretracted image, and never on an engine with no unretracted image. To remove it sooner, delete its entry from the generated `workers.json` before passing the file. The program adds the target chart's `release-images.json` to the deployed list, so a removed image does not come back at the next upgrade unless the target chart lists its digest. If it does, delete the entry from that upgrade's `workers.json` too. On an install with single values, keep it out of both `images.worker` and `images.workerPrevious` and upgrade as in the steps above. When a session still needs the removed image, the [pre-upgrade check](#3-검사-결과와-예외) judges that upgrade. From then on no new launch chooses that image. What happens to a session whose combination has no image left in the list is described under the image list in the [configuration reference](/run-server/self-hosting/reference/configuration).
+2. Wait until the series `werft_sessions_by_worker_image{image="<repository>@sha256:<digest>"}` is gone. The gauge counts sessions that have not ended, by the image of their newest launch ([metrics reference](/run-server/self-hosting/reference/metrics), [collect metrics](/run-server/self-hosting/collect-metrics)). While the series exists, a session whose newest launch is on that image is still open. An open session at rest stays in the series too, so wait until such sessions end or launch again on another image. The gauge does not count `stopped` sessions, so do not skip step 3 when the series is gone.
+3. Check in the database that no launch on that image holds a slot. Run the query below with your own database client; it must return no rows. Those rows cover a worker the scheduler manages on that image and a launch that, rebuilt before a worker binds it, is rebuilt on its stored image, the one you are about to delete. A slot is released only after the scheduler confirms the resource is gone. An orphan Pod, which has left the records and which the scheduler cleans up on its own, does not appear here. An orphan is never rebuilt and runs on the image its node already pulled, so deleting the image from the registry does not affect that Pod.
+
+```sql
+SELECT session_id, generation, claimed_attempt_id IS NOT NULL AS claimed
+FROM worker_launches
+WHERE image = '<repository>@sha256:<digest>'
+  AND slot_released_at IS NULL;
+```
+
+When all three hold, delete it from the registry. Rolling back afterwards to a Helm revision whose list holds that image makes that revision's scheduler fail to pull it on any node without a cached copy when it launches on it (worker Pods pull with `IfNotPresent`). Keep the images held by any revision you want to be able to roll back to. This procedure has not been run end to end.
 
 <a id="다음에-읽을-곳" />
 ## Next steps
