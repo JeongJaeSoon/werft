@@ -838,7 +838,10 @@ describe("egress proxy", () => {
       "an answer still queued for a client that stopped reading: %s",
       async (_name, speakEarly) => {
         // Far past what loopback buffers hold, so the answer is complete
-        // upstream while most of it still sits in the proxy's queue.
+        // upstream while most of it still sits in the proxy's queue. The
+        // first case is what shows the queue was not empty: had the
+        // connection already been reset, its early request would have been
+        // served on a second dial.
         const { dials, server, warnings } = await watched(
           [
             { host: "gateway.test", port: upstreamPort },
@@ -846,8 +849,8 @@ describe("egress proxy", () => {
           ],
           { maxBufferedBytes: 2 * HUGE_LENGTH },
         );
+        const talk = await connect(server.port);
         try {
-          const talk = await connect(server.port);
           talk.stopReading();
           talk.send(
             kept(`GET http://gateway.test:${upstreamPort}/huge HTTP/1.1`),
@@ -879,8 +882,9 @@ describe("egress proxy", () => {
             ),
           ).toBe(true);
           expect(dials).toHaveLength(2);
-          talk.close();
         } finally {
+          talk.resumeReading();
+          talk.close();
           server.stop();
         }
       },
