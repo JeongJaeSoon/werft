@@ -1,9 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { gunzipSync, gzipSync } from "node:zlib";
-import {
-  OPEN_PUSH_REQUEST_STATES,
-  type SessionActivity,
-} from "@werft-ai/contracts";
+import { OPEN_PUSH_REQUEST_STATES } from "@werft-ai/contracts";
 import { type SQL, sql } from "drizzle-orm";
 import type { Database } from "../queries.ts";
 import {
@@ -18,7 +15,6 @@ import {
   turns,
 } from "../schema.ts";
 import { rowsOf } from "../statement-rows.ts";
-import { mergeActivity, readActivityRange } from "./session-activity.ts";
 
 /**
  * Old sessions' events moved to the checkpoint bucket, one gzip
@@ -258,8 +254,7 @@ const UNSETTLED_TURN_STATUSES = sql`('queued', 'running', 'needs_input', 'outcom
 
 /**
  * Nothing running or waiting on anyone in the session, and the projections
- * have passed every event it has, so its stored activity is the window over
- * all of them.
+ * have passed every event it has.
  */
 function settled(sessionId: SQL, cap: number): SQL {
   const openPush = sql.join(
@@ -308,19 +303,13 @@ async function archivableSessions(
   return rows.map((row) => ({ id: row.id, after: Number(row.after) }));
 }
 
-type Head = {
-  through_id: string;
-  activity: SessionActivity;
-  activity_through: string;
-};
-
 async function lastChunk(
   db: Database,
   sessionId: string,
-): Promise<Head | undefined> {
-  const [row] = rowsOf<Head>(
+): Promise<{ through_id: string } | undefined> {
+  const [row] = rowsOf<{ through_id: string }>(
     await db.execute(sql`
-      SELECT through_id, activity, activity_through
+      SELECT through_id
       FROM ${sessionEventArchives}
       WHERE session_id = ${sessionId}
       ORDER BY from_id DESC LIMIT 1`),
@@ -374,8 +363,6 @@ async function commitChunk(
     after: number;
     chunk: ArchiveChunkRow;
     bytes: number;
-    activity: SessionActivity;
-    activityThrough: number;
     cap: number;
   },
 ): Promise<boolean> {
@@ -404,12 +391,11 @@ async function commitChunk(
       await tx.execute(sql`
         INSERT INTO ${sessionEventArchives} (session_id, from_id, through_id,
           object_key, version_id, sha256, event_count, bytes, last_created_at,
-          last_occurred_at, activity, activity_through)
+          last_occurred_at)
         SELECT ${sessionId}, ${chunk.fromId}, ${chunk.throughId},
           ${chunk.objectKey}, ${chunk.versionId}, ${chunk.sha256},
           ${chunk.eventCount}, ${input.bytes}, e.created_at,
-          coalesce(e.occurred_at, e.created_at),
-          ${JSON.stringify(input.activity)}::jsonb, ${input.activityThrough}
+          coalesce(e.occurred_at, e.created_at)
         FROM ${events} e
         WHERE e.session_id = ${sessionId} AND e.id = ${chunk.throughId}
         RETURNING from_id`),
@@ -449,22 +435,6 @@ async function archiveSession(
 ): Promise<SessionArchiveResult> {
   const head = await lastChunk(db, sessionId);
   let after = Number(head?.through_id ?? 0);
-  // Taken before any row of the pass leaves: the window then still holds
-  // every event the pass archives. Rows a cut-short earlier pass left are
-  // already inside the stored activity, up to its activity_through.
-  const fromActivity = Number(head?.activity_through ?? 0);
-  const [top] = rowsOf<{ id: string | null }>(
-    await db.execute(sql`
-      SELECT max(id) AS id FROM ${events}
-      WHERE session_id = ${sessionId} AND id <= ${cap}`),
-  );
-  const activityThrough = Math.max(Number(top?.id ?? 0), fromActivity);
-  const fresh = await readActivityRange(db, sessionId, {
-    after: fromActivity,
-    through: activityThrough,
-  });
-  const activity =
-    head === undefined ? fresh : mergeActivity(head.activity, fresh);
   let chunks = 0;
   let archived = 0;
   let stored = 0;
@@ -499,8 +469,6 @@ async function archiveSession(
       after,
       chunk,
       bytes: body.byteLength,
-      activity,
-      activityThrough,
       cap,
     });
     // The held object stays behind unrecorded; nothing reads it.

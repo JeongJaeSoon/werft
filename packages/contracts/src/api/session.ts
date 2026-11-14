@@ -327,102 +327,6 @@ export const sessionAttachedRepositorySchema = z.object({
   }),
 });
 
-export const SESSION_ACTIVITY_WINDOW_EVENTS = 500;
-export const SESSION_ACTIVITY_TEXT_MAX = 200;
-const activityToolName = z.string().meta({
-  description: "The tool_use name; empty when the call named none.",
-});
-const activityToolTarget = z.string().meta({
-  description:
-    "What the call acts on, the first of its input's `command`, `file_path`, `path`, `pattern`, `url`, `query` or `description` that is a non-empty string; empty when none is.",
-});
-// In no API response: the event archive stores it and the db bench reads it.
-export const sessionActivitySchema = z.object({
-  last: z
-    .discriminatedUnion("kind", [
-      z.object({
-        kind: z.literal("text"),
-        text: z
-          .string()
-          .min(1)
-          .meta({
-            description: `The first non-blank line of the text, trimmed and cut to ${SESSION_ACTIVITY_TEXT_MAX} code points.`,
-          }),
-      }),
-      z.object({
-        kind: z.literal("tool"),
-        name: activityToolName,
-        target: activityToolTarget,
-      }),
-    ])
-    .nullable()
-    .meta({
-      description:
-        "The newest text with a non-blank line or tool call in the window's `assistant` and `tool_use` events, a subagent's included. Null when the window has neither.",
-    }),
-  tool_count: z.number().int().nonnegative().meta({
-    description: "Distinct tool_use ids called in the window.",
-  }),
-  error_count: z.number().int().nonnegative().meta({
-    description:
-      "Of those calls, the ones whose tool_result has `is_error: true`. A call left without a result is not counted.",
-  }),
-  subagent_count: z.number().int().nonnegative().meta({
-    description:
-      "Subagent runs in the window: one per `Task` or `Agent` call, and one per call the window's events name as `parent_tool_use_id`, whether or not that call is in the window.",
-  }),
-  current_tool: z
-    .object({
-      id: z.string().min(1),
-      name: activityToolName,
-      target: activityToolTarget,
-      state: z.enum(["running", "waiting"]).meta({
-        description:
-          "`waiting` while a question for the call is unanswered: the session has not moved past `needs_input` since it was asked.",
-      }),
-      since: timestampSchema.meta({
-        description:
-          "When the call was made, or for `waiting` when its question was asked.",
-      }),
-      request: z
-        .object({
-          kind: z.enum(["permission", "question"]),
-          prompt: z
-            .string()
-            .min(1)
-            .nullable()
-            .meta({
-              description: `For \`question\`, the first question's text, trimmed and cut to ${SESSION_ACTIVITY_TEXT_MAX} code points; null for \`permission\` and for a question with no text.`,
-            }),
-        })
-        .nullable()
-        .meta({
-          description:
-            "What the call waits on: the newest question the session asked for it. Null unless `state` is `waiting`.",
-        }),
-    })
-    .nullable()
-    .meta({
-      description:
-        "The newest call still open: no tool_result yet, and neither a `result` of its turn nor a status of a session that stopped working (anything but `running`, `needs_input`, `interrupting`) came after it. Such a call reads `interrupted` and is never current.",
-    }),
-  window: z
-    .object({
-      events: z.number().int().nonnegative(),
-      complete: z.boolean().meta({
-        description:
-          "True when the window holds every event of the session, so the counts are the session's own.",
-      }),
-      since: timestampSchema.nullable().meta({
-        description:
-          "When the oldest event of the window was recorded; null for a session with none.",
-      }),
-    })
-    .meta({
-      description: `The events the counts read: the session's newest ${SESSION_ACTIVITY_WINDOW_EVENTS} as recorded. They are ordered by \`occurred_at\`, and events at the same instant in the order they were recorded.`,
-    }),
-});
-
 export const PAUSE_REASON_VALUES = ["awaiting_input"] as const;
 export const pauseReasonSchema = z.enum(PAUSE_REASON_VALUES);
 export const INPUT_WAIT_STATE_VALUES = [
@@ -766,7 +670,6 @@ export type SessionRepository = z.infer<typeof sessionRepositorySchema>;
 export type SessionAttachedRepository = z.infer<
   typeof sessionAttachedRepositorySchema
 >;
-export type SessionActivity = z.infer<typeof sessionActivitySchema>;
 export type SessionSummary = z.infer<typeof sessionSummarySchema>;
 export type InputWait = z.infer<typeof inputWaitSchema>;
 export type PermissionWaitRequest = z.infer<typeof permissionWaitRequestSchema>;

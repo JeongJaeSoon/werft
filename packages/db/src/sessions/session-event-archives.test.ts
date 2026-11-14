@@ -11,7 +11,6 @@ import type { Database } from "../queries.ts";
 import * as schema from "../schema.ts";
 import { createPostgresUsageReader } from "../usage-reader.ts";
 import { encodeEventCursor } from "./cursors.ts";
-import { readSessionActivity } from "./session-activity.ts";
 import {
   ARCHIVE_CHUNK_EVENTS,
   type ArchiveChunkRow,
@@ -193,10 +192,21 @@ const eventRows = (sessionId: string) =>
 
 const detail = async (sessionId: string, store?: ArchiveObjectStore) => {
   const found = await reader(store).getSession(OWNER, sessionId);
-  return {
-    last_event_at: found?.last_event_at,
-    activity: (await readSessionActivity(db, [sessionId])).get(sessionId),
-  };
+  return { last_event_at: found?.last_event_at };
+};
+
+// The columns' defaults: what the previous release, which still reads them,
+// takes for a chunk with no activity.
+const NO_ACTIVITY = {
+  activity: {
+    last: null,
+    tool_count: 0,
+    error_count: 0,
+    subagent_count: 0,
+    current_tool: null,
+    window: { events: 0, complete: false, since: null },
+  },
+  activity_through: 0,
 };
 
 const otherTables = () =>
@@ -219,7 +229,7 @@ const archive = (
   });
 
 describe("session event archiving", () => {
-  test("reads the same pages, cursors, list time, activity and clock after archiving, and restores the same rows", async () => {
+  test("reads the same pages, cursors, list time and clock after archiving, and restores the same rows", async () => {
     await projectionsCaughtUp();
     const id = await session();
     await seedEvents(id, 2_345);
@@ -251,13 +261,20 @@ describe("session event archiving", () => {
       sha256: string;
       event_count: number;
       bytes: string;
+      activity: unknown;
+      activity_through: number;
     }>(
-      `SELECT from_id, through_id, object_key, version_id, sha256, event_count, bytes
+      `SELECT from_id, through_id, object_key, version_id, sha256, event_count, bytes,
+              activity, activity_through
        FROM session_event_archives WHERE session_id = $1 ORDER BY from_id`,
       [id],
     );
     expect(chunks.map((chunk) => chunk.event_count)).toEqual([1000, 1000, 345]);
     for (const chunk of chunks) {
+      expect({
+        activity: chunk.activity,
+        activity_through: chunk.activity_through,
+      }).toEqual(NO_ACTIVITY);
       expect(chunk.object_key).toMatch(
         new RegExp(
           `^${SESSION_ARCHIVE_PREFIX}${id}/events-${chunk.from_id}-${chunk.through_id}-[0-9a-f]{16}\\.jsonl\\.gz$`,
@@ -341,9 +358,6 @@ describe("session event archiving", () => {
       );
     expect(flat(withTail)).toHaveLength(340);
     expect(flat(fromLastArchived)).toEqual(flat(withTail).slice(300));
-    const tailDetail = await detail(id, store);
-    expect(tailDetail.activity?.window.complete).toBe(false);
-    expect(tailDetail.activity?.window.events).toBe(340);
 
     await client.query(
       `UPDATE sessions SET last_turn_at = now() - interval '200 days' WHERE id = $1`,
@@ -355,6 +369,13 @@ describe("session event archiving", () => {
     expect(await eventRows(id)).toEqual([]);
     expect(await allPages(id, store)).toBe(before.pages);
     expect(await detail(id, store)).toEqual(before.detail);
+    expect(
+      await rows(
+        `SELECT activity, activity_through FROM session_event_archives
+         WHERE session_id = $1 ORDER BY from_id`,
+        [id],
+      ),
+    ).toEqual([NO_ACTIVITY, NO_ACTIVITY]);
   });
 
   test("leaves sessions alone that are recent, running, waiting, pushing or past the projections", async () => {

@@ -1317,6 +1317,13 @@
       "when": 1794660517275,
       "tag": "0278_slack_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 279,
+      "version": "7",
+      "when": 1794669586331,
+      "tag": "0279_session_event_archive_activity_defaults",
+      "breakpoints": true
     }
   ]
 }

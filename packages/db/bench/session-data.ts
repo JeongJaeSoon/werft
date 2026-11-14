@@ -1,12 +1,13 @@
 /**
  * What the session data reads cost on PostgreSQL once an installation has a
- * long history: the session list and its activity, an event page
- * of a 20,000-event session, the session count, GitHub refusals, the
- * platform metrics, installation usage and one checkpoint collection pass
- * over the session ids. Seeds an empty database once, in the shape of
- * session-activity.ts plus turns, tool calls, denied permission requests,
- * provider usage, checkpoints and receipts; a later run reads the same seed,
- * so a run from another checkout after migrating compares like with like.
+ * long history: the session list, an event page of a 20,000-event
+ * session, the session count, GitHub refusals, the platform metrics,
+ * installation usage and one checkpoint collection pass over the session
+ * ids. Seeds an empty database once: one owner's sessions over 90 days
+ * among the whole installation's, their events, turns, tool calls, denied
+ * permission requests, provider usage, checkpoints and receipts; a later
+ * run reads the same seed, so a run from another checkout after migrating
+ * compares like with like.
  *
  *   BENCH_DATABASE_URL=postgresql://… bun packages/db/bench/session-data.ts <values-out.json> [listed-events] [other-sessions] [events-per-other]
  *
@@ -26,7 +27,6 @@ import {
 } from "../src/index.ts";
 import { migrate } from "../src/migrate.ts";
 import * as schema from "../src/schema.ts";
-import { readSessionActivity } from "../src/sessions/session-activity.ts";
 import { timedMs } from "./lib.ts";
 
 const url = process.env.BENCH_DATABASE_URL;
@@ -93,8 +93,7 @@ async function seed() {
             LATERAL (SELECT now() - interval '1 day' - (g % 7776000) * interval '1 second'
                      * (7776000.0 / ${OWNER_SESSIONS + otherSessions}) AS at) c`,
     );
-    // session-activity.ts's events: every fifth a call, the next its
-    // result (1.5 kB of output), then a status and two assistant lines.
+    // Every fifth event a call, the next its result (1.5 kB of output), then a status and two assistant lines.
     const eventRows = (sessionsSql: string, perSession: number) => `
       INSERT INTO events (session_id, type, payload, occurred_at, created_at)
       SELECT s.id,
@@ -350,13 +349,6 @@ const paths: Record<
   },
   "listSessions(limit 100)": {
     fn: () => reader.listSessions(OWNER, { limit: 100 }, VIEWER),
-  },
-  "activity(100 sessions)": {
-    fn: () =>
-      readSessionActivity(
-        db,
-        listed.map((item) => item.id),
-      ),
   },
   "readEvents first page": { fn: () => page(undefined) },
   "readEvents middle page": { fn: () => page(middleCursor) },
