@@ -288,6 +288,8 @@ export const sessionsKo = {
     "{model}을(를) 쓰던 모델 연결이 꺼지거나 없어져 이 세션의 모델 요청이 차단되었습니다. 관리자에게 연결 복원을 요청하거나, 다른 연결로 만든 릴리스로 새 세션을 시작하세요.",
   "session.event.modelMigrated":
     "{from}이(가) 허용 목록에서 빠져 같은 시리즈의 {to}(으)로 옮겼습니다. 다음 턴부터 {to}(으)로 실행됩니다.",
+  "session.event.workerImageReplaced":
+    "worker 이미지 {from}이(가) 철회되어 같은 계열의 수정된 이미지 {to}(으)로 옮겨 이어 갑니다.",
   "session.event.phase.interrupting": "멈추는 중",
   "session.event.phase.engine_stopped": "엔진이 멈춤",
   "session.event.approvalCheckpointFailed.capture_failed":
@@ -598,6 +600,8 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
     "Model requests for this session were blocked because the model connection that served {model} was disabled or is gone. Ask an administrator to restore it, or start a new session on a release that uses another connection.",
   "session.event.modelMigrated":
     "{from} left the allowed list, so the session moved to {to}, the next model of the same series. It runs on {to} from this turn on.",
+  "session.event.workerImageReplaced":
+    "Worker image {from} was retracted, so the session carries on from a fixed image of the same line, {to}.",
   "session.event.phase.interrupting": "Stopping",
   "session.event.phase.engine_stopped": "Engine stopped",
   "session.event.approvalCheckpointFailed.capture_failed":
@@ -882,6 +886,8 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
     "{model} を使っていたモデル接続が無効になったかなくなったため、このセッションのモデルリクエストがブロックされました。管理者に復元を依頼するか、別の接続のリリースで新しいセッションを開始してください。",
   "session.event.modelMigrated":
     "{from} が許可リストから外れたため、同じシリーズの {to} に切り替えました。このターンから {to} で実行されます。",
+  "session.event.workerImageReplaced":
+    "worker イメージ {from} が撤回されたため、同じ系列の修正イメージ {to} に移って続けます。",
   "session.event.phase.interrupting": "停止中",
   "session.event.phase.engine_stopped": "エンジン停止",
   "session.event.approvalCheckpointFailed.capture_failed":

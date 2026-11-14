@@ -366,6 +366,31 @@ describe("presentTurnEvent", () => {
     ).toMatchObject({ summary: [{ text: "model_migrated" }] });
   });
 
+  test("a launch moved off a retracted worker image names both images", () => {
+    const moved = {
+      type: "system",
+      subtype: "worker_image_replaced",
+      from: "sha256:retracted",
+      to: "sha256:fixed",
+      reason: "retracted",
+    };
+    expect(presentTurnEvent({ event: "system", data: moved })).toMatchObject({
+      summary: [
+        {
+          key: "session.event.workerImageReplaced",
+          params: { from: "sha256:retracted", to: "sha256:fixed" },
+        },
+      ],
+    });
+    // A reason this reader does not know reads as its bare subtype.
+    expect(
+      presentTurnEvent({
+        event: "system",
+        data: { ...moved, reason: "rebuilt" },
+      }),
+    ).toMatchObject({ summary: [{ text: "worker_image_replaced" }] });
+  });
+
   test("an approval wait left without its checkpoint says why", () => {
     for (const reason of APPROVAL_CHECKPOINT_FAILURE_VALUES) {
       expect(

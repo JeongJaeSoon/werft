@@ -41,6 +41,7 @@ export type TurnEventMessageKey =
   | "session.event.error.modelNotAllowed"
   | "session.event.error.modelConnectionRemoved"
   | "session.event.modelMigrated"
+  | "session.event.workerImageReplaced"
   | `session.event.approvalCheckpointFailed.${ApprovalCheckpointFailure}`
   | "session.event.init"
   | "session.event.vcsChanged"
@@ -286,6 +287,22 @@ function system(data: Record<string, unknown>): TurnEventPresentation {
         label,
         summary: [
           message("session.event.modelMigrated", {
+            from: clip(data.from),
+            to: clip(data.to),
+          }),
+        ],
+      };
+    }
+    if (
+      data.subtype === "worker_image_replaced" &&
+      data.reason === "retracted" &&
+      typeof data.from === "string" &&
+      typeof data.to === "string"
+    ) {
+      return {
+        label,
+        summary: [
+          message("session.event.workerImageReplaced", {
             from: clip(data.from),
             to: clip(data.to),
           }),

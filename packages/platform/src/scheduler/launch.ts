@@ -183,30 +183,37 @@ export async function rebuildsRetracted(
   if (execution.claimed) return false;
   // An intent from before images were stored takes the current setting.
   const image = stored.image ?? ctx.options.image;
-  return (await retractedImageJudge(ctx))(image);
+  return (await retractedImagesOf(ctx)).rebuildsRetracted(image);
 }
 
-const retractedJudges = new WeakMap<
-  PassContext,
-  Promise<(image: string) => boolean>
->();
+type RetractedImages = {
+  /** The retracted images as configured and as this backend pins them. */
+  pinned: readonly string[];
+  /** Whether rebuilding a stored image could run a retracted one. */
+  rebuildsRetracted: (image: string) => boolean;
+};
+
+const retractedJudges = new WeakMap<PassContext, Promise<RetractedImages>>();
 
 /**
- * Whether a stored image is retracted, judged against the retracted images
- * as this backend pins them (for Docker, the image id a stored intent
- * holds), resolved once per pass and only when asked. A retracted image it
- * cannot resolve may still be the one an intent holds by id, under a tag it
- * keeps; then only an image resolved from an unretracted entry is built
- * again. Giving an unclaimed launch back costs its session no more than
- * choosing an image again.
+ * The retracted images as this backend pins them (for Docker, the image id
+ * a stored intent holds), resolved once per pass and only when asked. A
+ * retracted image it cannot resolve may still be the one an intent holds by
+ * id, under a tag it keeps; then only an image resolved from an unretracted
+ * entry is built again. Giving an unclaimed launch back costs its session no
+ * more than choosing an image again. `pinned` keeps to what is known
+ * retracted: it is what a record and a DM say.
  */
-function retractedImageJudge(
-  ctx: PassContext,
-): Promise<(image: string) => boolean> {
+function retractedImagesOf(ctx: PassContext): Promise<RetractedImages> {
   let judge = retractedJudges.get(ctx);
   if (judge === undefined) {
     judge = (async () => {
-      if (everyImageRetracted(ctx.options)) return () => true;
+      const configured = (ctx.options.retractedImages ?? []).map(
+        ({ image }) => image,
+      );
+      if (everyImageRetracted(ctx.options)) {
+        return { pinned: configured, rebuildsRetracted: () => true };
+      }
       const resolveAll = async (images: readonly string[]) => {
         const resolved = new Set(images);
         let complete = true;
@@ -219,15 +226,23 @@ function retractedImageJudge(
         }
         return { complete, resolved };
       };
-      const retracted = await resolveAll(
-        (ctx.options.retractedImages ?? []).map(({ image }) => image),
-      );
-      if (retracted.complete) return (image) => retracted.resolved.has(image);
+      const retracted = await resolveAll(configured);
+      const pinned = [...retracted.resolved];
+      if (retracted.complete) {
+        return {
+          pinned,
+          rebuildsRetracted: (image) => retracted.resolved.has(image),
+        };
+      }
       const { resolved: launchable } = await resolveAll([
         ctx.options.image,
         ...(ctx.options.olderImages ?? []).map(({ image }) => image),
       ]);
-      return (image) => retracted.resolved.has(image) || !launchable.has(image);
+      return {
+        pinned,
+        rebuildsRetracted: (image) =>
+          retracted.resolved.has(image) || !launchable.has(image),
+      };
     })();
     retractedJudges.set(ctx, judge);
   }
@@ -521,11 +536,16 @@ export async function fillSlots(ctx: PassContext): Promise<void> {
     lock.throwIfAborted();
     const chosen = await imageFor(sessionId, images);
     if (chosen === null) continue;
+    const retractedImages =
+      images.retracted.length === 0
+        ? undefined
+        : (await retractedImagesOf(ctx)).pinned;
     lock.throwIfAborted();
     const stored = await store.reserveLaunch({
       backend: backend.kind,
       image: chosen.image,
       ...(chosen.runtime === undefined ? {} : { imageRuntime: chosen.runtime }),
+      ...(retractedImages === undefined ? {} : { retractedImages }),
       now: now(),
       resources: options.resources,
       sessionId,
