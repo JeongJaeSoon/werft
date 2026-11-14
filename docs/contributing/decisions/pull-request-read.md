@@ -96,7 +96,7 @@ verify-werft의 GitHub sandbox 절차([github-sandbox.md](../../../.claude/skill
   - "추가 전" 후보는 도구 하나가 아니라 추가 기록에서 만든다. `worker-gateway.ts`의 `GITHUB_TOOL_ADDITIONS`가 기록이다. 첫 항목은 migration `0270_remove_profiles` 때의 도구이고, 그 뒤로 추가가 순서대로 온다. claim은 추가마다 "그 추가와 그 뒤의 추가가 모두 없는 목록"을 후보로 둔다. 가장 최근 목록이 먼저다. 서버에 없던 도구(꺼진 기능의 도구)를 빼서 앞 목록과 같아지는 후보는 두지 않는다. 남는 자리에만 넣는 규칙은 그대로다.
   - 기록이 0270에서 시작하는 이유: 0270이 `TRUNCATE "sessions", … CASCADE`로 세션을 비우고, `checkpoints.session_id`는 `sessions.id`를 가리키는 FK라 그 행도 함께 지워진다. 그래서 0270 이전에 만든 checkpoint는 어느 설치에도 남지 않는다. 그보다 앞서 더한 도구(`merge_pull_request` 등, git 기록상 11월 2일~9일)의 "추가 전" 목록은 맞힐 checkpoint가 없다. 그런 목록을 후보로 두면 상한 안에서 실제로 있을 수 있는 후보(옛 모델 설정의 "`get_pull_request` 이전" 목록)의 자리를 빼앗는다. 0270 뒤의 추가는 지금 `get_pull_request` 하나다.
   - 새 도구는 그 표에 새 항목으로 더한다. 도구 표(`GITHUB_MCP_TOOLS`)와 추가 기록이 어긋나면 `worker-gateway-model-move.test.ts`가 실패한다. 같은 파일이 여러 추가가 쌓인 기록의 후보 순서도 본다.
-  - 지문은 `tools`와 MCP 서버 설정(endpoint, binding)만 읽고 `trusted`는 읽지 않는다. 그래서 도구 이름만 되돌리면 배포 전 지문이 다시 나온다. 서버의 endpoint나 binding이 바뀐 배포 전 checkpoint는 이 후보로 맞지 않는다.
+  - 도구 추가로 바뀌는 지문 입력은 `tools`뿐이다. `trusted`는 지문에 들어가지 않고, MCP 서버는 SDK relay라 주소가 아니라 identity(`binding`)로 들어간다(`packages/adapters/runtimes/claude/src/contract.ts`의 `mcpConfig`). 그래서 도구 이름만 되돌리면 배포 전 지문이 다시 나온다. 모델이나 서버의 `binding`처럼 다른 지문 입력도 함께 바뀐 checkpoint는 이 후보로 맞지 않는다.
 - **시험.**
   - 서비스(`pull-request-service.test.ts`): 꼬리를 뺀 본문과 해시, 마스킹, 머지 상태, 보이지 않는 세션, 게이트 거절, PR 없음과 다른 head, 64 KiB 경계(정확히 65536 bytes는 통째로, 65537은 잘림, 3바이트 문자는 문자 경계), 해시 일치 쓰기, 해시 불일치 때 PATCH 0건, 해시 없는 긴 본문 거절과 제목만 고치기, 통째로 읽혔지만 쓰기에서 잘릴 본문의 `body_too_long`, 제목과 private key 블록의 마스킹, 4바이트 문자 경계, 따로 계산한 SHA-256과의 비교.
   - claim(`apps/control-host/src/api/github-mcp.test.ts`): 복원 후보에 `get_pull_request`가 없는 설정이 있다.
