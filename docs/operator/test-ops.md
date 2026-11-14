@@ -244,7 +244,7 @@ sudo install -d -m 700 -o "$USER" /var/lib/werft/test-ops   # TEST_OPS_STATE_DIR
 
 ## 카탈로그
 
-`PLATFORM_SETTINGS_DOCUMENT`에 설정 문서 하나를 둔다. migrate가 `deploy`·`upgrade`마다 이 문서를 가져온다. 가져오기는 더하기만 하므로 이미 있는 항목은 그대로이고, 같은 id를 다른 내용으로 고치면 migrate가 실패해 새 release가 뜨지 않는다. migrate 컨테이너(uid 1000)가 읽을 수 있게 파일은 `0644`로 둔다. 문서에는 값이 아니라 참조만 적으므로 비밀이 없다. 기본 안내는 문서에 연결을 적지 않고 콘솔에서 만드는 것이다. 문서에 적는다면 provider는 실제 Messages API로, key는 `value_env: ANTHROPIC_API_KEY`로 적고, 에이전트가 고를 모델을 `models`에 적는다. 그런 연결을 콘솔에서 키를 넣는 방식(stored)으로 옮기면(모델 연결 행의 "화면에서 키 넣기") 연결 행은 stored로 바뀌고 옛 참조는 `provider_connections.replaces_auth`에 남는다. 그 연결로 만든 release와 세션은 계속 돌고, 문서가 옛 항목을 그대로 적고 있어도 가져오기는 DB 행을 둔다(`kept`). 옮긴 뒤에는 `ANTHROPIC_API_KEY`가 그 연결에 쓰이지 않는다. 이 열은 추가형이라 앞 이미지로 되돌려도 무시되지만, 되돌린 이미지는 옮긴 연결의 stored 정의를 `stored` 참조로 읽을 뿐 옛 env 참조로 돌아가지 않는다.
+`PLATFORM_SETTINGS_DOCUMENT`에 설정 문서 하나를 둔다. migrate는 빈 설치의 첫 `deploy`에서만 이 문서를 가져온다(`settings seed`, [API 서버 문서](api-server.md)). `deploy`는 끝에 문서 import dry-run으로 DB가 문서를 담았는지 본다. 그 뒤로는 콘솔이 설정을 맡는다. `upgrade`는 문서를 가져오지도 DB와 대조하지도 않고, manifest의 문서가 바뀌었으면 `the settings document changed; it is not imported …`만 남긴다. 바꿀 것은 콘솔에서 바꾼다. 그래도 `preflight`는 마운트한 파일이 manifest의 digest와 같고 지금 스키마로 읽히는지 본다. `reset` 뒤 `deploy`가 그 파일을 다시 쓰기 때문이다. 그러니 manifest의 `settings_digest`와 `history.log`의 settings는 처음 넣은 문서와 그 뒤 마운트한 파일의 기록이지, 지금 DB 설정의 digest가 아니다. migrate 컨테이너(uid 1000)가 읽을 수 있게 파일은 `0644`로 둔다. 문서에는 값이 아니라 참조만 적으므로 비밀이 없다. 기본 안내는 문서에 연결을 적지 않고 콘솔에서 만드는 것이다. 문서에 적는다면 provider는 실제 Messages API로, key는 `value_env: ANTHROPIC_API_KEY`로 적고, 에이전트가 고를 모델을 `models`에 적는다. 그런 연결을 콘솔에서 키를 넣는 방식(stored)으로 옮기면(모델 연결 행의 "화면에서 키 넣기") 연결 행은 stored로 바뀌고 옛 참조는 `provider_connections.replaces_auth`에 남는다. 그 연결로 만든 release와 세션은 계속 돌고, 손으로 돌린 가져오기는 문서가 옛 항목을 그대로 적고 있어도 DB 행을 둔다(`kept`). 옮긴 뒤에는 `ANTHROPIC_API_KEY`가 그 연결에 쓰이지 않는다. 이 열은 추가형이라 앞 이미지로 되돌려도 무시되지만, 되돌린 이미지는 옮긴 연결의 stored 정의를 `stored` 참조로 읽을 뿐 옛 env 참조로 돌아가지 않는다.
 
 ```json
 {
@@ -276,7 +276,7 @@ release manifest에 적을 digest는 문서 파일 바이트의 sha256이다. �
 bun run scripts/lib/test-ops.ts settings-digest /etc/werft/settings.json
 ```
 
-`preflight`는 마운트한 문서가 이 digest와 다르면 거부한다. `deploy`·`upgrade`는 끝에서 `settings import --dry-run`으로 DB가 문서를 모두 담았는지 보고, 더할 것이 남아 있으면 `the database does not hold the settings document`로 멈춘다. 문서의 digest가 그대로면 `upgrade`는 migrate를 다시 돌리지 않는다.
+`preflight`는 마운트한 문서가 이 digest와 다르면 거부한다. `deploy`는 끝에서 `settings import --dry-run`으로 DB가 문서를 모두 담았는지 보고, 더할 것이 남아 있으면 `the database does not hold the settings document`로 멈춘다. `upgrade`는 이 확인을 하지 않는다(위 "카탈로그").
 
 연결 설정은 DB 행이 정본이다. 모델 목록과 자동 모드 판정은 콘솔의 **모델 연결**에서 바꾸고, endpoint·자격 증명 출처를 바꿀 때는 새 id로 연결을 더한 뒤 에이전트를 다시 release한다([api-server.md](api-server.md#운영자-카탈로그-모델-연결--repository)).
 
@@ -422,7 +422,7 @@ scripts/test-ops.sh upgrade release-new.json
 
 **`v0.1.3`으로 올릴 때는 `openai_responses` 연결(Codex 엔진)을 쓰기 전에 egress proxy를 새 이미지로 올린다.** 옛 proxy는 `/v1/responses`를 `404`로 거절한다. control-host만 새 버전인 동안 만든 `openai_responses` 연결의 세션은 모델을 부르지 못하고 실패한다. manifest 하나로 모든 이미지를 함께 올리면 이 구간은 컨테이너를 다시 만드는 동안뿐이다. 이미지를 나눠 올리면 proxy를 먼저 올리거나, proxy를 올릴 때까지 `openai_responses` 연결을 만들지 않는다. Claude 연결(`/v1/messages`)은 어느 순서에서도 그대로 동작한다. `v0.1.3` proxy는 이 호출에 `v0.1.2` API가 모르는 필드를 보내지 않는다.
 
-되돌리기는 이전 manifest로 `upgrade`하는 것이다. worker 이미지가 다시 바뀌므로 같은 규칙이 적용된다. 업그레이드 전에는 백업을 한 번 찍는다.
+되돌리기는 이전 manifest로 `upgrade`하는 것이다. worker 이미지가 다시 바뀌므로 같은 규칙이 적용된다. 업그레이드 전에는 백업을 한 번 찍는다. 설정 문서를 첫 seed로만 쓰기 전의 release(`settings seed`가 없는 것)로 되돌리면, 그 migrate는 기동마다 문서를 다시 가져온다. 그 사이 콘솔에서 바꾼 행을 문서가 다르게 적고 있으면 migrate가 실패해 그 release가 뜨지 않는다. 되돌리기 전에 그 항목을 문서에서 빼거나 콘솔 값에 맞추고, 바뀐 파일의 digest를 되돌릴 manifest의 `settings_digest`에 적는다. 이미 멈췄으면 위의 `pending.json` 절차를 따른다.
 
 ### 내장 Gitea를 쓰던 설치
 

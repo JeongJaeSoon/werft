@@ -8,6 +8,8 @@ import {
   type SettingsDocument,
   type SettingsDocumentStore,
   type SettingsEntries,
+  type SettingsSeedDecision,
+  type SettingsSeedStep,
   settingsDocumentDigest,
   settingsDocumentOf,
 } from "@werft-ai/platform";
@@ -22,13 +24,15 @@ import {
 } from "./settings-from-dir.ts";
 
 // The operator's settings import and export
-// (docs/contributing/decisions/settings-replace-file-catalog.md §5, §6).
+// (docs/contributing/decisions/settings-replace-file-catalog.md §5, §6), and
+// migrate's seed of an empty installation.
 // Run where keys.ts runs, against the database: unlike the API's import it
 // may bring in env and Secrets Manager references, since whoever reaches
 // the database already holds the deployment.
 const USAGE = `Usage: bun run apps/control-host/src/api/settings.ts export
        bun run apps/control-host/src/api/settings.ts import --document <file|-> [--dry-run]
-       bun run apps/control-host/src/api/settings.ts import --from-dir <dir> [--if-present] [--dry-run]`;
+       bun run apps/control-host/src/api/settings.ts import --from-dir <dir> [--if-present] [--dry-run]
+       bun run apps/control-host/src/api/settings.ts seed [--from-dir <dir>] [--document <file|->]`;
 
 export type SettingsCommand =
   | { command: "export" }
@@ -36,7 +40,12 @@ export type SettingsCommand =
       command: "import";
       source: { document: string } | { dir: string; ifPresent: boolean };
       dryRun: boolean;
-    };
+    }
+  /**
+   * migrate's: the first deploy of an empty installation imports both, a
+   * missing or empty directory skipped; every later one imports nothing.
+   */
+  | { command: "seed"; dir?: string; document?: string };
 
 export function parseSettingsCommand(argv: string[]): SettingsCommand {
   let parsed: ReturnType<typeof parse>;
@@ -59,9 +68,22 @@ export function parseSettingsCommand(argv: string[]): SettingsCommand {
     }
     return { command };
   }
-  if (command !== "import") throw new Error(USAGE);
   const document = values.document;
   const dir = values["from-dir"];
+  if (command === "seed") {
+    if (values["dry-run"] !== undefined || values["if-present"] !== undefined) {
+      throw new Error(USAGE);
+    }
+    if (document === undefined && dir === undefined) {
+      throw new Error(`name --document, --from-dir or both\n${USAGE}`);
+    }
+    return {
+      command,
+      ...(dir === undefined ? {} : { dir }),
+      ...(document === undefined ? {} : { document }),
+    };
+  }
+  if (command !== "import") throw new Error(USAGE);
   if ((document === undefined) === (dir === undefined)) {
     throw new Error(`name one of --document or --from-dir\n${USAGE}`);
   }
@@ -141,7 +163,11 @@ type Output = { out: (line: string) => void; err: (line: string) => void };
 type SettingsStores = {
   settings: Pick<
     SettingsDocumentStore,
-    "exportEntries" | "importEntries" | "sessionsOnRepositories"
+    | "exportEntries"
+    | "importEntries"
+    | "sessionsOnRepositories"
+    | "decideSeed"
+    | "seedEntries"
   >;
 };
 
@@ -157,49 +183,14 @@ export async function runSettingsCommand(
     output.err(`digest ${settingsDocumentDigest(document)}`);
     return true;
   }
+  if (command.command === "seed") return seed(command, stores, output);
   const { source } = command;
-  let entries: SettingsEntries;
-  let skipped: string[] = [];
-  if ("dir" in source) {
-    if (source.ifPresent && (await dirIsEmpty(source.dir))) {
-      output.err(`nothing to import from ${source.dir}`);
-      return true;
-    }
-    const read = await documentFromDir(source.dir);
-    for (const note of read.notes) output.err(`note: ${note}`);
-    skipped = read.skipped;
-    entries = parseSettingsDocument(read.document);
-  } else {
-    const document = await readDocument(source.document);
-    const notes: string[] = [];
-    entries = parseSettingsDocument(
-      document !== null &&
-        typeof document === "object" &&
-        !Array.isArray(document) &&
-        Object.hasOwn(document, "repositories")
-        ? {
-            ...document,
-            repositories: withoutLegacyRepositories(
-              (document as { repositories: unknown }).repositories,
-              notes,
-              skipped,
-            ),
-          }
-        : document,
-    );
-    for (const note of notes) output.err(`note: ${note}`);
+  if ("dir" in source && source.ifPresent && (await dirIsEmpty(source.dir))) {
+    output.err(`nothing to import from ${source.dir}`);
+    return true;
   }
-  // A session on a repository only the file knew would be failed by the
-  // claim gate with nothing to hold it: stop before anything is written.
-  const stranded = await stores.settings.sessionsOnRepositories(skipped);
-  if (stranded.length > 0) {
-    output.err(
-      `refused: nothing changed; sessions still use repositories this import leaves out: ${stranded
-        .map((row) => `${row.session_id} (${row.repository_id}, ${row.via})`)
-        .join(", ")}`,
-    );
-    return false;
-  }
+  const { entries, skipped } = await readSource(source, output);
+  if (await strandedBy(skipped, stores, output)) return false;
   const result = await stores.settings.importEntries(entries, {
     dryRun: command.dryRun,
     allowExternal: true,
@@ -216,11 +207,7 @@ export async function runSettingsCommand(
     );
     return false;
   }
-  for (const ref of result.kept ?? []) {
-    output.err(
-      `note: ${ref} from the file is not applied; the database keeps its row`,
-    );
-  }
+  keptNotes(result, output);
   output.out(JSON.stringify(result, null, 2));
   if (result.outcome === "applied" && result.receipt_ids.length === 0) {
     if (result.add.length > 0) {
@@ -228,6 +215,147 @@ export async function runSettingsCommand(
     }
   }
   return true;
+}
+
+async function seed(
+  command: Extract<SettingsCommand, { command: "seed" }>,
+  stores: SettingsStores,
+  output: Output,
+): Promise<boolean> {
+  const sources: Array<{ dir: string } | { document: string }> = [
+    ...(command.dir === undefined || (await dirIsEmpty(command.dir))
+      ? []
+      : [{ dir: command.dir }]),
+    ...(command.document === undefined ? [] : [{ document: command.document }]),
+  ];
+  const named = sources
+    .map((source) =>
+      "dir" in source
+        ? source.dir
+        : `the settings document ${source.document} (SETTINGS_DOCUMENT)`,
+    )
+    .join(" and ");
+  if (sources.length === 0) {
+    output.err("nothing to seed");
+    return true;
+  }
+  const notSeeded = (
+    decision: Exclude<SettingsSeedDecision, { outcome: "empty" }>,
+  ) =>
+    output.err(
+      `note: ${named} not imported: ${
+        decision.outcome === "decided"
+          ? `the automatic seed ran on ${decision.decided_at.toISOString()}`
+          : "the installation already holds settings"
+      }. They seed an empty installation only; change settings in the console`,
+    );
+  // Decided before anything is read: what is not imported need not parse.
+  const decision = await stores.settings.decideSeed();
+  if (decision.outcome !== "empty") {
+    notSeeded(decision);
+    return true;
+  }
+  const steps: SettingsSeedStep[] = [];
+  const skipped: string[] = [];
+  for (const source of sources) {
+    const read = await readSource(source, output);
+    steps.push({
+      entries: read.entries,
+      databaseOwnsRepositories: "dir" in source,
+    });
+    skipped.push(...read.skipped);
+  }
+  if (await strandedBy(skipped, stores, output)) return false;
+  const result = await stores.settings.seedEntries(steps);
+  if (result.outcome === "decided" || result.outcome === "not_empty") {
+    notSeeded(result);
+    return true;
+  }
+  if (result.outcome === "refused") {
+    const source = sources[result.step];
+    output.out(JSON.stringify(result, null, 2));
+    output.err(
+      `refused: nothing changed (${
+        source !== undefined && "dir" in source
+          ? source.dir
+          : "the settings document"
+      } conflicts: ${result.conflicts.join(", ") || "none"})`,
+    );
+    return false;
+  }
+  for (const plan of result.steps) keptNotes(plan, output);
+  output.out(JSON.stringify(result, null, 2));
+  if (
+    result.receipt_ids.length === 0 &&
+    result.steps.some((plan) => plan.add.length > 0)
+  ) {
+    output.err("note: no workspace yet, so no receipt was written");
+  }
+  output.err(
+    `seeded from ${named}; from here on settings are changed in the console`,
+  );
+  return true;
+}
+
+async function readSource(
+  source: { dir: string } | { document: string },
+  output: Output,
+): Promise<{ entries: SettingsEntries; skipped: string[] }> {
+  if ("dir" in source) {
+    const read = await documentFromDir(source.dir);
+    for (const note of read.notes) output.err(`note: ${note}`);
+    return {
+      entries: parseSettingsDocument(read.document),
+      skipped: read.skipped,
+    };
+  }
+  const document = await readDocument(source.document);
+  const notes: string[] = [];
+  const skipped: string[] = [];
+  const entries = parseSettingsDocument(
+    document !== null &&
+      typeof document === "object" &&
+      !Array.isArray(document) &&
+      Object.hasOwn(document, "repositories")
+      ? {
+          ...document,
+          repositories: withoutLegacyRepositories(
+            (document as { repositories: unknown }).repositories,
+            notes,
+            skipped,
+          ),
+        }
+      : document,
+  );
+  for (const note of notes) output.err(`note: ${note}`);
+  return { entries, skipped };
+}
+
+/**
+ * A session on a repository only the file knew would be failed by the
+ * claim gate with nothing to hold it: stop before anything is written.
+ */
+async function strandedBy(
+  skipped: string[],
+  stores: SettingsStores,
+  output: Output,
+): Promise<boolean> {
+  const stranded = await stores.settings.sessionsOnRepositories(skipped);
+  if (stranded.length === 0) return false;
+  output.err(
+    `refused: nothing changed; sessions still use repositories this import leaves out: ${stranded
+      .map((row) => `${row.session_id} (${row.repository_id}, ${row.via})`)
+      .join(", ")}`,
+  );
+  return true;
+}
+
+function keptNotes(plan: { kept?: string[] }, output: Output): void {
+  for (const ref of plan.kept ?? []) {
+    output.err(
+      `note: ${ref} from the file is not applied; the database keeps its row`,
+    );
+  }
 }
 
 async function main(): Promise<void> {

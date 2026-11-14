@@ -19,7 +19,11 @@ import {
   type SettingsDocumentStore,
   type SettingsEntries,
   type SettingsImportAdd,
+  type SettingsImportPlan,
+  type SettingsImportResult,
   type SettingsKind,
+  type SettingsSeedDecision,
+  type SettingsSeedResult,
   type TeamActor,
 } from "@werft-ai/platform";
 import { and, asc, eq, isNull, ne, sql } from "drizzle-orm";
@@ -32,6 +36,7 @@ import {
   providerConnections,
   receipts,
   secretValues,
+  settingsGeneration,
   workspaces,
 } from "./schema.ts";
 import { writeSecretInTx } from "./secrets/secret-values.ts";
@@ -377,53 +382,138 @@ export function createPostgresSettingsDocumentStore(
         // The repository writers' order: their advisory lock, then the
         // generation, then rows.
         await lockCatalogWrites(tx);
-        const { actor } = options;
-        if (actor !== null && !(await liveOwner(tx, actor))) {
-          return { outcome: "actor_inactive" as const };
-        }
-        const workspaceId = await firstWorkspace(tx);
-        const plan = planSettingsImport(
-          entries,
-          await existingIn(tx, workspaceId),
-          {
-            allowExternal: options.allowExternal,
-            databaseOwnsRepositories: options.databaseOwnsRepositories === true,
-          },
-        );
-        if (plan.conflicts.length > 0 || plan.refused_external.length > 0) {
-          return { ...plan, outcome: "refused" as const, receipt_ids: [] };
-        }
-        if (options.dryRun) {
-          return { ...plan, outcome: "dry_run" as const, receipt_ids: [] };
-        }
-        const receiptActor: ReceiptActor | null =
-          actor === null ? null : receiptActorOf(actor.principal);
-        const receipt_ids: string[] = [];
-        for (const add of plan.add) {
-          await insertRow(tx, add, actor?.userId ?? null);
-          const target = actor?.workspaceId ?? workspaceId;
-          // Before bootstrap there is no workspace to keep a receipt for.
-          if (target === null) continue;
-          const id = randomUUID();
-          await tx.insert(receipts).values({
-            id,
-            ownerId: actor?.principal.ownerId ?? target,
-            actor: receiptActor,
-            operation: OPERATIONS[add.kind],
-            targetRef: {
-              resource: { kind: "workspace", id: target },
-              workspace_id: target,
-            },
-            result: auditOf(add),
-            status: "succeeded",
-            requestId: actor?.principal.requestId ?? null,
-          });
-          receipt_ids.push(id);
-        }
-        return { ...plan, outcome: "applied" as const, receipt_ids };
+        return importIn(tx, entries, options);
       });
     },
+
+    decideSeed() {
+      return db.transaction(async (tx) => {
+        await lockCatalogWrites(tx);
+        return decideSeedIn(tx);
+      });
+    },
+
+    async seedEntries(steps) {
+      try {
+        return await db.transaction(async (tx): Promise<SettingsSeedResult> => {
+          await lockCatalogWrites(tx);
+          const decision = await decideSeedIn(tx);
+          if (decision.outcome !== "empty") return decision;
+          const plans: SettingsImportPlan[] = [];
+          const receipt_ids: string[] = [];
+          for (const [index, step] of steps.entries()) {
+            const result = await importIn(tx, step.entries, {
+              dryRun: false,
+              allowExternal: true,
+              databaseOwnsRepositories: step.databaseOwnsRepositories,
+              actor: null,
+            });
+            if (result.outcome === "actor_inactive") {
+              throw new Error("the seed has no actor to lose");
+            }
+            const { outcome, receipt_ids: ids, ...plan } = result;
+            if (outcome === "refused") {
+              throw new SeedRefused({ ...plan, outcome, step: index });
+            }
+            plans.push(plan);
+            receipt_ids.push(...ids);
+          }
+          await tx
+            .update(settingsGeneration)
+            .set({ seedDecidedAt: sql`now()` });
+          return { outcome: "applied", steps: plans, receipt_ids };
+        });
+      } catch (error) {
+        if (error instanceof SeedRefused) return error.result;
+        throw error;
+      }
+    },
   };
+}
+
+/** Thrown to roll the seed's earlier steps back with the refused one. */
+class SeedRefused extends Error {
+  constructor(
+    readonly result: Extract<SettingsSeedResult, { outcome: "refused" }>,
+  ) {
+    super("settings seed refused");
+  }
+}
+
+/** Under `lockCatalogWrites`, which holds the generation row. */
+async function decideSeedIn(tx: Database): Promise<SettingsSeedDecision> {
+  const [generation] = await tx
+    .select({ decidedAt: settingsGeneration.seedDecidedAt })
+    .from(settingsGeneration);
+  if (generation?.decidedAt) {
+    return { outcome: "decided", decided_at: generation.decidedAt };
+  }
+  // A connection or MCP server row, disabled ones too. Repositories alone do
+  // not count: the releases before connections moved into the database kept
+  // repository rows while their connections were the old directory's, and
+  // that directory is still to be imported.
+  const [row] = rowsOf<{ held: boolean }>(
+    await tx.execute(
+      sql`SELECT EXISTS (SELECT 1 FROM ${providerConnections})
+          OR EXISTS (SELECT 1 FROM ${mcpServers}) AS held`,
+    ),
+  );
+  if (row?.held !== true) return { outcome: "empty" };
+  await tx.update(settingsGeneration).set({ seedDecidedAt: sql`now()` });
+  return { outcome: "not_empty" };
+}
+
+/** The import under `lockCatalogWrites`, taken by the caller. */
+async function importIn(
+  tx: Database,
+  entries: SettingsEntries,
+  options: {
+    dryRun: boolean;
+    allowExternal: boolean;
+    databaseOwnsRepositories?: boolean;
+    actor: TeamActor | null;
+  },
+): Promise<SettingsImportResult> {
+  const { actor } = options;
+  if (actor !== null && !(await liveOwner(tx, actor))) {
+    return { outcome: "actor_inactive" as const };
+  }
+  const workspaceId = await firstWorkspace(tx);
+  const plan = planSettingsImport(entries, await existingIn(tx, workspaceId), {
+    allowExternal: options.allowExternal,
+    databaseOwnsRepositories: options.databaseOwnsRepositories === true,
+  });
+  if (plan.conflicts.length > 0 || plan.refused_external.length > 0) {
+    return { ...plan, outcome: "refused" as const, receipt_ids: [] };
+  }
+  if (options.dryRun) {
+    return { ...plan, outcome: "dry_run" as const, receipt_ids: [] };
+  }
+  const receiptActor: ReceiptActor | null =
+    actor === null ? null : receiptActorOf(actor.principal);
+  const receipt_ids: string[] = [];
+  for (const add of plan.add) {
+    await insertRow(tx, add, actor?.userId ?? null);
+    const target = actor?.workspaceId ?? workspaceId;
+    // Before bootstrap there is no workspace to keep a receipt for.
+    if (target === null) continue;
+    const id = randomUUID();
+    await tx.insert(receipts).values({
+      id,
+      ownerId: actor?.principal.ownerId ?? target,
+      actor: receiptActor,
+      operation: OPERATIONS[add.kind],
+      targetRef: {
+        resource: { kind: "workspace", id: target },
+        workspace_id: target,
+      },
+      result: auditOf(add),
+      status: "succeeded",
+      requestId: actor?.principal.requestId ?? null,
+    });
+    receipt_ids.push(id);
+  }
+  return { ...plan, outcome: "applied" as const, receipt_ids };
 }
 
 async function liveOwner(tx: Database, actor: TeamActor): Promise<boolean> {

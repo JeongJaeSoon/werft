@@ -640,6 +640,8 @@ record_release() {
     "$SOURCE_COMMIT" "$WORKER_IMAGE" "$SETTINGS_DIGEST" >> "${STATE_DIR}/history.log"
 }
 
+# Deploy's: the seed took the document into the empty installation. An
+# upgrade does not ask, since the console may change what the document says.
 settings_applied() {
   local notes
   notes="$(mktemp)"
@@ -803,11 +805,10 @@ upgrade() {
       || die "upgrade: could not record the previous worker in $PREVIOUS_WORKER; nothing was started"
   fi
   start_apps
-  # A bind mount's new contents rerun nothing on their own.
+  # The document seeded the empty installation at deploy; the console keeps
+  # the settings since, so a changed one is not imported.
   [ "$SETTINGS_DIGEST" = "$from_settings" ] \
-    || ops_compose run --rm --no-deps -T migrate </dev/null \
-    || die "migrate refused the new settings document; nothing it holds was written (above)"
-  settings_applied
+    || log "upgrade: the settings document changed; it is not imported into a deployed installation, so change settings in the console"
   record_release "$MANIFEST" upgrade
   rm -f "$PENDING"
   log "upgrade: done"

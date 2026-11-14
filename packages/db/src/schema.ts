@@ -5677,6 +5677,10 @@ export const settingsGeneration = pgTable(
   {
     id: integer().primaryKey().default(1),
     generation: bigint({ mode: "number" }).notNull().default(0),
+    // When migrate's automatic seed decided, once: it seeded an empty
+    // installation, or found one that already held settings. It never runs
+    // again after, so the console owns what is there.
+    seedDecidedAt: timestamp("seed_decided_at", { withTimezone: true }),
   },
   (table) => [check("settings_generation_single_check", sql`${table.id} = 1`)],
 );

@@ -110,6 +110,12 @@ function service(
     importEntries: async () => {
       throw new Error("not used");
     },
+    decideSeed: async () => {
+      throw new Error("not used");
+    },
+    seedEntries: async () => {
+      throw new Error("not used");
+    },
     sessionsOnRepositories: async () => [],
     connectionUse: async (input) => {
       uses.push(input);

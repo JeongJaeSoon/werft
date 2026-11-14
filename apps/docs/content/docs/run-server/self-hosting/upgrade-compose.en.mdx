@@ -180,6 +180,18 @@ An owner saves the installation-wide execution limits under **Settings > Workspa
 - Workers no longer read `QUESTION_TIMEOUT_SEC`. No launcher ever passed it, so nothing changes (30 minutes until the gateway registers the request).
 - Keep the `installation_config` table when rolling back. Earlier builds do not read it and read the env instead, so put the env line back when rolling back.
 
+<a id="설정-문서는-빈-설치에-한-번만-들어간다" />
+### The settings document seeds an empty installation once
+
+From this release on, migrate imports the settings document (`SETTINGS_DOCUMENT`, `PLATFORM_SETTINGS_DOCUMENT` in test-ops) and the legacy config directory (`/legacy-config`) only into an empty installation, once (`settings seed`). After that, connections, repositories and MCP servers are changed in the console (Settings > Agent connections). Editing the document and deploying again does not import it.
+
+- Migration `0281_settings_seed_decided` adds the column `settings_generation.seed_decided_at`. The first migrate after the upgrade records that time. An installation that already holds a connection or an MCP server (disabled ones included) imports nothing and only records the time. An installation holding repository rows alone counts as empty and is seeded once.
+- When nothing is imported, migrate logs one line without values: `note: <directory and document> not imported: the installation already holds settings. They seed an empty installation only; change settings in the console`. Once the time is recorded, it reads `the automatic seed ran on <time>`. This line is not a failure.
+- To import the document's content again on purpose, an owner runs `settings import` by hand. That command is unchanged.
+- test-ops `upgrade` neither imports a changed document nor compares it with the database. When the document's digest changes, it logs `upgrade: the settings document changed; it is not imported into a deployed installation, so change settings in the console`. The check in `deploy` is unchanged.
+- A development volume kept with `scripts/local.sh down --keep-volumes` does not get changes to the fixtures (`tests/fixtures/settings/`). Recreate the volume or run `settings import`.
+- After a rollback, the earlier release's migrate imports the document on every deploy again. When an item changed in the console differs from the same id in the document, that import is refused, migrate fails and the API does not start. Before rolling back, remove such items from the document or match them to the console. Keep the `seed_decided_at` column. Earlier builds do not read it.
+
 <a id="mock-slack-env-이름" />
 ### Mock Slack variable names
 

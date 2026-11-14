@@ -121,9 +121,12 @@ services:
       - |
         set -e
         bun run --cwd packages/db db:migrate
-        bun run apps/control-host/src/api/settings.ts import --from-dir /legacy-config --if-present
+        # The first deploy of an empty installation only; the console keeps
+        # the settings after (docs/operator/api-server.md).
         if [ -n "$$SETTINGS_DOCUMENT" ]; then
-          bun run apps/control-host/src/api/settings.ts import --document "$$SETTINGS_DOCUMENT"
+          bun run apps/control-host/src/api/settings.ts seed --from-dir /legacy-config --document "$$SETTINGS_DOCUMENT"
+        else
+          bun run apps/control-host/src/api/settings.ts seed --from-dir /legacy-config
         fi
     environment:
       # Always the compose postgres, never an ambient DATABASE_URL: `up`

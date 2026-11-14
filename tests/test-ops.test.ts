@@ -719,14 +719,20 @@ exit 0
     );
   });
 
-  test("upgrade refuses when the database lacks the settings document", async () => {
+  // A host with nothing deployed, on the same stubs.
+  async function freshHost(dryRun = `echo '{"add":[]}'`) {
     const docker = await deployedSameWorker();
+    await rm(join(dir, "state"), { recursive: true });
     await writeFile(
       join(dir, "bin", "docker"),
-      docker.replace('"add":[]', '"add":[{"id":"gone"}]'),
+      docker.replace(`echo '{"add":[]}'`, dryRun),
       { mode: 0o755 },
     );
-    const missing = await run(["upgrade", join(dir, "release.json")], env);
+  }
+
+  test("deploy refuses when the database lacks the settings document", async () => {
+    await freshHost(`echo '{"add":[{"id":"gone"}]}'`);
+    const missing = await run(["deploy", join(dir, "release.json")], env);
     expect(missing.exitCode).toBe(1);
     expect(missing.stderr).toContain(
       "the database does not hold the settings document",
@@ -735,22 +741,53 @@ exit 0
 
   // A repository the import leaves out adds nothing, so `.add == []` holds;
   // the deployment would run with no repository.
-  test("upgrade refuses when the import leaves a repository out", async () => {
-    const docker = await deployedSameWorker();
-    await writeFile(
-      join(dir, "bin", "docker"),
-      docker.replace(
-        `*" --dry-run") echo '{"add":[]}' ;;`,
-        `*" --dry-run") echo '{"add":[]}'; echo 'note: repository sample-app is not imported: it names no GitHub App' >&2 ;;`,
-      ),
-      { mode: 0o755 },
+  test("deploy refuses when the import leaves a repository out", async () => {
+    await freshHost(
+      `echo '{"add":[]}'; echo 'note: repository sample-app is not imported: it names no GitHub App' >&2`,
     );
-    const skipped = await run(["upgrade", join(dir, "release.json")], env);
+    const skipped = await run(["deploy", join(dir, "release.json")], env);
     expect(skipped.exitCode).toBe(1);
     expect(skipped.stderr).toContain("repository sample-app is not imported");
     expect(skipped.stderr).toContain(
       "the settings document names a repository the import leaves out",
     );
+  });
+
+  test("deploy with the document in the database records the release", async () => {
+    await freshHost();
+    const result = await run(["deploy", join(dir, "release.json")], env);
+    expect(result.stderr).toContain("deploy: done");
+    expect(result.exitCode).toBe(0);
+    expect(await dockerCalls()).toContain("--dry-run");
+  });
+
+  // The console keeps the settings after deploy: what the document says
+  // no longer has to be in the database, and a changed one is not imported.
+  test("upgrade neither compares the database with the document nor imports a changed one", async () => {
+    const docker = await deployedSameWorker();
+    await writeFile(
+      join(dir, "bin", "docker"),
+      docker.replace(`echo '{"add":[]}'`, `echo '{"add":[{"id":"gone"}]}'`),
+      { mode: 0o755 },
+    );
+    const manifest = JSON.parse(
+      await readFile(join(dir, "release.json"), "utf8"),
+    );
+    await writeFile(
+      join(dir, "release.json"),
+      JSON.stringify({
+        ...manifest,
+        settings_digest: `sha256:${"b".repeat(64)}`,
+      }),
+    );
+    const result = await run(["upgrade", join(dir, "release.json")], env);
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toContain(
+      "the settings document changed; it is not imported into a deployed installation",
+    );
+    const called = await dockerCalls();
+    expect(called).not.toContain("--dry-run");
+    expect(called).not.toContain("run --rm --no-deps -T migrate");
   });
 
   // A settings document the render check refuses (a repository with no GitHub

@@ -39,7 +39,7 @@ spec:
             - -c
             - >-
               bun run --cwd packages/db db:migrate &&
-              bun run apps/control-host/src/api/settings.ts import --from-dir /legacy-config --if-present
+              bun run apps/control-host/src/api/settings.ts seed --from-dir /legacy-config
           env:
             {{- include "ap.secretEnv" (dict "root" . "key" "DATABASE_URL") | nindent 12 }}
           resources:

@@ -19,6 +19,32 @@ export type SettingsImportResult =
     })
   | { outcome: "actor_inactive" };
 
+/**
+ * Whether migrate's automatic seed still has an installation to seed. It
+ * decides once: `decided` ever after, whatever is added or removed later.
+ */
+export type SettingsSeedDecision =
+  | { outcome: "decided"; decided_at: Date }
+  /** The installation held settings already; decided now. */
+  | { outcome: "not_empty" }
+  | { outcome: "empty" };
+
+/** One source of the seed, imported under the operator's import rules. */
+export type SettingsSeedStep = {
+  entries: SettingsEntries;
+  databaseOwnsRepositories: boolean;
+};
+
+export type SettingsSeedResult =
+  | Exclude<SettingsSeedDecision, { outcome: "empty" }>
+  /** Step `step` was refused, and nothing of any step was written. */
+  | (SettingsImportPlan & { outcome: "refused"; step: number })
+  | {
+      outcome: "applied";
+      steps: SettingsImportPlan[];
+      receipt_ids: string[];
+    };
+
 export interface SettingsDocumentStore {
   /**
    * The rows not disabled or removed, as entries, and each stored value's
@@ -44,6 +70,16 @@ export interface SettingsDocumentStore {
       actor: TeamActor | null;
     },
   ): Promise<SettingsImportResult>;
+
+  /** Decides under the import's locks, writing only to record `not_empty`. */
+  decideSeed(): Promise<SettingsSeedDecision>;
+  /**
+   * Decides again under the import's locks and, when the installation is
+   * still empty, imports each step in order as the operator's import would,
+   * all in one transaction, and records the decision. A refused step leaves
+   * nothing written and nothing decided.
+   */
+  seedEntries(steps: readonly SettingsSeedStep[]): Promise<SettingsSeedResult>;
 
   /**
    * The sessions not yet `failed` or `stopped` that name one of `ids`: as

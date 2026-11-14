@@ -140,6 +140,8 @@ release id에는 MCP 서버가 들지 않는다(`deriveReleaseId`, `release-ids.
 1. 같은 릴리스에 `bun run settings import --from-dir <옛 디렉터리>`를 둔다. 옛 다섯 파일을 지금 스키마로 읽어 설정 문서로 바꾼 뒤 DB에 넣는다. id를 그대로 쓰고 `ON CONFLICT DO NOTHING`이라 여러 번 돌아도 같다. 넣은 행마다 receipt `import_*`(주체: 시스템). 이미 있는 id의 내용이 다르면 멈추고 그 id를 보고한다(덮어쓰지 않는다).
 2. helm: `migrate-job`은 이미 `pre-install,pre-upgrade` 훅이다(`deploy/helm/werft/templates/migrate-job.yaml:12`). 새 chart는 이 job이 옛 ConfigMap `<fullname>-catalog`을 `optional: true`로 mount해 가져오기를 돌린 뒤, 같은 릴리스의 템플릿에서 ConfigMap을 지운다. pre-upgrade 훅이 옛 리소스가 지워지기 전에 도는지는 구현 PR이 kind에서 실측한다(미확인).
 3. compose: `migrate` 서비스가 옛 `config/` mount가 있으면 같은 가져오기를 돈다. 저장소의 `config/` 디렉터리는 지운다.
+
+나중에 바뀐 것: migrate는 이 가져오기와 설정 문서를 연결·MCP 서버가 없는 설치에만 한 번 돌린다(`settings seed`, migration `0281_settings_seed_decided`). 그 뒤의 변경은 콘솔이 맡는다([API 서버 문서](../../operator/api-server.md)).
 4. 새 API 이미지는 파일 로더가 없다. `PLATFORM_CONFIG_DIR`가 있으면 "가져오기를 끝내고 변수를 지운다"는 메시지로 기동을 거부한다.
 5. 롤링 업데이트 중 옛 replica는 파일을, 새 replica는 DB를 읽는다. 가져오기가 같은 객체를 만들므로 지문·binding·release id가 같다. 이 창에서 파일이나 콘솔 설정을 바꾸지 않는다(운영 문서에 적는다).
 

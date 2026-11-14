@@ -157,7 +157,7 @@ With unchanged worker, rollback proceeds with empty approvals only if deployed p
 <a id="4-파일-카탈로그-설치에서-오는-경우" />
 ### 4. Migrate file-catalog installations
 
-The old chart's catalog ConfigMap no longer exists in the new chart. Helm deletes old resources only after hooks, so pre-upgrade migrate optionally mounts it at /legacy-config and runs `settings import --from-dir /legacy-config --if-present`. Later upgrades do nothing when it is absent. Partial files or invalid values fail the Job without changing Deployments.
+The old chart's catalog ConfigMap no longer exists in the new chart. Helm deletes old resources only after hooks, so pre-upgrade migrate optionally mounts it at /legacy-config and runs `settings seed --from-dir /legacy-config`. It imports nothing when the database already holds a connection or an MCP server, and once decided it never imports again, even with the ConfigMap still there. Change settings in the console after that. Partial files or invalid values fail the Job without changing Deployments.
 
 1. Add PLATFORM_SECRET_KEY to the Secret first; preserve the same value if already present.
 2. Remove catalog from values, then helm upgrade. Remove PLATFORM_CONFIG_DIR from api.extraEnv if present.
