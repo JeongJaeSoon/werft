@@ -228,7 +228,7 @@ web POST "/v1/login-providers/$PID/disable"
 revoked=$(printf '%s' "$WEB_BODY" | node -e 'console.log(JSON.parse(require("node:fs").readFileSync(0, "utf8")).sessions_revoked)')
 [ "${revoked:-0}" -ge 1 ] 2>/dev/null || fail "sessions_revoked: ${revoked:-none}"
 echo "  sessions_revoked: $revoked"
-expect_me "200 ana@acme.example"
+expect_me 401
 web GET /v1/auth/me
 [ "$WEB_STATUS" = 200 ] || fail "the owner's password session answered $WEB_STATUS"
 web GET /v1/auth/login-methods
