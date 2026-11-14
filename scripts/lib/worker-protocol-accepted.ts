@@ -15,17 +15,4 @@ export const ACCEPTED: readonly {
   problem: string;
   why: string;
   proof: string;
-}[] = [
-  {
-    problem:
-      "/bootstrap-claim response $.workspace.additional_repositories[].commit: the receiver refuses this key (additionalProperties: false)",
-    why: "Sent only to a worker whose claim announces capabilities.repository_pins, which a baseline worker cannot send.",
-    proof: "packages/platform/src/workers/worker-gateway-attachments.test.ts",
-  },
-  {
-    problem:
-      "/pending-control response $.attachments[].commit: the receiver refuses this key (additionalProperties: false)",
-    why: "Sent only to a worker whose poll announces capabilities.repository_pins, which a baseline worker cannot send.",
-    proof: "packages/platform/src/workers/worker-gateway-attachments.test.ts",
-  },
-];
+}[] = [];
