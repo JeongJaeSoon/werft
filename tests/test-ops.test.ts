@@ -311,9 +311,17 @@ describe("scripts/test-ops.sh", () => {
         const sql = await file("0000_m0.sql", 0o600);
         const settings = await file("installation.json", 0o600);
         const unknown = await file("other.conf", 0o640);
+        // In the file's group, so its group bits decide, not the others'.
+        const grouped = await file("grouped.conf", 0o604);
+        const { gid } = await stat(grouped);
         const result = await preflightWith({
           migrate: { binds: [settings], user: `${other}:${other}` },
           postgres: { binds: [sql], image: "postgres:16" },
+          slack: {
+            binds: [grouped],
+            groupAdd: [gid],
+            user: `${other}:${other}`,
+          },
           tool: { binds: [unknown], image: "example/tool:1" },
         });
         expect(result.exitCode).toBe(1);
@@ -321,8 +329,9 @@ describe("scripts/test-ops.sh", () => {
         expect(result.stderr).toContain(
           `  ${settings} (migrate, uid ${other})\n`,
         );
+        expect(result.stderr).toContain(`  ${grouped} (slack, uid ${other})\n`);
         expect(result.stderr).toContain(`  ${unknown} (tool, uid unknown)\n`);
-        expect(result.stderr).toContain(`3 ${refusal}`);
+        expect(result.stderr).toContain(`4 ${refusal}`);
         expect(result.stderr).not.toContain(passed);
       },
     );
