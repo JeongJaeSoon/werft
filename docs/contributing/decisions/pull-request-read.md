@@ -1,8 +1,8 @@
 # 결정(설계안): 에이전트가 PR 본문을 읽는 도구와 기존 PR 꼬리 교체의 실제 확인
 
-- 상태: 설계안. 오너 결정 전이며 구현하지 않았다.
+- 상태: 결정, 구현함. 아래 [정한 것](#정한-것)은 오케스트레이터 결정이고 오너가 사후에 검토한다(2026-11-14). 되돌릴 수 있게 두었다.
 - 배경 문서: [에이전트 행동 도구 카탈로그](action-broker.md) 5.6·5.9절, [에이전트 GitHub 설정](github-agent.md)의 "PR 본문 꼬리".
-- 기준: `origin/main` `413500ad`. 아래 `파일:줄`은 이 커밋에서 읽었다.
+- 기준: 설계안은 `origin/main` `413500ad`에서 썼고, 아래 "문제"와 "제안"의 `파일:줄`은 그 커밋 기준이다. 그 뒤 패키지 구조가 바뀌어 파일이 옮겨졌다. 구현은 `df2524d0c` 위에서 했고, [구현에서 정한 것](#구현에서-정한-것)은 그 커밋의 경로로 적는다.
 
 ## 문제
 
@@ -61,8 +61,41 @@ verify-werft의 GitHub sandbox 절차([github-sandbox.md](../../../.claude/skill
 | 3 | 플랫폼 프롬프트 리비전: 도구 목록과 "읽고 나서 고쳐라" 한 줄 | 프롬프트 골든 시험 |
 | 4 | B(선택): 포트의 타입 있는 중단 결과, 어댑터가 중단 때 PATCH를 보내지 않음, `body_changed`·`body_unverified` 거절(둘 다 `retryable: false`) | 단위(해시 불일치 때 제목·본문 PATCH 0건, 잘린 읽기 뒤 본문 갱신 거절) + sandbox |
 
-## 오너가 정할 것
+## 정한 것
 
-1. A를 새 도구로 둘지, `get_push_request` 결과에 `pull_request.body`를 더할지. 새 도구는 설명과 권한이 분명하다. 기존 도구 확장은 도구 수가 늘지 않지만 push 상태를 볼 때마다 GitHub 호출이 붙는다.
-2. B를 만들지. 만들지 않으면 에이전트는 읽은 뒤 바로 쓰는 것으로 충분하다고 본다. 이 경우에도 잘린 읽기로 본문이 지워지는 위험은 남으므로, B 없이 A만 만든다면 본문 길이 상한을 GitHub 상한 이상으로 두어 잘리지 않게 해야 한다.
-3. 본문 길이 상한(제안 64 KiB, GitHub 본문 상한 65536자와 같은 차수).
+오케스트레이터 결정, 오너 사후 검토(2026-11-14). 오너는 이 도구에 "필요하겟네"라고만 답했고, 아래 세 가지에는 따로 답하지 않았다. 그래서 설계안의 추천안으로 정했다.
+
+1. **새 도구 `get_pull_request`를 만든다.** `get_push_request`는 넓히지 않는다. 설명과 권한이 분명하고, push 상태를 볼 때마다 GitHub를 부르지 않는다.
+2. **B를 만든다.** `update_pull_request`가 `expected_body_sha256`을 받는다. 읽은 뒤 본문이 바뀌었으면 쓰지 않고 거절한다.
+3. **본문 상한은 64 KiB(65536 UTF-8 bytes)다.** 넘으면 앞부분을 주되 `body_truncated: true`와 `body_sha256: null`로 잘렸음을 알린다. 잘린 읽기로는 본문을 고칠 수 없다(B의 `body_unverified`).
+
+## 구현에서 정한 것
+
+설계안을 따르되, 만들면서 아래를 정했다. 경로는 `df2524d0c` 기준이다.
+
+- **한 PR로 만든다.** 단위 2(A)와 4(B)는 같은 해시를 주고받아 따로 머지할 이유가 없다. 단위 1(C)의 sandbox 실측도 같은 PR의 확인으로 돌렸다.
+- **단위 3(플랫폼 프롬프트 리비전)은 하지 않는다.** 설계안 뒤에 [JeongJaeSoon/werft#1401](https://github.com/JeongJaeSoon/werft/pull/1401)이 엔진 입력에서 플랫폼 지시문을 걷어냈다. 이제 도구 설명은 사실만 적는다(`packages/contracts/src/action/github-mcp.ts`의 `description` 규칙과 시험). 그래서 "읽고 나서 고쳐라" 대신 `get_pull_request`와 `update_pull_request`의 설명에 해시를 주고받는 사실을 적었다. Claude auto mode의 허용 문구(`packages/adapters/runtimes/claude/src/settings/auto.json`)에도 PR 읽기를 더했다.
+- **`get_pull_request`의 응답.**
+  - 필드는 설계안 그대로다. `state`는 `open`·`closed`에 더해, 머지된 PR이면 `merged`다.
+  - `untrusted: true`는 봉투가 아니라 `result` 안에 있다. 봉투(`actionResultSchema`)는 `ok`와 `result`(또는 `refusal`)만 받는 strict 스키마이기 때문이다.
+  - 본문 처리 순서는 꼬리 빼기 → 줄마다 마스킹 → 64 KiB 자르기다. 마스킹은 PR 본문을 쓸 때 쓰는 규칙(`lineRedactor`와 `sanitizeText`)을 그대로 쓴다. 비밀값 모양의 줄과 private key 블록은 `[REDACTED]`가 된다. 제목도 같은 규칙으로 마스킹한다. 자르기는 문자 경계에서 한다.
+  - `body_sha256`은 GitHub가 돌려준 본문 전체(꼬리 포함, 마스킹 전)의 SHA-256이다.
+  - 꼬리 빼기는 `withPullRequestTail`과 같은 스캔(`withoutPullRequestTail`, `packages/platform/src/sessions/git-attribution.ts`)이다. 꼬리가 없거나 사람이 고친 꼬리면 본문을 그대로 준다.
+- **권한.** 새 목적 `pull_request_read`는 `pull_requests: read` 하나만 받는다. 게이트에서는 `pull_request`와 같이 에이전트 스위치, 범위, 상한을 모두 거친다. 붙인 저장소에도 허용한다. 서비스는 `update`와 같은 순서로 판단한다: 세션 공유 권한 → push 요청 → 기록된 PR → (submitter는) `pushed` → 게이트 → GitHub 읽기 → head 비교.
+- **receipt.** 읽기는 PR receipt를 남기지 않는다. 권한 거절도 receipt 없이 답한다. 게이트는 지금처럼 새로 발급한 토큰(`mint_github_token`)과 자기가 거절한 요청을 기록한다.
+- **B의 판정은 쓰기 직전에 다시 읽은 본문으로 한다.**
+  - 포트의 `updatePullRequestBody`는 `edit`이 `null`을 돌려주면 아무 PATCH도 보내지 않는다(제목 포함). 서비스는 그 콜백 안에서 해시를 비교한다.
+  - `body_changed`: `expected_body_sha256`이 주어졌는데 다시 읽은 본문의 해시가 다르다. 제목만 고치는 호출도 해시를 주면 비교한다. API 오류 코드는 기존의 `REVISION_CONFLICT`(409)다.
+  - `body_unverified`: 본문을 다시 쓰는 호출에 해시가 없는데, 다시 읽은 본문이 `get_pull_request`가 자를 크기다. API 오류 코드는 기존의 `PRECONDITION_REQUIRED`(428)다. 설계안은 "잘린 응답을 준 PR"이라고 했지만, 읽은 적이 있는지를 저장하지 않고 본문 크기로 판정한다. 결과는 같고 상태를 둘 곳이 필요 없다. 그래서 `get_pull_request`를 부르지 않은 세션도 이런 PR의 본문은 해시 없이 다시 쓰지 못한다. 제목만 고치는 것은 된다.
+  - 잘린 읽기에는 해시가 없으므로, `body_unverified`가 나는 PR의 본문은 에이전트가 다시 쓸 수 없다. 설계안 B와 같다. 크기는 `get_pull_request`와 같이 꼬리를 빼고 마스킹한 뒤에 잰다. 그래서 긴 비밀값 줄이 `[REDACTED]`로 줄어 64 KiB 안에 들면 그 본문은 통째로 읽히고 해시도 나온다.
+  - `body_too_long`: `expected_body_sha256`과 함께 보낸 legacy `body`가 플랫폼이 쓸 수 있는 길이(`maxBodyLength - 2000`자, GitHub는 63536자)를 넘어 잘리게 될 때다. API 오류 코드는 기존의 `PAYLOAD_TOO_LARGE`(413)다. 읽기 상한(64 KiB, UTF-8 bytes)과 쓰기 상한(UTF-16 문자 수)은 단위가 다르다. 그래서 통째로 읽힌 본문을 그대로 돌려보내도 쓰기에서 뒷부분이 잘릴 수 있다. 해시를 준 쓰기는 읽은 글을 고치는 것이므로 자르지 않고 거절한다. 해시 없는 쓰기는 지금처럼 `…(truncated)`를 붙여 자른다. 구조화 필드로 쓰는 본문은 새로 짜는 글이라 이 검사를 하지 않는다. Codex 리뷰가 찾았다.
+  - 셋 다 `by: platform`, `retryable: false`이고, `update_pull_request` receipt에 `refusal`로 남는다.
+  - 읽은 본문을 그대로 돌려보내도 바뀌는 것이 있다. 쓰기는 에이전트가 보낸 글에 PR 열기와 같은 정리(멘션·닫기 키워드·교차 참조 무력화, `<!--` 무력화)를 한다. 읽기에서 `[REDACTED]`가 된 줄은 그대로 `[REDACTED]`로 쓰인다. 에이전트가 보낸 글은 에이전트의 글로 다룬다는 기존 규칙을 따른 것이다.
+  - 비교와 쓰기 사이에 사람이 고치면 막지 못한다. GitHub에 조건부 쓰기가 없기 때문이다. 이 한계는 도구 설명에도 적었다.
+- **배포 전 checkpoint의 복원.** claim은 내장 서버의 도구 이름을 `runtime_config.tools`에 하나씩 넣고, Claude checkpoint 지문은 그 목록 전체를 해시한다(`packages/adapters/runtimes/claude/src/profile-fingerprint.ts`). 그래서 도구 하나가 늘면 배포 전에 만든 checkpoint의 지문이 지금 설정과 맞지 않는다. claim의 복원 후보(`restore_runtime_configs`, `packages/platform/src/workers/worker-gateway.ts`의 `restoreRuntimesOf`)에 "`get_pull_request`가 없는 github 서버" 설정을 더했다. 이미 있는 "github 서버가 붙기 전" 후보와 같은 자리다. Codex 리뷰가 찾았다. 후보는 프로토콜 상한(`MAX_RESTORE_CONFIGS`, 16)으로 잘리고, 옛 worker가 strict schema로 받으므로 상한은 올리지 않는다. 그 대신 "추가 전" 후보는 기존 후보를 모두 둔 뒤 남는 자리에만 넣는다(지금 설정의 것이 먼저). 그래서 배포 전에 주던 후보는 어떤 세션에서도 밀려나지 않는다. 기존 후보가 이미 상한을 채운 세션(옛 모델 설정이 8개 이상)은 "추가 전" 후보를 받지 못하고, 배포 전 checkpoint를 복원하지 못한다. 이 변경이 없을 때와 같다(`worker-gateway-model-move.test.ts`). 처음에는 지금 설정의 후보를 앞에 두었으나, 그러면 그런 세션에서 기존 16번째 후보가 밀려난다고 Codex가 반론해 바꿨다. 앞서 `merge_pull_request`를 더할 때는 이런 후보를 두지 않았다. 그 일은 따로 티켓으로 남겼다.
+- **시험.**
+  - 서비스(`pull-request-service.test.ts`): 꼬리를 뺀 본문과 해시, 마스킹, 머지 상태, 보이지 않는 세션, 게이트 거절, PR 없음과 다른 head, 64 KiB 경계(정확히 65536 bytes는 통째로, 65537은 잘림, 3바이트 문자는 문자 경계), 해시 일치 쓰기, 해시 불일치 때 PATCH 0건, 해시 없는 긴 본문 거절과 제목만 고치기, 통째로 읽혔지만 쓰기에서 잘릴 본문의 `body_too_long`, 제목과 private key 블록의 마스킹, 4바이트 문자 경계, 따로 계산한 SHA-256과의 비교.
+  - claim(`apps/control-host/src/api/github-mcp.test.ts`): 복원 후보에 `get_pull_request`가 없는 설정이 있다.
+  - 게이트: `pull_request_read`의 권한이 `pull_requests: read` 하나뿐이다. 스위치를 끄면 `github_disabled`, 범위 밖이면 `repository_not_allowed`다. 붙인 저장소는 허용한다.
+  - MCP 서버: 인자 검사, `body_changed` 봉투.
+  - 어댑터와 forge 계약: `null` edit는 PATCH 0건, 읽기에 본문이 실린다.

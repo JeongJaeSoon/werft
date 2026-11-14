@@ -313,6 +313,13 @@ export const PULL_REQUEST_REFUSAL_VALUES = [
   // Merging: GitHub will not merge it now (checks, reviews, conflicts, draft).
   "merge_blocked",
   "pull_request_closed",
+  // Updating: the body is no longer the one `expected_body_sha256` names.
+  "body_changed",
+  // Updating: a body `get_pull_request` cannot answer whole, so no hash the
+  // agent holds covers it, is not rewritten.
+  "body_unverified",
+  // Updating against a read body: the new body would be cut to fit.
+  "body_too_long",
 ] as const;
 export const pullRequestRefusalSchema = z.enum(PULL_REQUEST_REFUSAL_VALUES);
 

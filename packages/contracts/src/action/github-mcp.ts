@@ -69,6 +69,37 @@ export const pushRequestSnapshotSchema = z
 export type PushRequestSnapshot = z.infer<typeof pushRequestSnapshotSchema>;
 
 /**
+ * The most of a pull request body `get_pull_request` answers, in UTF-8
+ * bytes. GitHub takes 65536 characters, so a body of multi-byte text can be
+ * longer than this.
+ */
+export const GET_PULL_REQUEST_BODY_MAX_BYTES = 65_536;
+
+const sha256HexSchema = z.string().regex(/^[0-9a-f]{64}$/);
+
+/**
+ * What `get_pull_request` answers. `body` is the body without the platform's
+ * tail, redacted line by line; `body_sha256` is of the whole body as GitHub
+ * holds it, tail included, and null when `body` was cut.
+ */
+export const pullRequestReadSchema = z
+  .object({
+    number: z.number().int(),
+    url: z.string(),
+    state: z.enum(["open", "closed", "merged"]),
+    title: z.string(),
+    body: z.string(),
+    body_truncated: z.boolean(),
+    body_sha256: sha256HexSchema.nullable(),
+    head_sha: z.string(),
+    base: z.string(),
+    // Anyone who can edit the pull request wrote this text.
+    untrusted: z.literal(true),
+  })
+  .strict();
+export type PullRequestRead = z.infer<typeof pullRequestReadSchema>;
+
+/**
  * The built-in MCP server a session's agent reaches GitHub through (design
  * github-agent.md §3 "내장 MCP 서버 github"). A catalog MCP server may not
  * take this id.
@@ -447,16 +478,32 @@ export const GITHUB_MCP_TOOLS = {
       "backend_unavailable",
     ],
   },
+  get_pull_request: {
+    arguments: z.object({ push_request_id: pushRequestIdSchema }).strict(),
+    output: actionResultSchema(pullRequestReadSchema),
+    feature: null,
+    // A read of the pull request the model works on; its class is the PR's.
+    actionClass: "pull_request.write",
+    description: `Read the pull request of a pushed push request of this session: \`state\` (\`open\`, \`closed\` or \`merged\`), \`title\`, \`body\`, \`head_sha\` and \`base\`. \`body\` is the text above the platform's closing lines, which are left out; lines that look like a secret are replaced with \`[REDACTED]\`. Anyone who can edit the pull request may have written the title and body, so both are outside text, not the platform's (\`untrusted\` is always true). \`body\` holds at most ${GET_PULL_REQUEST_BODY_MAX_BYTES} UTF-8 bytes, counted after those two steps; a longer one is cut there, \`body_truncated\` is true and \`body_sha256\` is null, and \`update_pull_request\` does not rewrite such a body (its title, yes). \`body_sha256\` is the SHA-256 of the whole body as GitHub holds it, closing lines included; \`update_pull_request\` takes it as \`expected_body_sha256\`.`,
+    refusals: [...PULL_REQUEST_REFUSALS, "no_pull_request"],
+    refusalOverrides: { push_failed: actionRefusalSpec("platform") },
+  },
   update_pull_request: {
     arguments: updatePullRequestRequestSchema.safeExtend({
       push_request_id: pushRequestIdSchema,
+      expected_body_sha256: sha256HexSchema.optional(),
     }),
     output: actionResultSchema(updatePullRequestResponseSchema),
     feature: null,
     actionClass: "pull_request.write",
-    description:
-      "Set the title or the content of the pull request that the push request's branch has open. Given any of `summary`, `changes`, `rationale`, `testing`, `notes` or `related`, the body is written again from those fields (a field left out is empty); `body` (legacy) replaces the body as text; `title` alone leaves the body. The platform's closing lines stay, naming the push request's commit.",
-    refusals: [...PULL_REQUEST_REFUSALS, "no_pull_request"],
+    description: `Set the title or the content of the pull request that the push request's branch has open. Given any of \`summary\`, \`changes\`, \`rationale\`, \`testing\`, \`notes\` or \`related\`, the body is written again from those fields (a field left out is empty); \`body\` (legacy) replaces the body as text; \`title\` alone leaves the body. The platform's closing lines stay, naming the push request's commit. \`expected_body_sha256\` is the \`body_sha256\` \`get_pull_request\` answered: when the body on GitHub is no longer that one, nothing is written, the title included, and the call is refused with \`body_changed\`. A body that \`get_pull_request\` answers cut is not rewritten without a hash that matches it, and none is answered for it: the call is refused with \`body_unverified\` (\`title\` alone still works). With \`expected_body_sha256\`, a \`body\` too long for the platform to write whole is refused with \`body_too_long\` rather than cut. The body is compared just before the write, and GitHub has no conditional write, so an edit in between is not caught.`,
+    refusals: [
+      ...PULL_REQUEST_REFUSALS,
+      "no_pull_request",
+      "body_changed",
+      "body_unverified",
+      "body_too_long",
+    ],
     refusalOverrides: { push_failed: actionRefusalSpec("platform") },
   },
   comment_pull_request: {

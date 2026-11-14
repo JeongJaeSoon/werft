@@ -10,6 +10,7 @@ import {
   type OpenPullRequestResponse,
   type OpenPullRequestResult,
   type PullRequestBodySource,
+  type PullRequestRead,
   type PullRequestReceiptResult,
   type PullRequestRefusal,
   type PullRequestState,
@@ -71,6 +72,7 @@ import {
 } from "../ports/pull-requests.ts";
 import type { SessionAttributionStore } from "../ports/session-attribution.ts";
 import { renderPullRequestBody } from "./pull-request-body.ts";
+import { bodySha256, readablePullRequestBody } from "./pull-request-read.ts";
 import {
   type ResolvedPullRequestSettings,
   resolvePullRequestSettings,
@@ -85,6 +87,7 @@ import {
 import {
   cleanBody,
   cleanTitle,
+  lineRedactor,
   stripEngineSignatures,
 } from "./pull-request-text.ts";
 import {
@@ -261,6 +264,8 @@ export function createPullRequestService(deps: {
     body: string;
     source: PullRequestBodySource;
     template: PullRequestTemplateRecord | null;
+    /** A legacy `body` that was cut to fit. */
+    cut?: boolean;
   }> {
     if (hasStructuredFields(content)) {
       const { settings } = where;
@@ -335,26 +340,26 @@ export function createPullRequestService(deps: {
         template: record,
       };
     }
+    const text = stripEngineSignatures(content.body ?? "");
+    const cleaned = cleanBody(text, where.maxLength - 2_000, redact);
     return {
       template: null,
-      body: withPullRequestTail(
-        cleanBody(
-          stripEngineSignatures(content.body ?? ""),
-          where.maxLength - 2_000,
-          redact,
-        ),
-        where.tail,
-      ),
+      body: withPullRequestTail(cleaned, where.tail),
       source: { kind: content.body === undefined ? "platform" : "agent" },
+      cut: cleaned !== cleanBody(text, Number.POSITIVE_INFINITY, redact),
     };
   }
 
-  async function begin<Id extends string | null>(
+  async function begin<
+    Id extends string | null,
+    Op extends PullRequestOperation | null,
+  >(
     actor: PushActor,
     rawSessionId: string,
     // Null for a push intent that has no push request yet.
     rawPushRequestId: Id,
-    operation: PullRequestOperation,
+    // Null for a read: its refusals leave no receipt.
+    operation: Op,
   ) {
     requireVerified(actor);
     const sessionId = rawSessionId.toLowerCase();
@@ -374,21 +379,25 @@ export function createPullRequestService(deps: {
       pushRequestState?: PushRequestState,
       details?: Readonly<Record<string, unknown>>,
     ): Promise<never> => {
-      const receiptId = await store.recordReceipt({
-        ...receipt,
-        result: {
-          ...EMPTY_RESULT,
-          push_request_id: pushRequestId,
-          ...fields,
-          verdict: "refuse",
-          refusal,
-        },
-      });
+      const receiptId =
+        operation === null
+          ? null
+          : await store.recordReceipt({
+              ...receipt,
+              operation,
+              result: {
+                ...EMPTY_RESULT,
+                push_request_id: pushRequestId,
+                ...fields,
+                verdict: "refuse",
+                refusal,
+              },
+            });
       const { code, message } = PULL_REQUEST_REFUSAL_ERRORS[refusal];
       throw new SessionServiceError(code, message, undefined, {
         ...details,
         refusal,
-        receipt_id: receiptId,
+        ...(receiptId === null ? {} : { receipt_id: receiptId }),
         ...(pushRequestState === undefined
           ? {}
           : { push_request_state: pushRequestState }),
@@ -452,7 +461,7 @@ export function createPullRequestService(deps: {
       refusal: PullRequestRefusal,
       fields?: Partial<PullRequestReceiptResult>,
     ) => Promise<never>,
-    purpose: "pull_request" | "merge" = "pull_request",
+    purpose: "pull_request" | "pull_request_read" | "merge" = "pull_request",
   ) {
     const fields = { repository_id: source.repositoryId };
     const entry = Object.hasOwn(catalog.repositories, source.repositoryId)
@@ -1003,11 +1012,83 @@ export function createPullRequestService(deps: {
       };
     },
 
+    /**
+     * `get_pull_request`: the pull request of this session's push request as
+     * GitHub holds it now, under the same rules as `update`, with a token
+     * that only reads pull requests. A read leaves no receipt of its own; the
+     * gate still records a token it mints or refuses.
+     */
+    async read(
+      actor: PushActor,
+      rawSessionId: string,
+      rawPushRequestId: string,
+    ): Promise<PullRequestRead> {
+      const { sessionId, pushRequestId, refuse, submitter } = await begin(
+        actor,
+        rawSessionId,
+        rawPushRequestId,
+        null,
+      );
+      const source = await store.findSource(
+        actor.ownerId,
+        sessionId,
+        pushRequestId,
+      );
+      if (source === null) return await refuse("not_found");
+      const { pullRequest, fields } = await pullRequestOf(
+        actor.ownerId,
+        source,
+      );
+      if (pullRequest === null) return await refuse("no_pull_request", fields);
+      if (submitter && source.state !== "pushed") {
+        return await refuse("not_pushed", fields, source.state);
+      }
+      const { forge } = await forgeFor(
+        actor,
+        source,
+        (refusal, extra) => refuse(refusal, { ...fields, ...extra }),
+        "pull_request_read",
+      );
+      let read: ForgePullRequestDetail;
+      try {
+        read = (await forge.getPullRequest(pullRequest.number)).pullRequest;
+      } catch (error) {
+        if (error instanceof GitHubCallError) {
+          return await refuse(
+            error.status === 404 ? "no_pull_request" : "forge_failed",
+            fields,
+          );
+        }
+        throw error;
+      }
+      // The number was reused for another branch's pull request.
+      if (read.head !== pullRequest.head) {
+        return await refuse("no_pull_request", fields);
+      }
+      const { body, truncated } = readablePullRequestBody(read.body, redact);
+      return {
+        number: read.number,
+        url: read.url,
+        state: read.mergedAt !== null ? "merged" : read.state,
+        title: lineRedactor(redact)(read.title),
+        body,
+        body_truncated: truncated,
+        body_sha256: truncated ? null : bodySha256(read.body),
+        head_sha: read.headSha,
+        base: read.base,
+        untrusted: true,
+      };
+    },
+
     async update(
       actor: PushActor,
       rawSessionId: string,
       rawPushRequestId: string,
-      input: { readBody: () => Promise<UpdatePullRequestRequest> },
+      input: {
+        readBody: () => Promise<UpdatePullRequestRequest>;
+        /** The `body_sha256` the caller read; the write stops on any other body. */
+        expectedBodySha256?: string | undefined;
+      },
     ): Promise<UpdatePullRequestResponse> {
       const { sessionId, pushRequestId, receipt, refuse, submitter } =
         await begin(
@@ -1057,10 +1138,36 @@ export function createPullRequestService(deps: {
             settings,
           })
         : null;
+      const expected = input.expectedBodySha256;
+      // Edited against a read, a cut would drop the end of the read text.
+      if (expected !== undefined && written?.cut === true) {
+        return await refuse("body_too_long", fields);
+      }
+      // Set inside the edit, which runs on the body GitHub answers just
+      // before the write; a stop sends no PATCH, the title's included.
+      const stop: { refusal: "body_changed" | "body_unverified" | null } = {
+        refusal: null,
+      };
       try {
         await forge.updatePullRequestBody(
           pullRequest.number,
-          (current) => written?.body ?? current,
+          (current) => {
+            if (expected !== undefined && bodySha256(current) !== expected) {
+              stop.refusal = "body_changed";
+              return null;
+            }
+            // `get_pull_request` answers such a body cut and with no hash,
+            // so a rewrite would drop what the agent could not read.
+            if (
+              written !== null &&
+              expected === undefined &&
+              readablePullRequestBody(current, redact).truncated
+            ) {
+              stop.refusal = "body_unverified";
+              return null;
+            }
+            return written?.body ?? current;
+          },
           body.title === undefined ? undefined : cleanTitle(body.title, redact),
         );
       } catch (error) {
@@ -1069,6 +1176,7 @@ export function createPullRequestService(deps: {
         }
         throw error;
       }
+      if (stop.refusal !== null) return await refuse(stop.refusal, fields);
       const receiptId = await store.recordReceipt({
         ...receipt,
         pushRequestId: source.id,

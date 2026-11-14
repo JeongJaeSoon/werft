@@ -46,6 +46,8 @@ export type ForgePullRequestWithBody = ForgePullRequest & {
 /** One pull request read by number, with the figures its list entry lacks. */
 export type ForgePullRequestDetail = ForgePullRequest & {
   title: string;
+  /** As GitHub holds it; "" when it has none. */
+  body: string;
   mergeCommitSha: string | null;
   /** GitHub's `mergeable_state`; absent or null reads as not mergeable. */
   mergeableState?: string | null;

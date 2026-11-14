@@ -139,6 +139,18 @@ describe("GitHub pull requests", () => {
       github.apiRequests.filter((request) => request.method === "PATCH").at(-1)
         ?.body,
     ).toEqual({ title: "Retitled" });
+    // An edit that answers null stops the write: no PATCH, not even the title.
+    const patches = github.apiRequests.filter(
+      (request) => request.method === "PATCH",
+    ).length;
+    await forge.updatePullRequestBody(opened.number, () => null, "Stopped");
+    expect(
+      github.apiRequests.filter((request) => request.method === "PATCH"),
+    ).toHaveLength(patches);
+    expect(github.pullRequests("acme", "app")[0]?.title).toBe("Retitled");
+    expect((await forge.getPullRequest(opened.number)).pullRequest.body).toBe(
+      "What the session did.\n\ntail",
+    );
     await expect(
       forge.updatePullRequestBody(999, (current) => current),
     ).rejects.toThrow();

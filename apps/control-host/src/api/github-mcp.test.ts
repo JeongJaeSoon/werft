@@ -137,6 +137,7 @@ beforeEach(async () => {
           pullRequests: {
             schedule: unused,
             open: unused,
+            read: unused,
             update: unused,
             comment: unused,
             setState: unused,
@@ -342,6 +343,7 @@ describe("the built-in github MCP server on stored rows", () => {
       "mcp__github__request_push",
       "mcp__github__open_pull_request",
       "mcp__github__get_push_request",
+      "mcp__github__get_pull_request",
       "mcp__github__update_pull_request",
       "mcp__github__comment_pull_request",
       "mcp__github__close_pull_request",
@@ -380,19 +382,38 @@ describe("the built-in github MCP server on stored rows", () => {
   test("a checkpoint made before the server was attached still restores", async () => {
     const { claim } = await seeded({ github: settings({ actions: true }) });
     const { mcp_servers: _servers, ...unattached } = claim.runtime_config;
+    expect(claim.restore_runtime_configs).toContainEqual({
+      ...unattached,
+      tools: ["Read"],
+    });
+  });
+
+  test("a checkpoint made before get_pull_request was added still restores", async () => {
+    const { claim } = await seeded({ github: settings({ actions: true }) });
+    const current = claim.runtime_config;
     expect(claim.restore_runtime_configs).toEqual([
-      { ...unattached, tools: ["Read"] },
+      expect.objectContaining({ tools: ["Read"] }),
+      {
+        ...current,
+        tools: current.tools.filter(
+          (tool) => tool !== "mcp__github__get_pull_request",
+        ),
+      },
     ]);
   });
 
-  test("beside a catalog server, the earlier checkpoint names that server alone", async () => {
+  test("beside a catalog server, the earlier checkpoints keep that server", async () => {
     const { claim } = await seeded({ remote: true });
     expect(
       claim.restore_runtime_configs?.map((config) => [
         config.mcp_servers?.map((server) => server.name),
-        config.tools.filter((tool) => tool.startsWith("mcp__github__")),
+        config.tools.includes("mcp__github__get_pull_request"),
+        config.tools.some((tool) => tool.startsWith("mcp__github__")),
       ]),
-    ).toEqual([[["fake"], []]]);
+    ).toEqual([
+      [["fake"], false, false],
+      [["fake", "github"], false, true],
+    ]);
   });
 
   test("a release without GitHub settings attaches no server", async () => {
@@ -427,6 +448,7 @@ describe("the built-in github MCP server on stored rows", () => {
       "request_push",
       "open_pull_request",
       "get_push_request",
+      "get_pull_request",
       "update_pull_request",
       "comment_pull_request",
       "close_pull_request",

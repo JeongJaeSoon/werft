@@ -165,7 +165,7 @@ D1~D5 확정(2026-11-03). PR 본문 템플릿과 commit 귀속은 플랫폼 도�
 
 | operation | 언제 | actor | result |
 |---|---|---|---|
-| `mint_github_token` (새) | 게이트가 GitHub에 **새로** 토큰을 발급받았을 때. 캐시에서 꺼낸 것은 남기지 않는다 | 그 작업의 actor. clone은 세션 시작자, push 실행기는 없음(null). 시작자가 없으면 null([GA-2에서 정한 것](#ga-2에서-정한-것)) | `session_id`, `agent_id`, `agent_release_id`, `repository_id`, `role`(`author`·`reviewer`), `connection_id`(콘솔 연결이면 그 행 id, 카탈로그 App이면 null), 이 발급이 고정을 썼으면 `pinned_by: first_mint`, `app_id`, `permissions`, `purpose`(`clone`·`push`·`pull_request`·`actions_read`·`dispatch`·`rerun`·`review`·`outcome_refresh`), `expires_at` |
+| `mint_github_token` (새) | 게이트가 GitHub에 **새로** 토큰을 발급받았을 때. 캐시에서 꺼낸 것은 남기지 않는다 | 그 작업의 actor. clone은 세션 시작자, push 실행기는 없음(null). 시작자가 없으면 null([GA-2에서 정한 것](#ga-2에서-정한-것)) | `session_id`, `agent_id`, `agent_release_id`, `repository_id`, `role`(`author`·`reviewer`), `connection_id`(콘솔 연결이면 그 행 id, 카탈로그 App이면 null), 이 발급이 고정을 썼으면 `pinned_by: first_mint`, `app_id`, `permissions`, `purpose`(`clone`·`push`·`pull_request`·`pull_request_read`·`actions_read`·`dispatch`·`rerun`·`review`·`outcome_refresh`), `expires_at` |
 | 게이트의 거절 | 발급 전에 거절했을 때 | 같음 | 같은 칸 + `reason_code`. status `failed`. 연결을 정하지 못하거나 고정된 연결이 닿지 않아 끝난 발급(`503` `forge_failed`)도 남기고 `pin_state`(`none_unreachable`·`lookup_failed`·`pinned_unreachable`)를 싣는다. `ambiguous_app`이면 `candidate_connection_ids`([결정 11](#그대로-지키는-것)) |
 | `set_github_app` (있음) | 등록·교체, 구성원 계정 연결에 쓰는 연결 바꾸기(`purpose: user_link`) | 사람 | `app_id`에 `connection_id`, `role`, `permissions`, `warnings`를 더한다. 옛 역할 주소의 교체가 고정을 지웠으면 `pins_cleared`, 같은 App을 다시 더해 고정을 되살렸으면 `pins_restored`, `purpose: user_link`이면 `before`·`after`(연결 id) |
 | `delete_github_app` (있음) | 연결 해제 | 사람 | `connection_id`, `app_id`, `role`, 해제할 때의 영향(`pinned_repository_count`, `agent_count`, `active_session_count`) |
@@ -282,7 +282,7 @@ export interface GitHubGate {
 }
 ```
 
-- 원칙: 호출자는 저장소를 넘기되, 게이트가 세션 행(주 저장소와 부착 목록)과 릴리스로 다시 검증한다. 넘긴 값은 힌트일 뿐 허용 범위를 넓히지 않는다. 주 저장소가 아닌 저장소에는 `clone`·`push`·`pull_request`와 플랫폼의 `outcome_refresh`만 허용한다([session-multi-repository.md](session-multi-repository.md) 결정 1·5).
+- 원칙: 호출자는 저장소를 넘기되, 게이트가 세션 행(주 저장소와 부착 목록)과 릴리스로 다시 검증한다. 넘긴 값은 힌트일 뿐 허용 범위를 넓히지 않는다. 주 저장소가 아닌 저장소에는 `clone`·`push`·`pull_request`·`pull_request_read`와 플랫폼의 `outcome_refresh`만 허용한다([session-multi-repository.md](session-multi-repository.md) 결정 1·5).
 - `grant`가 하는 일, 이 순서로:
   1. 세션 → 릴리스 → 에이전트를 읽는다. 릴리스가 없는 세션은 "기본 설정"을 쓴다. 기본 설정은 GitHub 켜짐, push 승인 켜짐, 선택 권한 없음, 프로필이 허용하는 모든 저장소다. 지금 동작과 같다.
   2. `agents.github_enabled`이 false면 `github_disabled`다.
@@ -324,6 +324,7 @@ export interface GitHubGate {
 | `dispatch`, `rerun` | `actions: write` | author | 새 GitHub 작업 서비스 |
 | `review` | `contents: read`, `pull_requests: write` | reviewer | 새 GitHub 작업 서비스 |
 | `outcome_refresh` | `pull_requests: read` | author | 성과물 상태 조회(GA-4b, [10절](#pr-상태-갱신-조회로-한다)). 에이전트 스위치·범위·기능·상한을 보지 않는다 |
+| `pull_request_read` | `pull_requests: read` | author | 에이전트의 PR 읽기(`get_pull_request`, [pull-request-read.md](pull-request-read.md)). `pull_request`와 같이 스위치·범위·상한을 모두 본다 |
 
 `checks: write`와 `issues: write`는 이번에 상한·릴리스 칸과 게이트의 판정만 만든다. 그 권한을 쓰는 작업(check run 쓰기, issue 쓰기)은 이 문서 범위에서 만들지 않는다. 칸이 먼저 있어야 오너가 App에 미리 권한을 주고 에이전트별로 켜 둘 수 있다. 작업은 필요할 때 이 표에 줄을 더해 만든다.
 
@@ -350,7 +351,8 @@ GA-7이 정한다. 지금 있는 원격 MCP 경로(카탈로그 `mcp_servers`, `
 |---|---|---|---|
 | `request_push` | 늘 | `PushRequestService.create` | 없음 |
 | `open_pull_request` | 늘 | `PullRequestService.open` | `push_request_id`, `title?`, `body?` |
-| `update_pull_request` | 늘 | `PullRequestService.update`(입구 1 없음, 아래 "PR 제목·본문 수정") | `push_request_id`, `title?`, `body?`(하나 이상) |
+| `get_pull_request` | 늘 | `PullRequestService.read`(입구 1 없음, [pull-request-read.md](pull-request-read.md)) | `push_request_id` |
+| `update_pull_request` | 늘 | `PullRequestService.update`(입구 1 없음, 아래 "PR 제목·본문 수정") | `push_request_id`, `title?`, `body?`(하나 이상), `expected_body_sha256?` |
 | `comment_pull_request` | 늘 | `PullRequestService.comment` | `push_request_id`, `body`, `marker?` |
 | `close_pull_request`, `reopen_pull_request` | 늘 | `PullRequestService.setState`(입구 1 없음, [action-broker.md](action-broker.md) T9) | `push_request_id` |
 | `dispatch_workflow` | `features.actions` | `GitHubWorkService.dispatch` | `workflow`, `ref`, `inputs?` |

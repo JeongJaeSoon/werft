@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   type AgentPullRequestSettings,
   DEFAULT_PULL_REQUEST_SETTINGS,
+  GET_PULL_REQUEST_BODY_MAX_BYTES,
   type GitHubRefusal,
   type Principal,
   type PullRequest,
@@ -41,6 +42,7 @@ import type {
   SessionAttributionRecord,
   TurnRequester,
 } from "../ports/session-attribution.ts";
+import { bodySha256 } from "./pull-request-read.ts";
 import {
   commentMarker,
   createPullRequestService,
@@ -140,6 +142,8 @@ function harness(
   const dueAgain: string[] = [];
   const saved: PullRequest[] = [];
   const calls: string[] = [];
+  /** The pull requests each body or title write went to. */
+  const writes: number[] = [];
   const sourceReads: string[] = [];
   const settingsReads: string[] = [];
   const agentReads: string[] = [];
@@ -302,7 +306,8 @@ function harness(
       return {
         pullRequest: {
           ...open,
-          title: "t",
+          title: titles.get(number) ?? "t",
+          body: bodies.get(number) ?? "",
           mergeCommitSha: open.mergedAt === null ? null : "c".repeat(40),
           mergeableState: mergeable,
           mergeable: mergeable === null ? null : mergeable === "clean",
@@ -367,7 +372,11 @@ function harness(
       if (options.failUpdate) {
         throw new ForgeCredentialError("GitHub call failed (502)");
       }
-      bodies.set(number, edit(bodies.get(number) ?? ""));
+      const body = edit(bodies.get(number) ?? "");
+      // GitHub gets no PATCH at all.
+      if (body === null) return;
+      writes.push(number);
+      bodies.set(number, body);
       if (title !== undefined) titles.set(number, title);
     },
     upsertComment: async (number, marker, body) => {
@@ -448,6 +457,7 @@ function harness(
     sourceReads,
     saved,
     calls,
+    writes,
     repository,
     works,
     created,
@@ -1247,6 +1257,280 @@ describe("updating the pull request", () => {
     });
     expect(bodies.get(7)).toBe(before);
     expect(titles.get(7)).toBe("Renamed");
+  });
+});
+
+describe("reading the pull request (94S-1453)", () => {
+  const MAX = GET_PULL_REQUEST_BODY_MAX_BYTES;
+  /** A pull request opened through the service, its body then set on GitHub. */
+  const opened = async (human: string) => {
+    const h = harness();
+    await h.service.open(actor, SESSION, PUSH, {
+      readBody: async () => ({ title: "First", body: "Draft" }),
+    });
+    const tail = (h.bodies.get(7) ?? "").slice("Draft\n\n".length);
+    const body = `${human}\n\n${tail}`;
+    h.bodies.set(7, body);
+    return { ...h, tail, body };
+  };
+
+  test("answers the person's text without the tail, the whole body's hash, and leaves no receipt", async () => {
+    const human = "Person's note\r\n<!-- kept -->\n\nMore";
+    const { service, receipts, works, body } = await opened(human);
+    const before = receipts.length;
+    expect(await service.read(actor, SESSION, PUSH)).toEqual({
+      number: 7,
+      url: "https://github.com/acme/app/pull/7",
+      state: "open",
+      title: "t",
+      body: human,
+      body_truncated: false,
+      body_sha256: bodySha256(body),
+      head_sha: "a".repeat(40),
+      base: "develop",
+      untrusted: true,
+    });
+    expect(receipts.length).toBe(before);
+    expect(works.at(-1)?.purpose).toBe("pull_request_read");
+  });
+
+  test("a line shaped like a secret is redacted, and the hash is still of what GitHub holds", async () => {
+    const { service, body } = await opened("Plan\ntoken ghp_abc\nDone");
+    const read = await service.read(actor, SESSION, PUSH);
+    expect(read.body).toBe("Plan\n[REDACTED]\nDone");
+    expect(read.body_sha256).toBe(bodySha256(body));
+  });
+
+  test("the title and a key block are redacted too; the hash is SHA-256 of GitHub's text", async () => {
+    const pem = (edge: string) => `-----${edge} RSA PRIVATE KEY-----`;
+    const h = await opened(
+      `Before\n${pem("BEGIN")}\nMIIE\n${pem("END")}\nAfter`,
+    );
+    h.titles.set(7, "Rotate ghp_abc");
+    const read = await h.service.read(actor, SESSION, PUSH);
+    expect(read.title).toBe("[REDACTED]");
+    expect(read.body).toBe("Before\n[REDACTED]\n[REDACTED]\n[REDACTED]\nAfter");
+    expect(read.body_sha256).toBe(
+      new Bun.CryptoHasher("sha256").update(h.body).digest("hex"),
+    );
+  });
+
+  test("a merged pull request reads as merged", async () => {
+    const h = await opened("Note");
+    h.merge();
+    expect((await h.service.read(actor, SESSION, PUSH)).state).toBe("merged");
+  });
+
+  test("a session the caller cannot see is NOT_FOUND before any read, with no receipt", async () => {
+    const hidden: AuthorizationPolicy = {
+      authorize: async () => ({
+        outcome: "deny",
+        reason_code: "not_found",
+        effective_scopes: [],
+        policy_version: "test",
+        decision_id: crypto.randomUUID(),
+      }),
+    };
+    const { service, receipts, calls, sourceReads, works } = harness({
+      authorization: hidden,
+    });
+    expect((await refusal(service.read(actor, SESSION, PUSH))).code).toBe(
+      "NOT_FOUND",
+    );
+    expect(sourceReads).toEqual([]);
+    expect(receipts).toEqual([]);
+    expect(calls).toEqual([]);
+    expect(works).toEqual([]);
+  });
+
+  test("the gate's refusal is the answer, and GitHub is not read", async () => {
+    const h = await opened("Note");
+    const before = h.calls.length;
+    const receipts = h.receipts.length;
+    h.refuseGitHub("github_disabled");
+    expect(await refusal(h.service.read(actor, SESSION, PUSH))).toMatchObject({
+      code: "GITHUB_REFUSED",
+      details: { refusal: "github_refused", reason_code: "github_disabled" },
+    });
+    expect(h.calls.slice(before)).toEqual([]);
+    expect(h.receipts.length).toBe(receipts);
+  });
+
+  test("no pull request recorded, or another branch's under the number, is no_pull_request", async () => {
+    const none = harness();
+    expect(
+      (await refusal(none.service.read(actor, SESSION, PUSH))).details,
+    ).toMatchObject({ refusal: "no_pull_request" });
+    expect(none.calls).toEqual([]);
+
+    const moved = await opened("Note");
+    moved.setOpen({
+      number: 7,
+      url: "https://github.com/acme/app/pull/7",
+      state: "open",
+      head: "someone-else",
+      base: "develop",
+    });
+    expect(
+      (await refusal(moved.service.read(actor, SESSION, PUSH))).details,
+    ).toMatchObject({ refusal: "no_pull_request" });
+  });
+
+  test(`a body of exactly ${MAX} bytes is whole; one byte more is cut and has no hash`, async () => {
+    const whole = await opened("a".repeat(MAX));
+    const read = await whole.service.read(actor, SESSION, PUSH);
+    expect(read.body_truncated).toBe(false);
+    expect(read.body.length).toBe(MAX);
+    expect(read.body_sha256).toBe(bodySha256(whole.body));
+
+    const over = await opened("a".repeat(MAX + 1));
+    const cut = await over.service.read(actor, SESSION, PUSH);
+    expect(cut.body_truncated).toBe(true);
+    expect(cut.body).toBe("a".repeat(MAX));
+    expect(cut.body_sha256).toBeNull();
+  });
+
+  test("the cut falls between characters, never inside one", async () => {
+    // 21846 characters of three bytes each: 65538 bytes.
+    const { service } = await opened("가".repeat(21_846));
+    const cut = await service.read(actor, SESSION, PUSH);
+    expect(cut.body_truncated).toBe(true);
+    expect(cut.body).toBe("가".repeat(21_845));
+    expect(cut.body.includes("�")).toBe(false);
+
+    // Four bytes each, two UTF-16 units: 65540 bytes.
+    const wide = await opened("😀".repeat(16_385));
+    const cutWide = await wide.service.read(actor, SESSION, PUSH);
+    expect(cutWide.body).toBe("😀".repeat(16_384));
+  });
+});
+
+describe("updating against the body that was read (94S-1453)", () => {
+  const opened = async (human: string) => {
+    const h = harness();
+    await h.service.open(actor, SESSION, PUSH, {
+      readBody: async () => ({ title: "First", body: "Draft" }),
+    });
+    const tail = (h.bodies.get(7) ?? "").slice("Draft\n\n".length);
+    h.bodies.set(7, `${human}\n\n${tail}`);
+    h.writes.length = 0;
+    return { ...h, tail };
+  };
+
+  test("the hash read writes; the body keeps the person's text the agent sent back", async () => {
+    const h = await opened("Person's note");
+    const read = await h.service.read(actor, SESSION, PUSH);
+    await h.service.update(actor, SESSION, PUSH, {
+      readBody: async () => ({ body: `${read.body}\n\nAgent's line` }),
+      expectedBodySha256: read.body_sha256 ?? undefined,
+    });
+    expect(h.bodies.get(7)).toBe(`Person's note\n\nAgent's line\n\n${h.tail}`);
+    expect(h.writes).toEqual([7]);
+  });
+
+  test("a body edited after the read is refused as body_changed, with no write, the title's included", async () => {
+    const h = await opened("Person's note");
+    const read = await h.service.read(actor, SESSION, PUSH);
+    const edited = `Edited meanwhile\n\n${h.tail}`;
+    h.bodies.set(7, edited);
+    expect(
+      await refusal(
+        h.service.update(actor, SESSION, PUSH, {
+          readBody: async () => ({ title: "New", body: read.body }),
+          expectedBodySha256: read.body_sha256 ?? undefined,
+        }),
+      ),
+    ).toMatchObject({
+      code: "REVISION_CONFLICT",
+      details: { refusal: "body_changed" },
+    });
+    expect(h.writes).toEqual([]);
+    expect(h.bodies.get(7)).toBe(edited);
+    expect(h.titles.get(7)).toBeUndefined();
+    expect(h.receipts.at(-1)).toMatchObject({
+      operation: "update_pull_request",
+      result: { verdict: "refuse", refusal: "body_changed", number: 7 },
+    });
+  });
+
+  test("a title alone with a stale hash is refused too", async () => {
+    const h = await opened("Person's note");
+    expect(
+      (
+        await refusal(
+          h.service.update(actor, SESSION, PUSH, {
+            readBody: async () => ({ title: "New" }),
+            expectedBodySha256: "0".repeat(64),
+          }),
+        )
+      ).details,
+    ).toMatchObject({ refusal: "body_changed" });
+    expect(h.writes).toEqual([]);
+  });
+
+  test("a body too long to read whole is rewritten only against its hash; its title still changes", async () => {
+    const h = await opened("a".repeat(GET_PULL_REQUEST_BODY_MAX_BYTES + 1));
+    expect(
+      await refusal(
+        h.service.update(actor, SESSION, PUSH, {
+          readBody: async () => ({ body: "Shorter" }),
+        }),
+      ),
+    ).toMatchObject({
+      code: "PRECONDITION_REQUIRED",
+      details: { refusal: "body_unverified" },
+    });
+    expect(h.writes).toEqual([]);
+
+    await h.service.update(actor, SESSION, PUSH, {
+      readBody: async () => ({ title: "Renamed" }),
+    });
+    expect(h.titles.get(7)).toBe("Renamed");
+
+    await h.service.update(actor, SESSION, PUSH, {
+      readBody: async () => ({ body: "Shorter" }),
+      expectedBodySha256: bodySha256(h.bodies.get(7) ?? ""),
+    });
+    expect(h.bodies.get(7)).toBe(`Shorter\n\n${h.tail}`);
+  });
+
+  test("read whole but too long to write whole, the body sent back with its hash is refused, not cut", async () => {
+    // Under the read's byte limit, over what a legacy body keeps.
+    const h = await opened("a".repeat(64_500));
+    const read = await h.service.read(actor, SESSION, PUSH);
+    expect(read.body_truncated).toBe(false);
+    const before = h.bodies.get(7);
+    expect(
+      await refusal(
+        h.service.update(actor, SESSION, PUSH, {
+          readBody: async () => ({ title: "New", body: read.body }),
+          expectedBodySha256: read.body_sha256 ?? undefined,
+        }),
+      ),
+    ).toMatchObject({
+      code: "PAYLOAD_TOO_LARGE",
+      details: { refusal: "body_too_long" },
+    });
+    expect(h.writes).toEqual([]);
+    expect(h.bodies.get(7)).toBe(before);
+    expect(h.titles.get(7)).toBeUndefined();
+    expect(h.receipts.at(-1)).toMatchObject({
+      result: { verdict: "refuse", refusal: "body_too_long" },
+    });
+
+    // Without a hash the agent's own text is cut, as before.
+    await h.service.update(actor, SESSION, PUSH, {
+      readBody: async () => ({ body: read.body }),
+    });
+    expect(h.bodies.get(7)?.includes("…(truncated)")).toBe(true);
+  });
+
+  test("without a hash, a body that fits is rewritten as before", async () => {
+    const h = await opened("Person's note");
+    await h.service.update(actor, SESSION, PUSH, {
+      readBody: async () => ({ body: "Replaced" }),
+    });
+    expect(h.bodies.get(7)).toBe(`Replaced\n\n${h.tail}`);
   });
 });
 

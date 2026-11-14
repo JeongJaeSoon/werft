@@ -41,6 +41,7 @@ const ANOTHER_REPOSITORY_PURPOSES: ReadonlySet<GitHubPurpose> = new Set([
   "clone",
   "push",
   "pull_request",
+  "pull_request_read",
   "outcome_refresh",
 ]);
 

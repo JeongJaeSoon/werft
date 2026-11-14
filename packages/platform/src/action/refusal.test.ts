@@ -205,6 +205,9 @@ describe("a person's reason survives the tool answer", () => {
             push_request_state: stored.state,
           });
         },
+        read: async () => {
+          throw new Error("not used");
+        },
         update: async () => {
           throw new Error("not used");
         },

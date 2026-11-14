@@ -78,6 +78,21 @@ export const PULL_REQUEST_REFUSAL_ERRORS: Record<
     message:
       "The branch's open pull request holds another commit than this push request; it was not adopted",
   },
+  body_changed: {
+    code: "REVISION_CONFLICT",
+    message:
+      "The pull request body changed after it was read; nothing was written",
+  },
+  body_unverified: {
+    code: "PRECONDITION_REQUIRED",
+    message:
+      "The pull request body is longer than get_pull_request answers whole; it is not rewritten, its title can be",
+  },
+  body_too_long: {
+    code: "PAYLOAD_TOO_LARGE",
+    message:
+      "The new pull request body would be cut to fit; nothing was written",
+  },
 };
 
 export type PullRequestOperation =

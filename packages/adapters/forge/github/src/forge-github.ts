@@ -422,6 +422,7 @@ export function createGitHubConnection(
             pullRequest: {
               ...pullRequestOf(data),
               title: data.title,
+              body: data.body ?? "",
               mergeCommitSha: data.merged_at ? data.merge_commit_sha : null,
               mergeableState: data.mergeable_state ?? null,
               mergeable: data.mergeable ?? null,
@@ -460,6 +461,7 @@ export function createGitHubConnection(
             { ...target, pull_number: number, headers },
           );
           const body = edit(data.body ?? "");
+          if (body === null) return;
           const rebodied = body !== (data.body ?? "");
           const retitled = title !== undefined && title !== data.title;
           if (!rebodied && !retitled) return;

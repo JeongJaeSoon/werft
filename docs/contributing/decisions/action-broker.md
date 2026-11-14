@@ -262,7 +262,8 @@ MCP에서 `not_pushed`는 flag on(actions 흐름)에서만 나오지 않는다(�
 
 | 도구 | 부류 | 멱등 | 더하는 코드 | 바뀌는 것 | 단위 |
 |---|---|---|---|---|---|
-| `update_pull_request` | `pull_request.write` | 같은 내용이면 같은 본문 | `no_pull_request`(platform, false) | 구조화 필드로 본문 다시 렌더 | PR 4 |
+| `get_pull_request` | `pull_request.write` | 읽기 | `no_pull_request`(platform, false) | 새 도구. 꼬리를 뺀 본문, 마스킹, 64 KiB 상한, `body_sha256`([pull-request-read.md](pull-request-read.md)) | PR 읽기 |
+| `update_pull_request` | `pull_request.write` | 같은 내용이면 같은 본문 | `no_pull_request`(platform, false), `body_changed`·`body_unverified`·`body_too_long`(platform, false) | 구조화 필드로 본문 다시 렌더. `expected_body_sha256`으로 읽은 본문 위에만 쓴다 | PR 4, PR 읽기 |
 | `comment_pull_request` | `pull_request.write` | 같은 marker는 같은 댓글 | `no_pull_request` | 엔진 서명 줄 제거, 같은 marker 댓글을 고쳤으면 `created: false` | PR 4, L1 |
 | T9 `close_pull_request`, `reopen_pull_request` | `pull_request.write` | 이미 그 상태면 쓰지 않고 `changed: false` | `pull_request_merged`(platform, false), `no_pull_request`, `forge_failed` | 새 도구(아래 T9) | T9 |
 | `submit_review` | `review` | 아님 | `stale_commit`(github, false) | 본문 정리, head 확인 | L6 |
@@ -294,7 +295,7 @@ MCP에서 `not_pushed`는 flag on(actions 흐름)에서만 나오지 않는다(�
 | `commit` | T4 | 정책 칸 없음(작업 공간 밖으로 나가지 않는다) | - | 엔진의 셸 도구 판정 그대로 |
 | `push.primary` | T5(주 저장소) | `allow` / `ask` | `allow` | 뺀다(D8) |
 | `push.attached` | T5(첨부 저장소) | `allow` / `ask` / `deny` | 새 release `allow`, 칸 없는 옛 release `ask`(D6) | 뺀다(D8) |
-| `pull_request.write` | T6, `update_pull_request`, `comment_pull_request`, T9 | `allow` / `deny` | `allow` | 뺀다(D8) |
+| `pull_request.write` | T6, `get_pull_request`, `update_pull_request`, `comment_pull_request`, T9 | `allow` / `deny` | `allow` | 뺀다(D8) |
 | `repository.read` | `list_repositories`, `attach_repository`, `get_push_request` | 지금 판정 그대로 | - | 뺀다(D8) |
 | `review`, `workflow`, `administration` | `submit_review`, workflow 도구 | 지금 판정 그대로 | - | 남긴다 |
 

@@ -44,7 +44,9 @@ function work(overrides: Partial<WorkerUnitOfWork>): WorkerUnitOfWork {
 
 function claimWith(
   over: CatalogConnection,
-  bound: Partial<Pick<WorkerBinding, "legacyRuntimeConfigs">> = {},
+  bound: Partial<
+    Pick<WorkerBinding, "legacyRuntimeConfigs" | "githubMcp">
+  > = {},
   accepted?: string[],
 ) {
   const seen: ClaimInput[] = [];
@@ -120,6 +122,43 @@ describe("run configs kept on the session row, at claim", () => {
         (c) => `${c.model}/${c.permission_mode}`,
       ),
     ).toEqual(["sonnet-5-0/bypassPermissions"]);
+  });
+
+  test("with get_pull_request added, the configs offered before keep their places and the earlier lists fill what the cap leaves", async () => {
+    const live = (await claimWith(connection).claimed).runtime_config;
+    const shapesWith = async (count: number) => {
+      const models = Array.from({ length: count }, (_, at) => `sonnet-4-${at}`);
+      const response = await claimWith(connection, {
+        legacyRuntimeConfigs: models.map((model) =>
+          storableLegacyConfig({ ...live, model }),
+        ),
+        githubMcp: {
+          releaseId: "rel-1",
+          tools: ["mcp__github__request_push", "mcp__github__get_pull_request"],
+        },
+      }).claimed;
+      return {
+        models,
+        shapes: (response.restore_runtime_configs ?? []).map(
+          (config) =>
+            `${config.model} ${(config.mcp_servers ?? []).length} ${config.tools.includes("mcp__github__get_pull_request")}`,
+        ),
+      };
+    };
+    // What the claim offered before the tool: the running config without the
+    // server, then each kept one with it and without it.
+    const before = (models: string[]) => [
+      "sonnet-5-1 0 false",
+      ...models.flatMap((model) => [`${model} 1 true`, `${model} 0 false`]),
+    ];
+    const seven = await shapesWith(7);
+    expect(seven.shapes).toEqual([
+      ...before(seven.models),
+      "sonnet-5-1 1 false",
+    ]);
+    // Eight kept configs already overflowed the cap: the same 16 as before.
+    const eight = await shapesWith(8);
+    expect(eight.shapes).toEqual(before(eight.models).slice(0, 16));
   });
 
   test("an entry that no longer parses, or no entry, offers nothing", async () => {

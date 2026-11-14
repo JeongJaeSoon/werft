@@ -64,6 +64,7 @@ export function describePullRequestReadableContract(make: MakeForgeSubject) {
         mergedAt: null,
         closedAt: null,
         mergeCommitSha: null,
+        body: "What the session did.",
       });
       expect(open.rateLimit).toHaveProperty("remaining");
       settleOnForge(number, "merged");
