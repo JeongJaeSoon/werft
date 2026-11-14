@@ -5,6 +5,7 @@ import {
   mkdtemp,
   readFile,
   rm,
+  stat,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -210,6 +211,223 @@ describe("scripts/test-ops.sh", () => {
     const result = await run(["preflight", join(dir, "release.json")], env);
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("Docker Engine 27.5.1 is too old");
+  });
+
+  describe("preflight and the modes of what the containers mount", () => {
+    // The checkout check comes first; a working tree with edits stops there.
+    const dirty =
+      Bun.spawnSync([
+        "git",
+        "-C",
+        repoRoot,
+        "status",
+        "--porcelain",
+        "--untracked-files=no",
+      ]).stdout.toString() !== "";
+    const me = process.getuid?.() ?? 0;
+    const cleanTest = test.skipIf(dirty);
+    // root walks any directory.
+    const unprivilegedTest = test.skipIf(dirty || me === 0);
+    // A uid that owns nothing here and is none of the ones the script knows.
+    const other = me + 1;
+    const refusal = "path(s) the containers mount cannot be read by the user";
+
+    async function file(name: string, mode: number) {
+      const path = join(dir, name);
+      await writeFile(path, "x\n");
+      await chmod(path, mode);
+      return path;
+    }
+
+    async function directory(name: string, mode: number) {
+      const path = join(dir, name);
+      await mkdir(path);
+      await writeFile(join(path, ".gitkeep"), "");
+      await chmod(join(path, ".gitkeep"), 0o600);
+      await chmod(path, mode);
+      return path;
+    }
+
+    // A daemon new enough, and a render of these services and bind sources.
+    async function preflightWith(
+      services: Record<
+        string,
+        { binds: string[]; groupAdd?: number[]; image?: string; user?: string }
+      >,
+    ) {
+      const head = Bun.spawnSync(["git", "-C", repoRoot, "rev-parse", "HEAD"])
+        .stdout.toString()
+        .trim();
+      const manifest = JSON.parse(await readFile(EXAMPLE_MANIFEST, "utf8"));
+      manifest.source_commit = head;
+      await writeFile(join(dir, "release.json"), JSON.stringify(manifest));
+      const rendered = Object.fromEntries(
+        Object.entries(services).map(
+          ([name, { binds, groupAdd, image, user }]) => [
+            name,
+            {
+              ...(groupAdd ? { group_add: groupAdd } : {}),
+              ...(image ? { image } : {}),
+              ...(user ? { user } : {}),
+              volumes: [
+                { source: "data", target: "/data", type: "volume" },
+                ...binds.map((source, i) => ({
+                  source,
+                  target: `/mount/${i}`,
+                  type: "bind",
+                })),
+              ],
+            },
+          ],
+        ),
+      );
+      await writeFile(
+        join(dir, "render.json"),
+        JSON.stringify({ services: rendered }),
+      );
+      await writeFile(
+        join(dir, "bin", "docker"),
+        [
+          "#!/bin/sh",
+          `echo "$*" >> "${calls}"`,
+          '[ "$1" = version ] && { echo 29.0.0; exit 0; }',
+          '[ "$1 $2" = "compose version" ] && { echo 2.30.0; exit 0; }',
+          `case " $* " in *" config --format json "*) cat "${join(dir, "render.json")}"; exit 0;; esac`,
+          "exit 1",
+          "",
+        ].join("\n"),
+        { mode: 0o755 },
+      );
+      return run(["preflight", join(dir, "release.json")], env);
+    }
+
+    // Past this check, preflight asks the daemon about LocalStack, which the
+    // fake docker refuses.
+    const passed = "cannot tell whether LocalStack runs";
+
+    cleanTest(
+      "refuses what a checkout made under umask 077 holds",
+      async () => {
+        const sql = await file("0000_m0.sql", 0o600);
+        const settings = await file("installation.json", 0o600);
+        const unknown = await file("other.conf", 0o640);
+        // In the file's group, so its group bits decide, not the others'.
+        const grouped = await file("grouped.conf", 0o604);
+        const { gid } = await stat(grouped);
+        const result = await preflightWith({
+          migrate: { binds: [settings], user: `${other}:${other}` },
+          postgres: { binds: [sql], image: "postgres:16" },
+          slack: {
+            binds: [grouped],
+            groupAdd: [gid],
+            user: `${other}:${other}`,
+          },
+          tool: { binds: [unknown], image: "example/tool:1" },
+        });
+        expect(result.exitCode).toBe(1);
+        expect(result.stderr).toContain(`  ${sql} (postgres, uid 999)\n`);
+        expect(result.stderr).toContain(
+          `  ${settings} (migrate, uid ${other})\n`,
+        );
+        expect(result.stderr).toContain(`  ${grouped} (slack, uid ${other})\n`);
+        expect(result.stderr).toContain(`  ${unknown} (tool, uid unknown)\n`);
+        expect(result.stderr).toContain(`4 ${refusal}`);
+        expect(result.stderr).not.toContain(passed);
+      },
+    );
+
+    cleanTest(
+      "passes a file its reader owns or shares a group with",
+      async () => {
+        const owned = await file("installation.json", 0o600);
+        const shared = await file("shared.conf", 0o640);
+        const added = await file("added.conf", 0o640);
+        // A new file's group is its directory's on BSD, the creator's on Linux.
+        const { gid } = await stat(shared);
+        const result = await preflightWith({
+          api: { binds: [shared], user: `${other}:${gid}` },
+          migrate: { binds: [owned], user: `${me}:${other}` },
+          slack: {
+            binds: [added],
+            groupAdd: [gid],
+            user: `${other}:${other}`,
+          },
+        });
+        expect(result.stderr).not.toContain(refusal);
+        expect(result.stderr).toContain(passed);
+      },
+    );
+
+    cleanTest(
+      "passes root readers and the legacy directory's dot entries",
+      async () => {
+        const script = await file("10-create-resources.sh", 0o700);
+        const owned = await file("only-root.conf", 0o600);
+        const legacy = await directory("legacy-config", 0o755);
+        // Not walked at all: an unwalkable one would otherwise stop the check.
+        await mkdir(join(legacy, ".cache"), { mode: 0o000 });
+        const result = await preflightWith({
+          localstack: {
+            binds: [script],
+            image: "localstack/localstack:3",
+          },
+          migrate: { binds: [legacy], user: `${other}:${other}` },
+          scheduler: { binds: [owned], user: "0:0" },
+        });
+        await chmod(join(legacy, ".cache"), 0o755);
+        expect(result.stderr).not.toContain(refusal);
+        expect(result.stderr).toContain(passed);
+      },
+    );
+
+    cleanTest("refuses a directory its reader cannot search", async () => {
+      const legacy = await directory("legacy-config", 0o700);
+      const result = await preflightWith({
+        migrate: { binds: [legacy], user: `${other}:${other}` },
+      });
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain(`  ${legacy} (migrate, uid ${other})\n`);
+      expect(result.stderr).toContain(`1 ${refusal}`);
+    });
+
+    cleanTest("keeps a source with a newline in its name whole", async () => {
+      const odd = await file("settings\nnext.json", 0o600);
+      const result = await preflightWith({
+        migrate: { binds: [odd], user: `${other}:${other}` },
+      });
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain(`  ${odd} (migrate, uid ${other})\n`);
+      expect(result.stderr).toContain(`1 ${refusal}`);
+    });
+
+    unprivilegedTest("stops when it cannot walk a source", async () => {
+      const legacy = await directory("legacy-config", 0o755);
+      await mkdir(join(legacy, "closed"), { mode: 0o000 });
+      const result = await preflightWith({
+        migrate: { binds: [legacy], user: `${other}:${other}` },
+      });
+      await chmod(join(legacy, "closed"), 0o755);
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain(`cannot check the modes under ${legacy}`);
+      expect(result.stderr).not.toContain(passed);
+    });
+
+    cleanTest("passes sources made under umask 022", async () => {
+      const sql = await file("0000_m0.sql", 0o644);
+      const settings = await file("installation.json", 0o644);
+      const unknown = await file("other.conf", 0o644);
+      const legacy = await directory("legacy-config", 0o755);
+      const result = await preflightWith({
+        migrate: { binds: [settings, legacy], user: `${other}:${other}` },
+        postgres: { binds: [sql], image: "postgres:16" },
+        tool: {
+          binds: [unknown, join(dir, "missing")],
+          image: "example/tool:1",
+        },
+      });
+      expect(result.stderr).not.toContain(refusal);
+      expect(result.stderr).toContain(passed);
+    });
   });
 
   test("refuses an object store it does not know", async () => {

@@ -429,6 +429,103 @@ check_bundle() {
   done
 }
 
+# The uid[:gid[,gid...]] a service reads its bind mounts as, empty when
+# unknown: the render's `user:`, else what these images run as, plus the
+# numeric `group_add` groups. postgres's entrypoint drops to its postgres user
+# (also in ssl-cert, 101), LocalStack's supervisor stays root, and the
+# control-host image runs as 1000.
+mount_reader() {
+  local user="$1" image="$2" reader="" uid gids="" group
+  local -a added=()
+  if [ -n "$user" ]; then
+    case "$user" in *[!0-9:]* | :*) ;; *) reader="$user" ;; esac
+  else
+    case "$image" in
+      postgres:*) reader='999:999,101' ;;
+      localstack/localstack:*) reader='0:0' ;;
+      "$API_IMAGE") reader='1000:1000' ;;
+    esac
+  fi
+  [ -n "$reader" ] || return 0
+  uid="${reader%%:*}"
+  [ "$reader" = "$uid" ] || gids="${reader#*:}"
+  [ -z "$3" ] || IFS=, read -r -a added <<<"$3"
+  if [ "${#added[@]}" != 0 ]; then
+    for group in "${added[@]}"; do
+      case "$group" in '' | *[!0-9]*) ;; *) gids="${gids:+$gids,}$group" ;; esac
+    done
+  fi
+  printf '%s:%s' "$uid" "$gids"
+}
+
+# Sets MODE_OK to the find expression for "uid $2 (groups $3, comma
+# separated) has the permission bits $1 (4 read, 5 read and search)", by
+# owner, then group, then others.
+mode_ok() {
+  local bits="$1" uid="$2" group in_group=() not_group=()
+  local -a groups=()
+  [ -z "$3" ] || IFS=, read -r -a groups <<<"$3"
+  if [ -z "$uid" ]; then
+    MODE_OK=(-perm "-00${bits}")
+    return 0
+  fi
+  MODE_OK=(\( -user "$uid" -perm "-${bits}00" \))
+  if [ "${#groups[@]}" = 0 ]; then
+    MODE_OK+=(-o \( ! -user "$uid" -perm "-00${bits}" \))
+    return 0
+  fi
+  for group in "${groups[@]}"; do
+    in_group+=(-o -group "$group")
+    not_group+=(! -group "$group")
+  done
+  MODE_OK+=(-o \( ! -user "$uid" \( "${in_group[@]:1}" \) -perm "-0${bits}0" \)
+    -o \( ! -user "$uid" "${not_group[@]}" -perm "-00${bits}" \))
+}
+
+# Compose bind-mounts host files (the release's init SQL, the settings
+# document, the legacy config directory) into containers that do not run as
+# the operator, so a checkout or bundle made under umask 077 or 027 otherwise
+# surfaces only as an unhealthy postgres or a failed migrate after deploy has
+# created the database volume.
+check_mount_modes() {
+  local list found errs service user image added source reader uid gid path file_ok dir_ok closed_at=() closed=()
+  list="$(mktemp)" found="$(mktemp)" errs="$(mktemp)"
+  if ! printf '%s' "$RENDER" | jq -j '.services | to_entries[] | .key as $s | .value as $v
+      | ($v.volumes // [])[] | select(.type == "bind")
+      | "\($s)\u0000\($v.user // "")\u0000\($v.image // "")\u0000\(($v.group_add // []) | map(tostring) | join(","))\u0000\(.source)\u0000"' >"$list"; then
+    rm -f "$list" "$found" "$errs"
+    die "cannot read the bind mounts of the render"
+  fi
+  while IFS= read -r -d '' service && IFS= read -r -d '' user && IFS= read -r -d '' image \
+    && IFS= read -r -d '' added && IFS= read -r -d '' source; do
+    # A missing source is compose's to create, as an empty directory.
+    [ -e "$source" ] || continue
+    reader="$(mount_reader "$user" "$image" "$added")"
+    uid="${reader%%:*}" gid=""
+    [ "$reader" = "$uid" ] || gid="${reader#*:}"
+    [ "$uid" != 0 ] || continue
+    mode_ok 4 "$uid" "$gid"
+    file_ok=("${MODE_OK[@]}")
+    mode_ok 5 "$uid" "$gid"
+    dir_ok=("${MODE_OK[@]}")
+    closed_at=(\( \( -type f ! \( "${file_ok[@]}" \) \) -o \( -type d ! \( "${dir_ok[@]}" \) \) \) -print0)
+    # The source itself, then what is under it except dot entries, which the
+    # legacy import skips (like the .gitkeep that keeps the directory).
+    if ! { find -H "$source" -maxdepth 0 "${closed_at[@]}" \
+      && find -H "$source" -mindepth 1 -name '.*' -prune -o "${closed_at[@]}"; } >"$found" 2>"$errs"; then
+      cat "$errs" >&2
+      rm -f "$list" "$found" "$errs"
+      die "cannot check the modes under $source (above)"
+    fi
+    while IFS= read -r -d '' path; do closed+=("$path ($service, uid ${uid:-unknown})"); done <"$found"
+  done <"$list"
+  rm -f "$list" "$found" "$errs"
+  [ "${#closed[@]}" != 0 ] || return 0
+  printf '  %s\n' "${closed[@]:0:10}" >&2
+  [ "${#closed[@]}" -le 10 ] || printf '  ... and %s more\n' "$((${#closed[@]} - 10))" >&2
+  die "${#closed[@]} path(s) the containers mount cannot be read by the user their container runs as (above). Give that user read access (chmod -R o+rX on the checkout or bundle directory and chmod o+r on the settings document are enough), or make them again under umask 022"
+}
+
 # The loaded manifest against this host. The workspace quota itself is the
 # scheduler's own probe at startup (deploy and upgrade wait for it).
 preflight() {
@@ -459,6 +556,7 @@ preflight() {
   compose_version="$(docker compose version --short 2>/dev/null)" || die "docker compose (v2) is not installed"
   version_at_least "$compose_version" "$MIN_COMPOSE" || die "docker compose $compose_version is too old; $MIN_COMPOSE or newer"
   render
+  check_mount_modes
   # Before the bucket is touched with what may be another installation's settings.
   [ ! -e "$IDENTITY" ] || check_identity
   # Reseed alone moves a running LocalStack: it puts the objects back.
