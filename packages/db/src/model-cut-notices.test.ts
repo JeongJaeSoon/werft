@@ -5,9 +5,11 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import {
   enqueueModelCutNotices,
+  enqueueRuntimeRetiredNotices,
   enqueueSessionModelMoveNotices,
 } from "./musterrolle/model-cut-notices.ts";
 import type { Database } from "./queries.ts";
+import { holdIncompatibleBeforeLaunch } from "./restore-failures.ts";
 import * as schema from "./schema.ts";
 import {
   agentAdmins,
@@ -444,6 +446,121 @@ describe("enqueueModelCutNotices", () => {
         model: "claude-opus-5-5",
       }),
     ).toBe(0);
+  });
+});
+
+describe("a session held as runtime_retired", () => {
+  const hold = (
+    sessionId: string,
+    reason: "runtime_retired" | "incompatible_checkpoint",
+    checkpointRevision = 1,
+  ) =>
+    holdIncompatibleBeforeLaunch(db, {
+      sessionId,
+      checkpointRevision,
+      reason,
+      detail: "only a retracted worker image restores it",
+      now: NOW,
+    });
+
+  test("tells only its creator, in their language, linked to the session", async () => {
+    const w = await world();
+    const creator = await w.person("creator", { locale: "ja" });
+    const admin = await w.person("admin");
+    await db.insert(agentAdmins).values({
+      workspaceId: w.workspaceId,
+      agentId: w.agentId,
+      userId: admin.userId,
+    });
+    await w.startSession(creator);
+
+    expect(await hold(w.sessionId, "runtime_retired")).toBe("held");
+
+    const rows = await w.outbox();
+    expect(rows.map((row) => row.channelId)).toEqual([creator.slackUserId]);
+    const [row] = rows;
+    expect(row?.kind).toBe("model_notice");
+    expect(row?.threadTs).toBe("");
+    expect(row?.sessionId).toBe(w.sessionId);
+    expect(row?.body.text).toContain("worker イメージが撤回され");
+    expect(row?.body.locale).toBe("ja");
+  });
+
+  test("an incompatible checkpoint, or a hold that finds the session moved on, tells nobody", async () => {
+    const w = await world();
+    const creator = await w.person("creator");
+    await w.startSession(creator);
+    // Judged on a checkpoint the session has moved past: stale.
+    expect(await hold(w.sessionId, "runtime_retired", 2)).toBe("stale");
+    expect(await hold(w.sessionId, "incompatible_checkpoint")).toBe("held");
+    // Held already: the same judgement again is stale.
+    expect(await hold(w.sessionId, "runtime_retired")).toBe("stale");
+    expect(await w.outbox()).toEqual([]);
+  });
+
+  test("held again on the same checkpoint after retry_restore tells nobody new; a later checkpoint tells again", async () => {
+    const w = await world();
+    const creator = await w.person("creator");
+    await w.startSession(creator);
+    // What retry_restore leaves: the session launchable on its checkpoint.
+    const retried = (checkpointRevision: number) =>
+      db
+        .update(sessions)
+        .set({
+          admissionState: "active",
+          status: "idle",
+          checkpointRevision,
+          restoreFailureCount: 0,
+          restoreFailureReason: null,
+        })
+        .where(eq(sessions.id, w.sessionId));
+    expect(await hold(w.sessionId, "runtime_retired")).toBe("held");
+    await retried(1);
+    expect(await hold(w.sessionId, "runtime_retired")).toBe("held");
+    expect(await w.outbox()).toHaveLength(1);
+    await retried(2);
+    expect(await hold(w.sessionId, "runtime_retired", 2)).toBe("held");
+    expect(await w.outbox()).toHaveLength(2);
+  });
+
+  test("the same Slack user id in two of the agent's installations gets a DM in each", async () => {
+    const w = await world();
+    const creator = await w.person("creator");
+    const [app] = await db
+      .select({ appId: slackInstallations.appId })
+      .from(slackInstallations)
+      .where(eq(slackInstallations.id, w.installationId));
+    const second = crypto.randomUUID();
+    await db.insert(slackInstallations).values({
+      id: second,
+      workspaceId: w.workspaceId,
+      appId: app?.appId ?? "",
+      teamId: "T2",
+      status: "verified",
+      botUserId: "UBOT2",
+      verifiedAt: NOW,
+    });
+    await db.insert(linkedAccounts).values({
+      id: crypto.randomUUID(),
+      workspaceId: w.workspaceId,
+      userId: creator.userId,
+      provider: "slack",
+      externalTenant: "T2",
+      externalUserId: creator.slackUserId,
+      status: "active",
+      verifiedVia: "slack_oidc",
+      verifiedAt: NOW,
+    });
+    await w.startSession(creator);
+    expect(
+      await enqueueRuntimeRetiredNotices(db, {
+        sessionId: w.sessionId,
+        checkpointRevision: 1,
+      }),
+    ).toBe(2);
+    expect((await w.outbox()).map((row) => row.installationId).sort()).toEqual(
+      [w.installationId, second].sort(),
+    );
   });
 });
 
