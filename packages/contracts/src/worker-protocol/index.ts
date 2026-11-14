@@ -1187,7 +1187,10 @@ export const protectedCommitsResponseSchema = z
 // at, reported before its engine starts. The session keeps the first commit
 // it ever records for a repository; the answer names the kept one for each
 // reported repository, which the worker fetches instead when it differs.
-// Called only by a worker that announced `repository_pins`.
+// `restore_failed` names the pinned ones the worker could not fetch at
+// their pin, for whatever reason: the session stops handing them out until
+// the agent attaches them again. Called only by a worker that announced
+// `repository_pins`.
 export const REPOSITORY_PINS_MAX = 256;
 const repositoryPinSchema = z
   .object({
@@ -1197,9 +1200,18 @@ const repositoryPinSchema = z
   .strict();
 export const repositoryPinsRequestSchema = workerScopeSchema
   .extend({
-    pins: z.array(repositoryPinSchema).min(1).max(REPOSITORY_PINS_MAX),
+    pins: z.array(repositoryPinSchema).max(REPOSITORY_PINS_MAX),
+    restore_failed: z
+      .array(repositoryPinSchema)
+      .max(REPOSITORY_PINS_MAX)
+      .optional(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (request) =>
+      request.pins.length + (request.restore_failed?.length ?? 0) > 0,
+    { message: "Report at least one pin or restore failure" },
+  );
 export const repositoryPinsResponseSchema = z
   .object({ pins: z.array(repositoryPinSchema).max(REPOSITORY_PINS_MAX) })
   .strict();

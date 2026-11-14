@@ -824,12 +824,17 @@ export class WorkerHost {
         status: "attached",
         commit,
       };
+      // What this fetch took is what a later order in this attempt takes
+      // too, a restore failure's cleared commit included.
       const listed = claim.workspace.additional_repositories ?? [];
-      if (!listed.some((entry) => entry.id === order.id)) {
+      const known = listed.find((entry) => entry.id === order.id);
+      if (known === undefined) {
         claim.workspace.additional_repositories = [
           ...listed,
           { ...repository, commit },
         ];
+      } else {
+        known.commit = commit;
       }
       await this.writeEngineRoutes(claim);
     } catch (error) {
@@ -914,7 +919,7 @@ export class WorkerHost {
       failed: attached.failed,
     });
     const pinned = await this.untilStopped(
-      this.pinRepositories(claim, attached.commits),
+      this.pinRepositories(claim, attached.commits, attached.failed),
     );
     if (pinned === undefined || this.stopping !== undefined) return;
     return plan;
@@ -927,11 +932,14 @@ export class WorkerHost {
    * attempt racing this one) has that one fetched instead. A control-host
    * without the route keeps nothing and the run goes on unpinned; any other
    * failure fails the claim rather than let the engine read a commit the
-   * session has not recorded.
+   * session has not recorded. A pinned one the fetch could not take, for
+   * whatever reason, is reported too: the session stops handing it out, and
+   * no order of this attempt takes that commit again.
    */
   private async pinRepositories(
     claim: BootstrapClaimResponse,
     commits: ReadonlyMap<string, string>,
+    failed: readonly string[],
   ): Promise<true> {
     const report = this.options.gateway.repositoryPins;
     const listed = claim.workspace.additional_repositories ?? [];
@@ -941,13 +949,32 @@ export class WorkerHost {
         ? [{ repository_id: repository.id, commit }]
         : [];
     });
-    if (report === undefined || unpinned.length === 0) return true;
+    const lost = listed.flatMap((repository) =>
+      repository.commit !== undefined && failed.includes(repository.id)
+        ? [{ repository_id: repository.id, commit: repository.commit }]
+        : [],
+    );
+    for (const repository of listed) {
+      if (failed.includes(repository.id)) delete repository.commit;
+    }
+    // The commit alone: the fetch's own error can quote the remote.
+    for (const loss of lost) {
+      this.logger.warn("worker.workspace.restore_failed", loss);
+    }
+    if (report === undefined || unpinned.length + lost.length === 0) {
+      return true;
+    }
     const kept = new Map<string, string>();
-    for (let at = 0; at < unpinned.length; at += REPOSITORY_PINS_MAX) {
+    const reported = Math.max(unpinned.length, lost.length);
+    for (let at = 0; at < reported; at += REPOSITORY_PINS_MAX) {
+      const restoreFailed = lost.slice(at, at + REPOSITORY_PINS_MAX);
       try {
         const answer = await report.call(this.options.gateway, {
           ...this.scope,
           pins: unpinned.slice(at, at + REPOSITORY_PINS_MAX),
+          ...(restoreFailed.length === 0
+            ? {}
+            : { restore_failed: restoreFailed }),
         });
         for (const pin of answer.pins) kept.set(pin.repository_id, pin.commit);
       } catch (error) {

@@ -43,6 +43,7 @@ export type TurnEventMessageKey =
   | "session.event.modelMigrated"
   | "session.event.workerImageReplaced"
   | `session.event.approvalCheckpointFailed.${ApprovalCheckpointFailure}`
+  | "session.event.repositoryRestoreFailed"
   | "session.event.init"
   | "session.event.vcsChanged"
   | "session.event.thinkingTokens"
@@ -319,6 +320,21 @@ function system(data: Record<string, unknown>): TurnEventPresentation {
         label,
         summary: [
           message(`session.event.approvalCheckpointFailed.${data.reason}`),
+        ],
+      };
+    }
+    if (
+      data.subtype === "repository_restore_failed" &&
+      typeof data.repository_id === "string" &&
+      typeof data.commit === "string"
+    ) {
+      return {
+        label,
+        summary: [
+          message("session.event.repositoryRestoreFailed", {
+            repository: clip(data.repository_id),
+            commit: data.commit.slice(0, 12),
+          }),
         ],
       };
     }
