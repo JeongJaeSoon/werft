@@ -27,12 +27,14 @@ import {
   DEFAULT_NONCE_TTL_MS,
   generateLaunchNonce,
   hashWorkerToken,
+  imageIdentity,
   launchNonceFingerprint,
   parseExecutionResources,
 } from "@werft-ai/platform";
 import {
   and,
   asc,
+  desc,
   eq,
   exists,
   inArray,
@@ -56,6 +58,7 @@ import {
 import { expireOverdueTerminations } from "../control-unit-of-work.ts";
 import { DB_NOW, dbNow, fromDbNow } from "../db-clock.ts";
 import { launchFailedCause, quarantineLaunch } from "../launch-quarantine.ts";
+import { enqueueWorkerImageReplacedNotices } from "../musterrolle/model-cut-notices.ts";
 import type { Database } from "../queries.ts";
 import {
   holdIncompatibleBeforeLaunch,
@@ -70,6 +73,7 @@ import {
   workerLaunches,
 } from "../schema.ts";
 import { hasRestorePoint } from "../sessions/pause-policy.ts";
+import { recordEvent } from "../sessions/session-events.ts";
 import { createPostgresWorkerUnitOfWork } from "../worker-unit-of-work.ts";
 
 /** A connection the pass lock can live on for as long as the pass runs. */
@@ -338,6 +342,23 @@ export function createPostgresSchedulerStore(
           .select({ generation: max(executions.generation) })
           .from(executions)
           .where(eq(executions.sessionId, input.sessionId));
+        const [previous] =
+          input.retractedImages === undefined
+            ? []
+            : await tx
+                .select({ image: workerLaunches.image })
+                .from(workerLaunches)
+                .where(eq(workerLaunches.sessionId, input.sessionId))
+                .orderBy(desc(workerLaunches.generation))
+                .limit(1);
+        const from =
+          previous?.image == null ? null : imageIdentity(previous.image);
+        const movedFrom =
+          from !== null &&
+          from !== imageIdentity(input.image) &&
+          input.retractedImages?.some((image) => imageIdentity(image) === from)
+            ? (previous?.image ?? null)
+            : null;
         const intent: StoredLaunchIntent = {
           executionId: `exec-${randomUUID()}`,
           generation: (latest?.generation ?? 0) + 1,
@@ -387,6 +408,25 @@ export function createPostgresSchedulerStore(
             updatedAt: input.now,
           })
           .where(eq(sessions.id, input.sessionId));
+        if (movedFrom !== null) {
+          await recordEvent(tx, {
+            sessionId: input.sessionId,
+            type: "system",
+            payload: {
+              type: "system",
+              subtype: "worker_image_replaced",
+              from: movedFrom,
+              to: intent.image,
+              reason: "retracted",
+            },
+            turnRowId: null,
+            now: await dbNow(tx),
+          });
+          await enqueueWorkerImageReplacedNotices(tx, {
+            sessionId: input.sessionId,
+            generation: intent.generation,
+          });
+        }
         return intent;
       });
     },

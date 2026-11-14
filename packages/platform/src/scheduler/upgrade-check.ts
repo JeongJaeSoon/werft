@@ -25,13 +25,20 @@ type Images<I> = readonly [I, ...I[]];
 export type UpgradeSession = {
   readonly sessionId: string;
   readonly pointer: PointerRuntime;
+  /**
+   * The engine a session not closed runs on (null: its runtime kind is none
+   * this host runs). Left out, only its checkpoint is judged.
+   */
+  readonly engine?: string | null;
 };
 
 export type UnresumableReason =
   /** Its pointer's runtime runs on neither target image. */
   | "no_image"
   /** Its pointer was committed before runtimes were recorded. */
-  | "unrecorded";
+  | "unrecorded"
+  /** No target image runs its engine: it would wait without a slot. */
+  | "no_engine_image";
 
 export type AffectedSession = {
   readonly sessionId: string;
@@ -95,16 +102,39 @@ export function assessUpgrade(input: {
   const { deployed, target } = input;
   const deployedNewest = newestLaunchable(deployed);
   const targetNewest = newestLaunchable(target);
+  // New sessions start on each engine's newest image. A deployed image
+  // nothing declared a runtime for (one image, unpinned) has no engine to
+  // group by, so the whole list is one group, as with one engine.
+  const groups: readonly (string | undefined)[] = deployed.some(
+    ({ runtime }) => runtime === null,
+  )
+    ? [undefined]
+    : [
+        ...new Set(
+          [...deployed, ...target].map(({ runtime }) => runtime?.engine ?? ""),
+        ),
+      ];
+  const ofGroup = <I extends UpgradeImage>(
+    images: readonly I[],
+    engine: string | undefined,
+  ) =>
+    engine === undefined
+      ? images
+      : images.filter(({ runtime }) => runtime?.engine === engine);
   const changed = deployed
     .filter((image) => !kept(image, target))
     .map(({ image }) => image);
   if (
     changed.length === 0 &&
-    // Both undefined: every image retracted on either side, so no session
-    // launches before or after.
-    (deployedNewest === undefined
-      ? targetNewest === undefined
-      : targetNewest !== undefined && kept(deployedNewest, [targetNewest]))
+    groups.every((engine) => {
+      const before = newestLaunchable(ofGroup(deployed, engine));
+      const after = newestLaunchable(ofGroup(target, engine));
+      // Both undefined: every image of it retracted on either side, so no
+      // session of it launches before or after.
+      return before === undefined
+        ? after === undefined
+        : after !== undefined && kept(before, [after]);
+    })
   ) {
     return assessNothingReplaced(
       input.approved,
@@ -133,16 +163,45 @@ export function assessUpgrade(input: {
         .map(({ image }) => image),
     ),
   ];
-  // New sessions start on it until the rollout, so no wait ends this.
-  if (deployedNewest !== undefined && stranded([deployedNewest]).length > 0) {
-    return {
-      verdict: "refused",
-      affected,
-      approved,
-      reason: `workers on ${deployedNewest.image}, the deployed newest image, keep sealing checkpoints after this check and no unretracted target image restores them, so no approval covers them: keep that image unretracted in the target release, or list beside it one that restores its checkpoints (a fixed build of the same engine, SDK and CLI)`,
-    };
+  // New sessions start on each until the rollout, so no wait ends this. An
+  // engine the target lists no image of is dropped instead: its open
+  // sessions are affected above, and its slot holders refused below.
+  for (const engine of groups) {
+    const newest = newestLaunchable(ofGroup(deployed, engine));
+    if (
+      newest !== undefined &&
+      (engine === undefined || ofGroup(target, engine).length > 0) &&
+      stranded([newest]).length > 0
+    ) {
+      const named = groups.length > 1 && engine !== undefined;
+      return {
+        verdict: "refused",
+        affected,
+        approved,
+        reason: `workers on ${newest.image}, the deployed newest image${named ? ` of the ${engine} engine` : ""}, keep sealing checkpoints after this check and no unretracted target image restores them, so no approval covers them: keep that image unretracted in the target release, or list beside it one that restores its checkpoints (a fixed build of the same engine, SDK and CLI)${named ? `, or drop every ${engine} image from the target` : ""}`,
+      };
+    }
   }
-  const launches = stranded(input.writers).sort();
+  // A launch of a dropped engine is refused even when what it seals was
+  // stranded already (its image retracted): no image of its engine is left
+  // to take its session once it goes.
+  const dropped = groups.filter(
+    (engine): engine is string =>
+      engine !== undefined && ofGroup(target, engine).length === 0,
+  );
+  const ofDropped = input.writers.filter(({ image, runtime }) =>
+    dropped.some((engine) =>
+      runtime === null
+        ? ofGroup(deployed, engine).some((d) => d.image === image)
+        : runtime.engine === engine,
+    ),
+  );
+  const launches = [
+    ...new Set([
+      ...stranded(input.writers),
+      ...ofDropped.map(({ image }) => image),
+    ]),
+  ].sort();
   if (launches.length > 0) {
     return {
       verdict: "refused",
@@ -211,9 +270,13 @@ function resumesOn(
 // restore judge it; before an upgrade that judgement is not available, so
 // it counts as affected.
 function unresumable(
-  { pointer }: UpgradeSession,
+  { pointer, engine }: UpgradeSession,
   target: Images<WorkerImageCandidate<string>>,
 ): UnresumableReason | null {
   if (pointer.kind === "unrecorded") return "unrecorded";
-  return selectWorkerImage(pointer, target).kind === "none" ? "no_image" : null;
+  const selection = selectWorkerImage(pointer, target, engine);
+  if (selection.kind === "selected") return null;
+  if (selection.reason === "engine_unavailable") return "no_engine_image";
+  // With no checkpoint it waits for an unretracted image, holding nothing.
+  return pointer.kind === "none" ? null : "no_image";
 }

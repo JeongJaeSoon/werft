@@ -1109,6 +1109,89 @@ describe("worker image per session", () => {
         "no configured worker image runs the codex engine",
       );
     });
+
+    // An upgrade check passes with no codex slot holder; a launch reserved
+    // before the rollout drops codex can still be left behind by it.
+    test("an unclaimed launch whose engine an upgrade dropped is given back, waits without a slot, and launches when its engine returns", async () => {
+      const options: Parameters<typeof harness>[1] = {
+        engineOfKind,
+        imageRuntime: current,
+        olderImages: [{ image: "worker:codex", runtime: codex }],
+      };
+      const { backend, run, store } = harness(10, options);
+      const codexSession = on(store, "codex_app_server");
+      await run();
+      expect(launchedImageOf(store, codexSession)).toBe("sha256:worker:codex");
+      const [intent] = backend.ensureCalls;
+      if (!intent) throw new Error("no intent");
+      const ref = {
+        executionId: intent.executionId,
+        generation: intent.generation,
+      };
+      const claudeSession = on(store, "claude_agent_sdk");
+      options.olderImages = [];
+      // Its worker found no session to claim and exited, on a launch one
+      // failure short of quarantine.
+      const row = store.executions.get(ref.executionId);
+      if (!row) throw new Error("no row");
+      row.launchFailureCount = 4;
+      for (const container of backend.containers.values()) {
+        container.exited = true;
+      }
+      const ensured = backend.ensureCalls.length;
+      const dropped = await run();
+      // Counted as the dropped engine it is, not as a retracted image.
+      expect(dropped.launchesEngineDropped).toEqual([ref]);
+      expect(dropped.launchesRetracted).toEqual([]);
+      expect(dropped.launchesQuarantined).toEqual([]);
+      expect(dropped.failedLaunches).toEqual([]);
+      expect(row.launchFailureCount).toBe(4);
+      expect(dropped.reensured).toEqual([]);
+      expect(
+        backend.ensureCalls
+          .slice(ensured)
+          .every((call) => call.image !== "sha256:worker:codex"),
+      ).toBe(true);
+      const waiting = await run();
+      expect(waiting.waitingForEngine).toEqual([codexSession]);
+      expect(launchedImageOf(store, claudeSession)).toBe("sha256:worker:test");
+      expect(store.held.size).toBe(0);
+
+      options.olderImages = [{ image: "worker:codex", runtime: codex }];
+      const restored = await run();
+      expect(restored.waitingForEngine).toEqual([]);
+      expect(
+        [...store.executions.values()]
+          .filter((e) => e.sessionId === codexSession)
+          .map((e) => e.image),
+      ).toEqual(["sha256:worker:codex", "sha256:worker:codex"]);
+    });
+
+    test("a give-back the host stopped between its teardown and its rebuild is finished on the next pass, still not counted", async () => {
+      const options: Parameters<typeof harness>[1] = {
+        engineOfKind,
+        imageRuntime: current,
+        olderImages: [{ image: "worker:codex", runtime: codex }],
+      };
+      const { backend, run, store } = harness(10, options);
+      const codexSession = on(store, "codex_app_server");
+      await run();
+      const row = [...store.executions.values()].find(
+        (e) => e.sessionId === codexSession,
+      );
+      if (!row) throw new Error("no row");
+      options.olderImages = [];
+      // Torn down and recorded unknown; the host stopped before the rebuild.
+      row.launchFailureCount = 4;
+      row.observedState = "unknown";
+      backend.containers.clear();
+      const resumed = await run();
+      expect(resumed.launchesEngineDropped).toHaveLength(1);
+      expect(resumed.launchesRetracted).toEqual([]);
+      expect(resumed.launchesQuarantined).toEqual([]);
+      expect(row.launchFailureCount).toBe(4);
+      expect((await run()).waitingForEngine).toEqual([codexSession]);
+    });
   });
 
   describe("retracted images", () => {
@@ -1154,25 +1237,63 @@ describe("worker image per session", () => {
       expect(store.reservedRuntimes.get(sealedOld)).toEqual(previous);
     });
 
+    const reservedWith = (store: MemoryStore) => {
+      const inputs: ReserveLaunchInput[] = [];
+      const reserve = store.reserveLaunch.bind(store);
+      store.reserveLaunch = async (input) => {
+        inputs.push(input);
+        return reserve(input);
+      };
+      return inputs;
+    };
+
     test("a retracted image is never pinned, so one gone from the registry stops nothing", async () => {
       const { backend, run, store } = harness(10, {
         imageRuntime: current,
         olderImages: [{ image: "worker:previous", runtime: previous }],
         retractedImages: [{ image: "worker:previous", runtime: previous }],
       });
-      const resolved: string[] = [];
       const resolve = backend.resolveImage.bind(backend);
       backend.resolveImage = async (image: string) => {
-        resolved.push(image);
+        if (image === "worker:previous") throw new Error("manifest unknown");
         return resolve(image);
       };
+      const inputs = reservedWith(store);
       const [fresh] = store.addUnassigned(1);
       const summary = await run();
-      expect(resolved).toEqual(["worker:test"]);
       expect(summary.imageUnresolved).toBe(false);
       expect(launchedImageOf(store, fresh as string)).toBe(
         "sha256:worker:test",
       );
+      // Judged as configured only: an id it may have been pinned to is unknown.
+      expect(inputs.map((input) => input.retractedImages)).toEqual([
+        ["worker:previous"],
+      ]);
+    });
+
+    test("a reservation is told the retracted images as configured and as pinned, and nothing when none is retracted", async () => {
+      const retracting = harness(10, {
+        imageRuntime: current,
+        olderImages: [{ image: "worker:fixed", runtime: previous }],
+        retractedImages: [{ image: "worker:previous", runtime: previous }],
+      });
+      const told = reservedWith(retracting.store);
+      retracting.store.addUnassigned(2);
+      await retracting.run();
+      expect(told.map((input) => input.retractedImages)).toEqual([
+        ["worker:previous", "sha256:worker:previous"],
+        ["worker:previous", "sha256:worker:previous"],
+      ]);
+
+      const plain = harness(10, {
+        imageRuntime: current,
+        olderImages: [{ image: "worker:previous", runtime: previous }],
+      });
+      const untold = reservedWith(plain.store);
+      plain.store.addUnassigned(1);
+      await plain.run();
+      expect(untold).toHaveLength(1);
+      expect(untold[0]).not.toHaveProperty("retractedImages");
     });
 
     describe("an unclaimed launch on an image retracted since it was reserved", () => {

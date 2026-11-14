@@ -188,6 +188,11 @@ export type SchedulerRunSummary = {
    * image: given back instead, so their sessions choose an image afresh.
    */
   launchesRetracted: ExecutionRef[];
+  /**
+   * Unclaimed launches whose session's engine no configured image runs any
+   * more: given back unbuilt, so their sessions wait for an image of it.
+   */
+  launchesEngineDropped: ExecutionRef[];
   orphansTerminated: ExecutionRef[];
   /** Orphans the provider would not terminate; each still holds a slot. */
   orphansUnresolved: ExecutionRef[];

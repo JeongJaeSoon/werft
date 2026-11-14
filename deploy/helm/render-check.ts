@@ -1571,10 +1571,9 @@ errors.push(
     ];
     const [claudeNew, claudeOld] = workerList;
     const mixed = [codexEntries[0], claudeNew, codexEntries[1], claudeOld];
-    return checkWorkerImages(
-      "image list of two engines",
-      render(["-f", ciDigests, ...listInstead(mixed)]),
-      {
+    const manifests = render(["-f", ciDigests, ...listInstead(mixed)]);
+    return [
+      ...checkWorkerImages("image list of two engines", manifests, {
         list: JSON.stringify(
           sortedDeep(
             mixed.map((w) => ({
@@ -1584,8 +1583,9 @@ errors.push(
             })),
           ),
         ),
-      },
-    );
+      }),
+      ...checkUpgradeHook("image list of two engines", manifests, true, []),
+    ];
   })(),
   ...checkWorkerImages(
     "image list with retracted: false",
