@@ -1847,6 +1847,7 @@ integration("achievement judgments on PostgreSQL", () => {
               }
               return { url: "https://api.openai.com", headers: [] };
             },
+            ids: async () => [],
           },
           tokens: createPostgresJudgmentEgress(db),
           decisions: {

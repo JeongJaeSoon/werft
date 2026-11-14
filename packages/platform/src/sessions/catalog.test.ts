@@ -7,11 +7,15 @@ import {
 import {
   BILLING_NONE_ENDPOINT_MESSAGE,
   billingFitsEndpoint,
+  type CatalogProvider,
   type CatalogProviderConfig,
+  CONNECTION_ENDPOINT_DEFAULTS,
   catalogConnectionsSchema,
   catalogCredentialRefs,
   connectionModels,
   describeConfigError,
+  type JudgeProvider,
+  judgeUpstreamOf,
   mcpBinding,
   mcpUpstreamOf,
   pinnedMcpTools,
@@ -56,16 +60,65 @@ function load(
 }
 
 /** One connection `c` as the settings parse and resolve it. */
-function connect(
+function resolveOne(
   entry: unknown,
   lookup = environmentCredentials(env),
-): ReturnType<typeof resolveProvider> {
+): CatalogProvider | JudgeProvider {
   const parsed = catalogConnectionsSchema.safeParse({ c: entry });
   if (!parsed.success) {
     throw new Error(`connections.${describeConfigError(parsed.error)}`);
   }
   return resolveProvider("c", parsed.data.c as CatalogProviderConfig, lookup);
 }
+
+/** One model connection `c`, the kind an agent runs on. */
+function connect(
+  entry: unknown,
+  lookup = environmentCredentials(env),
+): CatalogProvider {
+  const resolved = resolveOne(entry, lookup);
+  if (resolved.kind === "openai_decisions") throw new Error("a judge's");
+  return resolved;
+}
+
+describe("an openai_decisions connection", () => {
+  const luna = {
+    kind: "openai_decisions",
+    endpoint: "https://api.openai.com",
+    auth: { kind: "api_key", value_env: "OPENAI_KEY_LUNA" },
+  };
+  const lookup = environmentCredentials({ OPENAI_KEY_LUNA: "luna-key" });
+
+  test("resolves for the judge, and the proxy is handed the key as a bearer", () => {
+    const resolved = resolveOne(luna, lookup);
+    expect(resolved.kind).toBe("openai_decisions");
+    expect(judgeUpstreamOf(resolved as JudgeProvider)).toEqual({
+      url: "https://api.openai.com",
+      headers: [["authorization", "Bearer luna-key"]],
+    });
+  });
+
+  test("is always priced and takes only an API key", () => {
+    expect(() => resolveOne({ ...luna, billing: "none" }, lookup)).toThrow(
+      /billing/,
+    );
+    expect(
+      resolveOne({ ...luna, billing: "per_token" }, lookup),
+    ).not.toHaveProperty("billing");
+    expect(() =>
+      resolveOne(
+        { ...luna, auth: { kind: "bearer", value_env: "OPENAI_KEY_LUNA" } },
+        lookup,
+      ),
+    ).toThrow(/auth/);
+  });
+
+  test("defaults to OpenAI's address", () => {
+    expect(CONNECTION_ENDPOINT_DEFAULTS.openai_decisions).toBe(
+      "https://api.openai.com",
+    );
+  });
+});
 
 describe("a connection", () => {
   test("resolves the credential reference once, and keeps where it came from", () => {

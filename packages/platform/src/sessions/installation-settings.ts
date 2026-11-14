@@ -8,6 +8,7 @@ import {
   credentialRefOf,
   describeConfigError,
   GITHUB_API_BASE,
+  type JudgeProvider,
   resolveProvider,
   resolveSessionCatalog,
 } from "./catalog.ts";
@@ -20,6 +21,11 @@ export type SettingsSnapshot = {
   generation: number;
   /** The connections whose credential resolves, credential included. */
   connections: Readonly<Record<string, CatalogConnection>>;
+  /**
+   * The `openai_decisions` connections whose credential resolves: the
+   * achievement judge's, never in `connections`, so no agent runs on one.
+   */
+  judge_connections: Readonly<Record<string, JudgeProvider>>;
   repositories: Readonly<Record<string, CatalogRepository>>;
   mcp_servers: Readonly<Record<string, CatalogMcpServer>>;
   /** Rows this read leaves out, each with why; never a value. */
@@ -82,6 +88,7 @@ export function settingsSnapshot(
   const unavailable = invalidIds(settings, "repository");
   const unavailableConnections = invalidIds(settings, "connection");
   const connections: Record<string, CatalogConnection> = {};
+  const judge_connections: Record<string, JudgeProvider> = {};
   for (const {
     id,
     provider,
@@ -90,8 +97,13 @@ export function settingsSnapshot(
     model_families,
   } of settings.connections) {
     try {
+      const resolved = resolveProvider(id, provider, lookup);
+      if (resolved.kind === "openai_decisions") {
+        judge_connections[id] = resolved;
+        continue;
+      }
       connections[id] = {
-        provider: resolveProvider(id, provider, lookup),
+        provider: resolved,
         models: models ?? [],
         ...(model_families === undefined ? {} : { model_families }),
         auto_mode: auto_mode ?? "unknown",
@@ -135,6 +147,7 @@ export function settingsSnapshot(
   return {
     generation: settings.generation,
     connections,
+    judge_connections,
     repositories,
     mcp_servers,
     left_out,
@@ -172,12 +185,14 @@ export function settingsView(
   }
   return {
     generation: settings.generation,
+    // Such a process never judges; a judge connection is no agent's.
     connections: Object.fromEntries(
-      settings.connections.map(
+      settings.connections.flatMap(
         ({ id, provider, auto_mode, models, model_families }) => {
+          if (provider.kind === "openai_decisions") return [];
           const { kind: authKind, ...fields } = provider.auth;
           const { billing, ...rest } = provider;
-          return [
+          const entry: [string, CatalogConnection] = [
             id,
             {
               provider: {
@@ -194,9 +209,11 @@ export function settingsView(
               auto_mode: auto_mode ?? "unknown",
             },
           ];
+          return [entry];
         },
       ),
     ),
+    judge_connections: {},
     repositories,
     mcp_servers: Object.fromEntries(
       settings.mcpServers.map(({ id, server }) => [

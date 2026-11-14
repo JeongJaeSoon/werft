@@ -39,8 +39,8 @@ description: 세션이 한 일 가운데 무엇을 성과로 셀지 정하고, �
 
 Luna는 글을 만들지 않고 `yes`·`no`와 그 확률만 답한다. 확률은 성과에 "정의에 맞을 확률"로 남는다. 근거가 바뀌면(PR이 머지되면) 그 세션의 Luna 짝을 모두 다시 묻는다. 묻는 내용 전체(규칙 버전, 근거, 문턱)가 직전 판정과 같으면 보내지 않는다. 확인하거나 거절한 성과는 다시 판정해도 바뀌지 않는다.
 
-<Callout type="warn">
-Luna 판정에는 운영자가 더한 `openai_decisions` 연결이 필요하다. 지금은 연결을 저장하는 기능이 아직 들어오지 않아, Luna 규칙은 판정하지 않고 "판정기 없음"으로 남는다. 바로 인정 규칙은 연결 없이 돈다.
+<Callout type="info">
+Luna 판정에는 `openai_decisions` 연결이 필요하다. 설치 owner가 **설정 > 에이전트 연결 > 모델 연결**에서 종류 `openai_decisions`로 연결을 더하고(주소 기본값 `https://api.openai.com`, OpenAI API key), owner나 admin이 **성과 규칙 > 판정 설정**의 Luna 연결에서 그 연결을 고른다. 연결을 고르지 않았거나 고른 연결을 사용 중지하면 Luna 규칙은 판정하지 않고 "판정기 없음"으로 남는다. 바로 인정 규칙은 연결 없이 돈다. 이 연결로는 에이전트를 실행하지 않는다. 판정 호출은 egress proxy를 지나므로 proxy 허용 목록(`EGRESS_CREDENTIAL_ALLOWLIST`)에 `api.openai.com:443`이 있어야 한다.
 </Callout>
 
 ### 판정 시점과 한도

@@ -145,12 +145,12 @@ import {
   InstallationConfigError,
   installationLimitsFromEnv,
   messageOf,
-  NO_JUDGE_CONNECTIONS,
   registryCatalog,
   releaseModel,
   releaseStartable,
   resolveAgentRelease,
   SessionServiceError,
+  settingsJudgeConnections,
   withConsoleRepositories,
 } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -678,9 +678,11 @@ const teams = createTeamService({
   authorization,
   store: createPostgresTeamStore(db),
 });
+const judgeConnections = settingsJudgeConnections(catalogRegistry);
 const achievementRules = createAchievementRuleService({
   authorization,
   store: createPostgresAchievementRuleStore(db),
+  judgeConnections,
 });
 const settingsDocumentStore = createPostgresSettingsDocumentStore(
   db,
@@ -962,8 +964,8 @@ const outcomeRefresher = createOutcomeRefresher({
 const achievementJudgments = createPostgresAchievementJudgments(db);
 const judgmentEgress = createPostgresJudgmentEgress(db);
 // The judge calls Luna through the egress proxy's credential listener, the
-// one generated titles use. No connection resolves until connections are
-// stored, so `luna` rules stay `judge_unavailable` meanwhile.
+// one generated titles use, on an `openai_decisions` connection of the
+// installation settings.
 const judgeEgressUrl = sessionTitleEgressUrlFromEnv(process.env);
 const achievementJudge = createAchievementJudge({
   store: achievementJudgments,
@@ -973,7 +975,7 @@ const achievementJudge = createAchievementJudge({
     ? {}
     : {
         luna: {
-          connections: NO_JUDGE_CONNECTIONS,
+          connections: judgeConnections,
           tokens: judgmentEgress,
           decisions: createDecisionsClient({ egressUrl: judgeEgressUrl }),
         },
@@ -1060,7 +1062,7 @@ const workers = createWorkerGateway({
   },
   judgments: {
     store: judgmentEgress,
-    upstream: NO_JUDGE_CONNECTIONS.upstream,
+    upstream: judgeConnections.upstream,
   },
   ...(titleEgressUrl === null
     ? {}

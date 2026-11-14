@@ -25,6 +25,7 @@ import {
   createAchievementRuleService,
   createAuthorizationPolicy,
   type IdentityStore,
+  NO_JUDGE_CONNECTIONS,
   type ResolvedWebSession,
 } from "@werft-ai/platform";
 import {
@@ -88,6 +89,7 @@ integration("achievement rule routes on PostgreSQL", () => {
           createAchievementRuleService({
             authorization: createAuthorizationPolicy(),
             store: createPostgresAchievementRuleStore(db),
+            judgeConnections: NO_JUDGE_CONNECTIONS,
           }),
         ),
     });

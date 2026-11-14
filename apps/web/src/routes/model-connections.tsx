@@ -193,6 +193,8 @@ function ConnectionRow({
 }) {
   const { t } = useI18n();
   const actions = entryActions(item);
+  // No agent runs on it, so it has no models and no auto mode.
+  const judgeOnly = item.kind === "openai_decisions";
   return (
     <GridTableRow>
       <GridTableCell>
@@ -210,9 +212,16 @@ function ConnectionRow({
         <div className="flex min-w-0 flex-col gap-[var(--werft-row-line-gap)]">
           <Code className="wrap-anywhere">{item.endpoint}</Code>
           <Text as="span" variant="meta">
-            {item.kind} · {t(`settings.connections.billing.${item.billing}`)} ·{" "}
-            {t("settings.autoMode.column")}{" "}
-            {t(`settings.autoMode.${item.auto_mode}`)}
+            {judgeOnly ? (
+              item.kind
+            ) : (
+              <>
+                {item.kind} ·{" "}
+                {t(`settings.connections.billing.${item.billing}`)} ·{" "}
+                {t("settings.autoMode.column")}{" "}
+                {t(`settings.autoMode.${item.auto_mode}`)}
+              </>
+            )}
           </Text>
         </div>
       </GridTableCell>
@@ -223,9 +232,11 @@ function ConnectionRow({
       </GridTableCell>
       <GridTableCell hideNarrow>
         <Text as="span" variant="meta" className="wrap-anywhere">
-          {item.models.length === 0
-            ? t("settings.connections.noModels")
-            : item.models.join(", ")}
+          {judgeOnly
+            ? t("settings.connections.judgeOnly")
+            : item.models.length === 0
+              ? t("settings.connections.noModels")
+              : item.models.join(", ")}
         </Text>
       </GridTableCell>
       <GridTableCell hideNarrow>
@@ -253,7 +264,7 @@ function ConnectionRow({
               {t("settings.convert")}
             </RowAction>
           ) : null}
-          {item.state !== "disabled" ? (
+          {item.state !== "disabled" && !judgeOnly ? (
             <RowAction
               disabled={busy}
               aria-label={t("settings.autoMode.setFor", { id: item.id })}
@@ -262,7 +273,7 @@ function ConnectionRow({
               {t("settings.autoMode.set")}
             </RowAction>
           ) : null}
-          {item.state !== "disabled" ? (
+          {item.state !== "disabled" && !judgeOnly ? (
             <RowAction
               disabled={busy}
               aria-label={t("settings.models.setFor", { id: item.id })}
@@ -483,6 +494,7 @@ const CONNECTION_KINDS = Object.keys({
   anthropic: true,
   litellm: true,
   openai_responses: true,
+  openai_decisions: true,
 } satisfies Record<ConnectionKind, true>) as ConnectionKind[];
 
 /** `host:port` of an endpoint, the port spelled out as the proxy lists it. */
@@ -619,9 +631,9 @@ function AddConnection({
             </NativeSelectOption>
           ))}
         </NativeSelect>
-        {kind === "openai_responses" ? (
+        {kind === "openai_responses" || kind === "openai_decisions" ? (
           <FieldDescription>
-            {t("settings.connections.kindHint.openai_responses")}
+            {t(`settings.connections.kindHint.${kind}`)}
           </FieldDescription>
         ) : null}
       </Field>
@@ -656,17 +668,20 @@ function AddConnection({
           </AlertDescription>
         </Alert>
       ) : null}
-      <Field>
-        <FieldLabel>{t("settings.connections.billing")}</FieldLabel>
-        <NativeSelect name="billing" defaultValue="per_token">
-          <NativeSelectOption value="per_token">
-            {t("settings.connections.billing.per_token")}
-          </NativeSelectOption>
-          <NativeSelectOption value="none">
-            {t("settings.connections.billing.none")}
-          </NativeSelectOption>
-        </NativeSelect>
-      </Field>
+      {/* A judgment is always priced, against the workspace's budget. */}
+      {kind === "openai_decisions" ? null : (
+        <Field>
+          <FieldLabel>{t("settings.connections.billing")}</FieldLabel>
+          <NativeSelect name="billing" defaultValue="per_token">
+            <NativeSelectOption value="per_token">
+              {t("settings.connections.billing.per_token")}
+            </NativeSelectOption>
+            <NativeSelectOption value="none">
+              {t("settings.connections.billing.none")}
+            </NativeSelectOption>
+          </NativeSelect>
+        </Field>
+      )}
       {kind === "litellm" ? (
         <Field>
           <FieldLabel>{t("settings.connections.authKind")}</FieldLabel>

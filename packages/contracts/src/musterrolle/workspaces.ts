@@ -113,7 +113,11 @@ export const auditRetentionResponseSchema = auditRetentionRequestSchema;
 
 export const achievementJudgeRequestSchema = achievementJudgeSettingsSchema;
 export const achievementJudgeResponseSchema = z
-  .object({ achievement_judge: achievementJudgeSettingsSchema })
+  .object({
+    achievement_judge: achievementJudgeSettingsSchema,
+    /** The enabled `openai_decisions` connections `connection_id` may name. */
+    connections: z.array(z.string().min(1)),
+  })
   .strict();
 export const achievementJudgeChangeResponseSchema = z
   .object({

@@ -400,6 +400,8 @@ function JudgeRow({
 }
 
 interface JudgeDraft {
+  /** "" for none. */
+  readonly connection: string;
   readonly on_evidence: boolean;
   readonly turnsOn: boolean;
   readonly turns: string;
@@ -411,6 +413,7 @@ interface JudgeDraft {
 
 function judgeDraft(settings: AchievementJudgeSettings): JudgeDraft {
   return {
+    connection: settings.connection_id ?? "",
     on_evidence: settings.on_evidence,
     turnsOn: settings.every_n_turns !== null,
     turns: `${settings.every_n_turns ?? 10}`,
@@ -421,13 +424,13 @@ function judgeDraft(settings: AchievementJudgeSettings): JudgeDraft {
   };
 }
 
-// The connection and threshold have no field here; they go back as read.
+// The threshold has no field here; it goes back as read.
 export function judgeBody(
   settings: AchievementJudgeSettings,
   draft: JudgeDraft,
 ): AchievementJudgeSettings {
   return {
-    connection_id: settings.connection_id,
+    connection_id: draft.connection === "" ? null : draft.connection,
     threshold: settings.threshold,
     on_evidence: draft.on_evidence,
     every_n_turns: draft.turnsOn ? Number(draft.turns) : null,
@@ -466,6 +469,7 @@ function JudgeCard({
   const today = useUsage("1");
   const month = useUsage("month");
   const settings = judge.data?.achievement_judge;
+  const connections = judge.data?.connections ?? [];
   // Untouched, the form follows the server's values as they refresh.
   const [draft, setDraft] = useState<JudgeDraft | null>(null);
   const form = draft ?? (settings ? judgeDraft(settings) : null);
@@ -489,9 +493,10 @@ function JudgeCard({
       ),
     onMutate: () => onOutcome(null),
     onSuccess: ({ achievement_judge }) => {
-      queryClient.setQueryData<AchievementJudgeResponse>(key, {
+      queryClient.setQueryData<AchievementJudgeResponse>(key, (old) => ({
         achievement_judge,
-      });
+        connections: old?.connections ?? [],
+      }));
       setDraft(null);
       onOutcome({ kind: "notice", text: t("achievementRules.judge.saved") });
     },
@@ -561,16 +566,34 @@ function JudgeCard({
           <div className="max-w-85 *:w-full">
             <NativeSelect
               aria-label={t("achievementRules.judge.connection")}
-              value={settings.connection_id ?? ""}
-              disabled={settings.connection_id === null || locked}
-              onChange={() => undefined}
+              value={form.connection}
+              disabled={locked}
+              onChange={(event) => set({ connection: event.target.value })}
             >
-              <NativeSelectOption value={settings.connection_id ?? ""}>
-                {settings.connection_id ??
-                  t("achievementRules.judge.noConnection")}
+              <NativeSelectOption value="">
+                {t("achievementRules.judge.noConnection")}
               </NativeSelectOption>
+              {connections.map((id) => (
+                <NativeSelectOption key={id} value={id}>
+                  {id}
+                </NativeSelectOption>
+              ))}
+              {/* Named before it was disabled: kept so a save keeps it. */}
+              {settings.connection_id === null ||
+              connections.includes(settings.connection_id) ? null : (
+                <NativeSelectOption value={settings.connection_id}>
+                  {t("achievementRules.judge.unavailable", {
+                    id: settings.connection_id,
+                  })}
+                </NativeSelectOption>
+              )}
             </NativeSelect>
           </div>
+          {connections.length === 0 ? (
+            <Text variant="meta">
+              {t("achievementRules.judge.noConnections")}
+            </Text>
+          ) : null}
           <Text variant="meta">{t("achievementRules.judge.sent")}</Text>
         </JudgeRow>
         <JudgeRow

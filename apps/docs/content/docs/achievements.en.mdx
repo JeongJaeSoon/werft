@@ -39,8 +39,8 @@ Each rule picks how it is judged.
 
 Luna writes no text; it answers only `yes` or `no` with its probability. The probability stays on the achievement as "probability it fits the definition". When evidence changes (a PR is merged), every Luna pair of that session is asked again. Nothing is sent when the whole question (rule versions, evidence, threshold) is the same as the last judgment's. A confirmed or rejected achievement does not change when judged again.
 
-<Callout type="warn">
-Luna judging needs an `openai_decisions` connection added by the operator. Storing connections has not landed yet, so Luna rules are not judged for now and stay as "no judge". Count-at-once rules run without a connection.
+<Callout type="info">
+Luna judging needs an `openai_decisions` connection. The installation owner adds one of kind `openai_decisions` under **Settings > Agent connections > Model connections** (default address `https://api.openai.com`, an OpenAI API key), and an owner or admin picks it as the Luna connection under **Achievement rules > Judging**. With no connection picked, or with the picked one disabled, Luna rules are not judged and stay as "no judge". Count-at-once rules run without a connection. No agent runs on this connection. Judgments go through the egress proxy, so its allowlist (`EGRESS_CREDENTIAL_ALLOWLIST`) must hold `api.openai.com:443`.
 </Callout>
 
 ### When to judge, and limits
