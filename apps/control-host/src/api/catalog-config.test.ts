@@ -96,14 +96,80 @@ describe("installed runtimes", () => {
         },
       ]),
     });
-    expect(listed?.current).toContain("0.3.280");
-    expect(listed?.accepted).toContain("0.3.270");
+    expect(listed?.accepted).toContainEqual({
+      kind: "claude_agent_sdk",
+      version: "0.3.280",
+    });
+    expect(listed?.accepted).toContainEqual({
+      kind: "claude_agent_sdk",
+      version: "0.3.270",
+    });
+    // A claude image ships no Codex runtime, whatever its version strings.
+    expect(
+      listed?.accepted.some(({ kind }) => kind === "codex_app_server"),
+    ).toBe(false);
     expect(listed).toEqual(
       runtimeVersionsFromEnv({
         WORKER_IMAGE_RUNTIME: JSON.stringify(current),
         WORKER_IMAGE_PREVIOUS_RUNTIME: JSON.stringify(previous),
       }),
     );
+  });
+
+  test("an older build with the image's own tool catalog runs, under the image's kind only", () => {
+    // The installed claude catalog of 0.3.319 is also 0.3.270's.
+    const claude = runtimeVersionsFromEnv({
+      WORKER_IMAGE_RUNTIME: JSON.stringify({
+        engine: "claude",
+        sdkVersion: "0.3.319",
+        cliVersion: "2.1.319",
+      }),
+    })?.accepted;
+    expect(claude).toContainEqual({
+      kind: "claude_agent_sdk",
+      version: "0.3.270",
+    });
+    expect(claude).not.toContainEqual({
+      kind: "codex_app_server",
+      version: "0.3.270",
+    });
+    const codex = runtimeVersionsFromEnv({
+      WORKER_IMAGE_RUNTIME: JSON.stringify({
+        engine: "codex",
+        sdkVersion: "0.3.319",
+        cliVersion: "0.3.319",
+      }),
+    })?.accepted;
+    expect(codex).toEqual([{ kind: "codex_app_server", version: "0.3.319" }]);
+  });
+
+  test("switching engines keeps the previous engine's sessions running, under its own kind", () => {
+    const codex = { engine: "codex", sdkVersion: "0.9.0", cliVersion: "0.9.0" };
+    const claude = {
+      engine: "claude",
+      sdkVersion: "0.3.270",
+      cliVersion: "2.1.270",
+    };
+    const accepted = runtimeVersionsFromEnv({
+      WORKER_IMAGE_RUNTIME: JSON.stringify(codex),
+      WORKER_IMAGE_PREVIOUS_RUNTIME: JSON.stringify(claude),
+    })?.accepted;
+    expect(accepted).toContainEqual({
+      kind: "codex_app_server",
+      version: "0.9.0",
+    });
+    expect(accepted).toContainEqual({
+      kind: "claude_agent_sdk",
+      version: "0.3.270",
+    });
+    expect(accepted).not.toContainEqual({
+      kind: "claude_agent_sdk",
+      version: "0.9.0",
+    });
+    expect(accepted).not.toContainEqual({
+      kind: "codex_app_server",
+      version: "0.3.270",
+    });
   });
 });
 

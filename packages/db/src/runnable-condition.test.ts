@@ -27,7 +27,7 @@ const RUNNABLE: ClaimCatalog = {
     { id: "conn-b", models: ["model-b"] },
   ],
   repositories: [REPO_A],
-  runtimeVersions: ["1.0.0"],
+  runtimeVersions: [{ kind: "claude_agent_sdk", version: "1.0.0" }],
 };
 
 const connection = (id: string) => ({
@@ -39,21 +39,41 @@ const connection = (id: string) => ({
 
 type Row = Omit<typeof sessions.$inferInsert, "id" | "ownerId">;
 
-// Every pin a row can hold (none; each connection, model and runtime
+// Every pin a row can hold (none; each connection, model, runtime kind and
 // version, offered or not), crossed with every repository a row can name.
 function rows(): Row[] {
   const pins: Row[] = [{ model: null }, { model: "model-a" }];
   for (const conn of ["conn-a", "conn-b", "conn-z"]) {
     for (const model of ["model-a", "model-b", "model-z"]) {
-      for (const version of ["1.0.0", "9.9.9"]) {
-        pins.push(
-          sessionPinColumns(model, {
-            connection: connection(conn),
-            runtime: { kind: "claude_agent_sdk", version },
-          }),
-        );
+      for (const kind of ["claude_agent_sdk", "codex_app_server"] as const) {
+        for (const version of ["1.0.0", "9.9.9"]) {
+          pins.push(
+            sessionPinColumns(model, {
+              connection: connection(conn),
+              runtime: { kind, version },
+            }),
+          );
+        }
       }
     }
+  }
+  // A runtime the database holds but no release writes: a part missing, or
+  // a value that is not a string.
+  const offered = sessionPinColumns("model-a", {
+    connection: connection("conn-a"),
+  });
+  for (const runtime of [
+    null,
+    { version: "1.0.0" },
+    { kind: "claude_agent_sdk" },
+    { kind: "claude_agent_sdk", version: 1 },
+    { kind: 1, version: "1.0.0" },
+    { kind: "claude_agent_sdk", version: null },
+  ]) {
+    pins.push({
+      ...offered,
+      runtimeSpec: { ...offered.runtimeSpec, runtime },
+    });
   }
   const repositories: Row[] = [
     { repositoryMode: "none", repositoryId: null, repoUrl: null, branch: null },
@@ -118,7 +138,23 @@ describe("runnable judgement", () => {
       { ...RUNNABLE, connections: RUNNABLE.connections.slice(1) },
       2,
     ],
-    ["every runtime", { ...RUNNABLE, runtimeVersions: null }, 12],
+    ["every runtime", { ...RUNNABLE, runtimeVersions: null }, 24],
+    [
+      "a version a row holds as a number",
+      {
+        ...RUNNABLE,
+        runtimeVersions: [{ kind: "claude_agent_sdk", version: "1" }],
+      },
+      0,
+    ],
+    [
+      "the version under another kind",
+      {
+        ...RUNNABLE,
+        runtimeVersions: [{ kind: "codex_app_server", version: "1.0.0" }],
+      },
+      6,
+    ],
     ["no runtime", { ...RUNNABLE, runtimeVersions: [] }, 0],
     ["no repository", { ...RUNNABLE, repositories: [] }, 3],
     ["no connection", { ...RUNNABLE, connections: [] }, 0],

@@ -98,7 +98,7 @@ export type WorkerBinding = {
 /**
  * What this host can run: the connections it holds with the models each
  * offers, the repositories it holds as they are registered now, and the
- * runtime versions its images ship (null: any). A session binds only when
+ * runtime kinds at the versions its images ship (null: any). A session binds only when
  * its spec's connection runs its model here, its runtime ships, and its
  * repository row matches one exactly, so a repository id re-pointed at
  * another URL does not carry the old grant to the new one.
@@ -110,7 +110,7 @@ export type ClaimCatalog = {
     url: string;
     branch: string;
   }>;
-  runtimeVersions: readonly string[] | null;
+  runtimeVersions: ReadonlyArray<{ kind: string; version: string }> | null;
 };
 
 /** A session on `from` over the connection moves to `to` at its claim. */

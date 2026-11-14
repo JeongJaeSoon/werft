@@ -55,7 +55,7 @@ function claimWith(
   bound: Partial<
     Pick<WorkerBinding, "legacyRuntimeConfigs" | "githubMcp">
   > = {},
-  accepted?: string[],
+  accepted?: { kind: string; version: string }[],
 ) {
   const seen: ClaimInput[] = [];
   const spec = testSpecSource({ model: "sonnet-5-1" });
@@ -71,9 +71,7 @@ function claimWith(
     }),
     catalog: testCatalog({
       connections: { "conn-1": over },
-      ...(accepted === undefined
-        ? {}
-        : { runtime_versions: { accepted, current: ["0.3.270", "2.1.270"] } }),
+      ...(accepted === undefined ? {} : { runtime_versions: { accepted } }),
     }),
     checkpoints: acceptAllCheckpoints,
     options: {
@@ -225,12 +223,16 @@ describe("run configs kept on the session row, at claim", () => {
 
 describe("what a claim asks the store to match", () => {
   test("each connection with the models it offers, and the runtime versions it accepts", async () => {
-    const { claimed, seen } = claimWith(connection, {}, ["0.3.270", "0.3.250"]);
+    const accepted = [
+      { kind: "claude_agent_sdk", version: "0.3.270" },
+      { kind: "codex_app_server", version: "0.3.250" },
+    ];
+    const { claimed, seen } = claimWith(connection, {}, accepted);
     await claimed;
     expect(seen[0]?.runnable.connections).toEqual([
       { id: "conn-1", models: ["sonnet-5-1", "opus-5-0"] },
     ]);
-    expect(seen[0]?.runnable.runtimeVersions).toEqual(["0.3.270", "0.3.250"]);
+    expect(seen[0]?.runnable.runtimeVersions).toEqual(accepted);
     expect([...(seen[0]?.unsettledConnectionIds ?? [])]).toEqual([]);
   });
 

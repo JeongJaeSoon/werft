@@ -1044,13 +1044,36 @@ function specConnectionId(session: {
   return typeof id === "string" ? id : null;
 }
 
-function specRuntimeVersion(session: {
+function specRuntime(session: {
   runtimeSpec: Record<string, unknown> | null;
-}): string | null {
-  const version = (
-    session.runtimeSpec?.runtime as { version?: unknown } | undefined
-  )?.version;
-  return typeof version === "string" ? version : null;
+}): { kind: string; version: string } | null {
+  const runtime = session.runtimeSpec?.runtime as
+    | { kind?: unknown; version?: unknown }
+    | undefined;
+  return typeof runtime?.kind === "string" &&
+    typeof runtime.version === "string"
+    ? { kind: runtime.kind, version: runtime.version }
+    : null;
+}
+
+function runtimeShips(
+  runtime: { kind: string; version: string },
+  runnable: ClaimCatalog,
+): boolean {
+  return (
+    runnable.runtimeVersions === null ||
+    runnable.runtimeVersions.some(
+      (listed) =>
+        listed.kind === runtime.kind && listed.version === runtime.version,
+    )
+  );
+}
+
+function describeSpecRuntime(session: {
+  runtimeSpec: Record<string, unknown> | null;
+}): string {
+  const runtime = specRuntime(session);
+  return runtime === null ? "(none)" : `${runtime.kind} ${runtime.version}`;
 }
 
 function repositoryHeld(session: RunnableFields, runnable: ClaimCatalog) {
@@ -1079,14 +1102,13 @@ export function runsHere(
   const connection = runnable.connections.find(
     (candidate) => candidate.id === connectionId,
   );
-  const version = specRuntimeVersion(session);
+  const runtime = specRuntime(session);
   return (
     connection !== undefined &&
     session.model !== null &&
     connection.models.includes(session.model) &&
-    version !== null &&
-    (runnable.runtimeVersions === null ||
-      runnable.runtimeVersions.includes(version)) &&
+    runtime !== null &&
+    runtimeShips(runtime, runnable) &&
     repositoryHeld(session, runnable)
   );
 }
@@ -1143,13 +1165,15 @@ export function runnableCondition(runnable: ClaimCatalog): SQL {
   if (pairs.length === 0) return sql`false`;
   const onConnection = sql`(${sessions.runtimeSpec} -> 'connection' ->> 'id', ${sessions.model}) IN (${sql.join(pairs, sql`, `)})`;
   const versions = runnable.runtimeVersions;
+  // `->>` reads a JSON number as text; runsHere takes strings only.
+  const runtimeNamed = sql`jsonb_typeof(${sessions.runtimeSpec} -> 'runtime' -> 'kind') = 'string' AND jsonb_typeof(${sessions.runtimeSpec} -> 'runtime' -> 'version') = 'string'`;
   const onRuntime =
     versions === null
-      ? sql`true`
+      ? runtimeNamed
       : versions.length === 0
         ? sql`false`
-        : sql`(${sessions.runtimeSpec} -> 'runtime' ->> 'version') IN (${sql.join(
-            versions.map((version) => sql`${version}`),
+        : sql`${runtimeNamed} AND (${sessions.runtimeSpec} -> 'runtime' ->> 'kind', ${sessions.runtimeSpec} -> 'runtime' ->> 'version') IN (${sql.join(
+            versions.map(({ kind, version }) => sql`(${kind}, ${version})`),
             sql`, `,
           )})`;
   const repositories = runnable.repositories.map(
@@ -1344,12 +1368,8 @@ function versionUnknownHere(
   session: RunnableFields,
   runnable: ClaimCatalog,
 ): boolean {
-  const version = specRuntimeVersion(session);
-  return (
-    version !== null &&
-    runnable.runtimeVersions !== null &&
-    !runnable.runtimeVersions.includes(version)
-  );
+  const runtime = specRuntime(session);
+  return runtime !== null && !runtimeShips(runtime, runnable);
 }
 
 async function giveUpOnCatalogMismatch(
@@ -1467,7 +1487,7 @@ async function giveUpOnCatalogMismatch(
         ? `connection ${connectionId ?? "(none)"} is not in this host's catalog`
         : !repositoryHeld(session, runnable)
           ? `repository ${session.repositoryId ?? "(none)"} at the session's URL and branch is not in this host's catalog`
-          : `runtime ${specRuntimeVersion(session) ?? "(none)"} of the session is not shipped by this host's worker images`;
+          : `runtime ${describeSpecRuntime(session)} of the session is not shipped by this host's worker images`;
   await countLaunchGiveUp(tx, launch.executionId, detail);
   // The stream and the DMs say which model left, as they do for an attempt
   // cut while running; the session's own lock is held.

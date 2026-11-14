@@ -40,6 +40,7 @@ import {
   fixtureRelease,
   TEST_CONNECTION_ID,
   TEST_MODEL,
+  TEST_RUNTIME_VERSION,
   testClaimCatalog,
 } from "./testing/spec-pins.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
@@ -538,7 +539,7 @@ integration("claim against a catalog that dropped the pair", () => {
       settings: {
         generation?: number | null;
         unsettledRepositoryIds?: ReadonlySet<string>;
-        runtimeVersions?: readonly string[];
+        runtimeVersions?: ReadonlyArray<{ kind: string; version: string }>;
       } = {},
     ) {
       return createPostgresWorkerUnitOfWork(db).claimAtomic({
@@ -619,8 +620,28 @@ integration("claim against a catalog that dropped the pair", () => {
       const session = await queuedSession(REGISTERED);
       const launch = await reserved(session.session_id);
       expect(
-        (await claim(launch, 1_000, new Set(), { runtimeVersions: ["0.0.1"] }))
-          .outcome,
+        (
+          await claim(launch, 1_000, new Set(), {
+            runtimeVersions: [{ kind: "claude_agent_sdk", version: "0.0.1" }],
+          })
+        ).outcome,
+      ).toBe("no_session");
+      await untouched(session.session_id, launch.ref);
+    });
+
+    // An image of the other engine that happens to ship the same version
+    // string does not run the session.
+    test("its runtime version under another kind", async () => {
+      const session = await queuedSession(REGISTERED);
+      const launch = await reserved(session.session_id);
+      expect(
+        (
+          await claim(launch, 1_000, new Set(), {
+            runtimeVersions: [
+              { kind: "codex_app_server", version: TEST_RUNTIME_VERSION },
+            ],
+          })
+        ).outcome,
       ).toBe("no_session");
       await untouched(session.session_id, launch.ref);
     });
