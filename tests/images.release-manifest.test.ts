@@ -50,6 +50,15 @@ const RUNTIME = { worker: runtime, "worker-codex": codexRuntime } as Record<
   string,
   object
 >;
+// One commit gives both worker images the same time.
+const RELEASED_AT = "2026-11-10T01:02:03Z";
+const KEY = {
+  "control-host": "controlHost",
+  worker: "worker",
+  "worker-codex": "workerCodex",
+  "egress-proxy": "egressProxy",
+} as const;
+const isWorker = (app: string) => app === "worker" || app === "worker-codex";
 
 const records = (): Record<string, unknown>[] =>
   APPS.map((app) => ({
@@ -59,6 +68,7 @@ const records = (): Record<string, unknown>[] =>
     promoted: true,
     commit: sha,
     ref,
+    ...(isWorker(app) ? { releasedAt: RELEASED_AT } : {}),
     runtime: RUNTIME[app] ?? null,
     platforms: {
       amd64: { digest: hex("1"), imageId: hex("2") },
@@ -66,12 +76,32 @@ const records = (): Record<string, unknown>[] =>
     },
   }));
 
-const chart = (version = "0.1.0") => ({
+const releaseImages = (
+  at = { worker: RELEASED_AT, "worker-codex": RELEASED_AT },
+) =>
+  `${JSON.stringify(
+    (["worker", "worker-codex"] as const).map((app) => ({
+      repository: `ghcr.io/octo/werft-${app}`,
+      digest: hex(DIGEST_CHAR[app]),
+      runtime: RUNTIME[app],
+      releasedAt: at[app],
+    })),
+    null,
+    2,
+  )}\n`;
+
+const chart = (version = "0.1.0", workerAt = RELEASED_AT) => ({
   tgzName: `werft-${version}.tgz`,
   chartYaml: `apiVersion: v2\nname: werft\nversion: ${version}\nappVersion: ${tag}\n`,
-  valuesYaml: APPS.map((app) => `  digest: ${hex(DIGEST_CHAR[app])}\n`).join(
-    "",
-  ),
+  valuesYaml: `images:\n${APPS.map(
+    (app) =>
+      `  ${KEY[app]}:\n    digest: ${hex(DIGEST_CHAR[app])}\n${
+        isWorker(app)
+          ? `    releasedAt: "${app === "worker" ? workerAt : RELEASED_AT}"\n`
+          : ""
+      }`,
+  ).join("")}`,
+  releaseImages: releaseImages(),
 });
 
 const build = (
@@ -116,6 +146,8 @@ describe("buildManifest", () => {
       },
       workerRuntime: runtime,
       workerCodexRuntime: codexRuntime,
+      workerReleasedAt: RELEASED_AT,
+      workerCodexReleasedAt: RELEASED_AT,
       chart: {
         name: "werft",
         version: "0.1.0",
@@ -195,6 +227,31 @@ describe("buildManifest", () => {
       { records: records().map((r) => ({ ...r, promoted: false })) },
       /was not promoted/,
     ],
+    [
+      "a worker record without releasedAt",
+      {
+        records: records().map(({ releasedAt: _, ...r }) => r),
+      },
+      /has releasedAt undefined/,
+    ],
+    [
+      "a values.yaml whose Claude worker holds another time",
+      { chart: chart("0.1.0", "2026-11-10T01:02:04Z") },
+      /images\.worker\.releasedAt is 2026-11-10T01:02:04Z/,
+    ],
+    [
+      "a release-images.json of other times",
+      {
+        chart: {
+          ...chart(),
+          releaseImages: releaseImages({
+            worker: RELEASED_AT,
+            "worker-codex": "2026-11-10T01:02:04Z",
+          }),
+        },
+      },
+      /files\/release-images\.json is not the published worker images/,
+    ],
   ] as const)("refuses %s", (_name, over, message) => {
     expect(() => build(over as never)).toThrow(message);
   });
@@ -216,6 +273,11 @@ describe("release-manifest.ts", () => {
       const c = chart();
       writeFileSync(join(dir, "pack/werft/Chart.yaml"), c.chartYaml);
       writeFileSync(join(dir, "pack/werft/values.yaml"), c.valuesYaml);
+      mkdirSync(join(dir, "pack/werft/files"));
+      writeFileSync(
+        join(dir, "pack/werft/files/release-images.json"),
+        c.releaseImages,
+      );
       const tar = Bun.spawnSync([
         "tar",
         "-czf",
@@ -414,10 +476,14 @@ describe("release-publish.sh", () => {
   test("a rerun with other digests fails and leaves the manifest as it was", () => {
     const other = build({
       records: records().map((r) => ({ ...r, digest: hex("d") })),
-      chart: {
-        ...chart(),
-        valuesYaml: `  digest: ${hex("d")}\n`,
-      },
+      chart: Object.fromEntries(
+        Object.entries(chart()).map(([key, text]) => [
+          key,
+          key === "tgzName" || key === "chartYaml"
+            ? text
+            : text.replace(/sha256:[0-9a-f]{64}/g, hex("d")),
+        ]),
+      ) as ReturnType<typeof chart>,
     });
     const initial = { releases: [release(false, [asset(manifest)])] };
     const { exitCode, stderr, state } = publish(initial, other);

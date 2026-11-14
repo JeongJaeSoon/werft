@@ -94,6 +94,69 @@ Codex worker をデプロイする環境（chart の `images.workerCodex` の値
 
 最終 upgrade には control-phase.json を渡しません。worker-previous.json は成功後だけ置き換え、以後の upgrade 用にも保持します。承認一覧は毎 upgrade で空にし、新しい affected 一覧を確認します。
 
+<a id="이미지-목록-설치의-upgrade" />
+#### イメージ一覧の環境の upgrade
+
+`images.workers` で worker イメージを渡す環境（Claude と Codex を一緒に動かす環境）は、上の `images.worker` のコマンドの代わりに、対象 chart に含まれる `files/next-workers.jq` で values ファイルを作ります。単一イメージの環境を初めて一覧に切り替えるときもこの手順を使います。対象リリースの二つの worker イメージの項目は、同じ chart の `files/release-images.json` にあります。この二つのファイルがない chart（この手順ができる前のリリース）では一覧の環境を upgrade しません。
+
+```bash
+VERSION=<new version>
+rm -rf target-chart \
+  && helm pull oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" --untar --untardir target-chart
+# deployed_values: the values of the deployed revision; next_workers <control|final>: the values file
+deployed_values() {
+  DEPLOYED="$(helm -n werft history werft -o json | jq '[.[] | select(.status == "deployed")] | last.revision')" \
+    && helm -n werft get values werft --all --revision "$DEPLOYED" -o json > deployed-values.json
+}
+next_workers() {
+  jq -n -f target-chart/werft/files/next-workers.jq --arg phase "$1" \
+    --slurpfile deployed deployed-values.json \
+    --slurpfile release target-chart/werft/files/release-images.json \
+    --argjson known "$KNOWN"
+}
+```
+
+**1 段階目（制御領域）。** 一覧の環境は、デプロイ済みの一覧をそのまま渡します。Helm は一覧をキーごとに合成せず丸ごと置き換えるため、runtime を `null` で敷く手順は要りません。代わりに `images.worker` と `images.workerPrevious` の digest・runtime を空にします。公開 chart は `images.worker` を埋めており、chart は一覧の横の単一の値を拒否します。単一イメージの環境を初めて一覧に切り替えるときは、上の 1 段階目をそのまま行います（`next_workers control` は単一イメージの環境を拒否します）。
+
+```bash
+KNOWN='{}'
+deployed_values && next_workers control > control-phase.json \
+  && helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
+    --namespace werft -f values-<installation>.yaml -f control-phase.json \
+    --set-json 'upgrade.approvedSessions=[]' --timeout 10m \
+  && kubectl -n werft rollout status deploy/werft-api --timeout=600s
+```
+
+**2 段階目（最終の一覧）。** 対象リリースの二つのイメージを、デプロイ済みのイメージに加えます。一覧の環境ではデプロイ済みの一覧が、単一イメージの環境ではデプロイ済みの `images.worker` と（あれば）`images.workerPrevious` がデプロイ済みのイメージです。`worker-previous.json` は渡しません。直前のイメージはデプロイ済みの値から読みます。
+
+```bash
+deployed_values && next_workers final > workers.json \
+  && helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
+    --namespace werft -f values-<installation>.yaml -f workers.json \
+    --set-json 'upgrade.approvedSessions=[]' --timeout 10m
+```
+
+単一イメージの環境を初めて切り替えるときは、`KNOWN` にデプロイ済みのイメージごとの `releasedAt` を、runtime なしでデプロイしていれば runtime も digest で書きます。単一の values の `images.worker.releasedAt` は chart の既定値で、環境が決めた digest と合わないことがあるため、プログラムは読みません。値はデプロイしたリリースの manifest から得ます。`releasedAt` はそのリリースの commit の committer 時刻です。Codex イメージを `images.worker` としてデプロイしているなら、`IMAGE=` の行を `IMAGE=worker-codex RUNTIME=workerCodexRuntime RELEASED=workerCodexReleasedAt` に変えます。`images.workerPrevious` があれば、そのリリースの manifest で同じ項目をもう一つ作って合わせます。
+
+```bash
+TAG=<the deployed release, e.g. v0.2.0>
+IMAGE=worker RUNTIME=workerRuntime RELEASED=workerReleasedAt
+mkdir -p "$TAG" && curl -fsSL -o "$TAG/release-manifest.json" \
+  "https://github.com/JeongJaeSoon/werft/releases/download/$TAG/release-manifest.json" \
+  && AT="$(curl -fsS "https://api.github.com/repos/JeongJaeSoon/werft/commits/$(jq -r .commit "$TAG/release-manifest.json")" | jq -er .commit.committer.date)" \
+  && KNOWN="$(jq -c --arg at "$AT" --arg i "$IMAGE" --arg r "$RUNTIME" --arg t "$RELEASED" '{(.images[$i].digest): {runtime: .[$r], releasedAt: (.[$t] // $at)}}' "$TAG/release-manifest.json")"
+```
+
+プログラムは次のように一覧を作ります。
+
+- エンジンごとに `releasedAt` の新しいイメージから書き、撤回されていないイメージを二つまで残します。三つ目からは外れます。外れたイメージを必要とするセッションは[アップグレード前検査](#3-검사-결과와-예외)が判定します。そのイメージで slot を持つ launch の checkpoint を残ったイメージが復元できなければ、承認できない `refused` です。checkpoint だけが残るセッションは affected 一覧に載ります。runtime なしでデプロイした単一イメージで始まった launch には runtime の記録がありません。そのため、同じ runtime で再ビルドしたイメージが一覧にあっても、その launch が封じる checkpoint はそのイメージ自身しか復元しないとみなされます。そのイメージが外れる upgrade（たいてい一覧に切り替えた次の upgrade）は、その launch が slot を手放すまで `refused` です。止めたあとの checkpoint は runtime が合うイメージで再開します。
+- 同じ digest は一度だけ書きます。デプロイ済みのイメージが撤回されていれば、対象リリースが同じ digest を書いても撤回されたままにします。撤回されたイメージは、残したイメージのうち最も古いものより新しいときだけ残します。撤回されていないイメージが一つもないエンジンは、撤回されたイメージをすべて残します（一覧からエンジンが外れるのとは違います）。古い撤回イメージが外れると、その組み合わせの checkpoint は `runtime_retired` ではなく `incompatible_checkpoint` で止まります。
+- 次の場合は values ファイルを作らずに失敗します。デプロイ済みのイメージに runtime か `releasedAt` がないとき、対象イメージがデプロイ済みの同じエンジンのどのイメージよりも新しくないとき、同じ digest が別の runtime・時刻・repository で書かれているとき、同じエンジンの二つのイメージが同じ時刻のときです。`releasedAt` は commit 時刻なので、公開の順序と違うことがあります。デプロイ済みのイメージより古い commit に付けたタグの chart と、main が公開済みの commit をタグ push で再ビルドした chart（digest は違い、時刻は同じ）がここで止まります。その場合はより新しいリリースの chart で upgrade します。
+
+コマンドは `&&` でつながっているため、プログラムが失敗すれば `helm upgrade` は実行されません。upgrade が失敗しても、もう一度実行すれば同じ deployed revision から同じファイルができるため、別に保管するファイルはありません。承認一覧は上のとおり毎回空にします。使わないエンジンは `workers.json` からそのエンジンの項目を消して渡してもかまいません。デプロイ済みのイメージにあったエンジンを消すと、その upgrade はエンジンを外す upgrade と判定されます（下の「エンジンを外す upgrade」）。
+
+kind でこの手順をそのとおりに実行しました（`deploy/kind/upgrade.sh` の `list`・`next-list` 段階）。runtime なしで設置した単一イメージ A を [B, A, C] に切り替えました（B は A を再ビルドしたイメージ、C は Codex イメージ）。A で承認を待っていたセッションは同じ Pod で続きました。続いて control phase を経た一覧を [D, B, C] に切り替えようとしました。そのセッションの launch が A で slot を持っていたため `refused` でした。失敗した revision のあとに手順をやり直すと同じファイルが出ました。そのセッションが終わって止まったあとは、同じファイルで `proceed` でした。どちらの upgrade も承認一覧は空でした。止めた二つのセッションは D で checkpoint から再開しました。一つは B で、もう一つは A で止めたセッションです。Codex のセッションは kind では動かしていません。
+
 <a id="3-검사-결과와-예외" />
 ### 3. 検査結果と例外
 

@@ -89,6 +89,68 @@ Codex worker를 배포하는 설치(chart의 `images.workerCodex` 값을 `images
 
 최종 upgrade에는 control-phase.json을 넘기지 않는다. worker-previous.json은 성공 뒤에만 교체하고 다음 upgrade에도 계속 보관한다. 승인 목록은 매 upgrade마다 비우고 새 affected 목록을 확인한다.
 
+#### 이미지 목록 설치의 upgrade
+
+`images.workers`로 worker 이미지를 주는 설치(Claude와 Codex를 함께 돌리는 설치)는 위의 `images.worker` 명령 대신, 대상 chart에 든 `files/next-workers.jq`로 values 파일을 만든다. 단일 이미지 설치를 처음 목록으로 바꿀 때도 이 절차를 쓴다. 대상 릴리스의 두 worker 이미지 항목은 같은 chart의 `files/release-images.json`에 있다. 두 파일이 없는 chart(이 절차가 생기기 전의 릴리스)로는 목록 설치를 올리지 않는다.
+
+```bash
+VERSION=<new version>
+rm -rf target-chart \
+  && helm pull oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" --untar --untardir target-chart
+# deployed_values: the values of the deployed revision; next_workers <control|final>: the values file
+deployed_values() {
+  DEPLOYED="$(helm -n werft history werft -o json | jq '[.[] | select(.status == "deployed")] | last.revision')" \
+    && helm -n werft get values werft --all --revision "$DEPLOYED" -o json > deployed-values.json
+}
+next_workers() {
+  jq -n -f target-chart/werft/files/next-workers.jq --arg phase "$1" \
+    --slurpfile deployed deployed-values.json \
+    --slurpfile release target-chart/werft/files/release-images.json \
+    --argjson known "$KNOWN"
+}
+```
+
+**1단계(제어 영역).** 목록 설치는 배포된 목록을 그대로 넘긴다. Helm은 목록을 키마다 합치지 않고 통째로 바꾸므로 runtime을 `null`로 까는 단계가 필요 없다. 대신 `images.worker`와 `images.workerPrevious`의 digest·runtime을 비운다. 게시 chart가 `images.worker`를 채워 두는데, chart는 목록 옆의 단일 값을 거부한다. 단일 이미지 설치를 처음 목록으로 바꿀 때는 위 1단계를 그대로 한다(`next_workers control`은 단일 이미지 설치를 거부한다).
+
+```bash
+KNOWN='{}'
+deployed_values && next_workers control > control-phase.json \
+  && helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
+    --namespace werft -f values-<installation>.yaml -f control-phase.json \
+    --set-json 'upgrade.approvedSessions=[]' --timeout 10m \
+  && kubectl -n werft rollout status deploy/werft-api --timeout=600s
+```
+
+**2단계(최종 목록).** 대상 릴리스의 두 이미지를 배포된 이미지에 더한다. 목록 설치에서는 배포된 목록이, 단일 이미지 설치에서는 배포된 `images.worker`와(있으면) `images.workerPrevious`가 배포된 이미지다. `worker-previous.json`은 넘기지 않는다. 직전 이미지는 배포된 값에서 읽는다.
+
+```bash
+deployed_values && next_workers final > workers.json \
+  && helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
+    --namespace werft -f values-<installation>.yaml -f workers.json \
+    --set-json 'upgrade.approvedSessions=[]' --timeout 10m
+```
+
+단일 이미지 설치를 처음 바꿀 때는 `KNOWN`에 배포된 이미지마다 `releasedAt`을, runtime 없이 배포했다면 runtime도 digest로 적는다. 단일 values의 `images.worker.releasedAt`은 chart 기본값이라 설치가 정한 digest와 맞지 않을 수 있어 프로그램이 읽지 않는다. 값은 배포한 릴리스의 manifest에서 얻는다. `releasedAt`은 그 릴리스 commit의 committer 시각이다. Codex 이미지를 `images.worker`로 배포했다면 `IMAGE=` 줄을 `IMAGE=worker-codex RUNTIME=workerCodexRuntime RELEASED=workerCodexReleasedAt`로 바꾼다. `images.workerPrevious`가 있으면 그 릴리스의 manifest로 같은 항목을 하나 더 만들어 합친다.
+
+```bash
+TAG=<the deployed release, e.g. v0.2.0>
+IMAGE=worker RUNTIME=workerRuntime RELEASED=workerReleasedAt
+mkdir -p "$TAG" && curl -fsSL -o "$TAG/release-manifest.json" \
+  "https://github.com/JeongJaeSoon/werft/releases/download/$TAG/release-manifest.json" \
+  && AT="$(curl -fsS "https://api.github.com/repos/JeongJaeSoon/werft/commits/$(jq -r .commit "$TAG/release-manifest.json")" | jq -er .commit.committer.date)" \
+  && KNOWN="$(jq -c --arg at "$AT" --arg i "$IMAGE" --arg r "$RUNTIME" --arg t "$RELEASED" '{(.images[$i].digest): {runtime: .[$r], releasedAt: (.[$t] // $at)}}' "$TAG/release-manifest.json")"
+```
+
+프로그램은 이렇게 목록을 만든다.
+
+- 엔진마다 `releasedAt`이 늦은 이미지부터 적고, 철회되지 않은 이미지를 둘까지 남긴다. 셋째부터는 빠진다. 빠진 이미지가 필요한 세션은 [업그레이드 전 검사](#3-검사-결과와-예외)가 판정한다. 그 이미지로 slot을 쥔 launch의 checkpoint를 남은 이미지가 복원하지 못하면 승인할 수 없는 `refused`이고, checkpoint만 남은 세션은 affected 목록에 오른다. runtime 없이 배포한 단일 이미지에서 시작한 launch는 runtime 기록이 없다. 그래서 같은 runtime으로 다시 빌드한 이미지가 목록에 있어도, 그 launch가 봉인하는 checkpoint는 그 이미지 자신만 복원한다고 본다. 그 이미지가 빠지는 upgrade(대개 목록으로 바꾼 다음 upgrade)는 그 launch가 slot을 놓을 때까지 `refused`다. 멈춘 뒤의 checkpoint는 runtime이 맞는 이미지에서 재개된다.
+- 같은 digest는 한 번만 적는다. 배포된 이미지가 철회되어 있으면 대상 릴리스가 같은 digest를 적어도 철회된 채로 둔다. 철회된 이미지는 남긴 이미지 가운데 가장 오래된 것보다 새로울 때만 남긴다. 철회되지 않은 이미지가 하나도 없는 엔진은 철회된 이미지를 모두 남긴다(목록에서 엔진이 빠지는 것과 다르다). 오래된 철회 이미지가 빠지면 그 조합의 checkpoint는 `runtime_retired` 대신 `incompatible_checkpoint`로 멈춘다.
+- 다음이면 values 파일을 만들지 않고 실패한다. 배포된 이미지에 runtime이나 `releasedAt`이 없을 때, 대상 이미지가 배포된 같은 엔진의 어느 이미지보다도 늦지 않을 때, 같은 digest가 다른 runtime·시각·repository로 적혀 있을 때, 같은 엔진의 두 이미지가 같은 시각일 때다. `releasedAt`은 commit 시각이라 게시 순서와 다를 수 있다. 배포된 이미지보다 오래된 commit에 붙인 태그의 chart와, main이 이미 게시한 commit을 태그 push로 다시 빌드한 chart(digest는 다르고 시각은 같다)가 여기에 걸린다. 그때는 더 새 릴리스의 chart로 올린다.
+
+명령은 `&&`로 이어져 있어, 프로그램이 실패하면 `helm upgrade`는 돌지 않는다. upgrade가 실패해도 다시 돌리면 같은 deployed revision에서 같은 파일이 나오므로 따로 보관할 파일은 없다. 승인 목록은 위처럼 매번 비운다. 쓰지 않는 엔진은 `workers.json`에서 그 엔진의 항목을 지우고 넘겨도 된다. 배포된 이미지에 있던 엔진을 지우면 그 upgrade는 엔진을 빼는 upgrade로 판정된다(아래 "엔진을 빼는 upgrade").
+
+kind에서 이 절차를 그대로 따라 했다(`deploy/kind/upgrade.sh`의 `list`·`next-list` 단계). runtime 없이 설치한 단일 이미지 A를 [B, A, C]로 바꿨다(B는 A를 다시 빌드한 이미지, C는 Codex 이미지). A에서 승인을 기다리던 세션은 같은 Pod에서 이어졌다. 이어 control phase를 거친 목록을 [D, B, C]로 바꾸려 했다. 그 세션의 launch가 A에서 slot을 쥐고 있어 `refused`였다. 실패한 revision 뒤에 절차를 다시 돌리면 같은 파일이 나왔다. 그 세션이 끝나 멈춘 뒤에는 같은 파일로 `proceed`였다. 두 upgrade 모두 승인 목록은 비어 있었다. 멈춘 두 세션은 D에서 checkpoint로 재개했다. 하나는 B에서, 하나는 A에서 멈춘 세션이다. Codex 세션은 kind에서 돌리지 않았다.
+
 ### 3. 검사 결과와 예외
 
 #### 업그레이드 전 검사

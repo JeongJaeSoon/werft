@@ -52,6 +52,7 @@ Because the repository is public, you can also download without `gh`: `mkdir -p 
 | `images.<app>.platforms.amd64`, `.arm64` | Manifest digest for that architecture |
 | `workerRuntime` | Claude runtime in the worker image (`engine`, `sdkVersion`, `cliVersion`, `profileDigestScheme`) |
 | `workerCodexRuntime` | Codex runtime in the `worker-codex` image (same fields as `workerRuntime`, `engine` is `codex`) |
+| `workerReleasedAt`, `workerCodexReleasedAt` | The `images.workers` `releasedAt` of the two worker images: the committer time of the images' source commit (UTC, e.g. `2026-11-14T21:16:07Z`), the same for both images of a release. For an older manifest without these fields, take the committer time of `commit` ([Upgrading an image-list installation](/run-server/self-hosting/upgrade-kubernetes#이미지-목록-설치의-upgrade)) |
 | `chart.name`, `chart.version`, `chart.appVersion`, `chart.ref` | Chart published by the same run; `chart.ref` is its `oci://` location |
 
 Values come from digests reread and verified from the registry by `promote`, and charts read without signing in by `chart-publish`. Manifest generation also verifies the chart package's `Chart.yaml`/`values.yaml` contain matching digests and versions. An attached manifest is immutable. Rerunning the same tag with different content fails the job.
@@ -63,7 +64,7 @@ Installers obtain image lines for [single-server installation](/run-server/self-
 
 `main-<12>` is not a release. Confirm its Images run published all three images and the chart, then select the exact version. SHA strings are not chronological versions; do not use Helm `--devel` to choose the latest. An empty `unverifiedSources` array in a main publication confirms all source archives were checked. An absent field means no verification record exists. Official releases require all source archives to be verified before publication.
 
-Published charts include all three image digests and worker runtime. Repeating these in installation values or using `--reuse-values` overrides the next chart's new values. Worker runtime consists of engine/SDK/CLI/profile digest scheme; it is distinct from the image digest.
+Published charts include all three image digests and worker runtime. The two worker images' `images.workers` entries (repository, digest, runtime, `releasedAt`) are also in the chart's `files/release-images.json`, beside `files/next-workers.jq`, which builds the next values from them. Repeating these in installation values or using `--reuse-values` overrides the next chart's new values. Worker runtime consists of engine/SDK/CLI/profile digest scheme; it is distinct from the image digest.
 
 Nonempty `unverifiedSources` can mean the corresponding Debian sources were not actually archived. Do not treat this as the source-archive guarantee of an official release. Old `main-<12>` images from before multi-architecture publication may contain only amd64; check index platforms on ARM servers too. Do not combine three digests into a deployment set if publication is incomplete or a lookup failed.
 

@@ -20,6 +20,7 @@ import {
   bakeValues,
   chartVersion,
   publishedImages,
+  releaseImages,
 } from "../.github/scripts/chart-package.ts";
 import {
   SHUTDOWN_CLOSE_MS,
@@ -1036,6 +1037,42 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       }
     });
 
+    test("a published record's releasedAt is its commit's committer time, in the form the chart packager takes", () => {
+      for (const name of ["publish", "publish-main"]) {
+        const record = jobs[name]?.steps.find(
+          (step) => step.name === "Record staged digest",
+        );
+        const line = record?.run
+          ?.split("\n")
+          .find((l) => l.trim().startsWith('released_at="$('));
+        expect(line).toBeDefined();
+        expect(record?.run).toContain("releasedAt: $releasedAt");
+        const head = Bun.spawnSync(["git", "rev-parse", "HEAD"], {
+          cwd: root,
+        })
+          .stdout.toString()
+          .trim();
+        const run = Bun.spawnSync(
+          ["bash", "-c", `${line}\nprintf '%s' "$released_at"`],
+          {
+            cwd: root,
+            env: { ...process.env, TZ: "Asia/Tokyo", GITHUB_SHA: head },
+          },
+        );
+        const value = run.stdout.toString();
+        expect(value).toMatch(/^[1-9]\d{3}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+        const committed = Bun.spawnSync(
+          ["git", "log", "-1", "--format=%ct", head],
+          {
+            cwd: root,
+          },
+        )
+          .stdout.toString()
+          .trim();
+        expect(Date.parse(value) / 1000).toBe(Number(committed));
+      }
+    });
+
     test("only the build job writes the layer cache, and never for a pull request", () => {
       for (const name of ["publish", "publish-main"]) {
         const build = jobs[name]?.steps.find((step) =>
@@ -1336,6 +1373,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       cliVersion: "0.167.0",
       profileDigestScheme: 1,
     };
+    const releasedAt = "2026-11-10T01:02:03Z";
     const records = () => [
       {
         app: "control-host",
@@ -1359,6 +1397,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
         digest: hex("c"),
         promoted: true,
         commit: sha,
+        releasedAt,
         runtime,
       },
       {
@@ -1367,6 +1406,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
         digest: hex("d"),
         promoted: true,
         commit: sha,
+        releasedAt,
         runtime: codexRuntime,
       },
     ];
@@ -1415,12 +1455,26 @@ describe("compose and workflow agree with the Dockerfiles", () => {
         repository: repo("worker"),
         digest: hex("c"),
         runtime,
+        releasedAt,
       });
       expect(publishedImages(records(), sha).workerCodex).toEqual({
         repository: repo("worker-codex"),
         digest: hex("d"),
         runtime: codexRuntime,
+        releasedAt,
       });
+    });
+
+    test("the package's release images are both worker images as images.workers entries", () => {
+      expect(releaseImages(publishedImages(records(), sha))).toEqual([
+        { repository: repo("worker"), digest: hex("c"), runtime, releasedAt },
+        {
+          repository: repo("worker-codex"),
+          digest: hex("d"),
+          runtime: codexRuntime,
+          releasedAt,
+        },
+      ]);
     });
 
     const patch = (r: Row[], i: number, change: Partial<Row>) =>
@@ -1470,6 +1524,27 @@ describe("compose and workflow agree with the Dockerfiles", () => {
         (r: Row[]) => patch(r, 2, { runtime: codexRuntime }),
         /./,
       ],
+      [
+        "a worker image without releasedAt",
+        (r: Row[]) => patch(r, 2, { releasedAt: undefined }),
+        /worker has releasedAt undefined/,
+      ],
+      ...(
+        [
+          "2026-11-10T01:02:03+09:00",
+          "2026-11-10T01:02:03.5Z",
+          "2026-02-30T00:00:00Z",
+          "2026-11-10",
+          1_762_736_523,
+        ] as const
+      ).map(
+        (value) =>
+          [
+            `a Codex worker image with releasedAt ${value}`,
+            (r: Row[]) => patch(r, 3, { releasedAt: value }),
+            /worker-codex has releasedAt/,
+          ] as const,
+      ),
     ])("refuses %s", (_label, change, message) => {
       expect(() => publishedImages(change(records()) as Row[], sha)).toThrow(
         message,
@@ -1488,8 +1563,10 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       expect(parsed.images.egressProxy?.digest).toBe(hex("b"));
       expect(parsed.images.worker?.digest).toBe(hex("c"));
       expect(parsed.images.worker?.runtime).toEqual(runtime);
+      expect(parsed.images.worker?.releasedAt).toBe(releasedAt);
       expect(parsed.images.workerCodex?.digest).toBe(hex("d"));
       expect(parsed.images.workerCodex?.runtime).toEqual(codexRuntime);
+      expect(parsed.images.workerCodex?.releasedAt).toBe(releasedAt);
       expect(parsed.images.workerPrevious?.digest).toBe("");
       expect(parsed.images.workerPrevious?.runtime).toEqual({});
 
@@ -1497,9 +1574,9 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       const lines = baked.split("\n");
       expect(lines).toHaveLength(original.length);
       const changed = lines.filter((line, i) => line !== original[i]);
-      expect(changed).toHaveLength(6);
+      expect(changed).toHaveLength(8);
       for (const line of changed)
-        expect(line).toMatch(/^ {4}(digest|runtime):/);
+        expect(line).toMatch(/^ {4}(digest|runtime|releasedAt):/);
     });
 
     test("stops on a repository the chart does not default to", () => {
@@ -2113,6 +2190,7 @@ esac
               promoted: false,
               digest: child(app, arch),
               imageId: `sha256:config-${arch}`,
+              releasedAt: "2026-11-10T01:02:03Z",
               runtime: app === "worker" ? { engine: "claude" } : null,
             }),
           );
@@ -2174,6 +2252,7 @@ esac
         ref: "refs/heads/main",
         promoted: false,
         digest: indexOf("worker"),
+        releasedAt: "2026-11-10T01:02:03Z",
         runtime: { engine: "claude" },
         platforms: {
           amd64: {
@@ -2202,17 +2281,19 @@ esac
       expect(result.hasRecord("control-host")).toBe(false);
     });
 
-    test("two arches of different builds are not joined", () => {
+    test.each([
+      ["runtime", { runtime: { engine: "other" } }],
+      ["releasedAt", { releasedAt: "2026-11-10T01:02:04Z" }],
+    ])("two arches of different %s are not joined", (field, change) => {
       const result = run({}, (directory) => {
         const path = join(directory, "arches/worker-arm64.json");
         const record = JSON.parse(readFileSync(path, "utf8"));
-        writeFileSync(
-          path,
-          JSON.stringify({ ...record, runtime: { engine: "other" } }),
-        );
+        writeFileSync(path, JSON.stringify({ ...record, ...change }));
       });
       expect(result.code).toBe(1);
-      expect(result.out).toContain("worker: amd64 and arm64 differ in runtime");
+      expect(result.out).toContain(
+        `worker: amd64 and arm64 differ in ${field}`,
+      );
       expect(result.creates).not.toContain("werft-worker");
     });
 

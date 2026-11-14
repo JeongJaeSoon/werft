@@ -390,6 +390,11 @@ jobs:
               "${NAME}@${DIGEST}" run apps/worker/src/image-runtime.ts \
               <<<'{}' | jq -c 'del(.profiles)')"
           fi
+          # The images.workers releasedAt of this digest: the commit's
+          # committer time, the same on every rerun, and on main's record and
+          # the release that promotes it. Not the publish order: a tag pushed
+          # on an older commit sorts below the release before it.
+          released_at="$(TZ=UTC0 git log -1 --date=format-local:%Y-%m-%dT%H:%M:%SZ --format=%cd "$GITHUB_SHA")"
           mkdir -p arch-staged debian-sources
           docker run --rm --entrypoint cat "${NAME}@${DIGEST}" /app/DEBIAN_SOURCES.md \
             >"debian-sources/${APP}-${ARCH}.md"
@@ -397,10 +402,10 @@ jobs:
             --arg app "$APP" --arg arch "$ARCH" --arg name "$NAME" --arg base "$base" \
             --arg digest "$DIGEST" --arg imageId "$IMAGE_ID" \
             --arg sha "$GITHUB_SHA" --arg ref "$GITHUB_REF" \
-            --argjson runtime "$runtime" \
+            --arg releasedAt "$released_at" --argjson runtime "$runtime" \
             '{app: $app, arch: $arch, image: $name, base: $base, pushed: true,
               promoted: false, digest: $digest, imageId: $imageId, commit: $sha,
-              ref: $ref, runtime: $runtime}' \
+              ref: $ref, releasedAt: $releasedAt, runtime: $runtime}' \
             | tee "arch-staged/${APP}-${ARCH}.json"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
