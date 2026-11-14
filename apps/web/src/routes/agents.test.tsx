@@ -453,7 +453,6 @@ describe("에이전트 카드", () => {
       created_at: "2026-10-11T01:00:00.000Z",
       approved_by: null,
       approved_at: null,
-      note: null,
       label: "2026-10-11_10:00:00",
       activated_at: "2026-10-11T02:00:00.000Z",
       deactivated_at: null,

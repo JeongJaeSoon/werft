@@ -76,7 +76,6 @@ function releaseOf(identity: ReleaseIdentity): AgentRelease {
     created_at: "2026-10-11T00:00:00.000Z",
     approved_by: null,
     approved_at: null,
-    note: null,
     label: "2026-10-11_09:00:00",
     activated_at: null,
     deactivated_at: null,
@@ -170,14 +169,13 @@ describe("deriveReleaseId", () => {
     }
   });
 
-  test("leaves who made or approved the release, its note, label and activation times out of the id", () => {
+  test("leaves who made or approved the release, its label and activation times out of the id", () => {
     const release = releaseOf(identityOf());
     const approved = {
       ...release,
       created_by: USER_B,
       approved_by: USER_B,
       approved_at: "2026-10-12T00:00:00.000Z",
-      note: "hotfix",
       label: "2026-10-11_09:00:00-2",
       activated_at: "2026-10-12T00:00:00.000Z",
       deactivated_at: "2026-10-13T00:00:00.000Z",

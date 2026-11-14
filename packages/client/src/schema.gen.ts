@@ -2608,7 +2608,7 @@ export interface paths {
         put?: never;
         /**
          * Release a version on a provider connection
-         * @description The release id is a hash of the card, the connection and the resolved runtime settings; releasing the same content again returns the stored release with `created: false`. The optional `note` (trimmed, 1 to 200 characters) is stored with the release but is not part of its id, so a re-release keeps the note it was first made with. A model the connection does not offer, or a connection that is not enabled, answers 422. `repository_id` names the catalog repository the release pins, optional: 422 when the catalog has no such repository. Slack sessions and API sessions that send no `repository_id` start on it only while the agent has no GitHub settings; an agent with settings starts them without a repository. A request carrying `github` for an agent that already has GitHub settings answers 409 ALREADY_EXISTS with `reason_code: github_settings_exist`: those are saved with `PUT /v1/agents/{id}/github/settings`. Releasing approves and activates nothing.
+         * @description The release id is a hash of the card, the connection and the resolved runtime settings; releasing the same content again returns the stored release with `created: false`. A model the connection does not offer, or a connection that is not enabled, answers 422. `repository_id` names the catalog repository the release pins, optional: 422 when the catalog has no such repository. Slack sessions and API sessions that send no `repository_id` start on it only while the agent has no GitHub settings; an agent with settings starts them without a repository. A request carrying `github` for an agent that already has GitHub settings answers 409 ALREADY_EXISTS with `reason_code: github_settings_exist`: those are saved with `PUT /v1/agents/{id}/github/settings`. Releasing approves and activates nothing.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -5418,7 +5418,6 @@ export interface components {
             /** Format: uuid */
             version_id: string;
             connection_id: string;
-            note?: string;
             repository_id?: string;
             github?: {
                 repositories: string[];
@@ -9627,7 +9626,6 @@ export interface components {
                 created_at: string;
                 approved_by: string | null;
                 approved_at: string | null;
-                note: string | null;
                 label: string;
                 activated_at: string | null;
                 deactivated_at: string | null;
@@ -9681,7 +9679,6 @@ export interface components {
                 created_at: string;
                 approved_by: string | null;
                 approved_at: string | null;
-                note: string | null;
                 label: string;
                 activated_at: string | null;
                 deactivated_at: string | null;
@@ -9820,7 +9817,6 @@ export interface components {
                 created_at: string;
                 approved_by: string | null;
                 approved_at: string | null;
-                note: string | null;
                 label: string;
                 activated_at: string | null;
                 deactivated_at: string | null;
@@ -9874,7 +9870,6 @@ export interface components {
                 created_at: string;
                 approved_by: string | null;
                 approved_at: string | null;
-                note: string | null;
                 label: string;
                 activated_at: string | null;
                 deactivated_at: string | null;
@@ -9954,7 +9949,6 @@ export interface components {
                 created_at: string;
                 approved_by: string | null;
                 approved_at: string | null;
-                note: string | null;
                 label: string;
                 activated_at: string | null;
                 deactivated_at: string | null;

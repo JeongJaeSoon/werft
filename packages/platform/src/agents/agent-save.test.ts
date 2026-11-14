@@ -82,7 +82,6 @@ function activeRelease(): AgentRelease {
     created_at: AT,
     approved_by: OWNER,
     approved_at: AT,
-    note: null,
     label: "2026-10-11_09:00:00",
     activated_at: AT,
     deactivated_at: null,

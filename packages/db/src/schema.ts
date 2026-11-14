@@ -4495,8 +4495,8 @@ export const agentReleases = pgTable(
       .defaultNow(),
     approvedBy: uuid("approved_by").references(() => users.id),
     approvedAt: timestamp("approved_at", { withTimezone: true }),
-    // Outside the id's hash: a re-release of the same content keeps the
-    // first note, null included.
+    // No code reads or writes it. It stays until no release in the support
+    // window reads it, then a contract migration drops it with its check.
     note: text(),
     // What a session of the release runs, derived from the columns above
     // and the connection (agents/release-spec.ts): `spec_source` keeps the

@@ -3582,9 +3582,6 @@
             "minLength": 1,
             "maxLength": 128
           },
-          "note": {
-            "type": "string"
-          },
           "repository_id": {
             "type": "string",
             "minLength": 1,
@@ -25017,12 +25014,6 @@
                     }
                   ]
                 },
-                "note": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
                 "label": {
                   "type": "string",
                   "pattern": "^\\d{4}-\\d{2}-\\d{2}_\\d{2}:\\d{2}:\\d{2}(-([2-9]|[1-9]\\d+))?$"
@@ -25066,7 +25057,6 @@
                 "created_at",
                 "approved_by",
                 "approved_at",
-                "note",
                 "label",
                 "activated_at",
                 "deactivated_at"
@@ -25322,12 +25312,6 @@
                       }
                     ]
                   },
-                  "note": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
                   "label": {
                     "type": "string",
                     "pattern": "^\\d{4}-\\d{2}-\\d{2}_\\d{2}:\\d{2}:\\d{2}(-([2-9]|[1-9]\\d+))?$"
@@ -25371,7 +25355,6 @@
                   "created_at",
                   "approved_by",
                   "approved_at",
-                  "note",
                   "label",
                   "activated_at",
                   "deactivated_at"
@@ -26085,12 +26068,6 @@
                     }
                   ]
                 },
-                "note": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
                 "label": {
                   "type": "string",
                   "pattern": "^\\d{4}-\\d{2}-\\d{2}_\\d{2}:\\d{2}:\\d{2}(-([2-9]|[1-9]\\d+))?$"
@@ -26134,7 +26111,6 @@
                 "created_at",
                 "approved_by",
                 "approved_at",
-                "note",
                 "label",
                 "activated_at",
                 "deactivated_at"
@@ -26390,12 +26366,6 @@
                       }
                     ]
                   },
-                  "note": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
                   "label": {
                     "type": "string",
                     "pattern": "^\\d{4}-\\d{2}-\\d{2}_\\d{2}:\\d{2}:\\d{2}(-([2-9]|[1-9]\\d+))?$"
@@ -26439,7 +26409,6 @@
                   "created_at",
                   "approved_by",
                   "approved_at",
-                  "note",
                   "label",
                   "activated_at",
                   "deactivated_at"
@@ -26879,12 +26848,6 @@
                   }
                 ]
               },
-              "note": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
               "label": {
                 "type": "string",
                 "pattern": "^\\d{4}-\\d{2}-\\d{2}_\\d{2}:\\d{2}:\\d{2}(-([2-9]|[1-9]\\d+))?$"
@@ -26928,7 +26891,6 @@
               "created_at",
               "approved_by",
               "approved_at",
-              "note",
               "label",
               "activated_at",
               "deactivated_at"
@@ -68903,7 +68865,7 @@
           "Agents"
         ],
         "summary": "Release a version on a provider connection",
-        "description": "The release id is a hash of the card, the connection and the resolved runtime settings; releasing the same content again returns the stored release with `created: false`. The optional `note` (trimmed, 1 to 200 characters) is stored with the release but is not part of its id, so a re-release keeps the note it was first made with. A model the connection does not offer, or a connection that is not enabled, answers 422. `repository_id` names the catalog repository the release pins, optional: 422 when the catalog has no such repository. Slack sessions and API sessions that send no `repository_id` start on it only while the agent has no GitHub settings; an agent with settings starts them without a repository. A request carrying `github` for an agent that already has GitHub settings answers 409 ALREADY_EXISTS with `reason_code: github_settings_exist`: those are saved with `PUT /v1/agents/{id}/github/settings`. Releasing approves and activates nothing.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "The release id is a hash of the card, the connection and the resolved runtime settings; releasing the same content again returns the stored release with `created: false`. A model the connection does not offer, or a connection that is not enabled, answers 422. `repository_id` names the catalog repository the release pins, optional: 422 when the catalog has no such repository. Slack sessions and API sessions that send no `repository_id` start on it only while the agent has no GitHub settings; an agent with settings starts them without a repository. A request carrying `github` for an agent that already has GitHub settings answers 409 ALREADY_EXISTS with `reason_code: github_settings_exist`: those are saved with `PUT /v1/agents/{id}/github/settings`. Releasing approves and activates nothing.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
