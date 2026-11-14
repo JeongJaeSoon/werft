@@ -38,7 +38,7 @@ const WORKER_IMAGE_COOPERATION: Record<
   },
   7: {
     needsImage: false,
-    why: "the backend sets an inode ceiling on the workspace volume; the image only sees /workspace",
+    why: "the backend sets an inode ceiling on the workspace volume, through the quota helper image rather than the worker's; the worker image only sees /workspace",
   },
 };
 
