@@ -75,11 +75,13 @@ async function checkpoint(
   sessionId: string,
   revision: number,
   runtime: typeof FIRST | null,
+  scheme: number | null = null,
 ) {
   await client.query(
     `INSERT INTO checkpoints (session_id, revision, manifest_ref, manifest_sha256,
-       runtime_engine, runtime_sdk_version, runtime_cli_version, runtime_profile_sha256)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+       runtime_engine, runtime_sdk_version, runtime_cli_version, runtime_profile_sha256,
+       runtime_profile_scheme)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
     [
       sessionId,
       revision,
@@ -89,6 +91,7 @@ async function checkpoint(
       runtime?.sdk_version ?? null,
       runtime?.cli_version ?? null,
       runtime?.profile_sha256 ?? null,
+      scheme,
     ],
   );
   await client.query(
@@ -114,11 +117,21 @@ describe("session worker runtime (94S-1092)", () => {
     const id = await create();
     await launched(id);
     await checkpoint(id, 1, FIRST);
-    await checkpoint(id, 2, LATER);
+    await checkpoint(id, 2, LATER, 2);
     expect(await runtimeOf(id)).toEqual({
       first_image: "ghcr.io/x/worker@sha256:aa",
       first: FIRST,
-      checkpoint: LATER,
+      checkpoint: { ...LATER, profile_digest_scheme: 2 },
+    });
+  });
+
+  test("a pointer from before the digest scheme was recorded reads as scheme 1, as a launch does", async () => {
+    const id = await create();
+    await launched(id);
+    await checkpoint(id, 1, FIRST);
+    expect((await runtimeOf(id))?.checkpoint).toEqual({
+      ...FIRST,
+      profile_digest_scheme: 1,
     });
   });
 

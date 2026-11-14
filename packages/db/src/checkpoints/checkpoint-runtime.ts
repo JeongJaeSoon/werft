@@ -4,6 +4,7 @@ import {
   type PointerRuntime,
   recordedPointer,
 } from "@werft-ai/platform";
+import { FIRST_PROFILE_DIGEST_SCHEME } from "@werft-ai/runtime-core";
 import { and, asc, eq, inArray, isNull, type SQL, sql } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import type { Database } from "../queries.ts";
@@ -86,30 +87,36 @@ export function workerRuntimeView(
     checkpointPendingReason: string | null;
     contextResetCheckpointRevision: number | null;
   },
-  pointer: RuntimeColumns | null,
+  pointer: (RuntimeColumns & { runtimeProfileScheme: number | null }) | null,
 ): SessionWorkerRuntime {
   const restored =
     pointer !== null && hasRestorePoint(session)
       ? runtimeOfColumns(pointer)
       : null;
+  const first = runtimeOfColumns(session);
   return {
     first_image: session.firstWorkerImage,
-    first: combinationView(runtimeOfColumns(session)),
-    checkpoint: combinationView(restored),
+    first: first === null ? null : combinationOf(first),
+    checkpoint:
+      restored === null || pointer === null
+        ? null
+        : {
+            ...combinationOf(restored),
+            profile_digest_scheme:
+              pointer.runtimeProfileScheme ?? FIRST_PROFILE_DIGEST_SCHEME,
+          },
   };
 }
 
-function combinationView(
-  runtime: RuntimeFingerprint | null,
-): SessionWorkerRuntime["first"] {
-  return runtime === null
-    ? null
-    : {
-        engine: runtime.engine,
-        sdk_version: runtime.sdkVersion,
-        cli_version: runtime.cliVersion,
-        profile_sha256: runtime.profileSha256,
-      };
+function combinationOf(
+  runtime: RuntimeFingerprint,
+): NonNullable<SessionWorkerRuntime["first"]> {
+  return {
+    engine: runtime.engine,
+    sdk_version: runtime.sdkVersion,
+    cli_version: runtime.cliVersion,
+    profile_sha256: runtime.profileSha256,
+  };
 }
 
 /**

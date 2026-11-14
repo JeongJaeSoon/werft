@@ -5973,6 +5973,8 @@ export interface components {
                     sdk_version: string;
                     cli_version: string;
                     profile_sha256: string;
+                    /** @description How `profile_sha256` was computed. An image restores the checkpoint only when it has the same engine, SDK and CLI versions and still computes this scheme. */
+                    profile_digest_scheme: number;
                 } | null;
             };
         };

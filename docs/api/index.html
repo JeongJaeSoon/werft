@@ -5994,13 +5994,20 @@
                       "profile_sha256": {
                         "type": "string",
                         "minLength": 1
+                      },
+                      "profile_digest_scheme": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991,
+                        "description": "How `profile_sha256` was computed. An image restores the checkpoint only when it has the same engine, SDK and CLI versions and still computes this scheme."
                       }
                     },
                     "required": [
                       "engine",
                       "sdk_version",
                       "cli_version",
-                      "profile_sha256"
+                      "profile_sha256",
+                      "profile_digest_scheme"
                     ],
                     "additionalProperties": false
                   },

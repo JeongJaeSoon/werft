@@ -1634,6 +1634,7 @@ export function createPostgresSessionReader(
                     runtimeSdkVersion: checkpoints.runtimeSdkVersion,
                     runtimeCliVersion: checkpoints.runtimeCliVersion,
                     runtimeProfileSha256: checkpoints.runtimeProfileSha256,
+                    runtimeProfileScheme: checkpoints.runtimeProfileScheme,
                   })
                   .from(checkpoints)
                   .leftJoin(turns, eq(turns.id, checkpoints.turnId))

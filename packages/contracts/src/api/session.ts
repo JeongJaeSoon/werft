@@ -153,10 +153,18 @@ export const sessionWorkerRuntimeSchema = z.object({
     description:
       "The runtime combination of the first checkpoint the session committed with one: the engine, its SDK and CLI versions, and the run settings' digest. Written once. Null before that checkpoint, and on a session from before the record.",
   }),
-  checkpoint: runtimeCombinationSchema.nullable().meta({
-    description:
-      "The runtime combination of the checkpoint the session's next launch would restore, which the worker image it launches on has to match. Null when no checkpoint would be restored (none committed, or start_fresh retired it), and for a checkpoint committed before the combination was recorded.",
-  }),
+  checkpoint: runtimeCombinationSchema
+    .extend({
+      profile_digest_scheme: z.number().int().positive().meta({
+        description:
+          "How `profile_sha256` was computed. An image restores the checkpoint only when it has the same engine, SDK and CLI versions and still computes this scheme.",
+      }),
+    })
+    .nullable()
+    .meta({
+      description:
+        "The runtime combination of the checkpoint the session's next launch would restore, which the worker image it launches on has to match. Null when no checkpoint would be restored (none committed, or start_fresh retired it), and for a checkpoint committed before the combination was recorded.",
+    }),
 });
 export const executionObservationSchema = z.object({
   backend: executionBackendSchema,
