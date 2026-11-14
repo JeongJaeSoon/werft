@@ -1,8 +1,23 @@
+import { type ImageRuntime, restorableSchemesOf } from "@werft-ai/runtime-core";
 import {
+  canRestoreCheckpoint,
   type PointerRuntime,
+  sameCombination,
   selectWorkerImage,
-  type WorkerImageRuntimes,
+  type WorkerImageCandidate,
 } from "./worker-images.ts";
+
+/**
+ * A worker image as a release configures it, or as a launch still holding a
+ * slot runs it. A null runtime is one nothing declared: an image configured
+ * without one, or a launch reserved without one.
+ */
+export type UpgradeImage = {
+  readonly image: string;
+  readonly runtime: ImageRuntime | null;
+};
+
+type Images<I> = readonly [I, ...I[]];
 
 /** A session holding an uncollected checkpoint, as the database reads it. */
 export type UpgradeSession = {
@@ -50,53 +65,62 @@ export function assessNothingReplaced(
 }
 
 /**
- * Whether a release may replace the deployed worker image, or drop or
- * replace the previous one. It goes ahead when both stay and nothing is
- * approved, or when every session it leaves with no image to resume on was
- * approved, exactly: one more or one fewer means the list the operator read
- * is not the one that would break. A moved worker image must also stay within
- * the support window (the target's previous image is the deployed one).
+ * Whether a release may change the worker images the cluster runs. It goes
+ * ahead with nothing approved when the newest image stays and every deployed
+ * image stays under the runtime it was declared with: no session then runs
+ * elsewhere than it does now. Otherwise every session the target images
+ * cannot resume must be approved, exactly: one more or one fewer means the
+ * list the operator read is not the one that would break.
+ *
+ * No approval covers a worker that is still running: it keeps sealing
+ * checkpoints after this check. So what it seals must stay restorable, both
+ * on the deployed newest image, which new sessions start on until the
+ * rollout, and on every launch still holding a slot. A writer whose
+ * checkpoints the deployed images cannot restore either is stranded already,
+ * not by this release.
  */
 export function assessUpgrade(input: {
-  readonly deployedWorker: string;
-  /** The previous image the cluster runs now; null when it has none. */
-  readonly deployedPreviousWorker?: string | null;
-  readonly targetWorker: string;
-  readonly targetPreviousWorker: string | null;
-  readonly runtimes: WorkerImageRuntimes;
+  /** Newest first, as the cluster runs them now. */
+  readonly deployed: Images<UpgradeImage>;
+  /** Newest first, as the target release configures them. */
+  readonly target: Images<WorkerImageCandidate<string>>;
+  /** What the launches that have not released their slot run. */
+  readonly writers: readonly UpgradeImage[];
   readonly sessions: readonly UpgradeSession[];
   readonly approved: readonly string[];
 }): UpgradeAssessment {
-  const sameWorker = input.targetWorker === input.deployedWorker;
-  // The current image stays, but a previous image the cluster resumes
-  // sessions on is dropped or replaced: what was sealed on it may now have
-  // no image, so the sessions are compared like those of a replaced image.
-  const previousLost =
-    sameWorker &&
-    (input.deployedPreviousWorker ?? null) !== null &&
-    input.deployedPreviousWorker !== input.targetPreviousWorker;
-  if (sameWorker && !previousLost) {
+  const { deployed, target } = input;
+  const changed = deployed
+    .filter((image) => !kept(image, target))
+    .map(({ image }) => image);
+  if (changed.length === 0 && kept(deployed[0], [target[0]])) {
     return assessNothingReplaced(
       input.approved,
-      "the worker image does not change",
+      "the worker images do not change",
     );
   }
   const approved = [...new Set(input.approved)].sort();
   const affected = input.sessions
     .flatMap((session): AffectedSession[] => {
-      const reason = unresumable(session, input.runtimes);
+      const reason = unresumable(session, target);
       return reason === null ? [] : [{ sessionId: session.sessionId, reason }];
     })
     .sort((a, b) => a.sessionId.localeCompare(b.sessionId));
-  // Workers on the deployed image keep sealing checkpoints after this check
-  // runs, so no list approved now covers them: no approval passes this. A
-  // kept current image seals nothing the target cannot restore.
-  if (!sameWorker && input.targetPreviousWorker !== input.deployedWorker) {
+  const stranded = [
+    ...new Set(
+      [deployed[0], ...input.writers]
+        .filter(
+          (writer) => resumesOn(writer, deployed) && !resumesOn(writer, target),
+        )
+        .map(({ image }) => image),
+    ),
+  ].sort();
+  if (stranded.length > 0) {
     return {
       verdict: "refused",
       affected,
       approved,
-      reason: `the target's previous worker image (${input.targetPreviousWorker ?? "none"}) is not the deployed one (${input.deployedWorker}): workers running it would keep sealing checkpoints neither target image restores`,
+      reason: `workers on ${stranded.join(" ")} keep sealing checkpoints after this check and no target image restores them, so no approval covers them: keep the image in the target release, or wait until no launch on it holds a slot`,
     };
   }
   const ids = affected.map((session) => session.sessionId);
@@ -107,10 +131,39 @@ export function assessUpgrade(input: {
       verdict: "refused",
       affected,
       approved,
-      reason: `${ids.length} session(s) could resume on neither target image${previousLost ? ` (the worker image stays, but the deployed previous image ${input.deployedPreviousWorker} is not the target's ${input.targetPreviousWorker ?? "none"})` : ""}; approve exactly this list in upgrade.approvedSessions${ids.length === 0 ? " (empty)" : ""} — not approved: ${missing.join(" ") || "none"}; no longer affected: ${extra.join(" ") || "none"}`,
+      reason: `${ids.length} session(s) could resume on no target image (deployed images dropped or redeclared: ${changed.join(" ") || "none"}; newest ${deployed[0].image} → ${target[0].image}); approve exactly this list in upgrade.approvedSessions${ids.length === 0 ? " (empty)" : ""} — not approved: ${missing.join(" ") || "none"}; no longer affected: ${extra.join(" ") || "none"}`,
     };
   }
   return { verdict: "proceed", affected, approved };
+}
+
+// Only what image choice reads counts: a runtime nothing declared was never
+// compared, so the same digest is all that can be asked of it.
+function kept(
+  deployed: UpgradeImage,
+  target: readonly WorkerImageCandidate<string>[],
+): boolean {
+  return target.some(
+    ({ image, runtime }) =>
+      image === deployed.image &&
+      (deployed.runtime === null ||
+        (sameCombination(deployed.runtime, runtime) &&
+          restorableSchemesOf(deployed.runtime).join() ===
+            restorableSchemesOf(runtime).join())),
+  );
+}
+
+// A writer with no runtime recorded seals whatever its image runs, which only
+// the same digest is known to restore.
+function resumesOn(
+  writer: UpgradeImage,
+  images: readonly UpgradeImage[],
+): boolean {
+  return images.some(({ image, runtime }) =>
+    writer.runtime === null || runtime === null
+      ? image === writer.image
+      : canRestoreCheckpoint(runtime, writer.runtime),
+  );
 }
 
 // A launch runs an unrecorded pointer on the newest image and lets the
@@ -118,14 +171,8 @@ export function assessUpgrade(input: {
 // it counts as affected.
 function unresumable(
   { pointer }: UpgradeSession,
-  runtimes: WorkerImageRuntimes,
+  target: Images<WorkerImageCandidate<string>>,
 ): UnresumableReason | null {
   if (pointer.kind === "unrecorded") return "unrecorded";
-  const selection = selectWorkerImage(pointer, [
-    { image: "current", runtime: runtimes.current },
-    ...(runtimes.previous === null
-      ? []
-      : [{ image: "previous", runtime: runtimes.previous }]),
-  ]);
-  return selection.kind === "none" ? "no_image" : null;
+  return selectWorkerImage(pointer, target).kind === "none" ? "no_image" : null;
 }

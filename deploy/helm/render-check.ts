@@ -772,13 +772,16 @@ function checkUpgradeHook(
   }
   const value = (name: string) => env.find((e) => e.name === name)?.value;
   // lookup reads nothing under `helm template`, which the CLI refuses.
-  if (value("UPGRADE_DEPLOYED_WORKER_IMAGE") !== "") {
-    fail("UPGRADE_DEPLOYED_WORKER_IMAGE is not empty without a cluster");
-  }
-  if (value("UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS") !== "") {
-    fail(
-      "UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS is not empty without a cluster",
-    );
+  for (const name of [
+    "WORKER_IMAGES",
+    "WORKER_IMAGE",
+    "WORKER_IMAGE_RUNTIME",
+    "WORKER_IMAGE_PREVIOUS",
+    "WORKER_IMAGE_PREVIOUS_RUNTIME",
+  ]) {
+    if (value(`UPGRADE_DEPLOYED_${name}`) !== "") {
+      fail(`UPGRADE_DEPLOYED_${name} is not empty without a cluster`);
+    }
   }
   // Either value of it opens a path that skips a comparison.
   if (value("UPGRADE_DEPLOYED_STATE") !== "") {

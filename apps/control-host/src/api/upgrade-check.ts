@@ -1,13 +1,20 @@
-import { listUncollectedSessionPointers } from "@werft-ai/db";
+import {
+  listUncollectedSessionPointers,
+  listUnreleasedLaunchImages,
+} from "@werft-ai/db";
 import { createLogger, type StructuredLogger } from "@werft-ai/observability";
 import {
   assessNothingReplaced,
   assessUpgrade,
+  type ListedWorkerImage,
   type UpgradeAssessment,
+  type UpgradeImage,
   type UpgradeSession,
   type WorkerImagesEnvironment,
+  workerImageListFromEnv,
   workerImageRuntimesFromEnv,
 } from "@werft-ai/platform";
+import { parseImageRuntime } from "@werft-ai/runtime-core";
 import { withJobDatabase } from "../job-database.ts";
 
 export type UpgradeCheckEnvironment = Readonly<
@@ -17,11 +24,14 @@ export type UpgradeCheckEnvironment = Readonly<
     DATABASE_URL?: string | undefined;
     UPGRADE_APPROVED_SESSIONS?: string | undefined;
     UPGRADE_DEPLOYED_STATE?: string | undefined;
+    UPGRADE_DEPLOYED_WORKER_IMAGES?: string | undefined;
     UPGRADE_DEPLOYED_WORKER_IMAGE?: string | undefined;
+    UPGRADE_DEPLOYED_WORKER_IMAGE_RUNTIME?: string | undefined;
     UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS?: string | undefined;
-    WORKER_IMAGE?: string | undefined;
-    WORKER_IMAGE_PREVIOUS?: string | undefined;
+    UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS_RUNTIME?: string | undefined;
   };
+
+type Images<I> = readonly [I, ...I[]];
 
 const UPGRADE_CHECK_EXIT = {
   proceed: 0,
@@ -35,10 +45,13 @@ const UPGRADE_CHECK_EXIT = {
  * and prints one JSON line saying whether the target release's worker
  * images leave any of them with nothing to resume on.
  *
- * Read: `DATABASE_URL`; the target's `WORKER_IMAGE`, `WORKER_IMAGE_RUNTIME`,
- * `WORKER_IMAGE_PREVIOUS`, `WORKER_IMAGE_PREVIOUS_RUNTIME`; the
- * `UPGRADE_DEPLOYED_WORKER_IMAGE` the cluster runs now and its
- * `UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS` (empty when it has none);
+ * Read: `DATABASE_URL`; the target's `WORKER_IMAGES`, or its `WORKER_IMAGE`,
+ * `WORKER_IMAGE_RUNTIME`, `WORKER_IMAGE_PREVIOUS`,
+ * `WORKER_IMAGE_PREVIOUS_RUNTIME`; what the cluster's scheduler runs now, its
+ * `WORKER_IMAGES` as `UPGRADE_DEPLOYED_WORKER_IMAGES`, or its single-image
+ * settings as `UPGRADE_DEPLOYED_WORKER_IMAGE` and
+ * `UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS` (empty when it has none), with the
+ * `_RUNTIME` of each (empty when none was declared);
  * `UPGRADE_APPROVED_SESSIONS`, a JSON array of session ids; and
  * `UPGRADE_DEPLOYED_STATE`, what the chart read about the deployed release
  * when it has no worker image or runtime to compare:
@@ -58,12 +71,13 @@ export async function runUpgradeCheck(input: {
   logger: StructuredLogger;
   /** Tests substitute the database; the product path connects to it. */
   listSessions?: (databaseUrl: string) => Promise<readonly UpgradeSession[]>;
+  listWriters?: (databaseUrl: string) => Promise<readonly UpgradeImage[]>;
   databaseUnused?: (databaseUrl: string) => Promise<boolean>;
   write?: (line: string) => void;
 }): Promise<number> {
   const { environment } = input;
   const write = input.write ?? ((line: string) => console.log(line));
-  const base = {
+  let base = {
     deployedWorker: environment.UPGRADE_DEPLOYED_WORKER_IMAGE || null,
     targetWorker: environment.WORKER_IMAGE || null,
     targetPreviousWorker: environment.WORKER_IMAGE_PREVIOUS || null,
@@ -91,8 +105,13 @@ export async function runUpgradeCheck(input: {
   } catch (error) {
     return failed((error as Error).message);
   }
+  base = {
+    deployedWorker: settings.deployed?.[0].image ?? null,
+    targetWorker: settings.target[0].image,
+    targetPreviousWorker: settings.target[1]?.image ?? null,
+  };
 
-  if (settings.deployedWorker === null) {
+  if (settings.deployed === null) {
     let unused: boolean;
     try {
       unused = await (input.databaseUnused ?? databaseUnused(input.logger))(
@@ -115,27 +134,45 @@ export async function runUpgradeCheck(input: {
   }
 
   let sessions: readonly UpgradeSession[];
+  let writers: readonly UpgradeImage[];
   try {
     sessions = await (input.listSessions ?? listSessions(input.logger))(
+      settings.databaseUrl,
+    );
+    writers = await (input.listWriters ?? listWriters(input.logger))(
       settings.databaseUrl,
     );
   } catch (error) {
     return failed(`could not read sessions: ${causeOf(error)}`);
   }
 
+  const candidates = withRuntimes(settings.target);
   return report(
-    settings.runtimes === null
+    candidates === null
       ? assessNothingReplaced(
           settings.approved,
           "the worker image does not change",
         )
       : assessUpgrade({
-          ...settings,
-          deployedWorker: settings.deployedWorker,
-          runtimes: settings.runtimes,
+          deployed: settings.deployed,
+          target: candidates,
+          writers,
           sessions,
+          approved: settings.approved,
         }),
   );
+}
+
+// Only the newest image of a target can lack a runtime, and only alone.
+function withRuntimes(
+  images: Images<UpgradeImage>,
+): Images<ListedWorkerImage> | null {
+  const listed = images.flatMap(({ image, runtime }) =>
+    runtime === null ? [] : [{ image, runtime }],
+  );
+  return listed.length === images.length
+    ? (listed as unknown as Images<ListedWorkerImage>)
+    : null;
 }
 
 // drizzle wraps the driver's error, which says why, as the cause.
@@ -147,63 +184,119 @@ function causeOf(error: unknown): string {
 function readSettings(environment: UpgradeCheckEnvironment) {
   const databaseUrl = environment.DATABASE_URL;
   if (!databaseUrl) throw new Error("DATABASE_URL is not set");
-  // Fails closed rather than judging other images than the scheduler would
-  // launch: the check compares single-image settings only.
-  if (environment.WORKER_IMAGES) {
-    throw new Error(
-      "WORKER_IMAGES is set: this check reads WORKER_IMAGE and WORKER_IMAGE_PREVIOUS only and cannot judge a list",
-    );
-  }
-  const targetWorker = environment.WORKER_IMAGE;
-  if (!targetWorker) throw new Error("WORKER_IMAGE is not set");
+  const target = targetImages(environment);
   const state = environment.UPGRADE_DEPLOYED_STATE;
-  const deployedWorker = environment.UPGRADE_DEPLOYED_WORKER_IMAGE || null;
-  if (deployedWorker === null && state !== "absent") {
+  const deployed = deployedImages(environment);
+  if (deployed === null && state !== "absent") {
     throw new Error(
-      "UPGRADE_DEPLOYED_WORKER_IMAGE is empty: the deployed worker image could not be read (a dry run or `helm template` reads no cluster)",
+      "UPGRADE_DEPLOYED_WORKER_IMAGES and UPGRADE_DEPLOYED_WORKER_IMAGE are empty: the deployed worker image could not be read (a dry run or `helm template` reads no cluster)",
     );
   }
-  // Empty means the deployed release has no previous image; unset means the
-  // caller never said, which must not read as "none".
-  if (
-    deployedWorker !== null &&
-    environment.UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS === undefined
-  ) {
-    throw new Error(
-      "UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS is not set (empty when the deployed release has no previous image)",
-    );
-  }
-  const runtimes = workerImageRuntimesFromEnv(environment);
-  const targetPreviousWorker = environment.WORKER_IMAGE_PREVIOUS || null;
   // Nothing compares runtimes when nothing is replaced, but dropping one a
   // deployed release had could strand what it sealed: `unpinned` rules it out.
   const nothingToCompare =
-    deployedWorker === null ||
-    (deployedWorker === targetWorker && state === "unpinned");
-  if (
-    runtimes === null &&
-    (targetPreviousWorker !== null || !nothingToCompare)
-  ) {
+    deployed === null ||
+    (deployed.length === 1 &&
+      deployed[0].image === target[0].image &&
+      state === "unpinned");
+  if (target[0].runtime === null && !nothingToCompare) {
     throw new Error("WORKER_IMAGE_RUNTIME is not set");
   }
-  if (
-    runtimes !== null &&
-    (targetPreviousWorker === null) !== (runtimes.previous === null)
-  ) {
+  return {
+    databaseUrl,
+    target,
+    deployed,
+    approved: approvedSessions(environment.UPGRADE_APPROVED_SESSIONS ?? "[]"),
+  };
+}
+
+function targetImages(
+  environment: UpgradeCheckEnvironment,
+): Images<UpgradeImage> {
+  const listed = workerImageListFromEnv(environment);
+  if (listed !== null) return listed;
+  const image = environment.WORKER_IMAGE;
+  if (!image) throw new Error("WORKER_IMAGES or WORKER_IMAGE is not set");
+  const runtimes = workerImageRuntimesFromEnv(environment);
+  const previous = environment.WORKER_IMAGE_PREVIOUS || null;
+  if (runtimes === null) {
+    if (previous !== null) throw new Error("WORKER_IMAGE_RUNTIME is not set");
+    return [{ image, runtime: null }];
+  }
+  if ((previous === null) !== (runtimes.previous === null)) {
     throw new Error(
       "WORKER_IMAGE_PREVIOUS and WORKER_IMAGE_PREVIOUS_RUNTIME go together",
     );
   }
-  return {
-    databaseUrl,
-    targetWorker,
-    deployedWorker,
-    deployedPreviousWorker:
-      environment.UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS || null,
-    targetPreviousWorker,
-    runtimes,
-    approved: approvedSessions(environment.UPGRADE_APPROVED_SESSIONS ?? "[]"),
+  return previous === null || runtimes.previous === null
+    ? [{ image, runtime: runtimes.current }]
+    : [
+        { image, runtime: runtimes.current },
+        { image: previous, runtime: runtimes.previous },
+      ];
+}
+
+/**
+ * What the deployed scheduler runs, null when the chart read none. A runtime
+ * it was not given reads as undeclared, so that image is compared by digest
+ * alone, as before runtimes were passed.
+ */
+function deployedImages(
+  environment: UpgradeCheckEnvironment,
+): Images<UpgradeImage> | null {
+  const list = environment.UPGRADE_DEPLOYED_WORKER_IMAGES;
+  const image = environment.UPGRADE_DEPLOYED_WORKER_IMAGE || null;
+  if (list) {
+    if (image !== null) {
+      throw new Error(
+        "UPGRADE_DEPLOYED_WORKER_IMAGES and UPGRADE_DEPLOYED_WORKER_IMAGE are both set: a scheduler runs one or the other",
+      );
+    }
+    try {
+      return workerImageListFromEnv({ WORKER_IMAGES: list });
+    } catch (error) {
+      throw new Error(
+        `UPGRADE_DEPLOYED_WORKER_IMAGES: ${(error as Error).message}`,
+      );
+    }
+  }
+  if (image === null) return null;
+  // Empty means the deployed release has no previous image; unset means the
+  // caller never said, which must not read as "none".
+  const previous = environment.UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS;
+  if (previous === undefined) {
+    throw new Error(
+      "UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS is not set (empty when the deployed release has no previous image)",
+    );
+  }
+  const current = {
+    image,
+    runtime: deployedRuntime(
+      "UPGRADE_DEPLOYED_WORKER_IMAGE_RUNTIME",
+      environment.UPGRADE_DEPLOYED_WORKER_IMAGE_RUNTIME,
+    ),
   };
+  return previous === ""
+    ? [current]
+    : [
+        current,
+        {
+          image: previous,
+          runtime: deployedRuntime(
+            "UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS_RUNTIME",
+            environment.UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS_RUNTIME,
+          ),
+        },
+      ];
+}
+
+function deployedRuntime(name: string, value: string | undefined) {
+  if (!value) return null;
+  try {
+    return parseImageRuntime(value);
+  } catch (error) {
+    throw new Error(`${name}: ${(error as Error).message}`);
+  }
 }
 
 function approvedSessions(text: string): string[] {
@@ -228,6 +321,13 @@ function listSessions(logger: StructuredLogger) {
   return (databaseUrl: string) =>
     withJobDatabase("upgrade-check", databaseUrl, logger, ({ db }) =>
       listUncollectedSessionPointers(db),
+    );
+}
+
+function listWriters(logger: StructuredLogger) {
+  return (databaseUrl: string) =>
+    withJobDatabase("upgrade-check", databaseUrl, logger, ({ db }) =>
+      listUnreleasedLaunchImages(db),
     );
 }
 

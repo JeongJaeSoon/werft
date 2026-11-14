@@ -10,6 +10,7 @@ export * from "./agents.ts";
 export * from "./catalog-repositories.ts";
 export {
   listUncollectedSessionPointers,
+  listUnreleasedLaunchImages,
   type RuntimeFingerprint,
   readPointerRuntime,
 } from "./checkpoints/checkpoint-runtime.ts";
