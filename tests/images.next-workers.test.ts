@@ -369,10 +369,54 @@ describe("next-workers.jq, control phase", () => {
     });
   });
 
-  test("refuses a single-image install and an unknown phase", () => {
-    expect(refusal("control", single({ digest: digest("a") }), [])).toContain(
-      "keeps the single-image control phase",
+  // A packaged chart lists its own images: the empty list keeps them out.
+  test("keeps a single-image install's images as they are, with an empty list", () => {
+    const deployed = single(
+      {
+        digest: digest("a"),
+        runtime: claudeOld,
+        releasedAt: "2026-10-01T00:00:00Z",
+      },
+      { digest: digest("o"), runtime: claude },
     );
+    expect(run("control", deployed, [])).toEqual({
+      ok: true,
+      images: {
+        workers: [],
+        worker: {
+          repository: "reg/werft-worker",
+          digest: digest("a"),
+          runtime: claudeOld,
+        },
+        workerPrevious: {
+          repository: "reg/werft-worker",
+          digest: digest("o"),
+          runtime: claude,
+        },
+        egressProxy,
+      },
+    });
+    // Deployed without a runtime, it stays without one.
+    expect(run("control", single({ digest: digest("a") }), [])).toEqual({
+      ok: true,
+      images: {
+        workers: [],
+        worker: {
+          repository: "reg/werft-worker",
+          digest: digest("a"),
+          runtime: {},
+        },
+        workerPrevious: {
+          repository: "reg/werft-worker",
+          digest: "",
+          runtime: {},
+        },
+        egressProxy,
+      },
+    });
+  });
+
+  test("refuses an unknown phase", () => {
     expect(refusal("other", listed([]), [])).toContain(
       "phase must be control or final",
     );

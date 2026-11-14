@@ -33,12 +33,8 @@ type WorkerImage = {
 export type ChartImages = {
   controlHost: { repository: string; digest: string };
   egressProxy: { repository: string; digest: string };
+  /** The Claude worker image; the package lists both in images.workers. */
   worker: WorkerImage;
-  /**
-   * The Codex worker image: a catalog entry the chart does not deploy. One
-   * worker image holds one engine, so a deployment that runs Codex copies this
-   * repository, digest and runtime into `worker`.
-   */
   workerCodex: WorkerImage;
 };
 
@@ -189,9 +185,11 @@ export function publishedImages(
 
 /**
  * values.yaml with the images set, comments kept: operators read this file
- * through `helm show values`. Each edit must match exactly once, and a
- * repository other than the chart's default stops the package rather than
- * publish values whose comments name another location.
+ * through `helm show values`. The worker images go into images.workers, one
+ * entry per line, and images.worker stays empty for an installation that
+ * deploys one image. Each edit must match exactly once, and a repository
+ * other than the chart's default stops the package rather than publish
+ * values whose comments name another location.
  */
 export function bakeValues(text: string, images: ChartImages): string {
   const heading = "images:\n";
@@ -202,35 +200,40 @@ export function bakeValues(text: string, images: ChartImages): string {
   if (next < 0) throw new Error("values.yaml ends inside the images block");
   const end = body + next;
   let block = text.slice(start, end);
-  const edit = (key: string, tail: string, write: (kept: string) => string) => {
-    const head = new RegExp(
-      `^  ${key}:\\n    repository: (\\S+)\\n    digest: ""\\n${tail}`,
-      "gm",
-    );
-    const matches = [...block.matchAll(head)];
+  const once = (pattern: RegExp, what: string) => {
+    const matches = [...block.matchAll(pattern)];
     const [match] = matches;
     if (matches.length !== 1 || match === undefined) {
-      throw new Error(`images.${key} in values.yaml is not in the known form`);
+      throw new Error(`${what} in values.yaml is not in the known form`);
     }
-    const image = images[key as keyof ChartImages];
+    return match;
+  };
+  for (const key of ["controlHost", "egressProxy", "worker"] as const) {
+    const match = once(
+      new RegExp(`^  ${key}:\\n    repository: (\\S+)\\n    digest: ""\\n`, "gm"),
+      `images.${key}`,
+    );
+    const image = images[key];
     if (match[1] !== image.repository) {
       throw new Error(
         `images.${key}.repository is ${match[1]}, but the run published ${image.repository}`,
       );
     }
-    const digest = `  ${key}:\n    repository: ${image.repository}\n    digest: ${image.digest}\n`;
-    block = block.replace(match[0], () => digest + write(match[2] ?? ""));
-  };
-  edit("controlHost", "", () => "");
-  edit("egressProxy", "", () => "");
-  for (const key of ["worker", "workerCodex"] as const) {
-    edit(
-      key,
-      '((?:    #.*\\n)*)    runtime: \\{\\}\\n    releasedAt: ""\\n',
-      (comments) =>
-        `${comments}    runtime: ${JSON.stringify(images[key].runtime)}\n    releasedAt: ${JSON.stringify(images[key].releasedAt)}\n`,
+    if (key === "worker") continue;
+    block = block.replace(
+      match[0],
+      () =>
+        `  ${key}:\n    repository: ${image.repository}\n    digest: ${image.digest}\n`,
     );
   }
+  const workers = once(/^ {2}workers: \[\]\n/gm, "images.workers");
+  block = block.replace(
+    workers[0],
+    () =>
+      `  workers:\n${releaseImages(images)
+        .map((entry) => `    - ${JSON.stringify(entry)}\n`)
+        .join("")}`,
+  );
   return text.slice(0, start) + block + text.slice(end);
 }
 

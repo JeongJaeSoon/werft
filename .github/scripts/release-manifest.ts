@@ -104,6 +104,30 @@ export function buildManifest(input: {
   }
 
   const baked = publishedImages(records, sha);
+  // The package must name the images this manifest does.
+  const packaged = (
+    Bun.YAML.parse(chart.valuesYaml) as {
+      images?: Record<string, unknown>;
+    }
+  ).images;
+  for (const key of ["controlHost", "egressProxy"] as const) {
+    const digest = (packaged?.[key] as { digest?: unknown } | undefined)
+      ?.digest;
+    if (digest !== baked[key].digest) {
+      throw new Error(
+        `the chart's images.${key}.digest is ${digest}, not ${baked[key].digest}`,
+      );
+    }
+  }
+  const workers = JSON.stringify(releaseImages(baked));
+  if (JSON.stringify(packaged?.workers) !== workers) {
+    throw new Error("the chart's images.workers is not the published worker images");
+  }
+  if (JSON.stringify(JSON.parse(chart.releaseImages)) !== workers) {
+    throw new Error(
+      `the chart's ${RELEASE_IMAGES_FILE} is not the published worker images`,
+    );
+  }
   const byApp = new Map(
     records.map((record) => [(record as { app: string }).app, record]),
   );
@@ -140,33 +164,7 @@ export function buildManifest(input: {
       }
       platforms[arch] = platformDigest;
     }
-    // The package must name the digest this manifest does.
-    if (!chart.valuesYaml.includes(`digest: ${digest}\n`)) {
-      throw new Error(`the chart's values.yaml does not hold ${app} ${digest}`);
-    }
     images[app] = { image: repository, digest, platforms };
-  }
-  // Both worker images of one commit share the time, so a text search would
-  // not tell the two entries apart.
-  const packaged = (
-    Bun.YAML.parse(chart.valuesYaml) as {
-      images?: Record<string, { releasedAt?: unknown }>;
-    }
-  ).images;
-  for (const key of ["worker", "workerCodex"] as const) {
-    if (packaged?.[key]?.releasedAt !== baked[key].releasedAt) {
-      throw new Error(
-        `the chart's images.${key}.releasedAt is ${packaged?.[key]?.releasedAt}, not ${baked[key].releasedAt}`,
-      );
-    }
-  }
-  if (
-    JSON.stringify(JSON.parse(chart.releaseImages)) !==
-    JSON.stringify(releaseImages(baked))
-  ) {
-    throw new Error(
-      `the chart's ${RELEASE_IMAGES_FILE} is not the published worker images`,
-    );
   }
   return {
     schema: MANIFEST_SCHEMA,

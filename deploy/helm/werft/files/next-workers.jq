@@ -6,8 +6,10 @@
 #     --slurpfile release <files/release-images.json of the target chart> \
 #     --argjson known '{"sha256:…": {"runtime": {…}, "releasedAt": "…"}}'
 #
-# control  the deployed list as it is, with egressProxy, for the upgrade that
-#          replaces the control plane first. A list install only.
+# control  the deployed worker images as they are, with egressProxy, for the
+#          upgrade that replaces the control plane first: a list, or for a
+#          single-image install images.worker and images.workerPrevious with
+#          images.workers: [], which the packaged chart's list would replace.
 # final    the target's images added to the deployed ones (a list, or for a
 #          single-image install images.worker and images.workerPrevious),
 #          each engine's newest first, at most two unretracted per engine.
@@ -15,8 +17,8 @@
 #          and so does every releasedAt of a single-image install. A
 #          deployed image the trim drops is the upgrade check's to judge.
 #
-# Both clear images.worker and images.workerPrevious, which the chart refuses
-# beside a list (a packaged chart fills images.worker).
+# A list clears images.worker and images.workerPrevious, which the chart
+# refuses beside it and an installation's values may still set.
 
 def fail($message): error("next-workers: " + $message);
 
@@ -46,8 +48,13 @@ def entry($where):
 ($deployed[0].images // fail("the deployed values have no images")) as $images
 | (($images.workers // []) | length > 0) as $listed
 | if $phase == "control" then
-    if $listed | not then fail("the deployed release has no images.workers: a single-image install keeps the single-image control phase") else . end
-    | {images: (cleared + {workers: $images.workers, egressProxy: $images.egressProxy})}
+    if $listed then {images: (cleared + {workers: $images.workers, egressProxy: $images.egressProxy})}
+    else {images: {
+      workers: [],
+      worker: ($images.worker | {repository, digest, runtime: (.runtime // {})}),
+      workerPrevious: ($images.workerPrevious | {repository, digest: (.digest // ""), runtime: (.runtime // {})}),
+      egressProxy: $images.egressProxy}}
+    end
   elif $phase != "final" then fail("phase must be control or final, not \($phase | tojson)")
   else
     (if $listed then $images.workers

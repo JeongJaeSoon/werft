@@ -41,7 +41,7 @@ helm show chart oci://ghcr.io/jeongjaesoon/werft --version "$VERSION"
 helm show values oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" | sed -n '/^images:/,/^$/p'
 ```
 
-`images` 아래 세 이미지의 `digest`와 `worker.runtime`이 나오면 된다. 이 값은 chart에 들어 있으므로 설치별 values에 다시 적지 않는다. 적으면 다음 chart의 값을 계속 덮는다.
+`images` 아래에 `controlHost`·`egressProxy`의 `digest`와 `workers` 목록이 나오면 된다. 목록에는 Claude worker와 Codex worker 두 항목이 있고, 각 세션은 자기 엔진의 이미지로 뜬다. 이 값은 chart에 들어 있으므로 설치별 values에 다시 적지 않는다. 적으면 다음 chart의 값을 계속 덮는다. Helm은 목록을 합치지 않고 통째로 바꾸므로, values에 적은 `images.workers`에는 다음 chart의 이미지가 들어가지 않는다. 이미지 하나만 배포하려면 values에 `images.workers: []`와 그 이미지의 `images.worker`(repository·digest·runtime)를 적는다. 값은 같은 chart의 `files/release-images.json`에서 얻는다. 이 설치의 업그레이드는 [Kubernetes 업그레이드](/run-server/self-hosting/upgrade-kubernetes)의 단일 이미지 절차를 따른다.
 
 ### 2. namespace와 Secret
 

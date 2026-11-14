@@ -1553,30 +1553,36 @@ describe("compose and workflow agree with the Dockerfiles", () => {
 
     const chartValues = read("deploy/helm/werft/values.yaml");
 
-    test("bakes the digests and runtime and changes nothing else", () => {
+    test("bakes the digests and both worker images as the list, and changes nothing else", () => {
       const images = publishedImages(records(), sha);
       const baked = bakeValues(chartValues, images);
       const parsed = Bun.YAML.parse(baked) as {
-        images: Record<string, Record<string, unknown>>;
+        images: Record<string, Record<string, unknown>> & {
+          workers: unknown;
+        };
       };
       expect(parsed.images.controlHost?.digest).toBe(hex("a"));
       expect(parsed.images.egressProxy?.digest).toBe(hex("b"));
-      expect(parsed.images.worker?.digest).toBe(hex("c"));
-      expect(parsed.images.worker?.runtime).toEqual(runtime);
-      expect(parsed.images.worker?.releasedAt).toBe(releasedAt);
-      expect(parsed.images.workerCodex?.digest).toBe(hex("d"));
-      expect(parsed.images.workerCodex?.runtime).toEqual(codexRuntime);
-      expect(parsed.images.workerCodex?.releasedAt).toBe(releasedAt);
+      expect(parsed.images.workers).toEqual(releaseImages(images));
+      // An installation of one image sets images.workers: [] and fills these.
+      expect(parsed.images.worker?.digest).toBe("");
+      expect(parsed.images.worker?.runtime).toEqual({});
       expect(parsed.images.workerPrevious?.digest).toBe("");
       expect(parsed.images.workerPrevious?.runtime).toEqual({});
 
       const original = chartValues.split("\n");
       const lines = baked.split("\n");
-      expect(lines).toHaveLength(original.length);
-      const changed = lines.filter((line, i) => line !== original[i]);
-      expect(changed).toHaveLength(8);
-      for (const line of changed)
-        expect(line).toMatch(/^ {4}(digest|runtime|releasedAt):/);
+      // The list line becomes one line per image, below the two digests.
+      const at = original.indexOf("  workers: []");
+      expect(at).toBeGreaterThan(-1);
+      expect(lines.slice(at, at + 3)).toEqual([
+        "  workers:",
+        ...releaseImages(images).map((entry) => `    - ${JSON.stringify(entry)}`),
+      ]);
+      expect(lines.slice(at + 3)).toEqual(original.slice(at + 1));
+      expect(
+        lines.slice(0, at).filter((line, i) => line !== original[i]),
+      ).toEqual([`    digest: ${hex("a")}`, `    digest: ${hex("b")}`]);
     });
 
     test("stops on a repository the chart does not default to", () => {
@@ -1596,7 +1602,14 @@ describe("compose and workflow agree with the Dockerfiles", () => {
         `$1digest: ${hex("d")}`,
       );
       expect(filled).not.toBe(chartValues);
-      expect(() => bakeValues(filled, images)).toThrow("known form");
+      expect(() => bakeValues(filled, images)).toThrow(
+        "images.worker in values.yaml is not in the known form",
+      );
+      const listed = chartValues.replace(/^ {2}workers: \[\]$/m, "  workers:");
+      expect(listed).not.toBe(chartValues);
+      expect(() => bakeValues(listed, images)).toThrow(
+        "images.workers in values.yaml is not in the known form",
+      );
       expect(() => bakeValues("other: 1\n", images)).toThrow("no images block");
     });
   });

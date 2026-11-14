@@ -45,7 +45,7 @@ helm show chart oci://ghcr.io/jeongjaesoon/werft --version "$VERSION"
 helm show values oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" | sed -n '/^images:/,/^$/p'
 ```
 
-Check for all three image `digest` values and `worker.runtime` under `images`. These are included in the chart. Do not repeat them in installation-specific values: doing so keeps overriding subsequent chart values.
+Check for the `controlHost` and `egressProxy` `digest` values and the `workers` list under `images`. The list holds two entries, the Claude worker and the Codex worker, and each session launches on the image of its own engine. These are included in the chart. Do not repeat them in installation-specific values: doing so keeps overriding subsequent chart values. Helm replaces a list as a whole instead of merging it, so an `images.workers` in your values never gets the images of a later chart. To deploy one image only, put `images.workers: []` and that image's `images.worker` (repository, digest, runtime) in your values. Take them from the same chart's `files/release-images.json`. Such an installation upgrades through the single-image procedure in [Kubernetes upgrade](/run-server/self-hosting/upgrade-kubernetes).
 
 <a id="2-namespace와-secret" />
 ### 2. Namespace and Secret
