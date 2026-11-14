@@ -3,12 +3,22 @@ import {
   type FinalizeInput,
   type PointerRuntime,
   recordedPointer,
+  type UpgradeImage,
 } from "@werft-ai/platform";
 import { FIRST_PROFILE_DIGEST_SCHEME } from "@werft-ai/runtime-core";
-import { and, asc, eq, inArray, isNull, type SQL, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  type SQL,
+  sql,
+} from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import type { Database } from "../queries.ts";
-import { checkpoints, sessions } from "../schema.ts";
+import { checkpoints, sessions, workerLaunches } from "../schema.ts";
 import { hasRestorePoint } from "../sessions/pause-policy.ts";
 
 export type RuntimeFingerprint = NonNullable<
@@ -245,4 +255,44 @@ export async function listUncollectedSessionPointers(
           : recordedPointer(runtime, row.runtimeProfileScheme),
     };
   });
+}
+
+/**
+ * What every launch still holding a slot runs, claimed or not: a worker that
+ * may yet seal a checkpoint. A launch reserved before its image was stored
+ * runs its scheduler's newest image, which the upgrade check judges anyway.
+ */
+export async function listUnreleasedLaunchImages(
+  db: Database,
+): Promise<UpgradeImage[]> {
+  const rows = await db
+    .selectDistinct({
+      image: workerLaunches.image,
+      engine: workerLaunches.runtimeEngine,
+      sdkVersion: workerLaunches.runtimeSdkVersion,
+      cliVersion: workerLaunches.runtimeCliVersion,
+      profileDigestScheme: workerLaunches.runtimeProfileScheme,
+    })
+    .from(workerLaunches)
+    .where(
+      and(
+        isNull(workerLaunches.slotReleasedAt),
+        isNotNull(workerLaunches.image),
+      ),
+    );
+  return rows.map(({ image, ...runtime }) => ({
+    image: image as string,
+    runtime:
+      runtime.engine === null ||
+      runtime.sdkVersion === null ||
+      runtime.cliVersion === null ||
+      runtime.profileDigestScheme === null
+        ? null
+        : {
+            engine: runtime.engine,
+            sdkVersion: runtime.sdkVersion,
+            cliVersion: runtime.cliVersion,
+            profileDigestScheme: runtime.profileDigestScheme,
+          },
+  }));
 }

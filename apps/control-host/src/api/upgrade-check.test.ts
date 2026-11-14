@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createLogger } from "@werft-ai/observability";
-import type { UpgradeSession } from "@werft-ai/platform";
+import type { UpgradeImage, UpgradeSession } from "@werft-ai/platform";
 import {
   runUpgradeCheck,
   type UpgradeCheckEnvironment,
@@ -54,12 +54,14 @@ async function run(
   databaseUnused: () => Promise<boolean> = async () => {
     throw new Error("the database use was read");
   },
+  listWriters: () => Promise<readonly UpgradeImage[]> = async () => [],
 ) {
   const lines: string[] = [];
   const code = await runUpgradeCheck({
     environment: { ...environment, ...overrides },
     logger: createLogger({ sinks: [{ write() {} }] }),
     listSessions,
+    listWriters,
     databaseUnused,
     write: (line) => lines.push(line),
   });
@@ -97,12 +99,138 @@ describe("runUpgradeCheck", () => {
     expect(approved.output.approved).toEqual(["s-unrecorded"]);
   });
 
-  test("a target whose previous image is not the deployed one refuses with exit 2", async () => {
+  test("a target that keeps no image restoring what the deployed one seals refuses with exit 2", async () => {
     const { code, output } = await run({
       UPGRADE_DEPLOYED_WORKER_IMAGE: "worker@sha256:n-minus-1",
     });
     expect(code).toBe(2);
-    expect(output.reason).toContain("is not the deployed one");
+    expect(output.reason).toContain(
+      "workers on worker@sha256:n-minus-1, the deployed newest image",
+    );
+
+    // Declared, its runtime is judged instead of its digest.
+    const declared = await run({
+      UPGRADE_DEPLOYED_WORKER_IMAGE: "worker@sha256:n-minus-1",
+      UPGRADE_DEPLOYED_WORKER_IMAGE_RUNTIME: JSON.stringify(previous),
+    });
+    expect(declared.code).toBe(0);
+  });
+
+  test("a live launch the target cannot restore refuses with exit 2, approved or not", async () => {
+    const dropped = {
+      UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS: "worker@sha256:n-minus-1",
+      UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS_RUNTIME: JSON.stringify({
+        ...current,
+        sdkVersion: "0.3.260",
+      }),
+      UPGRADE_APPROVED_SESSIONS: '["s-unrecorded"]',
+    };
+    const writer = async () => [
+      { image: "worker@sha256:n-minus-1", runtime: null },
+    ];
+    const listed = async () => [unrecorded];
+    const refused = await run(dropped, listed, undefined, writer);
+    expect(refused.code).toBe(2);
+    expect(refused.output.reason).toContain(
+      "workers on worker@sha256:n-minus-1 still hold a slot",
+    );
+    expect((await run(dropped, listed)).code).toBe(0);
+  });
+
+  test("a launch list that cannot be read stops the upgrade with exit 1", async () => {
+    const { code, output } = await run({}, undefined, undefined, async () => {
+      throw new Error("connect ECONNREFUSED");
+    });
+    expect(code).toBe(1);
+    expect(output.reason).toContain("ECONNREFUSED");
+  });
+
+  describe("image lists", () => {
+    const list = (...images: [string, typeof current, string][]) =>
+      JSON.stringify(
+        images.map(([image, runtime, released_at]) => ({
+          image,
+          runtime,
+          released_at,
+        })),
+      );
+    const digest = (hex: string) => `worker@sha256:${hex.repeat(64)}`;
+    const target = {
+      WORKER_IMAGE: undefined,
+      WORKER_IMAGE_RUNTIME: undefined,
+      WORKER_IMAGE_PREVIOUS: undefined,
+      WORKER_IMAGE_PREVIOUS_RUNTIME: undefined,
+      WORKER_IMAGES: list(
+        [digest("b"), current, "2026-11-15T00:00:00Z"],
+        [digest("a"), previous, "2026-11-01T00:00:00Z"],
+      ),
+    };
+    const deployedList = {
+      UPGRADE_DEPLOYED_WORKER_IMAGE: "",
+      UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS: undefined,
+      UPGRADE_DEPLOYED_WORKER_IMAGES: list([
+        digest("a"),
+        previous,
+        "2026-11-01T00:00:00Z",
+      ]),
+    };
+
+    test("a target list is judged like the single-image settings", async () => {
+      const deployed = { UPGRADE_DEPLOYED_WORKER_IMAGE: digest("a") };
+      const kept = await run({ ...target, ...deployed });
+      expect(kept.code).toBe(0);
+      expect(kept.output).toMatchObject({
+        targetWorker: digest("b"),
+        targetPreviousWorker: digest("a"),
+        deployedWorker: digest("a"),
+      });
+      const refused = await run({ ...target, ...deployed }, async () => [
+        unrecorded,
+      ]);
+      expect(refused.code).toBe(2);
+      expect(refused.output.affected).toEqual([
+        { sessionId: "s-unrecorded", reason: "unrecorded" },
+      ]);
+    });
+
+    test("a deployed list, read from the running scheduler, gives the same verdicts", async () => {
+      expect((await run({ ...target, ...deployedList })).code).toBe(0);
+      const dropped = await run({
+        ...deployedList,
+        WORKER_IMAGE: "worker@sha256:n1",
+        WORKER_IMAGE_PREVIOUS: undefined,
+        WORKER_IMAGE_PREVIOUS_RUNTIME: undefined,
+      });
+      expect(dropped.code).toBe(2);
+      expect(dropped.output.reason).toContain(`workers on ${digest("a")}`);
+    });
+
+    test.each([
+      [
+        "a list beside the single-image settings",
+        { WORKER_IMAGES: target.WORKER_IMAGES },
+        "WORKER_IMAGES replaces",
+      ],
+      [
+        "a malformed deployed list",
+        { ...deployedList, UPGRADE_DEPLOYED_WORKER_IMAGES: "[]" },
+        "UPGRADE_DEPLOYED_WORKER_IMAGES:",
+      ],
+      [
+        "a deployed list beside a deployed image",
+        { ...deployedList, UPGRADE_DEPLOYED_WORKER_IMAGE: "worker@sha256:n" },
+        "both set",
+      ],
+      [
+        "a malformed deployed runtime",
+        { UPGRADE_DEPLOYED_WORKER_IMAGE_RUNTIME: "{" },
+        "UPGRADE_DEPLOYED_WORKER_IMAGE_RUNTIME:",
+      ],
+    ])("%s is check_failed with exit 1", async (_, overrides, reason) => {
+      const { code, output } = await run(overrides);
+      expect(code).toBe(1);
+      expect(output.reason).toContain(reason);
+    });
   });
 
   describe("the worker image stays and the deployed previous image goes", () => {
@@ -213,11 +341,6 @@ describe("runUpgradeCheck", () => {
       "JSON array of session ids",
     ],
     ["no database url", { DATABASE_URL: undefined }, "DATABASE_URL"],
-    [
-      "a list of images, which it cannot judge",
-      { WORKER_IMAGES: "[]" },
-      "WORKER_IMAGES is set",
-    ],
   ])("%s is check_failed with exit 1", async (_, overrides, reason) => {
     let read = false;
     const { code, output } = await run(overrides, async () => {

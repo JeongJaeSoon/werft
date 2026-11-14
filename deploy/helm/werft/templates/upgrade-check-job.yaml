@@ -7,28 +7,22 @@
 # nothing is deployed yet. `helm rollback` runs no hook; run the same command
 # by hand first (the Kubernetes install page of the docs site (operate/kubernetes-deployment)).
 {{- $scheduler := printf "%s-scheduler" (include "ap.fullname" .) }}
-{{- $deployed := "" }}
-{{- $deployedPrevious := "" }}
+{{- $images := list "WORKER_IMAGES" "WORKER_IMAGE" "WORKER_IMAGE_RUNTIME" "WORKER_IMAGE_PREVIOUS" "WORKER_IMAGE_PREVIOUS_RUNTIME" }}
+{{- $deployed := dict }}
 {{- $state := "" }}
-{{- /* Both empty under `helm template` and a client --dry-run, where lookup reads nothing: the check then fails rather than guess. */}}
+{{- /* All empty under `helm template` and a client --dry-run, where lookup reads nothing: the check then fails rather than guess. */}}
 {{- $found := lookup "apps/v1" "Deployment" .Release.Namespace $scheduler }}
 {{- if $found }}
-{{- $pinned := false }}
 {{- range $found.spec.template.spec.containers }}
 {{- if eq .name "scheduler" }}
 {{- range .env }}
-{{- if eq .name "WORKER_IMAGE" }}
-{{- $deployed = .value }}
-{{- else if eq .name "WORKER_IMAGE_PREVIOUS" }}
-{{- $deployedPrevious = .value }}
-{{- $pinned = true }}
-{{- else if has .name (list "WORKER_IMAGE_RUNTIME" "WORKER_IMAGE_PREVIOUS_RUNTIME") }}
-{{- $pinned = true }}
+{{- if has .name $images }}
+{{- $_ := set $deployed .name (.value | default "") }}
 {{- end }}
 {{- end }}
 {{- end }}
 {{- end }}
-{{- if and $deployed (not $pinned) }}
+{{- if and (index $deployed "WORKER_IMAGE") (eq (len $deployed) 1) }}
 {{- $state = "unpinned" }}
 {{- end }}
 {{- /* An empty Deployment lookup alone cannot say "none": `default` exists in every namespace, so reading it proves the cluster answered. Read only here, so an ordinary upgrade needs no more RBAC. */}}
@@ -67,10 +61,10 @@ spec:
           args: ["bun", "run", "apps/control-host/src/api/upgrade-check.ts"]
           env:
             {{- include "ap.secretEnv" (dict "root" . "key" "DATABASE_URL") | nindent 12 }}
-            - name: UPGRADE_DEPLOYED_WORKER_IMAGE
-              value: {{ $deployed | quote }}
-            - name: UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS
-              value: {{ $deployedPrevious | quote }}
+            {{- range $images }}
+            - name: UPGRADE_DEPLOYED_{{ . }}
+              value: {{ index $deployed . | default "" | quote }}
+            {{- end }}
             - name: UPGRADE_DEPLOYED_STATE
               value: {{ $state | quote }}
             - name: WORKER_IMAGE

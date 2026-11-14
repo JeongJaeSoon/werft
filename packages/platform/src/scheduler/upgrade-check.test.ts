@@ -26,11 +26,20 @@ const on = (
       : { kind: "recorded", runtime: image },
 });
 
-const upgrade = {
-  deployedWorker: "worker@sha256:n",
-  targetWorker: "worker@sha256:n1",
-  targetPreviousWorker: "worker@sha256:n",
-  runtimes: { current, previous },
+type Assessed = Parameters<typeof assessUpgrade>[0];
+
+const n = "worker@sha256:n";
+const n1 = "worker@sha256:n1";
+const other = "worker@sha256:other";
+
+// The usual release: n1 is new, and n, deployed now, stays as its previous.
+const upgrade: Omit<Assessed, "sessions" | "approved"> = {
+  deployed: [{ image: n, runtime: previous }],
+  target: [
+    { image: n1, runtime: current },
+    { image: n, runtime: previous },
+  ],
+  writers: [],
 };
 
 describe("assessUpgrade", () => {
@@ -105,41 +114,152 @@ describe("assessUpgrade", () => {
     ).toEqual([{ sessionId: "s-scheme", reason: "no_image" }]);
   });
 
-  test("a target whose previous image is not the deployed one is refused, approved or not, still listing what would break", () => {
-    for (const targetPreviousWorker of ["worker@sha256:other", null]) {
+  test("a target that restores nothing the deployed newest image seals is refused, approved or not, still listing what would break", () => {
+    for (const target of [
+      [
+        { image: n1, runtime: current },
+        { image: other, runtime: older },
+      ],
+      [{ image: n1, runtime: current }],
+    ] as Assessed["target"][]) {
       const assessment = assessUpgrade({
         ...upgrade,
-        targetPreviousWorker,
-        sessions: [on("s-older", older)],
-        approved: ["s-older"],
+        target,
+        sessions: [on("s-previous", previous)],
+        approved: ["s-previous"],
       });
       expect(assessment.verdict).toBe("refused");
-      expect(assessment.reason).toContain("is not the deployed one");
+      expect(assessment.reason).toContain(
+        `workers on ${n}, the deployed newest image, keep sealing checkpoints`,
+      );
       expect(assessment.affected).toEqual([
-        { sessionId: "s-older", reason: "no_image" },
+        { sessionId: "s-previous", reason: "no_image" },
       ]);
     }
   });
 
-  test("an unchanged worker image goes ahead without looking at sessions", () => {
+  test("a rebuild of the deployed image under another digest stands in for it", () => {
     expect(
       assessUpgrade({
         ...upgrade,
-        targetWorker: upgrade.deployedWorker,
-        targetPreviousWorker: null,
-        sessions: [on("s-older", older)],
+        target: [
+          { image: n1, runtime: current },
+          { image: other, runtime: previous },
+        ],
+        sessions: [on("s-previous", previous)],
         approved: [],
       }),
     ).toEqual({ verdict: "proceed", affected: [], approved: [] });
   });
 
-  describe("the worker image stays and the deployed previous image goes", () => {
-    const kept = {
+  test("a deployed image nothing declared a runtime for counts as kept only under its own digest", () => {
+    const undeclared: typeof upgrade = {
       ...upgrade,
-      deployedWorker: "worker@sha256:n1",
-      deployedPreviousWorker: "worker@sha256:n",
-      runtimes: { current, previous: null },
-      targetPreviousWorker: null,
+      deployed: [{ image: n, runtime: null }],
+    };
+    expect(
+      assessUpgrade({ ...undeclared, sessions: [], approved: [] }).verdict,
+    ).toBe("proceed");
+    const dropped = assessUpgrade({
+      ...undeclared,
+      target: [
+        { image: n1, runtime: current },
+        { image: other, runtime: previous },
+      ],
+      sessions: [],
+      approved: [],
+    });
+    expect(dropped.verdict).toBe("refused");
+    expect(dropped.reason).toContain(`workers on ${n}, the deployed newest`);
+  });
+
+  describe("a launch still holding a slot", () => {
+    const deployed: Assessed["deployed"] = [
+      { image: n, runtime: previous },
+      { image: other, runtime: older },
+    ];
+
+    test("refuses, approved or not, when its image's checkpoints would lose every image that restores them", () => {
+      for (const writer of [
+        { image: other, runtime: older },
+        { image: other, runtime: null },
+      ]) {
+        const assessment = assessUpgrade({
+          ...upgrade,
+          deployed,
+          writers: [writer],
+          sessions: [on("s-older", older)],
+          approved: ["s-older"],
+        });
+        expect(assessment.verdict).toBe("refused");
+        expect(assessment.reason).toContain(
+          `workers on ${other} still hold a slot`,
+        );
+      }
+    });
+
+    test("passes when the target still restores what it seals", () => {
+      expect(
+        assessUpgrade({
+          ...upgrade,
+          deployed,
+          writers: [{ image: "worker@sha256:rebuilt", runtime: previous }],
+          sessions: [],
+          approved: [],
+        }).verdict,
+      ).toBe("proceed");
+    });
+
+    test("is not this release's to refuse when no deployed image restores it either", () => {
+      for (const writer of [
+        {
+          image: "worker@sha256:ancient",
+          runtime: { ...older, cliVersion: "1" },
+        },
+        { image: "worker@sha256:ancient", runtime: null },
+      ]) {
+        expect(
+          assessUpgrade({
+            ...upgrade,
+            deployed,
+            writers: [writer],
+            sessions: [],
+            approved: [],
+          }).verdict,
+        ).toBe("proceed");
+      }
+    });
+  });
+
+  test("unchanged worker images go ahead without looking at sessions or launches", () => {
+    for (const target of [
+      [{ image: n, runtime: previous }],
+      // An older image added beside the newest moves no session off it.
+      [
+        { image: n, runtime: previous },
+        { image: other, runtime: older },
+      ],
+    ] as Assessed["target"][]) {
+      expect(
+        assessUpgrade({
+          ...upgrade,
+          target,
+          writers: [{ image: "worker@sha256:ancient", runtime: null }],
+          sessions: [on("s-older", older), on("s-unrecorded", null)],
+          approved: [],
+        }),
+      ).toEqual({ verdict: "proceed", affected: [], approved: [] });
+    }
+  });
+
+  describe("the newest image stays and the deployed previous image goes", () => {
+    const kept: Omit<Assessed, "sessions" | "approved"> = {
+      deployed: [
+        { image: n1, runtime: current },
+        { image: n, runtime: previous },
+      ],
+      target: [{ image: n1, runtime: current }],
+      writers: [],
     };
 
     test("lists a session sealed on the dropped image and refuses until it is approved", () => {
@@ -149,22 +269,36 @@ describe("assessUpgrade", () => {
       expect(refused.affected).toEqual([
         { sessionId: "s-previous", reason: "no_image" },
       ]);
-      expect(refused.reason).toContain("deployed previous image");
+      expect(refused.reason).toContain(`dropped or redeclared: ${n};`);
 
       expect(
         assessUpgrade({ ...kept, sessions, approved: ["s-previous"] }).verdict,
       ).toBe("proceed");
     });
 
+    test("a live launch on the dropped image refuses, approved or not", () => {
+      for (const runtime of [previous, null]) {
+        const assessment = assessUpgrade({
+          ...kept,
+          writers: [{ image: n, runtime }],
+          sessions: [on("s-previous", previous)],
+          approved: ["s-previous"],
+        });
+        expect(assessment.verdict).toBe("refused");
+        expect(assessment.reason).toContain(
+          `workers on ${n} still hold a slot`,
+        );
+      }
+    });
+
     test("a replaced previous image refuses sessions its runtime does not cover, and keeps those it does", () => {
-      const replaced = {
-        ...kept,
-        targetPreviousWorker: "worker@sha256:other",
-      };
       const sessions = [on("s-previous", previous)];
       const incompatible = assessUpgrade({
-        ...replaced,
-        runtimes: { current, previous: older },
+        ...kept,
+        target: [
+          { image: n1, runtime: current },
+          { image: other, runtime: older },
+        ],
         sessions,
         approved: [],
       });
@@ -174,12 +308,61 @@ describe("assessUpgrade", () => {
       ]);
       expect(
         assessUpgrade({
-          ...replaced,
-          runtimes: { current, previous },
+          ...kept,
+          target: [
+            { image: n1, runtime: current },
+            { image: other, runtime: previous },
+          ],
           sessions,
           approved: [],
         }).verdict,
       ).toBe("proceed");
+    });
+
+    test("the same digest declared under another runtime is compared like a dropped one", () => {
+      const assessment = assessUpgrade({
+        ...kept,
+        target: [
+          { image: n1, runtime: current },
+          { image: n, runtime: older },
+        ],
+        sessions: [on("s-previous", previous)],
+        approved: [],
+      });
+      expect(assessment.verdict).toBe("refused");
+      expect(assessment.affected).toEqual([
+        { sessionId: "s-previous", reason: "no_image" },
+      ]);
+      expect(assessment.reason).toContain(`dropped or redeclared: ${n};`);
+      // Restorable schemes are what image choice reads too.
+      const widened = assessUpgrade({
+        ...kept,
+        target: [
+          { image: n1, runtime: current },
+          { image: n, runtime: { ...previous, restorableSchemes: [1, 2] } },
+        ],
+        sessions: [on("s-unrecorded", null)],
+        approved: [],
+      });
+      expect(widened.verdict).toBe("refused");
+      expect(widened.reason).toContain(`dropped or redeclared: ${n};`);
+    });
+
+    test("restorable schemes listed in another order are the same declaration", () => {
+      const schemes = (restorableSchemes: number[]) => ({
+        ...previous,
+        profileDigestScheme: 2,
+        restorableSchemes,
+      });
+      expect(
+        assessUpgrade({
+          deployed: [{ image: n, runtime: schemes([1, 2]) }],
+          target: [{ image: n, runtime: schemes([2, 1]) }],
+          writers: [],
+          sessions: [on("s-unrecorded", null)],
+          approved: [],
+        }),
+      ).toEqual({ verdict: "proceed", affected: [], approved: [] });
     });
 
     test("a session with no recorded combination is listed too, as for a replaced image", () => {
@@ -207,11 +390,13 @@ describe("assessUpgrade", () => {
     test("a previous image that is kept, or that the deployed release never had, compares nothing", () => {
       for (const overrides of [
         {
-          targetPreviousWorker: "worker@sha256:n",
-          runtimes: { current, previous },
+          target: [
+            { image: n1, runtime: current },
+            { image: n, runtime: previous },
+          ],
         },
-        { deployedPreviousWorker: null },
-      ]) {
+        { deployed: [{ image: n1, runtime: current }] },
+      ] as Partial<Assessed>[]) {
         expect(
           assessUpgrade({
             ...kept,
@@ -235,7 +420,7 @@ describe("assessUpgrade", () => {
 
     const unchanged = assessUpgrade({
       ...upgrade,
-      targetWorker: upgrade.deployedWorker,
+      target: [{ image: n, runtime: previous }],
       sessions: [],
       approved: ["s-gone"],
     });
