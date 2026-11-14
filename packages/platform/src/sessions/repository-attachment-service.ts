@@ -1,6 +1,7 @@
 import {
   githubPolicyReceiptFields,
   LIST_REPOSITORIES_LIMIT_DEFAULT,
+  LISTED_REPOSITORY_FAILURE_MEANING,
   LISTED_REPOSITORY_MEANING,
   type ListedRepository,
   type ListRepositoriesResponse,
@@ -16,6 +17,7 @@ import { SessionServiceError } from "../musterrolle/index.ts";
 import type {
   RepositoryAttachmentRow,
   RepositoryAttachmentStore,
+  RepositoryPinStore,
 } from "../ports/repository-attachments.ts";
 import {
   additionalContextOf,
@@ -65,6 +67,8 @@ function answer(
  */
 export function createRepositoryAttachmentService(deps: {
   store: RepositoryAttachmentStore;
+  /** Absent: no repository shows a restore failure. */
+  pins?: Pick<RepositoryPinStore, "restoreFailures">;
   context: Pick<GitHubGateStore, "context">;
   catalog: SessionCatalog;
   pollMs?: number;
@@ -181,10 +185,26 @@ export function createRepositoryAttachmentService(deps: {
       const rows = new Map(
         (await store.list(sessionId)).map((row) => [row.repositoryId, row]),
       );
+      const lost = (await deps.pins?.restoreFailures(sessionId)) ?? new Map();
       const attached = context.attachedRepositoryIds;
       for (const { id, repository } of allowed) {
+        const row = rows.get(id);
+        const commit = row?.status === "pending" ? undefined : lost.get(id);
+        if (commit !== undefined) {
+          // Attached in name, but no worker hands it out any more: the agent
+          // has to know before it reads the remote, and how to get it back.
+          add({
+            id,
+            name: nameOf(id, repository.url),
+            branch: repository.branch,
+            status: "failed",
+            failure: "restore_failed",
+            commit,
+          });
+          continue;
+        }
         const status =
-          rows.get(id)?.status ??
+          row?.status ??
           (attached === null || attached.includes(id)
             ? "attached"
             : "not_attached");
@@ -250,7 +270,10 @@ export function createRepositoryAttachmentService(deps: {
       return {
         repositories: shown.map((repository) => ({
           ...repository,
-          meaning: LISTED_REPOSITORY_MEANING[repository.status],
+          meaning:
+            repository.failure === undefined
+              ? LISTED_REPOSITORY_MEANING[repository.status]
+              : LISTED_REPOSITORY_FAILURE_MEANING[repository.failure],
         })),
         next_cursor:
           rest.length > limit ? (shown[shown.length - 1]?.id ?? null) : null,

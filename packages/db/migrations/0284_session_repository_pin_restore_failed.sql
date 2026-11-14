@@ -1,0 +1,1 @@
+ALTER TABLE "session_repository_pins" ADD COLUMN "restore_failed_at" timestamp with time zone;

@@ -383,6 +383,8 @@ describe("the tool envelope", () => {
       "`attached`",
       "`pending`",
       "`failed`",
+      "`restore_failed`",
+      "`commit`",
       "`not_attached`",
       "`allowed_in_newer_release`",
       "`remote`",
