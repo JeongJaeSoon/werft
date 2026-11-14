@@ -1,6 +1,11 @@
 import { WORKER_EXIT_LEASE_LOST } from "@werft-ai/contracts";
 import { confirmGone, kill, killRequested } from "./kill.ts";
-import { giveBackCause, launchFailed, reensure } from "./launch.ts";
+import {
+  giveBackCause,
+  launchFailed,
+  reensure,
+  runsRetracted,
+} from "./launch.ts";
 import {
   fieldsOf,
   messageOf,
@@ -118,6 +123,25 @@ async function reconcile(
       state: observed.state,
     });
     if (execution.claimed && !(await drained(ctx, execution))) return;
+    await replace(ctx, execution, "stale_isolation", observed);
+    return;
+  }
+  if (up && (await runsRetracted(ctx, execution))) {
+    // Retracted after it was built: like a stale contract, a claimed one
+    // finishes its turn first. Neither is built again on that image; the
+    // session chooses an image anew, or stops when none restores it.
+    logger.warn("Execution resource runs a retracted worker image", {
+      ...fieldsOf(ref),
+      claimed: execution.claimed,
+      image: execution.image,
+      provider_ref: observed.providerRef,
+      session_id: execution.sessionId,
+      state: observed.state,
+    });
+    if (execution.claimed && !(await drained(ctx, execution))) return;
+    // Recorded under a reason every scheduler reads: a value an older one
+    // does not know fails its whole pass, and a rollback lands on one while
+    // an interrupted teardown leaves the record on the row.
     await replace(ctx, execution, "stale_isolation", observed);
     return;
   }

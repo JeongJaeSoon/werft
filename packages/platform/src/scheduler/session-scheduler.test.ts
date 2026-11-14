@@ -1296,7 +1296,7 @@ describe("worker image per session", () => {
       expect(untold[0]).not.toHaveProperty("retractedImages");
     });
 
-    describe("an unclaimed launch on an image retracted since it was reserved", () => {
+    describe("a launch on an image retracted since it was reserved", () => {
       const imagesOf = (store: MemoryStore, sessionId: string) =>
         [...store.executions.values()]
           .filter((e) => e.sessionId === sessionId)
@@ -1351,6 +1351,120 @@ describe("worker image per session", () => {
           "sha256:worker:previous",
           "sha256:worker:fixed",
         ]);
+      });
+
+      test("unclaimed and still up, it is torn down and given back unbuilt", async () => {
+        const { backend, run, sealed, ref, store } = await reservedOnPrevious();
+        const ensured = backend.ensureCalls.length;
+        const terminated = backend.terminateCalls.length;
+        const summary = await run();
+        expect(summary.launchesRetracted).toEqual([ref]);
+        expect(backend.terminateCalls.slice(terminated)).toEqual([ref]);
+        expect(
+          backend.ensureCalls
+            .slice(ensured)
+            .every((call) => call.image !== "sha256:worker:previous"),
+        ).toBe(true);
+        await run();
+        expect(imagesOf(store, sealed)).toEqual([
+          "sha256:worker:previous",
+          "sha256:worker:fixed",
+        ]);
+      });
+
+      test("claimed, it finishes its turn, is torn down, and its session moves to the fix", async () => {
+        const { backend, run, sealed, ref, store } = await reservedOnPrevious();
+        const row = store.executions.get(ref.executionId);
+        if (!row) throw new Error("no row");
+        row.claimed = true;
+        store.busySessions.add(sealed);
+        const terminated = backend.terminateCalls.length;
+
+        const draining = await run();
+        expect(draining.draining).toEqual([ref]);
+        expect(draining.replaced).toEqual([]);
+        expect(backend.terminateCalls.slice(terminated)).toEqual([]);
+        expect(row.drainRequestedAt).toBeDefined();
+
+        store.busySessions.delete(sealed);
+        const drained = await run();
+        expect(drained.replaced).toEqual([ref]);
+        expect(backend.terminateCalls.slice(terminated)).toEqual([ref]);
+        expect(store.confirmedGone).toContain(ref.executionId);
+        await run();
+        expect(imagesOf(store, sealed)).toEqual([
+          "sha256:worker:previous",
+          "sha256:worker:fixed",
+        ]);
+      });
+
+      test("claimed, with every image retracted, it is drained by the image id it runs", async () => {
+        const { options, run, ref, store } = await reservedOnPrevious();
+        if (!options) throw new Error("no options");
+        options.olderImages = [];
+        options.retractedImages = [
+          { image: "worker:previous", runtime: previous },
+          { image: "worker:test", runtime: current },
+        ];
+        const row = store.executions.get(ref.executionId);
+        if (!row) throw new Error("no row");
+        row.claimed = true;
+        const summary = await run();
+        expect(summary.replaced).toEqual([ref]);
+        expect(store.confirmedGone).toContain(ref.executionId);
+        expect(summary.launched).toEqual([]);
+      });
+
+      test("claimed, it is drained only on an image known retracted", async () => {
+        const { backend, run, ref, store } = await reservedOnPrevious();
+        const row = store.executions.get(ref.executionId);
+        if (!row) throw new Error("no row");
+        row.claimed = true;
+        const resolve = backend.resolveImage.bind(backend);
+        // The image id it runs may still be the retracted one, or may not.
+        backend.resolveImage = async (image: string) => {
+          if (image === "worker:previous")
+            throw new Error("not on this daemon");
+          return resolve(image);
+        };
+        const terminated = backend.terminateCalls.length;
+        const summary = await run();
+        expect(summary.draining).toEqual([]);
+        expect(summary.replaced).toEqual([]);
+        expect(backend.terminateCalls.slice(terminated)).toEqual([]);
+        expect(row.drainRequestedAt).toBeUndefined();
+      });
+
+      test("claimed with no image recorded, it is left running though the current image is retracted", async () => {
+        const { backend, options, run, ref, store } =
+          await reservedOnPrevious();
+        options.retractedImages = [
+          { image: "worker:previous", runtime: previous },
+          { image: "worker:test", runtime: current },
+        ];
+        const row = store.executions.get(ref.executionId);
+        if (!row) throw new Error("no row");
+        row.claimed = true;
+        row.image = null;
+        const terminated = backend.terminateCalls.length;
+        const summary = await run();
+        expect(summary.draining).toEqual([]);
+        expect(summary.replaced).toEqual([]);
+        expect(backend.terminateCalls.slice(terminated)).toEqual([]);
+        expect(row.drainRequestedAt).toBeUndefined();
+      });
+
+      test("unclaimed, its record names a reason every scheduler reads", async () => {
+        const { run, ref, store } = await reservedOnPrevious();
+        const reasons: string[] = [];
+        const request = store.requestReplacement.bind(store);
+        store.requestReplacement = (r, reason, ...rest) => {
+          reasons.push(reason);
+          return request(r, reason, ...rest);
+        };
+        const summary = await run();
+        expect(summary.launchesRetracted).toEqual([ref]);
+        expect(reasons).toEqual(["stale_isolation"]);
       });
 
       test("with a replacement pending, the replacement is settled and it is given back", async () => {
@@ -1417,12 +1531,6 @@ describe("worker image per session", () => {
 
       test("a retracted image that cannot be resolved leaves only the unretracted ones to build", async () => {
         const { backend, run, ref, store } = await reservedOnPrevious();
-        const [fresh] = store.addUnassigned(1);
-        await run();
-        const freshRef = [...store.executions.values()].find(
-          (e) => e.sessionId === fresh,
-        );
-        if (!freshRef) throw new Error("fresh not launched");
         const resolve = backend.resolveImage.bind(backend);
         // The digest reference is gone, but the image id a launch holds is not.
         backend.resolveImage = async (image: string) => {
@@ -1430,10 +1538,16 @@ describe("worker image per session", () => {
             throw new Error("not on this daemon");
           return resolve(image);
         };
+        const [fresh] = store.addUnassigned(1);
+        // Still up, the launch is judged as its rebuild would be.
+        expect((await run()).launchesRetracted).toEqual([ref]);
+        const freshRef = [...store.executions.values()].find(
+          (e) => e.sessionId === fresh,
+        );
+        if (!freshRef) throw new Error("fresh not launched");
         backend.containers.clear();
         const ensured = backend.ensureCalls.length;
         const summary = await run();
-        expect(summary.launchesRetracted).toEqual([ref]);
         const rebuilt = backend.ensureCalls.slice(ensured).map((c) => c.image);
         expect(rebuilt).not.toContain("sha256:worker:previous");
         expect(rebuilt).toContain("sha256:worker:test");
