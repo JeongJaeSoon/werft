@@ -122,7 +122,7 @@ deploy/preview/preview.sh reap       # PR이 닫혔거나 머지됐거나 TTL이
 - 이미 떠 있는 미리보기에 `up`을 다시 돌리면 PR head를 받아 checkout한 뒤 namespace `pr-<번호>`를 지우고 새로 설치한다. Helm 업그레이드는 하지 않는다.
   - 이유: `up`은 이미지를 다시 빌드하므로 head가 같아도 worker 이미지 digest가 바뀐다. 업그레이드하면 chart의 pre-upgrade hook `upgrade-check`가 돈다. 미리보기 설치는 worker runtime을 넘기지 않으므로 이 검사가 `check_failed`로 업그레이드를 멈춘다.
   - 미리보기는 버리는 설치라 이 검사가 지키는 세션·데이터가 필요 없다. 그래서 검사를 끄거나 `images.workerPrevious`를 넘기지 않고 새로 설치한다. chart를 고치지 않으므로 오래된 head도 같은 방식으로 다시 뜨고, 실제 설치의 upgrade-check는 그대로다.
-  - 앞 설치의 데이터(세션, 데모 외 계정, 설정)와 Secret은 남지 않는다. 데모 계정과 데이터는 `up`이 다시 넣는다. fetch나 checkout이 실패하면 지우기 전에 멈추므로 떠 있던 미리보기가 남는다.
+  - 앞 설치의 데이터(세션, 데모 외 계정, 설정)와 Secret은 남지 않는다. 데모 계정과 데이터는 `up`이 다시 넣는다. fetch나 checkout이 실패하면 지우기 전에 멈추므로 떠 있던 미리보기가 남는다. 이미지 빌드와 설치는 지운 뒤에 하므로, 여기서 실패하면 빈 namespace만 남는다. 고친 뒤 다시 `up`하거나 `down`한다.
 - namespace에는 label `werft.dev/preview=true`, annotation `werft.dev/preview-head`(설치한 head)·`werft.dev/preview-up-at`(마지막 `up` 시작 시각, UTC)이 붙는다. `down`은 이 label이 없는 namespace를 지우지 않는다.
 - checkout과 up.sh 상태는 `PREVIEW_HOME`(기본 `~/.cache/werft/preview`) 아래 `pr-<번호>`에, PR head는 ref `refs/preview/pr-<번호>`에 둔다. 둘 다 `down`이 지운다.
 

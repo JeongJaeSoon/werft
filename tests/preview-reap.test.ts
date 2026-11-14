@@ -78,9 +78,13 @@ exit 1
       `#!/bin/sh\necho "$*" >> "${dir}/docker-calls"\n[ "$1" = ps ]\n`,
       { mode: 0o755 },
     );
+    // Fails the git call whose arguments contain STUB_GIT_FAIL.
     await writeFile(
       join(dir, "bin", "git"),
-      `#!/bin/sh\nexit "\${STUB_GIT_EXIT:-0}"\n`,
+      `#!/bin/sh
+[ -n "$STUB_GIT_FAIL" ] && case "$*" in *"$STUB_GIT_FAIL"*) exit 1 ;; esac
+exit 0
+`,
       { mode: 0o755 },
     );
     await writeFile(join(dir, "bin", "orb"), "#!/bin/sh\necho false\n", {
@@ -380,10 +384,13 @@ exit 1
 
   // The stub kubectl finds pr-18 with the preview label and refuses
   // `create namespace`, which ends `up` right after the reinstall decision.
-  test("up deletes a running preview's namespace before installing it again", async () => {
-    await mkdir(join(dir, "home", "pr-18", "src", "deploy", "kind"), {
+  const checkout = () =>
+    mkdir(join(dir, "home", "pr-18", "src", "deploy", "kind"), {
       recursive: true,
     });
+
+  test("up deletes a running preview's namespace before installing it again", async () => {
+    await checkout();
     const result = await up("traefik");
     expect(result.exitCode).not.toBe(0);
     const kubectl = await calls("kubectl-calls");
@@ -397,9 +404,24 @@ exit 1
     expect(creation).toBeGreaterThan(removal);
   });
 
-  test("up keeps a running preview when the PR head cannot be fetched", async () => {
-    const result = await up("traefik", { STUB_GIT_EXIT: "1" });
+  test("up installs nothing when the running preview cannot be deleted", async () => {
+    await checkout();
+    const result = await up("traefik", { STUB_DELETE_EXIT: "1" });
     expect(result.exitCode).not.toBe(0);
-    expect(await deleted()).toEqual([]);
+    expect(await deleted()).toEqual(["pr-18"]);
+    expect(
+      (await calls("kubectl-calls")).filter((call) =>
+        call.startsWith("create namespace "),
+      ),
+    ).toEqual([]);
   });
+
+  for (const step of ["fetch", "checkout"]) {
+    test(`up keeps a running preview when the PR head ${step} fails`, async () => {
+      await checkout();
+      const result = await up("traefik", { STUB_GIT_FAIL: step });
+      expect(result.exitCode).not.toBe(0);
+      expect(await deleted()).toEqual([]);
+    });
+  }
 });
