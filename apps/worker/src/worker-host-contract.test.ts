@@ -616,8 +616,10 @@ describe("WorkerHost over a run that implements the contract itself", () => {
       }));
       const gateway = new FakeWorkerGateway();
       if (early !== false) {
-        const { id, url, branch } = early === "docs" ? docs : wiki;
-        gateway.attachOrders = [{ id, url, branch, receipt_id: "r-1" }];
+        // As the gateway hands it out: with the session's pin, if any.
+        gateway.attachOrders = [
+          { ...(early === "docs" ? docs : wiki), receipt_id: "r-1" },
+        ];
       }
       const claim = gateway.bootstrapClaim.bind(gateway);
       gateway.bootstrapClaim = async (request) => ({
@@ -642,6 +644,8 @@ describe("WorkerHost over a run that implements the contract itself", () => {
         },
       });
       const warnings: string[] = [];
+      // The ids each write of the engine's routes covered.
+      const routes: string[][] = [];
       const run = new ScriptedRun();
       run.onSend = (sent) => {
         void (async () => {
@@ -659,6 +663,12 @@ describe("WorkerHost over a run that implements the contract itself", () => {
           info: () => {},
           warn: (event) => warnings.push(event),
           error: () => {},
+        },
+        repositoryRoutes: async (workspace) => {
+          routes.push(
+            (workspace.additional_repositories ?? []).map(({ id }) => id),
+          );
+          return true;
         },
         runtimes: {
           launcherFor: () => ({
@@ -687,7 +697,7 @@ describe("WorkerHost over a run that implements the contract itself", () => {
         },
       });
       gateway.enqueue("hello");
-      return { gateway, steps, warnings, worker };
+      return { gateway, routes, steps, warnings, worker };
     }
 
     test("reports only what it fetched unpinned, and fetches nothing again when that is kept", async () => {
@@ -755,8 +765,8 @@ describe("WorkerHost over a run that implements the contract itself", () => {
       ]);
     });
 
-    test("reports a pinned repository it could not fetch, and no order of the attempt takes that commit again", async () => {
-      const { gateway, steps, warnings, worker } = pinning(
+    test("reports a pinned repository it could not fetch, routes it no more, and no order of the attempt takes that commit again", async () => {
+      const { gateway, routes, steps, warnings, worker } = pinning(
         async (pins) => ({
           pins: pins as Array<{ repository_id: string; commit: string }>,
         }),
@@ -783,13 +793,17 @@ describe("WorkerHost over a run that implements the contract itself", () => {
         },
       ]);
       expect(warnings).toContain("worker.workspace.restore_failed");
+      // Routed again only once the order fetched it anew.
+      expect(routes).toEqual([["docs", "wiki"], ["docs"], ["docs", "wiki"]]);
     });
 
     test("reports a restore failure alone when nothing was fetched unpinned", async () => {
-      const { steps, worker } = pinning(async () => ({ pins: [] }), false, 0, [
-        "docs",
-        "wiki",
-      ]);
+      const { routes, steps, worker } = pinning(
+        async () => ({ pins: [] }),
+        false,
+        0,
+        ["docs", "wiki"],
+      );
       const summary = await worker.runLoop();
       expect(summary.turns.map((turn) => turn.status)).toEqual(["completed"]);
       expect(steps).toEqual([
@@ -799,6 +813,8 @@ describe("WorkerHost over a run that implements the contract itself", () => {
         },
         "started",
       ]);
+      // docs had no pin: as before, it stays for the next claim to fetch.
+      expect(routes).toEqual([["docs", "wiki"], ["docs"]]);
     });
 
     test("a control-host without the route leaves the run unpinned", async () => {
