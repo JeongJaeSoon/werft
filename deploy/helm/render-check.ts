@@ -1205,6 +1205,61 @@ for (const declaration of [undefined, false, true]) {
     );
   }
 }
+// Settings left in values go to the migrate Job alone, the source the api's
+// env let win first: a 0 in api.extraEnv is a value, not unset.
+{
+  const manifests = render([
+    "-f",
+    ciDigests,
+    "--set-json",
+    'api.extraEnv={"SESSION_TOKEN_LIMIT":0}',
+    "--set-json",
+    'config.limits={"EXECUTION_SLOT_LIMIT":10,"MAX_TURN_SECONDS":3600,"PROVIDER_MAX_RETRIES":2,"SESSION_TOKEN_LIMIT":5000,"SESSION_COST_LIMIT_USD":9}',
+    "--set",
+    "api.workspaceEnforce=fail",
+    "--set",
+    "slack.enabled=true",
+    "--set",
+    "metrics.enabled=true",
+  ]);
+  const envOf = (component: string) => {
+    const m = manifests.find(
+      (x) => componentOf(x) === component && podSpecOf(x) !== undefined,
+    );
+    if (m === undefined) {
+      errors.push(`carried settings: no ${component} workload rendered`);
+      return new Map<string, string | undefined>();
+    }
+    const env: { name: string; value?: string }[] =
+      podSpecOf(m).containers[0].env;
+    return new Map(env.map((e) => [e.name, e.value]));
+  };
+  const carried = envOf("migrate");
+  const want = {
+    SESSION_TOKEN_LIMIT: "0",
+    SESSION_COST_LIMIT_USD: "9",
+    WORKSPACE_ENFORCE: "fail",
+  };
+  for (const [name, value] of Object.entries(want)) {
+    if (carried.get(name) !== value) {
+      errors.push(
+        `carried settings: migrate ${name} is ${carried.get(name)}, not ${value}`,
+      );
+    }
+  }
+  for (const role of ["scheduler", "slack", "metrics"]) {
+    for (const name of [...Object.keys(want), "STORAGE_LIMIT_BYTES"]) {
+      if (envOf(role).has(name)) {
+        errors.push(`carried settings: ${role} still gets ${name}`);
+      }
+    }
+  }
+  for (const name of ["SESSION_COST_LIMIT_USD", "WORKSPACE_ENFORCE"]) {
+    if (envOf("api").has(name)) {
+      errors.push(`carried settings: api still gets ${name}`);
+    }
+  }
+}
 errors.push(
   ...checkUpgradeHook("default", render(["-f", ciDigests]), true, []),
   ...checkUpgradeHook(

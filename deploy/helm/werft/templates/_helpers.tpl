@@ -140,18 +140,22 @@ PENDING_REQUEST_TTL_SEC QUEUED_INPUT_LIMIT_PER_SESSION STORAGE_LIMIT_BYTES SESSI
 {{/*
 The carried settings where earlier releases took them from, the last of
 which the api's env let win: api.extraEnv, then config.limits, then
-api.workspaceEnforce.
+api.workspaceEnforce. Not merge: it takes a 0 for unset and lets a later
+source win.
 */}}
 {{- define "ap.carriedSettingsEnv" -}}
-{{- $from := dict -}}
+{{- $sources := list (.Values.api.extraEnv | default dict) (.Values.config.limits | default dict) -}}
 {{- with .Values.api.workspaceEnforce }}
-{{- $_ := set $from "WORKSPACE_ENFORCE" . -}}
+{{- $sources = append $sources (dict "WORKSPACE_ENFORCE" .) -}}
 {{- end }}
-{{- $from = merge (deepCopy (.Values.api.extraEnv | default dict)) .Values.config.limits $from -}}
 {{- range $name := splitList " " (include "ap.carriedSettingNames" .) }}
-{{- if hasKey $from $name }}
+{{- $found := false }}
+{{- range $source := $sources }}
+{{- if and (not $found) (hasKey $source $name) }}
+{{- $found = true }}
 - name: {{ $name | quote }}
-  value: {{ index $from $name | toString | quote }}
+  value: {{ index $source $name | toString | quote }}
+{{- end }}
 {{- end }}
 {{- end }}
 {{- end -}}
