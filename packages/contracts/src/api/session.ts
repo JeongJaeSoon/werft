@@ -336,6 +336,8 @@ const activityToolTarget = z.string().meta({
   description:
     "What the call acts on, the first of its input's `command`, `file_path`, `path`, `pattern`, `url`, `query` or `description` that is a non-empty string; empty when none is.",
 });
+// In no API response: only the event archive's stored rollup and the db
+// bench read it.
 export const sessionActivitySchema = z.object({
   last: z
     .discriminatedUnion("kind", [
@@ -590,11 +592,6 @@ export const sessionSummarySchema = z.object({
   current_turn_id: turnIdSchema.nullable(),
   queued_turn_count: z.number().int().nonnegative(),
   last_event_at: timestampSchema.nullable(),
-  // Optional, not defaulted: a summary built before it existed stays valid.
-  activity: sessionActivitySchema.optional().meta({
-    description:
-      "What the session's newest events did, for a list card. Absent from a server older than the field.",
-  }),
   created_at: timestampSchema,
   updated_at: timestampSchema,
 });
