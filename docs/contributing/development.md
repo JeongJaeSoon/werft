@@ -146,7 +146,7 @@ Mac 밖에서 보려면 PR에 라벨 `preview`를 붙인다. `.github/workflows/
 
 - 시간을 바꾸거나 다른 recipient를 더하려면 workflow를 직접 실행한다: `gh workflow run preview.yml -f pr=123 -f minutes=30`(5~180분).
 - 내리기: 라벨을 떼거나 PR을 닫는다. 라벨을 다시 붙이면 앞 run이 취소되고 새로 뜬다. 라벨을 붙인 시점의 head를 띄우므로, push한 뒤 새 head를 보려면 라벨을 다시 붙인다. merge conflict가 있는 PR에서는 `pull_request` 이벤트가 오지 않아 라벨로 시작·취소되지 않는다(실행 중인 run은 1분 안팎마다 라벨과 PR 상태를 다시 읽어 스스로 내려간다).
-- 데모 계정은 quickstart와 같은 두 이메일이지만 비밀번호는 run마다 새로 만든다(`DEMO_ACCOUNTS_PASSWORD`). 공개 저장소의 Actions 로그와 summary는 누구나 읽으므로 평문은 남기지 않는다. 로그에서는 mask하고, run summary에 [age](https://github.com/FiloSottile/age)로 시작한 사람의 GitHub SSH 공개 키(ssh-ed25519·ssh-rsa)에 암호화한 텍스트를 둔다. 그 텍스트를 `password.age`로 저장해 `age -d -i ~/.ssh/id_ed25519 password.age`로 연다. ssh-agent나 하드웨어 키에만 있는 키로는 열 수 없으니, 그때는 직접 실행의 `recipient`에 age 공개 키(`age-keygen`)를 넣는다.
+- 데모 계정은 quickstart와 같은 두 이메일이지만 비밀번호는 run마다 새로 만든다(`DEMO_ACCOUNTS_PASSWORD`). 공개 저장소의 Actions 로그와 summary는 누구나 읽으므로 평문은 남기지 않는다. 로그에서는 mask하고, PR 댓글에 [age](https://github.com/FiloSottile/age)로 시작한 사람의 GitHub SSH 공개 키(ssh-ed25519·ssh-rsa)에 암호화한 텍스트를 접어 둔다(job summary는 job이 끝난 뒤에야 보여서 쓰지 않는다). 그 텍스트를 `password.age`로 저장해 `age -d -i ~/.ssh/id_ed25519 password.age`로 연다. ssh-agent나 하드웨어 키에만 있는 키로는 열 수 없으니, 그때는 직접 실행의 `recipient`에 age 공개 키(`age-keygen`)를 넣는다.
 
 막는 것:
 

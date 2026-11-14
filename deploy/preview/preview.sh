@@ -240,6 +240,20 @@ EOF
     sleep 2
   done
   echo "GET $(url "$namespace")readyz -> ${code}"
+  # The quickstart's demo accounts and data, as scripts/local.sh adds them.
+  # The data's exit 2 is its CLI refusing (a head without it, say): said,
+  # not fatal.
+  local api code_data=0
+  api="deploy/$(cat "${dir}/state/fullname")-api"
+  kubectl -n "$namespace" exec "$api" -- env DEMO_ACCOUNTS=local \
+    bun run apps/control-host/src/api/demo-accounts.ts
+  kubectl -n "$namespace" exec "$api" -- env DEMO_ACCOUNTS=local \
+    bun run apps/control-host/src/api/demo-data.ts || code_data=$?
+  case "$code_data" in
+    0) ;;
+    2) echo "${namespace}: demo data not added" >&2 ;;
+    *) echo "${namespace}: adding the demo data failed" >&2; exit 1 ;;
+  esac
   echo "${namespace} up in ${SECONDS}s: $(url "$namespace")"
   [ "$code" = 200 ]
 }

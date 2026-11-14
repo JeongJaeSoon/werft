@@ -5,6 +5,9 @@ api:
   replicas: 1
 egressProxy:
   replicas: 1
+# Lets preview.sh add the demo accounts and data (demo-accounts.ts).
+preview:
+  enabled: true
 worker:
   # Requests equal limits on worker pods, so the chart's 4608 would reserve
   # 4.5 GiB per session; a fake-model worker used 255 MB in the PoC.

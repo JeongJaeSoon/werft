@@ -15,9 +15,10 @@ name: PR preview
 #   - the job that runs the PR's code holds no write token and no cache:
 #     `announce`, on a runner of its own that runs none of it, writes the
 #     PR comment from a checked artifact;
-#   - the demo password is made per run and never written in the clear: the
-#     log masks it, and the job summary holds it encrypted with age to the
-#     starter's SSH keys on GitHub (public logs are readable by anyone).
+#   - the demo password is made per run and never written in the clear
+#     (public logs are readable by anyone): the log masks it, and the PR
+#     comment holds it encrypted with age to the starter's SSH keys on
+#     GitHub. A job summary would show only once the preview is gone.
 on:
   pull_request:
     types: [labeled, unlabeled]
@@ -167,9 +168,9 @@ jobs:
             if [ "$code" = 200 ]; then
               echo "pid=${pid}" >>"$GITHUB_OUTPUT"
               echo "url=${url}" >>"$GITHUB_OUTPUT"
-              jq -n --arg url "$url" --arg head "$HEAD" \
+              jq -n --arg url "$url" --arg head "$HEAD" --rawfile password "$RUNNER_TEMP/password.age" \
                 --argjson until "$(($(date +%s) + MINUTES * 60))" \
-                '{url: $url, head: $head, until: $until}' >"$RUNNER_TEMP/announce.json"
+                '{url: $url, head: $head, until: $until, password: $password}' >"$RUNNER_TEMP/announce.json"
               exit 0
             fi
             kill "$pid" 2>/dev/null || true
@@ -183,25 +184,6 @@ jobs:
           name: preview-announce
           path: ${{ runner.temp }}/announce.json
           retention-days: 1
-      - name: Summary
-        env:
-          URL: ${{ steps.tunnel.outputs.url }}
-          STARTER: ${{ github.triggering_actor }}
-          RECIPIENT: ${{ inputs.recipient }}
-        run: |
-          {
-            echo "## PR #${PR} 미리보기"
-            echo
-            echo "- 주소: ${URL}"
-            echo "- 내려가는 시각: $(date -u -d "+${MINUTES} minutes" '+%Y-%m-%d %H:%M UTC')"
-            echo "- 데모 계정: \`demo-owner@example.test\`, \`demo-member@example.test\`"
-            echo
-            echo "비밀번호는 age로 @${STARTER}의 GitHub SSH 키(ssh-ed25519·ssh-rsa)${RECIPIENT:+와 입력한 recipient}에 암호화했다. 아래를 \`password.age\`로 저장하고 \`age -d -i ~/.ssh/id_ed25519 password.age\`(age 키면 그 identity 파일)로 연다. ssh-agent나 하드웨어 키에만 있는 키로는 열 수 없다."
-            echo
-            echo '```text'
-            cat "$RUNNER_TEMP/password.age"
-            echo '```'
-          } >>"$GITHUB_STEP_SUMMARY"
       - name: Stay up
         id: stay
         env:
@@ -239,8 +221,9 @@ jobs:
           PID: ${{ steps.tunnel.outputs.pid }}
         run: |
           if [ -n "$PID" ]; then
+            # Started by another step, so not this shell's child to wait on.
             kill "$PID" 2>/dev/null || true
-            wait "$PID" 2>/dev/null || true
+            for _ in $(seq 20); do kill -0 "$PID" 2>/dev/null || break; sleep 0.5; done
             if kill -0 "$PID" 2>/dev/null; then echo "::warning::cloudflared still running"; else echo "cloudflared stopped"; fi
           fi
           scripts/local.sh down
@@ -280,7 +263,11 @@ jobs:
           url="$(jq -r '.url | strings' announce.json)"
           head="$(jq -r '.head | strings' announce.json)"
           until="$(jq -r '.until | numbers | floor' announce.json)"
+          password="$(jq -r '.password | strings' announce.json)"
           now="$(date +%s)"
+          # Only an age armor: header, base64 lines, footer.
+          armor=$'^-----BEGIN AGE ENCRYPTED FILE-----\n([A-Za-z0-9+/=]{1,64}\n){1,40}-----END AGE ENCRYPTED FILE-----$'
+          [[ "$password" =~ $armor ]] || { echo "::error::not an age armor"; exit 1; }
           [[ "$url" =~ ^https://[a-z0-9-]+\.trycloudflare\.com$ ]] || { echo "::error::not a quick tunnel address"; exit 1; }
           [[ "$head" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::not a head sha"; exit 1; }
           [[ "$until" =~ ^[0-9]+$ ]] && [ "$until" -gt "$now" ] && [ "$until" -le $((now + 181 * 60)) ] ||
@@ -294,7 +281,17 @@ jobs:
           - head: \`${head}\`
           - 내려가는 시각: ${until_at}. 라벨 \`preview\`를 떼거나 PR을 닫으면 바로 내려간다.
           - 데모 계정: \`demo-owner@example.test\`(owner), \`demo-member@example.test\`(member)
-          - 비밀번호: 이 run마다 새로 만든다. [run summary](${RUN_URL})에 @${STARTER}의 GitHub SSH 키로 암호화돼 있다.
+          - 비밀번호: 이 run마다 새로 만든다. 아래 암호문은 @${STARTER}의 GitHub SSH 키(ssh-ed25519·ssh-rsa)와 직접 실행의 \`recipient\`로만 열린다.
+
+          <details><summary>비밀번호 암호문(age)</summary>
+
+          \`password.age\`로 저장해 \`age -d -i ~/.ssh/id_ed25519 password.age\`로 연다. ssh-agent나 하드웨어 키에만 있는 키로는 열 수 없다.
+
+          \`\`\`text
+          ${password}
+          \`\`\`
+
+          </details>
 
           인터넷에 공개된 주소다. fake 모델이라 실제 모델·GitHub·Slack에는 닿지 않는다. 세션 화면의 실시간 이벤트(SSE)는 quick tunnel이 지원하지 않는다.
           EOF
