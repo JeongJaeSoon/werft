@@ -169,8 +169,10 @@ export function GridTable({
   );
 }
 
+// The last row rounds like the header, so a filled last row (hover, inactive)
+// keeps the frame's bottom corners; the frame cannot clip (see the opener).
 const ROW =
-  "relative grid grid-cols-[var(--grid-table-columns)] items-center gap-4 border-b px-[var(--werft-row-padding-x)] last:border-b-0";
+  "relative grid grid-cols-[var(--grid-table-columns)] items-center gap-4 border-b px-[var(--werft-row-padding-x)] last:rounded-b-card last:border-b-0";
 
 function useNarrow(): Narrow | undefined {
   const narrow = useContext(NarrowContext);
