@@ -20,12 +20,12 @@ describe("StatusDot", () => {
     expect(classes).toContain("bg-(color:--werft-color-status-dot-wait)");
   });
 
-  test("run은 0.9초에 도는 10px 고리이고, 움직임을 줄이면 8px 점이다", () => {
+  test("run은 다른 상태와 같은 8px 자리에서 0.9초에 도는 고리이고, 움직임을 줄이면 점이다", () => {
     const { container } = render(<StatusDot status="run" />);
     const dot = container.querySelector<HTMLElement>("[data-slot=status-dot]");
     const classes = classesOf(dot);
-    expect(classes).toContain("size-2.5");
-    expect(classes).not.toContain("size-2");
+    expect(classes).toContain("size-2");
+    expect(classes).not.toContain("size-2.5");
     expect(classes).toContain("animate-spin");
     expect(classes).toContain("border-r-transparent");
     expect(classes).toContain("border-[1.5px]");
@@ -33,7 +33,6 @@ describe("StatusDot", () => {
       "motion-reduce:border-r-(color:--werft-color-status-dot-run)",
     );
     expect(classes).toContain("motion-reduce:animate-none");
-    expect(classes).toContain("motion-reduce:size-2");
     expect(classes).toContain(
       "motion-reduce:bg-(color:--werft-color-status-dot-run)",
     );
