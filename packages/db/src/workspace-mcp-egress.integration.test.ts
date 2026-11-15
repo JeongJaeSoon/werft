@@ -234,11 +234,16 @@ integration("workspace MCP servers in the claim and the egress", () => {
   describe("the claim", () => {
     test("a worker without workspace_mcp is refused before anything is bound; one with it gets the snapshot's servers", async () => {
       const { sessionId, releaseId, tracker, wiki } = await setup();
+      // The launch itself writes the session row; the claim must not.
+      const launch = await launchSession(db, { sessionId });
       const before = await db
         .select()
         .from(sessions)
         .where(eq(sessions.id, sessionId));
-      const old = await claim(sessionId, { workspaceMcp: false });
+      const old = await claim(sessionId, {
+        again: launch,
+        workspaceMcp: false,
+      });
       expect(old.result.outcome).toBe("workspace_mcp_unsupported");
       expect(old.asked).toEqual([]);
       const after = await db
@@ -253,8 +258,8 @@ integration("workspace MCP servers in the claim and the egress", () => {
       expect(claimed.result.outcome).toBe("claimed");
       const expected = [
         entry(releaseId, tracker, "tracker", [
-          "mcp__tracker__search",
           "mcp__tracker__create",
+          "mcp__tracker__search",
         ]),
         entry(releaseId, wiki, "wiki", ["mcp__wiki__read"]),
       ];
@@ -332,8 +337,8 @@ integration("workspace MCP servers in the claim and the egress", () => {
         .where(eq(workspaceMcpServers.id, tracker));
       const expected = [
         entry(releaseId, tracker, "tracker", [
-          "mcp__tracker__search",
           "mcp__tracker__create",
+          "mcp__tracker__search",
         ]),
         entry(releaseId, wiki, "wiki", ["mcp__wiki__read"]),
       ];
@@ -384,8 +389,8 @@ integration("workspace MCP servers in the claim and the egress", () => {
         }),
       ).toEqual([
         entry(releaseId, tracker, "tracker", [
-          "mcp__tracker__search",
           "mcp__tracker__create",
+          "mcp__tracker__search",
         ]),
       ]);
       // The row's URL is the one checked.
@@ -418,7 +423,8 @@ integration("workspace MCP servers in the claim and the egress", () => {
         available: true,
         url: "https://tracker.example.com/mcp",
         connection: { state: "active", generation: 2 },
-        tools: ["mcp__tracker__search", "mcp__tracker__create"],
+        // Sorted, as the claim's are.
+        tools: ["mcp__tracker__create", "mcp__tracker__search"],
       });
       expect(await stateOf(sessionId, "wiki")).toMatchObject({
         serverId: wiki,
@@ -451,8 +457,8 @@ integration("workspace MCP servers in the claim and the egress", () => {
         })
         .where(eq(workspaceMcpServers.id, tracker));
       expect((await stateOf(sessionId, "tracker"))?.tools).toEqual([
-        "mcp__tracker__search",
         "mcp__tracker__create",
+        "mcp__tracker__search",
       ]);
 
       await db
