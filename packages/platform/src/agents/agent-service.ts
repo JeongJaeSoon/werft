@@ -44,8 +44,6 @@ import {
   MANAGEMENT_ROLES,
   NOT_FOUND,
   OUTRANKED,
-  type OutsideAgentAccessSetting,
-  outsideAgentsUse,
   type Principal,
   requirePermitted,
   SessionServiceError,
@@ -198,14 +196,11 @@ export function createAgentService(deps: {
   repositoryCeiling?: (
     workspaceId: string,
   ) => Promise<RepositoryCeiling | null>;
-  /** Axis A, as the policy reads it; absent: `use`. */
-  outsideAgents?: OutsideAgentAccessSetting;
   /** The runtime version a new release of each kind runs. */
   runtimes: InstalledRuntimes;
   extensions?: SessionExtensionsDeps;
 }) {
   const { authorization, store, catalog, credentials } = deps;
-  const outsideAgents = deps.outsideAgents ?? outsideAgentsUse;
   async function extensionRefusal(
     workspaceId: string,
     agentId: string,
@@ -369,11 +364,7 @@ export function createAgentService(deps: {
   // The rows are judged in the store, by the same rule as agent.read on one
   // agent.
   async function agentReader(caller: Caller): Promise<AgentReader> {
-    const userId = await onWorkspace(caller, "agent.read");
-    return {
-      userId,
-      outsideAccess: await outsideAgents.access(caller.ownerId),
-    };
+    return { userId: await onWorkspace(caller, "agent.read") };
   }
 
   async function manageAgent(caller: Caller, agentId: string) {
@@ -1031,11 +1022,7 @@ export function createAgentService(deps: {
       });
       const candidates = await store.listUsable(
         caller.ownerId,
-        {
-          userId: caller.actor?.userId ?? null,
-          keyAgentId,
-          outsideUse: (await outsideAgents.access(caller.ownerId)) === "use",
-        },
+        { userId: caller.actor?.userId ?? null, keyAgentId },
         TEAM_LIST_LIMIT,
       );
       const items: UsableAgent[] = [];

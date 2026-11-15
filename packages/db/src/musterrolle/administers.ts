@@ -253,22 +253,6 @@ export function credentialsAllowed(
         WHERE a.id = ${agentId}))`;
 }
 
-/**
- * True where `userId` may read `agentId`'s list row (agent.read): every live
- * member, unless the workspace hides agents from those outside them.
- */
-export function agentReadable(
-  db: Database,
-  workspaceId: string,
-  userId: string,
-  agentId: string | SQLWrapper,
-  outsideAccess: "use" | "view" | "none",
-): SQL {
-  return outsideAccess === "none"
-    ? insideAgent(db, workspaceId, userId, agentId)
-    : liveMember(db, workspaceId, userId);
-}
-
 /** True while `userId` is an enabled member of `workspaceId`: a disabled member administers nothing. */
 export function liveMember(
   db: Database,

@@ -260,16 +260,13 @@ describe("agent service", () => {
       [],
     );
     await service.countAgents(person("member"));
-    expect(readers).toEqual([
-      { userId: OWNER, outsideAccess: "use" },
-      { userId: OWNER, outsideAccess: "use" },
-    ]);
+    expect(readers).toEqual([{ userId: OWNER }, { userId: OWNER }]);
   });
 
-  test("a member outside the agent reads none of its settings", async () => {
+  test("to a member outside the agent it does not exist", async () => {
     const service = serviceOver(memoryStore().store);
     expect(await codeOf(service.getAgent(person("member"), AGENT))).toBe(
-      "FORBIDDEN",
+      "NOT_FOUND",
     );
     expect((await service.getAgent(owner, AGENT)).agent.id).toBe(AGENT);
   });

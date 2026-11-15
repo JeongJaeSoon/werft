@@ -29,7 +29,6 @@ import {
   sessions,
   turns,
 } from "../schema.ts";
-import { outsidersSeeAgentSessions } from "../workspace-settings.ts";
 import { administers, insideAgent } from "./administers.ts";
 
 // Session share scopes (design 4.6). Lock order: the people
@@ -119,15 +118,13 @@ function insideSessionAgent(db: Database, viewer: SessionViewer): SQL[] {
  * so what a list shows and what a detail answers never disagree.
  *
  * `workspace` reaches every member, save that a session of an agent with a
- * managing team reaches only those inside the agent while the workspace's
- * axis B is `managing_team` (agent-rbac (c)). Read at this decision, so a
- * new managing team, a setting changed or a member leaving the team applies
- * to sessions already made.
+ * managing team reaches only those inside the agent (agent-rbac (c)). Read
+ * at this decision, so a new managing team or a member leaving the team
+ * applies to sessions already made.
  */
 export function sessionVisibleTo(db: Database, viewer: SessionViewer): SQL {
   const workspaceWide = anyOf([
     sql`${sessions}.workspace_id IS NULL`,
-    outsidersSeeAgentSessions(sql`${sessions}.workspace_id`),
     sql`NOT ${managedAgentSession}`,
     ...insideSessionAgent(db, viewer),
   ]);
@@ -178,7 +175,7 @@ async function readShare(
       revision: sessionShares.revision,
       updatedBy: sessionShares.updatedBy,
       updatedAt: sessionShares.updatedAt,
-      audienceLimited: sql<boolean>`(${sessions}.workspace_id IS NOT NULL AND ${managedAgentSession} AND NOT ${outsidersSeeAgentSessions(sql`${sessions}.workspace_id`)})`,
+      audienceLimited: sql<boolean>`(${sessions}.workspace_id IS NOT NULL AND ${managedAgentSession})`,
     })
     .from(sessions)
     .leftJoin(sessionShares, eq(sessionShares.sessionId, sessions.id))

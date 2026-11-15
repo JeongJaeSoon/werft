@@ -527,7 +527,6 @@ describe("OpenAPI document", () => {
         "/v1/achievement-rules/{family_id}/disable",
         "/v1/achievement-rules/{family_id}/enable",
         "/v1/workspaces/{id}/achievement-judge",
-        "/v1/workspaces/{id}/agent-access",
         "/v1/usage/summary",
         "/v1/usage/outcomes",
         "/v1/usage/achievements",

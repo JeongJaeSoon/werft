@@ -171,7 +171,6 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
   "routes/musterrolle/workspaces.test.ts": [
     "POST /v1/workspaces/{id}/audit-retention",
     "POST /v1/workspaces/{id}/slack-guest",
-    "PATCH /v1/workspaces/{id}/agent-access",
   ],
   "routes/github/github-app.test.ts": [
     "GET /v1/workspaces/{id}/github-app",

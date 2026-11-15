@@ -6,7 +6,11 @@ import {
   type SessionExtensionsDeps,
 } from "../extensions/session-extensions.ts";
 import { SessionServiceError } from "../musterrolle/index.ts";
-import { callerFor, createAuthorizationPolicy } from "../musterrolle/policy.ts";
+import {
+  callerFor,
+  createAuthorizationPolicy,
+  noAgentAuthority,
+} from "../musterrolle/policy.ts";
 import type {
   ExtensionAttachment,
   ExtensionBundle,
@@ -100,6 +104,8 @@ function setup(options: {
 }) {
   const accepted: AcceptSessionInput[] = [];
   const policy = createAuthorizationPolicy({
+    // The caller is on the agent's managing team.
+    agents: { ...noAgentAuthority, isInside: async () => true },
     credentials: { unboundRefs: async () => [] },
   });
   const service = createSessionService({

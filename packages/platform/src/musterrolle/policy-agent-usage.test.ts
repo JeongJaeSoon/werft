@@ -48,6 +48,8 @@ function authority(
     agentOf: async (_workspace, resource) =>
       resource.kind === "session" ? AGENT : resource.id,
     isAdmin: async () => false,
+    // On the agent's managing team: only the usage answer decides.
+    isInside: async () => true,
     agentOfRelease: async () => AGENT,
     usageOf: async (_workspace, agentId, who) => {
       asked.push({ agentId, who });
@@ -299,6 +301,7 @@ describe("reading a private agent", () => {
     const { agents } = authority(CLOSED, {
       agentOf: async (_workspace, resource) =>
         resource.id === AGENT ? AGENT : null,
+      isInside: async () => false,
     });
     const policy = policyOf(agents);
     for (const action of ["agent.read", "agent.settings_read"] as const) {
@@ -316,14 +319,13 @@ describe("reading a private agent", () => {
     }
   });
 
-  test("a person who may use it still reads it as before", async () => {
-    const { agents } = authority(OPEN);
-    expect(
-      await policyOf(agents).authorize(reading("agent.read", AGENT)),
-    ).toMatchObject({ outcome: "allow" });
-    expect(
-      await policyOf(agents).authorize(reading("agent.settings_read", AGENT)),
-    ).toMatchObject({ outcome: "deny", reason_code: "role" });
+  test("outside the agent even a usage grant reads it as missing", async () => {
+    const { agents } = authority(OPEN, { isInside: async () => false });
+    for (const action of ["agent.read", "agent.settings_read"] as const) {
+      expect(
+        await policyOf(agents).authorize(reading(action, AGENT)),
+      ).toMatchObject({ outcome: "deny", reason_code: "not_found" });
+    }
   });
 });
 

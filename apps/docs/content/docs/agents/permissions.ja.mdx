@@ -52,45 +52,26 @@ description: エージェントが使えるツール、人による承認、エ�
 | owner・admin | 読める | 読める | 変えられる |
 | エージェント管理者(担当チームの `lead` を含む) | 読める | 読める | 変えられる |
 | 担当チームの `member` | 読める | 読める | できない(`403`) |
-| それ以外の member | 読める(下の設定が `none` なら見えない) | できない(`403`、設定が `none` なら `404`) | できない(`403`) |
+| それ以外の member | 見えない(一覧になく、読むと `404`) | できない(`404`) | できない(`403`) |
 
 <Callout>
-以前は、member は自分が管理しないエージェントを一覧で見られず、担当チームの `member` も設定を読めなかった。今はすべての member が `GET /v1/agents`・`GET /v1/agents/counts` でワークスペースのエージェントを探せ、担当チームの `member` は設定を読める。`include=summary` の要約(管理者・認証情報の紐付け)は、設定を読めるエージェントにだけ付く。エージェントの設定を変えた receipt も、設定を読める人だけが読める。
+担当チームの `member` は `GET /v1/agents`・`GET /v1/agents/counts` で自分のチームが担当するエージェントを探し、設定を読める。`include=summary` の要約(管理者・認証情報の紐付け)は、設定を読めるエージェントにだけ付く。エージェントの設定を変えた receipt も、設定を読める人だけが読める。
 </Callout>
 
-### エージェントの外の member ができること
+### 担当チーム外の member
 
-owner・admin、エージェント管理者、担当チームのメンバーをそのエージェントの内側と呼び、それ以外の member を外側と呼ぶ。外側の member がエージェントで何をできるかは、ワークスペースの設定二つが決める。変えられるのは owner・admin だけで(`PATCH /v1/workspaces/{id}/agent-access`)、変えるたびに receipt が残る。今の値は `GET /v1/auth/me` の `workspace.settings` にある。
+owner・admin、エージェント管理者、担当チームのメンバーをそのエージェントの内側と呼び、それ以外の member を外側と呼ぶ。エージェントを使えるのは内側だけである。これを変える設定はない。
 
-| 設定 | 値 | 外側の member には |
-| --- | --- | --- |
-| `agent_outsider_access` | `use`(既定値) | 情報を読み、セッションを開始できる |
-| | `view` | 情報だけ読める。セッション開始は `403 FORBIDDEN`(`reason_code: role`) |
-| | `none` | エージェントが一覧になく、読むと `404`。セッション開始は `403` |
-| `agent_outsider_session_visibility` | `managing_team`(既定値) | エージェントの `workspace` 共有セッションが、担当チーム外のメンバーには一覧・件数・詳細・イベント・使用量の最近の一覧に出ない |
-| | `workspace` | そのセッションもすべての member が見る |
-
-- `agent_outsider_access` と `agent_outsider_session_visibility` はすべてのエージェントに適用される。エージェントには常に担当チームがある。担当チームが必須になる前にチームがなかったエージェントは、メンバーのいない保管チーム(名前を変えても、サーバーは保管チームとして認識する)が引き受けた。これらのエージェントの `workspace` セッションは、適切なチームに移すまで以前と同じくすべてのメンバーに見える。
+- 外側の member には、Web でも Slack でもエージェントがないのと同じである。一覧と件数に出ず、読むと `404`、セッションを開始すると `403 FORBIDDEN`(`reason_code: role`)になる。
+- Slack で外側の member がエージェントをメンションしたり DM を送ったりしても、セッションは始まらず、権限がないという短い案内だけが届く。Werft アカウントを連携していない Slack ユーザーには、連携を求める案内が届く。
+- エージェントの `workspace` 共有セッションも内側だけが見る。外側の member には一覧・件数・詳細・イベント・使用量の最近の一覧に出ない。担当チームが必須になる前にチームがなかったエージェントは、メンバーのいない保管チーム(名前を変えても、サーバーは保管チームとして認識する)が引き受けた。これらのエージェントの `workspace` セッションは、適切なチームに移すまで以前と同じくすべてのメンバーに見える。
 - 外側の member でも、自分が開始したセッションと、自分や自分のチームを指定して共有された(`people`・`team`)セッションは引き続き見える。
-- どちらの設定も次のリクエストから、作成済みのセッションにも適用される。開いているイベントストリームは次の確認で切れる。担当チームを変えたときや、メンバーがチームから外れたときも同じである。
+- 担当チームを変えたときや、メンバーがチームから外れたときは、次のリクエストから作成済みのセッションにも適用される。開いているイベントストリームは次の確認で切れる。
 - 使用量の合計(セッション数・費用・成果数)は変わらず、最近の成果一覧から見られないセッションの行だけが抜ける。
 - 共有範囲が `workspace` でも外側の member に見えないセッションは、`GET /v1/sessions/{id}/share` の `audience_limited` が `true` になる。
 
-```bash
-curl -sS -X PATCH "$API/v1/workspaces/$WID/agent-access" "${WEB[@]}" \
-  -d '{"agent_outsider_access": "view"}' | jq -c '{agent_outsider_access, agent_outsider_session_visibility, changed: (.receipt_id != null)}'
-```
-
-```text
-{"agent_outsider_access":"view","agent_outsider_session_visibility":"managing_team","changed":true}
-```
-
-`WID` は `GET /v1/auth/me` の `workspace.id` である。
-
-コンソールでは **ワークスペース設定** の **エージェントへのアクセス** で変える。**担当チーム外のメンバーのエージェントへのアクセス** は **表示と実行**(`use`)・**表示のみ**(`view`)・**非表示**(`none`)、**ワークスペース公開のセッション** は **担当チーム内のみ**(`managing_team`)・**すべてのメンバー**(`workspace`)である。変えた値だけを送り、保存すると画面が `GET /v1/auth/me` を読み直す。owner・admin でないメンバーには、選択肢なしで今の値だけが表示される。
-
 <Callout>
-以前は `workspace` 共有セッションをすべての member が見ていた。今は既定値が `managing_team` なので、エージェントのセッションはすぐに内側だけが見る(保管チームに残っているエージェントは例外である)。以前のように見せるには `agent_outsider_session_visibility` を `workspace` に変える。
+以前は、ワークスペースの設定二つ(`agent_outsider_access`、`agent_outsider_session_visibility`)で、外側の member がエージェントを見て使える範囲を選んだ。今はその設定と `PATCH /v1/workspaces/{id}/agent-access` はなく、常に `none`・`managing_team` と同じように動く。保存済みの値は残るが読まない。そのため `use` や `view` にしていたワークスペースでも、外側の member にはエージェントが見えない。
 </Callout>
 
 [作成](/agents/create)の `AID` と `WEB` を引き続き使う。

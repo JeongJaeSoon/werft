@@ -1,6 +1,4 @@
 import {
-  agentAccessRequestSchema,
-  agentAccessResponseSchema,
   auditRetentionRequestSchema,
   auditRetentionResponseSchema,
   slackGuestRequestSchema,
@@ -8,7 +6,6 @@ import {
   workspaceParamsSchema,
 } from "@werft-ai/contracts";
 import type {
-  AgentAccessSettingStore,
   AuditRetentionStore,
   AuthorizationPolicy,
   SlackGuestSettingStore,
@@ -26,8 +23,6 @@ export interface WorkspaceRouteDeps {
   authorization: AuthorizationPolicy;
   retention: AuditRetentionStore;
   slackGuests: SlackGuestSettingStore;
-  agentAccess: AgentAccessSettingStore;
-  newId?: () => string;
 }
 
 export function registerWorkspaceRoutes(
@@ -120,51 +115,5 @@ export function registerWorkspaceRoutes(
       throw new ApiHttpError(404, "NOT_FOUND", "Resource not found");
     }
     return jsonWithSchema(context, slackGuestResponseSchema, body);
-  });
-  apiRoute(router, "setAgentAccess", async (context) => {
-    const caller = context.get("caller");
-    const principal = context.get("principal");
-    const params = requireParams(context, workspaceParamsSchema);
-    const workspaceId = params.id.toLowerCase();
-    // Asked before the body is read, as for the Slack guest setting.
-    const decision = await deps.authorization.authorize({
-      subject: caller.subject,
-      action: "workspace.manage",
-      resource: {
-        kind: "workspace",
-        id: workspaceId,
-        owner_scope: workspaceId,
-      },
-      request_id: caller.requestId,
-    });
-    if (decision.reason_code === "not_found") {
-      throw new ApiHttpError(404, "NOT_FOUND", "Resource not found");
-    }
-    if (decision.outcome !== "allow" || principal.kind !== "user") {
-      throw new ApiHttpError(
-        403,
-        "FORBIDDEN",
-        "Only an owner or admin can change agent access",
-        false,
-        undefined,
-        { reason_code: decision.reason_code },
-      );
-    }
-    const body = await parseJsonBody(context, agentAccessRequestSchema);
-    const receiptId = (deps.newId ?? (() => crypto.randomUUID()))();
-    const result = await deps.agentAccess.setAgentAccess({
-      principal: caller,
-      workspaceId,
-      actorUserId: principal.id,
-      settings: body,
-      receiptId,
-    });
-    if (result.outcome === "inactive") {
-      throw new ApiHttpError(404, "NOT_FOUND", "Resource not found");
-    }
-    return jsonWithSchema(context, agentAccessResponseSchema, {
-      ...result.settings,
-      receipt_id: result.outcome === "set" ? receiptId : null,
-    });
   });
 }

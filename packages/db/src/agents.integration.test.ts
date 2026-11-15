@@ -516,16 +516,13 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       .where(eq(memberships.userId, userId));
     // A disabled member reads no agent either.
     expect(
-      await createPostgresAgentStore(db).count(workspaceId, {
-        userId,
-        outsideAccess: "use",
-      }),
+      await createPostgresAgentStore(db).count(workspaceId, { userId }),
     ).toEqual({ all: 0, administered: 0, active: 0, draft: 0 });
 
-    // A member outside every agent counts what they find in the list.
+    // A member outside every agent finds none of them, in the list or counts.
     const member = await person(workspaceId, "member");
     expect(await agentsService.countAgents(member)).toEqual({
-      counts: { all: 6, administered: 0, active: 0, draft: 5 },
+      counts: { all: 0, administered: 0, active: 0, draft: 0 },
     });
     expect(
       await codeOf(agentsService.countAgents(serviceKey(workspaceId))),

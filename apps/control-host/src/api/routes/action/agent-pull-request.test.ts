@@ -263,12 +263,13 @@ describe("the agent pull request settings API", () => {
     }
   });
 
-  test("a member who manages no agent is refused; an API key may not save", async () => {
+  test("a member outside the agent finds none and cannot save; an API key may not read or save", async () => {
     const { call, writes } = appWith();
     const body = { pull_request: SETTINGS, revision: 0 };
     expect(
       (await call("GET", path(), { cookie: cookieFor("member") })).status,
-    ).toBe(403);
+    ).toBe(404);
+    expect((await call("GET", path(), { key: true })).status).toBe(403);
     expect(
       (await call("PUT", path(), { cookie: cookieFor("member"), body })).status,
     ).toBe(403);

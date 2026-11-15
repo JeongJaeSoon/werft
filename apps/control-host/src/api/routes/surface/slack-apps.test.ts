@@ -301,6 +301,9 @@ describe("the agent Slack app API", () => {
             cookie: cookieFor("member"),
           })
         ).status,
+      ).toBe(404);
+      expect(
+        (await call("GET", `${appPath(AGENT)}${suffix}`, { key: true })).status,
       ).toBe(403);
       expect(
         (
@@ -441,9 +444,15 @@ describe("the agent Slack app API", () => {
 
   test("a member who is not the agent's admin, an API key, or a write without CSRF is refused", async () => {
     const before = slack.state.calls.length;
+    // To a member outside the agent it does not exist.
+    const outside = await call("GET", appPath(AGENT), {
+      cookie: cookieFor("member"),
+    });
+    expect(outside.status).toBe(404);
+    expect(code(outside.json).code).toBe("NOT_FOUND");
     for (const response of [
       await create(LOST_AGENT, cookieFor("member")),
-      await call("GET", appPath(AGENT), { cookie: cookieFor("member") }),
+      await call("GET", appPath(AGENT), { key: true }),
       await call("POST", appPath(LOST_AGENT), { key: true, body: {} }),
       await call("POST", appPath(LOST_AGENT), {
         cookie: cookieFor("owner"),

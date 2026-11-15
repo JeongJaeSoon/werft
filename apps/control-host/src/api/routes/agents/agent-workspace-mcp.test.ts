@@ -230,12 +230,13 @@ describe("the agent workspace MCP servers API", () => {
     expect(puts.at(-1)).toEqual([]);
   });
 
-  test("a member who manages no agent cannot read or save; an API key cannot save", async () => {
+  test("a member outside the agent finds none and cannot save; an API key cannot read or save", async () => {
     const { call, puts } = appWith();
     const member = cookieFor("member");
     expect((await call("GET", serversPath(), { cookie: member })).status).toBe(
-      403,
+      404,
     );
+    expect((await call("GET", serversPath(), { key: true })).status).toBe(403);
     expect(
       (
         await call("PUT", serversPath(), {

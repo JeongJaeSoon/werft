@@ -5,7 +5,6 @@ import {
   json,
   me,
   memberMe,
-  RECEIPT_ID,
   STORE_OFF,
   WORKSPACE_ID,
 } from "../test-support/fake-api.ts";
@@ -36,15 +35,6 @@ const renderAt: typeof harness.renderAt = (path, routes, locale) =>
 
 const RETENTION = `/v1/workspaces/${WORKSPACE_ID}/audit-retention`;
 const GUEST = `/v1/workspaces/${WORKSPACE_ID}/slack-guest`;
-const ACCESS = `/v1/workspaces/${WORKSPACE_ID}/agent-access`;
-const textOfIds = (ids: string | null) =>
-  (ids ?? "")
-    .split(" ")
-    .map((id) => document.getElementById(id)?.textContent ?? "")
-    .join(" ");
-const descriptionOf = (element: HTMLElement) =>
-  textOfIds(element.getAttribute("aria-describedby"));
-// The retention and agent access cards each have a 저장.
 const retentionSave = () =>
   within(screen.getByRole("region", { name: "감사 기록 보존 기간" })).getByRole(
     "button",
@@ -269,17 +259,6 @@ describe("워크스페이스 설정", () => {
       contract.AUDIT_RETENTION_MIN_DAYS,
       contract.AUDIT_RETENTION_MAX_DAYS,
     ]);
-  });
-
-  test("에이전트 접근의 고르는 값은 계약의 값과 같다", async () => {
-    const contracts = await import("@werft-ai/contracts");
-    const { AGENT_ACCESS_CHOICES } = await import("./workspace-settings.tsx");
-    expect(AGENT_ACCESS_CHOICES).toEqual({
-      agent_outsider_access: [...contracts.AGENT_OUTSIDER_ACCESS_VALUES],
-      agent_outsider_session_visibility: [
-        ...contracts.AGENT_OUTSIDER_SESSION_VISIBILITY_VALUES,
-      ],
-    });
   });
 
   test("최대치를 넘기면 최대치를 넘겼다고 알린다", async () => {
@@ -585,9 +564,9 @@ describe("워크스페이스 설정", () => {
     expect(name.value).toBe("Acme");
     expect(name.readOnly).toBe(true);
     expect(screen.getByText(WORKSPACE_ID).className).toContain("font-mono");
-    // Only the retention and agent access cards save; the name has no API to.
+    // Only the retention card saves; the name has no API to.
     await waitFor(() =>
-      expect(screen.getAllByRole("button", { name: "저장" })).toHaveLength(2),
+      expect(screen.getAllByRole("button", { name: "저장" })).toHaveLength(1),
     );
     expect(screen.getAllByText("읽기 전용")).toHaveLength(1);
     // Model connections in Settings own the models; this page lists none.
@@ -1434,198 +1413,25 @@ describe("워크스페이스 설정", () => {
     );
   });
 
-  test("관리자는 에이전트 접근 두 설정을 골라 한 번에 저장하고, 바뀐 것만 보내며 다시 읽은 값을 보인다", async () => {
-    let settings = {
-      agent_outsider_access: "use",
-      agent_outsider_session_visibility: "managing_team",
-    };
-    const accessMe = () => {
-      const body = adminMe();
-      return {
-        ...body,
-        workspace: body.workspace && {
-          ...body.workspace,
-          settings: { ...body.workspace.settings, ...settings },
-        },
-      };
-    };
-    const { api } = renderAt("/settings/workspace", {
-      "GET /v1/auth/me": () => json(200, accessMe()),
-      [`PATCH ${ACCESS}`]: async (request: Request) => {
-        settings = { ...settings, ...((await request.json()) as object) };
-        return json(200, { ...settings, receipt_id: RECEIPT_ID });
-      },
-    });
-    const card = await screen.findByRole("region", { name: "에이전트 접근" });
-    const agent = within(card).getByRole("radiogroup", {
-      name: "담당 팀 밖 구성원의 에이전트 접근",
-    });
-    const sessions = within(card).getByRole("radiogroup", {
-      name: "워크스페이스 공개 세션",
-    });
-    const checked = (group: HTMLElement) =>
-      within(group)
-        .getAllByRole("radio")
-        .map((radio) => radio.getAttribute("aria-checked"));
-    await waitFor(() =>
-      expect(checked(agent)).toEqual(["true", "false", "false"]),
-    );
-    expect(checked(sessions)).toEqual(["true", "false"]);
-    expect(
-      within(sessions).getByRole("radio", { name: "담당 팀 안에만" }),
-    ).toBeDefined();
-    expect(
-      within(agent)
-        .getAllByRole("radio")
-        .map((radio) => descriptionOf(radio)),
-    ).toEqual([
-      "에이전트 정보(이름·설명·담당 팀)를 보고 세션을 시작합니다. 설정은 보지 못합니다.",
-      "에이전트 정보를 보지만 세션을 시작하지 못합니다.",
-      "에이전트 목록에 보이지 않고 세션도 시작하지 못합니다.",
-    ]);
-    const user = await setupUser();
-    // Arrow keys move the choice; nothing is sent until 저장.
-    within(agent).getByRole("radio", { name: "보고 실행" }).focus();
-    await user.keyboard("{ArrowDown>}");
-    await waitFor(() =>
+  for (const [who, body] of [
+    ["어드민", adminMe],
+    ["구성원", memberMe],
+  ] as const) {
+    test(`${who}에게도 에이전트 접근 카드가 없다: 에이전트는 담당 팀의 것이라 고를 값이 없다`, async () => {
+      const { api } = renderAt("/settings/workspace", {
+        "GET /v1/auth/me": () => json(200, body()),
+      });
+      await screen.findByRole("region", { name: "기본 정보" });
+      await screen.findByRole("region", { name: "감사 기록 보존 기간" });
       expect(
-        within(agent)
-          .getByRole("radio", { name: "보기만" })
-          .getAttribute("aria-checked"),
-      ).toBe("true"),
-    );
-    await user.keyboard("{/ArrowDown}");
-    expect(api.calls.some((c) => c.path === ACCESS)).toBe(false);
-    await user.click(
-      within(sessions).getByRole("radio", { name: "모든 구성원" }),
-    );
-    await user.click(within(card).getByRole("button", { name: "저장" }));
-    expect((await screen.findByRole("status")).textContent).toBe(
-      "에이전트 접근 설정을 저장했습니다.",
-    );
-    expect(
-      api.calls.filter((c) => c.path === ACCESS).map((c) => c.body),
-    ).toEqual([
-      {
-        agent_outsider_access: "view",
-        agent_outsider_session_visibility: "workspace",
-      },
-    ]);
-
-    // Only the key changed since the last save goes out.
-    await user.click(within(agent).getByRole("radio", { name: "숨김" }));
-    await user.click(within(card).getByRole("button", { name: "저장" }));
-    await waitFor(() =>
-      expect(
-        api.calls.filter((c) => c.path === ACCESS).map((c) => c.body),
-      ).toEqual([
-        {
-          agent_outsider_access: "view",
-          agent_outsider_session_visibility: "workspace",
-        },
-        { agent_outsider_access: "none" },
-      ]),
-    );
-    // Read again from /me: the screen follows the server's values.
-    await waitFor(() =>
-      expect(
-        within(sessions)
-          .getByRole("radio", { name: "모든 구성원" })
-          .getAttribute("aria-checked"),
-      ).toBe("true"),
-    );
-    expect(
-      api.calls.filter((c) => c.path === "/v1/auth/me").length,
-    ).toBeGreaterThan(2);
-    expect(
-      within(agent)
-        .getByRole("radio", { name: "숨김" })
-        .getAttribute("aria-checked"),
-    ).toBe("true");
-  });
-
-  test("에이전트 접근을 저장한 뒤 /me 다시 읽기가 실패해도 저장한 값을 보인다", async () => {
-    let saved = false;
-    let failedMe = 0;
-    renderAt("/settings/workspace", {
-      "GET /v1/auth/me": () => {
-        if (!saved) return json(200, adminMe());
-        failedMe += 1;
-        return apiError(500, "INTERNAL_ERROR", "me failed");
-      },
-      [`PATCH ${ACCESS}`]: () => {
-        saved = true;
-        return json(200, {
-          agent_outsider_access: "none",
-          agent_outsider_session_visibility: "managing_team",
-          receipt_id: RECEIPT_ID,
-        });
-      },
+        screen.queryByRole("region", { name: "에이전트 접근" }) === null,
+      ).toBe(true);
+      expect(screen.queryByRole("radiogroup") === null).toBe(true);
+      expect(api.calls.some((c) => c.path.endsWith("/agent-access"))).toBe(
+        false,
+      );
     });
-    const card = await screen.findByRole("region", { name: "에이전트 접근" });
-    const user = await setupUser();
-    await user.click(within(card).getByRole("radio", { name: "숨김" }));
-    await user.click(within(card).getByRole("button", { name: "저장" }));
-    expect((await screen.findByRole("status")).textContent).toBe(
-      "에이전트 접근 설정을 저장했습니다.",
-    );
-    await waitFor(() => expect(failedMe).toBeGreaterThan(0));
-    await waitFor(() =>
-      expect(screen.queryByRole("status")?.textContent).toBe(
-        "에이전트 접근 설정을 저장했습니다.",
-      ),
-    );
-    expect(
-      within(card)
-        .getByRole("radio", { name: "숨김" })
-        .getAttribute("aria-checked"),
-    ).toBe("true");
-    expect(
-      (within(card).getByRole("button", { name: "저장" }) as HTMLButtonElement)
-        .disabled,
-    ).toBe(true);
-  });
-
-  test("에이전트 접근을 바꾸지 않았으면 저장이 꺼져 있다", async () => {
-    renderAt("/settings/workspace", {
-      "GET /v1/auth/me": () => json(200, me()),
-    });
-    const card = await screen.findByRole("region", { name: "에이전트 접근" });
-    const save = within(card).getByRole("button", {
-      name: "저장",
-    }) as HTMLButtonElement;
-    expect(save.disabled).toBe(true);
-  });
-
-  test("에이전트 접근 저장을 서버가 403으로 거절하면 이유 문구를 보인다", async () => {
-    renderAt("/settings/workspace", {
-      "GET /v1/auth/me": () => json(200, me()),
-      [`PATCH ${ACCESS}`]: () =>
-        apiError(403, "FORBIDDEN", "Only an owner or admin can change it"),
-    });
-    const card = await screen.findByRole("region", { name: "에이전트 접근" });
-    const user = await setupUser();
-    await user.click(within(card).getByRole("radio", { name: "숨김" }));
-    await user.click(within(card).getByRole("button", { name: "저장" }));
-    expect((await screen.findByRole("alert")).textContent).toBe(
-      "워크스페이스 설정 변경 권한이 있어야 할 수 있습니다. 지금 역할: 오너.",
-    );
-  });
-
-  test("구성원은 에이전트 접근을 글로만 읽고, 고르는 칸이 없다", async () => {
-    const { api } = renderAt("/settings/workspace", {
-      "GET /v1/auth/me": () => json(200, memberMe()),
-    });
-    const card = await screen.findByRole("region", { name: "에이전트 접근" });
-    expect(card.textContent).toContain(
-      "담당 팀 밖 구성원의 에이전트 접근: 보고 실행",
-    );
-    expect(card.textContent).toContain(
-      "워크스페이스 공개 세션: 담당 팀 안에만",
-    );
-    expect(within(card).queryByRole("radio")).toBeNull();
-    expect(api.calls.some((c) => c.path === ACCESS)).toBe(false);
-  });
+  }
 
   test("끝에 /가 붙은 주소에서도 설정 내비가 지금 페이지를 가리킨다", async () => {
     renderAt("/settings/workspace/", {

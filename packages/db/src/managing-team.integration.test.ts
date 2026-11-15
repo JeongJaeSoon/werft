@@ -529,8 +529,8 @@ integration("the managing team on PostgreSQL", () => {
     ).toBe(3);
   });
 
-  test("W, L and T read the agent's settings and O only its row; T changes nothing (agent-rbac R2)", async () => {
-    const { owner, lead, member, outsider, agentId, teamId } = await cast();
+  test("W, L and T read the agent's settings and O finds no agent; T changes nothing (agent-rbac R2)", async () => {
+    const { owner, lead, member, outsider, agentId } = await cast();
     const policy = createAuthorizationPolicy({
       identity: createDatabaseIdentityReader(db),
       agents: authority(),
@@ -587,23 +587,17 @@ integration("the managing team on PostgreSQL", () => {
       expect((await reads.count(who)).all).toBe(1);
       for (const read of settings) expect(await codeOf(read(who))).toBe("ok");
     }
-    // O finds the agent's row, without its summary, and nothing behind it.
-    expect(await reads.list(outsider)).toEqual(["row"]);
+    // Outside the managing team the agent does not exist: no row, no count,
+    // and every read behind it answers as for a missing agent.
+    expect(await reads.list(outsider)).toEqual([]);
     expect(await reads.count(outsider)).toEqual({
-      all: 1,
+      all: 0,
       administered: 0,
       active: 0,
-      draft: 1,
+      draft: 0,
     });
-    const [team] = await db
-      .select({ name: schema.memberTeams.name })
-      .from(schema.memberTeams)
-      .where(eq(schema.memberTeams.id, teamId));
-    const [row] = (await agentsService.listAgents(outsider, { limit: 50 }))
-      .items;
-    expect(row?.managing_team_name).toBe(team?.name ?? "missing");
     for (const read of settings) {
-      expect(await codeOf(read(outsider))).toBe("FORBIDDEN:role");
+      expect(await codeOf(read(outsider))).toStartWith("NOT_FOUND");
     }
 
     // Reading the settings opens none of the writes beside them to T.
@@ -631,7 +625,7 @@ integration("the managing team on PostgreSQL", () => {
     ).toStartWith("FORBIDDEN");
   });
 
-  test("the list's rows and cards follow who is inside each agent now, under either axis A", async () => {
+  test("the list's rows and cards follow who is inside each agent now", async () => {
     const { workspaceId, owner, member, outsider, teamId, agentId } =
       await cast();
     // A second agent whose managing team has no one in it: only W and its
@@ -649,19 +643,16 @@ integration("the managing team on PostgreSQL", () => {
       .set({ managingTeamId: await fixtureTeam(db, workspaceId) })
       .where(eq(schema.agents.id, other));
     const store = createPostgresAgentStore(db);
-    const reader = (who: Caller, outsideAccess: "use" | "none") => ({
-      userId: idOf(who),
-      outsideAccess,
-    });
+    const reader = (who: Caller) => ({ userId: idOf(who) });
     // Read a page of one at a time, so the cursor crosses filtered rows.
-    const rows = async (who: Caller, outsideAccess: "use" | "none") => {
+    const rows = async (who: Caller) => {
       const ids: string[] = [];
       let cursor: string | undefined;
       do {
         const page = await store.list(
           workspaceId,
           { limit: 1, ...(cursor === undefined ? {} : { cursor }) },
-          reader(who, outsideAccess),
+          reader(who),
         );
         ids.push(...page.items.map((a) => a.id));
         cursor = page.next_cursor ?? undefined;
@@ -679,18 +670,12 @@ integration("the managing team on PostgreSQL", () => {
       ].sort();
     const both = [agentId, other];
 
-    expect(await rows(outsider, "use")).toEqual(both);
-    expect(await rows(member, "use")).toEqual(both);
-    // Axis A none: each row only where the reader is inside, the count too.
-    expect(await rows(owner, "none")).toEqual(both);
-    expect(await rows(member, "none")).toEqual([agentId]);
-    expect(await rows(outsider, "none")).toEqual([]);
-    expect((await store.count(workspaceId, reader(member, "none"))).all).toBe(
-      1,
-    );
-    expect((await store.count(workspaceId, reader(outsider, "none"))).all).toBe(
-      0,
-    );
+    // Each row only where the reader is inside, the count too.
+    expect(await rows(owner)).toEqual(both);
+    expect(await rows(member)).toEqual([agentId]);
+    expect(await rows(outsider)).toEqual([]);
+    expect((await store.count(workspaceId, reader(member))).all).toBe(1);
+    expect((await store.count(workspaceId, reader(outsider))).all).toBe(0);
     expect(await cards(owner)).toEqual([...both].sort());
     expect(await cards(member)).toEqual([agentId]);
     expect(await cards(outsider)).toEqual([]);
@@ -701,7 +686,7 @@ integration("the managing team on PostgreSQL", () => {
         await store.list(
           workspaceId,
           { limit: 50, connection_id: TEST_CONNECTION_ID },
-          reader(who, "use"),
+          reader(who),
         )
       ).items.length;
     const released = await service().createRelease(owner, agentId, {
@@ -743,7 +728,7 @@ integration("the managing team on PostgreSQL", () => {
       .set({ disabledAt: new Date() })
       .where(eq(schema.memberships.userId, idOf(member)));
     expect(await cards(member)).toEqual([]);
-    expect(await rows(member, "use")).toEqual([]);
+    expect(await rows(member)).toEqual([]);
   });
 
   test("my-teams says the role held in each team", async () => {

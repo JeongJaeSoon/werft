@@ -34,6 +34,7 @@ import { StatusScreen } from "../components/status-screen.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 import { AccessTab } from "./agent-detail/access-tab.tsx";
 import { AdminsTab } from "./agent-detail/admins-tab.tsx";
+import { AgentNotFound } from "./agent-detail/agent-not-found.tsx";
 import { CardTab } from "./agent-detail/card-tab.tsx";
 import { GitHubPanel, SlackPanel } from "./agent-detail/lazy-tabs.tsx";
 import {
@@ -47,7 +48,6 @@ import {
   NewSessionReason,
   useNewSessionReason,
 } from "./agent-detail/new-session.tsx";
-import { AgentNotFound, OutsideAgent } from "./agent-detail/outside-agent.tsx";
 import { OverviewTab } from "./agent-detail/overview-tab.tsx";
 import {
   type Place,
@@ -83,8 +83,11 @@ function AgentDetailPage({ id }: { readonly id: string }) {
 
   if (detail.isPending) return <StatusScreen kind="loading" />;
   if (detail.error) {
-    if (isApiError(detail.error, "FORBIDDEN")) return <OutsideAgent id={id} />;
-    if (isApiError(detail.error, "NOT_FOUND")) return <AgentNotFound />;
+    if (
+      isApiError(detail.error, "NOT_FOUND") ||
+      isApiError(detail.error, "FORBIDDEN")
+    )
+      return <AgentNotFound />;
     // A rollback whose outcome could not be read leaves its notice here too.
     return (
       <>

@@ -220,7 +220,7 @@ describe("listing and revoking", () => {
     ]);
     await expect(
       service.listAgentIdentities(asPerson("member"), OTHER_AGENT),
-    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
   test("revokes once with a receipt, then answers a null receipt", async () => {

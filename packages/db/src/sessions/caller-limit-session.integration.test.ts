@@ -724,6 +724,13 @@ integration("caller limits on session create and input", () => {
       const b = await agentRelease(ws, { credentialRefs: ["jira"] });
       const c = await agentRelease(ws);
       const memberTeam = await team(owner, [member]);
+      // The fixture team manages all three, so the member is inside each.
+      await teams().addMember({
+        actor: acting(owner),
+        receiptId: randomUUID(),
+        teamId: a.managingTeamId,
+        userId: idOf(member),
+      });
       await setRules(owner, a.agentId, [
         rule({ kind: "team", id: memberTeam }, { credentials_deny: ["slack"] }),
       ]);
@@ -735,7 +742,7 @@ integration("caller limits on session create and input", () => {
         (
           await store.listUsable(
             ws,
-            { userId: idOf(who), keyAgentId: null, outsideUse: true },
+            { userId: idOf(who), keyAgentId: null },
             50,
           )
         ).map((agent) => agent.id);

@@ -184,7 +184,6 @@ function deps(): SlackInteractionDeps {
     authorization: createAuthorizationPolicy({
       identity,
       slackGuests: { enabled: async () => false },
-      outsideAgents: { access: async () => "use" },
       credentials: { unboundRefs: async () => [] },
       sessions: {
         visibleTo: async () => true,
@@ -194,6 +193,7 @@ function deps(): SlackInteractionDeps {
         agentOf: async () => AGENT,
         agentOfRelease: async () => null,
         isAdmin: async () => false,
+        isInside: async () => true,
       },
       decisions: { record: async () => {} },
     }),

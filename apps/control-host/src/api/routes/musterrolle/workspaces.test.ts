@@ -1,8 +1,6 @@
 import { expect, test } from "bun:test";
 import {
-  type AgentAccessSettings,
   type AuthorizationRequest,
-  agentAccessResponseSchema,
   apiErrorResponseSchema,
   auditRetentionResponseSchema,
   CSRF_HEADER_NAME,
@@ -12,7 +10,6 @@ import {
   WEB_SESSION_COOKIE_NAME,
 } from "@werft-ai/contracts";
 import {
-  type AgentAccessSettingStore,
   type AuditRetentionStore,
   createAuthorizationPolicy,
   type DecisionLog,
@@ -29,7 +26,6 @@ const createApiApp = recordRouteErrors("routes/musterrolle/workspaces.test.ts");
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000a1";
 const OTHER_WORKSPACE = "019a0000-0000-7000-8000-0000000000b1";
-const RECEIPT = "019a0000-0000-7000-8000-0000000000e1";
 
 const sessions = new Map<string, ResolvedWebSession>();
 function cookieFor(role: MembershipRole, workspaceId = WORKSPACE): string {
@@ -91,40 +87,6 @@ const slackGuests: SlackGuestSettingStore = {
   },
 };
 
-const access = new Map<string, AgentAccessSettings>([
-  [
-    WORKSPACE,
-    {
-      agent_outsider_access: "use",
-      agent_outsider_session_visibility: "managing_team",
-    },
-  ],
-]);
-const accessWrites: Parameters<AgentAccessSettingStore["setAgentAccess"]>[0][] =
-  [];
-const agentAccess: AgentAccessSettingStore = {
-  async setAgentAccess(input) {
-    if (storageDown) {
-      throw Object.assign(new Error("connection refused"), {
-        code: "ECONNREFUSED",
-      });
-    }
-    accessWrites.push(input);
-    const before = access.get(input.workspaceId);
-    if (!before) return { outcome: "inactive" };
-    const after = { ...before };
-    for (const [key, value] of Object.entries(input.settings)) {
-      if (value !== undefined) Object.assign(after, { [key]: value });
-    }
-    access.set(input.workspaceId, after);
-    return {
-      outcome:
-        JSON.stringify(after) === JSON.stringify(before) ? "unchanged" : "set",
-      settings: after,
-    };
-  },
-};
-
 const app = createApiApp({
   authMode: "api-key",
   identity,
@@ -133,8 +95,6 @@ const app = createApiApp({
       authorization: createAuthorizationPolicy({ decisions }),
       retention,
       slackGuests,
-      agentAccess,
-      newId: () => RECEIPT,
     }),
 });
 
@@ -348,112 +308,11 @@ function setAgentAccess(
   });
 }
 
-test("an owner or admin changes one axis, the other keeps its value, and the change carries its receipt", async () => {
-  access.set(WORKSPACE, {
-    agent_outsider_access: "use",
-    agent_outsider_session_visibility: "managing_team",
-  });
+test("agent access is no longer a setting: an owner's change finds no route", async () => {
   recorded.length = 0;
-  accessWrites.length = 0;
-  const owner = cookieFor("owner");
-  const response = await setAgentAccess(owner, {
-    agent_outsider_access: "view",
-  });
-  expect(response.status).toBe(200);
-  expect(agentAccessResponseSchema.parse(await response.json())).toEqual({
-    agent_outsider_access: "view",
-    agent_outsider_session_visibility: "managing_team",
-    receipt_id: RECEIPT,
-  });
-  expect(accessWrites).toEqual([
-    expect.objectContaining({
-      workspaceId: WORKSPACE,
-      settings: { agent_outsider_access: "view" },
-      receiptId: RECEIPT,
-    }),
-  ]);
-  expect(recorded).toEqual([
-    expect.objectContaining({
-      action: "workspace.manage",
-      resource: { kind: "workspace", id: WORKSPACE, owner_scope: WORKSPACE },
-    }),
-  ]);
-  const admin = await setAgentAccess(cookieFor("admin"), {
-    agent_outsider_session_visibility: "workspace",
-  });
-  expect(agentAccessResponseSchema.parse(await admin.json())).toEqual({
-    agent_outsider_access: "view",
-    agent_outsider_session_visibility: "workspace",
-    receipt_id: RECEIPT,
-  });
-});
-
-test("asking for the values already set answers them with no receipt", async () => {
-  access.set(WORKSPACE, {
-    agent_outsider_access: "none",
-    agent_outsider_session_visibility: "managing_team",
-  });
   const response = await setAgentAccess(cookieFor("owner"), {
-    agent_outsider_access: "none",
-    agent_outsider_session_visibility: "managing_team",
+    agent_outsider_access: "use",
   });
-  expect(response.status).toBe(200);
-  expect(agentAccessResponseSchema.parse(await response.json())).toEqual({
-    agent_outsider_access: "none",
-    agent_outsider_session_visibility: "managing_team",
-    receipt_id: null,
-  });
-});
-
-test("a member is refused agent access for the role before the body is read", async () => {
-  accessWrites.length = 0;
-  for (const body of [{ agent_outsider_access: "none" }, "not json"]) {
-    const response = await setAgentAccess(cookieFor("member"), body);
-    expect(response.status).toBe(403);
-    expect(
-      apiErrorResponseSchema.parse(await response.json()).error,
-    ).toMatchObject({ code: "FORBIDDEN", details: { reason_code: "role" } });
-  }
-  expect(accessWrites).toEqual([]);
-});
-
-test("agent access takes the documented values, at least one, and nothing else", async () => {
-  accessWrites.length = 0;
-  for (const body of [
-    {},
-    { agent_outsider_access: "hidden" },
-    { agent_outsider_access: null },
-    { agent_outsider_session_visibility: "team" },
-    { agent_outsider_access: "use", extra: 1 },
-  ]) {
-    const response = await setAgentAccess(cookieFor("owner"), body);
-    expect(response.status, JSON.stringify(body)).toBe(400);
-  }
-  expect(accessWrites).toEqual([]);
-  expect(
-    (
-      await setAgentAccess(
-        cookieFor("owner"),
-        `{"agent_outsider_access":${" ".repeat(REQUEST_BODY_MAX_BYTES)}"use"}`,
-      )
-    ).status,
-  ).toBe(413);
-});
-
-test("agent access needs a session and a workspace that is the caller's", async () => {
-  const body = { agent_outsider_access: "view" };
-  expect((await setAgentAccess(null, body)).status).toBe(401);
-  expect(
-    (await setAgentAccess(cookieFor("owner"), body, OTHER_WORKSPACE)).status,
-  ).toBe(404);
-  const orphan = cookieFor("owner", OTHER_WORKSPACE);
-  expect((await setAgentAccess(orphan, body, OTHER_WORKSPACE)).status).toBe(
-    404,
-  );
-  storageDown = true;
-  try {
-    expect((await setAgentAccess(cookieFor("owner"), body)).status).toBe(503);
-  } finally {
-    storageDown = false;
-  }
+  expect(response.status).toBe(404);
+  expect(recorded).toEqual([]);
 });

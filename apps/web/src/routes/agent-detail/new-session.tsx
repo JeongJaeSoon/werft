@@ -34,7 +34,7 @@ import {
 } from "@werft-ai/ui";
 import { type FormEvent, useId, useRef, useState } from "react";
 import { connectionsQuery } from "../../api/queries.ts";
-import { useCan, useMe } from "../../auth/guard.tsx";
+import { useCan } from "../../auth/guard.tsx";
 import { MESSAGE_MAX_BYTES } from "../../auth/limits.ts";
 import { ReasonButton } from "../../auth/reason-button.tsx";
 import { FormError } from "../../components/auth-page.tsx";
@@ -96,20 +96,6 @@ export function useNewSessionReason(detail: AgentDetail): string | undefined {
     ? foreseenServerRefusal(release, connections.data?.items)
     : null;
   return refused === null ? undefined : t(RELEASE_REASONS[refused]);
-}
-
-export function useOutsiderNewSessionReason(
-  agent: Pick<Agent, "status" | "active_release_id">,
-): string | undefined {
-  const { t } = useI18n();
-  const scopeReason = useScopeReason();
-  const access = useMe()?.workspace?.settings.agent_outsider_access;
-  const block = consolePolicyBlock(agent);
-  if (block !== null) return t(AGENT_REASONS[block]);
-  if (scopeReason !== undefined) return scopeReason;
-  return access === "use" || access === undefined
-    ? undefined
-    : t("agent.newSession.blocked.outsider");
 }
 
 const AGENT_REASONS = {

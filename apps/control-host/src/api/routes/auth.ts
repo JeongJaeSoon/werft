@@ -173,12 +173,27 @@ export async function passwordClosedTo(
   );
 }
 
+// Kept on the row since agents became their managing team's alone, read by
+// nothing.
+const RETIRED_SETTINGS = [
+  "agent_outsider_access",
+  "agent_outsider_session_visibility",
+];
+
 export function workspaceView(row: IdentityWorkspace): Workspace {
+  const stored =
+    row.settings !== null && typeof row.settings === "object"
+      ? Object.fromEntries(
+          Object.entries(row.settings).filter(
+            ([key]) => !RETIRED_SETTINGS.includes(key),
+          ),
+        )
+      : row.settings;
   return {
     id: row.id,
     slug: row.slug,
     name: row.name,
-    settings: workspaceSettingsSchema.parse(row.settings),
+    settings: workspaceSettingsSchema.parse(stored),
     created_at: row.createdAt.toISOString(),
   };
 }

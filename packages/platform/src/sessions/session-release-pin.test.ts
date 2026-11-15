@@ -18,7 +18,11 @@ import {
   type Setting,
 } from "../limits/installation-limits.ts";
 import { SessionServiceError } from "../musterrolle/index.ts";
-import { callerFor, createAuthorizationPolicy } from "../musterrolle/policy.ts";
+import {
+  callerFor,
+  createAuthorizationPolicy,
+  noAgentAuthority,
+} from "../musterrolle/policy.ts";
 import type { AgentContact } from "../ports/credential-binding-store.ts";
 import {
   testCatalog,
@@ -109,6 +113,8 @@ function setup(
   const appended: string[] = [];
   const asked: AuthorizationRequest[] = [];
   const policy = createAuthorizationPolicy({
+    // The caller is on the agent's managing team.
+    agents: { ...noAgentAuthority, isInside: async () => true },
     credentials: { unboundRefs: async () => options.unbound ?? [] },
   });
   const service = createSessionService({

@@ -289,13 +289,16 @@ describe("the agent GitHub API", () => {
     );
   });
 
-  test("a member who manages no agent is refused; an API key may not turn the switch", async () => {
+  test("a member outside the agent finds none and cannot save; an API key may not read or turn the switch", async () => {
     const { call, writes } = appWith();
     const member = cookieFor("member");
     for (const path of [github(), `${github()}/activity`]) {
       const read = await call("GET", path, { cookie: member });
-      expect(read.status).toBe(403);
-      expect(code(read.json)).toBe("FORBIDDEN");
+      expect(read.status).toBe(404);
+      expect(code(read.json)).toBe("NOT_FOUND");
+      const byKey = await call("GET", path, { key: true });
+      expect(byKey.status).toBe(403);
+      expect(code(byKey.json)).toBe("FORBIDDEN");
     }
     expect(
       (
