@@ -644,7 +644,7 @@ integration("workspace MCP servers on PostgreSQL", () => {
     const { ws, admin, owner } = await team();
     const oauth = await connectedOAuth(ws, admin);
     const bearer = await created(ws, admin);
-    const ownerServer = await created(ws, owner);
+    const ownerServer = await connectedOAuth(ws, owner);
     // A sign-in the admin only started, on a server the owner connected.
     await startedFlow(ws, admin, ownerServer.id, new Date(Date.now() + HOUR));
     const offboarded = await createPostgresMemberStore(db).setAccess({
@@ -672,9 +672,9 @@ integration("workspace MCP servers on PostgreSQL", () => {
       connectedBy: { userId: owner },
     });
     expect(await store.readFlow(ws, ownerServer.id)).toBeNull();
-    expect(await store.credentialOf(ws, ownerServer.id)).toEqual({
-      kind: "bearer",
-      token: FAKE_BEARER,
+    expect(await store.credentialOf(ws, ownerServer.id)).toMatchObject({
+      kind: "oauth",
+      hasRefreshToken: true,
     });
   });
 });

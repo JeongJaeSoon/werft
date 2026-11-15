@@ -14,14 +14,15 @@ import {
   type WorkspaceMcpServer,
   type WorkspaceMcpServerList,
 } from "@werft-ai/contracts";
-import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
-import { requirePermitted } from "../musterrolle/require-permitted.ts";
 import {
   ACTOR_INACTIVE,
+  type AuthorizationPolicy,
+  type Caller,
   NOT_FOUND,
+  requirePermitted,
   SECRET_STORE_OFF,
   SessionServiceError,
-} from "../musterrolle/service-errors.ts";
+} from "../musterrolle/index.ts";
 import type {
   ManagerCheck,
   WorkspaceMcpCredential,
