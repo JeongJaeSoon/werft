@@ -173,33 +173,31 @@ describe("scripts/dev/hot-restart.ts", () => {
 
   // A pass loop that gave up (94S-1641): no file changes, yet it is
   // started again, the way Docker's restart policy would outside dev.
-  test("a command that exits on its own starts again after a delay that doubles to the longest, and a long run resets it", async () => {
-    // Five quick exits, then a run longer than the longest delay. A quick
-    // exit must stay under 3s, the start of bun under load included.
+  test("a command that exits on its own starts again after a doubling delay, and a long run resets it", async () => {
+    // Three quick exits, then a run longer than the longest delay. A quick
+    // exit only has to stay under that 10s, however loaded the machine.
     const supervisor = supervise(
       record(
-        'process.on("SIGTERM", () => process.exit(3)); if (fs.readFileSync(starts, "utf8").split("\\n").length <= 6) process.exit(3); setTimeout(() => process.exit(3), 3500)',
+        'process.on("SIGTERM", () => process.exit(3)); if (fs.readFileSync(starts, "utf8").split("\\n").length <= 4) process.exit(3); setTimeout(() => process.exit(3), 10_500)',
       ),
       "0",
-      { DEV_RESTART_MIN_MS: "375", DEV_RESTART_MAX_MS: "3000" },
+      { DEV_RESTART_MIN_MS: "250", DEV_RESTART_MAX_MS: "10000" },
     );
     const log = stderrOf(supervisor);
     try {
-      await until(async () => delays(log.text).length >= 6, 30_000);
+      await until(async () => delays(log.text).length >= 4, 30_000);
       supervisor.kill("SIGTERM");
       expect(await supervisor.exited).toBe(3);
-      expect(delays(log.text).slice(0, 6)).toEqual([
-        "0.375",
-        "0.75",
-        "1.5",
-        "3",
-        "3",
-        "0.375",
+      expect(delays(log.text).slice(0, 4)).toEqual([
+        "0.25",
+        "0.5",
+        "1",
+        "0.25",
       ]);
-      expect(log.text).toContain("exited with 3; starting again in 0.375s");
+      expect(log.text).toContain("exited with 3; starting again in 0.25s");
       // Each start waited its delay, however slow the machine.
       const times = await startTimes();
-      for (const [i, ms] of [375, 750, 1500, 3000, 3000].entries()) {
+      for (const [i, ms] of [250, 500, 1000].entries()) {
         expect(
           (times[i + 1] as number) - (times[i] as number),
         ).toBeGreaterThanOrEqual(ms);
@@ -208,6 +206,25 @@ describe("scripts/dev/hot-restart.ts", () => {
       supervisor.kill("SIGKILL");
     }
   }, 45_000);
+
+  // With both ends equal a reset gives the same delay, so only a delay that
+  // grew past the longest can fail this.
+  test("the delay never grows past the longest", async () => {
+    const supervisor = supervise(
+      record('process.on("SIGTERM", () => process.exit(3)); process.exit(3)'),
+      "0",
+      { DEV_RESTART_MIN_MS: "500", DEV_RESTART_MAX_MS: "500" },
+    );
+    const log = stderrOf(supervisor);
+    try {
+      await until(async () => delays(log.text).length >= 3);
+      supervisor.kill("SIGTERM");
+      expect(await supervisor.exited).toBe(3);
+      expect(delays(log.text).slice(0, 3)).toEqual(["0.5", "0.5", "0.5"]);
+    } finally {
+      supervisor.kill("SIGKILL");
+    }
+  }, 20_000);
 
   test("a command that stays up after starting again stays up", async () => {
     // Exits on its first start only: the proxy that was briefly gone.
