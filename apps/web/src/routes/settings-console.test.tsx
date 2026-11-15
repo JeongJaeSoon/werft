@@ -1179,15 +1179,44 @@ describe("모델 연결", () => {
       expect(button.hasAttribute("disabled")).toBe(false);
       expect(button.getAttribute("aria-disabled")).toBe("true");
 
+      const expectShut = () => {
+        expect(screen.queryByRole("menu") === null).toBe(true);
+        expect(button.getAttribute("aria-expanded")).toBe("false");
+      };
       await user.click(button);
       expect(document.activeElement === button).toBe(true);
+      expectShut();
       await user.keyboard("{Enter}");
+      expectShut();
       await user.keyboard(" ");
-      expect(screen.queryByRole("menu") === null).toBe(true);
-      expect(button.getAttribute("aria-expanded")).toBe("false");
+      expectShut();
 
       // An active row's still opens, so the click above reached a live button.
       await openMenu(user, table, "on-key");
+    });
+
+    test("every cell holds one line, as the members table's do, and the credential kind sits in its column", async () => {
+      renderAt(CONNECTIONS_PAGE, withDisabled());
+      const table = await screen.findByRole("table", { name: "모델 연결" });
+      expect(
+        within(table)
+          .getAllByRole("columnheader")
+          .map((header) => header.textContent),
+      ).toEqual([
+        "id",
+        "엔드포인트",
+        "종류",
+        "자격 증명",
+        "모델",
+        "상태",
+        "동작",
+      ]);
+      const cells = within(rowOf(table, "on-key")).getAllByRole("cell");
+      expect(cells.length).toBe(7);
+      expect(cells.filter((cell) => cell.hasAttribute("data-lines"))).toEqual(
+        [],
+      );
+      expect(cells[3]?.textContent?.startsWith("API 키 · ")).toBe(true);
     });
 
     test("only the disabled row takes the muted fill", async () => {
