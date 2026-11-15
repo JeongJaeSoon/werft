@@ -173,7 +173,12 @@ integration("workspace MCP servers in the claim and the egress", () => {
   // A given launch is a worker retrying the claim it already made.
   async function claim(
     sessionId: string,
-    options: { again?: Launch; workspaceMcp?: boolean } = {},
+    options: {
+      again?: Launch;
+      workspaceMcp?: boolean;
+      // As the gateway's bindingsOf does for names that collide.
+      collide?: boolean;
+    } = {},
   ) {
     const launch = options.again ?? (await launchSession(db, { sessionId }));
     const asked: Parameters<EgressIssue["bindingsOf"]>[0][] = [];
@@ -199,6 +204,7 @@ integration("workspace MCP servers in the claim and the egress", () => {
         objectStoreHash: hashWorkerToken(`weo-${randomUUID()}`),
         bindingsOf: (input) => {
           asked.push(input);
+          if (options.collide) throw new Error("names collide");
           return {
             provider: "provider",
             repository: "repository",
@@ -262,13 +268,33 @@ integration("workspace MCP servers in the claim and the egress", () => {
       const { sessionId } = await setup();
       const first = await claim(sessionId);
       expect(first.result.outcome).toBe("claimed");
+      const rowOf = async () =>
+        (await db.select().from(sessions).where(eq(sessions.id, sessionId)))[0];
+      const before = await rowOf();
       const old = await claim(sessionId, {
         again: first.launch,
         workspaceMcp: false,
       });
       expect(old.result.outcome).toBe("workspace_mcp_unsupported");
+      expect(old.asked).toEqual([]);
+      expect(await rowOf()).toEqual(before);
       const replayed = await claim(sessionId, { again: first.launch });
       expect(replayed.result.outcome).toBe("replayed");
+    }, 60_000);
+
+    test("a refusal thrown while binding the claim rolls the whole claim back", async () => {
+      const { sessionId } = await setup();
+      const rowOf = async () =>
+        (await db.select().from(sessions).where(eq(sessions.id, sessionId)))[0];
+      const launch = await launchSession(db, { sessionId });
+      const before = await rowOf();
+      const collided = claim(sessionId, { again: launch, collide: true });
+      await expect(collided).rejects.toThrow("names collide");
+      expect(await rowOf()).toEqual(before);
+      // Nothing was spent: the same launch claims once the names are apart.
+      expect((await claim(sessionId, { again: launch })).result.outcome).toBe(
+        "claimed",
+      );
     }, 60_000);
 
     test("a session with none on is claimed by either worker as before", async () => {
