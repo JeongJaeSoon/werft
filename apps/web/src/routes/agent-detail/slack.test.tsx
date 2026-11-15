@@ -1424,7 +1424,7 @@ describe("Slack management", () => {
       "워크스페이스에 저장된 토큰을 사용할 수 없어 앱을 만들 수 없습니다.",
     ).parentElement;
     expect(reason?.textContent).toContain(
-      "소유자나 관리자에게 토큰 등록을 요청하세요.",
+      "오너나 어드민에게 토큰 등록을 요청하세요.",
     );
     expect(create.getAttribute("aria-describedby")).toBe(reason?.id ?? "");
     expect(
@@ -1469,7 +1469,7 @@ describe("Slack management", () => {
     // The token's state is unknown, so nobody is told to register one.
     const token = screen.getByRole("region", { name: "Slack 앱 생성" });
     expect(
-      within(token).queryByText("소유자나 관리자에게 토큰 등록을 요청하세요."),
+      within(token).queryByText("오너나 어드민에게 토큰 등록을 요청하세요."),
     ).toBeNull();
     down = false;
     await user.click(within(app).getByRole("button", { name: "새로고침" }));
@@ -2279,7 +2279,7 @@ describe("Slack management", () => {
     });
     expect(
       await screen.findByText(
-        "Slack이 이벤트를 보낼 https 주소를 알 수 없습니다. 관리자에게 CONSOLE_ORIGIN 설정을 요청하거나, 이벤트를 콘솔과 따로 받으면 owner가 설정 > 연동 > Slack의 이벤트 입구 주소를 적으세요.",
+        "Slack이 이벤트를 보낼 https 주소를 알 수 없습니다. 관리자에게 CONSOLE_ORIGIN 설정을 요청하거나, 이벤트를 콘솔과 따로 받으면 오너가 설정 > 연동 > Slack의 이벤트 입구 주소를 적으세요.",
       ),
     ).toBeDefined();
   });
@@ -2358,7 +2358,7 @@ describe("Slack management", () => {
     );
     expect(
       await screen.findByText(
-        "Slack がイベントを送る https アドレスが分かりません。管理者に CONSOLE_ORIGIN の設定を依頼するか、イベントをコンソールと別に受ける場合は owner が 設定 > 連携 > Slack のイベントの入口アドレスを入力してください。",
+        "Slack がイベントを送る https アドレスが分かりません。管理者に CONSOLE_ORIGIN の設定を依頼するか、イベントをコンソールと別に受ける場合はオーナーが 設定 > 連携 > Slack のイベントの入口アドレスを入力してください。",
       ),
     ).toBeDefined();
   });

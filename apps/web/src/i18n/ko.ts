@@ -39,7 +39,7 @@ import { workspaceMcpKo } from "./workspace-mcp.ts";
  */
 export const slackKo = {
   "slack.error.config":
-    "워크스페이스의 Slack 앱 생성 설정이 필요합니다. 관리자에게 설정을 요청하세요.",
+    "워크스페이스의 Slack 앱 생성 설정이 필요합니다. 오너나 어드민에게 설정을 요청하세요.",
   "slack.error.refused":
     "Slack이 요청을 거절했습니다(코드: {code}). 코드를 관리자에게 알려 주세요.",
   "slack.error.noAnswer":
@@ -49,7 +49,7 @@ export const slackKo = {
   "slack.error.consoleOrigin":
     "콘솔의 공개 주소(CONSOLE_ORIGIN)가 설정되지 않아 Slack 앱을 만들 수 없습니다. 관리자에게 설정을 요청하세요.",
   "slack.error.eventsUrl":
-    "Slack이 이벤트를 보낼 https 주소를 알 수 없습니다. 관리자에게 CONSOLE_ORIGIN 설정을 요청하거나, 이벤트를 콘솔과 따로 받으면 owner가 설정 > 연동 > Slack의 이벤트 입구 주소를 적으세요.",
+    "Slack이 이벤트를 보낼 https 주소를 알 수 없습니다. 관리자에게 CONSOLE_ORIGIN 설정을 요청하거나, 이벤트를 콘솔과 따로 받으면 오너가 설정 > 연동 > Slack의 이벤트 입구 주소를 적으세요.",
   "slack.error.creating":
     "앱 생성 결과를 확인 중입니다. Slack에 앱이 있는지 관리자에게 확인한 뒤 새로고침하세요.",
   "slack.error.notInstalled": "Slack 앱을 설치한 뒤 채널을 연결하세요.",
@@ -114,7 +114,7 @@ export const slackKo = {
   "slack.configToken.needs_reentry":
     "워크스페이스에 저장된 토큰을 사용할 수 없어 앱을 만들 수 없습니다.",
   "slack.configToken.settings": "연동 > Slack에서 토큰 등록",
-  "slack.configToken.askAdmin": "소유자나 관리자에게 토큰 등록을 요청하세요.",
+  "slack.configToken.askAdmin": "오너나 어드민에게 토큰 등록을 요청하세요.",
   "slack.install": "Slack 앱 설치",
   "slack.reinstall": "다시 설치",
   "slack.working": "준비 중…",
@@ -192,7 +192,7 @@ export const slackKo = {
   "slack.privateInvite": "/invite 필요",
   "slack.pendingApproval": "승인 대기",
   "slack.pendingApprovalHint":
-    "소유자나 관리자가 승인하기 전에는 이 채널의 메시지에 답하지 않습니다.",
+    "오너나 어드민이 승인하기 전에는 이 채널의 메시지에 답하지 않습니다.",
   "slack.approve": "승인",
   "slack.approveChannel": "채널 승인: {channel}",
   "slack.approved": "채널을 승인했습니다.",

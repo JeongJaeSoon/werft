@@ -98,7 +98,7 @@ describe("비밀번호 로그인 설정", () => {
     [
       "비상 관리자가 자격을 잃었으면",
       read({ emergency_admin: { ...owner(ME, "Me"), eligible: false } }),
-      "비상 관리자가 더는 비밀번호로 로그인할 수 없습니다. 다른 소유자를 지정하세요.",
+      "비상 관리자가 더는 비밀번호로 로그인할 수 없습니다. 다른 오너를 지정하세요.",
     ],
   ];
   for (const [when, answer, reason] of refusedAhead) {
@@ -231,7 +231,7 @@ describe("비밀번호 로그인 설정", () => {
     });
     await user.click(change);
     const dialog = await screen.findByRole("dialog");
-    const select = within(dialog).getByRole("combobox", { name: "소유자" });
+    const select = within(dialog).getByRole("combobox", { name: "오너" });
     // The one named now is not an option: naming them changes nothing.
     expect(
       [...select.querySelectorAll("option")].map(
@@ -279,7 +279,7 @@ describe("비밀번호 로그인 설정", () => {
         within(area).getByRole("button", { name: "비상 관리자 바꾸기" }),
       ),
     ).toBe(
-      "지정할 수 있는 다른 소유자가 없습니다. 켜져 있고 비밀번호가 있는 소유자만 지정할 수 있습니다.",
+      "지정할 수 있는 다른 오너가 없습니다. 켜져 있고 비밀번호가 있는 오너만 지정할 수 있습니다.",
     );
   });
 

@@ -4,7 +4,7 @@ export const errorsKo = {
   "error.SCOPE_NOT_GRANTABLE":
     "내가 가진 것보다 많은 권한을 키에 줄 수 없습니다.",
   "error.FORBIDDEN": "권한이 없습니다 — 오너나 어드민에게 요청하세요.",
-  "error.BOOTSTRAP_DONE": "이미 소유자가 있습니다. 로그인해 주세요.",
+  "error.BOOTSTRAP_DONE": "이미 오너가 있습니다. 로그인해 주세요.",
   "error.RATE_LIMITED": "시도가 너무 많습니다 — 잠시 뒤 다시 시도하세요.",
   "error.BACKEND_UNAVAILABLE":
     "서버가 응답하지 않습니다 — 잠시 뒤 다시 시도하세요.",
@@ -33,9 +33,9 @@ export const errorsKo = {
     "다른 곳에서 먼저 바꿨습니다 — 다시 불러온 뒤 시도하세요.",
   "error.ALREADY_EXISTS": "같은 식별자(slug)가 이미 있습니다.",
   "error.SLACK_LINK_NOT_CONFIGURED":
-    "Slack 계정 연결을 아직 쓸 수 없습니다 — 워크스페이스 관리자에게 연동 > Slack 설정을 요청하세요.",
+    "Slack 계정 연결을 아직 쓸 수 없습니다 — 워크스페이스 어드민에게 연동 > Slack 설정을 요청하세요.",
   "error.GITHUB_LINK_NOT_CONFIGURED":
-    "GitHub 계정 연결을 아직 쓸 수 없습니다 — 워크스페이스 관리자에게 연동 > GitHub의 사용자 연결 설정을 요청하세요.",
+    "GitHub 계정 연결을 아직 쓸 수 없습니다 — 워크스페이스 어드민에게 연동 > GitHub의 사용자 연결 설정을 요청하세요.",
   "error.SLACK_APP_CREATING":
     "Slack 앱을 만드는 중입니다 — 잠시 뒤 다시 시도하세요.",
   "error.GITHUB_UNAVAILABLE":
@@ -134,9 +134,9 @@ export const errorsJa: Record<keyof typeof errorsKo, string> = {
     "ほかの人が先に変更しました。再読み込みしてから、もう一度お試しください。",
   "error.ALREADY_EXISTS": "この識別子（slug）はすでに使われています。",
   "error.SLACK_LINK_NOT_CONFIGURED":
-    "Slack アカウント連携はまだ使えません。ワークスペースの管理者に 連携 > Slack の設定を依頼してください。",
+    "Slack アカウント連携はまだ使えません。ワークスペースのアドミンに 連携 > Slack の設定を依頼してください。",
   "error.GITHUB_LINK_NOT_CONFIGURED":
-    "GitHub アカウント連携はまだ使えません。ワークスペースの管理者に 連携 > GitHub のユーザー連携の設定を依頼してください。",
+    "GitHub アカウント連携はまだ使えません。ワークスペースのアドミンに 連携 > GitHub のユーザー連携の設定を依頼してください。",
   "error.SLACK_APP_CREATING":
     "Slack アプリを作成中です。しばらくしてから、もう一度お試しください。",
   "error.GITHUB_UNAVAILABLE":

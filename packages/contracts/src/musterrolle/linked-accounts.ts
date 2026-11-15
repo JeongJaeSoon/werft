@@ -127,20 +127,20 @@ export const unlinkAccountResponseSchema = receiptAcceptedResponseSchema;
 // as the API's error message so the web screen shows the same words.
 export const LINK_MESSAGES = {
   signInRequired:
-    "웹에 로그인한 뒤 다시 열어 주세요. 계정이 없으면 owner·admin에게 초대를 요청하세요",
+    "웹에 로그인한 뒤 다시 열어 주세요. 계정이 없으면 오너·어드민에게 초대를 요청하세요",
   notInstalled:
-    "이 워크스페이스에는 아직 Slack이 설치되지 않았어요. owner·admin에게 문의하세요",
+    "이 워크스페이스에는 아직 Slack이 설치되지 않았어요. 오너·어드민에게 문의하세요",
   teamMismatch: (workspaceName: string) =>
     `이 Slack 워크스페이스는 연결된 곳이 아니에요. ${workspaceName} 워크스페이스 계정으로 다시 시도하세요`,
   taken:
-    "이 Slack 계정은 다른 사용자에게 연결돼 있어요. owner·admin에게 문의하세요",
+    "이 Slack 계정은 다른 사용자에게 연결돼 있어요. 오너·어드민에게 문의하세요",
   exists: "이미 연결된 Slack 계정이 있어요. 해제한 뒤 다시 연결하세요",
   expired: "연결 요청이 만료됐어요. 처음부터 다시 시도하세요",
   githubTaken:
-    "이 GitHub 계정은 다른 사용자에게 연결돼 있어요. owner·admin에게 문의하세요",
+    "이 GitHub 계정은 다른 사용자에게 연결돼 있어요. 오너·어드민에게 문의하세요",
   githubExists: "이미 연결된 GitHub 계정이 있어요. 해제한 뒤 다시 연결하세요",
   githubUnset:
-    "owner·admin이 연동 > GitHub에서 사용자 연결을 켜야 GitHub 계정을 연결할 수 있어요",
+    "오너·어드민이 연동 > GitHub에서 사용자 연결을 켜야 GitHub 계정을 연결할 수 있어요",
 } as const;
 
 export type LinkedAccountProvider = z.infer<typeof linkedAccountProviderSchema>;

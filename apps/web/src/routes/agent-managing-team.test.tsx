@@ -365,7 +365,7 @@ describe("새 에이전트의 담당 팀", () => {
     });
     expect(
       await screen.findByText(
-        "속한 팀이 없어 에이전트를 만들 수 없습니다. 워크스페이스 관리자에게 팀에 넣어 달라고 요청하세요.",
+        "속한 팀이 없어 에이전트를 만들 수 없습니다. 워크스페이스 어드민에게 팀에 넣어 달라고 요청하세요.",
       ),
     ).toBeDefined();
     expect(screen.queryByLabelText("이름")).toBeNull();

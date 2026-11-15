@@ -592,7 +592,7 @@ describe("에이전트 상세 탭", () => {
   });
 
   for (const [status, code, reason] of [
-    [403, "FORBIDDEN", "소유자·관리자와 에이전트 관리자만 볼 수 있음"],
+    [403, "FORBIDDEN", "오너·어드민과 에이전트 관리자만 볼 수 있음"],
     [500, "INTERNAL_ERROR", "불러오지 못함"],
   ] as const) {
     test(`비용 읽기가 ${status}이면 $0이 아니라 —와 이유(${reason})를 보인다`, async () => {
@@ -766,12 +766,12 @@ describe("에이전트 상세 탭", () => {
     const glance = await screen.findByRole("list", { name: "에이전트 현황" });
     await waitFor(() =>
       expect(figureTexts(glance)).toEqual([
-        ["답변 대기", "—", "소유자와 관리자만 볼 수 있음"],
-        ["작업 중", "—", "소유자와 관리자만 볼 수 있음"],
+        ["답변 대기", "—", "오너와 어드민만 볼 수 있음"],
+        ["작업 중", "—", "오너와 어드민만 볼 수 있음"],
         [
           "최근 7일 비용추정",
           "—",
-          "소유자·관리자와 에이전트 관리자만 볼 수 있음",
+          "오너·어드민과 에이전트 관리자만 볼 수 있음",
         ],
       ]),
     );

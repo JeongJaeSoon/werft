@@ -24,7 +24,7 @@ export const achievementsKo = {
   "achievements.byAgent": "에이전트별",
   "achievements.recent": "최근 성과",
   "achievements.recentNote":
-    "확인 필요 성과는 owner·admin과 그 에이전트의 관리자가 확인합니다.",
+    "확인 필요 성과는 오너·어드민과 그 에이전트의 관리자가 확인합니다.",
   "achievements.column.category": "구분",
   "achievements.column.rule": "규칙",
   "achievements.column.type": "type",
@@ -127,7 +127,7 @@ export const achievementsJa: Record<keyof typeof achievementsKo, string> = {
   "achievements.byAgent": "エージェント別",
   "achievements.recent": "最近の成果",
   "achievements.recentNote":
-    "確認が必要な成果は owner・admin とそのエージェントの管理者が確認します。",
+    "確認が必要な成果はオーナー・アドミンとそのエージェントの管理者が確認します。",
   "achievements.column.category": "区分",
   "achievements.column.rule": "ルール",
   "achievements.column.type": "type",

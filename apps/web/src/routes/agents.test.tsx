@@ -406,7 +406,7 @@ describe("에이전트 목록", () => {
       "GET /v1/administered-agents": () => json(200, { items: [] }),
     });
     expect(
-      await screen.findByText(/전체 에이전트 목록은 소유자와 관리자만 봅니다/),
+      await screen.findByText(/전체 에이전트 목록은 오너와 어드민만 봅니다/),
     ).toBeDefined();
     // Whoever may create is offered it once, at the head of the list.
     const [button, ...others] = screen.getAllByRole("button", {
@@ -860,7 +860,7 @@ describe("목록을 볼 수 없는 구성원", () => {
         .getAttribute("href"),
     ).toBe(DETAIL);
     expect(
-      screen.getByText(/전체 에이전트 목록은 소유자와 관리자만 봅니다/),
+      screen.getByText(/전체 에이전트 목록은 오너와 어드민만 봅니다/),
     ).toBeDefined();
   });
 

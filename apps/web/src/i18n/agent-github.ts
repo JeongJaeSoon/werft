@@ -91,7 +91,7 @@ export const agentGitHubKo = {
   "agentGitHub.featureReason.app_permission_missing":
     "App에 이 권한이 없습니다. GitHub App 설정에서 더한 뒤 설치를 다시 승인하세요.",
   "agentGitHub.featureReason.over_workspace_ceiling":
-    "워크스페이스 상한 밖입니다. 소유자·관리자가 연동 > GitHub에서 켭니다.",
+    "워크스페이스 상한 밖입니다. 오너·어드민이 연동 > GitHub에서 켭니다.",
   "agentGitHub.featureReason.no_reviewer_app":
     "워크스페이스에 리뷰용 App이 없습니다. PR을 만드는 App은 자기 PR을 승인할 수 없습니다.",
   "agentGitHub.featureReason.github_host_unsupported":
@@ -103,7 +103,7 @@ export const agentGitHubKo = {
   "agentGitHub.workflowsActions":
     "워크플로 파일 수정과 Actions 실행을 같이 켜면, 에이전트가 허용 목록의 워크플로 파일을 자기 브랜치에서 고칠 수 있습니다. 사람이 그 브랜치를 머지하면 고친 파일이 실행 대상이 됩니다.",
   "agentGitHub.ceilingNote":
-    "워크스페이스 상한은 소유자·관리자가 연동 > GitHub에서 정합니다.",
+    "워크스페이스 상한은 오너·어드민이 연동 > GitHub에서 정합니다.",
   "agentGitHub.allowlistHint":
     "Actions 실행이 켜져 있을 때 이 목록의 워크플로만 실행하거나 다시 실행합니다. 목록 밖의 workflow_dispatch와 다시 실행은 거절합니다.",
   "agentGitHub.allowlistEmpty": "목록에 없는 워크플로는 실행하지 않습니다.",
@@ -524,7 +524,7 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.featureReason.app_permission_missing":
     "App にこの権限がありません。GitHub App の設定で加えてから、インストールを承認し直してください。",
   "agentGitHub.featureReason.over_workspace_ceiling":
-    "ワークスペースの上限の外です。オーナー・管理者が 連携 > GitHub でオンにします。",
+    "ワークスペースの上限の外です。オーナー・アドミンが 連携 > GitHub でオンにします。",
   "agentGitHub.featureReason.no_reviewer_app":
     "ワークスペースにレビュー用 App がありません。PR を作る App は自分の PR を承認できません。",
   "agentGitHub.featureReason.github_host_unsupported":
@@ -536,7 +536,7 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.workflowsActions":
     "ワークフローファイルの変更と Actions の実行を両方オンにすると、エージェントが許可リストのワークフローファイルを自分のブランチで変えられます。人がそのブランチをマージすると、変えたファイルが実行対象になります。",
   "agentGitHub.ceilingNote":
-    "ワークスペースの上限はオーナー・管理者が 連携 > GitHub で決めます。",
+    "ワークスペースの上限はオーナー・アドミンが 連携 > GitHub で決めます。",
   "agentGitHub.allowlistHint":
     "Actions の実行がオンのとき、このリストのワークフローだけを実行・再実行します。リスト外の workflow_dispatch と再実行は拒否します。",
   "agentGitHub.allowlistEmpty": "リストにないワークフローは実行しません。",

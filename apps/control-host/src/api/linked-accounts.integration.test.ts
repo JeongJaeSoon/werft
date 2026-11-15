@@ -207,7 +207,7 @@ integration("Sign in with Slack over HTTP on PostgreSQL", () => {
     const response = await post("/v1/linked-accounts/slack/start", {});
     expect(response.status).toBe(401);
     expect((await errorOf(response)).message).toBe(
-      "웹에 로그인한 뒤 다시 열어 주세요. 계정이 없으면 owner·admin에게 초대를 요청하세요",
+      "웹에 로그인한 뒤 다시 열어 주세요. 계정이 없으면 오너·어드민에게 초대를 요청하세요",
     );
     // A login attempt for an account that does not exist is refused as any
     // wrong password is.
@@ -288,7 +288,7 @@ integration("Sign in with Slack over HTTP on PostgreSQL", () => {
     expect(await errorOf(response)).toMatchObject({
       code: "LINK_TAKEN",
       message:
-        "이 Slack 계정은 다른 사용자에게 연결돼 있어요. owner·admin에게 문의하세요",
+        "이 Slack 계정은 다른 사용자에게 연결돼 있어요. 오너·어드민에게 문의하세요",
     });
     const subject = await resolveLinkedSubject(db, {
       provider: "slack",
