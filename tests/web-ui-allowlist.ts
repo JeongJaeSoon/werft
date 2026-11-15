@@ -10,5 +10,5 @@ export const webUiAllowlist: WebUiCounts = {
   "router.tsx": { "legacy-class": 1 },
   "routes/agents.tsx": { "legacy-class": 1 },
   "routes/layout.tsx": { "legacy-class": 1 },
-  "styles.css": { "legacy-class": 35 },
+  "styles.css": { "legacy-class": 33 },
 };

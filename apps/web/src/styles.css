@@ -85,9 +85,6 @@ select:focus-visible,
   gap: var(--werft-space-1);
   font-size: var(--werft-text-label);
 }
-.web-field .werft-input {
-  width: 100%;
-}
 .web-field__hint {
   color: var(--werft-color-muted-foreground);
   font-size: var(--werft-text-xs);
