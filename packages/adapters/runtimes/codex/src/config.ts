@@ -396,6 +396,12 @@ export function codexLaunch(
     ...(sandbox === undefined ? {} : { sandbox }),
     threadConfig: {
       shell_environment_policy: { inherit: "none", set: toolEnv },
+      // Without a permission setting in the request, a resume restores the
+      // profile stored with the thread (danger-full-access when the thread
+      // ran with the sandbox off), over the engine's own default.
+      ...(sandbox === "bubblewrap"
+        ? { default_permissions: SANDBOX_PROFILE }
+        : {}),
     },
     developerInstructions: developerInstructionsOf(start),
     env,

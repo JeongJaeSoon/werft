@@ -137,7 +137,8 @@ describe("auto mode", () => {
         answers: "none",
         approvalPolicy: "on-request",
         developerInstructions: undefined,
-        threadConfig: {},
+        threadConfig:
+          sandbox === "bubblewrap" ? { default_permissions: "werft" } : {},
         sandbox,
       },
       probeSandbox: probe,
@@ -170,8 +171,22 @@ describe("auto mode", () => {
     const t = auto("bubblewrap", undefined, { resume: "thread-9" });
     await t.run.ready();
     const params = t.server.started("thread/resume");
-    expect(params).toMatchObject({ approvalsReviewer: "auto_review" });
+    expect(params).toMatchObject({
+      approvalsReviewer: "auto_review",
+      config: { default_permissions: "werft" },
+    });
     expect(params).not.toHaveProperty("sandbox");
+  });
+
+  test("a thread the engine leaves outside the profile is a failed start", async () => {
+    const t = auto("bubblewrap", undefined, { resume: "thread-9" });
+    t.server.on("thread/resume", (params) => ({
+      thread: { id: params.threadId },
+      sandbox: { type: "dangerFullAccess" },
+    }));
+    await expect(t.run.ready()).rejects.toThrow(
+      "sandbox dangerFullAccess, not the workspace profile",
+    );
   });
 
   test("a sandbox that cannot start refuses the session before any thread", async () => {

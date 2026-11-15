@@ -8,6 +8,16 @@ import {
 
 type Handler = (params: Record<string, unknown>) => unknown;
 
+/** The policy 0.167.0 reports: a named profile wins, then `sandbox`. */
+function sandboxOf(params: Record<string, unknown>): { type: string } {
+  const config = (params.config ?? {}) as Record<string, unknown>;
+  if (config.default_permissions !== undefined)
+    return { type: "workspaceWrite" };
+  if (params.sandbox === "danger-full-access")
+    return { type: "dangerFullAccess" };
+  return { type: "readOnly" };
+}
+
 /**
  * An in-memory stand-in for `codex app-server`: it answers the client's
  * requests from handlers, records them, and lets a test speak as the server
@@ -56,13 +66,13 @@ export class FakeAppServer implements AppServerTransport {
         }, 0);
       }
     };
-    this.on("thread/start", () => {
+    this.on("thread/start", (params) => {
       startServers();
-      return { thread: { id: threadId } };
+      return { thread: { id: threadId }, sandbox: sandboxOf(params) };
     });
     this.on("thread/resume", (params) => {
       startServers();
-      return { thread: { id: params.threadId } };
+      return { thread: { id: params.threadId }, sandbox: sandboxOf(params) };
     });
     this.on("thread/read", () => ({ thread: { id: threadId } }));
     this.on("turn/start", () => ({ turn: { id: "turn-1" } }));

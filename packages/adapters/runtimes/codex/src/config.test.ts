@@ -184,6 +184,8 @@ describe("auto mode sandbox", () => {
     const profile = launch.args.find((a) => a.startsWith("permissions.werft="));
     expect(profile).toContain('"extends" = ":workspace"');
     expect(profile).toContain('"enabled" = true');
+    // On every thread request, so a resume does not restore a stored profile.
+    expect(launch.threadConfig.default_permissions).toBe("werft");
   });
 
   test("turned off, an auto session gets no profile and says so", () => {
@@ -192,6 +194,7 @@ describe("auto mode sandbox", () => {
     });
     expect(launch.sandbox).toBe("disabled");
     expect(launch.args.join(" ")).not.toContain(PROFILE);
+    expect(launch.threadConfig).not.toHaveProperty("default_permissions");
   });
 
   test("other modes are untouched by the setting", () => {

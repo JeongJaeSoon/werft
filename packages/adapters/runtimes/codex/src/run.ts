@@ -378,8 +378,8 @@ export class CodexRun implements AgentRun {
     }
     // The claim's policy, on a resumed thread too: what was stored with the
     // thread never decides how this run is approved or instructed. The
-    // sandbox runs on the permission profile the engine was started with,
-    // which a `sandbox` here would replace.
+    // sandbox runs on the permission profile `config` names, which a
+    // `sandbox` here would replace.
     const overrides = {
       cwd: this.options.cwd,
       model: this.options.model,
@@ -410,6 +410,12 @@ export class CodexRun implements AgentRun {
     const id = record(response.thread).id;
     if (typeof id !== "string") {
       throw new Error("The Codex app-server started no thread");
+    }
+    const policy = record(response.sandbox).type;
+    if (launch.sandbox === "bubblewrap" && policy !== "workspaceWrite") {
+      throw new Error(
+        `The Codex app-server put the thread in sandbox ${String(policy)}, not the workspace profile`,
+      );
     }
     const problem = this.options.startupProblem();
     if (problem !== undefined) throw new Error(problem);
