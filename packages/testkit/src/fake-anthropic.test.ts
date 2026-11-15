@@ -144,10 +144,50 @@ describe("fake Anthropic Messages API", () => {
     expect(server.requests).toHaveLength(3);
   });
 
-  test("returns 404 for anything but POST /messages", async () => {
+  test("returns 404 for anything but POST /messages and GET /v1/models", async () => {
     server = startFakeAnthropicServer(textReply("x"));
-    const response = await fetch(`${server.url}/v1/models`);
-    expect(response.status).toBe(404);
+    for (const [method, path] of [
+      ["GET", "/v1/files"],
+      ["POST", "/v1/models"],
+      ["GET", "/v1/messages"],
+    ] as const) {
+      const response = await fetch(`${server.url}${path}`, { method });
+      expect(response.status).toBe(404);
+    }
     expect(server.requests).toHaveLength(0);
+  });
+
+  test("lists its models page by page, as Anthropic does, without recording a call", async () => {
+    server = startFakeAnthropicServer(textReply("x"));
+    const first = await fetch(`${server.url}/v1/models?limit=3`);
+    expect(first.status).toBe(200);
+    const page = (await first.json()) as {
+      data: Array<{ id: string; display_name: string; type: string }>;
+      has_more: boolean;
+      last_id: string;
+    };
+    expect(page.data.map((model) => model.id)).toEqual([
+      "claude-sonnet-5",
+      "claude-opus-5",
+      "claude-haiku-5",
+    ]);
+    expect(page.data[0]?.display_name).toBe("Claude Sonnet 5");
+    expect(page.has_more).toBe(true);
+    const rest = (await (
+      await fetch(`${server.url}/v1/models?limit=3&after_id=${page.last_id}`)
+    ).json()) as { data: Array<{ id: string }>; has_more: boolean };
+    expect(rest.data.map((model) => model.id)).toEqual(["claude-sonnet-4-5"]);
+    expect(rest.has_more).toBe(false);
+    expect(server.requests).toHaveLength(0);
+  });
+
+  test("lists the models it is given", async () => {
+    server = startFakeAnthropicServer(textReply("x"), {
+      models: [{ id: "only-one", display_name: "Only One" }],
+    });
+    const listed = (await (await fetch(`${server.url}/v1/models`)).json()) as {
+      data: Array<{ id: string }>;
+    };
+    expect(listed.data.map((model) => model.id)).toEqual(["only-one"]);
   });
 });

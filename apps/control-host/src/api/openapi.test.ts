@@ -369,6 +369,7 @@ describe("OpenAPI document", () => {
         "/v1/installation/settings/connections/{id}/enable",
         "/v1/installation/settings/connections/{id}/impact",
         "/v1/installation/settings/connections/{id}/models",
+        "/v1/installation/settings/connections/{id}/models/discover",
         "/v1/installation/settings/export",
         "/v1/installation/settings/import",
         "/v1/installation/settings/mcp-servers",

@@ -1,20 +1,26 @@
-import { useQuery } from "@tanstack/react-query";
-import { unwrap } from "@werft-ai/client";
+import { queryOptions, useQuery } from "@tanstack/react-query";
+import { type ApiClient, ApiError, unwrap } from "@werft-ai/client";
 import type {
   CreateSettingsConnectionRequest,
+  DiscoverConnectionModelsResponse,
   SettingsConnection,
 } from "@werft-ai/contracts";
 import { useWerft } from "@werft-ai/react";
 import {
   Alert,
   AlertDescription,
+  Badge,
   Button,
+  Checkbox,
   Code,
   EmptyState,
   Field,
+  FieldContent,
   FieldDescription,
   FieldError,
   FieldLabel,
+  FieldLegend,
+  FieldSet,
   GridTable,
   GridTableCell,
   GridTableColumnHeader,
@@ -27,12 +33,13 @@ import {
   RowAction,
   Skeleton,
   Text,
-  Textarea,
 } from "@werft-ai/ui";
-import { Plus } from "lucide-react";
+import { Plus, RefreshCw } from "lucide-react";
 import { useState } from "react";
+import { scopedKey } from "../api/queries.ts";
+import { refusalText, useRole } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
-import { useI18n } from "../i18n/i18n.tsx";
+import { type Translate, useI18n } from "../i18n/i18n.tsx";
 import {
   credentialText,
   entryActions,
@@ -66,7 +73,7 @@ export function ModelConnections() {
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [adding, setAdding] = useState(false);
   const [judging, setJudging] = useState<SettingsConnection | null>(null);
-  const [listing, setListing] = useState<SettingsConnection | null>(null);
+  const [listing, setListing] = useState<string | null>(null);
   const rows = useRowActions("connection", setOutcome);
 
   return (
@@ -140,7 +147,7 @@ export function ModelConnections() {
                 }}
                 onModels={() => {
                   setOutcome(null);
-                  setListing(item);
+                  setListing(item.id);
                 }}
                 onDisable={() => rows.openDisable(item.id)}
                 onEnable={() => rows.openEnable(item.id)}
@@ -156,6 +163,7 @@ export function ModelConnections() {
         hosts={connections.data?.credential_hosts ?? null}
         defaults={connections.data?.endpoint_defaults ?? {}}
         onOutcome={setOutcome}
+        onCreated={setListing}
       />
       <AutoModeDialog
         item={judging}
@@ -163,7 +171,10 @@ export function ModelConnections() {
         onOutcome={setOutcome}
       />
       <ModelsDialog
-        item={listing}
+        // Keyed so each connection opens on its own saved list.
+        key={listing ?? ""}
+        id={listing}
+        item={connections.data?.items.find((item) => item.id === listing)}
         onClose={() => setListing(null)}
         onOutcome={setOutcome}
       />
@@ -397,33 +408,144 @@ function AutoModeDialog({
   );
 }
 
-/** One model per line or comma, trimmed, repeats dropped, in order. */
-function modelsOf(text: string): string[] {
-  return [
-    ...new Set(
-      text
-        .split(/[\n,]/)
-        .map((model) => model.trim())
-        .filter((model) => model !== ""),
-    ),
-  ];
+/** The server's cap on a connection's saved models. */
+const MAX_MODELS = 64;
+
+const DISCOVERY_REASONS = [
+  "credential_allowlist_unset",
+  "host_not_allowed",
+  "url_insecure",
+  "address_not_allowed",
+  "provider_unauthorized",
+  "provider_answered",
+  "provider_unreachable",
+  "provider_failed",
+  "credential_reflected",
+  "credential_unresolved",
+  "kind_unsupported",
+] as const;
+
+/**
+ * The client does not validate a 200, so a body of another shape (an older
+ * or newer server) fails here and reads as a failed load.
+ */
+function discoveredOf(body: unknown): DiscoverConnectionModelsResponse {
+  const answer = body as Partial<DiscoverConnectionModelsResponse> | null;
+  if (
+    answer === null ||
+    typeof answer !== "object" ||
+    !Array.isArray(answer.models) ||
+    !Array.isArray(answer.missing) ||
+    answer.models.some((model) => typeof model?.id !== "string")
+  ) {
+    throw new Error("unexpected model list");
+  }
+  return {
+    models: answer.models,
+    missing: answer.missing,
+    skipped: typeof answer.skipped === "number" ? answer.skipped : 0,
+    truncated: answer.truncated === true,
+  };
+}
+
+/** Read from the provider each time the dialog opens, never reused. */
+function connectionModelsQuery(
+  client: ApiClient,
+  id: string,
+  enabled: boolean,
+) {
+  return queryOptions({
+    queryKey: scopedKey(client, "connection-model-discovery", id),
+    queryFn: async () =>
+      discoveredOf(
+        await unwrap(
+          client.POST(
+            "/v1/installation/settings/connections/{id}/models/discover",
+            { params: { path: { id } } },
+          ),
+        ),
+      ),
+    enabled,
+    retry: false,
+    staleTime: 0,
+    gcTime: 0,
+  });
+}
+
+function discoveryFailure(
+  t: Translate,
+  error: unknown,
+  role: string | undefined,
+): string {
+  if (
+    !(error instanceof ApiError) ||
+    error.code === "CLIENT_CONTRACT_MISMATCH"
+  ) {
+    return t("settings.models.error.unknown");
+  }
+  const details = error.details as {
+    reason_code?: unknown;
+    provider_status?: unknown;
+  } | null;
+  const reason = details?.reason_code;
+  const known = DISCOVERY_REASONS.find((item) => item === reason);
+  if (known === "provider_answered") {
+    return t("settings.models.error.provider_answered", {
+      status:
+        typeof details?.provider_status === "number"
+          ? details.provider_status
+          : "?",
+    });
+  }
+  if (known !== undefined) return t(`settings.models.error.${known}`);
+  if (reason === "disabled" || reason === "needs_value") {
+    return t(`settings.error.${reason}`);
+  }
+  if (error.code === "NOT_FOUND" && reason === undefined) {
+    return t("settings.models.error.unknown");
+  }
+  return refusalText(t, error, "installation.settings.manage", role);
 }
 
 /**
- * The models an agent's card may name on a connection, one per line. A
- * session on a model taken off the list stops at its next model call.
+ * The models an agent's card may name on a connection, picked from what the
+ * provider lists. Saved models the provider no longer lists stay checked
+ * until unchecked; only saving changes the list.
  */
 function ModelsDialog({
+  id,
   item,
   onClose,
   onOutcome,
 }: {
-  readonly item: SettingsConnection | null;
+  readonly id: string | null;
+  /** The listed row, which may lag just after a create. */
+  readonly item: SettingsConnection | undefined;
   readonly onClose: () => void;
   readonly onOutcome: (outcome: Outcome) => void;
 }) {
   const { t } = useI18n();
+  const { client } = useWerft();
+  const role = useRole();
   const [error, setError] = useState<string | null>(null);
+  // Null until the owner toggles one, so the saved list shows through.
+  const [checked, setChecked] = useState<ReadonlySet<string> | null>(null);
+  const discovery = useQuery(
+    connectionModelsQuery(client, id ?? "", id !== null),
+  );
+  const saved = item?.models ?? [];
+  const picked = checked ?? new Set(saved);
+  const listed = discovery.isSuccess ? discovery.data.models : [];
+  const listedIds = new Set(listed.map((model) => model.id));
+  const unlisted = [
+    ...new Set([...saved, ...(discovery.data?.missing ?? [])]),
+  ].filter((model) => !listedIds.has(model));
+  const toggle = (model: string, on: boolean) => {
+    const next = new Set(picked);
+    if (on) next.add(model);
+    else next.delete(model);
+    setChecked(next);
+  };
   const save = useSettingsWrite(
     "connection",
     (client, variables: { readonly id: string; readonly models: string[] }) =>
@@ -448,9 +570,11 @@ function ModelsDialog({
     },
   );
 
+  const pickedCount = picked.size;
+
   return (
     <FormDialog
-      open={item !== null}
+      open={id !== null}
       onOpenChange={(next) => {
         if (next) return;
         setError(null);
@@ -462,27 +586,153 @@ function ModelsDialog({
       error={error}
       submitLabel={t("settings.models.save")}
       pendingLabel={t("settings.models.saving")}
-      onSubmit={(form) => {
-        if (item === null) return;
+      onSubmit={() => {
+        if (id === null) return;
         setError(null);
-        save.mutate({
-          id: item.id,
-          models: modelsOf(String(form.get("models") ?? "")),
-        });
+        if (pickedCount > MAX_MODELS) {
+          setError(
+            t("settings.models.tooMany", {
+              max: MAX_MODELS,
+              count: pickedCount,
+            }),
+          );
+          return;
+        }
+        // Saved ones keep their order; new picks follow in the provider's.
+        const kept = saved.filter((model) => picked.has(model));
+        const added = [...listed.map((model) => model.id), ...unlisted].filter(
+          (model) => picked.has(model) && !saved.includes(model),
+        );
+        save.mutate({ id, models: [...kept, ...added] });
       }}
     >
-      <Field>
-        <FieldLabel>{t("settings.models.label")}</FieldLabel>
-        {/* Keyed so each connection opens on its own stored list. */}
-        <Textarea
-          key={item?.id ?? ""}
-          name="models"
-          rows={5}
-          defaultValue={(item?.models ?? []).join("\n")}
-        />
-        <FieldDescription>{t("settings.models.hint")}</FieldDescription>
-      </Field>
+      <div className="grid grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-3 gap-y-1">
+        <Text as="span" variant="meta">
+          {t("settings.models.connection")}
+        </Text>
+        <Code className="wrap-anywhere">{id}</Code>
+        <Text as="span" variant="meta">
+          {t("settings.connections.endpoint")}
+        </Text>
+        {item === undefined ? (
+          <Skeleton width="60%" />
+        ) : (
+          <Code className="wrap-anywhere">{item.endpoint}</Code>
+        )}
+      </div>
+      <FieldSet className="w-full gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <FieldLegend variant="label" className="mb-0">
+            {t("settings.models.list")}
+          </FieldLegend>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            aria-disabled={discovery.isFetching || undefined}
+            onClick={() => {
+              if (!discovery.isFetching) void discovery.refetch();
+            }}
+          >
+            <RefreshCw aria-hidden="true" />
+            {t("settings.models.refresh")}
+          </Button>
+        </div>
+        {discovery.isFetching ? (
+          <Text as="span" variant="meta" role="status">
+            {t("settings.models.loading")}
+          </Text>
+        ) : discovery.isError ? (
+          <Alert variant="red" role="alert">
+            <AlertDescription>
+              {discoveryFailure(t, discovery.error, role)}
+            </AlertDescription>
+          </Alert>
+        ) : discovery.isSuccess ? (
+          <>
+            {listed.length === 0 ? (
+              <FieldDescription>{t("settings.models.empty")}</FieldDescription>
+            ) : null}
+            {discovery.data.skipped > 0 ? (
+              <FieldDescription>
+                {t("settings.models.skipped", {
+                  count: discovery.data.skipped,
+                })}
+              </FieldDescription>
+            ) : null}
+            {discovery.data.truncated ? (
+              <FieldDescription>
+                {t("settings.models.truncated")}
+              </FieldDescription>
+            ) : null}
+          </>
+        ) : null}
+        <div className="flex max-h-72 flex-col gap-2 overflow-y-auto">
+          {discovery.isSuccess && !discovery.isFetching
+            ? listed.map((model) => (
+                <ModelChoice
+                  key={model.id}
+                  id={model.id}
+                  name={model.display_name}
+                  checked={picked.has(model.id)}
+                  onChange={(on) => toggle(model.id, on)}
+                />
+              ))
+            : null}
+          {unlisted.map((model) => (
+            <ModelChoice
+              key={model}
+              id={model}
+              name={null}
+              checked={picked.has(model)}
+              onChange={(on) => toggle(model, on)}
+              notListed={discovery.isSuccess && !discovery.isFetching}
+            />
+          ))}
+        </div>
+        {unlisted.length > 0 && discovery.isSuccess && !discovery.isFetching ? (
+          <FieldDescription>
+            {t("settings.models.notListedHint")}
+          </FieldDescription>
+        ) : null}
+        <FieldDescription>
+          {t("settings.models.count", { count: pickedCount, max: MAX_MODELS })}
+        </FieldDescription>
+      </FieldSet>
     </FormDialog>
+  );
+}
+
+function ModelChoice({
+  id,
+  name,
+  checked,
+  onChange,
+  notListed = false,
+}: {
+  readonly id: string;
+  readonly name: string | null;
+  readonly checked: boolean;
+  readonly onChange: (checked: boolean) => void;
+  readonly notListed?: boolean;
+}) {
+  const { t } = useI18n();
+  return (
+    <Field orientation="horizontal">
+      <Checkbox
+        checked={checked}
+        onCheckedChange={(next) => onChange(next === true)}
+      />
+      <FieldContent>
+        <FieldLabel className="flex flex-wrap items-center gap-2">
+          {name === null || name === id ? null : name}
+          <Code className="wrap-anywhere">{id}</Code>
+          {notListed ? (
+            <Badge variant="amber">{t("settings.models.notListed")}</Badge>
+          ) : null}
+        </FieldLabel>
+      </FieldContent>
+    </Field>
   );
 }
 
@@ -515,6 +765,7 @@ function AddConnection({
   hosts,
   defaults,
   onOutcome,
+  onCreated,
 }: {
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
@@ -523,6 +774,8 @@ function AddConnection({
   /** The endpoint each kind takes when left empty, by kind. */
   readonly defaults: Readonly<Record<string, string>>;
   readonly onOutcome: (outcome: Outcome) => void;
+  /** Opens the new connection's models, read from its provider. */
+  readonly onCreated: (id: string) => void;
 }) {
   const { t } = useI18n();
   const [kind, setKind] = useState<ConnectionKind>("anthropic");
@@ -550,6 +803,8 @@ function AddConnection({
           kind: "notice",
           text: t("settings.done.created", { id: answer.id }),
         });
+        // An achievement judge's connection has no models to pick.
+        if (kind !== "openai_decisions") onCreated(answer.id);
       },
       onRefused: setError,
     },

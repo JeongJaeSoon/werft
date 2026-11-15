@@ -4531,6 +4531,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/installation/settings/connections/{id}/models/discover": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Read the models a connection's provider lists now
+         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Asks the provider behind the connection, with the connection's own key, which models it serves: `GET /v1/models` on the endpoint (Anthropic page by page with `anthropic-version`; OpenAI without the families an agent cannot talk to, such as embeddings, speech and images, counted in `skipped`; LiteLLM as listed). Answers the ids in the provider's order, Anthropic's `display_name`, which ones the connection already saves (`selected`), and the saved ones the provider no longer lists (`missing`). Writes nothing and no receipt: saving stays `POST /v1/installation/settings/connections/{id}/models`. The key, the request's headers and the provider's body never come back or reach the log. The endpoint's host:port must be on the API's `EGRESS_CREDENTIAL_ALLOWLIST` or `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` and https unless on the private one: else 400 `credential_allowlist_unset`, `host_not_allowed` or `url_insecure`; an address the outbound policy refuses is 400 `address_not_allowed`. The provider refusing the key is 400 `provider_unauthorized`; any other non-2xx answer below 500, a redirect included, is 400 `provider_answered` (`details.provider_status`); a provider that sends the key back is 400 `credential_reflected`. Unreachable or 5xx is 503 `provider_unreachable`, an unreadable list 503 `provider_failed`, a credential this replica has not resolved yet 503 `credential_unresolved`. A disabled connection is 409 `disabled`, one without its value 409 `needs_value`, an `openai_decisions` one 409 `kind_unsupported`; an id the console does not hold is 404.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        post: operations["discoverSettingsConnectionModels"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/installation/settings/connections/{id}/disable": {
         parameters: {
             query?: never;
@@ -9938,6 +9960,16 @@ export interface components {
             agent_count: number;
             session_count: number;
             judge_used: boolean;
+        };
+        DiscoverConnectionModelsResponse: {
+            models: {
+                id: string;
+                display_name: string | null;
+                selected: boolean;
+            }[];
+            missing: string[];
+            skipped: number;
+            truncated: boolean;
         };
         AgentDetail: {
             agent: {
@@ -44539,6 +44571,161 @@ export interface operations {
                 };
             };
             /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REVISION_CONFLICT";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    discoverSettingsConnectionModels: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
+            };
+            path: {
+                /** @description The model connection's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The provider's models, marked against the saved list. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "models": [
+                     *         {
+                     *           "id": "claude-sonnet-5",
+                     *           "display_name": "Claude Sonnet 5",
+                     *           "selected": true
+                     *         },
+                     *         {
+                     *           "id": "claude-haiku-5",
+                     *           "display_name": "Claude Haiku 5",
+                     *           "selected": false
+                     *         }
+                     *       ],
+                     *       "missing": [
+                     *         "claude-sonnet-4-5"
+                     *       ],
+                     *       "skipped": 0,
+                     *       "truncated": false
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DiscoverConnectionModelsResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: . Fix the request before retrying. */
             400: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];

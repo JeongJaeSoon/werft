@@ -1,5 +1,17 @@
 import { describe, expect, test } from "bun:test";
-import { WorkspaceMcpOutboundError } from "@werft-ai/platform";
+import {
+  listProviderModels,
+  ModelDiscoveryError,
+  WorkspaceMcpOutboundError,
+} from "@werft-ai/platform";
+import {
+  startFakeAnthropicServer,
+  textReply,
+} from "@werft-ai/testkit/fake-anthropic";
+import {
+  startFakeResponsesServer,
+  textResponse,
+} from "@werft-ai/testkit/fake-responses";
 import { OidcUnavailableError } from "./oidc/errors.ts";
 import type { NetworkPolicy, PinnedRequest } from "./oidc/provider-http.ts";
 import {
@@ -165,5 +177,96 @@ describe("workspaceMcpRedirectUri", () => {
       "https://console.example.com/settings/workspace/mcp-servers/abc/callback",
     );
     expect(workspaceMcpRedirectUri(null, "abc")).toBeNull();
+  });
+});
+
+describe("a connection's model list over the outbound policy", () => {
+  const KEY = "example-model-key";
+  const ref = { stored: "connection:fake" } as const;
+  const privateTo = (url: string) =>
+    workspaceMcpHostsFromEnv({
+      EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: new URL(url).host,
+    });
+
+  test("reads every page of the fake Anthropic list with the key it was given", async () => {
+    const server = startFakeAnthropicServer(textReply("x"), {
+      models: Array.from({ length: 1205 }, (_, index) => ({
+        id: `claude-${index}`,
+        display_name: `Claude ${index}`,
+      })),
+    });
+    try {
+      const listed = await listProviderModels(
+        {
+          kind: "anthropic",
+          endpoint: server.url,
+          auth: { kind: "api_key", value: KEY, ref },
+        },
+        workspaceMcpOutbound(privateTo(server.url)),
+      );
+      expect(listed.models).toHaveLength(1000);
+      expect(listed.truncated).toBe(true);
+      expect(listed.models[0]).toEqual({
+        id: "claude-0",
+        display_name: "Claude 0",
+      });
+    } finally {
+      server.stop();
+    }
+  });
+
+  test("reads the fake OpenAI list with a bearer key, leaving out what no agent talks to", async () => {
+    const server = startFakeResponsesServer(textResponse("ok"));
+    try {
+      const listed = await listProviderModels(
+        {
+          kind: "openai_responses",
+          endpoint: `${server.url}/`,
+          auth: { kind: "api_key", value: KEY, ref },
+        },
+        workspaceMcpOutbound(privateTo(server.url)),
+      );
+      expect(listed).toEqual({
+        models: [
+          { id: "gpt-5.5", display_name: null },
+          { id: "o4-mini", display_name: null },
+        ],
+        skipped: 4,
+        truncated: false,
+      });
+      expect(server.requests[0]?.headers.authorization).toBe(`Bearer ${KEY}`);
+    } finally {
+      server.stop();
+    }
+  });
+
+  test("a loopback provider off the private list is never called", async () => {
+    const server = startFakeResponsesServer(textResponse("ok"));
+    try {
+      let refused: unknown;
+      try {
+        await listProviderModels(
+          {
+            kind: "openai_responses",
+            endpoint: server.url,
+            auth: { kind: "api_key", value: KEY, ref },
+          },
+          workspaceMcpOutbound(
+            workspaceMcpHostsFromEnv({
+              EGRESS_CREDENTIAL_ALLOWLIST: new URL(server.url).host,
+            }),
+          ),
+        );
+      } catch (error) {
+        refused = error;
+      }
+      expect(refused instanceof ModelDiscoveryError).toBe(true);
+      expect((refused as ModelDiscoveryError).reason).toBe(
+        "address_not_allowed",
+      );
+      expect(server.requests).toHaveLength(0);
+    } finally {
+      server.stop();
+    }
   });
 });

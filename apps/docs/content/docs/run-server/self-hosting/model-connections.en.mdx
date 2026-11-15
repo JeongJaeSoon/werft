@@ -24,10 +24,14 @@ You need an owner login, a key for the model or a private model endpoint, and th
 <a id="1-콘솔-연결과-모델-목록" />
 ### 1. Console connections and model lists
 
-A session calls its model through the model connection its agent release chose. A connection needs a key and the list of models agents may pick. Signed in as owner:
+A session calls its model through the model connection its agent release chose. A connection needs a key and the list of models in use. Signed in as owner:
 
-1. In **Settings > Agent connections > Model connections**, choose **Add connection**. Use kind `anthropic`, keep the default address (`https://api.anthropic.com`), paste the Anthropic key, and save. The key is sealed in the database; the console shows only its last four characters.
-2. On the same row, under **Models**, enter the model names agents may use (for example `claude-sonnet-5`) and save. When a model taken off the list has a later version of its series on the list, agents and sessions on it move to that one (`model_families`).
+1. In **Settings > Agent connections > Model connections**, choose **Add connection**. Use kind `anthropic`, keep the default address (`https://api.anthropic.com`), paste the Anthropic key, and choose **Create**. The key is sealed in the database; the console shows only its last four characters.
+2. Once it is made, the **Models in use** dialog opens and the server reads the provider's model list (`GET /v1/models`) with that key. The dialog shows the connection's id and address. Check the models to use (for example `claude-sonnet-5`) and choose **Save models**. To change them later, choose **Models** on the same row; **Refresh list** reads the list again. A connection holds up to 64 models.
+   - On an OpenAI connection, models no agent runs on (embeddings, speech, images and the like) are left out. LiteLLM shows the list its proxy returns as it is.
+   - A saved model the provider no longer lists stays checked and is marked **Not listed**. Nothing drops it on its own; uncheck it and save.
+   - The server sends the key only to hosts on the egress credential allowlist (`EGRESS_CREDENTIAL_ALLOWLIST`, or `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` for a private server). When the allowlist is empty, the host is not on it, or the provider refuses the key or cannot be reached, the dialog says which. The saved list can still be saved when the list cannot be read. Neither the key nor the provider's answer body appears in a response or a log.
+   - When a model taken off the list has a later version of its series on the list, agents and sessions on it move to that one (`model_families`).
 3. Under **Auto mode**, say whether the auto-mode classifier works on the connection. With `supported` (or an Anthropic connection nobody judged), new releases run the `auto` permission mode; otherwise `default`.
 4. When you create an agent, choose this connection in the **Release** step ([Create](/agents/create)).
 

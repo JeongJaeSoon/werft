@@ -45,6 +45,7 @@ import {
   deleteWorkspaceMcpServerResponseSchema,
   disableLoginProviderResponseSchema,
   disconnectWorkspaceMcpServerResponseSchema,
+  discoverConnectionModelsResponseSchema,
   discoverLoginProviderResponseSchema,
   discoverWorkspaceMcpServerResponseSchema,
   dispatchWorkflowResponseSchema,
@@ -496,6 +497,8 @@ export const responseSchemas = {
     settingsChangeResponseSchema,
   "POST /v1/installation/settings/connections/{id}/models":
     settingsChangeResponseSchema,
+  "POST /v1/installation/settings/connections/{id}/models/discover":
+    discoverConnectionModelsResponseSchema,
   "POST /v1/installation/settings/connections/{id}/disable":
     settingsChangeResponseSchema,
   "POST /v1/installation/settings/connections/{id}/enable":

@@ -1,6 +1,7 @@
 import {
   createSettingsConnectionRequestSchema,
   createSettingsMcpServerRequestSchema,
+  discoverConnectionModelsResponseSchema,
   exportSettingsResponseSchema,
   importSettingsQuerySchema,
   importSettingsResponseSchema,
@@ -187,6 +188,18 @@ export function registerSettingsConsoleRoutes(
       settings.setConnectionModels(context.get("caller"), id, body),
     );
     return jsonWithSchema(context, settingsChangeResponseSchema, changed);
+  });
+
+  apiRoute(router, "discoverSettingsConnectionModels", async (context) => {
+    const { id } = requireParams(context, settingsIdParamsSchema);
+    const listed = await mapped(() =>
+      settings.discoverConnectionModels(context.get("caller"), id),
+    );
+    return jsonWithSchema(
+      context,
+      discoverConnectionModelsResponseSchema,
+      listed,
+    );
   });
 
   apiRoute(router, "setSettingsMcpServer", async (context) => {

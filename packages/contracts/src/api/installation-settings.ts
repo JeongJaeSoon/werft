@@ -245,6 +245,37 @@ export const settingsConnectionImpactResponseSchema = z
 export type SettingsConnectionImpactResponse = z.infer<
   typeof settingsConnectionImpactResponseSchema
 >;
+
+/**
+ * The models the provider behind one connection lists now, read with the
+ * connection's own key. Nothing is written: saving stays
+ * `setConnectionModelsRequestSchema`'s.
+ */
+export const discoverConnectionModelsResponseSchema = z
+  .object({
+    /** In the provider's order, repeats dropped. */
+    models: z.array(
+      z
+        .object({
+          id: z.string().min(1).max(128),
+          display_name: z.string().min(1).nullable(),
+          /** Already in the connection's saved `models`. */
+          selected: z.boolean(),
+        })
+        .strict(),
+    ),
+    /** Saved models the provider no longer lists, in their saved order. */
+    missing: z.array(z.string().min(1)),
+    /** Listed entries left out: not a model an agent talks to, or an id too long. */
+    skipped: z.number().int().nonnegative(),
+    /** The provider had more than one read takes in. */
+    truncated: z.boolean(),
+  })
+  .strict();
+
+export type DiscoverConnectionModelsResponse = z.infer<
+  typeof discoverConnectionModelsResponseSchema
+>;
 export type SettingsEntryOrigin = z.infer<typeof settingsEntryOriginSchema>;
 export type SettingsEntryState = z.infer<typeof settingsEntryStateSchema>;
 export type SettingsCredentialView = z.infer<
