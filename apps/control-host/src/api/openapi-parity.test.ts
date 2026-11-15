@@ -45,6 +45,7 @@ import type {
   SurfaceBindingService,
   TeamService,
   UsageService,
+  WorkspaceMcpService,
 } from "@werft-ai/platform";
 import { createApiApp } from "./app.ts";
 import type { BootstrapGate } from "./auth.ts";
@@ -92,6 +93,7 @@ import { registerLinkedAccountRoutes } from "./routes/musterrolle/linked-account
 import { registerMemberRoutes } from "./routes/musterrolle/members.ts";
 import { registerSessionShareRoutes } from "./routes/musterrolle/session-shares.ts";
 import { registerTeamRoutes } from "./routes/musterrolle/teams.ts";
+import { registerWorkspaceMcpServerRoutes } from "./routes/musterrolle/workspace-mcp-servers.ts";
 import {
   registerWorkspaceRoutes,
   type WorkspaceRouteDeps,
@@ -189,6 +191,7 @@ function apiApp() {
       registerAgentCallerLimitsRoutes(router, {} as AgentCallerLimitsService);
       registerCredentialBindingRoutes(router, {} as CredentialBindingService);
       registerEnvVariableRoutes(router, {} as EnvVariableService);
+      registerWorkspaceMcpServerRoutes(router, {} as WorkspaceMcpService);
       registerPauseRoutes(router, {} as SessionService);
       registerCloseRoutes(router, {} as SessionService);
       registerUsageRoutes(router, {} as UsageService);

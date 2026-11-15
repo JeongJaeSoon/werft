@@ -232,6 +232,13 @@ export const RECEIPT_OPERATION_VALUES = [
   // Installation settings by key: each changed key's value and the one
   // before it.
   "update_installation_config",
+  // A workspace's remote MCP servers. The server's id and name and the
+  // connection's generation; of a static token the last four characters.
+  "create_workspace_mcp_server",
+  "delete_workspace_mcp_server",
+  "set_workspace_mcp_credential",
+  "connect_workspace_mcp_server",
+  "disconnect_workspace_mcp_server",
 ] as const;
 
 export const receiptStatusSchema = z.enum(RECEIPT_STATUS_VALUES);

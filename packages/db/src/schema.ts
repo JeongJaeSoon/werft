@@ -66,6 +66,8 @@ import type {
   SlackOutboxBody,
   SlackOutboxKind,
   SlackOutboxStatus,
+  WorkspaceMcpOAuthPin,
+  WorkspaceMcpTool,
 } from "@werft-ai/platform";
 import { sql } from "drizzle-orm";
 import {
@@ -3802,6 +3804,111 @@ export const agentMcpSettings = pgTable(
     check(
       "agent_mcp_settings_server_check",
       sql`${table.server} IS NULL OR ${table.server} ~ '^[a-z0-9](?:[a-z0-9-]|_(?!_)){0,31}$'`,
+    ),
+  ],
+);
+
+// A remote MCP server a workspace registered (decision mcp-credentials.md
+// 2). `url` and `auth_kind` never change: delete and register again. The
+// credential is the connection's, below, and its values are secrets.
+export const workspaceMcpServers = pgTable(
+  "workspace_mcp_servers",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text().notNull(),
+    url: text().notNull(),
+    authKind: text("auth_kind").$type<"oauth" | "bearer">().notNull(),
+    oauth: jsonb().$type<WorkspaceMcpOAuthPin>(),
+    tools: jsonb().$type<WorkspaceMcpTool[]>().notNull().default([]),
+    toolsSkipped: integer("tools_skipped").notNull().default(0),
+    toolsReadAt: timestamp("tools_read_at", { withTimezone: true }),
+    /** No foreign key: the row outlives the account. */
+    createdByUserId: uuid("created_by_user_id"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    unique("workspace_mcp_servers_name_uniq").on(table.workspaceId, table.name),
+    check(
+      "workspace_mcp_servers_name_check",
+      sql`${table.name} ~ '^[a-z0-9](?:[a-z0-9-]|_(?!_)){0,31}$' AND ${table.name} NOT IN ('github', 'browser')`,
+    ),
+    check(
+      "workspace_mcp_servers_auth_kind_check",
+      sql`${table.authKind} IN ('oauth', 'bearer')`,
+    ),
+    check(
+      "workspace_mcp_servers_oauth_check",
+      sql`(${table.authKind} = 'oauth') = (${table.oauth} IS NOT NULL)`,
+    ),
+    check(
+      "workspace_mcp_servers_tools_check",
+      sql`jsonb_typeof(${table.tools}) = 'array' AND jsonb_array_length(${table.tools}) <= 200 AND ${table.toolsSkipped} >= 0`,
+    ),
+  ],
+);
+
+// The credential a server's calls go with, one per subject (decision 1):
+// only the workspace's own for now. A sign-in in progress is the pending_*
+// columns; its PKCE verifier and the tokens are secrets of owner
+// `workspace_mcp:<server id>:<subject>`.
+export const workspaceMcpConnections = pgTable(
+  "workspace_mcp_connections",
+  {
+    serverId: uuid("server_id")
+      .notNull()
+      .references(() => workspaceMcpServers.id, { onDelete: "cascade" }),
+    subject: text().notNull(),
+    state: text()
+      .$type<"none" | "active" | "needs_reauth">()
+      .notNull()
+      .default("none"),
+    reauthReason: text("reauth_reason").$type<
+      "invalid_grant" | "invalid_client" | "scope_widened" | "expired"
+    >(),
+    generation: integer().notNull().default(0),
+    pendingFlowId: uuid("pending_flow_id"),
+    pendingStateSha256: bytea("pending_state_sha256"),
+    /** No foreign key: the row outlives the account. */
+    pendingStartedByUserId: uuid("pending_started_by_user_id"),
+    pendingExpiresAt: timestamp("pending_expires_at", { withTimezone: true }),
+    connectedByUserId: uuid("connected_by_user_id"),
+    connectedAt: timestamp("connected_at", { withTimezone: true }),
+    accessExpiresAt: timestamp("access_expires_at", { withTimezone: true }),
+    grantedScope: text("granted_scope"),
+    refreshFailedAt: timestamp("refresh_failed_at", { withTimezone: true }),
+  },
+  (table) => [
+    primaryKey({
+      name: "workspace_mcp_connections_pk",
+      columns: [table.serverId, table.subject],
+    }),
+    index("workspace_mcp_connections_connected_by_idx").on(
+      table.connectedByUserId,
+    ),
+    check(
+      "workspace_mcp_connections_subject_check",
+      sql`${table.subject} = 'workspace'`,
+    ),
+    check(
+      "workspace_mcp_connections_state_check",
+      sql`${table.state} IN ('none', 'active', 'needs_reauth')`,
+    ),
+    check(
+      "workspace_mcp_connections_reauth_check",
+      sql`(${table.state} = 'needs_reauth') = (${table.reauthReason} IS NOT NULL) AND (${table.reauthReason} IS NULL OR ${table.reauthReason} IN ('invalid_grant', 'invalid_client', 'scope_widened', 'expired'))`,
+    ),
+    check(
+      "workspace_mcp_connections_pending_check",
+      sql`(${table.pendingFlowId} IS NULL) = (${table.pendingStateSha256} IS NULL) AND (${table.pendingFlowId} IS NULL) = (${table.pendingStartedByUserId} IS NULL) AND (${table.pendingFlowId} IS NULL) = (${table.pendingExpiresAt} IS NULL)`,
+    ),
+    check(
+      "workspace_mcp_connections_connected_check",
+      sql`${table.state} = 'none' OR ${table.connectedAt} IS NOT NULL`,
     ),
   ],
 );

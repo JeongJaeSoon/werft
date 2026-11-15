@@ -17,6 +17,8 @@ import {
 export type SecretOwner =
   | { kind: "workspace" }
   | { kind: "slack_app" | "github_app"; id: string }
+  /** A workspace MCP server's connection: `<server id>:<subject>`. */
+  | { kind: "workspace_mcp"; id: string }
   | { kind: InstallationOwnerKind; id: string };
 
 const INSTALLATION_OWNER_KINDS = [
@@ -36,6 +38,7 @@ export type SecretOwnerRef =
   | "workspace"
   | `slack_app:${string}`
   | `github_app:${string}`
+  | `workspace_mcp:${string}`
   | `${InstallationOwnerKind}:${string}`;
 
 /** An owner that is the installation's: no workspace route may name it. */

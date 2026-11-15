@@ -15,4 +15,12 @@ export const ACCEPTED: readonly {
   problem: string;
   why: string;
   proof: string;
-}[] = [];
+}[] = [
+  {
+    problem:
+      'error $.error.code: the receiver refuses "MCP_SERVER_QUOTA_EXCEEDED"',
+    why: "Only POST /v1/workspace/mcp-servers answers it, a console-session route no worker calls; no worker route reaches the workspace MCP service.",
+    proof:
+      "apps/control-host/src/api/routes/musterrolle/workspace-mcp-servers.test.ts",
+  },
+];

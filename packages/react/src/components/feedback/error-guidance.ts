@@ -128,6 +128,8 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
   VARIABLE_VALUE_TOO_LARGE: "값이 너무 커요 — 48 KB 이하로 줄이세요.",
   VARIABLE_QUOTA_EXCEEDED:
     "변수를 더 만들 수 없어요 — 쓰지 않는 변수를 지운 뒤 다시 시도하세요.",
+  MCP_SERVER_QUOTA_EXCEEDED:
+    "MCP 서버를 더 등록할 수 없어요 — 쓰지 않는 서버를 지운 뒤 다시 시도하세요.",
   VARIABLE_UNRESOLVED:
     "이 에이전트가 쓰는 변수를 지금 받을 수 없어요 — 워크스페이스 관리자에게 문의하세요.",
   SECRET_ACK_REQUIRED:
@@ -286,6 +288,8 @@ const ERROR_GUIDANCE_EN: Record<ApiErrorCode, string> = {
     "The value is too large — keep it to 48 KB or less.",
   VARIABLE_QUOTA_EXCEEDED:
     "No more variables can be added — delete one you don't use, then try again.",
+  MCP_SERVER_QUOTA_EXCEEDED:
+    "No more MCP servers can be added — delete one you don't use, then try again.",
   VARIABLE_UNRESOLVED:
     "A variable this agent uses can't be delivered right now — ask a workspace administrator.",
   SECRET_ACK_REQUIRED:
@@ -461,6 +465,8 @@ const ERROR_GUIDANCE_JA: Record<ApiErrorCode, string> = {
   VARIABLE_VALUE_TOO_LARGE: "値が大きすぎます — 48 KB 以下にしてください。",
   VARIABLE_QUOTA_EXCEEDED:
     "これ以上変数を追加できません — 使っていない変数を削除してからやり直してください。",
+  MCP_SERVER_QUOTA_EXCEEDED:
+    "これ以上 MCP サーバーを登録できません — 使っていないサーバーを削除してからやり直してください。",
   VARIABLE_UNRESOLVED:
     "このエージェントが使う変数を今は渡せません — ワークスペースの管理者に連絡してください。",
   SECRET_ACK_REQUIRED:

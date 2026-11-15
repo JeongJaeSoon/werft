@@ -10,6 +10,12 @@ import {
 
 const REFUSE: NetworkPolicy = { plainHttp: "refuse" };
 const LOOPBACK: NetworkPolicy = { plainHttp: "loopback" };
+const NARROW: NetworkPolicy = {
+  plainHttp: "refuse",
+  privateHosts: ["mcp.lan:8080"],
+};
+// The narrow policy ignores plainHttp, so "loopback" grants nothing there.
+const NARROW_LOOPBACK: NetworkPolicy = { ...NARROW, plainHttp: "loopback" };
 
 describe("endpointProblem", () => {
   const cases: [unknown, NetworkPolicy, ReturnType<typeof endpointProblem>][] =
@@ -30,6 +36,11 @@ describe("endpointProblem", () => {
       ["/token", LOOPBACK, "invalid_url"],
       [undefined, LOOPBACK, "invalid_url"],
       [42, LOOPBACK, "invalid_url"],
+      ["http://mcp.lan:8080/mcp", NARROW, null],
+      ["http://MCP.LAN:8080/mcp", NARROW, null],
+      ["http://mcp.lan/mcp", NARROW, "insecure_endpoint"],
+      ["http://localhost:8080/mcp", NARROW_LOOPBACK, "insecure_endpoint"],
+      ["https://mcp.example/mcp", NARROW, null],
     ];
   for (const [value, policy, expected] of cases) {
     test(`${String(value)} under ${policy.plainHttp} is ${expected ?? "allowed"}`, () => {
@@ -138,7 +149,7 @@ describe("provider request", () => {
       { method: "POST", headers: { Accept: "application/json" }, body: "x=1" },
       REFUSE,
     );
-    expect(response).toEqual({ status: 200, text: "ok" });
+    expect(response).toMatchObject({ status: 200, text: "ok" });
     expect(sent).toHaveLength(1);
     expect(sent[0]?.url).toBe("https://203.0.114.7:8443/token?a=1");
     expect(sent[0]?.init).toMatchObject({
@@ -206,6 +217,47 @@ describe("provider request", () => {
     });
   }
 
+  describe("the narrow policy for a URL a workspace admin chose", () => {
+    const narrow = (address: string) =>
+      harness({
+        "mcp.example": [{ address, family: 4 }],
+        "mcp.lan": [{ address, family: 4 }],
+      });
+
+    test("a private or loopback answer is refused for a host off the private list", async () => {
+      for (const address of ["10.20.30.40", "127.0.0.1"]) {
+        const { request, sent } = narrow(address);
+        expect(
+          await refusal(request("https://mcp.example/mcp", {}, NARROW)),
+        ).toBe("address_not_allowed");
+        expect(sent).toHaveLength(0);
+      }
+    });
+
+    test("a host on the private list may resolve to a private address over http", async () => {
+      const { request, sent } = narrow("10.20.30.40");
+      await request("http://mcp.lan:8080/mcp", {}, NARROW);
+      expect(sent[0]?.url).toBe("http://10.20.30.40:8080/mcp");
+    });
+
+    test("the private list does not lift the link-local refusal", async () => {
+      const { request, sent } = narrow("169.254.169.254");
+      expect(
+        await refusal(request("http://mcp.lan:8080/mcp", {}, NARROW)),
+      ).toBe("address_not_allowed");
+      expect(sent).toHaveLength(0);
+    });
+
+    test("the answer carries its headers", async () => {
+      const { request } = harness(
+        { "mcp.example": [{ address: "203.0.114.7", family: 4 }] },
+        () => new Response("{}", { headers: { "Mcp-Session-Id": "s-1" } }),
+      );
+      const response = await request("https://mcp.example/mcp", {}, NARROW);
+      expect(response.headers.get("mcp-session-id")).toBe("s-1");
+    });
+  });
+
   test("a plain-http or malformed URL is refused before the name is resolved", async () => {
     const { request, sent } = harness({});
     for (const url of [
@@ -243,7 +295,7 @@ describe("provider request", () => {
         return new Response("v4");
       },
     );
-    expect(await request("https://idp.example/x", {}, REFUSE)).toEqual({
+    expect(await request("https://idp.example/x", {}, REFUSE)).toMatchObject({
       status: 200,
       text: "v4",
     });
