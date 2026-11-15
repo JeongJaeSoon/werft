@@ -2312,21 +2312,49 @@ describe("session runtime", () => {
     );
   });
 
-  test("sends a message with Ctrl+Enter and names the turn it became", async () => {
+  test("a message sent with Ctrl+Enter shows in the chat before any event, its notice only announced", async () => {
     const user = await setupUser();
+    const queued = {
+      turn_id: "2",
+      session_id: SESSION_ID,
+      status: "queued",
+      message: "next step",
+      channel: "web",
+      created_by: null,
+      slack_permalink: null,
+      terminal_reason: null,
+      checkpoint_revision: null,
+      created_at: AT,
+      started_at: null,
+      ended_at: null,
+    };
+    let turns: (typeof queued)[] = [];
     const { api } = renderAt(`/sessions/${SESSION_ID}`, {
       ...detailRoutes,
-      [`POST /v1/sessions/${SESSION_ID}/messages`]: () =>
-        json(202, {
+      [`GET /v1/sessions/${SESSION_ID}/turns`]: () =>
+        json(200, { items: turns, next_cursor: null }),
+      [`POST /v1/sessions/${SESSION_ID}/messages`]: () => {
+        turns = [queued];
+        return json(202, {
           turn_id: "2",
           receipt_id: RECEIPT_ID,
           receipt_status: "accepted",
-        }),
+        });
+      },
     });
+    await waitFor(() => expect(stream.requests).toHaveLength(1));
+    await act(async () => stream.open());
     await screen.findByText("권한 요청: Bash");
     await user.click(await screen.findByRole("textbox", { name: "다음 지시" }));
     await user.keyboard("next step{Control>}{Enter}{/Control}");
-    expect(await screen.findByText("메시지를 보냈습니다(턴 2).")).toBeTruthy();
+    // No worker has started the turn, so no event names it.
+    const bubble = (await screen.findByText("next step")).closest(
+      "[data-slot='chat-message']",
+    );
+    expect(bubble?.getAttribute("data-side")).toBe("self");
+    const notice = await screen.findByText("메시지를 보냈습니다.");
+    expect(notice.tagName).toBe("OUTPUT");
+    expect(notice.classList.contains("sr-only")).toBe(true);
     const post = api.calls.find((call) => call.method === "POST");
     expect(post?.path).toBe(`/v1/sessions/${SESSION_ID}/messages`);
     expect(post?.body).toEqual({ message: "next step", mode: "enqueue" });
@@ -2379,9 +2407,7 @@ describe("session runtime", () => {
           receipt_status: "accepted",
         }),
       );
-      expect(
-        await screen.findByText("메시지를 보냈습니다(턴 2)."),
-      ).toBeTruthy();
+      expect(await screen.findByText("메시지를 보냈습니다.")).toBeTruthy();
     };
     return { accept, answer };
   }
@@ -2448,9 +2474,10 @@ describe("session runtime", () => {
   test("a message accepted after the session paused hands the keyboard to its notice", async () => {
     const { accept } = await sendThenPause();
     await accept();
-    expect(document.activeElement?.textContent).toBe(
-      "메시지를 보냈습니다(턴 2).",
-    );
+    const notice = document.activeElement as HTMLElement;
+    expect(notice.textContent).toBe("메시지를 보냈습니다.");
+    // Focus lands on it, so it is drawn.
+    expect(notice.classList.contains("sr-only")).toBe(false);
   });
 
   test("a message refused after the session paused says why on the notice it focuses", async () => {
