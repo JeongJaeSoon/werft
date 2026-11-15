@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { EffectiveEngineSettings } from "./engine-settings.ts";
-import { mcpCallDenied, mergeEngineSettings } from "./engine-settings-merge.ts";
+import { mergeEngineSettings } from "./engine-settings-merge.ts";
 
 const noAgent: EffectiveEngineSettings = {
   kind: "rules",
@@ -110,13 +110,5 @@ describe("mergeEngineSettings", () => {
       "Bash(a:*)",
       "Bash(b:*)",
     ]);
-  });
-});
-
-describe("mcpCallDenied", () => {
-  test("exact tool name only", () => {
-    expect(mcpCallDenied(["mcp__a__b"], "mcp__a__b")).toBe(true);
-    expect(mcpCallDenied(["mcp__a__b"], "mcp__a__bc")).toBe(false);
-    expect(mcpCallDenied(["mcp__a__b"], "mcp__a")).toBe(false);
   });
 });

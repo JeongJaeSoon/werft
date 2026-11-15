@@ -1,6 +1,10 @@
 import { MCP_TOOL_PREFIX } from "../kollegium/agents.ts";
 import { RUNTIME_SUBAGENT_TOOL } from "../shared/runtime-kind.ts";
-import { isMcpToolName, type ToolCatalogView } from "./tool-names.ts";
+import {
+  isMcpServerWildcard,
+  isMcpToolName,
+  type ToolCatalogView,
+} from "./tool-names.ts";
 
 /**
  * The deny rules a workspace or an agent may write, in the engine's own
@@ -10,10 +14,11 @@ import { isMcpToolName, type ToolCatalogView } from "./tool-names.ts";
  * - a whole built-in tool by its catalog name (`WebSearch`), an older name
  *   stored as the current one;
  * - `Bash(<prefix>)`, `Read(<path>)`, `Edit(<path>)`, `WebFetch(domain:<host>)`;
- * - a whole `mcp__<server>__<tool>` name, which the platform's MCP path
- *   enforces and the engine is never given.
+ * - a whole `mcp__<server>__<tool>` name, or `mcp__<server>__*` for every
+ *   tool of one server, which the platform's MCP path enforces and the
+ *   engine is never given.
  *
- * Tool-name globs (`B*`, `mcp__*`) are refused: the engine takes those out
+ * Other tool-name globs (`B*`, `mcp__*`) are refused: the engine takes those out
  * of the model's tool list too, so they would blur the line between a whole
  * tool and a pattern. A rule the engine would drop without a word is refused
  * here, because a length limit does not make a wrong rule safe.
@@ -152,11 +157,11 @@ export function parsePermissionRule(
   ]);
 
   if (rule.startsWith(MCP_TOOL_PREFIX)) {
-    if (!isMcpToolName(rule)) {
+    if (!isMcpToolName(rule) && !isMcpServerWildcard(rule)) {
       return refuse(
         "rule_syntax",
         rule,
-        `${rule} is not a whole ${MCP_TOOL_PREFIX}<server>__<tool> name, and an MCP rule is matched by whole name only`,
+        `${rule} is neither a whole ${MCP_TOOL_PREFIX}<server>__<tool> name nor ${MCP_TOOL_PREFIX}<server>__* for one server`,
       );
     }
     return { parsed: { rule, kind: "mcp", tool: rule } };

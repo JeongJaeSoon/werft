@@ -187,6 +187,17 @@ describe("parsePermissionRule", () => {
     expect(refusedAs("mcp__docs__read(x)")).toBe("accepted");
   });
 
+  test("mcp__<server>__* denies one whole server; no other MCP glob is taken", () => {
+    expect(parsed("mcp__docs__*")).toEqual({
+      rule: "mcp__docs__*",
+      kind: "mcp",
+      tool: "mcp__docs__*",
+    });
+    expect(refusedAs("mcp____*")).toBe("rule_syntax");
+    expect(refusedAs("mcp__Docs__*")).toBe("rule_syntax");
+    expect(refusedAs("mcp__docs__a__*")).toBe("rule_syntax");
+  });
+
   test("a root-relative path is kept and flagged, a double slash is not", () => {
     expect(parsed("Read(/etc/passwd)").warning).toBe("path_root_relative");
     expect(parsed("Read(//etc/passwd)").warning).toBeUndefined();

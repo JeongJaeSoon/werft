@@ -368,7 +368,8 @@ export const runtimeExtensionSchema = z
 // replaces the baseline and never reorders what the platform merged.
 // `permissions.deny` takes the pattern form (`Bash(rm:*)`); a rule that names
 // a whole built-in tool goes in `disallowed_tools`. An `mcp__<server>__<tool>`
-// rule is written in the same deny list but reaches neither field: the MCP
+// or `mcp__<server>__*` rule is written in the same deny list but reaches
+// neither field: the MCP
 // egress enforces it per call, deny first (`mergeEngineSettings` splits it
 // out as `mcpDeny`).
 const ENGINE_SETTINGS_RULES_MAX = 128;
