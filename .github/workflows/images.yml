@@ -80,15 +80,15 @@ jobs:
             *) echo "::error::ci-plan.sh gave no docs_only value" >&2; exit 1 ;;
           esac
 
-  # Not on a main push: publish-main builds, smokes, checks the licenses of and
-  # scans the very digest it pushes, which is the one main-<12> promotes, so a
-  # second build here would only repeat the same checks on an image nothing
-  # consumes. Pull requests, tags, the daily run and manual runs still build here.
+  # On a main push the smoke, license and scan steps below are left out:
+  # publish-main runs them on the very digest it pushes, the one main-<12>
+  # promotes, and this job's image is never published. The job itself still
+  # runs and succeeds (and writes the layer cache publish-main reads): a
+  # skipped job here would skip every job after supply-chain as well, even
+  # through its `always()` (actions/runner#491).
   build:
     needs: plan
-    if: >-
-      needs.plan.outputs.images == 'build'
-      && !(github.event_name == 'push' && github.ref == 'refs/heads/main')
+    if: needs.plan.outputs.images == 'build'
     # Pin the OS release to avoid ubuntu-latest switching to a new major version.
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 30
@@ -147,6 +147,7 @@ jobs:
             ${{ matrix.app == 'worker-codex' && 'WORKER_RUNTIME=codex_app_server' || '' }}
 
       - name: Smoke
+        if: "!(github.event_name == 'push' && github.ref == 'refs/heads/main')"
         env:
           APP: ${{ matrix.app }}
           NAME: ${{ steps.meta.outputs.name }}
@@ -154,6 +155,7 @@ jobs:
 
       # THIRD_PARTY_NOTICES.md against what the image really holds.
       - name: Licenses of what the image ships
+        if: "!(github.event_name == 'push' && github.ref == 'refs/heads/main')"
         env:
           APP: ${{ matrix.app }}
           NAME: ${{ steps.meta.outputs.name }}
@@ -164,6 +166,7 @@ jobs:
       # download, database update) fails the build: no verdict is not a pass.
       # The `error` it leaves in the result file is what `supply-chain` reads.
       - name: Vulnerability scan
+        if: "!(github.event_name == 'push' && github.ref == 'refs/heads/main')"
         timeout-minutes: 10
         env:
           APP: ${{ matrix.app }}
@@ -171,7 +174,7 @@ jobs:
           NAME: ${{ steps.meta.outputs.name }}
         run: .github/scripts/image-scan.sh "${APP}-${ARCH}" "${NAME}:sha-${GITHUB_SHA::12}" vulnerabilities
 
-      - if: always()
+      - if: always() && !(github.event_name == 'push' && github.ref == 'refs/heads/main')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: vulnerabilities-${{ matrix.app }}-${{ matrix.arch }}
@@ -352,10 +355,6 @@ jobs:
           push: true
           provenance: false
           cache-from: type=gha,scope=images-${{ matrix.app }}-${{ matrix.arch }}
-          # The layer cache pull requests and CI's compose builds read
-          # (.github/actions/image-cache): on a main push `build` does not run,
-          # so this is the job that keeps it current.
-          cache-to: type=gha,scope=images-${{ matrix.app }}-${{ matrix.arch }},mode=min
           build-args: |
             BUN_IMAGE=${{ env.BUN_IMAGE }}
             BUILDKIT_SYNTAX=${{ env.DOCKERFILE_FRONTEND_IMAGE }}
@@ -557,13 +556,9 @@ jobs:
           path: digests/*.json
           if-no-files-found: error
 
-  # `plan`, not `build`: `build` is skipped on a main push, and a prose-only
-  # push plans no images and publishes none.
   publish-main:
-    needs: [plan, supply-chain]
-    if: >-
-      github.event_name == 'push' && github.ref == 'refs/heads/main'
-      && needs.plan.outputs.images == 'build'
+    needs: [build, supply-chain]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 20
     permissions:

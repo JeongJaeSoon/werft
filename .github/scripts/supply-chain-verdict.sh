@@ -54,17 +54,20 @@ if [ -n "${IMAGES_PLAN+x}" ]; then
   fi
   case "$IMAGES_PLAN" in
     build)
-      # A main push builds no image in `build`: publish-main scans each digest
-      # it pushes and stops on a finding or a missing verdict. Anywhere else a
-      # planned build must have been built and scanned here.
-      if [ "${GITHUB_EVENT_NAME:-}:${GITHUB_REF:-}:${IMAGES_BUILD_RESULT:-}:$scope" = push:refs/heads/main:skipped:dependencies ]; then
-        scans=(npm)
-      elif [ "$scope" = dependencies ]; then
-        echo "::error::a planned image build requires image scans"
-        exit 1
-      elif [ "${IMAGES_BUILD_RESULT:-}" != success ]; then
+      # The build must have succeeded wherever it was planned. A main push's
+      # build scans nothing: publish-main scans each digest it pushes and
+      # stops on a finding or a missing verdict. Anywhere else a planned
+      # build must have been scanned here.
+      if [ "${IMAGES_BUILD_RESULT:-}" != success ]; then
         echo "::error::build was planned and finished as '${IMAGES_BUILD_RESULT:-}'"
         exit 1
+      fi
+      if [ "$scope" = dependencies ]; then
+        if [ "${GITHUB_EVENT_NAME:-}:${GITHUB_REF:-}" != push:refs/heads/main ]; then
+          echo "::error::a planned image build requires image scans"
+          exit 1
+        fi
+        scans=(npm)
       fi
       ;;
     skip)
