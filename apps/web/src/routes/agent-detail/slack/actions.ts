@@ -33,6 +33,7 @@ export function useSlackApp(agentId: string) {
   const record = app.data?.slack_app;
   const refresh = () => cache.invalidateQueries({ queryKey: key });
   const connect = useMutation({
+    onMutate: () => setNotice(""),
     mutationFn: async () => {
       if (!record)
         await unwrap(

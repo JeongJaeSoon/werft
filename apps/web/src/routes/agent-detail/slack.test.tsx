@@ -440,6 +440,7 @@ describe("Slack management", () => {
         .getAllByRole("link")
         .map((link) => link.textContent),
     ).toEqual([
+      "Slack",
       "채널",
       "기본",
       "Slack 앱 생성",
@@ -447,7 +448,16 @@ describe("Slack management", () => {
       "자동으로 만든 Slack 앱",
       "위험 구역",
     ]);
-    expect(within(nav).getByRole("group", { name: "관리" })).toBeDefined();
+    // As on the GitHub tab, Manage holds the danger zone alone.
+    expect(
+      within(within(nav).getByRole("group", { name: "관리" }))
+        .getAllByRole("link")
+        .map((link) => link.textContent),
+    ).toEqual(["위험 구역"]);
+    expect(
+      within(nav).getByRole("link", { name: "Slack" }).getAttribute("href"),
+    ).toBe("#slack-overview");
+    expect(within(status).getByText("연결됨").dataset.slot).toBe("badge");
     const danger = within(nav).getByRole("link", { name: "위험 구역" });
     expect(danger.getAttribute("href")).toBe("#slack-danger");
     await user.click(danger);
@@ -2038,10 +2048,10 @@ describe("Slack management", () => {
     expect(toggle.getAttribute("aria-checked")).toBe("true");
   });
 
-  for (const [label, app, installed] of [
-    ["만들기 전", null, false],
-    ["설치 대기", APP, false],
-    ["연결됨", APP, true],
+  for (const [label, app, installed, tone] of [
+    ["만들기 전", null, false, "neutral"],
+    ["설치 대기", APP, false, "neutral"],
+    ["연결됨", APP, true, "success"],
     [
       "재설치 필요",
       {
@@ -2052,11 +2062,44 @@ describe("Slack management", () => {
         },
       },
       false,
+      "caution",
     ],
   ] as const) {
     test(`shows ${label} from API state`, async () => {
       renderAt(DETAIL, routes(app, installed));
       expect((await screen.findAllByText(label)).length).toBeGreaterThan(0);
+      // The card names the state in a badge beside the title, as GitHub's.
+      const card = screen.getByRole("region", { name: "Slack" });
+      const badge = within(card).getByText(label);
+      expect(badge.dataset.slot).toBe("badge");
+      expect(badge.className.includes(`--werft-tone-${tone}-bg`)).toBe(true);
+      if (installed) expect(card.textContent).toContain("·");
+      // The app's row reads its state from the same tone table.
+      if (app) {
+        const rows = within(
+          screen.getByRole("region", { name: "자동으로 만든 Slack 앱" }),
+        )
+          .getAllByText(label)
+          .filter((node) => node.dataset.slot === "badge");
+        // The row draws its badge once per layout (wide cell, narrow line).
+        expect(rows.length).toBeGreaterThan(0);
+        for (const row of rows)
+          expect(row.className.includes(`--werft-tone-${tone}-bg`)).toBe(true);
+      }
+      // Before an install there are no channels to list.
+      const nav = screen.getByRole("navigation", { name: "Slack 구역" });
+      expect(
+        within(nav)
+          .getAllByRole("link")
+          .map((link) => link.textContent),
+      ).toEqual([
+        "Slack",
+        ...(installed ? ["채널", "기본"] : []),
+        "Slack 앱 생성",
+        "Slack 앱에 넣을 주소",
+        "자동으로 만든 Slack 앱",
+        ...(app ? ["위험 구역"] : []),
+      ]);
       // The /invite hint belongs to the channel picker alone.
       expect(screen.queryByText(/비공개 채널은 \/invite/)).toBeNull();
       if (installed) {
@@ -2440,6 +2483,52 @@ describe("Slack management", () => {
         screen.getByRole("region", { name: "자동으로 만든 Slack 앱" }),
       ).findByText("이 에이전트의 Slack 앱이 아직 없습니다."),
     ).toBeDefined();
+  });
+
+  test("drops the delete notice once a new app is asked for", async () => {
+    const server = agentServer();
+    let app: typeof APP | null = APP;
+    renderAt(DETAIL, {
+      ...routes(APP),
+      [`GET ${PATH}`]: () => {
+        const detail = server.detail();
+        return json(200, {
+          ...detail,
+          agent: {
+            ...detail.agent,
+            active_release_id: `sha256:${"a".repeat(64)}`,
+          },
+        });
+      },
+      [`GET ${PATH}/slack/app`]: () => json(200, appResponse(app)),
+      [`DELETE /v1/workspaces/${WORKSPACE_ID}/slack/apps/${ID}`]: () => {
+        app = null;
+        return json(200, { slack_app: { ...APP, state: "deleted" } });
+      },
+      [`POST ${PATH}/slack/app`]: () =>
+        json(503, {
+          error: {
+            code: "BACKEND_UNAVAILABLE",
+            message: "down",
+            retryable: true,
+          },
+        }),
+    });
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "Slack 앱 삭제" }),
+    );
+    await user.click(
+      within(await screen.findByRole("dialog")).getByRole("button", {
+        name: "앱 삭제",
+      }),
+    );
+    await screen.findByText("Slack 앱을 삭제했습니다.");
+    await user.click(
+      await screen.findByRole("button", { name: "Slack 앱 만들고 설치" }),
+    );
+    await screen.findByRole("alert");
+    expect(screen.queryByText("Slack 앱을 삭제했습니다.") === null).toBe(true);
   });
 
   test("lets a delete that Slack refused be asked again", async () => {

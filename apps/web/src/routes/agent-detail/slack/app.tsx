@@ -35,6 +35,7 @@ import {
   RECHECK_ID,
   SECTION,
   SECTION_TARGET,
+  STATE_BADGE,
   slackFailure,
   slackState,
 } from "./shared.ts";
@@ -316,13 +317,7 @@ export function SlackAppSection({
     ) : record.state === "deleting" ? (
       <Badge variant="red">{t("workspace.slackAppsDeleting")}</Badge>
     ) : (
-      <Badge
-        variant={
-          state === "connected" ? "green" : state === "error" ? "red" : "gray"
-        }
-      >
-        {t(`slack.state.${state}`)}
-      </Badge>
+      <Badge variant={STATE_BADGE[state]}>{t(`slack.state.${state}`)}</Badge>
     );
   return section(
     <GridTable
