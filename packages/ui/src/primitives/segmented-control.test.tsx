@@ -11,8 +11,10 @@ const { SegmentedControl, SegmentedControlItem } = await import(
 
 function StatusFilter({
   initial = "all",
+  scroll,
 }: {
   readonly initial?: string;
+  readonly scroll?: boolean;
 }): JSX.Element {
   const [value, setValue] = useState(initial);
   return (
@@ -20,6 +22,7 @@ function StatusFilter({
       aria-label="세션 상태"
       value={value}
       onValueChange={setValue}
+      scroll={scroll}
     >
       <SegmentedControlItem value="all" count={12}>
         전체
@@ -57,6 +60,53 @@ describe("SegmentedControl", () => {
     const group = getByRole("group", { name: "세션 상태" });
     // happy-dom does no layout; w-fit is what stops align-items: stretch.
     expect(group.className.split(" ")).toContain("w-fit");
+  });
+
+  test("scroll이 아니면 감싸개 없이 트랙 안에서 줄을 바꾼다", () => {
+    const { getByRole } = render(<StatusFilter />);
+    const group = getByRole("group", { name: "세션 상태" });
+    expect(group.className.split(" ")).toContain("flex-wrap");
+    expect(group.closest("[data-slot=segmented-control-scroll]") === null).toBe(
+      true,
+    );
+  });
+
+  test("scroll이면 한 줄로 두고, 바깥 상자가 초점 윤곽이 들어갈 여백을 두고 가로로 스크롤한다", () => {
+    const { getByRole } = render(<StatusFilter scroll={true} />);
+    const group = getByRole("group", { name: "세션 상태" });
+    const classes = group.className.split(" ");
+    expect(classes).toContain("flex-nowrap");
+    expect(classes).toContain("w-max");
+    expect(classes).not.toContain("flex-wrap");
+    expect(classes).not.toContain("max-w-full");
+    const box = group.parentElement as HTMLElement;
+    expect(box.dataset.slot).toBe("segmented-control-scroll");
+    // An item's outline is 2px wide at a 2px offset: 4px of padding holds
+    // it, and the negative margin leaves the track where it was.
+    for (const name of ["overflow-x-auto", "p-1", "-m-1", "min-w-0"]) {
+      expect(box.className.split(" ")).toContain(name);
+    }
+  });
+
+  test("scroll이면 고른 항목을 상자 안의 보이는 곳으로 옮긴다", async () => {
+    const shown: Element[] = [];
+    const original = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = function (this: Element) {
+      shown.push(this);
+    };
+    try {
+      const { getByRole } = render(
+        <StatusFilter initial="done" scroll={true} />,
+      );
+      const done = getByRole("button", { name: "끝남" });
+      expect(shown.at(-1) === done).toBe(true);
+      const user = await setupUser();
+      const running = getByRole("button", { name: /실행 중/ });
+      await user.click(running);
+      expect(shown.at(-1) === running).toBe(true);
+    } finally {
+      HTMLElement.prototype.scrollIntoView = original;
+    }
   });
 
   test("누르면 선택이 옮겨 가고 이미 눌린 항목을 다시 눌러도 풀리지 않는다", async () => {

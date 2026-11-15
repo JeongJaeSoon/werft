@@ -4,6 +4,8 @@ import {
   type JSX,
   type ReactNode,
   useContext,
+  useEffect,
+  useRef,
 } from "react";
 
 import { cn } from "../foundations/cn.ts";
@@ -16,7 +18,8 @@ import { ItemCount, type ItemCountTone } from "./item-count.tsx";
  * another panel. The track is a borderless grey pill as tall as a control
  * (the search field beside it), with the picked item raised on it as a white
  * thumb. Too many items wrap inside the track rather than scroll, so no
- * scroll box clips a focus outline.
+ * scroll box clips a focus outline. `scroll` keeps them on one line instead,
+ * in a scroll box padded wider than the outline.
  */
 
 // The default TabsList draws the same track and thumb from the same tokens
@@ -45,23 +48,63 @@ export type SegmentedControlProps = Omit<
   /** The `value` of the pressed item. */
   readonly value: string;
   readonly onValueChange: (value: string) => void;
+  /** One line that scrolls sideways when it does not fit, instead of wrapping. */
+  readonly scroll?: boolean | undefined;
 };
 
 export function SegmentedControl({
   className,
   value,
   onValueChange,
+  scroll = false,
   ...props
 }: SegmentedControlProps): JSX.Element {
+  const box = useRef<HTMLDivElement>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs when the pick changes
+  useEffect(() => {
+    const scroller = box.current;
+    if (!scroller) return;
+    const reveal = () =>
+      scroller
+        .querySelector<HTMLElement>("[aria-pressed=true]")
+        ?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    reveal();
+    // Counts arriving after the first paint widen the items and can push
+    // the picked one out of view again.
+    if (typeof ResizeObserver === "undefined" || !scroller.firstElementChild)
+      return;
+    const watch = new ResizeObserver(reveal);
+    watch.observe(scroller.firstElementChild);
+    return () => watch.disconnect();
+  }, [value]);
+  const group = (
+    // biome-ignore lint/a11y/useSemanticElements: a fieldset would need a visible legend; v4 names the group with aria-label.
+    <div
+      role="group"
+      data-slot="segmented-control"
+      className={cn(
+        segmentTrackClassName,
+        scroll && "w-max max-w-none flex-nowrap",
+        className,
+      )}
+      {...props}
+    />
+  );
   return (
     <SegmentedControlContext.Provider value={{ value, onValueChange }}>
-      {/* biome-ignore lint/a11y/useSemanticElements: a fieldset would need a visible legend; v4 names the group with aria-label. */}
-      <div
-        role="group"
-        data-slot="segmented-control"
-        className={cn(segmentTrackClassName, className)}
-        {...props}
-      />
+      {scroll ? (
+        // 4px around the track holds an item's 2px outline at 2px offset;
+        // the negative margin keeps the track where it would be.
+        <div
+          ref={box}
+          data-slot="segmented-control-scroll"
+          className="-m-1 min-w-0 max-w-[calc(100%+0.5rem)] overflow-x-auto overscroll-x-contain p-1"
+        >
+          {group}
+        </div>
+      ) : (
+        group
+      )}
     </SegmentedControlContext.Provider>
   );
 }

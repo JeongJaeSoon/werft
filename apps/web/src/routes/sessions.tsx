@@ -153,6 +153,7 @@ export function SessionsScreen() {
                   aria-label={t("sessionList.filter.label")}
                   value={tab}
                   onValueChange={pick}
+                  scroll={true}
                 >
                   <SegmentedControlItem value="all" count={counts.data?.total}>
                     {t("sessionList.filter.all")}
