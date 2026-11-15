@@ -124,6 +124,7 @@ import type {
   WorkerFence,
   WorkerUnitOfWork,
 } from "../ports/worker-unit-of-work.ts";
+import type { WorkspaceMcpEgressStore } from "../ports/workspace-mcp-egress.ts";
 import type { JudgmentEgressStore } from "../sessions/achievements/achievement-judgment-store.ts";
 import type { JudgeConnections } from "../sessions/achievements/judge-connections.ts";
 import {
@@ -147,8 +148,10 @@ import {
   type SessionCatalog,
   type SessionGitHubMcp,
   type SessionMcp,
+  type SessionWorkspaceMcp,
   trustedGitHubTools,
   withoutDeniedTools,
+  workspaceMcpBinding,
 } from "../sessions/catalog.ts";
 import {
   type NeutralizeEvent,
@@ -186,6 +189,10 @@ import {
   PUBLIC_PACKAGE_REGISTRIES,
 } from "./package-registries.ts";
 import { runtimeConfigOfSpec } from "./runtime-config-of-spec.ts";
+import {
+  createWorkspaceMcpEgress,
+  type WorkspaceMcpCallCredential,
+} from "./workspace-mcp-egress.ts";
 
 // The repository binding of a session without a repository of its own:
 // its repository route reaches only attached ones, each through the gate.
@@ -678,6 +685,15 @@ export function createWorkerGateway(deps: {
   // Absent, the remote MCP route is refused: nothing can say whether the
   // agent's credential is still bound.
   mcp?: McpEgressStore;
+  // Absent, a workspace server's route is refused; the catalog's and
+  // `github` stay as they are.
+  workspaceMcp?: {
+    store: WorkspaceMcpEgressStore;
+    credentialFor: (
+      workspaceId: string,
+      serverId: string,
+    ) => Promise<WorkspaceMcpCallCredential | null>;
+  };
   onMcpReceiptError?: (error: unknown) => void;
   // Called when the note on why a model was cut could not be written; the
   // cut stands either way, and a lost note is not retried by a later regrant.
@@ -984,6 +1000,15 @@ export function createWorkerGateway(deps: {
             ? {}
             : { onReceiptError: deps.onMcpReceiptError }),
         });
+  const decideWorkspaceMcp =
+    deps.workspaceMcp === undefined
+      ? null
+      : createWorkspaceMcpEgress({
+          ...deps.workspaceMcp,
+          ...(deps.onMcpReceiptError === undefined
+            ? {}
+            : { onReceiptError: deps.onMcpReceiptError }),
+        });
   const decideGitHubMcp =
     deps.githubMcp === undefined ? null : createGitHubMcpEgress(deps.githubMcp);
   const decideGitHubPackages =
@@ -1149,11 +1174,14 @@ export function createWorkerGateway(deps: {
     return runnableOf.input;
   }
 
-  // The catalog server the release names, then the built-in `github` when
-  // the release carries GitHub settings.
+  // The catalog server the release names, the workspace servers the session
+  // started with, then the built-in `github` when the release carries GitHub
+  // settings. The first entry's binding is the MCP token's, so a session
+  // with a catalog server holds its token to it as before.
   function claimedMcp(
     session: {
       mcp?: SessionMcp | null;
+      workspaceMcp?: readonly SessionWorkspaceMcp[];
       githubMcp?: SessionGitHubMcp | null;
     },
     servers: typeof catalog.mcp_servers,
@@ -1174,6 +1202,12 @@ export function createWorkerGateway(deps: {
             },
           ]
         : []),
+      ...(session.workspaceMcp ?? []).map((workspace) => ({
+        name: workspace.name,
+        endpoint: workspace.url,
+        binding: workspaceMcpBinding(workspace),
+        tools: workspace.tools,
+      })),
       ...(githubMcp
         ? [
             {
@@ -1210,6 +1244,7 @@ export function createWorkerGateway(deps: {
       | "platformPrompt"
       | "repository"
       | "callerToolsDeny"
+      | "workspaceMcp"
     >,
     current: RuntimeConfig,
     providerToken: string,
@@ -1230,9 +1265,20 @@ export function createWorkerGateway(deps: {
         : earlierGitHubServers(github).map((earlier) =>
             mcp.map((server) => (server === github ? earlier : server)),
           );
+    // Checkpoints made by a control-host that did not claim workspace
+    // servers (mid-deploy) name the others only.
+    const workspaceNames = new Set(
+      (binding.workspaceMcp ?? []).map((server) => server.name),
+    );
+    const withoutWorkspace = mcp.filter(
+      (server) => !workspaceNames.has(server.name),
+    );
     const offerings = (config: RuntimeConfig, running: boolean) => [
       ...(running ? [] : [withMcp(config, mcp, mcpToken)]),
       ...(attached ? [withMcp(config, legacy, mcpToken)] : []),
+      ...(withoutWorkspace.length === mcp.length
+        ? []
+        : [withMcp(config, withoutWorkspace, mcpToken)]),
     ];
     const beforeAddition = (config: RuntimeConfig) =>
       beforeAdded.map((servers) => withMcp(config, servers, mcpToken));
@@ -1290,9 +1336,20 @@ export function createWorkerGateway(deps: {
     // was rewritten (its model moved) gets a token for the new one.
     const provider = session.specDigest;
     const object_store = sessionObjectPrefix(session.id);
-    // One token serves both servers; it is held to the catalog server's
+    // One token serves every server; it is held to the catalog server's
     // binding when there is one, as the remote route checks.
-    const [first] = claimedMcp(session, mcpServers);
+    const claimed = claimedMcp(session, mcpServers);
+    // The name checks on writes keep a workspace server off `github` and the
+    // catalog's ids; this is the last guard should one be missed.
+    if (new Set(claimed.map((entry) => entry.name)).size !== claimed.length) {
+      throw new WorkerGatewayError(
+        503,
+        "BACKEND_UNAVAILABLE",
+        "A workspace MCP server of the session has the name of another of its MCP servers",
+        true,
+      );
+    }
+    const [first] = claimed;
     const mcpBinding = {
       ...(first === undefined ? {} : { mcp: first.binding }),
       packages: PACKAGES_BINDING,
@@ -1646,6 +1703,9 @@ export function createWorkerGateway(deps: {
         ...(request.capabilities?.user_env === true
           ? { userEnv: true as const }
           : {}),
+        ...(request.capabilities?.workspace_mcp === true
+          ? { workspaceMcp: true as const }
+          : {}),
         engineSettingsCaps: {
           engineSettings: request.capabilities?.engine_settings === true,
           permissionRules: request.capabilities?.permission_rules === true,
@@ -1695,6 +1755,15 @@ export function createWorkerGateway(deps: {
             503,
             "BACKEND_UNAVAILABLE",
             "The session holds variables and this worker does not carry them yet",
+            true,
+          );
+        // Retryable, nothing consumed: the session waits for a worker that
+        // announces `workspace_mcp`, so it never runs without those servers.
+        case "workspace_mcp_unsupported":
+          throw new WorkerGatewayError(
+            503,
+            "BACKEND_UNAVAILABLE",
+            "The session has workspace MCP servers and this worker does not carry them yet",
             true,
           );
         // Retryable, nothing consumed: the saved rules need a field this
@@ -1996,17 +2065,25 @@ export function createWorkerGateway(deps: {
         token: request.token,
         purpose: "mcp",
       });
-      const decide =
-        request.server === GITHUB_MCP_SERVER ? decideGitHubMcp : decideMcp;
-      if (decide === null) {
-        throw new WorkerGatewayError(
-          503,
-          "BACKEND_UNAVAILABLE",
-          "This gateway does not serve the MCP route",
-          true,
-        );
+      // A workspace server's name never equals `github` or a catalog id in
+      // one session (the claim refuses it), so the snapshot decides the route.
+      let decision =
+        request.server === GITHUB_MCP_SERVER || decideWorkspaceMcp === null
+          ? null
+          : await decideWorkspaceMcp(result, request);
+      if (decision === null) {
+        const decide =
+          request.server === GITHUB_MCP_SERVER ? decideGitHubMcp : decideMcp;
+        if (decide === null) {
+          throw new WorkerGatewayError(
+            503,
+            "BACKEND_UNAVAILABLE",
+            "This gateway does not serve the MCP route",
+            true,
+          );
+        }
+        decision = await decide(result, request);
       }
-      const decision = await decide(result, request);
       if (decision.kind === "refused") {
         throw new WorkerGatewayError(
           decision.status,

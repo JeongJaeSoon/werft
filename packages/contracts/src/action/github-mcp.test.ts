@@ -460,15 +460,16 @@ describe("runtime config mcp_servers", () => {
   });
   const servers = runtimeConfigSchema.shape.mcp_servers;
 
-  test("carries a catalog server and the built-in one, never the same twice", () => {
+  test("carries a catalog server, the workspace's, and the built-in one, never the same twice", () => {
+    const named = (count: number) =>
+      Array.from({ length: count }, (_, i) => server(`s${i}`));
     expect(servers.safeParse([server("fake"), server("github")]).success).toBe(
       true,
     );
     expect(
       servers.safeParse([server("github"), server("github")]).success,
     ).toBe(false);
-    expect(
-      servers.safeParse([server("a"), server("b"), server("c")]).success,
-    ).toBe(false);
+    expect(servers.safeParse(named(10)).success).toBe(true);
+    expect(servers.safeParse(named(11)).success).toBe(false);
   });
 });

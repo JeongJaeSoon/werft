@@ -93,6 +93,7 @@ export * from "./sessions/session-outcomes.ts";
 export { expireToolCallAudits } from "./sessions/tool-call-audit.ts";
 export * from "./sessions/tool-calls.ts";
 export { expireOverdueInterrupts } from "./sessions/turn-interrupts.ts";
+export * from "./sessions/workspace-mcp-egress.ts";
 export * from "./settings-document.ts";
 export * from "./slack-outbox.ts";
 export * from "./surface/slack-apps.ts";

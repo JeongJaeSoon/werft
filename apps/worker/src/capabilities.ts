@@ -22,4 +22,7 @@ export const WORKER_CAPABILITIES: WorkerCapabilities = {
   // GitWorkspace fetches an additional repository's `commit` by name, and
   // the host reports what it pinned (worker-host.ts `pinRepositories`).
   repository_pins: true,
+  // mcpServersOf (composition.ts) routes every `mcp_servers` entry, however
+  // many, through its own `/mcp/<name>` proxy path.
+  workspace_mcp: true,
 };

@@ -75,6 +75,7 @@ import {
   createPostgresWorkerPendingStore,
   createPostgresWorkerUnitOfWork,
   createPostgresWorkspaceKeyStore,
+  createPostgresWorkspaceMcpEgressStore,
   createPostgresWorkspaceMcpStore,
   createProviderExchangeLedger,
   hasUncollectedCheckpoint,
@@ -1102,6 +1103,10 @@ const workers = createWorkerGateway({
     },
   },
   mcp: createPostgresMcpEgressStore(db),
+  workspaceMcp: {
+    store: createPostgresWorkspaceMcpEgressStore(db),
+    credentialFor: workspaceMcp.credentialFor,
+  },
   onMcpReceiptError: (error) =>
     logger.error("MCP refusal receipt not recorded", {
       error: error instanceof Error ? error.name : "error",
