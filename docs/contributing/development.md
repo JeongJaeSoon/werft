@@ -66,11 +66,11 @@ scripts/local.sh dev --fake-model   # up과 같은 스택에 개발 overlay를 �
 scripts/local.sh web                # 웹을 고칠 때만: Vite dev 서버(첫 실행 전 bun install --frozen-lockfile)
 ```
 
-`dev`는 [infra/compose.dev.yml](../../infra/compose.dev.yml)을 얹어 `up`을 돈다. api·scheduler·reconciler는 checkout의 `apps/control-host`·`packages`를 읽기 전용으로 mount해 그 소스로 돈다. [scripts/dev/hot-restart.ts](../../scripts/dev/hot-restart.ts)가 control-host와, 그 `dependencies`가 닿는 workspace 패키지의 파일만 보고 바뀌면 프로세스만 다시 띄운다(웹 전용 `packages/ui` 등은 보지 않는다). 컨테이너는 그대로라 포트도 바뀌지 않는다. 파일 이벤트를 받으면 바로 다시 띄운다. 이벤트가 오지 않는 환경도 있어서(이 저장소를 만든 Mac의 OrbStack mount가 그랬다) 이벤트와 별도로 1초마다 mtime·size를 훑는다. `DEV_POLL_MS`로 간격을 바꾸고 `0`이면 훑지 않는다. `*.test.ts`, `testing/`, `node_modules/`는 보지 않는다.
+`dev`는 [infra/compose.dev.yml](../../infra/compose.dev.yml)을 얹어 `up`을 돈다. api·scheduler·reconciler는 checkout의 `apps/control-host`·`packages`를 읽기 전용으로 mount해 그 소스로 돈다. [scripts/dev/hot-restart.ts](../../scripts/dev/hot-restart.ts)가 control-host와, 그 `dependencies`가 닿는 workspace 패키지의 파일만 보고 바뀌면 프로세스만 다시 띄운다(웹 전용 `packages/ui` 등은 보지 않는다). 컨테이너는 그대로라 포트도 바뀌지 않는다. 파일 이벤트를 받으면 바로 다시 띄운다. 이벤트가 오지 않는 환경도 있어서(이 저장소를 만든 Mac의 OrbStack mount가 그랬다) 이벤트와 별도로 1초마다 mtime·size를 훑는다. `DEV_POLL_MS`로 간격을 바꾸고 `0`이면 훑지 않는다. 스스로 끝난 프로세스를 다시 띄우기 전 기다리는 시간은 `DEV_RESTART_MIN_MS`(기본 1000)에서 시작해 `DEV_RESTART_MAX_MS`(기본 30000)까지 늘어난다. `*.test.ts`, `testing/`, `node_modules/`는 보지 않는다.
 
 | 바꾼 곳 | 반영 |
 |---|---|
-| `apps/control-host`와 그 의존 패키지 | api는 SIGTERM 뒤 5초 안에 다시 뜬다. 열린 SSE의 35초 drain을 기다리지 않는다. scheduler·reconciler는 각 loop의 stop grace 안에서 진행 중인 pass를 안전 지점에서 멈추고 새 코드로 다시 뜬다. 프로세스가 스스로 끝나면 이유와 상관없이 다음 저장까지 기다린다. 문법 오류든 DB 재시작이든 같다. 컨테이너가 떠 있으므로 Docker의 restart 정책도 프로세스를 다시 띄우지 않는다. 고칠 것이 없으면 `docker compose restart <role>`로 다시 띄운다 |
+| `apps/control-host`와 그 의존 패키지 | api는 SIGTERM 뒤 5초 안에 다시 뜬다. 열린 SSE의 35초 drain을 기다리지 않는다. scheduler·reconciler는 각 loop의 stop grace 안에서 진행 중인 pass를 안전 지점에서 멈추고 새 코드로 다시 뜬다. 프로세스가 스스로 끝나면 1초 뒤 다시 띄운다. 컨테이너가 떠 있어 Docker의 restart 정책이 대신 띄우지 않기 때문이다. 그래서 egress-proxy를 다시 만드는 동안 연속 실패로 끝난 scheduler loop도 저장 없이 돌아온다. 30초 안에 또 끝나면 간격을 2배씩 늘려 30초까지 기다린다. 문법 오류처럼 계속 끝나는 경우는 30초마다 한 번 다시 뜨고, 저장하면 기다리지 않고 바로 뜬다 |
 | `apps/web`, `packages/ui` 등 웹 소스 | `local.sh web`의 Vite가 브라우저에 hot module reload로 보낸다. 주소는 Vite가 출력하는 `http://localhost:5173`이고, `/v1`은 스택의 api로 proxy한다. api가 서빙하는 `/`는 이미지에 빌드된 그대로다. 파일 이벤트가 오지 않는 환경에서는 `CHOKIDAR_USEPOLLING=1 scripts/local.sh web`으로 띄운다 |
 | `bun.lock`, worker(`apps/worker`), `apps/egress-proxy`, migration | 이미지에서 온다. `scripts/local.sh dev --fake-model`을 다시 돌리면 바뀐 이미지만 다시 빌드한다. worker는 세션마다 그 이미지로 뜨므로 다음 세션부터 반영된다 |
 | `tests/fixtures/settings/` | 다음 `up`의 migrate가 더하기만 한다. 이미 있는 항목과 값이 다르면 migrate가 거부하므로, 고치려면 콘솔을 쓰거나 `scripts/local.sh reset`으로 다시 시작한다 |
