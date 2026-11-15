@@ -1684,6 +1684,13 @@ describe("팀 화면", () => {
     // Back to the refused name, the refusal is about it again.
     await user.type(name, "{Backspace}");
     await waitFor(() => expect(name.getAttribute("aria-invalid")).toBe("true"));
+    // Closed and opened again: the team's own name, no refusal left over.
+    await user.click(within(dialog).getByRole("button", { name: "취소" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    const again = await openRename(user);
+    expect((again.name as HTMLInputElement).value).toBe("결제팀");
+    expect(again.name.getAttribute("aria-invalid")).toBeNull();
+    expect(within(again.dialog).queryByRole("alert")).toBeNull();
   });
 
   test("이름을 바꾸는 동안 칸과 저장이 잠겨 다시 보내지 않고, 다른 거절은 대화상자 안에서 말한다", async () => {
