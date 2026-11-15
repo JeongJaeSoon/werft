@@ -66,7 +66,7 @@ scripts/local.sh dev --fake-model   # up과 같은 스택에 개발 overlay를 �
 scripts/local.sh web                # 웹을 고칠 때만: Vite dev 서버(첫 실행 전 bun install --frozen-lockfile)
 ```
 
-`dev`는 [infra/compose.dev.yml](../../infra/compose.dev.yml)을 얹어 `up`을 돈다. api·scheduler·reconciler는 checkout의 `apps/control-host`·`packages`를 읽기 전용으로 mount해 그 소스로 돈다. [scripts/dev/hot-restart.ts](../../scripts/dev/hot-restart.ts)가 control-host와, 그 `dependencies`가 닿는 workspace 패키지의 파일만 보고 바뀌면 프로세스만 다시 띄운다(웹 전용 `packages/ui` 등은 보지 않는다). 컨테이너는 그대로라 포트도 바뀌지 않는다. 파일 이벤트를 받으면 바로 다시 띄운다. 이벤트가 오지 않는 환경도 있어서(이 저장소를 만든 Mac의 OrbStack mount가 그랬다) 이벤트와 별도로 1초마다 mtime·size를 훑는다. `DEV_POLL_MS`로 간격을 바꾸고 `0`이면 훑지 않는다. `*.test.ts`, `testing/`, `node_modules/`는 보지 않는다.
+`dev`는 [infra/compose.dev.yml](../../infra/compose.dev.yml)을 얹어 `up`을 돈다. api·scheduler·reconciler는 checkout의 `apps/control-host`·`packages`를 읽기 전용으로 mount해 그 소스로 돈다. [scripts/dev/hot-restart.ts](../../scripts/dev/hot-restart.ts)가 control-host와, 그 `dependencies`가 닿는 workspace 패키지의 파일만 보고 바뀌면 프로세스만 다시 띄운다(웹 전용 `packages/ui` 등은 보지 않는다). 컨테이너는 그대로라 포트도 바뀌지 않는다. 파일 이벤트를 받으면 바로 다시 띄운다. 이벤트가 오지 않는 환경도 있어서(이 저장소를 만든 Mac의 OrbStack mount가 그랬다) 이벤트와 별도로 1초마다 mtime·size를 훑는다. `DEV_POLL_MS`로 간격을 바꾸고 `0`이면 훑지 않는다. 스스로 끝난 프로세스를 다시 띄우기 전 기다리는 시간은 `DEV_RESTART_MIN_MS`(기본 1000)에서 시작해 `DEV_RESTART_MAX_MS`(기본 30000)까지 늘어난다. `*.test.ts`, `testing/`, `node_modules/`는 보지 않는다.
 
 | 바꾼 곳 | 반영 |
 |---|---|
