@@ -388,25 +388,25 @@ describe("supply-chain-verdict.sh", () => {
       expect(run.out).toContain("requires image scans");
     });
 
-    // publish-main builds and scans the digests a main push publishes, so
-    // `build` does not run there, and `supply-chain` judges the npm audit.
+    // publish-main scans the digests a main push publishes, so `build` scans
+    // nothing there, and `supply-chain` judges the npm audit.
     test("a main push with a planned build leaves the image scans to publish-main", async () => {
       const input = {
-        ...plan("build", "skipped", "push"),
+        ...plan("build", "success", "push"),
         GITHUB_REF: "refs/heads/main",
       };
       const run = (results: Record<string, string>, env = input) =>
         verdict(results, "warn", "[]", env, "dependencies");
       expect((await run(npmOnly)).code).toBe(0);
       expect((await run({ npm: "found 1" })).code).toBe(1);
-      // Only a skipped build of a main push: anything else is the old rule.
+      // Only a main push whose build succeeded: anything else is the old rule.
       for (const env of [
         { ...input, GITHUB_REF: "refs/tags/v1.2.3" },
         { ...input, GITHUB_REF: "refs/heads/feature" },
         { ...input, GITHUB_EVENT_NAME: "pull_request" },
         { ...input, GITHUB_EVENT_NAME: "schedule" },
         { ...input, IMAGES_BUILD_RESULT: "failure" },
-        { ...input, IMAGES_BUILD_RESULT: "success" },
+        { ...input, IMAGES_BUILD_RESULT: "skipped" },
       ]) {
         const refused = await run(npmOnly, env);
         expect(refused.code).toBe(1);
@@ -414,7 +414,7 @@ describe("supply-chain-verdict.sh", () => {
       // With the full scope it still wants the build's results.
       const full = await verdict(npmOnly, "warn", "[]", input, "all");
       expect(full.code).toBe(1);
-      expect(full.out).toContain("build was planned");
+      expect(full.out).toContain("no result");
     });
 
     test("a main push publish needs only the npm audit from supply-chain", async () => {
@@ -508,10 +508,31 @@ describe("images.yml supply-chain", () => {
     };
     expect(plan.outputs?.images).toBe("${{ steps.images.outputs.images }}");
     expect(workflow.jobs.build?.needs).toBe("plan");
-    // A main push leaves the build to publish-main, which scans what it pushes.
+    // The job runs wherever the plan builds, a main push included: a skipped
+    // build skips every job after supply-chain, through its always()
+    // (actions/runner#491), and main stops publishing. A main push leaves out
+    // only the checks publish-main repeats on the digest it pushes.
     expect(workflow.jobs.build?.if).toBe(
-      "needs.plan.outputs.images == 'build' && !(github.event_name == 'push' && github.ref == 'refs/heads/main')",
+      "needs.plan.outputs.images == 'build'",
     );
+    const notMain =
+      "!(github.event_name == 'push' && github.ref == 'refs/heads/main')";
+    const steps = workflow.jobs.build?.steps ?? [];
+    for (const name of [
+      "Smoke",
+      "Licenses of what the image ships",
+      "Vulnerability scan",
+    ]) {
+      expect(steps.find((step) => step.name === name)?.if).toBe(notMain);
+    }
+    for (const step of steps) {
+      if (
+        step.uses?.startsWith("docker/build-push-action@") ||
+        step.name === "Record digests"
+      ) {
+        expect(step.if).toBeUndefined();
+      }
+    }
     const verdict = job?.steps?.find((step) =>
       step.run?.includes("supply-chain-verdict.sh"),
     );
@@ -525,10 +546,7 @@ describe("images.yml supply-chain", () => {
   test("a publish waits for it and judges its own digest the same way", () => {
     for (const name of ["publish", "publish-main"]) {
       const publish = workflow.jobs[name];
-      expect(publish?.needs).toEqual([
-        name === "publish" ? "build" : "plan",
-        "supply-chain",
-      ]);
+      expect(publish?.needs).toEqual(["build", "supply-chain"]);
       // always() would publish past a failed verdict.
       expect(publish?.if).not.toContain("always()");
       const runs = publish?.steps?.map((step) => step.run ?? "") ?? [];
