@@ -593,6 +593,10 @@ describe("에이전트 목록 탭과 검색", () => {
   /** The agent as GET /v1/agents?include=summary lists it. */
   function withSummary(
     agent: ReturnType<ReturnType<typeof agentServer>["detail"]>["agent"],
+    {
+      running_count = 3,
+      channels = ["slack", "github"] as ("slack" | "github")[],
+    } = {},
   ) {
     return {
       ...agent,
@@ -611,9 +615,9 @@ describe("에이전트 목록 탭과 검색", () => {
         admins: [],
         needs_input_count: 0,
         slack_action: null,
-        running_count: 3,
+        running_count,
         engine: "claude_agent_sdk" as const,
-        channels: ["slack" as const, "github" as const],
+        channels,
       },
     };
   }
@@ -631,7 +635,11 @@ describe("에이전트 목록 탭과 검색", () => {
       // The list API's order differs from the administered list's.
       "GET /v1/agents": () =>
         json(200, {
-          items: [withSummary(second), withSummary(base)],
+          // Different summaries, so a merge by position instead of id shows.
+          items: [
+            withSummary(second, { running_count: 1, channels: ["github"] }),
+            withSummary(base),
+          ],
           next_cursor: null,
         }),
       // As the server answers it: the agents alone, no summary.
@@ -658,9 +666,11 @@ describe("에이전트 목록 탭과 검색", () => {
     };
     const all = await columns();
     expect(all).toEqual(["Claude", ["Slack", "GitHub"], "실행 중인 세션3"]);
+    const allSecond = await columns("두 번째");
+    expect(allSecond).toEqual(["Claude", ["GitHub"], "실행 중인 세션1"]);
     await showList(await setupUser(), "관리하는 에이전트 2");
     await waitFor(async () => expect(await columns()).toEqual(all));
-    expect(await columns("두 번째")).toEqual(all);
+    expect(await columns("두 번째")).toEqual(allSecond);
     // In the administered list's order, whatever order the summaries came in.
     expect(names()).toEqual(["결제 담당", "두 번째"]);
     // Read by id with summaries, as the all tab's items carry them.
