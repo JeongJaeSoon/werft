@@ -176,6 +176,67 @@ function summary(id: string, overrides: Partial<SessionSummary> = {}) {
   } as SessionSummary;
 }
 
+/**
+ * The list API over `count` running sessions titled "세션 1" on, read
+ * `limit` at a time with the offset as its cursor; `q` keeps the titles that
+ * contain it, and any status but running gives none.
+ */
+function sessionPages(count: number) {
+  const all = Array.from({ length: count }, (_, index) =>
+    summary(`00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`, {
+      title: `세션 ${index + 1}`,
+    }),
+  );
+  return (request: Request) => {
+    const params = new URL(request.url).searchParams;
+    const status = params.get("status");
+    const q = params.get("q");
+    const matching = all.filter(
+      (item) =>
+        (status === null || status === "running") &&
+        (q === null || (item.title ?? "").includes(q)),
+    );
+    const limit = Number(params.get("limit") ?? 50);
+    const from = Number(params.get("cursor")?.slice(1) ?? 0);
+    const to = from + limit;
+    return json(200, {
+      items: matching.slice(from, to),
+      next_cursor: to < matching.length ? `c${to}` : null,
+    });
+  };
+}
+
+function sessionCounts(running: number) {
+  return {
+    counts: {
+      queued: 0,
+      running,
+      needs_input: 0,
+      idle: 0,
+      failed: 0,
+      stopped: 0,
+    },
+    total: running,
+  };
+}
+
+/** The titles of the session rows shown, in order. */
+function listedTitles() {
+  return screen
+    .queryAllByRole("link", { name: /^세션 열기: 세션 \d+$/ })
+    .map((link) => link.getAttribute("title"));
+}
+
+/** The list's reads, leaving out the inbox's waiting page. */
+function listReads(calls: readonly { path: string; search: string }[]) {
+  return calls
+    .filter(
+      (call) =>
+        call.path === "/v1/sessions" && call.search !== "?status=needs_input",
+    )
+    .map((call) => call.search);
+}
+
 const detail = {
   ...summary(SESSION_ID, { status: "needs_input" }),
   execution: null,
@@ -357,15 +418,26 @@ describe("approval inbox", () => {
 
   test("an answer from the inbox reads the waiting tab again", async () => {
     const user = await setupUser();
+    const waiting = waitingRoutes(
+      [summary(SESSION_ID, { status: "needs_input" })],
+      null,
+    );
     const { api } = renderAt("/sessions?status=needs_input", {
-      ...waitingRoutes([summary(SESSION_ID, { status: "needs_input" })], null),
+      ...waiting,
+      "GET /v1/sessions?status=needs_input&limit=15":
+        waiting["GET /v1/sessions?status=needs_input"],
       [`POST /v1/sessions/${SESSION_ID}/answers`]: () =>
         json(202, { receipt_id: RECEIPT_ID, receipt_status: "accepted" }),
     });
     const list = await screen.findByRole("table");
     await within(list).findByRole("link", { name: opener(SESSION_ID) });
+    // The inbox reads the API's default page, the tab its own page size.
     const waitingReads = () =>
-      api.calls.filter((call) => call.search === "?status=needs_input").length;
+      api.calls.filter((call) =>
+        ["?status=needs_input", "?status=needs_input&limit=15"].includes(
+          call.search,
+        ),
+      ).length;
     await waitFor(() => expect(waitingReads()).toBe(2));
     await user.click(await allowInRail(user));
     expect(await screen.findByText("답을 보냈습니다.")).toBeTruthy();
@@ -447,15 +519,201 @@ describe("sessions list", () => {
     expect(within(row).getByText("1분 미만")).toBeTruthy();
     expect(screen.getByText(/나에게 공유된 세션입니다/)).toBeTruthy();
 
-    await user.click(screen.getByRole("button", { name: "더 보기" }));
+    await user.click(screen.getByRole("button", { name: "다음 페이지" }));
     await screen.findByRole("link", { name: opener(OTHER_ID) });
-    expect(screen.queryByRole("button", { name: "더 보기" })).toBeNull();
+    expect(screen.queryByRole("link", { name: opener(SESSION_ID) })).toBeNull();
     expect(
-      api.calls.filter(
-        (call) =>
-          call.path === "/v1/sessions" && call.search !== "?status=needs_input",
-      ),
-    ).toHaveLength(2);
+      screen
+        .getByRole("button", { name: "다음 페이지" })
+        .getAttribute("aria-disabled"),
+    ).toBe("true");
+    expect(
+      api.calls
+        .filter(
+          (call) =>
+            call.path === "/v1/sessions" &&
+            call.search !== "?status=needs_input",
+        )
+        .map((call) => call.search),
+    ).toEqual(["?limit=15", "?cursor=next-1&limit=15"]);
+  });
+
+  test("shows 15 sessions a page, steps through the pages and keeps the page in the address", async () => {
+    const user = await setupUser();
+    const { api, history } = renderAt("/sessions", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": sessionPages(20),
+      "GET /v1/sessions/counts": () => json(200, sessionCounts(20)),
+    });
+    await screen.findByRole("link", { name: opener("세션 1") });
+    expect(listedTitles()).toHaveLength(15);
+    expect(listedTitles().at(-1)).toBe("세션 15");
+    const nav = screen.getByRole("navigation", { name: "페이지 이동" });
+    expect(screen.getByText("1–15 / 20")).toBeTruthy();
+    expect(
+      within(nav)
+        .getByRole("button", { name: "1페이지" })
+        .getAttribute("aria-current"),
+    ).toBe("page");
+    expect(
+      within(nav)
+        .getByRole("button", { name: "이전 페이지" })
+        .getAttribute("aria-disabled"),
+    ).toBe("true");
+
+    await user.click(within(nav).getByRole("button", { name: "다음 페이지" }));
+    await screen.findByRole("link", { name: opener("세션 16") });
+    expect(listedTitles()).toEqual([
+      "세션 16",
+      "세션 17",
+      "세션 18",
+      "세션 19",
+      "세션 20",
+    ]);
+    expect(history.location.search).toBe("?page=2");
+    expect(screen.getByText("16–20 / 20")).toBeTruthy();
+    expect(
+      screen
+        .getByRole("button", { name: "2페이지" })
+        .getAttribute("aria-current"),
+    ).toBe("page");
+    expect(
+      screen
+        .getByRole("button", { name: "다음 페이지" })
+        .getAttribute("aria-disabled"),
+    ).toBe("true");
+    expect(listReads(api.calls)).toEqual(["?limit=15", "?cursor=c15&limit=15"]);
+
+    await user.click(screen.getByRole("button", { name: "이전 페이지" }));
+    await screen.findByRole("link", { name: opener("세션 1") });
+    expect(history.location.search).toBe("");
+    // Each page is its own entry: back returns to the second.
+    act(() => history.back());
+    await screen.findByRole("link", { name: opener("세션 16") });
+    expect(history.location.search).toBe("?page=2");
+    expect(listReads(api.calls)).toHaveLength(2);
+  });
+
+  test("a list that fits on one page shows no page links", async () => {
+    const { api } = renderAt("/sessions", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": sessionPages(15),
+      "GET /v1/sessions/counts": () => json(200, sessionCounts(15)),
+    });
+    await screen.findByRole("link", { name: opener("세션 15") });
+    expect(listedTitles()).toHaveLength(15);
+    expect(
+      screen.queryByRole("navigation", { name: "페이지 이동" }),
+    ).toBeNull();
+    expect(screen.getByText("15개 표시")).toBeTruthy();
+    // Read at the page size: fifteen rows, and nothing past them.
+    expect(listReads(api.calls)).toEqual(["?limit=15"]);
+  });
+
+  test("an address with a page opens on it, reading the pages before it in turn", async () => {
+    const { api } = renderAt("/sessions?page=3", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": sessionPages(40),
+      "GET /v1/sessions/counts": () => json(200, sessionCounts(40)),
+    });
+    await screen.findByRole("link", { name: opener("세션 31") });
+    expect(listedTitles()).toHaveLength(10);
+    expect(screen.getByText("31–40 / 40")).toBeTruthy();
+    expect(listReads(api.calls)).toEqual([
+      "?limit=15",
+      "?cursor=c15&limit=15",
+      "?cursor=c30&limit=15",
+    ]);
+  });
+
+  test("a page past the count moves to the last page without reading past it", async () => {
+    const { api, history } = renderAt("/sessions?page=9", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": sessionPages(20),
+      "GET /v1/sessions/counts": () => json(200, sessionCounts(20)),
+    });
+    await screen.findByRole("link", { name: opener("세션 16") });
+    expect(history.location.search).toBe("?page=2");
+    expect(listReads(api.calls)).toEqual(["?limit=15", "?cursor=c15&limit=15"]);
+  });
+
+  test("a count that lags behind the list never stops the address short of a page the list has", async () => {
+    const { history } = renderAt("/sessions?page=3", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": sessionPages(40),
+      // Counted before twenty more sessions started.
+      "GET /v1/sessions/counts": () => json(200, sessionCounts(20)),
+    });
+    await screen.findByRole("link", { name: opener("세션 31") });
+    expect(listedTitles()).toHaveLength(10);
+    expect(history.location.search).toBe("?page=3");
+    // The list's own end, not the count, says how many there are.
+    expect(screen.getByText("31–40 / 40")).toBeTruthy();
+  });
+
+  test("rows that left between reads leave no empty last page behind", async () => {
+    // The cursor promised a second page, but its rows were gone by then.
+    const firstPage = sessionPages(16);
+    const { history } = renderAt("/sessions?page=2", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": (request) =>
+        new URL(request.url).searchParams.has("cursor")
+          ? json(200, { items: [], next_cursor: null })
+          : firstPage(request),
+    });
+    await waitFor(() => expect(history.location.search).toBe(""));
+    await screen.findByRole("link", { name: opener("세션 15") });
+    expect(listedTitles()).toHaveLength(15);
+    expect(
+      screen.queryByRole("navigation", { name: "페이지 이동" }),
+    ).toBeNull();
+  });
+
+  test("with no count, the list's last page says where a page past the end lands", async () => {
+    const { history } = renderAt("/sessions?page=5", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": sessionPages(20),
+    });
+    await screen.findByRole("link", { name: opener("세션 16") });
+    await waitFor(() => expect(history.location.search).toBe("?page=2"));
+    expect(screen.getByText("16–20 / 20")).toBeTruthy();
+  });
+
+  test("a new status, relation or search opens on the first page", async () => {
+    const user = await setupUser();
+    const { history } = renderAt("/sessions?page=2", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": sessionPages(20),
+      "GET /v1/sessions/counts": () => json(200, sessionCounts(20)),
+    });
+    await screen.findByRole("link", { name: opener("세션 16") });
+    await user.click(screen.getByRole("button", { name: /^작업 중/ }));
+    await screen.findByRole("link", { name: opener("세션 1") });
+    expect(history.location.search).toBe("?status=running");
+
+    await user.click(screen.getByRole("button", { name: "다음 페이지" }));
+    await screen.findByRole("link", { name: opener("세션 16") });
+    expect(history.location.search).toBe("?status=running&page=2");
+    await pickRelation(user, "내가 시작");
+    await waitFor(() =>
+      expect(history.location.search).toBe("?status=running&relation=started"),
+    );
+    await screen.findByRole("link", { name: opener("세션 1") });
+
+    await user.click(screen.getByRole("button", { name: "다음 페이지" }));
+    await screen.findByRole("link", { name: opener("세션 16") });
+    await user.type(
+      screen.getByRole("searchbox", { name: "제목이나 ID로 찾기" }),
+      "세션 2",
+    );
+    await waitFor(() =>
+      expect(history.location.search).toBe("?status=running&relation=started"),
+    );
+    // "세션 2" and "세션 20": one page, so no page links.
+    await waitFor(() => expect(listedTitles()).toEqual(["세션 2", "세션 20"]));
+    expect(
+      screen.queryByRole("navigation", { name: "페이지 이동" }),
+    ).toBeNull();
   });
 
   test("a next page that failed is asked for again by the retry button", async () => {
@@ -474,16 +732,18 @@ describe("sessions list", () => {
             }),
     });
 
-    await user.click(await screen.findByRole("button", { name: "더 보기" }));
+    await user.click(
+      await screen.findByRole("button", { name: "다음 페이지" }),
+    );
     await user.click(await screen.findByRole("button", { name: "다시 시도" }));
     await screen.findByRole("link", { name: opener(OTHER_ID) });
-    expect(screen.getByRole("link", { name: opener(SESSION_ID) })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: opener(SESSION_ID) })).toBeNull();
     expect(nextCalls).toBe(2);
   });
 
   test("a next page refused for access says so under the rows, with no retry", async () => {
     const user = await setupUser();
-    renderAt("/sessions", {
+    const renderedAt = renderAt("/sessions", {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/sessions": (request) =>
         new URL(request.url).searchParams.get("cursor") === "next-1"
@@ -494,18 +754,48 @@ describe("sessions list", () => {
             }),
     });
 
-    await user.click(await screen.findByRole("button", { name: "더 보기" }));
+    const { history } = renderedAt;
+    await user.click(
+      await screen.findByRole("button", { name: "다음 페이지" }),
+    );
     await screen.findByText("이 화면을 볼 권한이 없습니다");
+    // The rows read stay, on the page they belong to.
     expect(screen.getByRole("link", { name: opener(SESSION_ID) })).toBeTruthy();
+    await waitFor(() => expect(history.location.search).toBe(""));
     expect(screen.queryByRole("button", { name: "다시 시도" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "더 보기" })).toBeNull();
+  });
+
+  test("the retry asks for the page that failed, even after moving back from it", async () => {
+    const user = await setupUser();
+    const pages = sessionPages(40);
+    let failing = true;
+    const { history } = renderAt("/sessions", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": (request) =>
+        failing && new URL(request.url).searchParams.get("cursor") === "c30"
+          ? apiError(503, "BACKEND_UNAVAILABLE", "down")
+          : pages(request),
+      "GET /v1/sessions/counts": () => json(200, sessionCounts(40)),
+    });
+    await screen.findByRole("link", { name: opener("세션 1") });
+    await user.click(screen.getByRole("button", { name: "다음 페이지" }));
+    await screen.findByRole("link", { name: opener("세션 16") });
+    await user.click(screen.getByRole("button", { name: "3페이지" }));
+    const alert = await screen.findByRole("alert");
+    await waitFor(() => expect(history.location.search).toBe("?page=2"));
+    await user.click(screen.getByRole("button", { name: "1페이지" }));
+    await screen.findByRole("link", { name: opener("세션 1") });
+    failing = false;
+    await user.click(within(alert).getByRole("button", { name: "다시 시도" }));
+    await screen.findByRole("link", { name: opener("세션 31") });
+    expect(history.location.search).toBe("?page=3");
   });
 
   test("a failed next page keeps the rows, and retry pressed again while asking asks once", async () => {
     const user = await setupUser();
     let release = () => {};
     let nextCalls = 0;
-    const { api } = renderAt("/sessions", {
+    const { api, history } = renderAt("/sessions", {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/sessions": async (request) => {
         if (new URL(request.url).searchParams.get("cursor") !== "next-1") {
@@ -524,10 +814,13 @@ describe("sessions list", () => {
       },
     });
 
-    await user.click(await screen.findByRole("button", { name: "더 보기" }));
+    await user.click(
+      await screen.findByRole("button", { name: "다음 페이지" }),
+    );
     const alert = await screen.findByRole("alert");
-    // The rows already read stay above the failure.
+    // The rows already read stay above the failure, on their own page.
     expect(screen.getByRole("link", { name: opener(SESSION_ID) })).toBeTruthy();
+    await waitFor(() => expect(history.location.search).toBe(""));
     const retry = within(alert).getByRole("button", { name: "다시 시도" });
     await user.click(retry);
     await waitFor(() =>
@@ -537,13 +830,15 @@ describe("sessions list", () => {
     await user.click(retry);
     release();
     await screen.findByRole("link", { name: opener(OTHER_ID) });
+    // The retry goes on to the page that failed.
+    expect(history.location.search).toBe("?page=2");
     expect(screen.queryByRole("alert")).toBeNull();
     expect(
-      api.calls.filter((call) => call.search === "?cursor=next-1"),
+      api.calls.filter((call) => call.search === "?cursor=next-1&limit=15"),
     ).toHaveLength(2);
   });
 
-  test("from the keyboard 더 보기 keeps the focus, asks once, and hands it to the new row at the end", async () => {
+  test("from the keyboard 다음 페이지 keeps the focus, asks once, and stays at the last page", async () => {
     const user = await setupUser();
     let release = () => {};
     let failing = true;
@@ -564,50 +859,73 @@ describe("sessions list", () => {
       },
     });
 
-    const more = await screen.findByRole("button", { name: "더 보기" });
-    await act(async () => more.focus());
+    const next = await screen.findByRole("button", { name: "다음 페이지" });
+    await act(async () => next.focus());
     await user.keyboard("{Enter}");
     await screen.findByRole("alert");
-    // A failed page keeps 더 보기, and the keyboard on it.
-    expect(screen.getByRole("button", { name: "더 보기" }) === more).toBe(true);
-    expect(document.activeElement === more).toBe(true);
+    // A failed page keeps 다음 페이지, and the keyboard on it.
+    expect(screen.getByRole("button", { name: "다음 페이지" }) === next).toBe(
+      true,
+    );
+    expect(document.activeElement === next).toBe(true);
 
+    // Pressed again, it asks for the page that failed.
     failing = false;
     await user.keyboard("{Enter}");
-    await screen.findByRole("button", { name: "불러오는 중…" });
-    expect(more.getAttribute("aria-disabled")).toBe("true");
-    expect(document.activeElement === more).toBe(true);
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("link", { name: opener(SESSION_ID) })
+          .closest("[aria-busy=true]"),
+      ).not.toBeNull(),
+    );
+    expect(document.activeElement === next).toBe(true);
     await user.keyboard("{Enter}");
     release();
-    const added = await screen.findByRole("link", { name: opener(OTHER_ID) });
-    expect(screen.queryByRole("button", { name: "더 보기" })).toBeNull();
-    await waitFor(() => expect(document.activeElement === added).toBe(true));
+    await screen.findByRole("link", { name: opener(OTHER_ID) });
+    // The list ends on the second page: the third pressed meanwhile lands there.
+    await waitFor(() =>
+      expect(next.getAttribute("aria-disabled")).toBe("true"),
+    );
+    expect(document.activeElement === next).toBe(true);
     expect(
-      api.calls.filter((call) => call.search === "?cursor=next-1"),
+      api.calls.filter((call) => call.search === "?cursor=next-1&limit=15"),
     ).toHaveLength(2);
   });
 
   test("a refresh that failed under a shown list is retried as a refresh", async () => {
     const user = await setupUser();
-    let firstPageCalls = 0;
-    const { services } = renderAt("/sessions", {
+    let down = false;
+    const { api, services } = renderAt("/sessions", {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/sessions": () =>
-        ++firstPageCalls === 2
+        down
           ? apiError(503, "BACKEND_UNAVAILABLE", "down")
           : json(200, {
               items: [summary(SESSION_ID, { status: "idle" })],
               next_cursor: null,
             }),
     });
+    const listReads = () =>
+      api.calls.filter((call) => call.search === "?limit=15").length;
 
     await screen.findByRole("link", { name: opener(SESSION_ID) });
+    down = true;
     await services.queryClient.invalidateQueries({ queryKey: keys.sessions });
-    await user.click(await screen.findByRole("button", { name: "다시 시도" }));
+    const retry = await screen.findByRole("button", { name: "다시 시도" });
+    // The rows read before stay under the failure.
+    expect(screen.getByRole("link", { name: opener(SESSION_ID) })).toBeTruthy();
+    down = false;
+    const before = listReads();
+    await user.click(retry);
     await waitFor(() =>
       expect(screen.queryByRole("button", { name: "다시 시도" })).toBeNull(),
     );
-    expect(firstPageCalls).toBe(3);
+    // The first page again, never a cursor past it.
+    expect(listReads()).toBe(before + 1);
+    expect(api.calls.some((call) => call.search.includes("cursor"))).toBe(
+      false,
+    );
   });
 
   test("in en the list speaks English", async () => {
@@ -756,13 +1074,13 @@ describe("sessions list", () => {
       screen.queryByRole("link", { name: "세션 열기: api6.txt 쓰고 push" }),
     ).toBeNull();
     const reads = api.calls.filter((call) => call.path === "/v1/sessions");
-    expect(reads.map((call) => call.search)).toContain("?q=readme");
+    expect(reads.map((call) => call.search)).toContain("?q=readme&limit=15");
     // Only the settled text goes out, not each keystroke.
     expect(
       reads
         .filter((call) => call.search.startsWith("?q="))
         .map((c) => c.search),
-    ).toEqual(["?q=readme"]);
+    ).toEqual(["?q=readme&limit=15"]);
     expect(
       api.calls.some(
         (call) =>
@@ -903,19 +1221,24 @@ describe("sessions list", () => {
       },
     });
     await screen.findByRole("link", { name: opener(SESSION_ID) });
-    await user.click(screen.getByRole("button", { name: "더 보기" }));
+    await user.click(screen.getByRole("button", { name: "다음 페이지" }));
     await screen.findByRole("link", { name: opener(THIRD_ID) });
 
     await user.click(screen.getByRole("button", { name: "실패" }));
     await waitFor(() => expect(answer).toBeDefined());
-    expect(screen.getByRole("link", { name: opener(THIRD_ID) })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "더 보기" })).toBeNull();
+    // The new tab opens on page 1: meanwhile the last tab's first page shows.
+    expect(screen.getByRole("link", { name: opener(SESSION_ID) })).toBeTruthy();
+    expect(
+      screen.queryByRole("navigation", { name: "페이지 이동" }),
+    ).toBeNull();
     act(() => answer?.());
     await screen.findByRole("link", { name: opener(OTHER_ID) });
     const failedReads = api.calls.filter((call) =>
       call.search.includes("status=failed"),
     );
-    expect(failedReads.map((call) => call.search)).toEqual(["?status=failed"]);
+    expect(failedReads.map((call) => call.search)).toEqual([
+      "?status=failed&limit=15",
+    ]);
     expect(api.calls.filter((call) => call.search.includes("next-2"))).toEqual(
       [],
     );
@@ -968,7 +1291,8 @@ describe("sessions list", () => {
     expect(
       api.calls.some(
         (call) =>
-          call.path === "/v1/sessions" && call.search === "?relation=shared",
+          call.path === "/v1/sessions" &&
+          call.search === "?relation=shared&limit=15",
       ),
     ).toBe(true);
 
@@ -978,7 +1302,7 @@ describe("sessions list", () => {
         api.calls.some(
           (call) =>
             call.path === "/v1/sessions" &&
-            call.search === "?status=failed&relation=shared",
+            call.search === "?status=failed&relation=shared&limit=15",
         ),
       ).toBe(true),
     );
@@ -1201,7 +1525,8 @@ describe("sessions list", () => {
     expect(
       api.calls.some(
         (call) =>
-          call.path === "/v1/sessions" && call.search === "?status=failed",
+          call.path === "/v1/sessions" &&
+          call.search === "?status=failed&limit=15",
       ),
     ).toBe(true);
 
@@ -1230,15 +1555,22 @@ describe("sessions list", () => {
     await user.click(screen.getByRole("button", { name: "실패" }));
     await screen.findByRole("link", { name: opener(OTHER_ID) });
     const failedReads = () =>
-      api.calls.filter((call) => call.search === "?status=failed").length;
+      api.calls.filter((call) => call.search === "?status=failed&limit=15")
+        .length;
     await waitFor(() => expect(failedReads()).toBe(1));
+    // As the session hooks refresh: the full list and the waiting page, each
+    // by its exact key. The screen never reads the full list's own key.
     for (const expected of [2, 3]) {
-      await act(() =>
-        services.queryClient.invalidateQueries({
+      await act(async () => {
+        await services.queryClient.invalidateQueries({
           queryKey: keys.sessions,
           exact: true,
-        }),
-      );
+        });
+        await services.queryClient.invalidateQueries({
+          queryKey: keys.waitingSessions,
+          exact: true,
+        });
+      });
       await waitFor(() => expect(failedReads()).toBe(expected));
     }
   });

@@ -18,7 +18,12 @@ import {
 } from "./routes/agent-detail/navigation.ts";
 import { slackInstallSearch } from "./routes/agent-detail/slack-install-search.ts";
 import { AgentDetailScreen } from "./routes/agent-detail.tsx";
-import { AgentsScreen, NewAgentScreen } from "./routes/agents.tsx";
+import {
+  AgentsScreen,
+  type AgentsSearch,
+  agentsSearch,
+  NewAgentScreen,
+} from "./routes/agents.tsx";
 import {
   AgentKeysScreen,
   ApiKeysScreen,
@@ -416,6 +421,8 @@ const achievements = createRoute({
 const agents = createRoute({
   getParentRoute: () => authed,
   path: "/agents",
+  validateSearch: (search: Record<string, unknown>): AgentsSearch =>
+    agentsSearch(search),
   component: AgentsScreen,
 });
 

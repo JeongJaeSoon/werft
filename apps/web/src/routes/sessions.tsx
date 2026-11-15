@@ -32,10 +32,17 @@ import {
   SegmentedControlItem,
   Text,
 } from "@werft-ai/ui";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useCan } from "../auth/guard.tsx";
+import {
+  CursorListFailure,
+  type GoToPage,
+  isPaged,
+  ListPagination,
+  pageParam,
+  useCursorPage,
+} from "../components/list-pages.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
-import { PagedListFooter } from "../components/paged-list-footer.tsx";
 import { SEARCH_MAX, useSearchTerm } from "../components/search-term.ts";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
@@ -82,14 +89,24 @@ export interface SessionsSearch {
   readonly status?: SessionFilter;
   /** Absent for every relation, the API's own default. */
   readonly relation?: SessionRelationFilter;
+  /** Absent on the first page. */
+  readonly page?: number;
 }
+
+/** Rows on one page of the sessions list. */
+export const SESSIONS_PAGE_SIZE = 15;
 
 export function sessionsSearch(
   search: Record<string, unknown>,
 ): SessionsSearch {
   const status = SESSION_FILTERS.find((name) => name === search.status);
   const relation = SESSION_RELATIONS.find((name) => name === search.relation);
-  return { ...(status ? { status } : {}), ...(relation ? { relation } : {}) };
+  const page = pageParam(search.page);
+  return {
+    ...(status ? { status } : {}),
+    ...(relation ? { relation } : {}),
+    ...(page ? { page } : {}),
+  };
 }
 
 export function SessionsScreen() {
@@ -111,6 +128,7 @@ export function SessionsScreen() {
     unavailable,
     refusal,
   });
+  // A new filter leaves `page` out, so it opens on the first page.
   const go = (next: SessionsSearch) =>
     void navigate({
       search: next,
@@ -118,6 +136,20 @@ export function SessionsScreen() {
       // the back button with filter entries.
       replace: true,
     });
+  const { status, relation: kept } = address;
+  // Each page is its own entry, so the back button returns to the last one.
+  const goToPage = useCallback<GoToPage>(
+    (page, options) =>
+      void navigate({
+        search: {
+          ...(status ? { status } : {}),
+          ...(kept ? { relation: kept } : {}),
+          ...(page > 1 ? { page } : {}),
+        },
+        replace: options?.replace ?? false,
+      }),
+    [navigate, status, kept],
+  );
   const pick = (next: string) =>
     go({
       ...(next === "all" ? {} : { status: next as SessionFilter }),
@@ -191,7 +223,10 @@ export function SessionsScreen() {
                 placeholder: t("sessionList.search"),
                 maxLength: SEARCH_MAX,
                 value: query,
-                onChange: (event) => setQuery(event.target.value),
+                onChange: (event) => {
+                  setQuery(event.target.value);
+                  if (address.page) goToPage(1, { replace: true });
+                },
               }}
             />
             <SessionsView
@@ -200,6 +235,15 @@ export function SessionsScreen() {
                 ...(relation ? { relation } : {}),
                 ...(q ? { q } : {}),
               }}
+              total={
+                counts.isPlaceholderData || !counts.data
+                  ? undefined
+                  : tab === "all"
+                    ? counts.data.total
+                    : counts.data.counts[tab]
+              }
+              page={address.page ?? 1}
+              onPageChange={goToPage}
               onClear={clear}
             />
           </div>
@@ -234,7 +278,7 @@ function useFollowListRefresh() {
       ) {
         void queryClient.invalidateQueries({ queryKey: statusLists(client) });
         // An invalidated query reports no further invalidation, and the full
-        // list sits unmounted behind a status tab. It has no staleTime, so it
+        // list (home's) sits unmounted here. It has no staleTime, so it
         // reads again on mount with or without the flag; clearing it keeps
         // the next refresh visible here.
         if (!event.query.isActive()) {
@@ -257,18 +301,19 @@ interface SessionsFilter {
  */
 function useListedSessions(filter: SessionsFilter) {
   const { client } = useWerft();
-  const unfiltered = Object.keys(filter).length === 0;
   return useInfiniteQuery({
-    // Unfiltered, it is the list the session hooks refresh by its exact key;
-    // the rest sit under the sessions key, so those refreshes reach them too.
-    queryKey: unfiltered
-      ? queryKeysOf(client).sessions
-      : [...statusLists(client), filter],
+    // Never the full list's own key, which home reads at the API's default
+    // page size; under the sessions key, so its refreshes reach these too.
+    queryKey: [...statusLists(client), filter],
     queryFn: ({ pageParam }) =>
       unwrap(
         client.GET("/v1/sessions", {
           params: {
-            query: { ...filter, ...(pageParam ? { cursor: pageParam } : {}) },
+            query: {
+              ...filter,
+              ...(pageParam ? { cursor: pageParam } : {}),
+              limit: SESSIONS_PAGE_SIZE,
+            },
           },
         }),
       ) as Promise<ListSessionsResponse>,
@@ -304,25 +349,41 @@ function useSessionCounts(
 /** The caller's sessions for the filters picked, a page at a time. */
 function SessionsView({
   filter,
+  total,
+  page,
+  onPageChange,
   onClear,
 }: {
   readonly filter: SessionsFilter;
+  /** The tab's count, for the same relation and search. */
+  readonly total: number | undefined;
+  readonly page: number;
+  readonly onPageChange: GoToPage;
   readonly onClear: () => void;
 }) {
   const { t } = useI18n();
   const sessions = useListedSessions(filter);
-  const items = sessions.data?.pages.flatMap((page) => page.items) ?? [];
+  const read = sessions.data?.pages.some((one) => one.items.length > 0);
   // The last filter's rows stay while the new filter is read, marked busy;
   // the fade waits a moment so a quick answer never flickers.
-  const busy = sessions.isPlaceholderData;
+  const stale = sessions.isPlaceholderData;
+  const listed = useCursorPage({
+    list: sessions,
+    page,
+    pageSize: SESSIONS_PAGE_SIZE,
+    total,
+    stale,
+    onPageChange,
+  });
+  const busy = stale || listed.busy;
 
-  if (sessions.isPending || (busy && items.length === 0)) {
+  if (sessions.isPending || (stale && !read)) {
     return <StatusScreen kind="loading" />;
   }
-  if (sessions.error && items.length === 0) {
+  if (sessions.error && !read) {
     return loadError(sessions.error, () => void sessions.refetch());
   }
-  if (items.length === 0) {
+  if (!read) {
     if (filter.relation || filter.q) {
       return (
         <EmptyState
@@ -353,17 +414,21 @@ function SessionsView({
       data-busy={busy}
       className="flex flex-col items-start gap-4 transition-opacity data-[busy=true]:opacity-60 data-[busy=true]:delay-150"
     >
-      <SessionsOverview sessions={items} />
+      <SessionsOverview sessions={listed.items} />
       {isApiError(sessions.error, "FORBIDDEN") ? (
         // Asking again would be refused again: say who may see it instead.
         <StatusScreen kind="forbidden" />
       ) : (
-        // A next page of the last filter's rows would land under the new one.
-        <PagedListFooter list={sessions} stale={busy} />
+        <CursorListFailure list={sessions} page={listed} />
       )}
-      <Text variant="meta">
-        {t("sessionList.shown", { count: items.length })}
-      </Text>
+      {/* The last filter's pages would lead past the new one's rows. */}
+      {!stale && isPaged(listed) ? (
+        <ListPagination list={listed} />
+      ) : (
+        <Text variant="meta">
+          {t("sessionList.shown", { count: listed.items.length })}
+        </Text>
+      )}
     </div>
   );
 }

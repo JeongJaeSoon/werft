@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { isApiError } from "@werft-ai/client";
 import type {
   Agent,
@@ -24,7 +24,7 @@ import {
   SegmentedControlItem,
   Text,
 } from "@werft-ai/ui";
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   administeredAgentsQuery,
   agentCountsQuery,
@@ -46,18 +46,49 @@ import {
 } from "../components/agent-columns.tsx";
 import { agentRefusal } from "../components/agent-refusal.ts";
 import { AgentStateText, agentState } from "../components/agent-state.tsx";
+import {
+  CursorListFailure,
+  type GoToPage,
+  ListPagination,
+  pageParam,
+  useClientPage,
+  useCursorPage,
+} from "../components/list-pages.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { NewAgentFlow } from "../components/new-agent-flow.tsx";
-import { PagedListFooter } from "../components/paged-list-footer.tsx";
 import { OPENS_ROW, TABLE_ROW_LINK } from "../components/row-link.ts";
 import { SEARCH_MAX, useSearchTerm } from "../components/search-term.ts";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
 
+export interface AgentsSearch {
+  /** Absent on the first page. */
+  readonly page?: number;
+}
+
+/** Rows on one page of the agents list. */
+export const AGENTS_PAGE_SIZE = 15;
+
+export function agentsSearch(search: Record<string, unknown>): AgentsSearch {
+  const page = pageParam(search.page);
+  return page ? { page } : {};
+}
+
 export function AgentsScreen() {
   const { t } = useI18n();
   const { client } = useWerft();
   const navigate = useNavigate();
+  const page = agentsSearch(useSearch({ from: "/authed/agents" })).page ?? 1;
+  // Each page is its own entry, so the back button returns to the last one.
+  const goToPage = useCallback<GoToPage>(
+    (next, options) =>
+      void navigate({
+        to: "/agents",
+        search: next > 1 ? { page: next } : {},
+        replace: options?.replace ?? false,
+      }),
+    [navigate],
+  );
   const role = useRole();
   // The counts answer the same callers as the list, so they also say
   // whether the caller may list agents at all.
@@ -100,7 +131,11 @@ export function AgentsScreen() {
           />
         )
       ) : (
-        <AgentList counts={counts.data.counts} />
+        <AgentList
+          counts={counts.data.counts}
+          page={page}
+          onPageChange={goToPage}
+        />
       )}
     </Page>
   );
@@ -108,8 +143,12 @@ export function AgentsScreen() {
 
 function AgentList({
   counts,
+  page,
+  onPageChange,
 }: {
   readonly counts: CountAgentsResponse["counts"];
+  readonly page: number;
+  readonly onPageChange: GoToPage;
 }) {
   const { t } = useI18n();
   const { client } = useWerft();
@@ -118,9 +157,13 @@ function AgentList({
   const q = useSearchTerm(query);
   const paged = scope !== "administered";
   const pages = useInfiniteQuery({
-    ...agentPagesQuery(client, q),
+    ...agentPagesQuery(client, q, AGENTS_PAGE_SIZE),
     enabled: paged,
   });
+  // A new tab or search opens on the first page.
+  const toFirstPage = () => {
+    if (page > 1) onPageChange(1, { replace: true });
+  };
   const administered = useQuery(administeredAgentsQuery(client));
   // The administered list carries no summaries; the engine, channels and
   // running count come from the list API by id, as the "all" tab reads them.
@@ -141,11 +184,29 @@ function AgentList({
   // the field it emptied.
   const clear = () => {
     setQuery("");
+    toFirstPage();
     search.current?.focus();
   };
-  const shown = paged
-    ? pages.data?.pages.flatMap((page) => page.items)
-    : mine?.filter((agent) => matchesAgentQuery(agent, query));
+  const listedPage = useCursorPage({
+    list: pages,
+    page,
+    pageSize: AGENTS_PAGE_SIZE,
+    // The counts know no search.
+    total: q ? undefined : counts.all,
+    stale: !paged,
+    onPageChange,
+  });
+  const minePage = useClientPage({
+    items: paged
+      ? undefined
+      : mine?.filter((agent) => matchesAgentQuery(agent, query)),
+    page,
+    pageSize: AGENTS_PAGE_SIZE,
+    onPageChange,
+  });
+  const listed = paged ? listedPage : minePage;
+  const read = paged ? pages.data !== undefined : mine !== undefined;
+  const shown = read ? (listed.total ?? listed.items.length) : undefined;
   return (
     <div className="flex flex-col gap-4">
       <ListToolbar
@@ -153,7 +214,10 @@ function AgentList({
           <SegmentedControl
             aria-label={t("agents.tabs.label")}
             value={scope}
-            onValueChange={(next) => setScope(next as typeof scope)}
+            onValueChange={(next) => {
+              setScope(next as typeof scope);
+              toFirstPage();
+            }}
           >
             <SegmentedControlItem value="all" count={counts.all}>
               {t("agents.tabs.all")}
@@ -173,7 +237,10 @@ function AgentList({
           placeholder: t("agents.search"),
           maxLength: SEARCH_MAX,
           value: query,
-          onChange: (event) => setQuery(event.target.value),
+          onChange: (event) => {
+            setQuery(event.target.value);
+            toFirstPage();
+          },
         }}
       />
       {/* Outside the lists, so switching category or state keeps the same
@@ -181,22 +248,28 @@ function AgentList({
       <output className="sr-only">
         {query.trim() === "" || shown === undefined
           ? ""
-          : t("agents.shown", { count: shown.length })}
+          : t("agents.shown", { count: shown })}
       </output>
       {paged ? (
         counts.all === 0 ? (
           <EmptyState title={t("agents.empty")} />
         ) : pages.isPending ? (
           <StatusScreen kind="loading" />
-        ) : pages.error && !shown?.length ? (
+        ) : pages.error &&
+          !pages.data?.pages.some((one) => one.items.length > 0) ? (
           <LoadFailure
             error={pages.error}
             onRetry={() => void pages.refetch()}
           />
         ) : (
-          <div className="flex flex-col gap-4">
-            <AgentsIn agents={shown ?? []} onClear={clear} />
-            <PagedListFooter list={pages} />
+          <div
+            aria-busy={listed.busy}
+            data-busy={listed.busy}
+            className="flex flex-col gap-4 transition-opacity data-[busy=true]:opacity-60 data-[busy=true]:delay-150"
+          >
+            <AgentsIn agents={listed.items} onClear={clear} />
+            <CursorListFailure list={pages} page={listed} />
+            <ListPagination list={listed} />
           </div>
         )
       ) : administered.isPending || (ids.length > 0 && summaries.isPending) ? (
@@ -223,7 +296,10 @@ function AgentList({
               })}
             </Text>
           ) : null}
-          <AgentsIn agents={shown ?? []} onClear={clear} />
+          <div className="flex flex-col gap-4">
+            <AgentsIn agents={listed.items} onClear={clear} />
+            <ListPagination list={listed} />
+          </div>
         </div>
       )}
     </div>

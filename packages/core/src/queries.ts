@@ -159,8 +159,8 @@ export function queryKeysOf(client: ApiClient) {
     agents: [s, "agents"] as const,
     // Object segments under "agents", so they never read as an agent id and
     // every agent change refreshes them too.
-    agentPages: (q: string | undefined) =>
-      [s, "agents", { pages: q ?? null }] as const,
+    agentPages: (q: string | undefined, limit?: number) =>
+      [s, "agents", { pages: q ?? null, ...(limit ? { limit } : {}) }] as const,
     agentsOnConnection: (connectionId: string) =>
       [s, "agents", { connection: connectionId }] as const,
     agentCounts: [s, "agents", { counts: true }] as const,
@@ -412,10 +412,11 @@ export function agentsQuery(client: ApiClient) {
 /**
  * The workspace's agents a page at a time, oldest first, with their card
  * summaries: those whose name or slug contains `q` when one is given.
+ * `limit` rows a page, the API's default when left out.
  */
-export function agentPagesQuery(client: ApiClient, q?: string) {
+export function agentPagesQuery(client: ApiClient, q?: string, limit?: number) {
   return infiniteQueryOptions({
-    queryKey: queryKeysOf(client).agentPages(q),
+    queryKey: queryKeysOf(client).agentPages(q, limit),
     queryFn: ({ pageParam }) =>
       unwrap(
         client.GET("/v1/agents", {
@@ -423,6 +424,7 @@ export function agentPagesQuery(client: ApiClient, q?: string) {
             query: {
               include: "summary",
               ...(q ? { q } : {}),
+              ...(limit ? { limit } : {}),
               ...(pageParam ? { cursor: pageParam } : {}),
             },
           },
