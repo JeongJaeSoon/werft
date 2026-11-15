@@ -41,7 +41,7 @@ Read recent results in the same container's `/tmp/reconciler-status.json` and `R
 <a id="격리-계약-변경을-적용할-때" />
 ### Apply isolation contract changes
 
-Upgrade the Docker daemon to 28 or later before applying the server image with the new isolation contract. Older daemons fail preflight for the entire pass, preventing replacement even of existing workers. Claimed workers drain for up to `MAX_TURN_SECONDS` + 5 minutes; old-contract containers and queued input remain during that time. For an isolation defect requiring immediate interruption, terminate affected sessions. Even if rollback makes a container current again, its drain request remains: it ends without accepting new turns and continues through the next launch.
+Upgrade the Docker daemon to 28 or later before applying the server image with the new isolation contract. Older daemons fail preflight for the entire pass, preventing replacement even of existing workers. Claimed workers drain for up to the turn time they were started with + 5 minutes; old-contract containers and queued input remain during that time. For an isolation defect requiring immediate interruption, terminate affected sessions. Even if rollback makes a container current again, its drain request remains: it ends without accepting new turns and continues through the next launch.
 
 <a id="2-checkpoint-복원과-시작-실패" />
 ### 2. Checkpoint restoration and startup failures
