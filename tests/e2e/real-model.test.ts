@@ -120,9 +120,9 @@ describe("real-model compose layers", () => {
       expect(env.SESSION_COST_LIMIT_USD).toBeUndefined();
     }
     // The cost limit is the console's: migrate carries it in once.
-    expect(
-      defaults(base.migrate, overlay.migrate).SESSION_COST_LIMIT_USD,
-    ).toBe("3");
+    expect(defaults(base.migrate, overlay.migrate).SESSION_COST_LIMIT_USD).toBe(
+      "3",
+    );
   });
 });
 
