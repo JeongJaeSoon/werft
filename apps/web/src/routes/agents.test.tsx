@@ -406,7 +406,7 @@ describe("에이전트 목록", () => {
       "GET /v1/administered-agents": () => json(200, { items: [] }),
     });
     expect(
-      await screen.findByText(/전체 에이전트 목록은 소유자와 관리자만 봅니다/),
+      await screen.findByText(/전체 에이전트 목록은 오너와 어드민만 봅니다/),
     ).toBeDefined();
     // Whoever may create is offered it once, at the head of the list.
     const [button, ...others] = screen.getAllByRole("button", {
@@ -438,7 +438,7 @@ describe("에이전트 목록", () => {
     expect(
       document.getElementById(button.getAttribute("aria-describedby") ?? "")
         ?.textContent,
-    ).toBe("에이전트 만들기 권한이 있어야 할 수 있습니다. 지금 역할: 구성원.");
+    ).toBe("에이전트 만들기 권한이 있어야 할 수 있습니다. 지금 역할: 멤버.");
   });
 
   test("영어 화면도 권한 식별자와 서버 문구 없이 안내한다", async () => {
@@ -860,7 +860,7 @@ describe("목록을 볼 수 없는 구성원", () => {
         .getAttribute("href"),
     ).toBe(DETAIL);
     expect(
-      screen.getByText(/전체 에이전트 목록은 소유자와 관리자만 봅니다/),
+      screen.getByText(/전체 에이전트 목록은 오너와 어드민만 봅니다/),
     ).toBeDefined();
   });
 

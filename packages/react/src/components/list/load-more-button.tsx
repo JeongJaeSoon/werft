@@ -32,7 +32,8 @@ const FOCUSABLE =
  * disabled, so the keyboard stays on it. When the last page arrives the
  * button goes, and if that dropped the focus it moves to the first new row
  * (its first focusable, usually the row opener), found in the button's
- * parent. Stay mounted (hasMore false) so the move can happen.
+ * parent, or to that parent when it holds no row. Stay mounted (hasMore
+ * false) so the move can happen.
  */
 export function LoadMoreButton({
   hasMore,
@@ -54,7 +55,13 @@ export function LoadMoreButton({
     }
     const rows = bodyRows(pending.scope);
     const row = rows[pending.shown] ?? rows[rows.length - 1];
-    if (row === undefined) return;
+    if (row === undefined) {
+      // A filtered list can end with no row at all: the keyboard stays on
+      // the list, which now holds only its empty state.
+      pending.scope.tabIndex = -1;
+      pending.scope.focus();
+      return;
+    }
     const target = row.querySelector<HTMLElement>(FOCUSABLE);
     if (target === null) row.tabIndex = -1;
     (target ?? row).focus();

@@ -55,7 +55,7 @@ const CARDS = {
   table:
     "[@container(max-width:640px)]:gap-3 [@container(max-width:640px)]:rounded-none [@container(max-width:640px)]:border-0 [@container(max-width:640px)]:bg-transparent",
   header: "[@container(max-width:640px)]:sr-only",
-  row: "[@container(max-width:640px)]:flex [@container(max-width:640px)]:flex-col [@container(max-width:640px)]:items-stretch [@container(max-width:640px)]:gap-2 [@container(max-width:640px)]:rounded-card [@container(max-width:640px)]:border [@container(max-width:640px)]:bg-card [@container(max-width:640px)]:last:border-b",
+  row: "[@container(max-width:640px)]:flex [@container(max-width:640px)]:flex-col [@container(max-width:640px)]:items-stretch [@container(max-width:640px)]:gap-2 [@container(max-width:640px)]:py-[var(--werft-row-padding-y)] [@container(max-width:640px)]:rounded-card [@container(max-width:640px)]:border [@container(max-width:640px)]:bg-card [@container(max-width:640px)]:last:border-b",
   start:
     "[@container(max-width:640px)]:justify-start [@container(max-width:640px)]:text-start",
   label:
@@ -225,7 +225,7 @@ export function GridTableRow({
       className={cn(
         ROW,
         narrow?.row,
-        "min-h-[var(--werft-row-min-height)] py-[var(--werft-row-padding-y)] text-control",
+        "min-h-[var(--werft-row-min-height)] py-[var(--werft-grid-row-padding-y)] text-control",
         "has-[[data-slot=grid-table-row-opener]]:cursor-pointer has-[[data-slot=grid-table-row-opener]]:hover:bg-hover",
         className,
       )}

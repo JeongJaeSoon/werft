@@ -587,6 +587,15 @@ describe("SessionOverviewRow", () => {
     expect(time.tagName).toBe("TIME");
     // Raised above the row's opener, so hover and focus reach it.
     expect(time.parentElement?.className).toContain("relative");
+    // A phone's row leaves the wait out; the duration cell stays.
+    expect(time.parentElement?.className).toContain(
+      "[@container(width<600px)]:hidden",
+    );
+    expect(
+      getAllByRole("row")[1]?.querySelectorAll(
+        "[class*='[@container(width<600px)]:hidden']",
+      ).length,
+    ).toBe(1);
     time.focus();
     expect(document.activeElement === time).toBe(true);
     expect(getAllByRole("row")[1]?.textContent).toContain(

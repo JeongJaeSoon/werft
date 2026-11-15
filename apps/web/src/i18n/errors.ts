@@ -3,39 +3,39 @@ export const errorsKo = {
   "error.UNAUTHORIZED": "이메일 또는 비밀번호가 맞지 않습니다.",
   "error.SCOPE_NOT_GRANTABLE":
     "내가 가진 것보다 많은 권한을 키에 줄 수 없습니다.",
-  "error.FORBIDDEN": "권한이 없습니다 — 소유자나 관리자에게 요청하세요.",
-  "error.BOOTSTRAP_DONE": "이미 소유자가 있습니다. 로그인해 주세요.",
+  "error.FORBIDDEN": "권한이 없습니다 — 오너나 어드민에게 요청하세요.",
+  "error.BOOTSTRAP_DONE": "이미 오너가 있습니다. 로그인해 주세요.",
   "error.RATE_LIMITED": "시도가 너무 많습니다 — 잠시 뒤 다시 시도하세요.",
   "error.BACKEND_UNAVAILABLE":
     "서버가 응답하지 않습니다 — 잠시 뒤 다시 시도하세요.",
   "error.NETWORK_ERROR":
     "서버에 연결하지 못했습니다 — 네트워크 연결을 확인하세요.",
   "error.LOGIN_LINK_REQUIRED":
-    "이미 이 이메일로 만든 계정이 있습니다 — 그 계정에 쓰던 수단으로 로그인한 뒤 설정 > 로그인 수단에서 이 공급자를 연결하세요. 그 수단으로 로그인할 수 없으면 소유자에게 요청하세요.",
+    "이미 이 이메일로 만든 계정이 있습니다 — 그 계정에 쓰던 수단으로 로그인한 뒤 설정 > 로그인 수단에서 이 공급자를 연결하세요. 그 수단으로 로그인할 수 없으면 오너에게 요청하세요.",
   "error.UNKNOWN": "처리하지 못했습니다 — 잠시 뒤 다시 시도하세요.",
   "error.NOT_FOUND": "더 이상 없는 항목입니다 — 목록을 다시 불러오세요.",
   "error.PAYLOAD_TOO_LARGE": "입력이 너무 깁니다 — 줄여서 다시 보내세요.",
   "error.INVITE_EXPIRED": "만료됐거나 회수된 초대입니다.",
   "error.INVITE_USED": "이미 쓰인 초대입니다.",
   "error.LAST_OWNER":
-    "마지막 소유자는 역할을 바꾸거나 비활성화할 수 없습니다 — 다른 사람을 먼저 소유자로 정하세요.",
+    "마지막 오너는 역할을 바꾸거나 비활성화할 수 없습니다 — 다른 사람을 먼저 오너로 정하세요.",
   "error.SELF_PROTECTED":
-    "자기 역할이나 접근은 직접 바꿀 수 없습니다 — 다른 소유자나 관리자에게 요청하세요.",
+    "자기 역할이나 접근은 직접 바꿀 수 없습니다 — 다른 오너나 어드민에게 요청하세요.",
   "error.MEMBER_DISABLED":
     "비활성화된 구성원의 역할은 바꿀 수 없습니다 — 먼저 다시 활성화하세요.",
   "error.ACCOUNT_DISABLED":
     "계정이 정지된 사람입니다 — 계정 정지를 먼저 풀어야 역할을 바꾸거나 다시 활성화할 수 있습니다.",
   "error.OWNER_PROTECTED":
-    "소유자 역할을 주거나 소유자의 역할·접근(비활성화·정지·다시 활성화)을 바꾸는 일은 소유자만 할 수 있습니다 — 소유자에게 요청하세요.",
+    "오너 역할을 주거나 오너의 역할·접근(비활성화·정지·다시 활성화)을 바꾸는 일은 오너만 할 수 있습니다 — 오너에게 요청하세요.",
   "error.UNSUPPORTED_CAPABILITY":
     "카드 모델을 이 연결이 제공하지 않거나, 연결이 켜져 있지 않거나, 이 연결을 돌릴 런타임이 없습니다.",
   "error.REVISION_CONFLICT":
     "다른 곳에서 먼저 바꿨습니다 — 다시 불러온 뒤 시도하세요.",
   "error.ALREADY_EXISTS": "같은 식별자(slug)가 이미 있습니다.",
   "error.SLACK_LINK_NOT_CONFIGURED":
-    "Slack 계정 연결을 아직 쓸 수 없습니다 — 워크스페이스 관리자에게 연동 > Slack 설정을 요청하세요.",
+    "Slack 계정 연결을 아직 쓸 수 없습니다 — 워크스페이스 어드민에게 연동 > Slack 설정을 요청하세요.",
   "error.GITHUB_LINK_NOT_CONFIGURED":
-    "GitHub 계정 연결을 아직 쓸 수 없습니다 — 워크스페이스 관리자에게 연동 > GitHub의 사용자 연결 설정을 요청하세요.",
+    "GitHub 계정 연결을 아직 쓸 수 없습니다 — 워크스페이스 어드민에게 연동 > GitHub의 사용자 연결 설정을 요청하세요.",
   "error.SLACK_APP_CREATING":
     "Slack 앱을 만드는 중입니다 — 잠시 뒤 다시 시도하세요.",
   "error.GITHUB_UNAVAILABLE":
@@ -101,7 +101,7 @@ export const errorsJa: Record<keyof typeof errorsKo, string> = {
   "error.SCOPE_NOT_GRANTABLE":
     "自分が持っていない権限をキーに付与することはできません。",
   "error.FORBIDDEN":
-    "権限がありません。オーナーまたは管理者に依頼してください。",
+    "権限がありません。オーナーまたはアドミンに依頼してください。",
   "error.BOOTSTRAP_DONE": "オーナーはすでに存在します。ログインしてください。",
   "error.RATE_LIMITED":
     "試行回数が多すぎます。しばらくしてからもう一度お試しください。",
@@ -121,7 +121,7 @@ export const errorsJa: Record<keyof typeof errorsKo, string> = {
   "error.LAST_OWNER":
     "最後のオーナーは、ロールの変更も無効化もできません。先にほかの人をオーナーにしてください。",
   "error.SELF_PROTECTED":
-    "自分のロールやアクセスは自分で変更できません。ほかのオーナーか管理者に依頼してください。",
+    "自分のロールやアクセスは自分で変更できません。ほかのオーナーかアドミンに依頼してください。",
   "error.MEMBER_DISABLED":
     "無効化されたメンバーのロールは変更できません。先に再有効化してください。",
   "error.ACCOUNT_DISABLED":
@@ -134,9 +134,9 @@ export const errorsJa: Record<keyof typeof errorsKo, string> = {
     "ほかの人が先に変更しました。再読み込みしてから、もう一度お試しください。",
   "error.ALREADY_EXISTS": "この識別子（slug）はすでに使われています。",
   "error.SLACK_LINK_NOT_CONFIGURED":
-    "Slack アカウント連携はまだ使えません。ワークスペースの管理者に 連携 > Slack の設定を依頼してください。",
+    "Slack アカウント連携はまだ使えません。ワークスペースのアドミンに 連携 > Slack の設定を依頼してください。",
   "error.GITHUB_LINK_NOT_CONFIGURED":
-    "GitHub アカウント連携はまだ使えません。ワークスペースの管理者に 連携 > GitHub のユーザー連携の設定を依頼してください。",
+    "GitHub アカウント連携はまだ使えません。ワークスペースのアドミンに 連携 > GitHub のユーザー連携の設定を依頼してください。",
   "error.SLACK_APP_CREATING":
     "Slack アプリを作成中です。しばらくしてから、もう一度お試しください。",
   "error.GITHUB_UNAVAILABLE":

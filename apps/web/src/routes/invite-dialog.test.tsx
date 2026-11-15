@@ -43,7 +43,7 @@ const createdEach = () => {
 };
 
 function renderMembers(invite: () => Response = created) {
-  return renderAt("/members/invites", {
+  return renderAt("/members", {
     "GET /v1/auth/me": () => json(200, me()),
     "GET /v1/members": () =>
       json(200, memberPage({ items: [owner], next_cursor: null })),
@@ -86,10 +86,16 @@ const invitePosts = (api: {
   calls: readonly { path: string; method: string; body?: unknown }[];
 }) => api.calls.filter((c) => c.path === "/v1/invites" && c.method === "POST");
 
+const inviteReads = (api: {
+  calls: readonly { path: string; method: string }[];
+}) =>
+  api.calls.filter((c) => c.path === "/v1/invites" && c.method === "GET")
+    .length;
+
 describe("초대 보내기 대화상자", () => {
   test("빈 초대 목록에서 만든 링크 단계는 목록이 채워져도 닫히지 않는다", async () => {
     let sent = false;
-    const { api } = renderAt("/members/invites", {
+    const { api } = renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () =>
         json(200, memberPage({ items: [owner], next_cursor: null })),
@@ -117,16 +123,17 @@ describe("초대 보내기 대화상자", () => {
         return created();
       },
     });
-    // The empty box holds only words: the button is on the title row.
-    await screen.findByText("남아 있는 초대가 없습니다.");
+    await screen.findByRole("table", { name: "구성원 표" });
     const { dialog } = await toLink();
-    const reads = () =>
-      api.calls.filter((c) => c.path === "/v1/invites" && c.method === "GET")
-        .length;
     // The list reads again after the invite exists, and now has a row.
-    await waitFor(() => expect(reads()).toBeGreaterThan(1));
-    // The open dialog hides the page behind it from the accessibility tree.
-    await screen.findByRole("table", { name: "초대 표", hidden: true });
+    await waitFor(() => expect(inviteReads(api)).toBeGreaterThan(1));
+    await waitFor(() =>
+      expect(
+        document.querySelector(
+          '[data-invite-id="9e8d7c6b-5a49-4382-9170-6f5e4d3c2b1a"]',
+        ) !== null,
+      ).toBe(true),
+    );
     expect(screen.getByRole("dialog") === dialog).toBe(true);
     expect(currentStep(dialog)).toContain("초대 링크");
   });
@@ -154,7 +161,7 @@ describe("초대 보내기 대화상자", () => {
   });
 
   test("관리자에게 역할의 소유자 선택지는 비활성이고, 칸 아래에 이유를 둔다", async () => {
-    const { api } = renderAt("/members/invites", {
+    const { api } = renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me(undefined, "admin")),
       "GET /v1/members": () =>
         json(
@@ -180,13 +187,13 @@ describe("초대 보내기 대화상자", () => {
     expect(
       document.getElementById(select.getAttribute("aria-describedby") ?? "")
         ?.textContent,
-    ).toBe("소유자 역할은 소유자만 줄 수 있습니다.");
+    ).toBe("오너 역할은 오너만 줄 수 있습니다.");
     expect(invitePosts(api)).toHaveLength(0);
   });
 
   test("소유자를 고른 뒤 관리자로 내려가면 초대 링크 만들기가 막힌다", async () => {
     let role: "owner" | "admin" = "owner";
-    const { api, services } = renderAt("/members/invites", {
+    const { api, services } = renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me(undefined, role)),
       "GET /v1/members": () =>
         json(
@@ -217,7 +224,7 @@ describe("초대 보내기 대화상자", () => {
   });
 
   test("역할 선택지는 로그인 역할이 아니라 목록이 준 assignable_roles를 따른다", async () => {
-    const { api } = renderAt("/members/invites", {
+    const { api } = renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () =>
         json(
@@ -246,7 +253,7 @@ describe("초대 보내기 대화상자", () => {
   test("assignable_roles가 없는 이전 API면 모든 역할을 열어 두고 서버의 거절에 맡긴다", async () => {
     const { items } = memberPage({ items: [owner], next_cursor: null });
     renderAt(
-      "/members/invites",
+      "/members",
       {
         "GET /v1/auth/me": () => json(200, me(undefined, "admin")),
         // What the API answered before the field existed.
@@ -334,7 +341,7 @@ describe("초대 보내기 대화상자", () => {
 
   test("닫은 뒤에 도착한 응답은 다시 연 흐름을 옮기지 않는다", async () => {
     let answer: (response: Response) => void = () => {};
-    const { history } = renderMembers(
+    const { api, history } = renderMembers(
       () =>
         new Promise<Response>((resolve) => {
           answer = resolve;
@@ -355,7 +362,7 @@ describe("초대 보내기 대화상자", () => {
     const again = await open();
     answer(created());
     // The pending list refetches once the late answer lands.
-    expect(await screen.findByText("남아 있는 초대가 없습니다.")).toBeDefined();
+    await waitFor(() => expect(inviteReads(api)).toBeGreaterThan(1));
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(currentStep(again.dialog)).toContain("받는 사람");
     expect(within(again.dialog).queryByLabelText("초대 링크")).toBeNull();
@@ -654,7 +661,7 @@ describe("mutation 캐시", () => {
 
   test("닫은 뒤에 도착한 응답의 token도 남지 않는다", async () => {
     let answer: (response: Response) => void = () => {};
-    const { services } = renderMembers(
+    const { api, services } = renderMembers(
       () =>
         new Promise<Response>((resolve) => {
           answer = resolve;
@@ -671,7 +678,7 @@ describe("mutation 캐시", () => {
     await user.click(within(dialog).getByRole("button", { name: "취소" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     answer(created());
-    expect(await screen.findByText("남아 있는 초대가 없습니다.")).toBeDefined();
+    await waitFor(() => expect(inviteReads(api)).toBeGreaterThan(1));
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(cached(services)).toBe(false);
   });
@@ -752,7 +759,7 @@ describe("입력 검증(W24 규약)", () => {
     );
     const refusal = await within(dialog).findByRole("alert");
     expect(refusal.textContent).toBe(
-      "구성원 관리 권한이 있어야 할 수 있습니다. 지금 역할: 소유자.",
+      "구성원 관리 권한이 있어야 할 수 있습니다. 지금 역할: 오너.",
     );
     // The same banner as the team dialogs use for a refused submit.
     expect(refusal.getAttribute("data-slot")).toBe("alert");

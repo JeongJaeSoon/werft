@@ -187,7 +187,7 @@ describe("워크스페이스 설정", () => {
         .map((id) => document.getElementById(id)?.textContent),
     ).toEqual([
       "허용·거절한 요청 기록을 이 기간 동안 보관합니다.",
-      "30일보다 짧게 할 수 없고, 소유자만 바꿀 수 있습니다.",
+      "30일보다 짧게 할 수 없고, 오너만 바꿀 수 있습니다.",
     ]);
     const user = await setupUser();
     await user.clear(input);
@@ -328,7 +328,7 @@ describe("워크스페이스 설정", () => {
       document.getElementById(save.getAttribute("aria-describedby") ?? "")
         ?.textContent,
     ).toBe(
-      "감사 기록 보존 기간 변경 권한이 있어야 할 수 있습니다. 지금 역할: 관리자.",
+      "감사 기록 보존 기간 변경 권한이 있어야 할 수 있습니다. 지금 역할: 어드민.",
     );
     expect(
       (screen.getByLabelText("보존 기간(일)") as HTMLInputElement).disabled,
@@ -345,7 +345,7 @@ describe("워크스페이스 설정", () => {
     const user = await setupUser();
     await user.click(await findRetentionSave());
     expect((await screen.findByRole("alert")).textContent).toBe(
-      "감사 기록 보존 기간 변경 권한이 있어야 할 수 있습니다. 지금 역할: 소유자.",
+      "감사 기록 보존 기간 변경 권한이 있어야 할 수 있습니다. 지금 역할: 오너.",
     );
   });
 
@@ -534,7 +534,7 @@ describe("워크스페이스 설정", () => {
       document.getElementById(toggle.getAttribute("aria-describedby") ?? "")
         ?.textContent,
     ).toBe(
-      "워크스페이스 설정 변경 권한이 있어야 할 수 있습니다. 지금 역할: 소유자.",
+      "워크스페이스 설정 변경 권한이 있어야 할 수 있습니다. 지금 역할: 오너.",
     );
     const user = await setupUser();
     await user.click(toggle);
@@ -588,11 +588,11 @@ describe("워크스페이스 설정", () => {
     const user = await setupUser();
     await user.click(await screen.findByRole("switch", GUEST_SWITCH));
     expect((await screen.findByRole("alert")).textContent).toBe(
-      "워크스페이스 설정 변경 권한이 있어야 할 수 있습니다. 지금 역할: 관리자.",
+      "워크스페이스 설정 변경 권한이 있어야 할 수 있습니다. 지금 역할: 어드민.",
     );
   });
 
-  test("이름과 ID는 읽기만 하고, 모델 허용 목록은 연결의 모델을 한 번씩 보인다", async () => {
+  test("이름과 ID는 읽기만 하고, 사용할 모델은 연결의 모델을 한 번씩 보인다", async () => {
     renderAt("/settings/workspace", {
       "GET /v1/auth/me": () => json(200, me()),
     });
@@ -602,7 +602,7 @@ describe("워크스페이스 설정", () => {
     expect(name.value).toBe("Acme");
     expect(name.readOnly).toBe(true);
     expect(screen.getByText(WORKSPACE_ID).className).toContain("font-mono");
-    const models = screen.getByRole("region", { name: "모델 허용 목록" });
+    const models = screen.getByRole("region", { name: "사용할 모델" });
     await waitFor(() =>
       expect(
         [...models.querySelectorAll("li")].map((li) => li.textContent),
@@ -657,7 +657,7 @@ describe("워크스페이스 설정", () => {
       "GET /v1/connections": () => apiError(500, "INTERNAL_ERROR", "boom"),
     });
     const models = await screen.findByRole("region", {
-      name: "모델 허용 목록",
+      name: "사용할 모델",
     });
     await waitFor(() =>
       expect(models.querySelector("[role=alert]")).not.toBeNull(),
@@ -675,7 +675,7 @@ describe("워크스페이스 설정", () => {
     ).toBeDefined();
   });
 
-  test("소유자·관리자의 설정 메뉴는 워크스페이스 일반으로 연다", async () => {
+  test("오너·어드민의 설정 메뉴는 워크스페이스 일반으로 연다", async () => {
     renderAt("/", { "GET /v1/auth/me": () => json(200, adminMe()) });
     expect(
       (await screen.findByRole("link", { name: "설정" })).getAttribute("href"),
@@ -997,7 +997,7 @@ describe("워크스페이스 설정", () => {
     );
     await user.click(screen.getByRole("button", { name: "등록" }));
     expect((await screen.findByRole("alert")).textContent).toBe(
-      "워크스페이스 설정 변경 권한이 있어야 할 수 있습니다. 지금 역할: 관리자.",
+      "워크스페이스 설정 변경 권한이 있어야 할 수 있습니다. 지금 역할: 어드민.",
     );
   });
 
@@ -1646,7 +1646,7 @@ describe("워크스페이스 설정", () => {
     await user.click(within(card).getByRole("radio", { name: "숨김" }));
     await user.click(within(card).getByRole("button", { name: "저장" }));
     expect((await screen.findByRole("alert")).textContent).toBe(
-      "워크스페이스 설정 변경 권한이 있어야 할 수 있습니다. 지금 역할: 소유자.",
+      "워크스페이스 설정 변경 권한이 있어야 할 수 있습니다. 지금 역할: 오너.",
     );
   });
 

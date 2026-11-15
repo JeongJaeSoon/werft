@@ -218,7 +218,7 @@ describe("팀 화면", () => {
 
   // Console v4 navWs: 구성원 is the workspace managers' item; a member's
   // teams still open by address.
-  test("팀은 구성원 메뉴 아래에 있고 팀 메뉴는 따로 없다. 구성원 메뉴는 소유자·관리자에게만 보인다", async () => {
+  test("팀은 구성원 메뉴 아래에 있고 팀 메뉴는 따로 없다. 구성원 메뉴는 오너·어드민에게만 보인다", async () => {
     for (const [who, shows] of [
       [me(), true],
       [memberMe(), false],
@@ -344,24 +344,22 @@ describe("팀 화면", () => {
     expect(screen.queryByRole("button", { name: "팀 만들기" })).toBeNull();
   });
 
-  test("팀 만들기는 팀 구역 제목 줄에 있고, 팀이 없으면 상자에 빈 상태만 둔다", async () => {
+  test("팀 만들기는 페이지 머리에 있고, 팀이 없으면 상자에 빈 상태만 둔다", async () => {
     const server = teamServer();
     renderAt("/members/teams", {
       ...server.routes,
       "GET /v1/teams": () => json(200, { items: [], next_cursor: null }),
     });
     const create = await screen.findByRole("button", { name: "팀 만들기" });
-    expect(create.closest("header") === null).toBe(true);
-    const owned = create.closest("section");
-    if (!owned) throw new Error("the button is not in a section");
-    expect(owned.querySelector("h2")?.textContent).toBe("팀");
-    const empty = await within(owned).findByText(/아직 팀이 없습니다/);
+    expect(create.closest("[data-slot='page-header']") === null).toBe(false);
+    expect(document.querySelector("main h2") === null).toBe(true);
+    const empty = await screen.findByText(/아직 팀이 없습니다/);
     expect(empty.closest("[class*='rounded-card']") === null).toBe(false);
     // No search box over a list that is empty to begin with.
-    expect(within(owned).queryByRole("searchbox")).toBeNull();
-    expect(
-      within(owned).getAllByRole("button", { name: "팀 만들기" }),
-    ).toHaveLength(1);
+    expect(screen.queryByRole("searchbox") === null).toBe(true);
+    expect(screen.getAllByRole("button", { name: "팀 만들기" })).toHaveLength(
+      1,
+    );
   });
 
   test("검색 결과를 읽는 동안에도 팀 만들기는 잠기지 않는다", async () => {
@@ -707,7 +705,7 @@ describe("팀 화면", () => {
       expect(within(table).getAllByRole("row")).toHaveLength(3),
     );
     await waitFor(() =>
-      expect(within(table).getAllByText("소유자").length).toBeGreaterThan(0),
+      expect(within(table).getAllByText("오너").length).toBeGreaterThan(0),
     );
     // Each row is its own grid: a max-content track would size to that
     // row's buttons (the header has none) and shift the columns before it.
@@ -921,7 +919,7 @@ describe("팀 화면", () => {
         .map((c) => c.textContent),
     ).toEqual([
       "Matemate@example.com",
-      "구성원",
+      "멤버",
       // The inline select's two options.
       "팀 관리자구성원",
       "10월 11일 오전 09:0010/11",
@@ -2035,7 +2033,7 @@ describe("에이전트 관리자", () => {
     ).toBeNull();
     expect(
       screen.queryByText(
-        "에이전트 관리자 지정 권한이 있어야 할 수 있습니다. 지금 역할: 구성원.",
+        "에이전트 관리자 지정 권한이 있어야 할 수 있습니다. 지금 역할: 멤버.",
       ),
     ).toBeNull();
   });
@@ -2119,7 +2117,7 @@ describe("에이전트 관리자", () => {
       document.getElementById(picker.getAttribute("aria-describedby") ?? "")
         ?.textContent,
     ).toBe(
-      "구성원 관리 권한이 있어야 할 수 있습니다. 지금 역할: 구성원. 팀 관리 권한이 있어야 할 수 있습니다. 지금 역할: 구성원.",
+      "구성원 관리 권한이 있어야 할 수 있습니다. 지금 역할: 멤버. 팀 관리 권한이 있어야 할 수 있습니다. 지금 역할: 멤버.",
     );
     // Neither list is asked for, so no refused decision is left behind.
     expect(

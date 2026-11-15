@@ -281,6 +281,54 @@ describe("GridTable", () => {
   });
 });
 
+describe("GridTable row density", () => {
+  test("본문 행은 위아래 8px로 48px 하한에 맞고, 카드가 된 행만 16px을 둔다", async () => {
+    const tokens = await Bun.file(
+      `${import.meta.dir}/../foundations/tokens.css`,
+    ).text();
+    expect(tokens).toContain(
+      "--werft-grid-row-padding-y: var(--werft-space-2);",
+    );
+    expect(tokens).toContain("--werft-row-min-height: 3rem;");
+    const { getAllByRole } = render(
+      <>
+        <GridTable aria-label="표" columns="1fr">
+          <GridTableRow>
+            <GridTableCell>a</GridTableCell>
+          </GridTableRow>
+        </GridTable>
+        <GridTable
+          aria-label="카드"
+          columns="1fr"
+          narrowAt={640}
+          narrowCards={true}
+        >
+          <GridTableRow>
+            <GridTableCell>b</GridTableCell>
+          </GridTableRow>
+        </GridTable>
+      </>,
+    );
+    const [row, card] = getAllByRole("row") as HTMLElement[];
+    for (const each of [row, card]) {
+      expect(
+        each?.classList.contains("py-[var(--werft-grid-row-padding-y)]"),
+      ).toBe(true);
+      expect(
+        each?.classList.contains("min-h-[var(--werft-row-min-height)]"),
+      ).toBe(true);
+    }
+    expect(row?.className.includes("[@container(max-width:640px)]:py-")).toBe(
+      false,
+    );
+    expect(
+      card?.classList.contains(
+        "[@container(max-width:640px)]:py-[var(--werft-row-padding-y)]",
+      ),
+    ).toBe(true);
+  });
+});
+
 describe("GridTable framed", () => {
   test("framed는 표 자체에 카드 틀을 두고, 기본값은 틀이 없다", () => {
     const { getAllByRole } = render(

@@ -59,7 +59,7 @@ ap_web GET /v1/auth/login-methods
 ap_web POST /v1/auth/providers/00000000-0000-4000-8000-000000000000/start '{}'
 ```
 
-기대: 처음 `/login?redirect=%2F`, “로그인이 필요합니다”. 잘못된 bootstrap 401, 첫 bootstrap 201, 두 번째 409 `BOOTSTRAP_DONE`. 잘못된 로그인 401, CSRF 없는 로그인 403. 이미 owner가 있는 화면 bootstrap은 “이미 소유자가 있습니다” 오류와 로그인 링크. 화면 로그인은 `/`. API 로그인 200, me 200과 `principal`·`user`·`workspace`·`permissions`·`scopes`. login-methods는 `{"password":"on","providers":[]}`, 없는 공급자의 start는 404. 기본 run에서는 공급자 로그인의 성공 콜백을 검증하지 않는다. 공급자 버튼은 [web-settings.md](web-settings.md) 1로 띄운다.
+기대: 처음 `/login?redirect=%2F`, “로그인이 필요합니다”. 잘못된 bootstrap 401, 첫 bootstrap 201, 두 번째 409 `BOOTSTRAP_DONE`. 잘못된 로그인 401, CSRF 없는 로그인 403. 이미 owner가 있는 화면 bootstrap은 “이미 오너가 있습니다” 오류와 로그인 링크. 화면 로그인은 `/`. API 로그인 200, me 200과 `principal`·`user`·`workspace`·`permissions`·`scopes`. login-methods는 `{"password":"on","providers":[]}`, 없는 공급자의 start는 404. 기본 run에서는 공급자 로그인의 성공 콜백을 검증하지 않는다. 공급자 버튼은 [web-settings.md](web-settings.md) 1로 띄운다.
 
 ```sh
 # Actor: owner.
@@ -97,9 +97,9 @@ MID=$(ap_web GET /v1/members | head -1 | jq -r '.items[] | select(.email=="membe
 printf 'MID=%s\n' "$MID"
 ```
 
-기대: invite 201 `invite_id`·`expires_at`(token은 helper가 저장). 브라우저 수락 `/`. member me의 역할 `member`, member 목록 API 403, owner 목록 200 `items`, API `/v1/invites`에는 수락한 초대도 `status:"accepted"`·`accepted_at`과 함께 남는다. UI “대기 중인 초대”는 pending만 표시한다. `MID`가 비어 있으면 다음으로 가지 말고 실제 목록 키를 보고 실패로 보고한다.
+기대: invite 201 `invite_id`·`expires_at`(token은 helper가 저장). 브라우저 수락 `/`. member me의 역할 `member`, member 목록 API 403, owner 목록 200 `items`, API `/v1/invites`에는 수락한 초대도 `status:"accepted"`·`accepted_at`과 함께 남는다. UI 구성원 표는 pending과 만료된 초대만 “초대 중”·“만료” 행으로 보인다. `MID`가 비어 있으면 다음으로 가지 말고 실제 목록 키를 보고 실패로 보고한다.
 
-## P-WEB-MEMBERS — 구성원·팀·초대 화면
+## P-WEB-MEMBERS — 구성원·팀 화면
 
 전제: member가 수락했고 owner로 브라우저 재로그인한다.
 
@@ -114,7 +114,6 @@ node "$B" "$RUN" open /members
 node "$B" "$RUN" eval 'document.querySelector("main").innerText'
 node "$B" "$RUN" shot members
 node "$B" "$RUN" eval '({table:document.querySelector("[role=table]")?.getAttribute("aria-label"),headers:[...document.querySelectorAll("[role=columnheader]")].map(x=>x.innerText),tr:document.querySelectorAll("tr").length})'
-node "$B" "$RUN" open /members/invites
 node "$B" "$RUN" click '구성원 초대'
 node "$B" "$RUN" eval '({search:location.search,fields:[...document.querySelectorAll("[role=dialog] input,[role=dialog] select")].map(x=>({type:x.type,name:x.name})),buttons:[...document.querySelectorAll("[role=dialog] button")].map(x=>x.innerText)})'
 node "$B" "$RUN" type '[role=dialog] input[type=email]' invitee@example.test
@@ -126,7 +125,7 @@ node "$B" "$RUN" open /members/teams
 node "$B" "$RUN" eval 'document.querySelector("main").innerText'
 ```
 
-기대: 구성원·팀·초대 LinkTabs. 구성원 표는 `role=table`, 이름 “구성원 표”, 구성원·역할·관리 열의 GridTable이며 tr/td가 아니다. 행을 누르면 편집이 열린다. “구성원 초대”로 `?invite.step=details`를 열고 제출 “초대 링크 만들기” 뒤 `?invite.step=link`로 간다. “닫기”의 확인에서 “복사하지 않고 나가기”를 고른다. 초대 완료 링크는 한 번만 보이며 snapshot/shot으로 남기지 않는다. 닫은 뒤 초대 탭에 invitee가 있다. 팀 탭에서 “팀 만들기”. 옛 주소 `/teams`는 없는 화면이다. 320px에서 표만 가로 스크롤하고 관리 버튼과 배지가 겹치지 않는다.
+기대: 구성원·팀 LinkTabs이고 탭 아래 구역 제목은 없다. 머리의 버튼은 구성원 탭에서 “구성원 초대”, 팀 탭에서 “팀 만들기”다. 표 위 SegmentedControl “역할로 보기”는 전체·오너·어드민·멤버와 개수이며 검색과 함께 거른다. 구성원 표는 `role=table`, 이름 “구성원 표”의 GridTable이며 tr/td가 아니다. 행을 누르면 편집이 열린다. “구성원 초대”로 `?invite.step=details`를 열고 제출 “초대 링크 만들기” 뒤 `?invite.step=link`로 간다. “닫기”의 확인에서 “복사하지 않고 나가기”를 고른다. 초대 완료 링크는 한 번만 보이며 snapshot/shot으로 남기지 않는다. 닫은 뒤 구성원 표에 invitee가 상태 “초대 중” 행으로 있고, 그 행 메뉴에 “회수”가 있다. 옛 주소 `/members/invites`는 `/members`로 옮겨지고, `/teams`는 없는 화면이다. 320px에서 표만 가로 스크롤하고 관리 버튼과 배지가 겹치지 않는다.
 
 역할·비활성은 수락한 member에만 수행한다. owner를 비활성화하지 않는다.
 

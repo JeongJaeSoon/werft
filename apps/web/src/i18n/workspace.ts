@@ -7,7 +7,7 @@ export const workspaceKo = {
   "workspace.id": "워크스페이스 ID",
   "workspace.idHint": "API와 CLI에서 이 워크스페이스를 가리킬 때 씁니다.",
   "workspace.idCopied": "워크스페이스 ID를 복사했습니다.",
-  "workspace.models": "모델 허용 목록",
+  "workspace.models": "사용할 모델",
   "workspace.modelsHint":
     "에이전트 카드가 고를 수 있는 모델입니다. 설치 owner가 모델 연결마다 정합니다.",
   "workspace.modelsFoot": "설정의 모델 연결에서 관리합니다",
@@ -17,7 +17,7 @@ export const workspaceKo = {
   "workspace.retentionUnit": "일",
   "workspace.retentionHint": "허용·거절한 요청 기록을 이 기간 동안 보관합니다.",
   "workspace.retentionFoot":
-    "30일보다 짧게 할 수 없고, 소유자만 바꿀 수 있습니다.",
+    "30일보다 짧게 할 수 없고, 오너만 바꿀 수 있습니다.",
   "workspace.retentionFloor":
     "감사 기록은 30일보다 짧게 보존할 수 없습니다. 30일 이상(최대 3650일)으로 정하세요.",
   "workspace.retentionCeiling":
@@ -29,17 +29,17 @@ export const workspaceKo = {
   "workspace.guestOn": "켜짐",
   "workspace.guestOff": "꺼짐",
   "workspace.guestHint":
-    "켜도 게스트는 먼저 웹에서 자기 Slack 계정을 연결해야 합니다. Slack Connect로 들어온 다른 조직 사람은 켜져 있어도 에이전트를 쓸 수 없습니다. 소유자나 관리자가 바꿀 수 있습니다.",
+    "켜도 게스트는 먼저 웹에서 자기 Slack 계정을 연결해야 합니다. Slack Connect로 들어온 다른 조직 사람은 켜져 있어도 에이전트를 쓸 수 없습니다. 오너나 어드민이 바꿀 수 있습니다.",
   "workspace.guestSavedOn": "이제 Slack 게스트도 에이전트를 쓸 수 있습니다.",
   "workspace.guestSavedOff": "이제 Slack 게스트는 에이전트를 쓸 수 없습니다.",
   "workspace.readOnly":
-    "지금 설정입니다. 바꾸려면 워크스페이스 소유자나 관리자에게 요청하세요.",
+    "지금 설정입니다. 바꾸려면 워크스페이스 오너나 어드민에게 요청하세요.",
   "workspace.retentionValue": "감사 기록을 {days}일 보존합니다.",
   "workspace.guestValueOn": "Slack 게스트도 에이전트를 쓸 수 있습니다.",
   "workspace.guestValueOff": "Slack 게스트는 에이전트를 쓸 수 없습니다.",
   "workspace.access": "에이전트 접근",
   "workspace.accessHint":
-    "담당 팀 밖 구성원이 에이전트와 그 세션을 어디까지 다루는지 정합니다. 소유자·관리자, 에이전트 관리자, 담당 팀 구성원에게는 적용되지 않습니다.",
+    "담당 팀 밖 구성원이 에이전트와 그 세션을 어디까지 다루는지 정합니다. 오너·어드민, 에이전트 관리자, 담당 팀 구성원에게는 적용되지 않습니다.",
   "workspace.accessAgent": "담당 팀 밖 구성원의 에이전트 접근",
   "workspace.accessAgentFoot": "모든 에이전트에 적용됩니다.",
   "workspace.accessAgent.use": "보고 실행",
@@ -56,7 +56,7 @@ export const workspaceKo = {
     "모든 에이전트의 세션에 적용됩니다. 다만 담당 팀이 필수가 되기 전에 팀이 없던 에이전트를 맡은 보관 팀에 아직 남아 있는 에이전트는 예외라, 실제 담당 팀으로 옮기기 전에는 이전처럼 모두에게 보입니다. 바꾸면 이미 있는 세션에도 바로 적용됩니다.",
   "workspace.accessSessions.managing_team": "담당 팀 안에만",
   "workspace.accessSessions.managing_team.help":
-    "공유 범위가 워크스페이스인 세션을 소유자·관리자, 에이전트 관리자, 담당 팀 구성원만 봅니다. 담당 팀 밖 구성원은 자기 세션과 이름·팀으로 공유받은 세션만 봅니다.",
+    "공유 범위가 워크스페이스인 세션을 오너·어드민, 에이전트 관리자, 담당 팀 구성원만 봅니다. 담당 팀 밖 구성원은 자기 세션과 이름·팀으로 공유받은 세션만 봅니다.",
   "workspace.accessSessions.workspace": "모든 구성원",
   "workspace.accessSessions.workspace.help":
     "공유 범위가 워크스페이스인 세션을 모든 구성원이 봅니다.",
@@ -190,7 +190,7 @@ export const workspaceEn: Record<keyof typeof workspaceKo, string> = {
   "workspace.idHint":
     "Use this ID to identify the workspace in the API and CLI.",
   "workspace.idCopied": "Copied the workspace ID.",
-  "workspace.models": "Allowed models",
+  "workspace.models": "Models in use",
   "workspace.modelsHint":
     "Models an agent's card can pick. The installation owner sets them per model connection.",
   "workspace.modelsFoot": "Managed under Model connections in Settings",
@@ -373,7 +373,7 @@ export const workspaceJa: Record<keyof typeof workspaceKo, string> = {
   "workspace.id": "ワークスペース ID",
   "workspace.idHint": "API や CLI でこのワークスペースを指すときに使います。",
   "workspace.idCopied": "ワークスペース ID をコピーしました。",
-  "workspace.models": "許可モデル一覧",
+  "workspace.models": "使用するモデル",
   "workspace.modelsHint":
     "エージェントのカードが選べるモデルです。インストールの owner がモデル接続ごとに決めます。",
   "workspace.modelsFoot": "設定のモデル接続で管理します",
@@ -395,19 +395,19 @@ export const workspaceJa: Record<keyof typeof workspaceKo, string> = {
   "workspace.guestOn": "オン",
   "workspace.guestOff": "オフ",
   "workspace.guestHint":
-    "オンの場合でも、ゲストは先に Web で Slack アカウントを連携する必要があります。Slack コネクトで参加したほかの組織の人は、エージェントを利用できません。変更できるのはオーナーまたは管理者です。",
+    "オンの場合でも、ゲストは先に Web で Slack アカウントを連携する必要があります。Slack コネクトで参加したほかの組織の人は、エージェントを利用できません。変更できるのはオーナーまたはアドミンです。",
   "workspace.guestSavedOn":
     "Slack ゲストがエージェントを利用できるようになりました。",
   "workspace.guestSavedOff":
     "Slack ゲストはエージェントを利用できなくなりました。",
   "workspace.readOnly":
-    "現在の設定です。変更するには、ワークスペースのオーナーまたは管理者に依頼してください。",
+    "現在の設定です。変更するには、ワークスペースのオーナーまたはアドミンに依頼してください。",
   "workspace.retentionValue": "監査ログを {days} 日間保存します。",
   "workspace.guestValueOn": "Slack ゲストはエージェントを利用できます。",
   "workspace.guestValueOff": "Slack ゲストはエージェントを利用できません。",
   "workspace.access": "エージェントへのアクセス",
   "workspace.accessHint":
-    "担当チーム外のメンバーがエージェントとそのセッションをどこまで扱えるかを決めます。オーナー・管理者、エージェント管理者、担当チームのメンバーには適用されません。",
+    "担当チーム外のメンバーがエージェントとそのセッションをどこまで扱えるかを決めます。オーナー・アドミン、エージェント管理者、担当チームのメンバーには適用されません。",
   "workspace.accessAgent": "担当チーム外のメンバーのエージェントへのアクセス",
   "workspace.accessAgentFoot": "すべてのエージェントに適用されます。",
   "workspace.accessAgent.use": "表示と実行",
@@ -424,7 +424,7 @@ export const workspaceJa: Record<keyof typeof workspaceKo, string> = {
     "すべてのエージェントのセッションに適用されます。ただし、担当チームが必須になる前にチームがなかったエージェントを引き受けた保管チームに残っているエージェントは例外で、実際の担当チームへ移すまで従来どおり全員に見えます。変更すると既存のセッションにもすぐ適用されます。",
   "workspace.accessSessions.managing_team": "担当チーム内のみ",
   "workspace.accessSessions.managing_team.help":
-    "共有範囲がワークスペースのセッションは、オーナー・管理者、エージェント管理者、担当チームのメンバーだけが見られます。担当チーム外のメンバーは、自分のセッションと名前・チームで共有されたセッションだけを見ます。",
+    "共有範囲がワークスペースのセッションは、オーナー・アドミン、エージェント管理者、担当チームのメンバーだけが見られます。担当チーム外のメンバーは、自分のセッションと名前・チームで共有されたセッションだけを見ます。",
   "workspace.accessSessions.workspace": "すべてのメンバー",
   "workspace.accessSessions.workspace.help":
     "共有範囲がワークスペースのセッションを、すべてのメンバーが見られます。",

@@ -12,7 +12,7 @@ export const agentsKo = {
   "agents.column.state": "상태",
   "agents.slackActionShort": "Slack 조치 필요",
   "agents.listWithheld":
-    "전체 에이전트 목록은 소유자와 관리자만 봅니다. 새 에이전트를 만들면 아래 '내가 관리하는 에이전트'에 나옵니다.",
+    "전체 에이전트 목록은 오너와 어드민만 봅니다. 새 에이전트를 만들면 아래 '내가 관리하는 에이전트'에 나옵니다.",
   "agent.notFound.title": "에이전트를 찾을 수 없습니다",
   "agent.notFound.body":
     "지워졌거나, 주소가 틀렸거나, 볼 수 없는 에이전트입니다.",
@@ -285,8 +285,8 @@ export const agentsKo = {
   "agent.glance.waitingNote": "담당자가 답할 요청",
   "agent.glance.running": "작업 중",
   "agent.glance.runningNote": "지금 실행 중인 세션",
-  "agent.glance.countsWithheld": "소유자와 관리자만 볼 수 있음",
-  "agent.glance.costWithheld": "소유자·관리자와 에이전트 관리자만 볼 수 있음",
+  "agent.glance.countsWithheld": "오너와 어드민만 볼 수 있음",
+  "agent.glance.costWithheld": "오너·어드민과 에이전트 관리자만 볼 수 있음",
   "agent.glance.costPartial": "일부 미집계",
   "agent.ready.title": "켜기까지",
   "agent.ready.on": "켜짐",
@@ -336,7 +336,7 @@ export const agentsKo = {
   "agentAdmins.intro":
     "담당 팀과 별개로, 여기에 추가한 사람이나 팀이 이 에이전트의 카드·릴리스·자격 증명 연결과 에이전트 키를 관리합니다. 팀을 추가하면 그 팀 구성원 모두가 관리자가 됩니다.",
   "agentAdmins.empty":
-    "아직 에이전트 관리자가 없습니다. 워크스페이스 소유자와 관리자는 여기에 추가하지 않아도 모든 에이전트를 관리할 수 있습니다.",
+    "아직 에이전트 관리자가 없습니다. 워크스페이스 오너와 어드민은 여기에 추가하지 않아도 모든 에이전트를 관리할 수 있습니다.",
   "agentAdmins.person": "사람",
   "agentAdmins.team": "팀",
   "agentAdmins.remove": "빼기",
@@ -391,7 +391,7 @@ export const agentsKo = {
   "agents.flow.teamRequired": "담당 팀을 고르세요.",
   "agents.flow.teamLocked": "만든 뒤에는 관리자 탭에서 바꿉니다.",
   "agents.flow.noTeam":
-    "속한 팀이 없어 에이전트를 만들 수 없습니다. 워크스페이스 관리자에게 팀에 넣어 달라고 요청하세요.",
+    "속한 팀이 없어 에이전트를 만들 수 없습니다. 워크스페이스 어드민에게 팀에 넣어 달라고 요청하세요.",
   "agents.flow.noTeamAdmin":
     "팀이 없어 에이전트를 만들 수 없습니다. 팀 화면에서 먼저 팀을 만드세요.",
   "agents.flow.toTeams": "팀으로",
@@ -845,7 +845,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agents.title": "エージェント",
   "agents.new": "新規エージェント",
   "agents.listWithheld":
-    "すべてのエージェントの一覧を見られるのはオーナーと管理者のみです。新しく作成したエージェントは、下の「管理しているエージェント」に表示されます。",
+    "すべてのエージェントの一覧を見られるのはオーナーとアドミンのみです。新しく作成したエージェントは、下の「管理しているエージェント」に表示されます。",
   "agent.notFound.title": "エージェントが見つかりません",
   "agent.notFound.body":
     "削除されたか、アドレスが間違っているか、閲覧できないエージェントです。",
@@ -1115,9 +1115,9 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.glance.waitingNote": "担当者が回答するリクエスト",
   "agent.glance.running": "作業中",
   "agent.glance.runningNote": "いま実行中のセッション",
-  "agent.glance.countsWithheld": "オーナーと管理者のみ表示できます",
+  "agent.glance.countsWithheld": "オーナーとアドミンのみ表示できます",
   "agent.glance.costWithheld":
-    "オーナー・管理者とエージェント管理者のみ表示できます",
+    "オーナー・アドミンとエージェント管理者のみ表示できます",
   "agent.glance.costPartial": "一部未集計",
   "agent.ready.title": "有効にするまで",
   "agent.ready.on": "有効",
@@ -1168,7 +1168,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agentAdmins.intro":
     "担当チームとは別に、ここに追加した人やチームがこのエージェントのカード・リリース・接続した認証情報・エージェントキーを管理します。チームを追加すると、そのチームのメンバー全員が管理者になります。",
   "agentAdmins.empty":
-    "エージェント管理者はまだいません。ワークスペースのオーナーと管理者は、ここに追加しなくてもすべてのエージェントを管理できます。",
+    "エージェント管理者はまだいません。ワークスペースのオーナーとアドミンは、ここに追加しなくてもすべてのエージェントを管理できます。",
   "agentAdmins.person": "人",
   "agentAdmins.team": "チーム",
   "agentAdmins.remove": "外す",
@@ -1237,7 +1237,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agents.flow.teamRequired": "担当チームを選んでください。",
   "agents.flow.teamLocked": "作成後は管理者タブで変更します。",
   "agents.flow.noTeam":
-    "所属するチームがないため、エージェントを作成できません。ワークスペース管理者にチームへの追加を依頼してください。",
+    "所属するチームがないため、エージェントを作成できません。ワークスペースのアドミンにチームへの追加を依頼してください。",
   "agents.flow.noTeamAdmin":
     "チームがないため、エージェントを作成できません。先にチーム画面でチームを作成してください。",
   "agents.flow.toTeams": "チームへ",

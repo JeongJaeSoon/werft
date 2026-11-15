@@ -12,12 +12,12 @@ import { useI18n } from "../i18n/i18n.tsx";
 const MEMBER_COLUMNS =
   "minmax(0,1.3fr) minmax(0,1.5fr) 104px 104px var(--werft-control-height-sm)";
 // Name and email keep enough to read the start of each; status fits
-// "Suspended" with its dot.
+// "Suspended" with its dot, and "Expired"/"期限切れ" with the expiry icon.
 const MEMBER_NARROW_COLUMNS =
-  "minmax(6rem,1fr) minmax(8rem,1fr) 72px 88px var(--werft-control-height-sm)";
-// 412px of narrow tracks, four 16px gaps, the row's 16px padding on each side
+  "minmax(6rem,1fr) minmax(8rem,1fr) 72px 96px var(--werft-control-height-sm)";
+// 420px of narrow tracks, four 16px gaps, the row's 16px padding on each side
 // and the frame's 1px border on each side.
-const MEMBER_TABLE_MIN = "min-w-[510px]";
+const MEMBER_TABLE_MIN = "min-w-[518px]";
 
 /** Columns and header of a table that is not the members table. */
 export type MemberTableLayout = {

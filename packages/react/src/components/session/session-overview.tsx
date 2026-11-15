@@ -37,11 +37,13 @@ export const SESSION_OVERVIEW_NARROW_TEMPLATE =
 
 // A phone's table has no room for four columns side by side: the title
 // takes the first line, agent, status and duration the second, and the
-// column names stay for screen readers only.
+// column names stay for screen readers only. The status's detail drops out:
+// the screens that draw this row show waits in their inbox above it.
 const PHONE = {
   row: "[@container(width<600px)]:grid-cols-[minmax(0,1fr)_auto_auto]! [@container(width<600px)]:gap-y-1",
   title: "[@container(width<600px)]:col-span-full",
   header: "[@container(width<600px)]:sr-only",
+  detail: "[@container(width<600px)]:hidden",
 } as const;
 
 /** The id a person can tell rows apart by; the full id stays in the title. */
@@ -283,6 +285,7 @@ export function SessionOverviewRow({
             className={cn(
               "whitespace-nowrap text-caption text-muted-foreground",
               typeof statusDetail === "string" ? null : "relative",
+              PHONE.detail,
             )}
           >
             {statusDetail}

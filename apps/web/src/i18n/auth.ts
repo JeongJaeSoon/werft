@@ -5,13 +5,13 @@ export const authKo = {
   "login.submit": "로그인",
   "login.submitting": "로그인하는 중…",
   "login.bootstrapPrompt":
-    "첫 소유자는 설치 때 출력된 bootstrap 토큰으로 한 번만 만들 수 있습니다.",
-  "login.bootstrapLink": "첫 소유자 만들기",
+    "첫 오너는 설치 때 출력된 bootstrap 토큰으로 한 번만 만들 수 있습니다.",
+  "login.bootstrapLink": "첫 오너 만들기",
   "login.notice.bootstrapDone":
-    "이미 소유자가 있습니다. 그 계정으로 로그인하세요.",
+    "이미 오너가 있습니다. 그 계정으로 로그인하세요.",
   "login.notice.loggedOut": "로그아웃했습니다.",
   "login.notice.created":
-    "소유자를 만들었습니다. 방금 정한 비밀번호로 로그인하세요.",
+    "오너를 만들었습니다. 방금 정한 비밀번호로 로그인하세요.",
 
   "login.or": "또는",
   "login.alternatives": "다른 로그인 방법",
@@ -30,11 +30,11 @@ export const authKo = {
   "login.provider.unavailable":
     "이 로그인 방법은 지금 쓸 수 없습니다 — 로그인 화면에서 다른 방법을 고르세요.",
 
-  "bootstrap.title": "첫 소유자 만들기",
+  "bootstrap.title": "첫 오너 만들기",
   "bootstrap.intro":
-    "이 설치를 처음 설정할 때 첫 소유자와 워크스페이스를 만드는 화면입니다. 설치 때 출력된 bootstrap 토큰이 필요하고, 이미 소유자가 있으면 만들어지지 않습니다.",
+    "이 설치를 처음 설정할 때 첫 오너와 워크스페이스를 만드는 화면입니다. 설치 때 출력된 bootstrap 토큰이 필요하고, 이미 오너가 있으면 만들어지지 않습니다.",
   "bootstrap.token": "Bootstrap 토큰",
-  "bootstrap.email": "소유자 이메일",
+  "bootstrap.email": "오너 이메일",
   "bootstrap.displayName": "이름",
   "bootstrap.password": "비밀번호",
   "bootstrap.passwordHint": "{min}자 이상",
@@ -42,11 +42,11 @@ export const authKo = {
   "bootstrap.workspaceSlug": "워크스페이스 식별자 (slug)",
   "bootstrap.workspaceSlugHint":
     "워크스페이스를 서로 구분하는 이름이라 다른 워크스페이스와 겹칠 수 없고, 나중에 바꿀 수 없습니다. 영문 소문자, 숫자, 하이픈(-)",
-  "bootstrap.submit": "소유자 만들기",
+  "bootstrap.submit": "오너 만들기",
   "bootstrap.submitting": "만드는 중…",
   "bootstrap.tokenInvalid":
     "Bootstrap 토큰이 맞지 않습니다 — 설치 때 출력된 값을 그대로 넣으세요.",
-  "bootstrap.loginLink": "이미 소유자가 있다면 로그인",
+  "bootstrap.loginLink": "이미 오너가 있다면 로그인",
   "bootstrap.ownerExistsLogin": "로그인하기",
 
   "invite.title": "초대 수락",
@@ -60,7 +60,7 @@ export const authKo = {
   "invite.submit": "초대 수락",
   "invite.submitting": "수락하는 중…",
   "invite.wrongPassword":
-    "비밀번호가 맞지 않습니다. 이 이메일로 이미 계정이 있으면 그 계정의 비밀번호를 넣으세요. SSO로만 로그인해 온 계정은 비밀번호가 없어 여기서 수락할 수 없습니다 — 소유자나 관리자에게 다시 활성화해 달라고 요청하세요.",
+    "비밀번호가 맞지 않습니다. 이 이메일로 이미 계정이 있으면 그 계정의 비밀번호를 넣으세요. SSO로만 로그인해 온 계정은 비밀번호가 없어 여기서 수락할 수 없습니다 — 오너나 어드민에게 다시 활성화해 달라고 요청하세요.",
   "invite.expired.title": "쓸 수 없는 초대입니다",
   "invite.expired.body":
     "만료됐거나 회수된 초대입니다. 초대한 사람에게 새 링크를 요청하세요.",
@@ -272,7 +272,7 @@ export const authJa: Record<keyof typeof authKo, string> = {
   "invite.submit": "招待を承諾",
   "invite.submitting": "承諾中…",
   "invite.wrongPassword":
-    "パスワードが一致しません。このメールアドレスのアカウントがすでにある場合は、そのアカウントのパスワードを入力してください。SSO ログインのみで利用してきたアカウントにはパスワードがないため、ここでは承諾できません。オーナーまたは管理者に再有効化を依頼してください。",
+    "パスワードが一致しません。このメールアドレスのアカウントがすでにある場合は、そのアカウントのパスワードを入力してください。SSO ログインのみで利用してきたアカウントにはパスワードがないため、ここでは承諾できません。オーナーまたはアドミンに再有効化を依頼してください。",
   "invite.expired.title": "この招待は使用できません",
   "invite.expired.body":
     "期限切れか、取り消された招待です。招待した人に新しいリンクを依頼してください。",
