@@ -154,18 +154,26 @@ export function assessUpgrade(input: {
   };
   // A launch reserved before its image had a runtime declared (one image,
   // unpinned, since listed with one) runs what the deployed list now
-  // declares for that digest.
+  // declares for that digest. Declarations that disagree (one digest as the
+  // current and the previous image under two runtimes) tell it nothing.
+  const declared = (digest: string): ImageRuntime | null => {
+    const runtimes = deployed.flatMap(({ image, runtime }) =>
+      image === digest && runtime !== null ? [runtime] : [],
+    );
+    const [first] = runtimes;
+    return first !== undefined &&
+      runtimes.every(
+        (runtime) =>
+          sameCombination(first, runtime) &&
+          schemeSet(first) === schemeSet(runtime),
+      )
+      ? first
+      : null;
+  };
   const writers = input.writers.map((writer) =>
     writer.runtime !== null
       ? writer
-      : {
-          ...writer,
-          runtime:
-            deployed.find(
-              ({ image, runtime }) =>
-                image === writer.image && runtime !== null,
-            )?.runtime ?? null,
-        },
+      : { ...writer, runtime: declared(writer.image) },
   );
   const stranded = (writers: readonly UpgradeImage[]) => [
     ...new Set(

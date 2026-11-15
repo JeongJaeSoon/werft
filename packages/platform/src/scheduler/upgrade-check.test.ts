@@ -229,6 +229,22 @@ describe("assessUpgrade", () => {
       expect(declaredOlder.reason).toContain(
         `workers on ${other} still hold a slot`,
       );
+      // One digest as the current and the previous image under two runtimes
+      // (the single-image settings allow it): neither declaration counts.
+      const disagreeing = assessUpgrade({
+        deployed: [
+          { image: other, runtime: previous },
+          { image: other, runtime: { ...previous, engine: "codex" } },
+        ],
+        target: [{ image: n, runtime: previous }],
+        writers: [{ image: other, runtime: null }],
+        sessions: [],
+        approved: [],
+      });
+      expect(disagreeing.verdict).toBe("refused");
+      expect(disagreeing.reason).toContain(
+        `workers on ${other} still hold a slot`,
+      );
     });
 
     test("passes when the target still restores what it seals", () => {
