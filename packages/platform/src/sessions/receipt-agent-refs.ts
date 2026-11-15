@@ -56,6 +56,7 @@ export const RECEIPT_AGENT_REFS: Partial<Record<ReceiptOperation, AgentRefs>> =
     revoke_agent_identity: ON_AGENT,
     set_agent_github: { ...ON_AGENT, agents: ["agent_id"] },
     set_agent_mcp: { ...ON_AGENT, agents: ["agent_id"] },
+    set_agent_workspace_mcp: { ...ON_AGENT, agents: ["agent_id"] },
     set_agent_pull_request_settings: { ...ON_AGENT, agents: ["agent_id"] },
     // A key made for an agent, or revoked.
     create_api_key: { agents: ["agent_id"] },

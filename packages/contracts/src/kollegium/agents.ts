@@ -131,6 +131,28 @@ export const mcpStartSchema = z.object({
 });
 export type McpStart = z.infer<typeof mcpStartSchema>;
 
+export const AGENT_WORKSPACE_MCP_SERVERS_MAX = 8;
+
+/**
+ * The workspace MCP servers an agent had on as a session starts
+ * (`sessions.workspace_mcp_start`), each with the tools stored then. The
+ * session calls the tools still stored that are in this list, so a change
+ * narrows at once and widens only the next session. Not strict, as
+ * `mcpStartSchema`.
+ */
+export const workspaceMcpStartSchema = z.object({
+  servers: z
+    .array(
+      z.object({
+        id: z.uuid(),
+        name: mcpServerIdSchema,
+        tools: z.array(mcpToolNameSchema),
+      }),
+    )
+    .max(AGENT_WORKSPACE_MCP_SERVERS_MAX),
+});
+export type WorkspaceMcpStart = z.infer<typeof workspaceMcpStartSchema>;
+
 export const agentCapabilitiesSchema = z
   .object({
     /**

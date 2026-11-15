@@ -19,6 +19,7 @@ import {
   agentMcpResponseSchema,
   agentPullRequestResponseSchema,
   agentUsageSchema,
+  agentWorkspaceMcpServerListSchema,
   apiRootResponseSchema,
   auditReadResponseSchema,
   auditRetentionResponseSchema,
@@ -123,6 +124,7 @@ import {
   putAgentMcpSettingsResponseSchema,
   putAgentPullRequestSettingsResponseSchema,
   putAgentUsageResponseSchema,
+  putAgentWorkspaceMcpServersResponseSchema,
   putEngineSettingsResponseSchema,
   putEnvVariableGrantsResponseSchema,
   putEnvVariableResponseSchema,
@@ -296,6 +298,10 @@ export const responseSchemas = {
     putAgentGitHubRepositoryAccessResponseSchema,
   "GET /v1/agents/{id}/mcp/settings": agentMcpResponseSchema,
   "PUT /v1/agents/{id}/mcp/settings": putAgentMcpSettingsResponseSchema,
+  "GET /v1/agents/{id}/mcp/workspace-servers":
+    agentWorkspaceMcpServerListSchema,
+  "PUT /v1/agents/{id}/mcp/workspace-servers":
+    putAgentWorkspaceMcpServersResponseSchema,
   "GET /v1/agents/{id}/engine-settings": agentEngineSettingsResponseSchema,
   "PUT /v1/agents/{id}/engine-settings": putEngineSettingsResponseSchema,
   "GET /v1/workspaces/{id}/engine-settings":

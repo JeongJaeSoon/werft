@@ -17,7 +17,7 @@ export function SidebarSectionSeparator({
   const ruled = item.$id === SECTION_DEPLOY;
   return (
     <p
-      className={`mb-2 flex items-center gap-2 px-2 font-semibold text-fd-foreground text-sm ${ruled ? "mt-6 border-fd-border border-t pt-5" : "mt-2"}`}
+      className={`mb-2 flex items-center gap-2 px-2 font-medium text-fd-foreground text-sm ${ruled ? "mt-6 border-fd-border border-t pt-5" : "mt-2"}`}
     >
       {Icon && <Icon aria-hidden className="size-4 text-fd-primary" />}
       {item.name}

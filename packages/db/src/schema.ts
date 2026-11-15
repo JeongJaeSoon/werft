@@ -1548,6 +1548,11 @@ export const sessions = pgTable(
     // on a session started without a settings row, which follows its
     // release's card and pins.
     mcpStart: jsonb("mcp_start").$type<unknown>(),
+    // The workspace MCP servers the agent had on when the session started,
+    // with their tools then (`workspaceMcpStartSchema`); later changes can
+    // only narrow them for it. Null on a session started before the column,
+    // which reaches no workspace server.
+    workspaceMcpStart: jsonb("workspace_mcp_start").$type<unknown>(),
     // The agent's engine settings and their revision as they were when the
     // session started (`engineSettingsStartSchema`); later changes can only
     // restrict it further. Null on a session started without a settings row
@@ -3833,6 +3838,10 @@ export const workspaceMcpServers = pgTable(
   },
   (table) => [
     unique("workspace_mcp_servers_name_uniq").on(table.workspaceId, table.name),
+    unique("workspace_mcp_servers_workspace_id_key").on(
+      table.workspaceId,
+      table.id,
+    ),
     check(
       "workspace_mcp_servers_name_check",
       sql`${table.name} ~ '^[a-z0-9](?:[a-z0-9-]|_(?!_)){0,31}$' AND ${table.name} NOT IN ('github', 'browser')`,
@@ -3849,6 +3858,37 @@ export const workspaceMcpServers = pgTable(
       "workspace_mcp_servers_tools_check",
       sql`jsonb_typeof(${table.tools}) = 'array' AND jsonb_array_length(${table.tools}) <= 200 AND ${table.toolsSkipped} >= 0`,
     ),
+  ],
+);
+
+// The workspace servers an agent turned on; at most 8 per agent, which the
+// writer holds under the agent's lock. Both keys carry the workspace, so a
+// row cannot pair an agent with another workspace's server.
+export const agentWorkspaceMcpServers = pgTable(
+  "agent_workspace_mcp_servers",
+  {
+    agentId: uuid("agent_id").notNull(),
+    workspaceId: uuid("workspace_id").notNull(),
+    serverId: uuid("server_id").notNull(),
+    /** No foreign key: the row outlives the account. */
+    addedByUserId: uuid("added_by_user_id"),
+    addedAt: timestamp("added_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.agentId, table.serverId] }),
+    foreignKey({
+      name: "agent_workspace_mcp_servers_agent_fk",
+      columns: [table.workspaceId, table.agentId],
+      foreignColumns: [agents.workspaceId, agents.id],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "agent_workspace_mcp_servers_server_fk",
+      columns: [table.workspaceId, table.serverId],
+      foreignColumns: [workspaceMcpServers.workspaceId, workspaceMcpServers.id],
+    }).onDelete("cascade"),
+    index("agent_workspace_mcp_servers_server_idx").on(table.serverId),
   ],
 );
 

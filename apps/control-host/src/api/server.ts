@@ -14,6 +14,7 @@ import {
   createPostgresAgentMcpStore,
   createPostgresAgentStore,
   createPostgresAgentUsageStore,
+  createPostgresAgentWorkspaceMcpStore,
   createPostgresAuditRetention,
   createPostgresCallerLimitGate,
   createPostgresCatalogRepositoryStore,
@@ -102,6 +103,7 @@ import {
   createAgentPullRequestService,
   createAgentService,
   createAgentUsageService,
+  createAgentWorkspaceMcpService,
   createApiKeyService,
   createAuthorizationPolicy,
   createCatalogRegistry,
@@ -243,7 +245,10 @@ import { RequestTracing } from "./request-tracing.ts";
 import { registerAgentPullRequestRoutes } from "./routes/action/agent-pull-request.ts";
 import { registerPullRequestRoutes } from "./routes/action/pull-requests.ts";
 import { registerPushRequestRoutes } from "./routes/action/push-requests.ts";
-import { registerAgentMcpRoutes } from "./routes/agents/agent-mcp.ts";
+import {
+  registerAgentMcpRoutes,
+  registerAgentWorkspaceMcpRoutes,
+} from "./routes/agents/agent-mcp.ts";
 import { registerAgentRoutes } from "./routes/agents/agents.ts";
 import { registerEngineSettingsRoutes } from "./routes/agents/engine-settings.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
@@ -898,6 +903,10 @@ const agentMcp = createAgentMcpService({
   store: createPostgresAgentMcpStore(db),
   catalog,
 });
+const agentWorkspaceMcp = createAgentWorkspaceMcpService({
+  authorization,
+  store: createPostgresAgentWorkspaceMcpStore(db),
+});
 const engineSettings = createEngineSettingsService({
   authorization,
   store: createPostgresEngineSettingsStore(db),
@@ -1302,6 +1311,7 @@ const app = createApiApp({
     registerGitHubPackagesRoutes(router, githubPackages);
     registerAgentGitHubRoutes(router, agentGitHub);
     registerAgentMcpRoutes(router, agentMcp);
+    registerAgentWorkspaceMcpRoutes(router, agentWorkspaceMcp);
     registerEngineSettingsRoutes(router, engineSettings);
     registerAgentPullRequestRoutes(router, agentPullRequest);
     registerSessionRoutes(router, sessions);

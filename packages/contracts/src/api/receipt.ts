@@ -158,6 +158,9 @@ export const RECEIPT_OPERATION_VALUES = [
   "set_agent_github",
   // An agent's MCP settings saved; names only, never a credential value.
   "set_agent_mcp",
+  // The workspace MCP servers an agent turned on: their ids and names before
+  // and after.
+  "set_agent_workspace_mcp",
   // A catalog repository pinned to a GitHub App connection by a pick or an
   // admin (decision github-agent.md 11).
   "set_repository_github_app",
