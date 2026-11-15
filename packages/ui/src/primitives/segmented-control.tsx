@@ -111,7 +111,7 @@ export function SegmentedControlItem({
       className={cn(
         "inline-flex items-center gap-1.5 whitespace-nowrap rounded-control border-0 bg-transparent px-3 font-medium text-control text-subtle-foreground transition-[color,background-color,box-shadow] hover:text-foreground motion-reduce:transition-none",
         segmentItemHeightClassName,
-        "aria-pressed:bg-segment-thumb aria-pressed:font-semibold aria-pressed:text-foreground aria-pressed:shadow-segment-thumb",
+        "aria-pressed:bg-segment-thumb aria-pressed:text-foreground aria-pressed:shadow-segment-thumb",
         // A quiet count on the thumb reads one step darker than off it.
         "aria-pressed:[&_[data-slot=item-count]:not([data-tone])]:text-muted-foreground",
         "focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2",

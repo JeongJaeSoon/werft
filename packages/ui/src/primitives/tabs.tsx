@@ -86,7 +86,7 @@ const tabTriggerClassName = cn(
   "data-[state=active]:text-foreground",
   // The default list is a segment track: quiet labels, the active one raised.
   "group-data-[variant=default]/tabs-list:border-0 group-data-[variant=default]/tabs-list:px-3 group-data-[variant=default]/tabs-list:text-subtle-foreground",
-  "group-data-[variant=default]/tabs-list:data-[state=active]:bg-segment-thumb group-data-[variant=default]/tabs-list:data-[state=active]:font-semibold group-data-[variant=default]/tabs-list:data-[state=active]:text-foreground group-data-[variant=default]/tabs-list:data-[state=active]:shadow-segment-thumb",
+  "group-data-[variant=default]/tabs-list:data-[state=active]:bg-segment-thumb group-data-[variant=default]/tabs-list:data-[state=active]:text-foreground group-data-[variant=default]/tabs-list:data-[state=active]:shadow-segment-thumb",
   underlineTabClassName,
   "after:transition-opacity motion-reduce:after:transition-none group-data-[orientation=vertical]/tabs:after:inset-y-0 group-data-[orientation=vertical]/tabs:after:-right-1 group-data-[orientation=vertical]/tabs:after:w-0.5 group-data-[variant=line]/tabs-list:data-[state=active]:after:opacity-100",
 );

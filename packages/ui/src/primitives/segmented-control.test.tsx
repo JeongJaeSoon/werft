@@ -195,7 +195,7 @@ describe("SegmentedControl", () => {
     expect(item).toContain("h-[calc(var(--werft-control-height)-6px)]");
   });
 
-  test("고른 항목은 흰 알약(그림자·굵은 글자), 나머지는 흐린 글자다", () => {
+  test("고른 항목은 흰 알약(그림자·진한 글자), 나머지는 흐린 글자다", () => {
     const { getByRole } = render(<StatusFilter />);
     const item = getByRole("button", { name: "끝남" }).className.split(" ");
     for (const name of [
@@ -209,7 +209,6 @@ describe("SegmentedControl", () => {
       "hover:text-foreground",
       "aria-pressed:bg-segment-thumb",
       "aria-pressed:shadow-segment-thumb",
-      "aria-pressed:font-semibold",
       "aria-pressed:text-foreground",
       "focus-visible:outline-2",
       "focus-visible:outline-offset-2",
