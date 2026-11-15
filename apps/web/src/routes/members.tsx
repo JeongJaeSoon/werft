@@ -224,6 +224,10 @@ export function MembersScreen() {
   const probe = useQuery({ ...firstMembersQuery(client), enabled: manages });
   const role = useRole();
   const search = useRef<HTMLInputElement>(null);
+  const filterId = useId();
+  // The member whose 구성원 편집 is open or still closing: a role change can
+  // take the row out of the role filter, and the table must outlive it.
+  const [editing, setEditing] = useState<string | null>(null);
 
   if (!manages) return null;
 
@@ -293,6 +297,7 @@ export function MembersScreen() {
         <ListToolbar
           filter={
             <SegmentedControl
+              id={filterId}
               aria-label={t("members.filter.label")}
               value={roleFilter}
               onValueChange={(next) => setRoleFilter(next as RoleFilter)}
@@ -342,7 +347,9 @@ export function MembersScreen() {
         )
       ) : (
         <div className="flex flex-col gap-4">
-          {shownMembers.length === 0 && shownInvites.length === 0 ? (
+          {shownMembers.length === 0 &&
+          shownInvites.length === 0 &&
+          !items.some((member) => member.user_id === editing) ? (
             q !== undefined ? (
               <EmptyState
                 className="w-full"
@@ -370,7 +377,18 @@ export function MembersScreen() {
               <EmptyState className="w-full" title={t("members.empty")} />
             )
           ) : (
-            <MemberTable items={shownMembers} invites={shownInvites} />
+            <MemberTable
+              items={shownMembers}
+              everyone={items}
+              invites={shownInvites}
+              onEditing={setEditing}
+              onRowGone={() =>
+                document
+                  .getElementById(filterId)
+                  ?.querySelector<HTMLElement>("[aria-pressed=true]")
+                  ?.focus()
+              }
+            />
           )}
           {/* The role filter sees only the pages read so far: the rest may
               still hold matches. */}
@@ -421,10 +439,19 @@ function InviteButton() {
 
 function MemberTable({
   items,
+  everyone,
   invites,
+  onEditing,
+  onRowGone,
 }: {
+  /** The rows shown: the loaded members the role filter lets through. */
   readonly items: readonly MemberRow[];
+  /** Every loaded member, so 구성원 편집 outlives a row the filter drops. */
+  readonly everyone: readonly MemberRow[];
   readonly invites: readonly Invite[];
+  readonly onEditing: (userId: string | null) => void;
+  /** Takes the keyboard when the edited row is no longer shown. */
+  readonly onRowGone: () => void;
 }) {
   const { t, locale } = useI18n();
   const notify = useNotify();
@@ -435,7 +462,7 @@ function MemberTable({
   // Roles change in 구성원 편집, not in the row (rows only disable). It
   // follows the row as the list is read again, not the row it opened on.
   const [editingId, setEditingId] = useState<string | null>(null);
-  const editing = items.find((member) => member.user_id === editingId);
+  const editing = everyone.find((member) => member.user_id === editingId);
   // The name button that opened 구성원 편집 gets the keyboard back.
   const editOpener = useRef<HTMLElement | null>(null);
   const editedId = useRef<string | null>(null);
@@ -610,6 +637,7 @@ function MemberTable({
                           editOpener.current = close();
                           editedId.current = member.user_id;
                           setEditingId(member.user_id);
+                          onEditing(member.user_id);
                         }}
                       >
                         {t("members.edit.title")}
@@ -739,6 +767,7 @@ function MemberTable({
           }}
           onSave={(next) => changeRole.mutate({ member: editing, role: next })}
           onClosed={() => {
+            onEditing(null);
             const opener = editOpener.current;
             if (opener?.isConnected) {
               opener.focus();
@@ -747,9 +776,11 @@ function MemberTable({
             // The row was drawn again while the dialog was open: focus its
             // ⋯ button, which opened the dialog.
             const row = `[data-member-id="${editedId.current}"]`;
-            document
-              .querySelector<HTMLElement>(`${row} button[aria-haspopup=menu]`)
-              ?.focus();
+            const menu = document.querySelector<HTMLElement>(
+              `${row} button[aria-haspopup=menu]`,
+            );
+            if (menu) menu.focus();
+            else onRowGone();
           }}
         />
       ) : null}

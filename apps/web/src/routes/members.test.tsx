@@ -2189,6 +2189,49 @@ describe("역할로 보기", () => {
     expect(screen.queryByRole("button", { name: "더 보기" })).toBeNull();
   });
 
+  for (const others of [0, 1]) {
+    test(`역할을 바꿔 행이 필터에서 빠지면 키보드가 고른 역할 버튼으로 간다 (남은 멤버 ${others}명)`, async () => {
+      let current = teammate;
+      const pat = member({
+        user_id: GONE_ID,
+        email: "pat@example.com",
+        display_name: "Pat",
+        role: "member",
+      });
+      renderAt("/members", {
+        "GET /v1/auth/me": () => json(200, me()),
+        "GET /v1/members": () =>
+          json(
+            200,
+            memberPage({
+              items: [owner, current, ...(others > 0 ? [pat] : [])],
+              next_cursor: null,
+            }),
+          ),
+        ...noInvites,
+        [`PATCH /v1/members/${OTHER_ID}`]: () => {
+          current = { ...teammate, role: "admin" };
+          return json(200, current);
+        },
+      });
+      const user = await setupUser();
+      await screen.findByRole("button", { name: "Mate 메뉴" });
+      const pressed = within(group()).getByRole("button", { name: /^멤버/ });
+      await user.click(pressed);
+      await changeRole(user, "Mate", "admin");
+      await waitFor(() =>
+        expect(screen.queryByRole("button", { name: "Mate 메뉴" })).toBeNull(),
+      );
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      await waitFor(() =>
+        expect(document.activeElement === pressed).toBe(true),
+      );
+      expect(
+        screen.queryByText("멤버 역할인 구성원이 없습니다.") === null,
+      ).toBe(others > 0);
+    });
+  }
+
   test("끝까지 읽어도 고른 역할이 없으면 더 보기가 사라진 자리에서 키보드가 목록에 남는다", async () => {
     const people = [
       owner,
