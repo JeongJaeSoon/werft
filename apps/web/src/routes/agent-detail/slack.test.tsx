@@ -2073,6 +2073,19 @@ describe("Slack management", () => {
       const badge = within(card).getByText(label);
       expect(badge.dataset.slot).toBe("badge");
       expect(badge.className.includes(`--werft-tone-${tone}-bg`)).toBe(true);
+      if (installed) expect(card.textContent).toContain("·");
+      // The app's row reads its state from the same tone table.
+      if (app) {
+        const rows = within(
+          screen.getByRole("region", { name: "자동으로 만든 Slack 앱" }),
+        )
+          .getAllByText(label)
+          .filter((node) => node.dataset.slot === "badge");
+        // The row draws its badge once per layout (wide cell, narrow line).
+        expect(rows.length).toBeGreaterThan(0);
+        for (const row of rows)
+          expect(row.className.includes(`--werft-tone-${tone}-bg`)).toBe(true);
+      }
       // Before an install there are no channels to list.
       const nav = screen.getByRole("navigation", { name: "Slack 구역" });
       expect(
