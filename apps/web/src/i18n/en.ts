@@ -31,7 +31,7 @@ import { workspaceMcpEn } from "./workspace-mcp.ts";
 
 export const slackEn = {
   "slack.error.config":
-    "Slack app creation needs workspace configuration. Ask an administrator to configure it.",
+    "Slack app creation needs workspace configuration. Ask an owner or admin to configure it.",
   "slack.error.refused":
     "Slack refused the request (code: {code}). Give the code to an administrator.",
   "slack.error.noAnswer":

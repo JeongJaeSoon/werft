@@ -50,7 +50,7 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
   LOGIN_LINK_REQUIRED:
     "이 이메일로 만든 계정이 이미 있어요 — 기존 계정으로 로그인한 뒤 설정에서 Google을 연결하세요.",
   TAKEOVER_REQUIRED:
-    "요청한 분이 떠나 관리자가 이어받을 때까지 멈춰요 — 워크스페이스 오너에게 인수를 요청하세요.",
+    "요청한 분이 떠나 오너나 어드민이 이어받을 때까지 멈춰요 — 워크스페이스 오너나 어드민에게 인수를 요청하세요.",
   INVITE_EXPIRED:
     "초대가 회수됐거나 새 초대로 바뀌었거나 만료됐습니다 — 오너나 어드민에게 새 초대를 요청하세요.",
   INVITE_USED: "이미 사용한 초대입니다 — 로그인 화면으로 가세요.",
@@ -207,7 +207,7 @@ const ERROR_GUIDANCE_EN: Record<ApiErrorCode, string> = {
   LOGIN_LINK_REQUIRED:
     "An account with this email already exists — sign in with it, then connect Google in settings.",
   TAKEOVER_REQUIRED:
-    "The requester has left, so this waits until an administrator takes it over — ask a workspace owner to take it over.",
+    "The requester has left, so this waits until an owner or admin takes it over — ask a workspace owner or admin to take it over.",
   INVITE_EXPIRED:
     "The invitation was revoked, replaced or has expired — ask an owner or admin for a new one.",
   INVITE_USED:
@@ -384,7 +384,7 @@ const ERROR_GUIDANCE_JA: Record<ApiErrorCode, string> = {
   LOGIN_LINK_REQUIRED:
     "このメールアドレスのアカウントがすでにあります — 既存のアカウントでログインし、設定で Google を連携してください。",
   TAKEOVER_REQUIRED:
-    "依頼者が離れたため、管理者が引き継ぐまで止まります — ワークスペースのオーナーに引き継ぎを依頼してください。",
+    "依頼者が離れたため、オーナーかアドミンが引き継ぐまで止まります — ワークスペースのオーナーかアドミンに引き継ぎを依頼してください。",
   INVITE_EXPIRED:
     "招待は取り消された、新しい招待に置き換わった、または期限切れです — オーナーかアドミンに新しい招待を依頼してください。",
   INVITE_USED: "すでに使われた招待です — ログイン画面に進んでください。",

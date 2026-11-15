@@ -39,7 +39,7 @@ import { workspaceMcpKo } from "./workspace-mcp.ts";
  */
 export const slackKo = {
   "slack.error.config":
-    "워크스페이스의 Slack 앱 생성 설정이 필요합니다. 관리자에게 설정을 요청하세요.",
+    "워크스페이스의 Slack 앱 생성 설정이 필요합니다. 오너나 어드민에게 설정을 요청하세요.",
   "slack.error.refused":
     "Slack이 요청을 거절했습니다(코드: {code}). 코드를 관리자에게 알려 주세요.",
   "slack.error.noAnswer":

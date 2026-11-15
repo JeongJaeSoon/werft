@@ -47,7 +47,7 @@ export const sessionsKo = {
   "session.repository.none": "저장소 없음",
   "session.answerers": "답할 수 있는 사람",
   "session.answerers.roles":
-    "세션을 시작한 사람, 에이전트 담당자, 워크스페이스 오너·어드민",
+    "세션을 시작한 사람, 에이전트 관리자, 워크스페이스 오너·어드민",
   "session.answerers.you": "나는 이 세션의 요청에 답할 수 있습니다.",
   "session.answerers.viewOnly":
     "공유받아 볼 수만 있어 요청에 답할 수 없습니다.",
@@ -715,7 +715,7 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
   "session.repository.none": "リポジトリなし",
   "session.answerers": "回答できる人",
   "session.answerers.roles":
-    "セッションを開始した人、エージェントの担当者、ワークスペースのオーナー・アドミン",
+    "セッションを開始した人、エージェント管理者、ワークスペースのオーナー・アドミン",
   "session.answerers.you": "このセッションのリクエストに回答できます。",
   "session.answerers.viewOnly":
     "共有されて閲覧のみのため、リクエストに回答できません。",

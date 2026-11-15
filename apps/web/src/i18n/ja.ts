@@ -31,7 +31,7 @@ import { workspaceMcpJa } from "./workspace-mcp.ts";
 
 export const slackJa = {
   "slack.error.config":
-    "ワークスペースの Slack アプリ作成設定が必要です。管理者に設定を依頼してください。",
+    "ワークスペースの Slack アプリ作成設定が必要です。オーナーかアドミンに設定を依頼してください。",
   "slack.error.refused":
     "Slack がリクエストを拒否しました(コード: {code})。コードを管理者に伝えてください。",
   "slack.error.noAnswer":
