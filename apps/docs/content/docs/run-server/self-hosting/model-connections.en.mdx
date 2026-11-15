@@ -27,7 +27,7 @@ You need an owner login, a key for the model or a private model endpoint, and th
 A session calls its model through the model connection its agent release chose. A connection needs a key and the list of models in use. Signed in as owner:
 
 1. In **Settings > Agent connections > Model connections**, choose **Add connection**. Use kind `anthropic`, keep the default address (`https://api.anthropic.com`), paste the Anthropic key, and choose **Create**. The key is sealed in the database; the console shows only its last four characters.
-2. Once it is made, the **Models in use** dialog opens and the server reads the provider's model list (`GET /v1/models`) with that key. The dialog shows the connection's id and address. Check the models to use (for example `claude-sonnet-5`) and choose **Save models**. To change them later, choose **Models** on the same row; **Refresh list** reads the list again. A connection holds up to 64 models.
+2. Once it is made, the **Models in use** dialog opens and the server reads the provider's model list (`GET /v1/models`) with that key. The dialog shows the connection's id and address. Check the models to use (for example `claude-sonnet-5`) and choose **Save models**. To change them later, choose **Models** from the ⋯ menu at the end of the same row; **Refresh list** reads the list again. A connection holds up to 64 models.
    - On an OpenAI connection, models no agent runs on (embeddings, speech, images and the like) are left out. LiteLLM shows the list its proxy returns as it is.
    - A saved model the provider no longer lists stays checked and is marked **Not listed**. Nothing drops it on its own; uncheck it and save.
    - The server sends the key only to hosts on the egress credential allowlist (`EGRESS_CREDENTIAL_ALLOWLIST`, or `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` for a private server). When the allowlist is empty, the host is not on it, or the provider refuses the key or cannot be reached, the dialog says which. The saved list can still be saved when the list cannot be read. Neither the key nor the provider's answer body appears in a response or a log.
@@ -37,7 +37,7 @@ A session calls its model through the model connection its agent release chose. 
 
 Choose repositories in the agent's **GitHub** tab, within the workspace's allowed scope, not on the connection. What to ask about and block is set by the workspace's and the agent's run rules ([Permissions](/agents/permissions)).
 
-Starting a session on a release of this connection before providing a key produces an error indicating no key is available for the model connection. The error points to the console path in step 1. Use **Set API key** (**Set Bearer token** on a bearer-token connection) on the same screen to rotate the key.
+Starting a session on a release of this connection before providing a key produces an error indicating no key is available for the model connection. The error points to the console path in step 1. To rotate the key, choose **Set API key** (**Set Bearer token** on a bearer-token connection) from the row's ⋯ menu on the same screen.
 
 To run OpenAI models on the Codex engine, choose the kind `openai_responses` on the same screen. The default address is `https://api.openai.com`, and an API key is the only way to authenticate. Sessions on this connection run on the Codex worker image. For the image and the proxy allowlist (`api.openai.com:443`), follow the [configuration reference](/run-server/self-hosting/reference/configuration).
 
@@ -61,7 +61,7 @@ To keep the key in the server env file instead of the database, set `ANTHROPIC_A
 }
 ```
 
-You can later move this connection to console-managed credentials. On its **Model connections** row, choose **Enter key on screen** and paste the key again; the same connection then uses the stored key. The server does not read and migrate the env value: a person re-enters it. After the move, an import that still names the same connection leaves the database row unchanged.
+You can later move this connection to console-managed credentials. From the ⋯ menu of its **Model connections** row, choose **Enter key on screen** and paste the key again; the same connection then uses the stored key. The server does not read and migrate the env value: a person re-enters it. After the move, an import that still names the same connection leaves the database row unchanged.
 
 On Kubernetes, if the Secret's model key is no longer used, remove its name from `secrets.catalogEnv`. Keep names you still need, such as a fixed bootstrap token. The list replaces the whole set, so keep it aligned with the Secret's keys.
 

@@ -91,6 +91,30 @@ const expectNarrowActions = (table: HTMLElement) => {
   }
 };
 
+type User = Awaited<ReturnType<typeof setupUser>>;
+
+/** Opens a connection's row menu and returns it. */
+const openMenu = async (user: User, table: HTMLElement, id: string) => {
+  await user.click(within(table).getByRole("button", { name: `${id} 메뉴` }));
+  return screen.findByRole("menu", { name: `${id} 메뉴` });
+};
+
+const menuLabels = (menu: HTMLElement) =>
+  within(menu)
+    .getAllByRole("menuitem")
+    .map((item) => item.getAttribute("aria-label"));
+
+/** Chooses an item from a connection's row menu. */
+const choose = async (
+  user: User,
+  table: HTMLElement,
+  id: string,
+  item: string,
+) => {
+  const menu = await openMenu(user, table, id);
+  await user.click(within(menu).getByRole("menuitem", { name: item }));
+};
+
 describe("모델 연결", () => {
   const listed = [
     connection("anthropic", {
@@ -238,47 +262,50 @@ describe("모델 연결", () => {
 
   test("the owner sees imported and console connections alike, and what each may do", async () => {
     renderAt(CONNECTIONS_PAGE, routes());
+    const user = await setupUser();
     const table = await screen.findByRole("table", { name: "모델 연결" });
     const imported = rowOf(table, "anthropic");
     expect(imported.textContent).toContain("환경 변수 ANTHROPIC_API_KEY");
     expect(imported.textContent).toContain("claude-sonnet-5");
     expect(imported.textContent).not.toContain("파일");
 
+    // Disabling stays a button of its own; the rest wait in the row's menu.
     const stored = rowOf(table, "console-key");
     expect(stored.textContent).toContain("••••abcd");
     expect(
       within(stored)
         .getAllByRole("button")
         .map((button) => button.getAttribute("aria-label")),
-    ).toEqual([
+    ).toEqual(["console-key 사용 중지", "console-key 메뉴"]);
+    const storedMenu = await openMenu(user, table, "console-key");
+    expect(menuLabels(storedMenu)).toEqual([
       "console-key의 API 키 설정",
       "console-key의 자동 모드 판정",
       "console-key의 모델 목록",
-      "console-key 사용 중지",
     ]);
     expect(
-      within(stored).getByRole("button", { name: "console-key의 API 키 설정" })
-        .textContent,
+      within(storedMenu).getByRole("menuitem", {
+        name: "console-key의 API 키 설정",
+      }).textContent,
     ).toBe("API 키 설정");
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
 
     // An operator reference: no replace, but it can move to a typed key.
-    const ref = rowOf(table, "ops-ref");
-    expect(
-      within(ref)
-        .getAllByRole("button")
-        .map((button) => button.getAttribute("aria-label")),
-    ).toEqual([
+    expect(menuLabels(await openMenu(user, table, "ops-ref"))).toEqual([
       "ops-ref 화면에서 키 넣기",
       "ops-ref의 자동 모드 판정",
       "ops-ref의 모델 목록",
-      "ops-ref 사용 중지",
     ]);
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
 
     const fresh = rowOf(table, "fresh");
     expect(fresh.textContent).toContain("값 필요");
     expect(
-      within(fresh).getByRole("button", { name: "fresh의 API 키 설정" })
-        .textContent,
+      within(await openMenu(user, table, "fresh")).getByRole("menuitem", {
+        name: "fresh의 API 키 설정",
+      }).textContent,
     ).toBe("API 키 설정");
   });
 
@@ -398,6 +425,7 @@ describe("모델 연결", () => {
           endpoint_defaults: {},
         }),
     });
+    const user = await setupUser();
     const table = await screen.findByRole("table", { name: "모델 연결" });
     const row = rowOf(table, "luna");
     expect(row.textContent).toContain("성과 판정 전용");
@@ -407,7 +435,10 @@ describe("모델 연결", () => {
       within(row)
         .getAllByRole("button")
         .map((button) => button.getAttribute("aria-label")),
-    ).toEqual(["luna의 API 키 설정", "luna 사용 중지"]);
+    ).toEqual(["luna 사용 중지", "luna 메뉴"]);
+    expect(menuLabels(await openMenu(user, table, "luna"))).toEqual([
+      "luna의 API 키 설정",
+    ]);
   });
 
   test("an openai_decisions connection is Luna's, takes OpenAI's address and no billing choice, and is created with an API key", async () => {
@@ -472,13 +503,18 @@ describe("모델 연결", () => {
     });
     const user = await setupUser();
     const table = await screen.findByRole("table", { name: "모델 연결" });
-    await user.click(
-      within(table).getByRole("button", { name: "console-key의 API 키 설정" }),
-    );
+    await choose(user, table, "console-key", "console-key의 API 키 설정");
     const dialog = await screen.findByRole("dialog");
     await user.type(within(dialog).getByLabelText("값"), "rotated-key");
     await user.click(within(dialog).getByRole("button", { name: "저장" }));
     await screen.findByText("console-key의 값을 바꿨습니다.");
+    // The dialog came from the menu, so the keyboard goes back to its button.
+    const menuButton = within(table).getByRole("button", {
+      name: "console-key 메뉴",
+    });
+    await waitFor(() =>
+      expect(document.activeElement === menuButton).toBe(true),
+    );
 
     await user.click(
       within(table).getByRole("button", { name: "console-key 사용 중지" }),
@@ -531,9 +567,7 @@ describe("모델 연결", () => {
     const openModels = async (id = "console-key") => {
       const user = await setupUser();
       const table = await screen.findByRole("table", { name: "모델 연결" });
-      await user.click(
-        within(table).getByRole("button", { name: `${id}의 모델 목록` }),
-      );
+      await choose(user, table, id, `${id}의 모델 목록`);
       return { user, dialog: await screen.findByRole("dialog") };
     };
     const discoverCalls = (calls: readonly { path: string }[], id: string) =>
@@ -1245,9 +1279,7 @@ describe("모델 연결", () => {
     });
     const user = await setupUser();
     const table = await screen.findByRole("table", { name: "모델 연결" });
-    await user.click(
-      within(table).getByRole("button", { name: "anthropic 화면에서 키 넣기" }),
-    );
+    await choose(user, table, "anthropic", "anthropic 화면에서 키 넣기");
     const dialog = await screen.findByRole("dialog");
     expect(dialog.textContent).toContain("기존 값을 읽어 옮기지는 않습니다");
     await user.type(within(dialog).getByLabelText("값"), "typed-key-value");
@@ -1266,11 +1298,7 @@ describe("모델 연결", () => {
     });
     const user = await setupUser();
     const table = await screen.findByRole("table", { name: "모델 연결" });
-    await user.click(
-      within(table).getByRole("button", {
-        name: "console-key의 자동 모드 판정",
-      }),
-    );
+    await choose(user, table, "console-key", "console-key의 자동 모드 판정");
     const dialog = await screen.findByRole("dialog");
     expect(dialog.textContent).toContain("다음 claim부터 auto로 실행됩니다");
     const select = within(dialog).getByLabelText("판정") as HTMLSelectElement;
@@ -1299,9 +1327,7 @@ describe("모델 연결", () => {
     });
     const user = await setupUser();
     const table = await screen.findByRole("table", { name: "모델 연결" });
-    await user.click(
-      within(table).getByRole("button", { name: "anthropic 화면에서 키 넣기" }),
-    );
+    await choose(user, table, "anthropic", "anthropic 화면에서 키 넣기");
     const dialog = await screen.findByRole("dialog");
     await user.type(within(dialog).getByLabelText("값"), "typed-key-value");
     await user.click(within(dialog).getByRole("button", { name: "저장" }));

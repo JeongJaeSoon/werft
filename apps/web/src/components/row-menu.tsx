@@ -131,10 +131,16 @@ export function RowMenuItem({
   onSelect,
   tone,
   reason,
+  label,
   children,
 }: {
   readonly onSelect: () => void;
   readonly tone?: "danger" | undefined;
+  /**
+   * A fuller name than its text, such as one with the row's id; it must
+   * contain the text. Ignored with a `reason`, which names it by its text.
+   */
+  readonly label?: string | undefined;
   /**
    * Why the item cannot be chosen now. It stays in the menu, dimmed, with
    * the reason under its name; the arrow keys still reach it, and a screen
@@ -152,6 +158,7 @@ export function RowMenuItem({
       tabIndex={-1}
       tone={disabled ? "default" : tone}
       aria-disabled={disabled || undefined}
+      aria-label={disabled ? undefined : label}
       // Named by its label alone; the reason under it is its description.
       aria-labelledby={disabled ? labelId : undefined}
       aria-describedby={disabled ? reasonId : undefined}
