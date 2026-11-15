@@ -1,4 +1,5 @@
 import {
+  INVITE_ALREADY_MEMBER,
   INVITE_LIST_LIMIT,
   INVITE_TTL_DAYS,
   type Invite,
@@ -102,8 +103,10 @@ export function createInviteService(deps: {
       switch (result.outcome) {
         case "already_member":
           throw new SessionServiceError(
-            "BAD_REQUEST",
+            "ALREADY_EXISTS",
             "This email already belongs to a member of the workspace",
+            undefined,
+            { field: "email", reason_code: INVITE_ALREADY_MEMBER },
           );
         case "actor_inactive":
           throw new SessionServiceError("FORBIDDEN", NOT_AN_OWNER);

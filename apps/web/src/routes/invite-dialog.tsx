@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { type ApiError, unwrap } from "@werft-ai/client";
-import type { WorkspaceRole } from "@werft-ai/contracts";
+import { type ApiError, isApiError, unwrap } from "@werft-ai/client";
+import type { INVITE_ALREADY_MEMBER, WorkspaceRole } from "@werft-ai/contracts";
 import { inviteStep } from "@werft-ai/core/forms";
 import {
   formAlerts,
@@ -314,6 +314,13 @@ function LinkFocus({
 
 const FIELDS = ["email", "role"] as const;
 
+const ALREADY_MEMBER: typeof INVITE_ALREADY_MEMBER = "already_member";
+
+const isAlreadyMember = (error: unknown) =>
+  isApiError(error, "ALREADY_EXISTS") &&
+  (error.details as { reason_code?: unknown } | null)?.reason_code ===
+    ALREADY_MEMBER;
+
 function DetailsStep({
   assignableRoles: grantable,
   pending,
@@ -338,6 +345,19 @@ function DetailsStep({
   // focused is gone and the keyboard would land on <body>.
   const { setFocus } = form;
   useEffect(() => setFocus("email"), [setFocus]);
+  // The server's refusal of a member's address belongs to the email field.
+  const sendOrMark = async (values: { email: string; role: WorkspaceRole }) => {
+    try {
+      await send(values);
+    } catch (error) {
+      if (!isAlreadyMember(error)) throw error;
+      form.setError(
+        "email",
+        { type: "server", message: t("members.invite.alreadyMember") },
+        { shouldFocus: true },
+      );
+    }
+  };
 
   // Re-inviting someone whose membership is off leads nowhere when their
   // account has no password (Google sign-in only): the invite asks for one.
@@ -373,7 +393,7 @@ function DetailsStep({
     <form
       className="flex flex-col gap-4"
       noValidate
-      onSubmit={submitStep(form, send, serverMessage)}
+      onSubmit={submitStep(form, sendOrMark, serverMessage)}
     >
       {formAlerts(errors, FIELDS).map((alert) => (
         <Alert key={alert} variant="red" role="alert">

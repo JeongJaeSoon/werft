@@ -210,6 +210,60 @@ integration("invite store on PostgreSQL", () => {
     ).toEqual({ outcome: "actor_inactive" });
   });
 
+  test("a suspended account's membership still counts; a disabled membership does not", async () => {
+    const ws = await workspace();
+    const actor = acting(ws, await member(ws, "owner"));
+    const suspended = await account();
+    const disabled = await account();
+    await db.insert(memberships).values([
+      { workspaceId: ws, userId: suspended.userId, role: "member" },
+      {
+        workspaceId: ws,
+        userId: disabled.userId,
+        role: "member",
+        disabledAt: new Date(),
+      },
+    ]);
+    await db
+      .update(users)
+      .set({ disabledAt: new Date() })
+      .where(eq(users.id, suspended.userId));
+    expect((await issue(actor, suspended.email)).result).toEqual({
+      outcome: "already_member",
+    });
+    expect((await issue(actor, disabled.email)).result.outcome).toBe("created");
+  });
+
+  test("accepting after joining some other way keeps the one membership and its role", async () => {
+    const ws = await workspace();
+    const owner = await member(ws, "owner");
+    const existing = await account();
+    const { token } = await issue(acting(ws, owner), existing.email);
+    await db
+      .insert(memberships)
+      .values({ workspaceId: ws, userId: existing.userId, role: "admin" });
+    expect(
+      await store.acceptInvite({
+        ...newAccount(token),
+        account: {
+          kind: "existing",
+          userId: existing.userId,
+          verifiedPasswordHash: existing.passwordHash,
+        },
+      }),
+    ).toMatchObject({ outcome: "accepted", role: "admin" });
+    const rows = await db
+      .select({ role: memberships.role })
+      .from(memberships)
+      .where(
+        and(
+          eq(memberships.workspaceId, ws),
+          eq(memberships.userId, existing.userId),
+        ),
+      );
+    expect(rows).toEqual([{ role: "admin" }]);
+  });
+
   test("a new address gets an account, a membership, a session and a receipt, once", async () => {
     const ws = await workspace();
     const owner = await member(ws, "owner");

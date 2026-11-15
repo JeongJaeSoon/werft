@@ -2212,7 +2212,7 @@ export interface paths {
         put?: never;
         /**
          * Invite a person to the workspace
-         * @description The token is returned once and expires in seven days; only its sha256 is stored. Inviting an address that already has a live invite revokes that invite. An address that is already a live member answers 400. Every invite writes an `invite_member` receipt.
+         * @description The token is returned once and expires in seven days; only its sha256 is stored. Addresses are compared trimmed and lower-cased. Inviting an address that already has a live invite revokes that invite. An address whose membership in the workspace is on, even while its account is suspended, answers 409 ALREADY_EXISTS; a member whose membership is disabled may be invited again, and accepting turns the membership back on. Every invite writes an `invite_member` receipt.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -27300,6 +27300,21 @@ export interface operations {
                         error?: {
                             /** @enum {string} */
                             code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `ALREADY_EXISTS`: A resource with the same identity already exists; the operation names which field must be unique. The address belongs to a member of the workspace; `details` is `{ field: "email", reason_code: "already_member" }`. */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "ALREADY_EXISTS";
                         };
                     };
                 };

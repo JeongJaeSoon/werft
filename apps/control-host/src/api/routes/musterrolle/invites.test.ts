@@ -205,17 +205,27 @@ describe("POST /v1/invites", () => {
   });
 
   test("an address that is already a member, or a bad body, is refused", async () => {
+    let asked: string | undefined;
     const member = await send(
       app(
         inviteStore({
-          createInvite: async () => ({ outcome: "already_member" }),
+          createInvite: async (input) => {
+            asked = input.email;
+            return { outcome: "already_member" };
+          },
         }),
       ),
       "/v1/invites",
       "POST",
-      { email: "invitee@example.com", role: "member" },
+      { email: "Invitee@Example.COM", role: "member" },
     );
-    expect(member.status).toBe(400);
+    // The store matches the stored, lower-cased address.
+    expect(asked).toBe("invitee@example.com");
+    expect(member.status).toBe(409);
+    expect(await errorOf(member)).toMatchObject({
+      code: "ALREADY_EXISTS",
+      details: { field: "email", reason_code: "already_member" },
+    });
     const bad = await send(app(), "/v1/invites", "POST", {
       email: "invitee@example.com",
       role: "guest",

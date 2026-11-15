@@ -140,7 +140,10 @@ describe("invite service", () => {
         service({ createInvite: async () => ({ outcome: "already_member" }) }),
         owner,
       ),
-    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    ).rejects.toMatchObject({
+      code: "ALREADY_EXISTS",
+      details: { field: "email", reason_code: "already_member" },
+    });
     await expect(
       EVERY_ENTRY.issueInvite(
         service({ createInvite: async () => ({ outcome: "actor_inactive" }) }),

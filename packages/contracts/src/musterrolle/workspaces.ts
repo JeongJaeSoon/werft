@@ -316,6 +316,12 @@ export const createInviteRequestSchema = z
   .strict();
 
 /**
+ * `details.reason_code` of the 409 ALREADY_EXISTS that POST /v1/invites
+ * answers when the address belongs to a member whose membership is on.
+ */
+export const INVITE_ALREADY_MEMBER = "already_member";
+
+/**
  * The only place an invite token ever appears. It is returned once, to the
  * inviter, and never read back from storage.
  */

@@ -748,6 +748,43 @@ describe("입력 검증(W24 규약)", () => {
     ).toBeTruthy();
   });
 
+  test("이미 구성원인 주소라는 서버 거절(409)은 이메일 칸의 오류가 되고 칸에 포커스가 간다", async () => {
+    renderMembers(() =>
+      apiError(
+        409,
+        "ALREADY_EXISTS",
+        "This email already belongs to a member of the workspace",
+        false,
+        { field: "email", reason_code: "already_member" },
+      ),
+    );
+    const { user, dialog } = await open();
+    const email = within(dialog).getByLabelText("이메일");
+    await user.type(email, "Member@Example.com");
+    await user.click(
+      within(dialog).getByRole("button", { name: "초대 링크 만들기" }),
+    );
+    await waitFor(() =>
+      expect(email.getAttribute("aria-invalid")).toBe("true"),
+    );
+    const described = (email.getAttribute("aria-describedby") ?? "")
+      .split(" ")
+      .map((id) => document.getElementById(id)?.textContent)
+      .join(" ");
+    expect(described).toContain(
+      "이미 이 워크스페이스의 구성원인 주소입니다. 초대하지 않아도 됩니다.",
+    );
+    expect(document.activeElement === email).toBe(true);
+    // The field's own error is the only alert; no banner repeats it above.
+    const alerts = within(dialog).getAllByRole("alert");
+    expect(alerts).toHaveLength(1);
+    expect(
+      email.compareDocumentPosition(alerts[0] as HTMLElement) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(within(dialog).queryByLabelText("초대 링크") === null).toBe(true);
+  });
+
   test("서버가 거절한 초대(403)는 비활성 버튼과 같은 문구로 보인다", async () => {
     renderMembers(() =>
       apiError(403, "FORBIDDEN", "This principal does not hold member.manage"),
