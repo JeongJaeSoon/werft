@@ -1,14 +1,14 @@
 export const workspaceMcpKo = {
   "settings.mcp.catalogTitle": "설치 카탈로그",
   "settings.mcp.pageDescription":
-    "에이전트가 부르는 원격 MCP 서버입니다. 워크스페이스 서버는 관리자가 등록하고 인증하고, 설치 카탈로그는 설치 소유자가 정합니다.",
+    "에이전트가 부르는 원격 MCP 서버입니다. 워크스페이스 서버는 어드민이 등록하고 인증하고, 설치 카탈로그는 설치 소유자가 정합니다.",
   "workspaceMcp.title": "워크스페이스 서버",
   "workspaceMcp.description":
-    "관리자가 등록하고 인증한 서버입니다. 서버를 켠 에이전트는 이 연결 하나로 부르고, token은 에이전트에게 보이지 않습니다.",
+    "어드민이 등록하고 인증한 서버입니다. 서버를 켠 에이전트는 이 연결 하나로 부르고, token은 에이전트에게 보이지 않습니다.",
   "workspaceMcp.add": "서버 등록",
   "workspaceMcp.empty": "등록한 서버가 없습니다.",
   "workspaceMcp.readOnly":
-    "보기만 할 수 있습니다. 등록과 연결은 소유자와 관리자가 합니다.",
+    "보기만 할 수 있습니다. 등록과 연결은 오너와 어드민이 합니다.",
   "workspaceMcp.auth.oauth": "OAuth",
   "workspaceMcp.auth.bearer": "정적 token",
   "workspaceMcp.state.none": "연결 안 됨",
@@ -190,7 +190,7 @@ export const workspaceMcpKo = {
   "agentWorkspaceMcp.description":
     "켠 서버는 다음에 시작하는 세션부터 쓸 수 있습니다. 끈 서버는 실행 중인 세션에서도 다음 요청부터 거절됩니다. {limit}개까지 켤 수 있습니다.",
   "agentWorkspaceMcp.empty":
-    "워크스페이스에 등록한 서버가 없습니다. 관리자가 설정 > MCP 서버에서 등록합니다.",
+    "워크스페이스에 등록한 서버가 없습니다. 어드민이 설정 > MCP 서버에서 등록합니다.",
   "agentWorkspaceMcp.toggle": "{name} 켜기",
   "agentWorkspaceMcp.actingAs": "{name}의 외부 계정으로 동작",
   "agentWorkspaceMcp.notConnected": "연결 전에는 도구가 보이지 않습니다.",
@@ -414,14 +414,14 @@ export const workspaceMcpEn: Record<keyof typeof workspaceMcpKo, string> = {
 export const workspaceMcpJa: Record<keyof typeof workspaceMcpKo, string> = {
   "settings.mcp.catalogTitle": "インストールのカタログ",
   "settings.mcp.pageDescription":
-    "エージェントが呼ぶリモート MCP サーバーです。ワークスペースのサーバーは管理者が登録して認証し、カタログはインストールの所有者が決めます。",
+    "エージェントが呼ぶリモート MCP サーバーです。ワークスペースのサーバーはアドミンが登録して認証し、カタログはインストールの所有者が決めます。",
   "workspaceMcp.title": "ワークスペースのサーバー",
   "workspaceMcp.description":
-    "管理者が登録して認証したサーバーです。サーバーをオンにしたエージェントはこの接続ひとつで呼び、token はエージェントに見えません。",
+    "アドミンが登録して認証したサーバーです。サーバーをオンにしたエージェントはこの接続ひとつで呼び、token はエージェントに見えません。",
   "workspaceMcp.add": "サーバーを登録",
   "workspaceMcp.empty": "登録したサーバーはありません。",
   "workspaceMcp.readOnly":
-    "表示のみできます。登録と接続は所有者と管理者が行います。",
+    "表示のみできます。登録と接続はオーナーとアドミンが行います。",
   "workspaceMcp.auth.oauth": "OAuth",
   "workspaceMcp.auth.bearer": "静的 token",
   "workspaceMcp.state.none": "未接続",
@@ -605,7 +605,7 @@ export const workspaceMcpJa: Record<keyof typeof workspaceMcpKo, string> = {
   "agentWorkspaceMcp.description":
     "オンにしたサーバーは次に始まるセッションから使えます。オフにしたサーバーは実行中のセッションでも次のリクエストから拒否されます。{limit} 個までオンにできます。",
   "agentWorkspaceMcp.empty":
-    "ワークスペースに登録したサーバーはありません。管理者が設定 > MCP サーバーで登録します。",
+    "ワークスペースに登録したサーバーはありません。アドミンが設定 > MCP サーバーで登録します。",
   "agentWorkspaceMcp.toggle": "{name} をオン",
   "agentWorkspaceMcp.actingAs": "{name} の外部アカウントで動作",
   "agentWorkspaceMcp.notConnected": "接続するまでツールは表示されません。",

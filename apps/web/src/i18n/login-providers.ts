@@ -219,7 +219,7 @@ export const loginProvidersKo = {
   "loginProviders.access.reason.noAdmin":
     "비상 관리자가 없습니다. 먼저 지정하세요.",
   "loginProviders.access.reason.lapsed":
-    "비상 관리자가 더는 비밀번호로 로그인할 수 없습니다. 다른 소유자를 지정하세요.",
+    "비상 관리자가 더는 비밀번호로 로그인할 수 없습니다. 다른 오너를 지정하세요.",
   "loginProviders.access.error.locksOut":
     "이대로는 내가 다시 들어올 수 없습니다. 켜진 공급자의 계정을 내 로그인 수단에 먼저 연결하세요.",
   "loginProviders.access.done.closed":
@@ -231,14 +231,14 @@ export const loginProvidersKo = {
   "loginProviders.emergency.change": "바꾸기",
   "loginProviders.emergency.change.name": "비상 관리자 바꾸기",
   "loginProviders.emergency.changeDescription":
-    "비밀번호 로그인을 닫아도 비밀번호로 로그인할 수 있는 소유자 한 명입니다. 켜져 있고 비밀번호가 있는 소유자만 지정할 수 있습니다.",
+    "비밀번호 로그인을 닫아도 비밀번호로 로그인할 수 있는 오너 한 명입니다. 켜져 있고 비밀번호가 있는 오너만 지정할 수 있습니다.",
   "loginProviders.emergency.changeClosed":
     "비밀번호 로그인이 닫혀 있어, 지금 비상 관리자의 비밀번호 세션은 끊깁니다.",
-  "loginProviders.emergency.field": "소유자",
+  "loginProviders.emergency.field": "오너",
   "loginProviders.emergency.reason.noCandidate":
-    "지정할 수 있는 다른 소유자가 없습니다. 켜져 있고 비밀번호가 있는 소유자만 지정할 수 있습니다.",
+    "지정할 수 있는 다른 오너가 없습니다. 켜져 있고 비밀번호가 있는 오너만 지정할 수 있습니다.",
   "loginProviders.emergency.error.notEligible":
-    "이 소유자는 지정할 수 없습니다. 켜져 있고 비밀번호가 있어야 합니다.",
+    "이 오너는 지정할 수 없습니다. 켜져 있고 비밀번호가 있어야 합니다.",
   "loginProviders.emergency.done": "비상 관리자를 바꿨습니다: {name}",
 } as const;
 

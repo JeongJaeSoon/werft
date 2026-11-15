@@ -218,7 +218,7 @@ describe("팀 화면", () => {
 
   // Console v4 navWs: 구성원 is the workspace managers' item; a member's
   // teams still open by address.
-  test("팀은 구성원 메뉴 아래에 있고 팀 메뉴는 따로 없다. 구성원 메뉴는 소유자·관리자에게만 보인다", async () => {
+  test("팀은 구성원 메뉴 아래에 있고 팀 메뉴는 따로 없다. 구성원 메뉴는 오너·어드민에게만 보인다", async () => {
     for (const [who, shows] of [
       [me(), true],
       [memberMe(), false],

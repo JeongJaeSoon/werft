@@ -280,7 +280,7 @@ describe("성과", () => {
     ).toBe(`/sessions/${SESSION}`);
     expect(
       screen.getByText(
-        "확인 필요 성과는 owner·admin과 그 에이전트의 관리자가 확인합니다.",
+        "확인 필요 성과는 오너·어드민과 그 에이전트의 관리자가 확인합니다.",
       ),
     ).toBeTruthy();
     const asked = api.calls.find(

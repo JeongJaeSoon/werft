@@ -7,7 +7,7 @@ export const homeKo = {
   "home.intro.requester":
     "{name} 님이 시작했거나 공유받은 세션을 기준으로 구성했습니다.",
   "home.checklist.title": "시작하기",
-  "home.checklist.admin": "소유자 계정 만들기",
+  "home.checklist.admin": "오너 계정 만들기",
   "home.checklist.adminHint": "워크스페이스를 만든 계정입니다.",
   "home.checklist.invite": "구성원 초대하기",
   "home.checklist.inviteHint": "구성원 화면에서 초대 링크를 만듭니다.",
@@ -28,7 +28,7 @@ export const homeKo = {
   "home.overview.sessionsNote": "내가 볼 수 있는 세션",
   "home.overview.agents": "에이전트",
   "home.overview.agentsNote": "릴리스 {active} · 초안 {draft}",
-  "home.overview.agentsWithheld": "전체 목록은 소유자와 관리자만 봅니다",
+  "home.overview.agentsWithheld": "전체 목록은 오너와 어드민만 봅니다",
   "home.recent.title": "최근 세션",
   "home.glance.installation": "설치 전체 · 설치 운영자만 볼 수 있음",
   "home.glance.installationTitle": "전체 사용량",
@@ -241,7 +241,7 @@ export const homeJa: Record<keyof typeof homeKo, string> = {
   "home.overview.sessionsNote": "閲覧できるセッション",
   "home.overview.agents": "エージェント",
   "home.overview.agentsNote": "リリース済み {active} · 下書き {draft}",
-  "home.overview.agentsWithheld": "全件はオーナーと管理者のみ表示できます",
+  "home.overview.agentsWithheld": "全件はオーナーとアドミンのみ表示できます",
   "home.recent.title": "最近のセッション",
   "home.glance.installation":
     "インストール全体 · インストール運用担当者のみ閲覧可",

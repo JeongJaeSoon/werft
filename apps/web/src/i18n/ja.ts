@@ -41,7 +41,7 @@ export const slackJa = {
   "slack.error.consoleOrigin":
     "コンソールの公開アドレス(CONSOLE_ORIGIN)が未設定のため、Slack アプリを作成できません。管理者に設定を依頼してください。",
   "slack.error.eventsUrl":
-    "Slack がイベントを送る https アドレスが分かりません。管理者に CONSOLE_ORIGIN の設定を依頼するか、イベントをコンソールと別に受ける場合は owner が 設定 > 連携 > Slack のイベントの入口アドレスを入力してください。",
+    "Slack がイベントを送る https アドレスが分かりません。管理者に CONSOLE_ORIGIN の設定を依頼するか、イベントをコンソールと別に受ける場合はオーナーが 設定 > 連携 > Slack のイベントの入口アドレスを入力してください。",
   "slack.error.creating":
     "アプリの作成結果を確認中です。管理者に Slack 上のアプリを確認してもらい、更新してください。",
   "slack.error.notInstalled":
@@ -107,7 +107,7 @@ export const slackJa = {
     "ワークスペースに保存されたトークンを使用できないため、アプリを作成できません。",
   "slack.configToken.settings": "連携 > Slack でトークンを登録",
   "slack.configToken.askAdmin":
-    "オーナーか管理者にトークンの登録を依頼してください。",
+    "オーナーかアドミンにトークンの登録を依頼してください。",
   "slack.install": "Slack アプリをインストール",
   "slack.reinstall": "再インストール",
   "slack.working": "準備中…",
@@ -188,7 +188,7 @@ export const slackJa = {
   "slack.privateInvite": "/invite が必要",
   "slack.pendingApproval": "承認待ち",
   "slack.pendingApprovalHint":
-    "オーナーまたは管理者が承認するまで、このチャンネルのメッセージには返信しません。",
+    "オーナーまたはアドミンが承認するまで、このチャンネルのメッセージには返信しません。",
   "slack.approve": "承認",
   "slack.approveChannel": "チャンネルを承認: {channel}",
   "slack.approved": "チャンネルを承認しました。",

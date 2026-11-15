@@ -9,8 +9,8 @@ import type { Locale } from "../../messages/index.ts";
 export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
   BAD_REQUEST: "입력을 확인하고 다시 보내세요.",
   UNAUTHORIZED: "로그인이 만료됐습니다 — 다시 로그인하세요.",
-  FORBIDDEN: "권한이 없습니다 — 관리자에게 요청하세요.",
-  BOOTSTRAP_DONE: "이미 관리자가 만들어져 있습니다 — 로그인 화면으로 가세요.",
+  FORBIDDEN: "권한이 없습니다 — 오너나 어드민에게 요청하세요.",
+  BOOTSTRAP_DONE: "이미 오너가 만들어져 있습니다 — 로그인 화면으로 가세요.",
   NOT_FOUND: "대상을 찾을 수 없습니다 — 목록에서 다시 여세요.",
   PAYLOAD_TOO_LARGE: "내용이 너무 큽니다 — 나눠서 보내세요.",
   REQUEST_TIMEOUT:
@@ -50,12 +50,12 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
   LOGIN_LINK_REQUIRED:
     "이 이메일로 만든 계정이 이미 있어요 — 기존 계정으로 로그인한 뒤 설정에서 Google을 연결하세요.",
   TAKEOVER_REQUIRED:
-    "요청한 분이 떠나 관리자가 이어받을 때까지 멈춰요 — 워크스페이스 owner에게 인수를 요청하세요.",
+    "요청한 분이 떠나 관리자가 이어받을 때까지 멈춰요 — 워크스페이스 오너에게 인수를 요청하세요.",
   INVITE_EXPIRED:
-    "초대가 회수됐거나 새 초대로 바뀌었거나 만료됐습니다 — 관리자에게 새 초대를 요청하세요.",
+    "초대가 회수됐거나 새 초대로 바뀌었거나 만료됐습니다 — 오너나 어드민에게 새 초대를 요청하세요.",
   INVITE_USED: "이미 사용한 초대입니다 — 로그인 화면으로 가세요.",
   LAST_OWNER:
-    "워크스페이스에는 owner가 한 명 이상 있어야 합니다 — 다른 사람을 먼저 owner로 바꾸세요.",
+    "워크스페이스에는 오너가 한 명 이상 있어야 합니다 — 다른 사람을 먼저 오너로 바꾸세요.",
   SCOPE_NOT_GRANTABLE:
     "발급하는 사람이 지금 가진 권한보다 넓은 key는 만들 수 없고, 에이전트 key는 승인 권한을 갖지 못합니다 — scope를 줄여 다시 발급하세요.",
   CREDENTIAL_UNBOUND:
@@ -65,24 +65,24 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
   CREDENTIAL_REF_IN_USE:
     "이 자격 이름은 이미 다른 곳(에이전트 또는 Slack 앱 연결)에 묶여 있어 쓸 수 없어요 — 다른 이름을 고르세요.",
   SELF_PROTECTED:
-    "자기 역할이나 접근은 직접 바꿀 수 없습니다 — 다른 owner나 admin에게 요청하세요.",
+    "자기 역할이나 접근은 직접 바꿀 수 없습니다 — 다른 오너나 어드민에게 요청하세요.",
   MEMBER_DISABLED:
     "비활성화된 구성원의 역할은 바꿀 수 없습니다 — 먼저 다시 활성화하세요.",
   ACCOUNT_DISABLED:
     "계정이 정지된 사람입니다 — 계정 정지를 먼저 풀어야 역할을 바꾸거나 다시 활성화할 수 있습니다.",
   OWNER_PROTECTED:
-    "owner 역할을 주거나 owner의 역할을 바꾸는 일은 owner만 할 수 있습니다 — owner에게 요청하세요.",
+    "오너 역할을 주거나 오너의 역할을 바꾸는 일은 오너만 할 수 있습니다 — 오너에게 요청하세요.",
   RELEASE_SPEC_UNAVAILABLE:
     "릴리스의 연결이 꺼졌거나 그 모델이 연결 목록에서 빠졌습니다 — 쓸 수 있는 연결과 모델로 다시 release한 뒤 활성화하세요.",
   ALREADY_EXISTS: "같은 이름이 이미 있습니다 — 다른 slug를 고르세요.",
   CATALOG_MISMATCH:
     "이 세션의 연결·모델·저장소가 더 이상 카탈로그에 없어 입력이 처리되지 않았습니다 — 운영자가 카탈로그를 되돌린 뒤 다시 보내세요.",
   SLACK_NOT_INSTALLED:
-    "Slack이 아직 설치되지 않았어요 — owner·admin에게 Slack 설치를 요청하세요.",
+    "Slack이 아직 설치되지 않았어요 — 오너·어드민에게 Slack 설치를 요청하세요.",
   LINK_TEAM_MISMATCH:
     "연결된 Slack 워크스페이스가 아니에요 — 안내된 워크스페이스 계정으로 다시 시도하세요.",
   LINK_TAKEN:
-    "이 Slack 계정은 다른 사용자에게 연결돼 있어요 — owner·admin에게 문의하세요.",
+    "이 Slack 계정은 다른 사용자에게 연결돼 있어요 — 오너·어드민에게 문의하세요.",
   LINK_EXISTS: "이미 연결된 Slack 계정이 있어요 — 해제한 뒤 다시 연결하세요.",
   AGENT_IDENTITY_TAKEN:
     "이 Slack 앱은 다른 에이전트에 연결돼 있어요 — 그 연결을 회수한 뒤 다시 연결하세요.",
@@ -131,7 +131,7 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
   MCP_SERVER_QUOTA_EXCEEDED:
     "MCP 서버를 더 등록할 수 없어요 — 쓰지 않는 서버를 지운 뒤 다시 시도하세요.",
   VARIABLE_UNRESOLVED:
-    "이 에이전트가 쓰는 변수를 지금 받을 수 없어요 — 워크스페이스 관리자에게 문의하세요.",
+    "이 에이전트가 쓰는 변수를 지금 받을 수 없어요 — 워크스페이스 어드민에게 문의하세요.",
   SECRET_ACK_REQUIRED:
     "엔진에 시크릿을 전달하면 모든 요청자와 도구가 읽을 수 있어요 — 위험 안내를 확인한 뒤 다시 저장하세요.",
   SECRET_GRANT_ALL_FORBIDDEN:
@@ -143,14 +143,14 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
   PRECONDITION_REQUIRED:
     "저장하려면 읽은 버전이 필요해요 — 새로 고친 뒤 다시 시도하세요.",
   CONFIG_TOKEN_INVALID:
-    "Slack App Configuration Token을 쓸 수 없어요 — owner·admin이 새 token을 붙여 넣으세요.",
+    "Slack App Configuration Token을 쓸 수 없어요 — 오너·어드민이 새 token을 붙여 넣으세요.",
   SLACK_APP_CREATING: "Slack 앱을 만드는 중이에요 — 잠시 뒤 다시 확인하세요.",
   SLACK_APP_GONE:
     "Slack에 이 앱이 없어요 — Slack 탭에서 앱을 삭제하고 다시 설치하세요.",
   SLACK_LINK_NOT_CONFIGURED:
-    "Slack 계정 연결을 아직 쓸 수 없어요 — 워크스페이스 관리자에게 연동 > Slack 설정을 요청하세요.",
+    "Slack 계정 연결을 아직 쓸 수 없어요 — 워크스페이스 어드민에게 연동 > Slack 설정을 요청하세요.",
   GITHUB_LINK_NOT_CONFIGURED:
-    "GitHub 계정 연결을 아직 쓸 수 없어요 — 워크스페이스 관리자에게 연동 > GitHub의 사용자 연결 설정을 요청하세요.",
+    "GitHub 계정 연결을 아직 쓸 수 없어요 — 워크스페이스 어드민에게 연동 > GitHub의 사용자 연결 설정을 요청하세요.",
   AGENT_NOT_ACTIVE:
     "활성 release가 없는 에이전트예요 — release를 활성화한 뒤 다시 시도하세요.",
   SLACK_INSTALL_STATE_INVALID:
@@ -166,8 +166,8 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
 const ERROR_GUIDANCE_EN: Record<ApiErrorCode, string> = {
   BAD_REQUEST: "Check what you entered and send it again.",
   UNAUTHORIZED: "Your sign-in has expired — sign in again.",
-  FORBIDDEN: "You don't have permission — ask an administrator.",
-  BOOTSTRAP_DONE: "An administrator already exists — go to the sign-in page.",
+  FORBIDDEN: "You don't have permission — ask an owner or admin.",
+  BOOTSTRAP_DONE: "An owner already exists — go to the sign-in page.",
   NOT_FOUND: "It can't be found — open it again from the list.",
   PAYLOAD_TOO_LARGE: "The content is too large — send it in parts.",
   REQUEST_TIMEOUT:
@@ -209,7 +209,7 @@ const ERROR_GUIDANCE_EN: Record<ApiErrorCode, string> = {
   TAKEOVER_REQUIRED:
     "The requester has left, so this waits until an administrator takes it over — ask a workspace owner to take it over.",
   INVITE_EXPIRED:
-    "The invitation was revoked, replaced or has expired — ask an administrator for a new one.",
+    "The invitation was revoked, replaced or has expired — ask an owner or admin for a new one.",
   INVITE_USED:
     "This invitation has already been used — go to the sign-in page.",
   LAST_OWNER:
@@ -291,7 +291,7 @@ const ERROR_GUIDANCE_EN: Record<ApiErrorCode, string> = {
   MCP_SERVER_QUOTA_EXCEEDED:
     "No more MCP servers can be added — delete one you don't use, then try again.",
   VARIABLE_UNRESOLVED:
-    "A variable this agent uses can't be delivered right now — ask a workspace administrator.",
+    "A variable this agent uses can't be delivered right now — ask a workspace admin.",
   SECRET_ACK_REQUIRED:
     "A secret sent to the engine can be read by every requester and tool — confirm the warning, then save again.",
   SECRET_GRANT_ALL_FORBIDDEN:
@@ -308,9 +308,9 @@ const ERROR_GUIDANCE_EN: Record<ApiErrorCode, string> = {
   SLACK_APP_GONE:
     "Slack no longer has this app — delete it on the Slack tab and install again.",
   SLACK_LINK_NOT_CONFIGURED:
-    "Slack account linking isn't available yet — ask a workspace administrator to set up Slack in Integrations.",
+    "Slack account linking isn't available yet — ask a workspace admin to set up Slack in Integrations.",
   GITHUB_LINK_NOT_CONFIGURED:
-    "GitHub account linking isn't available yet — ask a workspace administrator to set up user linking in Integrations > GitHub.",
+    "GitHub account linking isn't available yet — ask a workspace admin to set up user linking in Integrations > GitHub.",
   AGENT_NOT_ACTIVE:
     "This agent has no active release — activate a release, then try again.",
   SLACK_INSTALL_STATE_INVALID:
@@ -331,9 +331,9 @@ const ERROR_GUIDANCE_JA: Record<ApiErrorCode, string> = {
   BAD_REQUEST: "入力内容を確認して、もう一度送ってください。",
   UNAUTHORIZED:
     "ログインの有効期限が切れました — もう一度ログインしてください。",
-  FORBIDDEN: "権限がありません — 管理者に依頼してください。",
+  FORBIDDEN: "権限がありません — オーナーかアドミンに依頼してください。",
   BOOTSTRAP_DONE:
-    "管理者はすでに作成されています — ログイン画面に進んでください。",
+    "オーナーはすでに作成されています — ログイン画面に進んでください。",
   NOT_FOUND: "対象が見つかりません — 一覧から開き直してください。",
   PAYLOAD_TOO_LARGE: "内容が大きすぎます — 分けて送ってください。",
   REQUEST_TIMEOUT:
@@ -384,12 +384,12 @@ const ERROR_GUIDANCE_JA: Record<ApiErrorCode, string> = {
   LOGIN_LINK_REQUIRED:
     "このメールアドレスのアカウントがすでにあります — 既存のアカウントでログインし、設定で Google を連携してください。",
   TAKEOVER_REQUIRED:
-    "依頼者が離れたため、管理者が引き継ぐまで止まります — ワークスペースの owner に引き継ぎを依頼してください。",
+    "依頼者が離れたため、管理者が引き継ぐまで止まります — ワークスペースのオーナーに引き継ぎを依頼してください。",
   INVITE_EXPIRED:
-    "招待は取り消された、新しい招待に置き換わった、または期限切れです — 管理者に新しい招待を依頼してください。",
+    "招待は取り消された、新しい招待に置き換わった、または期限切れです — オーナーかアドミンに新しい招待を依頼してください。",
   INVITE_USED: "すでに使われた招待です — ログイン画面に進んでください。",
   LAST_OWNER:
-    "ワークスペースには owner が 1 人以上必要です — 先に他の人を owner にしてください。",
+    "ワークスペースにはオーナーが 1 人以上必要です — 先に他の人をオーナーにしてください。",
   SCOPE_NOT_GRANTABLE:
     "発行する人の現在の権限より広い key は作れず、エージェントの key は承認権限を持てません — scope を狭めて発行し直してください。",
   CREDENTIAL_UNBOUND:
@@ -399,24 +399,24 @@ const ERROR_GUIDANCE_JA: Record<ApiErrorCode, string> = {
   CREDENTIAL_REF_IN_USE:
     "この認証情報の名前はすでに別の場所(エージェントまたは Slack アプリの接続)に紐づいていて使えません — 別の名前を選んでください。",
   SELF_PROTECTED:
-    "自分のロールやアクセスは自分で変更できません — 他の owner か admin に依頼してください。",
+    "自分のロールやアクセスは自分で変更できません — 他のオーナーかアドミンに依頼してください。",
   MEMBER_DISABLED:
     "無効化されたメンバーのロールは変更できません — 先に有効化し直してください。",
   ACCOUNT_DISABLED:
     "アカウントが停止されている人です — 先にアカウント停止を解除しないと、ロールの変更や再有効化はできません。",
   OWNER_PROTECTED:
-    "owner ロールの付与や owner のロール変更は owner にしかできません — owner に依頼してください。",
+    "オーナーロールの付与やオーナーのロール変更はオーナーにしかできません — オーナーに依頼してください。",
   RELEASE_SPEC_UNAVAILABLE:
     "この release の接続が無効になったか、そのモデルが接続の一覧から外れました — 使える接続とモデルで release し直してから有効化してください。",
   ALREADY_EXISTS: "同じ名前がすでにあります — 別の slug を選んでください。",
   CATALOG_MISMATCH:
     "このセッションの接続・モデル・リポジトリがカタログになくなったため、入力は処理されませんでした — 運用者がカタログを戻してから、もう一度送ってください。",
   SLACK_NOT_INSTALLED:
-    "Slack はまだインストールされていません — owner・admin に Slack のインストールを依頼してください。",
+    "Slack はまだインストールされていません — オーナー・アドミンに Slack のインストールを依頼してください。",
   LINK_TEAM_MISMATCH:
     "連携している Slack ワークスペースではありません — 案内されたワークスペースのアカウントでもう一度お試しください。",
   LINK_TAKEN:
-    "この Slack アカウントは別のユーザーに連携されています — owner・admin に問い合わせてください。",
+    "この Slack アカウントは別のユーザーに連携されています — オーナー・アドミンに問い合わせてください。",
   LINK_EXISTS:
     "すでに連携している Slack アカウントがあります — 解除してから連携し直してください。",
   AGENT_IDENTITY_TAKEN:
@@ -468,7 +468,7 @@ const ERROR_GUIDANCE_JA: Record<ApiErrorCode, string> = {
   MCP_SERVER_QUOTA_EXCEEDED:
     "これ以上 MCP サーバーを登録できません — 使っていないサーバーを削除してからやり直してください。",
   VARIABLE_UNRESOLVED:
-    "このエージェントが使う変数を今は渡せません — ワークスペースの管理者に連絡してください。",
+    "このエージェントが使う変数を今は渡せません — ワークスペースのアドミンに連絡してください。",
   SECRET_ACK_REQUIRED:
     "エンジンに渡したシークレットは、すべての依頼者とツールが読めます — 注意書きを確認してから保存してください。",
   SECRET_GRANT_ALL_FORBIDDEN:
@@ -480,15 +480,15 @@ const ERROR_GUIDANCE_JA: Record<ApiErrorCode, string> = {
   PRECONDITION_REQUIRED:
     "保存するには読み込んだバージョンが必要です — 再読み込みしてやり直してください。",
   CONFIG_TOKEN_INVALID:
-    "Slack App Configuration Token を使えません — owner・admin が新しい token を貼り付けてください。",
+    "Slack App Configuration Token を使えません — オーナー・アドミンが新しい token を貼り付けてください。",
   SLACK_APP_CREATING:
     "Slack アプリを作成しています — しばらくしてからもう一度確認してください。",
   SLACK_APP_GONE:
     "Slack にこのアプリがありません — Slack タブでアプリを削除し、もう一度インストールしてください。",
   SLACK_LINK_NOT_CONFIGURED:
-    "Slack アカウントの連携はまだ使えません — ワークスペースの管理者に 連携 > Slack の設定を依頼してください。",
+    "Slack アカウントの連携はまだ使えません — ワークスペースのアドミンに 連携 > Slack の設定を依頼してください。",
   GITHUB_LINK_NOT_CONFIGURED:
-    "GitHub アカウントの連携はまだ使えません — ワークスペースの管理者に 連携 > GitHub のユーザー連携の設定を依頼してください。",
+    "GitHub アカウントの連携はまだ使えません — ワークスペースのアドミンに 連携 > GitHub のユーザー連携の設定を依頼してください。",
   AGENT_NOT_ACTIVE:
     "有効な release がないエージェントです — release を有効化してからもう一度お試しください。",
   SLACK_INSTALL_STATE_INVALID:

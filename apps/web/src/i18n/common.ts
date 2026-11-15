@@ -48,11 +48,11 @@ export const commonKo = {
   "status.loginRequired.action": "로그인 화면으로",
   "status.forbidden.title": "이 화면을 볼 권한이 없습니다",
   "status.forbidden.body":
-    "필요하면 워크스페이스 소유자나 관리자에게 권한을 요청하세요.",
-  "status.bootstrapRequired.title": "아직 소유자가 없습니다",
+    "필요하면 워크스페이스 오너나 어드민에게 권한을 요청하세요.",
+  "status.bootstrapRequired.title": "아직 오너가 없습니다",
   "status.bootstrapRequired.body":
-    "설치 때 출력된 bootstrap 토큰으로 첫 소유자를 만드세요.",
-  "status.bootstrapRequired.action": "첫 소유자 만들기",
+    "설치 때 출력된 bootstrap 토큰으로 첫 오너를 만드세요.",
+  "status.bootstrapRequired.action": "첫 오너 만들기",
   "status.error.title": "문제가 생겼습니다",
 
   "field.slugFormat":
@@ -213,7 +213,7 @@ export const commonJa: Record<keyof typeof commonKo, string> = {
   "status.loginRequired.action": "ログイン画面へ",
   "status.forbidden.title": "このページを表示する権限がありません",
   "status.forbidden.body":
-    "必要な場合は、ワークスペースのオーナーまたは管理者に権限を依頼してください。",
+    "必要な場合は、ワークスペースのオーナーまたはアドミンに権限を依頼してください。",
   "status.bootstrapRequired.title": "オーナーがまだいません",
   "status.bootstrapRequired.body":
     "インストール時に出力された bootstrap トークンで、最初のオーナーを作成してください。",

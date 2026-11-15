@@ -24,7 +24,7 @@ const SLACK_NOTICE_MESSAGES_KO = {
     "이 에이전트의 릴리스가 쓰는 연결이 꺼졌거나 그 모델이 연결 목록에서 빠져 시작하지 못했어요. 에이전트 관리자가 웹 콘솔에서 쓸 수 있는 연결과 모델로 새 릴리스를 만들고 활성화해야 해요",
   noActiveRelease:
     "이 에이전트는 아직 활성화된 릴리스가 없어요. 에이전트 관리자가 웹 콘솔에서 릴리스를 활성화해야 해요",
-  pendingApproval: "이 채널은 관리자 승인을 기다리고 있어요",
+  pendingApproval: "이 채널은 어드민 승인을 기다리고 있어요",
   callerLimitedRepository:
     "이 에이전트를 쓰는 사람에게 걸린 제한 때문에 이 저장소로는 시작할 수 없어요",
   callerLimitedCredential:
@@ -62,7 +62,7 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
       "このエージェントのリリースが使う接続が無効になったか、そのモデルが接続の一覧から外れたため、開始できませんでした。エージェントの管理者がWebコンソールで使える接続とモデルの新しいリリースを作成して有効化する必要があります",
     noActiveRelease:
       "このエージェントにはまだ有効なリリースがありません。エージェントの管理者がWebコンソールでリリースを有効化する必要があります",
-    pendingApproval: "このチャンネルは管理者の承認を待っています",
+    pendingApproval: "このチャンネルはアドミンの承認を待っています",
     callerLimitedRepository:
       "このエージェントを使う人に設定された制限のため、このリポジトリでは開始できません",
     callerLimitedCredential:

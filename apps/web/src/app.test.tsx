@@ -81,12 +81,12 @@ describe("상태 화면", () => {
   });
 
   // Nothing public says whether an owner exists, so the screen must not claim it.
-  test("bootstrap 화면은 소유자 유무를 단정하지 않고 안내를 한 번만 한다", async () => {
+  test("bootstrap 화면은 오너 유무를 단정하지 않고 안내를 한 번만 한다", async () => {
     renderAt("/bootstrap", {});
     expect(
-      await screen.findByRole("heading", { name: "첫 소유자 만들기" }),
+      await screen.findByRole("heading", { name: "첫 오너 만들기" }),
     ).toBeDefined();
-    expect(screen.queryByText("아직 소유자가 없습니다")).toBeNull();
+    expect(screen.queryByText("아직 오너가 없습니다")).toBeNull();
     expect(screen.getAllByText(/설치 때 출력된/)).toHaveLength(1);
     expect(screen.queryByText("로그인이 필요합니다")).toBeNull();
     expect(screen.queryByText("이 화면을 볼 권한이 없습니다")).toBeNull();
@@ -292,10 +292,7 @@ describe("bootstrap", () => {
       await screen.findByLabelText("Bootstrap 토큰"),
       "t".repeat(40),
     );
-    await user.type(
-      screen.getByLabelText("소유자 이메일"),
-      "owner@example.com",
-    );
+    await user.type(screen.getByLabelText("오너 이메일"), "owner@example.com");
     await user.type(screen.getByLabelText("이름"), "Owner");
     await user.type(screen.getByLabelText("비밀번호"), "correct horse battery");
     await user.type(screen.getByLabelText("워크스페이스 이름"), "Acme");
@@ -303,7 +300,7 @@ describe("bootstrap", () => {
       screen.getByLabelText("워크스페이스 식별자 (slug)"),
       "acme",
     );
-    await user.click(screen.getByRole("button", { name: "소유자 만들기" }));
+    await user.click(screen.getByRole("button", { name: "오너 만들기" }));
   }
 
   test("입력 힌트는 이름이 아니라 설명으로 붙는다", async () => {
@@ -322,7 +319,7 @@ describe("bootstrap", () => {
     await fill();
     expect(
       await screen.findByText(
-        "소유자를 만들었습니다. 방금 정한 비밀번호로 로그인하세요.",
+        "오너를 만들었습니다. 방금 정한 비밀번호로 로그인하세요.",
       ),
     ).toBeDefined();
     expect(history.location.pathname).toBe("/login");
@@ -336,7 +333,7 @@ describe("bootstrap", () => {
     expect(history.location.search).not.toContain("owner");
   });
 
-  test("이미 소유자가 있으면(409) 그 자리에서 로그인 링크를 보인다", async () => {
+  test("이미 오너가 있으면(409) 그 자리에서 로그인 링크를 보인다", async () => {
     const { history } = renderAt("/bootstrap", {
       "POST /v1/auth/bootstrap": () =>
         apiError(409, "BOOTSTRAP_DONE", "owner@example.com tttttttt"),
@@ -344,7 +341,7 @@ describe("bootstrap", () => {
     await fill();
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain(
-      "이미 소유자가 있습니다. 로그인해 주세요.",
+      "이미 오너가 있습니다. 로그인해 주세요.",
     );
     expect(alert.textContent).not.toContain("owner@example.com");
     expect(alert.textContent).not.toContain("tttttttt");
