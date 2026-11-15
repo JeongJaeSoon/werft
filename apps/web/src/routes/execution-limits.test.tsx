@@ -40,6 +40,8 @@ const DEFAULTS: InstallationConfig = {
   provider_max_retries: entry(2),
   session_archive_after_days: entry(180),
   session_archive_dry_run: entry(true),
+  workspace_stopped_ttl_sec: entry(86_400),
+  workspace_paused_ttl_sec: entry(86_400),
   session_archive: { available: true, reason: null },
 };
 

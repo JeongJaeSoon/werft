@@ -44,6 +44,8 @@ const CONFIG: InstallationConfig = {
   provider_max_retries: unsaved(2),
   session_archive_after_days: unsaved(180),
   session_archive_dry_run: unsaved(true),
+  workspace_stopped_ttl_sec: unsaved(86_400),
+  workspace_paused_ttl_sec: unsaved(86_400),
   session_archive: { available: false, reason: "unversioned" },
 };
 

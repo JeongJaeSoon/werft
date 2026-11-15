@@ -19,6 +19,8 @@ const rejected: Record<InstallationConfigKey, unknown[]> = {
   provider_max_retries: [-1, 1.5, 11, "2"],
   session_archive_after_days: [1, 29, 45.5, 3651, -30, "180"],
   session_archive_dry_run: ["true", 1, 0, null],
+  workspace_stopped_ttl_sec: [-1, 1.5, 315_360_001, "86400"],
+  workspace_paused_ttl_sec: [-1, 1.5, 315_360_001, "86400"],
 };
 
 const accepted: Record<InstallationConfigKey, unknown[]> = {
@@ -32,6 +34,8 @@ const accepted: Record<InstallationConfigKey, unknown[]> = {
   provider_max_retries: [0, 10],
   session_archive_after_days: [0, 30, 3650],
   session_archive_dry_run: [true, false],
+  workspace_stopped_ttl_sec: [0, 86_400, 315_360_000],
+  workspace_paused_ttl_sec: [0, 86_400, 315_360_000],
 };
 
 test("each key holds the range its env variable held", () => {

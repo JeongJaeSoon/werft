@@ -16,6 +16,9 @@ export const SESSION_COST_LIMIT_USD_MAX = 1_000_000;
 export const SESSION_ARCHIVE_AFTER_DAYS_MIN = 30;
 export const SESSION_ARCHIVE_AFTER_DAYS_MAX = 3650;
 
+/** Ten years: past any session a person comes back to. */
+export const WORKSPACE_TTL_SEC_MAX = 3650 * 24 * 60 * 60;
+
 /**
  * The settings of the whole installation an owner keeps in the console, by
  * key. `env` is the variable they were read from before: migrate carries it
@@ -102,6 +105,25 @@ export const INSTALLATION_CONFIG = {
     schema: z.boolean(),
     default: true,
   },
+  /**
+   * How long a `stopped` session keeps its workspace before a scheduler
+   * pass may take it; 0 takes it on the next pass. A resume after that
+   * restores from the checkpoint.
+   */
+  workspace_stopped_ttl_sec: {
+    env: "EXECUTION_WORKSPACE_STOPPED_TTL_SEC",
+    schema: z.number().int().min(0).max(WORKSPACE_TTL_SEC_MAX),
+    default: 86_400,
+  },
+  /**
+   * The same from when a session paused, for one with a checkpoint to
+   * resume from; a paused session without one keeps its workspace.
+   */
+  workspace_paused_ttl_sec: {
+    env: "EXECUTION_WORKSPACE_PAUSED_TTL_SEC",
+    schema: z.number().int().min(0).max(WORKSPACE_TTL_SEC_MAX),
+    default: 86_400,
+  },
 } as const;
 
 export type InstallationConfigKey = keyof typeof INSTALLATION_CONFIG;
@@ -162,6 +184,8 @@ export const installationConfigEntriesSchema = z
     provider_max_retries: entrySchema(rule("provider_max_retries")),
     session_archive_after_days: entrySchema(rule("session_archive_after_days")),
     session_archive_dry_run: entrySchema(rule("session_archive_dry_run")),
+    workspace_stopped_ttl_sec: entrySchema(rule("workspace_stopped_ttl_sec")),
+    workspace_paused_ttl_sec: entrySchema(rule("workspace_paused_ttl_sec")),
   } satisfies Record<InstallationConfigKey, z.ZodType>)
   .strict();
 
@@ -184,6 +208,8 @@ export const updateInstallationConfigRequestSchema = z
     provider_max_retries: rule("provider_max_retries").optional(),
     session_archive_after_days: rule("session_archive_after_days").optional(),
     session_archive_dry_run: rule("session_archive_dry_run").optional(),
+    workspace_stopped_ttl_sec: rule("workspace_stopped_ttl_sec").optional(),
+    workspace_paused_ttl_sec: rule("workspace_paused_ttl_sec").optional(),
   } satisfies Record<InstallationConfigKey, z.ZodType>)
   .strict();
 
