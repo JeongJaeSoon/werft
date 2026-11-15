@@ -7,11 +7,6 @@ export const workspaceKo = {
   "workspace.id": "워크스페이스 ID",
   "workspace.idHint": "API와 CLI에서 이 워크스페이스를 가리킬 때 씁니다.",
   "workspace.idCopied": "워크스페이스 ID를 복사했습니다.",
-  "workspace.models": "사용할 모델",
-  "workspace.modelsHint":
-    "에이전트 카드가 고를 수 있는 모델입니다. 설치 owner가 모델 연결마다 정합니다.",
-  "workspace.modelsFoot": "설정의 모델 연결에서 관리합니다",
-  "workspace.modelsEmpty": "이 설치에 등록된 모델이 없습니다.",
   "workspace.retention": "감사 기록 보존 기간",
   "workspace.retentionDays": "보존 기간(일)",
   "workspace.retentionUnit": "일",
@@ -190,11 +185,6 @@ export const workspaceEn: Record<keyof typeof workspaceKo, string> = {
   "workspace.idHint":
     "Use this ID to identify the workspace in the API and CLI.",
   "workspace.idCopied": "Copied the workspace ID.",
-  "workspace.models": "Models in use",
-  "workspace.modelsHint":
-    "Models an agent's card can pick. The installation owner sets them per model connection.",
-  "workspace.modelsFoot": "Managed under Model connections in Settings",
-  "workspace.modelsEmpty": "This installation has no models registered.",
   "workspace.retention": "Audit log retention",
   "workspace.retentionDays": "Keep for (days)",
   "workspace.retentionUnit": "days",
@@ -373,11 +363,6 @@ export const workspaceJa: Record<keyof typeof workspaceKo, string> = {
   "workspace.id": "ワークスペース ID",
   "workspace.idHint": "API や CLI でこのワークスペースを指すときに使います。",
   "workspace.idCopied": "ワークスペース ID をコピーしました。",
-  "workspace.models": "使用するモデル",
-  "workspace.modelsHint":
-    "エージェントのカードが選べるモデルです。インストールの owner がモデル接続ごとに決めます。",
-  "workspace.modelsFoot": "設定のモデル接続で管理します",
-  "workspace.modelsEmpty": "このインストールに登録されたモデルはありません。",
   "workspace.retention": "監査ログの保存期間",
   "workspace.retentionDays": "保存日数",
   "workspace.retentionUnit": "日",

@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type ApiError, unwrap } from "@werft-ai/client";
 import type {
   AgentAccessResponse,
@@ -9,7 +9,6 @@ import type {
 } from "@werft-ai/contracts";
 import { useWerft } from "@werft-ai/react";
 import {
-  Badge,
   buttonVariants,
   Field,
   FieldContent,
@@ -24,13 +23,12 @@ import {
   SecretField,
   SettingRow,
   SettingsSection,
-  Skeleton,
   Switch,
   Text,
 } from "@werft-ai/ui";
 import { Lock } from "lucide-react";
 import { type FormEvent, type ReactNode, useId, useState } from "react";
-import { connectionsQuery, queryKeys } from "../api/queries.ts";
+import { queryKeys } from "../api/queries.ts";
 import {
   permissionReason,
   refusalText,
@@ -39,7 +37,6 @@ import {
   useRole,
 } from "../auth/guard.tsx";
 import { ReasonButton } from "../auth/reason-button.tsx";
-import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { type MessageKey, useI18n } from "../i18n/i18n.tsx";
 import { WorkspaceEngineSettings } from "./workspace-engine-settings.tsx";
@@ -81,7 +78,6 @@ export function WorkspaceSettingsScreen() {
     <WorkspacePage>
       <OutcomeLine outcome={outcome} />
       <Basics />
-      <AllowedModels />
       <WorkspaceEngineSettings />
       {editable ? (
         <>
@@ -147,55 +143,6 @@ function Basics() {
         />
         <FieldDescription>{t("workspace.idHint")}</FieldDescription>
       </Field>
-    </SettingsSection>
-  );
-}
-
-/**
- * The models this installation's connections offer: what an agent's card may
- * name. The operator sets them, so this screen only reads them.
- */
-function AllowedModels() {
-  const { t } = useI18n();
-  const { client } = useWerft();
-  const connections = useQuery(connectionsQuery(client));
-  const models = [
-    ...new Set(connections.data?.items.flatMap((c) => c.models) ?? []),
-  ];
-  return (
-    <SettingsSection
-      title={t("workspace.models")}
-      description={t("workspace.modelsHint")}
-      box
-      foot={
-        <>
-          <Text as="div" variant="meta">
-            {t("workspace.modelsFoot")}
-          </Text>
-          <ReadOnlyMark />
-        </>
-      }
-    >
-      {connections.isPending ? (
-        <Skeleton width="50%" />
-      ) : connections.isError ? (
-        <LoadFailure
-          error={connections.error}
-          onRetry={() => void connections.refetch()}
-        />
-      ) : models.length === 0 ? (
-        <Text as="div" variant="meta">
-          {t("workspace.modelsEmpty")}
-        </Text>
-      ) : (
-        <ul className="m-0 flex list-none flex-wrap gap-1 p-0">
-          {models.map((model) => (
-            <li key={model}>
-              <Badge variant="mono">{model}</Badge>
-            </li>
-          ))}
-        </ul>
-      )}
     </SettingsSection>
   );
 }
