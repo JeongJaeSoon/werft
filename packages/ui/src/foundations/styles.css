@@ -96,6 +96,9 @@
     --werft-tone-danger-fg: var(--werft-color-subtle-foreground);
     --werft-tone-danger-bg: var(--werft-tone-neutral-bg);
     --werft-tone-danger-border: var(--werft-tone-neutral-border);
+    --werft-tone-teal-fg: var(--werft-color-subtle-foreground);
+    --werft-tone-teal-bg: var(--werft-tone-neutral-bg);
+    --werft-tone-teal-border: var(--werft-tone-neutral-border);
     --werft-tone-unknown-fg: var(--werft-color-subtle-foreground);
     --werft-tone-unknown-bg: var(--werft-tone-neutral-bg);
     --werft-tone-unknown-border: var(--werft-tone-neutral-border);

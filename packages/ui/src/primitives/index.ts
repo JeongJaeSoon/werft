@@ -123,6 +123,7 @@ export {
   StatusDot,
   type StatusDotProps,
   type StatusDotStatus,
+  StatusText,
 } from "./status-dot.tsx";
 export { Switch, type SwitchProps } from "./switch.tsx";
 export {
@@ -139,6 +140,7 @@ export {
   TableRow,
   type TableRowProps,
 } from "./table.tsx";
+export { TableTime, type TableTimeProps } from "./table-time.tsx";
 export {
   Tabs,
   TabsContent,

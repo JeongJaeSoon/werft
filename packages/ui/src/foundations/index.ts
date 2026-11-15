@@ -6,6 +6,8 @@ export {
 } from "./format-relative-time.ts";
 export {
   formatClockTime,
+  formatDuration,
+  formatTableDateTime,
   formatTimestamp,
   type TimestampLocale,
 } from "./format-timestamp.ts";
