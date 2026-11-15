@@ -52,7 +52,7 @@ describe("SegmentedControl", () => {
     expect(buttons.map(pressed)).toEqual(["true", "false", "false", "false"]);
   });
 
-  test("세로 flex 열 안에서도 테두리가 마지막 항목에서 끝난다", () => {
+  test("세로 flex 열 안에서도 트랙이 마지막 항목에서 끝난다", () => {
     const { getByRole } = render(<StatusFilter />);
     const group = getByRole("group", { name: "세션 상태" });
     // happy-dom does no layout; w-fit is what stops align-items: stretch.
@@ -174,32 +174,41 @@ describe("SegmentedControl", () => {
     expect(calls).toBe(0);
   });
 
-  test("트랙과 항목은 v4 .seg 치수 클래스다", () => {
+  test("트랙은 테두리 없는 회색 알약이고 3px 여백으로 컨트롤 높이(32px)에 맞는다", () => {
     const { getByRole } = render(<StatusFilter />);
     const track = getByRole("group").className.split(" ");
     for (const name of [
       "inline-flex",
       "flex-wrap",
       "gap-0.5",
-      "p-0.5",
-      "border",
-      "border-border",
+      "p-[3px]",
       "rounded-card",
-      "bg-card",
+      "bg-segment-track",
     ]) {
       expect(track).toContain(name);
     }
+    for (const name of ["border", "border-border", "bg-card"]) {
+      expect(track).not.toContain(name);
+    }
+    const item = getByRole("button", { name: "끝남" }).className.split(" ");
+    // 26px item + 3px padding on each side = --werft-control-height.
+    expect(item).toContain("h-[calc(var(--werft-control-height)-6px)]");
+  });
+
+  test("고른 항목은 흰 알약(그림자·진한 글자), 나머지는 흐린 글자다", () => {
+    const { getByRole } = render(<StatusFilter />);
     const item = getByRole("button", { name: "끝남" }).className.split(" ");
     for (const name of [
-      "h-[var(--werft-control-height-sm)]",
-      "px-2",
-      "gap-2",
+      "px-3",
+      "gap-1.5",
       "rounded-control",
       "font-medium",
       "text-control",
       "whitespace-nowrap",
-      "text-muted-foreground",
+      "text-subtle-foreground",
       "hover:text-foreground",
+      "aria-pressed:bg-segment-thumb",
+      "aria-pressed:shadow-segment-thumb",
       "aria-pressed:text-foreground",
       "focus-visible:outline-2",
       "focus-visible:outline-offset-2",
@@ -207,42 +216,38 @@ describe("SegmentedControl", () => {
     ]) {
       expect(item).toContain(name);
     }
-    expect(item).toContain("aria-pressed:bg-active");
-    expect(item).toContain(
-      "aria-pressed:[&_[data-slot=item-count]]:text-muted-foreground",
-    );
   });
 
-  test("toolbar 크기는 32px 트랙(1px 여백)·컨트롤 모서리에, 쉴 때 카드 선 테두리이고 hover에서 진해진다", () => {
+  test("countTone은 1 이상일 때만 색 배지이고 0이나 tone 없음은 흐린 숫자다", () => {
     const { getByRole } = render(
-      <SegmentedControl
-        aria-label="보기"
-        size="toolbar"
-        value="table"
-        onValueChange={() => {}}
-      >
-        <SegmentedControlItem value="table">표</SegmentedControlItem>
+      <SegmentedControl aria-label="상태" value="all" onValueChange={() => {}}>
+        <SegmentedControlItem value="all" count={12}>
+          전체
+        </SegmentedControlItem>
+        <SegmentedControlItem value="wait" count={2} countTone="attention">
+          답변 대기
+        </SegmentedControlItem>
+        <SegmentedControlItem value="failed" count={0} countTone="danger">
+          실패
+        </SegmentedControlItem>
+        <SegmentedControlItem value="broken" count={1} countTone="danger">
+          깨짐
+        </SegmentedControlItem>
       </SegmentedControl>,
     );
-    const group = getByRole("group");
-    expect(group.dataset.size).toBe("toolbar");
-    const track = group.className.split(" ");
-    for (const name of [
-      "p-px",
-      "rounded-control",
-      "border-border",
-      "hover:border-subtle-foreground",
-    ]) {
-      expect(track).toContain(name);
-    }
-    for (const name of [
-      "p-0.5",
-      "rounded-card",
-      "border-input",
-      "hover:border-border-strong",
-    ]) {
-      expect(track).not.toContain(name);
-    }
+    const countOf = (name: string) =>
+      getByRole("button", { name }).querySelector<HTMLElement>(
+        '[data-slot="item-count"]',
+      );
+    const wait = countOf("답변 대기 2");
+    expect(wait?.dataset.tone).toBe("attention");
+    expect(wait?.className).toContain("bg-(color:--werft-tone-attention-bg)");
+    expect(wait?.className).toContain("rounded-full");
+    expect(countOf("깨짐 1")?.dataset.tone).toBe("danger");
+    const zero = countOf("실패 0");
+    expect(zero?.dataset.tone).toBeUndefined();
+    expect(zero?.className.split(" ")).toContain("text-subtle-foreground");
+    expect(countOf("전체 12")?.dataset.tone).toBeUndefined();
   });
 
   test("두 진입점에서 같은 부품을 내보낸다", async () => {

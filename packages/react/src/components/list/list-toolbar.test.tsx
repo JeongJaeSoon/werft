@@ -82,7 +82,7 @@ describe("ListViewSwitch", () => {
       />,
     );
     const group = getByRole("group", { name: "보기" });
-    expect(group.dataset.size).toBe("toolbar");
+    expect(group.getAttribute("data-slot")).toBe("segmented-control");
     const cards = getByRole("button", { name: "카드" });
     expect(cards.getAttribute("aria-pressed")).toBe("false");
     expect(cards.querySelector("svg")?.getAttribute("aria-hidden")).toBe(

@@ -242,6 +242,8 @@ describe("database schema", () => {
       "worker_launches",
       "workers",
       "workspace_engine_settings",
+      "workspace_mcp_connections",
+      "workspace_mcp_servers",
       "workspaces",
     ]);
   });

@@ -41,8 +41,11 @@ import {
   deleteSlackAppResponseSchema,
   deleteSlackSecretResponseSchema,
   deleteTeamResponseSchema,
+  deleteWorkspaceMcpServerResponseSchema,
   disableLoginProviderResponseSchema,
+  disconnectWorkspaceMcpServerResponseSchema,
   discoverLoginProviderResponseSchema,
+  discoverWorkspaceMcpServerResponseSchema,
   dispatchWorkflowResponseSchema,
   envVariableListSchema,
   exportSettingsResponseSchema,
@@ -163,6 +166,7 @@ import {
   startProviderLoginResponseSchema,
   startSlackInstallResponseSchema,
   startSlackLinkResponseSchema,
+  startWorkspaceMcpOAuthResponseSchema,
   submitPullRequestReviewResponseSchema,
   teamChangeResponseSchema,
   teamDetailSchema,
@@ -179,6 +183,8 @@ import {
   usageToolCallsResponseSchema,
   usageToolsResponseSchema,
   workspaceEngineSettingsResponseSchema,
+  workspaceMcpServerListSchema,
+  workspaceMcpServerSchema,
 } from "@werft-ai/contracts";
 // biome-ignore lint/style/noRestrictedImports: the schemas entry is where the core may name zod; the root entry still may not.
 import type { ZodType } from "zod";
@@ -394,6 +400,21 @@ export const responseSchemas = {
   "DELETE /v1/workspace/variables/{name}": deleteEnvVariableResponseSchema,
   "PUT /v1/workspace/variables/{name}/grants":
     putEnvVariableGrantsResponseSchema,
+  "GET /v1/workspace/mcp-servers": workspaceMcpServerListSchema,
+  "POST /v1/workspace/mcp-servers/discover":
+    discoverWorkspaceMcpServerResponseSchema,
+  "POST /v1/workspace/mcp-servers": workspaceMcpServerSchema,
+  "DELETE /v1/workspace/mcp-servers/{id}":
+    deleteWorkspaceMcpServerResponseSchema,
+  "PUT /v1/workspace/mcp-servers/{id}/token": workspaceMcpServerSchema,
+  "PUT /v1/workspace/mcp-servers/{id}/oauth-client": workspaceMcpServerSchema,
+  "POST /v1/workspace/mcp-servers/{id}/oauth/start":
+    startWorkspaceMcpOAuthResponseSchema,
+  "POST /v1/workspace/mcp-servers/{id}/oauth/complete":
+    workspaceMcpServerSchema,
+  "POST /v1/workspace/mcp-servers/{id}/disconnect":
+    disconnectWorkspaceMcpServerResponseSchema,
+  "POST /v1/workspace/mcp-servers/{id}/tools/refresh": workspaceMcpServerSchema,
   "GET /v1/agents/{id}/variables": agentEnvVariablesSchema,
   "PUT /v1/agents/{id}/variables/{name}": putEnvVariableResponseSchema,
   "DELETE /v1/agents/{id}/variables/{name}": deleteEnvVariableResponseSchema,

@@ -1366,6 +1366,13 @@
       "when": 1794692119992,
       "tag": "0285_credential_carried_auth",
       "breakpoints": true
+    },
+    {
+      "idx": 286,
+      "version": "7",
+      "when": 1794725811535,
+      "tag": "0286_workspace_mcp_servers",
+      "breakpoints": true
     }
   ]
 }

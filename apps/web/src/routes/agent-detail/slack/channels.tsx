@@ -703,7 +703,7 @@ function ChannelsLock({
       aria-labelledby={titleId}
       className="col-start-1 row-start-1 flex flex-col items-center justify-center gap-2 rounded-card border border-(color:--werft-tone-caution-border) bg-background p-4 text-center"
     >
-      <Text id={titleId} className="font-semibold">
+      <Text id={titleId} className="font-medium">
         {t("slack.channelsLocked.title")}
       </Text>
       <Text variant="sub" className="max-w-prose">

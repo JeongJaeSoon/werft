@@ -2,6 +2,7 @@ import type { ComponentProps, JSX, ReactNode } from "react";
 
 import { cn } from "../foundations/cn.ts";
 import { Card } from "../primitives/card.tsx";
+import { StatValue } from "../primitives/stat-value.tsx";
 
 export type StatCardProps = Omit<ComponentProps<"div">, "children"> & {
   readonly label: ReactNode;
@@ -37,13 +38,10 @@ export function StatCard({
         {label}
         {badge}
       </div>
-      <div
-        className={cn(
-          "px-4 font-semibold text-number tracking-[-0.5px] tabular-nums",
-          muted && "text-subtle-foreground",
-        )}
-      >
-        {value}
+      <div className="px-4">
+        <StatValue className={cn(muted && "text-subtle-foreground")}>
+          {value}
+        </StatValue>
         {outOf === undefined ? null : (
           <>
             {" "}

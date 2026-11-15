@@ -127,7 +127,7 @@ export const githubKo = {
   "github.newApp.submit": "GitHub에서 만들기",
   "github.newApp.blocked":
     "CONSOLE_ORIGIN이 설정되지 않아 GitHub가 콘솔로 돌아올 주소가 없습니다. 운영자에게 콘솔 주소 설정을 요청하거나 '이미 있는 App 연결'을 쓰세요.",
-  "github.newApp.working": "GitHub에서 만든 App을 저장하는 중입니다.",
+  "github.newApp.working": "GitHub에서 만든 App을 저장하는 중…",
   "github.newApp.done": "App을 저장했습니다. 설치 화면으로 이동합니다.",
   "github.newApp.stateInvalid":
     "이 링크는 만료되었거나 이미 쓰였습니다. 연동 > GitHub에서 다시 시작하세요.",
@@ -250,7 +250,7 @@ export const githubKo = {
   "github.ceiling.viaApp": "{name}(으)로 · {using}",
   "github.ceiling.appShort": "App 권한 필요",
   "github.ceiling.pending": "일부 계정 승인 대기",
-  "github.ceiling.saving": "{feature} 저장하는 중",
+  "github.ceiling.saving": "{feature} 저장하는 중…",
   "github.ceiling.saved": "{feature} 저장했습니다",
   "github.ceiling.failed": "저장하지 못해 스위치를 저장된 값으로 되돌렸습니다.",
   "github.ceiling.conflict":
@@ -431,7 +431,7 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
   "github.newApp.submit": "Create on GitHub",
   "github.newApp.blocked":
     "CONSOLE_ORIGIN is not set, so GitHub has no console address to come back to. Ask the operator to set it, or use 'Connect an existing App'.",
-  "github.newApp.working": "Storing the App created on GitHub.",
+  "github.newApp.working": "Saving the App created on GitHub…",
   "github.newApp.done": "Saved the App. Going to the install screen.",
   "github.newApp.stateInvalid":
     "This link has expired or was already used. Start again from Integrations > GitHub.",
@@ -556,7 +556,7 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
   "github.ceiling.viaApp": "With {name} · {using}",
   "github.ceiling.appShort": "App needs permission",
   "github.ceiling.pending": "Some accounts pending",
-  "github.ceiling.saving": "Saving {feature}",
+  "github.ceiling.saving": "Saving {feature}…",
   "github.ceiling.saved": "Saved {feature}",
   "github.ceiling.failed":
     "Could not save, so the switch is back to the saved value.",
@@ -739,7 +739,7 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
   "github.newApp.submit": "GitHub で作成",
   "github.newApp.blocked":
     "CONSOLE_ORIGIN が設定されていないため、GitHub がコンソールに戻る先がありません。運用者にコンソールのアドレス設定を依頼するか、「既存の App を接続」を使ってください。",
-  "github.newApp.working": "GitHub で作成した App を保存しています。",
+  "github.newApp.working": "GitHub で作成した App を保存中…",
   "github.newApp.done": "App を保存しました。インストール画面に移動します。",
   "github.newApp.stateInvalid":
     "このリンクは期限切れか、すでに使われています。連携 > GitHub からやり直してください。",
@@ -865,7 +865,7 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
   "github.ceiling.viaApp": "{name} で · {using}",
   "github.ceiling.appShort": "App の権限が必要",
   "github.ceiling.pending": "一部のアカウントが承認待ち",
-  "github.ceiling.saving": "{feature} を保存しています",
+  "github.ceiling.saving": "{feature} を保存中…",
   "github.ceiling.saved": "{feature} を保存しました",
   "github.ceiling.failed":
     "保存できなかったため、スイッチを保存済みの値に戻しました。",

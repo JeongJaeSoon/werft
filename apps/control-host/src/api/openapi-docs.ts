@@ -221,6 +221,8 @@ export const ERROR_CODE_WHEN: Partial<Record<ApiErrorCode, When>> = {
   VARIABLE_VALUE_TOO_LARGE: "The value is more than 48 KB (UTF-8 bytes).",
   VARIABLE_QUOTA_EXCEEDED:
     "The workspace already holds 100 variables, or the agent 50; delete one first.",
+  MCP_SERVER_QUOTA_EXCEEDED:
+    "The workspace already holds 20 MCP servers of its own; delete one first.",
   SECRET_ACK_REQUIRED:
     "A secret asked for engine delivery without `acknowledge_engine_exposure: true`.",
   SECRET_GRANT_ALL_FORBIDDEN:

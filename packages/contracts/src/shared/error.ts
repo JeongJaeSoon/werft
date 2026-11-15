@@ -158,6 +158,8 @@ export const API_ERROR_CODE_VALUES = [
   "VARIABLE_VALUE_TOO_LARGE",
   // The workspace or agent holds its limit of variables.
   "VARIABLE_QUOTA_EXCEEDED",
+  // The workspace holds its limit of its own MCP servers.
+  "MCP_SERVER_QUOTA_EXCEEDED",
   // A card names a variable the session cannot get; the response carries no
   // name, only the administrator's contact.
   "VARIABLE_UNRESOLVED",

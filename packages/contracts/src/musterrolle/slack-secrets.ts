@@ -19,6 +19,13 @@ export const SECRET_PURPOSE_VALUES = [
   "login_client_secret",
   // A replacement for a provider that is on; used once a test sign-in passes.
   "login_client_secret_next",
+  // A workspace MCP server's: the person's tokens and the PKCE verifier go
+  // on disconnect; the client secret and a static token go with the server.
+  "mcp_access_token",
+  "mcp_refresh_token",
+  "mcp_pkce_verifier",
+  "mcp_client_secret",
+  "mcp_bearer_token",
 ] as const;
 export const secretPurposeSchema = z.enum(SECRET_PURPOSE_VALUES);
 

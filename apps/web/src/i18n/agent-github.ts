@@ -482,7 +482,7 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.pending.body":
     "保存すると、次に始まるセッションから適用されます。権限を絞る変更は、実行中のセッションにも適用されます。新しいリリースは作りません。",
   "agentGitHub.pending.save": "保存",
-  "agentGitHub.pending.saving": "保存しています…",
+  "agentGitHub.pending.saving": "保存中…",
   "agentGitHub.pending.revert": "元に戻す",
   "agentGitHub.pending.reload": "破棄して読み込み直す",
   "agentGitHub.saved":

@@ -14,6 +14,22 @@ import { cn } from "@werft-ai/ui";
 
 type MarkProps = { readonly className?: string };
 
+// An IconTile is one ink colour on every page, so a mark drawn on one paints
+// every path in the tile's foreground, whatever colours its source gives.
+const ON_TILE = "text-(--werft-color-tile-foreground) [&_path]:fill-current";
+
+export function GitHubTileMark({ className }: MarkProps) {
+  return <GitHubMark className={cn(className, ON_TILE)} />;
+}
+
+export function SlackTileMark({ className }: MarkProps) {
+  return <SlackMark className={cn(className, ON_TILE)} />;
+}
+
+export function GoogleDriveTileMark({ className }: MarkProps) {
+  return <GoogleDriveMark className={cn(className, ON_TILE)} />;
+}
+
 export function GitHubMark({ className }: MarkProps) {
   return (
     <svg

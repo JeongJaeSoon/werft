@@ -29,6 +29,10 @@ import {
 import { and, asc, eq, isNull, ne, sql } from "drizzle-orm";
 import { lockCatalogWrites } from "./catalog-repositories.ts";
 import { lockPeople } from "./control-shared.ts";
+import {
+  lockMcpServerName,
+  workspaceMcpNameTaken,
+} from "./musterrolle/workspace-mcp.ts";
 import type { Database } from "./queries.ts";
 import {
   catalogRepositories,
@@ -195,6 +199,12 @@ async function insertRow(
       return;
     }
     case "mcp":
+      // One tool prefix per name across the installation catalog and every
+      // workspace's own servers.
+      await lockMcpServerName(tx, add.id);
+      if (await workspaceMcpNameTaken(tx, add.id)) {
+        throw new Error(`a workspace already has an MCP server "${add.id}"`);
+      }
       await tx.insert(mcpServers).values({
         id: add.id,
         url: add.entry.url,
@@ -727,6 +737,12 @@ function consoleWrites(
         // already sealed under it; the console never brings a reference.
         if (plan.add.length !== 1 || plan.refused_external.length > 0) {
           return { outcome: "conflict" as const, reason: "already_exists" };
+        }
+        if (add.kind === "mcp") {
+          await lockMcpServerName(tx, add.id);
+          if (await workspaceMcpNameTaken(tx, add.id)) {
+            return { outcome: "conflict" as const, reason: "already_exists" };
+          }
         }
         const stored = credentialSourceOf(add.entry) === "stored";
         if (stored !== (value !== null)) {

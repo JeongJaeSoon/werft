@@ -76,7 +76,7 @@ export function StatusScreen(props: StatusScreenProps) {
           data-status={props.kind}
           aria-busy="true"
         >
-          <output className="m-0 flex items-center gap-2 font-semibold text-body">
+          <output className="m-0 flex items-center gap-2 font-medium text-body">
             <span
               className="size-4 animate-spin rounded-full border-2 border-input border-t-primary motion-reduce:animate-none"
               aria-hidden="true"

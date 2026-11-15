@@ -10,7 +10,7 @@ import type { ComponentType, JSX, ReactNode, SVGProps } from "react";
 export interface ListToolbarProps {
   /**
    * The list's categories on the left, usually a SegmentedControl with
-   * counts and `size="toolbar"`.
+   * counts.
    */
   readonly filter: ReactNode;
   /** Secondary filters, usually FilterMenu chips, first on the right. */
@@ -91,7 +91,6 @@ export function ListViewSwitch<View extends string>({
   return (
     <SegmentedControl
       aria-label={label}
-      size="toolbar"
       value={value}
       onValueChange={(next) => {
         const option = options.find((candidate) => candidate.value === next);

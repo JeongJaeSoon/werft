@@ -26,6 +26,7 @@ import {
   Button,
   EmptyState,
   FilterMenu,
+  type ItemCountTone,
   Page,
   SegmentedControl,
   SegmentedControlItem,
@@ -58,6 +59,15 @@ export const SESSION_FILTERS = [
   "failed",
 ] as const satisfies readonly SessionStatus[];
 export type SessionFilter = (typeof SESSION_FILTERS)[number];
+
+/**
+ * The states someone has to act on: a count above 0 shows as a badge in the
+ * status dot's colour, the rest stay quiet numbers.
+ */
+const FILTER_COUNT_TONE: Partial<Record<SessionFilter, ItemCountTone>> = {
+  needs_input: "attention",
+  failed: "danger",
+};
 
 /** The relation filter's choices past "all", in the design's order. */
 const SESSION_RELATIONS = [
@@ -141,7 +151,6 @@ export function SessionsScreen() {
               filter={
                 <SegmentedControl
                   aria-label={t("sessionList.filter.label")}
-                  size="toolbar"
                   value={tab}
                   onValueChange={pick}
                 >
@@ -153,6 +162,7 @@ export function SessionsScreen() {
                       key={name}
                       value={name}
                       count={counts.data?.counts[name]}
+                      countTone={FILTER_COUNT_TONE[name]}
                     >
                       {t(`sessions.status.${name}`)}
                     </SegmentedControlItem>

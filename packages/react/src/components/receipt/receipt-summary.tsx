@@ -145,6 +145,11 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   delete_github_packages_token: "GitHub Packages 토큰 삭제",
   set_github_packages_allowlist: "GitHub Packages 허용 목록 변경",
   fetch_github_package: "GitHub Packages 패키지 받기",
+  create_workspace_mcp_server: "워크스페이스 MCP 서버 추가",
+  delete_workspace_mcp_server: "워크스페이스 MCP 서버 삭제",
+  set_workspace_mcp_credential: "워크스페이스 MCP 서버 인증 정보 변경",
+  connect_workspace_mcp_server: "워크스페이스 MCP 서버 연결",
+  disconnect_workspace_mcp_server: "워크스페이스 MCP 서버 연결 끊기",
   set_slack_secret: "Slack 비밀값 설정",
   delete_slack_secret: "Slack 비밀값 삭제",
 };
