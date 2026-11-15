@@ -537,6 +537,38 @@ export type SessionMcp = {
 };
 
 /**
+ * A workspace remote MCP server the session started with
+ * (`sessions.workspace_mcp_start`), as claimed. Fixed for the session, so
+ * its checkpoints restore into every later claim: what changed since is
+ * judged per call by the egress, not here.
+ */
+export type SessionWorkspaceMcp = {
+  releaseId: string;
+  /** `workspace_mcp_servers.id`, as the snapshot names it. */
+  serverId: string;
+  name: string;
+  url: string;
+  /** The snapshot's `mcp__<name>__<tool>` names, less the release's denies. */
+  tools: string[];
+};
+
+/**
+ * A workspace server's claim binding. The route never compares it with the
+ * token's: each call is judged on the rows (`createWorkspaceMcpEgress`). It
+ * stands in for the server in the checkpoint fingerprint, so a server
+ * deleted and registered again under its name makes another digest.
+ */
+export function workspaceMcpBinding(
+  server: Pick<SessionWorkspaceMcp, "releaseId" | "serverId" | "url">,
+): string {
+  return sha256({
+    release_id: server.releaseId,
+    workspace_server_id: server.serverId,
+    url: server.url,
+  });
+}
+
+/**
  * What an MCP egress token is held to: the release, and the server's URL
  * and credential name as the catalog had them at the claim. A catalog edit
  * since refuses the route, and the checkpoint fingerprint names this in
@@ -715,6 +747,8 @@ export type ConnectionAutoMode = "supported" | "unsupported" | "unknown";
 export type EgressUpstream = {
   /** The base the route's path is appended to. */
   url: string;
+  /** The request line's path and query, sent as is in place of the route's. */
+  target?: string;
   /** Set on the upstream request, replacing whatever the worker sent. */
   headers: Array<[string, string]>;
 };

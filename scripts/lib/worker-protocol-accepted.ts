@@ -23,4 +23,16 @@ export const ACCEPTED: readonly {
     proof:
       "apps/control-host/src/api/routes/musterrolle/workspace-mcp-servers.test.ts",
   },
+  {
+    problem:
+      "/bootstrap-claim response $.runtime_config.mcp_servers: the receiver's maxItems is 2; the sender's is 10",
+    why: "Only a worker that announced workspace_mcp gets workspace servers; a claim from a worker without it is refused, retryable, before anything is bound, so it still gets at most the catalog server and github.",
+    proof: "packages/platform/src/workers/worker-gateway-workspace-mcp.test.ts",
+  },
+  {
+    problem:
+      "/bootstrap-claim response $.restore_runtime_configs[].mcp_servers: the receiver's maxItems is 2; the sender's is 10",
+    why: "Restore configs are built from the same claimed entries as runtime_config, so a worker without workspace_mcp gets at most two there too.",
+    proof: "packages/platform/src/workers/worker-gateway-workspace-mcp.test.ts",
+  },
 ];

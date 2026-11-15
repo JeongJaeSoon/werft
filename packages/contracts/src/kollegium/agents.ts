@@ -135,10 +135,10 @@ export const AGENT_WORKSPACE_MCP_SERVERS_MAX = 8;
 
 /**
  * The workspace MCP servers an agent had on as a session starts
- * (`sessions.workspace_mcp_start`), each with the tools stored then. The
- * session calls the tools still stored that are in this list, so a change
- * narrows at once and widens only the next session. Not strict, as
- * `mcpStartSchema`.
+ * (`sessions.workspace_mcp_start`), each with its URL and the tools stored
+ * then. The session calls the tools still stored that are in this list, so
+ * a change narrows at once and widens only the next session; a server moved
+ * to another URL since is refused. Not strict, as `mcpStartSchema`.
  */
 export const workspaceMcpStartSchema = z.object({
   servers: z
@@ -146,6 +146,8 @@ export const workspaceMcpStartSchema = z.object({
       z.object({
         id: z.uuid(),
         name: mcpServerIdSchema,
+        // Absent in a snapshot taken before the URL was kept.
+        url: z.url().optional(),
         tools: z.array(mcpToolNameSchema),
       }),
     )

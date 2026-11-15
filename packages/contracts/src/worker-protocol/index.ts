@@ -20,6 +20,7 @@ import {
   terminalTurnStatusSchema,
 } from "../api/session.ts";
 import {
+  AGENT_WORKSPACE_MCP_SERVERS_MAX,
   mcpServerIdSchema,
   RESPONSE_LANGUAGE_VALUES,
 } from "../kollegium/agents.ts";
@@ -102,6 +103,9 @@ export const checkpointRefSchema = z.object({
 //   repository_pins: an additional repository and an attach order may carry
 //     `commit`, which the worker fetches instead of the branch tip, and the
 //     worker reports what it pinned on `/repository-pins`
+//   workspace_mcp: `runtime_config.mcp_servers` may hold the workspace's
+//     remote MCP servers besides a catalog server and `github`, up to
+//     `2 + AGENT_WORKSPACE_MCP_SERVERS_MAX` entries
 // A server older than a key refuses the body as a 400 whose `details.issues`
 // names it; the worker sends once more without the refused key, so neither
 // side has to deploy first.
@@ -115,6 +119,7 @@ export const workerCapabilitiesSchema = z
     response_language: z.literal(true).optional(),
     answer_surface: z.literal(true).optional(),
     repository_pins: z.literal(true).optional(),
+    workspace_mcp: z.literal(true).optional(),
   })
   .strict();
 
@@ -451,11 +456,12 @@ export const runtimeConfigSchema = z
     permission_mode: permissionModeSchema,
     provider: runtimeProviderSchema,
     project_settings: projectSettingsSchema.optional(),
-    // At most a catalog server and the built-in `github`.
+    // A catalog server, the workspace's servers the agent has on (only for a
+    // worker that announced `workspace_mcp`), then the built-in `github`.
     mcp_servers: z
       .array(runtimeMcpServerSchema)
       .min(1)
-      .max(2)
+      .max(2 + AGENT_WORKSPACE_MCP_SERVERS_MAX)
       .refine(
         (servers) =>
           new Set(servers.map((s) => s.name)).size === servers.length,
