@@ -131,4 +131,12 @@ describe("writeExecRules", () => {
     writeExecRules(dir, "never");
     expect(existsSync(join(dir, "rules"))).toBe(false);
   });
+
+  test("writes the rules for auto mode, which asks for approvals", () => {
+    const dir = home();
+    writeExecRules(dir, "on-request");
+    expect(readFileSync(join(dir, "rules", EXEC_RULES_FILE), "utf8")).toBe(
+      renderExecRules(execRulesOf().rules),
+    );
+  });
 });

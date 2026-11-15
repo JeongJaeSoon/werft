@@ -93,7 +93,7 @@ describe("codex descriptor", () => {
     expect(capabilities.mcp).toBe("native");
     expect(capabilities.skills).toBe("none");
     expect(capabilities.permissionModes.plan).toBe("none");
-    expect(capabilities.permissionModes.auto).toBe("none");
+    expect(capabilities.permissionModes.auto).toBe("native");
     expect(
       featureSupport(
         capabilities,
@@ -105,7 +105,7 @@ describe("codex descriptor", () => {
       unmetFeatures(capabilities, CODEX_DESCRIPTOR.extraFeatures, {
         features: ["mcp", "skills", "classifier_review", "approval_park"],
       }),
-    ).toEqual(["skills", "classifier_review", "approval_park"]);
+    ).toEqual(["skills", "approval_park"]);
   });
 });
 

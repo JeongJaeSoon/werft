@@ -2375,6 +2375,227 @@ for (const runtime of RUNTIME_EDGES) {
   }
 }
 
+// The Codex sandbox: the scheduler told where the profile is, or that the
+// sandbox is off; the installer writing the Docker backend's very profile to
+// one node directory, with nothing else of the node's in reach.
+const CODEX_PROFILE = readFileSync(
+  join(
+    dir,
+    "../../packages/adapters/execution/local-docker/src/codex-sandbox-seccomp.json",
+  ),
+  "utf8",
+);
+const schedulerEnvOf = (manifests: Manifest[]): EnvVar[] =>
+  podSpecOf(
+    manifests.find(
+      (m) => m.kind === "Deployment" && m.metadata.name.endsWith("-scheduler"),
+    ) as Manifest,
+  ).containers[0].env;
+const installerOf = (manifests: Manifest[]) => ({
+  configMap: manifests.find(
+    (m) => m.kind === "ConfigMap" && m.metadata.name.endsWith("-codex-seccomp"),
+  ),
+  daemonSet: manifests.find((m) => m.kind === "DaemonSet"),
+});
+
+function checkCodexSandbox(): string[] {
+  const found: string[] = [];
+  const fail = (message: string) => found.push(`codex sandbox: ${message}`);
+  if (
+    readFileSync(join(chart, "files/codex-sandbox-seccomp.json"), "utf8") !==
+    CODEX_PROFILE
+  ) {
+    fail(
+      "files/codex-sandbox-seccomp.json is not the Docker backend's profile",
+    );
+  }
+  const on = render(["-f", ciDigests]);
+  const env = schedulerEnvOf(on);
+  if (
+    env.find((v) => v.name === "CODEX_SANDBOX_SECCOMP_PROFILE")?.value !==
+      "werft/codex-sandbox.json" ||
+    env.some((v) => v.name === "CODEX_SANDBOX")
+  ) {
+    fail("on by default, the scheduler is not told the profile alone");
+  }
+  const { configMap, daemonSet } = installerOf(on);
+  if (configMap?.data?.["codex-sandbox.json"] !== CODEX_PROFILE) {
+    fail("the ConfigMap does not carry the profile as it is");
+  }
+  if (daemonSet === undefined) {
+    fail("no installer DaemonSet by default");
+  } else {
+    const template = daemonSet.spec.template;
+    const pod = template.spec;
+    const [container, ...others] = pod.containers;
+    const sc = container?.securityContext ?? {};
+    if (
+      template.metadata.annotations?.["checksum/profile"] !==
+      new Bun.CryptoHasher("sha256").update(CODEX_PROFILE).digest("hex")
+    ) {
+      fail(
+        "the checksum annotation is not the profile's, so a new one would not roll out",
+      );
+    }
+    if (
+      others.length > 0 ||
+      (pod.initContainers ?? []).length > 0 ||
+      pod.automountServiceAccountToken !== false ||
+      pod.hostNetwork === true ||
+      pod.hostPID === true ||
+      pod.securityContext?.seccompProfile?.type !== "RuntimeDefault" ||
+      sc.allowPrivilegeEscalation !== false ||
+      sc.privileged !== false ||
+      sc.readOnlyRootFilesystem !== true ||
+      JSON.stringify(sc.capabilities) !== '{"drop":["ALL"]}' ||
+      sc.seccompProfile?.type !== "RuntimeDefault" ||
+      !DIGEST_REF.test(container?.image ?? "") ||
+      !container?.resources?.limits?.memory ||
+      !container?.readinessProbe
+    ) {
+      fail(`the installer is not held down: ${JSON.stringify(pod)}`);
+    }
+    const volumes = JSON.stringify(pod.volumes);
+    if (
+      volumes !==
+      JSON.stringify([
+        { name: "profile", configMap: { name: configMap?.metadata.name } },
+        {
+          name: "host",
+          hostPath: {
+            path: "/var/lib/kubelet/seccomp/werft",
+            type: "DirectoryOrCreate",
+          },
+        },
+      ])
+    ) {
+      fail(
+        `the installer reaches more of the node than its directory: ${volumes}`,
+      );
+    }
+    if (!container.command.join(" ").includes("/host/codex-sandbox.json")) {
+      fail(
+        "the installer writes another file than the profile the scheduler names",
+      );
+    }
+  }
+
+  // Placed where the workers are, unless told otherwise.
+  const placed = (...args: string[]) =>
+    installerOf(
+      render([
+        "-f",
+        ciDigests,
+        "--set",
+        "worker.nodeSelector.pool=agents",
+        "--set",
+        "worker.tolerations[0].key=agents",
+        "--set",
+        "worker.tolerations[0].operator=Exists",
+        ...args,
+      ]),
+    ).daemonSet?.spec.template.spec;
+  const followed = placed();
+  if (
+    followed?.nodeSelector?.pool !== "agents" ||
+    followed?.tolerations?.[0]?.key !== "agents"
+  ) {
+    fail("the installer does not follow worker.nodeSelector and tolerations");
+  }
+  if (
+    placed("--set", "codexSandbox.installer.nodeSelector.pool=codex")
+      ?.nodeSelector?.pool !== "codex"
+  ) {
+    fail("codexSandbox.installer.nodeSelector does not win");
+  }
+
+  const moved = installerOf(
+    render([
+      "-f",
+      ciDigests,
+      "--set",
+      "codexSandbox.localhostProfile=operator/codex.json",
+      "--set",
+      "codexSandbox.installer.kubeletDir=/var/lib/k0s/kubelet/",
+      "--set",
+      "codexSandbox.installer.image.repository=registry.local/busybox",
+      "--set",
+      `codexSandbox.installer.image.digest=sha256:${"9".repeat(64)}`,
+    ]),
+  ).daemonSet?.spec.template.spec;
+  if (
+    moved?.volumes?.[1]?.hostPath?.path !==
+      "/var/lib/k0s/kubelet/seccomp/operator" ||
+    !moved.containers[0].command.join(" ").includes("/host/codex.json") ||
+    moved.containers[0].image !==
+      `registry.local/busybox@sha256:${"9".repeat(64)}`
+  ) {
+    fail(
+      "a moved profile, kubelet directory or installer image is not followed",
+    );
+  }
+
+  const noInstaller = render([
+    "-f",
+    ciDigests,
+    "--set",
+    "codexSandbox.installer.enabled=false",
+  ]);
+  if (
+    installerOf(noInstaller).daemonSet !== undefined ||
+    installerOf(noInstaller).configMap !== undefined ||
+    !schedulerEnvOf(noInstaller).some(
+      (v) => v.name === "CODEX_SANDBOX_SECCOMP_PROFILE",
+    )
+  ) {
+    fail(
+      "the installer turned off still renders, or takes the profile with it",
+    );
+  }
+
+  const off = render(["-f", ciDigests, "--set", "codexSandbox.enabled=false"]);
+  const offEnv = schedulerEnvOf(off);
+  if (
+    installerOf(off).daemonSet !== undefined ||
+    offEnv.find((v) => v.name === "CODEX_SANDBOX")?.value !== "disabled" ||
+    offEnv.some((v) => v.name === "CODEX_SANDBOX_SECCOMP_PROFILE")
+  ) {
+    fail("turned off, the scheduler is not told so or the installer stays");
+  }
+
+  for (const profile of [
+    "/etc/codex.json",
+    "../codex.json",
+    "codex.json",
+    "a/b/codex.json",
+    "werft/codex.yaml",
+  ]) {
+    const { ok, out } = helmTemplate([
+      "-f",
+      ciDigests,
+      "--set",
+      `codexSandbox.localhostProfile=${profile}`,
+    ]);
+    if (ok || !out.includes("codexSandbox.localhostProfile must be")) {
+      fail(`localhostProfile ${profile} is not refused`);
+    }
+  }
+  const unpinned = helmTemplate([
+    "-f",
+    ciDigests,
+    "--set",
+    "codexSandbox.installer.image.repository=busybox",
+  ]);
+  if (
+    unpinned.ok ||
+    !unpinned.out.includes("codexSandbox.installer.image.digest must be")
+  ) {
+    fail("an installer image with no digest is not refused");
+  }
+  return found;
+}
+errors.push(...checkCodexSandbox());
+
 if (errors.length > 0) {
   console.error(errors.join("\n"));
   process.exit(1);

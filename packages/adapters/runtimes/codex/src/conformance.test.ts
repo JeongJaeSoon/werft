@@ -73,9 +73,12 @@ async function signatureOf(permissionMode: string, instructions?: string) {
   const seen: Seen[] = [];
   const server = fakeResponses(seen, () => [assistantMessage("ok")]);
   try {
-    const run = new CodexAgentRuntime({
-      stateDir: join(root, "state"),
-    } as never).start(
+    // What the engine signs does not depend on where its commands run, and a
+    // test host may not allow the sandbox's namespaces.
+    const run = new CodexAgentRuntime(
+      { stateDir: join(root, "state") } as never,
+      { ...process.env, CODEX_SANDBOX: "disabled" },
+    ).start(
       realStartOf({
         port: server.port as number,
         work: root,

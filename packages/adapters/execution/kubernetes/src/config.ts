@@ -77,6 +77,16 @@ export type KubernetesBackendConfig = {
   command?: string[];
   workerLimits?: { maxTurnSeconds: number; providerMaxRetries: number };
   logLevel?: string;
+  /**
+   * Codex `auto` mode's sandbox, from the scheduler's `CODEX_SANDBOX`. While
+   * it is on, a Pod running one of `images` (the ones declared as Codex)
+   * gets the seccomp profile bubblewrap needs, `localhostProfile` under the
+   * kubelet's seccomp directory, which must be on every node it lands on.
+   * Turned off, every worker is told so. Absent, as in tests: nothing changes.
+   */
+  codexSandbox?:
+    | { mode: "enabled"; images: readonly string[]; localhostProfile: string }
+    | { mode: "disabled" };
 };
 
 /** Shaped like the process environment so it can be passed straight through. */

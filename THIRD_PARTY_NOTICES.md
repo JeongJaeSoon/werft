@@ -379,6 +379,14 @@ SOFTWARE.
 
 이미지 안 `/usr/share/common-licenses/Apache-2.0`에 있다(Debian base-files). https://www.apache.org/licenses/LICENSE-2.0 과 같은 글이다.
 
+## 저장소에 옮겨 온 외부 데이터
+
+### moby/profiles seccomp 기본 프로필 (`seccomp/default.json`)
+
+- **출처.** moby/profiles 저장소의 `seccomp/default.json`, commit `245180c51918481c0525424b3ee025d2b435d46c`(https://github.com/moby/profiles).
+- **라이선스.** Apache-2.0. 저장소에 NOTICE 파일은 없다. 허락 조건 전문은 https://github.com/moby/profiles/blob/245180c51918481c0525424b3ee025d2b435d46c/LICENSE 에 있다.
+- **쓰임.** `scripts/codex-seccomp-profile.ts`가 이 파일을 capability 없는 컨테이너 기준으로 풀어 쓰고, Codex 샌드박스에 필요한 syscall 다섯 개(`clone`, `unshare`, `mount`, `umount2`, `pivot_root`)를 허용하도록 고친 파생물을 만든다. 고친 파일은 `packages/adapters/execution/local-docker/src/codex-sandbox-seccomp.json`과 `deploy/helm/werft/files/codex-sandbox-seccomp.json`이며, control-host 이미지와 Helm 차트에 들어간다.
+
 ## 이미지 밖에서 읽는 외부 데이터
 
 배포 이미지에 들어가지 않고 저장소에도 옮겨 오지 않지만, 저장소의 도구가 실행할 때 받아 읽는 외부 데이터다.

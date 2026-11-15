@@ -172,11 +172,11 @@ export const EXEC_RULES_FILE = "werft-workspace.rules";
  * Leaves `<home>/rules` holding the platform's file alone, so nothing a
  * session wrote there carries into the next start. With approval `never` a
  * `prompt` rule would refuse the command instead of asking, so none is
- * written.
+ * written. `on-request` (auto) asks for approvals, so it gets them.
  */
 export function writeExecRules(
   home: string,
-  approval: "untrusted" | "never",
+  approval: "untrusted" | "on-request" | "never",
 ): void {
   const dir = join(home, "rules");
   rmSync(dir, { recursive: true, force: true });

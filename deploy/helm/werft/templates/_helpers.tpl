@@ -28,6 +28,18 @@ kubernetes backend refuses a bare tag, and so does this chart for every image.
 {{- include "ap.imageRef" (dict "root" .root "label" (printf "images.%s" .name) "image" (index .root.Values.images .name)) -}}
 {{- end -}}
 
+{{/*
+codexSandbox.localhostProfile, held to one directory and a .json file: the
+installer mounts that directory, and only it, from the node.
+*/}}
+{{- define "ap.codexSeccompProfile" -}}
+{{- $profile := toString .Values.codexSandbox.localhostProfile -}}
+{{- if not (regexMatch "^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*\\.json$" $profile) -}}
+{{- fail (printf "codexSandbox.localhostProfile must be <directory>/<file>.json under the kubelet's seccomp directory (got %q)" $profile) -}}
+{{- end -}}
+{{- $profile -}}
+{{- end -}}
+
 {{- define "ap.imageRef" -}}
 {{- $image := .image -}}
 {{- $repository := required (printf "%s.repository is required" .label) $image.repository -}}

@@ -362,6 +362,47 @@ worker:
     # verify it. The declaration path leaves inode enforcement unknown.
     enforcedByStorage: false
 
+# Codex auto mode runs each command in Codex's bubblewrap sandbox: the
+# workspace writable, the rest read-only, the network still behind the egress
+# proxy. bubblewrap needs a few namespace calls RuntimeDefault blocks, so a
+# worker Pod of an image whose runtime says engine codex (images.worker.runtime
+# or images.workers) gets the Localhost seccomp profile below instead;
+# no other Pod does. A Codex image with no runtime keeps RuntimeDefault and
+# its auto sessions are refused. The profile must be on every worker node
+# (the installer below writes it), or the Pod fails with
+# CreateContainerError. Nodes must allow unprivileged user namespaces
+# (Ubuntu's kernel.apparmor_restrict_unprivileged_userns=1 does not): where
+# the sandbox cannot start, auto sessions are refused, naming this value.
+codexSandbox:
+  # false: no profile, CODEX_SANDBOX=disabled on the workers, and auto
+  # sessions run their commands with no sandbox and no reviewer, which the
+  # scheduler and worker logs and each session's first event say.
+  enabled: true
+  # Relative to <kubeletDir>/seccomp, one directory and a .json file.
+  localhostProfile: werft/codex-sandbox.json
+  # A DaemonSet that writes the profile (files/codex-sandbox-seccomp.json) to
+  # that one directory on each worker node and then sleeps. It runs as root,
+  # with no capabilities, no token and a read-only root, because the
+  # directory is root's; a namespace held to the restricted Pod Security
+  # level refuses it. Turn it off where the profile is put on the nodes
+  # another way (the Security Profiles Operator, a node image).
+  installer:
+    enabled: true
+    kubeletDir: /var/lib/kubelet
+    # The image it runs: empty repository and digest is images.controlHost,
+    # which already has the shell, cp and sleep it needs. Any image with
+    # those works, pinned by digest.
+    image:
+      repository: ""
+      digest: ""
+    resources:
+      requests: {cpu: 10m, memory: 16Mi}
+      limits: {memory: 32Mi}
+    # Empty: worker.nodeSelector and worker.tolerations, the nodes worker
+    # Pods land on.
+    nodeSelector: {}
+    tolerations: []
+
 # A throwaway preview install, never a real one. true gives the api
 # PREVIEW_NAMESPACE (its own namespace), and the demo-accounts and demo-data
 # CLIs then run in the api Pod, but only while DATABASE_URL is that

@@ -21,6 +21,11 @@ export async function main(
   const config = workerConfigFromEnv(environment);
   await verifyWorkspace(config.runtime.cwd);
   const logger = createConsoleLogger({ level: environment.LOG_LEVEL });
+  if (environment.CODEX_SANDBOX === "disabled") {
+    logger.warn(
+      "Codex auto mode's sandbox is turned off: auto sessions here run their commands unconfined",
+    );
+  }
   const observer = new WorkspaceObserver(
     { root: config.workspace.mountDir, evidence: config.workspace.evidence },
     logger,

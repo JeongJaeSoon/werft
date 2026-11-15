@@ -14,6 +14,11 @@
 # exec_command once. A deployment that calls the real Responses API lists
 # api.openai.com:443 on the credential allowlist instead
 # (infra/test-ops.env.example).
+#
+# Auto mode runs commands in Codex's sandbox, whose seccomp profile the
+# scheduler adds only to an image declared as Codex: export WORKER_IMAGE_RUNTIME
+# read from the built image (infra/compose.two-engines.yml shows how), or auto
+# sessions are refused. CODEX_SANDBOX=disabled runs them unsandboxed instead.
 services:
   worker:
     build:

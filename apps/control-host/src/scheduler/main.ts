@@ -19,7 +19,11 @@ import {
   spendLimitSettings,
 } from "../wiring/installation-config.ts";
 import { schedulerBackendFor } from "./backend.ts";
-import { schedulerConfigFromEnv, stopDeadlineMsOf } from "./config.ts";
+import {
+  CODEX_SANDBOX_DISABLED_WARNING,
+  schedulerConfigFromEnv,
+  stopDeadlineMsOf,
+} from "./config.ts";
 import { latchOnConnectionLoss } from "./connection-latch.ts";
 import { QUOTA_PREFLIGHT_MARKER_ENV } from "./quota-preflight.ts";
 
@@ -35,6 +39,13 @@ export async function main(
 ): Promise<SchedulerRunSummary> {
   const config = schedulerConfigFromEnv(environment);
   const logger = createLogger({ level: config.logLevel });
+  const execution =
+    config.execution.backend === "local_docker"
+      ? config.execution.docker
+      : config.execution.kubernetes;
+  if (execution.codexSandbox?.mode === "disabled") {
+    logger.warn(CODEX_SANDBOX_DISABLED_WARNING);
+  }
   // The pass-lock client comes out of this pool too, so a frozen database
   // fails the lock query as well instead of holding the pass open.
   const pool = createEnforcedPool(
