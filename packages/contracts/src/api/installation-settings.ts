@@ -58,7 +58,7 @@ export const settingsEntryOriginSchema = z.enum(["import", "console"]);
 /**
  * `needs_value`: stored, no value set yet. `unresolved`: its credential
  * did not resolve on the replica that answered (a value that does not
- * open, or a reference the deployment lacks).
+ * open, or one the catalog refuses).
  */
 export const settingsEntryStateSchema = z.enum([
   "active",
@@ -74,13 +74,6 @@ export const settingsCredentialViewSchema = z.discriminatedUnion("source", [
       source: z.literal("stored"),
       /** Null until a value is set. */
       last4: z.string().nullable(),
-    })
-    .strict(),
-  z
-    .object({
-      source: z.literal("external"),
-      value_env: z.string().optional(),
-      secret_id: z.string().optional(),
     })
     .strict(),
   z.object({ source: z.literal("none") }).strict(),

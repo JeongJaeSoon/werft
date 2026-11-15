@@ -31,7 +31,7 @@ const enterprise = {
   installation_id: 2,
   api_base: "https://ghe.example.com/api/v3",
   value: "pem",
-  ref: { value_env: "PEM" },
+  ref: { stored: "repository:ghe-app" },
 };
 
 const catalog: SessionCatalog = {

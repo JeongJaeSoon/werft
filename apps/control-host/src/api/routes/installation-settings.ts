@@ -156,18 +156,6 @@ export function registerSettingsConsoleRoutes(
     return jsonWithSchema(context, settingsChangeResponseSchema, changed);
   });
 
-  apiRoute(router, "convertSettingsConnection", async (context) => {
-    const { id } = requireParams(context, settingsIdParamsSchema);
-    const body = await parseJsonBody(
-      context,
-      setSettingsCredentialRequestSchema,
-    );
-    const changed = await mapped(() =>
-      settings.convertConnection(context.get("caller"), id, body.value),
-    );
-    return jsonWithSchema(context, settingsChangeResponseSchema, changed);
-  });
-
   apiRoute(router, "setSettingsConnectionModels", async (context) => {
     const { id } = requireParams(context, settingsIdParamsSchema);
     const body = await parseJsonBody(context, setConnectionModelsRequestSchema);

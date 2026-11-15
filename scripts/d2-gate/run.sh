@@ -31,6 +31,7 @@ umask 077
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$root"
+. scripts/lib/seed-credentials.sh
 
 if [ -z "${DOCKER_HOST:-}" ] && [ -S "$HOME/.docker/run/docker.sock" ]; then
   export DOCKER_HOST="unix://$HOME/.docker/run/docker.sock"
@@ -84,12 +85,22 @@ echo "== build (${project})" >&2
 (cd "${D2_GATE_BUILD_ROOT:-$root}" && dc build api migrate fake-git worker egress-proxy) >"$out/build.log" 2>&1
 
 echo "== stack" >&2
-dc up -d --wait postgres localstack secrets fake-git gate-chaos gate-messages egress-proxy >"$out/up.log" 2>&1
+dc up -d --wait postgres localstack fake-git gate-chaos gate-messages egress-proxy >"$out/up.log" 2>&1
 dc up -d --wait api >>"$out/up.log" 2>&1
 
 port() { dc port "$1" "$2" | sed 's/.*://'; }
 
 echo "== fixture" >&2
+# The settings' `"stored": true` keys, set as the first owner: gate-messages
+# takes any key, and gate-app's is the fake GitHub App's (fake-git's file).
+gate_owner_cookie() {
+  E2E_API_URL="http://127.0.0.1:$(port api 3000)" E2E_BOOTSTRAP_TOKEN="$BOOTSTRAP_TOKEN" \
+    bun run tests/e2e/owner-cookie.ts
+}
+gate_provider_key=gate-placeholder-not-a-credential
+seed_credentials gate_owner_cookie connections:gate-messages=gate_provider_key repositories:gate-app -- \
+  dc exec -T -e SEED_COOKIE fake-git bun run packages/testkit/src/seed-credentials-main.ts \
+  >"$out/seed.log" 2>&1 || { cat "$out/seed.log" >&2; exit 1; }
 # Every session runs an agent release: the first owner releases the gate's
 # agent on the gate-messages connection and holds the key the gate uses.
 release_vars="$(D2_GATE_API_URL="http://127.0.0.1:$(port api 3000)" bun scripts/d2-gate/release.ts)"

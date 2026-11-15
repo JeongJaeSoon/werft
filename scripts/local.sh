@@ -19,6 +19,7 @@
 #   scripts/local.sh forget-lost-checkpoints
 #                                        after a Docker restart: give up the lost checkpoints, keep the rest
 #   scripts/local.sh demo-accounts       add whichever demo account, agent or session is missing to a running stack
+#   scripts/local.sh store-keys          store the settings' keys as the owner whose session cookie is on stdin
 #   scripts/local.sh dev [--fake-model]  up with infra/compose.dev.yml: a saved control host file restarts
 #                                        api, scheduler and reconciler in place, without an image build
 #   scripts/local.sh web                 the web console's Vite dev server (hot module reload) against the running api
@@ -34,13 +35,13 @@
 # follows.
 #
 # `up` runs the real Messages API: tests/fixtures/settings/real-model.json,
-# which migrate imports, the caller's
-# ANTHROPIC_API_KEY handed by name to the API alone when there is one, and the
+# which migrate imports, the caller's ANTHROPIC_API_KEY, stored on the
+# `anthropic` connection by the seed step below when there is one, and the
 # real-model e2e's cost limits (infra/compose.real-model.yml,
 # docs/real-claude.md). The key is optional: it comes from the shell or,
 # failing that, the repository's .env, and without it the stack still starts
-# on this overlay with no model connection (no agent can be released) until
-# the key is entered on the console's model connections screen. A
+# on this overlay with its connection waiting for a key (no session runs)
+# until the key is entered on the console's model connections screen. A
 # malformed .env line stops `up` before anything is touched.
 #
 # --fake-model runs without a key instead (infra/compose.fake-model.yml):
@@ -51,7 +52,12 @@
 # `up` ends by adding the demo owner and member (docs/quickstart.md "웹 콘솔
 # 데모 계정"), skipping any that exist; LOCAL_DEMO_ACCOUNTS=0 leaves them
 # out. Only a stack on this machine's Docker whose api listens on loopback
-# gets them: their password is in the repository. On a --fake-model stack
+# gets them: their password is in the repository. The demo owner then stores
+# the settings' keys (scripts/lib/seed-credentials.sh): the fake model's
+# placeholder and the fake MCP server's bearer on --fake-model, the
+# ANTHROPIC_API_KEY otherwise, and the fake GitHub App's key on both. Without
+# the demo accounts the keys go in on the console, or `store-keys` stores
+# them as the owner whose cookie it reads. On a --fake-model stack
 # the demo agents and sessions follow (LOCAL_DEMO_DATA=0 leaves them out);
 # their CLI refuses any connection that would call a real provider.
 #
@@ -68,6 +74,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 . scripts/lib/real-model-key.sh
+. scripts/lib/seed-credentials.sh
 
 MIN_ENGINE_MAJOR=28
 MIN_COMPOSE=2.24
@@ -148,9 +155,9 @@ mode() {
         exit 2
       elif [ "$key_status" != 0 ]; then
         # Never a quiet fallback to the fake: that stack would look fine. The
-        # real-model stack starts with no model connection instead, and the
-        # key goes in on the console.
-        echo "local.sh: no ANTHROPIC_API_KEY in the shell or .env; the stack starts with no model connection (not the fake). Add the key in the console: 설정 > 에이전트 연결 > 모델 연결 > 연결 추가 (docs/real-claude.md)" >&2
+        # real-model stack starts with its connection waiting for a key
+        # instead, and the key goes in on the console.
+        echo "local.sh: no ANTHROPIC_API_KEY in the shell or .env; the stack starts with the anthropic connection waiting for its key (not the fake). Set the key in the console: 설정 > 에이전트 연결 > 모델 연결 > anthropic > API 키 설정 (docs/real-claude.md)" >&2
       fi
       overlay=infra/compose.real-model.yml
       ;;
@@ -247,7 +254,11 @@ up() {
       die "API not ready after ${READY_TIMEOUT_SEC}s: ${body:-no answer from the api /readyz}"
     sleep 2
   done
-  [ "${LOCAL_DEMO_ACCOUNTS:-1}" = 0 ] || demo_accounts
+  if [ "${LOCAL_DEMO_ACCOUNTS:-1}" = 0 ]; then
+    echo "local.sh: no demo accounts, so no stored keys; enter the settings' keys on the console (설정 > 에이전트 연결)" >&2
+  else
+    demo_accounts
+  fi
   echo "$body"
 }
 
@@ -333,12 +344,101 @@ demo_accounts() {
   local refusal
   refusal=$(demo_accounts_refusal)
   if [ -n "$refusal" ]; then
-    echo "local.sh: demo accounts not added: $refusal" >&2
+    echo "local.sh: demo accounts not added: $refusal; enter the settings' keys on the console (설정 > 에이전트 연결)" >&2
     return
   fi
   compose exec -T -e DEMO_ACCOUNTS=local ${demo_password[@]+"${demo_password[@]}"} api bun run apps/control-host/src/api/demo-accounts.ts >&2 ||
     die "adding the demo accounts failed; the stack itself is up"
+  seed_stored_keys
   [ "${LOCAL_DEMO_DATA:-1}" = 0 ] || demo_data
+}
+
+# The demo owner's session cookie, logged in from fake-git (the local image,
+# which has demo-accounts.ts for the password) so the password stays in the
+# container.
+demo_owner_cookie() {
+  compose exec -T ${demo_password[@]+"${demo_password[@]}"} fake-git bun -e '
+    import { DEMO_ACCOUNTS, demoPassword } from "./apps/control-host/src/api/demo-accounts.ts";
+    const res = await fetch("http://api:3000/v1/auth/login", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "idempotency-key": crypto.randomUUID(),
+        "x-requested-with": "werft-web",
+      },
+      body: JSON.stringify({ email: DEMO_ACCOUNTS[0].email, password: demoPassword(process.env) }),
+    });
+    const cookie = res.headers.getSetCookie().find((c) => c.startsWith("__Host-werft_session="));
+    if (res.status !== 200 || !cookie) {
+      console.error(`the demo owner could not log in (${res.status})`);
+      process.exit(1);
+    }
+    process.stdout.write(cookie.split(";")[0]);
+  '
+}
+
+# The host file of the settings document migrate imported, read off its
+# container (a verify run's SETTINGS_DOCUMENT included); empty when there is
+# none to read.
+settings_document() {
+  local migrate
+  migrate=$(compose ps -aq migrate 2>/dev/null) || true
+  migrate=${migrate%%$'\n'*}
+  [ -n "$migrate" ] || return 0
+  docker inspect --format '{{json .}}' "$migrate" | jq -r '
+    ([.Config.Env[]? | select(startswith("SETTINGS_DOCUMENT=")) | ltrimstr("SETTINGS_DOCUMENT=")][0] // "") as $doc
+    | first(.Mounts[]? | .Destination as $dir | select($doc | startswith($dir + "/"))
+      | .Source + ($doc | ltrimstr($dir))) // empty' 2>/dev/null || true
+}
+
+# The keys the imported settings leave to `"stored": true`, set as the demo
+# owner: the fake model's and the fake MCP server's, the ANTHROPIC_API_KEY on
+# `anthropic`, and the fake GitHub App's on every repository. The values go on
+# stdin alone (scripts/lib/seed-credentials.sh). $1 prints the owner's
+# cookie (default: the demo owner's).
+seed_stored_keys() {
+  local cookie_fn=${1:-demo_owner_cookie} doc row seeds=() console=() placeholder_key=local-placeholder-key fake_mcp_bearer=""
+  doc=$(settings_document)
+  if [ -z "$doc" ] || [ ! -f "$doc" ]; then
+    echo "local.sh: cannot read the imported settings document; enter the settings' keys on the console (설정 > 에이전트 연결)" >&2
+    return
+  fi
+  for row in $(jq -r '
+    (.connections // {} | to_entries[] | select(.value.auth.stored == true) | "connections:\(.key)"),
+    (.mcp_servers // {} | to_entries[] | select(.value.auth.stored == true) | "mcp_servers:\(.key)"),
+    (.repositories // {} | to_entries[] | select(.value.auth.stored == true) | "repositories:\(.key)")' "$doc"); do
+    case "$row" in
+      repositories:*) seeds+=("$row") ;;
+      connections:fake-*) seeds+=("$row=placeholder_key") ;;
+      connections:anthropic)
+        if [ -n "${ANTHROPIC_API_KEY:-}" ]; then seeds+=("$row=ANTHROPIC_API_KEY"); else console+=("$row"); fi
+        ;;
+      mcp_servers:fake)
+        fake_mcp_bearer=$(compose exec -T fake-mcp printenv FAKE_MCP_BEARER </dev/null | tr -d '\r\n') ||
+          die "cannot read the fake MCP server's bearer; the stack itself is up"
+        seeds+=("$row=fake_mcp_bearer")
+        ;;
+      *) console+=("$row") ;;
+    esac
+  done
+  [ "${#console[@]}" = 0 ] ||
+    echo "local.sh: no key for ${console[*]}; enter it on the console (설정 > 에이전트 연결)" >&2
+  [ "${#seeds[@]}" != 0 ] || return 0
+  seed_credentials "$cookie_fn" "${seeds[@]}" -- \
+    compose exec -T -e SEED_COOKIE fake-git bun run packages/testkit/src/seed-credentials-main.ts >&2 ||
+    die "storing the settings' keys failed; the stack itself is up. Enter them on the console instead"
+}
+
+# A stack without demo accounts (a verify run): the owner's
+# `__Host-werft_session=…` cookie comes on stdin, read before any exec can
+# take stdin.
+given_owner_cookie=""
+given_cookie() { printf '%s' "$given_owner_cookie"; }
+store_keys() {
+  IFS= read -r given_owner_cookie || true
+  given_owner_cookie=${given_owner_cookie%$'\r'}
+  [ -n "$given_owner_cookie" ] || die "store-keys: no owner session cookie on stdin"
+  seed_stored_keys given_cookie
 }
 
 # DEMO_ACCOUNTS_PASSWORD from the shell replaces the public demo password
@@ -425,5 +525,6 @@ case "${1:-}" in
   demo-release) shift; demo_release "$@" ;;
   forget-lost-checkpoints) forget_lost_checkpoints ;;
   demo-accounts) demo_accounts ;;
+  store-keys) store_keys ;;
   *) usage ;;
 esac

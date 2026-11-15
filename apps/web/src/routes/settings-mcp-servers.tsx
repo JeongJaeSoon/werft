@@ -283,12 +283,6 @@ function McpRow({
               {t("settings.disable")}
             </RowAction>
           ) : null}
-          {item.credential.source === "external" &&
-          item.state !== "disabled" ? (
-            <Text as="span" variant="meta">
-              {t("settings.externalRow")}
-            </Text>
-          ) : null}
         </div>
       </GridTableCell>
     </GridTableRow>
@@ -339,6 +333,7 @@ function AddMcpServer({
       pending={create.isPending}
       title={t("settings.mcp.add")}
       description={t("settings.immutable")}
+      gated
       error={error}
       submitLabel={t("settings.create")}
       pendingLabel={t("settings.creating")}

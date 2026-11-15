@@ -33,7 +33,6 @@
     "@werft-ai/runtime-core": "workspace:*",
     "@electric-sql/pglite": "0.3.10",
     "@aws-sdk/client-s3": "^3.888.0",
-    "@aws-sdk/client-secrets-manager": "^3.888.0",
     "@modelcontextprotocol/sdk": "1.32.1",
     "@types/pg": "8.15.5",
     "drizzle-orm": "0.45.2",

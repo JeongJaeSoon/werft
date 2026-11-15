@@ -71,7 +71,7 @@ const CATALOG = {
         installation_id: 70,
         api_base: "https://ghe.example.com/api/v3",
         value: "pem",
-        ref: { value_env: "GHES_APP_KEY" },
+        ref: { stored: "repository:ghes" },
       },
     },
   },

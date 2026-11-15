@@ -2,8 +2,6 @@
 # sample repository of deps-fake-model.yaml and deps-session.yaml. up.sh
 # imports the settings themselves, tests/fixtures/settings/fake-model.json.
 config:
-  aws:
-    secretsManagerEndpointUrl: http://secrets:4566
   egress:
     credentialPrivateAllowlist: "fake-git:3000,fake-messages:4010,localstack:4566"
 worker:

@@ -10,7 +10,7 @@ import type { TeamActor } from "./team-store.ts";
 export type SettingsImportResult =
   | (SettingsImportPlan & {
       /**
-       * `refused`: a conflict or a refused reference, and nothing written.
+       * `refused`: a conflict, and nothing written.
        * `dry_run`: what `applied` would have written.
        */
       outcome: "applied" | "dry_run" | "refused";
@@ -56,15 +56,14 @@ export interface SettingsDocumentStore {
   }>;
   /**
    * Adds the entries whose id no row holds, in one transaction under the
-   * settings writers' locks, or nothing when the plan has a conflict or a
-   * refused reference. `actor` null is the operator's CLI: no one to check
-   * and a system receipt; otherwise the actor must still be a live owner.
+   * settings writers' locks, or nothing when the plan has a conflict.
+   * `actor` null is the operator's CLI: no one to check and a system
+   * receipt; otherwise the actor must still be a live owner.
    */
   importEntries(
     entries: SettingsEntries,
     options: {
       dryRun: boolean;
-      allowExternal: boolean;
       /** An import of an old catalog directory: see `SettingsImportPlan.kept`. */
       databaseOwnsRepositories?: boolean;
       actor: TeamActor | null;
@@ -119,23 +118,11 @@ export interface SettingsDocumentStore {
    */
   create(
     add: SettingsImportAdd,
-    value: string | null,
+    value: string,
     actor: TeamActor,
   ): Promise<SettingsConsoleResult>;
   setValue(
     owner: { kind: SettingsKind; id: string },
-    value: string,
-    actor: TeamActor,
-  ): Promise<SettingsConsoleResult>;
-  /**
-   * Moves a connection whose credential comes from the deployment (an env
-   * or Secrets Manager reference) to a value the person enters, sealed under
-   * the same id. The reference stays on the row as `replaces`, so the
-   * ceilings made over it keep matching it. The server never reads the
-   * referenced value: `value` is what was typed.
-   */
-  convertConnection(
-    id: string,
     value: string,
     actor: TeamActor,
   ): Promise<SettingsConsoleResult>;
@@ -161,7 +148,7 @@ export interface SettingsDocumentStore {
   /**
    * Clears a connection's `disabled_at`. Refused when another live
    * connection holds the same definition (or an alias of it), or when its
-   * own stored value is gone. A deployment's reference is not opened here.
+   * own stored value is gone.
    */
   enableConnection(
     id: string,
@@ -198,13 +185,8 @@ export type SettingsConsoleResult =
       outcome: "conflict";
       /**
        * `already_exists`: the id, or a value sealed under it, is taken.
-       * `not_stored`: the row's credential is not its own value (an
-       * operator's reference, which the console only shows and disables).
+       * `not_stored`: the row holds no credential of its own to set.
        * `disabled`: the row is disabled or removed.
-       * `not_external`: moving a row to a stored value needs one whose
-       * credential comes from the deployment.
-       * `alias_taken`: another connection is, or was, exactly what this one
-       * was, so a ceiling made over it could not tell which one is its own.
        * `not_disabled`: enabling a row that is already in use.
        * `definition_active`: enabling needs the definition (or an alias of
        * it) to be held by no other live connection.
@@ -214,8 +196,6 @@ export type SettingsConsoleResult =
         | "already_exists"
         | "not_stored"
         | "disabled"
-        | "not_external"
-        | "alias_taken"
         | "not_disabled"
         | "definition_active"
         | "needs_value";

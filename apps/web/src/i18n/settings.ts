@@ -9,18 +9,14 @@ export const settingsKo = {
   "settings.state.disabled": "사용 중지됨",
   "settings.credential.stored": "저장 값 ••••{last4}",
   "settings.credential.storedEmpty": "저장 값 없음",
-  "settings.credential.env": "환경 변수 {name}",
-  "settings.credential.secret": "Secrets Manager {name}",
   "settings.credential.none": "인증 없음",
-  "settings.externalRow":
-    "운영자 참조입니다. 콘솔에서는 보기와 사용 중지만 됩니다.",
   "settings.immutable":
     "주소와 자격 증명 출처는 만든 뒤 바꿀 수 없습니다. 바꾸려면 새 id로 만드세요.",
   "settings.id": "id",
   "settings.idHint":
     "소문자·숫자와 . _ - 로 64자까지. 한 번 쓴 id는 사용 중지한 뒤에도 다시 쓸 수 없습니다.",
   "settings.valueHint":
-    "저장하면 바로 암호화되고 다시 보이지 않습니다. 끝 네 글자만 남습니다.",
+    "8자 이상. 저장하면 바로 암호화되고 다시 보이지 않습니다. 끝 네 글자만 남습니다.",
   "settings.column.id": "id",
   "settings.column.credential": "자격 증명",
   "settings.column.state": "상태",
@@ -31,16 +27,6 @@ export const settingsKo = {
   "settings.setValueTitle": "{id}의 값 바꾸기",
   "settings.setValueDescription":
     "새 값은 이 항목에만 묶여 저장됩니다. 도는 세션은 멈추지 않습니다.",
-  "settings.convert": "화면에서 키 넣기",
-  "settings.convertFor": "{id} 화면에서 키 넣기",
-  "settings.convertTitle": "{id}의 키를 화면에서 넣기",
-  "settings.convertDescription":
-    "이 연결은 서버의 환경 변수나 Secrets Manager에 있는 키를 씁니다. 키를 여기에 붙여 넣으면 DB에 봉인해 저장하고, 이 연결은 저장한 키로 돕니다. 서버가 기존 값을 읽어 옮기지는 않습니다. 도는 세션은 멈추지 않습니다.",
-  "settings.done.converted": "{id}의 키를 저장했습니다.",
-  "settings.error.not_external":
-    "이미 화면에서 넣은 키를 쓰는 연결입니다. 키는 '설정' 버튼으로 바꾸세요.",
-  "settings.error.alias_taken":
-    "다른 연결이 이 연결의 옛 정의와 같아 키를 옮길 수 없습니다.",
   "settings.value": "값",
   "settings.save": "저장",
   "settings.saving": "저장하는 중…",
@@ -200,18 +186,14 @@ export const settingsEn: Record<keyof typeof settingsKo, string> = {
   "settings.state.disabled": "Disabled",
   "settings.credential.stored": "Stored value ••••{last4}",
   "settings.credential.storedEmpty": "No stored value",
-  "settings.credential.env": "Env {name}",
-  "settings.credential.secret": "Secrets Manager {name}",
   "settings.credential.none": "No authentication",
-  "settings.externalRow":
-    "An operator's reference. The console only shows and disables it.",
   "settings.immutable":
     "The address and where the credential comes from cannot change after it is made. To change them, make a new id.",
   "settings.id": "id",
   "settings.idHint":
     "Lowercase letters, digits and . _ -, up to 64. An id once used is never used again, even after it is disabled.",
   "settings.valueHint":
-    "Encrypted as soon as it is saved and never shown again; only the last four characters stay.",
+    "At least 8 characters. Encrypted as soon as it is saved and never shown again; only the last four characters stay.",
   "settings.column.id": "id",
   "settings.column.credential": "Credential",
   "settings.column.state": "State",
@@ -222,16 +204,6 @@ export const settingsEn: Record<keyof typeof settingsKo, string> = {
   "settings.setValueTitle": "Replace the value of {id}",
   "settings.setValueDescription":
     "The new value is stored for this entry alone. Running sessions keep running.",
-  "settings.convert": "Enter key on screen",
-  "settings.convertFor": "Enter the key of {id} on screen",
-  "settings.convertTitle": "Enter the key of {id} on screen",
-  "settings.convertDescription":
-    "This connection uses a key from the server's environment or Secrets Manager. Paste the key here and it is sealed in the database; the connection then runs on the stored key. The server does not read the old value and copy it. Running sessions keep running.",
-  "settings.done.converted": "The key of {id} was stored.",
-  "settings.error.not_external":
-    "This connection already uses a key entered on screen. Change the key with its Set button.",
-  "settings.error.alias_taken":
-    "Another connection is exactly what this one was, so its key cannot be moved.",
   "settings.value": "Value",
   "settings.save": "Save",
   "settings.saving": "Saving…",
@@ -392,18 +364,14 @@ export const settingsJa: Record<keyof typeof settingsKo, string> = {
   "settings.state.disabled": "使用停止",
   "settings.credential.stored": "保存値 ••••{last4}",
   "settings.credential.storedEmpty": "保存値なし",
-  "settings.credential.env": "環境変数 {name}",
-  "settings.credential.secret": "Secrets Manager {name}",
   "settings.credential.none": "認証なし",
-  "settings.externalRow":
-    "運用者の参照です。コンソールでは表示と使用停止だけできます。",
   "settings.immutable":
     "アドレスと資格情報の出どころは作成後に変えられません。変えるには新しい id で作ります。",
   "settings.id": "id",
   "settings.idHint":
     "小文字・数字と . _ - で 64 文字まで。一度使った id は使用停止後も再利用できません。",
   "settings.valueHint":
-    "保存するとすぐ暗号化され、二度と表示されません。末尾 4 文字だけが残ります。",
+    "8 文字以上。保存するとすぐ暗号化され、二度と表示されません。末尾 4 文字だけが残ります。",
   "settings.column.id": "id",
   "settings.column.credential": "資格情報",
   "settings.column.state": "状態",
@@ -414,16 +382,6 @@ export const settingsJa: Record<keyof typeof settingsKo, string> = {
   "settings.setValueTitle": "{id} の値を変える",
   "settings.setValueDescription":
     "新しい値はこの項目だけに結びつけて保存します。実行中のセッションは止まりません。",
-  "settings.convert": "画面でキーを入れる",
-  "settings.convertFor": "{id} のキーを画面で入れる",
-  "settings.convertTitle": "{id} のキーを画面で入れる",
-  "settings.convertDescription":
-    "この接続は、サーバーの環境変数または Secrets Manager にあるキーを使っています。ここにキーを貼り付けると DB に封印して保存し、この接続は保存したキーで動きます。サーバーが古い値を読んで移すことはありません。実行中のセッションは止まりません。",
-  "settings.done.converted": "{id} のキーを保存しました。",
-  "settings.error.not_external":
-    "すでに画面で入れたキーを使う接続です。キーは「設定」ボタンで変えてください。",
-  "settings.error.alias_taken":
-    "別の接続がこの接続の元の定義と同じため、キーを移せません。",
   "settings.value": "値",
   "settings.save": "保存",
   "settings.saving": "保存中…",

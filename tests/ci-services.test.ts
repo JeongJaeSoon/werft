@@ -63,7 +63,7 @@ describe("ci-services.sh", () => {
     );
     expect(calls()).toContain("mirror/postgres@sha256:2");
     expect(calls()).toContain(
-      "run --detach --name ci-localstack --publish 4566:4566 --env SERVICES=s3,secretsmanager",
+      "run --detach --name ci-localstack --publish 4566:4566 --env SERVICES=s3 --env",
     );
     expect(calls()).toContain("mirror/localstack@sha256:1");
   });

@@ -46,7 +46,6 @@ integration("the fake-model stack's settings through a document", () => {
       FAKE_MODEL,
       {
         dryRun: false,
-        allowExternal: true,
         actor: null,
       },
     );

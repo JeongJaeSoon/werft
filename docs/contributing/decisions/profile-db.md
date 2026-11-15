@@ -28,7 +28,7 @@
 
 ## 연결
 
-provider 연결(endpoint·자격 증명 참조·billing)은 DB가 아니라 설치 설정 파일 `connections.yaml`에 둔다. DB 행의 `definition.provider`는 어떤 연결과 정확히 같아야 돌고, 같은 연결이 없으면 그 행은 `connection_missing`이다. 자격 증명은 연결의 참조로만 푼다. 그래서 DB 행이 새 `value_env`·`secret_id`나 새 endpoint를 들여올 길이 없다. 콘솔에서 상한을 만들 때는 `connection_id`만 고르고, 서버가 그 연결의 provider를 `definition`에 복사한다.
+provider 연결(endpoint·자격 증명 참조·billing)은 DB가 아니라 설치 설정 파일 `connections.yaml`에 둔다. DB 행의 `definition.provider`는 어떤 연결과 정확히 같아야 돌고, 같은 연결이 없으면 그 행은 `connection_missing`이다. 자격 증명은 연결의 참조로만 푼다. 그래서 DB 행이 새 `value_env`·`secret_id`나 새 endpoint를 들여올 길이 없다(2026-11-16: 외부 출처는 없어졌고 자격 증명은 DB 저장값(`stored`)만 쓴다). 콘솔에서 상한을 만들 때는 `connection_id`만 고르고, 서버가 그 연결의 provider를 `definition`에 복사한다.
 
 ## 저장소 허용
 

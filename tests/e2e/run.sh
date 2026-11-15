@@ -7,7 +7,8 @@
 # product compose stack (`apps` profile) on the fake Messages API
 # (infra/compose.fake-model.yml — the stack docs/quickstart.md starts with
 # `--fake-model`) under a project of its own with ephemeral loopback ports
-# (tests/e2e/compose.yml), issues an API key with the key CLI, then runs
+# (tests/e2e/compose.yml), issues an API key with the key CLI, stores the
+# imported settings' keys as the first owner (scripts/lib/seed-credentials.sh), then runs
 # tests/e2e against the public HTTP API. The run record (command, tested
 # SHA, image ids, SDK and Claude Code versions), the test output with its
 # pass/skip list, compose logs and every worker container's log land in
@@ -27,8 +28,9 @@
 #   tests/e2e/run.sh --real-model
 #
 # The same stack against the real Messages API: no fake overlay, so the API
-# migrate imports tests/fixtures/settings/real-model.json and the API alone
-# reads the key from ANTHROPIC_API_KEY; infra/compose.real-model.yml caps what the run can
+# migrate imports tests/fixtures/settings/real-model.json and the run stores
+# ANTHROPIC_API_KEY as its connection's key, on stdin to the seed step and in
+# no argument; infra/compose.real-model.yml caps what the run can
 # spend (`scripts/local.sh up` starts the same overlay), and
 # tests/e2e/real-model.e2e.ts runs in place of the scripted suites. The key
 # comes from the shell or, failing that, the repository's .env. Without
@@ -48,6 +50,7 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$root"
 . scripts/lib/real-model-key.sh
+. scripts/lib/seed-credentials.sh
 
 settings_values() {
   sed -n "s/^ *\"$1\": \"\(.*\)\",\{0,1\}\$/\1/p" "$2" | sort -u
@@ -332,11 +335,37 @@ fi
 if [ -z "$real_model$local_model" ] && [ "$conformance" != codex_app_server ]; then
   export E2E_MESSAGES_URL="http://127.0.0.1:$(dc port fake-messages 4011 | sed 's/.*://')"
   export E2E_FAKE_MCP_URL="http://127.0.0.1:$(dc port fake-mcp 4021 | sed 's/.*://')"
-  E2E_FAKE_MCP_BEARER_HASH="$(dc exec -T secrets awslocal secretsmanager get-secret-value \
-    --secret-id werft/local/fake-mcp --query SecretString --output text |
+  # The bearer the fake MCP server accepts, which the seed step below stores.
+  E2E_FAKE_MCP_BEARER_HASH="$(dc exec -T fake-mcp printenv FAKE_MCP_BEARER |
     tr -d '\r\n' | shasum -a 256 | cut -d' ' -f1)"
   export E2E_FAKE_MCP_BEARER_HASH
 fi
+
+echo "== stored keys" >&2
+# The imported settings mark every key `"stored": true`: set them as the
+# first owner, through the console's routes, before any suite runs.
+e2e_owner_cookie() { env -u ANTHROPIC_API_KEY bun run tests/e2e/owner-cookie.ts; }
+seeds=(repositories:sample-app)
+if [ -n "$real_model" ]; then
+  seeds+=(connections:anthropic=ANTHROPIC_API_KEY)
+elif [ -n "$local_model" ]; then
+  seeds+=(connections:ollama=LOCAL_OLLAMA_API_KEY connections:litellm=LITELLM_MASTER_KEY)
+else
+  # The fake providers take any key.
+  placeholder_key=local-placeholder-key
+  case "$conformance" in
+    codex_app_server) seeds+=(connections:fake-responses=placeholder_key) ;;
+    two_engines) seeds+=(connections:fake-messages=placeholder_key connections:fake-responses=placeholder_key) ;;
+    *) seeds+=(connections:fake-messages=placeholder_key) ;;
+  esac
+  if [ "$conformance" != codex_app_server ]; then
+    fake_mcp_bearer="$(dc exec -T fake-mcp printenv FAKE_MCP_BEARER | tr -d '\r\n')"
+    seeds+=(mcp_servers:fake=fake_mcp_bearer)
+  fi
+fi
+seed_credentials e2e_owner_cookie "${seeds[@]}" -- \
+  dc exec -T -e SEED_COOKIE fake-git bun run packages/testkit/src/seed-credentials-main.ts \
+  >"$out/seed.log" 2>&1 || { cat "$out/seed.log" >&2; exit 1; }
 export CONFORMANCE_RUNTIME_KIND="$conformance"
 # Lets a scenario read this stack's container logs and no other stack's.
 export E2E_COMPOSE_PROJECT="$project"

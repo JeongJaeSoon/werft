@@ -193,12 +193,12 @@ Fails when a values-named variable is PREVIEW_NAMESPACE: preview.enabled is
 the only way to declare a preview install (demo-accounts.ts).
 */}}
 {{- define "ap.previewEnvReserved" -}}
-{{- $names := concat (keys .Values.config.limits) .Values.secrets.catalogEnv -}}
+{{- $names := keys .Values.config.limits -}}
 {{- range $key := list "api" "scheduler" "reconciler" "slack" "egressProxy" -}}
 {{- $names = concat $names (keys (index $.Values $key).extraEnv) -}}
 {{- end -}}
 {{- if has "PREVIEW_NAMESPACE" $names -}}
-{{- fail "PREVIEW_NAMESPACE must not be set through extraEnv, config.limits or secrets.catalogEnv; preview.enabled is the only way to declare a preview install" -}}
+{{- fail "PREVIEW_NAMESPACE must not be set through extraEnv or config.limits; preview.enabled is the only way to declare a preview install" -}}
 {{- end -}}
 {{- end -}}
 
@@ -208,13 +208,13 @@ the upgrade check reads them from images.* and would otherwise judge other
 images than the scheduler launches.
 */}}
 {{- define "ap.workerEnvReserved" -}}
-{{- $names := concat (keys .Values.config.limits) .Values.secrets.catalogEnv -}}
+{{- $names := keys .Values.config.limits -}}
 {{- range $key := list "api" "scheduler" "reconciler" "slack" "egressProxy" -}}
 {{- $names = concat $names (keys (index $.Values $key).extraEnv) -}}
 {{- end -}}
 {{- range $name := list "WORKER_IMAGE" "WORKER_IMAGES" "WORKER_IMAGE_PREVIOUS" "WORKER_IMAGE_RUNTIME" "WORKER_IMAGE_PREVIOUS_RUNTIME" -}}
 {{- if has $name $names -}}
-{{- fail (printf "%s must not be set through extraEnv, config.limits or secrets.catalogEnv; set images.workers, or images.worker and images.workerPrevious" $name) -}}
+{{- fail (printf "%s must not be set through extraEnv or config.limits; set images.workers, or images.worker and images.workerPrevious" $name) -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
@@ -227,7 +227,7 @@ reaches one role. Every AWS_ name counts: with no endpoint or keys set, the
 SDK reads its own (AWS_ENDPOINT_URL_S3, AWS_ROLE_ARN, AWS_PROFILE, ...).
 */}}
 {{- define "ap.checkpointEnvReserved" -}}
-{{- $names := concat (keys .Values.config.limits) .Values.secrets.catalogEnv -}}
+{{- $names := keys .Values.config.limits -}}
 {{- range $key := list "api" "scheduler" "reconciler" "slack" "egressProxy" "metrics" -}}
 {{- $names = concat $names (keys (index $.Values $key).extraEnv) -}}
 {{- end -}}
@@ -235,7 +235,6 @@ SDK reads its own (AWS_ENDPOINT_URL_S3, AWS_ROLE_ARN, AWS_PROFILE, ...).
   "S3_BUCKET" "config.checkpoints.bucket"
   "AWS_REGION" "config.aws.region"
   "AWS_ENDPOINT_URL" "config.aws.endpointUrl"
-  "AWS_ENDPOINT_URL_SECRETS_MANAGER" "config.aws.secretsManagerEndpointUrl"
   "AWS_ACCESS_KEY_ID" "secrets.objectStoreKeys and the Secret's AWS_ACCESS_KEY_ID"
   "AWS_SECRET_ACCESS_KEY" "secrets.objectStoreKeys and the Secret's AWS_SECRET_ACCESS_KEY"
   "CHECKPOINT_OBJECT_STORE" "config.checkpoints.objectStore"
@@ -244,10 +243,24 @@ SDK reads its own (AWS_ENDPOINT_URL_S3, AWS_ROLE_ARN, AWS_PROFILE, ...).
 -}}
 {{- range $name := sortAlpha $names -}}
 {{- if hasKey $keys $name -}}
-{{- fail (printf "%s must not be set through extraEnv, config.limits or secrets.catalogEnv; set %s" $name (get $keys $name)) -}}
+{{- fail (printf "%s must not be set through extraEnv or config.limits; set %s" $name (get $keys $name)) -}}
 {{- else if or (hasPrefix "AWS_" $name) (hasPrefix "CHECKPOINT_OBJECT_" $name) -}}
-{{- fail (printf "%s must not be set through extraEnv, config.limits or secrets.catalogEnv; the api, its object store jobs and the scheduler share one AWS environment, set only from config.aws, config.checkpoints and secrets.objectStoreKeys" $name) -}}
+{{- fail (printf "%s must not be set through extraEnv or config.limits; the api, its object store jobs and the scheduler share one AWS environment, set only from config.aws, config.checkpoints and secrets.objectStoreKeys" $name) -}}
 {{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Fails on the values that handed the api model and MCP keys by environment or
+Secrets Manager: the api reads them nowhere now, and a silent render would
+leave every such connection without its key.
+*/}}
+{{- define "ap.removedCredentialValues" -}}
+{{- if hasKey .Values.secrets "catalogEnv" -}}
+{{- fail "secrets.catalogEnv is removed: credentials are entered in the console and kept in the database; enter each key there, then delete secrets.catalogEnv (for BOOTSTRAP_TOKEN, set secrets.bootstrapToken true)" -}}
+{{- end -}}
+{{- if hasKey .Values.config.aws "secretsManagerEndpointUrl" -}}
+{{- fail "config.aws.secretsManagerEndpointUrl is removed: the api reads no credential from Secrets Manager; delete it" -}}
 {{- end -}}
 {{- end -}}
 

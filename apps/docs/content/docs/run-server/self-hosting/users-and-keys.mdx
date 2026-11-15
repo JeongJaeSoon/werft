@@ -13,7 +13,7 @@ outcome: "사용자별 인증 수단과 실행 권한을 발급한다"
 
 ## 준비물
 
-[설치](/run-server/self-hosting)와 [접속 경로](/run-server/self-hosting/access)가 준비돼 있어야 한다. bootstrap 토큰과 로그는 운영자만 읽는다. Kubernetes는 여러 replica가 동일한 BOOTSTRAP_TOKEN을 받도록 Secret과 catalogEnv를 구성한다.
+[설치](/run-server/self-hosting)와 [접속 경로](/run-server/self-hosting/access)가 준비돼 있어야 한다. bootstrap 토큰과 로그는 운영자만 읽는다. Kubernetes는 여러 replica가 동일한 BOOTSTRAP_TOKEN을 받도록 Secret에 토큰을 두고 `secrets.bootstrapToken: true`를 설정한다.
 
 ## 단계
 

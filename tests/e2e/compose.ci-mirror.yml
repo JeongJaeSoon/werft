@@ -19,8 +19,6 @@ services:
     image: ghcr.io/jeongjaesoon/werft-ci/seaweedfs@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d
   local-s3-init:
     image: ghcr.io/jeongjaesoon/werft-ci/localstack@sha256:b279c01f4cfb8f985a482e4014cabc1e2697b9d7a6c8c8db2e40f4d9f93687c7
-  secrets:
-    image: ghcr.io/jeongjaesoon/werft-ci/localstack@sha256:b279c01f4cfb8f985a482e4014cabc1e2697b9d7a6c8c8db2e40f4d9f93687c7
   fake-messages:
     image: ghcr.io/jeongjaesoon/werft-ci/bun@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4
   fake-mcp:

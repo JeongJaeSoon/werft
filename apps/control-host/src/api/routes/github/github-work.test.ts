@@ -150,7 +150,7 @@ function app(
           installation_id: 202,
           api_base: github.origin,
           value: privateKey,
-          ref: { value_env: "GITHUB_APP_PRIVATE_KEY" },
+          ref: { stored: "repository:app" },
         },
       },
     },

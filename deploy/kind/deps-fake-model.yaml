@@ -1,7 +1,7 @@
 # The fake model for smoke.sh (KIND_MODEL=fake), as infra/compose.local.yml
-# runs it under infra/compose.fake-model.yml: the scripted Messages API and
-# the api's own Secrets Manager holding its placeholder key. up.sh puts the
-# testkit sources and the seed script in ConfigMaps.
+# runs it under infra/compose.fake-model.yml: the scripted Messages API,
+# which takes any key. up.sh puts the testkit sources in a ConfigMap and
+# stores the placeholder key on the connection once the api is up.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

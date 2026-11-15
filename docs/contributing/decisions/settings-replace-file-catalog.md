@@ -1,6 +1,7 @@
 # 결정: 파일 카탈로그를 없애고 설치 설정을 DB와 콘솔로 옮긴다
 
 - 후속(2026-11-11): 실행 프로필은 통째로 지웠다(migration `0270_remove_profiles`, 기존 데이터는 이전하지 않고 지움). 이 문서의 프로필·상한·롤아웃 언급은 그때의 기록이다. 지금은 에이전트 release가 provider 연결과 카드 모델로 실행 spec(런타임·도구·권한 모드)을 고정하고, 묻기·막기 규칙은 워크스페이스와 에이전트의 실행 규칙(`workspace_engine_settings`, `agent_engine_settings`)이 정한다.
+- 후속(2026-11-16): 외부 출처를 없앴다. 연결·MCP 서버·명시 App 저장소의 자격 증명은 저장 값(`stored`)만 쓰고, `value_env`·`secret_id`는 가져오기가 400 `invalid_document`로 거절한다. migration `0288_remove_external_credentials`가 `external` 행을 값 없는 저장형 행(`needs_value`)으로 바꾸고 옛 `auth`는 `carried_auth`에 기록으로만 남긴다. CHECK가 `credential_source`를 `stored`만 허용한다. 이 문서의 외부 참조·`external` 언급(무엇을 골랐나 3, 1절 표, 오너 결정 2 등)은 그때의 기록이다.
 - 상태: **확정(2026-11-02).** 오너 원문: "카탈로그 변경은 추천대로 진행해줘". 끝의 "오너 결정" 1~6이 그 내용이다.
 - 대체: [repository-catalog-db.md](repository-catalog-db.md)의 `repositories.yaml` 읽기(시드, 비밀값 저장소 파일 보관)와 콘솔 저장소 추가·제거(5절), [profile-db.md](profile-db.md)의 설정 파일(`profiles.yaml` 시드, `connections.yaml`) 읽기와 `repository_ids` 나열만으로 하는 저장소 허용(1.1절 `installed`).
 - 기준 커밋: `origin/main` `d90b26731`. `파일:줄`은 모두 이 커밋 기준이다. JeongJaeSoon/agent-platform#992(이 문서를 쓴 뒤 `c0b27e605`로 land)의 내용은 그 브랜치 기준이라고 따로 적는다.
@@ -12,7 +13,7 @@
 
 1. **API·slack 프로세스는 설정 파일을 읽지 않는다.** `PLATFORM_CONFIG_DIR`와 그 디렉터리의 다섯 파일(`connections.yaml`, `repositories.yaml`, `mcp-servers.yaml`, `profiles.yaml`, `platform.yaml`)을 읽는 코드를 지운다. 값이 남아 있으면 기동을 거부하고 가져오기 방법을 알려 준다(`SESSION_CATALOG_JSON`을 없앨 때와 같은 방식, `apps/control-host/src/api/catalog-config.ts:192-197`).
 2. **연결·저장소·MCP 서버는 DB 행이고 콘솔에서 고친다.** 쓰기마다 receipt를 남긴다. 실행에 핀이 걸리는 칸(endpoint, URL, 자격 증명 출처)은 바꾸지 않고 새 id로 만든다. 바꿀 수 있는 것은 자격 증명 값의 회전, 저장소 기본 브랜치(버전이 오른다), 사용 중지뿐이다.
-3. **자격 증명은 두 출처다.** 콘솔에서 입력해 `secret_values`(0151)에 암호화해 두는 **저장 값**이 기본이다. 배포가 들고 있는 env·Secrets Manager 참조(**외부 참조**)는 운영자 CLI로만 만들 수 있고, 콘솔은 그것을 보이고 사용 중지만 한다. 그래서 #897이 막은 "콘솔 쓰기로 운영자 키를 임의 endpoint에 묶기"는 계속 막힌다.
+3. **자격 증명은 두 출처다.** 콘솔에서 입력해 `secret_values`(0151)에 암호화해 두는 **저장 값**이 기본이다. 배포가 들고 있는 env·Secrets Manager 참조(**외부 참조**)는 운영자 CLI로만 만들 수 있고, 콘솔은 그것을 보이고 사용 중지만 한다. 그래서 #897이 막은 "콘솔 쓰기로 운영자 키를 임의 endpoint에 묶기"는 계속 막힌다. (2026-11-16: 외부 출처는 없어졌고 저장 값만 쓴다.)
 4. **설치 경계는 env에 남는다.** 카탈로그가 아니라 배포의 격리를 정하는 값이다: `PLATFORM_SECRET_KEY`(이제 필수), egress 허용 목록(`EGRESS_CREDENTIAL_ALLOWLIST` 등), `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS`, 설치 한도, worker 이미지.
 5. **GitOps·재해 복구·환경 복제는 설정 내보내기/가져오기로 한다.** 비밀 값이 없는 JSON 문서 하나를 API·CLI로 내보내고 가져온다. 개발·E2E·verify 스택의 fixture도 이 문서다. 서버는 파일을 열지 않고, 문서는 가져오기 명령의 입력일 뿐이다.
 6. **`catalogRevision`과 `catalog_authority`를 지운다.** 둘은 replica마다 다른 파일을 읽을 수 있어서 생긴 장치다. 모든 replica가 같은 DB를 읽으면 차이는 새로 읽기 전의 지연뿐이고, 그것은 #992·PD-3이 이미 쓰는 "아직 모르면 실패시키지 않고 넘긴다" 규칙이 막는다.
@@ -214,7 +215,7 @@ release id에는 MCP 서버가 들지 않는다(`deriveReleaseId`, `release-ids.
 ## 오너 결정 (2026-11-02, 추천안 그대로)
 
 1. **한 번에 옮기기**: 예. #992 뒤 S0~S4를 한 릴리스로.
-2. **외부 참조(env·Secrets Manager)를 남기나**: 남긴다, 만들기는 운영자 CLI만. 콘솔은 보기·사용 중지.
+2. **외부 참조(env·Secrets Manager)를 남기나**: 남긴다, 만들기는 운영자 CLI만. 콘솔은 보기·사용 중지. (2026-11-16: 외부 출처는 없어졌고 저장 값만 쓴다.)
 3. **빈 설치의 시작**: 아무것도 없이 뜨고 콘솔이 안내한다.
 4. **API에도 egress 자격 증명 허용 목록을 주어 저장 때 막을지**: 경고만.
 5. **GitOps 강제(콘솔 쓰기 끄기 env)**: LATER.

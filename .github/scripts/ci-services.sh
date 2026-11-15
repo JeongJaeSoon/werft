@@ -41,9 +41,8 @@ launch() {
       "${POSTGRES_SERVICE_IMAGE:?}"
     ;;
   localstack)
-    # secretsmanager: the catalog's secret_id references.
     set -- --publish 4566:4566 \
-      --env SERVICES=s3,secretsmanager \
+      --env SERVICES=s3 \
       --env AWS_DEFAULT_REGION=ap-northeast-1 \
       --env AWS_ACCESS_KEY_ID=test \
       --env AWS_SECRET_ACCESS_KEY=test \

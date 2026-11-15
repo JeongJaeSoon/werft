@@ -12,7 +12,7 @@ const responses = testConnection({
   provider: {
     kind: "openai_responses",
     endpoint: "https://api.openai.invalid",
-    auth: { kind: "api_key", value: "k", ref: { value_env: "K" } },
+    auth: { kind: "api_key", value: "k", ref: { stored: "connection:conn-1" } },
   },
   models: ["gpt-5"],
 });

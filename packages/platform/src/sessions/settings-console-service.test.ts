@@ -139,7 +139,6 @@ function service(
     listRows: async (kind) => options.rows?.[kind] ?? [],
     create: record("create"),
     setValue: record("setValue"),
-    convertConnection: record("convertConnection"),
     setConnectionModels: record("setConnectionModels"),
     disable: record("disable"),
     enableConnection: record("enableConnection"),
@@ -204,9 +203,6 @@ describe("settings console service", () => {
       expect(
         (await refusal(settings.setCredential(who, "connection", "c", "v")))
           .code,
-      ).toBe("FORBIDDEN");
-      expect(
-        (await refusal(settings.convertConnection(who, "c", "v"))).code,
       ).toBe("FORBIDDEN");
     }
     expect(writes).toEqual([]);
@@ -350,7 +346,7 @@ describe("settings console service", () => {
             url: "https://mcp.example.invalid/mcp",
             credential_ref: "docs_mcp",
             workspaces: ["acme"],
-            value: "v",
+            value: "example-bearer-1234",
           }),
         )
       ).code,
@@ -379,26 +375,68 @@ describe("settings console service", () => {
         )
       ).code,
     ).toBe("BACKEND_UNAVAILABLE");
-    expect(
-      (
-        await refusal(
-          closed.settings.convertConnection(caller("owner"), "main", "v"),
-        )
-      ).code,
-    ).toBe("BACKEND_UNAVAILABLE");
     expect(closed.writes).toEqual([]);
   });
 
-  test("moving a connection to a stored value passes the typed value and rereads", async () => {
+  test("a typed value shorter than 8 characters, or one a header cannot carry, is refused before the store", async () => {
     const { settings, writes, rereads } = service();
-    const moved = await settings.convertConnection(
-      caller("owner"),
-      "main",
-      "typed-key-value",
-    );
-    expect(moved).toEqual({ id: "main", receipt_id: RECEIPT });
-    expect(writes).toEqual([["convertConnection", "main", "typed-key-value"]]);
-    expect(rereads()).toBe(1);
+    const short = "1234567";
+    for (const [refused, path] of [
+      [
+        settings.createConnection(caller("owner"), {
+          ...NEW_CONNECTION,
+          value: short,
+        }),
+        "connections.console.auth",
+      ],
+      [
+        settings.createMcpServer(caller("owner"), {
+          id: "docs",
+          url: "https://mcp.example.invalid/mcp",
+          credential_ref: "docs_mcp",
+          workspaces: ["acme"],
+          value: short,
+        }),
+        "mcp_servers.docs.auth",
+      ],
+      [
+        settings.setCredential(caller("owner"), "connection", "main", short),
+        "connections.main.auth",
+      ],
+      [
+        settings.setCredential(caller("owner"), "mcp", "docs", short),
+        "mcp_servers.docs.auth",
+      ],
+      [
+        settings.setCredential(
+          caller("owner"),
+          "connection",
+          "main",
+          "example-key-1234\n",
+        ),
+        "connections.main.auth",
+      ],
+    ] as const) {
+      const answer = await refusal(refused);
+      expect(answer.code).toBe("BAD_REQUEST");
+      expect(answer.details).toEqual({ reason_code: "invalid_entry" });
+      expect(answer.message.startsWith(path)).toBe(true);
+      expect(answer.message).not.toContain(short);
+    }
+    // Eight multi-byte characters are long enough in bytes, not in characters.
+    expect(
+      (
+        await refusal(
+          settings.setCredential(caller("owner"), "mcp", "docs", "ééééééé"),
+        )
+      ).details,
+    ).toEqual({ reason_code: "invalid_entry" });
+    expect(writes).toEqual([]);
+    expect(rereads()).toBe(0);
+    await settings.setCredential(caller("owner"), "mcp", "docs", "12345678");
+    expect(writes).toEqual([
+      ["setValue", { kind: "mcp", id: "docs" }, "12345678"],
+    ]);
   });
 
   test("a listed connection carries no auto mode judgement", async () => {
@@ -445,16 +483,6 @@ describe("settings console service", () => {
         { outcome: "conflict", reason: "disabled" },
         "REVISION_CONFLICT",
         "disabled",
-      ],
-      [
-        { outcome: "conflict", reason: "not_external" },
-        "REVISION_CONFLICT",
-        "not_external",
-      ],
-      [
-        { outcome: "conflict", reason: "alias_taken" },
-        "REVISION_CONFLICT",
-        "alias_taken",
       ],
     ] as const) {
       const { settings, rereads } = service({ result });

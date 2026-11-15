@@ -32,12 +32,15 @@ import {
   BILLING_NONE_ENDPOINT_MESSAGE,
   billingFitsEndpoint,
   type CatalogConnection,
+  CatalogCredentialError,
   type CatalogMcpServerConfig,
   type CatalogProviderConfig,
   CONNECTION_ENDPOINT_DEFAULTS,
   isRegisteredGitHubApp,
+  MIN_CREDENTIAL_BYTES,
   type ModelFamilies,
   modelFamiliesSchema,
+  resolveCredential,
 } from "./catalog.ts";
 import { listProviderModels, ModelDiscoveryError } from "./model-discovery.ts";
 import {
@@ -72,14 +75,38 @@ function credentialOf(
   auth: unknown,
   last4: string | null,
 ): SettingsCredentialView {
-  if (auth === null || typeof auth !== "object") return { source: "none" };
-  const ref = auth as Record<string, unknown>;
-  if (typeof ref.stored === "string") return { source: "stored", last4 };
-  return {
-    source: "external",
-    ...(typeof ref.value_env === "string" ? { value_env: ref.value_env } : {}),
-    ...(typeof ref.secret_id === "string" ? { secret_id: ref.secret_id } : {}),
-  };
+  return auth !== null &&
+    typeof auth === "object" &&
+    typeof (auth as Record<string, unknown>).stored === "string"
+    ? { source: "stored", last4 }
+    : { source: "none" };
+}
+
+/**
+ * A connection's or MCP server's value as the catalog will take it, refused
+ * before it is sealed: a value the catalog refuses would leave the row out
+ * on every read. Counted in characters too, so the last four the console
+ * shows never give away half of it.
+ */
+function headerValue(kind: SettingsKind, id: string, value: string): string {
+  const path = `${kind === "connection" ? "connections" : "mcp_servers"}.${id}.auth`;
+  const ref = { stored: `${kind}:${id}` };
+  try {
+    resolveCredential(path, ref, () => value);
+    if ([...value].length < MIN_CREDENTIAL_BYTES) {
+      throw new CatalogCredentialError(
+        path,
+        ref,
+        `is shorter than ${MIN_CREDENTIAL_BYTES} characters`,
+      );
+    }
+  } catch (error) {
+    if (!(error instanceof CatalogCredentialError)) throw error;
+    throw new SessionServiceError("BAD_REQUEST", error.message, undefined, {
+      reason_code: "invalid_entry",
+    });
+  }
+  return value;
 }
 
 /**
@@ -243,18 +270,14 @@ export function createSettingsConsoleService(deps: {
           result.reason === "already_exists"
             ? `${id} is taken: an id is never reused, even after it is disabled`
             : result.reason === "not_stored"
-              ? `${id} takes its credential from the operator's deployment; the console only shows and disables it`
-              : result.reason === "not_external"
-                ? `${id} already keeps its own value: replace the value instead`
-                : result.reason === "alias_taken"
-                  ? `${id} cannot move to a stored value: another connection is, or was, exactly what it is now`
-                  : result.reason === "not_disabled"
-                    ? `${id} is not disabled`
-                    : result.reason === "definition_active"
-                      ? `${id} cannot be enabled: another connection in use is, or was, exactly what it is`
-                      : result.reason === "needs_value"
-                        ? `${id} cannot be enabled: its stored value is gone, make a new connection instead`
-                        : `${id} is disabled`,
+              ? `${id} holds no credential of its own to set`
+              : result.reason === "not_disabled"
+                ? `${id} is not disabled`
+                : result.reason === "definition_active"
+                  ? `${id} cannot be enabled: another connection in use is, or was, exactly what it is`
+                  : result.reason === "needs_value"
+                    ? `${id} cannot be enabled: its stored value is gone, make a new connection instead`
+                    : `${id} is disabled`,
           undefined,
           { reason_code: result.reason },
         );
@@ -265,12 +288,13 @@ export function createSettingsConsoleService(deps: {
     caller: Caller,
     kind: SettingsKind,
     add: () => SettingsImportAdd,
-    value: string | null,
+    value: string,
   ): Promise<SettingsChangeResponse> {
     const actor = await writer(caller, kind);
     const entry = add();
-    if (value !== null && !deps.secretStoreOn) throw SECRET_STORE_OFF();
-    return settled(await store.create(entry, value, actor), entry.id);
+    const checked = headerValue(kind, entry.id, value);
+    if (!deps.secretStoreOn) throw SECRET_STORE_OFF();
+    return settled(await store.create(entry, checked, actor), entry.id);
   }
 
   async function onRow(
@@ -535,7 +559,11 @@ export function createSettingsConsoleService(deps: {
       }
       return onRow(caller, kind, id, async (actor) => {
         if (kind !== "repository") {
-          return store.setValue({ kind, id }, value, actor);
+          return store.setValue(
+            { kind, id },
+            headerValue(kind, id, value),
+            actor,
+          );
         }
         const row = (await store.listRows("repository")).find(
           (listed) => listed.id === id,
@@ -547,17 +575,6 @@ export function createSettingsConsoleService(deps: {
         }
         return store.setValue({ kind, id }, rsaPrivateKey(value), actor);
       });
-    },
-
-    convertConnection(caller: Caller, id: string, value: string) {
-      if (!deps.secretStoreOn) {
-        return writer(caller, "connection").then(() => {
-          throw SECRET_STORE_OFF();
-        });
-      }
-      return onRow(caller, "connection", id, (actor) =>
-        store.convertConnection(id, value, actor),
-      );
     },
 
     setConnectionModels(

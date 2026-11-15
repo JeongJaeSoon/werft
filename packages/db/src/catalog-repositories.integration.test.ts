@@ -401,8 +401,13 @@ integration("catalog repositories on PostgreSQL", () => {
         name: "Explicit",
         url: "https://ghe.example.invalid/Acme/Explicit.git",
         authKind: "github_app_explicit",
-        auth: { kind: "github_app", app_id: 1, installation_id: 2 },
-        credentialSource: "external",
+        auth: {
+          kind: "github_app",
+          app_id: 1,
+          installation_id: 2,
+          stored: "repository:choose-explicit",
+        },
+        credentialSource: "stored",
       },
       {
         ...own,
@@ -411,8 +416,12 @@ integration("catalog repositories on PostgreSQL", () => {
         name: "Pat",
         url: "https://github.com/Acme/Pat.git",
         authKind: "basic",
-        auth: { kind: "basic", username: "u" },
-        credentialSource: "external",
+        auth: {
+          kind: "basic",
+          username: "u",
+          stored: "repository:choose-pat",
+        },
+        credentialSource: "stored",
       },
       {
         ...own,

@@ -747,7 +747,7 @@ describe("WorkerGateway", () => {
         auth: {
           kind: "api_key",
           value: "provider-key",
-          ref: { value_env: "PROVIDER_KEY" },
+          ref: { stored: "connection:conn-1" },
         },
       },
     });
@@ -1548,7 +1548,7 @@ describe("WorkerGateway", () => {
           auth: {
             kind: "bearer" as const,
             value: "kept-token",
-            ref: { value_env: "KEPT_TOKEN" },
+            ref: { stored: "mcp:kept" },
           },
           workspaces: [],
         },
@@ -2489,7 +2489,7 @@ describe("authorizeEgress", () => {
       auth: {
         kind: "bearer",
         value: "provider-key",
-        ref: { value_env: "PROVIDER_KEY" },
+        ref: { stored: "connection:conn-1" },
       },
     },
   });
@@ -2649,7 +2649,7 @@ describe("authorizeEgress", () => {
             auth: {
               kind: "api_key",
               value: "anthropic-key",
-              ref: { value_env: "K" },
+              ref: { stored: "connection:conn-1" },
             },
           },
         }),
@@ -2743,7 +2743,7 @@ describe("authorizeEgress through a forge", () => {
       installation_id: 202,
       api_base: "https://api.github.com",
       value: "-----BEGIN RSA PRIVATE KEY-----fixture",
-      ref: { value_env: "GITHUB_APP_KEY" },
+      ref: { stored: "repository:app" },
     },
   };
 

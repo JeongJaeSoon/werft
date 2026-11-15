@@ -1380,6 +1380,13 @@
       "when": 1794730377177,
       "tag": "0287_agent_workspace_mcp_servers",
       "breakpoints": true
+    },
+    {
+      "idx": 288,
+      "version": "7",
+      "when": 1794758550479,
+      "tag": "0288_remove_external_credentials",
+      "breakpoints": true
     }
   ]
 }

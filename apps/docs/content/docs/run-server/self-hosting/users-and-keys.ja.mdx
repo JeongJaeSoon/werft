@@ -15,7 +15,7 @@ outcome: "利用者ごとの認証手段と実行権限を発行します"
 <a id="준비물" />
 ## 準備
 
-[設置](/run-server/self-hosting)と[アクセス経路](/run-server/self-hosting/access)の準備が必要です。bootstrap トークンとログは運用者だけが読み取ります。Kubernetes では複数 replica に同じ BOOTSTRAP_TOKEN を渡すよう Secret と catalogEnv を構成します。
+[設置](/run-server/self-hosting)と[アクセス経路](/run-server/self-hosting/access)の準備が必要です。bootstrap トークンとログは運用者だけが読み取ります。Kubernetes では複数 replica に同じ BOOTSTRAP_TOKEN を渡すよう Secret にトークンを置き、`secrets.bootstrapToken: true` を設定します。
 
 <a id="단계" />
 ## 手順

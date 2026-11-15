@@ -5,7 +5,6 @@ import { type AgentCard, agentCardSchema } from "@werft-ai/contracts";
 import {
   type CatalogProviderConfig,
   type CatalogRepository,
-  type CredentialRef,
   cardContentSha256,
   deriveReleaseId,
   mcpBinding,
@@ -15,6 +14,7 @@ import {
   resolveReleaseContent,
   SecretKey,
   type SessionCatalogConfig,
+  type StoredOwnerKind,
   sessionCatalogConfigSchema,
   settingsDocumentOf,
   settingsSnapshot,
@@ -51,23 +51,17 @@ const { privateKey: APP_PEM } = generateKeyPairSync("rsa", {
   privateKeyEncoding: { type: "pkcs8", format: "pem" },
   publicKeyEncoding: { type: "spki", format: "pem" },
 });
-const VALUES: Record<string, string> = {
-  PROVIDER_KEY: "file-provider-key",
-  "ghes/app-key": APP_PEM,
-  MCP_TOKEN: "file-mcp-bearer-token",
+const VALUES = {
+  "connection:main": "file-provider-key",
+  "repository:ghes": APP_PEM,
+  "mcp:docs": "file-mcp-bearer-token",
 };
-const lookup = (ref: CredentialRef) =>
-  "value_env" in ref
-    ? VALUES[ref.value_env]
-    : "secret_id" in ref
-      ? VALUES[ref.secret_id]
-      : undefined;
 
 const MAIN: CatalogProviderConfig = {
   kind: "litellm",
   endpoint: "http://10.0.0.5:4000",
   billing: "none",
-  auth: { kind: "bearer", value_env: "PROVIDER_KEY" },
+  auth: { kind: "bearer", stored: "connection:main" },
 };
 const FILE: SessionCatalogConfig = sessionCatalogConfigSchema.parse({
   repositories: {
@@ -84,7 +78,7 @@ const FILE: SessionCatalogConfig = sessionCatalogConfigSchema.parse({
         app_id: 7,
         installation_id: 70,
         api_base: "https://ghes.example.invalid/api/v3",
-        secret_id: "ghes/app-key",
+        stored: "repository:ghes",
       },
     },
   },
@@ -92,7 +86,7 @@ const FILE: SessionCatalogConfig = sessionCatalogConfigSchema.parse({
     docs: {
       url: "https://mcp.example.invalid/docs",
       credential_ref: "docs_token",
-      auth: { kind: "bearer", value_env: "MCP_TOKEN" },
+      auth: { kind: "bearer", stored: "mcp:docs" },
       workspaces: ["acme"],
     },
   },
@@ -116,10 +110,7 @@ const CARD: AgentCard = agentCardSchema.parse({
 // credentials resolved, and the console's repositories beside them.
 async function catalogOver(db: NodePgDatabase<typeof schema>) {
   const store = createPostgresInstallationSettingsStore(db, KEY);
-  const settings = settingsSnapshot(
-    await store.read({ openStored: true }),
-    lookup,
-  );
+  const settings = settingsSnapshot(await store.read({ openStored: true }));
   const rows = await createPostgresCatalogRepositoryStore(db).readCatalog();
   return {
     connections: settings.connections,
@@ -177,8 +168,17 @@ function pins(catalog: Awaited<ReturnType<typeof catalogOver>>) {
   };
 }
 
-// The operator's settings import (settings.ts) of what the files hold.
+// The operator's settings import (settings.ts) of what the files hold, then
+// each row's value set as the console sets it.
 async function importFile(db: NodePgDatabase<typeof schema>) {
+  await db
+    .insert(workspaces)
+    .values({
+      id: randomUUID(),
+      slug: `ws-${randomUUID().slice(0, 8)}`,
+      name: "ws",
+    })
+    .onConflictDoNothing();
   const result = await createPostgresSettingsDocumentStore(db).importEntries(
     parseSettingsDocument(
       settingsDocumentOf({
@@ -188,10 +188,16 @@ async function importFile(db: NodePgDatabase<typeof schema>) {
         mcp_servers: FILE.mcp_servers ?? {},
       }),
     ),
-    { dryRun: false, allowExternal: true, actor: null },
+    { dryRun: false, actor: null },
   );
   if (result.outcome !== "applied") {
     throw new Error(`import ${result.outcome}`);
+  }
+  expect([...result.needs_value].sort()).toEqual(Object.keys(VALUES).sort());
+  const store = createPostgresInstallationSettingsStore(db, KEY);
+  for (const [ref, value] of Object.entries(VALUES)) {
+    const [kind, id] = ref.split(":") as [StoredOwnerKind, string];
+    await store.putStoredValue({ kind, id }, value, null);
   }
 }
 
@@ -251,6 +257,7 @@ integration("installation settings", () => {
       .onConflictDoNothing()
       .returning({ id: workspaces.id });
     expect(workspace).toBeDefined();
+    // Imported, as a console row commits only with its value already sealed.
     await db.insert(providerConnections).values([
       {
         id: "console_main",
@@ -260,7 +267,7 @@ integration("installation settings", () => {
           auth: { kind: "api_key", stored: "connection:console_main" },
         },
         credentialSource: "stored",
-        origin: "console",
+        origin: "import",
         autoMode: "supported",
       },
       {
@@ -271,7 +278,7 @@ integration("installation settings", () => {
           auth: { kind: "api_key", stored: "connection:console_main" },
         },
         credentialSource: "stored",
-        origin: "console",
+        origin: "import",
       },
     ]);
     await store.putStoredValue(
@@ -285,7 +292,7 @@ integration("installation settings", () => {
     expect(opened.stored.get("connection:console_main")).toBe(
       "a-console-stored-key",
     );
-    const snapshot = settingsSnapshot(opened, () => undefined);
+    const snapshot = settingsSnapshot(opened);
     expect(Object.keys(snapshot.connections)).toEqual(["console_main"]);
     // A judgement an older image left in the unused column reaches no one.
     expect(
@@ -300,9 +307,7 @@ integration("installation settings", () => {
     ).read({ openStored: true });
     expect(keyless.stored.size).toBe(0);
     expect(
-      settingsSnapshot(keyless, () => undefined).left_out.map(
-        ({ entry }) => entry,
-      ),
+      settingsSnapshot(keyless).left_out.map(({ entry }) => entry),
     ).toContain("connection:console_main");
 
     await store.putStoredValue(
@@ -315,7 +320,7 @@ integration("installation settings", () => {
       "a-rotated-stored-key",
     );
     expect(rotated.generation).toBe(opened.generation);
-    const rotatedSnapshot = settingsSnapshot(rotated, () => undefined);
+    const rotatedSnapshot = settingsSnapshot(rotated);
     expect(Object.keys(rotatedSnapshot.connections)).toEqual(
       Object.keys(snapshot.connections),
     );
@@ -333,7 +338,7 @@ integration("installation settings", () => {
         auth: { kind: "api_key", stored: "connection:other_key" },
       },
       credentialSource: "stored",
-      origin: "console",
+      origin: "import",
     });
     await createPostgresInstallationSettingsStore(
       db,
@@ -343,10 +348,7 @@ integration("installation settings", () => {
       "sealed-elsewhere",
       null,
     );
-    const mixed = settingsSnapshot(
-      await store.read({ openStored: true }),
-      () => undefined,
-    );
+    const mixed = settingsSnapshot(await store.read({ openStored: true }));
     expect(Object.keys(mixed.connections)).toEqual(["console_main"]);
     expect(mixed.left_out.map(({ entry }) => entry)).toContain(
       "connection:other_key",
@@ -367,32 +369,18 @@ integration("installation settings", () => {
     );
   });
 
-  test("the console cannot write an external reference", async () => {
-    let refused = "accepted";
-    await db
-      .insert(providerConnections)
-      .values({
-        id: `console_${randomUUID().slice(0, 8)}`,
-        definition: MAIN,
-        credentialSource: "external",
-        origin: "console",
-      })
-      .catch((error: Error) => {
-        refused = String(
-          (error as { cause?: Error }).cause?.message ?? error.message,
-        );
-      });
-    expect(refused).toContain("provider_connections_console_stored_check");
-  });
-
   test("every settings write raises the generation", async () => {
     const generation = async () =>
       (await db.select().from(settingsGeneration))[0]?.generation ?? -1;
     const start = await generation();
+    const id = `gen_${randomUUID().slice(0, 8)}`;
     await db.insert(providerConnections).values({
-      id: `gen_${randomUUID().slice(0, 8)}`,
-      definition: MAIN,
-      credentialSource: "external",
+      id,
+      definition: {
+        ...MAIN,
+        auth: { kind: "bearer", stored: `connection:${id}` },
+      },
+      credentialSource: "stored",
       origin: "import",
     });
     const afterConnection = await generation();

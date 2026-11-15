@@ -1,37 +1,26 @@
 import { createPublicKey, generateKeyPairSync } from "node:crypto";
-import {
-  CreateSecretCommand,
-  GetSecretValueCommand,
-  SecretsManagerClient,
-} from "@aws-sdk/client-secrets-manager";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { startFakeGitHub } from "./fake-github.ts";
 
-// Local catalogs use production's App JWT and installation-token flow.
-// Signing material stays in this disposable stack's private secret store.
+// Local catalogs use production's App JWT and installation-token flow. The
+// signing key lives in this disposable stack's volume, so a restarted fake
+// keeps the key the console already holds for the repository.
 const env = process.env;
-const secrets = new SecretsManagerClient({
-  endpoint: env.AWS_ENDPOINT_URL_SECRETS_MANAGER ?? "http://secrets:4566",
-  region: env.AWS_REGION ?? "ap-northeast-1",
-});
-const secretId = "werft/local/fake-github-app";
+const keyFile =
+  env.FAKE_GITHUB_APP_KEY_FILE ?? "/var/lib/fake-github/app-key.pem";
 let privateKey: string;
 try {
-  const stored = await secrets.send(
-    new GetSecretValueCommand({ SecretId: secretId }),
-  );
-  if (!stored.SecretString) throw new Error("local App signing key is empty");
-  privateKey = stored.SecretString;
+  privateKey = readFileSync(keyFile, "utf8");
 } catch (error) {
-  if (!(error instanceof Error) || error.name !== "ResourceNotFoundException")
-    throw error;
+  if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   privateKey = generateKeyPairSync("rsa", { modulusLength: 2048 })
     .privateKey.export({ type: "pkcs8", format: "pem" })
     .toString();
-  await secrets.send(
-    new CreateSecretCommand({ Name: secretId, SecretString: privateKey }),
-  );
+  mkdirSync(dirname(keyFile), { recursive: true, mode: 0o700 });
+  writeFileSync(keyFile, privateKey, { flag: "wx", mode: 0o600 });
 }
-secrets.destroy();
+if (privateKey.trim() === "") throw new Error(`${keyFile} is empty`);
 const git = await startFakeGitHub({
   appId: 1,
   installationId: 1,

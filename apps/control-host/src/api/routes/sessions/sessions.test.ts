@@ -31,7 +31,7 @@ const catalog = testCatalog({
     auth: {
       kind: "api_key",
       value: "catalog-provider-key",
-      ref: { value_env: "PROVIDER_KEY" },
+      ref: { stored: "connection:test-connection" },
     },
   },
   repositories: {

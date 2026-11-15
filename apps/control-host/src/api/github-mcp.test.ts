@@ -50,7 +50,7 @@ const catalog: SessionCatalog = testCatalog({
     auth: {
       kind: "api_key",
       value: "catalog-provider-key",
-      ref: { value_env: "PROVIDER_KEY" },
+      ref: { stored: "connection:test-connection" },
     },
   },
   repositories: {
@@ -67,7 +67,7 @@ const catalog: SessionCatalog = testCatalog({
       auth: {
         kind: "bearer",
         value: "service-account-value",
-        ref: { value_env: "FAKE_MCP_SA" },
+        ref: { stored: "mcp:fake" },
       },
       workspaces: ["default"],
     },

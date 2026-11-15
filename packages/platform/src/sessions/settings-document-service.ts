@@ -28,9 +28,8 @@ const OUTRANKED = () =>
 
 /**
  * The settings document through the API
- * (settings-replace-file-catalog.md §6): a signed-in owner exports it, and
- * imports one that brings no new env or Secrets Manager reference; those
- * only the operator's CLI brings in (§2).
+ * (settings-replace-file-catalog.md §6): a signed-in owner exports it and
+ * imports one; its credentials are `stored: true` only.
  */
 export function createSettingsDocumentService(deps: {
   authorization: AuthorizationPolicy;
@@ -88,27 +87,15 @@ export function createSettingsDocumentService(deps: {
       }
       const result = await store.importEntries(entries, {
         dryRun: options.dryRun,
-        allowExternal: false,
         actor,
       });
       if (result.outcome === "actor_inactive") throw OUTRANKED();
       if (result.outcome === "refused") {
-        if (result.conflicts.length > 0) {
-          throw new SessionServiceError(
-            "REVISION_CONFLICT",
-            "The document holds entries the installation already holds otherwise; nothing changed",
-            undefined,
-            { reason_code: "settings_conflict", entries: result.conflicts },
-          );
-        }
         throw new SessionServiceError(
-          "BAD_REQUEST",
-          "The document brings env or Secrets Manager references, which only the operator's settings CLI imports; nothing changed",
+          "REVISION_CONFLICT",
+          "The document holds entries the installation already holds otherwise; nothing changed",
           undefined,
-          {
-            reason_code: "external_reference",
-            entries: result.refused_external,
-          },
+          { reason_code: "settings_conflict", entries: result.conflicts },
         );
       }
       if (result.outcome === "applied" && result.add.length > 0) {

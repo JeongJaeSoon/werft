@@ -29,7 +29,6 @@
     "@werft-ai/platform": "workspace:*",
     "@werft-ai/runtime-codecs": "workspace:*",
     "@werft-ai/storage": "workspace:*",
-    "@aws-sdk/client-secrets-manager": "^3.888.0",
     "@hono/zod-openapi": "1.6.3",
     "drizzle-orm": "0.45.2",
     "hono": "4.13.16",

@@ -53,15 +53,16 @@ Secret은 키마다 파일 하나인 디렉터리(`0700`, 파일 이름이 키)�
 | `EGRESS_AUTHORIZER_TOKEN` | 무작위 값. api와 egress proxy가 같은 값을 쓴다 |
 | `PLATFORM_SECRET_KEY` | `openssl rand -hex 32`의 64자 hex. 저장한 자격 증명을 봉인한다. 없으면 Pod가 뜨지 않는다 |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | object store key. IRSA로 서명하려면 두 키를 빼고 values에 `secrets.objectStoreKeys: false`와 `serviceAccounts.api.annotations`를 둔다 |
-| `BOOTSTRAP_TOKEN` | 기본 API replica 2개에 같은 32–256자 토큰을 공급해야 한다. Secret에 만들고 아래 values의 `secrets.catalogEnv`에 포함한다 |
-| `ANTHROPIC_API_KEY` | 선택. 세션이 쓸 Anthropic key의 기본 경로는 설치 뒤 콘솔의 **설정 > 에이전트 연결 > 모델 연결 > 연결 추가**다. 이 키는 환경 변수로 주는 대안이고, 두면 api에만 간다. 두지 않으면 아래 values의 `secrets.catalogEnv`에서 이 이름만 뺀다. `BOOTSTRAP_TOKEN`은 남긴다. chart 기본값은 이 키를 api에 넘기므로 Secret에 없으면 Pod가 뜨지 않는다 |
+| `BOOTSTRAP_TOKEN` | 기본 API replica 2개에 같은 32–256자 토큰을 공급해야 한다. Secret에 만들고 아래 values에 `secrets.bootstrapToken: true`를 둔다 |
+
+모델 key는 Secret에 두지 않는다. 설치 뒤 콘솔의 **설정 > 에이전트 연결 > 모델 연결 > 연결 추가**에서 넣고, DB에 `PLATFORM_SECRET_KEY`로 암호화돼 저장된다.
 
 ```bash
 kubectl create namespace werft
 kubectl -n werft create secret generic werft --from-file=<secret-dir>
 ```
 
-Secret 디렉터리는 0700, 파일은 운영자만 읽을 수 있게 둔다. 기본 API replica는 2개다. replica가 둘 이상이면 같은 `BOOTSTRAP_TOKEN`(32–256자)을 Secret에 추가하고 `secrets.catalogEnv`에 포함한다. 모델 키를 콘솔로 넣을 때는 목록을 `["BOOTSTRAP_TOKEN"]`으로, 환경 변수도 쓸 때는 필요한 이름을 함께 적는다. 목록의 모든 키가 Secret에 있어야 한다.
+Secret 디렉터리는 0700, 파일은 운영자만 읽을 수 있게 둔다. 기본 API replica는 2개다. replica가 둘 이상이면 같은 `BOOTSTRAP_TOKEN`(32–256자)을 Secret에 추가하고 `secrets.bootstrapToken: true`를 둔다. 그러면 Secret에 그 키가 있어야 Pod가 뜬다.
 
 ### 3. 설치별 values
 
@@ -70,7 +71,7 @@ Secret 디렉터리는 0700, 파일은 운영자만 읽을 수 있게 둔다. �
 ```yaml
 installationId: werft-main
 secrets:
-  catalogEnv: ["BOOTSTRAP_TOKEN"]
+  bootstrapToken: true
 config:
   checkpoints:
     bucket: <bucket>

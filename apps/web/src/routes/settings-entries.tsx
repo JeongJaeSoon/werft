@@ -141,8 +141,6 @@ export function settingsMcpServersQuery(client: ApiClient, enabled = true) {
 const REASONS = [
   "already_exists",
   "not_stored",
-  "not_external",
-  "alias_taken",
   "disabled",
   "not_disabled",
   "definition_active",
@@ -226,19 +224,6 @@ function setCredential(
   }
 }
 
-function convertConnection(
-  client: ApiClient,
-  id: string,
-  value: string,
-): Promise<SettingsChangeResponse> {
-  return unwrap(
-    client.POST("/v1/installation/settings/connections/{id}/convert", {
-      params: { path: { id } },
-      body: { value },
-    }),
-  );
-}
-
 function disableEntry(
   client: ApiClient,
   kind: SettingsKind,
@@ -307,7 +292,7 @@ export function NarrowState({ state }: { readonly state: SettingsEntryState }) {
   );
 }
 
-/** A credential as words: a stored value's last four, or a reference's name. */
+/** A credential as words: a stored value's last four, never the value. */
 export function credentialText(
   t: Translate,
   credential: SettingsCredentialView,
@@ -317,12 +302,6 @@ export function credentialText(
       return credential.last4 === null
         ? t("settings.credential.storedEmpty")
         : t("settings.credential.stored", { last4: credential.last4 });
-    case "external":
-      return credential.value_env !== undefined
-        ? t("settings.credential.env", { name: credential.value_env })
-        : t("settings.credential.secret", {
-            name: credential.secret_id ?? "",
-          });
     case "none":
       return t("settings.credential.none");
   }
@@ -333,18 +312,15 @@ export function entryActions(entry: {
   readonly credential: SettingsCredentialView;
 }): {
   readonly setValue: boolean;
-  /** Only a connection can: `useRowActions("connection")` offers it. */
-  readonly convert: boolean;
   readonly disable: boolean;
   /** Only a connection can: `useRowActions("connection")` offers it. */
   readonly enable: boolean;
 } {
   if (entry.state === "disabled") {
-    return { setValue: false, convert: false, disable: false, enable: true };
+    return { setValue: false, disable: false, enable: true };
   }
   return {
     setValue: entry.credential.source === "stored",
-    convert: entry.credential.source === "external",
     disable: true,
     enable: false,
   };
@@ -380,6 +356,7 @@ export function FormDialog({
   pendingLabel,
   onSubmit,
   opener,
+  gated = false,
   children,
 }: {
   readonly open: boolean;
@@ -393,13 +370,10 @@ export function FormDialog({
   readonly submitLabel: string;
   readonly pendingLabel: string;
   readonly onSubmit: (form: FormData) => void;
+  /** Keeps the submit button off until every field holds what it accepts. */
+  readonly gated?: boolean;
   readonly children: ReactNode;
 }) {
-  const { t } = useI18n();
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!pending) onSubmit(new FormData(event.currentTarget));
-  };
   return (
     <Dialog
       open={open}
@@ -409,36 +383,92 @@ export function FormDialog({
       }}
     >
       <DialogContent onCloseAutoFocus={focusBack(opener)}>
-        <form className="flex flex-col gap-4" onSubmit={submit}>
-          <DialogHeader>
-            <DialogTitle>{title}</DialogTitle>
-            <DialogDescription>{description}</DialogDescription>
-          </DialogHeader>
-          {error === null ? null : (
-            <Alert variant="red" role="alert">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
+        <DialogForm
+          pending={pending}
+          title={title}
+          description={description}
+          error={error}
+          submitLabel={submitLabel}
+          pendingLabel={pendingLabel}
+          onSubmit={onSubmit}
+          gated={gated}
+        >
           {children}
-          <DialogFooter>
-            <DialogClose asChild>
-              <Button
-                type="button"
-                variant="outline"
-                aria-disabled={pending || undefined}
-              >
-                {t("common.cancel")}
-              </Button>
-            </DialogClose>
-            <Button type="submit" aria-disabled={pending || undefined}>
-              {pending ? pendingLabel : submitLabel}
-            </Button>
-          </DialogFooter>
-        </form>
+        </DialogForm>
       </DialogContent>
     </Dialog>
   );
 }
+
+/** Mounted with each opening, so a gated form starts off again. */
+function DialogForm({
+  pending,
+  title,
+  description,
+  error,
+  submitLabel,
+  pendingLabel,
+  onSubmit,
+  gated,
+  children,
+}: {
+  readonly pending: boolean;
+  readonly title: string;
+  readonly description: ReactNode;
+  readonly error: string | null;
+  readonly submitLabel: string;
+  readonly pendingLabel: string;
+  readonly onSubmit: (form: FormData) => void;
+  readonly gated: boolean;
+  readonly children: ReactNode;
+}) {
+  const { t } = useI18n();
+  const [filled, setFilled] = useState(!gated);
+  const off = pending || !filled;
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!off) onSubmit(new FormData(event.currentTarget));
+  };
+  return (
+    <form
+      className="flex flex-col gap-4"
+      onSubmit={submit}
+      onInput={(event) => {
+        if (gated) setFilled(event.currentTarget.checkValidity());
+      }}
+    >
+      <DialogHeader>
+        <DialogTitle>{title}</DialogTitle>
+        <DialogDescription>{description}</DialogDescription>
+      </DialogHeader>
+      {error === null ? null : (
+        <Alert variant="red" role="alert">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+      {children}
+      <DialogFooter>
+        <DialogClose asChild>
+          <Button
+            type="button"
+            variant="outline"
+            aria-disabled={pending || undefined}
+          >
+            {t("common.cancel")}
+          </Button>
+        </DialogClose>
+        {/* aria-disabled, not disabled: it stays in the tab order, and a
+            click still runs the browser's check, which says what is missing. */}
+        <Button type="submit" aria-disabled={off || undefined}>
+          {pending ? pendingLabel : submitLabel}
+        </Button>
+      </DialogFooter>
+    </form>
+  );
+}
+
+/** The server refuses a shorter value (`MIN_CREDENTIAL_BYTES`). */
+const MIN_VALUE_LENGTH = 8;
 
 /** A value typed in, sealed at once; the field never shows it back. */
 export function SecretInput({
@@ -456,6 +486,7 @@ export function SecretInput({
         name={name}
         type="password"
         required
+        minLength={MIN_VALUE_LENGTH}
         maxLength={8192}
         autoComplete="off"
         spellCheck={false}
@@ -539,8 +570,6 @@ export function useRowActions(
 ) {
   const { t } = useI18n();
   const [valueFor, setValueFor] = useState<string | null>(null);
-  // The same dialog moves a deployment's key to a typed one (connections).
-  const [converting, setConverting] = useState(false);
   // A row menu's button; a plain row button needs none.
   const [valueOpener, setValueOpener] = useState<HTMLElement | null>(null);
   const [disabling, setDisabling] = useState<string | null>(null);
@@ -549,19 +578,14 @@ export function useRowActions(
 
   const value = useSettingsWrite(
     kind,
-    (client, input: { id: string; value: string; convert: boolean }) =>
-      input.convert
-        ? convertConnection(client, input.id, input.value)
-        : setCredential(client, kind, input.id, input.value),
+    (client, input: { id: string; value: string }) =>
+      setCredential(client, kind, input.id, input.value),
     {
-      onDone: (answer, input) => {
+      onDone: (answer) => {
         setValueFor(null);
         onOutcome({
           kind: "notice",
-          text: t(
-            input.convert ? "settings.done.converted" : "settings.done.value",
-            { id: answer.id },
-          ),
+          text: t("settings.done.value", { id: answer.id }),
         });
       },
       onRefused: setError,
@@ -643,17 +667,9 @@ export function useRowActions(
           if (!open) setValueFor(null);
         }}
         pending={value.isPending}
-        title={t(
-          converting ? "settings.convertTitle" : "settings.setValueTitle",
-          {
-            id: valueFor ?? "",
-          },
-        )}
-        description={t(
-          converting
-            ? "settings.convertDescription"
-            : "settings.setValueDescription",
-        )}
+        title={t("settings.setValueTitle", { id: valueFor ?? "" })}
+        description={t("settings.setValueDescription")}
+        gated
         error={error}
         submitLabel={t("settings.save")}
         pendingLabel={t("settings.saving")}
@@ -663,7 +679,6 @@ export function useRowActions(
           value.mutate({
             id: valueFor,
             value: String(form.get("value")),
-            convert: converting,
           });
         }}
       >
@@ -700,14 +715,6 @@ export function useRowActions(
     openValue: (id: string, opener: HTMLElement | null = null) => {
       setError(null);
       onOutcome(null);
-      setConverting(false);
-      setValueOpener(opener);
-      setValueFor(id);
-    },
-    openConvert: (id: string, opener: HTMLElement | null = null) => {
-      setError(null);
-      onOutcome(null);
-      setConverting(true);
       setValueOpener(opener);
       setValueFor(id);
     },

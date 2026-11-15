@@ -298,53 +298,40 @@ describe("the settings fixtures", () => {
   });
 });
 
-describe("the default secret ids", () => {
+describe("where the settings documents' keys come from", () => {
   const read = (path: string) => Bun.file(join(REPO_ROOT, path)).text();
-  const idsIn = (text: string, pattern: RegExp) =>
-    [...text.matchAll(pattern)].map((match) => match[1] as string);
-
-  // Everything that names a secret in the local stack, and the one writer
-  // that is not the LocalStack init script: the fake GitHub App signs with
-  // a key it stores itself.
-  const SEED = "infra/localstack/secrets-init/10-seed-secrets.sh";
-  const HEALTHCHECKS = [
-    SEED,
-    "infra/compose.local.yml",
-    "deploy/kind/deps-secrets.yaml",
-  ];
   const DOCUMENTS = [
     ...Object.values(FIXTURES),
+    "tests/fixtures/settings/fake-model-codex.json",
+    "tests/fixtures/settings/conformance-codex.json",
     ".claude/skills/verify-werft/github-sandbox/settings.json",
   ];
 
-  test("the seed script, the health checks and every settings document use werft/*", async () => {
-    const seeded = idsIn(await read(SEED), /--name (\S+)/g);
-    const appKey = idsIn(
-      await read("packages/testkit/src/local-github-main.ts"),
-      /const secretId = "([^"]+)"/g,
-    );
-    expect(seeded.sort()).toEqual([
-      "werft/local/fake-mcp",
-      "werft/local/fake-messages",
-    ]);
-    expect(appKey).toEqual(["werft/local/fake-github-app"]);
-
-    for (const path of HEALTHCHECKS) {
-      const probed = idsIn(await read(path), /--secret-id (\S+)/g);
-      expect(probed.length).toBeGreaterThan(0);
-      for (const id of probed) expect(seeded).toContain(id);
-    }
+  // Every key is set through the console after the first owner exists
+  // (scripts/lib/seed-credentials.sh); no document points at the
+  // environment or a secret store.
+  test("every settings document leaves its keys to `stored`", async () => {
     for (const path of DOCUMENTS) {
-      const used = idsIn(await read(path), /"secret_id":\s*"([^"]+)"/g);
-      expect(used.length).toBeGreaterThan(0);
-      for (const id of used) expect([...seeded, ...appKey]).toContain(id);
+      const text = await read(path);
+      expect([path, /"(value_env|secret_id)"/.test(text)]).toEqual([
+        path,
+        false,
+      ]);
+      expect([path, text.includes('"stored": true')]).toEqual([path, true]);
     }
   });
 
-  test("no seed, example or fixture names a secret under the old prefix", async () => {
+  test("the fake GitHub App keeps its key in a file of its own", async () => {
+    const main = await read("packages/testkit/src/local-github-main.ts");
+    expect(main).toContain("FAKE_GITHUB_APP_KEY_FILE");
+    expect(main).not.toMatch(/secrets-manager|secretId/i);
+  });
+
+  test("no example or fixture names a secret under the old prefix", async () => {
     const files = [
-      ...HEALTHCHECKS,
-      ...DOCUMENTS,
+      "infra/compose.local.yml",
+      ...Object.values(FIXTURES),
+      ".claude/skills/verify-werft/github-sandbox/settings.json",
       "deploy/helm/werft/values-aws.example.yaml",
       "packages/testkit/src/local-github-main.ts",
       "tests/e2e/run.sh",

@@ -64,10 +64,10 @@ kubectl -n werft create secret generic werft --from-file="$SECRETS"
 unset KIND_DB_PASSWORD
 rm -r "${SECRETS:?}"
 helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
-  --namespace werft -f deploy/kind/values.yaml --set-json 'secrets.catalogEnv=["BOOTSTRAP_TOKEN"]' --timeout 10m
+  --namespace werft -f deploy/kind/values.yaml --set secrets.bootstrapToken=true --timeout 10m
 ```
 
-既定の API replica は 2 個なので、同じ `BOOTSTRAP_TOKEN`（`openssl rand -hex 32` は 64 文字なので 32–256 文字の条件を満たします）を Secret に作り、`secrets.catalogEnv` に残します。一覧を `[]` で空にすると replica ごとに別のトークンができます。この試験ではモデル key を入れないため、一覧から外すのは既定の `ANTHROPIC_API_KEY` だけです。Secret ディレクトリは作成後にアクセス権限が 0700 であることを確認し、ターミナルなしでは DB パスワードを標準入力に渡します。実運用の資格情報をこの試験に入れないでください。上記 Secret ブロックと fixture chart の試験成功を、公開 chart 試験全体の成功と混同しないでください。
+既定の API replica は 2 個なので、同じ `BOOTSTRAP_TOKEN`（`openssl rand -hex 32` は 64 文字なので 32–256 文字の条件を満たします）を Secret に作り、`secrets.bootstrapToken=true` で api に渡します。この値が `false`（chart の既定値）だと replica ごとに別のトークンができます。モデル key は Secret に入れません。key は最初の owner がコンソールで入力して DB に保存する値だけで、この試験では key を入れません。Secret ディレクトリは作成後にアクセス権限が 0700 であることを確認し、ターミナルなしでは DB パスワードを標準入力に渡します。実運用の資格情報をこの試験に入れないでください。上記 Secret ブロックと fixture chart の試験成功を、公開 chart 試験全体の成功と混同しないでください。
 
 <a id="확인" />
 ## 確認

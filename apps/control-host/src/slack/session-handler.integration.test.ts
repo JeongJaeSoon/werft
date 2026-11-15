@@ -107,7 +107,7 @@ const SETTINGS = settingsDocument(
     models: [claude-sonnet-5]
     auth:
       kind: api_key
-      value_env: PROVIDER_KEY
+      stored: true
 `,
   `repositories:
   notes-repo:

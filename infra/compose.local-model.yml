@@ -12,20 +12,16 @@
 # host's Ollama unchanged, and `litellm` is the LiteLLM proxy in front of it.
 # The relay is called by ollama.internal: Ollama on loopback answers 403 to a
 # Host header that is not loopback, *.localhost, *.local or *.internal.
-# The keys are passed through by name: both to the API, LiteLLM's master key
-# also to LiteLLM. The API starts only once both routes answer, so a session
-# made the moment `up` returns reaches the model on either connection.
+# LiteLLM gets its master key by name; run.sh stores both connections' keys
+# through the console's routes once the stack is up
+# (scripts/lib/seed-credentials.sh). The API starts only once both routes
+# answer, so a session made the moment `up` returns reaches the model on
+# either connection.
 services:
   migrate:
     environment:
       SETTINGS_DOCUMENT: /settings/local-model.json
   api:
-    environment:
-      LOCAL_OLLAMA_API_KEY:
-      LITELLM_MASTER_KEY:
-      # The local settings read no Anthropic key: a real one exported in the
-      # shell or .env stays out of this container.
-      ANTHROPIC_API_KEY: ""
     depends_on:
       ollama:
         condition: service_healthy

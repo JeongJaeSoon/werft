@@ -67,7 +67,6 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | @asteasolutions/zod-to-openapi | 9.1.0 | MIT | control-host |
 | @aws-sdk/checksums | 3.1001.0 | Apache-2.0 | control-host, worker, worker-codex |
 | @aws-sdk/client-s3 | 3.1131.0 | Apache-2.0 | control-host, worker, worker-codex |
-| @aws-sdk/client-secrets-manager | 3.1138.0 | Apache-2.0 | control-host |
 | @aws-sdk/core | 3.978.0 | Apache-2.0 | control-host, worker, worker-codex |
 | @aws-sdk/core | 3.978.1 | Apache-2.0 | control-host, worker, worker-codex |
 | @aws-sdk/credential-provider-env | 3.972.71 | Apache-2.0 | control-host, worker, worker-codex |

@@ -36,7 +36,7 @@ const run: ReleaseRun = {
       auth: {
         kind: "api_key",
         value: "catalog-provider-key",
-        ref: { value_env: "PROVIDER_KEY" },
+        ref: { stored: "connection:conn-1" },
       },
     },
     models: ["claude-sonnet-5", "claude-opus-5"],
@@ -365,7 +365,7 @@ describe("resolveReleaseContent", () => {
           auth: {
             kind: "api_key",
             value: "rotated-provider-key",
-            ref: { value_env: "PROVIDER_KEY" },
+            ref: { stored: "connection:conn-1" },
           },
         },
         models: ["claude-sonnet-5", "claude-opus-5"],
@@ -517,7 +517,7 @@ describe("a card naming a remote MCP server", () => {
       auth: {
         kind: "bearer" as const,
         value: "sa-value",
-        ref: { value_env: "FAKE_MCP_SA" },
+        ref: { stored: "mcp:fake" },
       },
       workspaces: ["default"],
     },

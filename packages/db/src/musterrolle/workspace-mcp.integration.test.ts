@@ -280,10 +280,10 @@ integration("workspace MCP servers on PostgreSQL", () => {
       id: catalogName,
       url: "https://catalog.example.com/mcp",
       credentialRef: "secret://example",
-      auth: { type: "bearer" },
+      auth: { kind: "bearer", stored: `mcp:${catalogName}` },
       credentialSource: "stored",
       workspaces: [],
-      origin: "console",
+      origin: "import",
     });
     expect((await create(ws, admin, { name: catalogName })).outcome).toBe(
       "name_taken",

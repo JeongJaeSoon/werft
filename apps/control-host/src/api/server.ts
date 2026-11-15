@@ -202,7 +202,6 @@ import {
   loadSecretKey,
   refuseFileCatalog,
   runtimeVersionsFromEnv,
-  secretsManagerReader,
 } from "./catalog-config.ts";
 import {
   archivedEventSource,
@@ -418,9 +417,6 @@ const installationConfig = createInstallationConfigSource({
 const catalogRepositoryStore = createPostgresCatalogRepositoryStore(db);
 const installationSettings = settingsSource({
   store: createPostgresInstallationSettingsStore(db, secretKey),
-  env: process.env,
-  readSecret: secretsManagerReader(process.env),
-  warn: (message) => logger.warn(message, {}),
 });
 const reportLeftOut = leftOutReporter((message, fields) =>
   logger.warn(message, fields),

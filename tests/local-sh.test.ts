@@ -66,8 +66,16 @@ describe("scripts/local.sh", () => {
     await writeFile(
       join(dir, "bin", "docker"),
       `#!/bin/sh
-echo "$*" >> "${dir}/docker-calls"
+# The first line alone: the demo owner's login is a multi-line bun -e.
+printf '%s\\n' "$*" | head -n 1 >> "${dir}/docker-calls"
 case "$*" in
+  *" exec -T fake-git bun -e "*) echo "__Host-werft_session=stub-cookie" ;;
+  *" exec -T fake-mcp printenv FAKE_MCP_BEARER") echo "stub-bearer" ;;
+  *" ps -aq migrate") echo "$STUB_MIGRATE_ID" ;;
+  "inspect --format {{json .}} migrate-id") cat "${dir}/migrate.json" ;;
+  *" exec -T -e SEED_COOKIE fake-git bun run packages/testkit/src/seed-credentials-main.ts")
+    { echo "cookie=\${SEED_COOKIE:+present}"; cat; } > "${dir}/seed"
+    exit "\${STUB_KEYS_EXIT:-0}" ;;
   "version --format"*) echo 28.1.0 ;;
   "compose version --short") echo 2.39.1 ;;
   *" config --format json") jq --arg n "\${COMPOSE_PROJECT_NAME:-\${STUB_PROJECT:-werft}}" '. + {name: $n}' "${config}" ;;
@@ -100,14 +108,36 @@ echo '{"status":"ready"}'
 `,
       { mode: 0o755 },
     );
+    await imported("fake-model");
   });
 
   afterEach(async () => {
     await rm(dir, { force: true, recursive: true });
   });
 
-  async function run(args: string[], env: Record<string, string> = {}) {
+  // The migrate container as docker inspect shows it, having imported the
+  // fixture named.
+  const imported = (fixture: string) =>
+    writeFile(
+      join(dir, "migrate.json"),
+      JSON.stringify({
+        Config: { Env: [`SETTINGS_DOCUMENT=/settings/${fixture}.json`] },
+        Mounts: [
+          {
+            Source: join(import.meta.dir, "fixtures/settings"),
+            Destination: "/settings",
+          },
+        ],
+      }),
+    );
+
+  async function run(
+    args: string[],
+    env: Record<string, string> = {},
+    stdin?: string,
+  ) {
     const handle = Bun.spawn(["bash", script, ...args], {
+      stdin: stdin === undefined ? "ignore" : new Blob([stdin]),
       env: {
         ...process.env,
         PATH: `${join(dir, "bin")}:${process.env.PATH ?? ""}`,
@@ -115,6 +145,7 @@ echo '{"status":"ready"}'
         ANTHROPIC_API_KEY: "",
         AGENT_PLATFORM_DOTENV: join(dir, "no.env"),
         AGENT_PLATFORM_STATE_DIR: join(dir, "state"),
+        STUB_MIGRATE_ID: "migrate-id",
         STUB_API: "",
         STUB_OURS: "",
         STUB_PROXY: "",
@@ -329,8 +360,12 @@ echo '{"status":"ready"}'
     `${prefix} exec -T -e DEMO_ACCOUNTS=local api bun run apps/control-host/src/api/demo-data.ts`;
   const fakeUp =
     "compose --profile apps -f compose.yaml -f infra/compose.fake-model.yml";
+  const storeKeys = (prefix: string) =>
+    `${prefix} exec -T -e SEED_COOKIE fake-git bun run packages/testkit/src/seed-credentials-main.ts`;
+  const seeded = async () =>
+    readFile(join(dir, "seed"), "utf8").catch(() => "");
 
-  test("up adds the demo accounts and then their data once the api is ready, and stdout stays /readyz", async () => {
+  test("up adds the demo accounts, stores the keys as their owner and then adds their data once the api is ready, and stdout stays /readyz", async () => {
     await writeFile(config, rendered("local"));
     const result = await run(["up", "--fake-model"], {
       STUB_API: "127.0.0.1:43123",
@@ -340,11 +375,72 @@ echo '{"status":"ready"}'
       stdout: '{"status":"ready"}\n',
     });
     const docker = await calls("docker-calls");
-    expect(docker.slice(-2)).toEqual([seed(fakeUp), data(fakeUp)]);
+    expect(docker.slice(-2)).toEqual([storeKeys(fakeUp), data(fakeUp)]);
+    expect(docker.indexOf(seed(fakeUp))).toBeLessThan(
+      docker.indexOf(storeKeys(fakeUp)),
+    );
     expect(docker).toContain(`${fakeUp} up -d --build`);
+    expect(await seeded()).toBe(
+      'cookie=present\n{"connections":{"fake-messages":"local-placeholder-key"},"mcp_servers":{"fake":"stub-bearer"},"repositories":["sample-app"]}\n',
+    );
+    expect(result.stderr).not.toContain("stub-cookie");
   });
 
-  test("LOCAL_DEMO_DATA=0 adds the accounts alone", async () => {
+  test("a real-model stack stores the caller's key on the anthropic connection, by stdin alone", async () => {
+    await writeFile(config, rendered("local"));
+    await imported("real-model");
+    const result = await run(["up"], {
+      ANTHROPIC_API_KEY: "probe-key-value",
+      STUB_API: "127.0.0.1:43123",
+    });
+    expect(result.exitCode).toBe(0);
+    expect(await seeded()).toBe(
+      'cookie=present\n{"connections":{"anthropic":"probe-key-value"},"mcp_servers":{},"repositories":["sample-app"]}\n',
+    );
+    expect((await calls("docker-calls")).join("\n")).not.toContain(
+      "probe-key-value",
+    );
+  });
+
+  test("without a key the anthropic connection is left to the console, the repository's key still stored", async () => {
+    await writeFile(config, rendered("local"));
+    await imported("real-model");
+    const result = await run(["up"], { STUB_API: "127.0.0.1:43123" });
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toContain(
+      "no key for connections:anthropic; enter it on the console",
+    );
+    expect(await seeded()).toBe(
+      'cookie=present\n{"connections":{},"mcp_servers":{},"repositories":["sample-app"]}\n',
+    );
+  });
+
+  test("a settings document with no repository, like the Codex one, stores its connection alone", async () => {
+    await writeFile(config, rendered("local"));
+    await imported("fake-model-codex");
+    const result = await run(["up", "--fake-model"], {
+      STUB_API: "127.0.0.1:43123",
+    });
+    expect(result.exitCode).toBe(0);
+    expect(await seeded()).toBe(
+      'cookie=present\n{"connections":{"fake-responses":"local-placeholder-key"},"mcp_servers":{},"repositories":[]}\n',
+    );
+  });
+
+  test("a failed key store fails up and points at the console", async () => {
+    await writeFile(config, rendered("local"));
+    const result = await run(["up", "--fake-model"], {
+      STUB_API: "127.0.0.1:43123",
+      STUB_KEYS_EXIT: "1",
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(
+      "storing the settings' keys failed; the stack itself is up. Enter them on the console instead",
+    );
+    expect(await calls("docker-calls")).not.toContain(data(fakeUp));
+  });
+
+  test("LOCAL_DEMO_DATA=0 adds the accounts and their keys alone", async () => {
     await writeFile(config, rendered("local"));
     const result = await run(["up", "--fake-model"], {
       STUB_API: "127.0.0.1:43123",
@@ -352,7 +448,8 @@ echo '{"status":"ready"}'
     });
     expect(result.exitCode).toBe(0);
     const docker = await calls("docker-calls");
-    expect(docker.at(-1)).toBe(seed(fakeUp));
+    expect(docker.at(-1)).toBe(storeKeys(fakeUp));
+    expect(docker).toContain(seed(fakeUp));
     expect(docker).not.toContain(data(fakeUp));
   });
 
@@ -391,6 +488,23 @@ echo '{"status":"ready"}'
     expect(docker).toContain(data(noMode));
   });
 
+  test("store-keys stores the settings' keys as the owner whose cookie is on stdin", async () => {
+    const result = await run(["store-keys"], {}, "__Host-werft_session=given");
+    expect(result.exitCode).toBe(0);
+    expect(await seeded()).toBe(
+      'cookie=present\n{"connections":{"fake-messages":"local-placeholder-key"},"mcp_servers":{"fake":"stub-bearer"},"repositories":["sample-app"]}\n',
+    );
+    const docker = await calls("docker-calls");
+    expect(docker).toContain(storeKeys(noMode));
+    expect(docker.some((call) => call.includes("fake-git bun -e"))).toBe(false);
+
+    const empty = await run(["store-keys"], {}, "");
+    expect(empty.exitCode).toBe(1);
+    expect(empty.stderr).toContain(
+      "store-keys: no owner session cookie on stdin",
+    );
+  });
+
   test.each([
     [{ LOCAL_DEMO_ACCOUNTS: "0" }, ""],
     [
@@ -426,8 +540,12 @@ echo '{"status":"ready"}'
     });
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toContain(message);
+    expect(result.stderr).toContain(
+      "keys on the console (설정 > 에이전트 연결)",
+    );
     const docker = await calls("docker-calls");
     expect(docker).not.toContain(seed(fakeUp));
+    expect(docker).not.toContain(storeKeys(fakeUp));
     expect(docker).not.toContain(data(fakeUp));
   });
 
@@ -494,12 +612,12 @@ echo "$VITE_API_TARGET $*" >> "${dir}/bun-calls"
     ]);
   });
 
-  test("up without a key starts the real-model stack with no connection and names the console path", async () => {
+  test("up without a key starts the real-model stack with its connection waiting for a key and names the console path", async () => {
     await writeFile(config, rendered("local"));
     const result = await run(["up"], { STUB_API: "127.0.0.1:43123" });
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toContain(
-      "the stack starts with no model connection (not the fake). Add the key in the console: 설정 > 에이전트 연결 > 모델 연결 > 연결 추가",
+      "the stack starts with the anthropic connection waiting for its key (not the fake). Set the key in the console: 설정 > 에이전트 연결 > 모델 연결 > anthropic > API 키 설정",
     );
     const started = await calls("docker-calls");
     expect(started).toContain(realUp);

@@ -68,7 +68,6 @@ const PLAN = {
   inactive: [],
   needs_value: [],
   conflicts: [],
-  refused_external: [],
 };
 
 function service(result: SettingsImportResult) {
@@ -135,7 +134,7 @@ describe("settings document service", () => {
     expect(JSON.stringify(exported)).not.toContain("connection:console");
   });
 
-  test("an owner's import never brings an external reference and names its actor", async () => {
+  test("an owner's import names its actor", async () => {
     const { settings, asked, rereads } = service({
       ...PLAN,
       add: [
@@ -162,13 +161,12 @@ describe("settings document service", () => {
     });
     const [entries, options] = asked[0] ?? [];
     expect(entries).toEqual(ENTRIES);
-    expect(options?.allowExternal).toBe(false);
     expect(options?.dryRun).toBe(false);
     expect(options?.actor?.userId).toBe(USERS.owner);
     expect(rereads()).toBe(1);
   });
 
-  test("a refused plan maps to 409 for a conflict and 400 for an external reference; a bad entry is 400", async () => {
+  test("a refused plan maps to 409 for a conflict; a bad entry or an env reference is 400", async () => {
     const conflict = service({
       ...PLAN,
       conflicts: ["connection:console"],
@@ -186,40 +184,29 @@ describe("settings document service", () => {
         entries: ["connection:console"],
       },
     });
-    const external = service({
-      ...PLAN,
-      refused_external: ["mcp:docs"],
-      outcome: "refused",
-      receipt_ids: [],
-    });
-    expect(
-      await refusal(
-        external.settings.import(caller("owner"), DOCUMENT, { dryRun: false }),
-      ),
-    ).toEqual({
-      code: "BAD_REQUEST",
-      details: { reason_code: "external_reference", entries: ["mcp:docs"] },
-    });
-    expect(conflict.rereads() + external.rereads()).toBe(0);
-    const bad = await refusal(
-      conflict.settings.import(
-        caller("owner"),
-        {
-          ...DOCUMENT,
-          connections: {
-            console: {
-              ...DOCUMENT.connections.console,
-              auth: { kind: "api_key", stored: "connection:other" },
+    expect(conflict.rereads()).toBe(0);
+    for (const auth of [
+      { kind: "api_key", stored: "connection:other" },
+      { kind: "api_key", value_env: "ANTHROPIC_API_KEY" },
+    ]) {
+      const bad = await refusal(
+        conflict.settings.import(
+          caller("owner"),
+          {
+            ...DOCUMENT,
+            connections: {
+              console: { ...DOCUMENT.connections.console, auth },
             },
           },
-        },
-        { dryRun: false },
-      ),
-    );
-    expect(bad).toEqual({
-      code: "BAD_REQUEST",
-      details: { reason_code: "invalid_document" },
-    });
+          { dryRun: false },
+        ),
+      );
+      expect(bad).toEqual({
+        code: "BAD_REQUEST",
+        details: { reason_code: "invalid_document" },
+      });
+    }
+    expect(conflict.asked).toHaveLength(1);
   });
 
   test("an owner demoted before the write commits is refused", async () => {

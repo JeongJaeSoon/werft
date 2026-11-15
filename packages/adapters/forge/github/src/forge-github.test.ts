@@ -287,7 +287,7 @@ describe("connectionsOf", () => {
           installation_id: 202,
           api_base: "https://api.github.com",
           value: privateKey,
-          ref: { value_env: "K" },
+          ref: { stored: "repository:app" },
         },
       },
     },

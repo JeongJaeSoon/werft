@@ -26,7 +26,7 @@ export async function seedSettings(
 ): Promise<void> {
   const result = await createPostgresSettingsDocumentStore(db).importEntries(
     parseSettingsDocument(document),
-    { dryRun: false, allowExternal: true, actor: null },
+    { dryRun: false, actor: null },
   );
   if (result.outcome !== "applied") {
     throw new Error(`settings import ${result.outcome}`);

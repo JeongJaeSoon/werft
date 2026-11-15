@@ -23,7 +23,7 @@ owner 로그인, 사용할 모델의 key 또는 사설 모델 endpoint, 세션�
 
 세션은 에이전트 release가 고른 모델 연결로 모델을 부른다. 연결에는 key와 사용할 모델 목록이 있어야 한다. owner로 로그인한 상태에서 다음 순서로 한다.
 
-1. **설정 > 에이전트 연결 > 모델 연결**에서 **연결 추가**를 누른다. 종류는 `anthropic`, 주소는 기본값(`https://api.anthropic.com`)을 두고, Anthropic key를 붙여 넣어 **만들기**를 누른다. 키는 DB에 봉인돼 저장되고, 화면에는 끝 네 글자만 보인다.
+1. **설정 > 에이전트 연결 > 모델 연결**에서 **연결 추가**를 누른다. 종류는 `anthropic`, 주소는 기본값(`https://api.anthropic.com`)을 두고, Anthropic key를 붙여 넣어 **만들기**를 누른다. key를 8자 이상 넣기 전에는 **만들기**가 꺼져 있다. 키는 DB에 봉인돼 저장되고, 화면에는 끝 네 글자만 보인다.
 2. 만들면 바로 **사용할 모델** 창이 열리고, 서버가 그 key로 공급자의 모델 목록(`GET /v1/models`)을 읽어 온다. 창에는 연결 id와 주소가 보인다. 쓸 모델(예: `claude-sonnet-5`)에 체크하고 **모델 저장**을 누른다. 나중에 바꿀 때는 같은 행 끝의 ⋯ 메뉴에서 **모델**을 고르고, **목록 새로고침**으로 다시 읽는다. 저장한 모델은 64개까지다.
    - OpenAI 연결에서는 임베딩·음성·이미지처럼 에이전트가 쓰지 않는 모델을 목록에서 뺀다. LiteLLM은 프록시가 돌려준 목록을 그대로 보인다.
    - 저장된 모델을 공급자가 더는 알려 주지 않으면 체크된 채 **목록에 없음**으로 표시된다. 저절로 빠지지 않으며, 체크를 풀고 저장해야 빠진다.
@@ -39,9 +39,9 @@ OpenAI 모델을 Codex 엔진으로 쓰려면 같은 화면에서 종류를 `ope
 
 성과 판정기 Luna(OpenAI Decisions API)가 쓸 연결은 종류를 `openai_decisions`로 고른다. 주소 기본값은 `https://api.openai.com`이고 인증은 API key만 되며, 판정 비용은 늘 따로 센다. 이 연결로는 에이전트를 실행하지 않으므로 모델 목록이 없다. 쓰는 곳은 [성과 규칙](/achievements)의 판정 설정이다.
 
-### 2. 환경 변수 대안
+### 2. 설정 문서로 연결 더하기
 
-키를 DB가 아니라 서버의 env 파일에 두고 싶다면 `/etc/werft/test-ops.env`의 `ANTHROPIC_API_KEY`를 채우고, [단일 서버 2단계의 설정 문서](/run-server/self-hosting/single-server#2-비밀과-설정-문서)에 연결을 환경 변수 이름으로 적는다. 문서에는 값이 아니라 이름만 적으므로 비밀이 없다. `connections`를 아래처럼 채우고 `models`에 에이전트가 고를 모델을 적은 뒤 [단일 서버 3단계](/run-server/self-hosting/single-server#3-release-입력-생성)에서 settings digest와 release 입력을 다시 생성한다. 이미 설치했다면 [Compose 업그레이드](/run-server/self-hosting/upgrade-compose)로 적용한다. 설정 문서에 `profiles` 항목이 있으면 가져오기가 거절한다.
+연결은 [단일 서버 2단계의 설정 문서](/run-server/self-hosting/single-server#2-비밀과-설정-문서)로도 더할 수 있다. 자격 증명은 언제나 DB에 저장된 값만 쓴다. 문서에는 값 대신 `"stored": true`만 적으므로 비밀이 없다. 환경 변수 이름(`value_env`)이나 AWS Secrets Manager id(`secret_id`)를 적은 항목은 가져오기가 400 `invalid_document`로 거절한다. `connections`를 아래처럼 채우고 `models`에 에이전트가 고를 모델을 적은 뒤 [단일 서버 3단계](/run-server/self-hosting/single-server#3-release-입력-생성)에서 settings digest와 release 입력을 다시 생성한다. 이미 설치했다면 [Compose 업그레이드](/run-server/self-hosting/upgrade-compose)로 적용한다. 설정 문서에 `profiles` 항목이 있으면 가져오기가 거절한다.
 
 ```json
 {
@@ -49,16 +49,14 @@ OpenAI 모델을 Codex 엔진으로 쓰려면 같은 화면에서 종류를 `ope
     "anthropic": {
       "kind": "anthropic",
       "endpoint": "https://api.anthropic.com",
-      "auth": { "kind": "api_key", "value_env": "ANTHROPIC_API_KEY" },
+      "auth": { "kind": "api_key", "stored": true },
       "models": ["claude-sonnet-5", "claude-haiku-4-5"]
     }
   }
 }
 ```
 
-이렇게 만든 연결은 나중에 화면으로 옮길 수 있다. **모델 연결**의 해당 행 ⋯ 메뉴에서 **화면에서 키 넣기**를 골라 키를 다시 붙여 넣으면 같은 연결이 그대로 저장된 키를 쓴다. 서버가 env 값을 읽어 옮기지는 않는다. 키를 사람이 다시 넣는다. 옮긴 뒤에도 설정 문서에 같은 연결이 남아 있어도 가져오기는 DB의 행을 그대로 둔다.
-
-Kubernetes에서 Secret의 모델 key를 쓰지 않으면 `secrets.catalogEnv`에서 그 이름을 뺀다. 고정 bootstrap 토큰 등 필요한 이름은 남긴다. 목록은 전체를 대체하므로 Secret 키와 맞춰야 한다.
+이렇게 가져온 연결은 값이 들어올 때까지 `needs_value`(화면에서는 **값 필요**) 상태이고, 그 연결로 release한 세션은 돌지 않는다. **모델 연결**의 해당 행 ⋯ 메뉴에서 **API 키 설정**(Bearer 토큰 연결은 **Bearer 토큰 설정**)을 골라 key를 넣는다. API로는 owner 세션으로 `POST /v1/installation/settings/connections/{id}/credential`을 부른다. 값은 8바이트 이상이어야 하고 제어 문자와 앞뒤 공백이 없어야 한다. 값은 `PLATFORM_SECRET_KEY`로 암호화돼 DB에 저장된다. 그 뒤 설정 문서에 같은 연결이 남아 있어도 가져오기는 DB의 행을 그대로 둔다.
 
 ### 3. 설정 문서 가져오기·내보내기
 
@@ -68,7 +66,7 @@ docker exec "$API_CONTAINER" bun run apps/control-host/src/api/settings.ts expor
 docker exec -i "$API_CONTAINER" bun run apps/control-host/src/api/settings.ts import --document - --dry-run < settings.json
 ```
 
-API_CONTAINER는 이 설치의 status와 project label로 확인한다. Kubernetes에서 아래 package script는 설치 버전의 저장소 checkout과 호스트 Bun·kubectl을 필요로 한다. `bun run settings:k8s export`와 `bun run settings:k8s import --document - --dry-run`으로 바꾼다. dry-run의 추가 항목과 오류를 검토한 뒤 같은 명령에서 `--dry-run`을 빼고 가져온다. 기존 DB 행을 파일 내용으로 무조건 덮어쓰는 도구가 아니다. 연결의 `models`와 `model_families`는 새 연결을 더할 때 함께 들어가고, 이미 있는 연결의 목록은 콘솔에서 고친다. 자격 증명은 문서에 값 대신 환경 변수 이름을 적는다.
+API_CONTAINER는 이 설치의 status와 project label로 확인한다. Kubernetes에서 아래 package script는 설치 버전의 저장소 checkout과 호스트 Bun·kubectl을 필요로 한다. `bun run settings:k8s export`와 `bun run settings:k8s import --document - --dry-run`으로 바꾼다. dry-run의 추가 항목과 오류를 검토한 뒤 같은 명령에서 `--dry-run`을 빼고 가져온다. 기존 DB 행을 파일 내용으로 무조건 덮어쓰는 도구가 아니다. 연결의 `models`와 `model_families`는 새 연결을 더할 때 함께 들어가고, 이미 있는 연결의 목록은 콘솔에서 고친다. 자격 증명은 문서에 `"stored": true`로만 적고 값은 콘솔에서 넣는다.
 
 ### 4. 과금 없는 사설 모델
 
@@ -84,7 +82,7 @@ endpoint: http://litellm:4000
 billing: none
 auth:
   kind: bearer
-  value_env: LITELLM_MASTER_KEY
+  stored: true
 models:
   - qwen3-coder
 ```
@@ -102,7 +100,7 @@ models:
 
 ## 확인
 
-이 연결로 release한 에이전트에서 세션을 만들고 turn이 completed인지 확인한다. ready 200은 모델 key나 호출 성공을 검사하지 않는다. 환경 변수 경로를 콘솔로 옮긴 뒤에는 새 호출과 key 교체 동작을 확인한다.
+이 연결로 release한 에이전트에서 세션을 만들고 turn이 completed인지 확인한다. ready 200은 모델 key나 호출 성공을 검사하지 않는다. 설정 문서로 가져온 연결에 key를 넣은 뒤에는 상태가 `needs_value`에서 벗어났는지와 새 호출을 확인한다.
 
 ## 자주 막히는 곳
 

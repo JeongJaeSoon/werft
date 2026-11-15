@@ -47,7 +47,7 @@ const catalog: SessionCatalog = testCatalog({
     auth: {
       kind: "api_key",
       value: "catalog-provider-key",
-      ref: { value_env: "PROVIDER_KEY" },
+      ref: { stored: "connection:conn-1" },
     },
   },
   repositories: {

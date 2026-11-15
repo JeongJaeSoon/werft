@@ -38,8 +38,8 @@ spec:
               value: {{ .Values.config.tracing.ingestPort | quote }}
             {{- include "ap.secretEnv" (dict "root" . "key" "DATABASE_URL") | nindent 12 }}
             {{- include "ap.secretEnv" (dict "root" . "key" "EGRESS_AUTHORIZER_TOKEN") | nindent 12 }}
-            {{- range .Values.secrets.catalogEnv }}
-            {{- include "ap.secretEnv" (dict "root" $ "key" .) | nindent 12 }}
+            {{- if .Values.secrets.bootstrapToken }}
+            {{- include "ap.secretEnv" (dict "root" . "key" "BOOTSTRAP_TOKEN") | nindent 12 }}
             {{- end }}
             - name: PLATFORM_SECRET_KEY
               valueFrom:
@@ -70,10 +70,7 @@ spec:
               value: "3100"
             - name: CHECKPOINT_GIT_MEMORY_MB
               value: {{ .Values.config.checkpoints.gitMemoryMb | quote }}
-            {{- with .Values.config.aws.secretsManagerEndpointUrl }}
-            - name: AWS_ENDPOINT_URL_SECRETS_MANAGER
-              value: {{ . | quote }}
-            {{- end }}
+            {{- include "ap.removedCredentialValues" . }}
             {{- include "ap.previewEnvReserved" . }}
             {{- include "ap.checkpointEnvReserved" . }}
             {{- if .Values.preview.enabled }}

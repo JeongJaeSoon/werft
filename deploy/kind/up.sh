@@ -16,13 +16,16 @@
 # KIND_MODEL (default none) also installs what a session needs; smoke.sh
 # sets it and runs one:
 #   none  an empty installation: no session runs
-#   fake  tests/fixtures/settings/fake-model.json, its fake Messages API and
-#         Secrets Manager (deps-fake-model.yaml), and the sample repository
+#   fake  tests/fixtures/settings/fake-model.json, its fake Messages API
+#         (deps-fake-model.yaml), and the sample repository
 #   real  tests/fixtures/settings/real-model.json and the sample repository,
 #         with ANTHROPIC_API_KEY read by scripts/lib/real-model-key.sh
-#         (the shell's, else the AGENT_PLATFORM_DOTENV file's line). The
-#         key goes into the Secret from a file descriptor: never printed,
-#         never in an argument. A fresh cluster only.
+#         (the shell's, else the AGENT_PLATFORM_DOTENV file's line).
+# Either way the settings' `"stored": true` keys are then set as the first
+# owner through the console API, from fake-git's Pod
+# (packages/testkit/src/seed-credentials-main.ts): the fake model's
+# placeholder or the ANTHROPIC_API_KEY, and the fake GitHub App's key. They
+# travel on stdin alone: never printed, never in an argument.
 #
 # CLUSTER_PROVIDER=orbstack uses OrbStack's built-in cluster (`orb start k8s`)
 # instead of kind: it shares the Docker engine, so the images are built
@@ -238,13 +241,14 @@ kubectl -n "$NAMESPACE" create configmap localstack-init \
 manifest "$root/deploy/kind/deps.yaml" | kubectl -n "$NAMESPACE" apply -f -
 deps=(postgres localstack)
 values=(-f "$root/deploy/kind/values.yaml")
+# A published chart from before secrets.bootstrapToken hands the api the
+# Secret's keys listed in secrets.catalogEnv, ANTHROPIC_API_KEY by default,
+# which this Secret no longer holds.
+if [ -n "${CHART_PACKAGE:-}" ] && helm show values "$CHART_PACKAGE" | grep -q '^  catalogEnv:'; then
+  values+=(--set-json 'secrets.catalogEnv=["BOOTSTRAP_TOKEN"]')
+fi
 
 if [ "$KIND_MODEL" != none ]; then
-  kubectl -n "$NAMESPACE" create configmap secrets-init \
-    --from-file=10-seed-secrets.sh="$root/infra/localstack/secrets-init/10-seed-secrets.sh" \
-    --dry-run=client -o yaml | kubectl apply -f -
-  manifest "$root/deploy/kind/deps-secrets.yaml" | kubectl -n "$NAMESPACE" apply -f -
-  deps+=(secrets)
   manifest "$root/deploy/kind/deps-session.yaml" |
     sed "s#CONTROL_HOST_IMAGE#${image_repo}-control-host@${control_host_digest}#" |
     kubectl -n "$NAMESPACE" apply -f -
@@ -263,14 +267,9 @@ if [ "$KIND_MODEL" = fake ]; then
 fi
 
 # The Secret the chart reads. The authorizer token is random per cluster,
-# never printed and never on a command line, and so is the master key; the
-# rest are the stand-ins' local defaults. The chart names ANTHROPIC_API_KEY,
-# which only has to resolve unless KIND_MODEL is real.
+# never printed and never on a command line, and so are the master key and
+# the bootstrap token; the rest are the stand-ins' local defaults.
 if [ "$KIND_MODEL" = real ]; then
-  if kubectl -n "$NAMESPACE" get secret werft >/dev/null 2>&1; then
-    echo "KIND_MODEL=real needs a fresh cluster: the Secret already holds another key (up.sh down first)" >&2
-    exit 1
-  fi
   set +x
   # shellcheck source=../../scripts/lib/real-model-key.sh
   . "$root/scripts/lib/real-model-key.sh"
@@ -278,9 +277,6 @@ if [ "$KIND_MODEL" = real ]; then
     echo "KIND_MODEL=real: no ANTHROPIC_API_KEY in the shell or in ${AGENT_PLATFORM_DOTENV:-.env}" >&2
     exit 1
   fi
-  provider_key() { printf '%s' "$ANTHROPIC_API_KEY"; }
-else
-  provider_key() { printf kind-check-no-key; }
 fi
 if ! kubectl -n "$NAMESPACE" get secret werft >/dev/null 2>&1; then
   kubectl -n "$NAMESPACE" create secret generic werft \
@@ -289,8 +285,7 @@ if ! kubectl -n "$NAMESPACE" get secret werft >/dev/null 2>&1; then
     --from-file=PLATFORM_SECRET_KEY=<(openssl rand -hex 32 | tr -d '\n') \
     --from-file=BOOTSTRAP_TOKEN=<(openssl rand -hex 32 | tr -d '\n') \
     --from-literal=AWS_ACCESS_KEY_ID=test \
-    --from-literal=AWS_SECRET_ACCESS_KEY=test \
-    --from-file=ANTHROPIC_API_KEY=<(provider_key) >/dev/null
+    --from-literal=AWS_SECRET_ACCESS_KEY=test >/dev/null
 elif [ "$(kubectl -n "$NAMESPACE" get secret werft -o 'go-template={{if .data.PLATFORM_SECRET_KEY}}set{{end}}')" != set ]; then
   key_patch="$(mktemp)"
   printf '{"data":{"PLATFORM_SECRET_KEY":"%s"}}' "$(openssl rand -hex 32 | tr -d '\n' | base64 | tr -d '\n')" >"$key_patch"
@@ -305,6 +300,8 @@ if [ "$(kubectl -n "$NAMESPACE" get secret werft -o 'go-template={{if .data.BOOT
   kubectl -n "$NAMESPACE" patch secret werft --patch-file "$token_patch" >/dev/null
   rm -f "${token_patch:?}"
 fi
+# Kept unexported for the seed below, so no command before it inherits it.
+kind_model_key="${ANTHROPIC_API_KEY:-}"
 unset ANTHROPIC_API_KEY
 
 for dep in "${deps[@]}"; do
@@ -357,6 +354,40 @@ for path in /readyz /docs; do
   echo "GET ${path} -> ${code}"
   [ "$code" = 200 ] || status=1
 done
+
+if [ "$KIND_MODEL" != none ] && [ "$status" = 0 ]; then
+  # shellcheck source=../../scripts/lib/seed-credentials.sh
+  . "$root/scripts/lib/seed-credentials.sh"
+  kind_owner_cookie() {
+    E2E_API_URL="http://127.0.0.1:${FORWARD_PORT}" \
+      E2E_BOOTSTRAP_TOKEN="$(kubectl -n "$NAMESPACE" get secret werft -o 'go-template={{index .data "BOOTSTRAP_TOKEN" | base64decode}}')" \
+      bun run "$root/tests/e2e/owner-cookie.ts"
+  }
+  # kubectl exec passes no environment: the cookie goes first on stdin.
+  kind_seed() {
+    { printf '%s\n' "$SEED_COOKIE"; cat; } |
+      kubectl -n "$NAMESPACE" exec -i deploy/fake-git -- sh -c \
+        "read -r SEED_COOKIE && export SEED_COOKIE SEED_API_URL=http://${fullname}-api:3000 && exec bun run packages/testkit/src/seed-credentials-main.ts"
+  }
+  if [ "$KIND_MODEL" = fake ]; then
+    # The fake model takes any key; the MCP server's is the compose
+    # fake-mcp's bearer, though no MCP server runs here.
+    kind_placeholder_key=local-placeholder-key
+    kind_mcp_bearer=local-fake-mcp-service-account
+    seeds=(connections:fake-messages=kind_placeholder_key mcp_servers:fake=kind_mcp_bearer)
+  else
+    seeds=(connections:anthropic=kind_model_key)
+  fi
+  seed_credentials kind_owner_cookie "${seeds[@]}" repositories:sample-app -- kind_seed ||
+    { echo "storing the settings' keys failed" >&2; status=1; }
+  # The keys went through one replica; the others read them on their next
+  # catalog refresh. A restart has every replica read them now.
+  if [ "$status" = 0 ]; then
+    kubectl -n "$NAMESPACE" rollout restart "deploy/${fullname}-api"
+    kubectl -n "$NAMESPACE" rollout status "deploy/${fullname}-api" --timeout=600s
+  fi
+fi
+unset kind_model_key
 
 kubectl -n "$NAMESPACE" get jobs,deploy,pods -o wide
 exit "$status"

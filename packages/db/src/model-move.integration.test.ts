@@ -89,7 +89,7 @@ integration("a model moved at the next turn's claim", () => {
           auth: {
             kind: "api_key",
             value: "catalog-provider-key",
-            ref: { value_env: "PROVIDER_KEY" },
+            ref: { stored: "connection:test-connection" },
           },
         },
         models: offer.models,

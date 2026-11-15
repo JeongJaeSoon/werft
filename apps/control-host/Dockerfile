@@ -94,6 +94,11 @@ CMD ["bun", "run", "apps/control-host/src/main.ts", "api"]
 FROM runtime AS local
 COPY --from=deps --chown=1000:1000 /app/packages/testkit /app/packages/testkit
 COPY --from=deps --chown=1000:1000 /app/apps/control-host/src/api/demo-accounts.ts /app/apps/control-host/src/api/demo-data.ts /app/apps/control-host/src/api/
+# The fake GitHub App's key directory: a compose volume mounted here takes
+# this owner, so the fake (uid 1000) can write the key it generates.
+USER root
+RUN install -d -o 1000 -g 1000 -m 0700 /var/lib/fake-github
+USER 1000:1000
 
 # The last stage is the default target, and the one images.yml builds
 # (`target: release`): a stage added above never becomes the published image.

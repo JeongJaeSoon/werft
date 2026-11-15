@@ -4,7 +4,6 @@ import {
   type CatalogMcpServer,
   type CatalogRepository,
   type CredentialRef,
-  catalogCredentialRefs,
   credentialRefOf,
   describeConfigError,
   GITHUB_API_BASE,
@@ -50,37 +49,15 @@ function invalidIds(
   );
 }
 
-/** Every external reference the settings name, for fetching before they resolve. */
-export function settingsCredentialRefs(
-  settings: InstallationSettings,
-): CredentialRef[] {
-  return catalogCredentialRefs(
-    {
-      repositories: Object.fromEntries(
-        settings.repositories.map(({ id, repository }) => [id, repository]),
-      ),
-      mcp_servers: Object.fromEntries(
-        settings.mcpServers.map(({ id, server }) => [id, server]),
-      ),
-    },
-    Object.fromEntries(
-      settings.connections.map(({ id, provider }) => [id, provider]),
-    ),
-  ).map(({ ref }) => ref);
-}
-
 /**
- * The settings with each credential resolved: a `stored` one from the
- * values the read opened, any other through `external`. A row whose
- * credential does not resolve is left out on its own, so one missing value
- * never stops the rest.
+ * The settings with each credential resolved from the stored values the
+ * read opened. A row whose credential does not resolve is left out on its
+ * own, so one missing value never stops the rest.
  */
 export function settingsSnapshot(
   settings: InstallationSettings,
-  external: (ref: CredentialRef) => string | undefined,
 ): SettingsSnapshot {
-  const lookup = (ref: CredentialRef) =>
-    "stored" in ref ? settings.stored.get(ref.stored) : external(ref);
+  const lookup = (ref: CredentialRef) => settings.stored.get(ref.stored);
   const left_out = settings.invalid.map((entry) => ({
     entry,
     reason: "does not parse",

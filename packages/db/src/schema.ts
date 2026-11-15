@@ -5646,8 +5646,8 @@ export const sessionAchievements = pgTable(
   ],
 );
 
-/** `stored` is a value in `secret_values`; `external` names env or Secrets Manager. */
-export type SettingsCredentialSource = "stored" | "external";
+/** A value in `secret_values`, under the row's own `<kind>:<id>`. */
+export type SettingsCredentialSource = "stored";
 export type SettingsOrigin = "import" | "console";
 /** `github_app_explicit` names its own App, key and installation. */
 export type CatalogRepositoryAuthKind =
@@ -5682,8 +5682,10 @@ export const catalogRepositories = pgTable(
     auth: jsonb().$type<Record<string, unknown>>(),
     credentialSource:
       text("credential_source").$type<SettingsCredentialSource>(),
+    // The env or Secrets Manager reference this row named before its
+    // credential moved to a stored value, for a rollback to put back.
     carriedAuth: jsonb("carried_auth").$type<Record<string, unknown>>(),
-    // The repository binding before and after a carry rewrote the push
+    // The repository binding before and after that move rewrote the push
     // requests and worker credentials that held it, for a rollback to undo.
     // While it is set, those tables' insert triggers write `to` for `from`.
     carriedBinding: jsonb("carried_binding").$type<{
@@ -5735,8 +5737,7 @@ export const catalogRepositories = pgTable(
       sql`CASE ${table.authKind}
         WHEN 'github_app' THEN ${table.auth} IS NULL AND ${table.credentialSource} IS NULL
         WHEN 'none' THEN ${table.auth} IS NULL AND ${table.credentialSource} IS NULL
-        WHEN 'github_app_explicit' THEN ${table.auth} IS NOT NULL AND ${table.credentialSource} IN ('stored', 'external')
-        ELSE ${table.auth} IS NOT NULL AND ${table.credentialSource} IN ('stored', 'external')
+        ELSE ${table.credentialSource} = 'stored' AND COALESCE(${table.auth} ? 'stored' AND NOT ${table.auth} ?| array['value_env', 'secret_id'], false)
       END`,
     ),
   ],
@@ -5758,18 +5759,16 @@ export const providerConnections = pgTable(
       .notNull(),
     origin: text().$type<SettingsOrigin>().notNull(),
     /**
-     * The `auth` this row had while its credential came from the
-     * deployment (an env or Secrets Manager reference, never a value),
-     * set once when the console moves it to a stored value. A re-import of
-     * the old definition keeps matching this row.
+     * The `auth` an older release's console replaced when it moved the row
+     * from an env or Secrets Manager reference to a stored value. Nothing
+     * reads it now; kept for a rollback to that release.
      */
     replacesAuth: jsonb("replaces_auth").$type<Record<string, unknown>>(),
     /**
-     * The `auth` an env reference gave this row before the api carried its
-     * value into a stored one, on this table and the repository and MCP
-     * tables alike. Only for putting the row back after a rollback: no
-     * import or alias check reads it, so two rows carried from one
-     * definition stay apart.
+     * The `auth` an env or Secrets Manager reference gave this row before
+     * its credential moved to a stored value, on this table and the
+     * repository and MCP tables alike. Only for putting the row back after
+     * a rollback: nothing else reads it.
      */
     carriedAuth: jsonb("carried_auth").$type<Record<string, unknown>>(),
     /**
@@ -5800,19 +5799,16 @@ export const providerConnections = pgTable(
       "provider_connections_auto_mode_check",
       sql`${table.autoMode} IN ('supported', 'unsupported', 'unknown')`,
     ),
+    // The credential is a stored value, never a reference to one held
+    // elsewhere; a console row also has it from its first commit (0288's
+    // constraint trigger).
     check(
       "provider_connections_credential_source_check",
-      sql`${table.credentialSource} IN ('stored', 'external')`,
+      sql`${table.credentialSource} = 'stored' AND COALESCE(${table.definition}->'auth' ? 'stored' AND NOT ${table.definition}->'auth' ?| array['value_env', 'secret_id'], false)`,
     ),
     check(
       "provider_connections_origin_check",
       sql`${table.origin} IN ('import', 'console')`,
-    ),
-    // The console never binds the deployment's credential reference to an
-    // endpoint (decision §2): only the operator's import brings `external`.
-    check(
-      "provider_connections_console_stored_check",
-      sql`${table.origin} <> 'console' OR ${table.credentialSource} = 'stored'`,
     ),
   ],
 );
@@ -5847,15 +5843,11 @@ export const mcpServers = pgTable(
   (table) => [
     check(
       "mcp_servers_credential_source_check",
-      sql`${table.credentialSource} IN ('stored', 'external')`,
+      sql`${table.credentialSource} = 'stored' AND COALESCE(${table.auth} ? 'stored' AND NOT ${table.auth} ?| array['value_env', 'secret_id'], false)`,
     ),
     check(
       "mcp_servers_origin_check",
       sql`${table.origin} IN ('import', 'console')`,
-    ),
-    check(
-      "mcp_servers_console_stored_check",
-      sql`${table.origin} <> 'console' OR ${table.credentialSource} = 'stored'`,
     ),
     check("mcp_servers_github_reserved_check", sql`${table.id} <> 'github'`),
   ],

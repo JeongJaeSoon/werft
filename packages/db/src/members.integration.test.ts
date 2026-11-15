@@ -77,7 +77,7 @@ integration("members, identity and takeover on PostgreSQL", () => {
           auth: {
             kind: "api_key",
             value: "catalog-provider-key",
-            ref: { value_env: "PROVIDER_KEY" },
+            ref: { stored: "connection:test-connection" },
           },
         },
         models: ["claude-sonnet-5"],

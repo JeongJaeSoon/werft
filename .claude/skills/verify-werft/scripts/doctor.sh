@@ -21,7 +21,7 @@ echo "$services" | sort
 # the Codex worker is what defines it for the run.
 defined=$(ap_compose config --services) || { echo "doctor: docker compose config failed" >&2; exit 1; }
 codex=$(echo "$defined" | grep -x fake-responses || true)
-for service in api scheduler reconciler postgres localstack fake-git egress-proxy fake-messages secrets $codex; do
+for service in api scheduler reconciler postgres localstack fake-git egress-proxy fake-messages $codex; do
   line=$(echo "$services" | awk -v s="$service" '$1 == s')
   case "$line" in
     *" running unhealthy" | *" running starting") echo "doctor: $service is not healthy yet: $line" >&2; exit 1 ;;

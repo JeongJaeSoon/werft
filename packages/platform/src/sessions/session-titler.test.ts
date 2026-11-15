@@ -91,7 +91,7 @@ describe("createSessionTitler", () => {
               auth: {
                 kind: "api_key",
                 value: "k",
-                ref: { value_env: "K" },
+                ref: { stored: "connection:conn-1" },
               },
             },
           }),

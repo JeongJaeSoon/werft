@@ -9,7 +9,7 @@ not run as-is is ```sh or ```text.
 
 저장소를 clone한 머신에서 `scripts/local.sh`로 스택을 띄우고, curl만으로 세션의 전체 경로를 한 번 돈다: 생성 → 이벤트 관찰 → 권한 요청 응답 → 후속 메시지 → interrupt → pause → resume(복원) → terminate → 복구 결정 → resume.
 
-로컬 스택의 기본은 실제 Claude다. 옵션 없는 `scripts/local.sh up`은 실제 Messages API를 부르는 스택을 띄운다. key는 콘솔의 설정 > 에이전트 연결 > 모델 연결 > 연결 추가에서 넣는 것이 기본이고, 셸의 `ANTHROPIC_API_KEY`는 대안이다. key 없이 뜬 스택은 fake로 바뀌지 않고 모델 연결이 없는 채로 남는다([real-claude.md](real-claude.md)). 이 문서는 결과가 매번 같아야 하고 CI가 key 없이 돌려야 하므로 `--fake-model`로 띄운다. 그러면 migrate가 `tests/fixtures/settings/fake-model.json`을 가져오고 compose의 `fake-messages` 서비스를 Messages API로 쓴다. 모델 계정은 필요 없다. 각 워커 안에서는 **진짜 Claude Code**(Agent SDK 0.3.270에 번들된 실행 파일)가 돌고, fake는 프롬프트에 적힌 대본대로 답한다(§ [스크립트된 프롬프트](#스크립트된-프롬프트)). 실제 Claude로 같은 스택을 쓰는 방법은 [5장](#5-실제-claude로-확인하기-선택-유료)에 있다.
+로컬 스택의 기본은 실제 Claude다. 옵션 없는 `scripts/local.sh up`은 실제 Messages API를 부르는 스택을 띄운다. key는 DB에 암호화해 저장하는 값뿐이다. 콘솔의 설정 > 에이전트 연결 > 모델 연결에서 `anthropic` 연결의 **API 키 설정**으로 넣거나, 셸의 `ANTHROPIC_API_KEY`를 주면 `up`이 데모 owner로 API를 불러 저장한다. key 없이 뜬 스택은 fake로 바뀌지 않고 모델 연결에 key가 없는 채로 남는다([real-claude.md](real-claude.md)). 이 문서는 결과가 매번 같아야 하고 CI가 key 없이 돌려야 하므로 `--fake-model`로 띄운다. 그러면 migrate가 `tests/fixtures/settings/fake-model.json`을 가져오고 compose의 `fake-messages` 서비스를 Messages API로 쓴다. 모델 계정은 필요 없다. 각 워커 안에서는 **진짜 Claude Code**(Agent SDK 0.3.270에 번들된 실행 파일)가 돌고, fake는 프롬프트에 적힌 대본대로 답한다(§ [스크립트된 프롬프트](#스크립트된-프롬프트)). 실제 Claude로 같은 스택을 쓰는 방법은 [5장](#5-실제-claude로-확인하기-선택-유료)에 있다.
 
 이 문서의 `bash` 블록은 CI(`quickstart` job)가 새 clone에서 순서대로 실행한다. `jq -e`로 시작하는 줄은 `true`를 출력해야 한다. `false`가 나오면 그 단계가 기대와 다르게 끝난 것이고, CI에서는 그 자리에서 실패한다. 같은 시나리오를 `tests/e2e/alpha-path.e2e.ts`가 CI(`e2e` job)에서 자동으로 돈다.
 
@@ -31,12 +31,12 @@ macOS나 Linux를 기준으로 한다. 셸은 bash나 zsh를 쓴다.
 | git | 아무 버전 | clone |
 | Bun | 1.3.12 이상 | 4장의 자동 검증과 6장의 key 폐기·백업에만 쓴다. 1–3장에는 필요 없다 |
 
-로컬 스택은 루프백(`127.0.0.1`)에만 포트를 연다. 다음 포트가 비어 있어야 한다: **3000**(API), **5432**(Postgres), **4566**(SeaweedFS S3), **4567**(LocalStack Secrets Manager), **3001**(로컬 GitHub App 모의 서버). 로컬에 Postgres가 떠 있으면 5432가 겹치는 경우가 많다. Docker Desktop은 Settings → Software updates에서 엔진 버전을 확인한다.
+로컬 스택은 루프백(`127.0.0.1`)에만 포트를 연다. 다음 포트가 비어 있어야 한다: **3000**(API), **5432**(Postgres), **4566**(SeaweedFS S3), **3001**(로컬 GitHub App 모의 서버). 로컬에 Postgres가 떠 있으면 5432가 겹치는 경우가 많다. Docker Desktop은 Settings → Software updates에서 엔진 버전을 확인한다.
 
 ```bash
 docker version --format 'Docker Engine {{.Server.Version}}'
 docker compose version
-for p in 3000 5432 4566 4567 3001; do
+for p in 3000 5432 4566 3001; do
   if lsof -nP -iTCP:$p -sTCP:LISTEN >/dev/null 2>&1; then echo "사용 중: $p"; fi
 done
 docker system df
@@ -66,7 +66,7 @@ scripts/local.sh status
 
 `up --fake-model`은 compose project `werft`을 fake 모델로 띄운다(`infra/compose.fake-model.yml` overlay). 첫 실행은 api·scheduler·worker 이미지를 이 checkout에서 빌드하므로 몇 분에서 10분쯤 걸린다. `/readyz`가 `{"status":"ready","checks":{"database":"ok","schema":"ok","config":"ok"}}`를 돌려줄 때까지 기다렸다가 그 응답을 출력하고 끝난다. 컨테이너가 뜬 뒤 이만큼 기다리는 시간은 180초이고, `LOCAL_READY_TIMEOUT_SEC`로 바꾼다. 뜨는 서비스는 다음과 같다.
 
-- postgres(+ 한 번 도는 `migrate`), localstack(SeaweedFS S3), fake-git(샘플 저장소 `agent/sample-app`을 내주는 GitHub App 모의 서버), secrets(API·로컬 App 전용 Secrets Manager), fake-messages(`--fake-model`일 때만), egress-proxy
+- postgres(+ 한 번 도는 `migrate`), localstack(SeaweedFS S3), fake-git(샘플 저장소 `agent/sample-app`을 내주는 GitHub App 모의 서버), fake-messages·fake-mcp(`--fake-model`일 때만), egress-proxy
 - `api`(`127.0.0.1:3000`)와 `scheduler`(5초마다 한 pass로 세션마다 worker 컨테이너를 띄운다)
 - `reconciler`(pass가 끝날 때마다 10초 쉬고 다음 pass를 돈다. lease가 만료된 세션과 orphan 세션을 다시 queue에 넣거나 복구 대상으로 표시하고, 기한을 넘긴 interrupt·terminate receipt를 `unknown`으로 마감한다. 사용량 API가 읽는 도구 호출 표도 이 pass가 채운다)
 - `worker`는 상주하지 않는다. 이미지 빌드와 `claude --version` 확인만 하고 끝난다. 실제 워커는 scheduler가 세션마다 띄운다
@@ -86,7 +86,8 @@ scripts/local.sh status
 
 - 사용자가 없는 설치에서는 데모 owner가 첫 owner가 되고 workspace `demo`(이름 `Demo`)가 생긴다. 이미 owner가 있는 설치에서는 살아 있는 owner가 그 workspace로 초대하고 수락한 것과 같게 더한다.
 - 같은 이메일의 사용자가 이미 있으면 건드리지 않는다. 비밀번호나 역할을 바꿨어도 그대로 둔다. 그래서 `up`을 다시 돌려도 중복이나 데이터 변화가 없다.
-- 이미 떠 있는 스택에는 `scripts/local.sh demo-accounts`가 빠진 계정만 더한다. `LOCAL_DEMO_ACCOUNTS=0 scripts/local.sh up --fake-model`은 계정을 만들지 않는다. bootstrap token으로 첫 owner를 직접 만들 때는 이렇게 띄운다(데모 owner가 있으면 bootstrap은 409 `BOOTSTRAP_DONE`이다).
+- 계정을 만든 뒤 데모 owner가 가져온 설정 문서의 `"stored": true` 값을 API(`POST /v1/installation/settings/{connections|mcp-servers|repositories}/{id}/credential`)로 넣는다(`scripts/lib/seed-credentials.sh`). `--fake-model`이면 fake 모델 연결의 자리표시 key와 fake MCP 서버의 bearer, 옵션이 없으면 셸의 `ANTHROPIC_API_KEY`(있을 때만), 둘 다 fake GitHub App의 키다. 값은 fake-git 컨테이너의 stdin으로만 간다.
+- 이미 떠 있는 스택에는 `scripts/local.sh demo-accounts`가 빠진 계정만 더한다. `LOCAL_DEMO_ACCOUNTS=0 scripts/local.sh up --fake-model`은 계정을 만들지 않고 값도 넣지 않는다. 그때는 첫 owner를 만든 뒤 콘솔에서 넣거나, 그 owner의 세션 cookie(`__Host-werft_session=…`)를 stdin 첫 줄로 주고 `scripts/local.sh store-keys`를 실행한다. bootstrap token으로 첫 owner를 직접 만들 때는 이렇게 띄운다(데모 owner가 있으면 bootstrap은 409 `BOOTSTRAP_DONE`이다).
 - 만들지 않는 조건: Docker가 이 머신의 것이 아니거나(`DOCKER_HOST`나 지금 docker context의 주소가 `unix://`·`npipe://`가 아님) 떠 있는 api 컨테이너가 게시한 포트 중 하나라도 loopback(`127.0.0.1`·`[::1]`) 밖에 열려 있으면 `local.sh: demo accounts not added: …`를 출력하고 계정 없이 `up`을 마친다.
 - 계정을 쓰는 CLI(`apps/control-host/src/api/demo-accounts.ts`)도 스스로 거부한다. `DEMO_ACCOUNTS=local`(`local.sh`만 넘긴다)이 없거나, Kubernetes 안(`KUBERNETES_SERVICE_HOST`)이거나, `DATABASE_URL`의 host가 compose의 `postgres`나 이 머신(`localhost`·`127.0.0.1`·`[::1]`)이 아니거나 query(`?host=` 등 연결 대상을 바꿀 수 있는 옵션)가 붙어 있으면 아무것도 쓰지 않고 exit 2로 끝난다.
 - Helm 설치는 미리보기 설치만 예외다. 게시 이미지에는 두 CLI가 없으므로, 미리보기는 `deploy/kind/up.sh`가 `local` target으로 빌드한 control-host 이미지로 설치한 것이어야 한다. chart의 `preview.enabled: true`(기본 false)가 api Pod에 자기 namespace를 담은 `PREVIEW_NAMESPACE`를 넣고, `DATABASE_URL`의 host가 그 namespace의 `postgres` Service(`postgres`·`postgres.<ns>`·`postgres.<ns>.svc`·`postgres.<ns>.svc.cluster.local`)이고 그 host가 실제로 `postgres.<ns>.svc.cluster.local`과 같은 주소로 풀릴 때만 두 CLI가 돈다(Service가 없으면 짧은 이름이 Pod의 search domain을 따라 다른 host로 풀릴 수 있어서다). 하나라도 아니면 위와 같이 exit 2다. `api.extraEnv`로 `PREVIEW_NAMESPACE`를 넣으면 chart 렌더가 실패한다. 미리보기 설치에서는 `kubectl -n <ns> exec deploy/werft-api -- env DEMO_ACCOUNTS=local bun run apps/control-host/src/api/demo-accounts.ts`, 이어서 같은 방식으로 `demo-data.ts`를 부른다(`demo-data.ts`는 fake model catalog가 필요하다).
@@ -100,7 +101,7 @@ scripts/local.sh status
 
 **로컬 데이터는 named volume에 남는다.** S3는 SeaweedFS 4.48(서비스 이름은 호환성을 위해 `localstack` 유지), PostgreSQL도 자기 volume에 저장한다. Docker/OrbStack 재시작이나 `scripts/local.sh down --keep-volumes` 뒤 `scripts/local.sh up --fake-model`로 다시 띄워도 checkpoint가 남는다. 옵션 없는 `scripts/local.sh down`과 `reset`은 명시적인 전체 데이터 삭제 명령이므로 보존할 때 쓰지 않는다. 기존 LocalStack 설치에서 전환하는 절차는 [7장](#재부팅이나-docker-재시작-뒤)을 따른다.
 
-fake-git(`http://127.0.0.1:3001`)은 로컬 GitHub App 모의 서버다. 샘플 `agent/sample-app`은 App JWT를 확인하고 발급한 설치 토큰으로만 clone한다. 키는 스택 안에서 생성해 별도 Secrets Manager에 저장하며 worker에는 전달하지 않는다. 익명 URL 저장소와 basic/bearer 등록은 지원하지 않는다. 실제 저장소는 설정 > 워크스페이스 > 연동 > GitHub에서 App 연동으로 등록한다. 기존 URL 저장소 행은 삭제하지 않으며, 지원하지 않는 설정으로 거부·보고한다.
+fake-git(`http://127.0.0.1:3001`)은 로컬 GitHub App 모의 서버다. 샘플 `agent/sample-app`은 App JWT를 확인하고 발급한 설치 토큰으로만 clone한다. App 키는 fake-git이 처음 뜰 때 생성해 자기 volume에 두고, `up`이 데모 owner로 저장소 `sample-app`의 저장값으로 DB에 넣는다. worker에는 전달하지 않는다. 익명 URL 저장소와 basic/bearer 등록은 지원하지 않는다. 실제 저장소는 설정 > 워크스페이스 > 연동 > GitHub에서 App 연동으로 등록한다. 기존 URL 저장소 행은 삭제하지 않으며, 지원하지 않는 설정으로 거부·보고한다.
 
 ## 2. curl 준비
 
@@ -387,7 +388,7 @@ scripts/local.sh up --fake-model           # 실제 Claude 스택이면 옵션 �
 | 증상 | 원인과 조치 |
 |---|---|
 | `local.sh up`이 `Docker Engine … is too old`로 끝나거나, scheduler가 재시작을 반복하고 로그에 `GatewayModeUnsupportedError`가 있다 | Docker Engine이 28 미만이다. 엔진을 올린다 |
-| `local.sh up`이 `no ANTHROPIC_API_KEY … the stack starts with no model connection`을 출력하고 세션이 `connection_missing`으로 거절된다 | 옵션 없는 `up`은 실제 Claude를 쓰고 key 없이도 뜬다. 이 문서대로 모델 계정 없이 하려면 `--fake-model`을 붙이고, 실제 Claude로 하려면 [real-claude.md](real-claude.md#key-입력과-폐기)대로 설정 > 에이전트 연결 > 모델 연결 > 연결 추가에서 key를 넣는다 |
+| `local.sh up`이 `no ANTHROPIC_API_KEY … the stack starts with the anthropic connection waiting for its key`를 출력하고 세션이 쓸 수 있는 key가 없다는 오류로 시작되지 않는다 | 옵션 없는 `up`은 실제 Claude를 쓰고 key 없이도 뜬다. 이 문서대로 모델 계정 없이 하려면 `--fake-model`을 붙이고, 실제 Claude로 하려면 [real-claude.md](real-claude.md#key-입력과-폐기)대로 설정 > 에이전트 연결 > 모델 연결에서 `anthropic` 연결의 **API 키 설정**으로 key를 넣는다 |
 | `local.sh up`이 `127.0.0.1 port(s) … already in use`로 끝나거나 `bind: address already in use`가 나온다 | 0장의 포트 중 하나를 다른 프로세스나 다른 스택이 쓰고 있다. 0장의 `lsof` 루프로 찾는다 |
 | API가 기동하지 않고 로그에 `Checkpoint bucket … holds no object version, but the database still has checkpoints that restores read`가 있다 | 이전 LocalStack 설치의 S3가 유실됐거나, 새 S3 volume으로 전환하면서 postgres의 checkpoint 참조만 남았다. 계정과 key를 남기려면 `scripts/local.sh forget-lost-checkpoints` 뒤 `up`([7장](#재부팅이나-docker-재시작-뒤), 잃은 checkpoint의 세션은 `recovery_required`), 모두 지우고 새로 띄우려면 `scripts/local.sh reset --fake-model`(실제 Claude 스택이면 옵션 없이, 세션도 지워진다) |
 | scheduler가 재시작을 반복하고 로그에 `SCHEDULER_PASS_TIMEOUT_SEC must be greater than EXECUTION_DOCKER_STOP_TIMEOUT_SEC + EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC` | 예전에 만든 `.env`에 옛 기본값(`SCHEDULER_PASS_TIMEOUT_SEC=120`)이 남아 있다. pass는 worker 정지 하나를 끝까지 기다릴 수 있어서 timeout이 그보다 길어야 한다. 두 줄을 지우거나 `.env.example`처럼 `SCHEDULER_PASS_TIMEOUT_SEC=180`·`SCHEDULER_HEALTH_STALE_SEC=200`으로 고친다. 새로 clone한 머신에는 `.env`가 없다 |

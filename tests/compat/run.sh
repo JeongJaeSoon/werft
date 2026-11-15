@@ -26,10 +26,16 @@
 # an overlay that swaps its builds for the release images and points the
 # fake model, fake MCP and fake git at this checkout, whose driver scripts
 # them. Everything the run started is removed on exit.
+#
+# A release that read keys from Secrets Manager gets the fake GitHub App's
+# key handed into its secrets service after stage 1 comes up, and the keys
+# its settings named are stored as the first owner after the migrate, the
+# way an operator does after this upgrade.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$root"
+. scripts/lib/seed-credentials.sh
 
 : "${COMPAT_ENGINE:?}" "${COMPAT_OLD_DIR:?}" "${COMPAT_OLD_CONTROL_HOST:?}"
 : "${COMPAT_OLD_WORKER:?}" "${COMPAT_OLD_EGRESS_PROXY:?}"
@@ -180,6 +186,21 @@ fi
 dc() {
   docker compose -p "$project" "${files[@]}" -f "$out/overlay-new.yml" --profile apps "$@"
 }
+# A service's running container, whichever checkout's files defined it.
+container() {
+  docker ps -q --filter "label=com.docker.compose.project=${project}" \
+    --filter "label=com.docker.compose.service=$1" | head -1
+}
+fake_git="$(container fake-git)"
+secrets="$(container secrets)"
+if [ -n "$secrets" ]; then
+  docker exec "$fake_git" cat /var/lib/fake-github/app-key.pem </dev/null |
+    docker exec -i "$secrets" awslocal secretsmanager create-secret \
+      --name werft/local/fake-github-app --secret-string file:///dev/stdin >/dev/null
+  # The release left the repository out while its key was missing and reads
+  # its settings again every 10 s; two reads bring it back everywhere.
+  sleep 25
+fi
 drive 1
 
 echo "== stage 2: migrate of ${new_control_host:-this checkout}" >&2
@@ -187,6 +208,22 @@ echo "== stage 2: migrate of ${new_control_host:-this checkout}" >&2
   { tail -50 "$out/build.log" >&2; exit 1; }
 dc run --rm --no-deps migrate >"$out/migrate.log" 2>&1 ||
   { tail -50 "$out/migrate.log" >&2; exit 1; }
+compat_owner_cookie() { env -u ANTHROPIC_API_KEY bun run tests/e2e/owner-cookie.ts; }
+# The fake providers take any key.
+placeholder_key=compat-placeholder-key
+seeds=(repositories:sample-app)
+case "$COMPAT_ENGINE" in
+  claude_agent_sdk) seeds+=(connections:fake-messages=placeholder_key) ;;
+  codex_app_server) seeds+=(connections:fake-responses=placeholder_key) ;;
+esac
+fake_mcp="$(container fake-mcp)"
+if [ "$COMPAT_ENGINE" = claude_agent_sdk ] && [ -n "$fake_mcp" ]; then
+  fake_mcp_bearer="$(docker exec "$fake_mcp" printenv FAKE_MCP_BEARER </dev/null)"
+  seeds+=(mcp_servers:fake=fake_mcp_bearer)
+fi
+seed_credentials compat_owner_cookie "${seeds[@]}" -- \
+  docker exec -i -e SEED_COOKIE "$fake_git" bun run packages/testkit/src/seed-credentials-main.ts \
+  >"$out/seed.log" 2>&1 || { cat "$out/seed.log" >&2; exit 1; }
 drive 2
 
 echo "== stage 3: every control-host role of ${new_control_host:-this checkout}" >&2

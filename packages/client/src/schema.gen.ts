@@ -4358,7 +4358,7 @@ export interface paths {
         };
         /**
          * The installation's settings as one document, without a value
-         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. The provider connections, repositories and remote MCP servers the database holds, each entry in the shape the document holds it; disabled and removed rows are left out, so this is the active settings to copy, not a backup. An env or Secrets Manager reference comes back as its name (`value_env`, `secret_id`); a value the database stores as `stored: true` and its `last4`, never the value. Execution ceilings are not in it. `digest` is the SHA-256 of the document's canonical JSON, `last4` included. Changes nothing.
+         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. The provider connections, repositories and remote MCP servers the database holds, each entry in the shape the document holds it; disabled and removed rows are left out, so this is the active settings to copy, not a backup. A credential comes back as `stored: true` and its `last4`, never the value. Execution ceilings are not in it. `digest` is the SHA-256 of the document's canonical JSON, `last4` included. Changes nothing.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -4382,7 +4382,7 @@ export interface paths {
         put?: never;
         /**
          * Add the entries of a settings document the installation lacks
-         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Adds each entry whose id no row holds, in one transaction, and writes an `import_connection`, `import_repository` or `import_mcp_server` receipt for each. An id held with the same content is `unchanged` (`inactive` when that row is disabled or removed: it stays so), and nothing is overwritten: an id held with other content, a GitHub App repository another id already holds, or a new stored entry whose id already has a value is 409 REVISION_CONFLICT (`details.reason_code: settings_conflict`, `details.entries`) and nothing changes. An entry bringing an env or Secrets Manager reference the installation does not hold yet is 400 `external_reference` (`details.entries`), nothing changed: only the operator's `settings import` CLI brings those in. A `stored: true` entry always means its own row's value and runs once the value is set (`needs_value`). A wrong outline (`version`, the top-level keys) is 400 with `details.issues`; an entry the settings rules refuse is 400 `invalid_document`. `dry_run=true` answers the same without writing.
+         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Adds each entry whose id no row holds, in one transaction, and writes an `import_connection`, `import_repository` or `import_mcp_server` receipt for each. An id held with the same content is `unchanged` (`inactive` when that row is disabled or removed: it stays so), and nothing is overwritten: an id held with other content, a GitHub App repository another id already holds, or a new stored entry whose id already has a value is 409 REVISION_CONFLICT (`details.reason_code: settings_conflict`, `details.entries`) and nothing changes. A credential is `stored: true` only: an entry naming `value_env` or `secret_id` is 400 `invalid_document`, its message naming the field. A `stored: true` entry always means its own row's value and runs once the value is set (`needs_value`). A wrong outline (`version`, the top-level keys) is 400 with `details.issues`; an entry the settings rules refuse is 400 `invalid_document`. `dry_run=true` answers the same without writing.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -4402,7 +4402,7 @@ export interface paths {
         };
         /**
          * The provider connections, from the file and the console
-         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. The database's rows, disabled ones included, by id. A credential is shown as `stored` with its `last4`, or as the name of the env or Secrets Manager reference; never a value. `state`: `needs_value` (stored, no value yet), `unresolved` (the credential did not resolve on the replica that answered), `disabled`, else `active`. Changes nothing.
+         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. The database's rows, disabled ones included, by id. A credential is shown as `stored` with its `last4`; never a value. `state`: `needs_value` (stored, no value yet), `unresolved` (the credential did not resolve on the replica that answered), `disabled`, else `active`. Changes nothing.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -4410,7 +4410,7 @@ export interface paths {
         put?: never;
         /**
          * Make a provider connection with a key typed in
-         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. The credential is the value in the request, sealed under this row alone in the same transaction as the row; a reference to the deployment's env or Secrets Manager is the operator's settings CLI's. The destination never changes after: another one is a new id. An id ever used (disabled rows count) is 409 `already_exists`; an entry the catalog's rules refuse is 400 `invalid_entry`. An empty `endpoint` is stored as the kind's default from `endpoint_defaults`; a kind with none answers `400` `invalid_entry`. Writes a `create_connection` receipt.
+         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. The credential is the value in the request, required and at least 8 characters, sealed under this row alone in the same transaction as the row; a row is never made without it. The destination never changes after: another one is a new id. An id ever used (disabled rows count) is 409 `already_exists`; an entry the catalog's rules refuse is 400 `invalid_entry`. An empty `endpoint` is stored as the kind's default from `endpoint_defaults`; a kind with none answers `400` `invalid_entry`. Writes a `create_connection` receipt.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -4454,33 +4454,11 @@ export interface paths {
         put?: never;
         /**
          * Replace a connection's stored key
-         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Seals a new value for a row that stores its own: rotating it or giving a `needs_value` row its first. Running sessions are not stopped. A row whose credential comes from the operator's deployment is 409 `not_stored`, a disabled one 409 `disabled`. Writes a `set_settings_credential` receipt naming the last four characters.
+         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Seals a new value for a row that stores its own: rotating it or giving a `needs_value` row its first. Running sessions are not stopped. A repository with no credential of its own is 409 `not_stored`, a disabled row 409 `disabled`, except a disabled connection with no value yet, which takes its first so it can be enabled again. Writes a `set_settings_credential` receipt naming the last four characters.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         post: operations["setSettingsConnectionCredential"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/installation/settings/connections/{id}/convert": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Move a connection's key from the deployment to a stored value
-         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. For a connection whose key comes from the operator's deployment (an env or Secrets Manager reference): the person types the key, it is sealed under the same id, and the row is stored from then on. The server does not read the referenced value. Ceilings made before keep running on the stored key and their pins do not change. A settings document that still names the old entry leaves the row as it is. A connection that already keeps its own value is 409 `not_external`, a disabled one 409 `disabled`, one that another connection is or was exactly 409 `alias_taken`. Writes a `set_settings_credential` receipt naming the last four characters and which reference it replaced.
-         *
-         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
-         */
-        post: operations["convertSettingsConnection"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4564,7 +4542,7 @@ export interface paths {
         put?: never;
         /**
          * Enable a disabled provider connection again
-         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Brings a disabled connection back: releases on it run again once the settings are read again (a reference to the deployment that does not resolve leaves it `unresolved`). It is refused with 409 `not_disabled` when the row is in use, 409 `definition_active` when another connection in use is, or was, exactly what this one is (disable that one first), and 409 `needs_value` when its stored value is gone (disabling keeps it, so this is rare). The destination never changes. Writes an `enable_connection` receipt.
+         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Brings a disabled connection back: releases on it run again once the settings are read again. It is refused with 409 `not_disabled` when the row is in use, 409 `definition_active` when another connection in use is exactly what this one is (disable that one first), and 409 `needs_value` when its stored value is gone (disabling keeps it, so this is rare). The destination never changes. Writes an `enable_connection` receipt.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -4584,7 +4562,7 @@ export interface paths {
         };
         /**
          * The remote MCP servers, from the file and the console
-         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. The database's rows, disabled ones included, by id. A credential is shown as `stored` with its `last4`, or as the name of the env or Secrets Manager reference; never a value. `state`: `needs_value` (stored, no value yet), `unresolved` (the credential did not resolve on the replica that answered), `disabled`, else `active`. Changes nothing. A server's tools are named `mcp__<id>__<tool>` and are known only once a session reaches it.
+         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. The database's rows, disabled ones included, by id. A credential is shown as `stored` with its `last4`; never a value. `state`: `needs_value` (stored, no value yet), `unresolved` (the credential did not resolve on the replica that answered), `disabled`, else `active`. Changes nothing. A server's tools are named `mcp__<id>__<tool>` and are known only once a session reaches it.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -4592,7 +4570,7 @@ export interface paths {
         put?: never;
         /**
          * Make a remote MCP server with a bearer typed in
-         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. The credential is the value in the request, sealed under this row alone in the same transaction as the row; a reference to the deployment's env or Secrets Manager is the operator's settings CLI's. The destination never changes after: another one is a new id. An id ever used (disabled rows count) is 409 `already_exists`; an entry the catalog's rules refuse is 400 `invalid_entry`. `github` is the built-in server's name. Writes a `create_mcp_server` receipt.
+         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. The credential is the value in the request, required and at least 8 characters, sealed under this row alone in the same transaction as the row; a row is never made without it. The destination never changes after: another one is a new id. An id ever used (disabled rows count) is 409 `already_exists`; an entry the catalog's rules refuse is 400 `invalid_entry`. `github` is the built-in server's name. Writes a `create_mcp_server` receipt.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -4636,7 +4614,7 @@ export interface paths {
         put?: never;
         /**
          * Replace an MCP server's stored bearer
-         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Seals a new value for a row that stores its own: rotating it or giving a `needs_value` row its first. Running sessions are not stopped. A row whose credential comes from the operator's deployment is 409 `not_stored`, a disabled one 409 `disabled`. Writes a `set_settings_credential` receipt naming the last four characters.
+         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Seals a new value for a row that stores its own: rotating it or giving a `needs_value` row its first. Running sessions are not stopped. A repository with no credential of its own is 409 `not_stored`, a disabled row 409 `disabled`, except a disabled connection with no value yet, which takes its first so it can be enabled again. Writes a `set_settings_credential` receipt naming the last four characters.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -4658,7 +4636,7 @@ export interface paths {
         put?: never;
         /**
          * Replace a repository's stored credential
-         * @description Owners and admins (`workspace.manage`), signed in; an API key is 403 whatever its scopes. Seals a new value for a row that stores its own: rotating it or giving a `needs_value` row its first. Running sessions are not stopped. A row whose credential comes from the operator's deployment is 409 `not_stored`, a disabled one 409 `disabled`. Writes a `set_settings_credential` receipt naming the last four characters. For a repository naming its own GitHub App the value is the App's private key: anything but an RSA private key PEM is 400 `invalid_private_key`, and the repository's id, App and installation stay as they are. A repository using the App registered in the console is 404. The value is in no response, log or error.
+         * @description Owners and admins (`workspace.manage`), signed in; an API key is 403 whatever its scopes. Seals a new value for a row that stores its own: rotating it or giving a `needs_value` row its first. Running sessions are not stopped. A repository with no credential of its own is 409 `not_stored`, a disabled row 409 `disabled`, except a disabled connection with no value yet, which takes its first so it can be enabled again. Writes a `set_settings_credential` receipt naming the last four characters. For a repository naming its own GitHub App the value is the App's private key: anything but an RSA private key PEM is 400 `invalid_private_key`, and the repository's id, App and installation stay as they are. A repository using the App registered in the console is 404. The value is in no response, log or error.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -9847,11 +9825,6 @@ export interface components {
                     last4: string | null;
                 } | {
                     /** @constant */
-                    source: "external";
-                    value_env?: string;
-                    secret_id?: string;
-                } | {
-                    /** @constant */
                     source: "none";
                 };
                 created_at: string;
@@ -9876,11 +9849,6 @@ export interface components {
                     /** @constant */
                     source: "stored";
                     last4: string | null;
-                } | {
-                    /** @constant */
-                    source: "external";
-                    value_env?: string;
-                    secret_id?: string;
                 } | {
                     /** @constant */
                     source: "none";
@@ -43450,7 +43418,7 @@ export interface operations {
                      *             "endpoint": "https://api.anthropic.com",
                      *             "auth": {
                      *               "kind": "api_key",
-                     *               "value_env": "ANTHROPIC_API_KEY"
+                     *               "stored": true
                      *             }
                      *           },
                      *           "anthropic-console": {
@@ -43553,7 +43521,7 @@ export interface operations {
                  *           "endpoint": "https://api.anthropic.com",
                  *           "auth": {
                  *             "kind": "api_key",
-                 *             "value_env": "ANTHROPIC_API_KEY"
+                 *             "stored": true
                  *           }
                  *         },
                  *         "anthropic-console": {
@@ -44084,155 +44052,6 @@ export interface operations {
                     /**
                      * @example {
                      *       "id": "anthropic-console",
-                     *       "receipt_id": "019a0000-0000-7000-8000-0000000000f3"
-                     *     }
-                     */
-                    "application/json": components["schemas"]["SettingsChangeResponse"];
-                };
-            };
-            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
-            400: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "BAD_REQUEST";
-                        };
-                    };
-                };
-            };
-            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
-            401: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "UNAUTHORIZED";
-                        };
-                    };
-                };
-            };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
-            403: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "FORBIDDEN";
-                        };
-                    };
-                };
-            };
-            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
-            404: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "NOT_FOUND";
-                        };
-                    };
-                };
-            };
-            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
-            408: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "REQUEST_TIMEOUT";
-                        };
-                    };
-                };
-            };
-            /** @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. */
-            409: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "REVISION_CONFLICT";
-                        };
-                    };
-                };
-            };
-            500: components["responses"]["InternalError"];
-            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
-            503: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    "Retry-After": components["headers"]["RetryAfter"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "BACKEND_UNAVAILABLE";
-                        };
-                    };
-                };
-            };
-        };
-    };
-    convertSettingsConnection: {
-        parameters: {
-            query?: never;
-            header?: {
-                /** @description Required with a cookie session: the literal `werft-web`. */
-                "X-Requested-With"?: "werft-web";
-            };
-            path: {
-                /** @description The model connection's id. */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                /**
-                 * @example {
-                 *       "value": "example-key"
-                 *     }
-                 */
-                "application/json": components["schemas"]["SetSettingsCredentialRequest"];
-            };
-        };
-        responses: {
-            /** @description The entry's id and the change's receipt. */
-            200: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "id": "anthropic-main",
                      *       "receipt_id": "019a0000-0000-7000-8000-0000000000f3"
                      *     }
                      */

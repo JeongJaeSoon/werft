@@ -47,7 +47,7 @@ const PROVIDER = {
   auth: {
     kind: "api_key" as const,
     value: "catalog-provider-key",
-    ref: { value_env: "PROVIDER_KEY" },
+    ref: { stored: "connection:test-connection" },
   },
 };
 const FAMILIES = {

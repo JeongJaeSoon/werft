@@ -74,7 +74,7 @@ integration("claim replay against the session's current binding", () => {
           auth: {
             kind: "api_key",
             value: "catalog-provider-key",
-            ref: { value_env: "PROVIDER_KEY" },
+            ref: { stored: "connection:test-connection" },
           },
         },
         models: ["claude-sonnet-5"],

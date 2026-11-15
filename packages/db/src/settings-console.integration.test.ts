@@ -241,14 +241,59 @@ integration("settings console writes", () => {
     }
   });
 
-  test("an operator's reference is only disabled: no value, no workspaces change", async () => {
+  test("an imported MCP server needs its value and takes it from the console", async () => {
+    const owner = await person("owner");
+    const imported = await store().importEntries(
+      parseSettingsDocument({
+        version: 1,
+        connections: {},
+        repositories: {},
+        mcp_servers: { "imported-docs": MCP },
+      }),
+      { dryRun: false, actor: null },
+    );
+    expect(imported).toMatchObject({
+      outcome: "applied",
+      needs_value: ["mcp:imported-docs"],
+    });
+    const [row] = await db
+      .select()
+      .from(mcpServers)
+      .where(eq(mcpServers.id, "imported-docs"));
+    expect(row).toMatchObject({
+      origin: "import",
+      credentialSource: "stored",
+      auth: { kind: "bearer", stored: "mcp:imported-docs" },
+    });
+    expect(
+      (await settings().read({ openStored: true })).stored.has(
+        "mcp:imported-docs",
+      ),
+    ).toBe(false);
+    expect(
+      (
+        await store().setValue(
+          { kind: "mcp", id: "imported-docs" },
+          "imported-token-5678",
+          owner,
+        )
+      ).outcome,
+    ).toBe("done");
+    expect(
+      (await settings().read({ openStored: true })).stored.get(
+        "mcp:imported-docs",
+      ),
+    ).toBe("imported-token-5678");
+  });
+
+  test("a row naming another row's value is only disabled: no value, no workspaces change", async () => {
     const owner = await person("owner");
     await db.insert(mcpServers).values({
       id: "operator-docs",
       url: "https://mcp.example.invalid/op",
       credentialRef: "op_token",
-      auth: { kind: "bearer", value_env: "MCP_TOKEN" },
-      credentialSource: "external",
+      auth: { kind: "bearer", stored: "mcp:someone-else" },
+      credentialSource: "stored",
       workspaces: ["acme"],
       origin: "import",
     });
@@ -283,7 +328,10 @@ integration("settings console writes", () => {
     expect(
       (await settings().read({ openStored: true })).stored.get("mcp:docs"),
     ).toBe("second");
-    const [turned] = await receiptsOf("set_settings_credential");
+    const turned = (await receiptsOf("set_settings_credential")).find(
+      (one) =>
+        (one.result as { mcp_server_id?: string }).mcp_server_id === "docs",
+    );
     expect(turned?.result).toEqual({ mcp_server_id: "docs", last4: "cond" });
 
     expect(
@@ -309,176 +357,26 @@ integration("settings console writes", () => {
     ).toEqual({ outcome: "conflict", reason: "already_exists" });
   });
 
-  describe("moving an env-referenced connection to a typed key", () => {
-    const FROM_ENV = {
-      kind: "anthropic",
-      endpoint: "https://api.anthropic.com",
-      auth: { kind: "api_key", value_env: "MOVE_ME_KEY" },
-    };
-    const importOptions = {
-      dryRun: false,
-      allowExternal: true,
-      actor: null,
-    } as const;
-    const document = (connections: Record<string, unknown>) =>
-      parseSettingsDocument({
-        version: 1,
-        connections,
-        repositories: {},
-        mcp_servers: {},
-      });
-
-    test("the row turns stored under its id, remembers the reference, and seals the typed value", async () => {
-      const owner = await person("owner");
-      await store().importEntries(
-        document({ "move-main": FROM_ENV }),
-        importOptions,
-      );
-      const moved = await store().convertConnection(
-        "move-main",
-        "typed-key-9876",
-        owner,
-      );
-      expect(moved.outcome).toBe("done");
-
-      const [row] = await db
-        .select()
-        .from(providerConnections)
-        .where(eq(providerConnections.id, "move-main"));
-      expect(row).toMatchObject({
-        origin: "import",
-        credentialSource: "stored",
-        definition: {
-          auth: { kind: "api_key", stored: "connection:move-main" },
-        },
-        replacesAuth: { kind: "api_key", value_env: "MOVE_ME_KEY" },
-      });
-      // A reference name, never a value.
-      expect(JSON.stringify(row?.replacesAuth)).not.toContain("typed-key");
-
-      const read = await settings().read({ openStored: true });
-      const item = read.connections.find((one) => one.id === "move-main");
-      expect(item?.provider.auth).toMatchObject({
-        stored: "connection:move-main",
-      });
-      expect(item?.replaces?.auth).toMatchObject({ value_env: "MOVE_ME_KEY" });
-      expect(read.stored.get("connection:move-main")).toBe("typed-key-9876");
-
-      const receipt = (await receiptsOf("set_settings_credential")).find(
-        (one) =>
-          (one.result as { connection_id?: string }).connection_id ===
-          "move-main",
-      );
-      expect(receipt?.result).toEqual({
-        connection_id: "move-main",
-        last4: "9876",
-        replaced: "value_env",
-      });
-      expect(JSON.stringify(receipt?.result)).not.toContain("typed-key-");
-    });
-
-    test("a settings document that still names the old entry leaves the row alone", async () => {
-      const again = await store().importEntries(
-        document({ "move-main": FROM_ENV }),
-        importOptions,
-      );
-      expect(again).toMatchObject({
-        outcome: "applied",
-        conflicts: [],
-        kept: ["connection:move-main"],
-      });
-      const [row] = await db
-        .select()
-        .from(providerConnections)
-        .where(eq(providerConnections.id, "move-main"));
-      expect(row?.credentialSource).toBe("stored");
-    });
-
-    test("a document naming it with another reference is still a conflict", async () => {
-      const refused = await store().importEntries(
-        document({
-          "move-main": {
-            ...FROM_ENV,
-            auth: { kind: "api_key", value_env: "SOMETHING_ELSE" },
+  test("a document naming an env or Secrets Manager reference is refused, naming the field", () => {
+    for (const field of ["value_env", "secret_id"]) {
+      expect(() =>
+        parseSettingsDocument({
+          version: 1,
+          connections: {
+            "from-env": {
+              ...CONNECTION,
+              auth: { kind: "api_key", [field]: "SOME_NAME" },
+            },
           },
+          repositories: {},
+          mcp_servers: {},
         }),
-        importOptions,
-      );
-      expect(refused).toMatchObject({
-        outcome: "refused",
-        conflicts: ["connection:move-main"],
-      });
-    });
-
-    test("a row that keeps its own value, a disabled one and a missing one are refused", async () => {
-      const owner = await person("owner");
-      await store().create(
-        add("connections", "move-own", CONNECTION),
-        "own-key-1111",
-        owner,
-      );
-      expect(
-        await store().convertConnection("move-own", "typed-key-2222", owner),
-      ).toEqual({ outcome: "conflict", reason: "not_external" });
-      expect(
-        await store().convertConnection("move-main", "typed-key-3333", owner),
-      ).toEqual({ outcome: "conflict", reason: "not_external" });
-      expect(
-        await store().convertConnection("move-nobody", "typed-key-4444", owner),
-      ).toEqual({ outcome: "not_found" });
-
-      await store().importEntries(
-        document({
-          "move-off": {
-            ...FROM_ENV,
-            auth: { kind: "api_key", value_env: "OFF_KEY" },
-          },
-        }),
-        importOptions,
-      );
-      await store().disable({ kind: "connection", id: "move-off" }, owner);
-      expect(
-        await store().convertConnection("move-off", "typed-key-5555", owner),
-      ).toEqual({ outcome: "conflict", reason: "disabled" });
-    });
-
-    test("a connection another row is exactly, now or before, is refused so two keys never mix", async () => {
-      const owner = await person("owner");
-      // `move-twin` names the same reference `move-first` does: a ceiling
-      // made over that reference could belong to either.
-      await store().importEntries(
-        document({
-          "move-first": {
-            ...FROM_ENV,
-            auth: { kind: "api_key", value_env: "TWIN_KEY" },
-          },
-          "move-twin": {
-            ...FROM_ENV,
-            auth: { kind: "api_key", value_env: "TWIN_KEY" },
-          },
-        }),
-        importOptions,
-      );
-      expect(
-        await store().convertConnection("move-first", "typed-key-6666", owner),
-      ).toEqual({ outcome: "conflict", reason: "alias_taken" });
-      expect(
-        await db
-          .select()
-          .from(secretValues)
-          .where(eq(secretValues.ownerRef, "connection:move-first")),
-      ).toEqual([]);
-    });
+      ).toThrow(`connections.from-env.auth.${field} is no longer supported`);
+    }
   });
 
   describe("enabling a connection again", () => {
-    const external = (valueEnv: string) => ({
-      kind: "anthropic",
-      endpoint: "http://fake-model:8080",
-      billing: "none",
-      auth: { kind: "api_key", value_env: valueEnv },
-    });
-    const importExternal = (connections: Record<string, unknown>) =>
+    const importStored = (connections: Record<string, unknown>) =>
       store().importEntries(
         parseSettingsDocument({
           version: 1,
@@ -486,8 +384,36 @@ integration("settings console writes", () => {
           repositories: {},
           mcp_servers: {},
         }),
-        { dryRun: false, allowExternal: true, actor: null },
+        { dryRun: false, actor: null },
       );
+    // Rows holding one definition can only be written directly: each import
+    // or console row names its own value. Each still has its own value set.
+    const twins = async (ids: string[]) => {
+      for (const id of ids) {
+        await db.insert(providerConnections).values({
+          id,
+          definition: {
+            ...CONNECTION,
+            auth: { kind: "api_key", stored: `connection:${ids[0]}` },
+          },
+          credentialSource: "stored",
+          origin: "import",
+        });
+        await db.transaction((tx) =>
+          writeSecretInTx(
+            tx,
+            KEY,
+            {
+              workspaceId,
+              owner: { kind: "connection", id },
+              purpose: "settings_credential",
+            },
+            `${id}-key-0000`,
+            null,
+          ),
+        );
+      }
+    };
     const rowOf = async (id: string) =>
       (
         await db
@@ -561,10 +487,7 @@ integration("settings console writes", () => {
 
     test("another connection in use holding the same definition refuses it; one disabled does not", async () => {
       const owner = await person("owner");
-      await importExternal({
-        "en-twin-a": external("EN_TWIN_KEY"),
-        "en-twin-b": external("EN_TWIN_KEY"),
-      });
+      await twins(["en-twin-a", "en-twin-b"]);
       await off(owner, "en-twin-a");
       expect(await store().enableConnection("en-twin-a", owner)).toEqual({
         outcome: "conflict",
@@ -584,31 +507,7 @@ integration("settings console writes", () => {
       });
     });
 
-    test("a live connection that is, or was, exactly this one's old reference refuses it", async () => {
-      const owner = await person("owner");
-      await importExternal({ "en-moved": external("EN_MOVED_KEY") });
-      await store().convertConnection("en-moved", "moved-key-3333", owner);
-      await off(owner, "en-moved");
-      // The row now says `stored`; a live row spelled as the old reference
-      // would be found by the ceilings made over it.
-      const moved = await rowOf("en-moved");
-      await db.insert(providerConnections).values({
-        id: "en-spelled-old",
-        definition: { ...moved?.definition, auth: moved?.replacesAuth },
-        credentialSource: "external",
-        origin: "import",
-      });
-      expect(await store().enableConnection("en-moved", owner)).toEqual({
-        outcome: "conflict",
-        reason: "definition_active",
-      });
-      await off(owner, "en-spelled-old");
-      expect((await store().enableConnection("en-moved", owner)).outcome).toBe(
-        "done",
-      );
-    });
-
-    test("a stored connection whose value is gone needs one first; a deployment's reference is let through", async () => {
+    test("a connection whose value is gone, or an imported one never given one, needs one first", async () => {
       const owner = await person("owner");
       await store().create(
         add("connections", "en-lost", CONNECTION),
@@ -626,19 +525,36 @@ integration("settings console writes", () => {
       expect((await rowOf("en-lost"))?.disabledAt).not.toBeNull();
       expect(await enableReceipts("en-lost")).toEqual([]);
 
-      await importExternal({ "en-ref": external("EN_REF_KEY") });
-      await off(owner, "en-ref");
-      expect((await store().enableConnection("en-ref", owner)).outcome).toBe(
-        "done",
-      );
+      await importStored({ "en-imported": CONNECTION });
+      await off(owner, "en-imported");
+      expect(await store().enableConnection("en-imported", owner)).toEqual({
+        outcome: "conflict",
+        reason: "needs_value",
+      });
+      expect((await rowOf("en-imported"))?.disabledAt).not.toBeNull();
+
+      // Still disabled, it takes its first value, but no second one.
+      const first = { kind: "connection" as const, id: "en-imported" };
+      expect(
+        (await store().setValue(first, "first-key-1111", owner)).outcome,
+      ).toBe("done");
+      expect(await store().setValue(first, "again-key-2222", owner)).toEqual({
+        outcome: "conflict",
+        reason: "disabled",
+      });
+      expect(
+        (await store().enableConnection("en-imported", owner)).outcome,
+      ).toBe("done");
+      expect(
+        (await settings().read({ openStored: true })).stored.get(
+          "connection:en-imported",
+        ),
+      ).toBe("first-key-1111");
     });
 
     test("two twins enabled at once: one is done and the other sees it, so never two live", async () => {
       const owner = await person("owner");
-      await importExternal({
-        "en-pair-a": external("EN_PAIR_KEY"),
-        "en-pair-b": external("EN_PAIR_KEY"),
-      });
+      await twins(["en-pair-a", "en-pair-b"]);
       await off(owner, "en-pair-a");
       await off(owner, "en-pair-b");
       const results = await Promise.all([
@@ -653,28 +569,6 @@ integration("settings console writes", () => {
         (one) => one.id.startsWith("en-pair-") && one.disabledAt === null,
       );
       expect(live).toHaveLength(1);
-    });
-
-    test("a live connection that once held the same old reference refuses it, though their definitions differ", async () => {
-      const owner = await person("owner");
-      await importExternal({ "en-old-a": external("EN_OLD_KEY") });
-      await store().convertConnection("en-old-a", "old-key-7777", owner);
-      await off(owner, "en-old-a");
-      const first = await rowOf("en-old-a");
-      await db.insert(providerConnections).values({
-        id: "en-old-b",
-        definition: {
-          ...first?.definition,
-          auth: { kind: "api_key", stored: "connection:en-old-b" },
-        },
-        credentialSource: "stored",
-        origin: "console",
-        replacesAuth: first?.replacesAuth ?? null,
-      });
-      expect(await store().enableConnection("en-old-a", owner)).toEqual({
-        outcome: "conflict",
-        reason: "definition_active",
-      });
     });
 
     test("two enables at once: one is done, one is told it is no longer disabled, one receipt", async () => {

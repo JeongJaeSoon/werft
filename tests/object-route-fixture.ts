@@ -74,7 +74,7 @@ export async function startObjectRouteFixture(options: {
         auth: {
           kind: "api_key",
           value: "catalog-provider-value",
-          ref: { value_env: "PROVIDER_KEY" },
+          ref: { stored: "connection:conn-1" },
         },
       },
       models: ["claude-sonnet-5", "claude-sonnet-4-5"],

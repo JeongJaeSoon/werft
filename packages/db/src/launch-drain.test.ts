@@ -36,7 +36,7 @@ const CATALOG: SessionCatalog = testSessionCatalog({
     auth: {
       kind: "api_key",
       value: "provider-key",
-      ref: { value_env: "PROVIDER_KEY" },
+      ref: { stored: "connection:test-connection" },
     },
   },
   models: ["claude-sonnet-5"],
