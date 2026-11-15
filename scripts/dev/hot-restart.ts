@@ -23,7 +23,7 @@
  * thus comes back without a save. The delay doubles from DEV_RESTART_MIN_MS
  * (default 1000) to DEV_RESTART_MAX_MS (default 30000) while the command keeps
  * exiting within the longest delay, so a crash on a half-written file costs
- * one start every 30s, and a change starts it at once.
+ * one start per longest delay, and a change starts it at once.
  */
 
 import {
@@ -137,8 +137,11 @@ async function main(args: string[]) {
   const graceMs = intEnv("DEV_STOP_GRACE_MS", 30_000);
   const minDelayMs = intEnv("DEV_RESTART_MIN_MS", 1000);
   const maxDelayMs = intEnv("DEV_RESTART_MAX_MS", 30_000);
-  if (minDelayMs < 1 || maxDelayMs < minDelayMs) {
-    log("DEV_RESTART_MIN_MS must be at least 1 and at most DEV_RESTART_MAX_MS");
+  // A timer above 2^31 - 1 ms fires after 1ms instead.
+  if (minDelayMs < 1 || maxDelayMs < minDelayMs || maxDelayMs > 2 ** 31 - 1) {
+    log(
+      "DEV_RESTART_MIN_MS must be at least 1, and DEV_RESTART_MAX_MS at least that and at most 2147483647",
+    );
     process.exit(2);
   }
 
