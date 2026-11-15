@@ -437,9 +437,16 @@ describe("설정 › 실행 한도의 세션 기록 보관", () => {
   });
 
   test("0은 보관하지 않음으로 저장하고, 29일은 보내지 않는다", async () => {
+    let current = DEFAULTS;
     const { api } = renderAt(PAGE, {
-      ...routes(() => DEFAULTS),
-      [`PATCH ${API}`]: () => json(200, { ...DEFAULTS, receipt_id: RECEIPT }),
+      ...routes(() => current),
+      [`PATCH ${API}`]: () => {
+        current = {
+          ...DEFAULTS,
+          session_archive_after_days: { ...entry(0, true), default: 180 },
+        };
+        return json(200, { ...current, receipt_id: RECEIPT });
+      },
     });
     const user = await setupUser();
     const area = await archiveSection();
@@ -458,6 +465,39 @@ describe("설정 › 실행 한도의 세션 기록 보관", () => {
     expect(api.calls.find((call) => call.method === "PATCH")?.body).toEqual({
       session_archive_after_days: 0,
     });
+    expect(days(area).value).toBe("0");
+    screen.getByText("저장하지 않은 변경이 없습니다.");
+  });
+
+  test("서버가 보관 작업만 거절하면 그 선택에만 이유를 두고 포커스를 옮긴다", async () => {
+    renderAt(PAGE, {
+      ...routes(() => DEFAULTS),
+      [`PATCH ${API}`]: () =>
+        apiError(400, "BAD_REQUEST", "Request body is invalid", false, {
+          issues: [{ path: "session_archive_dry_run", message: "no" }],
+        }),
+    });
+    const user = await setupUser();
+    const area = await archiveSection();
+    await user.clear(days(area));
+    await user.type(days(area), "90");
+    await user.selectOptions(mode(area), "move");
+    await user.click(saveButton());
+    await waitFor(() =>
+      expect(mode(area).getAttribute("aria-invalid")).toBe("true"),
+    );
+    expect(document.activeElement === mode(area)).toBe(true);
+    expect(days(area).getAttribute("aria-invalid")).toBe(null);
+    expect(area.textContent).not.toContain(
+      "0(보관하지 않음) 또는 30부터 3,650까지의 정수(일)를 적으세요.",
+    );
+    const error = (mode(area).getAttribute("aria-describedby") ?? "")
+      .split(" ")
+      .map((id) => document.getElementById(id))
+      .find((element) => element?.getAttribute("role") === "alert");
+    expect((error?.textContent ?? "").length).toBeGreaterThan(0);
+    expect(days(area).value).toBe("90");
+    expect(mode(area).value).toBe("move");
   });
 
   test("보관할 수 없는 설치는 이유를 알리고, 저장한 뒤에도 그 안내가 남는다", async () => {

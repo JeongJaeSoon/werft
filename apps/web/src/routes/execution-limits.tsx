@@ -48,6 +48,8 @@ type Drafts = Partial<
 >;
 /** One row of the form: a number limit's name, or one of the others. */
 type Row = NumberLimit["name"] | "enforce" | "archive";
+/** A control that carries its own error: the archive row has two. */
+type Field = Row | "archiveMode";
 
 export type NumberLimit = {
   readonly key: NumberKey;
@@ -228,6 +230,16 @@ const ROW_OF = Object.fromEntries([
 const rowsOf = (keys: readonly string[]): Row[] =>
   ROWS.filter((row) => keys.some((key) => ROW_OF[key] === row));
 
+const FIELDS: readonly Field[] = [...ROWS, "archiveMode"];
+const FIELD_OF: Record<string, Field | undefined> = {
+  ...ROW_OF,
+  session_archive_dry_run: "archiveMode",
+};
+
+/** The controls of these keys, in the form's order. */
+const fieldsOf = (keys: readonly string[]): Field[] =>
+  FIELDS.filter((field) => keys.some((key) => FIELD_OF[key] === field));
+
 /**
  * What one save sends: each key whose shown value is not the saved one, or
  * that is blocked (it takes any valid value, the default shown included);
@@ -297,10 +309,10 @@ function Limits({
   });
   // Untouched, a field follows the server's value as it refreshes.
   const [drafts, setDrafts] = useState<Drafts>({});
-  const [errors, setErrors] = useState<Partial<Record<Row, string>>>({});
-  const controls = useRef<Partial<Record<Row, HTMLElement | null>>>({});
+  const [errors, setErrors] = useState<Partial<Record<Field, string>>>({});
+  const controls = useRef<Partial<Record<Field, HTMLElement | null>>>({});
 
-  const invalidText = (row: Row, error?: ApiError): string => {
+  const invalidText = (row: Field, error?: ApiError): string => {
     if (row === "archive") {
       return t("limits.archive.daysInvalid", {
         min: ARCHIVE_DAYS.min,
@@ -308,7 +320,7 @@ function Limits({
       });
     }
     // A choice from the list is never invalid here; only the server refuses.
-    if (row === "enforce") {
+    if (row === "enforce" || row === "archiveMode") {
       return error ? refusalText(t, error, PERMISSION, role) : "";
     }
     const limit = NUMBER_LIMITS.find((each) => each.name === row);
@@ -316,11 +328,13 @@ function Limits({
       max: new Intl.NumberFormat(locale).format(limit?.max ?? 0),
     });
   };
-  const showErrors = (rows: readonly Row[], error?: ApiError) => {
+  const showErrors = (fields: readonly Field[], error?: ApiError) => {
     setErrors(
-      Object.fromEntries(rows.map((row) => [row, invalidText(row, error)])),
+      Object.fromEntries(
+        fields.map((field) => [field, invalidText(field, error)]),
+      ),
     );
-    const first = rows[0];
+    const first = fields[0];
     if (first) controls.current[first]?.focus();
   };
 
@@ -339,7 +353,7 @@ function Limits({
           Object.entries(current).filter(
             ([key]) =>
               key in left.patch ||
-              left.invalid.some((row) => ROW_OF[key] === row),
+              left.invalid.some((row) => FIELD_OF[key] === row),
           ),
         ) as Drafts;
       });
@@ -362,7 +376,7 @@ function Limits({
         return;
       }
       const named = refusedKeys(error).filter((key) => key in sent);
-      showErrors(rowsOf(named.length > 0 ? named : Object.keys(sent)), error);
+      showErrors(fieldsOf(named.length > 0 ? named : Object.keys(sent)), error);
       onOutcome({ kind: "error", text: t("limits.notSaved") });
     },
   });
@@ -376,12 +390,19 @@ function Limits({
   const config = read.data;
   const { patch, invalid } = pendingOf(config, drafts);
   const count = new Set([...rowsOf(Object.keys(patch)), ...invalid]).size;
-  const change = (row: Row, next: Drafts) => {
+  const change = (next: Drafts) => {
     setDrafts((current) => ({ ...current, ...next }));
-    setErrors(({ [row]: _cleared, ...rest }) => rest);
+    const cleared = fieldsOf(Object.keys(next));
+    setErrors((current) =>
+      Object.fromEntries(
+        Object.entries(current).filter(
+          ([field]) => !cleared.includes(field as Field),
+        ),
+      ),
+    );
   };
-  const controlOf = (row: Row) => (element: HTMLElement | null) => {
-    controls.current[row] = element;
+  const controlOf = (field: Field) => (element: HTMLElement | null) => {
+    controls.current[field] = element;
   };
 
   const submit = (event: FormEvent) => {
@@ -425,9 +446,7 @@ function Limits({
             typed={drafts[limit.key] ?? `${config[limit.key].value}`}
             error={errors[limit.name]}
             controlRef={controlOf(limit.name)}
-            onChange={(text) =>
-              change(limit.name, { [limit.key]: text } as Drafts)
-            }
+            onChange={(text) => change({ [limit.key]: text } as Drafts)}
           />
         ))}
         <EnforceRow
@@ -435,7 +454,7 @@ function Limits({
           chosen={drafts.workspace_enforce ?? config.workspace_enforce.value}
           error={errors.enforce}
           controlRef={controlOf("enforce")}
-          onChange={(value) => change("enforce", { workspace_enforce: value })}
+          onChange={(value) => change({ workspace_enforce: value })}
         />
         <ArchiveRow
           config={config}
@@ -447,9 +466,11 @@ function Limits({
             drafts.session_archive_dry_run ??
             config.session_archive_dry_run.value
           }
-          error={errors.archive}
-          controlRef={controlOf("archive")}
-          onChange={(next) => change("archive", next)}
+          daysError={errors.archive}
+          modeError={errors.archiveMode}
+          daysRef={controlOf("archive")}
+          modeRef={controlOf("archiveMode")}
+          onChange={change}
         />
       </div>
     </SettingsSection>
@@ -592,15 +613,19 @@ function ArchiveRow({
   config,
   typed,
   dryRun,
-  error,
-  controlRef,
+  daysError,
+  modeError,
+  daysRef,
+  modeRef,
   onChange,
 }: {
   readonly config: InstallationConfig;
   readonly typed: string;
   readonly dryRun: boolean;
-  readonly error: string | undefined;
-  readonly controlRef: Ref<HTMLInputElement>;
+  readonly daysError: string | undefined;
+  readonly modeError: string | undefined;
+  readonly daysRef: Ref<HTMLInputElement>;
+  readonly modeRef: Ref<HTMLSelectElement>;
   readonly onChange: (next: Drafts) => void;
 }) {
   const { t, locale } = useI18n();
@@ -648,7 +673,7 @@ function ArchiveRow({
       </FieldLabel>
       <div className="flex items-center gap-2">
         <Input
-          ref={controlRef}
+          ref={daysRef}
           id={`${id}-days`}
           className="max-w-50"
           name="session_archive_after_days"
@@ -658,12 +683,12 @@ function ArchiveRow({
           max={ARCHIVE_DAYS.max}
           step={1}
           value={typed}
-          aria-invalid={error !== undefined || undefined}
+          aria-invalid={daysError !== undefined || undefined}
           aria-describedby={describedBy(
             notice,
             days.blocked && `${id}-days-blocked`,
             `${id}-days-notes`,
-            error !== undefined && `${id}-error`,
+            daysError !== undefined && `${id}-days-error`,
           )}
           onChange={(event) =>
             onChange({ session_archive_after_days: event.target.value })
@@ -685,19 +710,22 @@ function ArchiveRow({
           ),
         ]}
       />
-      <FieldError id={`${id}-error`}>{error}</FieldError>
+      <FieldError id={`${id}-days-error`}>{daysError}</FieldError>
       <FieldLabel htmlFor={`${id}-mode`} className="font-normal">
         {t("limits.archive.modeLabel")}
       </FieldLabel>
       <div className="flex items-center gap-2">
         <NativeSelect
+          ref={modeRef}
           id={`${id}-mode`}
           name="session_archive_dry_run"
           value={dryRun ? "count" : "move"}
+          aria-invalid={modeError !== undefined || undefined}
           aria-describedby={describedBy(
             notice,
             mode.blocked && `${id}-mode-blocked`,
             `${id}-mode-notes`,
+            modeError !== undefined && `${id}-mode-error`,
           )}
           onChange={(event) =>
             onChange({
@@ -741,6 +769,7 @@ function ArchiveRow({
           t("limits.archive.applies"),
         ]}
       />
+      <FieldError id={`${id}-mode-error`}>{modeError}</FieldError>
     </FormRow>
   );
 }
