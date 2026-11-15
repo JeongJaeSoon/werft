@@ -127,7 +127,7 @@ export const githubKo = {
   "github.newApp.submit": "GitHub에서 만들기",
   "github.newApp.blocked":
     "CONSOLE_ORIGIN이 설정되지 않아 GitHub가 콘솔로 돌아올 주소가 없습니다. 운영자에게 콘솔 주소 설정을 요청하거나 '이미 있는 App 연결'을 쓰세요.",
-  "github.newApp.working": "GitHub에서 만든 App을 저장하는 중입니다.",
+  "github.newApp.working": "GitHub에서 만든 App을 저장하는 중…",
   "github.newApp.done": "App을 저장했습니다. 설치 화면으로 이동합니다.",
   "github.newApp.stateInvalid":
     "이 링크는 만료되었거나 이미 쓰였습니다. 연동 > GitHub에서 다시 시작하세요.",
@@ -431,7 +431,7 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
   "github.newApp.submit": "Create on GitHub",
   "github.newApp.blocked":
     "CONSOLE_ORIGIN is not set, so GitHub has no console address to come back to. Ask the operator to set it, or use 'Connect an existing App'.",
-  "github.newApp.working": "Storing the App created on GitHub.",
+  "github.newApp.working": "Saving the App created on GitHub…",
   "github.newApp.done": "Saved the App. Going to the install screen.",
   "github.newApp.stateInvalid":
     "This link has expired or was already used. Start again from Integrations > GitHub.",
@@ -739,7 +739,7 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
   "github.newApp.submit": "GitHub で作成",
   "github.newApp.blocked":
     "CONSOLE_ORIGIN が設定されていないため、GitHub がコンソールに戻る先がありません。運用者にコンソールのアドレス設定を依頼するか、「既存の App を接続」を使ってください。",
-  "github.newApp.working": "GitHub で作成した App を保存しています。",
+  "github.newApp.working": "GitHub で作成した App を保存中…",
   "github.newApp.done": "App を保存しました。インストール画面に移動します。",
   "github.newApp.stateInvalid":
     "このリンクは期限切れか、すでに使われています。連携 > GitHub からやり直してください。",

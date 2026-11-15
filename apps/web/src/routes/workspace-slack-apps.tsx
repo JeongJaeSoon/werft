@@ -7,6 +7,7 @@ import {
   Badge,
   Code,
   cn,
+  EmptyState,
   GridTable,
   GridTableCell,
   GridTableColumnHeader,
@@ -88,7 +89,7 @@ export function SlackApps() {
       ) : apps.isError ? (
         <LoadFailure error={apps.error} onRetry={() => void apps.refetch()} />
       ) : apps.data.items.length === 0 ? (
-        <Text variant="sub">{t("workspace.slackAppsEmpty")}</Text>
+        <EmptyState size="sm" title={t("workspace.slackAppsEmpty")} />
       ) : (
         <AppTable items={apps.data.items} />
       )}
