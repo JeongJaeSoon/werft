@@ -331,27 +331,43 @@ describe("forbidden-terms", () => {
 
   test("thread scans run under their own check name, gated before concurrency, on main's code", async () => {
     const workflows = join(import.meta.dir, "..", ".github", "workflows");
-    const pr = await Bun.file(join(workflows, "forbidden-terms.yml")).text();
-    const threads = await Bun.file(
-      join(workflows, "forbidden-terms-threads.yml"),
-    ).text();
+    // biome-ignore lint/suspicious/noExplicitAny: parsed workflow YAML
+    const load = async (name: string): Promise<any> =>
+      Bun.YAML.parse(await Bun.file(join(workflows, name)).text());
+    const pr = await load("forbidden-terms.yml");
+    const threads = await load("forbidden-terms-threads.yml");
     // Review events run on the PR's commit: one job named forbidden-terms there would
     // stand in for the required check, even when skipped.
-    for (const event of ["issue_comment", "pull_request_review", "issues"])
-      expect(pr).not.toMatch(new RegExp(`^  ${event}:\\s*$`, "m"));
-    expect(threads).toMatch(/^ {2}pull_request_review:\s*$/m);
-    expect(threads).not.toMatch(/name: forbidden-terms\s*$/m);
-    expect(threads).toContain("name: forbidden-terms-threads");
+    expect(Object.keys(pr.on).sort()).toEqual(["pull_request", "push"]);
+    expect(Object.keys(threads.on).sort()).toEqual([
+      "issue_comment",
+      "issues",
+      "pull_request_review",
+      "pull_request_review_comment",
+    ]);
+    expect(Object.keys(threads.jobs)).toEqual(["forbidden-terms-threads"]);
+    const job = threads.jobs["forbidden-terms-threads"];
+    expect(job.name).toBe("forbidden-terms-threads");
     // Concurrency on the gated job only, so a stranger's skipped event cancels nothing.
-    expect(threads).not.toMatch(/^concurrency:/m);
-    expect(threads.indexOf("if: ")).toBeLessThan(
-      threads.indexOf("    concurrency:"),
+    expect(threads.concurrency).toBeUndefined();
+    expect(job.concurrency.group).toContain("forbidden-terms-threads-");
+    const gate = job.if.replace(/\s+/g, " ");
+    expect(gate).toContain('fromJSON(\'["OWNER","MEMBER","COLLABORATOR"]\')');
+    for (const who of ["comment", "review", "issue"])
+      expect(gate).toContain(`github.event.${who}.author_association`);
+    expect(gate).toContain(
+      "github.event.pull_request.head.repo.full_name == github.repository",
     );
-    expect(threads).toContain('["OWNER","MEMBER","COLLABORATOR"]');
-    expect(threads).toMatch(
-      /ref: \$\{\{ github\.event\.repository\.default_branch \}\}/,
+    const checkout = job.steps.find((s: { uses?: string }) =>
+      s.uses?.startsWith("actions/checkout@"),
     );
-    expect(threads).toContain('TEXT_ONLY: "true"');
+    expect(checkout.with.ref).toMatch(
+      /^\$\{\{ github\.event\.repository\.default_branch \}\}$/,
+    );
+    const scan = job.steps.find((s: { run?: string }) =>
+      s.run?.includes("forbidden-terms.ts"),
+    );
+    expect(scan.env.TEXT_ONLY).toBe("true");
   });
 
   test("a hit in a PR comment, review comment or review fails with a count only", async () => {
