@@ -4,6 +4,9 @@ import { setupUser } from "@werft-ai/ui/test-support/dom";
 import { apiError, json, me } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 import {
+  ARCHIVE_DAYS,
+  ARCHIVE_DRY_RUN_ENV,
+  archiveDaysOf,
   ENFORCE_ENV,
   ENFORCE_VALUES,
   limitValueOf,
@@ -35,6 +38,9 @@ const DEFAULTS: InstallationConfig = {
   workspace_enforce: entry("warn" as const),
   max_turn_seconds: entry(3600),
   provider_max_retries: entry(2),
+  session_archive_after_days: entry(180),
+  session_archive_dry_run: entry(true),
+  session_archive: { available: true, reason: null },
 };
 
 const config = (
@@ -381,6 +387,148 @@ describe("설정 › 실행 한도의 작업 공간 용량", () => {
   });
 });
 
+describe("설정 › 실행 한도의 세션 기록 보관", () => {
+  const archiveSection = () => sectionOf("세션 기록 보관");
+  const days = (area: HTMLElement) =>
+    within(area).getByRole("spinbutton", {
+      name: "보관까지 쉰 기간 (일)",
+    }) as HTMLInputElement;
+  const mode = (area: HTMLElement) =>
+    within(area).getByRole("combobox", {
+      name: "보관 작업이 할 일",
+    }) as HTMLSelectElement;
+
+  test("기본값은 180일 세기만이고, 바꾼 키만 한 번에 보낸다", async () => {
+    let current = DEFAULTS;
+    const { api } = renderAt(PAGE, {
+      ...routes(() => current),
+      [`PATCH ${API}`]: () => {
+        current = {
+          ...DEFAULTS,
+          session_archive_dry_run: { ...entry(false, true), default: true },
+        };
+        return json(200, { ...current, receipt_id: RECEIPT });
+      },
+    });
+    const user = await setupUser();
+    const area = await archiveSection();
+    expect(days(area).value).toBe("180");
+    expect(mode(area).value).toBe("count");
+    expect(area.textContent).toContain(
+      "저장한 값이 없어 기본값(180일)을 씁니다.",
+    );
+    expect(area.textContent).toContain(
+      "저장한 값이 없어 기본값(세기만 함)을 씁니다.",
+    );
+    expect(within(area).queryByRole("status") === null).toBe(true);
+    await user.selectOptions(mode(area), "move");
+    await user.click(within(area).getByRole("button", { name: "저장" }));
+    await screen.findByText("세션 기록 보관 설정을 저장했습니다.");
+    expect(api.calls.find((call) => call.method === "PATCH")?.body).toEqual({
+      session_archive_dry_run: false,
+    });
+    expect(mode(area).value).toBe("move");
+    within(area).getByRole("button", { name: "기본값으로" });
+  });
+
+  test("0은 보관하지 않음으로 저장하고, 29일은 보내지 않는다", async () => {
+    const { api } = renderAt(PAGE, {
+      ...routes(() => DEFAULTS),
+      [`PATCH ${API}`]: () => json(200, { ...DEFAULTS, receipt_id: RECEIPT }),
+    });
+    const user = await setupUser();
+    const area = await archiveSection();
+    await user.clear(days(area));
+    await user.type(days(area), "29");
+    await user.click(within(area).getByRole("button", { name: "저장" }));
+    expect(area.textContent).toContain(
+      "0(보관하지 않음) 또는 30부터 3,650까지의 정수(일)를 적으세요.",
+    );
+    expect(document.activeElement === days(area)).toBe(true);
+    expect(api.calls.some((call) => call.method === "PATCH")).toBe(false);
+    await user.clear(days(area));
+    await user.type(days(area), "0");
+    await user.click(within(area).getByRole("button", { name: "저장" }));
+    await screen.findByText("세션 기록 보관 설정을 저장했습니다.");
+    expect(api.calls.find((call) => call.method === "PATCH")?.body).toEqual({
+      session_archive_after_days: 0,
+    });
+  });
+
+  test("보관할 수 없는 설치는 이유를 알리고, 저장한 뒤에도 그 안내가 남는다", async () => {
+    const unavailable: InstallationConfig = {
+      ...DEFAULTS,
+      session_archive: { available: false, reason: "object_store_disabled" },
+    };
+    let current = unavailable;
+    renderAt(PAGE, {
+      ...routes(() => current),
+      [`PATCH ${API}`]: () => {
+        current = {
+          ...unavailable,
+          session_archive_after_days: { ...entry(90, true), default: 180 },
+        };
+        return json(200, { ...current, receipt_id: RECEIPT });
+      },
+    });
+    const user = await setupUser();
+    const area = await archiveSection();
+    const notice = "CHECKPOINT_OBJECT_STORE=disabled";
+    expect(within(area).getByRole("status").textContent).toContain(notice);
+    const described = (days(area).getAttribute("aria-describedby") ?? "")
+      .split(" ")
+      .map((id) => document.getElementById(id)?.textContent ?? "")
+      .join(" ");
+    expect(described).toContain(notice);
+    await user.clear(days(area));
+    await user.type(days(area), "90");
+    await user.click(within(area).getByRole("button", { name: "저장" }));
+    await screen.findByText("세션 기록 보관 설정을 저장했습니다.");
+    expect(days(area).value).toBe("90");
+    expect(within(area).getByRole("status").textContent).toContain(notice);
+  });
+
+  test("막힌 키는 그 변수 이름과 보관 작업이 실패로 끝난다는 것을 알리고, 보이는 값 그대로 저장할 수 있다", async () => {
+    let current: InstallationConfig = {
+      ...DEFAULTS,
+      session_archive_after_days: entry(180, false, true),
+    };
+    const { api } = renderAt(PAGE, {
+      ...routes(() => current),
+      [`PATCH ${API}`]: () => {
+        current = {
+          ...DEFAULTS,
+          session_archive_after_days: entry(180, true),
+        };
+        return json(200, { ...current, receipt_id: RECEIPT });
+      },
+    });
+    const user = await setupUser();
+    const area = await archiveSection();
+    const status = within(area).getByRole("status").textContent ?? "";
+    expect(status).toContain("SESSION_ARCHIVE_AFTER_DAYS");
+    expect(status).toContain(
+      "값을 저장할 때까지 보관 작업이 아무것도 옮기지 않고 실패로 끝납니다.",
+    );
+    await user.click(within(area).getByRole("button", { name: "저장" }));
+    await screen.findByText("세션 기록 보관 설정을 저장했습니다.");
+    expect(api.calls.find((call) => call.method === "PATCH")?.body).toEqual({
+      session_archive_after_days: 180,
+    });
+  });
+});
+
+describe("archiveDaysOf", () => {
+  test("takes 0 and whole days in the archive's range only", () => {
+    expect(archiveDaysOf("0")).toBe(0);
+    expect(archiveDaysOf(" 30 ")).toBe(30);
+    expect(archiveDaysOf("3650")).toBe(3650);
+    for (const refused of ["", "29", "3651", "45.5", "-30", "3e1", "abc"]) {
+      expect(archiveDaysOf(refused)).toBe(null);
+    }
+  });
+});
+
 describe("limitValueOf", () => {
   const wait = NUMBER_LIMITS.find(
     (limit) => limit.key === "pending_request_ttl_sec",
@@ -399,8 +547,31 @@ describe("limitValueOf", () => {
       "@werft-ai/contracts"
     );
     expect(
-      [...NUMBER_LIMITS.map((limit) => limit.key), "workspace_enforce"].sort(),
+      [
+        ...NUMBER_LIMITS.map((limit) => limit.key),
+        "workspace_enforce",
+        "session_archive_after_days",
+        "session_archive_dry_run",
+      ].sort(),
     ).toEqual([...INSTALLATION_CONFIG_KEYS].sort());
+    const archive = INSTALLATION_CONFIG.session_archive_after_days;
+    expect(ARCHIVE_DAYS.env).toBe(archive.env);
+    expect(ARCHIVE_DRY_RUN_ENV).toBe(
+      INSTALLATION_CONFIG.session_archive_dry_run.env,
+    );
+    for (const probe of [
+      0,
+      1,
+      ARCHIVE_DAYS.min - 1,
+      ARCHIVE_DAYS.min,
+      ARCHIVE_DAYS.max,
+      ARCHIVE_DAYS.max + 1,
+    ]) {
+      expect([probe, archiveDaysOf(`${probe}`) !== null]).toEqual([
+        probe,
+        archive.schema.safeParse(probe).success,
+      ]);
+    }
     for (const limit of NUMBER_LIMITS) {
       const rule = INSTALLATION_CONFIG[limit.key];
       expect(limit.env).toBe(rule.env);

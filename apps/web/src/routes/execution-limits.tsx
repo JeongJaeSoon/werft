@@ -34,7 +34,10 @@ import { SECTIONS } from "./workspace-settings.tsx";
 
 const PERMISSION = "installation.settings.manage";
 
-type NumberKey = Exclude<InstallationConfigKey, "workspace_enforce">;
+type NumberKey = Exclude<
+  InstallationConfigKey,
+  "workspace_enforce" | "session_archive_after_days" | "session_archive_dry_run"
+>;
 type Enforce = InstallationConfig["workspace_enforce"]["value"];
 /** Only the keys to change. */
 type Patch = { [K in InstallationConfigKey]?: InstallationConfig[K]["value"] };
@@ -130,6 +133,24 @@ export const NUMBER_LIMITS: readonly NumberLimit[] = [
 export const ENFORCE_ENV = "WORKSPACE_ENFORCE";
 export const ENFORCE_VALUES: readonly Enforce[] = ["warn", "fail", "off"];
 
+/** 0 archives nothing; otherwise a whole number of days in this range. */
+export const ARCHIVE_DAYS = {
+  env: "SESSION_ARCHIVE_AFTER_DAYS",
+  min: 30,
+  max: 3650,
+} as const;
+export const ARCHIVE_DRY_RUN_ENV = "SESSION_ARCHIVE_DRY_RUN";
+
+/** Whole days: 0, or in the archive's range; else null. */
+export function archiveDaysOf(text: string): number | null {
+  const trimmed = text.trim();
+  if (!/^\d+$/.test(trimmed)) return null;
+  const days = Number(trimmed);
+  return days === 0 || (days >= ARCHIVE_DAYS.min && days <= ARCHIVE_DAYS.max)
+    ? days
+    : null;
+}
+
 const configKey = (client: ApiClient) =>
   scopedKey(client, "installation-config");
 
@@ -198,6 +219,7 @@ function Limits({
         entry={read.data.workspace_enforce}
         onOutcome={onOutcome}
       />
+      <ArchiveSection config={read.data} onOutcome={onOutcome} />
     </>
   );
 }
@@ -373,6 +395,234 @@ function NumberLimitSection({
               aria-disabled={save.isPending || undefined}
               onClick={() => {
                 if (!save.isPending) save.mutate(entry.default);
+              }}
+            >
+              {t("limits.useDefault")}
+            </Button>
+          ) : null}
+          <Button
+            type="submit"
+            aria-disabled={save.isPending || unchanged || undefined}
+          >
+            {t("limits.save")}
+          </Button>
+        </FormActions>
+      </form>
+    </SettingsSection>
+  );
+}
+
+/** The archive's days and what it does, saved together. */
+function ArchiveSection({
+  config,
+  onOutcome,
+}: {
+  readonly config: InstallationConfig;
+  readonly onOutcome: (outcome: Outcome | null) => void;
+}) {
+  const { t, locale } = useI18n();
+  const role = useRole();
+  const daysId = useId();
+  const modeId = useId();
+  const noticeId = useId();
+  const daysBlockedId = useId();
+  const modeBlockedId = useId();
+  const daysRef = useRef<HTMLInputElement>(null);
+  const days = config.session_archive_after_days;
+  const mode = config.session_archive_dry_run;
+  const status = config.session_archive;
+  const [daysDraft, setDaysDraft] = useState<string | null>(null);
+  const [modeDraft, setModeDraft] = useState<boolean | null>(null);
+  const [shownError, setShownError] = useState<string | null>(null);
+  const invalid = t("limits.archive.daysInvalid", {
+    min: ARCHIVE_DAYS.min,
+    max: new Intl.NumberFormat(locale).format(ARCHIVE_DAYS.max),
+  });
+  const daysText = (value: number) =>
+    value === 0
+      ? t("limits.archive.off")
+      : t("limits.archive.daysValue", {
+          value: new Intl.NumberFormat(locale).format(value),
+        });
+  const modeText = (dryRun: boolean) =>
+    t(dryRun ? "limits.archive.count" : "limits.archive.move");
+
+  const typed = daysDraft ?? `${days.value}`;
+  const daysValue = archiveDaysOf(typed);
+  const dryRun = modeDraft ?? mode.value;
+  // A blocked key takes any valid value, the default shown included.
+  const changes = (sentDays: number): Patch => ({
+    ...(sentDays !== days.value || days.blocked
+      ? { session_archive_after_days: sentDays }
+      : {}),
+    ...(dryRun !== mode.value || mode.blocked
+      ? { session_archive_dry_run: dryRun }
+      : {}),
+  });
+  const unchanged =
+    daysValue !== null && Object.keys(changes(daysValue)).length === 0;
+
+  const save = useSave<Patch>({
+    onOutcome,
+    body: (patch) => patch,
+    saved: t("limits.archive.saved"),
+    // Keep anything changed while the save was in flight.
+    onSaved: (sent) => {
+      setDaysDraft((text) =>
+        text !== null &&
+        archiveDaysOf(text) !== (sent.session_archive_after_days ?? days.value)
+          ? text
+          : null,
+      );
+      setModeDraft((chosen) =>
+        chosen !== null &&
+        chosen !== (sent.session_archive_dry_run ?? mode.value)
+          ? chosen
+          : null,
+      );
+    },
+    onRefused: (error) => {
+      setShownError(
+        error.code === "BAD_REQUEST"
+          ? invalid
+          : refusalText(t, error, PERMISSION, role),
+      );
+      daysRef.current?.focus();
+    },
+  });
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (save.isPending || unchanged) return;
+    if (daysValue === null) {
+      setShownError(invalid);
+      daysRef.current?.focus();
+      return;
+    }
+    setShownError(null);
+    save.mutate(changes(daysValue));
+  };
+  const differs =
+    (days.saved && days.value !== days.default) ||
+    (mode.saved && mode.value !== mode.default);
+  const describedBy = (blocked: boolean, blockedId: string) =>
+    [status.available ? null : noticeId, blocked ? blockedId : null]
+      .filter((id) => id !== null)
+      .join(" ") || undefined;
+
+  return (
+    <SettingsSection
+      title={t("limits.archive.title")}
+      description={t("limits.archive.hint")}
+      box
+    >
+      <form className="flex w-full flex-col gap-4" noValidate onSubmit={submit}>
+        {status.available ? null : (
+          <Alert variant="amber" role="status">
+            <AlertDescription id={noticeId}>
+              {t(
+                `limits.archive.unavailable.${status.reason ?? "unversioned"}`,
+              )}
+            </AlertDescription>
+          </Alert>
+        )}
+        {days.blocked ? (
+          <Blocked
+            id={daysBlockedId}
+            env={ARCHIVE_DAYS.env}
+            refused={t("limits.archive.refused")}
+          />
+        ) : null}
+        {mode.blocked ? (
+          <Blocked
+            id={modeBlockedId}
+            env={ARCHIVE_DRY_RUN_ENV}
+            refused={t("limits.archive.refused")}
+          />
+        ) : null}
+        <Field>
+          <FieldLabel htmlFor={daysId}>
+            {t("limits.archive.daysLabel")}
+          </FieldLabel>
+          <div className="flex items-center gap-2">
+            <Input
+              ref={daysRef}
+              id={daysId}
+              className="max-w-50"
+              name="session_archive_after_days"
+              type="number"
+              inputMode="numeric"
+              min={0}
+              max={ARCHIVE_DAYS.max}
+              step={1}
+              value={typed}
+              aria-invalid={shownError !== null || undefined}
+              aria-describedby={describedBy(days.blocked, daysBlockedId)}
+              onChange={(event) => {
+                setDaysDraft(event.target.value);
+                setShownError(null);
+              }}
+            />
+            {/* The label already says the unit; this is for sighted readers. */}
+            <Text as="span" variant="sub" aria-hidden="true">
+              {t("limits.archive.daysUnit")}
+            </Text>
+          </div>
+          <FieldDescription>
+            {t(
+              days.saved || days.blocked
+                ? "limits.defaultIs"
+                : "limits.defaultApplies",
+              { value: daysText(days.default) },
+            )}
+          </FieldDescription>
+          <FieldError>{shownError}</FieldError>
+        </Field>
+        <Field>
+          <FieldLabel htmlFor={modeId}>
+            {t("limits.archive.modeLabel")}
+          </FieldLabel>
+          <NativeSelect
+            id={modeId}
+            name="session_archive_dry_run"
+            value={dryRun ? "count" : "move"}
+            aria-describedby={describedBy(mode.blocked, modeBlockedId)}
+            onChange={(event) => {
+              setModeDraft(event.target.value === "count");
+              setShownError(null);
+            }}
+          >
+            <NativeSelectOption value="count">
+              {modeText(true)}
+            </NativeSelectOption>
+            <NativeSelectOption value="move">
+              {modeText(false)}
+            </NativeSelectOption>
+          </NativeSelect>
+          <FieldDescription>{t("limits.archive.options")}</FieldDescription>
+          <FieldDescription>
+            {t(
+              mode.saved || mode.blocked
+                ? "limits.defaultIs"
+                : "limits.defaultApplies",
+              { value: modeText(mode.default) },
+            )}
+          </FieldDescription>
+          <FieldDescription>{t("limits.archive.applies")}</FieldDescription>
+        </Field>
+        <FormActions>
+          {differs ? (
+            <Button
+              type="button"
+              variant="ghost"
+              aria-disabled={save.isPending || undefined}
+              onClick={() => {
+                if (!save.isPending) {
+                  save.mutate({
+                    session_archive_after_days: days.default,
+                    session_archive_dry_run: mode.default,
+                  });
+                }
               }}
             >
               {t("limits.useDefault")}
