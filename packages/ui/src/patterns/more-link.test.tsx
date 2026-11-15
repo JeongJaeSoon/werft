@@ -153,21 +153,22 @@ describe("MoreLink는 화면의 이전 손 조립과 같은 DOM을 낸다", () =
 });
 
 describe("IconTile", () => {
-  test("색과 크기를 data와 class로 내고 스크린리더에서는 숨는다", () => {
+  test("한 가지 타일 색과 크기를 class로 내고 스크린리더에서는 숨는다", () => {
     const { container } = render(
       <>
-        <IconTile icon={Bot} hue="violet" />
-        <IconTile icon={Bot} hue="teal" size="two-line" />
+        <IconTile icon={Bot} />
+        <IconTile icon={Bot} size="two-line" />
       </>,
     );
     const [line, twoLine] = container.querySelectorAll("[data-slot=icon-tile]");
     expect(line?.getAttribute("aria-hidden")).toBe("true");
-    expect(line?.getAttribute("data-hue")).toBe("violet");
-    expect(classes(line as Element)).toContain(
-      "bg-(--werft-color-tile-violet)",
-    );
+    for (const tile of [line, twoLine]) {
+      expect(classes(tile as Element)).toContain("bg-(--werft-color-tile)");
+      expect(classes(tile as Element)).toContain(
+        "text-(--werft-color-tile-foreground)",
+      );
+    }
     expect(classes(line as Element)).toContain("size-(--werft-size-icon-tile)");
-    expect(twoLine?.getAttribute("data-hue")).toBe("teal");
     expect(classes(twoLine as Element)).toContain(
       "size-(--werft-size-tile-two-line)",
     );

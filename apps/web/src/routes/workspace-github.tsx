@@ -308,7 +308,7 @@ function GitHubCard({
       <section aria-labelledby={titleId} className={SECTIONS}>
         <div className={CARD}>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
-            <IconTile icon={TileMark} hue="slate" size="two-line" />
+            <IconTile icon={TileMark} size="two-line" />
             <div className="flex min-w-0 flex-1 flex-col">
               <Heading
                 id={titleId}

@@ -70,7 +70,7 @@ export function SlackHeader({
   return (
     <section aria-labelledby={titleId} className={SETTINGS_CARD}>
       <div className="flex items-center gap-3">
-        <IconTile icon={TileMark} hue="slate" size="two-line" />
+        <IconTile icon={TileMark} size="two-line" />
         <div className="flex min-w-0 flex-1 flex-col">
           <Heading id={titleId} level={2}>
             Slack
