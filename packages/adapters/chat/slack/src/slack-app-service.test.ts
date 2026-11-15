@@ -124,6 +124,71 @@ test("a reinstall keeps a verified URL verified, also when the URL moves, until 
   });
 });
 
+test("a verified app keeps verified when a move goes unanswered, and fails when Slack refuses a move after a late check", async () => {
+  const { service, apps, slack } = await setup();
+  const caller = user("owner");
+  const created = await service.createAgentApp(caller, AGENT, {
+    replace_uncertain: false,
+  });
+  const input = {
+    name: "Release notes",
+    botName: "release-notes",
+    description: "Writes the release notes",
+    eventsUrl: `https://events.example.test/v1/slack/events/${AGENT}`,
+  };
+  await service.updateAgentAppManifest(WORKSPACE, created.slack_app.id, input);
+  const verified = {
+    state: "verified",
+    checked_at: "2026-10-23T00:00:01.000Z",
+  } as const;
+  await apps.store.setEventsUnlessVerified(
+    WORKSPACE,
+    created.slack_app.id,
+    verified,
+  );
+  // The new URL may already have answered Slack's check.
+  slack.api.updateApp = async () => {
+    throw new SlackApiError("apps.manifest.update", "timeout", false);
+  };
+  const moved = `https://moved.example.test/v1/slack/events/${AGENT}`;
+  await expect(
+    service.updateAgentAppManifest(WORKSPACE, created.slack_app.id, {
+      ...input,
+      eventsUrl: moved,
+    }),
+  ).rejects.toThrow();
+  expect((await service.getAgentApp(caller, AGENT)).events).toEqual({
+    ...verified,
+    url: moved,
+  });
+  // Pending when read, verified by the old URL's check before Slack refuses.
+  await apps.store.setEvents(WORKSPACE, created.slack_app.id, {
+    state: "pending",
+    checked_at: "2026-10-23T00:00:02.000Z",
+  });
+  slack.api.updateApp = async () => {
+    await apps.store.setEventsUnlessVerified(
+      WORKSPACE,
+      created.slack_app.id,
+      verified,
+    );
+    throw new SlackApiError("apps.manifest.update", "invalid_manifest", true);
+  };
+  const again = `https://again.example.test/v1/slack/events/${AGENT}`;
+  await expect(
+    service.updateAgentAppManifest(WORKSPACE, created.slack_app.id, {
+      ...input,
+      eventsUrl: again,
+    }),
+  ).rejects.toThrow();
+  expect((await service.getAgentApp(caller, AGENT)).events).toEqual({
+    state: "failed",
+    checked_at: "2026-10-23T00:00:00.000Z",
+    url: again,
+    error: "events_registration_failed",
+  });
+});
+
 test("a pending app whose URL moves stays pending", async () => {
   const { service } = await setup();
   const caller = user("owner");

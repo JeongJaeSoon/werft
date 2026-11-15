@@ -568,9 +568,7 @@ export function createSlackAppService(deps: {
     // update is in flight is kept.
     const moved =
       input.eventsUrl !== undefined &&
-      record.events?.state === "verified" &&
-      record.events.url !== null &&
-      record.events.url !== input.eventsUrl;
+      (record.events?.url ?? null) !== input.eventsUrl;
     if (input.eventsUrl !== undefined)
       await apps.registerEventsUrl(
         workspaceId,
@@ -584,14 +582,15 @@ export function createSlackAppService(deps: {
       );
     } catch (error) {
       // An unanswered call may still have reached Slack, whose challenge
-      // then left `verified`. A move kept `verified` only on the promise
-      // that Slack takes the new URL.
+      // then left `verified`. A refused move leaves Slack on the old URL,
+      // whatever `verified` the store holds for the new one.
       const failed = {
         state: "failed",
         checked_at: now().toISOString(),
         error: "events_registration_failed",
       } as const;
-      if (moved) await apps.setEvents(workspaceId, slackAppId, failed);
+      if (moved && error instanceof SlackApiError && error.answered)
+        await apps.setEvents(workspaceId, slackAppId, failed);
       else if (input.eventsUrl !== undefined)
         await apps.setEventsUnlessVerified(workspaceId, slackAppId, failed);
       if (error instanceof SlackApiError) {
