@@ -311,16 +311,16 @@ function ConnectionRow({
             </RowAction>
           ) : null}
           {menu.length > 0 ? (
-            <RowMenu label={t("settings.connections.menuFor", { id: item.id })}>
+            <RowMenu
+              label={t("settings.connections.menuFor", { id: item.id })}
+              disabled={busy}
+            >
               {(close) =>
                 menu.map((entry) => (
                   <RowMenuItem
                     key={entry.label}
                     label={entry.label}
-                    onSelect={() => {
-                      const opener = close();
-                      if (!busy) entry.open(opener);
-                    }}
+                    onSelect={() => entry.open(close())}
                   >
                     {entry.text}
                   </RowMenuItem>

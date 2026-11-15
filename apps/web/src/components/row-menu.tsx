@@ -59,10 +59,13 @@ function moveFocus(event: KeyboardEvent<HTMLDivElement>) {
 export function RowMenu({
   label,
   text,
+  disabled,
   children,
 }: {
   /** Names the menu, and the ⋯ button: "acme · werft-agent 메뉴". */
   readonly label: string;
+  /** The button cannot open the menu, as a row's buttons are while it saves. */
+  readonly disabled?: boolean | undefined;
   /** A primary button with this text instead of the ⋯ button. */
   readonly text?: ReactNode;
   /**
@@ -83,6 +86,7 @@ export function RowMenu({
             type="button"
             variant="ghost"
             size="icon-sm"
+            disabled={disabled}
             aria-label={label}
             aria-haspopup="menu"
             aria-controls={open ? menuId : undefined}
@@ -93,6 +97,7 @@ export function RowMenu({
           <Button
             ref={triggerRef}
             type="button"
+            disabled={disabled}
             aria-haspopup="menu"
             aria-controls={open ? menuId : undefined}
           >
