@@ -16,7 +16,7 @@ import {
   AlertDescription,
   AlertTitle,
   Badge,
-  Button,
+  buttonVariants,
   Code,
   ConfirmDialog,
   EmptyState,
@@ -40,6 +40,8 @@ import { Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { scopedKey } from "../api/queries.ts";
 import { refusalText, useHasPermission, useRole } from "../auth/guard.tsx";
+import { WORKSPACE_MCP_RESERVED_NAMES } from "../auth/limits.ts";
+import { ReasonButton } from "../auth/reason-button.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { isMessageKey, type Translate, useI18n } from "../i18n/i18n.tsx";
 import { useLeave } from "../services.tsx";
@@ -127,9 +129,15 @@ export function WorkspaceMcpServers() {
       description={t("workspaceMcp.description")}
       actions={
         manages ? (
-          <Button
-            type="button"
-            variant="outline"
+          <ReasonButton
+            className={buttonVariants({ variant: "outline" })}
+            // The server's own count: past it a register is refused only
+            // after the discovery round trip and a typed token.
+            reason={
+              servers.data && servers.data.items.length >= servers.data.limit
+                ? t("workspaceMcp.error.MCP_SERVER_QUOTA_EXCEEDED")
+                : undefined
+            }
             onClick={(event) => {
               report(null);
               setOpener(event.currentTarget);
@@ -138,7 +146,7 @@ export function WorkspaceMcpServers() {
           >
             <Plus aria-hidden="true" />
             {t("workspaceMcp.add")}
-          </Button>
+          </ReasonButton>
         ) : null
       }
     >
@@ -842,6 +850,10 @@ function RegisterServer({
           return;
         }
         const name = String(form.get("name")).trim();
+        if (WORKSPACE_MCP_RESERVED_NAMES.includes(name)) {
+          setError(t("workspaceMcp.error.name_reserved"));
+          return;
+        }
         if (kind === "bearer") {
           create.mutate(
             {

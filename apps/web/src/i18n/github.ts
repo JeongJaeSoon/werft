@@ -88,6 +88,8 @@ export const githubKo = {
   "github.appId": "App ID",
   "github.appIdHint": "GitHub App 설정 페이지 위쪽에 있는 숫자입니다.",
   "github.appIdMissing": "App ID를 숫자로 넣어 주세요.",
+  "github.appIdRange":
+    "App ID는 {max} 이하입니다. GitHub App 설정 페이지의 숫자를 확인하세요.",
   "github.key": "Private key (.pem)",
   "github.keyHint":
     "키는 GitHub에서 확인한 뒤 암호화해 저장하고, 저장한 뒤에는 다시 보여 주지 않습니다. 저장했으면 내려받은 파일은 지우세요.",
@@ -222,7 +224,8 @@ export const githubKo = {
   "github.repo.branch": "기본 브랜치",
   "github.repo.branchHint":
     "세션이 이 브랜치에서 시작합니다. 바꾸면 이 저장소에서 실행 중인 세션은 다음 저장소 요청부터 거절됩니다.",
-  "github.repo.branchInvalid": "브랜치 이름이 올바르지 않습니다.",
+  "github.repo.branchInvalid":
+    "브랜치 이름이 올바르지 않습니다. 공백과 ~ ^ : ? * [ \\ 없이 {max}자까지 쓰고, .. @{ //를 넣거나 - / .로 시작하거나 / .lock으로 끝낼 수 없습니다.",
   "github.repo.save": "저장",
   "github.repo.saved": "{name}의 기본 브랜치를 {branch}(으)로 바꿨습니다.",
   "github.repo.conflict":
@@ -391,6 +394,8 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
   "github.appIdHint":
     "The number at the top of the GitHub App's settings page.",
   "github.appIdMissing": "Enter the App ID as a number.",
+  "github.appIdRange":
+    "An App ID is at most {max}. Check the number on the GitHub App settings page.",
   "github.key": "Private key (.pem)",
   "github.keyHint":
     "The key is checked with GitHub, then stored encrypted and never shown again. Delete the downloaded file once it is saved.",
@@ -527,7 +532,8 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
   "github.repo.branch": "Default branch",
   "github.repo.branchHint":
     "Sessions start from this branch. A change refuses the next repository request of sessions running on it.",
-  "github.repo.branchInvalid": "That is not a valid branch name.",
+  "github.repo.branchInvalid":
+    "That is not a valid branch name. Use up to {max} characters without spaces or ~ ^ : ? * [ \\; it cannot contain .. @{ or //, start with - / or ., or end with / or .lock.",
   "github.repo.save": "Save",
   "github.repo.saved": "{name} now starts from {branch}.",
   "github.repo.conflict":
@@ -699,6 +705,8 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
   "github.appId": "App ID",
   "github.appIdHint": "GitHub App の設定ページ上部にある数字です。",
   "github.appIdMissing": "App ID を数字で入力してください。",
+  "github.appIdRange":
+    "App ID は {max} 以下です。GitHub App の設定ページの数字を確認してください。",
   "github.key": "Private key (.pem)",
   "github.keyHint":
     "鍵は GitHub で確認してから暗号化して保存し、保存後は二度と表示しません。保存したら、ダウンロードしたファイルは削除してください。",
@@ -836,7 +844,8 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
   "github.repo.branch": "デフォルトブランチ",
   "github.repo.branchHint":
     "セッションはこのブランチから始まります。変えると、このリポジトリで実行中のセッションは次のリポジトリ要求から拒否されます。",
-  "github.repo.branchInvalid": "ブランチ名が正しくありません。",
+  "github.repo.branchInvalid":
+    "ブランチ名が正しくありません。空白と ~ ^ : ? * [ \\ を使わず {max} 文字までで書き、.. @{ // を含めたり、- / . で始めたり、/ .lock で終えたりはできません。",
   "github.repo.save": "保存",
   "github.repo.saved": "{name} のデフォルトブランチを {branch} に変えました。",
   "github.repo.conflict":

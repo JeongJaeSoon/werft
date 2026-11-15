@@ -33,6 +33,7 @@ import {
   useMe,
   useRole,
 } from "../auth/guard.tsx";
+import { SECRET_VALUE_LENGTH, SECRET_VALUE_PATTERN } from "../auth/limits.ts";
 import { FormError } from "../components/auth-page.tsx";
 import { focusBack, RowMenu, RowMenuItem } from "../components/row-menu.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
@@ -291,7 +292,8 @@ function SecretDialog({
   const { client } = useWerft();
   const role = useRole();
   const workspaceId = useMe()?.workspace?.id ?? "";
-  const [missing, setMissing] = useState(false);
+  // "format": typed, but not a value the server takes.
+  const [missing, setMissing] = useState<boolean | "format">(false);
   const [error, setError] = useState<string | null>(null);
   const inputId = useId();
   const hintId = useId();
@@ -341,6 +343,15 @@ function SecretDialog({
       if (input instanceof HTMLInputElement) input.focus();
       return;
     }
+    if (
+      secret.length < SECRET_VALUE_LENGTH.min ||
+      secret.length > SECRET_VALUE_LENGTH.max ||
+      !SECRET_VALUE_PATTERN.test(secret)
+    ) {
+      setMissing("format");
+      if (input instanceof HTMLInputElement) input.focus();
+      return;
+    }
     setMissing(false);
     if (save.isPending || clientId === null) return;
     // Out of the DOM before the request goes, so nothing keeps it after.
@@ -375,7 +386,7 @@ function SecretDialog({
               autoComplete="off"
               spellCheck={false}
               aria-describedby={hintId}
-              aria-invalid={missing || undefined}
+              aria-invalid={missing !== false || undefined}
               onChange={() => {
                 if (missing) setMissing(false);
               }}
@@ -384,7 +395,14 @@ function SecretDialog({
               {t("githubUserLink.secretInputHint")}
             </FieldDescription>
             {missing ? (
-              <FieldError>{t("githubUserLink.secretMissing")}</FieldError>
+              <FieldError>
+                {missing === "format"
+                  ? t("githubUserLink.secretFormat", {
+                      min: SECRET_VALUE_LENGTH.min,
+                      max: SECRET_VALUE_LENGTH.max,
+                    })
+                  : t("githubUserLink.secretMissing")}
+              </FieldError>
             ) : null}
           </Field>
           <div className="flex flex-wrap justify-end gap-2">

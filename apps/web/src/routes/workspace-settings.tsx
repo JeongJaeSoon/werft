@@ -41,8 +41,9 @@ import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { type MessageKey, useI18n } from "../i18n/i18n.tsx";
 import { WorkspaceEngineSettings } from "./workspace-engine-settings.tsx";
 
-// The server's ceiling; the web takes contracts as types only, so a test
-// keeps this equal to the contract's value.
+// The server's bounds; the web takes contracts as types only, so a test
+// keeps these equal to the contract's values.
+export const AUDIT_RETENTION_MIN_DAYS = 30;
 export const AUDIT_RETENTION_MAX_DAYS = 3650;
 
 // GitHub-style settings (V4-SETTINGS-LAYOUT A): one column of sections, each
@@ -185,8 +186,8 @@ function ReadOnlySettings() {
 
 /**
  * How long refused and allowed decisions are kept. Only an owner changes it;
- * the floor is the server's, so a short value goes there and comes back as
- * the refusal. The mockup's output retention (7/30/90 days) has no API yet;
+ * a value outside the server's bounds is refused here, before the request.
+ * The mockup's output retention (7/30/90 days) has no API yet;
  * this card is the audit retention, a different value.
  */
 function AuditRetention({ onOutcome }: { readonly onOutcome: OnOutcome }) {
@@ -242,7 +243,19 @@ function AuditRetention({ onOutcome }: { readonly onOutcome: OnOutcome }) {
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (save.isPending) return;
-    save.mutate(Number(days));
+    const value = Number(days);
+    const refusal = !Number.isInteger(value)
+      ? t("workspace.retentionWhole")
+      : value < AUDIT_RETENTION_MIN_DAYS
+        ? t("workspace.retentionFloor")
+        : value > AUDIT_RETENTION_MAX_DAYS
+          ? t("workspace.retentionCeiling", { max: AUDIT_RETENTION_MAX_DAYS })
+          : null;
+    if (refusal !== null) {
+      onOutcome({ kind: "error", text: refusal });
+      return;
+    }
+    save.mutate(value);
   };
 
   return (
@@ -274,6 +287,8 @@ function AuditRetention({ onOutcome }: { readonly onOutcome: OnOutcome }) {
             type="number"
             inputMode="numeric"
             step={1}
+            min={AUDIT_RETENTION_MIN_DAYS}
+            max={AUDIT_RETENTION_MAX_DAYS}
             value={days}
             disabled={reason !== undefined}
             onChange={(event) => setDraft(event.target.value)}

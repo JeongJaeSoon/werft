@@ -29,6 +29,7 @@ import {
 } from "@werft-ai/ui";
 import { type FormEvent, type ReactNode, useId, useRef, useState } from "react";
 import { refusalText, useMe, useRole } from "../auth/guard.tsx";
+import { GITHUB_APP_ID_MAX } from "../auth/limits.ts";
 import { FormError } from "../components/auth-page.tsx";
 import { focusBack } from "../components/row-menu.tsx";
 import { type Translate, useI18n } from "../i18n/i18n.tsx";
@@ -104,7 +105,9 @@ function KeyForm({
   readonly onOutcome: OnOutcome;
 }) {
   const { t } = useI18n();
-  const [missing, setMissing] = useState<"appId" | "key" | null>(null);
+  const [missing, setMissing] = useState<"appId" | "appIdRange" | "key" | null>(
+    null,
+  );
   const ids = {
     appId: useId(),
     appIdHint: useId(),
@@ -118,13 +121,14 @@ function KeyForm({
     const form = event.currentTarget.elements;
     const idInput = form.namedItem("app_id");
     const keyInput = form.namedItem("private_key");
-    const id =
-      appId ??
-      Number(idInput instanceof HTMLInputElement ? idInput.value.trim() : "");
+    const typed =
+      idInput instanceof HTMLInputElement ? idInput.value.trim() : "";
+    // Digits only: Number() would also take "1e3" or "0x10".
+    const id = appId ?? (/^\d+$/.test(typed) ? Number(typed) : Number.NaN);
     const file =
       keyInput instanceof HTMLInputElement ? keyInput.files?.[0] : undefined;
-    if (!Number.isSafeInteger(id) || id <= 0) {
-      setMissing("appId");
+    if (!Number.isInteger(id) || id <= 0 || id > GITHUB_APP_ID_MAX) {
+      setMissing(id > GITHUB_APP_ID_MAX ? "appIdRange" : "appId");
       if (idInput instanceof HTMLInputElement) idInput.focus();
       return;
     }
@@ -171,13 +175,17 @@ function KeyForm({
             spellCheck={false}
             autoFocus
             aria-describedby={ids.appIdHint}
-            aria-invalid={missing === "appId" || undefined}
+            aria-invalid={missing?.startsWith("appId") || undefined}
           />
           <FieldDescription id={ids.appIdHint}>
             {t("github.appIdHint")}
           </FieldDescription>
           {missing === "appId" ? (
             <FieldError>{t("github.appIdMissing")}</FieldError>
+          ) : missing === "appIdRange" ? (
+            <FieldError>
+              {t("github.appIdRange", { max: GITHUB_APP_ID_MAX })}
+            </FieldError>
           ) : null}
         </Field>
       ) : null}

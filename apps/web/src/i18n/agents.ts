@@ -268,6 +268,8 @@ export const agentsKo = {
     "활성 릴리스로 세션을 시작하고 세션 화면으로 이동합니다.",
   "agent.newSession.message": "첫 메시지",
   "agent.newSession.messageRequired": "메시지를 입력하세요.",
+  "agent.newSession.messageTooLong":
+    "메시지가 너무 깁니다. {max}KB(UTF-8) 이하로 줄이세요. 한글은 한 글자가 3바이트입니다.",
   "agent.newSession.cancel": "취소",
   "agent.newSession.submit": "세션 시작",
   "agent.newSession.submitting": "시작하는 중…",
@@ -691,6 +693,8 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
     "Starts a session on the active release and opens it.",
   "agent.newSession.message": "First message",
   "agent.newSession.messageRequired": "Enter a message.",
+  "agent.newSession.messageTooLong":
+    "The message is too long. Keep it within {max} KB of UTF-8; letters outside ASCII take 2 to 4 bytes each.",
   "agent.newSession.cancel": "Cancel",
   "agent.newSession.submit": "Start session",
   "agent.newSession.submitting": "Starting…",
@@ -1098,6 +1102,8 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
     "有効なリリースでセッションを開始し、セッション画面に移動します。",
   "agent.newSession.message": "最初のメッセージ",
   "agent.newSession.messageRequired": "メッセージを入力してください。",
+  "agent.newSession.messageTooLong":
+    "メッセージが長すぎます。UTF-8 で {max}KB 以内にしてください。日本語は 1 文字 3 バイトです。",
   "agent.newSession.cancel": "キャンセル",
   "agent.newSession.submit": "セッションを開始",
   "agent.newSession.submitting": "開始しています…",

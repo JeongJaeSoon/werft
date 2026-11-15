@@ -112,7 +112,11 @@ export const loginProvidersKo = {
   "loginProviders.domains": "허용 도메인",
   "loginProviders.domainsAny": "제한 없음",
   "loginProviders.domainsHint":
-    "이메일 도메인이 여기 있는 계정만 로그인합니다. 쉼표나 공백으로 나눠 적고, 비우면 제한하지 않습니다.",
+    "이메일 도메인이 여기 있는 계정만 로그인합니다. 쉼표나 공백으로 나눠 {max}개까지 적고, 비우면 제한하지 않습니다.",
+  "loginProviders.domainInvalid":
+    "{domain}은(는) 도메인 이름이 아닙니다. @나 *, 경로 없이 example.com처럼 적으세요.",
+  "loginProviders.domainsTooMany":
+    "허용 도메인은 {max}개까지 적을 수 있습니다.",
   "loginProviders.jit": "초대 없이 가입",
   "loginProviders.jit.off": "받지 않음",
   "loginProviders.jit.member": "member로 가입",
@@ -354,7 +358,10 @@ export const loginProvidersEn: Record<keyof typeof loginProvidersKo, string> = {
   "loginProviders.domains": "Allowed domains",
   "loginProviders.domainsAny": "Any",
   "loginProviders.domainsHint":
-    "Only accounts whose email domain is listed sign in. Separate with commas or spaces; leave empty for no limit.",
+    "Only accounts whose email domain is listed sign in. List up to {max}, separated with commas or spaces; leave empty for no limit.",
+  "loginProviders.domainInvalid":
+    "{domain} is not a domain name. Write it like example.com, without @, * or a path.",
+  "loginProviders.domainsTooMany": "List at most {max} allowed domains.",
   "loginProviders.jit": "Join without an invite",
   "loginProviders.jit.off": "Not accepted",
   "loginProviders.jit.member": "Join as a member",
@@ -599,7 +606,10 @@ export const loginProvidersJa: Record<keyof typeof loginProvidersKo, string> = {
   "loginProviders.domains": "許可ドメイン",
   "loginProviders.domainsAny": "制限なし",
   "loginProviders.domainsHint":
-    "メールのドメインがここにあるアカウントだけがログインできます。カンマか空白で区切り、空にすると制限しません。",
+    "メールのドメインがここにあるアカウントだけがログインできます。カンマか空白で区切って{max}個まで書き、空にすると制限しません。",
+  "loginProviders.domainInvalid":
+    "{domain} はドメイン名ではありません。@ や *、パスを付けずに example.com のように書いてください。",
+  "loginProviders.domainsTooMany": "許可ドメインは{max}個まで書けます。",
   "loginProviders.jit": "招待なしで参加",
   "loginProviders.jit.off": "受け入れない",
   "loginProviders.jit.member": "member として参加",

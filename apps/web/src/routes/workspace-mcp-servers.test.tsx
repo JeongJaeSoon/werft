@@ -259,6 +259,59 @@ describe("워크스페이스 MCP 서버", () => {
     ]);
   });
 
+  test("a reserved name is refused in the dialog and nothing is registered", async () => {
+    const { api } = renderAt(PAGE, {
+      ...routes([]),
+      [`POST ${LIST}/discover`]: () =>
+        json(200, { url: "https://mcp.example.com/mcp", oauth: null }),
+      [`POST ${LIST}`]: () => json(201, bearerServer()),
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "서버 등록" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.type(
+      within(dialog).getByLabelText("서버 URL"),
+      "https://mcp.example.com/mcp",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "탐색" }));
+    await within(dialog).findByRole("region", { name: "탐색 결과" });
+    await user.type(within(dialog).getByLabelText("이름"), "github");
+    await user.type(
+      dialog.querySelector('input[name="token"]') as HTMLInputElement,
+      "example-static-value",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "등록" }));
+    expect(
+      await within(dialog).findByText(
+        "github와 browser는 쓸 수 없는 이름입니다.",
+      ),
+    ).toBeDefined();
+    expect(writes(api.calls).map((call) => call.path)).toEqual([
+      `${LIST}/discover`,
+    ]);
+  });
+
+  test("at the server's limit register is withheld with the reason and opens nothing", async () => {
+    const { api } = renderAt(PAGE, {
+      ...routes([]),
+      [`GET ${LIST}`]: () =>
+        json(200, { items: [oauthServer(), bearerServer()], limit: 2 }),
+    });
+    const user = await setupUser();
+    await rowOf("tracker");
+    const register = screen.getByRole("button", { name: "서버 등록" });
+    expect(register.getAttribute("aria-disabled")).toBe("true");
+    expect(
+      (register.getAttribute("aria-describedby") ?? "")
+        .split(" ")
+        .map((id) => document.getElementById(id)?.textContent)
+        .join(" "),
+    ).toContain("워크스페이스가 등록할 수 있는 서버 수에 닿았습니다.");
+    await user.click(register);
+    expect(screen.queryByRole("dialog") === null).toBe(true);
+    expect(writes(api.calls)).toEqual([]);
+  });
+
   test("a server without OAuth registers with a static value only", async () => {
     const { api } = renderAt(PAGE, {
       ...routes([]),

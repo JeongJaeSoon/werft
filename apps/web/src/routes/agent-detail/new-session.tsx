@@ -35,10 +35,13 @@ import {
 import { type FormEvent, useId, useRef, useState } from "react";
 import { connectionsQuery } from "../../api/queries.ts";
 import { useCan, useMe } from "../../auth/guard.tsx";
+import { MESSAGE_MAX_BYTES } from "../../auth/limits.ts";
 import { ReasonButton } from "../../auth/reason-button.tsx";
 import { FormError } from "../../components/auth-page.tsx";
 import { runsModel } from "../../components/connection-options.tsx";
 import { errorKey, type Translate, useI18n } from "../../i18n/i18n.tsx";
+
+const utf8 = new TextEncoder();
 
 type AgentBlock = "archived" | "paused" | "noRelease";
 type ReleaseBlock = "connection";
@@ -148,6 +151,8 @@ export function NewSessionButton({
   const [open, setOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [blank, setBlank] = useState(false);
+  // The server's limit is UTF-8 bytes, so a character count would not match.
+  const tooLong = utf8.encode(message).length > MESSAGE_MAX_BYTES;
   // An answer that never came may still have made the session. Sending the
   // same key and the same body gets that session back; the release may have
   // changed by then, and the server hashes the whole body.
@@ -193,6 +198,7 @@ export function NewSessionButton({
       setBlank(true);
       return;
     }
+    if (tooLong) return;
     const resend = unanswered.current;
     const next =
       resend?.body.message === message
@@ -233,14 +239,20 @@ export function NewSessionButton({
               rows={5}
               value={message}
               readOnly={create.isPending}
-              aria-invalid={blank ? true : undefined}
+              aria-invalid={blank || tooLong ? true : undefined}
               onChange={(event) => {
                 setMessage(event.target.value);
                 setBlank(false);
               }}
             />
             <FieldError>
-              {blank ? t("agent.newSession.messageRequired") : null}
+              {blank
+                ? t("agent.newSession.messageRequired")
+                : tooLong
+                  ? t("agent.newSession.messageTooLong", {
+                      max: MESSAGE_MAX_BYTES / 1024,
+                    })
+                  : null}
             </FieldError>
           </Field>
           {create.error ? <FormError>{refusal(create.error)}</FormError> : null}

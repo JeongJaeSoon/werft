@@ -39,6 +39,10 @@ import {
 import { type FormEvent, useEffect, useId, useState } from "react";
 import { scopedKey } from "../api/queries.ts";
 import { refusalText, useMe, useRole } from "../auth/guard.tsx";
+import {
+  REPOSITORY_BRANCH_MAX,
+  REPOSITORY_BRANCH_PATTERN,
+} from "../auth/limits.ts";
 import { FormError } from "../components/auth-page.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { focusBack, RowMenu, RowMenuItem } from "../components/row-menu.tsx";
@@ -537,8 +541,10 @@ function BranchDialog({
     event.preventDefault();
     const input = event.currentTarget.elements.namedItem("branch");
     const branch = input instanceof HTMLInputElement ? input.value.trim() : "";
-    // The server holds the full rule and answers 400 past it.
-    if (branch === "" || /\s/.test(branch)) {
+    if (
+      branch.length > REPOSITORY_BRANCH_MAX ||
+      !REPOSITORY_BRANCH_PATTERN.test(branch)
+    ) {
       setInvalid(true);
       if (input instanceof HTMLInputElement) input.focus();
       return;
@@ -575,7 +581,9 @@ function BranchDialog({
               {t("github.repo.branchHint")}
             </FieldDescription>
             {invalid ? (
-              <FieldError>{t("github.repo.branchInvalid")}</FieldError>
+              <FieldError>
+                {t("github.repo.branchInvalid", { max: REPOSITORY_BRANCH_MAX })}
+              </FieldError>
             ) : null}
           </Field>
           <div className="flex justify-end gap-2">

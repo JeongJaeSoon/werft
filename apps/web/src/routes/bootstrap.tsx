@@ -12,7 +12,13 @@ import {
   Link as TextLink,
 } from "@werft-ai/ui";
 import { type FormEvent, useState } from "react";
-import { PASSWORD_MIN_LENGTH } from "../auth/limits.ts";
+import {
+  BOOTSTRAP_TOKEN_LENGTH,
+  DISPLAY_NAME_MAX,
+  EMAIL_MAX,
+  PASSWORD_MIN_LENGTH,
+  WORKSPACE_NAME_MAX,
+} from "../auth/limits.ts";
 import { AuthPage, FormError } from "../components/auth-page.tsx";
 import { errorKey, type MessageKey, useI18n } from "../i18n/i18n.tsx";
 
@@ -80,6 +86,18 @@ function slugInput(message: string) {
 type FieldName = (typeof FIELDS)[number]["name"];
 type Form = Record<FieldName, string>;
 
+const LENGTHS: Partial<
+  Record<FieldName, { minLength?: number; maxLength: number }>
+> = {
+  bootstrap_token: {
+    minLength: BOOTSTRAP_TOKEN_LENGTH.min,
+    maxLength: BOOTSTRAP_TOKEN_LENGTH.max,
+  },
+  email: { maxLength: EMAIL_MAX },
+  display_name: { maxLength: DISPLAY_NAME_MAX },
+  workspace_name: { maxLength: WORKSPACE_NAME_MAX },
+};
+
 const EMPTY: Form = {
   bootstrap_token: "",
   email: "",
@@ -139,6 +157,7 @@ export function BootstrapScreen() {
                 type={field.type}
                 autoComplete={field.autoComplete}
                 required
+                {...LENGTHS[field.name]}
                 {...(field.name === "password"
                   ? { minLength: PASSWORD_MIN_LENGTH }
                   : {})}

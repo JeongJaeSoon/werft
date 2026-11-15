@@ -7,22 +7,42 @@ import {
 } from "@werft-ai/client";
 import {
   authMeResponseSchema,
+  bootstrapRequestSchema,
   AGENT_DESCRIPTION_MAX_LENGTH as CONTRACT_AGENT_DESCRIPTION_MAX_LENGTH,
   API_KEY_NAME_MAX as CONTRACT_API_KEY_NAME_MAX,
   DISPLAY_NAME_MAX as CONTRACT_DISPLAY_NAME_MAX,
   CSRF_HEADER_NAME as CONTRACT_HEADER_NAME,
   CSRF_HEADER_VALUE as CONTRACT_HEADER_VALUE,
+  MESSAGE_MAX_BYTES as CONTRACT_MESSAGE_MAX_BYTES,
   PASSWORD_MIN_LENGTH as CONTRACT_PASSWORD_MIN_LENGTH,
   WORKSPACE_ROLE_VALUES as CONTRACT_ROLE_VALUES,
+  WORKSPACE_MCP_RESERVED_NAMES as CONTRACT_WORKSPACE_MCP_RESERVED_NAMES,
+  emailSchema,
+  githubAppIdSchema,
   inviteTokenSchema,
+  putGitHubOAuthClientSecretRequestSchema,
+  repositoryBranchSchema,
+  updateLoginProviderRequestSchema,
 } from "@werft-ai/contracts";
 import { WORKSPACE_ROLE_VALUES } from "../auth/guard.tsx";
 import {
   AGENT_DESCRIPTION_MAX_LENGTH,
   API_KEY_NAME_MAX,
+  BOOTSTRAP_TOKEN_LENGTH,
   DISPLAY_NAME_MAX,
+  EMAIL_MAX,
+  GITHUB_APP_ID_MAX,
   INVITE_TOKEN_LENGTH,
+  LOGIN_DOMAIN_PATTERN,
+  LOGIN_DOMAINS_MAX,
+  MESSAGE_MAX_BYTES,
   PASSWORD_MIN_LENGTH,
+  REPOSITORY_BRANCH_MAX,
+  REPOSITORY_BRANCH_PATTERN,
+  SECRET_VALUE_LENGTH,
+  SECRET_VALUE_PATTERN,
+  WORKSPACE_MCP_RESERVED_NAMES,
+  WORKSPACE_NAME_MAX,
 } from "../auth/limits.ts";
 import { apiError, fakeApi, json, me } from "../test-support/fake-api.ts";
 import { createApiClient } from "./client.ts";
@@ -46,6 +66,103 @@ describe("API client", () => {
       [max + 1, false],
     ] as const)
       expect(inviteTokenSchema.safeParse("a".repeat(length)).success).toBe(ok);
+  });
+
+  test("the copied form rules accept and refuse what the contract does", () => {
+    const bootstrap = bootstrapRequestSchema.shape;
+    expect(EMAIL_MAX).toBe(emailSchema.maxLength ?? Number.NaN);
+    expect(WORKSPACE_NAME_MAX).toBe(
+      bootstrap.workspace_name.maxLength ?? Number.NaN,
+    );
+    expect([
+      bootstrap.bootstrap_token.minLength,
+      bootstrap.bootstrap_token.maxLength,
+    ]).toEqual([BOOTSTRAP_TOKEN_LENGTH.min, BOOTSTRAP_TOKEN_LENGTH.max]);
+    expect(MESSAGE_MAX_BYTES).toBe(CONTRACT_MESSAGE_MAX_BYTES);
+    expect(WORKSPACE_MCP_RESERVED_NAMES).toEqual([
+      ...CONTRACT_WORKSPACE_MCP_RESERVED_NAMES,
+    ]);
+
+    const domains = (list: string[]) =>
+      updateLoginProviderRequestSchema.safeParse({ allowed_domains: list })
+        .success;
+    for (const domain of [
+      "example.com",
+      "a-b.co.kr",
+      "x1.io",
+      `${"a".repeat(63)}.${"b".repeat(63)}.${"c".repeat(63)}.${"d".repeat(61)}`,
+      `${"a".repeat(63)}.${"b".repeat(63)}.${"c".repeat(63)}.${"d".repeat(62)}`,
+      "@example.com",
+      "*.example.com",
+      "localhost",
+      "-a.com",
+      "a-.com",
+      "a..com",
+      "example.com/",
+    ])
+      expect(LOGIN_DOMAIN_PATTERN.test(domain)).toBe(domains([domain]));
+    const many = (n: number) =>
+      Array.from({ length: n }, (_, i) => `d${i}.example.com`);
+    expect(domains(many(LOGIN_DOMAINS_MAX))).toBe(true);
+    expect(domains(many(LOGIN_DOMAINS_MAX + 1))).toBe(false);
+
+    const secret = (value: string) =>
+      putGitHubOAuthClientSecretRequestSchema.safeParse({
+        client_id: "Iv1.abc",
+        client_secret: value,
+      }).success;
+    const { min, max } = SECRET_VALUE_LENGTH;
+    for (const value of [
+      "a".repeat(min - 1),
+      "a".repeat(min),
+      "a".repeat(max),
+      "a".repeat(max + 1),
+      "abc def ghi",
+      "abcdefgh\n",
+      "abcdefghé",
+      "!~#$%^&*()_+",
+    ])
+      expect(
+        value.length >= min &&
+          value.length <= max &&
+          SECRET_VALUE_PATTERN.test(value),
+      ).toBe(secret(value));
+
+    expect(githubAppIdSchema.safeParse(GITHUB_APP_ID_MAX).success).toBe(true);
+    expect(githubAppIdSchema.safeParse(GITHUB_APP_ID_MAX + 1).success).toBe(
+      false,
+    );
+
+    expect(REPOSITORY_BRANCH_MAX).toBe(
+      repositoryBranchSchema.maxLength ?? Number.NaN,
+    );
+    for (const branch of [
+      "main",
+      "feature/x-1",
+      "release/v1.2",
+      "a@b",
+      "feature..x",
+      "a:b",
+      "x.lock",
+      "-x",
+      "/x",
+      ".x",
+      "x/",
+      "a//b",
+      "a/.b",
+      "a@{b",
+      "a b",
+      "a~b",
+      "a^b",
+      "a?b",
+      "a*b",
+      "a[b",
+      "a\\b",
+      "a\u0001b",
+    ])
+      expect(REPOSITORY_BRANCH_PATTERN.test(branch)).toBe(
+        repositoryBranchSchema.safeParse(branch).success,
+      );
   });
 
   test("the test principal is one the server could send", () => {

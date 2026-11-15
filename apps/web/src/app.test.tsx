@@ -312,6 +312,42 @@ describe("bootstrap", () => {
     expect(hint?.textContent).toBe("12자 이상");
   });
 
+  test("칸마다 서버의 길이 한도를 걸고, 짧은 토큰은 보내지 않는다", async () => {
+    const limits = await import("./auth/limits.ts");
+    const { api } = renderAt("/bootstrap", {
+      "POST /v1/auth/bootstrap": () => json(201, {}),
+    });
+    const token = await screen.findByLabelText("Bootstrap 토큰");
+    expect(
+      [
+        token.getAttribute("minlength"),
+        token.getAttribute("maxlength"),
+        screen.getByLabelText("오너 이메일").getAttribute("maxlength"),
+        screen.getByLabelText("이름").getAttribute("maxlength"),
+        screen.getByLabelText("워크스페이스 이름").getAttribute("maxlength"),
+      ].map(Number),
+    ).toEqual([
+      limits.BOOTSTRAP_TOKEN_LENGTH.min,
+      limits.BOOTSTRAP_TOKEN_LENGTH.max,
+      limits.EMAIL_MAX,
+      limits.DISPLAY_NAME_MAX,
+      limits.WORKSPACE_NAME_MAX,
+    ]);
+    const user = await setupUser();
+    await user.type(token, "t".repeat(limits.BOOTSTRAP_TOKEN_LENGTH.min - 1));
+    await user.type(screen.getByLabelText("오너 이메일"), "owner@example.com");
+    await user.type(screen.getByLabelText("이름"), "Owner");
+    await user.type(screen.getByLabelText("비밀번호"), "correct horse battery");
+    await user.type(screen.getByLabelText("워크스페이스 이름"), "Acme");
+    await user.type(
+      screen.getByLabelText("워크스페이스 식별자 (slug)"),
+      "acme",
+    );
+    await user.click(screen.getByRole("button", { name: "오너 만들기" }));
+    expect((token as HTMLInputElement).validity.tooShort).toBe(true);
+    expect(callsTo(api.calls, "/v1/auth/bootstrap")).toEqual([]);
+  });
+
   test("만들고 나면 로그인으로 보낸다", async () => {
     const { api, history } = renderAt("/bootstrap", {
       "POST /v1/auth/bootstrap": () => json(201, {}),
