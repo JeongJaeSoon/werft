@@ -169,7 +169,6 @@ export const slackEn = {
   "slack.homeUnset": "Not selected",
   "slack.channelId": "Channel ID: {id}",
   "slack.channelsLoading": "Loading channels",
-  "slack.danger": "Danger zone",
   "slack.botId": "Bot ID",
   "slack.mentionOnlyHint":
     "On: responds only when @mentioned. Off: responds to posts in the channel without a mention too. Either way, replies in a thread it is already talking in get an answer without a mention.",

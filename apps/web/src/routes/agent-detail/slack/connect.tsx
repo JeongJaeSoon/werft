@@ -27,6 +27,7 @@ import {
   RECHECK_ID,
   SECTION,
   SECTION_BOX,
+  SECTION_TARGET,
   SLACK_WARNING_KEY,
   slackFailure,
   slackReason,
@@ -311,8 +312,8 @@ export function SlackConnect({
         <DangerZone
           id={SECTION.danger}
           tabIndex={-1}
-          className={SECTION_BOX}
-          title={t("slack.danger")}
+          className={SECTION_TARGET}
+          title={t("workspace.danger")}
           titleId={`${SECTION.danger}-title`}
         >
           {identity ? (
@@ -327,7 +328,7 @@ export function SlackConnect({
           <DangerZoneRow
             title={t("slack.deleteTitle")}
             description={t("slack.deleteWarning")}
-            actionLabel={t("slack.delete")}
+            actionLabel={t("workspace.delete")}
             // A delete Slack refused leaves the app "deleting"; asking
             // again is how it finishes.
             disabled={busy || record?.state === "creating" || !me?.workspace}

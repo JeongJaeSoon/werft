@@ -473,7 +473,7 @@ function TeamDangerZone({ team }: { readonly team: TeamDetail }) {
         <DangerZoneRow
           title={t("teams.delete")}
           description={t("teams.deleteHint")}
-          actionLabel={t("teams.delete")}
+          actionLabel={t("workspace.delete")}
           disabled={remove.isPending}
           onAction={() => setConfirming(true)}
         />

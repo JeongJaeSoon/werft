@@ -414,7 +414,6 @@ function GitHubCard({
               title={t("github.apps.removeRow", { name: connection.name })}
               description={t("github.apps.removeRowHint")}
               actionLabel={t("github.apps.remove")}
-              actionName={t("github.apps.removeRow", { name: connection.name })}
               onAction={() => setRemoving(connection)}
             />
           ))}

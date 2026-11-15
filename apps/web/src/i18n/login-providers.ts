@@ -142,6 +142,7 @@ export const loginProvidersKo = {
   "loginProviders.enable": "켜기",
   "loginProviders.enabling": "켜는 중…",
   "loginProviders.disable": "끄기",
+  "loginProviders.disableRow": "이 공급자 끄기",
   "loginProviders.disableDescription":
     "로그인 화면에서 빠지고, 이 공급자로 로그인한 세션이 모두 끊깁니다.",
   "loginProviders.disableTitle": "{name} 공급자를 끌까요?",
@@ -149,6 +150,7 @@ export const loginProvidersKo = {
     "이 공급자로 로그인한 사람은 모두 로그아웃됩니다. 이 공급자로 로그인했다면 내 세션도 끊깁니다. 나중에 다시 켤 수 있습니다.",
   "loginProviders.disableReason": "이미 꺼져 있습니다.",
   "loginProviders.delete": "삭제",
+  "loginProviders.deleteRow": "이 공급자 삭제",
   "loginProviders.deleteDescription":
     "설정과 client secret을 지웁니다. 이 공급자로 들어온 사람의 계정은 남습니다.",
   "loginProviders.deleteTitle": "{name} 공급자를 지울까요?",
@@ -382,6 +384,7 @@ export const loginProvidersEn: Record<keyof typeof loginProvidersKo, string> = {
   "loginProviders.enable": "Turn on",
   "loginProviders.enabling": "Turning on…",
   "loginProviders.disable": "Turn off",
+  "loginProviders.disableRow": "Turn off this provider",
   "loginProviders.disableDescription":
     "Leaves the login page and ends every session made through this provider.",
   "loginProviders.disableTitle": "Turn off {name}?",
@@ -389,6 +392,7 @@ export const loginProvidersEn: Record<keyof typeof loginProvidersKo, string> = {
     "Everyone who signed in through this provider is logged out. If you signed in through it, so are you. It can be turned on again later.",
   "loginProviders.disableReason": "It is already off.",
   "loginProviders.delete": "Delete",
+  "loginProviders.deleteRow": "Delete this provider",
   "loginProviders.deleteDescription":
     "Deletes the settings and the client secret. The accounts of the people who came through it stay.",
   "loginProviders.deleteTitle": "Delete {name}?",
@@ -626,6 +630,7 @@ export const loginProvidersJa: Record<keyof typeof loginProvidersKo, string> = {
   "loginProviders.enable": "オンにする",
   "loginProviders.enabling": "オンにしています…",
   "loginProviders.disable": "オフにする",
+  "loginProviders.disableRow": "このプロバイダーをオフにする",
   "loginProviders.disableDescription":
     "ログイン画面から外れ、このプロバイダーでログインしたセッションがすべて終了します。",
   "loginProviders.disableTitle": "{name} をオフにしますか？",
@@ -633,6 +638,7 @@ export const loginProvidersJa: Record<keyof typeof loginProvidersKo, string> = {
     "このプロバイダーでログインした人は全員ログアウトされます。自分がこのプロバイダーでログインしている場合、自分のセッションも終了します。あとでもう一度オンにできます。",
   "loginProviders.disableReason": "すでにオフです。",
   "loginProviders.delete": "削除",
+  "loginProviders.deleteRow": "このプロバイダーを削除",
   "loginProviders.deleteDescription":
     "設定と client secret を削除します。このプロバイダーで入った人のアカウントは残ります。",
   "loginProviders.deleteTitle": "{name} を削除しますか？",

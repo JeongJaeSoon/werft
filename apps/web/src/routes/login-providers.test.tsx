@@ -539,11 +539,11 @@ describe("로그인 공급자 상세", () => {
       const button = screen.getByRole("button", { name });
       expect(withheld(button)).toBe(locked);
     }
-    expect(withheld(screen.getByRole("button", { name: "삭제" }))).toBe(
-      "켜진 공급자는 끈 뒤에 지울 수 있습니다.",
-    );
+    const remove = screen.getByRole("button", { name: "이 공급자 삭제" });
+    expect(remove.textContent).toBe("삭제");
+    expect(withheld(remove)).toBe("켜진 공급자는 끈 뒤에 지울 수 있습니다.");
     expect(screen.queryByRole("button", { name: "켜기" }) === null).toBe(true);
-    for (const name of ["테스트 로그인", "값 바꾸기", "끄기"]) {
+    for (const name of ["테스트 로그인", "값 바꾸기", "이 공급자 끄기"]) {
       expect(withheld(screen.getByRole("button", { name }))).toBe(null);
     }
   });
@@ -559,7 +559,9 @@ describe("로그인 공급자 상세", () => {
         }),
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "끄기" }));
+    await user.click(
+      await screen.findByRole("button", { name: "이 공급자 끄기" }),
+    );
     const dialog = await screen.findByRole("dialog");
     expect(dialog.textContent).toContain("내 세션도 끊깁니다");
     expect(writes(api.calls)).toHaveLength(0);
@@ -590,7 +592,9 @@ describe("로그인 공급자 상세", () => {
       ...closedAccess(1),
     });
     await waitFor(() =>
-      expect(withheld(screen.getByRole("button", { name: "끄기" }))).toBe(LAST),
+      expect(
+        withheld(screen.getByRole("button", { name: "이 공급자 끄기" })),
+      ).toBe(LAST),
     );
   });
 
@@ -605,7 +609,7 @@ describe("로그인 공급자 상세", () => {
         }),
     });
     const user = await setupUser();
-    const off = await screen.findByRole("button", { name: "끄기" });
+    const off = await screen.findByRole("button", { name: "이 공급자 끄기" });
     await waitFor(() =>
       expect(api.calls.some((call) => call.path === "/v1/login-settings")).toBe(
         true,
@@ -635,7 +639,9 @@ describe("로그인 공급자 상세", () => {
       },
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "삭제" }));
+    await user.click(
+      await screen.findByRole("button", { name: "이 공급자 삭제" }),
+    );
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("button", { name: "삭제" }));
     await screen.findByText("등록된 공급자가 없습니다.");

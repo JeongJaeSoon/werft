@@ -1159,13 +1159,12 @@ function GitHubSettings({
           id={SECTION.danger}
           tabIndex={-1}
           className={FOCUS_TARGET}
-          title={t("agentGitHub.danger")}
+          title={t("workspace.danger")}
         >
           <DangerZoneRow
             title={t("agentGitHub.disableRow")}
             description={t("agentGitHub.enabledHint")}
             actionLabel={t("agentGitHub.disableConfirm")}
-            actionName={t("agentGitHub.disableRow")}
             disabled={enabled.update.isPending}
             onAction={() => enabled.setConfirming(true)}
           />
@@ -1235,7 +1234,7 @@ const SECTION_LABEL = {
   pullRequest: "github.pullRequest.title",
   push: "agentGitHub.section.push",
   activity: "agentGitHub.section.activity",
-  danger: "agentGitHub.danger",
+  danger: "workspace.danger",
 } as const satisfies Record<SectionKey, MessageKey>;
 
 export default function GitHubTab({

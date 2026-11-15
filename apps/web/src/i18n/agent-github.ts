@@ -5,7 +5,6 @@ export const agentGitHubKo = {
   "agentGitHub.overviewHint":
     "이 에이전트가 GitHub에서 쓰는 저장소와 기능입니다. 워크스페이스가 정한 상한 안에서 고릅니다. App과 설치는 워크스페이스의 연동 > GitHub에서 관리합니다.",
   "agentGitHub.turnOn": "GitHub 켜기",
-  "agentGitHub.danger": "위험 구역",
   "agentGitHub.disableRow": "GitHub 사용 끄기",
   "agentGitHub.pushHint":
     "이 에이전트가 만든 commit을 push하기 전에 사람 승인을 받을지 정합니다. 바꾼 것은 위의 저장 상자에서 함께 저장합니다.",
@@ -222,8 +221,7 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.overviewHint":
     "The repositories and features this agent uses on GitHub, chosen within the workspace's ceiling. The Apps and installations are managed in the workspace's Integrations > GitHub.",
   "agentGitHub.turnOn": "Turn GitHub on",
-  "agentGitHub.danger": "Danger zone",
-  "agentGitHub.disableRow": "Turn GitHub off",
+  "agentGitHub.disableRow": "Turn off GitHub",
   "agentGitHub.pushHint":
     "Whether a person approves the commits this agent makes before they are pushed. Changes are saved together in the save box above.",
   "agentGitHub.addSubmit": "Add",
@@ -441,7 +439,6 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.overviewHint":
     "このエージェントが GitHub で使うリポジトリと機能です。ワークスペースが決めた上限の中で選びます。App とインストールはワークスペースの 連携 > GitHub で管理します。",
   "agentGitHub.turnOn": "GitHub をオンにする",
-  "agentGitHub.danger": "危険な操作",
   "agentGitHub.disableRow": "GitHub をオフにする",
   "agentGitHub.pushHint":
     "このエージェントが作った commit を push する前に人の承認を受けるかを決めます。変更は上の保存ボックスでまとめて保存します。",
