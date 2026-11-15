@@ -170,25 +170,25 @@ test("a saved 0 skips archiving after the read", async () => {
   });
 });
 
-test.each([
-  "session_archive_after_days",
-  "session_archive_dry_run",
-])("a blocked %s refuses the whole run and names only the key", async (key) => {
-  await saved(key, { refused_env: "X" });
-  const log = logger();
-  const { calls, connect } = stores();
-  expect(
-    await runSessionArchive({ connect, environment: running, logger: log }),
-  ).toBe(1);
-  expect(calls).toEqual(["close"]);
-  expect(log.lines.at(-1)).toEqual({
-    message: "Session archive refused: its settings cannot be read",
-    fields: {
-      error: `${key} has no value this release accepts; save it in Settings > Workspace > Execution limits`,
-      setting: key,
-    },
-  });
-});
+test.each(["session_archive_after_days", "session_archive_dry_run"])(
+  "a blocked %s refuses the whole run and names only the key",
+  async (key) => {
+    await saved(key, { refused_env: "X" });
+    const log = logger();
+    const { calls, connect } = stores();
+    expect(
+      await runSessionArchive({ connect, environment: running, logger: log }),
+    ).toBe(1);
+    expect(calls).toEqual(["close"]);
+    expect(log.lines.at(-1)).toEqual({
+      message: "Session archive refused: its settings cannot be read",
+      fields: {
+        error: `${key} has no value this release accepts; save it in Settings > Workspace > Execution limits`,
+        setting: key,
+      },
+    });
+  },
+);
 
 test("settings that cannot be read refuse the run", async () => {
   const log = logger();

@@ -7,11 +7,11 @@ import {
 } from "@werft-ai/db";
 import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
 import { createLogger, type StructuredLogger } from "@werft-ai/observability";
+import { InstallationConfigUnavailableError } from "@werft-ai/platform";
 import {
   createCheckpointObjectStore,
   createStorageS3Client,
 } from "@werft-ai/storage";
-import { InstallationConfigUnavailableError } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { installationConfigOf } from "../wiring/installation-config.ts";
 import {

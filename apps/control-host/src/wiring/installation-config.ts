@@ -49,6 +49,14 @@ function envValueOf(key: InstallationConfigKey, raw: string): unknown {
   return trimmed !== "" && Number.isFinite(number) ? number : trimmed;
 }
 
+/** Unset as the earlier parser saw it: the archive's took only "" so. */
+function envUnset(key: InstallationConfigKey, raw: string): boolean {
+  return key === "session_archive_after_days" ||
+    key === "session_archive_dry_run"
+    ? raw === ""
+    : raw.trim() === "";
+}
+
 /**
  * Migrate's carry-over, before any role starts: the old env variables are
  * read here once and nowhere else, so every role sees the same rows. A key
@@ -63,7 +71,7 @@ export async function carryInstallationConfig(
   store: Pick<InstallationConfigStore, "readAll" | "importValue">,
 ): Promise<{ warnings: string[] }> {
   const present = INSTALLATION_CONFIG_KEYS.filter(
-    (key) => (env[INSTALLATION_CONFIG[key].env] ?? "").trim() !== "",
+    (key) => !envUnset(key, env[INSTALLATION_CONFIG[key].env] ?? ""),
   );
   if (present.length === 0) return { warnings: [] };
   const saved = await store.readAll();

@@ -153,6 +153,9 @@ describe("carryInstallationConfig", () => {
     ["SESSION_ARCHIVE_AFTER_DAYS", "session_archive_after_days", "3e1"],
     ["SESSION_ARCHIVE_AFTER_DAYS", "session_archive_after_days", "+30"],
     ["SESSION_ARCHIVE_AFTER_DAYS", "session_archive_after_days", " 30"],
+    // Only "" was unset to the archive; blank space was a refusal.
+    ["SESSION_ARCHIVE_AFTER_DAYS", "session_archive_after_days", "   "],
+    ["SESSION_ARCHIVE_DRY_RUN", "session_archive_dry_run", "\t"],
     ["SESSION_ARCHIVE_DRY_RUN", "session_archive_dry_run", "maybe"],
     ["SESSION_ARCHIVE_DRY_RUN", "session_archive_dry_run", "TRUE"],
     ["PENDING_REQUEST_TTL_SEC", "pending_request_ttl_sec", "30m"],
