@@ -72,7 +72,7 @@ export function ChatMessage({
             "w-fit min-w-0 max-w-full rounded-2xl px-3.5 py-2 text-control leading-[1.6] [overflow-wrap:anywhere]",
             self
               ? "whitespace-pre-wrap bg-primary text-primary-foreground"
-              : "bg-muted text-foreground",
+              : "bg-secondary text-foreground",
             tone === "error" &&
               "bg-[var(--werft-tone-danger-bg)] text-destructive",
           )}
@@ -112,7 +112,7 @@ export function ChatToolGroup({
       className={cn("group/tools min-w-0 text-control", className)}
       {...props}
     >
-      <summary className="flex w-fit max-w-full cursor-pointer list-none items-center gap-1 rounded-control py-1 text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden">
+      <summary className="flex w-fit max-w-full cursor-pointer list-none items-center gap-1 rounded-control py-0.5 text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden">
         <span className="truncate">{summary}</span>
         <ChevronRight
           className="size-4 flex-none transition-transform group-open/tools:rotate-90 motion-reduce:transition-none"
@@ -191,7 +191,7 @@ export function ChatList({
     <ol
       data-slot="chat-list"
       className={cn(
-        "m-0 flex min-w-0 list-none flex-col gap-6 p-0 [&>li]:min-w-0",
+        "m-0 flex min-w-0 list-none flex-col gap-4 p-0 [&>li]:min-w-0 [&>li:has(>[data-slot=chat-tool-group])]:-my-1.5",
         className,
       )}
       {...props}

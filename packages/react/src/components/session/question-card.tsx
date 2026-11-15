@@ -154,7 +154,7 @@ export function QuestionCard({
       className={className}
       {...within}
     >
-      <form className="flex flex-col gap-4" onSubmit={submit} noValidate>
+      <form className="flex flex-col gap-2" onSubmit={submit} noValidate>
         {request.questions.map((question) => (
           <QuestionFields
             key={question.question_id}
@@ -174,7 +174,8 @@ export function QuestionCard({
         {expired ? null : (
           <Button
             type="submit"
-            className="self-end"
+            size="sm"
+            className="self-start"
             disabled={pending || disabled}
           >
             <Busy shown={pending} />
@@ -208,7 +209,7 @@ function QuestionFields({
       <FieldLegend
         id={legendId}
         variant="label"
-        className="mb-2 text-body [overflow-wrap:anywhere]"
+        className="mb-1 text-control [overflow-wrap:anywhere]"
       >
         {question.prompt}
       </FieldLegend>
@@ -276,7 +277,7 @@ function QuestionFields({
 // The label wraps its control, so the whole chip toggles it; `relative` keeps
 // Radix's hidden form input inside the chip.
 const CHIP =
-  "relative min-h-[var(--werft-control-height)] max-w-full cursor-pointer rounded-control border border-input bg-card px-3 py-1 text-control [overflow-wrap:anywhere] has-disabled:cursor-not-allowed has-disabled:opacity-50";
+  "relative min-h-[var(--werft-control-height-sm)] max-w-full cursor-pointer rounded-control border border-input bg-card px-2.5 py-0.5 text-control [overflow-wrap:anywhere] has-disabled:cursor-not-allowed has-disabled:opacity-50";
 
 /** Free text beside options starts folded; folding keeps what was written. */
 function FreeText({
@@ -312,7 +313,7 @@ function FreeText({
         type="button"
         variant="link"
         size="sm"
-        className="self-start px-0 text-muted-foreground hover:text-foreground"
+        className="h-auto self-start px-0 py-0.5 text-muted-foreground hover:text-foreground"
         aria-expanded={open}
         aria-controls={textId}
         disabled={disabled}

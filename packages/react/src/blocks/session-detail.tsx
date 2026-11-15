@@ -239,7 +239,7 @@ export function SessionDetail({
       // The chat keeps the composer on screen: the body takes the screen
       // under the top bar and only the chat scrolls. min-content lets a
       // screen too short for that fall back to the page scroll.
-      className="[&>[data-slot=page-frame]]:h-[calc(100dvh-var(--werft-topbar-h))] [&>[data-slot=page-frame]]:min-h-min [&_[data-slot=page-frame-body]]:min-h-0"
+      className="[&>[data-slot=page-frame]]:h-[calc(100dvh-var(--werft-topbar-h))] [&>[data-slot=page-frame]]:min-h-min [&>[data-slot=page-frame]]:pb-4 [&_[data-slot=page-frame-body]]:min-h-0"
     >
       <header className="flex min-w-0 flex-col gap-2">
         <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-2">

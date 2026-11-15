@@ -134,7 +134,7 @@ export function ApprovalCard({
     >
       {summary !== undefined && messages.summary !== undefined ? (
         <div data-slot="tool-summary" className="flex min-w-0 flex-col gap-2">
-          <Text className="text-body text-foreground [overflow-wrap:anywhere]">
+          <Text className="text-control text-foreground [overflow-wrap:anywhere]">
             {messages.summary(summary.verb)}
             {summary.target === null ? null : <> · {summary.target}</>}
           </Text>
@@ -146,10 +146,10 @@ export function ApprovalCard({
         </div>
       ) : null}
       <div className="flex min-w-0 flex-wrap items-center gap-2">
-        <code className="min-w-0 rounded-control bg-muted px-2 py-1 font-mono text-caption [overflow-wrap:anywhere]">
+        <code className="min-w-0 rounded-control bg-muted px-2 py-0.5 font-mono text-caption [overflow-wrap:anywhere]">
           {request.tool}
         </code>
-        <details className="min-w-0 basis-full">
+        <details className="group/input min-w-0 flex-1 open:basis-full">
           <summary className="w-fit cursor-pointer rounded-control py-1 text-caption text-muted-foreground">
             {messages.input}
           </summary>
@@ -160,9 +160,11 @@ export function ApprovalCard({
       </div>
       <FieldError>{error}</FieldError>
       {expired ? null : (
-        <form className="flex flex-col gap-3" onSubmit={allow}>
-          <Field>
-            <FieldLabel>{messages.answer ?? messages.denyReason}</FieldLabel>
+        <form className="flex flex-wrap items-center gap-2" onSubmit={allow}>
+          <Field className="min-w-48 flex-1">
+            <FieldLabel className="sr-only">
+              {messages.answer ?? messages.denyReason}
+            </FieldLabel>
             <Input
               value={answer}
               maxLength={1000}
@@ -172,14 +174,15 @@ export function ApprovalCard({
               onChange={(event) => setAnswer(event.target.value)}
             />
           </Field>
-          <div className="flex flex-wrap gap-2">
-            <Button type="submit" disabled={blocked}>
+          <div className="flex gap-2">
+            <Button type="submit" size="sm" disabled={blocked}>
               <Busy shown={pending} />
               {messages.allow}
             </Button>
             <Button
               type="button"
               variant="outline"
+              size="sm"
               className="bg-card"
               disabled={blocked}
               onClick={() => onDeny(reason)}

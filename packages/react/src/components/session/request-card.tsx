@@ -29,8 +29,8 @@ export interface RequestCardProps
 
 /**
  * The frame every request waiting for an answer shares, a question or a
- * permission: the same width (left aligned, half a chat column at most),
- * padding, border, corner and head line of icon, title and expiry.
+ * permission: the chat column's full width, slim padding, one border and
+ * corner, and a head line of icon, title and expiry.
  */
 export function RequestCard({
   titleId,
@@ -53,9 +53,9 @@ export function RequestCard({
       aria-labelledby={titleId}
       data-slot={slot}
       className={cn(
-        "flex min-w-0 flex-col gap-3 text-control",
+        "flex min-w-0 flex-col gap-2 text-control",
         variant === "card" &&
-          "w-full max-w-[32rem] rounded-card border border-[var(--werft-tone-attention-border)] bg-[var(--werft-tone-attention-bg)] p-4",
+          "w-full rounded-card border border-[var(--werft-tone-attention-border)] bg-[var(--werft-tone-attention-bg)] px-4 py-3",
         className,
       )}
       {...props}
@@ -82,7 +82,7 @@ export function RequestCard({
           {...(label === undefined
             ? { id: titleId }
             : { "aria-hidden": true as const })}
-          className="font-medium text-[var(--werft-tone-attention-fg)] text-body"
+          className="font-medium text-[var(--werft-tone-attention-fg)] text-control"
         >
           {title}
         </Text>

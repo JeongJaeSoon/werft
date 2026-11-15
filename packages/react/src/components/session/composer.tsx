@@ -128,21 +128,23 @@ export function Composer({
       <form onSubmit={submit}>
         <Field data-disabled={disabled || undefined} className="relative gap-1">
           <FieldLabel className="sr-only">{messages.label}</FieldLabel>
-          {/* One line that grows with the text, the send button at its end. */}
-          <div className="flex min-w-0 items-end gap-2 rounded-card border bg-card py-1 pr-1 pl-3 focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50 has-[textarea:disabled]:opacity-60">
-            <Textarea
-              rows={1}
-              value={text}
-              placeholder={placeholder}
-              disabled={disabled}
-              onChange={(event) => setText(event.target.value)}
-              onKeyDown={sendFromKeyboard}
-              className="max-h-40 min-h-8 flex-1 resize-none border-0 bg-transparent px-0 py-1.5 shadow-none [field-sizing:content] focus-visible:border-0 focus-visible:ring-0 disabled:opacity-100"
-            />
+          {/* One line that grows with the text; the send button sits beside it. */}
+          <div className="flex min-w-0 items-end gap-2">
+            <div className="flex min-w-0 flex-1 items-center rounded-card border bg-card px-3 py-1 focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50 has-[textarea:disabled]:opacity-60">
+              <Textarea
+                rows={1}
+                value={text}
+                placeholder={placeholder}
+                disabled={disabled}
+                onChange={(event) => setText(event.target.value)}
+                onKeyDown={sendFromKeyboard}
+                className="max-h-40 min-h-8 flex-1 resize-none border-0 bg-transparent px-0 py-1.5 shadow-none [field-sizing:content] focus-visible:border-0 focus-visible:ring-0 disabled:opacity-100"
+              />
+            </div>
             <Button
               type="submit"
               size="icon"
-              className="flex-none rounded-full"
+              className="mb-1 size-9 flex-none rounded-full"
               disabled={blocked || !text.trim()}
               aria-busy={pending || sending || undefined}
               aria-label={messages.send}
