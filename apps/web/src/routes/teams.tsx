@@ -35,7 +35,6 @@ import {
   Field,
   FieldError,
   FieldLabel,
-  formatTimestamp,
   GridTableCell,
   GridTableColumnHeader,
   GridTableRow,
@@ -47,6 +46,7 @@ import {
   RemoveButton,
   RowAction,
   SettingsSection,
+  TableTime,
   Text,
   Link as TextLink,
 } from "@werft-ai/ui";
@@ -62,7 +62,6 @@ import {
 } from "../api/queries.ts";
 import {
   refusalText,
-  roleLabel,
   useHasPermission,
   usePermissionReason,
   useRole,
@@ -75,6 +74,7 @@ import { LoadFailure } from "../components/load-failure.tsx";
 import { MemberTableFrame } from "../components/member-table.tsx";
 import { MyTeams } from "../components/my-teams.tsx";
 import { PagedListFooter } from "../components/paged-list-footer.tsx";
+import { RoleBadge } from "../components/role-badge.tsx";
 import {
   SEARCH_MAX,
   SEARCH_SETTLE_MS,
@@ -750,13 +750,7 @@ function TeamMembers({
                     </GridTableCell>
                     {roles && (
                       <GridTableCell hideNarrow={true}>
-                        {memberRole && (
-                          <Badge
-                            variant={memberRole === "member" ? "gray" : "blue"}
-                          >
-                            {roleLabel(t, memberRole)}
-                          </Badge>
-                        )}
+                        {memberRole && <RoleBadge role={memberRole} />}
                       </GridTableCell>
                     )}
                     <GridTableCell>
@@ -772,7 +766,7 @@ function TeamMembers({
                       hideNarrow={true}
                       className="text-caption text-muted-foreground tabular-nums"
                     >
-                      {formatTimestamp(member.added_at, locale)}
+                      <TableTime value={member.added_at} locale={locale} />
                     </GridTableCell>
                     {manages && (
                       <GridTableCell raised={true} align="end">

@@ -21,24 +21,23 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DisabledReason,
   EmptyState,
   Field,
   FieldDescription,
   FieldLabel,
   FieldLegend,
   FieldSet,
-  formatTimestamp,
+  formatTableDateTime,
   GridTableCell,
+  GridTableColumnHeader,
   GridTableRow,
-  GridTableRowOpener,
   LinkTab,
   LinkTabs,
   Page,
   RadioGroup,
   RadioGroupItem,
-  RowAction,
   SettingsSection,
+  StatusText,
   Text,
 } from "@werft-ai/ui";
 import { useId, useRef, useState } from "react";
@@ -59,13 +58,12 @@ import {
   WORKSPACE_ROLE_VALUES,
 } from "../auth/guard.tsx";
 import { FormError } from "../components/auth-page.tsx";
-import {
-  INACTIVE_ROW_CLASS,
-  InactiveBadge,
-} from "../components/inactive-member.tsx";
+import { INACTIVE_ROW_CLASS } from "../components/inactive-member.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { MemberTableFrame } from "../components/member-table.tsx";
 import { PagedListFooter } from "../components/paged-list-footer.tsx";
+import { RoleBadge } from "../components/role-badge.tsx";
+import { RowMenu, RowMenuItem } from "../components/row-menu.tsx";
 import { SEARCH_MAX, useSearchTerm } from "../components/search-term.ts";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { ToastProvider, useNotify } from "../components/toast.tsx";
@@ -319,6 +317,12 @@ function useInviteButton() {
   };
 }
 
+// Email | role | status | ⋯.
+const INVITE_COLUMNS =
+  "minmax(0,1.6fr) 104px minmax(0,1fr) var(--werft-control-height-sm)";
+const INVITE_NARROW_COLUMNS =
+  "minmax(0,1.2fr) 72px minmax(0,1fr) var(--werft-control-height-sm)";
+
 /** The 초대 tab: invites still waiting to be accepted. */
 export function InvitesScreen() {
   const manages = useHasPermission("member.manage");
@@ -420,10 +424,7 @@ function MemberTable({ items }: { readonly items: readonly MemberRow[] }) {
 
   return (
     <>
-      <MemberTableFrame
-        label={t("members.tableLabel")}
-        firstColumn={t("members.column.name")}
-      >
+      <MemberTableFrame label={t("members.tableLabel")}>
         {items.map((member) => {
           const disabled = member.disabled_at !== null;
           const keepWhy = disabled
@@ -434,99 +435,96 @@ function MemberTable({ items }: { readonly items: readonly MemberRow[] }) {
               changeRole.variables?.member.user_id === member.user_id) ||
             (setAccess.isPending &&
               setAccess.variables?.member.user_id === member.user_id);
-          const button = disabled ? (
-            <RowAction
-              disabled={busy || keepWhy !== undefined}
-              aria-label={t("members.enableFor", {
-                name: member.display_name,
-              })}
-              onClick={() => setAccess.mutate({ member, enable: true })}
-            >
-              {t("members.enable")}
-            </RowAction>
-          ) : (
-            <RowAction
-              disabled={busy || keepWhy !== undefined}
-              aria-label={t("members.disableFor", {
-                name: member.display_name,
-              })}
-              onClick={() => setConfirming(member)}
-            >
-              {t("members.disable")}
-            </RowAction>
-          );
           return (
             <GridTableRow
               key={member.user_id}
-              inactive={disabled}
+              // Not `inactive`: that greys every tone, and the status column
+              // already says "정지됨" with its red dot.
               className={disabled ? INACTIVE_ROW_CLASS : undefined}
               data-disabled={disabled}
               data-member-id={member.user_id}
             >
-              <GridTableCell lines={true}>
-                {/* A disabled member opens nothing: no opener, so no pointer,
-                      hover fill, Tab stop or click. "다시 활성화" is the only
-                      action left on the row. */}
-                {disabled ? null : (
-                  <GridTableRowOpener
-                    aria-label={t("members.editFor", {
-                      name: member.display_name,
-                    })}
-                    onClick={(event) => {
-                      editOpener.current = event.currentTarget;
-                      editedId.current = member.user_id;
-                      setEditingId(member.user_id);
-                    }}
-                  />
-                )}
-                {/* v4 .strong: body text at weight 500, not link blue;
-                      blue stays for links that move (→). */}
-                {/* Below md the "you" badge drops to its own line under
-                      the name, so the name gets the whole column (QA L-17). */}
-                <span className="grid max-w-full grid-cols-[minmax(0,auto)_auto] items-center gap-y-[var(--werft-row-line-gap)] @max-md:grid-cols-[minmax(0,auto)]">
+              <GridTableCell>
+                <span className="flex min-w-0 items-center gap-1.5">
                   <Text
                     as="span"
                     weight="medium"
+                    truncate
                     title={member.display_name}
-                    className="line-clamp-2 min-w-0 [overflow-wrap:anywhere]"
                   >
                     {member.display_name}
                   </Text>
-                  {disabled ? (
-                    <InactiveBadge className="ms-1.5 @max-md:col-start-1 @max-md:row-start-2 @max-md:ms-0" />
-                  ) : null}
                   {member.user_id === self ? (
-                    <Badge
-                      variant="gray"
-                      className="ms-1.5 @max-md:col-start-1 @max-md:row-start-2 @max-md:ms-0"
-                    >
-                      {t("members.you")}
-                    </Badge>
+                    <Badge variant="gray">{t("members.you")}</Badge>
                   ) : null}
                 </span>
-                <Text as="span" variant="meta" title={member.email}>
+              </GridTableCell>
+              <GridTableCell>
+                <Text
+                  as="span"
+                  truncate
+                  title={member.email}
+                  className="text-muted-foreground"
+                >
                   {member.email}
                 </Text>
               </GridTableCell>
               <GridTableCell>
-                <Badge variant={member.role === "member" ? "gray" : "blue"}>
-                  {roleLabel(t, member.role)}
-                </Badge>
+                <RoleBadge role={member.role} />
               </GridTableCell>
-              <GridTableCell raised={true} align="end" className="gap-1">
-                {keepWhy ? (
-                  <DisabledReason
-                    reason={keepWhy}
-                    label={t(
-                      disabled ? "members.enableFor" : "members.disableFor",
-                      { name: member.display_name },
-                    )}
-                  >
-                    {button}
-                  </DisabledReason>
-                ) : (
-                  button
-                )}
+              <GridTableCell>
+                <StatusText status={disabled ? "failed" : "done"}>
+                  {t(
+                    disabled
+                      ? "members.state.suspended"
+                      : "members.state.active",
+                  )}
+                </StatusText>
+              </GridTableCell>
+              <GridTableCell raised={true} align="end">
+                <RowMenu
+                  label={t("members.menuFor", { name: member.display_name })}
+                >
+                  {(close) => (
+                    <>
+                      <RowMenuItem
+                        reason={
+                          disabled ? t("members.edit.disabledNote") : undefined
+                        }
+                        onSelect={() => {
+                          editOpener.current = close();
+                          editedId.current = member.user_id;
+                          setEditingId(member.user_id);
+                        }}
+                      >
+                        {t("members.edit.title")}
+                      </RowMenuItem>
+                      {disabled ? (
+                        <RowMenuItem
+                          reason={busy ? undefined : keepWhy}
+                          onSelect={() => {
+                            close();
+                            if (!busy)
+                              setAccess.mutate({ member, enable: true });
+                          }}
+                        >
+                          {t("members.enable")}
+                        </RowMenuItem>
+                      ) : (
+                        <RowMenuItem
+                          tone="danger"
+                          reason={busy ? undefined : keepWhy}
+                          onSelect={() => {
+                            close();
+                            if (!busy) setConfirming(member);
+                          }}
+                        >
+                          {t("members.disable")}
+                        </RowMenuItem>
+                      )}
+                    </>
+                  )}
+                </RowMenu>
               </GridTableCell>
             </GridTableRow>
           );
@@ -547,14 +545,11 @@ function MemberTable({ items }: { readonly items: readonly MemberRow[] }) {
               opener.focus();
               return;
             }
-            // The member was disabled while the dialog was open, so the row
-            // lost its opener: focus what the row still offers instead, the
-            // button or, when the server withholds it, the box that says why.
+            // The row was drawn again while the dialog was open: focus its
+            // ⋯ button, which opened the dialog.
             const row = `[data-member-id="${editedId.current}"]`;
             document
-              .querySelector<HTMLElement>(
-                `${row} button:not(:disabled), ${row} [data-slot=disabled-reason]`,
-              )
+              .querySelector<HTMLElement>(`${row} button[aria-haspopup=menu]`)
               ?.focus();
           }}
         />
@@ -837,14 +832,34 @@ function InviteList() {
       ) : (
         <MemberTableFrame
           label={t("members.invites.tableLabel")}
-          firstColumn={t("members.tab.invites")}
+          layout={{
+            columns: INVITE_COLUMNS,
+            narrowColumns: INVITE_NARROW_COLUMNS,
+            narrowAt: 640,
+            headers: (
+              <>
+                <GridTableColumnHeader>
+                  {t("members.column.email")}
+                </GridTableColumnHeader>
+                <GridTableColumnHeader>
+                  {t("members.column.role")}
+                </GridTableColumnHeader>
+                <GridTableColumnHeader>
+                  {t("members.column.status")}
+                </GridTableColumnHeader>
+                <GridTableColumnHeader>
+                  <span className="sr-only">{t("members.column.actions")}</span>
+                </GridTableColumnHeader>
+              </>
+            ),
+          }}
         >
           {shown.map((invite) => {
             const lapsed = inviteLapsed(invite);
             // The cell ellipsizes a long line; the title keeps the full time.
             const expires = t(
               lapsed ? "members.invites.expiredAt" : "members.invites.expires",
-              { expires: formatTimestamp(invite.expires_at, locale) },
+              { expires: formatTableDateTime(invite.expires_at, locale) },
             );
             return (
               <GridTableRow
@@ -853,45 +868,43 @@ function InviteList() {
                 className={lapsed ? INACTIVE_ROW_CLASS : undefined}
                 data-expired={lapsed}
               >
+                <GridTableCell>
+                  <Text as="span" weight="medium" truncate title={invite.email}>
+                    {invite.email}
+                  </Text>
+                </GridTableCell>
+                <GridTableCell>
+                  <RoleBadge role={invite.role} />
+                </GridTableCell>
                 <GridTableCell lines={true}>
-                  <span className="grid max-w-full grid-cols-[minmax(0,auto)_auto] items-center gap-y-[var(--werft-row-line-gap)] @max-md:grid-cols-[minmax(0,auto)]">
-                    <Text
-                      as="span"
-                      weight="medium"
-                      truncate
-                      title={invite.email}
-                    >
-                      {invite.email}
-                    </Text>
-                    {lapsed ? (
-                      <Badge
-                        variant="gray"
-                        className="ms-1.5 @max-md:col-start-1 @max-md:row-start-2 @max-md:ms-0"
-                      >
-                        {t("members.invites.state.expired")}
-                      </Badge>
-                    ) : null}
-                  </span>
+                  <StatusText status={lapsed ? "idle" : "wait"}>
+                    {t(
+                      lapsed
+                        ? "members.invites.state.expired"
+                        : "members.invites.state.pending",
+                    )}
+                  </StatusText>
                   <Text as="span" variant="meta" title={expires}>
                     {expires}
                   </Text>
                 </GridTableCell>
-                <GridTableCell>
-                  <Badge variant={invite.role === "member" ? "gray" : "blue"}>
-                    {roleLabel(t, invite.role)}
-                  </Badge>
-                </GridTableCell>
-                <GridTableCell align="end">
+                <GridTableCell raised={true} align="end">
                   {lapsed ? null : (
-                    <RowAction
-                      disabled={revoke.isPending}
-                      aria-label={t("members.invites.revokeFor", {
-                        email: invite.email,
-                      })}
-                      onClick={() => setRevoking(invite)}
+                    <RowMenu
+                      label={t("members.menuFor", { name: invite.email })}
                     >
-                      {t("members.invites.revoke")}
-                    </RowAction>
+                      {(close) => (
+                        <RowMenuItem
+                          tone="danger"
+                          onSelect={() => {
+                            close();
+                            if (!revoke.isPending) setRevoking(invite);
+                          }}
+                        >
+                          {t("members.invites.revoke")}
+                        </RowMenuItem>
+                      )}
+                    </RowMenu>
                   )}
                 </GridTableCell>
               </GridTableRow>

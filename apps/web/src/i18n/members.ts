@@ -5,12 +5,17 @@ export const membersKo = {
   "members.noMatch": "검색어에 맞는 구성원이 없습니다",
   "members.noMatchHint": "다른 이름이나 이메일로 찾아 보세요.",
   "members.clearSearch": "검색어 지우기",
-  "members.column.name": "구성원",
+  "members.column.name": "이름",
+  "members.column.email": "이메일",
+  "members.column.status": "상태",
   "members.column.role": "역할",
   "members.column.actions": "관리",
   "members.tableLabel": "구성원 표",
   "members.state.disabled": "비활성",
   "members.you": "나",
+  "members.state.active": "활성",
+  "members.state.suspended": "정지됨",
+  "members.menuFor": "{name} 메뉴",
   "members.roleChanged":
     "{name}의 역할을 바꿨습니다. 지금 역할은 {role}입니다.",
   "members.edit.result": "바꾸면 {name}의 역할은 {role}입니다.",
@@ -35,8 +40,6 @@ export const membersKo = {
   "members.enableAccountDisabled":
     "계정이 정지된 사람은 여기서 다시 활성화할 수 없습니다 — 계정 정지를 먼저 풀어야 합니다.",
   "members.disable": "비활성화",
-  "members.disableFor": "{name} 비활성화",
-  "members.enableFor": "{name} 다시 활성화",
   "members.disableTitle": "{name} 계정을 비활성화할까요?",
   "members.disableConsequence":
     "이 사람의 웹 로그인과 개인 API 키가 바로 끊기고, 이 사람이 시작한 세션은 소유자가 넘겨받을 때까지 멈춥니다. 다시 활성화해도 끊긴 로그인과 키는 돌아오지 않습니다.",
@@ -76,10 +79,10 @@ export const membersKo = {
   "members.invites.noMatch": "검색어에 맞는 초대가 없습니다",
   "members.invites.noMatchHint": "다른 이메일로 찾아 보세요.",
   "members.invites.state.expired": "만료",
+  "members.invites.state.pending": "초대됨",
   "members.invites.expiredAt": "{expires}에 만료됨",
   "members.invites.expires": "{expires}까지",
   "members.invites.revoke": "회수",
-  "members.invites.revokeFor": "{email} 초대 회수",
   "members.invites.revokeTitle": "{email} 초대를 회수할까요?",
   "members.invites.revokeConsequence":
     "보낸 링크로는 더 가입할 수 없습니다. 다시 초대하려면 새 링크를 만들어 보내야 합니다.",
@@ -87,7 +90,6 @@ export const membersKo = {
   "members.withheld":
     "구성원 초대와 관리는 워크스페이스 소유자나 관리자가 합니다.",
   "members.description": "워크스페이스에 속한 사람과 역할입니다.",
-  "members.editFor": "{name} 편집",
   "members.edit.title": "구성원 편집",
   "members.edit.disabledNote":
     "비활성 구성원의 역할은 다시 활성화한 뒤 바꿀 수 있습니다.",
@@ -108,12 +110,17 @@ export const membersEn: Record<keyof typeof membersKo, string> = {
   "members.noMatch": "No members match",
   "members.noMatchHint": "Try another name or email.",
   "members.clearSearch": "Clear search",
-  "members.column.name": "Member",
+  "members.column.name": "Name",
+  "members.column.email": "Email",
+  "members.column.status": "Status",
   "members.column.role": "Role",
   "members.column.actions": "Manage",
   "members.tableLabel": "Members table",
   "members.state.disabled": "Inactive",
   "members.you": "You",
+  "members.state.active": "Active",
+  "members.state.suspended": "Suspended",
+  "members.menuFor": "Menu for {name}",
   "members.roleChanged": "{name} is now {role}.",
   "members.edit.result": "If you change it, {name}'s role is {role}.",
   "members.roleChangeConsequence":
@@ -136,8 +143,6 @@ export const membersEn: Record<keyof typeof membersKo, string> = {
   "members.enableAccountDisabled":
     "A suspended account cannot be re-enabled here — lift the suspension first.",
   "members.disable": "Disable",
-  "members.disableFor": "Disable {name}",
-  "members.enableFor": "Re-enable {name}",
   "members.disableTitle": "Disable {name}?",
   "members.disableConsequence":
     "Their web logins and personal API keys stop working right away, and sessions they started wait until an owner takes them over. Re-enabling them does not restore those logins or keys.",
@@ -176,17 +181,16 @@ export const membersEn: Record<keyof typeof membersKo, string> = {
   "members.invites.noMatch": "No invites match",
   "members.invites.noMatchHint": "Try another email.",
   "members.invites.state.expired": "Expired",
+  "members.invites.state.pending": "Invited",
   "members.invites.expiredAt": "Expired {expires}",
   "members.invites.expires": "Expires {expires}",
   "members.invites.revoke": "Revoke",
-  "members.invites.revokeFor": "Revoke the invite for {email}",
   "members.invites.revokeTitle": "Revoke the invite for {email}?",
   "members.invites.revokeConsequence":
     "The link you sent stops working. To invite them again, create and send a new link.",
   "members.invites.revoked": "The invite for {email} is revoked.",
   "members.withheld": "Workspace owners and admins invite and manage members.",
   "members.description": "The people in this workspace and their roles.",
-  "members.editFor": "Edit {name}",
   "members.edit.title": "Edit member",
   "members.edit.disabledNote":
     "Re-enable this member before changing their role.",
@@ -209,12 +213,17 @@ export const membersJa: Record<keyof typeof membersKo, string> = {
   "members.noMatch": "検索語に合うメンバーはいません",
   "members.noMatchHint": "別の名前やメールで探してみてください。",
   "members.clearSearch": "検索語をクリア",
-  "members.column.name": "メンバー",
+  "members.column.name": "名前",
+  "members.column.email": "メール",
+  "members.column.status": "状態",
   "members.column.role": "ロール",
   "members.column.actions": "管理",
   "members.tableLabel": "メンバー一覧表",
   "members.state.disabled": "無効",
   "members.you": "自分",
+  "members.state.active": "有効",
+  "members.state.suspended": "停止中",
+  "members.menuFor": "{name}のメニュー",
   "members.roleChanged": "{name}のロールを{role}に変更しました。",
   "members.edit.result": "変更すると、{name}のロールは{role}になります。",
   "members.roleChangeConsequence":
@@ -238,8 +247,6 @@ export const membersJa: Record<keyof typeof membersKo, string> = {
   "members.enableAccountDisabled":
     "アカウントが停止中のユーザーはここでは再有効化できません。先にアカウントの停止を解除してください。",
   "members.disable": "無効化",
-  "members.disableFor": "{name}を無効化",
-  "members.enableFor": "{name}を再有効化",
   "members.disableTitle": "{name}のアカウントを無効化しますか？",
   "members.disableConsequence":
     "この人の Web ログインと個人 API キーはすぐに使えなくなり、この人が開始したセッションはオーナーが引き継ぐまで停止します。再有効化しても、切断されたログインとキーは元に戻りません。",
@@ -279,10 +286,10 @@ export const membersJa: Record<keyof typeof membersKo, string> = {
   "members.invites.noMatch": "検索語に合う招待はありません",
   "members.invites.noMatchHint": "別のメールで探してみてください。",
   "members.invites.state.expired": "期限切れ",
+  "members.invites.state.pending": "招待済み",
   "members.invites.expiredAt": "{expires}に期限切れ",
   "members.invites.expires": "{expires}まで",
   "members.invites.revoke": "取り消し",
-  "members.invites.revokeFor": "{email}への招待を取り消し",
   "members.invites.revokeTitle": "{email}への招待を取り消しますか？",
   "members.invites.revokeConsequence":
     "送信したリンクからは参加できなくなります。再度招待するには、新しいリンクを作成して送ってください。",
@@ -290,7 +297,6 @@ export const membersJa: Record<keyof typeof membersKo, string> = {
   "members.withheld":
     "メンバーの招待と管理は、ワークスペースのオーナーまたは管理者が行います。",
   "members.description": "このワークスペースに所属する人とロールです。",
-  "members.editFor": "{name}を編集",
   "members.edit.title": "メンバーを編集",
   "members.edit.disabledNote":
     "無効のメンバーのロールは、再有効化してから変更できます。",

@@ -28,14 +28,11 @@ export const focusBack =
   };
 
 const itemsOf = (menu: HTMLElement) =>
-  Array.from(
-    menu.querySelectorAll<HTMLElement>(
-      '[role="menuitem"]:not([aria-disabled="true"])',
-    ),
-  );
+  Array.from(menu.querySelectorAll<HTMLElement>('[role="menuitem"]'));
 
-// Arrow keys, Home and End move between items; Tab leaves the menu, which
-// closes it as the focus goes.
+// Arrow keys, Home and End move between items, disabled ones included so a
+// keyboard hears why they are disabled; Tab leaves the menu, which closes it
+// as the focus goes.
 function moveFocus(event: KeyboardEvent<HTMLDivElement>) {
   const items = itemsOf(event.currentTarget);
   if (items.length === 0) return;
@@ -112,7 +109,12 @@ export function RowMenu({
         onOpenAutoFocus={(event) => {
           event.preventDefault();
           const menu = event.currentTarget;
-          if (menu instanceof HTMLElement) itemsOf(menu)[0]?.focus();
+          if (!(menu instanceof HTMLElement)) return;
+          const items = itemsOf(menu);
+          (
+            items.find((item) => !item.hasAttribute("aria-disabled")) ??
+            items[0]
+          )?.focus();
         }}
         onKeyDown={moveFocus}
       >
@@ -128,15 +130,44 @@ export function RowMenu({
 export function RowMenuItem({
   onSelect,
   tone,
+  reason,
   children,
 }: {
   readonly onSelect: () => void;
   readonly tone?: "danger" | undefined;
+  /**
+   * Why the item cannot be chosen now. It stays in the menu, dimmed, with
+   * the reason under its name; the arrow keys still reach it, and a screen
+   * reader reads the reason as its description.
+   */
+  readonly reason?: string | undefined;
   readonly children: ReactNode;
 }) {
+  const labelId = useId();
+  const reasonId = useId();
+  const disabled = reason !== undefined;
   return (
-    <MenuItem role="menuitem" tabIndex={-1} tone={tone} onClick={onSelect}>
-      {children}
+    <MenuItem
+      role="menuitem"
+      tabIndex={-1}
+      tone={disabled ? "default" : tone}
+      aria-disabled={disabled || undefined}
+      // Named by its label alone; the reason under it is its description.
+      aria-labelledby={disabled ? labelId : undefined}
+      aria-describedby={disabled ? reasonId : undefined}
+      className={
+        disabled
+          ? "h-auto cursor-not-allowed flex-col items-start gap-0.5 py-2"
+          : undefined
+      }
+      onClick={disabled ? undefined : onSelect}
+    >
+      <span id={labelId}>{children}</span>
+      {disabled ? (
+        <span id={reasonId} className="text-caption text-muted-foreground">
+          {reason}
+        </span>
+      ) : null}
     </MenuItem>
   );
 }
