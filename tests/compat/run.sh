@@ -197,6 +197,9 @@ if [ -n "$secrets" ]; then
   docker exec "$fake_git" cat /var/lib/fake-github/app-key.pem </dev/null |
     docker exec -i "$secrets" awslocal secretsmanager create-secret \
       --name werft/local/fake-github-app --secret-string file:///dev/stdin >/dev/null
+  # The release left the repository out while its key was missing and reads
+  # its settings again every 10 s; two reads bring it back everywhere.
+  sleep 25
 fi
 drive 1
 

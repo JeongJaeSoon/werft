@@ -380,6 +380,12 @@ if [ "$KIND_MODEL" != none ] && [ "$status" = 0 ]; then
   fi
   seed_credentials kind_owner_cookie "${seeds[@]}" repositories:sample-app -- kind_seed ||
     { echo "storing the settings' keys failed" >&2; status=1; }
+  # The keys went through one replica; the others read them on their next
+  # catalog refresh. A restart has every replica read them now.
+  if [ "$status" = 0 ]; then
+    kubectl -n "$NAMESPACE" rollout restart "deploy/${fullname}-api"
+    kubectl -n "$NAMESPACE" rollout status "deploy/${fullname}-api" --timeout=600s
+  fi
 fi
 unset kind_model_key
 
