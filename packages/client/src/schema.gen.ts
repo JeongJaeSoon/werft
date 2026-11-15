@@ -5814,6 +5814,11 @@ export interface components {
             }[] | null;
             current_turn_id: string | null;
             queued_turn_count: number;
+            /**
+             * @description How long the session's finished turns ran, in milliseconds: the sum of each turn's end minus its start. Time spent idle between turns, waiting for an answer or paused is not counted, and neither is a turn still running. 0 from a server older than the field.
+             * @default 0
+             */
+            turn_time_ms: number;
             last_event_at: string | null;
             /** Format: date-time */
             created_at: string;
@@ -5947,6 +5952,11 @@ export interface components {
             }[] | null;
             current_turn_id: string | null;
             queued_turn_count: number;
+            /**
+             * @description How long the session's finished turns ran, in milliseconds: the sum of each turn's end minus its start. Time spent idle between turns, waiting for an answer or paused is not counted, and neither is a turn still running. 0 from a server older than the field.
+             * @default 0
+             */
+            turn_time_ms: number;
             last_event_at: string | null;
             /** Format: date-time */
             created_at: string;

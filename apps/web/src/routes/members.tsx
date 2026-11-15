@@ -29,7 +29,7 @@ import {
   FieldLabel,
   FieldLegend,
   FieldSet,
-  formatTimestamp,
+  formatTableDateTime,
   GridTableCell,
   GridTableColumnHeader,
   GridTableRow,
@@ -860,7 +860,7 @@ function InviteList() {
             // The cell ellipsizes a long line; the title keeps the full time.
             const expires = t(
               lapsed ? "members.invites.expiredAt" : "members.invites.expires",
-              { expires: formatTimestamp(invite.expires_at, locale) },
+              { expires: formatTableDateTime(invite.expires_at, locale) },
             );
             return (
               <GridTableRow

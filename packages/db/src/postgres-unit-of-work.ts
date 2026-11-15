@@ -71,6 +71,7 @@ import {
   gt,
   gte,
   inArray,
+  isNotNull,
   isNull,
   max,
   not,
@@ -1222,6 +1223,26 @@ export function createPostgresSessionReader(
       })
       .from(turns)
       .where(and(inArray(turns.sessionId, ids), eq(turns.sequence, 1)));
+    // What the finished turns ran, summed per session: idle, paused and
+    // waiting time between turns falls outside every turn.
+    const turnTimes = new Map(
+      (
+        await executor
+          .select({
+            sessionId: turns.sessionId,
+            ms: sql<string>`coalesce(sum(extract(epoch from ${turns.endedAt} - ${turns.startedAt}) * 1000), 0)`,
+          })
+          .from(turns)
+          .where(
+            and(
+              inArray(turns.sessionId, ids),
+              isNotNull(turns.startedAt),
+              isNotNull(turns.endedAt),
+            ),
+          )
+          .groupBy(turns.sessionId)
+      ).map((row) => [row.sessionId, Math.max(0, Math.round(Number(row.ms)))]),
+    );
     const firstTurnOf = (session: SessionRow) =>
       firstTurns.find((turn) => turn.sessionId === session.id);
     const starterOf = (session: SessionRow) =>
@@ -1343,6 +1364,7 @@ export function createPostgresSessionReader(
         current_turn_id: current ? String(current.sequence) : null,
         queued_turn_count: mine.filter((turn) => turn.status === "queued")
           .length,
+        turn_time_ms: turnTimes.get(row.id) ?? 0,
         last_event_at: lastEventAt?.toISOString() ?? null,
         created_at: row.createdAt.toISOString(),
         updated_at: row.updatedAt.toISOString(),

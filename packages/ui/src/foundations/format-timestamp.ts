@@ -150,12 +150,10 @@ const DURATION_WORDS: Record<
  * first.
  */
 export function formatDuration(
-  from: string,
-  to: string,
+  ms: number,
   locale: TimestampLocale = "ko",
 ): string | null {
-  const ms = new Date(to).getTime() - new Date(from).getTime();
-  if (Number.isNaN(ms) || ms < 0) return null;
+  if (!Number.isFinite(ms) || ms < 0) return null;
   const minutes = Math.floor(ms / 60_000);
   const words = DURATION_WORDS[locale];
   if (minutes < 1) return words.under;

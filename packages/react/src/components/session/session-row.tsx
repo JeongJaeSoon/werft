@@ -7,7 +7,7 @@ import {
   GridTableCell,
   GridTableRow,
   GridTableRowOpener,
-  RelativeTime,
+  TableTime,
   type TimestampLocale,
 } from "@werft-ai/ui";
 import { Fragment, isValidElement, type JSX, type ReactNode } from "react";
@@ -156,7 +156,7 @@ export function SessionRow({
           {session.last_event_at ? messages.lastEvent : messages.created}{" "}
         </span>
         {/* Above the row's opener, so hovering and focus reach it. */}
-        <RelativeTime
+        <TableTime
           value={session.last_event_at ?? session.created_at}
           locale={locale}
           now={now ?? clock}

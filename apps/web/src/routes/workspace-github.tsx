@@ -17,7 +17,7 @@ import {
   cn,
   DangerZone,
   DangerZoneRow,
-  formatTimestamp,
+  formatTableDateTime,
   GridTable,
   GridTableCell,
   GridTableColumnHeader,
@@ -123,9 +123,9 @@ const appsKey = (
   workspaceId: string,
 ) => scopedKey(client, "workspace", workspaceId, "github-apps");
 
-/** "2026. 10. 30.": formatTimestamp without its time. */
+/** A time in a table row's line, as every table shows one. */
 const dateOf = (iso: string, locale: TimestampLocale) =>
-  formatTimestamp(iso, locale).replace(/,? \d{2}:\d{2}$/, "");
+  formatTableDateTime(iso, locale);
 
 const reasonOf = (error: ApiError): unknown =>
   (error.details as { reason_code?: unknown } | null)?.reason_code;

@@ -160,6 +160,7 @@ function summary(id: string, overrides: Partial<SessionSummary> = {}) {
     repository_id: "demo",
     current_turn_id: "1",
     queued_turn_count: 0,
+    turn_time_ms: 0,
     model: "model-default",
     last_event_at: AT,
     created_at: AT,
@@ -422,7 +423,9 @@ describe("sessions list", () => {
         new URL(request.url).searchParams.get("cursor") === "next-1"
           ? json(200, { items: [summary(OTHER_ID)], next_cursor: null })
           : json(200, {
-              items: [summary(SESSION_ID, { status: "idle" })],
+              items: [
+                summary(SESSION_ID, { status: "idle", turn_time_ms: 30_000 }),
+              ],
               next_cursor: "next-1",
             }),
     });
@@ -433,7 +436,7 @@ describe("sessions list", () => {
     // Untitled: the row shows the id's head, the link keeps the whole id.
     expect(within(row).getByText(SESSION_ID.slice(0, 8))).toBeTruthy();
     expect(row.textContent).toContain("작업 상태: 쉬는 중");
-    // Idle with its last event at its start: no time passed, not "in progress".
+    // Idle after a 30-second turn: its run time, not "in progress".
     expect(within(row).getByText("1분 미만")).toBeTruthy();
     expect(screen.getByText(/나에게 공유된 세션입니다/)).toBeTruthy();
 
@@ -622,10 +625,13 @@ describe("sessions list", () => {
     expect(
       screen.getAllByRole("columnheader").map((head) => head.textContent),
     ).toEqual(["Title", "Agent", "Channel", "Status", "Started", "Duration"]);
-    // The start reads without its year; the title keeps the whole time.
+    // The start reads without its year; hovering it says how long ago.
     const time = row.querySelector("time") as HTMLElement;
     expect(time.textContent).toMatch(/^Oct \d+, \d+:\d\d [AP]M$/);
-    expect(time.getAttribute("title")).toMatch(/^Oct \d+, 2026, \d\d:\d\d$/);
+    expect(
+      document.getElementById(time.getAttribute("aria-describedby") ?? "")
+        ?.textContent,
+    ).toBeTruthy();
   });
 
   test("a row's link opens the session inside the app", async () => {
@@ -705,7 +711,8 @@ describe("sessions list", () => {
       "Release helper",
       "",
       "작업 상태: 작업 중",
-      expect.stringMatching(/^\d+월 \d+일 오[전후] \d\d:\d\d$/),
+      // The absolute time, then its relative hover text.
+      expect.stringMatching(/^\d+월 \d+일 오[전후] \d\d:\d\d./),
       "진행 중",
     ]);
     expect(

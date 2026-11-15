@@ -19,7 +19,9 @@ import { appHarness } from "../../test-support/render-app.tsx";
 import { usagePeriod } from "../operations.tsx";
 
 const { renderAt, screen, waitFor, within } = await appHarness();
-const { formatExactTime, formatRelativeTime } = await import("@werft-ai/ui");
+const { formatRelativeTime, formatTableDateTime } = await import(
+  "@werft-ai/ui"
+);
 
 const meOk = { "GET /v1/auth/me": () => json(200, me()) };
 const DETAIL = `/agents/${AGENT_ID}`;
@@ -1058,12 +1060,12 @@ describe("에이전트 상세 탭", () => {
         "구성원",
       ],
     ]);
-    // Each end reads relative, with the exact instant in its tooltip, in
-    // the locale's period form.
+    // Each end reads as an absolute time, with how long ago in its
+    // tooltip, in the locale's period form.
     const previous = within(table).getAllByRole("row")[2] as HTMLElement;
     const period = within(previous).getAllByRole("cell")[2];
     const end = (iso: string) =>
-      `${formatRelativeTime(iso, "ko")}${formatExactTime(iso, "ko")}`;
+      `${formatTableDateTime(iso, "ko")}${formatRelativeTime(iso, "ko")}`;
     expect(period?.textContent).toBe(
       `${end("2026-10-11T02:00:00.000Z")} ~ ${end("2026-10-11T02:01:00.000Z")}`,
     );

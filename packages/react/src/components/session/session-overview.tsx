@@ -10,14 +10,13 @@ import {
   Code,
   cn,
   formatDuration,
-  formatTableDateTime,
-  formatTimestamp,
   GridTable,
   GridTableCell,
   GridTableColumnHeader,
   GridTableHeader,
   GridTableRow,
   SlackMark,
+  TableTime,
   type TimestampLocale,
 } from "@werft-ai/ui";
 import { Globe, SquareTerminal } from "lucide-react";
@@ -200,14 +199,13 @@ export function SessionOverviewRow({
   const admission = QUIET_ADMISSION.has(session.admission_state)
     ? null
     : session.admission_state;
-  // The API keeps no end for a session (an idle one takes the next message),
-  // so a session that is not at work is measured from its start to its last
-  // event.
+  // A session at work is "in progress"; otherwise its finished turns' run
+  // time, so idle, paused and answer-waiting time between turns is not
+  // counted.
   const duration = AT_WORK.has(session.status)
     ? messages.inProgress
-    : session.last_event_at
-      ? (formatDuration(session.created_at, session.last_event_at, locale) ??
-        messages.unknown)
+    : session.turn_time_ms > 0
+      ? (formatDuration(session.turn_time_ms, locale) ?? messages.unknown)
       : messages.unknown;
   return (
     <GridTableRow
@@ -274,14 +272,12 @@ export function SessionOverviewRow({
         ) : null}
       </GridTableCell>
       <GridTableCell className="whitespace-nowrap">
-        <time
-          dateTime={session.created_at}
-          title={formatTimestamp(session.created_at, locale)}
-          // Above the opener, so hovering shows the full time.
+        {/* Above the opener, so hovering and focus reach it. */}
+        <TableTime
+          value={session.created_at}
+          locale={locale}
           className="relative truncate"
-        >
-          {formatTableDateTime(session.created_at, locale)}
-        </time>
+        />
       </GridTableCell>
       <GridTableCell align="end" className="whitespace-nowrap">
         <span

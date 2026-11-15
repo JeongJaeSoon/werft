@@ -17,7 +17,6 @@ import {
   Card,
   Code,
   EmptyState,
-  formatRelativeTime,
   GridTable,
   GridTableCell,
   GridTableColumnHeader,
@@ -30,6 +29,7 @@ import {
   Section,
   Skeleton,
   StatCard,
+  TableTime,
   Text,
 } from "@werft-ai/ui";
 import { type ReactNode, useState } from "react";
@@ -430,9 +430,7 @@ function RecentRow({ row }: { readonly row: Recent }) {
   return (
     <GridTableRow>
       <GridTableCell className="whitespace-nowrap">
-        <time dateTime={row.created_at}>
-          {formatRelativeTime(row.created_at, locale)}
-        </time>
+        <TableTime value={row.created_at} locale={locale} />
       </GridTableCell>
       <GridTableCell>
         {row.session_id === null ? (

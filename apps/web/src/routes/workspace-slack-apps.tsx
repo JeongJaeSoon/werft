@@ -13,10 +13,10 @@ import {
   GridTableHeader,
   GridTableRow,
   linkVariants,
-  RelativeTime,
   RowLines,
   SettingsSection,
   Skeleton,
+  TableTime,
   Text,
 } from "@werft-ai/ui";
 import { useEffect, useRef } from "react";
@@ -160,7 +160,7 @@ function AppTable({ items }: { readonly items: readonly MadeApp[] }) {
               align="end"
               className="text-caption text-muted-foreground"
             >
-              <RelativeTime value={item.slack_app.updated_at} locale={locale} />
+              <TableTime value={item.slack_app.updated_at} locale={locale} />
             </GridTableCell>
             <GridTableCell align="end">
               {item.agent ? (

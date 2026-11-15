@@ -35,7 +35,6 @@ import {
   Field,
   FieldError,
   FieldLabel,
-  formatTimestamp,
   GridTableCell,
   GridTableColumnHeader,
   GridTableRow,
@@ -46,6 +45,7 @@ import {
   NativeSelectOption,
   RowAction,
   SettingsSection,
+  TableTime,
   Text,
   Link as TextLink,
 } from "@werft-ai/ui";
@@ -743,7 +743,7 @@ function TeamMembers({
                       )}
                     </GridTableCell>
                     <GridTableCell className="text-caption text-muted-foreground tabular-nums">
-                      {formatTimestamp(member.added_at, locale)}
+                      <TableTime value={member.added_at} locale={locale} />
                     </GridTableCell>
                     {manages && (
                       <GridTableCell raised={true} align="end">

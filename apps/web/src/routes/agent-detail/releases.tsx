@@ -11,9 +11,9 @@ import {
   GridTableColumnHeader,
   GridTableHeader,
   GridTableRow,
-  RelativeTime,
   RowAction,
   Section,
+  TableTime,
   Text,
 } from "@werft-ai/ui";
 import { type ReactNode, useState } from "react";
@@ -122,7 +122,7 @@ export function Releases({
       .map((item): Entry => ({ kind: "access", at: item.created_at, item })),
   ].sort((a, b) => b.at.localeCompare(a.at));
   const cards = new Map(detail.versions.map((v) => [v.id, v.card]));
-  const at = (iso: string) => <RelativeTime value={iso} locale={locale} />;
+  const at = (iso: string) => <TableTime value={iso} locale={locale} />;
   const preview = confirming ? rollbackPreview(confirming) : null;
 
   return (

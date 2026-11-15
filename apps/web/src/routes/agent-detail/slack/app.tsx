@@ -13,12 +13,12 @@ import {
   GridTableHeader,
   GridTableRow,
   Link,
-  RelativeTime,
   RowAction,
   RowLines,
   SettingRow,
   SettingsSection,
   Skeleton,
+  TableTime,
   Text,
 } from "@werft-ai/ui";
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
@@ -309,7 +309,7 @@ export function SlackAppSection({
   }
   const appName = t("slack.appName", { name });
   const state = slackState(slack.readError, identity, record);
-  const updated = <RelativeTime value={record.updated_at} locale={locale} />;
+  const updated = <TableTime value={record.updated_at} locale={locale} />;
   const badge =
     record.state === "creating" ? (
       <Badge>{t("workspace.slackAppsCreating")}</Badge>

@@ -178,7 +178,9 @@ describe("GitHub 연결 › 카드와 설치 표", () => {
     renderAt(PATH, routes(twoAccounts()));
     const rows = within(await installationTable()).getAllByRole("row");
     expect(
-      within(rows[2] as HTMLElement).getByText(/^설치 2026/),
+      within(rows[2] as HTMLElement).getByText(
+        /^설치 \d+월 \d+일 오[전후] \d\d:\d\d$/,
+      ),
     ).toBeDefined();
   });
 

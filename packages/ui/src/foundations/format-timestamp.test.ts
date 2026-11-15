@@ -35,23 +35,22 @@ describe("formatTableDateTime", () => {
 });
 
 describe("formatDuration", () => {
-  const at = (minutes: number) =>
-    new Date(Date.parse(MORNING) + minutes * 60_000).toISOString();
+  const MINUTE = 60_000;
 
   test("분 단위로, 1시간부터는 시간과 분으로 적는다", () => {
-    expect(formatDuration(MORNING, at(0.5), "ko")).toBe("1분 미만");
-    expect(formatDuration(MORNING, at(18), "ko")).toBe("18분");
-    expect(formatDuration(MORNING, at(65), "ko")).toBe("1시간 5분");
-    expect(formatDuration(MORNING, at(120), "ko")).toBe("2시간");
-    expect(formatDuration(MORNING, at(18), "en")).toBe("18 min");
-    expect(formatDuration(MORNING, at(65), "en")).toBe("1 h 5 min");
-    expect(formatDuration(MORNING, at(0.5), "en")).toBe("<1 min");
-    expect(formatDuration(MORNING, at(65), "ja")).toBe("1時間5分");
-    expect(formatDuration(MORNING, at(0.5), "ja")).toBe("1分未満");
+    expect(formatDuration(0.5 * MINUTE, "ko")).toBe("1분 미만");
+    expect(formatDuration(18 * MINUTE, "ko")).toBe("18분");
+    expect(formatDuration(65 * MINUTE, "ko")).toBe("1시간 5분");
+    expect(formatDuration(120 * MINUTE, "ko")).toBe("2시간");
+    expect(formatDuration(18 * MINUTE, "en")).toBe("18 min");
+    expect(formatDuration(65 * MINUTE, "en")).toBe("1 h 5 min");
+    expect(formatDuration(0.5 * MINUTE, "en")).toBe("<1 min");
+    expect(formatDuration(65 * MINUTE, "ja")).toBe("1時間5分");
+    expect(formatDuration(0.5 * MINUTE, "ja")).toBe("1分未満");
   });
 
-  test("끝이 시작보다 앞서거나 시각이 아니면 null이다", () => {
-    expect(formatDuration(at(5), MORNING)).toBeNull();
-    expect(formatDuration("x", MORNING)).toBeNull();
+  test("음수이거나 수가 아니면 null이다", () => {
+    expect(formatDuration(-1)).toBeNull();
+    expect(formatDuration(Number.NaN)).toBeNull();
   });
 });

@@ -5068,6 +5068,13 @@
             "minimum": 0,
             "maximum": 9007199254740991
           },
+          "turn_time_ms": {
+            "default": 0,
+            "description": "How long the session's finished turns ran, in milliseconds: the sum of each turn's end minus its start. Time spent idle between turns, waiting for an answer or paused is not counted, and neither is a turn still running. 0 from a server older than the field.",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
           "last_event_at": {
             "anyOf": [
               {
@@ -5108,6 +5115,7 @@
           "repository",
           "current_turn_id",
           "queued_turn_count",
+          "turn_time_ms",
           "last_event_at",
           "created_at",
           "updated_at"
@@ -5591,6 +5599,13 @@
             ]
           },
           "queued_turn_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "turn_time_ms": {
+            "default": 0,
+            "description": "How long the session's finished turns ran, in milliseconds: the sum of each turn's end minus its start. Time spent idle between turns, waiting for an answer or paused is not counted, and neither is a turn still running. 0 from a server older than the field.",
             "type": "integer",
             "minimum": 0,
             "maximum": 9007199254740991
@@ -6138,6 +6153,7 @@
           "repository",
           "current_turn_id",
           "queued_turn_count",
+          "turn_time_ms",
           "last_event_at",
           "created_at",
           "updated_at",

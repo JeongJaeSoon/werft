@@ -35,7 +35,6 @@ import {
   Link,
   NativeSelect,
   NativeSelectOption,
-  RelativeTime,
   RowAction,
   RowList,
   SettingRow,
@@ -46,6 +45,7 @@ import {
   SideNavLink,
   Skeleton,
   Switch,
+  TableTime,
   Text,
 } from "@werft-ai/ui";
 import { Plus } from "lucide-react";
@@ -290,7 +290,7 @@ function ReceiptRow({
         </div>
       </GridTableCell>
       <GridTableCell align="end">
-        <RelativeTime
+        <TableTime
           value={receipt.created_at}
           locale={locale}
           className="text-caption text-muted-foreground"

@@ -132,6 +132,7 @@ export {
   TableRow,
   type TableRowProps,
 } from "./table.tsx";
+export { TableTime, type TableTimeProps } from "./table-time.tsx";
 export {
   Tabs,
   TabsContent,

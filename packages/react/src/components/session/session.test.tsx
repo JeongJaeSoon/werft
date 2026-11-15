@@ -21,6 +21,7 @@ const { RepositorySummary, sessionRepositoriesOf } = await import(
 const { StatusLabel } = await import("../status/status-label.tsx");
 const { StageIndicator } = await import("./stage-indicator.tsx");
 const { Timeline } = await import("./timeline.tsx");
+const { formatRelativeTime } = await import("@werft-ai/ui");
 
 // One track per column, each minmax(0,…) or fixed so no cell widens the table.
 const TRACK = /^(minmax\((0|\d+px),[\d.]+fr\)|\d+px)$/;
@@ -317,6 +318,7 @@ const SESSION: SessionSummary = {
   repository: null,
   current_turn_id: null,
   queued_turn_count: 2,
+  turn_time_ms: 0,
   last_event_at: null,
   created_at: "2026-10-21T01:00:00.000Z",
   updated_at: "2026-10-21T01:00:00.000Z",
@@ -573,7 +575,7 @@ describe("SessionOverviewRow", () => {
     );
   });
 
-  test("시작 시각은 연도 없는 절대 시각이고 툴팁에 연도까지 둔다", () => {
+  test("시작 시각은 연도 없는 절대 시각이고 툴팁에 상대 시각을 둔다", () => {
     const { getAllByRole } = overviewRow({
       ...SESSION,
       created_at: "2026-11-11T00:42:00.000Z",
@@ -581,47 +583,42 @@ describe("SessionOverviewRow", () => {
     const time = cellsOf(getAllByRole("row")[1])[4]?.querySelector("time");
     expect(time?.textContent).toBe("11월 11일 오전 09:42");
     expect(time?.getAttribute("dateTime")).toBe("2026-11-11T00:42:00.000Z");
-    expect(time?.getAttribute("title")).toBe("2026. 11. 11. 09:42");
+    expect(time?.getAttribute("data-slot")).toBe("table-time");
+    expect(
+      document.getElementById(time?.getAttribute("aria-describedby") ?? "")
+        ?.textContent,
+    ).toBe(formatRelativeTime("2026-11-11T00:42:00.000Z", "ko"));
   });
 
-  test("소요 시간은 일하는 세션이면 진행 중, 아니면 시작부터 마지막 이벤트까지다", () => {
+  test("소요 시간은 일하는 세션이면 진행 중, 아니면 끝난 턴들이 돈 시간의 합이다", () => {
     const duration = (session: SessionSummary) => {
       const { getAllByRole, unmount } = overviewRow(session);
       const text = cellsOf(getAllByRole("row")[1])[5]?.textContent;
       unmount();
       return text;
     };
-    const start = "2026-11-11T00:42:00.000Z";
-    const later = (minutes: number) =>
-      new Date(Date.parse(start) + minutes * 60_000).toISOString();
+    const minutes = (n: number) => n * 60_000;
     for (const status of ["running", "needs_input", "queued"] as const)
-      expect(
-        duration({
-          ...SESSION,
-          status,
-          created_at: start,
-          last_event_at: later(5),
-        }),
-      ).toBe("in progress");
+      expect(duration({ ...SESSION, status, turn_time_ms: minutes(5) })).toBe(
+        "in progress",
+      );
+    // Not the wall clock from start to last event: an idle hour between
+    // turns does not count.
     expect(
       duration({
         ...SESSION,
         status: "idle",
-        created_at: start,
-        last_event_at: later(18),
+        created_at: "2026-11-11T00:00:00.000Z",
+        last_event_at: "2026-11-11T05:00:00.000Z",
+        turn_time_ms: minutes(18),
       }),
     ).toBe("18분");
     expect(
-      duration({
-        ...SESSION,
-        status: "failed",
-        created_at: start,
-        last_event_at: later(65),
-      }),
+      duration({ ...SESSION, status: "failed", turn_time_ms: minutes(65) }),
     ).toBe("1시간 5분");
-    expect(
-      duration({ ...SESSION, status: "stopped", last_event_at: null }),
-    ).toBe("—");
+    expect(duration({ ...SESSION, status: "stopped", turn_time_ms: 0 })).toBe(
+      "—",
+    );
   });
 
   test("표 폭이 좁으면 행을 다시 쌓지 않고 최소 폭으로 가로 스크롤한다", () => {
@@ -736,14 +733,14 @@ describe("RepositorySummary", () => {
   });
 });
 
-describe("rows' relative time", () => {
+describe("rows' time", () => {
   afterEach(() => jest.useRealTimers());
 
   const at = "2026-10-21T01:00:00.000Z";
   const shown = (container: HTMLElement) =>
     container.querySelector("time")?.textContent;
 
-  test("now가 없으면 행이 분마다 다시 읽어 'N분 전'이 늘어난다", () => {
+  test("now가 없으면 행이 분마다 다시 읽어 툴팁의 'N분 전'이 늘어난다", () => {
     jest.useFakeTimers({ now: new Date(at) });
     const row = render(
       <SessionRow
@@ -752,12 +749,18 @@ describe("rows' relative time", () => {
         messages={ROW_MESSAGES}
       />,
     );
-    expect(shown(row.container)).toBe("방금");
+    const hover = () =>
+      document.getElementById(
+        row.container.querySelector("time")?.getAttribute("aria-describedby") ??
+          "",
+      )?.textContent;
+    expect(shown(row.container)).toBe("10월 21일 오전 10:00");
+    expect(hover()).toBe("방금");
     act(() => jest.advanceTimersByTime(3 * 60_000));
-    expect(shown(row.container)).toBe("3분 전");
+    expect(hover()).toBe("3분 전");
   });
 
-  test("now를 주면 그 시각부터 세고 정확한 시각은 툴팁 설명으로 둔다", () => {
+  test("칸에는 절대 시각을, now부터 센 상대 시각은 툴팁 설명으로 둔다", () => {
     const { container } = render(
       <SessionRow
         session={{ ...SESSION, last_event_at: at }}
@@ -767,12 +770,13 @@ describe("rows' relative time", () => {
       />,
     );
     const time = container.querySelector("time") as HTMLElement;
-    expect(time.textContent).toBe("12분 전");
+    expect(time.textContent).toBe("10월 21일 오전 10:00");
+    expect(time.getAttribute("datetime")).toBe(at);
     expect(time.tabIndex).toBe(0);
     expect(
       document.getElementById(time.getAttribute("aria-describedby") ?? "")
         ?.textContent,
-    ).toBe("2026년 10월 21일 10:00:00 GMT+9");
+    ).toBe("12분 전");
   });
 });
 

@@ -42,6 +42,7 @@ import {
   SettingRow,
   SettingsSection,
   Skeleton,
+  TableTime,
   Text,
   Link as TextLink,
 } from "@werft-ai/ui";
@@ -254,10 +255,7 @@ export function LoginProvidersScreen() {
                 <GridTableCell>
                   <Text as="span" variant="meta">
                     {provider.tested_at ? (
-                      <RelativeTime
-                        value={provider.tested_at}
-                        locale={locale}
-                      />
+                      <TableTime value={provider.tested_at} locale={locale} />
                     ) : (
                       t("loginProviders.neverTested")
                     )}

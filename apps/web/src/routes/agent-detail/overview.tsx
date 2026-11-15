@@ -30,6 +30,7 @@ import {
   Skeleton,
   StatCard,
   Steps,
+  TableTime,
   Text,
 } from "@werft-ai/ui";
 import { type ReactNode, useId, useState } from "react";
@@ -467,7 +468,7 @@ function AgentSessionRow({
             : t("sessions.column.created")}{" "}
         </span>
         {/* Above the row's opener, so hovering and focus reach it. */}
-        <RelativeTime
+        <TableTime
           value={session.last_event_at ?? session.created_at}
           locale={locale}
           className="relative truncate focus-visible:-outline-offset-2!"
