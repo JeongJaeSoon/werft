@@ -353,6 +353,43 @@ describe("GridTable framed", () => {
     expect(plain?.classList.contains("border")).toBe(false);
   });
 
+  test("칠해진 마지막 행도 카드 틀의 아래 모서리를 따라 둥글다", () => {
+    const { getAllByRole } = render(
+      <>
+        <GridTable aria-label="틀 있음" columns="1fr" framed>
+          <GridTableHeader>
+            <GridTableColumnHeader>이름</GridTableColumnHeader>
+          </GridTableHeader>
+          <GridTableRow>
+            <GridTableCell>활성</GridTableCell>
+          </GridTableRow>
+          <GridTableRow className="bg-hover">
+            <GridTableCell>정지</GridTableCell>
+          </GridTableRow>
+        </GridTable>
+        <GridTable aria-label="카드" columns="1fr" narrowAt={640} narrowCards>
+          <GridTableHeader>
+            <GridTableColumnHeader>이름</GridTableColumnHeader>
+          </GridTableHeader>
+          <GridTableRow className="bg-hover">
+            <GridTableCell>정지</GridTableCell>
+          </GridTableRow>
+        </GridTable>
+      </>,
+    );
+    const rows = getAllByRole("row") as HTMLElement[];
+    const header = rows[0];
+    const filled = rows[2];
+    const card = rows[4];
+    expect(filled?.parentElement?.lastElementChild === filled).toBe(true);
+    for (const row of [header, rows[1], filled, card])
+      expect(row?.classList.contains("last:rounded-b-card")).toBe(true);
+    expect(filled?.classList.contains("bg-hover")).toBe(true);
+    expect(
+      card?.classList.contains("[@container(max-width:640px)]:rounded-card"),
+    ).toBe(true);
+  });
+
   test("action 열 머리글은 끝에 붙고 버튼 최소 폭의 가운데에 글자를 둔다", () => {
     const { getByRole } = render(
       <GridTable aria-label="구성원" columns="1fr 120px">
