@@ -339,7 +339,7 @@ export function SlackAppSection({
         <GridTableColumnHeader hideNarrow>
           {t("workspace.slackAppsState")}
         </GridTableColumnHeader>
-        <GridTableColumnHeader align="end" hideNarrow>
+        <GridTableColumnHeader hideNarrow>
           {t("workspace.slackAppsUpdated")}
         </GridTableColumnHeader>
         <GridTableColumnHeader action>
@@ -370,7 +370,6 @@ export function SlackAppSection({
         </GridTableCell>
         <GridTableCell hideNarrow>{badge}</GridTableCell>
         <GridTableCell
-          align="end"
           hideNarrow
           className="text-caption text-muted-foreground"
         >

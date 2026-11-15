@@ -149,10 +149,7 @@ export function SessionRow({
             : null}
         </span>
       </GridTableCell>
-      <GridTableCell
-        align="end"
-        className="overflow-hidden whitespace-nowrap text-caption text-muted-foreground"
-      >
+      <GridTableCell className="overflow-hidden whitespace-nowrap text-caption text-muted-foreground">
         <span className="sr-only">
           {session.last_event_at ? messages.lastEvent : messages.created}{" "}
         </span>

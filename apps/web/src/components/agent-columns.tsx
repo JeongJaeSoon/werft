@@ -14,9 +14,9 @@ import { useI18n } from "../i18n/i18n.tsx";
 import { GitHubMark, SlackMark } from "./brand-marks.tsx";
 
 /*
- * The agent list's cells. A list without summaries (the agents a person
- * administers) does not know the engine, the channels or the running
- * sessions, and shows a dash for each.
+ * The agent list's cells. An item without a summary (one whose settings the
+ * caller does not read) does not know the engine, the channels or the
+ * running sessions, and shows a dash for each.
  */
 
 /** A dash to the eye, "없음" to a screen reader. */

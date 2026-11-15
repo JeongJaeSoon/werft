@@ -235,7 +235,12 @@ export function GridTableRow({
 }
 
 type GridTableCellLayout = {
-  /** v4 `.cell.end`: content at the end of the column. */
+  /**
+   * v4 `.cell.end`: content at the end of the column. For a control column
+   * (a switch, row button or menu) and for numbers compared down the column
+   * (the operations metrics); a list's text, dates and counts start, header
+   * and cells alike, so a row does not read half left, half right.
+   */
   readonly align?: "start" | "end" | undefined;
   /** v4 `.hide-md`: gone, from screen and accessibility tree, when narrow. */
   readonly hideNarrow?: boolean | undefined;

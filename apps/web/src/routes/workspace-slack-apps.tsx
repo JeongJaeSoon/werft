@@ -117,7 +117,7 @@ function AppTable({ items }: { readonly items: readonly MadeApp[] }) {
         <GridTableColumnHeader>
           {t("workspace.slackAppsState")}
         </GridTableColumnHeader>
-        <GridTableColumnHeader align="end" hideNarrow>
+        <GridTableColumnHeader hideNarrow>
           {t("workspace.slackAppsUpdated")}
         </GridTableColumnHeader>
         <GridTableColumnHeader>
@@ -178,7 +178,6 @@ function AppTable({ items }: { readonly items: readonly MadeApp[] }) {
               <AppState item={item} />
             </GridTableCell>
             <GridTableCell
-              align="end"
               hideNarrow
               className="text-caption text-muted-foreground"
             >

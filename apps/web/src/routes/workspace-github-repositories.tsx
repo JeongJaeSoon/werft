@@ -301,7 +301,7 @@ export function RepositorySheet({
                     <GridTableColumnHeader hideNarrow>
                       {t("github.repo.branch")}
                     </GridTableColumnHeader>
-                    <GridTableColumnHeader align="end">
+                    <GridTableColumnHeader>
                       {t("github.sheet.col.agents")}
                     </GridTableColumnHeader>
                     <GridTableColumnHeader>
@@ -340,9 +340,7 @@ export function RepositorySheet({
                             {row?.branch ?? repository.default_branch}
                           </Text>
                         </GridTableCell>
-                        <GridTableCell align="end">
-                          {repository.agent_count}
-                        </GridTableCell>
+                        <GridTableCell>{repository.agent_count}</GridTableCell>
                         <GridTableCell align="end">
                           {menu(row, repository.full_name)}
                         </GridTableCell>
@@ -408,7 +406,7 @@ export function RepositorySheet({
                     <GridTableColumnHeader hideNarrow>
                       {t("github.sheet.col.status")}
                     </GridTableColumnHeader>
-                    <GridTableColumnHeader align="end">
+                    <GridTableColumnHeader>
                       {t("github.sheet.col.agents")}
                     </GridTableColumnHeader>
                     <GridTableColumnHeader>
@@ -436,9 +434,7 @@ export function RepositorySheet({
                             {t("github.sheet.outsideBadge")}
                           </Badge>
                         </GridTableCell>
-                        <GridTableCell align="end">
-                          {row.agent_count}
-                        </GridTableCell>
+                        <GridTableCell>{row.agent_count}</GridTableCell>
                         <GridTableCell align="end">
                           {menu(row, name)}
                         </GridTableCell>
