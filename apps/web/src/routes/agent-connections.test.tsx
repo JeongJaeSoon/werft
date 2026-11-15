@@ -16,7 +16,7 @@ const as = (role: "admin") => ({
 });
 
 const sidebar = async () =>
-  within(await screen.findByRole("navigation", { name: "설정" }));
+  within(await screen.findByRole("navigation", { name: "워크스페이스 설정" }));
 const group = async () =>
   within((await sidebar()).getByRole("group", { name: GROUP }));
 
@@ -38,7 +38,7 @@ describe("설정 사이드바의 에이전트 연결 그룹", () => {
         .getAllByRole("group")
         .map((g) => g.getAttribute("aria-labelledby"))
         .map((id) => (id ? document.getElementById(id)?.textContent : null)),
-    ).toEqual(["워크스페이스", GROUP, "내 설정"]);
+    ).toEqual(["워크스페이스", GROUP]);
   });
 
   test("워크스페이스 그룹에는 두 항목이 없고 옛 주소를 가리키는 링크도 없다", async () => {

@@ -140,7 +140,7 @@ attach가 연결 오류(`upstream connection failed` 답이나 HTTP 502·503)로
 commit 작성자는 늘 GitHub App의 bot 계정(`<App slug>[bot]`)이다. 내 GitHub 계정을 연결해 두면 내가 요청한 턴의 commit에 `Co-authored-by:` 트레일러로 내 이름이 함께 들어가, GitHub에서 그 commit이 내 기여로도 보인다.
 
 1. owner나 admin이 **설정 > 워크스페이스 > 연동 > GitHub**의 "구성원 GitHub 계정 연결" 줄에서 연결에 쓸 작성용 App을 고르고(App이 여럿일 때), ⋯ 메뉴로 callback URL을 App의 Callback URL에 넣고 그 App에서 만든 client secret을 입력한다. 이 준비가 없으면 연결 버튼이 꺼져 있다.
-2. **설정 > 연동 계정**의 GitHub 줄에서 "연결"을 누르고 GitHub의 동의 화면에서 승인한다. 플랫폼은 GitHub 계정의 id와 login만 읽고 GitHub token은 보관하지 않는다.
+2. **개인 설정 > 연동 계정**의 GitHub 줄에서 "연결"을 누르고 GitHub의 동의 화면에서 승인한다. 플랫폼은 GitHub 계정의 id와 login만 읽고 GitHub token은 보관하지 않는다.
 3. 연결된 줄에 commit에 들어갈 줄(`Co-authored-by: <login> <<id>+<login>@users.noreply.github.com>`)이 보인다. 해제하면 그 뒤에 요청하는 턴부터 들어가지 않는다.
 
 웹 콘솔, 개인 API key, Slack으로 요청한 턴은 그 턴을 요청한 사람의 연결을 따른다. 한 세션에서 여러 사람이 이어 요청하면 commit마다 그 턴의 요청자가 들어간다. 에이전트 key나 운영자 key로 요청한 턴은 요청한 사람이 없어 공동 작성자를 넣지 않는다. 어느 경우든 commit에는 `Agent-Session:` 트레일러가 붙는다. 운영자가 콘솔 주소를 설정한 설치라면 세션 주소이고, 아니면 세션 id다. 세션 상세의 성과물 탭 맨 아래 줄에서 그 세션이 어느 쪽인지 볼 수 있다.

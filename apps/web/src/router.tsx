@@ -49,7 +49,6 @@ import {
   loginSearch,
   safeRedirect,
 } from "./routes/login.tsx";
-import { LoginMethodsScreen } from "./routes/login-methods.tsx";
 import {
   LoginProviderScreen,
   LoginProvidersScreen,
@@ -285,10 +284,23 @@ const preferences = createRoute({
   component: PreferencesScreen,
 });
 
+// Personal settings open on their first page.
+const personalSettings = createRoute({
+  getParentRoute: () => authed,
+  path: "/settings",
+  beforeLoad: () => {
+    throw redirect({ to: "/settings/preferences", replace: true });
+  },
+});
+
+// Sign-in methods are the workspace managers' (워크스페이스 설정 > 로그인);
+// the personal page that linked and removed them is gone.
 const loginMethods = createRoute({
   getParentRoute: () => authed,
   path: "/settings/login-methods",
-  component: LoginMethodsScreen,
+  beforeLoad: () => {
+    throw redirect({ to: "/settings/preferences", replace: true });
+  },
 });
 
 const workspaceSettings = createRoute({
@@ -463,6 +475,7 @@ const routeTree = root.addChildren([
     agentKeys,
     newAgentKey,
     preferences,
+    personalSettings,
     loginMethods,
     workspaceSettings,
     achievementRules,

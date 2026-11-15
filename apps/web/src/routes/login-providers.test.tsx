@@ -87,7 +87,7 @@ describe("로그인 공급자 목록", () => {
       expect(screen.queryByText("Acme SSO") === null).toBe(true),
     );
     expect(api.calls.some((call) => call.path === API)).toBe(false);
-    const nav = screen.getByRole("navigation", { name: "설정" });
+    const nav = screen.getByRole("navigation", { name: "워크스페이스 설정" });
     expect(within(nav).queryByRole("link", { name: "로그인" }) === null).toBe(
       true,
     );
@@ -121,7 +121,7 @@ describe("로그인 공급자 목록", () => {
         .getByRole("link", { name: "Acme SSO" })
         .getAttribute("href"),
     ).toBe(PAGE);
-    const nav = screen.getByRole("navigation", { name: "설정" });
+    const nav = screen.getByRole("navigation", { name: "워크스페이스 설정" });
     expect(
       within(nav).getByRole("link", { name: "로그인" }).getAttribute("href"),
     ).toBe(LIST_PAGE);
@@ -434,76 +434,6 @@ describe("로그인 공급자 상세", () => {
     await waitFor(() =>
       expect(testing().hasAttribute("aria-disabled")).toBe(false),
     );
-  });
-
-  // A test and a connection ride the one flow a browser has at the API.
-  const METHODS_PAGE = "/settings/login-methods";
-  const LINK = `/v1/auth/me/login-methods/${ID}/link/start`;
-  const linkable = {
-    "GET /v1/auth/me/login-methods": () =>
-      json(200, {
-        methods: [],
-        linkable: [{ id: ID, display_name: "Acme SSO" }],
-        can_change: true,
-      }),
-  };
-  const heldOpen = () => {
-    const held = {
-      answer: (_: Response) => {},
-      route: () =>
-        new Promise<Response>((resolve) => {
-          held.answer = resolve;
-        }),
-    };
-    return held;
-  };
-
-  test("a test start still out holds the connection on another screen", async () => {
-    const start = heldOpen();
-    const { api, history, left } = renderAt(PAGE, {
-      ...routes([filled()]),
-      ...linkable,
-      [`POST ${API}/${ID}/test/start`]: start.route,
-      [`POST ${LINK}`]: () =>
-        json(200, { authorization_url: "https://idp.example.com/second" }),
-    });
-    const user = await setupUser();
-    await user.click(
-      await screen.findByRole("button", { name: "테스트 로그인" }),
-    );
-    await waitFor(() => expect(writes(api.calls)).toHaveLength(1));
-    history.push(METHODS_PAGE);
-    const link = await screen.findByRole("button", { name: "Acme SSO 연결" });
-    expect(link.getAttribute("aria-disabled")).toBe("true");
-    await user.click(link);
-    expect(writes(api.calls)).toHaveLength(1);
-    start.answer(json(200, { authorization_url: "https://idp.example.com/x" }));
-    await waitFor(() => expect(left).toEqual(["https://idp.example.com/x"]));
-  });
-
-  test("a connection start still out holds the test on another screen", async () => {
-    const start = heldOpen();
-    const { api, history, left } = renderAt(METHODS_PAGE, {
-      ...routes([filled()]),
-      ...linkable,
-      [`POST ${LINK}`]: start.route,
-      [`POST ${API}/${ID}/test/start`]: () =>
-        json(200, { authorization_url: "https://idp.example.com/second" }),
-    });
-    const user = await setupUser();
-    await user.click(
-      await screen.findByRole("button", { name: "Acme SSO 연결" }),
-    );
-    await waitFor(() => expect(writes(api.calls)).toHaveLength(1));
-    history.push(PAGE);
-    const testing = await screen.findByRole("button", {
-      name: "테스트 로그인",
-    });
-    expect(testing.getAttribute("aria-disabled")).toBe("true");
-    await user.click(testing);
-    expect(writes(api.calls)).toHaveLength(1);
-    start.answer(json(200, { authorization_url: "https://idp.example.com/x" }));
-    await waitFor(() => expect(left).toEqual(["https://idp.example.com/x"]));
   });
 
   test("a provider whose test passed is turned on", async () => {

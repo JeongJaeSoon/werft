@@ -252,18 +252,14 @@ describe("공급자 콜백", () => {
     ).toEqual({ provider_id: GOOGLE.id, code: "c1", state: "s1" });
   });
 
-  test("연결로 끝난 흐름은 내 로그인 수단으로 돌아가고, 기억한 곳은 쓰지 않는다", async () => {
+  test("연결로 끝난 흐름은 홈으로 가고, 기억한 곳은 쓰지 않는다", async () => {
     sessionStorage.setItem("ap.postLoginPath", "/members");
     const { history } = renderAt(`${CALLBACK_PAGE}?code=c1&state=s1`, {
       "POST /v1/auth/oidc/callback": () =>
         json(200, { outcome: "linked", provider_id: GOOGLE.id }),
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/auth/me/login-methods": () =>
-        json(200, { methods: [], linkable: [], can_change: true }),
     });
-    await waitFor(() =>
-      expect(history.location.pathname).toBe("/settings/login-methods"),
-    );
+    await waitFor(() => expect(history.location.pathname).toBe("/"));
     expect(sessionStorage.getItem("ap.postLoginPath")).toBe("/members");
     sessionStorage.removeItem("ap.postLoginPath");
   });
@@ -298,7 +294,7 @@ describe("공급자 콜백", () => {
           "LOGIN_LINK_REQUIRED",
           "Sign in with your existing account",
         ),
-        "이미 이 이메일로 만든 계정이 있습니다 — 그 계정에 쓰던 수단으로 로그인한 뒤 설정 > 로그인 수단에서 이 공급자를 연결하세요. 그 수단으로 로그인할 수 없으면 오너에게 요청하세요.",
+        "이미 이 이메일로 만든 계정이 있습니다 — 그 계정에 쓰던 수단으로 로그인하세요. 이 공급자로 로그인하려면 오너에게 요청하세요.",
       ],
     ];
     for (const [response, text] of cases) {

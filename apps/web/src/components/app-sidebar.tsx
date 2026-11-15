@@ -16,7 +16,6 @@ import {
   House,
   KeyRound,
   Link as LinkIcon,
-  LogIn,
   LogOut,
   type LucideIcon,
   Monitor,
@@ -63,7 +62,6 @@ type NavPath =
   | "/settings/workspace/mcp-servers"
   | "/settings/linked-accounts"
   | "/settings/api-keys"
-  | "/settings/login-methods"
   | "/settings/preferences";
 
 type NavIcon = ComponentType<{
@@ -134,12 +132,13 @@ const MEMBERS_ITEM: NavItem = {
   label: "nav.members",
   icon: Users,
 };
-// Every settings page sits behind one item (V4-SETTINGS-LAYOUT A); the
-// settings nav beside the page lists them.
-const SETTINGS_ITEM: NavItem = {
+// Every workspace settings page sits behind one item (V4-SETTINGS-LAYOUT A);
+// the settings nav beside the page lists them. Personal settings open from
+// the account menu and have a nav of their own.
+const WORKSPACE_SETTINGS_ITEM: NavItem = {
   to: "/settings/workspace",
-  match: "/settings",
-  label: "nav.settings",
+  match: "/settings/workspace",
+  label: "nav.workspaceSettings",
   icon: SettingsIcon,
 };
 
@@ -150,7 +149,7 @@ const SETTINGS_ITEM: NavItem = {
  */
 export const MANAGER_NAV_GROUP: NavGroup = {
   label: "shell.group.workspace",
-  items: [MEMBERS_ITEM, SETTINGS_ITEM],
+  items: [MEMBERS_ITEM, WORKSPACE_SETTINGS_ITEM],
 };
 
 export function useNavGroups(): readonly NavGroup[] {
@@ -165,7 +164,9 @@ export function useNavGroups(): readonly NavGroup[] {
     { to: "/achievements", label: "nav.achievements", icon: Trophy },
   ];
   if (memberManage) workspace.push(MEMBERS_ITEM);
-  if (workspaceManage || retentionManage) workspace.push(SETTINGS_ITEM);
+  if (workspaceManage || retentionManage) {
+    workspace.push(WORKSPACE_SETTINGS_ITEM);
+  }
   return [
     {
       label: "shell.group.work",
@@ -179,7 +180,35 @@ export function useNavGroups(): readonly NavGroup[] {
   ];
 }
 
-export function useSettingsNavGroups(): readonly NavGroup[] {
+/** The signed-in person's own settings, the same for every role. */
+export const PERSONAL_SETTINGS_GROUP: NavGroup = {
+  label: "nav.personalSettings",
+  items: [
+    { to: "/settings/preferences", label: "nav.preferences", icon: Globe },
+    {
+      to: "/settings/linked-accounts",
+      label: "nav.linkedAccounts",
+      icon: LinkIcon,
+    },
+    { to: "/settings/api-keys", label: "nav.apiKeys", icon: KeyRound },
+  ],
+};
+
+export type SettingsArea = "workspace" | "personal";
+
+/** Which settings area a path under /settings belongs to. */
+export function settingsAreaOf(pathname: string): SettingsArea | undefined {
+  if (/^\/settings\/workspace(\/|$)/.test(pathname)) return "workspace";
+  if (/^\/settings(\/|$)/.test(pathname)) return "personal";
+  return undefined;
+}
+
+export const SETTINGS_AREA_LABEL: Record<SettingsArea, MessageKey> = {
+  workspace: "nav.workspaceSettings",
+  personal: "nav.personalSettings",
+};
+
+export function useWorkspaceSettingsNavGroups(): readonly NavGroup[] {
   const workspaceManage = useHasPermission("workspace.manage");
   const retentionManage = useHasPermission("audit_retention.manage");
   const workspace: NavItem[] = [];
@@ -248,23 +277,6 @@ export function useSettingsNavGroups(): readonly NavGroup[] {
   const groups: NavGroup[] = [
     { label: "shell.group.workspace", items: workspace },
     { label: "shell.group.agentConnections", items: agentConnections },
-    {
-      label: "shell.group.personal",
-      items: [
-        {
-          to: "/settings/linked-accounts",
-          label: "nav.linkedAccounts",
-          icon: LinkIcon,
-        },
-        { to: "/settings/api-keys", label: "nav.apiKeys", icon: KeyRound },
-        {
-          to: "/settings/login-methods",
-          label: "loginMethods.title",
-          icon: LogIn,
-        },
-        { to: "/settings/preferences", label: "nav.preferences", icon: Globe },
-      ],
-    },
   ];
   return groups.filter((group) => group.items.length > 0);
 }
@@ -783,6 +795,19 @@ function UserMenu({
             </div>
           ) : null}
           <hr className={MENU_RULE} />
+          <MenuItem asChild>
+            <Link
+              to="/settings/preferences"
+              role="menuitem"
+              data-menu="account"
+              tabIndex={-1}
+              onClick={followLink}
+            >
+              {/* Lucide's stroke, like the menu's other icons. */}
+              <SettingsIcon strokeWidth={2} className={MENU_ICON} />
+              {t("nav.personalSettings")}
+            </Link>
+          </MenuItem>
           <MenuItem asChild>
             <Link
               to="/settings/linked-accounts"

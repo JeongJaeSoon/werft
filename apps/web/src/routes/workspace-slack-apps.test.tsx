@@ -194,7 +194,7 @@ describe("연동 › Slack의 자동으로 만든 Slack 앱", () => {
       [`GET ${APPS}`]: () => json(200, { items: [] }),
     });
     await screen.findByText("이 콘솔이 만든 Slack 앱이 아직 없습니다.");
-    const nav = screen.getByRole("navigation", { name: "설정" });
+    const nav = screen.getByRole("navigation", { name: "워크스페이스 설정" });
     expect(
       within(nav).getByRole("link", { name: "연동" }).getAttribute("href"),
     ).toBe("/settings/workspace/integrations/slack");

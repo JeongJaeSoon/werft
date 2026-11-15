@@ -62,7 +62,7 @@ describe("app shell", () => {
       ["사용량·한도", "/operations"],
       ["성과", "/achievements"],
       ["구성원", "/members"],
-      ["설정", "/settings/workspace"],
+      ["워크스페이스 설정", "/settings/workspace"],
     ],
   ];
   for (const [role, signedInAs, expected] of [
@@ -139,6 +139,7 @@ describe("app shell", () => {
         .getAllByRole("menuitem")
         .map((item) => [item.textContent, item.getAttribute("href")]),
     ).toEqual([
+      ["개인 설정", "/settings/preferences"],
       ["연동 계정", "/settings/linked-accounts"],
       ["언어한국어", null],
       ["테마시스템 설정", null],
@@ -155,7 +156,9 @@ describe("app shell", () => {
     renderAt("/settings/api-keys", signedIn);
     // The page head is a <header> too; the top bar comes first.
     const [header] = await screen.findAllByRole("banner");
-    await waitFor(() => expect(header?.textContent).toBe("메뉴 열기API 키"));
+    await waitFor(() =>
+      expect(header?.textContent).toBe("메뉴 열기개인 설정/API 키"),
+    );
   });
 
   test("a member on their teams still reads 구성원 in the top bar", async () => {
@@ -175,10 +178,12 @@ describe("app shell", () => {
     "/settings/workspace/connections",
     "/settings/workspace/nothing/here",
   ]) {
-    test(`${path} has no screen and the top bar reads 설정, not 일반`, async () => {
+    test(`${path} has no screen and the top bar reads only the area, not 일반`, async () => {
       renderAt(path, signedIn);
       const [header] = await screen.findAllByRole("banner");
-      await waitFor(() => expect(header?.textContent).toBe("메뉴 열기설정"));
+      await waitFor(() =>
+        expect(header?.textContent).toBe("메뉴 열기워크스페이스 설정"),
+      );
     });
   }
 
@@ -194,7 +199,7 @@ describe("app shell", () => {
       renderAt(path, signedIn);
       const [header] = await screen.findAllByRole("banner");
       await waitFor(() =>
-        expect(header?.textContent).toBe(`메뉴 열기${title}`),
+        expect(header?.textContent).toBe(`메뉴 열기워크스페이스 설정/${title}`),
       );
     });
   }
@@ -440,7 +445,7 @@ describe("app shell", () => {
     expect(link.textContent).toBe("세션");
   });
 
-  test("the account menu holds linked accounts, language, theme, keys and logout", async () => {
+  test("the account menu holds personal settings, linked accounts, language, theme, keys and logout", async () => {
     renderAt("/", signedIn);
     const region = await screen.findByRole("region", { name: "사용자 메뉴" });
     const trigger = within(region).getByRole("button", {
@@ -463,6 +468,7 @@ describe("app shell", () => {
         .getAllByRole("menuitem")
         .map((item) => item.textContent),
     ).toEqual([
+      "개인 설정",
       "연동 계정",
       "언어한국어",
       "테마시스템 설정",
@@ -610,8 +616,8 @@ describe("app shell", () => {
     const user = await setupUser();
     trigger.focus();
     await user.keyboard("{ArrowUp}");
-    expect(document.activeElement?.textContent).toBe("연동 계정");
-    await user.keyboard("{ArrowDown}{ArrowRight}");
+    expect(document.activeElement?.textContent).toBe("개인 설정");
+    await user.keyboard("{ArrowDown}{ArrowDown}{ArrowRight}");
     expect(document.activeElement?.textContent).toBe("한국어");
     await user.keyboard("{ArrowDown}");
     expect(document.activeElement?.textContent).toBe("日本語");
@@ -887,7 +893,7 @@ describe("focus after a page change", () => {
     const user = await setupUser();
     within(region).getByRole("button", { name: /Owner/ }).focus();
     await user.keyboard("{ArrowUp}");
-    const item = screen.getByRole("menuitem", { name: "연동 계정" });
+    const item = screen.getByRole("menuitem", { name: "개인 설정" });
     expect(document.activeElement === item).toBe(true);
     history.back();
     await screen.findByRole("heading", { level: 1, name: "에이전트" });

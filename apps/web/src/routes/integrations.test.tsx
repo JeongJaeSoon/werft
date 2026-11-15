@@ -13,7 +13,7 @@ const owner = { "GET /v1/auth/me": () => json(200, me()) };
 const tabs = async () =>
   within(await screen.findByRole("navigation", { name: "연동 종류" }));
 const sidebar = async () =>
-  within(await screen.findByRole("navigation", { name: "설정" }));
+  within(await screen.findByRole("navigation", { name: "워크스페이스 설정" }));
 
 describe("연동 페이지의 탭", () => {
   test.each([

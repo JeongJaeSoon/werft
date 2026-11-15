@@ -121,7 +121,7 @@ An account coming in through a provider button is judged in this order, from the
 
 1. The allowed domains and the **Verified email** rule are checked first. If they fail, the sign-in is refused even for an account that is already linked. Outside the allowed domains gives `403`; failing the verification rule gives `401`.
 2. This provider account is already linked to a werft user → sign in as that user. The email is not used to find the account. If the user or the membership is disabled, refuse.
-3. A werft account with the proven address already exists → refuse without attaching (`409 LOGIN_LINK_REQUIRED`). That person signs in with their original method and [links the account](#8-계정-연결과-끊기).
+3. A werft account with the proven address already exists → refuse without attaching (`409 LOGIN_LINK_REQUIRED`). That person signs in with their original method ([link and remove sign-in methods](#8-계정-연결과-끊기)).
 4. A live invite for the proven address exists → create the account with the invite's role.
 5. **Join without an invite** is **Join as a member** and the address is proven → create a member account.
 6. Otherwise refuse (`401`). The screen does not tell the reasons apart.
@@ -138,9 +138,9 @@ The allowed domains and **Verified email** also apply to invite sign-ups. If thi
 <a id="8-계정-연결과-끊기" />
 ### 8. Link and remove sign-in methods
 
-People who already have an account sign in and link a provider account themselves in **Settings > Sign-in methods**.
+The console has no screen for linking a provider account to your own account or removing one. People who already have an account sign in with the method they used before (password or another provider). The link and remove API (`/v1/auth/me/login-methods`) remains, with these rules.
 
-- Pressing **Connect** under **Providers you can connect** signs in at the IdP and comes back. The account signed in at the IdP is linked. Its email address may differ from the werft account. The provider's allowed domains and **Verified email** rule also apply to linking.
+- Starting with `POST /v1/auth/me/login-methods/{provider_id}/link/start` signs in at the IdP and comes back. The account signed in at the IdP is linked. Its email address may differ from the werft account. The provider's allowed domains and **Verified email** rule also apply to linking.
 - Linking and removing work only within 10 minutes of signing in. After that, sign out and sign in again.
 - A provider account links to only one user, and a user links only one account per provider.
 - A method cannot be removed if it is the only usable one left. Accounts of a provider that is off do not count as usable.
@@ -216,8 +216,8 @@ The expected response is `{"password":"on","providers":[{"id":"<provider-id>","d
 | Sign-in screen "Could not log in with this account — …" | `401`. No linked account, invite, or sign-up rule matched, or checking the IdP response failed. If an owner runs a test sign-in with the same account, "If this account signs in" and the reason code are shown |
 | Sign-in screen "This account cannot log in here — …" | `403`. Outside the allowed domains |
 | After provider sign-in, "The server is unavailable — try again shortly." | `503`. The server could not reach the IdP, the IdP answered with an error, or the IdP's address is not allowed. A test sign-in by an owner shows the reason code (starting with `provider_`) |
-| "An account with this email already exists — …" | An account with the same address exists, so nothing was attached (`409 LOGIN_LINK_REQUIRED`). That person signs in with the method they used before (password or another provider) and [links the account](#8-계정-연결과-끊기) in **Settings > Sign-in methods**. If password sign-in is closed and that person, not the emergency admin, has only a password, they cannot sign in, so they ask an owner as the screen says. The owner [opens password sign-in again](#되돌리기) and closes it once that person has linked |
-| Linking or removing is blocked in **Settings > Sign-in methods** | More than 10 minutes have passed since sign-in (`session_too_old`). Sign in again |
+| "An account with this email already exists — …" | An account with the same address exists, so nothing was attached (`409 LOGIN_LINK_REQUIRED`). That person signs in with the method they used before (password or another provider). The console has no screen for linking accounts ([step 8](#8-계정-연결과-끊기)). If password sign-in is closed and that person, not the emergency admin, has only a password, they cannot sign in, so they ask an owner as the screen says. The owner can [open password sign-in again](#되돌리기) |
+| The link or remove API answers `403` | More than 10 minutes have passed since sign-in (`session_too_old`). Sign in again |
 | Back from the IdP but refused | The console was opened under a host name other than `CONSOLE_ORIGIN`. The cookie is bound to another host |
 
 All reason codes are in [SSO provider values and reason codes](/run-server/self-hosting/reference/sso-providers). If sign-in is broken and nobody can get in, follow [Recover sign-in](/run-server/self-hosting/recover-sign-in).

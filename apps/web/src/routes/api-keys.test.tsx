@@ -321,7 +321,17 @@ describe("API key", () => {
 
   test("조직 관리 key는 워크스페이스 설정 아래에서 준비 중이라고만 하고 만들 길이 없다", async () => {
     const { history } = renderAt(PERSONAL, { ...ownerOk, ...keysServer() });
-    const settings = await screen.findByRole("navigation", { name: "설정" });
+    // My own keys sit in personal settings; the admin key is not there.
+    const personal = await screen.findByRole("navigation", {
+      name: "개인 설정",
+    });
+    expect(
+      within(personal).queryByRole("link", { name: "조직 관리 키" }) === null,
+    ).toBe(true);
+    history.push("/settings/workspace/achievement-rules");
+    const settings = await screen.findByRole("navigation", {
+      name: "워크스페이스 설정",
+    });
     const user = await setupUser();
     await user.click(
       within(
@@ -828,7 +838,7 @@ describe("API key", () => {
     const { api } = renderAt(PERSONAL, { ...ownerOk, ...keysServer() });
     const user = await setupUser();
     // Each screen draws its own tabs, so look them up after every move.
-    for (const name of ["에이전트 키", "개인 키", "조직 관리 키"]) {
+    for (const name of ["에이전트 키", "개인 키", "에이전트 키"]) {
       await user.click(
         await screen.findByRole("link", { name: new RegExp(`^${name}`) }),
       );
@@ -840,9 +850,6 @@ describe("API key", () => {
         ).toBe("page"),
       );
     }
-    expect(
-      await screen.findByText(apiKeysKo["apiKeys.orgPending"]),
-    ).toBeDefined();
     expect(
       api.calls.filter((c) => c.method === "GET" && c.path === "/v1/api-keys"),
     ).toHaveLength(1);

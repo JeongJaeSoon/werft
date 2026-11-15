@@ -1595,7 +1595,9 @@ describe("설정의 모델 연결", () => {
   test("the owner reaches the list and the add dialog from the settings menu", async () => {
     const { api } = renderAt("/settings/workspace", routes());
     const user = await setupUser();
-    const nav = await screen.findByRole("navigation", { name: "설정" });
+    const nav = await screen.findByRole("navigation", {
+      name: "워크스페이스 설정",
+    });
     await user.click(within(nav).getByRole("link", { name: "모델 연결" }));
 
     const table = await screen.findByRole("table", { name: "모델 연결" });
@@ -1607,7 +1609,7 @@ describe("설정의 모델 연결", () => {
     ).toEqual(["H1"]);
     expect(rowOf(table, "anthropic").textContent).toContain("claude-sonnet-5");
     expect(
-      within(screen.getByRole("navigation", { name: "설정" }))
+      within(screen.getByRole("navigation", { name: "워크스페이스 설정" }))
         .getByRole("link", { name: "모델 연결" })
         .getAttribute("aria-current"),
     ).toBe("page");
@@ -1627,7 +1629,7 @@ describe("설정의 모델 연결", () => {
     test(`a ${role} gets no menu item, and a direct visit is refused without a request`, async () => {
       const { api } = renderAt(CONNECTIONS_PAGE, routes(me(undefined, role)));
       await screen.findByText("이 화면을 볼 권한이 없습니다");
-      const nav = screen.getByRole("navigation", { name: "설정" });
+      const nav = screen.getByRole("navigation", { name: "워크스페이스 설정" });
       expect(
         within(nav).queryByRole("link", { name: "모델 연결" }) === null,
       ).toBe(true);
