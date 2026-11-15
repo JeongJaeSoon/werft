@@ -135,7 +135,7 @@ describe("Section titleProps", () => {
     title.current?.focus();
     expect(document.activeElement === heading).toBe(true);
     expect(heading.className).toContain("outline-none");
-    expect(heading.className).toContain("font-semibold");
+    expect(heading.className).toContain("font-medium");
     expect(getByRole("region", { name: "카드" })).toBeTruthy();
   });
 });

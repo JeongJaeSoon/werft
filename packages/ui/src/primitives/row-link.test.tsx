@@ -80,7 +80,7 @@ describe("RowLink Slot", () => {
     const { getByRole } = render(
       <RowList>
         <RowListItem opens>
-          <RowLink className="font-semibold">
+          <RowLink className="font-medium">
             <a
               href="/teams/platform"
               className="text-foreground"
@@ -97,7 +97,7 @@ describe("RowLink Slot", () => {
       </RowList>,
     );
     const link = getByRole("link", { name: "플랫폼" });
-    for (const name of ["text-foreground", "font-semibold", "after:inset-0"])
+    for (const name of ["text-foreground", "font-medium", "after:inset-0"])
       expect(link.classList.contains(name)).toBe(true);
     expect(link.getAttribute("data-team")).toBe("platform");
     expect(link.getAttribute("href")).toBe("/teams/platform");

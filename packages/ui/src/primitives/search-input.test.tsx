@@ -60,7 +60,9 @@ describe("SearchInput", () => {
     expect(input.getAttribute("data-slot")).toBe("input");
     expect(classes).toContain("border-border");
     expect(classes).not.toContain("border-input");
-    expect(classes).toContain("hover:border-subtle-foreground");
+    expect(classes).toContain(
+      "enabled:not-aria-invalid:hover:border-subtle-foreground",
+    );
   });
 
   test("두 진입점에서 같은 부품을 내보낸다", async () => {

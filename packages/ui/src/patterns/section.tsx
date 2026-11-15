@@ -19,8 +19,8 @@ export type SectionProps = Omit<ComponentProps<"section">, "title"> & {
 };
 
 /**
- * A titled block of a page (mockup v4 `.section-head`): head 28px tall,
- * 12px above the content. The space between sections is the page's.
+ * A titled block of a page (mockup v4 `.section-head`): head 32px tall like
+ * SettingsSection's, 12px above the content. The space between sections is the page's.
  */
 export function Section({
   title,
@@ -41,14 +41,14 @@ export function Section({
       className={className}
       {...props}
     >
-      <div className="mb-3 flex min-h-7 items-center justify-between gap-3">
-        <div className="flex min-w-0 flex-col gap-0.5">
+      <div className="mb-3 flex min-h-8 items-center justify-between gap-3">
+        <div className="flex min-w-0 flex-col gap-1">
           <div className="flex items-center gap-2">
             <Heading
               {...titleProps}
               id={titleId}
               className={cn(
-                "m-0 font-semibold text-body leading-5",
+                "m-0 font-medium text-body leading-5",
                 titleProps?.className,
               )}
             >

@@ -150,11 +150,11 @@ describe("Switch", () => {
     const classes = getByRole("switch").className.split(" ");
     expect(classes).toContain("data-[state=checked]:bg-control-checked");
     expect(classes).toContain("data-[state=unchecked]:bg-control-unchecked");
-    expect(classes).toContain("disabled:opacity-40");
+    expect(classes).toContain("disabled:opacity-50");
     expect(classes).toContain("disabled:cursor-not-allowed");
-    expect(classes.some((c) => c.startsWith("aria-disabled:opacity"))).toBe(
-      false,
-    );
+    // Busy fades like every withheld control; its spinner and focus tests
+    // below keep it apart from disabled.
+    expect(classes).toContain("aria-disabled:opacity-50");
   });
 
   test("켜짐·꺼짐 모두 포인터를 올리면 트랙 색이 바뀐다", () => {

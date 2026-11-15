@@ -86,7 +86,7 @@ export function PageHeader({
     <h1
       ref={titleRef}
       tabIndex={titleRef ? -1 : undefined}
-      className="m-0 font-semibold text-foreground text-title"
+      className="m-0 font-medium text-foreground text-title"
       aria-describedby={hasDescription ? descriptionId : undefined}
     >
       {title}

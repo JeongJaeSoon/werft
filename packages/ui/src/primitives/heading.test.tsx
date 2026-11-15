@@ -10,11 +10,11 @@ const classesOf = (element: Element | null) =>
   (element?.className ?? "").split(" ");
 
 describe("Heading", () => {
-  test("기본은 h2에 섹션 크기(14px, 20px 줄, 600)다", () => {
+  test("기본은 h2에 섹션 크기(14px, 20px 줄, 500)다", () => {
     const { getByRole } = render(<Heading>구성원</Heading>);
     const heading = getByRole("heading", { level: 2, name: "구성원" });
     expect(heading.tagName).toBe("H2");
-    for (const name of ["text-body", "leading-5", "font-semibold", "m-0"])
+    for (const name of ["text-body", "leading-5", "font-medium", "m-0"])
       expect(classesOf(heading)).toContain(name);
     expect(classesOf(heading)).not.toContain("text-title");
   });

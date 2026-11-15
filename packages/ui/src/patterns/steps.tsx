@@ -70,7 +70,7 @@ export function Steps({
               // The pointer's name for the "?"; the reader hears the label.
               title={state === "unknown" ? unknownLabel : undefined}
               className={cn(
-                "grid size-6 flex-none place-content-center rounded-full border font-semibold text-xs",
+                "grid size-6 flex-none place-content-center rounded-full border font-medium text-xs",
                 state === "done"
                   ? "border-(color:--werft-tone-success-border) bg-(color:--werft-tone-success-bg) text-(color:--werft-tone-success-fg)"
                   : state === "unknown"

@@ -413,7 +413,9 @@ export function Combobox({
                 className={cn(
                   ROW,
                   option.description !== undefined && "py-1.5",
-                  "data-[active]:bg-hover aria-disabled:opacity-50",
+                  // MenuItem's inset outline: the input keeps the focus, so
+                  // the option it points at shows the keyboard's place.
+                  "data-[active]:bg-hover data-[active]:outline-2 data-[active]:outline-offset-[-2px] data-[active]:outline-focus-ring aria-disabled:opacity-50",
                 )}
                 onPointerMove={() => {
                   if (!option.disabled) setActive(option.value);
