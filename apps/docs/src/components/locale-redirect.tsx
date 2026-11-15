@@ -25,7 +25,7 @@ export function LocaleRedirect({ path }: { path: string }) {
     <main className="mx-auto flex max-w-md flex-col gap-3 p-8">
       {/* biome-ignore lint/security/noDangerouslySetInnerHtml: a constant built above, no user input */}
       <script dangerouslySetInnerHTML={{ __html: script }} />
-      <p className="font-semibold">{appName}</p>
+      <p className="font-medium">{appName}</p>
       {i18n.languages.map((lang) => (
         <a
           key={lang}

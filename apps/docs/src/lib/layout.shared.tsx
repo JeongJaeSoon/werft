@@ -11,7 +11,7 @@ const contributeLabel: Record<Locale, string> = {
 export function baseOptions(lang: Locale): BaseLayoutProps {
   return {
     nav: {
-      title: <span className="font-semibold tracking-tight">{appName}</span>,
+      title: <span className="font-medium">{appName}</span>,
     },
     // A link, not a tab: the contributing guide is one page.
     links: [

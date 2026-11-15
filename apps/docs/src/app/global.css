@@ -1,9 +1,15 @@
 @import "tailwindcss";
 /* tokens.css and the self-hosted fonts, as the web console takes them. */
 @import "@werft-ai/ui/styles.css";
+/* The console's utilities, for the shared parts the site renders (the home
+   CTA's Button). Its `primary` is the accent, not Fumadocs' `--primary`. */
+@import "@werft-ai/ui/theme.css";
 @import "fumadocs-ui/css/shadcn.css";
 @import "fumadocs-ui/css/preset.css";
 @import "fumadocs-openapi/css/preset.css";
+
+/* biome-ignore lint/suspicious/noUnknownAtRules: a Tailwind 4 directive */
+@source "../../../../packages/ui/src/primitives";
 
 /*
  * Colours and type come from the console's tokens. shadcn.css maps Fumadocs'
@@ -19,7 +25,8 @@
   --popover: var(--werft-color-surface);
   --popover-foreground: var(--werft-color-foreground);
   /* Fumadocs draws primary mostly as text (the current page, the TOC), so
-     it takes the link colour: the blue accent is under 4.5:1 as dark text. */
+     it takes the link colour: in the dark theme the accent is under 4.5:1 as
+     text, and the two are the same blue in the light one. */
   --primary: var(--werft-color-link);
   --primary-foreground: var(--werft-color-surface);
   --secondary: var(--werft-tone-neutral-bg);
@@ -46,12 +53,42 @@
 @theme inline {
   --font-sans: var(--werft-font-sans);
   --font-mono: var(--werft-font-mono);
+  /* Fumadocs rounds its controls (buttons, tabs, the search dialog) with
+     rounded-md; the console's controls are 8px. */
+  --radius-md: var(--werft-radius-control);
 }
 
 html {
   scrollbar-gutter: stable;
 }
 
+/* Titles are 500 as in the console; Fumadocs' typography sets 600, with a
+   heavier `strong` inside a heading. Weight only: sizes and spacing stay. */
+.prose
+:where(h2, h3, h4, thead th):not(
+  :where([class~="not-prose"], [class~="not-prose"] *)
+) {
+  font-weight: var(--werft-weight-medium);
+}
+.prose
+  :where(h2, h3, h4)
+  :where(strong):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  font-weight: inherit;
+}
+
 body {
   font-family: var(--werft-font-sans);
+}
+
+/* One focus look, the console's: Fumadocs leaves most controls on the
+   browser's 1px ring and draws a box-shadow ring on the rest. */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--werft-color-focus-ring);
+  outline-offset: 2px;
+  --tw-ring-shadow: 0 0 #0000;
+}
+
+/* The search field is a control, not a card. */
+[data-search-full] {
+  border-radius: var(--werft-radius-control);
 }
