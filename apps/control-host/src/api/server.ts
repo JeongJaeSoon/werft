@@ -219,7 +219,10 @@ import {
 import { extensionDepsFor } from "./extension-deps.ts";
 import { githubCallbackUrl } from "./github-link.ts";
 import { githubPackagesConfigFromEnv } from "./github-packages-config.ts";
-import { createInstallationConfigAdmin } from "./installation-config.ts";
+import {
+  createInstallationConfigAdmin,
+  sessionArchiveStatusOf,
+} from "./installation-config.ts";
 import {
   credentialHostsFromEnv,
   leftOutReporter,
@@ -616,6 +619,7 @@ const installationConfigAdmin = createInstallationConfigAdmin({
   authorization,
   source: installationConfig,
   store: installationConfigStore,
+  sessionArchive: sessionArchiveStatusOf(checkpointStorage),
 });
 const slackActiveReleaseWarning: SlackServicesStageDeps["activeReleaseWarning"] =
   async (workspaceId, agentId) => {

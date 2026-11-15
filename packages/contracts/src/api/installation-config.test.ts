@@ -17,6 +17,8 @@ const rejected: Record<InstallationConfigKey, unknown[]> = {
   workspace_enforce: ["strict", ""],
   max_turn_seconds: [0, 1.5, 7 * 24 * 60 * 60 + 1, "3600"],
   provider_max_retries: [-1, 1.5, 11, "2"],
+  session_archive_after_days: [1, 29, 45.5, 3651, -30, "180"],
+  session_archive_dry_run: ["true", 1, 0, null],
 };
 
 const accepted: Record<InstallationConfigKey, unknown[]> = {
@@ -28,6 +30,8 @@ const accepted: Record<InstallationConfigKey, unknown[]> = {
   workspace_enforce: ["warn", "fail", "off"],
   max_turn_seconds: [1, 7 * 24 * 60 * 60],
   provider_max_retries: [0, 10],
+  session_archive_after_days: [0, 30, 3650],
+  session_archive_dry_run: [true, false],
 };
 
 test("each key holds the range its env variable held", () => {

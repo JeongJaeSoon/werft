@@ -139,6 +139,8 @@ services:
       WORKSPACE_ENFORCE: ${WORKSPACE_ENFORCE:-}
       MAX_TURN_SECONDS: ${MAX_TURN_SECONDS:-}
       PROVIDER_MAX_RETRIES: ${PROVIDER_MAX_RETRIES:-}
+      SESSION_ARCHIVE_AFTER_DAYS: ${SESSION_ARCHIVE_AFTER_DAYS:-}
+      SESSION_ARCHIVE_DRY_RUN: ${SESSION_ARCHIVE_DRY_RUN:-}
     volumes:
       - ${PLATFORM_LEGACY_CONFIG_DIR:-./legacy-config}:/legacy-config:ro
     depends_on:
@@ -554,8 +556,9 @@ services:
       postgres:
         condition: service_healthy
 
-  # The weekly jobs: checkpoint GC, then the session event archive
-  # (docs/operator/data-retention.md). It sleeps to the next multiple of the
+  # The weekly jobs: checkpoint GC, then the session event archive, whose
+  # days and dry run are the console's (docs/operator/data-retention.md).
+  # It sleeps to the next multiple of the
   # interval since the Unix epoch, so restarts neither run them at once nor
   # push them back; `docker compose exec maintenance bun run <job>` runs one
   # now. A writer: backup.sh refuses to start while it runs. Its object store
@@ -577,10 +580,6 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-dev}@postgres:5432/${POSTGRES_DB:-sessions}
       MAINTENANCE_INTERVAL_SEC: ${MAINTENANCE_INTERVAL_SEC:-604800}
       CHECKPOINT_GC_DRY_RUN: ${CHECKPOINT_GC_DRY_RUN:-false}
-      # 0 turns archiving off; otherwise 30–3650 days of idleness. Dry run
-      # until the operator sets it to false.
-      SESSION_ARCHIVE_AFTER_DAYS: ${SESSION_ARCHIVE_AFTER_DAYS:-180}
-      SESSION_ARCHIVE_DRY_RUN: ${SESSION_ARCHIVE_DRY_RUN:-true}
       AWS_REGION: ${AWS_REGION:-ap-northeast-1}
       S3_BUCKET: ${S3_BUCKET:-claude-sessions}
       CHECKPOINT_OBJECT_PROTECTION: ${CHECKPOINT_OBJECT_PROTECTION:-locked}

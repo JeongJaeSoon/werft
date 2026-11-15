@@ -35,19 +35,21 @@
   - 만드는 시점: worker가 `/append-events`로 보낼 때(`worker-unit-of-work.ts`의 `commitEventsAtomic`). 제어 단계의 상태 이벤트는 `packages/db/src/sessions/session-events.ts`의 `recordEvent`.
   - 보존 기간: 무기한. 내용은 지우지 않는다. 오래 쉰 세션의 행은 [세션 이벤트 보관](#세션-이벤트-보관)이 bucket의 object로 옮기고, API는 그 object에서 같은 응답을 읽는다. 그래서 SSE의 410 `CURSOR_EXPIRED`는 지금 생기지 않는다([API 유즈케이스 가이드](https://jeongjaesoon.github.io/werft/ko/reference/api-guide/)).
   - 삭제 조건: 보관 job이 object를 쓰고, hold를 걸고, 다시 읽어 확인한 뒤에만 그 행을 DB에서 뺀다.
-  - 바꾸기: `SESSION_ARCHIVE_AFTER_DAYS`(Helm `sessionArchive.afterDays`)로 옮기기 시작하는 기간을 정한다. 0이면 옮기지 않는다.
+  - 바꾸기: owner가 웹 콘솔의 설정 > 워크스페이스 > 실행 한도 "세션 기록 보관"에서 옮기기 시작하는 기간을 정한다. 0이면 옮기지 않는다.
 
 ### 세션 이벤트 보관
 
 오래 쉰 세션의 `events` 행을 checkpoint bucket으로 옮기는 주간 job이다(`apps/control-host/src/api/session-archive.ts`, 구현 `packages/db/src/sessions/session-event-archives.ts`). `events` 말고는 어떤 표의 행도 바꾸지 않는다.
 
-- **대상** — 마지막 활동(`last_turn_at`, 없으면 `created_at`)이 `SESSION_ARCHIVE_AFTER_DAYS`(기본 180일, 0이면 끔, 30~3650일)보다 오래된 세션. 도는 turn, 답을 기다리는 승인·질문 요청, 열린 push 요청이 있는 세션은 건너뛴다. 도구 호출과 숫자 집계 투영이 아직 읽지 않은 이벤트가 하나라도 있는 세션도 건너뛴다. 옮기는 사이에 세션이 다시 움직이면 지우기 직전의 transaction이 이를 보고 그 세션을 그대로 둔다. 범위 밖 값이면 job이 시작하지 않는다.
+- **설정** — owner가 웹 콘솔의 설정 > 워크스페이스 > 실행 한도 "세션 기록 보관"에서 정한다. 쉰 기간은 기본 180일이고, 0이면 끄며, 그 밖에는 30~3650일이다. 할 일은 "세기만 함"(기본)과 "실제로 옮김" 가운데 고른다. job은 시작할 때 두 값을 DB에서 한 번 읽는다. 앞선 판의 `SESSION_ARCHIVE_AFTER_DAYS`·`SESSION_ARCHIVE_DRY_RUN`(Helm `sessionArchive.afterDays`·`dryRun`)은 이제 아무 job도 읽지 않는다. 값이 저장되지 않은 동안 migrate가 그 값을 한 번 옮겨 온다. 앞선 판이 거절하던 값(날짜는 숫자만, dry run은 `true`·`false`·`1`·`0`만 받았다)은 옮겨 오지 않고 그 키를 막는다. 막힌 동안 job은 아무것도 옮기지 않는다. `Session archive refused: its settings cannot be read` 로그에 키 이름만 남기고 1로 끝난다. 화면에서 값을 저장하면 풀린다. Compose의 `maintenance` 루프는 종료 코드를 보지 않으므로 Compose에서는 이 로그로 본다. Kubernetes에서는 실패한 Job이 남는다.
+- **대상** — 마지막 활동(`last_turn_at`, 없으면 `created_at`)이 설정한 쉰 기간보다 오래된 세션. 도는 turn, 답을 기다리는 승인·질문 요청, 열린 push 요청이 있는 세션은 건너뛴다. 도구 호출과 숫자 집계 투영이 아직 읽지 않은 이벤트가 하나라도 있는 세션도 건너뛴다. 옮기는 사이에 세션이 다시 움직이면 지우기 직전의 transaction이 이를 보고 그 세션을 그대로 둔다.
 - **형식** — 이벤트 행 1000개 또는 8 MiB마다 JSONL.gz object 하나. key는 `session-archive/<session id>/events-<첫 id>-<끝 id>-<nonce>.jsonl.gz`다. 줄 하나가 DB 행 하나이고, 숫자와 마이크로초 시각은 DB의 텍스트 그대로다. worker의 object store 경로는 `sessions/<자기 세션>/`만 서명하므로 worker는 이 key를 읽지도 쓰지도 못한다.
 - **기록** — `session_event_archives` 표. object마다 id 범위, key, VersionId, sha256, 이벤트 수, 바이트, 마지막 이벤트 시각, 그리고 보관한 범위의 활동 요약을 담는다.
 - **순서** — create-only로 쓴다 → legal hold를 건다 → 그 버전을 다시 읽어 줄 단위로 대조한다 → 한 transaction에서 `session_event_archives` 행을 쓰고 같은 범위의 `events` 행을 지운다. 어느 단계든 실패하면 DB의 행은 그대로다. `locked` 설치에서만 돈다. `unversioned`나 `disabled`면 아무것도 하지 않고 끝난다.
-- **dry run이 기본이다.** `SESSION_ARCHIVE_DRY_RUN`(Helm `sessionArchive.dryRun`)이 `true`면 옮길 세션·이벤트·바이트 수만 로그(`Session archive completed`)에 남긴다. `false`로 바꿔야 옮긴다.
+- **세기만 하는 것이 기본이다.** "세기만 함"이면 옮길 세션·이벤트·바이트 수만 로그(`Session archive completed`)에 남긴다. 화면에서 "실제로 옮김"으로 바꿔야 옮긴다. 화면은 API의 object store 설정으로 보아 보관할 수 없는 설치(`disabled`·`unversioned`)이면 그렇다고 알린다. job이 꺼져 있는지(Helm `sessionArchive.enabled`)는 화면이 알지 못한다.
 - **읽기** — 이벤트 목록 API, SSE와 `Last-Event-ID`, 세션 목록의 마지막 이벤트 시각, 활동 요약, 설치 사용량(`usage.archived_events.used_bytes`)이 보관된 범위를 그대로 반영한다. API 프로세스가 object를 읽으므로, 보관된 세션은 API에 checkpoint object store가 설정돼 있어야 읽힌다.
-- **되돌리기** — `bun run apps/control-host/src/api/session-archive.ts restore <session id>`가 그 세션의 이벤트를 같은 id로 `events`에 되돌리고 `session_event_archives` 행을 지운다. object는 hold가 걸린 채 bucket에 남는다. 되돌린 세션이 여전히 대상이면 다음 pass가 다시 보관한다. DB에 계속 두려면 그 전에 `SESSION_ARCHIVE_AFTER_DAYS`를 늘리거나 0으로 끈다.
+- **되돌리기** — `bun run apps/control-host/src/api/session-archive.ts restore <session id>`가 그 세션의 이벤트를 같은 id로 `events`에 되돌리고 `session_event_archives` 행을 지운다. object는 hold가 걸린 채 bucket에 남는다. 되돌린 세션이 여전히 대상이면 다음 pass가 다시 보관한다. DB에 계속 두려면 그 전에 화면에서 쉰 기간을 늘리거나 0으로 끈다. restore는 설정을 읽지 않으므로 키가 막혀 있어도 돈다.
+- **앞선 판으로 되돌릴 때** — 앞선 판은 화면 값을 읽지 않고 env(Helm values)만 읽는다. 되돌리기 전에 화면의 두 값을 `.env`의 `SESSION_ARCHIVE_AFTER_DAYS`·`SESSION_ARCHIVE_DRY_RUN`(Helm `sessionArchive.afterDays`·`dryRun`)에 옮겨 적는다. 그러지 않으면 앞선 판이 자기 기본값(180일, dry run)이나 남아 있는 옛 값으로 돈다. 앞선 판의 restore도 날짜 값을 읽으므로, 범위 안의 값을 둔다.
 - **일정** — compose는 `maintenance` 서비스가 checkpoint GC 뒤에 주 1회 돈다(`MAINTENANCE_INTERVAL_SEC`, 기본 604800초, Unix epoch부터 센 주기의 배수 시각이라 기본값이면 매주 목요일 00:00 UTC). 바로 한 번 돌리려면 `docker compose exec maintenance bun run apps/control-host/src/api/session-archive.ts`. Kubernetes는 CronJob(`sessionArchive.schedule`, 기본 `0 5 * * 0`)이 api ServiceAccount로 돈다.
 - **백업** — 보관한 object는 그 이벤트의 유일한 사본이다. bucket은 DB와 함께 정본이고, 백업과 복원은 `session_event_archives`의 VersionId도 고정한다([backup-restore.md](backup-restore.md)).
 - **도구 호출 기록** — `tool_calls`(`schema.ts`의 `toolCalls`), 일별 합계 `tool_call_days`, 도구 설명 `tool_descriptions`

@@ -42,6 +42,9 @@ const CONFIG: InstallationConfig = {
   workspace_enforce: unsaved("warn" as const),
   max_turn_seconds: unsaved(3600),
   provider_max_retries: unsaved(2),
+  session_archive_after_days: unsaved(180),
+  session_archive_dry_run: unsaved(true),
+  session_archive: { available: false, reason: "unversioned" },
 };
 
 function request(
@@ -87,6 +90,7 @@ describe("installation config routes", () => {
       { pending_request_ttl_sec: 3600 },
       { session_cost_limit_usd: 0.5, session_token_limit: 0 },
       { workspace_enforce: "fail" },
+      { session_archive_after_days: 0, session_archive_dry_run: false },
       {},
     ]) {
       const asked: unknown[] = [];
@@ -119,6 +123,11 @@ describe("installation config routes", () => {
     [{ session_cost_limit_usd: 0 }, "session_cost_limit_usd"],
     [{ session_token_limit: -1 }, "session_token_limit"],
     [{ workspace_enforce: "force" }, "workspace_enforce"],
+    [{ session_archive_after_days: 29 }, "session_archive_after_days"],
+    [{ session_archive_after_days: 3651 }, "session_archive_after_days"],
+    [{ session_archive_dry_run: "false" }, "session_archive_dry_run"],
+    // The status is the deployment's, not a setting.
+    [{ session_archive: { available: true, reason: null } }, ""],
     // An unknown key is the body's fault, not a key's.
     [{ pending_request_ttl_sec: 60, extra: 1 }, ""],
   ] as const) {

@@ -1,7 +1,7 @@
 import {
   INSTALLATION_CONFIG,
   INSTALLATION_CONFIG_KEYS,
-  type InstallationConfig,
+  type InstallationConfigEntries,
   type InstallationConfigKey,
   type InstallationConfigValues,
 } from "@werft-ai/contracts";
@@ -29,14 +29,32 @@ export const INSTALLATION_CONFIG_TIMING = {
 };
 
 /**
- * An env value as the key's rule reads it. A number is read the way the
- * env parsers read it (`Number`, so `1800.0`, `+1800` and `1e3` too): a
- * value an earlier release ran on is carried in, not blocked.
+ * An env value as the parser that read it before read it: a value an
+ * earlier release ran on is carried in, not blocked, and one it refused is
+ * not carried in. Most read a number with `Number` (so `1800.0`, `+1800`
+ * and `1e3` too); the archive days took digits alone, and the dry run
+ * `booleanFlag`'s four words.
  */
-function envValueOf(raw: string): unknown {
+function envValueOf(key: InstallationConfigKey, raw: string): unknown {
+  if (key === "session_archive_after_days") {
+    return /^\d+$/.test(raw) ? Number(raw) : raw;
+  }
+  if (key === "session_archive_dry_run") {
+    if (raw === "true" || raw === "1") return true;
+    if (raw === "false" || raw === "0") return false;
+    return raw;
+  }
   const trimmed = raw.trim();
   const number = Number(trimmed);
   return trimmed !== "" && Number.isFinite(number) ? number : trimmed;
+}
+
+/** Unset as the earlier parser saw it: the archive's took only "" so. */
+function envUnset(key: InstallationConfigKey, raw: string): boolean {
+  return key === "session_archive_after_days" ||
+    key === "session_archive_dry_run"
+    ? raw === ""
+    : raw.trim() === "";
 }
 
 /**
@@ -53,7 +71,7 @@ export async function carryInstallationConfig(
   store: Pick<InstallationConfigStore, "readAll" | "importValue">,
 ): Promise<{ warnings: string[] }> {
   const present = INSTALLATION_CONFIG_KEYS.filter(
-    (key) => (env[INSTALLATION_CONFIG[key].env] ?? "").trim() !== "",
+    (key) => !envUnset(key, env[INSTALLATION_CONFIG[key].env] ?? ""),
   );
   if (present.length === 0) return { warnings: [] };
   const saved = await store.readAll();
@@ -65,7 +83,7 @@ export async function carryInstallationConfig(
       ignored.push(name);
       continue;
     }
-    const parsed = schema.safeParse(envValueOf(env[name] ?? ""));
+    const parsed = schema.safeParse(envValueOf(key, env[name] ?? ""));
     if (!parsed.success) {
       if (await store.importValue(key, { refused_env: name })) {
         warnings.push(
@@ -263,7 +281,7 @@ export function createInstallationConfigSource(options: {
      * way may have begun before a save, so it is waited out first. A failed
      * read fails the view and keeps the values the process applies.
      */
-    async view(): Promise<InstallationConfig> {
+    async view(): Promise<InstallationConfigEntries> {
       await loading?.catch(() => undefined);
       const all = await load();
       return Object.fromEntries(
@@ -280,7 +298,7 @@ export function createInstallationConfigSource(options: {
             },
           ];
         }),
-      ) as InstallationConfig;
+      ) as InstallationConfigEntries;
     },
   };
 }

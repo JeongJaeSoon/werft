@@ -109,6 +109,27 @@ export const executionLimitsKo = {
   "limits.enforce.applies":
     "저장하면 그 뒤에 세션을 받는 worker부터 적용됩니다. 이미 돌고 있는 worker는 받을 때의 값을 씁니다.",
   "limits.enforce.saved": "작업 공간 용량 설정을 저장했습니다.",
+  "limits.archive.title": "세션 기록 보관",
+  "limits.archive.hint":
+    "오래 쉰 세션의 이벤트를 데이터베이스에서 object store의 보관 object로 옮깁니다. 옮긴 이벤트는 운영자가 restore 명령으로 되돌립니다. 보관 작업은 운영자가 정한 일정(기본 매주)에 돌고, 작업을 끈 설치에서는 이 값을 쓰지 않습니다.",
+  "limits.archive.daysLabel": "보관까지 쉰 기간 (일)",
+  "limits.archive.daysUnit": "일",
+  "limits.archive.daysValue": "{value}일",
+  "limits.archive.off": "보관하지 않음(0)",
+  "limits.archive.daysInvalid":
+    "0(보관하지 않음) 또는 {min}부터 {max}까지의 정수(일)를 적으세요.",
+  "limits.archive.modeLabel": "보관 작업이 할 일",
+  "limits.archive.count": "세기만 함",
+  "limits.archive.move": "실제로 옮김",
+  "limits.archive.options":
+    "세기만 함: 옮길 세션·이벤트·바이트 수만 로그에 남기고 아무것도 바꾸지 않습니다. 실제로 옮김: 이벤트를 보관 object로 옮기고 데이터베이스에서 지웁니다.",
+  "limits.archive.refused": "보관 작업이 아무것도 옮기지 않고 실패로 끝납니다.",
+  "limits.archive.applies": "저장하면 다음 보관 실행부터 적용됩니다.",
+  "limits.archive.saved": "세션 기록 보관 설정을 저장했습니다.",
+  "limits.archive.unavailable.object_store_disabled":
+    "API의 object store 설정으로 보면 이 설치는 세션 기록을 보관하지 않습니다. object store가 꺼져 있습니다(CHECKPOINT_OBJECT_STORE=disabled). 값은 저장해 둘 수 있고, 보관할 수 있게 된 뒤의 실행부터 씁니다.",
+  "limits.archive.unavailable.unversioned":
+    "API의 object store 설정으로 보면 이 설치는 세션 기록을 보관하지 않습니다. object store가 버전을 잠그지 않아 옮긴 기록을 지켜 둘 수 없습니다(CHECKPOINT_OBJECT_PROTECTION=unversioned). 값은 저장해 둘 수 있고, 보관할 수 있게 된 뒤의 실행부터 씁니다.",
 };
 
 export const executionLimitsEn: Record<keyof typeof executionLimitsKo, string> =
@@ -220,6 +241,27 @@ export const executionLimitsEn: Record<keyof typeof executionLimitsKo, string> =
     "limits.enforce.applies":
       "A save applies to workers that take a session after it. A worker already running keeps the value it was given.",
     "limits.enforce.saved": "Saved the workspace size setting.",
+    "limits.archive.title": "Session event archive",
+    "limits.archive.hint":
+      "Moves the events of long-idle sessions out of the database into archive objects in the object store. An operator puts moved events back with the restore command. The archive job runs on the operator's schedule (weekly by default); an installation that turned the job off does not use these values.",
+    "limits.archive.daysLabel": "Idle before archiving (days)",
+    "limits.archive.daysUnit": "days",
+    "limits.archive.daysValue": "{value} days",
+    "limits.archive.off": "no archiving (0)",
+    "limits.archive.daysInvalid":
+      "Enter 0 (no archiving) or a whole number of days from {min} to {max}.",
+    "limits.archive.modeLabel": "What the archive job does",
+    "limits.archive.count": "Count only",
+    "limits.archive.move": "Move the events",
+    "limits.archive.options":
+      "Count only: logs how many sessions, events and bytes it would move, and changes nothing. Move the events: moves them into archive objects and deletes them from the database.",
+    "limits.archive.refused": "the archive job moves nothing and fails.",
+    "limits.archive.applies": "A save applies from the next archive run on.",
+    "limits.archive.saved": "Saved the session event archive settings.",
+    "limits.archive.unavailable.object_store_disabled":
+      "By the API's object store settings, this installation does not archive session events: the object store is off (CHECKPOINT_OBJECT_STORE=disabled). The values can still be saved, and apply from the first run after archiving becomes possible.",
+    "limits.archive.unavailable.unversioned":
+      "By the API's object store settings, this installation does not archive session events: the object store does not lock versions, so moved events could not be kept safe (CHECKPOINT_OBJECT_PROTECTION=unversioned). The values can still be saved, and apply from the first run after archiving becomes possible.",
   };
 
 export const executionLimitsJa: Record<keyof typeof executionLimitsKo, string> =
@@ -333,4 +375,25 @@ export const executionLimitsJa: Record<keyof typeof executionLimitsKo, string> =
     "limits.enforce.applies":
       "保存すると、そのあとにセッションを受ける worker から適用されます。すでに動いている worker は受けたときの値を使います。",
     "limits.enforce.saved": "作業領域の容量の設定を保存しました。",
+    "limits.archive.title": "セッション記録の保管",
+    "limits.archive.hint":
+      "長く使われていないセッションのイベントを、データベースから object store の保管 object に移します。移したイベントは運用者が restore コマンドで戻します。保管ジョブは運用者が決めた予定 (既定は毎週) で動き、ジョブを止めたインストールではこの値を使いません。",
+    "limits.archive.daysLabel": "保管までの未使用期間 (日)",
+    "limits.archive.daysUnit": "日",
+    "limits.archive.daysValue": "{value} 日",
+    "limits.archive.off": "保管しない (0)",
+    "limits.archive.daysInvalid":
+      "0 (保管しない) か、{min} から {max} までの整数 (日) を入力してください。",
+    "limits.archive.modeLabel": "保管ジョブの動作",
+    "limits.archive.count": "数えるだけ",
+    "limits.archive.move": "実際に移す",
+    "limits.archive.options":
+      "数えるだけ: 移すセッション・イベント・バイトの数をログに残すだけで、何も変えません。実際に移す: イベントを保管 object に移し、データベースから削除します。",
+    "limits.archive.refused": "保管ジョブは何も移さず、失敗で終わります。",
+    "limits.archive.applies": "保存すると次の保管の実行から適用されます。",
+    "limits.archive.saved": "セッション記録の保管の設定を保存しました。",
+    "limits.archive.unavailable.object_store_disabled":
+      "API の object store の設定から見ると、このインストールはセッション記録を保管しません。object store が無効です (CHECKPOINT_OBJECT_STORE=disabled)。値は保存しておけ、保管できるようになったあとの実行から使います。",
+    "limits.archive.unavailable.unversioned":
+      "API の object store の設定から見ると、このインストールはセッション記録を保管しません。object store がバージョンをロックしないため、移した記録を守れません (CHECKPOINT_OBJECT_PROTECTION=unversioned)。値は保存しておけ、保管できるようになったあとの実行から使います。",
   };

@@ -174,7 +174,7 @@ SDK を上げるリリースでは、イメージが載せるランタイムの�
 <a id="웹으로-옮긴-실행-한도" />
 ### Web に移した実行の上限
 
-インストール全体の実行の上限八つは、env ではなく owner が **設定 > ワークスペース > 実行の上限** で保存します(`GET`・`PATCH /v1/installation-config`、監査記録 `update_installation_config`)。どの role も下の env を読みません。保存するとその API はすぐに、ほかの replica と scheduler・slack・metrics role は 10 秒以内に従います。すでに待っているリクエストは最初に受けた時間のままです。turn 時間とモデル呼び出しの再試行は保存後に予約する launch から適用され、別の値で起動した worker は現在の turn を終えてから終了します([turn 時間と再試行を変えるとき](/run-server/self-hosting/explanation/isolation#turn-시간과-재시도를-바꿀-때))。範囲と既定値は [Web で決める実行の上限](/run-server/self-hosting/reference/configuration#웹에서-정하는-실행-한도) にあります。
+インストール全体の実行の上限とセッション記録の保管の設定、あわせて十個は、env ではなく owner が **設定 > ワークスペース > 実行の上限** で保存します(`GET`・`PATCH /v1/installation-config`、監査記録 `update_installation_config`)。どの role も下の env を読みません。保存するとその API はすぐに、ほかの replica と scheduler・slack・metrics role は 10 秒以内に従います。すでに待っているリクエストは最初に受けた時間のままです。turn 時間とモデル呼び出しの再試行は保存後に予約する launch から適用され、別の値で起動した worker は現在の turn を終えてから終了します([turn 時間と再試行を変えるとき](/run-server/self-hosting/explanation/isolation#turn-시간과-재시도를-바꿀-때))。セッション記録の保管の二つの値は、保管ジョブが実行のたびに読みます。範囲と既定値は [Web で決める実行の上限](/run-server/self-hosting/reference/configuration#웹에서-정하는-실행-한도) にあります。
 
 | 画面の項目 | 移す env |
 |---|---|
@@ -186,9 +186,11 @@ SDK を上げるリリースでは、イメージが載せるランタイムの�
 | 作業領域の容量 | `WORKSPACE_ENFORCE` |
 | ターンの時間 | `MAX_TURN_SECONDS` |
 | モデル呼び出しの再試行 | `PROVIDER_MAX_RETRIES` |
+| セッション記録の保管: 保管までの未使用期間 | `SESSION_ARCHIVE_AFTER_DAYS` |
+| セッション記録の保管: 保管ジョブの動作 | `SESSION_ARCHIVE_DRY_RUN` |
 
 - migration `0281_installation_config` が、キーごとに一行の `installation_config` テーブルを追加します。続いて migrate が、どの role よりも先に値を移します。保存した値のないキーに env の値が渡されていれば一度だけ移し、値を含まない `note: <env> was carried into Settings > Workspace > Execution limits and is no longer read; remove it` を出します。ワークスペースがあれば作成者のない監査記録(`by: "env_import"`)を残します。空の値は設定していないものとみなします。
-- `infra/compose.core.yml` は八つの env をホストの env か `.env` から受け取り、migrate にだけ渡します。以前のリリースどおり `.env` に書いた値はそのまま移ります。api・scheduler に overlay で渡していた値は移らないので、アップグレード前に `.env` へ移すか、アップグレード後に画面で保存します。何も設定していなければ既定値を使います。既定値は以前の compose の既定値と同じです(turn 時間 3600 秒、再試行 2 回)。移した turn 時間と再試行が起動中の worker の値と同じなら、その worker はアップグレード後も動き続けます。
+- `infra/compose.core.yml` は十個の env をホストの env か `.env` から受け取り、migrate にだけ渡します。以前のリリースどおり `.env` に書いた値はそのまま移ります。api・scheduler・maintenance に overlay で渡していた値は移らないので、アップグレード前に `.env` へ移すか、アップグレード後に画面で保存します。何も設定していなければ既定値を使います。既定値は以前の compose の既定値と同じです(turn 時間 3600 秒、再試行 2 回、保管まで 180 日、数えるだけ)。移した turn 時間と再試行が起動中の worker の値と同じなら、その worker はアップグレード後も動き続けます。
 - 移したあと env の行を削除します。残っていると、migrate が動くたびに `note: Ignored removed settings: <env>` が出ます。保存済みの値を env が変えることはありません。
 - 範囲外の値は移しません(`note: <env> was not carried in`)。以前のリリースと違い起動は止まらず、既定値でも動きません。そのキーは画面で値を保存するまで止まります。保存した値がこのバージョンの範囲外でも同じです。止まったキーを読む処理だけが拒否され、画面はその欄に案内を出します。何が拒否されるかは [Web で決める実行の上限](/run-server/self-hosting/reference/configuration#웹에서-정하는-실행-한도) の「使える値がないとき」にあります。たとえばセッションの費用が止まると、新しいセッションとメッセージは `503 BACKEND_UNAVAILABLE` で拒否され、scheduler は launch を飛ばします。
 - worker は `QUESTION_TIMEOUT_SEC` を読みません。launcher が渡したことのない値なので、動作は同じです(gateway が登録するまで 30 分)。
