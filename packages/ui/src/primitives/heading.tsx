@@ -33,7 +33,7 @@ export function Heading({
       data-size={size}
       className={withLeading(
         cn(
-          "m-0 font-semibold text-foreground",
+          "m-0 font-medium text-foreground",
           HEADING_SIZE[size].size,
           className,
         ),

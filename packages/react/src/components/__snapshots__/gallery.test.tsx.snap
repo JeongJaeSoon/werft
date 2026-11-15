@@ -428,7 +428,7 @@ exports[`도메인 컴포넌트 갤러리 360px 1`] = `
     <p class="werft-state__description">session is closed</p>
     <code class="werft-state__code">SESSION_CLOSED</code>
     <div class="werft-state__actions">
-      <button data-slot="button" class="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-control font-medium text-control transition-[background-color,border-color] duration-[var(--werft-motion-fast)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:pointer-events-none disabled:opacity-45 aria-disabled:opacity-45 aria-invalid:border-destructive motion-reduce:transition-none [&amp;_svg:not([class*='size-'])]:size-4 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 border border-border bg-card hover:bg-hover hover:text-accent-foreground h-[var(--werft-control-height)] px-3" type="button" data-werft-button="">
+      <button data-slot="button" class="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-control font-medium text-control transition-[background-color,border-color] duration-[var(--werft-motion-fast)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:pointer-events-none disabled:opacity-50 aria-disabled:opacity-50 aria-invalid:border-destructive motion-reduce:transition-none [&amp;_svg:not([class*='size-'])]:size-4 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 border border-border bg-card hover:bg-hover hover:text-accent-foreground h-[var(--werft-control-height)] px-3" type="button" data-werft-button="">
         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-refresh-cw size-3.5" aria-hidden="true">
           <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8">
           </path>
@@ -439,7 +439,7 @@ exports[`도메인 컴포넌트 갤러리 360px 1`] = `
           <path d="M8 16H3v5">
           </path>
         </svg>다시 시도</button>
-      <a href="/sessions/01J8Z5/journal" data-slot="button" class="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-control font-medium text-control transition-[background-color,border-color] duration-[var(--werft-motion-fast)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:pointer-events-none disabled:opacity-45 aria-disabled:opacity-45 aria-invalid:border-destructive motion-reduce:transition-none [&amp;_svg:not([class*='size-'])]:size-4 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 border border-transparent text-muted-foreground hover:bg-hover hover:text-foreground h-[var(--werft-control-height)] px-3" data-werft-button="">기록 보기</a>
+      <a href="/sessions/01J8Z5/journal" data-slot="button" class="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-control font-medium text-control transition-[background-color,border-color] duration-[var(--werft-motion-fast)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:pointer-events-none disabled:opacity-50 aria-disabled:opacity-50 aria-invalid:border-destructive motion-reduce:transition-none [&amp;_svg:not([class*='size-'])]:size-4 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 border border-transparent text-muted-foreground hover:bg-hover hover:text-foreground h-[var(--werft-control-height)] px-3" data-werft-button="">기록 보기</a>
     </div>
   </div>
 </div>"

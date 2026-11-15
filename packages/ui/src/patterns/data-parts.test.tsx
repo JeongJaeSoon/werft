@@ -63,9 +63,15 @@ describe("StatCard", () => {
     expect(card?.getAttribute("data-slot")).toBe("stat-card");
     const figure = screen.getByText("128");
     const classes = figure.className.split(" ");
-    expect(classes).toContain("text-number");
-    expect(classes).toContain("tracking-[-0.5px]");
-    expect(classes).toContain("tabular-nums");
+    expect(figure.getAttribute("data-slot")).toBe("stat-value");
+    for (const name of [
+      "text-number",
+      "font-mono",
+      "font-medium",
+      "tracking-normal",
+      "tabular-nums",
+    ])
+      expect(classes).toContain(name);
     expect(classes).not.toContain("text-subtle-foreground");
     expect(screen.getByText("지난주보다 12 많음")).toBeTruthy();
 
@@ -88,7 +94,8 @@ describe("Section", () => {
     expect(screen.getByRole("region", { name: "자격 증명" })).toBeTruthy();
     const head = heading.parentElement?.parentElement?.parentElement;
     expect(head?.className.split(" ")).toContain("mb-3");
-    expect(head?.className.split(" ")).toContain("min-h-7");
+    // 32px, the same head height as SettingsSection's.
+    expect(head?.className.split(" ")).toContain("min-h-8");
   });
 
   test("titleAs로 제목 수준을 바꾼다", () => {

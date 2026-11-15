@@ -78,6 +78,7 @@ export {
   SkipLink,
   type SkipLinkProps,
 } from "./link.tsx";
+export { MenuItem, type MenuItemProps } from "./menu-item.tsx";
 export { Meter, type MeterProps } from "./meter.tsx";
 export {
   NativeSelect,
@@ -92,6 +93,7 @@ export {
 } from "./popover.tsx";
 export { RadioGroup, RadioGroupItem } from "./radio-group.tsx";
 export { RelativeTime, type RelativeTimeProps } from "./relative-time.tsx";
+export { RemoveButton, type RemoveButtonProps } from "./remove-button.tsx";
 export {
   OPENS_ROW,
   RowLines,
@@ -111,6 +113,7 @@ export {
 } from "./segmented-control.tsx";
 export { Skeleton, type SkeletonProps } from "./skeleton.tsx";
 export { Sparkline, type SparklineProps } from "./sparkline.tsx";
+export { StatValue, type StatValueProps } from "./stat-value.tsx";
 export {
   StatusDot,
   type StatusDotProps,

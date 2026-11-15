@@ -57,7 +57,7 @@ describe("Avatar", () => {
       "rounded-full",
       "bg-active",
       "text-muted-foreground",
-      "font-semibold",
+      "font-medium",
     ])
       expect(classes).toContain(name);
   });

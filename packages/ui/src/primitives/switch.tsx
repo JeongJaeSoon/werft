@@ -13,9 +13,10 @@ export type SwitchProps = ComponentProps<typeof SwitchPrimitive.Root>;
  * track in `control-checked` and the off track in `control-unchecked` (both 3:1 against
  * the card), a card thumb, no thumb shadow and no `dark:` variants. The state
  * is `aria-checked`; any "on"/"off" words belong to the caller, outside.
- * `disabled` keeps each state's colour, faded. `aria-disabled` keeps focus
- * and full colour and only refuses the toggle, with a spinner in the thumb,
- * for a switch that is busy saving rather than withheld.
+ * `disabled` keeps each state's colour, faded to 0.5 like every control.
+ * `aria-disabled` fades the same but keeps focus and only refuses the
+ * toggle, with a spinner in the thumb, for a switch that is busy saving
+ * rather than withheld.
  */
 export function Switch({
   className,
@@ -28,7 +29,7 @@ export function Switch({
     <SwitchPrimitive.Root
       data-slot="switch"
       className={cn(
-        "peer inline-flex h-5 w-9 shrink-0 items-center rounded-full border-2 border-transparent transition-[background-color] duration-[var(--werft-motion-fast)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring aria-disabled:cursor-progress disabled:cursor-not-allowed disabled:opacity-40 data-[state=checked]:bg-control-checked data-[state=unchecked]:bg-control-unchecked data-[state=checked]:enabled:not-aria-disabled:hover:bg-control-checked/80 data-[state=unchecked]:enabled:not-aria-disabled:hover:bg-subtle-foreground motion-reduce:transition-none",
+        "peer inline-flex h-5 w-9 shrink-0 items-center rounded-full border-2 border-transparent transition-[background-color] duration-[var(--werft-motion-fast)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring aria-disabled:cursor-progress aria-disabled:opacity-50 disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-control-checked data-[state=unchecked]:bg-control-unchecked data-[state=checked]:enabled:not-aria-disabled:hover:bg-control-checked/80 data-[state=unchecked]:enabled:not-aria-disabled:hover:bg-subtle-foreground motion-reduce:transition-none",
         className,
       )}
       onClick={(event) => {

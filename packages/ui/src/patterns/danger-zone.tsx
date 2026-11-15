@@ -56,7 +56,7 @@ export function DangerZone({
     >
       <Heading
         id={headingId}
-        className="m-0 font-semibold text-body text-destructive leading-6"
+        className="m-0 font-medium text-body text-destructive leading-5"
       >
         {title}
       </Heading>
