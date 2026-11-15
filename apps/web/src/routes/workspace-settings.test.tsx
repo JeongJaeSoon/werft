@@ -15,20 +15,12 @@ import { appHarness } from "../test-support/render-app.tsx";
 const harness = await appHarness();
 const { screen, waitFor, within } = harness;
 
-const CONNECTIONS = {
-  items: [
-    connection("anthropic-fast", ["claude-haiku-5"]),
-    connection("anthropic-main", ["claude-haiku-5", "claude-sonnet-5"]),
-  ],
-};
-// Every settings page reads the connections for its model card; the
-// Slack page also reads the token, the apps it made and, for the owner,
+// The Slack page also reads the token, the apps it made and, for the owner,
 // the events entrance.
 const renderAt: typeof harness.renderAt = (path, routes, locale) =>
   harness.renderAt(
     path,
     {
-      "GET /v1/connections": () => json(200, CONNECTIONS),
       [`GET /v1/workspaces/${WORKSPACE_ID}/engine-settings`]: () =>
         json(200, workspaceEngineSettings()),
       [`GET ${TOKEN}`]: () => json(200, REGISTERED_TOKEN),
@@ -44,16 +36,6 @@ const renderAt: typeof harness.renderAt = (path, routes, locale) =>
     },
     locale,
   );
-
-function connection(id: string, models: string[]) {
-  return {
-    id,
-    kind: "anthropic",
-    billing: "metered",
-    models,
-    model_successors: {},
-  } as const;
-}
 
 const RETENTION = `/v1/workspaces/${WORKSPACE_ID}/audit-retention`;
 const GUEST = `/v1/workspaces/${WORKSPACE_ID}/slack-guest`;
@@ -592,7 +574,7 @@ describe("워크스페이스 설정", () => {
     );
   });
 
-  test("이름과 ID는 읽기만 하고, 사용할 모델은 연결의 모델을 한 번씩 보인다", async () => {
+  test("이름과 ID는 읽기만 하고, 사용할 모델 카드는 없다", async () => {
     renderAt("/settings/workspace", {
       "GET /v1/auth/me": () => json(200, me()),
     });
@@ -602,16 +584,16 @@ describe("워크스페이스 설정", () => {
     expect(name.value).toBe("Acme");
     expect(name.readOnly).toBe(true);
     expect(screen.getByText(WORKSPACE_ID).className).toContain("font-mono");
-    const models = screen.getByRole("region", { name: "사용할 모델" });
+    // Only the run rules, retention and agent access cards save; the name has
+    // no API to. The run rules card waits for its own read.
     await waitFor(() =>
-      expect(
-        [...models.querySelectorAll("li")].map((li) => li.textContent),
-      ).toEqual(["claude-haiku-5", "claude-sonnet-5"]),
+      expect(screen.getAllByRole("button", { name: "저장" })).toHaveLength(3),
     );
-    // Only the run rules, retention and agent access cards save; the name and
-    // models have no API to.
-    expect(screen.getAllByRole("button", { name: "저장" })).toHaveLength(3);
-    expect(screen.getAllByText("읽기 전용")).toHaveLength(2);
+    expect(screen.getAllByText("읽기 전용")).toHaveLength(1);
+    // Model connections in Settings own the models; this page lists none.
+    expect(screen.queryByRole("region", { name: "사용할 모델" }) === null).toBe(
+      true,
+    );
   });
 
   test("ID를 복사하면 복사했다고 알린다", async () => {
@@ -649,30 +631,6 @@ describe("워크스페이스 설정", () => {
     );
     expect(message.closest("[aria-live=polite]")).not.toBeNull();
     expect(globalThis.getSelection?.()?.toString()).toBe(WORKSPACE_ID);
-  });
-
-  test("연결을 읽지 못하면 모델 카드에 다시 시도를 둔다", async () => {
-    renderAt("/settings/workspace", {
-      "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/connections": () => apiError(500, "INTERNAL_ERROR", "boom"),
-    });
-    const models = await screen.findByRole("region", {
-      name: "사용할 모델",
-    });
-    await waitFor(() =>
-      expect(models.querySelector("[role=alert]")).not.toBeNull(),
-    );
-    expect(models.textContent).toContain("다시 시도");
-  });
-
-  test("등록된 모델이 없으면 없다고 말한다", async () => {
-    renderAt("/settings/workspace", {
-      "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/connections": () => json(200, { items: [] }),
-    });
-    expect(
-      await screen.findByText("이 설치에 등록된 모델이 없습니다."),
-    ).toBeDefined();
   });
 
   test("오너·어드민의 설정 메뉴는 워크스페이스 일반으로 연다", async () => {
