@@ -7,6 +7,7 @@ import type {
   CountAgentsResponse,
   RuntimeKind,
 } from "@werft-ai/contracts";
+import { RUNTIME_KIND_VALUES } from "@werft-ai/core/forms";
 import { useWerft } from "@werft-ai/react";
 import { ListToolbar } from "@werft-ai/react/components";
 import {
@@ -308,8 +309,8 @@ function AgentTable({ agents }: { readonly agents: readonly AgentListItem[] }) {
             </GridTableCell>
             <GridTableCell>
               {summary?.engine ? (
-                <Badge variant={ENGINE_VARIANT[summary.engine]}>
-                  {t(`agents.engine.${summary.engine}`)}
+                <Badge variant={ENGINE[summary.engine].variant}>
+                  {ENGINE[summary.engine].label}
                 </Badge>
               ) : (
                 <Dash />
@@ -364,11 +365,17 @@ function Dash() {
   );
 }
 
-const ENGINE_VARIANT = {
-  claude_agent_sdk: "amber",
-  codex_app_server: "teal",
-  pi_coding_agent: "gray",
-} as const satisfies Record<RuntimeKind, BadgeProps["variant"]>;
+// The runtime kind is data (G2): its values come from the contract, and the
+// engine's brand name reads the same in every locale.
+const [claudeRuntime, codexRuntime, piRuntime] = RUNTIME_KIND_VALUES;
+const ENGINE = {
+  [claudeRuntime]: { label: "Claude", variant: "amber" },
+  [codexRuntime]: { label: "Codex", variant: "teal" },
+  [piRuntime]: { label: "Pi", variant: "gray" },
+} as const satisfies Record<
+  RuntimeKind,
+  { label: string; variant: BadgeProps["variant"] }
+>;
 
 // Name | engine | state | channels | running sessions.
 const COLUMNS = "minmax(0,1fr) 96px 112px 104px 120px";
