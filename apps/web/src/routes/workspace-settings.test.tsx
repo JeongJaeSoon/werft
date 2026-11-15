@@ -584,15 +584,16 @@ describe("워크스페이스 설정", () => {
     expect(name.value).toBe("Acme");
     expect(name.readOnly).toBe(true);
     expect(screen.getByText(WORKSPACE_ID).className).toContain("font-mono");
-    await screen.findByRole("region", { name: "감사 기록 보존 기간" });
+    // Only the run rules, retention and agent access cards save; the name has
+    // no API to. The run rules card waits for its own read.
+    await waitFor(() =>
+      expect(screen.getAllByRole("button", { name: "저장" })).toHaveLength(3),
+    );
+    expect(screen.getAllByText("읽기 전용")).toHaveLength(1);
     // Model connections in Settings own the models; this page lists none.
     expect(screen.queryByRole("region", { name: "사용할 모델" }) === null).toBe(
       true,
     );
-    // Only the run rules, retention and agent access cards save; the name has
-    // no API to.
-    expect(screen.getAllByRole("button", { name: "저장" })).toHaveLength(3);
-    expect(screen.getAllByText("읽기 전용")).toHaveLength(1);
   });
 
   test("ID를 복사하면 복사했다고 알린다", async () => {
