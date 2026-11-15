@@ -668,12 +668,12 @@ describe("팀 화면", () => {
       within(table)
         .getAllByRole("columnheader")
         .map((h) => h.textContent),
-    ).toEqual(["구성원", "팀 역할", "추가한 날"]);
+    ).toEqual(["이름", "팀 역할", "추가한 날"]);
     expect(
       within(within(table).getAllByRole("row")[1] as HTMLElement)
         .getAllByRole("cell")
         .map((c) => c.textContent),
-    ).toEqual(["Matemate@example.com", "구성원", "2026. 10. 11. 09:00"]);
+    ).toEqual(["Matemate@example.com", "구성원", "10월 11일 오전 09:0010/11"]);
     for (const control of ["이름 바꾸기", "구성원 추가", "팀 삭제"])
       expect(
         screen.queryByRole("button", { name: control }),
@@ -913,7 +913,7 @@ describe("팀 화면", () => {
       within(table)
         .getAllByRole("columnheader")
         .map((h) => h.textContent),
-    ).toEqual(["구성원", "워크스페이스 역할", "팀 역할", "추가한 날", "관리"]);
+    ).toEqual(["이름", "워크스페이스 역할", "팀 역할", "추가한 날", "관리"]);
     const mateRow = within(table).getAllByRole("row")[1] as HTMLElement;
     expect(
       within(mateRow)
@@ -924,7 +924,7 @@ describe("팀 화면", () => {
       "구성원",
       // The inline select's two options.
       "팀 관리자구성원",
-      "2026. 10. 11. 09:00",
+      "10월 11일 오전 09:0010/11",
       "제외",
     ]);
     // One neutral row button; red belongs to the confirm only.

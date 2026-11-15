@@ -7,16 +7,19 @@ import type { ComponentProps, JSX, ReactNode } from "react";
 
 import { useI18n } from "../i18n/i18n.tsx";
 
-// Role and actions keep one width on every row, so badges and buttons line
-// up under their headers; the actions track never drops below its button.
+// Name | email | role | status | ⋯. Role, status and the ⋯ button keep one
+// width on every row, so badges and dots line up under their headers.
 const MEMBER_COLUMNS =
-  "minmax(0,1.6fr) 120px minmax(var(--werft-row-action-min-width),1fr)";
+  "minmax(0,1.3fr) minmax(0,1.5fr) 104px 104px var(--werft-control-height-sm)";
+// Name and email keep enough to read the start of each; status fits
+// "Suspended" with its dot.
 const MEMBER_NARROW_COLUMNS =
-  "minmax(0,1fr) 72px var(--werft-row-action-min-width)";
-// 320px of columns plus the frame's 1px border on each side.
-const MEMBER_TABLE_MIN = "min-w-[322px]";
+  "minmax(6rem,1fr) minmax(8rem,1fr) 72px 88px var(--werft-control-height-sm)";
+// 412px of narrow tracks, four 16px gaps, the row's 16px padding on each side
+// and the frame's 1px border on each side.
+const MEMBER_TABLE_MIN = "min-w-[510px]";
 
-/** Columns and header of a table that is not who / role / actions. */
+/** Columns and header of a table that is not the members table. */
 export type MemberTableLayout = {
   readonly columns: string;
   readonly narrowColumns: string;
@@ -27,24 +30,21 @@ export type MemberTableLayout = {
 
 /**
  * The frame of every table in the members area. By default it holds the
- * three columns (who, role, actions) of the members and invites tables; the
- * team tables pass their own `layout`. The rows are the caller's:
+ * members table's columns (name, email, role, status, ⋯ menu); the invites
+ * and team tables pass their own `layout`. The rows are the caller's:
  * GridTableRow children whose cells follow the header's order and alignment.
  */
 export function MemberTableFrame({
   label,
-  firstColumn,
   layout,
   children,
 }: {
   readonly label: string;
-  /** The first header: what one row is (a member, an invite). */
-  readonly firstColumn?: string;
   readonly layout?: MemberTableLayout;
   readonly children: ReactNode;
 }): JSX.Element {
   const { t } = useI18n();
-  // Below the table's minimum the actions would cover the role badges, so it
+  // Below the table's minimum the columns would cover each other, so it
   // scrolls instead. The padding keeps the opener's focus ring, 2px outside
   // the row, inside the scroller's clip.
   return (
@@ -62,12 +62,21 @@ export function MemberTableFrame({
             layout.headers
           ) : (
             <>
-              <GridTableColumnHeader>{firstColumn}</GridTableColumnHeader>
+              <GridTableColumnHeader>
+                {t("members.column.name")}
+              </GridTableColumnHeader>
+              <GridTableColumnHeader>
+                {t("members.column.email")}
+              </GridTableColumnHeader>
               <GridTableColumnHeader>
                 {t("members.column.role")}
               </GridTableColumnHeader>
-              <GridTableColumnHeader action={true}>
-                {t("members.column.actions")}
+              <GridTableColumnHeader>
+                {t("members.column.status")}
+              </GridTableColumnHeader>
+              {/* The ⋯ column has no visible title. */}
+              <GridTableColumnHeader>
+                <span className="sr-only">{t("members.column.actions")}</span>
               </GridTableColumnHeader>
             </>
           )}
