@@ -1,5 +1,6 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import { join } from "node:path";
+import { messageInputSchema } from "@werft-ai/contracts";
 import type { CatalogProviderConfig } from "@werft-ai/platform";
 import {
   DEMO_SESSIONS,
@@ -89,12 +90,18 @@ describe("demoDataRefusal", () => {
 
 describe("DEMO_SESSIONS", () => {
   // Titles are how a later run finds what an earlier one made.
-  test("titles do not repeat and exactly one session has none", () => {
+  test("titles do not repeat and exactly one session sends none", () => {
     const titles = DEMO_SESSIONS.flatMap((session) =>
       session.title === null ? [] : [session.title],
     );
     expect(new Set(titles).size).toBe(titles.length);
     expect(DEMO_SESSIONS.length - titles.length).toBe(1);
+  });
+
+  test("every message passes the API's message rule", () => {
+    for (const session of DEMO_SESSIONS) {
+      expect(messageInputSchema.safeParse(session.message).success).toBe(true);
+    }
   });
 });
 

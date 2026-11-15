@@ -8,6 +8,7 @@ import {
 import {
   type AnswerRequestInput,
   type AnswerRequestResult,
+  type AuthorizationPolicy,
   type Caller,
   createAuthorizationPolicy,
   createPendingRequestService,
@@ -240,7 +241,13 @@ describe("pending-request routes", () => {
   test("the service refuses the same text for a writer that skips the route, as Slack does", async () => {
     let reached = 0;
     const service = createPendingRequestService({
-      authorization: createAuthorizationPolicy(),
+      authorization: {
+        authorize: async () => ({
+          outcome: "allow",
+          reason_code: "ok",
+          decision_id: "019a0000-0000-7000-8000-0000000000d1",
+        }),
+      } as unknown as AuthorizationPolicy,
       store: {
         listOpen: async () => null,
         answerAtomic: async () => {
@@ -256,7 +263,7 @@ describe("pending-request routes", () => {
     const overCap = "가".repeat(Math.floor(ANSWER_TEXT_MAX_BYTES / 3) + 1);
     for (const free_text of [overCap, " \n "]) {
       const refused = await service
-        .answer({} as Caller, SESSION, {
+        .answer({ ownerId: "owner-a", requestId: "r-1" } as Caller, SESSION, {
           idempotencyKey: "slack:req_1:U1",
           body: {
             request_id: "req_1",

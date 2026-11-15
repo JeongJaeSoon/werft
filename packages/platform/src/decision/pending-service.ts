@@ -79,10 +79,6 @@ export function createPendingRequestService(deps: {
       sessionId: string,
       input: { idempotencyKey: string; body: PostSessionAnswerRequest },
     ): Promise<PostSessionAnswerResponse> {
-      const refusal = answerTextRefusal(input.body);
-      if (refusal !== null) {
-        throw new SessionServiceError("BAD_REQUEST", refusal);
-      }
       const decision = await requireAllowed(
         authorization,
         actor,
@@ -107,6 +103,10 @@ export function createPendingRequestService(deps: {
           },
         );
       });
+      const textRefusal = answerTextRefusal(input.body);
+      if (textRefusal !== null) {
+        throw new SessionServiceError("BAD_REQUEST", textRefusal);
+      }
       const result = await store.answerAtomic({
         principal: actor,
         sessionId,
