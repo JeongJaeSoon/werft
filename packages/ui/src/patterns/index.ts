@@ -6,6 +6,12 @@ export {
   type BarChartProps,
 } from "./bar-chart.tsx";
 export {
+  type BrandMarkProps,
+  GitHubMark,
+  GoogleDriveMark,
+  SlackMark,
+} from "./brand-marks.tsx";
+export {
   ChatList,
   ChatMessage,
   type ChatMessageProps,

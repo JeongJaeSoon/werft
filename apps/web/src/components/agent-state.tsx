@@ -1,5 +1,10 @@
 import type { Agent } from "@werft-ai/contracts";
-import { Badge, type BadgeProps } from "@werft-ai/ui";
+import {
+  Badge,
+  type BadgeProps,
+  type StatusDotStatus,
+  StatusText,
+} from "@werft-ai/ui";
 import { useI18n } from "../i18n/i18n.tsx";
 
 type AgentState = "draft" | Agent["status"];
@@ -36,5 +41,30 @@ export function AgentStateBadge({ agent }: { readonly agent: AgentSummary }) {
     >
       {t(STATE_LABEL[state])}
     </Badge>
+  );
+}
+
+const STATE_DOT = {
+  draft: "idle",
+  active: "done",
+  paused: "idle",
+  archived: "idle",
+} as const satisfies Record<AgentState, StatusDotStatus>;
+
+const STATE_TEXT = {
+  draft: "agents.state.draft",
+  active: "agents.status.active",
+  paused: "agents.status.paused",
+  archived: "agents.status.archived",
+} as const;
+
+/** The agent list's state: a dot and a word, "● 활성". */
+export function AgentStateText({ agent }: { readonly agent: AgentSummary }) {
+  const { t } = useI18n();
+  const state = agentState(agent);
+  return (
+    <StatusText status={STATE_DOT[state]} data-state={state}>
+      {t(STATE_TEXT[state])}
+    </StatusText>
   );
 }

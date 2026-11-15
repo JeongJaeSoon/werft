@@ -18,6 +18,34 @@ export type StatusDotProps = Omit<ComponentProps<"span">, "children"> & {
 };
 
 /**
+ * A status said as a coloured dot and its name, not a badge: "● 활성".
+ */
+export function StatusText({
+  status,
+  className,
+  children,
+  ...props
+}: Omit<ComponentProps<"span">, "children"> & {
+  readonly status: StatusDotStatus;
+  readonly children: string;
+}): JSX.Element {
+  return (
+    <span
+      data-slot="status-text"
+      data-status={status}
+      className={cn(
+        "inline-flex items-center gap-2 whitespace-nowrap",
+        className,
+      )}
+      {...props}
+    >
+      <StatusDot status={status} />
+      {children}
+    </span>
+  );
+}
+
+/**
  * Mockup v4's `.dot`: colour only, hidden from screen readers. The caller
  * puts the status's name beside it, as text or `sr-only`.
  */

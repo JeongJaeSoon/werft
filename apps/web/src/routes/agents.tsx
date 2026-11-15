@@ -11,7 +11,6 @@ import { ListToolbar, ListViewSwitch } from "@werft-ai/react/components";
 import {
   Button,
   buttonVariants,
-  Code,
   cn,
   EmptyState,
   GridTable,
@@ -20,7 +19,6 @@ import {
   GridTableHeader,
   GridTableRow,
   Page,
-  RelativeTime,
   RowLines,
   SegmentedControl,
   SegmentedControlItem,
@@ -45,22 +43,26 @@ import {
   AdministeredAgents,
 } from "../components/agent-admins.tsx";
 import { AgentCards } from "../components/agent-cards.tsx";
+import {
+  AgentChannels,
+  AgentEngine,
+  AgentRunning,
+  AgentSlug,
+  SlackActionMark,
+} from "../components/agent-columns.tsx";
 import { agentRefusal } from "../components/agent-refusal.ts";
-import { AgentStateBadge, agentState } from "../components/agent-state.tsx";
+import { AgentStateText, agentState } from "../components/agent-state.tsx";
 import {
   AGENT_VIEWS,
   type AgentView,
   useAgentView,
 } from "../components/agent-view.ts";
 import { LoadFailure } from "../components/load-failure.tsx";
-import { ManagingTeamName } from "../components/managing-team.tsx";
 import { NewAgentFlow } from "../components/new-agent-flow.tsx";
 import { PagedListFooter } from "../components/paged-list-footer.tsx";
 import { OPENS_ROW, TABLE_ROW_LINK } from "../components/row-link.ts";
 import { SEARCH_MAX, useSearchTerm } from "../components/search-term.ts";
-import { SlackActionLink } from "../components/slack-action-link.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
-import { withNodes } from "../components/with-nodes.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
 
 export function AgentsScreen() {
@@ -294,98 +296,78 @@ function AgentsIn({
 }
 
 function AgentTable({ agents }: { readonly agents: readonly AgentListItem[] }) {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   return (
     <GridTable
       aria-label={t("agents.title")}
       columns={COLUMNS[0]}
-      narrowAt={480}
+      narrowAt={640}
       narrowColumns={COLUMNS[1]}
       framed={true}
     >
       <GridTableHeader>
-        <GridTableColumnHeader>
-          {t("agents.column.agent")}
-        </GridTableColumnHeader>
+        <GridTableColumnHeader>{t("agents.column.name")}</GridTableColumnHeader>
         <GridTableColumnHeader hideNarrow>
-          {t("agents.column.team")}
+          {t("agents.column.engine")}
         </GridTableColumnHeader>
         <GridTableColumnHeader>
           {t("agents.column.state")}
         </GridTableColumnHeader>
+        <GridTableColumnHeader hideNarrow>
+          {t("agents.column.channels")}
+        </GridTableColumnHeader>
         <GridTableColumnHeader align="end" hideNarrow>
-          {t("agents.column.updated")}
+          {t("agents.column.running")}
         </GridTableColumnHeader>
       </GridTableHeader>
-      {agents.map((agent) => {
-        const updated = (
-          <RelativeTime
-            value={agent.updated_at}
-            locale={locale}
-            className="relative z-1"
-          />
-        );
-        return (
-          <GridTableRow
-            key={agent.id}
-            inactive={agentState(agent) === "archived"}
-            className={OPENS_ROW}
-          >
-            <GridTableCell>
-              <RowLines>
+      {agents.map((agent) => (
+        <GridTableRow
+          key={agent.id}
+          inactive={agentState(agent) === "archived"}
+          className={OPENS_ROW}
+        >
+          <GridTableCell>
+            <RowLines>
+              <span className="flex min-w-0 items-center gap-2">
                 <Link
                   to="/agents/$id"
                   params={{ id: agent.id }}
+                  title={agent.name}
                   className={cn(
-                    "font-medium text-link underline-offset-2 hover:underline [overflow-wrap:anywhere]",
+                    "min-w-0 truncate font-medium text-link underline-offset-2 hover:underline",
                     TABLE_ROW_LINK,
                   )}
                 >
                   {agent.name}
                 </Link>
-                <Code className="text-muted-foreground [overflow-wrap:anywhere]">
-                  <span className="sr-only">{t("agents.slug")} </span>
-                  {agent.slug}
-                </Code>
-                {/* GridTable's narrowAt={480}, where the time column drops. */}
-                <Text
-                  as="span"
-                  variant="meta"
-                  className="hidden [@container(width<480px)]:block"
-                >
-                  {withNodes((vars) => t("agents.updated", vars), {
-                    at: updated,
-                  })}
-                </Text>
-                <span className="hidden [@container(width<480px)]:block">
-                  <span className="sr-only">{t("agents.column.team")} </span>
-                  <ManagingTeamName agent={agent} />
-                </span>
-                <SlackActionLink agent={agent} />
-              </RowLines>
-            </GridTableCell>
-            <GridTableCell hideNarrow>
-              <ManagingTeamName agent={agent} />
-            </GridTableCell>
-            <GridTableCell>
-              <AgentStateBadge agent={agent} />
-            </GridTableCell>
-            <GridTableCell
-              align="end"
-              hideNarrow
-              className="text-caption text-muted-foreground"
-            >
-              {updated}
-            </GridTableCell>
-          </GridTableRow>
-        );
-      })}
+                <SlackActionMark agent={agent} />
+              </span>
+              <AgentSlug slug={agent.slug} />
+            </RowLines>
+          </GridTableCell>
+          <GridTableCell hideNarrow>
+            <AgentEngine agent={agent} />
+          </GridTableCell>
+          <GridTableCell>
+            <AgentStateText agent={agent} />
+          </GridTableCell>
+          <GridTableCell hideNarrow className="gap-2">
+            <AgentChannels agent={agent} />
+          </GridTableCell>
+          <GridTableCell align="end" hideNarrow className="tabular-nums">
+            <AgentRunning agent={agent} />
+          </GridTableCell>
+        </GridTableRow>
+      ))}
     </GridTable>
   );
 }
 
+// Name | engine | state | channels | running sessions; at 640px of table width
+// or less, name | state. The fixed tracks, gaps and padding take 520px, so a
+// narrower breakpoint would leave the name no room.
 const COLUMNS = [
-  "minmax(0,1fr) minmax(0,200px) 104px 120px",
+  "minmax(0,1fr) 96px 104px 104px 120px",
   "minmax(0,1fr) 104px",
 ] as const;
 

@@ -154,11 +154,14 @@ const showTab = async (user: User, name: string) =>
   user.click(await screen.findByRole("tab", { name }));
 const showList = async (user: User, name: string) =>
   user.click(await screen.findByRole("button", { name }));
-// The state badge of the card or row an agent's name links from.
+// The state of the card (a badge) or row (a dot and a word) an agent's
+// name links from.
 const stateOf = (link: HTMLElement) =>
   link
     .closest("[role=row], [data-slot=card]")
-    ?.querySelector("[data-slot=badge][data-state]");
+    ?.querySelector(
+      "[data-slot=badge][data-state], [data-slot=status-text][data-state]",
+    );
 const showTable = async (user: User) =>
   user.click(await screen.findByRole("button", { name: "표" }));
 
@@ -225,43 +228,104 @@ describe("agentRefusal", () => {
 describe("에이전트 목록", () => {
   beforeEach(() => localStorage.clear());
 
-  test("표는 좁으면 수정 열을 숨기고, 그 시각을 이름 칸에 상대 시각으로 보인다", async () => {
-    const server = agentServer();
-    renderAt("/agents", { ...meOk, ...server.routes });
+  test("표는 이름·엔진·상태·연결 채널·실행 중인 세션을 보이고, 좁으면 이름과 상태만 남긴다", async () => {
+    const base = agentServer().detail().agent;
+    const summary = {
+      version: {
+        version_no: 1,
+        role: null,
+        instructions: null,
+        mcp_servers: [],
+        credential_refs: [],
+      },
+      connection_id: null,
+      release_label: null,
+      release_model: null,
+      bound_credential_refs: [],
+      admins: [],
+      needs_input_count: 0,
+      slack_action: null,
+    };
+    const agents = [
+      {
+        ...base,
+        summary: {
+          ...summary,
+          running_count: 2,
+          engine: "claude_agent_sdk" as const,
+          channels: ["slack" as const, "github" as const],
+        },
+      },
+      {
+        ...base,
+        id: crypto.randomUUID(),
+        slug: "drafts",
+        name: "초안 담당",
+        summary: { ...summary, running_count: 0, engine: null, channels: [] },
+      },
+    ];
+    renderAt("/agents", {
+      ...meOk,
+      "GET /v1/agents": () => json(200, { items: agents, next_cursor: null }),
+    });
     await showTable(await setupUser());
     const table = await screen.findByRole("table", { name: "에이전트" });
-    expect(table.dataset.narrowAt).toBe("480");
+    expect(table.dataset.narrowAt).toBe("640");
     expect(
       within(table)
         .getAllByRole("columnheader")
         .map((head) => [head.textContent, head.dataset.hideNarrow ?? null]),
     ).toEqual([
-      ["에이전트", null],
-      ["담당 팀", "true"],
+      ["이름", null],
+      ["엔진", "true"],
       ["상태", null],
-      ["수정", "true"],
+      ["연결 채널", "true"],
+      ["실행 중인 세션", "true"],
     ]);
-    const row = (
-      await within(table).findByRole("link", { name: "결제 담당" })
-    ).closest("[role=row]") as HTMLElement;
-    const [agentCell, teamCell, , updatedCell] =
-      within(row).getAllByRole("cell");
-    expect(teamCell?.dataset.hideNarrow).toBe("true");
-    expect(teamCell?.textContent).toBe("재무");
-    const updatedAt = server.detail().agent.updated_at;
-    expect(updatedCell?.dataset.hideNarrow).toBe("true");
-    expect(updatedCell?.querySelector("time")?.getAttribute("datetime")).toBe(
-      updatedAt,
+    const cellsOf = async (name: string) =>
+      within(
+        (await within(table).findByRole("link", { name })).closest(
+          "[role=row]",
+        ) as HTMLElement,
+      ).getAllByRole("cell");
+    const [, engine, , channels, running] = await cellsOf("결제 담당");
+    expect(engine?.textContent).toBe("Claude");
+    expect(
+      within(channels as HTMLElement)
+        .getAllByRole("img")
+        .map((mark) => mark.getAttribute("aria-label")),
+    ).toEqual(["Slack", "GitHub"]);
+    expect(running?.textContent).toBe("2");
+    // Without a release, a channel or a running session, each is a dash a
+    // screen reader hears as "없음".
+    const [, noEngine, , noChannels, noRunning] = await cellsOf("초안 담당");
+    for (const cell of [noEngine, noChannels, noRunning])
+      expect(cell?.textContent).toBe("—없음");
+  });
+
+  test("긴 이름과 식별자는 한 줄에서 말줄임으로 자르고, 전체는 title에 둔다", async () => {
+    const long = "결제와 환불과 정산 문의를 모두 맡는 아주 긴 이름의 에이전트";
+    const slug = "billing-refunds-settlements-and-everything-else-agent";
+    const base = agentServer().detail().agent;
+    renderAt("/agents", {
+      ...meOk,
+      "GET /v1/agents": () =>
+        json(200, {
+          items: [{ ...base, name: long, slug }],
+          next_cursor: null,
+        }),
+    });
+    await showTable(await setupUser());
+    const link = await screen.findByRole("link", { name: long });
+    await waitFor(() => expect(link.closest("[role=row]")).not.toBeNull());
+    expect(link.getAttribute("title")).toBe(long);
+    expect(link.className).toContain("truncate");
+    expect(link.className).toContain("min-w-0");
+    const code = (link.closest("[role=row]") as HTMLElement).querySelector(
+      `code[title="${slug}"]`,
     );
-    // Only below the table's narrow width; the time in it is the same one.
-    const narrow = [...(agentCell?.querySelectorAll("span") ?? [])].find(
-      (line) => line.className.includes("[@container(width<480px)]:block"),
-    );
-    expect(narrow?.className).toContain("hidden");
-    expect(narrow?.textContent).toMatch(/ 수정$/);
-    expect(narrow?.querySelector("time")?.getAttribute("datetime")).toBe(
-      updatedAt,
-    );
+    expect(code?.className).toContain("truncate");
+    expect(code?.textContent).toBe(`식별자 ${slug}`);
   });
 
   test("목록과 상태를 카드로 보이고, 표로 바꿔도 상세로 잇는다", async () => {
@@ -342,7 +406,13 @@ describe("에이전트 목록", () => {
         screen.getByRole("link", { name: "draft" }).closest("[role=row]"),
       ).not.toBeNull(),
     );
-    expect(badges()).toEqual(expected);
+    // A row says a released agent's state as its status, "활성".
+    expect(badges()).toEqual([
+      ["초안", "draft"],
+      ["활성", "active"],
+      ["일시정지", "paused"],
+      ["보관됨", "archived"],
+    ]);
     // Only the archived row takes the inactive tone; its badge still says so.
     expect(
       ["draft", "live", "held", "old"].map((name) =>
@@ -1019,26 +1089,66 @@ describe("Slack 조치 링크", () => {
       "GET /v1/agents": () => json(200, { items: agents, next_cursor: null }),
     });
     await screen.findByRole("link", { name: "에이전트 0" });
-    const check = () =>
+    // A card says the reason in words; a row says it with a warning mark
+    // whose note holds the same words.
+    const check = (said: (link: HTMLAnchorElement) => string | null) =>
       ACTIONS.forEach(([, reason], n) => {
         const link = slackLinkOf(`에이전트 ${n}`);
         if (reason === null) {
           expect(link).toBeNull();
           return;
         }
-        expect(link?.textContent).toBe(`Slack 조치 필요: ${reason}`);
+        expect(said(link as HTMLAnchorElement)).toBe(
+          `Slack 조치 필요: ${reason}`,
+        );
         expect(link?.getAttribute("href")).toBe(
           `/agents/${agents[n]?.id}?tab=slack`,
         );
       });
-    check();
+    check((link) => link.textContent);
     await showTable(user);
     await waitFor(() =>
       expect(
         screen.getByRole("link", { name: "에이전트 0" }).closest("[role=row]"),
       ).not.toBeNull(),
     );
-    check();
+    check((link) => {
+      expect(link.getAttribute("aria-label")).toBe("Slack 조치 필요");
+      expect(link.dataset.slot).toBe("slack-action");
+      return (
+        document.getElementById(link.getAttribute("aria-describedby") ?? "")
+          ?.textContent ?? null
+      );
+    });
+  });
+
+  test("행의 Slack 경고 표시는 Tab으로 닿으면 이유를 열고, 누르면 Slack 탭으로 간다", async () => {
+    const user = await setupUser();
+    const agents = listed();
+    const { history } = renderAt("/agents", {
+      ...meOk,
+      "GET /v1/agents": () => json(200, { items: agents, next_cursor: null }),
+    });
+    await showTable(user);
+    await waitFor(() =>
+      expect(
+        screen.getByRole("link", { name: "에이전트 0" }).closest("[role=row]"),
+      ).not.toBeNull(),
+    );
+    const mark = slackLinkOf("에이전트 0") as HTMLAnchorElement;
+    // The row's name link comes first, then its mark.
+    screen.getByRole("link", { name: "에이전트 0" }).focus();
+    await user.tab();
+    expect(document.activeElement === mark).toBe(true);
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-slot="popover-content"]')?.textContent,
+      ).toBe("Slack 조치 필요: 이벤트 주소 등록 실패"),
+    );
+    await user.keyboard("{Enter}");
+    await waitFor(() =>
+      expect(history.location.href).toBe(`/agents/${agents[0]?.id}?tab=slack`),
+    );
   });
 });
 
@@ -1331,7 +1441,7 @@ describe("새 에이전트", () => {
     await waitFor(() => expect(history.location.pathname).toBe(DETAIL));
     act(() => history.push("/agents"));
     const link = await screen.findByRole("link", { name: "결제 담당" });
-    expect(stateOf(link)?.textContent).toBe("릴리스");
+    expect(stateOf(link)?.getAttribute("data-state")).toBe("active");
   });
 
   test("초안을 다시 저장해도 다른 곳에서 넣은 규칙은 그대로 남는다", async () => {
