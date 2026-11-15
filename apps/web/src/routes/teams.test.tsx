@@ -1292,6 +1292,46 @@ describe("팀 화면", () => {
     expect(server.team?.members[0]?.role).toBe("member");
   });
 
+  test("한 행의 역할을 바꾸는 동안 다른 행의 ⋯ 메뉴도 잠긴다", async () => {
+    const server = teamServer({
+      members: [
+        { ...mateMember, role: "lead" },
+        {
+          ...mateMember,
+          user_id: USER_ID,
+          email: owner.email,
+          display_name: owner.display_name,
+        },
+      ],
+    });
+    let answer: (response: Response) => void = () => {};
+    const { api } = renderAt(`/members/teams/${TEAM_ID}`, {
+      ...server.routes,
+      [`PATCH /v1/teams/${TEAM_ID}/members/${MATE_ID}`]: () =>
+        new Promise<Response>((resolve) => {
+          answer = resolve;
+        }),
+    });
+    const user = await setupUser();
+    const other = await screen.findByRole("button", { name: "Owner 메뉴" });
+    await choose(user, "구성원으로 바꾸기");
+    await waitFor(() => expect(rolePatches(api)).toHaveLength(1));
+    await waitFor(() =>
+      expect(other.getAttribute("aria-disabled")).toBe("true"),
+    );
+    await user.click(other);
+    expect(screen.queryByRole("menu")).toBeNull();
+    answer(apiError(403, "FORBIDDEN", "Not permitted"));
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("button", { name: "Owner 메뉴" })
+          .hasAttribute("aria-disabled"),
+      ).toBe(false),
+    );
+    expect(rolePatches(api)).toHaveLength(1);
+  });
+
   test("정지된 구성원은 구성원 탭처럼 회색 행과 상태 열로 보이고, ⋯는 남지만 열리지 않는다", async () => {
     const server = teamServer({
       members: [

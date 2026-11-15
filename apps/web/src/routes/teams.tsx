@@ -758,11 +758,9 @@ function TeamMembers({
                     )}
                   </StatusText>
                 );
-                const busy =
-                  (changeRole.isPending &&
-                    changeRole.variables?.member.user_id === member.user_id) ||
-                  (remove.isPending &&
-                    remove.variables?.user_id === member.user_id);
+                // One shared mutation per action: a second row's request
+                // would close the first's confirmation and unlock its menu.
+                const busy = changeRole.isPending || remove.isPending;
                 return (
                   <GridTableRow
                     key={member.user_id}
