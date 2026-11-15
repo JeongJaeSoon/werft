@@ -57,6 +57,7 @@ import {
   useRole,
   WORKSPACE_ROLE_VALUES,
 } from "../auth/guard.tsx";
+import { FormError } from "../components/auth-page.tsx";
 import { INACTIVE_ROW_CLASS } from "../components/inactive-member.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { MemberTableFrame } from "../components/member-table.tsx";
@@ -218,6 +219,10 @@ export function MembersScreen() {
   const q = useSearchTerm(query);
   const members = useMemberPages(q, { enabled: manages });
   const invites = useQuery({ ...invitesQuery(client), enabled: manages });
+  // The head's invite button reads this too (same cache entry); when only it
+  // fails, the button is gone and this screen says why.
+  const probe = useQuery({ ...firstMembersQuery(client), enabled: manages });
+  const role = useRole();
   const search = useRef<HTMLInputElement>(null);
 
   if (!manages) return null;
@@ -235,9 +240,10 @@ export function MembersScreen() {
         (invite.status === "pending" || inviteLapsed(invite)) &&
         (term === undefined || invite.email.toLowerCase().includes(term)),
     ) ?? [];
-  // Counts only once every member page is here: a partial list would
-  // undercount the roles further down.
-  const counted = !members.isPending && !members.hasNextPage;
+  // Counts only once every member page and the invites are here: a partial
+  // list would undercount the roles further down.
+  const counted =
+    members.isSuccess && !members.hasNextPage && invites.isSuccess;
   const countOf = (role: RoleFilter) =>
     counted
       ? [...items, ...invited].filter(
@@ -325,43 +331,61 @@ export function MembersScreen() {
             }}
           />
         )
-      ) : shownMembers.length === 0 && shownInvites.length === 0 ? (
-        q !== undefined ? (
-          <EmptyState
-            className="w-full"
-            title={t("members.noMatch")}
-            description={t("members.noMatchHint")}
-            action={
-              <Button type="button" variant="outline" size="sm" onClick={clear}>
-                {t("members.clearSearch")}
-              </Button>
-            }
-          />
-        ) : roleFilter !== "all" ? (
-          <EmptyState
-            className="w-full"
-            title={t("members.filter.empty", {
-              role: roleLabel(t, roleFilter),
-            })}
-          />
-        ) : (
-          <EmptyState className="w-full" title={t("members.empty")} />
-        )
       ) : (
         <div className="flex flex-col gap-4">
-          <MemberTable items={shownMembers} invites={shownInvites} />
+          {shownMembers.length === 0 && shownInvites.length === 0 ? (
+            q !== undefined ? (
+              <EmptyState
+                className="w-full"
+                title={t("members.noMatch")}
+                description={t("members.noMatchHint")}
+                action={
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={clear}
+                  >
+                    {t("members.clearSearch")}
+                  </Button>
+                }
+              />
+            ) : roleFilter !== "all" ? (
+              <EmptyState
+                className="w-full"
+                title={t("members.filter.empty", {
+                  role: roleLabel(t, roleFilter),
+                })}
+              />
+            ) : (
+              <EmptyState className="w-full" title={t("members.empty")} />
+            )
+          ) : (
+            <MemberTable items={shownMembers} invites={shownInvites} />
+          )}
+          {/* The role filter sees only the pages read so far: the rest may
+              still hold matches. */}
           <PagedListFooter list={members} />
         </div>
       )}
       {/* The members still show when only the invites could not be read;
           when the list failed too, its one retry reads both. */}
-      {invites.error &&
-      !listFailed &&
-      !isApiError(invites.error, "FORBIDDEN") ? (
-        <LoadFailure
-          error={invites.error}
-          onRetry={() => void invites.refetch()}
-        />
+      {invites.error && !listFailed ? (
+        isApiError(invites.error, "FORBIDDEN") ? (
+          <FormError>{refusal(t, invites.error, role)}</FormError>
+        ) : (
+          <LoadFailure
+            error={invites.error}
+            onRetry={() => void invites.refetch()}
+          />
+        )
+      ) : null}
+      {/* While the list has its own failure on screen, that one alert
+          speaks for the outage. */}
+      {probe.error &&
+      !members.error &&
+      !isApiError(probe.error, "FORBIDDEN") ? (
+        <LoadFailure error={probe.error} onRetry={() => void probe.refetch()} />
       ) : null}
     </div>
   );

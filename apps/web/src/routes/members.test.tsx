@@ -1846,6 +1846,56 @@ describe("구성원 · 팀 탭", () => {
     ).toBeDefined();
   });
 
+  test("초대 버튼이 읽는 첫 페이지만 실패하면 표는 그대로 두고 다시 시도로 버튼을 되찾는다", async () => {
+    const user = await setupUser();
+    let fail = true;
+    renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": (request) =>
+        fail && new URL(request.url).searchParams.has("limit")
+          ? apiError(500, "INTERNAL", "boom")
+          : json(200, memberPage({ items: [owner], next_cursor: null })),
+      ...noInvites,
+    });
+    await screen.findByRole("button", { name: "Owner 메뉴" });
+    const retry = await screen.findByRole("button", { name: "다시 시도" });
+    expect(screen.queryByRole("button", { name: "구성원 초대" }) === null).toBe(
+      true,
+    );
+    fail = false;
+    await user.click(retry);
+    expect(
+      await screen.findByRole("button", { name: "구성원 초대" }),
+    ).toBeDefined();
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "다시 시도" }) === null).toBe(
+        true,
+      ),
+    );
+  });
+
+  test("서버가 초대 목록만 거절하면(403) 구성원은 그대로 두고 그 이유를 말한다", async () => {
+    renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [owner, teammate], next_cursor: null })),
+      "GET /v1/invites": () =>
+        apiError(
+          403,
+          "FORBIDDEN",
+          "This principal does not hold member.manage",
+        ),
+    });
+    await screen.findByRole("button", { name: "Mate 메뉴" });
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toBe(
+      "구성원 관리 권한이 있어야 할 수 있습니다. 지금 역할: 오너.",
+    );
+    expect(screen.queryByRole("button", { name: "다시 시도" }) === null).toBe(
+      true,
+    );
+  });
+
   test("관리 권한이 없으면 팀 탭만 보인다", async () => {
     renderAt("/members/teams", {
       "GET /v1/auth/me": () => json(200, memberMe()),
@@ -2066,5 +2116,44 @@ describe("역할로 보기", () => {
     });
     await screen.findByRole("button", { name: "Owner 메뉴" });
     expect(segments()).toEqual(["전체", "오너", "어드민", "멤버"]);
+  });
+
+  test("초대를 못 불러오면 개수를 세지 않는다", async () => {
+    renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [owner, teammate], next_cursor: null })),
+      "GET /v1/invites": () => apiError(500, "INTERNAL", "boom"),
+    });
+    await screen.findByRole("button", { name: "다시 시도" });
+    expect(segments()).toEqual(["전체", "오너", "어드민", "멤버"]);
+  });
+
+  test("받은 페이지에 고른 역할이 없어도 더 보기가 남아 다음 페이지에서 찾는다", async () => {
+    const people = [
+      owner,
+      member({
+        user_id: GONE_ID,
+        email: "owen@example.com",
+        display_name: "Owen",
+      }),
+      teammate,
+    ];
+    renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": pagedMembers(people, 2),
+      ...noInvites,
+    });
+    const user = await setupUser();
+    await screen.findByRole("button", { name: "Owner 메뉴" });
+    await user.click(within(group()).getByRole("button", { name: /^멤버/ }));
+    expect(
+      await screen.findByText("멤버 역할인 구성원이 없습니다."),
+    ).toBeDefined();
+    await user.click(screen.getByRole("button", { name: "더 보기" }));
+    expect(
+      await screen.findByRole("button", { name: "Mate 메뉴" }),
+    ).toBeDefined();
+    expect(screen.queryByRole("button", { name: "더 보기" })).toBeNull();
   });
 });
