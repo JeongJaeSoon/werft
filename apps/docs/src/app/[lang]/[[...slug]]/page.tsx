@@ -41,7 +41,9 @@ export default async function Page(props: Props) {
   if (page.type === "openapi") {
     return (
       <DocsPage full>
-        <DocsTitle lang="en">{page.data.title}</DocsTitle>
+        <DocsTitle lang="en" className="font-medium">
+          {page.data.title}
+        </DocsTitle>
         {/* The operation repeats its description, rendered as Markdown. */}
         <DocsBody lang="en">
           <OpenAPIPage {...page.data.getOpenAPIPageProps()} />
@@ -72,7 +74,9 @@ export default async function Page(props: Props) {
     >
       {isHome ? null : (
         <>
-          <DocsTitle lang={contentLang}>{page.data.title}</DocsTitle>
+          <DocsTitle lang={contentLang} className="font-medium">
+            {page.data.title}
+          </DocsTitle>
           <DocsDescription className="mb-0" lang={contentLang}>
             {page.data.description}
           </DocsDescription>
