@@ -19,7 +19,11 @@ import type { ImageRuntime, RuntimeFingerprint } from "@werft-ai/runtime-core";
 import type { CheckpointPointer } from "../checkpoints/ports/checkpoint-store.ts";
 import type { CheckpointOutputObject } from "../checkpoints/ports/checkpoint-verifier.ts";
 import type { PricedBy, ProviderUsage } from "../limits/model-prices.ts";
-import type { SessionGitHubMcp, SessionMcp } from "../sessions/catalog.ts";
+import type {
+  SessionGitHubMcp,
+  SessionMcp,
+  SessionWorkspaceMcp,
+} from "../sessions/catalog.ts";
 
 // The identity every post-claim write is fenced on. The storage adapter puts
 // these values in the WHERE clause of each write; a row that no longer
@@ -69,6 +73,9 @@ export type WorkerBinding = {
   costUsd: number;
   providerTokens: number;
   mcp?: SessionMcp | null;
+  // Absent or empty for a session that started with no workspace server on,
+  // and for one whose servers all lost their tools before it started.
+  workspaceMcp?: readonly SessionWorkspaceMcp[];
   githubMcp?: SessionGitHubMcp | null;
   // The built-in (non-`mcp__`) tools the session's pinned caller limit denies
   // (`sessions.caller_limit.tools_deny`). Absent or empty: nothing is removed.
@@ -189,6 +196,9 @@ export type ClaimInput = {
   // The worker announced `user_env`. A session that holds variables is not
   // bound to one that did not: its claim could not carry them.
   userEnv?: true;
+  // The worker announced `workspace_mcp`. A session with workspace servers
+  // is not bound to one that did not, as with `userEnv`.
+  workspaceMcp?: true;
   // What the worker announced for the saved rules (`engine_settings`,
   // `permission_rules`). A session whose merged rules need one it lacks is
   // not bound to it, as with `userEnv`.
@@ -225,6 +235,7 @@ export type EgressIssue = {
     repositoryId: string | null;
     githubPolicySource: string;
     mcp?: SessionMcp | null;
+    workspaceMcp?: readonly SessionWorkspaceMcp[];
     githubMcp?: SessionGitHubMcp | null;
   }): EgressBindings;
 };
@@ -317,6 +328,9 @@ export type ClaimResult =
   // Nothing was bound and nothing changed: another worker, or this one after
   // an update, claims it later.
   | { outcome: "user_env_unsupported" }
+  // The session has workspace servers and this worker did not announce
+  // `workspace_mcp`. Nothing was bound and nothing changed, as above.
+  | { outcome: "workspace_mcp_unsupported" }
   // Retryable and nothing consumed: the merged rules need a field this worker
   // does not carry, so the session waits for one that does.
   | { outcome: "engine_settings_unsupported" }

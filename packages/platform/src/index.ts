@@ -118,6 +118,7 @@ export * from "./sessions/ports/turn-interrupts.ts";
 export * from "./ports/provider-exchange-ledger.ts";
 export * from "./ports/usage-reader.ts";
 export * from "./ports/worker-unit-of-work.ts";
+export * from "./ports/workspace-mcp-egress.ts";
 export * from "./checkpoints/ports/workspace-bundle-verifier.ts";
 export * from "./ports/workspace-settings.ts";
 export { messageOf } from "./scheduler/pass-context.ts";

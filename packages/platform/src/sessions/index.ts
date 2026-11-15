@@ -26,7 +26,7 @@ export {
   withoutPullRequestTail,
   withPullRequestTail,
 } from "./git-attribution.ts";
-export { mcpToolDenied } from "./mcp-tool-decision.ts";
+export { mcpToolDenied, mcpToolPermitted } from "./mcp-tool-decision.ts";
 export type { RepositoryAttachmentService } from "./repository-attachment-service.ts";
 export {
   idempotencyConflict,

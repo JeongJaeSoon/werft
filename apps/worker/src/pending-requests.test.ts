@@ -428,6 +428,7 @@ describe("PendingRequestRegistry", () => {
           response_language: true,
           answer_surface: true,
           repository_pins: true,
+          workspace_mcp: true,
         });
       }
     });

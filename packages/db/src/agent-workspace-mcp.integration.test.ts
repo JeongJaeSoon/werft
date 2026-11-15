@@ -330,10 +330,16 @@ integration("agent workspace MCP servers on PostgreSQL", () => {
         {
           id: tracker,
           name: "tracker",
+          url: "https://tracker.example.com/mcp",
           tools: ["mcp__tracker__search", "mcp__tracker__create"],
         },
         // Not connected yet: the server and its tools still count.
-        { id: wiki, name: "wiki", tools: ["mcp__wiki__read"] },
+        {
+          id: wiki,
+          name: "wiki",
+          url: "https://wiki.example.com/mcp",
+          tools: ["mcp__wiki__read"],
+        },
       ],
     });
 

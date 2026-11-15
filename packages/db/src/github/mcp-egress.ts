@@ -49,7 +49,7 @@ type ReleaseMcp = {
 
 // Read off the stored card and pins without the full schemas: a release is
 // immutable and was parsed whole when it was made.
-async function releaseMcpOf(
+export async function releaseMcpOf(
   executor: Database,
   releaseId: string,
 ): Promise<ReleaseMcp | null> {

@@ -238,6 +238,7 @@ import {
   settleTurnInterrupts,
   turnInterruptPending,
 } from "./sessions/turn-interrupts.ts";
+import { sessionWorkspaceMcpOf } from "./sessions/workspace-mcp-egress.ts";
 import { rowsOf } from "./statement-rows.ts";
 
 type ImageRuntime = NonNullable<WorkerBinding["launchRuntime"]>;
@@ -1690,6 +1691,7 @@ async function bindingOf(
     costUsd: session.costUsd,
     providerTokens: session.providerTokens,
     mcp: await sessionMcpOf(tx, session),
+    workspaceMcp: await sessionWorkspaceMcpOf(tx, session),
     githubMcp: await sessionGitHubMcpOf(tx, session),
     ...(await releaseRunOf(tx, session)),
     ...(engineSettings === undefined ||
@@ -1899,6 +1901,8 @@ async function issueCredentials(
     | "agentReleaseId"
     | "githubPolicySource"
     | "mcpStart"
+    | "workspaceId"
+    | "workspaceMcpStart"
   >,
 ) {
   const expiresAt = fromDbNow(input.credentialTtlMs);
@@ -1912,6 +1916,7 @@ async function issueCredentials(
     repositoryId: session.repositoryId,
     githubPolicySource: session.githubPolicySource,
     mcp: await sessionMcpOf(tx, session),
+    workspaceMcp: await sessionWorkspaceMcpOf(tx, session),
     githubMcp: await sessionGitHubMcpOf(tx, session),
   });
   await tx.insert(workerCredentials).values([
@@ -2131,6 +2136,12 @@ export function createPostgresWorkerUnitOfWork(
           ) {
             return { outcome: "user_env_unsupported" };
           }
+          if (
+            input.workspaceMcp !== true &&
+            (await sessionWorkspaceMcpOf(tx, bound.session)).length > 0
+          ) {
+            return { outcome: "workspace_mcp_unsupported" };
+          }
           // Same rule for the saved engine rules: judged before anything
           // rotates, from the rows as they are now.
           const replayRules = await claimEngineSettingsOf(
@@ -2322,6 +2333,13 @@ export function createPostgresWorkerUnitOfWork(
           plainEnvOf(locked.envStart) !== undefined
         ) {
           return { outcome: "user_env_unsupported" };
+        }
+        // Same for the workspace servers it started with.
+        if (
+          input.workspaceMcp !== true &&
+          (await sessionWorkspaceMcpOf(tx, locked)).length > 0
+        ) {
+          return { outcome: "workspace_mcp_unsupported" };
         }
         const rules = await claimEngineSettingsOf(
           tx,
