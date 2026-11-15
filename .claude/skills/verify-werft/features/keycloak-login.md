@@ -10,7 +10,7 @@
 - `kc-add` 설정 > 워크스페이스 > 로그인의 "공급자 추가"에 이름과 issuer를 넣으면 서버가 discovery를 읽고 상세 화면으로 간다. 화면의 redirect URI는 `<CONSOLE_ORIGIN>/auth/callback/<공급자 id>`다.
 - `kc-test` client ID와 secret을 넣고 "테스트 로그인"을 누르면 브라우저가 Keycloak의 폼으로 갔다가 `iss`·`code`와 함께 돌아와 "테스트가 통과했습니다."와 받은 계정(sub·이메일·`email_verified`)을 보인다. 계정은 bo다.
 - `kc-enable` "켜기" 뒤 `GET /v1/auth/login-methods`에 그 공급자가 나온다. 가입 규칙은 허용 도메인 `acme.example`, "member로 가입"이다.
-- `kc-link` 비밀번호로 로그인한 owner가 설정 > 로그인 수단에서 "Keycloak 연결"로 Keycloak 계정(bo)을 붙이고, 그 뒤 버튼으로 owner로 들어온다. 이메일 주소가 달라도 된다.
+- `kc-link` 비밀번호로 로그인한 owner가 콘솔 페이지에서 연결 API(`POST /v1/auth/me/login-methods/{id}/link/start`)로 Keycloak 계정(bo)을 붙이고(콘솔에는 연결 화면이 없다. 콜백은 `/`로 간다), 그 뒤 버튼으로 owner로 들어온다. 이메일 주소가 달라도 된다.
 - `kc-first-signup` 계정이 없는 ana가 버튼으로 들어오면 비밀번호 없는 `member` 계정이 생긴다.
 - `kc-unverified-refused` Keycloak이 주소를 검증하지 않은 uma는 거절되고("이 계정으로 로그인하지 못했습니다") 계정이 생기지 않는다.
 - `kc-disable-ends-sessions` owner가 공급자를 끄면 그 공급자로 만든 세션이 끊긴다(응답의 `sessions_revoked` 1 이상, ana의 `me`가 `401`). owner의 비밀번호 세션은 남고, `login-methods`의 공급자 목록은 빈다.
@@ -20,7 +20,7 @@
 ## How to get to it (user POV)
 
 - owner: 설정 > 워크스페이스 > "로그인"(`/settings/workspace/login`) → "공급자 추가" → 상세 화면에서 client 값, "테스트 로그인", "켜기", "규칙 바꾸기", "끄기".
-- 누구나: `/login`의 "Keycloak 계정으로 로그인", 설정 > "로그인 수단"(`/settings/login-methods`)에서 Keycloak 줄의 "연결"(접근성 이름 "Keycloak 연결").
+- 누구나: `/login`의 "Keycloak 계정으로 로그인". 자기 계정에 Keycloak을 연결하는 화면은 없고 API만 있다.
 - realm의 사람은 ana·bo(주소 검증됨)와 uma(검증 안 됨), 모두 `@acme.example`이고 비밀번호는 이 run의 한 값이다. Keycloak의 폼에는 `type '#username' <이름>`, `type-state '#password' KEYCLOAK_WERFT_USER_PASSWORD`, `click '#kc-login'`으로 들어간다.
 
 ## Driving it with lib.sh
