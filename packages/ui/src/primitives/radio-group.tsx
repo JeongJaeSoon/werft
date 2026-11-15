@@ -8,7 +8,8 @@ import { useFieldControl } from "./field.tsx";
  * shadcn/ui new-york RadioGroup. Changed from upstream: an inline dot instead
  * of lucide-react, card background, no `dark:` variants, and the ring drawn
  * in `muted-foreground`: the outline is all that shows an unchecked radio,
- * and `border-input` is under 3:1 against the canvas in both themes. Name the
+ * and `border-input` is under 3:1 against the canvas in both themes. Focus
+ * and the unselected hover are Checkbox's. Name the
  * group from a visible heading (`aria-labelledby` on a FieldLegend's id);
  * each item takes the id of the horizontal Field it sits in, so its
  * FieldLabel needs no htmlFor.
@@ -34,7 +35,7 @@ export function RadioGroupItem({
     <RadioGroupPrimitive.Item
       data-slot="radio-group-item"
       className={cn(
-        "aspect-square size-4 shrink-0 rounded-full border border-muted-foreground bg-card text-primary outline-none enabled:hover:bg-hover enabled:not-focus-visible:not-aria-invalid:hover:border-foreground transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 motion-reduce:transition-none",
+        "aspect-square size-4 shrink-0 rounded-full border border-muted-foreground bg-card text-primary transition-[background-color,border-color] enabled:not-aria-invalid:data-[state=unchecked]:hover:bg-hover enabled:not-aria-invalid:data-[state=unchecked]:hover:border-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive motion-reduce:transition-none",
         className,
       )}
       {...useFieldControl(props)}

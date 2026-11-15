@@ -5,7 +5,7 @@ import { cn } from "../foundations/cn.ts";
 
 /** Mockup v4's `.avatar`: initials on a fill, no image. */
 export const avatarVariants = cva(
-  "inline-grid flex-none select-none place-items-center font-semibold",
+  "inline-grid flex-none select-none place-items-center font-medium",
   {
     variants: {
       size: {

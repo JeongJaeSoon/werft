@@ -419,21 +419,8 @@ describe("tokens.css", () => {
       // A chart's bars, in the accent, on the cards they sit on.
       ["--werft-color-accent", "--werft-color-surface", 3],
       ["--werft-color-accent", "--werft-color-surface-sunken", 3],
-      // An icon tile's glyph on its hue.
-      ...[
-        "blue",
-        "violet",
-        "orange",
-        "green",
-        "pink",
-        "teal",
-        "sky",
-        "slate",
-      ].map((hue): [string, string, number] => [
-        "--werft-color-tile-foreground",
-        `--werft-color-tile-${hue}`,
-        3,
-      ]),
+      // An icon tile's glyph on the tile.
+      ["--werft-color-tile-foreground", "--werft-color-tile", 3],
       // A switch's track, on or off, on the page.
       ...[
         "--werft-color-surface",

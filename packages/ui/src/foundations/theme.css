@@ -75,6 +75,10 @@
   --radius-card: var(--werft-radius-card);
   --shadow-pop: var(--werft-shadow-pop);
   --shadow-segment-thumb: var(--werft-shadow-segment-thumb);
+  /* Every `transition-*` without its own duration or ease: one curve, and
+     the reduced-motion 0ms comes with the token. */
+  --default-transition-duration: var(--werft-motion-fast);
+  --default-transition-timing-function: var(--werft-motion-ease);
 }
 
 /*

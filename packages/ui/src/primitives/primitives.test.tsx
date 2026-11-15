@@ -60,18 +60,18 @@ describe("Button", () => {
     expect(classes).not.toContain("border-input");
   });
 
-  test("비활성은 0.45로 흐려지고 누를 수 없다", () => {
+  test("비활성은 다른 컨트롤과 같은 0.5로 흐려지고 누를 수 없다", () => {
     const { getByRole } = render(
       <Button type="button" disabled={true}>
         저장
       </Button>,
     );
     const classes = getByRole("button").className.split(" ");
-    expect(classes).toContain("disabled:opacity-45");
+    expect(classes).toContain("disabled:opacity-50");
     expect(classes).toContain("disabled:pointer-events-none");
   });
 
-  test("aria-disabled도 0.45로 흐려지지만 포인터를 막지 않고 포커스를 지킨다", () => {
+  test("aria-disabled도 0.5로 흐려지지만 포인터를 막지 않고 포커스를 지킨다", () => {
     const { getByRole } = render(
       <Button type="button" aria-disabled={true}>
         저장 중
@@ -79,9 +79,9 @@ describe("Button", () => {
     );
     const button = getByRole("button", { name: "저장 중" });
     const classes = button.className.split(" ");
-    expect(classes).toContain("aria-disabled:opacity-45");
+    expect(classes).toContain("aria-disabled:opacity-50");
     expect(classes.filter((c) => c.startsWith("aria-disabled:"))).toEqual([
-      "aria-disabled:opacity-45",
+      "aria-disabled:opacity-50",
     ]);
     button.focus();
     expect(document.activeElement === button).toBe(true);
@@ -92,14 +92,14 @@ describe("Button", () => {
       <Button
         type="button"
         aria-disabled={true}
-        className="aria-disabled:opacity-50"
+        className="aria-disabled:opacity-70"
       >
         만들기
       </Button>,
     );
     const classes = getByRole("button").className.split(" ");
-    expect(classes).toContain("aria-disabled:opacity-50");
-    expect(classes).not.toContain("aria-disabled:opacity-45");
+    expect(classes).toContain("aria-disabled:opacity-70");
+    expect(classes).not.toContain("aria-disabled:opacity-50");
   });
 
   test("호출자 className이 같은 축의 variant 유틸리티를 이긴다", () => {
@@ -167,6 +167,32 @@ describe("포커스", () => {
     }
   });
 
+  test("일부만 고른 체크박스는 고른 것처럼 채우고 체크 대신 줄을 보인다", () => {
+    const { getByRole } = render(
+      <Checkbox aria-label="모두 고르기" checked="indeterminate" />,
+    );
+    const box = getByRole("checkbox", { name: "모두 고르기" });
+    expect(box.getAttribute("aria-checked")).toBe("mixed");
+    const classes = box.className.split(" ");
+    expect(classes).toContain("data-[state=indeterminate]:bg-primary");
+    expect(classes).toContain("data-[state=indeterminate]:border-primary");
+    const icons = Array.from(box.querySelectorAll("svg"));
+    expect(icons.map((icon) => icon.getAttribute("class"))).toEqual([
+      expect.stringContaining("group-data-[state=indeterminate]:hidden"),
+      expect.stringContaining("group-data-[state=indeterminate]:block"),
+    ]);
+  });
+
+  test("체크박스는 고르지 않은 정상 상태에서만 포인터에 테두리와 바탕이 바뀐다", () => {
+    const { getByRole } = render(<Checkbox aria-label="알림" />);
+    const classes = getByRole("checkbox").className.split(" ");
+    const hover = classes.filter((c) => c.includes("hover:"));
+    expect(hover.sort()).toEqual([
+      "enabled:not-aria-invalid:data-[state=unchecked]:hover:bg-hover",
+      "enabled:not-aria-invalid:data-[state=unchecked]:hover:border-foreground",
+    ]);
+  });
+
   test("입력 칸은 네 변 모두 border-input 테두리를 두고 hover에 진해진다", () => {
     const { container } = render(
       <>
@@ -183,7 +209,12 @@ describe("포커스", () => {
       expect(classes).toContain("border-input");
       expect(classes).not.toContain("border-border-strong");
       expect(classes).not.toContain("border-b-input");
-      expect(classes).toContain("hover:border-subtle-foreground");
+      // Hover only on an enabled, valid field: the red edge and a withheld
+      // field keep their look under the pointer.
+      expect(classes).toContain(
+        "enabled:not-aria-invalid:hover:border-subtle-foreground",
+      );
+      expect(classes).not.toContain("hover:border-subtle-foreground");
     }
   });
 });

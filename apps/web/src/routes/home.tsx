@@ -418,7 +418,7 @@ export function HomeScreen() {
   const installCard = operator ? (
     <GlanceCard
       key="install"
-      tile={{ icon: Gauge, hue: "pink" }}
+      tile={{ icon: Gauge }}
       eyebrow={t("home.glance.installation")}
       title={t("home.glance.installationTitle")}
       value={installSummary ? usd(installSummary.cost_usd) : unknown}
@@ -462,7 +462,7 @@ export function HomeScreen() {
   const oversightCard = (
     <GlanceCard
       key="oversight"
-      tile={{ icon: ClipboardCheck, hue: "slate" }}
+      tile={{ icon: ClipboardCheck }}
       eyebrow={t("home.glance.workspace")}
       title={t("home.glance.workspaceTitle")}
       badge={<Badge>{t("shell.group.workspace")}</Badge>}
@@ -535,7 +535,7 @@ export function HomeScreen() {
   const mineCard = (
     <GlanceCard
       key="mine"
-      tile={{ icon: Gauge, hue: "pink" }}
+      tile={{ icon: Gauge }}
       eyebrow={t("home.glance.mine")}
       title={t("home.glance.mineTitle")}
       value={mySummary ? usd(mySummary.cost_usd) : unknown}
@@ -582,7 +582,7 @@ export function HomeScreen() {
   const progressCard = (
     <GlanceCard
       key="progress"
-      tile={{ icon: List, hue: "violet" }}
+      tile={{ icon: List }}
       eyebrow={t("home.glance.progress")}
       title={t("home.glance.progressTitle")}
       badge={<Badge>{t("home.glance.now")}</Badge>}
@@ -627,7 +627,7 @@ export function HomeScreen() {
   const accountsCard = (
     <GlanceCard
       key="accounts"
-      tile={{ icon: LinkIcon, hue: "sky" }}
+      tile={{ icon: LinkIcon }}
       eyebrow={t("home.glance.accounts")}
       title={t("home.glance.accountsTitle")}
       badge={<Badge>{t("home.glance.myAccounts")}</Badge>}
@@ -678,7 +678,7 @@ export function HomeScreen() {
     return (
       <GlanceCard
         key={agent.id}
-        tile={{ icon: Bot, hue: "orange" }}
+        tile={{ icon: Bot }}
         eyebrow={t("home.glance.agent")}
         title={agent.name}
         badge={<AgentStateBadge agent={agent} />}

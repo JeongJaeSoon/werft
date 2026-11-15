@@ -235,7 +235,7 @@
     /* An operation this build has no label for is printed raw. */
     min-width: 0;
     overflow-wrap: anywhere;
-    font-weight: var(--werft-weight-bold);
+    font-weight: var(--werft-weight-medium);
   }
 
   .werft-receipt__target {
@@ -384,7 +384,7 @@
     margin: 0;
     color: var(--werft-color-foreground);
     font-size: var(--werft-text-label);
-    font-weight: var(--werft-weight-bold);
+    font-weight: var(--werft-weight-medium);
   }
 
   .werft-state__guidance {
@@ -499,7 +499,7 @@
   .werft-dialog__title {
     margin: 0;
     font-size: var(--werft-text-label);
-    font-weight: var(--werft-weight-bold);
+    font-weight: var(--werft-weight-medium);
   }
 
   .werft-dialog__consequence {
