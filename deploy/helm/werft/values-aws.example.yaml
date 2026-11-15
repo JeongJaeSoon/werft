@@ -13,6 +13,9 @@ images:
   worker:
     repository: werft-worker
     digest: sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+  # A packaged chart lists its own worker images here; this installation
+  # deploys the one mirrored image above instead.
+  workers: []
 
 secrets:
   # The api's role below signs the object store; no static AWS keys.

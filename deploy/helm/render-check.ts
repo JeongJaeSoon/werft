@@ -455,6 +455,8 @@ function checkWorkerImages(
     runtime?: string;
     previousRuntime?: string;
     previousImage?: string;
+    /** The scheduler's WORKER_IMAGE, checked only when given. */
+    image?: string;
     /** images.workers: WORKER_IMAGES on all three, and no WORKER_IMAGE. */
     list?: string;
   },
@@ -487,6 +489,14 @@ function checkWorkerImages(
       ...(want.list === undefined
         ? []
         : [["WORKER_IMAGE", undefined] as [string, undefined]]),
+      ...(want.image === undefined
+        ? []
+        : [
+            ["WORKER_IMAGE", role === "scheduler" ? want.image : undefined] as [
+              string,
+              string | undefined,
+            ],
+          ]),
     ];
     for (const [name, value] of expected) {
       if (env.get(name) !== value) {
@@ -835,8 +845,8 @@ const listedWorker = (fields: Record<string, unknown> = {}) => ({
   releasedAt: "2026-11-10T00:00:00Z",
   ...fields,
 });
-// A packaged chart fills images.worker, and helm merges a map into the
-// default: only null clears its runtime.
+// ci-digests.yaml fills images.worker, which the chart refuses beside a list.
+// Helm merges a map into the default, so only null would clear a runtime.
 const listInstead = (workers: unknown) => [
   "--set",
   "images.worker.digest=",
@@ -1446,6 +1456,8 @@ const CODEX_RUNTIME = {
   profileDigestScheme: 1,
 };
 const PACKAGED_AT = "2026-11-12T00:00:00Z";
+const CODEX_REPOSITORY = "ghcr.io/jeongjaesoon/werft-worker-codex";
+const CODEX_DIGEST = `sha256:${"e".repeat(64)}`;
 const PREVIOUS_DIGEST = `sha256:${"4".repeat(64)}`;
 const workerImages = [
   "--set-json",
@@ -1614,20 +1626,12 @@ const packaged = (() => {
   const defaults = Bun.YAML.parse(
     readFileSync(join(chart, "values.yaml"), "utf8"),
   ) as {
-    images: Record<
-      "controlHost" | "egressProxy" | "worker" | "workerCodex",
-      ImageDefault
-    >;
+    images: Record<"controlHost" | "egressProxy" | "worker", ImageDefault>;
   };
   const digests = Bun.YAML.parse(readFileSync(ciDigests, "utf8")) as {
-    images: Record<
-      "controlHost" | "egressProxy" | "worker" | "workerCodex",
-      ImageDefault
-    >;
+    images: Record<"controlHost" | "egressProxy" | "worker", ImageDefault>;
   };
-  const image = (
-    key: "controlHost" | "egressProxy" | "worker" | "workerCodex",
-  ) => ({
+  const image = (key: "controlHost" | "egressProxy" | "worker") => ({
     repository: defaults.images[key].repository,
     digest: digests.images[key].digest,
   });
@@ -1646,7 +1650,8 @@ const packaged = (() => {
         releasedAt: PACKAGED_AT,
       },
       workerCodex: {
-        ...image("workerCodex"),
+        repository: CODEX_REPOSITORY,
+        digest: CODEX_DIGEST,
         runtime: CODEX_RUNTIME,
         releasedAt: PACKAGED_AT,
       },
@@ -1704,45 +1709,98 @@ const nextWorkers = (
   writeFileSync(file, result.stdout);
   return { ok: true, file };
 };
+type Entry = {
+  repository: string;
+  digest: string;
+  runtime: Record<string, unknown>;
+  releasedAt: string;
+};
+const asList = (entries: Entry[]) => ({
+  list: JSON.stringify(
+    sortedDeep(
+      entries.map((e) => ({
+        image: `${e.repository}@${e.digest}`,
+        runtime: e.runtime,
+        released_at: e.releasedAt,
+      })),
+    ),
+  ),
+});
+const released = JSON.parse(
+  packagedFile("files/release-images.json"),
+) as Entry[];
+const [claude, codex] = released as [Entry, Entry];
 const packagedManifests = render([], packaged);
 errors.push(
   ...check("package", packagedManifests, true),
-  ...checkWorkerImages("package", packagedManifests, {
-    runtime: asRendered(CURRENT_RUNTIME),
-  }),
+  // Both engines, and nothing for images.worker to clear.
+  ...checkWorkerImages("package", packagedManifests, asList(released)),
+  ...(JSON.stringify(released.map((e) => e.runtime.engine)) ===
+  '["claude","codex"]'
+    ? []
+    : [`package: release-images.json is not a Claude and a Codex image`]),
   ...checkUpgradeHook("package", packagedManifests, true, []),
-  // The switch the docs give an operator of the packaged chart.
+  // An installation's own list replaces the package's as a whole.
   ...checkWorkerImages(
-    "package, image list",
-    render(listInstead(workerList), packaged),
+    "package, an installation's list",
+    render(
+      ["--set-json", `images.workers=${JSON.stringify(workerList)}`],
+      packaged,
+    ),
     renderedList,
   ),
-);
-
-// The upgrade docs' list procedure on the package: single image -> list ->
-// next list, each values file from the package's own next-workers.jq.
-{
-  type Entry = {
-    repository: string;
-    digest: string;
-    runtime: Record<string, unknown>;
-    releasedAt: string;
-  };
-  const released = JSON.parse(
-    packagedFile("files/release-images.json"),
-  ) as Entry[];
-  const asList = (entries: Entry[]) => ({
-    list: JSON.stringify(
-      sortedDeep(
-        entries.map((e) => ({
-          image: `${e.repository}@${e.digest}`,
-          runtime: e.runtime,
-          released_at: e.releasedAt,
-        })),
+  // A mirror of one image, as the aws example deploys it.
+  ...checkWorkerImages(
+    "package, aws example",
+    render(["-f", awsExample], packaged),
+    {
+      image: `123456789012.dkr.ecr.ap-northeast-1.amazonaws.com/werft-worker@sha256:${"c".repeat(64)}`,
+    },
+  ),
+  // The single-image install the docs give, one engine of the release.
+  ...[claude, codex].flatMap((entry) =>
+    checkWorkerImages(
+      `package, the ${entry.runtime.engine} image alone`,
+      render(
+        [
+          "--set-json",
+          "images.workers=[]",
+          "--set",
+          `images.worker.repository=${entry.repository}`,
+          "--set",
+          `images.worker.digest=${entry.digest}`,
+          "--set-json",
+          `images.worker.runtime=${JSON.stringify(entry.runtime)}`,
+        ],
+        packaged,
       ),
+      {
+        image: `${entry.repository}@${entry.digest}`,
+        runtime: asRendered(entry.runtime),
+      },
     ),
-  });
-  const [claude, codex] = released as [Entry, Entry];
+  ),
+);
+{
+  // An installation that names one image and keeps the package's list.
+  const both = helmTemplate(
+    ["--set", `images.worker.digest=${CURRENT_DIGEST}`],
+    packaged,
+  );
+  if (
+    both.ok ||
+    !/set images\.workers: \[\] to deploy images\.worker alone/.test(both.out)
+  ) {
+    errors.push(
+      `package, images.worker beside the package's list: expected the render to fail, got ${both.ok ? "a render" : both.out.slice(0, 200)}`,
+    );
+  }
+}
+
+// The upgrade docs' procedures on the package, each values file from the
+// package's own next-workers.jq: a single image kept through the control
+// phase, and single image -> list -> next list.
+{
   const deployedImage: Entry = {
     repository: WORKER_REPOSITORY,
     digest: `sha256:${"7".repeat(64)}`,
@@ -1770,6 +1828,75 @@ errors.push(
       egressProxy,
     },
   };
+  const singleWithPrevious = {
+    images: {
+      ...single.images,
+      worker: { ...single.images.worker, runtime: CURRENT_RUNTIME },
+      workerPrevious: {
+        repository: WORKER_REPOSITORY,
+        digest: PREVIOUS_DIGEST,
+        runtime: PREVIOUS_RUNTIME,
+      },
+    },
+  };
+  for (const [label, deployed, want] of [
+    [
+      "a single image without runtime",
+      single,
+      { image: `${WORKER_REPOSITORY}@${deployedImage.digest}` },
+    ],
+    [
+      "a single image and the one before",
+      singleWithPrevious,
+      {
+        image: `${WORKER_REPOSITORY}@${deployedImage.digest}`,
+        runtime: asRendered(CURRENT_RUNTIME),
+        previousRuntime: asRendered(PREVIOUS_RUNTIME),
+        previousImage: `${WORKER_REPOSITORY}@${PREVIOUS_DIGEST}`,
+      },
+    ],
+  ] as const) {
+    const control = nextWorkers("control", deployed);
+    errors.push(
+      ...(control.ok
+        ? checkWorkerImages(
+            `next-workers, control phase keeps ${label}`,
+            render(["-f", control.file], packaged),
+            want,
+          )
+        : [`next-workers, control phase of ${label}: ${control.out}`]),
+    );
+  }
+  {
+    // The docs apply the phase over the installation's own values file,
+    // whose runtime Helm would merge with a {} of the phase.
+    const installation = join(
+      mkdtempSync(join(tmpdir(), "render-check-installation-")),
+      "values.yaml",
+    );
+    writeFileSync(
+      installation,
+      JSON.stringify({
+        images: {
+          worker: {
+            runtime: { ...CURRENT_RUNTIME, restorableSchemes: [1] },
+          },
+        },
+      }),
+    );
+    const control = nextWorkers("control", single);
+    const label =
+      "next-workers, control phase of a single image without runtime over a values file that sets one";
+    errors.push(
+      ...(control.ok
+        ? checkWorkerImages(
+            label,
+            render(["-f", installation, "-f", control.file], packaged),
+            { image: `${WORKER_REPOSITORY}@${deployedImage.digest}` },
+          )
+        : [`${label}: ${control.out}`]),
+    );
+  }
   const first = nextWorkers("final", single, {
     [deployedImage.digest]: {
       runtime: deployedImage.runtime,

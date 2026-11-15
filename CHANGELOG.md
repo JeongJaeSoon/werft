@@ -12,6 +12,15 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ## 미출시
 
+### 운영자가 할 일
+
+- **게시 chart의 기본 worker 이미지가 그 릴리스의 Claude·Codex 두 이미지 목록(`images.workers`)으로 바뀐다. 패키지의 `images.worker`는 비어 있고, Helm values의 `images.workerCodex`는 없어졌다**(JeongJaeSoon/werft#1737). 새 설치는 두 엔진의 세션을 함께 띄운다. 올리기 전에 단일 이미지를 유지할지 목록으로 바꿀지 정한다. 두 절차 모두 [Kubernetes 업그레이드](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/upgrade-kubernetes)에 있다. control-host를 먼저 바꾸는 1단계는 두 설치에 같다.
+  - 단일 이미지를 유지하려면 values에 `images.workers: []`와 `images.worker`의 repository·digest·runtime을 적는다. 값은 대상 chart의 `files/release-images.json`에서 얻는다. 1단계의 `next_workers control`과 2단계의 `worker.json`이 이 값을 만든다. Codex 이미지를 배포하는 설치는 2단계의 `ENGINE`을 `codex`로 둔다.
+  - 목록으로 바꾸려면 [이미지 목록 설치의 upgrade](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/upgrade-kubernetes#이미지-목록-설치의-upgrade)를 따른다. 2단계는 대상 chart의 `files/next-workers.jq final`로 만든 목록을 넘긴다. 처음 바꿀 때는 `KNOWN`에 배포된 이미지(있으면 직전 이미지도)의 `releasedAt`을 적고, runtime 없이 배포했다면 runtime도 적는다(JeongJaeSoon/werft#1731).
+  - 이 절차 없이 올리면 결과는 설치에 따라 다르다. values에 `images.worker`를 적은 설치는 render에서 실패한다(`set images.workers: [] to deploy images.worker alone`). hook과 migration은 돌지 않는다. 적지 않은 설치는 목록 설치로 바뀌고, 지금 이미지를 직전 이미지로 남기지 않는다. 지금 이미지의 checkpoint를 목록의 이미지가 복원하지 못하면(엔진·SDK·CLI가 다르거나 runtime 없이 배포한 이미지) 업그레이드 전 검사가 승인할 수 없는 `refused`로 멈춘다.
+  - values에 적은 목록은 기본 목록과 합쳐지지 않는다. Helm이 목록을 통째로 바꾸기 때문이다. 목록 설치는 릴리스마다 같은 절차로 새 목록을 만든다. 그러지 않으면 새 릴리스의 worker 이미지가 들어가지 않는다.
+  - `images.workerCodex`를 읽던 스크립트는 같은 chart의 `files/release-images.json`이나 release manifest의 `images["worker-codex"]`·`workerCodexRuntime`·`workerCodexReleasedAt`을 읽게 바꾼다. 셋 다 그대로 남는다.
+
 ## v0.3.0
 
 `v0.2.0` 뒤 `main`에 들어간 변경이다. 한 배포가 Claude와 Codex 세션을 각자 엔진의 worker 이미지로 함께 띄우고, worker 이미지 목록의 항목을 철회할 수 있다. env로 가리키던 자격 증명은 DB에 한 번 옮긴 뒤 env를 다시 읽지 않고, 설정 문서는 빈 설치에만 한 번 넣는다. 두 변경 모두 올릴 때 자동으로 옮겨져 기존 실행은 이어진다. 하지만 env나 문서를 고쳐 다시 배포하던 운영 방식이 더는 반영되지 않고, 자격 증명 이관을 되돌리려면 SQL이 필요하다. 그래서 minor 버전을 올린다. migration `0282`–`0285`가 있으므로 올리기 전에 DB를 백업하고 아래 "운영자가 할 일"을 모두 읽는다.
