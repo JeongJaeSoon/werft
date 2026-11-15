@@ -47,6 +47,14 @@
     /* Any row or button under the pointer, and the selected one. */
     --werft-color-hover: var(--werft-color-sidebar-hover);
     --werft-color-active: var(--werft-color-sidebar-accent);
+    /*
+     * A segmented control (and the default tab list): a borderless grey track
+     * with the picked item raised on it. The thumb is the page white in
+     * light; in dark it is a step above the track, since a shadow barely
+     * shows on near-black.
+     */
+    --werft-color-segment-track: var(--werft-color-hover);
+    --werft-color-segment-thumb: var(--werft-color-surface);
     --werft-color-skeleton: #ededed;
 
     --werft-color-border: #eaeaea;
@@ -230,6 +238,9 @@
     /* One shadow, for what floats (menus, dialogs, toasts). */
     --werft-shadow-pop:
       0 0 0 1px rgb(0 0 0 / 0.06), 0 8px 24px -6px rgb(0 0 0 / 0.12);
+    /* The raised segment thumb: a soft drop and a hairline edge. */
+    --werft-shadow-segment-thumb:
+      0 1px 2px rgb(0 0 0 / 0.08), 0 0 0 1px rgb(0 0 0 / 0.04);
     --werft-color-overlay: rgb(0 0 0 / 0.24);
 
     /*
@@ -384,6 +395,9 @@
 
       --werft-shadow-pop:
         0 0 0 1px rgb(255 255 255 / 0.08), 0 8px 24px -6px rgb(0 0 0 / 0.6);
+      --werft-color-segment-thumb: #2e2e2e;
+      --werft-shadow-segment-thumb:
+        0 1px 2px rgb(0 0 0 / 0.5), inset 0 0 0 1px rgb(255 255 255 / 0.06);
       --werft-color-overlay: rgb(0 0 0 / 0.6);
     }
   }
@@ -480,6 +494,9 @@
     --werft-shadow-pop:
       0 0 0 1px rgb(255 255 255 / 0.08), 0 8px 24px -6px rgb(0 0 0 / 0.6);
     --werft-color-overlay: rgb(0 0 0 / 0.6);
+    --werft-color-segment-thumb: #2e2e2e;
+    --werft-shadow-segment-thumb:
+      0 1px 2px rgb(0 0 0 / 0.5), inset 0 0 0 1px rgb(255 255 255 / 0.06);
   }
 
   @media (prefers-reduced-motion: reduce) {

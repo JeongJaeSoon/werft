@@ -158,7 +158,6 @@ function AgentList({
         filter={
           <SegmentedControl
             aria-label={t("agents.tabs.label")}
-            size="toolbar"
             value={scope}
             onValueChange={(next) => setScope(next as typeof scope)}
           >

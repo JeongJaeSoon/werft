@@ -7,14 +7,26 @@ import {
 } from "react";
 
 import { cn } from "../foundations/cn.ts";
+import { ItemCount, type ItemCountTone } from "./item-count.tsx";
 
 /*
- * Console v4 `.seg`: one choice out of a few, such as a list filter or a
- * card/table view switch. The items are toggle buttons in a named group, each
- * a Tab stop of its own, not a tablist: picking one filters what is already
- * on screen instead of showing another panel. Too many items wrap inside the
- * track rather than scroll, so no scroll box clips a focus outline.
+ * One choice out of a few, such as a list filter or a sort order. The items
+ * are toggle buttons in a named group, each a Tab stop of its own, not a
+ * tablist: picking one filters what is already on screen instead of showing
+ * another panel. The track is a borderless grey pill as tall as a control
+ * (the search field beside it), with the picked item raised on it as a white
+ * thumb. Too many items wrap inside the track rather than scroll, so no
+ * scroll box clips a focus outline.
  */
+
+// The default TabsList draws the same track and thumb from the same tokens
+// (segment-track, segment-thumb, shadow-segment-thumb).
+const segmentTrackClassName =
+  // w-fit: as a flex item in a column, stretch would carry the track past
+  // the last item to the column's edge. 3px padding around 26px items makes
+  // the 32px control height.
+  "inline-flex w-fit max-w-full flex-wrap items-center gap-0.5 rounded-card bg-segment-track p-[3px]";
+const segmentItemHeightClassName = "h-[calc(var(--werft-control-height)-6px)]";
 
 type SegmentedControlContextValue = {
   readonly value: string;
@@ -33,18 +45,12 @@ export type SegmentedControlProps = Omit<
   /** The `value` of the pressed item. */
   readonly value: string;
   readonly onValueChange: (value: string) => void;
-  /**
-   * `toolbar` is 32px tall with the control corner, so it lines up with a
-   * search field and a filter chip in a list toolbar, with their edge.
-   */
-  readonly size?: "default" | "toolbar" | undefined;
 };
 
 export function SegmentedControl({
   className,
   value,
   onValueChange,
-  size = "default",
   ...props
 }: SegmentedControlProps): JSX.Element {
   return (
@@ -53,16 +59,7 @@ export function SegmentedControl({
       <div
         role="group"
         data-slot="segmented-control"
-        data-size={size}
-        className={cn(
-          // w-fit: as a flex item in a column, stretch would carry the
-          // border past the last item to the column's edge.
-          "inline-flex w-fit max-w-full flex-wrap items-center gap-0.5 rounded-card border border-border bg-card p-0.5",
-          // 28px items + 1px padding + 1px border on each side = 32px.
-          size === "toolbar" &&
-            "rounded-control p-px hover:border-subtle-foreground",
-          className,
-        )}
+        className={cn(segmentTrackClassName, className)}
         {...props}
       />
     </SegmentedControlContext.Provider>
@@ -81,6 +78,11 @@ export type SegmentedControlItemProps = Omit<
    * number itself is read after the label.
    */
   readonly countLabel?: ReactNode | undefined;
+  /**
+   * `attention` or `danger` draws a count above 0 as a toned badge, for a
+   * state someone has to act on (an unanswered question, a failure).
+   */
+  readonly countTone?: ItemCountTone | undefined;
 };
 
 export function SegmentedControlItem({
@@ -88,6 +90,7 @@ export function SegmentedControlItem({
   value,
   count,
   countLabel,
+  countTone,
   onClick,
   children,
   ...props
@@ -106,11 +109,11 @@ export function SegmentedControlItem({
         if (!event.defaultPrevented) group.onValueChange(value);
       }}
       className={cn(
-        "inline-flex h-[var(--werft-control-height-sm)] items-center gap-2 whitespace-nowrap rounded-control border-0 bg-transparent px-2 font-medium text-control text-muted-foreground hover:text-foreground",
-        "aria-pressed:bg-active aria-pressed:text-foreground",
-        // v4 keeps the count text-3, but on the pressed fill that is 4.47:1;
-        // text-2 keeps it at AA.
-        "aria-pressed:[&_[data-slot=item-count]]:text-muted-foreground",
+        "inline-flex items-center gap-1.5 whitespace-nowrap rounded-control border-0 bg-transparent px-3 font-medium text-control text-subtle-foreground transition-[color,background-color,box-shadow] hover:text-foreground motion-reduce:transition-none",
+        segmentItemHeightClassName,
+        "aria-pressed:bg-segment-thumb aria-pressed:font-semibold aria-pressed:text-foreground aria-pressed:shadow-segment-thumb",
+        // A quiet count on the thumb reads one step darker than off it.
+        "aria-pressed:[&_[data-slot=item-count]:not([data-tone])]:text-muted-foreground",
         "focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2",
         "disabled:pointer-events-none disabled:opacity-50",
         "[&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0",
@@ -119,37 +122,7 @@ export function SegmentedControlItem({
       {...props}
     >
       {children}
-      <ItemCount count={count} countLabel={countLabel} />
+      <ItemCount count={count} countLabel={countLabel} tone={countTone} />
     </button>
-  );
-}
-
-/**
- * The v4 `.seg-count` after a segment, tab or route tab label. The space keeps
- * the label and the number apart in the accessible name; flex drops it from
- * the layout, and the screen-reader text is out of flow, so the gap before
- * the number is the item's own.
- */
-export function ItemCount({
-  count,
-  countLabel,
-}: {
-  readonly count: number | undefined;
-  readonly countLabel: ReactNode | undefined;
-}): ReactNode {
-  if (count === undefined) return null;
-  const hasLabel = countLabel !== undefined && countLabel !== null;
-  return (
-    <>
-      {" "}
-      <span
-        data-slot="item-count"
-        aria-hidden={hasLabel ? "true" : undefined}
-        className="text-caption text-subtle-foreground tabular-nums"
-      >
-        {count}
-      </span>
-      {hasLabel ? <span className="sr-only">{countLabel}</span> : null}
-    </>
   );
 }

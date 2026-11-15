@@ -9,13 +9,13 @@ import {
 } from "react";
 
 import { cn } from "../foundations/cn.ts";
-import { ItemCount } from "./segmented-control.tsx";
+import { ItemCount } from "./item-count.tsx";
 
 /*
  * shadcn/ui new-york Tabs. Changed from upstream: no `dark:` variants, the
  * idle trigger uses `text-muted-foreground` instead of `text-foreground/60`,
- * the active trigger sits on the card surface with an input border (canvas on
- * sunken barely differs, worst in dark) without a shadow, and transitions,
+ * the default variant is the SegmentedControl's track and raised thumb at the
+ * control height (one look for "pick one of a few"), and transitions,
  * the line variant's underline included, stop under reduced motion. The line
  * variant is console v4 `.tab`: 36px tabs 4px apart with 8px sides, and the
  * underline inset to the label, 1px below the list so it covers the bottom
@@ -42,11 +42,11 @@ export function Tabs({
 }
 
 export const tabsListVariants = cva(
-  "group/tabs-list inline-flex w-fit items-center justify-center rounded-card p-[3px] text-muted-foreground data-[variant=line]:rounded-none group-data-[orientation=horizontal]/tabs:h-9 group-data-[orientation=vertical]/tabs:h-fit group-data-[orientation=vertical]/tabs:flex-col",
+  "group/tabs-list inline-flex w-fit items-center justify-center rounded-card p-[3px] text-muted-foreground data-[variant=line]:rounded-none group-data-[orientation=horizontal]/tabs:h-[var(--werft-control-height)] group-data-[orientation=vertical]/tabs:h-fit group-data-[orientation=vertical]/tabs:flex-col",
   {
     variants: {
       variant: {
-        default: "bg-muted",
+        default: "bg-segment-track",
         line: "gap-1 bg-transparent p-0 group-data-[orientation=horizontal]/tabs:h-auto",
       },
     },
@@ -80,10 +80,13 @@ export const underlineTabClassName =
   "group-data-[variant=line]/tabs-list:h-9 group-data-[variant=line]/tabs-list:px-2 after:absolute after:bg-foreground after:opacity-0 group-data-[orientation=horizontal]/tabs:after:inset-x-2 group-data-[orientation=horizontal]/tabs:after:bottom-[-1px] group-data-[orientation=horizontal]/tabs:after:h-0.5 group-data-[orientation=horizontal]/tabs:after:rounded-[1px]";
 
 const tabTriggerClassName = cn(
-  "relative inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-control border border-transparent px-2 py-1 font-medium text-control text-muted-foreground transition-[color,background-color,border-color,opacity] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none group-data-[orientation=vertical]/tabs:w-full group-data-[orientation=vertical]/tabs:justify-start [&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0",
+  "relative inline-flex h-full flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-control border border-transparent px-2 py-1 font-medium text-control text-muted-foreground transition-[color,background-color,border-color,box-shadow,opacity] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none group-data-[orientation=vertical]/tabs:w-full group-data-[orientation=vertical]/tabs:justify-start [&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0",
   "group-data-[variant=line]/tabs-list:bg-transparent group-data-[variant=line]/tabs-list:data-[state=active]:bg-transparent",
   "group-data-[variant=line]/tabs-list:flex-none group-data-[variant=line]/tabs-list:border-0 group-data-[variant=line]/tabs-list:py-0",
-  "data-[state=active]:bg-card data-[state=active]:text-foreground group-data-[variant=default]/tabs-list:data-[state=active]:border-input",
+  "data-[state=active]:text-foreground",
+  // The default list is a segment track: quiet labels, the active one raised.
+  "group-data-[variant=default]/tabs-list:border-0 group-data-[variant=default]/tabs-list:px-3 group-data-[variant=default]/tabs-list:text-subtle-foreground",
+  "group-data-[variant=default]/tabs-list:data-[state=active]:bg-segment-thumb group-data-[variant=default]/tabs-list:data-[state=active]:font-semibold group-data-[variant=default]/tabs-list:data-[state=active]:text-foreground group-data-[variant=default]/tabs-list:data-[state=active]:shadow-segment-thumb",
   underlineTabClassName,
   "after:transition-opacity motion-reduce:after:transition-none group-data-[orientation=vertical]/tabs:after:inset-y-0 group-data-[orientation=vertical]/tabs:after:-right-1 group-data-[orientation=vertical]/tabs:after:w-0.5 group-data-[variant=line]/tabs-list:data-[state=active]:after:opacity-100",
 );

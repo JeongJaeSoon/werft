@@ -293,6 +293,17 @@ describe("tokens.css", () => {
       const pairs: [string[], string[]][] = [
         [TEXT, SURFACES],
         [TEXT, ["--werft-color-sidebar-hover", "--werft-color-sidebar-accent"]],
+        // The segment track is sidebar-hover (above). Its thumb is the
+        // surface in light; in dark it has a value of its own, under the
+        // picked label and its count (never the quiet subtle text).
+        ...(theme === "light"
+          ? []
+          : ([
+              [
+                ["--werft-color-foreground", "--werft-color-muted-foreground"],
+                ["--werft-color-segment-thumb"],
+              ],
+            ] as [string[], string[]][])),
         [
           ["--werft-color-sidebar-selected-text"],
           ["--werft-color-sidebar-selected"],
