@@ -637,6 +637,38 @@ describe("sessions list", () => {
     expect(listReads(api.calls)).toEqual(["?limit=15", "?cursor=c15&limit=15"]);
   });
 
+  test("a count that lags behind the list never stops the address short of a page the list has", async () => {
+    const { history } = renderAt("/sessions?page=3", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": sessionPages(40),
+      // Counted before twenty more sessions started.
+      "GET /v1/sessions/counts": () => json(200, sessionCounts(20)),
+    });
+    await screen.findByRole("link", { name: opener("세션 31") });
+    expect(listedTitles()).toHaveLength(10);
+    expect(history.location.search).toBe("?page=3");
+    // The list's own end, not the count, says how many there are.
+    expect(screen.getByText("31–40 / 40")).toBeTruthy();
+  });
+
+  test("rows that left between reads leave no empty last page behind", async () => {
+    // The cursor promised a second page, but its rows were gone by then.
+    const firstPage = sessionPages(16);
+    const { history } = renderAt("/sessions?page=2", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": (request) =>
+        new URL(request.url).searchParams.has("cursor")
+          ? json(200, { items: [], next_cursor: null })
+          : firstPage(request),
+    });
+    await waitFor(() => expect(history.location.search).toBe(""));
+    await screen.findByRole("link", { name: opener("세션 15") });
+    expect(listedTitles()).toHaveLength(15);
+    expect(
+      screen.queryByRole("navigation", { name: "페이지 이동" }),
+    ).toBeNull();
+  });
+
   test("with no count, the list's last page says where a page past the end lands", async () => {
     const { history } = renderAt("/sessions?page=5", {
       "GET /v1/auth/me": () => json(200, memberMe()),
@@ -731,6 +763,32 @@ describe("sessions list", () => {
     expect(screen.getByRole("link", { name: opener(SESSION_ID) })).toBeTruthy();
     await waitFor(() => expect(history.location.search).toBe(""));
     expect(screen.queryByRole("button", { name: "다시 시도" })).toBeNull();
+  });
+
+  test("the retry asks for the page that failed, even after moving back from it", async () => {
+    const user = await setupUser();
+    const pages = sessionPages(40);
+    let failing = true;
+    const { history } = renderAt("/sessions", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": (request) =>
+        failing && new URL(request.url).searchParams.get("cursor") === "c30"
+          ? apiError(503, "BACKEND_UNAVAILABLE", "down")
+          : pages(request),
+      "GET /v1/sessions/counts": () => json(200, sessionCounts(40)),
+    });
+    await screen.findByRole("link", { name: opener("세션 1") });
+    await user.click(screen.getByRole("button", { name: "다음 페이지" }));
+    await screen.findByRole("link", { name: opener("세션 16") });
+    await user.click(screen.getByRole("button", { name: "3페이지" }));
+    const alert = await screen.findByRole("alert");
+    await waitFor(() => expect(history.location.search).toBe("?page=2"));
+    await user.click(screen.getByRole("button", { name: "1페이지" }));
+    await screen.findByRole("link", { name: opener("세션 1") });
+    failing = false;
+    await user.click(within(alert).getByRole("button", { name: "다시 시도" }));
+    await screen.findByRole("link", { name: opener("세션 31") });
+    expect(history.location.search).toBe("?page=3");
   });
 
   test("a failed next page keeps the rows, and retry pressed again while asking asks once", async () => {

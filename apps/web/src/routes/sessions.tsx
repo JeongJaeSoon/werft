@@ -276,12 +276,7 @@ function useFollowListRefresh() {
         event.action.type === "invalidate" &&
         followed.has(event.query.queryHash)
       ) {
-        // A refresh of the whole sessions key is already reading the lists:
-        // join that read rather than cancel it for another.
-        void queryClient.invalidateQueries(
-          { queryKey: statusLists(client) },
-          { cancelRefetch: false },
-        );
+        void queryClient.invalidateQueries({ queryKey: statusLists(client) });
         // An invalidated query reports no further invalidation, and the full
         // list (home's) sits unmounted here. It has no staleTime, so it
         // reads again on mount with or without the flag; clearing it keeps

@@ -27,7 +27,7 @@ export interface PaginationProps {
   readonly className?: string | undefined;
 }
 
-type PageItem = number | "gap-before" | "gap-after";
+type PageItem = number | "gap-before" | "gap-after" | "gap-end";
 
 /** The first, last and neighbouring pages, with a gap where pages are left out. */
 export function paginationItems(
@@ -47,7 +47,8 @@ export function paginationItems(
     }
     items.push(n);
   }
-  if (hasMore) items.push("gap-after");
+  // Pages past the last one read: unnumbered, after any gap of its own.
+  if (hasMore) items.push("gap-end");
   return items;
 }
 

@@ -25,7 +25,15 @@ describe("paginationItems", () => {
       "gap-after",
       10,
     ]);
-    expect(paginationItems(2, 2, true)).toEqual([1, 2, "gap-after"]);
+    expect(paginationItems(2, 2, true)).toEqual([1, 2, "gap-end"]);
+    // Two gaps after the page, each with its own key.
+    expect(paginationItems(1, 10, true)).toEqual([
+      1,
+      2,
+      "gap-after",
+      10,
+      "gap-end",
+    ]);
   });
 });
 

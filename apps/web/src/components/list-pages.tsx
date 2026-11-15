@@ -71,13 +71,21 @@ export function useCursorPage<T>({
   const more = list.hasNextPage;
   const byTotal =
     total === undefined ? undefined : Math.max(1, Math.ceil(total / pageSize));
-  // The list's own end when it has one; past the pages read, the count.
+  // Rows can leave between reads, so an ended list's last reads may be empty.
+  let filled = loaded;
+  while (!more && filled > 1 && pages[filled - 1]?.items.length === 0) {
+    filled -= 1;
+  }
+  // Only the list's own end moves the address: the count is read apart from
+  // it and may lag behind.
+  const end = more ? undefined : Math.max(filled, 1);
+  const wanted = end === undefined ? page : Math.min(page, end);
+  // The page links: past the pages read, as many as the count says.
   const last = more
     ? byTotal === undefined
       ? undefined
       : Math.max(byTotal, loaded + 1)
-    : Math.max(loaded, 1);
-  const wanted = last === undefined ? page : Math.min(page, last);
+    : end;
   const settled = !stale && loaded > 0 && !list.isFetching;
   const failed = list.isError;
   const { fetchNextPage } = list;
@@ -104,10 +112,14 @@ export function useCursorPage<T>({
 
   const shown = Math.max(1, Math.min(wanted, loaded));
   let start = 1;
-  for (const read of pages.slice(0, shown - 1)) start += read.items.length;
+  for (const one of pages.slice(0, shown - 1)) start += one.items.length;
+  const read = pages.reduce((sum, one) => sum + one.items.length, 0);
+  // A lagging count below the rows already read says nothing of the rest.
   const counted = more
-    ? total
-    : pages.reduce((sum, read) => sum + read.items.length, 0);
+    ? total !== undefined && total > read
+      ? total
+      : undefined
+    : read;
   return {
     items: pages[shown - 1]?.items ?? [],
     page: wanted,
@@ -211,7 +223,9 @@ export function CursorListFailure({
       busy={list.isFetching}
       onRetry={() =>
         list.isFetchNextPageError
-          ? page.goTo(page.page + 1)
+          ? // The page that failed follows the last one read, wherever
+            // the address has moved since.
+            page.goTo((list.data?.pages.length ?? 0) + 1)
           : void list.refetch({ cancelRefetch: false })
       }
     />
