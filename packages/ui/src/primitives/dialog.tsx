@@ -9,7 +9,8 @@ import { cn } from "../foundations/cn.ts";
  * dialog here states its own way out, and no tw-animate-css classes; motion
  * comes from the caller's styles, which also own reduced-motion. The overlay
  * reads the overlay token instead of `bg-black/50`: colours live in tokens.css.
- * Sized to console v35: 440px wide, 16px padding, a 14px title.
+ * 480px wide, 16px padding, a 14px title: one width for form and confirm
+ * dialogs, unless a dialog passes its own.
  */
 
 export function Dialog(
@@ -63,7 +64,7 @@ export function DialogContent({
       <DialogPrimitive.Content
         data-slot="dialog-content"
         className={cn(
-          "fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-card border bg-background p-4 shadow-pop sm:max-w-[27.5rem]",
+          "fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-card border bg-background p-4 shadow-pop sm:max-w-[30rem]",
           className,
         )}
         {...props}

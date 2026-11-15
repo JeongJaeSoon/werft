@@ -534,13 +534,6 @@
     user-select: all;
   }
 
-  .werft-dialog__actions {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    gap: var(--werft-space-2);
-  }
-
   @keyframes werft-fade-in {
     from {
       opacity: 0;
