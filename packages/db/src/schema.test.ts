@@ -140,6 +140,7 @@ describe("database schema", () => {
       "agent_usage",
       "agent_usage_targets",
       "agent_versions",
+      "agent_workspace_mcp_servers",
       "agents",
       "api_keys",
       "approval_checkpoint_voids",

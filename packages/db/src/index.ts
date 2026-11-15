@@ -6,6 +6,7 @@ export * from "./action/push-intents.ts";
 export * from "./agent-authority.ts";
 export * from "./agent-github.ts";
 export * from "./agents/agent-mcp.ts";
+export * from "./agents/agent-workspace-mcp.ts";
 export * from "./agents.ts";
 export * from "./catalog-repositories.ts";
 export {

@@ -137,6 +137,7 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   set_mcp_server_workspaces: "MCP 서버 워크스페이스 변경",
   set_agent_github: "에이전트 GitHub 사용 변경",
   set_agent_mcp: "에이전트 MCP 설정 변경",
+  set_agent_workspace_mcp: "에이전트 워크스페이스 MCP 서버 변경",
   review_pull_request: "PR 리뷰",
   dispatch_workflow: "워크플로 실행",
   rerun_workflow: "워크플로 재실행",

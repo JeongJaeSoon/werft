@@ -37,6 +37,7 @@ import {
   agentPullRequestResponseSchema,
   agentUsageSchema,
   agentVariableParamsSchema,
+  agentWorkspaceMcpServerListSchema,
   apiErrorResponseSchema,
   apiKeyIdParamsSchema,
   apiRootResponseSchema,
@@ -225,6 +226,8 @@ import {
   putAgentPullRequestSettingsResponseSchema,
   putAgentUsageRequestSchema,
   putAgentUsageResponseSchema,
+  putAgentWorkspaceMcpServersRequestSchema,
+  putAgentWorkspaceMcpServersResponseSchema,
   putEngineSettingsRequestSchema,
   putEngineSettingsResponseSchema,
   putEnvVariableGrantsRequestSchema,
@@ -721,6 +724,10 @@ const responseComponents = {
   DisconnectWorkspaceMcpServerResponse:
     disconnectWorkspaceMcpServerResponseSchema,
   DeleteWorkspaceMcpServerResponse: deleteWorkspaceMcpServerResponseSchema,
+  AgentWorkspaceMcpServerList: agentWorkspaceMcpServerListSchema,
+  PutAgentWorkspaceMcpServersRequest: putAgentWorkspaceMcpServersRequestSchema,
+  PutAgentWorkspaceMcpServersResponse:
+    putAgentWorkspaceMcpServersResponseSchema,
   AgentEnvVariables: agentEnvVariablesSchema,
   LinkAgentIdentityResponse: linkAgentIdentityResponseSchema,
   ListAgentIdentitiesResponse: listAgentIdentitiesResponseSchema,
@@ -1040,6 +1047,14 @@ const EXAMPLE_WORKSPACE_MCP_SERVER = {
   tools_read_at: "2026-11-15T01:00:01.000Z",
   created_by: { user_id: EXAMPLE_USER_ID, display_name: "Ada" },
   created_at: "2026-11-15T00:59:00.000Z",
+};
+const EXAMPLE_AGENT_WORKSPACE_MCP_SERVER = {
+  server_id: EXAMPLE_WORKSPACE_MCP_SERVER_ID,
+  name: "tracker",
+  on: true,
+  state: "active",
+  connected_by: { user_id: EXAMPLE_USER_ID, display_name: "Ada" },
+  tool_count: 1,
 };
 const WORKSPACE_MCP_MANAGERS =
   "Owners and admins signed in to the console as a person; never an API key.";
@@ -6500,6 +6515,49 @@ export const API_ROUTE_DECLARATIONS = [
     },
     errors: [400, 401, 403, 404, 409, 413, 503],
     errorCodes: { 409: ["REVISION_CONFLICT"] },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/agents/{id}/mcp/workspace-servers",
+    operationId: "listAgentWorkspaceMcpServers",
+    tag: "Agents",
+    summary: "Which of the workspace's MCP servers the agent may call",
+    description:
+      "Every workspace MCP server by name, with `on` when the agent has it turned on. `state` is the server's connection (`none` until an admin connects it, `needs_reauth` after its sign-in lapsed): a server that is on but not connected shows the agent no tools until it is. `connected_by` is the console user whose external account the remote service records the agent's calls under. `tool_count` counts the tools last read from the server; no address, token or tool list is returned. A session takes the servers that are on, with their tools, when it starts. Whoever manages the agent reads it, and so do the live members of its managing team.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "AgentWorkspaceMcpServerList",
+      description: "The servers and how many the agent may turn on.",
+      example: {
+        items: [EXAMPLE_AGENT_WORKSPACE_MCP_SERVER],
+        limit: 8,
+      },
+    },
+    errors: [401, 403, 404, 503],
+  },
+  {
+    method: "put",
+    path: "/v1/agents/{id}/mcp/workspace-servers",
+    operationId: "putAgentWorkspaceMcpServers",
+    tag: "Agents",
+    summary: "Turn workspace MCP servers on or off for the agent",
+    description:
+      "`server_ids` is the whole set the agent has on afterwards, up to 8; a server left out is turned off. Every id must be one of the workspace's servers (400 `server_unknown`), named once (`duplicate`). It makes no release: a session that starts after the save takes the new set, and a server turned off, disconnected or deleted is refused to a running session at its next request. Writes a `set_agent_workspace_mcp` receipt with the servers' ids and names before and after; `receipt_id` is null when the agent already had that set. Agent managers with a web session only; API keys are refused.",
+    auth: "session",
+    body: "PutAgentWorkspaceMcpServersRequest",
+    requestExample: { server_ids: [EXAMPLE_WORKSPACE_MCP_SERVER_ID] },
+    success: {
+      status: 200,
+      schema: "PutAgentWorkspaceMcpServersResponse",
+      description: "Saved; the servers as they are now.",
+      example: {
+        servers: { items: [EXAMPLE_AGENT_WORKSPACE_MCP_SERVER], limit: 8 },
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
+    errors: [400, 401, 403, 404, 413, 503],
     idempotent: false,
   },
   {

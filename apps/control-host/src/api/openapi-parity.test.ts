@@ -17,6 +17,7 @@ import type {
   AgentPullRequestService,
   AgentService,
   AgentUsageService,
+  AgentWorkspaceMcpService,
   ApiKeyService,
   CredentialBindingService,
   EngineSettingsService,
@@ -58,7 +59,10 @@ import { ROUTE_ERROR_TESTS } from "./route-error-coverage.ts";
 import { registerAgentPullRequestRoutes } from "./routes/action/agent-pull-request.ts";
 import { registerPullRequestRoutes } from "./routes/action/pull-requests.ts";
 import { registerPushRequestRoutes } from "./routes/action/push-requests.ts";
-import { registerAgentMcpRoutes } from "./routes/agents/agent-mcp.ts";
+import {
+  registerAgentMcpRoutes,
+  registerAgentWorkspaceMcpRoutes,
+} from "./routes/agents/agent-mcp.ts";
 import { registerAgentRoutes } from "./routes/agents/agents.ts";
 import { registerEngineSettingsRoutes } from "./routes/agents/engine-settings.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
@@ -215,6 +219,7 @@ function apiApp() {
       );
       registerAgentGitHubRoutes(router, {} as AgentGitHubService);
       registerAgentMcpRoutes(router, {} as AgentMcpService);
+      registerAgentWorkspaceMcpRoutes(router, {} as AgentWorkspaceMcpService);
       registerEngineSettingsRoutes(router, {} as EngineSettingsService);
       registerAgentPullRequestRoutes(router, {} as AgentPullRequestService);
       registerGitHubWorkRoutes(router, {} as GitHubWorkService);
