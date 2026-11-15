@@ -5166,8 +5166,10 @@ describe("runScheduler workspace GC", () => {
 
   for (const via of ["run", "reclaim"] as const) {
     test(`unread TTLs claim no stopped or paused workspace, and the rest still goes (${via})`, async () => {
+      let settledAtRead = -1;
       const h = harness(10, {
         workspaceTtls: async () => {
+          settledAtRead = h.store.settledClaims.length;
           throw new InstallationConfigUnavailableError(
             "workspace_stopped_ttl_sec",
           );
@@ -5186,6 +5188,7 @@ describe("runScheduler workspace GC", () => {
 
       const summary = await (via === "run" ? h.run() : h.reclaim());
 
+      expect(settledAtRead).toBe(1);
       expect(store.retainedTtls).toEqual([{}]);
       expect(store.claimTtls).toEqual([{}, {}]);
       expect(store.settledClaims.map((claim) => claim.claimId)).toEqual([
@@ -5208,17 +5211,32 @@ describe("runScheduler workspace GC", () => {
     });
   }
 
-  test("a TTL read that fails otherwise fails the reclaim", async () => {
-    const { backend, reclaim } = harness(10, {
-      workspaceTtls: async () => {
-        throw new Error("boom");
-      },
-    });
-    backend.workspaces.set("ap-ws-stopped", "session-stopped");
+  for (const via of ["run", "reclaim"] as const) {
+    test(`a TTL read that fails otherwise fails the ${via}, after the pending claims are settled`, async () => {
+      // A claim left pending keeps its session from resuming, so it is
+      // settled before anything the read could stop.
+      let settledAtRead = -1;
+      const h = harness(10, {
+        workspaceTtls: async () => {
+          settledAtRead = h.store.settledClaims.length;
+          throw new Error("boom");
+        },
+      });
+      h.store.pendingClaims.set("session-pending", {
+        claimId: "claim-earlier",
+        sessionId: "session-pending",
+        workspaceId: "ap-ws-pending",
+      });
+      h.backend.workspaces.set("ap-ws-stopped", "session-stopped");
 
-    await expect(reclaim()).rejects.toThrow("boom");
-    expect(backend.workspaces.has("ap-ws-stopped")).toBe(true);
-  });
+      await expect(via === "run" ? h.run() : h.reclaim()).rejects.toThrow(
+        "boom",
+      );
+      expect(settledAtRead).toBe(1);
+      expect(h.store.pendingClaims.size).toBe(0);
+      expect(h.backend.workspaces.has("ap-ws-stopped")).toBe(true);
+    });
+  }
 
   test("the verdict under the session lock wins over the listing's", async () => {
     // Between the listing and the claim the session was resumed: its
