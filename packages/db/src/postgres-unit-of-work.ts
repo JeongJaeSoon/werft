@@ -390,7 +390,13 @@ export function createPostgresSessionUnitOfWork(
           if (input.agentPrivate || !usage.allowed) {
             return { outcome: "agent_private" };
           }
+          // Before every refusal that names a limit or the agent's state: the
+          // caller may have left the agent since the policy decided.
+          const releaseId = input.agentReleaseId;
+          const useRefused = async () =>
+            !(await lockAgentUse(tx, requester, workspaceId, releaseId));
           if (input.callerLimited !== undefined) {
+            if (await useRefused()) return { outcome: "agent_use_refused" };
             return {
               outcome: "caller_limited",
               dimension: input.callerLimited,
@@ -407,6 +413,7 @@ export function createPostgresSessionUnitOfWork(
               channelId: input.callerSubject?.surface.channel_id ?? null,
             });
           }
+          if (await useRefused()) return { outcome: "agent_use_refused" };
         }
         if (input.notRunnableReason !== undefined) {
           return {
@@ -421,18 +428,6 @@ export function createPostgresSessionUnitOfWork(
         }
         if (input.repository === null || input.extensionsRefused) {
           return { outcome: "unsupported" };
-        }
-        if (
-          input.agentReleaseId !== undefined &&
-          workspaceId &&
-          !(await lockAgentUse(
-            tx,
-            requester,
-            workspaceId,
-            input.agentReleaseId,
-          ))
-        ) {
-          return { outcome: "agent_use_refused" };
         }
         // After the requester's rows, so the agent row is never taken before
         // a key row (a key revoke locks the key, then the agent).

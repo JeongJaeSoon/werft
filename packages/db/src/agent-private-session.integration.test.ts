@@ -166,6 +166,7 @@ integration("private agents on PostgreSQL", () => {
       agentPrivate?: true;
       credentialsUnbound?: true;
       notRunnableReason?: "agent_inactive";
+      callerLimited?: "repository";
     } = {},
   ) =>
     uow().acceptInputAtomic({
@@ -184,6 +185,7 @@ integration("private agents on PostgreSQL", () => {
       ...(extra.notRunnableReason
         ? { notRunnableReason: extra.notRunnableReason }
         : {}),
+      ...(extra.callerLimited ? { callerLimited: extra.callerLimited } : {}),
     });
 
   async function session(by: Caller, releaseId: string) {
@@ -447,6 +449,17 @@ integration("private agents on PostgreSQL", () => {
       expect(await create(w.outsider, w.releaseId)).toEqual({
         outcome: "agent_use_refused",
       });
+      // Left the agent after the policy judged a limit or its state: told
+      // neither, as if they had never been inside.
+      for (const extra of [
+        { notRunnableReason: "agent_inactive" },
+        { credentialsUnbound: true },
+        { callerLimited: "repository" },
+      ] as const) {
+        expect(await create(w.outsider, w.releaseId, extra)).toEqual({
+          outcome: "agent_use_refused",
+        });
+      }
       const manager = await person(w.ws);
       await teamMember(w.owner, w.managingTeamId, manager);
       const created = await create(manager, w.releaseId);

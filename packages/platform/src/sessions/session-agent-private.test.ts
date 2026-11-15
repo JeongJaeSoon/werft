@@ -315,6 +315,21 @@ describe("an agent that turned private after the release was read", () => {
     // Judged for the start, then again for the log of the hidden one.
     expect(asked).toHaveLength(2);
   });
+
+  test("a requester the write finds outside the agent is a missing release", async () => {
+    const { service, accepted } = setup({
+      usage: { allowed: true, basis: "public", teamId: null },
+      releaseResolves: true,
+      accept: "agent_use_refused",
+    });
+    const error = await failure(
+      service.createSession(actor, start("rel-1") as never),
+    );
+    expect(accepted).toHaveLength(1);
+    expect(shapeOf(error)).toBe(
+      shapeOf(new SessionServiceError("NOT_FOUND", "Resource not found")),
+    );
+  });
 });
 
 describe("an input to a session whose agent is private to the requester", () => {

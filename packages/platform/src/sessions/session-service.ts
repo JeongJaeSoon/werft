@@ -947,9 +947,10 @@ export function createSessionService(deps: {
       switch (result.outcome) {
         case "conflict":
           return idempotencyConflict();
-        // The agent turned private, or the requester lost it, since the
+        // The agent turned private, or the requester left it, since the
         // policy decided: a start answers it as a release that is not there.
         case "agent_private":
+        case "agent_use_refused":
           throw new SessionServiceError("NOT_FOUND", "Resource not found");
         case "caller_limited":
           throw callerLimitedError(result.dimension);
@@ -988,15 +989,6 @@ export function createSessionService(deps: {
           throw new SessionServiceError(
             "FORBIDDEN",
             "This principal is no longer a member of the workspace",
-          );
-        // The policy allowed the start, then the workspace setting or the
-        // agent's team changed before the write: the same refusal it gives.
-        case "agent_use_refused":
-          throw new SessionServiceError(
-            "FORBIDDEN",
-            "This principal holds sessions:write but may not use it on this session",
-            undefined,
-            { reason_code: "role" },
           );
         default:
           return result.response;
