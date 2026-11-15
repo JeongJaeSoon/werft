@@ -8,7 +8,7 @@ import {
   useRouterState,
 } from "@tanstack/react-router";
 import { ApiError, isApiError, unwrap } from "@werft-ai/client";
-import { queryScopeOf, sessionQuery } from "@werft-ai/core";
+import { queryKeys, queryScopeOf, sessionQuery } from "@werft-ai/core";
 import { QueryScopeProvider, useWerft } from "@werft-ai/react";
 import { shortSessionId } from "@werft-ai/react/components";
 import {
@@ -212,7 +212,13 @@ function AuthedShell() {
     // principal it reads into the emptied cache.
     onSuccess: async () => {
       await navigate({ to: "/login", search: { notice: "logged_out" } });
-      queryClient.clear();
+      // The login screen has just started reading the sign-in methods;
+      // removing that query cancels the read and the screen never asks
+      // again. They belong to no one, so they stay.
+      queryClient.removeQueries({
+        predicate: (query) => query.queryKey[0] !== queryKeys.loginMethods[0],
+      });
+      queryClient.getMutationCache().clear();
     },
   });
 

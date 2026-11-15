@@ -710,6 +710,95 @@ describe("focus after a page change", () => {
     await waitFor(() => expect(document.activeElement === title).toBe(true));
   });
 
+  describe("the login screen after a logout shows the sign-in methods the server has now", () => {
+    const GOOGLE = {
+      id: "5b0c7e2a-9d41-4f6b-8a3e-7c1d2e3f4a5b",
+      display_name: "Google",
+    };
+    const signedInWith = (methods: () => unknown) => {
+      let out = false;
+      renderAt("/", {
+        "GET /v1/auth/me": () =>
+          out
+            ? apiError(401, "UNAUTHORIZED", "Authentication is required")
+            : json(200, me()),
+        "POST /v1/auth/login": () => {
+          out = false;
+          return json(200, {
+            user_id: me().user?.id,
+            workspace_id: me().workspace?.id,
+            role: "owner",
+            scopes: me().scopes,
+            expires_at: "2026-10-12T00:00:00.000Z",
+          });
+        },
+        "POST /v1/auth/logout": () => {
+          out = true;
+          return new Response(null, { status: 204 });
+        },
+        "GET /v1/auth/login-methods": () => json(200, methods()),
+      });
+    };
+    const logOut = async () => {
+      const user = await setupUser();
+      await user.click(
+        await screen.findByRole("button", {
+          name: "Owner owner@example.com · 소유자",
+        }),
+      );
+      await user.click(screen.getByRole("menuitem", { name: "로그아웃" }));
+      await screen.findByText("로그아웃했습니다.");
+    };
+    const logOutWith = async (methods: () => unknown) => {
+      signedInWith(methods);
+      await logOut();
+    };
+
+    test("a provider turned on in this tab has its button", async () => {
+      await logOutWith(() => ({ password: "on", providers: [GOOGLE] }));
+      expect(
+        await screen.findByRole("button", { name: "Google 계정으로 로그인" }),
+      ).toBeDefined();
+    });
+
+    test("passwords closed in this tab put the provider first and the form behind a button", async () => {
+      await logOutWith(() => ({
+        password: "emergency_only",
+        providers: [GOOGLE],
+      }));
+      await screen.findByRole("region", { name: "SSO 로그인" });
+      expect(
+        screen.getByRole("button", { name: "비상 관리자 로그인" }),
+      ).toBeDefined();
+      expect(screen.queryByRole("textbox", { name: "이메일" }) === null).toBe(
+        true,
+      );
+    });
+
+    test("a provider turned off in this tab loses its button", async () => {
+      let on = true;
+      await logOutWith(() => ({
+        password: "on",
+        providers: on ? [GOOGLE] : [],
+      }));
+      await screen.findByRole("button", { name: "Google 계정으로 로그인" });
+      const user = await setupUser();
+      await user.type(screen.getByLabelText("이메일"), "owner@example.com");
+      await user.type(screen.getByLabelText("비밀번호"), "pw");
+      await user.click(screen.getByRole("button", { name: "로그인" }));
+      await screen.findByRole("heading", { level: 1, name: "홈" });
+      on = false;
+      await logOut();
+      await screen.findByRole("button", { name: "로그인" });
+      await waitFor(() =>
+        expect(
+          screen.queryByRole("button", { name: "Google 계정으로 로그인" }) ===
+            null,
+        ).toBe(true),
+      );
+    });
+  });
+
   test("the first page leaves focus where the browser put it", async () => {
     renderAt("/agents", signedIn);
     await screen.findByRole("heading", { level: 1, name: "에이전트" });
