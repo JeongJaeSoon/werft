@@ -41,9 +41,9 @@ object store の設定を一か所からだけ受け取るリリースへ更新�
 
 移す前に、以前の chart が動いている間に設定が分かれていなかったかを確かめます。values の `api.extraEnv` に上の名前があり、その値が chart の値（`config.*`、既定値を含む）と違えば、セッション記録の保管 job は api が読まない保存先へイベントを移し、DB の行を削除したかもしれません。保管の記録は object key と version だけを持ち、bucket は持ちません。そのため設定を一つに揃えると、そのイベントはもう読めません。bucket をコピーしても version ID が変わるので代わりになりません。残す値は api の値です。checkpoint は api がその保存先に書きました。`scheduler.extraEnv` の `S3_BUCKET`・`AWS_REGION` が api の値と違っていた場合、揃えるとその値を含む隔離 stamp が変わり、worker が一度ずつ置き換わります（[アップグレードの互換性](/run-server/self-hosting/explanation/compatibility)）。更新の前に次を行います。
 
-1. 保管の CronJob を止めます: `kubectl -n werft patch cronjob werft-session-archive -p '{"spec":{"suspend":true}}'`。
+1. 保管の CronJob を止めます: `kubectl -n werft patch cronjob werft-session-archive -p '{"spec":{"suspend":true}}'`。`suspend` はすでに始まった Job を止めません。`kubectl -n werft get pods -l app.kubernetes.io/instance=werft,app.kubernetes.io/component=session-archive --field-selector=status.phase=Running -o name` が何も出力しなくなるまで待ちます。それより前に一覧を取ると、まだ動いている Job がその後に保管したセッションが漏れます。
 2. 運用者の DB クライアントで `SELECT DISTINCT session_id FROM session_event_archives;` を実行し、保管されたセッションを得ます。行がなければ 4 へ進みます。
-3. セッションごとに、以前の chart の CronJob から restore Job を作ります。CronJob と同じ保存先の設定で動きます。Job のログに `Session archive restored` が出ることを確かめます。
+3. セッションごとに、以前の chart の CronJob から restore Job を作ります。CronJob と同じ保存先の設定で動きます。すべての Job が成功し、ログに `Session archive restored` が出ることを確かめます。その後 `SELECT count(*) FROM session_event_archives;` が `0` であることを確かめます（restore はその行を削除します）。0 でなければ 4 へ進みません。
 
 ```bash
 kubectl -n werft create job "werft-archive-restore-$N" --from=cronjob/werft-session-archive --dry-run=client -o json \
