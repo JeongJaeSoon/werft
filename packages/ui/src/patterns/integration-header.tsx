@@ -19,7 +19,10 @@ export type IntegrationHeaderProps = Omit<ComponentProps<"div">, "title"> & {
   readonly titleRef?: Ref<HTMLHeadingElement> | undefined;
   /** Beside the title but outside the heading, such as a state badge. */
   readonly status?: ReactNode | undefined;
-  /** One muted line under the title: counts or "label value" pairs. */
+  /**
+   * One muted paragraph under the title, such as counts; phrasing content
+   * only, so "label value" pairs bring their own inline-flex span.
+   */
   readonly summary?: ReactNode | undefined;
   /** At the end of the title row, such as a button that turns it on. */
   readonly action?: ReactNode | undefined;
@@ -68,21 +71,11 @@ export function IntegrationHeader({
             </Heading>
             {status}
           </div>
-          {summary === undefined ? null : (
-            <Text
-              as="div"
-              variant="sub"
-              className="flex flex-wrap items-center gap-x-1.5"
-            >
-              {summary}
-            </Text>
-          )}
+          {summary == null ? null : <Text variant="sub">{summary}</Text>}
         </div>
         {action}
       </div>
-      {description === undefined ? null : (
-        <Text variant="sub">{description}</Text>
-      )}
+      {description == null ? null : <Text variant="sub">{description}</Text>}
       {children}
     </div>
   );

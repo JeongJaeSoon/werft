@@ -42,6 +42,8 @@ describe("IntegrationHeader", () => {
     expect(tile?.getAttribute("aria-hidden")).toBe("true");
     expect(tile?.className).toContain("self-start");
     const summary = getByText("저장소 2개 · push 전 승인 켜짐");
+    // A paragraph, as each screen's summary was before the pattern.
+    expect(summary.tagName).toBe("P");
     expect(summary.getAttribute("data-variant")).toBe("sub");
     expect(heading.parentElement?.nextElementSibling === summary).toBe(true);
     // The action ends the row; the description and notes follow it.
@@ -57,7 +59,13 @@ describe("IntegrationHeader", () => {
   test("titleRef를 주면 제목이 초점을 받을 수 있고, 빈 자리는 그리지 않는다", () => {
     const ref = createRef<HTMLHeadingElement>();
     const { getByRole } = render(
-      <IntegrationHeader icon={Mark} title="Slack" titleRef={ref} />,
+      <IntegrationHeader
+        icon={Mark}
+        title="Slack"
+        titleRef={ref}
+        summary={null}
+        description={null}
+      />,
     );
     const heading = getByRole("heading", { level: 2, name: "Slack" });
     expect(ref.current === heading).toBe(true);

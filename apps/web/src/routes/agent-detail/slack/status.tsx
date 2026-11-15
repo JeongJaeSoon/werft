@@ -76,7 +76,7 @@ export function SlackHeader({
     </span>
   );
   const summary = (
-    <>
+    <span className="flex flex-wrap items-center gap-x-1.5">
       {item(
         t("slack.botId"),
         <Code>{identity?.bot_user_id ?? "—"}</Code>,
@@ -106,7 +106,7 @@ export function SlackHeader({
                 : t(dmOn(dm) ? "slack.on" : "slack.off"),
           )
         : null}
-    </>
+    </span>
   );
   return (
     <section
