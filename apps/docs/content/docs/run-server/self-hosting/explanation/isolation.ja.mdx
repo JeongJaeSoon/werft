@@ -116,19 +116,22 @@ claim 済みコンテナが stale でも scheduler は即座に破棄しませ�
 1. 最初の pass が DB 時計で `worker_launches.drain_requested_at` を記録します。その時点から worker は新しい turn を受け取りません。取得済み turn は最後まで実行し、後続入力は queued のまま残ります。
 2. 実行中 turn（`running`・`needs_input`）がある、または worker がまだ最初の入力を要求していない場合（workspace 準備・checkpoint 復元中。この段階の中断は起動失敗に数えます）、コンテナを残し、pass summary の `draining`（ログは `draining_count`、`Claimed execution draining before its replacement`）に含めます。
 3. turn 終了後の最初の pass がコンテナを teardown します。turn の checkpoint は finalize で既に確定しています。SIGTERM を受けた worker は idle drain で release し、queued 入力は新しい launch（現在の契約）が取得して checkpoint から継続します。
-4. drain 期限後も turn が開いている、または起動未完了なら、そのまま teardown します。その turn は従来どおり `outcome_unknown` になります。未完了の起動は、worker が SIGTERM に drain で release すれば数えず、release なしで終了すれば失敗 1 回に数えます。pass summary の `drainsOverdue`（ログは `drain_overdue_count`）と警告 `Drain deadline passed with the worker still busy; replacing anyway` が一行残ります。期限はその worker が受け取った turn 時間 + 5 分です。どの turn も worker が受け取った turn 時間を超えられず、5 分はその turn の finalize・checkpoint 用です。turn 時間は launch の予約時に `worker_launches.resources` に固定されます。固定前に起動した worker はコンテナ・Pod の env の `WORKER_MAX_TURN_SEC` を読み、それも読めなければ現在の設定の `MAX_TURN_SECONDS` を使います。
+4. drain 期限後も turn が開いている、または起動未完了なら、そのまま teardown します。その turn は従来どおり `outcome_unknown` になります。未完了の起動は、worker が SIGTERM に drain で release すれば数えず、release なしで終了すれば失敗 1 回に数えます。pass summary の `drainsOverdue`（ログは `drain_overdue_count`）と警告 `Drain deadline passed with the worker still busy; replacing anyway` が一行残ります。期限はその worker が受け取った turn 時間 + 5 分です。どの turn も worker が受け取った turn 時間を超えられず、5 分はその turn の finalize・checkpoint 用です。turn 時間は launch の予約時に `worker_launches.resources` に固定されます。固定前に起動した worker はコンテナ・Pod の env の `WORKER_MAX_TURN_SEC` を読みます。それも読めなければ、許される最長の turn 時間（604800 秒）+ 5 分です。コンソールの現在の値はその worker が起動したときの値を示さないため、長い turn を切りません。
 
 未 claim の stale コンテナは従来どおり即座に交代します。
 
 <a id="turn-시간과-재시도를-바꿀-때" />
 ### turn 時間と再試行を変えるとき
 
-`MAX_TURN_SECONDS`・`PROVIDER_MAX_RETRIES` は隔離 stamp に含みません。CPU・メモリと同じく launch の予約時に固定され、worker はその値で起動します。値を変えると、scheduler は別の値で予約された launch を次のように扱います。ログは `Execution resource runs other worker limits` です。
+turn 時間とモデル呼び出しの再試行は、owner が Web コンソールの **設定 > ワークスペース > 実行の上限** で決めます（以前の env `MAX_TURN_SECONDS`・`PROVIDER_MAX_RETRIES` は migrate が一度だけ移します）。どちらも隔離 stamp に含みません。scheduler は pass ごとにコンソールの値を読み、CPU・メモリと同じくその pass が予約する launch に固定し、worker はその値で起動します。値を変えると、scheduler は別の値で予約された launch を次のように扱います。ログは `Execution resource runs other worker limits` です。
 
 - claim 済み worker は上の drain に従います。受け取った値で現在の turn を終えてから終了し、期限はその worker の turn 時間 + 5 分です。セッションは次の launch で新しい値を受け取ります。
 - 未 claim の launch は作り直さず返却します。作り直すと同じ固定値で起動するためです。セッションは新しい launch を予約し、新しい値で起動します。返却する launch の行は worker が接続できないよう先に交代を記録してから閉じられ、新しい launch の交代回数（`replacement_count`）は 0 から始まります。そのため交代の上限には達しません。pass summary は `launchesLimitsChanged`（ログは `launch_limits_changed_count`）と警告 `Launch was reserved with other worker limits; torn down unbuilt so its session launches with the current ones` を残します。
+- 値を固定する前に予約された launch は、コンテナ・Pod の env（`WORKER_MAX_TURN_SEC`・`WORKER_PROVIDER_MAX_RETRIES`）で比べます。claim 済みなら上の drain に従い、未 claim なら現在の値で作り直します。env が読めなければそのまま残します。
 
-値を固定する前の control host が作ったコンテナ・Pod は、stamp にその host の値を含みます。現在の値と同じなら current として受け入れ、違えば従来どおり stale として交代します。そのため、この版への更新で worker が一斉に入れ替わることはありません。
+値を固定する前の control host が作ったコンテナ・Pod は、stamp にその host の値を含みます。scheduler はその stamp を資源自身の env の値で計算し直し、一致すれば current として受け入れ、違えば従来どおり stale として交代します。その値がコンソールの現在の値と違えば上の規則に従います。そのため、この版への更新で worker が一斉に入れ替わることはありません。
+
+コンソールの値が読めない間（止まった値、データベースの障害）は、新しい launch を予約しません（ログ `Launches skipped: the worker limits cannot be read`）。値を固定する前に予約された launch も作り直さず、資源をそのまま残します（ログ `Launch held: the worker limits it would start with cannot be read`）。別の値で起動した worker も比べません。値が固定された launch はその値で続きます。
 
 運用者による rollout・緊急 terminate・rollback の判断は[隔離契約の変更作業](/run-server/self-hosting/recover-sessions#격리-계약-변경을-적용할-때)に従います。
 

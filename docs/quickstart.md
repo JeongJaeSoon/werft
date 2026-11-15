@@ -183,7 +183,7 @@ REQ=$(get "/v1/sessions/$SID/pending-requests" | jq -r '.items[0].request_id')
 { "items": [ { "request_id": "req_…", "turn_id": "1", "kind": "permission", "tool": "Bash", "input": { "command": "echo alpha | tee hello.txt", … }, "expires_at": "…" } ] }
 ```
 
-요청은 30분 안에 답하지 않으면 거절로 끝난다. 이 시간은 owner가 웹 콘솔의 설정 > 워크스페이스 > 실행 한도("응답 대기 시간", 정수 초)에서 바꾼다. 바꾸면 worker도 그만큼 기다린다. 다만 turn 상한 `MAX_TURN_SECONDS`를 넘길 수는 없다.
+요청은 30분 안에 답하지 않으면 거절로 끝난다. 이 시간은 owner가 웹 콘솔의 설정 > 워크스페이스 > 실행 한도("응답 대기 시간", 정수 초)에서 바꾼다. 바꾸면 worker도 그만큼 기다린다. 다만 같은 화면의 turn 시간 상한을 넘길 수는 없다.
 
 ### ④ 응답
 

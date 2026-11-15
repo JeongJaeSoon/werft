@@ -17,15 +17,11 @@ outcome: "入力形式、範囲、反映時点を調べます"
 <a id="설치-상한" />
 ## 設置上限
 
-API と scheduler は、下記の三つの値がない、または形式が不正な場合、問題を一行にすべて記録し起動しません。両プロセスは同じ parser を使います。コードに既定値はなく、compose の `x-installation-limits` と chart の `config.limits` がローカル既定値を渡します。起動済み API の `/readyz` も同じ検証を `config` チェックで再実行します。セッションの待機メッセージ・入力の保管・費用・トークンの上限は env ではなく [Web で決める実行の上限](#웹에서-정하는-실행-한도) です。
+API と scheduler は、下記の値がない、または形式が不正な場合、問題を一行にすべて記録し起動しません。両プロセスは同じ parser を使います。コードに既定値はなく、compose の `x-installation-limits` と chart の `config.limits` がローカル既定値を渡します。起動済み API の `/readyz` も同じ検証を `config` チェックで再実行します。セッションの待機メッセージ・入力の保管・費用・トークンの上限と、turn 時間・provider 再試行は env ではなく [Web で決める実行の上限](#웹에서-정하는-실행-한도) です。
 
 | 変数 | 意味 | 超過時 |
 |---|---|---|
 | `EXECUTION_SLOT_LIMIT` | 同時に slot を保持する worker 数。0 なら受付だけ行い、何も起動しません | 入力は拒否せず `queued` にします |
-| `MAX_TURN_SECONDS` | 一つの turn の実時間上限。承認待ちも含み、worker env の `WORKER_MAX_TURN_SEC` に渡します | turn は `failed(turn_timeout)`。エンジンが応答しなければ `outcome_unknown(turn_timeout)` |
-| `PROVIDER_MAX_RETRIES` | 失敗した Messages 要求の再送回数。worker env の `WORKER_PROVIDER_MAX_RETRIES` を経由して SDK の `CLAUDE_CODE_MAX_RETRIES` に渡します。0 なら最初の失敗で turn が終わります | turn は `failed(api_error)`。turn 詳細の `result` に `api_error_status`・`provider_error`・`last_retry_status` が残ります |
-
-`MAX_TURN_SECONDS`・`PROVIDER_MAX_RETRIES` は launch の予約時にその launch に固定され、worker は固定された値で起動します。値を変えると、claim 済みの worker は受け取った値で現在の turn を終えてから終了し、セッションの次の launch が新しい値を受け取ります（[turn 時間と再試行を変えるとき](/run-server/self-hosting/explanation/isolation#turn-시간과-재시도를-바꿀-때)）。
 
 <a id="api-설정" />
 ## API 設定
@@ -47,7 +43,7 @@ terminate が既に消えた execution で即完了する、または scheduler/
 
 `AUTH_MODE=none` は egress authorizer（`EGRESS_AUTHORIZER_PORT`）と併用できません。authorizer が有効なら worker が proxy 経由でこの API に到達することを意味します。`none` では worker 内のコードが `X-Owner-Id` で任意の owner を名乗れるため、起動を拒否します。`AUTH_MODE` 自体（`none`|`api-key`）は readiness が判定します。
 
-worker も起動時に交差検査します。`WORKER_PROVIDER_MAX_RETRIES` がなければ起動しません。コード既定値のない設置上限で、scheduler が常に渡します。`WORKER_NEXT_INPUT_WAIT_SEC` が `WORKER_REQUEST_TIMEOUT_SEC` 以上でも起動しません。その設定ではすべての long poll が request timeout で切れるためです。scheduler と reconciler は空の `DATABASE_URL` を未設定と見なし、`QUEUE_DATABASE_URL` を使います。
+worker も起動時に交差検査します。`WORKER_PROVIDER_MAX_RETRIES` がなければ起動しません。コード既定値のない設置上限で、scheduler が launch に固定された値を常に渡します。`WORKER_NEXT_INPUT_WAIT_SEC` が `WORKER_REQUEST_TIMEOUT_SEC` 以上でも起動しません。その設定ではすべての long poll が request timeout で切れるためです。scheduler と reconciler は空の `DATABASE_URL` を未設定と見なし、`QUEUE_DATABASE_URL` を使います。
 
 API と slack role は `WORKER_IMAGE_RUNTIME`・`WORKER_IMAGE_PREVIOUS_RUNTIME` から現在・直前の worker イメージの runtime の組み合わせを読みます。手入力せず、images.yml が出力した worker digest JSON の `runtime` をそのまま入れます（`{"engine":…,"sdkVersion":…,"cliVersion":…,"profileDigestScheme":…}`）。`engine` は `claude` と `codex` で、chart は他の名前を render 時に `images.worker.runtime.engine must be one of: claude, codex` として拒否します。自前イメージにはその JSON がないため、images.yml と同じコマンドでイメージから読みます。
 
@@ -79,18 +75,23 @@ GitHub Packages bot token（[決定](https://github.com/JeongJaeSoon/werft/blob/
 
 | 画面の欄（以前の env） | 既定値 | 意味と許可範囲 | 超過時 |
 |---|---|---|---|
-| 人の応答（`PENDING_REQUEST_TTL_SEC`） | 1800 | 整数 1–604800 秒。承認・質問要求を受け付ける期間です。登録済み要求は worker がこの時間待ち、すでに登録された要求は変えた値に従いません。gateway が登録するまでは worker が 30 分待ちます。turn 実時間 `MAX_TURN_SECONDS` に待ち時間も含むため、待機はその上限を超えません | 答えのない要求を閉じます |
+| 人の応答（`PENDING_REQUEST_TTL_SEC`） | 1800 | 整数 1–604800 秒。承認・質問要求を受け付ける期間です。登録済み要求は worker がこの時間待ち、すでに登録された要求は変えた値に従いません。gateway が登録するまでは worker が 30 分待ちます。turn の時間に待ち時間も含むため、待機はその上限を超えません | 答えのない要求を閉じます |
+| ターンの時間（`MAX_TURN_SECONDS`） | 3600 | 整数 1–604800 秒。一つの turn の実時間上限で、承認待ちも含みます。worker env の `WORKER_MAX_TURN_SEC` に渡します | turn は `failed(turn_timeout)`。エンジンが応答しなければ `outcome_unknown(turn_timeout)` |
+| モデル呼び出しの再試行（`PROVIDER_MAX_RETRIES`） | 2 | 整数 0–10。失敗した provider 要求の再送回数。worker env の `WORKER_PROVIDER_MAX_RETRIES` を経由して SDK の `CLAUDE_CODE_MAX_RETRIES` に渡します。0 なら最初の失敗で turn が終わります | turn は `failed(api_error)`。turn 詳細の `result` に `api_error_status`・`provider_error`・`last_retry_status` が残ります |
 | セッションの費用（`SESSION_COST_LIMIT_USD`） | 25 | 0 より大きく 1000000 以下の USD。セッション累積費用（egress proxy が計測した provider 呼び出し別 usage をプラットフォーム価格表で換算した合計、推定値） | 新 turn を dispatch しません。セッション詳細に `attention.code=BUDGET_EXCEEDED` が出て worker は slot を返します。入力は引き続き `queued` で受け付けます |
 | セッションのトークン（`SESSION_TOKEN_LIMIT`） | 0（上限なし） | 整数 0–9007199254740991。セッション累積 provider token 数。費用上限と同じ呼び出しを単価によらず数えます | セッションの費用と同じです。両上限は同じ判定（`budgetExceeded`）を通り、どちらが先に達しても `BUDGET_EXCEEDED` です。`attention.reason` は達した上限だけを記します |
 | 待機メッセージ（`QUEUED_INPUT_LIMIT_PER_SESSION`） | 20 | 整数 1–100000。一つのセッションが蓄積できる `queued` turn 数 | `429 RATE_LIMITED`、`retryable:true`、`Retry-After: 5` |
 | 入力の保管（`STORAGE_LIMIT_BYTES`） | 1073741824（1 GiB） | 整数 1–9007199254740991 bytes。環境全体が保持する入力 message の UTF-8 bytes。event・checkpoint object・worker ディスクは数えません（ディスクは workspace quota が担当） | `413 STORAGE_LIMIT_EXCEEDED`、`retryable:false` |
 | 作業領域の容量（`WORKSPACE_ENFORCE`） | `warn` | `warn`・`fail`・`off`。worker の workspace が quota を超えたときの動作です。worker は claim 時に値を受けるため、すでに動いている worker は受けた値を使い続けます | `warn` はログ `worker.turn.workspace_quota_exceeded` だけを残し、`fail` は超えた turn を止め、`off` は測りません |
 
+ターンの時間・モデル呼び出しの再試行は scheduler が pass ごとに読み、その pass が予約する launch に固定します。worker は固定された値で起動します。値を変えると、別の値で起動した worker のうち待機中のものはすぐに終了し、turn 中のものは受け取った値でその turn を終えてから終了します。セッションの次の launch が新しい値を受け取ります（[turn 時間と再試行を変えるとき](/run-server/self-hosting/explanation/isolation#turn-시간과-재시도를-바꿀-때)）。
+
 **使える値がないとき。** 移せなかった env 値（範囲外）や、このリリースが受け付けない保存値のあるキーは止まります。既定値では動きません。そのキーを読む処理だけが拒否され、画面はその欄に案内を出し、値を保存すると解けます。設定を 60 秒を超えて読めないとき（DB 障害）も、すべてのキーが同じです。
 
 - 人の応答: 新しい権限リクエスト・質問の登録が `503 BACKEND_UNAVAILABLE`（`retryable:true`）で拒否されます。worker が再送します。
-- セッションの費用・トークン・待機メッセージ・入力の保管: セッション作成とメッセージの受付が `503 BACKEND_UNAVAILABLE` で拒否されます。すでに受け付けた要求を同じ `Idempotency-Key` で送り直すと、保存した応答をそのまま受けます。この四つの値を見せる `GET /v1/limits` と `GET /v1/sessions/{id}/usage` も、どれか一つが止まると `503` です。セッションの費用・トークンはほかにも止めます。scheduler は launch だけを飛ばし（ログ `Launches skipped: the session limits cannot be read`）、終了と workspace の回収は続けます。worker の claim・次の入力・provider 呼び出しの開始・finalize は `503`（再試行）を受けます。すでに開いた provider 呼び出しを開き直すことと、すでに確定した finalize の応答はそのまま通ります。metrics は launch 待ち行列の gauge（`werft_launch_queue_*`）を空にします。
+- セッションの費用・トークン・待機メッセージ・入力の保管: セッション作成とメッセージの受付が `503 BACKEND_UNAVAILABLE` で拒否されます。すでに受け付けた要求を同じ `Idempotency-Key` で送り直すと、保存した応答をそのまま受けます。この四つの値とターンの時間・再試行を見せる `GET /v1/limits` と `GET /v1/sessions/{id}/usage` も、どれか一つが止まると `503` です。セッションの費用・トークンはほかにも止めます。scheduler は launch だけを飛ばし（ログ `Launches skipped: the session limits cannot be read`）、終了と workspace の回収は続けます。worker の claim・次の入力・provider 呼び出しの開始・finalize は `503`（再試行）を受けます。すでに開いた provider 呼び出しを開き直すことと、すでに確定した finalize の応答はそのまま通ります。metrics は launch 待ち行列の gauge（`werft_launch_queue_*`）を空にします。
 - 作業領域の容量: worker の claim が `503` を受け、セッションが始まりません。
+- ターンの時間・モデル呼び出しの再試行: scheduler は新しい launch を予約しません（ログ `Launches skipped: the worker limits cannot be read`）。値が固定される前に予約された launch は作り直さず、いまの資源をそのまま残します（ログ `Launch held: the worker limits it would start with cannot be read`）。値が固定された launch と起動中の worker はその値で動き続け、終了と workspace の回収も続けます。
 
 **コストとトークンの上限は provider 呼び出し一つずつにもかかります。** egress proxy は課金される provider 呼び出し(Messages、Responses)を送る前に、API でその呼び出しを開きます。API はセッションの累計コスト・トークンに、まだ終わっていない呼び出しの予約と今回の呼び出しの予約を足します。その合計が上限に届くと `403 BUDGET_EXCEEDED` で拒否し、proxy はその呼び出しを provider に送りません。予約は要求のバイト数を入力トークンとみなして最も高い cache write 単価(Claude は 2 倍、OpenAI は 2.5 倍)で数え、出力は要求の出力上限すべて(上限のない Responses 要求は 32,768 トークン)で数えます。`claude-sonnet-5` や `gpt-5.5` の呼び出し一つでおよそ 1〜2 ドルです。
 

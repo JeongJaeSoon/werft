@@ -214,7 +214,7 @@ sudo install -d -m 700 -o "$USER" /var/lib/werft/test-ops   # TEST_OPS_STATE_DIR
 
 `BOOTSTRAP_TOKEN`은 요구하지 않는다. 웹 콘솔의 첫 owner를 만드는 토큰(32~256자 무작위 값)이고 API에만 간다. 넣지 않으면 API가 기동할 때 하나를 만들어 api 컨테이너의 `BOOTSTRAP_TOKEN_FILE`(compose.test-ops.yml이 정하는 `/tmp/werft-bootstrap-token`, 소유자만 읽는다)에 둔다. 로그에는 출력하지 않고, `scripts/test-ops.sh bootstrap-token`이 한 번 꺼내 보이면서 지운다. 쓰기에 실패하면 토큰을 만들었다는 한 줄만 남기고 값은 어디에도 출력하지 않으니, 그때는 `BOOTSTRAP_TOKEN`을 env 파일에 넣는다. 예시 파일처럼 줄을 주석으로 두면 이 자동 생성 경로를 쓴다. 주석을 풀고 값을 비우면 API가 기동하지 않는다. 첫 owner가 생긴 뒤에는 이 값이 다시 통과하지 않으므로 env 파일에 남겨 둬도 된다([API 서버](api-server.md#api-인증과-권한)의 웹 콘솔·계정 복구 문단).
 
-`compose.test-ops.yml`과 `compose.test-ops.s3.yml`은 위 값을 `${X:?}`로 요구하기만 한다. 하나라도 비면 compose가 렌더를 거부하고 core의 로컬 기본값으로 뜨는 일이 없다. 설치 상한(`EXECUTION_SLOT_LIMIT`, `MAX_TURN_SECONDS` 등)은 넣지 않으면 core 기본값을 쓴다. 세션 비용 같은 실행 한도는 owner가 웹 콘솔의 설정 > 워크스페이스 > 실행 한도에서 정한다. env 파일의 `SESSION_COST_LIMIT_USD` 같은 예전 줄은 저장한 값이 없을 때 migrate가 한 번 옮겨 담는다.
+`compose.test-ops.yml`과 `compose.test-ops.s3.yml`은 위 값을 `${X:?}`로 요구하기만 한다. 하나라도 비면 compose가 렌더를 거부하고 core의 로컬 기본값으로 뜨는 일이 없다. 설치 상한(`EXECUTION_SLOT_LIMIT`)은 넣지 않으면 core 기본값을 쓴다. 세션 비용·turn 시간 같은 실행 한도는 owner가 웹 콘솔의 설정 > 워크스페이스 > 실행 한도에서 정한다. env 파일의 `SESSION_COST_LIMIT_USD`·`MAX_TURN_SECONDS` 같은 예전 줄은 저장한 값이 없을 때 migrate가 한 번 옮겨 담는다.
 
 호스트 포트가 이미 쓰이면 env 파일에 다음을 넣는다. 값을 주지 않으면 기본값을 쓴다. 어떤 값이든 `127.0.0.1`에만 열린다.
 
