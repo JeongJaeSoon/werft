@@ -1750,17 +1750,21 @@ describe("Slack management", () => {
   });
 
   test("locks the connected channels too while Slack has not checked", async () => {
-    renderAt(
+    const { services } = renderAt(
       DETAIL,
       subscribed({ state: "pending", checked_at: AT, url: SENT }),
     );
     const channels = await screen.findByRole("region", {
       name: "연결된 채널",
     });
-    const toggle = await within(channels).findByRole("switch", {
-      name: /사용/,
+    await within(channels).findByRole("group", {
+      name: "Request URL이 확인되면 채널을 고를 수 있습니다.",
     });
-    await waitFor(() => expect(toggle.closest("[inert]")).not.toBeNull());
+    await waitFor(() => expect(services.queryClient.isFetching()).toBe(0));
+    // Not rendered at all: a hidden list would still hold its height.
+    expect(
+      within(channels).queryByRole("switch", { hidden: true }) === null,
+    ).toBe(true);
     expect(
       within(channels).queryByRole("button", { name: "채널 추가" }),
     ).toBeNull();
@@ -1789,6 +1793,43 @@ describe("Slack management", () => {
     });
     expect(add.closest("[inert]")).toBeNull();
     expect(within(channels).queryByRole("group")).toBeNull();
+  });
+
+  test("keeps focus in the channels when Slack's check lands while the lock's link holds it", async () => {
+    let read: components["schemas"]["GetSlackAppResponse"]["events"] = {
+      state: "pending",
+      checked_at: AT,
+      url: SENT,
+    };
+    const { services } = renderAt(DETAIL, {
+      ...subscribed(read),
+      [`GET ${PATH}/slack/app`]: () =>
+        json(200, { ...appResponse(APP), event_url: SENT, events: read }),
+    });
+    const channels = await screen.findByRole("region", {
+      name: "연결된 채널",
+    });
+    const lock = await within(channels).findByRole("group", {
+      name: "Request URL이 확인되면 채널을 고를 수 있습니다.",
+    });
+    const open = within(lock).getByRole("link", {
+      name: /Event Subscriptions 열기/,
+    });
+    act(() => open.focus());
+    expect(document.activeElement === open).toBe(true);
+    read = { state: "verified", checked_at: AT, url: SENT };
+    const appQuery = services.queryClient
+      .getQueryCache()
+      .findAll()
+      .find(
+        (query) =>
+          query.queryKey.at(-2) === "slack" && query.queryKey.at(-1) === "app",
+      );
+    if (!appQuery) throw new Error("no Slack app query");
+    await act(() => appQuery.fetch());
+    await within(channels).findByRole("switch", { name: /사용/ });
+    expect(within(channels).queryByRole("group")).toBeNull();
+    expect(document.activeElement === channels).toBe(true);
   });
 
   test("says when the active release's connection cannot run it", async () => {

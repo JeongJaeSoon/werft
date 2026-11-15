@@ -31,7 +31,14 @@ import {
   Text,
 } from "@werft-ai/ui";
 import { Plus } from "lucide-react";
-import { type RefObject, useEffect, useId, useRef, useState } from "react";
+import {
+  type RefObject,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { useHasPermission } from "../../../auth/guard.tsx";
 import { useManagesAgent } from "../../../components/agent-access.tsx";
 import { LoadFailure } from "../../../components/load-failure.tsx";
@@ -186,7 +193,7 @@ export function SlackChannels({
   const pickerOpener = useRef<HTMLButtonElement | null>(null);
   const lockAction = useRef<HTMLAnchorElement>(null);
   const locked = lockedApp !== null;
-  // A lock that arrives with the picker open closes it; it sits outside inert.
+  // A lock that arrives with the picker open closes it.
   useEffect(() => {
     if (locked) setPicking(false);
   }, [locked]);
@@ -348,11 +355,10 @@ export function SlackChannels({
           ) : undefined
         }
       >
-        <div className="grid">
-          <div
-            inert={locked}
-            className={`col-start-1 row-start-1 flex min-w-0 flex-col gap-[var(--werft-space-block)]${locked ? " invisible" : ""}`}
-          >
+        {locked ? (
+          <ChannelsLock appId={lockedApp} action={lockAction} />
+        ) : (
+          <div className="flex min-w-0 flex-col gap-[var(--werft-space-block)]">
             <output
               aria-live="polite"
               className={notice ? "text-control" : "sr-only"}
@@ -505,10 +511,7 @@ export function SlackChannels({
               </GridTable>
             )}
           </div>
-          {locked ? (
-            <ChannelsLock appId={lockedApp} action={lockAction} />
-          ) : null}
-        </div>
+        )}
       </SettingsSection>
       <Dialog open={picking} onOpenChange={setPicking}>
         <DialogContent
@@ -705,12 +708,22 @@ function ChannelsLock({
 }) {
   const { t } = useI18n();
   const titleId = useId();
+  // Runs before React detaches the link: focus on it would fall to <body>.
+  useLayoutEffect(
+    () => () => {
+      if (action.current && action.current === document.activeElement)
+        document
+          .getElementById(SECTION.channels)
+          ?.focus({ preventScroll: true });
+    },
+    [action],
+  );
   return (
     // biome-ignore lint/a11y/useSemanticElements: a fieldset groups form controls, this is a line with one link
     <div
       role="group"
       aria-labelledby={titleId}
-      className="col-start-1 row-start-1 flex flex-wrap items-center gap-x-3 gap-y-2 self-start"
+      className="flex flex-wrap items-center gap-x-3 gap-y-2"
     >
       <Text id={titleId} variant="sub">
         {t("slack.channelsLocked.title")}
