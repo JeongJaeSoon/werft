@@ -130,7 +130,9 @@ export function Composer({
           <FieldLabel className="sr-only">{messages.label}</FieldLabel>
           {/* One line that grows with the text; the send button sits beside it. */}
           <div className="flex min-w-0 items-end gap-2">
-            <div className="flex min-w-0 flex-1 items-center rounded-card border bg-card px-3 py-1 focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50 has-[textarea:disabled]:opacity-60">
+            {/* The shell draws the field's focus ring: the textarea's own
+                would be a second one inside it, on other corners. */}
+            <div className="flex min-w-0 flex-1 items-center rounded-card border bg-card px-3 py-1 has-[textarea:focus-visible]:outline-2 has-[textarea:focus-visible]:outline-offset-2 has-[textarea:focus-visible]:outline-focus-ring has-[textarea:disabled]:opacity-60">
               <Textarea
                 rows={1}
                 value={text}
@@ -138,7 +140,7 @@ export function Composer({
                 disabled={disabled}
                 onChange={(event) => setText(event.target.value)}
                 onKeyDown={sendFromKeyboard}
-                className="max-h-40 min-h-8 flex-1 resize-none border-0 bg-transparent px-0 py-1.5 shadow-none [field-sizing:content] focus-visible:border-0 focus-visible:ring-0 disabled:opacity-100"
+                className="max-h-40 min-h-8 flex-1 resize-none border-0 bg-transparent px-0 py-1.5 shadow-none [field-sizing:content] focus-visible:outline-0 disabled:opacity-100"
               />
             </div>
             <Button

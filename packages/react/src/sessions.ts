@@ -201,8 +201,10 @@ export function useSendMessage(id: string) {
           body: { ...body, mode: "enqueue" },
         }),
       ) as Promise<PostSessionMessageResponse>,
+    // The chat draws the message from the turns: no event announces a turn
+    // until a worker starts it, which may be minutes away.
     onSuccess: () =>
-      refreshSession(queryClient, client, id, ["list", "detail"]),
+      refreshSession(queryClient, client, id, ["list", "detail", "turns"]),
   });
 }
 

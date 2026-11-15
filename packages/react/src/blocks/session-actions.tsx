@@ -68,7 +68,11 @@ export interface SessionActionProps {
  */
 export type ApprovalLayout = "card" | "row" | "summary";
 
-type Outcome = { readonly kind: "notice" | "error"; readonly text: string };
+/** `sent` is only announced: the chat already shows the message. */
+type Outcome = {
+  readonly kind: "notice" | "sent" | "error";
+  readonly text: string;
+};
 
 function OutcomeLine({
   outcome,
@@ -89,6 +93,7 @@ function OutcomeLine({
           ? "m-0 text-destructive text-body"
           : "m-0 text-muted-foreground text-body",
         className,
+        outcome?.kind === "sent" && "sr-only",
       )}
     >
       {outcome?.text}
@@ -867,12 +872,19 @@ export function SessionComposer({
     // A refusal shows under the field; with the field off (the session
     // stopped meanwhile) it shows on the notice, where focus goes.
     if (refusal && !field) setNotice({ kind: "error", text: refused(refusal) });
+    // Focus must land on something seen.
+    if (!field) {
+      setNotice((current) =>
+        current?.kind === "sent" ? { ...current, kind: "notice" } : current,
+      );
+    }
     if (!movedOn && focusLost(root)) (field ?? noticeRef.current)?.focus();
     if (refusal) throw refusal;
   };
 
   return (
-    <div ref={rootRef} className="flex flex-col">
+    // Relative: the announced-only notice is placed inside it.
+    <div ref={rootRef} className="relative flex flex-col">
       <Composer
         messages={{
           label: t("session.composer.label"),
@@ -894,11 +906,8 @@ export function SessionComposer({
         onSend={(message) => {
           setNotice(null);
           return keepFocus(
-            send.mutateAsync({ message }).then((accepted) => {
-              setNotice({
-                kind: "notice",
-                text: t("session.composer.sent", { turn: accepted.turn_id }),
-              });
+            send.mutateAsync({ message }).then(() => {
+              setNotice({ kind: "sent", text: t("session.composer.sent") });
             }),
           );
         }}

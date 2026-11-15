@@ -234,6 +234,7 @@ describe("useSendMessage", () => {
       [h.keys.waiting, true],
       [h.keys.agentLists, false],
       [h.keys.detail, true],
+      [h.keys.turns, false],
     ]);
   });
 });

@@ -209,7 +209,7 @@ export const sessionsKo = {
     "Enter로 보내고 Shift+Enter로 줄을 바꿉니다. 지금 턴이 끝나면 다음 턴으로 이어집니다.",
   "session.composer.queued": "기다리는 메시지",
   "session.composer.inactive": "진행 중인 세션만 메시지를 받습니다.",
-  "session.composer.sent": "메시지를 보냈습니다(턴 {turn}).",
+  "session.composer.sent": "메시지를 보냈습니다.",
 
   "session.command.refused": "요청이 거절되었습니다.",
   "session.refused.REQUEST_EXPIRED":
@@ -543,7 +543,7 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
     "Enter sends; Shift+Enter starts a new line. It runs as the next turn once this one ends.",
   "session.composer.queued": "Waiting messages",
   "session.composer.inactive": "Only an active session takes messages.",
-  "session.composer.sent": "Message sent (turn {turn}).",
+  "session.composer.sent": "Message sent.",
 
   "session.command.refused": "The request was refused.",
   "session.refused.REQUEST_EXPIRED":
@@ -880,7 +880,7 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
   "session.composer.queued": "待機中のメッセージ",
   "session.composer.inactive":
     "メッセージを受け付けるのは進行中のセッションのみです。",
-  "session.composer.sent": "メッセージを送信しました（ターン {turn}）。",
+  "session.composer.sent": "メッセージを送信しました。",
 
   "session.command.refused": "リクエストは拒否されました。",
   "session.refused.REQUEST_EXPIRED":
