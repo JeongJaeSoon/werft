@@ -992,32 +992,36 @@ describe("홈 요약", () => {
     ).toBeTruthy();
     expect(within(overview).getByText("추정 비용")).toBeTruthy();
     const recent = screen.getByRole("table", { name: "최근 세션" });
-    // The design's dot, not a pill: amber for waiting, the text says which.
+    // A pill per status: amber for waiting, grey for idle; the text says
+    // which.
     expect(
-      [...recent.querySelectorAll("[data-slot=status-dot]")].map((dot) =>
-        dot.getAttribute("data-status"),
+      [...recent.querySelectorAll("[data-slot=badge]")].map(
+        (badge) => badge.className.match(/tone-[a-z]+-bg/)?.[0],
       ),
-    ).toEqual(["wait", "idle"]);
+    ).toEqual(["tone-caution-bg", "tone-neutral-bg"]);
     expect(
       within(recent)
         .getAllByRole("row")
         .map((row) => [...row.children].map((cell) => shownText(cell))),
     ).toEqual([
-      // The session list's own columns, home without the starter.
-      ["세션", "상태", "에이전트 · 모델", "저장소", "최근"],
+      // The session list's own columns.
+      ["제목", "에이전트", "채널", "상태", "시작 시각", "소요 시간"],
       [
         `${waitingSession.title}${waitingSession.id.slice(0, 8)}`,
-        expect.stringMatching(/^작업 상태: 답변 대기 · \d+(분|시간|일)$/),
-        expect.stringMatching(/^—/),
-        "demo",
-        expect.stringMatching(/^최근 /),
+        "—",
+        "—",
+        expect.stringMatching(/^작업 상태: 답변 대기\d+(분|시간|일)$/),
+        expect.stringMatching(/^\d+월 \d+일 (오전|오후) \d{2}:\d{2}$/),
+        "진행 중",
       ],
       [
         oneSession.id.slice(0, 8),
+        "—",
+        "—",
         "작업 상태: 쉬는 중",
-        expect.stringMatching(/^—/),
-        "demo",
-        expect.stringMatching(/^최근 /),
+        expect.stringMatching(/^\d+월 \d+일 (오전|오후) \d{2}:\d{2}$/),
+        // No finished turn has a run time to show.
+        "—",
       ],
     ]);
     expect(
