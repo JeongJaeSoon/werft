@@ -1249,6 +1249,8 @@ for (const declaration of [undefined, false, true]) {
     SESSION_TOKEN_LIMIT: "0",
     SESSION_COST_LIMIT_USD: "9",
     WORKSPACE_ENFORCE: "fail",
+    MAX_TURN_SECONDS: "3600",
+    PROVIDER_MAX_RETRIES: "2",
   };
   for (const [name, value] of Object.entries(want)) {
     if (carried.get(name) !== value) {
@@ -1264,7 +1266,12 @@ for (const declaration of [undefined, false, true]) {
       }
     }
   }
-  for (const name of ["SESSION_COST_LIMIT_USD", "WORKSPACE_ENFORCE"]) {
+  for (const name of [
+    "SESSION_COST_LIMIT_USD",
+    "WORKSPACE_ENFORCE",
+    "MAX_TURN_SECONDS",
+    "PROVIDER_MAX_RETRIES",
+  ]) {
     if (envOf("api").has(name)) {
       errors.push(`carried settings: api still gets ${name}`);
     }

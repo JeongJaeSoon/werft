@@ -123,7 +123,7 @@ by the env names earlier releases read. No role reads them now: the migrate
 Job carries one an earlier release set in, once, while it has nothing saved.
 */}}
 {{- define "ap.carriedSettingNames" -}}
-PENDING_REQUEST_TTL_SEC QUEUED_INPUT_LIMIT_PER_SESSION STORAGE_LIMIT_BYTES SESSION_COST_LIMIT_USD SESSION_TOKEN_LIMIT WORKSPACE_ENFORCE
+PENDING_REQUEST_TTL_SEC QUEUED_INPUT_LIMIT_PER_SESSION STORAGE_LIMIT_BYTES SESSION_COST_LIMIT_USD SESSION_TOKEN_LIMIT WORKSPACE_ENFORCE MAX_TURN_SECONDS PROVIDER_MAX_RETRIES
 {{- end -}}
 
 {{/* config.limits as a role reads them: the carried settings left out. */}}

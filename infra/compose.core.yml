@@ -22,14 +22,12 @@ x-logging: &logging
 
 # Installation limits. The API and the scheduler both refuse to
 # start without them, and read them with one parser, so both services take
-# this one block. These are local defaults, not recommendations: size them
-# per installation. The session limits are the owner's, in Settings >
-# Workspace > Execution limits; migrate carries a value set the old way in
-# (below).
+# this one block. This is a local default, not a recommendation: size it
+# per installation. The session limits, the turn time and the provider
+# retries are the owner's, in Settings > Workspace > Execution limits;
+# migrate carries a value set the old way in (below).
 x-installation-limits: &installation-limits
   EXECUTION_SLOT_LIMIT: ${EXECUTION_SLOT_LIMIT:-10}
-  MAX_TURN_SECONDS: ${MAX_TURN_SECONDS:-3600}
-  PROVIDER_MAX_RETRIES: ${PROVIDER_MAX_RETRIES:-2}
 
 # Keep the three listeners and the two internal URLs together. Service
 # definitions below only consume these anchors, and tests/images.test.ts
@@ -139,6 +137,8 @@ services:
       SESSION_COST_LIMIT_USD: ${SESSION_COST_LIMIT_USD:-}
       SESSION_TOKEN_LIMIT: ${SESSION_TOKEN_LIMIT:-}
       WORKSPACE_ENFORCE: ${WORKSPACE_ENFORCE:-}
+      MAX_TURN_SECONDS: ${MAX_TURN_SECONDS:-}
+      PROVIDER_MAX_RETRIES: ${PROVIDER_MAX_RETRIES:-}
     volumes:
       - ${PLATFORM_LEGACY_CONFIG_DIR:-./legacy-config}:/legacy-config:ro
     depends_on:
