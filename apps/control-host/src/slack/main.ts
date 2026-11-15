@@ -44,7 +44,6 @@ import {
   createAuthorizationPolicy,
   createCatalogRegistry,
   createSessionService,
-  installationLimitsFromEnv,
   registryCatalog,
   releaseModel,
   releaseNotRunnableReason,
@@ -75,6 +74,7 @@ import {
   type SlackInboxDrain,
   type SlackNoticeSink,
 } from "../wiring/chat-slack.ts";
+import { installationConfigOf } from "../wiring/installation-config.ts";
 import {
   wireSlackInbound,
   wireSlackOutbound,
@@ -208,7 +208,7 @@ export function slackSessionHandler(deps: {
     extensions: extensionDepsFor(db),
     credentials,
     callerLimits: createPostgresCallerLimitGate(db),
-    limits: installationLimitsFromEnv(environment),
+    limits: installationConfigOf(db, logger).sessionLimits,
   });
   const { secretKey } = deps;
   const secrets = createPostgresSecretStore(db, secretKey);

@@ -51,7 +51,7 @@ Before rebooting, check active turns, status, and backups stored off the host. A
 - Run `scripts/test-ops.sh status` immediately after installation, after 1 hour, and before the end of the workday. Check services, release, object store, readiness, and scheduler/reconciler health.
 - Check api, scheduler, and reconciler logs, disk space, inodes, and quota. Act before free disk space falls below 20%.
 - Test automatic backups and failure alerts. Schedule [GC dry runs](/run-server/self-hosting/backup-and-restore) separately.
-- Tell users how to [report key revocation needs](/run-server/self-hosting/users-and-keys) and explain [cost and token limits](/run-server/self-hosting/reference/configuration#설치-상한) (`SESSION_COST_LIMIT_USD` defaults to 25 USD in Compose and the chart).
+- Tell users how to [report key revocation needs](/run-server/self-hosting/users-and-keys) and explain [cost and token limits](/run-server/self-hosting/reference/configuration#웹에서-정하는-실행-한도) (Settings > Workspace > Execution limits; the session cost defaults to 25 USD).
 - Set monthly limits in provider consoles such as Anthropic's. Compare per-session limits and platform cost estimates with the provider's actual charges.
 - Monitor using the [Datadog guidance](/run-server/self-hosting/operate/monitoring-datadog).
 

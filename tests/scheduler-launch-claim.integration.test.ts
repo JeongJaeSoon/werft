@@ -194,9 +194,6 @@ integration(
       EXECUTION_SLOT_LIMIT: "1",
       MAX_TURN_SECONDS: "3600",
       PROVIDER_MAX_RETRIES: "2",
-      QUEUED_INPUT_LIMIT_PER_SESSION: "20",
-      SESSION_COST_LIMIT_USD: "25",
-      STORAGE_LIMIT_BYTES: "1073741824",
       // The runner's data root is ext4, so this daemon cannot put a ceiling
       // on a volume and the preflight refuses to start without the opt-out.
       // The ceiling itself is covered by the `workspace-quota` job.
@@ -277,7 +274,8 @@ integration(
           gateway,
           // As server.ts wires it: a billed call waits for its open.
           exchanges: createProviderExchangeLedger(db, {
-            admits: admitsReservations({ costUsd: 25, tokens: null }),
+            admits: async () =>
+              admitsReservations({ costUsd: 25, tokens: null }),
           }),
           logger: createLogger({ sinks: [] }),
           token: AUTHORIZER_BEARER,

@@ -17,24 +17,13 @@ This reference covers formats, requirements, and when settings apply. Read [Comp
 <a id="설치-상한" />
 ## Installation limits
 
-API and scheduler refuse startup if any of the six required values below (all except SESSION_TOKEN_LIMIT) is missing, or any value has an invalid format. They log all problems on one line using the same parser. Missing SESSION_TOKEN_LIMIT means 0 (unlimited). Apart from that 0, code has no defaults; Compose x-installation-limits provides local defaults. Running API readyz repeats the same validation as its config check.
+API and scheduler refuse startup if any of the three values below is missing or has an invalid format. They log all problems on one line using the same parser. Code has no defaults; Compose `x-installation-limits` and the chart's `config.limits` provide local defaults. Running API readyz repeats the same validation as its config check. The session limits on waiting messages, kept input, cost, and tokens are not env but [execution limits set on the web](#웹에서-정하는-실행-한도).
 
 | Variable | Meaning | When exceeded |
 |---|---|---|
 | `EXECUTION_SLOT_LIMIT` | Concurrent workers holding slots. 0 accepts input but launches nothing | Input remains accepted as queued |
-| `QUEUED_INPUT_LIMIT_PER_SESSION` | Queued turns allowed per session | `429 RATE_LIMITED`, `retryable:true`, `Retry-After: 5` |
-| `STORAGE_LIMIT_BYTES` | Installation-wide retained input-message UTF-8 bytes, excluding events/checkpoint objects/worker disk (workspace quotas cover disk) | `413 STORAGE_LIMIT_EXCEEDED`, `retryable:false` |
 | `MAX_TURN_SECONDS` | Turn wall-clock limit including approval waits, passed as `WORKER_MAX_TURN_SEC` | `failed(turn_timeout)`, or `outcome_unknown(turn_timeout)` if engine does not respond |
-| `SESSION_COST_LIMIT_USD` | Estimated cumulative session cost: proxy-metered Messages usage converted through platform prices | No new turn dispatch; session attention.code=BUDGET_EXCEEDED; worker releases slot. Input still accepted as queued |
-| `SESSION_TOKEN_LIMIT` | Cumulative provider tokens from the same calls, independent of prices. 0 is unlimited (default) | Same as SESSION_COST_LIMIT_USD. Shared budgetExceeded returns BUDGET_EXCEEDED for whichever limit is reached first; attention.reason names only reached limits |
 | `PROVIDER_MAX_RETRIES` | Retries for failed Messages requests, passed through WORKER_PROVIDER_MAX_RETRIES to SDK CLAUDE_CODE_MAX_RETRIES. 0 ends the turn on first failure | `failed(api_error)`; turn result retains api_error_status/provider_error/last_retry_status |
-
-**The cost and token limits also hold each provider call.** Before the egress proxy sends a billed provider call (Messages, Responses), it opens the call with the API. The API adds the reserves of the session's unfinished calls and this call's reserve to the session's spend so far. When the sum reaches a limit, it refuses with `403 BUDGET_EXCEEDED`, and the proxy does not send the call to the provider. A reserve counts the request's bytes as input tokens at the dearest cache-write rate (2× for Claude, 2.5× for OpenAI), and the request's whole output cap as output (32,768 tokens for a Responses request without a cap). One `claude-sonnet-5` or `gpt-5.5` call reserves roughly $1–2.
-
-- A session stops one call's reserve before its limit. With `SESSION_COST_LIMIT_USD` below one call's reserve, the first call is refused.
-- The cost a session records is the usage the provider reported, not the reserve. A call whose usage report finally failed goes on counting its reserve.
-- When the API cannot open a call within 5 seconds, the proxy does not send it and answers `503`. The engine retries.
-- The limits are estimates. One long answer can go up to its call's reserve. A Responses request without an output cap can exceed it by whatever it reasons past 32,768 tokens.
 
 <a id="api-설정" />
 ## API settings
@@ -84,11 +73,30 @@ Set the following only to send GitHub Packages bot tokens ([decision](https://gi
 <a id="웹에서-정하는-실행-한도" />
 ## Execution limits set on the web
 
-An owner saves these under **Settings > Workspace > Execution limits**, not in env (`PATCH /v1/installation-config`). They are one for the whole installation; a save applies at once on that API and within 10 seconds on other replicas. With nothing saved, the default applies. The old env names are carried in once at upgrade ([Execution limits moved to the web](/run-server/self-hosting/upgrade-compose#웹으로-옮긴-실행-한도)).
+An owner saves these under **Settings > Workspace > Execution limits**, not in env (`PATCH /v1/installation-config`). They are one for the whole installation; a save applies at once on that API and within 10 seconds on other replicas and on the scheduler, slack, and metrics roles. With nothing saved, the default applies. No role reads the old env; migrate carries it in once at upgrade ([Execution limits moved to the web](/run-server/self-hosting/upgrade-compose#웹으로-옮긴-실행-한도)).
 
-| Field on the screen (old env) | Default | Allowed range |
-|---|---|---|
-| Wait for an answer (`PENDING_REQUEST_TTL_SEC`) | 1800 | Integer 1–604800 seconds. Lifetime of approval/question requests. Workers wait this long after registration; a request already registered keeps the wait it was given. Until the gateway registers a request, the worker waits 30 minutes. MAX_TURN_SECONDS includes waits and still bounds them |
+| Field on the screen (old env) | Default | Meaning and allowed range | When exceeded |
+|---|---|---|---|
+| Human answers (`PENDING_REQUEST_TTL_SEC`) | 1800 | Integer 1–604800 seconds. Lifetime of approval/question requests. Workers wait this long after registration; a request already registered keeps the wait it was given. Until the gateway registers a request, the worker waits 30 minutes. MAX_TURN_SECONDS includes waits and still bounds them | The unanswered request closes |
+| Session cost (`SESSION_COST_LIMIT_USD`) | 25 | USD above 0, at most 1000000. Estimated cumulative session cost: proxy-metered provider usage converted through platform prices | No new turn dispatch; session attention.code=BUDGET_EXCEEDED; worker releases slot. Input still accepted as queued |
+| Session tokens (`SESSION_TOKEN_LIMIT`) | 0 (no limit) | Integer 0–9007199254740991. Cumulative provider tokens from the same calls, independent of prices | Same as session cost. Shared budgetExceeded returns BUDGET_EXCEEDED for whichever limit is reached first; attention.reason names only reached limits |
+| Waiting messages (`QUEUED_INPUT_LIMIT_PER_SESSION`) | 20 | Integer 1–100000. Queued turns allowed per session | `429 RATE_LIMITED`, `retryable:true`, `Retry-After: 5` |
+| Kept input (`STORAGE_LIMIT_BYTES`) | 1073741824 (1 GiB) | Integer 1–9007199254740991 bytes. Installation-wide retained input-message UTF-8 bytes, excluding events/checkpoint objects/worker disk (workspace quotas cover disk) | `413 STORAGE_LIMIT_EXCEEDED`, `retryable:false` |
+| Workspace size (`WORKSPACE_ENFORCE`) | `warn` | `warn`, `fail`, or `off`: what a worker does when its workspace outgrows its quota. A worker takes the value at its claim, so one already running keeps the value it was given | `warn` only logs `worker.turn.workspace_quota_exceeded`, `fail` stops the turn that outgrew it, `off` does not measure |
+
+**With no usable value.** A key holding an env value that could not be carried in (out of range), or a saved value this release does not accept, is blocked. It never runs on a default. Only what reads that key is refused; the screen shows a notice on that field, and saving a value lifts it. Settings that cannot be read for over 60 seconds (a database outage) do the same to every key.
+
+- Human answers: registering a new permission request or question is refused `503 BACKEND_UNAVAILABLE` (`retryable:true`). The worker sends it again.
+- Session cost, tokens, waiting messages, kept input: creating a session and taking a message are refused `503 BACKEND_UNAVAILABLE`. A request already taken, sent again with the same `Idempotency-Key`, still gets its stored answer. `GET /v1/limits` and `GET /v1/sessions/{id}/usage`, which show these four values, also answer `503` while any of them is blocked. Session cost and tokens stop more besides. The scheduler skips only its launches (log `Launches skipped: the session limits cannot be read`) and goes on with kills and workspace reclaim. A worker's claim, next input, provider-call open, and finalize get `503` (retried). Reopening a provider call already open, and the answer of a finalize already committed, still go through. Metrics leave the launch-queue gauges (`werft_launch_queue_*`) without samples.
+- Workspace size: a worker's claim gets `503`, so no session starts.
+
+**The cost and token limits also hold each provider call.** Before the egress proxy sends a billed provider call (Messages, Responses), it opens the call with the API. The API adds the reserves of the session's unfinished calls and this call's reserve to the session's spend so far. When the sum reaches a limit, it refuses with `403 BUDGET_EXCEEDED`, and the proxy does not send the call to the provider. A reserve counts the request's bytes as input tokens at the dearest cache-write rate (2× for Claude, 2.5× for OpenAI), and the request's whole output cap as output (32,768 tokens for a Responses request without a cap). One `claude-sonnet-5` or `gpt-5.5` call reserves roughly $1–2.
+
+- A session stops one call's reserve before its limit. With a session cost limit below one call's reserve, the first call is refused.
+- A lowered limit holds a running session from its next provider call. A raised one reaches a running worker at its next claim (the worker takes its remaining budget at the claim, as the SDK's `maxBudgetUsd`).
+- The cost a session records is the usage the provider reported, not the reserve. A call whose usage report finally failed goes on counting its reserve.
+- When the API cannot open a call within 5 seconds, the proxy does not send it and answers `503`. The engine retries.
+- The limits are estimates. One long answer can go up to its call's reserve. A Responses request without an output cap can exceed it by whatever it reasons past 32,768 tokens.
 
 <a id="schedulerworker-컨테이너egress-설정" />
 ## Scheduler, worker container, and egress settings

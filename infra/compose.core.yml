@@ -5,10 +5,6 @@
 # holds none of the security settings below, which tests/images.test.ts
 # checks. Paths are relative to this directory.
 
-# Installation limits. The API and the scheduler both refuse to
-# start without them, and read them with one parser, so both services take
-# this one block. These are local defaults, not recommendations: size them
-# per installation.
 # The egress proxy asks the API what a worker's route token stands for
 # over the API's second listener, which only the proxy is given.
 # The same value on both sides. The default serves the local stack only:
@@ -24,16 +20,15 @@ x-logging: &logging
     max-size: 50m
     max-file: "5"
 
+# Installation limits. The API and the scheduler both refuse to
+# start without them, and read them with one parser, so both services take
+# this one block. These are local defaults, not recommendations: size them
+# per installation. The session limits are the owner's, in Settings >
+# Workspace > Execution limits; migrate carries a value set the old way in
+# (below).
 x-installation-limits: &installation-limits
   EXECUTION_SLOT_LIMIT: ${EXECUTION_SLOT_LIMIT:-10}
-  QUEUED_INPUT_LIMIT_PER_SESSION: ${QUEUED_INPUT_LIMIT_PER_SESSION:-20}
-  # Retained input messages across the installation; 1 GiB.
-  STORAGE_LIMIT_BYTES: ${STORAGE_LIMIT_BYTES:-1073741824}
   MAX_TURN_SECONDS: ${MAX_TURN_SECONDS:-3600}
-  SESSION_COST_LIMIT_USD: ${SESSION_COST_LIMIT_USD:-25}
-  WORKSPACE_ENFORCE: ${WORKSPACE_ENFORCE:-warn}
-  # Provider tokens per session, whatever they cost; 0 sets none.
-  SESSION_TOKEN_LIMIT: ${SESSION_TOKEN_LIMIT:-0}
   PROVIDER_MAX_RETRIES: ${PROVIDER_MAX_RETRIES:-2}
 
 # Keep the three listeners and the two internal URLs together. Service
@@ -121,6 +116,7 @@ services:
       - |
         set -e
         bun run --cwd packages/db db:migrate
+        bun run apps/control-host/src/wiring/installation-config-carry.ts
         # The first deploy of an empty installation only; the console keeps
         # the settings after (docs/operator/api-server.md).
         if [ -n "$$SETTINGS_DOCUMENT" ]; then
@@ -135,6 +131,14 @@ services:
       # external database is run against by the apps outside compose.
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-dev}@postgres:5432/${POSTGRES_DB:-sessions}
       SETTINGS_DOCUMENT: ${SETTINGS_DOCUMENT-}
+      # Read by no role any more. A value set the old way is carried into
+      # the console once, while that key has nothing saved; blank is unset.
+      PENDING_REQUEST_TTL_SEC: ${PENDING_REQUEST_TTL_SEC:-}
+      QUEUED_INPUT_LIMIT_PER_SESSION: ${QUEUED_INPUT_LIMIT_PER_SESSION:-}
+      STORAGE_LIMIT_BYTES: ${STORAGE_LIMIT_BYTES:-}
+      SESSION_COST_LIMIT_USD: ${SESSION_COST_LIMIT_USD:-}
+      SESSION_TOKEN_LIMIT: ${SESSION_TOKEN_LIMIT:-}
+      WORKSPACE_ENFORCE: ${WORKSPACE_ENFORCE:-}
     volumes:
       - ${PLATFORM_LEGACY_CONFIG_DIR:-./legacy-config}:/legacy-config:ro
     depends_on:

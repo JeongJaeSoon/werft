@@ -51,6 +51,7 @@ import {
   type NextInputInput,
   type NextInputResult,
   nextPendingReason,
+  type PeekFinalizeInput,
   type PeekFinalizeResult,
   type ProviderUsageInput,
   type ProviderUsageResult,
@@ -360,7 +361,7 @@ function sameEvent(
 async function probeFinalize(
   tx: Database,
   fence: WorkerFence,
-  input: FinalizeInput,
+  input: PeekFinalizeInput,
   lock: boolean,
 ): Promise<
   | { state: "open"; turn: typeof turns.$inferSelect; terminalHash: string }
@@ -3114,7 +3115,7 @@ export function createPostgresWorkerUnitOfWork(
     // has to learn whether its finalize landed — answering LEASE_EXPIRED
     // there turns a settled turn into an unknown outcome. Nothing is written
     // here, and an open turn still goes through the fenced commit below.
-    peekFinalizeAtomic(input: FinalizeInput): Promise<PeekFinalizeResult> {
+    peekFinalizeAtomic(input: PeekFinalizeInput): Promise<PeekFinalizeResult> {
       const { fence } = input;
       return db.transaction(async (tx) => {
         const probe = await probeFinalize(tx, fence, input, false);

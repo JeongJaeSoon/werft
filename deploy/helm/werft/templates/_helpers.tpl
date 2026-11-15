@@ -118,6 +118,49 @@ imagePullSecrets:
 {{- end -}}
 
 {{/*
+The settings the console keeps (INSTALLATION_CONFIG in packages/contracts),
+by the env names earlier releases read. No role reads them now: the migrate
+Job carries one an earlier release set in, once, while it has nothing saved.
+*/}}
+{{- define "ap.carriedSettingNames" -}}
+PENDING_REQUEST_TTL_SEC QUEUED_INPUT_LIMIT_PER_SESSION STORAGE_LIMIT_BYTES SESSION_COST_LIMIT_USD SESSION_TOKEN_LIMIT WORKSPACE_ENFORCE
+{{- end -}}
+
+{{/* config.limits as a role reads them: the carried settings left out. */}}
+{{- define "ap.limitsEnv" -}}
+{{- $carried := splitList " " (include "ap.carriedSettingNames" .) -}}
+{{- range $name, $value := .Values.config.limits }}
+{{- if not (has $name $carried) }}
+- name: {{ $name | quote }}
+  value: {{ $value | toString | quote }}
+{{- end }}
+{{- end }}
+{{- end -}}
+
+{{/*
+The carried settings where earlier releases took them from, the last of
+which the api's env let win: api.extraEnv, then config.limits, then
+api.workspaceEnforce. Not merge: it takes a 0 for unset and lets a later
+source win.
+*/}}
+{{- define "ap.carriedSettingsEnv" -}}
+{{- $sources := list (.Values.api.extraEnv | default dict) (.Values.config.limits | default dict) -}}
+{{- with .Values.api.workspaceEnforce }}
+{{- $sources = append $sources (dict "WORKSPACE_ENFORCE" .) -}}
+{{- end }}
+{{- range $name := splitList " " (include "ap.carriedSettingNames" .) }}
+{{- $found := false }}
+{{- range $source := $sources }}
+{{- if and (not $found) (hasKey $source $name) }}
+{{- $found = true }}
+- name: {{ $name | quote }}
+  value: {{ index $source $name | toString | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end -}}
+
+{{/*
 Fails when a values-named variable is PREVIEW_NAMESPACE: preview.enabled is
 the only way to declare a preview install (demo-accounts.ts).
 */}}

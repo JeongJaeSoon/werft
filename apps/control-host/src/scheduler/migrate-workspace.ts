@@ -9,6 +9,10 @@ import { createLogger } from "@werft-ai/observability";
 import { messageOf } from "@werft-ai/platform";
 import { eq } from "drizzle-orm";
 import { withJobDatabase } from "../job-database.ts";
+import {
+  installationConfigOf,
+  spendLimitSettings,
+} from "../wiring/installation-config.ts";
 import { schedulerConfigFromEnv } from "./config.ts";
 
 const USAGE =
@@ -82,8 +86,7 @@ export async function migrateWorkspaces(
       const store = createPostgresSchedulerStore(db, {
         connectForLock: () => pool.connect(),
         logger,
-        sessionCostLimitUsd: config.limits.sessionCostLimitUsd,
-        sessionTokenLimit: config.limits.sessionTokenLimit,
+        ...spendLimitSettings(installationConfigOf(db, logger)),
       });
       // The copy lands under the ceiling this host enforces; a daemon that
       // cannot carry it would only fail the copy later and less clearly.

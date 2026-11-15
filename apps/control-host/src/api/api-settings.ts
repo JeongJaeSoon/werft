@@ -1,11 +1,8 @@
 import { existsSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import {
-  DEFAULT_WORKSPACE_ENFORCE,
   WORKER_HEARTBEAT_INTERVAL_MS,
   WORKER_LEASE_SAFETY_MARGIN_MS,
-  type WorkspaceEnforce,
-  workspaceEnforceSchema,
 } from "@werft-ai/contracts";
 import { integerSetting, settingProblems } from "@werft-ai/contracts/settings";
 import { type LogLevel, logLevelFromEnv } from "@werft-ai/observability";
@@ -21,7 +18,6 @@ import {
  * is an installation running under settings nobody chose.
  */
 export type ApiSettings = {
-  workspaceEnforce: WorkspaceEnforce;
   leaseTtlMs: number;
   logLevel: LogLevel;
   sse: {
@@ -42,14 +38,6 @@ export function apiSettingsFromEnv(
   environment: Record<string, string | undefined>,
 ): ApiSettings {
   const { problems, read } = settingProblems();
-  const workspaceEnforce = read(() => {
-    const result = workspaceEnforceSchema.safeParse(
-      environment.WORKSPACE_ENFORCE ?? DEFAULT_WORKSPACE_ENFORCE,
-    );
-    if (!result.success)
-      throw new Error("WORKSPACE_ENFORCE must be warn, fail, or off");
-    return result.data;
-  });
   // Unset keeps the platform default.
   const optionalInteger = (
     name: string,
@@ -93,7 +81,6 @@ export function apiSettingsFromEnv(
   }
   if (problems.length > 0) throw new ApiSettingsError(problems);
   return {
-    workspaceEnforce: workspaceEnforce as WorkspaceEnforce,
     leaseTtlMs: leaseTtlMs as number,
     logLevel: logLevel as LogLevel,
     sse: {

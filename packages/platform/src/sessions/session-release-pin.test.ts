@@ -12,6 +12,11 @@ import {
   sessionCredentialUnboundDetailsSchema,
 } from "@werft-ai/contracts";
 import { releaseNotRunnableReason } from "../agents/agent-service.ts";
+import {
+  InstallationConfigUnavailableError,
+  type SessionLimits,
+  type Setting,
+} from "../limits/installation-limits.ts";
 import { SessionServiceError } from "../musterrolle/index.ts";
 import { callerFor, createAuthorizationPolicy } from "../musterrolle/policy.ts";
 import type { AgentContact } from "../ports/credential-binding-store.ts";
@@ -26,11 +31,12 @@ import {
   memoryAttachmentStore,
 } from "../testing/repository-attachment-fakes.ts";
 import type { SessionCatalogView } from "./catalog.ts";
-import type {
-  AcceptSessionInput,
-  AcceptSessionResult,
-  SessionDetailRecord,
-  SessionRecord,
+import {
+  type AcceptSessionInput,
+  type AcceptSessionResult,
+  inputLimitsOf,
+  type SessionDetailRecord,
+  type SessionRecord,
 } from "./ports/session-unit-of-work.ts";
 import { createRepositoryAttachmentService } from "./repository-attachment-service.ts";
 import { createSessionService } from "./session-service.ts";
@@ -95,6 +101,8 @@ function setup(
     repositoryCeiling?: RepositoryCeiling | null;
     /** Whether a listed image may launch; absent, the dep is left out. */
     launchable?: () => boolean;
+    /** Absent: a 1000 USD budget with no token limit. */
+    limits?: Setting<SessionLimits>;
   } = {},
 ) {
   const accepted: AcceptSessionInput[] = [];
@@ -161,6 +169,8 @@ function setup(
       async acceptInputAtomic(
         input: AcceptSessionInput,
       ): Promise<AcceptSessionResult> {
+        // Like the database, a new input reads the limits; a replay does not.
+        if (options.accept !== "replayed") inputLimitsOf(input.limits);
         accepted.push(input);
         // Like the database, after it finds no earlier acceptance of the key.
         if (input.notRunnableReason && options.accept !== "replayed") {
@@ -192,6 +202,7 @@ function setup(
       },
       async appendInputAtomic(input) {
         const replay = options.appendedKeys?.includes(input.idempotencyKey);
+        if (!replay) inputLimitsOf(input.limits);
         if (!replay) appended.push(input.message);
         return {
           outcome: replay ? "replayed" : "accepted",
@@ -233,7 +244,7 @@ function setup(
     ...(options.launchable === undefined
       ? {}
       : { launchable: options.launchable }),
-    limits: {
+    limits: options.limits ?? {
       queuedInputLimitPerSession: 10,
       storageLimitBytes: 1e15,
       sessionCostLimitUsd: 1_000,
@@ -269,6 +280,63 @@ describe("a session pinned to an agent release", () => {
       release_id: "rel-1",
     });
     expect(accepted[0]?.agentReleaseId).toBe("rel-1");
+  });
+
+  test("limits that cannot be read refuse a new session; a detail leaves only its budget line out", async () => {
+    const blocked = async (): Promise<SessionLimits> => {
+      throw new InstallationConfigUnavailableError("session_cost_limit_usd");
+    };
+    const s = setup({
+      limits: blocked,
+      session: { ...sessionOn(), cost_usd: 2_000 },
+    });
+    await expect(
+      s.service.createSession(s.caller, { idempotencyKey: "k", body }),
+    ).rejects.toBeInstanceOf(InstallationConfigUnavailableError);
+    expect(s.accepted).toEqual([]);
+    expect(
+      (await s.service.getSession(s.caller, SESSION)).attention,
+    ).toBeNull();
+
+    const down = setup({
+      limits: async () => {
+        throw new Error("connection reset");
+      },
+      session: sessionOn(),
+    });
+    await expect(down.service.getSession(down.caller, SESSION)).rejects.toThrow(
+      "connection reset",
+    );
+  });
+
+  test("limits that cannot be read still answer a replay of an input already taken", async () => {
+    const blocked = async (): Promise<SessionLimits> => {
+      throw new InstallationConfigUnavailableError("storage_limit_bytes");
+    };
+    const started = setup({ limits: blocked, accept: "replayed" });
+    const replayed = await started.service.createSession(started.caller, {
+      idempotencyKey: "k",
+      body,
+    });
+    expect(replayed.turn_id).toBe("1");
+
+    const sent = setup({
+      limits: blocked,
+      session: sessionOn(),
+      appendedKeys: ["m"],
+    });
+    const again = await sent.service.appendMessage(sent.caller, SESSION, {
+      idempotencyKey: "m",
+      body: { message: "again", mode: "enqueue" },
+    });
+    expect(again.turn_id).toBe("2");
+    await expect(
+      sent.service.appendMessage(sent.caller, SESSION, {
+        idempotencyKey: "new",
+        body: { message: "new", mode: "enqueue" },
+      }),
+    ).rejects.toBeInstanceOf(InstallationConfigUnavailableError);
+    expect(sent.appended).toEqual([]);
   });
 
   test("a repository outside the release's GitHub repositories is refused as repository_not_allowed before acceptance", async () => {

@@ -271,13 +271,19 @@ export function metricFamilies(snapshot: PlatformMetricsSnapshot): Family[] {
       name: "launch_queue_sessions",
       type: "gauge",
       help: "Sessions waiting for the scheduler to launch a worker.",
-      samples: [{ labels: {}, value: snapshot.launchQueue.sessions }],
+      samples:
+        snapshot.launchQueue === null
+          ? []
+          : [{ labels: {}, value: snapshot.launchQueue.sessions }],
     },
     {
       name: "launch_queue_oldest_wait_seconds",
       type: "gauge",
       help: "How long the longest-waiting session in the launch queue has waited, 0 when it is empty.",
-      samples: [{ labels: {}, value: snapshot.launchQueue.oldestWaitSeconds }],
+      samples:
+        snapshot.launchQueue === null
+          ? []
+          : [{ labels: {}, value: snapshot.launchQueue.oldestWaitSeconds }],
     },
     {
       name: "input_queue_oldest_age_seconds",

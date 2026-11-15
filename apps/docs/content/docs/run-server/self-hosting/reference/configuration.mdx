@@ -15,24 +15,13 @@ outcome: "입력 형식과 범위와 반영 시점을 찾는다"
 
 ## 설치 상한
 
-API와 scheduler는 아래 값 중 `SESSION_TOKEN_LIMIT`를 뺀 여섯 값이 없거나, 어느 값이든 형식이 틀리면 문제를 한 줄에 모두 로그로 남기고 기동하지 않는다. `SESSION_TOKEN_LIMIT`는 없으면 0(상한 없음)으로 읽는다. 두 프로세스는 같은 parser를 쓴다. `SESSION_TOKEN_LIMIT`의 0 말고는 코드에 기본값이 없고, compose의 `x-installation-limits` 블록이 로컬 기본값을 준다. 떠 있는 API의 `/readyz`는 같은 검증을 `config` 체크로 다시 수행한다.
+API와 scheduler는 아래 세 값이 없거나 형식이 틀리면 문제를 한 줄에 모두 로그로 남기고 기동하지 않는다. 두 프로세스는 같은 parser를 쓴다. 코드에 기본값이 없고, compose의 `x-installation-limits` 블록과 chart의 `config.limits`가 로컬 기본값을 준다. 떠 있는 API의 `/readyz`는 같은 검증을 `config` 체크로 다시 수행한다. 세션의 대기 메시지·입력 보관·비용·토큰 상한은 env가 아니라 [웹에서 정하는 실행 한도](#웹에서-정하는-실행-한도)다.
 
 | 변수 | 의미 | 넘었을 때 |
 |---|---|---|
 | `EXECUTION_SLOT_LIMIT` | 동시에 슬롯을 잡는 worker 수. 0이면 접수만 받고 아무것도 띄우지 않는다 | 입력은 거부하지 않고 `queued`로 둔다 |
-| `QUEUED_INPUT_LIMIT_PER_SESSION` | 세션 하나가 쌓아 둘 수 있는 `queued` turn 수 | `429 RATE_LIMITED`, `retryable:true`, `Retry-After: 5` |
-| `STORAGE_LIMIT_BYTES` | 설치 전체가 보존하는 입력 message의 UTF-8 bytes. event·checkpoint object·worker 디스크는 세지 않는다(디스크는 workspace quota가 맡는다) | `413 STORAGE_LIMIT_EXCEEDED`, `retryable:false` |
 | `MAX_TURN_SECONDS` | turn 하나의 벽시계 상한. 승인 대기도 포함한다. worker env `WORKER_MAX_TURN_SEC`로 전달된다 | turn `failed(turn_timeout)`. 엔진이 응답하지 않으면 `outcome_unknown(turn_timeout)` |
-| `SESSION_COST_LIMIT_USD` | 세션 누적 비용(egress proxy가 계측한 Messages 호출별 usage를 플랫폼 가격표로 환산한 합, 추정치) | 새 turn을 dispatch하지 않는다. 세션 상세 `attention.code=BUDGET_EXCEEDED`가 뜨고 worker는 슬롯을 반납한다. 입력은 계속 `queued`로 받는다 |
-| `SESSION_TOKEN_LIMIT` | 세션 누적 provider token 수. 비용 상한과 같은 호출을 세되 단가와 무관하다. 0이면 상한이 없다(기본) | `SESSION_COST_LIMIT_USD`와 같다. 두 상한은 같은 판정(`budgetExceeded`)을 지나며 어느 쪽이 먼저 닿아도 `BUDGET_EXCEEDED`다. `attention.reason`은 닿은 상한만 적는다 |
 | `PROVIDER_MAX_RETRIES` | 실패한 Messages 요청을 다시 보내는 횟수. worker env `WORKER_PROVIDER_MAX_RETRIES`를 거쳐 SDK `CLAUDE_CODE_MAX_RETRIES`로 전달된다. 0이면 첫 실패에서 turn이 끝난다 | turn `failed(api_error)`. turn 상세 `result`에 `api_error_status`·`provider_error`·`last_retry_status`가 남는다 |
-
-**비용·토큰 상한은 provider 호출 하나하나에도 걸린다.** egress proxy는 과금되는 provider 호출(Messages, Responses)을 보내기 전에 API에 그 호출을 연다. API는 세션의 누적 비용·토큰에, 아직 끝나지 않은 호출들의 예약과 이번 호출의 예약을 더한다. 그 합이 상한에 닿으면 `403 BUDGET_EXCEEDED`로 거절하고, proxy는 그 호출을 provider로 보내지 않는다. 예약은 요청 바이트 수를 입력 token으로 보고 가장 비싼 cache write 단가(Claude 2배, OpenAI 2.5배)로 매기고, 출력은 요청의 출력 상한 전체(Responses 요청에 상한이 없으면 32,768 token)로 매긴다. `claude-sonnet-5`나 `gpt-5.5` 호출 하나에 대략 1–2달러다.
-
-- 세션은 상한보다 호출 하나의 예약만큼 일찍 멈춘다. `SESSION_COST_LIMIT_USD`가 호출 하나의 예약보다 작으면 첫 호출부터 거절된다.
-- 세션에 기록되는 비용은 예약이 아니라 provider가 알린 사용량이다. 사용량 보고가 끝내 실패한 호출은 그 예약을 계속 센다.
-- API가 5초 안에 호출을 열지 못하면 proxy는 호출을 보내지 않고 `503`으로 답한다. 엔진은 다시 시도한다.
-- 상한은 추정이다. 긴 응답 하나는 그 호출의 예약까지 갈 수 있다. Responses 요청에 출력 상한이 없으면 32,768 token보다 많이 추론한 만큼 넘을 수 있다.
 
 ## API 설정
 
@@ -80,11 +69,30 @@ GitHub Packages bot token([결정](https://github.com/JeongJaeSoon/werft/blob/ma
 
 ## 웹에서 정하는 실행 한도
 
-아래 값은 env가 아니라 owner가 **설정 > 워크스페이스 > 실행 한도**에서 저장한다(`PATCH /v1/installation-config`). 설치 전체에 하나이고, 저장하면 그 API는 바로, 다른 replica는 10초 안에 따른다. 저장한 값이 없으면 기본값을 쓴다. 옛 env 이름은 업그레이드 때 한 번만 옮겨 담는다([웹으로 옮긴 실행 한도](/run-server/self-hosting/upgrade-compose#웹으로-옮긴-실행-한도)).
+아래 값은 env가 아니라 owner가 **설정 > 워크스페이스 > 실행 한도**에서 저장한다(`PATCH /v1/installation-config`). 설치 전체에 하나이고, 저장하면 그 API는 바로, 다른 replica와 scheduler·slack·metrics role은 10초 안에 따른다. 저장한 값이 없으면 기본값을 쓴다. 어느 role도 옛 env를 읽지 않는다. migrate가 업그레이드 때 한 번만 옮겨 담는다([웹으로 옮긴 실행 한도](/run-server/self-hosting/upgrade-compose#웹으로-옮긴-실행-한도)).
 
-| 화면의 칸 (옛 env) | 기본값 | 허용 범위 |
-|---|---|---|
-| 응답 대기 시간 (`PENDING_REQUEST_TTL_SEC`) | 1800 | 정수 1–604800초. 승인·질문 요청을 받는 기간이다. 등록된 요청은 worker가 이 값만큼 기다리고, 이미 등록된 요청은 바꾼 값을 따르지 않는다. gateway가 등록하기 전까지는 worker가 30분 기다린다. turn 벽시계 `MAX_TURN_SECONDS`에는 대기 시간도 들어가므로, 대기는 그 상한을 넘지 못한다 |
+| 화면의 칸 (옛 env) | 기본값 | 의미와 허용 범위 | 넘었을 때 |
+|---|---|---|---|
+| 사람 응답 (`PENDING_REQUEST_TTL_SEC`) | 1800 | 정수 1–604800초. 승인·질문 요청을 받는 기간이다. 등록된 요청은 worker가 이 값만큼 기다리고, 이미 등록된 요청은 바꾼 값을 따르지 않는다. gateway가 등록하기 전까지는 worker가 30분 기다린다. turn 벽시계 `MAX_TURN_SECONDS`에는 대기 시간도 들어가므로, 대기는 그 상한을 넘지 못한다 | 답이 없는 요청을 닫는다 |
+| 세션 비용 (`SESSION_COST_LIMIT_USD`) | 25 | 0보다 크고 1000000 이하인 USD. 세션 누적 비용(egress proxy가 계측한 provider 호출별 usage를 플랫폼 가격표로 환산한 합, 추정치) | 새 turn을 dispatch하지 않는다. 세션 상세 `attention.code=BUDGET_EXCEEDED`가 뜨고 worker는 슬롯을 반납한다. 입력은 계속 `queued`로 받는다 |
+| 세션 토큰 (`SESSION_TOKEN_LIMIT`) | 0 (상한 없음) | 정수 0–9007199254740991. 세션 누적 provider token 수. 비용 상한과 같은 호출을 세되 단가와 무관하다 | 세션 비용과 같다. 두 상한은 같은 판정(`budgetExceeded`)을 지나며 어느 쪽이 먼저 닿아도 `BUDGET_EXCEEDED`다. `attention.reason`은 닿은 상한만 적는다 |
+| 대기 메시지 (`QUEUED_INPUT_LIMIT_PER_SESSION`) | 20 | 정수 1–100000. 세션 하나가 쌓아 둘 수 있는 `queued` turn 수 | `429 RATE_LIMITED`, `retryable:true`, `Retry-After: 5` |
+| 입력 보관 (`STORAGE_LIMIT_BYTES`) | 1073741824 (1 GiB) | 정수 1–9007199254740991 bytes. 설치 전체가 보존하는 입력 message의 UTF-8 bytes. event·checkpoint object·worker 디스크는 세지 않는다(디스크는 workspace quota가 맡는다) | `413 STORAGE_LIMIT_EXCEEDED`, `retryable:false` |
+| 작업 공간 용량 (`WORKSPACE_ENFORCE`) | `warn` | `warn`·`fail`·`off`. worker의 workspace가 quota를 넘었을 때 할 일이다. worker는 claim할 때 값을 받으므로, 이미 돌고 있는 worker는 받은 값을 계속 쓴다 | `warn`은 로그 `worker.turn.workspace_quota_exceeded`만 남기고, `fail`은 넘은 turn을 멈추며, `off`는 재지 않는다 |
+
+**쓸 수 있는 값이 없을 때.** 옮겨 오지 못한 env 값(범위 밖)이나 이 릴리스가 받지 않는 저장값이 있는 키는 막힌다. 기본값으로 돌지 않는다. 그 키를 읽는 일만 거절되고, 화면은 그 칸에 안내를 보이며, 값을 저장하면 풀린다. 설정을 60초 넘게 읽지 못할 때(DB 장애)도 모든 키가 같다.
+
+- 사람 응답: 새 권한 요청·질문의 등록이 `503 BACKEND_UNAVAILABLE`(`retryable:true`)로 거절된다. worker가 다시 보낸다.
+- 세션 비용·토큰·대기 메시지·입력 보관: 세션 생성과 메시지 접수가 `503 BACKEND_UNAVAILABLE`로 거절된다. 이미 받은 요청을 같은 `Idempotency-Key`로 다시 보내면 저장된 응답을 그대로 받는다. 이 네 값을 보여 주는 `GET /v1/limits`와 `GET /v1/sessions/{id}/usage`도 넷 중 하나가 막히면 `503`이다. 세션 비용·토큰은 그 밖에도 막는다. scheduler는 launch만 건너뛰고(로그 `Launches skipped: the session limits cannot be read`) 종료·workspace 회수는 계속한다. worker의 claim·다음 입력·provider 호출 열기·finalize는 `503`(재시도)을 받는다. 이미 연 provider 호출을 다시 여는 것과 이미 끝난 finalize의 답은 그대로 받는다. metrics는 launch 대기열 gauge(`werft_launch_queue_*`)를 비운다.
+- 작업 공간 용량: worker의 claim이 `503`을 받아 세션이 시작되지 않는다.
+
+**비용·토큰 상한은 provider 호출 하나하나에도 걸린다.** egress proxy는 과금되는 provider 호출(Messages, Responses)을 보내기 전에 API에 그 호출을 연다. API는 세션의 누적 비용·토큰에, 아직 끝나지 않은 호출들의 예약과 이번 호출의 예약을 더한다. 그 합이 상한에 닿으면 `403 BUDGET_EXCEEDED`로 거절하고, proxy는 그 호출을 provider로 보내지 않는다. 예약은 요청 바이트 수를 입력 token으로 보고 가장 비싼 cache write 단가(Claude 2배, OpenAI 2.5배)로 매기고, 출력은 요청의 출력 상한 전체(Responses 요청에 상한이 없으면 32,768 token)로 매긴다. `claude-sonnet-5`나 `gpt-5.5` 호출 하나에 대략 1–2달러다.
+
+- 세션은 상한보다 호출 하나의 예약만큼 일찍 멈춘다. 세션 비용 한도가 호출 하나의 예약보다 작으면 첫 호출부터 거절된다.
+- 내린 한도는 실행 중인 세션의 다음 provider 호출부터 걸린다. 올린 한도는 실행 중인 worker에는 다음 claim에서 닿는다(worker가 claim 때 남은 예산을 SDK `maxBudgetUsd`로 받기 때문이다).
+- 세션에 기록되는 비용은 예약이 아니라 provider가 알린 사용량이다. 사용량 보고가 끝내 실패한 호출은 그 예약을 계속 센다.
+- API가 5초 안에 호출을 열지 못하면 proxy는 호출을 보내지 않고 `503`으로 답한다. 엔진은 다시 시도한다.
+- 상한은 추정이다. 긴 응답 하나는 그 호출의 예약까지 갈 수 있다. Responses 요청에 출력 상한이 없으면 32,768 token보다 많이 추론한 만큼 넘을 수 있다.
 
 ## scheduler·worker 컨테이너·egress 설정
 

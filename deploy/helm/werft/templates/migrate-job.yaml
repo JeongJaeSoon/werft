@@ -39,9 +39,11 @@ spec:
             - -c
             - >-
               bun run --cwd packages/db db:migrate &&
+              bun run apps/control-host/src/wiring/installation-config-carry.ts &&
               bun run apps/control-host/src/api/settings.ts seed --from-dir /legacy-config
           env:
             {{- include "ap.secretEnv" (dict "root" . "key" "DATABASE_URL") | nindent 12 }}
+            {{- include "ap.carriedSettingsEnv" . | nindent 12 }}
           resources:
             {{- toYaml .Values.migrate.resources | nindent 12 }}
           securityContext:

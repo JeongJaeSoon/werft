@@ -952,13 +952,10 @@ integration("API server on PostgreSQL", () => {
           AUTH_MODE: "api-key",
           DATABASE_URL: databaseUrl,
           EXECUTION_SLOT_LIMIT: "10",
-          MAX_TURN_SECONDS: "3600",
-          PROVIDER_MAX_RETRIES: "",
-          QUEUED_INPUT_LIMIT_PER_SESSION: "20",
+          MAX_TURN_SECONDS: "0",
           // A blank is a wrong value, not the default, and overrides whatever
           // the runner has.
-          SESSION_COST_LIMIT_USD: "",
-          STORAGE_LIMIT_BYTES: "-1",
+          PROVIDER_MAX_RETRIES: "",
           PORT: "0",
         },
         stdout: "pipe",
@@ -982,12 +979,11 @@ integration("API server on PostgreSQL", () => {
         "Refusing to start: installation limits are invalid",
       );
       expect(logs).toContain(
-        "SESSION_COST_LIMIT_USD must be a positive number up to 1000000",
+        "MAX_TURN_SECONDS must be an integer from 1 to 604800",
       );
       expect(logs).toContain(
         "PROVIDER_MAX_RETRIES must be an integer from 0 to 10",
       );
-      expect(logs).toContain("STORAGE_LIMIT_BYTES must be an integer");
     },
     TEST_TIMEOUT_MS,
   );

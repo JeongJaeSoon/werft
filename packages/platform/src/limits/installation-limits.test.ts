@@ -10,9 +10,6 @@ const complete = {
   EXECUTION_SLOT_LIMIT: "10",
   MAX_TURN_SECONDS: "3600",
   PROVIDER_MAX_RETRIES: "2",
-  QUEUED_INPUT_LIMIT_PER_SESSION: "20",
-  SESSION_COST_LIMIT_USD: "25",
-  STORAGE_LIMIT_BYTES: "1073741824",
 };
 
 describe("installationLimitsFromEnv", () => {
@@ -21,10 +18,6 @@ describe("installationLimitsFromEnv", () => {
       executionSlotLimit: 10,
       maxTurnSeconds: 3600,
       providerMaxRetries: 2,
-      queuedInputLimitPerSession: 20,
-      sessionCostLimitUsd: 25,
-      sessionTokenLimit: null,
-      storageLimitBytes: 1073741824,
     });
     expect(
       installationLimitsFromEnv({ ...complete, PROVIDER_MAX_RETRIES: "0" })
@@ -32,16 +25,16 @@ describe("installationLimitsFromEnv", () => {
     ).toBe(0);
   });
 
-  test("an unset or zero token limit is none, so an existing install is unchanged", () => {
-    expect(installationLimitsFromEnv(complete).sessionTokenLimit).toBeNull();
+  test("no longer reads the limits the console keeps", () => {
     expect(
-      installationLimitsFromEnv({ ...complete, SESSION_TOKEN_LIMIT: "0" })
-        .sessionTokenLimit,
-    ).toBeNull();
-    expect(
-      installationLimitsFromEnv({ ...complete, SESSION_TOKEN_LIMIT: "500000" })
-        .sessionTokenLimit,
-    ).toBe(500_000);
+      installationLimitProblems({
+        ...complete,
+        QUEUED_INPUT_LIMIT_PER_SESSION: "0",
+        STORAGE_LIMIT_BYTES: "0",
+        SESSION_COST_LIMIT_USD: "abc",
+        SESSION_TOKEN_LIMIT: "-1",
+      }),
+    ).toEqual([]);
   });
 
   test("names every missing limit at once and has no defaults for them", () => {
@@ -54,10 +47,7 @@ describe("installationLimitsFromEnv", () => {
     expect(thrown).toBeInstanceOf(InstallationConfigError);
     expect((thrown as InstallationConfigError).problems).toEqual([
       "EXECUTION_SLOT_LIMIT is required",
-      "QUEUED_INPUT_LIMIT_PER_SESSION is required",
-      "STORAGE_LIMIT_BYTES is required",
       "MAX_TURN_SECONDS is required",
-      "SESSION_COST_LIMIT_USD is required",
       "PROVIDER_MAX_RETRIES is required",
     ]);
   });
@@ -65,12 +55,8 @@ describe("installationLimitsFromEnv", () => {
   test("rejects values outside each limit's range", () => {
     const rejected: Record<string, string[]> = {
       EXECUTION_SLOT_LIMIT: ["-1", "1.5", "10001", "ten"],
-      QUEUED_INPUT_LIMIT_PER_SESSION: ["0", "100001"],
-      STORAGE_LIMIT_BYTES: ["0", "9007199254740993"],
       MAX_TURN_SECONDS: ["0", "604801"],
-      SESSION_COST_LIMIT_USD: ["0", "-5", "Infinity", "abc", "1000001"],
       PROVIDER_MAX_RETRIES: ["-1", "1.5", "11", ""],
-      SESSION_TOKEN_LIMIT: ["-1", "1.5", "", "lots", "9007199254740993"],
     };
     for (const [name, values] of Object.entries(rejected)) {
       for (const value of values) {
@@ -84,14 +70,10 @@ describe("installationLimitsFromEnv", () => {
     }
   });
 
-  test("accepts a zero slot limit and a fractional cost limit", () => {
+  test("accepts a zero slot limit", () => {
     expect(
-      installationLimitsFromEnv({
-        ...complete,
-        EXECUTION_SLOT_LIMIT: "0",
-        SESSION_COST_LIMIT_USD: "0.5",
-      }),
-    ).toMatchObject({ executionSlotLimit: 0, sessionCostLimitUsd: 0.5 });
+      installationLimitsFromEnv({ ...complete, EXECUTION_SLOT_LIMIT: "0" }),
+    ).toMatchObject({ executionSlotLimit: 0 });
   });
 });
 
